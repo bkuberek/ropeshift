@@ -176,6 +176,7 @@ func TestTheEstimatePolicyHoldsItsFloor(t *testing.T) {
 		"below the floor":         {Version: 1, MinSamples: 4, RecentSamples: 50, ForecastTrials: 2000},
 		"fewer recent than needs": {Version: 1, MinSamples: 10, RecentSamples: 9, ForecastTrials: 2000},
 		"no trials":               {Version: 1, MinSamples: 10, RecentSamples: 50},
+		"too many trials":         {Version: 1, MinSamples: 10, RecentSamples: 50, ForecastTrials: delivery.MaxForecastTrials + 1},
 	} {
 		if bad.Check() == nil {
 			t.Errorf("%s: %+v passed", name, bad)

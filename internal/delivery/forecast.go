@@ -29,34 +29,43 @@ type ForecastWork struct {
 }
 
 // ForecastInput is what one plan version's forecast is made from: the plan, its version's digest and the ledger
-// revision, which make the seed; when it runs from; the lane cap, where zero means no cap; how many trials it
-// runs; the median wait for a person among the project's recent delivery records, for the what-if that cuts
-// waits to it; and the plan's unfinished work. A dependency on work outside it counts as ended.
+// revision, which make the seed; the time it runs from; the lane cap, where zero or less means nothing can run;
+// the estimate policy, for its trials, its minimum sample, and its version; the median wait for a person among
+// the project's recent delivery records, for the what-if that cuts waits to it; every milestone of the plan
+// version, so one whose work all ended has a forecast that says so; the unfinished work outside the plan that its
+// work waits on, which the trials do not run; and the plan's unfinished work. A dependency on work that is in
+// neither list has ended. Now and the work's time so far must be read at the revision, so the same revision and
+// plan version give the same forecast.
 type ForecastInput struct {
 	Plan           string
 	PlanDigest     string
 	Rev            int64
 	Now            int64
 	Cap            int64
-	Trials         int64
+	Policy         EstimatePolicy
 	PersonMedianMs int64
+	Milestones     []string
+	Outside        []string
 	Work           []ForecastWork
 }
 
-// ForecastStatus says whether a forecast has dates: `forecast`; `no_history`, when no unfinished work order in
-// it has finished history; or `finished`, when no work order in it is unfinished.
+// ForecastStatus says whether a forecast has dates: `forecast`; `no_history`, when no unfinished work order in it
+// has finished history; `no_capacity`, when the project has no lane to run its work; or `finished`, when no work
+// order in it is unfinished.
 type ForecastStatus string
 
 // The forecast statuses.
 const (
-	Forecasted        ForecastStatus = "forecast"
-	ForecastNoHistory ForecastStatus = "no_history"
-	ForecastFinished  ForecastStatus = "finished"
+	Forecasted         ForecastStatus = "forecast"
+	ForecastNoHistory  ForecastStatus = "no_history"
+	ForecastNoCapacity ForecastStatus = "no_capacity"
+	ForecastFinished   ForecastStatus = "finished"
 )
 
 // LowerBound says which of a forecast's results have no upper bound: `all` when work with no history is left
-// out of the trials, `p85` when an input's band is open above its longest record, and `none` otherwise. A
-// lower-bound date reads "or later", and a lower-bound cost "at least".
+// out of the trials, when started work has run longer than every comparable record, or when the plan's work waits
+// on unfinished work outside it; `p85` when an input's draws are open above their longest record; and `none`
+// otherwise. A lower-bound date reads "or later", and a lower-bound cost "at least".
 type LowerBound string
 
 // The lower bounds.
@@ -66,11 +75,12 @@ const (
 	LowerAll  LowerBound = "all"
 )
 
-// Forecast is one milestone's or the plan's forecast (FR-EST-8, FR-EST-9, FR-EST-14), with the seed and the
-// trials that make it again. End dates are epoch milliseconds, and costs are estimated at list price. Milestone
-// is empty for the plan's own. LowConfidenceWorkOrders names the unfinished work it depends on whose estimate is
-// low or has no history, and LeftOut those of them left out of the trials. Explanation is the text every surface
-// shows.
+// Forecast is one milestone's or the plan's forecast (FR-EST-8, FR-EST-9, FR-EST-14), with what makes it again:
+// the seed, the trials, the cap, the time it ran from, the median wait, the estimate policy version, and the
+// revision. End dates are epoch milliseconds, and costs are estimated at list price. Milestone is empty for the
+// plan's own. LowConfidenceWorkOrders names the unfinished work its labels rest on whose estimate is low or has
+// no history, or that has run longer than most of what it draws on; LeftOut those of them left out of the trials;
+// and Outside the unfinished work outside the plan it waits on. Explanation is the text every surface shows.
 type Forecast struct {
 	Plan                    string         `json:"plan_id"`
 	Milestone               string         `json:"milestone_id,omitempty"`
@@ -79,6 +89,9 @@ type Forecast struct {
 	Seed                    string         `json:"seed"`
 	Trials                  int64          `json:"trials"`
 	Cap                     int64          `json:"cap"`
+	AsOf                    int64          `json:"as_of"`
+	PersonMedianMs          int64          `json:"person_median_ms"`
+	PolicyVersion           int64          `json:"policy_version"`
 	EndP50                  int64          `json:"end_p50"`
 	EndP85                  int64          `json:"end_p85"`
 	CostP50USD              float64        `json:"cost_p50_usd"`
@@ -88,6 +101,7 @@ type Forecast struct {
 	Confidence              Confidence     `json:"confidence,omitempty"`
 	LowConfidenceWorkOrders []string       `json:"low_confidence_work_orders"`
 	LeftOut                 []string       `json:"left_out"`
+	Outside                 []string       `json:"outside"`
 	LowerBound              LowerBound     `json:"lower_bound,omitempty"`
 	Explanation             string         `json:"explanation"`
 }
@@ -129,12 +143,10 @@ type job struct {
 	leftOut     bool
 }
 
-// forecastGroup is the work one forecast covers: the plan's, or a milestone's. Own are the work orders whose
-// end and cost it reads; scope adds every unfinished work order they depend on, whose estimates its dates rest on.
+// forecastGroup is the work one forecast covers: the plan's, or a milestone's, whose end and cost it reads.
 type forecastGroup struct {
 	milestone string
 	own       []int
-	scope     []int
 	ends      [3][]int64
 	costs     []float64
 }
@@ -146,19 +158,39 @@ const (
 	runPersonMedian
 )
 
+// footing is what one work order's draws rest on, for a forecast's labels: how many records, whether they are
+// fewer than a confident estimate needs, whether they are open above the longest, and, for started work, whether
+// it ran longer than every one.
+type footing struct {
+	count   int
+	low     bool
+	open    bool
+	overrun bool
+}
+
 // ForecastOf forecasts a plan version's milestones and the plan with a seeded simulation (FR-EST-8, FR-EST-9).
 // Each trial draws one record at random for each unfinished work order with history, from the records its
 // estimate rests on; started work draws only from records that ran longer than it has so far and keeps the
 // remainder, or, with none longer, any record and all of it. Work with no history takes no time, no lane, and no
-// cost, so its dependents wait only for its own dependencies. The trial runs the work in dependency order, by
-// priority within what is ready, at most the cap at a time: each work order holds a lane for its lane time and
-// then needs the rest of its delivery time without one. The same draws run again with the cap one higher, and
-// with each record's waits for a person cut to the median, for the two what-ifs. The p50 and p85 come from the
-// trials by nearest rank. It returns the plan's forecast, then each milestone's, by milestone.
+// cost, so its dependents wait only for its own dependencies, and so does work outside the plan. The trial runs
+// the work in dependency order, by priority within what is ready, at most the cap at a time: each work order
+// holds a lane for its lane time and then needs the rest of its delivery time without one. The same draws run
+// again with the cap one higher, and with each record's waits for a person cut to the median, for the two
+// what-ifs. The p50 and p85 come from the trials by nearest rank. A work order listed twice counts once, as
+// first listed, and a dependency on itself counts for nothing. It returns the plan's forecast, then each
+// milestone's, by milestone.
 func ForecastOf(in ForecastInput) []Forecast {
-	seed, trials := ForecastSeed(in.PlanDigest, in.Rev), max(in.Trials, 1)
-	work := slices.Clone(in.Work)
-	slices.SortFunc(work, func(a, b ForecastWork) int { return cmp.Compare(a.WorkOrder, b.WorkOrder) })
+	seed := ForecastSeed(in.PlanDigest, in.Rev)
+	trials := min(max(in.Policy.ForecastTrials, 1), MaxForecastTrials)
+	var work []ForecastWork
+	listed := map[string]bool{}
+	for _, w := range in.Work {
+		if !listed[w.WorkOrder] {
+			listed[w.WorkOrder] = true
+			work = append(work, w)
+		}
+	}
+	slices.SortStableFunc(work, func(a, b ForecastWork) int { return cmp.Compare(a.WorkOrder, b.WorkOrder) })
 	at := map[string]int{}
 	for i, w := range work {
 		at[w.WorkOrder] = i
@@ -172,91 +204,66 @@ func ForecastOf(in ForecastInput) []Forecast {
 		}
 		slices.Sort(deps[i])
 	}
-	groups := forecastGroups(work, deps)
-	order := runOrder(work)
-	rng := drawsFrom(seed)
-	asIs, cut := make([]job, len(work)), make([]job, len(work))
-	for range trials {
-		for i, w := range work {
-			asIs[i], cut[i] = drawJob(w, rng, in.PersonMedianMs)
-		}
-		runs := [3][]int64{simulate(asIs, deps, order, in.Cap), simulate(asIs, deps, order, capPlusOne(in.Cap)), simulate(cut, deps, order, in.Cap)}
-		for g := range groups {
-			for run, ends := range runs {
-				var end int64
-				for _, i := range groups[g].own {
-					end = max(end, ends[i])
+	groups := forecastGroups(work, in.Milestones)
+	if in.Cap > 0 {
+		order := runOrder(work)
+		rng := drawsFrom(seed)
+		asIs, cut := make([]job, len(work)), make([]job, len(work))
+		for range trials {
+			for i, w := range work {
+				asIs[i], cut[i] = drawJob(w, rng, in.PersonMedianMs)
+			}
+			runs := [3][]int64{simulate(asIs, deps, order, in.Cap), simulate(asIs, deps, order, in.Cap+1), simulate(cut, deps, order, in.Cap)}
+			for g := range groups {
+				for run, ends := range runs {
+					var end int64
+					for _, i := range groups[g].own {
+						end = max(end, ends[i])
+					}
+					groups[g].ends[run] = append(groups[g].ends[run], end)
 				}
-				groups[g].ends[run] = append(groups[g].ends[run], end)
+				var cost float64
+				for _, i := range groups[g].own {
+					cost += asIs[i].cost
+				}
+				groups[g].costs = append(groups[g].costs, cost)
 			}
-			var cost float64
-			for _, i := range groups[g].own {
-				cost += asIs[i].cost
-			}
-			groups[g].costs = append(groups[g].costs, cost)
 		}
 	}
+	labels := labelsOf(in, work)
 	out := make([]Forecast, 0, len(groups))
 	for _, g := range groups {
-		out = append(out, forecastOfGroup(in, work, g, seed, trials))
+		out = append(out, forecastOfGroup(in, work, g, labels, seed, trials))
 	}
 	return out
 }
 
-// capPlusOne is the cap one higher, and no cap stays none.
-func capPlusOne(lanes int64) int64 {
-	if lanes <= 0 {
-		return 0
-	}
-	return lanes + 1
-}
-
-// forecastGroups lists the plan's group and then each milestone's, by milestone.
-func forecastGroups(work []ForecastWork, deps [][]int) []forecastGroup {
+// forecastGroups lists the plan's group and then each milestone's, by milestone: every milestone the plan version
+// names, and every one its unfinished work belongs to.
+func forecastGroups(work []ForecastWork, milestones []string) []forecastGroup {
 	plan := forecastGroup{}
 	byMilestone := map[string][]int{}
+	for _, milestone := range milestones {
+		if milestone != "" {
+			byMilestone[milestone] = nil
+		}
+	}
 	for i, w := range work {
 		plan.own = append(plan.own, i)
 		if w.Milestone != "" {
 			byMilestone[w.Milestone] = append(byMilestone[w.Milestone], i)
 		}
 	}
-	plan.scope = plan.own
 	groups := []forecastGroup{plan}
-	milestones := make([]string, 0, len(byMilestone))
+	names := make([]string, 0, len(byMilestone))
 	for milestone := range byMilestone {
-		milestones = append(milestones, milestone)
+		names = append(names, milestone)
 	}
-	slices.Sort(milestones)
-	for _, milestone := range milestones {
-		own := byMilestone[milestone]
-		groups = append(groups, forecastGroup{milestone: milestone, own: own, scope: dependedOn(own, deps)})
+	slices.Sort(names)
+	for _, milestone := range names {
+		groups = append(groups, forecastGroup{milestone: milestone, own: byMilestone[milestone]})
 	}
 	return groups
-}
-
-// dependedOn is the work orders given and every work order they depend on, directly or not, by index.
-func dependedOn(own []int, deps [][]int) []int {
-	seen := map[int]bool{}
-	var visit func(i int)
-	visit = func(i int) {
-		if seen[i] {
-			return
-		}
-		seen[i] = true
-		for _, j := range deps[i] {
-			visit(j)
-		}
-	}
-	for _, i := range own {
-		visit(i)
-	}
-	out := make([]int, 0, len(seen))
-	for i := range seen {
-		out = append(out, i)
-	}
-	slices.Sort(out)
-	return out
 }
 
 // runOrder is the order ready work takes a lane: started work first, then by priority, highest first, as dispatch
@@ -275,21 +282,45 @@ func runOrder(work []ForecastWork) []int {
 // leftOut says a work order takes no part in the trials: its estimate has no history.
 func leftOut(w ForecastWork) bool { return w.Estimate.Status != Estimated || len(w.Records) == 0 }
 
+// longerThanSoFar is the records a started work order draws from: those that ran longer than it has so far.
+func longerThanSoFar(w ForecastWork) []Record {
+	var out []Record
+	for _, r := range w.Records {
+		if r.DeliveryMs > w.SoFarMs {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// footingOf reads what a work order's draws rest on. Work not started rests on its estimate. Started work rests
+// on the records that ran longer than it has so far, which are low below the minimum sample and open below six,
+// as an estimate's are; with none, it has overrun them all.
+func footingOf(w ForecastWork, minSamples int64) footing {
+	if !w.Started {
+		return footing{count: w.Estimate.SampleCount, low: w.Estimate.Confidence == Low, open: w.Estimate.P85Open}
+	}
+	longer := len(longerThanSoFar(w))
+	switch {
+	case longer == 0:
+		return footing{low: true, overrun: true}
+	case longer == len(w.Records):
+		return footing{count: w.Estimate.SampleCount, low: w.Estimate.Confidence == Low, open: w.Estimate.P85Open}
+	}
+	low := w.Estimate.Confidence == Low || int64(longer) < minSamples
+	return footing{count: longer, low: low, open: low && longer < openBelow}
+}
+
 // drawJob draws one record for a work order and gives the job as it stands and with waits for a person cut to the
-// median. Work left out draws nothing.
+// median. Work left out draws nothing. Started work is not cut, because a record does not say which of its waits
+// lie in the time the work has already had.
 func drawJob(w ForecastWork, rng *draws, personMedianMs int64) (job, job) {
 	if leftOut(w) {
 		return job{leftOut: true}, job{leftOut: true}
 	}
 	from, soFar, laneSoFar, spent := w.Records, int64(0), int64(0), 0.0
 	if w.Started {
-		var longer []Record
-		for _, r := range w.Records {
-			if r.DeliveryMs > w.SoFarMs {
-				longer = append(longer, r)
-			}
-		}
-		if len(longer) > 0 {
+		if longer := longerThanSoFar(w); len(longer) > 0 {
 			from, soFar, laneSoFar, spent = longer, w.SoFarMs, w.LaneSoFarMs, w.SpentUSD
 		}
 	}
@@ -298,13 +329,15 @@ func drawJob(w ForecastWork, rng *draws, personMedianMs int64) (job, job) {
 		total := max(delivery-soFar, 0)
 		return job{lane: min(max(r.LaneMs-laneSoFar, 0), total), total: total, cost: max(r.Usage.CostUSD-spent, 0)}
 	}
-	var cutBy int64
-	if personMedianMs > 0 {
-		for _, wait := range r.PersonWaits {
-			cutBy += max(wait-personMedianMs, 0)
-		}
+	asIs := jobOf(r.DeliveryMs)
+	if w.Started || personMedianMs <= 0 {
+		return asIs, asIs
 	}
-	return jobOf(r.DeliveryMs), jobOf(r.DeliveryMs - cutBy)
+	var cutBy int64
+	for _, wait := range r.PersonWaits {
+		cutBy += max(wait-personMedianMs, 0)
+	}
+	return asIs, jobOf(r.DeliveryMs - cutBy)
 }
 
 // simulate runs one trial's jobs and returns when each ends, from the start of the trial. Work becomes ready when
@@ -347,7 +380,7 @@ func simulate(jobs []job, deps [][]int, order []int, lanes int64) []int64 {
 					ended++
 				case jobs[i].lane == 0:
 					state[i], startedAt[i], changed = 2, t, true
-				case lanes <= 0 || int64(len(held)) < lanes:
+				case int64(len(held)) < lanes:
 					held = append(held, t+jobs[i].lane)
 					state[i], startedAt[i], changed = 2, t, true
 				}
@@ -393,40 +426,97 @@ func percentile[T cmp.Ordered](values []T, p float64) T {
 	return values[rank(len(values), p)]
 }
 
-// forecastOfGroup reads one group's trials into its forecast, its labels, and its explanation.
-func forecastOfGroup(in ForecastInput, work []ForecastWork, g forecastGroup, seed string, trials int64) Forecast {
+// forecastLabels are the labels every forecast of a plan version shares. Under a lane cap any unfinished work
+// order can take a lane before a milestone's own work, so each milestone's dates rest on all of the plan's work,
+// as the plan's do: the work orders that make them low confidence, those left out, the work outside the plan
+// they wait on, the lower bound, and the sentences that say why.
+type forecastLabels struct {
+	simulated  int
+	lowWork    []string
+	leftOut    []string
+	outside    []string
+	open       bool
+	overrun    bool
+	reasons    []string
+	notes      []string
+	lowerBound LowerBound
+}
+
+// labelsOf reads the plan's labels from its work.
+func labelsOf(in ForecastInput, work []ForecastWork) forecastLabels {
+	minSamples := in.Policy.effective().MinSamples
+	l := forecastLabels{lowWork: []string{}, leftOut: []string{}, outside: []string{}}
+	waitsOutside := map[string]bool{}
+	started, pooledUncut := false, false
+	for _, w := range work {
+		for _, id := range w.DependsOn {
+			if slices.Contains(in.Outside, id) {
+				waitsOutside[id] = true
+			}
+		}
+		if leftOut(w) {
+			l.lowWork, l.leftOut = append(l.lowWork, w.WorkOrder), append(l.leftOut, w.WorkOrder)
+			l.reasons = append(l.reasons, nameOf(w)+" has no finished history and is left out, so the dates and costs are lower bounds.")
+			continue
+		}
+		l.simulated++
+		started = started || w.Started
+		for _, r := range w.Records {
+			pooledUncut = pooledUncut || (r.WorkOrder == "" && r.PersonMs > 0 && len(r.PersonWaits) == 0)
+		}
+		f := footingOf(w, minSamples)
+		if f.low {
+			l.lowWork = append(l.lowWork, w.WorkOrder)
+		}
+		switch {
+		case f.overrun:
+			l.overrun = true
+			l.reasons = append(l.reasons, fmt.Sprintf("%s has run %s so far, longer than every comparable record, so its remaining time is a guess and the dates are lower bounds.",
+				nameOf(w), durationWords(w.SoFarMs)))
+		case f.low && w.Started && f.count < len(w.Records):
+			l.reasons = append(l.reasons, fmt.Sprintf("%s has run %s so far, and %d comparable %s longer; a confident estimate needs %d.",
+				nameOf(w), durationWords(w.SoFarMs), f.count, plural(f.count, "record ran", "records ran"), minSamples))
+		case f.low:
+			l.reasons = append(l.reasons, fmt.Sprintf("%s rests on %d finished %s, and a confident estimate needs %d.",
+				nameOf(w), f.count, plural(f.count, "record", "records"), minSamples))
+		}
+		if f.open {
+			l.open = true
+			l.reasons = append(l.reasons, nameOf(w)+"'s band is open above its longest record, so the 85th percentile is a lower bound.")
+		}
+	}
+	for id := range waitsOutside {
+		l.outside = append(l.outside, id)
+	}
+	slices.Sort(l.outside)
+	if len(l.outside) > 0 {
+		l.notes = append(l.notes, "Its work waits on unfinished work outside this plan ("+strings.Join(l.outside, ", ")+"), which the trials do not run, so the dates are lower bounds.")
+	}
+	if started {
+		l.notes = append(l.notes, "The what-if that cuts waits for a person to the median leaves started work as it is, because a record does not say which of its waits are past.")
+	}
+	if pooledUncut {
+		l.notes = append(l.notes, "That what-if cannot cut the waits of records from the installation pool, which keeps no waits.")
+	}
+	l.lowerBound = LowerNone
+	switch {
+	case len(l.leftOut) > 0 || l.overrun || len(l.outside) > 0:
+		l.lowerBound = LowerAll
+	case l.open:
+		l.lowerBound = LowerP85
+	}
+	return l
+}
+
+// forecastOfGroup reads one group's trials into its forecast, with the plan's labels and explanation.
+func forecastOfGroup(in ForecastInput, work []ForecastWork, g forecastGroup, l forecastLabels, seed string, trials int64) Forecast {
 	f := Forecast{
-		Plan: in.Plan, Milestone: g.milestone, Rev: in.Rev, Seed: seed, Trials: trials, Cap: in.Cap,
-		LowConfidenceWorkOrders: []string{}, LeftOut: []string{},
+		Plan: in.Plan, Milestone: g.milestone, Rev: in.Rev, Seed: seed, Trials: trials, Cap: in.Cap, AsOf: in.Now,
+		PersonMedianMs: in.PersonMedianMs, PolicyVersion: in.Policy.Version, LowConfidenceWorkOrders: l.lowWork, LeftOut: l.leftOut, Outside: l.outside,
 	}
 	whose := "plan"
 	if g.milestone != "" {
 		whose = "milestone"
-	}
-	if len(g.own) == 0 {
-		f.Status, f.Explanation = ForecastFinished, "Nothing is left to forecast: every work order of this "+whose+" has ended."
-		return f
-	}
-	open := false
-	var reasons []string
-	for _, i := range g.scope {
-		w := work[i]
-		switch {
-		case leftOut(w):
-			f.LowConfidenceWorkOrders, f.LeftOut = append(f.LowConfidenceWorkOrders, w.WorkOrder), append(f.LeftOut, w.WorkOrder)
-			reasons = append(reasons, nameOf(w)+" has no finished history and is left out, so the dates and costs are lower bounds.")
-		case w.Estimate.Confidence == Low:
-			f.LowConfidenceWorkOrders = append(f.LowConfidenceWorkOrders, w.WorkOrder)
-			reason := fmt.Sprintf("%s rests on %d finished %s", nameOf(w), w.Estimate.SampleCount, plural(w.Estimate.SampleCount, "record"))
-			if w.Estimate.MinSamples > 0 {
-				reason += fmt.Sprintf(", and a confident estimate needs %d", w.Estimate.MinSamples)
-			}
-			reasons = append(reasons, reason+".")
-		}
-		if !leftOut(w) && w.Estimate.P85Open {
-			open = true
-			reasons = append(reasons, nameOf(w)+"'s band is open above its longest record, so the 85th percentile is a lower bound.")
-		}
 	}
 	withHistory := 0
 	for _, i := range g.own {
@@ -434,31 +524,33 @@ func forecastOfGroup(in ForecastInput, work []ForecastWork, g forecastGroup, see
 			withHistory++
 		}
 	}
-	if withHistory == 0 {
+	switch {
+	case len(g.own) == 0:
+		f.Status, f.Explanation = ForecastFinished, "Nothing is left to forecast: every work order of this "+whose+" has ended."
+		return f
+	case in.Cap <= 0:
+		f.Status, f.Explanation = ForecastNoCapacity, "No forecast: the project has no lane to run its work, because no worker serves it."
+		return f
+	case withHistory == 0:
 		f.Status = ForecastNoHistory
-		f.Explanation = fmt.Sprintf("No forecast: none of the %d unfinished %s of this %s has finished history.", len(g.own), plural(len(g.own), "work order"), whose)
+		f.Explanation = fmt.Sprintf("No forecast: none of the %d unfinished %s of this %s has finished history.",
+			len(g.own), plural(len(g.own), "work order", "work orders"), whose)
 		return f
 	}
-	f.Status, f.Confidence, f.LowerBound = Forecasted, Confident, LowerNone
-	switch {
-	case len(f.LeftOut) > 0:
-		f.LowerBound = LowerAll
-	case open:
-		f.LowerBound = LowerP85
-	}
-	if len(f.LowConfidenceWorkOrders) > 0 || open {
+	f.Status, f.Confidence, f.LowerBound = Forecasted, Confident, l.lowerBound
+	if len(l.lowWork) > 0 || l.open {
 		f.Confidence = Low
 	}
 	f.EndP50, f.EndP85 = in.Now+percentile(g.ends[runAsIs], 0.5), in.Now+percentile(g.ends[runAsIs], 0.85)
 	f.EndP85CapPlusOne = in.Now + percentile(g.ends[runCapPlusOne], 0.85)
 	f.EndP85PersonMedian = in.Now + percentile(g.ends[runPersonMedian], 0.85)
 	f.CostP50USD, f.CostP85USD = percentile(g.costs, 0.5), percentile(g.costs, 0.85)
-	basis := fmt.Sprintf("%d trials of %d %s, %s", trials, len(g.scope), plural(len(g.scope), "work order"), capWords(in.Cap))
-	if f.Confidence == Confident {
-		f.Explanation = "Based on " + basis + "."
-		return f
+	basis := fmt.Sprintf("%d trials of %d %s, at most %d at a time", trials, l.simulated, plural(l.simulated, "work order", "work orders"), in.Cap)
+	sentences := []string{"Based on " + basis + "."}
+	if f.Confidence == Low {
+		sentences = append([]string{"Low confidence, from " + basis + "."}, l.reasons...)
 	}
-	f.Explanation = "Low confidence, from " + basis + ". " + strings.Join(reasons, " ")
+	f.Explanation = strings.Join(append(sentences, l.notes...), " ")
 	return f
 }
 
@@ -470,17 +562,9 @@ func nameOf(w ForecastWork) string {
 	return w.Title + " (" + w.WorkOrder + ")"
 }
 
-func plural(n int, noun string) string {
+func plural(n int, one, many string) string {
 	if n == 1 {
-		return noun
+		return one
 	}
-	return noun + "s"
-}
-
-// capWords says the lane cap a forecast ran under.
-func capWords(lanes int64) string {
-	if lanes <= 0 {
-		return "with no lane cap"
-	}
-	return "at most " + strconv.FormatInt(lanes, 10) + " at a time"
+	return many
 }

@@ -22,11 +22,23 @@ func took(id string, deliveryMs, laneMs int64, cost float64) delivery.Record {
 
 // confidentOn is a confident estimate that rests on these records.
 func confidentOn(records ...delivery.Record) delivery.Estimate {
-	return delivery.Estimate{Status: delivery.Estimated, Confidence: delivery.Confident, SampleCount: len(records)}
+	return delivery.Estimate{Status: delivery.Estimated, Confidence: delivery.Confident, SampleCount: len(records), MinSamples: 10}
+}
+
+// lowOn is a low-confidence estimate that rests on these records, open below six.
+func lowOn(records ...delivery.Record) delivery.Estimate {
+	return delivery.Estimate{Status: delivery.Estimated, Confidence: delivery.Low, SampleCount: len(records), MinSamples: 10, P85Open: len(records) < 6}
+}
+
+// forecastPolicy is the estimate policy the forecasts here run under.
+var forecastPolicy = delivery.EstimatePolicy{Version: 3, MinSamples: 10, RecentSamples: 50, ForecastTrials: 2000}
+
+func forecastIn(cap int64, work ...delivery.ForecastWork) delivery.ForecastInput {
+	return delivery.ForecastInput{Plan: "plan-1", PlanDigest: "sha256:plan", Rev: 40, Now: now, Cap: cap, Policy: forecastPolicy, Work: work}
 }
 
 func forecastOf(cap int64, work ...delivery.ForecastWork) []delivery.Forecast {
-	return delivery.ForecastOf(delivery.ForecastInput{Plan: "plan-1", PlanDigest: "sha256:plan", Rev: 40, Now: now, Cap: cap, Trials: 2000, Work: work})
+	return delivery.ForecastOf(forecastIn(cap, work...))
 }
 
 // forecastFor finds the plan's forecast, or a milestone's.
@@ -42,8 +54,8 @@ func forecastFor(t *testing.T, forecasts []delivery.Forecast, milestone string) 
 }
 
 // TestAForecastIsTheSameForTheSameSeed holds FR-EST-8's determinism: the seed is the digest of the plan version's
-// digest, the ledger revision, and the estimator version, the forecast records it with its trials, and the same
-// input gives the same forecast.
+// digest, the ledger revision, and the estimator version; the forecast records it with its trials, the time it
+// ran from, the median wait, and the policy version; and the same input gives the same forecast.
 func TestAForecastIsTheSameForTheSameSeed(t *testing.T) {
 	records := []delivery.Record{took("d1", 60*minute, 30*minute, 1), took("d2", 180*minute, 60*minute, 3), took("d3", 600*minute, 120*minute, 9)}
 	work := []delivery.ForecastWork{
@@ -51,18 +63,19 @@ func TestAForecastIsTheSameForTheSameSeed(t *testing.T) {
 		{WorkOrder: "b", Milestone: "m1", Priority: 1, DependsOn: []string{"a"}, Estimate: confidentOn(records...), Records: records},
 		{WorkOrder: "c", Milestone: "m2", Priority: 1, Estimate: confidentOn(records...), Records: records},
 	}
-	first := forecastOf(1, work...)
-	if again := forecastOf(1, slices.Clone(work)...); !reflect.DeepEqual(first, again) {
-		t.Fatalf("the same input forecast %+v and %+v", first, again)
-	}
-	reversed := slices.Clone(work)
-	slices.Reverse(reversed)
-	if other := forecastOf(1, reversed...); !reflect.DeepEqual(first, other) {
-		t.Errorf("the same work in another order forecast %+v", other)
+	in := forecastIn(1, work...)
+	in.PersonMedianMs = 30 * minute
+	first := delivery.ForecastOf(in)
+	again := in
+	again.Work = slices.Clone(work)
+	slices.Reverse(again.Work)
+	if other := delivery.ForecastOf(again); !reflect.DeepEqual(first, other) {
+		t.Fatalf("the same work in another order forecast %+v and %+v", first, other)
 	}
 	plan := forecastFor(t, first, "")
 	seed := delivery.ForecastSeed("sha256:plan", 40)
-	if plan.Seed != seed || !strings.HasPrefix(seed, "sha256:") || plan.Trials != 2000 || plan.Cap != 1 || plan.Rev != 40 || plan.Plan != "plan-1" {
+	if plan.Seed != seed || !strings.HasPrefix(seed, "sha256:") || plan.Trials != 2000 || plan.Cap != 1 || plan.Rev != 40 || plan.Plan != "plan-1" ||
+		plan.AsOf != now || plan.PersonMedianMs != 30*minute || plan.PolicyVersion != 3 {
 		t.Errorf("the plan's forecast records %+v", plan)
 	}
 	if delivery.ForecastSeed("sha256:plan", 41) == seed || delivery.ForecastSeed("sha256:other", 40) == seed {
@@ -73,6 +86,11 @@ func TestAForecastIsTheSameForTheSameSeed(t *testing.T) {
 	}
 	if len(first) != 3 || first[0].Milestone != "" || first[1].Milestone != "m1" || first[2].Milestone != "m2" {
 		t.Errorf("the forecasts come as %+v", first)
+	}
+	many := forecastIn(1, work...)
+	many.Policy.ForecastTrials = 1_000_000
+	if f := delivery.ForecastOf(many)[0]; f.Trials != delivery.MaxForecastTrials {
+		t.Errorf("a policy of a million trials ran %d", f.Trials)
 	}
 }
 
@@ -106,17 +124,47 @@ func TestWorkRunsInDependencyOrderWithinTheLaneCap(t *testing.T) {
 	}
 }
 
+// TestAMilestoneSharesItsLanesWithTheWholePlan labels a milestone from all of the plan's unfinished work, because
+// under a lane cap any of it can take a lane first: higher-priority work elsewhere with no history makes its
+// date a lower bound, and low-confidence work elsewhere makes it low confidence.
+func TestAMilestoneSharesItsLanesWithTheWholePlan(t *testing.T) {
+	y := took("dy", 60*minute, 60*minute, 1)
+	aside := delivery.ForecastWork{WorkOrder: "y", Milestone: "m2", Priority: 1, Estimate: confidentOn(y), Records: []delivery.Record{y}}
+	unknown := forecastOf(1, delivery.ForecastWork{WorkOrder: "x", Milestone: "m1", Priority: 5, Estimate: delivery.Estimate{Status: delivery.NoHistory}}, aside)
+	if m2 := forecastFor(t, unknown, "m2"); m2.Confidence != delivery.Low || m2.LowerBound != delivery.LowerAll || !slices.Equal(m2.LeftOut, []string{"x"}) {
+		t.Errorf("a milestone behind higher-priority work with no history reads %+v", m2)
+	}
+	x := took("dx", 600*minute, 600*minute, 5)
+	thin := forecastOf(1, delivery.ForecastWork{WorkOrder: "x", Milestone: "m1", Priority: 5, Estimate: lowOn(x), Records: []delivery.Record{x}}, aside)
+	m2 := forecastFor(t, thin, "m2")
+	if m2.EndP85 != now+660*minute || m2.Confidence != delivery.Low || m2.LowerBound != delivery.LowerP85 || !slices.Equal(m2.LowConfidenceWorkOrders, []string{"x"}) {
+		t.Errorf("a milestone behind higher-priority low-confidence work reads %+v", m2)
+	}
+	if m2.CostP85USD != 1 {
+		t.Errorf("the milestone's cost %v counts work beyond its own", m2.CostP85USD)
+	}
+}
+
 // TestStartedWorkKeepsWhatRemainsOfLongerWork draws a started work order's time only from comparable work that ran
-// longer than it has so far, and keeps the remainder; with none longer, it draws any and keeps all of it.
+// longer than it has so far, keeps the remainder, and labels the forecast by how many ran longer; with none
+// longer, it draws any and keeps all of it, and its time has no bound.
 func TestStartedWorkKeepsWhatRemainsOfLongerWork(t *testing.T) {
 	records := []delivery.Record{took("short", 60*minute, 0, 1), took("long", 180*minute, 0, 3)}
-	under := forecastOf(1, delivery.ForecastWork{WorkOrder: "a", Estimate: confidentOn(records...), Records: records, Started: true, SoFarMs: 120 * minute, SpentUSD: 2})
-	if plan := forecastFor(t, under, ""); plan.EndP50 != now+60*minute || plan.EndP85 != now+60*minute || plan.CostP85USD != 1 {
+	under := forecastOf(1, delivery.ForecastWork{WorkOrder: "a", Title: "Under way", Estimate: confidentOn(records...), Records: records, Started: true, SoFarMs: 120 * minute, SpentUSD: 2})
+	plan := forecastFor(t, under, "")
+	if plan.EndP50 != now+60*minute || plan.EndP85 != now+60*minute || plan.CostP85USD != 1 {
 		t.Errorf("started work two hours in forecast %+v", plan)
 	}
-	past := forecastOf(1, delivery.ForecastWork{WorkOrder: "a", Estimate: confidentOn(records...), Records: records, Started: true, SoFarMs: 300 * minute})
-	if plan := forecastFor(t, past, ""); plan.EndP85 != now+180*minute || (plan.EndP50 != now+60*minute && plan.EndP50 != now+180*minute) {
+	if plan.Confidence != delivery.Low || plan.LowerBound != delivery.LowerP85 || !strings.Contains(plan.Explanation, "Under way (a) has run 2h so far, and 1 comparable record ran longer") {
+		t.Errorf("started work with one longer record reads %+v", plan)
+	}
+	past := forecastOf(1, delivery.ForecastWork{WorkOrder: "a", Title: "Under way", Estimate: confidentOn(records...), Records: records, Started: true, SoFarMs: 300 * minute})
+	plan = forecastFor(t, past, "")
+	if plan.EndP85 != now+180*minute || (plan.EndP50 != now+60*minute && plan.EndP50 != now+180*minute) {
 		t.Errorf("started work past every record forecast %+v", plan)
+	}
+	if plan.Confidence != delivery.Low || plan.LowerBound != delivery.LowerAll || !strings.Contains(plan.Explanation, "longer than every comparable record") {
+		t.Errorf("started work past every record reads %+v", plan)
 	}
 }
 
@@ -134,12 +182,13 @@ func TestAForecastWithThinInputsIsLowConfidenceAndSaysWhy(t *testing.T) {
 		!slices.Equal(plan.LeftOut, []string{"a"}) || !slices.Equal(plan.LowConfidenceWorkOrders, []string{"a"}) {
 		t.Errorf("a plan with work of no history forecast %+v", plan)
 	}
-	if !strings.Contains(plan.Explanation, "Unknown work (a) has no finished history and is left out") || !strings.Contains(plan.Explanation, "lower bounds") {
+	if !strings.HasPrefix(plan.Explanation, "Low confidence, from 2000 trials of 1 work order, at most 2 at a time.") ||
+		!strings.Contains(plan.Explanation, "Unknown work (a) has no finished history and is left out") || !strings.Contains(plan.Explanation, "lower bounds") {
 		t.Errorf("the explanation %q", plan.Explanation)
 	}
 
 	open := []delivery.Record{took("d1", 60*minute, 30*minute, 1), took("d2", 90*minute, 30*minute, 1)}
-	thin := forecastOf(1, delivery.ForecastWork{WorkOrder: "c", Title: "Thin work", Estimate: delivery.Estimate{Status: delivery.Estimated, Confidence: delivery.Low, SampleCount: 2, MinSamples: 10, P85Open: true}, Records: open})
+	thin := forecastOf(1, delivery.ForecastWork{WorkOrder: "c", Title: "Thin work", Estimate: lowOn(open...), Records: open})
 	plan = forecastFor(t, thin, "")
 	if plan.Confidence != delivery.Low || plan.LowerBound != delivery.LowerP85 || len(plan.LeftOut) != 0 || !slices.Equal(plan.LowConfidenceWorkOrders, []string{"c"}) {
 		t.Errorf("a plan with an open band forecast %+v", plan)
@@ -151,27 +200,57 @@ func TestAForecastWithThinInputsIsLowConfidenceAndSaysWhy(t *testing.T) {
 }
 
 // TestCuttingPersonWaitsToTheMedianShowsWhatThePersonCosts reruns FR-EST-9's second what-if: each drawn record's
-// waits for a person cut to the project's median wait.
+// waits for a person cut to the project's median wait. Started work is left as it is, because a record does not
+// say which of its waits are already past, and pooled records, which keep no waits, cannot be cut; the
+// explanation says both.
 func TestCuttingPersonWaitsToTheMedianShowsWhatThePersonCosts(t *testing.T) {
 	waited := took("dw", 240*minute, 60*minute, 1)
 	waited.PersonWaits, waited.PersonMs = []int64{180 * minute}, 180*minute
-	forecasts := delivery.ForecastOf(delivery.ForecastInput{
-		Plan: "plan-1", PlanDigest: "sha256:plan", Rev: 1, Now: now, Cap: 1, Trials: 100, PersonMedianMs: 60 * minute,
-		Work: []delivery.ForecastWork{{WorkOrder: "a", Estimate: confidentOn(waited), Records: []delivery.Record{waited}}},
-	})
-	if plan := forecastFor(t, forecasts, ""); plan.EndP85 != now+240*minute || plan.EndP85PersonMedian != now+120*minute {
+	in := forecastIn(1, delivery.ForecastWork{WorkOrder: "a", Estimate: confidentOn(waited), Records: []delivery.Record{waited}})
+	in.PersonMedianMs = 60 * minute
+	if plan := delivery.ForecastOf(in)[0]; plan.EndP85 != now+240*minute || plan.EndP85PersonMedian != now+120*minute {
 		t.Errorf("with the person's waits cut to the median, the plan ends %d, and %d as it is", plan.EndP85PersonMedian-now, plan.EndP85-now)
+	}
+	in.Work[0].Started, in.Work[0].SoFarMs = true, 200*minute
+	plan := delivery.ForecastOf(in)[0]
+	if plan.EndP85 != now+40*minute || plan.EndP85PersonMedian != now+40*minute || !strings.Contains(plan.Explanation, "leaves started work as it is") {
+		t.Errorf("started work past its wait reads %+v", plan)
+	}
+	pooled := took("", 240*minute, 60*minute, 1)
+	pooled.PersonMs = 180 * minute
+	in = forecastIn(1, delivery.ForecastWork{WorkOrder: "b", Estimate: confidentOn(pooled), Records: []delivery.Record{pooled}})
+	in.PersonMedianMs = 60 * minute
+	if plan := delivery.ForecastOf(in)[0]; plan.EndP85PersonMedian != now+240*minute || !strings.Contains(plan.Explanation, "pool, which keeps no waits") {
+		t.Errorf("a pooled draw reads %+v", plan)
+	}
+}
+
+// TestTheWhatIfsShareTheirDraws reruns each trial's own draws: one work order with a thousand different records,
+// over three trials, ends the same with one more lane and with no waits to cut.
+func TestTheWhatIfsShareTheirDraws(t *testing.T) {
+	var records []delivery.Record
+	for i := range 1000 {
+		records = append(records, took("d", int64(i+1)*minute, int64(i+1)*minute, float64(i)))
+	}
+	in := forecastIn(1, delivery.ForecastWork{WorkOrder: "a", Estimate: confidentOn(records...), Records: records})
+	in.Policy.ForecastTrials, in.PersonMedianMs = 3, 5*minute
+	plan := delivery.ForecastOf(in)[0]
+	if plan.EndP85CapPlusOne != plan.EndP85 || plan.EndP85PersonMedian != plan.EndP85 {
+		t.Errorf("the reruns drew apart: %d, %d, and %d", plan.EndP85-now, plan.EndP85CapPlusOne-now, plan.EndP85PersonMedian-now)
 	}
 }
 
 // TestAMilestoneWithNoHistoryHasNoForecast gives no forecast to a milestone none of whose unfinished work has
-// history, and says so, and none to a plan with nothing left (FR-EST-8, FR-EST-14).
+// history, and says so; a finished row to a milestone whose work all ended; and none to a plan with nothing left
+// (FR-EST-8, FR-EST-14).
 func TestAMilestoneWithNoHistoryHasNoForecast(t *testing.T) {
 	b := took("db", 60*minute, 60*minute, 1)
-	forecasts := forecastOf(1,
+	in := forecastIn(1,
 		delivery.ForecastWork{WorkOrder: "a", Milestone: "m1", Estimate: delivery.Estimate{Status: delivery.NoHistory}},
 		delivery.ForecastWork{WorkOrder: "b", Milestone: "m2", Estimate: confidentOn(b), Records: []delivery.Record{b}},
 	)
+	in.Milestones = []string{"m3", "m1", "m2"}
+	forecasts := delivery.ForecastOf(in)
 	none := forecastFor(t, forecasts, "m1")
 	if none.Status != delivery.ForecastNoHistory || none.EndP50 != 0 || none.EndP85 != 0 || !slices.Equal(none.LeftOut, []string{"a"}) ||
 		none.Explanation != "No forecast: none of the 1 unfinished work order of this milestone has finished history." {
@@ -180,7 +259,51 @@ func TestAMilestoneWithNoHistoryHasNoForecast(t *testing.T) {
 	if plan := forecastFor(t, forecasts, ""); plan.Status != delivery.Forecasted || plan.EndP85 != now+60*minute {
 		t.Errorf("the plan forecast %+v", plan)
 	}
+	if done := forecastFor(t, forecasts, "m3"); done.Status != delivery.ForecastFinished || done.Explanation != "Nothing is left to forecast: every work order of this milestone has ended." {
+		t.Errorf("a milestone whose work all ended forecast %+v", done)
+	}
 	if empty := forecastOf(1); len(empty) != 1 || empty[0].Status != delivery.ForecastFinished || empty[0].Explanation != "Nothing is left to forecast: every work order of this plan has ended." {
 		t.Errorf("a plan with nothing left forecast %+v", empty)
+	}
+}
+
+// TestWithNoLaneThereIsNoDate gives no date when nothing can run the work: no cap means no worker serves the
+// project, not lanes without end.
+func TestWithNoLaneThereIsNoDate(t *testing.T) {
+	b := took("db", 60*minute, 60*minute, 1)
+	plan := forecastOf(0, delivery.ForecastWork{WorkOrder: "b", Estimate: confidentOn(b), Records: []delivery.Record{b}})[0]
+	if plan.Status != delivery.ForecastNoCapacity || plan.EndP50 != 0 || plan.EndP85CapPlusOne != 0 ||
+		plan.Explanation != "No forecast: the project has no lane to run its work, because no worker serves it." {
+		t.Errorf("with no lane, the plan forecast %+v", plan)
+	}
+}
+
+// TestUnfinishedWorkOutsideThePlanMakesDatesLowerBounds lists the unfinished work outside the plan that its work
+// waits on, which the trials do not run, and makes the dates lower bounds; a dependency that ended counts for
+// nothing.
+func TestUnfinishedWorkOutsideThePlanMakesDatesLowerBounds(t *testing.T) {
+	b := took("db", 60*minute, 60*minute, 1)
+	in := forecastIn(1, delivery.ForecastWork{WorkOrder: "b", Title: "Inside", Estimate: confidentOn(b), Records: []delivery.Record{b}, DependsOn: []string{"ext", "ended"}})
+	in.Outside = []string{"ext"}
+	plan := delivery.ForecastOf(in)[0]
+	if plan.LowerBound != delivery.LowerAll || !slices.Equal(plan.Outside, []string{"ext"}) || plan.EndP85 != now+60*minute ||
+		!strings.Contains(plan.Explanation, "waits on unfinished work outside this plan (ext)") {
+		t.Errorf("a plan waiting on work outside it reads %+v", plan)
+	}
+}
+
+// TestRepeatsAndSelfDependenciesChangeNothing counts a work order listed twice once, and ignores a dependency of a
+// work order on itself, which would otherwise hold it forever.
+func TestRepeatsAndSelfDependenciesChangeNothing(t *testing.T) {
+	records := []delivery.Record{took("d1", 60*minute, 30*minute, 1), took("d2", 120*minute, 60*minute, 2)}
+	one := delivery.ForecastWork{WorkOrder: "a", Estimate: confidentOn(records...), Records: records}
+	alone := forecastOf(1, one)
+	looped := one
+	looped.DependsOn = []string{"a"}
+	if twice := forecastOf(1, one, looped); !reflect.DeepEqual(twice, alone) {
+		t.Errorf("a repeated, self-dependent work order forecast %+v, alone %+v", twice, alone)
+	}
+	if self := forecastOf(1, looped); !reflect.DeepEqual(self, alone) {
+		t.Errorf("a self-dependent work order forecast %+v, alone %+v", self, alone)
 	}
 }

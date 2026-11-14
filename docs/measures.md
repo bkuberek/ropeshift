@@ -144,7 +144,7 @@ share_history = false
 | --- | --- |
 | `min_samples` | The comparable delivery records a confident estimate rests on, never fewer than 5. An estimate on fewer is low confidence and says why |
 | `recent_samples` | How many of the most recent comparable records an estimate reads, never fewer than `min_samples` |
-| `forecast_trials` | The trials a forecast runs, at least 1 |
+| `forecast_trials` | The trials a forecast runs, from 1 to 20,000 |
 | `share_history` | Whether the project adds its delivery records to the installation's pool and draws on the pool for its broadest comparison. Off unless a member turns it on. See [the installation pool](#the-installation-pool) |
 
 ### The installation pool

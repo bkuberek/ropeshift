@@ -32,6 +32,9 @@ type EstimatePolicy struct {
 // MinSamplesFloor is the least min_samples a policy may set.
 const MinSamplesFloor = 5
 
+// MaxForecastTrials is the most trials a forecast runs, which keeps one forecast's work bounded.
+const MaxForecastTrials = 20000
+
 // ErrBadEstimatePolicy refuses an estimate policy that does not read.
 var ErrBadEstimatePolicy = errors.New("invalid estimate policy")
 
@@ -41,7 +44,7 @@ func DefaultEstimatePolicy() EstimatePolicy {
 }
 
 // Check refuses a version below 1, a confident estimate on fewer than MinSamplesFloor records, a read of fewer
-// recent records than a confident estimate needs, and a forecast of no trials.
+// recent records than a confident estimate needs, and a forecast of no trials or of more than MaxForecastTrials.
 func (p EstimatePolicy) Check() error {
 	switch {
 	case p.Version < 1:
@@ -50,8 +53,8 @@ func (p EstimatePolicy) Check() error {
 		return fmt.Errorf("%w: min_samples is at least %d", ErrBadEstimatePolicy, MinSamplesFloor)
 	case p.RecentSamples < p.MinSamples:
 		return fmt.Errorf("%w: recent_samples is at least min_samples", ErrBadEstimatePolicy)
-	case p.ForecastTrials < 1:
-		return fmt.Errorf("%w: forecast_trials is at least 1", ErrBadEstimatePolicy)
+	case p.ForecastTrials < 1 || p.ForecastTrials > MaxForecastTrials:
+		return fmt.Errorf("%w: forecast_trials is from 1 to %d", ErrBadEstimatePolicy, MaxForecastTrials)
 	}
 	return nil
 }
