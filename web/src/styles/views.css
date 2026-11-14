@@ -613,6 +613,14 @@ a.list-row-title:hover {
   min-width: 0;
 }
 
+/* An identifier too long for the side column ends in an ellipsis, and its title holds the whole of it. */
+.record-kind .id {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .record-title {
   font-size: var(--fs-14);
   line-height: var(--lh-14);

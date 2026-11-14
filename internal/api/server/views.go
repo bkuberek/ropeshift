@@ -990,6 +990,15 @@ func (h *handler) readDecisions(tx ports.ReadTx, r *http.Request, stamp api.Stam
 			replacedBy[row.Supersedes], replaces[row.ID] = row.ID, row.Supersedes
 		}
 	}
+	// An orchestrator decides as its worker, so a decider that is a worker reads by the worker's name.
+	workers, err := tx.Workers().List()
+	if err != nil {
+		return nil, err
+	}
+	names := make(map[string]string, len(workers))
+	for _, worker := range workers {
+		names[worker.ID] = worker.Name
+	}
 	view := api.Decisions{Stamp: stamp, Decisions: make([]api.DecisionLine, 0, len(rows))}
 	for _, row := range rows {
 		root := row.ID
@@ -1000,7 +1009,7 @@ func (h *handler) readDecisions(tx ports.ReadTx, r *http.Request, stamp api.Stam
 		for at := root; replacedBy[at] != "" && !slices.Contains(lineage, replacedBy[at]); at = replacedBy[at] {
 			lineage = append(lineage, replacedBy[at])
 		}
-		view.Decisions = append(view.Decisions, api.DecisionLine{Decision: row, Lineage: lineage, SupersededBy: replacedBy[row.ID]})
+		view.Decisions = append(view.Decisions, api.DecisionLine{Decision: row, Lineage: lineage, SupersededBy: replacedBy[row.ID], DecidedByName: names[row.DecidedBy]})
 	}
 	return view, nil
 }

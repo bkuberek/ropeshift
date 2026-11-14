@@ -2,10 +2,21 @@ import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
+import type { Decisions } from "../api/types";
 import { openPage } from "../opening";
-import { here, serveViews } from "../testing";
+import { golden, here, serveViews, withStyles } from "../testing";
 
 const decision = (name: string) => screen.findByRole("article", { name });
+
+const worker = "f518dab3196776ff0132570251797fb7";
+const longId = "2ebe3638daa637d3312b07a26757baab";
+
+// serveByOrchestrator adds a decision an orchestrator made, which records its worker as who decided it.
+function serveByOrchestrator() {
+  const view = golden<Decisions>("decisions");
+  view.decisions.unshift({ id: longId, status: "decided", statement: "Retry once.", decided_by: worker, decided_by_name: "solo", lineage: [longId] });
+  serveViews((call) => (call.path.startsWith("/v1/views/decisions") ? { status: 200, body: view } : undefined));
+}
 
 describe("the decisions", () => {
   it("states each decision, its status, and its rationale", async () => {
@@ -33,6 +44,27 @@ describe("the decisions", () => {
       expect(shown.classList.contains("id"), id).toBe(true);
       expect(shown.getAttribute("title")).toBe(id);
     }
+  });
+
+  it("names the worker whose orchestrator decided, with the worker's ID in its title", async () => {
+    serveByOrchestrator();
+    openPage("/decisions");
+    const card = await decision("Retry once.");
+    const decidedBy = within(card).getByText("Decided by").closest("div") as HTMLElement;
+    const name = within(decidedBy).getByText("solo");
+    expect(name.getAttribute("title")).toBe(worker);
+    expect(decidedBy.textContent).not.toContain(worker);
+  });
+
+  it("ends an ID too long for the side column in an ellipsis, so it never runs into the statement", async () => {
+    withStyles();
+    serveByOrchestrator();
+    openPage("/decisions");
+    const card = await decision("Retry once.");
+    const id = within(card.querySelector(".record-kind") as HTMLElement).getByText(longId);
+    const style = getComputedStyle(id);
+    expect([style.overflow, style.textOverflow, style.whiteSpace]).toEqual(["hidden", "ellipsis", "nowrap"]);
+    expect(id.getAttribute("title")).toBe(longId);
   });
 
   it("tells an assumption from a decision", async () => {

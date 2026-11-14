@@ -1,5 +1,7 @@
+import { readFileSync } from "node:fs";
+
 import { waitFor } from "@testing-library/react";
-import { expect, vi } from "vitest";
+import { expect, onTestFinished, vi } from "vitest";
 
 import type { NeedsYou } from "./api/types";
 import needsYou from "../testdata/needs-you.json";
@@ -18,6 +20,18 @@ export function golden<T>(name: string): T {
     throw new Error(`no golden named ${name}`);
   }
   return structuredClone(found) as T;
+}
+
+// The stylesheets, in the order main.tsx imports them.
+const sheets = ["tokens", "base", "shell", "components", "views", "admin", "talk", "responsive"];
+
+// withStyles puts the application's stylesheets in the page for one test, so the test can read what the
+// cascade gives an element. The test's page lays nothing out, so this holds the rules, not the sizes.
+export function withStyles(): void {
+  const style = document.createElement("style");
+  style.textContent = sheets.map((name) => readFileSync(`src/styles/${name}.css`, "utf8")).join("\n");
+  document.head.append(style);
+  onTestFinished(() => style.remove());
 }
 
 // Sent is one call a page made. url is the path it called, and path the same with its project taken out,
