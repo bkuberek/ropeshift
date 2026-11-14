@@ -88,11 +88,31 @@ func TestACompactionSummaryNeverLeavesTheHook(t *testing.T) {
 	if strings.Contains(string(raw), "the conversation") || !strings.Contains(string(raw), "PostCompact") {
 		t.Errorf("spool %s", raw)
 	}
+	compactionReachesTheWorker(t, newLaneWorker)
+}
+
+// A hook delivers its event at least once, so a worker too slow to ack still gets the compaction
+// from the spool, and the summary stays out of both routes.
+func TestACompactionSummaryNeverLeavesTheHookWhenTheWorkerIsSlow(t *testing.T) {
+	compactionReachesTheWorker(t, newSlowLaneWorker)
+}
+
+// compactionReachesTheWorker runs a compaction's hook against the worker that start serves, and
+// checks that the worker records the compaction by its trigger and never holds the summary. The
+// event reaches it over the socket or, when the worker misses the ack deadline, through the spool.
+func compactionReachesTheWorker(t *testing.T, start func(*testing.T, hookEnv) *laneWorker) {
+	t.Helper()
 	up := newHookEnv(t)
-	w := newLaneWorker(t, up)
+	w := start(t, up)
 	runHook(t, up, "PostCompact", compactedPayload)
-	records := w.hooks(t)
-	if len(records) != 1 || records[0].Detail != "auto" {
+	copiesOf(t, spoolLines(t, up.spool), lanes.HookEvent{Lane: "lane-1", Generation: 3, Subject: "s1", Event: "PostCompact"})
+	if err := w.subject.DrainSpool(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	records := w.awaitHooks(t, "the compaction's record", func(records []lanes.HookRecord) bool {
+		return len(records) == 1 && records[0].Count >= 1
+	})
+	if records[0].Detail != "auto" {
 		t.Fatalf("records %+v", records)
 	}
 	stored, err := json.Marshal(records)

@@ -33,6 +33,34 @@ type laneWorker struct {
 
 func newLaneWorker(t *testing.T, env hookEnv) *laneWorker {
 	t.Helper()
+	return serveLaneWorker(t, env, func(listener net.Listener) net.Listener { return listener })
+}
+
+// slowAccept is how long a slow worker takes to hand over a connection it accepted. It is well past
+// the hook's ack deadline, so the hook spools its event instead of getting an ack.
+const slowAccept = 100 * time.Millisecond
+
+// slowListener hands over each accepted connection only after slowAccept.
+type slowListener struct{ net.Listener }
+
+func (l slowListener) Accept() (net.Conn, error) {
+	conn, err := l.Listener.Accept()
+	if err == nil {
+		time.Sleep(slowAccept)
+	}
+	return conn, err
+}
+
+// newSlowLaneWorker is a newLaneWorker whose worker answers after the hook's ack deadline, which is
+// what a worker on a loaded machine does. A hook then delivers its event through the spool.
+func newSlowLaneWorker(t *testing.T, env hookEnv) *laneWorker {
+	t.Helper()
+	return serveLaneWorker(t, env, func(listener net.Listener) net.Listener { return slowListener{listener} })
+}
+
+// serveLaneWorker serves the worker on the listener that wrap makes of the one on env's socket.
+func serveLaneWorker(t *testing.T, env hookEnv, wrap func(net.Listener) net.Listener) *laneWorker {
+	t.Helper()
 	journal, err := fake.NewJournal()
 	if err != nil {
 		t.Fatal(err)
@@ -62,7 +90,7 @@ func newLaneWorker(t *testing.T, env hookEnv) *laneWorker {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = listener.Close() })
-	go func() { _ = subject.ServeLanes(ctx, listener) }()
+	go func() { _ = subject.ServeLanes(ctx, wrap(listener)) }()
 	return &laneWorker{journal: journal, subject: subject, reports: reports}
 }
 
