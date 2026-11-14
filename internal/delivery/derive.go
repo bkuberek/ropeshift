@@ -300,7 +300,7 @@ func segmentsOf(p phase, waits []Wait, in Input) []Segment {
 		if c.to <= c.from {
 			continue
 		}
-		s := Segment{Kind: c.kind, Cause: c.cause, Round: p.round, Review: c.review, From: c.from, To: c.to, Ended: c.ended}
+		s := Segment{Kind: c.kind, State: p.state, Cause: c.cause, Round: p.round, Review: c.review, From: c.from, To: c.to, Ended: c.ended}
 		if held {
 			s.Lane = p.lane
 		}
