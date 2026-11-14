@@ -5,10 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 
 	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/measures"
+	"ropeshift.com/ropeshift/internal/planning"
+	"ropeshift.com/ropeshift/internal/workorders"
 )
 
 // The categories every workspace has. A workspace can add its own, and it cannot remove
@@ -208,6 +211,9 @@ func New(draft Question) (Question, error) {
 	if draft.ID == "" {
 		return Question{}, fmt.Errorf("%w: a question has no id", ErrInvalid)
 	}
+	if !ledger.PlainID(draft.ID) {
+		return Question{}, fmt.Errorf("%w: a question's id is 1 to %d letters, digits, '-', and '_'", ErrInvalid, ledger.MaxRecordID)
+	}
 	if Normalize(draft.Text) == "" {
 		return Question{}, fmt.Errorf("%w: a question has no text", ErrInvalid)
 	}
@@ -217,11 +223,30 @@ func New(draft Question) (Question, error) {
 	return draft, nil
 }
 
+// SubjectKinds are the kinds of record a question can be about: the ladder holds the work of each.
+var SubjectKinds = []string{workorders.SubjectKind, planning.SubjectContract, planning.SubjectPlan}
+
+// CheckSubject refuses what a caller says a question is about unless its kind, when it names one, is a kind
+// of record the ladder knows, and its ID, when it names one, is plain. An orchestrator reads both in
+// question_next with nothing around them.
+func CheckSubject(kind, id string) error {
+	switch {
+	case kind != "" && !slices.Contains(SubjectKinds, kind):
+		return fmt.Errorf("%w: a question is about one of %s", ErrInvalid, strings.Join(SubjectKinds, ", "))
+	case id != "" && !ledger.PlainID(id):
+		return fmt.Errorf("%w: a question's subject is named by 1 to %d letters, digits, '-', and '_'", ErrInvalid, ledger.MaxRecordID)
+	}
+	return nil
+}
+
 // NewDecision validates a draft. A new decision is `decided` or `assumed`, because the other
 // two statuses only ever follow one of those.
 func NewDecision(draft Decision) (Decision, error) {
 	if draft.ID == "" {
 		return Decision{}, fmt.Errorf("%w: a decision has no id", ErrInvalid)
+	}
+	if !ledger.PlainID(draft.ID) {
+		return Decision{}, fmt.Errorf("%w: a decision's id is 1 to %d letters, digits, '-', and '_'", ErrInvalid, ledger.MaxRecordID)
 	}
 	if draft.Statement == "" {
 		return Decision{}, fmt.Errorf("%w: a decision states nothing", ErrInvalid)

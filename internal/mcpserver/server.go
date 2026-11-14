@@ -6,6 +6,7 @@ package mcpserver
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -613,7 +614,27 @@ func callWork(tool string, arguments json.RawMessage, call Caller) map[string]an
 	if len(answer.Work) == 0 || string(answer.Work) == "null" {
 		return toolText("Done. There is nothing more to read from this.", false)
 	}
-	return toolText(string(answer.Work), false)
+	return toolText(readable(answer.Work), false)
+}
+
+// readable writes a worker's JSON reply for the session that reads it, with each <, >, and & as it is, where
+// every encoder on the way wrote it as an escape a page needs. The tags around a delegate's text then read
+// as the tags the role names, and what the delegate wrote inside them was escaped before, so none of it
+// reads as one. A reply that does not read as JSON goes as it came.
+func readable(raw json.RawMessage) string {
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	var value any
+	if err := decoder.Decode(&value); err != nil {
+		return string(raw)
+	}
+	var out bytes.Buffer
+	encoder := json.NewEncoder(&out)
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(value); err != nil {
+		return string(raw)
+	}
+	return strings.TrimSuffix(out.String(), "\n")
 }
 
 // callDecide passes a decision to the worker as it was written. A session that hears nothing back

@@ -590,7 +590,8 @@ func (w *Workers) LaneContext(ctx context.Context, request ledger.LaneContextReq
 		if err := w.checkSession(tx, request.Auth, request.Epoch); err != nil {
 			return err
 		}
-		if err := readsAsHolder(tx, request); err != nil {
+		orchestrator, err := readsAsHolder(tx, request)
+		if err != nil {
 			return err
 		}
 		sources, err := readRecords(tx).reach(request)
@@ -598,8 +599,14 @@ func (w *Workers) LaneContext(ctx context.Context, request ledger.LaneContextReq
 			return err
 		}
 		for _, source := range sources {
+			text := contextpacks.Render(source)
+			if orchestrator {
+				if text, err = orchestratorText(tx, source, text); err != nil {
+					return err
+				}
+			}
 			found.Records = append(found.Records, ledger.ContextRecord{
-				Kind: string(source.Kind), Ref: source.Ref, Trust: string(source.Trust), Text: contextpacks.Render(source),
+				Kind: string(source.Kind), Ref: source.Ref, Trust: string(source.Trust), Text: text,
 			})
 		}
 		return nil
@@ -610,31 +617,49 @@ func (w *Workers) LaneContext(ctx context.Context, request ledger.LaneContextReq
 	return found, nil
 }
 
+// orchestratorText is how an orchestrator reads a record: as a delegate's text, between the tags its role
+// names, when a delegate made it, and as it is otherwise. A lane reads its own contract as it stands,
+// because following it is the lane's work.
+func orchestratorText(tx ports.ReadTx, source contextpacks.Source, text string) (string, error) {
+	id := source.Ref
+	if source.Kind == contextpacks.KindContract {
+		if contract, _, versioned := planning.ParseContractKey(source.Ref); versioned {
+			id = contract
+		}
+	}
+	by, err := recordByDelegate(tx, string(source.Kind), id)
+	if err != nil || !by {
+		return text, err
+	}
+	return lanes.DelegateText(text), nil
+}
+
 // readsAsHolder holds a read to the session it speaks for: a lane that this worker holds at this
-// fence, or this worker's own orchestrator, which has no work order to hold.
-func readsAsHolder(tx ports.ReadTx, request ledger.LaneContextRequest) error {
+// fence, or this worker's own orchestrator, which has no work order to hold. It says when the reader is
+// the orchestrator.
+func readsAsHolder(tx ports.ReadTx, request ledger.LaneContextRequest) (bool, error) {
 	if request.WorkOrder == "" {
 		// An assistant's run reads its own project, while its conversation runs on this worker.
 		if record, err := tx.Conversations().ByRunLane(request.Lane); err == nil {
 			if record.Worker != request.Auth.WorkerID || !record.Running() {
-				return fmt.Errorf("%w: run %s is not this worker's", workorders.ErrInvalid, request.Lane)
+				return false, fmt.Errorf("%w: run %s is not this worker's", workorders.ErrInvalid, request.Lane)
 			}
-			return nil
+			return false, nil
 		}
 		row, err := tx.Workers().Orchestrator(request.Auth.WorkerID)
 		if errors.Is(err, ports.ErrNotFound) || (err == nil && !row.Belongs(request.Lane)) {
-			return fmt.Errorf("%w: %s is not this worker's orchestrator", workorders.ErrInvalid, request.Lane)
+			return false, fmt.Errorf("%w: %s is not this worker's orchestrator", workorders.ErrInvalid, request.Lane)
 		}
-		return err
+		return err == nil, err
 	}
 	order, err := tx.WorkOrders().Get(request.WorkOrder)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if order.LeaseWorker != request.Auth.WorkerID || order.Fence != request.Fence {
-		return &workorders.FencedError{Current: order.Fence, State: order.State}
+		return false, &workorders.FencedError{Current: order.Fence, State: order.State}
 	}
-	return nil
+	return false, nil
 }
 
 // defaultSearch is how many records one search reads when a lane names no limit.

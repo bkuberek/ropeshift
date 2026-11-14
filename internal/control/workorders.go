@@ -101,6 +101,16 @@ func (w *WorkOrders) Record(ctx context.Context, scope ledger.WorkspaceID, work 
 	if record.Title == "" {
 		return workorders.WorkOrder{}, fmt.Errorf("%w: no title", workorders.ErrInvalid)
 	}
+	// An orchestrator's work_candidates states the keys and the repository of work with nothing around them,
+	// so each is what a requirements file and a repository's record name, and no free text.
+	for _, key := range record.Requirements {
+		if !planning.RequirementKey(key) {
+			return workorders.WorkOrder{}, fmt.Errorf("%w: a requirement key is 1 to %d letters, digits, '-', '_', and '.'", workorders.ErrInvalid, planning.MaxRequirementKey)
+		}
+	}
+	if record.RepositoryID != "" && !ledger.PlainID(record.RepositoryID) {
+		return workorders.WorkOrder{}, fmt.Errorf("%w: a repository's ID is 1 to %d letters, digits, '-', and '_'", workorders.ErrInvalid, ledger.MaxRecordID)
+	}
 	if record.Kind == workorders.KindContractReview {
 		return workorders.WorkOrder{}, fmt.Errorf("%w: a review reads a plan, so start one with plan review", workorders.ErrInvalid)
 	}

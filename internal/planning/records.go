@@ -81,6 +81,20 @@ type Requirement struct {
 // Met says the code already meets the requirement.
 func (r Requirement) Met() bool { return r.Status == RequirementMet }
 
+// MaxRequirementKey bounds a requirement key a caller names.
+const MaxRequirementKey = 64
+
+// RequirementKey says a key is one a requirements file names, such as FR-LANE-1 or PAY-12: 1 to 64 ASCII
+// letters, digits, '-', '_', and '.'. An orchestrator reads the keys new work names with nothing around
+// them, so a key holds no space, quote, line break, angle bracket, '&', or '@'.
+func RequirementKey(key string) bool {
+	return key != "" && len(key) <= MaxRequirementKey && strings.IndexFunc(key, func(r rune) bool { return !keyMark(r) }) < 0
+}
+
+func keyMark(r rune) bool {
+	return 'a' <= r && r <= 'z' || 'A' <= r && r <= 'Z' || '0' <= r && r <= '9' || r == '-' || r == '_' || r == '.'
+}
+
 // RequirementDigest identifies one requirement's content. A file holds many requirements,
 // so its blob hash would call all of them changed when one changed.
 func RequirementDigest(key, text string) string {

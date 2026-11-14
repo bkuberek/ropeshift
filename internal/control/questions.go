@@ -48,6 +48,9 @@ func (q *Questions) Budgeted(tokens int64) *Questions {
 // RecordQuestion keeps a question as it is, in `open`. The client generates its ID, so a
 // retry returns what the first attempt wrote.
 func (q *Questions) RecordQuestion(ctx context.Context, scope ledger.WorkspaceID, draft questions.Question, actor ledger.Actor) (questions.Question, error) {
+	if err := questions.CheckSubject(draft.SubjectKind, draft.SubjectID); err != nil {
+		return questions.Question{}, err
+	}
 	record, err := questions.New(draft)
 	if err != nil {
 		return questions.Question{}, err

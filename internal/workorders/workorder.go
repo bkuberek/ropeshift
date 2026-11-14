@@ -130,6 +130,9 @@ func New(draft WorkOrder) (WorkOrder, error) {
 	if draft.ID == "" {
 		return WorkOrder{}, fmt.Errorf("%w: no id", ErrInvalid)
 	}
+	if !ledger.PlainID(draft.ID) {
+		return WorkOrder{}, fmt.Errorf("%w: a work order's id is 1 to %d letters, digits, '-', and '_'", ErrInvalid, ledger.MaxRecordID)
+	}
 	switch draft.Kind {
 	case KindPlan, KindContractReview, KindChange, KindRework:
 	case KindReview:

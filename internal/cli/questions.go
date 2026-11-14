@@ -82,7 +82,7 @@ func (c *invocation) questionRecord(args []string) int {
 	set.StringVar(&request.Text, "text", "", "the question")
 	set.Var(&categories, "category", "a category, repeatable")
 	set.StringVar(&request.SubjectID, "subject", "", "the ID of what it is about")
-	set.StringVar(&request.SubjectKind, "subject-kind", "", "contract or work_order")
+	set.StringVar(&request.SubjectKind, "subject-kind", "", "work_order, contract, or plan")
 	set.BoolVar(&request.Blocking, "blocking", false, "work on the subject waits for the answer")
 	positional, ok := c.parse(set, args)
 	if !ok {

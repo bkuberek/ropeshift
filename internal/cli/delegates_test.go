@@ -135,7 +135,7 @@ func TestADelegateCannotMessageAnOrchestrator(t *testing.T) {
 func TestOperationListPrintsTheClassTable(t *testing.T) {
 	s := newSession(t)
 	text := s.must("operation", "list")
-	for _, want := range []string{"repository.raise_merge_authority\tconsent\tnever exempt\tRaise merge authority", "work_order.create\toperational\t-\tCreate work", "card.confirm\tmember_only"} {
+	for _, want := range []string{"repository.raise_merge_authority\tconsent\tnever exempt\tRaise merge authority", "work_order.create\tconsent\texemptable\tCreate work", "work_order.create_by_assistant\toperational\t-\tCreate work", "card.confirm\tmember_only"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("the list lacks %q", want)
 		}

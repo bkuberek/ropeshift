@@ -39,7 +39,7 @@ const MaxOpenCards = 20
 const voidReason = "The subject changed since the card was prepared."
 
 // creating are the consent operations that create the record they name.
-var creating = []string{authority.OpQuestionRecord, authority.OpDecisionRecord, authority.OpCategoryAdd}
+var creating = []string{authority.OpQuestionRecord, authority.OpDecisionRecord, authority.OpCategoryAdd, authority.OpWorkOrderCreate}
 
 // Binding is the subject a card is bound to, and how. For BindPolicy, ID is the policy kind.
 type Binding struct {

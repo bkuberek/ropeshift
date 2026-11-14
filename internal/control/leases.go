@@ -701,6 +701,9 @@ func (l *Leases) DispatchWith(ctx context.Context, scope ledger.WorkspaceID, wor
 	if lane == "" {
 		return workorders.Lease{}, fmt.Errorf("%w: a lane needs an ID", workorders.ErrInvalid)
 	}
+	if !ledger.PlainID(lane) {
+		return workorders.Lease{}, fmt.Errorf("%w: a lane's ID is 1 to %d letters, digits, '-', and '_'", workorders.ErrInvalid, ledger.MaxRecordID)
+	}
 	if ledger.IsOrchestratorLane(lane) {
 		return workorders.Lease{}, fmt.Errorf("%w: %s is an orchestrator's name", workorders.ErrInvalid, lane)
 	}

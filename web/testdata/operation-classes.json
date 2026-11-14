@@ -140,6 +140,12 @@
     {
       "id": "work_order.create",
       "label": "Create work",
+      "class": "consent",
+      "exemptable": true
+    },
+    {
+      "id": "work_order.create_by_assistant",
+      "label": "Create work",
       "class": "operational",
       "exemptable": false
     },
@@ -277,6 +283,12 @@
     },
     {
       "id": "plan.start_review",
+      "label": "Start a contract review",
+      "class": "consent",
+      "exemptable": true
+    },
+    {
+      "id": "plan.start_review_by_assistant",
       "label": "Start a contract review",
       "class": "operational",
       "exemptable": false

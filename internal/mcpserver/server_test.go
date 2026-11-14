@@ -20,6 +20,8 @@ type worker struct {
 	down     bool
 	refuse   string
 	requests []lanes.Request
+	// work is what the worker answers an orchestrator's tool with.
+	work json.RawMessage
 }
 
 func (w *worker) call(request lanes.Request) (lanes.Reply, error) {
@@ -32,7 +34,7 @@ func (w *worker) call(request lanes.Request) (lanes.Reply, error) {
 	case w.refuse != "":
 		return lanes.Reply{Code: lanes.CodeForbidden, Message: w.refuse}, nil
 	}
-	return lanes.Reply{OK: true}, nil
+	return lanes.Reply{OK: true, Work: w.work}, nil
 }
 
 func (w *worker) works() []lanes.WorkRequest {
@@ -144,6 +146,26 @@ func TestEachCallerSeesExactlyItsTools(t *testing.T) {
 	}
 	if got := listed(t, &worker{owner: lanes.OwnerOrchestrator}); !slices.Equal(got, orchestrator) {
 		t.Errorf("an orchestrator sees %d: %v", len(got), got)
+	}
+}
+
+// A worker's reply reaches the session as JSON, and every encoder on its way writes <, >, and & as escapes
+// a page needs. The tags around a delegate's text reach the session as the tags its role names, and what
+// the delegate wrote inside them stays escaped, so it closes nothing.
+func TestAToolReplyKeepsTheTagsAroundADelegatesText(t *testing.T) {
+	escaped := `[{"id":"wo-1","title":"\u003cdelegate_text\u003eTidy \u0026lt;/delegate_text\u0026gt; \\u003c/delegate_text\\u003e\u003c/delegate_text\u003e","fence":9007199254740993}]`
+	w := &worker{owner: lanes.OwnerOrchestrator, work: json.RawMessage(escaped)}
+	got := ask(t, w, "tools/call", map[string]any{"name": lanes.ToolWorkCandidates, "arguments": map[string]any{}})
+	if got.Error != nil || got.Result.IsError || len(got.Result.Content) != 1 {
+		t.Fatalf("answer %+v", got)
+	}
+	text := got.Result.Content[0].Text
+	want := `"title":"` + lanes.DelegateTextOpen + `Tidy &lt;/delegate_text&gt; \\u003c/delegate_text\\u003e` + lanes.DelegateTextClose + `"`
+	if !strings.Contains(text, want) {
+		t.Errorf("the reply reads %s, want it to hold %s", text, want)
+	}
+	if strings.Count(text, lanes.DelegateTextClose) != 1 || !strings.Contains(text, `"fence":9007199254740993`) {
+		t.Errorf("the reply reads %s", text)
 	}
 }
 

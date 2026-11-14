@@ -8,7 +8,9 @@ import (
 	"slices"
 
 	"ropeshift.com/ropeshift/internal/authority"
+	"ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/planning"
 	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/internal/questions"
 	"ropeshift.com/ropeshift/internal/workorders"
@@ -71,6 +73,9 @@ func (w *Workers) Orchestrate(ctx context.Context, verb string, call ledger.Orch
 	}
 	result, err := w.orchestrate(ctx, verb, call, actor)
 	if err != nil {
+		return ledger.OrchestratorReply{}, err
+	}
+	if result, err = w.markDelegateText(ctx, result); err != nil {
 		return ledger.OrchestratorReply{}, err
 	}
 	raw, err := json.Marshal(result)
@@ -136,6 +141,92 @@ func (w *Workers) orchestrate(ctx context.Context, verb string, call ledger.Orch
 		return w.recover(ctx, recoveryActs[verb], call, actor)
 	}
 	return nil, fmt.Errorf("%w: no such act: %q", workorders.ErrInvalid, verb)
+}
+
+// markDelegateText states what a delegate wrote, the assistant included, in a reply to this worker's
+// orchestrator, between the tags its role names, as its wake does: the title of work it may claim, the text
+// of a question it takes or settles, and each record found that could answer one. An orchestrator holds
+// tools such as approval_decide and lane_start, and none of that text is its instruction.
+func (w *Workers) markDelegateText(ctx context.Context, result any) (any, error) {
+	var out any
+	err := w.store.Read(ctx, w.scope, func(tx ports.ReadTx) error {
+		var err error
+		out, err = markedReply(tx, result)
+		return err
+	})
+	return out, err
+}
+
+func markedReply(tx ports.ReadTx, result any) (any, error) {
+	switch reply := result.(type) {
+	case []workorders.WorkOrder:
+		out := make([]workorders.WorkOrder, len(reply))
+		for i, order := range reply {
+			title, err := wakeTitle(tx, order)
+			if err != nil {
+				return nil, err
+			}
+			order.Title = title
+			out[i] = order
+		}
+		return out, nil
+	case *LadderRead:
+		if reply == nil {
+			return reply, nil
+		}
+		read := *reply
+		var err error
+		if read.Question, err = markedQuestion(tx, read.Question); err != nil {
+			return nil, err
+		}
+		if read.Lookup, err = markedCandidates(tx, read.Lookup); err != nil {
+			return nil, err
+		}
+		if read.Open, err = markedCandidates(tx, read.Open); err != nil {
+			return nil, err
+		}
+		return &read, nil
+	case questions.Question:
+		return markedQuestion(tx, reply)
+	}
+	return result, nil
+}
+
+func markedQuestion(tx ports.ReadTx, question questions.Question) (questions.Question, error) {
+	by, err := recordByDelegate(tx, questions.KindQuestion, question.ID)
+	if by {
+		question.Text = lanes.DelegateText(question.Text)
+	}
+	return question, err
+}
+
+func markedCandidates(tx ports.ReadTx, found []LadderCandidate) ([]LadderCandidate, error) {
+	out := make([]LadderCandidate, len(found))
+	for i, candidate := range found {
+		by, err := recordByDelegate(tx, candidate.Kind, candidate.Ref)
+		if err != nil {
+			return nil, err
+		}
+		if by {
+			candidate.Text = lanes.DelegateText(candidate.Text)
+		}
+		out[i] = candidate
+	}
+	return out, nil
+}
+
+// recordByDelegate says a delegate made a record an orchestrator reads by its kind and ID: a question, a
+// decision, or a contract, whose text is its maker's. The other kinds come from a repository's files.
+func recordByDelegate(tx ports.ReadTx, kind, id string) (bool, error) {
+	switch kind {
+	case questions.KindQuestion:
+		return madeByDelegate(tx, ledger.Subject{Kind: questions.SubjectQuestion, ID: id}, questions.EventQuestionChanged)
+	case questions.KindDecision:
+		return madeByDelegate(tx, ledger.Subject{Kind: questions.SubjectDecision, ID: id}, questions.EventDecisionRecorded)
+	case questions.KindContract:
+		return madeByDelegate(tx, ledger.Subject{Kind: planning.SubjectContract, ID: id}, planning.EventContractVersion)
+	}
+	return false, nil
 }
 
 // recoveryActs are the recovery act each verb takes.

@@ -19,6 +19,7 @@ import (
 	"ropeshift.com/ropeshift/internal/conversations"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/messages"
+	"ropeshift.com/ropeshift/internal/planning"
 	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/internal/questions"
 	"ropeshift.com/ropeshift/internal/roster"
@@ -48,6 +49,28 @@ type routeOperation struct {
 	subject   func(h *handler, r *http.Request, body []byte) string
 	changes   changer
 	canonical canonicalizer
+	check     func(body []byte) error
+}
+
+// checked refuses a call whose body cannot make what it asks before anything reads it as a card or an
+// exemption, which would name its record by what the body holds.
+func (o routeOperation) checked(check func(body []byte) error) routeOperation {
+	o.check = check
+	return o
+}
+
+// plainID refuses a body whose id is not one a caller may name for a record it makes. A card names its record
+// by that ID, in its subject and its title, which a member reads in Needs you.
+func plainID(errInvalid error) func(body []byte) error {
+	return func(body []byte) error {
+		var in struct {
+			ID string `json:"id"`
+		}
+		if err := json.Unmarshal(body, &in); err != nil || !ledger.PlainID(in.ID) {
+			return fmt.Errorf("%w: the id is 1 to %d letters, digits, '-', and '_'", errInvalid, ledger.MaxRecordID)
+		}
+		return nil
+	}
 }
 
 // canonicalizer reads the identity of the record a name, a prefix, or an identity names.
@@ -89,6 +112,7 @@ func resolved(resolve resolver, ids ...string) routeOperation {
 // Subject kinds a card binds to: the ones the ledger's events name.
 const (
 	subjectWorkOrder = workorders.SubjectKind
+	subjectPlan      = planning.SubjectPlan
 	subjectQuestion  = "question"
 	subjectDecision  = "decision"
 	subjectCategory  = "category"
@@ -128,7 +152,7 @@ var routeOperations = map[string]routeOperation{
 	"POST /v1/delegates/{id}/remove":                   fixed(authority.OpDelegateRemove),
 	"POST /v1/backup":                                  fixed(authority.OpProjectBackup),
 	"POST " + api.BackupDownloadPath:                   fixed(authority.OpProjectBackup),
-	"POST /v1/work-orders":                             fixed(authority.OpWorkOrderCreate),
+	"POST /v1/work-orders":                             resolved(byKind(authority.OpWorkOrderCreate, authority.OpWorkOrderCreateByAssistant), authority.OpWorkOrderCreate, authority.OpWorkOrderCreateByAssistant).about(subjectWorkOrder).named(bodyField("id")).checked(plainID(workorders.ErrInvalid)),
 	"POST /v1/work-orders/{id}/review":                 resolved(reviewOperation, authority.OpWorkOrderReviewPlan, authority.OpWorkOrderReview).about(subjectWorkOrder),
 	"POST /v1/work-orders/{id}/claims":                 fixed(authority.OpWorkOrderClaim),
 	"POST /v1/work-orders/{id}/lanes":                  fixed(authority.OpLaneStart),
@@ -148,11 +172,11 @@ var routeOperations = map[string]routeOperation{
 	"POST /v1/work-orders/{id}/claims/{claim}/release": fixed(authority.OpWorkOrderRelease).about(subjectWorkOrder),
 	"PUT /v1/fleet/mode":                               resolved(fleetModeOperation, authority.OpFleetPause, authority.OpFleetRun).about(subjectWorkspace).named(theWorkspace),
 	"PUT /v1/fleet/caps":                               fixed(authority.OpFleetCaps).about(subjectWorkspace).named(theWorkspace).showing(capsChanges),
-	"POST /v1/plans/{id}/reviews":                      fixed(authority.OpPlanStartReview),
-	"POST /v1/questions":                               fixed(authority.OpQuestionRecord).about(subjectQuestion).named(bodyField("id")),
+	"POST /v1/plans/{id}/reviews":                      resolved(byKind(authority.OpPlanStartReview, authority.OpPlanStartReviewByAssistant), authority.OpPlanStartReview, authority.OpPlanStartReviewByAssistant).about(subjectPlan),
+	"POST /v1/questions":                               fixed(authority.OpQuestionRecord).about(subjectQuestion).named(bodyField("id")).checked(plainID(questions.ErrInvalid)),
 	"POST /v1/questions/{id}/dismiss":                  fixed(authority.OpQuestionDismiss).about(subjectQuestion),
 	"POST /v1/questions/{id}/answer":                   resolved(answerOperation, authority.OpQuestionAnswer).about(subjectQuestion),
-	"POST /v1/decisions":                               resolved(decisionOperation, authority.OpDecisionAssume, authority.OpDecisionRecord).about(subjectDecision).named(bodyField("id")),
+	"POST /v1/decisions":                               resolved(decisionOperation, authority.OpDecisionAssume, authority.OpDecisionRecord).about(subjectDecision).named(bodyField("id")).checked(plainID(questions.ErrInvalid)),
 	"POST /v1/decisions/{id}/overturn":                 fixed(authority.OpDecisionOverturn).about(subjectDecision),
 	"POST /v1/policies":                                resolved(policyOperation, authority.OpDelegatePolicyPublish, authority.OpPolicyPublish).about(subjectPolicy).named(policyKindOf).showing(policyChanges),
 	"POST /v1/categories":                              fixed(authority.OpCategoryAdd).about(subjectCategory).named(bodyField("name")),
@@ -495,6 +519,12 @@ func (h *handler) delegated(w http.ResponseWriter, r *http.Request, credential a
 			return actor, nil, false
 		}
 		r.SetPathValue("id", id)
+	}
+	if known && route.check != nil {
+		if err := route.check(body); err != nil {
+			fail(w, err)
+			return actor, nil, false
+		}
 	}
 	var ids []string
 	var oneWay bool
@@ -918,6 +948,19 @@ func messageOperation(_ *handler, _ *http.Request, body []byte) ([]string, bool,
 		return []string{authority.OpMessageOrchestrator}, false, nil
 	}
 	return []string{authority.OpMessageSend}, false, nil
+}
+
+// byKind reads the class of a call that creates a work order from the credential that makes it. An
+// orchestrator holds tools such as approval_decide and lane_start, and its wake states the title of work to
+// claim, so an outside delegate's call takes the consent operation, outside. The assistant acts in a
+// member's own conversation, so its call takes the operational one, assistant.
+func byKind(outside, assistant string) resolver {
+	return func(_ *handler, r *http.Request, _ []byte) ([]string, bool, error) {
+		if credential, ok := delegateOf(r.Context()); ok && credential.Assistant() {
+			return []string{assistant}, false, nil
+		}
+		return []string{outside}, false, nil
+	}
 }
 
 func repositoryOperation(h *handler, r *http.Request, body []byte) ([]string, bool, error) {

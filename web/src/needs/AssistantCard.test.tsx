@@ -85,9 +85,16 @@ describe("a card the assistant prepared, in Needs you", () => {
     });
     openPage(`/needs-you?kind=cards&item=confirm%3A${card.id}`);
     await screen.findByRole("article", { name: card.card.approval.summary });
+    // The page hears of a change on its stream, which an effect opens after the render that shows the card, so
+    // the change waits for that stream: an event sent before it opens reaches nobody.
+    const stream = await waitFor(() => {
+      const open = FakeEvents.opened.filter((opened) => !opened.closed);
+      expect(open).toHaveLength(1);
+      return open[0] as FakeEvents;
+    });
     // The server stops listing a card that went void, and the page keeps it where it stood, with how it came out.
     listed = { ...view, items: view.items.filter((item) => item.id !== card.id) };
-    FakeEvents.opened.at(-1)?.emit();
+    stream.emit();
     const ask = await screen.findByRole("button", { name: "Ask the assistant again" });
     await userEvent.click(ask);
     const dock = await screen.findByRole("complementary", { name: "Conversation" });
