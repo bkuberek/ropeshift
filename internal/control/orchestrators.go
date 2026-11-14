@@ -209,12 +209,80 @@ func wakeMessages(tx ports.ReadTx, worker string) ([]ledger.WakeItem, error) {
 			continue
 		}
 		age := (now - row.CreatedAt) / 1000
+		body := row.Body
+		// Only a member sends an orchestrator a message now, and one a delegate sent before that still states
+		// as a delegate's text.
+		if authority.PartyOf(ledger.Actor{Kind: ledger.ActorKind(row.From.Kind), ID: row.From.ID}) == authority.PartyDelegate {
+			body = lanes.DelegateText(body)
+		}
 		items = append(items, ledger.WakeItem{
 			Kind: ledger.WakeMessage, ID: row.ID, Stamp: row.CreatedAt,
-			Text: fmt.Sprintf("Message %s from %s %s, %dm%02ds old: %s\n%s", row.ID, row.From.Kind, row.From.ID, age/60, age%60, row.Body, messages.NotConsent),
+			Text: fmt.Sprintf("Message %s from %s %s, %dm%02ds old: %s\n%s", row.ID, row.From.Kind, row.From.ID, age/60, age%60, body, messages.NotConsent),
 		})
 	}
 	return items, nil
+}
+
+// madeByDelegate says a delegate, the assistant included, made the record a subject names: the first event
+// of its kind of creation names one. A card a member confirmed ran as that member, so what it made is the
+// member's.
+func madeByDelegate(tx ports.ReadTx, subject ledger.Subject, created string) (bool, error) {
+	events, err := tx.EventsAbout(subject)
+	if err != nil {
+		return false, err
+	}
+	for _, event := range events {
+		if event.Type == created {
+			return authority.PartyOf(event.Actor) == authority.PartyDelegate, nil
+		}
+	}
+	return false, nil
+}
+
+// maxTitleSources bounds how far a title is followed back through what it was taken from.
+const maxTitleSources = 16
+
+// titleByDelegate says a delegate wrote a work order's title: it made the work order, or the title was taken
+// from one a delegate made. A review takes the title of the work it judges, a rework that of the work it
+// reworks, and a contract review that of the plan it reads.
+func titleByDelegate(tx ports.ReadTx, order workorders.WorkOrder) (bool, error) {
+	for range maxTitleSources {
+		by, err := madeByDelegate(tx, ledger.Subject{Kind: workorders.SubjectKind, ID: order.ID}, workorders.EventCreated)
+		if err != nil || by {
+			return by, err
+		}
+		var from string
+		switch order.Kind {
+		case workorders.KindReview:
+			from = order.Reviews
+		case workorders.KindRework:
+			from = order.ReworkOf
+		case workorders.KindContractReview:
+			if order.ReviewsPlan == "" {
+				return false, nil
+			}
+			return madeByDelegate(tx, ledger.Subject{Kind: planning.SubjectPlan, ID: order.ReviewsPlan}, planning.EventPlanRecorded)
+		}
+		if from == "" {
+			return false, nil
+		}
+		if order, err = tx.WorkOrders().Get(from); errors.Is(err, ports.ErrNotFound) {
+			return false, nil
+		} else if err != nil {
+			return false, err
+		}
+	}
+	return false, nil
+}
+
+// wakeTitle is how a wake states a work order's title: as a delegate's text when a delegate wrote it, so an
+// orchestrator reads it as data and never as an instruction, and as it is otherwise.
+func wakeTitle(tx ports.ReadTx, order workorders.WorkOrder) (string, error) {
+	by, err := titleByDelegate(tx, order)
+	if err != nil || !by {
+		return order.Title, err
+	}
+	return lanes.DelegateText(order.Title), nil
 }
 
 // autonomyOf reads a worker's standing, for a read with no transaction of its own to write in.
@@ -270,15 +338,20 @@ func wakeWork(tx ports.ReadTx, worker string, facts autonomyFacts) ([]ledger.Wak
 		if err != nil {
 			return nil, err
 		}
-		if offered {
-			out = append(out, ledger.WakeItem{Kind: ledger.WakeWork, ID: row.ID, Stamp: row.Rev + opened, Text: row.Title})
+		if !offered {
+			continue
 		}
+		title, err := wakeTitle(tx, row)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, ledger.WakeItem{Kind: ledger.WakeWork, ID: row.ID, Stamp: row.Rev + opened, Text: title})
 	}
 	return out, nil
 }
 
 // wakeQuestions is what waits on the ladder and nobody holds. A question past its gate waits on a
-// person, and no wake would change that.
+// person, and no wake would change that. A question a delegate recorded states as a delegate's text.
 func wakeQuestions(tx ports.ReadTx, _ string) ([]ledger.WakeItem, error) {
 	rows, err := freeQuestions(tx, "")
 	if err != nil {
@@ -286,7 +359,15 @@ func wakeQuestions(tx ports.ReadTx, _ string) ([]ledger.WakeItem, error) {
 	}
 	out := make([]ledger.WakeItem, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, ledger.WakeItem{Kind: ledger.WakeQuestion, ID: row.ID, Stamp: row.ClaimUntil + row.Rung, Text: row.Text})
+		text := row.Text
+		by, err := madeByDelegate(tx, ledger.Subject{Kind: questions.SubjectQuestion, ID: row.ID}, questions.EventQuestionChanged)
+		if err != nil {
+			return nil, err
+		}
+		if by {
+			text = lanes.DelegateText(text)
+		}
+		out = append(out, ledger.WakeItem{Kind: ledger.WakeQuestion, ID: row.ID, Stamp: row.ClaimUntil + row.Rung, Text: text})
 	}
 	return out, nil
 }
@@ -335,9 +416,14 @@ func wakeFinished(tx ports.ReadTx, _ string) ([]ledger.WakeItem, error) {
 	}
 	var out []ledger.WakeItem
 	for _, row := range rows {
-		if row.State == workorders.Acceptance {
-			out = append(out, ledger.WakeItem{Kind: ledger.WakeFinished, ID: row.ID, Stamp: row.Rev, Text: row.Title})
+		if row.State != workorders.Acceptance {
+			continue
 		}
+		title, err := wakeTitle(tx, row)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, ledger.WakeItem{Kind: ledger.WakeFinished, ID: row.ID, Stamp: row.Rev, Text: title})
 	}
 	return out, nil
 }
@@ -385,15 +471,22 @@ func wakeStuckWork(tx ports.ReadTx, _ string) ([]ledger.WakeItem, error) {
 	}
 	var out []ledger.WakeItem
 	for _, row := range rows {
+		if row.State != workorders.Failed && row.State != workorders.Blocked {
+			continue
+		}
+		title, err := wakeTitle(tx, row)
+		if err != nil {
+			return nil, err
+		}
 		switch row.State {
 		case workorders.Failed:
-			text := fmt.Sprintf("%s failed, with %d of %d attempts used", row.Title, row.Attempts, row.AttemptBound(byDefault))
+			text := fmt.Sprintf("%s failed, with %d of %d attempts used", title, row.Attempts, row.AttemptBound(byDefault))
 			if !row.AttemptsLeft(byDefault) {
 				text += ", so a retry needs a member"
 			}
 			out = append(out, ledger.WakeItem{Kind: ledger.WakeFailed, ID: row.ID, Stamp: row.Fence, Text: text})
 		case workorders.Blocked:
-			out = append(out, ledger.WakeItem{Kind: ledger.WakeBlocked, ID: row.ID, Stamp: row.Fence, Text: row.Title + " is blocked"})
+			out = append(out, ledger.WakeItem{Kind: ledger.WakeBlocked, ID: row.ID, Stamp: row.Fence, Text: title + " is blocked"})
 		}
 	}
 	return out, nil

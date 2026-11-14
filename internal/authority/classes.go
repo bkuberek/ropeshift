@@ -196,7 +196,8 @@ var operations = append(onInstallation(
 	memberOnly(OpProjectBackup, "Back up the project", ActionBackupProject),
 	// An orchestrator holds tools such as approval_decide and lane_start, and its wake states the title of
 	// work to claim, so an outside delegate's call that creates a work order is a card, as a question it
-	// records is. The assistant acts in a member's own conversation, so its call runs at once.
+	// records is. The assistant acts in a member's own conversation, so its call runs at once, and a wake
+	// states what it wrote as a delegate's text.
 	consent(OpWorkOrderCreate, "Create work"),
 	operational(OpWorkOrderCreateByAssistant, "Create work"),
 	operational(OpWorkOrderReviewPlan, "Review planning work", ActionPassReview),
