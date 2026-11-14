@@ -90,6 +90,11 @@ func (in *install) runReviewer(t *testing.T, repo *gittest.Repo) (string, string
 	return plan, order
 }
 
+// reviewBatchWindowMs is far longer than three escalations take, even on a loaded machine, so the
+// three questions share one batch. The default window is too tight when the machine stalls between
+// escalations, and the third question then opens a second batch.
+const reviewBatchWindowMs = 10_000
+
 // TestExitE2ReviewBatch is E2 with a scripted review lane on the real daemon, driver, and MCP
 // server: a member starts a review of a plan in repository files, the lane asks three questions and
 // ends, and those reach a person as one batch and one interruption. The plan's work stays out of
@@ -122,7 +127,7 @@ plan = "a-plan"`, 1))
 		if row.SubjectKind != planning.SubjectPlan || row.SubjectID != plan {
 			t.Errorf("a review's question is about %s %s", row.SubjectKind, row.SubjectID)
 		}
-		escalate(t, t.Context(), store, row.ID, questions.CategoryProduct)
+		escalateWithin(t, t.Context(), store, row.ID, questions.CategoryProduct, reviewBatchWindowMs)
 	}
 	in.waitFor("the batch", func() bool { return len(in.batches().Batches) == 1 })
 	if batch := in.batches().Batches[0]; len(batch.Items) != 3 {
