@@ -2,6 +2,7 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
+import type { PolicyList, PolicyVersion } from "../api/admin";
 import type { DelegateList, OperationList } from "../api/delegates";
 import { openPage } from "../opening";
 import type { Sent } from "../testing";
@@ -157,6 +158,31 @@ describe("Delegate policy in Settings", () => {
     await userEvent.click(within(dialog).getByRole("button", { name: "Save version 3" }));
     await waitFor(() => expect(sentTo(sent, "POST", "/v1/policies")).toHaveLength(1));
     expect((sentTo(sent, "POST", "/v1/policies")[0]?.body as { body: string }).body).toBe('[delegate_policy]\nversion = 3\nexempt = ["work_order.accept", "work_order.rework"]\n');
+  });
+
+  it("drops an operation the stored version lists that no policy may exempt any more, and says which", async () => {
+    const stored = golden<PolicyList>("policies-delegate");
+    const [newest, ...older] = stored.versions as [PolicyVersion, ...PolicyVersion[]];
+    const stale: PolicyList = {
+      ...stored,
+      versions: [{ ...newest, body: '[delegate_policy]\nversion = 2\nexempt = ["work_order.accept", "work_order.cancel"]\n', settings: '{"version":2,"exempt":["work_order.accept","work_order.cancel"]}' }, ...older],
+    };
+    const sent = serveDelegates((call) => {
+      if (call.method === "GET" && call.path.split("?")[0] === "/v1/policies") {
+        return { status: 200, body: stale };
+      }
+      return call.method === "POST" && call.path === "/v1/policies" ? { status: 201, body: { version: 3 } } : undefined;
+    });
+    openPage(here("/settings?section=delegate-policy"));
+    const field = await screen.findByRole("group", { name: /Consent operations a delegate runs without a card/ });
+    const cancel = await within(field).findByRole("checkbox", { name: /Cancel work/ });
+    await waitFor(() => expect((cancel as HTMLInputElement).checked).toBe(false));
+    expect(within(field).getByText(/no policy may exempt any more/).textContent).toContain("work_order.cancel");
+    expect((within(field).getByRole("checkbox", { name: /Accept work/ }) as HTMLInputElement).checked).toBe(true);
+    await userEvent.click(screen.getByRole("button", { name: "Review change" }));
+    await userEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Save version 3" }));
+    await waitFor(() => expect(sentTo(sent, "POST", "/v1/policies")).toHaveLength(1));
+    expect((sentTo(sent, "POST", "/v1/policies")[0]?.body as { body: string }).body).toBe('[delegate_policy]\nversion = 3\nexempt = ["work_order.accept"]\n');
   });
 
   it("shows the API's refusal at the field", async () => {

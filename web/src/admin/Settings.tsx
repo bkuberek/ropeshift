@@ -814,20 +814,39 @@ function PolicyField({ kind, spec, value, saved, disabled, failure = "", onChang
 }
 
 // OperationsField chooses the consent operations a delegate runs without a card, among the ones the class
-// table lists. One no policy may exempt is shown disabled, with the API's reason.
+// table lists. One no policy may exempt is shown disabled, with the API's reason. A stored version may list
+// an operation no policy may exempt any more, which the API refuses in a new version, so the field drops it
+// once the class table is read and names what it dropped.
 function OperationsField({ label, help, value, disabled, failure, onChange }: { label: string; help?: string; value: string[]; disabled: boolean; failure: string; onChange: (value: string[]) => void }) {
   const [operations, setOperations] = useState<Operation[] | null>(null);
+  const [exemptable, setExemptable] = useState<Set<string> | null>(null);
+  const [dropped, setDropped] = useState<string[]>([]);
   useEffect(() => {
     void readOperations().then(
-      (list) => setOperations(list.operations.filter((op) => op.class === "consent")),
+      (list) => {
+        setOperations(list.operations.filter((op) => op.class === "consent"));
+        setExemptable(new Set(list.operations.filter((op) => op.exemptable).map((op) => op.id)));
+      },
       () => setOperations([]),
     );
   }, []);
+  const stale = exemptable ? value.filter((id) => !exemptable.has(id)) : [];
+  useEffect(() => {
+    if (exemptable && stale.length > 0) {
+      setDropped((was) => [...new Set([...was, ...stale])]);
+      onChange(value.filter((id) => exemptable.has(id)));
+    }
+  }, [exemptable, stale.join(",")]);
   const order = (ids: string[]) => (operations ?? []).map((op) => op.id).filter((id) => ids.includes(id)).concat(ids.filter((id) => !operations?.some((op) => op.id === id)));
   return (
     <fieldset className="field">
       <legend className="label">{label}</legend>
       {operations === null ? <SkeletonRows rows={3} /> : null}
+      {dropped.length > 0 ? (
+        <p className="help">
+          The current version lists {dropped.length === 1 ? "an operation" : "operations"} no policy may exempt any more, which exempt nothing and are left out of the next version: <span className="mono">{dropped.join(", ")}</span>.
+        </p>
+      ) : null}
       <div className="check-list">
         {(operations ?? []).map((op) => (
           <div key={op.id} className="check-item">
