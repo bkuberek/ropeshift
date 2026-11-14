@@ -145,7 +145,15 @@ share_history = false
 | `min_samples` | The comparable delivery records a confident estimate rests on, never fewer than 5. An estimate on fewer is low confidence and says why |
 | `recent_samples` | How many of the most recent comparable records an estimate reads, never fewer than `min_samples` |
 | `forecast_trials` | The trials a forecast runs, at least 1 |
-| `share_history` | Whether the project adds its delivery records to the installation's pool and draws on the pool for its broadest comparison. The pool holds kind, size, capability class, the durations, and the cost, with no ID, title, repository, or content. Off unless a member turns it on |
+| `share_history` | Whether the project adds its delivery records to the installation's pool and draws on the pool for its broadest comparison. Off unless a member turns it on. See [the installation pool](#the-installation-pool) |
+
+### The installation pool
+
+The installation's pool holds the delivery records of every project whose estimate policy shares its history, and only such projects draw on it. It holds only work that reached `done`, which is all an estimate draws on, and for each its kind, size, and capability class, its elapsed, delivery, lane, and person time, its estimated cost and whether that cost is a lower bound, and the day it ended. It names no work order, repository, agent, model, plan, milestone, or person, and holds no title, tokens, or content. A project's records stay in its own database beside the pool, which records only which project shared each one so that project can replace its share or take it out; no read returns that.
+
+Every `--delivery-tick`, a project that shares history replaces its share whenever its records changed, even when its fold failed. A project takes its share out as soon as a member publishes an estimate policy with `share_history = false`, and when it is archived or removed; a restored project shares again on its next tick while its policy still shares history. A share read under an earlier policy version than the one in force changes nothing, so a tick that ran as a member stopped sharing cannot put the records back.
+
+A project that shares history estimates at its broadest match, kind and size alone, from its own records and the pool's records of other projects: such an estimate counts the pool's records in `pool_samples`, names only the project's own work orders in `sample_ids`, and says it drew on the installation pool. An estimate with no history says whether the pool was searched. Estimates already kept stay as they were made after a project stops sharing; the next tick estimates the work again without its records. A store with no installation database holds one project, so it has no pool, and no estimate speaks of one.
 
 ## Experience records
 

@@ -146,6 +146,15 @@ func TestWithNoComparableWorkThereIsNoNumber(t *testing.T) {
 	if e = delivery.EstimateOf(delivery.EstimateInput{Keys: estimated, Pool: pool, Policy: delivery.DefaultEstimatePolicy()}); e.Status != delivery.NoHistory {
 		t.Errorf("a project that does not share drew on the pool: %+v", e)
 	}
+	// A store with no installation keeps no pool, so a project that would share has none to search or draw on.
+	e = delivery.EstimateOf(delivery.EstimateInput{Keys: estimated, Pool: pool, Policy: sharing, NoPool: true})
+	if want := "No estimate: no medium change has finished in this project yet."; e.Status != delivery.NoHistory || e.Explanation != want {
+		t.Errorf("with no pool, %+v", e)
+	}
+	own := finished("own", 1, hour, 1, nil)
+	if e = delivery.EstimateOf(delivery.EstimateInput{Keys: estimated, Records: []delivery.Record{own}, Policy: sharing, NoPool: true}); e.Tier == 6 || strings.Contains(e.Explanation, "pool") {
+		t.Errorf("with no pool, an estimate on the project's own work reads %+v", e)
+	}
 }
 
 // TestACostBandHoldingALowerBoundReadsAtLeast marks a band one of whose records reported only part of its cost.

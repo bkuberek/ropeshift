@@ -175,9 +175,9 @@ func (e Estimate) Cost() CostBand { return CostBand{P50: e.CostP50USD, P85: e.Co
 // EstimateInput is what one estimate is made from: the keys of the work order being estimated, which are known
 // before it starts; the project's delivery records; the records of the installation's pool from other
 // projects, read with the project's own at tier 6 only when the policy shares history; the policy, which names
-// its version; and the revision of the ledger the records were read at. A pool record holds kind, size,
-// capability class, the durations, the cost and whether it was a lower bound, the outcome, and when it ended, and
-// names no work order, repository, or title.
+// its version; and the revision of the ledger the records were read at. A pool record is one Pooled gives. NoPool
+// says the store keeps no installation pool, as one with no installation database does: then no tier draws on a
+// pool, and no explanation speaks of one.
 type EstimateInput struct {
 	WorkOrder string
 	Keys      Keys
@@ -185,6 +185,7 @@ type EstimateInput struct {
 	Pool      []Record
 	Policy    EstimatePolicy
 	Rev       int64
+	NoPool    bool
 }
 
 // EstimateOf estimates one `change` or `rework` work order from comparable finished work (ADR-0026), under the
@@ -208,7 +209,7 @@ func EstimateOf(in EstimateInput) Estimate {
 	for _, keys := range tiers {
 		candidates = append(candidates, comparable(in.Records, in.Keys, keys, in.Policy.RecentSamples))
 	}
-	if in.Policy.ShareHistory {
+	if in.Policy.ShareHistory && !in.NoPool {
 		candidates = append(candidates, comparable(slices.Concat(in.Records, in.Pool), in.Keys, nil, in.Policy.RecentSamples))
 	}
 	chosen := -1
@@ -226,7 +227,7 @@ func EstimateOf(in EstimateInput) Estimate {
 		}
 	}
 	if chosen < 0 {
-		out.Explanation = explain(out, in.Keys, in.Policy)
+		out.Explanation = explain(out, in.Keys, in.Policy, in.NoPool)
 		return out
 	}
 	records := candidates[chosen]
@@ -265,7 +266,7 @@ func EstimateOf(in EstimateInput) Estimate {
 	}
 	out.DeliveryP50Ms, out.DeliveryP85Ms = times[p50], times[p85]
 	out.CostP50USD, out.CostP85USD = costs[p50], costs[p85]
-	out.Explanation = explain(out, in.Keys, in.Policy)
+	out.Explanation = explain(out, in.Keys, in.Policy, in.NoPool)
 	return out
 }
 
@@ -346,11 +347,14 @@ var keyWords = map[string]string{
 // explain writes an estimate's explanation from its own fields (FR-EST-14). A confident estimate names its
 // basis; a low one adds how many outcomes it used against the minimum, which keys it set aside to find them,
 // and how far apart they were; an estimate with no history says what is missing.
-func explain(e Estimate, keys Keys, policy EstimatePolicy) string {
+func explain(e Estimate, keys Keys, policy EstimatePolicy, noPool bool) string {
 	work := func(n int) string { return workWords(keys, n) }
 	if e.Status == NoHistory {
 		text := "No estimate: no " + work(1) + " has finished in this project yet"
-		if policy.ShareHistory {
+		switch {
+		case policy.ShareHistory && noPool:
+			return text + "."
+		case policy.ShareHistory:
 			return text + " or in the installation pool."
 		}
 		return text + ", and this project does not share history with other projects."
