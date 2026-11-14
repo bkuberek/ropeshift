@@ -29,7 +29,7 @@ A route on a project's records with no project in its path does not exist and an
 
 An archived project answers every change with 409 `project_archived`, a backup excepted, and a step its state refuses answers 409 `project_state`.
 
-The `id` a client names for a work order, a contract review, a question, a decision, or a lane is 1 to 64 ASCII letters, digits, `-`, and `_`, as every ID ropeshift and its clients generate is, and any other answers 400 `invalid`, because an agent reads it wherever it reads the record.
+The `id` a client names for a work order, a contract review, a question, a decision, or a lane is 1 to 64 ASCII letters, digits, `-`, and `_`, as every ID ropeshift and its clients generate is, and any other answers 400 `invalid`, because an agent reads it wherever it reads the record. New work's `requirements` are keys a requirements file names, such as `FR-LANE-1`: 1 to 64 ASCII letters, digits, `-`, `_`, and `.`. Its `repository_id` is plain as an `id` is. Any other answers 400 `invalid`, because an orchestrator's `work_candidates` states both with nothing around them.
 
 `POST /v1/projects/{project}/work-orders` with `"kind": "plan"` and `"adopt": true` records planning work that adopts an existing project: its lane is a planning lane told to onboard what the project holds, and the worker writes the inventory of the project's repositories into its context folder before it starts. Only planning work adopts, and any other kind answers 400 `invalid`. A project that already has an approved plan answers 409 `already_planned`, because it plans its next work with a planning session.
 
