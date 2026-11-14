@@ -94,6 +94,11 @@ func (t *foldTx) Delivery() ports.DeliveryWriter {
 	return deliveryTx{session: t.session, scope: t.scope}
 }
 
+// Deliveries reads the delivery read models within a read of the workspace.
+func (t *readTx) Deliveries() ports.DeliveryReader {
+	return deliveryTx{session: t.session, scope: t.scope}
+}
+
 type deliveryTx struct {
 	*session
 	scope ledger.WorkspaceID
