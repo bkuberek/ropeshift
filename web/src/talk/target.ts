@@ -96,6 +96,10 @@ export type Facts = {
 
 const headless = (lane: SessionTarget | undefined) => lane?.run_mode === "headless";
 
+// An orchestrator a member started reports its session's state, such as idle or working. It is not running
+// once a member stops it, its session ends, or its breaker trips.
+const notRunning = new Set(["stopped", "ended", "tripped"]);
+
 export function describeTarget(target: Target, facts: Facts): Described {
   const { kind } = target;
   const base = { kind, can: kinds[kind].can };
@@ -118,7 +122,7 @@ export function describeTarget(target: Target, facts: Facts): Described {
     let ended: string | undefined;
     if (facts.targets && !found) {
       ended = `The orchestrator on ${name} does not serve this project.`;
-    } else if (found && found.state !== "running") {
+    } else if (found && notRunning.has(found.state)) {
       ended = `The orchestrator on ${name} is not running. Start it from Workers.`;
     }
     return {
