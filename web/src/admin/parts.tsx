@@ -4,6 +4,7 @@ import type { ReactElement, ReactNode } from "react";
 import type { Download } from "../api/client";
 import type { Live } from "../api/useView";
 import { useView } from "../api/useView";
+import { useClock, ViewTime } from "../parts/parts";
 import { Button } from "../ui/controls";
 import { Banner, SkeletonRows } from "../ui/display";
 import { Icon } from "../ui/Icon";
@@ -17,12 +18,14 @@ export function useRead<T>(read: () => Promise<T>, key: string, live: Live) {
 }
 
 // Reading shows a read's failure in the API's words, and skeleton rows until its first answer. A page
-// that has data keeps it under a banner that says it is not current.
-export function Reading({ failure, ready, rows = 4, children }: { failure: string; ready: boolean; rows?: number; children: ReactNode }) {
+// that has data keeps it under a banner that says it is not current. A read that names the server's moment
+// in asOf counts every age and countdown in it from there, as a view does.
+export function Reading({ failure, ready, rows = 4, asOf, readAt = 0, children }: { failure: string; ready: boolean; rows?: number; asOf?: number; readAt?: number; children: ReactNode }) {
+  const now = useClock();
   return (
     <>
       {failure ? <Banner tone="danger">{ready ? `What this page shows is not current. ${failure}` : failure}</Banner> : null}
-      {ready ? children : null}
+      {ready ? asOf === undefined ? children : <ViewTime.Provider value={{ asOf, elapsed: Math.max(0, now - readAt) }}>{children}</ViewTime.Provider> : null}
       {!ready && !failure ? (
         <div className="panel">
           <SkeletonRows rows={rows} />

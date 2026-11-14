@@ -59,9 +59,7 @@ function DecisionLine({ decision }: { decision: Decision }) {
           {decision.reversibility ? <Fact name="Reversibility">{words(decision.reversibility)}</Fact> : null}
           {decision.categories?.length ? <Fact name="Categories">{decision.categories.map((name) => words(name)).join(", ")}</Fact> : null}
           {decision.decided_by ? (
-            <Fact name="Decided by">
-              <Id value={decision.decided_by} />
-            </Fact>
+            <Fact name="Decided by">{decision.decided_by_name ? <span title={decision.decided_by}>{decision.decided_by_name}</span> : <Id value={decision.decided_by} />}</Fact>
           ) : null}
           {decision.policy_version ? <Fact name="Policy version">{decision.policy_version}</Fact> : null}
           {decision.question_id ? (

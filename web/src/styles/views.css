@@ -613,6 +613,14 @@ a.list-row-title:hover {
   min-width: 0;
 }
 
+/* An identifier too long for the side column ends in an ellipsis, and its title holds the whole of it. */
+.record-kind .id {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .record-title {
   font-size: var(--fs-14);
   line-height: var(--lh-14);
@@ -1146,8 +1154,20 @@ details.older[open] > summary {
   text-decoration: underline;
 }
 
+/* A path breaks anywhere rather than run out of the reader, and a source too long for the line ends in an
+   ellipsis, whole in its title. */
 .doc-meta {
   margin-bottom: var(--s-8);
+  overflow-wrap: anywhere;
+}
+
+.doc-meta .doc-source {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
 }
 
 .doc-facts {

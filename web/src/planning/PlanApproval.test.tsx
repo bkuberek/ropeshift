@@ -51,10 +51,26 @@ describe("the plan approval page", () => {
     openPage(page());
     await heading();
     expect(sent.some((call) => call.path === `/v1/plans/${planId}?version=6`)).toBe(true);
-    expect(screen.getByText("Planning session")).toBeTruthy();
+    expect(screen.getByText(/^Read by intake from/).textContent).toBe("Read by intake from plans/factory/plan.md at commit 16");
+    expect(screen.queryByText("Planning session")).toBeNull();
     const digest = waiting.approval?.approval.subject_digest.replace(/^sha256:/, "").slice(0, 12) ?? "";
     expect(screen.getAllByText(digest).length).toBeGreaterThan(1);
     expect(screen.getByText(/If the plan changes, this approval is void\./)).toBeTruthy();
+  });
+
+  it("says a planning session wrote a version that a planning lane's branch held, on its work order", async () => {
+    serve((view) => {
+      if (view.approval) {
+        view.approval.approval.requested_by = "lane:lane-plan";
+        view.approval.approval.work_order_id = "wo-plan";
+      }
+    });
+    openPage(page());
+    await heading();
+    const note = screen.getByText(/^Written by/);
+    expect(within(note).getByText("Planning session")).toBeTruthy();
+    expect(within(note).getByRole("link", { name: "wo-plan" }).getAttribute("href")).toBe(here("/work-order?id=wo-plan"));
+    expect(screen.queryByText(/^Read by intake/)).toBeNull();
   });
 
   it("lists how the version differs from the approved one: each record added, changed, or removed, with its kind", async () => {

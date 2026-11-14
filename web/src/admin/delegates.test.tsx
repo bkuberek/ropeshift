@@ -54,6 +54,33 @@ describe("Delegates in Members", () => {
     expect(screen.getByText("Signing out of every session revokes every delegate.")).toBeTruthy();
   });
 
+  it("says how far off each expiry and how long ago each use is, by the server's clock", async () => {
+    serveDelegates();
+    openPage("/members");
+    const members = await screen.findByRole("region", { name: "Members" });
+    const member = within(members).getAllByRole("row")[1] as HTMLElement;
+    expect(member.querySelector('[data-label="Next to expire"] [aria-hidden="true"]')?.textContent).toBe("in 1h");
+    expect(member.querySelector('[data-label="Last sign-in"] [aria-hidden="true"]')?.textContent).toBe("just now");
+    const delegates = await screen.findByRole("region", { name: "Delegate credentials" });
+    const [used, , never] = within(delegates).getAllByRole("row").slice(1) as [HTMLElement, HTMLElement, HTMLElement];
+    expect(used.querySelector('[data-label="Expires"] [aria-hidden="true"]')?.textContent).toBe("in 7h 57m");
+    expect(used.querySelector('[data-label="Last use"] [aria-hidden="true"]')?.textContent).toBe("1m ago");
+    expect(never.querySelector('[data-label="Expires"] [aria-hidden="true"]')?.textContent).toBe("in 6d 23h");
+  });
+
+  it("says how long a new delegate acts, from the moment the server made it", async () => {
+    serveDelegates((call) =>
+      call.method === "POST" && call.path === "/v1/delegates" ? { status: 201, body: { ...golden<DelegateList>("delegates").delegates[0], token: "a-delegate-token" } } : undefined,
+    );
+    openPage("/members");
+    await userEvent.click(await screen.findByRole("button", { name: "Create delegate" }));
+    const dialog = await screen.findByRole("dialog", { name: "Create delegate" });
+    await userEvent.type(within(dialog).getByLabelText("Label"), "planning assistant");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Create" }));
+    const shown = await screen.findByRole("dialog", { name: "Delegate created" });
+    expect(within(shown).getByText(/acts in project default until/).querySelector('[aria-hidden="true"]')?.textContent).toBe("in 8h");
+  });
+
   it("creates a delegate and shows its credential once", async () => {
     const sent = serveDelegates((call) =>
       call.method === "POST" && call.path === "/v1/delegates"

@@ -124,6 +124,8 @@ func commandsFor(item api.NeedItem) []string {
 		return []string{"ropeshift plan show " + plan, fmt.Sprintf("ropeshift plan approve %s --version %d", plan, item.PlanApproval.Version)}
 	case api.NeedContractReview:
 		return []string{"ropeshift work review " + clean(item.ID)}
+	case api.NeedConfirm:
+		return []string{"ropeshift confirm " + clean(item.ID), "ropeshift decline " + clean(item.ID)}
 	}
 	if item.Work == nil {
 		return nil
@@ -181,6 +183,8 @@ func what(item api.NeedItem) string {
 	case item.ContractReview != nil:
 		need := item.ContractReview
 		return fmt.Sprintf("contract review: %s version %d, work %s", clean(need.Contract), need.Version, clean(need.WorkOrder.Title))
+	case item.Card != nil:
+		return clean(item.Card.Approval.Summary) + "  prepared by " + preparer(*item.Card)
 	case item.Work == nil:
 		return ""
 	}
@@ -204,6 +208,15 @@ func what(item api.NeedItem) string {
 		line += "  " + clean(item.Work.Detail)
 	}
 	return line
+}
+
+// preparer names the delegate that prepared a card, by its credential's label and the member it acts for, as
+// Needs you does.
+func preparer(card api.CardNeed) string {
+	if card.Member == "" {
+		return clean(card.Label)
+	}
+	return clean(card.Label) + " for " + clean(card.Member)
 }
 
 // reviewFound counts the verdicts a review gave, in the words a person reads in the web UI. Work with none says nothing.
@@ -288,6 +301,8 @@ func projectOf(item api.NeedItem) string {
 	return clean(item.Project.Name)
 }
 
+// laneLines gives each lane a line that says what it is and how it stands, and under it, when there are any,
+// its figures: its context, tokens, and cost, and its process tree. Apart, each fits a printed frame.
 func (m Model) laneLines() []string {
 	lanes := LaneOrder(m.snapshot)
 	figures := map[string]api.LaneTelemetry{}
@@ -295,21 +310,24 @@ func (m Model) laneLines() []string {
 		figures[lane.Lane] = lane
 	}
 	sessions := m.sessions()
-	lines := make([]string, 0, len(lanes))
+	lines := make([]string, 0, 2*len(lanes))
 	for _, lane := range lanes {
 		conditions := strings.Join(lane.Conditions, ",")
 		if conditions == "" {
 			conditions = "-"
 		}
-		line := fmt.Sprintf("  %s  %s  %s  liveness %s  model %s  ledger %s  %s  %s", clean(lane.ID), clean(lane.WorkOrder), clean(lane.ActualState),
-			clean(lane.Liveness), clean(lane.ModelReach), clean(lane.LedgerReach), clean(conditions), m.freshness(lane.Freshness, lane.AsOf))
+		lines = append(lines, fmt.Sprintf("  %s  %s  %s  liveness %s  model %s  ledger %s  %s  %s", clean(lane.ID), clean(lane.WorkOrder), clean(lane.ActualState),
+			clean(lane.Liveness), clean(lane.ModelReach), clean(lane.LedgerReach), clean(conditions), m.freshness(lane.Freshness, lane.AsOf)))
+		var measured []string
 		if figure, ok := figures[lane.ID]; ok {
-			line += fmt.Sprintf("  context %d  tokens %d  cost %s", figure.ContextTokens, laneTokens(figure), api.Dollars(figure.CostUSD))
+			measured = append(measured, fmt.Sprintf("context %d  tokens %d  cost %s", figure.ContextTokens, laneTokens(figure), api.Dollars(figure.CostUSD)))
 		}
 		if session, ok := sessions[lane.ID]; ok {
-			line += "  " + api.SessionWords(session)
+			measured = append(measured, api.SessionWords(session))
 		}
-		lines = append(lines, line)
+		if len(measured) != 0 {
+			lines = append(lines, "    "+strings.Join(measured, "  "))
+		}
 	}
 	return lines
 }
@@ -323,11 +341,13 @@ func laneTokens(figure api.LaneTelemetry) int64 {
 	return total
 }
 
-// workerLines gives each worker a line, and under it what it last measured of its machine and when, with
-// its orchestrator's process tree when it reported one (FR-UI-10).
+// workerLines gives each worker a line, with its orchestrator and that orchestrator's process tree when it
+// reported one, under it what it last measured of its machine, and under that when, with any warning
+// (FR-UI-10).
 func (m Model) workerLines() []string {
-	lines := make([]string, 0, 2*len(m.snapshot.Floor.Workers))
+	lines := make([]string, 0, 3*len(m.snapshot.Floor.Workers))
 	for _, line := range m.snapshot.Floor.Workers {
+		report := line.Worker.Report
 		text := fmt.Sprintf("  %s  %s  epoch %d  %s", clean(line.Worker.ID), clean(line.Worker.Name), line.Worker.Epoch, m.freshness(line.Freshness, 0))
 		if line.Orchestrator != nil {
 			actual := clean(line.Orchestrator.Actual)
@@ -336,21 +356,28 @@ func (m Model) workerLines() []string {
 			}
 			text += fmt.Sprintf("  orchestrator %s, wanted %s", actual, clean(line.Orchestrator.Desired))
 		}
-		lines = append(lines, text)
-		report := line.Worker.Report
-		resources := "    " + api.ResourceWords(report)
 		if report != nil {
-			resources += "  measured " + age(m.ago(line.Worker.ReportedAt)) + " ago"
-			if line.ReportFreshness != ledger.FreshnessObserved {
-				resources += ", last reported"
-			}
 			for _, session := range report.Sessions {
-				if session.Kind == ledger.SessionOrchestrator {
-					resources += "  orchestrator " + api.SessionWords(session)
+				switch {
+				case session.Kind != ledger.SessionOrchestrator:
+				case line.Orchestrator != nil:
+					text += ", " + api.SessionWords(session)
+				default:
+					text += "  orchestrator " + api.SessionWords(session)
 				}
 			}
 		}
-		lines = append(lines, resources)
+		lines = append(lines, text, "    "+api.MachineWords(report))
+		if report != nil {
+			measured := "    measured " + age(m.ago(line.Worker.ReportedAt)) + " ago"
+			if line.ReportFreshness != ledger.FreshnessObserved {
+				measured += ", last reported"
+			}
+			if warnings := api.WarningWords(report); warnings != "" {
+				measured += "  " + warnings
+			}
+			lines = append(lines, measured)
+		}
 	}
 	return lines
 }
@@ -380,9 +407,14 @@ func window(lines []string, cursor, room int) []string {
 	return lines[start : start+room]
 }
 
-// View is the frame: what needs a person first, then the lanes in the same order, then the workers. A
-// terminal too short for all of it loses the bottom first, and never the cursor.
+// View is the frame: what needs a person first, then the lanes in the same order, then the workers, and the
+// keys at its foot. A terminal too short for all of it loses the bottom first, and never the cursor.
 func (m Model) View() string {
+	return m.frame(true)
+}
+
+// frame is the view, with the keys at its foot when it takes them. A printed frame takes none.
+func (m Model) frame(keys bool) string {
 	width := m.width
 	if width <= 0 {
 		width = plainWidth
@@ -410,7 +442,9 @@ func (m Model) View() string {
 	}
 	frame := append([]string{m.header(), "NEEDS YOU"}, needs...)
 	frame = append(append(frame, commands...), rest...)
-	frame = append(frame, help)
+	if keys {
+		frame = append(frame, help)
+	}
 	for i, line := range frame {
 		frame[i] = clip(line, width)
 	}

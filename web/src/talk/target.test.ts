@@ -87,6 +87,19 @@ describe("what a target says of itself", () => {
     expect(running.ended).toBeUndefined();
   });
 
+  // A running orchestrator's state is what its session reports, so idle and working are both running.
+  it("takes a message for an orchestrator a member started, in whatever state its session reports, until it ends", () => {
+    const orchestrator = (state: string, desired_state = "running") =>
+      describeTarget({ project: "harbor", kind: "orchestrator", id: "worker-atlas" }, facts({ targets: { ...targets, orchestrators: [{ ...(targets.orchestrators[0] as object), state, desired_state } as never] } }));
+    for (const state of ["idle", "working", "starting", "needs_decision"]) {
+      expect(orchestrator(state).ended, state).toBeUndefined();
+    }
+    for (const state of ["ended", "tripped"]) {
+      expect(orchestrator(state).ended, state).toBe("The orchestrator on atlas is not running. Start it from Workers.");
+    }
+    expect(orchestrator("stopped", "stopped").ended).toBe("The orchestrator on atlas is not running. Start it from Workers.");
+  });
+
   it("names a headless lane, with a stream and a composer", () => {
     const said = describeTarget({ project: "harbor", kind: "lane", id: "L-88" }, facts({ targets: withLane("headless") }));
     expect(said.which).toBe("L-88 · WO-219 · atlas · headless");

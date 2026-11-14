@@ -32,29 +32,42 @@ func Printable(text string) string {
 // FR-UI-10): CPU, load, memory, free disk, the cap in force beside the recommendation, and the warnings. A
 // measure the machine could not provide reads as unavailable, and no report says so.
 func ResourceWords(report *ledger.ResourceReport) string {
+	words := MachineWords(report)
+	if warnings := WarningWords(report); warnings != "" {
+		words += "  " + warnings
+	}
+	return words
+}
+
+// MachineWords is what ResourceWords says without the warnings.
+func MachineWords(report *ledger.ResourceReport) string {
 	if report == nil {
 		return "resources not reported"
 	}
 	m := report.Machine
-	parts := []string{
+	return strings.Join([]string{
 		"cpu " + measureOr(m.CPUPercent, func(v float64) string { return strconv.FormatFloat(v, 'f', 0, 64) + "%" }),
 		"load " + loadWords(m),
 		"memory " + memoryWords(m),
 		"disk " + diskWords(m.Volumes),
 		"cap " + capWords(report),
+	}, "  ")
+}
+
+// WarningWords names each measure past its threshold, or says nothing when none is.
+func WarningWords(report *ledger.ResourceReport) string {
+	if report == nil || len(report.Warnings) == 0 {
+		return ""
 	}
-	if len(report.Warnings) > 0 {
-		measures := make([]string, 0, len(report.Warnings))
-		for _, warning := range report.Warnings {
-			measure := warning.Measure
-			if warning.Volume != "" {
-				measure += " " + warning.Volume
-			}
-			measures = append(measures, Printable(measure))
+	measures := make([]string, 0, len(report.Warnings))
+	for _, warning := range report.Warnings {
+		measure := warning.Measure
+		if warning.Volume != "" {
+			measure += " " + warning.Volume
 		}
-		parts = append(parts, "warnings "+strings.Join(measures, ", "))
+		measures = append(measures, Printable(measure))
 	}
-	return strings.Join(parts, "  ")
+	return "warnings " + strings.Join(measures, ", ")
 }
 
 // SessionWords says a session's process tree as its worker last measured it.

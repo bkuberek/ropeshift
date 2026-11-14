@@ -433,6 +433,8 @@ export type Decision = {
   reversibility?: string;
   categories?: string[];
   decided_by?: string;
+  // decided_by_name is the name of the worker whose orchestrator decided, which its ID does not say.
+  decided_by_name?: string;
   supersedes?: string;
   superseded_by?: string;
   question_id?: string;

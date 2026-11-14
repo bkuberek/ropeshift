@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import type { DocumentRow, DocumentVersions, Documents, RecordedRead } from "../api/types";
 import { openPage } from "../opening";
-import { golden, here, refusal, serveViews } from "../testing";
+import { golden, here, refusal, serveViews, withStyles } from "../testing";
 
 function serve(change: (view: Documents) => void, answer?: Parameters<typeof serveViews>[0]) {
   const view = golden<Documents>("documents");
@@ -118,6 +118,17 @@ describe("reading a version the ledger stored", () => {
     expect(facts).toContain("KindSpec");
     expect(screen.getByRole("link", { name: "The factory floor" }).getAttribute("href")).toBe(here(`/plans?plan=${encodeURIComponent(read.plan?.id ?? "")}`));
     expect(screen.getByRole("link", { name: "Open in plan" }).getAttribute("href")).toBe(here(`/plan?id=${encodeURIComponent(read.plan?.id ?? "")}&version=6`));
+  });
+
+  // A path and a source are words with no space to break at, wider than a phone.
+  it("keeps where the version came from inside the reader, however long its path and source", async () => {
+    withStyles();
+    await open();
+    const read = golden<RecordedRead>("recorded-document");
+    const source = screen.getByTitle(read.version.source ?? "");
+    const style = getComputedStyle(source);
+    expect([style.display, style.maxWidth, style.overflow, style.textOverflow, style.whiteSpace]).toEqual(["inline-block", "100%", "hidden", "ellipsis", "nowrap"]);
+    expect(getComputedStyle(source.closest("p") as HTMLElement).overflowWrap).toBe("anywhere");
   });
 
   it("says plainly that the text came from outside, and shows it as text", async () => {

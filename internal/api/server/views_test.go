@@ -444,6 +444,39 @@ func TestDecisionsCarryTheirLineage(t *testing.T) {
 	}
 }
 
+// An orchestrator decides as its worker, whose ID says nothing to a person, so the view names the worker.
+// A member's ID is its name already.
+func TestADecisionNamesTheWorkerThatDecidedIt(t *testing.T) {
+	t.Parallel()
+	d, _, _ := aWorld(t)
+	decision := questions.Decision{ID: "decision-by-solo", Status: questions.DecisionDecided, Statement: "Retry once.", DecidedBy: apitest.WorldWorker}
+	data, err := json.Marshal(decision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = d.Store.Write(t.Context(), apitest.Scope, "test.decision", func(tx ports.WriteTx) error {
+		if err := tx.Questions().InsertDecision(decision); err != nil {
+			return err
+		}
+		_, err := tx.Append(ledger.EventDraft{
+			Type: questions.EventDecisionRecorded, Actor: ledger.Actor{Kind: ledger.ActorOrchestrator, ID: apitest.WorldWorker},
+			Subject: ledger.Subject{Kind: questions.SubjectDecision, ID: decision.ID}, Data: data,
+		})
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	view := readView[api.Decisions](t, d, api.ViewDecisions, "")
+	names := map[string]string{}
+	for _, line := range view.Decisions {
+		names[line.ID] = line.DecidedByName
+	}
+	if names["decision-by-solo"] != "solo" || names["decision-1"] != "" {
+		t.Errorf("deciders named %v", names)
+	}
+}
+
 func TestOpenQuestionsFilterByCategory(t *testing.T) {
 	t.Parallel()
 	d, _, _ := aWorld(t)

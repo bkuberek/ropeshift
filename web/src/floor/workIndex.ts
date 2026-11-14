@@ -1,3 +1,5 @@
+import { readRepositories } from "../api/admin";
+import type { RepositoryList } from "../api/admin";
 import { readView } from "../api/client";
 import type { Completed, CompletedWork, HeldLane, InProgress, Lane, MilestoneProgress, OnHold, PlanDetail, Plans, Stamp, Stuck, StuckItem, WorkOrder } from "../api/types";
 import type { Live } from "../api/useView";
@@ -18,7 +20,9 @@ export type WorkRow = {
   milestone?: MilestoneProgress;
 };
 
-export type WorkIndex = { rows: WorkRow[]; stamp: Stamp; readAt: number };
+// repositories names each repository of the project by its ID, once the project's list is read. A work order
+// whose repository it does not name shows the repository's ID.
+export type WorkIndex = { rows: WorkRow[]; stamp: Stamp; readAt: number; repositories: Map<string, string> };
 
 const groupOrder: WorkGroup[] = ["open", "in-progress", "on-hold", "stuck", "review", "completed"];
 
@@ -73,13 +77,15 @@ export function index(plans: Plans, running: InProgress, held: OnHold, stuck: St
   return groupOrder.flatMap((group) => all.filter((found) => groupOf(found) === group));
 }
 
-// useWorkIndex reads the five read models that together say where every work order stands.
+// useWorkIndex reads the five read models that together say where every work order stands, and the
+// project's repositories, which name the repository each work order is in.
 export function useWorkIndex(live: Live): { index: WorkIndex | null; failure: string; busy: boolean } {
   const plans = useView<Plans>(() => readView<Plans>("plans"), "work:plans", live);
   const running = useView<InProgress>(() => readView<InProgress>("in-progress"), "work:in-progress", live);
   const held = useView<OnHold>(() => readView<OnHold>("on-hold"), "work:on-hold", live);
   const stuck = useView<Stuck>(() => readView<Stuck>("stuck"), "work:stuck", live);
   const completed = useView<Completed>(() => readView<Completed>("completed"), "work:completed", live);
+  const repositories = useView<RepositoryList>(() => readRepositories(), "work:repositories", live);
   const reads = [plans, running, held, stuck, completed];
   const failure = reads.find((read) => read.failure)?.failure ?? "";
   const busy = reads.some((read) => read.busy);
@@ -88,7 +94,12 @@ export function useWorkIndex(live: Live): { index: WorkIndex | null; failure: st
   }
   const oldest = reads.reduce((min, read) => Math.min(min, read.readAt), Number.POSITIVE_INFINITY);
   return {
-    index: { rows: index(plans.view, running.view, held.view, stuck.view, completed.view), stamp: { as_of: completed.view.as_of, revision: completed.view.revision }, readAt: oldest },
+    index: {
+      rows: index(plans.view, running.view, held.view, stuck.view, completed.view),
+      stamp: { as_of: completed.view.as_of, revision: completed.view.revision },
+      readAt: oldest,
+      repositories: new Map((repositories.view?.repositories ?? []).filter((repository) => repository.name).map((repository) => [repository.id, repository.name ?? ""])),
+    },
     failure,
     busy,
   };

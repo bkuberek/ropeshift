@@ -6,7 +6,7 @@ import { createDelegate, delegateLives, readDelegates, removeDelegate, revokeDel
 import type { Project } from "../api/types";
 import type { Live } from "../api/useView";
 import { delegateStates } from "../floor/states";
-import { Ago, Until } from "../parts/parts";
+import { Ago, Until, ViewTime } from "../parts/parts";
 import { Button } from "../ui/controls";
 import { Absent, EmptyState, Panel, Refusal, StateBadge, TableRegion } from "../ui/display";
 import { Field, Select } from "../ui/forms";
@@ -38,7 +38,7 @@ export function DelegatesPanel({ live, creating, onCreating }: { live: Live; cre
     <>
       <Panel flush title="Delegates" actions={list && list.delegates.length > 0 ? create : undefined} foot="Signing out of every session revokes every delegate.">
         {change.failure ? <Refusal>{change.failure}</Refusal> : null}
-        <Reading failure={read.failure} ready={list !== null}>
+        <Reading failure={read.failure} ready={list !== null} asOf={list?.as_of} readAt={read.readAt}>
           {list && list.delegates.length === 0 ? (
             <EmptyState icon="key" title="No delegates" action={create}>
               A delegate credential lets an agent outside ropeshift act for you in one project: it runs what is operational, and prepares a card for anything that needs your consent.
@@ -187,6 +187,8 @@ function CreateDelegate({ open, onClose, onCreated }: { open: boolean; onClose: 
   );
 }
 
+// ShownOnce shows a new credential's token, the one time anyone sees it. Its life counts from the moment the
+// server made it, by the server's clock.
 function ShownOnce({ created, onClose }: { created: DelegateCreated | null; onClose: () => void }) {
   const toast = useToast();
   const line = created ? exportLine(created.token) : "";
@@ -207,7 +209,11 @@ function ShownOnce({ created, onClose }: { created: DelegateCreated | null; onCl
       {created ? (
         <div className="field-stack">
           <p className="small">
-            <strong>{created.label}</strong> acts in project {created.project} until <Until at={created.expires_at} />. Run this in the agent's shell:
+            <strong>{created.label}</strong> acts in project {created.project} until{" "}
+            <ViewTime.Provider value={{ asOf: created.created_at, elapsed: 0 }}>
+              <Until at={created.expires_at} />
+            </ViewTime.Provider>
+            . Run this in the agent's shell:
           </p>
           <div className="row-tight token-row">
             <code className="mono token">{line}</code>

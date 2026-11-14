@@ -45,7 +45,7 @@ export function MembersPage({ live, onSignedOut, dialog = "" }: { live: Live; on
       }
     >
       {change.failure ? <Refusal>{change.failure}</Refusal> : null}
-      <Reading failure={read.failure} ready={list !== null}>
+      <Reading failure={read.failure} ready={list !== null} asOf={list?.as_of} readAt={read.readAt}>
         {list && list.members.length === 0 ? (
           <div className="panel">
             <EmptyState icon="users" title="No member holds a session">

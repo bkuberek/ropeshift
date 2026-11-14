@@ -2,7 +2,7 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
-import type { Completed, InProgress, Operations, ShopFloor, Stuck } from "../api/types";
+import type { Completed, InProgress, Operations, ResourceReport, ShopFloor, Stuck } from "../api/types";
 import { openPage } from "../opening";
 import { golden, here, openLedgerStream, refusal, serveViews } from "../testing";
 
@@ -24,6 +24,32 @@ async function row(name: string): Promise<HTMLElement> {
     },
     { timeout: 3000 },
   );
+}
+
+const gib = 1024 ** 3;
+
+// measured is what a worker reports of its machine: its CPU, memory, pressure, load, and each volume.
+function measured(): ResourceReport {
+  return {
+    interval_ms: 15000,
+    machine: {
+      cores: 8,
+      cpu_percent: 42.4,
+      load_1: 1,
+      load_5: 2.5,
+      load_15: 3,
+      memory_total_bytes: 32 * gib,
+      memory_used_bytes: 12 * gib,
+      memory_available_bytes: 20 * gib,
+      memory_pressure_some: 1.5,
+      volumes: [
+        { roles: ["state"], free_bytes: 5 * gib, total_bytes: 100 * gib },
+        { roles: ["worktrees"], free_bytes: 120 * gib, total_bytes: 500 * gib },
+      ],
+    },
+    caps: { max_lanes: 7, max_lanes_set: false, max_lanes_per_sign_in: 0 },
+    sessions: [],
+  };
 }
 
 const cell = (tr: HTMLElement, column: string) => tr.querySelector<HTMLElement>(`[data-label="${column}"]`);
@@ -87,6 +113,29 @@ describe("the work orders", () => {
     const ran = await row("Add the retry budget");
     expect(cell(ran, "In state")?.textContent).toContain("10m");
     expect(within(ran).getByText("for 10 minutes")).toBeTruthy();
+  });
+
+  it("names each work order's repository by the name the project calls it, with its ID in the title", async () => {
+    serveNamedRepository();
+    openPage("/work?group=in-progress");
+    const tr = await row("Write the docs");
+    const repository = within(cell(tr, "Repository") as HTMLElement).getByText("orders-api");
+    expect(repository.getAttribute("title")).toBe("repository-1");
+    expect(cell(tr, "Repository")?.textContent).toBe("orders-api");
+  });
+
+  it("names a work order's repository in its header", async () => {
+    serveNamedRepository();
+    openPage("/work-order?id=wo-running");
+    await screen.findByRole("heading", { level: 1, name: /Write the docs/ });
+    await waitFor(() => expect(screen.getByText("orders-api").getAttribute("title")).toBe("repository-1"));
+  });
+
+  it("shows a repository's ID where the project names no such repository", async () => {
+    serveViews((call) => (call.method === "GET" && call.path === "/v1/repositories" ? { status: 200, body: { repositories: [] } } : undefined));
+    openPage("/work?group=in-progress");
+    const tr = await row("Write the docs");
+    heldWhole(cell(tr, "Repository") as HTMLElement, "repository-1");
   });
 
   it("names claimed work that has no lane yet", async () => {
@@ -378,6 +427,36 @@ describe("what stuck work waits on", () => {
   });
 });
 
+// serveNamedRepository answers the project's repositories with a name for the one the work orders are in.
+function serveNamedRepository() {
+  const list = golden<{ repositories: { id: string; name?: string }[] }>("repositories");
+  list.repositories.push({ ...list.repositories[0], id: "repository-1", name: "orders-api" });
+  return serveViews((call) => (call.method === "GET" && call.path === "/v1/repositories" ? { status: 200, body: list } : undefined));
+}
+
+// statusOf finds a machine's segment of the status bar, which stands once the member is signed in.
+const statusOf = (name: string) => waitFor(() => within(screen.getByRole("contentinfo", { name: "Status" })).getByRole("link", { name: new RegExp(`^${name}`) }));
+
+describe("the status bar", () => {
+  it("shows each machine's CPU, memory, and free disk, as its worker last measured them", async () => {
+    serving<ShopFloor>("shop-floor", (view) => {
+      for (const line of view.workers) {
+        line.worker.report = measured();
+      }
+    });
+    openPage("/floor");
+    const machine = await statusOf("solo");
+    expect(machine.textContent).toBe("soloCPU42%Mem38%Disk5.0 GiB");
+  });
+
+  it("says a machine whose worker has not reported has not", async () => {
+    serveViews();
+    openPage("/floor");
+    const machine = await statusOf("solo");
+    expect(machine.textContent).toBe("solonot reported");
+  });
+});
+
 describe("the floor", () => {
   it("shows one panel per machine, with its orchestrator and how fresh its word is", async () => {
     serveViews();
@@ -387,14 +466,46 @@ describe("the floor", () => {
     expect(within(machine).getAllByText(/^Last reported/).length).toBeGreaterThan(0);
   });
 
-  it("says a measure no source reports is unavailable, and never draws it as zero", async () => {
+  it("says a machine whose worker has not reported has not, and never draws a measure as zero", async () => {
     serveViews();
     openPage("/floor");
     const machine = await screen.findByRole("region", { name: "solo" });
-    for (const measure of ["CPU", "Memory", "Disk free"]) {
-      expect(within(machine).getByText(measure).parentElement?.textContent).toBe(`${measure}unavailable`);
+    for (const measure of ["CPU", "Memory", "Memory pressure", "Disk free", "Load per core"]) {
+      expect(within(machine).getByText(measure).parentElement?.textContent).toBe(`${measure}not reported`);
     }
     expect(machine.textContent).not.toMatch(/\b0%/);
+  });
+
+  it("shows what the machine's worker last measured, as Workers and resources does", async () => {
+    serving<ShopFloor>("shop-floor", (view) => {
+      for (const line of view.workers) {
+        line.worker.report = measured();
+      }
+    });
+    openPage("/floor");
+    const machine = await screen.findByRole("region", { name: "solo" });
+    for (const [measure, value] of [
+      ["CPU", "42%"],
+      ["Memory", "12.0 GiB of 32.0 GiB"],
+      ["Memory pressure", "1.5%"],
+      ["Disk free", "5.0 GiB"],
+      ["Load per core", "0.31"],
+    ]) {
+      expect(within(machine).getByText(measure as string).parentElement?.textContent).toBe(`${measure}${value}`);
+    }
+  });
+
+  it("says a measure the machine cannot provide is unavailable", async () => {
+    serving<ShopFloor>("shop-floor", (view) => {
+      for (const line of view.workers) {
+        line.worker.report = { ...measured(), machine: { cores: 8, volumes: [] } };
+      }
+    });
+    openPage("/floor");
+    const machine = await screen.findByRole("region", { name: "solo" });
+    for (const measure of ["CPU", "Memory", "Memory pressure", "Disk free", "Load per core"]) {
+      expect(within(machine).getByText(measure).parentElement?.textContent).toBe(`${measure}unavailable`);
+    }
   });
 
   it("names the work each lane runs, with its state, liveness, and freshness", async () => {

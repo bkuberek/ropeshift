@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import type { ResourceReport, ShopFloor } from "../api/types";
 import { openPage } from "../opening";
 import { golden, serveViews } from "../testing";
-import { bytes } from "./Installation";
+import { bytes } from "./resources";
 
 const gib = 1024 ** 3;
 
