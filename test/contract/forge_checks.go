@@ -47,6 +47,20 @@ func newForgeRig(r *Rig, target ledger.ReviewTarget) (*forgeRig, error) {
 
 // newForgeRigOf is a forge rig whose lane ran the work given, in the rig's repository, and ended with checks.
 func newForgeRigOf(r *Rig, target ledger.ReviewTarget, work func(repository string) control.LedgerWork, checks ...workorders.CheckResult) (*forgeRig, error) {
+	return newForgeRigWith(r, target, func(store ports.Store, repository string) (string, error) {
+		ops := r.NewOps(store)
+		order, err := ops.Record(r.Ctx, r.Scope, work(repository), r.Actor)
+		if err != nil {
+			return "", err
+		}
+		_, err = ops.Pass(r.Ctx, r.Scope, order.ID, r.Actor)
+		return order.ID, err
+	}, checks...)
+}
+
+// newForgeRigWith is a forge rig whose lane ran the work ready makes ready in the rig's repository, and ended
+// with checks.
+func newForgeRigWith(r *Rig, target ledger.ReviewTarget, ready func(store ports.Store, repository string) (string, error), checks ...workorders.CheckResult) (*forgeRig, error) {
 	s := r.Store()
 	repository := r.ID("repo")
 	if _, err := r.detect(s, repository, forgeRemote, "main"); err != nil {
@@ -55,16 +69,7 @@ func newForgeRigOf(r *Rig, target ledger.ReviewTarget, work func(repository stri
 	if _, err := r.change(s, repository, control.RepositoryChange{ReviewTarget: &target}, r.Actor); err != nil {
 		return nil, err
 	}
-	ready := func(store ports.Store) (string, error) {
-		ops := r.NewOps(store)
-		order, err := ops.Record(r.Ctx, r.Scope, work(repository), r.Actor)
-		if err != nil {
-			return "", err
-		}
-		_, err = ops.Pass(r.Ctx, r.Scope, order.ID, r.Actor)
-		return order.ID, err
-	}
-	st, err := newStatusRigOn(r, s, ready)
+	st, err := newStatusRigOn(r, s, func(store ports.Store) (string, error) { return ready(store, repository) })
 	if err != nil {
 		return nil, err
 	}
