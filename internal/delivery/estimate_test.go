@@ -2,8 +2,10 @@ package delivery_test
 
 import (
 	"fmt"
+	"math"
 	"math/rand/v2"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -171,53 +173,193 @@ func TestTheEstimatePolicyHoldsItsFloor(t *testing.T) {
 	}
 }
 
-// TestEveryEstimateTracesToTheRecordsItNames holds the estimator's promise on generated histories: each number
-// of a band is the delivery time or cost of a record the estimate drew on, the confidence follows the minimum
-// sample, and a band is open only below 6 records of a low-confidence estimate.
+// tierKeys repeats the tiers' keys beyond kind and size, so the test checks the estimator's choice of tier on its
+// own terms.
+var tierKeys = [][]func(a, b delivery.Keys) bool{
+	{sameClass, sameRepository, sameAuthority, sameBucket},
+	{sameClass, sameRepository, sameAuthority},
+	{sameClass, sameAuthority},
+	{sameAuthority},
+	{},
+}
+
+func sameClass(a, b delivery.Keys) bool      { return a.CapabilityClass == b.CapabilityClass }
+func sameRepository(a, b delivery.Keys) bool { return a.Repository == b.Repository }
+func sameAuthority(a, b delivery.Keys) bool  { return a.MergeAuthority == b.MergeAuthority }
+func sameBucket(a, b delivery.Keys) bool     { return bucket(a.Criteria) == bucket(b.Criteria) }
+
+func bucket(n int64) int {
+	switch {
+	case n <= 0:
+		return 0
+	case n <= 3:
+		return 1
+	case n <= 7:
+		return 2
+	}
+	return 3
+}
+
+// TestEveryEstimateTracesToTheRecordsItNames holds the estimator's promise on generated histories, with shared
+// history, cut recent windows, and records that end together: each number of a band is a delivery time or cost
+// at the rank the confidence gives among the records drawn on, every record named is a finished comparable one,
+// the tier is the one the rules choose, and a low estimate from fewer than 6 records is open above.
 func TestEveryEstimateTracesToTheRecordsItNames(t *testing.T) {
 	rng := rand.New(rand.NewPCG(20261114, 6))
-	sizes, classes, repositories := []string{"small", "medium"}, []string{"implement", "review"}, []string{"repo-1", "repo-2"}
-	for run := range 2000 {
-		var records []delivery.Record
+	sizes, classes, repositories, authorities := []string{"small", "medium"}, []string{"implement", "review"}, []string{"repo-1", "repo-2"}, []string{"person_approves", "person_merges"}
+	keysOf := func() delivery.Keys {
+		return delivery.Keys{
+			Kind: string(workorders.KindChange), Size: sizes[rng.IntN(2)], CapabilityClass: classes[rng.IntN(2)], Repository: repositories[rng.IntN(2)],
+			MergeAuthority: authorities[rng.IntN(2)], Criteria: int64(rng.IntN(10)),
+		}
+	}
+	for run := range 3000 {
+		var records, pool []delivery.Record
 		for i := range rng.IntN(40) {
 			outcome := workorders.Done
 			if rng.IntN(5) == 0 {
 				outcome = workorders.Failed
 			}
-			records = append(records, delivery.Record{
-				WorkOrder: fmt.Sprintf("wo-%d", i), Outcome: outcome, Ended: int64(rng.IntN(1000)), DeliveryMs: int64(1 + rng.IntN(100)), Usage: delivery.Usage{CostUSD: float64(rng.IntN(50))},
-				Keys: delivery.Keys{
-					Kind: string(workorders.KindChange), Size: sizes[rng.IntN(2)], CapabilityClass: classes[rng.IntN(2)], Repository: repositories[rng.IntN(2)],
-					MergeAuthority: "person_approves", Criteria: int64(1 + rng.IntN(9)),
-				},
-			})
+			records = append(records, delivery.Record{WorkOrder: fmt.Sprintf("wo-%02d", i), Keys: keysOf(), Outcome: outcome, Ended: int64(rng.IntN(20)),
+				DeliveryMs: int64(1 + rng.IntN(100)), Usage: delivery.Usage{CostUSD: float64(rng.IntN(50))}})
 		}
-		policy := delivery.EstimatePolicy{MinSamples: int64(5 + rng.IntN(6)), RecentSamples: 50, ForecastTrials: 1}
-		e := delivery.EstimateOf(delivery.EstimateInput{Keys: estimated, Records: records, Policy: policy})
-		byID := map[string]delivery.Record{}
-		for _, r := range records {
-			byID[r.WorkOrder] = r
+		for range rng.IntN(20) {
+			k := keysOf()
+			pool = append(pool, delivery.Record{Keys: delivery.Keys{Kind: k.Kind, Size: k.Size, CapabilityClass: k.CapabilityClass}, Outcome: workorders.Done,
+				Ended: int64(rng.IntN(20)), DeliveryMs: int64(1 + rng.IntN(100)), Usage: delivery.Usage{CostUSD: float64(rng.IntN(50))}})
 		}
-		if e.Status == delivery.NoHistory {
-			if e.SampleCount != 0 || e.Confidence != "" {
+		policy := delivery.EstimatePolicy{MinSamples: int64(5 + rng.IntN(6)), RecentSamples: int64(rng.IntN(15)), ForecastTrials: 1, ShareHistory: rng.IntN(2) == 0}
+		window := max(policy.RecentSamples, policy.MinSamples)
+		if policy.RecentSamples == 0 {
+			window = 50
+		}
+		e := delivery.EstimateOf(delivery.EstimateInput{Keys: estimated, Records: records, Pool: pool, Policy: policy})
+		counts := []int{}
+		for _, same := range tierKeys {
+			n := 0
+			for _, r := range records {
+				if r.Outcome == workorders.Done && r.Size == estimated.Size && !slices.ContainsFunc(same, func(f func(a, b delivery.Keys) bool) bool { return !f(r.Keys, estimated) }) {
+					n++
+				}
+			}
+			counts = append(counts, min(n, int(window)))
+		}
+		if policy.ShareHistory {
+			n := 0
+			for _, r := range slices.Concat(records, pool) {
+				if r.Outcome == workorders.Done && r.Size == estimated.Size {
+					n++
+				}
+			}
+			counts = append(counts, min(n, int(window)))
+		}
+		want, confident := 0, false
+		for i, n := range counts {
+			if int64(n) >= policy.MinSamples {
+				want, confident = i+1, true
+				break
+			}
+		}
+		if !confident {
+			for i, n := range counts {
+				if n > 0 && (want == 0 || n > counts[want-1]) {
+					want = i + 1
+				}
+			}
+		}
+		if want == 0 {
+			if e.Status != delivery.NoHistory || e.SampleCount != 0 || e.Confidence != "" {
 				t.Fatalf("run %d: no history with %+v", run, e)
 			}
 			continue
 		}
-		if e.SampleCount != len(e.SampleIDs) || (e.Confidence == delivery.Confident) != (int64(e.SampleCount) >= policy.MinSamples) || (e.P85Open && (e.Confidence != delivery.Low || e.SampleCount >= 6)) {
-			t.Fatalf("run %d: estimate %+v", run, e)
+		if e.Tier != want || e.SampleCount != counts[want-1] || (e.Confidence == delivery.Confident) != confident || e.SampleCount != len(e.SampleIDs)+e.PoolSamples {
+			t.Fatalf("run %d: tier %d of %d samples, want tier %d of %v", run, e.Tier, e.SampleCount, want, counts)
 		}
-		times, costs := map[int64]bool{}, map[float64]bool{}
+		if e.Confidence == delivery.Low && e.SampleCount < 6 && !e.P85Open || e.P85Open && (e.Confidence != delivery.Low || e.SampleCount >= 6) {
+			t.Fatalf("run %d: %d low samples open %v", run, e.SampleCount, e.P85Open)
+		}
+		byID := map[string]delivery.Record{}
+		for _, r := range records {
+			byID[r.WorkOrder] = r
+		}
 		for _, id := range e.SampleIDs {
-			r, ok := byID[id]
-			if !ok || r.Outcome != workorders.Done || r.Size != estimated.Size {
+			if r, ok := byID[id]; !ok || r.Outcome != workorders.Done || r.Size != estimated.Size {
 				t.Fatalf("run %d: drew on %q, which is no finished comparable record", run, id)
 			}
-			times[r.DeliveryMs], costs[r.Usage.CostUSD] = true, true
 		}
-		if !times[e.DeliveryP50Ms] || !times[e.DeliveryP85Ms] || !costs[e.CostP50USD] || !costs[e.CostP85USD] || e.DeliveryP50Ms > e.DeliveryP85Ms || e.Explanation == "" {
-			t.Fatalf("run %d: a band %+v %+v not drawn from its records", run, e.Time(), e.Cost())
+		if e.PoolSamples > 0 || e.Explanation == "" {
+			continue
 		}
+		var times []int64
+		var costs []float64
+		for _, id := range e.SampleIDs {
+			times, costs = append(times, byID[id].DeliveryMs), append(costs, byID[id].Usage.CostUSD)
+		}
+		slices.Sort(times)
+		slices.Sort(costs)
+		n := len(times)
+		p50, p85 := int(math.Ceil(0.5*float64(n)))-1, int(math.Ceil(0.85*float64(n)))-1
+		if e.Confidence == delivery.Low {
+			p50, p85 = int(math.Ceil(0.5*float64(n+1)))-1, min(int(math.Ceil(0.85*float64(n+1)))-1, n-1)
+		}
+		if e.DeliveryP50Ms != times[p50] || e.DeliveryP85Ms != times[p85] || e.CostP50USD != costs[p50] || e.CostP85USD != costs[p85] ||
+			e.DeliveryMinMs != times[0] || e.DeliveryMaxMs != times[n-1] || e.CostMinUSD != costs[0] || e.CostMaxUSD != costs[n-1] {
+			t.Fatalf("run %d: bands %+v not at their ranks among %v and %v", run, e, times, costs)
+		}
+	}
+}
+
+// TestACostBandReadsCostsOnTheirOwn sorts costs apart from times, so the p50 cost need not be the p50 record's.
+func TestACostBandReadsCostsOnTheirOwn(t *testing.T) {
+	var records []delivery.Record
+	for i := range 10 {
+		records = append(records, finished(fmt.Sprintf("r-%d", i), int64(i), int64(i+1)*hour, float64(100-10*i), nil))
+	}
+	e := estimateOf(records, delivery.DefaultEstimatePolicy())
+	if e.Time() != (delivery.Band{P50: 5 * hour, P85: 9 * hour}) || e.Cost() != (delivery.CostBand{P50: 50, P85: 90}) || e.CostMinUSD != 10 || e.CostMaxUSD != 100 {
+		t.Errorf("bands %+v %+v", e.Time(), e.Cost())
+	}
+}
+
+// TestALowEstimateFromSixOrMoreIsNotOpen reads the p85 from the records once there are 6, under the minimum.
+func TestALowEstimateFromSixOrMoreIsNotOpen(t *testing.T) {
+	var records []delivery.Record
+	for i := range 7 {
+		records = append(records, finished(fmt.Sprintf("r-%d", i), int64(i), int64(i+1)*hour, 1, nil))
+	}
+	e := estimateOf(records, delivery.DefaultEstimatePolicy())
+	// n = 7: p50 at rank 4, 4h; p85 at rank ceil(6.8) = 7, 7h.
+	if e.Confidence != delivery.Low || e.P85Open || e.Time() != (delivery.Band{P50: 4 * hour, P85: 7 * hour}) || strings.Contains(e.Explanation, "open") {
+		t.Errorf("seven records %+v", e)
+	}
+}
+
+// TestTheExplanationSaysWhatItRestsOn covers the words of records that all took the same time, a pooled low
+// estimate, and rework.
+func TestTheExplanationSaysWhatItRestsOn(t *testing.T) {
+	same := estimateOf([]delivery.Record{finished("a", 1, 2*hour, 1, nil), finished("b", 2, 2*hour, 1, nil)}, delivery.DefaultEstimatePolicy())
+	if !strings.Contains(same.Explanation, " They each took 2h.") {
+		t.Errorf("same times %q", same.Explanation)
+	}
+	sharing := delivery.DefaultEstimatePolicy()
+	sharing.ShareHistory = true
+	pooledLow := delivery.EstimateOf(delivery.EstimateInput{Keys: estimated, Pool: []delivery.Record{pooled(1, hour, 1), pooled(2, 3*hour, 1)}, Policy: sharing})
+	want := "Low confidence. Based on 2 finished medium changes; a confident estimate needs 10. To find them, ropeshift ignored the capability class, the repository, " +
+		"the merge authority level, and the number of criteria, and drew on the installation pool. They took from 1h to 3h. " +
+		"With fewer than 6, the 85th percentile cannot be read from them, so the band is open above 3h."
+	if pooledLow.Explanation != want {
+		t.Errorf("pooled low\n got %q\nwant %q", pooledLow.Explanation, want)
+	}
+	rework := estimated
+	rework.Kind = string(workorders.KindRework)
+	r := delivery.EstimateOf(delivery.EstimateInput{Keys: rework, Records: []delivery.Record{finished("a", 1, hour, 1, func(k *delivery.Keys) { k.Kind = rework.Kind })}, Policy: delivery.DefaultEstimatePolicy()})
+	if !strings.HasPrefix(r.Explanation, "Low confidence. Based on 1 finished medium rework;") {
+		t.Errorf("rework %q", r.Explanation)
+	}
+	none := delivery.EstimateOf(delivery.EstimateInput{Keys: rework, Policy: delivery.DefaultEstimatePolicy()})
+	if !strings.HasPrefix(none.Explanation, "No estimate: no medium rework has finished in this project yet") {
+		t.Errorf("rework with no history %q", none.Explanation)
 	}
 }
 
