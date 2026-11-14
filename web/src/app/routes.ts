@@ -19,6 +19,7 @@ export const projectViews = [
   "floor",
   "lane",
   "measures",
+  "conversations",
   "repositories",
   "agents",
   "settings",
@@ -61,6 +62,7 @@ const titles: Record<View, string> = {
   floor: "Floor",
   lane: "Lane",
   measures: "Measures",
+  conversations: "Conversations",
   projects: "Projects",
   import: "Import an existing project",
   members: "Members",
@@ -81,6 +83,7 @@ export const goKeys: Record<string, View> = {
   d: "documents",
   w: "work",
   f: "floor",
+  c: "conversations",
   u: "usage",
 };
 

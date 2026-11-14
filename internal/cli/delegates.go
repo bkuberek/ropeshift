@@ -54,7 +54,7 @@ func (c *invocation) delegateCreate(args []string) int {
 	created, err := client.CreateDelegate(c.ctx, api.CreateDelegate{Project: *project, Label: *label, ExpiresInMs: life.Milliseconds()})
 	return c.finish(err, created, func() string {
 		return fmt.Sprintf("delegate %s (%s) acts in project %s until %s\n%s\nexport %s=%s\n",
-			created.ID, created.Label, created.Project, moment(created.ExpiresAt), shownOnce, authority.EnvDelegateToken, created.Token)
+			created.ID, plain(created.Label), created.Project, moment(created.ExpiresAt), shownOnce, authority.EnvDelegateToken, created.Token)
 	})
 }
 
@@ -78,7 +78,7 @@ func (c *invocation) delegateList(args []string) int {
 			if d.LastUsedAt != nil {
 				used = "last used " + moment(*d.LastUsedAt)
 			}
-			fmt.Fprintf(&b, "%s\t%s\t%s\t%s\tuntil %s\t%s\n", d.ID, d.State, d.Project, d.Label, moment(d.ExpiresAt), used)
+			fmt.Fprintf(&b, "%s\t%s\t%s\t%s\tuntil %s\t%s\n", d.ID, d.State, d.Project, plain(d.Label), moment(d.ExpiresAt), used)
 		}
 		return b.String()
 	})
@@ -98,7 +98,7 @@ func (c *invocation) delegateRevoke(args []string) int {
 	client := c.client()
 	defer client.Close()
 	revoked, err := client.RevokeDelegate(c.ctx, id)
-	return c.finish(err, revoked, func() string { return fmt.Sprintf("revoked %s (%s)\n", revoked.ID, revoked.Label) })
+	return c.finish(err, revoked, func() string { return fmt.Sprintf("revoked %s (%s)\n", revoked.ID, plain(revoked.Label)) })
 }
 
 // delegateRemove deletes the record of a credential that no longer acts.

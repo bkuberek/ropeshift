@@ -201,13 +201,17 @@ export function signOut(): Promise<void> {
   return call("POST", paths.signOut);
 }
 
+// Where a decision was made: Needs you, or inline in a conversation. A call that names no place is
+// recorded by the listener it came through.
+export type Place = "needs_you" | "conversation";
+
 // The decision's ID comes from the question, so a second send of one answer finds the first.
-export function answerQuestion(id: string, answer: string): Promise<unknown> {
-  return call("POST", paths.answer(id), { id: `answer-${id}`, answer });
+export function answerQuestion(id: string, answer: string, place?: Place): Promise<unknown> {
+  return call("POST", paths.answer(id), { id: `answer-${id}`, answer, ...(place ? { place } : {}) });
 }
 
-export function decideApproval(id: string, digest: string, allow: boolean, reason: string): Promise<unknown> {
-  return call("POST", paths.decideApproval(id), { digest, allow, reason });
+export function decideApproval(id: string, digest: string, allow: boolean, reason: string, place?: Place): Promise<unknown> {
+  return call("POST", paths.decideApproval(id), { digest, allow, reason, ...(place ? { place } : {}) });
 }
 
 export function decideEffect(id: string, outcome: EffectOutcome, reason: string): Promise<unknown> {

@@ -110,3 +110,47 @@ func TestTheAssistantPolicyStopsAnUnusedSessionSooner(t *testing.T) {
 		}
 	}
 }
+
+func TestTheAssistantsLabelIsReservedAgainstOutsideCredentials(t *testing.T) {
+	ok := authority.DelegateRequest{Member: "m", Project: "p", Label: "assistant bot", ExpiresInMs: authority.MinDelegateTTLMs}
+	if err := ok.Check(); err != nil {
+		t.Fatalf("a label that holds the word is refused: %v", err)
+	}
+	for _, label := range []string{"assistant", "Assistant", "ASSISTANT", " assistant ", "Assistant "} {
+		request := ok
+		request.Label = label
+		err := request.Check()
+		if !errors.Is(err, authority.ErrInvalid) || !strings.Contains(err.Error(), "reserved") {
+			t.Errorf("label %q: got %v, want a refusal that says it is reserved", label, err)
+		}
+	}
+}
+
+// A label that hides a character, or looks like the assistant's, is no label for an outside credential: a
+// control, a zero-width character, a byte order mark, and a bidirectional control are refused whole, and a
+// compatibility form reads as the plain letters it stands for.
+func TestALabelCannotHideCharactersOrPassForTheAssistants(t *testing.T) {
+	ok := authority.DelegateRequest{Member: "m", Project: "p", Label: "planning assistant", ExpiresInMs: authority.MinDelegateTTLMs}
+	for name, label := range map[string]string{
+		"zero-width space":       "assistant\u200b",
+		"zero-width joiner":      "assis\u200dtant",
+		"byte order mark":        "\ufeffassistant",
+		"right-to-left mark":     "assistant\u200f",
+		"right-to-left override": "\u202eassistant",
+		"isolate":                "\u2066assistant\u2069",
+		"escape":                 "bot\x1b[2J",
+		"newline":                "two\nlines",
+		"soft hyphen":            "assis\u00adtant",
+	} {
+		request := ok
+		request.Label = label
+		if err := request.Check(); !errors.Is(err, authority.ErrInvalid) {
+			t.Errorf("%s: got %v, want a refusal", name, err)
+		}
+	}
+	request := ok
+	request.Label = "Planungs-Assistent für Ärzte"
+	if err := request.Check(); err != nil {
+		t.Errorf("a plain label in another language is refused: %v", err)
+	}
+}

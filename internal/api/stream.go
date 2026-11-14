@@ -31,6 +31,9 @@ type StreamEvent struct {
 	// ID once its record was removed. Both are empty for every other actor.
 	ActorFor   string `json:"actor_for,omitempty"`
 	ActorLabel string `json:"actor_label,omitempty"`
+	// DelegateKind is the kind of that credential, `external` or `assistant`, which a surface decides how to
+	// show it on and never its label. It is empty once the credential's record was removed.
+	DelegateKind string `json:"delegate_kind,omitempty"`
 }
 
 // StreamEventOf is what the stream says of one event. A delegate's label reads as its credential's ID

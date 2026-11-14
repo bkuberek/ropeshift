@@ -352,15 +352,15 @@ func (h *handler) talkEntries(tx ports.ReadTx, rows []conversations.Entry) ([]ap
 
 // senderLabel names who sent a message: a member by their name, and a delegate, the assistant among them, by
 // its credential's label, as the audit names it.
-func senderLabel(members ports.MemberReader, kind, id string) string {
+func senderLabel(members ports.MemberReader, kind, id string) (label, delegateKind string) {
 	_, credential, ok := authority.ActingFor(ledger.Actor{Kind: ledger.ActorKind(kind), ID: id})
 	if !ok {
-		return memberLabel(members, id)
+		return memberLabel(members, id), ""
 	}
 	if record, err := members.Delegate(credential); err == nil && record.Label != "" {
-		return record.Label
+		return record.Label, record.Kind
 	}
-	return credential
+	return credential, ""
 }
 
 func memberLabel(members ports.MemberReader, id string) string {
@@ -406,9 +406,10 @@ func messageEntries(tx ports.ReadTx, rows []messages.Message, from api.TalkFrom)
 	var out []api.TalkEntry
 	for _, row := range rows {
 		message := row
+		label, delegateKind := senderLabel(tx.Members(), row.From.Kind, row.From.ID)
 		out = append(out, api.TalkEntry{
 			ID: "message-" + row.ID, At: row.CreatedAt, Kind: api.TalkKindMember, Body: row.Body, Message: &message,
-			From: &api.TalkFrom{Kind: row.From.Kind, ID: row.From.ID, Label: senderLabel(tx.Members(), row.From.Kind, row.From.ID)},
+			From: &api.TalkFrom{Kind: row.From.Kind, ID: row.From.ID, Label: label, DelegateKind: delegateKind},
 		})
 		if row.Reply == "" {
 			continue

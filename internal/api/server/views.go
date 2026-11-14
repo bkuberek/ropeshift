@@ -1253,7 +1253,7 @@ func cardNeed(members ports.MemberReader, threads ports.ConversationReader, card
 	case err != nil:
 		return nil, err
 	default:
-		need.Label = record.Label
+		need.Label, need.DelegateKind = record.Label, record.Kind
 	}
 	return need, nil
 }

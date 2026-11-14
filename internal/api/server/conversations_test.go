@@ -42,7 +42,13 @@ type talkDaemon struct {
 
 func startTalk(t *testing.T) *talkDaemon {
 	t.Helper()
-	d := &talkDaemon{Daemon: apitest.Start(t), hosts: map[string]control.AssistantHost{}}
+	return startTalkWith(t, apitest.Options{})
+}
+
+// startTalkWith is startTalk on a daemon with these options, such as a clock that repeats.
+func startTalkWith(t *testing.T, options apitest.Options) *talkDaemon {
+	t.Helper()
+	d := &talkDaemon{Daemon: apitest.StartWith(t, options), hosts: map[string]control.AssistantHost{}}
 	config := d.Config
 	config.AssistantHosts = func(context.Context, ledger.WorkspaceID) (map[string]control.AssistantHost, error) {
 		return d.hosts, nil
@@ -772,5 +778,20 @@ func TestReadingAConversationStartsNothing(t *testing.T) {
 		if entry.Kind == api.TalkKindMember {
 			t.Errorf("opening sent %+v", entry)
 		}
+	}
+}
+
+// The installation's own database holds the assistant policy, and a daemon opens it with its migrations, so a
+// version published through the API must be one that database accepts.
+func TestTheAssistantPolicyPublishesOnTheInstallationsOwnDatabase(t *testing.T) {
+	in := apitest.StartInstallation(t, "beta")
+	ctx := t.Context()
+	project := in.Client.Project(apitest.ProjectName)
+	if _, err := project.PublishPolicy(ctx, "[assistant]\nversion = 2\nidle_stop = \"30m\"\nwarm_idle_stop = \"2m\"\n"); err != nil {
+		t.Fatal(err)
+	}
+	versions, err := project.AssistantPolicies(ctx)
+	if err != nil || len(versions) != 2 || versions[0].Version != 2 {
+		t.Fatalf("versions %+v: %v", versions, err)
 	}
 }

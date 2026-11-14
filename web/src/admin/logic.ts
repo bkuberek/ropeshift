@@ -5,7 +5,7 @@ import type { StateLook } from "../floor/states";
 // fields a roster change sends. None of it decides anything the API decides; the API refuses what it
 // refuses, and the page shows that refusal at the field.
 
-export type PolicyKind = "decision" | "lane" | "recovery" | "notify" | "autonomy" | "delegation" | "delegate";
+export type PolicyKind = "decision" | "lane" | "recovery" | "notify" | "autonomy" | "assistant" | "delegation" | "delegate";
 
 export type DelegationClass = { tool: string; command_prefix: string; path: string; agent: string };
 export type PolicyValue = boolean | number | string | string[] | DelegationClass[];
@@ -14,7 +14,7 @@ export type PolicyValues = Record<string, PolicyValue>;
 export type FieldSpec = {
   key: string;
   label: string;
-  type: "bool" | "int" | "text" | "choice" | "list" | "classes" | "operations";
+  type: "bool" | "int" | "minutes" | "text" | "choice" | "list" | "classes" | "operations";
   choices?: string[];
   help?: string;
   // optional text is left out of the body when empty, because the policy reads its absence.
@@ -65,6 +65,18 @@ export const policies: Record<PolicyKind, { table: string; fields: FieldSpec[] }
       { key: "attended_max_respawns_per_day", label: "Respawns per day while attended", type: "int" },
     ],
   },
+  assistant: {
+    table: "assistant",
+    fields: [
+      { key: "idle_stop", label: "Stop an idle session after (minutes)", type: "minutes", help: "From 1 to 1,440 minutes. A session stops this long after its last message or reply." },
+      {
+        key: "warm_idle_stop",
+        label: "Stop a session no message has reached after (minutes)",
+        type: "minutes",
+        help: "From 1 to 1,440 minutes, and never longer than the idle stop. A session a first keystroke started stops this soon if the message never comes.",
+      },
+    ],
+  },
   delegation: {
     table: "delegation_policy",
     fields: [{ key: "classes", label: "Approval classes an orchestrator decides", type: "classes", help: "Each class names a tool, and optionally a command prefix, a path, or an agent." }],
@@ -78,6 +90,26 @@ export const policies: Record<PolicyKind, { table: string; fields: FieldSpec[] }
 export function tomlString(text: string): string {
   return `"${text.replaceAll("\\", "\\\\").replaceAll('"', '\\"').replaceAll("\n", "\\n").replaceAll("\t", "\\t")}"`;
 }
+
+// The bounds of an assistant's stops, in minutes, which the API holds too.
+export const minutesBounds = { min: 1, max: 1440 } as const;
+
+// A version that names no warm idle stop stops a session no message has reached after two minutes.
+const defaultWarmMinutes = 2;
+
+// minutesOf reads a duration the way a policy writes one, such as "15m" or "1h30m", in whole minutes. A word that
+// is no duration reads as nothing.
+export function minutesOf(duration: string): number | null {
+  const found = /^(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?$/.exec(duration.trim());
+  if (!found || duration.trim() === "") {
+    return null;
+  }
+  const seconds = Number(found[1] ?? 0) * 3600 + Number(found[2] ?? 0) * 60 + Number(found[3] ?? 0);
+  return Math.round(seconds / 60);
+}
+
+// isMinutes says a value is a whole number of minutes a stop may be.
+export const isMinutes = (value: PolicyValue | undefined): boolean => typeof value === "number" && Number.isInteger(value) && value >= minutesBounds.min && value <= minutesBounds.max;
 
 function tomlValue(value: PolicyValue): string {
   if (typeof value === "boolean" || typeof value === "number") {
@@ -115,7 +147,7 @@ export function policyBody(kind: PolicyKind, version: number, values: PolicyValu
       }
       continue;
     }
-    lines.push(`${field.key} = ${tomlValue(value)}`);
+    lines.push(`${field.key} = ${field.type === "minutes" ? tomlString(`${value}m`) : tomlValue(value)}`);
   }
   return `${[...lines, ...tables].join("\n")}\n`;
 }
@@ -128,6 +160,27 @@ export function settingsOf(settings: string): PolicyValues {
   } catch {
     return {};
   }
+}
+
+// policySettings reads a version's settings as the form holds them: a stop that the policy states as a duration
+// is whole minutes.
+export function policySettings(kind: PolicyKind, settings: string): PolicyValues {
+  const values = settingsOf(settings);
+  for (const field of policies[kind].fields) {
+    const held = values[field.key];
+    if (field.type === "minutes" && typeof held === "string") {
+      const minutes = minutesOf(held);
+      if (minutes === null) {
+        delete values[field.key];
+      } else {
+        values[field.key] = minutes;
+      }
+    }
+  }
+  if (kind === "assistant" && values.warm_idle_stop === undefined) {
+    values.warm_idle_stop = defaultWarmMinutes;
+  }
+  return values;
 }
 
 // nextVersion is the version a save records, one past the newest.

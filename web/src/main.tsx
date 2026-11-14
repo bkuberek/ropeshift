@@ -8,6 +8,7 @@ import "./styles/shell.css";
 import "./styles/components.css";
 import "./styles/views.css";
 import "./styles/admin.css";
+import "./styles/talk.css";
 import "./styles/responsive.css";
 
 const root = document.getElementById("root");

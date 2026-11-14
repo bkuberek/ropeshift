@@ -65,7 +65,11 @@ export type CardDetail = {
 
 // CardNeed is a confirmation card that waits for a member, with the delegate that prepared it: its
 // credential's label and the member it acts for.
-export type CardNeed = { approval: Approval; detail: CardDetail; label: string; member: string };
+export type CardNeed = { approval: Approval; detail: CardDetail; label: string; member: string; delegate_kind?: "external" | "assistant"; conversation?: CardConversation };
+
+// CardConversation names the conversation with the assistant that prepared a card. Once the conversation is
+// deleted its name is empty and `deleted` says so: the card stays.
+export type CardConversation = { id: string; name: string; deleted?: boolean };
 
 // RecoveryDetail is what an orchestrator asked to do outside its recovery policy, why, and the limit it
 // went past.
@@ -720,7 +724,7 @@ export type PlanView = {
 };
 
 // A request as the approvals list and show routes answer, with who decided it and when once it is decided.
-export type ApprovalRecord = Approval & { decided_by?: string; decided_at?: number; reason?: string };
+export type ApprovalRecord = Approval & { decided_by?: string; decided_at?: number; reason?: string; conversation?: CardConversation };
 
 export type OutlineDocument = { path: string; kind: string; title?: string; status: "new" | "changed" };
 export type OutlineMilestone = { id: string; title: string; priority: number };

@@ -13,6 +13,8 @@ import { Button, Segmented } from "../ui/controls";
 import { Absent, Banner, ConditionChip, EmptyState, Freshness, freshnessOf, Id, LaneBadge, ProjectTag, Refusal, SkeletonRows, TableRegion, TargetChip } from "../ui/display";
 import { Field } from "../ui/forms";
 import { Dialog, Menu } from "../ui/overlays";
+import { Talkable, TalkToLane, useTalkable } from "../talk/controls";
+import { useTalk } from "../talk/state";
 import { laneLabel } from "./states";
 
 type Scope = "project" | "all";
@@ -46,6 +48,7 @@ function LaneActions({ row, after }: { row: Row; after: () => Promise<void> }) {
   };
   return (
     <span className="row-actions">
+      {row.own ? <TalkToLane lane={row.lane.id} /> : null}
       <Link to={addressOf("/lane", { id: row.lane.id })} className="btn btn-sm" aria-label={`Open lane ${row.lane.id}`}>
         Open
       </Link>
@@ -156,6 +159,7 @@ const counting = new Set(["provisioning", "starting", "briefing", "working", "ne
 // source reports to this page yet, how fresh its word is, and its lanes.
 function Machine({ line, rows, after }: { line: WorkerLine; rows: Row[]; after: () => Promise<void> }) {
   const heading = useId();
+  const talk = useTalk();
   const { worker, orchestrator } = line;
   const name = worker.name || worker.id;
   const cap = worker.manifest?.capacity?.max_lanes;
@@ -168,10 +172,18 @@ function Machine({ line, rows, after }: { line: WorkerLine; rows: Row[]; after: 
           {name}
         </h2>
         {orchestrator ? (
-          <TargetChip kind="orchestrator" small>
-            Orchestrator · {orchestrator.actual_state ? laneLabel(orchestrator.actual_state).toLowerCase() : `wanted ${words(orchestrator.desired_state).toLowerCase()}`}
-            {orchestrator.current_generation ? ` · gen ${orchestrator.current_generation}` : ""}
-          </TargetChip>
+          <button
+            type="button"
+            className="target-button"
+            title={`Talk to the orchestrator on ${name}`}
+            onClick={() => talk.select("orchestrator", worker.id, { name, open: true, focus: true })}
+          >
+            <TargetChip kind="orchestrator" small>
+              Orchestrator · {orchestrator.actual_state ? laneLabel(orchestrator.actual_state).toLowerCase() : `wanted ${words(orchestrator.desired_state).toLowerCase()}`}
+              {orchestrator.current_generation ? ` · gen ${orchestrator.current_generation}` : ""}
+            </TargetChip>
+            <span className="visually-hidden">, talk to the orchestrator on {name}</span>
+          </button>
         ) : (
           <span className="subtle small">No orchestrator</span>
         )}
@@ -262,6 +274,7 @@ export function FloorPage({ live, project, projects, show, after }: { live: Live
     live,
   );
   const stuck = useView<Stuck>(() => readView<Stuck>("stuck"), "floor:stuck", live);
+  const talkable = useTalkable(live, project);
   const now = useClock();
   const label = projects.find((row) => row.name === project)?.display_name || project;
   const reads: FloorRead[] = own.view ? [{ project, view: own.view }, ...(scope === "all" ? (rest.view ?? []) : [])] : [];
@@ -288,7 +301,9 @@ export function FloorPage({ live, project, projects, show, after }: { live: Live
       {own.view ? (
         <ViewTime.Provider value={{ asOf: own.view.as_of, elapsed: Math.max(0, now - own.readAt) }}>
           <div aria-busy={own.busy}>
-            <FloorBody reads={reads} stuck={stuck.view} project={project} after={after} />
+            <Talkable.Provider value={talkable}>
+              <FloorBody reads={reads} stuck={stuck.view} project={project} after={after} />
+            </Talkable.Provider>
           </div>
           <StampLine stamp={own.view} />
         </ViewTime.Provider>

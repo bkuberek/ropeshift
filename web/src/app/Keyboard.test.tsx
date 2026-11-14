@@ -70,7 +70,7 @@ describe("the keyboard", () => {
     expect(sent.some((call) => call.method === "POST")).toBe(false);
   });
 
-  it("opens and closes the conversation panel with a period", async () => {
+  it("opens the conversation panel with a period, the cursor in its message box, and closes it with one from outside the box", async () => {
     serveViews();
     openPage("/needs-you");
     await screen.findByRole("heading", { level: 1, name: "Needs you" });
@@ -78,7 +78,14 @@ describe("the keyboard", () => {
     expect(toggle.getAttribute("aria-pressed")).toBe("false");
     await userEvent.keyboard(".");
     expect(toggle.getAttribute("aria-pressed")).toBe("true");
-    expect(await screen.findByRole("complementary", { name: "Conversation" })).toBeTruthy();
+    const dock = await screen.findByRole("complementary", { name: "Conversation" });
+    const box = await within(dock).findByRole("textbox", { name: "Message to the assistant" });
+    await waitFor(() => expect(document.activeElement).toBe(box));
+    // In the box a period is text, because single keys are off in a text field.
+    await userEvent.keyboard(".");
+    expect((box as HTMLTextAreaElement).value).toBe(".");
+    expect(toggle.getAttribute("aria-pressed")).toBe("true");
+    (box as HTMLElement).blur();
     await userEvent.keyboard(".");
     expect(toggle.getAttribute("aria-pressed")).toBe("false");
   });

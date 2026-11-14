@@ -74,6 +74,23 @@
     "expired",
     "revoked"
   ],
+  "conversation_states": [
+    "starting",
+    "running",
+    "working",
+    "stopping",
+    "stopped",
+    "failed"
+  ],
+  "message_states": [
+    "queued",
+    "at_worker",
+    "handed_off",
+    "admitted",
+    "replied",
+    "refused",
+    "expired"
+  ],
   "views": {
     "completed": {
       "as_of": 1790000133001,
