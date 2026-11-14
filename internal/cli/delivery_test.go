@@ -73,3 +73,33 @@ func TestMeasuresDeliveryReadsTheFoldedRecords(t *testing.T) {
 		t.Errorf("an unknown grouping exits %d", code)
 	}
 }
+
+// TestWorkShowPrintsTheCurrentEstimate shows a work order's current estimate with its label and the explanation
+// it was made with, and returns the fields behind them with --json (FR-EST-10, FR-EST-14).
+func TestWorkShowPrintsTheCurrentEstimate(t *testing.T) {
+	s := newSession(t)
+	s.completed("wo")
+	s.must("work", "accept", "wo")
+	if text := s.must("work", "show", "wo"); !strings.Contains(text, "estimate\tno history\n\tNo estimate: no change of unknown size has finished in this project yet") {
+		t.Errorf("the first work's estimate:\n%s", text)
+	}
+	if _, err := control.NewDeliveryFold(s.daemon.Store).Fold(t.Context(), apitest.Scope); err != nil {
+		t.Fatal(err)
+	}
+	s.create("next")
+	text := s.must("work", "show", "next")
+	for _, want := range []string{"estimate\tlow\tdelivery p50 ", " p85 more than ", "\tcost p50 $", "\n\tLow confidence. Based on 1 finished change of unknown size;"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("the estimate leaves out %q:\n%s", want, text)
+		}
+	}
+	var detail api.WorkDetail
+	if err := json.Unmarshal([]byte(s.must("work", "show", "next", "--json")), &detail); err != nil {
+		t.Fatal(err)
+	}
+	e := detail.Estimate
+	if e == nil || e.Status != delivery.Estimated || e.Confidence != delivery.Low || e.SampleCount != 1 || len(e.SampleIDs) != 1 || e.SampleIDs[0] != "wo" ||
+		!e.P85Open || e.Explanation == "" || !strings.Contains(text, e.Explanation) || !e.Current || e.SetID == "" {
+		t.Errorf("the estimate reads %+v", e)
+	}
+}

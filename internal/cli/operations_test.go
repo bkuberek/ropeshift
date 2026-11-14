@@ -134,6 +134,7 @@ var operations = map[string]string{
 	"GET /v1/measures":                                 "measures",
 	"GET /v1/measures/delivery":                        "measures delivery",
 	"GET /v1/work-orders/{id}/timeline":                "work timeline",
+	"GET /v1/work-orders/{id}/estimate":                "work show",
 	"GET /v1/approvals":                                "approval list",
 	"GET /v1/approvals/{id}":                           "approval show",
 	"POST /v1/approvals/{id}/decide":                   "approval approve",
