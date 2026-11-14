@@ -113,6 +113,8 @@ type registration struct {
 	// unless a member named one already (ADR-0022): the project's one repository planned until now, and a
 	// second one would leave it none.
 	planning string
+	// cause is what the registration's event names it came from.
+	cause registrationCause
 }
 
 // register makes or refreshes one clone's record in its own transaction, so a refusal undoes only that
@@ -153,7 +155,7 @@ func (r *Repositories) register(ctx context.Context, scope ledger.WorkspaceID, c
 			if look.made {
 				kind = ledger.EventRepositoryRegistered
 			}
-			event, err := repositoryEvent(kind, clone.ID, detectedEvent{Name: look.named, Remote: clone.Remote, DefaultBranch: clone.DefaultBranch}, actor)
+			event, err := repositoryEvent(kind, clone.ID, detectedEvent{Name: look.named, Remote: clone.Remote, DefaultBranch: clone.DefaultBranch, registrationCause: how.cause}, actor)
 			if err != nil {
 				return err
 			}

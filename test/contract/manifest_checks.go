@@ -1,6 +1,7 @@
 package contract
 
 import (
+	"encoding/json"
 	"errors"
 	"slices"
 	"strings"
@@ -314,6 +315,16 @@ func checkApprovalRegistersTheManifest(r *Rig) error {
 	events, err := r.repositoryEvents(s, "repo-billing")
 	if err != nil || len(events) == 0 || events[0].Type != ledger.EventRepositoryRegistered || events[0].Actor != r.member() {
 		return Violatedf("billing's registration is recorded as %+v: %v", events, err)
+	}
+	// The event names the approval that registered it, and the plan version that approval covers.
+	var cause struct {
+		Name        string `json:"name"`
+		Approval    string `json:"approval"`
+		Plan        string `json:"plan"`
+		PlanVersion int64  `json:"plan_version"`
+	}
+	if err := json.Unmarshal(events[0].Data, &cause); err != nil || cause.Name != "billing" || cause.Approval != request.ID || cause.Plan != request.Plan || cause.PlanVersion != request.PlanVersion {
+		return Violatedf("billing's registration event reads %s, want approval %s of plan %s version %d", events[0].Data, request.ID, request.Plan, request.PlanVersion)
 	}
 	if search, ok := outcomeOf(added, "/work/search"); !ok || search.Outcome != ledger.RegistrationRefused || !strings.Contains(search.Reason, "/work/search") {
 		return Violatedf("search, with no clone, reads %+v", search)

@@ -56,11 +56,22 @@ type RepositoryChange struct {
 	Planning *bool
 }
 
-// detectedEvent is the data of EventRepositoryDetected. Name is there when the read named the record.
+// detectedEvent is the data of EventRepositoryDetected, and of EventRepositoryRegistered. Name is there when
+// the read named the record, and a registration from a manifest names what caused it.
 type detectedEvent struct {
 	Name          string `json:"name,omitempty"`
 	Remote        string `json:"remote,omitempty"`
 	DefaultBranch string `json:"default_branch,omitempty"`
+	registrationCause
+}
+
+// registrationCause is what a registration from a manifest came from (ADR-0022): the plan approval and the
+// plan version it covers, or the manifest a member registered from by hand.
+type registrationCause struct {
+	Approval    string `json:"approval,omitempty"`
+	Plan        string `json:"plan,omitempty"`
+	PlanVersion int64  `json:"plan_version,omitempty"`
+	Manifest    string `json:"manifest,omitempty"`
 }
 
 // changedEvent is the data of EventRepositoryChanged: the record before and after, so the audit reads

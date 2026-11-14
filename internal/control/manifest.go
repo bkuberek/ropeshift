@@ -29,6 +29,7 @@ func (r *Repositories) RegisterApproved(ctx context.Context, scope ledger.Worksp
 		return nil, workorders.ErrForbidden
 	}
 	var entries []planning.ManifestRepository
+	var cause registrationCause
 	err := r.store.Read(ctx, scope, func(tx ports.ReadTx) error {
 		row, err := tx.Approvals().Approval(approval)
 		if err != nil || row.Kind != authority.KindPlan {
@@ -37,12 +38,13 @@ func (r *Repositories) RegisterApproved(ctx context.Context, scope ledger.Worksp
 		if row.State == authority.ApprovalApproved || (dryRun && row.Open()) {
 			entries, err = versionManifest(tx, row)
 		}
+		cause = registrationCause{Approval: row.ID, Plan: row.Plan, PlanVersion: row.PlanVersion}
 		return err
 	})
 	if err != nil || len(entries) == 0 {
 		return nil, err
 	}
-	return r.registerEntries(ctx, scope, entries, kept, manifestRun{dryRun: dryRun}, actor)
+	return r.registerEntries(ctx, scope, entries, kept, manifestRun{dryRun: dryRun, cause: cause}, actor)
 }
 
 // RegisterManifest registers what one manifest lists, as a member setting a project up by hand does with
@@ -53,7 +55,7 @@ func (r *Repositories) RegisterManifest(ctx context.Context, scope ledger.Worksp
 	if !authority.Allowed(actor, authority.ActionRegisterManifest) {
 		return nil, workorders.ErrForbidden
 	}
-	return r.registerEntries(ctx, scope, manifest.Repositories, kept, manifestRun{dryRun: dryRun, restore: true}, actor)
+	return r.registerEntries(ctx, scope, manifest.Repositories, kept, manifestRun{dryRun: dryRun, restore: true, cause: registrationCause{Manifest: manifest.ID}}, actor)
 }
 
 // versionManifest lists the repositories the manifests of one plan version name, at the version of each
@@ -192,7 +194,7 @@ func (r *Repositories) registerEntries(ctx context.Context, scope ledger.Workspa
 			out = append(out, refused(real, reason))
 			continue
 		}
-		added, err := r.register(ctx, scope, clone, registration{claimed: claimed, dryRun: dryRun, restore: run.restore, planning: planning}, actor)
+		added, err := r.register(ctx, scope, clone, registration{claimed: claimed, dryRun: dryRun, restore: run.restore, planning: planning, cause: run.cause}, actor)
 		if err != nil {
 			return out, err
 		}
@@ -217,6 +219,8 @@ type manifestRun struct {
 	// restore brings back a repository the project removed, which a member's registration by hand does and
 	// a plan approval never does.
 	restore bool
+	// cause is what each registration's event names it came from.
+	cause registrationCause
 }
 
 // staysRemoved says why a repository a member removed is not registered again.
