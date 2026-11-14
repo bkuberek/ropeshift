@@ -8,6 +8,7 @@ import (
 
 	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/delivery"
+	"ropeshift.com/ropeshift/internal/ledger"
 )
 
 // workTimeline prints where one work order's time went, and, once it ended, its delivery record.
@@ -66,7 +67,8 @@ func orDash(text string) string {
 func (c *invocation) measuresDelivery(args []string) int {
 	set := c.flags()
 	window := set.String("window", api.DefaultDeliveryWindow, "how far back, such as 24h or 30d")
-	by := set.String("by", delivery.ByKind, "group by "+strings.Join(api.DeliveryGroupings, ", "))
+	groupings := append(slices.Clone(api.DeliveryGroupings), delivery.ByProject)
+	by := set.String("by", delivery.ByKind, "group by "+strings.Join(groupings, ", "))
 	positional, ok := c.parse(set, args)
 	if !ok {
 		return ExitUsage
@@ -77,8 +79,12 @@ func (c *invocation) measuresDelivery(args []string) int {
 	if _, err := api.ParseWindow(*window); err != nil {
 		return c.usageError("%v", err)
 	}
-	if !slices.Contains(api.DeliveryGroupings, *by) {
-		return c.usageError("--by is one of %s", strings.Join(api.DeliveryGroupings, ", "))
+	if !slices.Contains(groupings, *by) {
+		return c.usageError("--by is one of %s", strings.Join(groupings, ", "))
+	}
+	if *by == delivery.ByProject {
+		report, err := c.deliveryByProject(*window)
+		return c.finish(err, report, func() string { return lookBackText(report) })
 	}
 	client, exit := c.projectClient()
 	if client == nil {
@@ -87,6 +93,32 @@ func (c *invocation) measuresDelivery(args []string) int {
 	defer client.Close()
 	report, err := client.Delivery(c.ctx, *window, *by)
 	return c.finish(err, report, func() string { return lookBackText(report) })
+}
+
+// deliveryByProject reads every active project's look back apart, each project one group, through the API
+// as the installation's other views read every project.
+func (c *invocation) deliveryByProject(window string) (delivery.LookBack, error) {
+	client := c.client()
+	defer client.Close()
+	projects, err := client.Projects(c.ctx)
+	if err != nil {
+		return delivery.LookBack{}, err
+	}
+	out := delivery.LookBack{By: delivery.ByProject, Groups: []delivery.Group{}}
+	for _, project := range projects {
+		if project.State != ledger.ProjectActive {
+			continue
+		}
+		report, err := client.Project(project.Name).Delivery(c.ctx, window, delivery.ByKind)
+		if err != nil {
+			return delivery.LookBack{}, err
+		}
+		out.From, out.To = report.From, report.To
+		group := report.Groups[0]
+		group.Key = project.Name
+		out.Groups = append(out.Groups, group)
+	}
+	return out, nil
 }
 
 func quantilesText(q *delivery.Quantiles) string {
@@ -126,7 +158,7 @@ func lookBackText(report delivery.LookBack) string {
 			fmt.Fprintf(&out, "share\t%s\t%s\n", strings.ReplaceAll(label, "\t", " "), strings.Join(parts, "\t"))
 		}
 	}
-	if len(report.Groups) > 0 {
+	if len(report.Groups) > 0 && report.Groups[0].Key == "" {
 		for _, w := range report.Groups[0].Trend {
 			fmt.Fprintf(&out, "week\t%s\tdone %d\tdelivery %s\n", time.UnixMilli(w.From).UTC().Format(time.DateOnly), w.Done, quantilesText(w.Delivery))
 		}

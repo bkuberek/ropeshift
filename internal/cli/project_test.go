@@ -11,6 +11,7 @@ import (
 
 	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/cli"
+	"ropeshift.com/ropeshift/internal/delivery"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/test/apitest"
 )
@@ -178,6 +179,34 @@ func TestProjectListAndShow(t *testing.T) {
 	}
 	if code, _, _ := p.run(cli.Options{}, "project", "show", "nowhere"); code != cli.ExitUsage {
 		t.Errorf("an unknown project: exit %d", code)
+	}
+}
+
+// TestMeasuresDeliveryByProjectReadsEveryActiveProject reads look back apart for each active project, which
+// is the one grouping above a project (FR-EST-5).
+func TestMeasuresDeliveryByProjectReadsEveryActiveProject(t *testing.T) {
+	p := newProjects(t)
+	none := cli.Options{}
+	p.must(none, "project", "create", "beta")
+	text := p.must(none, "measures", "delivery", "--by", "project")
+	for _, want := range []string{"project\tacme\tdone 0\t", "project\tbeta\tdone 0\t"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("look back by project leaves out %q:\n%s", want, text)
+		}
+	}
+	if strings.Contains(text, "week\t") {
+		t.Errorf("look back by project prints one project's trend as everyone's:\n%s", text)
+	}
+	var report delivery.LookBack
+	if err := json.Unmarshal([]byte(p.must(none, "measures", "delivery", "--by", "project", "--json")), &report); err != nil {
+		t.Fatal(err)
+	}
+	keys := map[string]bool{}
+	for _, group := range report.Groups {
+		keys[group.Key] = true
+	}
+	if report.By != delivery.ByProject || !keys["acme"] || !keys["beta"] || keys[""] {
+		t.Errorf("look back by project reads groups %v", keys)
 	}
 }
 
