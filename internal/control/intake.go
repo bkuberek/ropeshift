@@ -631,7 +631,7 @@ func (r *itemRecorder) nextVersion() (planning.Contract, bool, error) {
 	contract := planning.Contract{
 		Version: 1, Title: file.Title, Digest: r.item.Digest, Source: r.item.Source, Statement: r.item.Statement,
 		Criteria: file.Criteria, Requirements: file.Requirements, Decisions: file.Decisions, Status: planning.StatusActive,
-		Milestone: file.Milestone, Shared: file.Shared, Uses: file.Uses, Existing: file.Existing, Orders: orderParts(file),
+		Milestone: file.Milestone, Shared: file.Shared, Uses: file.Uses, Reads: file.Reads, Existing: file.Existing, Orders: orderParts(file),
 	}
 	link, err := r.tx.Planning().Link(planning.SubjectContract, r.item.Key)
 	if errors.Is(err, ports.ErrNotFound) {

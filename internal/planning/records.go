@@ -198,6 +198,9 @@ type Contract struct {
 	Shared       bool          `json:"shared,omitempty"`
 	Uses         []string      `json:"uses,omitempty"`
 	Documents    []DocumentPin `json:"documents,omitempty"`
+	// Reads names, by their names in the project, other repositories the contract's lanes read beside those
+	// their dependencies target (ADR-0022).
+	Reads []string `json:"reads,omitempty"`
 	// Existing says the code already delivers the contract, so it has no work orders of its own and every
 	// dependency on it is resolved from the start (ADR-0023).
 	Existing bool `json:"existing,omitempty"`

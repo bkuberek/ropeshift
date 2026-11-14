@@ -355,6 +355,15 @@ func TestParseFile(t *testing.T) {
 			},
 		},
 		{
+			name:    "a contract lists the other repositories its lanes read, each once",
+			fixture: "contract-reads.md",
+			check: func(t *testing.T, doc planning.Document) {
+				if c := doc.Contract; c == nil || !slices.Equal(c.Reads, []string{"orders", "schema"}) || c.WorkOrders[0].Repo != "web" {
+					t.Errorf("contract %+v", doc.Contract)
+				}
+			},
+		},
+		{
 			name:    "a requirement the code meets cites its evidence",
 			fixture: "requirements-met.md",
 			check: func(t *testing.T, doc planning.Document) {
@@ -408,6 +417,7 @@ func TestParseFile(t *testing.T) {
 		{name: "a front matter with no end", fixture: "unclosed.md", wantErr: planning.ErrBadFile},
 		{name: "a size the format does not name", fixture: "bad-size.md", wantErr: planning.ErrBadFile},
 		{name: "a base git would take as an option", fixture: "bad-base.md", wantErr: planning.ErrBadFile},
+		{name: "a read that names no repository", fixture: "bad-reads.md", wantErr: planning.ErrBadFile},
 		{name: "one work order twice", fixture: "repeated-order.md", wantErr: planning.ErrBadFile},
 		{name: "a plain document", fixture: "no-front-matter.md", wantErr: planning.ErrNotOurs},
 	}
