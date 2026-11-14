@@ -99,7 +99,7 @@ func (r estimateReads) estimateSet(set delivery.EstimateSet, orders []workorders
 		return delivery.EstimateSet{}, false, err
 	}
 	var pool []delivery.Record
-	if policy.ShareHistory {
+	if policy.ShareHistory && r.pool.Kept() {
 		if pool, err = r.pool.Records(); err != nil {
 			return delivery.EstimateSet{}, false, err
 		}
@@ -117,7 +117,7 @@ func (r estimateReads) estimateSet(set delivery.EstimateSet, orders []workorders
 		if err != nil {
 			return delivery.EstimateSet{}, false, err
 		}
-		e := delivery.EstimateOf(delivery.EstimateInput{WorkOrder: order.ID, Keys: keys, Records: records, Pool: pool, Policy: policy, Rev: set.Rev})
+		e := delivery.EstimateOf(delivery.EstimateInput{WorkOrder: order.ID, Keys: keys, Records: records, Pool: pool, Policy: policy, Rev: set.Rev, NoPool: !r.pool.Kept()})
 		if e.ID, err = newID(now); err != nil {
 			return delivery.EstimateSet{}, false, err
 		}

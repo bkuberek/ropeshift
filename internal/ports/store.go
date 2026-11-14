@@ -109,6 +109,9 @@ type PoolReader interface {
 	Records() ([]delivery.Record, error)
 	// Shared returns the digest of what this project shares, or "" while it shares nothing.
 	Shared() (string, error)
+	// Kept says the store keeps a pool at all: a store with no installation database holds one project, and
+	// keeps none.
+	Kept() bool
 }
 
 // EstimateReader reads estimate sets and their estimates (ADR-0026).

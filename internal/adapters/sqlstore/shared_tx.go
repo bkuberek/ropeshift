@@ -67,8 +67,8 @@ func (in *Installation) Beat(ctx context.Context, worker string, epoch int64) er
 }
 
 // SharePool replaces a project's share of the delivery pool, in the installation's database.
-func (in *Installation) SharePool(ctx context.Context, project ledger.WorkspaceID, digest string, records []delivery.Record) error {
-	return in.core.sharePool(ctx, ledger.InstallationScope, project, digest, records)
+func (in *Installation) SharePool(ctx context.Context, project ledger.WorkspaceID, policyVersion int64, digest string, records []delivery.Record) error {
+	return in.core.sharePool(ctx, ledger.InstallationScope, project, policyVersion, digest, records)
 }
 
 // installationReadTx is one view of the installation's shared records.
@@ -195,7 +195,7 @@ func (o ownShared) Beat(ctx context.Context, worker string, epoch int64) error {
 }
 
 // SharePool keeps nothing: a store with no installation holds one project, which has no other to share with.
-func (o ownShared) SharePool(context.Context, ledger.WorkspaceID, string, []delivery.Record) error {
+func (o ownShared) SharePool(context.Context, ledger.WorkspaceID, int64, string, []delivery.Record) error {
 	return nil
 }
 

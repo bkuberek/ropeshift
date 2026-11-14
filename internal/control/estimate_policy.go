@@ -77,6 +77,13 @@ func (e *EstimatePolicies) PublishEstimatePolicy(ctx context.Context, scope ledg
 	if err != nil {
 		return authority.PolicyVersion{}, err
 	}
+	// A project that stops sharing takes its records out of the pool now, not at its next tick, which a failing
+	// fold or an archive could hold off. A retry of the same body takes them out again.
+	if !draft.Policy.ShareHistory {
+		if err := e.store.Installation(scope).SharePool(ctx, scope, draft.Policy.Version, "", nil); err != nil {
+			return authority.PolicyVersion{}, err
+		}
+	}
 	return record, nil
 }
 

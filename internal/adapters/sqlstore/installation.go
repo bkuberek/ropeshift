@@ -362,12 +362,29 @@ func (in *Installation) SetProjectState(ctx context.Context, id ledger.Workspace
 		eventType = ledger.EventProjectArchived
 	}
 	return in.changeProject(ctx, opProjectState, id, eventType, func(t *installationTx, _ ledger.Project) (int64, error) {
+		// An archived project runs no tick and is read-only, so it could never take its share out of the pool
+		// later; it leaves the pool here, and a restored one shares again on its next tick if its policy says so.
+		if state == ledger.ProjectArchived {
+			if err := takeOutOfPool(t, id); err != nil {
+				return 0, err
+			}
+		}
 		return t.exec(stmtSetProjectState, params{"id": string(id), "state": string(state)})
 	}, actor)
 }
 
-// DropProject forgets a project: its entry in the registry and every repository it held in the index.
-// The event that records who removed it stays in the installation's log.
+// takeOutOfPool drops a project's records and its share from the delivery pool, in a transaction of the registry.
+func takeOutOfPool(t *installationTx, id ledger.WorkspaceID) error {
+	for _, st := range []*statement{stmtPoolDrop, stmtPoolDropShare} {
+		if _, err := t.exec(st, params{"workspace_id": string(ledger.InstallationScope), "project_id": string(id)}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// DropProject forgets a project: its entry in the registry, every repository it held in the index, and its
+// share of the delivery pool. The event that records who removed it stays in the installation's log.
 func (in *Installation) DropProject(ctx context.Context, id ledger.WorkspaceID, actor ledger.Actor) error {
 	return in.write(ctx, opDropProject, func(t *installationTx) error {
 		before, err := readProject(t.session, stmtReadProject, params{"id": string(id)})
@@ -375,6 +392,9 @@ func (in *Installation) DropProject(ctx context.Context, id ledger.WorkspaceID, 
 			return err
 		}
 		if _, err := t.exec(stmtForgetProjectRepositories, params{"project_id": string(id)}); err != nil {
+			return err
+		}
+		if err := takeOutOfPool(t, id); err != nil {
 			return err
 		}
 		if _, err := t.exec(stmtDeleteProject, params{"id": string(id)}); err != nil {

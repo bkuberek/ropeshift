@@ -16,12 +16,12 @@ import (
 // which has no other to share with.
 var (
 	stmtPoolRecords = defineInstallation("pool.records",
-		`SELECT kind, size, capability_class, outcome, ended_at, elapsed_ms, delivery_ms, lane_ms, person_ms, cost_usd, cost_lower_bound
+		`SELECT kind, size, capability_class, ended_at, elapsed_ms, delivery_ms, lane_ms, person_ms, cost_usd, cost_lower_bound
   FROM delivery_pool WHERE workspace_id = :workspace_id AND project_id <> :project_id
  ORDER BY ended_at, project_id, seq`)
 
 	stmtPoolShared = defineInstallation("pool.shared",
-		`SELECT digest FROM delivery_pool_shares WHERE workspace_id = :workspace_id AND project_id = :project_id`)
+		`SELECT digest, policy_version FROM delivery_pool_shares WHERE workspace_id = :workspace_id AND project_id = :project_id`)
 
 	stmtPoolDrop = defineInstallation("pool.drop",
 		`DELETE FROM delivery_pool WHERE workspace_id = :workspace_id AND project_id = :project_id`)
@@ -31,12 +31,13 @@ var (
 
 	stmtPoolAdd = defineInstallation("pool.add",
 		`INSERT INTO delivery_pool
-  (workspace_id, project_id, seq, kind, size, capability_class, outcome, ended_at, elapsed_ms, delivery_ms, lane_ms, person_ms, cost_usd, cost_lower_bound)
-VALUES (:workspace_id, :project_id, :seq, :kind, :size, :capability_class, :outcome, :ended_at, :elapsed_ms, :delivery_ms, :lane_ms, :person_ms, :cost_usd, :cost_lower_bound)`)
+  (workspace_id, project_id, seq, kind, size, capability_class, ended_at, elapsed_ms, delivery_ms, lane_ms, person_ms, cost_usd, cost_lower_bound)
+VALUES (:workspace_id, :project_id, :seq, :kind, :size, :capability_class, :ended_at, :elapsed_ms, :delivery_ms, :lane_ms, :person_ms, :cost_usd, :cost_lower_bound)`)
 
 	stmtPoolSaveShare = defineInstallation("pool.save_share",
-		`INSERT INTO delivery_pool_shares (workspace_id, project_id, digest, shared_at) VALUES (:workspace_id, :project_id, :digest, :shared_at)
-ON CONFLICT (workspace_id, project_id) DO UPDATE SET digest = :digest, shared_at = :shared_at`)
+		`INSERT INTO delivery_pool_shares (workspace_id, project_id, digest, policy_version, shared_at)
+VALUES (:workspace_id, :project_id, :digest, :policy_version, :shared_at)
+ON CONFLICT (workspace_id, project_id) DO UPDATE SET digest = :digest, policy_version = :policy_version, shared_at = :shared_at`)
 )
 
 // Pool reads the delivery pool within a read of a project.
@@ -67,6 +68,8 @@ func (t poolTx) scoped(p params) params {
 	return p
 }
 
+func (t poolTx) Kept() bool { return t.session != nil }
+
 func (t poolTx) Records() ([]delivery.Record, error) {
 	out := []delivery.Record{}
 	if t.session == nil {
@@ -78,39 +81,59 @@ func (t poolTx) Records() ([]delivery.Record, error) {
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var r delivery.Record
-		var outcome string
+		// The pool holds work that reached `done` and nothing else.
+		r := delivery.Record{Outcome: workorders.Done}
 		var lowerBound int64
-		err := rows.Scan(&r.Kind, &r.Size, &r.CapabilityClass, &outcome, &r.Ended, &r.ElapsedMs, &r.DeliveryMs, &r.LaneMs, &r.PersonMs, &r.Usage.CostUSD, &lowerBound)
+		err := rows.Scan(&r.Kind, &r.Size, &r.CapabilityClass, &r.Ended, &r.ElapsedMs, &r.DeliveryMs, &r.LaneMs, &r.PersonMs, &r.Usage.CostUSD, &lowerBound)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", stmtPoolRecords.name, err)
 		}
-		r.Outcome, r.Usage.CostLowerBound = workorders.State(outcome), lowerBound != 0
+		r.Usage.CostLowerBound = lowerBound != 0
 		out = append(out, r)
 	}
 	return out, rows.Err()
 }
 
 func (t poolTx) Shared() (string, error) {
+	digest, _, err := t.share()
+	return digest, err
+}
+
+// share reads the project's last share or take-out: its digest, empty once it stopped sharing, and the policy
+// version that decided it, or none.
+func (t poolTx) share() (string, int64, error) {
 	if t.session == nil {
-		return "", nil
+		return "", 0, nil
 	}
 	row, err := t.row(stmtPoolShared, t.scoped(params{}))
 	if err != nil {
-		return "", err
+		return "", 0, err
 	}
 	var digest string
-	if err := row.Scan(&digest); errors.Is(err, sql.ErrNoRows) {
-		return "", nil
+	var version int64
+	if err := row.Scan(&digest, &version); errors.Is(err, sql.ErrNoRows) {
+		return "", 0, nil
 	} else if err != nil {
-		return "", fmt.Errorf("%s: %w", stmtPoolShared.name, err)
+		return "", 0, fmt.Errorf("%s: %w", stmtPoolShared.name, err)
 	}
-	return digest, nil
+	return digest, version, nil
+}
+
+// takeOut drops a project's records and its share from the pool.
+func (t poolTx) takeOut() error {
+	for _, st := range []*statement{stmtPoolDrop, stmtPoolDropShare} {
+		if _, err := t.exec(st, t.scoped(params{})); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // sharePool replaces a project's share of the pool in one short transaction, with no revision and no event,
-// because the share is derived from the project's delivery records. An empty digest takes the share out.
-func (s *Store) sharePool(ctx context.Context, scope, project ledger.WorkspaceID, digest string, records []delivery.Record) error {
+// because the share is derived from the project's delivery records. An empty digest takes the share out, and
+// keeps the policy version that did. A share under an earlier policy version than the one that last decided
+// changes nothing, and a project the registry does not hold as active keeps nothing in the pool.
+func (s *Store) sharePool(ctx context.Context, scope, project ledger.WorkspaceID, policyVersion int64, digest string, records []delivery.Record) error {
 	if err := project.Validate(); err != nil {
 		return err
 	}
@@ -124,10 +147,23 @@ func (s *Store) sharePool(ctx context.Context, scope, project ledger.WorkspaceID
 	if err != nil {
 		return err
 	}
-	for _, st := range []*statement{stmtPoolDrop, stmtPoolDropShare} {
-		if _, err := t.exec(st, t.scoped(params{})); err != nil {
+	registered, err := readProject(t.session, stmtReadProject, params{"id": string(project)})
+	switch {
+	case errors.Is(err, ports.ErrNotFound) || (err == nil && registered.State != ledger.ProjectActive):
+		if err := t.takeOut(); err != nil {
 			return err
 		}
+		return t.commit(tx)
+	case err != nil:
+		return err
+	}
+	if _, decided, err := t.share(); err != nil {
+		return err
+	} else if policyVersion < decided {
+		return t.commit(tx)
+	}
+	if err := t.takeOut(); err != nil {
+		return err
 	}
 	if digest != "" {
 		for i, r := range delivery.Pooled(records) {
@@ -136,18 +172,22 @@ func (s *Store) sharePool(ctx context.Context, scope, project ledger.WorkspaceID
 				lowerBound = 1
 			}
 			_, err := t.exec(stmtPoolAdd, t.scoped(params{
-				"seq": int64(i), "kind": r.Kind, "size": r.Size, "capability_class": r.CapabilityClass, "outcome": string(r.Outcome),
-				"ended_at": r.Ended, "elapsed_ms": r.ElapsedMs, "delivery_ms": r.DeliveryMs, "lane_ms": r.LaneMs, "person_ms": r.PersonMs,
+				"seq": int64(i), "kind": r.Kind, "size": r.Size, "capability_class": r.CapabilityClass, "ended_at": r.Ended,
+				"elapsed_ms": r.ElapsedMs, "delivery_ms": r.DeliveryMs, "lane_ms": r.LaneMs, "person_ms": r.PersonMs,
 				"cost_usd": r.Usage.CostUSD, "cost_lower_bound": lowerBound,
 			}))
 			if err != nil {
 				return err
 			}
 		}
-		if _, err := t.exec(stmtPoolSaveShare, t.scoped(params{"digest": digest, "shared_at": now})); err != nil {
-			return err
-		}
 	}
+	if _, err := t.exec(stmtPoolSaveShare, t.scoped(params{"digest": digest, "policy_version": policyVersion, "shared_at": now})); err != nil {
+		return err
+	}
+	return t.commit(tx)
+}
+
+func (t poolTx) commit(tx *sql.Tx) error {
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("%s: commit: %w", OpSharePool, err)
 	}
