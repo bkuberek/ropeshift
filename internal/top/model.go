@@ -278,9 +278,9 @@ func Reader(client *api.ProjectClient) func(context.Context) (Snapshot, error) {
 }
 
 // Frame is one frame of a fleet read once, for a terminal, a pipe, or a script's log, clipped to a
-// width. A width of zero or less is the plain width, 120 columns.
+// width. A width of zero or less is the plain width, 120 columns. It takes no keys, so it names none.
 func Frame(snapshot Snapshot, now time.Time, width int) string {
 	m := New(Config{Now: func() time.Time { return now }}).loaded(snapshot)
 	m.width = width
-	return m.View() + "\n"
+	return m.frame(false) + "\n"
 }

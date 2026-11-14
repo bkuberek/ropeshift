@@ -153,6 +153,31 @@ func TestAPlanApprovalAndAContractReviewSayWhatToDo(t *testing.T) {
 	}
 }
 
+// A confirmation card says what it asks and which delegate prepared it, as Needs you does, and names the
+// commands that confirm and decline it.
+func TestAConfirmationCardSaysWhatItAsks(t *testing.T) {
+	snapshot := top.Snapshot{}
+	snapshot.Needs.Items = []api.NeedItem{
+		{Kind: api.NeedConfirm, ID: "card-1", Card: &api.CardNeed{
+			Approval: authority.Approval{ID: "card-1", Kind: authority.KindConfirm, Summary: "Raise merge authority: harbor-web"}, Label: "planning assistant", Member: "member-1",
+		}},
+		{Kind: api.NeedConfirm, ID: "card-2", Card: &api.CardNeed{
+			Approval: authority.Approval{ID: "card-2", Kind: authority.KindConfirm, Summary: "Cancel work wo-1"}, Label: "dlg_removed",
+		}},
+	}
+	frame := loaded(t, snapshot).View()
+	for _, want := range []string{
+		"card-1  Raise merge authority: harbor-web  prepared by planning assistant for member-1",
+		"card-2  Cancel work wo-1  prepared by dlg_removed",
+		"    ropeshift confirm card-1",
+		"    ropeshift decline card-1",
+	} {
+		if !strings.Contains(frame, want) {
+			t.Errorf("no %q in:\n%s", want, frame)
+		}
+	}
+}
+
 // Titles and lane reasons come from agents and repositories, and a terminal obeys what it is sent.
 func TestNothingAReaderHoldsCanWriteToTheTerminal(t *testing.T) {
 	hostile := "ok\x1b]52;c;c3RvbGVu\x07\x1b[2J\u009b31m\u202egone\r\nforged"
@@ -330,24 +355,83 @@ func TestALaneShowsItsContextTokensAndCost(t *testing.T) {
 	}}
 	wide, _ := loaded(t, snapshot).Update(top.Resized(240, 40))
 	frame := wide.View()
-	var line string
-	for candidate := range strings.Lines(frame) {
-		if strings.Contains(candidate, "lane-wo-accept") && strings.Contains(candidate, "liveness") {
-			line = candidate
+	if line := figuresOf(frame, "lane-wo-accept"); !strings.Contains(line, "context 42000") || !strings.Contains(line, "tokens 41200") || !strings.HasSuffix(line, "cost $0.12") {
+		t.Errorf("the lane does not state its telemetry in dollars and cents: %q", line)
+	}
+	if line := figuresOf(frame, "lane-wo-blocked"); !strings.HasSuffix(line, "cost under $0.01") {
+		t.Errorf("a cost under a cent reads as something else: %q", line)
+	}
+	if line := figuresOf(frame, "lane-wo-approval"); line != "" {
+		t.Errorf("a lane with no telemetry shows figures: %q", line)
+	}
+}
+
+// figuresOf is the line under a lane's own line that states its figures, or nothing when the next line is
+// not one.
+func figuresOf(frame, lane string) string {
+	lines := strings.Split(frame, "\n")
+	for i, line := range lines {
+		if strings.HasPrefix(line, "  "+lane+"  ") && i+1 < len(lines) && strings.HasPrefix(lines[i+1], "    ") {
+			return strings.TrimSpace(lines[i+1])
 		}
 	}
-	if !strings.Contains(line, "context 42000") || !strings.Contains(line, "tokens 41200") || !strings.HasSuffix(strings.TrimSpace(line), "cost $0.12") {
-		t.Errorf("the lane line does not state its telemetry in dollars and cents: %q", line)
+	return ""
+}
+
+// A lane's line says what it is and how it stands, and its figures go on the line under it, and a worker's
+// measures, and when it measured them with its warnings, go on lines of their own, so a printed frame 200
+// columns wide clips no lane and no worker, whatever each reports.
+func TestAPrintedFrameClipsNoLaneOrWorker(t *testing.T) {
+	snapshot := golden(t)
+	snapshot.Needs.Items = nil
+	cores, rss, cpu, load, total, used, available, pressure := 0.25, int64(300)<<20, 42.0, 2.5, int64(32)<<30, int64(12)<<30, int64(20)<<30, 1.5
+	lane := "01M7CKTK50TFPST7HBFWPTCESB"
+	snapshot.Floor.Lanes = []api.FloorLane{{LaneView: ledger.LaneView{
+		ID: lane, WorkOrder: "01M7CKTJ7EH8PD5T3Z5045YP8N", Freshness: ledger.FreshnessLastReported, AsOf: snapshot.Needs.AsOf - 12*60*1000,
+		LaneStatus: ledger.LaneStatus{ActualState: "needs_decision", Liveness: "alive", ModelReach: "unreachable", LedgerReach: "reachable", Conditions: []string{"waiting_external", "unpushed_work"}},
+	}}}
+	snapshot.Telemetry = api.LaneTelemetryList{Available: true, Lanes: []api.LaneTelemetry{{Lane: lane, ContextTokens: 159100, Tokens: map[string]int64{"input": 1000000}, CostUSD: 12.57}}}
+	worker := &snapshot.Floor.Workers[0]
+	worker.Orchestrator = &ledger.Orchestrator{Desired: "running", Actual: "idle"}
+	worker.Worker.Report = &ledger.ResourceReport{
+		Machine: ledger.MachineResources{
+			Cores: 8, CPUPercent: &cpu, Load1: &load, Load5: &load, Load15: &load, MemoryTotalBytes: &total, MemoryUsedBytes: &used, MemoryAvailableBytes: &available, MemoryPressureSome: &pressure,
+			Volumes: []ledger.VolumeResources{{Roles: []string{"state"}, FreeBytes: 5 << 30, TotalBytes: 100 << 30}, {Roles: []string{"worktrees"}, FreeBytes: 120 << 30, TotalBytes: 500 << 30}},
+		},
+		Recommendation: &ledger.LaneRecommendation{MaxLanes: 7, Basis: ledger.BasisEstimates},
+		Caps:           ledger.LaneCaps{MaxLanes: 12, MaxLanesSet: true},
+		Warnings:       []ledger.ResourceWarning{{Measure: ledger.WarnDiskFree, Volume: "state"}, {Measure: ledger.WarnCPULoad}},
+		Sessions: []ledger.SessionResources{
+			{Kind: ledger.SessionLane, Lane: lane, CPUCores: &cores, RSSBytes: &rss},
+			{Kind: ledger.SessionOrchestrator, Lane: "orchestrator-1", CPUCores: &cores, RSSBytes: &rss},
+		},
 	}
-	for candidate := range strings.Lines(frame) {
-		if strings.Contains(candidate, "lane-wo-blocked") && strings.Contains(candidate, "context") && !strings.HasSuffix(strings.TrimSpace(candidate), "cost under $0.01") {
-			t.Errorf("a cost under a cent reads as something else: %q", candidate)
-		}
+	worker.Worker.ReportedAt = snapshot.Needs.AsOf - 5_000
+	frame := top.Frame(snapshot, time.UnixMilli(snapshot.Needs.AsOf), 200)
+	if width, clipped := longest(frame); clipped {
+		t.Errorf("a line of %d columns was clipped:\n%s", width, frame)
 	}
-	for candidate := range strings.Lines(frame) {
-		if strings.Contains(candidate, "lane-wo-approval") && strings.Contains(candidate, "context") {
-			t.Errorf("a lane with no telemetry shows figures: %q", candidate)
-		}
+	if line := figuresOf(frame, lane); line != "context 159100  tokens 1000000  cost $12.57  cpu 0.25 cores  rss 300.0 MiB" {
+		t.Errorf("the lane's figures read %q:\n%s", line, frame)
+	}
+	if !strings.Contains(frame, "orchestrator idle, wanted running, cpu 0.25 cores  rss 300.0 MiB") {
+		t.Errorf("the worker's line does not hold its orchestrator's process tree:\n%s", frame)
+	}
+	// A process tree the worker reported before the floor read its orchestrator still says whose it is.
+	worker.Orchestrator = nil
+	if frame := top.Frame(snapshot, time.UnixMilli(snapshot.Needs.AsOf), 200); !strings.Contains(frame, "observed  orchestrator cpu 0.25 cores  rss 300.0 MiB") && !strings.Contains(frame, "reported  orchestrator cpu 0.25 cores  rss 300.0 MiB") {
+		t.Errorf("an orchestrator's process tree reads as the worker's:\n%s", frame)
+	}
+}
+
+// A printed frame takes no keys, so it names none; the live view names them at its foot.
+func TestOnlyTheLiveViewNamesItsKeys(t *testing.T) {
+	snapshot := golden(t)
+	if frame := top.Frame(snapshot, time.UnixMilli(snapshot.Needs.AsOf), 200); strings.Contains(frame, "q quit") {
+		t.Errorf("a printed frame names keys it does not take:\n%s", frame)
+	}
+	if frame := loaded(t, snapshot).View(); !strings.HasSuffix(frame, "j/k move   r read now   q quit") {
+		t.Errorf("the live view does not name its keys:\n%s", frame)
 	}
 }
 
@@ -487,7 +571,8 @@ func TestAWorkerShowsWhatItMeasured(t *testing.T) {
 	line.ReportFreshness = ledger.FreshnessObserved
 	frame := wide(t, snapshot).View()
 	for _, want := range []string{
-		"cpu 42%  load 2.50 2.50 2.50  memory 12.0 GiB used of 32.0 GiB, 20.0 GiB available, pressure unavailable  disk state and worktrees 5.0 GiB free  cap 12 (recommended 7)  warnings disk_free state and worktrees  measured 5s ago",
+		"    cpu 42%  load 2.50 2.50 2.50  memory 12.0 GiB used of 32.0 GiB, 20.0 GiB available, pressure unavailable  disk state and worktrees 5.0 GiB free  cap 12 (recommended 7)\n" +
+			"    measured 5s ago  warnings disk_free state and worktrees\n",
 		lane + "  ",
 		"cpu 1.25 cores  rss 300.0 MiB",
 	} {
