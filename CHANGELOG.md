@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.1.0-alpha.15](https://github.com/bkuberek/ropeshift/compare/v0.1.0-alpha.14...v0.1.0-alpha.15) (2026-11-14)
+
+
+### Features
+
+* estimate each plan version's work at intake and work made outside a plan ([55b3453](https://github.com/bkuberek/ropeshift/commit/55b345364c3307438b3eb3aaa7c3903c3478b197))
+* estimate new work from comparable finished work ([2533870](https://github.com/bkuberek/ropeshift/commit/25338705f2979596fc1b353a1410dc05f522b666))
+* export the delivery measures and read look back by project ([6c83d0c](https://github.com/bkuberek/ropeshift/commit/6c83d0c67285587d9567872c1b38005b3191a0ea))
+* give an estimate the fields of its data model ([38f4c61](https://github.com/bkuberek/ropeshift/commit/38f4c612269ede8873cc2344d3aaa182f2be0f75))
+* keep each open work order's current estimate as history grows ([2a1dcc4](https://github.com/bkuberek/ropeshift/commit/2a1dcc4e6ef4c14927decc616c81e3225efac338))
+* keep estimate sets and each work order's current estimate ([318f7ac](https://github.com/bkuberek/ropeshift/commit/318f7acb2630bff83f2a51e05be8ab4b71470861))
+* publish the estimate policy as a member's version ([a98c41a](https://github.com/bkuberek/ropeshift/commit/a98c41a2a293c797139190436445c8fb5e23297c))
+* show a work order's current estimate with its explanation ([3bd667d](https://github.com/bkuberek/ropeshift/commit/3bd667d77b765491a49636ad796a3e3bf8b3a6c6))
+
+
+### Bug Fixes
+
+* draw the same estimate whatever order its records come in ([ba73d38](https://github.com/bkuberek/ropeshift/commit/ba73d38790a620a133025e4ab4df32cd3d462bf5))
+* estimate safely under any policy and read a size left out as unknown ([4d22a7e](https://github.com/bkuberek/ropeshift/commit/4d22a7e7cdcbb5540ef33398b98ac4b5cbdf8100))
+* say durations apart and carry them across units, and one outcome as one ([930ef45](https://github.com/bkuberek/ropeshift/commit/930ef450d88def20f8d0fe5ff60a8b769713b9b7))
+
 ## [0.1.0-alpha.14](https://github.com/bkuberek/ropeshift/compare/v0.1.0-alpha.13...v0.1.0-alpha.14) (2026-11-14)
 
 
