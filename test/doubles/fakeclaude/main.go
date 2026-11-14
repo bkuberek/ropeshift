@@ -129,6 +129,11 @@ type step struct {
 	Tool    string `json:"tool,omitempty"`
 	Command string `json:"command,omitempty"`
 	File    string `json:"file,omitempty"`
+	// LateVerdict makes the first PreToolUse of this call end as a policy hook's does when a loaded
+	// machine holds it past its deadline: the call is denied with the late verdict's reason, and the
+	// worker is never asked about it, so no request is raised. The one retry the model makes after
+	// such a denial is not late.
+	LateVerdict bool `json:"late_verdict,omitempty"`
 	// Prompts says the call would prompt, so PermissionRequest fires, and with no answer from it the
 	// call is refused, as `-p` refuses one. AnsweredAt is a person's answer on the screen: when this
 	// file appears the tool runs, with the hook still waiting behind the prompt.
@@ -832,9 +837,32 @@ func writeLine(raw []byte) {
 	}
 }
 
+// lateVerdict is the reason a policy hook gives when its deadline comes before its verdict, which
+// internal/hook writes as the same text. It says nothing of the call, only that the check did not
+// finish, so a model that reads it makes the call again.
+const lateVerdict = "the policy check ran out of time"
+
 // callBuiltin runs one built-in tool the way the CLI does: a denial from the hook stops it
-// and reaches the model, and a call that passes takes effect.
+// and reaches the model, and a call that passes takes effect. A denial for a late verdict is the
+// one a model answers by making the call again, once, as it would on any denial that says the check
+// did not finish.
 func (s *session) callBuiltin(st step) {
+	s.attempt(st, false)
+}
+
+// lateAnswer is what a policy hook writes when its deadline comes before its verdict.
+func lateAnswer() []byte {
+	raw, err := json.Marshal(map[string]any{"hookSpecificOutput": map[string]string{
+		"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": lateVerdict,
+	}})
+	if err != nil {
+		fail("%v", err)
+	}
+	return raw
+}
+
+// attempt is one try at a call, and again says it is the retry of a call a late verdict denied.
+func (s *session) attempt(st step, again bool) {
 	input := map[string]any{}
 	if st.Command != "" {
 		input["command"] = st.Command
@@ -856,7 +884,14 @@ func (s *session) callBuiltin(st step) {
 		}
 		pre["agent_type"] = st.Within
 	}
-	outputs := s.hook("PreToolUse", pre)
+	var outputs [][]byte
+	if st.LateVerdict && !again {
+		late := lateAnswer()
+		s.emit(map[string]any{"type": "system", "subtype": "hook_output", "hook": "PreToolUse", "output": string(late)})
+		outputs = [][]byte{late}
+	} else {
+		outputs = s.hook("PreToolUse", pre)
+	}
 	for _, output := range outputs {
 		var decision struct {
 			Specific struct {
@@ -869,6 +904,13 @@ func (s *session) callBuiltin(st step) {
 		}
 		switch decision.Specific.Decision {
 		case "deny":
+			if decision.Specific.Reason == lateVerdict {
+				witness("late", strings.TrimSpace(st.Tool+" "+st.Command+st.File))
+				if !again {
+					s.attempt(st, true)
+				}
+				return
+			}
 			witness("denied", decision.Specific.Reason)
 			return
 		case "defer":

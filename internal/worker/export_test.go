@@ -32,6 +32,15 @@ func (w *Worker) Respawn(ctx context.Context, lane string, asked int64) {
 	}
 }
 
+// HoldApprovalLoop keeps the loop that follows a lane's open requests from starting, so a request
+// stays as it stands in the gap between its deadline passing and that loop's next look at the clock.
+// A test places a hook's look in that gap, which a real clock leaves open for one tick.
+func (w *Worker) HoldApprovalLoop(lane string) {
+	if run := w.runOf(lane); run != nil {
+		run.approving.Store(true)
+	}
+}
+
 // ReportPending says the worker holds a report the control plane has not kept.
 func ReportPending(w *Worker) bool {
 	report, _ := w.pendingReport()
