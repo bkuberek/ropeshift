@@ -148,7 +148,7 @@ func (a *Autonomy) View(ctx context.Context, scope ledger.WorkspaceID, worker st
 			return err
 		}
 		view = authority.AutonomyView{
-			WorkerID: worker, SignIn: record.Manifest.SignInKind(), Level: facts.standing.Level, Chosen: facts.setting.Level,
+			AsOf: now, WorkerID: worker, SignIn: record.Manifest.SignInKind(), Level: facts.standing.Level, Chosen: facts.setting.Level,
 			Acknowledged: facts.setting.Acknowledged(), Window: facts.window, MayClaim: facts.standing.MayClaim(),
 			MaxLanes: facts.lanes(), MaxRespawnsPerDay: facts.respawns(),
 		}

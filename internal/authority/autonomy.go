@@ -240,6 +240,7 @@ func (s AutonomyStanding) MayWork() bool {
 // AutonomyView is where a worker stands, as a person reads it. Chosen is what a member asked for, and
 // Level is what holds, which differ when the stated risk stands in between.
 type AutonomyView struct {
+	AsOf              int64      `json:"as_of"`
 	WorkerID          string     `json:"worker_id"`
 	SignIn            string     `json:"sign_in"`
 	Level             Level      `json:"level"`

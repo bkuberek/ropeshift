@@ -297,6 +297,29 @@ describe("Settings", () => {
     expect(screen.getByText(/arrive with the worker's resource reports/)).toBeTruthy();
   });
 
+  it("says how long a run window stays open by the server's clock, not the epoch", async () => {
+    const asOf = 1_760_000_000_000;
+    serveAdmin((call) =>
+      call.method === "GET" && call.path === "/v1/workers/worker-1/autonomy"
+        ? {
+            status: 200,
+            body: {
+              as_of: asOf,
+              worker_id: "worker-1",
+              sign_in: "subscription",
+              level: "attended",
+              risk_acknowledged: true,
+              may_claim: true,
+              window: { id: "w1", worker_id: "worker-1", opened_by: "member-1", opened_at: asOf - 60_000, closes_at: asOf + 2 * 3_600_000 },
+            },
+          }
+        : undefined,
+    );
+    openPage("/settings?section=autonomy");
+    const panel = (await screen.findByText(/^Open, closes/)).closest(".panel") as HTMLElement;
+    expect(panel.querySelector('[aria-hidden="true"]')?.textContent).toBe("in 2h");
+  });
+
   it("lists the project's sections under the project and the rest at the installation", async () => {
     serveAdmin();
     openPage(here("/settings"));
