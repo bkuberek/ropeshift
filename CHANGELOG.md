@@ -44,6 +44,19 @@
 * wrap a long need in top instead of clipping it ([aca2cfa](https://github.com/bkuberek/ropeshift/commit/aca2cfa05cc33aad696e29a91b9e04b075526062))
 * write each @ in a delegate's text as the full-width form ([3f802e8](https://github.com/bkuberek/ropeshift/commit/3f802e8229e91152f1debfb7eb575e3bfdde5203))
 
+### Notes
+
+* **Behavior change:** for an agent outside ropeshift with a delegate credential, creating a work order and starting a contract review are consent operations: each records a confirmation card, and nothing is created until a member confirms it in Needs you. The delegate policy in Settings can exempt either one. The assistant still creates work and starts reviews at once.
+* Text a delegate wrote, the assistant's included, reaches an orchestrator's wake and tool replies marked as data, which the orchestrator never follows as an instruction.
+* **Behavior change:** an ID a caller names for a work order, contract review, question, decision, or lane must be 1 to 64 ASCII letters, digits, `-`, and `_`. New work's requirement keys may also hold `.`, and its repository ID must be plain. The API refuses any other ID as `invalid` before recording anything. Every ID ropeshift generates already fits.
+* Conversations work in every project; before, creating, listing, or showing one failed in any project but the first. A worker that keeps sending heartbeats stays connected for the assistant; before, it read as disconnected about 45 seconds after its session opened, and `ropeshift chat new` and the dock refused.
+* Web UI fixes: expiries and run windows count from the server's clock, repositories and the workers and sessions behind decisions are named in words, the Floor and the status bar show each machine's and lane's CPU and memory, the dock can message an idle orchestrator, and long IDs and paths stay in their columns. `ropeshift top` gives confirmation cards their words, puts a lane's figures on a line of their own, wraps long Needs you rows, and a printed frame names no keys.
+* ropeshift now records each span in which a worker's lanes stand at a lane cap, the size of each lane's change, which `ropeshift work acceptance` prints after the branch's commit, and a timeline and delivery record for each finished work order. The daemon keeps them current every `--delivery-tick`, 30 seconds by default, and its first run backfills work that ended before it from the log. No command shows timelines or delivery records yet.
+* A contract's `reads` lists repositories of its project that its lanes read, read-only. A change lane also reads the repositories of the work it depends on, at the commit that work's merge made, and its review reads the same commits.
+* **Behavior change:** approved work waits in `integrating` until every work order it depends on is `done`, in its own repository or another, and the wait names each one. This covers a dependency a later plan version adds to work already under way. At `person_merges`, the wait tells the member which dependencies to merge first.
+* A planning repository can hold a manifest of kind `repositories` that lists the project's repositories, as a document of its plan. Intake records it and reports the keys that have no effect and the repositories it leaves out; it registers and removes none.
+* This release adds database migrations `0083`, `0084`, `0085`, `0090`, and `0091`, and the installation database's migrations `0022` and `0023`. They run on the first start. Back up each project with `ropeshift backup` and the installation with `ropeshift backup --installation` before you upgrade.
+
 ## [0.1.0-alpha.13](https://github.com/bkuberek/ropeshift/compare/v0.1.0-alpha.12...v0.1.0-alpha.13) (2026-11-14)
 
 
