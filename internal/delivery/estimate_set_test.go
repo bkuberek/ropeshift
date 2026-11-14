@@ -43,3 +43,21 @@ func TestAnEstimateSetDigestsWhatItsEstimatesSay(t *testing.T) {
 		t.Error("another explanation has the same digest")
 	}
 }
+
+// TestAnEstimateSaysTheSameWheneverItWasMade compares what two estimates say of their work order, apart from
+// where, when, and at what revision they were made, so a tick keeps a new estimate only when one changed.
+func TestAnEstimateSaysTheSameWheneverItWasMade(t *testing.T) {
+	made := delivery.Estimate{
+		ID: "e-1", SetID: "set-1", WorkOrder: "wo", Status: delivery.Estimated, Confidence: delivery.Low, Keys: []string{"kind", "size"},
+		DroppedKeys: []string{}, SampleIDs: []string{"done-1"}, SampleCount: 1, Rev: 7, Explanation: "Low confidence.", Current: true, CreatedAt: 1,
+	}
+	again := made
+	again.ID, again.SetID, again.Rev, again.Current, again.CreatedAt = "e-2", "set-2", 9, false, 2
+	if !made.SaysTheSame(again) {
+		t.Error("the same estimate made again says something else")
+	}
+	again.SampleIDs = []string{"done-2"}
+	if made.SaysTheSame(again) {
+		t.Error("an estimate drawn on other work says the same")
+	}
+}

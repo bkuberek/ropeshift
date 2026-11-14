@@ -18,6 +18,7 @@ var EstimateChecks = []Check{
 	{"ES1", "a set keeps its estimates whole, and a later set of a work order holds its current estimate while the earlier set keeps its own", checkEstimateSets},
 	{"ES2", "work made outside a plan is estimated when it is made, from the finished work the fold kept, and a retry estimates nothing again", checkEstimateAtCreation},
 	{"ES3", "intake estimates the open work of each plan version it records in one set, apart from the plan's digest", checkEstimateAtIntake},
+	{"ES4", "a refresh keeps a new set wherever finished work or a new policy changed an estimate, with no revision, and none when nothing changed", checkEstimateRefresh},
 }
 
 // addSet keeps a sealed set in a transaction of its own, which appends a note, as every write must append an event.
@@ -271,6 +272,105 @@ func checkEstimateAtIntake(r *Rig) error {
 	kept, _, err := r.estimates(s, set.ID)
 	if err != nil || kept.Digest != set.Digest || len(kept.Estimates) != 1 || kept.Estimates[0].Current {
 		return Violatedf("version 1's set now reads %+v: %v", kept, err)
+	}
+	return nil
+}
+
+// workspaceRev reads the workspace's revision.
+func (r *Rig) workspaceRev(s ports.Store) (int64, error) {
+	var rev int64
+	err := s.Read(r.Ctx, r.Scope, func(tx ports.ReadTx) error {
+		workspace, err := tx.Workspace()
+		rev = workspace.Rev
+		return err
+	})
+	return rev, err
+}
+
+func checkEstimateRefresh(r *Rig) error {
+	s := r.Store()
+	files := newApprovalSource()
+	if _, err := r.intake(s, files.source); err != nil {
+		return err
+	}
+	plan, err := r.planID(s, "Retry budget")
+	if err != nil {
+		return err
+	}
+	budget, held, err := r.contractTitled(s, "budget")
+	if err != nil || !held {
+		return Violatedf("the contract: %v", err)
+	}
+	planned, err := r.ordersOfContract(s, budget.ID)
+	if err != nil || len(planned) != 1 {
+		return Violatedf("the plan's work %v: %v", planned, err)
+	}
+	work := control.LedgerWork{
+		Order:     workorders.WorkOrder{ID: r.ID("wo-open"), Kind: workorders.KindChange, Title: "Do it later", RepositoryID: AcceptanceRepository, MaxAttempts: 1},
+		Statement: "Do the work later.",
+		Criteria:  []planning.Criterion{{ID: criterionOne, Text: "It holds: " + criterionOne}},
+	}
+	open, err := r.NewOps(s).Record(r.Ctx, r.Scope, work, r.Actor)
+	if err != nil {
+		return err
+	}
+	refresh := control.NewEstimates(s)
+	if kept, err := refresh.Refresh(r.Ctx, r.Scope); err != nil || kept != 0 {
+		return Violatedf("with nothing new, a refresh kept %d sets: %v", kept, err)
+	}
+
+	// Work like the open work finishes, and once the fold keeps its record, both open works' estimates draw on it.
+	finished, err := r.Awaiting(s, []string{criterionOne}, LaneFinished(r.ID("commit"), LaneCheck(criterionOne, true)))
+	if err != nil {
+		return err
+	}
+	if _, err := r.NewOps(s).Accept(r.Ctx, r.Scope, finished, r.Actor); err != nil {
+		return err
+	}
+	if _, err := control.NewDeliveryFold(s).Fold(r.Ctx, r.Scope); err != nil {
+		return err
+	}
+	before, err := r.workspaceRev(s)
+	if err != nil {
+		return err
+	}
+	if kept, err := refresh.Refresh(r.Ctx, r.Scope); err != nil || kept != 2 {
+		return Violatedf("after work finished, a refresh kept %d sets: %v", kept, err)
+	}
+	if after, err := r.workspaceRev(s); err != nil || after != before {
+		return Violatedf("a refresh moved the revision from %d to %d: %v", before, after, err)
+	}
+	made, set, err := r.currentOf(s, open.ID)
+	if err != nil {
+		return err
+	}
+	if made.Status != delivery.Estimated || !slices.Equal(made.SampleIDs, []string{finished}) || set.Plan != "" || len(set.Estimates) != 1 || !madeNow(made, set) {
+		return Violatedf("the open work is estimated %+v in %+v", made, set)
+	}
+	madePlanned, plannedSet, err := r.currentOf(s, planned[0])
+	if err != nil {
+		return err
+	}
+	if madePlanned.Status != delivery.Estimated || plannedSet.Plan != plan || plannedSet.PlanVersion != 1 || len(plannedSet.Estimates) != 1 || !madeNow(madePlanned, plannedSet) {
+		return Violatedf("the plan's open work is estimated %+v in %+v", madePlanned, plannedSet)
+	}
+	if kept, err := refresh.Refresh(r.Ctx, r.Scope); err != nil || kept != 0 {
+		return Violatedf("a second refresh kept %d sets: %v", kept, err)
+	}
+
+	// A new policy changes every estimate.
+	draft := delivery.EstimatePolicyDraft{
+		Body:   "[estimate_policy]\nversion = 2\nmin_samples = 5\nrecent_samples = 50\nforecast_trials = 2000\nshare_history = false\n",
+		Policy: delivery.EstimatePolicy{Version: 2, MinSamples: 5, RecentSamples: 50, ForecastTrials: 2000},
+	}
+	if _, err := control.NewEstimatePolicies(s).PublishEstimatePolicy(r.Ctx, r.Scope, draft, r.Actor); err != nil {
+		return err
+	}
+	if kept, err := refresh.Refresh(r.Ctx, r.Scope); err != nil || kept != 2 {
+		return Violatedf("after a new policy, a refresh kept %d sets: %v", kept, err)
+	}
+	if made, _, err = r.currentOf(s, open.ID); err != nil || made.PolicyVersion != 2 || made.MinSamples != 5 {
+		return Violatedf("under the new policy, the open work is estimated %+v: %v", made, err)
 	}
 	return nil
 }

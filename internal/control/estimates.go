@@ -140,16 +140,25 @@ func estimateMade(tx ports.WriteTx, order workorders.WorkOrder) error {
 // estimatePlanVersion estimates the open work of every contract a plan version covers, in the transaction that
 // recorded the version. The set stays outside the plan's digest, so new history never voids an approval.
 func estimatePlanVersion(tx ports.WriteTx, version planning.PlanVersion) error {
+	orders, err := planWork(tx.WorkOrders(), version)
+	if err != nil {
+		return err
+	}
+	return keepEstimates(tx, version.PlanID, version.Version, orders)
+}
+
+// planWork lists the work orders of every contract a plan version covers.
+func planWork(reader ports.WorkOrderReader, version planning.PlanVersion) ([]workorders.WorkOrder, error) {
 	var orders []workorders.WorkOrder
 	for _, entry := range version.Records {
 		if planning.EntryKind(entry.Ref) != "contract" || entry.Record == "" {
 			continue
 		}
-		rows, err := tx.WorkOrders().ByContract(entry.Record)
+		rows, err := reader.ByContract(entry.Record)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		orders = append(orders, rows...)
 	}
-	return keepEstimates(tx, version.PlanID, version.Version, orders)
+	return orders, nil
 }

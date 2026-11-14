@@ -45,6 +45,11 @@ func (t *writeTx) Deliveries() ports.DeliveryReader {
 	return deliveryTx{session: t.session, scope: t.scope}
 }
 
+// EstimateSets keeps estimate sets within a transaction of the fold.
+func (t *foldTx) EstimateSets() ports.EstimateWriter {
+	return estimateTx{session: t.session, scope: t.scope}
+}
+
 // Estimates reads and keeps estimate sets within a write.
 func (t *writeTx) Estimates() ports.EstimateWriter {
 	return estimateTx{session: t.session, scope: t.scope}

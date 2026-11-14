@@ -63,10 +63,13 @@ type Store interface {
 	Close() error
 }
 
-// FoldTx is one transaction of the delivery fold: a view of the workspace, and its delivery read models.
+// FoldTx is one transaction of the delivery fold: a view of the workspace, its delivery read models, and the
+// estimate sets a tick keeps current from them.
 type FoldTx interface {
 	ReadTx
 	Delivery() DeliveryWriter
+	// EstimateSets keeps estimate sets, which, like the delivery read models, are derived from the log.
+	EstimateSets() EstimateWriter
 }
 
 // DeliveryReader reads the delivery read models (ADR-0026): the fold's state, each finished work order's

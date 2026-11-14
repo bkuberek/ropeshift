@@ -1,6 +1,7 @@
 package delivery
 
 import (
+	"bytes"
 	"cmp"
 	"crypto/sha256"
 	"encoding/hex"
@@ -34,12 +35,29 @@ func (s EstimateSet) Seal() EstimateSet {
 	for i := range s.Estimates {
 		e := &s.Estimates[i]
 		e.SetID, e.CreatedAt, e.Current = s.ID, s.CreatedAt, true
-		said[i] = *e
-		said[i].ID, said[i].SetID, said[i].CreatedAt, said[i].Current = "", "", 0, false
+		said[i] = e.said()
 	}
 	// An estimate is plain data, so it always encodes.
 	body, _ := json.Marshal(said)
 	sum := sha256.Sum256(body)
 	s.Digest = "sha256:" + hex.EncodeToString(sum[:])
 	return s
+}
+
+// said is what an estimate says of its work order, apart from its ID, its set, when it was made, and whether it is
+// still current.
+func (e Estimate) said() Estimate {
+	e.ID, e.SetID, e.CreatedAt, e.Current = "", "", 0, false
+	return e
+}
+
+// SaysTheSame says two estimates say the same of their work order, wherever, whenever, and at whatever revision
+// they were made.
+func (e Estimate) SaysTheSame(other Estimate) bool {
+	a, b := e.said(), other.said()
+	a.Rev, b.Rev = 0, 0
+	// An estimate is plain data, so it always encodes, and two that encode alike say the same.
+	left, _ := json.Marshal(a)
+	right, _ := json.Marshal(b)
+	return bytes.Equal(left, right)
 }
