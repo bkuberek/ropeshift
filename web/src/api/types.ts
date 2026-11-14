@@ -710,8 +710,32 @@ export type PlanApprovalDetail = {
   adoption?: Adoption;
 };
 
+// RepositoryOutcome is what became of one repository a manifest lists, or would on approval: its name, the
+// path of its clone as the manifest writes it, where that path leads on the daemon's worker's machine, its
+// remote, and why it was refused.
+export type RepositoryOutcome = {
+  name?: string;
+  manifest_path?: string;
+  remote?: string;
+  path: string;
+  outcome: "registered" | "known" | "refused";
+  checkout?: string;
+  reason?: string;
+};
+
+// ManifestRegistration is what approving a plan version registers of the repositories its manifest lists:
+// before a member decides, a preview read from the worker's clones that records nothing; after, what the
+// approval registered.
+export type ManifestRegistration = { preview?: boolean; repositories: RepositoryOutcome[]; problem?: string };
+
 // PlanApprovalView is a request to approve a plan version with everything a member reads before deciding.
-export type PlanApprovalView = { approval: Approval; detail: PlanApprovalDetail; records?: PlanEntry[]; drafts?: DraftDecision[] };
+export type PlanApprovalView = {
+  approval: Approval;
+  detail: PlanApprovalDetail;
+  records?: PlanEntry[];
+  drafts?: DraftDecision[];
+  registration?: ManifestRegistration;
+};
 
 // One version of a plan, and where the request to approve it stands: none when nobody asked.
 export type PlanVersionLine = { version: number; digest?: string; approval?: string; state?: string };

@@ -375,3 +375,47 @@ describe("an adopted plan", () => {
     expect(link.getAttribute("href")).toMatch(/^\/projects\/default\/plan\?id=.+&version=\d+$/);
   });
 });
+
+describe("the repositories a version's manifest lists", () => {
+  it("lists each one, where its path leads, and whether approving registers it", async () => {
+    serve((view) => {
+      if (view.approval) {
+        view.approval.registration = {
+          preview: true,
+          repositories: [
+            { name: "billing", manifest_path: "../billing", path: "/work/billing", remote: "git@example.invalid:acme/billing.git", outcome: "registered" },
+            { name: "ghost", manifest_path: "../ghost", path: "/work/ghost", outcome: "refused", reason: "ghost is not registered: no git clone is at /work/ghost" },
+          ],
+        };
+      }
+    });
+    openPage(page());
+    await heading();
+    const panel = screen.getByRole("region", { name: "Repositories approving registers" });
+    const billing = within(panel).getByRole("listitem", { name: "billing" });
+    expect(billing.textContent).toContain("Would register");
+    expect(billing.textContent).toContain("../billing");
+    expect(billing.textContent).toContain("/work/billing");
+    expect(billing.textContent).toContain("git@example.invalid:acme/billing.git");
+    const ghost = within(panel).getByRole("listitem", { name: "ghost" });
+    expect(ghost.textContent).toContain("Refused");
+    expect(ghost.textContent).toContain("no git clone is at /work/ghost");
+    expect(within(panel).getByText(/Read now from the clones on the daemon's worker's machine/)).toBeTruthy();
+  });
+
+  it("says what an approved version registered, and why registration fell short", async () => {
+    serve((view) => {
+      if (view.approval) {
+        view.approval.approval.state = "approved";
+        view.approval.registration = {
+          repositories: [{ name: "billing", manifest_path: "../billing", path: "/work/billing", outcome: "registered", checkout: "/work/billing" }],
+          problem: "registering the repositories the manifest adds failed: disk full",
+        };
+      }
+    });
+    openPage(page());
+    const panel = await screen.findByRole("region", { name: "Repositories this approval registered" });
+    expect(within(panel).getByRole("listitem", { name: "billing" }).textContent).toContain("Registered");
+    expect(within(panel).getByText(/disk full/)).toBeTruthy();
+  });
+});

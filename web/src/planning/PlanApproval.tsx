@@ -2,10 +2,11 @@ import { useRef, useState } from "react";
 
 import { useChange, useRead } from "../admin/parts";
 import { ApiError, decideApproval, readApproval, readPlan } from "../api/client";
-import type { ApprovalRecord, PlanApprovalDetail, PlanApprovalView, PlanEntry, PlanVersionLine, DraftDecision, Plan } from "../api/types";
+import type { ApprovalRecord, ManifestRegistration, PlanApprovalDetail, PlanApprovalView, PlanEntry, PlanVersionLine, DraftDecision, Plan } from "../api/types";
 import type { Live } from "../api/useView";
 import { addressOf, Link, useArrivalFocus } from "../app/route";
 import { approvalStates } from "../floor/states";
+import type { StateLook } from "../floor/states";
 import { timeOf } from "../admin/parts";
 import { Button } from "../ui/controls";
 import { DecisionCard } from "../ui/DecisionCard";
@@ -27,6 +28,8 @@ export type Subject = {
   records: PlanEntry[];
   drafts: DraftDecision[];
   version: number;
+  // registration is what approving registers of the repositories the version's manifest lists, when it lists any.
+  registration?: ManifestRegistration;
 };
 
 const noDetail: PlanApprovalDetail = { title: "" };
@@ -53,6 +56,7 @@ export async function readSubject(id: string, version: string): Promise<Subject>
       records: held?.records ?? [],
       drafts: held?.drafts ?? [],
       version: held?.approval.plan_version ?? Number(version || view.versions[0]?.version || 0),
+      registration: held?.registration,
     };
   } catch (error) {
     if (!(error instanceof ApiError) || error.code !== "not_found") {
@@ -208,6 +212,49 @@ function Decision({ subject, after, reload }: { subject: Subject; after: () => P
   );
 }
 
+// registrationStates are what became of a repository a manifest lists, and in a preview what would.
+const registrationStates: Record<string, StateLook> = {
+  registered: { label: "Registered", tone: "success", glyph: "check" },
+  would: { label: "Would register", tone: "active", glyph: "half" },
+  known: { label: "Already registered", tone: "neutral", glyph: "dot" },
+  refused: { label: "Refused", tone: "danger", glyph: "cross" },
+};
+
+// Registration lists each repository the version's manifest lists: whether approving registers it, or did,
+// its name, its path as the manifest writes it, where that path leads on the daemon's worker's machine, its
+// remote, and why it is refused, so a member reads what approving consents to.
+function Registration({ registration }: { registration: ManifestRegistration }) {
+  return (
+    <Panel title={registration.preview ? "Repositories approving registers" : "Repositories this approval registered"}>
+      {registration.preview ? (
+        <p className="small muted">Read now from the clones on the daemon's worker's machine. Reading it registers nothing.</p>
+      ) : null}
+      {registration.repositories.length ? (
+        <ul className="list-rows" aria-label="Repositories the manifest lists">
+          {registration.repositories.map((one) => (
+            <li key={one.name ?? one.path} className="list-row stack-8" aria-label={one.name ?? one.path}>
+              <span className="row-tight">
+                <StateBadge table={registrationStates} state={registration.preview && one.outcome === "registered" ? "would" : one.outcome} />
+                <span className="mono">{one.name ?? "-"}</span>
+              </span>
+              <span className="small">
+                Path <code>{one.manifest_path ?? "-"}</code> leads to <code>{one.path}</code>
+                {one.remote ? (
+                  <>
+                    , remote <code>{one.remote}</code>
+                  </>
+                ) : null}
+              </span>
+              {one.reason ? <span className="small muted">{one.reason}</span> : null}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {registration.problem ? <Refusal>{registration.problem}</Refusal> : null}
+    </Panel>
+  );
+}
+
 function Versions({ subject }: { subject: Subject }) {
   if (subject.versions.length === 0) {
     return null;
@@ -275,6 +322,7 @@ export function PlanApprovalBody({ subject, live, after, reload }: { subject: Su
           <Panel title="Documents">
             <CoveredDocuments records={subject.records} live={live} />
           </Panel>
+          {subject.registration ? <Registration registration={subject.registration} /> : null}
           <Versions subject={subject} />
         </div>
         <aside className="stack sticky decision-aside" aria-label="Your decision">
