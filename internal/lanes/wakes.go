@@ -56,12 +56,14 @@ const (
 	DelegateTextClose = "</delegate_text>"
 )
 
-// delegateEscapes writes each character that could open or close a tag as an entity, the full-width and
-// small forms that read as one included, and the ampersand first, so an entity the delegate wrote stays
-// its own text.
+// delegateEscapes writes each character that could open or close a tag as an entity: the angle brackets,
+// and the full-width, small, modifier, single-quotation, CJK, and mathematical forms that read as one. The
+// ampersand goes first, so an entity the delegate wrote stays its own text.
 var delegateEscapes = strings.NewReplacer(
 	"&", "&amp;", "<", "&lt;", ">", "&gt;",
 	"\uff1c", "&#xff1c;", "\uff1e", "&#xff1e;", "\ufe64", "&#xfe64;", "\ufe65", "&#xfe65;",
+	"\u02c2", "&#x02c2;", "\u02c3", "&#x02c3;", "\u2039", "&#x2039;", "\u203a", "&#x203a;",
+	"\u3008", "&#x3008;", "\u3009", "&#x3009;", "\u2329", "&#x2329;", "\u232a", "&#x232a;", "\u27e8", "&#x27e8;", "\u27e9", "&#x27e9;",
 )
 
 // DelegateText states text a delegate wrote, the assistant included, as data an orchestrator reads and
