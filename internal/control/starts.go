@@ -46,31 +46,140 @@ type startInput struct {
 	startFrom    ledger.StartFrom
 	dependencies []dependencyWork
 	// reads are the other repositories of the project the lane reads, read-only (ADR-0022).
-	reads []ledger.Repository
+	reads []readWant
 }
 
-// readsOf names the repositories a work order's lane reads beside its own (ADR-0022): a planning lane reads
-// every other active repository of its project, so it plans against the code as it is. A lane never reads
-// a repository of another project, because the ledger it reads from holds only this project's. Work that
-// changes code reads none yet.
-func readsOf(tx ports.ReadTx, order workorders.WorkOrder) ([]ledger.Repository, error) {
-	if order.Kind != workorders.KindPlan {
-		return nil, nil
+// readWant is one repository a lane reads, before git says where it stands: a repository of the project,
+// with the commits its lane's dependencies there merged as, or a name the project does not hold, with why.
+type readWant struct {
+	record ledger.Repository
+	name   string
+	merged []string
+	detail string
+}
+
+// readsOf names the repositories a work order's lane reads beside its own (ADR-0022). A planning lane reads
+// every other active repository of its project, so it plans against the code as it is. A lane that changes
+// code reads the repositories its blocking dependencies target and those its contract lists in `reads`. A
+// lane never reads a repository of another project, because the ledger it reads from holds only this
+// project's, and a name it does not hold is read as one with no repository.
+func readsOf(tx ports.ReadTx, order workorders.WorkOrder) ([]readWant, error) {
+	var out []readWant
+	var err error
+	switch order.Kind {
+	case workorders.KindPlan:
+		out, err = everyOtherRepository(tx.Repositories(), order)
+	case workorders.KindChange, workorders.KindRework:
+		out, err = changeReads(tx, order)
 	}
-	all, err := tx.Repositories().Repositories()
+	slices.SortFunc(out, func(a, b readWant) int {
+		return cmp.Or(strings.Compare(a.name, b.name), strings.Compare(a.record.ID, b.record.ID))
+	})
+	return out, err
+}
+
+func everyOtherRepository(repositories ports.RepositoryReader, order workorders.WorkOrder) ([]readWant, error) {
+	all, err := repositories.Repositories()
 	if err != nil {
 		return nil, err
 	}
-	var out []ledger.Repository
+	var out []readWant
 	for _, record := range all {
 		if record.ID != order.RepositoryID && !record.Removed() {
-			out = append(out, record)
+			out = append(out, readWant{record: record, name: record.Name})
 		}
 	}
-	slices.SortFunc(out, func(a, b ledger.Repository) int {
-		return cmp.Or(strings.Compare(a.Name, b.Name), strings.Compare(a.ID, b.ID))
-	})
 	return out, nil
+}
+
+// changeReads are the repositories a lane that changes code reads: each one a blocking dependency targets,
+// with the commit that dependency merged as when ropeshift recorded one, and each one its contract lists in
+// `reads`. Its own repository is its worktree, and a repository the project removed is read by no lane.
+func changeReads(tx ports.ReadTx, order workorders.WorkOrder) ([]readWant, error) {
+	wants := map[string]*readWant{}
+	want := func(record ledger.Repository) *readWant {
+		if wants[record.ID] == nil {
+			wants[record.ID] = &readWant{record: record, name: record.Name}
+		}
+		return wants[record.ID]
+	}
+	edges, err := tx.Planning().Dependencies(order.ID)
+	if err != nil {
+		return nil, err
+	}
+	for _, edge := range edges {
+		if !edge.Kind.Blocks() {
+			continue
+		}
+		dependency, found, err := dependencyOrder(tx.Planning(), tx.WorkOrders(), edge)
+		if err != nil {
+			return nil, err
+		}
+		if !found || dependency.RepositoryID == "" || dependency.RepositoryID == order.RepositoryID {
+			continue
+		}
+		record, err := tx.Repositories().Repository(dependency.RepositoryID)
+		if errors.Is(err, ports.ErrNotFound) || (err == nil && record.Removed()) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		read := want(record)
+		merged, err := mergedAs(tx, dependency)
+		if err != nil {
+			return nil, err
+		}
+		if merged != "" && !slices.Contains(read.merged, merged) {
+			read.merged = append(read.merged, merged)
+		}
+	}
+	if order.ContractVersion != 0 {
+		contract, err := tx.Planning().Contract(order.ContractID, order.ContractVersion)
+		if err != nil {
+			return nil, err
+		}
+		for _, name := range contract.Reads {
+			record, err := tx.Repositories().Named(name)
+			switch {
+			case errors.Is(err, ports.ErrNotFound) || (err == nil && record.Removed()):
+				wants["\x00"+name] = &readWant{name: name, detail: "the project holds no repository named " + name}
+			case err != nil:
+				return nil, err
+			case record.ID != order.RepositoryID:
+				want(record)
+			}
+		}
+	}
+	out := make([]readWant, 0, len(wants))
+	for _, read := range wants {
+		out = append(out, *read)
+	}
+	return out, nil
+}
+
+// mergedAs is the commit ropeshift's merge of a dependency's accepted work made, or empty when it recorded
+// none: a person merged it by hand, or it has not merged.
+func mergedAs(tx ports.ReadTx, dependency workorders.WorkOrder) (string, error) {
+	artifacts, err := tx.Evidence().Artifacts(dependency.ID)
+	if err != nil {
+		return "", err
+	}
+	branch := attemptBranch(artifacts, dependency.Fence)
+	if branch.Digest == "" {
+		return "", nil
+	}
+	records, err := tx.Forge().Integrations(dependency.ID)
+	if err != nil {
+		return "", err
+	}
+	var merged string
+	for _, record := range records {
+		if record.Merged() && record.ApprovedCommit == branch.Digest && record.MergedCommit != "" {
+			merged = record.MergedCommit
+		}
+	}
+	return merged, nil
 }
 
 // startFacts reads what the ledger says of where a work order should start. A dependency counts when it
@@ -111,14 +220,8 @@ func startFacts(tx ports.ReadTx, order workorders.WorkOrder) (startInput, error)
 		}
 		if branch := attemptBranch(artifacts, dependency.Fence); branch.Digest != "" {
 			work := dependencyWork{WorkOrder: dependency.ID, Branch: branch.URI, Commit: branch.Digest}
-			records, err := tx.Forge().Integrations(dependency.ID)
-			if err != nil {
+			if work.Merged, err = mergedAs(tx, dependency); err != nil {
 				return in, err
-			}
-			for _, record := range records {
-				if record.Merged() && record.ApprovedCommit == branch.Digest && record.MergedCommit != "" {
-					work.Merged = record.MergedCommit
-				}
 			}
 			in.dependencies = append(in.dependencies, work)
 		}
@@ -184,36 +287,73 @@ func (s *Starts) decide(ctx context.Context, in startInput, seen *pass) (workord
 	return start, nil
 }
 
-// readsAt records each repository a lane reads at its base branch tip, as the same pass reads every tip. A
-// repository with no checkout here, or a base that cannot be read, is recorded with the reason and no
-// commit: the lane still starts, and its brief says what it could not read.
-func (s *Starts) readsAt(ctx context.Context, repositories []ledger.Repository, seen *pass) []ledger.RepositoryRead {
-	out := make([]ledger.RepositoryRead, 0, len(repositories))
-	for _, record := range repositories {
-		read := ledger.RepositoryRead{Repository: record.ID, Name: record.Name}
-		path, err := seen.checkout(ctx, s.Checkout, record.ID)
-		if err != nil {
-			read.Detail = fmt.Sprintf("no checkout of it on this machine: %v", err)
-			out = append(out, read)
-			continue
-		}
-		base := record.Base()
-		if base == "" {
-			if base, err = s.Bases.DefaultBranch(ctx, path); err != nil || base == "" {
-				read.Detail = fmt.Sprintf("it names no default branch: %v", err)
-				out = append(out, read)
-				continue
-			}
-		}
-		tip, err := seen.tip(ctx, s.Bases, path, base)
-		if err != nil {
-			read.Detail = err.Error()
-		} else {
-			read.Ref, read.Commit = tip.Ref, tip.Commit
-		}
-		out = append(out, read)
+// readsAt records where each repository a lane reads stands, as the same pass reads every tip: at the merge
+// of its dependency there, or at its base branch tip. A name the project does not hold, a repository with no
+// checkout here, or a base that cannot be read is recorded with the reason and no commit: the lane still
+// starts, and its brief says what it could not read.
+func (s *Starts) readsAt(ctx context.Context, wants []readWant, seen *pass) []ledger.RepositoryRead {
+	out := make([]ledger.RepositoryRead, 0, len(wants))
+	for _, want := range wants {
+		out = append(out, s.readAt(ctx, want, seen))
 	}
 	return out
+}
+
+func (s *Starts) readAt(ctx context.Context, want readWant, seen *pass) ledger.RepositoryRead {
+	read := ledger.RepositoryRead{Repository: want.record.ID, Name: want.name, Detail: want.detail}
+	if want.detail != "" {
+		return read
+	}
+	path, err := seen.checkout(ctx, s.Checkout, want.record.ID)
+	if err != nil {
+		read.Detail = fmt.Sprintf("no checkout of it on this machine: %v", err)
+		return read
+	}
+	base := want.record.Base()
+	if base == "" {
+		if base, err = s.Bases.DefaultBranch(ctx, path); err != nil || base == "" {
+			read.Detail = fmt.Sprintf("it names no default branch: %v", err)
+			return read
+		}
+	}
+	// Reading the tip fetches the base, which brings the merges on it.
+	tip, err := seen.tip(ctx, s.Bases, path, base)
+	if err != nil {
+		read.Detail = err.Error()
+		return read
+	}
+	merge, err := s.latestMerge(ctx, path, want.merged)
+	if err != nil {
+		read.Detail = err.Error()
+		return read
+	}
+	read.Ref, read.Commit = tip.Ref, cmp.Or(merge, tip.Commit)
+	return read
+}
+
+// latestMerge is the merge that holds every other merge, or none when no merge holds them all, as for merges
+// onto different branches.
+func (s *Starts) latestMerge(ctx context.Context, path string, merged []string) (string, error) {
+	for _, candidate := range merged {
+		holdsAll := true
+		for _, other := range merged {
+			if other == candidate {
+				continue
+			}
+			holds, err := s.Bases.Contains(ctx, path, other, candidate)
+			if err != nil {
+				return "", fmt.Errorf("reading whether %s holds %s: %w", short(candidate), short(other), err)
+			}
+			if !holds {
+				holdsAll = false
+				break
+			}
+		}
+		if holdsAll {
+			return candidate, nil
+		}
+	}
+	return "", nil
 }
 
 // place gives where the lane's branch begins, or the reason there is none yet. It never answers with the
@@ -471,7 +611,8 @@ func (l *Leases) RefreshStarts(ctx context.Context, scope ledger.WorkspaceID, ac
 	}
 	seen := newPass(scope)
 	for _, in := range inputs {
-		_, hold := l.starts.decide(ctx, in, seen)
+		// What a lane reads never holds it, so the tick places the start alone.
+		_, hold := l.starts.place(ctx, in, seen)
 		moved, err := l.setHold(ctx, scope, in.order.ID, hold, actor)
 		if err != nil {
 			return changed, err
