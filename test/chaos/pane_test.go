@@ -21,6 +21,7 @@ import (
 	"ropeshift.com/ropeshift/internal/adapters/sqlite"
 	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/crashpoint"
+	"ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/workorders"
 	"ropeshift.com/ropeshift/test/apitest"
@@ -51,8 +52,9 @@ var paneSteps = []paneStep{
 	{name: "briefed"},
 }
 
-// paneProfile runs a lane in a pane, with a short check, so a broken start ends quickly.
-const paneProfile = "run_mode = \"tmux\"\n[lifecycle]\nready_timeout = \"4s\"\nbrief_grace = \"2s\"\n"
+// paneProfile runs a lane in a pane, with a short check, so a broken start ends quickly. The brief's grace is
+// longer than what a restart observes after its adoption, so a brief sent again inside the grace shows there.
+const paneProfile = "run_mode = \"tmux\"\n[lifecycle]\nready_timeout = \"4s\"\nbrief_grace = \"4s\"\n"
 
 const paneFlagWait = 30 * time.Second
 
@@ -89,6 +91,10 @@ type paneRun struct {
 	exited  chan error
 	process *exec.Cmd
 	stderr  bytes.Buffer
+	// epoch is the worker's epoch when dispatch claimed, read while the daemon a kill ends still runs, and
+	// lane is the lane dispatch started. A restart waits past both.
+	epoch int64
+	lane  string
 }
 
 func newPaneRun(t *testing.T, fixture string, extra ...string) (*paneRun, error) {
@@ -143,23 +149,32 @@ func (r *paneRun) daemon(kill string) error {
 // adoptionSettle is longer than a worker's first pass over what it finds.
 const adoptionSettle = time.Second
 
-// restart starts a new daemon and holds the session's turn until that daemon has adopted
-// it, so whatever a broken adoption writes lands while the session can still take it.
+// restart starts a new daemon and holds the session's turn until that daemon has adopted the
+// lane dispatch started: its worker opened an epoch past the one the killed daemon held, and
+// reported the lane under it as alive, which only a run the worker holds can say, because a
+// lane it has not taken up yet reports its liveness as unknown. Whatever a broken adoption
+// writes then lands while the session can still take it, and what a check observes after the
+// settle counts from the adoption. A run that dispatched nothing waits for the new epoch alone.
 func (r *paneRun) restart() error {
 	ctx := r.w.rig.Ctx
-	var before int64
-	if workers, err := r.client.Workers(ctx); err == nil && len(workers) == 1 {
-		before = workers[0].Epoch
-	}
 	if err := r.daemon(""); err != nil {
 		return err
 	}
 	err := until("the new daemon's epoch", func() (bool, error) {
 		workers, err := r.client.Workers(ctx)
-		return err == nil && len(workers) == 1 && workers[0].Epoch > before, nil
+		return err == nil && len(workers) == 1 && workers[0].Epoch > r.epoch, nil
 	})
 	if err != nil {
 		return err
+	}
+	if r.lane != "" {
+		err = until("the new daemon's adoption of "+r.lane, func() (bool, error) {
+			lane, err := r.client.Lane(ctx, r.lane)
+			return err == nil && lane.ReportedByEpoch > r.epoch && lane.Liveness == string(lanes.LivenessAlive), nil
+		})
+		if err != nil {
+			return err
+		}
 	}
 	time.Sleep(adoptionSettle)
 	return nil
@@ -191,7 +206,7 @@ func (r *paneRun) dispatch() (string, error) {
 		if err != nil || len(workers) != 1 || workers[0].Epoch < 1 {
 			return false, nil
 		}
-		worker = workers[0].ID
+		worker, r.epoch = workers[0].ID, workers[0].Epoch
 		return true, nil
 	})
 	if err != nil {
@@ -200,7 +215,8 @@ func (r *paneRun) dispatch() (string, error) {
 	if _, err := r.client.Claim(ctx, id, api.ClaimRequest{ClaimID: "c1", WorkerID: worker}); err != nil {
 		return "", err
 	}
-	_, err = r.client.StartLane(ctx, id, api.StartLane{LaneID: "lane-1"})
+	r.lane = "lane-1"
+	_, err = r.client.StartLane(ctx, id, api.StartLane{LaneID: r.lane})
 	return id, err
 }
 
