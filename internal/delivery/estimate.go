@@ -133,8 +133,11 @@ type CostBand struct {
 // counts the records of other projects it drew from the installation's pool, which name no work order. The
 // band holds the 50th and 85th percentiles and the least and most of what it drew on, for time and cost apart.
 // P85Open says no record bounds 85 percent of outcomes, so the p85 is the longest record and reads as more than
-// it; CostAtLeast says a record's cost was a lower bound. Explanation is the text every surface shows.
+// it; CostAtLeast says a record's cost was a lower bound. Explanation is the text every surface shows. A kept
+// estimate also has its ID, the set it was made in and when, and whether it is its work order's current estimate.
 type Estimate struct {
+	ID               string     `json:"id,omitempty"`
+	SetID            string     `json:"estimate_set_id,omitempty"`
 	WorkOrder        string     `json:"work_order_id,omitempty"`
 	Status           Status     `json:"status"`
 	Confidence       Confidence `json:"confidence,omitempty"`
@@ -159,6 +162,8 @@ type Estimate struct {
 	EstimatorVersion int        `json:"estimator_version"`
 	PolicyVersion    int64      `json:"policy_version"`
 	Explanation      string     `json:"explanation"`
+	Current          bool       `json:"current"`
+	CreatedAt        int64      `json:"created_at,omitempty"`
 }
 
 // Time is the estimate's delivery time band.
