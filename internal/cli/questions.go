@@ -8,6 +8,7 @@ import (
 
 	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/authority"
+	"ropeshift.com/ropeshift/internal/delivery"
 	"ropeshift.com/ropeshift/internal/questions"
 )
 
@@ -358,7 +359,8 @@ func policyLine(p authority.PolicyVersion) string {
 // policyKind reads `--kind`, which names the decision policy unless it says otherwise.
 func policyKind(kind string) (authority.PolicyKind, bool) {
 	switch authority.PolicyKind(kind) {
-	case authority.PolicyDecision, authority.PolicyLane, authority.PolicyDelegation, authority.PolicyAutonomy, authority.PolicyNotify, authority.PolicyRecovery:
+	case authority.PolicyDecision, authority.PolicyLane, authority.PolicyDelegation, authority.PolicyAutonomy, authority.PolicyNotify, authority.PolicyRecovery,
+		delivery.PolicyEstimate:
 		return authority.PolicyKind(kind), true
 	}
 	return "", false
@@ -366,7 +368,7 @@ func policyKind(kind string) (authority.PolicyKind, bool) {
 
 func (c *invocation) policyList(args []string) int {
 	set := c.flags()
-	kind := set.String("kind", string(authority.PolicyDecision), "the policy: decision, lane, delegation, autonomy, notify, or recovery")
+	kind := set.String("kind", string(authority.PolicyDecision), "the policy: decision, lane, delegation, autonomy, notify, recovery, or estimate")
 	positional, ok := c.parse(set, args)
 	if !ok {
 		return ExitUsage
@@ -395,7 +397,7 @@ func (c *invocation) policyList(args []string) int {
 
 func (c *invocation) policyShow(args []string) int {
 	set := c.flags()
-	kind := set.String("kind", string(authority.PolicyDecision), "the policy: decision, lane, delegation, autonomy, notify, or recovery")
+	kind := set.String("kind", string(authority.PolicyDecision), "the policy: decision, lane, delegation, autonomy, notify, recovery, or estimate")
 	positional, ok := c.parse(set, args)
 	if !ok {
 		return ExitUsage

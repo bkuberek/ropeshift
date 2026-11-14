@@ -17,6 +17,7 @@ import (
 	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/control"
 	"ropeshift.com/ropeshift/internal/conversations"
+	"ropeshift.com/ropeshift/internal/delivery"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/messages"
 	"ropeshift.com/ropeshift/internal/planning"
@@ -1054,7 +1055,7 @@ func policyKindOfBody(body string) authority.PolicyKind {
 	}{
 		{delegatePolicyTable, authority.PolicyDelegate}, {notifyTable, authority.PolicyNotify}, {autonomyTable, authority.PolicyAutonomy},
 		{delegationTable, authority.PolicyDelegation}, {recoveryPolicyTable, authority.PolicyRecovery}, {lanePolicyTable, authority.PolicyLane},
-		{assistantTable, authority.PolicyAssistant},
+		{assistantTable, authority.PolicyAssistant}, {estimatePolicyTable, delivery.PolicyEstimate},
 	} {
 		if holdsTable(body, kind.table) {
 			return kind.kind
@@ -1206,6 +1207,8 @@ func (h *handler) versionsOf(ctx context.Context, kind authority.PolicyKind) ([]
 		return h.questions.LanePolicyVersions(ctx, h.Scope)
 	case authority.PolicyRecovery:
 		return h.recoveries.RecoveryPolicyVersions(ctx, h.Scope)
+	case delivery.PolicyEstimate:
+		return h.estimates.EstimatePolicyVersions(ctx, h.Scope)
 	case authority.PolicyDelegate:
 		return h.approvals.DelegatePolicyVersions(ctx, h.Scope)
 	case authority.PolicyAssistant:
