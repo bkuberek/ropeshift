@@ -361,10 +361,13 @@ func checkManifestRegisteredByHand(r *Rig) error {
 	manifest := planning.RepositoriesFile{ID: "platform", Repositories: []planning.ManifestRepository{
 		{Name: "billing", Remote: "git@github.com:acme/billing.git", Path: "../billing"},
 		{Name: "ledger", Remote: "git@github.com:acme/ledger.git", Path: "../ledger"},
+		// A remote either side leaves empty is not compared, so the clone at the path is taken.
+		{Name: "docs", Remote: "git@github.com:acme/docs.git", Path: "../docs"},
+		{Name: "wiki", Path: "../wiki"},
 	}}
 	repositories := r.repositories(s)
 	// A machine that keeps no clone of the planning repository has nothing to read the paths from.
-	if added, err := repositories.RegisterManifest(r.Ctx, r.Scope, manifest, fake.NewCheckouts(), false, r.member()); err != nil || len(added) != 2 ||
+	if added, err := repositories.RegisterManifest(r.Ctx, r.Scope, manifest, fake.NewCheckouts(), false, r.member()); err != nil || len(added) != len(manifest.Repositories) ||
 		added[0].Outcome != ledger.RegistrationRefused || !strings.Contains(added[0].Reason, "planning repository") {
 		return Violatedf("a manifest on a machine with no planning clone reads %+v: %v", added, err)
 	}
@@ -373,6 +376,8 @@ func checkManifestRegisteredByHand(r *Rig) error {
 		return err
 	}
 	kept.Place(cloneOf("billing", "billing"))
+	kept.Place(ports.Clone{Path: "/work/docs", ID: "repo-docs", DefaultBranch: "main"})
+	kept.Place(cloneOf("wiki", "wiki"))
 	ledgerClone := cloneOf("ledger", "ledger")
 	ledgerClone.Remote = "git@github.com:someone-else/ledger.git"
 	kept.Place(ledgerClone)
@@ -403,6 +408,11 @@ func checkManifestRegisteredByHand(r *Rig) error {
 	}
 	if found, err := repositories.Resolve(r.Ctx, r.Scope, "ledger"); err == nil {
 		return Violatedf("a clone of another remote was registered as %+v", found)
+	}
+	for _, name := range []string{"docs", "wiki"} {
+		if taken, ok := outcomeNamed(added, name); !ok || taken.Outcome != ledger.Registered {
+			return Violatedf("%s, with a remote on one side only, reads %+v", name, taken)
+		}
 	}
 	return nil
 }
@@ -440,7 +450,11 @@ func checkManifestPathsStayBesideThePlanningClone(r *Rig) error {
 	}
 	kept.Place(cloneOf("billing", "billing"))
 	kept.Place(ports.Clone{Path: "/home/user/secret", ID: "repo-secret", DefaultBranch: "main"})
+	// Another project's clone on the same machine, which that project's checkout names.
 	kept.Place(ports.Clone{Path: "/other/api", ID: "repo-theirs", DefaultBranch: "main"})
+	if err := kept.Keep(r.Ctx, "workspace-b", "repo-theirs", "/other/api"); err != nil {
+		return err
+	}
 	kept.Place(ports.Clone{Path: "/data/elsewhere", ID: "repo-escape", DefaultBranch: "main"})
 	kept.Link("/work/escape", "/data/elsewhere")
 	kept.Place(ports.Clone{Path: "/work/real-search", ID: "repo-search", DefaultBranch: "main"})
