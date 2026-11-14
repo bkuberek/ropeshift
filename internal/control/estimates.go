@@ -14,7 +14,8 @@ import (
 )
 
 // estimateReads are what an estimate is made from within one transaction (ADR-0026): the work orders, the
-// roster, the repositories, the contracts, the estimate policy, and the delivery records the fold keeps.
+// roster, the repositories, the contracts, the estimate policy, the delivery records the fold keeps, and what
+// other projects share in the installation's pool.
 type estimateReads struct {
 	orders       ports.WorkOrderReader
 	roster       ports.RosterReader
@@ -22,12 +23,13 @@ type estimateReads struct {
 	planning     ports.PlanningReader
 	policies     ports.PolicyReader
 	deliveries   ports.DeliveryReader
+	pool         ports.PoolReader
 }
 
 func writeEstimateReads(tx ports.WriteTx) estimateReads {
 	return estimateReads{
 		orders: tx.WorkOrders(), roster: tx.Roster(), repositories: tx.Repositories(), planning: tx.Planning(),
-		policies: tx.Policies(), deliveries: tx.Deliveries(),
+		policies: tx.Policies(), deliveries: tx.Deliveries(), pool: tx.Pool(),
 	}
 }
 
@@ -74,9 +76,10 @@ func (r estimateReads) keysOf(view roster.Resolved, order workorders.WorkOrder) 
 	return keys, nil
 }
 
-// estimateSet estimates the open work orders among those given, from the delivery records the fold keeps and
-// under the estimate policy in force, as read at a revision, and seals them as one set under a new ID. It
-// reports false when none of them takes an estimate.
+// estimateSet estimates the open work orders among those given, from the delivery records the fold keeps, and
+// from what other projects share in the pool when the project shares its own history, under the estimate policy
+// in force, as read at a revision, and seals them as one set under a new ID. It reports false when none of them
+// takes an estimate.
 func (r estimateReads) estimateSet(set delivery.EstimateSet, orders []workorders.WorkOrder, now int64) (delivery.EstimateSet, bool, error) {
 	var open []workorders.WorkOrder
 	for _, order := range orders {
@@ -95,6 +98,12 @@ func (r estimateReads) estimateSet(set delivery.EstimateSet, orders []workorders
 	if err != nil {
 		return delivery.EstimateSet{}, false, err
 	}
+	var pool []delivery.Record
+	if policy.ShareHistory {
+		if pool, err = r.pool.Records(); err != nil {
+			return delivery.EstimateSet{}, false, err
+		}
+	}
 	view, err := ResolveIn(r.roster)
 	if err != nil {
 		return delivery.EstimateSet{}, false, err
@@ -108,7 +117,7 @@ func (r estimateReads) estimateSet(set delivery.EstimateSet, orders []workorders
 		if err != nil {
 			return delivery.EstimateSet{}, false, err
 		}
-		e := delivery.EstimateOf(delivery.EstimateInput{WorkOrder: order.ID, Keys: keys, Records: records, Policy: policy, Rev: set.Rev})
+		e := delivery.EstimateOf(delivery.EstimateInput{WorkOrder: order.ID, Keys: keys, Records: records, Pool: pool, Policy: policy, Rev: set.Rev})
 		if e.ID, err = newID(now); err != nil {
 			return delivery.EstimateSet{}, false, err
 		}

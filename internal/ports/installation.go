@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	"ropeshift.com/ropeshift/internal/delivery"
 	"ropeshift.com/ropeshift/internal/ledger"
 )
 
@@ -34,6 +35,12 @@ type Installation interface {
 	// no event: one short transaction on one worker's row, guarded by its epoch. A beat of an epoch that is
 	// no longer current changes nothing.
 	Beat(ctx context.Context, worker string, epoch int64) error
+	// SharePool replaces what a project shares in the installation's delivery pool with these records, each
+	// holding only what delivery.Pooled keeps, and the digest of them; no digest takes the project's share out
+	// (ADR-0026, FR-EST-13). The pool is derived from each project's delivery records, so like a report it takes
+	// no revision and appends no event. A store with no installation has no other project to share with, and
+	// keeps nothing.
+	SharePool(ctx context.Context, project ledger.WorkspaceID, digest string, records []delivery.Record) error
 }
 
 // SharedReadTx is one consistent view of the shared records.

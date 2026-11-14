@@ -8,6 +8,7 @@ import (
 
 	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/crashpoint"
+	"ropeshift.com/ropeshift/internal/delivery"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/ports"
 )
@@ -63,6 +64,11 @@ func (in *Installation) SaveReport(ctx context.Context, worker string, epoch int
 // Beat records that a worker's session beat, in the installation's database.
 func (in *Installation) Beat(ctx context.Context, worker string, epoch int64) error {
 	return in.core.beat(ctx, ledger.InstallationScope, worker, epoch)
+}
+
+// SharePool replaces a project's share of the delivery pool, in the installation's database.
+func (in *Installation) SharePool(ctx context.Context, project ledger.WorkspaceID, digest string, records []delivery.Record) error {
+	return in.core.sharePool(ctx, ledger.InstallationScope, project, digest, records)
 }
 
 // installationReadTx is one view of the installation's shared records.
@@ -186,6 +192,11 @@ func (o ownShared) SaveReport(ctx context.Context, worker string, epoch int64, r
 
 func (o ownShared) Beat(ctx context.Context, worker string, epoch int64) error {
 	return o.store.beat(ctx, o.scope, worker, epoch)
+}
+
+// SharePool keeps nothing: a store with no installation holds one project, which has no other to share with.
+func (o ownShared) SharePool(context.Context, ledger.WorkspaceID, string, []delivery.Record) error {
+	return nil
 }
 
 type ownSharedRead struct {
