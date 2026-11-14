@@ -208,6 +208,9 @@ func New(draft Question) (Question, error) {
 	if draft.ID == "" {
 		return Question{}, fmt.Errorf("%w: a question has no id", ErrInvalid)
 	}
+	if !ledger.PlainID(draft.ID) {
+		return Question{}, fmt.Errorf("%w: a question's id is 1 to %d letters, digits, '-', and '_'", ErrInvalid, ledger.MaxRecordID)
+	}
 	if Normalize(draft.Text) == "" {
 		return Question{}, fmt.Errorf("%w: a question has no text", ErrInvalid)
 	}
@@ -222,6 +225,9 @@ func New(draft Question) (Question, error) {
 func NewDecision(draft Decision) (Decision, error) {
 	if draft.ID == "" {
 		return Decision{}, fmt.Errorf("%w: a decision has no id", ErrInvalid)
+	}
+	if !ledger.PlainID(draft.ID) {
+		return Decision{}, fmt.Errorf("%w: a decision's id is 1 to %d letters, digits, '-', and '_'", ErrInvalid, ledger.MaxRecordID)
 	}
 	if draft.Statement == "" {
 		return Decision{}, fmt.Errorf("%w: a decision states nothing", ErrInvalid)
