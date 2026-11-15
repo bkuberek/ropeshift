@@ -246,6 +246,9 @@ export function App() {
         ? [
             { key: "action:register", group: "Actions" as const, title: "Register repositories", icon: "repo" as const, to: inProject(project, "/repositories?dialog=register") },
             { key: "action:fleet", group: "Actions" as const, title: "Pause or drain the fleet", icon: "pause" as const, to: inProject(project, "/settings?section=fleet") },
+            { key: "action:record-question", group: "Actions" as const, title: "Record question", icon: "question" as const, to: inProject(project, "/questions?dialog=record"), keywords: "ask open" },
+            { key: "action:record-decision", group: "Actions" as const, title: "Record decision", icon: "decision" as const, to: inProject(project, "/decisions?dialog=record"), keywords: "decide assume assumption" },
+            { key: "action:add-category", group: "Actions" as const, title: "Add category", icon: "plus" as const, to: inProject(project, `/${view === "decisions" ? "decisions" : "questions"}?dialog=category`), keywords: "question decision filter" },
           ]
         : []),
       { key: "action:join-token", group: "Actions", title: "Create join token", icon: "key", to: "/workers?dialog=token" },
@@ -306,7 +309,7 @@ export function App() {
       .filter((row) => row.state === "active" && row.name !== project)
       .map((row) => ({ key: `project:${row.name}`, group: "Projects", id: row.name, title: `Switch to ${projectName(row, row.name)}`, icon: "projects", to: inProject(row.name, resolved.kind === "view" && route.project ? route.path : "/roadmap") }));
     return { actions, views, recent, projects: others };
-  }, [items, pageEntries, dockOpen, onConversations, theme, nextTheme, signOutNow, project, label, list, switcher, setDockOpen, resolved.kind, route.project, route.path]);
+  }, [items, pageEntries, dockOpen, onConversations, theme, nextTheme, signOutNow, project, label, list, switcher, setDockOpen, resolved.kind, route.project, route.path, view]);
 
   const waiting = needs.view ? needs.view.items.length : null;
   const shell = `app${navOpen ? " nav-open" : ""}${dockVisible ? " dock-open" : ""}`;

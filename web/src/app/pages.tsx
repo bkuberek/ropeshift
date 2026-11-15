@@ -1,7 +1,9 @@
 import { lazy, Suspense } from "react";
 import type { ReactNode } from "react";
 
+import { useRead } from "../admin/parts";
 import type { Prefs } from "../admin/Settings";
+import { readCategories } from "../api/admin";
 import { readView } from "../api/client";
 import type { Decisions as DecisionsView, Documents, NeedsYou, Operations as OperationsView, Plans, Project, Questions, Stamp } from "../api/types";
 import type { Live } from "../api/useView";
@@ -17,6 +19,8 @@ import { Decisions } from "../planning/Decisions";
 import { DocumentsBody, DocumentsTabs } from "../planning/Documents";
 import { OpenQuestions } from "../planning/OpenQuestions";
 import { PlanApprovalPage } from "../planning/PlanApproval";
+import { RecordDecision } from "../planning/RecordDecision";
+import { RecordQuestion } from "../planning/RecordQuestion";
 import { PlanningPage } from "../planning/Planning";
 import { PlanList, PlanPage } from "../planning/Plans";
 import { StartSession } from "../planning/StartSession";
@@ -37,7 +41,7 @@ type Spec<T> = {
   title: string | ((view: T | null) => string);
   note?: (view: T) => string;
   crumbs?: ReactNode;
-  actions?: ReactNode;
+  actions?: ReactNode | ((view: T | null) => ReactNode);
   // above stands between the title and the view's body, such as its tabs.
   above?: ReactNode;
   body: (view: T) => ReactNode;
@@ -51,7 +55,7 @@ function ViewPage<T extends Stamp>({ name, live, category = "", gapMs, title, no
   const now = useClock();
   const view = read.view;
   return (
-    <Page title={typeof title === "function" ? title(view) : title} note={view && note ? note(view) : undefined} crumbs={crumbs} actions={actions}>
+    <Page title={typeof title === "function" ? title(view) : title} note={view && note ? note(view) : undefined} crumbs={crumbs} actions={typeof actions === "function" ? actions(view) : actions}>
       {above}
       <div className={above ? "tab-body" : undefined}>
         {read.failure ? <Banner tone="danger">{view ? `What this view shows is not current. ${read.failure}` : read.failure}</Banner> : null}
@@ -125,6 +129,23 @@ function plansPage(live: Live, id: string, project: string) {
   );
 }
 
+// The decisions, which a category narrows as it narrows the open questions. The categories come from their own
+// read, so the filter stands whatever the filter leaves out of the list.
+function DecisionsPage({ live, id, category }: { live: Live; id: string; category: string }) {
+  const categories = useRead(() => readCategories(), "categories", live);
+  return (
+    <ViewPage<DecisionsView>
+      name="decisions"
+      live={live}
+      category={category}
+      title={(read) => (!id ? "Decisions" : read === null || read.decisions.some((row) => row.id === id) ? id : "No such decision")}
+      note={(read) => (id ? "" : count(read.decisions.length, "decision"))}
+      actions={(read) => <RecordDecision decisions={read?.decisions ?? []} />}
+      body={(read) => <Decisions view={read} selected={id} category={category} categories={categories.view?.categories ?? []} />}
+    />
+  );
+}
+
 // The pages that manage the installation and a project's records load when a person first opens one,
 // so the views of daily work load without them.
 const AgentsPage = lazy(() => import("../admin/Agents").then((page) => ({ default: page.AgentsPage })));
@@ -190,15 +211,7 @@ function ViewFor({ view, project, scoped, params, live, after, needs, projects, 
     case "traceability":
       return documentsPage(live, params, project, "traceability");
     case "decisions":
-      return (
-        <ViewPage<DecisionsView>
-          name="decisions"
-          live={live}
-          title={(read) => (!param("id") ? "Decisions" : read === null || read.decisions.some((row) => row.id === param("id")) ? param("id") : "No such decision")}
-          note={(read) => (param("id") ? "" : count(read.decisions.length, "decision"))}
-          body={(read) => <Decisions view={read} selected={param("id")} />}
-        />
-      );
+      return <DecisionsPage live={live} id={param("id")} category={param("category")} />;
     case "questions":
       return (
         <ViewPage<Questions>
@@ -207,6 +220,7 @@ function ViewFor({ view, project, scoped, params, live, after, needs, projects, 
           category={param("category")}
           title="Open questions"
           note={(read) => `${read.questions.length} open`}
+          actions={<RecordQuestion />}
           body={(read) => <OpenQuestions view={read} category={param("category")} selected={param("id")} />}
         />
       );

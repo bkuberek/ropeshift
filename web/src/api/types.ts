@@ -337,6 +337,44 @@ export type Question = {
   claimed_by?: string;
 };
 
+// RecordQuestion is what a member sends to record a question: the client's ID, its text, and what it is about.
+export type RecordQuestion = {
+  id: string;
+  text: string;
+  categories?: string[];
+  blocking?: boolean;
+  subject_kind?: string;
+  subject_id?: string;
+};
+
+// RecordDecision is what a member sends to record a decision, or with the status `assumed`, an assumption.
+export type RecordDecision = {
+  id: string;
+  status: "decided" | "assumed";
+  statement: string;
+  rationale?: string;
+  citations?: string[];
+  scope?: string;
+  reversibility?: string;
+  categories?: string[];
+  supersedes?: string;
+  question_id?: string;
+  no_conflict?: string[];
+};
+
+// A Candidate is one record a search found, best first: its kind, its ID, and how well it matched.
+export type Candidate = { kind: string; record_id: string; score: number };
+
+export type CandidateList = { candidates: Candidate[] };
+
+// OverturnDecision is a member's reversal of a decision: the ID of the decision that takes its place, and what
+// stands instead.
+export type OverturnDecision = { id: string; statement: string; rationale?: string; citations?: string[] };
+
+// RecordedDecision is a decision as the API answers it after it is recorded, with the decisions whose scope
+// it overlaps.
+export type RecordedDecision = Omit<Decision, "lineage" | "superseded_by" | "decided_by_name">;
+
 export type PlanReview = { work_order: WorkOrder; open_questions: Question[] };
 
 // `pending_version` is the plan version whose approval waits for a member, when one does.
@@ -797,3 +835,7 @@ export type PlanOutline = {
   approval?: { id: string; state: string; version: number };
   not_submitted?: string;
 };
+
+// Overturned is what one overturn did: the two decisions, the work orders it sent to rework, and the lanes it
+// told that the decision no longer stands.
+export type Overturned = { old: RecordedDecision; new: RecordedDecision; rework?: string[]; noticed?: string[] };

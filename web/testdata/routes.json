@@ -196,8 +196,28 @@
   },
   {
     "method": "POST",
+    "pattern": "/v1/projects/{project}/questions",
+    "command": "question record"
+  },
+  {
+    "method": "POST",
+    "pattern": "/v1/projects/{project}/questions/{id}/dismiss",
+    "command": "question dismiss"
+  },
+  {
+    "method": "POST",
     "pattern": "/v1/projects/{project}/questions/{id}/answer",
     "command": "question answer"
+  },
+  {
+    "method": "POST",
+    "pattern": "/v1/projects/{project}/decisions",
+    "command": "decision record"
+  },
+  {
+    "method": "POST",
+    "pattern": "/v1/projects/{project}/decisions/{id}/overturn",
+    "command": "decision overturn"
   },
   {
     "method": "POST",
@@ -358,6 +378,16 @@
     "method": "GET",
     "pattern": "/v1/projects/{project}/categories",
     "command": "category list"
+  },
+  {
+    "method": "POST",
+    "pattern": "/v1/projects/{project}/categories",
+    "command": "category add"
+  },
+  {
+    "method": "GET",
+    "pattern": "/v1/projects/{project}/candidates",
+    "command": "search"
   },
   {
     "method": "GET",

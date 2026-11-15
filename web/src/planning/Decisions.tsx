@@ -1,6 +1,9 @@
 import type { Decision, Decisions as View } from "../api/types";
 import { addressOf, Link } from "../app/route";
 import { Fact, Id, Line, words } from "../parts/parts";
+import { CategoryFilter } from "./CategoryFilter";
+import { OverturnDecisionButton } from "./OverturnDecision";
+import { inForce } from "./records";
 
 const decisionAt = (id: string) => addressOf("/decisions", { id });
 
@@ -83,23 +86,29 @@ function DecisionLine({ decision }: { decision: Decision }) {
             </Fact>
           ) : null}
         </dl>
+        {inForce(decision) ? (
+          <div className="row-tight">
+            <OverturnDecisionButton decision={decision} />
+          </div>
+        ) : null}
       </div>
     </Line>
   );
 }
 
-export function Decisions({ view, selected }: { view: View; selected: string }) {
+export function Decisions({ view, selected, category, categories }: { view: View; selected: string; category: string; categories: string[] }) {
   const shown = selected ? view.decisions.filter((decision) => decision.id === selected) : view.decisions;
-  if (view.decisions.length === 0) {
-    return <p className="empty">No decisions yet.</p>;
-  }
+  const empty = category ? `Nothing decided in ${words(category)}.` : "No decisions yet.";
   return (
     <>
       {selected ? (
         <p className="back">
           <Link to="/decisions">All decisions</Link>
         </p>
+      ) : categories.length ? (
+        <CategoryFilter path="/decisions" categories={categories} category={category} />
       ) : null}
+      {view.decisions.length === 0 ? <p className="empty">{empty}</p> : null}
       {shown.length ? (
         <ol className="record-list queue-work" role="list">
           {shown.map((decision) => (

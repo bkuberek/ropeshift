@@ -1,4 +1,4 @@
-import { screen, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
@@ -139,5 +139,58 @@ describe("the decisions", () => {
     serveViews((call) => (call.path.startsWith("/v1/views/decisions") ? { status: 200, body: { as_of: 1, revision: 1, decisions: [] } } : undefined));
     openPage("/decisions");
     expect(await screen.findByText("No decisions yet.")).toBeTruthy();
+  });
+});
+
+// Filtering is the server's: a test that served the same list for every category would pass with no filter at
+// all, so this serves only what the category holds.
+function serveByCategory() {
+  return serveViews((call) => {
+    if (!call.path.startsWith("/v1/views/decisions")) {
+      return undefined;
+    }
+    const category = new URLSearchParams(call.path.split("?")[1]).get("category");
+    const view = golden<Decisions>("decisions");
+    view.decisions = view.decisions.filter((row) => !category || row.categories?.includes(category));
+    return { status: 200, body: view };
+  });
+}
+
+describe("the category filter of the decisions", () => {
+  const filters = () => screen.findByRole("navigation", { name: "Filter by category" });
+
+  it("offers every category the project has, and all of them", async () => {
+    serveViews();
+    openPage("/decisions");
+    expect(within(await filters()).getAllByRole("link").map((link) => link.textContent)).toEqual([
+      "All", "Architecture", "Business", "Compliance", "Data", "Design", "Operations", "Product", "Security",
+    ]);
+    expect(within(await filters()).getByRole("link", { name: "All" }).getAttribute("aria-current")).toBe("true");
+  });
+
+  it("asks the server for one category and shows what it holds", async () => {
+    const sent = serveByCategory();
+    openPage("/decisions");
+    await decision("Retry twice.");
+    await userEvent.click(within(await filters()).getByRole("link", { name: "Operations" }));
+    expect(await decision("Retry until the budget runs out.")).toBeTruthy();
+    await waitFor(() => expect(screen.queryByRole("article", { name: "Retry twice." })).toBeNull());
+    expect(sent.some((call) => call.path === "/v1/views/decisions?category=operations")).toBe(true);
+    expect(window.location.search).toBe("?category=operations");
+    expect(within(await filters()).getByRole("link", { name: "Operations" }).getAttribute("aria-current")).toBe("true");
+  });
+
+  it("holds a filter in the address, so a link keeps it", async () => {
+    const sent = serveByCategory();
+    openPage("/decisions?category=operations");
+    await decision("Retry until the budget runs out.");
+    expect(sent.some((call) => call.path === "/v1/views/decisions?category=operations")).toBe(true);
+  });
+
+  it("says when a category holds nothing, and offers the way back", async () => {
+    serveByCategory();
+    openPage("/decisions?category=data");
+    expect(await screen.findByText("Nothing decided in Data.")).toBeTruthy();
+    expect(within(await filters()).getByRole("link", { name: "All" })).toBeTruthy();
   });
 });

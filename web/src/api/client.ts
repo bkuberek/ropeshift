@@ -1,5 +1,5 @@
 import { splitProject } from "../app/route";
-import type { ApprovalRecord, DocumentRef, DocumentRow, DocumentVersions, EffectOutcome, NeedsYou, PlanOutline, PlanView, ProjectList, RecordedRead, Search, WorkAction } from "./types";
+import type { ApprovalRecord, CandidateList, DocumentRef, DocumentRow, DocumentVersions, EffectOutcome, NeedsYou, Overturned, OverturnDecision, PlanOutline, PlanView, ProjectList, Question, RecordDecision, RecordedDecision, RecordedRead, RecordQuestion, Search, WorkAction } from "./types";
 
 function documentQuery({ path, instance, version }: DocumentRef): URLSearchParams {
   const query = new URLSearchParams({ path });
@@ -57,7 +57,12 @@ export const paths = {
   plan: (id: string, version = "") => project(`/plans/${encodeURIComponent(id)}${version ? `?${new URLSearchParams({ version })}` : ""}`),
   approval: (id: string) => project(`/approvals/${encodeURIComponent(id)}`),
   outline: (lane: string) => project(`/lanes/${encodeURIComponent(lane)}/outline`),
+  questions: () => project("/questions"),
   answer: (id: string) => project(`/questions/${encodeURIComponent(id)}/answer`),
+  dismiss: (id: string) => project(`/questions/${encodeURIComponent(id)}/dismiss`),
+  decisions: () => project("/decisions"),
+  overturn: (id: string) => project(`/decisions/${encodeURIComponent(id)}/overturn`),
+  candidates: (text: string, limit: number) => project(`/candidates?${new URLSearchParams({ text, kinds: candidateKinds.join(","), limit: String(limit) })}`),
   decideApproval: (id: string) => project(`/approvals/${encodeURIComponent(id)}/decide`),
   decideEffect: (id: string) => project(`/effects/${encodeURIComponent(id)}/decide`),
   work: (id: string, verb: string) => project(`/work-orders/${encodeURIComponent(id)}/${verb}`),
@@ -70,6 +75,9 @@ export const paths = {
 export const paneKeys = ["Enter", "Escape", "Tab", "Backspace", "Up", "Down", "Left", "Right", "Ctrl-C", "Ctrl-D"] as const;
 
 export type PaneKey = (typeof paneKeys)[number];
+
+// The kinds of record `ropeshift search` reads when it is given none: what a question may match.
+const candidateKinds = ["decision", "requirement", "contract", "question"];
 
 // What each action of a work item calls, and whether it asks a person why.
 export const workActions: Record<WorkAction, { verb: string; needsReason: boolean }> = {
@@ -207,7 +215,7 @@ export function signOut(): Promise<void> {
 export type Place = "needs_you" | "conversation";
 
 // A plain ID is what the ledger takes for a decision: 1 to 64 letters, digits, '-', and '_'.
-const plainID = /^[A-Za-z0-9_-]{1,64}$/;
+export const plainID = /^[A-Za-z0-9_-]{1,64}$/;
 
 // decisionIDOf names the decision an answer becomes after its question, so a second send of one answer finds
 // the first. A question whose name would not fit, or holds another character as an older one may, gives a
@@ -224,6 +232,36 @@ export async function decisionIDOf(question: string): Promise<string> {
 
 export async function answerQuestion(id: string, answer: string, place?: Place): Promise<unknown> {
   return call("POST", paths.answer(id), { id: await decisionIDOf(id), answer, ...(place ? { place } : {}) });
+}
+
+// recordQuestion records a question as it is, as `ropeshift question record` does. The ID is the client's, so a
+// retry finds the record the first attempt made.
+export function recordQuestion(request: RecordQuestion): Promise<Question> {
+  return call("POST", paths.questions(), request);
+}
+
+// dismissQuestion closes a question with no answer. It stays on record.
+export function dismissQuestion(id: string): Promise<void> {
+  return call("POST", paths.dismiss(id), {});
+}
+
+// recordDecision records a decision, or with the status `assumed` an assumption, as `ropeshift decision record`
+// does. The ID is the client's, so a retry finds the record the first attempt made.
+export function recordDecision(request: RecordDecision): Promise<RecordedDecision> {
+  return call("POST", paths.decisions(), request);
+}
+
+// overturnDecision reverses a decision with what takes its place, as `ropeshift decision overturn` does. It
+// sends each completed work order that rested on the decision to rework, and the answer names them. The ID of
+// the new decision is the client's, so a retry finds what the first attempt made.
+export function overturnDecision(id: string, request: OverturnDecision): Promise<Overturned> {
+  return call("POST", paths.overturn(id), request);
+}
+
+// searchCandidates ranks the project's decisions, requirements, contracts, and questions that match some words,
+// best first, as `ropeshift search` does. A member cites what it finds.
+export function searchCandidates(text: string, limit = 8): Promise<CandidateList> {
+  return call("GET", paths.candidates(text, limit));
 }
 
 export function decideApproval(id: string, digest: string, allow: boolean, reason: string, place?: Place): Promise<unknown> {

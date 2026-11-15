@@ -257,6 +257,8 @@ export const setFleetCaps = (caps: { wip_limit: number; lanes_per_repository: nu
 export const readPolicies = (kind: string) => call<PolicyList>("GET", adminPaths.policies(kind));
 export const publishPolicy = (body: string) => call<PublishedPolicy>("POST", adminPaths.publishPolicy(), { body });
 export const readCategories = () => call<{ categories: string[] }>("GET", adminPaths.categories());
+// A category is added once for the workspace, as `ropeshift category add` does, and a repeat is done.
+export const addCategory = (name: string) => call<void>("POST", adminPaths.categories(), { name });
 
 // The roster
 

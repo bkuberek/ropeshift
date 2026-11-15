@@ -34,19 +34,11 @@ describe("the open questions", () => {
     expect(within(card).getByText("lane-asking")).toBeTruthy();
   });
 
-  it("sends a question a person must answer to where it is answered", async () => {
-    serveViews();
-    openPage("/questions");
-    const card = await screen.findByRole("article", { name: "Should the budget hold across restarts?" });
-    expect(within(card).getByRole("link", { name: "Answer in Needs you" }).getAttribute("href")).toBe("/needs-you?kind=decisions");
-  });
-
-  it("offers no answer for a question nobody has brought to a person", async () => {
+  it("says a question nobody has brought to a person is open", async () => {
     serveViews();
     openPage("/questions");
     const card = await screen.findByRole("article", { name: "Does the plan cover a restart?" });
     expect(within(card).getByText("Open")).toBeTruthy();
-    expect(within(card).queryByRole("link", { name: "Answer in Needs you" })).toBeNull();
   });
 
   it("shows how far a question climbed the ladder", async () => {

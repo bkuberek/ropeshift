@@ -603,6 +603,259 @@ describe.each(Object.entries(sizes))("at %s width", (size, viewport) => {
     );
 
     it(
+      "the add category dialog, empty, with a name the ledger would refuse, and with a refusal, meets WCAG 2.2 A and AA",
+      async () => {
+        const context = await browser.newContext({ viewport, colorScheme: theme, reducedMotion: "reduce" });
+        await context.route(/\/v1\//, answer);
+        const page = await context.newPage();
+        const found: string[] = [];
+        const settle = async () => {
+          await page.mouse.move(0, 0);
+          await page.waitForTimeout(600);
+        };
+        await page.goto(`${base}/projects/default/questions`);
+        await ready(page);
+        await page.getByRole("button", { name: "Add category" }).click();
+        const dialog = page.getByRole("dialog", { name: "Add category" });
+        await dialog.waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `add category dialog ${violation}`));
+        await dialog.getByLabel("Name").fill("Release Planning");
+        await dialog.getByRole("button", { name: "Add category" }).click();
+        await dialog.getByText(/lowercase words joined by hyphens/).last().waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `add category dialog with an error ${violation}`));
+        await page.route(/\/v1\/projects\/default\/categories$/, (route) =>
+          route.request().method() === "POST"
+            ? route.fulfill({ status: 400, contentType: "application/json", body: JSON.stringify({ error: { code: "invalid", message: "invalid question or decision: category is taken" } }) })
+            : route.fallback(),
+        );
+        await dialog.getByLabel("Name").fill("billing");
+        await dialog.getByRole("button", { name: "Add category" }).click();
+        await dialog.getByRole("alert").waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `add category dialog with a refusal ${violation}`));
+        await context.close();
+        expect(found.map((line) => `${size} ${theme} ${line}`)).toEqual([]);
+      },
+      120_000,
+    );
+
+    it(
+      "the record question dialog, empty, with its errors, about a work order, and with a refusal, and the dismiss dialog meet WCAG 2.2 A and AA",
+      async () => {
+        const context = await browser.newContext({ viewport, colorScheme: theme, reducedMotion: "reduce" });
+        await context.route(/\/v1\//, answer);
+        const page = await context.newPage();
+        const found: string[] = [];
+        const settle = async () => {
+          await page.mouse.move(0, 0);
+          await page.waitForTimeout(600);
+        };
+        const refuse = (pattern: RegExp, message: string) =>
+          page.route(pattern, (route) =>
+            route.request().method() === "POST" ? route.fulfill({ status: 400, contentType: "application/json", body: JSON.stringify({ error: { code: "invalid", message } }) }) : route.fallback(),
+          );
+        await page.goto(`${base}/projects/default/questions`);
+        await ready(page);
+        await page.getByRole("button", { name: "Record question" }).click();
+        const dialog = page.getByRole("dialog", { name: "Record question" });
+        await dialog.waitFor();
+        await dialog.getByRole("checkbox", { name: "Security" }).waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `record question dialog ${violation}`));
+        await dialog.getByRole("button", { name: "Record question" }).click();
+        await dialog.getByText("Write the question.").waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `record question dialog with an error ${violation}`));
+        await dialog.getByRole("textbox", { name: "Question" }).fill("Which currency do invoices use?");
+        await dialog.getByRole("checkbox", { name: "Security" }).check();
+        await dialog.getByRole("combobox", { name: "About" }).selectOption("work_order");
+        await dialog.getByRole("checkbox", { name: "Work on it waits for the answer" }).check();
+        await dialog.getByRole("button", { name: "Record question" }).click();
+        await dialog.getByText("Name the work order, or choose nothing in particular.").waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `record question dialog about a work order ${violation}`));
+        await dialog.getByRole("textbox", { name: "Work order ID" }).fill("wo-invoices");
+        await refuse(/\/v1\/projects\/default\/questions$/, "invalid question or decision: unknown category");
+        await dialog.getByRole("button", { name: "Record question" }).click();
+        await dialog.getByRole("alert").waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `record question dialog with a refusal ${violation}`));
+        await page.keyboard.press("Escape");
+        await page.getByRole("button", { name: "Dismiss Does the plan cover a restart?" }).click();
+        const confirm = page.getByRole("dialog", { name: "Dismiss this question?" });
+        await confirm.waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `dismiss question dialog ${violation}`));
+        await refuse(/\/v1\/projects\/default\/questions\/question-review\/dismiss$/, "invalid question or decision: question question-review is answered");
+        await confirm.getByRole("button", { name: "Dismiss question" }).click();
+        await confirm.getByRole("alert").waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `dismiss question dialog with a refusal ${violation}`));
+        await context.close();
+        expect(found.map((line) => `${size} ${theme} ${line}`)).toEqual([]);
+      },
+      120_000,
+    );
+
+    it(
+      "the answer form of an open question, with a recommendation, with a member's own words, and with a refusal, meets WCAG 2.2 A and AA",
+      async () => {
+        const context = await browser.newContext({ viewport, colorScheme: theme, reducedMotion: "reduce" });
+        await context.route(/\/v1\//, answer);
+        const page = await context.newPage();
+        const found: string[] = [];
+        const settle = async () => {
+          await page.mouse.move(0, 0);
+          await page.waitForTimeout(600);
+        };
+        await page.goto(`${base}/projects/default/questions`);
+        await ready(page);
+        await page.getByRole("button", { name: "Answer Should the budget hold across restarts?" }).click();
+        const group = page.getByRole("group", { name: "Should the budget hold across restarts?" });
+        await group.waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `answer form with a recommendation ${violation}`));
+        await group.getByRole("radio", { name: "Something else" }).check();
+        await group.getByRole("textbox", { name: "Your answer" }).fill("Hold it for a day.");
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `answer form with a member's own words ${violation}`));
+        await page.route(/\/v1\/projects\/default\/questions\/question-1\/answer$/, (route) =>
+          route.fulfill({ status: 409, contentType: "application/json", body: JSON.stringify({ error: { code: "resolved", message: "This question already has its answer." } }) }),
+        );
+        await page.getByRole("button", { name: "Send this answer" }).click();
+        await page.getByRole("alert").waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `answer form with a refusal ${violation}`));
+        await context.close();
+        expect(found.map((line) => `${size} ${theme} ${line}`)).toEqual([]);
+      },
+      120_000,
+    );
+
+    it(
+      "the record decision dialog, empty, with its errors, in its review, and with a refusal, meets WCAG 2.2 A and AA",
+      async () => {
+        const context = await browser.newContext({ viewport, colorScheme: theme, reducedMotion: "reduce" });
+        await context.route(/\/v1\//, answer);
+        const page = await context.newPage();
+        const found: string[] = [];
+        const settle = async () => {
+          await page.mouse.move(0, 0);
+          await page.waitForTimeout(600);
+        };
+        await page.goto(`${base}/projects/default/decisions`);
+        await ready(page);
+        await page.getByRole("button", { name: "Record decision" }).click();
+        const dialog = page.getByRole("dialog", { name: "Record decision" });
+        await dialog.waitFor();
+        await dialog.getByRole("checkbox", { name: "Security" }).waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `record decision dialog ${violation}`));
+        await dialog.getByText("More").click();
+        await dialog.getByRole("textbox", { name: "Decision ID (optional)" }).fill("pd-2f9a");
+        await dialog.getByRole("button", { name: "Review" }).click();
+        await dialog.getByText("State what was decided.").waitFor();
+        await dialog.getByText(/may not start with pd-/).waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `record decision dialog with errors ${violation}`));
+        await dialog.getByRole("textbox", { name: "Statement" }).fill("Charge in euros.");
+        await dialog.getByRole("textbox", { name: "Rationale" }).fill("Every customer is in the union.");
+        await dialog.getByRole("textbox", { name: "Decision ID (optional)" }).fill("");
+        await dialog.getByRole("checkbox", { name: "Security" }).check();
+        await page.route(/\/v1\/projects\/default\/candidates\?/, (route) =>
+          route.fulfill({
+            status: 200,
+            contentType: "application/json",
+            body: JSON.stringify({ candidates: [{ kind: "requirement", record_id: "FR-RETRY-1", score: 0.9 }, { kind: "decision", record_id: "decision-3", score: 0.7 }] }),
+          }),
+        );
+        await dialog.getByRole("textbox", { name: "Find a record to cite" }).fill("retry");
+        await dialog.getByRole("button", { name: "Search" }).click();
+        await dialog.getByRole("button", { name: "Cite requirement:FR-RETRY-1" }).click();
+        await dialog.getByRole("button", { name: "Cited requirement:FR-RETRY-1" }).waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `record decision dialog with search results ${violation}`));
+        await dialog.getByRole("button", { name: "Review" }).click();
+        await dialog.getByRole("heading", { name: "Review the decision" }).waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `record decision review ${violation}`));
+        await page.route(/\/v1\/projects\/default\/decisions$/, (route) =>
+          route.request().method() === "POST"
+            ? route.fulfill({ status: 409, contentType: "application/json", body: JSON.stringify({ error: { code: "decision_ended", message: "decision decision-3 is overturned" } }) })
+            : route.fallback(),
+        );
+        await dialog.getByRole("button", { name: "Record decision" }).click();
+        await dialog.getByRole("alert").waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `record decision review with a refusal ${violation}`));
+        await dialog.getByRole("button", { name: "Back" }).click();
+        await dialog.getByRole("checkbox", { name: "Record as an assumption" }).check();
+        await dialog.getByRole("button", { name: "Review" }).click();
+        await dialog.getByRole("heading", { name: "Review the assumption" }).waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `record assumption review ${violation}`));
+        await context.close();
+        expect(found.map((line) => `${size} ${theme} ${line}`)).toEqual([]);
+      },
+      120_000,
+    );
+
+    it(
+      "the overturn dialog, empty, with its errors, with a refusal, and with what it made, meets WCAG 2.2 A and AA",
+      async () => {
+        const context = await browser.newContext({ viewport, colorScheme: theme, reducedMotion: "reduce" });
+        await context.route(/\/v1\//, answer);
+        const page = await context.newPage();
+        const found: string[] = [];
+        const settle = async () => {
+          await page.mouse.move(0, 0);
+          await page.waitForTimeout(600);
+        };
+        await page.goto(`${base}/projects/default/decisions`);
+        await ready(page);
+        await page.getByRole("button", { name: "Overturn decision-3" }).click();
+        const dialog = page.getByRole("dialog", { name: "Overturn decision-3" });
+        await dialog.waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `overturn dialog ${violation}`));
+        await dialog.getByText("More").click();
+        await dialog.getByRole("textbox", { name: "ID of the new decision (optional)" }).fill("pd-2f9a");
+        await dialog.getByRole("button", { name: "Overturn decision" }).click();
+        await dialog.getByText("State what stands instead.").waitFor();
+        await dialog.getByText(/may not start with pd-/).waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `overturn dialog with errors ${violation}`));
+        await dialog.getByRole("textbox", { name: "New statement" }).fill("Retry twice, and no more.");
+        await dialog.getByRole("textbox", { name: "ID of the new decision (optional)" }).fill("");
+        const overturn = (status: number, body: unknown) => (route: Route) =>
+          route.request().method() === "POST" ? route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) }) : route.fallback();
+        await page.route(/\/v1\/projects\/default\/decisions\/decision-3\/overturn$/, overturn(409, { error: { code: "decision_ended", message: "decision decision-3 is overturned" } }));
+        await dialog.getByRole("button", { name: "Overturn decision" }).click();
+        await dialog.getByRole("alert").waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `overturn dialog with a refusal ${violation}`));
+        await page.route(
+          /\/v1\/projects\/default\/decisions\/decision-3\/overturn$/,
+          overturn(201, {
+            old: { id: "decision-3", status: "overturned", statement: "Retry until the budget runs out." },
+            new: { id: "decision-new", status: "decided", statement: "Retry twice, and no more.", supersedes: "decision-3" },
+            rework: ["generated-26", "generated-28"],
+            noticed: ["lane-wo-running"],
+          }),
+        );
+        await dialog.getByRole("button", { name: "Overturn decision" }).click();
+        await dialog.getByRole("heading", { name: "Overturned decision-3" }).waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `overturn dialog with what it made ${violation}`));
+        await context.close();
+        expect(found.map((line) => `${size} ${theme} ${line}`)).toEqual([]);
+      },
+      120_000,
+    );
+
+    it(
       "the palette, the shortcut sheet, the project switcher, a menu, and a dialog meet WCAG 2.2 A and AA",
       async () => {
         const context = await browser.newContext({ viewport, colorScheme: theme, reducedMotion: "reduce" });

@@ -12,13 +12,13 @@ import { useAct } from "./useAct";
 
 const ownWords = "__own_words__";
 
-type Draft = { choice: string; words: string };
+export type Draft = { choice: string; words: string };
 
 // A recommendation is ready to send, so a batch that needs only agreement takes one press. One that is
 // none of the options waits in the box for a person's own words, and that choice starts chosen, so what
 // a person sees chosen is what a send counts and sends. A one-way choice is why the question reached a
 // person, so it starts with nothing chosen.
-function startingDraft(item: QuestionItem): Draft {
+export function startingDraft(item: QuestionItem): Draft {
   const options = item.options ?? [];
   const recommendation = item.recommendation ?? "";
   const oneWay = item.escalation_reason === "one_way";
@@ -36,7 +36,7 @@ function apartFromOptions(item: QuestionItem): boolean {
   return (item.recommendation ?? "") !== "" && !(item.options ?? []).includes(item.recommendation ?? "");
 }
 
-function answerOf(draft: Draft): string {
+export function answerOf(draft: Draft): string {
   return (draft.choice === ownWords ? draft.words : draft.choice).trim();
 }
 
@@ -57,17 +57,21 @@ function Choice({ name, value, checked, recommended, onPick, label }: {
   );
 }
 
-function Question({ item, draft, onChange, disabled }: {
+// AnswerField is the control that answers one question: its options with the recommendation marked, and a
+// box for a person's own words. Needs you and the open questions both answer through it. A page that shows
+// the question's text beside it sets quiet, so the text stays the group's name and is not said twice.
+export function AnswerField({ item, draft, onChange, disabled, quiet = false }: {
   item: QuestionItem;
   draft: Draft;
   disabled: boolean;
+  quiet?: boolean;
   onChange: (draft: Draft) => void;
 }) {
   const name = useId();
   const options = item.options ?? [];
   return (
     <fieldset className="question" disabled={disabled}>
-      <legend className="question-text">{item.text}</legend>
+      <legend className={quiet ? "visually-hidden" : "question-text"}>{item.text}</legend>
       <div className="row-tight question-tags">
         {item.blocking ? <span className="cond warn">Blocks work</span> : null}
         {(item.categories ?? []).map((category) => (
@@ -164,7 +168,7 @@ export function QuestionBatch({ batch, after, frame, compact = false, place }: {
         }}
       >
         {batch.items.map((item) => (
-          <Question key={item.id} item={item} draft={draftOf(item)} disabled={busy} onChange={(draft) => setDrafts((was) => ({ ...was, [item.id]: draft }))} />
+          <AnswerField key={item.id} item={item} draft={draftOf(item)} disabled={busy} onChange={(draft) => setDrafts((was) => ({ ...was, [item.id]: draft }))} />
         ))}
       </form>
       {failure || leftover ? <Refusal>{failure || leftover}</Refusal> : null}
