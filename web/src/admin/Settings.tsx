@@ -173,12 +173,9 @@ function SectionBody({ section, live, project, label, archived, worker, prefs }:
 }
 
 // MachineSelect chooses the machine a section of a worker's settings shows, among the workers that registered. A
-// section with one machine has nothing to choose.
+// section with one machine has nothing to choose, and shows no select.
 function MachineSelect({ section, workers, worker }: { section: string; workers: WorkerList["workers"]; worker: string }) {
   const id = useId();
-  if (workers.length < 2) {
-    return null;
-  }
   return (
     <>
       <label className="visually-hidden" htmlFor={id}>
@@ -204,13 +201,15 @@ function AdmissionSection({ section, live, selected }: { section: Section; live:
   const worker = list.find((row) => row.id === selected)?.id ?? list[0]?.id ?? "";
   return (
     <>
-      <SectionHead section={section} actions={<MachineSelect section="admission" workers={list} worker={worker} />} />
+      <SectionHead section={section} actions={list.length > 1 ? <MachineSelect section="admission" workers={list} worker={worker} /> : undefined} />
       <Reading failure={workers.failure} ready={workers.view !== null}>
         {worker ? <WorkerCapsForm key={worker} worker={worker} name={list.find((row) => row.id === worker)?.name || worker} live={live} /> : <Panel>No worker has registered, so no machine reports a cap.</Panel>}
       </Reading>
     </>
   );
 }
+
+const lanesWords = (count: number) => `${count} ${count === 1 ? "lane" : "lanes"}`;
 
 function WorkerCapsForm({ worker, name, live }: { worker: string; name: string; live: Live }) {
   const read = useRead<WorkerCaps>(() => readCaps(worker), `caps:${worker}`, live);
@@ -308,11 +307,11 @@ function WorkerCapsForm({ worker, name, live }: { worker: string; name: string; 
             {recommendation ? (
               <div className="stack">
                 <p>
-                  <strong>{recommendation.max_lanes === 1 ? "1 lane" : `${recommendation.max_lanes} lanes`}</strong>
+                  <strong>{lanesWords(recommendation.max_lanes)}</strong>
                 </p>
                 <p className="small">{recommendation.reason}</p>
                 <p className="small muted">
-                  {saved.effective_max_lanes ? `In force: ${saved.effective_max_lanes} lanes.` : "In force: no cap."}
+                  {saved.effective_max_lanes ? `In force: ${lanesWords(saved.effective_max_lanes)}.` : "In force: no cap."}
                   {saved.reported_at ? ` Reported ${timeOf(saved.reported_at)}.` : null}
                 </p>
               </div>
@@ -369,7 +368,7 @@ function AutonomySection({ section, live, selected }: { section: Section; live: 
   const worker = list.find((row) => row.id === selected)?.id ?? list[0]?.id ?? "";
   return (
     <>
-      <SectionHead section={section} actions={<MachineSelect section="autonomy" workers={list} worker={worker} />} />
+      <SectionHead section={section} actions={list.length > 1 ? <MachineSelect section="autonomy" workers={list} worker={worker} /> : undefined} />
       <Reading failure={workers.failure} ready={workers.view !== null}>
         {worker ? <WorkerAutonomy key={worker} worker={worker} name={list.find((row) => row.id === worker)?.name || worker} live={live} /> : <Panel>No worker has registered.</Panel>}
       </Reading>
