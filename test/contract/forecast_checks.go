@@ -21,6 +21,7 @@ var ForecastChecks = []Check{
 	{"FC2", "the forecast tick forecasts each plan's newest version from its own estimate set when what it rests on changed, a worker came, work ended, or the version was approved, and keeps nothing otherwise", checkForecastTick},
 	{"FC4", "a forecast run whose plan version a newer version replaced before it kept keeps nothing, and the newer version's estimates stay current", checkForecastOfAReplacedVersion},
 	{"FC5", "a forecast tick canceled before it forecasts a plan stops and keeps nothing, and the next tick forecasts it", checkForecastTickCanceled},
+	{"FC6", "a plan version with no open work is forecast finished from no estimate set", checkForecastWithNoOpenWork},
 	{"FC3", "a forecast finds the work each dependency names as admission does: the plan's own work it waits for, unfinished work outside the plan and a name nothing holds as outside it, and ended work as nothing", checkForecastDependencies},
 }
 
@@ -469,4 +470,33 @@ func checkForecastTickCanceled(r *Rig) error {
 		return Violatedf("a tick canceled after its read kept %d in %d transactions: %v", kept, canceling.keeps, err)
 	}
 	return r.forecastRuns(s, 1, "after a canceled tick")
+}
+
+func checkForecastWithNoOpenWork(r *Rig) error {
+	s := r.Store()
+	if report, err := r.intake(s, newApprovalSource().source); err != nil || len(report.Problems) != 0 {
+		return Violatedf("intake read %+v: %v", report, err)
+	}
+	plan, err := r.planID(s, "Retry budget")
+	if err != nil {
+		return err
+	}
+	ids, err := r.ordersByFileID(s, "budget")
+	if err != nil {
+		return err
+	}
+	if err := r.NewOps(s).Cancel(r.Ctx, r.Scope, ids["budget-order"], "not needed", r.Actor); err != nil {
+		return err
+	}
+	if err := r.forecastRuns(s, 1, "once the plan's work ended"); err != nil {
+		return err
+	}
+	latest, _, _, err := r.forecastsOf(s, plan, 1, "")
+	if err != nil {
+		return err
+	}
+	if len(latest) != 1 || latest[0].Status != delivery.ForecastFinished || latest[0].SetID != "" {
+		return Violatedf("with no open work, the plan's forecasts are %+v", latest)
+	}
+	return nil
 }

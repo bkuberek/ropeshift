@@ -36,7 +36,7 @@ const forecastEvery = int64(time.Hour / time.Millisecond)
 
 // forecastRun is one plan version's forecast to make: what it is made from and the digest of that; the estimate set
 // its estimates are in, the version's newest when that set says what they say, or else a new set to keep beside
-// it; and the ID of the version's newest set when it was read.
+// it, and none when the version has no open work; and the ID of the version's newest set when it was read.
 type forecastRun struct {
 	in      delivery.ForecastInput
 	version int64
@@ -105,16 +105,19 @@ func (f *Forecasts) keep(ctx context.Context, scope ledger.WorkspaceID, run fore
 			return nil
 		}
 		set, newSet := run.set, run.newSet
-		newest, err := tx.Estimates().NewestOf(run.in.Plan, run.version)
-		switch {
-		case errors.Is(err, ports.ErrNotFound):
-		case err != nil:
-			return err
-		case newest.ID != run.read:
-			if !holdsTheSame(newest, run.in.Work) {
-				return nil
+		// A run with no open work rests on no estimate, so no set kept since bears on it.
+		if len(run.in.Work) != 0 {
+			newest, err := tx.Estimates().NewestOf(run.in.Plan, run.version)
+			switch {
+			case errors.Is(err, ports.ErrNotFound):
+			case err != nil:
+				return err
+			case newest.ID != run.read:
+				if !holdsTheSame(newest, run.in.Work) {
+					return nil
+				}
+				set, newSet = newest, false
 			}
-			set, newSet = newest, false
 		}
 		if newSet {
 			if err := tx.EstimateSets().Add(set); err != nil {
@@ -331,6 +334,10 @@ func (r forecastReads) run(version planning.PlanVersion) (forecastRun, bool, err
 	}
 	if !forecastDue(planForecast(latest), run.digest, r.asOf) {
 		return forecastRun{}, false, nil
+	}
+	// A version with no open work rests on no estimate, so its forecasts name no set.
+	if len(in.Work) == 0 {
+		return run, true, nil
 	}
 	newest, err := r.tx.Estimates().NewestOf(version.PlanID, version.Version)
 	if err != nil && !errors.Is(err, ports.ErrNotFound) {
