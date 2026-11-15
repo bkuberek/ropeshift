@@ -48,6 +48,9 @@ type Facts struct {
 // any wait for a lane, lane time while a lane of it or of one of its reviews held a place under the lane cap,
 // and person time in its waits for a person. ByKind is the time in each segment kind, and PersonWaits the
 // length of each wait for a person, where adjacent person segments, such as a wait a park split, are one.
+// Source marks a record of the installation's pool by the project that shared it, as a number that holds within
+// one read of the pool alone and is no project ID (ADR-0026): the estimator only counts how many other projects
+// the pool records it draws on come from. It is never encoded, and a project's own records have none.
 type Record struct {
 	WorkOrder string `json:"work_order"`
 	Version   int    `json:"version"`
@@ -68,6 +71,7 @@ type Record struct {
 	Usage        Usage              `json:"usage"`
 	Change       *ledger.ChangeSize `json:"change,omitempty"`
 	LaneCapKnown bool               `json:"lane_cap_known"`
+	Source       int                `json:"-"`
 }
 
 // RecordOf summarizes a finished timeline. Only a `change` or a `rework` that reached a terminal state has a
