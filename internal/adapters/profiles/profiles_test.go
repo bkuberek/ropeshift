@@ -284,6 +284,11 @@ func TestALanesOwnLayerRunsNothingAndRaisesNoCap(t *testing.T) {
 		{name: "a lane takes fewer ports", lane: "[resources]\nports_per_lane = 2\n"},
 		{name: "a lane takes no ports", lane: "[resources]\nports_per_lane = 0\n"},
 		{name: "a lane takes the ports the repository raised to", repository: "[resources]\nports_per_lane = 20\n", lane: "[resources]\nports_per_lane = 20\n"},
+		{name: "a lane names a file to read", lane: "[agent]\ninstructions_file = \"/etc/passwd\"\n", refused: "agent.instructions_file"},
+		{name: "a lane clears the instructions file", lane: "agent.instructions_file = \"\"\n", refused: "agent.instructions_file"},
+		{name: "a lane replaces the repository's instructions file", repository: "[agent]\ninstructions_file = \"CLAUDE.md\"\n", lane: "[agent]\ninstructions_file = \"AGENTS.md\"\n", refused: "agent.instructions_file"},
+		{name: "a lane restates the instructions file", lane: "[agent]\ninstructions_file = \"AGENTS.md\"\n"},
+		{name: "a repository names its instructions file", repository: "[agent]\ninstructions_file = \"CLAUDE.md\"\n"},
 		{name: "a lane chooses its model and effort", lane: "[agent]\nmodel = \"haiku\"\neffort = \"low\"\n[lifecycle]\nstall_after = \"3m\"\n"},
 	}
 	for _, tt := range tests {

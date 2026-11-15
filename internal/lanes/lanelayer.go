@@ -29,6 +29,10 @@ func CheckLaneLayer(below, profile Profile) error {
 	if profile.Agent.Credentials != below.Agent.Credentials {
 		return laneLayerRefusal("change agent.credentials")
 	}
+	// A file a profile names is one the worker would read, so only the layers below name it.
+	if profile.Agent.InstructionsFile != below.Agent.InstructionsFile {
+		return laneLayerRefusal("change agent.instructions_file")
+	}
 	if profile.Worktree.Root != below.Worktree.Root {
 		return laneLayerRefusal("change worktree.root")
 	}
