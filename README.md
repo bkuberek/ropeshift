@@ -51,7 +51,7 @@ Ropeshift also needs git, tmux for lanes in a terminal pane, and the Claude Code
 
 ## Screenshots
 
-These are the web UI of `v0.1.0-alpha.14` and `ropeshift top`, running locally with sample data. The web UI follows the system's light or dark setting.
+These are the web UI of `v0.1.0-alpha.15` and `ropeshift top`, running locally with sample data. The web UI follows the system's light or dark setting. [The web UI guide](docs/web-ui.md) shows each of its main views.
 
 Needs you puts what waits for a person first, oldest first: work to accept, work its lane could not finish, a parked lane, and questions an orchestrator could not settle, with its recommendation marked.
 
@@ -128,6 +128,7 @@ A subscription worker starts at `attended`, where it claims work only inside a r
 
 - [Vision](docs/vision.md): the problem, the principles, and the non-goals.
 - [Onboarding](docs/onboarding.md): installing a release, from an empty machine to a first lane, and what to know before it runs.
+- [Web UI](docs/web-ui.md): each main view of the web UI, what it shows, and what a member does there.
 - [Command line](docs/cli.md): every command, the daemon's flags, and the exit codes.
 - [API](docs/api.md): the routes of the installation and of each project.
 - [Authorization](docs/authorization.md): who may approve what, and the limit of same-user isolation.

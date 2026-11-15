@@ -40,3 +40,24 @@ The capture code always comes from this checkout, so a ref much older than it ma
 Each view is captured at 1440 by 900 and at 390 by 844, in the light and the dark theme, at twice the pixel density, as `<view>-<theme>-<width>.png`. The list of views and the records each one opens is in [screenshots_test.go](../../test/screenshots/screenshots_test.go). The run also writes `top.txt`, what `ropeshift top --once` prints, and `top.png`, the same text as a terminal shows it.
 
 The run fails a view whose text shows the installation's temporary path, the fake agent CLI's, or this machine's home directory, user name, or host name, and keeps its image so you can see where. The planning session's pane shows the fake agent CLI's own screen. Look at every image before it is published.
+
+## Refreshing the published images
+
+The README and the [web UI guide](../web-ui.md) show images from `docs/assets/screenshots/`. Nothing copies them there: after a release, run `make screenshots` at its tag, look at each image, and copy the 1440-wide captures over the files below, dropping the width from the name. `top.png` is copied as it is.
+
+| Capture | Published as | Shown in |
+| --- | --- | --- |
+| `needs-you-<theme>-1440.png` | `needs-you-<theme>.png` | README, web UI guide |
+| `decisions-<theme>-1440.png` | `decisions-<theme>.png` | README |
+| `floor-<theme>-1440.png` | `floor-<theme>.png` | README, web UI guide |
+| `measures-<theme>-1440.png` | `measures-<theme>.png` | README, web UI guide |
+| `roadmap-<theme>-1440.png` | `roadmap-<theme>.png` | Web UI guide |
+| `plan-approval-<theme>-1440.png` | `plan-approval-<theme>.png` | Web UI guide |
+| `documents-requirement-<theme>-1440.png` | `documents-<theme>.png` | Web UI guide |
+| `conversations-<theme>-1440.png` | `conversations-<theme>.png` | Web UI guide |
+| `agents-project-<theme>-1440.png` | `agents-<theme>.png` | Web UI guide |
+| `settings-project-<theme>-1440.png` | `settings-<theme>.png` | Web UI guide |
+| `members-<theme>-1440.png` | `members-<theme>.png` | Web UI guide |
+| `top.png` | `top.png` | README |
+
+`<theme>` is `light` and `dark`, and each page shows both, one for each GitHub theme. Then update the version that the README's screenshots section and the guide's opening name.
