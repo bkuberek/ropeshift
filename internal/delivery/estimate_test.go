@@ -328,7 +328,9 @@ func TestEveryEstimateTracesToTheRecordsItNames(t *testing.T) {
 		if e.Tier != want || e.SampleCount != counts[want-1] || (e.Confidence == delivery.Confident) != confident || e.SampleCount != len(e.SampleIDs)+e.PoolSamples {
 			t.Fatalf("run %d: tier %d of %d samples, want tier %d of %v", run, e.Tier, e.SampleCount, want, counts)
 		}
-		if e.Confidence == delivery.Low && e.SampleCount < 6 && !e.P85Open || e.P85Open && (e.Confidence != delivery.Low || e.SampleCount >= 6) {
+		// Below 6 records a low band is open; at tier 6 a band may also open because of what its p85 would show.
+		naturallyOpen := e.Confidence == delivery.Low && e.SampleCount < 6
+		if e.Tier != 6 && e.P85Open != naturallyOpen || naturallyOpen && !e.P85Open {
 			t.Fatalf("run %d: %d low samples open %v", run, e.SampleCount, e.P85Open)
 		}
 		byID := map[string]delivery.Record{}
@@ -363,6 +365,31 @@ func TestEveryEstimateTracesToTheRecordsItNames(t *testing.T) {
 			}
 			if len(sources) < delivery.PoolMinProjects || e.DeliveryMinMs != least || e.DeliveryMaxMs != most || e.CostMinUSD != cheapest || e.CostMaxUSD != dearest {
 				t.Fatalf("run %d: a pooled estimate %+v from %d other projects, own extremes %d to %d, $%v to $%v", run, e, len(sources), least, most, cheapest, dearest)
+			}
+			// Its band reads the ranks among every record it drew on, and a p85 that would be the longest record, or
+			// the highest cost, when that is another project's, reads as the p50 of a band open above it.
+			var times []int64
+			var costs []float64
+			for _, r := range drawn {
+				times, costs = append(times, r.DeliveryMs), append(costs, r.Usage.CostUSD)
+			}
+			slices.Sort(times)
+			slices.Sort(costs)
+			n := len(times)
+			p50, p85 := int(math.Ceil(0.5*float64(n)))-1, int(math.Ceil(0.85*float64(n)))-1
+			if e.Confidence == delivery.Low {
+				p50, p85 = int(math.Ceil(0.5*float64(n+1)))-1, min(int(math.Ceil(0.85*float64(n+1)))-1, n-1)
+			}
+			own := len(e.SampleIDs) > 0
+			time, cost, open := times[p85], costs[p85], naturallyOpen
+			if times[p85] == times[n-1] && (!own || times[n-1] > most) {
+				time, open = times[p50], true
+			}
+			if costs[p85] == costs[n-1] && (!own || costs[n-1] > dearest) {
+				cost, open = costs[p50], true
+			}
+			if e.DeliveryP50Ms != times[p50] || e.DeliveryP85Ms != time || e.CostP50USD != costs[p50] || e.CostP85USD != cost || e.P85Open != open {
+				t.Fatalf("run %d: a pooled band %+v, want p50 %d p85 %d, $%v and $%v, open %v, among %v and %v", run, e, times[p50], time, costs[p50], cost, open, times, costs)
 			}
 		}
 		if e.PoolSamples > 0 || e.Explanation == "" {
@@ -588,6 +615,71 @@ func TestAPooledEstimatesExtremesAreTheProjectsOwn(t *testing.T) {
 	e = delivery.EstimateOf(delivery.EstimateInput{Keys: estimated, Records: own[:1], Pool: many, Policy: sharing})
 	if e.Confidence != delivery.Confident || e.Tier != 6 || e.DeliveryMinMs != 2*hour || e.DeliveryMaxMs != 2*hour || e.CostMinUSD != 2 || e.CostMaxUSD != 2 {
 		t.Errorf("a confident pooled estimate %+v", e)
+	}
+}
+
+// TestAPooledP85IsNeverAnotherProjectsLongest holds FR-EST-13 at every rank that reads the last record, open or
+// not: a confident estimate on 5 or 6 records and a low one on 6 to 12 take their p85 from the longest record and
+// the highest cost, and when that is a pool record's, the band reads as open above its p50, and says why in words
+// of its own; the cost p85 does the same on its own.
+func TestAPooledP85IsNeverAnotherProjectsLongest(t *testing.T) {
+	const outlier = 37 * hour
+	cases := []struct {
+		n          int
+		minSamples int64
+	}{{5, 5}, {6, 6}}
+	for n := 6; n <= 12; n++ {
+		cases = append(cases, struct {
+			n          int
+			minSamples int64
+		}{n, 13})
+	}
+	for _, c := range cases {
+		policy := delivery.EstimatePolicy{Version: 1, MinSamples: c.minSamples, RecentSamples: 50, ForecastTrials: 1, ShareHistory: true}
+		var pool []delivery.Record
+		for i := range c.n - 1 {
+			pool = append(pool, pooled(1+i%3, int64(i), int64(1+i)*hour, float64(1+i)))
+		}
+		pool = append(pool, pooled(1+(c.n-1)%3, int64(c.n), outlier, 90))
+		e := delivery.EstimateOf(delivery.EstimateInput{Keys: estimated, Pool: pool, Policy: policy})
+		confident := int64(c.n) >= c.minSamples
+		if e.Tier != 6 || e.SampleCount != c.n || (e.Confidence == delivery.Confident) != confident {
+			t.Fatalf("n = %d: estimate %+v", c.n, e)
+		}
+		// The records take 1h to n-1 hours and cost $1 to $n-1, and the outlier takes 37h and costs $90.
+		rank := math.Ceil(0.5 * float64(c.n))
+		if !confident {
+			rank = math.Ceil(0.5 * float64(c.n+1))
+		}
+		median := int64(rank) * hour
+		if !e.P85Open || e.Time() != (delivery.Band{P50: median, P85: median}) || e.Cost() != (delivery.CostBand{P50: rank, P85: rank}) {
+			t.Errorf("n = %d, %s: bands %+v %+v open %v, want open above the p50 of %dh and $%v", c.n, e.Confidence, e.Time(), e.Cost(), e.P85Open, median/hour, rank)
+		}
+		words := fmt.Sprintf(" The longest comparable record is another project's, so the band is open above the median, %dh.", median/hour)
+		if !strings.HasSuffix(e.Explanation, words) || strings.Contains(e.Explanation, "37h") || strings.Contains(e.Explanation, "With fewer than") {
+			t.Errorf("n = %d: explanation %q", c.n, e.Explanation)
+		}
+	}
+
+	// On its own index, only the cost reads as open above its p50 when only the highest cost is another project's:
+	// the project's own record is the longest, so the time's p85 stays it.
+	sharing := delivery.EstimatePolicy{Version: 1, MinSamples: 5, RecentSamples: 50, ForecastTrials: 1, ShareHistory: true}
+	own := finished("own", 9, 40*hour, 2, otherRepository)
+	pool := []delivery.Record{pooled(1, 1, hour, 1), pooled(2, 2, 2*hour, 2), pooled(3, 3, 3*hour, 3), pooled(1, 4, 4*hour, 90)}
+	e := delivery.EstimateOf(delivery.EstimateInput{Keys: estimated, Records: []delivery.Record{own}, Pool: pool, Policy: sharing})
+	// n = 5: times 1h 2h 3h 4h 40h and costs 1 2 2 3 90; the p50 is the 3rd of each.
+	if e.Tier != 6 || e.Confidence != delivery.Confident || !e.P85Open || e.Time() != (delivery.Band{P50: 3 * hour, P85: 40 * hour}) || e.Cost() != (delivery.CostBand{P50: 2, P85: 2}) {
+		t.Errorf("a pool record of the highest cost alone gave %+v", e)
+	}
+	if want := "Based on 5 finished medium changes in the installation pool. The costliest comparable record is another project's, so the band is open above 40h and its cost above the median."; e.Explanation != want {
+		t.Errorf("explanation\n got %q\nwant %q", e.Explanation, want)
+	}
+
+	// When the project's own record is the longest and the highest cost, the p85 is read as it stands.
+	own.Usage.CostUSD = 95
+	e = delivery.EstimateOf(delivery.EstimateInput{Keys: estimated, Records: []delivery.Record{own}, Pool: pool, Policy: sharing})
+	if e.P85Open || e.Time() != (delivery.Band{P50: 3 * hour, P85: 40 * hour}) || e.Cost() != (delivery.CostBand{P50: 3, P85: 95}) || strings.Contains(e.Explanation, "open") {
+		t.Errorf("an estimate whose longest and highest cost are the project's own reads %+v", e)
 	}
 }
 

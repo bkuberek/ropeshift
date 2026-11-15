@@ -140,8 +140,9 @@ type CostBand struct {
 // counts the records of other projects it drew from the installation's pool, which name no work order. The
 // band holds the 50th and 85th percentiles and the least and most of what it drew on, for time and cost apart;
 // at tier 6 the least and most are of the project's own records alone, and 0 when it drew on none. P85Open says
-// no record bounds 85 percent of outcomes, so the p85 is the longest record and reads as more than it, or the p50
-// at tier 6 when the longest is a pool record's; CostAtLeast says a record's cost was a lower bound. Explanation is the text every surface shows. A kept
+// the p85 reads as more than it shows: no record bounds 85 percent of outcomes, so the p85 is the longest record,
+// or, at tier 6, the p85 would be a pool record that is the longest or the highest cost, so it shows the p50
+// instead; CostAtLeast says a record's cost was a lower bound. Explanation is the text every surface shows. A kept
 // estimate also has its ID, the set it was made in and when, and whether it is its work order's current estimate.
 type Estimate struct {
 	ID               string     `json:"id,omitempty"`
@@ -202,8 +203,9 @@ type EstimateInput struct {
 // first tier with at least min_samples gives a confident band at the 50th and 85th percentiles by nearest
 // rank. Below that at every tier, the tier with the most records, the narrowest among equals, gives a low
 // confidence band at the records of rank ceil(0.5 × (n + 1)) and ceil(0.85 × (n + 1)); a p85 rank past n leaves
-// the band open above the longest record. With no record at any tier there is no number. The estimate
-// explains itself in plain words from its own fields.
+// the band open above the longest record. At tier 6 no p85 shows a pool record that is the longest or the highest
+// cost. With no record at any tier there is no number. The estimate explains itself in plain words from its own
+// fields.
 func EstimateOf(in EstimateInput) Estimate {
 	in, chosen, records, confidence := choose(in)
 	out := Estimate{
@@ -211,7 +213,7 @@ func EstimateOf(in EstimateInput) Estimate {
 		Rev: in.Rev, EstimatorVersion: EstimatorVersion, PolicyVersion: in.Policy.Version,
 	}
 	if chosen < 0 {
-		out.Explanation = explain(out, in.Keys, in.Policy, in.NoPool)
+		out.Explanation = explain(out, in.Keys, in.Policy, in.NoPool, poolOpening{})
 		return out
 	}
 	out.Status, out.Confidence = Estimated, confidence
@@ -250,17 +252,26 @@ func EstimateOf(in EstimateInput) Estimate {
 	}
 	out.DeliveryP50Ms, out.DeliveryP85Ms = times[p50], times[p85]
 	out.CostP50USD, out.CostP85USD = costs[p50], costs[p85]
+	var opened poolOpening
 	if pooled {
-		ownExtremes(&out, records)
+		opened = ownExtremes(&out, records)
 	}
-	out.Explanation = explain(out, in.Keys, in.Policy, in.NoPool)
+	out.Explanation = explain(out, in.Keys, in.Policy, in.NoPool, opened)
 	return out
 }
 
+// poolOpening says which p85s of a tier 6 band read as open above their p50 because each would otherwise show
+// another project's record: the delivery time's, when it would be the longest record, and the cost's, when it
+// would be the highest cost.
+type poolOpening struct{ time, cost bool }
+
 // ownExtremes shows no pool record as a tier 6 estimate's extreme (ADR-0026): its shortest and longest, and its
-// least and most cost, become those of the project's own records it drew on, or 0 when it drew on none, and an
-// open band whose longest record, or whose highest cost, is a pool record's reads as open above its p50.
-func ownExtremes(e *Estimate, records []Record) {
+// least and most cost, become those of the project's own records it drew on, or 0 when it drew on none. A p85 that
+// is the longest of all the records, as it is in an open band, on 5 or 6 records, and at low confidence on 6 to
+// 12, reads as open above its p50 when that longest is a pool record's, longer than every record of the project's
+// own; so does the cost p85, on its own, when it is the highest cost and that is a pool record's. It returns which
+// of them it opened.
+func ownExtremes(e *Estimate, records []Record) poolOpening {
 	var times []int64
 	var costs []float64
 	for _, r := range records {
@@ -274,15 +285,15 @@ func ownExtremes(e *Estimate, records []Record) {
 		e.DeliveryMinMs, e.DeliveryMaxMs = slices.Min(times), slices.Max(times)
 		e.CostMinUSD, e.CostMaxUSD = slices.Min(costs), slices.Max(costs)
 	}
-	if !e.P85Open {
-		return
+	var opened poolOpening
+	if e.DeliveryP85Ms == longest && (len(times) == 0 || longest > e.DeliveryMaxMs) {
+		e.DeliveryP85Ms, opened.time = e.DeliveryP50Ms, true
 	}
-	if len(times) == 0 || longest > e.DeliveryMaxMs {
-		e.DeliveryP85Ms = e.DeliveryP50Ms
+	if e.CostP85USD == highest && (len(costs) == 0 || highest > e.CostMaxUSD) {
+		e.CostP85USD, opened.cost = e.CostP50USD, true
 	}
-	if len(costs) == 0 || highest > e.CostMaxUSD {
-		e.CostP85USD = e.CostP50USD
-	}
+	e.P85Open = e.P85Open || opened.time || opened.cost
+	return opened
 }
 
 // Drawn returns the records an estimate of this input rests on, newest first: those of the tier it chooses, and
@@ -423,8 +434,8 @@ var keyWords = map[string]string{
 // and how far apart they were, at tier 6 the project's own alone; an estimate with no history says what is
 // missing. Where a project that shares history did not draw on the pool, it says why, in the same words whether
 // the pool held comparable records of fewer than PoolMinProjects other projects or none, so no estimate tells
-// that another project finished such work.
-func explain(e Estimate, keys Keys, policy EstimatePolicy, noPool bool) string {
+// that another project finished such work. A tier 6 band that opened because of what its p85 would show says so.
+func explain(e Estimate, keys Keys, policy EstimatePolicy, noPool bool, opened poolOpening) string {
 	work := func(n int) string { return workWords(keys, n) }
 	unpooled := fmt.Sprintf(" The installation pool is used only when the records ropeshift would take from it come from at least %d other projects.", PoolMinProjects)
 	if e.Status == NoHistory {
@@ -448,7 +459,7 @@ func explain(e Estimate, keys Keys, policy EstimatePolicy, noPool bool) string {
 		}
 		switch {
 		case pooled:
-			return text + " in the installation pool."
+			return text + " in the installation pool." + openedWords(e, opened)
 		case len(words) > 0:
 			return text + " with the same " + list(words) + "."
 		}
@@ -485,17 +496,32 @@ func explain(e Estimate, keys Keys, policy EstimatePolicy, noPool bool) string {
 		fmt.Fprintf(&out, " They took from %s to %s.", durationWords(e.DeliveryMinMs), durationWords(e.DeliveryMaxMs))
 	}
 	// An open band reads as more than its p85, which is the longest record, or at tier 6 the p50 when the longest
-	// is a pool record's.
+	// is a pool record's. Below 6 records that is because the 85th percentile cannot be read from them; from 6 on,
+	// only a tier 6 band opens, because of what its p85 would show.
 	switch {
 	case e.P85Open && e.SampleCount == 1:
 		fmt.Fprintf(&out, " With one outcome, the 85th percentile cannot be read from it, so the band is open above %s.", durationWords(e.DeliveryP85Ms))
-	case e.P85Open:
+	case e.P85Open && e.SampleCount < openBelow:
 		fmt.Fprintf(&out, " With fewer than %d, the 85th percentile cannot be read from them, so the band is open above %s.", openBelow, durationWords(e.DeliveryP85Ms))
+	default:
+		out.WriteString(openedWords(e, opened))
 	}
 	if !pooled && policy.ShareHistory && !noPool {
 		out.WriteString(unpooled)
 	}
 	return out.String()
+}
+
+// openedWords says why a tier 6 band reads as open above its p50 though its p85 could be read: the record it would
+// show is another project's longest, or its highest cost. It says nothing of a band that did not open so.
+func openedWords(e Estimate, opened poolOpening) string {
+	switch {
+	case opened.time:
+		return fmt.Sprintf(" The longest comparable record is another project's, so the band is open above the median, %s.", durationWords(e.DeliveryP50Ms))
+	case opened.cost:
+		return fmt.Sprintf(" The costliest comparable record is another project's, so the band is open above %s and its cost above the median.", durationWords(e.DeliveryP85Ms))
+	}
+	return ""
 }
 
 // workWords names n finished work orders of an estimate's kind and size, such as "medium changes".
