@@ -16,6 +16,7 @@ import { Button, LinkTabs, TabPanel, Tabs } from "../ui/controls";
 import { Absent, Banner, ConditionChip, Digest, EmptyState, Fact, Facts, Freshness, freshnessOf, Id, LaneBadge, Panel, RecordChip, SkeletonRows, StateBadge, TableRegion, WorkBadge } from "../ui/display";
 import type { WorkGroup } from "./states";
 import { checkStates, workStates } from "./states";
+import { NewWorkOrder } from "./NewWorkOrder";
 import { StartWork } from "./StartWork";
 import { WakeWords } from "./WakeWords";
 import { WorkActionDialog, WorkActions } from "./WorkActions";
@@ -159,7 +160,7 @@ export function WorkOrdersPage({ live, group }: { live: Live; group: string }) {
   const inGroup = (id: GroupTab) => (id === "all" ? rows : rows.filter((row) => groupOf(row) === id));
   const spec = groups.find((row) => row.id === chosen) ?? groups[0];
   return (
-    <Page title="Work orders" note={index ? `${rows.length} work order${rows.length === 1 ? "" : "s"} in this project` : undefined}>
+    <Page title="Work orders" note={index ? `${rows.length} work order${rows.length === 1 ? "" : "s"} in this project` : undefined} actions={<NewWorkOrder />}>
       <LinkTabs
         label="Groups"
         tabs={groups.map((row) => ({ to: addressOf("/work", { group: row.id }), label: row.label, count: index ? inGroup(row.id).length : undefined, current: row.id === chosen }))}
