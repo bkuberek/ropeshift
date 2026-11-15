@@ -67,9 +67,11 @@ const (
 )
 
 // LowerBound says which of a forecast's results have no upper bound: `all` when work with no history is left
-// out of the trials, when started work has run longer than every comparable record, or when the plan's work waits
-// on unfinished work outside it; `p85` when an input's draws are open above their longest record; and `none`
-// otherwise. A lower-bound date reads "or later", and a lower-bound cost "at least".
+// out of the trials, when started work has run longer than every comparable record, or than every one of the
+// project's own when it draws on the installation pool, or when the plan's work waits on unfinished work outside
+// it; `p85` when an input's draws are open above their longest record, or when a p85 would show another project's
+// longest record or highest cost and reads as the p50; and `none` otherwise. A lower-bound date reads "or later",
+// and a lower-bound cost "at least".
 type LowerBound string
 
 // The lower bounds.
@@ -151,22 +153,29 @@ func (d *draws) next() uint64 {
 func (d *draws) index(n int) int { return int(d.next() % uint64(n)) }
 
 // job is one work order as a trial runs it: how long it holds a lane, how long it takes in all, and what it
-// costs; work left out takes no time, no lane, and no cost.
+// costs; work left out takes no time, no lane, and no cost. Longest says its record is a pool record that ran
+// longest of those it was drawn from, longer than every record of the project's own among them, and costliest the
+// same of its cost, so a date or a cost that is this job's alone would show another project's extreme.
 type job struct {
-	lane, total int64
-	cost        float64
-	leftOut     bool
+	lane, total        int64
+	cost               float64
+	leftOut            bool
+	longest, costliest bool
 }
 
 // forecastGroup is the work one forecast covers: the plan's, or a milestone's, whose end and cost it reads. Its
 // scope is the work its dates rest on, whose estimates label it: under a lane cap all of the plan's, because any of
-// it can take a lane first; with no cap, its own work and every work order that work depends on.
+// it can take a lane first; with no cap, its own work and every work order that work depends on. Pooled holds,
+// for each run, the ends of the trials that ended at another project's longest record alone, and pooledCosts the
+// costs that were another project's highest alone, which no p85 shows.
 type forecastGroup struct {
-	milestone string
-	own       []int
-	scope     []int
-	ends      [3][]int64
-	costs     []float64
+	milestone   string
+	own         []int
+	scope       []int
+	ends        [3][]int64
+	costs       []float64
+	pooled      [3]map[int64]bool
+	pooledCosts map[float64]bool
 }
 
 // The three runs of each trial: as it stands, with one more lane, and with waits for a person cut to the median.
@@ -178,12 +187,15 @@ const (
 
 // footing is what one work order's draws rest on, for a forecast's labels: how many records, whether they are
 // fewer than a confident estimate needs, whether they are open above the longest, and, for started work, whether
-// it ran longer than every one.
+// it ran longer than some of the records it compares its time with, or than every one. Pooled says those are the
+// project's own records alone, because its draws hold pool records too.
 type footing struct {
 	count   int
 	low     bool
 	open    bool
+	passed  bool
 	overrun bool
+	pooled  bool
 }
 
 // ForecastOf forecasts a plan version's milestones and the plan with a seeded simulation (FR-EST-8, FR-EST-9).
@@ -195,9 +207,10 @@ type footing struct {
 // holds a lane for its lane time and then needs the rest of its delivery time without one. The same draws run
 // again with the cap one higher, and with each record's waits for a person cut to the median, for the two
 // what-ifs; with no cap, the first rerun is the forecast itself. The p50 and p85 come from the trials by nearest
-// rank. A work order listed twice counts once, as first listed, and a dependency on itself counts for nothing. It
-// returns the plan's forecast, then each milestone's, by milestone. A large plan's trials take seconds, so it asks
-// ctx before each trial, and once ctx is done it stops and returns ctx's error and no forecast.
+// rank, and a p85 whose trial ended at another project's longest record alone, or cost its highest alone, reads as
+// open above the p50. A work order listed twice counts once, as first listed, and a dependency on itself counts for
+// nothing. It returns the plan's forecast, then each milestone's, by milestone. A large plan's trials take seconds,
+// so it asks ctx before each trial, and once ctx is done it stops and returns ctx's error and no forecast.
 func ForecastOf(ctx context.Context, in ForecastInput) ([]Forecast, error) {
 	seed := ForecastSeed(in.PlanDigest, in.Rev)
 	trials := min(max(in.Policy.ForecastTrials, 1), MaxForecastTrials)
@@ -236,6 +249,7 @@ func ForecastOf(ctx context.Context, in ForecastInput) ([]Forecast, error) {
 				asIs[i], cut[i] = drawJob(w, rng, in.PersonMedianMs)
 			}
 			runs := [3][]int64{simulate(asIs, deps, order, in.Cap), simulate(asIs, deps, order, capPlusOne(in.Cap)), simulate(cut, deps, order, in.Cap)}
+			jobs := [3][]job{asIs, asIs, cut}
 			for g := range groups {
 				for run, ends := range runs {
 					var end int64
@@ -243,12 +257,18 @@ func ForecastOf(ctx context.Context, in ForecastInput) ([]Forecast, error) {
 						end = max(end, ends[i])
 					}
 					groups[g].ends[run] = append(groups[g].ends[run], end)
+					if endsAtPoolExtreme(groups[g].own, jobs[run], ends, end) {
+						groups[g].pooled[run] = marked(groups[g].pooled[run], end)
+					}
 				}
 				var cost float64
 				for _, i := range groups[g].own {
 					cost += asIs[i].cost
 				}
 				groups[g].costs = append(groups[g].costs, cost)
+				if slices.ContainsFunc(groups[g].own, func(i int) bool { return asIs[i].costliest && asIs[i].cost == cost }) {
+					groups[g].pooledCosts = marked(groups[g].pooledCosts, cost)
+				}
 			}
 		}
 	}
@@ -257,6 +277,21 @@ func ForecastOf(ctx context.Context, in ForecastInput) ([]Forecast, error) {
 		out = append(out, forecastOfGroup(in, work, g, labelsOf(in, work, g.scope), seed, trials))
 	}
 	return out, nil
+}
+
+// endsAtPoolExtreme says a trial's end for a group is another project's longest record alone: one of the group's
+// own work orders drew it, started at the trial's start, and ended last.
+func endsAtPoolExtreme(own []int, jobs []job, ends []int64, end int64) bool {
+	return slices.ContainsFunc(own, func(i int) bool { return jobs[i].longest && ends[i] == end && ends[i] == jobs[i].total })
+}
+
+// marked adds a value to a set, making the set when it has none yet.
+func marked[T cmp.Ordered](set map[T]bool, value T) map[T]bool {
+	if set == nil {
+		set = map[T]bool{}
+	}
+	set[value] = true
+	return set
 }
 
 // capPlusOne is the cap one higher, and no cap stays none.
@@ -353,25 +388,37 @@ func longerThanSoFar(w ForecastWork) []Record {
 
 // footingOf reads what a work order's draws rest on. Work not started rests on its estimate. Started work rests
 // on the records that ran longer than it has so far, which are low below the minimum sample and open below six,
-// as an estimate's are; with none, it has overrun them all.
+// as an estimate's are; with none, it has overrun them all. It compares its time so far only with the project's
+// own records, which are all of them unless its estimate drew on the installation pool, so no forecast tells when
+// work passed another project's record, or its longest (ADR-0026): until it passes one of its own, it rests on
+// its estimate.
 func footingOf(w ForecastWork, minSamples int64) footing {
+	estimate := footing{count: w.Estimate.SampleCount, low: w.Estimate.Confidence == Low, open: w.Estimate.P85Open}
 	if !w.Started {
-		return footing{count: w.Estimate.SampleCount, low: w.Estimate.Confidence == Low, open: w.Estimate.P85Open}
+		return estimate
 	}
-	longer := len(longerThanSoFar(w))
+	own := slices.DeleteFunc(slices.Clone(w.Records), func(r Record) bool { return r.WorkOrder == "" })
+	pooled := len(own) < len(w.Records)
+	longer := 0
+	for _, r := range own {
+		if r.DeliveryMs > w.SoFarMs {
+			longer++
+		}
+	}
 	switch {
+	case longer == len(own):
+		return estimate
 	case longer == 0:
-		return footing{low: true, overrun: true}
-	case longer == len(w.Records):
-		return footing{count: w.Estimate.SampleCount, low: w.Estimate.Confidence == Low, open: w.Estimate.P85Open}
+		return footing{low: true, passed: true, overrun: true, pooled: pooled}
 	}
 	low := w.Estimate.Confidence == Low || int64(longer) < minSamples
-	return footing{count: longer, low: low, open: low && longer < openBelow}
+	return footing{count: longer, low: low, open: low && longer < openBelow, passed: true, pooled: pooled}
 }
 
 // drawJob draws one record for a work order and gives the job as it stands and with waits for a person cut to the
 // median. Work left out draws nothing. Started work is not cut, because a record does not say which of its waits
-// lie in the time the work has already had.
+// lie in the time the work has already had. Each job says whether its record is another project's longest, or its
+// highest cost, of those it was drawn from.
 func drawJob(w ForecastWork, rng *draws, personMedianMs int64) (job, job) {
 	if leftOut(w) {
 		return job{leftOut: true}, job{leftOut: true}
@@ -383,9 +430,14 @@ func drawJob(w ForecastWork, rng *draws, personMedianMs int64) (job, job) {
 		}
 	}
 	r := from[rng.index(len(from))]
+	longest, costliest := poolExtremes(from)
 	jobOf := func(delivery int64) job {
 		total := max(delivery-soFar, 0)
-		return job{lane: min(max(r.LaneMs-laneSoFar, 0), total), total: total, cost: max(r.Usage.CostUSD-spent, 0)}
+		return job{
+			lane: min(max(r.LaneMs-laneSoFar, 0), total), total: total, cost: max(r.Usage.CostUSD-spent, 0),
+			longest:   r.WorkOrder == "" && longest >= 0 && r.DeliveryMs == longest,
+			costliest: r.WorkOrder == "" && costliest >= 0 && r.Usage.CostUSD == costliest,
+		}
 	}
 	asIs := jobOf(r.DeliveryMs)
 	if w.Started || personMedianMs <= 0 {
@@ -396,6 +448,27 @@ func drawJob(w ForecastWork, rng *draws, personMedianMs int64) (job, job) {
 		cutBy += max(wait-personMedianMs, 0)
 	}
 	return asIs, jobOf(r.DeliveryMs - cutBy)
+}
+
+// poolExtremes is the longest delivery time and the highest cost among records when a pool record holds it and
+// no record of the project's own matches it, and -1 for each that the project's own records reach.
+func poolExtremes(records []Record) (int64, float64) {
+	longest, ownLongest := int64(-1), int64(-1)
+	costliest, ownCostliest := -1.0, -1.0
+	for _, r := range records {
+		if r.WorkOrder == "" {
+			longest, costliest = max(longest, r.DeliveryMs), max(costliest, r.Usage.CostUSD)
+		} else {
+			ownLongest, ownCostliest = max(ownLongest, r.DeliveryMs), max(ownCostliest, r.Usage.CostUSD)
+		}
+	}
+	if longest <= ownLongest {
+		longest = -1
+	}
+	if costliest <= ownCostliest {
+		costliest = -1
+	}
+	return longest, costliest
 }
 
 // simulate runs one trial's jobs and returns when each ends, from the start of the trial. Work becomes ready when
@@ -530,12 +603,21 @@ func labelsOf(in ForecastInput, all []ForecastWork, scope []int) forecastLabels 
 		if f.low {
 			l.lowWork = append(l.lowWork, w.WorkOrder)
 		}
+		// Work whose draws hold pool records says how its time so far compares with the project's own records alone,
+		// and counts none, so its words never change as its time passes another project's record.
 		switch {
+		case f.overrun && f.pooled:
+			l.overrun = true
+			l.reasons = append(l.reasons, fmt.Sprintf("%s has run %s so far, longer than every one of this project's own comparable records, so the dates are lower bounds.",
+				nameOf(w), durationWords(w.SoFarMs)))
 		case f.overrun:
 			l.overrun = true
 			l.reasons = append(l.reasons, fmt.Sprintf("%s has run %s so far, longer than every comparable record, so its remaining time is a guess and the dates are lower bounds.",
 				nameOf(w), durationWords(w.SoFarMs)))
-		case f.low && w.Started && f.count < len(w.Records):
+		case f.low && f.passed && f.pooled:
+			l.reasons = append(l.reasons, fmt.Sprintf("%s has run %s so far, longer than some of this project's own comparable records; the forecast does not say how many of the installation pool's ran longer.",
+				nameOf(w), durationWords(w.SoFarMs)))
+		case f.low && f.passed:
 			l.reasons = append(l.reasons, fmt.Sprintf("%s has run %s so far, and %d comparable %s longer; a confident estimate needs %d.",
 				nameOf(w), durationWords(w.SoFarMs), f.count, plural(f.count, "record ran", "records ran"), minSamples))
 		case f.low:
@@ -599,18 +681,42 @@ func forecastOfGroup(in ForecastInput, work []ForecastWork, g forecastGroup, l f
 			len(g.own), plural(len(g.own), "work order", "work orders"), whose)
 		return f
 	}
+	// A p85 whose trial ended at another project's longest record alone, or cost its highest, would show that
+	// record, so it reads as open above the p50, as a tier 6 estimate's band does (ADR-0026).
+	openDates, openCost := false, false
+	p85 := func(run int) int64 {
+		at, median := percentile(g.ends[run], 0.85), percentile(g.ends[run], 0.5)
+		if g.pooled[run][at] && median != at {
+			openDates = true
+			return median
+		}
+		return at
+	}
+	f.EndP50, f.EndP85 = in.Now+percentile(g.ends[runAsIs], 0.5), in.Now+p85(runAsIs)
+	f.EndP85CapPlusOne = in.Now + p85(runCapPlusOne)
+	f.EndP85PersonMedian = in.Now + p85(runPersonMedian)
+	f.CostP50USD, f.CostP85USD = percentile(g.costs, 0.5), percentile(g.costs, 0.85)
+	if g.pooledCosts[f.CostP85USD] && f.CostP50USD != f.CostP85USD {
+		f.CostP85USD, openCost = f.CostP50USD, true
+	}
+	reasons := slices.Clone(l.reasons)
+	if openDates {
+		reasons = append(reasons, "The 85th percentile would end at another project's longest comparable record, so the dates read as open above the median.")
+	}
+	if openCost {
+		reasons = append(reasons, "The 85th percentile cost would be another project's highest comparable cost, so the cost reads as open above the median.")
+	}
 	f.Status, f.Confidence, f.LowerBound = Forecasted, Confident, l.lowerBound
-	if len(l.lowWork) > 0 || l.open {
+	if (openDates || openCost) && f.LowerBound == LowerNone {
+		f.LowerBound = LowerP85
+	}
+	if len(l.lowWork) > 0 || l.open || openDates || openCost {
 		f.Confidence = Low
 	}
-	f.EndP50, f.EndP85 = in.Now+percentile(g.ends[runAsIs], 0.5), in.Now+percentile(g.ends[runAsIs], 0.85)
-	f.EndP85CapPlusOne = in.Now + percentile(g.ends[runCapPlusOne], 0.85)
-	f.EndP85PersonMedian = in.Now + percentile(g.ends[runPersonMedian], 0.85)
-	f.CostP50USD, f.CostP85USD = percentile(g.costs, 0.5), percentile(g.costs, 0.85)
 	basis := fmt.Sprintf("%d trials of %d %s, %s", trials, l.simulated, plural(l.simulated, "work order", "work orders"), capWords(in.Cap))
 	sentences := []string{"Based on " + basis + "."}
 	if f.Confidence == Low {
-		sentences = append([]string{"Low confidence, from " + basis + "."}, l.reasons...)
+		sentences = append([]string{"Low confidence, from " + basis + "."}, reasons...)
 	}
 	f.Explanation = strings.Join(append(sentences, l.notes...), " ")
 	return f

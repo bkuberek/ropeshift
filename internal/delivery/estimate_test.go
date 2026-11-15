@@ -1,6 +1,7 @@
 package delivery_test
 
 import (
+	"cmp"
 	"fmt"
 	"math"
 	"math/rand/v2"
@@ -135,12 +136,20 @@ func TestWithNoComparableWorkThereIsNoNumber(t *testing.T) {
 	sharing := delivery.DefaultEstimatePolicy()
 	sharing.ShareHistory = true
 	e = estimateOf(nil, sharing)
-	if want := "No estimate: no medium change has finished in this project yet or in the installation pool."; e.Explanation != want {
+	// The same words whether the pool holds no comparable record or some from fewer than 3 other projects, so
+	// an estimate never says another project finished such work.
+	unpooled := "No estimate: no medium change has finished in this project yet. " +
+		"The installation pool is used only when the records ropeshift would take from it come from at least 3 other projects."
+	if e.Explanation != unpooled {
 		t.Errorf("explanation %q", e.Explanation)
 	}
-	pool := []delivery.Record{{Keys: delivery.Keys{Kind: estimated.Kind, Size: estimated.Size}, Outcome: workorders.Done, Ended: 1, DeliveryMs: 3 * hour, Usage: delivery.Usage{CostUSD: 2}}}
+	one := []delivery.Record{pooled(1, 1, 3*hour, 2)}
+	if e = delivery.EstimateOf(delivery.EstimateInput{Keys: estimated, Pool: one, Policy: sharing}); e.Status != delivery.NoHistory || e.Explanation != unpooled {
+		t.Errorf("a pool record of one other project gave %+v", e)
+	}
+	pool := []delivery.Record{pooled(1, 1, 3*hour, 2), pooled(2, 1, 3*hour, 2), pooled(3, 1, 3*hour, 2)}
 	e = delivery.EstimateOf(delivery.EstimateInput{Keys: estimated, Pool: pool, Policy: sharing})
-	if e.Confidence != delivery.Low || e.Tier != 6 || e.SampleCount != 1 || len(e.SampleIDs) != 0 {
+	if e.Confidence != delivery.Low || e.Tier != 6 || e.SampleCount != 3 || len(e.SampleIDs) != 0 {
 		t.Errorf("a pooled estimate %+v", e)
 	}
 	if e = delivery.EstimateOf(delivery.EstimateInput{Keys: estimated, Pool: pool, Policy: delivery.DefaultEstimatePolicy()}); e.Status != delivery.NoHistory {
@@ -237,7 +246,7 @@ func TestEveryEstimateTracesToTheRecordsItNames(t *testing.T) {
 		for range rng.IntN(20) {
 			k := keysOf()
 			pool = append(pool, delivery.Record{Keys: delivery.Keys{Kind: k.Kind, Size: k.Size, CapabilityClass: k.CapabilityClass}, Outcome: workorders.Done,
-				Ended: int64(rng.IntN(20)), DeliveryMs: int64(1 + rng.IntN(100)), Usage: delivery.Usage{CostUSD: float64(rng.IntN(50))}})
+				Ended: int64(rng.IntN(20)), DeliveryMs: int64(1 + rng.IntN(100)), Usage: delivery.Usage{CostUSD: float64(rng.IntN(50))}, Source: 1 + rng.IntN(4)})
 		}
 		policy := delivery.EstimatePolicy{MinSamples: int64(5 + rng.IntN(6)), RecentSamples: int64(rng.IntN(15)), ForecastTrials: 1, ShareHistory: rng.IntN(2) == 0}
 		window := max(policy.RecentSamples, policy.MinSamples)
@@ -271,13 +280,30 @@ func TestEveryEstimateTracesToTheRecordsItNames(t *testing.T) {
 			counts = append(counts, min(n, int(window)))
 		}
 		if policy.ShareHistory {
-			n := 0
+			// Tier 6 reads the most recent of the project's records and the pool's together, and counts only when the
+			// pool records among them come from at least 3 other projects. This generator sets no field beyond those
+			// the order below reads.
+			var matching []delivery.Record
 			for _, r := range slices.Concat(records, pool) {
 				if r.Outcome == workorders.Done && r.Size == estimated.Size {
-					n++
+					matching = append(matching, r)
 				}
 			}
-			counts = append(counts, min(n, int(window)))
+			slices.SortFunc(matching, func(a, b delivery.Record) int {
+				return cmp.Or(cmp.Compare(b.Ended, a.Ended), cmp.Compare(a.WorkOrder, b.WorkOrder), cmp.Compare(a.DeliveryMs, b.DeliveryMs),
+					cmp.Compare(a.Usage.CostUSD, b.Usage.CostUSD), cmp.Compare(a.CapabilityClass, b.CapabilityClass), cmp.Compare(a.Source, b.Source))
+			})
+			matching = matching[:min(len(matching), int(window))]
+			sources := map[int]bool{}
+			for _, r := range matching {
+				if r.WorkOrder == "" {
+					sources[r.Source] = true
+				}
+			}
+			if len(sources) < delivery.PoolMinProjects {
+				matching = nil
+			}
+			counts = append(counts, len(matching))
 		}
 		want, confident := 0, false
 		for i, n := range counts {
@@ -302,7 +328,9 @@ func TestEveryEstimateTracesToTheRecordsItNames(t *testing.T) {
 		if e.Tier != want || e.SampleCount != counts[want-1] || (e.Confidence == delivery.Confident) != confident || e.SampleCount != len(e.SampleIDs)+e.PoolSamples {
 			t.Fatalf("run %d: tier %d of %d samples, want tier %d of %v", run, e.Tier, e.SampleCount, want, counts)
 		}
-		if e.Confidence == delivery.Low && e.SampleCount < 6 && !e.P85Open || e.P85Open && (e.Confidence != delivery.Low || e.SampleCount >= 6) {
+		// Below 6 records a low band is open; at tier 6 a band may also open because of what its p85 would show.
+		naturallyOpen := e.Confidence == delivery.Low && e.SampleCount < 6
+		if e.Tier != 6 && e.P85Open != naturallyOpen || naturallyOpen && !e.P85Open {
 			t.Fatalf("run %d: %d low samples open %v", run, e.SampleCount, e.P85Open)
 		}
 		byID := map[string]delivery.Record{}
@@ -312,6 +340,56 @@ func TestEveryEstimateTracesToTheRecordsItNames(t *testing.T) {
 		for _, id := range e.SampleIDs {
 			if r, ok := byID[id]; !ok || r.Outcome != workorders.Done || r.Size != estimated.Size {
 				t.Fatalf("run %d: drew on %q, which is no finished comparable record", run, id)
+			}
+		}
+		if e.Tier == 6 {
+			// A pooled estimate rests on at least 3 other projects, and its extremes are the project's own records'.
+			sources := map[int]bool{}
+			for _, r := range drawn {
+				if r.WorkOrder == "" {
+					sources[r.Source] = true
+				}
+			}
+			var least, most int64
+			var cheapest, dearest float64
+			for i, id := range e.SampleIDs {
+				r := byID[id]
+				if i == 0 || r.DeliveryMs < least {
+					least = r.DeliveryMs
+				}
+				most = max(most, r.DeliveryMs)
+				if i == 0 || r.Usage.CostUSD < cheapest {
+					cheapest = r.Usage.CostUSD
+				}
+				dearest = max(dearest, r.Usage.CostUSD)
+			}
+			if len(sources) < delivery.PoolMinProjects || e.DeliveryMinMs != least || e.DeliveryMaxMs != most || e.CostMinUSD != cheapest || e.CostMaxUSD != dearest {
+				t.Fatalf("run %d: a pooled estimate %+v from %d other projects, own extremes %d to %d, $%v to $%v", run, e, len(sources), least, most, cheapest, dearest)
+			}
+			// Its band reads the ranks among every record it drew on, and a p85 that would be the longest record, or
+			// the highest cost, when that is another project's, reads as the p50 of a band open above it.
+			var times []int64
+			var costs []float64
+			for _, r := range drawn {
+				times, costs = append(times, r.DeliveryMs), append(costs, r.Usage.CostUSD)
+			}
+			slices.Sort(times)
+			slices.Sort(costs)
+			n := len(times)
+			p50, p85 := int(math.Ceil(0.5*float64(n)))-1, int(math.Ceil(0.85*float64(n)))-1
+			if e.Confidence == delivery.Low {
+				p50, p85 = int(math.Ceil(0.5*float64(n+1)))-1, min(int(math.Ceil(0.85*float64(n+1)))-1, n-1)
+			}
+			own := len(e.SampleIDs) > 0
+			time, cost, open := times[p85], costs[p85], naturallyOpen
+			if times[p85] == times[n-1] && (!own || times[n-1] > most) {
+				time, open = times[p50], true
+			}
+			if costs[p85] == costs[n-1] && (!own || costs[n-1] > dearest) {
+				cost, open = costs[p50], true
+			}
+			if e.DeliveryP50Ms != times[p50] || e.DeliveryP85Ms != time || e.CostP50USD != costs[p50] || e.CostP85USD != cost || e.P85Open != open {
+				t.Fatalf("run %d: a pooled band %+v, want p50 %d p85 %d, $%v and $%v, open %v, among %v and %v", run, e, times[p50], time, costs[p50], cost, open, times, costs)
 			}
 		}
 		if e.PoolSamples > 0 || e.Explanation == "" {
@@ -370,10 +448,13 @@ func TestTheExplanationSaysWhatItRestsOn(t *testing.T) {
 	}
 	sharing := delivery.DefaultEstimatePolicy()
 	sharing.ShareHistory = true
-	pooledLow := delivery.EstimateOf(delivery.EstimateInput{Keys: estimated, Pool: []delivery.Record{pooled(1, hour, 1), pooled(2, 3*hour, 1)}, Policy: sharing})
-	want := "Low confidence. Based on 2 finished medium changes; a confident estimate needs 10. To find them, ropeshift ignored the capability class, the repository, " +
-		"the merge authority level, and the number of criteria, and drew on the installation pool. They took from 1h to 3h. " +
-		"With fewer than 6, the 85th percentile cannot be read from them, so the band is open above 3h."
+	own := finished("own", 1, 4*hour, 1, otherRepository)
+	pooledLow := delivery.EstimateOf(delivery.EstimateInput{
+		Keys: estimated, Records: []delivery.Record{own}, Pool: []delivery.Record{pooled(1, 1, hour, 1), pooled(2, 2, 3*hour, 1), pooled(3, 3, 2*hour, 1)}, Policy: sharing,
+	})
+	want := "Low confidence. Based on 4 finished medium changes; a confident estimate needs 10. To find them, ropeshift ignored the capability class, the repository, " +
+		"the merge authority level, and the number of criteria, and drew on the installation pool. The one that is this project's own took 4h. " +
+		"With fewer than 6, the 85th percentile cannot be read from them, so the band is open above 4h."
 	if pooledLow.Explanation != want {
 		t.Errorf("pooled low\n got %q\nwant %q", pooledLow.Explanation, want)
 	}
@@ -423,9 +504,183 @@ func TestASizeLeftOutReadsAsUnknown(t *testing.T) {
 	}
 }
 
-// pooled is a record of another project in the installation's pool, which names no work order.
-func pooled(ended, deliveryMs int64, cost float64) delivery.Record {
-	return delivery.Record{Keys: delivery.Keys{Kind: estimated.Kind, Size: estimated.Size, CapabilityClass: "implement"}, Outcome: workorders.Done, Ended: ended, DeliveryMs: deliveryMs, Usage: delivery.Usage{CostUSD: cost}}
+// pooled is a record of another project in the installation's pool, which names no work order, from the project
+// the pool's read marks as source.
+func pooled(source int, ended, deliveryMs int64, cost float64) delivery.Record {
+	return delivery.Record{
+		Keys: delivery.Keys{Kind: estimated.Kind, Size: estimated.Size, CapabilityClass: "implement"}, Outcome: workorders.Done, Ended: ended, DeliveryMs: deliveryMs,
+		Usage: delivery.Usage{CostUSD: cost}, Source: source,
+	}
+}
+
+// TestThePoolIsUsedOnlyFromThreeOtherProjects holds ADR-0026's minimum: tier 6 counts only when the pool records it
+// would draw on come from at least 3 other projects, so no estimate rests on one other project's work. Below that
+// the estimate falls through to the project's own tiers, and its explanation says why the pool was not used.
+func TestThePoolIsUsedOnlyFromThreeOtherProjects(t *testing.T) {
+	sharing := delivery.DefaultEstimatePolicy()
+	sharing.ShareHistory = true
+	own := []delivery.Record{finished("own-1", 10, 2*hour, 1, nil), finished("own-2", 11, 3*hour, 1, nil)}
+	two := []delivery.Record{pooled(1, 1, hour, 1), pooled(1, 2, 4*hour, 1), pooled(2, 3, 5*hour, 1), pooled(2, 4, 6*hour, 1)}
+	e := delivery.EstimateOf(delivery.EstimateInput{Keys: estimated, Records: own, Pool: two, Policy: sharing})
+	if e.Tier != 1 || e.SampleCount != 2 || e.PoolSamples != 0 {
+		t.Fatalf("with pool records of 2 other projects, the estimate drew %d at tier %d, %d of them pooled", e.SampleCount, e.Tier, e.PoolSamples)
+	}
+	skipped := " The installation pool is used only when the records ropeshift would take from it come from at least 3 other projects."
+	if !strings.HasSuffix(e.Explanation, skipped) {
+		t.Errorf("an estimate that skipped the pool says %q", e.Explanation)
+	}
+	alone := delivery.EstimateOf(delivery.EstimateInput{Keys: estimated, Records: own, Policy: sharing})
+	if alone.Explanation != e.Explanation {
+		t.Errorf("a pool of 2 other projects reads apart from an empty pool:\n%q\n%q", e.Explanation, alone.Explanation)
+	}
+	if solo := estimateOf(own, delivery.DefaultEstimatePolicy()); strings.Contains(solo.Explanation, "pool") {
+		t.Errorf("a project that does not share history speaks of the pool: %q", solo.Explanation)
+	}
+
+	three := append(slices.Clone(two), pooled(3, 5, 7*hour, 1))
+	e = delivery.EstimateOf(delivery.EstimateInput{Keys: estimated, Records: own, Pool: three, Policy: sharing})
+	if e.Tier != 6 || e.SampleCount != 7 || e.PoolSamples != 5 || !reflect.DeepEqual(e.SampleIDs, []string{"own-2", "own-1"}) || strings.Contains(e.Explanation, skipped) {
+		t.Errorf("with pool records of 3 other projects, the estimate %+v", e)
+	}
+
+	// Three projects share medium changes, but the most recent 50 a tier reads all come from one of them.
+	var crowded []delivery.Record
+	for i := range 50 {
+		crowded = append(crowded, pooled(1, int64(100+i), hour, 1))
+	}
+	crowded = append(crowded, pooled(2, 1, hour, 1), pooled(3, 2, hour, 1))
+	if e = delivery.EstimateOf(delivery.EstimateInput{Keys: estimated, Pool: crowded, Policy: sharing}); e.Status != delivery.NoHistory {
+		t.Errorf("records drawn from one other project gave %+v", e)
+	}
+}
+
+// TestAPooledEstimatesExtremesAreTheProjectsOwn holds ADR-0026's rule that a tier 6 estimate shows no pool record as
+// its shortest or longest: those, and the spread the explanation gives, come from the project's own records, and
+// are absent when it drew on none; an open band whose longest record is a pool record reads as open above its p50,
+// and so does its cost band when its highest cost is a pool record's.
+func TestAPooledEstimatesExtremesAreTheProjectsOwn(t *testing.T) {
+	sharing := delivery.DefaultEstimatePolicy()
+	sharing.ShareHistory = true
+	own := []delivery.Record{finished("own-1", 10, 2*hour, 2, otherRepository), finished("own-2", 11, 5*hour, 4, otherRepository)}
+	pool := []delivery.Record{pooled(1, 1, hour, 1), pooled(2, 2, 3*hour, 3), pooled(3, 3, 6*hour, 9)}
+	e := delivery.EstimateOf(delivery.EstimateInput{Keys: estimated, Records: own, Pool: pool, Policy: sharing})
+	if e.Tier != 6 || e.SampleCount != 5 || !e.P85Open {
+		t.Fatalf("estimate %+v", e)
+	}
+	// n = 5: times 1h 2h 3h 5h 6h and costs 1 2 3 4 9; the p50 is the 3rd of each, and the longest and the highest
+	// cost are a pool record's, so the band is open above the p50.
+	if e.DeliveryMinMs != 2*hour || e.DeliveryMaxMs != 5*hour || e.CostMinUSD != 2 || e.CostMaxUSD != 4 {
+		t.Errorf("extremes %d to %d, $%v to $%v, want the project's own", e.DeliveryMinMs, e.DeliveryMaxMs, e.CostMinUSD, e.CostMaxUSD)
+	}
+	if e.Time() != (delivery.Band{P50: 3 * hour, P85: 3 * hour}) || e.Cost() != (delivery.CostBand{P50: 3, P85: 3}) {
+		t.Errorf("bands %+v %+v, want open above the p50", e.Time(), e.Cost())
+	}
+	want := "Low confidence. Based on 5 finished medium changes; a confident estimate needs 10. To find them, ropeshift ignored the capability class, the repository, " +
+		"the merge authority level, and the number of criteria, and drew on the installation pool. The 2 that are this project's own took from 2h to 5h. " +
+		"With fewer than 6, the 85th percentile cannot be read from them, so the band is open above 3h."
+	if e.Explanation != want {
+		t.Errorf("explanation\n got %q\nwant %q", e.Explanation, want)
+	}
+	for _, extreme := range []string{" 1h", " 6h"} {
+		if strings.Contains(e.Explanation, extreme) {
+			t.Errorf("the explanation names a pool record's%s: %q", extreme, e.Explanation)
+		}
+	}
+
+	// The project's own longest bounds the band when no pool record is longer.
+	ownLongest := []delivery.Record{pooled(1, 1, hour, 1), pooled(2, 2, 3*hour, 3), pooled(3, 3, 4*hour, 3)}
+	e = delivery.EstimateOf(delivery.EstimateInput{Keys: estimated, Records: own, Pool: ownLongest, Policy: sharing})
+	if !e.P85Open || e.DeliveryP85Ms != 5*hour || e.CostP85USD != 4 || !strings.HasSuffix(e.Explanation, "so the band is open above 5h.") {
+		t.Errorf("an open band whose longest record is the project's own reads %+v", e)
+	}
+
+	// With none of its own records, a pooled estimate shows no shortest, longest, or spread.
+	none := delivery.EstimateOf(delivery.EstimateInput{Keys: estimated, Pool: pool, Policy: sharing})
+	if none.Tier != 6 || none.DeliveryMinMs != 0 || none.DeliveryMaxMs != 0 || none.CostMinUSD != 0 || none.CostMaxUSD != 0 {
+		t.Errorf("a pooled estimate of none of the project's records shows extremes %+v", none)
+	}
+	// n = 3: times 1h 3h 6h; the p50 is 3h.
+	if none.Time() != (delivery.Band{P50: 3 * hour, P85: 3 * hour}) || none.Cost() != (delivery.CostBand{P50: 3, P85: 3}) {
+		t.Errorf("bands %+v %+v", none.Time(), none.Cost())
+	}
+	if !strings.Contains(none.Explanation, " None of them is this project's own, so their range is not shown. ") || strings.Contains(none.Explanation, "took") {
+		t.Errorf("explanation %q", none.Explanation)
+	}
+
+	// A confident pooled estimate also takes its extremes from the project's own records alone.
+	var many []delivery.Record
+	for i := range 12 {
+		many = append(many, pooled(1+i%3, int64(i), int64(1+i)*hour, float64(1+i)))
+	}
+	e = delivery.EstimateOf(delivery.EstimateInput{Keys: estimated, Records: own[:1], Pool: many, Policy: sharing})
+	if e.Confidence != delivery.Confident || e.Tier != 6 || e.DeliveryMinMs != 2*hour || e.DeliveryMaxMs != 2*hour || e.CostMinUSD != 2 || e.CostMaxUSD != 2 {
+		t.Errorf("a confident pooled estimate %+v", e)
+	}
+}
+
+// TestAPooledP85IsNeverAnotherProjectsLongest holds FR-EST-13 at every rank that reads the last record, open or
+// not: a confident estimate on 5 or 6 records and a low one on 6 to 12 take their p85 from the longest record and
+// the highest cost, and when that is a pool record's, the band reads as open above its p50, and says why in words
+// of its own; the cost p85 does the same on its own.
+func TestAPooledP85IsNeverAnotherProjectsLongest(t *testing.T) {
+	const outlier = 37 * hour
+	cases := []struct {
+		n          int
+		minSamples int64
+	}{{5, 5}, {6, 6}}
+	for n := 6; n <= 12; n++ {
+		cases = append(cases, struct {
+			n          int
+			minSamples int64
+		}{n, 13})
+	}
+	for _, c := range cases {
+		policy := delivery.EstimatePolicy{Version: 1, MinSamples: c.minSamples, RecentSamples: 50, ForecastTrials: 1, ShareHistory: true}
+		var pool []delivery.Record
+		for i := range c.n - 1 {
+			pool = append(pool, pooled(1+i%3, int64(i), int64(1+i)*hour, float64(1+i)))
+		}
+		pool = append(pool, pooled(1+(c.n-1)%3, int64(c.n), outlier, 90))
+		e := delivery.EstimateOf(delivery.EstimateInput{Keys: estimated, Pool: pool, Policy: policy})
+		confident := int64(c.n) >= c.minSamples
+		if e.Tier != 6 || e.SampleCount != c.n || (e.Confidence == delivery.Confident) != confident {
+			t.Fatalf("n = %d: estimate %+v", c.n, e)
+		}
+		// The records take 1h to n-1 hours and cost $1 to $n-1, and the outlier takes 37h and costs $90.
+		rank := math.Ceil(0.5 * float64(c.n))
+		if !confident {
+			rank = math.Ceil(0.5 * float64(c.n+1))
+		}
+		median := int64(rank) * hour
+		if !e.P85Open || e.Time() != (delivery.Band{P50: median, P85: median}) || e.Cost() != (delivery.CostBand{P50: rank, P85: rank}) {
+			t.Errorf("n = %d, %s: bands %+v %+v open %v, want open above the p50 of %dh and $%v", c.n, e.Confidence, e.Time(), e.Cost(), e.P85Open, median/hour, rank)
+		}
+		words := fmt.Sprintf(" The longest comparable record is another project's, so the band is open above the median, %dh.", median/hour)
+		if !strings.HasSuffix(e.Explanation, words) || strings.Contains(e.Explanation, "37h") || strings.Contains(e.Explanation, "With fewer than") {
+			t.Errorf("n = %d: explanation %q", c.n, e.Explanation)
+		}
+	}
+
+	// On its own index, only the cost reads as open above its p50 when only the highest cost is another project's:
+	// the project's own record is the longest, so the time's p85 stays it.
+	sharing := delivery.EstimatePolicy{Version: 1, MinSamples: 5, RecentSamples: 50, ForecastTrials: 1, ShareHistory: true}
+	own := finished("own", 9, 40*hour, 2, otherRepository)
+	pool := []delivery.Record{pooled(1, 1, hour, 1), pooled(2, 2, 2*hour, 2), pooled(3, 3, 3*hour, 3), pooled(1, 4, 4*hour, 90)}
+	e := delivery.EstimateOf(delivery.EstimateInput{Keys: estimated, Records: []delivery.Record{own}, Pool: pool, Policy: sharing})
+	// n = 5: times 1h 2h 3h 4h 40h and costs 1 2 2 3 90; the p50 is the 3rd of each.
+	if e.Tier != 6 || e.Confidence != delivery.Confident || !e.P85Open || e.Time() != (delivery.Band{P50: 3 * hour, P85: 40 * hour}) || e.Cost() != (delivery.CostBand{P50: 2, P85: 2}) {
+		t.Errorf("a pool record of the highest cost alone gave %+v", e)
+	}
+	if want := "Based on 5 finished medium changes in the installation pool. The costliest comparable record is another project's, so the band is open above 40h and its cost above the median."; e.Explanation != want {
+		t.Errorf("explanation\n got %q\nwant %q", e.Explanation, want)
+	}
+
+	// When the project's own record is the longest and the highest cost, the p85 is read as it stands.
+	own.Usage.CostUSD = 95
+	e = delivery.EstimateOf(delivery.EstimateInput{Keys: estimated, Records: []delivery.Record{own}, Pool: pool, Policy: sharing})
+	if e.P85Open || e.Time() != (delivery.Band{P50: 3 * hour, P85: 40 * hour}) || e.Cost() != (delivery.CostBand{P50: 3, P85: 95}) || strings.Contains(e.Explanation, "open") {
+		t.Errorf("an estimate whose longest and highest cost are the project's own reads %+v", e)
+	}
 }
 
 // TestRecordsThatEndTogetherDrawTheSameWhateverTheirOrder breaks ties in recency by the records themselves, so
@@ -435,7 +690,7 @@ func TestRecordsThatEndTogetherDrawTheSameWhateverTheirOrder(t *testing.T) {
 	sharing.ShareHistory = true
 	var forward, reversed []delivery.Record
 	for i := range 60 {
-		forward = append(forward, pooled(5, int64(i+1), float64(60-i)))
+		forward = append(forward, pooled(1+i%3, 5, int64(i+1), float64(60-i)))
 	}
 	for i := len(forward) - 1; i >= 0; i-- {
 		reversed = append(reversed, forward[i])
@@ -444,6 +699,30 @@ func TestRecordsThatEndTogetherDrawTheSameWhateverTheirOrder(t *testing.T) {
 	b := delivery.EstimateOf(delivery.EstimateInput{Keys: estimated, Pool: reversed, Policy: sharing})
 	if !reflect.DeepEqual(a, b) || a.SampleCount != 50 {
 		t.Errorf("the order of the pool changed the estimate:\n%+v\n%+v", a, b)
+	}
+}
+
+// TestPoolRecordsThatDifferOnlyByProjectFillTheWindowTheSameWhateverTheirOrder breaks the last tie in the recent
+// window by the pool's mark, so which projects the window holds, and so whether tier 6 reaches 3 of them, never
+// depends on the order the pool's records came in.
+func TestPoolRecordsThatDifferOnlyByProjectFillTheWindowTheSameWhateverTheirOrder(t *testing.T) {
+	policy := delivery.EstimatePolicy{Version: 1, MinSamples: 5, RecentSamples: 5, ForecastTrials: 1, ShareHistory: true}
+	// Six records alike in everything but the project that shared them; a window of 5 holds 2 or 3 of the projects
+	// as it cuts them.
+	marks := []int{1, 1, 1, 1, 2, 3}
+	var forward []delivery.Record
+	for _, mark := range marks {
+		forward = append(forward, pooled(mark, 5, hour, 1))
+	}
+	first := delivery.EstimateOf(delivery.EstimateInput{Keys: estimated, Pool: forward, Policy: policy})
+	for _, order := range [][]int{{5, 4, 3, 2, 1, 0}, {4, 5, 0, 1, 2, 3}, {0, 5, 1, 4, 2, 3}} {
+		pool := make([]delivery.Record, 0, len(order))
+		for _, i := range order {
+			pool = append(pool, forward[i])
+		}
+		if e := delivery.EstimateOf(delivery.EstimateInput{Keys: estimated, Pool: pool, Policy: policy}); !reflect.DeepEqual(e, first) {
+			t.Errorf("the pool in the order %v estimated %+v, and in its first order %+v", order, e, first)
+		}
 	}
 }
 
@@ -456,7 +735,7 @@ func TestAPooledEstimateNamesTheProjectsOwnWork(t *testing.T) {
 		finished("own-1", 1, 2*hour, 1, func(k *delivery.Keys) { k.CapabilityClass, k.MergeAuthority = "review", "person_merges" }),
 		finished("own-2", 2, 3*hour, 1, func(k *delivery.Keys) { k.CapabilityClass, k.MergeAuthority = "review", "person_merges" }),
 	}
-	pool := []delivery.Record{pooled(3, 4*hour, 2), pooled(4, 5*hour, 2), pooled(5, 6*hour, 2)}
+	pool := []delivery.Record{pooled(1, 3, 4*hour, 2), pooled(2, 4, 5*hour, 2), pooled(3, 5, 6*hour, 2)}
 	e := delivery.EstimateOf(delivery.EstimateInput{Keys: estimated, Records: own, Pool: pool, Policy: sharing})
 	if e.Tier != 6 || e.SampleCount != 5 || e.PoolSamples != 3 || !reflect.DeepEqual(e.SampleIDs, []string{"own-2", "own-1"}) {
 		t.Errorf("a pooled estimate drew %d, %d from the pool, naming %v, at tier %d", e.SampleCount, e.PoolSamples, e.SampleIDs, e.Tier)

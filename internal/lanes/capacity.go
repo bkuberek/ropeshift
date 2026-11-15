@@ -427,6 +427,14 @@ func StepCapacity(open []ledger.CapacityInterval, worker string, epoch int64, re
 	return step
 }
 
+// ReportAge is how long before its heartbeat the control plane takes a report to have been measured (FR-OBS-14):
+// the age the worker sent, which is its word, held between 0 and freshMs, the window in which a report stays
+// observed. A worker's clock or a faulty report then moves what the report dates by at most that window and never
+// past the control plane's own time, and a report that really was held longer is dated late by the excess.
+func ReportAge(ageMs, freshMs int64) int64 {
+	return min(max(ageMs, 0), max(freshMs, 0))
+}
+
 // LaneCapSettings is what a member sets of a machine's lane caps (FR-PROJ-7). MaxLanes nil follows the
 // recommendation and zero caps nothing; MaxLanesPerSignIn zero caps nothing. Neither has an upper bound.
 type LaneCapSettings struct {

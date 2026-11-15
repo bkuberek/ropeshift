@@ -138,3 +138,24 @@ func TestACapacityIntervalEndsAtItsLastReportWhileItStands(t *testing.T) {
 		t.Errorf("an ended interval ends at %d", got)
 	}
 }
+
+// TestAReportsAgeIsHeldToItsWindow dates a report by an age the worker's word cannot move outside the window in
+// which a report stays observed: below zero it is none, past the window it is the window (FR-OBS-14).
+func TestAReportsAgeIsHeldToItsWindow(t *testing.T) {
+	const window = int64(45_000)
+	for age, want := range map[int64]int64{
+		-60_000:    0,
+		0:          0,
+		2_000:      2_000,
+		window:     window,
+		window + 1: window,
+		600_000:    window,
+	} {
+		if got := lanes.ReportAge(age, window); got != want {
+			t.Errorf("an age of %d ms in a window of %d is %d, want %d", age, window, got, want)
+		}
+	}
+	if got := lanes.ReportAge(2_000, 0); got != 0 {
+		t.Errorf("a window of none holds an age of 2000 ms at %d", got)
+	}
+}

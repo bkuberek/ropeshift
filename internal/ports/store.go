@@ -136,10 +136,11 @@ type DeliveryWriter interface {
 
 // PoolReader reads the installation's delivery pool from one project (ADR-0026, FR-EST-13). A project reads what
 // other projects share, never its own records, which stay in its own database, and never which project a
-// record came from.
+// record came from, only which records came from the same one, so tier 6 can count them.
 type PoolReader interface {
-	// Records returns every record other projects share, by end, each holding only what delivery.Pooled keeps.
-	// A store with no installation has no other project, and returns none.
+	// Records returns every record other projects share, by end, each holding only what delivery.Pooled keeps
+	// and a Source that tells one project's records from another's within this read alone, from 1, and is no
+	// project ID. A store with no installation has no other project, and returns none.
 	Records() ([]delivery.Record, error)
 	// Shared returns the digest of what this project shares, or "" while it shares nothing.
 	Shared() (string, error)

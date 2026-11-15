@@ -113,8 +113,9 @@ func TestTheInstallationPoolHoldsOnlyWhatSharingProjectsShare(t *testing.T) {
 	if changed, err := pool.Share(ctx, alpha.ID); err != nil || changed {
 		t.Fatalf("sharing the same records again changed the pool: %v, %v", changed, err)
 	}
-	if shared := poolOf(t, betaStore, beta.ID); len(shared) != 2 || !reflect.DeepEqual(shared, delivery.Pooled(finished)) {
-		t.Errorf("another project reads %+v, want %+v", shared, delivery.Pooled(finished))
+	if shared := poolOf(t, betaStore, beta.ID); len(shared) != 2 || shared[0].Source == 0 || shared[1].Source != shared[0].Source ||
+		!reflect.DeepEqual(unmarked(shared), delivery.Pooled(finished)) {
+		t.Errorf("another project reads %+v, want %+v from one source", shared, delivery.Pooled(finished))
 	}
 	if own := poolOf(t, alphaStore, alpha.ID); len(own) != 0 {
 		t.Errorf("a project reads its own records from the pool: %+v", own)
@@ -142,15 +143,24 @@ func TestTheInstallationPoolHoldsOnlyWhatSharingProjectsShare(t *testing.T) {
 	if _, err := control.NewWorkOrders(betaStore).Create(ctx, beta.ID, workorders.WorkOrder{ID: "wo-b2", Kind: workorders.KindChange, Title: "Pooled", Size: "medium", MaxAttempts: 1}, member); err != nil {
 		t.Fatal(err)
 	}
+	// One other project's records are not enough for tier 6 (ADR-0026).
+	if alone := currentEstimate(t, betaStore, beta.ID, "wo-b2"); alone.Status != delivery.NoHistory || !strings.Contains(alone.Explanation, "at least 3 other projects") {
+		t.Errorf("a project that shares history with one other is estimated %+v", alone)
+	}
+	sharing(t, state, "pc", "gamma")
+	sharing(t, state, "pd", "delta")
+	if _, err := control.NewEstimates(betaStore).Refresh(ctx, beta.ID); err != nil {
+		t.Fatal(err)
+	}
 	pooled := currentEstimate(t, betaStore, beta.ID, "wo-b2")
-	if pooled.Status != delivery.Estimated || pooled.Tier != 6 || pooled.PoolSamples != 2 || len(pooled.SampleIDs) != 0 || !pooled.CostAtLeast ||
+	if pooled.Status != delivery.Estimated || pooled.Tier != 6 || pooled.PoolSamples != 4 || len(pooled.SampleIDs) != 0 || !pooled.CostAtLeast ||
 		!strings.Contains(pooled.Explanation, "installation pool") || strings.Contains(pooled.Explanation, "wo-a") {
-		t.Errorf("a project that shares history is estimated %+v", pooled)
+		t.Errorf("a project that shares history with three others is estimated %+v", pooled)
 	}
 
 	// A project that stops sharing takes its records out as the member publishes it, with no tick.
 	shareHistory(t, alphaStore, alpha.ID, 3, false)
-	if shared := poolOf(t, betaStore, beta.ID); len(shared) != 0 {
+	if shared := poolOf(t, betaStore, beta.ID); len(shared) != 2 {
 		t.Errorf("after alpha stopped sharing, the pool holds %+v", shared)
 	}
 	if changed, err := pool.Share(ctx, alpha.ID); err != nil || changed {
@@ -160,15 +170,16 @@ func TestTheInstallationPoolHoldsOnlyWhatSharingProjectsShare(t *testing.T) {
 	if err := alphaStore.Installation(alpha.ID).SharePool(ctx, alpha.ID, 2, delivery.PoolDigest(delivery.Pooled(finished)), finished); err != nil {
 		t.Fatal(err)
 	}
-	if shared := poolOf(t, betaStore, beta.ID); len(shared) != 0 {
+	if shared := poolOf(t, betaStore, beta.ID); len(shared) != 2 {
 		t.Errorf("a share under alpha's earlier policy put back %+v", shared)
 	}
-	// Beta's estimates stop drawing on alpha's records once its tick runs, and its earlier set keeps what it showed.
+	// Beta's estimates stop drawing on alpha's records once its tick runs, which leaves 2 other projects, too few
+	// for tier 6, and its earlier set keeps what it showed.
 	if _, err := control.NewEstimates(betaStore).Refresh(ctx, beta.ID); err != nil {
 		t.Fatal(err)
 	}
 	after := currentEstimate(t, betaStore, beta.ID, "wo-b2")
-	if after.Status != delivery.NoHistory || !strings.Contains(after.Explanation, "or in the installation pool") || after.SetID == pooled.SetID {
+	if after.Status != delivery.NoHistory || !strings.Contains(after.Explanation, "at least 3 other projects") || after.SetID == pooled.SetID {
 		t.Errorf("after alpha stopped sharing, beta's work is estimated %+v", after)
 	}
 	var kept delivery.EstimateSet
@@ -176,8 +187,13 @@ func TestTheInstallationPoolHoldsOnlyWhatSharingProjectsShare(t *testing.T) {
 		var err error
 		kept, err = tx.Estimates().Set(pooled.SetID)
 		return err
-	}); err != nil || len(kept.Estimates) != 1 || kept.Estimates[0].Tier != 6 || kept.Estimates[0].Current {
-		t.Errorf("beta's earlier set now reads %+v: %v", kept, err)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// The refresh that drew on the pool estimated both of beta's open work orders in one set.
+	at := slices.IndexFunc(kept.Estimates, func(e delivery.Estimate) bool { return e.WorkOrder == "wo-b2" })
+	if at < 0 || kept.Estimates[at].Tier != 6 || kept.Estimates[at].Current {
+		t.Errorf("beta's earlier set now reads %+v", kept)
 	}
 }
 
@@ -191,6 +207,68 @@ func sharing(t *testing.T, state *sqlite.State, id ledger.WorkspaceID, name stri
 		t.Fatalf("%s did not share: %v, %v", name, changed, err)
 	}
 	return project, store
+}
+
+// unmarked is pool records without the mark of the project each came from, which holds only within one read.
+func unmarked(records []delivery.Record) []delivery.Record {
+	out := slices.Clone(records)
+	for i := range out {
+		out[i].Source = 0
+	}
+	return out
+}
+
+// TestThePoolMarksTheProjectBehindEachRecordWithinARead tells one sharing project's records from another's within one
+// read of the pool, by a number that is no project ID, so tier 6 can count the projects it rests on without
+// learning which they are; and tier 6 counts only from 3 other projects (ADR-0026, FR-EST-13).
+func TestThePoolMarksTheProjectBehindEachRecordWithinARead(t *testing.T) {
+	state := openState(t, t.TempDir())
+	reader, readerStore := createProject(t, state, "pr", "reader")
+	ctx := t.Context()
+	shareHistory(t, readerStore, reader.ID, 2, true)
+	if _, err := control.NewWorkOrders(readerStore).Create(ctx, reader.ID, workorders.WorkOrder{ID: "wo-r1", Kind: workorders.KindChange, Title: "Pooled", Size: "medium", MaxAttempts: 1}, member); err != nil {
+		t.Fatal(err)
+	}
+	_, firstStore := sharing(t, state, "pa", "alpha")
+	keepRecords(t, firstStore, "pa", []delivery.Record{{WorkOrder: "wo-pa-2", Keys: delivery.Keys{Kind: "change", Size: "medium"}, Outcome: workorders.Done, Ended: 200, DeliveryMs: 90}})
+	if changed, err := control.NewDeliveryPool(firstStore).Share(ctx, "pa"); err != nil || !changed {
+		t.Fatalf("alpha did not share its second record: %v, %v", changed, err)
+	}
+	sharing(t, state, "pb", "beta")
+	shared := poolOf(t, readerStore, reader.ID)
+	sources := map[int]int{}
+	for _, r := range shared {
+		sources[r.Source]++
+	}
+	if len(shared) != 3 || len(sources) != 2 || sources[0] != 0 {
+		t.Errorf("two projects' 3 records read with the marks %v: %+v", sources, shared)
+	}
+	if _, err := control.NewEstimates(readerStore).Refresh(ctx, reader.ID); err != nil {
+		t.Fatal(err)
+	}
+	if two := currentEstimate(t, readerStore, reader.ID, "wo-r1"); two.Status != delivery.NoHistory || !strings.Contains(two.Explanation, "at least 3 other projects") {
+		t.Errorf("with 2 other projects sharing, the estimate %+v", two)
+	}
+
+	sharing(t, state, "pc", "gamma")
+	if marks := poolOf(t, readerStore, reader.ID); len(marks) != 4 {
+		t.Fatalf("the pool holds %+v", marks)
+	} else {
+		sources = map[int]int{}
+		for _, r := range marks {
+			sources[r.Source]++
+		}
+		if len(sources) != 3 || sources[0] != 0 {
+			t.Errorf("three projects' records read with the marks %v", sources)
+		}
+	}
+	if _, err := control.NewEstimates(readerStore).Refresh(ctx, reader.ID); err != nil {
+		t.Fatal(err)
+	}
+	if three := currentEstimate(t, readerStore, reader.ID, "wo-r1"); three.Status != delivery.Estimated || three.Tier != 6 || three.PoolSamples != 4 || len(three.SampleIDs) != 0 ||
+		three.DeliveryMinMs != 0 || three.DeliveryMaxMs != 0 || strings.Contains(three.Explanation, "at least 3 other projects") {
+		t.Errorf("with 3 other projects sharing, the estimate %+v", three)
+	}
 }
 
 // TestARemovedOrArchivedProjectLeavesThePool takes a project's share out of the pool when it is removed or

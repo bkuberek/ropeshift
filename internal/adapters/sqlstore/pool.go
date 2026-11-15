@@ -16,7 +16,7 @@ import (
 // which has no other to share with.
 var (
 	stmtPoolRecords = defineInstallation("pool.records",
-		`SELECT kind, size, capability_class, ended_at, elapsed_ms, delivery_ms, lane_ms, person_ms, cost_usd, cost_lower_bound
+		`SELECT project_id, kind, size, capability_class, ended_at, elapsed_ms, delivery_ms, lane_ms, person_ms, cost_usd, cost_lower_bound
   FROM delivery_pool WHERE workspace_id = :workspace_id AND project_id <> :project_id
  ORDER BY ended_at, project_id, seq`)
 
@@ -83,15 +83,22 @@ func (t poolTx) Records() ([]delivery.Record, error) {
 		return nil, err
 	}
 	defer rows.Close()
+	// Each project is marked by the order in which this read first meets it, from 1, so a read can count the
+	// projects behind its records without learning which they are (ADR-0026). The project ID stays here.
+	marks := map[string]int{}
 	for rows.Next() {
 		// The pool holds work that reached `done` and nothing else.
 		r := delivery.Record{Outcome: workorders.Done}
+		var project string
 		var lowerBound int64
-		err := rows.Scan(&r.Kind, &r.Size, &r.CapabilityClass, &r.Ended, &r.ElapsedMs, &r.DeliveryMs, &r.LaneMs, &r.PersonMs, &r.Usage.CostUSD, &lowerBound)
+		err := rows.Scan(&project, &r.Kind, &r.Size, &r.CapabilityClass, &r.Ended, &r.ElapsedMs, &r.DeliveryMs, &r.LaneMs, &r.PersonMs, &r.Usage.CostUSD, &lowerBound)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", stmtPoolRecords.name, err)
 		}
-		r.Usage.CostLowerBound = lowerBound != 0
+		if _, ok := marks[project]; !ok {
+			marks[project] = len(marks) + 1
+		}
+		r.Usage.CostLowerBound, r.Source = lowerBound != 0, marks[project]
 		out = append(out, r)
 	}
 	return out, rows.Err()
