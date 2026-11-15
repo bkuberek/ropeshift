@@ -5,7 +5,7 @@ import type { StateLook } from "../floor/states";
 // fields a roster change sends. None of it decides anything the API decides; the API refuses what it
 // refuses, and the page shows that refusal at the field.
 
-export type PolicyKind = "decision" | "lane" | "recovery" | "notify" | "autonomy" | "assistant" | "delegation" | "delegate";
+export type PolicyKind = "decision" | "lane" | "recovery" | "notify" | "autonomy" | "assistant" | "delegation" | "delegate" | "estimate";
 
 export type DelegationClass = { tool: string; command_prefix: string; path: string; agent: string };
 export type PolicyValue = boolean | number | string | string[] | DelegationClass[];
@@ -19,6 +19,10 @@ export type FieldSpec = {
   help?: string;
   // optional text is left out of the body when empty, because the policy reads its absence.
   optional?: boolean;
+  // The bounds of a whole number, which the API holds too, and a setting it may not fall below.
+  min?: number;
+  max?: number;
+  atLeast?: { key: string; words: string };
 };
 
 // Each policy's table and the settings it states, in the order its built-in version writes them.
@@ -81,6 +85,32 @@ export const policies: Record<PolicyKind, { table: string; fields: FieldSpec[] }
     table: "delegation_policy",
     fields: [{ key: "classes", label: "Approval classes an orchestrator decides", type: "classes", help: "Each class names a tool, and optionally a command prefix, a path, or an agent." }],
   },
+  estimate: {
+    table: "estimate_policy",
+    fields: [
+      {
+        key: "min_samples",
+        label: "Comparable outcomes a confident estimate needs",
+        type: "int",
+        min: 5,
+        help: "A confident estimate rests on this many finished, comparable work orders, and never on fewer than 5. With fewer, the estimate is low confidence and says why.",
+      },
+      {
+        key: "recent_samples",
+        label: "Recent comparable outcomes an estimate reads",
+        type: "int",
+        atLeast: { key: "min_samples", words: "outcomes a confident estimate needs" },
+        help: "An estimate reads at most this many of the most recent comparable outcomes.",
+      },
+      { key: "forecast_trials", label: "Trials in a forecast", type: "int", min: 1, max: 20_000, help: "How many times a forecast simulates a plan's unfinished work, from 1 to 20,000." },
+      {
+        key: "share_history",
+        label: "Share delivery history with the installation's pool",
+        type: "bool",
+        help: "Off, this project's estimates read its own history alone. On, it adds its finished work to the installation's pool and draws on the pool for its broadest comparison. The pool holds each work order's kind, size, capability class, durations, and cost, and no ID, title, repository, or content. Turning it off takes the project's records out of the pool.",
+      },
+    ],
+  },
   delegate: {
     table: "delegate_policy",
     fields: [
@@ -94,6 +124,31 @@ export const policies: Record<PolicyKind, { table: string; fields: FieldSpec[] }
     ],
   },
 };
+
+// problemOf says what is wrong with one setting's value, in words that name the fix, or nothing. It holds the bounds
+// the API holds, so a version it would refuse is never offered for review; the API still refuses what it refuses.
+// A whole number a version leaves out is no problem, because the policy reads its absence.
+export function problemOf(field: FieldSpec, values: PolicyValues): string {
+  const value = values[field.key];
+  if (field.type === "minutes") {
+    return isMinutes(value) ? "" : `Enter a whole number of minutes, ${minutesBounds.min} to ${minutesBounds.max.toLocaleString("en-US")}.`;
+  }
+  if (field.type !== "int" || value === undefined) {
+    return "";
+  }
+  const low = field.min ?? 0;
+  if (typeof value !== "number" || !Number.isInteger(value) || value < low) {
+    return `Enter a whole number, ${low} or more.`;
+  }
+  if (field.max !== undefined && value > field.max) {
+    return `Enter a whole number from ${low} to ${field.max.toLocaleString("en-US")}.`;
+  }
+  const least = field.atLeast ? values[field.atLeast.key] : undefined;
+  if (field.atLeast && typeof least === "number" && value < least) {
+    return `Enter at least ${least}, the ${field.atLeast.words}.`;
+  }
+  return "";
+}
 
 export function tomlString(text: string): string {
   return `"${text.replaceAll("\\", "\\\\").replaceAll('"', '\\"').replaceAll("\n", "\\n").replaceAll("\t", "\\t")}"`;

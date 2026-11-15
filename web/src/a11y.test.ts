@@ -83,6 +83,9 @@ async function answer(route: Route): Promise<void> {
   if (path === "/v1/policies" && url.searchParams.get("kind") === "delegate") {
     return json(goldens["policies-delegate"] ?? "{}");
   }
+  if (path === "/v1/policies" && url.searchParams.get("kind") === "estimate") {
+    return json(goldens["policies-estimate"] ?? "{}");
+  }
   if (path === "/v1/audit" && url.searchParams.get("actor") === "delegate") {
     return json(goldens["audit-delegates"] ?? "{}");
   }
@@ -173,6 +176,7 @@ const views = [
   "/projects/default/settings?section=recovery",
   "/projects/default/settings?section=fleet",
   "/projects/default/settings?section=delegate-policy",
+  "/projects/default/settings?section=estimate",
   "/agents",
   "/projects/default/agents?agent=heavy-implementation",
   "/projects/default/agents?tab=history",
@@ -395,6 +399,55 @@ describe.each(Object.entries(sizes))("at %s width", (size, viewport) => {
         await page.getByText(/runs on another machine/).waitFor();
         await settle();
         found.push(...(await audit(page)).map((violation) => `lane caps of a worker on another machine ${violation}`));
+        await context.close();
+        expect(found.map((line) => `${size} ${theme} ${line}`)).toEqual([]);
+      },
+      120_000,
+    );
+
+    it(
+      "the estimate policy, with a number the API would refuse, in review, with a refusal, with a notice, and its history, meets WCAG 2.2 A and AA",
+      async () => {
+        const context = await browser.newContext({ viewport, colorScheme: theme, reducedMotion: "reduce" });
+        await context.route(/\/v1\//, answer);
+        const page = await context.newPage();
+        const found: string[] = [];
+        const settle = async () => {
+          await page.mouse.move(0, 0);
+          await page.waitForTimeout(600);
+        };
+        await page.goto(`${base}/projects/default/settings?section=estimate`);
+        await ready(page);
+        const minimum = page.getByLabel(/Comparable outcomes a confident estimate needs/);
+        await minimum.fill("4");
+        await page.getByText("Enter a whole number, 5 or more.").waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `estimate policy with an error ${violation}`));
+        await minimum.fill("15");
+        await page.getByRole("button", { name: "Review change" }).click();
+        const dialog = page.getByRole("dialog", { name: "Review the estimate policy change" });
+        await dialog.waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `estimate policy review ${violation}`));
+        const published = (status: number, body: unknown) => (route: Route) => (route.request().method() === "POST" ? route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) }) : route.fallback());
+        await page.route(/\/v1\/projects\/default\/policies$/, published(400, { error: { code: "invalid", message: "invalid estimate policy: version 3 is not newer than version 3" } }));
+        await dialog.getByRole("button", { name: "Save version 3" }).click();
+        await dialog.getByRole("alert").waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `estimate policy review with a refusal ${violation}`));
+        await page.route(/\/v1\/projects\/default\/policies$/, published(201, { version: 3, notice: "The policy is in force, and the project's delivery records are still in the installation's pool: the next delivery tick takes them out." }));
+        await dialog.getByRole("button", { name: "Save version 3" }).click();
+        await page.getByText(/the next delivery tick takes them out/).waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `estimate policy with a notice ${violation}`));
+        await page.getByRole("tab", { name: /History/ }).click();
+        await page.getByRole("heading", { name: "Version 1" }).waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `estimate policy history ${violation}`));
+        await page.getByRole("button", { name: "Revert" }).click();
+        await page.getByRole("dialog", { name: "Revert to version 1" }).waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `estimate policy revert ${violation}`));
         await context.close();
         expect(found.map((line) => `${size} ${theme} ${line}`)).toEqual([]);
       },

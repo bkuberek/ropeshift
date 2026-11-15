@@ -27,6 +27,7 @@ function serveAdmin(answer?: (sent: Sent) => Answer | undefined, projects?: Answ
         ["/v1/repositories", () => golden("repositories")],
         ["/v1/fleet", () => golden("fleet")],
         ["/v1/policies?kind=recovery", () => golden("policies-recovery")],
+        ["/v1/policies?kind=estimate", () => golden("policies-estimate")],
         ["/v1/roster/history", () => golden("roster-history")],
         ["/v1/roster", () => golden("roster")],
         ["/v1/members", () => golden("members")],
@@ -504,5 +505,107 @@ describe("Admission", () => {
     fireEvent.change(await screen.findByLabelText(/Lanes per sign-in/), { target: { value: "3" } });
     await save();
     await waitFor(() => expect(sentTo(sent, "PUT", "/v1/workers/worker-2/caps")[0]?.body).toEqual({ max_lanes: null, max_lanes_per_sign_in: 3 }));
+  });
+});
+
+describe("Estimate policy", () => {
+  const post = (sent: Sent[]) => sentTo(sent, "POST", "/v1/policies");
+  const published = (over: Record<string, unknown> = {}) => ({ status: 201, body: { version: 3, ...over } });
+  const open = () => openPage(here("/settings?section=estimate"));
+
+  it("lists the estimate policy among the project's sections, with what each of its settings does", async () => {
+    serveAdmin();
+    open();
+    expect(await screen.findByRole("heading", { level: 1, name: "Estimate policy" })).toBeTruthy();
+    const tree = screen.getByRole("navigation", { name: "Settings sections" });
+    expect(within(tree).getByRole("link", { name: "Estimate policy" }).getAttribute("href")).toBe(here("/settings?section=estimate"));
+    expect((await screen.findByLabelText(/Comparable outcomes a confident estimate needs/) as HTMLInputElement).value).toBe("12");
+    expect((screen.getByLabelText(/Recent comparable outcomes/) as HTMLInputElement).value).toBe("60");
+    expect((screen.getByLabelText(/Trials in a forecast/) as HTMLInputElement).value).toBe("1000");
+    expect((screen.getByRole("checkbox", { name: /Share delivery history/ }) as HTMLInputElement).checked).toBe(true);
+    // The pool's note names what it holds, and what it never does.
+    expect(screen.getByText(/kind, size, capability class, durations, and cost, and no ID, title, repository, or content/)).toBeTruthy();
+  });
+
+  it("saves the next version after its difference is reviewed, with every setting stated", async () => {
+    const sent = serveAdmin((call) => (call.method === "POST" && call.path === "/v1/policies" ? published() : undefined));
+    open();
+    fireEvent.change(await screen.findByLabelText(/Comparable outcomes a confident estimate needs/), { target: { value: "15" } });
+    expect(screen.getByText("min_samples 12 → 15")).toBeTruthy();
+    await userEvent.click(screen.getByRole("button", { name: "Review change" }));
+    const dialog = await screen.findByRole("dialog", { name: "Review the estimate policy change" });
+    const diff = within(dialog).getByRole("table", { name: "Policy change" });
+    expect(within(diff).getByText("min_samples = 15")).toBeTruthy();
+    expect(within(diff).getByText("min_samples = 12")).toBeTruthy();
+    await userEvent.click(within(dialog).getByRole("button", { name: "Save version 3" }));
+    await waitFor(() => expect(post(sent)).toHaveLength(1));
+    expect((post(sent)[0]?.body as { body: string }).body).toBe("[estimate_policy]\nversion = 3\nmin_samples = 15\nrecent_samples = 60\nforecast_trials = 1000\nshare_history = true\n");
+    expect(post(sent)[0]?.csrf).not.toBeNull();
+  });
+
+  it("holds Review change back for a number the API would refuse, and names the fix at the field", async () => {
+    const sent = serveAdmin();
+    open();
+    const review = async () => screen.getByRole("button", { name: "Review change" }) as HTMLButtonElement;
+    fireEvent.change(await screen.findByLabelText(/Comparable outcomes a confident estimate needs/), { target: { value: "4" } });
+    expect(screen.getByText("Enter a whole number, 5 or more.")).toBeTruthy();
+    expect((await review()).disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText(/Comparable outcomes a confident estimate needs/), { target: { value: "70" } });
+    expect(screen.getByText("Enter at least 70, the outcomes a confident estimate needs.")).toBeTruthy();
+    expect((await review()).disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText(/Recent comparable outcomes/), { target: { value: "80" } });
+    expect(screen.queryByText(/Enter at least/)).toBeNull();
+    fireEvent.change(screen.getByLabelText(/Trials in a forecast/), { target: { value: "20001" } });
+    expect(screen.getByText("Enter a whole number from 1 to 20,000.")).toBeTruthy();
+    expect((await review()).disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText(/Trials in a forecast/), { target: { value: "20000" } });
+    expect((await review()).disabled).toBe(false);
+    expect(post(sent)).toHaveLength(0);
+  });
+
+  it("says when the project's records are still in the pool after it stops sharing, in the API's words", async () => {
+    const notice = "The policy is in force, and the project's delivery records are still in the installation's pool: the next delivery tick takes them out.";
+    const sent = serveAdmin((call) => (call.method === "POST" && call.path === "/v1/policies" ? published({ notice }) : undefined));
+    open();
+    await userEvent.click(await screen.findByRole("checkbox", { name: /Share delivery history/ }));
+    await userEvent.click(screen.getByRole("button", { name: "Review change" }));
+    const dialog = await screen.findByRole("dialog", { name: "Review the estimate policy change" });
+    await userEvent.click(within(dialog).getByRole("button", { name: "Save version 3" }));
+    await waitFor(() => expect(post(sent)).toHaveLength(1));
+    expect((post(sent)[0]?.body as { body: string }).body).toContain("share_history = false\n");
+    expect(await screen.findByText(notice)).toBeTruthy();
+  });
+
+  it("shows the API's refusal in the review, and keeps the draft", async () => {
+    serveAdmin((call) => (call.method === "POST" && call.path === "/v1/policies" ? refusal(400, "invalid", "invalid estimate policy: version 3 is not newer than version 3") : undefined));
+    open();
+    fireEvent.change(await screen.findByLabelText(/Trials in a forecast/), { target: { value: "500" } });
+    await userEvent.click(screen.getByRole("button", { name: "Review change" }));
+    const dialog = await screen.findByRole("dialog", { name: "Review the estimate policy change" });
+    await userEvent.click(within(dialog).getByRole("button", { name: "Save version 3" }));
+    expect((await within(dialog).findByRole("alert")).textContent).toContain("is not newer than version 3");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Keep editing" }));
+    expect((screen.getByLabelText(/Trials in a forecast/) as HTMLInputElement).value).toBe("500");
+  });
+
+  it("lists every version with its difference, and reverts to the built-in one by recording it as the newest", async () => {
+    const sent = serveAdmin((call) => (call.method === "POST" && call.path === "/v1/policies" ? published() : undefined));
+    open();
+    await userEvent.click(await screen.findByRole("tab", { name: /History/ }));
+    expect(await screen.findByText("Version 2")).toBeTruthy();
+    expect(screen.getByText("In force")).toBeTruthy();
+    await userEvent.click(screen.getByRole("button", { name: "Revert" }));
+    const dialog = await screen.findByRole("dialog", { name: "Revert to version 1" });
+    await userEvent.click(within(dialog).getByRole("button", { name: "Save version 3" }));
+    await waitFor(() => expect(post(sent)).toHaveLength(1));
+    expect((post(sent)[0]?.body as { body: string }).body).toBe("[estimate_policy]\nversion = 3\nmin_samples = 10\nrecent_samples = 50\nforecast_trials = 2000\nshare_history = false\n");
+  });
+
+  it("reads and shows an archived project's policy without a way to change it", async () => {
+    serveAdmin(undefined, { status: 200, body: { projects: [{ id: "default", name: "default", state: "archived", created_at: 1, repositories: [] }] } });
+    open();
+    const field = (await screen.findByLabelText(/Comparable outcomes a confident estimate needs/)) as HTMLInputElement;
+    expect(field.disabled).toBe(true);
+    expect(screen.getByText(/is archived and read-only/)).toBeTruthy();
   });
 });

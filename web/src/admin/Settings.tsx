@@ -34,7 +34,7 @@ import { lineDiff } from "../ui/lineDiff";
 import { Field, Select } from "../ui/forms";
 import { Icon } from "../ui/Icon";
 import { Dialog, useToast } from "../ui/overlays";
-import { capsAbove, capsDraftOf, capsProblems, capsSettings, capsWords, isMinutes, minutesBounds, newID, nextVersion, policies, policyBody, policySettings } from "./logic";
+import { capsAbove, capsDraftOf, capsProblems, capsSettings, capsWords, minutesBounds, newID, nextVersion, policies, policyBody, policySettings, problemOf } from "./logic";
 import type { CapsDraft, DelegationClass, FieldSpec, PolicyKind, PolicyValue, PolicyValues } from "./logic";
 import { dateOf, Reading, SaveBar, saveDownload, timeOf, useChange, useDraft, useLeaveGuard, useRead } from "./parts";
 
@@ -59,6 +59,12 @@ const sections: Section[] = [
   { id: "delegation", title: "Delegation policy", scope: "project", note: "The approval classes an orchestrator decides for a lane, so they never wait on a member." },
   { id: "delegate-policy", title: "Delegate policy", scope: "project", note: "Consent operations a delegate may run without a card, and whether a delegate's lane start may raise the model and effort. Only a member changes this policy." },
   { id: "notify", title: "Notifications", scope: "project", note: "How a member hears that something waits on them." },
+  {
+    id: "estimate",
+    title: "Estimate policy",
+    scope: "project",
+    note: "How many comparable outcomes an estimate needs and reads, how many trials a forecast runs, and whether this project shares its delivery history with the installation's pool.",
+  },
   { id: "appearance", title: "Appearance and keyboard", scope: "you", note: "This browser's own choices." },
 ];
 
@@ -73,6 +79,7 @@ const policyOf: Partial<Record<string, PolicyKind>> = {
   delegation: "delegation",
   "delegate-policy": "delegate",
   notify: "notify",
+  estimate: "estimate",
 };
 
 type SettingsProps = { live: Live; project: string; label: string; archived: boolean; section: string; worker: string; prefs: Prefs };
@@ -679,6 +686,8 @@ function PolicySection({ section, kind, live, project, archived }: { section: Se
   const { settings: start, dropped } = archived ? { settings: stored, dropped: [] } : withoutStale(stored, fields, consent.exemptable);
   const [values, setValues, saved] = useDraft<PolicyValues>(start);
   const [review, setReview] = useState<{ body: string; version: number; title: string } | null>(null);
+  // notice is what the API says still follows from the version just saved, until the next change.
+  const [notice, setNotice] = useState("");
   const change = useChange();
   const toast = useToast();
   const idBase = useId();
@@ -686,7 +695,7 @@ function PolicySection({ section, kind, live, project, archived }: { section: Se
   useLeaveGuard(changed.length > 0);
   const summary = changed.map((field) => `${field.key} ${valueWords(saved[field.key], field.type === "minutes")} → ${valueWords(values[field.key], field.type === "minutes")}`).join(", ");
   const next = nextVersion(versions);
-  const invalid = fields.some((field) => (field.type === "int" && (values[field.key] === "" || Number.isNaN(values[field.key]))) || (field.type === "minutes" && !isMinutes(values[field.key])));
+  const invalid = fields.some((field) => problemOf(field, values) !== "");
   const save = async () => {
     if (!review) {
       return;
@@ -694,6 +703,7 @@ function PolicySection({ section, kind, live, project, archived }: { section: Se
     const made = await change.run(() => publishPolicy(review.body));
     if (made) {
       setReview(null);
+      setNotice(made.notice ?? "");
       toast("success", `Saved ${section.title.toLowerCase()} version ${made.version}.`);
       read.again();
     }
@@ -713,6 +723,7 @@ function PolicySection({ section, kind, live, project, archived }: { section: Se
       />
       <TabPanel idBase={idBase} selected={tab}>
         <Reading failure={read.failure} ready={read.view !== null}>
+          {notice ? <Banner tone="warning">{notice}</Banner> : null}
           {tab === "settings" ? (
             <div className="panel">
               <div className="panel-body field-stack">
@@ -735,6 +746,7 @@ function PolicySection({ section, kind, live, project, archived }: { section: Se
                     disabled={archived}
                     operations={consent.operations}
                     dropped={dropped}
+                    problem={problemOf(field, values)}
                     failure={review ? "" : change.failure}
                     onChange={(value) => setValues((was) => ({ ...was, [field.key]: value }))}
                   />
@@ -814,7 +826,7 @@ function PolicyHistory({ versions, archived, onRevert }: { versions: PolicyVersi
   );
 }
 
-function PolicyField({ kind, spec, value, saved, disabled, operations = null, dropped = [], failure = "", onChange }: {
+function PolicyField({ kind, spec, value, saved, disabled, operations = null, dropped = [], problem = "", failure = "", onChange }: {
   kind: PolicyKind;
   spec: (typeof policies)[PolicyKind]["fields"][number];
   value: PolicyValue | undefined;
@@ -824,6 +836,8 @@ function PolicyField({ kind, spec, value, saved, disabled, operations = null, dr
   // draft left out of the stored version, which an operations field lists and names.
   operations?: Operation[] | null;
   dropped?: string[];
+  // problem is what stops this value from being saved, which the field names.
+  problem?: string;
   // failure is the API's refusal of the version this field's value made, which the field shows.
   failure?: string;
   onChange: (value: PolicyValue) => void;
@@ -844,11 +858,12 @@ function PolicyField({ kind, spec, value, saved, disabled, operations = null, dr
   }
   if (spec.type === "int") {
     return (
-      <Field label={spec.label} source={source} help={spec.help} error={value === "" ? "Enter a whole number, 0 or more." : undefined}>
+      <Field label={spec.label} source={source} help={spec.help} error={problem || undefined}>
         <input
           className="input num field-tiny"
           type="number"
-          min={0}
+          min={spec.min ?? 0}
+          max={spec.max}
           step={1}
           inputMode="numeric"
           autoComplete="off"
@@ -861,7 +876,7 @@ function PolicyField({ kind, spec, value, saved, disabled, operations = null, dr
   }
   if (spec.type === "minutes") {
     return (
-      <Field label={spec.label} source={source} help={spec.help} error={isMinutes(value) ? undefined : `Enter a whole number of minutes, ${minutesBounds.min} to ${minutesBounds.max.toLocaleString("en-US")}.`}>
+      <Field label={spec.label} source={source} help={spec.help} error={problem || undefined}>
         <input
           className="input num field-tiny"
           type="number"

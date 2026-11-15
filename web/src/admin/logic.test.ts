@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { agentLines, capsAbove, capsDraftOf, capsProblems, capsSettings, capsWords, changedFields, minutesOf, newID, nextVersion, outcomeOf, policyBody, policySettings, projectNameOf, settingsOf, tomlString } from "./logic";
+import { agentLines, capsAbove, capsDraftOf, capsProblems, capsSettings, capsWords, changedFields, minutesOf, newID, nextVersion, outcomeOf, policies, policyBody, policySettings, problemOf, projectNameOf, settingsOf, tomlString } from "./logic";
 
 
 describe("policy bodies", () => {
@@ -157,5 +157,45 @@ describe("lane caps", () => {
     expect(capsAbove({ mode: "number", lanes: "9", perSignIn: "0" }, undefined)).toBeNull();
     expect(capsAbove({ mode: "number", lanes: "9", perSignIn: "0" }, { max_lanes: 0, reason: "" })).toBeNull();
     expect(capsAbove({ mode: "number", lanes: "x", perSignIn: "0" }, recommendation)).toBeNull();
+  });
+});
+
+describe("the estimate policy", () => {
+  const field = (key: string) => policies.estimate.fields.find((one) => one.key === key)!;
+  const stated = { min_samples: 12, recent_samples: 60, forecast_trials: 1000, share_history: true };
+
+  it("writes the table with every setting stated, in the order the built-in version writes them", () => {
+    expect(policyBody("estimate", 3, stated)).toBe("[estimate_policy]\nversion = 3\nmin_samples = 12\nrecent_samples = 60\nforecast_trials = 1000\nshare_history = true\n");
+    expect(policyBody("estimate", 3, { ...stated, share_history: false })).toContain("share_history = false\n");
+  });
+
+  it("reads a version's settings as the form holds them", () => {
+    expect(policySettings("estimate", '{"version":2,"min_samples":12,"recent_samples":60,"forecast_trials":1000,"share_history":true}')).toEqual({ version: 2, ...stated });
+  });
+
+  it("holds a confident estimate to at least 5 outcomes, as the API does, and says so at the field", () => {
+    expect(problemOf(field("min_samples"), { ...stated, min_samples: 4 })).toBe("Enter a whole number, 5 or more.");
+    expect(problemOf(field("min_samples"), { ...stated, min_samples: "" })).toBe("Enter a whole number, 5 or more.");
+    expect(problemOf(field("min_samples"), { ...stated, min_samples: 5, recent_samples: 5 })).toBe("");
+  });
+
+  it("holds the recent outcomes to the outcomes a confident estimate needs, and a forecast to 1 to 20,000 trials", () => {
+    expect(problemOf(field("recent_samples"), { ...stated, recent_samples: 11 })).toBe("Enter at least 12, the outcomes a confident estimate needs.");
+    expect(problemOf(field("recent_samples"), { ...stated, recent_samples: 12 })).toBe("");
+    expect(problemOf(field("forecast_trials"), { ...stated, forecast_trials: 0 })).toBe("Enter a whole number, 1 or more.");
+    expect(problemOf(field("forecast_trials"), { ...stated, forecast_trials: 20_001 })).toBe("Enter a whole number from 1 to 20,000.");
+    expect(problemOf(field("forecast_trials"), { ...stated, forecast_trials: 20_000 })).toBe("");
+    expect(problemOf(field("forecast_trials"), { ...stated, forecast_trials: 2.5 })).toBe("Enter a whole number, 1 or more.");
+  });
+
+  it("leaves every other policy's whole numbers as they were: only an empty one is a problem, and a setting a version leaves out is none", () => {
+    const attempts = policies.recovery.fields.find((one) => one.key === "max_attempts")!;
+    expect(problemOf(attempts, { max_attempts: "" })).toBe("Enter a whole number, 0 or more.");
+    expect(problemOf(attempts, { max_attempts: 0 })).toBe("");
+    expect(problemOf(attempts, {})).toBe("");
+    const idle = policies.assistant.fields.find((one) => one.key === "idle_stop")!;
+    expect(problemOf(idle, { idle_stop: 0 })).toBe("Enter a whole number of minutes, 1 to 1,440.");
+    expect(problemOf(idle, { idle_stop: 30 })).toBe("");
+    expect(problemOf(policies.recovery.fields.find((one) => one.key === "retry_failed")!, { retry_failed: true })).toBe("");
   });
 });

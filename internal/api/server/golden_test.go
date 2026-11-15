@@ -455,6 +455,24 @@ func TestGoldenSettingsReads(t *testing.T) {
 	}
 }
 
+// TestGoldenEstimatePolicy writes what the estimate policy section reads, from a real ledger: the built-in
+// version and a version a member published, which shares the project's delivery history. It reads apart from
+// the other settings, whose audit it would otherwise change.
+func TestGoldenEstimatePolicy(t *testing.T) {
+	t.Parallel()
+	in := apitest.StartInstallation(t, "beta")
+	project := in.Client.Project(apitest.ProjectName)
+	body := "[estimate_policy]\nversion = 2\nmin_samples = 12\nrecent_samples = 60\nforecast_trials = 1000\nshare_history = true\n"
+	if _, err := project.PublishPolicy(t.Context(), body); err != nil {
+		t.Fatal(err)
+	}
+	var out api.PolicyList
+	if err := in.Client.Do(t.Context(), http.MethodGet, api.InProject(apitest.ProjectName, "/v1/policies?kind=estimate"), nil, &out); err != nil {
+		t.Fatal(err)
+	}
+	holdsGolden(t, "policies-estimate", steadyTimes(steady(pretty(t, out))))
+}
+
 // TestGoldenWorkerCaps writes what the Admission section reads, from a real ledger and the recommendation a
 // worker computes: a worker's caps while they follow the recommendation, and with a cap a member set above
 // it, which the API saves with a warning that says why.

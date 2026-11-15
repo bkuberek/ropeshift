@@ -57,6 +57,9 @@ export type Fleet = { fleet_mode: "run" | "pause" | "drain"; wip_limit: number; 
 
 export type PolicyVersion = { id: string; kind: string; version: number; digest: string; body: string; settings: string; authored_by: string; created_at: number };
 export type PolicyList = { versions: PolicyVersion[] };
+// A published version, and a notice of what is still to follow from it, such as an estimate policy that stops
+// sharing history while the project's records are still in the installation's pool.
+export type PublishedPolicy = PolicyVersion & { notice?: string };
 
 export type Tools = { allow: string[]; deny: string[] };
 
@@ -249,7 +252,7 @@ export const readFleet = () => call<Fleet>("GET", adminPaths.fleet());
 export const setFleetMode = (mode: Fleet["fleet_mode"]) => call<Fleet>("PUT", adminPaths.fleetMode(), { fleet_mode: mode });
 export const setFleetCaps = (caps: { wip_limit: number; lanes_per_repository: number; lanes_per_worker: number }) => call<Fleet>("PUT", adminPaths.fleetCaps(), caps);
 export const readPolicies = (kind: string) => call<PolicyList>("GET", adminPaths.policies(kind));
-export const publishPolicy = (body: string) => call<PolicyVersion>("POST", adminPaths.publishPolicy(), { body });
+export const publishPolicy = (body: string) => call<PublishedPolicy>("POST", adminPaths.publishPolicy(), { body });
 export const readCategories = () => call<{ categories: string[] }>("GET", adminPaths.categories());
 
 // The roster
