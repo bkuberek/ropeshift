@@ -82,7 +82,7 @@ To run the sample, copy `sample-contract.md` into the repository, change it to y
 
 ## Start a planning session
 
-With the daemon running, one command opens a planning session and puts your terminal in it:
+[Your first plan, end to end](first-plan.md) walks through a session, its approval, and its work in order. With the daemon running, one command opens a planning session and puts your terminal in it:
 
 ```sh
 ropeshift plan start --goal "Replace the checkout page"

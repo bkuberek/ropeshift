@@ -128,6 +128,7 @@ A subscription worker starts at `attended`, where it claims work only inside a r
 
 - [Vision](docs/vision.md): the problem, the principles, and the non-goals.
 - [Get started](docs/getting-started.md): the short path from installing a release to a first piece of accepted work.
+- [Your first plan, end to end](docs/first-plan.md): a planning session, plan approval, lanes, reviews, and acceptance, in the web UI and on the command line.
 - [Onboarding](docs/onboarding.md): installing a release, from an empty machine to a first lane, and what to know before it runs.
 - [Web UI](docs/web-ui.md): each main view of the web UI, what it shows, and what a member does there.
 - [Command line](docs/cli.md): every command, the daemon's flags, and the exit codes.
