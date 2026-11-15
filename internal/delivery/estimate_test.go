@@ -702,6 +702,30 @@ func TestRecordsThatEndTogetherDrawTheSameWhateverTheirOrder(t *testing.T) {
 	}
 }
 
+// TestPoolRecordsThatDifferOnlyByProjectFillTheWindowTheSameWhateverTheirOrder breaks the last tie in the recent
+// window by the pool's mark, so which projects the window holds, and so whether tier 6 reaches 3 of them, never
+// depends on the order the pool's records came in.
+func TestPoolRecordsThatDifferOnlyByProjectFillTheWindowTheSameWhateverTheirOrder(t *testing.T) {
+	policy := delivery.EstimatePolicy{Version: 1, MinSamples: 5, RecentSamples: 5, ForecastTrials: 1, ShareHistory: true}
+	// Six records alike in everything but the project that shared them; a window of 5 holds 2 or 3 of the projects
+	// as it cuts them.
+	marks := []int{1, 1, 1, 1, 2, 3}
+	var forward []delivery.Record
+	for _, mark := range marks {
+		forward = append(forward, pooled(mark, 5, hour, 1))
+	}
+	first := delivery.EstimateOf(delivery.EstimateInput{Keys: estimated, Pool: forward, Policy: policy})
+	for _, order := range [][]int{{5, 4, 3, 2, 1, 0}, {4, 5, 0, 1, 2, 3}, {0, 5, 1, 4, 2, 3}} {
+		pool := make([]delivery.Record, 0, len(order))
+		for _, i := range order {
+			pool = append(pool, forward[i])
+		}
+		if e := delivery.EstimateOf(delivery.EstimateInput{Keys: estimated, Pool: pool, Policy: policy}); !reflect.DeepEqual(e, first) {
+			t.Errorf("the pool in the order %v estimated %+v, and in its first order %+v", order, e, first)
+		}
+	}
+}
+
 // TestAPooledEstimateNamesTheProjectsOwnWork holds FR-EST-6 at tier 6: the pool holds other projects' records,
 // which name nothing, so a pooled estimate names the project's own work orders it drew on and counts the rest.
 func TestAPooledEstimateNamesTheProjectsOwnWork(t *testing.T) {
