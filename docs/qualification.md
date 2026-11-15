@@ -17,6 +17,8 @@ Each surface has one check and one use. A surface whose check failed, or could n
 | `print_keeps_login` | On a subscription, `system/init` reports `apiKeySource` `none` and a `messaging_socket_path`, and a `rate_limit_event` arrives | A subscription has no headless lane, and a new lane its profile sends headless starts in tmux |
 | `start_screens` | A pane in a new directory reaches the prompt through the start check | Nothing beyond the start check, which stops on any screen it does not know |
 
+The start check answers the trust dialog with the key its focus calls for, and reads the screen again only once it shows a different frame, so a pane that repaints slowly is never answered twice. It sends Enter once. A key the pane never took, or an Enter that was lost, ends the check at its timeout. A fresh start then parks the lane on the screen it stopped on, for a person, and a resume falls back to a new generation.
+
 A version where any surface ropeshift relies on did not pass runs in `degraded_mode`. The lane shows the condition, and the driver uses documented surfaces in its place. `command_lifecycle` and `peer_message_hold` are reported and never degrade a version. The login check runs on every sign-in but an API key, because a sign-in nobody could read counts as a subscription.
 
 ## Where results come from

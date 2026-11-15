@@ -142,8 +142,9 @@ const (
 	checkResume checkMode = "resume"
 )
 
-// startCheck is one checked sequence. Poll is the wait between reads, and Settle the wait
-// after a key, so a key's own effect is what the next read sees.
+// startCheck is one checked sequence. Poll is the wait between reads, and Settle the least
+// wait after a key before the next read. Settle does not decide that a key took effect: the
+// screen changing does, within the check's timeout.
 type startCheck struct {
 	mode    checkMode
 	timeout time.Duration
@@ -162,8 +163,21 @@ func (c startCheck) failure() error {
 // for the `starting` state. It answers the trust dialog by moving the focus and reading
 // that it moved, so no Enter reaches a dialog on `No, exit`. Nothing goes to a screen it
 // does not recognize, and a read that failed is not a screen.
+//
+// A key's effect is a different frame, never a later time. A pane that repaints slowly still
+// shows the frame a key answered, and reading that frame as a dialog still waiting would
+// answer it twice, the second time on whatever dialog the CLI shows next. So a capture equal
+// to the frame the last key answered is unknown, and nothing goes to it, until a different
+// frame appears. Nothing but the check's timeout bounds that wait, and a key the pane never
+// took ends the check unknown, for a person to take over.
+//
+// Enter goes once. The check reads the ready prompt after it and nothing else, so an Enter that
+// was lost ends the check unknown as well, and no second one can answer a later dialog with its
+// default.
 func runStartCheck(ctx context.Context, terminal ports.Terminal, name string, check startCheck) error {
 	deadline := time.Now().Add(check.timeout)
+	// answered is the frame the last key answered, empty once a different frame was read.
+	answered, confirmed := "", false
 	for time.Now().Before(deadline) {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -176,16 +190,24 @@ func runStartCheck(ctx context.Context, terminal ports.Terminal, name string, ch
 			pause(ctx, check.poll)
 			continue
 		}
+		if answered != "" && text == answered {
+			pause(ctx, check.poll)
+			continue
+		}
+		answered = ""
 		seen := readScreen(text)
-		switch seen.kind {
-		case screenReady:
+		switch {
+		case seen.kind == screenReady:
 			return nil
-		case screenTrust:
-			if err := terminal.Keys(ctx, name, answerKey(sabotagedFocus(seen.focus))); err != nil {
+		case seen.kind == screenTrust && !confirmed:
+			key := answerKey(sabotagedFocus(seen.focus))
+			if err := terminal.Keys(ctx, name, key); err != nil {
 				return err
 			}
+			answered, confirmed = text, key == keyEnter
 			pause(ctx, check.settle)
 		default:
+			// A screen the check does not know, or the dialog after its Enter: only time passes.
 			pause(ctx, check.poll)
 		}
 	}

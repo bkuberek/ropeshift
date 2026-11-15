@@ -29,8 +29,8 @@ const (
 	defaultReadyTimeout = 60 * time.Second
 	// checkPoll is the wait between reads of a screen still painting.
 	checkPoll = 200 * time.Millisecond
-	// checkSettle lets a key take effect before the next read, because a dialog that has
-	// just opened refuses input for a moment, and a read must see what the key did.
+	// checkSettle is the least wait after a key before the screen is read again, so a read
+	// is not of the moment the key arrived. The screen changing says a key took effect.
 	checkSettle = 500 * time.Millisecond
 	// panePoll is how often a pane is read for its end. A pane has no stream to close.
 	panePoll = 250 * time.Millisecond
