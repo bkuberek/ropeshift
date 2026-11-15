@@ -120,6 +120,19 @@ func TestAParkedLaneSaysWhatItWaitsFor(t *testing.T) {
 	}
 }
 
+// Work whose worker is too old to start its lane says so, and names the worker, rather than a reason's code.
+func TestWorkWaitingForAnUpgradedWorkerNamesTheWorker(t *testing.T) {
+	snapshot := top.Snapshot{}
+	snapshot.Needs.Items = []api.NeedItem{{Kind: api.NeedWork, ID: "wo-behind", Work: &api.WorkNeed{
+		Reason: api.ReasonWorkerBehind, Detail: `the worker "atlas" (worker-atlas) must be upgraded to start this lane`,
+		WorkOrder: &workorders.WorkOrder{ID: "wo-behind", Title: "Add the budget"}, Actions: []string{api.ActCancel},
+	}}}
+	frame := loaded(t, snapshot).View()
+	if !strings.Contains(frame, `wo-behind  waits for a worker upgrade  Add the budget  the worker "atlas" (worker-atlas) must be upgraded`) || strings.Contains(frame, "worker_behind") {
+		t.Errorf("the work does not say what it waits for:\n%s", frame)
+	}
+}
+
 // A plan waiting for a member says which plan and version, what differs, and the command that approves
 // it. Work whose contract waits for a review says that, and what passes it.
 func TestAPlanApprovalAndAContractReviewSayWhatToDo(t *testing.T) {

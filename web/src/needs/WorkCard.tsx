@@ -24,6 +24,7 @@ const reasonWords: Record<string, string> = {
   long_parked: "Its lane has stayed parked for a long time.",
   acceptance: "Its lane finished, and it waits for a member's word.",
   human_resume: "Its lane is parked until a person says go.",
+  worker_behind: "Its worker must be upgraded before it can start its lane.",
 };
 
 const orchestratorWords: Record<string, string> = {
@@ -64,6 +65,7 @@ function Lead({ work }: { work: WorkNeed }) {
     return (
       <>
         <p>{said}</p>
+        {work.reason === "worker_behind" && work.detail ? <p className="muted">{work.detail}</p> : null}
         {work.standing?.why ? <p className="muted">It waits because {work.standing.why}.</p> : null}
       </>
     );
@@ -163,7 +165,7 @@ export function WorkCard({ id, work, after, frame, inPage = false }: { id: strin
               <Freshness kind={freshnessOf(work.lane.freshness)} at={work.lane.as_of} source="the lane's worker" />
             </span>
           </Fact>
-          {work.detail ? (
+          {work.detail && work.reason !== "worker_behind" ? (
             <Fact name="Lane said" mono>
               {work.detail}
             </Fact>

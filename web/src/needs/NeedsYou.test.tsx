@@ -547,6 +547,28 @@ describe("waiting work", () => {
     expect(sent[0]).toMatchObject({ method: "PUT", path: "/v1/workers/worker-a/orchestrator", body: { desired_state: "running" } });
   });
 
+  // The worker holds the claim of a lane it is too old to read, and renews it, so no lease lapses and nothing else
+  // says the lane never starts. The card names the worker and offers only what a member can do: cancel the work.
+  it("says a claim waits for its worker to be upgraded, and names the worker", async () => {
+    const view = goldenNeedsYou();
+    const detail = 'the worker "atlas" (worker-atlas) must be upgraded to start this lane: it runs protocol 3, and this lane needs protocol 4';
+    view.items = [
+      {
+        kind: "work",
+        id: "wo-behind",
+        since: view.as_of,
+        work: { reason: "worker_behind", detail, work_order: { id: "wo-behind", kind: "change", title: "Add the retry budget", state: "claimed" }, actions: ["cancel"] },
+      },
+    ];
+    show(view);
+    const card = await cardNamed(/Add the retry budget/);
+    expect(within(card).getByText("Waiting for upgrade")).toBeTruthy();
+    expect(within(card).getByText("Its worker must be upgraded before it can start its lane.")).toBeTruthy();
+    expect(within(card).getByText(detail)).toBeTruthy();
+    expect(within(card).getByRole("button", { name: "Cancel this work" })).toBeTruthy();
+    expect(within(card).queryByRole("button", { name: "End this claim" })).toBeNull();
+  });
+
   it("names the question a parked lane waits for, and keeps resume as the way past it", async () => {
     const sent = serveApi(() => ({ status: 200 }));
     show();

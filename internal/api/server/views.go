@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"slices"
 	"strings"
@@ -200,6 +201,17 @@ func (h *handler) stuck(tx ports.ReadTx, f floor, wakes map[string][]parking.Wak
 		order := &f.orders[i]
 		switch order.State {
 		case workorders.Lapsed, workorders.Blocked, workorders.Parked:
+		case workorders.Claimed:
+			since, detail, held, err := claimHeldForUpgrade(tx, *order)
+			if err != nil {
+				return nil, err
+			}
+			if held {
+				add(order.ID, since, api.WorkNeed{
+					WorkOrder: order, Lane: f.ofWork[order.ID], Reason: api.ReasonWorkerBehind, Detail: detail, Actions: []string{api.ActCancel},
+				})
+			}
+			continue
 		default:
 			continue
 		}
@@ -258,6 +270,64 @@ func (h *handler) stuck(tx ports.ReadTx, f floor, wakes map[string][]parking.Wak
 	}
 	slices.SortStableFunc(items, func(a, b api.StuckItem) int { return cmp.Or(cmp.Compare(a.Since, b.Since), cmp.Compare(a.ID, b.ID)) })
 	return items, nil
+}
+
+// claimHeldForUpgrade says a claimed work order's worker is too old to read the lane a delegate started under a
+// delegate policy that restricts it (FR-AUTH-16). The plane offers such a worker the bare claim, which it renews
+// and starts nothing for, so no lease lapses and no lane reports anything. The detail names the worker and what
+// it needs, and since is when the lane was asked for.
+func claimHeldForUpgrade(tx ports.ReadTx, order workorders.WorkOrder) (since int64, detail string, held bool, err error) {
+	claim, err := tx.Claims().Find(order.ClaimID)
+	if isNotFound(err) {
+		return 0, "", false, nil
+	}
+	if err != nil {
+		return 0, "", false, err
+	}
+	if claim.Lane == "" || claim.EndedAt != 0 || claim.Delegated == nil || !claim.Delegated.Restricted {
+		return 0, "", false, nil
+	}
+	worker, err := tx.Workers().Find(claim.Worker)
+	if isNotFound(err) {
+		return 0, "", false, nil
+	}
+	if err != nil {
+		return 0, "", false, err
+	}
+	if !claim.Delegated.WithheldFrom(worker.Protocol) {
+		return 0, "", false, nil
+	}
+	if since, err = dispatchedAt(tx, order, claim); err != nil {
+		return 0, "", false, err
+	}
+	name := worker.ID
+	if worker.Name != "" && worker.Name != worker.ID {
+		name = fmt.Sprintf("%q (%s)", worker.Name, worker.ID)
+	}
+	detail = fmt.Sprintf("the worker %s must be upgraded to start this lane: it runs protocol %d, and this lane needs protocol %d", name, worker.Protocol, ledger.ProtocolDelegatedLayers)
+	return since, detail, true, nil
+}
+
+// dispatchedAt reads when the claim was asked to run its lane, which only the log knows. A claim that brings a
+// parked lane back was never dispatched, so it is held since the work order was last claimed.
+func dispatchedAt(tx ports.ReadTx, order workorders.WorkOrder, claim workorders.Claim) (int64, error) {
+	events, err := tx.EventsAbout(ledger.Subject{Kind: workorders.SubjectKind, ID: order.ID})
+	if err != nil {
+		return 0, err
+	}
+	for i := len(events) - 1; i >= 0; i-- {
+		if events[i].Type != workorders.EventLaneDispatched {
+			continue
+		}
+		var change workorders.Change
+		if err := json.Unmarshal(events[i].Data, &change); err != nil {
+			return 0, err
+		}
+		if change.ClaimID == claim.ID {
+			return events[i].RecordedAt, nil
+		}
+	}
+	return enteredAt(tx, order)
 }
 
 // stuckOrchestrators finds the sessions a member asked for that stopped working. An orchestrator has no

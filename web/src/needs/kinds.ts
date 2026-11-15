@@ -43,6 +43,7 @@ export const workLabels: Record<string, string> = {
   long_parked: "Long parked",
   stalled: "Stalled",
   tripped: "Tripped",
+  worker_behind: "Waiting for upgrade",
 };
 
 const workIcons: Record<string, IconName> = {
@@ -53,6 +54,7 @@ const workIcons: Record<string, IconName> = {
   long_parked: "pause",
   stalled: "warning",
   tripped: "power",
+  worker_behind: "warning",
 };
 
 // kindOf is the overline of an item's card: its kind's icon and name.

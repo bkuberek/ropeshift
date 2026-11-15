@@ -34,16 +34,17 @@ const (
 // what agents, repositories, and trackers wrote, so nothing of that may reach this table: no title, no
 // question, no name, no path, and no ID.
 var noticeTexts = map[string]string{
-	NoticeQuestions:              "Questions wait for your answer.",
-	NoticeApproval:               "A lane waits for your approval.",
-	NoticeEffect:                 "A crash left something for you to decide.",
-	NoticeWork + "/lapsed":       "Work lost its worker.",
-	NoticeWork + "/blocked":      "A lane stopped, and it needs you.",
-	NoticeWork + "/tripped":      "A breaker stopped a lane.",
-	NoticeWork + "/stalled":      "A lane shows no progress.",
-	NoticeWork + "/long_parked":  "A lane has stayed parked for a long time.",
-	NoticeWork + "/acceptance":   "Finished work waits for your word.",
-	NoticeWork + "/human_resume": "A parked lane waits for you to resume it.",
+	NoticeQuestions:               "Questions wait for your answer.",
+	NoticeApproval:                "A lane waits for your approval.",
+	NoticeEffect:                  "A crash left something for you to decide.",
+	NoticeWork + "/lapsed":        "Work lost its worker.",
+	NoticeWork + "/blocked":       "A lane stopped, and it needs you.",
+	NoticeWork + "/tripped":       "A breaker stopped a lane.",
+	NoticeWork + "/stalled":       "A lane shows no progress.",
+	NoticeWork + "/long_parked":   "A lane has stayed parked for a long time.",
+	NoticeWork + "/worker_behind": "A worker must be upgraded to start a lane.",
+	NoticeWork + "/acceptance":    "Finished work waits for your word.",
+	NoticeWork + "/human_resume":  "A parked lane waits for you to resume it.",
 }
 
 const noticeFallback = "Something needs you."

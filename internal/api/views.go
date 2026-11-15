@@ -71,6 +71,10 @@ const (
 	ReasonTripped    = "tripped"
 	ReasonStalled    = "stalled"
 	ReasonLongParked = "long_parked"
+	// ReasonWorkerBehind is a claim whose worker is too old to read the lane a delegate started under a delegate
+	// policy that restricts it (FR-AUTH-16). The worker renews the claim and starts nothing until it is upgraded,
+	// so nothing lapses and the claim would otherwise look as if it were about to start.
+	ReasonWorkerBehind = "worker_behind"
 	// ReasonAcceptance is finished work that waits for a member's word.
 	ReasonAcceptance = "acceptance"
 	// ReasonResume is a parked lane that waits on a person and on nothing else.

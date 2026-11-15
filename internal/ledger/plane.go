@@ -199,6 +199,14 @@ type DelegatedLayer struct {
 	Restricted    bool   `json:"restricted,omitempty"`
 }
 
+// WithheldFrom says a worker on the protocol is offered no lane for the claim this layer sits on: the layer is
+// restricted, and a worker older than ProtocolDelegatedLayers would drop it and run the layer unrestricted. Such
+// a worker holds the claim and starts nothing until it is upgraded. It is false for no layer, so a lane a member
+// started is offered whatever the protocol.
+func (d *DelegatedLayer) WithheldFrom(protocol int) bool {
+	return d != nil && d.Restricted && protocol < ProtocolDelegatedLayers
+}
+
 // DesiredLease is one lease this worker should act on.
 type DesiredLease struct {
 	// Project is the project the work order belongs to. Empty names the plane's only project.

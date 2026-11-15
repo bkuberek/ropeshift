@@ -12,7 +12,7 @@ A notice carries these fields and nothing else:
 | `project` | The name of the project it waits in, which a member chose |
 | `attempt` | Which attempt this is, from 1 |
 | `kind` | `questions`, `approval`, `effect`, or `work` |
-| `reason` | For work, why it waits: `lapsed`, `blocked`, `tripped`, `stalled`, `long_parked`, `acceptance`, or `human_resume` |
+| `reason` | For work, why it waits: `lapsed`, `blocked`, `tripped`, `stalled`, `long_parked`, `worker_behind`, `acceptance`, or `human_resume` |
 | `since` | When it began to wait, in milliseconds since the epoch |
 | `text` | The project's name, then one fixed sentence for that kind and reason, such as "beta: A lane stopped, and it needs you." |
 

@@ -378,7 +378,7 @@ func (p *Plane) Desired(ctx context.Context, request ledger.DesiredRequest) (led
 // once the worker opens a session on a protocol that reads the record (FR-AUTH-16). A protocol of zero is a
 // worker that opened no session, which is offered no such lane either.
 func offeredLease(lease ledger.DesiredLease, protocol int) ledger.DesiredLease {
-	if lease.Delegated == nil || !lease.Delegated.Restricted || protocol >= ledger.ProtocolDelegatedLayers {
+	if !lease.Delegated.WithheldFrom(protocol) {
 		return lease
 	}
 	return ledger.DesiredLease{Project: lease.Project, WorkOrder: lease.WorkOrder, ClaimID: lease.ClaimID, Fence: lease.Fence, State: lease.State}
