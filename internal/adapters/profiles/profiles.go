@@ -75,9 +75,10 @@ func ResolveRepository(user, repository string) (lanes.Profile, error) {
 // lane's overrides can come from an orchestrator, so either can narrow it and neither can
 // raise the permission mode, raise a lane cap, change any other part of what this machine
 // admits, or change whether its work is pushed. Any file a repository names is the user's to
-// trust. A lane's overrides can come from any caller of the API, so they are held to the user's
-// and the repository's layers too: they change no hook, credential, or place of the worktree or
-// its branch, and they raise no cap of the breaker.
+// trust. A repository's layer keeps every gate of the user's. A lane's overrides can come from any
+// caller of the API, so they are held to the user's and the repository's layers too: they change
+// no hook, credential, or place of the worktree or its branch, they keep every gate of both, and
+// they raise no cap of the breaker.
 func ResolveLayers(user, repository, overrides string) (lanes.Profile, error) {
 	below, err := Resolve(user)
 	if err != nil {
@@ -114,11 +115,17 @@ func ResolveLayers(user, repository, overrides string) (lanes.Profile, error) {
 	if profile.Worktree.PushOnStop != below.Worktree.PushOnStop {
 		return lanes.Profile{}, fmt.Errorf("%w: a layer past the user's cannot change push_on_stop", lanes.ErrBadProfile)
 	}
+	layered := profile
 	if overrides != "" {
-		layered, err := Resolve(user, repository)
-		if err != nil {
+		if layered, err = Resolve(user, repository); err != nil {
 			return lanes.Profile{}, err
 		}
+	}
+	// A gate asks a person before an action runs, and a layer that sets gates replaces the list below it.
+	if gate, dropped := lanes.DroppedGate(below.Agent.Gates, layered.Agent.Gates); dropped {
+		return lanes.Profile{}, fmt.Errorf("%w: a repository's layer cannot drop the user's gate %q of agent.gates", lanes.ErrBadProfile, gate)
+	}
+	if overrides != "" {
 		if err := lanes.CheckLaneLayer(layered, profile); err != nil {
 			return lanes.Profile{}, err
 		}

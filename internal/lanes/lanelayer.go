@@ -16,12 +16,15 @@ func LaneLayerKeys() [][]string {
 }
 
 // CheckLaneLayer holds a lane's own layer to the layers below it: below is the profile those layers give,
-// and profile is the same with the lane's layer over it. The lane's layer changes none of LaneLayerKeys, and
-// it can lower a cap of the breaker and never raise one, because only a member's reset lets a lane past
-// them (ADR-0014).
+// and profile is the same with the lane's layer over it. The lane's layer changes none of LaneLayerKeys, it
+// keeps every gate below, and it can lower a cap of the breaker and never raise one, because only a
+// member's reset lets a lane past them (ADR-0014).
 func CheckLaneLayer(below, profile Profile) error {
 	if !maps.EqualFunc(below.Hooks, profile.Hooks, slices.Equal[[]string]) {
 		return laneLayerRefusal("change [hooks]")
+	}
+	if gate, dropped := DroppedGate(below.Agent.Gates, profile.Agent.Gates); dropped {
+		return laneLayerRefusal(fmt.Sprintf("drop the gate %q of agent.gates", gate))
 	}
 	if profile.Agent.Credentials != below.Agent.Credentials {
 		return laneLayerRefusal("change agent.credentials")
@@ -45,6 +48,18 @@ func CheckLaneLayer(below, profile Profile) error {
 		return laneLayerRefusal(fmt.Sprintf("shorten lifecycle.restart_window below %q", was.RestartWindow))
 	}
 	return nil
+}
+
+// DroppedGate finds the first gate of below that gates no longer holds. A layer that sets agent.gates
+// replaces the list of the layers below it, so a layer that leaves one out would let the action it gated
+// run without asking.
+func DroppedGate(below, gates []string) (string, bool) {
+	for _, gate := range below {
+		if !slices.Contains(gates, gate) {
+			return gate, true
+		}
+	}
+	return "", false
 }
 
 func laneLayerRefusal(what string) error {

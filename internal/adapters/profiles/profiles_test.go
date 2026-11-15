@@ -4,6 +4,8 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -283,6 +285,61 @@ func TestALanesOwnLayerRunsNothingAndRaisesNoCap(t *testing.T) {
 			}
 			if !errors.Is(err, lanes.ErrBadProfile) || !strings.Contains(err.Error(), tt.refused) {
 				t.Errorf("error %v, want a refusal that names %s", err, tt.refused)
+			}
+		})
+	}
+}
+
+// TestNoLayerPastTheUsersDropsAGate holds every gate the layers below set. A layer that sets agent.gates
+// replaces their list, so a repository's layer that leaves out a gate of the user's, or a lane's own layer
+// that leaves out a gate of either, is refused, and the refusal names the gate. A layer that keeps every
+// gate below may add more.
+func TestNoLayerPastTheUsersDropsAGate(t *testing.T) {
+	const (
+		push = "Bash(git push *)"
+		edit = "Edit"
+	)
+	gates := func(rules ...string) string {
+		quoted := make([]string, len(rules))
+		for i, rule := range rules {
+			quoted[i] = strconv.Quote(rule)
+		}
+		return "[agent]\ngates = [" + strings.Join(quoted, ", ") + "]\n"
+	}
+	tests := []struct {
+		name, user, repository, lane string
+		// dropped is the gate the refusal names, and empty passes with want.
+		dropped string
+		want    []string
+	}{
+		{name: "a lane clears the user's gates", user: gates(push), lane: gates(), dropped: push},
+		{name: "a lane clears them with a dotted key", user: gates(push), lane: "agent.gates = []\n", dropped: push},
+		{name: "a lane replaces the user's gates", user: gates(push, edit), lane: gates(edit), dropped: push},
+		{name: "a lane clears the repository's gates", repository: gates(edit), lane: gates(), dropped: edit},
+		{name: "a lane keeps the repository's gate and drops the user's", user: gates(push), repository: gates(push, edit), lane: gates(edit), dropped: push},
+		{name: "a lane adds a gate to the user's", user: gates(push), lane: gates(push, edit), want: []string{push, edit}},
+		{name: "a lane adds a gate where none was", lane: gates(push), want: []string{push}},
+		{name: "a lane restates the gates below", user: gates(push), repository: gates(push, edit), lane: gates(edit, push), want: []string{edit, push}},
+		{name: "a repository clears the user's gates", user: gates(push), repository: gates(), dropped: push},
+		{name: "a repository replaces the user's gates", user: gates(push, edit), repository: gates(edit), dropped: push},
+		{name: "a repository adds a gate to the user's", user: gates(push), repository: gates(push, edit), want: []string{push, edit}},
+		{name: "a repository gates what the user left open", repository: gates(edit), want: []string{edit}},
+		{name: "a user sets the gates", user: gates(push), want: []string{push}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			profile, err := ResolveLayers(tt.user, tt.repository, tt.lane)
+			if tt.dropped == "" {
+				if err != nil {
+					t.Fatalf("refused: %v", err)
+				}
+				if !slices.Equal(profile.Agent.Gates, tt.want) {
+					t.Errorf("gates %q, want %q", profile.Agent.Gates, tt.want)
+				}
+				return
+			}
+			if !errors.Is(err, lanes.ErrBadProfile) || !strings.Contains(err.Error(), strconv.Quote(tt.dropped)) || !strings.Contains(err.Error(), "agent.gates") {
+				t.Errorf("error %v, want a refusal that names the gate %q of agent.gates", err, tt.dropped)
 			}
 		})
 	}
