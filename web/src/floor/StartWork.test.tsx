@@ -65,12 +65,13 @@ function serving({ plans, floor, running, workers = [solo], search, post }: Serv
 const orderOf = (view: Plans, id: string) => [...view.plans.flatMap((plan) => plan.work_orders), ...view.unplanned].find((order) => order.id === id);
 
 // claimed makes the ready work order a claimed one, as a claim that succeeded and a lane start that did
-// not leaves it.
+// not leaves it. The plans view says what a claimed work order allows, as the server does.
 const claimed = (view: Plans) => {
   const order = orderOf(view, ready);
   if (order) {
     order.state = "claimed";
     order.lease_worker = "worker-a";
+    view.work_actions[ready] = { actions: ["start_lane", "release", "cancel"] };
   }
 };
 
@@ -293,9 +294,12 @@ describe("a claimed work order with no lane", () => {
     expect((await screen.findAllByText(`Started the lane of ${title} on solo.`)).length).toBeGreaterThan(0);
   });
 
-  it("offers nothing once a lane runs it", async () => {
+  it("offers nothing once a lane was asked for, because the server then allows no start", async () => {
     serving({
-      plans: claimed,
+      plans: (view) => {
+        claimed(view);
+        view.work_actions[ready] = { actions: ["release", "cancel"] };
+      },
       running: (view) => {
         view.items.push({ work_order: { id: ready, state: "claimed", kind: "change", title }, lane: { id: "lane-guide", work_order: ready, generation: 1, actual_state: "pending", liveness: "alive", freshness: "observed", as_of: 1 }, since: 1 });
       },
@@ -338,6 +342,7 @@ describe("ready work on the floor", () => {
         const order = orderOf(view, ready);
         if (order) {
           order.state = "running";
+          view.work_actions[ready] = { actions: ["cancel"] };
         }
       },
     });
@@ -380,8 +385,8 @@ describe("the command palette", () => {
   it("lists Start work for a ready work order the search finds, and opens its page on the dialog", async () => {
     serving({
       search: [
-        { kind: "work_order", id: ready, title, state: "ready" },
-        { kind: "work_order", id: "wo-running", title: "Write the docs", state: "running" },
+        { kind: "work_order", id: ready, title, state: "ready", actions: ["claim", "cancel"] },
+        { kind: "work_order", id: "wo-running", title: "Write the docs", state: "running", actions: ["cancel"] },
       ],
     });
     openPage("/needs-you");

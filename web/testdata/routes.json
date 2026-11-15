@@ -266,8 +266,18 @@
   },
   {
     "method": "POST",
+    "pattern": "/v1/projects/{project}/work-orders/{id}/lane-archive",
+    "command": "lane archive"
+  },
+  {
+    "method": "POST",
     "pattern": "/v1/projects/{project}/work-orders/{id}/retry",
     "command": "work retry"
+  },
+  {
+    "method": "POST",
+    "pattern": "/v1/projects/{project}/work-orders/{id}/claims/{claim}/release",
+    "command": "work release"
   },
   {
     "method": "GET",

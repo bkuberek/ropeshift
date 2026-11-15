@@ -73,7 +73,6 @@ var webGaps = map[string]string{
 	"category add":      "U2e",
 	"decision overturn": "U2e",
 	"decision record":   "U2e",
-	"lane archive":      "U2b",
 	"measures delivery": "U2h1",
 	"message list":      "U2h2",
 	"message show":      "U2h2",
@@ -87,7 +86,6 @@ var webGaps = map[string]string{
 	"telemetry lanes":   "U2h2",
 	"telemetry query":   "U2h2",
 	"work acceptance":   "U2g",
-	"work release":      "U2b",
 	"work timeline":     "U2g",
 	"worker doctor":     "U2h2",
 }

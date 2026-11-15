@@ -1,16 +1,18 @@
 import { readRepositories } from "../api/admin";
 import type { RepositoryList } from "../api/admin";
 import { readView } from "../api/client";
-import type { Completed, CompletedWork, HeldLane, InProgress, Lane, MilestoneProgress, OnHold, PlanDetail, Plans, Stamp, Stuck, StuckItem, WorkOrder } from "../api/types";
+import type { Allowance, Completed, CompletedWork, HeldLane, InProgress, Lane, MilestoneProgress, OnHold, PlanDetail, Plans, Stamp, Stuck, StuckItem, WorkOrder } from "../api/types";
 import type { Live } from "../api/useView";
 import { useView } from "../api/useView";
 import type { WorkGroup } from "./states";
 import { workStates } from "./states";
 
 // WorkRow is one work order and what the read models say of it: since when it stands in its state, its
-// lane, what a parked lane waits for, why it stopped, how its review stands, and its plan and milestone.
+// lane, what a parked lane waits for, why it stopped, how its review stands, its plan and milestone, and what a
+// member can do to it now.
 export type WorkRow = {
   order: WorkOrder;
+  allowed?: Allowance;
   since?: number;
   lane?: Lane;
   held?: HeldLane;
@@ -69,6 +71,7 @@ export function index(plans: Plans, running: InProgress, held: OnHold, stuck: St
     }
   }
   for (const found of rows.values()) {
+    found.allowed = plans.work_actions?.[found.order.id];
     const contract = found.plan?.contracts.find((history) => history.id === found.order.contract_id);
     const milestoneId = contract?.versions[contract.versions.length - 1]?.milestone;
     found.milestone = found.plan?.milestones.find((milestone) => milestone.id === milestoneId);

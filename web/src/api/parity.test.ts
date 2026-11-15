@@ -8,6 +8,7 @@ import { FakeEvents, serveApi, stubEvents } from "../testing";
 import {
   acknowledgeRisk,
   addRepositories,
+  archiveLane,
   changeRepository,
   changeRoster,
   closeWindow,
@@ -26,6 +27,7 @@ import {
   readCategories,
   readFleet,
   readMembers,
+  readOrchestrator,
   readPolicies,
   readRepositories,
   readRisk,
@@ -33,6 +35,7 @@ import {
   readRosterHistory,
   readSources,
   readWorkers,
+  releaseClaim,
   removeProject,
   removeRepository,
   renameProject,
@@ -106,6 +109,7 @@ const callers: Record<string, Caller> = {
   "GET /v1/projects": step("readProjects", () => readProjects()),
   "GET /v1/needs-you": step("readNeedsYou", () => readNeedsYou()),
   "PUT /v1/workers/{id}/orchestrator": step("startOrchestrator", () => startOrchestrator("worker-1")),
+  "GET /v1/workers/{id}/orchestrator": step("readOrchestrator", () => readOrchestrator("worker-1")),
   "POST /v1/projects": step("createProject", () => createProject("tidewater", "")),
   "POST /v1/projects/{project}/rename": step("renameProject", () => renameProject("tidewater", "harbor")),
   "POST /v1/projects/{project}/archive": step("archiveProject", () => archiveProject("tidewater")),
@@ -152,6 +156,8 @@ const callers: Record<string, Caller> = {
   "POST /v1/projects/{project}/work-orders/{id}/replan": act("replan"),
   "POST /v1/projects/{project}/work-orders/{id}/cancel": act("cancel"),
   "POST /v1/projects/{project}/work-orders/{id}/retry": act("retry"),
+  "POST /v1/projects/{project}/work-orders/{id}/claims/{claim}/release": step("releaseClaim", () => releaseClaim("wo-1", "claim-1", 3)),
+  "POST /v1/projects/{project}/work-orders/{id}/lane-archive": step("archiveLane", () => archiveLane("wo-1", "lane-1", false)),
   "POST /v1/projects/{project}/work-orders/{id}/lane-reset": act("reset"),
   "POST /v1/projects/{project}/work-orders/{id}/lane-respawn": act("respawn"),
   "POST /v1/projects/{project}/work-orders/{id}/lane-resume": act("resume"),
@@ -213,7 +219,6 @@ const callers: Record<string, Caller> = {
 // uiGaps are the routes the listener serves that no client function calls yet, each with the slice of U2
 // that adds the call. The first run of this test wrote the list.
 const uiGaps: Record<string, string> = {
-  "GET /v1/workers/{id}/orchestrator": "U2b",
   "GET /v1/projects/{project}/repositories/{id}": "U2f",
   "GET /v1/projects/{project}/policies/{version}": "U2f",
   "GET /v1/projects/{project}/plans": "U2d",

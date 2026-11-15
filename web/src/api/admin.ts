@@ -1,5 +1,5 @@
 import { call, project, request } from "./client";
-import type { Project, SourceBinding } from "./types";
+import type { Orchestrator, Project, SourceBinding } from "./types";
 
 // The installation's and one project's records a member manages: projects, repositories, settings, the
 // agent roster, members, and the audit. Every call is a route the web listener serves, which names the
@@ -224,6 +224,8 @@ export const adminPaths = {
   sources: () => project("/sources"),
   claim: (id: string) => project(`/work-orders/${encodeURIComponent(id)}/claims`),
   startLane: (id: string) => project(`/work-orders/${encodeURIComponent(id)}/lanes`),
+  release: (id: string, claim: string) => project(`/work-orders/${encodeURIComponent(id)}/claims/${encodeURIComponent(claim)}/release`),
+  archiveLane: (id: string) => project(`/work-orders/${encodeURIComponent(id)}/lane-archive`),
   review: (id: string) => project(`/work-orders/${encodeURIComponent(id)}/review`),
 };
 
@@ -284,6 +286,8 @@ export const acknowledgeRisk = (worker: string, digest: string) => call<Autonomy
 export const openWindow = (worker: string, id: string, lengthMs: number) => call<RunWindow>("POST", adminPaths.windows(worker), { id, length_ms: lengthMs });
 export const closeWindow = (worker: string) => call<void>("DELETE", adminPaths.windows(worker), {});
 export const stopOrchestrator = (worker: string) => call<unknown>("PUT", adminPaths.orchestrator(worker), { desired_state: "stopped" });
+// readOrchestrator reads one worker's orchestrator as the ledger holds it, as `ropeshift orchestrator show` does.
+export const readOrchestrator = (worker: string) => call<Orchestrator>("GET", adminPaths.orchestrator(worker));
 
 // The adopt flow's own steps, each one a member's call, as `ropeshift adopt` makes them.
 
@@ -338,3 +342,10 @@ export const createPlanWork = (draft: PlanDraft) =>
 export const reviewWork = (id: string) => call<ReviewResult>("POST", adminPaths.review(id), {});
 export const claimWork = (id: string, claim: string, worker: string) => call<unknown>("POST", adminPaths.claim(id), { claim_id: claim, worker_id: worker });
 export const startLane = (id: string, lane: string) => call<unknown>("POST", adminPaths.startLane(id), { lane_id: lane });
+
+// Recovering work, each one a member's call as the command line makes it. Giving a claim back names the claim
+// and the fence the work order holds it under, which the work order's record says. Archiving a lane asks the
+// worker that ran it to remove its worktree, and a request that is not forced is refused while the worktree
+// holds work no remote has.
+export const releaseClaim = (id: string, claim: string, fence: number) => call<void>("POST", adminPaths.release(id, claim), { fence });
+export const archiveLane = (id: string, lane: string, force: boolean) => call<unknown>("POST", adminPaths.archiveLane(id), { lane_id: lane, ...(force ? { force: true } : {}) });

@@ -136,6 +136,8 @@ export type WorkOrder = {
   repository_id?: string;
   branch?: string;
   claim_id?: string;
+  // fence is the attempt the claim holds, which giving the claim back names.
+  fence?: number;
   lease_worker?: string;
   lease_until?: number;
   attempts?: number;
@@ -593,6 +595,9 @@ export type Orchestrator = {
   resets: number;
   actual_state?: string;
   current_generation?: number;
+  // conditions are what its worker last said beside its state, and reported_at when.
+  conditions?: string[];
+  reported_at?: number;
 };
 
 export type WorkerLine = { worker: Worker; freshness: "observed" | "last_reported"; report_freshness?: "observed" | "last_reported"; orchestrator?: Orchestrator };
