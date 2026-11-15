@@ -32,8 +32,6 @@ var opExempt = map[string]string{
 // when its gap closes, and the first run of this test wrote it.
 var opGaps = map[string]string{
 	authority.OpPlanStartReview:  "U2d",
-	authority.OpQuestionRecord:   "U2e",
-	authority.OpQuestionDismiss:  "U2e",
 	authority.OpDecisionRecord:   "U2e",
 	authority.OpDecisionAssume:   "U2e",
 	authority.OpDecisionOverturn: "U2e",

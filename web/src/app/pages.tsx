@@ -19,6 +19,7 @@ import { Decisions } from "../planning/Decisions";
 import { DocumentsBody, DocumentsTabs } from "../planning/Documents";
 import { OpenQuestions } from "../planning/OpenQuestions";
 import { PlanApprovalPage } from "../planning/PlanApproval";
+import { RecordQuestion } from "../planning/RecordQuestion";
 import { PlanningPage } from "../planning/Planning";
 import { PlanList, PlanPage } from "../planning/Plans";
 import { StartSession } from "../planning/StartSession";
@@ -217,6 +218,7 @@ function ViewFor({ view, project, scoped, params, live, after, needs, projects, 
           category={param("category")}
           title="Open questions"
           note={(read) => `${read.questions.length} open`}
+          actions={<RecordQuestion />}
           body={(read) => <OpenQuestions view={read} category={param("category")} selected={param("id")} />}
         />
       );

@@ -642,6 +642,64 @@ describe.each(Object.entries(sizes))("at %s width", (size, viewport) => {
     );
 
     it(
+      "the record question dialog, empty, with its errors, about a work order, and with a refusal, and the dismiss dialog meet WCAG 2.2 A and AA",
+      async () => {
+        const context = await browser.newContext({ viewport, colorScheme: theme, reducedMotion: "reduce" });
+        await context.route(/\/v1\//, answer);
+        const page = await context.newPage();
+        const found: string[] = [];
+        const settle = async () => {
+          await page.mouse.move(0, 0);
+          await page.waitForTimeout(600);
+        };
+        const refuse = (pattern: RegExp, message: string) =>
+          page.route(pattern, (route) =>
+            route.request().method() === "POST" ? route.fulfill({ status: 400, contentType: "application/json", body: JSON.stringify({ error: { code: "invalid", message } }) }) : route.fallback(),
+          );
+        await page.goto(`${base}/projects/default/questions`);
+        await ready(page);
+        await page.getByRole("button", { name: "Record question" }).click();
+        const dialog = page.getByRole("dialog", { name: "Record question" });
+        await dialog.waitFor();
+        await dialog.getByRole("checkbox", { name: "Security" }).waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `record question dialog ${violation}`));
+        await dialog.getByRole("button", { name: "Record question" }).click();
+        await dialog.getByText("Write the question.").waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `record question dialog with an error ${violation}`));
+        await dialog.getByRole("textbox", { name: "Question" }).fill("Which currency do invoices use?");
+        await dialog.getByRole("checkbox", { name: "Security" }).check();
+        await dialog.getByRole("combobox", { name: "About" }).selectOption("work_order");
+        await dialog.getByRole("checkbox", { name: "Work on it waits for the answer" }).check();
+        await dialog.getByRole("button", { name: "Record question" }).click();
+        await dialog.getByText("Name the work order, or choose nothing in particular.").waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `record question dialog about a work order ${violation}`));
+        await dialog.getByRole("textbox", { name: "Work order ID" }).fill("wo-invoices");
+        await refuse(/\/v1\/projects\/default\/questions$/, "invalid question or decision: unknown category");
+        await dialog.getByRole("button", { name: "Record question" }).click();
+        await dialog.getByRole("alert").waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `record question dialog with a refusal ${violation}`));
+        await page.keyboard.press("Escape");
+        await page.getByRole("button", { name: "Dismiss Does the plan cover a restart?" }).click();
+        const confirm = page.getByRole("dialog", { name: "Dismiss this question?" });
+        await confirm.waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `dismiss question dialog ${violation}`));
+        await refuse(/\/v1\/projects\/default\/questions\/question-review\/dismiss$/, "invalid question or decision: question question-review is answered");
+        await confirm.getByRole("button", { name: "Dismiss question" }).click();
+        await confirm.getByRole("alert").waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `dismiss question dialog with a refusal ${violation}`));
+        await context.close();
+        expect(found.map((line) => `${size} ${theme} ${line}`)).toEqual([]);
+      },
+      120_000,
+    );
+
+    it(
       "the palette, the shortcut sheet, the project switcher, a menu, and a dialog meet WCAG 2.2 A and AA",
       async () => {
         const context = await browser.newContext({ viewport, colorScheme: theme, reducedMotion: "reduce" });

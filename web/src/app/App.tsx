@@ -246,6 +246,7 @@ export function App() {
         ? [
             { key: "action:register", group: "Actions" as const, title: "Register repositories", icon: "repo" as const, to: inProject(project, "/repositories?dialog=register") },
             { key: "action:fleet", group: "Actions" as const, title: "Pause or drain the fleet", icon: "pause" as const, to: inProject(project, "/settings?section=fleet") },
+            { key: "action:record-question", group: "Actions" as const, title: "Record question", icon: "question" as const, to: inProject(project, "/questions?dialog=record"), keywords: "ask open" },
             { key: "action:add-category", group: "Actions" as const, title: "Add category", icon: "plus" as const, to: inProject(project, `/${view === "decisions" ? "decisions" : "questions"}?dialog=category`), keywords: "question decision filter" },
           ]
         : []),

@@ -337,6 +337,16 @@ export type Question = {
   claimed_by?: string;
 };
 
+// RecordQuestion is what a member sends to record a question: the client's ID, its text, and what it is about.
+export type RecordQuestion = {
+  id: string;
+  text: string;
+  categories?: string[];
+  blocking?: boolean;
+  subject_kind?: string;
+  subject_id?: string;
+};
+
 export type PlanReview = { work_order: WorkOrder; open_questions: Question[] };
 
 // `pending_version` is the plan version whose approval waits for a member, when one does.

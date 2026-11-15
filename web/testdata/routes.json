@@ -196,6 +196,16 @@
   },
   {
     "method": "POST",
+    "pattern": "/v1/projects/{project}/questions",
+    "command": "question record"
+  },
+  {
+    "method": "POST",
+    "pattern": "/v1/projects/{project}/questions/{id}/dismiss",
+    "command": "question dismiss"
+  },
+  {
+    "method": "POST",
     "pattern": "/v1/projects/{project}/questions/{id}/answer",
     "command": "question answer"
   },

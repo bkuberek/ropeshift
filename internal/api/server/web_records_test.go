@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"ropeshift.com/ropeshift/internal/api"
+	"ropeshift.com/ropeshift/internal/questions"
 	"ropeshift.com/ropeshift/test/apitest"
 )
 
@@ -63,6 +64,51 @@ func TestAMemberAddsACategoryFromTheBrowser(t *testing.T) {
 	wantCode(t, raw, api.CodeInvalid)
 }
 
+func TestAMemberRecordsAndDismissesAQuestionFromTheBrowser(t *testing.T) {
+	t.Parallel()
+	b := signedInBrowser(t)
+	b.send(t, http.MethodPost, "/v1/categories", api.AddCategory{Name: "billing"}, http.StatusNoContent)
+	raw := b.send(t, http.MethodPost, "/v1/questions", api.RecordQuestion{
+		ID: "q-web", Text: "Which currency do invoices use?", Categories: []string{"billing", questions.CategoryProduct}, SubjectKind: "plan", SubjectID: "plan-1",
+	}, http.StatusCreated)
+	var recorded questions.Question
+	if err := json.Unmarshal(raw, &recorded); err != nil {
+		t.Fatal(err)
+	}
+	if recorded.Status != questions.StatusOpen || recorded.AskedBy != memberOf(t, b.r.d) || recorded.SubjectID != "plan-1" {
+		t.Fatalf("recorded %+v", recorded)
+	}
+	// A repeat under one ID is the record the first made, so a page may send it again after a lost reply.
+	b.send(t, http.MethodPost, "/v1/questions", api.RecordQuestion{ID: "q-web", Text: "Which currency do invoices use?"}, http.StatusCreated)
+	b.send(t, http.MethodPost, "/v1/questions/q-web/dismiss", struct{}{}, http.StatusNoContent)
+	read, err := b.r.d.Client.Question(t.Context(), "q-web")
+	if err != nil || read.Status != questions.StatusDismissed {
+		t.Fatalf("the question reads %+v: %v", read, err)
+	}
+	// A question that is closed is not dismissed again, and the page shows why.
+	wantCode(t, b.send(t, http.MethodPost, "/v1/questions/q-web/dismiss", struct{}{}, http.StatusBadRequest), api.CodeInvalid)
+}
+
+func TestTheLedgerRefusesAQuestionTheBrowserSendsMalformed(t *testing.T) {
+	t.Parallel()
+	b := signedInBrowser(t)
+	for name, request := range map[string]api.RecordQuestion{
+		"no text":                     {ID: "q-1"},
+		"an ID with space":            {ID: "q 1", Text: "Which?"},
+		"a category it does not know": {ID: "q-3", Text: "Which?", Categories: []string{"no-such-category"}},
+		"a subject of no kind":        {ID: "q-4", Text: "Which?", SubjectKind: "teleport", SubjectID: "x"},
+		"a subject with a bad ID":     {ID: "q-5", Text: "Which?", SubjectKind: "plan", SubjectID: "has space"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			wantCode(t, b.send(t, http.MethodPost, "/v1/questions", request, http.StatusBadRequest), api.CodeInvalid)
+		})
+	}
+	rows, err := b.r.d.Client.Questions(t.Context(), api.RecordFilter{})
+	if err != nil || len(rows) != 0 {
+		t.Fatalf("a refused question left %+v: %v", rows, err)
+	}
+}
+
 // ATTACK: a delegate's credential on the web listener. A delegate uses the local socket, where its call is
 // a card or is refused by its class, so the listener refuses it before any route reads it, and a route that
 // the web UI gains gives it nothing.
@@ -72,6 +118,8 @@ func TestADelegateGainsNothingFromTheBrowserRoutesOfRecords(t *testing.T) {
 	created := aDelegate(t, b.r.d.Client.Client, apitest.ProjectName)
 	for _, route := range []struct{ method, path string }{
 		{http.MethodPost, "/v1/categories"},
+		{http.MethodPost, "/v1/questions"},
+		{http.MethodPost, "/v1/questions/x/dismiss"},
 	} {
 		t.Run(route.method+route.path, func(t *testing.T) {
 			headers := map[string]string{api.HeaderDelegate: created.Token, api.HeaderCSRF: b.headers[api.HeaderCSRF]}

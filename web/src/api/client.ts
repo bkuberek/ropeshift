@@ -1,5 +1,5 @@
 import { splitProject } from "../app/route";
-import type { ApprovalRecord, DocumentRef, DocumentRow, DocumentVersions, EffectOutcome, NeedsYou, PlanOutline, PlanView, ProjectList, RecordedRead, Search, WorkAction } from "./types";
+import type { ApprovalRecord, DocumentRef, DocumentRow, DocumentVersions, EffectOutcome, NeedsYou, PlanOutline, PlanView, ProjectList, Question, RecordedRead, RecordQuestion, Search, WorkAction } from "./types";
 
 function documentQuery({ path, instance, version }: DocumentRef): URLSearchParams {
   const query = new URLSearchParams({ path });
@@ -57,7 +57,9 @@ export const paths = {
   plan: (id: string, version = "") => project(`/plans/${encodeURIComponent(id)}${version ? `?${new URLSearchParams({ version })}` : ""}`),
   approval: (id: string) => project(`/approvals/${encodeURIComponent(id)}`),
   outline: (lane: string) => project(`/lanes/${encodeURIComponent(lane)}/outline`),
+  questions: () => project("/questions"),
   answer: (id: string) => project(`/questions/${encodeURIComponent(id)}/answer`),
+  dismiss: (id: string) => project(`/questions/${encodeURIComponent(id)}/dismiss`),
   decideApproval: (id: string) => project(`/approvals/${encodeURIComponent(id)}/decide`),
   decideEffect: (id: string) => project(`/effects/${encodeURIComponent(id)}/decide`),
   work: (id: string, verb: string) => project(`/work-orders/${encodeURIComponent(id)}/${verb}`),
@@ -207,7 +209,7 @@ export function signOut(): Promise<void> {
 export type Place = "needs_you" | "conversation";
 
 // A plain ID is what the ledger takes for a decision: 1 to 64 letters, digits, '-', and '_'.
-const plainID = /^[A-Za-z0-9_-]{1,64}$/;
+export const plainID = /^[A-Za-z0-9_-]{1,64}$/;
 
 // decisionIDOf names the decision an answer becomes after its question, so a second send of one answer finds
 // the first. A question whose name would not fit, or holds another character as an older one may, gives a
@@ -224,6 +226,17 @@ export async function decisionIDOf(question: string): Promise<string> {
 
 export async function answerQuestion(id: string, answer: string, place?: Place): Promise<unknown> {
   return call("POST", paths.answer(id), { id: await decisionIDOf(id), answer, ...(place ? { place } : {}) });
+}
+
+// recordQuestion records a question as it is, as `ropeshift question record` does. The ID is the client's, so a
+// retry finds the record the first attempt made.
+export function recordQuestion(request: RecordQuestion): Promise<Question> {
+  return call("POST", paths.questions(), request);
+}
+
+// dismissQuestion closes a question with no answer. It stays on record.
+export function dismissQuestion(id: string): Promise<void> {
+  return call("POST", paths.dismiss(id), {});
 }
 
 export function decideApproval(id: string, digest: string, allow: boolean, reason: string, place?: Place): Promise<unknown> {

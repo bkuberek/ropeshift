@@ -60,6 +60,8 @@ Decisions lists the project's decisions with their status, rationale, lineage, a
 
 Add category, at the end of that row, adds a category to the project, as `ropeshift category add` does. A name is lowercase words joined by hyphens, such as `release-planning`, and the dialog says so before it sends anything else. A category stays once added, and the built-in ones are always there. The command palette lists Add category too, and opens the same dialog.
 
+Record question, in the heading of Open questions, records a question as it is, as `ropeshift question record` does: its text, any of the project's categories, and the work order, contract, or plan it is about. A question can hold work on that record until it is answered, and the box for that is available once the question names one. Dismiss, on a question that still waits, asks first and then closes the question with no answer; it stays on record. The command palette lists Record question and opens the same dialog.
+
 ## Work orders
 
 Work orders lists every work order of the project under a tab for each group: Open, In progress, On hold, Stuck, Review and merge, Completed, and All. A work order's page shows its lifecycle, its review, its checks, and its lanes, beside the decision it waits on and its facts.
