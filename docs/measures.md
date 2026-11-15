@@ -177,6 +177,14 @@ A planning lane's branch asks for approval before intake records it, so the ledg
 
 A baseline never changes. A work order's baseline is the first one recorded whose set estimated it, so a later approval of a new version of the plan, or a new estimate as history grows, never moves it.
 
+### Estimate outcomes
+
+When a baselined `change` or `rework` ends, the delivery fold writes its estimate outcome beside its delivery record: the baseline estimate's confidence, tier, and estimator version, whether its band was open, the actual delivery time and estimated cost, whether each was at or below the baseline's p50 and p85, and the ratio of each to the p50. Work that ended `failed` or `canceled`, and work whose baseline estimate had no history, is an outcome with no comparison, so it still counts toward the share of work whose estimate was confident, low confidence, or absent. An open band has no p85 comparison, for time or cost. A cost compares only when neither the actual cost nor the band's is a lower bound, because a lower bound can read as at or below a band it exceeded, and a ratio needs a p50 above zero. Work whose baseline was recorded only after it ended, and work with no baseline, has no outcome. A retry of failed work drops its outcome until it ends again.
+
+A milestone's outcome compares when its last work order ended with its baseline forecast, and keeps that forecast's confidence. Its baseline is the first baseline of its plan whose version lists it, so a milestone first approved while its forecast was pending has no outcome, whatever a later approval showed. It ends once every `change` and `rework` of that version's contracts that names it has ended, and compares only when all of them reached `done` and the forecast has dates. A date the forecast gave as a lower bound, read "or later", has no comparison: with `lower_bound` `p85` only the p50 date compares, and with `all` neither does. A milestone's outcome also holds what its work cost, which it does not compare, because a forecast's cost is of the work that remained when it ran.
+
+Outcomes are derived from the log and the baselines, so they take no revision and append no event, and a new version of the derivation drops them and folds them again with every timeline and record.
+
 ## Experience records
 
 The ledger keeps one experience record per lane and one per decision. Each holds the policy version in force, the settings the action ran on, the options considered, and what was chosen, and its outcome is filled in once, which may be long after the action. Nothing else ever changes a record.

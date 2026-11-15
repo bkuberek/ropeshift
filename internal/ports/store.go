@@ -119,6 +119,8 @@ type DeliveryReader interface {
 	Record(workOrder string) (delivery.Record, error)
 	// Records returns every delivery record, by end.
 	Records() ([]delivery.Record, error)
+	// Outcomes returns every estimate outcome, by end (FR-EST-11).
+	Outcomes() ([]delivery.Outcome, error)
 }
 
 // DeliveryWriter writes the delivery read models. Every row is derived from the log, and Clear drops them
@@ -131,6 +133,10 @@ type DeliveryWriter interface {
 	Save(timeline delivery.Timeline, record *delivery.Record) error
 	// Forget drops a work order's timeline and record, because it left its terminal state.
 	Forget(workOrder string) error
+	// SaveOutcome keeps an estimate outcome in place of its subject's.
+	SaveOutcome(outcome delivery.Outcome) error
+	// ForgetOutcome drops the estimate outcome of a work order, or of a plan's milestone, if it has one.
+	ForgetOutcome(kind delivery.OutcomeKind, plan, subject string) error
 	Clear() error
 }
 

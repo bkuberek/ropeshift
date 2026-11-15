@@ -24,3 +24,22 @@ CREATE INDEX estimate_baselines_plan ON estimate_baselines (workspace_id, plan_i
 
 -- A work order's baseline is read from every estimate made of it.
 CREATE INDEX estimates_work_order ON estimates (workspace_id, work_order_id);
+
+-- Each estimate outcome (ADR-0026, FR-EST-11): a baselined work order or milestone that ended, against its
+-- baseline, as JSON, which the delivery fold derives from the log and its baselines, so a new derivation version
+-- drops them all and folds them again. plan_id is a milestone's plan, and empty for a work order.
+CREATE TABLE estimate_outcomes (
+  workspace_id  TEXT   NOT NULL,
+  subject_kind  TEXT   NOT NULL,
+  plan_id       TEXT   NOT NULL DEFAULT '',
+  subject_id    TEXT   NOT NULL,
+  repository_id TEXT   NOT NULL DEFAULT '',
+  confidence    TEXT   NOT NULL DEFAULT '',
+  outcome       TEXT   NOT NULL,
+  ended_at      BIGINT NOT NULL,
+  body          TEXT   NOT NULL,
+  PRIMARY KEY (workspace_id, subject_kind, plan_id, subject_id),
+  CONSTRAINT estimate_outcome_subject CHECK (subject_kind IN ('work_order', 'milestone'))
+);
+
+CREATE INDEX estimate_outcomes_ended ON estimate_outcomes (workspace_id, ended_at);

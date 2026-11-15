@@ -55,9 +55,23 @@ ON CONFLICT (workspace_id, work_order_id) DO UPDATE
 	stmtForgetRecord = define("delivery.forget_record",
 		`DELETE FROM delivery_records WHERE workspace_id = :workspace_id AND work_order_id = :work_order_id`)
 
+	stmtOutcomes = define("delivery.outcomes",
+		`SELECT body FROM estimate_outcomes WHERE workspace_id = :workspace_id ORDER BY ended_at, subject_kind, plan_id, subject_id`)
+
+	stmtSaveOutcome = define("delivery.save_outcome",
+		`INSERT INTO estimate_outcomes (workspace_id, subject_kind, plan_id, subject_id, repository_id, confidence, outcome, ended_at, body)
+VALUES (:workspace_id, :subject_kind, :plan_id, :subject_id, :repository_id, :confidence, :outcome, :ended_at, :body)
+ON CONFLICT (workspace_id, subject_kind, plan_id, subject_id) DO UPDATE
+   SET repository_id = :repository_id, confidence = :confidence, outcome = :outcome, ended_at = :ended_at, body = :body`)
+
+	stmtForgetOutcome = define("delivery.forget_outcome",
+		`DELETE FROM estimate_outcomes
+ WHERE workspace_id = :workspace_id AND subject_kind = :subject_kind AND plan_id = :plan_id AND subject_id = :subject_id`)
+
 	stmtClearTimelines = define("delivery.clear_timelines", `DELETE FROM work_timelines WHERE workspace_id = :workspace_id`)
 	stmtClearRecords   = define("delivery.clear_records", `DELETE FROM delivery_records WHERE workspace_id = :workspace_id`)
 	stmtClearWIPFull   = define("delivery.clear_wip_full", `DELETE FROM delivery_wip_full WHERE workspace_id = :workspace_id`)
+	stmtClearOutcomes  = define("delivery.clear_outcomes", `DELETE FROM estimate_outcomes WHERE workspace_id = :workspace_id`)
 )
 
 // Fold runs fn in one transaction of the delivery fold: a read of the workspace as Read gives it, and writes
@@ -233,8 +247,53 @@ func (t deliveryTx) Forget(workOrder string) error {
 	return nil
 }
 
+func (t deliveryTx) Outcomes() ([]delivery.Outcome, error) {
+	rows, err := t.rows(stmtOutcomes, t.scoped(params{}))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []delivery.Outcome{}
+	for rows.Next() {
+		var raw string
+		if err := rows.Scan(&raw); err != nil {
+			return nil, fmt.Errorf("%s: %w", stmtOutcomes.name, err)
+		}
+		var outcome delivery.Outcome
+		if err := json.Unmarshal([]byte(raw), &outcome); err != nil {
+			return nil, fmt.Errorf("%s: %w", stmtOutcomes.name, err)
+		}
+		out = append(out, outcome)
+	}
+	return out, rows.Err()
+}
+
+// outcomeKey is the key of a subject's outcome: a work order's ID alone, and a milestone's beside its plan's.
+func outcomeKey(kind delivery.OutcomeKind, plan, subject string) params {
+	if kind == delivery.OutcomeOfWorkOrder {
+		plan = ""
+	}
+	return params{"subject_kind": string(kind), "plan_id": plan, "subject_id": subject}
+}
+
+func (t deliveryTx) SaveOutcome(outcome delivery.Outcome) error {
+	raw, err := json.Marshal(outcome)
+	if err != nil {
+		return err
+	}
+	p := outcomeKey(outcome.SubjectKind, outcome.Plan, outcome.Subject)
+	p["repository_id"], p["confidence"], p["outcome"], p["ended_at"], p["body"] = outcome.Repository, string(outcome.Confidence), string(outcome.Outcome), outcome.Ended, string(raw)
+	_, err = t.exec(stmtSaveOutcome, t.scoped(p))
+	return err
+}
+
+func (t deliveryTx) ForgetOutcome(kind delivery.OutcomeKind, plan, subject string) error {
+	_, err := t.exec(stmtForgetOutcome, t.scoped(outcomeKey(kind, plan, subject)))
+	return err
+}
+
 func (t deliveryTx) Clear() error {
-	for _, st := range []*statement{stmtClearTimelines, stmtClearRecords, stmtClearWIPFull} {
+	for _, st := range []*statement{stmtClearTimelines, stmtClearRecords, stmtClearWIPFull, stmtClearOutcomes} {
 		if _, err := t.exec(st, t.scoped(params{})); err != nil {
 			return err
 		}
