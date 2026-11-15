@@ -189,11 +189,23 @@ func (w Worktrees) mergeAt(ctx context.Context, repository, tip string, merge po
 		return "", nil, err
 	}
 	defer func() {
-		_, _ = git.run(context.WithoutCancel(ctx), "worktree", "remove", "--force", dir)
+		// The cleanup outlives ctx, and it runs without the lock when the lock cannot be had: a registration
+		// left behind is pruned by the next create, and one removed beside another's change is the lesser harm.
+		cleanup := context.WithoutCancel(ctx)
+		if release, err := git.holdWorktrees(cleanup); err == nil {
+			defer release()
+		}
+		_, _ = git.run(cleanup, "worktree", "remove", "--force", dir)
 		_ = os.RemoveAll(dir)
-		_, _ = git.run(context.WithoutCancel(ctx), "worktree", "prune")
+		_, _ = git.run(cleanup, "worktree", "prune")
 	}()
-	if _, err := git.must(ctx, "worktree", "add", "--quiet", "--detach", dir, tip); err != nil {
+	release, err := git.holdWorktrees(ctx)
+	if err != nil {
+		return "", nil, err
+	}
+	_, err = git.must(ctx, "worktree", "add", "--quiet", "--detach", dir, tip)
+	release()
+	if err != nil {
 		return "", nil, err
 	}
 	in := w.git(dir)
