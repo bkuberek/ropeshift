@@ -66,6 +66,7 @@ func RunWorkerLink(t *testing.T, backend LinkBackend) {
 		{"a heartbeat returns its nonce and renews", checkHeartbeat},
 		{"a heartbeat's report is kept with no event", checkHeartbeatReport},
 		{"reports record when the lanes stand at a cap", checkCapacityIntervals},
+		{"a report's age is held to the window it stays observed", checkReportAgeClamped},
 		{"a wrong nonce fails", checkWrongNonce},
 		{"an empty nonce is refused", checkEmptyNonce},
 		{"a lapsed lease returns through a heartbeat", checkLapsedReturns},
@@ -448,6 +449,66 @@ func checkCapacityIntervals(t *testing.T, ctx context.Context, b LinkBackend) {
 	}
 	if later := r.capacity(t, ctx, current.StartedAt); len(later) != 1 || later[0] != current {
 		t.Errorf("intervals that end from %d: %+v", current.StartedAt, later)
+	}
+}
+
+// checkReportAgeClamped dates a report, and the capacity intervals it moves, by the control plane's clock less
+// the age the worker sent, held to the window in which a report stays observed: an age past the window dates it
+// at the window, and an age below zero at the control plane's own time, so a worker's clock or a faulty report
+// moves an interval's edges by at most the window and never into the future (FR-OBS-14).
+func checkReportAgeClamped(t *testing.T, ctx context.Context, b LinkBackend) {
+	r := b.Fresh(t, 0)
+	const interval = int64(15_000)
+	// A report stays observed for 3 of its intervals or of heartbeats, whichever is longer.
+	window := 3 * max(interval, linkHeartbeat)
+	// beat sends a worker's report of its lanes against a cap of 2 with an age, and answers the control plane's
+	// time.
+	beat := func(auth ledger.WorkerAuth, epoch, running, age int64) int64 {
+		t.Helper()
+		report := ledger.ResourceReport{
+			IntervalMs: interval, AgeMs: age, Machine: ledger.MachineResources{Volumes: []ledger.VolumeResources{}},
+			Caps: ledger.LaneCaps{MaxLanes: 2}, RunningLanes: &running, Sessions: []ledger.SessionResources{},
+		}
+		reply, err := r.Link.Heartbeat(ctx, ledger.Heartbeat{Auth: auth, Epoch: epoch, Protocol: ledger.ProtocolVersion, Nonce: "n", Report: &report})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if reply.ReportError != "" {
+			t.Fatalf("the report was not kept: %s", reply.ReportError)
+		}
+		return reply.ServerTimeMs
+	}
+	near := func(got, want int64) bool { return got >= want-1_000 && got <= want }
+	of := func(worker string) []ledger.CapacityInterval {
+		t.Helper()
+		var out []ledger.CapacityInterval
+		for _, c := range r.capacity(t, ctx) {
+			if c.Worker == worker {
+				out = append(out, c)
+			}
+		}
+		return out
+	}
+
+	late := r.register(t, ctx, "late")
+	now := beat(late, r.session(t, ctx, late).Epoch, 2, 10*60_000)
+	if worker := r.worker(t, ctx, late.WorkerID); !near(worker.ReportedAt, now-window) {
+		t.Errorf("a report 10 minutes old is dated %d ms before the control plane's time, want the window, %d", now-worker.ReportedAt, window)
+	}
+	if got := of(late.WorkerID); len(got) != 1 || !near(got[0].StartedAt, now-window) {
+		t.Errorf("a cap reported 10 minutes late began %+v, want about %d", got, now-window)
+	}
+
+	early := r.register(t, ctx, "early")
+	epoch := r.session(t, ctx, early).Epoch
+	beat(early, epoch, 2, 0)
+	r.ShiftClock(10_000)
+	now = beat(early, epoch, 1, -60_000)
+	if worker := r.worker(t, ctx, early.WorkerID); !near(worker.ReportedAt, now) {
+		t.Errorf("a report from a minute in the future is dated %d, want about %d", worker.ReportedAt, now)
+	}
+	if got := of(early.WorkerID); len(got) != 1 || !near(got[0].EndedAt, now) {
+		t.Errorf("a cap lifted in a report from a minute in the future ended %+v, want about %d", got, now)
 	}
 }
 

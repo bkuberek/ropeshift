@@ -64,7 +64,7 @@ A review fails work back to a lane by rule until its rounds are used up, so a pe
 
 ## Capacity intervals
 
-A worker's reports are not kept, so the control plane records from each one when the worker's running lanes stand at one of its lane caps: `max_lanes` or `max_lanes_per_sign_in`. The lanes stand at a cap when they reach it or pass it, counted as admission counts them, and a cap of 0 caps nothing. A capacity interval names the worker, the cap, and its value, and holds the first report that saw the cap, the last, and its end, each by the control plane's clock less the report's age.
+A worker's reports are not kept, so the control plane records from each one when the worker's running lanes stand at one of its lane caps: `max_lanes` or `max_lanes_per_sign_in`. The lanes stand at a cap when they reach it or pass it, counted as admission counts them, and a cap of 0 caps nothing. A capacity interval names the worker, the cap, and its value, and holds the first report that saw the cap, the last, and its end, each by the control plane's clock less the report's age. The age is the worker's word, so the control plane holds it between 0 and the window a report stays observed: a worker's clock or a faulty report moves an interval's edges by at most that window and never past the control plane's own time, and a report that really was held longer is dated late by the excess.
 
 | A report | Does |
 |----------|------|

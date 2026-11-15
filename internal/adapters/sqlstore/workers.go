@@ -260,13 +260,14 @@ func scanWorker(row scanner) (ledger.WorkerRecord, error) {
 
 // saveReport is the write of a worker's report: one short transaction on the worker's rows, with no
 // revision and no event, because a heartbeat carries one every few seconds and must not wait for the lock
-// every change takes. It dates the report by database time less the age the worker sent, and moves the
-// worker's capacity intervals by it (FR-OBS-14). A stale epoch matches no row and moves no interval.
+// every change takes. It dates the report by database time less the age the worker sent, held to the window
+// freshMs in which a report stays observed, and moves the worker's capacity intervals by it (FR-OBS-14). A
+// stale epoch matches no row and moves no interval.
 func (s *Store) saveReport(ctx context.Context, scope ledger.WorkspaceID, worker string, epoch int64, report ledger.ResourceReport, freshMs int64) error {
 	if err := scope.Validate(); err != nil {
 		return err
 	}
-	age := max(report.AgeMs, 0)
+	age := lanes.ReportAge(report.AgeMs, freshMs)
 	report.AgeMs = 0
 	raw, err := json.Marshal(report)
 	if err != nil {

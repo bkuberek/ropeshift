@@ -25,7 +25,8 @@ type Installation interface {
 	Write(ctx context.Context, op string, fn func(SharedTx) error) error
 	// SaveReport keeps what a worker measured, in place of what it measured before, dated by database
 	// time less the report's age, and moves the worker's capacity intervals by it (FR-OBS-14): freshMs is
-	// how long after a report the next one keeps an interval standing. Like a lease renewal it takes no
+	// the window in which a report stays observed, which holds the age between 0 and it and is how long
+	// after a report the next one keeps an interval standing. Like a lease renewal it takes no
 	// revision and appends no event: one short transaction on one worker's rows, guarded by its epoch, so a
 	// heartbeat never waits for the shared records' lock. A report of an epoch that is no longer current
 	// changes nothing.
