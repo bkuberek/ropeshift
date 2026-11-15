@@ -377,6 +377,5 @@ func (w Worktrees) fetchMissing(ctx context.Context, repository Git, commit stri
 	if err != nil || remote == "" {
 		return err
 	}
-	_, err = repository.Output(ctx, "fetch", "--quiet", "--no-tags", remote)
-	return err
+	return repository.Fetch(ctx, "--quiet", "--no-tags", remote)
 }

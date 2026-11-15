@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 	"time"
 
@@ -123,7 +124,11 @@ func baseTip(ctx context.Context, git Git, remote, base string) (string, error) 
 	if len(fields) == 0 {
 		return "", fmt.Errorf("the remote %s holds no branch %s", remote, base)
 	}
-	if _, err := git.must(ctx, "fetch", "--quiet", "--no-tags", remote, "refs/heads/"+base); err != nil {
+	// The fetch runs with hooks off, as every command of a merge does, and it can lose git's lock on the base's
+	// remote-tracking ref to another fetch of the clone.
+	hookless := git
+	hookless.Extra = append(slices.Clone(git.Extra), noHooks...)
+	if err := hookless.Fetch(ctx, "--quiet", "--no-tags", remote, "refs/heads/"+base); err != nil {
 		return "", err
 	}
 	return fields[0], nil

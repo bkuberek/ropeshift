@@ -65,9 +65,22 @@ func (r *Repo) Env() []string {
 
 // EnvWithoutRefLockWait is Env with git's own wait for a ref's lock turned off. By default git retries a
 // lock for 100 ms before it gives up, which would hide a lock held for about as long, so a test that holds
-// one for a known time turns the wait off and leaves the retry to the code under test.
+// one for a known time turns the wait off and leaves the retry to the code under test. The setting goes in the
+// configuration file Env names, not in the environment, because a command that sets GIT_CONFIG_COUNT itself,
+// as a merge does to run no hooks, replaces what the environment holds.
 func (r *Repo) EnvWithoutRefLockWait() []string {
-	return append(r.Env(), "GIT_CONFIG_COUNT=1", "GIT_CONFIG_KEY_0=core.filesRefLockTimeout", "GIT_CONFIG_VALUE_0=0")
+	r.T.Helper()
+	file, err := os.OpenFile(filepath.Join(r.Home, "gitconfig"), os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		r.T.Fatal(err)
+	}
+	if _, err := file.WriteString("[core]\n\tfilesRefLockTimeout = 0\n"); err != nil {
+		r.T.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		r.T.Fatal(err)
+	}
+	return r.Env()
 }
 
 // HoldRefLock creates the lock file git takes to update a ref, as a fetch in another process holds it, and
