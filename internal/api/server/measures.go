@@ -38,7 +38,7 @@ func (h *handler) readForecast(w http.ResponseWriter, r *http.Request) {
 		}
 		wanted = parsed
 	}
-	view := api.PlanForecast{Forecasts: []delivery.Forecast{}}
+	var view api.PlanForecast
 	err := h.Store.Read(r.Context(), h.Scope, func(tx ports.ReadTx) error {
 		plan, err := tx.Planning().Plan(r.PathValue("id"))
 		if err != nil {
@@ -59,22 +59,48 @@ func (h *handler) readForecast(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return err
 		}
-		view.Plan, view.Version = plan.ID, version.Version
-		if view.Forecasts, err = tx.Forecasts().Latest(plan.ID, version.Version); err != nil || len(view.Forecasts) == 0 || view.Forecasts[0].SetID == "" {
-			return err
-		}
-		set, err := tx.Estimates().Set(view.Forecasts[0].SetID)
-		if err != nil {
-			return err
-		}
-		view.Set = &set
-		return nil
+		view, err = planForecastOf(tx, plan.ID, version.Version)
+		return err
 	})
 	if err != nil {
 		fail(w, err)
 		return
 	}
 	reply(w, http.StatusOK, view)
+}
+
+// planForecastOf reads a plan version's latest forecasts and the estimate set they were made from, as the forecast
+// tick kept them, and says whether the tick has forecast the version (FR-EST-10). A version it has not forecast is
+// pending while it is the plan's newest, or not yet recorded, and is superseded once a newer one is recorded,
+// because the tick forecasts only the newest.
+func planForecastOf(tx ports.ReadTx, plan string, version int64) (api.PlanForecast, error) {
+	view := api.PlanForecast{Plan: plan, Version: version, State: api.ForecastMade, Forecasts: []delivery.Forecast{}}
+	latest, err := tx.Forecasts().Latest(plan, version)
+	if err != nil {
+		return view, err
+	}
+	if len(latest) == 0 {
+		view.State = api.ForecastPending
+		newest, err := tx.Planning().LatestPlanVersion(plan)
+		switch {
+		case errors.Is(err, ports.ErrNotFound):
+		case err != nil:
+			return view, err
+		case newest.Version > version:
+			view.State = api.ForecastSuperseded
+		}
+		return view, nil
+	}
+	view.Forecasts = latest
+	if latest[0].SetID == "" {
+		return view, nil
+	}
+	set, err := tx.Estimates().Set(latest[0].SetID)
+	if err != nil {
+		return view, err
+	}
+	view.Set = &set
+	return view, nil
 }
 
 // readEstimate reads one work order's current estimate as it was made, with the explanation it showed, or none

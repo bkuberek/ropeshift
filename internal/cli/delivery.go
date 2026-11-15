@@ -119,14 +119,29 @@ func (c *invocation) planForecast(args []string) int {
 	return c.finish(err, view, func() string { return forecastText(view) })
 }
 
-// forecastText prints each forecast under its label, its dates and costs at p50 and p85, with a lower bound as
-// "or later" and "at least", the what-ifs, the explanation it was made with, and what makes it again; and then
-// each estimate of the set it was made from.
+// forecastText prints each forecast of a plan version, and then each estimate of the set it was made from.
 func forecastText(view api.PlanForecast) string {
 	var out strings.Builder
 	fmt.Fprintf(&out, "plan\t%s\tversion %d\n", view.Plan, view.Version)
-	if len(view.Forecasts) == 0 {
-		fmt.Fprintf(&out, "no forecast yet: the daemon's forecast tick has not forecast version %d\n", view.Version)
+	writeForecasts(&out, view, "")
+	if view.Set != nil {
+		for _, e := range view.Set.Estimates {
+			out.WriteString(strings.Replace(estimateText(&e), "estimate\t", "estimate\t"+e.WorkOrder+"\t", 1))
+		}
+	}
+	return out.String()
+}
+
+// writeForecasts prints each forecast of a plan version under its label, each line after indent: its dates and
+// costs at p50 and p85, with a lower bound as "or later" and "at least", the what-ifs, the explanation it was made
+// with, and what makes it again. A version the forecast tick has not forecast says "forecast pending", and one a
+// newer version replaced before the tick forecast it says it has none (FR-EST-10).
+func writeForecasts(out *strings.Builder, view api.PlanForecast, indent string) {
+	switch {
+	case view.State == api.ForecastSuperseded:
+		fmt.Fprintf(out, "%sno forecast: a newer version replaced version %d before the daemon's forecast tick forecast it\n", indent, view.Version)
+	case view.State == api.ForecastPending, len(view.Forecasts) == 0:
+		fmt.Fprintf(out, "%sforecast pending: the daemon's forecast tick has not forecast version %d yet\n", indent, view.Version)
 	}
 	for _, f := range view.Forecasts {
 		whose := "plan"
@@ -134,30 +149,24 @@ func forecastText(view api.PlanForecast) string {
 			whose = "milestone " + f.Milestone
 		}
 		if f.Status != delivery.Forecasted {
-			fmt.Fprintf(&out, "forecast\t%s\t%s\n", whose, strings.ReplaceAll(string(f.Status), "_", " "))
+			fmt.Fprintf(out, "%sforecast\t%s\t%s\n", indent, whose, strings.ReplaceAll(string(f.Status), "_", " "))
 		} else {
 			all, p85 := f.LowerBound == delivery.LowerAll, f.LowerBound != delivery.LowerNone
-			fmt.Fprintf(&out, "forecast\t%s\t%s\tp50 %s\tp85 %s\tcost p50 %s p85 %s\n", whose, f.Confidence,
+			fmt.Fprintf(out, "%sforecast\t%s\t%s\tp50 %s\tp85 %s\tcost p50 %s p85 %s\n", indent, whose, f.Confidence,
 				dateText(f.EndP50, all), dateText(f.EndP85, p85), costText(f.CostP50USD, all), costText(f.CostP85USD, p85))
 			ifs := []string{}
 			if f.Cap > 0 {
 				ifs = append(ifs, "with one more lane, p85 "+dateText(f.EndP85CapPlusOne, p85))
 			}
 			ifs = append(ifs, fmt.Sprintf("with each wait for a person cut to %s, p85 %s", span(f.PersonMedianMs), dateText(f.EndP85PersonMedian, p85)))
-			fmt.Fprintf(&out, "\t%s\n", strings.Join(ifs, "; "))
+			fmt.Fprintf(out, "%s\t%s\n", indent, strings.Join(ifs, "; "))
 		}
 		lanes := "no lane cap"
 		if f.Cap > 0 {
 			lanes = fmt.Sprintf("at most %d lanes", f.Cap)
 		}
-		fmt.Fprintf(&out, "\t%s\n\tseed %s, %d trials, %s, revision %d, as of %s\n", f.Explanation, f.Seed, f.Trials, lanes, f.Rev, dateText(f.AsOf, false))
+		fmt.Fprintf(out, "%s\t%s\n%s\tseed %s, %d trials, %s, revision %d, as of %s\n", indent, f.Explanation, indent, f.Seed, f.Trials, lanes, f.Rev, dateText(f.AsOf, false))
 	}
-	if view.Set != nil {
-		for _, e := range view.Set.Estimates {
-			out.WriteString(strings.Replace(estimateText(&e), "estimate\t", "estimate\t"+e.WorkOrder+"\t", 1))
-		}
-	}
-	return out.String()
 }
 
 // dateText says a time in epoch milliseconds to the minute in UTC, with "or later" when it is a lower bound.

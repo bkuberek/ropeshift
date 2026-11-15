@@ -343,7 +343,14 @@
           }
         ]
       }
-    ]
+    ],
+    "forecast": {
+      "plan_id": "generated-1",
+      "plan_version": 5,
+      "state": "superseded",
+      "estimate_set": null,
+      "forecasts": []
+    }
   },
   "versions": [
     {

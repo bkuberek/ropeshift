@@ -386,7 +386,14 @@
         "question": "Does a lane retry a failed check?",
         "answer": "Once, and then it asks <img src=x onerror=alert(1)><script>alert(2)</script>."
       }
-    ]
+    ],
+    "forecast": {
+      "plan_id": "generated-1",
+      "plan_version": 6,
+      "state": "pending",
+      "estimate_set": null,
+      "forecasts": []
+    }
   },
   "versions": [
     {

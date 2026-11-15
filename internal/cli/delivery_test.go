@@ -112,8 +112,12 @@ func TestWorkShowPrintsTheCurrentEstimate(t *testing.T) {
 func TestPlanForecastPrintsTheForecastsAndTheirWhatIfs(t *testing.T) {
 	s := newSession(t)
 	plan, _ := s.plannedWithADraft()
-	if text := s.must("plan", "forecast", plan); !strings.Contains(text, "no forecast yet") {
+	if text := s.must("plan", "forecast", plan); !strings.Contains(text, "forecast pending: the daemon's forecast tick has not forecast version 1 yet\n") {
 		t.Errorf("before the tick, the forecast reads:\n%s", text)
+	}
+	var pending api.PlanForecast
+	if err := json.Unmarshal([]byte(s.must("plan", "forecast", plan, "--json")), &pending); err != nil || pending.State != api.ForecastPending {
+		t.Errorf("before the tick, the API reads %+v: %v", pending, err)
 	}
 	if _, err := control.NewForecasts(s.daemon.Store).Refresh(t.Context(), apitest.Scope); err != nil {
 		t.Fatal(err)
@@ -122,7 +126,7 @@ func TestPlanForecastPrintsTheForecastsAndTheirWhatIfs(t *testing.T) {
 	if err := json.Unmarshal([]byte(s.must("plan", "forecast", "--json")), &made); err != nil {
 		t.Fatal(err)
 	}
-	if made.Plan != plan || made.Version != 1 || len(made.Forecasts) != 1 || made.Set == nil || made.Forecasts[0].SetID != made.Set.ID || len(made.Set.Estimates) != 1 {
+	if made.Plan != plan || made.Version != 1 || made.State != api.ForecastMade || len(made.Forecasts) != 1 || made.Set == nil || made.Forecasts[0].SetID != made.Set.ID || len(made.Set.Estimates) != 1 {
 		t.Fatalf("the only plan's forecast reads %+v", made)
 	}
 	if text := s.must("plan", "forecast", plan); !strings.Contains(text, "forecast\tplan\t") || !strings.Contains(text, "\t"+made.Forecasts[0].Explanation+"\n") ||
@@ -173,5 +177,38 @@ func TestPlanForecastPrintsTheForecastsAndTheirWhatIfs(t *testing.T) {
 	}
 	if code, _, _ := s.run("plan", "forecast", plan, "--version", "-1"); code != cli.ExitUsage {
 		t.Errorf("a version below 1 exits %d", code)
+	}
+}
+
+// TestPlanShowAndApproveShowTheForecastOrThatItIsPending shows the forecasts a member reads with a plan approval
+// (FR-EST-10): "forecast pending" before the forecast tick has forecast the version, and its forecasts after.
+func TestPlanShowAndApproveShowTheForecastOrThatItIsPending(t *testing.T) {
+	s := newSession(t)
+	plan, _ := s.plannedWithADraft()
+	const pending = "  forecast pending: the daemon's forecast tick has not forecast version 1 yet\n"
+	if text := s.must("plan", "show", plan); !strings.Contains(text, pending) {
+		t.Errorf("before the tick, plan show prints:\n%s", text)
+	}
+	if _, err := control.NewForecasts(s.daemon.Store).Refresh(t.Context(), apitest.Scope); err != nil {
+		t.Fatal(err)
+	}
+	made, err := s.daemon.Client.PlanForecast(t.Context(), plan, 1)
+	if err != nil || len(made.Forecasts) != 1 {
+		t.Fatalf("the forecast reads %+v: %v", made, err)
+	}
+	text := s.must("plan", "show", plan)
+	if strings.Contains(text, pending) || !strings.Contains(text, "  forecast\tplan\tno capacity\n") || !strings.Contains(text, "  \t"+made.Forecasts[0].Explanation+"\n") {
+		t.Errorf("after the tick, plan show prints:\n%s", text)
+	}
+}
+
+// TestPlanApproveWhileTheForecastIsPendingSaysSo approves a version the forecast tick has not forecast: the member
+// reads "forecast pending" before the approval, and the approval stands.
+func TestPlanApproveWhileTheForecastIsPendingSaysSo(t *testing.T) {
+	s := newSession(t)
+	plan, _ := s.plannedWithADraft()
+	text := s.must("plan", "approve", plan)
+	if !strings.Contains(text, "  forecast pending: the daemon's forecast tick has not forecast version 1 yet\n") || !strings.Contains(text, "approved The plan version 1\n") {
+		t.Errorf("approving while the forecast is pending prints:\n%s", text)
 	}
 }

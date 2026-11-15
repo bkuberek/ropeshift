@@ -50,6 +50,9 @@ type PlanApprovalView struct {
 	// Registration is what approving the version registers of the repositories its manifest lists, when it
 	// lists any: before a member decides, what approving would register, and after, what it did.
 	Registration *ManifestRegistration `json:"registration,omitempty"`
+	// Forecast is the version's latest forecasts with the estimate set they were made from, as the forecast tick
+	// kept them, or the state that says why it has none, "forecast pending" until the tick forecasts it (FR-EST-10).
+	Forecast *PlanForecast `json:"forecast,omitempty"`
 }
 
 // ManifestRegistration is what approving a plan version registers of the repositories its manifest lists

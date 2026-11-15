@@ -165,8 +165,8 @@ func betterApproval(a, than authority.Approval) bool {
 }
 
 // planApprovalView reads the request to approve a plan: the one waiting, or else the newest, or, for a
-// version asked for by number, that version's, with the version it is about. A plan nobody has asked about
-// has none.
+// version asked for by number, that version's, with the version it is about and that version's forecast as the
+// forecast tick kept it. A plan nobody has asked about has none.
 func planApprovalView(tx ports.ReadTx, plan string, wanted int64) (*api.PlanApprovalView, error) {
 	rows, err := tx.Approvals().All()
 	if err != nil {
@@ -193,6 +193,11 @@ func planApprovalView(tx ports.ReadTx, plan string, wanted int64) (*api.PlanAppr
 	if view.Registration, err = registrationView(tx, chosen.ID); err != nil {
 		return nil, err
 	}
+	forecast, err := planForecastOf(tx, plan, chosen.PlanVersion)
+	if err != nil {
+		return nil, err
+	}
+	view.Forecast = &forecast
 	return view, nil
 }
 
