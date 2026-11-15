@@ -624,7 +624,7 @@ func (r *laneRun) session(ctx context.Context) workorders.Report {
 		return r.failStart(workorders.ReasonSpawnFailed, err)
 	}
 	prepared, err := r.rt.Provisioner.Prepare(ctx, LaneRequest{
-		Lane: r.lease.Lane, Repository: repository, Branch: r.lease.Branch, Base: r.begins(), Overrides: r.lease.Overrides, Fetch: r.fetchNames(), Private: r.orchestrating(),
+		Lane: r.lease.Lane, Repository: repository, Branch: r.lease.Branch, Base: r.begins(), Overrides: r.lease.Overrides, Delegated: r.lease.Delegated, Agent: r.runsAs(), Fetch: r.fetchNames(), Private: r.orchestrating(),
 		Detached: r.reviewing(), ForgeConfigDir: r.rt.forgeConfigDir(r.lease.Lane),
 		Allocate: func(settings lanes.ResourceSettings) (lanes.Allocation, error) { return r.allocate(ctx, settings) },
 		RunHook:  func(target string, perform func() error) error { return r.runHook(ctx, target, perform) },
@@ -644,6 +644,14 @@ func (r *laneRun) session(ctx context.Context) workorders.Report {
 	}
 	if errors.Is(err, ErrHookFailed) {
 		return r.failStart(workorders.ReasonHookFailed, err)
+	}
+	// The outcome says which policy refused the start and what the layer raised, so every surface that reads
+	// it can say why the lane never ran.
+	var refused *lanes.DelegatePolicyRefusal
+	if errors.As(err, &refused) {
+		report := r.failStart(workorders.ReasonDelegatePolicy, err)
+		report.Detail = refused.Detail()
+		return report
 	}
 	if err != nil {
 		return r.failStart(workorders.ReasonSpawnFailed, err)

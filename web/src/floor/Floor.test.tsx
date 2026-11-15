@@ -180,6 +180,23 @@ describe("the work orders", () => {
     expect(within(await row("Try the impossible")).getByText(/^It gave up on/)).toBeTruthy();
   });
 
+  it("says what a lane's outcome said of its reason", async () => {
+    serving<Completed>("completed", (view) => {
+      const first = view.items[0];
+      if (!first) {
+        throw new Error("the golden view lists no completed work");
+      }
+      const refused = structuredClone(first);
+      refused.work_order = { ...refused.work_order, id: "wo-refused", title: "Raise the effort", state: "failed" };
+      refused.reason = "delegate_policy";
+      refused.detail = 'delegate policy version 2 keeps a delegate\'s lane start from raising agent.effort from "medium" to "max"';
+      view.items = [refused];
+    });
+    openPage("/work?group=completed");
+    const tr = await row("Raise the effort");
+    expect(tr.textContent).toContain('delegate_policy: delegate policy version 2 keeps a delegate\'s lane start from raising agent.effort from "medium" to "max"');
+  });
+
   it("keeps work that waits for acceptance or a merge in its own group", async () => {
     serveViews();
     openPage("/work?group=review");

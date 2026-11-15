@@ -293,7 +293,13 @@ func (l *Lane) Status(status ledger.LaneStatus) {
 // End reports a lane's outcome.
 func (l *Lane) End(outcome workorders.Outcome, reason string) {
 	l.w.t.Helper()
-	result := workorders.LaneResult{Report: workorders.Report{Outcome: outcome, Reason: reason}, Branch: "lane/" + l.ID, Head: "abc123"}
+	l.EndSaying(outcome, reason, "")
+}
+
+// EndSaying ends a lane with an outcome, its reason, and what the worker said of the reason.
+func (l *Lane) EndSaying(outcome workorders.Outcome, reason, detail string) {
+	l.w.t.Helper()
+	result := workorders.LaneResult{Report: workorders.Report{Outcome: outcome, Reason: reason, Detail: detail}, Branch: "lane/" + l.ID, Head: "abc123"}
 	l.Upload(ledger.UploadLaneEnded, result)
 }
 

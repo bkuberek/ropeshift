@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math"
 	"strings"
 	"testing"
@@ -11,6 +12,7 @@ import (
 	"ropeshift.com/ropeshift/internal/adapters/lexical"
 	"ropeshift.com/ropeshift/internal/adapters/sqlite"
 	"ropeshift.com/ropeshift/internal/adapters/sqlstore"
+	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/control"
 	"ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/internal/ledger"
@@ -155,6 +157,100 @@ func TestAnArchivedProjectTakesNoClaim(t *testing.T) {
 	}
 }
 
+// restrictRaises publishes delegate policy version 2 in a project, which keeps a delegate's lane start from
+// raising the lane's model or effort.
+func (r *planeRig) restrictRaises(project ledger.WorkspaceID) {
+	r.t.Helper()
+	no := false
+	draft := authority.DelegatePolicyDraft{
+		Body:   "[delegate_policy]\nversion = 2\nexempt = []\nraise_model_and_effort = false\n",
+		Policy: authority.DelegatePolicy{Version: 2, Exempt: []string{}, RaiseModelAndEffort: &no},
+	}
+	if _, err := control.NewApprovals(r.stores[project]).PublishDelegatePolicy(r.t.Context(), project, draft, projectMember); err != nil {
+		r.t.Fatal(err)
+	}
+}
+
+// TestADelegateWhoseIDNamesNoOneDispatchesNoLane holds the record of a delegate's lane layer to the actor being
+// a delegate (FR-AUTH-16). A delegate whose ID names no member and credential would leave no record, so its layer
+// would run unrestricted: the dispatch is refused, with overrides or without, and the claim keeps no lane.
+func TestADelegateWhoseIDNamesNoOneDispatchesNoLane(t *testing.T) {
+	r := newPlaneRig(t, ledger.ProtocolVersion)
+	r.restrictRaises("pa")
+	r.ready("pa", "wo")
+	if err := r.claim("pa", "wo"); err != nil {
+		t.Fatal(err)
+	}
+	leases := control.NewLeases(r.stores["pa"])
+	for _, id := range []string{"", "member-1", "member-1/", "/dlg_1"} {
+		for _, overrides := range []string{"[agent]\neffort = \"max\"\n", ""} {
+			actor := ledger.Actor{Kind: ledger.ActorDelegate, ID: id}
+			if _, err := leases.DispatchWith(t.Context(), "pa", "wo", "lane-1", overrides, actor); !errors.Is(err, workorders.ErrForbidden) {
+				t.Errorf("a delegate %q with overrides %q dispatches: %v", id, overrides, err)
+			}
+		}
+	}
+	err := r.stores["pa"].Read(t.Context(), "pa", func(tx ports.ReadTx) error {
+		claim, err := tx.Claims().Find("claim-pa-wo")
+		if err == nil && (claim.Lane != "" || claim.Overrides != "" || claim.Delegated != nil) {
+			t.Errorf("a refused dispatch left the claim %+v", claim)
+		}
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestARestrictedDelegatesLaneReachesNoWorkerThatWouldDropItsRecord dispatches a lane whose own layer a delegate
+// sent under a delegate policy that restricts a raise (FR-AUTH-16). A worker a version behind the control plane
+// would drop that record and run the layer unrestricted, so the plane offers it the claim with no lane, which it
+// keeps and starts nothing for, while a lane a member started, or a delegate under a policy that allows the
+// raise, reaches it whole. A worker on the current protocol reads the lane with its record.
+func TestARestrictedDelegatesLaneReachesNoWorkerThatWouldDropItsRecord(t *testing.T) {
+	delegate := authority.DelegateActor(projectMember.ID, authority.DelegateIDPrefix+"lanes")
+	const overrides = "[agent]\neffort = \"max\"\n"
+	for _, protocol := range []int{ledger.ProtocolVersion - 1, ledger.ProtocolVersion} {
+		t.Run(fmt.Sprintf("protocol %d", protocol), func(t *testing.T) {
+			r := newPlaneRig(t, protocol)
+			ctx := t.Context()
+			r.restrictRaises("pa")
+			starts := []struct {
+				project ledger.WorkspaceID
+				id      string
+				actor   ledger.Actor
+			}{{"pa", "restricted", delegate}, {"pa", "member", projectMember}, {"pb", "open", delegate}}
+			for _, start := range starts {
+				r.ready(start.project, start.id)
+				if err := r.claim(string(start.project), start.id); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := control.NewLeases(r.stores[start.project]).DispatchWith(ctx, start.project, start.id, "lane-"+start.id, overrides, start.actor); err != nil {
+					t.Fatal(err)
+				}
+			}
+			leases := map[string]ledger.DesiredLease{}
+			for _, lease := range r.desired().Leases {
+				leases[lease.Project+"/"+lease.WorkOrder] = lease
+			}
+			held := leases["pa/restricted"]
+			switch {
+			case held.WorkOrder == "" || held.ClaimID == "" || held.Fence == 0:
+				t.Errorf("the worker is not offered its claim: %+v", leases)
+			case protocol < ledger.ProtocolVersion && (held.Lane != "" || held.Overrides != "" || held.Delegated != nil):
+				t.Errorf("a worker a version behind is offered %+v", held)
+			case protocol == ledger.ProtocolVersion && (held.Lane != "lane-restricted" || held.Delegated == nil || !held.Delegated.Restricted):
+				t.Errorf("a worker on the current protocol is offered %+v", held)
+			}
+			for whole, lane := range map[string]string{"pa/member": "lane-member", "pb/open": "lane-open"} {
+				if leases[whole].Lane != lane || leases[whole].Overrides != overrides {
+					t.Errorf("%s reaches the worker as %+v", whole, leases[whole])
+				}
+			}
+		})
+	}
+}
+
 // TestAWorkerOnProtocolOneIsRefused opens a session at the protocol before projects: the plane refuses it
 // with a protocol error that names both sides, and leaves the worker's current session as it was.
 func TestAWorkerOnProtocolOneIsRefused(t *testing.T) {
@@ -164,7 +260,7 @@ func TestAWorkerOnProtocolOneIsRefused(t *testing.T) {
 	if !errors.As(err, &refused) {
 		t.Fatalf("a worker on protocol 1: %v", err)
 	}
-	if refused.Worker != 1 || refused.Oldest != ledger.ProtocolOldest || refused.Newest != ledger.ProtocolVersion {
+	if refused.Worker != 1 || refused.Oldest != max(ledger.ProtocolVersion-1, ledger.ProtocolOldest) || refused.Newest != ledger.ProtocolVersion {
 		t.Errorf("refusal %+v", refused)
 	}
 	r.ready("pa", "wo")

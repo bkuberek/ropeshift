@@ -55,7 +55,7 @@ const sections: Section[] = [
   { id: "lane", title: "Lane policy", scope: "project", note: "What a change under a running lane does to it." },
   { id: "recovery", title: "Recovery policy", scope: "project", note: "What an orchestrator may do on its own when a lane stalls, trips, fails, or blocks." },
   { id: "delegation", title: "Delegation policy", scope: "project", note: "The approval classes an orchestrator decides for a lane, so they never wait on a member." },
-  { id: "delegate-policy", title: "Delegate policy", scope: "project", note: "Consent operations a delegate may run without a card. Only a member changes this policy." },
+  { id: "delegate-policy", title: "Delegate policy", scope: "project", note: "Consent operations a delegate may run without a card, and whether a delegate's lane start may raise the model and effort. Only a member changes this policy." },
   { id: "notify", title: "Notifications", scope: "project", note: "How a member hears that something waits on them." },
   { id: "appearance", title: "Appearance and keyboard", scope: "you", note: "This browser's own choices." },
 ];

@@ -25,6 +25,22 @@ func TestTheAssistantsRoleStatesHowItActs(t *testing.T) {
 	}
 }
 
+// The assistant confirms a member's intent in the conversation before it starts a lane with overrides that
+// raise the model or the effort (FR-AUTH-16). That is its own instruction, not a card: the delegate policy is
+// what bounds it.
+func TestTheAssistantsRoleConfirmsARaiseOfTheModelOrEffort(t *testing.T) {
+	// The role wraps its lines, so the rule reads as one run of words.
+	role := strings.Join(strings.Fields(contextpacks.AssistantRole("Sam Rivera", "harbor", "/opt/ropeshift/bin/ropeshift")), " ")
+	for _, want := range []string{
+		"Before you start a lane with overrides that raise its model or its effort",
+		"ask Sam Rivera in this conversation to confirm", "start it only after they do", "delegate policy",
+	} {
+		if !strings.Contains(role, want) {
+			t.Errorf("the role lacks %q", want)
+		}
+	}
+}
+
 func TestTheAssistantsBriefStatesTheProjectAndTheConversationSoFar(t *testing.T) {
 	brief := contextpacks.AssistantBrief(contextpacks.AssistantFacts{
 		ProjectName:  "harbor",

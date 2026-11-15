@@ -6,7 +6,9 @@ import (
 	"testing"
 
 	"ropeshift.com/ropeshift/internal/api"
+	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/control"
+	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/internal/workorders"
 	"ropeshift.com/ropeshift/test/apitest"
@@ -70,6 +72,9 @@ func TestNoCallerStartsALaneWhoseOverridesRunReadOrPlace(t *testing.T) {
 		{"a root", "worktree = { root = \"/\" }\n"},
 		{"a branch prefix", "[worktree]\nbranch_prefix = \"\"\n"},
 		{"an instructions file", "[agent]\ninstructions_file = \"/etc/passwd\"\n"},
+		{"a driver", "driver = \"elsewhere\"\n"},
+		{"the driver the lane has", "driver = \"claude-code\"\n"},
+		{"an upper-case driver", "DRIVER = \"elsewhere\"\n"},
 		{"review rounds", "[review]\nmax_review_rounds = 9\n"},
 		{"two review rounds", "[review]\nmax_review_rounds = 2\n"},
 		{"the default review rounds", "[review]\nmax_review_rounds = 3\n"},
@@ -114,6 +119,49 @@ func TestNoCallerStartsALaneWhoseOverridesRunReadOrPlace(t *testing.T) {
 	}
 	if claim := claimOf(t, d.Daemon, "claim-lanes"); claim.Lane != "lane-1" || claim.Overrides != chosen {
 		t.Errorf("the claim holds %+v", claim)
+	}
+}
+
+// TestALaneStartRecordsTheDelegateThatSentItsOverrides records on the claim that a delegate sent a lane's own
+// layer, the assistant's and an outside delegate's alike, with the version of the delegate policy in force and
+// whether that version keeps the layer from raising the lane's model or effort, which the worker holds it to
+// (FR-AUTH-16). A member's lane start records none, and so does a delegate's that sends no layer.
+func TestALaneStartRecordsTheDelegateThatSentItsOverrides(t *testing.T) {
+	d := startTalk(t)
+	ctx := t.Context()
+	member := memberOf(t, d.Daemon)
+	outsideCredential := aDelegate(t, d.Client.Client, apitest.ProjectName)
+	outside := asDelegate(t, d.socket, outsideCredential.Token, apitest.ProjectName)
+	_, assistant, grant := d.assistant(t)
+	const raise = "[agent]\nmodel = \"opus\"\neffort = \"max\"\n"
+	start := func(name string, client *api.ProjectClient, overrides string) workorders.Claim {
+		t.Helper()
+		id, claim := "wo-"+name, "claim-"+name
+		claimWork(t, d, id, claim)
+		if _, err := client.StartLane(ctx, id, api.StartLane{LaneID: "lane-" + name, Overrides: overrides}); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		return claimOf(t, d.Daemon, claim)
+	}
+
+	got := start("outside", outside, raise)
+	want := ledger.DelegatedLayer{Delegate: authority.DelegateActor(member, outsideCredential.ID).ID, PolicyVersion: 1}
+	if got.Delegated == nil || *got.Delegated != want {
+		t.Errorf("an outside delegate's start under the built-in policy records %+v, want %+v", got.Delegated, want)
+	}
+	if _, err := d.Client.PublishPolicy(ctx, "[delegate_policy]\nversion = 2\nexempt = []\nraise_model_and_effort = false\n"); err != nil {
+		t.Fatal(err)
+	}
+	got = start("assistant", assistant, raise)
+	want = ledger.DelegatedLayer{Delegate: authority.DelegateActor(member, grant.Credential).ID, PolicyVersion: 2, Restricted: true}
+	if got.Delegated == nil || *got.Delegated != want {
+		t.Errorf("the assistant's start under a restricting policy records %+v, want %+v", got.Delegated, want)
+	}
+	if got := start("member", d.client, raise); got.Delegated != nil || got.Overrides != raise {
+		t.Errorf("a member's start records %+v", got)
+	}
+	if got := start("no-layer", outside, ""); got.Delegated != nil {
+		t.Errorf("a delegate's start with no layer records %+v", got.Delegated)
 	}
 }
 

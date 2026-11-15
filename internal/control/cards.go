@@ -511,11 +511,19 @@ func builtInDelegatePolicy(id string, createdAt int64) (authority.PolicyVersion,
 // has published any. It writes nothing.
 func (a *Approvals) DelegatePolicyInForce(ctx context.Context, scope ledger.WorkspaceID) (authority.PolicyVersion, authority.DelegatePolicy, error) {
 	var version authority.PolicyVersion
+	var policy authority.DelegatePolicy
 	err := a.store.Read(ctx, scope, func(tx ports.ReadTx) error {
 		var err error
-		version, err = tx.Policies().InForce(authority.PolicyDelegate)
+		version, policy, err = delegatePolicyOf(tx.Policies())
 		return err
 	})
+	return version, policy, err
+}
+
+// delegatePolicyOf reads the delegate policy in force in a transaction's policies, and the built-in one when
+// no member has published any.
+func delegatePolicyOf(policies ports.PolicyReader) (authority.PolicyVersion, authority.DelegatePolicy, error) {
+	version, err := policies.InForce(authority.PolicyDelegate)
 	if errors.Is(err, ports.ErrNotFound) {
 		version, err = builtInDelegatePolicy(builtInPolicyAuthor, 0)
 	}

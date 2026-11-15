@@ -51,6 +51,8 @@ type rig struct {
 	kind workorders.Kind
 	// repository is the next work order's, and none when it is empty.
 	repository string
+	// size is the next work order's, and none when it is empty.
+	size string
 	// starts places the lane of the next claim. Nil places none.
 	starts *control.Starts
 	// worktrees is the one a lane rig gives its worker, so a test that builds history in it reads what
@@ -58,6 +60,8 @@ type rig struct {
 	worktrees *fake.Worktrees
 	// overrides is the lane's own profile layer a lane rig dispatches, as the claim holds it. Empty holds none.
 	overrides string
+	// dispatcher starts a lane rig's lane. Nil starts it as the member.
+	dispatcher *ledger.Actor
 }
 
 func newRig(t *testing.T) *rig {
@@ -187,7 +191,7 @@ func (r *rig) claimFor(id, worker string) workorders.Grant {
 		kind = workorders.KindChange
 	}
 	_, err := control.NewWorkOrders(r.store).Record(ctx, scope, control.LedgerWork{
-		Order:    workorders.WorkOrder{ID: id, Kind: kind, Title: "T", Deadline: r.deadline, RepositoryID: r.repository},
+		Order:    workorders.WorkOrder{ID: id, Kind: kind, Title: "T", Deadline: r.deadline, RepositoryID: r.repository, Size: r.size},
 		Criteria: []planning.Criterion{{ID: "c1", Text: "It works"}},
 	}, member)
 	if err != nil {

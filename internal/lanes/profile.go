@@ -209,10 +209,32 @@ func MergeLayers(layers ...map[string]any) (map[string]any, error) {
 	return merged, nil
 }
 
-// CheckSpellings refuses a layer that holds two keys of one table that differ only in case.
+// CheckSpellings refuses a layer that holds two keys of one table that differ only in case, with a
+// *SpellingError. It reads any decoded TOML, so a policy's body is held to it as a profile's layer is.
 func CheckSpellings(layer map[string]any) error {
 	_, err := MergeLayers(layer)
 	return err
+}
+
+// SpellingError is two keys of one table that differ only in case, which a decoder that reads keys under
+// Unicode case folding takes for one setting, whichever it meets first. It is a bad profile.
+type SpellingError struct {
+	First, Second string
+	// Table is the path of the table that holds both, and empty for the top level.
+	Table []string
+}
+
+// Error names both spellings as a bad profile.
+func (e *SpellingError) Error() string {
+	return fmt.Sprintf("%v: %s, and a profile spells each key one way", ErrBadProfile, e.Clash())
+}
+
+// Unwrap makes the clash a bad profile.
+func (e *SpellingError) Unwrap() error { return ErrBadProfile }
+
+// Clash names the two spellings and the table that holds them.
+func (e *SpellingError) Clash() string {
+	return fmt.Sprintf("%q and %q spell one key%s", e.First, e.Second, inTable(e.Table))
 }
 
 // mergeInto folds from into into, which sits at path. The keys of into hold no two spellings of one key,
@@ -226,7 +248,7 @@ func mergeInto(into, from map[string]any, path []string) error {
 	for _, key := range slices.Sorted(maps.Keys(from)) {
 		folded := foldKey(key)
 		if other, taken := spellings[folded]; taken && other != key {
-			return fmt.Errorf("%w: %q and %q spell one key%s, and a profile spells each key one way", ErrBadProfile, other, key, inTable(path))
+			return &SpellingError{First: other, Second: key, Table: slices.Clone(path)}
 		}
 		spellings[folded] = key
 		value, here := from[key], append(slices.Clone(path), key)

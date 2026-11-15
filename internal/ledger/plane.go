@@ -9,11 +9,18 @@ import (
 
 // ProtocolVersion is the plane protocol this build speaks. Version 2 names the project on every item
 // (ADR-0021). Version 3 adds the assistant's sessions: desired state's assistants, the worker routes that
-// make a generation's credential and record a reply, and uploads from an assistant's run (ADR-0024).
-const ProtocolVersion = 3
+// make a generation's credential and record a reply, and uploads from an assistant's run (ADR-0024). Version 4
+// adds the delegate that sent a lane's own layer: a desired lease's delegated layer, which the worker holds the
+// layer to (FR-AUTH-16).
+const ProtocolVersion = 4
 
 // ProtocolAssistants is the oldest protocol a worker runs the assistant on.
 const ProtocolAssistants = 3
+
+// ProtocolDelegatedLayers is the oldest protocol a worker is offered a lane on whose own layer a delegate sent
+// under a delegate policy that restricts a raise of the model or the effort. An older worker drops that record
+// and would run the layer unrestricted, so it holds the lane's claim with no lane until it is upgraded.
+const ProtocolDelegatedLayers = 4
 
 // ProtocolOldest is the oldest plane protocol any build serves. Version 1 named no project and served
 // only the installation's default project; a worker that speaks it is refused and must be upgraded.
@@ -181,6 +188,17 @@ type DesiredProject struct {
 	FleetMode FleetMode `json:"fleet_mode"`
 }
 
+// DelegatedLayer says a delegate sent a lane's own profile layer (FR-AUTH-16): the delegate, named as its
+// actor is, `<member>/<credential>`, the version of the delegate policy in force when it did, and whether that
+// version keeps the layer from raising the lane's model or effort above what the lane would run without it. The
+// worker, which holds the layers below and the roster agent the lane runs as, refuses such a raise. A lane a member, an orchestrator, or the system started has
+// none.
+type DelegatedLayer struct {
+	Delegate      string `json:"delegate"`
+	PolicyVersion int64  `json:"policy_version"`
+	Restricted    bool   `json:"restricted,omitempty"`
+}
+
 // DesiredLease is one lease this worker should act on.
 type DesiredLease struct {
 	// Project is the project the work order belongs to. Empty names the plane's only project.
@@ -240,6 +258,9 @@ type DesiredLease struct {
 	Respawns int64 `json:"respawns,omitempty"`
 	// Overrides is this lane's own profile layer, as TOML.
 	Overrides string `json:"overrides,omitempty"`
+	// Delegated says a delegate sent Overrides, and under which delegate policy. Nil when a member, an
+	// orchestrator, or the system started the lane.
+	Delegated *DelegatedLayer `json:"delegated,omitempty"`
 	// Resume says this claim brings a parked lane back, and what from.
 	Resume *DesiredResume `json:"resume,omitempty"`
 	// Messages are what no worker has acknowledged for this lane. The control plane offers them

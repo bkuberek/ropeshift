@@ -1,6 +1,7 @@
 package server
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -10,6 +11,7 @@ import (
 	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/delivery"
+	"ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/internal/questions"
@@ -169,9 +171,29 @@ func holdsTable(body, table string) bool {
 	return found
 }
 
+// checkPolicySpellings refuses a policy body of any kind that holds two keys of one table that differ only in
+// case. The decoder takes a key for a setting whatever its case, as the profile's does, so of two spellings it
+// would read whichever it met, and a version could say two things at once. A body that is not TOML is left to
+// the reader of its kind, which says why.
+func checkPolicySpellings(body string) error {
+	var table map[string]any
+	if _, err := toml.Decode(body, &table); err != nil {
+		return nil
+	}
+	var clash *lanes.SpellingError
+	if errors.As(lanes.CheckSpellings(table), &clash) {
+		return fmt.Errorf("a policy spells each key one way, and %s", clash.Clash())
+	}
+	return nil
+}
+
 func (h *handler) publishPolicy(w http.ResponseWriter, r *http.Request, actor ledger.Actor) {
 	var in api.PublishPolicy
 	if !decode(w, r, &in) {
+		return
+	}
+	if err := checkPolicySpellings(in.Body); err != nil {
+		invalid(w, "%s", err)
 		return
 	}
 	var record authority.PolicyVersion

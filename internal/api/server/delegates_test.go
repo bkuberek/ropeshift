@@ -8,6 +8,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -671,6 +672,90 @@ func TestTheDelegatePolicyExemptsOnlyWhatItMay(t *testing.T) {
 	_, err = delegate.AnswerQuestion(ctx, reversible.ID, api.AnswerQuestion{ID: "d2", Answer: "Two."})
 	if detail := cardDetail(t, preparedCard(t, err)); detail.Operation != authority.OpQuestionAnswer {
 		t.Errorf("an answer made a card of %s", detail.Operation)
+	}
+}
+
+// TestTheDelegatePolicySaysWhetherADelegateRaisesTheModelAndEffort reads raise_model_and_effort as a member
+// publishes it (FR-AUTH-16): only a boolean, kept as the version states it, and true when the version leaves it
+// out.
+func TestTheDelegatePolicySaysWhetherADelegateRaisesTheModelAndEffort(t *testing.T) {
+	d := apitest.Start(t)
+	ctx := t.Context()
+	for _, value := range []string{`"no"`, `0`, `[]`, `{ model = false }`} {
+		_, err := d.Client.PublishPolicy(ctx, "[delegate_policy]\nversion = 2\nexempt = []\nraise_model_and_effort = "+value+"\n")
+		t.Run("raise_model_and_effort = "+value, func(t *testing.T) {
+			refusedWith(t, err, http.StatusBadRequest, api.CodeInvalid)
+		})
+	}
+	settings := func(version int64) map[string]any {
+		t.Helper()
+		versions, err := d.Client.PoliciesOf(ctx, authority.PolicyDelegate)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, row := range versions {
+			if row.Version == version {
+				var out map[string]any
+				if err := json.Unmarshal([]byte(row.Settings), &out); err != nil {
+					t.Fatal(err)
+				}
+				return out
+			}
+		}
+		t.Fatalf("no version %d in %+v", version, versions)
+		return nil
+	}
+	if _, err := d.Client.PublishPolicy(ctx, "[delegate_policy]\nversion = 2\nexempt = []\nraise_model_and_effort = false\n"); err != nil {
+		t.Fatal(err)
+	}
+	if got := settings(2)["raise_model_and_effort"]; got != false {
+		t.Errorf("version 2 reads raise_model_and_effort %v", got)
+	}
+	if _, err := d.Client.PublishPolicy(ctx, "[delegate_policy]\nversion = 3\nexempt = []\nraise_model_and_effort = true\n"); err != nil {
+		t.Fatal(err)
+	}
+	if got := settings(3)["raise_model_and_effort"]; got != true {
+		t.Errorf("version 3 reads raise_model_and_effort %v", got)
+	}
+	if _, err := d.Client.PublishPolicy(ctx, "[delegate_policy]\nversion = 4\nexempt = []\n"); err != nil {
+		t.Fatalf("a version that leaves raise_model_and_effort out: %v", err)
+	}
+	if _, stated := settings(4)["raise_model_and_effort"]; stated {
+		t.Errorf("version 4 states a setting it left out: %v", settings(4))
+	}
+}
+
+// TestNoPolicySpellsAKeyTwoWays refuses a policy body of any kind that holds two keys of one table that differ
+// only in case. The decoder reads a key whatever its case, so of `raise_model_and_effort = true` and
+// `Raise_Model_And_Effort = false` it would take either (FR-AUTH-16). The refusal names both spellings, and
+// nothing is published.
+func TestNoPolicySpellsAKeyTwoWays(t *testing.T) {
+	d := apitest.Start(t)
+	ctx := t.Context()
+	tests := []struct {
+		name, body string
+		spellings  []string
+	}{
+		{"a delegate policy's setting", "[delegate_policy]\nversion = 2\nexempt = []\nraise_model_and_effort = true\nRaise_Model_And_Effort = false\n", []string{"raise_model_and_effort", "Raise_Model_And_Effort"}},
+		{"a delegate policy's table", "[delegate_policy]\nversion = 2\nexempt = []\n[Delegate_Policy]\nraise_model_and_effort = false\n", []string{"delegate_policy", "Delegate_Policy"}},
+		{"a decision policy's version", strings.Replace(sevenBody, "version = 7\n", "version = 7\nVERSION = 7\n", 1), []string{"version", "VERSION"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := d.Client.PublishPolicy(ctx, tt.body)
+			refusedWith(t, err, http.StatusBadRequest, api.CodeInvalid)
+			for _, spelling := range tt.spellings {
+				if err != nil && !strings.Contains(err.Error(), strconv.Quote(spelling)) {
+					t.Errorf("the refusal does not name %q: %v", spelling, err)
+				}
+			}
+		})
+	}
+	if versions, err := d.Client.PoliciesOf(ctx, authority.PolicyDelegate); err != nil || len(versions) != 1 {
+		t.Errorf("the delegate policy holds %+v: %v", versions, err)
+	}
+	if versions, err := d.Client.Policies(ctx); err != nil || len(versions) != 1 {
+		t.Errorf("the decision policy holds %+v: %v", versions, err)
 	}
 }
 

@@ -204,8 +204,10 @@ type Change struct {
 	Lane       string  `json:"lane,omitempty"`
 	Generation int64   `json:"generation,omitempty"`
 	Reason     string  `json:"reason,omitempty"`
-	Outcome    Outcome `json:"outcome,omitempty"`
-	Attempts   int64   `json:"attempts,omitempty"`
+	// Detail is what a lane's outcome says of its reason, on the event that ends the lane.
+	Detail   string  `json:"detail,omitempty"`
+	Outcome  Outcome `json:"outcome,omitempty"`
+	Attempts int64   `json:"attempts,omitempty"`
 	// MaxAttempts is the bound a retry moved to, when a member's retry added an attempt.
 	MaxAttempts int64  `json:"max_attempts,omitempty"`
 	Payload     []byte `json:"payload,omitempty"`

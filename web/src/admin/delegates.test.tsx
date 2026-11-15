@@ -158,7 +158,7 @@ describe("Delegate policy in Settings", () => {
     const sent = serveDelegates((call) => (call.method === "POST" && call.path === "/v1/policies" ? { status: 201, body: { version: 3 } } : undefined));
     openPage(here("/settings?section=delegate-policy"));
     expect(await screen.findByRole("heading", { name: "Delegate policy" })).toBeTruthy();
-    expect(screen.getByText("Consent operations a delegate may run without a card. Only a member changes this policy.")).toBeTruthy();
+    expect(screen.getByText("Consent operations a delegate may run without a card, and whether a delegate's lane start may raise the model and effort. Only a member changes this policy.")).toBeTruthy();
     const consent = golden<OperationList>("operation-classes").operations.filter((op) => op.class === "consent");
     const field = await screen.findByRole("group", { name: /Consent operations a delegate runs without a card/ });
     expect(await within(field).findAllByRole("checkbox")).toHaveLength(consent.length);
@@ -175,7 +175,7 @@ describe("Delegate policy in Settings", () => {
     const dialog = await screen.findByRole("dialog");
     await userEvent.click(within(dialog).getByRole("button", { name: "Save version 3" }));
     await waitFor(() => expect(sentTo(sent, "POST", "/v1/policies")).toHaveLength(1));
-    expect((sentTo(sent, "POST", "/v1/policies")[0]?.body as { body: string }).body).toBe('[delegate_policy]\nversion = 3\nexempt = ["work_order.accept", "work_order.rework"]\n');
+    expect((sentTo(sent, "POST", "/v1/policies")[0]?.body as { body: string }).body).toBe('[delegate_policy]\nversion = 3\nexempt = ["work_order.accept", "work_order.rework"]\nraise_model_and_effort = true\n');
   });
 
   it("drops an operation the stored version lists that no policy may exempt any more, and says which", async () => {
@@ -198,7 +198,7 @@ describe("Delegate policy in Settings", () => {
     await userEvent.click(screen.getByRole("button", { name: "Review change" }));
     await userEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Save version 3" }));
     await waitFor(() => expect(sentTo(sent, "POST", "/v1/policies")).toHaveLength(1));
-    expect((sentTo(sent, "POST", "/v1/policies")[0]?.body as { body: string }).body).toBe('[delegate_policy]\nversion = 3\nexempt = ["work_order.accept", "work_order.rework"]\n');
+    expect((sentTo(sent, "POST", "/v1/policies")[0]?.body as { body: string }).body).toBe('[delegate_policy]\nversion = 3\nexempt = ["work_order.accept", "work_order.rework"]\nraise_model_and_effort = true\n');
   });
 
   it("discards back to the stored version without what it dropped, and leaves nothing unsaved", async () => {
@@ -245,6 +245,35 @@ describe("Delegate policy in Settings", () => {
     await userEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Save version 3" }));
     await userEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Keep editing" }));
     expect((await within(field).findByRole("alert")).textContent).toContain("cannot exempt work_order.rework");
+  });
+
+  it("allows a delegate's raise of the model and effort when the version leaves it out, and saves a version that refuses it", async () => {
+    const sent = serveDelegates((call) => (call.method === "POST" && call.path === "/v1/policies" ? { status: 201, body: { version: 3 } } : undefined));
+    openPage(here("/settings?section=delegate-policy"));
+    const raise = (await screen.findByRole("checkbox", { name: /lane start may raise the model and effort/ })) as HTMLInputElement;
+    expect(raise.checked).toBe(true);
+    expect(raise.closest(".field")?.textContent).toContain("raise_model_and_effort");
+    expect(screen.getByText("No unsaved changes")).toBeTruthy();
+    await userEvent.click(raise);
+    expect(raise.checked).toBe(false);
+    await userEvent.click(screen.getByRole("button", { name: "Review change" }));
+    await userEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Save version 3" }));
+    await waitFor(() => expect(sentTo(sent, "POST", "/v1/policies")).toHaveLength(1));
+    expect((sentTo(sent, "POST", "/v1/policies")[0]?.body as { body: string }).body).toBe('[delegate_policy]\nversion = 3\nexempt = ["work_order.accept"]\nraise_model_and_effort = false\n');
+  });
+
+  it("shows a version that refuses a delegate's raise as it stands", async () => {
+    const stored = golden<PolicyList>("policies-delegate");
+    const [newest, ...older] = stored.versions as [PolicyVersion, ...PolicyVersion[]];
+    const refusing: PolicyList = {
+      ...stored,
+      versions: [{ ...newest, body: '[delegate_policy]\nversion = 2\nexempt = []\nraise_model_and_effort = false\n', settings: '{"version":2,"exempt":[],"raise_model_and_effort":false}' }, ...older],
+    };
+    serveDelegates((call) => (call.method === "GET" && call.path.split("?")[0] === "/v1/policies" ? { status: 200, body: refusing } : undefined));
+    openPage(here("/settings?section=delegate-policy"));
+    const raise = (await screen.findByRole("checkbox", { name: /lane start may raise the model and effort/ })) as HTMLInputElement;
+    expect(raise.checked).toBe(false);
+    expect(screen.getByText("No unsaved changes")).toBeTruthy();
   });
 });
 

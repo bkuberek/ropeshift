@@ -171,3 +171,9 @@ func (a Agent) ModelFor(driver string, classes map[string]string) string {
 
 // rank is a value's place in an ordered list, and -1 for one it does not hold.
 func rank(list []string, value string) int { return slices.Index(list, value) }
+
+// ClassRank is a capability class's place in rank order, from small, and -1 for no class.
+func ClassRank(class string) int { return rank(Classes, class) }
+
+// EffortRank is an effort's place in rank order, from low, and -1 for no effort of the scale.
+func EffortRank(effort string) int { return rank(efforts, effort) }

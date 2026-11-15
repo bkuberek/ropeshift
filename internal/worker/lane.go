@@ -10,7 +10,9 @@ import (
 	"time"
 
 	"ropeshift.com/ropeshift/internal/lanes"
+	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/roster"
 )
 
 // LaneRequest names a lane to prepare.
@@ -35,6 +37,13 @@ type LaneRequest struct {
 	RunHook func(target string, perform func() error) error
 	// Overrides is this lane's own profile layer.
 	Overrides string
+	// Delegated says a delegate sent Overrides, and under which delegate policy. A version that restricts it
+	// keeps the layer from raising the model or the effort past what the lane would run without it
+	// (FR-AUTH-16). Nil when a member, an orchestrator, or the system started the lane.
+	Delegated *ledger.DelegatedLayer
+	// Agent is the roster agent the lane runs as, whose model and effort the session runs unless Overrides
+	// sets them. Nil runs as none.
+	Agent *roster.Agent
 	// Fetch names what a remote holds and this machine must bring before a worktree exists,
 	// for a lane another machine ran.
 	Fetch []string
@@ -79,7 +88,10 @@ type Provisioner struct {
 var ErrNoDetached = errors.New("this worker's worktrees cannot check a commit out with no branch")
 
 // laneSets says whether a lane's own profile layer changed the model or the effort from what the layers
-// below it give, because that layer wins over the roster agent the lane runs as.
+// below it give, because that layer wins over the roster agent the lane runs as. It refuses a layer a
+// delegate sent that raises either under a delegate policy that restricts it (FR-AUTH-16), against what the
+// lane would run without the layer: its roster agent's model and effort, or for a lane that runs as no
+// agent, what the layers below give.
 func (p Provisioner) laneSets(ctx context.Context, request LaneRequest, profile lanes.Profile) (bool, bool, error) {
 	if request.Overrides == "" {
 		return false, false, nil
@@ -88,7 +100,16 @@ func (p Provisioner) laneSets(ctx context.Context, request LaneRequest, profile 
 	if err != nil {
 		return false, false, err
 	}
-	return below.Agent.Model != profile.Agent.Model, below.Agent.Effort != profile.Agent.Effort, nil
+	laneModel, laneEffort := below.Agent.Model != profile.Agent.Model, below.Agent.Effort != profile.Agent.Effort
+	was, runs := below.Agent, profile.Agent
+	if request.Agent != nil {
+		was.Model, was.Effort = agentRuns(below, *request.Agent, false, false)
+		runs.Model, runs.Effort = agentRuns(profile, *request.Agent, laneModel, laneEffort)
+	}
+	if err := lanes.CheckDelegatedLayer(was, runs, request.Delegated); err != nil {
+		return false, false, err
+	}
+	return laneModel, laneEffort, nil
 }
 
 // Prepare resolves the profile first, because a bad profile should stop a lane
