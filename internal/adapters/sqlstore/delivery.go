@@ -63,12 +63,12 @@ ON CONFLICT (workspace_id, work_order_id) DO UPDATE
 // Fold runs fn in one transaction of the delivery fold: a read of the workspace as Read gives it, and writes
 // of the rows derived from its log, with no revision and no event, like a renewal.
 func (s *Store) Fold(ctx context.Context, scope ledger.WorkspaceID, fn func(ports.FoldTx) error) error {
-	return s.derive(ctx, scope, OpFold, fn)
+	return s.derive(ctx, scope, OpFold, func(t *readTx) error { return fn(&foldTx{readTx: t}) })
 }
 
 // derive runs fn in one transaction, named op, that writes only rows derived from the log, with no revision and no
-// event.
-func (s *Store) derive(ctx context.Context, scope ledger.WorkspaceID, op string, fn func(ports.FoldTx) error) error {
+// event. fn wraps the read in the transaction type of its caller.
+func (s *Store) derive(ctx context.Context, scope ledger.WorkspaceID, op string, fn func(*readTx) error) error {
 	if err := scope.Validate(); err != nil {
 		return err
 	}
@@ -77,7 +77,7 @@ func (s *Store) derive(ctx context.Context, scope ledger.WorkspaceID, op string,
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
-	t := &foldTx{readTx: &readTx{session: s.session(ctx, tx, ModeWrite, op), scope: scope, side: s.shared()}}
+	t := &readTx{session: s.session(ctx, tx, ModeWrite, op), scope: scope, side: s.shared()}
 	defer t.side.rollback()
 	if _, err := t.Workspace(); err != nil {
 		return err

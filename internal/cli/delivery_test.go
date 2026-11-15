@@ -147,7 +147,7 @@ func TestPlanForecastPrintsTheForecastsAndTheirWhatIfs(t *testing.T) {
 		}
 	}
 	kept := []delivery.Forecast{dated("", delivery.LowerP85), dated("m1", delivery.LowerAll)}
-	if err := s.daemon.Store.Forecast(t.Context(), apitest.Scope, func(tx ports.FoldTx) error { return tx.Forecast().Keep(kept) }); err != nil {
+	if err := s.daemon.Store.Forecast(t.Context(), apitest.Scope, func(tx ports.ForecastTx) error { return tx.Forecast().Keep(kept) }); err != nil {
 		t.Fatal(err)
 	}
 	text := s.must("plan", "forecast", plan, "--version", "1")

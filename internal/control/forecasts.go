@@ -80,7 +80,7 @@ func (f *Forecasts) Refresh(ctx context.Context, scope ledger.WorkspaceID) (int,
 // the run's estimates, which the next tick forecasts from.
 func (f *Forecasts) keep(ctx context.Context, scope ledger.WorkspaceID, run forecastRun, forecasts []delivery.Forecast) (bool, error) {
 	kept := false
-	err := f.store.Forecast(ctx, scope, func(tx ports.FoldTx) error {
+	err := f.store.Forecast(ctx, scope, func(tx ports.ForecastTx) error {
 		newestVersion, err := tx.Planning().LatestPlanVersion(run.in.Plan)
 		switch {
 		case errors.Is(err, ports.ErrNotFound):

@@ -16,7 +16,7 @@ import (
 // ForecastChecks hold kept forecasts (ADR-0026, FR-EST-8): the latest of each plan version and milestone, and the
 // last of each day, kept with no revision.
 var ForecastChecks = []Check{
-	{"FC1", "a plan version keeps the latest forecast of the plan and of each milestone, and the last of each day, with no revision", checkForecastsKept},
+	{"FC1", "a plan version keeps the latest forecast of the plan and of each milestone, and the last of each day, with no revision, in a transaction that reaches no delivery read model", checkForecastsKept},
 	{"FC2", "the forecast tick forecasts each plan's newest version from its own estimate set when what it rests on changed, a worker came, work ended, or the version was approved, and keeps nothing otherwise", checkForecastTick},
 	{"FC4", "a forecast run whose plan version a newer version replaced before it kept keeps nothing, and the newer version's estimates stay current", checkForecastOfAReplacedVersion},
 	{"FC3", "a forecast finds the work each dependency names as admission does: the plan's own work it waits for, unfinished work outside the plan and a name nothing holds as outside it, and ended work as nothing", checkForecastDependencies},
@@ -27,7 +27,7 @@ const dayOne = int64(1_700_006_400_000)
 
 // keepForecasts keeps one run's forecasts in a transaction of the forecast tick.
 func (r *Rig) keepForecasts(s ports.Store, forecasts []delivery.Forecast) error {
-	return s.Forecast(r.Ctx, r.Scope, func(tx ports.FoldTx) error { return tx.Forecast().Keep(forecasts) })
+	return s.Forecast(r.Ctx, r.Scope, func(tx ports.ForecastTx) error { return tx.Forecast().Keep(forecasts) })
 }
 
 // forecastsOf reads a plan version's latest forecasts, and the history of the plan's own and of one milestone.
@@ -72,6 +72,16 @@ func checkForecastsKept(r *Rig) error {
 	}
 	if after, err := r.workspaceRev(s); err != nil || after != before {
 		return Violatedf("keeping forecasts moved the revision from %d to %d: %v", before, after, err)
+	}
+	// The forecast tick writes only what it derives, so its transaction cannot reach the delivery fold's rows.
+	err = s.Forecast(r.Ctx, r.Scope, func(tx ports.ForecastTx) error {
+		if _, reaches := any(tx).(interface{ Delivery() ports.DeliveryWriter }); reaches {
+			return Violatedf("a transaction of the forecast tick reaches the delivery read models")
+		}
+		return nil
+	})
+	if err != nil {
+		return err
 	}
 	if _, err := CheckRevisionFirst(r.trace.Entries()); err != nil {
 		return err
@@ -351,7 +361,7 @@ type racingStore struct {
 	race func() error
 }
 
-func (s *racingStore) Forecast(ctx context.Context, scope ledger.WorkspaceID, fn func(ports.FoldTx) error) error {
+func (s *racingStore) Forecast(ctx context.Context, scope ledger.WorkspaceID, fn func(ports.ForecastTx) error) error {
 	if race := s.race; race != nil {
 		s.race = nil
 		if err := race(); err != nil {

@@ -60,7 +60,7 @@ type Store interface {
 	// Forecast runs fn in one short transaction of the forecast tick (ADR-0026): it reads as Read does and keeps
 	// forecasts and the estimate sets they were made from, which are derived from the log, so like Fold it takes
 	// no revision and appends no event.
-	Forecast(ctx context.Context, scope ledger.WorkspaceID, fn func(FoldTx) error) error
+	Forecast(ctx context.Context, scope ledger.WorkspaceID, fn func(ForecastTx) error) error
 	// Installation is where the records every project shares change (ADR-0021): the installation's
 	// database, or, for a store that keeps them itself, its own database under scope.
 	Installation(scope ledger.WorkspaceID) Installation
@@ -68,14 +68,23 @@ type Store interface {
 	Close() error
 }
 
-// FoldTx is one transaction of the delivery fold or the forecast tick: a view of the workspace, its delivery read
-// models, and the estimate sets and forecasts a tick keeps current from them.
+// FoldTx is one transaction of the delivery fold: a view of the workspace, its delivery read models, and the
+// estimate sets a tick keeps current from them.
 type FoldTx interface {
 	ReadTx
 	Delivery() DeliveryWriter
 	// EstimateSets keeps estimate sets, which, like the delivery read models, are derived from the log.
 	EstimateSets() EstimateWriter
-	// Forecast keeps forecasts, which are derived from the log too.
+}
+
+// ForecastTx is one transaction of the forecast tick: a view of the workspace, and the estimate sets and forecasts
+// the tick keeps, which are derived from the log. It reaches no delivery read model, so the tick, which takes no
+// revision, writes only what it derives.
+type ForecastTx interface {
+	ReadTx
+	// EstimateSets keeps the estimate sets forecasts are made from.
+	EstimateSets() EstimateWriter
+	// Forecast keeps forecasts.
 	Forecast() ForecastWriter
 }
 

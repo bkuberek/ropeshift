@@ -34,17 +34,28 @@ VALUES (:workspace_id, :id, :plan_id, :plan_version, :milestone_id, :estimate_se
 
 // Forecast runs fn in one transaction of the forecast tick: a read of the workspace as Read gives it, and writes of
 // the forecasts and estimate sets derived from its log, with no revision and no event, as the fold's.
-func (s *Store) Forecast(ctx context.Context, scope ledger.WorkspaceID, fn func(ports.FoldTx) error) error {
-	return s.derive(ctx, scope, OpForecast, fn)
+func (s *Store) Forecast(ctx context.Context, scope ledger.WorkspaceID, fn func(ports.ForecastTx) error) error {
+	return s.derive(ctx, scope, OpForecast, func(t *readTx) error { return fn(&forecastTickTx{readTx: t}) })
 }
 
-// Forecasts reads kept forecasts within a read of the workspace.
-func (t *readTx) Forecasts() ports.ForecastReader {
+// forecastTickTx is a read of the workspace with the estimate sets and forecasts beside it, and no delivery read
+// model.
+type forecastTickTx struct {
+	*readTx
+}
+
+func (t *forecastTickTx) EstimateSets() ports.EstimateWriter {
+	return estimateTx{session: t.session, scope: t.scope}
+}
+
+func (t *forecastTickTx) Forecast() ports.ForecastWriter {
 	return forecastTx{session: t.session, scope: t.scope}
 }
 
-// Forecast keeps forecasts within a transaction of the fold or the forecast tick.
-func (t *foldTx) Forecast() ports.ForecastWriter {
+var _ ports.ForecastTx = (*forecastTickTx)(nil)
+
+// Forecasts reads kept forecasts within a read of the workspace.
+func (t *readTx) Forecasts() ports.ForecastReader {
 	return forecastTx{session: t.session, scope: t.scope}
 }
 
