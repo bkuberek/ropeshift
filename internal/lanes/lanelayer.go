@@ -47,6 +47,11 @@ func CheckLaneLayer(below, profile Profile) error {
 	if restartWindow(now.RestartWindow) < restartWindow(was.RestartWindow) {
 		return laneLayerRefusal(fmt.Sprintf("shorten lifecycle.restart_window below %q", was.RestartWindow))
 	}
+	// A review lane reads its bound from its own profile, and an unset bound is the default, so the bound in
+	// force is what compares.
+	if profile.Review.Rounds() > below.Review.Rounds() {
+		return laneLayerRefusal(fmt.Sprintf("raise review.max_review_rounds past %d", below.Review.Rounds()))
+	}
 	return nil
 }
 

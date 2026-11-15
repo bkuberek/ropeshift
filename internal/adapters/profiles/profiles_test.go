@@ -272,6 +272,12 @@ func TestALanesOwnLayerRunsNothingAndRaisesNoCap(t *testing.T) {
 		{name: "a lane names a restart window that is no time", lane: "[lifecycle]\nrestart_window = \"never\"\n", refused: "lifecycle.restart_window"},
 		{name: "a lane lengthens the restart window", lane: "[lifecycle]\nrestart_window = \"1h\"\n"},
 		{name: "a repository raises a cap for its lanes", repository: "[lifecycle]\nmax_generations_per_day = 20\nmax_restarts = 9\nrestart_window = \"1m\"\n"},
+		{name: "a lane raises the review rounds past the default", lane: "[review]\nmax_review_rounds = 9\n", refused: "review.max_review_rounds"},
+		{name: "a lane raises the review rounds past the repository's", repository: "[review]\nmax_review_rounds = 1\n", lane: "[review]\nmax_review_rounds = 2\n", refused: "review.max_review_rounds"},
+		{name: "a lane unsets the review rounds the repository lowered", repository: "[review]\nmax_review_rounds = 1\n", lane: "[review]\nmax_review_rounds = 0\n", refused: "review.max_review_rounds"},
+		{name: "a lane lowers the review rounds", lane: "[review]\nmax_review_rounds = 1\n"},
+		{name: "a lane lowers the review rounds the user raised", user: "[review]\nmax_review_rounds = 6\n", lane: "[review]\nmax_review_rounds = 4\n"},
+		{name: "a repository raises the review rounds", repository: "[review]\nmax_review_rounds = 6\n"},
 		{name: "a lane chooses its model and effort", lane: "[agent]\nmodel = \"haiku\"\neffort = \"low\"\n[lifecycle]\nstall_after = \"3m\"\n"},
 	}
 	for _, tt := range tests {
