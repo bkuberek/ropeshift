@@ -20,7 +20,8 @@ import (
 const delegatePolicyTable = "delegate_policy"
 
 // delegatePolicyKeys are the settings a delegate policy must state. A list left out would read as one
-// nobody chose.
+// nobody chose. raise_model_and_effort may be left out, which allows a delegate's raise (FR-AUTH-16), and the
+// decoder takes only a boolean for it.
 var delegatePolicyKeys = []string{"version", "exempt"}
 
 // readDelegatePolicy reads a delegate policy as a member wrote it, on the terms of every other policy.

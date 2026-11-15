@@ -674,6 +674,56 @@ func TestTheDelegatePolicyExemptsOnlyWhatItMay(t *testing.T) {
 	}
 }
 
+// TestTheDelegatePolicySaysWhetherADelegateRaisesTheModelAndEffort reads raise_model_and_effort as a member
+// publishes it (FR-AUTH-16): only a boolean, kept as the version states it, and true when the version leaves it
+// out.
+func TestTheDelegatePolicySaysWhetherADelegateRaisesTheModelAndEffort(t *testing.T) {
+	d := apitest.Start(t)
+	ctx := t.Context()
+	for _, value := range []string{`"no"`, `0`, `[]`, `{ model = false }`} {
+		_, err := d.Client.PublishPolicy(ctx, "[delegate_policy]\nversion = 2\nexempt = []\nraise_model_and_effort = "+value+"\n")
+		t.Run("raise_model_and_effort = "+value, func(t *testing.T) {
+			refusedWith(t, err, http.StatusBadRequest, api.CodeInvalid)
+		})
+	}
+	settings := func(version int64) map[string]any {
+		t.Helper()
+		versions, err := d.Client.PoliciesOf(ctx, authority.PolicyDelegate)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, row := range versions {
+			if row.Version == version {
+				var out map[string]any
+				if err := json.Unmarshal([]byte(row.Settings), &out); err != nil {
+					t.Fatal(err)
+				}
+				return out
+			}
+		}
+		t.Fatalf("no version %d in %+v", version, versions)
+		return nil
+	}
+	if _, err := d.Client.PublishPolicy(ctx, "[delegate_policy]\nversion = 2\nexempt = []\nraise_model_and_effort = false\n"); err != nil {
+		t.Fatal(err)
+	}
+	if got := settings(2)["raise_model_and_effort"]; got != false {
+		t.Errorf("version 2 reads raise_model_and_effort %v", got)
+	}
+	if _, err := d.Client.PublishPolicy(ctx, "[delegate_policy]\nversion = 3\nexempt = []\nraise_model_and_effort = true\n"); err != nil {
+		t.Fatal(err)
+	}
+	if got := settings(3)["raise_model_and_effort"]; got != true {
+		t.Errorf("version 3 reads raise_model_and_effort %v", got)
+	}
+	if _, err := d.Client.PublishPolicy(ctx, "[delegate_policy]\nversion = 4\nexempt = []\n"); err != nil {
+		t.Fatalf("a version that leaves raise_model_and_effort out: %v", err)
+	}
+	if _, stated := settings(4)["raise_model_and_effort"]; stated {
+		t.Errorf("version 4 states a setting it left out: %v", settings(4))
+	}
+}
+
 func TestSigningOutEverywhereEndsEverySessionAndDelegate(t *testing.T) {
 	d := apitest.Start(t)
 	ctx := t.Context()

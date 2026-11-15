@@ -113,9 +113,12 @@ A delegate policy is a versioned policy of kind `delegate`, published with `POST
 [delegate_policy]
 version = 2
 exempt = ["work_order.accept", "work_order.rework"]
+raise_model_and_effort = false
 ```
 
 `exempt` lists consent operations by ID, and may list only `work_order.accept`, `work_order.rework`, `work_order.create`, and `plan.start_review` ([authorization](authorization.md#delegates)). A call to `POST /v1/projects/{project}/work-orders/{id}/accept` is `work_order.accept` only for work whose review has ruled on its attempt and whose every criterion passed on a check the lane did not write, with no check failed, no verdict that counts for the attempt `fail` or `cannot_judge`, and every check its base requires green on its pull request, as the work stands when the call comes, and `work_order.accept_unverified` otherwise. A change or a rework that completed at a commit has a review of that commit, which has ruled once no review of the attempt is open and verdicts count for it. A call to `.../rework` is `work_order.rework` only once a verdict that counts for the attempt failed, and `work_order.rework_without_failed_verdict` otherwise. A version that lists an unknown ID, an operational or member-only operation, or an operation that is never exempt answers 400 `invalid`, naming each and why. The built-in version exempts nothing, and a version published before the list narrowed exempts nothing outside it.
+
+`raise_model_and_effort` says whether a delegate's lane start may raise the lane's model or effort above what the layers below its overrides give ([authorization](authorization.md#delegates)). It is `true` or `false`, and any other value answers 400 `invalid`. A version that leaves it out allows the raise, as the built-in version and every version published before the setting do.
 
 An event's `actor_for` and `actor_label`, in the event stream and the audit, name the member a delegate acted for and its credential's label, or the credential's ID once its record was removed, and `delegate_kind` names its kind, `external` or `assistant`, until its record is removed. They are absent for every other actor, and `GET /v1/audit?actor=delegate` keeps a delegate's events. An event a confirmed card's call recorded also holds `proposer_kind` (`delegate`) and `proposer_id` (`<member ID>/<credential ID>`), naming the delegate that prepared the card, and they are absent from every other event.
 

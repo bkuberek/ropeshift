@@ -229,10 +229,19 @@ func (r DelegateRequest) Check() error {
 // PolicyDelegate governs which consent operations a delegate runs with no card (ADR-0024).
 const PolicyDelegate PolicyKind = "delegate"
 
-// DelegatePolicy is the body of a delegate policy version: the consent operations a delegate runs at once.
+// DelegatePolicy is the body of a delegate policy version: the consent operations a delegate runs at once, and
+// whether a delegate's lane start may raise the lane's model and effort (FR-AUTH-16). RaiseModelAndEffort is
+// nil for a version that leaves it out, which allows the raise.
 type DelegatePolicy struct {
-	Version int64    `toml:"version" json:"version"`
-	Exempt  []string `toml:"exempt" json:"exempt"`
+	Version             int64    `toml:"version" json:"version"`
+	Exempt              []string `toml:"exempt" json:"exempt"`
+	RaiseModelAndEffort *bool    `toml:"raise_model_and_effort" json:"raise_model_and_effort,omitempty"`
+}
+
+// RaisesModelAndEffort says a delegate's lane start may raise the lane's model and effort above what the
+// layers below its overrides give, as a member's may. Only a version that says false keeps it from doing so.
+func (p DelegatePolicy) RaisesModelAndEffort() bool {
+	return p.RaiseModelAndEffort == nil || *p.RaiseModelAndEffort
 }
 
 // DelegatePolicyFile is the table a member publishes.

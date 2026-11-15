@@ -353,6 +353,44 @@ func TestADelegatePolicyExemptsOnlyExemptableConsent(t *testing.T) {
 	}
 }
 
+// TestADelegatePolicyLetsADelegateRaiseTheModelAndEffortUnlessItSaysNot reads raise_model_and_effort as a
+// version states it, and as true when a version leaves it out, the built-in one and every one published
+// before the setting included (FR-AUTH-16).
+func TestADelegatePolicyLetsADelegateRaiseTheModelAndEffortUnlessItSaysNot(t *testing.T) {
+	if !authority.BuiltInDelegatePolicy().RaisesModelAndEffort() {
+		t.Error("the built-in delegate policy keeps a delegate from raising the model and effort")
+	}
+	no, yes := false, true
+	for _, c := range []struct {
+		name   string
+		policy authority.DelegatePolicy
+		raises bool
+	}{
+		{"a version that leaves it out", authority.DelegatePolicy{Version: 2}, true},
+		{"a version that allows it", authority.DelegatePolicy{Version: 2, RaiseModelAndEffort: &yes}, true},
+		{"a version that refuses it", authority.DelegatePolicy{Version: 2, RaiseModelAndEffort: &no}, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			version, err := authority.NewDelegatePolicyVersion("p1", "m1", authority.DelegatePolicyDraft{Body: "[delegate_policy]\n", Policy: c.policy}, 1)
+			if err != nil {
+				t.Fatal(err)
+			}
+			read, err := authority.ReadDelegatePolicy(version)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if read.RaisesModelAndEffort() != c.raises {
+				t.Errorf("the version %s reads %v", version.Settings, read.RaisesModelAndEffort())
+			}
+		})
+	}
+	// A version that leaves it out keeps the settings a version kept before the setting existed.
+	version, err := authority.NewDelegatePolicyVersion("p1", "m1", authority.DelegatePolicyDraft{Body: "[delegate_policy]\n", Policy: authority.DelegatePolicy{Version: 2}}, 1)
+	if err != nil || version.Settings != `{"version":2,"exempt":[]}` {
+		t.Errorf("settings %s: %v", version.Settings, err)
+	}
+}
+
 func TestADelegatePolicyNeverExemptsInAOneWayCategory(t *testing.T) {
 	oneWay := authority.Operation{ID: "example.one_way", Label: "Decide", Class: authority.ClassConsent, Exemptable: true, OneWay: true}
 	policy := authority.DelegatePolicy{Version: 2, Exempt: []string{oneWay.ID, "work_order.accept"}}
