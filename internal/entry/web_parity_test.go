@@ -77,7 +77,6 @@ var webGaps = map[string]string{
 	"passphrase set":    "U2f",
 	"plan forecast":     "U2h1",
 	"plan review":       "U2d",
-	"search":            "U2e",
 	"telemetry lanes":   "U2h2",
 	"telemetry query":   "U2h2",
 	"work acceptance":   "U2g",

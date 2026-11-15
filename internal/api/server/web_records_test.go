@@ -179,6 +179,22 @@ func TestAMemberOverturnsADecisionFromTheBrowser(t *testing.T) {
 	wantCode(t, b.send(t, http.MethodPost, "/v1/decisions/no-such-decision/overturn", api.OverturnDecision{ID: "d-web-5", Statement: "x"}, http.StatusNotFound), api.CodeNotFound)
 }
 
+func TestAMemberSearchesForARecordToCiteFromTheBrowser(t *testing.T) {
+	t.Parallel()
+	b := signedInBrowser(t)
+	b.send(t, http.MethodPost, "/v1/decisions", api.RecordDecision{ID: "d-web-1", Status: questions.DecisionDecided, Statement: "The retry budget is three calls."}, http.StatusCreated)
+	raw := b.send(t, http.MethodGet, "/v1/candidates?text=What+is+the+retry+budget%3F&kinds=decision,requirement,contract,question&limit=8", nil, http.StatusOK)
+	var found api.CandidateList
+	if err := json.Unmarshal(raw, &found); err != nil {
+		t.Fatal(err)
+	}
+	if len(found.Candidates) != 1 || found.Candidates[0].RecordID != "d-web-1" || found.Candidates[0].Kind != questions.KindDecision {
+		t.Fatalf("candidates %+v", found.Candidates)
+	}
+	// A search names the kinds it reads, as it does on the socket.
+	wantCode(t, b.send(t, http.MethodGet, "/v1/candidates?text=retry", nil, http.StatusBadRequest), api.CodeInvalid)
+}
+
 // ATTACK: an ID plan approval derives, which anyone who reads a plan can work out. Only plan approval names a
 // decision under that prefix, so a decision recorded from the browser is refused it, as it is on the socket,
 // and no decision of that ID exists afterwards.

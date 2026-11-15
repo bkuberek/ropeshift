@@ -362,6 +362,11 @@ export type RecordDecision = {
   no_conflict?: string[];
 };
 
+// A Candidate is one record a search found, best first: its kind, its ID, and how well it matched.
+export type Candidate = { kind: string; record_id: string; score: number };
+
+export type CandidateList = { candidates: Candidate[] };
+
 // OverturnDecision is a member's reversal of a decision: the ID of the decision that takes its place, and what
 // stands instead.
 export type OverturnDecision = { id: string; statement: string; rationale?: string; citations?: string[] };

@@ -11,7 +11,8 @@ import { Button } from "../ui/controls";
 import { Refusal } from "../ui/display";
 import { Field } from "../ui/forms";
 import { Dialog } from "../ui/overlays";
-import { inForce, noOverturn, overturnProblems, overturnRequest } from "./records";
+import { CitationFinder } from "./CitationFinder";
+import { citedLine, inForce, listOf, noOverturn, overturnProblems, overturnRequest } from "./records";
 import type { OverturnDraft } from "./records";
 
 // What an overturn did: the decision that took the place of the one reversed, the rework it created, and the
@@ -131,6 +132,7 @@ function OverturnDialog({ decision, onClose }: { decision: Decision; onClose: ()
           <Field label="Citations" help="What it rests on, one to a line: a record such as requirement:FR-RETRY-1, or a path.">
             <textarea className="textarea mono" rows={2} autoComplete="off" spellCheck={false} value={draft.citations} onChange={(event) => set({ citations: event.target.value })} />
           </Field>
+          <CitationFinder cited={listOf(draft.citations)} onCite={(citation) => set({ citations: citedLine(draft.citations, citation) })} />
           <details className="disclosure">
             <summary>More</summary>
             <div className="field-stack">

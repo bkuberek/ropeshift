@@ -764,7 +764,19 @@ describe.each(Object.entries(sizes))("at %s width", (size, viewport) => {
         await dialog.getByRole("textbox", { name: "Rationale" }).fill("Every customer is in the union.");
         await dialog.getByRole("textbox", { name: "Decision ID (optional)" }).fill("");
         await dialog.getByRole("checkbox", { name: "Security" }).check();
-        await dialog.getByRole("textbox", { name: "Citations" }).fill("requirement:FR-RETRY-1");
+        await page.route(/\/v1\/projects\/default\/candidates\?/, (route) =>
+          route.fulfill({
+            status: 200,
+            contentType: "application/json",
+            body: JSON.stringify({ candidates: [{ kind: "requirement", record_id: "FR-RETRY-1", score: 0.9 }, { kind: "decision", record_id: "decision-3", score: 0.7 }] }),
+          }),
+        );
+        await dialog.getByRole("textbox", { name: "Find a record to cite" }).fill("retry");
+        await dialog.getByRole("button", { name: "Search" }).click();
+        await dialog.getByRole("button", { name: "Cite requirement:FR-RETRY-1" }).click();
+        await dialog.getByRole("button", { name: "Cited requirement:FR-RETRY-1" }).waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `record decision dialog with search results ${violation}`));
         await dialog.getByRole("button", { name: "Review" }).click();
         await dialog.getByRole("heading", { name: "Review the decision" }).waitFor();
         await settle();

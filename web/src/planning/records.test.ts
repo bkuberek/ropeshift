@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { categoryProblem, decisionIDProblem, decisionProblems, decisionRequest, inForce, listOf, noDecision, noOverturn, noQuestion, overturnProblems, overturnRequest, questionProblems, questionRequest } from "./records";
+import { categoryProblem, citedLine, decisionIDProblem, decisionProblems, decisionRequest, inForce, listOf, noDecision, noOverturn, noQuestion, overturnProblems, overturnRequest, questionProblems, questionRequest } from "./records";
 
 describe("a category's name", () => {
   it.each(["billing", "release-planning", "q3-goals", "a", "x".repeat(63)])("takes %s", (name) => {
@@ -164,5 +164,18 @@ describe("a decision in force", () => {
     ["replaced", false],
   ])("is %s: %s", (status, standing) => {
     expect(inForce({ id: "d", status, statement: "x", lineage: ["d"] })).toBe(standing);
+  });
+});
+
+describe("a citation cited from a search", () => {
+  it("joins the citations on a line of its own", () => {
+    expect(citedLine("", "decision:d-1")).toBe("decision:d-1");
+    expect(citedLine("docs/a.md", "decision:d-1")).toBe("docs/a.md\ndecision:d-1");
+    expect(citedLine("docs/a.md\n\n", "decision:d-1")).toBe("docs/a.md\ndecision:d-1");
+  });
+
+  it("is not cited twice", () => {
+    expect(citedLine("docs/a.md\ndecision:d-1", "decision:d-1")).toBe("docs/a.md\ndecision:d-1");
+    expect(citedLine(" decision:d-1 ", "decision:d-1")).toBe(" decision:d-1 ");
   });
 });

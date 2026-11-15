@@ -1,5 +1,5 @@
 import { splitProject } from "../app/route";
-import type { ApprovalRecord, DocumentRef, DocumentRow, DocumentVersions, EffectOutcome, NeedsYou, Overturned, OverturnDecision, PlanOutline, PlanView, ProjectList, Question, RecordDecision, RecordedDecision, RecordedRead, RecordQuestion, Search, WorkAction } from "./types";
+import type { ApprovalRecord, CandidateList, DocumentRef, DocumentRow, DocumentVersions, EffectOutcome, NeedsYou, Overturned, OverturnDecision, PlanOutline, PlanView, ProjectList, Question, RecordDecision, RecordedDecision, RecordedRead, RecordQuestion, Search, WorkAction } from "./types";
 
 function documentQuery({ path, instance, version }: DocumentRef): URLSearchParams {
   const query = new URLSearchParams({ path });
@@ -62,6 +62,7 @@ export const paths = {
   dismiss: (id: string) => project(`/questions/${encodeURIComponent(id)}/dismiss`),
   decisions: () => project("/decisions"),
   overturn: (id: string) => project(`/decisions/${encodeURIComponent(id)}/overturn`),
+  candidates: (text: string, limit: number) => project(`/candidates?${new URLSearchParams({ text, kinds: candidateKinds.join(","), limit: String(limit) })}`),
   decideApproval: (id: string) => project(`/approvals/${encodeURIComponent(id)}/decide`),
   decideEffect: (id: string) => project(`/effects/${encodeURIComponent(id)}/decide`),
   work: (id: string, verb: string) => project(`/work-orders/${encodeURIComponent(id)}/${verb}`),
@@ -74,6 +75,9 @@ export const paths = {
 export const paneKeys = ["Enter", "Escape", "Tab", "Backspace", "Up", "Down", "Left", "Right", "Ctrl-C", "Ctrl-D"] as const;
 
 export type PaneKey = (typeof paneKeys)[number];
+
+// The kinds of record `ropeshift search` reads when it is given none: what a question may match.
+const candidateKinds = ["decision", "requirement", "contract", "question"];
 
 // What each action of a work item calls, and whether it asks a person why.
 export const workActions: Record<WorkAction, { verb: string; needsReason: boolean }> = {
@@ -252,6 +256,12 @@ export function recordDecision(request: RecordDecision): Promise<RecordedDecisio
 // the new decision is the client's, so a retry finds what the first attempt made.
 export function overturnDecision(id: string, request: OverturnDecision): Promise<Overturned> {
   return call("POST", paths.overturn(id), request);
+}
+
+// searchCandidates ranks the project's decisions, requirements, contracts, and questions that match some words,
+// best first, as `ropeshift search` does. A member cites what it finds.
+export function searchCandidates(text: string, limit = 8): Promise<CandidateList> {
+  return call("GET", paths.candidates(text, limit));
 }
 
 export function decideApproval(id: string, digest: string, allow: boolean, reason: string, place?: Place): Promise<unknown> {

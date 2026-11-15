@@ -218,3 +218,12 @@ export function overturnRequest(id: string, draft: OverturnDraft): OverturnDecis
   }
   return request;
 }
+
+// citedLine adds a citation to the text of a list of citations, on a line of its own, unless it is there.
+export function citedLine(text: string, citation: string): string {
+  if (listOf(text).includes(citation)) {
+    return text;
+  }
+  const kept = text.replace(/\s+$/, "");
+  return kept === "" ? citation : `${kept}\n${citation}`;
+}

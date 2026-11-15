@@ -386,6 +386,11 @@
   },
   {
     "method": "GET",
+    "pattern": "/v1/projects/{project}/candidates",
+    "command": "search"
+  },
+  {
+    "method": "GET",
     "pattern": "/v1/projects/{project}/approvals",
     "command": "approval list"
   },

@@ -10,7 +10,8 @@ import { Refusal } from "../ui/display";
 import { Field, Select } from "../ui/forms";
 import { Dialog, useToast } from "../ui/overlays";
 import { CategoryChoices } from "./CategoryChoices";
-import { decisionProblems, decisionRequest, inForce, listOf, noDecision } from "./records";
+import { CitationFinder } from "./CitationFinder";
+import { citedLine, decisionProblems, decisionRequest, inForce, listOf, noDecision } from "./records";
 import type { DecisionDraft } from "./records";
 import { useCategories } from "./useCategories";
 import { useDialogParam } from "./useDialogParam";
@@ -131,6 +132,7 @@ function RecordDecisionDialog({ decisions, onClose }: { decisions: Decision[]; o
           <Field label="Citations" help="What it rests on, one to a line: a record such as requirement:FR-RETRY-1, or a path.">
             <textarea className="textarea mono" rows={2} autoComplete="off" spellCheck={false} value={draft.citations} onChange={(event) => set({ citations: event.target.value })} />
           </Field>
+          <CitationFinder cited={listOf(draft.citations)} onCite={(citation) => set({ citations: citedLine(draft.citations, citation) })} />
           <Field label="Replaces" help="Takes the place of a decision in force, with no rework. To reverse one and rework what rested on it, overturn it instead.">
             <Select value={draft.supersedes} onChange={(event) => set({ supersedes: event.target.value })}>
               <option value="">Nothing</option>
