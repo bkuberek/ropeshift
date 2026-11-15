@@ -194,7 +194,7 @@ permission_mode = "default"
 gates = ["Bash(git commit *)", "Edit"]
 ```
 
-`permission_mode` is the agent's permission mode: `default` unless you set `plan`, `acceptEdits`, `dontAsk`, or `auto`. A member's assistant runs in `default` whatever this sets. A repository's `.ropeshift/profile.toml` and a lane's `--profile` layer cannot raise it. No layer, yours included, can choose `bypassPermissions`, which skips every check, or a mode ropeshift does not know: the profile is refused, and the lane does not start. Every session's generated settings also turn the bypass mode off in the agent CLI. `gates` lists permission rules, in the agent CLI's own syntax, for actions a member must approve. Each becomes a rule that asks in every permission mode, and it overrides what a lane would otherwise do without asking, so the example above makes every commit and every file edit ask. A gate on a file tool takes the `Edit` rule form, because the agent CLI matches file paths only against `Edit` and `Read` rules. A gate can only add requests: no key lets a lane do more without asking than the list above. A layer that sets `gates` replaces the list of the layers below it, so a repository's `.ropeshift/profile.toml` that leaves out a gate of yours is refused, and so is a lane's `--profile` layer that leaves out a gate of yours or of the repository's: the refusal names the gate, and the lane does not start. To add a gate, a layer names every gate below it as well.
+`permission_mode` is the agent's permission mode: `default` unless you set `plan`, `acceptEdits`, `dontAsk`, or `auto`. A member's assistant runs in `default` whatever this sets. A repository's `.ropeshift/profile.toml` and a lane's `--profile` layer cannot raise it. No layer, yours included, can choose `bypassPermissions`, which skips every check, or a mode ropeshift does not know: the profile is refused, and the lane does not start. Every session's generated settings also turn the bypass mode off in the agent CLI. `gates` lists permission rules, in the agent CLI's own syntax, for actions a member must approve. Each becomes a rule that asks in every permission mode, and it overrides what a lane would otherwise do without asking, so the example above makes every commit and every file edit ask. A gate on a file tool takes the `Edit` rule form, because the agent CLI matches file paths only against `Edit` and `Read` rules. A gate can only add requests: no key lets a lane do more without asking than the list above. A layer that sets `gates` replaces the list of the layers below it, so a repository's `.ropeshift/profile.toml` that leaves out a gate of yours is refused: the refusal names the gate, and the lane does not start. To add a gate, the repository's layer names every gate of yours as well. A lane's `--profile` layer cannot set `gates` ([a lane's own profile layer](#a-lanes-own-profile-layer)).
 
 ### How many lanes run at once
 
@@ -254,6 +254,29 @@ A threshold of `0` turns its warning off. These settings are the machine's, so a
 
 `ropeshift worker list` and `ropeshift top` show what each worker last measured and how long ago, with each lane's process tree in `top`, and the web UI's Workers page shows the same for every machine and session, with each warning. A worker that has not reported yet says so.
 
+### A lane's own profile layer
+
+`ropeshift lane start --profile F` gives one lane a profile layer of its own, over the built-in layer, yours, and the repository's. Any caller of the API can send that layer, an outside delegate's included, so it can narrow what the layers below give and cannot widen it.
+
+`lane start` refuses a layer that sets any of these keys, whoever calls it, and the ledger keeps nothing of the request:
+
+- `hooks`, `agent.credentials`, `agent.instructions_file`, `worktree.root`, and `worktree.branch_prefix`, which no lane's layer changes.
+- `agent.gates`, `review.max_review_rounds`, and `resources.ports_per_lane`. The worker compares these with your layer and the repository's, and `lane start`, which holds neither, refuses them whenever a lane's layer sets them.
+
+The profile reads a key whatever its case, under Unicode case folding, so `lane start` refuses `[Hooks]`, or `ROOT` in `[worktree]`, as well.
+
+The worker holds a lane's layer to your layer and the repository's whenever it reads the lane's profile, a layer a claim already holds included. It refuses a layer that does any of the following, and the lane does not start:
+
+- Changes `hooks`, `agent.credentials`, `agent.instructions_file`, `worktree.root`, `worktree.branch_prefix`, `worktree.push_on_stop`, or `[agent.classes]`.
+- Leaves out of `agent.gates` a gate of yours or of the repository's.
+- Raises `agent.permission_mode` past yours, or names `bypassPermissions` or a mode ropeshift does not know.
+- Raises `review.max_review_rounds`, `resources.ports_per_lane`, `lifecycle.max_generations_per_day`, or `lifecycle.max_restarts` past what your layer and the repository's give, sets `max_generations_per_day` to `0` or less where they set a cap, or shortens `lifecycle.restart_window`.
+- Raises `admission.max_lanes` or `admission.max_lanes_per_sign_in` past yours, sets no cap where you set one or left the recommendation, or changes any other key of `[admission]`.
+- Changes `resources.report_interval`, `disk_free_warn`, `memory_available_warn`, `memory_pressure_warn`, or `cpu_load_warn`, which say how the worker measures.
+- Turns `telemetry.content` on where you left it off, or changes `telemetry.retention_age`, `retention_bytes`, or `export_account_attributes`.
+
+A lane's layer can set any other key, such as `agent.model`, `agent.effort`, or a lifecycle timer. It can lower the permission mode, `max_generations_per_day`, `max_restarts`, `max_lanes`, and `max_lanes_per_sign_in`, lengthen `restart_window`, and turn content capture off.
+
 ### Where a lane starts
 
 A lane's worktree starts from the repository's base branch, and never from the commit your checkout has out. The base branch is the repository's default branch, which the daemon reads from git, until you name another:
@@ -289,7 +312,7 @@ The work it judges waits in `acceptance` while its review is open, and the forge
 ropeshift repository set 3f2a1b0 --merge-authority review_approves
 ```
 
-- A criterion the review failed, or a check that failed, sends the work back to `ready` by rule, with the review named in the record. The next attempt's first prompt says what the review found: each failed criterion with the reviewer's reasons and citations. After `max_review_rounds` reviews of one work order, 3 unless a `[review]` table in a profile says otherwise, work the review still fails waits for you instead. A lane's `--profile` layer can lower the bound and cannot raise it past what your layer and the repository's give, the default of 3 where neither sets it: a layer that raises it, or unsets a bound below 3, is refused, and the lane does not start.
+- A criterion the review failed, or a check that failed, sends the work back to `ready` by rule, with the review named in the record. The next attempt's first prompt says what the review found: each failed criterion with the reviewer's reasons and citations. After `max_review_rounds` reviews of one work order, 3 unless a `[review]` table in a profile says otherwise, work the review still fails waits for you instead. A lane's `--profile` layer cannot set the bound ([a lane's own profile layer](#a-lanes-own-profile-layer)).
 - When every criterion passed, `person_merges`, the default, leaves the decision to you: with review target `branch`, the work waits in Needs you, with the verdict for each criterion beside Accept and Send back, and through a pull request it waits in `integrating` for you to merge the pull request. At `person_approves` and `review_approves` the work is accepted and waits in `integrating` while ropeshift merges it, as [merging accepted work](#merging-accepted-work) describes: at `person_approves` the merge waits for your approval, and at `review_approves` the review's pass is the approval, as the system, and the audit names the review lane.
 - A criterion the review could not judge waits for you, unless a passing check from the forge covers it. A check the lane reported about its own work never does.
 
