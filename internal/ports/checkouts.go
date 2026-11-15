@@ -36,6 +36,10 @@ type Checkouts interface {
 	// Reserved says that path is inside a directory the installation keeps for itself, such as its state or
 	// run directory, which holds no clone to register. A path nothing is at is ErrNotFound.
 	Resolve(ctx context.Context, path string) (real string, reserved bool, err error)
+	// SameFile says two absolute paths on this machine name one file or directory, by what the disk says of
+	// each, so two spellings of one directory, as a disk that ignores case allows, are one. A path nothing is
+	// at is ErrNotFound.
+	SameFile(ctx context.Context, a, b string) (same bool, err error)
 	// Keep records path as this worker's checkout of a project's repository, in place of any other.
 	Keep(ctx context.Context, project ledger.WorkspaceID, repository, path string) error
 	// Forget drops this worker's checkout of a project's repository.

@@ -31,6 +31,7 @@ var ManifestChecks = []Check{
 	{"RM10", "approving a plan records on the approval what it registered, an outcome for each repository its version's manifest lists with its path, where that led, and its remote, also when one fails and the others register; a dry run records nothing", checkApprovalRecordsWhatItRegistered},
 	{"RM11", "a manifest name a member removed stays removed whatever clone, history, or remote the entry names, and a plan approval says so", checkRemovedNameStaysRemoved},
 	{"RM12", "deciding a plan approval again changes nothing a first decision registered: the recorded outcomes and the repositories stay, and the approval keeps one record of what it registered", checkRepeatedDecisionKeepsTheRegistration},
+	{"RM14", "a manifest path that spells the planning repository's own clone another way, as a disk that ignores case allows, is that clone and registers nothing", checkManifestPathSpelledAsThePlanningClone},
 	{"RM6", "a manifest registers only a clone inside the directory that holds the planning repository's clone, symbolic links followed: a path or a link that leads out of it, the planning clone itself, and the installation's own directories register nothing, each refused naming where it leads", checkManifestPathsStayBesideThePlanningClone},
 }
 
@@ -1007,6 +1008,38 @@ func checkRepeatedDecisionKeepsTheRegistration(r *Rig) error {
 	}
 	if found, err := r.theRepository(s, "repo-search"); err == nil {
 		return Violatedf("deciding again registered search, whose clone came after: %+v", found)
+	}
+	return r.CheckProjection(s)
+}
+
+func checkManifestPathSpelledAsThePlanningClone(r *Rig) error {
+	s := r.Store()
+	files, err := r.manifestProject(s)
+	if err != nil {
+		return err
+	}
+	if err := r.readsAsPlanning(s, files); err != nil {
+		return err
+	}
+	kept, err := r.planningMachine()
+	if err != nil {
+		return err
+	}
+	// The planning repository's clone is at /work/plan, and the machine reads /work/PLAN as the same directory.
+	kept.Place(ports.Clone{Path: "/work/PLAN", ID: "memory", DefaultBranch: "main"})
+	kept.Spell("/work/PLAN", "/work/plan")
+	manifest := planning.RepositoriesFile{ID: "platform", Repositories: []planning.ManifestRepository{{Name: "again", Path: "../PLAN"}}}
+	for _, dryRun := range []bool{true, false} {
+		added, err := r.repositories(s).RegisterManifest(r.Ctx, r.Scope, manifest, kept, dryRun, r.member())
+		if err != nil {
+			return err
+		}
+		if again, ok := outcomeNamed(added, "again"); !ok || again.Outcome != ledger.RegistrationRefused || !strings.Contains(again.Reason, "the planning repository's own clone") {
+			return Violatedf("the planning clone spelled /work/PLAN reads %+v, dry run %v", again, dryRun)
+		}
+	}
+	if held, err := kept.Of(r.Ctx, r.Scope); err != nil || held["memory"] != "/work/plan" {
+		return Violatedf("the worker keeps %v as the planning repository's checkout: %v", held, err)
 	}
 	return r.CheckProjection(s)
 }

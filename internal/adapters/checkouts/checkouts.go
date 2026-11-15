@@ -11,6 +11,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -264,7 +265,61 @@ func (f *File) Resolve(_ context.Context, path string) (string, bool, error) {
 			return real, true, nil
 		}
 	}
-	return real, false, nil
+	// A directory spelled another way is the same directory, as on a disk that ignores case, so the path and
+	// each directory above it are compared with the reserved ones by the file each names.
+	inside, err := insideByFile(f.Reserved, real)
+	return real, inside, err
+}
+
+// insideByFile says a path is one of the directories, or inside one, by the file each names and not by how a
+// path spells it: the path and every directory above it are read from the disk and compared with each
+// directory that exists. A directory nothing is at holds nothing.
+func insideByFile(dirs []string, path string) (bool, error) {
+	var reserved []os.FileInfo
+	for _, dir := range dirs {
+		info, err := os.Stat(dir)
+		if err == nil {
+			reserved = append(reserved, info)
+		}
+	}
+	if len(reserved) == 0 {
+		return false, nil
+	}
+	for at := filepath.Clean(path); ; at = filepath.Dir(at) {
+		info, err := os.Stat(at)
+		if err != nil {
+			return false, err
+		}
+		if slices.ContainsFunc(reserved, func(dir os.FileInfo) bool { return os.SameFile(dir, info) }) {
+			return true, nil
+		}
+		if filepath.Dir(at) == at {
+			return false, nil
+		}
+	}
+}
+
+// SameFile says two paths name one file or directory, by what the disk says of each. A path nothing is at is
+// ErrNotFound.
+func (f *File) SameFile(_ context.Context, a, b string) (bool, error) {
+	first, err := statOf(a)
+	if err != nil {
+		return false, err
+	}
+	second, err := statOf(b)
+	if err != nil {
+		return false, err
+	}
+	return os.SameFile(first, second), nil
+}
+
+// statOf reads what the disk says of a path, every symbolic link followed.
+func statOf(path string) (os.FileInfo, error) {
+	info, err := os.Stat(path)
+	if errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ENOTDIR) {
+		return nil, fmt.Errorf("nothing is at %s: %w", path, ports.ErrNotFound)
+	}
+	return info, err
 }
 
 var _ ports.Checkouts = (*File)(nil)

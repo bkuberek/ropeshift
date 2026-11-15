@@ -430,7 +430,18 @@ func placeOf(ctx context.Context, kept ports.Checkouts, dir planningDirectory, a
 		return "", fmt.Sprintf("%s cannot be read: %v", at, err)
 	case reserved:
 		return real, fmt.Sprintf("%s is inside a directory this installation keeps for itself", real)
-	case real == dir.clone:
+	}
+	// The clone's directory may be spelled another way, as a disk that ignores case allows, so the paths are
+	// compared by the file each names, and not as strings.
+	own := real == dir.clone
+	if !own {
+		var err error
+		if own, err = kept.SameFile(ctx, real, dir.clone); err != nil && !errors.Is(err, ports.ErrNotFound) {
+			return real, fmt.Sprintf("%s cannot be compared with the planning repository's clone: %v", real, err)
+		}
+	}
+	switch {
+	case own:
 		return real, fmt.Sprintf("%s is the planning repository's own clone", real)
 	case !within(dir.parent, real) && real != at:
 		return real, fmt.Sprintf("%s resolves to %s, outside %s, the directory that holds the planning repository's clone", at, real, dir.parent)
