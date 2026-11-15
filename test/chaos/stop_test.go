@@ -43,6 +43,10 @@ const (
 	laneDied = "died"
 	// laneFenced loses the lane's lease while its session runs.
 	laneFenced = "fenced"
+	// laneFencedUnheard loses the lease, and then saves the lease list a heartbeat would report without
+	// it, before any heartbeat runs. No heartbeat can name the lease as fenced then, so only a reconcile
+	// pass stops the lane.
+	laneFencedUnheard = "fenced-unheard"
 )
 
 // The broken variants of a stop, each of which the oracle below must catch.
@@ -215,10 +219,28 @@ func roleWorkerStop(c *child) error {
 	if err != nil && !errors.As(err, &refused) {
 		return err
 	}
-	if c.spec.Script == laneFenced {
+	switch c.spec.Script {
+	case laneFenced:
 		driver.fence = c.loseLease(grant)
-		stop := beatUntilDone(c.ctx, subject)
+		laneStarted := func(ctx context.Context) bool {
+			_, err := journal.Lane(ctx, c.spec.Lane)
+			return err == nil
+		}
+		stop := daemonLoop(c.ctx, subject, laneStarted)
 		defer stop()
+	case laneFencedUnheard:
+		lose := c.loseLease(grant)
+		looping, stop := context.WithCancel(c.ctx)
+		defer stop()
+		driver.fence = func(spec ports.SessionSpec) {
+			lose(spec)
+			// The control plane no longer names the lease, so the lease list this worker saves and
+			// reports lacks it, and no heartbeat can tell the worker its fence moved.
+			if err := subject.Sync(c.ctx); err != nil {
+				fmt.Fprintln(os.Stderr, "syncing after the fence:", err)
+			}
+			daemonLoop(looping, subject, func(context.Context) bool { return true })
+		}
 	}
 	if c.spec.Script == laneCanceled {
 		driver.fence = c.cancelsWork()
@@ -264,13 +286,24 @@ func (c *child) loseLease(grant api.Grant) func(ports.SessionSpec) {
 	}
 }
 
-// beatUntilDone beats as a running daemon does, which is how a worker learns its fence moved.
-func beatUntilDone(ctx context.Context, subject *worker.Worker) func() {
+// daemonLoop does what a running daemon does on every pass of Worker.Run: a heartbeat, an upload, and
+// a reconcile pass. A heartbeat is how a worker learns its fence moved only while its saved lease list
+// still names the lease; once a sync saved a list without it, only a reconcile pass stops the lane.
+//
+// The reconcile passes wait for started to report true. Converge marks what a crash left before it
+// begins any effect, and a pass beside it must not run first, so the loop waits for the lane's record,
+// which Converge writes after that. A pass beside the end of Converge's own is harmless, because a lane
+// starts once, and a lane that lost its lease is stopped from beside its own goroutine. The returned
+// function stops the loop.
+func daemonLoop(ctx context.Context, subject *worker.Worker, started func(context.Context) bool) func() {
 	beating, stop := context.WithCancel(ctx)
 	go func() {
 		for beating.Err() == nil {
 			_, _ = subject.Beat(beating)
 			_ = subject.Upload(beating)
+			if started(beating) {
+				_, _ = subject.Reconcile(beating)
+			}
 			time.Sleep(20 * time.Millisecond)
 		}
 	}()
@@ -595,6 +628,17 @@ func fencedCase(op string, steps ...string) crashCase {
 	}
 }
 
+// fencedUnheardCase is a fenced lane that no heartbeat names, because the worker saved the lease list
+// that lacks its lease before any heartbeat ran. That is the order a heartbeat can lose to a lease
+// ending, and only a reconcile pass stops the lane then, so it holds the race in place.
+func fencedUnheardCase(op string, steps ...string) crashCase {
+	return crashCase{
+		name: "a fenced lane that no heartbeat names at " + op, op: op, steps: steps,
+		prepare: func(w *world) (childSpec, error) { return stopSpec(w, true, laneFencedUnheard, "") },
+		settled: fencedSettled,
+	}
+}
+
 func fencedSettled(w *world, spec childSpec) error {
 	wrote, _, err := witnessed(w)
 	if err != nil {
@@ -631,6 +675,7 @@ func stopCases() []crashCase {
 		diedCase("worker.guard", surveyed, pushed, snapshotted, snapshotPushed, saved),
 		diedCase("worktree.snapshot", "read", "added", "committed", "recorded"),
 		fencedCase("worker.guard", surveyed, pushed, snapshotted, snapshotPushed, saved),
+		fencedUnheardCase("worker.guard", surveyed, pushed, snapshotted, snapshotPushed, saved),
 		noRemoteCase(),
 		keptHereCase(),
 		removalCase(),
