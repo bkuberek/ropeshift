@@ -10,14 +10,16 @@ import { actionWords } from "../needs/WorkCard";
 import { Ago, Page, StampLine, useClock, ViewTime, words } from "../parts/parts";
 import { Icon } from "../ui/Icon";
 import { Button, Segmented } from "../ui/controls";
-import { Absent, Banner, ConditionChip, EmptyState, Freshness, freshnessOf, Id, LaneBadge, ProjectTag, Refusal, SkeletonRows, TableRegion, TargetChip } from "../ui/display";
+import { Absent, Banner, ConditionChip, EmptyState, Freshness, freshnessOf, Id, LaneBadge, Panel, ProjectTag, Refusal, SkeletonRows, TableRegion, TargetChip, WorkBadge } from "../ui/display";
 import { Field } from "../ui/forms";
 import { Dialog, Menu } from "../ui/overlays";
 import { Talkable, TalkToLane, useTalkable } from "../talk/controls";
 import { useTalk } from "../talk/state";
 import { SessionUse } from "./Installation";
 import { machineMeasures, sessionOf } from "./resources";
-import { laneLabel } from "./states";
+import { StartWork, startOf } from "./StartWork";
+import { counting, laneLabel } from "./states";
+import { useWorkIndex } from "./workIndex";
 
 type Scope = "project" | "all";
 
@@ -157,8 +159,6 @@ function LaneTable({ rows, label, report, after }: { rows: Row[]; label: string;
   );
 }
 
-const counting = new Set(["provisioning", "starting", "briefing", "working", "needs_decision", "compacting", "handing_off", "idle", "backoff", "parking"]);
-
 // Machine is one worker's panel: its name, its orchestrator, its lanes against its cap, what its worker last
 // measured of the machine, how fresh its word is, and its lanes.
 function Machine({ line, rows, after }: { line: WorkerLine; rows: Row[]; after: () => Promise<void> }) {
@@ -228,10 +228,41 @@ function Machine({ line, rows, after }: { line: WorkerLine; rows: Row[]; after: 
   );
 }
 
+// ReadyToStart lists the work that waits for a lane, which is ready work and claimed work with no lane yet,
+// each with the action that moves it forward, the same as its work order's page offers. Work the server
+// lists as stuck stands in Needs you with the actions that fit it. The panel stands aside when nothing waits.
+function ReadyToStart({ live, after }: { live: Live; after: () => Promise<void> }) {
+  const { index } = useWorkIndex(live);
+  const rows = (index?.rows ?? []).filter((row) => !row.stuck && ["claim", "lane"].includes(startOf(row.order, row.lane)?.kind ?? ""));
+  if (rows.length === 0) {
+    return null;
+  }
+  return (
+    <Panel title="Ready to start">
+      <ul className="ready-list">
+        {rows.map((row) => (
+          <li key={row.order.id} data-work={row.order.id}>
+            <span className="ready-title">
+              <Link to={addressOf("/work-order", { id: row.order.id })} data-item>
+                {row.order.title || row.order.id}
+              </Link>
+              <span className="cell-note">
+                <Id value={row.order.id} />
+              </span>
+            </span>
+            <WorkBadge state={row.order.state} />
+            <StartWork order={row.order} lane={row.lane} small after={after} />
+          </li>
+        ))}
+      </ul>
+    </Panel>
+  );
+}
+
 type FloorRead = { project: string; view: ShopFloor };
 
 // FloorBody is one panel per machine that serves the project, and a panel for lanes no machine holds.
-function FloorBody({ reads, stuck, project, after }: { reads: FloorRead[]; stuck: Stuck | null; project: string; after: () => Promise<void> }) {
+function FloorBody({ reads, stuck, project, live, after }: { reads: FloorRead[]; stuck: Stuck | null; project: string; live: Live; after: () => Promise<void> }) {
   const own = reads.find((read) => read.project === project)?.view;
   const workers = new Map<string, WorkerLine>();
   for (const read of reads) {
@@ -251,16 +282,20 @@ function FloorBody({ reads, stuck, project, after }: { reads: FloorRead[]; stuck
   );
   if (!own || (own.workers.length === 0 && own.lanes.length === 0)) {
     return (
-      <div className="panel">
-        <EmptyState icon="server" title="No worker has joined">
-          Lanes appear here, one panel per machine, once a worker joins. A worker starts from a terminal on its machine, with its join token.
-        </EmptyState>
+      <div className="stack">
+        {own ? <ReadyToStart live={live} after={after} /> : null}
+        <div className="panel">
+          <EmptyState icon="server" title="No worker has joined">
+            Lanes appear here, one panel per machine, once a worker joins. A worker starts from a terminal on its machine, with its join token.
+          </EmptyState>
+        </div>
       </div>
     );
   }
   const loose = rows.filter((row) => !row.lane.worker_id || !workers.has(row.lane.worker_id));
   return (
     <div className="stack">
+      <ReadyToStart live={live} after={after} />
       {[...workers.values()].map((line) => (
         <Machine key={line.worker.id} line={line} rows={rows.filter((row) => row.lane.worker_id === line.worker.id)} after={after} />
       ))}
@@ -316,7 +351,7 @@ export function FloorPage({ live, project, projects, show, after }: { live: Live
         <ViewTime.Provider value={{ asOf: own.view.as_of, elapsed: Math.max(0, now - own.readAt) }}>
           <div aria-busy={own.busy}>
             <Talkable.Provider value={talkable}>
-              <FloorBody reads={reads} stuck={stuck.view} project={project} after={after} />
+              <FloorBody reads={reads} stuck={stuck.view} project={project} live={live} after={after} />
             </Talkable.Provider>
           </div>
           <StampLine stamp={own.view} />

@@ -156,6 +156,8 @@ const views = [
   "/projects/default/questions",
   "/projects/default/work?group=all",
   "/projects/default/work-order?id=wo-accept",
+  "/projects/default/work-order?id=generated-28",
+  "/projects/default/work-order?id=generated-26",
   "/projects/default/floor",
   "/projects/default/lane?id=lane-wo-running",
   "/projects/default/measures",
@@ -308,6 +310,44 @@ describe.each(Object.entries(sizes))("at %s width", (size, viewport) => {
         expect(found.map((line) => `${size} ${theme} ${line}`)).toEqual([]);
       },
       180_000,
+    );
+
+    it(
+      "the start dialog, with workers, with a refusal, and with no worker, meets WCAG 2.2 A and AA",
+      async () => {
+        const context = await browser.newContext({ viewport, colorScheme: theme, reducedMotion: "reduce" });
+        await context.route(/\/v1\//, answer);
+        const page = await context.newPage();
+        const found: string[] = [];
+        // The ready work order of the plans the Go tests wrote, which has a page and a row on the floor.
+        await page.goto(`${base}/projects/default/work-order?id=generated-28`);
+        await ready(page);
+        await page.getByRole("button", { name: "Start", exact: true }).click();
+        const dialog = page.getByRole("dialog", { name: "Start Write the guide" });
+        await dialog.waitFor();
+        await page.waitForFunction(() => document.querySelectorAll("[role=dialog] select option").length > 1, null, { timeout: 20_000 });
+        // The Start button turns from disabled to enabled as the workers arrive, and axe reads a color a
+        // transition has reached, so each audit waits for the transition to end.
+        await page.mouse.move(0, 0);
+        await page.waitForTimeout(600);
+        found.push(...(await audit(page)).map((violation) => `start dialog with workers ${violation}`));
+        // The answer to a claim the test does not serve is a refusal, which the dialog shows at its foot.
+        await dialog.getByRole("button", { name: "Start", exact: true }).click();
+        await dialog.getByRole("alert").waitFor();
+        await page.mouse.move(0, 0);
+        await page.waitForTimeout(600);
+        found.push(...(await audit(page)).map((violation) => `start dialog with a refusal ${violation}`));
+        await page.keyboard.press("Escape");
+        await page.route(/\/v1\/workers$/, (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ workers: [] }) }));
+        await page.getByRole("button", { name: "Start", exact: true }).click();
+        await page.getByRole("dialog", { name: "Start Write the guide" }).getByText("No worker has joined.").first().waitFor();
+        await page.mouse.move(0, 0);
+        await page.waitForTimeout(600);
+        found.push(...(await audit(page)).map((violation) => `start dialog with no worker ${violation}`));
+        await context.close();
+        expect(found.map((line) => `${size} ${theme} ${line}`)).toEqual([]);
+      },
+      120_000,
     );
 
     it(

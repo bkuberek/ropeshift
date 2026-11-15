@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 
-import { addRepositories, changeRepository, claimWork, createAdoptWork, createProject, readApprovals, readRepositories, readWorkers, reviewWork, startLane } from "../api/admin";
+import { addRepositories, changeRepository, createAdoptWork, createProject, readApprovals, readRepositories, readWorkers, reviewWork } from "../api/admin";
 import type { RepositoryAddReport, WorkerRecord } from "../api/admin";
 import { inProjectOf } from "../api/client";
+import { claimAndStart, newRunIDs } from "../api/runWork";
 import type { Project } from "../api/types";
 import { projectName } from "../app/Shell";
 import { go, Link } from "../app/route";
@@ -121,10 +122,7 @@ export function ImportPage({ projects, chosen, reload }: { projects: Project[]; 
       if (review.failures && review.failures.length > 0) {
         throw new Error(`Work order ${id} was recorded and is not ready: ${review.failures.map((failure) => `${failure.check}: ${failure.detail}`).join("; ")}`);
       }
-      await here(() => claimWork(id, newID(), worker));
-      const started = newID();
-      await here(() => startLane(id, started));
-      return started;
+      return claimAndStart(id, worker, newRunIDs(), { project });
     });
     if (lane) {
       await reload();

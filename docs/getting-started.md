@@ -99,7 +99,15 @@ ropeshift work review <work-order-id>
 
 ## 7. Run the lane
 
-Claim the work for your worker, and start its lane:
+Start the work on your worker:
+
+1. In Work orders, open the work order, which is `ready`.
+2. Select Start. The dialog lists your workers, with the one you have already chosen when there is only one.
+3. Select Start in the dialog. It claims the work for the worker, then starts its lane.
+
+If the claim goes through and the lane start is refused, the work stays claimed. The dialog says so, and Start lane tries the lane again.
+
+The same from the command line:
 
 ```sh
 ropeshift work claim <work-order-id> --worker <worker-id>
@@ -119,7 +127,7 @@ ropeshift lane attach <lane-id>
 
 ## 8. Run the review
 
-When the lane ends with a commit, ropeshift makes a review work order for that commit, titled `Review: <title>`, and it is `ready` at once. An agent never approves its own work, so a second, read-only lane judges each criterion. Claim and start it as you did the first:
+When the lane ends with a commit, ropeshift makes a review work order for that commit, titled `Review: <title>`, and it is `ready` at once. An agent never approves its own work, so a second, read-only lane judges each criterion. Start it as you did the first: open the review work order in Work orders, or find it under Ready to start on Floor, and select Start. From the command line:
 
 ```sh
 ropeshift work list
@@ -127,7 +135,7 @@ ropeshift work claim <review-id> --worker <worker-id>
 ropeshift lane start <review-id>
 ```
 
-The review gives each criterion a verdict: `pass`, `fail`, or `cannot_judge`, with its reasons and citations. A failed criterion sends the work back to `ready` for another attempt, with the review's findings in that attempt's first prompt; claim it and start its lane again.
+The review gives each criterion a verdict: `pass`, `fail`, or `cannot_judge`, with its reasons and citations. A failed criterion sends the work back to `ready` for another attempt, with the review's findings in that attempt's first prompt; start it again.
 
 ## 9. Accept the work
 

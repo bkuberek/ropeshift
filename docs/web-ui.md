@@ -53,12 +53,22 @@ Documents holds the project's requirements, specs, designs, and other documents,
 
 Both tabs are for reading. `ropeshift document` and `ropeshift requirement` read the same records from [the command line](cli.md).
 
+## Work orders
+
+Work orders lists every work order of the project under a tab for each group: Open, In progress, On hold, Stuck, Review and merge, Completed, and All. A work order's page shows its lifecycle, its review, its checks, and its lanes, beside the decision it waits on and its facts.
+
+Start moves ready work forward. On a ready work order, Start opens a dialog that claims the work for a worker and then starts its lane, which is what `ropeshift work claim` and `ropeshift lane start` do in turn. The dialog lists the workers the installation holds, the ones the daemon sees now first, each with its lanes against its cap and its level. With one worker, that worker is chosen already. A lane ID is optional, and an empty one lets ropeshift name the lane. Start stays disabled, with its reason beside it, while no worker has joined or none is chosen. A refusal of the claim or of the lane start shows in the daemon's words in the dialog. A claim that went through before a refused lane start leaves the work claimed, which the dialog says, and its Start lane sends the lane start alone. A claimed work order that has no lane shows Start lane for the same reason. Work that is still in intake, planning, or contract review shows Start disabled, with the state it is in, and work that runs or has ended shows neither.
+
+The command palette lists Start work and Start lane for the work order in view and for a work order a search finds, and a link to a work order's page can open the dialog with `?dialog=start`.
+
 ## Floor
 
 ![Floor, with one worker's measurements and its lanes in the working, ended, parked, and needs-a-decision states](assets/screenshots/floor-light.png#gh-light-mode-only)
 ![Floor, with one worker's measurements and its lanes in the working, ended, parked, and needs-a-decision states](assets/screenshots/floor-dark.png#gh-dark-mode-only)
 
 Floor shows every machine that serves the project, and its lanes. Each machine shows its orchestrator, its lanes against its cap, and its latest CPU, memory, memory pressure, free disk, and load per core, with how fresh those readings are. Each lane shows its work order, its state, whether the model and the ledger are reachable from it, its generation, and its freshness. The switch at the top shows the lanes of this project or of all projects.
+
+Above the machines, Ready to start lists the work that waits for a lane: ready work, and claimed work with no lane yet. Each row has the same Start or Start lane as the work order's page, through the same dialog. Work the server lists as stuck stays in Needs you, and the panel is not there when nothing waits.
 
 A member opens a lane's page with Open. Message talks to a lane that runs headless, and Open pane to one that runs in a terminal pane, both in the conversation panel. A lane's actions menu holds what its state allows, such as Resume, Start the next generation, Reset the breaker, End this claim, Back to ready, Back to planning, or Cancel this work, each explained before it runs. [How many lanes run at once](onboarding.md#how-many-lanes-run-at-once) and [what the worker measures](onboarding.md#what-the-worker-measures) cover the caps and the readings.
 

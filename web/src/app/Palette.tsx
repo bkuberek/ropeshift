@@ -65,6 +65,25 @@ export function recordEntry(record: SearchRecord, project: string, projectLabel:
   };
 }
 
+// startEntry offers to start a work order the search found, when it is ready or claimed. It opens the work
+// order's page on the Start dialog, which says whether the work can start now.
+export function startEntry(record: SearchRecord, project: string, projectLabel: string): Entry | null {
+  const verb = record.state === "ready" ? "Start work" : record.state === "claimed" ? "Start lane" : "";
+  if (record.kind !== "work_order" || !verb) {
+    return null;
+  }
+  return {
+    key: `start:${record.id}`,
+    group: "Actions",
+    id: record.id,
+    title: `${verb}: ${record.title || record.id}`,
+    icon: "play",
+    keywords: "claim run worker lane",
+    to: inProject(project, `/work-order?id=${encodeURIComponent(record.id)}&dialog=start`),
+    meta: <span>{projectLabel}</span>,
+  };
+}
+
 type PaletteProps = {
   open: boolean;
   onClose: () => void;
@@ -83,6 +102,7 @@ const searchWaitMs = 120;
 export function Palette({ open, onClose, project, projectLabel, sources, onConversation }: PaletteProps) {
   const [typed, setTyped] = useState("");
   const [records, setRecords] = useState<Entry[]>([]);
+  const [offered, setOffered] = useState<Entry[]>([]);
   const [failure, setFailure] = useState("");
   const [active, setActive] = useState(0);
   const field = useRef<HTMLInputElement>(null);
@@ -102,6 +122,7 @@ export function Palette({ open, onClose, project, projectLabel, sources, onConve
   useEffect(() => {
     if (!open || !words || !project) {
       setRecords([]);
+      setOffered([]);
       setFailure("");
       return;
     }
@@ -111,12 +132,14 @@ export function Palette({ open, onClose, project, projectLabel, sources, onConve
         .then((found) => {
           if (current) {
             setRecords(found.records.map((record) => recordEntry(record, project, projectLabel, onConversation)).filter((entry): entry is Entry => entry !== null));
+            setOffered(found.records.map((record) => startEntry(record, project, projectLabel)).filter((entry): entry is Entry => entry !== null));
             setFailure("");
           }
         })
         .catch((error: unknown) => {
           if (current) {
             setRecords([]);
+            setOffered([]);
             setFailure(error instanceof Error ? error.message : String(error));
           }
         });
@@ -127,7 +150,11 @@ export function Palette({ open, onClose, project, projectLabel, sources, onConve
     };
   }, [open, words, project, projectLabel, onConversation]);
 
-  const groups = useMemo(() => arrange(typed, { ...sources, records }), [typed, sources, records]);
+  // An action found by a search stands beside the shell's, unless the page in view lists the same one.
+  const groups = useMemo(() => {
+    const listed = new Set(sources.actions.map((entry) => entry.title));
+    return arrange(typed, { ...sources, actions: [...sources.actions, ...offered.filter((entry) => !listed.has(entry.title))], records });
+  }, [typed, sources, records, offered]);
   const flat = groups.flatMap((group) => group.entries);
   const chosen = flat[Math.min(active, flat.length - 1)];
 

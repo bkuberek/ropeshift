@@ -17,6 +17,7 @@ import { ToastProvider } from "../ui/overlays";
 import { inField, idle, onMac, readKey } from "./keys";
 import { NoSuchView, PageFor } from "./pages";
 import type { Entry } from "./ranking";
+import { PageActionsProvider } from "./pageActions";
 import { Palette } from "./Palette";
 import { recentRecords, useDockWidth, useFlag } from "./prefs";
 import { ArrivalsProvider, CurrentProject, go, inProject, Link, useRoute } from "./route";
@@ -108,6 +109,7 @@ export function App() {
   const talkRef = useRef<Talk | null>(null);
   const openDock = useCallback(() => setDockOpen(true), [setDockOpen]);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [pageEntries, setPageEntries] = useState<Entry[]>([]);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [navOpen, setNavOpen] = useState(false);
   const switcher = useProjectSwitcher();
@@ -235,6 +237,7 @@ export function App() {
           to: `/needs-you?item=${encodeURIComponent(`${item.kind}:${item.id}`)}&focus=primary`,
         }),
       ),
+      ...pageEntries,
       { key: "action:projects", group: "Actions", title: "Switch project", icon: "projects", meta: "P", run: () => switcher.setOpen(true) },
       { key: "action:create-project", group: "Actions", title: "Create project", icon: "plus", to: "/projects?dialog=create" },
       { key: "action:import", group: "Actions", title: "Import an existing project", icon: "import", to: "/import" },
@@ -303,7 +306,7 @@ export function App() {
       .filter((row) => row.state === "active" && row.name !== project)
       .map((row) => ({ key: `project:${row.name}`, group: "Projects", id: row.name, title: `Switch to ${projectName(row, row.name)}`, icon: "projects", to: inProject(row.name, resolved.kind === "view" && route.project ? route.path : "/roadmap") }));
     return { actions, views, recent, projects: others };
-  }, [items, dockOpen, onConversations, theme, nextTheme, signOutNow, project, label, list, switcher, setDockOpen, resolved.kind, route.project, route.path]);
+  }, [items, pageEntries, dockOpen, onConversations, theme, nextTheme, signOutNow, project, label, list, switcher, setDockOpen, resolved.kind, route.project, route.path]);
 
   const waiting = needs.view ? needs.view.items.length : null;
   const shell = `app${navOpen ? " nav-open" : ""}${dockVisible ? " dock-open" : ""}`;
@@ -314,6 +317,7 @@ export function App() {
 
   return (
     <ToastProvider>
+      <PageActionsProvider value={setPageEntries}>
       <CurrentProject.Provider value={project}>
         <ArrivalsProvider value={route.moves - opened.current}>
           <TalkProvider project={project} openDock={openDock}>
@@ -407,6 +411,7 @@ export function App() {
           </TalkProvider>
         </ArrivalsProvider>
       </CurrentProject.Provider>
+      </PageActionsProvider>
     </ToastProvider>
   );
 }

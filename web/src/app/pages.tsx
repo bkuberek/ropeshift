@@ -213,7 +213,7 @@ function ViewFor({ view, project, scoped, params, live, after, needs, projects, 
     case "work":
       return <WorkOrdersPage live={live} group={param("group")} />;
     case "work-order":
-      return <WorkOrderPage key={param("id")} live={live} id={param("id")} tab={param("tab")} needs={needs} after={after} />;
+      return <WorkOrderPage key={param("id")} live={live} id={param("id")} tab={param("tab")} dialog={param("dialog")} needs={needs} after={after} />;
     case "floor":
       return <FloorPage live={live} project={project} projects={projects} show={param("show")} after={after} />;
     case "lane":

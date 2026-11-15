@@ -15,6 +15,7 @@ import { LinkTabs, TabPanel, Tabs } from "../ui/controls";
 import { Absent, Banner, ConditionChip, Digest, EmptyState, Fact, Facts, Freshness, freshnessOf, Id, LaneBadge, Panel, RecordChip, SkeletonRows, StateBadge, TableRegion, WorkBadge } from "../ui/display";
 import type { WorkGroup } from "./states";
 import { checkStates, workStates } from "./states";
+import { StartWork } from "./StartWork";
 import { WakeWords } from "./WakeWords";
 import type { WorkRow } from "./workIndex";
 import { groupOf, useWorkIndex } from "./workIndex";
@@ -330,7 +331,7 @@ function Decision({ item, after }: { item: NeedItem; after: () => Promise<void> 
 
 // WorkOrderPage is one work order: its header and lifecycle, tabs for its review, changes, checks,
 // lanes, and activity, and beside them the decision it waits on and its facts.
-export function WorkOrderPage({ live, id, tab, needs, after }: { live: Live; id: string; tab: string; needs: NeedsYou; after: () => Promise<void> }) {
+export function WorkOrderPage({ live, id, tab, dialog, needs, after }: { live: Live; id: string; tab: string; dialog: string; needs: NeedsYou; after: () => Promise<void> }) {
   const { index, failure } = useWorkIndex(live);
   const now = useClock();
   const tabsId = useId();
@@ -367,6 +368,7 @@ export function WorkOrderPage({ live, id, tab, needs, after }: { live: Live; id:
   return (
     <Page
       crumbs={crumbs}
+      actions={<StartWork order={order} lane={row.lane} inView opened={dialog === "start"} onClosed={() => dialog && go(workAddress(order.id, chosen === "review" ? "" : chosen), { stay: true, replace: true })} after={after} />}
       title={
         <>
           <span className="title-id">{order.id}</span> {order.title || ""}
