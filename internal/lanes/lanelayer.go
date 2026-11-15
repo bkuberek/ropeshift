@@ -12,13 +12,14 @@ import (
 
 // LaneLayerKeys are the settings a route that takes a lane's own profile layer refuses in it, each as its
 // path of TOML keys. Any caller of the API can send that layer, an outside delegate's included. These would
-// run a command as this machine's user, hand the lane a variable of the worker's environment, name a file
-// for the worker to read, or put the worktree or its branch where the layers below did not, and
-// CheckLaneLayer refuses any change to them. A route holds none of the layers below, so it refuses each of
-// these keys whenever a lane's layer sets it.
+// move the lane to a driver whose classes map its roster agent to another model, run a command as this
+// machine's user, hand the lane a variable of the worker's environment, name a file for the worker to read,
+// or put the worktree or its branch where the layers below did not, and CheckLaneLayer refuses any change to
+// them. A route holds none of the layers below, so it refuses each of these keys whenever a lane's layer sets
+// it.
 func LaneLayerKeys() [][]string {
 	return [][]string{
-		{"hooks"}, {"agent", "credentials"}, {"agent", "instructions_file"}, {"worktree", "root"}, {"worktree", "branch_prefix"},
+		{"driver"}, {"hooks"}, {"agent", "credentials"}, {"agent", "instructions_file"}, {"worktree", "root"}, {"worktree", "branch_prefix"},
 	}
 }
 
@@ -48,6 +49,11 @@ func LaneLayerFloors() []LaneLayerFloor {
 // (ADR-0014). It holds every gate because it holds two profiles, however they were built: MergeLayers joins
 // the layers' gates, so a profile resolved from layers always keeps them, and a lane's layer can only add.
 func CheckLaneLayer(below, profile Profile) error {
+	// The driver picks the model a roster agent's class maps to, so a lane that moved to another would change
+	// what it runs without setting agent.model (FR-AUTH-16).
+	if profile.Driver != below.Driver {
+		return laneLayerRefusal("change driver")
+	}
 	if !maps.EqualFunc(below.Hooks, profile.Hooks, slices.Equal[[]string]) {
 		return laneLayerRefusal("change [hooks]")
 	}

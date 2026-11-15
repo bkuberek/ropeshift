@@ -260,6 +260,11 @@ func TestALanesOwnLayerRunsNothingAndRaisesNoCap(t *testing.T) {
 		{name: "a lane puts its worktree anywhere", lane: "[worktree]\nroot = \"/\"\n", refused: "worktree.root"},
 		{name: "a lane moves its worktree beside the repository", lane: "worktree.root = \"../elsewhere\"\n", refused: "worktree.root"},
 		{name: "a lane changes its branch's prefix", lane: "[worktree]\nbranch_prefix = \"\"\n", refused: "worktree.branch_prefix"},
+		// The driver picks the model a roster agent's class maps to, so a lane that moves to another driver
+		// changes its model without setting agent.model (FR-AUTH-16).
+		{name: "a lane changes its driver", lane: "driver = \"elsewhere\"\n", refused: "driver"},
+		{name: "a lane changes the repository's driver", repository: "driver = \"elsewhere\"\n", lane: "driver = \"claude-code\"\n", refused: "driver"},
+		{name: "a lane restates its driver", lane: "driver = \"claude-code\"\n"},
 		{name: "a repository places its lanes", repository: "[worktree]\nroot = \"../lanes\"\nbranch_prefix = \"work/\"\n"},
 		{name: "a lane raises the day's cap", lane: "[lifecycle]\nmax_generations_per_day = 9\n", refused: "lifecycle.max_generations_per_day"},
 		{name: "a lane lifts the day's cap", lane: "[lifecycle]\nmax_generations_per_day = 0\n", refused: "lifecycle.max_generations_per_day"},

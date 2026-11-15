@@ -260,7 +260,7 @@ A threshold of `0` turns its warning off. These settings are the machine's, so a
 
 `lane start` refuses a layer that sets any of these keys, whoever calls it, and the ledger keeps nothing of the request:
 
-- `hooks`, `agent.credentials`, `agent.instructions_file`, `worktree.root`, and `worktree.branch_prefix`, which no lane's layer changes.
+- `driver`, `hooks`, `agent.credentials`, `agent.instructions_file`, `worktree.root`, and `worktree.branch_prefix`, which no lane's layer changes.
 - `review.max_review_rounds` and `resources.ports_per_lane`, unless the layer sets the one value no layer below can lower: `max_review_rounds = 1` and `ports_per_lane = 0`. The worker compares any other value with your layer and the repository's, and `lane start`, which holds neither, refuses it.
 
 The profile reads a key whatever its case, under Unicode case folding, so `lane start` refuses `[Hooks]`, or `ROOT` in `[worktree]`, as well. The decoder would take whichever of two spellings of one key it met first, so every layer spells each key one way: `lane start` refuses a layer that holds two keys of one table that differ only in case, such as `[hooks]` and `[Hooks]`, and the worker refuses layers that spell one key two ways, yours and the repository's included. The refusal names both spellings.
@@ -269,7 +269,7 @@ The profile reads a key whatever its case, under Unicode case folding, so `lane 
 
 The worker holds a lane's layer to your layer and the repository's whenever it reads the lane's profile, a layer a claim already holds included. It refuses a layer that does any of the following, and the lane does not start:
 
-- Changes `hooks`, `agent.credentials`, `agent.instructions_file`, `worktree.root`, `worktree.branch_prefix`, `worktree.push_on_stop`, or `[agent.classes]`.
+- Changes `driver`, `hooks`, `agent.credentials`, `agent.instructions_file`, `worktree.root`, `worktree.branch_prefix`, `worktree.push_on_stop`, or `[agent.classes]`.
 - Raises `agent.permission_mode` past yours, or names `bypassPermissions` or a mode ropeshift does not know.
 - Raises `review.max_review_rounds`, `resources.ports_per_lane`, `lifecycle.max_generations_per_day`, or `lifecycle.max_restarts` past what your layer and the repository's give, sets `max_generations_per_day` to `0` or less where they set a cap, or shortens `lifecycle.restart_window`.
 - Raises `admission.max_lanes` or `admission.max_lanes_per_sign_in` past yours, sets no cap where you set one or left the recommendation, or changes any other key of `[admission]`.

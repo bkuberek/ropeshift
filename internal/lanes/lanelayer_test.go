@@ -46,7 +46,7 @@ func TestLaneLayerFloorsAreWhatTheWorkerAccepts(t *testing.T) {
 // TestLaneLayerKeysAreTheSettingsNoLayerChanges keeps the gates, the review bound, and the ports out of the
 // keys a route refuses outright: a lane's layer may add a gate, and the other two have a floor.
 func TestLaneLayerKeysAreTheSettingsNoLayerChanges(t *testing.T) {
-	want := [][]string{{"hooks"}, {"agent", "credentials"}, {"agent", "instructions_file"}, {"worktree", "root"}, {"worktree", "branch_prefix"}}
+	want := [][]string{{"driver"}, {"hooks"}, {"agent", "credentials"}, {"agent", "instructions_file"}, {"worktree", "root"}, {"worktree", "branch_prefix"}}
 	if got := LaneLayerKeys(); !slices.EqualFunc(got, want, slices.Equal[[]string]) {
 		t.Errorf("keys %v, want %v", got, want)
 	}
