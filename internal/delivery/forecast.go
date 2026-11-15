@@ -2,6 +2,7 @@ package delivery
 
 import (
 	"cmp"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -195,8 +196,9 @@ type footing struct {
 // again with the cap one higher, and with each record's waits for a person cut to the median, for the two
 // what-ifs; with no cap, the first rerun is the forecast itself. The p50 and p85 come from the trials by nearest
 // rank. A work order listed twice counts once, as first listed, and a dependency on itself counts for nothing. It
-// returns the plan's forecast, then each milestone's, by milestone.
-func ForecastOf(in ForecastInput) []Forecast {
+// returns the plan's forecast, then each milestone's, by milestone. A large plan's trials take seconds, so it asks
+// ctx before each trial, and once ctx is done it stops and returns ctx's error and no forecast.
+func ForecastOf(ctx context.Context, in ForecastInput) ([]Forecast, error) {
 	seed := ForecastSeed(in.PlanDigest, in.Rev)
 	trials := min(max(in.Policy.ForecastTrials, 1), MaxForecastTrials)
 	var work []ForecastWork
@@ -227,6 +229,9 @@ func ForecastOf(in ForecastInput) []Forecast {
 		rng := drawsFrom(seed)
 		asIs, cut := make([]job, len(work)), make([]job, len(work))
 		for range trials {
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
 			for i, w := range work {
 				asIs[i], cut[i] = drawJob(w, rng, in.PersonMedianMs)
 			}
@@ -251,7 +256,7 @@ func ForecastOf(in ForecastInput) []Forecast {
 	for _, g := range groups {
 		out = append(out, forecastOfGroup(in, work, g, labelsOf(in, work, g.scope), seed, trials))
 	}
-	return out
+	return out, nil
 }
 
 // capPlusOne is the cap one higher, and no cap stays none.

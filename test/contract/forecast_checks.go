@@ -2,6 +2,7 @@ package contract
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"reflect"
 	"slices"
@@ -19,6 +20,7 @@ var ForecastChecks = []Check{
 	{"FC1", "a plan version keeps the latest forecast of the plan and of each milestone, and the last of each day, with no revision, in a transaction that reaches no delivery read model", checkForecastsKept},
 	{"FC2", "the forecast tick forecasts each plan's newest version from its own estimate set when what it rests on changed, a worker came, work ended, or the version was approved, and keeps nothing otherwise", checkForecastTick},
 	{"FC4", "a forecast run whose plan version a newer version replaced before it kept keeps nothing, and the newer version's estimates stay current", checkForecastOfAReplacedVersion},
+	{"FC5", "a forecast tick canceled before it forecasts a plan stops and keeps nothing, and the next tick forecasts it", checkForecastTickCanceled},
 	{"FC3", "a forecast finds the work each dependency names as admission does: the plan's own work it waits for, unfinished work outside the plan and a name nothing holds as outside it, and ended work as nothing", checkForecastDependencies},
 }
 
@@ -435,4 +437,36 @@ func checkForecastOfAReplacedVersion(r *Rig) error {
 		return Violatedf("version 2's forecasts read %+v: %v", latest, err)
 	}
 	return nil
+}
+
+// cancelingStore cancels the forecast tick's context once its read returns, as a shutdown that lands while the tick
+// works, and counts the forecast transactions it opens.
+type cancelingStore struct {
+	ports.Store
+	cancel context.CancelFunc
+	keeps  int
+}
+
+func (s *cancelingStore) Read(ctx context.Context, scope ledger.WorkspaceID, fn func(ports.ReadTx) error) error {
+	defer s.cancel()
+	return s.Store.Read(ctx, scope, fn)
+}
+
+func (s *cancelingStore) Forecast(ctx context.Context, scope ledger.WorkspaceID, fn func(ports.ForecastTx) error) error {
+	s.keeps++
+	return s.Store.Forecast(ctx, scope, fn)
+}
+
+func checkForecastTickCanceled(r *Rig) error {
+	s := r.Store()
+	if report, err := r.intake(s, newApprovalSource().source); err != nil || len(report.Problems) != 0 {
+		return Violatedf("intake read %+v: %v", report, err)
+	}
+	ctx, cancel := context.WithCancel(r.Ctx)
+	defer cancel()
+	canceling := &cancelingStore{Store: s, cancel: cancel}
+	if kept, err := control.NewForecasts(canceling).Refresh(ctx, r.Scope); !errors.Is(err, context.Canceled) || kept != 0 || canceling.keeps != 0 {
+		return Violatedf("a tick canceled after its read kept %d in %d transactions: %v", kept, canceling.keeps, err)
+	}
+	return r.forecastRuns(s, 1, "after a canceled tick")
 }

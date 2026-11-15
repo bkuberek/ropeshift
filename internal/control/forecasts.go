@@ -61,8 +61,15 @@ func (f *Forecasts) Refresh(ctx context.Context, scope ledger.WorkspaceID) (int,
 	}
 	kept := 0
 	for _, run := range runs {
-		// A large plan's simulation takes seconds, so it holds no transaction.
-		forecasts := delivery.ForecastOf(run.in)
+		// A large plan's simulation takes seconds, so it holds no transaction, and a shutdown stops it before each
+		// plan and between its trials.
+		if err := ctx.Err(); err != nil {
+			return kept, err
+		}
+		forecasts, err := delivery.ForecastOf(ctx, run.in)
+		if err != nil {
+			return kept, err
+		}
 		done, err := f.keep(ctx, scope, run, forecasts)
 		if err != nil {
 			return kept, err
