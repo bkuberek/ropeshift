@@ -27,9 +27,21 @@ type WorkTimeline struct {
 // WorkTimelinePath is one work order's timeline.
 func WorkTimelinePath(id string) string { return "/v1/work-orders/" + url.PathEscape(id) + "/timeline" }
 
-// WorkEstimate is one work order's current estimate, or none when no estimate was made for it.
+// WorkEstimate is one work order's current estimate, or none when no estimate was made for it, and its baseline,
+// or none before one is recorded.
 type WorkEstimate struct {
 	Estimate *delivery.Estimate `json:"estimate"`
+	Baseline *WorkBaseline      `json:"baseline"`
+}
+
+// WorkBaseline is the estimate a work order's baseline holds, which its finished work is measured against
+// (FR-EST-10): the first baseline recorded whose set estimated it, which a plan approval recorded as it showed it,
+// or which the work recorded when it was made outside a plan, with no approval.
+type WorkBaseline struct {
+	ID         string            `json:"id"`
+	Approval   string            `json:"approval_id,omitempty"`
+	RecordedAt int64             `json:"recorded_at"`
+	Estimate   delivery.Estimate `json:"estimate"`
 }
 
 // WorkEstimatePath is one work order's current estimate.

@@ -21,14 +21,18 @@ import (
 
 // approvePlan is what approving a plan version does, in the transaction that records the approval. It
 // holds the approval to the digest the ledger has now, decides what the plan drafted as the member's
-// decisions, passes the contract review of the work the version covers, and approves the merge of the
-// planning branch the version came from. A kill leaves all of that or none of it (FR-PLAN-9, FR-PLAN-10).
+// decisions, passes the contract review of the work the version covers, approves the merge of the
+// planning branch the version came from, and records the estimates and forecasts it showed as the
+// baseline. A kill leaves all of that or none of it (FR-PLAN-9, FR-PLAN-10, FR-EST-10).
 func approvePlan(tx ports.WriteTx, approval authority.Approval, member ledger.Actor) error {
 	version, err := tx.Planning().PlanVersion(approval.Plan, approval.PlanVersion)
 	if errors.Is(err, ports.ErrNotFound) && approval.WorkOrder != "" {
 		// The ledger does not hold this version: it is a branch nothing has read, and approving it is
 		// accepting the work order whose lane wrote it. Intake finishes the approval when it reads it.
-		return acceptLanesPlan(tx, approval, member)
+		if err := acceptLanesPlan(tx, approval, member); err != nil {
+			return err
+		}
+		return baselineApproval(tx, approval, member)
 	}
 	if err != nil {
 		return err
@@ -55,7 +59,10 @@ func approvePlan(tx ports.WriteTx, approval authority.Approval, member ledger.Ac
 	if _, err := passCoveredReviews(tx, member); err != nil {
 		return err
 	}
-	return approvePlanMerge(tx, version, approval, member, "")
+	if err := approvePlanMerge(tx, version, approval, member, ""); err != nil {
+		return err
+	}
+	return baselineApproval(tx, approval, member)
 }
 
 // planDecisionID names the decision a draft becomes in one version of one plan. It is derived, so the

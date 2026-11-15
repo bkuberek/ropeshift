@@ -48,6 +48,14 @@ func steady(raw []byte) []byte {
 	})
 }
 
+// steadySet stands a fixed digest in for the digest of the estimate set a plan's approval shows, which covers the
+// generated IDs of the work it estimates, and so differs between runs.
+func steadySet(view *api.PlanView) {
+	if view.Approval != nil && view.Approval.Forecast != nil && view.Approval.Forecast.Set != nil {
+		view.Approval.Forecast.Set.Digest = "sha256:steady"
+	}
+}
+
 func pretty(t *testing.T, value any) []byte {
 	t.Helper()
 	var out bytes.Buffer
@@ -249,6 +257,7 @@ func TestGoldenPlan(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	steadySet(&waiting)
 	holdsGolden(t, "plan", steady(pretty(t, waiting)))
 	for _, line := range waiting.Versions {
 		if line.State != authority.ApprovalApproved {
@@ -258,6 +267,7 @@ func TestGoldenPlan(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		steadySet(&approved)
 		holdsGolden(t, "plan-approved", steady(pretty(t, approved)))
 		return
 	}

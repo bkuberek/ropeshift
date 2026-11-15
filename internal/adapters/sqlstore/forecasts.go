@@ -59,6 +59,11 @@ func (t *readTx) Forecasts() ports.ForecastReader {
 	return forecastTx{session: t.session, scope: t.scope}
 }
 
+// Forecasts reads kept forecasts within a write, for what a plan approval records as it showed them.
+func (t *writeTx) Forecasts() ports.ForecastReader {
+	return forecastTx{session: t.session, scope: t.scope}
+}
+
 type forecastTx struct {
 	*session
 	scope ledger.WorkspaceID

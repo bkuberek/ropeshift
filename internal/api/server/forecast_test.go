@@ -20,7 +20,8 @@ func forecastTick(t *testing.T, d *apitest.Daemon) {
 
 // TestAPlanVersionsForecastIsPendingUntilTheTickForecastsIt holds FR-EST-10: a version intake recorded has no
 // forecast until the forecast tick forecasts it, and until then its forecast and its approval read "forecast
-// pending", with no forecast and no estimate set; once the tick has run, both carry the forecasts it kept.
+// pending", with no forecast and the version's estimates, which its approval shows; once the tick has run, both
+// carry the forecasts it kept.
 func TestAPlanVersionsForecastIsPendingUntilTheTickForecastsIt(t *testing.T) {
 	t.Parallel()
 	d, w, _ := aWorld(t)
@@ -30,14 +31,15 @@ func TestAPlanVersionsForecastIsPendingUntilTheTickForecastsIt(t *testing.T) {
 	if err := d.Client.Do(t.Context(), http.MethodGet, d.Client.Route(api.PlanForecastPath(plan, 0)), nil, &raw); err != nil {
 		t.Fatal(err)
 	}
-	if raw["state"] != api.ForecastPending || raw["estimate_set"] != nil || len(raw["forecasts"].([]any)) != 0 {
+	if raw["state"] != api.ForecastPending || raw["estimate_set"] == nil || len(raw["forecasts"].([]any)) != 0 {
 		t.Errorf("before the tick, the forecast reads %v", raw)
 	}
 	view, err := d.Client.Plan(t.Context(), plan)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if f := view.Approval.Forecast; f == nil || f.State != api.ForecastPending || f.Version != 1 || len(f.Forecasts) != 0 || f.Set != nil {
+	if f := view.Approval.Forecast; f == nil || f.State != api.ForecastPending || f.Version != 1 || len(f.Forecasts) != 0 || f.Set == nil ||
+		f.Set.Plan != plan || f.Set.PlanVersion != 1 || len(f.Set.Estimates) != len(view.WorkOrders) {
 		t.Errorf("before the tick, the approval's forecast reads %+v", f)
 	}
 
@@ -58,12 +60,17 @@ func TestAPlanVersionsForecastIsPendingUntilTheTickForecastsIt(t *testing.T) {
 }
 
 // TestApprovingWhileTheForecastIsPendingApprovesTheVersion shows that an approval does not wait for the tick: a
-// member approves a version whose forecast is pending, and the tick forecasts it afterwards.
+// member approves a version whose forecast is pending, which records the estimates it showed as each work order's
+// baseline, and the tick forecasts it afterwards (FR-EST-10).
 func TestApprovingWhileTheForecastIsPendingApprovesTheVersion(t *testing.T) {
 	t.Parallel()
 	d, w, _ := aWorld(t)
 	w.Planned(retrySource("The first draft."))
 	need := planApprovalNeed(t, readView[api.NeedsYou](t, d, api.ViewNeedsYou, ""))
+	shown, err := d.Client.PlanForecast(t.Context(), need.Approval.Plan, 0)
+	if err != nil || shown.Set == nil || len(shown.Set.Estimates) == 0 {
+		t.Fatalf("the approval shows %+v: %v", shown, err)
+	}
 	if _, err := d.Client.DecideApproval(t.Context(), need.Approval.ID, api.DecideApproval{Digest: need.Approval.SubjectDigest, Allow: true}); err != nil {
 		t.Fatal(err)
 	}
@@ -73,6 +80,15 @@ func TestApprovingWhileTheForecastIsPendingApprovesTheVersion(t *testing.T) {
 	}
 	if view.Approval.Approval.Open() || view.Approval.Forecast == nil || view.Approval.Forecast.State != api.ForecastPending {
 		t.Errorf("approved while pending, the approval reads %+v with forecast %+v", view.Approval.Approval, view.Approval.Forecast)
+	}
+	for _, e := range shown.Set.Estimates {
+		read, err := d.Client.WorkEstimate(t.Context(), e.WorkOrder)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if b := read.Baseline; b == nil || b.Approval != need.Approval.ID || b.ID == "" || b.RecordedAt == 0 || b.Estimate.ID != e.ID || b.Estimate.Explanation != e.Explanation {
+			t.Errorf("work %s, whose estimate the approval showed as %+v, has baseline %+v", e.WorkOrder, e, b)
+		}
 	}
 	forecastTick(t, d)
 	if made, err := d.Client.PlanForecast(t.Context(), need.Approval.Plan, 1); err != nil || made.State != api.ForecastMade {

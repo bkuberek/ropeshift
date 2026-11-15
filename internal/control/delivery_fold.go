@@ -16,8 +16,8 @@ import (
 const foldPage = 500
 
 // DeliveryFold keeps a project's delivery read models current from its log (ADR-0026): each finished work
-// order's timeline, each finished change's or rework's delivery record, and the spans in which the
-// project's work-in-progress cap was full. It reads the log from a cursor it keeps, so it reads each event
+// order's timeline, each finished change's or rework's delivery record, each baselined work order's and
+// milestone's estimate outcome, and the spans in which the project's work-in-progress cap was full. It reads the log from a cursor it keeps, so it reads each event
 // once, and a first run reads the whole log from the start, which backfills every work order that ended
 // before it. A new derivation version drops every row and folds the log again (FR-EST-3).
 type DeliveryFold struct {
@@ -127,7 +127,7 @@ func (d *DeliveryFold) event(tx ports.FoldTx, rows ports.DeliveryWriter, state *
 	case workorders.Terminal(to):
 		return d.ended(tx, rows, *state, e.Subject.ID, now)
 	case change.Trigger == workorders.TriggerRetried:
-		return rows.Forget(e.Subject.ID)
+		return d.forget(tx, rows, e.Subject.ID)
 	}
 	return nil
 }
@@ -148,9 +148,9 @@ func (d *DeliveryFold) ended(tx ports.FoldTx, rows ports.DeliveryWriter, state d
 	return d.keep(tx, rows, state, order.Reviews, now)
 }
 
-// keep derives one work order as the store holds it now, and keeps its timeline and record while it stands
-// in a terminal state. One that moved on since, as a retry of failed work does, keeps nothing until it ends
-// again.
+// keep derives one work order as the store holds it now, and keeps its timeline, its record, and its estimate
+// outcome while it stands in a terminal state. One that moved on since, as a retry of failed work does, keeps
+// nothing until it ends again.
 func (d *DeliveryFold) keep(tx ports.FoldTx, rows ports.DeliveryWriter, state delivery.FoldState, id string, now int64) error {
 	full, err := rows.WIPFull()
 	if err != nil {
@@ -164,7 +164,27 @@ func (d *DeliveryFold) keep(tx ports.FoldTx, rows ports.DeliveryWriter, state de
 		return err
 	}
 	if timeline.Terminal == "" {
-		return rows.Forget(id)
+		return d.forget(tx, rows, id)
 	}
-	return rows.Save(timeline, record)
+	if err := rows.Save(timeline, record); err != nil || record == nil {
+		return err
+	}
+	return workOutcome(tx, rows, *record)
+}
+
+// forget drops a work order that left its terminal state, with its estimate outcome, and the outcome of the
+// milestone its record named, which has not ended while the work order is open.
+func (d *DeliveryFold) forget(tx ports.FoldTx, rows ports.DeliveryWriter, id string) error {
+	record, err := rows.Record(id)
+	kept := err == nil
+	if err != nil && !errors.Is(err, ports.ErrNotFound) {
+		return err
+	}
+	if err := rows.Forget(id); err != nil {
+		return err
+	}
+	if err := rows.ForgetOutcome(delivery.OutcomeOfWorkOrder, "", id); err != nil || !kept {
+		return err
+	}
+	return milestoneOutcome(tx, rows, record.Plan, record.Milestone)
 }

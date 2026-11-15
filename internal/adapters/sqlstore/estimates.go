@@ -37,6 +37,20 @@ VALUES (:workspace_id, :id, :plan_id, :plan_version, :ledger_rev, :estimator_ver
 	stmtAddEstimate = define("estimate.add",
 		`INSERT INTO estimates (workspace_id, id, estimate_set_id, work_order_id, status, confidence, current, created_at, body)
 VALUES (:workspace_id, :id, :estimate_set_id, :work_order_id, :status, :confidence, 1, :created_at, :body)`)
+
+	stmtBaselineOf = define("estimate.baseline_of",
+		`SELECT b.body, e.current, e.body FROM estimate_baselines b
+  JOIN estimates e ON e.workspace_id = b.workspace_id AND e.estimate_set_id = b.estimate_set_id
+ WHERE b.workspace_id = :workspace_id AND b.estimate_set_id <> '' AND e.work_order_id = :work_order_id
+ ORDER BY b.ledger_rev, b.created_at, b.id LIMIT 1`)
+
+	stmtBaselinesOfPlan = define("estimate.baselines_of_plan",
+		`SELECT body FROM estimate_baselines WHERE workspace_id = :workspace_id AND plan_id = :plan_id
+ ORDER BY ledger_rev, created_at, id`)
+
+	stmtAddBaseline = define("estimate.add_baseline",
+		`INSERT INTO estimate_baselines (workspace_id, id, approval_id, plan_id, plan_version, estimate_set_id, set_digest, ledger_rev, created_at, body)
+VALUES (:workspace_id, :id, :approval_id, :plan_id, :plan_version, :estimate_set_id, :set_digest, :ledger_rev, :created_at, :body)`)
 )
 
 // Estimates reads estimate sets within a read of the workspace.
@@ -171,6 +185,62 @@ func (t estimateTx) Add(set delivery.EstimateSet) error {
 		}
 	}
 	return nil
+}
+
+func (t estimateTx) BaselineOf(workOrder string) (delivery.Baseline, delivery.Estimate, error) {
+	row, err := t.row(stmtBaselineOf, t.scoped(params{"work_order_id": workOrder}))
+	if err != nil {
+		return delivery.Baseline{}, delivery.Estimate{}, err
+	}
+	var raw string
+	var baseline delivery.Baseline
+	e, err := estimateOf(stmtBaselineOf, func(dest ...any) error { return row.Scan(append([]any{&raw}, dest...)...) })
+	if errors.Is(err, sql.ErrNoRows) {
+		return delivery.Baseline{}, delivery.Estimate{}, fmt.Errorf("the baseline of %s: %w", workOrder, ports.ErrNotFound)
+	}
+	if err != nil {
+		return delivery.Baseline{}, delivery.Estimate{}, err
+	}
+	if err := json.Unmarshal([]byte(raw), &baseline); err != nil {
+		return delivery.Baseline{}, delivery.Estimate{}, fmt.Errorf("%s: %w", stmtBaselineOf.name, err)
+	}
+	return baseline, e, nil
+}
+
+func (t estimateTx) Baselines(plan string) ([]delivery.Baseline, error) {
+	rows, err := t.rows(stmtBaselinesOfPlan, t.scoped(params{"plan_id": plan}))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []delivery.Baseline{}
+	for rows.Next() {
+		var raw string
+		if err := rows.Scan(&raw); err != nil {
+			return nil, fmt.Errorf("%s: %w", stmtBaselinesOfPlan.name, err)
+		}
+		var baseline delivery.Baseline
+		if err := json.Unmarshal([]byte(raw), &baseline); err != nil {
+			return nil, fmt.Errorf("%s: %w", stmtBaselinesOfPlan.name, err)
+		}
+		out = append(out, baseline)
+	}
+	return out, rows.Err()
+}
+
+func (t estimateTx) AddBaseline(baseline delivery.Baseline) error {
+	if baseline.Forecasts == nil {
+		baseline.Forecasts = []delivery.Forecast{}
+	}
+	raw, err := json.Marshal(baseline)
+	if err != nil {
+		return err
+	}
+	_, err = t.exec(stmtAddBaseline, t.scoped(params{
+		"id": baseline.ID, "approval_id": baseline.Approval, "plan_id": baseline.Plan, "plan_version": baseline.PlanVersion,
+		"estimate_set_id": baseline.SetID, "set_digest": baseline.SetDigest, "ledger_rev": baseline.Rev, "created_at": baseline.CreatedAt, "body": string(raw),
+	}))
+	return err
 }
 
 var _ ports.EstimateWriter = estimateTx{}

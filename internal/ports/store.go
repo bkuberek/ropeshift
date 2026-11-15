@@ -119,6 +119,8 @@ type DeliveryReader interface {
 	Record(workOrder string) (delivery.Record, error)
 	// Records returns every delivery record, by end.
 	Records() ([]delivery.Record, error)
+	// Outcomes returns every estimate outcome, by end (FR-EST-11).
+	Outcomes() ([]delivery.Outcome, error)
 }
 
 // DeliveryWriter writes the delivery read models. Every row is derived from the log, and Clear drops them
@@ -131,6 +133,10 @@ type DeliveryWriter interface {
 	Save(timeline delivery.Timeline, record *delivery.Record) error
 	// Forget drops a work order's timeline and record, because it left its terminal state.
 	Forget(workOrder string) error
+	// SaveOutcome keeps an estimate outcome in place of its subject's.
+	SaveOutcome(outcome delivery.Outcome) error
+	// ForgetOutcome drops the estimate outcome of a work order, or of a plan's milestone, if it has one.
+	ForgetOutcome(kind delivery.OutcomeKind, plan, subject string) error
 	Clear() error
 }
 
@@ -158,14 +164,21 @@ type EstimateReader interface {
 	Current(workOrder string) (delivery.Estimate, error)
 	// NewestOf returns the newest set of a plan version with its estimates, or ErrNotFound.
 	NewestOf(plan string, version int64) (delivery.EstimateSet, error)
+	// BaselineOf returns a work order's baseline, the first recorded whose set holds an estimate of it, with that
+	// estimate, or ErrNotFound before one is recorded (FR-EST-10).
+	BaselineOf(workOrder string) (delivery.Baseline, delivery.Estimate, error)
+	// Baselines returns every baseline a plan's approvals recorded, the first recorded first.
+	Baselines(plan string) ([]delivery.Baseline, error)
 }
 
-// EstimateWriter keeps estimate sets, which never change once kept.
+// EstimateWriter keeps estimate sets and baselines, which never change once kept.
 type EstimateWriter interface {
 	EstimateReader
 	// Add keeps a sealed set, and each of its estimates becomes its work order's current estimate in place of
 	// the one before.
 	Add(set delivery.EstimateSet) error
+	// AddBaseline keeps a baseline. One approval records one baseline.
+	AddBaseline(baseline delivery.Baseline) error
 }
 
 // ReadTx is one consistent view of a workspace.
@@ -303,8 +316,10 @@ type WriteTx interface {
 	Index(kind, id, text string) error
 	// Deliveries reads the delivery read models the fold keeps, which an estimate draws on.
 	Deliveries() DeliveryReader
-	// Estimates reads and keeps estimate sets.
+	// Estimates reads and keeps estimate sets and baselines.
 	Estimates() EstimateWriter
+	// Forecasts reads the forecasts the forecast tick keeps, which a plan approval records as it showed them.
+	Forecasts() ForecastReader
 	// Pool reads what other projects share in the installation's delivery pool, which an estimate draws on.
 	Pool() PoolReader
 }
