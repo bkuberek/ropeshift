@@ -1,6 +1,6 @@
 # The Homebrew formula for ropeshift. scripts/homebrew-formula.sh renders it for each release from the
 # release's checksums.txt, and a maintainer commits the result to the project's tap
-# (docs/releasing.md). A formula, not a cask, because only a formula's service block is what
+# (docs/development/releasing.md). A formula, not a cask, because only a formula's service block is what
 # `brew services` runs (ADR-0001).
 class Ropeshift < Formula
   desc "Self-hosted software factory that runs supervised agent CLIs"

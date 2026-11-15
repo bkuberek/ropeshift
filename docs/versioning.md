@@ -1,6 +1,6 @@
 # Versioning
 
-Ropeshift versions follow [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html). This page states how a version is chosen, and how a binary reports the version it is. [Releasing](releasing.md) describes how a release is made.
+Ropeshift versions follow [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html). This page states what a version promises, and how a binary reports the version it is. [Releasing](releasing.md) describes what a release holds and each install channel.
 
 ## Release versions
 
@@ -26,9 +26,9 @@ A pre-release adds a suffix to the version it leads to, with N counting from 1:
 | `-beta.N` | Every feature of the release is present. Fixes continue |
 | `-rc.N` | A candidate. It becomes the release unless a defect is found |
 
-Precedence follows Semantic Versioning, so `v0.5.0-alpha.2` < `v0.5.0-beta.1` < `v0.5.0-rc.1` < `v0.5.0`. No other suffix and no build metadata is a release version, and `scripts/release.sh` refuses them.
+Precedence follows Semantic Versioning, so `v0.5.0-alpha.2` < `v0.5.0-beta.1` < `v0.5.0-rc.1` < `v0.5.0`. No other suffix and no build metadata is a release version.
 
-Stability comes from the version, not from a branch: every release is tagged on `main`, and its suffix, or the lack of one, says how stable it is. While `prerelease` is `true` in `release-please-config.json`, as it is now, every release is a pre-release. The release pull request proposes each version by these rules and continues the pre-release series it is in, and the maintainer moves to the next stage, or to a stable release, with a `Release-As:` footer. [Releasing](releasing.md#branches-and-stability) describes the branches, and [choosing the next version](releasing.md#choosing-the-next-version) the footers.
+Stability comes from the version, not from a branch: every release is tagged on `main`, and its suffix, or the lack of one, says how stable it is. For now, every release is a pre-release.
 
 ## Development builds
 
@@ -39,8 +39,6 @@ Only a release build reports a release version. Every other build reports `dev`:
 - `go install` at a commit or a branch, which also records a pseudo-version.
 
 `go install` at a release tag, such as `go install ropeshift.com/ropeshift/cmd/...@v0.4.1`, records that exact version, and the binary reports it. It is not an install channel for now, because no commit holds the built web UI, so that binary serves the placeholder page ([releasing](releasing.md#install-channels)). Every channel installs a release build, which embeds the UI.
-
-`make snapshot` builds every release artifact from a commit with no tag. Its version names the commit, such as `v0.0.1-snapshot-dd81c21`, so it is never mistaken for a release.
 
 ## What a binary reports
 
@@ -66,5 +64,3 @@ ropeshift v0.4.1 (commit dd81c214342b, built 2026-11-08T10:00:00Z, go1.27.3, lin
 | `go`, `os`, `arch` | The Go version, and the platform the binary runs on |
 
 The MCP server reports the same version in its `serverInfo`, and telemetry reports it as `service.version`.
-
-A release build sets the version, commit, date, and modified flag with linker flags on one small package, `internal/version`. A build that sets none of them reads what the Go toolchain recorded.

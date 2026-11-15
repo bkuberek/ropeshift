@@ -3,7 +3,7 @@
 #
 # It downloads the archive for this machine and the release's checksums file, checks the archive's
 # SHA-256 against that file before it extracts anything, and refuses on any mismatch. It needs no
-# root unless the chosen prefix does. docs/releasing.md describes how a release is made.
+# root unless the chosen prefix does. docs/development/releasing.md describes how a release is made.
 #
 # Usage: install.sh [--version vX.Y.Z] [--prefix DIR] [--from DIR] [--base-url URL]
 #
