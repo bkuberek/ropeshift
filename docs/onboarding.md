@@ -2,6 +2,8 @@
 
 This page takes one person from an empty machine to a first lane in solo mode, and says what to know before that lane runs. Solo mode runs on one machine, macOS or Linux on arm64 or amd64, with the Claude Code CLI as the agent runtime.
 
+For the short, ordered path, follow [Get started](getting-started.md), then [your first plan, end to end](first-plan.md). [Connect a GitHub repository](github.md) covers reviewing and merging through pull requests. This page holds the detail behind each of their steps.
+
 ## Install ropeshift
 
 One binary serves both commands, and the name it starts under picks the command: every channel installs `ropeshift` with `ropeshiftd` as a link to it, both on `PATH`, and the web UI built in. Every release is a pre-release until `1.0.0`. Use one channel:
@@ -82,7 +84,7 @@ To run the sample, copy `sample-contract.md` into the repository, change it to y
 
 ## Start a planning session
 
-With the daemon running, one command opens a planning session and puts your terminal in it:
+[Your first plan, end to end](first-plan.md) walks through a session, its approval, and its work in order. With the daemon running, one command opens a planning session and puts your terminal in it:
 
 ```sh
 ropeshift plan start --goal "Replace the checkout page"
@@ -323,7 +325,7 @@ You can accept or send back the work at any time, with `ropeshift work accept` o
 
 ### Review through pull requests
 
-By default a review reads the lane's branch on this machine, and nothing is pushed. A repository on GitHub can instead review each change through a pull request, so your team sees it while it is reviewed:
+By default a review reads the lane's branch on this machine, and nothing is pushed. A repository on GitHub can instead review each change through a pull request, so your team sees it while it is reviewed. [Connect a GitHub repository](github.md) walks through the setup in order:
 
 ```sh
 ropeshift repository set widgets --review-target pull_request
