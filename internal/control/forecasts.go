@@ -285,7 +285,9 @@ func dueForecasts(tx ports.ReadTx) ([]forecastRun, error) {
 // laneCapOf is the lane cap a forecast runs under, by the product's rule that zero caps nothing: the tighter of
 // the project's work-in-progress cap and the sum of the lane caps of the workers serving it, each held to the
 // project's lanes per worker, where one worker with no cap leaves the sum uncapped. Every worker the installation
-// registers serves the project, and with none, nothing can run its work.
+// registers serves the project, and with none, nothing can run its work. The cap is all a forecast holds work to:
+// the per-repository cap, a worker's autonomy and run windows, capability classes, and the fleet's mode are not
+// modelled, so the dates can be early when one of them holds work back.
 func laneCapOf(workspace ledger.Workspace, workers []ledger.Worker) (int64, bool) {
 	if len(workers) == 0 {
 		return 0, true
