@@ -83,6 +83,23 @@ export type RecoveryDetail = {
   policy_version: number;
 };
 
+// MergeDetail is what a member reads of a merge request beyond its summary: the work, the repository it lands
+// in, the reviewed commit and where it lands, the level in force, and for a held merge, why it stopped. A request
+// raised before the repository was recorded has none.
+export type MergeDetail = {
+  work_order_id: string;
+  repository?: string;
+  commit: string;
+  branch?: string;
+  base?: string;
+  pull_request?: number;
+  url?: string;
+  method?: string;
+  merge_authority: string;
+  reason?: string;
+  request?: string;
+};
+
 export type EffectOutcome = "happened" | "not_happened" | "retry";
 
 export type Effect = {

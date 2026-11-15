@@ -152,6 +152,8 @@ ropeshift approval approve <approval-id> --digest <reviewed-commit>
 
 `approval show` prints the work, the commit, the pull request, and the level, and the digest of a merge request is the reviewed commit. `ropeshift work accept <work-order-id>` on work in `integrating` approves the same merge. A new commit on the branch voids the request.
 
+In the web UI, the request is a Merge approval card in Needs you, and on the work order's page. It names the repository, the pull request, the branch, the reviewed commit, the merge method, and the level. Approve merge sends the reviewed commit it shows, as `--digest` does, and Deny sends the work to rework with the reason you type. A merge the forge or git refused is a Held merge card: Retry merge tries the merge again.
+
 ### How ropeshift merges
 
 Ropeshift merges in one deterministic step of the control plane, never through an agent, and only the commit the review judged:

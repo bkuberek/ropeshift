@@ -37,6 +37,47 @@ const talkTargets = JSON.stringify({
   ],
 });
 
+// Two merge requests, as the ledger holds them: the merge of a reviewed commit to approve at person_approves, whose
+// work order has a page, and a merge the forge refused, held until a member decides it.
+function mergeRequest(subject: "approve" | "held", workOrder: string) {
+  const commit = "9f8e7d6c5b4a39281706f5e4d3c2b1a098765432";
+  const detail = {
+    work_order_id: workOrder,
+    repository: "harbor-web",
+    commit,
+    branch: "ropeshift/" + workOrder,
+    base: "main",
+    pull_request: 12,
+    url: "https://github.com/acme/harbor-web/pull/12",
+    method: "squash",
+    merge_authority: "person_approves",
+    ...(subject === "held" ? { reason: "the base branch requires 2 approving reviews", request: "merge:" + workOrder + ":1" } : {}),
+  };
+  const id = `merge-${subject}`;
+  return {
+    kind: "approval",
+    id,
+    since: 1790000500000,
+    approval: {
+      id,
+      lane_id: "",
+      work_order_id: workOrder,
+      generation: 0,
+      kind: "merge",
+      subject,
+      subject_digest: commit,
+      summary:
+        subject === "held"
+          ? `The merge of pull request #12, commit 9f8e7d6 of work order ${workOrder} (Add the retry budget), cannot go on: ${detail.reason}. Approve to try it again, or deny to send the work back for rework.`
+          : `Approve the merge of pull request #12, commit 9f8e7d6 of work order ${workOrder} (Add the retry budget), at person_approves. The review's verdicts are on the work order.`,
+      requested_by: "system:integration",
+      state: "pending",
+      raised_at: 1790000500000,
+      detail: JSON.stringify(detail),
+    },
+  };
+}
+
 const projects = JSON.stringify({ projects: [{ id: "default", name: "default", display_name: "Default", state: "active", created_at: 1, repositories: [] }] });
 
 // answer stands where the daemon stands, as `serveViews` does for the other tests.
@@ -48,10 +89,10 @@ async function answer(route: Route): Promise<void> {
     return json(projects);
   }
   if (path === "/v1/needs-you") {
-    // Needs you with the confirmation cards a delegate prepared beside every other kind.
+    // Needs you with the confirmation cards a delegate prepared, and the merge requests, beside every other kind.
     const needs = JSON.parse(goldens["needs-you"] ?? "{}") as { items: unknown[] };
     const cards = JSON.parse(goldens["needs-you-cards"] ?? "{}") as { items: unknown[] };
-    return json(JSON.stringify({ ...needs, items: [...needs.items, ...cards.items] }));
+    return json(JSON.stringify({ ...needs, items: [...needs.items, ...cards.items, mergeRequest("approve", "wo-running"), mergeRequest("held", "wo-held")] }));
   }
   const view = /^\/v1\/views\/([a-z-]+)$/.exec(path)?.[1];
   if (view && goldens[view]) {
@@ -147,6 +188,8 @@ const views = [
   "/needs-you?item=work%3Awo-failed",
   "/needs-you?kind=cards&item=confirm%3Agenerated-1",
   "/needs-you?kind=cards&item=confirm%3Agenerated-2",
+  "/needs-you?item=approval%3Amerge-approve",
+  "/needs-you?item=approval%3Amerge-held",
   "/projects/default/roadmap",
   "/projects/default/plans",
   "/projects/default/plan?id=generated-1&version=6",
@@ -849,6 +892,45 @@ describe.each(Object.entries(sizes))("at %s width", (size, viewport) => {
         await dialog.getByRole("heading", { name: "Overturned decision-3" }).waitFor();
         await settle();
         found.push(...(await audit(page)).map((violation) => `overturn dialog with what it made ${violation}`));
+        await context.close();
+        expect(found.map((line) => `${size} ${theme} ${line}`)).toEqual([]);
+      },
+      120_000,
+    );
+
+    it(
+      "the merge request cards, to approve and held, with a reason typed and with a refusal, meet WCAG 2.2 A and AA",
+      async () => {
+        const context = await browser.newContext({ viewport, colorScheme: theme, reducedMotion: "reduce" });
+        await context.route(/\/v1\//, answer);
+        const page = await context.newPage();
+        const found: string[] = [];
+        // A change the test does not serve is refused, which each card shows at its foot.
+        const settle = async () => {
+          await page.mouse.move(0, 0);
+          await page.waitForTimeout(600);
+        };
+        for (const [address, name, button, state] of [
+          ["/needs-you?item=approval%3Amerge-approve", /^Approve the merge of wo-running/, "Approve merge", "merge approval"],
+          ["/needs-you?item=approval%3Amerge-held", /^Retry the held merge of wo-held/, "Retry merge", "held merge"],
+        ] as const) {
+          await page.goto(`${base}${address}`);
+          await ready(page);
+          const card = page.getByRole("article", { name });
+          await card.getByRole("textbox", { name: /^Reason/ }).fill("Split the migration first.");
+          await settle();
+          found.push(...(await audit(page)).map((violation) => `${state} with a reason ${violation}`));
+          await card.getByRole("button", { name: button }).click();
+          await card.getByRole("alert").waitFor();
+          await settle();
+          found.push(...(await audit(page)).map((violation) => `${state} with a refusal ${violation}`));
+        }
+        // The same card stands on the page of the work it merges.
+        await page.goto(`${base}/projects/default/work-order?id=wo-running`);
+        await ready(page);
+        await page.getByRole("article", { name: /^Approve the merge of wo-running/ }).waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `merge approval on the work order ${violation}`));
         await context.close();
         expect(found.map((line) => `${size} ${theme} ${line}`)).toEqual([]);
       },

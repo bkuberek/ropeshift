@@ -1,5 +1,6 @@
-import type { NeedItem } from "../api/types";
+import type { Approval, NeedItem } from "../api/types";
 import type { IconName } from "../ui/Icon";
+import { isHeld, mergeContext, mergeHeading } from "./merge";
 import { recoveryHeading } from "./recovery";
 
 // The filters of Needs you, each a family of kinds.
@@ -59,13 +60,37 @@ const workIcons: Record<string, IconName> = {
   worker_behind: "warning",
 };
 
+// approvalKind is the overline of a request's card: a recovery act, a merge, or a call a lane asked to run.
+export function approvalKind(approval: Approval): { icon: IconName; name: string } {
+  switch (approval.kind) {
+    case "recovery":
+      return { icon: "restart", name: "Recovery request" };
+    case "merge":
+      return isHeld(approval) ? { icon: "warning", name: "Held merge" } : { icon: "pr", name: "Merge approval" };
+    default:
+      return { icon: "terminal", name: "Approval request" };
+  }
+}
+
+// approvalHeading says what a request asks, as a person reads it.
+export function approvalHeading(approval: Approval): string {
+  switch (approval.kind) {
+    case "recovery":
+      return recoveryHeading(approval);
+    case "merge":
+      return mergeHeading(approval);
+    default:
+      return `Allow ${approval.subject}?`;
+  }
+}
+
 // kindOf is the overline of an item's card: its kind's icon and name.
 export function kindOf(item: NeedItem): { icon: IconName; name: string } {
   switch (item.kind) {
     case "questions":
       return { icon: "question", name: "Questions" };
     case "approval":
-      return item.approval.kind === "recovery" ? { icon: "restart", name: "Recovery request" } : { icon: "terminal", name: "Approval request" };
+      return approvalKind(item.approval);
     case "effect":
       return { icon: "bolt", name: "Uncertain effect" };
     case "work":
@@ -89,7 +114,7 @@ export function headingOf(item: NeedItem): string {
       return count === 1 ? "A question" : `${count} questions`;
     }
     case "approval":
-      return item.approval.kind === "recovery" ? recoveryHeading(item.approval) : `Allow ${item.approval.subject}?`;
+      return approvalHeading(item.approval);
     case "effect":
       return "Did it happen?";
     case "work":
@@ -113,6 +138,9 @@ export function contextOf(item: NeedItem): string {
       return [plural(item.batch.items.length, "question"), blocking ? `${blocking} blocking` : ""].filter(Boolean).join(" · ");
     }
     case "approval":
+      if (item.approval.kind === "merge") {
+        return mergeContext(item.approval);
+      }
       return [item.approval.work_order_id, item.approval.lane_id ? `lane ${item.approval.lane_id}` : "", item.approval.requested_by].filter(Boolean).join(" · ");
     case "effect":
       return [`Worker ${item.effect.worker_id}`, `attempt ${item.effect.attempt}`].join(" · ");

@@ -4,13 +4,11 @@ import type { Approval, Batch, CardDetail, CardNeed } from "../api/types";
 import type { TalkEntry, TalkQuestion } from "../api/talk";
 import { approvalStates } from "../floor/states";
 import type { StateLook } from "../floor/states";
-import { ApprovalCard } from "../needs/ApprovalCard";
+import { ApprovalDecision } from "../needs/ApprovalDecision";
 import { ConfirmCard, voidAsk } from "../needs/ConfirmCard";
 import type { Frame } from "../needs/frame";
-import { kindOf } from "../needs/kinds";
+import { approvalHeading, kindOf } from "../needs/kinds";
 import { QuestionBatch } from "../needs/QuestionBatch";
-import { recoveryHeading } from "../needs/recovery";
-import { RecoveryCard } from "../needs/RecoveryCard";
 import { DecisionCard } from "../ui/DecisionCard";
 import { Resolved } from "../ui/resolution";
 import { useTalk } from "./state";
@@ -81,14 +79,9 @@ function RequestItem({ entry, after }: ItemProps) {
   if (!approval) {
     return null;
   }
-  const recovery = approval.kind === "recovery";
-  const frame: Frame = { title: recovery ? recoveryHeading(approval) : `Allow ${approval.subject}?`, provenance: approval.requested_by };
+  const frame: Frame = { title: approvalHeading(approval), provenance: approval.requested_by };
   if (approval.state === "pending") {
-    return recovery ? (
-      <RecoveryCard compact place="conversation" approval={approval} after={after} frame={frame} />
-    ) : (
-      <ApprovalCard compact place="conversation" approval={approval} after={after} frame={frame} />
-    );
+    return <ApprovalDecision compact place="conversation" approval={approval} after={after} frame={frame} />;
   }
   return (
     <DecisionCard

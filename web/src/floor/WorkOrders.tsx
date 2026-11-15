@@ -5,10 +5,9 @@ import type { Allowance, FloorLane, NeedItem, NeedsYou, ShopFloor, Standing, Wor
 import type { Live } from "../api/useView";
 import { useView } from "../api/useView";
 import { addressOf, go, ItemProject, Link } from "../app/route";
-import { ApprovalCard } from "../needs/ApprovalCard";
+import { ApprovalDecision } from "../needs/ApprovalDecision";
 import { ContractReviewCard } from "../needs/ContractReviewCard";
 import { headingOf } from "../needs/kinds";
-import { RecoveryCard } from "../needs/RecoveryCard";
 import { WorkCard } from "../needs/WorkCard";
 import { Ago, Lasted, Page, StampLine, useClock, ViewTime, words } from "../parts/parts";
 import { Verdicts } from "../parts/Verdicts";
@@ -326,11 +325,7 @@ function Decision({ item, after }: { item: NeedItem; after: () => Promise<void> 
       ) : item.kind === "contract_review" ? (
         <ContractReviewCard review={item.contract_review} after={after} frame={frame} />
       ) : item.kind === "approval" ? (
-        item.approval.kind === "recovery" ? (
-          <RecoveryCard approval={item.approval} after={after} frame={frame} />
-        ) : (
-          <ApprovalCard approval={item.approval} after={after} frame={frame} />
-        )
+        <ApprovalDecision approval={item.approval} after={after} frame={frame} />
       ) : null}
     </ItemProject.Provider>
   );

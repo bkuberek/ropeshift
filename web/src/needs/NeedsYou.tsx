@@ -8,7 +8,7 @@ import { Icon } from "../ui/Icon";
 import { Button, FilterChip, Tabs, TabPanel } from "../ui/controls";
 import { EmptyState, ProjectTag } from "../ui/display";
 import { Select } from "../ui/forms";
-import { ApprovalCard } from "./ApprovalCard";
+import { ApprovalDecision } from "./ApprovalDecision";
 import { ConfirmCard, ResolvedCard, voidAsk } from "./ConfirmCard";
 import { ContractReviewCard } from "./ContractReviewCard";
 import { EffectCard } from "./EffectCard";
@@ -16,7 +16,6 @@ import type { Frame } from "./frame";
 import type { NeedFilter } from "./kinds";
 import { contextOf, filterOf, filters, headingOf, keyOf, kindOf, preparerOf } from "./kinds";
 import { PlanApprovalCard } from "./PlanApprovalCard";
-import { RecoveryCard } from "./RecoveryCard";
 import { QuestionBatch } from "./QuestionBatch";
 import { waitLabel, waitWords } from "./wait";
 import { WorkCard } from "./WorkCard";
@@ -44,7 +43,7 @@ function Card({ item, after, frame }: { item: NeedItem; after: () => Promise<voi
     case "questions":
       return <QuestionBatch batch={item.batch} after={after} frame={frame} />;
     case "approval":
-      return item.approval.kind === "recovery" ? <RecoveryCard approval={item.approval} after={after} frame={frame} /> : <ApprovalCard approval={item.approval} after={after} frame={frame} />;
+      return <ApprovalDecision approval={item.approval} after={after} frame={frame} />;
     case "effect":
       return <EffectCard effect={item.effect} after={after} frame={frame} />;
     case "work":

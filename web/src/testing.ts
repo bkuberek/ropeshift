@@ -3,12 +3,50 @@ import { readFileSync } from "node:fs";
 import { waitFor } from "@testing-library/react";
 import { expect, onTestFinished, vi } from "vitest";
 
-import type { NeedsYou } from "./api/types";
+import type { Approval, MergeDetail, NeedsYou } from "./api/types";
 import needsYou from "../testdata/needs-you.json";
 
 // The view a Go test wrote from a real ledger, so these tests run on what the API serves.
 export function goldenNeedsYou(): NeedsYou {
   return structuredClone(needsYou) as unknown as NeedsYou;
+}
+
+// The commit a merge request's review passed, which the request is bound to.
+export const reviewedCommit = "9f8e7d6c5b4a39281706f5e4d3c2b1a098765432";
+
+// mergeRequest is a request a member decides about the merge of a work order's reviewed commit, as the ledger
+// holds it: to approve the merge at person_approves, or to decide a merge that is held. It names no lane and
+// runs no command, and its detail says where the commit lands.
+export function mergeRequest(subject: "approve" | "held" = "approve", over: Partial<MergeDetail> = {}): Approval {
+  const detail: MergeDetail = {
+    work_order_id: "wo-merge",
+    repository: "harbor-web",
+    commit: reviewedCommit,
+    branch: "ropeshift/wo-merge",
+    base: "main",
+    method: "squash",
+    merge_authority: "person_approves",
+    ...(subject === "held" ? { reason: "the base branch requires 2 approving reviews", request: "merge:wo-merge:1" } : {}),
+    ...over,
+  };
+  const into = detail.pull_request ? `pull request #${detail.pull_request}` : `${detail.branch} into ${detail.base}`;
+  return {
+    id: `merge-${subject}`,
+    lane_id: "",
+    work_order_id: detail.work_order_id,
+    generation: 0,
+    kind: "merge",
+    subject,
+    subject_digest: reviewedCommit,
+    summary:
+      subject === "held"
+        ? `The merge of ${into}, commit 9f8e7d6 of work order wo-merge (Add the retry budget), cannot go on: ${detail.reason ?? ""}. Approve to try it again, or deny to send the work back for rework.`
+        : `Approve the merge of ${into}, commit 9f8e7d6 of work order wo-merge (Add the retry budget), at person_approves. The review's verdicts are on the work order.`,
+    requested_by: "system:integration",
+    state: "pending",
+    raised_at: 1790000100000,
+    detail: JSON.stringify(detail),
+  };
 }
 
 const goldens = import.meta.glob("../testdata/*.json", { eager: true, import: "default" });
