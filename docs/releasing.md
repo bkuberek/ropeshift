@@ -1,6 +1,6 @@
 # Releasing
 
-This page describes what a ropeshift release holds, and how each install channel uses it. [Versioning](versioning.md) states what a version promises. How a release is built, tested, and published is in the [developer documentation](https://github.com/bkuberek/ropeshift/blob/main/docs/development/releasing.md).
+This page describes what a ropeshift release holds, and how each install channel uses it. [Versioning](versioning.md) states what a version promises. How a release is built, tested, and published is in the [developer documentation](development/releasing.md).
 
 ## What a release holds
 
