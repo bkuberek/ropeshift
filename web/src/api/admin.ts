@@ -57,6 +57,9 @@ export type Fleet = { fleet_mode: "run" | "pause" | "drain"; wip_limit: number; 
 
 export type PolicyVersion = { id: string; kind: string; version: number; digest: string; body: string; settings: string; authored_by: string; created_at: number };
 export type PolicyList = { versions: PolicyVersion[] };
+// A published version, and a notice of what is still to follow from it, such as an estimate policy that stops
+// sharing history while the project's records are still in the installation's pool.
+export type PublishedPolicy = PolicyVersion & { notice?: string };
 
 export type Tools = { allow: string[]; deny: string[] };
 
@@ -92,6 +95,7 @@ export type RosterHistory = { scope: string; versions: RosterEntry[] };
 export type RosterChange =
   | { op: "set"; agent: string; fields: Record<string, string> }
   | { op: "add"; agent: string; from: string }
+  | { op: "add"; agent: string; definition: AgentFields }
   | { op: "disable" | "enable" | "reset"; agent: string }
   | { op: "guide_set"; guide: string }
   | { op: "guide_reset" };
@@ -122,6 +126,35 @@ export type AuditQuery = { actor?: string; kind?: string; subject?: string; befo
 
 export type WorkerRecord = { id: string; name?: string; epoch?: number; protocol?: number; manifest?: { capacity?: { max_lanes?: number } }; last_handshake_at?: number };
 export type WorkerList = { workers: WorkerRecord[] };
+
+// A worker's lane caps (FR-PROJ-7): max_lanes is null while it follows the worker's recommendation, and 0 caps
+// nothing. The recommendation is the worker's last report, with the numbers behind it and why, and the warning
+// says a cap above it stands all the same.
+export type LaneRecommendation = {
+  max_lanes: number;
+  basis: string;
+  observed_lanes: number;
+  cores: number;
+  memory_total_bytes?: number;
+  reserve_cpu: number;
+  reserve_memory_bytes: number;
+  lane_cpu: number;
+  lane_memory_bytes: number;
+  by_cpu: number;
+  by_memory?: number;
+  reason: string;
+};
+export type CapWarning = { recommended: number; reason: string; message: string };
+export type WorkerCaps = {
+  worker: string;
+  max_lanes: number | null;
+  max_lanes_per_sign_in: number;
+  effective_max_lanes: number;
+  recommendation?: LaneRecommendation;
+  reported_at?: number;
+  warning?: CapWarning;
+};
+export type LaneCapSettings = { max_lanes: number | null; max_lanes_per_sign_in: number };
 
 export type Level = "manual" | "attended" | "unattended";
 export type RunWindow = { id: string; worker_id: string; opened_by: string; opened_at: number; closes_at: number };
@@ -181,6 +214,7 @@ export const adminPaths = {
   workers: () => "/v1/workers",
   joinToken: () => "/v1/workers/tokens",
   autonomy: (worker: string) => `/v1/workers/${encodeURIComponent(worker)}/autonomy`,
+  caps: (worker: string) => `/v1/workers/${encodeURIComponent(worker)}/caps`,
   acknowledge: (worker: string) => `/v1/workers/${encodeURIComponent(worker)}/autonomy/acknowledgement`,
   windows: (worker: string) => `/v1/workers/${encodeURIComponent(worker)}/windows`,
   risk: () => "/v1/autonomy/risk",
@@ -219,7 +253,7 @@ export const readFleet = () => call<Fleet>("GET", adminPaths.fleet());
 export const setFleetMode = (mode: Fleet["fleet_mode"]) => call<Fleet>("PUT", adminPaths.fleetMode(), { fleet_mode: mode });
 export const setFleetCaps = (caps: { wip_limit: number; lanes_per_repository: number; lanes_per_worker: number }) => call<Fleet>("PUT", adminPaths.fleetCaps(), caps);
 export const readPolicies = (kind: string) => call<PolicyList>("GET", adminPaths.policies(kind));
-export const publishPolicy = (body: string) => call<PolicyVersion>("POST", adminPaths.publishPolicy(), { body });
+export const publishPolicy = (body: string) => call<PublishedPolicy>("POST", adminPaths.publishPolicy(), { body });
 export const readCategories = () => call<{ categories: string[] }>("GET", adminPaths.categories());
 
 // The roster
@@ -240,6 +274,10 @@ export const readWorkers = () => call<WorkerList>("GET", adminPaths.workers());
 export const createJoinToken = () => call<{ token: string }>("POST", adminPaths.joinToken(), {});
 export const readAutonomy = (worker: string) => call<Autonomy>("GET", adminPaths.autonomy(worker));
 export const setLevel = (worker: string, level: Level) => call<Autonomy>("PUT", adminPaths.autonomy(worker), { level });
+// A worker's caps live in the user's profile on its own machine, so a worker on another machine is refused in the
+// API's words, for a read and for a change alike.
+export const readCaps = (worker: string) => call<WorkerCaps>("GET", adminPaths.caps(worker));
+export const setCaps = (worker: string, caps: LaneCapSettings) => call<WorkerCaps>("PUT", adminPaths.caps(worker), caps);
 export const readRisk = () => call<Risk>("GET", adminPaths.risk());
 export const acknowledgeRisk = (worker: string, digest: string) => call<Autonomy>("POST", adminPaths.acknowledge(worker), { digest });
 // A window's ID makes a second press of the same open find the first.

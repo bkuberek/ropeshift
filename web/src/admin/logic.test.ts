@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { agentLines, changedFields, minutesOf, newID, nextVersion, outcomeOf, policyBody, policySettings, projectNameOf, settingsOf, tomlString } from "./logic";
+import { agentLines, capsAbove, capsDraftOf, capsProblems, capsSettings, capsWords, changedFields, minutesOf, newID, nextVersion, outcomeOf, policies, policyBody, policySettings, problemOf, projectNameOf, settingsOf, tomlString } from "./logic";
 
 
 describe("policy bodies", () => {
@@ -110,5 +110,92 @@ describe("the adopt flow's names", () => {
     const later = newID(1_700_000_000_001);
     expect(first).toMatch(/^[0-9A-HJKMNP-TV-Z]{26}$/);
     expect(first.slice(0, 10) < later.slice(0, 10)).toBe(true);
+  });
+});
+
+describe("lane caps", () => {
+  const recommendation = { max_lanes: 6, reason: "8 cores less 1 reserved fit 7 lanes; the lower is 6, from the estimates" };
+
+  it("reads a worker's caps into the form: null follows the recommendation, 0 caps nothing, and any other number stands", () => {
+    expect(capsDraftOf({ max_lanes: null, max_lanes_per_sign_in: 0 })).toEqual({ mode: "recommended", lanes: "", perSignIn: "0" });
+    expect(capsDraftOf({ max_lanes: 0, max_lanes_per_sign_in: 2 })).toEqual({ mode: "none", lanes: "", perSignIn: "2" });
+    expect(capsDraftOf({ max_lanes: 9, max_lanes_per_sign_in: 0 })).toEqual({ mode: "number", lanes: "9", perSignIn: "0" });
+    expect(capsDraftOf(undefined)).toEqual({ mode: "recommended", lanes: "", perSignIn: "0" });
+  });
+
+  it("writes the form as the request the route reads, both caps every time", () => {
+    expect(capsSettings({ mode: "recommended", lanes: "", perSignIn: "0" })).toEqual({ max_lanes: null, max_lanes_per_sign_in: 0 });
+    expect(capsSettings({ mode: "none", lanes: "7", perSignIn: "3" })).toEqual({ max_lanes: 0, max_lanes_per_sign_in: 3 });
+    expect(capsSettings({ mode: "number", lanes: " 12 ", perSignIn: "" })).toEqual({ max_lanes: 12, max_lanes_per_sign_in: 0 });
+  });
+
+  it("refuses a number that is no whole number of lanes, and says how to cap nothing", () => {
+    expect(capsProblems({ mode: "number", lanes: "", perSignIn: "0" }).lanes).toMatch(/whole number, 1 or more/);
+    expect(capsProblems({ mode: "number", lanes: "0", perSignIn: "0" }).lanes).toMatch(/No cap/);
+    expect(capsProblems({ mode: "number", lanes: "2.5", perSignIn: "0" }).lanes).toBeDefined();
+    expect(capsProblems({ mode: "number", lanes: "-1", perSignIn: "0" }).lanes).toBeDefined();
+    expect(capsProblems({ mode: "number", lanes: "1000", perSignIn: "0" })).toEqual({});
+    // A number typed under another choice is not read.
+    expect(capsProblems({ mode: "none", lanes: "abc", perSignIn: "0" })).toEqual({});
+    expect(capsProblems({ mode: "recommended", lanes: "", perSignIn: "-2" }).perSignIn).toMatch(/whole number, 0 or more/);
+    expect(capsProblems({ mode: "recommended", lanes: "", perSignIn: "1.5" }).perSignIn).toBeDefined();
+    expect(capsProblems({ mode: "recommended", lanes: "", perSignIn: "" })).toEqual({});
+  });
+
+  it("says a cap in words, with the recommendation where it is what caps", () => {
+    expect(capsWords({ mode: "recommended", lanes: "", perSignIn: "0" }, 6)).toBe("the recommendation, 6");
+    expect(capsWords({ mode: "recommended", lanes: "", perSignIn: "0" })).toBe("the recommendation, which is not reported");
+    expect(capsWords({ mode: "none", lanes: "", perSignIn: "0" }, 6)).toBe("no cap");
+    expect(capsWords({ mode: "number", lanes: "9", perSignIn: "0" }, 6)).toBe("9");
+  });
+
+  it("finds a cap above the recommendation, as the API's warning does: only a number, and only past a recommendation", () => {
+    expect(capsAbove({ mode: "number", lanes: "9", perSignIn: "0" }, recommendation)).toEqual({ value: 9, recommended: 6, reason: recommendation.reason });
+    expect(capsAbove({ mode: "number", lanes: "6", perSignIn: "0" }, recommendation)).toBeNull();
+    expect(capsAbove({ mode: "none", lanes: "9", perSignIn: "0" }, recommendation)).toBeNull();
+    expect(capsAbove({ mode: "recommended", lanes: "", perSignIn: "0" }, recommendation)).toBeNull();
+    expect(capsAbove({ mode: "number", lanes: "9", perSignIn: "0" }, undefined)).toBeNull();
+    expect(capsAbove({ mode: "number", lanes: "9", perSignIn: "0" }, { max_lanes: 0, reason: "" })).toBeNull();
+    expect(capsAbove({ mode: "number", lanes: "x", perSignIn: "0" }, recommendation)).toBeNull();
+  });
+});
+
+describe("the estimate policy", () => {
+  const field = (key: string) => policies.estimate.fields.find((one) => one.key === key)!;
+  const stated = { min_samples: 12, recent_samples: 60, forecast_trials: 1000, share_history: true };
+
+  it("writes the table with every setting stated, in the order the built-in version writes them", () => {
+    expect(policyBody("estimate", 3, stated)).toBe("[estimate_policy]\nversion = 3\nmin_samples = 12\nrecent_samples = 60\nforecast_trials = 1000\nshare_history = true\n");
+    expect(policyBody("estimate", 3, { ...stated, share_history: false })).toContain("share_history = false\n");
+  });
+
+  it("reads a version's settings as the form holds them", () => {
+    expect(policySettings("estimate", '{"version":2,"min_samples":12,"recent_samples":60,"forecast_trials":1000,"share_history":true}')).toEqual({ version: 2, ...stated });
+  });
+
+  it("holds a confident estimate to at least 5 outcomes, as the API does, and says so at the field", () => {
+    expect(problemOf(field("min_samples"), { ...stated, min_samples: 4 })).toBe("Enter a whole number, 5 or more.");
+    expect(problemOf(field("min_samples"), { ...stated, min_samples: "" })).toBe("Enter a whole number, 5 or more.");
+    expect(problemOf(field("min_samples"), { ...stated, min_samples: 5, recent_samples: 5 })).toBe("");
+  });
+
+  it("holds the recent outcomes to the outcomes a confident estimate needs, and a forecast to 1 to 20,000 trials", () => {
+    expect(problemOf(field("recent_samples"), { ...stated, recent_samples: 11 })).toBe("Enter at least 12, the outcomes a confident estimate needs.");
+    expect(problemOf(field("recent_samples"), { ...stated, recent_samples: 12 })).toBe("");
+    expect(problemOf(field("forecast_trials"), { ...stated, forecast_trials: 0 })).toBe("Enter a whole number, 1 or more.");
+    expect(problemOf(field("forecast_trials"), { ...stated, forecast_trials: 20_001 })).toBe("Enter a whole number from 1 to 20,000.");
+    expect(problemOf(field("forecast_trials"), { ...stated, forecast_trials: 20_000 })).toBe("");
+    expect(problemOf(field("forecast_trials"), { ...stated, forecast_trials: 2.5 })).toBe("Enter a whole number, 1 or more.");
+  });
+
+  it("leaves every other policy's whole numbers as they were: only an empty one is a problem, and a setting a version leaves out is none", () => {
+    const attempts = policies.recovery.fields.find((one) => one.key === "max_attempts")!;
+    expect(problemOf(attempts, { max_attempts: "" })).toBe("Enter a whole number, 0 or more.");
+    expect(problemOf(attempts, { max_attempts: 0 })).toBe("");
+    expect(problemOf(attempts, {})).toBe("");
+    const idle = policies.assistant.fields.find((one) => one.key === "idle_stop")!;
+    expect(problemOf(idle, { idle_stop: 0 })).toBe("Enter a whole number of minutes, 1 to 1,440.");
+    expect(problemOf(idle, { idle_stop: 30 })).toBe("");
+    expect(problemOf(policies.recovery.fields.find((one) => one.key === "retry_failed")!, { retry_failed: true })).toBe("");
   });
 });

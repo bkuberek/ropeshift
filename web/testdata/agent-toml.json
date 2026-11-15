@@ -1,0 +1,276 @@
+[
+  {
+    "name": "one [[agent]] table with every key, text trimmed, and the tools and models as tables",
+    "toml": "# A migration writer.\n[[agent]]\nname = \"sql-migration\"\npurpose = \"\"\"\n  Writes a schema migration, and the rollback beside it.\n\"\"\"\nkind = \"implementation\"\naccess = \"writing\"\nclass = \"large\"\neffort = \"high\"\napproval = \"per_use\"\ninstructions = '''\nRead the schema first.\nNever edit an applied migration.\n'''\nreport = \"  A short summary of the migration.  \"\nenabled = false\n\n[agent.tools]\nallow = [\"read\", \"edit\", \"shell\"]\ndeny = [\"web\"]\n\n[agent.models]\nclaude-code = \"opus\"\ncodex = \"gpt-5\"\n",
+    "agent": {
+      "name": "sql-migration",
+      "purpose": "Writes a schema migration, and the rollback beside it.",
+      "kind": "implementation",
+      "access": "writing",
+      "tools": {
+        "allow": [
+          "read",
+          "edit",
+          "shell"
+        ],
+        "deny": [
+          "web"
+        ]
+      },
+      "class": "large",
+      "effort": "high",
+      "approval": "per_use",
+      "instructions": "Read the schema first.\nNever edit an applied migration.",
+      "report": "A short summary of the migration.",
+      "enabled": false,
+      "models": {
+        "claude-code": "opus",
+        "codex": "gpt-5"
+      }
+    }
+  },
+  {
+    "name": "keys at the top of the text, with an inline table",
+    "toml": "name = \"doc-writer\"\npurpose = \"Writes user documentation.\"\nkind = \"mechanical\"\naccess = \"writing\"\nclass = \"small\"\neffort = \"low\"\ntools = { allow = [\"read\", \"edit\"], deny = [] }\n",
+    "agent": {
+      "name": "doc-writer",
+      "purpose": "Writes user documentation.",
+      "kind": "mechanical",
+      "access": "writing",
+      "tools": {
+        "allow": [
+          "read",
+          "edit"
+        ],
+        "deny": []
+      },
+      "class": "small",
+      "effort": "low",
+      "approval": "",
+      "instructions": "",
+      "report": "",
+      "enabled": true
+    }
+  },
+  {
+    "name": "dotted keys inside the table",
+    "toml": "[[agent]]\npurpose = \"Finds the code a change touches.\"\nkind = \"lookup\"\naccess = \"read_only\"\nclass = \"small\"\neffort = \"low\"\ntools.allow = [\"read\", \"search\"]\nmodels.claude-code = \"haiku\"\n",
+    "agent": {
+      "name": "",
+      "purpose": "Finds the code a change touches.",
+      "kind": "lookup",
+      "access": "read_only",
+      "tools": {
+        "allow": [
+          "read",
+          "search"
+        ],
+        "deny": []
+      },
+      "class": "small",
+      "effort": "low",
+      "approval": "",
+      "instructions": "",
+      "report": "",
+      "enabled": true,
+      "models": {
+        "claude-code": "haiku"
+      }
+    }
+  },
+  {
+    "name": "an agent that is enabled unless the text says otherwise",
+    "toml": "[[agent]]\nkind = \"review\"\n",
+    "agent": {
+      "name": "",
+      "purpose": "",
+      "kind": "review",
+      "access": "",
+      "tools": {
+        "allow": [],
+        "deny": []
+      },
+      "class": "",
+      "effort": "",
+      "approval": "",
+      "instructions": "",
+      "report": "",
+      "enabled": true
+    }
+  },
+  {
+    "name": "an enabled key that says true",
+    "toml": "[[agent]]\nenabled = true\n",
+    "agent": {
+      "name": "",
+      "purpose": "",
+      "kind": "",
+      "access": "",
+      "tools": {
+        "allow": [],
+        "deny": []
+      },
+      "class": "",
+      "effort": "",
+      "approval": "",
+      "instructions": "",
+      "report": "",
+      "enabled": true
+    }
+  },
+  {
+    "name": "text that holds nothing yet",
+    "toml": "",
+    "agent": {
+      "name": "",
+      "purpose": "",
+      "kind": "",
+      "access": "",
+      "tools": {
+        "allow": [],
+        "deny": []
+      },
+      "class": "",
+      "effort": "",
+      "approval": "",
+      "instructions": "",
+      "report": "",
+      "enabled": true
+    }
+  },
+  {
+    "name": "only comments",
+    "toml": "# nothing here yet\n",
+    "agent": {
+      "name": "",
+      "purpose": "",
+      "kind": "",
+      "access": "",
+      "tools": {
+        "allow": [],
+        "deny": []
+      },
+      "class": "",
+      "effort": "",
+      "approval": "",
+      "instructions": "",
+      "report": "",
+      "enabled": true
+    }
+  },
+  {
+    "name": "an empty models table leaves no models",
+    "toml": "[[agent]]\nkind = \"lookup\"\n[agent.models]\n",
+    "agent": {
+      "name": "",
+      "purpose": "",
+      "kind": "lookup",
+      "access": "",
+      "tools": {
+        "allow": [],
+        "deny": []
+      },
+      "class": "",
+      "effort": "",
+      "approval": "",
+      "instructions": "",
+      "report": "",
+      "enabled": true
+    }
+  },
+  {
+    "name": "a name in the text, which the roster change overrides with the name it is given",
+    "toml": "[[agent]]\nname = \"first\"\n",
+    "agent": {
+      "name": "first",
+      "purpose": "",
+      "kind": "",
+      "access": "",
+      "tools": {
+        "allow": [],
+        "deny": []
+      },
+      "class": "",
+      "effort": "",
+      "approval": "",
+      "instructions": "",
+      "report": "",
+      "enabled": true
+    }
+  },
+  {
+    "name": "two [[agent]] tables",
+    "toml": "[[agent]]\nname = \"a\"\n\n[[agent]]\nname = \"b\"\n",
+    "refused": true
+  },
+  {
+    "name": "a key no agent has, at the top",
+    "toml": "colour = \"red\"\n",
+    "refused": true
+  },
+  {
+    "name": "a key no agent has, inside the table",
+    "toml": "[[agent]]\ncolour = \"red\"\n",
+    "refused": true
+  },
+  {
+    "name": "a key no agent has, beside the table",
+    "toml": "colour = \"red\"\n\n[[agent]]\nkind = \"lookup\"\n",
+    "refused": true
+  },
+  {
+    "name": "a key no tools table has",
+    "toml": "[[agent]]\n[agent.tools]\nfetch = [\"web\"]\n",
+    "refused": true
+  },
+  {
+    "name": "a kind that is a number",
+    "toml": "[[agent]]\nkind = 3\n",
+    "refused": true
+  },
+  {
+    "name": "a purpose that is a list",
+    "toml": "[[agent]]\npurpose = [\"a\"]\n",
+    "refused": true
+  },
+  {
+    "name": "enabled that is text",
+    "toml": "[[agent]]\nenabled = \"yes\"\n",
+    "refused": true
+  },
+  {
+    "name": "tools that allow a number",
+    "toml": "[[agent]]\n[agent.tools]\nallow = [1]\n",
+    "refused": true
+  },
+  {
+    "name": "a model that is a number",
+    "toml": "[[agent]]\n[agent.models]\nclaude-code = 3\n",
+    "refused": true
+  },
+  {
+    "name": "a models table inside models",
+    "toml": "[[agent]]\n[agent.models.claude-code]\nopus = \"x\"\n",
+    "refused": true
+  },
+  {
+    "name": "an agent written as a plain table",
+    "toml": "[agent]\nkind = \"lookup\"\n",
+    "refused": true
+  },
+  {
+    "name": "text that is no TOML",
+    "toml": "this is not toml\n",
+    "refused": true
+  },
+  {
+    "name": "an unclosed string",
+    "toml": "[[agent]]\npurpose = \"never closed\n",
+    "refused": true
+  },
+  {
+    "name": "the same key twice",
+    "toml": "[[agent]]\nkind = \"lookup\"\nkind = \"review\"\n",
+    "refused": true
+  }
+]

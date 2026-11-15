@@ -1,6 +1,10 @@
 package cli
 
-import "time"
+import (
+	"time"
+
+	"ropeshift.com/ropeshift/internal/roster"
+)
 
 // FollowTiming makes `lane attach` poll and give up quickly, and returns how to put the real timing back.
 func FollowTiming(poll, wait time.Duration) (restore func()) {
@@ -30,3 +34,6 @@ var (
 	TalkLine = talkLine
 	Plain    = plain
 )
+
+// ReadAgentFile reads an agent's definition from a file, as `agent add --file` does.
+func ReadAgentFile(path string) (roster.Agent, error) { return (&invocation{}).readAgentFile(path) }

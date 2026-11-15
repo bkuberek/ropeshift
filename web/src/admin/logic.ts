@@ -1,11 +1,11 @@
-import type { AgentFields, RepositoryAdded } from "../api/admin";
+import type { AgentFields, LaneCapSettings, LaneRecommendation, RepositoryAdded, WorkerCaps } from "../api/admin";
 import type { StateLook } from "../floor/states";
 
 // The settings pages' own reckoning: what a difference shows, the body a policy version records, and the
 // fields a roster change sends. None of it decides anything the API decides; the API refuses what it
 // refuses, and the page shows that refusal at the field.
 
-export type PolicyKind = "decision" | "lane" | "recovery" | "notify" | "autonomy" | "assistant" | "delegation" | "delegate";
+export type PolicyKind = "decision" | "lane" | "recovery" | "notify" | "autonomy" | "assistant" | "delegation" | "delegate" | "estimate";
 
 export type DelegationClass = { tool: string; command_prefix: string; path: string; agent: string };
 export type PolicyValue = boolean | number | string | string[] | DelegationClass[];
@@ -19,6 +19,10 @@ export type FieldSpec = {
   help?: string;
   // optional text is left out of the body when empty, because the policy reads its absence.
   optional?: boolean;
+  // The bounds of a whole number, which the API holds too, and a setting it may not fall below.
+  min?: number;
+  max?: number;
+  atLeast?: { key: string; words: string };
 };
 
 // Each policy's table and the settings it states, in the order its built-in version writes them.
@@ -81,6 +85,32 @@ export const policies: Record<PolicyKind, { table: string; fields: FieldSpec[] }
     table: "delegation_policy",
     fields: [{ key: "classes", label: "Approval classes an orchestrator decides", type: "classes", help: "Each class names a tool, and optionally a command prefix, a path, or an agent." }],
   },
+  estimate: {
+    table: "estimate_policy",
+    fields: [
+      {
+        key: "min_samples",
+        label: "Comparable outcomes a confident estimate needs",
+        type: "int",
+        min: 5,
+        help: "A confident estimate rests on this many finished, comparable work orders, and never on fewer than 5. With fewer, the estimate is low confidence and says why.",
+      },
+      {
+        key: "recent_samples",
+        label: "Recent comparable outcomes an estimate reads",
+        type: "int",
+        atLeast: { key: "min_samples", words: "outcomes a confident estimate needs" },
+        help: "An estimate reads at most this many of the most recent comparable outcomes.",
+      },
+      { key: "forecast_trials", label: "Trials in a forecast", type: "int", min: 1, max: 20_000, help: "How many times a forecast simulates a plan's unfinished work, from 1 to 20,000." },
+      {
+        key: "share_history",
+        label: "Share delivery history with the installation's pool",
+        type: "bool",
+        help: "Off, this project's estimates read its own history alone. On, it adds its finished work to the installation's pool and draws on the pool for its broadest comparison. The pool holds each work order's kind, size, capability class, durations, and cost, and no ID, title, repository, or content. Turning it off takes the project's records out of the pool.",
+      },
+    ],
+  },
   delegate: {
     table: "delegate_policy",
     fields: [
@@ -94,6 +124,31 @@ export const policies: Record<PolicyKind, { table: string; fields: FieldSpec[] }
     ],
   },
 };
+
+// problemOf says what is wrong with one setting's value, in words that name the fix, or nothing. It holds the bounds
+// the API holds, so a version it would refuse is never offered for review; the API still refuses what it refuses.
+// A whole number a version leaves out is no problem, because the policy reads its absence.
+export function problemOf(field: FieldSpec, values: PolicyValues): string {
+  const value = values[field.key];
+  if (field.type === "minutes") {
+    return isMinutes(value) ? "" : `Enter a whole number of minutes, ${minutesBounds.min} to ${minutesBounds.max.toLocaleString("en-US")}.`;
+  }
+  if (field.type !== "int" || value === undefined) {
+    return "";
+  }
+  const low = field.min ?? 0;
+  if (typeof value !== "number" || !Number.isInteger(value) || value < low) {
+    return `Enter a whole number, ${low} or more.`;
+  }
+  if (field.max !== undefined && value > field.max) {
+    return `Enter a whole number from ${low} to ${field.max.toLocaleString("en-US")}.`;
+  }
+  const least = field.atLeast ? values[field.atLeast.key] : undefined;
+  if (field.atLeast && typeof least === "number" && value < least) {
+    return `Enter at least ${least}, the ${field.atLeast.words}.`;
+  }
+  return "";
+}
 
 export function tomlString(text: string): string {
   return `"${text.replaceAll("\\", "\\\\").replaceAll('"', '\\"').replaceAll("\n", "\\n").replaceAll("\t", "\\t")}"`;
@@ -193,6 +248,69 @@ export function policySettings(kind: PolicyKind, settings: string): PolicyValues
     values.raise_model_and_effort = true;
   }
   return values;
+}
+
+// A machine's lane caps as the form holds them. max_lanes follows the recommendation, caps nothing, or is a number, and
+// the numbers are the text a person typed, so a half-typed one is a draft and not a mistake.
+export type CapsMode = "recommended" | "none" | "number";
+export type CapsDraft = { mode: CapsMode; lanes: string; perSignIn: string };
+
+// capsDraftOf reads a worker's caps into the form: null follows the recommendation, 0 caps nothing.
+export function capsDraftOf(caps: Pick<WorkerCaps, "max_lanes" | "max_lanes_per_sign_in"> | undefined): CapsDraft {
+  const lanes = caps?.max_lanes;
+  return {
+    mode: lanes === null || lanes === undefined ? "recommended" : lanes === 0 ? "none" : "number",
+    lanes: lanes ? String(lanes) : "",
+    perSignIn: String(caps?.max_lanes_per_sign_in ?? 0),
+  };
+}
+
+const wholeNumber = (text: string): number | null => (/^\d+$/.test(text.trim()) ? Number(text.trim()) : null);
+
+// capsProblems says what stops a form from being saved, at the field that holds it. The API holds the same
+// bounds: any number from 0, with no upper bound.
+export function capsProblems(draft: CapsDraft): { lanes?: string; perSignIn?: string } {
+  const out: { lanes?: string; perSignIn?: string } = {};
+  if (draft.mode === "number") {
+    const lanes = wholeNumber(draft.lanes);
+    if (lanes === null) {
+      out.lanes = "Enter a whole number, 1 or more. To cap nothing, choose No cap.";
+    } else if (lanes === 0) {
+      out.lanes = "0 lanes would run nothing. To cap nothing, choose No cap.";
+    }
+  }
+  if (draft.perSignIn.trim() !== "" && wholeNumber(draft.perSignIn) === null) {
+    out.perSignIn = "Enter a whole number, 0 or more. 0 caps nothing.";
+  }
+  return out;
+}
+
+// capsSettings writes a valid form as the request the caps route reads. Both caps go every time, as the CLI's
+// send them, so a change to one keeps the other.
+export function capsSettings(draft: CapsDraft): LaneCapSettings {
+  return {
+    max_lanes: draft.mode === "recommended" ? null : draft.mode === "none" ? 0 : (wholeNumber(draft.lanes) ?? 0),
+    max_lanes_per_sign_in: wholeNumber(draft.perSignIn) ?? 0,
+  };
+}
+
+// capsWords says the max lanes of a form in words, with the recommendation where it is what caps.
+export function capsWords(draft: CapsDraft, recommended?: number): string {
+  if (draft.mode === "recommended") {
+    return recommended ? `the recommendation, ${recommended}` : "the recommendation, which is not reported";
+  }
+  return draft.mode === "none" ? "no cap" : draft.lanes.trim();
+}
+
+// capsAbove finds a number of lanes above the recommendation, which the API saves with a warning all the same.
+// A cap that follows the recommendation, or caps nothing, is never above it, nor is any while the worker has
+// reported none.
+export function capsAbove(draft: CapsDraft, recommendation: Pick<LaneRecommendation, "max_lanes" | "reason"> | undefined): { value: number; recommended: number; reason: string } | null {
+  const value = draft.mode === "number" ? wholeNumber(draft.lanes) : null;
+  if (value === null || !recommendation || recommendation.max_lanes <= 0 || value <= recommendation.max_lanes) {
+    return null;
+  }
+  return { value, recommended: recommendation.max_lanes, reason: recommendation.reason };
 }
 
 // nextVersion is the version a save records, one past the newest.

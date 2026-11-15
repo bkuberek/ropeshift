@@ -1,0 +1,24 @@
+{
+  "versions": [
+    {
+      "id": "generated-1",
+      "kind": "estimate",
+      "version": 2,
+      "digest": "sha256:6b9e2c4031ccc69ddf5beaa2d212dc10795a840bec05f7a7b8cb7ba71951a8ba",
+      "body": "[estimate_policy]\nversion = 2\nmin_samples = 12\nrecent_samples = 60\nforecast_trials = 1000\nshare_history = true\n",
+      "settings": "{\"version\":2,\"min_samples\":12,\"recent_samples\":60,\"forecast_trials\":1000,\"share_history\":true}",
+      "authored_by": "member-1",
+      "created_at": 1794000000000
+    },
+    {
+      "id": "generated-2",
+      "kind": "estimate",
+      "version": 1,
+      "digest": "sha256:7bbc73efb7797dc731d8ff20d70b11d62c0f2088a06a6a089f47fd89c8a4b9c0",
+      "body": "[estimate_policy]\nversion = 1\nmin_samples = 10\nrecent_samples = 50\nforecast_trials = 2000\nshare_history = false\n",
+      "settings": "{\"version\":1,\"min_samples\":10,\"recent_samples\":50,\"forecast_trials\":2000,\"share_history\":false}",
+      "authored_by": "built-in",
+      "created_at": 1794000000000
+    }
+  ]
+}

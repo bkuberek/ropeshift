@@ -455,6 +455,59 @@ func TestGoldenSettingsReads(t *testing.T) {
 	}
 }
 
+// TestGoldenEstimatePolicy writes what the estimate policy section reads, from a real ledger: the built-in
+// version and a version a member published, which shares the project's delivery history. It reads apart from
+// the other settings, whose audit it would otherwise change.
+func TestGoldenEstimatePolicy(t *testing.T) {
+	t.Parallel()
+	in := apitest.StartInstallation(t, "beta")
+	project := in.Client.Project(apitest.ProjectName)
+	body := "[estimate_policy]\nversion = 2\nmin_samples = 12\nrecent_samples = 60\nforecast_trials = 1000\nshare_history = true\n"
+	if _, err := project.PublishPolicy(t.Context(), body); err != nil {
+		t.Fatal(err)
+	}
+	var out api.PolicyList
+	if err := in.Client.Do(t.Context(), http.MethodGet, api.InProject(apitest.ProjectName, "/v1/policies?kind=estimate"), nil, &out); err != nil {
+		t.Fatal(err)
+	}
+	holdsGolden(t, "policies-estimate", steadyTimes(steady(pretty(t, out))))
+}
+
+// TestGoldenWorkerCaps writes what the Admission section reads, from a real ledger and the recommendation a
+// worker computes: a worker's caps while they follow the recommendation, and with a cap a member set above
+// it, which the API saves with a warning that says why.
+func TestGoldenWorkerCaps(t *testing.T) {
+	t.Parallel()
+	d := apitest.Start(t)
+	credential, epoch := joinWorker(t, d)
+	memory := int64(16) << 30
+	settings, err := lanes.Admission{}.Recommending()
+	if err != nil {
+		t.Fatal(err)
+	}
+	recommended, ok := lanes.Recommend(lanes.RecommendInput{Cores: 8, MemoryTotalBytes: &memory, Settings: settings})
+	if !ok {
+		t.Fatal("a machine of 8 cores has no recommendation")
+	}
+	report := aReport()
+	report.Recommendation = &recommended
+	reportAs(t, d, credential, epoch, report)
+	client := capsListener(t, d, fake.NewProfileSource(), aSubscriptionWorker, d.Session)
+	following, err := client.LaneCaps(t.Context(), aSubscriptionWorker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	holdsGolden(t, "worker-caps", steadyTimes(steady(pretty(t, following))))
+	above, err := client.SetLaneCaps(t.Context(), aSubscriptionWorker, api.SetLaneCaps{MaxLanes: lanesOf(recommended.MaxLanes + 3), MaxLanesPerSignIn: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if above.Warning == nil {
+		t.Fatalf("a cap above the recommendation of %d saved with no warning: %+v", recommended.MaxLanes, above)
+	}
+	holdsGolden(t, "worker-caps-above", steadyTimes(steady(pretty(t, above))))
+}
+
 var wallTime = regexp.MustCompile(`": 1[0-9]{12}\b`)
 
 // steadyTimes moves the times a harness on the wall clock wrote to a fixed start, kept to the minute

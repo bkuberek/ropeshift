@@ -27,10 +27,12 @@ function serveAdmin(answer?: (sent: Sent) => Answer | undefined, projects?: Answ
         ["/v1/repositories", () => golden("repositories")],
         ["/v1/fleet", () => golden("fleet")],
         ["/v1/policies?kind=recovery", () => golden("policies-recovery")],
+        ["/v1/policies?kind=estimate", () => golden("policies-estimate")],
         ["/v1/roster/history", () => golden("roster-history")],
         ["/v1/roster", () => golden("roster")],
         ["/v1/members", () => golden("members")],
         ["/v1/audit", () => golden("audit")],
+        ["/v1/workers/worker-1/caps", () => golden("worker-caps")],
         ["/v1/workers", () => workers],
         ["/v1/categories", () => ({ categories: ["security", "data", "compliance"] })],
       ];
@@ -288,15 +290,6 @@ describe("Settings", () => {
     await waitFor(() => expect(sentTo(sent, "PUT", "/v1/fleet/caps")[0]?.body).toEqual({ wip_limit: 0, lanes_per_repository: 0, lanes_per_worker: 3 }));
   });
 
-  it("shows each machine's lane cap as its worker reports it, and says where it is set", async () => {
-    serveAdmin();
-    openPage("/settings?section=admission");
-    const table = await screen.findByRole("region", { name: "Lane caps by machine" });
-    expect(within(table).getByText("6")).toBeTruthy();
-    expect(within(table).getByText("Your user profile")).toBeTruthy();
-    expect(screen.getByText(/arrive with the worker's resource reports/)).toBeTruthy();
-  });
-
   it("says how long a run window stays open by the server's clock, not the epoch", async () => {
     const asOf = 1_760_000_000_000;
     serveAdmin((call) =>
@@ -359,6 +352,119 @@ describe("Agents", () => {
   });
 });
 
+describe("Add agent", () => {
+  const path = "/v1/roster/changes";
+  const changes = (sent: Sent[]) => sentTo(sent, "POST", path);
+  const saved = (call: Sent) => (call.method === "POST" && call.path === path ? { status: 200, body: { version: 2 } } : undefined);
+  const scout = '[[agent]]\nname = "scout"\npurpose = "Finds the code a change touches."\nkind = "lookup"\naccess = "read_only"\nclass = "small"\neffort = "low"\n\n[agent.tools]\nallow = ["read", "search"]\n';
+  const open = async () => {
+    openPage(here("/agents"));
+    await userEvent.click(await screen.findByRole("button", { name: "Add agent" }));
+    return screen.findByRole("dialog", { name: "Add agent" });
+  };
+  const paste = async (dialog: HTMLElement, text: string) => {
+    await userEvent.click(within(dialog).getByRole("button", { name: "Paste TOML" }));
+    fireEvent.change(within(dialog).getByLabelText(/Agent definition/), { target: { value: text } });
+  };
+
+  it("adds an agent as a copy of another, as it did", async () => {
+    const sent = serveAdmin(saved);
+    const dialog = await open();
+    expect(within(dialog).getByRole("button", { name: "Copy an agent" }).getAttribute("aria-pressed")).toBe("true");
+    await userEvent.type(within(dialog).getByLabelText("Name"), "sql-migration");
+    await userEvent.selectOptions(within(dialog).getByLabelText("Copy from"), "explore");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Save version 2" }));
+    await waitFor(() => expect(changes(sent)).toHaveLength(1));
+    expect(changes(sent)[0]?.body).toEqual({ scope: "project", change: { op: "add", agent: "sql-migration", from: "explore" } });
+  });
+
+  it("reads a pasted [[agent]] table, previews the agent it holds, and adds it as a definition", async () => {
+    const sent = serveAdmin(saved);
+    const dialog = await open();
+    await paste(dialog, scout);
+    const preview = await within(dialog).findByRole("table", { name: "Parsed agent" });
+    expect(within(preview).getByText("[agents.scout]")).toBeTruthy();
+    expect(within(preview).getByText('kind = "lookup"')).toBeTruthy();
+    expect(within(preview).getByText('tools.allow = "read,search"')).toBeTruthy();
+    // The table's own name stands in the field until the member types one.
+    expect((within(dialog).getByLabelText("Name") as HTMLInputElement).value).toBe("scout");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Save version 2" }));
+    await waitFor(() => expect(changes(sent)).toHaveLength(1));
+    expect(changes(sent)[0]?.body).toEqual({
+      scope: "project",
+      change: {
+        op: "add",
+        agent: "scout",
+        definition: {
+          name: "scout",
+          purpose: "Finds the code a change touches.",
+          kind: "lookup",
+          access: "read_only",
+          tools: { allow: ["read", "search"], deny: [] },
+          class: "small",
+          effort: "low",
+          approval: "",
+          instructions: "",
+          report: "",
+          enabled: true,
+        },
+      },
+    });
+  });
+
+  it("adds the definition under the name the member types, as the command adds the file under the name it is given", async () => {
+    const sent = serveAdmin(saved);
+    const dialog = await open();
+    await paste(dialog, scout);
+    const field = within(dialog).getByLabelText("Name");
+    await userEvent.clear(field);
+    await userEvent.type(field, "finder");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Save version 2" }));
+    await waitFor(() => expect(changes(sent)).toHaveLength(1));
+    const change = (changes(sent)[0]?.body as { change: { agent: string; definition: { name: string } } }).change;
+    expect([change.agent, change.definition.name]).toEqual(["finder", "scout"]);
+  });
+
+  it("shows what stops a text at its field, says nothing of an empty one, and holds Save back for both", async () => {
+    const sent = serveAdmin(saved);
+    const dialog = await open();
+    await userEvent.click(within(dialog).getByRole("button", { name: "Paste TOML" }));
+    const save = () => within(dialog).getByRole("button", { name: "Save version 2" }) as HTMLButtonElement;
+    expect(save().disabled).toBe(true);
+    expect(within(dialog).queryByText(/Unknown key/)).toBeNull();
+    const field = within(dialog).getByLabelText(/Agent definition/);
+    fireEvent.change(field, { target: { value: '[[agent]]\ncolour = "red"\n' } });
+    expect(within(dialog).getByText("Unknown key colour.")).toBeTruthy();
+    expect(within(dialog).queryByRole("table", { name: "Parsed agent" })).toBeNull();
+    expect(save().disabled).toBe(true);
+    fireEvent.change(field, { target: { value: '[[agent]]\npurpose = "never closed\n' } });
+    expect(within(dialog).getByText(/line 2, column/)).toBeTruthy();
+    expect(save().disabled).toBe(true);
+    fireEvent.change(field, { target: { value: '[[agent]]\nname = "a"\n[[agent]]\nname = "b"\n' } });
+    expect(within(dialog).getByText("A text adds one agent, and this holds 2 [[agent]] tables.")).toBeTruthy();
+    expect(changes(sent)).toHaveLength(0);
+  });
+
+  it("shows the API's refusal of a definition in the dialog, and keeps the text and the dialog", async () => {
+    serveAdmin((call) => (call.method === "POST" && call.path === path ? refusal(400, "invalid", 'invalid roster: agent "scout" allows no tools') : undefined));
+    const dialog = await open();
+    await paste(dialog, '[[agent]]\nname = "scout"\nkind = "lookup"\n');
+    await userEvent.click(within(dialog).getByRole("button", { name: "Save version 2" }));
+    expect((await within(dialog).findByRole("alert")).textContent).toContain('agent "scout" allows no tools');
+    expect((within(dialog).getByLabelText(/Agent definition/) as HTMLTextAreaElement).value).toContain('name = "scout"');
+  });
+
+  it("keeps a pasted text while the member switches to a copy and back", async () => {
+    serveAdmin();
+    const dialog = await open();
+    await paste(dialog, scout);
+    await userEvent.click(within(dialog).getByRole("button", { name: "Copy an agent" }));
+    expect(within(dialog).queryByLabelText(/Agent definition/)).toBeNull();
+    await userEvent.click(within(dialog).getByRole("button", { name: "Paste TOML" }));
+    expect((within(dialog).getByLabelText(/Agent definition/) as HTMLTextAreaElement).value).toBe(scout);
+  });
+});
+
 describe("Members and the audit", () => {
   it("lists each member with a live session", async () => {
     serveAdmin();
@@ -388,5 +494,231 @@ describe("Workers", () => {
     expect(await within(dialog).findByText("join-secret")).toBeTruthy();
     expect(within(dialog).getByText(/only time the token is shown/)).toBeTruthy();
     expect(sentTo(sent, "POST", "/v1/workers/tokens")).toHaveLength(1);
+  });
+});
+
+describe("Admission", () => {
+  const capsPath = "/v1/workers/worker-1/caps";
+  const caps = (over: Record<string, unknown> = {}) => ({ status: 200, body: { ...golden<Record<string, unknown>>("worker-caps"), ...over } });
+  const set = (sent: Sent[]) => sentTo(sent, "PUT", capsPath);
+  const save = async () => userEvent.click(screen.getByRole("button", { name: "Save" }));
+
+  it("shows a machine's caps with the recommendation and how the worker computed it, and says where they are kept", async () => {
+    serveAdmin();
+    openPage("/settings?section=admission");
+    const box = await screen.findByRole("region", { name: "Recommendation" });
+    expect(within(box).getByText("6 lanes")).toBeTruthy();
+    expect(within(box).getByText(/8 cores less 1 reserved, at 1 per lane, fit 7 lanes/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Recommended" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByText("Your user profile")).toBeTruthy();
+    // What this page once said was still to come is built: it names where the caps live and when a change counts.
+    expect(screen.queryByText(/arrive with the worker's resource reports/)).toBeNull();
+    expect(screen.getByText(/saved in the user profile on atlas's machine/)).toBeTruthy();
+  });
+
+  it("saves a number above the recommendation with the warning that says why, and the API's answer in a toast", async () => {
+    const sent = serveAdmin((call) => (call.method === "PUT" && call.path === capsPath ? { status: 200, body: golden("worker-caps-above") } : undefined));
+    openPage("/settings?section=admission");
+    await userEvent.click(await screen.findByRole("button", { name: "A number" }));
+    const lanes = screen.getByLabelText("Number of lanes");
+    fireEvent.change(lanes, { target: { value: "9" } });
+    // The warning names the recommendation and why, never blocks saving, and the box beside it says the same.
+    const field = lanes.closest(".field") as HTMLElement;
+    expect(within(field).getByText(/9 is above the recommendation of 6: 8 cores less 1 reserved/)).toBeTruthy();
+    expect(within(field).getByText(/the cap is your decision/)).toBeTruthy();
+    expect(screen.getByText("max lanes the recommendation, 6 → 9")).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(false);
+    await save();
+    await waitFor(() => expect(set(sent)[0]?.body).toEqual({ max_lanes: 9, max_lanes_per_sign_in: 0 }));
+    expect(set(sent)[0]?.csrf).not.toBeNull();
+    expect(await screen.findByText("Saved. atlas max lanes is 9, above the recommendation of 6.")).toBeTruthy();
+  });
+
+  it("saves no cap, and a return to the recommendation, as the route reads them", async () => {
+    const sent = serveAdmin((call) => {
+      if (call.method === "PUT" && call.path === capsPath) {
+        return caps();
+      }
+      return call.method === "GET" && call.path === capsPath ? caps({ max_lanes: 5, effective_max_lanes: 5 }) : undefined;
+    });
+    openPage("/settings?section=admission");
+    expect(((await screen.findByLabelText("Number of lanes")) as HTMLInputElement).value).toBe("5");
+    await userEvent.click(screen.getByRole("button", { name: "No cap" }));
+    await save();
+    await waitFor(() => expect(set(sent)[0]?.body).toEqual({ max_lanes: 0, max_lanes_per_sign_in: 0 }));
+    await userEvent.click(await screen.findByRole("button", { name: "Recommended" }));
+    await save();
+    await waitFor(() => expect(set(sent)[1]?.body).toEqual({ max_lanes: null, max_lanes_per_sign_in: 0 }));
+  });
+
+  it("saves the lanes on one sign-in, with the note on why a subscription wants one", async () => {
+    const sent = serveAdmin((call) => (call.method === "PUT" && call.path === capsPath ? caps({ max_lanes_per_sign_in: 2 }) : undefined));
+    openPage("/settings?section=admission");
+    const field = await screen.findByLabelText(/Lanes per sign-in/);
+    expect(screen.getByText(/draws from the same usage limits/)).toBeTruthy();
+    fireEvent.change(field, { target: { value: "2" } });
+    await save();
+    await waitFor(() => expect(set(sent)[0]?.body).toEqual({ max_lanes: null, max_lanes_per_sign_in: 2 }));
+    expect(await screen.findByText(/Saved atlas's lane caps/)).toBeTruthy();
+  });
+
+  it("holds Save back for a number that is no whole number of lanes, and says how to cap nothing", async () => {
+    const sent = serveAdmin();
+    openPage("/settings?section=admission");
+    await userEvent.click(await screen.findByRole("button", { name: "A number" }));
+    expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText("Number of lanes"), { target: { value: "0" } });
+    expect(screen.getByText(/To cap nothing, choose No cap/)).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(set(sent)).toHaveLength(0);
+  });
+
+  it("warns of nothing while the worker has reported no recommendation, and says so", async () => {
+    serveAdmin((call) => (call.method === "GET" && call.path === capsPath ? caps({ recommendation: undefined, effective_max_lanes: 0 }) : undefined));
+    openPage("/settings?section=admission");
+    const box = await screen.findByRole("region", { name: "Recommendation" });
+    expect(within(box).getByText(/has not reported a recommendation/)).toBeTruthy();
+    await userEvent.click(screen.getByRole("button", { name: "A number" }));
+    fireEvent.change(screen.getByLabelText("Number of lanes"), { target: { value: "99" } });
+    expect(screen.queryByText(/above the recommendation/)).toBeNull();
+  });
+
+  it("shows the API's refusal of a save at the form, and keeps the form", async () => {
+    serveAdmin((call) => (call.method === "PUT" && call.path === capsPath ? refusal(400, "invalid", "max_lanes_per_sign_in is not a number of lanes") : undefined));
+    openPage("/settings?section=admission");
+    fireEvent.change(await screen.findByLabelText(/Lanes per sign-in/), { target: { value: "2" } });
+    await save();
+    expect((await screen.findByRole("alert")).textContent).toContain("max_lanes_per_sign_in is not a number of lanes");
+    expect((screen.getByLabelText(/Lanes per sign-in/) as HTMLInputElement).value).toBe("2");
+  });
+
+  it("shows why a worker on another machine has no form here, in the API's words", async () => {
+    serveAdmin((call) =>
+      call.method === "GET" && call.path === capsPath ? refusal(400, "invalid", "worker worker-1 runs on another machine, so its lane caps are set in the user's profile on that machine") : undefined,
+    );
+    openPage("/settings?section=admission");
+    expect(await screen.findByText(/runs on another machine/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
+  });
+
+  it("chooses among several machines, and reads and saves the caps of the one chosen", async () => {
+    const two = { workers: [...workers.workers, { id: "worker-2", name: "tern", epoch: 1, protocol: 3 }] };
+    const sent = serveAdmin((call) => {
+      if (call.method === "GET" && call.path === "/v1/workers") {
+        return { status: 200, body: two };
+      }
+      if (call.path === "/v1/workers/worker-2/caps") {
+        return caps({ worker: "worker-2" });
+      }
+      return undefined;
+    });
+    openPage("/settings?section=admission&worker=worker-2");
+    expect(await screen.findByRole("region", { name: "Recommendation" })).toBeTruthy();
+    expect((screen.getByLabelText("Machine") as HTMLSelectElement).value).toBe("worker-2");
+    fireEvent.change(await screen.findByLabelText(/Lanes per sign-in/), { target: { value: "3" } });
+    await save();
+    await waitFor(() => expect(sentTo(sent, "PUT", "/v1/workers/worker-2/caps")[0]?.body).toEqual({ max_lanes: null, max_lanes_per_sign_in: 3 }));
+  });
+});
+
+describe("Estimate policy", () => {
+  const post = (sent: Sent[]) => sentTo(sent, "POST", "/v1/policies");
+  const published = (over: Record<string, unknown> = {}) => ({ status: 201, body: { version: 3, ...over } });
+  const open = () => openPage(here("/settings?section=estimate"));
+
+  it("lists the estimate policy among the project's sections, with what each of its settings does", async () => {
+    serveAdmin();
+    open();
+    expect(await screen.findByRole("heading", { level: 1, name: "Estimate policy" })).toBeTruthy();
+    const tree = screen.getByRole("navigation", { name: "Settings sections" });
+    expect(within(tree).getByRole("link", { name: "Estimate policy" }).getAttribute("href")).toBe(here("/settings?section=estimate"));
+    expect((await screen.findByLabelText(/Comparable outcomes a confident estimate needs/) as HTMLInputElement).value).toBe("12");
+    expect((screen.getByLabelText(/Recent comparable outcomes/) as HTMLInputElement).value).toBe("60");
+    expect((screen.getByLabelText(/Trials in a forecast/) as HTMLInputElement).value).toBe("1000");
+    expect((screen.getByRole("checkbox", { name: /Share delivery history/ }) as HTMLInputElement).checked).toBe(true);
+    // The pool's note names what it holds, and what it never does.
+    expect(screen.getByText(/kind, size, capability class, durations, and cost, and no ID, title, repository, or content/)).toBeTruthy();
+  });
+
+  it("saves the next version after its difference is reviewed, with every setting stated", async () => {
+    const sent = serveAdmin((call) => (call.method === "POST" && call.path === "/v1/policies" ? published() : undefined));
+    open();
+    fireEvent.change(await screen.findByLabelText(/Comparable outcomes a confident estimate needs/), { target: { value: "15" } });
+    expect(screen.getByText("min_samples 12 → 15")).toBeTruthy();
+    await userEvent.click(screen.getByRole("button", { name: "Review change" }));
+    const dialog = await screen.findByRole("dialog", { name: "Review the estimate policy change" });
+    const diff = within(dialog).getByRole("table", { name: "Policy change" });
+    expect(within(diff).getByText("min_samples = 15")).toBeTruthy();
+    expect(within(diff).getByText("min_samples = 12")).toBeTruthy();
+    await userEvent.click(within(dialog).getByRole("button", { name: "Save version 3" }));
+    await waitFor(() => expect(post(sent)).toHaveLength(1));
+    expect((post(sent)[0]?.body as { body: string }).body).toBe("[estimate_policy]\nversion = 3\nmin_samples = 15\nrecent_samples = 60\nforecast_trials = 1000\nshare_history = true\n");
+    expect(post(sent)[0]?.csrf).not.toBeNull();
+  });
+
+  it("holds Review change back for a number the API would refuse, and names the fix at the field", async () => {
+    const sent = serveAdmin();
+    open();
+    const review = async () => screen.getByRole("button", { name: "Review change" }) as HTMLButtonElement;
+    fireEvent.change(await screen.findByLabelText(/Comparable outcomes a confident estimate needs/), { target: { value: "4" } });
+    expect(screen.getByText("Enter a whole number, 5 or more.")).toBeTruthy();
+    expect((await review()).disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText(/Comparable outcomes a confident estimate needs/), { target: { value: "70" } });
+    expect(screen.getByText("Enter at least 70, the outcomes a confident estimate needs.")).toBeTruthy();
+    expect((await review()).disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText(/Recent comparable outcomes/), { target: { value: "80" } });
+    expect(screen.queryByText(/Enter at least/)).toBeNull();
+    fireEvent.change(screen.getByLabelText(/Trials in a forecast/), { target: { value: "20001" } });
+    expect(screen.getByText("Enter a whole number from 1 to 20,000.")).toBeTruthy();
+    expect((await review()).disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText(/Trials in a forecast/), { target: { value: "20000" } });
+    expect((await review()).disabled).toBe(false);
+    expect(post(sent)).toHaveLength(0);
+  });
+
+  it("says when the project's records are still in the pool after it stops sharing, in the API's words", async () => {
+    const notice = "The policy is in force, and the project's delivery records are still in the installation's pool: the next delivery tick takes them out.";
+    const sent = serveAdmin((call) => (call.method === "POST" && call.path === "/v1/policies" ? published({ notice }) : undefined));
+    open();
+    await userEvent.click(await screen.findByRole("checkbox", { name: /Share delivery history/ }));
+    await userEvent.click(screen.getByRole("button", { name: "Review change" }));
+    const dialog = await screen.findByRole("dialog", { name: "Review the estimate policy change" });
+    await userEvent.click(within(dialog).getByRole("button", { name: "Save version 3" }));
+    await waitFor(() => expect(post(sent)).toHaveLength(1));
+    expect((post(sent)[0]?.body as { body: string }).body).toContain("share_history = false\n");
+    expect(await screen.findByText(notice)).toBeTruthy();
+  });
+
+  it("shows the API's refusal in the review, and keeps the draft", async () => {
+    serveAdmin((call) => (call.method === "POST" && call.path === "/v1/policies" ? refusal(400, "invalid", "invalid estimate policy: version 3 is not newer than version 3") : undefined));
+    open();
+    fireEvent.change(await screen.findByLabelText(/Trials in a forecast/), { target: { value: "500" } });
+    await userEvent.click(screen.getByRole("button", { name: "Review change" }));
+    const dialog = await screen.findByRole("dialog", { name: "Review the estimate policy change" });
+    await userEvent.click(within(dialog).getByRole("button", { name: "Save version 3" }));
+    expect((await within(dialog).findByRole("alert")).textContent).toContain("is not newer than version 3");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Keep editing" }));
+    expect((screen.getByLabelText(/Trials in a forecast/) as HTMLInputElement).value).toBe("500");
+  });
+
+  it("lists every version with its difference, and reverts to the built-in one by recording it as the newest", async () => {
+    const sent = serveAdmin((call) => (call.method === "POST" && call.path === "/v1/policies" ? published() : undefined));
+    open();
+    await userEvent.click(await screen.findByRole("tab", { name: /History/ }));
+    expect(await screen.findByText("Version 2")).toBeTruthy();
+    expect(screen.getByText("In force")).toBeTruthy();
+    await userEvent.click(screen.getByRole("button", { name: "Revert" }));
+    const dialog = await screen.findByRole("dialog", { name: "Revert to version 1" });
+    await userEvent.click(within(dialog).getByRole("button", { name: "Save version 3" }));
+    await waitFor(() => expect(post(sent)).toHaveLength(1));
+    expect((post(sent)[0]?.body as { body: string }).body).toBe("[estimate_policy]\nversion = 3\nmin_samples = 10\nrecent_samples = 50\nforecast_trials = 2000\nshare_history = false\n");
+  });
+
+  it("reads and shows an archived project's policy without a way to change it", async () => {
+    serveAdmin(undefined, { status: 200, body: { projects: [{ id: "default", name: "default", state: "archived", created_at: 1, repositories: [] }] } });
+    open();
+    const field = (await screen.findByLabelText(/Comparable outcomes a confident estimate needs/)) as HTMLInputElement;
+    expect(field.disabled).toBe(true);
+    expect(screen.getByText(/is archived and read-only/)).toBeTruthy();
   });
 });

@@ -1,0 +1,21 @@
+{
+  "worker": "worker-on-a-plan",
+  "max_lanes": null,
+  "max_lanes_per_sign_in": 0,
+  "effective_max_lanes": 6,
+  "recommendation": {
+    "max_lanes": 6,
+    "basis": "estimates",
+    "observed_lanes": 0,
+    "cores": 8,
+    "memory_total_bytes": 17179869184,
+    "reserve_cpu": 1,
+    "reserve_memory_bytes": 4294967296,
+    "lane_cpu": 1,
+    "lane_memory_bytes": 2147483648,
+    "by_cpu": 7,
+    "by_memory": 6,
+    "reason": "8 cores less 1 reserved, at 1 per lane, fit 7 lanes; 16.0 GiB of memory less 4.0 GiB reserved, at 2.0 GiB per lane, fit 6; the lower is 6, from the estimates"
+  },
+  "reported_at": 1794000000000
+}
