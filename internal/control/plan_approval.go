@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -70,7 +71,7 @@ func draftDecision(version planning.PlanVersion, draft planning.DraftDecision, m
 	decision := questions.Decision{
 		ID: planDecisionID(version.PlanID, version.Version, draft.ID), Status: questions.DecisionDecided,
 		Statement: "Q: " + strings.TrimSpace(draft.Question) + " A: " + strings.TrimSpace(draft.Answer),
-		Rationale: draft.Rationale, Citations: []string{"plan_version:" + planning.ContractKey(version.PlanID, version.Version)},
+		Rationale: draft.Rationale, Citations: []string{planVersionCitation(version.PlanID, version.Version)},
 		Scope: "plan:" + version.PlanID, Reversibility: questions.Reversible, Categories: []string{questions.CategoryProduct},
 		DecidedBy: member.ID,
 	}
@@ -80,57 +81,133 @@ func draftDecision(version planning.PlanVersion, draft planning.DraftDecision, m
 	return decision
 }
 
-// draftClash refuses to decide a version's drafts while a decision with other content holds an ID one of them
-// derives. Only plan approval names a decision under the prefix those IDs carry, but a ledger may hold one
-// another writer recorded before that held, and deciding over it would leave that decision standing as the
-// member's answer. The refusal names each such decision, who recorded it, and its draft. An overturn changes
-// the decision's status, so it never makes the decision the draft's; a new version of the plan derives new
-// IDs for its drafts. The same content is the same decision, which a retry of the approval finds.
+// planVersionCitation is the citation plan approval gives each decision it records, naming the plan version
+// the member approved.
+func planVersionCitation(plan string, version int64) string {
+	return "plan_version:" + planning.ContractKey(plan, version)
+}
+
+// draftClash refuses to decide a version's drafts while a decision that is not plan approval's own holds an ID
+// one of them derives, or one that is its own holds it with other content, and while a decision that is not its
+// own is in force under the ID an earlier version derived for a draft, which approval would carry forward as the
+// member's answer. Only plan approval names a decision under the prefix those IDs carry, but a ledger may hold
+// one another writer recorded before that held, an imported backup of one included, and deciding over it, or
+// beside it, would leave that decision standing as the member's answer whatever it says. The refusal names each
+// such decision, who recorded it, and its draft. An overturn changes the decision's status, so it never makes a
+// decision under this version's IDs the draft's, and a new version of the plan derives new IDs for its drafts;
+// a decision under an earlier version's ID is read by every later version until it is out of force. The same
+// content, recorded by plan approval, is the same decision, which a retry of the approval finds.
 func draftClash(tx ports.WriteTx, version planning.PlanVersion) error {
 	var clashes []string
+	earlier := false
 	for _, draft := range version.Decisions {
 		want := draftDecision(version, draft, ledger.Actor{})
 		held, err := tx.Questions().Decision(want.ID)
-		if errors.Is(err, ports.ErrNotFound) {
-			continue
+		switch {
+		case errors.Is(err, ports.ErrNotFound):
+		case err != nil:
+			return err
+		default:
+			clash, err := heldClash(tx, held, want, version, draft.ID)
+			if err != nil {
+				return err
+			}
+			if clash != "" {
+				clashes = append(clashes, clash)
+			}
 		}
+		before, at, found, err := earlierPlanDecision(tx, version, draft.ID)
 		if err != nil {
 			return err
 		}
-		if held.SameContent(want) {
+		if !found {
 			continue
 		}
-		by, err := decisionAuthor(tx, held.ID)
+		own, err := planOwn(tx, before, version.PlanID, at)
 		if err != nil {
 			return err
 		}
-		clashes = append(clashes, fmt.Sprintf("decision %s, recorded by %s, says %q, where its draft decision %q says %q",
-			held.ID, by, held.Statement, draft.ID, want.Statement))
+		if !own {
+			by, err := decisionAuthor(tx, before.ID)
+			if err != nil {
+				return err
+			}
+			clashes = append(clashes, fmt.Sprintf("decision %s, recorded by %s and not by plan approval, is in force under the ID version %d derived for its draft decision %q, and says %q",
+				before.ID, by, at, draft.ID, before.Statement))
+			earlier = true
+		}
 	}
 	if len(clashes) == 0 {
 		return nil
 	}
-	return fmt.Errorf("%w: version %d of plan %s derives the IDs of decisions that say something else: %s; "+
-		"no approval of this version decides its drafts while those decisions hold their IDs, and a new version of the plan derives new IDs",
-		questions.ErrDecisionClash, version.Version, version.PlanID, strings.Join(clashes, "; "))
+	remedy := "a new version of the plan derives new IDs"
+	if earlier {
+		remedy += ", and a decision in force under an earlier version's ID holds every later version until a member overturns it"
+	}
+	return fmt.Errorf("%w: version %d of plan %s drafts decisions whose IDs hold decisions plan approval did not record as its drafts say: %s; "+
+		"no approval of this version decides its drafts while those decisions hold their IDs, and %s",
+		questions.ErrDecisionClash, version.Version, version.PlanID, strings.Join(clashes, "; "), remedy)
+}
+
+// heldClash says how a decision held under the ID a draft of this version derives clashes with what approval
+// would record, and is empty for plan approval's own decision with the same content.
+func heldClash(tx ports.WriteTx, held, want questions.Decision, version planning.PlanVersion, draft string) (string, error) {
+	own, err := planOwn(tx, held, version.PlanID, version.Version)
+	if err != nil || (own && held.SameContent(want)) {
+		return "", err
+	}
+	by, err := decisionAuthor(tx, held.ID)
+	if err != nil {
+		return "", err
+	}
+	if !own && held.SameContent(want) {
+		return fmt.Sprintf("decision %s, recorded by %s and not by plan approval, says what its draft decision %q says", held.ID, by, draft), nil
+	}
+	return fmt.Sprintf("decision %s, recorded by %s, says %q, where its draft decision %q says %q", held.ID, by, held.Statement, draft, want.Statement), nil
+}
+
+// planOwn says a decision held under the ID plan approval derives for a draft of one version of a plan is that
+// approval's own: a member recorded it, as both the decision and the event that recorded it say, and it cites
+// that version as plan approval does. Anything else under that ID is another writer's, whatever it says.
+func planOwn(tx ports.WriteTx, held questions.Decision, plan string, version int64) (bool, error) {
+	if !slices.Contains(held.Citations, planVersionCitation(plan, version)) {
+		return false, nil
+	}
+	by, err := decisionRecorder(tx, held.ID)
+	if err != nil {
+		return false, err
+	}
+	return by.Kind == ledger.ActorMember && by.ID != "" && by.ID == held.DecidedBy, nil
+}
+
+// decisionRecorder is the actor of the event that recorded a decision, and no actor when no event did.
+func decisionRecorder(tx ports.WriteTx, id string) (ledger.Actor, error) {
+	events, err := tx.EventsAbout(ledger.Subject{Kind: questions.SubjectDecision, ID: id})
+	if err != nil {
+		return ledger.Actor{}, err
+	}
+	for _, event := range events {
+		if event.Type == questions.EventDecisionRecorded {
+			return event.Actor, nil
+		}
+	}
+	return ledger.Actor{}, nil
 }
 
 // decisionAuthor names who recorded a decision, from the event that recorded it.
 func decisionAuthor(tx ports.WriteTx, id string) (string, error) {
-	events, err := tx.EventsAbout(ledger.Subject{Kind: questions.SubjectDecision, ID: id})
+	by, err := decisionRecorder(tx, id)
 	if err != nil {
 		return "", err
 	}
-	for _, event := range events {
-		if event.Type == questions.EventDecisionRecorded {
-			return authority.Principal(event.Actor), nil
-		}
+	if by.Kind == "" {
+		return "an unknown actor", nil
 	}
-	return "an unknown actor", nil
+	return authority.Principal(by), nil
 }
 
 // decideDrafts makes each answer a plan drafted a decision of the member who approved it, with a
-// citation to the plan version, once no decision with other content holds an ID a draft derives. A draft the
+// citation to the plan version, once no decision draftClash names holds an ID a draft derives. A draft the
 // plan already decided the same way in an earlier version stays as it is, and one that changed replaces the
 // earlier answer, so one answer to a question is in force.
 func decideDrafts(tx ports.WriteTx, version planning.PlanVersion, member ledger.Actor) error {
@@ -140,7 +217,7 @@ func decideDrafts(tx ports.WriteTx, version planning.PlanVersion, member ledger.
 	asked := &Questions{}
 	for _, draft := range version.Decisions {
 		decision := draftDecision(version, draft, member)
-		earlier, found, err := earlierPlanDecision(tx, version, draft.ID)
+		earlier, _, found, err := earlierPlanDecision(tx, version, draft.ID)
 		if err != nil {
 			return err
 		}
@@ -157,22 +234,23 @@ func decideDrafts(tx ports.WriteTx, version planning.PlanVersion, member ledger.
 	return nil
 }
 
-// earlierPlanDecision finds the decision in force that an earlier version of the plan made of a draft. Only plan
-// approval names a decision under the IDs it derives, so what it finds is an approval's own decision.
-func earlierPlanDecision(tx ports.WriteTx, version planning.PlanVersion, draft string) (questions.Decision, bool, error) {
+// earlierPlanDecision finds the decision in force under the ID an earlier version of the plan derived for a
+// draft, and that version. Only plan approval names a decision under the IDs it derives now, but a ledger may
+// hold one another writer recorded there before, which draftClash refuses (planOwn).
+func earlierPlanDecision(tx ports.WriteTx, version planning.PlanVersion, draft string) (questions.Decision, int64, bool, error) {
 	for earlier := version.Version - 1; earlier >= 1; earlier-- {
 		decision, err := tx.Questions().Decision(planDecisionID(version.PlanID, earlier, draft))
 		if errors.Is(err, ports.ErrNotFound) {
 			continue
 		}
 		if err != nil {
-			return questions.Decision{}, false, err
+			return questions.Decision{}, 0, false, err
 		}
 		if decision.Status.InForce() {
-			return decision, true, nil
+			return decision, earlier, true, nil
 		}
 	}
-	return questions.Decision{}, false, nil
+	return questions.Decision{}, 0, false, nil
 }
 
 // coverKey names a contract version by the record and the digest of its file.

@@ -14,6 +14,7 @@ import (
 	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/control"
 	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/measures"
 	"ropeshift.com/ropeshift/internal/planning"
 	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/internal/questions"
@@ -42,6 +43,8 @@ var PlanApprovalChecks = []Check{
 	{"PA16", "approving a version whose drafts derive the IDs of decisions with other content refuses, naming each, and changes nothing", checkApprovalRefusesAClashingDecision},
 	{"PA17", "a branch approved before intake read it, whose draft would clash, asks for approval again instead of deciding", checkBranchApprovalAsksAgainOnAClash},
 	{"PA18", "no writer but plan approval names a decision under the prefix of the IDs it derives, so no decision stands in for a draft of a later version", checkOnlyPlanApprovalNamesItsDecisions},
+	{"PA19", "a decision another writer recorded under a draft's derived ID is a clash even when it says what the draft says", checkApprovalRefusesAPlantedSameDecision},
+	{"PA20", "a decision in force under an earlier version's derived ID carries forward only when a member recorded it citing that version, and another writer's is a clash until a member overturns it", checkOnlyApprovalsOwnDecisionCarriesForward},
 }
 
 const approvalPlan = "retry"
@@ -952,18 +955,38 @@ func (r *Rig) plantDraft(s ports.Store, plan string, version int64, draft string
 		Rationale: "It is cheaper.", Scope: "payments", Reversibility: questions.Reversible, Citations: []string{"docs/payments.md"},
 		Categories: []string{questions.CategoryProduct}, DecidedBy: "dlg_1",
 	}
-	err := s.Write(r.Ctx, r.Scope, "decision.record", func(tx ports.WriteTx) error {
+	return decision, r.plantAs(s, decision, authority.DelegateActor(theMember.ID, "dlg_1"))
+}
+
+// plantAs writes a decision straight into the ledger, recorded by the actor given, with the experience record
+// recording a decision keeps.
+func (r *Rig) plantAs(s ports.Store, decision questions.Decision, by ledger.Actor) error {
+	return s.Write(r.Ctx, r.Scope, "decision.record", func(tx ports.WriteTx) error {
 		if err := tx.Questions().InsertDecision(decision); err != nil {
 			return err
 		}
-		event, err := questions.RecordEvent(questions.EventDecisionRecorded, questions.SubjectDecision, decision.ID, decision, authority.DelegateActor(theMember.ID, "dlg_1"))
+		event, err := questions.RecordEvent(questions.EventDecisionRecorded, questions.SubjectDecision, decision.ID, decision, by)
 		if err != nil {
 			return err
 		}
-		_, err = tx.Append(event)
-		return err
+		if _, err := tx.Append(event); err != nil {
+			return err
+		}
+		return r.writeExperience(tx, measures.Experience{
+			ID: r.ID("x"), SubjectKind: measures.SubjectDecision, SubjectID: decision.ID,
+			Settings: measures.Settings{WorkOrderSize: measures.SizeUnknown}, Chosen: decision.Statement,
+		})
 	})
-	return decision, err
+}
+
+// approvedDraft is the decision approving a version of a plan records for one of its drafts, word for word,
+// decided by the actor given.
+func approvedDraft(plan string, version int64, draft, question, answer, rationale string, by ledger.Actor) questions.Decision {
+	return questions.Decision{
+		ID: derivedDecisionID(plan, version, draft), Status: questions.DecisionDecided, Statement: "Q: " + question + " A: " + answer,
+		Rationale: rationale, Citations: []string{"plan_version:" + planning.ContractKey(plan, version)}, Scope: "plan:" + plan,
+		Reversibility: questions.Reversible, Categories: []string{questions.CategoryProduct}, DecidedBy: by.ID,
+	}
 }
 
 // twoDrafts is the approval plan with two drafts.
@@ -1084,6 +1107,113 @@ func checkBranchApprovalAsksAgainOnAClash(r *Rig) error {
 	}
 	if _, err := r.approve(s, again, true, theMember); !errors.Is(err, questions.ErrDecisionClash) {
 		return Violatedf("approving the version over the clash: %v", err)
+	}
+	return r.CheckProjection(s)
+}
+
+// checkApprovalRefusesAPlantedSameDecision holds plan approval to its own decisions: one a delegate recorded
+// under the ID a draft derives, word for word what approval would record and citing the version, is still not
+// the member's answer, so approval refuses and records nothing.
+func checkApprovalRefusesAPlantedSameDecision(r *Rig) error {
+	s := r.Store()
+	if _, err := r.intake(s, newApprovalSource().source); err != nil {
+		return err
+	}
+	plan, err := r.planID(s, "Retry budget")
+	if err != nil {
+		return err
+	}
+	delegate := authority.DelegateActor(theMember.ID, "dlg_1")
+	planted := approvedDraft(plan, 1, "d1", "Which provider first?", "Stripe", "It is the one with an account.", delegate)
+	if err := r.plantAs(s, planted, delegate); err != nil {
+		return err
+	}
+	pending, err := r.theOpenPlanApproval(s)
+	if err != nil {
+		return err
+	}
+	_, err = r.approve(s, pending, true, theMember)
+	if !errors.Is(err, questions.ErrDecisionClash) {
+		return Violatedf("approving over a decision a delegate recorded with the draft's content: %v", err)
+	}
+	for _, named := range []string{planted.ID, `"d1"`, "dlg_1"} {
+		if !strings.Contains(err.Error(), named) {
+			return Violatedf("the refusal does not name %s: %v", named, err)
+		}
+	}
+	if still, err := r.theOpenPlanApproval(s); err != nil || still.ID != pending.ID {
+		return Violatedf("the refused approval left %+v: %v", still, err)
+	}
+	if order, err := r.orderOfContract(s, "budget"); err != nil || order.State != workorders.ContractReview || order.ReviewedBy != "" {
+		return Violatedf("the work of the contract is %+v: %v", order, err)
+	}
+	return r.CheckProjection(s)
+}
+
+// checkOnlyApprovalsOwnDecisionCarriesForward holds what a later version carries forward to the decisions plan
+// approval recorded: a member's decision citing the version it was approved in stands for a draft that did not
+// change, and a delegate's under the same kind of ID is a clash, whatever it says, until a member overturns it.
+func checkOnlyApprovalsOwnDecisionCarriesForward(r *Rig) error {
+	s := r.Store()
+	files := newApprovalSource()
+	files.source.Write("plan.md", []byte(twoDrafts))
+	if _, err := r.intake(s, files.source); err != nil {
+		return err
+	}
+	plan, err := r.planID(s, "Retry budget")
+	if err != nil {
+		return err
+	}
+	delegate := authority.DelegateActor(theMember.ID, "dlg_1")
+	own := approvedDraft(plan, 1, "d1", "Which provider first?", "Stripe", "It is the one with an account.", theMember)
+	if err := r.plantAs(s, own, theMember); err != nil {
+		return err
+	}
+	planted := approvedDraft(plan, 1, "d2", "How many retries?", "Three", "It is what the spec says.", delegate)
+	if err := r.plantAs(s, planted, delegate); err != nil {
+		return err
+	}
+	// Version 2 changes the spec and neither draft, so each draft carries forward what version 1 decided of it.
+	files.source.Write("spec.md", []byte(DocumentText("spec", "api", "The API", approvalPlan, "The second draft.")))
+	if _, err := r.intake(s, files.source); err != nil {
+		return err
+	}
+	pending, err := r.theOpenPlanApproval(s)
+	if err != nil || pending.PlanVersion != 2 {
+		return Violatedf("the open request is %+v: %v", pending, err)
+	}
+	_, err = r.approve(s, pending, true, theMember)
+	if !errors.Is(err, questions.ErrDecisionClash) {
+		return Violatedf("approving version 2 over a decision a delegate recorded under version 1's ID: %v", err)
+	}
+	for _, named := range []string{planted.ID, `"d2"`, "dlg_1", "overturn"} {
+		if !strings.Contains(err.Error(), named) {
+			return Violatedf("the refusal does not name %s: %v", named, err)
+		}
+	}
+	if strings.Contains(err.Error(), own.ID) {
+		return Violatedf("the refusal names the member's own decision %s: %v", own.ID, err)
+	}
+	for _, draft := range []string{"d1", "d2"} {
+		if _, err := r.decisionOf(s, derivedDecisionID(plan, 2, draft)); !errors.Is(err, ports.ErrNotFound) {
+			return Violatedf("a refused approval decided draft %s: %v", draft, err)
+		}
+	}
+	if _, err := r.overturn(s, planted.ID); err != nil {
+		return err
+	}
+	if _, err := r.approve(s, pending, true, theMember); err != nil {
+		return Violatedf("approving version 2 once the delegate's decision was overturned: %v", err)
+	}
+	if _, err := r.decisionOf(s, derivedDecisionID(plan, 2, "d1")); !errors.Is(err, ports.ErrNotFound) {
+		return Violatedf("version 2 decided again a draft the member's decision carries forward: %v", err)
+	}
+	if kept, err := r.decisionOf(s, own.ID); err != nil || kept.Status != questions.DecisionDecided {
+		return Violatedf("the member's decision of version 1 is %+v: %v", kept, err)
+	}
+	decided, err := r.decisionOf(s, derivedDecisionID(plan, 2, "d2"))
+	if err != nil || decided.DecidedBy != theMember.ID || decided.Statement != planted.Statement || decided.Supersedes != "" {
+		return Violatedf("version 2 decided draft d2 as %+v: %v", decided, err)
 	}
 	return r.CheckProjection(s)
 }

@@ -150,9 +150,9 @@ var (
 	ErrAssumptionLimit = errors.New("this work order holds as many assumptions as the policy allows")
 	// ErrDecisionEnded means a decision was already overturned or replaced.
 	ErrDecisionEnded = errors.New("this decision is no longer in force")
-	// ErrDecisionClash means a decision with other content already holds the ID a plan approval derives for
-	// one of the plan's drafts.
-	ErrDecisionClash = errors.New("a decision with other content holds the ID a plan draft derives")
+	// ErrDecisionClash means a decision plan approval would not record as its own holds an ID it derives for
+	// one of a plan's drafts.
+	ErrDecisionClash = errors.New("a decision plan approval would not record holds an ID a plan draft derives")
 	// ErrDirect means the question is a planning lane's, which belongs to the person.
 	ErrDirect = errors.New("a planning lane's question belongs to the person, so no orchestrator can take, decide, assume, or escalate it")
 )
