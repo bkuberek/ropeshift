@@ -155,7 +155,7 @@ func holdsTheSame(set delivery.EstimateSet, work []delivery.ForecastWork) bool {
 // forecastReads are what every plan's forecast in one read is made from: the estimate reads and the roster for each
 // work order's keys; the policy, the delivery records, and the pool, for its estimate and the records it draws; the
 // revision, its recorded time, and database time; the lane cap and whether any worker serves the project; the
-// median wait for a person; every dependency; and every approval.
+// median wait for a person; every dependency, by the work order that holds it; and every approval.
 type forecastReads struct {
 	tx        ports.ReadTx
 	estimates estimateReads
@@ -170,8 +170,16 @@ type forecastReads struct {
 	cap       int64
 	noWorker  bool
 	median    int64
-	deps      map[string][]string
+	edges     map[string][]planning.Dependency
 	approvals []authority.Approval
+}
+
+// forecastTarget is the work one dependency names, found as admission finds it: the work order and whether it
+// ended, or, for a name nothing holds yet, the name, which is unfinished work outside the plan.
+type forecastTarget struct {
+	id    string
+	found bool
+	ended bool
 }
 
 // dueForecasts reads the forecast due of each plan's newest version, within one read. A ledger with no event has
@@ -186,7 +194,7 @@ func dueForecasts(tx ports.ReadTx) ([]forecastRun, error) {
 		return nil, err
 	}
 	r := forecastReads{
-		tx: tx, rev: workspace.Rev, asOf: at[0].RecordedAt, deps: map[string][]string{},
+		tx: tx, rev: workspace.Rev, asOf: at[0].RecordedAt, edges: map[string][]planning.Dependency{},
 		estimates: estimateReads{
 			orders: tx.WorkOrders(), roster: tx.Roster(), repositories: tx.Repositories(), planning: tx.Planning(),
 			policies: tx.Policies(), deliveries: tx.Deliveries(), pool: tx.Pool(),
@@ -223,7 +231,9 @@ func dueForecasts(tx ports.ReadTx) ([]forecastRun, error) {
 		return nil, err
 	}
 	for _, edge := range edges {
-		r.deps[edge.WorkOrder] = append(r.deps[edge.WorkOrder], edge.DependsOn)
+		if edge.Kind.Blocks() {
+			r.edges[edge.WorkOrder] = append(r.edges[edge.WorkOrder], edge)
+		}
 	}
 	if r.approvals, err = tx.Approvals().All(); err != nil {
 		return nil, err
@@ -284,20 +294,19 @@ func (r forecastReads) run(version planning.PlanVersion) (forecastRun, bool, err
 		Policy: r.policy, PersonMedianMs: r.median, Milestones: milestonesOf(version),
 	}
 	open := map[string]bool{}
+	var targets []forecastTarget
 	for _, order := range orders {
 		if !estimable(order) || open[order.ID] {
 			continue
 		}
 		open[order.ID] = true
-		work, err := r.work(order)
+		work, waits, err := r.work(order)
 		if err != nil {
 			return forecastRun{}, false, err
 		}
-		in.Work = append(in.Work, work)
+		in.Work, targets = append(in.Work, work), append(targets, waits...)
 	}
-	if in.Outside, err = r.outside(in.Work, open); err != nil {
-		return forecastRun{}, false, err
-	}
+	in.Outside = outsideOf(targets, open)
 	run := forecastRun{in: in, version: version.Version, digest: forecastDigest(in, r.approved(version))}
 	latest, err := r.tx.Forecasts().Latest(version.PlanID, version.Version)
 	if err != nil {
@@ -333,57 +342,73 @@ func (r forecastReads) run(version planning.PlanVersion) (forecastRun, bool, err
 }
 
 // work reads one open work order as a forecast runs it: its milestone, from the contract version it pins; its
-// priority and dependencies; its estimate and the records it rests on; and what it has had so far, at the
-// revision's time.
-func (r forecastReads) work(order workorders.WorkOrder) (delivery.ForecastWork, error) {
+// priority, and the work its dependencies name; its estimate and the records it rests on; and what it has had so
+// far, at the revision's time.
+func (r forecastReads) work(order workorders.WorkOrder) (delivery.ForecastWork, []forecastTarget, error) {
 	keys, err := r.estimates.keysOf(r.view, order)
 	if err != nil {
-		return delivery.ForecastWork{}, err
+		return delivery.ForecastWork{}, nil, err
+	}
+	targets, err := r.targetsOf(order.ID)
+	if err != nil {
+		return delivery.ForecastWork{}, nil, err
 	}
 	in := delivery.EstimateInput{WorkOrder: order.ID, Keys: keys, Records: r.records, Pool: r.pool, Policy: r.policy, Rev: r.rev, NoPool: r.noPool}
 	work := delivery.ForecastWork{
-		WorkOrder: order.ID, Title: order.Title, Priority: order.Priority, DependsOn: r.deps[order.ID],
+		WorkOrder: order.ID, Title: order.Title, Priority: order.Priority,
 		Estimate: delivery.EstimateOf(in), Records: delivery.Drawn(in),
+	}
+	for _, target := range targets {
+		work.DependsOn = append(work.DependsOn, target.id)
 	}
 	if order.ContractID != "" {
 		contract, err := r.tx.Planning().Contract(order.ContractID, order.ContractVersion)
 		if err != nil && !errors.Is(err, ports.ErrNotFound) {
-			return delivery.ForecastWork{}, err
+			return delivery.ForecastWork{}, nil, err
 		}
 		work.Milestone = contract.Milestone
 	}
 	progress, err := progressOf(r.tx, order.ID, r.asOf)
 	if err != nil {
-		return delivery.ForecastWork{}, err
+		return delivery.ForecastWork{}, nil, err
 	}
 	work.Started, work.SoFarMs, work.LaneSoFarMs, work.SpentUSD = progress.Started, progress.DeliveryMs, progress.LaneMs, progress.CostUSD
-	return work, nil
+	return work, targets, nil
 }
 
-// outside lists the unfinished work outside a forecast's work that its work depends on.
-func (r forecastReads) outside(work []delivery.ForecastWork, open map[string]bool) ([]string, error) {
+// targetsOf finds the work each of a work order's dependencies names, as admission does: a dependency a file or a
+// tracker wrote names its target by the ID that source gave it, which the external links turn into the work order.
+func (r forecastReads) targetsOf(order string) ([]forecastTarget, error) {
+	var out []forecastTarget
+	for _, edge := range r.edges[order] {
+		found, held, err := dependencyOrder(r.tx.Planning(), r.tx.WorkOrders(), edge)
+		if err != nil {
+			return nil, err
+		}
+		if !held {
+			out = append(out, forecastTarget{id: edge.DependsOn})
+			continue
+		}
+		out = append(out, forecastTarget{id: found.ID, found: true, ended: workorders.Terminal(found.State)})
+	}
+	return out, nil
+}
+
+// outsideOf lists the unfinished work outside a forecast's work that its work depends on: each work order a
+// dependency found that is not in the forecast and has not ended, and each name nothing holds yet. Work that ended
+// counts for nothing.
+func outsideOf(targets []forecastTarget, open map[string]bool) []string {
 	seen := map[string]bool{}
 	out := []string{}
-	for _, w := range work {
-		for _, id := range w.DependsOn {
-			if open[id] || seen[id] {
-				continue
-			}
-			seen[id] = true
-			order, err := r.tx.WorkOrders().Get(id)
-			if errors.Is(err, ports.ErrNotFound) {
-				continue
-			}
-			if err != nil {
-				return nil, err
-			}
-			if !workorders.Terminal(order.State) {
-				out = append(out, id)
-			}
+	for _, target := range targets {
+		if target.ended || (target.found && open[target.id]) || seen[target.id] {
+			continue
 		}
+		seen[target.id] = true
+		out = append(out, target.id)
 	}
 	slices.Sort(out)
-	return out, nil
+	return out
 }
 
 // approved says a member approved a plan version at its digest.

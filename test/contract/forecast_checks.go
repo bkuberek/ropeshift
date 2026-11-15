@@ -3,6 +3,7 @@ package contract
 import (
 	"fmt"
 	"reflect"
+	"slices"
 	"strings"
 
 	"ropeshift.com/ropeshift/internal/control"
@@ -16,6 +17,7 @@ import (
 var ForecastChecks = []Check{
 	{"FC1", "a plan version keeps the latest forecast of the plan and of each milestone, and the last of each day, with no revision", checkForecastsKept},
 	{"FC2", "the forecast tick forecasts each plan's newest version from its own estimate set when what it rests on changed, a worker came, work ended, or the version was approved, and keeps nothing otherwise", checkForecastTick},
+	{"FC3", "a forecast finds the work each dependency names as admission does: the plan's own work it waits for, unfinished work outside the plan and a name nothing holds as outside it, and ended work as nothing", checkForecastDependencies},
 }
 
 // dayOne is a UTC midnight, in epoch milliseconds, that the kept forecasts here date from.
@@ -239,6 +241,103 @@ func checkForecastTick(r *Rig) error {
 	}
 	if latest, _, _, err = r.forecastsOf(s, plan, 1, "m1"); err != nil || !strings.Contains(latest[0].Explanation, "leaves started work as it is") {
 		return Violatedf("with its work started, the plan's forecast is %+v: %v", latest, err)
+	}
+	return nil
+}
+
+// ordersByFileID maps the ID each work order's file gave it to its ledger ID, over the contracts given by the IDs
+// their files gave them.
+func (r *Rig) ordersByFileID(s ports.Store, contracts ...string) (map[string]string, error) {
+	out := map[string]string{}
+	for _, id := range contracts {
+		contract, held, err := r.contractTitled(s, id)
+		if err != nil || !held {
+			return nil, Violatedf("the contract %s: %v", id, err)
+		}
+		err = s.Read(r.Ctx, r.Scope, func(tx ports.ReadTx) error {
+			rows, err := tx.WorkOrders().ByContract(contract.ID)
+			for _, row := range rows {
+				out[strings.TrimPrefix(row.Title, "The work order ")] = row.ID
+			}
+			return err
+		})
+		if err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
+}
+
+func checkForecastDependencies(r *Rig) error {
+	s := r.Store()
+	files := newApprovalSource()
+	files.source.Write("m1.md", []byte(milestoneOf("m1", approvalPlan, 1)))
+	files.source.Write("m2.md", []byte(milestoneOf("m2", approvalPlan, 2)))
+	files.source.Write("budget.md", []byte(placedContract{ID: "budget", Plan: approvalPlan, Milestone: "m1", Orders: []orderIn{{ID: "first"}}}.text()))
+	files.source.Write("later.md", []byte(placedContract{
+		ID: "later", Plan: approvalPlan, Milestone: "m2", Orders: []orderIn{{ID: "second", DependsOn: []string{"first", "elsewhere", "ended", "missing"}}},
+	}.text()))
+	files.source.Write("other.md", []byte(placedContract{ID: "other", Orders: []orderIn{{ID: "elsewhere"}, {ID: "ended"}}}.text()))
+	if report, err := r.intake(s, files.source); err != nil || len(report.Problems) != 0 {
+		return Violatedf("intake read %+v: %v", report, err)
+	}
+	plan, err := r.planID(s, "Retry budget")
+	if err != nil {
+		return err
+	}
+	ids, err := r.ordersByFileID(s, "budget", "later", "other")
+	if err != nil {
+		return err
+	}
+	if err := r.NewOps(s).Cancel(r.Ctx, r.Scope, ids["ended"], "not needed", r.Actor); err != nil {
+		return err
+	}
+
+	// With no worker and so no lane cap, a milestone's labels rest on its own work and the work it waits for.
+	if err := r.forecastRuns(s, 1, "after intake"); err != nil {
+		return err
+	}
+	latest, _, _, err := r.forecastsOf(s, plan, 1, "m2")
+	if err != nil {
+		return err
+	}
+	outside := []string{ids["elsewhere"], "missing"}
+	slices.Sort(outside)
+	if len(latest) != 3 || latest[1].Milestone != "m1" || latest[2].Milestone != "m2" {
+		return Violatedf("the plan's forecasts are %+v", latest)
+	}
+	waited := []string{ids["first"], ids["second"]}
+	slices.Sort(waited)
+	if !slices.Equal(latest[0].Outside, outside) || !slices.Equal(latest[2].Outside, outside) || len(latest[1].Outside) != 0 {
+		return Violatedf("the plan's work waits outside it on %v, its milestones' on %v and %v, not %v", latest[0].Outside, latest[1].Outside, latest[2].Outside, outside)
+	}
+	if !slices.Equal(latest[1].LeftOut, []string{ids["first"]}) || !slices.Equal(latest[2].LeftOut, waited) {
+		return Violatedf("the first milestone leaves out %v and the one waiting for it %v, not %v", latest[1].LeftOut, latest[2].LeftOut, waited)
+	}
+
+	// Once the plan's work has history, its dates wait on the work outside the plan, so they are lower bounds.
+	if err := r.registerWorker(s); err != nil {
+		return err
+	}
+	finished, err := r.Awaiting(s, []string{criterionOne}, LaneFinished(r.ID("commit"), LaneCheck(criterionOne, true)))
+	if err != nil {
+		return err
+	}
+	if _, err := r.NewOps(s).Accept(r.Ctx, r.Scope, finished, r.Actor); err != nil {
+		return err
+	}
+	if _, err := control.NewDeliveryFold(s).Fold(r.Ctx, r.Scope); err != nil {
+		return err
+	}
+	if err := r.forecastRuns(s, 1, "after work finished"); err != nil {
+		return err
+	}
+	if latest, _, _, err = r.forecastsOf(s, plan, 1, "m2"); err != nil {
+		return err
+	}
+	if f := latest[0]; f.Status != delivery.Forecasted || f.LowerBound != delivery.LowerAll || !slices.Equal(f.Outside, outside) ||
+		!strings.Contains(f.Explanation, "outside this plan ("+strings.Join(outside, ", ")+")") {
+		return Violatedf("with history, the plan's forecast is %+v", f)
 	}
 	return nil
 }
