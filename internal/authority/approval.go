@@ -689,10 +689,14 @@ func ReadDelegation(version PolicyVersion) (DelegationPolicy, error) {
 	return policy, nil
 }
 
-// MergeDetail is what a member reads of a merge request beyond its summary: the work, the reviewed commit and
-// where it lands, the level in force, and for a held merge, why it stopped and the merge request it answers.
+// MergeDetail is what a member reads of a merge request beyond its summary: the work, the repository it
+// lands in, the reviewed commit and where it lands, the level in force, and for a held merge, why it stopped and
+// the merge request it answers.
 type MergeDetail struct {
-	WorkOrder   string                `json:"work_order_id"`
+	WorkOrder string `json:"work_order_id"`
+	// Repository is the name of the repository the work lands in, or its ID when it has no name. A request
+	// raised before the field existed has none.
+	Repository  string                `json:"repository,omitempty"`
 	Commit      string                `json:"commit"`
 	Branch      string                `json:"branch,omitempty"`
 	Base        string                `json:"base,omitempty"`
