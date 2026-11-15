@@ -1,6 +1,7 @@
 package contract
 
 import (
+	"context"
 	"fmt"
 	"reflect"
 	"slices"
@@ -17,6 +18,7 @@ import (
 var ForecastChecks = []Check{
 	{"FC1", "a plan version keeps the latest forecast of the plan and of each milestone, and the last of each day, with no revision", checkForecastsKept},
 	{"FC2", "the forecast tick forecasts each plan's newest version from its own estimate set when what it rests on changed, a worker came, work ended, or the version was approved, and keeps nothing otherwise", checkForecastTick},
+	{"FC4", "a forecast run whose plan version a newer version replaced before it kept keeps nothing, and the newer version's estimates stay current", checkForecastOfAReplacedVersion},
 	{"FC3", "a forecast finds the work each dependency names as admission does: the plan's own work it waits for, unfinished work outside the plan and a name nothing holds as outside it, and ended work as nothing", checkForecastDependencies},
 }
 
@@ -338,6 +340,89 @@ func checkForecastDependencies(r *Rig) error {
 	if f := latest[0]; f.Status != delivery.Forecasted || f.LowerBound != delivery.LowerAll || !slices.Equal(f.Outside, outside) ||
 		!strings.Contains(f.Explanation, "outside this plan ("+strings.Join(outside, ", ")+")") {
 		return Violatedf("with history, the plan's forecast is %+v", f)
+	}
+	return nil
+}
+
+// racingStore commits a write of its own just before its first forecast transaction, as a write that commits
+// between a forecast run's read and its keep does.
+type racingStore struct {
+	ports.Store
+	race func() error
+}
+
+func (s *racingStore) Forecast(ctx context.Context, scope ledger.WorkspaceID, fn func(ports.FoldTx) error) error {
+	if race := s.race; race != nil {
+		s.race = nil
+		if err := race(); err != nil {
+			return err
+		}
+	}
+	return s.Store.Forecast(ctx, scope, fn)
+}
+
+func checkForecastOfAReplacedVersion(r *Rig) error {
+	s := r.Store()
+	files := newApprovalSource()
+	if report, err := r.intake(s, files.source); err != nil || len(report.Problems) != 0 {
+		return Violatedf("intake read %+v: %v", report, err)
+	}
+	plan, err := r.planID(s, "Retry budget")
+	if err != nil {
+		return err
+	}
+	ids, err := r.ordersByFileID(s, "budget")
+	if err != nil {
+		return err
+	}
+	order := ids["budget-order"]
+	if err := r.forecastRuns(s, 1, "after intake"); err != nil {
+		return err
+	}
+	first, _, _, err := r.forecastsOf(s, plan, 1, "")
+	if err != nil {
+		return err
+	}
+
+	// Work like the plan's finishes, so the next run estimates the version's work anew, and intake records the
+	// plan's second version between that run's read and its keep.
+	finished, err := r.Awaiting(s, []string{criterionOne}, LaneFinished(r.ID("commit"), LaneCheck(criterionOne, true)))
+	if err != nil {
+		return err
+	}
+	if _, err := r.NewOps(s).Accept(r.Ctx, r.Scope, finished, r.Actor); err != nil {
+		return err
+	}
+	if _, err := control.NewDeliveryFold(s).Fold(r.Ctx, r.Scope); err != nil {
+		return err
+	}
+	files.source.Write("spec.md", []byte(DocumentText("spec", "api", "The API", approvalPlan, "The second draft.")))
+	racing := &racingStore{Store: s, race: func() error {
+		report, err := r.intake(s, files.source)
+		if err == nil && len(report.Problems) != 0 {
+			err = Violatedf("intake read %+v", report)
+		}
+		return err
+	}}
+	if kept, err := control.NewForecasts(racing).Refresh(r.Ctx, r.Scope); err != nil || kept != 0 || racing.race != nil {
+		return Violatedf("a run of version 1, which version 2 replaced before it kept, kept %d: %v", kept, err)
+	}
+	if versions, err := r.planVersionsOf(s, plan); err != nil || len(versions) != 2 {
+		return Violatedf("versions %+v: %v", versions, err)
+	}
+	if latest, _, _, err := r.forecastsOf(s, plan, 1, ""); err != nil || !reflect.DeepEqual(latest, first) {
+		return Violatedf("version 1's forecasts read %+v, kept %+v before: %v", latest, first, err)
+	}
+	if _, set, err := r.currentOf(s, order); err != nil || set.PlanVersion != 2 {
+		return Violatedf("the plan's work is estimated in set %+v: %v", set, err)
+	}
+
+	// The next tick forecasts the newest version.
+	if err := r.forecastRuns(s, 1, "after version 2"); err != nil {
+		return err
+	}
+	if latest, _, _, err := r.forecastsOf(s, plan, 2, ""); err != nil || len(latest) != 1 || latest[0].PlanVersion != 2 {
+		return Violatedf("version 2's forecasts read %+v: %v", latest, err)
 	}
 	return nil
 }

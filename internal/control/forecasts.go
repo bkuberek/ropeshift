@@ -74,12 +74,22 @@ func (f *Forecasts) Refresh(ctx context.Context, scope ledger.WorkspaceID) (int,
 	return kept, nil
 }
 
-// keep keeps one run's forecasts, and the set they were made from when it is new. It keeps nothing when a forecast
-// of a later revision was kept since, or when a set of the version kept since says something other than the run's
-// estimates, which the next tick forecasts from.
+// keep keeps one run's forecasts, and the set they were made from when it is new. It keeps nothing when the plan
+// has a newer version than the run's, whose estimates are current and which the next tick forecasts; when a
+// forecast of a later revision was kept since; or when a set of the version kept since says something other than
+// the run's estimates, which the next tick forecasts from.
 func (f *Forecasts) keep(ctx context.Context, scope ledger.WorkspaceID, run forecastRun, forecasts []delivery.Forecast) (bool, error) {
 	kept := false
 	err := f.store.Forecast(ctx, scope, func(tx ports.FoldTx) error {
+		newestVersion, err := tx.Planning().LatestPlanVersion(run.in.Plan)
+		switch {
+		case errors.Is(err, ports.ErrNotFound):
+			return nil
+		case err != nil:
+			return err
+		case newestVersion.Version != run.version:
+			return nil
+		}
 		latest, err := tx.Forecasts().Latest(run.in.Plan, run.version)
 		if err != nil {
 			return err
