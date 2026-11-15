@@ -45,14 +45,14 @@ func newMergeRig(t *testing.T, remote bool) *mergeRig {
 func (r *mergeRig) merge(method ledger.MergeMethod) ledger.MergeResult {
 	r.t.Helper()
 	// Hooks in the checkout that would refuse every commit never run: a merge runs no repository code.
-	for _, name := range []string{"pre-commit", "commit-msg", "pre-merge-commit", "pre-push"} {
+	for _, name := range []string{"pre-commit", "commit-msg", "pre-merge-commit", "pre-push", "reference-transaction"} {
 		hook := filepath.Join(r.repo.Dir, ".git", "hooks", name)
 		if err := os.WriteFile(hook, []byte("#!/bin/sh\necho a repository hook ran >&2\nexit 1\n"), 0o700); err != nil {
 			r.t.Fatal(err)
 		}
 	}
 	defer func() {
-		for _, name := range []string{"pre-commit", "commit-msg", "pre-merge-commit", "pre-push"} {
+		for _, name := range []string{"pre-commit", "commit-msg", "pre-merge-commit", "pre-push", "reference-transaction"} {
 			_ = os.Remove(filepath.Join(r.repo.Dir, ".git", "hooks", name))
 		}
 	}()
@@ -211,20 +211,27 @@ func TestABranchMergesIntoALocalBaseOnlyWhenNothingHasItCheckedOut(t *testing.T)
 	}
 }
 
+// pushFromAnotherClone adds a commit to the lane's branch on the remote from a clone of its own, as someone
+// does who pushes to a pull request's branch, and returns it. The checkout does not hold it.
+func (r *mergeRig) pushFromAnotherClone() string {
+	r.t.Helper()
+	clone := filepath.Join(r.t.TempDir(), "clone")
+	r.repo.Git("clone", "--quiet", "--branch", laneBranch, r.bare, clone)
+	if err := os.WriteFile(filepath.Join(clone, "pushed.txt"), []byte("someone else's line\n"), 0o600); err != nil {
+		r.t.Fatal(err)
+	}
+	r.repo.Git("-C", clone, "add", "pushed.txt")
+	r.repo.Git("-C", clone, "commit", "--quiet", "-m", "someone else's push")
+	r.repo.Git("-C", clone, "push", "--quiet", "origin", laneBranch)
+	return r.repo.Git("-C", clone, "rev-parse", "HEAD")
+}
+
 // TestAReviewOfAHeadOnlyTheRemoteHoldsFetchesIt makes a review's worktree detached at a commit someone pushed
 // to the pull request's branch from another clone: the checkout fetches it from the remote first, because a
 // moved head is reviewed again (ADR-0020).
 func TestAReviewOfAHeadOnlyTheRemoteHoldsFetchesIt(t *testing.T) {
 	r := newMergeRig(t, true)
-	clone := filepath.Join(t.TempDir(), "clone")
-	r.repo.Git("clone", "--quiet", "--branch", laneBranch, r.bare, clone)
-	if err := os.WriteFile(filepath.Join(clone, "pushed.txt"), []byte("someone else's line\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	r.repo.Git("-C", clone, "add", "pushed.txt")
-	r.repo.Git("-C", clone, "commit", "--quiet", "-m", "someone else's push")
-	r.repo.Git("-C", clone, "push", "--quiet", "origin", laneBranch)
-	pushed := r.repo.Git("-C", clone, "rev-parse", "HEAD")
+	pushed := r.pushFromAnotherClone()
 	path := filepath.Join(t.TempDir(), "review")
 	tree, err := r.merger.Create(t.Context(), ports.WorktreeSpec{Repository: r.repo.Dir, Path: path, Base: pushed, Detached: true})
 	if err != nil {
@@ -235,5 +242,41 @@ func TestAReviewOfAHeadOnlyTheRemoteHoldsFetchesIt(t *testing.T) {
 	}
 	if got := r.repo.Git("rev-parse", "refs/heads/"+laneBranch); got != r.head {
 		t.Errorf("fetching moved the checkout's branch to %s", got)
+	}
+}
+
+// The fetch of a review's head brings every branch of the remote into its remote-tracking ref, as intake's
+// fetch of the clone does, so the review's fetch can lose git's lock on the lane's ref to it. That is not a
+// head the checkout cannot read.
+func TestAReviewFetchesItsHeadThroughAFetchThatHoldsTheRefsLock(t *testing.T) {
+	r := newMergeRig(t, true)
+	pushed := r.pushFromAnotherClone()
+	r.repo.HoldRefLock("refs/remotes/origin/"+laneBranch, lockHeld)
+	merger := gitcli.Worktrees{Env: r.repo.EnvWithoutRefLockWait()}
+	tree, err := merger.Create(t.Context(), ports.WorktreeSpec{Repository: r.repo.Dir, Path: filepath.Join(t.TempDir(), "review"), Base: pushed, Detached: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tree.Head != pushed {
+		t.Errorf("the review's worktree is at %s, want %s", tree.Head, pushed)
+	}
+}
+
+// A merge reads the base's tip with a fetch of the branch, which also moves the base's remote-tracking ref,
+// so it can lose git's lock on the ref to another fetch. It must merge onto the moved base, not fail.
+func TestAMergeReadsItsBaseThroughAFetchThatHoldsTheRefsLock(t *testing.T) {
+	r := newMergeRig(t, true)
+	moved := (&gittest.Repo{T: t, Dir: r.bare, Home: r.repo.Home}).Advance("main")
+	r.repo.HoldRefLock("refs/remotes/origin/main", lockHeld)
+	r.merger = gitcli.Worktrees{Env: r.repo.EnvWithoutRefLockWait()}
+	result := r.merge(ledger.MergeCommit)
+	if result.Outcome != ledger.MergeMerged || result.MergeCommit == "" {
+		t.Fatalf("merge %+v", result)
+	}
+	if got := r.remoteMain(); got != result.MergeCommit {
+		t.Fatalf("the remote's main is %s, want the merge %s", got, result.MergeCommit)
+	}
+	if parent := r.repo.Git("--git-dir", r.bare, "rev-parse", result.MergeCommit+"^1"); parent != moved {
+		t.Errorf("the merge sits on %s, want the moved base %s", parent, moved)
 	}
 }

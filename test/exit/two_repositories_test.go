@@ -148,7 +148,9 @@ func (in *install) milestone(id string) api.MilestoneProgress {
 // client's depends on the api's. The api's work merges through its pull request first. The web client's lane
 // then reads the api at that merge, through a read-only worktree it cannot write in, though the api's base
 // has moved on since, and its review reads the same commit. The web client's pull request merges after the
-// api's, and the milestone is done only once both have merged.
+// api's, and the milestone is done only once both have merged. The web client's claim fetches the api's base
+// at the moment another fetch holds git's lock on the api's remote-tracking ref, which intake's own fetch of
+// the clone can do on a real machine, and the lane still reads the api.
 func TestOnePlanAcrossTwoRepositoriesMergesInDependencyOrder(t *testing.T) {
 	in := newInstall(t)
 	in.aLaneThatCommits()
@@ -162,6 +164,7 @@ func TestOnePlanAcrossTwoRepositoriesMergesInDependencyOrder(t *testing.T) {
 	plansRepo, _ := cloneWithRemote(t, clones, "plans", profile)
 	apiRepo, apiRemote := cloneWithRemote(t, clones, "api", profile, [2]string{"server.go", "package api\n"})
 	webRepo, _ := cloneWithRemote(t, clones, "web", profile, [2]string{"app.go", "package web\n"})
+	armRefLock, refLockHeld := in.aGitThatLosesTheRefLock(apiRepo.Dir)
 
 	d := in.start("--intake-tick", "20ms", "--heartbeat", "30ms", "--lease-tick", "20ms", "--forge-tick", "100ms")
 	t.Cleanup(d.stop)
@@ -230,6 +233,8 @@ func TestOnePlanAcrossTwoRepositoriesMergesInDependencyOrder(t *testing.T) {
 	apiPR := in.pullRequestOf(gh, apiBinding, "lane/lane-api", apiRepo, apiRepo.Git("rev-parse", "refs/heads/lane/lane-api"))
 	in.judgeThroughPR(apiOrder, "claim-api-review", "review-api", reviewSays("pass", passedReason, "api.go:1"))
 	in.waitFor("the api's merge to end its work", func() bool { return in.show(apiOrder).State == workorders.Done })
+	// From here the next fetch of the api's base in the api's clone finds its ref locked, once.
+	armRefLock()
 	apiMerge := mergeOf(t, gh, apiPR.Number)
 	if tip := apiRemote.Git("rev-parse", "refs/heads/main"); tip != apiMerge {
 		t.Fatalf("the api's remote main is %s, want the merge %s", tip, apiMerge)
@@ -245,6 +250,9 @@ func TestOnePlanAcrossTwoRepositoriesMergesInDependencyOrder(t *testing.T) {
 	in.playing(buildsOnTheAPI)
 	in.startLane(webOrder, "claim-web", "lane-web")
 	in.waitFor("the web client lane's outcome", func() bool { return in.show(webOrder).State == workorders.Acceptance })
+	if !refLockHeld() {
+		t.Error("the web client's claim never met a lock on the api's remote-tracking ref")
+	}
 	// The api's clone has a remote, so its base is the remote's, as a lane's own base is.
 	want := []ledger.RepositoryRead{{Repository: repositories["api"].ID, Name: "api", Ref: "origin/main", Commit: apiMerge}}
 	if reads := in.lane("lane-web").Reads; !slices.Equal(reads, want) {

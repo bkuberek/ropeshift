@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // Repo is one repository in a temporary directory.
@@ -60,6 +61,60 @@ func (r *Repo) Env() []string {
 		"GIT_CONFIG_GLOBAL=" + filepath.Join(r.Home, "gitconfig"),
 		"GIT_CONFIG_NOSYSTEM=1",
 	}
+}
+
+// EnvWithoutRefLockWait is Env with git's own wait for a ref's lock turned off. By default git retries a
+// lock for 100 ms before it gives up, which would hide a lock held for about as long, so a test that holds
+// one for a known time turns the wait off and leaves the retry to the code under test. The setting goes in the
+// configuration file Env names, not in the environment, because a command that sets GIT_CONFIG_COUNT itself,
+// as a merge does to run no hooks, replaces what the environment holds.
+func (r *Repo) EnvWithoutRefLockWait() []string {
+	r.T.Helper()
+	file, err := os.OpenFile(filepath.Join(r.Home, "gitconfig"), os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		r.T.Fatal(err)
+	}
+	if _, err := file.WriteString("[core]\n\tfilesRefLockTimeout = 0\n"); err != nil {
+		r.T.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		r.T.Fatal(err)
+	}
+	return r.Env()
+}
+
+// HoldRefLock creates the lock file git takes to update a ref, as a fetch in another process holds it, and
+// removes it after hold. The lock is in place when this returns. The test's cleanup removes it early and
+// waits for the removal, so no goroutine outlives the test.
+func (r *Repo) HoldRefLock(ref string, hold time.Duration) {
+	r.T.Helper()
+	path := r.Git("rev-parse", "--git-path", ref+".lock")
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(r.Dir, path)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		r.T.Fatal(err)
+	}
+	lock, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if err != nil {
+		r.T.Fatal(err)
+	}
+	if err := lock.Close(); err != nil {
+		r.T.Fatal(err)
+	}
+	stop, done := make(chan struct{}), make(chan struct{})
+	go func() {
+		defer close(done)
+		select {
+		case <-time.After(hold):
+		case <-stop:
+		}
+		_ = os.Remove(path)
+	}()
+	r.T.Cleanup(func() {
+		close(stop)
+		<-done
+	})
 }
 
 // Git runs one command and returns its output.

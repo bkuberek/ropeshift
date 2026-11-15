@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 )
 
 // ErrNoRevision means a ref or path does not exist in the repository.
@@ -74,6 +75,48 @@ func (g Git) Feed(ctx context.Context, input []byte, args ...string) ([]byte, er
 		return nil, fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
 	}
 	return stdout.Bytes(), nil
+}
+
+// refLockAttempts and refLockPause bound how a fetch that lost a ref's lock tries again.
+const (
+	refLockAttempts = 3
+	refLockPause    = 50 * time.Millisecond
+)
+
+// Fetch runs `git fetch` with these arguments. Two fetches in one clone can update the same remote-tracking
+// ref at the same moment, as the daemon's intake does when it fetches a registered repository while a claim
+// fetches the base branch of the lane it starts, and the one that loses git's lock on the ref fails with
+// "cannot lock ref". The other fetch is moving the ref to the commit this one found, so another attempt
+// finds the ref current: a lost lock is tried again, up to three attempts 50 ms apart and not past the end
+// of ctx, and any other failure is returned at once.
+//
+// Git has no signal for this but the words it prints, because every failed fetch exits 1.
+func (g Git) Fetch(ctx context.Context, args ...string) error {
+	return retryRefLock(ctx, func() error {
+		_, err := g.Output(ctx, append([]string{"fetch"}, args...)...)
+		return err
+	})
+}
+
+// lostRefLock reports whether a git failure is the loss of a ref's lock, whether another process held the
+// lock file or moved the ref between this one reading it and locking it.
+func lostRefLock(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "cannot lock ref")
+}
+
+// retryRefLock runs attempt, and runs it again while it fails for a lost lock, up to refLockAttempts runs.
+// It returns the last failure, and stops waiting when ctx ends.
+func retryRefLock(ctx context.Context, attempt func() error) error {
+	err := attempt()
+	for tried := 1; tried < refLockAttempts && lostRefLock(err); tried++ {
+		select {
+		case <-ctx.Done():
+			return err
+		case <-time.After(refLockPause):
+		}
+		err = attempt()
+	}
+	return err
 }
 
 // Text runs one command and returns its stdout with the last newline removed.
