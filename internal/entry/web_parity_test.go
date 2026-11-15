@@ -71,7 +71,6 @@ var cliOnly = map[string]string{
 // run of this test wrote it, and a command the audit did not name went by its area.
 var webGaps = map[string]string{
 	"decision overturn": "U2e",
-	"decision record":   "U2e",
 	"measures delivery": "U2h1",
 	"message list":      "U2h2",
 	"message show":      "U2h2",

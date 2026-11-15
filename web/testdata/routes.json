@@ -211,6 +211,11 @@
   },
   {
     "method": "POST",
+    "pattern": "/v1/projects/{project}/decisions",
+    "command": "decision record"
+  },
+  {
+    "method": "POST",
     "pattern": "/v1/projects/{project}/approvals/{id}/decide",
     "command": "approval approve"
   },

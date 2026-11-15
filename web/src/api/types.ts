@@ -347,6 +347,25 @@ export type RecordQuestion = {
   subject_id?: string;
 };
 
+// RecordDecision is what a member sends to record a decision, or with the status `assumed`, an assumption.
+export type RecordDecision = {
+  id: string;
+  status: "decided" | "assumed";
+  statement: string;
+  rationale?: string;
+  citations?: string[];
+  scope?: string;
+  reversibility?: string;
+  categories?: string[];
+  supersedes?: string;
+  question_id?: string;
+  no_conflict?: string[];
+};
+
+// RecordedDecision is a decision as the API answers it after it is recorded, with the decisions whose scope
+// it overlaps.
+export type RecordedDecision = Omit<Decision, "lineage" | "superseded_by" | "decided_by_name">;
+
 export type PlanReview = { work_order: WorkOrder; open_questions: Question[] };
 
 // `pending_version` is the plan version whose approval waits for a member, when one does.

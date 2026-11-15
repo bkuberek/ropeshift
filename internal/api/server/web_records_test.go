@@ -109,6 +109,69 @@ func TestTheLedgerRefusesAQuestionTheBrowserSendsMalformed(t *testing.T) {
 	}
 }
 
+func TestAMemberRecordsDecisionsFromTheBrowser(t *testing.T) {
+	t.Parallel()
+	b := signedInBrowser(t)
+	member := memberOf(t, b.r.d)
+	read := func(id string) questions.Decision {
+		t.Helper()
+		row, err := b.r.d.Client.Decision(t.Context(), id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return row
+	}
+	raw := b.send(t, http.MethodPost, "/v1/decisions", api.RecordDecision{
+		ID: "d-web-1", Status: questions.DecisionDecided, Statement: "Charge in euros.", Rationale: "Every customer is in the union.", Scope: "billing",
+		Reversibility: questions.OneWay, Categories: []string{questions.CategoryProduct}, Citations: []string{"requirement:FR-BILL-1"},
+	}, http.StatusCreated)
+	var recorded questions.Decision
+	if err := json.Unmarshal(raw, &recorded); err != nil {
+		t.Fatal(err)
+	}
+	if got := read("d-web-1"); got.Status != questions.DecisionDecided || got.DecidedBy != member || got.Reversibility != questions.OneWay || recorded.ID != "d-web-1" {
+		t.Fatalf("the decision reads %+v", got)
+	}
+	// An assumption is a decision of the other status, and a member's own word runs past the policy a lane is held to.
+	b.send(t, http.MethodPost, "/v1/decisions", api.RecordDecision{ID: "d-web-2", Status: questions.DecisionAssumed, Statement: "Prices are in euros.", Scope: "billing", Reversibility: questions.Reversible}, http.StatusCreated)
+	if got := read("d-web-2"); got.Status != questions.DecisionAssumed || !slices.Contains(got.Overlaps, "d-web-1") {
+		t.Fatalf("the assumption reads %+v, and it should name the decision it overlaps", got)
+	}
+	// A repeat under one ID is the record the first made, so a page may send it again after a lost reply.
+	b.send(t, http.MethodPost, "/v1/decisions", api.RecordDecision{ID: "d-web-2", Status: questions.DecisionAssumed, Statement: "Prices are in euros.", Scope: "billing", Reversibility: questions.Reversible}, http.StatusCreated)
+	// A decision replaces one in force with no rework, and one that ended cannot be replaced again.
+	b.send(t, http.MethodPost, "/v1/decisions", api.RecordDecision{ID: "d-web-3", Status: questions.DecisionDecided, Statement: "Prices are in dollars.", Supersedes: "d-web-2", Reversibility: questions.Reversible}, http.StatusCreated)
+	if got := read("d-web-2"); got.Status != questions.DecisionReplaced {
+		t.Fatalf("the replaced assumption reads %+v", got)
+	}
+	wantCode(t, b.send(t, http.MethodPost, "/v1/decisions", api.RecordDecision{ID: "d-web-4", Status: questions.DecisionDecided, Statement: "Again.", Supersedes: "d-web-2"}, http.StatusConflict), api.CodeDecisionEnded)
+	// What the ledger would not take for its form is refused in its words.
+	for name, request := range map[string]api.RecordDecision{
+		"no statement":             {ID: "d-web-5", Status: questions.DecisionDecided},
+		"a status it never opens":  {ID: "d-web-6", Status: questions.DecisionOverturned, Statement: "x"},
+		"a reversibility it lacks": {ID: "d-web-7", Status: questions.DecisionDecided, Statement: "x", Reversibility: "sometimes"},
+		"an unknown category":      {ID: "d-web-8", Status: questions.DecisionDecided, Statement: "x", Categories: []string{"no-such-category"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			wantCode(t, b.send(t, http.MethodPost, "/v1/decisions", request, http.StatusBadRequest), api.CodeInvalid)
+		})
+	}
+}
+
+// ATTACK: an ID plan approval derives, which anyone who reads a plan can work out. Only plan approval names a
+// decision under that prefix, so a decision recorded from the browser is refused it, as it is on the socket,
+// and no decision of that ID exists afterwards.
+func TestAPlanApprovalsDecisionIDIsRefusedFromTheBrowser(t *testing.T) {
+	t.Parallel()
+	b := signedInBrowser(t)
+	for _, id := range []string{"pd-", "pd-0123456789abcdef0123456789", "pd-x"} {
+		raw := b.send(t, http.MethodPost, "/v1/decisions", api.RecordDecision{ID: id, Status: questions.DecisionDecided, Statement: "Take the name."}, http.StatusBadRequest)
+		wantCode(t, raw, api.CodeInvalid)
+		_, err := b.r.d.Client.Decision(t.Context(), id)
+		refusedWith(t, err, http.StatusNotFound, api.CodeNotFound)
+	}
+}
+
 // ATTACK: a delegate's credential on the web listener. A delegate uses the local socket, where its call is
 // a card or is refused by its class, so the listener refuses it before any route reads it, and a route that
 // the web UI gains gives it nothing.
@@ -120,6 +183,7 @@ func TestADelegateGainsNothingFromTheBrowserRoutesOfRecords(t *testing.T) {
 		{http.MethodPost, "/v1/categories"},
 		{http.MethodPost, "/v1/questions"},
 		{http.MethodPost, "/v1/questions/x/dismiss"},
+		{http.MethodPost, "/v1/decisions"},
 	} {
 		t.Run(route.method+route.path, func(t *testing.T) {
 			headers := map[string]string{api.HeaderDelegate: created.Token, api.HeaderCSRF: b.headers[api.HeaderCSRF]}

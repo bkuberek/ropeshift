@@ -735,6 +735,62 @@ describe.each(Object.entries(sizes))("at %s width", (size, viewport) => {
     );
 
     it(
+      "the record decision dialog, empty, with its errors, in its review, and with a refusal, meets WCAG 2.2 A and AA",
+      async () => {
+        const context = await browser.newContext({ viewport, colorScheme: theme, reducedMotion: "reduce" });
+        await context.route(/\/v1\//, answer);
+        const page = await context.newPage();
+        const found: string[] = [];
+        const settle = async () => {
+          await page.mouse.move(0, 0);
+          await page.waitForTimeout(600);
+        };
+        await page.goto(`${base}/projects/default/decisions`);
+        await ready(page);
+        await page.getByRole("button", { name: "Record decision" }).click();
+        const dialog = page.getByRole("dialog", { name: "Record decision" });
+        await dialog.waitFor();
+        await dialog.getByRole("checkbox", { name: "Security" }).waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `record decision dialog ${violation}`));
+        await dialog.getByText("More").click();
+        await dialog.getByRole("textbox", { name: "Decision ID (optional)" }).fill("pd-2f9a");
+        await dialog.getByRole("button", { name: "Review" }).click();
+        await dialog.getByText("State what was decided.").waitFor();
+        await dialog.getByText(/may not start with pd-/).waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `record decision dialog with errors ${violation}`));
+        await dialog.getByRole("textbox", { name: "Statement" }).fill("Charge in euros.");
+        await dialog.getByRole("textbox", { name: "Rationale" }).fill("Every customer is in the union.");
+        await dialog.getByRole("textbox", { name: "Decision ID (optional)" }).fill("");
+        await dialog.getByRole("checkbox", { name: "Security" }).check();
+        await dialog.getByRole("textbox", { name: "Citations" }).fill("requirement:FR-RETRY-1");
+        await dialog.getByRole("button", { name: "Review" }).click();
+        await dialog.getByRole("heading", { name: "Review the decision" }).waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `record decision review ${violation}`));
+        await page.route(/\/v1\/projects\/default\/decisions$/, (route) =>
+          route.request().method() === "POST"
+            ? route.fulfill({ status: 409, contentType: "application/json", body: JSON.stringify({ error: { code: "decision_ended", message: "decision decision-3 is overturned" } }) })
+            : route.fallback(),
+        );
+        await dialog.getByRole("button", { name: "Record decision" }).click();
+        await dialog.getByRole("alert").waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `record decision review with a refusal ${violation}`));
+        await dialog.getByRole("button", { name: "Back" }).click();
+        await dialog.getByRole("checkbox", { name: "Record as an assumption" }).check();
+        await dialog.getByRole("button", { name: "Review" }).click();
+        await dialog.getByRole("heading", { name: "Review the assumption" }).waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `record assumption review ${violation}`));
+        await context.close();
+        expect(found.map((line) => `${size} ${theme} ${line}`)).toEqual([]);
+      },
+      120_000,
+    );
+
+    it(
       "the palette, the shortcut sheet, the project switcher, a menu, and a dialog meet WCAG 2.2 A and AA",
       async () => {
         const context = await browser.newContext({ viewport, colorScheme: theme, reducedMotion: "reduce" });

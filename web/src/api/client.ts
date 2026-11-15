@@ -1,5 +1,5 @@
 import { splitProject } from "../app/route";
-import type { ApprovalRecord, DocumentRef, DocumentRow, DocumentVersions, EffectOutcome, NeedsYou, PlanOutline, PlanView, ProjectList, Question, RecordedRead, RecordQuestion, Search, WorkAction } from "./types";
+import type { ApprovalRecord, DocumentRef, DocumentRow, DocumentVersions, EffectOutcome, NeedsYou, PlanOutline, PlanView, ProjectList, Question, RecordDecision, RecordedDecision, RecordedRead, RecordQuestion, Search, WorkAction } from "./types";
 
 function documentQuery({ path, instance, version }: DocumentRef): URLSearchParams {
   const query = new URLSearchParams({ path });
@@ -60,6 +60,7 @@ export const paths = {
   questions: () => project("/questions"),
   answer: (id: string) => project(`/questions/${encodeURIComponent(id)}/answer`),
   dismiss: (id: string) => project(`/questions/${encodeURIComponent(id)}/dismiss`),
+  decisions: () => project("/decisions"),
   decideApproval: (id: string) => project(`/approvals/${encodeURIComponent(id)}/decide`),
   decideEffect: (id: string) => project(`/effects/${encodeURIComponent(id)}/decide`),
   work: (id: string, verb: string) => project(`/work-orders/${encodeURIComponent(id)}/${verb}`),
@@ -237,6 +238,12 @@ export function recordQuestion(request: RecordQuestion): Promise<Question> {
 // dismissQuestion closes a question with no answer. It stays on record.
 export function dismissQuestion(id: string): Promise<void> {
   return call("POST", paths.dismiss(id), {});
+}
+
+// recordDecision records a decision, or with the status `assumed` an assumption, as `ropeshift decision record`
+// does. The ID is the client's, so a retry finds the record the first attempt made.
+export function recordDecision(request: RecordDecision): Promise<RecordedDecision> {
+  return call("POST", paths.decisions(), request);
 }
 
 export function decideApproval(id: string, digest: string, allow: boolean, reason: string, place?: Place): Promise<unknown> {

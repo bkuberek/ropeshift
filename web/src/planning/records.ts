@@ -1,5 +1,5 @@
 import { plainID } from "../api/client";
-import type { RecordQuestion } from "../api/types";
+import type { RecordDecision, RecordQuestion } from "../api/types";
 
 // What the dialogs that record questions, decisions, and categories ask of a member before they send. None
 // of it decides what the API decides: the API refuses what it refuses, and its words show at the field or
@@ -62,6 +62,125 @@ export function questionRequest(id: string, draft: QuestionDraft): RecordQuestio
     if (draft.blocking) {
       request.blocking = true;
     }
+  }
+  return request;
+}
+
+// listOf reads a list a member wrote, one entry to a line, and drops the empty ones and the repeats. IDs are
+// written the same way, and a comma or a space between two is read as the end of one.
+export function listOf(text: string, separator: RegExp = /\n/): string[] {
+  const seen = new Set<string>();
+  for (const part of text.split(separator)) {
+    const entry = part.trim();
+    if (entry !== "") {
+      seen.add(entry);
+    }
+  }
+  return [...seen];
+}
+
+// The prefix plan approval names the decisions it makes under: anyone who reads a plan can work such an ID
+// out, so no other writer names a decision under it.
+const planDecisionPrefix = "pd-";
+
+// decisionIDProblem says why a member cannot name a new decision by an ID, or an empty string for one that can
+// be named, and for none, which the page names itself. It reads as the ledger does: an ID is plain, and the
+// prefix is read as written.
+export function decisionIDProblem(id: string): string {
+  if (id === "") {
+    return "";
+  }
+  if (!plainID.test(id)) {
+    return "An ID is 1 to 64 letters, digits, - and _.";
+  }
+  if (id.startsWith(planDecisionPrefix)) {
+    return `A decision's ID may not start with ${planDecisionPrefix}, which only plan approval names decisions under.`;
+  }
+  return "";
+}
+
+export type DecisionDraft = {
+  statement: string;
+  rationale: string;
+  assumed: boolean;
+  reversibility: "" | "reversible" | "one_way";
+  scope: string;
+  categories: string[];
+  citations: string;
+  supersedes: string;
+  questionID: string;
+  noConflict: string;
+  id: string;
+};
+
+export const noDecision: DecisionDraft = {
+  statement: "",
+  rationale: "",
+  assumed: false,
+  reversibility: "",
+  scope: "",
+  categories: [],
+  citations: "",
+  supersedes: "",
+  questionID: "",
+  noConflict: "",
+  id: "",
+};
+
+// idsOf reads the decision or question IDs a member wrote.
+const idsOf = (text: string) => listOf(text, /[\s,]+/);
+
+export type DecisionProblems = { statement?: string; id?: string; questionID?: string; noConflict?: string };
+
+// decisionProblems says what stops a decision from being sent: what it states, and each ID a member wrote
+// the ledger would read as another thing.
+export function decisionProblems(draft: DecisionDraft): DecisionProblems {
+  const problems: DecisionProblems = {};
+  if (draft.statement.trim() === "") {
+    problems.statement = "State what was decided.";
+  }
+  const named = decisionIDProblem(draft.id.trim());
+  if (named) {
+    problems.id = named;
+  }
+  if (draft.questionID.trim() !== "" && !plainID.test(draft.questionID.trim())) {
+    problems.questionID = "An ID is 1 to 64 letters, digits, - and _.";
+  }
+  if (idsOf(draft.noConflict).some((id) => !plainID.test(id))) {
+    problems.noConflict = "Each ID is 1 to 64 letters, digits, - and _, and two are told apart by a space or a comma.";
+  }
+  return problems;
+}
+
+// decisionRequest is the request `ropeshift decision record` would send for the same flags: what a member left
+// empty is left out, and the decision is `assumed` when it is recorded as an assumption.
+export function decisionRequest(id: string, draft: DecisionDraft): RecordDecision {
+  const request: RecordDecision = { id: draft.id.trim() || id, status: draft.assumed ? "assumed" : "decided", statement: draft.statement.trim() };
+  if (draft.rationale.trim() !== "") {
+    request.rationale = draft.rationale.trim();
+  }
+  if (draft.scope.trim() !== "") {
+    request.scope = draft.scope.trim();
+  }
+  if (draft.reversibility !== "") {
+    request.reversibility = draft.reversibility;
+  }
+  if (draft.supersedes !== "") {
+    request.supersedes = draft.supersedes;
+  }
+  if (draft.questionID.trim() !== "") {
+    request.question_id = draft.questionID.trim();
+  }
+  const citations = listOf(draft.citations);
+  if (citations.length > 0) {
+    request.citations = citations;
+  }
+  if (draft.categories.length > 0) {
+    request.categories = draft.categories;
+  }
+  const noConflict = idsOf(draft.noConflict);
+  if (noConflict.length > 0) {
+    request.no_conflict = noConflict;
   }
   return request;
 }

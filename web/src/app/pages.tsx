@@ -19,6 +19,7 @@ import { Decisions } from "../planning/Decisions";
 import { DocumentsBody, DocumentsTabs } from "../planning/Documents";
 import { OpenQuestions } from "../planning/OpenQuestions";
 import { PlanApprovalPage } from "../planning/PlanApproval";
+import { RecordDecision } from "../planning/RecordDecision";
 import { RecordQuestion } from "../planning/RecordQuestion";
 import { PlanningPage } from "../planning/Planning";
 import { PlanList, PlanPage } from "../planning/Plans";
@@ -40,7 +41,7 @@ type Spec<T> = {
   title: string | ((view: T | null) => string);
   note?: (view: T) => string;
   crumbs?: ReactNode;
-  actions?: ReactNode;
+  actions?: ReactNode | ((view: T | null) => ReactNode);
   // above stands between the title and the view's body, such as its tabs.
   above?: ReactNode;
   body: (view: T) => ReactNode;
@@ -54,7 +55,7 @@ function ViewPage<T extends Stamp>({ name, live, category = "", gapMs, title, no
   const now = useClock();
   const view = read.view;
   return (
-    <Page title={typeof title === "function" ? title(view) : title} note={view && note ? note(view) : undefined} crumbs={crumbs} actions={actions}>
+    <Page title={typeof title === "function" ? title(view) : title} note={view && note ? note(view) : undefined} crumbs={crumbs} actions={typeof actions === "function" ? actions(view) : actions}>
       {above}
       <div className={above ? "tab-body" : undefined}>
         {read.failure ? <Banner tone="danger">{view ? `What this view shows is not current. ${read.failure}` : read.failure}</Banner> : null}
@@ -139,6 +140,7 @@ function DecisionsPage({ live, id, category }: { live: Live; id: string; categor
       category={category}
       title={(read) => (!id ? "Decisions" : read === null || read.decisions.some((row) => row.id === id) ? id : "No such decision")}
       note={(read) => (id ? "" : count(read.decisions.length, "decision"))}
+      actions={(read) => <RecordDecision decisions={read?.decisions ?? []} />}
       body={(read) => <Decisions view={read} selected={id} category={category} categories={categories.view?.categories ?? []} />}
     />
   );
