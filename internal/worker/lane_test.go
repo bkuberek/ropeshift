@@ -96,6 +96,35 @@ func TestARepositoryCannotTurnPushOn(t *testing.T) {
 	}
 }
 
+// A lane's own layer can come from any caller of the API, so it runs no command, reads no variable of the
+// worker's, and places no worktree, and a lane whose layer tries any of them leaves nothing behind.
+func TestPrepareRefusesALaneLayerThatRunsReadsOrPlaces(t *testing.T) {
+	t.Parallel()
+	layers := map[string]string{
+		"a hook":       "[hooks]\non_lane_created = [\"/bin/sh\", \"-c\", \"id\"]\n",
+		"a credential": "[agent.credentials]\nsecret_ref = \"env:OTHER_KEY\"\n",
+		"a root":       "[worktree]\nroot = \"/\"\n",
+	}
+	for name, overrides := range layers {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			p, _, worktrees := provisioner(map[string]string{"OTHER_KEY": "o"})
+			hooks := fake.NewHookRunner()
+			p.Hooks = hooks
+			lane, err := p.Prepare(t.Context(), worker.LaneRequest{Lane: "l1", Repository: "/work/app", Overrides: overrides})
+			if !errors.Is(err, lanes.ErrBadProfile) {
+				t.Fatalf("got %v with environment %v", err, lane.Environment)
+			}
+			if runs := hooks.Runs(); len(runs) != 0 {
+				t.Errorf("a lane's layer ran %+v", runs)
+			}
+			if created := worktrees.Created(); len(created) != 0 {
+				t.Errorf("a lane's layer made %+v", created)
+			}
+		})
+	}
+}
+
 func TestPreparePassesOnlyTheReferencedSecret(t *testing.T) {
 	t.Parallel()
 	p, source, _ := provisioner(map[string]string{"ANTHROPIC_API_KEY": "k", "OTHER_KEY": "o"})

@@ -4,6 +4,8 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -224,6 +226,137 @@ func TestALaneLayerNarrowsAndCannotWiden(t *testing.T) {
 			_, err := ResolveLayers(tt.user, tt.repository, tt.lane)
 			if refused := errors.Is(err, lanes.ErrBadProfile); refused != tt.refused {
 				t.Errorf("error %v, want refused=%v", err, tt.refused)
+			}
+		})
+	}
+}
+
+// TestALanesOwnLayerRunsNothingAndRaisesNoCap holds a lane's own layer, which any caller of the API can
+// send, to what the user's and the repository's layers give: it changes no hook, no credential, and no
+// place of the worktree or its branch, and it lowers a breaker's cap and never raises it. The same keys
+// stay the user's and the repository's to set.
+func TestALanesOwnLayerRunsNothingAndRaisesNoCap(t *testing.T) {
+	const (
+		hook       = "[hooks]\non_lane_created = [\"./scripts/setup.sh\"]\n"
+		shell      = "[hooks]\non_lane_created = [\"/bin/sh\", \"-c\", \"id\"]\n"
+		credential = "[agent.credentials]\nkind = \"api_key\"\nsecret_ref = \"env:ANTHROPIC_API_KEY\"\n"
+	)
+	tests := []struct {
+		name, user, repository, lane string
+		// refused names the key the refusal states, and empty passes.
+		refused string
+	}{
+		{name: "a lane names a hook", lane: shell, refused: "[hooks]"},
+		{name: "a lane replaces the repository's hook", repository: hook, lane: shell, refused: "[hooks]"},
+		{name: "a lane replaces the user's hook", user: hook, lane: shell, refused: "[hooks]"},
+		{name: "a lane clears the repository's hook", repository: hook, lane: "[hooks]\non_lane_created = []\n", refused: "[hooks]"},
+		{name: "a lane names a hook nothing runs", lane: "hooks.on_anything = [\"id\"]\n", refused: "[hooks]"},
+		{name: "a lane restates the repository's hook", repository: hook, lane: hook},
+		{name: "a repository names a hook", repository: hook},
+		{name: "a lane names a variable of the worker's", lane: "agent.credentials.secret_ref = \"env:HOME\"\n", refused: "agent.credentials"},
+		{name: "a lane changes the sign-in kind", lane: "[agent.credentials]\nkind = \"api_key\"\n", refused: "agent.credentials"},
+		{name: "a lane replaces the repository's credential", repository: credential, lane: "agent = { credentials = { secret_ref = \"env:OTHER\" } }\n", refused: "agent.credentials"},
+		{name: "a repository names a credential", repository: credential},
+		{name: "a lane puts its worktree anywhere", lane: "[worktree]\nroot = \"/\"\n", refused: "worktree.root"},
+		{name: "a lane moves its worktree beside the repository", lane: "worktree.root = \"../elsewhere\"\n", refused: "worktree.root"},
+		{name: "a lane changes its branch's prefix", lane: "[worktree]\nbranch_prefix = \"\"\n", refused: "worktree.branch_prefix"},
+		{name: "a repository places its lanes", repository: "[worktree]\nroot = \"../lanes\"\nbranch_prefix = \"work/\"\n"},
+		{name: "a lane raises the day's cap", lane: "[lifecycle]\nmax_generations_per_day = 9\n", refused: "lifecycle.max_generations_per_day"},
+		{name: "a lane lifts the day's cap", lane: "[lifecycle]\nmax_generations_per_day = 0\n", refused: "lifecycle.max_generations_per_day"},
+		{name: "a lane lowers the day's cap", lane: "[lifecycle]\nmax_generations_per_day = 2\n"},
+		{name: "a lane caps a day the user left open", user: "[lifecycle]\nmax_generations_per_day = 0\n", lane: "[lifecycle]\nmax_generations_per_day = 3\n"},
+		{name: "a lane raises the restarts", lane: "[lifecycle]\nmax_restarts = 6\n", refused: "lifecycle.max_restarts"},
+		{name: "a lane raises past what the repository lowered", repository: "[lifecycle]\nmax_restarts = 2\n", lane: "[lifecycle]\nmax_restarts = 4\n", refused: "lifecycle.max_restarts"},
+		{name: "a lane turns restarts off", lane: "[lifecycle]\nmax_restarts = 0\n"},
+		{name: "a lane shortens the restart window", lane: "[lifecycle]\nrestart_window = \"1m\"\n", refused: "lifecycle.restart_window"},
+		{name: "a lane names a restart window that is no time", lane: "[lifecycle]\nrestart_window = \"never\"\n", refused: "lifecycle.restart_window"},
+		{name: "a lane lengthens the restart window", lane: "[lifecycle]\nrestart_window = \"1h\"\n"},
+		{name: "a repository raises a cap for its lanes", repository: "[lifecycle]\nmax_generations_per_day = 20\nmax_restarts = 9\nrestart_window = \"1m\"\n"},
+		{name: "a lane raises the review rounds past the default", lane: "[review]\nmax_review_rounds = 9\n", refused: "review.max_review_rounds"},
+		{name: "a lane raises the review rounds past the repository's", repository: "[review]\nmax_review_rounds = 1\n", lane: "[review]\nmax_review_rounds = 2\n", refused: "review.max_review_rounds"},
+		{name: "a lane unsets the review rounds the repository lowered", repository: "[review]\nmax_review_rounds = 1\n", lane: "[review]\nmax_review_rounds = 0\n", refused: "review.max_review_rounds"},
+		{name: "a lane lowers the review rounds", lane: "[review]\nmax_review_rounds = 1\n"},
+		{name: "a lane lowers the review rounds the user raised", user: "[review]\nmax_review_rounds = 6\n", lane: "[review]\nmax_review_rounds = 4\n"},
+		{name: "a repository raises the review rounds", repository: "[review]\nmax_review_rounds = 6\n"},
+		{name: "a lane takes the whole port pool", lane: "[resources]\nports_per_lane = 10000\n", refused: "resources.ports_per_lane"},
+		{name: "a lane takes more ports than the repository gives", repository: "[resources]\nports_per_lane = 4\n", lane: "[resources]\nports_per_lane = 5\n", refused: "resources.ports_per_lane"},
+		{name: "a lane takes ports the repository gave none", repository: "[resources]\nports_per_lane = 0\n", lane: "[resources]\nports_per_lane = 1\n", refused: "resources.ports_per_lane"},
+		{name: "a lane takes fewer ports", lane: "[resources]\nports_per_lane = 2\n"},
+		{name: "a lane takes no ports", lane: "[resources]\nports_per_lane = 0\n"},
+		{name: "a lane takes the ports the repository raised to", repository: "[resources]\nports_per_lane = 20\n", lane: "[resources]\nports_per_lane = 20\n"},
+		{name: "a lane names a file to read", lane: "[agent]\ninstructions_file = \"/etc/passwd\"\n", refused: "agent.instructions_file"},
+		{name: "a lane clears the instructions file", lane: "agent.instructions_file = \"\"\n", refused: "agent.instructions_file"},
+		{name: "a lane replaces the repository's instructions file", repository: "[agent]\ninstructions_file = \"CLAUDE.md\"\n", lane: "[agent]\ninstructions_file = \"AGENTS.md\"\n", refused: "agent.instructions_file"},
+		{name: "a lane restates the instructions file", lane: "[agent]\ninstructions_file = \"AGENTS.md\"\n"},
+		{name: "a repository names its instructions file", repository: "[agent]\ninstructions_file = \"CLAUDE.md\"\n"},
+		{name: "a lane chooses its model and effort", lane: "[agent]\nmodel = \"haiku\"\neffort = \"low\"\n[lifecycle]\nstall_after = \"3m\"\n"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := ResolveLayers(tt.user, tt.repository, tt.lane)
+			if tt.refused == "" {
+				if err != nil {
+					t.Errorf("refused: %v", err)
+				}
+				return
+			}
+			if !errors.Is(err, lanes.ErrBadProfile) || !strings.Contains(err.Error(), tt.refused) {
+				t.Errorf("error %v, want a refusal that names %s", err, tt.refused)
+			}
+		})
+	}
+}
+
+// TestNoLayerPastTheUsersDropsAGate holds every gate the layers below set. A layer that sets agent.gates
+// replaces their list, so a repository's layer that leaves out a gate of the user's, or a lane's own layer
+// that leaves out a gate of either, is refused, and the refusal names the gate. A layer that keeps every
+// gate below may add more.
+func TestNoLayerPastTheUsersDropsAGate(t *testing.T) {
+	const (
+		push = "Bash(git push *)"
+		edit = "Edit"
+	)
+	gates := func(rules ...string) string {
+		quoted := make([]string, len(rules))
+		for i, rule := range rules {
+			quoted[i] = strconv.Quote(rule)
+		}
+		return "[agent]\ngates = [" + strings.Join(quoted, ", ") + "]\n"
+	}
+	tests := []struct {
+		name, user, repository, lane string
+		// dropped is the gate the refusal names, and empty passes with want.
+		dropped string
+		want    []string
+	}{
+		{name: "a lane clears the user's gates", user: gates(push), lane: gates(), dropped: push},
+		{name: "a lane clears them with a dotted key", user: gates(push), lane: "agent.gates = []\n", dropped: push},
+		{name: "a lane replaces the user's gates", user: gates(push, edit), lane: gates(edit), dropped: push},
+		{name: "a lane clears the repository's gates", repository: gates(edit), lane: gates(), dropped: edit},
+		{name: "a lane keeps the repository's gate and drops the user's", user: gates(push), repository: gates(push, edit), lane: gates(edit), dropped: push},
+		{name: "a lane adds a gate to the user's", user: gates(push), lane: gates(push, edit), want: []string{push, edit}},
+		{name: "a lane adds a gate where none was", lane: gates(push), want: []string{push}},
+		{name: "a lane restates the gates below", user: gates(push), repository: gates(push, edit), lane: gates(edit, push), want: []string{edit, push}},
+		{name: "a repository clears the user's gates", user: gates(push), repository: gates(), dropped: push},
+		{name: "a repository replaces the user's gates", user: gates(push, edit), repository: gates(edit), dropped: push},
+		{name: "a repository adds a gate to the user's", user: gates(push), repository: gates(push, edit), want: []string{push, edit}},
+		{name: "a repository gates what the user left open", repository: gates(edit), want: []string{edit}},
+		{name: "a user sets the gates", user: gates(push), want: []string{push}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			profile, err := ResolveLayers(tt.user, tt.repository, tt.lane)
+			if tt.dropped == "" {
+				if err != nil {
+					t.Fatalf("refused: %v", err)
+				}
+				if !slices.Equal(profile.Agent.Gates, tt.want) {
+					t.Errorf("gates %q, want %q", profile.Agent.Gates, tt.want)
+				}
+				return
+			}
+			if !errors.Is(err, lanes.ErrBadProfile) || !strings.Contains(err.Error(), strconv.Quote(tt.dropped)) || !strings.Contains(err.Error(), "agent.gates") {
+				t.Errorf("error %v, want a refusal that names the gate %q of agent.gates", err, tt.dropped)
 			}
 		})
 	}
