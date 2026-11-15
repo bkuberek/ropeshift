@@ -1,7 +1,9 @@
 import { lazy, Suspense } from "react";
 import type { ReactNode } from "react";
 
+import { useRead } from "../admin/parts";
 import type { Prefs } from "../admin/Settings";
+import { readCategories } from "../api/admin";
 import { readView } from "../api/client";
 import type { Decisions as DecisionsView, Documents, NeedsYou, Operations as OperationsView, Plans, Project, Questions, Stamp } from "../api/types";
 import type { Live } from "../api/useView";
@@ -125,6 +127,22 @@ function plansPage(live: Live, id: string, project: string) {
   );
 }
 
+// The decisions, which a category narrows as it narrows the open questions. The categories come from their own
+// read, so the filter stands whatever the filter leaves out of the list.
+function DecisionsPage({ live, id, category }: { live: Live; id: string; category: string }) {
+  const categories = useRead(() => readCategories(), "categories", live);
+  return (
+    <ViewPage<DecisionsView>
+      name="decisions"
+      live={live}
+      category={category}
+      title={(read) => (!id ? "Decisions" : read === null || read.decisions.some((row) => row.id === id) ? id : "No such decision")}
+      note={(read) => (id ? "" : count(read.decisions.length, "decision"))}
+      body={(read) => <Decisions view={read} selected={id} category={category} categories={categories.view?.categories ?? []} />}
+    />
+  );
+}
+
 // The pages that manage the installation and a project's records load when a person first opens one,
 // so the views of daily work load without them.
 const AgentsPage = lazy(() => import("../admin/Agents").then((page) => ({ default: page.AgentsPage })));
@@ -190,15 +208,7 @@ function ViewFor({ view, project, scoped, params, live, after, needs, projects, 
     case "traceability":
       return documentsPage(live, params, project, "traceability");
     case "decisions":
-      return (
-        <ViewPage<DecisionsView>
-          name="decisions"
-          live={live}
-          title={(read) => (!param("id") ? "Decisions" : read === null || read.decisions.some((row) => row.id === param("id")) ? param("id") : "No such decision")}
-          note={(read) => (param("id") ? "" : count(read.decisions.length, "decision"))}
-          body={(read) => <Decisions view={read} selected={param("id")} />}
-        />
-      );
+      return <DecisionsPage live={live} id={param("id")} category={param("category")} />;
     case "questions":
       return (
         <ViewPage<Questions>

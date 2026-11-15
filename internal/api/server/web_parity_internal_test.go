@@ -37,7 +37,6 @@ var opGaps = map[string]string{
 	authority.OpDecisionRecord:   "U2e",
 	authority.OpDecisionAssume:   "U2e",
 	authority.OpDecisionOverturn: "U2e",
-	authority.OpCategoryAdd:      "U2e",
 	authority.OpPassphraseSet:    "U2f",
 }
 

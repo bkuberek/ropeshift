@@ -1,6 +1,7 @@
 import type { Question, Questions as View } from "../api/types";
-import { addressOf, Link } from "../app/route";
+import { Link } from "../app/route";
 import { Fact, Id, Line, words } from "../parts/parts";
+import { CategoryFilter } from "./CategoryFilter";
 
 const statusWords: Record<string, string> = { needs_human: "Needs a person" };
 
@@ -70,21 +71,6 @@ function QuestionLine({ question }: { question: Question }) {
   );
 }
 
-function Filters({ categories, category }: { categories: string[]; category: string }) {
-  return (
-    <nav className="filters" aria-label="Filter by category">
-      <Link to="/questions" stay aria-current={category === "" ? "true" : undefined}>
-        All
-      </Link>
-      {categories.map((name) => (
-        <Link key={name} to={addressOf("/questions", { category: name })} stay aria-current={name === category ? "true" : undefined}>
-          {words(name)}
-        </Link>
-      ))}
-    </nav>
-  );
-}
-
 export function OpenQuestions({ view, category, selected }: { view: View; category: string; selected: string }) {
   const shown = selected ? view.questions.filter((question) => question.id === selected) : view.questions;
   return (
@@ -94,7 +80,7 @@ export function OpenQuestions({ view, category, selected }: { view: View; catego
           <Link to="/questions">All open questions</Link>
         </p>
       ) : (
-        <Filters categories={view.categories} category={category} />
+        <CategoryFilter path="/questions" categories={view.categories} category={category} />
       )}
       {shown.length ? (
         <ol className="record-list queue-work" role="list">

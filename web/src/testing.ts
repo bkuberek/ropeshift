@@ -119,6 +119,10 @@ export function serveViews(answer?: (sent: Sent) => Answer | undefined, options:
     if (call.method === "GET" && call.path === "/v1/repositories") {
       return { status: 200, body: golden("repositories") };
     }
+    // The categories the questions view lists are the project's every category, built-in and added.
+    if (call.method === "GET" && call.path === "/v1/categories") {
+      return { status: 200, body: { categories: golden<{ categories: string[] }>("questions").categories } };
+    }
     return undefined;
   }, options);
 }

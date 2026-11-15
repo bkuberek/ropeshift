@@ -7,6 +7,7 @@ import routes from "../../testdata/routes.json";
 import { FakeEvents, serveApi, stubEvents } from "../testing";
 import {
   acknowledgeRisk,
+  addCategory,
   addRepositories,
   archiveLane,
   changeRepository,
@@ -175,6 +176,7 @@ const callers: Record<string, Caller> = {
   "GET /v1/projects/{project}/policies": step("readPolicies", () => readPolicies("recovery")),
   "POST /v1/projects/{project}/policies": step("publishPolicy", () => publishPolicy("[recovery_policy]")),
   "GET /v1/projects/{project}/categories": step("readCategories", () => readCategories()),
+  "POST /v1/projects/{project}/categories": step("addCategory", () => addCategory("release-planning")),
   "GET /v1/projects/{project}/approvals": step("readApprovals", () => readApprovals("approved")),
   "GET /v1/projects/{project}/plans/{id}": step("readPlan", () => readPlan("plan-1")),
   "GET /v1/projects/{project}/approvals/{id}": step("readApproval", () => readApproval("a-1")),

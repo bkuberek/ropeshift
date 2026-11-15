@@ -603,6 +603,45 @@ describe.each(Object.entries(sizes))("at %s width", (size, viewport) => {
     );
 
     it(
+      "the add category dialog, empty, with a name the ledger would refuse, and with a refusal, meets WCAG 2.2 A and AA",
+      async () => {
+        const context = await browser.newContext({ viewport, colorScheme: theme, reducedMotion: "reduce" });
+        await context.route(/\/v1\//, answer);
+        const page = await context.newPage();
+        const found: string[] = [];
+        const settle = async () => {
+          await page.mouse.move(0, 0);
+          await page.waitForTimeout(600);
+        };
+        await page.goto(`${base}/projects/default/questions`);
+        await ready(page);
+        await page.getByRole("button", { name: "Add category" }).click();
+        const dialog = page.getByRole("dialog", { name: "Add category" });
+        await dialog.waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `add category dialog ${violation}`));
+        await dialog.getByLabel("Name").fill("Release Planning");
+        await dialog.getByRole("button", { name: "Add category" }).click();
+        await dialog.getByText(/lowercase words joined by hyphens/).last().waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `add category dialog with an error ${violation}`));
+        await page.route(/\/v1\/projects\/default\/categories$/, (route) =>
+          route.request().method() === "POST"
+            ? route.fulfill({ status: 400, contentType: "application/json", body: JSON.stringify({ error: { code: "invalid", message: "invalid question or decision: category is taken" } }) })
+            : route.fallback(),
+        );
+        await dialog.getByLabel("Name").fill("billing");
+        await dialog.getByRole("button", { name: "Add category" }).click();
+        await dialog.getByRole("alert").waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `add category dialog with a refusal ${violation}`));
+        await context.close();
+        expect(found.map((line) => `${size} ${theme} ${line}`)).toEqual([]);
+      },
+      120_000,
+    );
+
+    it(
       "the palette, the shortcut sheet, the project switcher, a menu, and a dialog meet WCAG 2.2 A and AA",
       async () => {
         const context = await browser.newContext({ viewport, colorScheme: theme, reducedMotion: "reduce" });

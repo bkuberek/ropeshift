@@ -360,6 +360,11 @@
     "command": "category list"
   },
   {
+    "method": "POST",
+    "pattern": "/v1/projects/{project}/categories",
+    "command": "category add"
+  },
+  {
     "method": "GET",
     "pattern": "/v1/projects/{project}/approvals",
     "command": "approval list"

@@ -70,7 +70,6 @@ var cliOnly = map[string]string{
 // that adds it. A command whose row is added leaves this list, and the test fails until it does. The first
 // run of this test wrote it, and a command the audit did not name went by its area.
 var webGaps = map[string]string{
-	"category add":      "U2e",
 	"decision overturn": "U2e",
 	"decision record":   "U2e",
 	"measures delivery": "U2h1",
