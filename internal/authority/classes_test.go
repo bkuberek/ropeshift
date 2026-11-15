@@ -264,6 +264,29 @@ func TestADelegateActsForItsMember(t *testing.T) {
 	}
 }
 
+func TestADirectMemberIsAMemberAndNeverADelegateActingForOne(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		actor  ledger.Actor
+		member string
+		ok     bool
+	}{
+		{"a member", ledger.Actor{Kind: ledger.ActorMember, ID: "m1"}, "m1", true},
+		{"a delegate acting for a member", delegate, "", false},
+		{"a member with no ID", ledger.Actor{Kind: ledger.ActorMember}, "", false},
+		{"a worker", ledger.Actor{Kind: ledger.ActorWorker, ID: "m1"}, "", false},
+		{"no actor", ledger.Actor{}, "", false},
+	} {
+		member, ok := authority.DirectMember(tc.actor)
+		if ok != tc.ok || (ok && member != tc.member) {
+			t.Errorf("%s reads as member %q, %v; want %q, %v", tc.name, member, ok, tc.member, tc.ok)
+		}
+	}
+	if member, ok := authority.MemberOf(delegate); !ok || member != "m1" {
+		t.Errorf("MemberOf a delegate is %q, %v; the two readings differ on a delegate", member, ok)
+	}
+}
+
 func TestADelegateCredentialHasThreeStates(t *testing.T) {
 	credential := authority.DelegateCredential{ID: "dlg_01", Member: "m1", CreatedAt: 100, ExpiresAt: 200}
 	if state := credential.State(150); state != authority.DelegateActive {

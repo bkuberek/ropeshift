@@ -177,7 +177,8 @@ func planOwn(tx ports.WriteTx, held questions.Decision, plan string, version int
 	if err != nil {
 		return false, err
 	}
-	return by.Kind == ledger.ActorMember && by.ID != "" && by.ID == held.DecidedBy, nil
+	member, ok := authority.DirectMember(by)
+	return ok && member == held.DecidedBy, nil
 }
 
 // decisionRecorder is the actor of the event that recorded a decision, and no actor when no event did.

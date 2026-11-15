@@ -45,6 +45,7 @@ var PlanApprovalChecks = []Check{
 	{"PA18", "no writer but plan approval names a decision under the prefix of the IDs it derives, so no decision stands in for a draft of a later version", checkOnlyPlanApprovalNamesItsDecisions},
 	{"PA19", "a decision another writer recorded under a draft's derived ID is a clash even when it says what the draft says", checkApprovalRefusesAPlantedSameDecision},
 	{"PA20", "a decision in force under an earlier version's derived ID carries forward only when a member recorded it citing that version, and another writer's is a clash until a member overturns it", checkOnlyApprovalsOwnDecisionCarriesForward},
+	{"PA21", "a decision whose content names the member but whose recording event is a delegate's is another writer's, so approval refuses it", checkApprovalRefusesADelegateRecordedMemberDecision},
 }
 
 const approvalPlan = "retry"
@@ -1146,6 +1147,43 @@ func checkApprovalRefusesAPlantedSameDecision(r *Rig) error {
 	}
 	if order, err := r.orderOfContract(s, "budget"); err != nil || order.State != workorders.ContractReview || order.ReviewedBy != "" {
 		return Violatedf("the work of the contract is %+v: %v", order, err)
+	}
+	return r.CheckProjection(s)
+}
+
+// checkApprovalRefusesADelegateRecordedMemberDecision holds plan approval's own decision to the actor of the
+// event that recorded it: a decision that names the member as its decider, word for word what approval would
+// record and citing the version, is another writer's when a delegate's event recorded it, because a delegate
+// acting for a member is not the member.
+func checkApprovalRefusesADelegateRecordedMemberDecision(r *Rig) error {
+	s := r.Store()
+	if _, err := r.intake(s, newApprovalSource().source); err != nil {
+		return err
+	}
+	plan, err := r.planID(s, "Retry budget")
+	if err != nil {
+		return err
+	}
+	delegate := authority.DelegateActor(theMember.ID, "dlg_1")
+	planted := approvedDraft(plan, 1, "d1", "Which provider first?", "Stripe", "It is the one with an account.", theMember)
+	if err := r.plantAs(s, planted, delegate); err != nil {
+		return err
+	}
+	pending, err := r.theOpenPlanApproval(s)
+	if err != nil {
+		return err
+	}
+	_, err = r.approve(s, pending, true, theMember)
+	if !errors.Is(err, questions.ErrDecisionClash) {
+		return Violatedf("approving over a decision that names the member but a delegate recorded: %v", err)
+	}
+	for _, named := range []string{planted.ID, `"d1"`, "dlg_1"} {
+		if !strings.Contains(err.Error(), named) {
+			return Violatedf("the refusal does not name %s: %v", named, err)
+		}
+	}
+	if still, err := r.theOpenPlanApproval(s); err != nil || still.ID != pending.ID {
+		return Violatedf("the refused approval left %+v: %v", still, err)
 	}
 	return r.CheckProjection(s)
 }
