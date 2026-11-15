@@ -32,6 +32,62 @@ func TestMergeLayers(t *testing.T) {
 	}
 }
 
+// agentGates is a layer that sets agent.gates, as the TOML decoder reads a list: a slice of any.
+func agentGates(gates ...any) map[string]any {
+	return map[string]any{"agent": map[string]any{"gates": gates}}
+}
+
+func TestMergeLayersJoinsGates(t *testing.T) {
+	tests := []struct {
+		name   string
+		layers []map[string]any
+		want   []any
+	}{
+		{name: "one layer", layers: []map[string]any{agentGates("a", "b")}, want: []any{"a", "b"}},
+		{name: "a later layer adds", layers: []map[string]any{agentGates("a"), agentGates("b")}, want: []any{"a", "b"}},
+		{name: "a later layer says none", layers: []map[string]any{agentGates("a"), agentGates()}, want: []any{"a"}},
+		{name: "a later layer replaces in vain", layers: []map[string]any{agentGates("a", "b"), agentGates("c")}, want: []any{"a", "b", "c"}},
+		{name: "an order the layers give", layers: []map[string]any{agentGates("b"), agentGates("a", "b")}, want: []any{"b", "a"}},
+		{name: "a name said twice in one layer", layers: []map[string]any{agentGates("a", "a")}, want: []any{"a"}},
+		{name: "three layers", layers: []map[string]any{agentGates("a"), {"name": "x"}, agentGates("b", "a"), agentGates("c")}, want: []any{"a", "b", "c"}},
+		{name: "an empty list is a list", layers: []map[string]any{agentGates()}, want: []any{}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := MergeLayers(tt.layers...)
+			if gates := got["agent"].(map[string]any)["gates"]; !reflect.DeepEqual(gates, tt.want) {
+				t.Errorf("gates %#v, want %#v", gates, tt.want)
+			}
+		})
+	}
+	// The union is its own list: a later merge never changes a layer, and a layer never changes the union.
+	first, second := agentGates("a"), agentGates("b")
+	got := MergeLayers(first, second)
+	got["agent"].(map[string]any)["gates"].([]any)[0] = "changed"
+	if first["agent"].(map[string]any)["gates"].([]any)[0] != "a" {
+		t.Error("changing the union changed a layer")
+	}
+}
+
+// A gate list a layer sets to something that is no list stays, so the settings refuse it, and no later layer
+// replaces it with a list that leaves out an earlier layer's gates.
+func TestMergeLayersKeepsAGateListThatIsNoList(t *testing.T) {
+	notAList := map[string]any{"agent": map[string]any{"gates": "Edit"}}
+	for name, layers := range map[string][]map[string]any{
+		"a string over a list":         {agentGates("a"), notAList},
+		"a list over a string":         {notAList, agentGates("a")},
+		"a table over a list":          {agentGates("a"), {"agent": map[string]any{"gates": map[string]any{"a": true}}}},
+		"a list, a string, and a list": {agentGates("a"), notAList, agentGates("b")},
+	} {
+		t.Run(name, func(t *testing.T) {
+			got := MergeLayers(layers...)
+			if _, isList := got["agent"].(map[string]any)["gates"].([]any); isList {
+				t.Errorf("the gates are a list again: %#v", got)
+			}
+		})
+	}
+}
+
 func TestProfileDigest(t *testing.T) {
 	profile := Profile{Name: "default", Hooks: map[string][]string{"b": {"2"}, "a": {"1"}}}
 	same := Profile{Name: "default", Hooks: map[string][]string{"a": {"1"}, "b": {"2"}}}

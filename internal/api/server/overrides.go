@@ -13,7 +13,8 @@ import (
 // keeps it. Any caller can send one, an outside delegate's included, so the caller reads the reason here
 // rather than as a failed start on the worker. The worker's profile holds the layer to the user's and the
 // repository's layers, and is the line that counts: it also refuses a layer that raises a cap of the
-// breaker, which only the worker's own layers can measure it against.
+// breaker, which only the worker's own layers can measure it against. It has no gate to check, because the
+// gates of every layer join, so a layer can only add one.
 func checkOverrides(overrides string) error {
 	if overrides == "" {
 		return nil

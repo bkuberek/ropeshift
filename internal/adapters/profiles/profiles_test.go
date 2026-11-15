@@ -307,14 +307,15 @@ func TestALanesOwnLayerRunsNothingAndRaisesNoCap(t *testing.T) {
 	}
 }
 
-// TestNoLayerPastTheUsersDropsAGate holds every gate the layers below set. A layer that sets agent.gates
-// replaces their list, so a repository's layer that leaves out a gate of the user's, or a lane's own layer
-// that leaves out a gate of either, is refused, and the refusal names the gate. A layer that keeps every
-// gate below may add more.
-func TestNoLayerPastTheUsersDropsAGate(t *testing.T) {
+// TestEveryLayersGatesJoinTheLayersBelow holds agent.gates to a union. A layer that sets the list adds to
+// the gates of the layers below it and never replaces them, so a repository's layer that gates one more
+// action need not restate the user's gates, and no layer can leave a gate out. The list keeps the order of
+// the layers and names each gate once.
+func TestEveryLayersGatesJoinTheLayersBelow(t *testing.T) {
 	const (
 		push = "Bash(git push *)"
 		edit = "Edit"
+		read = "Read"
 	)
 	gates := func(rules ...string) string {
 		quoted := make([]string, len(rules))
@@ -325,38 +326,58 @@ func TestNoLayerPastTheUsersDropsAGate(t *testing.T) {
 	}
 	tests := []struct {
 		name, user, repository, lane string
-		// dropped is the gate the refusal names, and empty passes with want.
-		dropped string
-		want    []string
+		want                         []string
 	}{
-		{name: "a lane clears the user's gates", user: gates(push), lane: gates(), dropped: push},
-		{name: "a lane clears them with a dotted key", user: gates(push), lane: "agent.gates = []\n", dropped: push},
-		{name: "a lane replaces the user's gates", user: gates(push, edit), lane: gates(edit), dropped: push},
-		{name: "a lane clears the repository's gates", repository: gates(edit), lane: gates(), dropped: edit},
-		{name: "a lane keeps the repository's gate and drops the user's", user: gates(push), repository: gates(push, edit), lane: gates(edit), dropped: push},
+		{name: "no layer sets a gate"},
+		{name: "a user sets the gates", user: gates(push), want: []string{push}},
+		{name: "a repository gates what the user left open", repository: gates(edit), want: []string{edit}},
+		{name: "a repository adds a gate without restating the user's", user: gates(push), repository: gates(edit), want: []string{push, edit}},
+		{name: "a repository restates the user's gate and adds one", user: gates(push), repository: gates(push, edit), want: []string{push, edit}},
+		{name: "a repository clears the user's gates", user: gates(push), repository: gates(), want: []string{push}},
+		{name: "a repository replaces the user's gates", user: gates(push, edit), repository: gates(edit), want: []string{push, edit}},
+		{name: "a lane clears the user's gates", user: gates(push), lane: gates(), want: []string{push}},
+		{name: "a lane clears them with a dotted key", user: gates(push), lane: "agent.gates = []\n", want: []string{push}},
+		{name: "a lane replaces the user's gates", user: gates(push, edit), lane: gates(edit), want: []string{push, edit}},
+		{name: "a lane clears the repository's gates", repository: gates(edit), lane: gates(), want: []string{edit}},
+		{name: "a lane keeps the repository's gate and leaves the user's out", user: gates(push), repository: gates(push, edit), lane: gates(edit), want: []string{push, edit}},
 		{name: "a lane adds a gate to the user's", user: gates(push), lane: gates(push, edit), want: []string{push, edit}},
 		{name: "a lane adds a gate where none was", lane: gates(push), want: []string{push}},
-		{name: "a lane restates the gates below", user: gates(push), repository: gates(push, edit), lane: gates(edit, push), want: []string{edit, push}},
-		{name: "a repository clears the user's gates", user: gates(push), repository: gates(), dropped: push},
-		{name: "a repository replaces the user's gates", user: gates(push, edit), repository: gates(edit), dropped: push},
-		{name: "a repository adds a gate to the user's", user: gates(push), repository: gates(push, edit), want: []string{push, edit}},
-		{name: "a repository gates what the user left open", repository: gates(edit), want: []string{edit}},
-		{name: "a user sets the gates", user: gates(push), want: []string{push}},
+		{name: "a lane restates the gates below in another order", user: gates(push), repository: gates(push, edit), lane: gates(edit, push), want: []string{push, edit}},
+		{name: "every layer adds one", user: gates(push), repository: gates(edit), lane: gates(read), want: []string{push, edit, read}},
+		{name: "a gate said twice is kept once", user: gates(push, push), repository: gates(edit, push, edit), want: []string{push, edit}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			profile, err := ResolveLayers(tt.user, tt.repository, tt.lane)
-			if tt.dropped == "" {
-				if err != nil {
-					t.Fatalf("refused: %v", err)
-				}
-				if !slices.Equal(profile.Agent.Gates, tt.want) {
-					t.Errorf("gates %q, want %q", profile.Agent.Gates, tt.want)
-				}
-				return
+			if err != nil {
+				t.Fatalf("refused: %v", err)
 			}
-			if !errors.Is(err, lanes.ErrBadProfile) || !strings.Contains(err.Error(), strconv.Quote(tt.dropped)) || !strings.Contains(err.Error(), "agent.gates") {
-				t.Errorf("error %v, want a refusal that names the gate %q of agent.gates", err, tt.dropped)
+			if !slices.Equal(profile.Agent.Gates, tt.want) {
+				t.Errorf("gates %q, want %q", profile.Agent.Gates, tt.want)
+			}
+		})
+	}
+}
+
+// TestAGateSetToSomethingElseIsRefused keeps the union from hiding a layer whose gates are no list: it
+// leaves the user's gates in place and fails the profile, whatever the layer after it says.
+func TestAGateSetToSomethingElseIsRefused(t *testing.T) {
+	const (
+		user  = "[agent]\ngates = [\"Bash(git push *)\"]\n"
+		fixed = "[agent]\ngates = [\"Edit\"]\n"
+	)
+	for name, layers := range map[string][3]string{
+		"a repository's string":              {user, "[agent]\ngates = \"Edit\"\n", ""},
+		"a lane's string":                    {user, "", "[agent]\ngates = \"Edit\"\n"},
+		"a repository's string then a list":  {user, "[agent]\ngates = \"Edit\"\n", fixed},
+		"a repository's number in the list":  {user, "[agent]\ngates = [1]\n", ""},
+		"a repository's table":               {user, "[agent.gates]\nEdit = true\n", ""},
+		"a repository's list then a string":  {user, fixed, "[agent]\ngates = \"Edit\"\n"},
+		"a user's string then a lane's list": {"[agent]\ngates = \"x\"\n", "", fixed},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if profile, err := ResolveLayers(layers[0], layers[1], layers[2]); !errors.Is(err, lanes.ErrBadProfile) {
+				t.Errorf("got gates %q and error %v", profile.Agent.Gates, err)
 			}
 		})
 	}

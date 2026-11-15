@@ -12,20 +12,23 @@ import (
 // five would run a command as this machine's user, hand the lane a variable of the worker's environment,
 // name a file for the worker to read, or put the worktree or its branch where the layers below did not, and
 // CheckLaneLayer refuses any change to them. CheckLaneLayer judges the rest against the layers below: a
-// lane's layer keeps every gate and raises neither bound. A route holds none of those layers, so it refuses
-// each of these keys whenever a lane's layer sets it.
+// lane's layer raises neither bound. A route holds none of those layers, so it refuses each of these keys
+// whenever a lane's layer sets it. The gates are not among them: the gates of every layer join, so a lane's
+// layer can only add one.
 func LaneLayerKeys() [][]string {
 	return [][]string{
 		{"hooks"}, {"agent", "credentials"}, {"agent", "instructions_file"}, {"worktree", "root"}, {"worktree", "branch_prefix"},
-		{"agent", "gates"}, {"review", "max_review_rounds"}, {"resources", "ports_per_lane"},
+		{"review", "max_review_rounds"}, {"resources", "ports_per_lane"},
 	}
 }
 
 // CheckLaneLayer holds a lane's own layer to the layers below it: below is the profile those layers give,
-// and profile is the same with the lane's layer over it. The lane's layer changes none of the first five of
-// LaneLayerKeys, it keeps every gate below, it raises neither the bound on review rounds nor the ports per
-// lane, and it can lower a cap of the breaker and never raise one, because only a member's reset lets a lane
-// past them (ADR-0014).
+// and profile is the same with the lane's layer over it. The lane's layer changes none of the first five
+// of LaneLayerKeys, it keeps every gate below, it raises neither the bound on review rounds nor the ports
+// per lane, and it can lower a cap of the breaker and never raise one, because only a member's reset lets a
+// lane past them (ADR-0014). It holds every gate because it holds two profiles, however they were built:
+// MergeLayers joins the layers' gates, so a profile resolved from layers always keeps them, and a lane's
+// layer can only add one.
 func CheckLaneLayer(below, profile Profile) error {
 	if !maps.EqualFunc(below.Hooks, profile.Hooks, slices.Equal[[]string]) {
 		return laneLayerRefusal("change [hooks]")
@@ -70,9 +73,9 @@ func CheckLaneLayer(below, profile Profile) error {
 	return nil
 }
 
-// DroppedGate finds the first gate of below that gates no longer holds. A layer that sets agent.gates
-// replaces the list of the layers below it, so a layer that leaves one out would let the action it gated
-// run without asking.
+// DroppedGate finds the first gate of below that gates no longer holds. A profile that leaves one out would
+// let the action it gated run without asking. MergeLayers makes each layer's gates join the layers below it,
+// so no resolved profile drops one, and this stays as the check of a profile built another way.
 func DroppedGate(below, gates []string) (string, bool) {
 	for _, gate := range below {
 		if !slices.Contains(gates, gate) {
