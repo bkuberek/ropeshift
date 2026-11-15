@@ -2,7 +2,16 @@
 
 This page takes one person from an empty machine to a first lane in solo mode, and says what to know before that lane runs. Solo mode runs on one machine, macOS or Linux on arm64 or amd64, with the Claude Code CLI as the agent runtime.
 
-For the short, ordered path, follow [Get started](getting-started.md), then [your first plan, end to end](first-plan.md). [Connect a GitHub repository](github.md) covers reviewing and merging through pull requests. This page holds the detail behind each of their steps.
+## Where to start
+
+This page is the reference behind the guides. If you are new to ropeshift, start with these, in order:
+
+1. [How ropeshift works](how-it-works.md): the parts, and where you come in.
+2. [Get started](getting-started.md): one small piece of work, from install to accepted.
+3. [Your first plan, end to end](first-plan.md): a planning session and its work.
+4. [Set up a project](set-up-a-project.md): a real project, with each choice explained, and what needs you at a terminal.
+
+Then, as your project needs them: [projects of several repositories](multiple-repositories.md), [adopt an existing project](adopt.md), [connect a GitHub repository](github.md), and [project structure](project-structure.md).
 
 ## Install ropeshift
 
