@@ -1,5 +1,5 @@
 #!/bin/sh
-# Tags a release by hand, for when GitHub Actions is unavailable (docs/releasing.md#releasing-by-hand).
+# Tags a release by hand, for when GitHub Actions is unavailable (docs/development/releasing.md#releasing-by-hand).
 # The release workflow does this itself: release-please tags the commit where the release pull request
 # merged into main and creates the release, and GoReleaser uploads the release's artifacts to it.
 #

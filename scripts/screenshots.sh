@@ -1,6 +1,6 @@
 #!/bin/sh
 # Captures every view of the web UI and `ropeshift top` on a sample project, for the README and the
-# website (docs/screenshots.md). make screenshots runs it.
+# website (docs/development/screenshots.md). make screenshots runs it.
 #
 #   screenshots.sh [-o DIR] [-r REF] [-k]
 #

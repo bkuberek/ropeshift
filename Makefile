@@ -145,7 +145,7 @@ real:
 	PATH="$(REAL_PATH)" ROPESHIFT_REAL_SESSIONS=1 $(GO) test -tags realsession -count=1 -timeout $(REAL_TIMEOUT) -v -run '^Test$(SUITE)$$' ./test/real/...
 
 # The release configuration, checked by GoReleaser when it is installed. A contributor without it
-# skips the check, because only a maintainer cuts releases (docs/releasing.md).
+# skips the check, because only a maintainer cuts releases (docs/development/releasing.md).
 release-check:
 	@if command -v goreleaser >/dev/null 2>&1; then \
 		goreleaser check; \
@@ -189,7 +189,7 @@ exit-container:
 	@$(MAKE) --no-print-directory canary
 
 # Every view of the web UI at desktop and phone width in both themes, and `ropeshift top`, on a sample
-# project in an isolated installation with the fake agent CLI (docs/screenshots.md). It never runs in
+# project in an isolated installation with the fake agent CLI (docs/development/screenshots.md). It never runs in
 # `make check`. SHOTS_OUT names the directory, by default .scratch/shots/<version>, SHOTS_REF a commit or tag
 # to build in place of this checkout, and SHOTS_KEEP=1 keeps the installation for debugging.
 SHOTS_OUT ?=

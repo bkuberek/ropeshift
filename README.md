@@ -135,10 +135,11 @@ A subscription worker starts at `attended`, where it claims work only inside a r
 - [Notifications](docs/notifications.md): what a notice says, and where it goes.
 - [Telemetry](docs/telemetry.md): what is recorded, where it stays, and when it leaves the machine.
 - [Product measures](docs/measures.md): the north star and how each measure is computed.
-- [Versioning](docs/versioning.md): how versions are chosen, and what `ropeshift version` reports.
-- [Releasing](docs/releasing.md): how a release is built, tested, and published, each install channel, and how branches relate to stability.
-- [Screenshots](docs/screenshots.md): how the images of the web UI and `ropeshift top` are captured on a sample project.
+- [Versioning](docs/versioning.md): what a version promises, and what `ropeshift version` reports.
+- [Releasing](docs/releasing.md): what a release holds, and each install channel.
 
 ## License and contributions
 
 Ropeshift is fair source under the [Functional Source License](https://fsl.software/), FSL-1.1-ALv2. See [LICENSE.md](LICENSE.md). Each version also becomes available under Apache-2.0 two years after its release. Outside code contributions are not open yet.
+
+The [developer documentation](docs/development/README.md) covers building, testing, and releasing ropeshift, and capturing its screenshots.

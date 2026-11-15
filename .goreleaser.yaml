@@ -1,7 +1,7 @@
 # yaml-language-server: $schema=https://goreleaser.com/static/schema.json
 #
 # GoReleaser builds a release from its tag on main, and a snapshot from any commit with `make snapshot`.
-# docs/releasing.md describes the whole process. The Homebrew formula is not built here: GoReleaser
+# docs/development/releasing.md describes the whole process. The Homebrew formula is not built here: GoReleaser
 # deprecated formulas in favor of casks, a cask cannot run under `brew services`, so
 # scripts/homebrew-formula.sh renders the project's own template from checksums.txt (ADR-0001).
 version: 2
@@ -97,7 +97,7 @@ snapshot:
   version_template: "0.0.1-snapshot-{{ .ShortCommit }}"
 
 # The release notes are release-please's: the version's section of CHANGELOG.md, which it puts on the
-# release it creates (docs/releasing.md). GoReleaser writes none of its own.
+# release it creates (docs/development/releasing.md). GoReleaser writes none of its own.
 changelog:
   disable: true
 
