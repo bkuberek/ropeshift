@@ -100,6 +100,10 @@ type Claim struct {
 	Lane string
 	// Overrides is that lane's own profile layer, as TOML.
 	Overrides string
+	// Delegated says a delegate sent Overrides, and under which delegate policy (FR-AUTH-16). Nil when a
+	// member, an orchestrator, or the system started the lane. A claim that brings a parked lane back keeps
+	// its first claim's.
+	Delegated *ledger.DelegatedLayer
 	// PackID names the context pack this claim pinned. A lane keeps it across generations and
 	// across the claims that bring it back.
 	PackID string

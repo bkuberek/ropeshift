@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 
+	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/control"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/parking"
@@ -34,6 +35,86 @@ var ResumeChecks = []Check{
 	{"R13", "a worker with the wrong claim cannot resume", checkResumeOthers},
 	{"R14", "a member's word reaches a lane through its work order, and only a member's", checkResumeWork},
 	{"R15", "a retried resume returns the generation it already started", checkContinueRepeats},
+	{"R16", "a claim keeps the delegate that sent the lane's own layer and the delegate policy it started under", checkClaimKeepsTheDelegatedLayer},
+}
+
+// checkClaimKeepsTheDelegatedLayer holds a lane a delegate started to the delegate policy in force when it
+// started (FR-AUTH-16): the claim records the delegate, the version, and that the version restricts a raise,
+// and the claim that brings the lane back keeps that record, even after a member publishes a version that
+// allows the raise.
+func checkClaimKeepsTheDelegatedLayer(r *Rig) error {
+	s := r.Store()
+	ops := r.NewOps(s)
+	approvals := control.NewApprovals(s)
+	publish := func(version int64, raise bool) error {
+		body := fmt.Sprintf("[delegate_policy]\nversion = %d\nexempt = []\nraise_model_and_effort = %t\n", version, raise)
+		policy := authority.DelegatePolicy{Version: version, Exempt: []string{}, RaiseModelAndEffort: &raise}
+		_, err := approvals.PublishDelegatePolicy(r.Ctx, r.Scope, authority.DelegatePolicyDraft{Body: body, Policy: policy}, theMember)
+		return err
+	}
+	if err := publish(2, false); err != nil {
+		return err
+	}
+	id, err := r.Ready(s)
+	if err != nil {
+		return err
+	}
+	grant, err := ops.Claim(r.Ctx, r.Scope, r.Request(id, "a"), r.worker("a"))
+	if err != nil {
+		return err
+	}
+	lane, delegate := r.ID("lane"), authority.DelegateActor(theMember.ID, authority.DelegateIDPrefix+"layer")
+	const overrides = "[agent]\neffort = \"max\"\n"
+	if _, err := control.NewLeases(s).DispatchWith(r.Ctx, r.Scope, id, lane, overrides, delegate); err != nil {
+		return err
+	}
+	want := ledger.DelegatedLayer{Delegate: delegate.ID, PolicyVersion: 2, Restricted: true}
+	claimOf := func(claimID string) (workorders.Claim, error) {
+		var claim workorders.Claim
+		err := s.Read(r.Ctx, r.Scope, func(tx ports.ReadTx) error {
+			var err error
+			claim, err = tx.Claims().Find(claimID)
+			return err
+		})
+		return claim, err
+	}
+	first, err := claimOf(grant.ClaimID)
+	if err != nil {
+		return err
+	}
+	if first.Delegated == nil || *first.Delegated != want {
+		return Violatedf("a delegate's lane start records %+v, want %+v", first.Delegated, want)
+	}
+	generation, err := ops.StartLane(r.Ctx, r.Scope, grant.Lease, lane, r.Actor)
+	if err != nil {
+		return err
+	}
+	holder := workorders.Holder{Lease: grant.Lease, Lane: lane, Generation: generation}
+	wake := r.ID("wake")
+	if err := ops.BeginParking(r.Ctx, r.Scope, holder, parking.Draft{ID: wake, Expr: `{"human_resume":true}`}, r.worker("a")); err != nil {
+		return err
+	}
+	if _, err := ops.CommitParked(r.Ctx, r.Scope, holder, PushedCommit(wake), r.worker("a")); err != nil {
+		return err
+	}
+	if err := publish(3, true); err != nil {
+		return err
+	}
+	if _, err := ops.ResumeLane(r.Ctx, r.Scope, lane, r.Actor); err != nil {
+		return err
+	}
+	again, err := ops.Claim(r.Ctx, r.Scope, r.Request(id, "a"), r.worker("a"))
+	if err != nil {
+		return err
+	}
+	resumed, err := claimOf(again.ClaimID)
+	if err != nil {
+		return err
+	}
+	if resumed.Lane != lane || resumed.Overrides != overrides || resumed.Delegated == nil || *resumed.Delegated != want {
+		return Violatedf("the claim that brings the lane back records %+v, want %+v", resumed.Delegated, want)
+	}
+	return nil
 }
 
 // checkResumeWork parks two lanes, because a word that named no work order would still find the

@@ -461,8 +461,9 @@ type ClaimWriter interface {
 	Record(workorders.Claim) error
 	// End closes an open claim.
 	End(id, reason string) error
-	// Dispatch names the lane a claim should run, and that lane's own profile layer.
-	Dispatch(id, lane, overrides string) error
+	// Dispatch names the lane a claim should run, that lane's own profile layer, and the delegate that sent
+	// the layer under the delegate policy in force, which is nil when no delegate did.
+	Dispatch(id, lane, overrides string, delegated *ledger.DelegatedLayer) error
 }
 
 // LaneReader reads lanes.

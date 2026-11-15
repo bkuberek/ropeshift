@@ -141,7 +141,7 @@ func continuesLane(tx ports.WriteTx, order workorders.WorkOrder, claim *workorde
 	if errors.Is(err, ports.ErrNotFound) {
 		return nil
 	}
-	claim.Overrides, claim.PackID = last.Overrides, last.PackID
+	claim.Overrides, claim.Delegated, claim.PackID = last.Overrides, last.Delegated, last.PackID
 	claim.BaseRef, claim.BaseCommit = last.BaseRef, last.BaseCommit
 	claim.ContinuesRef, claim.ContinuesCommit = last.ContinuesRef, last.ContinuesCommit
 	claim.Reads = last.Reads
@@ -733,7 +733,11 @@ func (l *Leases) DispatchWith(ctx context.Context, scope ledger.WorkspaceID, wor
 		if _, err := tx.Leases().Guard(workOrder, current.Fence); err != nil {
 			return err
 		}
-		if err := tx.Claims().Dispatch(current.ClaimID, lane, overrides); err != nil {
+		delegated, err := delegatedLayer(tx.Policies(), overrides, actor)
+		if err != nil {
+			return err
+		}
+		if err := tx.Claims().Dispatch(current.ClaimID, lane, overrides, delegated); err != nil {
 			return err
 		}
 		crashpoint.Hit("lane.dispatch", "recorded")
@@ -750,6 +754,21 @@ func (l *Leases) DispatchWith(ctx context.Context, scope ledger.WorkspaceID, wor
 		return workorders.Lease{}, err
 	}
 	return lease, nil
+}
+
+// delegatedLayer records that a delegate sent a lane's own profile layer, under the delegate policy in force
+// in the transaction that dispatches the lane, so the worker that reads the layer holds a raise of the model
+// or the effort to that version (FR-AUTH-16). A start with no layer records none, and so does a member's, an
+// orchestrator's, or the system's, which no delegate policy restricts.
+func delegatedLayer(policies ports.PolicyReader, overrides string, actor ledger.Actor) (*ledger.DelegatedLayer, error) {
+	if _, _, delegate := authority.ActingFor(actor); !delegate || overrides == "" {
+		return nil, nil
+	}
+	version, policy, err := delegatePolicyOf(policies)
+	if err != nil {
+		return nil, err
+	}
+	return &ledger.DelegatedLayer{Delegate: actor.ID, PolicyVersion: version.Version, Restricted: !policy.RaisesModelAndEffort()}, nil
 }
 
 // EndLane records a lane's outcome under its fence and generation.

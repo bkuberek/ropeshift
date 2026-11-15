@@ -181,6 +181,17 @@ type DesiredProject struct {
 	FleetMode FleetMode `json:"fleet_mode"`
 }
 
+// DelegatedLayer says a delegate sent a lane's own profile layer (FR-AUTH-16): the delegate, named as its
+// actor is, `<member>/<credential>`, the version of the delegate policy in force when it did, and whether that
+// version keeps the layer from raising the lane's model or effort above what the layers below give. The worker,
+// which holds those layers, refuses such a raise. A lane a member, an orchestrator, or the system started has
+// none.
+type DelegatedLayer struct {
+	Delegate      string `json:"delegate"`
+	PolicyVersion int64  `json:"policy_version"`
+	Restricted    bool   `json:"restricted,omitempty"`
+}
+
 // DesiredLease is one lease this worker should act on.
 type DesiredLease struct {
 	// Project is the project the work order belongs to. Empty names the plane's only project.
@@ -240,6 +251,9 @@ type DesiredLease struct {
 	Respawns int64 `json:"respawns,omitempty"`
 	// Overrides is this lane's own profile layer, as TOML.
 	Overrides string `json:"overrides,omitempty"`
+	// Delegated says a delegate sent Overrides, and under which delegate policy. Nil when a member, an
+	// orchestrator, or the system started the lane.
+	Delegated *DelegatedLayer `json:"delegated,omitempty"`
 	// Resume says this claim brings a parked lane back, and what from.
 	Resume *DesiredResume `json:"resume,omitempty"`
 	// Messages are what no worker has acknowledged for this lane. The control plane offers them
