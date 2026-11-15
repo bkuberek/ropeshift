@@ -1,5 +1,5 @@
 import { splitProject } from "../app/route";
-import type { ApprovalRecord, CandidateList, DocumentRef, DocumentRow, DocumentVersions, EffectOutcome, NeedsYou, Overturned, OverturnDecision, PlanOutline, PlanView, ProjectList, Question, RecordDecision, RecordedDecision, RecordedRead, RecordQuestion, Search, WorkAction } from "./types";
+import type { ApprovalDecided, ApprovalRecord, CandidateList, DocumentRef, DocumentRow, DocumentVersions, EffectOutcome, NeedsYou, Overturned, OverturnDecision, PlanOutline, PlanView, ProjectList, Question, RecordDecision, RecordedDecision, RecordedRead, RecordQuestion, Search, WorkAction } from "./types";
 
 function documentQuery({ path, instance, version }: DocumentRef): URLSearchParams {
   const query = new URLSearchParams({ path });
@@ -264,8 +264,8 @@ export function searchCandidates(text: string, limit = 8): Promise<CandidateList
   return call("GET", paths.candidates(text, limit));
 }
 
-export function decideApproval(id: string, digest: string, allow: boolean, reason: string, place?: Place): Promise<unknown> {
-  return call("POST", paths.decideApproval(id), { digest, allow, reason, ...(place ? { place } : {}) });
+export function decideApproval(id: string, digest: string, allow: boolean, reason: string, place?: Place): Promise<ApprovalDecided> {
+  return call<ApprovalDecided>("POST", paths.decideApproval(id), { digest, allow, reason, ...(place ? { place } : {}) });
 }
 
 export function decideEffect(id: string, outcome: EffectOutcome, reason: string): Promise<unknown> {

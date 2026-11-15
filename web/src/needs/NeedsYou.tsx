@@ -1,6 +1,6 @@
 import { useContext, useEffect, useId, useRef, useState } from "react";
 
-import type { NeedItem, NeedsYou as View } from "../api/types";
+import type { ManifestRegistration, NeedItem, NeedsYou as View } from "../api/types";
 import { addressOf, CurrentProject, go, ItemProject, Link, useArrivalFocus, useRoute } from "../app/route";
 import { useTalk } from "../talk/state";
 import { useClock, ViewTime } from "../parts/parts";
@@ -15,7 +15,7 @@ import { EffectCard } from "./EffectCard";
 import type { Frame } from "./frame";
 import type { NeedFilter } from "./kinds";
 import { contextOf, filterOf, filters, headingOf, keyOf, kindOf, preparerOf } from "./kinds";
-import { PlanApprovalCard } from "./PlanApprovalCard";
+import { PlanApprovalCard, RegisteredRepositories } from "./PlanApprovalCard";
 import { QuestionBatch } from "./QuestionBatch";
 import { waitLabel, waitWords } from "./wait";
 import { WorkCard } from "./WorkCard";
@@ -37,7 +37,9 @@ function useAssistantCard(item: NeedItem | undefined) {
   };
 }
 
-function Card({ item, after, frame }: { item: NeedItem; after: () => Promise<void>; frame: Frame }) {
+type Registered = { registration?: ManifestRegistration; onRegistered: (registration: ManifestRegistration) => void };
+
+function Card({ item, after, frame, registered }: { item: NeedItem; after: () => Promise<void>; frame: Frame; registered: Registered }) {
   const assistant = useAssistantCard(item);
   switch (item.kind) {
     case "questions":
@@ -49,7 +51,7 @@ function Card({ item, after, frame }: { item: NeedItem; after: () => Promise<voi
     case "work":
       return <WorkCard id={item.id} work={item.work} after={after} frame={frame} />;
     case "plan_approval":
-      return <PlanApprovalCard id={item.id} need={item.plan_approval} after={after} frame={frame} />;
+      return <PlanApprovalCard id={item.id} need={item.plan_approval} after={after} frame={frame} registered={registered.registration} onRegistered={registered.onRegistered} />;
     case "contract_review":
       return <ContractReviewCard review={item.contract_review} after={after} frame={frame} />;
     case "confirm":
@@ -98,6 +100,10 @@ export function NeedsYou({ view, readAt, after, active = true }: Props) {
   const project = params.get("project") ?? "";
   const tab = params.get("tab") === "decided" ? "decided" : "open";
   const chosenKey = params.get("item") ?? "";
+
+  // registered holds what approving a plan registered of its manifest's repositories, by item, so a member reads
+  // it after the plan stops waiting and its card goes.
+  const [registered, setRegistered] = useState<Record<string, ManifestRegistration>>({});
 
   // gone holds the selected item after the server stopped listing it, at the place it stood.
   const [gone, setGone] = useState<{ item: NeedItem; at: number } | null>(null);
@@ -316,6 +322,7 @@ export function NeedsYou({ view, readAt, after, active = true }: Props) {
                   <Icon name="check" />
                   {headingOf(selected)} no longer waits: it was decided or resolved in another place. Press J for the next item.
                 </p>
+                {selected.kind === "plan_approval" && registered[keyOf(selected)] ? <RegisteredRepositories registration={registered[keyOf(selected)] as ManifestRegistration} /> : null}
               </div>
             </div>
           ) : null}
@@ -326,7 +333,12 @@ export function NeedsYou({ view, readAt, after, active = true }: Props) {
           {view.items.map((item) => (
             <div key={keyOf(item)} hidden={tab !== "open" || !selected || keyOf(selected) !== keyOf(item)}>
               <ItemProject.Provider value={item.project?.name ?? ""}>
-                <Card item={item} after={after} frame={frameOf(item)} />
+                <Card
+                  item={item}
+                  after={after}
+                  frame={frameOf(item)}
+                  registered={{ registration: registered[keyOf(item)], onRegistered: (registration) => setRegistered((was) => ({ ...was, [keyOf(item)]: registration })) }}
+                />
               </ItemProject.Provider>
             </div>
           ))}

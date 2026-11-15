@@ -803,6 +803,11 @@ export type RepositoryOutcome = {
   reason?: string;
 };
 
+// ApprovalDecided is a decided request, with what approving a plan registered of the repositories its manifest
+// lists: an outcome for each, and why registration could not run at all, when it could not. The approval stands
+// either way.
+export type ApprovalDecided = Approval & { repositories?: RepositoryOutcome[]; repositories_problem?: string };
+
 // ManifestRegistration is what approving a plan version registers of the repositories its manifest lists:
 // before a member decides, a preview read from the worker's clones that records nothing; after, what the
 // approval registered.

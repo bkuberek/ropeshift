@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 
 import { readRecorded, readView } from "../api/client";
-import type { Adoption, ContractHistory, Difference, DraftDecision, ManifestRegistration, Plans, PlanEntry, WorkOrder } from "../api/types";
+import type { Adoption, ApprovalDecided, ContractHistory, Difference, DraftDecision, ManifestRegistration, Plans, PlanEntry, WorkOrder } from "../api/types";
 import type { Live } from "../api/useView";
 import { useView } from "../api/useView";
 import { addressOf, Link } from "../app/route";
@@ -342,6 +342,15 @@ const registrationStates: Record<string, StateLook> = {
   refused: { label: "Refused", tone: "danger", glyph: "cross" },
   not_attempted: { label: "Not attempted", tone: "neutral", glyph: "dot" },
 };
+
+// registrationOf is what an approval's answer says of the repositories its manifest listed, or nothing when it
+// lists none.
+export function registrationOf(decided: ApprovalDecided | undefined): ManifestRegistration | undefined {
+  if (!decided || (!decided.repositories?.length && !decided.repositories_problem)) {
+    return undefined;
+  }
+  return { repositories: decided.repositories ?? [], problem: decided.repositories_problem };
+}
 
 // registrationTitle says what a registration is: what approving would register, or what an approval did.
 export function registrationTitle(registration: ManifestRegistration): string {

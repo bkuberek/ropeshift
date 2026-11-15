@@ -1031,6 +1031,81 @@ describe("a plan approval", () => {
     expect(sent).toHaveLength(0);
   });
 
+  it.each([
+    [1, "1 repository manifest"],
+    [2, "2 repository manifests"],
+  ])("names %d repository manifest(s) as manifests, not as repositories", async (count, words) => {
+    const { view, need } = withManifest(undefined);
+    need.plan_approval.counts = { ...need.plan_approval.counts, repositories: count };
+    serveApi(() => ({ status: 200 }));
+    show(view, undefined, "plan_approval");
+    const holds = within(await card()).getByRole("list", { name: "What it holds" });
+    expect(holds.textContent).toContain(words);
+    expect(holds.textContent).not.toMatch(/\d repositories/);
+  });
+
+  // approvedWith is what the decide route answers for a plan whose manifest lists two repositories, one registered and one refused.
+  const approvedWith = (more: Record<string, unknown> = {}) => ({
+    id: "generated-13",
+    state: "approved",
+    repositories: [
+      { name: "billing", manifest_path: "../billing", path: "/work/billing", remote: "git@example.invalid:acme/billing.git", outcome: "registered" },
+      { name: "ghost", manifest_path: "../ghost", path: "/work/ghost", outcome: "refused", reason: "ghost is not registered: no git clone is at /work/ghost" },
+    ],
+    ...more,
+  });
+
+  it("shows what approving registered of each manifest entry, once the item no longer waits", async () => {
+    const { view, need, planId, plan } = withManifest(preview);
+    const sent = serveApi((call) => {
+      if (call.method === "GET" && call.path.startsWith(`/v1/plans/${planId}`)) {
+        return { status: 200, body: plan };
+      }
+      return { status: 200, body: approvedWith() };
+    });
+    let rerender: ReturnType<typeof show>["rerender"] = () => {};
+    // The page reads Needs you again after a decision, and the plan is no longer there.
+    const after = async () =>
+      rerender(
+        <CurrentProject.Provider value={testProject}>
+          <NeedsYou view={{ ...view, items: view.items.filter((item) => item.id !== need.id) }} readAt={Date.now()} after={async () => {}} />
+        </CurrentProject.Provider>,
+      );
+    ({ rerender } = show(view, after, "plan_approval"));
+    await waitFor(async () => expect((await approveButton()).disabled).toBe(false));
+    await userEvent.click(await approveButton());
+    await waitFor(() => expect(sent.some((call) => call.method === "POST" && call.path === `/v1/approvals/${need.id}/decide`)).toBe(true));
+    const panel = await screen.findByRole("region", { name: "Repositories this approval registered" });
+    expect(within(panel).getByRole("listitem", { name: "billing" }).textContent).toContain("Registered");
+    expect(within(panel).getByRole("listitem", { name: "billing" }).textContent).toContain("/work/billing");
+    const ghost = within(panel).getByRole("listitem", { name: "ghost" });
+    expect(ghost.textContent).toContain("Refused");
+    expect(ghost.textContent).toContain("no git clone is at /work/ghost");
+    expect(screen.getByText(/no longer waits/)).toBeTruthy();
+    expect(within(panel).queryByText(/Reading it registers nothing/)).toBeNull();
+  });
+
+  it("says why registration could not run, when the approval stands without it", async () => {
+    const { view, need, planId, plan } = withManifest(preview);
+    serveApi((call) => (call.method === "GET" && call.path.startsWith(`/v1/plans/${planId}`) ? { status: 200, body: plan } : { status: 200, body: approvedWith({ repositories: [], repositories_problem: "no worker on this machine keeps the planning repository" }) }));
+    show(view, undefined, "plan_approval");
+    await waitFor(async () => expect((await approveButton()).disabled).toBe(false));
+    await userEvent.click(await approveButton());
+    const panel = await screen.findByRole("region", { name: "Repositories this approval registered" });
+    expect(within(panel).getByRole("alert").textContent).toContain("no worker on this machine keeps the planning repository");
+    expect(need.id).toBeTruthy();
+  });
+
+  it("shows no registration when a plan is denied", async () => {
+    const { view } = planView();
+    const sent = serveApi(() => ({ status: 200, body: { id: "generated-13", state: "denied" } }));
+    show(view, undefined, "plan_approval");
+    await userEvent.click(within(await card()).getByRole("button", { name: "Deny" }));
+    await waitFor(() => expect(sent).toHaveLength(1));
+    await waitFor(() => expect((within(screen.getAllByRole("article")[0] as HTMLElement).getByRole("button", { name: "Deny" }) as HTMLButtonElement).disabled).toBe(false));
+    expect(screen.queryByRole("region", { name: "Repositories this approval registered" })).toBeNull();
+  });
+
   it("groups an adopted plan, with each claim's evidence and every file its branch changed", async () => {
     const { view, item: need } = planView();
     need.plan_approval.adoption = {
