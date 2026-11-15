@@ -9,6 +9,7 @@ package install
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -131,6 +132,12 @@ func (c container) run(t *testing.T, script string, allowFailure bool) (string, 
 	args = append(args, "--entrypoint", "/bin/sh", c.image, "-c", script)
 	created, err := exec.Command("docker", args...).Output()
 	if err != nil {
+		// Output keeps what the command wrote to stderr on its error, which is where docker names a
+		// failed pull.
+		var exited *exec.ExitError
+		if errors.As(err, &exited) {
+			t.Fatalf("docker create %s: %v: %s", c.image, err, strings.TrimSpace(string(exited.Stderr)))
+		}
 		t.Fatalf("docker create %s: %v", c.image, err)
 	}
 	id := strings.TrimSpace(string(created))
