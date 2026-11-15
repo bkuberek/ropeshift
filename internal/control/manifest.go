@@ -22,7 +22,8 @@ import (
 // planning repository's clone reads each path beside it; a repository with no clone at its path is not
 // registered, says why, and a later approval or a member's registration by hand registers it. A repository
 // the project holds is named as held, and nothing changes its settings. A repository a member removed stays
-// removed, said with why, because only a member's own registration brings one back. Registration is a
+// removed, said with why, by its name, by the remote the entry names, and by the remote its clone has, because
+// only a member's own registration brings one back. Registration is a
 // member's act, so only the member who approves a plan runs this, never a tick or a delegate. Until the
 // version is approved it registers nothing, and a dry run, which a member reads before approving, says what
 // approving would register. Approving records the outcome on the approval, which RegistrationOf reads.
@@ -181,10 +182,13 @@ func manifestAt(planned ports.PlanningReader, entry planning.Entry) (planning.Re
 // path beside the planning repository's clone, under the manifest's name for it. Each is one transaction and
 // one audited event with the settings a person who chose nothing gets, as registering a clone by hand.
 func (r *Repositories) registerEntries(ctx context.Context, scope ledger.WorkspaceID, entries []planning.ManifestRepository, kept ports.Checkouts, run manifestRun, actor ledger.Actor) ([]Added, error) {
-	held, removed := map[string]ledger.Repository{}, map[string]ledger.Repository{}
+	held, removed, removedRemotes := map[string]ledger.Repository{}, map[string]ledger.Repository{}, map[string]ledger.Repository{}
 	err := r.store.Read(ctx, scope, func(tx ports.ReadTx) error {
 		all, err := tx.Repositories().Repositories()
 		for _, record := range all {
+			if record.Removed() && record.Remote != "" {
+				removedRemotes[ledger.RepositoryIdentity(record.Remote, record.ID)] = record
+			}
 			switch {
 			case record.Name == "":
 			case record.Removed():
@@ -218,7 +222,7 @@ func (r *Repositories) registerEntries(ctx context.Context, scope ledger.Workspa
 		naming = dir.planner.ID
 	}
 	for _, entry := range entries {
-		added, err := r.registerEntry(ctx, scope, entry, kept, entryRun{manifestRun: run, dir: dir, why: why, held: held, removed: removed, checkouts: checkouts, claimed: claimed, planning: naming}, actor)
+		added, err := r.registerEntry(ctx, scope, entry, kept, entryRun{manifestRun: run, dir: dir, why: why, held: held, removed: removed, removedRemotes: removedRemotes, checkouts: checkouts, claimed: claimed, planning: naming}, actor)
 		// Each outcome names what the manifest wrote for it, so a member reads what they consent to.
 		added.Name, added.Manifest, added.Remote = entry.Name, entry.Path, entry.Remote
 		out = append(out, added)
@@ -233,16 +237,30 @@ func (r *Repositories) registerEntries(ctx context.Context, scope ledger.Workspa
 }
 
 // entryRun is what registering one entry of a manifest reads: the run, where the planning repository's clone
-// is or why there is none, the records the project holds and removed by name, this worker's checkouts, the
-// names the run has taken, and the repository to name the planning repository, if any.
+// is or why there is none, the records the project holds and removed by name, the removed ones again by the
+// identity of their remote, this worker's checkouts, the names the run has taken, and the repository to name
+// the planning repository, if any.
 type entryRun struct {
 	manifestRun
-	dir           planningDirectory
-	why           string
-	held, removed map[string]ledger.Repository
-	checkouts     map[string]string
-	claimed       map[string]bool
-	planning      string
+	dir            planningDirectory
+	why            string
+	held, removed  map[string]ledger.Repository
+	removedRemotes map[string]ledger.Repository
+	checkouts      map[string]string
+	claimed        map[string]bool
+	planning       string
+}
+
+// removedAt finds the repository the project removed whose remote is the one given. A remote names the
+// repository whatever the clone's history or the name a manifest gives it, so a clone of it with a history of
+// its own, or listed under another name, is that repository, which only a member's registration by hand
+// brings back. A remote that is empty names none.
+func (run entryRun) removedAt(remote string) (ledger.Repository, bool) {
+	if remote == "" {
+		return ledger.Repository{}, false
+	}
+	record, ok := run.removedRemotes[ledger.RepositoryIdentity(remote, "")]
+	return record, ok
 }
 
 // registerEntry registers one repository a manifest lists, or says why not. An error is one the store or
@@ -267,6 +285,9 @@ func (r *Repositories) registerEntry(ctx context.Context, scope ledger.Workspace
 	if record, ok := run.removed[entry.Name]; ok && !run.restore {
 		return refused(at, staysRemoved(record)), nil
 	}
+	if record, ok := run.removedAt(entry.Remote); ok && !run.restore {
+		return refused(at, staysRemoved(record)), nil
+	}
 	if dir.root == "" {
 		return refused(at, run.why), nil
 	}
@@ -277,6 +298,9 @@ func (r *Repositories) registerEntry(ctx context.Context, scope ledger.Workspace
 	clone, reason := cloneAt(ctx, kept, entry, real)
 	if reason != "" {
 		return refused(real, reason), nil
+	}
+	if record, ok := run.removedAt(clone.Remote); ok && !run.restore {
+		return refused(real, staysRemoved(record)), nil
 	}
 	added, err := r.register(ctx, scope, clone, registration{claimed: run.claimed, dryRun: run.dryRun, restore: run.restore, planning: run.planning, cause: run.cause}, actor)
 	if err != nil {

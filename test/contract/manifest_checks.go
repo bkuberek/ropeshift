@@ -25,9 +25,10 @@ var ManifestChecks = []Check{
 	{"RM4", "approving a plan registers, as its approver, each repository its manifest adds from the clone at its path beside the planning repository, with the safe settings; one with no clone is not registered and a later approval registers it", checkApprovalRegistersTheManifest},
 	{"RM5", "a member registers what a manifest lists by hand, by its names, and a clone whose remote is not the manifest's is not registered", checkManifestRegisteredByHand},
 	{"RM7", "the first registration from a manifest in a project of one repository names that repository the planning repository, in its transaction, so a later registration still reads paths beside its clone", checkManifestRegistrationNamesThePlanningRepository},
-	{"RM8", "approving a plan registers only what its own version's manifest lists, and never brings back a repository a member removed, which only a member's registration by hand does", checkApprovalLeavesRemovedRepositoriesOut},
+	{"RM8", "approving a plan registers only what its own version's manifest lists, and never brings back a repository a member removed, under its name or its remote, which only a member's registration by hand does", checkApprovalLeavesRemovedRepositoriesOut},
 	{"RM9", "a manifest name the project holds for another repository, by remote or by the clone at its path, is a name collision and registers nothing; the same repository under its name reads as registered", checkManifestNameCollision},
 	{"RM10", "approving a plan records on the approval what it registered, an outcome for each repository its version's manifest lists with its path, where that led, and its remote, also when one fails and the others register; a dry run records nothing", checkApprovalRecordsWhatItRegistered},
+	{"RM11", "a manifest name a member removed stays removed whatever clone, history, or remote the entry names, and a plan approval says so", checkRemovedNameStaysRemoved},
 	{"RM6", "a manifest registers only a clone inside the directory that holds the planning repository's clone, symbolic links followed: a path or a link that leads out of it, the planning clone itself, and the installation's own directories register nothing, each refused naming where it leads", checkManifestPathsStayBesideThePlanningClone},
 }
 
@@ -571,22 +572,32 @@ func otherPlan(files *fake.WorkSource, names ...string) {
 	files.Write("other-repositories.md", []byte(text+"+++\n\nWhat the other plan uses.\n"))
 }
 
-func checkApprovalLeavesRemovedRepositoriesOut(r *Rig) error {
+// removedBilling is a project whose platform plan's manifest lists billing, which an approval registered
+// and a member then removed, with the worker's machine and the approval of a plan by its title.
+type removedBilling struct {
+	s            ports.Store
+	files        *fake.WorkSource
+	kept         *fake.Checkouts
+	repositories *control.Repositories
+	approved     func(title string) ([]control.Added, error)
+}
+
+func (r *Rig) removedBilling() (removedBilling, error) {
 	s := r.Store()
 	files, err := r.manifestProject(s)
 	if err != nil {
-		return err
+		return removedBilling{}, err
 	}
 	if err := r.readsAsPlanning(s, files); err != nil {
-		return err
+		return removedBilling{}, err
 	}
 	files.Write("repositories.md", []byte(manifestText("", "api", "web", "billing")))
 	if _, err := r.intake(s, files); err != nil {
-		return err
+		return removedBilling{}, err
 	}
 	kept, err := r.planningMachine()
 	if err != nil {
-		return err
+		return removedBilling{}, err
 	}
 	kept.Place(cloneOf("billing", "billing"))
 	kept.Place(cloneOf("search", "search"))
@@ -602,13 +613,22 @@ func checkApprovalLeavesRemovedRepositoriesOut(r *Rig) error {
 		return repositories.RegisterApproved(r.Ctx, r.Scope, request.ID, kept, false, r.member())
 	}
 	if added, err := approved("The platform"); err != nil {
-		return err
+		return removedBilling{}, err
 	} else if billing, ok := outcomeNamed(added, "billing"); !ok || billing.Outcome != ledger.Registered {
-		return Violatedf("billing reads %+v", billing)
+		return removedBilling{}, Violatedf("billing reads %+v", billing)
 	}
 	if _, err := repositories.Remove(r.Ctx, r.Scope, "repo-billing", kept, r.member()); err != nil {
+		return removedBilling{}, err
+	}
+	return removedBilling{s: s, files: files, kept: kept, repositories: repositories, approved: approved}, nil
+}
+
+func checkApprovalLeavesRemovedRepositoriesOut(r *Rig) error {
+	project, err := r.removedBilling()
+	if err != nil {
 		return err
 	}
+	s, files, kept, repositories, approved := project.s, project.files, project.kept, project.repositories, project.approved
 	// Another plan's approval registers what its own manifest lists, and reads no other plan's.
 	otherPlan(files, "search")
 	if _, err := r.intake(s, files); err != nil {
@@ -639,6 +659,11 @@ func checkApprovalLeavesRemovedRepositoriesOut(r *Rig) error {
 	if record, err := r.theRepository(s, "repo-billing"); err != nil || !record.Removed() {
 		return Violatedf("approval brought billing back: %+v: %v", record, err)
 	}
+	// Nor does a clone of its remote with a history of its own, listed under another name, which would be the
+	// same repository again: not by the remote the entry names, nor by the remote the clone has.
+	if err := r.removedRemoteStaysRemoved(s, files, kept, approved); err != nil {
+		return err
+	}
 	// A member's registration by hand brings it back.
 	manifest := planning.RepositoriesFile{ID: "platform", Repositories: []planning.ManifestRepository{{Name: "billing", Path: "../billing"}}}
 	if added, err = repositories.RegisterManifest(r.Ctx, r.Scope, manifest, kept, false, r.member()); err != nil {
@@ -651,6 +676,83 @@ func checkApprovalLeavesRemovedRepositoriesOut(r *Rig) error {
 		return Violatedf("billing after a member registered it again: %+v: %v", record, err)
 	}
 	return r.CheckProjection(s)
+}
+
+// billingRemote is the remote the platform's billing repository has.
+const billingRemote = "git@github.com:acme/billing.git"
+
+// removedRemoteStaysRemoved lists, in a new version of the platform's manifest, three repositories that are
+// the removed billing under other names: one a clone with a history of its own whose remote is billing's and
+// that the entry names so, one the entry names by billing's remote when no clone is at its path, and one the
+// entry names with no remote whose clone has billing's. Approving that version registers none, and says each
+// is the removed repository.
+func (r *Rig) removedRemoteStaysRemoved(s ports.Store, files *fake.WorkSource, kept *fake.Checkouts, approved func(string) ([]control.Added, error)) error {
+	text := manifestText("", "api", "web", "billing", "search", "billing2", "billing3", "billing4")
+	text = strings.Replace(text, "acme/billing2.git", "acme/billing.git", 1)
+	text = strings.Replace(text, "acme/billing3.git", "acme/billing.git", 1)
+	text = strings.Replace(text, "remote = \"git@github.com:acme/billing4.git\"\n", "", 1)
+	files.Write("repositories.md", []byte(text))
+	if _, err := r.intake(s, files); err != nil {
+		return err
+	}
+	for _, name := range []string{"billing2", "billing4"} {
+		kept.Place(ports.Clone{Path: "/work/" + name, ID: "repo-" + name + "-fresh", Remote: billingRemote, DefaultBranch: "main", Directory: name})
+	}
+	added, err := approved("The platform")
+	if err != nil {
+		return err
+	}
+	for _, name := range []string{"billing2", "billing3", "billing4"} {
+		again, ok := outcomeNamed(added, name)
+		if !ok || again.Outcome != ledger.RegistrationRefused || !strings.Contains(again.Reason, "removed") {
+			return Violatedf("%s, which is the removed billing under another name, reads %+v", name, again)
+		}
+		if found, err := r.theRepository(s, "repo-"+name+"-fresh"); err == nil {
+			return Violatedf("%s registered %+v", name, found)
+		}
+	}
+	if record, err := r.theRepository(s, "repo-billing"); err != nil || !record.Removed() {
+		return Violatedf("approval brought billing back: %+v: %v", record, err)
+	}
+	return nil
+}
+
+func checkRemovedNameStaysRemoved(r *Rig) error {
+	project, err := r.removedBilling()
+	if err != nil {
+		return err
+	}
+	// The name alone: a clone at billing's path with a history of its own and another remote, which the entry
+	// names too, so nothing but the removed repository's name says it is that repository.
+	other := "git@github.com:acme/billing-next.git"
+	project.kept.Place(ports.Clone{Path: "/work/billing", ID: "repo-billing-fresh", Remote: other, DefaultBranch: "main", Directory: "billing"})
+	project.files.Write("repositories.md", []byte(strings.Replace(manifestText("", "api", "web", "billing"), billingRemote, other, 1)))
+	if _, err := r.intake(project.s, project.files); err != nil {
+		return err
+	}
+	added, err := project.approved("The platform")
+	if err != nil {
+		return err
+	}
+	billing, ok := outcomeNamed(added, "billing")
+	if !ok || billing.Outcome != ledger.RegistrationRefused || !strings.Contains(billing.Reason, "removed") {
+		return Violatedf("the removed billing's name, with a clone of another history and remote, reads %+v", billing)
+	}
+	if found, err := r.theRepository(project.s, "repo-billing-fresh"); err == nil {
+		return Violatedf("a clone of another history and remote registered under the removed name: %+v", found)
+	}
+	if record, err := r.theRepository(project.s, "repo-billing"); err != nil || !record.Removed() {
+		return Violatedf("approval brought billing back: %+v: %v", record, err)
+	}
+	// A member's registration by hand takes the clone, which is another repository, under the name.
+	manifest := planning.RepositoriesFile{ID: "platform", Repositories: []planning.ManifestRepository{{Name: "billing", Remote: other, Path: "../billing"}}}
+	if added, err = project.repositories.RegisterManifest(r.Ctx, r.Scope, manifest, project.kept, false, r.member()); err != nil {
+		return err
+	}
+	if by, ok := outcomeNamed(added, "billing"); !ok || by.Outcome != ledger.Registered || by.Repository.ID != "repo-billing-fresh" {
+		return Violatedf("registering the clone by hand reads %+v", by)
+	}
+	return r.CheckProjection(project.s)
 }
 
 func checkManifestNameCollision(r *Rig) error {
