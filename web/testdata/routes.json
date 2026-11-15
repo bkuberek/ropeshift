@@ -216,6 +216,11 @@
   },
   {
     "method": "POST",
+    "pattern": "/v1/projects/{project}/decisions/{id}/overturn",
+    "command": "decision overturn"
+  },
+  {
+    "method": "POST",
     "pattern": "/v1/projects/{project}/approvals/{id}/decide",
     "command": "approval approve"
   },

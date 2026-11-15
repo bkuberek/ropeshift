@@ -10,13 +10,10 @@ import { Refusal } from "../ui/display";
 import { Field, Select } from "../ui/forms";
 import { Dialog, useToast } from "../ui/overlays";
 import { CategoryChoices } from "./CategoryChoices";
-import { decisionProblems, decisionRequest, listOf, noDecision } from "./records";
+import { decisionProblems, decisionRequest, inForce, listOf, noDecision } from "./records";
 import type { DecisionDraft } from "./records";
 import { useCategories } from "./useCategories";
 import { useDialogParam } from "./useDialogParam";
-
-// inForce says a decision still stands, so a new one may replace it.
-const inForce = (decision: Decision) => decision.status === "decided" || decision.status === "assumed";
 
 const shortened = (text: string, most = 72) => (text.length > most ? `${text.slice(0, most - 1)}…` : text);
 

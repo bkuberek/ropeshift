@@ -589,6 +589,20 @@ a.list-row-title:hover {
   gap: var(--s-4);
 }
 
+/* The links a dialog ends in, such as the work an overturn sent to rework. Each is a target of 24px or more, so
+   two stacked ones meet WCAG 2.2's target size at any width. */
+.result-links {
+  display: flex;
+  flex-direction: column;
+  font-size: var(--fs-13);
+}
+
+.result-links a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+}
+
 .record {
   border-top: 1px solid var(--border);
 }

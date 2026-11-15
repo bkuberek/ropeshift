@@ -1,5 +1,5 @@
 import { splitProject } from "../app/route";
-import type { ApprovalRecord, DocumentRef, DocumentRow, DocumentVersions, EffectOutcome, NeedsYou, PlanOutline, PlanView, ProjectList, Question, RecordDecision, RecordedDecision, RecordedRead, RecordQuestion, Search, WorkAction } from "./types";
+import type { ApprovalRecord, DocumentRef, DocumentRow, DocumentVersions, EffectOutcome, NeedsYou, Overturned, OverturnDecision, PlanOutline, PlanView, ProjectList, Question, RecordDecision, RecordedDecision, RecordedRead, RecordQuestion, Search, WorkAction } from "./types";
 
 function documentQuery({ path, instance, version }: DocumentRef): URLSearchParams {
   const query = new URLSearchParams({ path });
@@ -61,6 +61,7 @@ export const paths = {
   answer: (id: string) => project(`/questions/${encodeURIComponent(id)}/answer`),
   dismiss: (id: string) => project(`/questions/${encodeURIComponent(id)}/dismiss`),
   decisions: () => project("/decisions"),
+  overturn: (id: string) => project(`/decisions/${encodeURIComponent(id)}/overturn`),
   decideApproval: (id: string) => project(`/approvals/${encodeURIComponent(id)}/decide`),
   decideEffect: (id: string) => project(`/effects/${encodeURIComponent(id)}/decide`),
   work: (id: string, verb: string) => project(`/work-orders/${encodeURIComponent(id)}/${verb}`),
@@ -244,6 +245,13 @@ export function dismissQuestion(id: string): Promise<void> {
 // does. The ID is the client's, so a retry finds the record the first attempt made.
 export function recordDecision(request: RecordDecision): Promise<RecordedDecision> {
   return call("POST", paths.decisions(), request);
+}
+
+// overturnDecision reverses a decision with what takes its place, as `ropeshift decision overturn` does. It
+// sends each completed work order that rested on the decision to rework, and the answer names them. The ID of
+// the new decision is the client's, so a retry finds what the first attempt made.
+export function overturnDecision(id: string, request: OverturnDecision): Promise<Overturned> {
+  return call("POST", paths.overturn(id), request);
 }
 
 export function decideApproval(id: string, digest: string, allow: boolean, reason: string, place?: Place): Promise<unknown> {

@@ -362,6 +362,10 @@ export type RecordDecision = {
   no_conflict?: string[];
 };
 
+// OverturnDecision is a member's reversal of a decision: the ID of the decision that takes its place, and what
+// stands instead.
+export type OverturnDecision = { id: string; statement: string; rationale?: string; citations?: string[] };
+
 // RecordedDecision is a decision as the API answers it after it is recorded, with the decisions whose scope
 // it overlaps.
 export type RecordedDecision = Omit<Decision, "lineage" | "superseded_by" | "decided_by_name">;
@@ -826,3 +830,7 @@ export type PlanOutline = {
   approval?: { id: string; state: string; version: number };
   not_submitted?: string;
 };
+
+// Overturned is what one overturn did: the two decisions, the work orders it sent to rework, and the lanes it
+// told that the decision no longer stands.
+export type Overturned = { old: RecordedDecision; new: RecordedDecision; rework?: string[]; noticed?: string[] };

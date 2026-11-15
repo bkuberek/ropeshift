@@ -31,9 +31,8 @@ var opExempt = map[string]string{
 // it. An entry stays only while the operation has no route the web listener serves, so it leaves the list
 // when its gap closes, and the first run of this test wrote it.
 var opGaps = map[string]string{
-	authority.OpPlanStartReview:  "U2d",
-	authority.OpDecisionOverturn: "U2e",
-	authority.OpPassphraseSet:    "U2f",
+	authority.OpPlanStartReview: "U2d",
+	authority.OpPassphraseSet:   "U2f",
 }
 
 var (

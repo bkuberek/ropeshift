@@ -1,5 +1,5 @@
 import { plainID } from "../api/client";
-import type { RecordDecision, RecordQuestion } from "../api/types";
+import type { Decision, OverturnDecision, RecordDecision, RecordQuestion } from "../api/types";
 
 // What the dialogs that record questions, decisions, and categories ask of a member before they send. None
 // of it decides what the API decides: the API refuses what it refuses, and its words show at the field or
@@ -181,6 +181,40 @@ export function decisionRequest(id: string, draft: DecisionDraft): RecordDecisio
   const noConflict = idsOf(draft.noConflict);
   if (noConflict.length > 0) {
     request.no_conflict = noConflict;
+  }
+  return request;
+}
+
+// inForce says a decision still stands: it is decided or assumed, and no other decision replaced or overturned it.
+export const inForce = (decision: Decision) => decision.status === "decided" || decision.status === "assumed";
+
+export type OverturnDraft = { statement: string; rationale: string; citations: string; id: string };
+
+export const noOverturn: OverturnDraft = { statement: "", rationale: "", citations: "", id: "" };
+
+// overturnProblems says what stops an overturn from being sent: what stands instead, and an ID a member named
+// the new decision by, which reads as a decision's ID does.
+export function overturnProblems(draft: OverturnDraft): { statement?: string; id?: string } {
+  const problems: { statement?: string; id?: string } = {};
+  if (draft.statement.trim() === "") {
+    problems.statement = "State what stands instead.";
+  }
+  const named = decisionIDProblem(draft.id.trim());
+  if (named) {
+    problems.id = named;
+  }
+  return problems;
+}
+
+// overturnRequest is the request `ropeshift decision overturn` would send for the same flags.
+export function overturnRequest(id: string, draft: OverturnDraft): OverturnDecision {
+  const request: OverturnDecision = { id: draft.id.trim() || id, statement: draft.statement.trim() };
+  if (draft.rationale.trim() !== "") {
+    request.rationale = draft.rationale.trim();
+  }
+  const citations = listOf(draft.citations);
+  if (citations.length > 0) {
+    request.citations = citations;
   }
   return request;
 }

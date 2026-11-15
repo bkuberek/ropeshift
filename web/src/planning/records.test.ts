@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { categoryProblem, decisionIDProblem, decisionProblems, decisionRequest, listOf, noDecision, noQuestion, questionProblems, questionRequest } from "./records";
+import { categoryProblem, decisionIDProblem, decisionProblems, decisionRequest, inForce, listOf, noDecision, noOverturn, noQuestion, overturnProblems, overturnRequest, questionProblems, questionRequest } from "./records";
 
 describe("a category's name", () => {
   it.each(["billing", "release-planning", "q3-goals", "a", "x".repeat(63)])("takes %s", (name) => {
@@ -132,5 +132,37 @@ describe("a decision's draft", () => {
       question_id: "q-1",
       no_conflict: ["d-1", "d-2"],
     });
+  });
+});
+
+describe("an overturn's draft", () => {
+  const stated = { ...noOverturn, statement: " Retry twice. " };
+
+  it("needs what stands instead, and holds an ID a member named to the rules of a decision's", () => {
+    expect(overturnProblems(noOverturn)).toEqual({ statement: "State what stands instead." });
+    expect(overturnProblems(stated)).toEqual({});
+    expect(overturnProblems({ ...stated, id: "pd-1" })).toEqual({ id: expect.stringMatching(/may not start with pd-/) });
+    expect(overturnProblems({ ...stated, id: "has space" })).toEqual({ id: "An ID is 1 to 64 letters, digits, - and _." });
+  });
+
+  it("sends what the command sends for the same flags, and leaves out what is empty", () => {
+    expect(overturnRequest("generated", stated)).toEqual({ id: "generated", statement: "Retry twice." });
+    expect(overturnRequest("generated", { statement: "Retry twice.", rationale: " Why. ", citations: "docs/a.md\ndocs/b.md", id: " mine " })).toEqual({
+      id: "mine",
+      statement: "Retry twice.",
+      rationale: "Why.",
+      citations: ["docs/a.md", "docs/b.md"],
+    });
+  });
+});
+
+describe("a decision in force", () => {
+  it.each([
+    ["decided", true],
+    ["assumed", true],
+    ["overturned", false],
+    ["replaced", false],
+  ])("is %s: %s", (status, standing) => {
+    expect(inForce({ id: "d", status, statement: "x", lineage: ["d"] })).toBe(standing);
   });
 });

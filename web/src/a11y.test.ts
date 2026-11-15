@@ -791,6 +791,59 @@ describe.each(Object.entries(sizes))("at %s width", (size, viewport) => {
     );
 
     it(
+      "the overturn dialog, empty, with its errors, with a refusal, and with what it made, meets WCAG 2.2 A and AA",
+      async () => {
+        const context = await browser.newContext({ viewport, colorScheme: theme, reducedMotion: "reduce" });
+        await context.route(/\/v1\//, answer);
+        const page = await context.newPage();
+        const found: string[] = [];
+        const settle = async () => {
+          await page.mouse.move(0, 0);
+          await page.waitForTimeout(600);
+        };
+        await page.goto(`${base}/projects/default/decisions`);
+        await ready(page);
+        await page.getByRole("button", { name: "Overturn decision-3" }).click();
+        const dialog = page.getByRole("dialog", { name: "Overturn decision-3" });
+        await dialog.waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `overturn dialog ${violation}`));
+        await dialog.getByText("More").click();
+        await dialog.getByRole("textbox", { name: "ID of the new decision (optional)" }).fill("pd-2f9a");
+        await dialog.getByRole("button", { name: "Overturn decision" }).click();
+        await dialog.getByText("State what stands instead.").waitFor();
+        await dialog.getByText(/may not start with pd-/).waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `overturn dialog with errors ${violation}`));
+        await dialog.getByRole("textbox", { name: "New statement" }).fill("Retry twice, and no more.");
+        await dialog.getByRole("textbox", { name: "ID of the new decision (optional)" }).fill("");
+        const overturn = (status: number, body: unknown) => (route: Route) =>
+          route.request().method() === "POST" ? route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) }) : route.fallback();
+        await page.route(/\/v1\/projects\/default\/decisions\/decision-3\/overturn$/, overturn(409, { error: { code: "decision_ended", message: "decision decision-3 is overturned" } }));
+        await dialog.getByRole("button", { name: "Overturn decision" }).click();
+        await dialog.getByRole("alert").waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `overturn dialog with a refusal ${violation}`));
+        await page.route(
+          /\/v1\/projects\/default\/decisions\/decision-3\/overturn$/,
+          overturn(201, {
+            old: { id: "decision-3", status: "overturned", statement: "Retry until the budget runs out." },
+            new: { id: "decision-new", status: "decided", statement: "Retry twice, and no more.", supersedes: "decision-3" },
+            rework: ["generated-26", "generated-28"],
+            noticed: ["lane-wo-running"],
+          }),
+        );
+        await dialog.getByRole("button", { name: "Overturn decision" }).click();
+        await dialog.getByRole("heading", { name: "Overturned decision-3" }).waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `overturn dialog with what it made ${violation}`));
+        await context.close();
+        expect(found.map((line) => `${size} ${theme} ${line}`)).toEqual([]);
+      },
+      120_000,
+    );
+
+    it(
       "the palette, the shortcut sheet, the project switcher, a menu, and a dialog meet WCAG 2.2 A and AA",
       async () => {
         const context = await browser.newContext({ viewport, colorScheme: theme, reducedMotion: "reduce" });

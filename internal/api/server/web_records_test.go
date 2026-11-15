@@ -158,6 +158,27 @@ func TestAMemberRecordsDecisionsFromTheBrowser(t *testing.T) {
 	}
 }
 
+func TestAMemberOverturnsADecisionFromTheBrowser(t *testing.T) {
+	t.Parallel()
+	b := signedInBrowser(t)
+	b.send(t, http.MethodPost, "/v1/decisions", api.RecordDecision{ID: "d-web-1", Status: questions.DecisionAssumed, Statement: "Prices are in euros.", Reversibility: questions.Reversible}, http.StatusCreated)
+	body := api.OverturnDecision{ID: "d-web-2", Statement: "Prices are in dollars.", Rationale: "Most customers pay in dollars.", Citations: []string{"docs/billing.md"}}
+	raw := b.send(t, http.MethodPost, "/v1/decisions/d-web-1/overturn", body, http.StatusCreated)
+	var overturned questions.Overturned
+	if err := json.Unmarshal(raw, &overturned); err != nil {
+		t.Fatal(err)
+	}
+	if overturned.Old.ID != "d-web-1" || overturned.Old.Status != questions.DecisionOverturned || overturned.New.ID != "d-web-2" || overturned.New.Supersedes != "d-web-1" || overturned.New.DecidedBy != memberOf(t, b.r.d) {
+		t.Fatalf("overturned %+v", overturned)
+	}
+	// A repeat under one ID is what the first made, so a page may send it again after a lost reply.
+	b.send(t, http.MethodPost, "/v1/decisions/d-web-1/overturn", body, http.StatusCreated)
+	// A decision that was overturned is not overturned again.
+	wantCode(t, b.send(t, http.MethodPost, "/v1/decisions/d-web-1/overturn", api.OverturnDecision{ID: "d-web-3", Statement: "Again."}, http.StatusConflict), api.CodeDecisionEnded)
+	wantCode(t, b.send(t, http.MethodPost, "/v1/decisions/d-web-2/overturn", api.OverturnDecision{ID: "d-web-4"}, http.StatusBadRequest), api.CodeInvalid)
+	wantCode(t, b.send(t, http.MethodPost, "/v1/decisions/no-such-decision/overturn", api.OverturnDecision{ID: "d-web-5", Statement: "x"}, http.StatusNotFound), api.CodeNotFound)
+}
+
 // ATTACK: an ID plan approval derives, which anyone who reads a plan can work out. Only plan approval names a
 // decision under that prefix, so a decision recorded from the browser is refused it, as it is on the socket,
 // and no decision of that ID exists afterwards.
@@ -169,6 +190,14 @@ func TestAPlanApprovalsDecisionIDIsRefusedFromTheBrowser(t *testing.T) {
 		wantCode(t, raw, api.CodeInvalid)
 		_, err := b.r.d.Client.Decision(t.Context(), id)
 		refusedWith(t, err, http.StatusNotFound, api.CodeNotFound)
+	}
+	// A decision that takes the place of another, by an overturn, is named by its ID as well, and the decision it
+	// would have ended stands.
+	b.send(t, http.MethodPost, "/v1/decisions", api.RecordDecision{ID: "d-web-1", Status: questions.DecisionDecided, Statement: "Prices are in euros."}, http.StatusCreated)
+	raw := b.send(t, http.MethodPost, "/v1/decisions/d-web-1/overturn", api.OverturnDecision{ID: "pd-0123456789abcdef", Statement: "Take the name."}, http.StatusBadRequest)
+	wantCode(t, raw, api.CodeInvalid)
+	if got, err := b.r.d.Client.Decision(t.Context(), "d-web-1"); err != nil || got.Status != questions.DecisionDecided {
+		t.Fatalf("the refused overturn left %+v: %v", got, err)
 	}
 }
 
@@ -184,6 +213,7 @@ func TestADelegateGainsNothingFromTheBrowserRoutesOfRecords(t *testing.T) {
 		{http.MethodPost, "/v1/questions"},
 		{http.MethodPost, "/v1/questions/x/dismiss"},
 		{http.MethodPost, "/v1/decisions"},
+		{http.MethodPost, "/v1/decisions/x/overturn"},
 	} {
 		t.Run(route.method+route.path, func(t *testing.T) {
 			headers := map[string]string{api.HeaderDelegate: created.Token, api.HeaderCSRF: b.headers[api.HeaderCSRF]}

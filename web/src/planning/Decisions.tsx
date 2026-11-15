@@ -2,6 +2,8 @@ import type { Decision, Decisions as View } from "../api/types";
 import { addressOf, Link } from "../app/route";
 import { Fact, Id, Line, words } from "../parts/parts";
 import { CategoryFilter } from "./CategoryFilter";
+import { OverturnDecisionButton } from "./OverturnDecision";
+import { inForce } from "./records";
 
 const decisionAt = (id: string) => addressOf("/decisions", { id });
 
@@ -84,6 +86,11 @@ function DecisionLine({ decision }: { decision: Decision }) {
             </Fact>
           ) : null}
         </dl>
+        {inForce(decision) ? (
+          <div className="row-tight">
+            <OverturnDecisionButton decision={decision} />
+          </div>
+        ) : null}
       </div>
     </Line>
   );
