@@ -9,11 +9,18 @@ import (
 
 // ProtocolVersion is the plane protocol this build speaks. Version 2 names the project on every item
 // (ADR-0021). Version 3 adds the assistant's sessions: desired state's assistants, the worker routes that
-// make a generation's credential and record a reply, and uploads from an assistant's run (ADR-0024).
-const ProtocolVersion = 3
+// make a generation's credential and record a reply, and uploads from an assistant's run (ADR-0024). Version 4
+// adds the delegate that sent a lane's own layer: a desired lease's delegated layer, which the worker holds the
+// layer to (FR-AUTH-16).
+const ProtocolVersion = 4
 
 // ProtocolAssistants is the oldest protocol a worker runs the assistant on.
 const ProtocolAssistants = 3
+
+// ProtocolDelegatedLayers is the oldest protocol a worker is offered a lane on whose own layer a delegate sent
+// under a delegate policy that restricts a raise of the model or the effort. An older worker drops that record
+// and would run the layer unrestricted, so it holds the lane's claim with no lane until it is upgraded.
+const ProtocolDelegatedLayers = 4
 
 // ProtocolOldest is the oldest plane protocol any build serves. Version 1 named no project and served
 // only the installation's default project; a worker that speaks it is refused and must be upgraded.

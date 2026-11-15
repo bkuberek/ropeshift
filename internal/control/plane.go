@@ -334,7 +334,7 @@ func (p *Plane) Desired(ctx context.Context, request ledger.DesiredRequest) (led
 		name := string(project.ID)
 		for _, lease := range part.Leases {
 			lease.Project = name
-			state.Leases = append(state.Leases, lease)
+			state.Leases = append(state.Leases, offeredLease(lease, record.Protocol))
 		}
 		for _, archive := range part.Archives {
 			archive.Project = name
@@ -376,6 +376,18 @@ func (p *Plane) Desired(ctx context.Context, request ledger.DesiredRequest) (led
 		}
 	}
 	return state, nil
+}
+
+// offeredLease is a lease as a worker on a protocol reads it. A worker older than ProtocolDelegatedLayers
+// drops a lease's delegated layer, so a lane a delegate's layer is held to a restricting delegate policy
+// reaches it as its claim with no lane: the worker keeps the claim and starts nothing, and the lane starts
+// once the worker opens a session on a protocol that reads the record (FR-AUTH-16). A protocol of zero is a
+// worker that opened no session, which is offered no such lane either.
+func offeredLease(lease ledger.DesiredLease, protocol int) ledger.DesiredLease {
+	if lease.Delegated == nil || !lease.Delegated.Restricted || protocol >= ledger.ProtocolDelegatedLayers {
+		return lease
+	}
+	return ledger.DesiredLease{Project: lease.Project, WorkOrder: lease.WorkOrder, ClaimID: lease.ClaimID, Fence: lease.Fence, State: lease.State}
 }
 
 // Watch hints that a revision of a project this worker serves, or the installation's, moved. A hint
