@@ -157,6 +157,51 @@ func TestAnArchivedProjectTakesNoClaim(t *testing.T) {
 	}
 }
 
+// restrictRaises publishes delegate policy version 2 in a project, which keeps a delegate's lane start from
+// raising the lane's model or effort.
+func (r *planeRig) restrictRaises(project ledger.WorkspaceID) {
+	r.t.Helper()
+	no := false
+	draft := authority.DelegatePolicyDraft{
+		Body:   "[delegate_policy]\nversion = 2\nexempt = []\nraise_model_and_effort = false\n",
+		Policy: authority.DelegatePolicy{Version: 2, Exempt: []string{}, RaiseModelAndEffort: &no},
+	}
+	if _, err := control.NewApprovals(r.stores[project]).PublishDelegatePolicy(r.t.Context(), project, draft, projectMember); err != nil {
+		r.t.Fatal(err)
+	}
+}
+
+// TestADelegateWhoseIDNamesNoOneDispatchesNoLane holds the record of a delegate's lane layer to the actor being
+// a delegate (FR-AUTH-16). A delegate whose ID names no member and credential would leave no record, so its layer
+// would run unrestricted: the dispatch is refused, with overrides or without, and the claim keeps no lane.
+func TestADelegateWhoseIDNamesNoOneDispatchesNoLane(t *testing.T) {
+	r := newPlaneRig(t, ledger.ProtocolVersion)
+	r.restrictRaises("pa")
+	r.ready("pa", "wo")
+	if err := r.claim("pa", "wo"); err != nil {
+		t.Fatal(err)
+	}
+	leases := control.NewLeases(r.stores["pa"])
+	for _, id := range []string{"", "member-1", "member-1/", "/dlg_1"} {
+		for _, overrides := range []string{"[agent]\neffort = \"max\"\n", ""} {
+			actor := ledger.Actor{Kind: ledger.ActorDelegate, ID: id}
+			if _, err := leases.DispatchWith(t.Context(), "pa", "wo", "lane-1", overrides, actor); !errors.Is(err, workorders.ErrForbidden) {
+				t.Errorf("a delegate %q with overrides %q dispatches: %v", id, overrides, err)
+			}
+		}
+	}
+	err := r.stores["pa"].Read(t.Context(), "pa", func(tx ports.ReadTx) error {
+		claim, err := tx.Claims().Find("claim-pa-wo")
+		if err == nil && (claim.Lane != "" || claim.Overrides != "" || claim.Delegated != nil) {
+			t.Errorf("a refused dispatch left the claim %+v", claim)
+		}
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
 // TestARestrictedDelegatesLaneReachesNoWorkerThatWouldDropItsRecord dispatches a lane whose own layer a delegate
 // sent under a delegate policy that restricts a raise (FR-AUTH-16). A worker a version behind the control plane
 // would drop that record and run the layer unrestricted, so the plane offers it the claim with no lane, which it
@@ -169,14 +214,7 @@ func TestARestrictedDelegatesLaneReachesNoWorkerThatWouldDropItsRecord(t *testin
 		t.Run(fmt.Sprintf("protocol %d", protocol), func(t *testing.T) {
 			r := newPlaneRig(t, protocol)
 			ctx := t.Context()
-			no := false
-			draft := authority.DelegatePolicyDraft{
-				Body:   "[delegate_policy]\nversion = 2\nexempt = []\nraise_model_and_effort = false\n",
-				Policy: authority.DelegatePolicy{Version: 2, Exempt: []string{}, RaiseModelAndEffort: &no},
-			}
-			if _, err := control.NewApprovals(r.stores["pa"]).PublishDelegatePolicy(ctx, "pa", draft, projectMember); err != nil {
-				t.Fatal(err)
-			}
+			r.restrictRaises("pa")
 			starts := []struct {
 				project ledger.WorkspaceID
 				id      string

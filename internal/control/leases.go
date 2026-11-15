@@ -759,9 +759,17 @@ func (l *Leases) DispatchWith(ctx context.Context, scope ledger.WorkspaceID, wor
 // delegatedLayer records that a delegate sent a lane's own profile layer, under the delegate policy in force
 // in the transaction that dispatches the lane, so the worker that reads the layer holds a raise of the model
 // or the effort to that version (FR-AUTH-16). A start with no layer records none, and so does a member's, an
-// orchestrator's, or the system's, which no delegate policy restricts.
+// orchestrator's, or the system's, which no delegate policy restricts. A delegate whose ID names no member and
+// credential is refused whatever it sends, because the record could not name it and its layer would run
+// unrestricted.
 func delegatedLayer(policies ports.PolicyReader, overrides string, actor ledger.Actor) (*ledger.DelegatedLayer, error) {
-	if _, _, delegate := authority.ActingFor(actor); !delegate || overrides == "" {
+	if authority.PartyOf(actor) != authority.PartyDelegate {
+		return nil, nil
+	}
+	if _, _, named := authority.ActingFor(actor); !named {
+		return nil, fmt.Errorf("%w: delegate %q names no member and credential", workorders.ErrForbidden, actor.ID)
+	}
+	if overrides == "" {
 		return nil, nil
 	}
 	version, policy, err := delegatePolicyOf(policies)
