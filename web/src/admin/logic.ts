@@ -83,7 +83,15 @@ export const policies: Record<PolicyKind, { table: string; fields: FieldSpec[] }
   },
   delegate: {
     table: "delegate_policy",
-    fields: [{ key: "exempt", label: "Consent operations a delegate runs without a card", type: "operations", help: "Every other consent operation a delegate calls becomes a card a member confirms." }],
+    fields: [
+      { key: "exempt", label: "Consent operations a delegate runs without a card", type: "operations", help: "Every other consent operation a delegate calls becomes a card a member confirms." },
+      {
+        key: "raise_model_and_effort",
+        label: "A delegate's lane start may raise the model and effort",
+        type: "bool",
+        help: "Off, the worker refuses a delegate's lane start whose overrides raise the model's class or the effort above what the layers below give, and the lane does not start. A member's own lane start is never held to it.",
+      },
+    ],
   },
 };
 
@@ -179,6 +187,10 @@ export function policySettings(kind: PolicyKind, settings: string): PolicyValues
   }
   if (kind === "assistant" && values.warm_idle_stop === undefined) {
     values.warm_idle_stop = defaultWarmMinutes;
+  }
+  // A delegate policy version that leaves the raise out allows it.
+  if (kind === "delegate" && values.raise_model_and_effort === undefined) {
+    values.raise_model_and_effort = true;
   }
   return values;
 }
