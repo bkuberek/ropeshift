@@ -30,8 +30,9 @@ const (
 
 // Resolve folds layers of TOML over the built-in defaults. A key the settings do not
 // name is refused, because a misspelled threshold that silently keeps its default is
-// worse than a lane that does not start. The gates of every layer join, so no layer
-// drops one of another's.
+// worse than a lane that does not start. So is a key spelled two ways, because the
+// decoder reads keys in any case and would take whichever it met first. The gates of
+// every layer join, so no layer drops one of another's.
 func Resolve(layers ...string) (lanes.Profile, error) {
 	tables := make([]map[string]any, 0, len(layers)+1)
 	for _, text := range append([]string{builtin}, layers...) {
@@ -41,8 +42,12 @@ func Resolve(layers ...string) (lanes.Profile, error) {
 		}
 		tables = append(tables, table)
 	}
+	merged, err := lanes.MergeLayers(tables...)
+	if err != nil {
+		return lanes.Profile{}, err
+	}
 	var encoded bytes.Buffer
-	if err := toml.NewEncoder(&encoded).Encode(lanes.MergeLayers(tables...)); err != nil {
+	if err := toml.NewEncoder(&encoded).Encode(merged); err != nil {
 		return lanes.Profile{}, fmt.Errorf("%w: %v", lanes.ErrBadProfile, err)
 	}
 	var profile lanes.Profile

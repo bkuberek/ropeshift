@@ -383,6 +383,64 @@ func TestAGateSetToSomethingElseIsRefused(t *testing.T) {
 	}
 }
 
+// TestTwoSpellingsOfOneSettingAreRefusedEveryTime holds the profile to one spelling of each key. The
+// decoder reads a key under Unicode case folding, so a layer that holds `[hooks]` and `[Hooks]`, or two
+// layers that spell one key two ways, would resolve to whichever the decoder met first, which changes from
+// one run to the next. Each is refused, with both spellings named, on every run.
+func TestTwoSpellingsOfOneSettingAreRefusedEveryTime(t *testing.T) {
+	const runs = 100
+	tests := []struct {
+		name, user, repository, lane string
+		// spellings are the two the refusal names.
+		spellings [2]string
+	}{
+		{name: "a table spelled two ways in one layer", user: "[hooks]\non_lane_created = [\"a\"]\n[Hooks]\non_lane_created = [\"b\"]\n", spellings: [2]string{"hooks", "Hooks"}},
+		{name: "a key spelled two ways in one table", user: "[worktree]\nroot = \"../a\"\nROOT = \"../b\"\n", spellings: [2]string{"ROOT", "root"}},
+		{name: "a dotted key spelled two ways", user: "agent.model = \"a\"\nAgent.model = \"b\"\n", spellings: [2]string{"Agent", "agent"}},
+		{name: "a repository's layer", repository: "[hooks]\non_lane_created = [\"a\"]\n[Hooks]\non_lane_created = [\"b\"]\n", spellings: [2]string{"hooks", "Hooks"}},
+		{name: "a lane's layer", lane: "[worktree]\nroot = \"../a\"\nROOT = \"../b\"\n", spellings: [2]string{"ROOT", "root"}},
+		{name: "a table in two layers", user: "[hooks]\non_lane_created = [\"a\"]\n", repository: "[Hooks]\non_lane_created = [\"b\"]\n", spellings: [2]string{"Hooks", "hooks"}},
+		{name: "a key in the user's layer and the repository's", user: "[worktree]\nroot = \"../a\"\n", repository: "[worktree]\nROOT = \"../b\"\n", spellings: [2]string{"ROOT", "root"}},
+		{name: "a key in the repository's layer and a lane's", repository: "[review]\nmax_review_rounds = 2\n", lane: "[review]\nMAX_REVIEW_ROUNDS = 1\n", spellings: [2]string{"MAX_REVIEW_ROUNDS", "max_review_rounds"}},
+		{name: "a table the built-in layer spells another way", user: "[Agent]\nmodel = \"haiku\"\n", spellings: [2]string{"Agent", "agent"}},
+		{name: "a nested table", user: "[agent.credentials]\nkind = \"api_key\"\n[agent.Credentials]\nkind = \"api_key\"\n", spellings: [2]string{"Credentials", "credentials"}},
+		{name: "a gate list in two layers", user: "[agent]\ngates = [\"Edit\"]\n", repository: "[agent]\nGATES = [\"Read\"]\n", spellings: [2]string{"GATES", "gates"}},
+		{name: "a key spelled with the Kelvin sign", user: "[hooks]\non_lane_created = [\"a\"]\n", repository: "[\"hoo\u212as\"]\non_lane_created = [\"b\"]\n", spellings: [2]string{"hoo\u212as", "hooks"}},
+		{name: "a key spelled with the long s", user: "[hooks]\non_lane_created = [\"a\"]\n", repository: "[\"hook\u017f\"]\non_lane_created = [\"b\"]\n", spellings: [2]string{"hook\u017f", "hooks"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			for run := range runs {
+				_, err := ResolveLayers(tt.user, tt.repository, tt.lane)
+				if !errors.Is(err, lanes.ErrBadProfile) {
+					t.Fatalf("run %d accepted the layers: %v", run, err)
+				}
+				for _, spelling := range tt.spellings {
+					if !strings.Contains(err.Error(), strconv.Quote(spelling)) {
+						t.Fatalf("run %d: error %q does not name %s", run, err, strconv.Quote(spelling))
+					}
+				}
+			}
+		})
+	}
+}
+
+// TestOneSpellingPerKeyStillResolves keeps the refusal to keys that differ only in case: two settings that
+// merely begin alike, a key repeated in one spelling across layers, and each layer's own tables resolve.
+func TestOneSpellingPerKeyStillResolves(t *testing.T) {
+	const (
+		user       = "[agent]\nmodel = \"haiku\"\n[worktree]\nroot = \"../a\"\nbranch_prefix = \"x/\"\n"
+		repository = "[agent]\nmodel = \"sonnet\"\n[worktree]\nroot = \"../b\"\n"
+	)
+	profile, err := ResolveLayers(user, repository, "[agent]\neffort = \"low\"\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if profile.Agent.Model != "sonnet" || profile.Agent.Effort != "low" || profile.Worktree.Root != "../b" || profile.Worktree.BranchPrefix != "x/" {
+		t.Errorf("resolved %+v", profile)
+	}
+}
+
 // TestALayerLowersTheLaneCapsTheUserSet holds ADR-0021's rule for a repository's layer: it can lower
 // either lane cap for its own lanes, and what it lowers is what the lane is admitted by.
 func TestALayerLowersTheLaneCapsTheUserSet(t *testing.T) {

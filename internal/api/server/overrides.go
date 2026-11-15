@@ -9,12 +9,12 @@ import (
 	"ropeshift.com/ropeshift/internal/lanes"
 )
 
-// checkOverrides refuses a lane's own profile layer that sets a key of lanes.LaneLayerKeys, before the ledger
-// keeps it. Any caller can send one, an outside delegate's included, so the caller reads the reason here
-// rather than as a failed start on the worker. The worker's profile holds the layer to the user's and the
-// repository's layers, and is the line that counts: it also refuses a layer that raises a cap of the
-// breaker, which only the worker's own layers can measure it against. It has no gate to check, because the
-// gates of every layer join, so a layer can only add one.
+// checkOverrides refuses a lane's own profile layer that sets a key of lanes.LaneLayerKeys, or that spells one
+// key two ways, before the ledger keeps it. Any caller can send one, an outside delegate's included, so the
+// caller reads the reason here rather than as a failed start on the worker. The worker's profile holds the
+// layer to the user's and the repository's layers, and is the line that counts: it also refuses a layer that
+// raises a cap of the breaker, which only the worker's own layers can measure it against. It has no gate to
+// check, because the gates of every layer join, so a layer can only add one.
 func checkOverrides(overrides string) error {
 	if overrides == "" {
 		return nil
@@ -23,6 +23,9 @@ func checkOverrides(overrides string) error {
 	meta, err := toml.Decode(overrides, &table)
 	if err != nil {
 		return fmt.Errorf("a lane's overrides are not TOML: %v", err)
+	}
+	if err := lanes.CheckSpellings(table); err != nil {
+		return fmt.Errorf("a lane's overrides are refused: %v", err)
 	}
 	for _, setting := range lanes.LaneLayerKeys() {
 		for _, key := range meta.Keys() {

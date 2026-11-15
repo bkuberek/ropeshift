@@ -263,7 +263,7 @@ A threshold of `0` turns its warning off. These settings are the machine's, so a
 - `hooks`, `agent.credentials`, `agent.instructions_file`, `worktree.root`, and `worktree.branch_prefix`, which no lane's layer changes.
 - `review.max_review_rounds` and `resources.ports_per_lane`. The worker compares these with your layer and the repository's, and `lane start`, which holds neither, refuses them whenever a lane's layer sets them.
 
-The profile reads a key whatever its case, under Unicode case folding, so `lane start` refuses `[Hooks]`, or `ROOT` in `[worktree]`, as well.
+The profile reads a key whatever its case, under Unicode case folding, so `lane start` refuses `[Hooks]`, or `ROOT` in `[worktree]`, as well. The decoder would take whichever of two spellings of one key it met first, so every layer spells each key one way: `lane start` refuses a layer that holds two keys of one table that differ only in case, such as `[hooks]` and `[Hooks]`, and the worker refuses layers that spell one key two ways, yours and the repository's included. The refusal names both spellings.
 
 `agent.gates` is not refused. The gates of every layer join, so a lane's layer can add a gate and cannot drop one.
 

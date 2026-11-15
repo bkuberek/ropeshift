@@ -48,9 +48,9 @@ func claimWork(t *testing.T, d *talkDaemon, id, claim string) {
 // TestNoCallerStartsALaneWhoseOverridesRunReadOrPlace holds every caller's lane start, an outside
 // delegate's, the assistant's, and a member's, to overrides that name no hook, no credential, no file to
 // read, and no place for the worktree or its branch, that set no review bound or ports per lane, which the
-// worker compares with layers the route does not hold, and to overrides that are TOML at all. A key counts
-// in every spelling the profile reads as it. The refusal answers before the ledger keeps anything, and a
-// member's overrides of any other key still start the lane.
+// worker compares with layers the route does not hold, that spell no key two ways, and to overrides that are
+// TOML at all. A key counts in every spelling the profile reads as it. The refusal answers before the ledger
+// keeps anything, and a member's overrides of any other key still start the lane.
 func TestNoCallerStartsALaneWhoseOverridesRunReadOrPlace(t *testing.T) {
 	d := startTalk(t)
 	ctx := t.Context()
@@ -79,6 +79,10 @@ func TestNoCallerStartsALaneWhoseOverridesRunReadOrPlace(t *testing.T) {
 		{"a hook spelled with the long s", "[\"hookſ\"]\non_lane_created = [\"id\"]\n"},
 		{"an upper-case root", "[worktree]\nROOT = \"/\"\n"},
 		{"a capitalized credential's table", "[Agent.Credentials]\nkind = \"api_key\"\n"},
+		{"upper-case review rounds", "[Review]\nMAX_REVIEW_ROUNDS = 9\n"},
+		{"upper-case ports", "Resources.PORTS_PER_LANE = 5\n"},
+		{"a key spelled two ways", "[agent]\nmodel = \"haiku\"\nMODEL = \"opus\"\n"},
+		{"a table spelled two ways", "[agent]\nmodel = \"haiku\"\n[Agent]\neffort = \"low\"\n"},
 		{"no TOML", "[hooks\n"},
 	}
 	for _, caller := range callers {
