@@ -128,9 +128,10 @@ func TestPrepareRefusesALaneLayerThatRunsReadsOrPlaces(t *testing.T) {
 }
 
 // A delegate policy version that sets raise_model_and_effort = false keeps a delegate's lane layer from raising
-// the model's capability class or the effort past what the layers below give, and the refusal names the
-// version (FR-AUTH-16). The built-in classes map haiku to small, sonnet to standard, and opus to large and
-// frontier.
+// the model's capability class past what the layers below give, and the refusal names the version (FR-AUTH-16).
+// A lane that runs as no roster agent is given no effort, whatever its layers set, so there is none to raise
+// and only its model is compared. The built-in classes map haiku to small, sonnet to standard, and opus to large
+// and frontier.
 func TestPrepareHoldsADelegatesLaneLayerToARestrictingPolicy(t *testing.T) {
 	t.Parallel()
 	restricted := &ledger.DelegatedLayer{Delegate: "m1/dlg_01", PolicyVersion: 3, Restricted: true}
@@ -139,11 +140,11 @@ func TestPrepareHoldsADelegatesLaneLayerToARestrictingPolicy(t *testing.T) {
 		refused                     string
 	}{
 		{"a larger class", "[agent]\nmodel = \"haiku\"\n", "[agent]\nmodel = \"opus\"\n", "agent.model"},
-		{"a higher effort", "[agent]\neffort = \"medium\"\n", "[agent]\neffort = \"max\"\n", "agent.effort"},
+		{"a higher effort, which a lane that runs as no agent never runs", "[agent]\neffort = \"medium\"\n", "[agent]\neffort = \"max\"\n", ""},
 		{"a model of no class", "", "[agent]\nmodel = \"opus-preview\"\n", "agent.model"},
 		{"from a model of no class", "[agent]\nmodel = \"opus-preview\"\n", "[agent]\nmodel = \"haiku\"\n", "agent.model"},
 		{"a lower class and effort", "", "[agent]\nmodel = \"haiku\"\neffort = \"low\"\n", ""},
-		{"a lower class with a higher effort", "", "[agent]\nmodel = \"sonnet\"\neffort = \"max\"\n", "agent.effort"},
+		{"a lower class with a higher effort, which a lane that runs as no agent never runs", "", "[agent]\nmodel = \"sonnet\"\neffort = \"max\"\n", ""},
 		{"the same model and effort", "", "[agent]\nmodel = \"opus\"\neffort = \"high\"\n", ""},
 		{"a layer that leaves both alone", "[agent]\nmodel = \"haiku\"\neffort = \"low\"\n", "[lifecycle]\nstall_after = \"30m\"\n", ""},
 	}
@@ -177,6 +178,7 @@ func TestPrepareHoldsADelegatesLaneLayerToWhatItsAgentRuns(t *testing.T) {
 	t.Parallel()
 	restricted := &ledger.DelegatedLayer{Delegate: "m1/dlg_01", PolicyVersion: 3, Restricted: true}
 	small := &roster.Agent{Class: roster.ClassSmall, Effort: roster.EffortLow}
+	unset := &roster.Agent{Class: roster.ClassSmall}
 	tests := []struct {
 		name, overrides string
 		agent           *roster.Agent
@@ -188,6 +190,14 @@ func TestPrepareHoldsADelegatesLaneLayerToWhatItsAgentRuns(t *testing.T) {
 		{"a model the agent names for the driver", "[agent]\nmodel = \"sonnet\"\n", &roster.Agent{Class: roster.ClassSmall, Effort: roster.EffortLow, Models: map[string]string{"claude-code": "opus"}}, ""},
 		{"a raise over the agent's own model", "[agent]\nmodel = \"opus-preview\"\n", &roster.Agent{Class: roster.ClassSmall, Effort: roster.EffortLow, Models: map[string]string{"claude-code": "opus"}}, "agent.model"},
 		{"the profile's model, which the agent's wins over", "[agent]\nmodel = \"opus\"\n", small, ""},
+		// An agent that names no effort runs the CLI's own, which is no lower than low.
+		{"low over an agent that names no effort", "[agent]\neffort = \"low\"\n", unset, ""},
+		{"medium over an agent that names no effort", "[agent]\neffort = \"medium\"\n", unset, `agent.effort from "" to "medium"`},
+		{"max over an agent that names no effort", "[agent]\neffort = \"max\"\n", unset, `agent.effort from "" to "max"`},
+		// A lane that runs as no agent is given no effort, so a layer's effort changes nothing it runs. Its model
+		// is still compared.
+		{"an effort with no agent", "[agent]\neffort = \"max\"\n", nil, ""},
+		{"a model with no agent", "[agent]\nmodel = \"opus-preview\"\neffort = \"low\"\n", nil, "agent.model"},
 		{"a lower model and effort with no agent", "[agent]\nmodel = \"sonnet\"\neffort = \"medium\"\n", nil, ""},
 	}
 	for _, tt := range tests {

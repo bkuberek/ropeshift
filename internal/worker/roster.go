@@ -44,7 +44,8 @@ func (r *laneRun) laneAgent() (roster.ResolvedAgent, bool) {
 // asAgent is the model, the effort, and the denied categories of the session, from the agent the lane runs
 // as: its class through the profile's `[agent.classes]`, or its own model for this driver, in place of the
 // profile's model, and its effort. A lane's own profile layer still wins, and the agent's denials only
-// narrow the lane's rules (ADR-0025).
+// narrow the lane's rules (ADR-0025). A lane that runs as no agent is given no effort, so the agent CLI's own
+// holds, and the check of a delegate's layer compares no effort for it (Provisioner.laneSets).
 func (r *laneRun) asAgent(prepared PreparedLane) (string, string, []string) {
 	agent, ok := r.laneAgent()
 	if !ok {

@@ -172,12 +172,18 @@ func classRanks(classes map[string]string, model string) (high, low int) {
 }
 
 // RaisesEffort says effort is higher than below on the product's scale of efforts, low, medium, high, and max.
-// When either is no effort of the scale, any other effort is a raise.
+// When either is no effort of the scale, any other effort is a raise, except that a lane that would run no
+// effort runs the agent CLI's own, which is no lower than low: only low is no raise over it, and anything
+// higher is.
 func RaisesEffort(below, effort string) bool {
 	if effort == below {
 		return false
 	}
-	was, now := roster.EffortRank(below), roster.EffortRank(effort)
+	now := roster.EffortRank(effort)
+	if below == "" {
+		return now != roster.EffortRank(roster.EffortLow)
+	}
+	was := roster.EffortRank(below)
 	return was < 0 || now < 0 || now > was
 }
 
