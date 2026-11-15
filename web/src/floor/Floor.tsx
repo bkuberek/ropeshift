@@ -19,29 +19,40 @@ import { SessionUse } from "./Installation";
 import { machineMeasures, sessionOf } from "./resources";
 import { StartWork, startOf } from "./StartWork";
 import { counting, laneLabel } from "./states";
+import { WorkActionDialog } from "./WorkActions";
+import type { RecoverAction } from "./recoverSpecs";
+import { labelOf, recoveries, specs } from "./recoverSpecs";
+import type { WorkIndex, WorkRow } from "./workIndex";
 import { useWorkIndex } from "./workIndex";
 
 type Scope = "project" | "all";
 
-// A lane of the floor, with the project it belongs to and what the server offers to do about it.
-type Row = { lane: FloorLane; project: string; own: boolean; stuck?: StuckItem };
+// A lane of the floor, with the project it belongs to, what the server offers to do about its work order, and
+// what it offers to do about the lane itself.
+type Row = { lane: FloorLane; project: string; own: boolean; stuck?: StuckItem; work?: WorkRow };
 
-// What each act does, which its dialog says before a person presses it.
+// What each act on the lane itself does, which its dialog says before a person presses it. What a member can do
+// to the work order is the work actions' own.
 const actWords: Partial<Record<WorkAction, string>> = {
   respawn: "Ends the current generation and starts the next, which counts toward the day's generations.",
   reset: "Closes the breaker and starts the lane again. A member's reset may pass the daily generation cap.",
   resume: "Lets the parked lane go on now, without waiting for what it waits on.",
-  reassign: "Ends the lapsed holder's claim, so the work can be claimed again.",
-  resolve: "Returns the blocked work to ready.",
-  replan: "Sends the blocked work back to planning, with the reason and the lane's evidence.",
-  cancel: "Ends the work for good, which stops its lane.",
 };
 
+const laneActs = ["reset", "respawn", "resume"] as const;
+const isLaneAct = (action: string): action is (typeof laneActs)[number] => (laneActs as readonly string[]).includes(action);
+
+// LaneActions are what a member can do about a lane: the acts the server offers for the lane itself, and the
+// recovery actions the work order allows, such as canceling the work whatever state it is in, and removing the
+// worktree of a lane that ended.
 function LaneActions({ row, after }: { row: Row; after: () => Promise<void> }) {
   const [act, setAct] = useState<WorkAction | null>(null);
+  const [work, setWork] = useState<RecoverAction | null>(null);
   const [reason, setReason] = useState("");
   const { act: run, busy, failure } = useAct(after);
-  const actions = (row.stuck?.actions ?? []).filter((action): action is WorkAction => action !== "start_orchestrator");
+  const acts = (row.stuck?.actions ?? []).filter(isLaneAct);
+  const order = row.work?.order;
+  const recover = recoveries(row.work?.allowed).filter((action) => action !== "archive_lane" || row.lane.archivable);
   const workOrder = row.stuck?.work_order?.id ?? row.lane.work_order;
   const needsReason = act ? workActions[act].needsReason : false;
   const send = async () => {
@@ -50,13 +61,18 @@ function LaneActions({ row, after }: { row: Row; after: () => Promise<void> }) {
       setReason("");
     }
   };
+  const items = [
+    ...acts.map((action) => ({ label: `${actionWords[action]}…`, onSelect: () => setAct(action) })),
+    ...recover.map((action) => ({ label: `${action === "archive_lane" ? specs[action].label : labelOf(action, row.work?.allowed)}…`, icon: specs[action].icon, onSelect: () => setWork(action) })),
+  ];
   return (
     <span className="row-actions">
       {row.own ? <TalkToLane lane={row.lane.id} /> : null}
       <Link to={addressOf("/lane", { id: row.lane.id })} className="btn btn-sm" aria-label={`Open lane ${row.lane.id}`}>
         Open
       </Link>
-      {actions.length ? <Menu label={`Actions for lane ${row.lane.id}`} items={actions.map((action) => ({ label: `${actionWords[action]}…`, onSelect: () => setAct(action) }))} /> : null}
+      {items.length ? <Menu label={`Actions for lane ${row.lane.id}`} items={items} /> : null}
+      {order && work ? <WorkActionDialog order={order} action={work} allowance={row.work?.allowed} lane={row.lane} onClose={() => setWork(null)} after={after} /> : null}
       <Dialog
         open={act !== null}
         title={act ? `${actionWords[act]}: lane ${row.lane.id}` : ""}
@@ -65,7 +81,7 @@ function LaneActions({ row, after }: { row: Row; after: () => Promise<void> }) {
           <>
             <span className="spacer" />
             <Button onClick={() => setAct(null)}>Cancel</Button>
-            <Button variant={act === "cancel" ? "danger" : "primary"} loading={busy} disabled={busy || (needsReason && reason.trim() === "")} onClick={() => void send()}>
+            <Button variant="primary" loading={busy} disabled={busy || (needsReason && reason.trim() === "")} onClick={() => void send()}>
               {act ? actionWords[act] : ""}
             </Button>
           </>
@@ -231,9 +247,8 @@ function Machine({ line, rows, after }: { line: WorkerLine; rows: Row[]; after: 
 // ReadyToStart lists the work that waits for a lane, which is ready work and claimed work with no lane yet,
 // each with the action that moves it forward, the same as its work order's page offers. Work the server
 // lists as stuck stands in Needs you with the actions that fit it. The panel stands aside when nothing waits.
-function ReadyToStart({ live, after }: { live: Live; after: () => Promise<void> }) {
-  const { index } = useWorkIndex(live);
-  const rows = (index?.rows ?? []).filter((row) => !row.stuck && ["claim", "lane"].includes(startOf(row.order, row.lane)?.kind ?? ""));
+function ReadyToStart({ index, after }: { index: WorkIndex | null; after: () => Promise<void> }) {
+  const rows = (index?.rows ?? []).filter((row) => !row.stuck && ["claim", "lane"].includes(startOf(row.order, row.allowed)?.kind ?? ""));
   if (rows.length === 0) {
     return null;
   }
@@ -251,7 +266,7 @@ function ReadyToStart({ live, after }: { live: Live; after: () => Promise<void> 
               </span>
             </span>
             <WorkBadge state={row.order.state} />
-            <StartWork order={row.order} lane={row.lane} small after={after} />
+            <StartWork order={row.order} allowed={row.allowed} small after={after} />
           </li>
         ))}
       </ul>
@@ -262,7 +277,7 @@ function ReadyToStart({ live, after }: { live: Live; after: () => Promise<void> 
 type FloorRead = { project: string; view: ShopFloor };
 
 // FloorBody is one panel per machine that serves the project, and a panel for lanes no machine holds.
-function FloorBody({ reads, stuck, project, live, after }: { reads: FloorRead[]; stuck: Stuck | null; project: string; live: Live; after: () => Promise<void> }) {
+function FloorBody({ reads, stuck, project, index, after }: { reads: FloorRead[]; stuck: Stuck | null; project: string; index: WorkIndex | null; after: () => Promise<void> }) {
   const own = reads.find((read) => read.project === project)?.view;
   const workers = new Map<string, WorkerLine>();
   for (const read of reads) {
@@ -272,18 +287,20 @@ function FloorBody({ reads, stuck, project, live, after }: { reads: FloorRead[];
       }
     }
   }
+  const works = new Map((index?.rows ?? []).map((found) => [found.order.id, found]));
   const rows: Row[] = reads.flatMap((read) =>
     read.view.lanes.map((lane) => ({
       lane,
       project: read.project,
       own: read.project === project,
       stuck: read.project === project ? stuck?.items.find((item) => item.lane?.id === lane.id) : undefined,
+      work: read.project === project ? works.get(lane.work_order) : undefined,
     })),
   );
   if (!own || (own.workers.length === 0 && own.lanes.length === 0)) {
     return (
       <div className="stack">
-        {own ? <ReadyToStart live={live} after={after} /> : null}
+        {own ? <ReadyToStart index={index} after={after} /> : null}
         <div className="panel">
           <EmptyState icon="server" title="No worker has joined">
             Lanes appear here, one panel per machine, once a worker joins. A worker starts from a terminal on its machine, with its join token.
@@ -295,7 +312,7 @@ function FloorBody({ reads, stuck, project, live, after }: { reads: FloorRead[];
   const loose = rows.filter((row) => !row.lane.worker_id || !workers.has(row.lane.worker_id));
   return (
     <div className="stack">
-      <ReadyToStart live={live} after={after} />
+      <ReadyToStart index={index} after={after} />
       {[...workers.values()].map((line) => (
         <Machine key={line.worker.id} line={line} rows={rows.filter((row) => row.lane.worker_id === line.worker.id)} after={after} />
       ))}
@@ -323,6 +340,8 @@ export function FloorPage({ live, project, projects, show, after }: { live: Live
     live,
   );
   const stuck = useView<Stuck>(() => readView<Stuck>("stuck"), "floor:stuck", live);
+  // What each work order allows, which the lanes' actions and the list of work ready to start read.
+  const { index } = useWorkIndex(live);
   const talkable = useTalkable(live, project);
   const now = useClock();
   const label = projects.find((row) => row.name === project)?.display_name || project;
@@ -351,7 +370,7 @@ export function FloorPage({ live, project, projects, show, after }: { live: Live
         <ViewTime.Provider value={{ asOf: own.view.as_of, elapsed: Math.max(0, now - own.readAt) }}>
           <div aria-busy={own.busy}>
             <Talkable.Provider value={talkable}>
-              <FloorBody reads={reads} stuck={stuck.view} project={project} live={live} after={after} />
+              <FloorBody reads={reads} stuck={stuck.view} project={project} index={index} after={after} />
             </Talkable.Provider>
           </div>
           <StampLine stamp={own.view} />

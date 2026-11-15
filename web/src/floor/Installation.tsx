@@ -1,15 +1,15 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
-import { createJoinToken, stopOrchestrator } from "../api/admin";
+import { createJoinToken, readOrchestrator, stopOrchestrator } from "../api/admin";
 import { inProjectOf, readView, startOrchestrator } from "../api/client";
-import type { Operations, Project, ResourceReport, SessionResources, ShopFloor, WorkerLine } from "../api/types";
+import type { Operations, Orchestrator, Project, ResourceReport, SessionResources, ShopFloor, WorkerLine } from "../api/types";
 import type { Live } from "../api/useView";
 import { useView } from "../api/useView";
 import { addressOf, Link } from "../app/route";
 import { useAct } from "../needs/useAct";
 import { Ago, Page, StampLine, useClock, ViewTime, words } from "../parts/parts";
 import { Button, LinkTabs } from "../ui/controls";
-import { Absent, Banner, EmptyState, Freshness, freshnessOf, Id, LaneBadge, Panel, ProjectTag, Refusal, SkeletonRows, StateBadge, TableRegion, TargetChip } from "../ui/display";
+import { Absent, Banner, EmptyState, Fact, Facts, Freshness, freshnessOf, Id, LaneBadge, Panel, ProjectTag, Refusal, SkeletonRows, StateBadge, TableRegion, TargetChip } from "../ui/display";
 import { Dialog, useToast } from "../ui/overlays";
 import { Icon } from "../ui/Icon";
 import { bytes, sessionOf } from "./resources";
@@ -103,6 +103,52 @@ function StopOrchestrator({ line, after }: { line: WorkerLine; after: () => Prom
         Stop orchestrator
       </Button>
       {failure ? <Refusal>{failure}</Refusal> : null}
+    </>
+  );
+}
+
+// OrchestratorDetails reads one worker's orchestrator as the ledger holds it, as `ropeshift orchestrator show`
+// does: what is wanted of it, what its worker last said, how many times a member started it and reset its
+// breaker, and what it carried beside its state.
+function OrchestratorDetails({ line }: { line: WorkerLine }) {
+  const [open, setOpen] = useState(false);
+  const [read, setRead] = useState<{ row: Orchestrator } | { failure: string } | null>(null);
+  const name = line.worker.name || line.worker.id;
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    let current = true;
+    setRead(null);
+    readOrchestrator(line.worker.id)
+      .then((row) => current && setRead({ row }))
+      .catch((error: unknown) => current && setRead({ failure: error instanceof Error ? error.message : String(error) }));
+    return () => {
+      current = false;
+    };
+  }, [open, line.worker.id]);
+  return (
+    <>
+      <Button small icon="info" aria-label={`Details of the orchestrator on ${name}`} onClick={() => setOpen(true)}>
+        Details
+      </Button>
+      <Dialog open={open} title={`Orchestrator on ${name}`} onClose={() => setOpen(false)} footer={<><span className="spacer" /><Button onClick={() => setOpen(false)}>Close</Button></>}>
+        {read === null ? (
+          <SkeletonRows rows={3} />
+        ) : "failure" in read ? (
+          <Refusal>{read.failure}</Refusal>
+        ) : (
+          <Facts>
+            <Fact name="Wanted">{words(read.row.desired_state)}</Fact>
+            <Fact name="State">{read.row.actual_state ? laneLabel(read.row.actual_state) : <Absent>not reported</Absent>}</Fact>
+            <Fact name="Generation">{read.row.current_generation ?? <Absent>none yet</Absent>}</Fact>
+            <Fact name="Starts">{read.row.run}</Fact>
+            <Fact name="Breaker resets">{read.row.resets}</Fact>
+            <Fact name="Conditions">{read.row.conditions?.length ? read.row.conditions.map((condition) => words(condition)).join(", ") : <Absent>none</Absent>}</Fact>
+            <Fact name="Reported">{read.row.reported_at ? <Ago at={read.row.reported_at} /> : <Absent>never</Absent>}</Fact>
+          </Facts>
+        )}
+      </Dialog>
     </>
   );
 }
@@ -325,6 +371,7 @@ export function WorkersPage({ live, projects, selected, after, dialog = "" }: { 
                                 <Absent>none</Absent>
                               )}
                               {stopped ? <StartOrchestrator line={line} after={after} /> : <StopOrchestrator line={line} after={after} />}
+                              {orchestrator ? <OrchestratorDetails line={line} /> : null}
                             </span>
                           </td>
                           <td data-label="Freshness">

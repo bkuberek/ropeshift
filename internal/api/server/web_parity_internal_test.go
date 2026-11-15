@@ -31,18 +31,14 @@ var opExempt = map[string]string{
 // it. An entry stays only while the operation has no route the web listener serves, so it leaves the list
 // when its gap closes, and the first run of this test wrote it.
 var opGaps = map[string]string{
-	authority.OpWorkOrderRetry:      "U2b",
-	authority.OpWorkOrderRetryExtra: "U2b",
-	authority.OpWorkOrderRelease:    "U2b",
-	authority.OpLaneArchive:         "U2b",
-	authority.OpPlanStartReview:     "U2d",
-	authority.OpQuestionRecord:      "U2e",
-	authority.OpQuestionDismiss:     "U2e",
-	authority.OpDecisionRecord:      "U2e",
-	authority.OpDecisionAssume:      "U2e",
-	authority.OpDecisionOverturn:    "U2e",
-	authority.OpCategoryAdd:         "U2e",
-	authority.OpPassphraseSet:       "U2f",
+	authority.OpPlanStartReview:  "U2d",
+	authority.OpQuestionRecord:   "U2e",
+	authority.OpQuestionDismiss:  "U2e",
+	authority.OpDecisionRecord:   "U2e",
+	authority.OpDecisionAssume:   "U2e",
+	authority.OpDecisionOverturn: "U2e",
+	authority.OpCategoryAdd:      "U2e",
+	authority.OpPassphraseSet:    "U2f",
 }
 
 var (

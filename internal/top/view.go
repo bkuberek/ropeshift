@@ -70,6 +70,7 @@ var actionCommands = map[string]string{
 	api.ActAccept:   "work accept %s",
 	api.ActRework:   "work rework %s --reason R",
 	api.ActCancel:   "work cancel %s --reason R",
+	api.ActRetry:    "work retry %s --reason R",
 }
 
 // Actions lists what this view can name a command for.

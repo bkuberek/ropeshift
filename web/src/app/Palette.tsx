@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { searchRecords } from "../api/client";
 import type { SearchRecord } from "../api/types";
 import { lookOf, workStates, laneStates } from "../floor/states";
+import { recoverActions, specs } from "../floor/recoverSpecs";
 import type { IconName } from "../ui/Icon";
 import { Icon } from "../ui/Icon";
 import { Kbd } from "../ui/controls";
@@ -65,23 +66,35 @@ export function recordEntry(record: SearchRecord, project: string, projectLabel:
   };
 }
 
-// startEntry offers to start a work order the search found, when it is ready or claimed. It opens the work
-// order's page on the Start dialog, which says whether the work can start now.
-export function startEntry(record: SearchRecord, project: string, projectLabel: string): Entry | null {
-  const verb = record.state === "ready" ? "Start work" : record.state === "claimed" ? "Start lane" : "";
-  if (record.kind !== "work_order" || !verb) {
-    return null;
+// workEntries offers what a member can do to a work order the search found, as the server says its state allows:
+// start it, or recover it. Each opens the work order's page on the dialog of that action, which says what it
+// does before anything is sent. Nothing here reads the work order's state, because the server decides.
+export function workEntries(record: SearchRecord, project: string, projectLabel: string): Entry[] {
+  if (record.kind !== "work_order") {
+    return [];
   }
-  return {
-    key: `start:${record.id}`,
+  const name = record.title || record.id;
+  const offer = (key: string, title: string, slug: string, icon: IconName, keywords: string): Entry => ({
+    key: `${key}:${record.id}`,
     group: "Actions",
     id: record.id,
-    title: `${verb}: ${record.title || record.id}`,
-    icon: "play",
-    keywords: "claim run worker lane",
-    to: inProject(project, `/work-order?id=${encodeURIComponent(record.id)}&dialog=start`),
+    title: `${title}: ${name}`,
+    icon,
+    keywords,
+    to: inProject(project, `/work-order?id=${encodeURIComponent(record.id)}&dialog=${slug}`),
     meta: <span>{projectLabel}</span>,
-  };
+  });
+  const actions = record.actions ?? [];
+  const entries: Entry[] = [];
+  if (actions.includes("claim") || actions.includes("start_lane")) {
+    entries.push(offer("start", actions.includes("claim") ? "Start work" : "Start lane", "start", "play", "claim run worker lane"));
+  }
+  for (const action of recoverActions) {
+    if (actions.includes(action) && action !== "archive_lane") {
+      entries.push(offer(`action:${specs[action].slug}`, specs[action].label, specs[action].slug, specs[action].icon, "recover work"));
+    }
+  }
+  return entries;
 }
 
 type PaletteProps = {
@@ -132,7 +145,7 @@ export function Palette({ open, onClose, project, projectLabel, sources, onConve
         .then((found) => {
           if (current) {
             setRecords(found.records.map((record) => recordEntry(record, project, projectLabel, onConversation)).filter((entry): entry is Entry => entry !== null));
-            setOffered(found.records.map((record) => startEntry(record, project, projectLabel)).filter((entry): entry is Entry => entry !== null));
+            setOffered(found.records.flatMap((record) => workEntries(record, project, projectLabel)));
             setFailure("");
           }
         })

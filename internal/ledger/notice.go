@@ -43,6 +43,7 @@ var noticeTexts = map[string]string{
 	NoticeWork + "/stalled":       "A lane shows no progress.",
 	NoticeWork + "/long_parked":   "A lane has stayed parked for a long time.",
 	NoticeWork + "/worker_behind": "A worker must be upgraded to start a lane.",
+	NoticeWork + "/failed":        "Work failed, and it waits for a retry.",
 	NoticeWork + "/acceptance":    "Finished work waits for your word.",
 	NoticeWork + "/human_resume":  "A parked lane waits for you to resume it.",
 }

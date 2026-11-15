@@ -1,7 +1,9 @@
-import { useId } from "react";
+import { useId, useState } from "react";
 
-import type { NeedItem, NeedsYou, Standing } from "../api/types";
+import { readView } from "../api/client";
+import type { Allowance, FloorLane, NeedItem, NeedsYou, ShopFloor, Standing, WorkOrder } from "../api/types";
 import type { Live } from "../api/useView";
+import { useView } from "../api/useView";
 import { addressOf, go, ItemProject, Link } from "../app/route";
 import { ApprovalCard } from "../needs/ApprovalCard";
 import { ContractReviewCard } from "../needs/ContractReviewCard";
@@ -11,12 +13,13 @@ import { WorkCard } from "../needs/WorkCard";
 import { Ago, Lasted, Page, StampLine, useClock, ViewTime, words } from "../parts/parts";
 import { Verdicts } from "../parts/Verdicts";
 import { Icon } from "../ui/Icon";
-import { LinkTabs, TabPanel, Tabs } from "../ui/controls";
+import { Button, LinkTabs, TabPanel, Tabs } from "../ui/controls";
 import { Absent, Banner, ConditionChip, Digest, EmptyState, Fact, Facts, Freshness, freshnessOf, Id, LaneBadge, Panel, RecordChip, SkeletonRows, StateBadge, TableRegion, WorkBadge } from "../ui/display";
 import type { WorkGroup } from "./states";
 import { checkStates, workStates } from "./states";
 import { StartWork } from "./StartWork";
 import { WakeWords } from "./WakeWords";
+import { WorkActionDialog, WorkActions } from "./WorkActions";
 import type { WorkRow } from "./workIndex";
 import { groupOf, useWorkIndex } from "./workIndex";
 
@@ -60,6 +63,10 @@ function Under({ row }: { row: WorkRow }) {
     );
   }
   if (row.stuck) {
+    // Failed work says what its lane said of why, which its state does not.
+    if (row.stuck.reason === "failed" && row.stuck.detail) {
+      return <span className="cell-note mono">{row.stuck.detail}</span>;
+    }
     return <span className="cell-note">{row.stuck.work_order ? words(row.stuck.reason) : ""}</span>;
   }
   if (row.completed?.reason) {
@@ -329,10 +336,40 @@ function Decision({ item, after }: { item: NeedItem; after: () => Promise<void> 
   );
 }
 
+// Worktrees lists the lanes of a work order that ended and left a worktree, each with the action that asks its
+// worker to remove it. The server says which lanes those are, and the work order's allowance says a member may.
+function Worktrees({ order, allowance, lanes, after }: { order: WorkOrder; allowance?: Allowance; lanes: FloorLane[]; after: () => Promise<void> }) {
+  const [asking, setAsking] = useState<FloorLane | null>(null);
+  const archivable = lanes.filter((lane) => lane.archivable);
+  if (!allowance?.actions.includes("archive_lane") || archivable.length === 0) {
+    return null;
+  }
+  return (
+    <Panel title="Worktrees to remove" level={3}>
+      <ul className="criteria" aria-label="Worktrees to remove">
+        {archivable.map((lane) => (
+          <li key={lane.id} className="row-tight">
+            <Link to={addressOf("/lane", { id: lane.id })} className="id-link">
+              <Id value={lane.id} />
+            </Link>
+            <span className="subtle small">ended, generation {lane.generation}</span>
+            <Button small aria-label={`Archive the worktree of lane ${lane.id}`} onClick={() => setAsking(lane)}>
+              Archive the worktree
+            </Button>
+          </li>
+        ))}
+      </ul>
+      {asking ? <WorkActionDialog order={order} action="archive_lane" allowance={allowance} lane={asking} onClose={() => setAsking(null)} after={after} /> : null}
+    </Panel>
+  );
+}
+
 // WorkOrderPage is one work order: its header and lifecycle, tabs for its review, changes, checks,
 // lanes, and activity, and beside them the decision it waits on and its facts.
 export function WorkOrderPage({ live, id, tab, dialog, needs, after }: { live: Live; id: string; tab: string; dialog: string; needs: NeedsYou; after: () => Promise<void> }) {
   const { index, failure } = useWorkIndex(live);
+  // The lanes the floor holds, which say whose worktree may be removed.
+  const floor = useView<ShopFloor>(() => readView<ShopFloor>("shop-floor"), "work-order:floor", live);
   const now = useClock();
   const tabsId = useId();
   const row = index?.rows.find((found) => found.order.id === id);
@@ -365,10 +402,21 @@ export function WorkOrderPage({ live, id, tab, dialog, needs, after }: { live: L
   // Stuck work's own read says what can be done about it now; anything else it waits on is in Needs you.
   const need = row.stuck ? ({ kind: "work", id: row.stuck.id, since: row.stuck.since, work: row.stuck } as NeedItem) : needFor(needs, order.id);
   const contract = row.plan?.contracts.find((history) => history.id === order.contract_id);
+  const lanes = (floor.view?.lanes ?? []).filter((lane) => lane.work_order === order.id);
+  // The lane the Lanes tab describes: the one the work order runs, or else the last lane the floor holds of it.
+  const shown = row.lane ?? lanes[lanes.length - 1];
+  // A decision card beside the page offers some actions already, so the header leaves those to it.
+  const decided = need?.kind === "work" ? need.work.actions : [];
+  const closed = () => dialog && go(workAddress(order.id, chosen === "review" ? "" : chosen), { stay: true, replace: true });
   return (
     <Page
       crumbs={crumbs}
-      actions={<StartWork order={order} lane={row.lane} inView opened={dialog === "start"} onClosed={() => dialog && go(workAddress(order.id, chosen === "review" ? "" : chosen), { stay: true, replace: true })} after={after} />}
+      actions={
+        <>
+          <StartWork order={order} allowed={row.allowed} inView opened={dialog === "start"} onClosed={closed} after={after} />
+          <WorkActions order={order} allowance={row.allowed} lanes={lanes} omit={decided} opened={dialog} onClosed={closed} after={after} />
+        </>
+      }
       title={
         <>
           <span className="title-id">{order.id}</span> {order.title || ""}
@@ -448,22 +496,22 @@ export function WorkOrderPage({ live, id, tab, dialog, needs, after }: { live: L
                 )
               ) : null}
               {chosen === "lanes" ? (
-                row.lane ? (
-                  <Panel title={<>Lane {row.lane.id}</>} level={3} actions={<Link to={addressOf("/lane", { id: row.lane.id })}>Open lane</Link>}>
+                shown ? (
+                  <Panel title={<>Lane {shown.id}</>} level={3} actions={<Link to={addressOf("/lane", { id: shown.id })}>Open lane</Link>}>
                     <Facts>
                       <Fact name="State">
                         <span className="row-tight">
-                          <LaneBadge state={row.lane.actual_state} />
-                          {(row.lane.conditions ?? []).map((condition) => (
+                          <LaneBadge state={shown.actual_state} />
+                          {(shown.conditions ?? []).map((condition) => (
                             <ConditionChip key={condition} name={condition} />
                           ))}
                         </span>
                       </Fact>
-                      <Fact name="Generation">{row.lane.generation}</Fact>
+                      <Fact name="Generation">{shown.generation}</Fact>
                       <Fact name="Seen">
-                        <Freshness kind={freshnessOf(row.lane.freshness)} at={row.lane.as_of} source="the lane's worker" />
+                        <Freshness kind={freshnessOf(shown.freshness)} at={shown.as_of} source="the lane's worker" />
                       </Fact>
-                      <Fact name="Worker">{row.lane.worker_id ? <Id value={row.lane.worker_id} /> : <Absent>none yet</Absent>}</Fact>
+                      <Fact name="Worker">{shown.worker_id ? <Id value={shown.worker_id} /> : <Absent>none yet</Absent>}</Fact>
                       <Fact name="Estimated cost">
                         <Absent>unavailable</Absent>
                       </Fact>
@@ -473,6 +521,7 @@ export function WorkOrderPage({ live, id, tab, dialog, needs, after }: { live: L
                   <EmptyState icon="lanes" title="No lane has run this work yet" />
                 )
               ) : null}
+              {chosen === "lanes" ? <Worktrees order={order} allowance={row.allowed} lanes={lanes} after={after} /> : null}
               {chosen === "activity" ? (
                 <EmptyState icon="history" title="The audit is not served to this page yet">
                   {row.since ? (

@@ -113,6 +113,11 @@ async function answer(route: Route): Promise<void> {
   if (path === "/v1/sources") {
     return json(JSON.stringify({ sources: [] }));
   }
+  if (/^\/v1\/workers\/[^/]+\/orchestrator$/.test(path)) {
+    return json(
+      JSON.stringify({ id: "orchestrator-worker-a", worker_id: "worker-a", desired_state: "running", run: 4, resets: 2, actual_state: "tripped", current_generation: 3, conditions: ["day_capped"], reported_at: 1790000000000 }),
+    );
+  }
   if (path === "/v1/conversation-targets") {
     return json(talkTargets);
   }
@@ -138,7 +143,8 @@ async function answer(route: Route): Promise<void> {
 const views = [
   "/needs-you",
   "/needs-you?item=questions%3Agenerated-7",
-  "/needs-you?item=plan_approval%3Agenerated-11",
+  "/needs-you?item=plan_approval%3Agenerated-13",
+  "/needs-you?item=work%3Awo-failed",
   "/needs-you?kind=cards&item=confirm%3Agenerated-1",
   "/needs-you?kind=cards&item=confirm%3Agenerated-2",
   "/projects/default/roadmap",
@@ -162,6 +168,9 @@ const views = [
   "/projects/default/work-order?id=wo-accept",
   "/projects/default/work-order?id=generated-28",
   "/projects/default/work-order?id=generated-26",
+  "/projects/default/work-order?id=wo-failed",
+  "/projects/default/work-order?id=wo-running",
+  "/projects/default/work-order?id=wo-done&tab=lanes",
   "/projects/default/floor",
   "/projects/default/lane?id=lane-wo-running",
   "/projects/default/measures",
@@ -496,6 +505,101 @@ describe.each(Object.entries(sizes))("at %s width", (size, viewport) => {
         expect(found.map((line) => `${size} ${theme} ${line}`)).toEqual([]);
       },
       120_000,
+    );
+
+    it(
+      "the recovery actions of a work order, their menu and each dialog, meet WCAG 2.2 A and AA",
+      async () => {
+        const context = await browser.newContext({ viewport, colorScheme: theme, reducedMotion: "reduce" });
+        await context.route(/\/v1\//, answer);
+        const page = await context.newPage();
+        const found: string[] = [];
+        // A change the test does not serve is refused, which each dialog shows at its foot.
+        const settle = async () => {
+          await page.mouse.move(0, 0);
+          await page.waitForTimeout(600);
+        };
+        // Work that runs: its menu holds Cancel, whose dialog asks why and sends nothing until a person says.
+        await page.goto(`${base}/projects/default/work-order?id=wo-running`);
+        await ready(page);
+        await page.getByRole("button", { name: "More actions" }).click();
+        await page.getByRole("menu", { name: "More actions" }).waitFor();
+        found.push(...(await audit(page)).map((violation) => `work actions menu ${violation}`));
+        await page.getByRole("menuitem", { name: "Cancel this work…" }).click();
+        const cancel = page.getByRole("dialog", { name: "Cancel this work: Write the docs" });
+        await cancel.waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `cancel dialog ${violation}`));
+        await cancel.getByRole("textbox", { name: "Reason (required)" }).fill("The plan changed.");
+        await cancel.getByRole("button", { name: "Cancel this work" }).click();
+        await cancel.getByRole("alert").waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `cancel dialog with a refusal ${violation}`));
+        await page.keyboard.press("Escape");
+        // Failed work: the card asks for a retry, with the reason form open.
+        await page.goto(`${base}/projects/default/work-order?id=wo-failed`);
+        await ready(page);
+        const card = page.getByRole("article", { name: /Try the impossible/ });
+        await card.getByRole("button", { name: "Retry with an extra attempt" }).click();
+        await card.getByRole("textbox", { name: "Why (required)" }).waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `failed work card asking why ${violation}`));
+        // Work a worker holds: giving the claim back names the worker and asks nothing else.
+        const plans = JSON.parse(goldens.plans ?? "{}") as { plans: { work_orders: { id: string; state: string; claim_id?: string; fence?: number; lease_worker?: string }[] }[]; work_actions: Record<string, unknown> };
+        for (const order of plans.plans.flatMap((plan) => plan.work_orders)) {
+          if (order.id === "generated-28") {
+            Object.assign(order, { state: "claimed", claim_id: "claim-held", fence: 3, lease_worker: "worker-a" });
+            plans.work_actions["generated-28"] = { actions: ["start_lane", "release", "cancel"] };
+          }
+        }
+        await page.route(/\/views\/plans$/, (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(plans) }));
+        await page.goto(`${base}/projects/default/work-order?id=generated-28`);
+        await ready(page);
+        await page.getByRole("button", { name: "More actions" }).click();
+        await page.getByRole("menuitem", { name: "Release the claim…" }).click();
+        const release = page.getByRole("dialog", { name: "Release the claim: Write the guide" });
+        await release.getByText("holds the claim.").waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `release dialog ${violation}`));
+        await page.keyboard.press("Escape");
+        await page.unroute(/\/views\/plans$/);
+        // A worktree: the worker's refusal comes first, and a second press may force it.
+        await page.goto(`${base}/projects/default/work-order?id=wo-done&tab=lanes`);
+        await ready(page);
+        await page.getByRole("button", { name: "Archive the worktree of lane lane-wo-done" }).click();
+        const archive = page.getByRole("dialog", { name: "Archive the worktree: lane lane-wo-done" });
+        await archive.waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `archive dialog ${violation}`));
+        await page.route(/\/lane-archive$/, (route) =>
+          route.fulfill({ status: 409, contentType: "application/json", body: JSON.stringify({ error: { code: "unpushed_work", message: "the worktree holds work no remote has: lane lane-wo-done" } }) }),
+        );
+        await archive.getByRole("button", { name: "Archive the worktree" }).click();
+        await archive.getByRole("button", { name: "Archive anyway" }).waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `archive dialog with the worker's refusal ${violation}`));
+        await page.keyboard.press("Escape");
+        // A lane on the floor offers the same cancel as its work order's page.
+        await page.goto(`${base}/projects/default/floor`);
+        await ready(page);
+        await page.getByRole("button", { name: "Actions for lane lane-wo-running" }).click();
+        await page.getByRole("menuitem", { name: "Cancel this work…" }).click();
+        await page.getByRole("dialog", { name: "Cancel this work: Write the docs" }).waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `cancel dialog from a lane ${violation}`));
+        await page.keyboard.press("Escape");
+        // A worker's orchestrator, read as the ledger holds it.
+        await page.goto(`${base}/workers`);
+        await ready(page);
+        await page.getByRole("button", { name: /^Details of the orchestrator on / }).first().click();
+        const details = page.getByRole("dialog", { name: /^Orchestrator on / });
+        await details.getByText("Breaker resets").waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `orchestrator details ${violation}`));
+        await context.close();
+        expect(found.map((line) => `${size} ${theme} ${line}`)).toEqual([]);
+      },
+      180_000,
     );
 
     it(

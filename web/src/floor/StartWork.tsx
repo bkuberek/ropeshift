@@ -5,7 +5,7 @@ import { useChange } from "../admin/parts";
 import { readAutonomy, readWorkers } from "../api/admin";
 import { readView } from "../api/client";
 import { claimAndStart, startClaimed } from "../api/runWork";
-import type { Lane, ShopFloor, WorkOrder } from "../api/types";
+import type { Allowance, ShopFloor, WorkOrder } from "../api/types";
 import { usePageActions } from "../app/pageActions";
 import type { Entry } from "../app/ranking";
 import { Button } from "../ui/controls";
@@ -15,21 +15,21 @@ import { Dialog, useToast } from "../ui/overlays";
 import { counting, workStates } from "./states";
 
 // What a member can do to move a work order toward a lane: claim it for a worker and start its lane, start
-// the lane of work already claimed, or nothing yet because the work is not ready. The work order's state
-// says which, as the domain's state machine does: a lane runs on claimed work, and only ready work is
-// claimed.
+// the lane of work already claimed, or nothing yet because the work is not ready. The server says which, from
+// the state machine: a lane runs on claimed work, and only ready work is claimed.
 export type Start = { kind: "claim" } | { kind: "lane" } | { kind: "wait"; why: string };
 
-// beforeReady are the states a work order passes through before it is ready.
+// beforeReady are the states a work order passes through before it is ready, which a person is told of when
+// the work cannot start.
 const beforeReady = new Set(["intake", "planning", "contract_review"]);
 
-// startOf says what starting a work order does now, or nothing for work that is running or ended. A claimed
-// work order that has a lane has started it.
-export function startOf(order: WorkOrder, lane: Lane | undefined): Start | null {
-  if (order.state === "ready") {
+// startOf says what starting a work order does now, or nothing for work that is running or ended. The
+// allowance the plans view holds of the work order says whether it may be claimed, or its claim may start a lane.
+export function startOf(order: WorkOrder, allowed: Allowance | undefined): Start | null {
+  if (allowed?.actions.includes("claim")) {
     return { kind: "claim" };
   }
-  if (order.state === "claimed" && !lane) {
+  if (allowed?.actions.includes("start_lane")) {
     return { kind: "lane" };
   }
   if (beforeReady.has(order.state)) {
@@ -229,7 +229,7 @@ function StartDialog({ order, kind, onClose, after }: { order: WorkOrder; kind: 
 // which lists the same action in the command palette. opened opens the dialog, as a link into the page does.
 export function StartWork({
   order,
-  lane,
+  allowed,
   small = false,
   inView = false,
   opened = false,
@@ -237,14 +237,14 @@ export function StartWork({
   after,
 }: {
   order: WorkOrder;
-  lane?: Lane;
+  allowed?: Allowance;
   small?: boolean;
   inView?: boolean;
   opened?: boolean;
   onClosed?: () => void;
   after?: () => Promise<void>;
 }) {
-  const start = startOf(order, lane);
+  const start = startOf(order, allowed);
   const [open, setOpen] = useState(opened);
   const reason = useId();
   useEffect(() => {

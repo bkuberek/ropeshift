@@ -2,24 +2,39 @@
   "as_of": 1790000964001,
   "records": [
     {
+      "actions": [
+        "cancel"
+      ],
       "id": "wo-effect",
       "kind": "work_order",
       "state": "running",
       "title": "Add the retry budget"
     },
     {
+      "actions": [
+        "send_back",
+        "cancel"
+      ],
       "id": "generated-1",
       "kind": "work_order",
       "state": "contract_review",
       "title": "Build the approval page"
     },
     {
+      "actions": [
+        "send_back",
+        "cancel"
+      ],
       "id": "generated-2",
       "kind": "work_order",
       "state": "contract_review",
       "title": "Build the planning core"
     },
     {
+      "actions": [
+        "send_back",
+        "cancel"
+      ],
       "id": "wo-review",
       "kind": "work_order",
       "state": "contract_review",
@@ -32,42 +47,67 @@
       "title": "Drop the old plan"
     },
     {
+      "actions": [
+        "cancel"
+      ],
       "id": "wo-tripped",
       "kind": "work_order",
       "state": "running",
       "title": "Fix the flaky test"
     },
     {
+      "actions": [
+        "resolve",
+        "replan",
+        "cancel",
+        "archive_lane"
+      ],
       "id": "wo-blocked",
       "kind": "work_order",
       "state": "blocked",
       "title": "Move the archive"
     },
     {
+      "actions": [
+        "cancel"
+      ],
       "id": "wo-loose",
       "kind": "work_order",
       "state": "intake",
       "title": "Not planned yet"
     },
     {
+      "actions": [
+        "cancel"
+      ],
       "id": "wo-stalled",
       "kind": "work_order",
       "state": "running",
       "title": "Read the logs"
     },
     {
+      "actions": [
+        "claim",
+        "cancel"
+      ],
       "id": "review-1",
       "kind": "work_order",
       "state": "ready",
       "title": "Review Write the docs"
     },
     {
+      "actions": [
+        "archive_lane"
+      ],
       "id": "generated-3",
       "kind": "work_order",
       "state": "done",
       "title": "Review: Ship the first cut"
     },
     {
+      "actions": [
+        "archive_lane"
+      ],
       "id": "generated-4",
       "kind": "work_order",
       "state": "done",
@@ -80,60 +120,95 @@
       "title": "Review: Write the API client"
     },
     {
+      "actions": [
+        "reassign",
+        "cancel"
+      ],
       "id": "wo-lapsed",
       "kind": "work_order",
       "state": "lapsed",
       "title": "Rotate the keys"
     },
     {
+      "actions": [
+        "archive_lane"
+      ],
       "id": "wo-done",
       "kind": "work_order",
       "state": "done",
       "title": "Ship the first cut"
     },
     {
+      "actions": [
+        "send_back",
+        "cancel"
+      ],
       "id": "generated-6",
       "kind": "work_order",
       "state": "contract_review",
       "title": "Show the critical path"
     },
     {
+      "actions": [
+        "cancel"
+      ],
       "id": "wo-approval",
       "kind": "work_order",
       "state": "running",
       "title": "Tag the release"
     },
     {
+      "actions": [
+        "cancel",
+        "archive_lane"
+      ],
       "id": "wo-accept",
       "kind": "work_order",
       "state": "acceptance",
       "title": "Trim the log"
     },
     {
+      "actions": [
+        "retry",
+        "archive_lane"
+      ],
       "id": "wo-failed",
       "kind": "work_order",
       "state": "failed",
       "title": "Try the impossible"
     },
     {
+      "actions": [
+        "cancel"
+      ],
       "id": "wo-parked",
       "kind": "work_order",
       "state": "parked",
       "title": "Wait for the check"
     },
     {
+      "actions": [
+        "archive_lane"
+      ],
       "id": "generated-7",
       "kind": "work_order",
       "state": "done",
       "title": "Write the API client"
     },
     {
+      "actions": [
+        "cancel"
+      ],
       "id": "wo-running",
       "kind": "work_order",
       "state": "running",
       "title": "Write the docs"
     },
     {
+      "actions": [
+        "claim",
+        "cancel"
+      ],
       "id": "generated-8",
       "kind": "work_order",
       "state": "ready",

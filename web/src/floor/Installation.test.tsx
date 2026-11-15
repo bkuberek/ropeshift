@@ -1,9 +1,10 @@
 import { screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
-import type { ResourceReport, ShopFloor } from "../api/types";
+import type { Orchestrator, ResourceReport, ShopFloor } from "../api/types";
 import { openPage } from "../opening";
-import { golden, serveViews } from "../testing";
+import { golden, refusal, serveViews } from "../testing";
 import { bytes } from "./resources";
 
 const gib = 1024 ** 3;
@@ -142,6 +143,47 @@ describe("the Workers page", () => {
       expect(cell(row, column)?.textContent).toBe("not reported");
     }
     expect(cell(await sessionRow("lane-wo-running"), "CPU · Mem")?.textContent).toBe("not reported");
+  });
+});
+
+describe("a worker's orchestrator", () => {
+  const row: Orchestrator = {
+    id: "orchestrator-worker-a",
+    worker_id: "worker-a",
+    desired_state: "running",
+    run: 4,
+    resets: 2,
+    actual_state: "tripped",
+    current_generation: 3,
+    conditions: ["day_capped"],
+    reported_at: 1_790_000_000_000,
+  };
+
+  // `orchestrator show` reads one worker's orchestrator as the ledger holds it, and the Workers page says the same.
+  it("shows what the ledger holds of it, which the machines table has no room for", async () => {
+    const sent = serveViews((call) => (call.path === "/v1/workers/worker-a/orchestrator" ? { status: 200, body: row } : undefined));
+    openPage("/workers");
+    await machineRow();
+    await userEvent.click(await screen.findByRole("button", { name: "Details of the orchestrator on solo" }));
+    const box = await screen.findByRole("dialog", { name: "Orchestrator on solo" });
+    await waitFor(() => expect(within(box).getByText("Breaker resets")).toBeTruthy());
+    const fact = (name: string) => within(box).getByText(name).closest("div")?.textContent ?? "";
+    expect(fact("Wanted")).toContain("Running");
+    expect(fact("Starts")).toContain("4");
+    expect(fact("Breaker resets")).toContain("2");
+    expect(fact("Generation")).toContain("3");
+    expect(fact("Conditions")).toContain("Day capped");
+    expect(sent.some((call) => call.method === "GET" && call.path === "/v1/workers/worker-a/orchestrator")).toBe(true);
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Orchestrator on solo" })).toBeNull());
+  });
+
+  it("says what the server refused, in its words", async () => {
+    serveViews((call) => (call.path === "/v1/workers/worker-a/orchestrator" ? refusal(404, "not_found", "no orchestrator for worker-a") : undefined));
+    openPage("/workers");
+    await machineRow();
+    await userEvent.click(await screen.findByRole("button", { name: "Details of the orchestrator on solo" }));
+    expect((await within(await screen.findByRole("dialog", { name: "Orchestrator on solo" })).findByRole("alert")).textContent).toBe("no orchestrator for worker-a");
   });
 });
 

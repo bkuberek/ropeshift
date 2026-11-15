@@ -477,21 +477,83 @@
       }
     },
     {
-      "id": "generated-11",
+      "id": "wo-failed",
+      "kind": "work",
+      "since": 1790000904001,
+      "work": {
+        "actions": [
+          "retry"
+        ],
+        "detail": "It gave up on <img src=x onerror=alert(1)><script>alert(2)</script>",
+        "extra_attempt": true,
+        "lane": {
+          "actual_state": "ended",
+          "artifacts": [
+            {
+              "created_at": 1790000904001,
+              "digest": "def456",
+              "fence": 2,
+              "id": "generated-11",
+              "kind": "branch",
+              "lane_id": "lane-wo-failed",
+              "uri": "lane/lane-wo-failed"
+            }
+          ],
+          "as_of": 1790000904001,
+          "freshness": "observed",
+          "generation": 1,
+          "generations": [
+            {
+              "end_reason": "failed",
+              "ended_at": 1790000904001,
+              "lane_id": "lane-wo-failed",
+              "number": 1,
+              "start_reason": "initial",
+              "started_at": 1790000904001
+            }
+          ],
+          "id": "lane-wo-failed",
+          "ledger_reach": "unknown",
+          "liveness": "dead",
+          "model_reach": "unknown",
+          "reported_by_epoch": 1,
+          "work_order": "wo-failed",
+          "worker_id": "worker-a"
+        },
+        "reason": "failed",
+        "work_order": {
+          "attempts": 1,
+          "contract_id": "generated-12",
+          "contract_version": 1,
+          "fence": 2,
+          "id": "wo-failed",
+          "kind": "change",
+          "max_attempts": 1,
+          "repository_id": "repository-1",
+          "rev": 1,
+          "reviewed_by": "member-1",
+          "size": "unknown",
+          "state": "failed",
+          "title": "Try the impossible"
+        }
+      }
+    },
+    {
+      "id": "generated-13",
       "kind": "plan_approval",
       "plan_approval": {
         "approval": {
           "detail": "{\"title\":\"The factory floor\",\"ref\":\"factory\",\"counts\":{\"architecture\":1,\"contract\":4,\"milestone\":3,\"requirements\":1,\"spec\":1},\"decisions\":2,\"difference\":{\"base\":5,\"added\":[\"architecture:factory\"],\"changed\":[\"contract:core\",\"contract:ui\",\"plan:factory\",\"spec:factory-api\"],\"contracts\":[{\"ref\":\"contract:core\",\"criteria\":{\"added\":[\"c2\"],\"changed\":[\"c1\"]},\"work_orders\":{}},{\"ref\":\"contract:ui\",\"criteria\":{},\"work_orders\":{\"added\":[\"ui-2\"]}}]},\"source\":\"plans/factory/plan.md@16\"}",
           "generation": 0,
-          "id": "generated-11",
+          "id": "generated-13",
           "kind": "plan",
           "lane_id": "",
-          "plan_id": "generated-12",
+          "plan_id": "generated-14",
           "plan_version": 6,
           "raised_at": 1790000964001,
           "requested_by": "system:intake",
           "state": "pending",
-          "subject": "generated-12@6",
+          "subject": "generated-14@6",
           "subject_digest": "sha256:e86a2a838f6bb9b66bb8817e866d11764a989566982a6cb03a69f0cce3d156a3",
           "summary": "Plan The factory floor, version 6: 1 architecture, 4 contract, 3 milestone, 1 requirements, 1 spec, 2 draft decisions",
           "work_order_id": ""
@@ -562,10 +624,10 @@
     {
       "contract_review": {
         "contract": "Document the retry budget",
-        "plan": "generated-13",
+        "plan": "generated-15",
         "version": 1,
         "work_order": {
-          "contract_id": "generated-14",
+          "contract_id": "generated-16",
           "contract_version": 1,
           "id": "wo-review",
           "kind": "change",
