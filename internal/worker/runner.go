@@ -645,6 +645,14 @@ func (r *laneRun) session(ctx context.Context) workorders.Report {
 	if errors.Is(err, ErrHookFailed) {
 		return r.failStart(workorders.ReasonHookFailed, err)
 	}
+	// The outcome says which policy refused the start and what the layer raised, so every surface that reads
+	// it can say why the lane never ran.
+	var refused *lanes.DelegatePolicyRefusal
+	if errors.As(err, &refused) {
+		report := r.failStart(workorders.ReasonDelegatePolicy, err)
+		report.Detail = refused.Detail()
+		return report
+	}
 	if err != nil {
 		return r.failStart(workorders.ReasonSpawnFailed, err)
 	}

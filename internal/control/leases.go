@@ -843,7 +843,7 @@ func endLane(tx ports.WriteTx, holder workorders.Holder, result workorders.LaneR
 	}
 	event, err := workorders.ChangeEvent(workorders.EventType(ending.Trigger), holder.WorkOrder, workorders.Change{
 		Trigger: ending.Trigger, Fence: current.Fence + 1, ClaimID: holder.ClaimID, Lane: holder.Lane,
-		Generation: holder.Generation, Outcome: result.Outcome, Reason: result.Reason, Attempts: ending.Attempts,
+		Generation: holder.Generation, Outcome: result.Outcome, Reason: result.Reason, Detail: result.Detail, Attempts: ending.Attempts,
 		Payload: payload,
 	}, actor)
 	if err != nil {

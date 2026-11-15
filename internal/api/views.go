@@ -427,6 +427,9 @@ type CompletedWork struct {
 	Standing  workorders.AcceptanceView `json:"standing"`
 	Since     int64                     `json:"since"`
 	Reason    string                    `json:"reason,omitempty"`
+	// Detail is what the lane's outcome said of its reason, such as the delegate policy version that refused
+	// the lane's start.
+	Detail string `json:"detail,omitempty"`
 }
 
 // Completed is work that ended, by any way a work order can end, the newest end first. Work that

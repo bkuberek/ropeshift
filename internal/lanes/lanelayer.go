@@ -108,17 +108,35 @@ func CheckDelegatedLayer(was, runs AgentSettings, delegated *ledger.DelegatedLay
 	if delegated == nil || !delegated.Restricted {
 		return nil
 	}
-	refuse := func(setting, from, to string) error {
-		return fmt.Errorf("%w: delegate policy version %d keeps a delegate's lane start from raising %s from %q to %q",
-			ErrBadProfile, delegated.PolicyVersion, setting, from, to)
-	}
 	if RaisesModel(was, runs) {
-		return refuse("agent.model", was.Model, runs.Model)
+		return &DelegatePolicyRefusal{PolicyVersion: delegated.PolicyVersion, Setting: "agent.model", From: was.Model, To: runs.Model}
 	}
 	if RaisesEffort(was.Effort, runs.Effort) {
-		return refuse("agent.effort", was.Effort, runs.Effort)
+		return &DelegatePolicyRefusal{PolicyVersion: delegated.PolicyVersion, Setting: "agent.effort", From: was.Effort, To: runs.Effort}
 	}
 	return nil
+}
+
+// DelegatePolicyRefusal is a bad profile: a lane's own layer a delegate sent, which raises the setting from what
+// the lane would run without it, under the version of the delegate policy that keeps it from doing so
+// (FR-AUTH-16). The worker records it as the lane's reason, with its detail.
+type DelegatePolicyRefusal struct {
+	PolicyVersion     int64
+	Setting, From, To string
+}
+
+// Error names the refusal as a bad profile.
+func (e *DelegatePolicyRefusal) Error() string {
+	return fmt.Sprintf("%v: %s", ErrBadProfile, e.Detail())
+}
+
+// Unwrap makes the refusal a bad profile.
+func (e *DelegatePolicyRefusal) Unwrap() error { return ErrBadProfile }
+
+// Detail names the version and what the layer raised, as a lane's outcome states it.
+func (e *DelegatePolicyRefusal) Detail() string {
+	return fmt.Sprintf("delegate policy version %d keeps a delegate's lane start from raising %s from %q to %q",
+		e.PolicyVersion, e.Setting, e.From, e.To)
 }
 
 // RaisesModel says agent runs a model of a higher capability class than below's, by the user's

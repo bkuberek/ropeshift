@@ -640,6 +640,25 @@ func TestCompletedHoldsOutcomesWithArtifacts(t *testing.T) {
 	}
 }
 
+// A lane whose start a restricting delegate policy refused ends with the policy's own reason, and the completed
+// view carries what the outcome said of it, which names the version (FR-AUTH-16).
+func TestCompletedSaysWhatAnOutcomeSaidOfItsReason(t *testing.T) {
+	t.Parallel()
+	d, w, _ := aWorld(t)
+	const detail = `delegate policy version 2 keeps a delegate's lane start from raising agent.effort from "medium" to "max"`
+	w.Running("wo-refused", "Raise the effort").EndSaying(workorders.OutcomeFailed, workorders.ReasonDelegatePolicy, detail)
+	for _, item := range readView[api.Completed](t, d, api.ViewCompleted, "").Items {
+		if item.WorkOrder.ID != "wo-refused" {
+			continue
+		}
+		if item.Reason != workorders.ReasonDelegatePolicy || item.Detail != detail {
+			t.Errorf("the refused work says %q: %q", item.Reason, item.Detail)
+		}
+		return
+	}
+	t.Error("the refused work is not listed")
+}
+
 // Work that ended is outcomes to a person, whichever way it ended, and each says why when it can.
 func TestCompletedHoldsEveryWayWorkEnds(t *testing.T) {
 	t.Parallel()

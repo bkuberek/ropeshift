@@ -38,6 +38,10 @@ const (
 	// ReasonNoInteractiveMode says a planning lane did not start because this machine cannot run it
 	// where a person can attach, such as one with no tmux, and it never falls back to headless.
 	ReasonNoInteractiveMode = "no_interactive_mode"
+	// ReasonDelegatePolicy says a lane did not start because the delegate policy its claim recorded keeps the
+	// delegate that sent its own profile layer from raising the model or the effort it would run (FR-AUTH-16).
+	// The report's detail names the version and what the layer raised.
+	ReasonDelegatePolicy = "delegate_policy"
 )
 
 // CheckResult is one check a lane reports. Criterion names what it speaks for, and a check
@@ -50,8 +54,11 @@ type CheckResult struct {
 
 // Report is a lane's outcome, with its evidence.
 type Report struct {
-	Outcome   Outcome       `json:"outcome"`
-	Reason    string        `json:"reason,omitempty"`
+	Outcome Outcome `json:"outcome"`
+	Reason  string  `json:"reason,omitempty"`
+	// Detail is what the worker says of a reason it recorded, such as the delegate policy version that refused
+	// a lane's start. Empty says nothing more than the reason.
+	Detail    string        `json:"detail,omitempty"`
 	Artifacts []string      `json:"artifacts,omitempty"`
 	Checks    []CheckResult `json:"checks,omitempty"`
 	// Verdicts are a review lane's judgment, one per criterion of the contract it read. Another lane

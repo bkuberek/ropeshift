@@ -514,7 +514,7 @@ export type Standing = {
   integrations?: IntegrationRecord[];
 };
 
-export type CompletedWork = { work_order: WorkOrder; standing: Standing; since: number; reason?: string };
+export type CompletedWork = { work_order: WorkOrder; standing: Standing; since: number; reason?: string; detail?: string };
 
 export type Completed = Stamp & { items: CompletedWork[] };
 

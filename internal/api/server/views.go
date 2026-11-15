@@ -132,11 +132,11 @@ func edgesInto(state workorders.State) map[string]bool {
 }
 
 // arrivalReason reads what was said when a work order reached the state it stands in, which is where
-// a lane says why it stopped.
-func arrivalReason(tx ports.ReadTx, order workorders.WorkOrder) (string, error) {
+// a lane says why it stopped, and what its outcome said of that reason.
+func arrivalReason(tx ports.ReadTx, order workorders.WorkOrder) (string, string, error) {
 	events, err := tx.EventsAbout(ledger.Subject{Kind: workorders.SubjectKind, ID: order.ID})
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	into := edgesInto(order.State)
 	for i := len(events) - 1; i >= 0; i-- {
@@ -145,11 +145,11 @@ func arrivalReason(tx ports.ReadTx, order workorders.WorkOrder) (string, error) 
 		}
 		var change workorders.Change
 		if err := json.Unmarshal(events[i].Data, &change); err != nil {
-			return "", err
+			return "", "", err
 		}
-		return change.Reason, nil
+		return change.Reason, change.Detail, nil
 	}
-	return "", nil
+	return "", "", nil
 }
 
 // wakesOf groups the open wakes by lane.
@@ -213,7 +213,7 @@ func (h *handler) stuck(tx ports.ReadTx, f floor, wakes map[string][]parking.Wak
 			need.Reason, need.Actions = api.ReasonLapsed, []string{api.ActReassign, api.ActCancel}
 		case workorders.Blocked:
 			need.Reason, need.Actions = api.ReasonBlocked, []string{api.ActResolve, api.ActReplan, api.ActCancel}
-			if need.Detail, err = arrivalReason(tx, *order); err != nil {
+			if need.Detail, _, err = arrivalReason(tx, *order); err != nil {
 				return nil, err
 			}
 		default:
@@ -1135,11 +1135,11 @@ func (h *handler) readCompleted(tx ports.ReadTx, _ *http.Request, stamp api.Stam
 		if err != nil {
 			return nil, err
 		}
-		reason, err := arrivalReason(tx, order)
+		reason, detail, err := arrivalReason(tx, order)
 		if err != nil {
 			return nil, err
 		}
-		view.Items = append(view.Items, api.CompletedWork{WorkOrder: order, Standing: standing, Since: since, Reason: reason})
+		view.Items = append(view.Items, api.CompletedWork{WorkOrder: order, Standing: standing, Since: since, Reason: reason, Detail: detail})
 	}
 	slices.SortStableFunc(view.Items, func(a, b api.CompletedWork) int {
 		return cmp.Or(cmp.Compare(b.Since, a.Since), cmp.Compare(a.WorkOrder.ID, b.WorkOrder.ID))

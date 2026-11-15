@@ -62,7 +62,8 @@ function Under({ row }: { row: WorkRow }) {
     return <span className="cell-note">{row.stuck.work_order ? words(row.stuck.reason) : ""}</span>;
   }
   if (row.completed?.reason) {
-    return <span className="cell-note mono">{row.completed.reason}</span>;
+    const { reason, detail } = row.completed;
+    return <span className="cell-note mono">{detail ? `${reason}: ${detail}` : reason}</span>;
   }
   return null;
 }
