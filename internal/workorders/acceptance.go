@@ -147,12 +147,26 @@ func strongest(a, b Need) Need {
 	return NeedNothing
 }
 
-// Verified says an attempt's every criterion passed on a check the lane did not write, no check failed, no
-// verdict that counts for the attempt failed or left a criterion the review could not judge, and every check
-// the base branch requires is green on the pull request the work lands through, when it lands through one.
-// It is the only acceptance a delegate policy may leave without a card (ADR-0024).
-func Verified(assessment Assessment, verdicts []Verdict, pullRequest []ledger.PullRequestCheck) bool {
-	if assessment.Needs != NeedNothing || len(assessment.Failed) != 0 {
+// Ruled says the review of a work order's current attempt has ruled on it: no review of that attempt is still
+// open, and an attempt a review judges has verdicts that count for it. A change or a rework that completes at a
+// commit opens a review of that commit, so until the review rules, no criterion it judges has passed, whatever
+// the checks say. reviews are the work order's reviews, commit is the commit the attempt left, and verdicts
+// are the ones that count for the attempt.
+func Ruled(w WorkOrder, commit string, reviews []WorkOrder, verdicts []Verdict) bool {
+	for _, review := range reviews {
+		if review.OpenReview() && review.ReviewsFence == w.Fence {
+			return false
+		}
+	}
+	return !Reviewed(w.Kind) || commit == "" || len(verdicts) != 0
+}
+
+// Verified says an attempt's review has ruled (Ruled), every criterion passed on a check the lane did not
+// write, no check failed, no verdict that counts for the attempt failed or left a criterion the review could
+// not judge, and every check the base branch requires is green on the pull request the work lands through,
+// when it lands through one. It is the only acceptance a delegate policy may leave without a card (ADR-0024).
+func Verified(assessment Assessment, ruled bool, verdicts []Verdict, pullRequest []ledger.PullRequestCheck) bool {
+	if !ruled || assessment.Needs != NeedNothing || len(assessment.Failed) != 0 {
 		return false
 	}
 	if outcome := ReviewOutcomeOf(verdicts); outcome != "" && outcome != ReviewPass {
@@ -201,15 +215,6 @@ type AcceptanceView struct {
 	// Integrations are the approvals of this work's reviewed commits for merge, and the merges that followed
 	// them, oldest first. While the work is `integrating`, Why says what its merge waits on.
 	Integrations []ledger.IntegrationRecord `json:"integrations,omitempty"`
-}
-
-// Verified says the current attempt is verified work, as Verified reads it.
-func (v AcceptanceView) Verified() bool {
-	var checks []ledger.PullRequestCheck
-	if v.PullRequest != nil {
-		checks = v.PullRequest.Checks
-	}
-	return Verified(v.Assessment, v.Verdicts, checks)
 }
 
 // FailedVerdict says a verdict that counts for the current attempt failed.

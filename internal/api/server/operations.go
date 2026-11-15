@@ -917,15 +917,15 @@ func retryOperation(h *handler, r *http.Request, _ []byte) ([]string, bool, erro
 }
 
 // acceptOperation reads the class of an acceptance from the work as it stands when the call comes: work whose
-// every criterion passed on a check the lane did not write, with no verdict of its attempt failed or unjudged
-// and every check its base requires green, is the acceptance a delegate policy may exempt, and any other is one
-// that asks.
+// review has ruled that every criterion passed, on a check the lane did not write, with no verdict of its
+// attempt failed or unjudged and every check its base requires green, is the acceptance a delegate policy may
+// exempt, and any other is one that asks. It reads what the use case holds a delegate's acceptance to.
 func acceptOperation(h *handler, r *http.Request, _ []byte) ([]string, bool, error) {
-	view, err := h.accepting.Standing(r.Context(), h.Scope, r.PathValue("id"))
+	verified, err := h.accepting.Verified(r.Context(), h.Scope, r.PathValue("id"))
 	if err != nil {
 		return nil, false, err
 	}
-	if view.Verified() {
+	if verified {
 		return []string{authority.OpWorkOrderAccept}, false, nil
 	}
 	return []string{authority.OpWorkOrderAcceptUnverified}, false, nil

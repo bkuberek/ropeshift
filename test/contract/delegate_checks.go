@@ -33,7 +33,7 @@ var DelegateChecks = []Check{
 	{"DL10", "a card a crash left running past its bound fails, naming why, and a younger one keeps running", checkInterruptedCards},
 	{"DL11", "a delegate holds at most a bounded number of open cards in a project", checkOpenCardLimit},
 	{"DL12", "past every gate, a delegate never adds an attempt to failed work, and no delegate policy lets it", checkDelegateRetryBounds},
-	{"DL13", "past every gate, a delegate accepts only work every check verified, and sends work to rework only after a verdict of its attempt failed", checkDelegateAcceptanceBounds},
+	{"DL13", "past every gate, a delegate accepts only work its review ruled on and every check verified, and sends work to rework only after a verdict of its attempt failed", checkDelegateAcceptanceBounds},
 	{"DL14", "past every gate, a delegate passes no review, and its acceptance of a contract review it started passes none of the work it read", checkDelegateReviewBounds},
 }
 
@@ -663,16 +663,65 @@ func checkDelegateAcceptanceBounds(r *Rig) error {
 	if err := r.stateIs(s, pending, workorders.Acceptance); err != nil {
 		return err
 	}
-	head = r.ID("commit")
-	green, err := r.Awaiting(s, []string{criterionOne}, LaneFinished(head))
+	// The review of a change rules on its criteria, and green checks do not rule for it: while the review is
+	// open, or once it ended with no verdict, a delegate's acceptance waits for a member.
+	green, head, err := r.judged(s, criterionOne)
 	if err != nil {
 		return err
 	}
 	if err := r.forgeVerifies(s, green, head, ledger.CheckPassed); err != nil {
 		return err
 	}
+	if _, err := ops.Accept(r.Ctx, r.Scope, green, actor); !errors.Is(err, workorders.ErrForbidden) {
+		return Violatedf("a delegate accepted work whose review is still open: %v", err)
+	}
+	if err := r.stateIs(s, green, workorders.Acceptance); err != nil {
+		return err
+	}
+	if err := r.reviewSays(s, green, say(criterionOne, workorders.VerdictPass)); err != nil {
+		return err
+	}
 	if _, err := ops.Accept(r.Ctx, r.Scope, green, actor); err != nil {
 		return Violatedf("a delegate's acceptance of verified work: %v", err)
+	}
+	head = r.ID("commit")
+	unreviewed, err := r.Awaiting(s, []string{criterionOne}, LaneFinished(head))
+	if err != nil {
+		return err
+	}
+	if err := r.forgeVerifies(s, unreviewed, head, ledger.CheckPassed); err != nil {
+		return err
+	}
+	if _, err := ops.Accept(r.Ctx, r.Scope, unreviewed, actor); !errors.Is(err, workorders.ErrForbidden) {
+		return Violatedf("a delegate accepted work whose review gave no verdict: %v", err)
+	}
+	if err := r.stateIs(s, unreviewed, workorders.Acceptance); err != nil {
+		return err
+	}
+	// A verdict counts for the attempt it judged, as it does when the review settles the work: one that failed
+	// an earlier attempt does not hold back the next attempt's verified work.
+	again, _, err := r.judged(s, criterionOne)
+	if err != nil {
+		return err
+	}
+	if err := r.reviewSays(s, again, say(criterionOne, workorders.VerdictFail)); err != nil {
+		return err
+	}
+	if err := r.stateIs(s, again, workorders.Ready); err != nil {
+		return Violatedf("a failed review with rounds left should send the work back: %v", err)
+	}
+	head = r.ID("commit")
+	if err := r.attempt(s, again, LaneFinished(head)); err != nil {
+		return err
+	}
+	if err := r.reviewSays(s, again, say(criterionOne, workorders.VerdictPass)); err != nil {
+		return err
+	}
+	if err := r.forgeVerifies(s, again, head, ledger.CheckPassed); err != nil {
+		return err
+	}
+	if _, err := ops.Accept(r.Ctx, r.Scope, again, actor); err != nil {
+		return Violatedf("a delegate's acceptance of a verified attempt after a failed one: %v", err)
 	}
 
 	if _, err := ops.Rework(r.Ctx, r.Scope, lane, reworkReason, actor); !errors.Is(err, workorders.ErrForbidden) {

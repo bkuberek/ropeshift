@@ -915,9 +915,9 @@ func forgeCovers(t *testing.T, d *apitest.Daemon, id string) {
 }
 
 // TestAnExemptAcceptNeedsVerifiedWorkAndAnExemptReworkAFailedVerdict holds the two exemptions that carry a
-// condition (ADR-0024): a delegate policy that exempts accepting work leaves no card only for work whose every
-// criterion passed on a check the lane did not write, and one that exempts rework only once a verdict of the
-// attempt failed. Anything short of that is a card for an operation no policy exempts.
+// condition (ADR-0024): a delegate policy that exempts accepting work leaves no card only for work whose review
+// ruled that every criterion passed, on a check the lane did not write, and one that exempts rework only once a
+// verdict of the attempt failed. Anything short of that is a card for an operation no policy exempts.
 func TestAnExemptAcceptNeedsVerifiedWorkAndAnExemptReworkAFailedVerdict(t *testing.T) {
 	d := apitest.Start(t)
 	w := apitest.NewWorld(t, d)
@@ -939,8 +939,20 @@ func TestAnExemptAcceptNeedsVerifiedWorkAndAnExemptReworkAFailedVerdict(t *testi
 		t.Errorf("a rework no failed verdict stands behind is a card for %s", detail.Operation)
 	}
 
-	finishedWork(t, d, w, "wo-verified")
+	// Every completed change at a commit opens a review of it, and green checks do not rule for it: while the
+	// review is open, or once it ended with no verdict, no criterion has passed.
+	reviewing := finishedWork(t, d, w, "wo-verified")
 	forgeCovers(t, d, "wo-verified")
+	_, err = delegate.Accept(ctx, "wo-verified")
+	if detail := cardDetail(t, preparedCard(t, err)); detail.Operation != authority.OpWorkOrderAcceptUnverified {
+		t.Errorf("accepting work whose review is still open is a card for %s", detail.Operation)
+	}
+	if row, err := d.Client.WorkOrder(ctx, "wo-verified"); err != nil || row.State != workorders.Acceptance {
+		t.Fatalf("an accept while the review is open left %+v: %v", row, err)
+	}
+	w.Run(reviewing).Finish(workorders.LaneResult{
+		Report: workorders.Report{Outcome: workorders.OutcomeCompleted, Verdicts: []workorders.CriterionVerdict{{Criterion: "c1", Verdict: workorders.VerdictPass, Reasons: "It stops at the budget."}}},
+	})
 	accepted, err := delegate.Accept(ctx, "wo-verified")
 	if err != nil {
 		t.Fatalf("an exempt accept of verified work: %v", err)
@@ -950,6 +962,13 @@ func TestAnExemptAcceptNeedsVerifiedWorkAndAnExemptReworkAFailedVerdict(t *testi
 	}
 	if by := lastEventOf(t, d, "wo-verified", workorders.EventType(workorders.TriggerAcceptancePassed)); by != actor {
 		t.Errorf("the verified work was accepted by %+v, want the delegate", by)
+	}
+	unreviewed := finishedWork(t, d, w, "wo-unreviewed")
+	w.Run(unreviewed).Finish(workorders.LaneResult{Report: workorders.Report{Outcome: workorders.OutcomeFailed, Reason: "The reviewer stopped."}})
+	forgeCovers(t, d, "wo-unreviewed")
+	_, err = delegate.Accept(ctx, "wo-unreviewed")
+	if detail := cardDetail(t, preparedCard(t, err)); detail.Operation != authority.OpWorkOrderAcceptUnverified {
+		t.Errorf("accepting work whose review gave no verdict is a card for %s", detail.Operation)
 	}
 
 	unjudged := finishedWork(t, d, w, "wo-unjudged")
