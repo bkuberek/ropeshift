@@ -47,10 +47,10 @@ func claimWork(t *testing.T, d *talkDaemon, id, claim string) {
 
 // TestNoCallerStartsALaneWhoseOverridesRunReadOrPlace holds every caller's lane start, an outside
 // delegate's, the assistant's, and a member's, to overrides that name no hook, no credential, no file to
-// read, and no place for the worktree or its branch, that set no review bound or ports per lane, which the
-// worker compares with layers the route does not hold, that spell no key two ways, and to overrides that are
-// TOML at all. A key counts in every spelling the profile reads as it. The refusal answers before the ledger
-// keeps anything, and a member's overrides of any other key still start the lane.
+// read, and no place for the worktree or its branch, that set no review bound or ports per lane above the
+// floor, which the worker compares with layers the route does not hold, that spell no key two ways, and to
+// overrides that are TOML at all. A key counts in every spelling the profile reads as it. The refusal
+// answers before the ledger keeps anything, and a member's overrides of any other key still start the lane.
 func TestNoCallerStartsALaneWhoseOverridesRunReadOrPlace(t *testing.T) {
 	d := startTalk(t)
 	ctx := t.Context()
@@ -71,7 +71,18 @@ func TestNoCallerStartsALaneWhoseOverridesRunReadOrPlace(t *testing.T) {
 		{"a branch prefix", "[worktree]\nbranch_prefix = \"\"\n"},
 		{"an instructions file", "[agent]\ninstructions_file = \"/etc/passwd\"\n"},
 		{"review rounds", "[review]\nmax_review_rounds = 9\n"},
+		{"two review rounds", "[review]\nmax_review_rounds = 2\n"},
+		{"the default review rounds", "[review]\nmax_review_rounds = 3\n"},
+		{"no review rounds, which reads as the default", "[review]\nmax_review_rounds = 0\n"},
+		{"review rounds that are no integer", "[review]\nmax_review_rounds = 1.0\n"},
+		{"review rounds that are text", "[review]\nmax_review_rounds = \"1\"\n"},
+		{"a table of review rounds", "[review.max_review_rounds]\nlimit = 1\n"},
 		{"ports", "resources.ports_per_lane = 10000\n"},
+		{"five ports", "[resources]\nports_per_lane = 5\n"},
+		{"one port", "resources.ports_per_lane = 1\n"},
+		{"a negative count of ports", "resources.ports_per_lane = -1\n"},
+		{"ports that are no integer", "resources.ports_per_lane = 0.0\n"},
+		{"ports that are text", "resources.ports_per_lane = \"0\"\n"},
 		// The profile's decoder takes a key for a setting under Unicode case folding.
 		{"a capitalized hook table", "[Hooks]\non_lane_created = [\"id\"]\n"},
 		{"an upper-case hook table", "[HOOKS]\non_lane_created = [\"id\"]\n"},
@@ -108,7 +119,8 @@ func TestNoCallerStartsALaneWhoseOverridesRunReadOrPlace(t *testing.T) {
 
 // TestAMembersOverridesThatCanOnlyAddOrNarrowStartTheLane holds the route to what it can judge alone. A
 // lane's gates join those of the layers below it, so overrides that set agent.gates, even to an empty
-// list, can only add a gate, and the route keeps them. The claim keeps the overrides as they were sent.
+// list, can only add a gate, and the route keeps them. A review bound of one and no ports are already the
+// floor, whatever the layers below say. The claim keeps the overrides as they were sent.
 func TestAMembersOverridesThatCanOnlyAddOrNarrowStartTheLane(t *testing.T) {
 	d := startTalk(t)
 	ctx := t.Context()
@@ -116,6 +128,9 @@ func TestAMembersOverridesThatCanOnlyAddOrNarrowStartTheLane(t *testing.T) {
 		{"a gate", "[agent]\ngates = [\"Edit\"]\n"},
 		{"a dotted gate", "agent.gates = [\"Bash(git push *)\"]\n"},
 		{"no gates", "[agent]\ngates = []\n"},
+		{"no ports", "resources.ports_per_lane = 0\n"},
+		{"one round of review", "[review]\nmax_review_rounds = 1\n"},
+		{"the floors with a gate and a model", "[agent]\nmodel = \"haiku\"\ngates = [\"Edit\"]\n[review]\nmax_review_rounds = 1\n[resources]\nports_per_lane = 0\n"},
 	}
 	for i, layer := range accepted {
 		t.Run(layer.name, func(t *testing.T) {

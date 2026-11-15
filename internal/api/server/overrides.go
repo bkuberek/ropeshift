@@ -9,12 +9,13 @@ import (
 	"ropeshift.com/ropeshift/internal/lanes"
 )
 
-// checkOverrides refuses a lane's own profile layer that sets a key of lanes.LaneLayerKeys, or that spells one
-// key two ways, before the ledger keeps it. Any caller can send one, an outside delegate's included, so the
-// caller reads the reason here rather than as a failed start on the worker. The worker's profile holds the
-// layer to the user's and the repository's layers, and is the line that counts: it also refuses a layer that
-// raises a cap of the breaker, which only the worker's own layers can measure it against. It has no gate to
-// check, because the gates of every layer join, so a layer can only add one.
+// checkOverrides refuses a lane's own profile layer that sets a key of lanes.LaneLayerKeys, that sets a
+// setting of lanes.LaneLayerFloors to anything but its floor, or that spells one key two ways, before the
+// ledger keeps it. Any caller can send one, an outside delegate's included, so the caller reads the reason
+// here rather than as a failed start on the worker. The worker's profile holds the layer to the user's and
+// the repository's layers, and is the line that counts: it also refuses a layer that raises a cap of the
+// breaker, the bound on review rounds, or the ports per lane, which only the worker's own layers can measure
+// it against. It has no gate to check, because the gates of every layer join, so a layer can only add one.
 func checkOverrides(overrides string) error {
 	if overrides == "" {
 		return nil
@@ -34,7 +35,35 @@ func checkOverrides(overrides string) error {
 			}
 		}
 	}
+	for _, floor := range lanes.LaneLayerFloors() {
+		if value, set := lookup(table, floor.Path); set && value != floor.Value {
+			return fmt.Errorf("a lane's overrides cannot set %s to anything but %d", strings.Join(floor.Path, "."), floor.Value)
+		}
+	}
 	return nil
+}
+
+// lookup reads the value a layer gives the setting at path, in any spelling the profile reads as its keys.
+// CheckSpellings has refused a layer with two spellings of a key, so at most one key of a table matches.
+func lookup(table map[string]any, path []string) (any, bool) {
+	var value any = table
+	for _, part := range path {
+		level, isTable := value.(map[string]any)
+		if !isTable {
+			return nil, false
+		}
+		found := false
+		for key, next := range level {
+			if strings.EqualFold(key, part) {
+				value, found = next, true
+				break
+			}
+		}
+		if !found {
+			return nil, false
+		}
+	}
+	return value, true
 }
 
 // sets says a key a layer wrote is the setting at path, or a key inside it. The profile's decoder takes a
