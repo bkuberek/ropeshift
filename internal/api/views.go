@@ -559,6 +559,11 @@ type WorkDetail struct {
 	JudgedBy []workorders.ReviewLine `json:"judged_by,omitempty"`
 	Verdicts []workorders.Verdict    `json:"verdicts,omitempty"`
 	Why      string                  `json:"why,omitempty"`
+	// Reason and Detail are what the outcome of the lane that ended the work said of why: its reason, and what the
+	// worker said of it, such as the delegate policy version that refused the lane's start. Both are empty for work
+	// no lane's outcome ended, and a lane that ended with no reason leaves the first empty.
+	Reason string `json:"reason,omitempty"`
+	Detail string `json:"detail,omitempty"`
 	// PullRequest is the pull request the work lands through, when its repository reviews through pull
 	// requests.
 	PullRequest *ledger.PullRequest `json:"pull_request,omitempty"`
