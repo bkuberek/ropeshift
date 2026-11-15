@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -245,6 +246,68 @@ func TestARestrictedDelegatesLaneReachesNoWorkerThatWouldDropItsRecord(t *testin
 			for whole, lane := range map[string]string{"pa/member": "lane-member", "pb/open": "lane-open"} {
 				if leases[whole].Lane != lane || leases[whole].Overrides != overrides {
 					t.Errorf("%s reaches the worker as %+v", whole, leases[whole])
+				}
+			}
+		})
+	}
+}
+
+// TestASingleProjectLinkOffersALeaseAsThePlaneDoes reads a restricted delegate's lane through the single-project
+// link, which the in-memory suites use as a worker's link, and holds it to what the plane offers the same worker
+// (FR-AUTH-16): a worker on a protocol behind the delegated layer's is offered its claim with no lane, and a
+// worker on the current one reads the lane whole. Nothing but a test reaches that link, so a gate only the plane
+// applied would leave a suite checking a worker no daemon serves.
+func TestASingleProjectLinkOffersALeaseAsThePlaneDoes(t *testing.T) {
+	delegate := authority.DelegateActor(projectMember.ID, authority.DelegateIDPrefix+"link")
+	const overrides = "[agent]\neffort = \"max\"\n"
+	for _, protocol := range []int{ledger.ProtocolVersion - 1, ledger.ProtocolVersion} {
+		t.Run(fmt.Sprintf("protocol %d", protocol), func(t *testing.T) {
+			r := newPlaneRig(t, protocol)
+			ctx := t.Context()
+			r.restrictRaises("pa")
+			for _, start := range []struct {
+				id    string
+				actor ledger.Actor
+			}{{"restricted", delegate}, {"member", projectMember}} {
+				r.ready("pa", start.id)
+				if err := r.claim("pa", start.id); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := control.NewLeases(r.stores["pa"]).DispatchWith(ctx, "pa", start.id, "lane-"+start.id, overrides, start.actor); err != nil {
+					t.Fatal(err)
+				}
+			}
+			link := control.NewWorkers(r.stores["pa"], "pa", control.WorkerOptions{})
+			through, err := link.Desired(ctx, ledger.DesiredRequest{Auth: r.auth})
+			if err != nil {
+				t.Fatal(err)
+			}
+			offered := map[string]ledger.DesiredLease{}
+			for _, lease := range through.Leases {
+				offered[lease.WorkOrder] = lease
+			}
+			held := offered["restricted"]
+			switch {
+			case held.WorkOrder == "" || held.ClaimID == "" || held.Fence == 0:
+				t.Errorf("the worker is not offered its claim: %+v", offered)
+			case protocol < ledger.ProtocolVersion && (held.Lane != "" || held.Overrides != "" || held.Delegated != nil):
+				t.Errorf("a worker a version behind is offered %+v", held)
+			case protocol == ledger.ProtocolVersion && (held.Lane != "lane-restricted" || held.Delegated == nil || !held.Delegated.Restricted):
+				t.Errorf("a worker on the current protocol is offered %+v", held)
+			}
+			if got := offered["member"]; got.Lane != "lane-member" || got.Overrides != overrides {
+				t.Errorf("a member's lane reaches the worker as %+v", got)
+			}
+			// Both links offer one lease the same way: the plane names the project the lease is in.
+			plane := map[string]ledger.DesiredLease{}
+			for _, lease := range r.desired().Leases {
+				lease.Project = ""
+				plane[lease.WorkOrder] = lease
+			}
+			for id, lease := range offered {
+				lease.Project = ""
+				if !reflect.DeepEqual(lease, plane[id]) {
+					t.Errorf("%s is offered %+v through the single-project link, and %+v through the plane", id, lease, plane[id])
 				}
 			}
 		})
