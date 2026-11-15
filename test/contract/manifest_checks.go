@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"ropeshift.com/ropeshift/internal/adapters/fake"
+	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/control"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/planning"
@@ -29,6 +30,7 @@ var ManifestChecks = []Check{
 	{"RM9", "a manifest name the project holds for another repository, by remote or by the clone at its path, is a name collision and registers nothing; the same repository under its name reads as registered", checkManifestNameCollision},
 	{"RM10", "approving a plan records on the approval what it registered, an outcome for each repository its version's manifest lists with its path, where that led, and its remote, also when one fails and the others register; a dry run records nothing", checkApprovalRecordsWhatItRegistered},
 	{"RM11", "a manifest name a member removed stays removed whatever clone, history, or remote the entry names, and a plan approval says so", checkRemovedNameStaysRemoved},
+	{"RM12", "deciding a plan approval again changes nothing a first decision registered: the recorded outcomes and the repositories stay, and the approval keeps one record of what it registered", checkRepeatedDecisionKeepsTheRegistration},
 	{"RM6", "a manifest registers only a clone inside the directory that holds the planning repository's clone, symbolic links followed: a path or a link that leads out of it, the planning clone itself, and the installation's own directories register nothing, each refused naming where it leads", checkManifestPathsStayBesideThePlanningClone},
 }
 
@@ -335,9 +337,21 @@ func checkApprovalRegistersTheManifest(r *Rig) error {
 	if held, err := kept.Of(r.Ctx, r.Scope); err != nil || held["repo-billing"] != "/work/billing" {
 		return Violatedf("the worker keeps %v: %v", held, err)
 	}
-	// Once its clone is there, a later approval registers it, and what is registered stays as it is.
+	// Once its clone is there, a later plan approval registers it, and what is registered stays as it is. The
+	// approval that registered the rest keeps its record, so the later one is of a new version of the plan.
 	kept.Place(cloneOf("search", "search"))
-	added, err = repositories.RegisterApproved(r.Ctx, r.Scope, request.ID, kept, false, r.member())
+	files.Write("repositories.md", []byte(strings.Replace(manifestText("", "api", "web", "billing", "search"), "The repositories of the platform.", "The repositories of the platform, with search.", 1)))
+	if _, err := r.intake(s, files); err != nil {
+		return err
+	}
+	later, err := r.theOpenPlanApproval(s)
+	if err != nil {
+		return err
+	}
+	if _, err := r.approve(s, later, true, r.member()); err != nil {
+		return err
+	}
+	added, err = repositories.RegisterApproved(r.Ctx, r.Scope, later.ID, kept, false, r.member())
 	if err != nil {
 		return err
 	}
@@ -906,6 +920,93 @@ func checkApprovalRecordsWhatItRegistered(r *Rig) error {
 	}
 	if _, err := r.theRepository(s, "repo-billing"); err != nil {
 		return Violatedf("billing is not registered beside the failure: %v", err)
+	}
+	return r.CheckProjection(s)
+}
+
+// registrationEvents counts what an approval recorded it registered.
+func (r *Rig) registrationEvents(s ports.Store, approval string) (int, error) {
+	var recorded int
+	err := s.Read(r.Ctx, r.Scope, func(tx ports.ReadTx) error {
+		events, err := tx.EventsAbout(ledger.Subject{Kind: authority.SubjectApproval, ID: approval})
+		for _, event := range events {
+			if event.Type == ledger.EventManifestRegistered {
+				recorded++
+			}
+		}
+		return err
+	})
+	return recorded, err
+}
+
+// outcomesRead says what a registration's outcomes tell a member, each in the order the manifest lists them.
+func outcomesRead(added []control.Added) []string {
+	out := make([]string, len(added))
+	for i, one := range added {
+		out[i] = one.Name + " " + string(one.Outcome) + " " + one.Path + " " + one.Checkout + " " + one.Repository.ID + " " + one.Reason
+	}
+	return out
+}
+
+func checkRepeatedDecisionKeepsTheRegistration(r *Rig) error {
+	s := r.Store()
+	files, err := r.manifestProject(s)
+	if err != nil {
+		return err
+	}
+	if err := r.readsAsPlanning(s, files); err != nil {
+		return err
+	}
+	files.Write("repositories.md", []byte(manifestText("", "api", "web", "billing", "search")))
+	if _, err := r.intake(s, files); err != nil {
+		return err
+	}
+	kept, err := r.planningMachine()
+	if err != nil {
+		return err
+	}
+	kept.Place(cloneOf("billing", "billing"))
+	repositories := r.repositories(s)
+	request, err := r.theOpenPlanApproval(s)
+	if err != nil {
+		return err
+	}
+	if _, err := r.approve(s, request, true, r.member()); err != nil {
+		return err
+	}
+	first, err := repositories.RegisterApproved(r.Ctx, r.Scope, request.ID, kept, false, r.member())
+	if err != nil {
+		return err
+	}
+	if billing, ok := outcomeNamed(first, "billing"); !ok || billing.Outcome != ledger.Registered {
+		return Violatedf("the first decision reads billing %+v", billing)
+	}
+	recorded, err := r.registrationOf(s, request.ID)
+	if err != nil || recorded == nil {
+		return Violatedf("the first decision recorded %+v: %v", recorded, err)
+	}
+	// The member's word again, as a second press or a command run twice gives it, and a clone for search
+	// that was not there the first time, which a registration run again would take.
+	kept.Place(cloneOf("search", "search"))
+	if _, err := r.approve(s, request, true, r.member()); err != nil {
+		return err
+	}
+	second, err := repositories.RegisterApproved(r.Ctx, r.Scope, request.ID, kept, false, r.member())
+	if err != nil {
+		return err
+	}
+	if !slices.Equal(outcomesRead(first), outcomesRead(second)) {
+		return Violatedf("deciding again reads\n%v\nwhere the first decision read\n%v", outcomesRead(second), outcomesRead(first))
+	}
+	again, err := r.registrationOf(s, request.ID)
+	if err != nil || again == nil || !slices.Equal(again.Repositories, recorded.Repositories) || again.Problem != recorded.Problem {
+		return Violatedf("deciding again left the approval recording %+v, where it recorded %+v: %v", again, recorded, err)
+	}
+	if count, err := r.registrationEvents(s, request.ID); err != nil || count != 1 {
+		return Violatedf("the approval holds %d records of what it registered, want one: %v", count, err)
+	}
+	if found, err := r.theRepository(s, "repo-search"); err == nil {
+		return Violatedf("deciding again registered search, whose clone came after: %+v", found)
 	}
 	return r.CheckProjection(s)
 }

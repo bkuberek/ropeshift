@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"sync"
 
 	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/ledger"
@@ -20,6 +21,9 @@ import (
 // default branch, and only a member gives the rest (FR-REPO-1).
 type Repositories struct {
 	store ports.Store
+	// registering holds one registration from an approved plan at a time, so a decision repeated while the
+	// first registers waits for it and reads its record.
+	registering sync.Mutex
 }
 
 // NewRepositories returns the use cases over a Store.

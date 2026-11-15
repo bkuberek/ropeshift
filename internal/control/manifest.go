@@ -26,17 +26,34 @@ import (
 // only a member's own registration brings one back. Registration is a
 // member's act, so only the member who approves a plan runs this, never a tick or a delegate. Until the
 // version is approved it registers nothing, and a dry run, which a member reads before approving, says what
-// approving would register. Approving records the outcome on the approval, which RegistrationOf reads.
+// approving would register. Approving records the outcome on the approval, which RegistrationOf reads, and
+// registers once: an approval that recorded its outcome answers with that record, and a later approval of a
+// new version is what registers a repository whose clone came after.
 func (r *Repositories) RegisterApproved(ctx context.Context, scope ledger.WorkspaceID, approval string, kept ports.Checkouts, dryRun bool, actor ledger.Actor) ([]Added, error) {
 	if !authority.Allowed(actor, authority.ActionApprovePlan) || !authority.Allowed(actor, authority.ActionRegisterManifest) {
 		return nil, workorders.ErrForbidden
 	}
+	if !dryRun {
+		// A second word on one approval waits for the first, so it finds what the first recorded.
+		r.registering.Lock()
+		defer r.registering.Unlock()
+	}
 	var entries []planning.ManifestRepository
 	var cause registrationCause
+	var recorded *ledger.ManifestRegistration
+	var replayed []Added
 	err := r.store.Read(ctx, scope, func(tx ports.ReadTx) error {
 		row, err := tx.Approvals().Approval(approval)
 		if err != nil || row.Kind != authority.KindPlan {
 			return err
+		}
+		if row.State == authority.ApprovalApproved && !dryRun {
+			if recorded, err = RegistrationOf(tx, row.ID); err != nil || recorded != nil {
+				if err == nil {
+					replayed, err = recordedAdded(tx.Repositories(), recorded)
+				}
+				return err
+			}
 		}
 		if row.State == authority.ApprovalApproved || (dryRun && row.Open()) {
 			entries, err = VersionManifest(tx, row)
@@ -44,8 +61,19 @@ func (r *Repositories) RegisterApproved(ctx context.Context, scope ledger.Worksp
 		cause = registrationCause{Approval: row.ID, Plan: row.Plan, PlanVersion: row.PlanVersion}
 		return err
 	})
-	if err != nil || len(entries) == 0 {
+	if err != nil {
 		return nil, err
+	}
+	if recorded != nil {
+		// The approval registered once, and a member's word again, a second press or a command run twice,
+		// reads that and runs nothing, so what the first run found stays what the approval says.
+		if recorded.Problem != "" {
+			err = errors.New(recorded.Problem)
+		}
+		return replayed, err
+	}
+	if len(entries) == 0 {
+		return nil, nil
 	}
 	added, err := r.registerEntries(ctx, scope, entries, kept, manifestRun{dryRun: dryRun, cause: cause}, actor)
 	if dryRun {
@@ -60,6 +88,26 @@ func (r *Repositories) RegisterApproved(ctx context.Context, scope ledger.Worksp
 		return added, errors.Join(err, failed)
 	}
 	return added, err
+}
+
+// recordedAdded reads what an approval recorded it registered as the outcomes a run gives, each with the
+// record it names as it stands now.
+func recordedAdded(repositories ports.RepositoryReader, record *ledger.ManifestRegistration) ([]Added, error) {
+	out := make([]Added, 0, len(record.Repositories))
+	for _, one := range record.Repositories {
+		added := Added{Name: one.Name, Manifest: one.Path, Remote: one.Remote, Path: one.Resolved, Outcome: one.Outcome, Checkout: one.Checkout, Reason: one.Reason}
+		if one.Repository != "" {
+			held, err := repositories.Repository(one.Repository)
+			switch {
+			case err == nil:
+				added.Repository = held
+			case !errors.Is(err, ports.ErrNotFound):
+				return nil, err
+			}
+		}
+		out = append(out, added)
+	}
+	return out, nil
 }
 
 // outcomesOf is what a registration from a manifest keeps of each outcome.
