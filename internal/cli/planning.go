@@ -86,18 +86,26 @@ func writePlanApproval(out *strings.Builder, view api.PlanApprovalView) {
 	if view.Detail.Adoption != nil {
 		writeAdoption(out, *view.Detail.Adoption, "  ")
 	}
-	if registration := view.Registration; registration != nil {
-		if registration.Preview {
-			out.WriteString("  repositories approving would register, read now on the daemon's worker's machine:\n")
-		} else {
-			out.WriteString("  repositories this approval registered:\n")
-		}
-		out.WriteString(manifestText(registration.Repositories, registration.Preview, "    "))
-		if registration.Problem != "" {
-			fmt.Fprintf(out, "    %s\n", registration.Problem)
-		}
-	}
+	writeRegistration(out, view.Registration)
 	fmt.Fprintf(out, "  digest %s\n", approval.SubjectDigest)
+}
+
+// writeRegistration prints what approving a plan version would register of the repositories its manifest lists,
+// or what the approval registered, a line for each with its path, where that leads, and its remote. A version
+// that lists no manifest has none.
+func writeRegistration(out *strings.Builder, registration *api.ManifestRegistration) {
+	if registration == nil {
+		return
+	}
+	if registration.Preview {
+		out.WriteString("  repositories approving would register, read now on the daemon's worker's machine:\n")
+	} else {
+		out.WriteString("  repositories this approval registered:\n")
+	}
+	out.WriteString(manifestText(registration.Repositories, registration.Preview, "    "))
+	if registration.Problem != "" {
+		fmt.Fprintf(out, "    %s\n", registration.Problem)
+	}
 }
 
 func partsWords(d planning.PartDifference) string {
@@ -151,6 +159,13 @@ func (c *invocation) planApprove(args []string) int {
 		})
 	case !asked.Open():
 		return c.refusal(api.CodeIllegalMove, "the request for version %d of plan %s is %s", asked.PlanVersion, positional[0], asked.State)
+	}
+	// The member reads each repository the manifest lists before the approval registers them, as plan show
+	// prints them. A script that asked for JSON gets one document, so nothing is printed ahead of it.
+	if !c.asJSON {
+		var preview strings.Builder
+		writeRegistration(&preview, waiting.Registration)
+		fmt.Fprint(c.stdout, preview.String())
 	}
 	decided, err := client.DecideApproval(c.ctx, asked.ID, api.DecideApproval{Digest: asked.SubjectDigest, Allow: true})
 	return c.finish(err, decided, func() string {

@@ -479,9 +479,9 @@ func TestRepositoryAddRegistersWhatAManifestLists(t *testing.T) {
 	}
 }
 
-// ADR-0022: approving a plan registers what its manifest adds, as the approving member, and the command
-// says what it registered and what it could not.
-func TestPlanApproveRegistersWhatItsManifestAdds(t *testing.T) {
+// platformPlan is a platform machine whose plan lists the platform manifest, read once, with the plan's ID.
+func platformPlan(t *testing.T) (*session, string) {
+	t.Helper()
 	s := platformMachine(t)
 	source := fake.NewWorkSource()
 	source.Write("plan.md", []byte("+++\nkind = \"plan\"\nid = \"platform-v1\"\ntitle = \"The platform\"\ndocuments = [\"repositories:platform\"]\n+++\n\nHow.\n"))
@@ -491,9 +491,26 @@ func TestPlanApproveRegistersWhatItsManifestAdds(t *testing.T) {
 	if err != nil || len(plans) != 1 {
 		t.Fatalf("plans %+v: %v", plans, err)
 	}
+	return s, plans[0].ID
+}
+
+// With --json the command prints the one document of the decision and nothing before it, so a script reads it
+// whole; the preview is for a terminal.
+func TestPlanApproveJSONPrintsOneDocument(t *testing.T) {
+	s, plan := platformPlan(t)
+	var decided api.ApprovalDecided
+	if err := json.Unmarshal([]byte(s.must("plan", "approve", plan, "--json")), &decided); err != nil || len(decided.Repositories) != 3 {
+		t.Fatalf("approve --json printed a decision with %d repositories: %v", len(decided.Repositories), err)
+	}
+}
+
+// ADR-0022: approving a plan registers what its manifest adds, as the approving member, and the command
+// says what it registered and what it could not.
+func TestPlanApproveRegistersWhatItsManifestAdds(t *testing.T) {
+	s, plan := platformPlan(t)
 	// Before approving, the member reads each repository the manifest lists, where its path leads, and
 	// whether approving registers it.
-	shown := s.must("plan", "show", plans[0].ID)
+	shown := s.must("plan", "show", plan)
 	for _, want := range []string{
 		"  repositories approving would register, read now on the daemon's worker's machine:\n",
 		"    would register\tbilling\t../billing\t/work/billing\t-\n",
@@ -507,14 +524,27 @@ func TestPlanApproveRegistersWhatItsManifestAdds(t *testing.T) {
 	if list := s.must("repository", "list"); strings.Contains(list, "billing") {
 		t.Errorf("reading the plan registered billing:\n%s", list)
 	}
-	text := s.must("plan", "approve", plans[0].ID)
+	text := s.must("plan", "approve", plan)
 	for _, want := range []string{"approved The platform version 1", "registered\tbilling\t../billing\t/work/billing\t-\n", "refused\tghost\t../ghost\t/work/ghost\t-\tghost is not registered"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("approve lacks %q:\n%s", want, text)
 		}
 	}
+	// The command prints what it would register before it approves, as plan show does, so the member's
+	// terminal shows the entries the approval consented to ahead of its result.
+	approved := strings.Index(text, "approved The platform version 1")
+	for _, want := range []string{
+		"  repositories approving would register, read now on the daemon's worker's machine:\n",
+		"    would register\tbilling\t../billing\t/work/billing\t-\n",
+		"    already registered\tplan\t.\t/work/plan\t-\n",
+		"    refused\tghost\t../ghost\t/work/ghost\t-\tghost is not registered: no git clone is at /work/ghost\n",
+	} {
+		if at := strings.Index(text, want); at < 0 || at > approved {
+			t.Errorf("approve printed %q at %d, want it before the result at %d:\n%s", want, at, approved, text)
+		}
+	}
 	// Afterwards the approval says what it registered, however the member gave the word.
-	shown = s.must("plan", "show", plans[0].ID)
+	shown = s.must("plan", "show", plan)
 	for _, want := range []string{"  repositories this approval registered:\n", "    registered\tbilling\t../billing\t/work/billing\t-\n", "    refused\tghost\t"} {
 		if !strings.Contains(shown, want) {
 			t.Errorf("plan show after approval lacks %q:\n%s", want, shown)

@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useContext, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 
-import { decideApproval } from "../api/client";
-import type { Adoption, ContractDifference, Difference, FileChange, PartDifference, PlanApprovalNeed } from "../api/types";
-import { addressOf, Link } from "../app/route";
+import { decideApproval, inProjectOf, readPlan } from "../api/client";
+import type { Adoption, ContractDifference, Difference, FileChange, ManifestRegistration, PartDifference, PlanApprovalNeed } from "../api/types";
+import { addressOf, ItemProject, Link } from "../app/route";
+import { registrationTitle, RegistrationRows } from "../planning/PlanParts";
 import { words } from "../parts/parts";
 import { Button } from "../ui/controls";
 import { DecisionCard, DecisionSection } from "../ui/DecisionCard";
@@ -186,12 +187,45 @@ function AdoptionGroups({ adoption }: { adoption: Adoption }) {
   );
 }
 
+// Preview is what approving a plan version would register of the repositories its manifest lists, as the card
+// has read it: not asked for a version that lists no manifest, being read, read, or not readable.
+type Preview = { state: "none" } | { state: "reading" } | { state: "read"; registration?: ManifestRegistration } | { state: "failed"; failure: string };
+
+// usePreview reads, for a plan version whose manifest lists repositories, the preview the full plan page reads
+// of it, from the clones on the daemon's worker's machine and with nothing recorded, so the card shows each
+// entry a member consents to (ADR-0022). It reads again when the version or its digest changes.
+function usePreview(plan: string, version: number, digest: string, lists: boolean): Preview {
+  const project = useContext(ItemProject);
+  const [preview, setPreview] = useState<Preview>({ state: lists ? "reading" : "none" });
+  useEffect(() => {
+    if (!lists) {
+      setPreview({ state: "none" });
+      return;
+    }
+    let current = true;
+    setPreview({ state: "reading" });
+    const read = project ? inProjectOf(project, () => readPlan(plan, String(version))) : readPlan(plan, String(version));
+    read.then(
+      (view) => current && setPreview({ state: "read", registration: view.approval?.registration }),
+      (error: unknown) => current && setPreview({ state: "failed", failure: error instanceof Error ? error.message : String(error) }),
+    );
+    return () => {
+      current = false;
+    };
+  }, [lists, plan, version, digest, project]);
+  return preview;
+}
+
 // A plan is approved as one step: the digest sent is the one on this page, so a version that changed
-// since this read is refused, and approving decides every draft with the member as the one who decided.
+// since this read is refused, and approving decides every draft with the member as the one who decided. A
+// version that lists a manifest also registers its repositories, so it is approved only once the card shows
+// each entry, its path, its remote, and what approving does with it.
 export function PlanApprovalCard({ id, need, after, frame }: { id: string; need: PlanApprovalNeed; after: () => Promise<void>; frame: Frame }) {
   const [reason, setReason] = useState("");
   const { act, busy, failure } = useAct(after);
   const approval = need.approval;
+  const preview = usePreview(approval.plan_id ?? "", need.version, approval.subject_digest, (need.counts.repositories ?? 0) > 0 && Boolean(approval.plan_id));
+  const unseen = preview.state === "reading" || preview.state === "failed";
   const decide = (allow: boolean) => act(() => decideApproval(id, approval.subject_digest, allow, reason.trim()));
   const holds = holdings(need.counts);
   return (
@@ -211,7 +245,7 @@ export function PlanApprovalCard({ id, need, after, frame }: { id: string; need:
           <Button disabled={busy} onClick={() => void decide(false)}>
             Deny
           </Button>
-          <Button variant="primary" loading={busy} disabled={busy} onClick={() => void decide(true)}>
+          <Button variant="primary" loading={busy} disabled={busy || unseen} onClick={() => void decide(true)}>
             Approve this plan
           </Button>
         </>
@@ -244,6 +278,15 @@ export function PlanApprovalCard({ id, need, after, frame }: { id: string; need:
         {approval.plan_id ? <Link to={addressOf("/plans", { plan: approval.plan_id })}>Read the plan</Link> : null}
       </p>
       {need.adoption ? <AdoptionGroups adoption={need.adoption} /> : null}
+      {preview.state === "reading" ? <p className="muted">Reading what approving registers of the repositories its manifest lists.</p> : null}
+      {preview.state === "failed" ? (
+        <Refusal>{`What approving registers could not be read (${preview.failure}). Open the full plan approval to read it.`}</Refusal>
+      ) : null}
+      {preview.state === "read" && preview.registration ? (
+        <Part title={registrationTitle(preview.registration)}>
+          <RegistrationRows registration={preview.registration} />
+        </Part>
+      ) : null}
       <Changes difference={need.difference} />
       <Part title="Draft decisions">
         {need.drafts.length ? (

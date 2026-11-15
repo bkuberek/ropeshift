@@ -6,8 +6,8 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import { CurrentProject } from "../app/route";
-import { goldenNeedsYou, here, refusal, serveApi, testProject } from "../testing";
-import type { NeedItem, NeedsYou as View, QuestionItem } from "../api/types";
+import { golden, goldenNeedsYou, here, refusal, serveApi, testProject } from "../testing";
+import type { ManifestRegistration, NeedItem, NeedsYou as View, PlanView, QuestionItem } from "../api/types";
 import { NeedsYou } from "./NeedsYou";
 import { waitLabel, waitWords } from "./wait";
 
@@ -791,6 +791,73 @@ describe("a plan approval", () => {
     show(undefined, undefined, "plan_approval");
     await userEvent.click(within((await card())).getByRole("button", { name: "Approve this plan" }));
     expect((await within((await card())).findByRole("alert")).textContent).toContain("no longer matches");
+  });
+
+  // withManifest is a plan version that lists a repository manifest, and the plan the full page reads for it,
+  // whose approval holds the registration a read of it previews.
+  const withManifest = (registration: ManifestRegistration | undefined) => {
+    const { view, item: need } = planView();
+    need.plan_approval.counts = { ...need.plan_approval.counts, repositories: 1 };
+    const planId = need.plan_approval.approval.plan_id ?? "";
+    const plan = golden<PlanView>("plan");
+    if (plan.approval) {
+      plan.approval.registration = registration;
+    }
+    return { view, need, planId, plan };
+  };
+  const preview: ManifestRegistration = {
+    preview: true,
+    repositories: [
+      { name: "billing", manifest_path: "../billing", path: "/work/billing", remote: "git@example.invalid:acme/billing.git", outcome: "registered" },
+      { name: "ghost", manifest_path: "../ghost", path: "/work/ghost", outcome: "refused", reason: "ghost is not registered: no git clone is at /work/ghost" },
+    ],
+  };
+  const approveButton = async () => within(await card()).getByRole("button", { name: "Approve this plan" }) as HTMLButtonElement;
+
+  it("shows each repository its manifest lists, where its path leads, and what approving does, before it can approve", async () => {
+    const { view, need, planId, plan } = withManifest(preview);
+    const sent = serveApi((call) => {
+      if (call.method === "GET" && call.path.startsWith(`/v1/plans/${planId}`)) {
+        return { status: 200, body: plan };
+      }
+      return { status: 200 };
+    });
+    show(view, undefined, "plan_approval");
+    // Nothing is approved on a preview nobody has read.
+    expect((await approveButton()).disabled).toBe(true);
+    const panel = await within(await card()).findByRole("region", { name: "Repositories approving registers" });
+    const billing = within(panel).getByRole("listitem", { name: "billing" });
+    expect(billing.textContent).toContain("Would register");
+    expect(billing.textContent).toContain("../billing");
+    expect(billing.textContent).toContain("/work/billing");
+    expect(billing.textContent).toContain("git@example.invalid:acme/billing.git");
+    expect(within(panel).getByRole("listitem", { name: "ghost" }).textContent).toContain("no git clone is at /work/ghost");
+    expect(within(panel).getByText(/Reading it registers nothing/)).toBeTruthy();
+    await waitFor(async () => expect((await approveButton()).disabled).toBe(false));
+    expect(sent[0]).toMatchObject({ method: "GET", path: `/v1/plans/${planId}?version=${need.plan_approval.version}` });
+    await userEvent.click(await approveButton());
+    await waitFor(() => expect(sent.some((call) => call.method === "POST" && call.path === `/v1/approvals/${need.id}/decide`)).toBe(true));
+  });
+
+  it("does not approve when it cannot read what approving registers, and leads to the page that can", async () => {
+    const { view, planId } = withManifest(preview);
+    const sent = serveApi((call) =>
+      call.method === "GET" && call.path.startsWith(`/v1/plans/${planId}`) ? refusal(500, "internal", "the daemon could not read the clones") : { status: 200 },
+    );
+    show(view, undefined, "plan_approval");
+    expect((await within(await card()).findByRole("alert")).textContent).toContain("the daemon could not read the clones");
+    expect((await approveButton()).disabled).toBe(true);
+    expect(within(await card()).getByRole("link", { name: "Open the full plan approval" })).toBeTruthy();
+    expect(sent.some((call) => call.method === "POST")).toBe(false);
+  });
+
+  it("asks nothing of a plan whose version lists no manifest", async () => {
+    const { view } = planView();
+    const sent = serveApi(() => ({ status: 200 }));
+    show(view, undefined, "plan_approval");
+    expect((await approveButton()).disabled).toBe(false);
+    expect(within(await card()).queryByRole("region", { name: "Repositories approving registers" })).toBeNull();
+    expect(sent).toHaveLength(0);
   });
 
   it("groups an adopted plan, with each claim's evidence and every file its branch changed", async () => {

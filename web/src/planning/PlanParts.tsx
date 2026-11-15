@@ -1,11 +1,12 @@
 import type { ReactNode } from "react";
 
 import { readRecorded, readView } from "../api/client";
-import type { Adoption, ContractHistory, Difference, DraftDecision, Plans, PlanEntry, WorkOrder } from "../api/types";
+import type { Adoption, ContractHistory, Difference, DraftDecision, ManifestRegistration, Plans, PlanEntry, WorkOrder } from "../api/types";
 import type { Live } from "../api/useView";
 import { useView } from "../api/useView";
 import { addressOf, Link } from "../app/route";
-import { Badge, Banner } from "../ui/display";
+import type { StateLook } from "../floor/states";
+import { Badge, Banner, Refusal, StateBadge } from "../ui/display";
 import { Icon } from "../ui/Icon";
 import { kindWord } from "./documentTree";
 import { changeLines, refKind, refName } from "./planChanges";
@@ -333,3 +334,49 @@ export function AdoptionGroups({ adoption }: { adoption: Adoption }) {
   );
 }
 
+// registrationStates are what became of a repository a manifest lists, and in a preview what would.
+const registrationStates: Record<string, StateLook> = {
+  registered: { label: "Registered", tone: "success", glyph: "check" },
+  would: { label: "Would register", tone: "active", glyph: "half" },
+  known: { label: "Already registered", tone: "neutral", glyph: "dot" },
+  refused: { label: "Refused", tone: "danger", glyph: "cross" },
+};
+
+// registrationTitle says what a registration is: what approving would register, or what an approval did.
+export function registrationTitle(registration: ManifestRegistration): string {
+  return registration.preview ? "Repositories approving registers" : "Repositories this approval registered";
+}
+
+// RegistrationRows lists each repository the version's manifest lists: whether approving registers it, or did,
+// its name, its path as the manifest writes it, where that path leads on the daemon's worker's machine, its
+// remote, and why it is refused or was not reached, so a member reads what approving consents to. The plan
+// page and the plan approval's card in Needs you show the same rows.
+export function RegistrationRows({ registration }: { registration: ManifestRegistration }) {
+  return (
+    <>
+      {registration.preview ? <p className="small muted">Read now from the clones on the daemon's worker's machine. Reading it registers nothing.</p> : null}
+      {registration.repositories.length ? (
+        <ul className="list-rows" aria-label="Repositories the manifest lists">
+          {registration.repositories.map((one) => (
+            <li key={one.name ?? one.path} className="list-row stack-8" aria-label={one.name ?? one.path}>
+              <span className="row-tight">
+                <StateBadge table={registrationStates} state={registration.preview && one.outcome === "registered" ? "would" : one.outcome} />
+                <span className="mono">{one.name ?? "-"}</span>
+              </span>
+              <span className="small">
+                Path <code>{one.manifest_path ?? "-"}</code> leads to <code>{one.path}</code>
+                {one.remote ? (
+                  <>
+                    , remote <code>{one.remote}</code>
+                  </>
+                ) : null}
+              </span>
+              {one.reason ? <span className="small muted">{one.reason}</span> : null}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {registration.problem ? <Refusal>{registration.problem}</Refusal> : null}
+    </>
+  );
+}

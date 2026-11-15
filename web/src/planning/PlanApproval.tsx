@@ -6,14 +6,13 @@ import type { ApprovalRecord, ManifestRegistration, PlanApprovalDetail, PlanAppr
 import type { Live } from "../api/useView";
 import { addressOf, Link, useArrivalFocus } from "../app/route";
 import { approvalStates } from "../floor/states";
-import type { StateLook } from "../floor/states";
 import { timeOf } from "../admin/parts";
 import { Button } from "../ui/controls";
 import { DecisionCard } from "../ui/DecisionCard";
 import { Banner, Digest, EmptyState, Panel, Refusal, SkeletonRows, StateBadge, TargetChip } from "../ui/display";
 import { Field } from "../ui/forms";
 import { Dialog } from "../ui/overlays";
-import { AdoptionGroups, ChangedContracts, CoveredDocuments, DifferenceBlock, DraftDecisions } from "./PlanParts";
+import { AdoptionGroups, ChangedContracts, CoveredDocuments, DifferenceBlock, DraftDecisions, registrationTitle, RegistrationRows } from "./PlanParts";
 import { versionLinks } from "./planChanges";
 
 // Subject is what the page decides on: one version of a plan and the request to approve it. A plan the ledger
@@ -212,49 +211,6 @@ function Decision({ subject, after, reload }: { subject: Subject; after: () => P
   );
 }
 
-// registrationStates are what became of a repository a manifest lists, and in a preview what would.
-const registrationStates: Record<string, StateLook> = {
-  registered: { label: "Registered", tone: "success", glyph: "check" },
-  would: { label: "Would register", tone: "active", glyph: "half" },
-  known: { label: "Already registered", tone: "neutral", glyph: "dot" },
-  refused: { label: "Refused", tone: "danger", glyph: "cross" },
-};
-
-// Registration lists each repository the version's manifest lists: whether approving registers it, or did,
-// its name, its path as the manifest writes it, where that path leads on the daemon's worker's machine, its
-// remote, and why it is refused, so a member reads what approving consents to.
-function Registration({ registration }: { registration: ManifestRegistration }) {
-  return (
-    <Panel title={registration.preview ? "Repositories approving registers" : "Repositories this approval registered"}>
-      {registration.preview ? (
-        <p className="small muted">Read now from the clones on the daemon's worker's machine. Reading it registers nothing.</p>
-      ) : null}
-      {registration.repositories.length ? (
-        <ul className="list-rows" aria-label="Repositories the manifest lists">
-          {registration.repositories.map((one) => (
-            <li key={one.name ?? one.path} className="list-row stack-8" aria-label={one.name ?? one.path}>
-              <span className="row-tight">
-                <StateBadge table={registrationStates} state={registration.preview && one.outcome === "registered" ? "would" : one.outcome} />
-                <span className="mono">{one.name ?? "-"}</span>
-              </span>
-              <span className="small">
-                Path <code>{one.manifest_path ?? "-"}</code> leads to <code>{one.path}</code>
-                {one.remote ? (
-                  <>
-                    , remote <code>{one.remote}</code>
-                  </>
-                ) : null}
-              </span>
-              {one.reason ? <span className="small muted">{one.reason}</span> : null}
-            </li>
-          ))}
-        </ul>
-      ) : null}
-      {registration.problem ? <Refusal>{registration.problem}</Refusal> : null}
-    </Panel>
-  );
-}
-
 function Versions({ subject }: { subject: Subject }) {
   if (subject.versions.length === 0) {
     return null;
@@ -322,7 +278,11 @@ export function PlanApprovalBody({ subject, live, after, reload }: { subject: Su
           <Panel title="Documents">
             <CoveredDocuments records={subject.records} live={live} />
           </Panel>
-          {subject.registration ? <Registration registration={subject.registration} /> : null}
+          {subject.registration ? (
+            <Panel title={registrationTitle(subject.registration)}>
+              <RegistrationRows registration={subject.registration} />
+            </Panel>
+          ) : null}
           <Versions subject={subject} />
         </div>
         <aside className="stack sticky decision-aside" aria-label="Your decision">
