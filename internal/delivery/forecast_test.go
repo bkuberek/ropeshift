@@ -1,6 +1,10 @@
 package delivery_test
 
 import (
+	"context"
+	"errors"
+	"fmt"
+	"math/rand/v2"
 	"reflect"
 	"slices"
 	"strings"
@@ -38,7 +42,16 @@ func forecastIn(cap int64, work ...delivery.ForecastWork) delivery.ForecastInput
 }
 
 func forecastOf(cap int64, work ...delivery.ForecastWork) []delivery.Forecast {
-	return delivery.ForecastOf(forecastIn(cap, work...))
+	return forecastsOf(forecastIn(cap, work...))
+}
+
+// forecastsOf forecasts an input under a context that is never canceled.
+func forecastsOf(in delivery.ForecastInput) []delivery.Forecast {
+	forecasts, err := delivery.ForecastOf(context.Background(), in)
+	if err != nil {
+		panic(err)
+	}
+	return forecasts
 }
 
 // forecastFor finds the plan's forecast, or a milestone's.
@@ -65,11 +78,11 @@ func TestAForecastIsTheSameForTheSameSeed(t *testing.T) {
 	}
 	in := forecastIn(1, work...)
 	in.PersonMedianMs = 30 * minute
-	first := delivery.ForecastOf(in)
+	first := forecastsOf(in)
 	again := in
 	again.Work = slices.Clone(work)
 	slices.Reverse(again.Work)
-	if other := delivery.ForecastOf(again); !reflect.DeepEqual(first, other) {
+	if other := forecastsOf(again); !reflect.DeepEqual(first, other) {
 		t.Fatalf("the same work in another order forecast %+v and %+v", first, other)
 	}
 	plan := forecastFor(t, first, "")
@@ -89,7 +102,7 @@ func TestAForecastIsTheSameForTheSameSeed(t *testing.T) {
 	}
 	many := forecastIn(1, work...)
 	many.Policy.ForecastTrials = 1_000_000
-	if f := delivery.ForecastOf(many)[0]; f.Trials != delivery.MaxForecastTrials {
+	if f := forecastsOf(many)[0]; f.Trials != delivery.MaxForecastTrials {
 		t.Errorf("a policy of a million trials ran %d", f.Trials)
 	}
 }
@@ -208,11 +221,11 @@ func TestCuttingPersonWaitsToTheMedianShowsWhatThePersonCosts(t *testing.T) {
 	waited.PersonWaits, waited.PersonMs = []int64{180 * minute}, 180*minute
 	in := forecastIn(1, delivery.ForecastWork{WorkOrder: "a", Estimate: confidentOn(waited), Records: []delivery.Record{waited}})
 	in.PersonMedianMs = 60 * minute
-	if plan := delivery.ForecastOf(in)[0]; plan.EndP85 != now+240*minute || plan.EndP85PersonMedian != now+120*minute {
+	if plan := forecastsOf(in)[0]; plan.EndP85 != now+240*minute || plan.EndP85PersonMedian != now+120*minute {
 		t.Errorf("with the person's waits cut to the median, the plan ends %d, and %d as it is", plan.EndP85PersonMedian-now, plan.EndP85-now)
 	}
 	in.Work[0].Started, in.Work[0].SoFarMs = true, 200*minute
-	plan := delivery.ForecastOf(in)[0]
+	plan := forecastsOf(in)[0]
 	if plan.EndP85 != now+40*minute || plan.EndP85PersonMedian != now+40*minute || !strings.Contains(plan.Explanation, "leaves started work as it is") {
 		t.Errorf("started work past its wait reads %+v", plan)
 	}
@@ -220,7 +233,7 @@ func TestCuttingPersonWaitsToTheMedianShowsWhatThePersonCosts(t *testing.T) {
 	pooled.PersonMs = 180 * minute
 	in = forecastIn(1, delivery.ForecastWork{WorkOrder: "b", Estimate: confidentOn(pooled), Records: []delivery.Record{pooled}})
 	in.PersonMedianMs = 60 * minute
-	if plan := delivery.ForecastOf(in)[0]; plan.EndP85PersonMedian != now+240*minute || !strings.Contains(plan.Explanation, "pool, which keeps no waits") {
+	if plan := forecastsOf(in)[0]; plan.EndP85PersonMedian != now+240*minute || !strings.Contains(plan.Explanation, "pool, which keeps no waits") {
 		t.Errorf("a pooled draw reads %+v", plan)
 	}
 }
@@ -234,7 +247,7 @@ func TestTheWhatIfsShareTheirDraws(t *testing.T) {
 	}
 	in := forecastIn(1, delivery.ForecastWork{WorkOrder: "a", Estimate: confidentOn(records...), Records: records})
 	in.Policy.ForecastTrials, in.PersonMedianMs = 3, 5*minute
-	plan := delivery.ForecastOf(in)[0]
+	plan := forecastsOf(in)[0]
 	if plan.EndP85CapPlusOne != plan.EndP85 || plan.EndP85PersonMedian != plan.EndP85 {
 		t.Errorf("the reruns drew apart: %d, %d, and %d", plan.EndP85-now, plan.EndP85CapPlusOne-now, plan.EndP85PersonMedian-now)
 	}
@@ -250,7 +263,7 @@ func TestAMilestoneWithNoHistoryHasNoForecast(t *testing.T) {
 		delivery.ForecastWork{WorkOrder: "b", Milestone: "m2", Estimate: confidentOn(b), Records: []delivery.Record{b}},
 	)
 	in.Milestones = []string{"m3", "m1", "m2"}
-	forecasts := delivery.ForecastOf(in)
+	forecasts := forecastsOf(in)
 	none := forecastFor(t, forecasts, "m1")
 	if none.Status != delivery.ForecastNoHistory || none.EndP50 != 0 || none.EndP85 != 0 || !slices.Equal(none.LeftOut, []string{"a"}) ||
 		none.Explanation != "No forecast: none of the 1 unfinished work order of this milestone has finished history." {
@@ -294,7 +307,7 @@ func TestACapOfZeroIsNoCap(t *testing.T) {
 	}
 	in := forecastIn(2, work...)
 	in.NoWorker = true
-	if unserved := delivery.ForecastOf(in)[0]; unserved.Status != delivery.ForecastNoCapacity || unserved.EndP50 != 0 ||
+	if unserved := forecastsOf(in)[0]; unserved.Status != delivery.ForecastNoCapacity || unserved.EndP50 != 0 ||
 		unserved.Explanation != "No forecast: the project has no lane to run its work, because no worker serves it." {
 		t.Errorf("with no worker, the plan forecast %+v", unserved)
 	}
@@ -307,7 +320,7 @@ func TestUnfinishedWorkOutsideThePlanMakesDatesLowerBounds(t *testing.T) {
 	b := took("db", 60*minute, 60*minute, 1)
 	in := forecastIn(1, delivery.ForecastWork{WorkOrder: "b", Title: "Inside", Estimate: confidentOn(b), Records: []delivery.Record{b}, DependsOn: []string{"ext", "ended"}})
 	in.Outside = []string{"ext"}
-	plan := delivery.ForecastOf(in)[0]
+	plan := forecastsOf(in)[0]
 	if plan.LowerBound != delivery.LowerAll || !slices.Equal(plan.Outside, []string{"ext"}) || plan.EndP85 != now+60*minute ||
 		!strings.Contains(plan.Explanation, "waits on unfinished work outside this plan (ext)") {
 		t.Errorf("a plan waiting on work outside it reads %+v", plan)
@@ -327,5 +340,73 @@ func TestRepeatsAndSelfDependenciesChangeNothing(t *testing.T) {
 	}
 	if self := forecastOf(1, looped); !reflect.DeepEqual(self, alone) {
 		t.Errorf("a self-dependent work order forecast %+v, alone %+v", self, alone)
+	}
+}
+
+// BenchmarkForecastOfALargePlan measures one forecast of a generated plan of 400 unfinished work orders in 20
+// milestones, each depending on up to two earlier ones and drawing from 30 records, at the default 2,000 trials
+// under a cap of 4 lanes, which is what the forecast tick runs off the request path.
+func BenchmarkForecastOfALargePlan(b *testing.B) {
+	rng := rand.New(rand.NewPCG(20261114, 400))
+	records := make([]delivery.Record, 30)
+	for i := range records {
+		lane := int64(10+rng.IntN(240)) * minute
+		records[i] = took(fmt.Sprintf("d%d", i), lane+int64(rng.IntN(600))*minute, lane, float64(1+rng.IntN(20)))
+	}
+	work := make([]delivery.ForecastWork, 400)
+	milestones := make([]string, 20)
+	for i := range milestones {
+		milestones[i] = fmt.Sprintf("m%02d", i)
+	}
+	for i := range work {
+		w := delivery.ForecastWork{WorkOrder: fmt.Sprintf("wo%03d", i), Milestone: milestones[i/20], Priority: int64(rng.IntN(5)), Estimate: confidentOn(records...), Records: records}
+		for range rng.IntN(3) {
+			if i > 0 {
+				w.DependsOn = append(w.DependsOn, fmt.Sprintf("wo%03d", rng.IntN(i)))
+			}
+		}
+		work[i] = w
+	}
+	in := forecastIn(4, work...)
+	in.Milestones, in.Policy.ForecastTrials = milestones, 2000
+	for b.Loop() {
+		if forecasts := forecastsOf(in); len(forecasts) != 21 || forecasts[0].Status != delivery.Forecasted {
+			b.Fatalf("the plan's forecasts are %+v", forecasts[0])
+		}
+	}
+}
+
+// cancelsAfter is a context canceled once it has been asked a number of times whether it is, as a shutdown in the
+// middle of a forecast cancels the tick's.
+type cancelsAfter struct {
+	context.Context
+	asks, after int
+}
+
+func (c *cancelsAfter) Err() error {
+	c.asks++
+	if c.asks > c.after {
+		return context.Canceled
+	}
+	return nil
+}
+
+// TestAForecastStopsWhenItsContextIsCanceled holds that a shutdown does not wait out a forecast: a large plan's
+// simulation takes seconds, so it asks its context before each trial, and once that is canceled it stops and gives
+// its error and no forecast.
+func TestAForecastStopsWhenItsContextIsCanceled(t *testing.T) {
+	records := []delivery.Record{took("d1", 60*minute, 30*minute, 1), took("d2", 180*minute, 60*minute, 3)}
+	in := forecastIn(1,
+		delivery.ForecastWork{WorkOrder: "a", Estimate: confidentOn(records...), Records: records},
+		delivery.ForecastWork{WorkOrder: "b", DependsOn: []string{"a"}, Estimate: confidentOn(records...), Records: records},
+	)
+	ctx := &cancelsAfter{Context: t.Context(), after: 3}
+	if forecasts, err := delivery.ForecastOf(ctx, in); !errors.Is(err, context.Canceled) || forecasts != nil || ctx.asks != 4 {
+		t.Errorf("canceled after three trials of %d, the forecast asked %d times and gave %+v: %v", in.Policy.ForecastTrials, ctx.asks, forecasts, err)
+	}
+	canceled, cancel := context.WithCancel(t.Context())
+	cancel()
+	if forecasts, err := delivery.ForecastOf(canceled, in); !errors.Is(err, context.Canceled) || forecasts != nil {
+		t.Errorf("canceled before it ran, the forecast gave %+v: %v", forecasts, err)
 	}
 }

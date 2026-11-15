@@ -20,6 +20,10 @@ var (
 		`SELECT current, body FROM estimates WHERE workspace_id = :workspace_id AND estimate_set_id = :estimate_set_id
  ORDER BY work_order_id`)
 
+	stmtNewestEstimateSet = define("estimate.newest_set",
+		`SELECT id FROM estimate_sets WHERE workspace_id = :workspace_id AND plan_id = :plan_id AND plan_version = :plan_version
+ ORDER BY created_at DESC, ledger_rev DESC, id DESC LIMIT 1`)
+
 	stmtCurrentEstimate = define("estimate.current",
 		`SELECT current, body FROM estimates WHERE workspace_id = :workspace_id AND work_order_id = :work_order_id AND current <> 0`)
 
@@ -121,6 +125,22 @@ func (t estimateTx) Current(workOrder string) (delivery.Estimate, error) {
 		return delivery.Estimate{}, fmt.Errorf("the current estimate of %s: %w", workOrder, ports.ErrNotFound)
 	}
 	return e, err
+}
+
+func (t estimateTx) NewestOf(plan string, version int64) (delivery.EstimateSet, error) {
+	row, err := t.row(stmtNewestEstimateSet, t.scoped(params{"plan_id": plan, "plan_version": version}))
+	if err != nil {
+		return delivery.EstimateSet{}, err
+	}
+	var id string
+	err = row.Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return delivery.EstimateSet{}, fmt.Errorf("an estimate set of plan %s version %d: %w", plan, version, ports.ErrNotFound)
+	}
+	if err != nil {
+		return delivery.EstimateSet{}, fmt.Errorf("%s: %w", stmtNewestEstimateSet.name, err)
+	}
+	return t.Set(id)
 }
 
 func (t estimateTx) Add(set delivery.EstimateSet) error {

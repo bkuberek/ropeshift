@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/url"
+	"strconv"
 
 	"ropeshift.com/ropeshift/internal/delivery"
 )
@@ -63,5 +64,45 @@ func (c *ProjectClient) Delivery(ctx context.Context, window, by string) (delive
 		path += "?" + query.Encode()
 	}
 	err := c.do(ctx, http.MethodGet, path, nil, &out)
+	return out, err
+}
+
+// PlanForecast is the latest forecasts the forecast tick kept for one plan version, the plan's own first and then
+// each milestone's by ID, with the estimate set they were made from. State says whether the tick has forecast the
+// version; until it has, Forecasts is empty and Set absent.
+type PlanForecast struct {
+	Plan      string                `json:"plan_id"`
+	Version   int64                 `json:"plan_version"`
+	State     string                `json:"state"`
+	Set       *delivery.EstimateSet `json:"estimate_set"`
+	Forecasts []delivery.Forecast   `json:"forecasts"`
+}
+
+// The states of a plan version's forecast (FR-EST-10).
+const (
+	// ForecastPending is a version the forecast tick has not forecast yet, which every surface reads as "forecast
+	// pending". The tick forecasts a version intake recorded within one tick, and never on a request.
+	ForecastPending = "pending"
+	// ForecastMade is a version the tick has forecast: Forecasts holds the latest it kept.
+	ForecastMade = "forecast"
+	// ForecastSuperseded is a version a newer one replaced before the tick forecast it. The tick forecasts only each
+	// plan's newest version, so it never will.
+	ForecastSuperseded = "superseded"
+)
+
+// PlanForecastPath is one plan version's forecast, the newest version's when version is zero.
+func PlanForecastPath(plan string, version int64) string {
+	path := "/v1/plans/" + url.PathEscape(plan) + "/forecast"
+	if version != 0 {
+		path += "?version=" + strconv.FormatInt(version, 10)
+	}
+	return path
+}
+
+// PlanForecast reads one plan version's latest forecasts, the newest version's when version is zero (FR-EST-8,
+// FR-EST-14).
+func (c *ProjectClient) PlanForecast(ctx context.Context, plan string, version int64) (PlanForecast, error) {
+	var out PlanForecast
+	err := c.do(ctx, http.MethodGet, PlanForecastPath(plan, version), nil, &out)
 	return out, err
 }

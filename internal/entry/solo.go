@@ -88,6 +88,8 @@ type soloOptions struct {
 	telemetryTick time.Duration
 	// deliveryTick is how often the delivery fold reads what each project's log added (ADR-0026).
 	deliveryTick time.Duration
+	// forecastTick is how often each plan's forecast is checked and made again when it is due (ADR-0026).
+	forecastTick time.Duration
 	leaseTTL     time.Duration
 	heartbeat    time.Duration
 }
@@ -131,6 +133,7 @@ func soloFlags(opts *soloOptions) *flag.FlagSet {
 	flags.DurationVar(&opts.forgeTick, "forge-tick", time.Minute, "how often the worker reads gh's sign-in and watched pull requests")
 	flags.DurationVar(&opts.telemetryTick, "telemetry-tick", defaultSpansEvery, "how often the ledger is read into spans and metrics")
 	flags.DurationVar(&opts.deliveryTick, "delivery-tick", 30*time.Second, "how often each project's timelines and delivery records are folded from its log, and its open work estimated again")
+	flags.DurationVar(&opts.forecastTick, "forecast-tick", time.Minute, "how often each plan's forecast is made again when what it rests on changed, and at least hourly")
 	flags.DurationVar(&opts.leaseTTL, "lease-ttl", 60*time.Second, "the policy's lease")
 	flags.DurationVar(&opts.heartbeat, "heartbeat", 15*time.Second, "how often the worker beats")
 	return flags
@@ -823,6 +826,12 @@ func soloTicks(projects ports.Projects, home ledger.WorkspaceID, opts soloOption
 		// each open work order's current estimate, drawn on the records the fold kept.
 		tick("delivery", opts.deliveryTick, func(ctx context.Context, p ledger.Project, store ports.Store) error {
 			return control.DeliveryTick(ctx, store, p.ID)
+		}),
+		// Each plan's newest version forecast again when what its forecast rests on changed, and at least hourly.
+		// A large plan's simulation takes seconds, so it runs on a tick of its own and never on a request.
+		tick("forecast", opts.forecastTick, func(ctx context.Context, p ledger.Project, store ports.Store) error {
+			_, err := control.NewForecasts(store).Refresh(ctx, p.ID)
+			return err
 		}),
 		// An assistant's session idle past the assistant policy stops; closing a view stops nothing.
 		tick("conversations", opts.wakeTick, func(ctx context.Context, p ledger.Project, store ports.Store) error {

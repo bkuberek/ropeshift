@@ -2,6 +2,7 @@ package delivery
 
 import (
 	"cmp"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -83,9 +84,14 @@ const (
 // revision. End dates are epoch milliseconds, and costs are estimated at list price. Milestone is empty for the
 // plan's own. LowConfidenceWorkOrders names the unfinished work its labels rest on whose estimate is low or has
 // no history, or that has run longer than most of what it draws on; LeftOut those of them left out of the trials;
-// and Outside the unfinished work outside the plan it waits on. Explanation is the text every surface shows.
+// and Outside the unfinished work outside the plan it waits on. Explanation is the text every surface shows. A
+// kept forecast also has its ID, the plan version and the estimate set it was made from, the digest of what it was
+// made from, which a later tick compares, and when it was kept, with the UTC midnight of that day.
 type Forecast struct {
+	ID                      string         `json:"id,omitempty"`
+	SetID                   string         `json:"estimate_set_id,omitempty"`
 	Plan                    string         `json:"plan_id"`
+	PlanVersion             int64          `json:"plan_version,omitempty"`
 	Milestone               string         `json:"milestone_id,omitempty"`
 	Status                  ForecastStatus `json:"status"`
 	Rev                     int64          `json:"ledger_rev"`
@@ -107,7 +113,13 @@ type Forecast struct {
 	Outside                 []string       `json:"outside"`
 	LowerBound              LowerBound     `json:"lower_bound,omitempty"`
 	Explanation             string         `json:"explanation"`
+	Inputs                  string         `json:"inputs_digest,omitempty"`
+	Day                     int64          `json:"day,omitempty"`
+	CreatedAt               int64          `json:"created_at,omitempty"`
 }
+
+// DayOf is the UTC midnight of a time, in epoch milliseconds: the day a forecast kept then counts toward.
+func DayOf(ms int64) int64 { return ms - ms%dayMs }
 
 // ForecastSeed is the seed of a plan version's forecast at a ledger revision: the digest of the version's digest,
 // the revision, and the estimator version, so the same ledger revision and plan version give the same forecast.
@@ -184,8 +196,9 @@ type footing struct {
 // again with the cap one higher, and with each record's waits for a person cut to the median, for the two
 // what-ifs; with no cap, the first rerun is the forecast itself. The p50 and p85 come from the trials by nearest
 // rank. A work order listed twice counts once, as first listed, and a dependency on itself counts for nothing. It
-// returns the plan's forecast, then each milestone's, by milestone.
-func ForecastOf(in ForecastInput) []Forecast {
+// returns the plan's forecast, then each milestone's, by milestone. A large plan's trials take seconds, so it asks
+// ctx before each trial, and once ctx is done it stops and returns ctx's error and no forecast.
+func ForecastOf(ctx context.Context, in ForecastInput) ([]Forecast, error) {
 	seed := ForecastSeed(in.PlanDigest, in.Rev)
 	trials := min(max(in.Policy.ForecastTrials, 1), MaxForecastTrials)
 	var work []ForecastWork
@@ -216,6 +229,9 @@ func ForecastOf(in ForecastInput) []Forecast {
 		rng := drawsFrom(seed)
 		asIs, cut := make([]job, len(work)), make([]job, len(work))
 		for range trials {
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
 			for i, w := range work {
 				asIs[i], cut[i] = drawJob(w, rng, in.PersonMedianMs)
 			}
@@ -240,7 +256,7 @@ func ForecastOf(in ForecastInput) []Forecast {
 	for _, g := range groups {
 		out = append(out, forecastOfGroup(in, work, g, labelsOf(in, work, g.scope), seed, trials))
 	}
-	return out
+	return out, nil
 }
 
 // capPlusOne is the cap one higher, and no cap stays none.

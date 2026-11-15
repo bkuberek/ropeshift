@@ -57,6 +57,10 @@ type Store interface {
 	// Fold runs fn in one short transaction that keeps the delivery read models (ADR-0026). It reads as Read
 	// does and writes only rows derived from the log, so like Renew it takes no revision and appends no event.
 	Fold(ctx context.Context, scope ledger.WorkspaceID, fn func(FoldTx) error) error
+	// Forecast runs fn in one short transaction of the forecast tick (ADR-0026): it reads as Read does and keeps
+	// forecasts and the estimate sets they were made from, which are derived from the log, so like Fold it takes
+	// no revision and appends no event.
+	Forecast(ctx context.Context, scope ledger.WorkspaceID, fn func(ForecastTx) error) error
 	// Installation is where the records every project shares change (ADR-0021): the installation's
 	// database, or, for a store that keeps them itself, its own database under scope.
 	Installation(scope ledger.WorkspaceID) Installation
@@ -71,6 +75,35 @@ type FoldTx interface {
 	Delivery() DeliveryWriter
 	// EstimateSets keeps estimate sets, which, like the delivery read models, are derived from the log.
 	EstimateSets() EstimateWriter
+}
+
+// ForecastTx is one transaction of the forecast tick: a view of the workspace, and the estimate sets and forecasts
+// the tick keeps, which are derived from the log. It reaches no delivery read model, so the tick, which takes no
+// revision, writes only what it derives.
+type ForecastTx interface {
+	ReadTx
+	// EstimateSets keeps the estimate sets forecasts are made from.
+	EstimateSets() EstimateWriter
+	// Forecast keeps forecasts.
+	Forecast() ForecastWriter
+}
+
+// ForecastReader reads kept forecasts (ADR-0026, FR-EST-8).
+type ForecastReader interface {
+	// Latest returns the newest forecast of a plan version and of each of its milestones, the plan's own first and
+	// then the milestones by ID, or none before the first is kept.
+	Latest(plan string, version int64) ([]delivery.Forecast, error)
+	// History returns the last forecast of each day of a plan version's own forecast, or of one of its milestones,
+	// oldest first, so the newest is the latest. An empty milestone names the plan's own.
+	History(plan string, version int64, milestone string) ([]delivery.Forecast, error)
+}
+
+// ForecastWriter keeps forecasts, which never change once kept.
+type ForecastWriter interface {
+	ForecastReader
+	// Keep keeps one run's forecasts, each in place of any kept earlier on its day for the same plan version and
+	// milestone, so a day keeps only its last.
+	Keep(forecasts []delivery.Forecast) error
 }
 
 // DeliveryReader reads the delivery read models (ADR-0026): the fold's state, each finished work order's
@@ -122,6 +155,8 @@ type EstimateReader interface {
 	Set(id string) (delivery.EstimateSet, error)
 	// Current returns a work order's current estimate, the one its newest set holds, or ErrNotFound.
 	Current(workOrder string) (delivery.Estimate, error)
+	// NewestOf returns the newest set of a plan version with its estimates, or ErrNotFound.
+	NewestOf(plan string, version int64) (delivery.EstimateSet, error)
 }
 
 // EstimateWriter keeps estimate sets, which never change once kept.
@@ -190,6 +225,8 @@ type ReadTx interface {
 	Deliveries() DeliveryReader
 	// Estimates reads estimate sets and each work order's current estimate.
 	Estimates() EstimateReader
+	// Forecasts reads the forecasts the forecast tick keeps.
+	Forecasts() ForecastReader
 	// Pool reads what other projects share in the installation's delivery pool.
 	Pool() PoolReader
 }

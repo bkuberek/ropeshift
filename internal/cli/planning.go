@@ -64,7 +64,8 @@ func (c *invocation) planShow(args []string) int {
 }
 
 // writePlanApproval prints what a member reads before approving a plan version: who asked, how it
-// differs from the last approved version, and every draft decision it would decide.
+// differs from the last approved version, every draft decision it would decide, and its forecast, or
+// "forecast pending" before the forecast tick has forecast it.
 func writePlanApproval(out *strings.Builder, view api.PlanApprovalView) {
 	approval := view.Approval
 	fmt.Fprintf(out, "approval\t%s\t%s\tversion %d\trequested by %s\n", approval.ID, approval.State, approval.PlanVersion, approval.RequestedBy)
@@ -85,6 +86,9 @@ func writePlanApproval(out *strings.Builder, view api.PlanApprovalView) {
 	}
 	if view.Detail.Adoption != nil {
 		writeAdoption(out, *view.Detail.Adoption, "  ")
+	}
+	if view.Forecast != nil {
+		writeForecasts(out, *view.Forecast, "  ")
 	}
 	writeRegistration(out, view.Registration)
 	fmt.Fprintf(out, "  digest %s\n", approval.SubjectDigest)
@@ -160,10 +164,14 @@ func (c *invocation) planApprove(args []string) int {
 	case !asked.Open():
 		return c.refusal(api.CodeIllegalMove, "the request for version %d of plan %s is %s", asked.PlanVersion, positional[0], asked.State)
 	}
-	// The member reads each repository the manifest lists before the approval registers them, as plan show
-	// prints them. A script that asked for JSON gets one document, so nothing is printed ahead of it.
+	// The member reads the version's forecast, or that it is pending, and each repository the manifest lists
+	// before the approval registers them, as plan show prints them. A script that asked for JSON gets one
+	// document, so nothing is printed ahead of it.
 	if !c.asJSON {
 		var preview strings.Builder
+		if waiting.Forecast != nil {
+			writeForecasts(&preview, *waiting.Forecast, "  ")
+		}
 		writeRegistration(&preview, waiting.Registration)
 		fmt.Fprint(c.stdout, preview.String())
 	}

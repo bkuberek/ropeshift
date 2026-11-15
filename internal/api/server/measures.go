@@ -6,12 +6,14 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 
 	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/control"
 	"ropeshift.com/ropeshift/internal/delivery"
 	"ropeshift.com/ropeshift/internal/measures"
+	"ropeshift.com/ropeshift/internal/planning"
 	"ropeshift.com/ropeshift/internal/ports"
 )
 
@@ -20,6 +22,85 @@ func (h *handler) measureRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/measures/delivery", h.readDelivery)
 	mux.HandleFunc("GET /v1/work-orders/{id}/timeline", h.readTimeline)
 	mux.HandleFunc("GET /v1/work-orders/{id}/estimate", h.readEstimate)
+	mux.HandleFunc("GET /v1/plans/{id}/forecast", h.readForecast)
+}
+
+// readForecast reads the latest forecasts the forecast tick kept for a plan's newest version, or for the version
+// asked for, with the estimate set they were made from (FR-EST-8, FR-EST-14). It never forecasts: a large plan's
+// simulation takes seconds, so only the tick runs it.
+func (h *handler) readForecast(w http.ResponseWriter, r *http.Request) {
+	var wanted int64
+	if raw := r.URL.Query().Get("version"); raw != "" {
+		parsed, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil || parsed < 1 {
+			invalid(w, "a version is a whole number from 1")
+			return
+		}
+		wanted = parsed
+	}
+	var view api.PlanForecast
+	err := h.Store.Read(r.Context(), h.Scope, func(tx ports.ReadTx) error {
+		plan, err := tx.Planning().Plan(r.PathValue("id"))
+		if err != nil {
+			return err
+		}
+		var version planning.PlanVersion
+		if wanted == 0 {
+			version, err = tx.Planning().LatestPlanVersion(plan.ID)
+		} else {
+			version, err = tx.Planning().PlanVersion(plan.ID, wanted)
+		}
+		switch {
+		case errors.Is(err, ports.ErrNotFound) && wanted == 0:
+			return fmt.Errorf("plan %s has no version yet: %w", plan.ID, ports.ErrNotFound)
+		case errors.Is(err, ports.ErrNotFound):
+			return fmt.Errorf("plan %s has no version %d: %w", plan.ID, wanted, ports.ErrNotFound)
+		}
+		if err != nil {
+			return err
+		}
+		view, err = planForecastOf(tx, plan.ID, version.Version)
+		return err
+	})
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	reply(w, http.StatusOK, view)
+}
+
+// planForecastOf reads a plan version's latest forecasts and the estimate set they were made from, as the forecast
+// tick kept them, and says whether the tick has forecast the version (FR-EST-10). A version it has not forecast is
+// pending while it is the plan's newest, or not yet recorded, and is superseded once a newer one is recorded,
+// because the tick forecasts only the newest.
+func planForecastOf(tx ports.ReadTx, plan string, version int64) (api.PlanForecast, error) {
+	view := api.PlanForecast{Plan: plan, Version: version, State: api.ForecastMade, Forecasts: []delivery.Forecast{}}
+	latest, err := tx.Forecasts().Latest(plan, version)
+	if err != nil {
+		return view, err
+	}
+	if len(latest) == 0 {
+		view.State = api.ForecastPending
+		newest, err := tx.Planning().LatestPlanVersion(plan)
+		switch {
+		case errors.Is(err, ports.ErrNotFound):
+		case err != nil:
+			return view, err
+		case newest.Version > version:
+			view.State = api.ForecastSuperseded
+		}
+		return view, nil
+	}
+	view.Forecasts = latest
+	if latest[0].SetID == "" {
+		return view, nil
+	}
+	set, err := tx.Estimates().Set(latest[0].SetID)
+	if err != nil {
+		return view, err
+	}
+	view.Set = &set
+	return view, nil
 }
 
 // readEstimate reads one work order's current estimate as it was made, with the explanation it showed, or none

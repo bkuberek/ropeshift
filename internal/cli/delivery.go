@@ -78,6 +78,114 @@ func estimateText(e *delivery.Estimate) string {
 		e.Confidence, span(e.DeliveryP50Ms), open, span(e.DeliveryP85Ms), bound, e.CostP50USD, open, e.CostP85USD, e.Explanation)
 }
 
+// planForecast prints the latest forecasts of a plan version, the newest by default, with the estimates they rest
+// on (FR-EST-8, FR-EST-9, FR-EST-14). With no plan named, it reads the project's only plan.
+func (c *invocation) planForecast(args []string) int {
+	set := c.flags()
+	version := set.Int64("version", 0, "the plan version, by default the newest")
+	positional, ok := c.parse(set, args)
+	if !ok {
+		return ExitUsage
+	}
+	switch {
+	case len(positional) > 1:
+		return c.usageError("takes at most one plan ID")
+	case *version < 0:
+		return c.usageError("--version is a whole number from 1")
+	}
+	client, exit := c.projectClient()
+	if client == nil {
+		return exit
+	}
+	defer client.Close()
+	var plan string
+	if len(positional) == 1 {
+		plan = positional[0]
+	} else {
+		plans, err := client.Plans(c.ctx)
+		if err != nil {
+			return c.failure(err)
+		}
+		switch len(plans) {
+		case 0:
+			return c.refusal(api.CodeNotFound, "the project has no plan")
+		case 1:
+			plan = plans[0].ID
+		default:
+			return c.usageError("the project has %d plans: name one", len(plans))
+		}
+	}
+	view, err := client.PlanForecast(c.ctx, plan, *version)
+	return c.finish(err, view, func() string { return forecastText(view) })
+}
+
+// forecastText prints each forecast of a plan version, and then each estimate of the set it was made from.
+func forecastText(view api.PlanForecast) string {
+	var out strings.Builder
+	fmt.Fprintf(&out, "plan\t%s\tversion %d\n", view.Plan, view.Version)
+	writeForecasts(&out, view, "")
+	if view.Set != nil {
+		for _, e := range view.Set.Estimates {
+			out.WriteString(strings.Replace(estimateText(&e), "estimate\t", "estimate\t"+e.WorkOrder+"\t", 1))
+		}
+	}
+	return out.String()
+}
+
+// writeForecasts prints each forecast of a plan version under its label, each line after indent: its dates and
+// costs at p50 and p85, with a lower bound as "or later" and "at least", the what-ifs, the explanation it was made
+// with, and what makes it again. A version the forecast tick has not forecast says "forecast pending", and one a
+// newer version replaced before the tick forecast it says it has none (FR-EST-10).
+func writeForecasts(out *strings.Builder, view api.PlanForecast, indent string) {
+	switch {
+	case view.State == api.ForecastSuperseded:
+		fmt.Fprintf(out, "%sno forecast: a newer version replaced version %d before the daemon's forecast tick forecast it\n", indent, view.Version)
+	case view.State == api.ForecastPending, len(view.Forecasts) == 0:
+		fmt.Fprintf(out, "%sforecast pending: the daemon's forecast tick has not forecast version %d yet\n", indent, view.Version)
+	}
+	for _, f := range view.Forecasts {
+		whose := "plan"
+		if f.Milestone != "" {
+			whose = "milestone " + f.Milestone
+		}
+		if f.Status != delivery.Forecasted {
+			fmt.Fprintf(out, "%sforecast\t%s\t%s\n", indent, whose, strings.ReplaceAll(string(f.Status), "_", " "))
+		} else {
+			all, p85 := f.LowerBound == delivery.LowerAll, f.LowerBound != delivery.LowerNone
+			fmt.Fprintf(out, "%sforecast\t%s\t%s\tp50 %s\tp85 %s\tcost p50 %s p85 %s\n", indent, whose, f.Confidence,
+				dateText(f.EndP50, all), dateText(f.EndP85, p85), costText(f.CostP50USD, all), costText(f.CostP85USD, p85))
+			ifs := []string{}
+			if f.Cap > 0 {
+				ifs = append(ifs, "with one more lane, p85 "+dateText(f.EndP85CapPlusOne, p85))
+			}
+			ifs = append(ifs, fmt.Sprintf("with each wait for a person cut to %s, p85 %s", span(f.PersonMedianMs), dateText(f.EndP85PersonMedian, p85)))
+			fmt.Fprintf(out, "%s\t%s\n", indent, strings.Join(ifs, "; "))
+		}
+		lanes := "no lane cap"
+		if f.Cap > 0 {
+			lanes = fmt.Sprintf("at most %d lanes", f.Cap)
+		}
+		fmt.Fprintf(out, "%s\t%s\n%s\tseed %s, %d trials, %s, revision %d, as of %s\n", indent, f.Explanation, indent, f.Seed, f.Trials, lanes, f.Rev, dateText(f.AsOf, false))
+	}
+}
+
+// dateText says a time in epoch milliseconds to the minute in UTC, with "or later" when it is a lower bound.
+func dateText(ms int64, lowerBound bool) string {
+	text := time.UnixMilli(ms).UTC().Format("2006-01-02 15:04 UTC")
+	if lowerBound {
+		text += " or later"
+	}
+	return text
+}
+
+// costText says an estimated cost, with "at least" when it is a lower bound.
+func costText(usd float64, lowerBound bool) string {
+	if lowerBound {
+		return fmt.Sprintf("at least $%.2f", usd)
+	}
+	return fmt.Sprintf("$%.2f", usd)
+}
+
 func orDash(text string) string {
 	if text == "" {
 		return "-"

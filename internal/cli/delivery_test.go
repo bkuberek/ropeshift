@@ -2,6 +2,7 @@ package cli_test
 
 import (
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -9,6 +10,7 @@ import (
 	"ropeshift.com/ropeshift/internal/cli"
 	"ropeshift.com/ropeshift/internal/control"
 	"ropeshift.com/ropeshift/internal/delivery"
+	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/internal/workorders"
 	"ropeshift.com/ropeshift/test/apitest"
 )
@@ -101,5 +103,112 @@ func TestWorkShowPrintsTheCurrentEstimate(t *testing.T) {
 	if e == nil || e.Status != delivery.Estimated || e.Confidence != delivery.Low || e.SampleCount != 1 || len(e.SampleIDs) != 1 || e.SampleIDs[0] != "wo" ||
 		!e.P85Open || e.Explanation == "" || !strings.Contains(text, e.Explanation) || !e.Current || e.SetID == "" {
 		t.Errorf("the estimate reads %+v", e)
+	}
+}
+
+// TestPlanForecastPrintsTheForecastsAndTheirWhatIfs shows a plan version's latest forecasts, the plan's own and each
+// milestone's, with their labels, lower bounds, what-ifs, and explanations, and the estimate set they were made
+// from, and returns what the API holds with --json (FR-EST-8, FR-EST-9, FR-EST-14).
+func TestPlanForecastPrintsTheForecastsAndTheirWhatIfs(t *testing.T) {
+	s := newSession(t)
+	plan, _ := s.plannedWithADraft()
+	if text := s.must("plan", "forecast", plan); !strings.Contains(text, "forecast pending: the daemon's forecast tick has not forecast version 1 yet\n") {
+		t.Errorf("before the tick, the forecast reads:\n%s", text)
+	}
+	var pending api.PlanForecast
+	if err := json.Unmarshal([]byte(s.must("plan", "forecast", plan, "--json")), &pending); err != nil || pending.State != api.ForecastPending {
+		t.Errorf("before the tick, the API reads %+v: %v", pending, err)
+	}
+	if _, err := control.NewForecasts(s.daemon.Store).Refresh(t.Context(), apitest.Scope); err != nil {
+		t.Fatal(err)
+	}
+	var made api.PlanForecast
+	if err := json.Unmarshal([]byte(s.must("plan", "forecast", "--json")), &made); err != nil {
+		t.Fatal(err)
+	}
+	if made.Plan != plan || made.Version != 1 || made.State != api.ForecastMade || len(made.Forecasts) != 1 || made.Set == nil || made.Forecasts[0].SetID != made.Set.ID || len(made.Set.Estimates) != 1 {
+		t.Fatalf("the only plan's forecast reads %+v", made)
+	}
+	if text := s.must("plan", "forecast", plan); !strings.Contains(text, "forecast\tplan\t") || !strings.Contains(text, "\t"+made.Forecasts[0].Explanation+"\n") ||
+		!strings.Contains(text, "estimate\t"+made.Set.Estimates[0].WorkOrder+"\t") {
+		t.Errorf("the tick's forecast prints:\n%s", text)
+	}
+
+	// A forecast with dates prints its band, its lower bound, and its what-ifs.
+	const day = int64(86_400_000)
+	at := made.Forecasts[0].CreatedAt + day
+	dated := func(milestone string, bound delivery.LowerBound) delivery.Forecast {
+		return delivery.Forecast{
+			ID: "fc-" + milestone, SetID: made.Set.ID, Plan: plan, PlanVersion: 1, Milestone: milestone, Status: delivery.Forecasted, Rev: 9, Seed: "sha256:seed",
+			Trials: 2000, Cap: 2, AsOf: 1_763_100_000_000, PersonMedianMs: 1_800_000, PolicyVersion: 1, EndP50: 1_763_200_000_000, EndP85: 1_763_300_000_000,
+			CostP50USD: 3.5, CostP85USD: 6, EndP85CapPlusOne: 1_763_250_000_000, EndP85PersonMedian: 1_763_280_000_000, Confidence: delivery.Low,
+			LowConfidenceWorkOrders: []string{"budget-order"}, LeftOut: []string{}, Outside: []string{}, LowerBound: bound,
+			Explanation: "Low confidence, from 2000 trials of 1 work order, at most 2 at a time.", Day: delivery.DayOf(at), CreatedAt: at,
+		}
+	}
+	kept := []delivery.Forecast{dated("", delivery.LowerP85), dated("m1", delivery.LowerAll)}
+	if err := s.daemon.Store.Forecast(t.Context(), apitest.Scope, func(tx ports.ForecastTx) error { return tx.Forecast().Keep(kept) }); err != nil {
+		t.Fatal(err)
+	}
+	text := s.must("plan", "forecast", plan, "--version", "1")
+	for _, want := range []string{
+		"plan\t" + plan + "\tversion 1\n",
+		"forecast\tplan\tlow\tp50 2025-11-15 09:46 UTC\tp85 2025-11-16 13:33 UTC or later\tcost p50 $3.50 p85 at least $6.00\n",
+		"\twith one more lane, p85 2025-11-15 23:40 UTC or later; with each wait for a person cut to 30m0s, p85 2025-11-16 08:00 UTC or later\n",
+		"\tLow confidence, from 2000 trials of 1 work order, at most 2 at a time.\n",
+		"\tseed sha256:seed, 2000 trials, at most 2 lanes, revision 9, as of 2025-11-14 06:00 UTC\n",
+		"forecast\tmilestone m1\tlow\tp50 2025-11-15 09:46 UTC or later\tp85 2025-11-16 13:33 UTC or later\tcost p50 at least $3.50 p85 at least $6.00\n",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("the forecast leaves out %q:\n%s", want, text)
+		}
+	}
+	var view api.PlanForecast
+	if err := json.Unmarshal([]byte(s.must("plan", "forecast", plan, "--json")), &view); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(view.Forecasts, kept) || view.Set == nil || view.Set.ID != made.Set.ID {
+		t.Errorf("the API reads %+v, kept %+v", view, kept)
+	}
+	for _, args := range [][]string{{"plan", "forecast", plan, "--version", "9"}, {"plan", "forecast", "absent"}} {
+		if code, _, _ := s.run(args...); code != cli.ExitNotFound {
+			t.Errorf("%v exits %d", args, code)
+		}
+	}
+	if code, _, _ := s.run("plan", "forecast", plan, "--version", "-1"); code != cli.ExitUsage {
+		t.Errorf("a version below 1 exits %d", code)
+	}
+}
+
+// TestPlanShowAndApproveShowTheForecastOrThatItIsPending shows the forecasts a member reads with a plan approval
+// (FR-EST-10): "forecast pending" before the forecast tick has forecast the version, and its forecasts after.
+func TestPlanShowAndApproveShowTheForecastOrThatItIsPending(t *testing.T) {
+	s := newSession(t)
+	plan, _ := s.plannedWithADraft()
+	const pending = "  forecast pending: the daemon's forecast tick has not forecast version 1 yet\n"
+	if text := s.must("plan", "show", plan); !strings.Contains(text, pending) {
+		t.Errorf("before the tick, plan show prints:\n%s", text)
+	}
+	if _, err := control.NewForecasts(s.daemon.Store).Refresh(t.Context(), apitest.Scope); err != nil {
+		t.Fatal(err)
+	}
+	made, err := s.daemon.Client.PlanForecast(t.Context(), plan, 1)
+	if err != nil || len(made.Forecasts) != 1 {
+		t.Fatalf("the forecast reads %+v: %v", made, err)
+	}
+	text := s.must("plan", "show", plan)
+	if strings.Contains(text, pending) || !strings.Contains(text, "  forecast\tplan\tno capacity\n") || !strings.Contains(text, "  \t"+made.Forecasts[0].Explanation+"\n") {
+		t.Errorf("after the tick, plan show prints:\n%s", text)
+	}
+}
+
+// TestPlanApproveWhileTheForecastIsPendingSaysSo approves a version the forecast tick has not forecast: the member
+// reads "forecast pending" before the approval, and the approval stands.
+func TestPlanApproveWhileTheForecastIsPendingSaysSo(t *testing.T) {
+	s := newSession(t)
+	plan, _ := s.plannedWithADraft()
+	text := s.must("plan", "approve", plan)
+	if !strings.Contains(text, "  forecast pending: the daemon's forecast tick has not forecast version 1 yet\n") || !strings.Contains(text, "approved The plan version 1\n") {
+		t.Errorf("approving while the forecast is pending prints:\n%s", text)
 	}
 }
