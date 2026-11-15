@@ -210,7 +210,8 @@ func MergeLayers(layers ...map[string]any) (map[string]any, error) {
 }
 
 // CheckSpellings refuses a layer that holds two keys of one table that differ only in case, with a
-// *SpellingError. It reads any decoded TOML, so a policy's body is held to it as a profile's layer is.
+// *SpellingError, in a table inside a list as in any other. It reads any decoded TOML, so a policy's body is
+// held to it as a profile's layer is.
 func CheckSpellings(layer map[string]any) error {
 	_, err := MergeLayers(layer)
 	return err
@@ -252,6 +253,9 @@ func mergeInto(into, from map[string]any, path []string) error {
 		}
 		spellings[folded] = key
 		value, here := from[key], append(slices.Clone(path), key)
+		if err := checkListed(value, here); err != nil {
+			return err
+		}
 		if isUnion(here) {
 			existing, has := into[key]
 			into[key] = unionOf(existing, has, value)
@@ -276,6 +280,43 @@ func mergeInto(into, from map[string]any, path []string) error {
 		into[key] = value
 	}
 	return nil
+}
+
+// checkListed holds every table inside a list to the rule a table of a layer is held to, whether the decoder
+// made the list of maps, as it does for an array of tables, or of any, as it does for an inline list, and
+// however deep the lists nest. A list is replaced as a whole when layers merge, never folded element by
+// element, so each table is checked alone, and a clash names it by its place in the list, such as
+// `classes[1]`. A value that is no list holds none.
+func checkListed(value any, path []string) error {
+	switch list := value.(type) {
+	case []map[string]any:
+		for i, table := range list {
+			if err := mergeInto(map[string]any{}, table, elementPath(path, i)); err != nil {
+				return err
+			}
+		}
+	case []any:
+		for i, element := range list {
+			here := elementPath(path, i)
+			if table, isTable := element.(map[string]any); isTable {
+				if err := mergeInto(map[string]any{}, table, here); err != nil {
+					return err
+				}
+				continue
+			}
+			if err := checkListed(element, here); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// elementPath is the path of the element of the list at path, with its place in the list on its last part.
+func elementPath(path []string, index int) []string {
+	here := slices.Clone(path)
+	here[len(here)-1] += fmt.Sprintf("[%d]", index)
+	return here
 }
 
 // isUnion says path is a setting of unionSettings, in any spelling the decoder reads as it.

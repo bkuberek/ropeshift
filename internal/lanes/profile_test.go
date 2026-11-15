@@ -145,6 +145,98 @@ func TestMergeLayersRefusesTwoSpellingsOfOneKey(t *testing.T) {
 	}
 }
 
+// A list of tables is read key by key as a table is, so a table in a list that spells one key two ways is
+// refused whether the decoder made the list of maps, as it does for `[[a.b]]`, or of any, as it does for an
+// inline list, and however deep the list sits. The refusal names the element, and a list of values that are
+// no tables holds no key to spell.
+func TestMergeLayersRefusesTwoSpellingsOfOneKeyInAListOfTables(t *testing.T) {
+	clash := map[string]any{"command_prefix": "go test", "Command_Prefix": "sudo"}
+	tests := []struct {
+		name      string
+		layer     map[string]any
+		spellings [2]string
+		table     string
+	}{
+		{
+			name:      "an array of tables",
+			layer:     map[string]any{"delegation_policy": map[string]any{"classes": []map[string]any{clash}}},
+			spellings: [2]string{"Command_Prefix", "command_prefix"}, table: "[delegation_policy.classes[0]]",
+		},
+		{
+			name:      "an array of tables, in a later table",
+			layer:     map[string]any{"delegation_policy": map[string]any{"classes": []map[string]any{{"tool": "Bash"}, clash}}},
+			spellings: [2]string{"Command_Prefix", "command_prefix"}, table: "[delegation_policy.classes[1]]",
+		},
+		{
+			name:      "an inline list",
+			layer:     map[string]any{"delegation_policy": map[string]any{"classes": []any{"x", clash}}},
+			spellings: [2]string{"Command_Prefix", "command_prefix"}, table: "[delegation_policy.classes[1]]",
+		},
+		{
+			name:      "a list at the top",
+			layer:     map[string]any{"classes": []map[string]any{clash}},
+			spellings: [2]string{"Command_Prefix", "command_prefix"}, table: "[classes[0]]",
+		},
+		{
+			name:      "a table in a table of a list",
+			layer:     map[string]any{"a": []map[string]any{{"b": map[string]any{"c": int64(1), "C": int64(2)}}}},
+			spellings: [2]string{"C", "c"}, table: "[a[0].b]",
+		},
+		{
+			name:      "a list in a list",
+			layer:     map[string]any{"a": []any{[]any{map[string]any{"k": int64(1), "K": int64(2)}}}},
+			spellings: [2]string{"K", "k"}, table: "[a[0][0]]",
+		},
+		{
+			name:      "a list in a table of a list",
+			layer:     map[string]any{"a": []map[string]any{{"b": []map[string]any{{"k": int64(1), "K": int64(2)}}}}},
+			spellings: [2]string{"K", "k"}, table: "[a[0].b[0]]",
+		},
+		{
+			name:      "a list of a profile's own table",
+			layer:     map[string]any{"agent": map[string]any{"extra": []map[string]any{{"name": "a", "NAME": "b"}}}},
+			spellings: [2]string{"NAME", "name"}, table: "[agent.extra[0]]",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			want := fmt.Sprintf("%q and %q spell one key", tt.spellings[0], tt.spellings[1])
+			check := func(what string, err error) {
+				t.Helper()
+				var spelling *SpellingError
+				if !errors.Is(err, ErrBadProfile) || !errors.As(err, &spelling) {
+					t.Fatalf("%s: %v", what, err)
+				}
+				if !strings.Contains(err.Error(), want) || !strings.Contains(err.Error(), tt.table) {
+					t.Errorf("%s: error %q, want %q in %q", what, err, want, tt.table)
+				}
+			}
+			check("CheckSpellings", CheckSpellings(tt.layer))
+			_, err := MergeLayers(tt.layer)
+			check("MergeLayers of one layer", err)
+			_, err = MergeLayers(map[string]any{"unrelated": int64(1)}, tt.layer)
+			check("MergeLayers of a later layer", err)
+		})
+	}
+
+	clean := map[string]any{
+		"delegation_policy": map[string]any{"classes": []map[string]any{{"tool": "Bash", "command_prefix": "go test"}, {"tool": "Read"}}},
+		"inline":            []any{map[string]any{"a": int64(1)}, "text", int64(3), []any{map[string]any{"b": int64(2)}}},
+		"strings":           []string{"a", "A"},
+	}
+	if err := CheckSpellings(clean); err != nil {
+		t.Errorf("a list of tables that spells each key one way: %v", err)
+	}
+	// Two lists of tables are not merged, so a key one layer spells in a list is not another's.
+	across := []map[string]any{
+		{"a": []map[string]any{{"key": int64(1)}}},
+		{"a": []map[string]any{{"KEY": int64(2)}}},
+	}
+	if _, err := MergeLayers(across...); err != nil {
+		t.Errorf("layers whose lists spell a key differently: %v", err)
+	}
+}
+
 // foldKey must agree with strings.EqualFold, which is how the profile's decoder reads a key.
 func TestFoldKeyAgreesWithEqualFold(t *testing.T) {
 	keys := []string{"", "a", "A", "hooks", "Hooks", "HOOKS", "hookſ", "ſ", "s", "S", "K", "k", "K", "ǆ", "ǅ", "Ǆ", "σ", "ς", "Σ", "ß", "ẞ", "ss", "max_review_rounds", "MAX_REVIEW_ROUNDS", "a.b", "a\xffb", "a\xfeb"}

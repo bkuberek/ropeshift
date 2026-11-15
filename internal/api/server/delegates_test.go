@@ -739,6 +739,9 @@ func TestNoPolicySpellsAKeyTwoWays(t *testing.T) {
 		{"a delegate policy's setting", "[delegate_policy]\nversion = 2\nexempt = []\nraise_model_and_effort = true\nRaise_Model_And_Effort = false\n", []string{"raise_model_and_effort", "Raise_Model_And_Effort"}},
 		{"a delegate policy's table", "[delegate_policy]\nversion = 2\nexempt = []\n[Delegate_Policy]\nraise_model_and_effort = false\n", []string{"delegate_policy", "Delegate_Policy"}},
 		{"a decision policy's version", strings.Replace(sevenBody, "version = 7\n", "version = 7\nVERSION = 7\n", 1), []string{"version", "VERSION"}},
+		{"a delegation policy's class", delegationBody + "Command_Prefix = \"sudo\"\n", []string{"command_prefix", "Command_Prefix"}},
+		{"a delegation policy's second class", delegationBody + "\n[[delegation_policy.classes]]\ntool = \"Bash\"\ncommand_prefix = \"git status\"\nCOMMAND_PREFIX = \"sudo\"\n", []string{"command_prefix", "COMMAND_PREFIX"}},
+		{"a delegation policy's inline class", "[delegation_policy]\nversion = 2\nclasses = [{ tool = \"Bash\", command_prefix = \"go test\", Command_Prefix = \"sudo\" }]\n", []string{"command_prefix", "Command_Prefix"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
