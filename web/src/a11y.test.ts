@@ -76,6 +76,7 @@ async function answer(route: Route): Promise<void> {
     "/v1/members": goldens.members,
     "/v1/audit": goldens.audit,
     "/v1/workers": JSON.stringify({ workers: [{ id: "worker-1", name: "atlas", manifest: { capacity: { max_lanes: 6 } } }] }),
+    "/v1/workers/worker-1/caps": goldens["worker-caps"],
     "/v1/categories": JSON.stringify({ categories: ["security", "data"] }),
   };
   // What the delegates panel, the delegate policy, and the audit's delegate rows read.
@@ -344,6 +345,56 @@ describe.each(Object.entries(sizes))("at %s width", (size, viewport) => {
         await page.mouse.move(0, 0);
         await page.waitForTimeout(600);
         found.push(...(await audit(page)).map((violation) => `start dialog with no worker ${violation}`));
+        await context.close();
+        expect(found.map((line) => `${size} ${theme} ${line}`)).toEqual([]);
+      },
+      120_000,
+    );
+
+    it(
+      "the lane caps form, with a number above the recommendation, with a refusal, with no recommendation, and for a worker on another machine, meets WCAG 2.2 A and AA",
+      async () => {
+        const context = await browser.newContext({ viewport, colorScheme: theme, reducedMotion: "reduce" });
+        await context.route(/\/v1\//, answer);
+        const page = await context.newPage();
+        const found: string[] = [];
+        // Save turns from disabled to enabled as the form changes, and axe reads a color a transition has
+        // reached, so each audit waits for the transitions to end.
+        const settle = async () => {
+          await page.mouse.move(0, 0);
+          await page.waitForTimeout(600);
+        };
+        await page.goto(`${base}/settings?section=admission`);
+        await ready(page);
+        await page.getByRole("button", { name: "A number" }).click();
+        await page.getByLabel("Number of lanes").fill("9");
+        await page.getByText(/9 is above the recommendation of 6/).waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `lane caps above the recommendation ${violation}`));
+        // The daemon refuses the change, which the form shows at its foot.
+        await page.route(/\/v1\/workers\/worker-1\/caps$/, (route) =>
+          route.request().method() === "PUT"
+            ? route.fulfill({ status: 400, contentType: "application/json", body: JSON.stringify({ error: { code: "invalid", message: "max_lanes_per_sign_in is not a number of lanes" } }) })
+            : route.fallback(),
+        );
+        await page.getByRole("button", { name: "Save", exact: true }).click();
+        await page.getByRole("alert").waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `lane caps with a refusal ${violation}`));
+        const caps = JSON.parse(goldens["worker-caps"] ?? "{}") as Record<string, unknown>;
+        await page.route(/\/v1\/workers\/worker-1\/caps$/, (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ...caps, recommendation: undefined }) }));
+        await page.goto(`${base}/settings?section=admission`);
+        await ready(page);
+        await page.getByText(/has not reported a recommendation/).waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `lane caps with no recommendation ${violation}`));
+        await page.route(/\/v1\/workers\/worker-1\/caps$/, (route) =>
+          route.fulfill({ status: 400, contentType: "application/json", body: JSON.stringify({ error: { code: "invalid", message: "worker worker-1 runs on another machine, so its lane caps are set in the user's profile on that machine" } }) }),
+        );
+        await page.goto(`${base}/settings?section=admission`);
+        await page.getByText(/runs on another machine/).waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `lane caps of a worker on another machine ${violation}`));
         await context.close();
         expect(found.map((line) => `${size} ${theme} ${line}`)).toEqual([]);
       },

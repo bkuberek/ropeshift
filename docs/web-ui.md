@@ -99,10 +99,12 @@ A member edits an agent's fields and confirms the change with Review change, dis
 
 Settings gathers every setting a member changes in the web UI, in four groups:
 
-- **Installation**: the admission and lane caps of each machine, the autonomy defaults, when an idle assistant stops, and a backup of the installation as a download.
+- **Installation**: the admission and lane caps of each machine, which the worker's recommendation sits beside, the autonomy defaults, when an idle assistant stops, and a backup of the installation as a download.
 - **Workers**: each worker's autonomy level and its run windows, and acknowledging the stated risk of a subscription worker.
 - **Project**: the fleet mode, Running, Paused, or Draining, with the project's caps, then the review, integration, decision, lane, recovery, delegation, and delegate policies, and notifications.
 - **You**: this browser's theme and whether single-key shortcuts are on.
+
+Admission and lane caps shows one machine at a time, and a switch at the top chooses it when several workers have registered. Max lanes follows the worker's recommendation, caps nothing, or is a number, and lanes per sign-in is a number where 0 caps nothing, which is the same choice `ropeshift worker caps` offers. The Recommendation panel shows the number the worker computed from its cores and memory, the reasoning behind it, and when it reported. A number above the recommendation saves with a warning that names the recommendation and why, because the cap is your decision. The caps are saved in the user profile on the worker's machine, so the page, the command, and the file are one setting, and a worker on another machine is refused: its caps are in the profile on that machine. [How many lanes run at once](onboarding.md#how-many-lanes-run-at-once) covers what a cap holds back.
 
 A policy change shows what changes before you save it, and each policy keeps its versions, so an earlier one can be restored. [Onboarding](onboarding.md#before-the-first-lane) explains what each policy governs, from [merging accepted work](onboarding.md#merging-accepted-work) to [Claude subscriptions and automated use](onboarding.md#claude-subscriptions-and-automated-use). [Delegates](authorization.md#delegates) covers the delegate policy, and [notifications](notifications.md) where a notice goes.
 

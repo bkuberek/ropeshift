@@ -1,4 +1,4 @@
-import type { AgentFields, RepositoryAdded } from "../api/admin";
+import type { AgentFields, LaneCapSettings, LaneRecommendation, RepositoryAdded, WorkerCaps } from "../api/admin";
 import type { StateLook } from "../floor/states";
 
 // The settings pages' own reckoning: what a difference shows, the body a policy version records, and the
@@ -193,6 +193,69 @@ export function policySettings(kind: PolicyKind, settings: string): PolicyValues
     values.raise_model_and_effort = true;
   }
   return values;
+}
+
+// A machine's lane caps as the form holds them. max_lanes follows the recommendation, caps nothing, or is a number, and
+// the numbers are the text a person typed, so a half-typed one is a draft and not a mistake.
+export type CapsMode = "recommended" | "none" | "number";
+export type CapsDraft = { mode: CapsMode; lanes: string; perSignIn: string };
+
+// capsDraftOf reads a worker's caps into the form: null follows the recommendation, 0 caps nothing.
+export function capsDraftOf(caps: Pick<WorkerCaps, "max_lanes" | "max_lanes_per_sign_in"> | undefined): CapsDraft {
+  const lanes = caps?.max_lanes;
+  return {
+    mode: lanes === null || lanes === undefined ? "recommended" : lanes === 0 ? "none" : "number",
+    lanes: lanes ? String(lanes) : "",
+    perSignIn: String(caps?.max_lanes_per_sign_in ?? 0),
+  };
+}
+
+const wholeNumber = (text: string): number | null => (/^\d+$/.test(text.trim()) ? Number(text.trim()) : null);
+
+// capsProblems says what stops a form from being saved, at the field that holds it. The API holds the same
+// bounds: any number from 0, with no upper bound.
+export function capsProblems(draft: CapsDraft): { lanes?: string; perSignIn?: string } {
+  const out: { lanes?: string; perSignIn?: string } = {};
+  if (draft.mode === "number") {
+    const lanes = wholeNumber(draft.lanes);
+    if (lanes === null) {
+      out.lanes = "Enter a whole number, 1 or more. To cap nothing, choose No cap.";
+    } else if (lanes === 0) {
+      out.lanes = "0 lanes would run nothing. To cap nothing, choose No cap.";
+    }
+  }
+  if (draft.perSignIn.trim() !== "" && wholeNumber(draft.perSignIn) === null) {
+    out.perSignIn = "Enter a whole number, 0 or more. 0 caps nothing.";
+  }
+  return out;
+}
+
+// capsSettings writes a valid form as the request the caps route reads. Both caps go every time, as the CLI's
+// send them, so a change to one keeps the other.
+export function capsSettings(draft: CapsDraft): LaneCapSettings {
+  return {
+    max_lanes: draft.mode === "recommended" ? null : draft.mode === "none" ? 0 : (wholeNumber(draft.lanes) ?? 0),
+    max_lanes_per_sign_in: wholeNumber(draft.perSignIn) ?? 0,
+  };
+}
+
+// capsWords says the max lanes of a form in words, with the recommendation where it is what caps.
+export function capsWords(draft: CapsDraft, recommended?: number): string {
+  if (draft.mode === "recommended") {
+    return recommended ? `the recommendation, ${recommended}` : "the recommendation, which is not reported";
+  }
+  return draft.mode === "none" ? "no cap" : draft.lanes.trim();
+}
+
+// capsAbove finds a number of lanes above the recommendation, which the API saves with a warning all the same.
+// A cap that follows the recommendation, or caps nothing, is never above it, nor is any while the worker has
+// reported none.
+export function capsAbove(draft: CapsDraft, recommendation: Pick<LaneRecommendation, "max_lanes" | "reason"> | undefined): { value: number; recommended: number; reason: string } | null {
+  const value = draft.mode === "number" ? wholeNumber(draft.lanes) : null;
+  if (value === null || !recommendation || recommendation.max_lanes <= 0 || value <= recommendation.max_lanes) {
+    return null;
+  }
+  return { value, recommended: recommendation.max_lanes, reason: recommendation.reason };
 }
 
 // nextVersion is the version a save records, one past the newest.

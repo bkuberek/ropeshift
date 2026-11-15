@@ -8,17 +8,19 @@ import {
   openWindow,
   publishPolicy,
   readAutonomy,
+  readCaps,
   readCategories,
   readFleet,
   readPolicies,
   readRepositories,
   readRisk,
   readWorkers,
+  setCaps,
   setFleetCaps,
   setFleetMode,
   setLevel,
 } from "../api/admin";
-import type { Autonomy, Fleet, Level, PolicyList, PolicyVersion, RepositoryList, Risk, WorkerList } from "../api/admin";
+import type { Autonomy, Fleet, Level, PolicyList, PolicyVersion, RepositoryList, Risk, WorkerCaps, WorkerList } from "../api/admin";
 import { readOperations } from "../api/delegates";
 import type { Operation } from "../api/delegates";
 import type { Live } from "../api/useView";
@@ -26,15 +28,15 @@ import { addressOf, go, Link } from "../app/route";
 import type { Theme } from "../app/theme";
 import { Until } from "../parts/parts";
 import { Button, Segmented, Tabs, TabPanel } from "../ui/controls";
-import { Absent, Banner, Panel, Refusal, SkeletonRows, TableRegion } from "../ui/display";
+import { Banner, Panel, Refusal, SkeletonRows, TableRegion } from "../ui/display";
 import { Diff } from "../ui/Diff";
 import { lineDiff } from "../ui/lineDiff";
 import { Field, Select } from "../ui/forms";
 import { Icon } from "../ui/Icon";
 import { Dialog, useToast } from "../ui/overlays";
-import { isMinutes, minutesBounds, newID, nextVersion, policies, policyBody, policySettings } from "./logic";
-import type { DelegationClass, FieldSpec, PolicyKind, PolicyValue, PolicyValues } from "./logic";
-import { dateOf, Reading, SaveBar, saveDownload, useChange, useDraft, useLeaveGuard, useRead } from "./parts";
+import { capsAbove, capsDraftOf, capsProblems, capsSettings, capsWords, isMinutes, minutesBounds, newID, nextVersion, policies, policyBody, policySettings } from "./logic";
+import type { CapsDraft, DelegationClass, FieldSpec, PolicyKind, PolicyValue, PolicyValues } from "./logic";
+import { dateOf, Reading, SaveBar, saveDownload, timeOf, useChange, useDraft, useLeaveGuard, useRead } from "./parts";
 
 export type Prefs = { theme: Theme; setTheme: (theme: Theme) => void; singleKeys: boolean; setSingleKeys: (on: boolean) => void };
 
@@ -152,7 +154,7 @@ function SectionBody({ section, live, project, label, archived, worker, prefs }:
     <>
       {archived ? <Banner tone="neutral">{label} is archived and read-only. Restore it from Projects to change its settings.</Banner> : null}
       {kind ? <PolicySection section={section} kind={kind} live={live} project={project} archived={archived} /> : null}
-      {section.id === "admission" ? <AdmissionSection section={section} live={live} /> : null}
+      {section.id === "admission" ? <AdmissionSection section={section} live={live} selected={worker} /> : null}
       {section.id === "backup" ? <BackupSection section={section} /> : null}
       {section.id === "autonomy" ? <AutonomySection section={section} live={live} selected={worker} /> : null}
       {section.id === "fleet" ? <FleetSection section={section} live={live} project={project} label={label} archived={archived} /> : null}
@@ -163,55 +165,157 @@ function SectionBody({ section, live, project, label, archived, worker, prefs }:
   );
 }
 
-// AdmissionSection shows each machine's lane cap as its worker reports it. The cap is set in the user
-// profile on that machine, and this build serves no recommendation to compare it with.
-function AdmissionSection({ section, live }: { section: Section; live: Live }) {
-  const read = useRead<WorkerList>(() => readWorkers(), "workers", live);
-  const workers = read.view?.workers ?? [];
+// MachineSelect chooses the machine a section of a worker's settings shows, among the workers that registered. A
+// section with one machine has nothing to choose.
+function MachineSelect({ section, workers, worker }: { section: string; workers: WorkerList["workers"]; worker: string }) {
+  const id = useId();
+  if (workers.length < 2) {
+    return null;
+  }
   return (
     <>
-      <SectionHead section={section} />
-      <Reading failure={read.failure} ready={read.view !== null}>
-        <Panel flush foot="A worker reads its caps from the user profile on its own machine, and a repository profile can lower them for its own lanes. Changing a cap from this page, and the recommendation each machine's cores and memory give, arrive with the worker's resource reports.">
-          {workers.length === 0 ? (
-            <p className="panel-body small muted">No worker has registered, so no machine reports a cap.</p>
-          ) : (
-            <TableRegion label="Lane caps by machine">
-              <table className="table stack-on-phone">
-                <thead>
-                  <tr>
-                    <th scope="col">Machine</th>
-                    <th scope="col" className="r">
-                      Max lanes
-                    </th>
-                    <th scope="col">Source</th>
-                    <th scope="col">Recommendation</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {workers.map((row) => (
-                    <tr key={row.id}>
-                      <td data-label="Machine">
-                        <strong>{row.name || row.id}</strong>
-                      </td>
-                      <td data-label="Max lanes" className="r num">
-                        {row.manifest?.capacity?.max_lanes ? row.manifest.capacity.max_lanes : "No cap"}
-                      </td>
-                      <td data-label="Source">
-                        <span className="source override">Your user profile</span>
-                      </td>
-                      <td data-label="Recommendation">
-                        <Absent>not reported</Absent>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </TableRegion>
-          )}
-        </Panel>
+      <label className="visually-hidden" htmlFor={id}>
+        Machine
+      </label>
+      <Select id={id} value={worker} onChange={(event) => go(addressOf("/settings", { section, worker: event.target.value }), { installation: true, stay: true })}>
+        {workers.map((row) => (
+          <option key={row.id} value={row.id}>
+            Machine: {row.name || row.id}
+          </option>
+        ))}
+      </Select>
+    </>
+  );
+}
+
+// AdmissionSection sets a machine's lane caps (FR-PROJ-7) through the worker's caps route, beside the
+// recommendation the worker computed from its cores and memory. A cap above the recommendation saves with a
+// warning that says why, because the cap is the member's decision.
+function AdmissionSection({ section, live, selected }: { section: Section; live: Live; selected: string }) {
+  const workers = useRead<WorkerList>(() => readWorkers(), "workers", live);
+  const list = workers.view?.workers ?? [];
+  const worker = list.find((row) => row.id === selected)?.id ?? list[0]?.id ?? "";
+  return (
+    <>
+      <SectionHead section={section} actions={<MachineSelect section="admission" workers={list} worker={worker} />} />
+      <Reading failure={workers.failure} ready={workers.view !== null}>
+        {worker ? <WorkerCapsForm key={worker} worker={worker} name={list.find((row) => row.id === worker)?.name || worker} live={live} /> : <Panel>No worker has registered, so no machine reports a cap.</Panel>}
       </Reading>
     </>
+  );
+}
+
+function WorkerCapsForm({ worker, name, live }: { worker: string; name: string; live: Live }) {
+  const read = useRead<WorkerCaps>(() => readCaps(worker), `caps:${worker}`, live);
+  const saved = read.view;
+  const [draft, setDraft, base] = useDraft<CapsDraft>(capsDraftOf(saved ?? undefined));
+  const change = useChange();
+  const toast = useToast();
+  const problems = capsProblems(draft);
+  const recommendation = saved?.recommendation;
+  const above = capsAbove(draft, recommendation);
+  const changed = [
+    draft.mode !== base.mode || (draft.mode === "number" && draft.lanes.trim() !== base.lanes) ? `max lanes ${capsWords(base, recommendation?.max_lanes)} → ${capsWords(draft, recommendation?.max_lanes)}` : "",
+    draft.perSignIn.trim() !== base.perSignIn ? `lanes per sign-in ${base.perSignIn} → ${draft.perSignIn.trim() || "0"}` : "",
+  ].filter(Boolean);
+  useLeaveGuard(changed.length > 0);
+  const invalid = Boolean(problems.lanes || problems.perSignIn);
+  const save = () =>
+    void change.run(() => setCaps(worker, capsSettings(draft))).then((made) => {
+      if (!made) {
+        return;
+      }
+      toast(
+        made.warning ? "warning" : "success",
+        made.warning ? `Saved. ${name} max lanes is ${made.max_lanes}, above the recommendation of ${made.warning.recommended}.` : `Saved ${name}'s lane caps.`,
+      );
+      read.again();
+    });
+  return (
+    <Reading failure={read.failure} ready={saved !== null}>
+      {saved ? (
+        <div className="stack">
+          <div className="panel">
+            <div className="panel-body field-stack">
+              <fieldset className="field plain-fieldset">
+                <legend className="label">
+                  Max lanes of {name} <span className="source override">Your user profile</span>
+                </legend>
+                <Segmented<CapsDraft["mode"]>
+                  label={`How the cap of ${name} is set`}
+                  value={draft.mode}
+                  choices={[
+                    { value: "recommended", label: "Recommended" },
+                    { value: "none", label: "No cap" },
+                    { value: "number", label: "A number" },
+                  ]}
+                  onChange={(mode) => setDraft((was) => ({ ...was, mode }))}
+                />
+                {draft.mode === "number" ? (
+                  <Field
+                    label="Number of lanes"
+                    error={problems.lanes}
+                    warning={
+                      above ? `${above.value} is above the recommendation of ${above.recommended}: ${above.reason}. It saves as you enter it: the cap is your decision.` : undefined
+                    }
+                  >
+                    <input className="input num field-tiny" type="number" min={1} step={1} inputMode="numeric" autoComplete="off" value={draft.lanes} onChange={(event) => setDraft((was) => ({ ...was, lanes: event.target.value }))} />
+                  </Field>
+                ) : null}
+                <p className="help">
+                  The most lanes this machine runs at once.{" "}
+                  {draft.mode === "recommended"
+                    ? recommendation
+                      ? `Following the recommendation caps it at ${recommendation.max_lanes}.`
+                      : "Until the worker reports a recommendation, nothing caps it."
+                    : draft.mode === "none"
+                      ? "Nothing caps the lanes of this machine."
+                      : null}
+                </p>
+              </fieldset>
+              <Field label="Lanes per sign-in" error={problems.perSignIn} help="Every session on a subscription draws from the same usage limits, so a cap on the lanes of one sign-in keeps parallel lanes from using them up together. 0 caps nothing.">
+                <input
+                  className="input num field-tiny"
+                  type="number"
+                  min={0}
+                  step={1}
+                  inputMode="numeric"
+                  autoComplete="off"
+                  value={draft.perSignIn}
+                  onChange={(event) => setDraft((was) => ({ ...was, perSignIn: event.target.value }))}
+                />
+              </Field>
+              {change.failure ? <Refusal>{change.failure}</Refusal> : null}
+            </div>
+            <SaveBar summary={changed.join(", ")} onDiscard={() => setDraft(base)} saving={change.busy} disabled={invalid} onSave={save} />
+          </div>
+          <Panel
+            title="Recommendation"
+            foot={
+              <>
+                The caps are saved in the user profile on {name}'s machine, so this page, <code>ropeshift worker caps</code>, and the file are one setting. The worker reads a change at its next measure, with no
+                restart. A repository's profile can lower them for its own lanes.
+              </>
+            }
+          >
+            {recommendation ? (
+              <div className="stack">
+                <p>
+                  <strong>{recommendation.max_lanes === 1 ? "1 lane" : `${recommendation.max_lanes} lanes`}</strong>
+                </p>
+                <p className="small">{recommendation.reason}</p>
+                <p className="small muted">
+                  {saved.effective_max_lanes ? `In force: ${saved.effective_max_lanes} lanes.` : "In force: no cap."}
+                  {saved.reported_at ? ` Reported ${timeOf(saved.reported_at)}.` : null}
+                </p>
+              </div>
+            ) : (
+              <p className="small">{name} has not reported a recommendation yet, so nothing recommends a cap. It reports one after it measures its machine.</p>
+            )}
+          </Panel>
+        </div>
+      ) : null}
+    </Reading>
   );
 }
 
@@ -256,32 +360,9 @@ function AutonomySection({ section, live, selected }: { section: Section; live: 
   const workers = useRead<WorkerList>(() => readWorkers(), "workers", live);
   const list = workers.view?.workers ?? [];
   const worker = list.find((row) => row.id === selected)?.id ?? list[0]?.id ?? "";
-  const id = useId();
   return (
     <>
-      <SectionHead
-        section={section}
-        actions={
-          list.length > 1 ? (
-            <>
-              <label className="visually-hidden" htmlFor={id}>
-                Machine
-              </label>
-              <Select
-                id={id}
-                value={worker}
-                onChange={(event) => go(addressOf("/settings", { section: "autonomy", worker: event.target.value }), { installation: true, stay: true })}
-              >
-                {list.map((row) => (
-                  <option key={row.id} value={row.id}>
-                    Machine: {row.name || row.id}
-                  </option>
-                ))}
-              </Select>
-            </>
-          ) : null
-        }
-      />
+      <SectionHead section={section} actions={<MachineSelect section="autonomy" workers={list} worker={worker} />} />
       <Reading failure={workers.failure} ready={workers.view !== null}>
         {worker ? <WorkerAutonomy key={worker} worker={worker} name={list.find((row) => row.id === worker)?.name || worker} live={live} /> : <Panel>No worker has registered.</Panel>}
       </Reading>

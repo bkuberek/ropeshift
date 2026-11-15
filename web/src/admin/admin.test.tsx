@@ -31,6 +31,7 @@ function serveAdmin(answer?: (sent: Sent) => Answer | undefined, projects?: Answ
         ["/v1/roster", () => golden("roster")],
         ["/v1/members", () => golden("members")],
         ["/v1/audit", () => golden("audit")],
+        ["/v1/workers/worker-1/caps", () => golden("worker-caps")],
         ["/v1/workers", () => workers],
         ["/v1/categories", () => ({ categories: ["security", "data", "compliance"] })],
       ];
@@ -288,15 +289,6 @@ describe("Settings", () => {
     await waitFor(() => expect(sentTo(sent, "PUT", "/v1/fleet/caps")[0]?.body).toEqual({ wip_limit: 0, lanes_per_repository: 0, lanes_per_worker: 3 }));
   });
 
-  it("shows each machine's lane cap as its worker reports it, and says where it is set", async () => {
-    serveAdmin();
-    openPage("/settings?section=admission");
-    const table = await screen.findByRole("region", { name: "Lane caps by machine" });
-    expect(within(table).getByText("6")).toBeTruthy();
-    expect(within(table).getByText("Your user profile")).toBeTruthy();
-    expect(screen.getByText(/arrive with the worker's resource reports/)).toBeTruthy();
-  });
-
   it("says how long a run window stays open by the server's clock, not the epoch", async () => {
     const asOf = 1_760_000_000_000;
     serveAdmin((call) =>
@@ -388,5 +380,129 @@ describe("Workers", () => {
     expect(await within(dialog).findByText("join-secret")).toBeTruthy();
     expect(within(dialog).getByText(/only time the token is shown/)).toBeTruthy();
     expect(sentTo(sent, "POST", "/v1/workers/tokens")).toHaveLength(1);
+  });
+});
+
+describe("Admission", () => {
+  const capsPath = "/v1/workers/worker-1/caps";
+  const caps = (over: Record<string, unknown> = {}) => ({ status: 200, body: { ...golden<Record<string, unknown>>("worker-caps"), ...over } });
+  const set = (sent: Sent[]) => sentTo(sent, "PUT", capsPath);
+  const save = async () => userEvent.click(screen.getByRole("button", { name: "Save" }));
+
+  it("shows a machine's caps with the recommendation and how the worker computed it, and says where they are kept", async () => {
+    serveAdmin();
+    openPage("/settings?section=admission");
+    const box = await screen.findByRole("region", { name: "Recommendation" });
+    expect(within(box).getByText("6 lanes")).toBeTruthy();
+    expect(within(box).getByText(/8 cores less 1 reserved, at 1 per lane, fit 7 lanes/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Recommended" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByText("Your user profile")).toBeTruthy();
+    // What this page once said was still to come is built: it names where the caps live and when a change counts.
+    expect(screen.queryByText(/arrive with the worker's resource reports/)).toBeNull();
+    expect(screen.getByText(/saved in the user profile on atlas's machine/)).toBeTruthy();
+  });
+
+  it("saves a number above the recommendation with the warning that says why, and the API's answer in a toast", async () => {
+    const sent = serveAdmin((call) => (call.method === "PUT" && call.path === capsPath ? { status: 200, body: golden("worker-caps-above") } : undefined));
+    openPage("/settings?section=admission");
+    await userEvent.click(await screen.findByRole("button", { name: "A number" }));
+    const lanes = screen.getByLabelText("Number of lanes");
+    fireEvent.change(lanes, { target: { value: "9" } });
+    // The warning names the recommendation and why, never blocks saving, and the box beside it says the same.
+    const field = lanes.closest(".field") as HTMLElement;
+    expect(within(field).getByText(/9 is above the recommendation of 6: 8 cores less 1 reserved/)).toBeTruthy();
+    expect(within(field).getByText(/the cap is your decision/)).toBeTruthy();
+    expect(screen.getByText("max lanes the recommendation, 6 → 9")).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(false);
+    await save();
+    await waitFor(() => expect(set(sent)[0]?.body).toEqual({ max_lanes: 9, max_lanes_per_sign_in: 0 }));
+    expect(set(sent)[0]?.csrf).not.toBeNull();
+    expect(await screen.findByText("Saved. atlas max lanes is 9, above the recommendation of 6.")).toBeTruthy();
+  });
+
+  it("saves no cap, and a return to the recommendation, as the route reads them", async () => {
+    const sent = serveAdmin((call) => {
+      if (call.method === "PUT" && call.path === capsPath) {
+        return caps();
+      }
+      return call.method === "GET" && call.path === capsPath ? caps({ max_lanes: 5, effective_max_lanes: 5 }) : undefined;
+    });
+    openPage("/settings?section=admission");
+    expect(((await screen.findByLabelText("Number of lanes")) as HTMLInputElement).value).toBe("5");
+    await userEvent.click(screen.getByRole("button", { name: "No cap" }));
+    await save();
+    await waitFor(() => expect(set(sent)[0]?.body).toEqual({ max_lanes: 0, max_lanes_per_sign_in: 0 }));
+    await userEvent.click(await screen.findByRole("button", { name: "Recommended" }));
+    await save();
+    await waitFor(() => expect(set(sent)[1]?.body).toEqual({ max_lanes: null, max_lanes_per_sign_in: 0 }));
+  });
+
+  it("saves the lanes on one sign-in, with the note on why a subscription wants one", async () => {
+    const sent = serveAdmin((call) => (call.method === "PUT" && call.path === capsPath ? caps({ max_lanes_per_sign_in: 2 }) : undefined));
+    openPage("/settings?section=admission");
+    const field = await screen.findByLabelText(/Lanes per sign-in/);
+    expect(screen.getByText(/draws from the same usage limits/)).toBeTruthy();
+    fireEvent.change(field, { target: { value: "2" } });
+    await save();
+    await waitFor(() => expect(set(sent)[0]?.body).toEqual({ max_lanes: null, max_lanes_per_sign_in: 2 }));
+    expect(await screen.findByText(/Saved atlas's lane caps/)).toBeTruthy();
+  });
+
+  it("holds Save back for a number that is no whole number of lanes, and says how to cap nothing", async () => {
+    const sent = serveAdmin();
+    openPage("/settings?section=admission");
+    await userEvent.click(await screen.findByRole("button", { name: "A number" }));
+    expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText("Number of lanes"), { target: { value: "0" } });
+    expect(screen.getByText(/To cap nothing, choose No cap/)).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(set(sent)).toHaveLength(0);
+  });
+
+  it("warns of nothing while the worker has reported no recommendation, and says so", async () => {
+    serveAdmin((call) => (call.method === "GET" && call.path === capsPath ? caps({ recommendation: undefined, effective_max_lanes: 0 }) : undefined));
+    openPage("/settings?section=admission");
+    const box = await screen.findByRole("region", { name: "Recommendation" });
+    expect(within(box).getByText(/has not reported a recommendation/)).toBeTruthy();
+    await userEvent.click(screen.getByRole("button", { name: "A number" }));
+    fireEvent.change(screen.getByLabelText("Number of lanes"), { target: { value: "99" } });
+    expect(screen.queryByText(/above the recommendation/)).toBeNull();
+  });
+
+  it("shows the API's refusal of a save at the form, and keeps the form", async () => {
+    serveAdmin((call) => (call.method === "PUT" && call.path === capsPath ? refusal(400, "invalid", "max_lanes_per_sign_in is not a number of lanes") : undefined));
+    openPage("/settings?section=admission");
+    fireEvent.change(await screen.findByLabelText(/Lanes per sign-in/), { target: { value: "2" } });
+    await save();
+    expect((await screen.findByRole("alert")).textContent).toContain("max_lanes_per_sign_in is not a number of lanes");
+    expect((screen.getByLabelText(/Lanes per sign-in/) as HTMLInputElement).value).toBe("2");
+  });
+
+  it("shows why a worker on another machine has no form here, in the API's words", async () => {
+    serveAdmin((call) =>
+      call.method === "GET" && call.path === capsPath ? refusal(400, "invalid", "worker worker-1 runs on another machine, so its lane caps are set in the user's profile on that machine") : undefined,
+    );
+    openPage("/settings?section=admission");
+    expect(await screen.findByText(/runs on another machine/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
+  });
+
+  it("chooses among several machines, and reads and saves the caps of the one chosen", async () => {
+    const two = { workers: [...workers.workers, { id: "worker-2", name: "tern", epoch: 1, protocol: 3 }] };
+    const sent = serveAdmin((call) => {
+      if (call.method === "GET" && call.path === "/v1/workers") {
+        return { status: 200, body: two };
+      }
+      if (call.path === "/v1/workers/worker-2/caps") {
+        return caps({ worker: "worker-2" });
+      }
+      return undefined;
+    });
+    openPage("/settings?section=admission&worker=worker-2");
+    expect(await screen.findByRole("region", { name: "Recommendation" })).toBeTruthy();
+    expect((screen.getByLabelText("Machine") as HTMLSelectElement).value).toBe("worker-2");
+    fireEvent.change(await screen.findByLabelText(/Lanes per sign-in/), { target: { value: "3" } });
+    await save();
+    await waitFor(() => expect(sentTo(sent, "PUT", "/v1/workers/worker-2/caps")[0]?.body).toEqual({ max_lanes: null, max_lanes_per_sign_in: 3 }));
   });
 });

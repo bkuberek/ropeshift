@@ -22,6 +22,7 @@ import {
   readApprovals,
   readAudit,
   readAutonomy,
+  readCaps,
   readCategories,
   readFleet,
   readMembers,
@@ -38,6 +39,7 @@ import {
   restoreProject,
   archiveProject,
   revertRoster,
+  setCaps,
   setFleetCaps,
   setFleetMode,
   setLevel,
@@ -118,6 +120,8 @@ const callers: Record<string, Caller> = {
   "POST /v1/workers/{id}/autonomy/acknowledgement": step("acknowledgeRisk", () => acknowledgeRisk("worker-1", "digest")),
   "POST /v1/workers/{id}/windows": step("openWindow", () => openWindow("worker-1", "window-1", 3_600_000)),
   "DELETE /v1/workers/{id}/windows": step("closeWindow", () => closeWindow("worker-1")),
+  "GET /v1/workers/{id}/caps": step("readCaps", () => readCaps("worker-1")),
+  "PUT /v1/workers/{id}/caps": step("setCaps", () => setCaps("worker-1", { max_lanes: null, max_lanes_per_sign_in: 0 })),
   "GET /v1/autonomy/risk": step("readRisk", () => readRisk()),
   "GET /v1/members": step("readMembers", () => readMembers()),
   "GET /v1/audit": step("readAudit", () => readAudit("installation", {})),
@@ -209,8 +213,6 @@ const callers: Record<string, Caller> = {
 // that adds the call. The first run of this test wrote the list.
 const uiGaps: Record<string, string> = {
   "GET /v1/workers/{id}/orchestrator": "U2b",
-  "GET /v1/workers/{id}/caps": "U2f",
-  "PUT /v1/workers/{id}/caps": "U2f",
   "GET /v1/projects/{project}/repositories/{id}": "U2f",
   "GET /v1/projects/{project}/policies/{version}": "U2f",
   "GET /v1/projects/{project}/plans": "U2d",
