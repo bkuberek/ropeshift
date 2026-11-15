@@ -571,4 +571,6 @@ type WorkDetail struct {
 	Integrations []ledger.IntegrationRecord `json:"integrations,omitempty"`
 	// Estimate is its current estimate, with its confidence and explanation, once one was made.
 	Estimate *delivery.Estimate `json:"estimate,omitempty"`
+	// Baseline is the estimate its baseline holds, once one is recorded.
+	Baseline *WorkBaseline `json:"baseline,omitempty"`
 }

@@ -162,7 +162,7 @@ func (c *invocation) workShow(args []string) int {
 	}
 	detail := api.WorkDetail{
 		WorkOrder: row, JudgedBy: view.Reviews, Verdicts: view.Verdicts, Why: view.Why, PullRequest: view.PullRequest, Integrations: view.Integrations,
-		Estimate: estimate.Estimate, Reason: reason, Detail: said,
+		Estimate: estimate.Estimate, Baseline: estimate.Baseline, Reason: reason, Detail: said,
 	}
 	return c.finish(nil, detail, func() string { return workDetailText(detail) })
 }
@@ -224,6 +224,9 @@ func workDetailText(detail api.WorkDetail) string {
 		fmt.Fprintf(&out, "approved\t%s\tby %s\tat %s\t%s%s\n", shortCommit(record.ApprovedCommit), approver, record.MergeAuthority, merged, plan)
 	}
 	out.WriteString(estimateText(detail.Estimate))
+	if detail.Baseline != nil {
+		out.WriteString(strings.Replace(estimateText(&detail.Baseline.Estimate), "estimate\t", "baseline\t", 1))
+	}
 	switch {
 	case detail.Why == "":
 	case detail.State == workorders.Integrating:

@@ -104,6 +104,13 @@ func TestWorkShowPrintsTheCurrentEstimate(t *testing.T) {
 		!e.P85Open || e.Explanation == "" || !strings.Contains(text, e.Explanation) || !e.Current || e.SetID == "" {
 		t.Errorf("the estimate reads %+v", e)
 	}
+	// Work made outside a plan records the estimate it was made with as its baseline (FR-EST-10).
+	if !strings.Contains(text, "\nbaseline\tlow\tdelivery p50 ") {
+		t.Errorf("work made outside a plan shows no baseline:\n%s", text)
+	}
+	if b := detail.Baseline; b == nil || b.Approval != "" || b.Estimate.ID != e.ID || b.Estimate.Explanation != e.Explanation {
+		t.Errorf("the baseline reads %+v beside %+v", b, e)
+	}
 }
 
 // TestPlanForecastPrintsTheForecastsAndTheirWhatIfs shows a plan version's latest forecasts, the plan's own and each

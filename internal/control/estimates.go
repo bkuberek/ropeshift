@@ -127,23 +127,28 @@ func (r estimateReads) estimateSet(set delivery.EstimateSet, orders []workorders
 }
 
 // keepEstimates estimates work orders in the transaction that made or planned them, at the revision it has
-// reached, and keeps the set. plan and version name the plan version it estimates, and are empty for work made
-// outside a plan (FR-EST-10).
-func keepEstimates(tx ports.WriteTx, plan string, version int64, orders []workorders.WorkOrder) error {
+// reached, keeps the set, and reports false when none of them takes an estimate. plan and version name the plan
+// version it estimates, and are empty for work made outside a plan (FR-EST-10).
+func keepEstimates(tx ports.WriteTx, plan string, version int64, orders []workorders.WorkOrder) (delivery.EstimateSet, bool, error) {
 	workspace, err := tx.Workspace()
 	if err != nil {
-		return err
+		return delivery.EstimateSet{}, false, err
 	}
 	set, made, err := writeEstimateReads(tx).estimateSet(delivery.EstimateSet{Plan: plan, PlanVersion: version, Rev: workspace.Rev}, orders, tx.Now())
 	if err != nil || !made {
-		return err
+		return delivery.EstimateSet{}, false, err
 	}
-	return tx.Estimates().Add(set)
+	return set, true, tx.Estimates().Add(set)
 }
 
-// estimateMade estimates one work order made outside a plan, in the transaction that made it.
+// estimateMade estimates one work order made outside a plan, in the transaction that made it, and records that
+// estimate as its baseline, because no plan approval will show it (FR-EST-10).
 func estimateMade(tx ports.WriteTx, order workorders.WorkOrder) error {
-	return keepEstimates(tx, "", 0, []workorders.WorkOrder{order})
+	set, made, err := keepEstimates(tx, "", 0, []workorders.WorkOrder{order})
+	if err != nil || !made {
+		return err
+	}
+	return baselineMade(tx, set)
 }
 
 // estimatePlanVersion estimates the open work of every contract a plan version covers, in the transaction that
@@ -153,7 +158,8 @@ func estimatePlanVersion(tx ports.WriteTx, version planning.PlanVersion) error {
 	if err != nil {
 		return err
 	}
-	return keepEstimates(tx, version.PlanID, version.Version, orders)
+	_, _, err = keepEstimates(tx, version.PlanID, version.Version, orders)
+	return err
 }
 
 // planWork lists the work orders of every contract a plan version covers.

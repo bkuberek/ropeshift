@@ -69,42 +69,36 @@ func (h *handler) readForecast(w http.ResponseWriter, r *http.Request) {
 	reply(w, http.StatusOK, view)
 }
 
-// planForecastOf reads a plan version's latest forecasts and the estimate set they were made from, as the forecast
-// tick kept them, and says whether the tick has forecast the version (FR-EST-10). A version it has not forecast is
-// pending while it is the plan's newest, or not yet recorded, and is superseded once a newer one is recorded,
-// because the tick forecasts only the newest.
+// planForecastOf reads what a plan version's approval shows of its estimates and forecasts, which approving
+// records as the baseline: the latest forecasts the forecast tick kept and the estimate set they were made from,
+// or the version's newest set before the tick has forecast it, and says whether the tick has (FR-EST-10). A
+// version it has not forecast is pending while it is the plan's newest, or not yet recorded, and is superseded
+// once a newer one is recorded, because the tick forecasts only the newest.
 func planForecastOf(tx ports.ReadTx, plan string, version int64) (api.PlanForecast, error) {
 	view := api.PlanForecast{Plan: plan, Version: version, State: api.ForecastMade, Forecasts: []delivery.Forecast{}}
-	latest, err := tx.Forecasts().Latest(plan, version)
+	set, latest, err := control.ApprovalShows(tx.Estimates(), tx.Forecasts(), plan, version)
 	if err != nil {
 		return view, err
 	}
-	if len(latest) == 0 {
-		view.State = api.ForecastPending
-		newest, err := tx.Planning().LatestPlanVersion(plan)
-		switch {
-		case errors.Is(err, ports.ErrNotFound):
-		case err != nil:
-			return view, err
-		case newest.Version > version:
-			view.State = api.ForecastSuperseded
-		}
+	view.Set = set
+	if len(latest) != 0 {
+		view.Forecasts = latest
 		return view, nil
 	}
-	view.Forecasts = latest
-	if latest[0].SetID == "" {
-		return view, nil
-	}
-	set, err := tx.Estimates().Set(latest[0].SetID)
-	if err != nil {
+	view.State = api.ForecastPending
+	newest, err := tx.Planning().LatestPlanVersion(plan)
+	switch {
+	case errors.Is(err, ports.ErrNotFound):
+	case err != nil:
 		return view, err
+	case newest.Version > version:
+		view.State = api.ForecastSuperseded
 	}
-	view.Set = &set
 	return view, nil
 }
 
 // readEstimate reads one work order's current estimate as it was made, with the explanation it showed, or none
-// when no estimate was made for it (FR-EST-14).
+// when no estimate was made for it, and its baseline once one is recorded (FR-EST-10, FR-EST-14).
 func (h *handler) readEstimate(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	var view api.WorkEstimate
@@ -116,6 +110,13 @@ func (h *handler) readEstimate(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case err == nil:
 			view.Estimate = &e
+		case !errors.Is(err, ports.ErrNotFound):
+			return err
+		}
+		baseline, shown, err := tx.Estimates().BaselineOf(id)
+		switch {
+		case err == nil:
+			view.Baseline = &api.WorkBaseline{ID: baseline.ID, Approval: baseline.Approval, RecordedAt: baseline.CreatedAt, Estimate: shown}
 		case !errors.Is(err, ports.ErrNotFound):
 			return err
 		}
