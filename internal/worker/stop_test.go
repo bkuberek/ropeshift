@@ -601,14 +601,7 @@ func TestADelegatesRaiseUnderARestrictingPolicyStartsNoLane(t *testing.T) {
 			t.Parallel()
 			base := newRig(t)
 			if restrict {
-				no := false
-				draft := authority.DelegatePolicyDraft{
-					Body:   "[delegate_policy]\nversion = 2\nexempt = []\nraise_model_and_effort = false\n",
-					Policy: authority.DelegatePolicy{Version: 2, Exempt: []string{}, RaiseModelAndEffort: &no},
-				}
-				if _, err := control.NewApprovals(base.store).PublishDelegatePolicy(t.Context(), scope, draft, member); err != nil {
-					t.Fatal(err)
-				}
+				restrictRaises(t, base)
 			}
 			base.overrides, base.dispatcher = "[agent]\neffort = \"max\"\n", &delegate
 			r := newLaneRigFor(t, base)
@@ -632,6 +625,60 @@ func TestADelegatesRaiseUnderARestrictingPolicyStartsNoLane(t *testing.T) {
 			named := slices.ContainsFunc(r.problems(), func(err error) bool { return strings.Contains(err.Error(), "delegate policy version 2") })
 			if !named {
 				t.Errorf("no problem names the policy version: %v", r.problems())
+			}
+		})
+	}
+}
+
+// restrictRaises publishes delegate policy version 2, which keeps a delegate's lane start from raising the
+// lane's model or effort.
+func restrictRaises(t *testing.T, base *rig) {
+	t.Helper()
+	no := false
+	draft := authority.DelegatePolicyDraft{
+		Body:   "[delegate_policy]\nversion = 2\nexempt = []\nraise_model_and_effort = false\n",
+		Policy: authority.DelegatePolicy{Version: 2, Exempt: []string{}, RaiseModelAndEffort: &no},
+	}
+	if _, err := control.NewApprovals(base.store).PublishDelegatePolicy(t.Context(), scope, draft, member); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A lane runs as its roster agent: on the model the agent's class maps to and at the agent's effort, unless the
+// lane's own layer sets either. So a delegate's layer is held to what the lane would run without it, not to the
+// profile's model and effort (FR-AUTH-16). A small change runs light-implementation, a small agent, on haiku at
+// medium effort, where the built-in profile gives opus at high: a layer that asks for sonnet at medium lowers
+// the profile and still raises the model the lane runs. A restricting policy refuses it, and under the built-in
+// policy the lane runs sonnet.
+func TestADelegatesLayerIsHeldToWhatTheLanesAgentRuns(t *testing.T) {
+	t.Parallel()
+	delegate := authority.DelegateActor(member.ID, authority.DelegateIDPrefix+"lower")
+	for _, restrict := range []bool{true, false} {
+		t.Run(fmt.Sprintf("restricted %t", restrict), func(t *testing.T) {
+			t.Parallel()
+			base := newRig(t)
+			if restrict {
+				restrictRaises(t, base)
+			}
+			base.size, base.overrides, base.dispatcher = "small", "[agent]\nmodel = \"sonnet\"\neffort = \"medium\"\n", &delegate
+			r := newLaneRigFor(t, base)
+			r.config.Provisioner.Profiles.(*fake.ProfileSource).Put("/repository", profileAt)
+			r.dispatched().runWith()
+			specs := r.driver.Specs()
+			if !restrict {
+				if len(specs) != 1 || specs[0].Model != "sonnet" || specs[0].Effort != "medium" {
+					t.Errorf("an allowed layer started %+v", specs)
+				}
+				return
+			}
+			if len(specs) != 0 {
+				t.Errorf("a session started on %s at %s", specs[0].Model, specs[0].Effort)
+			}
+			named := slices.ContainsFunc(r.problems(), func(err error) bool {
+				return strings.Contains(err.Error(), "delegate policy version 2") && strings.Contains(err.Error(), `from "haiku" to "sonnet"`)
+			})
+			if !named {
+				t.Errorf("no problem names the policy version and the raise: %v", r.problems())
 			}
 		})
 	}

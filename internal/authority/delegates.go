@@ -239,7 +239,7 @@ type DelegatePolicy struct {
 }
 
 // RaisesModelAndEffort says a delegate's lane start may raise the lane's model and effort above what the
-// layers below its overrides give, as a member's may. Only a version that says false keeps it from doing so.
+// lane would run without its overrides, as a member's may. Only a version that says false keeps it from doing so.
 func (p DelegatePolicy) RaisesModelAndEffort() bool {
 	return p.RaiseModelAndEffort == nil || *p.RaiseModelAndEffort
 }

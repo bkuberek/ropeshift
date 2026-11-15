@@ -89,7 +89,7 @@ export const policies: Record<PolicyKind, { table: string; fields: FieldSpec[] }
         key: "raise_model_and_effort",
         label: "A delegate's lane start may raise the model and effort",
         type: "bool",
-        help: "Off, the worker refuses a delegate's lane start whose overrides raise the model's class or the effort above what the layers below give, and the lane does not start. A member's own lane start is never held to it.",
+        help: "Off, the worker refuses a delegate's lane start whose overrides raise the model's class or the effort above what the lane would run without them, and the lane does not start. A member's own lane start is never held to it.",
       },
     ],
   },

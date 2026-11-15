@@ -46,19 +46,37 @@ func (r *laneRun) laneAgent() (roster.ResolvedAgent, bool) {
 // profile's model, and its effort. A lane's own profile layer still wins, and the agent's denials only
 // narrow the lane's rules (ADR-0025).
 func (r *laneRun) asAgent(prepared PreparedLane) (string, string, []string) {
-	profile := prepared.Profile
 	agent, ok := r.laneAgent()
 	if !ok {
-		return profile.Agent.Model, "", nil
+		return prepared.Profile.Agent.Model, "", nil
 	}
+	model, effort := agentRuns(prepared.Profile, agent.Agent, prepared.LaneModel, prepared.LaneEffort)
+	return model, effort, append([]string(nil), agent.Tools.Deny...)
+}
+
+// runsAs is the definition of the roster agent this lane runs as, and nil when it runs as none.
+func (r *laneRun) runsAs() *roster.Agent {
+	agent, ok := r.laneAgent()
+	if !ok {
+		return nil
+	}
+	return &agent.Agent
+}
+
+// agentRuns is the model and the effort a session runs as a roster agent: the model the profile's
+// `[agent.classes]` maps the agent's class to, or the agent's own model for the profile's driver, at the
+// agent's effort. The lane's own profile layer wins where laneModel or laneEffort says it set either
+// (ADR-0025). The session and the check of a delegate's layer both read it, so they never disagree on what
+// a lane runs.
+func agentRuns(profile lanes.Profile, agent roster.Agent, laneModel, laneEffort bool) (string, string) {
 	model, effort := profile.Agent.Model, agent.Effort
-	if mapped := agent.ModelFor(profile.Driver, profile.Agent.Classes); mapped != "" && !prepared.LaneModel {
+	if mapped := agent.ModelFor(profile.Driver, profile.Agent.Classes); mapped != "" && !laneModel {
 		model = mapped
 	}
-	if prepared.LaneEffort {
+	if laneEffort {
 		effort = profile.Agent.Effort
 	}
-	return model, effort, append([]string(nil), agent.Tools.Deny...)
+	return model, effort
 }
 
 // rosterText is the roster's item of this lane's context pack: the routing guide and the catalog of the

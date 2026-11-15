@@ -119,8 +119,8 @@ func TestARaiseReadsTheClassesAndTheScaleOfEffort(t *testing.T) {
 			t.Errorf("%q over %q raises %v", tt.effort, tt.below, got)
 		}
 	}
-	below := Profile{Agent: AgentSettings{Model: "b", Effort: "low", Classes: classes}}
-	raised := Profile{Agent: AgentSettings{Model: "c", Effort: "low", Classes: classes}}
+	below := AgentSettings{Model: "b", Effort: "low", Classes: classes}
+	raised := AgentSettings{Model: "c", Effort: "low", Classes: classes}
 	if err := CheckDelegatedLayer(below, raised, nil); err != nil {
 		t.Errorf("a layer no delegate sent: %v", err)
 	}

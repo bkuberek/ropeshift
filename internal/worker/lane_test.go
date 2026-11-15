@@ -9,6 +9,7 @@ import (
 	"ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/roster"
 	"ropeshift.com/ropeshift/internal/worker"
 )
 
@@ -152,6 +153,48 @@ func TestPrepareHoldsADelegatesLaneLayerToARestrictingPolicy(t *testing.T) {
 			p, source, worktrees := provisioner(nil)
 			source.Put("/work/app", tt.repository)
 			_, err := p.Prepare(t.Context(), worker.LaneRequest{Lane: "l1", Repository: "/work/app", Overrides: tt.overrides, Delegated: restricted})
+			if tt.refused == "" {
+				if err != nil {
+					t.Fatalf("a delegate's %s: %v", tt.name, err)
+				}
+				return
+			}
+			if !errors.Is(err, lanes.ErrBadProfile) || !strings.Contains(err.Error(), "delegate policy version 3") || !strings.Contains(err.Error(), tt.refused) {
+				t.Fatalf("a delegate's %s: %v", tt.name, err)
+			}
+			if created := worktrees.Created(); len(created) != 0 {
+				t.Errorf("a refused layer made %+v", created)
+			}
+		})
+	}
+}
+
+// A lane that runs as a roster agent runs the model the agent's class maps to, or the agent's own model for the
+// driver, at the agent's effort, unless the lane's layer sets either. A restricting policy holds a delegate's
+// layer to what the lane would run without it, which is that agent's, whatever the profile's model and effort
+// are (FR-AUTH-16). The built-in profile gives opus at high.
+func TestPrepareHoldsADelegatesLaneLayerToWhatItsAgentRuns(t *testing.T) {
+	t.Parallel()
+	restricted := &ledger.DelegatedLayer{Delegate: "m1/dlg_01", PolicyVersion: 3, Restricted: true}
+	small := &roster.Agent{Class: roster.ClassSmall, Effort: roster.EffortLow}
+	tests := []struct {
+		name, overrides string
+		agent           *roster.Agent
+		refused         string
+	}{
+		{"a lower model that raises the agent's", "[agent]\nmodel = \"sonnet\"\neffort = \"medium\"\n", small, `agent.model from "haiku" to "sonnet"`},
+		{"a lower effort that raises the agent's", "[agent]\neffort = \"medium\"\n", small, `agent.effort from "low" to "medium"`},
+		{"the agent's own model and effort", "[agent]\nmodel = \"haiku\"\neffort = \"low\"\n", small, ""},
+		{"a model the agent names for the driver", "[agent]\nmodel = \"sonnet\"\n", &roster.Agent{Class: roster.ClassSmall, Effort: roster.EffortLow, Models: map[string]string{"claude-code": "opus"}}, ""},
+		{"a raise over the agent's own model", "[agent]\nmodel = \"opus-preview\"\n", &roster.Agent{Class: roster.ClassSmall, Effort: roster.EffortLow, Models: map[string]string{"claude-code": "opus"}}, "agent.model"},
+		{"the profile's model, which the agent's wins over", "[agent]\nmodel = \"opus\"\n", small, ""},
+		{"a lower model and effort with no agent", "[agent]\nmodel = \"sonnet\"\neffort = \"medium\"\n", nil, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			p, _, worktrees := provisioner(nil)
+			_, err := p.Prepare(t.Context(), worker.LaneRequest{Lane: "l1", Repository: "/work/app", Overrides: tt.overrides, Delegated: restricted, Agent: tt.agent})
 			if tt.refused == "" {
 				if err != nil {
 					t.Fatalf("a delegate's %s: %v", tt.name, err)

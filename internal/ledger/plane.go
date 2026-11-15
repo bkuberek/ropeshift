@@ -183,8 +183,8 @@ type DesiredProject struct {
 
 // DelegatedLayer says a delegate sent a lane's own profile layer (FR-AUTH-16): the delegate, named as its
 // actor is, `<member>/<credential>`, the version of the delegate policy in force when it did, and whether that
-// version keeps the layer from raising the lane's model or effort above what the layers below give. The worker,
-// which holds those layers, refuses such a raise. A lane a member, an orchestrator, or the system started has
+// version keeps the layer from raising the lane's model or effort above what the lane would run without it. The
+// worker, which holds the layers below and the roster agent the lane runs as, refuses such a raise. A lane a member, an orchestrator, or the system started has
 // none.
 type DelegatedLayer struct {
 	Delegate      string `json:"delegate"`

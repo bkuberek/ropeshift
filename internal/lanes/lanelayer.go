@@ -92,22 +92,25 @@ func CheckLaneLayer(below, profile Profile) error {
 }
 
 // CheckDelegatedLayer holds a lane's own layer that a delegate sent to the delegate policy in force when it did
-// (FR-AUTH-16): below is the profile the layers below give, and profile the same with the lane's layer over
-// it. Under a version that restricts it, the layer raises neither the model nor the effort, and the refusal
-// names the version. A layer no delegate sent, or one sent under a version that allows the raise, passes.
-func CheckDelegatedLayer(below, profile Profile, delegated *ledger.DelegatedLayer) error {
+// (FR-AUTH-16): was is the model and the effort the lane would run without that layer, with the user's
+// `[agent.classes]`, and runs is what it runs with the layer. A lane that runs as a roster agent runs the
+// agent's model and effort unless its layer sets them, so a layer that lowers the profile's model can still
+// raise what the lane runs, and only what the lane runs compares. Under a version that restricts it, the layer
+// raises neither the model nor the effort, and the refusal names the version. A layer no delegate sent, or one
+// sent under a version that allows the raise, passes.
+func CheckDelegatedLayer(was, runs AgentSettings, delegated *ledger.DelegatedLayer) error {
 	if delegated == nil || !delegated.Restricted {
 		return nil
 	}
-	refuse := func(setting, was, now string) error {
+	refuse := func(setting, from, to string) error {
 		return fmt.Errorf("%w: delegate policy version %d keeps a delegate's lane start from raising %s from %q to %q",
-			ErrBadProfile, delegated.PolicyVersion, setting, was, now)
+			ErrBadProfile, delegated.PolicyVersion, setting, from, to)
 	}
-	if RaisesModel(below.Agent, profile.Agent) {
-		return refuse("agent.model", below.Agent.Model, profile.Agent.Model)
+	if RaisesModel(was, runs) {
+		return refuse("agent.model", was.Model, runs.Model)
 	}
-	if RaisesEffort(below.Agent.Effort, profile.Agent.Effort) {
-		return refuse("agent.effort", below.Agent.Effort, profile.Agent.Effort)
+	if RaisesEffort(was.Effort, runs.Effort) {
+		return refuse("agent.effort", was.Effort, runs.Effort)
 	}
 	return nil
 }
