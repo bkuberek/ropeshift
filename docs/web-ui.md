@@ -62,6 +62,8 @@ Add category, at the end of that row, adds a category to the project, as `ropesh
 
 Record question, in the heading of Open questions, records a question as it is, as `ropeshift question record` does: its text, any of the project's categories, and the work order, contract, or plan it is about. A question can hold work on that record until it is answered, and the box for that is available once the question names one. Dismiss, on a question that still waits, asks first and then closes the question with no answer; it stays on record. The command palette lists Record question and opens the same dialog.
 
+Answer, on a question that waits, opens the answer where the question stands, through the control Needs you answers with: the options with the recommendation chosen, or Something else for your own words, and a one-way choice starts with nothing chosen. Send this answer records it once, as yours, as the decision that closes the question, which is what `ropeshift question answer` does.
+
 ## Work orders
 
 Work orders lists every work order of the project under a tab for each group: Open, In progress, On hold, Stuck, Review and merge, Completed, and All. A work order's page shows its lifecycle, its review, its checks, and its lanes, beside the decision it waits on and its facts.

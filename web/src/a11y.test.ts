@@ -700,6 +700,41 @@ describe.each(Object.entries(sizes))("at %s width", (size, viewport) => {
     );
 
     it(
+      "the answer form of an open question, with a recommendation, with a member's own words, and with a refusal, meets WCAG 2.2 A and AA",
+      async () => {
+        const context = await browser.newContext({ viewport, colorScheme: theme, reducedMotion: "reduce" });
+        await context.route(/\/v1\//, answer);
+        const page = await context.newPage();
+        const found: string[] = [];
+        const settle = async () => {
+          await page.mouse.move(0, 0);
+          await page.waitForTimeout(600);
+        };
+        await page.goto(`${base}/projects/default/questions`);
+        await ready(page);
+        await page.getByRole("button", { name: "Answer Should the budget hold across restarts?" }).click();
+        const group = page.getByRole("group", { name: "Should the budget hold across restarts?" });
+        await group.waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `answer form with a recommendation ${violation}`));
+        await group.getByRole("radio", { name: "Something else" }).check();
+        await group.getByRole("textbox", { name: "Your answer" }).fill("Hold it for a day.");
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `answer form with a member's own words ${violation}`));
+        await page.route(/\/v1\/projects\/default\/questions\/question-1\/answer$/, (route) =>
+          route.fulfill({ status: 409, contentType: "application/json", body: JSON.stringify({ error: { code: "resolved", message: "This question already has its answer." } }) }),
+        );
+        await page.getByRole("button", { name: "Send this answer" }).click();
+        await page.getByRole("alert").waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `answer form with a refusal ${violation}`));
+        await context.close();
+        expect(found.map((line) => `${size} ${theme} ${line}`)).toEqual([]);
+      },
+      120_000,
+    );
+
+    it(
       "the palette, the shortcut sheet, the project switcher, a menu, and a dialog meet WCAG 2.2 A and AA",
       async () => {
         const context = await browser.newContext({ viewport, colorScheme: theme, reducedMotion: "reduce" });

@@ -2,7 +2,7 @@ import type { Question, Questions as View } from "../api/types";
 import { Link } from "../app/route";
 import { Fact, Id, Line, words } from "../parts/parts";
 import { CategoryFilter } from "./CategoryFilter";
-import { DismissQuestion, waiting } from "./DismissQuestion";
+import { QuestionActions } from "./QuestionActions";
 
 const statusWords: Record<string, string> = { needs_human: "Needs a person" };
 
@@ -60,18 +60,7 @@ function QuestionLine({ question }: { question: Question }) {
           ) : null}
         </dl>
         <Ladder question={question} />
-        {question.status === "needs_human" ? (
-          <p>
-            <Link to="/needs-you?kind=decisions" className="btn btn-sm">
-              Answer in Needs you
-            </Link>
-          </p>
-        ) : null}
-        {waiting(question) ? (
-          <div className="row-tight">
-            <DismissQuestion question={question} />
-          </div>
-        ) : null}
+        <QuestionActions question={question} />
       </div>
     </Line>
   );
