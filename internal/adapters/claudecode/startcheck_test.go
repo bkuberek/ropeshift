@@ -1,6 +1,7 @@
 package claudecode
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"os"
@@ -93,6 +94,10 @@ func TestAPaneHoldsItsPack(t *testing.T) {
 
 func TestStartCheck(t *testing.T) {
 	trust, accepted, ready := pane(t, "trust-focus-cancel"), pane(t, "trust-focus-accept"), pane(t, "ready")
+	flipped := strings.Join([]string{" Accessing workspace:", "", "   Yes, I trust this folder", " ❯ No, exit", ""}, "\n")
+	// repainted is a later frame of the same dialog, which a pane shows while the key it took is still
+	// being answered.
+	repainted := accepted + "\n Checking this folder.\n"
 	moves := map[string]map[string]string{
 		trust:    {"Down": accepted},
 		accepted: {"Enter": ready, "Up": trust},
@@ -101,6 +106,8 @@ func TestStartCheck(t *testing.T) {
 		name   string
 		script fake.PaneScript
 		mode   checkMode
+		// timeout is how long the check runs, and is longer where a key's effect is late.
+		timeout time.Duration
 		// keys is every key the pane must take, in order.
 		keys []string
 		want error
@@ -112,8 +119,30 @@ func TestStartCheck(t *testing.T) {
 			mode: checkFresh, keys: []string{"Down", "Enter"},
 		},
 		{
-			name: "a dialog that refuses its first key is pressed again", mode: checkFresh,
-			script: fake.PaneScript{Screen: trust, Moves: moves, Refused: 1}, keys: []string{"Down", "Down", "Enter"},
+			name: "a dialog that takes no key is not pressed again", mode: checkFresh,
+			script: fake.PaneScript{Screen: trust, Moves: moves, Refused: 1}, keys: []string{"Down"}, want: ports.ErrUnknownScreen,
+		},
+		{
+			name: "a late repaint is waited out before the next key", mode: checkFresh, timeout: 2 * time.Second,
+			script: fake.PaneScript{Screen: trust, Moves: moves, Stale: 5}, keys: []string{"Down", "Enter"},
+		},
+		{
+			name: "a late repaint of a focus below accept takes Up once", mode: checkFresh, timeout: 2 * time.Second,
+			script: fake.PaneScript{Screen: flipped, Moves: map[string]map[string]string{flipped: {"Up": accepted}, accepted: {"Enter": ready}}, Stale: 5},
+			keys:   []string{"Up", "Enter"},
+		},
+		{
+			name: "an Enter that changes nothing is sent once", mode: checkFresh,
+			script: fake.PaneScript{Screen: accepted}, keys: []string{"Enter"}, want: ports.ErrUnknownScreen,
+		},
+		{
+			name: "a dialog that repaints after Enter and still asks takes no second Enter", mode: checkFresh,
+			script: fake.PaneScript{Screen: accepted, Moves: map[string]map[string]string{accepted: {"Enter": repainted}}},
+			keys:   []string{"Enter"}, want: ports.ErrUnknownScreen,
+		},
+		{
+			name: "an Enter that never repaints times out a resume", mode: checkResume,
+			script: fake.PaneScript{Screen: accepted}, keys: []string{"Enter"}, want: ports.ErrResumeNotReady,
 		},
 		{
 			name: "a focus already on accept only confirms", script: fake.PaneScript{Screen: accepted, Moves: moves},
@@ -131,7 +160,8 @@ func TestStartCheck(t *testing.T) {
 			if _, err := terminal.Open(t.Context(), ports.PaneSpec{Name: "p"}); err != nil {
 				t.Fatal(err)
 			}
-			err := runStartCheck(t.Context(), terminal, "p", startCheck{mode: tt.mode, timeout: 80 * time.Millisecond, poll: time.Millisecond, settle: time.Millisecond})
+			timeout := cmp.Or(tt.timeout, 80*time.Millisecond)
+			err := runStartCheck(t.Context(), terminal, "p", startCheck{mode: tt.mode, timeout: timeout, poll: time.Millisecond, settle: time.Millisecond})
 			if !errors.Is(err, tt.want) {
 				t.Fatalf("check: %v, want %v", err, tt.want)
 			}

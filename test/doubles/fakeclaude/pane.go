@@ -21,6 +21,10 @@ import (
 type paneScript struct {
 	// Trust starts on the trust dialog, once per directory.
 	Trust bool `json:"trust,omitempty"`
+	// TrustRepaintMs is how long the dialog's frame stays on screen after the Enter that accepts
+	// it, before the session trusts the directory and paints the next screen, as a slow repaint
+	// does. A check that reads the old frame as a dialog still waiting answers it a second time.
+	TrustRepaintMs int `json:"trust_repaint_ms,omitempty"`
 	// Stuck draws this and never reaches a prompt.
 	Stuck string `json:"stuck,omitempty"`
 	// ExitOnStart ends the process before a prompt, with this code.
@@ -192,6 +196,7 @@ func (s *session) askTrust(keys <-chan string) {
 				witness("bare-enter", "the wrong answer")
 				os.Exit(1)
 			}
+			time.Sleep(time.Duration(s.script.Pane.TrustRepaintMs) * time.Millisecond)
 			if err := os.WriteFile(trustMark(), nil, 0o600); err != nil {
 				fail("%v", err)
 			}

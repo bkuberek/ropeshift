@@ -1,0 +1,8 @@
+{
+  "source": "RS3: a pane whose trust dialog repaints slowly after its Enter, so the old frame outlasts the check settle",
+  "model": "claude-fixture-5-5",
+  "pane": {"trust": true, "trust_repaint_ms": 1200},
+  "turns": [
+    [{"status": {"context_window": {"current_usage": {"input_tokens": 3, "cache_creation_input_tokens": 100, "cache_read_input_tokens": 900}}, "cost": {"total_cost_usd": 0.1}}}]
+  ]
+}

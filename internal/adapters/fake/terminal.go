@@ -18,6 +18,9 @@ type PaneScript struct {
 	// Refused counts the keys a screen ignores before it takes one, as a dialog that has
 	// just opened does.
 	Refused int
+	// Stale counts the reads, after each key that moves the screen, that still return the screen the
+	// key moved away from, as a pane that repaints slowly does. The screen itself has already moved.
+	Stale int
 }
 
 // Terminal holds scripted panes in memory. No process starts.
@@ -41,6 +44,9 @@ type fakePane struct {
 	keys    []string
 	typed   []string
 	signals []ports.Signal
+	// behind is the screen reads still return, for as many reads as lag says.
+	behind string
+	lag    int
 	// clients are the attached clients, each ended by closing its channel.
 	clients []chan struct{}
 }
@@ -180,6 +186,10 @@ func (t *Terminal) Capture(_ context.Context, name string) (string, error) {
 		return "", fmt.Errorf("%s: %w", name, ports.ErrNotFound)
 	}
 	t.captures++
+	if pane.lag > 0 {
+		pane.lag--
+		return pane.behind, nil
+	}
 	return pane.script.Screen, nil
 }
 
@@ -228,6 +238,9 @@ func (t *Terminal) Keys(_ context.Context, name string, keys ...string) error {
 			continue
 		}
 		if next, ok := pane.script.Moves[pane.script.Screen][key]; ok {
+			if next != pane.script.Screen {
+				pane.behind, pane.lag = pane.script.Screen, pane.script.Stale
+			}
 			pane.script.Screen = next
 		}
 	}

@@ -180,6 +180,26 @@ func TestPaneStartAnswersTrustAndHandsOverTheBrief(t *testing.T) {
 	}
 }
 
+// A pane that repaints slowly keeps the dialog's old frame on screen after the Enter that accepted
+// it. That frame still shows the focus on `Yes, I trust this folder`, and a second Enter would answer
+// whatever screen the CLI shows next, so the check sends Enter once and waits for the screen to change.
+func TestPaneStartConfirmsTrustOnceWhenTheScreenRepaintsSlowly(t *testing.T) {
+	r := newPaneRig(t, "pane-slow-repaint")
+	s := r.start()
+	if bound := s.until(ports.EventSessionBound); bound.SessionID == "" {
+		t.Errorf("bound %+v", bound)
+	}
+	if turn := s.until(ports.EventTurnEnded).Turn; turn.Status != ports.TurnCompleted {
+		t.Errorf("turn %+v", turn)
+	}
+	if got := r.log("keys"); !slices.Equal(got, []string{"trust <down>", "trust <enter>"}) {
+		t.Errorf("keys %v", got)
+	}
+	if bare := r.log("bare-enter"); len(bare) != 0 {
+		t.Errorf("a bare Enter reached the dialog: %v", bare)
+	}
+}
+
 // SessionStart fires with no prompt, so a worker must not read it as a brief that arrived:
 // the first event of a session in a pane comes with its first prompt.
 func TestPaneSessionStartIsNoEvidenceOfABrief(t *testing.T) {
