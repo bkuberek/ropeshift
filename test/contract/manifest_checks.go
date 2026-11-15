@@ -31,6 +31,7 @@ var ManifestChecks = []Check{
 	{"RM10", "approving a plan records on the approval what it registered, an outcome for each repository its version's manifest lists with its path, where that led, and its remote, also when one fails and the others register; a dry run records nothing", checkApprovalRecordsWhatItRegistered},
 	{"RM11", "a manifest name a member removed stays removed whatever clone, history, or remote the entry names, and a plan approval says so", checkRemovedNameStaysRemoved},
 	{"RM12", "deciding a plan approval again changes nothing a first decision registered: the recorded outcomes and the repositories stay, and the approval keeps one record of what it registered", checkRepeatedDecisionKeepsTheRegistration},
+	{"RM13", "a registration that stops partway records each entry it never attempted as not attempted beside the problem that stopped it, and the entries before it keep their outcomes", checkStoppedRegistrationRecordsWhatItNeverAttempted},
 	{"RM14", "a manifest path that spells the planning repository's own clone another way, as a disk that ignores case allows, is that clone and registers nothing", checkManifestPathSpelledAsThePlanningClone},
 	{"RM6", "a manifest registers only a clone inside the directory that holds the planning repository's clone, symbolic links followed: a path or a link that leads out of it, the planning clone itself, and the installation's own directories register nothing, each refused naming where it leads", checkManifestPathsStayBesideThePlanningClone},
 }
@@ -1008,6 +1009,81 @@ func checkRepeatedDecisionKeepsTheRegistration(r *Rig) error {
 	}
 	if found, err := r.theRepository(s, "repo-search"); err == nil {
 		return Violatedf("deciding again registered search, whose clone came after: %+v", found)
+	}
+	return r.CheckProjection(s)
+}
+
+// failingKeep is a worker's machine that cannot keep the checkout at one path.
+type failingKeep struct {
+	*fake.Checkouts
+	at string
+}
+
+func (f failingKeep) Keep(ctx context.Context, project ledger.WorkspaceID, repository, at string) error {
+	if at == f.at {
+		return errors.New("the checkouts file cannot be written")
+	}
+	return f.Checkouts.Keep(ctx, project, repository, at)
+}
+
+func checkStoppedRegistrationRecordsWhatItNeverAttempted(r *Rig) error {
+	s := r.Store()
+	files, err := r.manifestProject(s)
+	if err != nil {
+		return err
+	}
+	if err := r.readsAsPlanning(s, files); err != nil {
+		return err
+	}
+	files.Write("repositories.md", []byte(manifestText("", "api", "web", "billing", "search", "ledger", "docs")))
+	if _, err := r.intake(s, files); err != nil {
+		return err
+	}
+	machine, err := r.planningMachine()
+	if err != nil {
+		return err
+	}
+	for _, name := range []string{"billing", "search", "ledger", "docs"} {
+		machine.Place(cloneOf(name, name))
+	}
+	kept := failingKeep{Checkouts: machine, at: "/work/search"}
+	repositories := r.repositories(s)
+	request, err := r.theOpenPlanApproval(s)
+	if err != nil {
+		return err
+	}
+	if _, err := r.approve(s, request, true, r.member()); err != nil {
+		return err
+	}
+	added, err := repositories.RegisterApproved(r.Ctx, r.Scope, request.ID, kept, false, r.member())
+	if err == nil || !strings.Contains(err.Error(), "cannot be written") {
+		return Violatedf("a run whose checkout could not be kept ended with %v", err)
+	}
+	record, err := r.registrationOf(s, request.ID)
+	if err != nil || record == nil || !strings.Contains(record.Problem, "cannot be written") {
+		return Violatedf("the approval recorded %+v: %v, want the problem that stopped it", record, err)
+	}
+	if len(record.Repositories) != 6 || len(added) != 6 {
+		return Violatedf("the approval recorded %d outcomes and returned %d, want one for each of the six repositories the manifest lists: %+v", len(record.Repositories), len(added), record.Repositories)
+	}
+	outcome := func(name string) ledger.ManifestOutcome {
+		at := slices.IndexFunc(record.Repositories, func(o ledger.ManifestOutcome) bool { return o.Name == name })
+		if at < 0 {
+			return ledger.ManifestOutcome{}
+		}
+		return record.Repositories[at]
+	}
+	if billing := outcome("billing"); billing.Outcome != ledger.Registered || billing.Checkout != "/work/billing" {
+		return Violatedf("billing, registered before the run stopped, reads %+v", billing)
+	}
+	for name, path := range map[string]string{"ledger": "../ledger", "docs": "../docs"} {
+		left := outcome(name)
+		if left.Outcome != "not_attempted" || left.Path != path || left.Remote != "git@github.com:acme/"+name+".git" || !strings.Contains(left.Reason, "search") {
+			return Violatedf("%s, which the run never reached, reads %+v", name, left)
+		}
+		if found, err := r.theRepository(s, "repo-"+name); err == nil {
+			return Violatedf("%s was registered though the run never reached it: %+v", name, found)
+		}
 	}
 	return r.CheckProjection(s)
 }

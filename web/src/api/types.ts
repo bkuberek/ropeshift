@@ -712,13 +712,13 @@ export type PlanApprovalDetail = {
 
 // RepositoryOutcome is what became of one repository a manifest lists, or would on approval: its name, the
 // path of its clone as the manifest writes it, where that path leads on the daemon's worker's machine, its
-// remote, and why it was refused.
+// remote, and why it was refused. A repository a failure stopped the run before is not attempted.
 export type RepositoryOutcome = {
   name?: string;
   manifest_path?: string;
   remote?: string;
   path: string;
-  outcome: "registered" | "known" | "refused";
+  outcome: "registered" | "known" | "refused" | "not_attempted";
   checkout?: string;
   reason?: string;
 };

@@ -32,7 +32,8 @@ const (
 )
 
 // ManifestRegistration is what one run of registration from a manifest did: an outcome for each repository
-// the manifest lists, and why the run stopped short, when it did.
+// the manifest lists, those a failure stopped the run before among them as not attempted, and why the run
+// stopped short, when it did.
 type ManifestRegistration struct {
 	Repositories []ManifestOutcome `json:"repositories"`
 	Problem      string            `json:"problem,omitempty"`
@@ -75,6 +76,10 @@ const (
 	// RegistrationRefused registered nothing: another project holds the repository, or the path holds no
 	// clone.
 	RegistrationRefused RepositoryOutcome = "refused"
+	// NotAttempted is a repository a registration from a manifest never reached, because a failure of the
+	// store or of the worker's checkouts stopped the run before it, so nothing says what would have become
+	// of it. A later approval, or a member's registration by hand, registers it.
+	NotAttempted RepositoryOutcome = "not_attempted"
 )
 
 // MergeMethod is how a pull request lands on its base branch.

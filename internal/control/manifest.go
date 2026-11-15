@@ -269,19 +269,37 @@ func (r *Repositories) registerEntries(ctx context.Context, scope ledger.Workspa
 	if dir.root != "" && !dir.planner.Planning {
 		naming = dir.planner.ID
 	}
-	for _, entry := range entries {
+	for i, entry := range entries {
 		added, err := r.registerEntry(ctx, scope, entry, kept, entryRun{manifestRun: run, dir: dir, why: why, held: held, removed: removed, removedRemotes: removedRemotes, checkouts: checkouts, claimed: claimed, planning: naming}, actor)
 		// Each outcome names what the manifest wrote for it, so a member reads what they consent to.
 		added.Name, added.Manifest, added.Remote = entry.Name, entry.Path, entry.Remote
 		out = append(out, added)
 		if err != nil {
-			return out, err
+			// A failure stops the run, and each entry after it is said to be unreached, so a member reads
+			// every repository the manifest lists and which of them a later run must register.
+			return append(out, unreached(entries[i+1:], dir, entry.Name)...), err
 		}
 		if added.Outcome == ledger.Registered && !run.dryRun {
 			naming = ""
 		}
 	}
 	return out, nil
+}
+
+// unreached is the outcome of each entry of a manifest a run stopped before, with the entry it stopped at.
+func unreached(entries []planning.ManifestRepository, dir planningDirectory, stoppedAt string) []Added {
+	out := make([]Added, 0, len(entries))
+	for _, entry := range entries {
+		at := entry.Path
+		if dir.root != "" {
+			at = filepath.Join(dir.root, filepath.FromSlash(entry.Path))
+		}
+		out = append(out, Added{
+			Name: entry.Name, Manifest: entry.Path, Remote: entry.Remote, Path: at, Outcome: ledger.NotAttempted,
+			Reason: fmt.Sprintf("%s was not attempted: the run stopped at %s", entry.Name, stoppedAt),
+		})
+	}
+	return out
 }
 
 // entryRun is what registering one entry of a manifest reads: the run, where the planning repository's clone

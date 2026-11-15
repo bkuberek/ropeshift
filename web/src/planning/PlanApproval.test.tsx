@@ -403,6 +403,26 @@ describe("the repositories a version's manifest lists", () => {
     expect(within(panel).getByText(/Read now from the clones on the daemon's worker's machine/)).toBeTruthy();
   });
 
+  it("says which repositories a registration that stopped never reached", async () => {
+    serve((view) => {
+      if (view.approval) {
+        view.approval.approval.state = "approved";
+        view.approval.registration = {
+          repositories: [
+            { name: "billing", manifest_path: "../billing", path: "/work/billing", outcome: "registered", checkout: "/work/billing" },
+            { name: "search", manifest_path: "../search", path: "/work/search", outcome: "not_attempted", reason: "search was not attempted: registering billing stopped the run" },
+          ],
+          problem: "registering the repositories the manifest adds failed: disk full",
+        };
+      }
+    });
+    openPage(page());
+    const panel = await screen.findByRole("region", { name: "Repositories this approval registered" });
+    const search = within(panel).getByRole("listitem", { name: "search" });
+    expect(search.textContent).toContain("Not attempted");
+    expect(search.textContent).toContain("registering billing stopped the run");
+  });
+
   it("says what an approved version registered, and why registration fell short", async () => {
     serve((view) => {
       if (view.approval) {

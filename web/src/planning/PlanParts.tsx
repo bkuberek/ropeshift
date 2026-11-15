@@ -340,6 +340,7 @@ const registrationStates: Record<string, StateLook> = {
   would: { label: "Would register", tone: "active", glyph: "half" },
   known: { label: "Already registered", tone: "neutral", glyph: "dot" },
   refused: { label: "Refused", tone: "danger", glyph: "cross" },
+  not_attempted: { label: "Not attempted", tone: "neutral", glyph: "dot" },
 };
 
 // registrationTitle says what a registration is: what approving would register, or what an approval did.
