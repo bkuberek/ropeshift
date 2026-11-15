@@ -1,5 +1,84 @@
 # Changelog
 
+## [0.1.0-alpha.15](https://github.com/bkuberek/ropeshift/compare/v0.1.0-alpha.14...v0.1.0-alpha.15) (2026-11-15)
+
+### Notes
+
+* **Security:** this release closes a hole in lane overrides. Before it, a delegate credential could start a lane whose overrides ran a command on the worker, as the worker's own user. Upgrade every machine that runs ropeshift, remote workers included, because the worker enforces the rule. Review any outside delegate credential issued before you upgrade, and revoke the ones you do not need with `ropeshift delegate revoke <id>`. The release also stops a delegate from recording a decision under the ID a plan's draft derives, which let its answer stand in place of the one a member approved.
+* This release adds database migrations `0086` (estimate sets and each work order's current estimate) and `0097` (the delegate that proposed each event), and the installation database's migration `0024` (the installation's delivery pool). They run on the first start. Back up each project with `ropeshift backup <file>` and the installation with `ropeshift backup <file> --installation` before you upgrade.
+* **Behavior change:** a lane's overrides, from `lane start --profile` or `overrides` in the lane start API, cannot set `hooks`, `agent.credentials`, `agent.instructions_file`, `worktree.root`, or `worktree.branch_prefix`. They cannot raise `max_generations_per_day`, `max_restarts`, `review.max_review_rounds`, or `resources.ports_per_lane`, or shorten `restart_window`. The API answers 400 `invalid`, for every caller and in any spelling of the key, to overrides that set the first five, that set `review.max_review_rounds` to anything but `1` or `resources.ports_per_lane` to anything but `0`, or that spell one key two ways. The worker refuses the rest when it reads the layer. A lane whose stored overrides break these rules, one requested before the upgrade included, fails to start. Overrides of other keys, such as `agent.model` and `agent.effort`, work as before.
+* **Behavior change:** the `agent.gates` of every profile layer join: yours, the repository's `.ropeshift/profile.toml`, and the lane's, in that order and with each gate once. A layer adds gates and never removes one, and `gates = []` removes nothing. Any profile layer that spells one key two ways, such as `[hooks]` and `[Hooks]`, is refused, naming both spellings. Before you upgrade, check profiles that relied on a repository or lane layer replacing your gates, profiles that spell a key two ways, and scripts that pass hooks, credentials, or worktree settings through `lane start --profile`.
+* **Behavior change:** a delegate policy can exempt only four actions: accepting verified work (`work_order.accept`), rework after a failed verdict (`work_order.rework`), creating a work order (`work_order.create`), and starting a contract review (`plan.start_review`). A new version that lists any other operation is refused. A stored version that lists one exempts nothing for that entry, and the delegate policy form in Settings drops it.
+* **Behavior change:** a delegate's accept counts as verified only once the review of the work's current attempt has ruled, every criterion passed on a check the lane did not write, no verdict for the attempt is `fail` or `cannot_judge`, and every check the base branch requires is green on the work's pull request. Otherwise it becomes a confirmation card. Recording a decision is a card for every delegate, the assistant included, even when the decision policy covers it. An outside delegate's message to a lane is a card; the assistant's still sends at once. Passing a review, planning work's included, is a card for every delegate, and a delegate's acceptance of a contract review passes none of the work it read. Every event a confirmed card records names the member as its actor and the delegate as its proposer.
+* **Behavior change:** decision IDs that start with `pd-` are reserved for plan approval, and recording, answering, or overturning with one answers 400 `invalid` for any client, a member's included. A plan approval answers 409 `decision_clash`, and `plan approve` exits 4, while a decision held under an ID one of the version's drafts derives says something else or was not recorded by a plan approval. The refusal names each clashing decision, who recorded it, and its draft, and approves nothing. To clear a clash, overturn the decision if it should not stand and approve a new version of the plan.
+* A member's approval of a plan version registers each repository that version's manifest lists and the project lacks, from the clone at its path beside the planning repository's clone on the daemon's worker. A path must lead, with every symbolic link followed, inside the directory that holds the planning clone, and a repository a member removed is not registered again. `ropeshift repository add --manifest <file>` registers what a manifest lists with no approval, and only a member can run it. `plan show`, `plan approve`, and the web UI's plan approval page show what approving registers. Work in a repository whose worker keeps no clone of it now waits as `no_checkout`, and a milestone across repositories at `person_merges` with review target `branch` reads "accepted, not merged".
+* `ropeshift work timeline <id>` prints where a work order's time went, and `ropeshift measures delivery` reads look back over delivery records, grouped by kind, size, agent, repository, or project. The daemon exports the delivery measures as `ropeshift.measure.delivery.*` metrics.
+* Ropeshift estimates each open `change` and `rework` work order's delivery time and cost from comparable finished work, at intake and when work is made, and estimates again every `--delivery-tick` as history grows. `ropeshift work show` prints the current estimate with its explanation. A member sets how estimates read history with a versioned `[estimate_policy]`; its `share_history`, off by default, adds the project's records to the installation's pool and draws on the pool. Ropeshift also forecasts a plan's milestones with a seeded simulation, which no command shows yet.
+
+
+### Features
+
+* estimate each plan version's work at intake and work made outside a plan ([55b3453](https://github.com/bkuberek/ropeshift/commit/55b345364c3307438b3eb3aaa7c3903c3478b197))
+* estimate new work from comparable finished work ([2533870](https://github.com/bkuberek/ropeshift/commit/25338705f2979596fc1b353a1410dc05f522b666))
+* export the delivery measures and read look back by project ([6c83d0c](https://github.com/bkuberek/ropeshift/commit/6c83d0c67285587d9567872c1b38005b3191a0ea))
+* forecast a plan's milestones with a seeded simulation ([db215b3](https://github.com/bkuberek/ropeshift/commit/db215b389885f031593f595e8975ada6f6ff35c8))
+* give an estimate the fields of its data model ([38f4c61](https://github.com/bkuberek/ropeshift/commit/38f4c612269ede8873cc2344d3aaa182f2be0f75))
+* keep each open work order's current estimate as history grows ([2a1dcc4](https://github.com/bkuberek/ropeshift/commit/2a1dcc4e6ef4c14927decc616c81e3225efac338))
+* keep estimate sets and each work order's current estimate ([318f7ac](https://github.com/bkuberek/ropeshift/commit/318f7acb2630bff83f2a51e05be8ab4b71470861))
+* name what caused a registration from a manifest in its event ([b3fa7d7](https://github.com/bkuberek/ropeshift/commit/b3fa7d7e80ec42801e2b3b53db77eb49128b4c60))
+* publish the estimate policy as a member's version ([a98c41a](https://github.com/bkuberek/ropeshift/commit/a98c41a2a293c797139190436445c8fb5e23297c))
+* register what an approved manifest adds, and from a manifest by hand ([48c7329](https://github.com/bkuberek/ropeshift/commit/48c732989fd5f56cdeed538ca3ccc1c3202c77e5))
+* share delivery history through the installation pool ([f6a98ca](https://github.com/bkuberek/ropeshift/commit/f6a98ca4ae2699381914fc7e15c968f23d638797))
+* show a milestone across repositories as accepted, not merged ([3f91cb7](https://github.com/bkuberek/ropeshift/commit/3f91cb7a8f01f3d1341884878ccef05acb786b9d))
+* show a work order's current estimate with its explanation ([3bd667d](https://github.com/bkuberek/ropeshift/commit/3bd667d77b765491a49636ad796a3e3bf8b3a6c6))
+* show on the plan approval page what approving registers ([de7a875](https://github.com/bkuberek/ropeshift/commit/de7a8751f87d2b5dede0d4588ac99ff1cca1ae6b))
+* show what approving a plan registers, before and after ([0a4d4fa](https://github.com/bkuberek/ropeshift/commit/0a4d4fa3b31001034d3f8289f737648a3f162104))
+
+
+### Bug Fixes
+
+* accept the floor values of a lane's overrides ([99eed18](https://github.com/bkuberek/ropeshift/commit/99eed1850b78033ca9489631eb30fedebe2d4e62))
+* compare manifest paths with the planning clone and reserved directories by file ([3af85ef](https://github.com/bkuberek/ropeshift/commit/3af85ef972e17a24b51a7e287c4df6c33b6ab3c3))
+* count a pd- decision as plan approval's own only when a member recorded it ([3c9bdec](https://github.com/bkuberek/ropeshift/commit/3c9bdec2a3e81688babba23a18030022f30d5594))
+* draw the same estimate whatever order its records come in ([ba73d38](https://github.com/bkuberek/ropeshift/commit/ba73d38790a620a133025e4ab4df32cd3d462bf5))
+* drop exemptions no policy may hold when the delegate policy form loads ([bd27334](https://github.com/bkuberek/ropeshift/commit/bd27334ec53354f84b710952205aa65812ad88ba))
+* drop stale exemptions from the delegate policy form's saved value ([23344cb](https://github.com/bkuberek/ropeshift/commit/23344cb53cd2569b585509330459e58886c5da7b))
+* estimate safely under any policy and read a size left out as unknown ([4d22a7e](https://github.com/bkuberek/ropeshift/commit/4d22a7e7cdcbb5540ef33398b98ac4b5cbdf8100))
+* hold work as no_checkout when the kept checkout's directory is gone ([068fbe9](https://github.com/bkuberek/ropeshift/commit/068fbe979a2f04ba4da8829eb720477b87a31665))
+* hold work as no_checkout where the worker keeps no clone of its repository ([94085da](https://github.com/bkuberek/ropeshift/commit/94085dab8a89c381f238730723884684db498305))
+* keep a delegate's accept a card while the review is open ([68a792c](https://github.com/bkuberek/ropeshift/commit/68a792cd1c93db772085e72ae487d14a39ac6e26))
+* keep a removed repository out of manifest registration by remote ([7199ae4](https://github.com/bkuberek/ropeshift/commit/7199ae4efb9c8cd631213006789b6996690418fe))
+* keep an archived project's share fence and answer a pending take-out truthfully ([388ba2f](https://github.com/bkuberek/ropeshift/commit/388ba2f7209e0788f9654a85b3a8628010fc6ad3))
+* keep every gate below a lane's own profile layer ([0bf39fb](https://github.com/bkuberek/ropeshift/commit/0bf39fb61fc83504a4cb14f506fd7acf44263bfe))
+* keep manifest paths inside the directory that holds the planning clone ([d8b8376](https://github.com/bkuberek/ropeshift/commit/d8b83761e5461c26856475f1b3f6485051f357f1))
+* keep only done work in the pool and take a share out whenever a project stops sharing ([f4c6dde](https://github.com/bkuberek/ropeshift/commit/f4c6dde8dd0d1ad3b2ff05b165c441eb062946fa))
+* label each forecast from all the work that competes for its lanes ([bcdbc15](https://github.com/bkuberek/ropeshift/commit/bcdbc15f63f670075f4355f3b950c6ed41f59be1))
+* let a delegate policy exempt only reversible acts ([d293f7f](https://github.com/bkuberek/ropeshift/commit/d293f7f519e42e65dd73a5ba4f0714fb91cb60b0))
+* make a delegate's decision within policy a consent action ([fe184b4](https://github.com/bkuberek/ropeshift/commit/fe184b4db43cbe37806267a3811c8bc41e292f29))
+* make an outside delegate's message to a lane a card ([b699539](https://github.com/bkuberek/ropeshift/commit/b69953995242e72747f5c1e41157dbe4d466fbc5))
+* make passing a plan review a card for every delegate ([283b611](https://github.com/bkuberek/ropeshift/commit/283b61174ab066001029b922a470bb76c03f8615))
+* make registering from a manifest a member's alone ([5f8e4a3](https://github.com/bkuberek/ropeshift/commit/5f8e4a3d378bb11f5d6461da9d77af3a3f8fe5ac))
+* merge gates from every profile layer ([f74dd09](https://github.com/bkuberek/ropeshift/commit/f74dd091fff488346fc36c50d83b1f1053ca8944))
+* name the delegate that prepared a card as the proposer of what it made ([c06f9cd](https://github.com/bkuberek/ropeshift/commit/c06f9cd2f13675031b229322beb95d32ea8eeccd))
+* name the planning repository when a manifest adds a second one ([3d6a028](https://github.com/bkuberek/ropeshift/commit/3d6a0285249640715b99289bdd692e144fc69f91))
+* read a lane cap of zero as no cap in the forecast, as the product does ([9ae07d6](https://github.com/bkuberek/ropeshift/commit/9ae07d659f2aeb48913d314329845374d1227b02))
+* read plan approval's own decision through the authorization package ([27503c5](https://github.com/bkuberek/ropeshift/commit/27503c5a632e77d370e6f277d6b41719d304acdb))
+* record the manifest entries a stopped registration never attempted ([20601f5](https://github.com/bkuberek/ropeshift/commit/20601f5406ffda163f0e89c1cea48b2d4924010c))
+* refuse a delegate's accept when a review verdict failed or could not judge ([ffc0b52](https://github.com/bkuberek/ropeshift/commit/ffc0b52ab3c08778c0e487cb0412eab6e81aa6a5))
+* refuse a lane layer that changes agent.instructions_file ([c58c383](https://github.com/bkuberek/ropeshift/commit/c58c3836c535173309b624554f03f2bf9400b7fa))
+* refuse a lane layer that raises max_review_rounds ([2dd9dc6](https://github.com/bkuberek/ropeshift/commit/2dd9dc6a10631e53eee3214919e6f125c34789c6))
+* refuse a lane layer that raises ports_per_lane ([558350b](https://github.com/bkuberek/ropeshift/commit/558350b764e877d998e948a5d26c7d59c384054f))
+* refuse a plan approval whose draft would decide over another decision ([5eabb8b](https://github.com/bkuberek/ropeshift/commit/5eabb8b7c932015df3a9c91f5bd7ff6ed4f5a5cb))
+* refuse lane overrides in every spelling the profile reads ([2aef232](https://github.com/bkuberek/ropeshift/commit/2aef2326f5193ce610905ef3406b1cc0f6b97ff2))
+* refuse lane overrides that carry hooks, credentials, paths, or higher caps ([fec4833](https://github.com/bkuberek/ropeshift/commit/fec48335c6ca177651e5a40da2006cb064133ebc))
+* refuse two spellings of one profile key ([f452060](https://github.com/bkuberek/ropeshift/commit/f45206078245cc11dad11d7b1065b0365b2ae994))
+* register a plan approval's manifest once ([f2f104b](https://github.com/bkuberek/ropeshift/commit/f2f104b6eff113778d31332d49c52cedc2c101fd))
+* register only what the approved version's manifest lists ([94624a0](https://github.com/bkuberek/ropeshift/commit/94624a0c93dafa5fc50d95aca7339be96f0b2076))
+* report a manifest name another repository holds as a collision ([988cd88](https://github.com/bkuberek/ropeshift/commit/988cd88c0ef3a811fe49d9d9e8c92f64edd8ed71))
+* reserve plan approval's derived decision IDs and name every clashing draft ([b762c2e](https://github.com/bkuberek/ropeshift/commit/b762c2e3f595168f2443b6b15c5ad835bd949962))
+* say durations apart and carry them across units, and one outcome as one ([930ef45](https://github.com/bkuberek/ropeshift/commit/930ef450d88def20f8d0fe5ff60a8b769713b9b7))
+* show what a plan approval registers before the member approves ([753cdbd](https://github.com/bkuberek/ropeshift/commit/753cdbd15eff8f023f3298ffaaffa1ae8a9f8645))
+
 ## [0.1.0-alpha.14](https://github.com/bkuberek/ropeshift/compare/v0.1.0-alpha.13...v0.1.0-alpha.14) (2026-11-14)
 
 
