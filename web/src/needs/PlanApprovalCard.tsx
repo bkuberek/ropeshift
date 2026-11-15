@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import { decideApproval, inProjectOf, readPlan } from "../api/client";
 import type { Adoption, ContractDifference, Difference, FileChange, ManifestRegistration, PartDifference, PlanApprovalNeed } from "../api/types";
 import { addressOf, ItemProject, Link } from "../app/route";
-import { registrationTitle, RegistrationRows } from "../planning/PlanParts";
+import { registrationOf, registrationTitle, RegistrationRows } from "../planning/PlanParts";
 import { words } from "../parts/parts";
 import { Button } from "../ui/controls";
 import { DecisionCard, DecisionSection } from "../ui/DecisionCard";
@@ -22,6 +22,7 @@ const kinds: [string, string, string][] = [
   ["experience-design", "experience design", "experience designs"],
   ["milestone", "milestone", "milestones"],
   ["contract", "contract", "contracts"],
+  ["repositories", "repository manifest", "repository manifests"],
 ];
 
 function holdings(counts: Record<string, number>): string[] {
@@ -220,13 +221,41 @@ function usePreview(plan: string, version: number, digest: string, lists: boolea
 // since this read is refused, and approving decides every draft with the member as the one who decided. A
 // version that lists a manifest also registers its repositories, so it is approved only once the card shows
 // each entry, its path, its remote, and what approving does with it.
-export function PlanApprovalCard({ id, need, after, frame }: { id: string; need: PlanApprovalNeed; after: () => Promise<void>; frame: Frame }) {
+// RegisteredRepositories is what an approval registered of the repositories its manifest lists, as the answer to
+// the decision said it.
+export function RegisteredRepositories({ registration }: { registration: ManifestRegistration }) {
+  return (
+    <Part title={registrationTitle(registration)}>
+      <RegistrationRows registration={registration} />
+    </Part>
+  );
+}
+
+type CardProps = {
+  id: string;
+  need: PlanApprovalNeed;
+  after: () => Promise<void>;
+  frame: Frame;
+  // registered is what approving registered, once this card's approval did. onRegistered hands it up, because the
+  // card goes when the item no longer waits, and a member still reads what became of each entry.
+  registered?: ManifestRegistration;
+  onRegistered?: (registration: ManifestRegistration) => void;
+};
+
+export function PlanApprovalCard({ id, need, after, frame, registered, onRegistered }: CardProps) {
   const [reason, setReason] = useState("");
   const { act, busy, failure } = useAct(after);
   const approval = need.approval;
   const preview = usePreview(approval.plan_id ?? "", need.version, approval.subject_digest, (need.counts.repositories ?? 0) > 0 && Boolean(approval.plan_id));
   const unseen = preview.state === "reading" || preview.state === "failed";
-  const decide = (allow: boolean) => act(() => decideApproval(id, approval.subject_digest, allow, reason.trim()));
+  const decide = (allow: boolean) =>
+    act(async () => {
+      const decided = await decideApproval(id, approval.subject_digest, allow, reason.trim());
+      const registration = allow ? registrationOf(decided) : undefined;
+      if (registration) {
+        onRegistered?.(registration);
+      }
+    });
   const holds = holdings(need.counts);
   return (
     <DecisionCard
@@ -278,15 +307,12 @@ export function PlanApprovalCard({ id, need, after, frame }: { id: string; need:
         {approval.plan_id ? <Link to={addressOf("/plans", { plan: approval.plan_id })}>Read the plan</Link> : null}
       </p>
       {need.adoption ? <AdoptionGroups adoption={need.adoption} /> : null}
-      {preview.state === "reading" ? <p className="muted">Reading what approving registers of the repositories its manifest lists.</p> : null}
-      {preview.state === "failed" ? (
+      {registered ? <RegisteredRepositories registration={registered} /> : null}
+      {!registered && preview.state === "reading" ? <p className="muted">Reading what approving registers of the repositories its manifest lists.</p> : null}
+      {!registered && preview.state === "failed" ? (
         <Refusal>{`What approving registers could not be read (${preview.failure}). Open the full plan approval to read it.`}</Refusal>
       ) : null}
-      {preview.state === "read" && preview.registration ? (
-        <Part title={registrationTitle(preview.registration)}>
-          <RegistrationRows registration={preview.registration} />
-        </Part>
-      ) : null}
+      {!registered && preview.state === "read" && preview.registration ? <RegisteredRepositories registration={preview.registration} /> : null}
       <Changes difference={need.difference} />
       <Part title="Draft decisions">
         {need.drafts.length ? (

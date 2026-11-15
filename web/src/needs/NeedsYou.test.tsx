@@ -6,8 +6,8 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import { CurrentProject } from "../app/route";
-import { golden, goldenNeedsYou, here, refusal, serveApi, testProject } from "../testing";
-import type { ManifestRegistration, NeedItem, NeedsYou as View, PlanView, QuestionItem } from "../api/types";
+import { golden, goldenNeedsYou, here, mergeRequest, refusal, reviewedCommit, serveApi, testProject } from "../testing";
+import type { ManifestRegistration, MergeDetail, NeedItem, NeedsYou as View, PlanView, QuestionItem } from "../api/types";
 import { NeedsYou } from "./NeedsYou";
 import { waitLabel, waitWords } from "./wait";
 
@@ -468,6 +468,120 @@ describe("a recovery request", () => {
   });
 });
 
+describe("a merge request", () => {
+  function mergeView(subject: "approve" | "held" = "approve", over: Partial<MergeDetail> = {}): View {
+    const view = goldenNeedsYou();
+    const request = mergeRequest(subject, over);
+    return { ...view, items: [{ ...itemOf(view, "approval"), id: request.id, approval: request }] };
+  }
+  const approveCard = () => cardNamed(/^Approve the merge of wo-merge\?/);
+  const heldCard = () => cardNamed(/^Retry the held merge of wo-merge\?/);
+
+  it("is a card of its own, named for the merge, with none of a tool call's controls", async () => {
+    show(mergeView());
+    const card = await approveCard();
+    expect(within(card).getByText("Merge approval")).toBeTruthy();
+    expect(within(card).queryByText("Approval request")).toBeNull();
+    expect(within(card).queryByRole("button", { name: "Allow this one call" })).toBeNull();
+    expect(within(card).queryByText("Lane")).toBeNull();
+    expect(within(card).queryByRole("textbox", { name: /Reason, which the lane reads/ })).toBeNull();
+    const row = within(screen.getByRole("list", { name: "Waiting items" })).getByRole("link");
+    expect(row.textContent).toContain("Approve the merge of wo-merge?");
+    expect(row.textContent).toContain("wo-merge · harbor-web");
+  });
+
+  it("names the repository, the branch it lands on, and the reviewed commit the approval is bound to", async () => {
+    show(mergeView());
+    const card = await approveCard();
+    const facts = card.querySelector('dl[aria-label="The merge"]') as HTMLElement;
+    const fact = (name: string) => within(facts).getByText(name, { selector: "dt" }).nextElementSibling as HTMLElement;
+    expect(fact("Repository").textContent).toBe("harbor-web");
+    expect(fact("Branch").textContent).toBe("ropeshift/wo-merge into main");
+    expect(fact("Reviewed commit").textContent).toBe(reviewedCommit.slice(0, 12));
+    expect(fact("Reviewed commit").querySelector("[title]")?.getAttribute("title")).toBe(reviewedCommit);
+    expect(fact("Merge method").textContent).toBe("squash");
+    expect(fact("Merge authority").textContent).toContain("person_approves");
+    expect(within(facts).getByRole("link", { name: "wo-merge" }).getAttribute("href")).toBe(here("/work-order?id=wo-merge"));
+    expect(card.querySelector(".binding")?.textContent).toContain(reviewedCommit.slice(0, 12));
+  });
+
+  it.each(["https://github.com/acme/harbor-web/pull/12", "javascript:alert(1)"])("names the pull request and the address %j a forge reported as text, and links nothing", async (url) => {
+    show(mergeView("approve", { pull_request: 12, url }));
+    const card = await approveCard();
+    const facts = card.querySelector('dl[aria-label="The merge"]') as HTMLElement;
+    expect(within(facts).getByText("Pull request", { selector: "dt" }).nextElementSibling?.textContent).toBe(`#12 · ${url}`);
+    expect(within(card).queryByRole("link", { name: /#12|^https?:|^javascript:/ })).toBeNull();
+    expect(card.querySelector('a[href^="javascript:"], a[href^="http"]')).toBeNull();
+  });
+
+  it("says what approving and denying do at person_approves", async () => {
+    show(mergeView());
+    const choices = within(await approveCard()).getByRole("region", { name: "What each choice does" });
+    const approve = within(choices).getByText("Approve merge", { selector: "dt" }).nextElementSibling?.textContent ?? "";
+    expect(approve).toContain("9f8e7d6c5b4a");
+    expect(approve).toContain("main");
+    expect(approve).toContain("squash");
+    const deny = within(choices).getByText("Deny", { selector: "dt" }).nextElementSibling?.textContent ?? "";
+    expect(deny).toContain("back to rework");
+    expect(deny).toContain("your reason");
+  });
+
+  it("says a held merge stopped and why, that approving tries it again, and that denying sends the work back", async () => {
+    show(mergeView("held"));
+    const card = await heldCard();
+    expect(within(card).getByText("Held merge")).toBeTruthy();
+    expect(within(card).getByText("Why it stopped").nextElementSibling?.textContent).toBe("the base branch requires 2 approving reviews");
+    const choices = within(card).getByRole("region", { name: "What each choice does" });
+    expect(within(choices).getByText("Retry merge", { selector: "dt" }).nextElementSibling?.textContent).toContain("Tries the merge again");
+    expect(within(choices).getByText("Deny", { selector: "dt" }).nextElementSibling?.textContent).toContain("back to rework");
+    expect(within(card).queryByRole("button", { name: "Approve merge" })).toBeNull();
+    expect(within(card).getByRole("button", { name: "Retry merge" })).toBeTruthy();
+  });
+
+  it("approves the commit it read, and no other", async () => {
+    const sent = serveApi(() => ({ status: 200 }));
+    show(mergeView());
+    await userEvent.click(within(await approveCard()).getByRole("button", { name: "Approve merge" }));
+    await waitFor(() => expect(sent).toHaveLength(1));
+    expect(sent[0]).toMatchObject({ method: "POST", path: "/v1/approvals/merge-approve/decide", body: { digest: reviewedCommit, allow: true, reason: "" } });
+  });
+
+  it("tries a held merge again on the commit it read", async () => {
+    const sent = serveApi(() => ({ status: 200 }));
+    show(mergeView("held"));
+    await userEvent.click(within(await heldCard()).getByRole("button", { name: "Retry merge" }));
+    await waitFor(() => expect(sent).toHaveLength(1));
+    expect(sent[0]).toMatchObject({ method: "POST", path: "/v1/approvals/merge-held/decide", body: { digest: reviewedCommit, allow: true } });
+  });
+
+  it("denies with the reason the work's next attempt reads", async () => {
+    const sent = serveApi(() => ({ status: 200 }));
+    show(mergeView());
+    const card = await approveCard();
+    await userEvent.type(within(card).getByRole("textbox", { name: /Reason/ }), "Split the migration first.");
+    await userEvent.click(within(card).getByRole("button", { name: "Deny" }));
+    await waitFor(() => expect(sent).toHaveLength(1));
+    expect(sent[0]).toMatchObject({ method: "POST", path: "/v1/approvals/merge-approve/decide", body: { digest: reviewedCommit, allow: false, reason: "Split the migration first." } });
+  });
+
+  it("says so when the reviewed commit changed since this read", async () => {
+    const after = vi.fn(async () => {});
+    serveApi(() => refusal(409, "stale_digest", "This request no longer matches what you read."));
+    show(mergeView(), after);
+    await userEvent.click(within(await approveCard()).getByRole("button", { name: "Approve merge" }));
+    expect((await screen.findByRole("alert")).textContent).toContain("no longer matches");
+    expect(after).toHaveBeenCalled();
+  });
+
+  it("reads a request raised before the repository was recorded, and keeps what a forge said as text", async () => {
+    show(mergeView("held", { repository: undefined, reason: `refused ${hostile}`, branch: `feature/${hostile}` }));
+    const card = await heldCard();
+    expect(within(card).queryByText("Repository")).toBeNull();
+    expect(within(card).getByText(`refused ${hostile}`)).toBeTruthy();
+    expect(document.querySelector("img")).toBeNull();
+  });
+});
+
 describe("an unknown effect", () => {
   it("offers what the server offers, and sends what a person says", async () => {
     const view = goldenNeedsYou();
@@ -915,6 +1029,81 @@ describe("a plan approval", () => {
     expect((await approveButton()).disabled).toBe(false);
     expect(within(await card()).queryByRole("region", { name: "Repositories approving registers" })).toBeNull();
     expect(sent).toHaveLength(0);
+  });
+
+  it.each([
+    [1, "1 repository manifest"],
+    [2, "2 repository manifests"],
+  ])("names %d repository manifest(s) as manifests, not as repositories", async (count, words) => {
+    const { view, need } = withManifest(undefined);
+    need.plan_approval.counts = { ...need.plan_approval.counts, repositories: count };
+    serveApi(() => ({ status: 200 }));
+    show(view, undefined, "plan_approval");
+    const holds = within(await card()).getByRole("list", { name: "What it holds" });
+    expect(holds.textContent).toContain(words);
+    expect(holds.textContent).not.toMatch(/\d repositories/);
+  });
+
+  // approvedWith is what the decide route answers for a plan whose manifest lists two repositories, one registered and one refused.
+  const approvedWith = (more: Record<string, unknown> = {}) => ({
+    id: "generated-13",
+    state: "approved",
+    repositories: [
+      { name: "billing", manifest_path: "../billing", path: "/work/billing", remote: "git@example.invalid:acme/billing.git", outcome: "registered" },
+      { name: "ghost", manifest_path: "../ghost", path: "/work/ghost", outcome: "refused", reason: "ghost is not registered: no git clone is at /work/ghost" },
+    ],
+    ...more,
+  });
+
+  it("shows what approving registered of each manifest entry, once the item no longer waits", async () => {
+    const { view, need, planId, plan } = withManifest(preview);
+    const sent = serveApi((call) => {
+      if (call.method === "GET" && call.path.startsWith(`/v1/plans/${planId}`)) {
+        return { status: 200, body: plan };
+      }
+      return { status: 200, body: approvedWith() };
+    });
+    let rerender: ReturnType<typeof show>["rerender"] = () => {};
+    // The page reads Needs you again after a decision, and the plan is no longer there.
+    const after = async () =>
+      rerender(
+        <CurrentProject.Provider value={testProject}>
+          <NeedsYou view={{ ...view, items: view.items.filter((item) => item.id !== need.id) }} readAt={Date.now()} after={async () => {}} />
+        </CurrentProject.Provider>,
+      );
+    ({ rerender } = show(view, after, "plan_approval"));
+    await waitFor(async () => expect((await approveButton()).disabled).toBe(false));
+    await userEvent.click(await approveButton());
+    await waitFor(() => expect(sent.some((call) => call.method === "POST" && call.path === `/v1/approvals/${need.id}/decide`)).toBe(true));
+    const panel = await screen.findByRole("region", { name: "Repositories this approval registered" });
+    expect(within(panel).getByRole("listitem", { name: "billing" }).textContent).toContain("Registered");
+    expect(within(panel).getByRole("listitem", { name: "billing" }).textContent).toContain("/work/billing");
+    const ghost = within(panel).getByRole("listitem", { name: "ghost" });
+    expect(ghost.textContent).toContain("Refused");
+    expect(ghost.textContent).toContain("no git clone is at /work/ghost");
+    expect(screen.getByText(/no longer waits/)).toBeTruthy();
+    expect(within(panel).queryByText(/Reading it registers nothing/)).toBeNull();
+  });
+
+  it("says why registration could not run, when the approval stands without it", async () => {
+    const { view, need, planId, plan } = withManifest(preview);
+    serveApi((call) => (call.method === "GET" && call.path.startsWith(`/v1/plans/${planId}`) ? { status: 200, body: plan } : { status: 200, body: approvedWith({ repositories: [], repositories_problem: "no worker on this machine keeps the planning repository" }) }));
+    show(view, undefined, "plan_approval");
+    await waitFor(async () => expect((await approveButton()).disabled).toBe(false));
+    await userEvent.click(await approveButton());
+    const panel = await screen.findByRole("region", { name: "Repositories this approval registered" });
+    expect(within(panel).getByRole("alert").textContent).toContain("no worker on this machine keeps the planning repository");
+    expect(need.id).toBeTruthy();
+  });
+
+  it("shows no registration when a plan is denied", async () => {
+    const { view } = planView();
+    const sent = serveApi(() => ({ status: 200, body: { id: "generated-13", state: "denied" } }));
+    show(view, undefined, "plan_approval");
+    await userEvent.click(within(await card()).getByRole("button", { name: "Deny" }));
+    await waitFor(() => expect(sent).toHaveLength(1));
+    await waitFor(() => expect((within(screen.getAllByRole("article")[0] as HTMLElement).getByRole("button", { name: "Deny" }) as HTMLButtonElement).disabled).toBe(false));
+    expect(screen.queryByRole("region", { name: "Repositories this approval registered" })).toBeNull();
   });
 
   it("groups an adopted plan, with each claim's evidence and every file its branch changed", async () => {

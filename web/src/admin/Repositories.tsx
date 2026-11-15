@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { addRepositories, changeRepository, readRepositories, removeRepository } from "../api/admin";
 import type { MergeAuthority, MergeMethod, RepositoryAddReport, RepositoryChange, RepositoryList, RepositoryView, ReviewTarget, StartFrom } from "../api/admin";
@@ -10,7 +10,7 @@ import { Absent, Badge, EmptyState, LookBadge, Panel, Refusal, TableRegion } fro
 import { Field, Select } from "../ui/forms";
 import { Icon } from "../ui/Icon";
 import { Dialog, useToast } from "../ui/overlays";
-import { outcomeOf } from "./logic";
+import { forgeBindingProblem, outcomeOf } from "./logic";
 import { GridField, Reading, SaveBar, useChange, useDraft, useLeaveGuard, useRead } from "./parts";
 
 const authorities: { level: MergeAuthority; text: string }[] = [
@@ -196,7 +196,24 @@ function RecordForm({ view, archived, projectLabel, after }: { view: RepositoryV
   const set = <K extends keyof Draft>(key: K, value: Draft[K]) => setDraft((was) => ({ ...was, [key]: value }));
   const raising = rank(draft.merge_authority) > rank(saved.merge_authority);
   const agreement = view.review_agreement.last_30_days;
+  // The binding is checked as the server reads it, once the person leaves the field or tries to save. A refusal
+  // that names the binding shows at the field too, since that is where it is mended.
+  const binding = useRef<HTMLInputElement>(null);
+  const [checked, setChecked] = useState(false);
+  const bindingProblem = forgeBindingProblem(draft.forge_binding);
+  const refusedAtBinding = /forge binding/i.test(change.failure);
+  const bindingError = (checked ? bindingProblem : "") || (refusedAtBinding ? change.failure : "");
+  useEffect(() => {
+    if (refusedAtBinding) {
+      binding.current?.focus();
+    }
+  }, [refusedAtBinding]);
   const save = async () => {
+    if (bindingProblem) {
+      setChecked(true);
+      binding.current?.focus();
+      return;
+    }
     const done = await change.run(() => changeRepository(view.id, changes));
     if (done) {
       toast("success", `Saved ${label(view)}.`);
@@ -262,8 +279,26 @@ function RecordForm({ view, archived, projectLabel, after }: { view: RepositoryV
             />
             <p className="help">pull_request opens a pull request before review and needs a forge binding. branch reviews locally and pushes nothing before a merge.</p>
           </div>
-          <GridField label="Forge binding" help="The forge's name for this repository, such as owner/name, for pull requests.">
-            <input className="input mono field-narrow" autoComplete="off" spellCheck={false} placeholder="owner/name…" value={draft.forge_binding} onChange={(event) => set("forge_binding", event.target.value)} />
+          <GridField
+            label="Forge binding"
+            help="The repository on its forge as HOST/OWNER/REPO, such as github.com/owner/repo, which pull requests open against. Empty takes it from a remote on a forge."
+            error={bindingError || undefined}
+          >
+            <input
+              ref={binding}
+              className="input mono field-narrow"
+              autoComplete="off"
+              spellCheck={false}
+              placeholder="github.com/owner/repo…"
+              value={draft.forge_binding}
+              onChange={(event) => {
+                set("forge_binding", event.target.value);
+                if (refusedAtBinding) {
+                  change.setFailure("");
+                }
+              }}
+              onBlur={() => setChecked(true)}
+            />
           </GridField>
           <span className="label" id={`auth-${view.id}`}>
             Merge authority
@@ -297,7 +332,7 @@ function RecordForm({ view, archived, projectLabel, after }: { view: RepositoryV
             </Select>
           </GridField>
         </fieldset>
-        {change.failure ? <Refusal>{change.failure}</Refusal> : null}
+        {change.failure && !refusedAtBinding ? <Refusal>{change.failure}</Refusal> : null}
       </form>
       <SaveBar summary={summary} onDiscard={() => setDraft(saved)} onSave={() => void save()} saving={change.busy} disabled={archived} />
       {removing ? <RemoveRepositoryDialog view={view} projectLabel={projectLabel} onClose={() => setRemoving(false)} after={after} /> : null}

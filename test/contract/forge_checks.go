@@ -28,6 +28,9 @@ var ForgeChecks = []Check{
 
 const forgeRemote = "git@github.com:acme/widgets.git"
 
+// forgeRepositoryName is the name registration gives the repository of forgeRemote.
+const forgeRepositoryName = "widgets"
+
 // forgeRig is a registered worker that ran a change lane to completion, in a repository under a review target.
 type forgeRig struct {
 	*statusRig

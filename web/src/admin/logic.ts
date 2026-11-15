@@ -5,6 +5,23 @@ import type { StateLook } from "../floor/states";
 // fields a roster change sends. None of it decides anything the API decides; the API refuses what it
 // refuses, and the page shows that refusal at the field.
 
+// forgeBindingProblem says what is wrong with a forge binding as the server reads one (ledger.ParseForgeBinding):
+// HOST/OWNER/REPO, three parts, each a name a forge accepts. An empty binding is none, which takes it from the
+// repository's remote.
+export function forgeBindingProblem(text: string): string {
+  if (text === "") {
+    return "";
+  }
+  const parts = text.split("/");
+  if (parts.length !== 3 || parts.some((part) => part === "")) {
+    return "Name the repository as HOST/OWNER/REPO, three parts, such as github.com/owner/repo.";
+  }
+  if (parts.some((part) => part === "." || part === ".." || part.startsWith("-") || /[\s\p{Cc}\\:@?#]/u.test(part))) {
+    return "A part of the binding holds what a forge would refuse: a space, a leading hyphen, or one of \\ : @ ? #. Write it as HOST/OWNER/REPO, such as github.com/owner/repo.";
+  }
+  return "";
+}
+
 export type PolicyKind = "decision" | "lane" | "recovery" | "notify" | "autonomy" | "assistant" | "delegation" | "delegate" | "estimate";
 
 export type DelegationClass = { tool: string; command_prefix: string; path: string; agent: string };

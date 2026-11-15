@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import type { Completed, InProgress, Operations, ResourceReport, ShopFloor, Stuck } from "../api/types";
 import { openPage } from "../opening";
-import { golden, here, openLedgerStream, refusal, serveViews } from "../testing";
+import { golden, here, mergeRequest, openLedgerStream, refusal, reviewedCommit, serveViews } from "../testing";
 
 function serving<T>(name: string, change: (view: T) => void) {
   const view = golden<T>(name);
@@ -285,6 +285,27 @@ describe("a work order", () => {
     expect((await screen.findByRole("list", { name: "Acceptance criteria" })).textContent).toContain("A check failed");
     const card = await screen.findByRole("article", { name: /Try the impossible/ });
     expect(within(card).getByRole("button", { name: "Retry with an extra attempt" })).toBeTruthy();
+  });
+
+  // Work in integrating waits on a merge request, which has its own card beside the work order's tabs.
+  it("shows the merge request the work waits on as its own card, bound to the reviewed commit", async () => {
+    const request = mergeRequest("approve", { work_order_id: "wo-running", pull_request: 12, url: "https://github.com/acme/harbor-web/pull/12" });
+    const sent = serveViews((call) => {
+      if (call.method === "GET" && call.path === "/v1/needs-you") {
+        return { status: 200, body: { as_of: 1790000600000, revision: 1, items: [{ kind: "approval", id: request.id, since: 1790000500000, approval: request }] } };
+      }
+      return call.method === "POST" ? { status: 200 } : undefined;
+    });
+    openPage("/work-order?id=wo-running");
+    const decision = await card();
+    expect(within(decision).getByText("Merge approval")).toBeTruthy();
+    expect(within(decision).getByText(/^#12/)).toBeTruthy();
+    expect(within(decision).queryByRole("button", { name: "Allow this one call" })).toBeNull();
+    await userEvent.click(within(decision).getByRole("button", { name: "Approve merge" }));
+    await waitFor(() => expect(sent.some((call) => call.method === "POST")).toBe(true));
+    const change = sent.find((call) => call.method === "POST");
+    expect(change?.path).toBe(`/v1/approvals/${request.id}/decide`);
+    expect(change?.body).toMatchObject({ digest: reviewedCommit, allow: true });
   });
 
   it("states each check's result and where it came from", async () => {

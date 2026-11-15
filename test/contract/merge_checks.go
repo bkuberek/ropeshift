@@ -290,6 +290,9 @@ func checkMemberApprovesTheMerge(r *Rig) error {
 	if request.SubjectDigest != f.head || request.Lane != "" || detail.PullRequest != 7 || detail.Authority != ledger.PersonApproves || !strings.Contains(request.Summary, "#7") {
 		return Violatedf("the merge request reads %+v with %+v", request, detail)
 	}
+	if detail.Repository != forgeRepositoryName {
+		return Violatedf("the merge request names repository %q, not %q", detail.Repository, forgeRepositoryName)
+	}
 	// The tick raises nothing more.
 	if _, err := f.integrate(); err != nil {
 		return err
@@ -357,6 +360,9 @@ func checkRefusedMergeWaits(r *Rig) error {
 	}
 	if held.SubjectDigest != f.head || !strings.Contains(held.Summary, "2222") || authority.MergeDetailOf(held).Request != first.ID {
 		return Violatedf("the held merge reads %+v", held)
+	}
+	if got := authority.MergeDetailOf(held).Repository; got != forgeRepositoryName {
+		return Violatedf("the held merge names repository %q, not %q", got, forgeRepositoryName)
 	}
 	if view, err := f.standing(); err != nil || !strings.Contains(view.Why, "refused") {
 		return Violatedf("the work waits on %q: %v", view.Why, err)

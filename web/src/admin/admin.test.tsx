@@ -151,6 +151,76 @@ describe("Repositories", () => {
     expect((within(record).getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(false);
   });
 
+  describe("the forge binding", () => {
+    const patches = (sent: Sent[]) => sentTo(sent, "PATCH", "/v1/repositories/id-api");
+    const open = async () => {
+      openPage(here("/repositories?repo=id-api"));
+      const record = await screen.findByRole("region", { name: "api" });
+      return { record, field: within(record).getByLabelText("Forge binding") as HTMLInputElement };
+    };
+
+    it("asks for HOST/OWNER/REPO, which is what the server reads, with github.com/owner/repo as the example", async () => {
+      serveAdmin();
+      const { record, field } = await open();
+      expect(field.placeholder).toBe("github.com/owner/repo…");
+      expect(within(record).getByText(/HOST\/OWNER\/REPO/).textContent).toContain("github.com/owner/repo");
+      expect(record.textContent).not.toContain("owner/name");
+    });
+
+    it.each(["acme/widgets", "github.com/acme", "github.com//widgets", "github.com/acme/widgets/extra", "github.com/acme/wid gets", "github.com/-acme/widgets", "https://github.com/acme/widgets"])(
+      "refuses %j at the field and sends nothing",
+      async (value) => {
+        const sent = serveAdmin();
+        const { record, field } = await open();
+        await userEvent.type(field, value);
+        await userEvent.click(within(record).getByRole("button", { name: "Save" }));
+        expect(await within(record).findByText(/HOST\/OWNER\/REPO|a forge would refuse/, { selector: ".msg-error span" })).toBeTruthy();
+        expect(field.getAttribute("aria-invalid")).toBe("true");
+        expect(patches(sent)).toHaveLength(0);
+      },
+    );
+
+    it("saves a binding of three parts as typed", async () => {
+      const sent = serveAdmin((call) => (call.method === "PATCH" ? { status: 200, body: golden<{ repositories: unknown[] }>("repositories").repositories[0] } : undefined));
+      const { record, field } = await open();
+      await userEvent.type(field, "github.com/acme/widgets");
+      await userEvent.click(within(record).getByRole("button", { name: "Save" }));
+      await waitFor(() => expect(patches(sent)).toHaveLength(1));
+      expect(patches(sent)[0]?.body).toEqual({ forge_binding: "github.com/acme/widgets" });
+      expect(field.getAttribute("aria-invalid")).toBeNull();
+    });
+
+    it("clears the binding when it is emptied, which takes it from the remote", async () => {
+      const sent = serveAdmin((call) => (call.method === "PATCH" ? { status: 200, body: golden<{ repositories: unknown[] }>("repositories").repositories[0] } : undefined));
+      const { record, field } = await open();
+      await userEvent.type(field, "github.com/acme/widgets");
+      await userEvent.clear(field);
+      expect(within(record).getByText("No unsaved changes")).toBeTruthy();
+      expect(patches(sent)).toHaveLength(0);
+    });
+
+    it("shows a refusal of the server at the field, in the server's words", async () => {
+      const message = "invalid repository: review target pull_request needs a forge binding, and the remote (git@example.invalid:acme/api.git) names no repository on a forge; name one as HOST/OWNER/REPO";
+      serveAdmin((call) => (call.method === "PATCH" ? refusal(400, "invalid", message) : undefined));
+      const { record, field } = await open();
+      await userEvent.click(within(record).getByRole("button", { name: "pull_request" }));
+      await userEvent.click(within(record).getByRole("button", { name: "Save" }));
+      const shown = await within(record).findByText(message, { selector: ".msg-error span" });
+      expect(shown.closest(".field")?.contains(field)).toBe(true);
+      expect(field.getAttribute("aria-invalid")).toBe("true");
+      expect(within(record).queryByRole("alert")).toBeNull();
+    });
+
+    it("keeps any other refusal at the foot of the form", async () => {
+      serveAdmin((call) => (call.method === "PATCH" ? refusal(409, "conflict", "another change got there first") : undefined));
+      const { record } = await open();
+      await userEvent.type(within(record).getByLabelText("Base branch"), "develop");
+      await userEvent.click(within(record).getByRole("button", { name: "Save" }));
+      expect((await within(record).findByRole("alert")).textContent).toContain("another change got there first");
+      expect(within(record).getByLabelText("Forge binding").getAttribute("aria-invalid")).toBeNull();
+    });
+  });
+
   it("registers a folder of clones after a dry run that records nothing", async () => {
     const sent = serveAdmin((call) => (call.method === "POST" && call.path === "/v1/repositories" ? { status: 200, body: golden("repository-dry-run") } : undefined));
     openPage(here("/repositories?dialog=register"));

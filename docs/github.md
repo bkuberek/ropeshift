@@ -83,7 +83,7 @@ In the web UI, open Repositories, select the repository, choose `pull_request` u
 ropeshift repository set widgets --forge-binding github.com/acme/widgets
 ```
 
-In the web UI, enter it in Forge binding on the repository, in the same `HOST/OWNER/REPO` form. A binding that is not three parts, such as `acme/widgets`, is refused. `--forge-binding ""` takes the binding from the remote again. A remote that names no repository on a forge, with no binding set, makes `--review-target pull_request` exit 2.
+In the web UI, enter it in Forge binding on the repository, in the same `HOST/OWNER/REPO` form, such as `github.com/acme/widgets`. The field checks the binding before it saves: a value that is not three parts, such as `acme/widgets`, or whose parts hold a space or one of `\ : @ ? #`, is refused beside the field, and so is a refusal from the server. `--forge-binding ""` takes the binding from the remote again. A remote that names no repository on a forge, with no binding set, makes `--review-target pull_request` exit 2.
 
 ### Check the worker's sign-in
 
@@ -151,6 +151,8 @@ ropeshift approval approve <approval-id> --digest <reviewed-commit>
 ```
 
 `approval show` prints the work, the commit, the pull request, and the level, and the digest of a merge request is the reviewed commit. `ropeshift work accept <work-order-id>` on work in `integrating` approves the same merge. A new commit on the branch voids the request.
+
+In the web UI, the request is a Merge approval card in Needs you, and on the work order's page. It names the repository, the pull request, the branch, the reviewed commit, the merge method, and the level. Approve merge sends the reviewed commit it shows, as `--digest` does, and Deny sends the work to rework with the reason you type. A merge the forge or git refused is a Held merge card: Retry merge tries the merge again.
 
 ### How ropeshift merges
 
