@@ -30,7 +30,9 @@ const (
 
 // Resolve folds layers of TOML over the built-in defaults. A key the settings do not
 // name is refused, because a misspelled threshold that silently keeps its default is
-// worse than a lane that does not start.
+// worse than a lane that does not start. So is a key spelled two ways, because the
+// decoder reads keys in any case and would take whichever it met first. The gates of
+// every layer join, so no layer drops one of another's.
 func Resolve(layers ...string) (lanes.Profile, error) {
 	tables := make([]map[string]any, 0, len(layers)+1)
 	for _, text := range append([]string{builtin}, layers...) {
@@ -40,8 +42,12 @@ func Resolve(layers ...string) (lanes.Profile, error) {
 		}
 		tables = append(tables, table)
 	}
+	merged, err := lanes.MergeLayers(tables...)
+	if err != nil {
+		return lanes.Profile{}, err
+	}
 	var encoded bytes.Buffer
-	if err := toml.NewEncoder(&encoded).Encode(lanes.MergeLayers(tables...)); err != nil {
+	if err := toml.NewEncoder(&encoded).Encode(merged); err != nil {
 		return lanes.Profile{}, fmt.Errorf("%w: %v", lanes.ErrBadProfile, err)
 	}
 	var profile lanes.Profile
@@ -75,10 +81,11 @@ func ResolveRepository(user, repository string) (lanes.Profile, error) {
 // lane's overrides can come from an orchestrator, so either can narrow it and neither can
 // raise the permission mode, raise a lane cap, change any other part of what this machine
 // admits, or change whether its work is pushed. Any file a repository names is the user's to
-// trust. A repository's layer keeps every gate of the user's. A lane's overrides can come from any
-// caller of the API, so they are held to the user's and the repository's layers too: they change
-// no hook, credential, or place of the worktree or its branch, they keep every gate of both, and
-// they raise no cap of the breaker.
+// trust. Every layer's gates join the layers below it, so a repository's layer keeps every gate
+// of the user's and may add its own. A lane's overrides can come from any caller of the API, so
+// they are held to the user's and the repository's layers too: they change no hook, credential,
+// or place of the worktree or its branch, they keep every gate of both and may add one, and they
+// raise no cap of the breaker.
 func ResolveLayers(user, repository, overrides string) (lanes.Profile, error) {
 	below, err := Resolve(user)
 	if err != nil {
@@ -121,7 +128,8 @@ func ResolveLayers(user, repository, overrides string) (lanes.Profile, error) {
 			return lanes.Profile{}, err
 		}
 	}
-	// A gate asks a person before an action runs, and a layer that sets gates replaces the list below it.
+	// A gate asks a person before an action runs. The merge joins every layer's gates, so none is dropped,
+	// and this keeps it so if the merge ever changes.
 	if gate, dropped := lanes.DroppedGate(below.Agent.Gates, layered.Agent.Gates); dropped {
 		return lanes.Profile{}, fmt.Errorf("%w: a repository's layer cannot drop the user's gate %q of agent.gates", lanes.ErrBadProfile, gate)
 	}

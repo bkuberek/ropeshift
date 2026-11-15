@@ -8,24 +8,42 @@ import (
 )
 
 // LaneLayerKeys are the settings a route that takes a lane's own profile layer refuses in it, each as its
-// path of TOML keys. Any caller of the API can send that layer, an outside delegate's included. The first
-// five would run a command as this machine's user, hand the lane a variable of the worker's environment,
-// name a file for the worker to read, or put the worktree or its branch where the layers below did not, and
-// CheckLaneLayer refuses any change to them. CheckLaneLayer judges the rest against the layers below: a
-// lane's layer keeps every gate and raises neither bound. A route holds none of those layers, so it refuses
-// each of these keys whenever a lane's layer sets it.
+// path of TOML keys. Any caller of the API can send that layer, an outside delegate's included. These would
+// run a command as this machine's user, hand the lane a variable of the worker's environment, name a file
+// for the worker to read, or put the worktree or its branch where the layers below did not, and
+// CheckLaneLayer refuses any change to them. A route holds none of the layers below, so it refuses each of
+// these keys whenever a lane's layer sets it.
 func LaneLayerKeys() [][]string {
 	return [][]string{
 		{"hooks"}, {"agent", "credentials"}, {"agent", "instructions_file"}, {"worktree", "root"}, {"worktree", "branch_prefix"},
-		{"agent", "gates"}, {"review", "max_review_rounds"}, {"resources", "ports_per_lane"},
+	}
+}
+
+// A LaneLayerFloor is a setting of a lane's own layer that CheckLaneLayer holds to the layers below it, and
+// the one value of it no layers below can lower. A route holds none of those layers, so it cannot say
+// whether a lane's layer raises the setting, but it can say the layer sets the floor, which no layers
+// below can be under.
+type LaneLayerFloor struct {
+	Path  []string
+	Value int64
+}
+
+// LaneLayerFloors are the settings of a lane's own layer that a route keeps only at their floor: one round
+// of review, and no ports. The worker holds every other value to the layers below it, so a route refuses
+// them.
+func LaneLayerFloors() []LaneLayerFloor {
+	return []LaneLayerFloor{
+		{Path: []string{"review", "max_review_rounds"}, Value: 1},
+		{Path: []string{"resources", "ports_per_lane"}, Value: 0},
 	}
 }
 
 // CheckLaneLayer holds a lane's own layer to the layers below it: below is the profile those layers give,
-// and profile is the same with the lane's layer over it. The lane's layer changes none of the first five of
-// LaneLayerKeys, it keeps every gate below, it raises neither the bound on review rounds nor the ports per
-// lane, and it can lower a cap of the breaker and never raise one, because only a member's reset lets a lane
-// past them (ADR-0014).
+// and profile is the same with the lane's layer over it. The lane's layer changes none of LaneLayerKeys, it
+// keeps every gate below, it raises neither the bound on review rounds nor the ports per lane, and it can
+// lower a cap of the breaker and never raise one, because only a member's reset lets a lane past them
+// (ADR-0014). It holds every gate because it holds two profiles, however they were built: MergeLayers joins
+// the layers' gates, so a profile resolved from layers always keeps them, and a lane's layer can only add.
 func CheckLaneLayer(below, profile Profile) error {
 	if !maps.EqualFunc(below.Hooks, profile.Hooks, slices.Equal[[]string]) {
 		return laneLayerRefusal("change [hooks]")
@@ -70,9 +88,9 @@ func CheckLaneLayer(below, profile Profile) error {
 	return nil
 }
 
-// DroppedGate finds the first gate of below that gates no longer holds. A layer that sets agent.gates
-// replaces the list of the layers below it, so a layer that leaves one out would let the action it gated
-// run without asking.
+// DroppedGate finds the first gate of below that gates no longer holds. A profile that leaves one out would
+// let the action it gated run without asking. MergeLayers makes each layer's gates join the layers below it,
+// so no resolved profile drops one, and this stays as the check of a profile built another way.
 func DroppedGate(below, gates []string) (string, bool) {
 	for _, gate := range below {
 		if !slices.Contains(gates, gate) {

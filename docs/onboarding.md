@@ -194,7 +194,7 @@ permission_mode = "default"
 gates = ["Bash(git commit *)", "Edit"]
 ```
 
-`permission_mode` is the agent's permission mode: `default` unless you set `plan`, `acceptEdits`, `dontAsk`, or `auto`. A member's assistant runs in `default` whatever this sets. A repository's `.ropeshift/profile.toml` and a lane's `--profile` layer cannot raise it. No layer, yours included, can choose `bypassPermissions`, which skips every check, or a mode ropeshift does not know: the profile is refused, and the lane does not start. Every session's generated settings also turn the bypass mode off in the agent CLI. `gates` lists permission rules, in the agent CLI's own syntax, for actions a member must approve. Each becomes a rule that asks in every permission mode, and it overrides what a lane would otherwise do without asking, so the example above makes every commit and every file edit ask. A gate on a file tool takes the `Edit` rule form, because the agent CLI matches file paths only against `Edit` and `Read` rules. A gate can only add requests: no key lets a lane do more without asking than the list above. A layer that sets `gates` replaces the list of the layers below it, so a repository's `.ropeshift/profile.toml` that leaves out a gate of yours is refused: the refusal names the gate, and the lane does not start. To add a gate, the repository's layer names every gate of yours as well. A lane's `--profile` layer cannot set `gates` ([a lane's own profile layer](#a-lanes-own-profile-layer)).
+`permission_mode` is the agent's permission mode: `default` unless you set `plan`, `acceptEdits`, `dontAsk`, or `auto`. A member's assistant runs in `default` whatever this sets. A repository's `.ropeshift/profile.toml` and a lane's `--profile` layer cannot raise it. No layer, yours included, can choose `bypassPermissions`, which skips every check, or a mode ropeshift does not know: the profile is refused, and the lane does not start. Every session's generated settings also turn the bypass mode off in the agent CLI. `gates` lists permission rules, in the agent CLI's own syntax, for actions a member must approve. Each becomes a rule that asks in every permission mode, and it overrides what a lane would otherwise do without asking, so the example above makes every commit and every file edit ask. A gate on a file tool takes the `Edit` rule form, because the agent CLI matches file paths only against `Edit` and `Read` rules. A gate can only add requests: no key lets a lane do more without asking than the list above. The gates of every layer join: yours, a repository's `.ropeshift/profile.toml`, and a lane's `--profile` layer. A layer that sets `gates` adds to the list of the layers below it, in the order the layers name them and with each gate once, so a repository can gate one more action without restating yours, and no layer can drop a gate of another's, an empty `gates = []` included ([a lane's own profile layer](#a-lanes-own-profile-layer)).
 
 ### How many lanes run at once
 
@@ -261,21 +261,22 @@ A threshold of `0` turns its warning off. These settings are the machine's, so a
 `lane start` refuses a layer that sets any of these keys, whoever calls it, and the ledger keeps nothing of the request:
 
 - `hooks`, `agent.credentials`, `agent.instructions_file`, `worktree.root`, and `worktree.branch_prefix`, which no lane's layer changes.
-- `agent.gates`, `review.max_review_rounds`, and `resources.ports_per_lane`. The worker compares these with your layer and the repository's, and `lane start`, which holds neither, refuses them whenever a lane's layer sets them.
+- `review.max_review_rounds` and `resources.ports_per_lane`, unless the layer sets the one value no layer below can lower: `max_review_rounds = 1` and `ports_per_lane = 0`. The worker compares any other value with your layer and the repository's, and `lane start`, which holds neither, refuses it.
 
-The profile reads a key whatever its case, under Unicode case folding, so `lane start` refuses `[Hooks]`, or `ROOT` in `[worktree]`, as well.
+The profile reads a key whatever its case, under Unicode case folding, so `lane start` refuses `[Hooks]`, or `ROOT` in `[worktree]`, as well. The decoder would take whichever of two spellings of one key it met first, so every layer spells each key one way: `lane start` refuses a layer that holds two keys of one table that differ only in case, such as `[hooks]` and `[Hooks]`, and the worker refuses layers that spell one key two ways, yours and the repository's included. The refusal names both spellings.
+
+`agent.gates` is not refused. The gates of every layer join, so a lane's layer can add a gate and cannot drop one.
 
 The worker holds a lane's layer to your layer and the repository's whenever it reads the lane's profile, a layer a claim already holds included. It refuses a layer that does any of the following, and the lane does not start:
 
 - Changes `hooks`, `agent.credentials`, `agent.instructions_file`, `worktree.root`, `worktree.branch_prefix`, `worktree.push_on_stop`, or `[agent.classes]`.
-- Leaves out of `agent.gates` a gate of yours or of the repository's.
 - Raises `agent.permission_mode` past yours, or names `bypassPermissions` or a mode ropeshift does not know.
 - Raises `review.max_review_rounds`, `resources.ports_per_lane`, `lifecycle.max_generations_per_day`, or `lifecycle.max_restarts` past what your layer and the repository's give, sets `max_generations_per_day` to `0` or less where they set a cap, or shortens `lifecycle.restart_window`.
 - Raises `admission.max_lanes` or `admission.max_lanes_per_sign_in` past yours, sets no cap where you set one or left the recommendation, or changes any other key of `[admission]`.
 - Changes `resources.report_interval`, `disk_free_warn`, `memory_available_warn`, `memory_pressure_warn`, or `cpu_load_warn`, which say how the worker measures.
 - Turns `telemetry.content` on where you left it off, or changes `telemetry.retention_age`, `retention_bytes`, or `export_account_attributes`.
 
-A lane's layer can set any other key, such as `agent.model`, `agent.effort`, or a lifecycle timer. It can lower the permission mode, `max_generations_per_day`, `max_restarts`, `max_lanes`, and `max_lanes_per_sign_in`, lengthen `restart_window`, and turn content capture off.
+A lane's layer can set any other key, such as `agent.model`, `agent.effort`, or a lifecycle timer. It can add a gate, lower the permission mode, `max_generations_per_day`, `max_restarts`, `max_lanes`, and `max_lanes_per_sign_in`, lengthen `restart_window`, and turn content capture off.
 
 ### Where a lane starts
 

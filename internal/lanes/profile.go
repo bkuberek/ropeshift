@@ -6,9 +6,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"path"
+	"slices"
 	"strings"
 	"time"
+	"unicode"
 
 	"ropeshift.com/ropeshift/internal/messages"
 	"ropeshift.com/ropeshift/internal/workorders"
@@ -36,7 +39,8 @@ type AgentSettings struct {
 	// Gates are permission rules for actions a person must approve. The driver writes each as an
 	// `ask` rule in every mode, because `PermissionRequest` fires only for a call that would prompt,
 	// and an ask rule outranks the allow rules a lane that writes holds (FR-LANE-19). A gate only
-	// adds requests.
+	// adds requests. The layers' lists join as a union, so a layer adds gates and no layer can take
+	// one away (MergeLayers).
 	Gates []string `toml:"gates" json:"gates"`
 	// Classes maps each capability class of the agent roster to a model of this profile's driver
 	// (ADR-0025). Only the built-in and the user's layers set it, because a repository's or a lane's
@@ -181,33 +185,145 @@ func (p Profile) Digest() (string, error) {
 	return DigestPrefix + hex.EncodeToString(sum[:]), nil
 }
 
+// unionSettings are the settings, each as its path of keys, whose lists merge as the union of every
+// layer's list instead of the last layer's. A gate asks a person before an action runs, so a layer that
+// sets agent.gates adds to the gates of the layers below it and cannot drop one.
+var unionSettings = [][]string{{"agent", "gates"}}
+
 // MergeLayers folds layers in order, later over earlier. A table merges key by key,
 // so a layer can change one threshold and keep its neighbors, and any other value
-// replaces what was there.
-func MergeLayers(layers ...map[string]any) map[string]any {
+// replaces what was there, except a list of unionSettings, which keeps every layer's
+// entries in the order the layers name them, each once.
+//
+// A key is one setting under the Unicode case folding the profile's decoder reads it with, so two
+// keys of one table that differ only in case would resolve to whichever the decoder met first.
+// MergeLayers refuses a layer that holds two, and layers that spell one key two ways, and its
+// error names both spellings.
+func MergeLayers(layers ...map[string]any) (map[string]any, error) {
 	merged := map[string]any{}
 	for _, layer := range layers {
-		mergeInto(merged, layer)
+		if err := mergeInto(merged, layer, nil); err != nil {
+			return nil, err
+		}
 	}
-	return merged
+	return merged, nil
 }
 
-func mergeInto(into, from map[string]any) {
-	for key, value := range from {
+// CheckSpellings refuses a layer that holds two keys of one table that differ only in case.
+func CheckSpellings(layer map[string]any) error {
+	_, err := MergeLayers(layer)
+	return err
+}
+
+// mergeInto folds from into into, which sits at path. The keys of into hold no two spellings of one key,
+// because every earlier merge checked them, so it only has to compare the keys of from with them, and
+// it walks those in order so that the same layers always give the same error.
+func mergeInto(into, from map[string]any, path []string) error {
+	spellings := make(map[string]string, len(into)+len(from))
+	for key := range into {
+		spellings[foldKey(key)] = key
+	}
+	for _, key := range slices.Sorted(maps.Keys(from)) {
+		folded := foldKey(key)
+		if other, taken := spellings[folded]; taken && other != key {
+			return fmt.Errorf("%w: %q and %q spell one key%s, and a profile spells each key one way", ErrBadProfile, other, key, inTable(path))
+		}
+		spellings[folded] = key
+		value, here := from[key], append(slices.Clone(path), key)
+		if isUnion(here) {
+			existing, has := into[key]
+			into[key] = unionOf(existing, has, value)
+			continue
+		}
 		table, isTable := value.(map[string]any)
 		existing, hasTable := into[key].(map[string]any)
 		if isTable && hasTable {
-			mergeInto(existing, table)
+			if err := mergeInto(existing, table, here); err != nil {
+				return err
+			}
 			continue
 		}
 		if isTable {
 			fresh := map[string]any{}
-			mergeInto(fresh, table)
+			if err := mergeInto(fresh, table, here); err != nil {
+				return err
+			}
 			into[key] = fresh
 			continue
 		}
 		into[key] = value
 	}
+	return nil
+}
+
+// isUnion says path is a setting of unionSettings, in any spelling the decoder reads as it.
+func isUnion(path []string) bool {
+	for _, setting := range unionSettings {
+		if slices.EqualFunc(path, setting, strings.EqualFold) {
+			return true
+		}
+	}
+	return false
+}
+
+// unionOf adds a layer's list to the union so far. A value that is no list stays in the profile, and the
+// decoder refuses it, so a layer that sets the list to something else, or follows one that did, cannot
+// leave out the entries of the layers below it.
+func unionOf(existing any, has bool, value any) any {
+	added, isList := value.([]any)
+	if !has {
+		if !isList {
+			return value
+		}
+		return union(nil, added)
+	}
+	current, wasList := existing.([]any)
+	switch {
+	case !wasList:
+		return existing
+	case !isList:
+		return value
+	}
+	return union(current, added)
+}
+
+// union is the entries of both lists, in order, with each name once. An entry that is no name is kept as it
+// is, for the decoder to refuse.
+func union(first, second []any) []any {
+	out := make([]any, 0, len(first)+len(second))
+	seen := map[string]bool{}
+	for _, entry := range slices.Concat(first, second) {
+		if name, isName := entry.(string); isName {
+			if seen[name] {
+				continue
+			}
+			seen[name] = true
+		}
+		out = append(out, entry)
+	}
+	return out
+}
+
+// foldKey names a key so that two keys share a name exactly when strings.EqualFold calls them equal: it
+// replaces each rune with the least one of its simple case folding orbit.
+func foldKey(key string) string {
+	var folded strings.Builder
+	for _, r := range key {
+		least := r
+		for next := unicode.SimpleFold(r); next != r; next = unicode.SimpleFold(next) {
+			least = min(least, next)
+		}
+		folded.WriteRune(least)
+	}
+	return folded.String()
+}
+
+// inTable says where a refusal happened: the table at path, or nothing at the top of a layer.
+func inTable(path []string) string {
+	if len(path) == 0 {
+		return ""
+	}
+	return " of [" + strings.Join(path, ".") + "]"
 }
 
 // RepositoryToken is what a worktree root's template replaces with the repository's
