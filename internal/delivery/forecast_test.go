@@ -181,6 +181,102 @@ func TestStartedWorkKeepsWhatRemainsOfLongerWork(t *testing.T) {
 	}
 }
 
+// TestStartedPooledWorkComparesItsTimeWithTheProjectsOwnRecordsAlone holds ADR-0026's rule that no forecast tells
+// another project's record times: started work whose estimate drew on the installation pool counts, and compares
+// its time so far with, only the project's own records, and its words name no count, so they stay the same as its
+// time passes each pool record, and the pool's longest.
+func TestStartedPooledWorkComparesItsTimeWithTheProjectsOwnRecordsAlone(t *testing.T) {
+	sharing := forecastPolicy
+	sharing.ShareHistory = true
+	own := []delivery.Record{finished("own-1", 10, 2*hour, 1, otherRepository), finished("own-2", 11, 4*hour, 1, otherRepository)}
+	pool := []delivery.Record{pooled(1, 1, 3*hour, 1), pooled(2, 2, 5*hour, 1), pooled(3, 3, 9*hour, 1)}
+	read := func(records []delivery.Record, soFar int64) delivery.Forecast {
+		t.Helper()
+		in := delivery.EstimateInput{WorkOrder: "a", Keys: estimated, Records: records, Pool: pool, Policy: sharing}
+		e := delivery.EstimateOf(in)
+		if e.Tier != 6 {
+			t.Fatalf("the estimate drew on tier %d", e.Tier)
+		}
+		w := delivery.ForecastWork{WorkOrder: "a", Title: "Under way", Estimate: e, Records: delivery.Drawn(in), Started: true, SoFarMs: soFar}
+		return forecastFor(t, forecastOf(1, w), "")
+	}
+	counted := []string{"comparable record ran longer", "comparable records ran longer", "longer than every comparable record"}
+	same := func(name string, soFars []int64, want string, bound delivery.LowerBound) {
+		t.Helper()
+		for _, soFar := range soFars {
+			f := read(own, soFar)
+			if !strings.Contains(f.Explanation, want) || f.Confidence != delivery.Low || f.LowerBound != bound {
+				t.Errorf("%s, %d minutes in: %+v\nwant the words %q", name, soFar/minute, f, want)
+			}
+			for _, words := range counted {
+				if strings.Contains(f.Explanation, words) {
+					t.Errorf("%s, %d minutes in: the explanation counts the pool's records: %q", name, soFar/minute, f.Explanation)
+				}
+			}
+		}
+	}
+	// Past one of its own records and short of the other, before and after a pool record of 3h.
+	same("past some of its own", []int64{2*hour + 30*minute, 3*hour + 30*minute},
+		"longer than some of this project's own comparable records; the forecast does not say how many of the installation pool's ran longer.", delivery.LowerP85)
+	// Past both of its own records, before and after the pool records of 5h and 9h, the pool's longest.
+	same("past all of its own", []int64{4*hour + 30*minute, 6 * hour, 10 * hour},
+		"longer than every one of this project's own comparable records, so the dates are lower bounds.", delivery.LowerAll)
+	// With none of its own records, its words are the estimate's whatever pool records its time has passed.
+	for _, soFar := range []int64{4 * hour, 6 * hour, 10 * hour} {
+		f := read(nil, soFar)
+		if !strings.Contains(f.Explanation, "Under way (a) rests on 3 finished records, and a confident estimate needs 10. Under way (a)'s band is open above its longest record") ||
+			f.LowerBound != delivery.LowerP85 || f.Confidence != delivery.Low || strings.Contains(f.Explanation, "has run") {
+			t.Errorf("with none of its own records, %dh in reads %+v", soFar/hour, f)
+		}
+	}
+}
+
+// TestAForecastShowsNoPoolRecordAsItsP85 holds the rule of a tier 6 estimate's band for a forecast of tier 6 work
+// (ADR-0026): when the trial at a p85 ends at another project's longest record, or costs its highest, the p85 reads
+// as open above the p50 instead, for the dates, both what-ifs, and the cost, and the explanation says why.
+func TestAForecastShowsNoPoolRecordAsItsP85(t *testing.T) {
+	sharing := forecastPolicy
+	sharing.ShareHistory = true
+	const outlier = 37 * hour
+	pool := []delivery.Record{pooled(1, 1, hour, 1), pooled(2, 2, 2*hour, 2), pooled(3, 3, 3*hour, 3), pooled(1, 4, 4*hour, 4), pooled(2, 5, outlier, 90)}
+	in := delivery.EstimateInput{WorkOrder: "a", Keys: estimated, Pool: pool, Policy: sharing}
+	pooledWork := delivery.ForecastWork{WorkOrder: "a", Title: "Pooled", Estimate: delivery.EstimateOf(in), Records: delivery.Drawn(in)}
+	started := pooledWork
+	started.Started, started.SoFarMs = true, 30*minute
+	short := took("own-short", 30*minute, 30*minute, 1)
+	beside := delivery.ForecastWork{WorkOrder: "b", Title: "Own", Estimate: confidentOn(short), Records: []delivery.Record{short}}
+	dates := "The 85th percentile would end at another project's longest comparable record, so the dates read as open above the median."
+	costs := "The 85th percentile cost would be another project's highest comparable cost, so the cost reads as open above the median."
+	for _, c := range []struct {
+		name string
+		plan delivery.Forecast
+		// alone says the pooled work's cost is all the plan's.
+		alone bool
+	}{
+		{"a forecast of one pooled work order", forecastFor(t, forecastOf(1, pooledWork), ""), true},
+		{"a forecast of started pooled work", forecastFor(t, forecastOf(1, started), ""), true},
+		{"a plan whose own work runs beside the pooled one", forecastFor(t, forecastOf(0, pooledWork, beside), ""), false},
+	} {
+		plan := c.plan
+		for _, end := range []int64{plan.EndP85, plan.EndP85CapPlusOne, plan.EndP85PersonMedian} {
+			if end == now+outlier || end == now+outlier-30*minute {
+				t.Errorf("%s shows the pool's longest record as a p85: %+v", c.name, plan)
+			}
+		}
+		if plan.EndP85 != plan.EndP50 || plan.LowerBound != delivery.LowerP85 || plan.Confidence != delivery.Low || !strings.Contains(plan.Explanation, dates) {
+			t.Errorf("%s reads %+v, want its dates open above their p50", c.name, plan)
+		}
+		if c.alone && (plan.CostP85USD != plan.CostP50USD || plan.CostP85USD == 90 || !strings.Contains(plan.Explanation, costs)) {
+			t.Errorf("%s costs %+v, want its cost open above its p50", c.name, plan)
+		}
+	}
+	// The project's own work alone keeps its p85.
+	own := forecastFor(t, forecastOf(1, beside), "")
+	if own.EndP85 != now+30*minute || own.LowerBound != delivery.LowerNone || strings.Contains(own.Explanation, "another project") {
+		t.Errorf("the project's own work forecast %+v", own)
+	}
+}
+
 // TestAForecastWithThinInputsIsLowConfidenceAndSaysWhy labels a forecast low confidence when an input estimate is
 // low or has no history, names those work orders, leaves out work with no history, which takes no time while its
 // dependents wait only for its own dependencies, and marks what has no upper bound (FR-EST-8, FR-EST-14).
