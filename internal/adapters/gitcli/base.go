@@ -42,7 +42,7 @@ func (w Worktrees) BaseTip(ctx context.Context, repository, branch string) (port
 	tracking := "refs/remotes/" + remote + "/" + branch
 	fetching, cancel := context.WithTimeout(ctx, fetchTimeout)
 	defer cancel()
-	if _, err := git.Output(fetching, "fetch", "--quiet", "--no-tags", remote, "+refs/heads/"+branch+":"+tracking); err != nil {
+	if err := git.Fetch(fetching, "--quiet", "--no-tags", remote, "+refs/heads/"+branch+":"+tracking); err != nil {
 		return unavailable("fetching %s from %s: %v", branch, remote, err)
 	}
 	commit, err := git.Commit(ctx, tracking)
@@ -90,7 +90,7 @@ func (w Worktrees) Branch(ctx context.Context, repository, branch string) (ports
 	if remote != "" {
 		tracking := "refs/remotes/" + remote + "/" + branch
 		fetching, cancel := context.WithTimeout(ctx, fetchTimeout)
-		_, fetched := git.Output(fetching, "fetch", "--quiet", "--no-tags", remote, "+refs/heads/"+branch+":"+tracking)
+		fetched := git.Fetch(fetching, "--quiet", "--no-tags", remote, "+refs/heads/"+branch+":"+tracking)
 		cancel()
 		if fetched == nil {
 			if commit, err := git.Commit(ctx, tracking); err == nil {

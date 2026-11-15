@@ -350,7 +350,7 @@ func (s *Source) fetch(ctx context.Context) {
 		s.setHealth(ports.SourceHealth{State: planning.HealthOK})
 		return
 	}
-	if _, err := s.git.Output(ctx, "fetch", "--quiet", remote); err != nil {
+	if err := s.git.Fetch(ctx, "--quiet", remote); err != nil {
 		s.setHealth(ports.SourceHealth{State: planning.HealthFetchFailed, Detail: err.Error()})
 		return
 	}
