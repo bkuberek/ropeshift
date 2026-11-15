@@ -986,6 +986,69 @@ describe.each(Object.entries(sizes))("at %s width", (size, viewport) => {
     );
 
     it(
+      "the start contract review dialog, on a plan, with a refusal, asking which plan, with no plan read, and with none, meets WCAG 2.2 A and AA",
+      async () => {
+        const context = await browser.newContext({ viewport, colorScheme: theme, reducedMotion: "reduce" });
+        await context.route(/\/v1\//, answer);
+        const page = await context.newPage();
+        const found: string[] = [];
+        const settle = async () => {
+          await page.mouse.move(0, 0);
+          await page.waitForTimeout(600);
+        };
+        const json = (status: number, body: unknown) => (route: Route) => route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
+        await page.goto(`${base}/projects/default/plans?plan=generated-2`);
+        await ready(page);
+        await page.getByRole("button", { name: "Start contract review" }).click();
+        const dialog = page.getByRole("dialog", { name: "Start contract review" });
+        await dialog.waitFor();
+        await dialog.getByText("Add the retry budget").waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `start contract review dialog ${violation}`));
+        await page.route(/\/v1\/projects\/default\/plans\/generated-2\/reviews$/, json(400, { error: { code: "invalid", message: "plan generated-2 has no work to review" } }));
+        await dialog.getByRole("button", { name: "Start contract review" }).click();
+        await dialog.getByRole("alert").waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `start contract review dialog with a refusal ${violation}`));
+        await page.keyboard.press("Escape");
+        await page.goto(`${base}/projects/default/plans`);
+        await ready(page);
+        await page.getByRole("button", { name: "Start contract review" }).click();
+        await dialog.getByText(/The plans could not be read/).waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `start contract review dialog with no plan read ${violation}`));
+        await page.keyboard.press("Escape");
+        await page.route(
+          /\/v1\/projects\/default\/plans$/,
+          json(200, {
+            plans: [
+              { id: "generated-2", title: "Add the retry budget", status: "active" },
+              { id: "generated-4", title: "Document the retry budget", status: "active" },
+            ],
+          }),
+        );
+        await page.getByRole("button", { name: "Start contract review" }).click();
+        await dialog.getByRole("combobox", { name: "Plan" }).waitFor();
+        await page.waitForFunction(() => document.querySelectorAll("[role=dialog] select option").length > 2, null, { timeout: 20_000 });
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `start contract review dialog asking which plan ${violation}`));
+        await dialog.getByRole("button", { name: "Start contract review" }).click();
+        await dialog.getByText("Choose the plan to review.").waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `start contract review dialog with an error ${violation}`));
+        await page.keyboard.press("Escape");
+        await page.route(/\/v1\/projects\/default\/plans$/, json(200, { plans: [] }));
+        await page.getByRole("button", { name: "Start contract review" }).click();
+        await dialog.getByText("This project has no plan to review yet.").waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `start contract review dialog with no plan ${violation}`));
+        await context.close();
+        expect(found.map((line) => `${size} ${theme} ${line}`)).toEqual([]);
+      },
+      120_000,
+    );
+
+    it(
       "the palette, the shortcut sheet, the project switcher, a menu, and a dialog meet WCAG 2.2 A and AA",
       async () => {
         const context = await browser.newContext({ viewport, colorScheme: theme, reducedMotion: "reduce" });

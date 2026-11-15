@@ -405,6 +405,11 @@
     "command": "plan show"
   },
   {
+    "method": "POST",
+    "pattern": "/v1/projects/{project}/plans/{id}/reviews",
+    "command": "plan review"
+  },
+  {
     "method": "GET",
     "pattern": "/v1/projects/{project}/approvals/{id}",
     "command": "approval show"

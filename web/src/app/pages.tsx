@@ -23,6 +23,7 @@ import { RecordDecision } from "../planning/RecordDecision";
 import { RecordQuestion } from "../planning/RecordQuestion";
 import { PlanningPage } from "../planning/Planning";
 import { PlanList, PlanPage } from "../planning/Plans";
+import { StartReview } from "../planning/StartReview";
 import { StartSession } from "../planning/StartSession";
 import { RoadmapPage } from "../planning/Roadmap";
 import { Banner, EmptyState, SkeletonRows } from "../ui/display";
@@ -104,7 +105,12 @@ function plansPage(live: Live, id: string, project: string) {
         live={live}
         title="Plans"
         note={(view) => count(view.plans.length, "plan")}
-        actions={<StartSession project={project} />}
+        actions={
+          <>
+            <StartSession project={project} />
+            <StartReview />
+          </>
+        }
         body={(view) => <PlanList view={view} project={project} />}
       />
     );
@@ -121,6 +127,10 @@ function plansPage(live: Live, id: string, project: string) {
           <span>{id}</span>
         </>
       }
+      actions={(view) => {
+        const detail = find(view);
+        return detail ? <StartReview plan={detail.plan} /> : null;
+      }}
       body={(view) => {
         const detail = find(view);
         return detail ? <PlanPage detail={detail} live={live} /> : <EmptyState icon="plan" title="No plan with that ID" action={<Link to="/plans">All plans</Link>} />;

@@ -34,6 +34,12 @@ Roadmap shows the project's goals in priority order, each with its plans and the
 
 Start planning session opens a planning session from here, as `ropeshift plan start` does: give the goal as text or read it from a file, then choose the planning repository and the worker. [Start a planning session](onboarding.md#start-a-planning-session) describes what the session does and how its plan reaches you.
 
+## Plans
+
+Plans lists the project's plans, each with its status, the plan version in force, the version that waits, and how much of its work is done. A plan's page shows its versions, the difference from the approved version, its contracts, its reviews, and its work. Review version opens the approval page of a version that waits.
+
+Start planning session opens a planning session from here as it does from [Roadmap](#roadmap). Start contract review starts a contract review of a plan, as `ropeshift plan review` does: a work order that reads the plan and its contracts at their newest versions and collects every question a lane would have to stop and ask. On a plan's page the dialog names that plan, and on the list it asks which one. The review is recorded as a work order that is ready, and its page opens next, where Start claims it for a worker and starts its lane. The work the review reads stays where it is until the plan is approved. A plan with no work that names a repository has nothing for a review to read, and the daemon refuses it in words that show in the dialog. A second press after a refusal repeats the request under one ID, so it never starts two reviews. The command palette lists Start contract review and opens the dialog on Plans. Like the other controls, it is your own act through the route the command line uses, so the rules are the same, and the web listener takes no delegate's credential.
+
 ## Plan approval
 
 ![Plan approval, with the difference from version 1, the draft decisions, and the card that approves or declines the version](assets/screenshots/plan-approval-light.png#gh-light-mode-only)
