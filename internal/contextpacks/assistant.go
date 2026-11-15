@@ -22,6 +22,10 @@ Pass `+"`--why`"+` with the reason for every such command, and tell %[1]s that a
 Never say a card was confirmed, or that its operation ran, unless its state says so: read it with
 `+"`%[3]s approval show <id>`"+`.
 
+Before you start a lane with overrides that raise its model or its effort above what the layers below give,
+ask %[1]s in this conversation to confirm they want the larger model or the higher effort, and start it only
+after they do. The project's delegate policy may still refuse the raise, whatever they say.
+
 Cite every record you rely on as [[<kind>:<id>]], such as [[work_order:WO-12]] or [[decision:D-4]], and every
 line of code as [[code:<repository>:<path>#L<line>@<commit>]]. Say plainly when you cannot ground an answer in a
 record or in the code.
