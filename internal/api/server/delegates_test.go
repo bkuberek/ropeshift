@@ -17,6 +17,7 @@ import (
 	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/control"
 	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/planning"
 	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/internal/questions"
 	"ropeshift.com/ropeshift/internal/roster"
@@ -288,6 +289,8 @@ func TestEveryRouteTakesItsClassForADelegate(t *testing.T) {
 		"POST /v1/roster/revert":  api.RosterRevert{Scope: roster.ScopeProject, Version: 1},
 		// A card names a question by its ID, which the route checks before it makes one.
 		"POST /v1/questions": api.RecordQuestion{ID: "q-1", Text: "How many retries?"},
+		// An overturn names the decision it makes by its ID, which the route checks before it makes a card.
+		"POST /v1/decisions/{id}/overturn": api.OverturnDecision{ID: "d-2", Statement: "Retry three times."},
 	}
 	checked := 0
 	for pattern, route := range server.RouteOperations() {
@@ -506,16 +509,8 @@ func TestTheClassOfACallTurnsOnTheCall(t *testing.T) {
 			t.Errorf("%s: a card of %s, want %s", name, detail.Operation, operation)
 		}
 	}
-	ran := func(name string, err error) {
-		t.Helper()
-		var prepared *api.Prepared
-		var refused *api.Error
-		if errors.As(err, &prepared) || (errors.As(err, &refused) && (refused.Detail.Code == api.CodeMemberOnly || refused.Detail.Code == api.CodeBadDelegate)) {
-			t.Errorf("%s: got %v, want the call to run", name, err)
-		}
-	}
 
-	// A review: planning work is operational, and any other is consent.
+	// A review: passing one makes work claimable, so planning work's is consent, as any other is.
 	createReady(t, d, "w1")
 	if _, err := control.NewWorkOrders(d.Store).Create(ctx, apitest.Scope, workorders.WorkOrder{ID: "p1", Kind: workorders.KindPlan, Title: "Plan the release"}, ledger.Actor{Kind: ledger.ActorMember, ID: "m"}); err != nil {
 		t.Fatal(err)
@@ -523,7 +518,7 @@ func TestTheClassOfACallTurnsOnTheCall(t *testing.T) {
 	_, err := delegate.Review(ctx, "w1")
 	cardFor("a review", err, authority.OpWorkOrderReview)
 	_, err = delegate.Review(ctx, "p1")
-	ran("a planning review", err)
+	cardFor("a planning review", err, authority.OpWorkOrderReviewPlan)
 
 	// A retry: with no attempt left it is consent, and with one left it is operational.
 	w.Running("w2", "Try the flaky call").End(workorders.OutcomeFailed, workorders.ReasonCrashed)
@@ -597,54 +592,62 @@ func TestTheClassOfACallTurnsOnTheCall(t *testing.T) {
 		t.Errorf("a covered request: %+v %v", decided, err)
 	}
 
-	// A decision: one an orchestrator could record is operational, and any other is consent.
+	// A decision: one an orchestrator could record is a card of its own, and any other is a card for a decision.
 	within := api.RecordDecision{
 		ID: "d1", Status: questions.DecisionDecided, Statement: "Retry twice.", Rationale: "The budget allows it.", Scope: "retries",
 		Reversibility: questions.Reversible, Citations: []string{"docs/retries.md"}, Categories: []string{questions.CategoryProduct},
 	}
-	if _, err := delegate.RecordDecision(ctx, within); err != nil {
-		t.Errorf("a decision within policy: %v", err)
-	}
+	_, err = delegate.RecordDecision(ctx, within)
+	cardFor("a decision within policy", err, authority.OpDecisionAssume)
 	unbound := api.RecordDecision{ID: "d2", Status: questions.DecisionDecided, Statement: "Retry three times."}
 	_, err = delegate.RecordDecision(ctx, unbound)
 	cardFor("a decision outside policy", err, authority.OpDecisionRecord)
 }
 
+// TestTheDelegatePolicyExemptsOnlyWhatItMay holds the delegate policy to its fixed list of reversible acts
+// (ADR-0024): a version that lists anything else is refused, naming each, and an exempt call leaves an event
+// naming the version that exempted it, while every other consent call stays a card.
 func TestTheDelegatePolicyExemptsOnlyWhatItMay(t *testing.T) {
 	d := apitest.Start(t)
 	createReady(t, d, "w1")
 	created := aDelegate(t, d.Client.Client, apitest.ProjectName)
 	delegate := asDelegate(t, d.Socket, created.Token, apitest.ProjectName)
 	ctx := t.Context()
-	_, err := d.Client.PublishPolicy(ctx, "[delegate_policy]\nversion = 2\nexempt = [\"work_order.cancel\", \"work_order.claim\", \"roster.change\", \"delegate.create\", \"work_order.teleport\"]\n")
+	refused := []string{
+		"work_order.cancel", "question.answer", "question.record", "decision.record", "work_order.retry_extra", "fleet.run",
+		"work_order.claim", "roster.change", "delegate.create", "work_order.teleport",
+	}
+	_, err := d.Client.PublishPolicy(ctx, "[delegate_policy]\nversion = 2\nexempt = [\""+strings.Join(refused, "\", \"")+"\"]\n")
 	refusedWith(t, err, http.StatusBadRequest, api.CodeInvalid)
-	for _, id := range []string{"work_order.claim", "roster.change", "delegate.create", "work_order.teleport"} {
+	for _, id := range refused {
 		if !strings.Contains(err.Error(), id) {
 			t.Errorf("the refusal does not name %s: %v", id, err)
 		}
 	}
-	_, err = delegate.PublishPolicy(ctx, "[delegate_policy]\nversion = 2\nexempt = [\"work_order.cancel\"]\n")
+	_, err = delegate.PublishPolicy(ctx, "[delegate_policy]\nversion = 2\nexempt = [\"work_order.create\"]\n")
 	refusedWith(t, err, http.StatusForbidden, api.CodeMemberOnly)
 	builtIn, err := d.Client.PoliciesOf(ctx, authority.PolicyDelegate)
 	if err != nil || len(builtIn) != 1 || builtIn[0].Version != 1 || !strings.Contains(builtIn[0].Body, "exempt = []") {
 		t.Fatalf("the built-in delegate policy reads %+v: %v", builtIn, err)
 	}
-	version, err := d.Client.PublishPolicy(ctx, "[delegate_policy]\nversion = 2\nexempt = [\"work_order.cancel\", \"question.answer\"]\n")
+	version, err := d.Client.PublishPolicy(ctx, "[delegate_policy]\nversion = 2\nexempt = [\"work_order.create\", \"work_order.accept\", \"work_order.rework\", \"plan.start_review\"]\n")
 	if err != nil || version.Kind != authority.PolicyDelegate || version.Version != 2 {
 		t.Fatalf("published %+v: %v", version, err)
 	}
-	if _, err := delegate.CancelWork(ctx, "w1", api.CancelWork{Reason: "The plan dropped it."}); err != nil {
-		t.Fatalf("an exempt cancel: %v", err)
+	if _, err := delegate.CreateWorkOrder(ctx, api.CreateWorkOrder{
+		ID: "w2", Title: "Rename the flag", Statement: "Rename it.", Criteria: []planning.Criterion{{ID: "c1", Text: "It is renamed"}},
+	}); err != nil {
+		t.Fatalf("an exempt creation: %v", err)
 	}
-	var cancel, exempted ledger.Event
+	var made, exempted ledger.Event
 	err = d.Store.Read(ctx, apitest.Scope, func(tx ports.ReadTx) error {
-		events, err := tx.EventsAbout(ledger.Subject{Kind: workorders.SubjectKind, ID: "w1"})
+		events, err := tx.EventsAbout(ledger.Subject{Kind: workorders.SubjectKind, ID: "w2"})
 		for _, event := range events {
-			switch {
-			case event.Type == control.EventDelegateExempted:
+			switch event.Type {
+			case control.EventDelegateExempted:
 				exempted = event
-			case strings.Contains(event.Type, "cancel"):
-				cancel = event
+			case workorders.EventCreated:
+				made = event
 			}
 		}
 		return err
@@ -653,28 +656,21 @@ func TestTheDelegatePolicyExemptsOnlyWhatItMay(t *testing.T) {
 		t.Fatal(err)
 	}
 	actor := authority.DelegateActor(memberOf(t, d), created.ID)
-	if cancel.Actor != actor || exempted.Actor != actor || !strings.Contains(string(exempted.Data), `"policy_version":2`) ||
-		!strings.Contains(string(exempted.Data), authority.OpWorkOrderCancel) {
-		t.Errorf("the cancel is by %+v, and the exemption is %+v %s", cancel.Actor, exempted.Actor, exempted.Data)
+	if made.Actor != actor || exempted.Actor != actor || !strings.Contains(string(exempted.Data), `"policy_version":2`) ||
+		!strings.Contains(string(exempted.Data), authority.OpWorkOrderCreate) {
+		t.Errorf("the work is by %+v, and the exemption is %+v %s", made.Actor, exempted.Actor, exempted.Data)
 	}
-	if _, err := d.Client.PublishPolicy(ctx, "[decision_policy]\nversion = 2\nreversible_default = \"assume\"\none_way_categories = [\"security\"]\nmax_assumptions_per_work_order = 3\n"); err != nil {
-		t.Fatal(err)
-	}
-	oneWay, err := d.Client.RecordQuestion(ctx, api.RecordQuestion{ID: "q1", Text: "May audit data leave the region?", Categories: []string{questions.CategorySecurity}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = delegate.AnswerQuestion(ctx, oneWay.ID, api.AnswerQuestion{ID: "d1", Answer: "Never."})
-	if detail := cardDetail(t, preparedCard(t, err)); detail.Operation != authority.OpQuestionAnswer {
-		t.Errorf("a one-way answer made a card of %s", detail.Operation)
+	_, err = delegate.CancelWork(ctx, "w1", api.CancelWork{Reason: "The plan dropped it."})
+	if detail := cardDetail(t, preparedCard(t, err)); detail.Operation != authority.OpWorkOrderCancel {
+		t.Errorf("a cancel made a card of %s", detail.Operation)
 	}
 	reversible, err := d.Client.RecordQuestion(ctx, api.RecordQuestion{ID: "q2", Text: "How many retries?", Categories: []string{questions.CategoryProduct}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	answered, err := delegate.AnswerQuestion(ctx, reversible.ID, api.AnswerQuestion{ID: "d2", Answer: "Two."})
-	if err != nil || answered.QuestionID != "q2" {
-		t.Errorf("an exempt answer outside a one-way category: %+v %v", answered, err)
+	_, err = delegate.AnswerQuestion(ctx, reversible.ID, api.AnswerQuestion{ID: "d2", Answer: "Two."})
+	if detail := cardDetail(t, preparedCard(t, err)); detail.Operation != authority.OpQuestionAnswer {
+		t.Errorf("an answer made a card of %s", detail.Operation)
 	}
 }
 
@@ -870,4 +866,155 @@ func TestAnAuditRowNamesTheKindOfItsDelegate(t *testing.T) {
 	if seen["planning assistant"] != authority.DelegateExternal || seen["assistant"] != authority.DelegateAssistant {
 		t.Errorf("the cards name kinds %v (card %s)", seen, card.ID)
 	}
+}
+
+// finishedWork runs a work order to `acceptance` with a check only its lane vouches for, at a commit of its
+// own, and returns the review it left.
+func finishedWork(t *testing.T, d *apitest.Daemon, w *apitest.World, id string) string {
+	t.Helper()
+	w.Running(id, "Add the retry budget").Finish(workorders.LaneResult{
+		Report: workorders.Report{Outcome: workorders.OutcomeCompleted, Checks: []workorders.CheckResult{{Name: "unit", Passed: true, Criterion: "c1"}}},
+		Branch: "lane/" + id, Head: "head-" + id,
+	})
+	var review string
+	err := d.Store.Read(t.Context(), apitest.Scope, func(tx ports.ReadTx) error {
+		reviews, err := tx.WorkOrders().ReviewsOf(id)
+		if err == nil && len(reviews) != 0 {
+			review = reviews[len(reviews)-1].ID
+		}
+		return err
+	})
+	if err != nil || review == "" {
+		t.Fatalf("%s left no review: %v", id, err)
+	}
+	return review
+}
+
+// forgeCovers records a passing check the lane did not write for a work order's criterion, as a forge's result
+// on its commit.
+func forgeCovers(t *testing.T, d *apitest.Daemon, id string) {
+	t.Helper()
+	err := d.Store.Write(t.Context(), apitest.Scope, "forge", func(tx ports.WriteTx) error {
+		order, err := tx.WorkOrders().Get(id)
+		if err != nil {
+			return err
+		}
+		if err := tx.Evidence().Record(workorders.Evidence{
+			ID: "forge-" + id, WorkOrder: id, Fence: order.Fence, Criterion: "c1", Name: "ci", Status: workorders.CheckPassed, Source: workorders.SourceForge,
+		}); err != nil {
+			return err
+		}
+		_, err = tx.Append(ledger.EventDraft{
+			Type: workorders.EventEvidenceRecorded, Actor: ledger.Actor{Kind: ledger.ActorSystem, ID: "forge"}, Subject: ledger.Subject{Kind: workorders.SubjectKind, ID: id},
+		})
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestAnExemptAcceptNeedsVerifiedWorkAndAnExemptReworkAFailedVerdict holds the two exemptions that carry a
+// condition (ADR-0024): a delegate policy that exempts accepting work leaves no card only for work whose review
+// ruled that every criterion passed, on a check the lane did not write, and one that exempts rework only once a
+// verdict of the attempt failed. Anything short of that is a card for an operation no policy exempts.
+func TestAnExemptAcceptNeedsVerifiedWorkAndAnExemptReworkAFailedVerdict(t *testing.T) {
+	d := apitest.Start(t)
+	w := apitest.NewWorld(t, d)
+	ctx := t.Context()
+	created := aDelegate(t, d.Client.Client, apitest.ProjectName)
+	delegate := asDelegate(t, d.Socket, created.Token, apitest.ProjectName)
+	actor := authority.DelegateActor(memberOf(t, d), created.ID)
+	if _, err := d.Client.PublishPolicy(ctx, "[delegate_policy]\nversion = 2\nexempt = [\"work_order.accept\", \"work_order.rework\"]\n"); err != nil {
+		t.Fatal(err)
+	}
+
+	finishedWork(t, d, w, "wo-unverified")
+	_, err := delegate.Accept(ctx, "wo-unverified")
+	if detail := cardDetail(t, preparedCard(t, err)); detail.Operation != authority.OpWorkOrderAcceptUnverified {
+		t.Errorf("accepting work only its lane vouches for is a card for %s", detail.Operation)
+	}
+	_, err = delegate.Rework(ctx, "wo-unverified", api.ReworkRequest{Reason: "It retries forever."})
+	if detail := cardDetail(t, preparedCard(t, err)); detail.Operation != authority.OpWorkOrderReworkWithoutFailedVerdict {
+		t.Errorf("a rework no failed verdict stands behind is a card for %s", detail.Operation)
+	}
+
+	// Every completed change at a commit opens a review of it, and green checks do not rule for it: while the
+	// review is open, or once it ended with no verdict, no criterion has passed.
+	reviewing := finishedWork(t, d, w, "wo-verified")
+	forgeCovers(t, d, "wo-verified")
+	_, err = delegate.Accept(ctx, "wo-verified")
+	if detail := cardDetail(t, preparedCard(t, err)); detail.Operation != authority.OpWorkOrderAcceptUnverified {
+		t.Errorf("accepting work whose review is still open is a card for %s", detail.Operation)
+	}
+	if row, err := d.Client.WorkOrder(ctx, "wo-verified"); err != nil || row.State != workorders.Acceptance {
+		t.Fatalf("an accept while the review is open left %+v: %v", row, err)
+	}
+	w.Run(reviewing).Finish(workorders.LaneResult{
+		Report: workorders.Report{Outcome: workorders.OutcomeCompleted, Verdicts: []workorders.CriterionVerdict{{Criterion: "c1", Verdict: workorders.VerdictPass, Reasons: "It stops at the budget."}}},
+	})
+	accepted, err := delegate.Accept(ctx, "wo-verified")
+	if err != nil {
+		t.Fatalf("an exempt accept of verified work: %v", err)
+	}
+	if accepted.State == workorders.Acceptance {
+		t.Errorf("verified work stayed in %s", accepted.State)
+	}
+	if by := lastEventOf(t, d, "wo-verified", workorders.EventType(workorders.TriggerAcceptancePassed)); by != actor {
+		t.Errorf("the verified work was accepted by %+v, want the delegate", by)
+	}
+	unreviewed := finishedWork(t, d, w, "wo-unreviewed")
+	w.Run(unreviewed).Finish(workorders.LaneResult{Report: workorders.Report{Outcome: workorders.OutcomeFailed, Reason: "The reviewer stopped."}})
+	forgeCovers(t, d, "wo-unreviewed")
+	_, err = delegate.Accept(ctx, "wo-unreviewed")
+	if detail := cardDetail(t, preparedCard(t, err)); detail.Operation != authority.OpWorkOrderAcceptUnverified {
+		t.Errorf("accepting work whose review gave no verdict is a card for %s", detail.Operation)
+	}
+
+	unjudged := finishedWork(t, d, w, "wo-unjudged")
+	w.Run(unjudged).Finish(workorders.LaneResult{
+		Report: workorders.Report{Outcome: workorders.OutcomeCompleted, Verdicts: []workorders.CriterionVerdict{{Criterion: "c1", Verdict: workorders.VerdictCannotJudge, Reasons: "The logs are missing."}}},
+	})
+	forgeCovers(t, d, "wo-unjudged")
+	_, err = delegate.Accept(ctx, "wo-unjudged")
+	if detail := cardDetail(t, preparedCard(t, err)); detail.Operation != authority.OpWorkOrderAcceptUnverified {
+		t.Errorf("accepting work the review could not judge is a card for %s", detail.Operation)
+	}
+
+	review := finishedWork(t, d, w, "wo-failed")
+	w.Run(review).Finish(workorders.LaneResult{
+		Report:          workorders.Report{Outcome: workorders.OutcomeCompleted, Verdicts: []workorders.CriterionVerdict{{Criterion: "c1", Verdict: workorders.VerdictFail, Reasons: "It never stops."}}},
+		MaxReviewRounds: 1,
+	})
+	forgeCovers(t, d, "wo-failed")
+	_, err = delegate.Accept(ctx, "wo-failed")
+	if detail := cardDetail(t, preparedCard(t, err)); detail.Operation != authority.OpWorkOrderAcceptUnverified {
+		t.Errorf("accepting work whose review failed a criterion is a card for %s", detail.Operation)
+	}
+	reworked, err := delegate.Rework(ctx, "wo-failed", api.ReworkRequest{Reason: "The review found it never stops."})
+	if err != nil {
+		t.Fatalf("an exempt rework after a failed verdict: %v", err)
+	}
+	if reworked.State != workorders.Ready {
+		t.Errorf("the reworked work is %s", reworked.State)
+	}
+}
+
+// lastEventOf names who caused a work order's last event of a type.
+func lastEventOf(t *testing.T, d *apitest.Daemon, id, eventType string) ledger.Actor {
+	t.Helper()
+	var actor ledger.Actor
+	err := d.Store.Read(t.Context(), apitest.Scope, func(tx ports.ReadTx) error {
+		events, err := tx.EventsAbout(ledger.Subject{Kind: workorders.SubjectKind, ID: id})
+		for _, event := range events {
+			if event.Type == eventType {
+				actor = event.Actor
+			}
+		}
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return actor
 }

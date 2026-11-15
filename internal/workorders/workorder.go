@@ -117,6 +117,9 @@ func (s State) Completed() bool { return s == Acceptance || s == Integrating || 
 // OpenReview reports a review that has not ended. The work it judges waits for it.
 func (w WorkOrder) OpenReview() bool { return w.Kind == KindReview && !Terminal(w.State) }
 
+// Reviewed reports a kind of work whose completed attempt a review judges, when the attempt left a commit.
+func Reviewed(kind Kind) bool { return kind == KindChange || kind == KindRework }
+
 // ErrInvalid marks a work order the ledger must not accept.
 var ErrInvalid = errors.New("invalid work order")
 
@@ -165,7 +168,7 @@ func NewReview(id string, of WorkOrder, fence int64) (WorkOrder, error) {
 	if id == "" {
 		return WorkOrder{}, fmt.Errorf("%w: no id", ErrInvalid)
 	}
-	if of.Kind != KindChange && of.Kind != KindRework {
+	if !Reviewed(of.Kind) {
 		return WorkOrder{}, fmt.Errorf("%w: a %s is not reviewed", ErrInvalid, of.Kind)
 	}
 	return WorkOrder{

@@ -29,10 +29,12 @@ var DelegateChecks = []Check{
 	{"DL6", "a card whose subject moved goes void when a member confirms it, and its outcome is kept", checkCardBinding},
 	{"DL7", "a delegate decides a request only within the delegation policy, and the record names it", checkDelegateDecides},
 	{"DL8", "past every gate, a delegate still cannot raise merge authority or move review to a pull request", checkDelegateRepositoryBounds},
-	{"DL9", "past every gate, a delegate still cannot decide or answer in a one-way category", checkDelegateOneWayBounds},
+	{"DL9", "past every gate, a delegate still records no decision, within the decision policy or outside it, and answers no question in a one-way category", checkDelegateOneWayBounds},
 	{"DL10", "a card a crash left running past its bound fails, naming why, and a younger one keeps running", checkInterruptedCards},
 	{"DL11", "a delegate holds at most a bounded number of open cards in a project", checkOpenCardLimit},
-	{"DL12", "past every gate, a delegate adds an attempt to failed work only where the delegate policy exempts it", checkDelegateRetryBounds},
+	{"DL12", "past every gate, a delegate never adds an attempt to failed work, and no delegate policy lets it", checkDelegateRetryBounds},
+	{"DL13", "past every gate, a delegate accepts only work its review ruled on and every check verified, and sends work to rework only after a verdict of its attempt failed", checkDelegateAcceptanceBounds},
+	{"DL14", "past every gate, a delegate passes no review, and its acceptance of a contract review it started passes none of the work it read", checkDelegateReviewBounds},
 }
 
 var theDelegateRequest = authority.DelegateRequest{Member: theMember.ID, Label: "planning assistant", ExpiresInMs: authority.MaxDelegateTTLMs}
@@ -457,20 +459,32 @@ func checkDelegateOneWayBounds(r *Rig) error {
 	}
 	actor := authority.DelegateActor(theMember.ID, "dlg_1")
 	questionsOps := control.NewQuestions(s, questions.BatchPolicy{})
-	oneWay := questions.Decision{ID: r.ID("d"), Status: questions.DecisionDecided, Statement: "Keep audit data in the region.", Categories: []string{questions.CategorySecurity}}
-	if _, err := questionsOps.RecordDecision(r.Ctx, r.Scope, oneWay, actor); !errors.Is(err, questions.ErrOneWay) {
+	bound := func(statement, category string) questions.Decision {
+		return questions.Decision{
+			ID: r.ID("d"), Status: questions.DecisionDecided, Statement: statement, Rationale: "The plan says so.", Scope: "retries",
+			Reversibility: questions.Reversible, Citations: []string{"docs/plan.md"}, Categories: []string{category},
+		}
+	}
+	oneWay := bound("Keep audit data in the region.", questions.CategorySecurity)
+	if _, err := questionsOps.RecordDecision(r.Ctx, r.Scope, oneWay, actor); !errors.Is(err, workorders.ErrForbidden) {
 		return Violatedf("a delegate decided in a one-way category: %v", err)
 	}
 	standing, err := questionsOps.Weigh(r.Ctx, r.Scope, oneWay)
 	if err != nil || !standing.OneWay || standing.WithinPolicy {
 		return Violatedf("a one-way decision weighs %+v, %v", standing, err)
 	}
-	reversible := questions.Decision{ID: r.ID("d"), Status: questions.DecisionDecided, Statement: "Retry twice.", Categories: []string{questions.CategoryProduct}}
-	if standing, err := questionsOps.Weigh(r.Ctx, r.Scope, reversible); err != nil || standing.OneWay {
+	// No delegate policy exempts a decision, within the decision policy or outside it, so a delegate holds
+	// nothing recording one needs.
+	unbound := questions.Decision{ID: r.ID("d"), Status: questions.DecisionDecided, Statement: "Retry three times.", Categories: []string{questions.CategoryProduct}}
+	if _, err := questionsOps.RecordDecision(r.Ctx, r.Scope, unbound, actor); !errors.Is(err, workorders.ErrForbidden) {
+		return Violatedf("a delegate recorded a decision outside the decision policy: %v", err)
+	}
+	reversible := bound("Retry twice.", questions.CategoryProduct)
+	if standing, err := questionsOps.Weigh(r.Ctx, r.Scope, reversible); err != nil || standing.OneWay || !standing.WithinPolicy {
 		return Violatedf("a reversible decision weighs %+v, %v", standing, err)
 	}
-	if _, err := questionsOps.RecordDecision(r.Ctx, r.Scope, reversible, actor); err != nil {
-		return Violatedf("a delegate's exempt decision outside every one-way category: %v", err)
+	if _, err := questionsOps.RecordDecision(r.Ctx, r.Scope, reversible, actor); !errors.Is(err, workorders.ErrForbidden) {
+		return Violatedf("a delegate recorded a decision within the decision policy: %v", err)
 	}
 	asked, err := r.ask(s, "May audit data leave the region?", "lane-a", func(a *questions.Ask) { a.Categories = []string{questions.CategorySecurity} })
 	if err != nil {
@@ -479,7 +493,8 @@ func checkDelegateOneWayBounds(r *Rig) error {
 	if answering, err := questionsOps.AnswerStanding(r.Ctx, r.Scope, asked.QuestionID); err != nil || !answering {
 		return Violatedf("a one-way question reads as %v, %v", answering, err)
 	}
-	if _, err := ops.Answer(r.Ctx, r.Scope, asked.QuestionID, questions.Answer{DecisionID: r.ID("d"), Statement: "Never."}, actor); !errors.Is(err, questions.ErrOneWay) {
+	// No delegate policy exempts an answer, so a delegate holds nothing an answer needs.
+	if _, err := ops.Answer(r.Ctx, r.Scope, asked.QuestionID, questions.Answer{DecisionID: r.ID("d"), Statement: "Never."}, actor); !errors.Is(err, workorders.ErrForbidden) {
 		return Violatedf("a delegate answered a one-way question: %v", err)
 	}
 	if _, err := ops.Answer(r.Ctx, r.Scope, asked.QuestionID, questions.Answer{DecisionID: r.ID("d"), Statement: "Never."}, theMember); err != nil {
@@ -580,18 +595,250 @@ func checkDelegateRetryBounds(r *Rig) error {
 		return err
 	}
 	if _, err := recoveries.Retry(r.Ctx, r.Scope, none, "one more try", actor); !errors.Is(err, workorders.ErrForbidden) {
-		return Violatedf("a delegate added an attempt the delegate policy does not exempt: %v", err)
+		return Violatedf("a delegate added an attempt: %v", err)
 	}
 	if w, err := r.WorkOrder(s, none); err != nil || w.State != workorders.Failed || w.MaxAttempts != 1 {
 		return Violatedf("the refused retry left %+v: %v", w, err)
 	}
 	body := "[delegate_policy]\nversion = 2\nexempt = [\"work_order.retry_extra\"]\n"
 	draft := authority.DelegatePolicyDraft{Body: body, Policy: authority.DelegatePolicy{Version: 2, Exempt: []string{authority.OpWorkOrderRetryExtra}}}
-	if _, err := control.NewApprovals(s).PublishDelegatePolicy(r.Ctx, r.Scope, draft, theMember); err != nil {
-		return err
+	if _, err := control.NewApprovals(s).PublishDelegatePolicy(r.Ctx, r.Scope, draft, theMember); !errors.Is(err, authority.ErrInvalid) {
+		return Violatedf("a delegate policy that exempts an extra attempt: %v", err)
 	}
-	if _, err := recoveries.Retry(r.Ctx, r.Scope, none, "one more try", actor); err != nil {
-		return Violatedf("a delegate's exempt retry with no attempt left: %v", err)
+	if _, err := recoveries.Retry(r.Ctx, r.Scope, none, "one more try", actor); !errors.Is(err, workorders.ErrForbidden) {
+		return Violatedf("a delegate added an attempt after a refused policy: %v", err)
 	}
 	return nil
+}
+
+// forgeVerifies records a passing check the lane did not write for a criterion of the attempt a work order is
+// at, and the pull request the work lands through with a check its base requires, as a worker last read it.
+func (r *Rig) forgeVerifies(s ports.Store, id, head string, required ledger.ForgeCheckState) error {
+	order, err := r.WorkOrder(s, id)
+	if err != nil {
+		return err
+	}
+	return s.Write(r.Ctx, r.Scope, "note", func(tx ports.WriteTx) error {
+		if err := tx.Evidence().Record(workorders.Evidence{
+			ID: "forge-" + id, WorkOrder: id, Fence: order.Fence, Criterion: criterionOne, Name: "ci", Status: workorders.CheckPassed, Source: workorders.SourceForge,
+		}); err != nil {
+			return err
+		}
+		if err := tx.Forge().SavePullRequest(ledger.WorkPullRequest{
+			PullRequest: ledger.PullRequest{
+				Number: 7, URL: "https://forge.example/pr/7", State: ledger.PullRequestOpen, Base: "main", Branch: branchName, HeadCommit: head,
+				Checks: []ledger.PullRequestCheck{{Name: "e2e", State: required, Required: true}},
+			},
+			WorkOrder: id, Repository: AcceptanceRepository, Worker: "a",
+		}); err != nil {
+			return err
+		}
+		_, err := tx.Append(r.noteDraft(id))
+		return err
+	})
+}
+
+func checkDelegateAcceptanceBounds(r *Rig) error {
+	s := r.Store()
+	ops := r.NewOps(s)
+	actor := authority.DelegateActor(theMember.ID, "dlg_1")
+	lane, err := r.Awaiting(s, []string{criterionOne}, LaneFinished(r.ID("commit"), LaneCheck(criterionOne, true)))
+	if err != nil {
+		return err
+	}
+	if _, err := ops.Accept(r.Ctx, r.Scope, lane, actor); !errors.Is(err, workorders.ErrForbidden) {
+		return Violatedf("a delegate accepted work only its lane vouches for: %v", err)
+	}
+	head := r.ID("commit")
+	pending, err := r.Awaiting(s, []string{criterionOne}, LaneFinished(head))
+	if err != nil {
+		return err
+	}
+	if err := r.forgeVerifies(s, pending, head, ledger.CheckPending); err != nil {
+		return err
+	}
+	if _, err := ops.Accept(r.Ctx, r.Scope, pending, actor); !errors.Is(err, workorders.ErrForbidden) {
+		return Violatedf("a delegate accepted work whose required check is still running: %v", err)
+	}
+	if err := r.stateIs(s, pending, workorders.Acceptance); err != nil {
+		return err
+	}
+	// The review of a change rules on its criteria, and green checks do not rule for it: while the review is
+	// open, or once it ended with no verdict, a delegate's acceptance waits for a member.
+	green, head, err := r.judged(s, criterionOne)
+	if err != nil {
+		return err
+	}
+	if err := r.forgeVerifies(s, green, head, ledger.CheckPassed); err != nil {
+		return err
+	}
+	if _, err := ops.Accept(r.Ctx, r.Scope, green, actor); !errors.Is(err, workorders.ErrForbidden) {
+		return Violatedf("a delegate accepted work whose review is still open: %v", err)
+	}
+	if err := r.stateIs(s, green, workorders.Acceptance); err != nil {
+		return err
+	}
+	if err := r.reviewSays(s, green, say(criterionOne, workorders.VerdictPass)); err != nil {
+		return err
+	}
+	if _, err := ops.Accept(r.Ctx, r.Scope, green, actor); err != nil {
+		return Violatedf("a delegate's acceptance of verified work: %v", err)
+	}
+	head = r.ID("commit")
+	unreviewed, err := r.Awaiting(s, []string{criterionOne}, LaneFinished(head))
+	if err != nil {
+		return err
+	}
+	if err := r.forgeVerifies(s, unreviewed, head, ledger.CheckPassed); err != nil {
+		return err
+	}
+	if _, err := ops.Accept(r.Ctx, r.Scope, unreviewed, actor); !errors.Is(err, workorders.ErrForbidden) {
+		return Violatedf("a delegate accepted work whose review gave no verdict: %v", err)
+	}
+	if err := r.stateIs(s, unreviewed, workorders.Acceptance); err != nil {
+		return err
+	}
+	// A verdict counts for the attempt it judged, as it does when the review settles the work: one that failed
+	// an earlier attempt does not hold back the next attempt's verified work.
+	again, _, err := r.judged(s, criterionOne)
+	if err != nil {
+		return err
+	}
+	if err := r.reviewSays(s, again, say(criterionOne, workorders.VerdictFail)); err != nil {
+		return err
+	}
+	if err := r.stateIs(s, again, workorders.Ready); err != nil {
+		return Violatedf("a failed review with rounds left should send the work back: %v", err)
+	}
+	head = r.ID("commit")
+	if err := r.attempt(s, again, LaneFinished(head)); err != nil {
+		return err
+	}
+	if err := r.reviewSays(s, again, say(criterionOne, workorders.VerdictPass)); err != nil {
+		return err
+	}
+	if err := r.forgeVerifies(s, again, head, ledger.CheckPassed); err != nil {
+		return err
+	}
+	if _, err := ops.Accept(r.Ctx, r.Scope, again, actor); err != nil {
+		return Violatedf("a delegate's acceptance of a verified attempt after a failed one: %v", err)
+	}
+
+	if _, err := ops.Rework(r.Ctx, r.Scope, lane, reworkReason, actor); !errors.Is(err, workorders.ErrForbidden) {
+		return Violatedf("a delegate sent work to rework that no failed verdict stands behind: %v", err)
+	}
+	// Green checks do not outweigh the review: work whose review failed a criterion, or could not judge one,
+	// waits for a member however its checks went.
+	unjudged, head, err := r.judged(s, criterionOne)
+	if err != nil {
+		return err
+	}
+	if err := r.reviewSays(s, unjudged, say(criterionOne, workorders.VerdictCannotJudge)); err != nil {
+		return err
+	}
+	if err := r.forgeVerifies(s, unjudged, head, ledger.CheckPassed); err != nil {
+		return err
+	}
+	if _, err := ops.Accept(r.Ctx, r.Scope, unjudged, actor); !errors.Is(err, workorders.ErrForbidden) {
+		return Violatedf("a delegate accepted work the review could not judge: %v", err)
+	}
+	if err := r.stateIs(s, unjudged, workorders.Acceptance); err != nil {
+		return err
+	}
+	failed, head, err := r.judged(s, criterionOne)
+	if err != nil {
+		return err
+	}
+	result := laneResult(workorders.OutcomeCompleted, "")
+	result.Verdicts = []workorders.CriterionVerdict{say(criterionOne, workorders.VerdictFail)}
+	result.MaxReviewRounds = 1
+	if err := r.reviewEnds(s, failed, result); err != nil {
+		return err
+	}
+	if err := r.stateIs(s, failed, workorders.Acceptance); err != nil {
+		return Violatedf("a failed review past its bound should wait: %v", err)
+	}
+	if err := r.forgeVerifies(s, failed, head, ledger.CheckPassed); err != nil {
+		return err
+	}
+	if _, err := ops.Accept(r.Ctx, r.Scope, failed, actor); !errors.Is(err, workorders.ErrForbidden) {
+		return Violatedf("a delegate accepted work whose review failed a criterion: %v", err)
+	}
+	if err := r.stateIs(s, failed, workorders.Acceptance); err != nil {
+		return err
+	}
+	if state, err := ops.Rework(r.Ctx, r.Scope, failed, reworkReason, actor); err != nil || state != workorders.Ready {
+		return Violatedf("a delegate's rework after a failed verdict: %v, %v", state, err)
+	}
+	return r.CheckProjection(s)
+}
+
+func checkDelegateReviewBounds(r *Rig) error {
+	s := r.Store()
+	ops := r.NewOps(s)
+	actor := authority.DelegateActor(theMember.ID, "dlg_1")
+	plan, _, err := r.APlan(s)
+	if err != nil {
+		return err
+	}
+	waiting := func() ([]string, error) {
+		var ids []string
+		err := s.Read(r.Ctx, r.Scope, func(tx ports.ReadTx) error {
+			orders, err := tx.WorkOrders().List()
+			for _, order := range orders {
+				if order.Kind == workorders.KindChange {
+					if order.State != workorders.ContractReview || order.ReviewedBy != "" {
+						return Violatedf("the plan's work %s is %s, reviewed by %q", order.ID, order.State, order.ReviewedBy)
+					}
+					ids = append(ids, order.ID)
+				}
+			}
+			return err
+		})
+		return ids, err
+	}
+	work, err := waiting()
+	if err != nil {
+		return err
+	}
+	if len(work) == 0 {
+		return Violatedf("the plan holds no work to review")
+	}
+	if _, err := ops.Pass(r.Ctx, r.Scope, work[0], actor); !errors.Is(err, workorders.ErrForbidden) {
+		return Violatedf("a delegate passed a review: %v", err)
+	}
+	review, err := control.NewWorkOrders(s).ReviewPlan(r.Ctx, r.Scope, r.ID("review"), plan, actor)
+	if err != nil {
+		return Violatedf("a delegate's start of a contract review: %v", err)
+	}
+	head := r.ID("commit")
+	if err := r.attempt(s, review.ID, LaneFinished(head)); err != nil {
+		return err
+	}
+	if err := r.finishReviews(s, review.ID); err != nil {
+		return err
+	}
+	order, err := r.WorkOrder(s, review.ID)
+	if err != nil {
+		return err
+	}
+	err = s.Write(r.Ctx, r.Scope, "note", func(tx ports.WriteTx) error {
+		if err := tx.Evidence().Record(workorders.Evidence{
+			ID: "forge-" + review.ID, WorkOrder: review.ID, Fence: order.Fence, Criterion: reviewCriterion, Name: "ci", Status: workorders.CheckPassed, Source: workorders.SourceForge,
+		}); err != nil {
+			return err
+		}
+		_, err := tx.Append(r.noteDraft(review.ID))
+		return err
+	})
+	if err != nil {
+		return err
+	}
+	if _, err := ops.Accept(r.Ctx, r.Scope, review.ID, actor); err != nil {
+		return Violatedf("a delegate's acceptance of a verified contract review: %v", err)
+	}
+	if _, err := waiting(); err != nil {
+		return err
+	}
+	return r.CheckProjection(s)
 }

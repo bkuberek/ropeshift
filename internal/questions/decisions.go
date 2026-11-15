@@ -101,6 +101,14 @@ func (d Decision) CheckBound() error {
 	return nil
 }
 
+// SameContent says two decisions decide the same thing: the same status, statement, rationale, citations,
+// scope, reversibility, and categories. Who decided, and what each replaced or overlapped, are not content.
+func (d Decision) SameContent(other Decision) bool {
+	return d.Status == other.Status && d.Statement == other.Statement && d.Rationale == other.Rationale &&
+		slices.Equal(d.Citations, other.Citations) && d.Scope == other.Scope && d.Reversibility == other.Reversibility &&
+		slices.Equal(d.Categories, other.Categories)
+}
+
 // Overturn is what a member records in place of a decision. The client generates DecisionID,
 // so a retry finds what the first attempt wrote.
 type Overturn struct {
@@ -114,6 +122,9 @@ type Overturn struct {
 func (o Overturn) Check() error {
 	if o.DecisionID == "" {
 		return fmt.Errorf("%w: an overturn names no new decision", ErrInvalid)
+	}
+	if err := CheckDecisionID(o.DecisionID); err != nil {
+		return err
 	}
 	if Normalize(o.Statement) == "" {
 		return fmt.Errorf("%w: an overturn states nothing", ErrInvalid)

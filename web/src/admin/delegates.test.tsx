@@ -2,6 +2,7 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
+import type { PolicyList, PolicyVersion } from "../api/admin";
 import type { DelegateList, OperationList } from "../api/delegates";
 import { openPage } from "../opening";
 import type { Sent } from "../testing";
@@ -10,8 +11,8 @@ import { golden, here, refusal, serveViews } from "../testing";
 type Answer = { status: number; body?: unknown };
 
 // serveDelegates answers what the members, settings, and audit pages read about delegates, each from what a
-// Go test wrote from a real ledger, and lets a test answer anything else first.
-function serveDelegates(answer?: (sent: Sent) => Answer | undefined) {
+// Go test wrote from a real ledger, and lets a test answer anything else first, and the project registry.
+function serveDelegates(answer?: (sent: Sent) => Answer | undefined, options: { projects?: Answer } = {}) {
   return serveViews((call) => {
     const own = answer?.(call);
     if (own) {
@@ -29,7 +30,25 @@ function serveDelegates(answer?: (sent: Sent) => Answer | undefined) {
     ];
     const found = reads.find(([prefix]) => call.path === prefix || call.path.startsWith(`${prefix}?`));
     return found ? { status: 200, body: found[1]() } : undefined;
-  });
+  }, options);
+}
+
+// staleDelegatePolicy is the delegate policy a Go test wrote, with a newest version that still exempts an
+// operation no policy may exempt any more, as a version published before the list narrowed does.
+function staleDelegatePolicy(): PolicyList {
+  const stored = golden<PolicyList>("policies-delegate");
+  const [newest, ...older] = stored.versions as [PolicyVersion, ...PolicyVersion[]];
+  return {
+    ...stored,
+    versions: [{ ...newest, body: '[delegate_policy]\nversion = 2\nexempt = ["work_order.accept", "work_order.cancel"]\n', settings: '{"version":2,"exempt":["work_order.accept","work_order.cancel"]}' }, ...older],
+  };
+}
+
+// leaveGuarded says the page asks before it closes, as it does while a form holds unsaved changes.
+function leaveGuarded(): boolean {
+  const leaving = new Event("beforeunload", { cancelable: true });
+  window.dispatchEvent(leaving);
+  return leaving.defaultPrevented;
 }
 
 const sentTo = (sent: Sent[], method: string, path: string) => sent.filter((call) => call.method === method && call.path.split("?")[0] === path);
@@ -148,23 +167,84 @@ describe("Delegate policy in Settings", () => {
     const roster = within(field).getByRole("checkbox", { name: /Change the agent roster/ });
     expect((roster as HTMLInputElement).disabled).toBe(true);
     expect(roster.closest("label")?.parentElement?.textContent).toContain("ADR-0025");
-    await userEvent.click(within(field).getByRole("checkbox", { name: /Cancel work/ }));
+    const cancel = within(field).getByRole("checkbox", { name: /Cancel work/ });
+    expect((cancel as HTMLInputElement).disabled).toBe(true);
+    expect(cancel.closest("label")?.parentElement?.textContent).toContain("exempts only accepting verified work");
+    await userEvent.click(within(field).getByRole("checkbox", { name: /work_order\.rework$/ }));
     await userEvent.click(screen.getByRole("button", { name: "Review change" }));
     const dialog = await screen.findByRole("dialog");
     await userEvent.click(within(dialog).getByRole("button", { name: "Save version 3" }));
     await waitFor(() => expect(sentTo(sent, "POST", "/v1/policies")).toHaveLength(1));
-    expect((sentTo(sent, "POST", "/v1/policies")[0]?.body as { body: string }).body).toBe('[delegate_policy]\nversion = 3\nexempt = ["work_order.accept", "work_order.cancel"]\n');
+    expect((sentTo(sent, "POST", "/v1/policies")[0]?.body as { body: string }).body).toBe('[delegate_policy]\nversion = 3\nexempt = ["work_order.accept", "work_order.rework"]\n');
+  });
+
+  it("drops an operation the stored version lists that no policy may exempt any more, and says which", async () => {
+    const stale = staleDelegatePolicy();
+    const sent = serveDelegates((call) => {
+      if (call.method === "GET" && call.path.split("?")[0] === "/v1/policies") {
+        return { status: 200, body: stale };
+      }
+      return call.method === "POST" && call.path === "/v1/policies" ? { status: 201, body: { version: 3 } } : undefined;
+    });
+    openPage(here("/settings?section=delegate-policy"));
+    const field = await screen.findByRole("group", { name: /Consent operations a delegate runs without a card/ });
+    const cancel = await within(field).findByRole("checkbox", { name: /Cancel work/ });
+    await waitFor(() => expect((cancel as HTMLInputElement).checked).toBe(false));
+    expect(within(field).getByText(/no policy may exempt any more/).textContent).toContain("work_order.cancel");
+    expect((within(field).getByRole("checkbox", { name: /Accept work/ }) as HTMLInputElement).checked).toBe(true);
+    // What exempts nothing is no change of the person's, so nothing waits to be saved until they make one.
+    expect(screen.getByText("No unsaved changes")).toBeTruthy();
+    await userEvent.click(within(field).getByRole("checkbox", { name: /work_order\.rework$/ }));
+    await userEvent.click(screen.getByRole("button", { name: "Review change" }));
+    await userEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Save version 3" }));
+    await waitFor(() => expect(sentTo(sent, "POST", "/v1/policies")).toHaveLength(1));
+    expect((sentTo(sent, "POST", "/v1/policies")[0]?.body as { body: string }).body).toBe('[delegate_policy]\nversion = 3\nexempt = ["work_order.accept", "work_order.rework"]\n');
+  });
+
+  it("discards back to the stored version without what it dropped, and leaves nothing unsaved", async () => {
+    const stale = staleDelegatePolicy();
+    serveDelegates((call) => (call.method === "GET" && call.path.split("?")[0] === "/v1/policies" ? { status: 200, body: stale } : undefined));
+    openPage(here("/settings?section=delegate-policy"));
+    const field = await screen.findByRole("group", { name: /Consent operations a delegate runs without a card/ });
+    const cancel = await within(field).findByRole("checkbox", { name: /Cancel work/ });
+    await waitFor(() => expect((cancel as HTMLInputElement).checked).toBe(false));
+    const rework = within(field).getByRole("checkbox", { name: /work_order\.rework$/ });
+    await userEvent.click(rework);
+    expect(screen.queryByText("No unsaved changes")).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Discard" }));
+    expect(screen.getByText("No unsaved changes")).toBeTruthy();
+    expect((rework as HTMLInputElement).checked).toBe(false);
+    expect((cancel as HTMLInputElement).checked).toBe(false);
+    expect((within(field).getByRole("checkbox", { name: /Accept work/ }) as HTMLInputElement).checked).toBe(true);
+    expect(within(field).getByText(/no policy may exempt any more/).textContent).toContain("work_order.cancel");
+    expect(leaveGuarded()).toBe(false);
+  });
+
+  it("leaves an archived project's stored version as it stands, with nothing unsaved", async () => {
+    const stale = staleDelegatePolicy();
+    serveDelegates((call) => (call.method === "GET" && call.path.split("?")[0] === "/v1/policies" ? { status: 200, body: stale } : undefined), {
+      projects: { status: 200, body: { projects: [{ id: "default", name: "default", state: "archived", created_at: 1, repositories: [] }] } },
+    });
+    openPage(here("/settings?section=delegate-policy"));
+    expect(await screen.findByText(/is archived and read-only/)).toBeTruthy();
+    const field = await screen.findByRole("group", { name: /Consent operations a delegate runs without a card/ });
+    const cancel = await within(field).findByRole("checkbox", { name: /Cancel work/ });
+    expect((cancel as HTMLInputElement).disabled).toBe(true);
+    expect((cancel as HTMLInputElement).checked).toBe(true);
+    expect(within(field).queryByText(/no policy may exempt any more/)).toBeNull();
+    expect(screen.getByText("No unsaved changes")).toBeTruthy();
+    expect(leaveGuarded()).toBe(false);
   });
 
   it("shows the API's refusal at the field", async () => {
-    serveDelegates((call) => (call.method === "POST" && call.path === "/v1/policies" ? refusal(400, "invalid", "the delegate policy cannot exempt work_order.cancel is a member's alone") : undefined));
+    serveDelegates((call) => (call.method === "POST" && call.path === "/v1/policies" ? refusal(400, "invalid", "the delegate policy cannot exempt work_order.rework is no operation") : undefined));
     openPage(here("/settings?section=delegate-policy"));
     const field = await screen.findByRole("group", { name: /Consent operations a delegate runs without a card/ });
-    await userEvent.click(await within(field).findByRole("checkbox", { name: /Cancel work/ }));
+    await userEvent.click(await within(field).findByRole("checkbox", { name: /work_order\.rework$/ }));
     await userEvent.click(screen.getByRole("button", { name: "Review change" }));
     await userEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Save version 3" }));
     await userEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Keep editing" }));
-    expect((await within(field).findByRole("alert")).textContent).toContain("cannot exempt work_order.cancel");
+    expect((await within(field).findByRole("alert")).textContent).toContain("cannot exempt work_order.rework");
   });
 });
 

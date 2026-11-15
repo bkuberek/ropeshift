@@ -16,25 +16,29 @@
       "id": "project.rename",
       "label": "Rename a project",
       "class": "consent",
-      "exemptable": true
+      "exemptable": false,
+      "never_reason": "A delegate policy exempts only accepting verified work, rework after a failed verdict, creating work, and starting a contract review."
     },
     {
       "id": "project.archive",
       "label": "Archive a project",
       "class": "consent",
-      "exemptable": true
+      "exemptable": false,
+      "never_reason": "A delegate policy exempts only accepting verified work, rework after a failed verdict, creating work, and starting a contract review."
     },
     {
       "id": "project.restore",
       "label": "Restore a project",
       "class": "consent",
-      "exemptable": true
+      "exemptable": false,
+      "never_reason": "A delegate policy exempts only accepting verified work, rework after a failed verdict, creating work, and starting a contract review."
     },
     {
       "id": "project.remove",
       "label": "Remove a project",
       "class": "consent",
-      "exemptable": true
+      "exemptable": false,
+      "never_reason": "A delegate policy exempts only accepting verified work, rework after a failed verdict, creating work, and starting a contract review."
     },
     {
       "id": "installation.backup",
@@ -152,14 +156,16 @@
     {
       "id": "work_order.review_plan",
       "label": "Review planning work",
-      "class": "operational",
-      "exemptable": false
+      "class": "consent",
+      "exemptable": false,
+      "never_reason": "A delegate policy exempts only accepting verified work, rework after a failed verdict, creating work, and starting a contract review."
     },
     {
       "id": "work_order.review",
       "label": "Pass a review",
       "class": "consent",
-      "exemptable": true
+      "exemptable": false,
+      "never_reason": "A delegate policy exempts only accepting verified work, rework after a failed verdict, creating work, and starting a contract review."
     },
     {
       "id": "work_order.claim",
@@ -213,7 +219,8 @@
       "id": "work_order.retry_extra",
       "label": "Retry work with an extra attempt",
       "class": "consent",
-      "exemptable": true
+      "exemptable": false,
+      "never_reason": "A delegate policy exempts only accepting verified work, rework after a failed verdict, creating work, and starting a contract review."
     },
     {
       "id": "work_order.accept",
@@ -222,46 +229,66 @@
       "exemptable": true
     },
     {
+      "id": "work_order.accept_unverified",
+      "label": "Accept unverified work",
+      "class": "consent",
+      "exemptable": false,
+      "never_reason": "A delegate policy exempts only accepting verified work, rework after a failed verdict, creating work, and starting a contract review."
+    },
+    {
       "id": "work_order.rework",
       "label": "Send work to rework",
       "class": "consent",
       "exemptable": true
     },
     {
+      "id": "work_order.rework_without_failed_verdict",
+      "label": "Send work to rework with no failed verdict",
+      "class": "consent",
+      "exemptable": false,
+      "never_reason": "A delegate policy exempts only accepting verified work, rework after a failed verdict, creating work, and starting a contract review."
+    },
+    {
       "id": "work_order.cancel",
       "label": "Cancel work",
       "class": "consent",
-      "exemptable": true
+      "exemptable": false,
+      "never_reason": "A delegate policy exempts only accepting verified work, rework after a failed verdict, creating work, and starting a contract review."
     },
     {
       "id": "work_order.reassign",
       "label": "Reassign work",
       "class": "consent",
-      "exemptable": true
+      "exemptable": false,
+      "never_reason": "A delegate policy exempts only accepting verified work, rework after a failed verdict, creating work, and starting a contract review."
     },
     {
       "id": "work_order.send_back",
       "label": "Send work back to planning",
       "class": "consent",
-      "exemptable": true
+      "exemptable": false,
+      "never_reason": "A delegate policy exempts only accepting verified work, rework after a failed verdict, creating work, and starting a contract review."
     },
     {
       "id": "work_order.resolve",
       "label": "Resolve blocked work",
       "class": "consent",
-      "exemptable": true
+      "exemptable": false,
+      "never_reason": "A delegate policy exempts only accepting verified work, rework after a failed verdict, creating work, and starting a contract review."
     },
     {
       "id": "work_order.write",
       "label": "Write under a claim",
       "class": "consent",
-      "exemptable": true
+      "exemptable": false,
+      "never_reason": "A delegate policy exempts only accepting verified work, rework after a failed verdict, creating work, and starting a contract review."
     },
     {
       "id": "work_order.release",
       "label": "Release a claim",
       "class": "consent",
-      "exemptable": true
+      "exemptable": false,
+      "never_reason": "A delegate policy exempts only accepting verified work, rework after a failed verdict, creating work, and starting a contract review."
     },
     {
       "id": "fleet.pause",
@@ -273,13 +300,15 @@
       "id": "fleet.run",
       "label": "Run the fleet",
       "class": "consent",
-      "exemptable": true
+      "exemptable": false,
+      "never_reason": "A delegate policy exempts only accepting verified work, rework after a failed verdict, creating work, and starting a contract review."
     },
     {
       "id": "fleet.caps",
       "label": "Set the fleet's caps",
       "class": "consent",
-      "exemptable": true
+      "exemptable": false,
+      "never_reason": "A delegate policy exempts only accepting verified work, rework after a failed verdict, creating work, and starting a contract review."
     },
     {
       "id": "plan.start_review",
@@ -297,37 +326,43 @@
       "id": "question.record",
       "label": "Record a question",
       "class": "consent",
-      "exemptable": true
+      "exemptable": false,
+      "never_reason": "A delegate policy exempts only accepting verified work, rework after a failed verdict, creating work, and starting a contract review."
     },
     {
       "id": "question.dismiss",
       "label": "Dismiss a question",
       "class": "consent",
-      "exemptable": true
+      "exemptable": false,
+      "never_reason": "A delegate policy exempts only accepting verified work, rework after a failed verdict, creating work, and starting a contract review."
     },
     {
       "id": "question.answer",
       "label": "Answer a question",
       "class": "consent",
-      "exemptable": true
+      "exemptable": false,
+      "never_reason": "A delegate policy exempts only accepting verified work, rework after a failed verdict, creating work, and starting a contract review."
     },
     {
       "id": "decision.assume",
       "label": "Record a decision within policy",
-      "class": "operational",
-      "exemptable": false
+      "class": "consent",
+      "exemptable": false,
+      "never_reason": "A delegate policy exempts only accepting verified work, rework after a failed verdict, creating work, and starting a contract review."
     },
     {
       "id": "decision.record",
       "label": "Record a decision",
       "class": "consent",
-      "exemptable": true
+      "exemptable": false,
+      "never_reason": "A delegate policy exempts only accepting verified work, rework after a failed verdict, creating work, and starting a contract review."
     },
     {
       "id": "decision.overturn",
       "label": "Overturn a decision",
       "class": "consent",
-      "exemptable": true
+      "exemptable": false,
+      "never_reason": "A delegate policy exempts only accepting verified work, rework after a failed verdict, creating work, and starting a contract review."
     },
     {
       "id": "policy.publish",
@@ -353,7 +388,8 @@
       "id": "repository.register",
       "label": "Register a repository",
       "class": "consent",
-      "exemptable": true
+      "exemptable": false,
+      "never_reason": "A delegate policy exempts only accepting verified work, rework after a failed verdict, creating work, and starting a contract review."
     },
     {
       "id": "repository.register_manifest",
@@ -397,13 +433,15 @@
       "id": "repository.forge",
       "label": "Change forge settings",
       "class": "consent",
-      "exemptable": true
+      "exemptable": false,
+      "never_reason": "A delegate policy exempts only accepting verified work, rework after a failed verdict, creating work, and starting a contract review."
     },
     {
       "id": "repository.remove",
       "label": "Remove a repository",
       "class": "consent",
-      "exemptable": true
+      "exemptable": false,
+      "never_reason": "A delegate policy exempts only accepting verified work, rework after a failed verdict, creating work, and starting a contract review."
     },
     {
       "id": "approval.decide_delegated",
@@ -428,10 +466,18 @@
       "id": "effect.decide",
       "label": "Decide an effect",
       "class": "consent",
-      "exemptable": true
+      "exemptable": false,
+      "never_reason": "A delegate policy exempts only accepting verified work, rework after a failed verdict, creating work, and starting a contract review."
     },
     {
       "id": "message.send",
+      "label": "Send a message",
+      "class": "consent",
+      "exemptable": false,
+      "never_reason": "A delegate policy exempts only accepting verified work, rework after a failed verdict, creating work, and starting a contract review."
+    },
+    {
+      "id": "message.send_by_assistant",
       "label": "Send a message",
       "class": "operational",
       "exemptable": false
@@ -446,7 +492,8 @@
       "id": "pane.input",
       "label": "Type into a pane",
       "class": "consent",
-      "exemptable": true
+      "exemptable": false,
+      "never_reason": "A delegate policy exempts only accepting verified work, rework after a failed verdict, creating work, and starting a contract review."
     },
     {
       "id": "conversation.create",

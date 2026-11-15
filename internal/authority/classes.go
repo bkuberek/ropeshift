@@ -45,87 +45,90 @@ type Operation struct {
 
 // The operation IDs code names. The table below holds every one.
 const (
-	OpProjectCreate                     = "project.create"
-	OpProjectImport                     = "project.import"
-	OpProjectRename                     = "project.rename"
-	OpProjectArchive                    = "project.archive"
-	OpProjectRestore                    = "project.restore"
-	OpProjectRemove                     = "project.remove"
-	OpInstallationBackup                = "installation.backup"
-	OpWorkerJoinToken                   = "worker.join_token"
-	OpAutonomySet                       = "autonomy.set"
-	OpAutonomyAcknowledge               = "autonomy.acknowledge"
-	OpAutonomyWindow                    = "autonomy.window"
-	OpWorkerLaneCaps                    = "worker.lane_caps"
-	OpOrchestratorRun                   = "orchestrator.run"
-	OpRosterChange                      = "roster.change"
-	OpSessionEnd                        = "session.end"
-	OpSessionEndAll                     = "session.end_all"
-	OpPassphraseSet                     = "passphrase.set"
-	OpDelegateCreate                    = "delegate.create"
-	OpDelegateList                      = "delegate.list"
-	OpDelegateRevoke                    = "delegate.revoke"
-	OpDelegateRemove                    = "delegate.remove"
-	OpProjectBackup                     = "project.backup"
-	OpWorkOrderCreate                   = "work_order.create"
-	OpWorkOrderCreateByAssistant        = "work_order.create_by_assistant"
-	OpWorkOrderReviewPlan               = "work_order.review_plan"
-	OpWorkOrderReview                   = "work_order.review"
-	OpWorkOrderClaim                    = "work_order.claim"
-	OpLaneStart                         = "lane.start"
-	OpLaneResume                        = "lane.resume"
-	OpLaneReset                         = "lane.reset"
-	OpLaneRestart                       = "lane.restart"
-	OpLaneArchive                       = "lane.archive"
-	OpWorkOrderReplan                   = "work_order.replan"
-	OpWorkOrderRetry                    = "work_order.retry"
-	OpWorkOrderRetryExtra               = "work_order.retry_extra"
-	OpWorkOrderAccept                   = "work_order.accept"
-	OpWorkOrderRework                   = "work_order.rework"
-	OpWorkOrderCancel                   = "work_order.cancel"
-	OpWorkOrderReassign                 = "work_order.reassign"
-	OpWorkOrderSendBack                 = "work_order.send_back"
-	OpWorkOrderResolve                  = "work_order.resolve"
-	OpWorkOrderWrite                    = "work_order.write"
-	OpWorkOrderRelease                  = "work_order.release"
-	OpFleetPause                        = "fleet.pause"
-	OpFleetRun                          = "fleet.run"
-	OpFleetCaps                         = "fleet.caps"
-	OpPlanStartReview                   = "plan.start_review"
-	OpPlanStartReviewByAssistant        = "plan.start_review_by_assistant"
-	OpQuestionRecord                    = "question.record"
-	OpQuestionDismiss                   = "question.dismiss"
-	OpQuestionAnswer                    = "question.answer"
-	OpDecisionAssume                    = "decision.assume"
-	OpDecisionRecord                    = "decision.record"
-	OpDecisionOverturn                  = "decision.overturn"
-	OpPolicyPublish                     = "policy.publish"
-	OpDelegatePolicyPublish             = "delegate_policy.publish"
-	OpCategoryAdd                       = "category.add"
-	OpRepositoryRegister                = "repository.register"
-	OpRepositoryRegisterManifest        = "repository.register_manifest"
-	OpRepositorySet                     = "repository.set"
-	OpRepositoryLowerMergeAuthority     = "repository.lower_merge_authority"
-	OpRepositoryReviewTargetBranch      = "repository.review_target_branch"
-	OpRepositoryRaiseMergeAuthority     = "repository.raise_merge_authority"
-	OpRepositoryReviewTargetPullRequest = "repository.review_target_pull_request"
-	OpRepositoryForge                   = "repository.forge"
-	OpRepositoryRemove                  = "repository.remove"
-	OpApprovalDecideDelegated           = "approval.decide_delegated"
-	OpApprovalDecide                    = "approval.decide"
-	OpCardConfirm                       = "card.confirm"
-	OpEffectDecide                      = "effect.decide"
-	OpMessageSend                       = "message.send"
-	OpMessageOrchestrator               = "message.send_orchestrator"
-	OpPaneInput                         = "pane.input"
-	OpConversationCreate                = "conversation.create"
-	OpConversationOpen                  = "conversation.open"
-	OpConversationStop                  = "conversation.stop"
-	OpConversationRename                = "conversation.rename"
-	OpConversationDelete                = "conversation.delete"
-	OpConversationCompact               = "conversation.compact"
-	OpConversationClear                 = "conversation.clear"
-	OpConversationMessage               = "conversation.message"
+	OpProjectCreate                       = "project.create"
+	OpProjectImport                       = "project.import"
+	OpProjectRename                       = "project.rename"
+	OpProjectArchive                      = "project.archive"
+	OpProjectRestore                      = "project.restore"
+	OpProjectRemove                       = "project.remove"
+	OpInstallationBackup                  = "installation.backup"
+	OpWorkerJoinToken                     = "worker.join_token"
+	OpAutonomySet                         = "autonomy.set"
+	OpAutonomyAcknowledge                 = "autonomy.acknowledge"
+	OpAutonomyWindow                      = "autonomy.window"
+	OpWorkerLaneCaps                      = "worker.lane_caps"
+	OpOrchestratorRun                     = "orchestrator.run"
+	OpRosterChange                        = "roster.change"
+	OpSessionEnd                          = "session.end"
+	OpSessionEndAll                       = "session.end_all"
+	OpPassphraseSet                       = "passphrase.set"
+	OpDelegateCreate                      = "delegate.create"
+	OpDelegateList                        = "delegate.list"
+	OpDelegateRevoke                      = "delegate.revoke"
+	OpDelegateRemove                      = "delegate.remove"
+	OpProjectBackup                       = "project.backup"
+	OpWorkOrderCreate                     = "work_order.create"
+	OpWorkOrderCreateByAssistant          = "work_order.create_by_assistant"
+	OpWorkOrderReviewPlan                 = "work_order.review_plan"
+	OpWorkOrderReview                     = "work_order.review"
+	OpWorkOrderClaim                      = "work_order.claim"
+	OpLaneStart                           = "lane.start"
+	OpLaneResume                          = "lane.resume"
+	OpLaneReset                           = "lane.reset"
+	OpLaneRestart                         = "lane.restart"
+	OpLaneArchive                         = "lane.archive"
+	OpWorkOrderReplan                     = "work_order.replan"
+	OpWorkOrderRetry                      = "work_order.retry"
+	OpWorkOrderRetryExtra                 = "work_order.retry_extra"
+	OpWorkOrderAccept                     = "work_order.accept"
+	OpWorkOrderAcceptUnverified           = "work_order.accept_unverified"
+	OpWorkOrderRework                     = "work_order.rework"
+	OpWorkOrderReworkWithoutFailedVerdict = "work_order.rework_without_failed_verdict"
+	OpWorkOrderCancel                     = "work_order.cancel"
+	OpWorkOrderReassign                   = "work_order.reassign"
+	OpWorkOrderSendBack                   = "work_order.send_back"
+	OpWorkOrderResolve                    = "work_order.resolve"
+	OpWorkOrderWrite                      = "work_order.write"
+	OpWorkOrderRelease                    = "work_order.release"
+	OpFleetPause                          = "fleet.pause"
+	OpFleetRun                            = "fleet.run"
+	OpFleetCaps                           = "fleet.caps"
+	OpPlanStartReview                     = "plan.start_review"
+	OpPlanStartReviewByAssistant          = "plan.start_review_by_assistant"
+	OpQuestionRecord                      = "question.record"
+	OpQuestionDismiss                     = "question.dismiss"
+	OpQuestionAnswer                      = "question.answer"
+	OpDecisionAssume                      = "decision.assume"
+	OpDecisionRecord                      = "decision.record"
+	OpDecisionOverturn                    = "decision.overturn"
+	OpPolicyPublish                       = "policy.publish"
+	OpDelegatePolicyPublish               = "delegate_policy.publish"
+	OpCategoryAdd                         = "category.add"
+	OpRepositoryRegister                  = "repository.register"
+	OpRepositoryRegisterManifest          = "repository.register_manifest"
+	OpRepositorySet                       = "repository.set"
+	OpRepositoryLowerMergeAuthority       = "repository.lower_merge_authority"
+	OpRepositoryReviewTargetBranch        = "repository.review_target_branch"
+	OpRepositoryRaiseMergeAuthority       = "repository.raise_merge_authority"
+	OpRepositoryReviewTargetPullRequest   = "repository.review_target_pull_request"
+	OpRepositoryForge                     = "repository.forge"
+	OpRepositoryRemove                    = "repository.remove"
+	OpApprovalDecideDelegated             = "approval.decide_delegated"
+	OpApprovalDecide                      = "approval.decide"
+	OpCardConfirm                         = "card.confirm"
+	OpEffectDecide                        = "effect.decide"
+	OpMessageSend                         = "message.send"
+	OpMessageSendByAssistant              = "message.send_by_assistant"
+	OpMessageOrchestrator                 = "message.send_orchestrator"
+	OpPaneInput                           = "pane.input"
+	OpConversationCreate                  = "conversation.create"
+	OpConversationOpen                    = "conversation.open"
+	OpConversationStop                    = "conversation.stop"
+	OpConversationRename                  = "conversation.rename"
+	OpConversationDelete                  = "conversation.delete"
+	OpConversationCompact                 = "conversation.compact"
+	OpConversationClear                   = "conversation.clear"
+	OpConversationMessage                 = "conversation.message"
 )
 
 // The reasons a consent operation is never exempt.
@@ -137,14 +140,23 @@ const (
 	neverRaise      = "Raising merge authority leaves more to ropeshift, which only a member allows."
 	neverPullReq    = "Moving review to a pull request changes where work lands, which only a member allows."
 	neverApproval   = "A delegate decides a request only within the delegation policy; every other request needs a member."
+	// neverUnlisted is why every other consent operation asks: a delegate policy exempts only a fixed list
+	// of reversible acts (ADR-0024).
+	neverUnlisted = "A delegate policy exempts only accepting verified work, rework after a failed verdict, creating work, and starting a contract review."
 )
 
 func operational(id, label string, actions ...Action) Operation {
 	return Operation{ID: id, Label: label, Class: ClassOperational, Actions: actions}
 }
 
-func consent(id, label string, actions ...Action) Operation {
+// exemptable is a consent operation of the fixed list a delegate policy may exempt: a reversible act.
+func exemptable(id, label string, actions ...Action) Operation {
 	return Operation{ID: id, Label: label, Class: ClassConsent, Exemptable: true, Actions: actions}
+}
+
+// consent is every other consent operation: it always asks, because no delegate policy may exempt it.
+func consent(id, label string, actions ...Action) Operation {
+	return never(id, label, neverUnlisted, actions...)
 }
 
 func never(id, label, reason string, actions ...Action) Operation {
@@ -199,9 +211,10 @@ var operations = append(onInstallation(
 	// work to claim, so an outside delegate's call that creates a work order is a card, as a question it
 	// records is. The assistant acts in a member's own conversation, so its call runs at once, and a wake
 	// states what it wrote as a delegate's text.
-	consent(OpWorkOrderCreate, "Create work"),
+	exemptable(OpWorkOrderCreate, "Create work"),
 	operational(OpWorkOrderCreateByAssistant, "Create work"),
-	operational(OpWorkOrderReviewPlan, "Review planning work", ActionPassReview),
+	// Passing a review makes work claimable, planning work's included, so it is a member's word whoever asks.
+	consent(OpWorkOrderReviewPlan, "Review planning work", ActionPassReview),
 	consent(OpWorkOrderReview, "Pass a review", ActionPassReview),
 	operational(OpWorkOrderClaim, "Claim work"),
 	operational(OpLaneStart, "Start a lane", ActionDispatchLane),
@@ -212,8 +225,14 @@ var operations = append(onInstallation(
 	operational(OpWorkOrderReplan, "Replan work", ActionUnblock),
 	operational(OpWorkOrderRetry, "Retry work", ActionRetryWork),
 	consent(OpWorkOrderRetryExtra, "Retry work with an extra attempt", ActionRetryWork),
-	consent(OpWorkOrderAccept, "Accept work", ActionAccept, ActionAcceptLaneChecks, ActionAcceptUnchecked),
-	consent(OpWorkOrderRework, "Send work to rework", ActionRework),
+	// A delegate policy may exempt an acceptance only of work whose review has ruled that every criterion
+	// passed, on a check the lane did not write, with no verdict of the attempt failed or unjudged and every
+	// check its base requires green, and a rework only once a verdict of the attempt failed. Anything short of
+	// that is an operation of its own, which asks.
+	exemptable(OpWorkOrderAccept, "Accept work", ActionAccept),
+	consent(OpWorkOrderAcceptUnverified, "Accept unverified work", ActionAcceptLaneChecks, ActionAcceptUnchecked),
+	exemptable(OpWorkOrderRework, "Send work to rework", ActionRework),
+	consent(OpWorkOrderReworkWithoutFailedVerdict, "Send work to rework with no failed verdict", ActionRework),
 	consent(OpWorkOrderCancel, "Cancel work", ActionCancelWork),
 	consent(OpWorkOrderReassign, "Reassign work", ActionReassign),
 	consent(OpWorkOrderSendBack, "Send work back to planning", ActionSendBack),
@@ -224,12 +243,14 @@ var operations = append(onInstallation(
 	consent(OpFleetRun, "Run the fleet", ActionChangeFleet),
 	consent(OpFleetCaps, "Set the fleet's caps", ActionChangeFleet),
 	// A contract review is a work order, which the same rule holds.
-	consent(OpPlanStartReview, "Start a contract review", ActionPassReview),
-	operational(OpPlanStartReviewByAssistant, "Start a contract review", ActionPassReview),
+	exemptable(OpPlanStartReview, "Start a contract review", ActionStartReview),
+	operational(OpPlanStartReviewByAssistant, "Start a contract review", ActionStartReview),
 	consent(OpQuestionRecord, "Record a question"),
 	consent(OpQuestionDismiss, "Dismiss a question", ActionDismissQuestion),
 	oneWay(consent(OpQuestionAnswer, "Answer a question", ActionAnswerQuestion)),
-	operational(OpDecisionAssume, "Record a decision within policy", ActionRecordDecision),
+	// Recording a decision is a member's consent whoever drafts it, the assistant included (ADR-0024). An
+	// orchestrator's decisions within policy reach the ledger through its own acts, which no class reads.
+	consent(OpDecisionAssume, "Record a decision within policy", ActionRecordDecision),
 	oneWay(consent(OpDecisionRecord, "Record a decision", ActionRecordDecision, ActionDecideUnbound)),
 	consent(OpDecisionOverturn, "Overturn a decision", ActionOverturn),
 	never(OpPolicyPublish, "Publish a policy", neverPolicy, ActionPublishPolicy),
@@ -253,7 +274,10 @@ var operations = append(onInstallation(
 	never(OpApprovalDecide, "Decide a request", neverApproval, ActionDecideApproval, ActionApprovePlan, ActionDecideRecovery, ActionDecideMerge),
 	memberOnly(OpCardConfirm, "Confirm a card", ActionConfirmCard),
 	consent(OpEffectDecide, "Decide an effect", ActionDecideEffect),
-	operational(OpMessageSend, "Send a message", ActionSendMessage),
+	// A message steers what a lane does next, so an outside delegate's message to a lane is a card, as its
+	// work is. The assistant acts in a member's own conversation, so its message goes at once.
+	consent(OpMessageSend, "Send a message", ActionSendMessage),
+	operational(OpMessageSendByAssistant, "Send a message", ActionSendMessage),
 	// An orchestrator holds tools such as approval_decide and lane_start, so a message to one is a member's
 	// alone: a delegate, the assistant included, cannot instruct it. Its reply tool is not a message.
 	memberOnly(OpMessageOrchestrator, "Send a message to an orchestrator", ActionMessageOrchestrator),

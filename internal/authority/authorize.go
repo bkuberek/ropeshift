@@ -46,11 +46,13 @@ const (
 	ActionDispatchLane    Action = "lane.dispatch"
 	ActionForceArchive    Action = "lane.force_archive"
 	ActionOverturn        Action = "decision.overturn"
-	ActionPassReview      Action = "review.pass"
-	ActionPublishPolicy   Action = "policy.publish"
-	ActionReassign        Action = "work_order.reassign"
-	ActionRecordDecision  Action = "decision.record"
-	ActionResetLane       Action = "lane.reset"
+	// ActionPassReview passes a contract review, which makes work claimable, and passes the reviews of the
+	// work a contract review read when that review is accepted. A delegate passes none (ADR-0024).
+	ActionPassReview     Action = "review.pass"
+	ActionPublishPolicy  Action = "policy.publish"
+	ActionReassign       Action = "work_order.reassign"
+	ActionRecordDecision Action = "decision.record"
+	ActionResetLane      Action = "lane.reset"
 	// ActionRespawnLane asks for a running lane's next generation.
 	ActionRespawnLane Action = "lane.respawn"
 	// ActionResumeLane is a person waking a parked lane, which no automatic step can do.
@@ -144,6 +146,9 @@ const (
 	// ActionConverse starts, stops, renames, deletes, compacts, clears, and writes in a member's own
 	// conversations with the assistant, which are the member's alone (ADR-0024).
 	ActionConverse Action = "conversation.converse"
+	// ActionStartReview starts a contract review of a plan: a work order a review lane claims, which passes
+	// nothing until a member accepts it.
+	ActionStartReview Action = "review.start"
 	// ActionMessageOrchestrator sends an orchestrator a message. An orchestrator holds tools such as
 	// approval_decide and lane_start, so only a member instructs one: no delegate, orchestrator, lane, or
 	// worker holds it.
@@ -162,7 +167,7 @@ func Actions() []Action {
 		ActionSetAutonomy, ActionOpenWindow, ActionAcknowledgeRisk, ActionPassAutonomy, ActionUnblock, ActionDecideEffect, ActionApprovePlan,
 		ActionSetRepository, ActionRegisterRepository, ActionRegisterManifest, ActionManageProject, ActionRecordMerge, ActionMerge, ActionDecideMerge, ActionChangeRoster,
 		ActionRaiseMergeAuthority, ActionReviewPullRequest, ActionDecideOneWay, ActionManageSessions, ActionBackupInstallation, ActionConfirmCard,
-		ActionConverse, ActionBackupProject, ActionSetLaneCaps, ActionMessageOrchestrator,
+		ActionConverse, ActionBackupProject, ActionSetLaneCaps, ActionMessageOrchestrator, ActionStartReview,
 	}
 }
 

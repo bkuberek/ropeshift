@@ -27,6 +27,7 @@ var StoreChecks = []Check{
 	{"S11", "migrations repeat as a no-op", checkMigrationsRepeat},
 	{"S12", "creating a workspace is idempotent", checkCreateWorkspace},
 	{"S13", "creating a work order is idempotent", checkCreateWorkOrderRetry},
+	{"S14", "a write whose context names a proposer names it on every event beside the actor, and a draft's own proposer stands", checkEventNamesProposer},
 }
 
 // checkGaplessRevisions races writers against a reader that follows a cursor. A
@@ -545,4 +546,79 @@ func parallel(n int, fn func(i int) error) error {
 	}
 	wg.Wait()
 	return errors.Join(errs...)
+}
+
+// checkEventNamesProposer writes under a context that names a proposer, as a member's confirmation of a
+// delegate's card does, and reads each event back with the proposer beside its actor. A write with no
+// proposer leaves none, and a draft that names its own keeps it.
+func checkEventNamesProposer(r *Rig) error {
+	s := r.Store()
+	proposer := ledger.Actor{Kind: ledger.ActorDelegate, ID: "member-1/dlg_1"}
+	own := ledger.Actor{Kind: ledger.ActorDelegate, ID: "member-1/dlg_2"}
+	plain := r.noteDraft(r.ID("plain"))
+	first, second, kept := r.noteDraft(r.ID("first")), r.noteDraft(r.ID("second")), r.noteDraft(r.ID("kept"))
+	kept.Proposer = own
+	if err := s.Write(r.Ctx, r.Scope, "plain", func(tx ports.WriteTx) error {
+		_, err := tx.Append(plain)
+		return err
+	}); err != nil {
+		return err
+	}
+	err := s.Write(ports.WithProposer(r.Ctx, proposer), r.Scope, "proposed", func(tx ports.WriteTx) error {
+		for _, draft := range []ledger.EventDraft{first, second, kept} {
+			if _, err := tx.Append(draft); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	want := map[string]ledger.Actor{plain.Subject.ID: {}, first.Subject.ID: proposer, second.Subject.ID: proposer, kept.Subject.ID: own}
+	events, err := r.Events(s, r.Scope)
+	if err != nil {
+		return err
+	}
+	for _, event := range events {
+		proposed, ok := want[event.Subject.ID]
+		if !ok {
+			continue
+		}
+		delete(want, event.Subject.ID)
+		if event.Actor != r.Actor || event.Proposer != proposed {
+			return Violatedf("%s reads as by %+v, proposed by %+v; want %+v, proposed by %+v", event.Subject.ID, event.Actor, event.Proposer, r.Actor, proposed)
+		}
+		about, err := r.eventsOf(s, event.Subject)
+		if err != nil {
+			return err
+		}
+		if len(about) != 1 || about[0].Proposer != proposed {
+			return Violatedf("the events about %s read %+v, want one proposed by %+v", event.Subject.ID, about, proposed)
+		}
+	}
+	if len(want) != 0 {
+		return Violatedf("the log lost %v", want)
+	}
+	half := r.noteDraft(r.ID("half"))
+	half.Proposer = ledger.Actor{Kind: ledger.ActorDelegate}
+	err = s.Write(r.Ctx, r.Scope, "half", func(tx ports.WriteTx) error {
+		_, err := tx.Append(half)
+		return err
+	})
+	if !errors.Is(err, ledger.ErrInvalidEvent) {
+		return Violatedf("a proposer with no ID returned %v", err)
+	}
+	return nil
+}
+
+// eventsOf reads the events about one record, through the store's own read of them.
+func (r *Rig) eventsOf(s ports.Store, subject ledger.Subject) ([]ledger.Event, error) {
+	var events []ledger.Event
+	err := s.Read(r.Ctx, r.Scope, func(tx ports.ReadTx) error {
+		var err error
+		events, err = tx.EventsAbout(subject)
+		return err
+	})
+	return events, err
 }

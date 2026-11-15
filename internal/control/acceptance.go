@@ -98,6 +98,8 @@ type attemptStanding struct {
 	assessment workorders.Assessment
 	// verdicts are the ones bound to this attempt and the commit it left, in the order of the contract.
 	verdicts []workorders.Verdict
+	// commit is the commit the attempt left, and empty when it left none.
+	commit string
 	// rounds is how many reviews have judged this work order, whichever attempt they read.
 	rounds    int64
 	authority ledger.MergeAuthority
@@ -126,7 +128,8 @@ func readAttempt(planned ports.PlanningReader, evidence ports.EvidenceReader, re
 		return attemptStanding{}, err
 	}
 	at.rounds = workorders.Rounds(all)
-	at.verdicts = workorders.Counted(all, w.Fence, attemptBranch(artifacts, w.Fence).Digest)
+	at.commit = attemptBranch(artifacts, w.Fence).Digest
+	at.verdicts = workorders.Counted(all, w.Fence, at.commit)
 	slices.SortStableFunc(at.verdicts, func(a, b workorders.Verdict) int {
 		return slices.Index(criteria, a.Criterion) - slices.Index(criteria, b.Criterion)
 	})
@@ -207,6 +210,9 @@ func (a *Acceptances) Accept(ctx context.Context, scope ledger.WorkspaceID, id s
 		if !authority.Allowed(actor, acceptAction(assessment.Needs)) {
 			return workorders.ErrForbidden
 		}
+		if err := delegateAccepts(tx, current, actor); err != nil {
+			return err
+		}
 		if current.State == workorders.Done {
 			return nil
 		}
@@ -246,6 +252,85 @@ func (a *Acceptances) Accept(ctx context.Context, scope ledger.WorkspaceID, id s
 		return "", err
 	}
 	return state, nil
+}
+
+// Verified says a work order's current attempt is verified work, the only acceptance a delegate policy may
+// leave without a card (ADR-0024). It reads what the use case holds a delegate's own acceptance to, so the
+// class of a delegate's call and the use case it runs agree.
+func (a *Acceptances) Verified(ctx context.Context, scope ledger.WorkspaceID, id string) (bool, error) {
+	var verified bool
+	err := a.store.Read(ctx, scope, func(tx ports.ReadTx) error {
+		current, err := tx.WorkOrders().Get(id)
+		if err != nil {
+			return err
+		}
+		verified, err = verifiedIn(readersIn(tx), current)
+		return err
+	})
+	return verified, err
+}
+
+// verifiedIn reads whether an attempt is verified work, as workorders.Verified says: its review has ruled, its
+// checks and the verdicts that count for it, as settlement counts them, passed every criterion, and every check
+// the base requires is green on the pull request the work lands through.
+func verifiedIn(r integrationReaders, current workorders.WorkOrder) (bool, error) {
+	at, err := readAttempt(r.planning, r.evidence, r.repositories, current)
+	if err != nil {
+		return false, err
+	}
+	reviews, err := r.orders.ReviewsOf(current.ID)
+	if err != nil {
+		return false, err
+	}
+	var checks []ledger.PullRequestCheck
+	pr, err := r.forge.PullRequest(current.ID)
+	switch {
+	case err == nil:
+		checks = pr.Checks
+	case !errors.Is(err, ports.ErrNotFound):
+		return false, err
+	}
+	ruled := workorders.Ruled(current, at.commit, reviews, at.verdicts)
+	return workorders.Verified(at.assessment, ruled, at.verdicts, checks), nil
+}
+
+// delegateAccepts holds a delegate's own acceptance to verified work, read in the transaction that accepts: the
+// review of its attempt has ruled, no verdict that counts for the attempt failed or left a criterion unjudged,
+// and every check the base requires is green on the pull request the work lands through, besides the criteria a
+// delegate's action already holds it to (ADR-0024). A delegate's acceptance ends no review, so one that is
+// still open waits for its verdicts. Any other acceptance is a member's.
+func delegateAccepts(tx ports.WriteTx, current workorders.WorkOrder, actor ledger.Actor) error {
+	if _, _, delegated := authority.ActingFor(actor); !delegated {
+		return nil
+	}
+	verified, err := verifiedIn(readersOf(tx), current)
+	if err != nil {
+		return err
+	}
+	if !verified {
+		return fmt.Errorf("%w: a delegate accepts only work whose review has ruled that every criterion passed, with no verdict failed or unjudged and every required check green", workorders.ErrForbidden)
+	}
+	return nil
+}
+
+// delegateReworks holds a delegate's own rework to work a failed verdict of its attempt stands behind, read in
+// the transaction that sends it back (ADR-0024). Any other rework is a member's.
+func delegateReworks(tx ports.WriteTx, id string, actor ledger.Actor) error {
+	if _, _, delegated := authority.ActingFor(actor); !delegated {
+		return nil
+	}
+	current, err := tx.WorkOrders().Get(id)
+	if err != nil {
+		return err
+	}
+	at, err := readAttempt(tx.Planning(), tx.Evidence(), tx.Repositories(), current)
+	if err != nil {
+		return err
+	}
+	if !workorders.FailedVerdict(at.verdicts) {
+		return fmt.Errorf("%w: a delegate sends work to rework only after a verdict of its attempt failed", workorders.ErrForbidden)
+	}
+	return nil
 }
 
 func accept(tx ports.WriteTx, id string, assessment workorders.Assessment, actor ledger.Actor, moved func()) error {
@@ -324,6 +409,9 @@ func (a *Acceptances) Rework(ctx context.Context, scope ledger.WorkspaceID, id, 
 	}
 	var state workorders.State
 	err := a.store.Write(ctx, scope, "acceptance.rework", func(tx ports.WriteTx) error {
+		if err := delegateReworks(tx, id, actor); err != nil {
+			return err
+		}
 		if err := endOpenReviews(tx, id, actor); err != nil {
 			return err
 		}
@@ -830,7 +918,7 @@ func afterLaneEnd(tx ports.WriteTx, ended workorders.WorkOrder, holder workorder
 // openReview makes the review of an attempt that completed at fence, and says nothing when the attempt
 // left no commit: there is nothing for a review to read. It reports whether it made one.
 func openReview(tx ports.WriteTx, reviewed workorders.WorkOrder, fence int64, actor ledger.Actor) (workorders.WorkOrder, bool, error) {
-	if reviewed.Kind != workorders.KindChange && reviewed.Kind != workorders.KindRework {
+	if !workorders.Reviewed(reviewed.Kind) {
 		return workorders.WorkOrder{}, false, nil
 	}
 	artifacts, err := tx.Evidence().Artifacts(reviewed.ID)

@@ -33,7 +33,7 @@ import { Field, Select } from "../ui/forms";
 import { Icon } from "../ui/Icon";
 import { Dialog, useToast } from "../ui/overlays";
 import { isMinutes, minutesBounds, newID, nextVersion, policies, policyBody, policySettings } from "./logic";
-import type { DelegationClass, PolicyKind, PolicyValue, PolicyValues } from "./logic";
+import type { DelegationClass, FieldSpec, PolicyKind, PolicyValue, PolicyValues } from "./logic";
 import { dateOf, Reading, SaveBar, saveDownload, useChange, useDraft, useLeaveGuard, useRead } from "./parts";
 
 export type Prefs = { theme: Theme; setTheme: (theme: Theme) => void; singleKeys: boolean; setSingleKeys: (on: boolean) => void };
@@ -589,12 +589,18 @@ function PolicySection({ section, kind, live, project, archived }: { section: Se
   const [tab, setTab] = useState<"settings" | "history">("settings");
   const versions = read.view?.versions ?? [];
   const current = versions[0];
-  const [values, setValues, saved] = useDraft<PolicyValues>(policySettings(kind, current?.settings ?? "{}"));
+  const fields = policies[kind].fields;
+  const consent = useConsentOperations(fields.some((field) => field.type === "operations"));
+  // The draft starts from the stored version without what no policy may exempt any more, so dropping it is
+  // no change of the person's, and a discard returns to it. A read-only project's form shows the version
+  // as it stands.
+  const stored = policySettings(kind, current?.settings ?? "{}");
+  const { settings: start, dropped } = archived ? { settings: stored, dropped: [] } : withoutStale(stored, fields, consent.exemptable);
+  const [values, setValues, saved] = useDraft<PolicyValues>(start);
   const [review, setReview] = useState<{ body: string; version: number; title: string } | null>(null);
   const change = useChange();
   const toast = useToast();
   const idBase = useId();
-  const fields = policies[kind].fields;
   const changed = fields.filter((field) => !same(values[field.key], saved[field.key]));
   useLeaveGuard(changed.length > 0);
   const summary = changed.map((field) => `${field.key} ${valueWords(saved[field.key], field.type === "minutes")} → ${valueWords(values[field.key], field.type === "minutes")}`).join(", ");
@@ -646,6 +652,8 @@ function PolicySection({ section, kind, live, project, archived }: { section: Se
                     value={values[field.key]}
                     saved={saved[field.key]}
                     disabled={archived}
+                    operations={consent.operations}
+                    dropped={dropped}
                     failure={review ? "" : change.failure}
                     onChange={(value) => setValues((was) => ({ ...was, [field.key]: value }))}
                   />
@@ -725,12 +733,16 @@ function PolicyHistory({ versions, archived, onRevert }: { versions: PolicyVersi
   );
 }
 
-function PolicyField({ kind, spec, value, saved, disabled, failure = "", onChange }: {
+function PolicyField({ kind, spec, value, saved, disabled, operations = null, dropped = [], failure = "", onChange }: {
   kind: PolicyKind;
   spec: (typeof policies)[PolicyKind]["fields"][number];
   value: PolicyValue | undefined;
   saved: PolicyValue | undefined;
   disabled: boolean;
+  // operations are the class table's consent operations, null until it is read, and dropped the IDs the
+  // draft left out of the stored version, which an operations field lists and names.
+  operations?: Operation[] | null;
+  dropped?: string[];
   // failure is the API's refusal of the version this field's value made, which the field shows.
   failure?: string;
   onChange: (value: PolicyValue) => void;
@@ -801,7 +813,7 @@ function PolicyField({ kind, spec, value, saved, disabled, failure = "", onChang
     return <CategoryField label={spec.label} help={spec.help} value={(value as string[] | undefined) ?? []} disabled={disabled} onChange={onChange} />;
   }
   if (spec.type === "operations") {
-    return <OperationsField label={spec.label} help={spec.help} value={(value as string[] | undefined) ?? []} disabled={disabled} failure={failure} onChange={onChange} />;
+    return <OperationsField label={spec.label} help={spec.help} value={(value as string[] | undefined) ?? []} operations={operations} dropped={dropped} disabled={disabled} failure={failure} onChange={onChange} />;
   }
   if (spec.type === "classes") {
     return <ClassesField label={spec.label} help={spec.help} value={(value as DelegationClass[] | undefined) ?? []} disabled={disabled} onChange={onChange} />;
@@ -813,21 +825,67 @@ function PolicyField({ kind, spec, value, saved, disabled, failure = "", onChang
   );
 }
 
-// OperationsField chooses the consent operations a delegate runs without a card, among the ones the class
-// table lists. One no policy may exempt is shown disabled, with the API's reason.
-function OperationsField({ label, help, value, disabled, failure, onChange }: { label: string; help?: string; value: string[]; disabled: boolean; failure: string; onChange: (value: string[]) => void }) {
-  const [operations, setOperations] = useState<Operation[] | null>(null);
+// useConsentOperations reads the class table for a policy that lists operations: its consent operations,
+// and the IDs a delegate policy may exempt. Both are null until it is read, and a read that fails lists no
+// operation and leaves what may be exempt unknown.
+function useConsentOperations(wanted: boolean): { operations: Operation[] | null; exemptable: Set<string> | null } {
+  const [table, setTable] = useState<{ operations: Operation[]; exemptable: Set<string> | null } | null>(null);
   useEffect(() => {
+    if (!wanted) {
+      return;
+    }
     void readOperations().then(
-      (list) => setOperations(list.operations.filter((op) => op.class === "consent")),
-      () => setOperations([]),
+      (list) => setTable({ operations: list.operations.filter((op) => op.class === "consent"), exemptable: new Set(list.operations.filter((op) => op.exemptable).map((op) => op.id)) }),
+      () => setTable({ operations: [], exemptable: null }),
     );
-  }, []);
+  }, [wanted]);
+  return { operations: table?.operations ?? null, exemptable: table?.exemptable ?? null };
+}
+
+// withoutStale leaves out of a policy's operations fields each ID no policy may exempt any more, once the
+// class table says which those are, and names what it left out. A stored version may list one: it exempts
+// nothing, and the API refuses it in a new version.
+function withoutStale(settings: PolicyValues, fields: FieldSpec[], exemptable: Set<string> | null): { settings: PolicyValues; dropped: string[] } {
+  if (!exemptable) {
+    return { settings, dropped: [] };
+  }
+  const out = { ...settings };
+  const dropped: string[] = [];
+  for (const field of fields) {
+    const ids = settings[field.key];
+    if (field.type !== "operations" || !Array.isArray(ids)) {
+      continue;
+    }
+    const kept = (ids as string[]).filter((id) => exemptable.has(id));
+    dropped.push(...(ids as string[]).filter((id) => !exemptable.has(id)));
+    out[field.key] = kept;
+  }
+  return { settings: out, dropped };
+}
+
+// OperationsField chooses the consent operations a delegate runs without a card, among the ones the class
+// table lists. One no policy may exempt is shown disabled, with the API's reason, and dropped names what the
+// draft left out of the stored version because no policy may exempt it any more.
+function OperationsField({ label, help, value, operations, dropped, disabled, failure, onChange }: {
+  label: string;
+  help?: string;
+  value: string[];
+  operations: Operation[] | null;
+  dropped: string[];
+  disabled: boolean;
+  failure: string;
+  onChange: (value: string[]) => void;
+}) {
   const order = (ids: string[]) => (operations ?? []).map((op) => op.id).filter((id) => ids.includes(id)).concat(ids.filter((id) => !operations?.some((op) => op.id === id)));
   return (
     <fieldset className="field">
       <legend className="label">{label}</legend>
       {operations === null ? <SkeletonRows rows={3} /> : null}
+      {dropped.length > 0 ? (
+        <p className="help">
+          The current version lists {dropped.length === 1 ? "an operation" : "operations"} no policy may exempt any more, which exempt nothing and are left out of the next version: <span className="mono">{dropped.join(", ")}</span>.
+        </p>
+      ) : null}
       <div className="check-list">
         {(operations ?? []).map((op) => (
           <div key={op.id} className="check-item">

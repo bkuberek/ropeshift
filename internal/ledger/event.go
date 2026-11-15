@@ -41,6 +41,9 @@ type EventDraft struct {
 	Data        json.RawMessage
 	OccurredAt  int64
 	Traceparent string
+	// Proposer is who prepared the call the actor ran, such as the delegate whose confirmation card a member
+	// confirmed (ADR-0024), and is zero when the actor's call was its own.
+	Proposer Actor
 }
 
 // Event is one entry of the append-only log. Every state change traces to one.
@@ -55,6 +58,7 @@ type Event struct {
 	OccurredAt  int64
 	RecordedAt  int64
 	Traceparent string
+	Proposer    Actor
 }
 
 // ErrInvalidEvent marks a draft the log must not accept.
@@ -69,6 +73,8 @@ func (d EventDraft) Validate() error {
 		return errors.Join(ErrInvalidEvent, errors.New("no actor"))
 	case d.Subject.Kind == "" || d.Subject.ID == "":
 		return errors.Join(ErrInvalidEvent, errors.New("no subject"))
+	case (d.Proposer.Kind == "") != (d.Proposer.ID == ""):
+		return errors.Join(ErrInvalidEvent, errors.New("a proposer names its kind and its ID"))
 	}
 	return nil
 }

@@ -74,6 +74,19 @@ func plainID(errInvalid error) func(body []byte) error {
 	}
 }
 
+// decisionID refuses a body whose id is not one a caller may name a new decision by: plain, and outside the
+// prefix only plan approval names decisions under. A recorded decision, an answer, and an overturn each name the
+// decision they make by that ID.
+func decisionID(body []byte) error {
+	var in struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(body, &in); err != nil {
+		return fmt.Errorf("%w: %v", questions.ErrInvalid, err)
+	}
+	return questions.CheckDecisionID(in.ID)
+}
+
 // canonicalizer reads the identity of the record a name, a prefix, or an identity names.
 type canonicalizer func(h *handler, ctx context.Context, named string) (string, error)
 
@@ -163,8 +176,8 @@ var routeOperations = map[string]routeOperation{
 	"POST /v1/work-orders/{id}/lane-archive":           fixed(authority.OpLaneArchive),
 	"POST /v1/work-orders/{id}/replan":                 fixed(authority.OpWorkOrderReplan),
 	"POST /v1/work-orders/{id}/retry":                  resolved(retryOperation, authority.OpWorkOrderRetry, authority.OpWorkOrderRetryExtra).about(subjectWorkOrder),
-	"POST /v1/work-orders/{id}/accept":                 fixed(authority.OpWorkOrderAccept).about(subjectWorkOrder),
-	"POST /v1/work-orders/{id}/rework":                 fixed(authority.OpWorkOrderRework).about(subjectWorkOrder),
+	"POST /v1/work-orders/{id}/accept":                 resolved(acceptOperation, authority.OpWorkOrderAccept, authority.OpWorkOrderAcceptUnverified).about(subjectWorkOrder),
+	"POST /v1/work-orders/{id}/rework":                 resolved(reworkOperation, authority.OpWorkOrderRework, authority.OpWorkOrderReworkWithoutFailedVerdict).about(subjectWorkOrder),
 	"POST /v1/work-orders/{id}/cancel":                 fixed(authority.OpWorkOrderCancel).about(subjectWorkOrder),
 	"POST /v1/work-orders/{id}/reassign":               fixed(authority.OpWorkOrderReassign).about(subjectWorkOrder),
 	"POST /v1/work-orders/{id}/send-back":              fixed(authority.OpWorkOrderSendBack).about(subjectWorkOrder),
@@ -176,9 +189,9 @@ var routeOperations = map[string]routeOperation{
 	"POST /v1/plans/{id}/reviews":                      resolved(byKind(authority.OpPlanStartReview, authority.OpPlanStartReviewByAssistant), authority.OpPlanStartReview, authority.OpPlanStartReviewByAssistant).about(subjectPlan),
 	"POST /v1/questions":                               fixed(authority.OpQuestionRecord).about(subjectQuestion).named(bodyField("id")).checked(plainID(questions.ErrInvalid)),
 	"POST /v1/questions/{id}/dismiss":                  fixed(authority.OpQuestionDismiss).about(subjectQuestion),
-	"POST /v1/questions/{id}/answer":                   resolved(answerOperation, authority.OpQuestionAnswer).about(subjectQuestion),
-	"POST /v1/decisions":                               resolved(decisionOperation, authority.OpDecisionAssume, authority.OpDecisionRecord).about(subjectDecision).named(bodyField("id")).checked(plainID(questions.ErrInvalid)),
-	"POST /v1/decisions/{id}/overturn":                 fixed(authority.OpDecisionOverturn).about(subjectDecision),
+	"POST /v1/questions/{id}/answer":                   resolved(answerOperation, authority.OpQuestionAnswer).about(subjectQuestion).checked(decisionID),
+	"POST /v1/decisions":                               resolved(decisionOperation, authority.OpDecisionAssume, authority.OpDecisionRecord).about(subjectDecision).named(bodyField("id")).checked(decisionID),
+	"POST /v1/decisions/{id}/overturn":                 fixed(authority.OpDecisionOverturn).about(subjectDecision).checked(decisionID),
 	"POST /v1/policies":                                resolved(policyOperation, authority.OpDelegatePolicyPublish, authority.OpPolicyPublish).about(subjectPolicy).named(policyKindOf).showing(policyChanges),
 	"POST /v1/categories":                              fixed(authority.OpCategoryAdd).about(subjectCategory).named(bodyField("name")),
 	"POST /v1/repositories":                            resolved(repositoryAddOperation, authority.OpRepositoryRegister, authority.OpRepositoryRegisterManifest),
@@ -186,7 +199,7 @@ var routeOperations = map[string]routeOperation{
 	"POST /v1/repositories/{id}/remove":                fixed(authority.OpRepositoryRemove).about(ledger.SubjectRepository).resolving(repositoryID),
 	"POST /v1/approvals/{id}/decide":                   resolved(approvalOperation, authority.OpApprovalDecideDelegated, authority.OpApprovalDecide, authority.OpCardConfirm).about(authority.SubjectApproval),
 	"POST /v1/effects/{id}/decide":                     fixed(authority.OpEffectDecide).about(ledger.SubjectEffect),
-	"POST /v1/messages":                                resolved(messageOperation, authority.OpMessageSend, authority.OpMessageOrchestrator),
+	"POST /v1/messages":                                resolved(messageOperation, authority.OpMessageSend, authority.OpMessageSendByAssistant, authority.OpMessageOrchestrator).about(messages.SubjectMessage).named(bodyField("id")).checked(laneMessage),
 	"POST " + api.PaneInputPath:                        fixed(authority.OpPaneInput).about(subjectLane),
 	"POST /v1/conversations":                           fixed(authority.OpConversationCreate),
 	"POST /v1/conversations/{id}/open":                 fixed(authority.OpConversationOpen),
@@ -799,12 +812,15 @@ func (h *handler) movedSince(ctx context.Context, card authority.Approval) (stri
 }
 
 // replay runs a card's call as the member who confirmed it, and says whether the API ran it, with its
-// refusal when it did not.
+// refusal when it did not. Every event the call appends names the delegate that prepared the card as its
+// proposer, so what the card made still reads as that delegate's text wherever an orchestrator reads it.
 func (h *handler) replay(ctx context.Context, r *http.Request, card authority.Approval) (bool, string) {
 	detail, err := authority.CardDetailOf(card)
 	if err != nil {
 		return false, err.Error()
 	}
+	kind, id, _ := strings.Cut(card.RequestedBy, ":")
+	ctx = ports.WithProposer(ctx, ledger.Actor{Kind: ledger.ActorKind(kind), ID: id})
 	path := detail.Path
 	if project, ok := projectOf(r.Context()); ok {
 		path = retarget(path, project.Name)
@@ -900,6 +916,34 @@ func retryOperation(h *handler, r *http.Request, _ []byte) ([]string, bool, erro
 	return []string{authority.OpWorkOrderRetryExtra}, false, nil
 }
 
+// acceptOperation reads the class of an acceptance from the work as it stands when the call comes: work whose
+// review has ruled that every criterion passed, on a check the lane did not write, with no verdict of its
+// attempt failed or unjudged and every check its base requires green, is the acceptance a delegate policy may
+// exempt, and any other is one that asks. It reads what the use case holds a delegate's acceptance to.
+func acceptOperation(h *handler, r *http.Request, _ []byte) ([]string, bool, error) {
+	verified, err := h.accepting.Verified(r.Context(), h.Scope, r.PathValue("id"))
+	if err != nil {
+		return nil, false, err
+	}
+	if verified {
+		return []string{authority.OpWorkOrderAccept}, false, nil
+	}
+	return []string{authority.OpWorkOrderAcceptUnverified}, false, nil
+}
+
+// reworkOperation reads the class of a rework from the verdicts of the attempt: one a failed verdict stands
+// behind is the rework a delegate policy may exempt, and any other is one that asks.
+func reworkOperation(h *handler, r *http.Request, _ []byte) ([]string, bool, error) {
+	view, err := h.accepting.Standing(r.Context(), h.Scope, r.PathValue("id"))
+	if err != nil {
+		return nil, false, err
+	}
+	if view.FailedVerdict() {
+		return []string{authority.OpWorkOrderRework}, false, nil
+	}
+	return []string{authority.OpWorkOrderReworkWithoutFailedVerdict}, false, nil
+}
+
 func fleetModeOperation(_ *handler, _ *http.Request, body []byte) ([]string, bool, error) {
 	var in api.SetFleetMode
 	if err := json.Unmarshal(body, &in); err == nil && (in.Mode == ledger.FleetPause || in.Mode == ledger.FleetDrain) {
@@ -942,13 +986,32 @@ func policyOperation(_ *handler, _ *http.Request, body []byte) ([]string, bool, 
 
 // messageOperation reads the class of a message from who it is for: only a member instructs an orchestrator,
 // which holds tools such as approval_decide and lane_start. A body that does not say who it is for takes
-// the stricter class.
-func messageOperation(_ *handler, _ *http.Request, body []byte) ([]string, bool, error) {
+// the stricter class. A message to a lane takes its class from the credential that sends it, as work does.
+func messageOperation(h *handler, r *http.Request, body []byte) ([]string, bool, error) {
 	var in messages.Draft
 	if err := json.Unmarshal(body, &in); err != nil || in.To.Of() == messages.TargetOrchestrator {
 		return []string{authority.OpMessageOrchestrator}, false, nil
 	}
-	return []string{authority.OpMessageSend}, false, nil
+	return byKind(authority.OpMessageSend, authority.OpMessageSendByAssistant)(h, r, body)
+}
+
+// laneMessage refuses a delegate's message to a lane that could not be sent before it becomes a card, which
+// names the message by its ID: the ID is plain, and the draft is one a lane receives. A message to the
+// assistant goes through its conversation. A body that is not a draft, and a message to an orchestrator,
+// take their class from the resolver.
+func laneMessage(body []byte) error {
+	var in messages.Draft
+	if err := json.Unmarshal(body, &in); err != nil || in.To.Of() == messages.TargetOrchestrator {
+		return nil
+	}
+	if in.To.Of() == messages.TargetAssistant {
+		return fmt.Errorf("%w: a message to the assistant goes through its conversation", messages.ErrInvalid)
+	}
+	if !ledger.PlainID(in.ID) {
+		return fmt.Errorf("%w: the id is 1 to %d letters, digits, '-', and '_'", messages.ErrInvalid, ledger.MaxRecordID)
+	}
+	_, err := messages.New(in, messages.Sender{}, 0, messages.DefaultWindow)
+	return err
 }
 
 // byKind reads the class of a call that creates a work order from the credential that makes it. An

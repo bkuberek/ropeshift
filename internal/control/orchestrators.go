@@ -223,9 +223,9 @@ func wakeMessages(tx ports.ReadTx, worker string) ([]ledger.WakeItem, error) {
 	return items, nil
 }
 
-// madeByDelegate says a delegate, the assistant included, made the record a subject names: the first event
-// of its kind of creation names one. A card a member confirmed ran as that member, so what it made is the
-// member's.
+// madeByDelegate says a delegate, the assistant included, wrote the record a subject names: the first event
+// of its kind of creation names one as its actor, or as the proposer of the card a member confirmed, which
+// ran as that member and still holds the delegate's text.
 func madeByDelegate(tx ports.ReadTx, subject ledger.Subject, created string) (bool, error) {
 	events, err := tx.EventsAbout(subject)
 	if err != nil {
@@ -233,7 +233,7 @@ func madeByDelegate(tx ports.ReadTx, subject ledger.Subject, created string) (bo
 	}
 	for _, event := range events {
 		if event.Type == created {
-			return authority.PartyOf(event.Actor) == authority.PartyDelegate, nil
+			return authority.PartyOf(event.Actor) == authority.PartyDelegate || authority.PartyOf(event.Proposer) == authority.PartyDelegate, nil
 		}
 	}
 	return false, nil

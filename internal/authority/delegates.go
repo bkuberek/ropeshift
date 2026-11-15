@@ -181,6 +181,13 @@ func MemberOf(actor ledger.Actor) (string, bool) {
 	return member, ok
 }
 
+// DirectMember reads the member an actor is, and no member for a delegate acting for one: where MemberOf
+// reads whose word an actor carries, this reads who spoke, so a check that only a member may satisfy is
+// not satisfied by a delegate.
+func DirectMember(actor ledger.Actor) (string, bool) {
+	return actor.ID, actor.Kind == ledger.ActorMember && actor.ID != ""
+}
+
 // ActingFor reads the member and the credential of a delegate actor.
 func ActingFor(actor ledger.Actor) (member, credential string, ok bool) {
 	if actor.Kind != ledger.ActorDelegate {
