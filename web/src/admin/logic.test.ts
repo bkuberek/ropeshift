@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { agentLines, capsAbove, capsDraftOf, capsProblems, capsSettings, capsWords, changedFields, minutesOf, newID, nextVersion, outcomeOf, policies, policyBody, policySettings, problemOf, projectNameOf, settingsOf, tomlString } from "./logic";
+import { agentLines, capsAbove, capsDraftOf, capsProblems, capsSettings, capsWords, changedFields, forgeBindingProblem, minutesOf, newID, nextVersion, outcomeOf, policies, policyBody, policySettings, problemOf, projectNameOf, settingsOf, tomlString } from "./logic";
 
 
 describe("policy bodies", () => {
@@ -198,4 +198,25 @@ describe("the estimate policy", () => {
     expect(problemOf(idle, { idle_stop: 30 })).toBe("");
     expect(problemOf(policies.recovery.fields.find((one) => one.key === "retry_failed")!, { retry_failed: true })).toBe("");
   });
+});
+
+describe("a forge binding", () => {
+  // The server reads HOST/OWNER/REPO as ledger.ParseForgeBinding does: three parts, each a name a forge accepts.
+  it.each(["github.com/acme/widgets", "git.example.com/team/repo.name", "gitlab.com/group/sub_project-2", ""])("accepts %j", (text) => {
+    expect(forgeBindingProblem(text)).toBe("");
+  });
+
+  it.each(["widgets", "acme/widgets", "github.com/acme", "github.com/acme/widgets/extra", "github.com//widgets", "/acme/widgets", "github.com/acme/", "https://github.com/acme/widgets"])(
+    "asks for three parts where %j has not",
+    (text) => {
+      expect(forgeBindingProblem(text)).toContain("HOST/OWNER/REPO");
+    },
+  );
+
+  it.each(["github.com/acme/wid gets", "github.com/acme/widgets ", "github.com/./widgets", "github.com/acme/..", "github.com/-acme/widgets", "git@github.com/acme/widgets", "github.com:443/acme/widgets", "github.com/acme/widgets#x", "github.com/acme/wid?gets", "github.com/ac\\me/widgets", "github.com/acme/wid\u0007gets"])(
+    "names a part a forge would refuse in %j",
+    (text) => {
+      expect(forgeBindingProblem(text)).toContain("a forge would refuse");
+    },
+  );
 });
