@@ -7,6 +7,7 @@ import (
 
 	"ropeshift.com/ropeshift/internal/adapters/fake"
 	"ropeshift.com/ropeshift/internal/lanes"
+	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/internal/worker"
 )
@@ -120,6 +121,88 @@ func TestPrepareRefusesALaneLayerThatRunsReadsOrPlaces(t *testing.T) {
 			}
 			if created := worktrees.Created(); len(created) != 0 {
 				t.Errorf("a lane's layer made %+v", created)
+			}
+		})
+	}
+}
+
+// A delegate policy version that sets raise_model_and_effort = false keeps a delegate's lane layer from raising
+// the model's capability class or the effort past what the layers below give, and the refusal names the
+// version (FR-AUTH-16). The built-in classes map haiku to small, sonnet to standard, and opus to large and
+// frontier.
+func TestPrepareHoldsADelegatesLaneLayerToARestrictingPolicy(t *testing.T) {
+	t.Parallel()
+	restricted := &ledger.DelegatedLayer{Delegate: "m1/dlg_01", PolicyVersion: 3, Restricted: true}
+	tests := []struct {
+		name, repository, overrides string
+		refused                     string
+	}{
+		{"a larger class", "[agent]\nmodel = \"haiku\"\n", "[agent]\nmodel = \"opus\"\n", "agent.model"},
+		{"a higher effort", "[agent]\neffort = \"medium\"\n", "[agent]\neffort = \"max\"\n", "agent.effort"},
+		{"a model of no class", "", "[agent]\nmodel = \"opus-preview\"\n", "agent.model"},
+		{"from a model of no class", "[agent]\nmodel = \"opus-preview\"\n", "[agent]\nmodel = \"haiku\"\n", "agent.model"},
+		{"a lower class and effort", "", "[agent]\nmodel = \"haiku\"\neffort = \"low\"\n", ""},
+		{"a lower class with a higher effort", "", "[agent]\nmodel = \"sonnet\"\neffort = \"max\"\n", "agent.effort"},
+		{"the same model and effort", "", "[agent]\nmodel = \"opus\"\neffort = \"high\"\n", ""},
+		{"a layer that leaves both alone", "[agent]\nmodel = \"haiku\"\neffort = \"low\"\n", "[lifecycle]\nstall_after = \"30m\"\n", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			p, source, worktrees := provisioner(nil)
+			source.Put("/work/app", tt.repository)
+			_, err := p.Prepare(t.Context(), worker.LaneRequest{Lane: "l1", Repository: "/work/app", Overrides: tt.overrides, Delegated: restricted})
+			if tt.refused == "" {
+				if err != nil {
+					t.Fatalf("a delegate's %s: %v", tt.name, err)
+				}
+				return
+			}
+			if !errors.Is(err, lanes.ErrBadProfile) || !strings.Contains(err.Error(), "delegate policy version 3") || !strings.Contains(err.Error(), tt.refused) {
+				t.Fatalf("a delegate's %s: %v", tt.name, err)
+			}
+			if created := worktrees.Created(); len(created) != 0 {
+				t.Errorf("a refused layer made %+v", created)
+			}
+		})
+	}
+}
+
+// The classes a raise reads are the user's [agent.classes]: a model the user maps to a higher class is a raise
+// even where the built-in classes do not name it.
+func TestPrepareReadsARaiseOfClassFromTheUsersClasses(t *testing.T) {
+	t.Parallel()
+	restricted := &ledger.DelegatedLayer{Delegate: "m1/dlg_01", PolicyVersion: 4, Restricted: true}
+	p, source, _ := provisioner(nil)
+	source.PutUser("[agent.classes]\nsmall = \"haiku\"\nstandard = \"sonnet\"\nlarge = \"opus\"\nfrontier = \"opus-max\"\n")
+	_, err := p.Prepare(t.Context(), worker.LaneRequest{Lane: "l1", Repository: "/work/app", Overrides: "[agent]\nmodel = \"opus-max\"\n", Delegated: restricted})
+	if !errors.Is(err, lanes.ErrBadProfile) || !strings.Contains(err.Error(), "delegate policy version 4") {
+		t.Fatalf("large to frontier: %v", err)
+	}
+	if _, err := p.Prepare(t.Context(), worker.LaneRequest{Lane: "l1", Repository: "/work/app", Overrides: "[agent]\nmodel = \"sonnet\"\n", Delegated: restricted}); err != nil {
+		t.Errorf("large to standard: %v", err)
+	}
+}
+
+// A member's own lane layer is never restricted, and neither is a delegate's under a version that allows the
+// raise, the built-in one included (FR-AUTH-16).
+func TestPrepareLetsAMemberOrAnAllowedDelegateRaiseTheModelAndEffort(t *testing.T) {
+	t.Parallel()
+	const raise = "[agent]\nmodel = \"opus-preview\"\neffort = \"max\"\n"
+	for name, delegated := range map[string]*ledger.DelegatedLayer{
+		"a member":                        nil,
+		"a delegate under an open policy": {Delegate: "m1/dlg_01", PolicyVersion: 1},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			p, source, _ := provisioner(nil)
+			source.Put("/work/app", "[agent]\nmodel = \"haiku\"\neffort = \"low\"\n")
+			lane, err := p.Prepare(t.Context(), worker.LaneRequest{Lane: "l1", Repository: "/work/app", Overrides: raise, Delegated: delegated})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if lane.Profile.Agent.Model != "opus-preview" || lane.Profile.Agent.Effort != "max" || !lane.LaneModel || !lane.LaneEffort {
+				t.Errorf("the lane runs %+v", lane.Profile.Agent)
 			}
 		})
 	}

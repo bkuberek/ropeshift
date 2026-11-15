@@ -5,6 +5,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"ropeshift.com/ropeshift/internal/ledger"
 )
 
 // TestLaneLayerFloorsAreWhatTheWorkerAccepts ties the floors a route accepts to the rule the worker holds a
@@ -77,5 +79,56 @@ func TestCheckLaneLayerStillRefusesADroppedGate(t *testing.T) {
 				t.Errorf("got %v, want a refusal that names %q", err, tt.gate)
 			}
 		})
+	}
+}
+
+// TestARaiseReadsTheClassesAndTheScaleOfEffort holds what counts as a raise of a delegate's lane layer
+// (FR-AUTH-16) where the classes or the efforts do not rank two values one way: a model two classes map to,
+// and a value of no class or of no effort the scale holds.
+func TestARaiseReadsTheClassesAndTheScaleOfEffort(t *testing.T) {
+	classes := map[string]string{"small": "a", "standard": "b", "large": "a", "frontier": "c"}
+	models := []struct {
+		below, model string
+		raises       bool
+	}{
+		{"a", "a", false},
+		{"b", "c", true},
+		{"c", "b", false},
+		// a is small and large, so it is large when a layer asks for it and small when it is below.
+		{"b", "a", true},
+		{"a", "b", true},
+		{"c", "a", false},
+		{"b", "unmapped", true},
+		{"unmapped", "a", true},
+		{"", "a", true},
+	}
+	for _, tt := range models {
+		if got := RaisesModel(AgentSettings{Model: tt.below, Classes: classes}, AgentSettings{Model: tt.model, Classes: classes}); got != tt.raises {
+			t.Errorf("%q over %q raises %v", tt.model, tt.below, got)
+		}
+	}
+	efforts := []struct {
+		below, effort string
+		raises        bool
+	}{
+		{"low", "max", true}, {"max", "low", false}, {"high", "high", false}, {"medium", "high", true},
+		{"high", "xhigh", true}, {"xhigh", "low", true}, {"", "low", true}, {"low", "", true},
+	}
+	for _, tt := range efforts {
+		if got := RaisesEffort(tt.below, tt.effort); got != tt.raises {
+			t.Errorf("%q over %q raises %v", tt.effort, tt.below, got)
+		}
+	}
+	below := Profile{Agent: AgentSettings{Model: "b", Effort: "low", Classes: classes}}
+	raised := Profile{Agent: AgentSettings{Model: "c", Effort: "low", Classes: classes}}
+	if err := CheckDelegatedLayer(below, raised, nil); err != nil {
+		t.Errorf("a layer no delegate sent: %v", err)
+	}
+	if err := CheckDelegatedLayer(below, raised, &ledger.DelegatedLayer{Delegate: "m1/dlg_01", PolicyVersion: 2}); err != nil {
+		t.Errorf("a layer under an open policy: %v", err)
+	}
+	err := CheckDelegatedLayer(below, raised, &ledger.DelegatedLayer{Delegate: "m1/dlg_01", PolicyVersion: 5, Restricted: true})
+	if !errors.Is(err, ErrBadProfile) || !strings.Contains(err.Error(), "delegate policy version 5") || !strings.Contains(err.Error(), `from "b" to "c"`) {
+		t.Errorf("a raise under a restricting policy: %v", err)
 	}
 }

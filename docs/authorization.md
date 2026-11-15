@@ -75,6 +75,7 @@ A session that comes back to an approved call hears that exact call first, with 
 | No lane runs in a permission-bypass mode | The profile, which refuses `bypassPermissions` and any mode it does not know in every layer, the driver, which refuses to start or resume a session in it, and generated settings, which turn the mode off in the agent CLI |
 | A worker pushes a lane's work only when the user chose it | The profile, where `push_on_stop` is off by default, only the user's layer sets it, and a repository's layer or a lane's overrides that change it are refused. See [onboarding](onboarding.md#work-stays-on-this-machine) |
 | A lane's own profile layer runs no hook, passes the lane no variable of the worker's, names no file for the worker to read, places no worktree or branch, drops no gate, and raises no cap of the breaker, no bound on review rounds, and no count of ports | The route that starts a lane, which refuses overrides that set `hooks`, `agent.credentials`, `agent.instructions_file`, `worktree.root`, or `worktree.branch_prefix`, or `review.max_review_rounds` or `resources.ports_per_lane` to anything but their floor, in any case, whoever calls it, and the profile on the worker, which joins a lane's gates with those of the layers below it, so it drops none, and refuses a lane's layer that changes `hooks`, `agent.credentials`, `agent.instructions_file`, `worktree.root`, or `worktree.branch_prefix`, raises `max_review_rounds`, `ports_per_lane`, `max_generations_per_day`, or `max_restarts`, or shortens `restart_window`. [Onboarding](onboarding.md#a-lanes-own-profile-layer) lists every rule a lane's layer is held to |
+| A delegate's lane start raises the lane's model or effort only while the delegate policy allows it | The control plane, which records on the claim the delegate that sent a lane's overrides and the version of the delegate policy in force, and the worker, which holds the layers below the overrides and refuses a raise under a version that sets `raise_model_and_effort = false`, naming the version, so the lane does not start. See [delegates](#delegates) |
 
 ## The web listener
 
@@ -133,6 +134,16 @@ A versioned `[delegate_policy]` lists the consent operations a delegate runs wit
 - `plan.start_review`: starting a contract review.
 
 An acceptance or a rework short of its condition is `work_order.accept_unverified` or `work_order.rework_without_failed_verdict`, which stays a card. Every other consent operation is never exempt: a one-way decision or answer, raising a repository's merge authority, moving its review target to a pull request, changing a policy or a category, changing the agent roster, managing members, worker join tokens, autonomy, deciding a request outside the delegation policy, and the rest. A version that lists one is refused, naming each and why, and a version published before the list narrowed exempts nothing outside it. The use case holds a delegate's own acceptance and rework to the same conditions, read in the transaction that acts, and refuses a delegate an extra attempt whatever a policy says. A delegate decides a request only within the delegation policy, as an orchestrator does.
+
+The same `[delegate_policy]` says whether a delegate's lane start may raise the lane's model and effort. A delegate acts for a member, so by default the overrides it sends with a lane start may raise `agent.model` and `agent.effort` above what the built-in, user, and repository layers give, as a member's may. A version that sets `raise_model_and_effort = false` keeps every delegate from it, the assistant and an outside delegate alike:
+
+- The control plane records on the claim that a delegate sent the overrides, with the version of the delegate policy in force and whether it allows the raise. A claim that brings a parked lane back keeps that record, so the lane runs under the version it started under.
+- The worker, which holds the layers below the overrides, refuses a raise under a version that does not allow it. The lane does not start, and the refusal names the version.
+- A model is raised when your `[agent.classes]` maps it to a higher capability class than the model the layers below give, in the order `small`, `standard`, `large`, `frontier`. A model two classes map to counts at its higher class when the overrides ask for it and at its lower when the layers below give it. When either model maps to no class, any other model is a raise.
+- The effort is raised when it is higher than what the layers below give, in the order `low`, `medium`, `high`, `max`. When either is not on that scale, any other effort is a raise.
+- Lowering either, or leaving it as it is, is allowed.
+
+A member's own lane start is never restricted, and neither is an orchestrator's or the system's.
 
 ### The assistant
 

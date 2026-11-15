@@ -3,12 +3,14 @@ package worker_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"ropeshift.com/ropeshift/internal/adapters/fake"
+	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/control"
 	"ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/internal/ledger"
@@ -585,6 +587,53 @@ func TestAHookThatFailsFailsTheLaneBeforeASession(t *testing.T) {
 	}
 	if len(r.driver.Specs()) != 0 {
 		t.Error("a session started")
+	}
+}
+
+// A delegate's lane start that raises the effort, under a delegate policy that restricts it, reaches the
+// worker with the version the control plane recorded, and the lane fails before anything runs, naming the
+// version (FR-AUTH-16). Under the built-in policy the same start runs.
+func TestADelegatesRaiseUnderARestrictingPolicyStartsNoLane(t *testing.T) {
+	t.Parallel()
+	delegate := authority.DelegateActor(member.ID, authority.DelegateIDPrefix+"raise")
+	for _, restrict := range []bool{true, false} {
+		t.Run(fmt.Sprintf("restricted %t", restrict), func(t *testing.T) {
+			t.Parallel()
+			base := newRig(t)
+			if restrict {
+				no := false
+				draft := authority.DelegatePolicyDraft{
+					Body:   "[delegate_policy]\nversion = 2\nexempt = []\nraise_model_and_effort = false\n",
+					Policy: authority.DelegatePolicy{Version: 2, Exempt: []string{}, RaiseModelAndEffort: &no},
+				}
+				if _, err := control.NewApprovals(base.store).PublishDelegatePolicy(t.Context(), scope, draft, member); err != nil {
+					t.Fatal(err)
+				}
+			}
+			base.overrides, base.dispatcher = "[agent]\neffort = \"max\"\n", &delegate
+			r := newLaneRigFor(t, base)
+			r.config.Provisioner.Profiles.(*fake.ProfileSource).Put("/repository", profileAt)
+			r.dispatched().runWith()
+			if !restrict {
+				if len(r.driver.Specs()) != 1 {
+					t.Errorf("an allowed raise started %d sessions", len(r.driver.Specs()))
+				}
+				return
+			}
+			if change := r.outcome(); change.Outcome != workorders.OutcomeFailed || change.Reason != workorders.ReasonSpawnFailed {
+				t.Errorf("outcome %+v", change)
+			}
+			if len(r.driver.Specs()) != 0 {
+				t.Error("a session started")
+			}
+			if created := r.worktrees().Created(); len(created) != 0 {
+				t.Errorf("a refused layer made %+v", created)
+			}
+			named := slices.ContainsFunc(r.problems(), func(err error) bool { return strings.Contains(err.Error(), "delegate policy version 2") })
+			if !named {
+				t.Errorf("no problem names the policy version: %v", r.problems())
+			}
+		})
 	}
 }
 

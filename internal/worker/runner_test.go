@@ -106,7 +106,11 @@ func newLaneRigWith(t *testing.T, base *rig, setup func(*fake.AgentDriver)) *lan
 	}
 	r.id = "wo"
 	r.grant = base.claimFor(r.id, r.subject.Auth().WorkerID)
-	if _, err := control.NewLeases(base.store).DispatchWith(t.Context(), scope, r.id, "lane-1", base.overrides, member); err != nil {
+	dispatcher := member
+	if base.dispatcher != nil {
+		dispatcher = *base.dispatcher
+	}
+	if _, err := control.NewLeases(base.store).DispatchWith(t.Context(), scope, r.id, "lane-1", base.overrides, dispatcher); err != nil {
 		t.Fatal(err)
 	}
 	return r

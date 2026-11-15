@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"ropeshift.com/ropeshift/internal/lanes"
+	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/ports"
 )
 
@@ -35,6 +36,10 @@ type LaneRequest struct {
 	RunHook func(target string, perform func() error) error
 	// Overrides is this lane's own profile layer.
 	Overrides string
+	// Delegated says a delegate sent Overrides, and under which delegate policy. A version that restricts it
+	// keeps the layer from raising the model or the effort past the layers below (FR-AUTH-16). Nil when a
+	// member, an orchestrator, or the system started the lane.
+	Delegated *ledger.DelegatedLayer
 	// Fetch names what a remote holds and this machine must bring before a worktree exists,
 	// for a lane another machine ran.
 	Fetch []string
@@ -79,13 +84,17 @@ type Provisioner struct {
 var ErrNoDetached = errors.New("this worker's worktrees cannot check a commit out with no branch")
 
 // laneSets says whether a lane's own profile layer changed the model or the effort from what the layers
-// below it give, because that layer wins over the roster agent the lane runs as.
+// below it give, because that layer wins over the roster agent the lane runs as. It refuses a layer a
+// delegate sent that raises either under a delegate policy that restricts it (FR-AUTH-16).
 func (p Provisioner) laneSets(ctx context.Context, request LaneRequest, profile lanes.Profile) (bool, bool, error) {
 	if request.Overrides == "" {
 		return false, false, nil
 	}
 	below, err := p.Profiles.Load(ctx, request.Repository, "")
 	if err != nil {
+		return false, false, err
+	}
+	if err := lanes.CheckDelegatedLayer(below, profile, request.Delegated); err != nil {
 		return false, false, err
 	}
 	return below.Agent.Model != profile.Agent.Model, below.Agent.Effort != profile.Agent.Effort, nil

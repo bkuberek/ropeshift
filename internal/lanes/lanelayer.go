@@ -5,6 +5,9 @@ import (
 	"maps"
 	"slices"
 	"time"
+
+	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/roster"
 )
 
 // LaneLayerKeys are the settings a route that takes a lane's own profile layer refuses in it, each as its
@@ -86,6 +89,69 @@ func CheckLaneLayer(below, profile Profile) error {
 		return laneLayerRefusal(fmt.Sprintf("raise resources.ports_per_lane past %d", ports))
 	}
 	return nil
+}
+
+// CheckDelegatedLayer holds a lane's own layer that a delegate sent to the delegate policy in force when it did
+// (FR-AUTH-16): below is the profile the layers below give, and profile the same with the lane's layer over
+// it. Under a version that restricts it, the layer raises neither the model nor the effort, and the refusal
+// names the version. A layer no delegate sent, or one sent under a version that allows the raise, passes.
+func CheckDelegatedLayer(below, profile Profile, delegated *ledger.DelegatedLayer) error {
+	if delegated == nil || !delegated.Restricted {
+		return nil
+	}
+	refuse := func(setting, was, now string) error {
+		return fmt.Errorf("%w: delegate policy version %d keeps a delegate's lane start from raising %s from %q to %q",
+			ErrBadProfile, delegated.PolicyVersion, setting, was, now)
+	}
+	if RaisesModel(below.Agent, profile.Agent) {
+		return refuse("agent.model", below.Agent.Model, profile.Agent.Model)
+	}
+	if RaisesEffort(below.Agent.Effort, profile.Agent.Effort) {
+		return refuse("agent.effort", below.Agent.Effort, profile.Agent.Effort)
+	}
+	return nil
+}
+
+// RaisesModel says agent runs a model of a higher capability class than below's, by the user's
+// `[agent.classes]`, which no lane's layer changes. When either model maps to no class, any other model is a
+// raise. A model several classes map to counts at its highest class when it is the one a layer asks for and at
+// its lowest when it is the one below, so a mapping that ranks it two ways never hides a raise.
+func RaisesModel(below, agent AgentSettings) bool {
+	if agent.Model == below.Model {
+		return false
+	}
+	_, was := classRanks(below.Classes, below.Model)
+	now, _ := classRanks(below.Classes, agent.Model)
+	return was < 0 || now < 0 || now > was
+}
+
+// classRanks are the highest and the lowest rank of the classes that map to a model, or -1 for both when
+// none does.
+func classRanks(classes map[string]string, model string) (high, low int) {
+	high, low = -1, -1
+	for class, mapped := range classes {
+		rank := roster.ClassRank(class)
+		if mapped != model || rank < 0 {
+			continue
+		}
+		if high < 0 || rank > high {
+			high = rank
+		}
+		if low < 0 || rank < low {
+			low = rank
+		}
+	}
+	return high, low
+}
+
+// RaisesEffort says effort is higher than below on the product's scale of efforts, low, medium, high, and max.
+// When either is no effort of the scale, any other effort is a raise.
+func RaisesEffort(below, effort string) bool {
+	if effort == below {
+		return false
+	}
+	was, now := roster.EffortRank(below), roster.EffortRank(effort)
+	return was < 0 || now < 0 || now > was
 }
 
 // DroppedGate finds the first gate of below that gates no longer holds. A profile that leaves one out would
