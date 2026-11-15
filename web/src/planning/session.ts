@@ -1,5 +1,6 @@
-import { claimWork, createPlanWork, reviewWork, startLane } from "../api/admin";
+import { createPlanWork, reviewWork } from "../api/admin";
 import { inProjectOf } from "../api/client";
+import { claimAndStart, newRunIDs } from "../api/runWork";
 import { newID } from "../admin/logic";
 
 export type SessionDraft = { goal: string; repository: string; worker: string };
@@ -18,8 +19,6 @@ export async function startPlanningSession(project: string, draft: SessionDraft)
   if (review.failures && review.failures.length > 0) {
     throw new Error(`Work order ${id} was recorded and is not ready: ${review.failures.map((failure) => `${failure.check}: ${failure.detail}`).join("; ")}`);
   }
-  await here(() => claimWork(id, newID(), draft.worker));
-  const lane = newID();
-  await here(() => startLane(id, lane));
+  const lane = await claimAndStart(id, draft.worker, newRunIDs(), { project });
   return { workOrder: id, lane };
 }

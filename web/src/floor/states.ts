@@ -51,6 +51,9 @@ export const laneStates: Record<string, StateLook> = {
   ended: { label: "Ended", tone: "neutral", glyph: "slash" },
 };
 
+// counting are the states of a lane that count against its worker's cap: the lane runs, or is about to.
+export const counting = new Set(["provisioning", "starting", "briefing", "working", "needs_decision", "compacting", "handing_off", "idle", "backoff", "parking"]);
+
 export type ConditionLook = { label: string; tone: "neutral" | "warning" | "danger" };
 
 // The flags a lane can carry beside its state, shown as outlined chips and never as a second badge.

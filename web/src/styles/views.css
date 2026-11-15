@@ -1245,3 +1245,30 @@ tr.selected td {
   display: inline;
   max-width: none;
 }
+
+/* Ready to start: the work that waits for a lane, one line each, with the action that starts it */
+.ready-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.ready-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-8) var(--s-12);
+  padding: var(--s-8) var(--s-16);
+  border-top: 1px solid var(--border);
+}
+
+.ready-list li:first-child {
+  border-top: 0;
+}
+
+.ready-title {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 14rem;
+  min-width: 0;
+}
