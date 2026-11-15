@@ -30,8 +30,16 @@ type listed struct {
 	detached bool
 }
 
+// list reads every worktree the repository registers. It is the middle step of a create, between the prune
+// and the add, and it reads every registration, so it holds the repository's worktree lock like they do.
 func (w Worktrees) list(ctx context.Context, repository string) ([]listed, error) {
-	out, err := w.git(repository).Text(ctx, "worktree", "list", "--porcelain")
+	git := w.git(repository)
+	release, err := git.holdWorktrees(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out, err := git.Text(ctx, "worktree", "list", "--porcelain")
+	release()
 	if err != nil {
 		return nil, err
 	}
@@ -106,7 +114,7 @@ func madeDetached(ctx context.Context, git Git) bool {
 func (w Worktrees) Create(ctx context.Context, spec ports.WorktreeSpec) (ports.Worktree, error) {
 	repository := w.git(spec.Repository)
 	if prunesBeforeCreate() {
-		if _, err := repository.Output(ctx, "worktree", "prune"); err != nil {
+		if err := repository.changeWorktrees(ctx, "prune"); err != nil {
 			return ports.Worktree{}, err
 		}
 	}
@@ -146,7 +154,7 @@ func (w Worktrees) Create(ctx context.Context, spec ports.WorktreeSpec) (ports.W
 	if strings.HasPrefix(base, "-") {
 		return ports.Worktree{}, fmt.Errorf("%w: %s", ports.ErrNotFound, base)
 	}
-	args := []string{"worktree", "add", "--quiet"}
+	args := []string{"add", "--quiet"}
 	switch {
 	case spec.Detached:
 		if err := w.fetchMissing(ctx, repository, base); err != nil {
@@ -160,7 +168,7 @@ func (w Worktrees) Create(ctx context.Context, spec ports.WorktreeSpec) (ports.W
 			args = append(args, "-b", spec.Branch, spec.Path, base)
 		}
 	}
-	if _, err := repository.Output(ctx, args...); err != nil {
+	if err := repository.changeWorktrees(ctx, args...); err != nil {
 		return ports.Worktree{}, err
 	}
 	crashpoint.Hit("worktree.create", "added")
@@ -227,8 +235,7 @@ func readStatus(ctx context.Context, git Git) (string, error) {
 func (w Worktrees) Remove(ctx context.Context, repository, path string) error {
 	current, err := w.Inspect(ctx, path)
 	if errors.Is(err, ports.ErrNotFound) {
-		_, err := w.git(repository).Output(ctx, "worktree", "prune")
-		return err
+		return w.git(repository).changeWorktrees(ctx, "prune")
 	}
 	if err != nil {
 		return err
@@ -236,19 +243,16 @@ func (w Worktrees) Remove(ctx context.Context, repository, path string) error {
 	if !current.Clean {
 		return fmt.Errorf("%w: %s", ports.ErrWorktreeDirty, path)
 	}
-	_, err = w.git(repository).Output(ctx, "worktree", "remove", path)
-	return err
+	return w.git(repository).changeWorktrees(ctx, "remove", path)
 }
 
 // Discard deletes a worktree whatever it holds, and keeps its branch. Only a caller that
 // has saved the work, or a member who said to lose it, gets here.
 func (w Worktrees) Discard(ctx context.Context, repository, path string) error {
 	if _, err := os.Stat(filepath.Join(path, ".git")); errors.Is(err, os.ErrNotExist) {
-		_, err := w.git(repository).Output(ctx, "worktree", "prune")
-		return err
+		return w.git(repository).changeWorktrees(ctx, "prune")
 	}
-	_, err := w.git(repository).Output(ctx, "worktree", "remove", "--force", path)
-	return err
+	return w.git(repository).changeWorktrees(ctx, "remove", "--force", path)
 }
 
 // DefaultBranch reads a remote's HEAD where it has one, and a checkout's HEAD otherwise.

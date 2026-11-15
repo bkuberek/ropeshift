@@ -226,7 +226,9 @@ func (w Worktrees) PushBranch(ctx context.Context, repository, branch string) er
 
 // Fetch brings each ref the remote holds into this repository under its own name. A branch
 // checked out here is left alone, because git refuses that, and this worktree's branch is the
-// one a lane already holds.
+// one a lane already holds. Naming a ref as its own destination also moves its remote-tracking copy,
+// so a fetch can lose git's lock on that ref to intake's fetch of the clone, and it goes through
+// Git.Fetch, which tries again.
 func (w Worktrees) Fetch(ctx context.Context, repository string, refs []string) error {
 	git := w.git(repository)
 	remote, err := remoteOf(ctx, git, "")
@@ -241,7 +243,7 @@ func (w Worktrees) Fetch(ctx context.Context, repository string, refs []string) 
 		if listed == "" {
 			continue
 		}
-		if _, err := git.Output(ctx, "fetch", "--quiet", "--no-tags", remote, ref+":"+ref); err != nil {
+		if err := git.Fetch(ctx, "--quiet", "--no-tags", remote, ref+":"+ref); err != nil {
 			return err
 		}
 	}

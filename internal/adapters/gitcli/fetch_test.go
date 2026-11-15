@@ -74,3 +74,47 @@ func TestBaseTipFailsWhenTheRefsLockIsNeverReleased(t *testing.T) {
 		t.Errorf("a held lock kept the claim for %s", took)
 	}
 }
+
+// The fetch that brings a lane's branch and snapshots from the remote names each ref as its own destination,
+// which also moves the ref's remote-tracking copy, as intake's fetch of the clone does. It can lose git's lock
+// on that ref to intake's fetch, and a lane that comes back to a machine must not take that loss for a
+// branch the remote does not hold.
+func TestFetchOfALanesRefsOutlastsAFetchThatHoldsTheRefsLock(t *testing.T) {
+	origin := gittest.New(t)
+	seed := origin.Commit("README.txt", "one\n")
+	clone := origin.Clone("clone")
+	origin.Branch("lane/one", seed)
+	lane := origin.Advance("lane/one")
+	clone.HoldRefLock("refs/remotes/origin/lane/one", lockHeld)
+
+	worktrees := gitcli.Worktrees{Env: clone.EnvWithoutRefLockWait()}
+	if err := worktrees.Fetch(t.Context(), clone.Dir, []string{"refs/heads/lane/one"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := clone.Git("rev-parse", "refs/heads/lane/one"); got != lane {
+		t.Errorf("the branch reads %s, want %s", got, lane)
+	}
+	if got := clone.Git("rev-parse", "refs/remotes/origin/lane/one"); got != lane {
+		t.Errorf("the remote-tracking ref reads %s, want %s", got, lane)
+	}
+}
+
+// A lock that is never released is still a failure the caller sees, in git's own words, after the bounded
+// retry.
+func TestFetchOfALanesRefsFailsWhenTheRefsLockIsNeverReleased(t *testing.T) {
+	origin := gittest.New(t)
+	seed := origin.Commit("README.txt", "one\n")
+	clone := origin.Clone("clone")
+	origin.Branch("lane/one", seed)
+	origin.Advance("lane/one")
+	clone.HoldRefLock("refs/remotes/origin/lane/one", time.Minute)
+
+	started := time.Now()
+	err := gitcli.Worktrees{Env: clone.EnvWithoutRefLockWait()}.Fetch(t.Context(), clone.Dir, []string{"refs/heads/lane/one"})
+	if err == nil || !strings.Contains(err.Error(), "cannot lock ref") {
+		t.Fatalf("a lock that stays held gave %v, want git's cannot lock ref", err)
+	}
+	if took := time.Since(started); took > 10*time.Second {
+		t.Errorf("a held lock kept the fetch for %s", took)
+	}
+}
