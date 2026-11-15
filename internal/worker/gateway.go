@@ -254,11 +254,14 @@ func reachOfCall(reply lanes.Reply) lanes.Reachability {
 
 // takeReport keeps a lane's first outcome. A retry of the same report is answered as
 // a success, because the first answer may have been lost, and a different one stands
-// refused, because an outcome is typed and terminal.
+// refused, because an outcome is typed and terminal. A report's detail is what the worker says of a
+// reason it recorded, so the one a session sends is dropped, and only a failure the worker itself
+// ends a lane with carries one.
 func (w *Worker) takeReport(ctx context.Context, lane lanes.Record, report workorders.Report) lanes.Reply {
 	if err := report.Validate(); err != nil {
 		return refused(lanes.CodeInvalid, err.Error())
 	}
+	report.Detail = ""
 	if run := w.runOf(lane.ID); run != nil {
 		if err := run.holdsToItsWork(report); err != nil {
 			return refused(lanes.CodeInvalid, err.Error())
