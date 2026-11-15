@@ -588,6 +588,31 @@ func TestAHookThatFailsFailsTheLaneBeforeASession(t *testing.T) {
 	}
 }
 
+// A claim the ledger already holds can carry a lane's own layer that names a hook, as one recorded before the
+// API refused it would. The worker is where that layer is read, so the lane fails before anything runs: no
+// hook, no worktree, and no session.
+func TestAStoredLaneLayerThatNamesAHookRunsNothing(t *testing.T) {
+	t.Parallel()
+	base := newRig(t)
+	base.overrides = "[hooks]\non_lane_created = [\"/bin/sh\", \"-c\", \"id\"]\n"
+	r := newLaneRigFor(t, base)
+	r.config.Provisioner.Profiles.(*fake.ProfileSource).Put("/repository", profileAt)
+	// A session that did start ends at once, so a lane that ran it fails this test rather than holding it.
+	r.dispatched().runWith()
+	if change := r.outcome(); change.Outcome != workorders.OutcomeFailed || change.Reason != workorders.ReasonSpawnFailed {
+		t.Errorf("outcome %+v", change)
+	}
+	if runs := r.config.Provisioner.Hooks.(*fake.HookRunner).Runs(); len(runs) != 0 {
+		t.Errorf("a lane's layer ran %+v", runs)
+	}
+	if created := r.worktrees().Created(); len(created) != 0 {
+		t.Errorf("a lane's layer made %+v", created)
+	}
+	if len(r.driver.Specs()) != 0 {
+		t.Error("a session started")
+	}
+}
+
 func TestAHookACrashLeftUnknownStopsTheLaneForAPerson(t *testing.T) {
 	t.Parallel()
 	r := laneRigWith(t, profileAt+"[hooks]\non_lane_created = [\"./scripts/setup.sh\"]\n")

@@ -1,0 +1,32 @@
+package server
+
+import (
+	"fmt"
+	"strings"
+
+	"github.com/BurntSushi/toml"
+
+	"ropeshift.com/ropeshift/internal/lanes"
+)
+
+// checkOverrides refuses a lane's own profile layer that sets a key no lane's layer may, before the ledger
+// keeps it. Any caller can send one, an outside delegate's included, so the caller reads the reason here
+// rather than as a failed start on the worker. The worker's profile holds the same keys, and is the line
+// that counts: it also refuses a layer that raises a cap of the breaker, which only the worker's own
+// layers can measure it against.
+func checkOverrides(overrides string) error {
+	if overrides == "" {
+		return nil
+	}
+	var table map[string]any
+	meta, err := toml.Decode(overrides, &table)
+	if err != nil {
+		return fmt.Errorf("a lane's overrides are not TOML: %v", err)
+	}
+	for _, key := range lanes.LaneLayerKeys() {
+		if meta.IsDefined(key...) {
+			return fmt.Errorf("a lane's overrides cannot set %s", strings.Join(key, "."))
+		}
+	}
+	return nil
+}

@@ -681,6 +681,10 @@ func (h *handler) startLane(w http.ResponseWriter, r *http.Request, actor ledger
 		invalid(w, "a lane needs a lane_id")
 		return
 	}
+	if err := checkOverrides(in.Overrides); err != nil {
+		invalid(w, "%s", err)
+		return
+	}
 	lease, err := h.leases.DispatchWith(r.Context(), h.Scope, r.PathValue("id"), in.LaneID, in.Overrides, actor)
 	if err != nil {
 		fail(w, err)

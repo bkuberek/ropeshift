@@ -56,6 +56,8 @@ type rig struct {
 	// worktrees is the one a lane rig gives its worker, so a test that builds history in it reads what
 	// the worker made from it. Nil gives the worker a worktrees store of its own.
 	worktrees *fake.Worktrees
+	// overrides is the lane's own profile layer a lane rig dispatches, as the claim holds it. Empty holds none.
+	overrides string
 }
 
 func newRig(t *testing.T) *rig {
