@@ -352,6 +352,119 @@ describe("Agents", () => {
   });
 });
 
+describe("Add agent", () => {
+  const path = "/v1/roster/changes";
+  const changes = (sent: Sent[]) => sentTo(sent, "POST", path);
+  const saved = (call: Sent) => (call.method === "POST" && call.path === path ? { status: 200, body: { version: 2 } } : undefined);
+  const scout = '[[agent]]\nname = "scout"\npurpose = "Finds the code a change touches."\nkind = "lookup"\naccess = "read_only"\nclass = "small"\neffort = "low"\n\n[agent.tools]\nallow = ["read", "search"]\n';
+  const open = async () => {
+    openPage(here("/agents"));
+    await userEvent.click(await screen.findByRole("button", { name: "Add agent" }));
+    return screen.findByRole("dialog", { name: "Add agent" });
+  };
+  const paste = async (dialog: HTMLElement, text: string) => {
+    await userEvent.click(within(dialog).getByRole("button", { name: "Paste TOML" }));
+    fireEvent.change(within(dialog).getByLabelText(/Agent definition/), { target: { value: text } });
+  };
+
+  it("adds an agent as a copy of another, as it did", async () => {
+    const sent = serveAdmin(saved);
+    const dialog = await open();
+    expect(within(dialog).getByRole("button", { name: "Copy an agent" }).getAttribute("aria-pressed")).toBe("true");
+    await userEvent.type(within(dialog).getByLabelText("Name"), "sql-migration");
+    await userEvent.selectOptions(within(dialog).getByLabelText("Copy from"), "explore");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Save version 2" }));
+    await waitFor(() => expect(changes(sent)).toHaveLength(1));
+    expect(changes(sent)[0]?.body).toEqual({ scope: "project", change: { op: "add", agent: "sql-migration", from: "explore" } });
+  });
+
+  it("reads a pasted [[agent]] table, previews the agent it holds, and adds it as a definition", async () => {
+    const sent = serveAdmin(saved);
+    const dialog = await open();
+    await paste(dialog, scout);
+    const preview = await within(dialog).findByRole("table", { name: "Parsed agent" });
+    expect(within(preview).getByText("[agents.scout]")).toBeTruthy();
+    expect(within(preview).getByText('kind = "lookup"')).toBeTruthy();
+    expect(within(preview).getByText('tools.allow = "read,search"')).toBeTruthy();
+    // The table's own name stands in the field until the member types one.
+    expect((within(dialog).getByLabelText("Name") as HTMLInputElement).value).toBe("scout");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Save version 2" }));
+    await waitFor(() => expect(changes(sent)).toHaveLength(1));
+    expect(changes(sent)[0]?.body).toEqual({
+      scope: "project",
+      change: {
+        op: "add",
+        agent: "scout",
+        definition: {
+          name: "scout",
+          purpose: "Finds the code a change touches.",
+          kind: "lookup",
+          access: "read_only",
+          tools: { allow: ["read", "search"], deny: [] },
+          class: "small",
+          effort: "low",
+          approval: "",
+          instructions: "",
+          report: "",
+          enabled: true,
+        },
+      },
+    });
+  });
+
+  it("adds the definition under the name the member types, as the command adds the file under the name it is given", async () => {
+    const sent = serveAdmin(saved);
+    const dialog = await open();
+    await paste(dialog, scout);
+    const field = within(dialog).getByLabelText("Name");
+    await userEvent.clear(field);
+    await userEvent.type(field, "finder");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Save version 2" }));
+    await waitFor(() => expect(changes(sent)).toHaveLength(1));
+    const change = (changes(sent)[0]?.body as { change: { agent: string; definition: { name: string } } }).change;
+    expect([change.agent, change.definition.name]).toEqual(["finder", "scout"]);
+  });
+
+  it("shows what stops a text at its field, says nothing of an empty one, and holds Save back for both", async () => {
+    const sent = serveAdmin(saved);
+    const dialog = await open();
+    await userEvent.click(within(dialog).getByRole("button", { name: "Paste TOML" }));
+    const save = () => within(dialog).getByRole("button", { name: "Save version 2" }) as HTMLButtonElement;
+    expect(save().disabled).toBe(true);
+    expect(within(dialog).queryByText(/Unknown key/)).toBeNull();
+    const field = within(dialog).getByLabelText(/Agent definition/);
+    fireEvent.change(field, { target: { value: '[[agent]]\ncolour = "red"\n' } });
+    expect(within(dialog).getByText("Unknown key colour.")).toBeTruthy();
+    expect(within(dialog).queryByRole("table", { name: "Parsed agent" })).toBeNull();
+    expect(save().disabled).toBe(true);
+    fireEvent.change(field, { target: { value: '[[agent]]\npurpose = "never closed\n' } });
+    expect(within(dialog).getByText(/line 2, column/)).toBeTruthy();
+    expect(save().disabled).toBe(true);
+    fireEvent.change(field, { target: { value: '[[agent]]\nname = "a"\n[[agent]]\nname = "b"\n' } });
+    expect(within(dialog).getByText("A text adds one agent, and this holds 2 [[agent]] tables.")).toBeTruthy();
+    expect(changes(sent)).toHaveLength(0);
+  });
+
+  it("shows the API's refusal of a definition in the dialog, and keeps the text and the dialog", async () => {
+    serveAdmin((call) => (call.method === "POST" && call.path === path ? refusal(400, "invalid", 'invalid roster: agent "scout" allows no tools') : undefined));
+    const dialog = await open();
+    await paste(dialog, '[[agent]]\nname = "scout"\nkind = "lookup"\n');
+    await userEvent.click(within(dialog).getByRole("button", { name: "Save version 2" }));
+    expect((await within(dialog).findByRole("alert")).textContent).toContain('agent "scout" allows no tools');
+    expect((within(dialog).getByLabelText(/Agent definition/) as HTMLTextAreaElement).value).toContain('name = "scout"');
+  });
+
+  it("keeps a pasted text while the member switches to a copy and back", async () => {
+    serveAdmin();
+    const dialog = await open();
+    await paste(dialog, scout);
+    await userEvent.click(within(dialog).getByRole("button", { name: "Copy an agent" }));
+    expect(within(dialog).queryByLabelText(/Agent definition/)).toBeNull();
+    await userEvent.click(within(dialog).getByRole("button", { name: "Paste TOML" }));
+    expect((within(dialog).getByLabelText(/Agent definition/) as HTMLTextAreaElement).value).toBe(scout);
+  });
+});
+
 describe("Members and the audit", () => {
   it("lists each member with a live session", async () => {
     serveAdmin();

@@ -40,6 +40,7 @@ var equivalents = map[string]string{
 
 	// Changes. The CLI command sends the request of a row the UI already sends, with a different value.
 	"adopt":             "work create",        // adopt.go registers the clones, then openSession sends work create with adopt, review, claim, and lane start; admin/Import.tsx sends the same calls
+	"agent add":         "agent set",          // agent.go agentAdd sends a roster change with the op add, from another agent or with the definition readAgentFile reads from a TOML file; Add agent sends both on the same route, the definition read from a pasted [[agent]] table
 	"agent disable":     "agent set",          // agent.go agentToggle sends a roster change with the op disable; Agents sends it from the agent's toggle
 	"agent enable":      "agent set",          // agentToggle with the op enable; Agents sends it from the same toggle
 	"agent guide":       "agent set",          // agent.go agentGuide sends guide_set or guide_reset as a roster change; the Routing guide tab sends both
@@ -69,7 +70,6 @@ var cliOnly = map[string]string{
 // that adds it. A command whose row is added leaves this list, and the test fails until it does. The first
 // run of this test wrote it, and a command the audit did not name went by its area.
 var webGaps = map[string]string{
-	"agent add":         "U2f", // the TOML form (--file) is partial in the UI
 	"category add":      "U2e",
 	"decision overturn": "U2e",
 	"decision record":   "U2e",

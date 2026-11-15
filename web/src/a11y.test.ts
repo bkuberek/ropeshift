@@ -455,6 +455,50 @@ describe.each(Object.entries(sizes))("at %s width", (size, viewport) => {
     );
 
     it(
+      "the add agent dialog, as a copy, with pasted TOML, with text that stops it, and with a refusal, meets WCAG 2.2 A and AA",
+      async () => {
+        const context = await browser.newContext({ viewport, colorScheme: theme, reducedMotion: "reduce" });
+        await context.route(/\/v1\//, answer);
+        const page = await context.newPage();
+        const found: string[] = [];
+        const settle = async () => {
+          await page.mouse.move(0, 0);
+          await page.waitForTimeout(600);
+        };
+        await page.goto(`${base}/projects/default/agents`);
+        await ready(page);
+        await page.getByRole("button", { name: "Add agent" }).click();
+        const dialog = page.getByRole("dialog", { name: "Add agent" });
+        await dialog.waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `add agent as a copy ${violation}`));
+        await dialog.getByRole("button", { name: "Paste TOML" }).click();
+        const text = dialog.getByLabel(/Agent definition/);
+        await text.waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `add agent with no text yet ${violation}`));
+        await text.fill('[[agent]]\ncolour = "red"\n');
+        await dialog.getByText("Unknown key colour.").waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `add agent with text that stops it ${violation}`));
+        await text.fill('[[agent]]\nname = "scout"\npurpose = "Finds the code a change touches."\nkind = "lookup"\naccess = "read_only"\nclass = "small"\neffort = "low"\n\n[agent.tools]\nallow = ["read", "search"]\n');
+        await dialog.getByRole("table", { name: "Parsed agent" }).waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `add agent with a parsed agent ${violation}`));
+        await page.route(/\/v1\/projects\/default\/roster\/changes$/, (route) =>
+          route.fulfill({ status: 400, contentType: "application/json", body: JSON.stringify({ error: { code: "invalid", message: 'invalid roster: agent "scout" allows no tools' } }) }),
+        );
+        await dialog.getByRole("button", { name: /Save version/ }).click();
+        await dialog.getByRole("alert").waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `add agent with a refusal ${violation}`));
+        await context.close();
+        expect(found.map((line) => `${size} ${theme} ${line}`)).toEqual([]);
+      },
+      120_000,
+    );
+
+    it(
       "the palette, the shortcut sheet, the project switcher, a menu, and a dialog meet WCAG 2.2 A and AA",
       async () => {
         const context = await browser.newContext({ viewport, colorScheme: theme, reducedMotion: "reduce" });

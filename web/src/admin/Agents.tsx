@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 
 import { changeRoster, readRoster, readRosterHistory, revertRoster } from "../api/admin";
 import type { AgentFields, RosterAgent, RosterChange, RosterHistory, RosterView, Scope } from "../api/admin";
@@ -11,6 +11,7 @@ import { Diff } from "../ui/Diff";
 import { lineDiff } from "../ui/lineDiff";
 import { Field, Select } from "../ui/forms";
 import { Dialog, useToast } from "../ui/overlays";
+import { agentFromToml, previewLines } from "./agentToml";
 import { agentLines, changedFields } from "./logic";
 import { dateOf, Reading, SaveBar, sourceWords, useChange, useDraft, useLeaveGuard, useRead } from "./parts";
 
@@ -541,50 +542,106 @@ function History({ history, scope, label, readOnly, after }: { history: RosterHi
   );
 }
 
+type Source = "copy" | "toml";
+
+// The text a member pastes starts from, which shows what a table holds without saying how a definition is written.
+const tomlExample = [
+  "[[agent]]",
+  'purpose = "When to use this agent, and when another…"',
+  'kind = "implementation"',
+  'access = "writing"',
+  'class = "standard"',
+  'effort = "medium"',
+  "",
+  "[agent.tools]",
+  'allow = ["read", "search", "edit"]…',
+].join("\n");
+
+// AddAgentDialog adds an agent to the scope's layer: a copy of another agent, which the member then edits, or a
+// definition pasted as the `[[agent]]` table `ropeshift agent add --file` reads, read the same way. The API refuses
+// a definition it finds wanting, in its words.
 function AddAgentDialog({ agents, scope, version, onClose, after, again }: { agents: RosterAgent[]; scope: Scope; version: number; onClose: () => void; after: (name: string) => void; again: () => void }) {
-  const [name, setName] = useState("");
+  const [source, setSource] = useState<Source>("copy");
+  // name is null until the member types one, so a pasted table's own name stands in the field until then.
+  const [typed, setTyped] = useState<string | null>(null);
   const [from, setFrom] = useState(agents[0]?.name ?? "");
+  const [text, setText] = useState("");
+  const parsed = useMemo(() => (text.trim() === "" ? null : agentFromToml(text)), [text]);
+  const name = (typed ?? (source === "toml" ? parsed?.agent?.name : "") ?? "").trim();
   const change = useChange();
   const toast = useToast();
+  const definition = source === "toml" ? parsed?.agent : undefined;
+  const save = () => {
+    const request: RosterChange | null = source === "copy" ? { op: "add", agent: name, from } : definition ? { op: "add", agent: name, definition } : null;
+    if (request) {
+      void change.run(() => changeRoster(scope, request)).then((made) => {
+        if (made) {
+          toast("success", `Added ${name}: ${scope} roster version ${made.version}.`);
+          onClose();
+          again();
+          after(name);
+        }
+      });
+    }
+  };
   return (
     <Dialog
       open
+      wide={source === "toml"}
       title="Add agent"
       onClose={onClose}
       footer={
         <>
           <span className="spacer" />
           <Button onClick={onClose}>Cancel</Button>
-          <Button
-            variant="primary"
-            loading={change.busy}
-            onClick={() =>
-              void change.run(() => changeRoster(scope, { op: "add", agent: name.trim(), from })).then((made) => {
-                if (made) {
-                  toast("success", `Added ${name.trim()}: ${scope} roster version ${made.version}.`);
-                  onClose();
-                  again();
-                  after(name.trim());
-                }
-              })
-            }
-          >
+          <Button variant="primary" loading={change.busy} disabled={source === "toml" && !definition} onClick={save}>
             Save version {version + 1}
           </Button>
         </>
       }
     >
       <div className="field-stack">
-        <Field label="Name" help="Lowercase and hyphenated, such as sql-migration." error={change.failure || undefined}>
-          <input className="input mono" autoComplete="off" spellCheck={false} placeholder="sql-migration…" value={name} onChange={(event) => setName(event.target.value)} />
+        <Segmented<Source>
+          label="Start the agent from"
+          value={source}
+          choices={[
+            { value: "copy", label: "Copy an agent" },
+            { value: "toml", label: "Paste TOML" },
+          ]}
+          onChange={setSource}
+        />
+        <Field
+          label="Name"
+          help={source === "toml" ? "Lowercase and hyphenated, such as sql-migration. It starts as the table's own name, and the name here is the one that is added." : "Lowercase and hyphenated, such as sql-migration."}
+          error={source === "copy" ? change.failure || undefined : undefined}
+        >
+          <input className="input mono" autoComplete="off" spellCheck={false} placeholder="sql-migration…" value={typed ?? name} onChange={(event) => setTyped(event.target.value)} />
         </Field>
-        <Field label="Copy from" help="The new agent starts as a copy of this one, which you then edit.">
-          <Select value={from} onChange={(event) => setFrom(event.target.value)}>
-            {agents.map((row) => (
-              <option key={row.name}>{row.name}</option>
-            ))}
-          </Select>
-        </Field>
+        {source === "copy" ? (
+          <Field label="Copy from" help="The new agent starts as a copy of this one, which you then edit.">
+            <Select value={from} onChange={(event) => setFrom(event.target.value)}>
+              {agents.map((row) => (
+                <option key={row.name}>{row.name}</option>
+              ))}
+            </Select>
+          </Field>
+        ) : (
+          <>
+            <Field
+              label="Agent definition (TOML)"
+              help={
+                <>
+                  One <code>[[agent]]</code> table, or its keys on their own, as <code>ropeshift agent add --file</code> reads them. A key the text leaves out is left to the roster.
+                </>
+              }
+              error={parsed?.error}
+            >
+              <textarea className="textarea mono" rows={10} autoComplete="off" spellCheck={false} placeholder={tomlExample} value={text} onChange={(event) => setText(event.target.value)} />
+            </Field>
+            {definition ? <Diff lines={lineDiff("", previewLines(name || "name", definition).join("\n"))} label="Parsed agent" /> : null}
+            {change.failure ? <Refusal>{change.failure}</Refusal> : null}
+          </>
+        )}
       </div>
     </Dialog>
   );
