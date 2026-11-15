@@ -245,11 +245,9 @@ describe("Settings", () => {
 
   it("keeps an edit made the moment the saved policy appears", async () => {
     serveAdmin();
-    openPage(here("/settings?section=recovery"));
-    expect(await screen.findByRole("heading", { level: 1, name: "Recovery policy" })).toBeTruthy();
     // The edit lands as the fields are inserted, before React has run the effects of the render that
-    // brought the saved policy.
-    const edit = await new Promise<void>((done) => {
+    // brought the saved policy. The watcher is attached before the page opens so it cannot miss them.
+    const edit = new Promise<void>((done) => {
       const watch = new MutationObserver(() => {
         const field = screen.queryByLabelText(/Attempts per work order/);
         if (field) {
@@ -260,7 +258,9 @@ describe("Settings", () => {
       });
       watch.observe(document.body, { childList: true, subtree: true });
     });
+    openPage(here("/settings?section=recovery"));
     await edit;
+    expect(screen.getByRole("heading", { level: 1, name: "Recovery policy" })).toBeTruthy();
     expect(await screen.findByText("max_attempts 3 → 5")).toBeTruthy();
     expect((screen.getByLabelText(/Attempts per work order/) as HTMLInputElement).value).toBe("5");
   });
