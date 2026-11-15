@@ -1,6 +1,6 @@
 # Get started
 
-This guide takes one small piece of work from an empty machine to accepted work, in solo mode, on macOS or Linux. It uses the sample contract that `ropeshift init` writes, and a git repository of your own. [Onboarding](onboarding.md) explains each step in depth, and what to know before a lane runs.
+This guide takes one small piece of work from an empty machine to accepted work, in solo mode, on macOS or Linux. It uses the sample contract that `ropeshift init` writes, and a git repository of your own. [Onboarding](onboarding.md) explains each step in depth, and what to know before a lane runs. [Before you start](set-up-a-project.md#before-you-start) says which steps need you at a terminal, where ropeshift keeps its state, and what it pushes.
 
 You need:
 

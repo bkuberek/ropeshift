@@ -126,19 +126,35 @@ A subscription worker starts at `attended`, where it claims work only inside a r
 
 ## Documentation
 
-- [Vision](docs/vision.md): the problem, the principles, and the non-goals.
+### Start here
+
+- [How ropeshift works](docs/how-it-works.md): the plan, the lanes, the review, the question ladder, and where a person comes in, in plain words.
 - [Get started](docs/getting-started.md): the short path from installing a release to a first piece of accepted work.
 - [Your first plan, end to end](docs/first-plan.md): a planning session, plan approval, lanes, reviews, and acceptance, in the web UI and on the command line.
+
+### Guides
+
+- [Set up a project](docs/set-up-a-project.md): from a fresh machine to a project with an approved plan and merged work, with each choice explained.
+- [Projects of several repositories](docs/multiple-repositories.md): one plan across repositories, the manifest, dependencies, read-only reads, and merge order.
+- [Adopt an existing project](docs/adopt.md): bring in a project that already has code, documents, and branches, and review it as one plan.
 - [Connect a GitHub repository](docs/github.md): review through pull requests, the forge binding, merge authority, and required checks.
-- [Onboarding](docs/onboarding.md): installing a release, from an empty machine to a first lane, and what to know before it runs.
+
+### Concepts
+
+- [Vision](docs/vision.md): the problem, the principles, and the non-goals.
+- [Project structure](docs/project-structure.md): the recommended layout of a project, the repository file format, and what stays in your repositories.
+- [Authorization](docs/authorization.md): who may approve what, and the limit of same-user isolation.
+- [Product measures](docs/measures.md): the north star and how each measure is computed.
+
+### Reference
+
+- [Onboarding](docs/onboarding.md): the detail behind every step of the guides, and what to know before a lane runs.
 - [Web UI](docs/web-ui.md): each main view of the web UI, what it shows, and what a member does there.
 - [Command line](docs/cli.md): every command, the daemon's flags, and the exit codes.
 - [API](docs/api.md): the routes of the installation and of each project.
-- [Authorization](docs/authorization.md): who may approve what, and the limit of same-user isolation.
 - [Qualification](docs/qualification.md): how each Claude Code version is checked before ropeshift relies on it.
 - [Notifications](docs/notifications.md): what a notice says, and where it goes.
 - [Telemetry](docs/telemetry.md): what is recorded, where it stays, and when it leaves the machine.
-- [Product measures](docs/measures.md): the north star and how each measure is computed.
 - [Versioning](docs/versioning.md): what a version promises, and what `ropeshift version` reports.
 - [Releasing](docs/releasing.md): what a release holds, and each install channel.
 
