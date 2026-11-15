@@ -112,7 +112,10 @@ func TestARaiseReadsTheClassesAndTheScaleOfEffort(t *testing.T) {
 		raises        bool
 	}{
 		{"low", "max", true}, {"max", "low", false}, {"high", "high", false}, {"medium", "high", true},
-		{"high", "xhigh", true}, {"xhigh", "low", true}, {"", "low", true}, {"low", "", true},
+		{"high", "xhigh", true}, {"xhigh", "low", true}, {"low", "", true},
+		// A lane that runs no effort runs the agent CLI's own, which is no lower than low, so low is the one effort
+		// a layer may set there, and anything higher, or off the scale, raises it.
+		{"", "low", false}, {"", "", false}, {"", "medium", true}, {"", "high", true}, {"", "max", true}, {"", "xhigh", true},
 	}
 	for _, tt := range efforts {
 		if got := RaisesEffort(tt.below, tt.effort); got != tt.raises {

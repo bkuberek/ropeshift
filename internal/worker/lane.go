@@ -91,7 +91,9 @@ var ErrNoDetached = errors.New("this worker's worktrees cannot check a commit ou
 // below it give, because that layer wins over the roster agent the lane runs as. It refuses a layer a
 // delegate sent that raises either under a delegate policy that restricts it (FR-AUTH-16), against what the
 // lane would run without the layer: its roster agent's model and effort, or for a lane that runs as no
-// agent, what the layers below give.
+// agent, the model the layers below give. A lane that runs as no agent is given no effort, whatever the
+// layers say (asAgent), so it has none to raise and its effort is not compared. A lane whose session is
+// given the profile's effort would have to compare it here.
 func (p Provisioner) laneSets(ctx context.Context, request LaneRequest, profile lanes.Profile) (bool, bool, error) {
 	if request.Overrides == "" {
 		return false, false, nil
@@ -105,6 +107,8 @@ func (p Provisioner) laneSets(ctx context.Context, request LaneRequest, profile 
 	if request.Agent != nil {
 		was.Model, was.Effort = agentRuns(below, *request.Agent, false, false)
 		runs.Model, runs.Effort = agentRuns(profile, *request.Agent, laneModel, laneEffort)
+	} else {
+		was.Effort, runs.Effort = "", ""
 	}
 	if err := lanes.CheckDelegatedLayer(was, runs, request.Delegated); err != nil {
 		return false, false, err

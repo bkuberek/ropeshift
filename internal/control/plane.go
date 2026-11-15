@@ -327,14 +327,14 @@ func (p *Plane) Desired(ctx context.Context, request ledger.DesiredRequest) (led
 			return ledger.DesiredState{}, err
 		}
 		var part ledger.DesiredState
-		err = w.store.Read(ctx, project.ID, func(tx ports.ReadTx) error { return desiredIn(tx, record.ID, &part) })
+		err = w.store.Read(ctx, project.ID, func(tx ports.ReadTx) error { return desiredIn(tx, record.ID, record.Protocol, &part) })
 		if err != nil {
 			return ledger.DesiredState{}, err
 		}
 		name := string(project.ID)
 		for _, lease := range part.Leases {
 			lease.Project = name
-			state.Leases = append(state.Leases, offeredLease(lease, record.Protocol))
+			state.Leases = append(state.Leases, lease)
 		}
 		for _, archive := range part.Archives {
 			archive.Project = name
@@ -361,16 +361,10 @@ func (p *Plane) Desired(ctx context.Context, request ledger.DesiredRequest) (led
 			state.PullRequests = append(state.PullRequests, watched)
 		}
 		for _, assistant := range part.Assistants {
-			if record.Protocol != 0 && record.Protocol < ledger.ProtocolAssistants {
-				break
-			}
 			assistant.Project = name
 			state.Assistants = append(state.Assistants, assistant)
 		}
 		for _, forget := range part.Forget {
-			if record.Protocol != 0 && record.Protocol < ledger.ProtocolAssistants {
-				break
-			}
 			forget.Project = name
 			state.Forget = append(state.Forget, forget)
 		}
@@ -384,7 +378,7 @@ func (p *Plane) Desired(ctx context.Context, request ledger.DesiredRequest) (led
 // once the worker opens a session on a protocol that reads the record (FR-AUTH-16). A protocol of zero is a
 // worker that opened no session, which is offered no such lane either.
 func offeredLease(lease ledger.DesiredLease, protocol int) ledger.DesiredLease {
-	if lease.Delegated == nil || !lease.Delegated.Restricted || protocol >= ledger.ProtocolDelegatedLayers {
+	if !lease.Delegated.WithheldFrom(protocol) {
 		return lease
 	}
 	return ledger.DesiredLease{Project: lease.Project, WorkOrder: lease.WorkOrder, ClaimID: lease.ClaimID, Fence: lease.Fence, State: lease.State}

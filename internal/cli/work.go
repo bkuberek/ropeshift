@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"crypto/rand"
 	"fmt"
 	"strings"
@@ -155,17 +156,53 @@ func (c *invocation) workShow(args []string) int {
 	if err != nil {
 		return c.finish(err, row, nil)
 	}
+	reason, said, err := endedWith(c.ctx, client, row)
+	if err != nil {
+		return c.finish(err, row, nil)
+	}
 	detail := api.WorkDetail{
 		WorkOrder: row, JudgedBy: view.Reviews, Verdicts: view.Verdicts, Why: view.Why, PullRequest: view.PullRequest, Integrations: view.Integrations,
-		Estimate: estimate.Estimate,
+		Estimate: estimate.Estimate, Reason: reason, Detail: said,
 	}
 	return c.finish(nil, detail, func() string { return workDetailText(detail) })
+}
+
+// endedWith reads what the outcome of the lane that ended a work order said of why, from the completed view,
+// which is where the ledger keeps it: the event stream carries no record's content. Work that is still going
+// has none.
+func endedWith(ctx context.Context, client *api.ProjectClient, row workorders.WorkOrder) (reason, detail string, err error) {
+	if !workorders.Terminal(row.State) && !row.State.Completed() {
+		return "", "", nil
+	}
+	var view api.Completed
+	if err := client.ReadView(ctx, api.ViewCompleted, "", &view); err != nil {
+		return "", "", err
+	}
+	for _, item := range view.Items {
+		if item.WorkOrder.ID == row.ID {
+			return item.Reason, item.Detail, nil
+		}
+	}
+	return "", "", nil
+}
+
+// outcomeLine says why the lane that ended a work order did, in what the lane and the worker wrote of it, made
+// safe for a terminal and put on one line.
+func outcomeLine(reason, detail string) string {
+	line := "outcome\t" + oneLine(api.Printable(reason))
+	if detail != "" {
+		line += "\t" + oneLine(api.Printable(detail))
+	}
+	return line + "\n"
 }
 
 // workDetailText prints a work order, then its reviews and the verdict each gave for each criterion.
 func workDetailText(detail api.WorkDetail) string {
 	var out strings.Builder
 	out.WriteString(workOrderText(detail.WorkOrder))
+	if detail.Reason != "" {
+		out.WriteString(outcomeLine(detail.Reason, detail.Detail))
+	}
 	if pr := detail.PullRequest; pr != nil {
 		fmt.Fprintf(&out, "pull request\t#%d\t%s\thead %s\t%s\n", pr.Number, pr.State, shortCommit(pr.HeadCommit), pr.URL)
 	}

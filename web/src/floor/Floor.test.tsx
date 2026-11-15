@@ -424,6 +424,25 @@ describe("what stuck work waits on", () => {
     expect(within(decision).queryByRole("button")).toBeNull();
   });
 
+  it("names the worker a claim waits on, which must be upgraded before its lane starts", async () => {
+    const detail = 'the worker "atlas" (worker-atlas) must be upgraded to start this lane: it runs protocol 3, and this lane needs protocol 4';
+    serving<Stuck>("stuck", (view) => {
+      const first = view.items[0];
+      if (first) {
+        first.reason = "worker_behind";
+        first.detail = detail;
+        first.actions = ["cancel"];
+        first.wakes = undefined;
+      }
+    });
+    openPage("/work-order?id=wo-lapsed");
+    const decision = await card();
+    expect(within(decision).getByText("Waiting for upgrade")).toBeTruthy();
+    expect(within(decision).getByText("Its worker must be upgraded before it can start its lane.")).toBeTruthy();
+    expect(within(decision).getByText(detail)).toBeTruthy();
+    expect(within(decision).getByRole("button", { name: "Cancel this work" })).toBeTruthy();
+  });
+
   it("names a lane parked too long, the fifth of the design's list, and what it waits for", async () => {
     serving<Stuck>("stuck", (view) => {
       const first = view.items[0];

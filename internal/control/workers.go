@@ -397,8 +397,8 @@ func (w *Workers) desiredRev(ctx context.Context) (int64, error) {
 	return shared, err
 }
 
-// Desired reads what this worker should hold. A worker that already has this
-// revision reads nothing more.
+// Desired reads what this worker should hold, as a worker on the protocol its session negotiated reads it. A
+// worker that already has this revision reads nothing more.
 func (w *Workers) Desired(ctx context.Context, request ledger.DesiredRequest) (ledger.DesiredState, error) {
 	state := ledger.DesiredState{Leases: []ledger.DesiredLease{}}
 	shared, err := w.sharedRevision(ctx)
@@ -406,7 +406,8 @@ func (w *Workers) Desired(ctx context.Context, request ledger.DesiredRequest) (l
 		return ledger.DesiredState{}, err
 	}
 	err = w.store.Read(ctx, w.scope, func(tx ports.ReadTx) error {
-		if _, err := authenticate(tx.Workers(), request.Auth); err != nil {
+		record, err := authenticate(tx.Workers(), request.Auth)
+		if err != nil {
 			return err
 		}
 		workspace, err := tx.Workspace()
@@ -418,7 +419,7 @@ func (w *Workers) Desired(ctx context.Context, request ledger.DesiredRequest) (l
 			state.Unchanged = true
 			return nil
 		}
-		if err := desiredIn(tx, request.Auth.WorkerID, &state); err != nil {
+		if err := desiredIn(tx, request.Auth.WorkerID, record.Protocol, &state); err != nil {
 			return err
 		}
 		if state.Orchestrator, err = desiredOrchestrator(tx.Workers(), request.Auth.WorkerID); err != nil {
@@ -437,9 +438,11 @@ func (w *Workers) Desired(ctx context.Context, request ledger.DesiredRequest) (l
 	return state, nil
 }
 
-// desiredIn adds what one project asks of a worker: the leases it holds there, the worktrees to remove,
-// the effects a person decided, what it is asked of a forge, and the woken work it may claim.
-func desiredIn(tx ports.ReadTx, worker string, state *ledger.DesiredState) error {
+// desiredIn adds what one project asks of a worker on a protocol: the leases it holds there, the worktrees to
+// remove, the effects a person decided, what it is asked of a forge, and the woken work it may claim. It offers
+// each part as a worker on that protocol reads it, so the control plane and the single-project link, which both
+// read through it, never offer one worker two things.
+func desiredIn(tx ports.ReadTx, worker string, protocol int, state *ledger.DesiredState) error {
 	held, err := tx.WorkOrders().HeldBy(worker)
 	if err != nil {
 		return err
@@ -449,7 +452,7 @@ func desiredIn(tx ports.ReadTx, worker string, state *ledger.DesiredState) error
 		if err != nil {
 			return err
 		}
-		state.Leases = append(state.Leases, lease)
+		state.Leases = append(state.Leases, offeredLease(lease, protocol))
 	}
 	archives, err := tx.Lanes().Archiving(worker)
 	if err != nil {
@@ -469,6 +472,9 @@ func desiredIn(tx ports.ReadTx, worker string, state *ledger.DesiredState) error
 		return err
 	}
 	state.Woken = append(state.Woken, woken...)
+	if !runsAssistants(protocol) {
+		return nil
+	}
 	assistants, err := desiredAssistants(tx, worker)
 	if err != nil {
 		return err
@@ -479,6 +485,12 @@ func desiredIn(tx ports.ReadTx, worker string, state *ledger.DesiredState) error
 		state.Forget = append(state.Forget, ledger.DesiredForget{Conversation: forget.Conversation, Lanes: forget.Lanes})
 	}
 	return err
+}
+
+// runsAssistants says a worker on the protocol is asked to run assistants, and told which conversations to
+// forget. A protocol of zero is a worker that opened no session, which is asked as the current one is.
+func runsAssistants(protocol int) bool {
+	return protocol == 0 || protocol >= ledger.ProtocolAssistants
 }
 
 // wokenFor lists the woken work this worker may claim, the most urgent first.

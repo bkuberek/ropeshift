@@ -99,6 +99,8 @@ func TestNoCallerStartsALaneWhoseOverridesRunReadOrPlace(t *testing.T) {
 		{"upper-case ports", "Resources.PORTS_PER_LANE = 5\n"},
 		{"a key spelled two ways", "[agent]\nmodel = \"haiku\"\nMODEL = \"opus\"\n"},
 		{"a table spelled two ways", "[agent]\nmodel = \"haiku\"\n[Agent]\neffort = \"low\"\n"},
+		{"a key spelled two ways in a list of tables", "[[agent.extra]]\nname = \"a\"\nNAME = \"b\"\n"},
+		{"a key spelled two ways in an inline list", "agent.extra = [{ name = \"a\", NAME = \"b\" }]\n"},
 		{"no TOML", "[hooks\n"},
 	}
 	for _, caller := range callers {
