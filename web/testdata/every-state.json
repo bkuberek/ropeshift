@@ -1321,6 +1321,68 @@
           }
         },
         {
+          "id": "wo-failed",
+          "kind": "work",
+          "since": 1790000071001,
+          "work": {
+            "actions": [
+              "retry"
+            ],
+            "detail": "crashed",
+            "extra_attempt": true,
+            "lane": {
+              "actual_state": "ended",
+              "artifacts": [
+                {
+                  "created_at": 1790000071001,
+                  "digest": "abc123",
+                  "fence": 2,
+                  "id": "generated-5",
+                  "kind": "branch",
+                  "lane_id": "lane-wo-failed",
+                  "uri": "lane/lane-wo-failed"
+                }
+              ],
+              "as_of": 1790000071001,
+              "freshness": "observed",
+              "generation": 1,
+              "generations": [
+                {
+                  "end_reason": "failed",
+                  "ended_at": 1790000071001,
+                  "lane_id": "lane-wo-failed",
+                  "number": 1,
+                  "start_reason": "initial",
+                  "started_at": 1790000071001
+                }
+              ],
+              "id": "lane-wo-failed",
+              "ledger_reach": "unknown",
+              "liveness": "dead",
+              "model_reach": "unknown",
+              "reported_by_epoch": 1,
+              "work_order": "wo-failed",
+              "worker_id": "worker-a"
+            },
+            "reason": "failed",
+            "work_order": {
+              "attempts": 1,
+              "contract_id": "generated-6",
+              "contract_version": 1,
+              "fence": 2,
+              "id": "wo-failed",
+              "kind": "change",
+              "max_attempts": 1,
+              "repository_id": "repository-1",
+              "rev": 1,
+              "reviewed_by": "member-1",
+              "size": "unknown",
+              "state": "failed",
+              "title": "Out of attempts"
+            }
+          }
+        },
+        {
           "id": "wl-pending",
           "kind": "work",
           "since": 1790000073001,
@@ -1877,7 +1939,7 @@
       },
       "revision": 363,
       "sources": [],
-      "waiting_for_a_person": 10,
+      "waiting_for_a_person": 11,
       "work_orders": {
         "acceptance": 2,
         "blocked": 1,
@@ -3264,7 +3326,183 @@
           "state": "intake",
           "title": "Waiting for intake"
         }
-      ]
+      ],
+      "work_actions": {
+        "generated-14": {
+          "actions": [
+            "claim",
+            "cancel"
+          ]
+        },
+        "generated-11": {
+          "actions": []
+        },
+        "generated-8": {
+          "actions": []
+        },
+        "generated-2": {
+          "actions": [
+            "claim",
+            "cancel"
+          ]
+        },
+        "wl-backoff": {
+          "actions": [
+            "cancel"
+          ]
+        },
+        "wl-briefing": {
+          "actions": [
+            "cancel"
+          ]
+        },
+        "wl-compacting": {
+          "actions": [
+            "cancel"
+          ]
+        },
+        "wl-ended": {
+          "actions": [
+            "cancel",
+            "archive_lane"
+          ]
+        },
+        "wl-handing_off": {
+          "actions": [
+            "cancel"
+          ]
+        },
+        "wl-idle": {
+          "actions": [
+            "cancel"
+          ]
+        },
+        "wl-needs_decision": {
+          "actions": [
+            "cancel"
+          ]
+        },
+        "wl-parked": {
+          "actions": [
+            "cancel"
+          ]
+        },
+        "wl-parking": {
+          "actions": [
+            "cancel"
+          ]
+        },
+        "wl-pending": {
+          "actions": [
+            "cancel"
+          ]
+        },
+        "wl-provisioning": {
+          "actions": [
+            "cancel"
+          ]
+        },
+        "wl-retiring": {
+          "actions": [
+            "cancel"
+          ]
+        },
+        "wl-starting": {
+          "actions": [
+            "cancel"
+          ]
+        },
+        "wl-tripped": {
+          "actions": [
+            "cancel"
+          ]
+        },
+        "wl-working": {
+          "actions": [
+            "cancel"
+          ]
+        },
+        "wo-acceptance": {
+          "actions": [
+            "cancel",
+            "archive_lane"
+          ]
+        },
+        "wo-blocked": {
+          "actions": [
+            "resolve",
+            "replan",
+            "cancel",
+            "archive_lane"
+          ]
+        },
+        "wo-canceled": {
+          "actions": []
+        },
+        "wo-claimed": {
+          "actions": [
+            "start_lane",
+            "release",
+            "cancel"
+          ]
+        },
+        "wo-contract_review": {
+          "actions": [
+            "send_back",
+            "cancel"
+          ]
+        },
+        "wo-done": {
+          "actions": [
+            "archive_lane"
+          ]
+        },
+        "wo-failed": {
+          "actions": [
+            "retry",
+            "archive_lane"
+          ],
+          "extra_attempt": true
+        },
+        "wo-intake": {
+          "actions": [
+            "cancel"
+          ]
+        },
+        "wo-integrating": {
+          "actions": [
+            "cancel",
+            "archive_lane"
+          ]
+        },
+        "wo-lapsed": {
+          "actions": [
+            "reassign",
+            "cancel"
+          ]
+        },
+        "wo-parked": {
+          "actions": [
+            "cancel"
+          ]
+        },
+        "wo-planning": {
+          "actions": [
+            "cancel"
+          ]
+        },
+        "wo-ready": {
+          "actions": [
+            "claim",
+            "cancel"
+          ]
+        },
+        "wo-running": {
+          "actions": [
+            "cancel"
+          ]
+        }
+      }
     },
     "questions": {
       "as_of": 1790000133001,
@@ -4187,108 +4425,164 @@
       "as_of": 1790000133001,
       "records": [
         {
+          "actions": [
+            "cancel"
+          ],
           "id": "wl-backoff",
           "kind": "work_order",
           "state": "running",
           "title": "A lane in backoff"
         },
         {
+          "actions": [
+            "cancel"
+          ],
           "id": "wl-briefing",
           "kind": "work_order",
           "state": "running",
           "title": "A lane in briefing"
         },
         {
+          "actions": [
+            "cancel"
+          ],
           "id": "wl-compacting",
           "kind": "work_order",
           "state": "running",
           "title": "A lane in compacting"
         },
         {
+          "actions": [
+            "cancel",
+            "archive_lane"
+          ],
           "id": "wl-ended",
           "kind": "work_order",
           "state": "acceptance",
           "title": "A lane in ended"
         },
         {
+          "actions": [
+            "cancel"
+          ],
           "id": "wl-handing_off",
           "kind": "work_order",
           "state": "running",
           "title": "A lane in handing_off"
         },
         {
+          "actions": [
+            "cancel"
+          ],
           "id": "wl-idle",
           "kind": "work_order",
           "state": "running",
           "title": "A lane in idle"
         },
         {
+          "actions": [
+            "cancel"
+          ],
           "id": "wl-needs_decision",
           "kind": "work_order",
           "state": "running",
           "title": "A lane in needs_decision"
         },
         {
+          "actions": [
+            "cancel"
+          ],
           "id": "wl-parked",
           "kind": "work_order",
           "state": "parked",
           "title": "A lane in parked"
         },
         {
+          "actions": [
+            "cancel"
+          ],
           "id": "wl-parking",
           "kind": "work_order",
           "state": "running",
           "title": "A lane in parking"
         },
         {
+          "actions": [
+            "cancel"
+          ],
           "id": "wl-pending",
           "kind": "work_order",
           "state": "running",
           "title": "A lane in pending"
         },
         {
+          "actions": [
+            "cancel"
+          ],
           "id": "wl-provisioning",
           "kind": "work_order",
           "state": "running",
           "title": "A lane in provisioning"
         },
         {
+          "actions": [
+            "cancel"
+          ],
           "id": "wl-retiring",
           "kind": "work_order",
           "state": "running",
           "title": "A lane in retiring"
         },
         {
+          "actions": [
+            "cancel"
+          ],
           "id": "wl-starting",
           "kind": "work_order",
           "state": "running",
           "title": "A lane in starting"
         },
         {
+          "actions": [
+            "cancel"
+          ],
           "id": "wl-tripped",
           "kind": "work_order",
           "state": "running",
           "title": "A lane in tripped"
         },
         {
+          "actions": [
+            "cancel"
+          ],
           "id": "wl-working",
           "kind": "work_order",
           "state": "running",
           "title": "A lane in working"
         },
         {
+          "actions": [
+            "cancel"
+          ],
           "id": "wo-running",
           "kind": "work_order",
           "state": "running",
           "title": "A lane works on this"
         },
         {
+          "actions": [
+            "cancel",
+            "archive_lane"
+          ],
           "id": "wo-integrating",
           "kind": "work_order",
           "state": "integrating",
           "title": "Accepted and waiting to merge"
         },
         {
+          "actions": [
+            "archive_lane"
+          ],
           "id": "wo-done",
           "kind": "work_order",
           "state": "done",
@@ -4301,42 +4595,70 @@
           "title": "Called off"
         },
         {
+          "actions": [
+            "start_lane",
+            "release",
+            "cancel"
+          ],
           "id": "wo-claimed",
           "kind": "work_order",
           "state": "claimed",
           "title": "Claimed with no lane yet"
         },
         {
+          "actions": [
+            "cancel",
+            "archive_lane"
+          ],
           "id": "wo-acceptance",
           "kind": "work_order",
           "state": "acceptance",
           "title": "Finished and waiting for a word"
         },
         {
+          "actions": [
+            "reassign",
+            "cancel"
+          ],
           "id": "wo-lapsed",
           "kind": "work_order",
           "state": "lapsed",
           "title": "Its worker went quiet"
         },
         {
+          "actions": [
+            "retry",
+            "archive_lane"
+          ],
           "id": "wo-failed",
           "kind": "work_order",
           "state": "failed",
           "title": "Out of attempts"
         },
         {
+          "actions": [
+            "cancel"
+          ],
           "id": "wo-parked",
           "kind": "work_order",
           "state": "parked",
           "title": "Parked until a person says go"
         },
         {
+          "actions": [
+            "claim",
+            "cancel"
+          ],
           "id": "wo-ready",
           "kind": "work_order",
           "state": "ready",
           "title": "Ready for a worker"
         },
         {
+          "actions": [
+            "claim",
+            "cancel"
+          ],
           "id": "generated-2",
           "kind": "work_order",
           "state": "ready",
@@ -4355,30 +4677,50 @@
           "title": "Review: Accepted by a member"
         },
         {
+          "actions": [
+            "claim",
+            "cancel"
+          ],
           "id": "generated-14",
           "kind": "work_order",
           "state": "ready",
           "title": "Review: Finished and waiting for a word"
         },
         {
+          "actions": [
+            "cancel"
+          ],
           "id": "wo-planning",
           "kind": "work_order",
           "state": "planning",
           "title": "Sent back to planning"
         },
         {
+          "actions": [
+            "resolve",
+            "replan",
+            "cancel",
+            "archive_lane"
+          ],
           "id": "wo-blocked",
           "kind": "work_order",
           "state": "blocked",
           "title": "Stopped by a lane"
         },
         {
+          "actions": [
+            "send_back",
+            "cancel"
+          ],
           "id": "wo-contract_review",
           "kind": "work_order",
           "state": "contract_review",
           "title": "Waiting for a contract review"
         },
         {
+          "actions": [
+            "cancel"
+          ],
           "id": "wo-intake",
           "kind": "work_order",
           "state": "intake",
@@ -4919,6 +5261,7 @@
         },
         {
           "actual_state": "ended",
+          "archivable": true,
           "artifacts": [
             {
               "created_at": 1790000133001,
@@ -5229,6 +5572,7 @@
         },
         {
           "actual_state": "ended",
+          "archivable": true,
           "artifacts": [
             {
               "created_at": 1790000067001,
@@ -5264,6 +5608,7 @@
         },
         {
           "actual_state": "ended",
+          "archivable": true,
           "artifacts": [
             {
               "created_at": 1790000069001,
@@ -5299,6 +5644,7 @@
         },
         {
           "actual_state": "ended",
+          "archivable": true,
           "artifacts": [
             {
               "created_at": 1790000070001,
@@ -5334,6 +5680,7 @@
         },
         {
           "actual_state": "ended",
+          "archivable": true,
           "artifacts": [
             {
               "created_at": 1790000071001,
@@ -5369,6 +5716,7 @@
         },
         {
           "actual_state": "ended",
+          "archivable": true,
           "artifacts": [
             {
               "created_at": 1790000068001,
@@ -5598,6 +5946,65 @@
             "size": "unknown",
             "state": "blocked",
             "title": "Stopped by a lane"
+          }
+        },
+        {
+          "actions": [
+            "retry"
+          ],
+          "detail": "crashed",
+          "extra_attempt": true,
+          "id": "wo-failed",
+          "lane": {
+            "actual_state": "ended",
+            "artifacts": [
+              {
+                "created_at": 1790000071001,
+                "digest": "abc123",
+                "fence": 2,
+                "id": "generated-5",
+                "kind": "branch",
+                "lane_id": "lane-wo-failed",
+                "uri": "lane/lane-wo-failed"
+              }
+            ],
+            "as_of": 1790000071001,
+            "freshness": "observed",
+            "generation": 1,
+            "generations": [
+              {
+                "end_reason": "failed",
+                "ended_at": 1790000071001,
+                "lane_id": "lane-wo-failed",
+                "number": 1,
+                "start_reason": "initial",
+                "started_at": 1790000071001
+              }
+            ],
+            "id": "lane-wo-failed",
+            "ledger_reach": "unknown",
+            "liveness": "dead",
+            "model_reach": "unknown",
+            "reported_by_epoch": 1,
+            "work_order": "wo-failed",
+            "worker_id": "worker-a"
+          },
+          "reason": "failed",
+          "since": 1790000071001,
+          "work_order": {
+            "attempts": 1,
+            "contract_id": "generated-6",
+            "contract_version": 1,
+            "fence": 2,
+            "id": "wo-failed",
+            "kind": "change",
+            "max_attempts": 1,
+            "repository_id": "repository-1",
+            "rev": 1,
+            "reviewed_by": "member-1",
+            "size": "unknown",
+            "state": "failed",
+            "title": "Out of attempts"
           }
         },
         {

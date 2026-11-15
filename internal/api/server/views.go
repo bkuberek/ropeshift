@@ -187,9 +187,13 @@ func (h *handler) longParked() int64 {
 	return defaultLongParkedMs
 }
 
-// stuck finds what stopped: the design's five, the longest stop first. A lane on work the ledger still
+// stuck finds what stopped: the design's five, and failed work, the longest stop first. A lane on work the ledger still
 // counts as moving stands here too, because its work order says nothing of a breaker or a stall.
 func (h *handler) stuck(tx ports.ReadTx, f floor, wakes map[string][]parking.Wake, now int64) ([]api.StuckItem, error) {
+	byDefault, err := control.DefaultAttempts(tx.Policies())
+	if err != nil {
+		return nil, err
+	}
 	items := []api.StuckItem{}
 	add := func(id string, since int64, need api.WorkNeed) {
 		if need.Actions == nil {
@@ -200,7 +204,7 @@ func (h *handler) stuck(tx ports.ReadTx, f floor, wakes map[string][]parking.Wak
 	for i := range f.orders {
 		order := &f.orders[i]
 		switch order.State {
-		case workorders.Lapsed, workorders.Blocked, workorders.Parked:
+		case workorders.Lapsed, workorders.Blocked, workorders.Parked, workorders.Failed:
 		case workorders.Claimed:
 			since, detail, held, err := claimHeldForUpgrade(tx, *order)
 			if err != nil {
@@ -228,6 +232,19 @@ func (h *handler) stuck(tx ports.ReadTx, f floor, wakes map[string][]parking.Wak
 			if need.Detail, _, err = arrivalReason(tx, *order); err != nil {
 				return nil, err
 			}
+		case workorders.Failed:
+			// Nothing retries failed work on its own, so it waits here from the time it failed, with what the state
+			// machine allows of it. Only a retry leaves the state, and work that is out of attempts needs a member
+			// to add one.
+			need.Reason, need.ExtraAttempt = api.ReasonFailed, !order.AttemptsLeft(byDefault)
+			for _, action := range workorders.Allowed(order.State, workorders.Facts{}) {
+				need.Actions = append(need.Actions, string(action))
+			}
+			reason, said, err := arrivalReason(tx, *order)
+			if err != nil {
+				return nil, err
+			}
+			need.Detail = failureWords(reason, said)
 		default:
 			if now-since < h.longParked() {
 				continue
@@ -270,6 +287,19 @@ func (h *handler) stuck(tx ports.ReadTx, f floor, wakes map[string][]parking.Wak
 	}
 	slices.SortStableFunc(items, func(a, b api.StuckItem) int { return cmp.Or(cmp.Compare(a.Since, b.Since), cmp.Compare(a.ID, b.ID)) })
 	return items, nil
+}
+
+// failureWords says why a lane failed as a person reads it: the reason its outcome gave, and what the worker
+// said of it.
+func failureWords(reason, said string) string {
+	switch {
+	case reason != "" && said != "":
+		return reason + ": " + said
+	case said != "":
+		return said
+	default:
+		return reason
+	}
 }
 
 // claimHeldForUpgrade says a claimed work order's worker is too old to read the lane a delegate started under a
@@ -964,6 +994,9 @@ func (h *handler) readPlans(tx ports.ReadTx, _ *http.Request, stamp api.Stamp) (
 		return nil, err
 	}
 	view := api.Plans{Stamp: stamp, Plans: []api.PlanDetail{}, Unplanned: []workorders.WorkOrder{}}
+	if view.WorkActions, err = allowances(tx, orders); err != nil {
+		return nil, err
+	}
 	held := map[string]bool{}
 	for _, plan := range plans {
 		detail := api.PlanDetail{
@@ -1256,13 +1289,20 @@ func (h *handler) readShopFloor(tx ports.ReadTx, _ *http.Request, stamp api.Stam
 	if err != nil {
 		return nil, err
 	}
-	titles := map[string]string{}
+	rows, err := tx.Lanes().Rows()
+	if err != nil {
+		return nil, err
+	}
+	titles, byLane := map[string]string{}, map[string]ledger.LaneRow{}
 	for _, order := range orders {
 		titles[order.ID] = order.Title
 	}
+	for _, row := range rows {
+		byLane[row.ID] = row
+	}
 	view := api.ShopFloor{Stamp: stamp, Workers: lines, Lanes: make([]api.FloorLane, 0, len(lanes))}
 	for _, lane := range lanes {
-		view.Lanes = append(view.Lanes, api.FloorLane{LaneView: lane, WorkOrderTitle: titles[lane.WorkOrder]})
+		view.Lanes = append(view.Lanes, api.FloorLane{LaneView: lane, WorkOrderTitle: titles[lane.WorkOrder], Archivable: archivable(byLane[lane.ID])})
 	}
 	return view, nil
 }

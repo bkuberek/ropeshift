@@ -265,6 +265,11 @@
     "command": "lane resume"
   },
   {
+    "method": "POST",
+    "pattern": "/v1/projects/{project}/work-orders/{id}/retry",
+    "command": "work retry"
+  },
+  {
     "method": "GET",
     "pattern": "/v1/projects/{project}/panes/{id}",
     "command": "lane attach"

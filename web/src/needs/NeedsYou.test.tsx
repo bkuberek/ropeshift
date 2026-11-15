@@ -532,6 +532,41 @@ describe("waiting work", () => {
     expect(sent[0]).toMatchObject({ method: "POST", path: "/v1/work-orders/wo-blocked/cancel", body: { reason: "The plan changed." } });
   });
 
+  // Failed work stays failed until a member retries it, so it waits here from the time it failed. The domain
+  // refuses to cancel work that has failed, so the card offers a retry and nothing the server would refuse.
+  it("asks a member to retry failed work, and names a retry that adds an attempt", async () => {
+    const sent = serveApi(() => ({ status: 200, body: { work_order: "wo-failed", state: "ready" } }));
+    show();
+    const card = await cardNamed(/Try the impossible/);
+    expect(within(card).getAllByText("Failed").length).toBeGreaterThan(0);
+    expect(within(card).getByText("Its lane failed, and nothing retries failed work on its own.")).toBeTruthy();
+    expect(within(card).getByText("It used every attempt it was given, so a retry adds one, which only a member can do.")).toBeTruthy();
+    expect(within(card).getByText(/^It gave up on <img src=x onerror=alert\(1\)>/)).toBeTruthy();
+    expect(within(card).queryByRole("button", { name: "Cancel this work" })).toBeNull();
+    expect(within(card).getByRole("link", { name: "Open work order wo-failed" }).getAttribute("href")).toContain("/work-order?id=wo-failed");
+    await userEvent.click(within(card).getByRole("button", { name: "Retry with an extra attempt" }));
+    expect(sent).toHaveLength(0);
+    const confirm = within(card).getByRole("button", { name: "Retry with an extra attempt" });
+    expect((confirm as HTMLButtonElement).disabled).toBe(true);
+    await userEvent.type(within(card).getByRole("textbox", { name: "Why (required)" }), "The network came back.");
+    await userEvent.click(confirm);
+    await waitFor(() => expect(sent).toHaveLength(1));
+    expect(sent[0]).toMatchObject({ method: "POST", path: "/v1/work-orders/wo-failed/retry", body: { reason: "The network came back." } });
+  });
+
+  it("names a plain retry when the failed work has an attempt left", async () => {
+    const view = goldenNeedsYou();
+    for (const item of view.items) {
+      if (item.kind === "work" && item.id === "wo-failed") {
+        delete item.work.extra_attempt;
+      }
+    }
+    show(view);
+    const card = await cardNamed(/Try the impossible/);
+    expect(within(card).getByRole("button", { name: "Retry" })).toBeTruthy();
+    expect(within(card).queryByText(/used every attempt/)).toBeNull();
+  });
+
   it("starts a stuck orchestrator through its worker, which has no work order", async () => {
     const sent = serveApi(() => ({ status: 200 }));
     const view = goldenNeedsYou();

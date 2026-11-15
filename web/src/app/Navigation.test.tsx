@@ -14,7 +14,7 @@ describe("the views", () => {
     openPage("/");
     const names = within(await views()).getAllByRole("link").map((link) => link.textContent);
     expect(names).toEqual([
-      "Needs you11 waiting", "Roadmap", "Plans", "Planning", "Documents", "Decisions", "Open questions", "Work orders", "Floor", "Measures",
+      "Needs you12 waiting", "Roadmap", "Plans", "Planning", "Documents", "Decisions", "Open questions", "Work orders", "Floor", "Measures",
       "Conversations", "Repositories", "Agents", "Settings", "Audit", "Projects", "Workers and resources", "Members", "Usage",
     ]);
   });
@@ -143,7 +143,7 @@ describe("what waits, from anywhere", () => {
     serveViews();
     openPage("/roadmap");
     await screen.findByRole("heading", { level: 1, name: "Roadmap" });
-    expect(within(await views()).getByRole("link", { name: /^Needs you/ }).textContent).toContain("11 waiting");
+    expect(within(await views()).getByRole("link", { name: /^Needs you/ }).textContent).toContain("12 waiting");
   });
 
   it("drops the count when nothing waits", async () => {

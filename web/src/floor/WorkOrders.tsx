@@ -60,6 +60,10 @@ function Under({ row }: { row: WorkRow }) {
     );
   }
   if (row.stuck) {
+    // Failed work says what its lane said of why, which its state does not.
+    if (row.stuck.reason === "failed" && row.stuck.detail) {
+      return <span className="cell-note mono">{row.stuck.detail}</span>;
+    }
     return <span className="cell-note">{row.stuck.work_order ? words(row.stuck.reason) : ""}</span>;
   }
   if (row.completed?.reason) {

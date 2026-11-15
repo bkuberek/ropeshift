@@ -1059,5 +1059,131 @@
       "state": "intake",
       "title": "Not planned yet"
     }
-  ]
+  ],
+  "work_actions": {
+    "generated-25": {
+      "actions": [
+        "archive_lane"
+      ]
+    },
+    "generated-26": {
+      "actions": [
+        "send_back",
+        "cancel"
+      ]
+    },
+    "generated-27": {
+      "actions": [
+        "send_back",
+        "cancel"
+      ]
+    },
+    "generated-28": {
+      "actions": [
+        "claim",
+        "cancel"
+      ]
+    },
+    "generated-39": {
+      "actions": []
+    },
+    "generated-40": {
+      "actions": [
+        "archive_lane"
+      ]
+    },
+    "generated-41": {
+      "actions": [
+        "archive_lane"
+      ]
+    },
+    "generated-29": {
+      "actions": [
+        "send_back",
+        "cancel"
+      ]
+    },
+    "review-1": {
+      "actions": [
+        "claim",
+        "cancel"
+      ]
+    },
+    "wo-accept": {
+      "actions": [
+        "cancel",
+        "archive_lane"
+      ]
+    },
+    "wo-approval": {
+      "actions": [
+        "cancel"
+      ]
+    },
+    "wo-blocked": {
+      "actions": [
+        "resolve",
+        "replan",
+        "cancel",
+        "archive_lane"
+      ]
+    },
+    "wo-canceled": {
+      "actions": []
+    },
+    "wo-done": {
+      "actions": [
+        "archive_lane"
+      ]
+    },
+    "wo-effect": {
+      "actions": [
+        "cancel"
+      ]
+    },
+    "wo-failed": {
+      "actions": [
+        "retry",
+        "archive_lane"
+      ],
+      "extra_attempt": true
+    },
+    "wo-lapsed": {
+      "actions": [
+        "reassign",
+        "cancel"
+      ]
+    },
+    "wo-loose": {
+      "actions": [
+        "cancel"
+      ]
+    },
+    "wo-parked": {
+      "actions": [
+        "cancel"
+      ]
+    },
+    "wo-review": {
+      "actions": [
+        "send_back",
+        "cancel"
+      ]
+    },
+    "wo-running": {
+      "actions": [
+        "cancel"
+      ]
+    },
+    "wo-stalled": {
+      "actions": [
+        "cancel"
+      ]
+    },
+    "wo-tripped": {
+      "actions": [
+        "cancel"
+      ]
+    }
+  }
 }

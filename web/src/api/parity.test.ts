@@ -151,6 +151,7 @@ const callers: Record<string, Caller> = {
   "POST /v1/projects/{project}/work-orders/{id}/resolve": act("resolve"),
   "POST /v1/projects/{project}/work-orders/{id}/replan": act("replan"),
   "POST /v1/projects/{project}/work-orders/{id}/cancel": act("cancel"),
+  "POST /v1/projects/{project}/work-orders/{id}/retry": act("retry"),
   "POST /v1/projects/{project}/work-orders/{id}/lane-reset": act("reset"),
   "POST /v1/projects/{project}/work-orders/{id}/lane-respawn": act("respawn"),
   "POST /v1/projects/{project}/work-orders/{id}/lane-resume": act("resume"),

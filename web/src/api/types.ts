@@ -149,7 +149,15 @@ export type WorkOrder = {
   adopt?: boolean;
 };
 
-export type WorkAction = "reassign" | "resolve" | "replan" | "reset" | "respawn" | "resume" | "accept" | "rework" | "cancel";
+export type WorkAction = "reassign" | "resolve" | "replan" | "reset" | "respawn" | "resume" | "accept" | "rework" | "cancel" | "retry";
+
+// What a member can do to a work order, as its state allows it. The server's state machine says which, so no
+// page holds a copy of it.
+export type AllowedAction = "claim" | "start_lane" | "retry" | "release" | "send_back" | "reassign" | "resolve" | "replan" | "cancel" | "archive_lane";
+
+// Allowance is what the plans view says of one work order: the actions its state allows now, and whether a
+// retry of it adds an attempt, because it used every one it was given.
+export type Allowance = { actions: AllowedAction[]; extra_attempt?: boolean };
 
 // An orchestrator has no work order, so what a person does about one goes to its worker.
 export type OrchestratorAction = "start_orchestrator";
@@ -165,6 +173,8 @@ export type WorkNeed = {
   // Where finished work stands, with the review's verdict for each criterion.
   standing?: Standing;
   actions: (WorkAction | OrchestratorAction)[];
+  // extra_attempt says the retry that failed work waits for adds an attempt, which only a member can give.
+  extra_attempt?: boolean;
 };
 
 export type DraftDecision = { id: string; question: string; answer: string; rationale?: string; blocking?: boolean };
@@ -340,7 +350,7 @@ export type PlanDetail = {
   approved_version?: number;
 };
 
-export type Plans = Stamp & { plans: PlanDetail[]; unplanned: WorkOrder[] };
+export type Plans = Stamp & { plans: PlanDetail[]; unplanned: WorkOrder[]; work_actions: Record<string, Allowance> };
 
 export type DocumentKind = "requirements" | "spec" | "design" | "other";
 
@@ -575,12 +585,21 @@ export type Worker = {
   reported_at?: number;
 };
 
-export type Orchestrator = { id: string; worker_id: string; desired_state: string; run: number; resets: number; actual_state?: string; current_generation?: number };
+export type Orchestrator = {
+  id: string;
+  worker_id: string;
+  desired_state: string;
+  run: number;
+  resets: number;
+  actual_state?: string;
+  current_generation?: number;
+};
 
 export type WorkerLine = { worker: Worker; freshness: "observed" | "last_reported"; report_freshness?: "observed" | "last_reported"; orchestrator?: Orchestrator };
 
 // A lane on the shop floor names the work it runs, because a lane's ID says nothing to a person.
-export type FloorLane = Lane & { work_order_title?: string };
+// archivable says a member may ask for the lane's worktree to be removed: the lane ended, and it still stands.
+export type FloorLane = Lane & { work_order_title?: string; archivable?: boolean };
 
 export type ShopFloor = Stamp & { workers: WorkerLine[]; lanes: FloorLane[] };
 
@@ -687,8 +706,9 @@ export type Project = {
 
 export type ProjectList = { projects: Project[] };
 
-// SearchRecord is one record the project's search found: its kind, ID, title, and state.
-export type SearchRecord = { kind: string; id: string; title?: string; state?: string };
+// SearchRecord is one record the project's search found: its kind, ID, title, and state. A work order's
+// actions are what its state allows a member to do to it now.
+export type SearchRecord = { kind: string; id: string; title?: string; state?: string; actions?: AllowedAction[] };
 
 // Search is the records whose ID or title holds every word of a query, ranked by the server.
 export type Search = Stamp & { query?: string; records: SearchRecord[]; more?: boolean };

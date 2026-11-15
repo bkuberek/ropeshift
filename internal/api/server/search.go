@@ -138,10 +138,16 @@ func (h *handler) searchable(tx ports.ReadTx, kind string) ([]api.SearchRecord, 
 		if err != nil {
 			return nil, err
 		}
+		allowed, err := allowances(tx, orders)
+		if err != nil {
+			return nil, err
+		}
 		titles := map[string]string{}
 		for _, order := range orders {
 			titles[order.ID] = order.Title
-			add(api.SearchWorkOrder, order.ID, order.Title, string(order.State))
+			if kind == "" || kind == api.SearchWorkOrder {
+				out = append(out, api.SearchRecord{Kind: api.SearchWorkOrder, ID: order.ID, Title: order.Title, State: string(order.State), Actions: allowed[order.ID].Actions})
+			}
 		}
 		lanes, err := h.workers.LanesIn(tx)
 		if err != nil {

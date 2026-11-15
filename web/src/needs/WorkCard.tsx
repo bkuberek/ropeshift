@@ -22,6 +22,7 @@ const reasonWords: Record<string, string> = {
   tripped: "Its lane crashed too often, and its breaker stopped it.",
   stalled: "Its lane shows no progress.",
   long_parked: "Its lane has stayed parked for a long time.",
+  failed: "Its lane failed, and nothing retries failed work on its own.",
   acceptance: "Its lane finished, and it waits for a member's word.",
   human_resume: "Its lane is parked until a person says go.",
   worker_behind: "Its worker must be upgraded before it can start its lane.",
@@ -42,11 +43,15 @@ export const actionWords: Record<WorkAction | OrchestratorAction, string> = {
   accept: "Accept",
   rework: "Send back for rework",
   cancel: "Cancel this work",
+  retry: "Retry",
   start_orchestrator: "Start it again",
 };
 
+// A retry of work that used every attempt it was given says that it adds one.
+const wordsOf = (action: WorkAction | OrchestratorAction, work: WorkNeed) => (action === "retry" && work.extra_attempt ? "Retry with an extra attempt" : actionWords[action]);
+
 // The act a card leads with is its primary button, which stands last; canceling never leads.
-const leading: (WorkAction | OrchestratorAction)[] = ["accept", "resume", "reset", "start_orchestrator", "respawn", "resolve"];
+const leading: (WorkAction | OrchestratorAction)[] = ["accept", "resume", "reset", "start_orchestrator", "respawn", "resolve", "retry"];
 
 function variantOf(action: WorkAction | OrchestratorAction, primary: WorkAction | OrchestratorAction | undefined): ButtonVariant {
   if (action === primary) {
@@ -66,6 +71,7 @@ function Lead({ work }: { work: WorkNeed }) {
       <>
         <p>{said}</p>
         {work.reason === "worker_behind" && work.detail ? <p className="muted">{work.detail}</p> : null}
+        {work.reason === "failed" && work.extra_attempt ? <p className="muted">It used every attempt it was given, so a retry adds one, which only a member can do.</p> : null}
         {work.standing?.why ? <p className="muted">It waits because {work.standing.why}.</p> : null}
       </>
     );
@@ -120,13 +126,13 @@ export function WorkCard({ id, work, after, frame, inPage = false }: { id: strin
               Cancel
             </Button>
             <Button variant={asking === "cancel" ? "danger" : "primary"} type="submit" form={form} disabled={busy || reason.trim() === ""}>
-              {actionWords[asking]}
+              {wordsOf(asking, work)}
             </Button>
           </>
         ) : (
           ordered.map((action) => (
             <Button key={action} variant={variantOf(action, primary)} disabled={busy} onClick={() => press(action)}>
-              {actionWords[action]}
+              {wordsOf(action, work)}
             </Button>
           ))
         )

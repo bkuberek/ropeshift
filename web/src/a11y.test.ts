@@ -138,7 +138,8 @@ async function answer(route: Route): Promise<void> {
 const views = [
   "/needs-you",
   "/needs-you?item=questions%3Agenerated-7",
-  "/needs-you?item=plan_approval%3Agenerated-11",
+  "/needs-you?item=plan_approval%3Agenerated-13",
+  "/needs-you?item=work%3Awo-failed",
   "/needs-you?kind=cards&item=confirm%3Agenerated-1",
   "/needs-you?kind=cards&item=confirm%3Agenerated-2",
   "/projects/default/roadmap",
@@ -162,6 +163,7 @@ const views = [
   "/projects/default/work-order?id=wo-accept",
   "/projects/default/work-order?id=generated-28",
   "/projects/default/work-order?id=generated-26",
+  "/projects/default/work-order?id=wo-failed",
   "/projects/default/floor",
   "/projects/default/lane?id=lane-wo-running",
   "/projects/default/measures",

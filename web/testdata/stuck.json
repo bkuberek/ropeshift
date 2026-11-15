@@ -203,6 +203,65 @@
         "state": "running",
         "title": "Fix the flaky test"
       }
+    },
+    {
+      "actions": [
+        "retry"
+      ],
+      "detail": "It gave up on <img src=x onerror=alert(1)><script>alert(2)</script>",
+      "extra_attempt": true,
+      "id": "wo-failed",
+      "lane": {
+        "actual_state": "ended",
+        "artifacts": [
+          {
+            "created_at": 1790000904001,
+            "digest": "def456",
+            "fence": 2,
+            "id": "generated-6",
+            "kind": "branch",
+            "lane_id": "lane-wo-failed",
+            "uri": "lane/lane-wo-failed"
+          }
+        ],
+        "as_of": 1790000904001,
+        "freshness": "observed",
+        "generation": 1,
+        "generations": [
+          {
+            "end_reason": "failed",
+            "ended_at": 1790000904001,
+            "lane_id": "lane-wo-failed",
+            "number": 1,
+            "start_reason": "initial",
+            "started_at": 1790000904001
+          }
+        ],
+        "id": "lane-wo-failed",
+        "ledger_reach": "unknown",
+        "liveness": "dead",
+        "model_reach": "unknown",
+        "reported_by_epoch": 1,
+        "work_order": "wo-failed",
+        "worker_id": "worker-a"
+      },
+      "reason": "failed",
+      "since": 1790000904001,
+      "work_order": {
+        "attempts": 1,
+        "contract_id": "generated-7",
+        "contract_version": 1,
+        "fence": 2,
+        "id": "wo-failed",
+        "kind": "change",
+        "max_attempts": 1,
+        "repository_id": "repository-1",
+        "rev": 1,
+        "reviewed_by": "member-1",
+        "size": "unknown",
+        "state": "failed",
+        "title": "Try the impossible"
+      }
     }
   ],
   "revision": 340

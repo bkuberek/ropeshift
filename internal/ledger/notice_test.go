@@ -19,6 +19,7 @@ func TestANoticeSaysOnlyWhatItsTableHolds(t *testing.T) {
 		wantText   string
 	}{
 		{"a known reason", ledger.NoticeWork, "blocked", ledger.NoticeWork, "blocked", "A lane stopped, and it needs you."},
+		{"work that failed and waits for a retry", ledger.NoticeWork, "failed", ledger.NoticeWork, "failed", "Work failed, and it waits for a retry."},
 		{"a worker that must be upgraded", ledger.NoticeWork, "worker_behind", ledger.NoticeWork, "worker_behind", "A worker must be upgraded to start a lane."},
 		{"a kind with no reason", ledger.NoticeApproval, "", ledger.NoticeApproval, "", "A lane waits for your approval."},
 		{"a reason nobody wrote a sentence for", ledger.NoticeWork, hostile, ledger.NoticeWork, "", "Something needs you."},

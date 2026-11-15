@@ -75,6 +75,9 @@ const (
 	// policy that restricts it (FR-AUTH-16). The worker renews the claim and starts nothing until it is upgraded,
 	// so nothing lapses and the claim would otherwise look as if it were about to start.
 	ReasonWorkerBehind = "worker_behind"
+	// ReasonFailed is work whose lane failed, which stays failed until a member retries it, because nothing
+	// retries it on its own (ADR-0014).
+	ReasonFailed = "failed"
 	// ReasonAcceptance is finished work that waits for a member's word.
 	ReasonAcceptance = "acceptance"
 	// ReasonResume is a parked lane that waits on a person and on nothing else.
@@ -92,6 +95,8 @@ const (
 	ActAccept   = "accept"
 	ActRework   = "rework"
 	ActCancel   = "cancel"
+	// ActRetry returns failed work to ready, which adds an attempt when none is left.
+	ActRetry = "retry"
 	// ActStartOrchestrator asks for a worker's orchestrator, which resets a breaker that stopped it
 	// and replaces a session that stalled.
 	ActStartOrchestrator = "start_orchestrator"
@@ -99,7 +104,7 @@ const (
 
 // WorkActions lists what a read model can offer, so every surface can be held to knowing each one.
 var WorkActions = []string{
-	ActReassign, ActResolve, ActReplan, ActReset, ActRespawn, ActResume, ActAccept, ActRework, ActCancel, ActStartOrchestrator,
+	ActReassign, ActResolve, ActReplan, ActReset, ActRespawn, ActResume, ActAccept, ActRework, ActCancel, ActRetry, ActStartOrchestrator,
 }
 
 // EffectView is an effect with what a person can say of it.
@@ -122,6 +127,9 @@ type WorkNeed struct {
 	// gave for each criterion with its reasons and citations.
 	Standing *workorders.AcceptanceView `json:"standing,omitempty"`
 	Actions  []string                   `json:"actions"`
+	// ExtraAttempt says the retry that failed work waits for adds an attempt, because the work used every one
+	// it was given. Only a member can add one, so the card says so.
+	ExtraAttempt bool `json:"extra_attempt,omitempty"`
 }
 
 // PlanApprovalNeed is a plan version that waits for a member: what it is, who asked, what it holds,
@@ -337,12 +345,23 @@ type PlanDetail struct {
 	ApprovedVersion int64                  `json:"approved_version,omitempty"`
 }
 
+// WorkAllowance is what a member can do to one work order as it stands now. The domain's state machine says
+// it, so no view holds a copy of the machine.
+type WorkAllowance struct {
+	// Actions are the work actions its state allows, in the order a view offers them: claim, start_lane,
+	// retry, release, send_back, reassign, resolve, replan, cancel, and archive_lane.
+	Actions []string `json:"actions"`
+	// ExtraAttempt says its retry adds an attempt, because it used every attempt it was given.
+	ExtraAttempt bool `json:"extra_attempt,omitempty"`
+}
+
 // Plans is the plans and contracts view. Unplanned is work no plan holds, which stands nowhere else
-// until it starts.
+// until it starts. WorkActions says what a member can do to each work order of the project, by its ID.
 type Plans struct {
 	Stamp
-	Plans     []PlanDetail           `json:"plans"`
-	Unplanned []workorders.WorkOrder `json:"unplanned"`
+	Plans       []PlanDetail             `json:"plans"`
+	Unplanned   []workorders.WorkOrder   `json:"unplanned"`
+	WorkActions map[string]WorkAllowance `json:"work_actions"`
 }
 
 // Documents is requirements, specs, and designs: the files of every source as they stand, each
@@ -418,7 +437,7 @@ type StuckItem struct {
 	Since int64  `json:"since"`
 }
 
-// Stuck is what stopped: `lapsed`, `blocked`, `tripped`, `stalled`, and long-parked.
+// Stuck is what stopped: `lapsed`, `blocked`, `tripped`, `stalled`, long-parked, and `failed`.
 type Stuck struct {
 	Stamp
 	Items []StuckItem `json:"items"`
@@ -453,9 +472,12 @@ type WorkerLine struct {
 }
 
 // FloorLane is a lane and the title of the work it runs, because a lane's ID says nothing to a person.
+// Archivable says a member may ask for its worktree to be removed: the lane ended, and the worktree still
+// stands.
 type FloorLane struct {
 	ledger.LaneView
 	WorkOrderTitle string `json:"work_order_title,omitempty"`
+	Archivable     bool   `json:"archivable,omitempty"`
 }
 
 // ShopFloor is workers, orchestrators, lanes, and their freshness.
@@ -523,11 +545,13 @@ var SearchKinds = []string{
 const SearchLimit = 20
 
 // SearchRecord is one record a search found: its kind, its ID, what it is called, and the state it stands in.
+// A work order also says what a member can do to it now, as the plans view does.
 type SearchRecord struct {
-	Kind  string `json:"kind"`
-	ID    string `json:"id"`
-	Title string `json:"title,omitempty"`
-	State string `json:"state,omitempty"`
+	Kind    string   `json:"kind"`
+	ID      string   `json:"id"`
+	Title   string   `json:"title,omitempty"`
+	State   string   `json:"state,omitempty"`
+	Actions []string `json:"actions,omitempty"`
 }
 
 // Search is the records of one project whose ID or title holds every word of a query, in any order and

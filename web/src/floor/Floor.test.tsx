@@ -171,13 +171,21 @@ describe("the work orders", () => {
     expect(await row("Rotate the keys")).toBeTruthy();
   });
 
+  // Failed work stays failed until a member retries it, so it stands among the work that waits for one.
+  it("lists failed work among what stopped, with its state and what its lane said", async () => {
+    serveViews();
+    openPage("/work?group=stuck");
+    const failed = await row("Try the impossible");
+    expect(within(failed).getAllByText("Failed").length).toBeGreaterThan(0);
+    expect(within(failed).getByText(/^It gave up on/)).toBeTruthy();
+  });
+
   it("lists every way work ended, each with its state", async () => {
     serveViews();
     openPage("/work?group=completed");
     expect(within(await row("Drop the old plan")).getByText("Canceled")).toBeTruthy();
-    expect(within(await row("Try the impossible")).getAllByText("Failed").length).toBeGreaterThan(0);
     expect(within(await row("Ship the first cut")).getByText("Done")).toBeTruthy();
-    expect(within(await row("Try the impossible")).getByText(/^It gave up on/)).toBeTruthy();
+    expect(screen.queryByRole("link", { name: "Try the impossible" })).toBeNull();
   });
 
   it("says what a lane's outcome said of its reason", async () => {
@@ -205,7 +213,7 @@ describe("the work orders", () => {
 
   it("counts the attempt that ended it, and never past the limit", async () => {
     serveViews();
-    openPage("/work?group=completed");
+    openPage("/work?group=stuck");
     const tr = await row("Try the impossible");
     expect(cell(tr, "Attempt")?.textContent).toBe("1 of 1");
   });
@@ -265,9 +273,18 @@ describe("a work order", () => {
 
   it("states where each criterion stands, and asks nobody for anything once work has ended", async () => {
     serveViews();
+    openPage("/work-order?id=wo-done");
+    expect((await screen.findByRole("list", { name: "Acceptance criteria" })).textContent).toContain("Only the lane said so");
+    expect(screen.queryByRole("complementary", { name: "Decision and facts" })?.querySelector("article")).toBeFalsy();
+  });
+
+  // Failed work waits for a member to retry it, so its page asks, and says why it failed.
+  it("asks a member to retry failed work, and says where each criterion stands", async () => {
+    serveViews();
     openPage("/work-order?id=wo-failed");
     expect((await screen.findByRole("list", { name: "Acceptance criteria" })).textContent).toContain("A check failed");
-    expect(screen.queryByRole("complementary", { name: "Decision and facts" })?.querySelector("article")).toBeFalsy();
+    const card = await screen.findByRole("article", { name: /Try the impossible/ });
+    expect(within(card).getByRole("button", { name: "Retry with an extra attempt" })).toBeTruthy();
   });
 
   it("states each check's result and where it came from", async () => {
@@ -670,7 +687,7 @@ describe("operations", () => {
     openPage("/measures");
     const fleet = await screen.findByRole("region", { name: "Fleet" });
     const waiting = within(fleet).getByText("Waiting for a person").closest("div");
-    expect(waiting?.textContent).toContain("11");
+    expect(waiting?.textContent).toContain("12");
     expect(within(waiting as HTMLElement).getByRole("link").getAttribute("href")).toBe("/needs-you");
   });
 

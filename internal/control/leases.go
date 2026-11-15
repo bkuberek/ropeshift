@@ -1187,7 +1187,7 @@ func (l *Leases) ArchiveLane(ctx context.Context, scope ledger.WorkspaceID, work
 		if err != nil {
 			return err
 		}
-		if row.Status.ActualState != ledger.StateEnded && order.Fence == row.StartedFence {
+		if order.LaneRuns(row.StartedFence, row.Status.ActualState == ledger.StateEnded) {
 			return fmt.Errorf("%w: lane %s is still running", workorders.ErrIllegalMove, lane)
 		}
 		if row.UnpushedWork && !forced {

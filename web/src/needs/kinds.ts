@@ -38,6 +38,7 @@ export function keyOf(item: NeedItem): string {
 export const workLabels: Record<string, string> = {
   acceptance: "Waiting for acceptance",
   blocked: "Blocked",
+  failed: "Failed",
   human_resume: "Parked",
   lapsed: "Lapsed",
   long_parked: "Long parked",
@@ -49,6 +50,7 @@ export const workLabels: Record<string, string> = {
 const workIcons: Record<string, IconName> = {
   acceptance: "review",
   blocked: "warning",
+  failed: "warning",
   human_resume: "pause",
   lapsed: "clock",
   long_parked: "pause",

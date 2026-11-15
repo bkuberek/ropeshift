@@ -235,6 +235,10 @@ func defaultAttempts(policies policyReader) (int64, error) {
 	return policy.AttemptBound(0), nil
 }
 
+// DefaultAttempts is the attempts the recovery policy in force gives a work order that names no bound, for a
+// read model that says whether failed work has an attempt left.
+func DefaultAttempts(policies ports.PolicyReader) (int64, error) { return defaultAttempts(policies) }
+
 // recoveryPolicyInForce reads what the version in force says. A body that no longer matches its digest
 // stops the act, because a member reviewed other text.
 func recoveryPolicyInForce(tx ports.WriteTx) (authority.RecoveryPolicy, authority.PolicyVersion, error) {
