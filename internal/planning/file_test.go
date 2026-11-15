@@ -2,6 +2,7 @@ package planning_test
 
 import (
 	"encoding/json"
+	"errors"
 	"testing"
 
 	"ropeshift.com/ropeshift/internal/planning"
@@ -74,5 +75,38 @@ func TestEveryDocumentKindHasAHead(t *testing.T) {
 	}
 	if (planning.DocumentHead{ID: "x"}).Name() != "x" || (planning.DocumentHead{ID: "x", Title: "T"}).Name() != "T" {
 		t.Error("a document with no title is called by its ID")
+	}
+}
+
+// ADR-0022: a manifest path is relative to the planning repository's clone and stays inside the directory
+// that holds that clone, so a manifest can name a clone beside it or inside it and no other place on the
+// machine. Where each path resolves, symbolic links followed, is read again when it is registered.
+func TestAManifestPathStaysInTheDirectoryOfThePlanningClone(t *testing.T) {
+	for path, ok := range map[string]bool{
+		"../api":                       true,
+		"../group/api":                 true,
+		"vendor/lib":                   true,
+		".":                            true,
+		"../api/../web":                true,
+		"../..api":                     true,
+		"..":                           false,
+		"../..":                        false,
+		"../../home/user/secret":       false,
+		"../api/../../outside":         false,
+		"vendor/../../../outside":      false,
+		"/home/user/secret":            false,
+		"..\\outside":                  false,
+		"":                             false,
+		"../api\x00":                   false,
+		"../../../../../../etc/passwd": false,
+	} {
+		manifest := planning.RepositoriesFile{ID: "platform", Repositories: []planning.ManifestRepository{{Name: "api", Path: path}}}
+		_, err := manifest.Normalize()
+		if ok && err != nil {
+			t.Errorf("path %q is refused: %v", path, err)
+		}
+		if !ok && !errors.Is(err, planning.ErrBadFile) {
+			t.Errorf("path %q reads %v, want a bad file", path, err)
+		}
 	}
 }

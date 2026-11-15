@@ -1,6 +1,7 @@
 package server_test
 
 import (
+	"maps"
 	"slices"
 	"strings"
 	"testing"
@@ -327,5 +328,70 @@ func TestRoadmapShowsAMilestoneTheCodeDelivers(t *testing.T) {
 	}
 	if build := plan.Milestones[1]; build.ID != "build" || build.State != api.MilestoneNotStarted {
 		t.Errorf("the milestone after it reads %+v", build)
+	}
+}
+
+// ADR-0022, FR-REPO-4: a milestone whose work spans repositories is done once its work has merged in every
+// one. A repository where the person merges a branch ropeshift never sees merge, so such a milestone, its
+// work all accepted, reads as accepted, not merged; the milestone after it waits for it no longer, as
+// work that depends on accepted work there does not. A milestone in one repository reads as done.
+func TestRoadmapSaysAMilestoneAcrossRepositoriesIsAcceptedNotMerged(t *testing.T) {
+	t.Parallel()
+	daemon := apitest.Start(t)
+	repositories := control.NewRepositories(daemon.Store)
+	intake := ledger.Actor{Kind: ledger.ActorSystem, ID: "intake"}
+	member := ledger.Actor{Kind: ledger.ActorMember, ID: "member-1"}
+	for _, detected := range []control.DetectedRepository{
+		{ID: "repo-api", Directory: "api", DefaultBranch: "main", Remote: "git@github.com:acme/api.git"},
+		{ID: "repo-web", Directory: "web", DefaultBranch: "main", Remote: "git@github.com:acme/web.git"},
+	} {
+		if _, err := repositories.Detect(t.Context(), apitest.Scope, detected, intake); err != nil {
+			t.Fatal(err)
+		}
+	}
+	pullRequests := ledger.ReviewOnPullRequest
+	if _, err := repositories.Change(t.Context(), apitest.Scope, "repo-web", control.RepositoryChange{ReviewTarget: &pullRequests}, member); err != nil {
+		t.Fatal(err)
+	}
+	inRepo := func(id, milestone string, orders ...string) string {
+		out := "+++\nkind = \"contract\"\nid = \"" + id + "\"\ntitle = \"Contract " + id + "\"\nplan = \"launch\"\nmilestone = \"" + milestone + "\"\n\n[[criteria]]\nid = \"c1\"\ntext = \"It works\"\n"
+		for _, order := range orders {
+			name, repo, _ := strings.Cut(order, "@")
+			out += "\n[[work_orders]]\nid = \"" + name + "\"\ntitle = \"Work " + name + "\"\nrepo = \"" + repo + "\"\n"
+		}
+		return out + "+++\n\nThe statement of " + id + ".\n"
+	}
+	source := fake.NewWorkSource()
+	source.Write("plan.md", []byte("+++\nkind = \"plan\"\nid = \"launch\"\ntitle = \"Launch\"\n+++\n\nHow.\n"))
+	source.Write("m-split.md", []byte(milestoneFile("split", "1")))
+	source.Write("m-after.md", []byte(milestoneFile("after", "2", "split")))
+	source.Write("m-alone.md", []byte(milestoneFile("alone", "3")))
+	source.Write("split.md", []byte(inRepo("split", "split", "a1@api", "w1@web")))
+	source.Write("after.md", []byte(inRepo("after", "after", "w2@web")))
+	source.Write("alone.md", []byte(inRepo("alone", "alone", "a2@api")))
+	if report, err := control.NewIntake(daemon.Store).Poll(t.Context(), apitest.Scope, source); err != nil || len(report.Problems) != 0 {
+		t.Fatalf("report %+v: %v", report, err)
+	}
+	ids := idsByTitle(t, daemon)
+	for _, name := range []string{"a1", "w1", "a2"} {
+		finish(t, daemon, ids[name])
+	}
+	states := func() map[string]string {
+		out := map[string]string{}
+		for _, m := range launchPlan(t, daemon).Milestones {
+			out[m.ID] = m.State
+		}
+		return out
+	}
+	want := map[string]string{"split": api.MilestoneAcceptedNotMerged, "after": api.MilestoneNotStarted, "alone": api.MilestoneDone}
+	if got := states(); !maps.Equal(got, want) {
+		t.Errorf("the milestones read %v, want %v", got, want)
+	}
+	if _, err := repositories.Change(t.Context(), apitest.Scope, "repo-api", control.RepositoryChange{ReviewTarget: &pullRequests}, member); err != nil {
+		t.Fatal(err)
+	}
+	want["split"] = api.MilestoneDone
+	if got := states(); !maps.Equal(got, want) {
+		t.Errorf("once every repository lands work through a merge ropeshift reads, the milestones read %v, want %v", got, want)
 	}
 }

@@ -92,6 +92,7 @@ export const milestoneStates: Record<string, StateLook> = {
   in_progress: { label: "In progress", tone: "active", glyph: "dot" },
   done: { label: "Done", tone: "success", glyph: "check" },
   existing: { label: "Existing", tone: "success", glyph: "check" },
+  accepted_not_merged: { label: "Accepted, not merged", tone: "warning", glyph: "half" },
 };
 
 export const requirementStates: Record<string, StateLook> = {

@@ -25,7 +25,33 @@ const (
 	EventRepositoryRegistered = "repository.registered"
 	// EventRepositoryRemoved records a member taking a repository out of its project (ADR-0021).
 	EventRepositoryRemoved = "repository.removed"
+	// EventManifestRegistered records, about a plan approval, what approving it registered of the
+	// repositories its version's manifest lists (ADR-0022), as a ManifestRegistration, so whoever reads the
+	// approval later reads what it did, however the member gave the word.
+	EventManifestRegistered = "approval.manifest_registered"
 )
+
+// ManifestRegistration is what one run of registration from a manifest did: an outcome for each repository
+// the manifest lists, those a failure stopped the run before among them as not attempted, and why the run
+// stopped short, when it did.
+type ManifestRegistration struct {
+	Repositories []ManifestOutcome `json:"repositories"`
+	Problem      string            `json:"problem,omitempty"`
+}
+
+// ManifestOutcome is what became of one repository a manifest lists: its name and its path as the manifest
+// writes them, where that path led on the worker's machine, the remote the manifest names, the record it
+// registered or found, the checkout the worker keeps of it, and why it was refused.
+type ManifestOutcome struct {
+	Name       string            `json:"name"`
+	Path       string            `json:"path"`
+	Resolved   string            `json:"resolved,omitempty"`
+	Remote     string            `json:"remote,omitempty"`
+	Outcome    RepositoryOutcome `json:"outcome"`
+	Repository string            `json:"repository,omitempty"`
+	Checkout   string            `json:"checkout,omitempty"`
+	Reason     string            `json:"reason,omitempty"`
+}
 
 // RepositoryState says whether a repository is in its project.
 type RepositoryState string
@@ -50,6 +76,10 @@ const (
 	// RegistrationRefused registered nothing: another project holds the repository, or the path holds no
 	// clone.
 	RegistrationRefused RepositoryOutcome = "refused"
+	// NotAttempted is a repository a registration from a manifest never reached, because a failure of the
+	// store or of the worker's checkouts stopped the run before it, so nothing says what would have become
+	// of it. A later approval, or a member's registration by hand, registers it.
+	NotAttempted RepositoryOutcome = "not_attempted"
 )
 
 // MergeMethod is how a pull request lands on its base branch.

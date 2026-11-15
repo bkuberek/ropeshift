@@ -19,11 +19,91 @@ type Checkouts struct {
 	mu     sync.Mutex
 	clones map[string]ports.Clone
 	kept   map[ledger.WorkspaceID]map[string]string
+	// links are the symbolic links on the machine, each path to the path it leads to.
+	links map[string]string
+	// reserved are the directories the installation keeps for itself.
+	reserved []string
+	// spellings are the second spellings of a directory the machine holds, each to the one it spells.
+	spellings map[string]string
 }
 
 // NewCheckouts returns a machine with no clone on it.
 func NewCheckouts() *Checkouts {
-	return &Checkouts{clones: map[string]ports.Clone{}, kept: map[ledger.WorkspaceID]map[string]string{}}
+	return &Checkouts{clones: map[string]ports.Clone{}, kept: map[ledger.WorkspaceID]map[string]string{}, links: map[string]string{}, spellings: map[string]string{}}
+}
+
+// Link puts a symbolic link on the machine at a path, leading to an absolute path.
+func (f *Checkouts) Link(at, target string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.links[path.Clean(at)] = path.Clean(target)
+}
+
+// Spell says a path is a second spelling of another, as a disk that ignores case gives a directory, so the two
+// name one file. Resolve leaves a spelling as it is, as a machine does, and SameFile says they match.
+func (f *Checkouts) Spell(variant, of string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.spellings[path.Clean(variant)] = path.Clean(of)
+}
+
+// SameFile says two paths name one file once the links in each are followed and the spellings the machine
+// holds are read as the paths they spell.
+func (f *Checkouts) SameFile(ctx context.Context, a, b string) (bool, error) {
+	first, _, err := f.Resolve(ctx, a)
+	if err != nil {
+		return false, err
+	}
+	second, _, err := f.Resolve(ctx, b)
+	if err != nil {
+		return false, err
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.spelled(first) == f.spelled(second), nil
+}
+
+// spelled reads a path as the path it spells, a spelling of one of its directories included.
+func (f *Checkouts) spelled(at string) string {
+	for variant, of := range f.spellings {
+		if at == variant {
+			return of
+		}
+		if rest, under := strings.CutPrefix(at, variant+"/"); under {
+			return of + "/" + rest
+		}
+	}
+	return at
+}
+
+// Reserve names a directory the installation keeps for itself, as its state directory.
+func (f *Checkouts) Reserve(dir string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.reserved = append(f.reserved, path.Clean(dir))
+}
+
+// Resolve follows the links in a path, the first component that is a link first, as a machine does. Every
+// path is there, because the machine holds no directories, only clones and links.
+func (f *Checkouts) Resolve(_ context.Context, at string) (string, bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	at = path.Clean(at)
+	for range 40 {
+		moved := false
+		parts := strings.Split(at, "/")
+		for i := 1; i <= len(parts) && !moved; i++ {
+			prefix := strings.Join(parts[:i], "/")
+			if target, ok := f.links[prefix]; ok {
+				at, moved = path.Join(append([]string{target}, parts[i:]...)...), true
+			}
+		}
+		if !moved {
+			break
+		}
+	}
+	reserved := slices.ContainsFunc(f.reserved, func(dir string) bool { return at == dir || strings.HasPrefix(at, dir+"/") })
+	return at, reserved, nil
 }
 
 // Place puts a clone on the machine at its path, and names its directory after the path when it names none.

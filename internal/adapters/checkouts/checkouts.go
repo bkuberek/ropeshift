@@ -7,11 +7,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
+	"syscall"
 
 	"ropeshift.com/ropeshift/internal/adapters/gitcli"
 	"ropeshift.com/ropeshift/internal/adapters/repofiles"
@@ -29,6 +32,9 @@ type File struct {
 	Path string
 	// Env replaces the environment of git commands. Nil runs them in the process's.
 	Env []string
+	// Reserved are the directories the installation keeps for itself, such as its state and run
+	// directories, which hold no clone to register.
+	Reserved []string
 
 	mu sync.Mutex
 }
@@ -236,6 +242,84 @@ func (f *File) cloneAt(ctx context.Context, dir string) (ports.Clone, string, bo
 		Path: real, ID: description.Instance, Remote: description.Remote, DefaultBranch: description.DefaultBranch,
 		Directory: filepath.Base(real),
 	}, "", true
+}
+
+// Resolve follows every symbolic link in a path, and says whether the path it comes to is inside a
+// directory the installation keeps for itself. A path nothing is at is ErrNotFound.
+func (f *File) Resolve(_ context.Context, path string) (string, bool, error) {
+	real, err := filepath.EvalSymlinks(path)
+	if errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ENOTDIR) {
+		return "", false, fmt.Errorf("nothing is at %s: %w", path, ports.ErrNotFound)
+	}
+	if err != nil {
+		return "", false, err
+	}
+	if real, err = filepath.Abs(real); err != nil {
+		return "", false, err
+	}
+	for _, dir := range f.Reserved {
+		if held, err := filepath.EvalSymlinks(dir); err == nil {
+			dir = held
+		}
+		if rel, err := filepath.Rel(filepath.Clean(dir), real); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return real, true, nil
+		}
+	}
+	// A directory spelled another way is the same directory, as on a disk that ignores case, so the path and
+	// each directory above it are compared with the reserved ones by the file each names.
+	inside, err := insideByFile(f.Reserved, real)
+	return real, inside, err
+}
+
+// insideByFile says a path is one of the directories, or inside one, by the file each names and not by how a
+// path spells it: the path and every directory above it are read from the disk and compared with each
+// directory that exists. A directory nothing is at holds nothing.
+func insideByFile(dirs []string, path string) (bool, error) {
+	var reserved []os.FileInfo
+	for _, dir := range dirs {
+		info, err := os.Stat(dir)
+		if err == nil {
+			reserved = append(reserved, info)
+		}
+	}
+	if len(reserved) == 0 {
+		return false, nil
+	}
+	for at := filepath.Clean(path); ; at = filepath.Dir(at) {
+		info, err := os.Stat(at)
+		if err != nil {
+			return false, err
+		}
+		if slices.ContainsFunc(reserved, func(dir os.FileInfo) bool { return os.SameFile(dir, info) }) {
+			return true, nil
+		}
+		if filepath.Dir(at) == at {
+			return false, nil
+		}
+	}
+}
+
+// SameFile says two paths name one file or directory, by what the disk says of each. A path nothing is at is
+// ErrNotFound.
+func (f *File) SameFile(_ context.Context, a, b string) (bool, error) {
+	first, err := statOf(a)
+	if err != nil {
+		return false, err
+	}
+	second, err := statOf(b)
+	if err != nil {
+		return false, err
+	}
+	return os.SameFile(first, second), nil
+}
+
+// statOf reads what the disk says of a path, every symbolic link followed.
+func statOf(path string) (os.FileInfo, error) {
+	info, err := os.Stat(path)
+	if errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ENOTDIR) {
+		return nil, fmt.Errorf("nothing is at %s: %w", path, ports.ErrNotFound)
+	}
+	return info, err
 }
 
 var _ ports.Checkouts = (*File)(nil)

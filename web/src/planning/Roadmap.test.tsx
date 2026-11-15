@@ -170,6 +170,20 @@ describe("a plan's milestones and work", () => {
     expect(within(milestones[2] as HTMLElement).queryByRole("progressbar")).toBeNull();
   });
 
+  it("says a milestone across repositories whose work a person still merges is accepted, not merged", async () => {
+    serve((view) => {
+      const milestone = factory(view)?.milestones[0];
+      if (milestone) {
+        milestone.state = "accepted_not_merged";
+        milestone.done = milestone.total;
+      }
+    });
+    openPage(here("/roadmap"));
+    const goal = await screen.findByRole("region", { name: "Run the factory" });
+    const milestones = items(within(goal).getByRole("list", { name: "Milestones" }));
+    expect(milestones[0]?.textContent).toContain("Accepted, not merged");
+  });
+
   it("lays out each milestone's work by dependency layer, as columns of work order cards", async () => {
     const goal = await opened();
     const build = within(goal).getByRole("region", { name: "Build the core · work by dependency layer" });

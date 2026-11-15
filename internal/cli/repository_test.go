@@ -3,6 +3,8 @@ package cli_test
 import (
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -416,5 +418,139 @@ func TestRepositorySetWarnsWhenNoWorkerHasGH(t *testing.T) {
 	}
 	if _, _, stderr := s.run("repository", "set", aRepositoryID[:8], "--review-target", "branch"); stderr != "" {
 		t.Errorf("a branch review warned %q", stderr)
+	}
+}
+
+// platformManifest is a manifest of the planning repository and the billing and ghost repositories beside
+// its clone, under the plan named.
+func platformManifest(plan string) string {
+	out := "+++\nkind = \"repositories\"\nid = \"platform\"\nplan = \"" + plan + "\"\n"
+	for _, entry := range [][2]string{{"plan", "."}, {"billing", "../billing"}, {"ghost", "../ghost"}} {
+		out += "\n[[repository]]\nname = \"" + entry[0] + "\"\npath = \"" + entry[1] + "\"\n"
+	}
+	return out + "+++\n\nThe platform's repositories.\n"
+}
+
+// platformMachine is a worker's machine with the planning repository's clone at /work/plan, registered, and a
+// clone of billing beside it under another directory name. Nothing is cloned at /work/ghost.
+func platformMachine(t *testing.T) *session {
+	t.Helper()
+	machine := fake.NewCheckouts()
+	machine.Place(ports.Clone{Path: "/work/plan", ID: aRepositoryID, DefaultBranch: "main"})
+	machine.Place(ports.Clone{Path: "/work/billing", ID: "0a1b2c3d4e5f60718293a4b5c6d7e8f901a2b3c4", DefaultBranch: "main", Directory: "billing-clone"})
+	s := &session{t: t, daemon: apitest.StartWith(t, apitest.Options{Checkouts: machine})}
+	s.must("repository", "add", "/work/plan")
+	return s
+}
+
+// ADR-0022: a member registers what a manifest lists by hand, from the clones beside the planning
+// repository's, each under the manifest's name. One with no clone is refused with why, and exits 4.
+func TestRepositoryAddRegistersWhatAManifestLists(t *testing.T) {
+	s := platformMachine(t)
+	file := filepath.Join(t.TempDir(), "repositories.md")
+	if err := os.WriteFile(file, []byte(platformManifest("platform-v1")), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	code, stdout, _ := s.run("repository", "add", "--manifest", file, "--dry-run")
+	if code != cli.ExitConflict || !strings.Contains(stdout, "would register\tbilling\t") || !strings.Contains(stdout, "already registered\tplan\t") {
+		t.Errorf("a dry run: exit %d\n%s", code, stdout)
+	}
+	code, stdout, _ = s.run("repository", "add", "--manifest", file)
+	for _, want := range []string{"registered\tbilling\t../billing\t/work/billing\t-\n", "refused\tghost\t../ghost\t/work/ghost\t-\tghost is not registered: no git clone is at /work/ghost"} {
+		if !strings.Contains(stdout, want) {
+			t.Errorf("the run lacks %q:\n%s", want, stdout)
+		}
+	}
+	if code != cli.ExitConflict {
+		t.Errorf("a manifest with a repository it could not register: exit %d", code)
+	}
+	if text := s.must("repository", "show", "billing"); !strings.Contains(text, "review target\tbranch") || !strings.Contains(text, "merge authority\tperson_merges") {
+		t.Errorf("billing:\n%s", text)
+	}
+	if code, _, _ := s.run("repository", "add", "/work/plan", "--manifest", file); code != cli.ExitUsage {
+		t.Errorf("paths and a manifest: exit %d", code)
+	}
+	notes := filepath.Join(t.TempDir(), "notes.md")
+	if err := os.WriteFile(notes, []byte("+++\nkind = \"spec\"\nid = \"x\"\ntitle = \"X\"\n+++\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, stderr := s.run("repository", "add", "--manifest", notes); code != cli.ExitUsage || !strings.Contains(stderr, "repositories") {
+		t.Errorf("a file that is no manifest: exit %d: %s", code, stderr)
+	}
+}
+
+// platformPlan is a platform machine whose plan lists the platform manifest, read once, with the plan's ID.
+func platformPlan(t *testing.T) (*session, string) {
+	t.Helper()
+	s := platformMachine(t)
+	source := fake.NewWorkSource()
+	source.Write("plan.md", []byte("+++\nkind = \"plan\"\nid = \"platform-v1\"\ntitle = \"The platform\"\ndocuments = [\"repositories:platform\"]\n+++\n\nHow.\n"))
+	source.Write("repositories.md", []byte(platformManifest("platform-v1")))
+	s.poll(source)
+	plans, err := s.daemon.Client.Plans(t.Context())
+	if err != nil || len(plans) != 1 {
+		t.Fatalf("plans %+v: %v", plans, err)
+	}
+	return s, plans[0].ID
+}
+
+// With --json the command prints the one document of the decision and nothing before it, so a script reads it
+// whole; the preview is for a terminal.
+func TestPlanApproveJSONPrintsOneDocument(t *testing.T) {
+	s, plan := platformPlan(t)
+	var decided api.ApprovalDecided
+	if err := json.Unmarshal([]byte(s.must("plan", "approve", plan, "--json")), &decided); err != nil || len(decided.Repositories) != 3 {
+		t.Fatalf("approve --json printed a decision with %d repositories: %v", len(decided.Repositories), err)
+	}
+}
+
+// ADR-0022: approving a plan registers what its manifest adds, as the approving member, and the command
+// says what it registered and what it could not.
+func TestPlanApproveRegistersWhatItsManifestAdds(t *testing.T) {
+	s, plan := platformPlan(t)
+	// Before approving, the member reads each repository the manifest lists, where its path leads, and
+	// whether approving registers it.
+	shown := s.must("plan", "show", plan)
+	for _, want := range []string{
+		"  repositories approving would register, read now on the daemon's worker's machine:\n",
+		"    would register\tbilling\t../billing\t/work/billing\t-\n",
+		"    already registered\tplan\t.\t/work/plan\t-\n",
+		"    refused\tghost\t../ghost\t/work/ghost\t-\tghost is not registered: no git clone is at /work/ghost\n",
+	} {
+		if !strings.Contains(shown, want) {
+			t.Errorf("plan show lacks %q:\n%s", want, shown)
+		}
+	}
+	if list := s.must("repository", "list"); strings.Contains(list, "billing") {
+		t.Errorf("reading the plan registered billing:\n%s", list)
+	}
+	text := s.must("plan", "approve", plan)
+	for _, want := range []string{"approved The platform version 1", "registered\tbilling\t../billing\t/work/billing\t-\n", "refused\tghost\t../ghost\t/work/ghost\t-\tghost is not registered"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("approve lacks %q:\n%s", want, text)
+		}
+	}
+	// The command prints what it would register before it approves, as plan show does, so the member's
+	// terminal shows the entries the approval consented to ahead of its result.
+	approved := strings.Index(text, "approved The platform version 1")
+	for _, want := range []string{
+		"  repositories approving would register, read now on the daemon's worker's machine:\n",
+		"    would register\tbilling\t../billing\t/work/billing\t-\n",
+		"    already registered\tplan\t.\t/work/plan\t-\n",
+		"    refused\tghost\t../ghost\t/work/ghost\t-\tghost is not registered: no git clone is at /work/ghost\n",
+	} {
+		if at := strings.Index(text, want); at < 0 || at > approved {
+			t.Errorf("approve printed %q at %d, want it before the result at %d:\n%s", want, at, approved, text)
+		}
+	}
+	// Afterwards the approval says what it registered, however the member gave the word.
+	shown = s.must("plan", "show", plan)
+	for _, want := range []string{"  repositories this approval registered:\n", "    registered\tbilling\t../billing\t/work/billing\t-\n", "    refused\tghost\t"} {
+		if !strings.Contains(shown, want) {
+			t.Errorf("plan show after approval lacks %q:\n%s", want, shown)
+		}
+	}
+	if list := s.must("repository", "list"); !strings.Contains(list, "billing") || strings.Contains(list, "ghost") {
+		t.Errorf("the repositories after approval:\n%s", list)
 	}
 }

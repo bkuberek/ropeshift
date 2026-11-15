@@ -244,7 +244,9 @@ export type Plan = { id: string; goal_id?: string; title: string; status: string
 export type ExitCriterion = { id: string; text: string };
 
 // A milestone's state comes from its work and the milestones it depends on.
-export type MilestoneState = "not_started" | "waiting" | "in_progress" | "done" | "existing";
+// A milestone across repositories whose work a person still merges, in a repository at person_merges with
+// review target branch, is accepted and not merged.
+export type MilestoneState = "not_started" | "waiting" | "in_progress" | "done" | "existing" | "accepted_not_merged";
 
 export type MilestoneProgress = {
   id: string;
@@ -708,8 +710,32 @@ export type PlanApprovalDetail = {
   adoption?: Adoption;
 };
 
+// RepositoryOutcome is what became of one repository a manifest lists, or would on approval: its name, the
+// path of its clone as the manifest writes it, where that path leads on the daemon's worker's machine, its
+// remote, and why it was refused. A repository a failure stopped the run before is not attempted.
+export type RepositoryOutcome = {
+  name?: string;
+  manifest_path?: string;
+  remote?: string;
+  path: string;
+  outcome: "registered" | "known" | "refused" | "not_attempted";
+  checkout?: string;
+  reason?: string;
+};
+
+// ManifestRegistration is what approving a plan version registers of the repositories its manifest lists:
+// before a member decides, a preview read from the worker's clones that records nothing; after, what the
+// approval registered.
+export type ManifestRegistration = { preview?: boolean; repositories: RepositoryOutcome[]; problem?: string };
+
 // PlanApprovalView is a request to approve a plan version with everything a member reads before deciding.
-export type PlanApprovalView = { approval: Approval; detail: PlanApprovalDetail; records?: PlanEntry[]; drafts?: DraftDecision[] };
+export type PlanApprovalView = {
+  approval: Approval;
+  detail: PlanApprovalDetail;
+  records?: PlanEntry[];
+  drafts?: DraftDecision[];
+  registration?: ManifestRegistration;
+};
 
 // One version of a plan, and where the request to approve it stands: none when nobody asked.
 export type PlanVersionLine = { version: number; digest?: string; approval?: string; state?: string };

@@ -15,6 +15,7 @@ import (
 
 	"ropeshift.com/ropeshift/internal/adapters/fake"
 	"ropeshift.com/ropeshift/internal/adapters/lexical"
+	"ropeshift.com/ropeshift/internal/adapters/repofiles"
 	"ropeshift.com/ropeshift/internal/adapters/sqlite"
 	"ropeshift.com/ropeshift/internal/adapters/sqlstore"
 	"ropeshift.com/ropeshift/internal/api"
@@ -205,7 +206,7 @@ func StartWith(t testing.TB, options Options) *Daemon {
 		Scope: Scope, Store: store, LeaseTTL: LeaseTTL, Protocol: options.Protocol, HeartbeatMs: HeartbeatMs,
 		Knowledge: options.Knowledge, Matcher: lexical.Matcher{Store: store}, Identity: identity, Windows: options.Windows,
 		Telemetry: options.Telemetry, Backup: options.Backup, Panes: options.Panes, WebAddress: options.WebAddress,
-		Checkouts: options.Checkouts, Starts: options.Starts, Branches: options.Branches, LaneBranchPrefix: options.LaneBranchPrefix,
+		Checkouts: options.Checkouts, ParseManifest: repofiles.ParseManifest, Starts: options.Starts, Branches: options.Branches, LaneBranchPrefix: options.LaneBranchPrefix,
 	}
 	daemon := serve(t, config, options.Wrap)
 	daemon.Store = store

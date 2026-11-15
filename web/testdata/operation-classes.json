@@ -356,6 +356,12 @@
       "exemptable": true
     },
     {
+      "id": "repository.register_manifest",
+      "label": "Register from a repository manifest",
+      "class": "member_only",
+      "exemptable": false
+    },
+    {
       "id": "repository.set",
       "label": "Change a repository's settings",
       "class": "operational",

@@ -2,7 +2,7 @@ import { useRef, useState } from "react";
 
 import { useChange, useRead } from "../admin/parts";
 import { ApiError, decideApproval, readApproval, readPlan } from "../api/client";
-import type { ApprovalRecord, PlanApprovalDetail, PlanApprovalView, PlanEntry, PlanVersionLine, DraftDecision, Plan } from "../api/types";
+import type { ApprovalRecord, ManifestRegistration, PlanApprovalDetail, PlanApprovalView, PlanEntry, PlanVersionLine, DraftDecision, Plan } from "../api/types";
 import type { Live } from "../api/useView";
 import { addressOf, Link, useArrivalFocus } from "../app/route";
 import { approvalStates } from "../floor/states";
@@ -12,7 +12,7 @@ import { DecisionCard } from "../ui/DecisionCard";
 import { Banner, Digest, EmptyState, Panel, Refusal, SkeletonRows, StateBadge, TargetChip } from "../ui/display";
 import { Field } from "../ui/forms";
 import { Dialog } from "../ui/overlays";
-import { AdoptionGroups, ChangedContracts, CoveredDocuments, DifferenceBlock, DraftDecisions } from "./PlanParts";
+import { AdoptionGroups, ChangedContracts, CoveredDocuments, DifferenceBlock, DraftDecisions, registrationTitle, RegistrationRows } from "./PlanParts";
 import { versionLinks } from "./planChanges";
 
 // Subject is what the page decides on: one version of a plan and the request to approve it. A plan the ledger
@@ -27,6 +27,8 @@ export type Subject = {
   records: PlanEntry[];
   drafts: DraftDecision[];
   version: number;
+  // registration is what approving registers of the repositories the version's manifest lists, when it lists any.
+  registration?: ManifestRegistration;
 };
 
 const noDetail: PlanApprovalDetail = { title: "" };
@@ -53,6 +55,7 @@ export async function readSubject(id: string, version: string): Promise<Subject>
       records: held?.records ?? [],
       drafts: held?.drafts ?? [],
       version: held?.approval.plan_version ?? Number(version || view.versions[0]?.version || 0),
+      registration: held?.registration,
     };
   } catch (error) {
     if (!(error instanceof ApiError) || error.code !== "not_found") {
@@ -275,6 +278,11 @@ export function PlanApprovalBody({ subject, live, after, reload }: { subject: Su
           <Panel title="Documents">
             <CoveredDocuments records={subject.records} live={live} />
           </Panel>
+          {subject.registration ? (
+            <Panel title={registrationTitle(subject.registration)}>
+              <RegistrationRows registration={subject.registration} />
+            </Panel>
+          ) : null}
           <Versions subject={subject} />
         </div>
         <aside className="stack sticky decision-aside" aria-label="Your decision">

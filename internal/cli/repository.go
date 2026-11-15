@@ -272,9 +272,16 @@ func (c *invocation) repositoryAdd(args []string) int {
 	set := c.flags()
 	depth := set.Int("depth", 1, "how many levels below a path that is not a clone to look for clones")
 	dryRun := set.Bool("dry-run", false, "say what would be registered and refused, and record nothing")
+	manifest := set.String("manifest", "", "register what a repository manifest lists, from the clones beside the planning repository's")
 	positional, ok := c.parse(set, args)
 	if !ok {
 		return ExitUsage
+	}
+	if *manifest != "" {
+		if len(positional) != 0 {
+			return c.usageError("name paths or --manifest, not both")
+		}
+		return c.addFromManifest(*manifest, *dryRun)
 	}
 	if len(positional) == 0 {
 		return c.usageError("name a path to register: a clone, or a folder of clones")
@@ -304,6 +311,56 @@ func (c *invocation) repositoryAdd(args []string) int {
 		return ExitConflict
 	}
 	return code
+}
+
+// addFromManifest registers what a repository manifest on this machine lists, as plan approval does for an
+// approved one (ADR-0022): each repository from the clone at its path beside the planning repository's
+// clone on this worker's machine. A repository with no clone there is refused with why, and exits 4.
+func (c *invocation) addFromManifest(path string, dryRun bool) int {
+	text, err := c.readLocal(path)
+	if err != nil {
+		return c.failure(err)
+	}
+	client, exit := c.projectClient()
+	if client == nil {
+		return exit
+	}
+	defer client.Close()
+	report, err := client.AddRepositories(c.ctx, api.RepositoryAdd{Manifest: string(text), DryRun: dryRun})
+	if report.Repositories == nil {
+		report.Repositories = []api.RepositoryAdded{}
+	}
+	code := c.finish(err, report, func() string { return manifestText(report.Repositories, report.DryRun, "") })
+	if code == ExitOK && report.Refused() > 0 {
+		return ExitConflict
+	}
+	return code
+}
+
+// manifestText prints one line for each repository a manifest lists: what became of it, or would, its name
+// and the path of its clone as the manifest writes them, where that path leads on the worker's machine, the
+// remote the manifest names, and why it was refused, each line after an indent.
+func manifestText(added []api.RepositoryAdded, wouldBe bool, indent string) string {
+	var out strings.Builder
+	for _, one := range added {
+		word := "registered"
+		switch {
+		case one.Outcome == ledger.RegistrationRefused:
+			word = "refused"
+		case one.Outcome == ledger.AlreadyRegistered:
+			word = "already registered"
+		case one.Outcome == ledger.NotAttempted:
+			word = "not attempted"
+		case wouldBe:
+			word = "would register"
+		}
+		fmt.Fprintf(&out, "%s%s\t%s\t%s\t%s\t%s", indent, word, dashIfEmpty(one.Name), dashIfEmpty(one.ManifestPath), dashIfEmpty(one.Path), dashIfEmpty(one.Remote))
+		if one.Reason != "" {
+			fmt.Fprintf(&out, "\t%s", one.Reason)
+		}
+		out.WriteString("\n")
+	}
+	return out.String()
 }
 
 // addedText prints one line for each clone and each path: what became of it, the repository's name and

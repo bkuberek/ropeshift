@@ -70,12 +70,21 @@ type RepositoryAdd struct {
 	Depth int `json:"depth,omitempty"`
 	// DryRun says what would be registered and refused, and records nothing.
 	DryRun bool `json:"dry_run,omitempty"`
+	// Manifest is the text of a repository manifest, in place of Paths: each repository it lists is
+	// registered from the clone at its path beside the planning repository's clone (ADR-0022).
+	Manifest string `json:"manifest,omitempty"`
 }
 
 // RepositoryAdded is what became of one clone, or of a path that holds none.
 type RepositoryAdded struct {
-	Path    string                   `json:"path"`
-	Outcome ledger.RepositoryOutcome `json:"outcome"`
+	// Name, ManifestPath, and Remote are the repository's name, the path of its clone, and its remote as a
+	// manifest writes them, for a registration from one, and Path is then where ManifestPath led on the
+	// worker's machine, every symbolic link followed.
+	Name         string                   `json:"name,omitempty"`
+	ManifestPath string                   `json:"manifest_path,omitempty"`
+	Remote       string                   `json:"remote,omitempty"`
+	Path         string                   `json:"path"`
+	Outcome      ledger.RepositoryOutcome `json:"outcome"`
 	// Repository is the record as it stands, or would after a dry run. A path with no clone has none.
 	Repository *ledger.Repository `json:"repository,omitempty"`
 	// Checkout is the path the worker keeps for the repository.

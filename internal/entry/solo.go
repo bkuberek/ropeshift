@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/fs"
 	"maps"
 	"net"
 	"net/http"
@@ -259,7 +260,7 @@ func serveSolo(ctx context.Context, paths api.Paths, opts soloOptions, stdout, s
 		Telemetry: telemetry.store,
 		Panes:     soloPanes(terminal), Starts: soloStarts(opts, kept), WebAddress: webAddressOf(webListener),
 		Branches: branchSource(opts, kept), LaneBranchPrefix: soloLaneBranchPrefix(paths),
-		Checkouts: kept, ModelClasses: soloModelClasses(paths),
+		Checkouts: kept, ParseManifest: repofiles.ParseManifest, ModelClasses: soloModelClasses(paths),
 		Profile: profiles.Filesystem{User: filepath.Join(paths.StateDir, profiles.UserFile)}, LocalWorker: local.id,
 	}
 	hosts := &soloHosts{kept: kept, runtime: laneRuntime}
@@ -560,14 +561,16 @@ func soloTerminal(runner ports.ProcessRunner, paths api.Paths, env []string) (po
 	return terminal, nil
 }
 
-// soloCheckouts is the checkouts this machine's worker keeps, in its state directory.
+// soloCheckouts is the checkouts this machine's worker keeps, in its state directory. The state and run
+// directories are the installation's own, with its lanes' worktrees, so no manifest registers a clone there.
 func soloCheckouts(paths api.Paths) *checkouts.File {
-	return &checkouts.File{Path: filepath.Join(paths.StateDir, checkouts.FileName)}
+	return &checkouts.File{Path: filepath.Join(paths.StateDir, checkouts.FileName), Reserved: []string{paths.StateDir, paths.RunDir}}
 }
 
 // checkoutOf finds this machine's checkout of a project's repository: the one the worker keeps for the
 // project, or else, in the first project, the daemon's source with that history. A repository is known
-// by its history, so a moved source still matches. An empty project is the first.
+// by its history, so a moved source still matches. An empty project is the first. A kept checkout whose
+// directory is gone, deleted or moved, is none, so work there holds as no_checkout.
 func checkoutOf(opts soloOptions, kept ports.Checkouts) func(context.Context, ledger.WorkspaceID, string) (string, error) {
 	return func(ctx context.Context, project ledger.WorkspaceID, id string) (string, error) {
 		project = cmp.Or(project, soloScope)
@@ -576,6 +579,9 @@ func checkoutOf(opts soloOptions, kept ports.Checkouts) func(context.Context, le
 			return "", err
 		}
 		if path, ok := held[id]; ok {
+			if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
+				return "", fmt.Errorf("%w: this worker keeps a checkout of repository %q in project %s at %s, and nothing is there", ports.ErrNotFound, id, project, path)
+			}
 			return path, nil
 		}
 		if project == soloScope {
@@ -589,7 +595,7 @@ func checkoutOf(opts soloOptions, kept ports.Checkouts) func(context.Context, le
 				}
 			}
 		}
-		return "", fmt.Errorf("this worker keeps no checkout of repository %q in project %s", id, project)
+		return "", fmt.Errorf("%w: this worker keeps no checkout of repository %q in project %s", ports.ErrNotFound, id, project)
 	}
 }
 
