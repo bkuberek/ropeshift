@@ -38,6 +38,28 @@ rationale = "It is the one with an account."
 How.
 `
 
+// retryTwoDrafts is the retry plan with a second draft decision.
+const retryTwoDrafts = `+++
+kind = "plan"
+id = "retry"
+title = "Retry budget"
+
+[[decision]]
+id = "d1"
+question = "Which provider first?"
+answer = "Stripe"
+rationale = "It is the one with an account."
+
+[[decision]]
+id = "d2"
+question = "How many retries?"
+answer = "Three"
+rationale = "It is what the spec says."
++++
+
+How.
+`
+
 func retrySource(spec string) *fake.WorkSource {
 	source := fake.NewWorkSource()
 	source.Write("plan.md", []byte(retryPlan))
@@ -429,37 +451,46 @@ func TestNoCallerNamesADecisionUnderThePlanApprovalPrefix(t *testing.T) {
 }
 
 // TestAPlanApprovalRefusesADecisionHeldUnderADraftsID holds plan approval to what the plan drafted: a ledger may
-// hold a decision another writer recorded under the ID approval derives for one of the plan's drafts. Approval
-// refuses, naming the decision, who recorded it, and the draft, so the member's approval never stands for an
-// answer the plan did not hold, and nothing of the approval happens. An overturn changes the decision's status,
-// so it never makes the decision the draft's, and the refusal does not offer one.
+// hold decisions another writer recorded under the IDs approval derives for the plan's drafts. Approval refuses,
+// naming each decision, who recorded it, and its draft, so the member's approval never stands for an answer the
+// plan did not hold, and nothing of the approval happens. An overturn changes a decision's status, so it never
+// makes the decision the draft's, and the refusal does not offer one.
 func TestAPlanApprovalRefusesADecisionHeldUnderADraftsID(t *testing.T) {
 	t.Parallel()
 	d, w, _ := aWorld(t)
 	ctx := t.Context()
-	w.Planned(retrySource("The first draft."))
+	source := retrySource("The first draft.")
+	source.Write("plan.md", []byte(retryTwoDrafts))
+	w.Planned(source)
 	need := planApprovalNeed(t, readView[api.NeedsYou](t, d, api.ViewNeedsYou, ""))
 	plan := need.Approval.Plan
-	id := derivedDecisionID(plan, need.Version, "d1")
-	heldUnderDraftID(t, d, questions.Decision{
-		ID: id, Status: questions.DecisionDecided, Statement: "Q: Which provider first? A: Adyen", Rationale: "It is cheaper.",
-		Scope: "plan:" + plan, Reversibility: questions.Reversible, Citations: []string{"docs/payments.md"}, Categories: []string{questions.CategoryProduct},
-	}, authority.DelegateActor(memberOf(t, d), "dlg_1"))
+	held := map[string]string{"d1": "Q: Which provider first? A: Adyen", "d2": "Q: How many retries? A: Five"}
+	for draft, statement := range held {
+		heldUnderDraftID(t, d, questions.Decision{
+			ID: derivedDecisionID(plan, need.Version, draft), Status: questions.DecisionDecided, Statement: statement, Rationale: "It is cheaper.",
+			Scope: "plan:" + plan, Reversibility: questions.Reversible, Citations: []string{"docs/payments.md"}, Categories: []string{questions.CategoryProduct},
+		}, authority.DelegateActor(memberOf(t, d), "dlg_1"))
+	}
 
 	_, err := d.Client.DecideApproval(ctx, need.Approval.ID, api.DecideApproval{Digest: need.Approval.SubjectDigest, Allow: true})
 	var refused *api.Error
-	if !errors.As(err, &refused) || refused.Status != http.StatusConflict || refused.Detail.Code != api.CodeDecisionClash ||
-		!strings.Contains(refused.Detail.Message, id) || !strings.Contains(refused.Detail.Message, `"d1"`) || !strings.Contains(refused.Detail.Message, "dlg_1") {
-		t.Fatalf("approving over a clashing decision: got %v, want 409 %s naming %s, who recorded it, and its draft", err, api.CodeDecisionClash, id)
+	if !errors.As(err, &refused) || refused.Status != http.StatusConflict || refused.Detail.Code != api.CodeDecisionClash || !strings.Contains(refused.Detail.Message, "dlg_1") {
+		t.Fatalf("approving over clashing decisions: got %v, want 409 %s naming who recorded them", err, api.CodeDecisionClash)
+	}
+	for draft, statement := range held {
+		id := derivedDecisionID(plan, need.Version, draft)
+		if !strings.Contains(refused.Detail.Message, id) || !strings.Contains(refused.Detail.Message, `"`+draft+`"`) {
+			t.Errorf("the refusal does not name decision %s and its draft %q: %s", id, draft, refused.Detail.Message)
+		}
+		if decision, err := d.Client.Decision(ctx, id); err != nil || decision.Statement != statement {
+			t.Errorf("the clashing decision is %+v: %v", decision, err)
+		}
 	}
 	if strings.Contains(refused.Detail.Message, "overturn") {
 		t.Errorf("the refusal offers an overturn, which leaves the clash: %s", refused.Detail.Message)
 	}
 	if approval, err := d.Client.Approval(ctx, need.Approval.ID); err != nil || approval.State != authority.ApprovalPending {
 		t.Errorf("the refused approval is %+v: %v", approval, err)
-	}
-	if decision, err := d.Client.Decision(ctx, id); err != nil || decision.Statement != "Q: Which provider first? A: Adyen" {
-		t.Errorf("the clashing decision is %+v: %v", decision, err)
 	}
 	orders, err := d.Client.WorkOrders(ctx, "")
 	if err != nil {

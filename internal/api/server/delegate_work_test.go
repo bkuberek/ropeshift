@@ -174,18 +174,25 @@ func TestTheAssistantCreatesWorkAtOnce(t *testing.T) {
 // TestADecisionWithinPolicyIsACardForEveryDelegate holds a delegate's decision to a member's consent
 // (ADR-0024): one the decision policy lets an orchestrator record within policy is a card no policy exempts,
 // from an outside delegate and from the assistant alike, and it records nothing until a member confirms it.
+// The event that records it names the member who confirmed it, and the delegate as its proposer.
 func TestADecisionWithinPolicyIsACardForEveryDelegate(t *testing.T) {
 	d := startTalk(t)
 	ctx := t.Context()
-	_, assistant, _ := d.assistant(t)
-	outside := asDelegate(t, d.socket, aDelegate(t, d.Client.Client, apitest.ProjectName).Token, apitest.ProjectName)
+	member := memberOf(t, d.Daemon)
+	_, assistant, grant := d.assistant(t)
+	created := aDelegate(t, d.Client.Client, apitest.ProjectName)
+	outside := asDelegate(t, d.socket, created.Token, apitest.ProjectName)
 	if _, err := d.Client.PublishPolicy(ctx, "[delegate_policy]\nversion = 2\nexempt = [\"work_order.accept\", \"work_order.rework\", \"work_order.create\", \"plan.start_review\"]\n"); err != nil {
 		t.Fatal(err)
 	}
 	for _, c := range []struct {
-		name   string
-		client *api.ProjectClient
-	}{{"an outside delegate", outside}, {"the assistant", assistant}} {
+		name     string
+		client   *api.ProjectClient
+		proposer ledger.Actor
+	}{
+		{"an outside delegate", outside, authority.DelegateActor(member, created.ID)},
+		{"the assistant", assistant, authority.DelegateActor(member, grant.Credential)},
+	} {
 		// Each decision covers a scope of its own, so the first one confirmed overlaps nothing the second covers.
 		id := "d-" + strings.ReplaceAll(c.name, " ", "-")
 		_, err := c.client.RecordDecision(ctx, api.RecordDecision{
@@ -202,8 +209,12 @@ func TestADecisionWithinPolicyIsACardForEveryDelegate(t *testing.T) {
 		_, missing := d.Client.Decision(ctx, id)
 		refusedWith(t, missing, http.StatusNotFound, api.CodeNotFound)
 		confirmCard(t, d.Daemon, err)
-		if decision, err := d.Client.Decision(ctx, id); err != nil || decision.DecidedBy != memberOf(t, d.Daemon) {
+		if decision, err := d.Client.Decision(ctx, id); err != nil || decision.DecidedBy != member {
 			t.Errorf("%s's confirmed decision is %+v: %v", c.name, decision, err)
+		}
+		event := creationEvent(t, d.Daemon, ledger.Subject{Kind: questions.SubjectDecision, ID: id}, questions.EventDecisionRecorded)
+		if event.Actor != (ledger.Actor{Kind: ledger.ActorMember, ID: member}) || event.Proposer != c.proposer {
+			t.Errorf("%s's decision was recorded by %+v, proposed by %+v, want the member, proposed by %+v", c.name, event.Actor, event.Proposer, c.proposer)
 		}
 	}
 }
