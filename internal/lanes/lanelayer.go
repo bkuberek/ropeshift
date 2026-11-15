@@ -52,6 +52,10 @@ func CheckLaneLayer(below, profile Profile) error {
 	if profile.Review.Rounds() > below.Review.Rounds() {
 		return laneLayerRefusal(fmt.Sprintf("raise review.max_review_rounds past %d", below.Review.Rounds()))
 	}
+	// Every lane on the worker draws its ports from one pool, and a lane that asks for none holds none.
+	if ports := max(below.Resources.PortsPerLane, 0); max(profile.Resources.PortsPerLane, 0) > ports {
+		return laneLayerRefusal(fmt.Sprintf("raise resources.ports_per_lane past %d", ports))
+	}
 	return nil
 }
 

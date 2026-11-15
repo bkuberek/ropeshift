@@ -278,6 +278,12 @@ func TestALanesOwnLayerRunsNothingAndRaisesNoCap(t *testing.T) {
 		{name: "a lane lowers the review rounds", lane: "[review]\nmax_review_rounds = 1\n"},
 		{name: "a lane lowers the review rounds the user raised", user: "[review]\nmax_review_rounds = 6\n", lane: "[review]\nmax_review_rounds = 4\n"},
 		{name: "a repository raises the review rounds", repository: "[review]\nmax_review_rounds = 6\n"},
+		{name: "a lane takes the whole port pool", lane: "[resources]\nports_per_lane = 10000\n", refused: "resources.ports_per_lane"},
+		{name: "a lane takes more ports than the repository gives", repository: "[resources]\nports_per_lane = 4\n", lane: "[resources]\nports_per_lane = 5\n", refused: "resources.ports_per_lane"},
+		{name: "a lane takes ports the repository gave none", repository: "[resources]\nports_per_lane = 0\n", lane: "[resources]\nports_per_lane = 1\n", refused: "resources.ports_per_lane"},
+		{name: "a lane takes fewer ports", lane: "[resources]\nports_per_lane = 2\n"},
+		{name: "a lane takes no ports", lane: "[resources]\nports_per_lane = 0\n"},
+		{name: "a lane takes the ports the repository raised to", repository: "[resources]\nports_per_lane = 20\n", lane: "[resources]\nports_per_lane = 20\n"},
 		{name: "a lane chooses its model and effort", lane: "[agent]\nmodel = \"haiku\"\neffort = \"low\"\n[lifecycle]\nstall_after = \"3m\"\n"},
 	}
 	for _, tt := range tests {
