@@ -104,3 +104,21 @@ func TestAVersionReplacedBeforeTheTickForecastItHasNone(t *testing.T) {
 		t.Errorf("version 1's approval reads forecast %+v", f)
 	}
 }
+
+// TestAForecastOfAVersionThatIsNoWholeNumberFromOneIsRefused refuses a version that is not a whole number from 1
+// with 400, and a version the plan never had, or a plan it does not hold, with 404.
+func TestAForecastOfAVersionThatIsNoWholeNumberFromOneIsRefused(t *testing.T) {
+	t.Parallel()
+	d, w, _ := aWorld(t)
+	w.Planned(retrySource("The first draft."))
+	plan := planApprovalNeed(t, readView[api.NeedsYou](t, d, api.ViewNeedsYou, "")).Approval.Plan
+	for _, version := range []string{"0", "abc", "-1", "1.5"} {
+		var out api.PlanForecast
+		err := d.Client.Do(t.Context(), http.MethodGet, d.Client.Route("/v1/plans/"+plan+"/forecast?version="+version), nil, &out)
+		refusedWith(t, err, http.StatusBadRequest, api.CodeInvalid)
+	}
+	_, err := d.Client.PlanForecast(t.Context(), plan, 9)
+	refusedWith(t, err, http.StatusNotFound, api.CodeNotFound)
+	_, err = d.Client.PlanForecast(t.Context(), "absent", 0)
+	refusedWith(t, err, http.StatusNotFound, api.CodeNotFound)
+}

@@ -18,7 +18,7 @@ import (
 // last of each day, kept with no revision.
 var ForecastChecks = []Check{
 	{"FC1", "a plan version keeps the latest forecast of the plan and of each milestone, and the last of each day, with no revision, in a transaction that reaches no delivery read model", checkForecastsKept},
-	{"FC2", "the forecast tick forecasts each plan's newest version from its own estimate set when what it rests on changed, a worker came, work ended, or the version was approved, and keeps nothing otherwise", checkForecastTick},
+	{"FC2", "the forecast tick forecasts each plan's newest version from its own estimate set when what it rests on changed, a worker came, work ended, or the version was approved, and an hour after a forecast with dates, and keeps nothing otherwise or when another keep overtook it", checkForecastTick},
 	{"FC4", "a forecast run whose plan version a newer version replaced before it kept keeps nothing, and the newer version's estimates stay current", checkForecastOfAReplacedVersion},
 	{"FC5", "a forecast tick canceled before it forecasts a plan stops and keeps nothing, and the next tick forecasts it", checkForecastTickCanceled},
 	{"FC6", "a plan version with no open work is forecast finished from no estimate set", checkForecastWithNoOpenWork},
@@ -27,6 +27,10 @@ var ForecastChecks = []Check{
 
 // dayOne is a UTC midnight, in epoch milliseconds, that the kept forecasts here date from.
 const dayOne = int64(1_700_006_400_000)
+
+// hourMs is an hour in milliseconds: how far the ledger's time moves past a forecast with dates before the tick
+// makes it again with nothing else new.
+const hourMs = int64(3_600_000)
 
 // keepForecasts keeps one run's forecasts in a transaction of the forecast tick.
 func (r *Rig) keepForecasts(s ports.Store, forecasts []delivery.Forecast) error {
@@ -121,6 +125,20 @@ func (r *Rig) registerWorker(s ports.Store) error {
 	return err
 }
 
+// finishLikeThePlans finishes work like a plan's, which the delivery fold then keeps a record of, so the next
+// estimate of the plan's work rests on one more record.
+func (r *Rig) finishLikeThePlans(s ports.Store) error {
+	finished, err := r.Awaiting(s, []string{criterionOne}, LaneFinished(r.ID("commit"), LaneCheck(criterionOne, true)))
+	if err != nil {
+		return err
+	}
+	if _, err := r.NewOps(s).Accept(r.Ctx, r.Scope, finished, r.Actor); err != nil {
+		return err
+	}
+	_, err = control.NewDeliveryFold(s).Fold(r.Ctx, r.Scope)
+	return err
+}
+
 // forecastRuns runs the forecast tick once and says how many plan versions it forecast.
 func (r *Rig) forecastRuns(s ports.Store, want int, after string) error {
 	if kept, err := control.NewForecasts(s).Refresh(r.Ctx, r.Scope); err != nil || kept != want {
@@ -195,14 +213,7 @@ func checkForecastTick(r *Rig) error {
 
 	// Work like the plan's finishes, and once the fold keeps its record, the forecast has dates, from a set of the
 	// version the tick keeps itself.
-	finished, err := r.Awaiting(s, []string{criterionOne}, LaneFinished(r.ID("commit"), LaneCheck(criterionOne, true)))
-	if err != nil {
-		return err
-	}
-	if _, err := r.NewOps(s).Accept(r.Ctx, r.Scope, finished, r.Actor); err != nil {
-		return err
-	}
-	if _, err := control.NewDeliveryFold(s).Fold(r.Ctx, r.Scope); err != nil {
+	if err := r.finishLikeThePlans(s); err != nil {
 		return err
 	}
 	if err := r.forecastRuns(s, 1, "after work finished"); err != nil {
@@ -233,6 +244,96 @@ func checkForecastTick(r *Rig) error {
 	}
 	if err := r.forecastRuns(s, 0, "a second time with nothing new"); err != nil {
 		return err
+	}
+
+	// A run keeps nothing when a forecast of a later revision was kept after its read.
+	if err := r.finishLikeThePlans(s); err != nil {
+		return err
+	}
+	read, err := r.workspaceRev(s)
+	if err != nil {
+		return err
+	}
+	racing := &racingStore{Store: s, race: func() error {
+		if _, err := r.NewWorkOrder(s); err != nil {
+			return err
+		}
+		return r.forecastRuns(s, 1, "while a run of an earlier revision ran")
+	}}
+	if kept, err := control.NewForecasts(racing).Refresh(r.Ctx, r.Scope); err != nil || kept != 0 || racing.race != nil {
+		return Violatedf("a run overtaken by a later revision's forecast kept %d: %v", kept, err)
+	}
+	if latest, _, _, err = r.forecastsOf(s, plan, 1, "m1"); err != nil || latest[0].Rev <= read {
+		return Violatedf("the later revision's forecast gave way to %+v: %v", latest, err)
+	}
+
+	// A run that finds a set of the version kept after its read, which says what its own estimates say, is made
+	// from that set and keeps none of its own.
+	if err := r.finishLikeThePlans(s); err != nil {
+		return err
+	}
+	var refreshed delivery.EstimateSet
+	racing = &racingStore{Store: s, race: func() error {
+		if _, err := control.NewEstimates(s).Refresh(r.Ctx, r.Scope); err != nil {
+			return err
+		}
+		_, refreshed, err = r.currentOf(s, planned[0])
+		return err
+	}}
+	if kept, err := control.NewForecasts(racing).Refresh(r.Ctx, r.Scope); err != nil || kept != 1 || racing.race != nil {
+		return Violatedf("a run that found a set saying the same kept %d: %v", kept, err)
+	}
+	if _, set, err = r.currentOf(s, planned[0]); err != nil {
+		return err
+	}
+	if latest, _, _, err = r.forecastsOf(s, plan, 1, "m1"); err != nil || refreshed.PlanVersion != 1 || latest[0].SetID != refreshed.ID || set.ID != refreshed.ID {
+		return Violatedf("the refresh kept set %s of version %d, the forecast names %s, and the current set is %s: %v",
+			refreshed.ID, refreshed.PlanVersion, latest[0].SetID, set.ID, err)
+	}
+
+	// A run that finds a set of the version kept after its read, which says something else, keeps nothing, and the
+	// next tick forecasts from that set.
+	if err := r.finishLikeThePlans(s); err != nil {
+		return err
+	}
+	racing = &racingStore{Store: s, race: func() error {
+		if err := r.finishLikeThePlans(s); err != nil {
+			return err
+		}
+		_, err := control.NewEstimates(s).Refresh(r.Ctx, r.Scope)
+		return err
+	}}
+	if kept, err := control.NewForecasts(racing).Refresh(r.Ctx, r.Scope); err != nil || kept != 0 || racing.race != nil {
+		return Violatedf("a run that found a set saying something else kept %d: %v", kept, err)
+	}
+	if err := r.forecastRuns(s, 1, "after a set that said something else"); err != nil {
+		return err
+	}
+	if _, set, err = r.currentOf(s, planned[0]); err != nil {
+		return err
+	}
+	if latest, _, _, err = r.forecastsOf(s, plan, 1, "m1"); err != nil || latest[0].SetID != set.ID {
+		return Violatedf("the forecast names set %s, and the current set is %s: %v", latest[0].SetID, set.ID, err)
+	}
+
+	// With nothing new, a forecast with dates is made again once the ledger's time is an hour past the time it ran
+	// from, and not before.
+	last := latest[0]
+	for _, step := range []struct {
+		shiftMs int64
+		want    int
+		after   string
+	}{{hourMs - 60_000, 0, "59 minutes on"}, {60_000, 1, "an hour on"}} {
+		r.DB.ShiftClock(step.shiftMs)
+		if _, err := r.NewWorkOrder(s); err != nil {
+			return err
+		}
+		if err := r.forecastRuns(s, step.want, step.after); err != nil {
+			return err
+		}
+	}
+	if latest, _, _, err = r.forecastsOf(s, plan, 1, "m1"); err != nil || latest[0].AsOf-last.AsOf < hourMs || latest[0].Inputs != last.Inputs {
+		return Violatedf("an hour on, the forecast %+v follows %+v: %v", latest, last, err)
 	}
 
 	// Approving the version forecasts it again.
