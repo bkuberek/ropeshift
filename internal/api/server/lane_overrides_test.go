@@ -27,9 +27,11 @@ func claimOf(t *testing.T, d *apitest.Daemon, id string) workorders.Claim {
 }
 
 // TestNoCallerStartsALaneWhoseOverridesRunReadOrPlace holds every caller's lane start, an outside
-// delegate's, the assistant's, and a member's, to overrides that name no hook, no credential, and no place
-// for the worktree or its branch, and to overrides that are TOML at all. The refusal answers before the
-// ledger keeps anything, and a member's overrides of any other key still start the lane.
+// delegate's, the assistant's, and a member's, to overrides that name no hook, no credential, no file to
+// read, and no place for the worktree or its branch, that set no gate, review bound, or ports per lane,
+// which the worker compares with layers the route does not hold, and to overrides that are TOML at all. A key
+// counts in every spelling the profile reads as it. The refusal answers before the ledger keeps anything,
+// and a member's overrides of any other key still start the lane.
 func TestNoCallerStartsALaneWhoseOverridesRunReadOrPlace(t *testing.T) {
 	d := startTalk(t)
 	ctx := t.Context()
@@ -58,6 +60,18 @@ func TestNoCallerStartsALaneWhoseOverridesRunReadOrPlace(t *testing.T) {
 		{"a credential's table", "[agent.credentials]\nkind = \"api_key\"\n"},
 		{"a root", "worktree = { root = \"/\" }\n"},
 		{"a branch prefix", "[worktree]\nbranch_prefix = \"\"\n"},
+		{"an instructions file", "[agent]\ninstructions_file = \"/etc/passwd\"\n"},
+		{"gates", "[agent]\ngates = []\n"},
+		{"review rounds", "[review]\nmax_review_rounds = 9\n"},
+		{"ports", "resources.ports_per_lane = 10000\n"},
+		// The profile's decoder takes a key for a setting under Unicode case folding.
+		{"a capitalized hook table", "[Hooks]\non_lane_created = [\"id\"]\n"},
+		{"an upper-case hook table", "[HOOKS]\non_lane_created = [\"id\"]\n"},
+		{"a hook spelled with the Kelvin sign", "[\"hooKs\"]\non_lane_created = [\"id\"]\n"},
+		{"a hook spelled with the long s", "[\"hookſ\"]\non_lane_created = [\"id\"]\n"},
+		{"an upper-case root", "[worktree]\nROOT = \"/\"\n"},
+		{"a capitalized credential's table", "[Agent.Credentials]\nkind = \"api_key\"\n"},
+		{"an upper-case gate list", "Agent.GATES = []\n"},
 		{"no TOML", "[hooks\n"},
 	}
 	for _, caller := range callers {

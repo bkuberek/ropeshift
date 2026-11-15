@@ -7,18 +7,25 @@ import (
 	"time"
 )
 
-// LaneLayerKeys are the settings a lane's own profile layer never sets, each as its path of TOML keys. Any
-// caller of the API can send that layer, an outside delegate's included, and each of these would run a
-// command as this machine's user, hand the lane a variable of the worker's environment, or put the
-// worktree or its branch where the layers below did not.
+// LaneLayerKeys are the settings a route that takes a lane's own profile layer refuses in it, each as its
+// path of TOML keys. Any caller of the API can send that layer, an outside delegate's included. The first
+// five would run a command as this machine's user, hand the lane a variable of the worker's environment,
+// name a file for the worker to read, or put the worktree or its branch where the layers below did not, and
+// CheckLaneLayer refuses any change to them. CheckLaneLayer judges the rest against the layers below: a
+// lane's layer keeps every gate and raises neither bound. A route holds none of those layers, so it refuses
+// each of these keys whenever a lane's layer sets it.
 func LaneLayerKeys() [][]string {
-	return [][]string{{"hooks"}, {"agent", "credentials"}, {"worktree", "root"}, {"worktree", "branch_prefix"}}
+	return [][]string{
+		{"hooks"}, {"agent", "credentials"}, {"agent", "instructions_file"}, {"worktree", "root"}, {"worktree", "branch_prefix"},
+		{"agent", "gates"}, {"review", "max_review_rounds"}, {"resources", "ports_per_lane"},
+	}
 }
 
 // CheckLaneLayer holds a lane's own layer to the layers below it: below is the profile those layers give,
-// and profile is the same with the lane's layer over it. The lane's layer changes none of LaneLayerKeys, it
-// keeps every gate below, and it can lower a cap of the breaker and never raise one, because only a
-// member's reset lets a lane past them (ADR-0014).
+// and profile is the same with the lane's layer over it. The lane's layer changes none of the first five of
+// LaneLayerKeys, it keeps every gate below, it raises neither the bound on review rounds nor the ports per
+// lane, and it can lower a cap of the breaker and never raise one, because only a member's reset lets a lane
+// past them (ADR-0014).
 func CheckLaneLayer(below, profile Profile) error {
 	if !maps.EqualFunc(below.Hooks, profile.Hooks, slices.Equal[[]string]) {
 		return laneLayerRefusal("change [hooks]")
