@@ -59,11 +59,11 @@ On the pull request's web page, replace the merge commit's description with a pl
 
 ## Continuous integration
 
-The workflow `.github/workflows/ci.yml` runs on every pull request to `main`, on every push to `main`, and by hand. It uses GitHub's standard runners only. No job starts an agent CLI session, so `make real` and `make qualify` never run there, and no workflow holds an agent credential.
+The workflow `.github/workflows/ci.yml` runs on every pull request to `main`, on every push to `main`, every night at 07:17 UTC, and by hand. It uses GitHub's standard runners only. No job starts an agent CLI session, so `make real` and `make qualify` never run there, and no workflow holds an agent credential.
 
 | Job | What it runs | When |
 |-----|--------------|------|
-| `make check` | Formatting, vet, lint, the license check, the release configuration check, the race-enabled tests, and the web tests and typecheck, on Linux and on macOS | Every run |
+| `make check` | Formatting, vet, lint, the license check, the release configuration check, the race-enabled tests, and the web tests and typecheck, on Linux, and on macOS | Linux on every run. macOS on a push to `main`, the nightly run, and a manual run, not on a pull request |
 | `make cross` | The build for every release platform | Every run |
 | `make chaos` | The crash tests at their default size | Every run |
 | `make snapshot` | One snapshot, which the next two jobs share | Every run |
@@ -73,6 +73,8 @@ The workflow `.github/workflows/ci.yml` runs on every pull request to `main`, on
 | `make chaos KILLS=1500` | The long crash run | A push to `main`, or by hand with `long-chaos` |
 | `make bench` | The bench, whose timings on shared runners are informational. It never fails the run, and its numbers are in the job's summary | A push to `main`, or by hand with `bench` |
 | CI result | Passes when every job above but the bench passed or was skipped | Every run |
+
+The macOS `make check` takes about 55 minutes, the slowest part of a run, so a pull request runs it on Linux alone. A macOS failure shows on the push to `main` or the nightly run, where CI result fails. The release workflow does not wait for CI, and a release pull request is merged after CI result passes on Linux, so the macOS run of the merge commit on `main` is the macOS check for a tag.
 
 A run that changes only Markdown and images runs no checks: the first job finds that, every check is skipped, and CI result still reports. Branch protection on `main` therefore requires CI result alone. A newer commit on a pull request cancels the run for the older one, while runs on `main` finish. A failed job uploads its log, and the service job also its results and the container's journal, as artifacts.
 

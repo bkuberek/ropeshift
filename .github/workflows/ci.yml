@@ -1,5 +1,5 @@
-# The checks every pull request to main and every push to main runs (ADR-0017): make check on Linux
-# and macOS, and on Linux the cross builds, the crash tests, an install through every channel, the first
+# The checks every pull request to main and every push to main runs (ADR-0017): make check on Linux,
+# and on macOS too for a push to main, the nightly run, and a manual run, and on Linux the cross builds, the crash tests, an install through every channel, the first
 # work order with no network, and the service tests under systemd. A push to main also runs the long
 # crash run and the bench. Nothing here starts an agent CLI session or holds an agent credential.
 #
@@ -13,6 +13,8 @@ on:
     branches: [main]
   push:
     branches: [main]
+  schedule:
+    - cron: "17 7 * * *"
   workflow_dispatch:
     inputs:
       long-chaos:
@@ -82,7 +84,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        # macOS takes about 55 minutes, so a pull request runs Linux alone. A push to main, the nightly
+        # run, and a manual run add macOS, so a macOS break surfaces on main within a day.
+        os: ${{ fromJSON(github.event_name == 'pull_request' && '["ubuntu-latest"]' || '["ubuntu-latest","macos-latest"]') }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
     steps:
@@ -329,6 +333,8 @@ jobs:
 
   # The one check branch protection requires. It passes when every check passed or was skipped, so a
   # change to Markdown and images only reports a result too. The bench is informational and left out.
+  # On a pull request the macOS leg of check does not exist, so check's result is that of the Linux leg
+  # alone. On main, check's result is failure when either leg fails, so a macOS failure fails CI result.
   result:
     name: CI result
     if: always()
