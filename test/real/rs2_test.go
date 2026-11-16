@@ -124,7 +124,7 @@ func TestRS2(t *testing.T) {
 	repo.Commit(".ropeshift/profile.toml", profileText)
 	repo.Commit("contract.md", rs2Contract)
 	s.repo = repo.Dir
-	s.worktree = filepath.Join(filepath.Dir(repo.Dir), filepath.Base(repo.Dir)+"-lanes", rs2Lane)
+	s.worktree = s.laneTree(repo.Dir, rs2Lane)
 	if err := s.spend.charge("lane", rs2Turns); err != nil {
 		t.Fatal(err)
 	}

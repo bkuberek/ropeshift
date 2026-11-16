@@ -191,7 +191,7 @@ func TestAnExistingProjectIsAdoptedAndApprovedAsOnePlan(t *testing.T) {
 	if prompts := in.firstPrompts(t); !strings.Contains(prompts, "Onboard, do not rewrite") || !strings.Contains(prompts, lanes.InventoryFile) {
 		t.Errorf("the brief does not adopt: %q", prompts)
 	}
-	worktree := filepath.Join(filepath.Dir(repo.Dir), "shop-lanes", started.Lane)
+	worktree := filepath.Join(in.laneRoot("shop", repo.Dir), started.Lane)
 	inventory := readInventory(t, filepath.Join(worktree, lanes.InventoryFile))
 	if len(inventory.Repositories) != 1 {
 		t.Fatalf("the inventory holds %+v", inventory.Repositories)
@@ -300,7 +300,7 @@ func TestAnExistingProjectIsAdoptedAndApprovedAsOnePlan(t *testing.T) {
 	if lane.ContinuesRef != "feature/retry" || lane.ContinuesCommit != retryTip || lane.BaseCommit != fork {
 		t.Errorf("the continued lane began at %+v, want feature/retry at %s from %s", lane, retryTip, fork)
 	}
-	if contents, err := os.ReadFile(filepath.Join(filepath.Dir(repo.Dir), "shop-lanes", "lane-retry", "retry.go")); err != nil || !strings.Contains(string(contents), "Retry is started") {
+	if contents, err := os.ReadFile(filepath.Join(in.laneRoot("shop", repo.Dir), "lane-retry", "retry.go")); err != nil || !strings.Contains(string(contents), "Retry is started") {
 		t.Errorf("the continued lane does not hold the branch's work: %q, %v", contents, err)
 	}
 	if now := repo.Git("rev-parse", "refs/heads/feature/retry"); now != retryTip {

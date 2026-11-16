@@ -75,7 +75,7 @@ func TestADependentLaneStartsFromItsDependencysWork(t *testing.T) {
 	first := repo.Git("rev-parse", "main")
 	repo.Git("switch", "--quiet", "-c", "scratch")
 	repo.Commit("scratch.txt", "not for lanes\n")
-	laneRoot := filepath.Join(filepath.Dir(repo.Dir), filepath.Base(repo.Dir)+"-lanes")
+	laneRoot := in.homeLaneRoot(repo.Dir)
 
 	d := in.start("--intake-tick", "20ms", "--heartbeat", "30ms", "--lease-tick", "20ms", "--source", repo.Dir)
 	t.Cleanup(d.stop)

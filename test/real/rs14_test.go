@@ -115,7 +115,7 @@ func TestRS14(t *testing.T) {
 	repo.Commit(".ropeshift/profile.toml", rs14Profile)
 	repo.Commit("contract.md", rs14Contract)
 	s.repo = repo.Dir
-	s.worktree = filepath.Join(filepath.Dir(repo.Dir), filepath.Base(repo.Dir)+"-lanes", rs14Lane)
+	s.worktree = s.laneTree(repo.Dir, rs14Lane)
 	probeDir := filepath.Join(s.paths.StateDir, "probe")
 	for _, name := range []string{"accept", "refuse", "hold", "screens"} {
 		s.others = append(s.others, filepath.Join(probeDir, name))

@@ -283,7 +283,7 @@ func TestRS11(t *testing.T) {
 	pane.Commit("contract.md", rs11Contract("rs11p", rs11PaneSteps))
 
 	worktree := func(dir, lane string) string {
-		return filepath.Join(filepath.Dir(dir), filepath.Base(dir)+"-lanes", lane)
+		return s.laneTree(dir, lane)
 	}
 	s.repo = headless.Dir
 	s.worktree = worktree(headless.Dir, rs11HeadlessLane)

@@ -54,7 +54,7 @@ func TestAReviewLaneReadsTheReviewedCommitAndLeavesNoBranch(t *testing.T) {
 	repo := gittest.New(t)
 	repo.Commit(".ropeshift/profile.toml", "[lifecycle]\nmax_restarts = 0\n")
 	repo.Commit("first.md", contract.ContractText("first", "First", "Build the first."))
-	laneRoot := filepath.Join(filepath.Dir(repo.Dir), filepath.Base(repo.Dir)+"-lanes")
+	laneRoot := in.homeLaneRoot(repo.Dir)
 
 	d := in.start("--intake-tick", "20ms", "--heartbeat", "30ms", "--lease-tick", "20ms", "--source", repo.Dir)
 	t.Cleanup(d.stop)

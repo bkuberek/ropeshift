@@ -120,7 +120,7 @@ func TestAPackReachesASession(t *testing.T) {
 	if len(generations) != 1 || generations[0].PackID != pack.ID || generations[0].PackVersion != pack.Version {
 		t.Errorf("generations %+v", generations)
 	}
-	worktree := filepath.Join(filepath.Dir(repo.Dir), filepath.Base(repo.Dir)+"-lanes", "lane-1")
+	worktree := filepath.Join(in.homeLaneRoot(repo.Dir), "lane-1")
 	onDisk, err := os.ReadFile(filepath.Join(worktree, lanes.PackFile))
 	if err != nil {
 		t.Fatal(err)

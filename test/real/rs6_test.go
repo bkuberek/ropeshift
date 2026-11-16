@@ -261,8 +261,8 @@ func TestRS6(t *testing.T) {
 	pane.Commit("contract.md", rs6Contract("rs6p"))
 
 	s.repo = headless.Dir
-	s.worktree = filepath.Join(filepath.Dir(headless.Dir), filepath.Base(headless.Dir)+"-lanes", rs6HeadlessLane)
-	paneWorktree := filepath.Join(filepath.Dir(pane.Dir), filepath.Base(pane.Dir)+"-lanes", rs6PaneLane)
+	s.worktree = s.laneTree(headless.Dir, rs6HeadlessLane)
+	paneWorktree := s.laneTree(pane.Dir, rs6PaneLane)
 	s.others = []string{headless.Dir, s.worktree, pane.Dir, paneWorktree}
 	for _, lane := range []string{"headless", "pane"} {
 		if err := s.spend.charge(lane, rs6Charge); err != nil {

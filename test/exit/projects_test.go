@@ -154,7 +154,7 @@ func TestOneWorkerRunsLanesInTwoProjects(t *testing.T) {
 	}
 	for project, run := range runs {
 		in.waitFor(project+"'s lane outcome", func() bool { return in.stateIn(project, run.order) == workorders.Acceptance })
-		worktree := filepath.Join(filepath.Dir(run.clone), filepath.Base(run.clone)+"-lanes", run.lane)
+		worktree := filepath.Join(in.laneRoot(project, run.clone), run.lane)
 		if contents, err := os.ReadFile(filepath.Join(worktree, "work.txt")); err != nil || strings.TrimSpace(string(contents)) != "work" {
 			t.Errorf("%s's lane did not work in its own checkout: %q, %v", project, contents, err)
 		}

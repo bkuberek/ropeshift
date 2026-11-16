@@ -35,7 +35,7 @@ func runLaneThatLeavesWork(t *testing.T, in *install, repo *gittest.Repo) string
 	in.must("work", "claim", id, "--worker", in.workers()[0].ID, "--claim-id", "c1")
 	in.must("lane", "start", id, "--lane", "lane-1")
 	in.waitFor("the lane's outcome", func() bool { return in.show(id).State == workorders.Acceptance })
-	return filepath.Join(filepath.Dir(repo.Dir), filepath.Base(repo.Dir)+"-lanes", "lane-1")
+	return filepath.Join(in.homeLaneRoot(repo.Dir), "lane-1")
 }
 
 func (in *install) lane(id string) ledger.LaneView {

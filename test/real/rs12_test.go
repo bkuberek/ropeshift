@@ -569,7 +569,7 @@ func TestRS12(t *testing.T) {
 	repo.Commit(".claude/settings.json", string(settings))
 	repo.Commit("requirements.md", rs12Requirement)
 	s.repo = repo.Dir
-	s.worktree = filepath.Join(filepath.Dir(repo.Dir), filepath.Base(repo.Dir)+"-lanes", rs12PlanLane)
+	s.worktree = s.laneTree(repo.Dir, rs12PlanLane)
 	flags := append(slices.Clone(guardFlags), "--max-turns", rs12MaxTurns)
 	s.rs12Run(log, lanes.ProfileRunHeadless, 1, map[string]any{"args": flags, "stream_log": s.stream})
 	s.rs12Run(log, lanes.ProfileRunTmux, 2, map[string]any{"args": rs12PaneFlags, "env": paneEnv})

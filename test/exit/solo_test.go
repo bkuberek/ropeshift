@@ -93,18 +93,53 @@ func (in *install) aForge() string {
 func (in *install) env() []string {
 	return []string{
 		"HOME=" + in.home, "PATH=" + in.path, "XDG_RUNTIME_DIR=" + filepath.Join(in.home, "xdg-run"), "XDG_STATE_HOME=" + filepath.Join(in.home, "xdg-state"),
+		"XDG_DATA_HOME=" + filepath.Join(in.home, "xdg-data"),
 		api.EnvWeb + "=" + api.WebOff, api.EnvTelemetry + "=127.0.0.1:0",
 	}
 }
 
 func (in *install) paths() api.Paths {
 	in.t.Helper()
-	env := map[string]string{"XDG_RUNTIME_DIR": filepath.Join(in.home, "xdg-run"), "XDG_STATE_HOME": filepath.Join(in.home, "xdg-state")}
+	env := map[string]string{
+		"XDG_RUNTIME_DIR": filepath.Join(in.home, "xdg-run"), "XDG_STATE_HOME": filepath.Join(in.home, "xdg-state"),
+		"XDG_DATA_HOME": filepath.Join(in.home, "xdg-data"),
+	}
 	paths, err := api.ResolvePaths(runtime.GOOS, func(key string) string { return env[key] }, in.home)
 	if err != nil {
 		in.t.Fatal(err)
 	}
 	return paths
+}
+
+// homeLaneRoot is laneRoot for the installation's first project.
+func (in *install) homeLaneRoot(clone string) string {
+	in.t.Helper()
+	return in.laneRoot(ledger.DefaultProjectName, clone)
+}
+
+// laneRoot is where the daemon puts the lane worktrees of a project's repository when no profile names a root:
+// under the installation's worktree directory, in the folder of the project's ID and the clone's folder
+// (FR-PROF-3). The installation's first project has the ID `default`, and another project's ID is read from
+// the daemon, which must be running.
+func (in *install) laneRoot(project, clone string) string {
+	in.t.Helper()
+	id := "default"
+	if project != ledger.DefaultProjectName {
+		var list api.ProjectList
+		if err := json.Unmarshal([]byte(in.must("project", "list", "--json")), &list); err != nil {
+			in.t.Fatal(err)
+		}
+		found := false
+		for _, p := range list.Projects {
+			if p.Name == project {
+				id, found = string(p.ID), true
+			}
+		}
+		if !found {
+			in.t.Fatalf("no project %q in %+v", project, list.Projects)
+		}
+	}
+	return filepath.Join(in.paths().WorktreeDir, id, filepath.Base(clone))
 }
 
 // daemon is one running ropeshiftd.

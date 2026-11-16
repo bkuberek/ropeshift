@@ -35,7 +35,7 @@ func TestALaneContinuesAnInFlightBranch(t *testing.T) {
 	repo.Git("switch", "--quiet", "main")
 	repo.Commit("finish.md", continuingContract("finish", "Finish", "feature/retry"))
 	repo.Commit("gone.md", continuingContract("gone", "Gone", "feature/gone"))
-	laneRoot := filepath.Join(filepath.Dir(repo.Dir), filepath.Base(repo.Dir)+"-lanes")
+	laneRoot := in.homeLaneRoot(repo.Dir)
 
 	d := in.start("--intake-tick", "20ms", "--heartbeat", "30ms", "--lease-tick", "20ms", "--source", repo.Dir)
 	t.Cleanup(d.stop)

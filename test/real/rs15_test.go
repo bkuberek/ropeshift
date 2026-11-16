@@ -404,7 +404,7 @@ func (s *suite) rs15Repo(lane string, files map[string]string) {
 		repo.Commit(name, files[name])
 	}
 	s.repo = repo.Dir
-	s.worktree = filepath.Join(filepath.Dir(repo.Dir), filepath.Base(repo.Dir)+"-lanes", lane)
+	s.worktree = s.laneTree(repo.Dir, lane)
 }
 
 // rs15Override carries a part's flags to the production driver: its own to each headless session, the

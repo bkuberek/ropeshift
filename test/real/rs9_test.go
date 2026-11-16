@@ -173,7 +173,7 @@ func TestRS9(t *testing.T) {
 	repo.Commit("requirements.md", rs9Requirements(first, second))
 	repo.Commit("contract.md", rs9Contract)
 	s.repo = repo.Dir
-	s.worktree = filepath.Join(filepath.Dir(repo.Dir), filepath.Base(repo.Dir)+"-lanes", rs9Lane)
+	s.worktree = s.laneTree(repo.Dir, rs9Lane)
 	if err := s.spend.charge("lane", rs9Charge); err != nil {
 		t.Fatal(err)
 	}

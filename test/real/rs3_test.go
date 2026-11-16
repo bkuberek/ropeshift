@@ -251,7 +251,7 @@ func TestRS3(t *testing.T) {
 	repo.Commit(".claude/settings.json", rs3Settings)
 	repo.Commit("contract.md", rs3Contract)
 	s.repo = repo.Dir
-	s.worktree = filepath.Join(filepath.Dir(repo.Dir), filepath.Base(repo.Dir)+"-lanes", rs3Lane)
+	s.worktree = s.laneTree(repo.Dir, rs3Lane)
 	if err := s.spend.charge("lane", paneTurns); err != nil {
 		t.Fatal(err)
 	}

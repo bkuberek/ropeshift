@@ -301,8 +301,8 @@ func TestRS7(t *testing.T) {
 	pane.Commit("contract.md", rs7Contract("rs7p", rs7OneStop))
 
 	s.repo = headless.Dir
-	s.worktree = filepath.Join(filepath.Dir(headless.Dir), filepath.Base(headless.Dir)+"-lanes", rs7HeadlessLane)
-	paneWorktree := filepath.Join(filepath.Dir(pane.Dir), filepath.Base(pane.Dir)+"-lanes", rs7PaneLane)
+	s.worktree = s.laneTree(headless.Dir, rs7HeadlessLane)
+	paneWorktree := s.laneTree(pane.Dir, rs7PaneLane)
 	s.others = []string{headless.Dir, s.worktree, pane.Dir, paneWorktree}
 	for session, turns := range map[string]int{"resumed": rs7ResumedCharge, "fresh": rs7FreshCharge, "pane": rs7PaneCharge} {
 		if err := s.spend.charge(session, turns); err != nil {
