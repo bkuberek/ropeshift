@@ -80,7 +80,7 @@ export function titleOf(view: View): string {
   return titles[view];
 }
 
-// The keys that follow G to go to a view.
+// The keys that follow G to go to a view, in the order of ui-design.md's keyboard model.
 export const goKeys: Record<string, View> = {
   n: "needs-you",
   o: "overview",
@@ -89,7 +89,10 @@ export const goKeys: Record<string, View> = {
   w: "work",
   f: "floor",
   c: "conversations",
+  a: "agents",
+  s: "settings",
   u: "usage",
+  p: "projects",
 };
 
 // The earlier UI's addresses, and where each view moved. A query the old address held comes along.

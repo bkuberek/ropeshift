@@ -117,6 +117,13 @@ describe("the views", () => {
     expect(goKeys.f).toBe("floor");
     expect(goKeys.u).toBe("usage");
     expect(goKeys.c).toBe("conversations");
+    expect(goKeys.a).toBe("agents");
+    expect(goKeys.s).toBe("settings");
+    expect(goKeys.p).toBe("projects");
+  });
+
+  it("go to the views of ui-design.md's keyboard model, in its order", () => {
+    expect(Object.keys(goKeys).join("")).toBe("nordwfcasup");
   });
 
   it("name the conversations by the view and never by a target", () => {
