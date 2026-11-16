@@ -179,6 +179,79 @@ func TestARootBesideOrAboveAClonePasses(t *testing.T) {
 	}
 }
 
+// A lane that began in a worktree goes on in it when the default root moves, as it does when an installation
+// upgrades from the root beside the clone to the one under the worktree directory. Only a worktree not yet made
+// takes the new root.
+func TestALaneKeepsItsExistingWorktreeWhenTheDefaultRootMoves(t *testing.T) {
+	t.Parallel()
+	p, source, worktrees := provisioner(nil)
+	machine := fake.NewCheckouts()
+	keeping(t, machine, "prj-1", "r1", "/work/app")
+	p.Checkouts = machine
+	ctx := t.Context()
+	request := worker.LaneRequest{Lane: "l1", Repository: "/work/app", Project: "prj-1"}
+
+	// The old default, a folder beside the clone.
+	source.SetDefaultRoot("../{repo}-lanes")
+	first, err := p.Prepare(ctx, request)
+	if err != nil || first.Worktree.Path != "/work/app-lanes/l1" || first.Kept != nil {
+		t.Fatalf("the first generation: %+v (%v)", first, err)
+	}
+
+	// The upgrade moves the default.
+	source.SetDefaultRoot("/data/worktrees/{project}/{repo}")
+	next, err := p.Prepare(ctx, request)
+	if err != nil || next.Worktree.Path != "/work/app-lanes/l1" {
+		t.Fatalf("the next generation: %+v (%v)", next.Worktree, err)
+	}
+	if next.Kept == nil || next.Kept.Path != "/work/app-lanes/l1" || next.Kept.Would != "/data/worktrees/prj-1/app/l1" || next.Kept.Inside != "" {
+		t.Errorf("the kept placement reads %+v", next.Kept)
+	}
+	if created := worktrees.Created(); len(created) != 1 {
+		t.Errorf("the next generation made another worktree: %+v", created)
+	}
+
+	// A lane with no worktree yet takes the new root.
+	fresh, err := p.Prepare(ctx, worker.LaneRequest{Lane: "l2", Repository: "/work/app", Project: "prj-1"})
+	if err != nil || fresh.Worktree.Path != "/data/worktrees/prj-1/app/l2" || fresh.Kept != nil {
+		t.Errorf("a new lane: %+v (%v)", fresh, err)
+	}
+}
+
+// A worktree already made inside a clone stays: the lane in it goes on, with its place reported, because
+// refusing it would break work in flight. The same root refuses a lane with no worktree yet.
+func TestAnExistingWorktreeInsideACloneIsKeptAndANewOneRefused(t *testing.T) {
+	t.Parallel()
+	p, source, worktrees := provisioner(nil)
+	machine := fake.NewCheckouts()
+	keeping(t, machine, "prj-1", "r1", "/work/ws")
+	keeping(t, machine, "prj-1", "r2", "/work/ws/repos/api")
+	ctx := t.Context()
+	// Before the upgrade nothing checked a root, and the old default put the api's lanes inside the workspace.
+	source.SetDefaultRoot("../{repo}-lanes")
+	request := worker.LaneRequest{Lane: "l1", Repository: "/work/ws/repos/api", Project: "prj-1"}
+	if first, err := p.Prepare(ctx, request); err != nil || first.Worktree.Path != "/work/ws/repos/api-lanes/l1" {
+		t.Fatalf("the first generation: %+v (%v)", first.Worktree, err)
+	}
+
+	p.Checkouts = machine
+	next, err := p.Prepare(ctx, request)
+	if err != nil || next.Worktree.Path != "/work/ws/repos/api-lanes/l1" {
+		t.Fatalf("the next generation: %+v (%v)", next.Worktree, err)
+	}
+	if next.Kept == nil || next.Kept.Inside != "/work/ws" {
+		t.Errorf("the kept placement reads %+v, want it inside /work/ws", next.Kept)
+	}
+	if created := worktrees.Created(); len(created) != 1 {
+		t.Errorf("the next generation made another worktree: %+v", created)
+	}
+	_, err = p.Prepare(ctx, worker.LaneRequest{Lane: "l2", Repository: "/work/ws/repos/api", Project: "prj-1"})
+	var inside *worker.WorktreeInsideClone
+	if !errors.As(err, &inside) {
+		t.Errorf("a new worktree under the same root: %v", err)
+	}
+}
+
 func TestPrepareRepeats(t *testing.T) {
 	t.Parallel()
 	p, _, _ := provisioner(nil)

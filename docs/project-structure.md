@@ -71,6 +71,8 @@ root = "/path/to/lanes/{project}/{repo}"
 
 A root that is a registered clone, or lies inside one, is refused, whoever set it, with symbolic links followed and the clones of every project on the machine counted. The lane fails before any worktree exists, with the reason `worktree_inside_clone`. Needs you and `ropeshift work show` name the root, the clone, and the layer that set the root, and say to set `[worktree] root` in your profile to a folder outside every clone, or to remove it to use the built-in root. `ropeshift repository add` reports a clone whose root would lie inside it and registers it all the same, so you can fix the setting before the first lane.
 
+The root applies to worktrees not yet made. A lane whose branch already stands in a worktree of its repository goes on in that worktree at its next generation, wherever it is, so an upgrade from the old default, `../<repository>-lanes`, never moves a lane in flight, and the refusal does not stop one. The worker says in the daemon's log, once for each lane run, that the lane kept its worktree and where the root in force would put a new one, and when the worktree lies inside a clone. New lanes, and lanes whose worktree was archived, take the root in force.
+
 ## The repository file format
 
 Plan files are Markdown with TOML front matter between `+++` lines. The front matter says what kind of file it is and gives it a stable ID, and the body is your prose.

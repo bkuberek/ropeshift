@@ -73,6 +73,20 @@ type PreparedLane struct {
 	// LaneModel and LaneEffort say the lane's own profile layer set the model or the effort, which then
 	// wins over the roster agent the lane runs as (ADR-0025).
 	LaneModel, LaneEffort bool
+	// Kept says the lane went on in a worktree it already had, at a place other than the one the root in force
+	// gives a new worktree. Nil when the lane's worktree is where that root puts it, or is new.
+	Kept *KeptWorktree
+}
+
+// KeptWorktree is a lane's existing worktree that the root in force would not have chosen, which an upgrade that
+// moves the default root leaves behind for lanes in flight.
+type KeptWorktree struct {
+	// Path is the worktree the lane goes on in.
+	Path string
+	// Would is where the root in force puts a new worktree for the lane.
+	Would string
+	// Inside names the clone Path lies inside, which a new worktree there would be refused for. Empty when none.
+	Inside string
 }
 
 // Provisioner gives a lane its settings, its worktree, and its environment. It holds
@@ -142,9 +156,12 @@ func (p Provisioner) Prepare(ctx context.Context, request LaneRequest) (Prepared
 	}
 	// The place comes before anything a lane leaves behind, so a root inside a clone stops it with no
 	// resources allocated and no worktree made.
-	var place lanes.Placement
+	var (
+		place lanes.Placement
+		kept  *KeptWorktree
+	)
 	if !request.Private {
-		if place, err = p.place(ctx, request, profile); err != nil {
+		if place, kept, err = p.place(ctx, request, profile); err != nil {
 			return PreparedLane{}, err
 		}
 	}
@@ -190,7 +207,7 @@ func (p Provisioner) Prepare(ctx context.Context, request LaneRequest) (Prepared
 	}
 	return PreparedLane{
 		Worktree: worktree, Environment: environment, Profile: profile, ProfileDigest: digest, DefaultBranch: branch,
-		LaneModel: laneModel, LaneEffort: laneEffort,
+		LaneModel: laneModel, LaneEffort: laneEffort, Kept: kept,
 	}, nil
 }
 

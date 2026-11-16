@@ -103,6 +103,16 @@ type ReviewTrees interface {
 	WriteContextFile(ctx context.Context, path, name, text string) (string, error)
 }
 
+// BranchTrees is what a worktrees store offers to find where a branch already stands, so a lane that began in a
+// worktree goes on in it when the root a profile names moves, as it does at an upgrade. A worker whose store does
+// not offer it places every worktree by the root in force.
+type BranchTrees interface {
+	// CheckedOut names the path of the linked worktree of a repository that has branch checked out, as
+	// the store spells it, or nothing when no worktree does. The repository's own working tree is never
+	// the answer, and neither is a registration whose directory is gone.
+	CheckedOut(ctx context.Context, repository, branch string) (string, error)
+}
+
 // ChangeSizes is what a worktrees store offers to measure a lane's change (FR-OBS-13). A worker whose store
 // does not offer it records no change size.
 type ChangeSizes interface {

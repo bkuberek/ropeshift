@@ -223,6 +223,13 @@ func (w *Worktrees) Create(_ context.Context, spec ports.WorktreeSpec) (ports.Wo
 	return created, nil
 }
 
+// CheckedOut names the worktree that has a branch checked out, or nothing.
+func (w *Worktrees) CheckedOut(_ context.Context, _, branch string) (string, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.branches[branch], nil
+}
+
 // Inspect reads a worktree.
 func (w *Worktrees) Inspect(_ context.Context, path string) (ports.Worktree, error) {
 	w.mu.Lock()

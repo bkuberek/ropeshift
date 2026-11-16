@@ -14,6 +14,7 @@ import (
 	"ropeshift.com/ropeshift/internal/adapters/profiles"
 	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/lanes"
+	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/internal/worker"
 	"ropeshift.com/ropeshift/test/apitest"
 	"ropeshift.com/ropeshift/test/gittest"
@@ -208,5 +209,45 @@ func TestAUserRootOutsideEveryCloneStillPlacesTheWorktree(t *testing.T) {
 	}
 	if want := filepath.Join(outside, "prj-1", "api", "lane-1"); lane.Worktree.Path != want {
 		t.Errorf("the worktree is at %q, want %q", lane.Worktree.Path, want)
+	}
+}
+
+// An installation upgraded with lanes in flight: each lane's worktree stands where the old default put it, beside
+// its clone, which for a clone in a workspace's repos/ is inside the workspace. The next generation of each goes on
+// in that worktree, on real git, makes no second worktree, and is not refused for where it stands, while a lane
+// with no worktree yet takes the new root.
+func TestALaneInFlightAtAnUpgradeGoesOnInItsOldWorktree(t *testing.T) {
+	w := newWorktreeWorkspace(t)
+	old := map[string]string{}
+	for name, clone := range map[string]string{"api": w.clones["api"], "workspace": w.workspace.Dir} {
+		old[name] = filepath.Join(filepath.Dir(clone), filepath.Base(clone)+"-lanes", "lane-1")
+		if _, err := w.prov.Worktrees.Create(t.Context(), ports.WorktreeSpec{Repository: clone, Path: old[name], Branch: "lane/lane-1"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for name, clone := range map[string]string{"api": w.clones["api"], "workspace": w.workspace.Dir} {
+		before := w.worktrees(clone)
+		lane, err := w.prov.Prepare(t.Context(), worker.LaneRequest{Lane: "lane-1", Repository: clone, Project: "prj-1"})
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if lane.Worktree.Path != old[name] {
+			t.Errorf("%s: the next generation is at %q, want its old worktree %q", name, lane.Worktree.Path, old[name])
+		}
+		if lane.Kept == nil || lane.Kept.Path != old[name] || lane.Kept.Would != filepath.Join(w.paths.WorktreeDir, "prj-1", filepath.Base(clone), "lane-1") {
+			t.Errorf("%s: the kept placement reads %+v", name, lane.Kept)
+		}
+		if after := w.worktrees(clone); !slices.Equal(before, after) {
+			t.Errorf("%s: a worktree was made: %v, then %v", name, before, after)
+		}
+	}
+	if _, err := os.Stat(w.paths.WorktreeDir); err == nil {
+		t.Errorf("something was made under the new worktree directory %s", w.paths.WorktreeDir)
+	}
+	// The api's old worktree lies inside the workspace's clone and is kept, while a new lane there is placed
+	// at the new root.
+	fresh, err := w.prov.Prepare(t.Context(), worker.LaneRequest{Lane: "lane-2", Repository: w.clones["api"], Project: "prj-1"})
+	if want := filepath.Join(w.paths.WorktreeDir, "prj-1", "api", "lane-2"); err != nil || fresh.Worktree.Path != want {
+		t.Errorf("a new lane is at %q (%v), want %q", fresh.Worktree.Path, err, want)
 	}
 }

@@ -622,6 +622,44 @@ func TestAWorktreeRootInsideACloneFailsTheLaneWithItsOwnReason(t *testing.T) {
 	}
 }
 
+// A lane whose worktree stands at an old place goes on in it when the root moves, runs its session there, and
+// the worker reports the old placement once (FR-PROF-3). Nothing is made at the new root, and the lane does not
+// fail for lying inside a clone it did not choose.
+func TestALaneWithAnOldWorktreeRunsInItAndReportsItOnce(t *testing.T) {
+	t.Parallel()
+	r := laneRigWith(t, profileAt)
+	machine := fake.NewCheckouts()
+	machine.Place(ports.Clone{Path: "/repository", ID: "r1", DefaultBranch: "main"})
+	if err := machine.Keep(t.Context(), "default", "r1", "/repository"); err != nil {
+		t.Fatal(err)
+	}
+	r.config.Provisioner.Checkouts = machine
+	const old = "/repository/old-lanes/lane-1"
+	if _, err := r.worktrees().Create(t.Context(), ports.WorktreeSpec{Repository: "/repository", Path: old, Branch: "lane/lane-1"}); err != nil {
+		t.Fatal(err)
+	}
+	r.runWith()
+	if change := r.outcome(); change.Outcome != workorders.OutcomeCompleted {
+		t.Fatalf("outcome %+v", change)
+	}
+	specs := r.driver.Specs()
+	if len(specs) == 0 || specs[0].Dir != old {
+		t.Errorf("the session ran in %+v, want %s", specs, old)
+	}
+	if _, err := r.worktrees().Inspect(t.Context(), stopWorktree); !errors.Is(err, ports.ErrNotFound) {
+		t.Errorf("a worktree was made at the new root: %v", err)
+	}
+	var reports []string
+	for _, problem := range r.problems() {
+		if strings.Contains(problem.Error(), "existing worktree") {
+			reports = append(reports, problem.Error())
+		}
+	}
+	if len(reports) != 1 || !strings.Contains(reports[0], old) || !strings.Contains(reports[0], stopWorktree) || !strings.Contains(reports[0], "inside the clone /repository") {
+		t.Errorf("the old placement was reported %q", reports)
+	}
+}
+
 // A delegate's lane start that raises the effort, under a delegate policy that restricts it, reaches the
 // worker with the version the control plane recorded, and the lane fails before anything runs, naming the
 // version (FR-AUTH-16). The outcome's reason is the delegate policy's own, and its detail names the version,

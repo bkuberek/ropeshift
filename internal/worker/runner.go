@@ -107,6 +107,9 @@ type laneRun struct {
 	fenced  atomic.Bool
 	// stopAsked says this run heard its lease is gone.
 	stopAsked atomic.Bool
+	// keptReported says this run told the operator its lane kept a worktree the root in force would not have
+	// chosen, so the report comes once however many generations follow.
+	keptReported atomic.Bool
 	// reached says the driver holds this generation's session, so a stop can find it.
 	reached atomic.Bool
 	// stopOnce holds to one stop per generation, and the handle's lock guards it.
@@ -662,6 +665,9 @@ func (r *laneRun) session(ctx context.Context) workorders.Report {
 	}
 	if err != nil {
 		return r.failStart(workorders.ReasonSpawnFailed, err)
+	}
+	if prepared.Kept != nil && r.keptReported.CompareAndSwap(false, true) {
+		r.w.config.Report(fmt.Errorf("lane %s: %s", r.lease.Lane, prepared.Kept.Notice()))
 	}
 	r.signal(ctx, lanes.OnResourcesReady)
 	r.setWorktreePath(prepared.Worktree.Path)

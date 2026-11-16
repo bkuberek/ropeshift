@@ -38,23 +38,81 @@ func (e *WorktreeInsideClone) Detail() string {
 		e.Root, e.Clone, e.Source)
 }
 
-// place says where a lane's worktree goes, and refuses a place inside any clone this worker keeps, in any
-// project, before anything exists there.
-func (p Provisioner) place(ctx context.Context, request LaneRequest, profile lanes.Profile) (lanes.Placement, error) {
+// Notice says, in a line, that a lane went on in a worktree it already had and where a new one would go.
+func (k KeptWorktree) Notice() string {
+	notice := "goes on in its existing worktree " + k.Path
+	if k.Would != k.Path {
+		notice += ", not " + k.Would + " where the root in force puts a new one"
+	}
+	if k.Inside != "" {
+		notice += "; it lies inside the clone " + k.Inside + ", where a new worktree is refused, and stays until the lane ends"
+	}
+	return notice
+}
+
+// place says where a lane's worktree goes. A lane whose branch already stands in a worktree of its repository
+// goes on in that worktree, wherever it is, because an upgrade can move the default root under a lane in flight
+// and a second worktree for the same branch cannot be made. The root in force then applies only to a worktree not
+// yet made, which is refused when it lies inside any clone this worker keeps, in any project, before anything
+// exists there. A worktree that exists is never refused: the lane goes on in it and the second result says so.
+func (p Provisioner) place(ctx context.Context, request LaneRequest, profile lanes.Profile) (lanes.Placement, *KeptWorktree, error) {
 	place, err := lanes.Place(profile.Worktree, request.Repository, request.Project, request.Lane, request.Branch)
-	if err != nil || p.Checkouts == nil {
-		return place, err
+	if err != nil {
+		return place, nil, err
+	}
+	held, err := p.heldPlace(ctx, request, place)
+	if err != nil {
+		return lanes.Placement{}, nil, err
+	}
+	var kept *KeptWorktree
+	if held != "" && !p.samePlace(ctx, held, place.Path) {
+		kept = &KeptWorktree{Path: held, Would: place.Path}
+	}
+	if held != "" {
+		place.Path = held
+	}
+	if p.Checkouts == nil {
+		return place, kept, nil
 	}
 	clones, err := p.Checkouts.Every(ctx)
 	if err != nil {
-		return lanes.Placement{}, err
+		return lanes.Placement{}, nil, err
 	}
 	clone, inside, err := ports.InsideClone(ctx, p.Checkouts, clones, place.Path)
 	if err != nil {
-		return lanes.Placement{}, err
+		return lanes.Placement{}, nil, err
 	}
-	if inside {
-		return lanes.Placement{}, &WorktreeInsideClone{Root: path.Dir(place.Path), Clone: clone, Source: profile.Worktree.RootSource}
+	switch {
+	case inside && held != "":
+		if kept == nil {
+			kept = &KeptWorktree{Path: held, Would: place.Path}
+		}
+		kept.Inside = clone
+	case inside:
+		return lanes.Placement{}, nil, &WorktreeInsideClone{Root: path.Dir(place.Path), Clone: clone, Source: profile.Worktree.RootSource}
 	}
-	return place, nil
+	return place, kept, nil
+}
+
+// heldPlace names the worktree the lane's branch is checked out in, or nothing. A review lane has no branch and
+// a store that cannot say finds nothing.
+func (p Provisioner) heldPlace(ctx context.Context, request LaneRequest, place lanes.Placement) (string, error) {
+	trees, ok := p.Worktrees.(ports.BranchTrees)
+	if !ok || request.Detached || place.Branch == "" {
+		return "", nil
+	}
+	return trees.CheckedOut(ctx, request.Repository, place.Branch)
+}
+
+// samePlace says two paths name one directory, spelled the same or, as a disk that ignores case or a link
+// allows, another way.
+func (p Provisioner) samePlace(ctx context.Context, a, b string) bool {
+	if a == b {
+		return true
+	}
+	if p.Checkouts == nil {
+		return false
+	}
+	same, err := p.Checkouts.SameFile(ctx, a, b)
+	return err == nil && same
 }
