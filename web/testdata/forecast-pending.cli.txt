@@ -1,0 +1,10 @@
+plan	generated-1	version 6
+forecast pending: the daemon's forecast tick has not forecast version 6 yet
+estimate	generated-4	no history
+	No estimate: no medium change has finished in this project yet, and this project does not share history with other projects.
+estimate	generated-6	no history
+	No estimate: no small change has finished in this project yet, and this project does not share history with other projects.
+estimate	generated-8	no history
+	No estimate: no small change has finished in this project yet, and this project does not share history with other projects.
+estimate	generated-10	no history
+	No estimate: no small change has finished in this project yet, and this project does not share history with other projects.

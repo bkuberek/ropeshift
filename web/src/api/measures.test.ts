@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import routes from "../../testdata/routes.json";
-import { serveApi } from "../testing";
-import { deliveryGroupings, readDelivery, readDeliveryByProject, readPlanForecast } from "./measures";
+import { refusal, serveApi } from "../testing";
+import { deliveryGroupings, readDelivery, readDeliveryByProject, readPlanForecast, readPlanForecasts } from "./measures";
 import type { LookBack } from "./measures";
 import type { Project, Route } from "./types";
 
@@ -52,5 +52,19 @@ describe("the reads of delivery and forecasts", () => {
   it("reads no group for an installation with no active project", async () => {
     serveApi(() => ({ status: 200, body: {} }));
     expect((await readDeliveryByProject([project("old", "archived")], "30d")).groups).toEqual([]);
+  });
+
+  it("reads the forecast of each plan it is given, and leaves out one that has no version to forecast", async () => {
+    const sent = serveApi((call) =>
+      call.path.includes("/plans/bare/") ? refusal(404, "not_found", "plan bare has no version yet") : { status: 200, body: { plan_id: call.path.split("/")[3], plan_version: 1, state: "forecast", estimate_set: null, forecasts: [] } },
+    );
+    const read = await readPlanForecasts(["one", "bare", "two"]);
+    expect(Object.keys(read).sort()).toEqual(["one", "two"]);
+    expect(sent.map((call) => call.path).sort()).toEqual(["/v1/plans/bare/forecast", "/v1/plans/one/forecast", "/v1/plans/two/forecast"]);
+  });
+
+  it("fails when a read fails for any other reason, so a page says what it could not read", async () => {
+    serveApi(() => refusal(500, "unavailable", "the ledger could not be read"));
+    await expect(readPlanForecasts(["one"])).rejects.toThrow("the ledger could not be read");
   });
 });

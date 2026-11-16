@@ -1,0 +1,46 @@
+{
+  "plan_id": "generated-1",
+  "plan_version": 1,
+  "state": "superseded",
+  "estimate_set": {
+    "id": "generated-2",
+    "plan_id": "generated-1",
+    "plan_version": 1,
+    "ledger_rev": 170,
+    "estimator_version": 1,
+    "policy_version": 1,
+    "digest": "sha256:steady",
+    "created_at": 1790000540001,
+    "estimates": [
+      {
+        "id": "generated-3",
+        "estimate_set_id": "generated-2",
+        "work_order_id": "generated-4",
+        "status": "no_history",
+        "keys": [],
+        "dropped_keys": [],
+        "sample_count": 0,
+        "min_samples": 10,
+        "sample_ids": [],
+        "pool_samples": 0,
+        "delivery_p50_ms": 0,
+        "delivery_p85_ms": 0,
+        "delivery_min_ms": 0,
+        "delivery_max_ms": 0,
+        "cost_p50_usd": 0,
+        "cost_p85_usd": 0,
+        "cost_min_usd": 0,
+        "cost_max_usd": 0,
+        "p85_open": false,
+        "cost_at_least": false,
+        "rev": 170,
+        "estimator_version": 1,
+        "policy_version": 1,
+        "explanation": "No estimate: no small change has finished in this project yet, and this project does not share history with other projects.",
+        "current": false,
+        "created_at": 1790000540001
+      }
+    ]
+  },
+  "forecasts": []
+}

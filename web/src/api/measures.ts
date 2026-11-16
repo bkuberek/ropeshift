@@ -1,4 +1,4 @@
-import { call, inProjectOf, project } from "./client";
+import { ApiError, call, inProjectOf, project } from "./client";
 import type { Project } from "./types";
 
 // What the delivery measures and the forecasts read, as the API serves them. Durations are milliseconds, and
@@ -117,4 +117,22 @@ export async function readDeliveryByProject(projects: Project[], window: string)
 // forecast` does. No version reads the newest. It forecasts nothing itself.
 export function readPlanForecast(plan: string, version = 0): Promise<PlanForecast> {
   return call("GET", project(`/plans/${encodeURIComponent(plan)}/forecast${version ? `?${new URLSearchParams({ version: String(version) })}` : ""}`));
+}
+
+// readPlanForecasts reads the newest forecast of each plan, by the plan's ID. A plan with no version has no
+// forecast to read, and is left out.
+export async function readPlanForecasts(plans: string[]): Promise<Record<string, PlanForecast>> {
+  const out: Record<string, PlanForecast> = {};
+  await Promise.all(
+    plans.map(async (id) => {
+      try {
+        out[id] = await readPlanForecast(id);
+      } catch (error) {
+        if (!(error instanceof ApiError && error.code === "not_found")) {
+          throw error;
+        }
+      }
+    }),
+  );
+  return out;
 }

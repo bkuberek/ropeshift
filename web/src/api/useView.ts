@@ -20,11 +20,13 @@ const nothing = { view: null, readAt: 0, failure: "", refusedCode: "", busy: fal
 // useView follows one read. A refused session asks the shell, which owns the sign-in. A failed read
 // leaves the last answer standing beside the failure, because an old page says more than a blank one,
 // and each answer but the newest is dropped, so a slow read cannot undo a later one. `key` names what
-// is read, and `gapMs` holds a costly read to one per gap, however much a person hears.
+// is read, and `gapMs` holds a costly read to one per gap, however much a person hears. A read of something
+// else, a new key, is not held.
 export function useView<T>(read: () => Promise<T>, key: string, live: Live, gapMs = 0): ViewRead<T> {
   const [state, setState] = useState<ViewRead<T>>(nothing);
   const asked = useRef(0);
   const lastRead = useRef(0);
+  const lastKey = useRef(key);
   const latest = useRef(read);
   latest.current = read;
   const session = useRef(live.checkSession);
@@ -54,7 +56,9 @@ export function useView<T>(read: () => Promise<T>, key: string, live: Live, gapM
         setState((was) => ({ ...was, failure: refused.message, refusedCode: refused.code, busy: false }));
       }
     };
-    const wait = lastRead.current === 0 ? 0 : lastRead.current + gapMs - Date.now();
+    const asksForOther = lastKey.current !== key;
+    lastKey.current = key;
+    const wait = lastRead.current === 0 || asksForOther ? 0 : lastRead.current + gapMs - Date.now();
     if (wait <= 0) {
       void run();
       return;
