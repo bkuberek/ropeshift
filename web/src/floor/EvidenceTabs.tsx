@@ -1,7 +1,10 @@
 import { readAcceptance, readTimeline } from "../api/admin";
+import type { WorkEstimate } from "../api/measures";
+import { readEstimate } from "../api/measures";
 import type { Segment, SegmentKind, Standing, WorkTimeline } from "../api/types";
 import type { Live } from "../api/useView";
 import { useView } from "../api/useView";
+import { WorkEstimateView } from "../measures/Estimate";
 import { words } from "../parts/parts";
 import { Badge, Absent, Actor, Banner, Digest, EmptyState, Fact, Facts, Panel, RecordChip, SkeletonRows, StateBadge, TableRegion, WorkBadge } from "../ui/display";
 import { Checks } from "./Checks";
@@ -279,13 +282,23 @@ function Record({ read }: { read: NonNullable<WorkTimeline["record"]> }) {
 
 // ActivityView is where a work order's time went: the totals, with a wait for a person apart from agent time, the
 // segments to scale and in a table, and the delivery record once a change or a rework has ended.
-export function ActivityView({ read }: { read: WorkTimeline }) {
+export function ActivityView({ read, estimate }: { read: WorkTimeline; estimate?: WorkEstimate | null }) {
   const { timeline, record } = read;
+  // The estimate band and the baseline beside it, in full, with the actual delivery time once the work has one.
+  const estimated = estimate ? (
+    <Panel title="Estimate" level={3}>
+      <WorkEstimateView read={estimate} actualMs={record?.delivery_ms} />
+      {record ? null : <p className="small muted">Actual: none yet.</p>}
+    </Panel>
+  ) : null;
   if (timeline.segments.length === 0) {
     return (
-      <EmptyState icon="history" title="No timeline yet">
-        A timeline starts when the work order first becomes ready.
-      </EmptyState>
+      <div className="stack-8">
+        <EmptyState icon="history" title="No timeline yet">
+          A timeline starts when the work order first becomes ready.
+        </EmptyState>
+        {estimated}
+      </div>
     );
   }
   const totals = totalsOf(timeline);
@@ -307,20 +320,24 @@ export function ActivityView({ read }: { read: WorkTimeline }) {
         <Segments timeline={timeline} />
       </Panel>
       {record ? <Record read={record} /> : timeline.terminal ? <p className="muted">Only a change or a rework leaves a delivery record.</p> : null}
+      {estimated}
     </div>
   );
 }
 
-// ActivityTab reads a work order's timeline and shows it.
+// ActivityTab reads a work order's timeline and its estimate, and shows them. A failed estimate read leaves the
+// timeline standing and says so beside it.
 export function ActivityTab({ id, live }: { id: string; live: Live }) {
   const { view, failure } = useView<WorkTimeline>(() => readTimeline(id), `work-order:${id}:timeline`, live);
+  const estimate = useView<WorkEstimate>(() => readEstimate(id), `work-order:${id}:estimate`, live);
   if (!view) {
     return failure ? <Banner tone="danger">{failure}</Banner> : <SkeletonRows rows={4} />;
   }
   return (
     <>
       {failure ? <Banner tone="danger">{`This tab is not current. ${failure}`}</Banner> : null}
-      <ActivityView read={view} />
+      {estimate.failure ? <Banner tone="danger">{`The estimate is not current. ${estimate.failure}`}</Banner> : null}
+      <ActivityView read={view} estimate={estimate.view} />
     </>
   );
 }

@@ -162,6 +162,10 @@ async function answer(route: Route): Promise<void> {
     const body = read ? goldens[`${evidence[2]}-${read}`] : undefined;
     return body ? json(body) : json(JSON.stringify({ error: { code: "not_found", message: "no such work order" } }), 404);
   }
+  // A work order's estimate beside its baseline.
+  if (/^\/v1\/work-orders\/[^/]+\/estimate$/.test(path) && goldens["work-estimate"]) {
+    return json(goldens["work-estimate"]);
+  }
   if (path === "/v1/documents/read") {
     return json(goldens.document ?? "{}");
   }
@@ -1273,6 +1277,67 @@ describe.each(Object.entries(sizes))("at %s width", (size, viewport) => {
         expect(found.map((line) => `${size} ${theme} ${line}`)).toEqual([]);
       },
       120_000,
+    );
+
+    it(
+      "estimates, on a work order, on plan approval, and in the planning outline, confident, low, open, absent, pending, and refused, meet WCAG 2.2 A and AA",
+      async () => {
+        const context = await browser.newContext({ viewport, colorScheme: theme, reducedMotion: "reduce" });
+        await context.route(/\/v1\//, answer);
+        const page = await context.newPage();
+        const found: string[] = [];
+        const settle = async () => {
+          await page.mouse.move(0, 0);
+          await page.waitForTimeout(600);
+        };
+        const served = (body: string | undefined) => (route: Route) => route.fulfill({ status: 200, contentType: "application/json", body: body ?? "{}" });
+        const estimate = /\/v1\/projects\/default\/work-orders\/wo-running\/estimate$/;
+        // A work order whose estimate is confident beside a low-confidence baseline, with the explanations open.
+        await page.goto(`${base}/projects/default/work-order?id=wo-running&tab=activity`);
+        await ready(page);
+        await page.getByRole("region", { name: "Estimate" }).first().waitFor();
+        for (const control of await page.getByText("How it was made").all()) {
+          await control.click();
+        }
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `work order estimate beside its baseline ${violation}`));
+        for (const name of ["work-estimate-low", "work-estimate-open", "work-estimate-none", "work-estimate-absent"]) {
+          await page.route(estimate, served(goldens[name]));
+          await page.goto(`${base}/projects/default/work-order?id=wo-running&tab=activity`);
+          await page.getByRole("region", { name: "Estimate" }).first().waitFor();
+          await settle();
+          found.push(...(await audit(page)).map((violation) => `work order ${name} ${violation}`));
+        }
+        await page.route(estimate, (route) => route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: { code: "unavailable", message: "the ledger could not be read" } }) }));
+        await page.goto(`${base}/projects/default/work-order?id=wo-running`);
+        await page.getByRole("alert").getByText(/the ledger could not be read/).first().waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `work order with an estimate it could not read ${violation}`));
+        // Plan approval: the Estimates group of a version the forecast tick has not forecast, with estimates that
+        // have no history, then of one it has forecast, with every kind of estimate and forecast.
+        await page.goto(`${base}/projects/default/plan?id=generated-1&version=6`);
+        await page.getByRole("region", { name: "Estimates" }).waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `plan approval with a forecast pending ${violation}`));
+        await page.route(/\/v1\/projects\/default\/plans\/generated-1(\?.*)?$/, served(goldens["plan-estimates"]));
+        await page.goto(`${base}/projects/default/plan?id=generated-1&version=6`);
+        await page.getByRole("region", { name: "Estimates" }).getByText("Low confidence").first().waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `plan approval with every kind of estimate and forecast ${violation}`));
+        // The planning outline, once a request stands for the tip of a branch whose plan the ledger holds.
+        const outline = JSON.parse(goldens.outline ?? "{}") as Record<string, unknown>;
+        outline.not_submitted = undefined;
+        outline.approval = { id: "generated-13", state: "pending", plan_id: "generated-1", version: 6 };
+        await page.route(/\/v1\/projects\/default\/lanes\/[^/]+\/outline$/, served(JSON.stringify(outline)));
+        await page.goto(`${base}/projects/default/planning?lane=lane-wo-running`);
+        await page.getByRole("heading", { level: 3, name: "Estimates" }).waitFor();
+        await page.getByText("Low confidence").first().waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `planning outline with estimates and forecasts ${violation}`));
+        await context.close();
+        expect(found.map((line) => `${size} ${theme} ${line}`)).toEqual([]);
+      },
+      180_000,
     );
 
     it(

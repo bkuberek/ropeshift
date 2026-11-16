@@ -2,6 +2,7 @@ import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
+import type { PlanForecast } from "../api/measures";
 import type { InProgress, OnHold, PlanOutline } from "../api/types";
 import { openPage } from "../opening";
 import type { Sent } from "../testing";
@@ -228,6 +229,43 @@ describe("the plan outline", () => {
     openPage(here(`/planning?lane=${lane}`));
     const link = await screen.findByRole("link", { name: "Review version 5" });
     expect(link.getAttribute("href")).toBe("/projects/default/plan?id=approval-1&version=5");
+  });
+
+  it("shows the estimates and forecasts of the version a request stands for, each band keeping its badge", async () => {
+    const outline = golden<PlanOutline>("outline");
+    outline.not_submitted = undefined;
+    outline.approval = { id: "approval-1", state: "pending", plan_id: "plan-saved", version: 6 };
+    const forecast = golden<PlanForecast>("forecast");
+    const sent = serve(undefined, outline);
+    openPage(here(`/planning?lane=${lane}`));
+    const pane = await screen.findByRole("complementary", { name: "Plan in progress" });
+    expect(await within(pane).findByRole("heading", { level: 3, name: "Estimates" })).toBeTruthy();
+    await waitFor(() => expect(pane.querySelectorAll("[data-estimate]")).toHaveLength(forecast.estimate_set?.estimates.length ?? -1));
+    expect(sent.some((call) => call.path === "/v1/plans/plan-saved/forecast?version=6")).toBe(true);
+    expect(pane.querySelector("[data-forecast='plan']")).toBeTruthy();
+    expect(pane.querySelector("details.estimate-more")).toBeTruthy();
+  });
+
+  it("says a milestone's forecast is pending until the forecast tick has made it, and still shows the estimates", async () => {
+    const outline = golden<PlanOutline>("outline");
+    outline.approval = { id: "approval-1", state: "pending", plan_id: "plan-saved", version: 6 };
+    const pending: PlanForecast = { ...golden<PlanForecast>("forecast"), state: "pending", forecasts: [] };
+    serve((call) => (call.method === "GET" && call.path.startsWith("/v1/plans/plan-saved/forecast") ? { status: 200, body: pending } : undefined), outline);
+    openPage(here(`/planning?lane=${lane}`));
+    const pane = await screen.findByRole("complementary", { name: "Plan in progress" });
+    expect(await within(pane).findByText(/Forecast pending: the daemon's forecast tick has not forecast version 6 yet/)).toBeTruthy();
+    expect(pane.querySelectorAll("[data-estimate]").length).toBeGreaterThan(0);
+  });
+
+  it("reads no forecast of a branch with no request standing for it, or of a request the ledger holds no plan for", async () => {
+    const outline = golden<PlanOutline>("outline");
+    outline.approval = { id: "approval-1", state: "pending", version: 1 };
+    const sent = serve(undefined, outline);
+    openPage(here(`/planning?lane=${lane}`));
+    const pane = await screen.findByRole("complementary", { name: "Plan in progress" });
+    await within(pane).findByRole("link", { name: "Review version 1" });
+    expect(sent.some((call) => call.path.includes("/forecast"))).toBe(false);
+    expect(within(pane).queryByRole("heading", { level: 3, name: "Estimates" })).toBeNull();
   });
 
   it("says why a branch cannot be read, and shows nothing else", async () => {

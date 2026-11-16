@@ -187,7 +187,7 @@ func TestAnOutlineSaysARequestStandsForTheTip(t *testing.T) {
 		t.Helper()
 		request := authority.Approval{
 			ID: id, Kind: authority.KindPlan, WorkOrder: outlinePlan, Subject: "saved@1", SubjectDigest: "sha256:plan", Summary: "Saved searches",
-			RequestedBy: "system:intake", State: state, PlanVersion: 1, Detail: `{"title":"Saved searches","source":"` + commit + `"}`,
+			RequestedBy: "system:intake", State: state, Plan: "plan-saved", PlanVersion: 1, Detail: `{"title":"Saved searches","source":"` + commit + `"}`,
 		}
 		err := d.Store.Write(t.Context(), apitest.Scope, "test.approval", func(tx ports.WriteTx) error {
 			if _, err := tx.Approvals().Insert(request); err != nil {
@@ -214,7 +214,7 @@ func TestAnOutlineSaysARequestStandsForTheTip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if standing.Approval == nil || standing.Approval.ID != "approval-tip" || standing.Approval.State != authority.ApprovalPending || standing.Approval.Version != 1 || standing.NotSubmitted != "" {
+	if standing.Approval == nil || standing.Approval.ID != "approval-tip" || standing.Approval.State != authority.ApprovalPending || standing.Approval.Version != 1 || standing.Approval.Plan != "plan-saved" || standing.NotSubmitted != "" {
 		t.Errorf("outline %+v", standing)
 	}
 }

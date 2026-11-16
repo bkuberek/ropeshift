@@ -1,0 +1,4 @@
+estimate	confident	delivery p50 6h0m0s p85 11h0m0s	cost p50 $6.00 p85 $11.00
+	Based on 12 finished medium changes with the same capability class, repository, merge authority level, and number of criteria.
+baseline	low	delivery p50 3h0m0s p85 more than 4h0m0s	cost p50 $3.00 p85 more than $4.00
+	Low confidence. Based on 4 finished medium changes; a confident estimate needs 10. They took from 1h to 4h. With fewer than 6, the 85th percentile cannot be read from them, so the band is open above 4h.

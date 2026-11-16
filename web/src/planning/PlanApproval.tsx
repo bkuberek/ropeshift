@@ -2,6 +2,8 @@ import { useRef, useState } from "react";
 
 import { useChange, useRead } from "../admin/parts";
 import { ApiError, decideApproval, readApproval, readPlan } from "../api/client";
+import type { PlanForecast } from "../api/measures";
+import { PlanEstimates } from "../measures/PlanEstimates";
 import type { ApprovalRecord, ManifestRegistration, PlanApprovalDetail, PlanApprovalView, PlanEntry, PlanVersionLine, DraftDecision, Plan } from "../api/types";
 import type { Live } from "../api/useView";
 import { addressOf, Link, useArrivalFocus } from "../app/route";
@@ -29,6 +31,9 @@ export type Subject = {
   version: number;
   // registration is what approving registers of the repositories the version's manifest lists, when it lists any.
   registration?: ManifestRegistration;
+  // forecast is the version's latest forecasts with the estimates they were made from, which approving records as
+  // the baseline.
+  forecast?: PlanForecast;
 };
 
 const noDetail: PlanApprovalDetail = { title: "" };
@@ -56,6 +61,7 @@ export async function readSubject(id: string, version: string): Promise<Subject>
       drafts: held?.drafts ?? [],
       version: held?.approval.plan_version ?? Number(version || view.versions[0]?.version || 0),
       registration: held?.registration,
+      forecast: held?.forecast,
     };
   } catch (error) {
     if (!(error instanceof ApiError) || error.code !== "not_found") {
@@ -202,6 +208,11 @@ function Decision({ subject, after, reload }: { subject: Subject; after: () => P
             {contracts ? ` and passes contract review for the work of ${contracts} ${contracts === 1 ? "contract" : "contracts"}` : ""}. Contract review still runs and sends any new question up the
             ladder.
           </p>
+          {subject.forecast ? (
+            <p>
+              Approving records the estimates shown here as the baseline finished work is measured against. History that finishes after you decide never voids the approval.
+            </p>
+          ) : null}
           <p className="muted">A one-way decision, a conflict between requirements, or a change of scope still reaches you later.</p>
           {change.failure ? <Refusal>{change.failure}</Refusal> : null}
         </div>
@@ -275,6 +286,11 @@ export function PlanApprovalBody({ subject, live, after, reload }: { subject: Su
           <Panel title="New and changed contracts">
             <ChangedContracts plan={subject.plan?.id ?? ""} difference={subject.detail.difference ?? {}} live={live} />
           </Panel>
+          {subject.forecast ? (
+            <Panel title="Estimates">
+              <PlanEstimates forecast={subject.forecast} titleOf={(id) => id} />
+            </Panel>
+          ) : null}
           <Panel title="Documents">
             <CoveredDocuments records={subject.records} live={live} />
           </Panel>

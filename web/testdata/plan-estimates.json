@@ -1,0 +1,733 @@
+{
+  "plan": {
+    "id": "generated-1",
+    "goal_id": "generated-2",
+    "title": "The factory floor",
+    "status": "active",
+    "source": "plans/factory/plan.md@16"
+  },
+  "goal": {
+    "id": "generated-2",
+    "title": "Run the factory",
+    "status": "active",
+    "success_measures": [
+      "A plan is approved in one step",
+      "Shared work is built first"
+    ],
+    "statement": "One person plans, and the factory builds.\n",
+    "source": "plans/factory/goal.md@7"
+  },
+  "contracts": [
+    {
+      "id": "generated-3",
+      "version": 1,
+      "plan_id": "generated-1",
+      "title": "The API client",
+      "digest": "sha256:964587ca63ba06d5454a7510067214fb54c4a043fb2b1bdffdd2a131c82342bc",
+      "source": "plans/factory/client.md@8",
+      "statement": "What The API client is for.\n",
+      "criteria": [
+        {
+          "id": "c1",
+          "text": "Every call retries once",
+          "requirements": [
+            "FAC-2"
+          ]
+        }
+      ],
+      "milestone": "build",
+      "shared": true,
+      "work_orders": [
+        {
+          "ref": "work_order:client-1",
+          "digest": "sha256:2c1761e16218a799b909777ae21cbeeec22ca1e869f282446e8b8d91e472ce6c"
+        }
+      ],
+      "status": "active"
+    },
+    {
+      "id": "generated-4",
+      "version": 2,
+      "plan_id": "generated-1",
+      "title": "The planning core",
+      "digest": "sha256:40eec804f2316be29e61dbebe45f3d1c36defc4a140f2f3fee5977670d20b8e6",
+      "source": "plans/factory/core.md@16",
+      "statement": "What The planning core is for.\n",
+      "criteria": [
+        {
+          "id": "c1",
+          "text": "A plan version has one digest, over every record",
+          "requirements": [
+            "FAC-1"
+          ]
+        },
+        {
+          "id": "c2",
+          "text": "A changed criterion asks again",
+          "requirements": [
+            "FAC-1"
+          ]
+        }
+      ],
+      "milestone": "build",
+      "uses": [
+        "client"
+      ],
+      "work_orders": [
+        {
+          "ref": "work_order:core-1",
+          "digest": "sha256:f80304cc0d00851b8c62bc40ec5cb51700cb9911b18b3b0ce6105de426364116"
+        }
+      ],
+      "status": "active"
+    },
+    {
+      "id": "generated-5",
+      "version": 2,
+      "plan_id": "generated-1",
+      "title": "The approval page",
+      "digest": "sha256:615d875c9711c97b1c14d358549ee4b248d1b98f696d5f371c88fac0b10f489b",
+      "source": "plans/factory/ui.md@16",
+      "statement": "What The approval page is for.\n",
+      "criteria": [
+        {
+          "id": "c1",
+          "text": "A member approves a plan in one press",
+          "requirements": [
+            "FAC-1"
+          ]
+        },
+        {
+          "id": "c2",
+          "text": "The roadmap shows parallel work",
+          "requirements": [
+            "FAC-3"
+          ]
+        }
+      ],
+      "milestone": "ship",
+      "work_orders": [
+        {
+          "ref": "work_order:ui-1",
+          "digest": "sha256:96270ea48e348a72042413ffe7839941c101c93c6eee453a7f9320d0f55df598"
+        },
+        {
+          "ref": "work_order:ui-2",
+          "digest": "sha256:4c610486718bfa9e2720632e76137f561e27553f0127fed395538548e9f2be66"
+        }
+      ],
+      "status": "active"
+    },
+    {
+      "id": "generated-6",
+      "version": 1,
+      "plan_id": "generated-1",
+      "title": "The newcomer guide",
+      "digest": "sha256:b61f13d5f15ab7f8d305adbc3738a4572be88abcf792d89f0c0933e268b93106",
+      "source": "plans/factory/guide.md@11",
+      "statement": "What The newcomer guide is for.\n",
+      "criteria": [
+        {
+          "id": "c1",
+          "text": "The guide shows which work runs at once",
+          "requirements": [
+            "FAC-3"
+          ]
+        }
+      ],
+      "milestone": "guide",
+      "work_orders": [
+        {
+          "ref": "work_order:guide-1",
+          "digest": "sha256:5caac72c1a0be9c5420b137523e6ae8369a27869f2a16302c29b1f6729eba42f"
+        }
+      ],
+      "status": "active"
+    }
+  ],
+  "work_orders": [
+    {
+      "id": "generated-7",
+      "kind": "change",
+      "state": "done",
+      "title": "Write the API client",
+      "repository_id": "memory",
+      "size": "large",
+      "contract_id": "generated-3",
+      "contract_version": 1,
+      "fence": 2,
+      "reviewed_by": "member-1",
+      "rev": 1
+    },
+    {
+      "id": "generated-8",
+      "kind": "change",
+      "state": "contract_review",
+      "title": "Build the planning core",
+      "repository_id": "memory",
+      "size": "medium",
+      "contract_id": "generated-4",
+      "contract_version": 2
+    },
+    {
+      "id": "generated-9",
+      "kind": "change",
+      "state": "contract_review",
+      "title": "Build the approval page",
+      "repository_id": "memory",
+      "size": "small",
+      "contract_id": "generated-5",
+      "contract_version": 2
+    },
+    {
+      "id": "generated-10",
+      "kind": "change",
+      "state": "contract_review",
+      "title": "Show the critical path",
+      "repository_id": "memory",
+      "size": "small",
+      "contract_id": "generated-5",
+      "contract_version": 2
+    },
+    {
+      "id": "generated-11",
+      "kind": "change",
+      "state": "ready",
+      "title": "Write the guide",
+      "repository_id": "memory",
+      "size": "small",
+      "contract_id": "generated-6",
+      "contract_version": 1,
+      "reviewed_by": "member-1"
+    }
+  ],
+  "approval": {
+    "approval": {
+      "id": "generated-12",
+      "lane_id": "",
+      "work_order_id": "",
+      "generation": 0,
+      "kind": "plan",
+      "subject": "generated-1@6",
+      "subject_digest": "sha256:e86a2a838f6bb9b66bb8817e866d11764a989566982a6cb03a69f0cce3d156a3",
+      "summary": "Plan The factory floor, version 6: 1 architecture, 4 contract, 3 milestone, 1 requirements, 1 spec, 2 draft decisions",
+      "requested_by": "system:intake",
+      "state": "pending",
+      "raised_at": 1790000964001,
+      "plan_id": "generated-1",
+      "plan_version": 6,
+      "detail": "{\"title\":\"The factory floor\",\"ref\":\"factory\",\"counts\":{\"architecture\":1,\"contract\":4,\"milestone\":3,\"requirements\":1,\"spec\":1},\"decisions\":2,\"difference\":{\"base\":5,\"added\":[\"architecture:factory\"],\"changed\":[\"contract:core\",\"contract:ui\",\"plan:factory\",\"spec:factory-api\"],\"contracts\":[{\"ref\":\"contract:core\",\"criteria\":{\"added\":[\"c2\"],\"changed\":[\"c1\"]},\"work_orders\":{}},{\"ref\":\"contract:ui\",\"criteria\":{},\"work_orders\":{\"added\":[\"ui-2\"]}}]},\"source\":\"plans/factory/plan.md@16\"}"
+    },
+    "detail": {
+      "title": "The factory floor",
+      "ref": "factory",
+      "counts": {
+        "architecture": 1,
+        "contract": 4,
+        "milestone": 3,
+        "requirements": 1,
+        "spec": 1
+      },
+      "decisions": 2,
+      "difference": {
+        "base": 5,
+        "added": [
+          "architecture:factory"
+        ],
+        "changed": [
+          "contract:core",
+          "contract:ui",
+          "plan:factory",
+          "spec:factory-api"
+        ],
+        "contracts": [
+          {
+            "ref": "contract:core",
+            "criteria": {
+              "added": [
+                "c2"
+              ],
+              "changed": [
+                "c1"
+              ]
+            },
+            "work_orders": {}
+          },
+          {
+            "ref": "contract:ui",
+            "criteria": {},
+            "work_orders": {
+              "added": [
+                "ui-2"
+              ]
+            }
+          }
+        ]
+      },
+      "source": "plans/factory/plan.md@16"
+    },
+    "records": [
+      {
+        "ref": "plan:factory",
+        "digest": "sha256:69f32e522ce5facd402a44e43ee4d26cef7d4817ec3d770153e715665c467937"
+      },
+      {
+        "ref": "architecture:factory",
+        "digest": "sha256:319e08dd12bb9f9545763f5a49912fdc8ceba4d7285e5d18b5117e8ab5eecad5",
+        "record": "architecture:factory"
+      },
+      {
+        "ref": "milestone:build",
+        "digest": "sha256:96a26ad40a30cbbf37d0661a1949df53887baae5108fc9a52b0ebc50ca2a1bcb",
+        "record": "milestone:build"
+      },
+      {
+        "ref": "milestone:guide",
+        "digest": "sha256:a8d3269770f074491ca303bb90fa5001b1f2ed3b2735c8c1fa3deb84551c5635",
+        "record": "milestone:guide"
+      },
+      {
+        "ref": "milestone:ship",
+        "digest": "sha256:445d14cc5a6cd94b153f48aa0f63b6e76b30966e8cf4052310783754f65720a5",
+        "record": "milestone:ship"
+      },
+      {
+        "ref": "requirements:factory",
+        "digest": "sha256:cffebe81280e19a2096b3167d568a8aa5e7a696902ecdaa6e41680112548d6fc",
+        "record": "requirements:factory"
+      },
+      {
+        "ref": "spec:factory-api",
+        "digest": "sha256:5fdda22e9e2807cbae132b1a8d4c6a5ecc59eb622f53da16476172202a02b77e",
+        "record": "spec:factory-api"
+      },
+      {
+        "ref": "contract:client",
+        "digest": "sha256:964587ca63ba06d5454a7510067214fb54c4a043fb2b1bdffdd2a131c82342bc",
+        "record": "generated-3",
+        "parts": [
+          {
+            "ref": "criterion:c1",
+            "digest": "sha256:a5b5246c4eca3d6cb8c332d9d86f95945538ed5ce2e182cb0bb71a411093ddf8"
+          },
+          {
+            "ref": "work_order:client-1",
+            "digest": "sha256:2c1761e16218a799b909777ae21cbeeec22ca1e869f282446e8b8d91e472ce6c"
+          }
+        ]
+      },
+      {
+        "ref": "contract:core",
+        "digest": "sha256:40eec804f2316be29e61dbebe45f3d1c36defc4a140f2f3fee5977670d20b8e6",
+        "record": "generated-4",
+        "parts": [
+          {
+            "ref": "criterion:c1",
+            "digest": "sha256:8d9f615585e964947e025a543bded403a546c631bd4f8ea9101f7e73cf82344b"
+          },
+          {
+            "ref": "criterion:c2",
+            "digest": "sha256:a1040e20740795c33c8f24c738b53e6bea2a4cf21139a412b590575c224f6316"
+          },
+          {
+            "ref": "work_order:core-1",
+            "digest": "sha256:f80304cc0d00851b8c62bc40ec5cb51700cb9911b18b3b0ce6105de426364116"
+          }
+        ]
+      },
+      {
+        "ref": "contract:ui",
+        "digest": "sha256:615d875c9711c97b1c14d358549ee4b248d1b98f696d5f371c88fac0b10f489b",
+        "record": "generated-5",
+        "parts": [
+          {
+            "ref": "criterion:c1",
+            "digest": "sha256:b0366e5e53997826a7d5b277c532045ba806cae4e82eb747333911be06a0013f"
+          },
+          {
+            "ref": "criterion:c2",
+            "digest": "sha256:e66f4e6f18aa37e63478013f7d9f2c4076b75c7bfc214e2ce51f3c434150466e"
+          },
+          {
+            "ref": "work_order:ui-1",
+            "digest": "sha256:96270ea48e348a72042413ffe7839941c101c93c6eee453a7f9320d0f55df598"
+          },
+          {
+            "ref": "work_order:ui-2",
+            "digest": "sha256:4c610486718bfa9e2720632e76137f561e27553f0127fed395538548e9f2be66"
+          }
+        ]
+      },
+      {
+        "ref": "contract:guide",
+        "digest": "sha256:b61f13d5f15ab7f8d305adbc3738a4572be88abcf792d89f0c0933e268b93106",
+        "record": "generated-6",
+        "parts": [
+          {
+            "ref": "criterion:c1",
+            "digest": "sha256:9a918a45cca30cbb67021edfaf719159db92987c4da0e806a96147682079d3bb"
+          },
+          {
+            "ref": "work_order:guide-1",
+            "digest": "sha256:5caac72c1a0be9c5420b137523e6ae8369a27869f2a16302c29b1f6729eba42f"
+          }
+        ]
+      }
+    ],
+    "drafts": [
+      {
+        "id": "d1",
+        "question": "Which agent CLI runs the first lanes?",
+        "answer": "The one already installed on the machine.",
+        "rationale": "It needs no new sign-in."
+      },
+      {
+        "id": "d2",
+        "question": "Does a lane retry a failed check?",
+        "answer": "Once, and then it asks <img src=x onerror=alert(1)><script>alert(2)</script>."
+      }
+    ],
+    "forecast": {
+      "plan_id": "generated-1",
+      "plan_version": 6,
+      "state": "forecast",
+      "estimate_set": {
+        "id": "set-newest",
+        "plan_id": "generated-1",
+        "plan_version": 6,
+        "ledger_rev": 412,
+        "estimator_version": 1,
+        "policy_version": 1,
+        "digest": "sha256:steady",
+        "created_at": 1763100000000,
+        "estimates": [
+          {
+            "id": "estimate-412-generated-8",
+            "estimate_set_id": "set-newest",
+            "work_order_id": "generated-8",
+            "status": "no_history",
+            "keys": [],
+            "dropped_keys": [],
+            "sample_count": 0,
+            "min_samples": 10,
+            "sample_ids": [],
+            "pool_samples": 0,
+            "delivery_p50_ms": 0,
+            "delivery_p85_ms": 0,
+            "delivery_min_ms": 0,
+            "delivery_max_ms": 0,
+            "cost_p50_usd": 0,
+            "cost_p85_usd": 0,
+            "cost_min_usd": 0,
+            "cost_max_usd": 0,
+            "p85_open": false,
+            "cost_at_least": false,
+            "rev": 412,
+            "estimator_version": 1,
+            "policy_version": 1,
+            "explanation": "No estimate: no medium change has finished in this project yet, and this project does not share history with other projects.",
+            "current": true,
+            "created_at": 1763100000000
+          },
+          {
+            "id": "estimate-412-generated-9",
+            "estimate_set_id": "set-newest",
+            "work_order_id": "generated-9",
+            "status": "estimated",
+            "confidence": "low",
+            "tier": 1,
+            "keys": [
+              "kind",
+              "size",
+              "capability_class",
+              "repository",
+              "merge_authority",
+              "criteria"
+            ],
+            "dropped_keys": [],
+            "sample_count": 7,
+            "min_samples": 10,
+            "sample_ids": [
+              "done-06",
+              "done-05",
+              "done-04",
+              "done-03",
+              "done-02",
+              "done-01",
+              "done-00"
+            ],
+            "pool_samples": 0,
+            "delivery_p50_ms": 14400000,
+            "delivery_p85_ms": 25200000,
+            "delivery_min_ms": 3600000,
+            "delivery_max_ms": 25200000,
+            "cost_p50_usd": 4,
+            "cost_p85_usd": 7,
+            "cost_min_usd": 1,
+            "cost_max_usd": 7,
+            "p85_open": false,
+            "cost_at_least": true,
+            "rev": 412,
+            "estimator_version": 1,
+            "policy_version": 1,
+            "explanation": "Low confidence. Based on 7 finished medium changes; a confident estimate needs 10. They took from 1h to 7h.",
+            "current": true,
+            "created_at": 1763100000000
+          },
+          {
+            "id": "estimate-412-generated-11",
+            "estimate_set_id": "set-newest",
+            "work_order_id": "generated-11",
+            "status": "estimated",
+            "confidence": "low",
+            "tier": 1,
+            "keys": [
+              "kind",
+              "size",
+              "capability_class",
+              "repository",
+              "merge_authority",
+              "criteria"
+            ],
+            "dropped_keys": [],
+            "sample_count": 3,
+            "min_samples": 10,
+            "sample_ids": [
+              "done-02",
+              "done-01",
+              "done-00"
+            ],
+            "pool_samples": 0,
+            "delivery_p50_ms": 7200000,
+            "delivery_p85_ms": 10800000,
+            "delivery_min_ms": 3600000,
+            "delivery_max_ms": 10800000,
+            "cost_p50_usd": 2,
+            "cost_p85_usd": 3,
+            "cost_min_usd": 1,
+            "cost_max_usd": 3,
+            "p85_open": true,
+            "cost_at_least": false,
+            "rev": 412,
+            "estimator_version": 1,
+            "policy_version": 1,
+            "explanation": "Low confidence. Based on 3 finished medium changes; a confident estimate needs 10. They took from 1h to 3h. With fewer than 6, the 85th percentile cannot be read from them, so the band is open above 3h.",
+            "current": true,
+            "created_at": 1763100000000
+          },
+          {
+            "id": "estimate-412-generated-10",
+            "estimate_set_id": "set-newest",
+            "work_order_id": "generated-10",
+            "status": "estimated",
+            "confidence": "confident",
+            "tier": 1,
+            "keys": [
+              "kind",
+              "size",
+              "capability_class",
+              "repository",
+              "merge_authority",
+              "criteria"
+            ],
+            "dropped_keys": [],
+            "sample_count": 12,
+            "min_samples": 10,
+            "sample_ids": [
+              "done-11",
+              "done-10",
+              "done-09",
+              "done-08",
+              "done-07",
+              "done-06",
+              "done-05",
+              "done-04",
+              "done-03",
+              "done-02",
+              "done-01",
+              "done-00"
+            ],
+            "pool_samples": 0,
+            "delivery_p50_ms": 21600000,
+            "delivery_p85_ms": 39600000,
+            "delivery_min_ms": 3600000,
+            "delivery_max_ms": 43200000,
+            "cost_p50_usd": 6,
+            "cost_p85_usd": 11,
+            "cost_min_usd": 1,
+            "cost_max_usd": 12,
+            "p85_open": false,
+            "cost_at_least": false,
+            "rev": 412,
+            "estimator_version": 1,
+            "policy_version": 1,
+            "explanation": "Based on 12 finished medium changes with the same capability class, repository, merge authority level, and number of criteria.",
+            "current": true,
+            "created_at": 1763100000000
+          }
+        ]
+      },
+      "forecasts": [
+        {
+          "id": "forecast-",
+          "estimate_set_id": "set-newest",
+          "plan_id": "generated-1",
+          "plan_version": 6,
+          "status": "forecast",
+          "ledger_rev": 412,
+          "seed": "sha256:forecast-seed",
+          "trials": 2000,
+          "cap": 2,
+          "as_of": 1763100000000,
+          "person_median_ms": 1800000,
+          "policy_version": 1,
+          "end_p50": 1763200000000,
+          "end_p85": 1763300000000,
+          "cost_p50_usd": 18.4,
+          "cost_p85_usd": 31.2,
+          "end_p85_cap_plus_one": 1763250000000,
+          "end_p85_person_median": 1763280000000,
+          "confidence": "low",
+          "low_confidence_work_orders": [
+            "wo-3",
+            "wo-7"
+          ],
+          "left_out": [],
+          "outside": [],
+          "lower_bound": "p85",
+          "explanation": "Low confidence, from 2000 trials of 7 work orders, at most 2 at a time. 2 work orders have too few comparable outcomes: wo-3 rests on 4 finished changes, and a confident estimate needs 10.",
+          "day": 1763078400000,
+          "created_at": 1763100000000
+        },
+        {
+          "id": "forecast-build",
+          "estimate_set_id": "set-newest",
+          "plan_id": "generated-1",
+          "plan_version": 6,
+          "milestone_id": "build",
+          "status": "forecast",
+          "ledger_rev": 412,
+          "seed": "sha256:forecast-seed",
+          "trials": 2000,
+          "cap": 2,
+          "as_of": 1763100000000,
+          "person_median_ms": 1800000,
+          "policy_version": 1,
+          "end_p50": 1763150000000,
+          "end_p85": 1763210000000,
+          "cost_p50_usd": 6.1,
+          "cost_p85_usd": 9.8,
+          "end_p85_cap_plus_one": 1763190000000,
+          "end_p85_person_median": 1763200000000,
+          "confidence": "confident",
+          "low_confidence_work_orders": [],
+          "left_out": [],
+          "outside": [],
+          "lower_bound": "none",
+          "explanation": "From 2000 trials of 3 work orders, at most 2 at a time, each estimated from at least 10 finished comparable changes.",
+          "day": 1763078400000,
+          "created_at": 1763100000000
+        },
+        {
+          "id": "forecast-guide",
+          "estimate_set_id": "set-newest",
+          "plan_id": "generated-1",
+          "plan_version": 6,
+          "milestone_id": "guide",
+          "status": "no_history",
+          "ledger_rev": 412,
+          "seed": "sha256:forecast-seed",
+          "trials": 2000,
+          "cap": 2,
+          "as_of": 1763100000000,
+          "person_median_ms": 1800000,
+          "policy_version": 1,
+          "end_p50": 0,
+          "end_p85": 0,
+          "cost_p50_usd": 0,
+          "cost_p85_usd": 0,
+          "end_p85_cap_plus_one": 0,
+          "end_p85_person_median": 0,
+          "low_confidence_work_orders": [],
+          "left_out": [],
+          "outside": [],
+          "lower_bound": "none",
+          "explanation": "No forecast: none of the 2 unfinished work orders has finished comparable work.",
+          "day": 1763078400000,
+          "created_at": 1763100000000
+        },
+        {
+          "id": "forecast-ship",
+          "estimate_set_id": "set-newest",
+          "plan_id": "generated-1",
+          "plan_version": 6,
+          "milestone_id": "ship",
+          "status": "forecast",
+          "ledger_rev": 412,
+          "seed": "sha256:forecast-seed",
+          "trials": 2000,
+          "cap": 0,
+          "as_of": 1763100000000,
+          "person_median_ms": 1800000,
+          "policy_version": 1,
+          "end_p50": 1763400000000,
+          "end_p85": 1763700000000,
+          "cost_p50_usd": 9.5,
+          "cost_p85_usd": 14,
+          "end_p85_cap_plus_one": 1763700000000,
+          "end_p85_person_median": 1763650000000,
+          "confidence": "low",
+          "low_confidence_work_orders": [
+            "wo-9"
+          ],
+          "left_out": [
+            "wo-10"
+          ],
+          "outside": [],
+          "lower_bound": "all",
+          "explanation": "Low confidence, from 2000 trials of 2 work orders, with no lane cap. It leaves out 1 work order with no history, so every date and cost is a lower bound.",
+          "day": 1763078400000,
+          "created_at": 1763100000000
+        }
+      ]
+    }
+  },
+  "versions": [
+    {
+      "version": 6,
+      "digest": "sha256:e86a2a838f6bb9b66bb8817e866d11764a989566982a6cb03a69f0cce3d156a3",
+      "approval": "generated-12",
+      "state": "pending"
+    },
+    {
+      "version": 5,
+      "digest": "sha256:612217d1fef3effec6eabbd3abb456fc7ece81f13a7fd8c30f73d3d440e96992",
+      "approval": "generated-13",
+      "state": "approved"
+    },
+    {
+      "version": 4,
+      "digest": "sha256:a7f7a9b5934ed43c9376ffcd7889069eafa1799ae36d7d9db77f40719c80d239",
+      "approval": "generated-14",
+      "state": "superseded"
+    },
+    {
+      "version": 3,
+      "digest": "sha256:2376b97ee28622d50429c59e2eefba67b80be06fc8a3857d0cf3d3bcc8b04faa",
+      "approval": "generated-15",
+      "state": "superseded"
+    },
+    {
+      "version": 2,
+      "digest": "sha256:7cba5a26f5555337635b5266e4c4f4dd731a0ce173003fb696d5313b01c1bef0",
+      "approval": "generated-16",
+      "state": "superseded"
+    },
+    {
+      "version": 1,
+      "digest": "sha256:404239203c58c5f6c778960c165ee726d0ffcd825099d6895fe2f87dc5e88c8b",
+      "approval": "generated-17",
+      "state": "superseded"
+    }
+  ]
+}

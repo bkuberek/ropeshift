@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"ropeshift.com/ropeshift/internal/api"
+	"ropeshift.com/ropeshift/internal/delivery"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/planning"
 	"ropeshift.com/ropeshift/internal/workorders"
@@ -223,10 +224,7 @@ func workDetailText(detail api.WorkDetail) string {
 		}
 		fmt.Fprintf(&out, "approved\t%s\tby %s\tat %s\t%s%s\n", shortCommit(record.ApprovedCommit), approver, record.MergeAuthority, merged, plan)
 	}
-	out.WriteString(estimateText(detail.Estimate))
-	if detail.Baseline != nil {
-		out.WriteString(strings.Replace(estimateText(&detail.Baseline.Estimate), "estimate\t", "baseline\t", 1))
-	}
+	out.WriteString(estimateLines(detail.Estimate, detail.Baseline))
 	switch {
 	case detail.Why == "":
 	case detail.State == workorders.Integrating:
@@ -235,6 +233,16 @@ func workDetailText(detail api.WorkDetail) string {
 		fmt.Fprintf(&out, "waiting\tfor a member: %s\n", oneLine(detail.Why))
 	}
 	return out.String()
+}
+
+// estimateLines prints a work order's current estimate and, under it, the estimate its baseline holds, each as
+// estimateText says it. Work with neither prints nothing.
+func estimateLines(estimate *delivery.Estimate, baseline *api.WorkBaseline) string {
+	out := estimateText(estimate)
+	if baseline != nil {
+		out += strings.Replace(estimateText(&baseline.Estimate), "estimate\t", "baseline\t", 1)
+	}
+	return out
 }
 
 // shortCommit is enough of a commit to read and find it again.

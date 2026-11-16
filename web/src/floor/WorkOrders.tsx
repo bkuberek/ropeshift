@@ -22,6 +22,7 @@ import { ActivityTab, ChangesTab } from "./EvidenceTabs";
 import { NewWorkOrder } from "./NewWorkOrder";
 import { StartWork } from "./StartWork";
 import { WakeWords } from "./WakeWords";
+import { WorkEstimatePanel } from "./WorkEstimatePanel";
 import { WorkActionDialog, WorkActions } from "./WorkActions";
 import type { WorkRow } from "./workIndex";
 import { groupOf, useWorkIndex } from "./workIndex";
@@ -517,6 +518,7 @@ export function WorkOrderPage({ live, id, tab, dialog, needs, after }: { live: L
                 <Fact name="Merge authority">{standing?.authority ? <span className="mono">{standing.authority}</span> : <Absent>not set</Absent>}</Fact>
               </Facts>
             </Panel>
+            <WorkEstimatePanel id={order.id} live={live} />
           </aside>
         </div>
         <StampLine stamp={index.stamp} />

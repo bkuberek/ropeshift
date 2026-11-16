@@ -439,3 +439,61 @@ describe("the repositories a version's manifest lists", () => {
     expect(within(panel).getByText(/disk full/)).toBeTruthy();
   });
 });
+
+describe("the Estimates group and the decision card", () => {
+  // forecasted gives the request the forecasts and estimates a Go test wrote from a version with a confident
+  // estimate, two low-confidence ones, and one with no history.
+  const forecasted = (view: PlanView) => {
+    if (view.approval) {
+      view.approval.forecast = golden<PlanView>("plan-estimates").approval?.forecast;
+    }
+  };
+
+  it("counts the estimates, names the ledger revision they read, and says a version the tick has not forecast is pending", async () => {
+    serve();
+    openPage(page());
+    const group = await screen.findByRole("region", { name: "Estimates" });
+    expect(within(group).getByText("4 estimates: 0 confident, 0 low confidence, 4 with no history.")).toBeTruthy();
+    expect(within(group).getByText("The estimates read ledger revision 333.")).toBeTruthy();
+    expect(within(group).getByText(/Forecast pending: the daemon's forecast tick has not forecast version 6 yet/)).toBeTruthy();
+    expect(group.querySelectorAll("[data-estimate]")).toHaveLength(4);
+    expect(group.textContent).toContain("No estimate: no medium change has finished in this project yet");
+  });
+
+  it("shows each forecast with its what-ifs, lower bounds as or later and at least, and a low-confidence band with its explanation", async () => {
+    serve(forecasted);
+    openPage(page());
+    const group = await screen.findByRole("region", { name: "Estimates" });
+    expect(within(group).getByText("4 estimates: 1 confident, 2 low confidence, 1 with no history.")).toBeTruthy();
+    const plan = group.querySelector('[data-forecast="plan"]');
+    expect(plan?.textContent).toContain("p85 2025-11-16 13:33 UTC or later");
+    expect(plan?.textContent).toContain("cost p50 $18.40 p85 at least $31.20");
+    expect(plan?.textContent).toContain("With one more lane, p85 2025-11-15 23:40 UTC or later");
+    const low = group.querySelector('[data-estimate="generated-9"]');
+    expect(low?.textContent).toContain("Low confidence");
+    expect(low?.textContent).toContain("cost at least p50 $4.00 p85 $7.00");
+    expect(low?.textContent).toContain("Based on 7 finished medium changes; a confident estimate needs 10.");
+    const open = group.querySelector('[data-estimate="generated-11"]');
+    expect(open?.textContent).toContain("delivery p50 2h0m0s p85 more than 3h0m0s");
+  });
+
+  it("says on the decision card that approving records the estimates as the baseline, and that new history never voids it", async () => {
+    serve();
+    openPage(page());
+    const card = await screen.findByRole("complementary", { name: "Your decision" });
+    expect(within(card).getByText(/Approving records the estimates shown here as the baseline finished work is measured against\./)).toBeTruthy();
+    expect(within(card).getByText(/never voids the approval/)).toBeTruthy();
+  });
+
+  it("shows no Estimates group and no sentence about a baseline for a request that holds no forecast", async () => {
+    serve((view) => {
+      if (view.approval) {
+        view.approval.forecast = undefined;
+      }
+    });
+    openPage(page());
+    await heading();
+    expect(screen.queryByRole("region", { name: "Estimates" })).toBeNull();
+    expect(screen.queryByText(/as the baseline finished work is measured against/)).toBeNull();
+  });
+});

@@ -1,6 +1,7 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
+import type { WorkEstimate } from "../api/measures";
 import type { Completed, Standing, WorkTimeline } from "../api/types";
 import { openPage } from "../opening";
 import { golden, refusal, serveViews } from "../testing";
@@ -193,6 +194,30 @@ describe("the Activity tab", () => {
     expect(screen.getByText("No timeline yet")).toBeTruthy();
     expect(screen.queryByRole("table", { name: "Segments" })).toBeNull();
   });
+
+  it("shows the estimate band beside the baseline in full, with the actual delivery time of ended work", () => {
+    render(<ActivityView read={timeline("ended")} estimate={golden<WorkEstimate>("work-estimate")} />);
+    const panel = screen.getByRole("region", { name: "Estimate" });
+    expect(panel.querySelector('[data-band="estimate"]')?.textContent).toContain("delivery p50 6h0m0s p85 11h0m0s");
+    expect(panel.querySelector('[data-band="baseline"]')?.textContent).toContain("p85 more than 4h0m0s");
+    expect(panel.querySelector("details")).toBeNull();
+    expect(panel.querySelector('[data-band="baseline"] [data-tick="actual"]')).toBeTruthy();
+    expect(panel.textContent).toContain("Actual 21m0s");
+  });
+
+  it("says the actual is none yet while the work is under way, and keeps the estimate beside a work order with no timeline", () => {
+    const running = render(<ActivityView read={timeline("running")} estimate={golden<WorkEstimate>("work-estimate")} />);
+    expect(within(running.container).getByText("Actual: none yet.")).toBeTruthy();
+    running.unmount();
+    render(<ActivityView read={timeline("empty")} estimate={golden<WorkEstimate>("work-estimate-low")} />);
+    expect(screen.getByText("No timeline yet")).toBeTruthy();
+    expect(screen.getByRole("region", { name: "Estimate" }).textContent).toContain("Low confidence");
+  });
+
+  it("shows no Estimate panel until the estimate has been read", () => {
+    render(<ActivityView read={timeline("ended")} />);
+    expect(screen.queryByRole("region", { name: "Estimate" })).toBeNull();
+  });
 });
 
 describe("the tabs of a work order's page", () => {
@@ -232,6 +257,33 @@ describe("the tabs of a work order's page", () => {
     serving((call) => (call.path.endsWith("/acceptance") ? refusal(500, "unavailable", "The ledger could not be read.") : undefined));
     openPage(`/work-order?id=wo-running&tab=changes`);
     expect((await screen.findByRole("alert")).textContent).toContain("The ledger could not be read.");
+    expect(screen.getByRole("heading", { level: 1 })).toBeTruthy();
+  });
+
+  it("reads the estimate route for the side of the page and for the Activity tab", async () => {
+    const sent = serving();
+    openPage(`/work-order?id=wo-running&tab=activity`);
+    const side = await screen.findByRole("complementary", { name: "Decision and facts" });
+    const panel = await within(side).findByRole("region", { name: "Estimate" });
+    expect(panel.querySelector('[data-band="estimate"]')?.textContent).toContain("delivery p50 6h0m0s p85 11h0m0s");
+    expect(panel.querySelector('[data-band="baseline"]')?.textContent).toContain("Low confidence");
+    expect(panel.querySelectorAll("details.estimate-more")).toHaveLength(2);
+    expect(sent.some((call) => call.method === "GET" && call.path === "/v1/work-orders/wo-running/estimate" && call.project === "default")).toBe(true);
+  });
+
+  it("says a work order with no estimate and no baseline so on its page", async () => {
+    serving((call) => (call.path.endsWith("/estimate") ? { status: 200, body: golden<WorkEstimate>("work-estimate-absent") } : undefined));
+    openPage(`/work-order?id=wo-running`);
+    const side = await screen.findByRole("complementary", { name: "Decision and facts" });
+    expect(await within(side).findByText("No estimate was made for this work order.")).toBeTruthy();
+    expect(within(side).getByText("No baseline is recorded for this work order yet.")).toBeTruthy();
+  });
+
+  it("keeps the page when the estimate cannot be read", async () => {
+    serving((call) => (call.path.endsWith("/estimate") ? refusal(500, "unavailable", "The estimate could not be read.") : undefined));
+    openPage(`/work-order?id=wo-running`);
+    const side = await screen.findByRole("complementary", { name: "Decision and facts" });
+    expect(await within(side).findByText("The estimate could not be read.")).toBeTruthy();
     expect(screen.getByRole("heading", { level: 1 })).toBeTruthy();
   });
 

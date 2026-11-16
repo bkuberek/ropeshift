@@ -311,6 +311,11 @@
   },
   {
     "method": "GET",
+    "pattern": "/v1/projects/{project}/work-orders/{id}/estimate",
+    "command": "work show"
+  },
+  {
+    "method": "GET",
     "pattern": "/v1/projects/{project}/panes/{id}",
     "command": "lane attach"
   },
