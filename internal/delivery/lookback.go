@@ -125,18 +125,15 @@ func groupOf(key string, records []Record, from, to int64) Group {
 	if len(done) > 0 {
 		elapsed, delivery := quantiles(done, func(r Record) int64 { return r.ElapsedMs }), quantiles(done, func(r Record) int64 { return r.DeliveryMs })
 		out.Elapsed, out.Delivery = &elapsed, &delivery
-		costs := make([]float64, 0, len(done))
 		var total int64
 		for _, r := range done {
-			costs = append(costs, r.Usage.CostUSD)
-			out.CostLowerBound = out.CostLowerBound || r.Usage.CostLowerBound
 			total += r.ElapsedMs
 			for kind, ms := range r.ByKind {
 				out.Share[kind] += float64(ms)
 			}
 		}
-		slices.Sort(costs)
-		out.Cost = &CostQuantiles{P50: costs[rank(len(costs), 0.5)], P85: costs[rank(len(costs), 0.85)]}
+		cost, lowerBound := costQuantiles(done)
+		out.Cost, out.CostLowerBound = &cost, lowerBound
 		for kind := range out.Share {
 			if total > 0 {
 				out.Share[kind] /= float64(total)
@@ -169,6 +166,19 @@ func quantiles(records []Record, of func(Record) int64) Quantiles {
 	}
 	slices.SortFunc(values, cmp.Compare[int64])
 	return Quantiles{P50: values[rank(len(values), 0.5)], P85: values[rank(len(values), 0.85)]}
+}
+
+// costQuantiles are the 50th and 85th percentiles of some records' estimated cost, by nearest rank, and whether any
+// of them never reported some of its cost.
+func costQuantiles(records []Record) (CostQuantiles, bool) {
+	costs := make([]float64, 0, len(records))
+	lowerBound := false
+	for _, r := range records {
+		costs = append(costs, r.Usage.CostUSD)
+		lowerBound = lowerBound || r.Usage.CostLowerBound
+	}
+	slices.Sort(costs)
+	return CostQuantiles{P50: costs[rank(len(costs), 0.5)], P85: costs[rank(len(costs), 0.85)]}, lowerBound
 }
 
 // rank is the index of a percentile by nearest rank among n sorted values.

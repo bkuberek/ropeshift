@@ -218,6 +218,29 @@ The measures tick copies calibration of all of the project's work out with the p
 | `ropeshift.measure.estimate.ratio` | `1` | window, quantity, tier, confidence |
 | `ropeshift.measure.estimate.share` | `1` | window, confidence (`confident`, `low`, `none`) |
 
+## What a planning session sees
+
+A planning lane, the agent session that writes a plan, reads two things about delivery, so that it sizes work and chooses agents with evidence: the project's delivery history, and the estimates and forecasts of each plan version it submitted. It never writes an estimate. No other session reads either. A change, rework, review, or contract review lane and an orchestrator receive no estimate, forecast, or history, so a band cannot anchor how a lane works or how a reviewer judges, and no claim, admission, lease, deadline, priority, review, or merge decision reads one.
+
+### The delivery history in its pack
+
+The planning lane's context pack holds a `delivery_history` item named `project`, after every other item, so a pack cut for its budget keeps the records a lane works from first and lists the history as one the lane can read. It is the project's `change` and `rework` work that reached `done`, aggregated twice: by kind and size, and by kind, size, capability class, and repository. Each group reads its `recent_samples` most recent records, as an estimate does, and gives:
+
+- how many finished work orders it holds;
+- delivery time, lane time, and estimated cost at p50 and p85, by nearest rank, with a cost that is a lower bound read as "at least";
+- the mean number of rounds;
+- the median change size, in files and lines, over the work whose lane recorded one.
+
+A group of fewer than `min_samples` finished work orders is labeled low confidence and carries the explanation an estimate from just those records would carry: how many it holds against the minimum, the keys it set aside, and how far apart they were. A group at or above `min_samples` reads confident. A project with no finished work says so.
+
+The history is built from the project's own delivery records alone, whatever `share_history` says. The installation pool answers only the last tier of an estimate ([the installation pool](#the-installation-pool)), so sharing history changes no figure in it, and it never counts or names another project's work. Like the rest of the pack it is built again for each new version of the pack, which a new claim makes and which a change to a decision the pack holds makes for the lane's next generation, so a running generation keeps the history it read. The lane reads it as it stands now with its `context_get` tool, kind `delivery_history` and reference `project`; the one tool serves every session, so it lists the kind for all, but for any lane but a planning lane, and for an orchestrator, the read is refused as a kind nobody named.
+
+### The estimates and forecasts of a version it submitted
+
+A plan version a planning lane submitted is one intake recorded from that lane's accepted work. After the forecast tick has forecast it, the daemon sends the lane a notice as a message of kind `notice` through the path every message to a lane takes, with what the version's approval shows: each forecast of the plan and of each milestone, and each estimate of its work, each with its confidence label, its dates or band, its lower bounds as "or later", "more than", and "at least", and the explanation stored with it. It holds only what those estimates and forecasts say, so an estimate that drew on the pool shows the band it kept, which never shows another project's record, and no explanation says more than where it was made.
+
+The notice goes once for each lane and version, to a lane whose session is open. A lane whose session ended is sent nothing, because nobody would read it, and the same figures stay on `ropeshift plan forecast` and in the API. A later forecast of the same version sends nothing more, and a version read from files, or from work no planning lane did, is told to no lane.
+
 ## Experience records
 
 The ledger keeps one experience record per lane and one per decision. Each holds the policy version in force, the settings the action ran on, the options considered, and what was chosen, and its outcome is filled in once, which may be long after the action. Nothing else ever changes a record.

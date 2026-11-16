@@ -402,3 +402,17 @@ func TestWhatALaneWroteOfItsOwnWorkReadsAsData(t *testing.T) {
 		t.Errorf("an index entry carried what the lane wrote:\n%s", small.Text)
 	}
 }
+
+// A planning lane's delivery history is the last step of the design's order, after what an orchestrator added, so a
+// pack cut for its budget keeps every record a lane works from before it keeps the history.
+func TestADeliveryHistoryIsTheLastStep(t *testing.T) {
+	selection := fullSelection()
+	selection.History = []contextpacks.Source{source(contextpacks.KindDeliveryHistory, "project", "the history")}
+	var lines []string
+	for _, item := range selection.Ordered() {
+		lines = append(lines, string(item.Kind)+" "+item.Ref)
+	}
+	if got := lines[len(lines)-1]; got != "delivery_history project" {
+		t.Errorf("the order ends with %q:\n%s", got, strings.Join(lines, "\n"))
+	}
+}
