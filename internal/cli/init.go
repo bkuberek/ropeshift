@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"ropeshift.com/ropeshift/internal/api"
@@ -47,21 +46,6 @@ the commit it reads, and the work order waits for a member to review it.
 
 // registrationWait bounds how long a first start may take to register its worker.
 const registrationWait = 60 * time.Second
-
-// vendor is what a person needs to know to install and sign in to one agent CLI, and the terms
-// a subscription to it is held to.
-type vendor struct{ product, company, command, terms string }
-
-var vendors = map[string]vendor{
-	"claude-code": {product: "Claude Code", company: "Anthropic", command: "claude", terms: "Anthropic's Consumer Terms"},
-}
-
-func vendorOf(driver string) vendor {
-	if v, ok := vendors[driver]; ok {
-		return v
-	}
-	return vendor{product: driver, company: "its vendor", command: driver, terms: "Its vendor's terms"}
-}
 
 // credentialsStatement is NFR-SEC-1, said where a person signs in.
 const credentialsStatement = "Ropeshift never reads, stores, relays, or proxies an agent CLI's credentials. Each CLI keeps its own sign-in."
@@ -243,40 +227,34 @@ func (c *invocation) initDoctor(_ *api.Client, result *initResult) error {
 // initDriverLine says where one agent CLI stands, and what a person does next. Only a kind and a
 // status reach it, never who is signed in.
 func initDriverLine(driver ledger.DriverManifest) string {
-	v := vendorOf(driver.Driver)
-	if failedCheck(driver, v) {
+	v := ledger.VendorOf(driver.Driver)
+	if driver.FailedCheck() {
 		return fmt.Sprintf("%s: installed, and its version check failed: %s. Run %s --version to see why, repair or reinstall %s, and run ropeshift init again.",
-			driver.Driver, driver.Detail, v.command, v.product)
+			driver.Driver, driver.Detail, v.Command, v.Product)
 	}
 	if !driver.Present {
-		return fmt.Sprintf("%s: not installed. Install %s, sign in through %s's own flow, and run ropeshift init again.", driver.Driver, v.product, v.company)
+		return fmt.Sprintf("%s: not installed. Install %s, sign in through %s's own flow, and run ropeshift init again.", driver.Driver, v.Product, v.Company)
 	}
 	name := driver.Driver + " " + driver.Version
 	var line string
 	switch {
 	case driver.SignIn.Status == lanes.SignedOut:
 		return fmt.Sprintf("%s: installed, not signed in. Run %s and sign in through %s's own flow, or give the CLI an API key it reads itself, then run ropeshift init again.",
-			name, v.command, v.company)
+			name, v.Command, v.Company)
 	case driver.SignIn.Kind == lanes.SignInAPIKey:
 		line = fmt.Sprintf("%s: signed in with an API key, which the CLI reads itself. This worker starts at unattended.", name)
 	case driver.SignIn.Kind == lanes.SignInSubscription:
 		line = fmt.Sprintf("%s: signed in with a subscription. This worker starts at attended, so an orchestrator claims work only inside a run window you open. "+
 			"%s restrict automated use of a subscription, and no vendor has approved this use. "+
-			"Read docs/onboarding.md, and ropeshift worker risk prints what a member acknowledges before this worker runs unattended.", name, v.terms)
+			"Read docs/onboarding.md, and ropeshift worker risk prints what a member acknowledges before this worker runs unattended.", name, v.Terms)
 	default:
 		line = fmt.Sprintf("%s: installed, and its sign-in could not be read, so it counts as a subscription and this worker starts at attended. Run %s auth status to see it.",
-			name, v.command)
+			name, v.Command)
 	}
 	if !driver.Qualified {
 		line += " This version is not in the qualification matrix, so the worker probes it before its first lane, and a lane on it runs degraded if the probe fails."
 	}
 	return line
-}
-
-// failedCheck says a driver's CLI is on PATH and failed its version check, so nothing runs on it. The
-// doctor's detail then names the vendor's command as it ran it, and how it failed.
-func failedCheck(driver ledger.DriverManifest, v vendor) bool {
-	return !driver.Present && strings.HasPrefix(driver.Detail, v.command+" --version ")
 }
 
 // initSample writes the sample contract, and keeps one already there, which a person may have changed.
