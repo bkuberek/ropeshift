@@ -206,6 +206,7 @@ These rules decide what counts:
 - A rate shows only when at least 10 outcomes stand behind that rate; below 10, calibration shows the counts and no rate. Each rate is held to this on its own count: with 12 outcomes of which 4 were open, the p50 rate shows over 12 and the p85 rate shows no rate over 8. A cost compares only when neither the actual cost nor the band's is a lower bound, so the cost rates often rest on fewer outcomes than the time rates. The share of ended work shows from 10 ended.
 - Failed and canceled work counts apart, in the outcome counts and the share, and compares nothing.
 - Work counts in the window it ended in.
+- An estimate that drew on the installation pool is calibrated on this project's own work that ended against it, so a tier 6 group holds only this project's outcomes and never a pooled record.
 
 `ropeshift measures estimates [--window D]` and `GET /v1/measures/estimates?window=D` read calibration, with the recent window `30d` by default and all time always shown. Both return one scope for all of the project's work, then one for each repository, each holding the recent window, all time, and a weekly line of the 12 weeks up to the window's end, and the milestones, which belong to no repository. With `--json`, a rate is absent where fewer than 10 outcomes stand behind it, and its `n` and `hits` stay. A project with no outcomes reads all counts as zero.
 
