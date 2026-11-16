@@ -80,6 +80,26 @@ func TestFindReadsAClonesTopOrTheClonesBelowAFolder(t *testing.T) {
 	}
 }
 
+// FR-REPO-14: a clone's ID is its first-parent root, and Roots lists every first commit it holds, so a
+// registration can match a record stored under the lowest-root rule.
+func TestFindNamesAClonesFirstParentRootAndEveryRoot(t *testing.T) {
+	workspace, design := gittest.NewUnrelatedPair(t)
+	own, imported := workspace.Roots("HEAD")[0], design.Roots("HEAD")[0]
+	workspace.MergeUnrelated(design)
+	f := &File{Path: filepath.Join(t.TempDir(), FileName), Env: workspace.Env()}
+
+	clones, unread, err := f.Find(t.Context(), []string{workspace.Dir}, 1)
+	if err != nil || len(unread) != 0 || len(clones) != 1 {
+		t.Fatalf("the clone reads %+v, unread %+v: %v", clones, unread, err)
+	}
+	if clones[0].ID != own {
+		t.Errorf("the clone's ID is %s, want the first-parent root %s and not the lowest root %s", clones[0].ID, own, imported)
+	}
+	if want := []string{imported, own}; !slices.Equal(clones[0].Roots, want) {
+		t.Errorf("the clone's roots are %v, want %v", clones[0].Roots, want)
+	}
+}
+
 // FR-REPO-13: a path that is no clone and holds none is refused with the reason, and so is a clone git
 // cannot describe.
 func TestFindSaysWhyAPathHoldsNoClone(t *testing.T) {

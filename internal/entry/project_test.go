@@ -164,6 +164,76 @@ func TestIntakeReadsEachProjectsOwnCheckouts(t *testing.T) {
 	}
 }
 
+// TestARecordStoredUnderTheLowestRootKeepsItsIDAndItsExternalKeys holds FR-REPO-14 on the daemon's side: a
+// repository registered before the first-parent rule is named by its lowest root, and when it has merged an
+// unrelated history whose root sorts lower, the checkout the worker keeps names that record, so intake still
+// reads the repository under it, and every external key it made stays.
+func TestARecordStoredUnderTheLowestRootKeepsItsIDAndItsExternalKeys(t *testing.T) {
+	member := ledger.Actor{Kind: ledger.ActorMember, ID: "member-1"}
+	state, store, err := sqlite.Upgrade(t.Context(), t.TempDir(), "ledger.db", ledger.Workspace{ID: soloScope, Name: "Solo"}, member, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer state.Close()
+	defer store.Close()
+	if _, _, err := state.CreateProject(t.Context(), ledger.Project{ID: "beta-id", Name: "beta"}, member); err != nil {
+		t.Fatal(err)
+	}
+	workspace, design := gittest.NewUnrelatedPair(t)
+	for _, entry := range workspace.Env() {
+		name, value, _ := strings.Cut(entry, "=")
+		t.Setenv(name, value)
+	}
+	own, lowest := workspace.Roots("HEAD")[0], design.Roots("HEAD")[0]
+	workspace.Commit("contract.md", contract.ContractText("beta-work", "Beta work", "Ship it."))
+	workspace.MergeUnrelated(design)
+	kept := &checkouts.File{Path: filepath.Join(t.TempDir(), checkouts.FileName)}
+	run := func() {
+		t.Helper()
+		ticks := soloTicks(state, soloScope, soloOptions{intakeTick: time.Second}, kept, questions.BatchPolicy{}, nil)
+		at := slices.IndexFunc(ticks, func(tick control.Tick) bool { return tick.Name == "intake" })
+		if err := ticks[at].Run(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	instances := func() []string {
+		t.Helper()
+		beta, err := state.Named(t.Context(), "beta")
+		if err != nil {
+			t.Fatal(err)
+		}
+		opened, err := state.Open(t.Context(), beta)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var found []string
+		if err := opened.Read(t.Context(), beta.ID, func(tx ports.ReadTx) error {
+			links, err := tx.Planning().Links()
+			for _, link := range links {
+				found = append(found, link.Key.Instance)
+			}
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+		slices.Sort(found)
+		return slices.Compact(found)
+	}
+
+	// The record was registered under the lowest root, and the worker's checkout map names it.
+	if err := kept.Keep(t.Context(), "beta-id", lowest, workspace.Dir); err != nil {
+		t.Fatal(err)
+	}
+	run()
+	if got := instances(); !slices.Equal(got, []string{lowest}) {
+		t.Fatalf("intake keyed the repository by %v, want its record's ID %s and not the first-parent root %s", got, lowest, own)
+	}
+	// A lane's lookup of the record by its ID finds the checkout.
+	if path, err := checkoutOf(soloOptions{}, kept)(t.Context(), "beta-id", lowest); err != nil || path != workspace.Dir {
+		t.Errorf("the checkout of the record reads %q: %v", path, err)
+	}
+}
+
 // A checkout the worker keeps whose directory a person deleted or moved is no checkout: the lookup says the
 // worker keeps none, which holds the work as no_checkout and not as base_unavailable.
 func TestACheckoutWhoseDirectoryIsGoneIsNone(t *testing.T) {

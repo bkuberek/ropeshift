@@ -28,6 +28,10 @@ type Config struct {
 	Ref string
 	// Directory limits intake to one tree. Empty means the whole repository.
 	Directory string
+	// Identity is the record ID a worker's checkout map holds for this repository, when it holds one. When
+	// it is one of the repository's roots, the repository keeps that ID, so a record stored under the
+	// lowest-root rule keeps its ID and every external key intake made under it.
+	Identity string
 	// Env replaces the environment of git commands.
 	Env []string
 }
@@ -51,23 +55,52 @@ func New(config Config) *Source {
 	}
 }
 
-// Instance names the repository by its first commit, because a path changes with the machine, a
-// remote may not exist, and neither identifies the history.
+// Roots lists every first commit the ref reaches, sorted. A repository that merged an unrelated history has
+// more than one.
+func (s *Source) Roots(ctx context.Context) ([]string, error) {
+	ref, err := s.ref(ctx)
+	if err != nil {
+		return nil, err
+	}
+	roots, err := s.git.Text(ctx, "rev-list", "--max-parents=0", ref)
+	if err != nil {
+		return nil, err
+	}
+	all := strings.Fields(roots)
+	if len(all) == 0 {
+		return nil, fmt.Errorf("%s has no commits", ref)
+	}
+	slices.Sort(all)
+	return all, nil
+}
+
+// Instance names the repository by its first commit, because a path changes with the machine, a remote may
+// not exist, and neither identifies the history. That is the root reached by following first parents from
+// the ref, so merging an unrelated history into the repository never changes it (FR-REPO-14). A configured
+// identity that is one of the repository's roots wins, so a record stored under the lowest-root rule keeps
+// its ID.
 func (s *Source) Instance(ctx context.Context) (string, error) {
+	if s.config.Identity != "" {
+		roots, err := s.Roots(ctx)
+		if err != nil {
+			return "", err
+		}
+		if slices.Contains(roots, s.config.Identity) {
+			return s.config.Identity, nil
+		}
+	}
 	ref, err := s.ref(ctx)
 	if err != nil {
 		return "", err
 	}
-	roots, err := s.git.Text(ctx, "rev-list", "--max-parents=0", ref)
+	root, err := s.git.Text(ctx, "rev-list", "--first-parent", "--max-parents=0", ref)
 	if err != nil {
 		return "", err
 	}
-	all := strings.Fields(roots)
-	if len(all) == 0 {
+	if root == "" {
 		return "", fmt.Errorf("%s has no commits", ref)
 	}
-	slices.Sort(all)
-	return all[0], nil
+	return root, nil
 }
 
 // Describe names the repository by its identity, and says what git knows of it.

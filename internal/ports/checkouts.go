@@ -12,8 +12,13 @@ import (
 type Clone struct {
 	// Path is the top of the clone's working tree, as an absolute path.
 	Path string
-	// ID is the repository's identity in its project's records: its first commit, as a source names it.
-	ID            string
+	// ID is the repository's identity in its project's records: the root commit reached by following first
+	// parents from its default branch tip, as a source names it (FR-REPO-14).
+	ID string
+	// Roots is every first commit the clone holds, sorted, ID among them. A clone that merged an unrelated
+	// history holds more than one, and a record stored under the lowest-root rule is named by the lowest.
+	// Empty reads as ID alone.
+	Roots         []string
 	Remote        string
 	DefaultBranch string
 	// Directory is the base name of Path, which names a new record (ADR-0022).

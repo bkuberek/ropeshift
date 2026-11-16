@@ -626,7 +626,7 @@ func checkoutOf(opts soloOptions, kept ports.Checkouts) func(context.Context, le
 		}
 		if project == soloScope {
 			for _, path := range opts.sources {
-				instance, err := repofiles.New(repofiles.Config{Repository: path, Ref: opts.ref, Directory: opts.directory}).Instance(ctx)
+				instance, err := repofiles.New(repofiles.Config{Repository: path, Ref: opts.ref, Directory: opts.directory, Identity: id}).Instance(ctx)
 				if err != nil {
 					return "", err
 				}
@@ -664,6 +664,12 @@ func projectSources(ctx context.Context, opts soloOptions, kept ports.Checkouts,
 	if err != nil {
 		return nil, err
 	}
+	// A checkout the worker keeps names the record it is the checkout of, and a repository keeps that ID when it
+	// is one of its roots, so a record registered under the lowest-root rule keeps its external keys.
+	identities := map[string]string{}
+	for _, id := range slices.Sorted(maps.Keys(held)) {
+		identities[held[id]] = id
+	}
 	for _, path := range slices.Sorted(maps.Values(held)) {
 		if !slices.Contains(paths, path) {
 			paths = append(paths, path)
@@ -671,7 +677,7 @@ func projectSources(ctx context.Context, opts soloOptions, kept ports.Checkouts,
 	}
 	sources := make([]ports.WorkSource, 0, len(paths))
 	for _, path := range paths {
-		sources = append(sources, repofiles.New(repofiles.Config{Repository: path, Ref: opts.ref, Directory: opts.directory}))
+		sources = append(sources, repofiles.New(repofiles.Config{Repository: path, Ref: opts.ref, Directory: opts.directory, Identity: identities[path]}))
 	}
 	return sources, nil
 }
@@ -691,7 +697,7 @@ func branchSource(opts soloOptions, kept ports.Checkouts) server.BranchSource {
 		if err != nil {
 			return nil, err
 		}
-		return repofiles.New(repofiles.Config{Repository: path, Ref: ref, Directory: opts.directory}), nil
+		return repofiles.New(repofiles.Config{Repository: path, Ref: ref, Directory: opts.directory, Identity: id}), nil
 	}
 }
 

@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -177,6 +178,39 @@ func (r *Repo) Merge(branch string) string {
 	r.T.Helper()
 	r.Git("merge", "--quiet", "--no-ff", "-m", "merge "+branch, branch)
 	return r.Git("rev-parse", "HEAD")
+}
+
+// Roots lists every commit with no parent that a ref reaches, sorted as the commit IDs are.
+func (r *Repo) Roots(ref string) []string {
+	r.T.Helper()
+	roots := strings.Fields(r.Git("rev-list", "--max-parents=0", ref))
+	slices.Sort(roots)
+	return roots
+}
+
+// MergeUnrelated merges the history of another repository's main branch into the checked-out branch, as a
+// person does who brings a repository into a workspace, and returns the merge commit. The two histories
+// share no commit, so the branch gains a second root.
+func (r *Repo) MergeUnrelated(other *Repo) string {
+	r.T.Helper()
+	r.Git("fetch", "--quiet", other.Dir, "main")
+	r.Git("merge", "--quiet", "--no-ff", "--allow-unrelated-histories", "-m", "merge an unrelated history", "FETCH_HEAD")
+	return r.Git("rev-parse", "HEAD")
+}
+
+// NewUnrelatedPair creates two repositories that share no commit and holds each one commit. The first one's
+// first commit sorts after the second's, so merging the second into the first gives a history whose lowest
+// root is not the first-parent root.
+func NewUnrelatedPair(t testing.TB) (higher, lower *Repo) {
+	t.Helper()
+	higher, lower = New(t), New(t)
+	// The files differ, so the two first commits differ however close in time they are made.
+	higher.Commit("README.md", "a workspace\n")
+	lower.Commit("DESIGN.md", "a design\n")
+	if higher.Roots("HEAD")[0] < lower.Roots("HEAD")[0] {
+		higher, lower = lower, higher
+	}
+	return higher, lower
 }
 
 // Clone makes a repository beside this one that fetches from it, with this one as its origin.
