@@ -1319,5 +1319,29 @@ describe.each(Object.entries(sizes))("at %s width", (size, viewport) => {
       },
       120_000,
     );
+
+    // The top bar gives way in the project's name, with an ellipsis, before any button shrinks: a button smaller
+    // than 24 px is a target a finger or a pointer misses (WCAG 2.5.8).
+    if (size === "phone") {
+      it(
+        "the top bar keeps its buttons their size under a long project name",
+        async () => {
+          const context = await browser.newContext({ viewport, colorScheme: theme, reducedMotion: "reduce" });
+          await context.route(/\/v1\//, answer);
+          const page = await context.newPage();
+          await page.goto(`${base}/projects/a-very-long-project-name-indeed/reviews`);
+          await ready(page);
+          const menu = await page.locator(".menu-btn").boundingBox();
+          const switcher = await page.locator(".project-button").boundingBox();
+          expect(menu?.width).toBe(40);
+          expect(menu?.height).toBe(40);
+          // The name stays inside the bar: no part of the page scrolls sideways.
+          expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+          expect(switcher?.width).toBeLessThan(180);
+          await context.close();
+        },
+        60_000,
+      );
+    }
   });
 });
