@@ -208,3 +208,14 @@ The Delivery tab beside Factory shows where delivery time went and how much work
 - Where the time went draws each group's elapsed time as a bar of the kinds of segment, each with a word, a tone, and a fill of its own, and the same shares in words beside it. Time waiting for a person is set apart from the agents' time.
 - Weekly trend lists the 12 weeks up to the end of the window for all work: the work done in each and its delivery time.
 - With no finished work in the window the tab says "Delivery measures appear when work orders finish."
+
+### Estimates
+
+The Estimates tab beside Delivery shows how often finished work landed inside the estimates it was baselined with, as `ropeshift measures estimates` prints it, from this project's own outcomes. [Calibration](measures.md#calibration) defines what counts. Window reads the last 24 hours, 7 days, or 30 days, and all time is always shown beside it. Repository reads all of the project's work or one repository's. The choices are in the address, so a link keeps them.
+
+- How the work that ended was estimated gives, for the window and for all time, how much work ended and how much of it had a confident estimate, a low-confidence one, or none. The share shows from 10 ended.
+- Confident estimates are the headline, and Low confidence stands apart after them, so a thin band never hides whether the confident estimates are calibrated. Each has a table for the window and one for all time: a row for all work, then one for each tier and each estimator version, with the outcomes and how they ended, the count of open p85 bands, and for time and for cost the p50 hit rate, the p85 hit rate, and the median ratio of actual to p50. A hit rate reads as its counts and its percent, with a meter beneath it and a tick at the value a calibrated estimator comes near, 50% for p50 and 85% for p85. A ratio comes near 1.
+- A rate shows from 10 outcomes behind it. Under that, the row shows its counts and "no rate", a ratio shows "no median", and the tab says "Not enough finished estimated work for a rate yet". An outcome whose baseline p85 was open counts in the p50 rate and the ratio, and is left out of the p85 rate.
+- Weekly calibration lists the weeks up to the end of the window that had outcomes, a table for each confidence, with the same columns.
+- Milestones give how often milestones ended at or before their forecast p50 and p85 dates, confident and low confidence apart, and each ended milestone's forecast dates beside the day it ended, with "or later" on a date that is a lower bound.
+- With no work ended, the tab says "Estimate calibration appears when work orders finish."

@@ -12,6 +12,7 @@ import { FloorPage } from "../floor/Floor";
 import { UsagePage, WorkersPage } from "../floor/Installation";
 import { Operations } from "../floor/Operations";
 import { DeliveryPage, MeasuresTabs } from "../measures/Delivery";
+import { EstimatesPage } from "../measures/Estimates";
 import { WorkOrderPage, WorkOrdersPage } from "../floor/WorkOrders";
 import { LanePage } from "../lanes/LanePane";
 import { ConversationsPage } from "../talk/Conversations";
@@ -254,6 +255,9 @@ function ViewFor({ view, project, scoped, params, live, after, needs, projects, 
     case "measures":
       if (param("tab") === "delivery") {
         return <DeliveryPage live={live} projects={projects} params={params} />;
+      }
+      if (param("tab") === "estimates") {
+        return <EstimatesPage live={live} params={params} />;
       }
       return (
         <ViewPage<OperationsView>

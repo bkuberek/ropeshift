@@ -16,7 +16,7 @@ import { fixed, span, usd, utcDate } from "./format";
 // page asks again no oftener than this however much it hears.
 const gapMs = 30_000;
 
-export type MeasuresTab = "factory" | "delivery";
+export type MeasuresTab = "factory" | "delivery" | "estimates";
 
 // MeasuresTabs are the Measures view's tabs. Each has an address of its own.
 export function MeasuresTabs({ tab }: { tab: MeasuresTab }) {
@@ -26,6 +26,7 @@ export function MeasuresTabs({ tab }: { tab: MeasuresTab }) {
       tabs={[
         { to: "/measures", label: "Factory", current: tab === "factory" },
         { to: addressOf("/measures", { tab: "delivery" }), label: "Delivery", current: tab === "delivery" },
+        { to: addressOf("/measures", { tab: "estimates" }), label: "Estimates", current: tab === "estimates" },
       ]}
     />
   );

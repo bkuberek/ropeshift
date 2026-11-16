@@ -22,6 +22,9 @@ export function utcDate(ms: number, lowerBound: boolean): string {
   return lowerBound ? `${text} or later` : text;
 }
 
+// utcDay says a time in epoch milliseconds as its UTC day, as the command prints the days of a window and of a week.
+export const utcDay = (ms: number): string => new Date(ms).toISOString().slice(0, 10);
+
 // fixed writes a number to some decimal places. One that falls exactly between two goes to the even one, as the
 // command line's own rounding does, where a browser's goes up; such a number is an odd multiple of one over two
 // to the power of one more than the places, and no other number falls exactly between.

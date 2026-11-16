@@ -209,6 +209,9 @@ async function answer(route: Route): Promise<void> {
   if (path === "/v1/measures/delivery") {
     return json((url.searchParams.get("by") === "size" ? goldens["delivery-size"] : goldens.delivery) ?? "{}");
   }
+  if (path === "/v1/measures/estimates") {
+    return json(goldens.calibration ?? "{}");
+  }
   if (path.startsWith("/v1/plans/adopt-approval")) {
     return json(JSON.stringify({ error: { code: "not_found", message: "no such plan" } }), 404);
   }
@@ -311,6 +314,8 @@ const views = [
   "/projects/default/measures?tab=delivery",
   "/projects/default/measures?tab=delivery&window=7d&by=size",
   "/projects/default/measures?tab=delivery&scope=all",
+  "/projects/default/measures?tab=estimates",
+  "/projects/default/measures?tab=estimates&window=7d&repository=harbor-web",
   "/projects/default/conversations",
   "/usage",
   "/workers",
@@ -1175,6 +1180,45 @@ describe.each(Object.entries(sizes))("at %s width", (size, viewport) => {
         await page.getByRole("alert").getByText(/the ledger could not be read/).waitFor();
         await settle();
         found.push(...(await audit(page)).map((violation) => `delivery with a failure ${violation}`));
+        await context.close();
+        expect(found.map((line) => `${size} ${theme} ${line}`)).toEqual([]);
+      },
+      120_000,
+    );
+
+    it(
+      "the Estimates tab, with calibration, with no finished work, with a failure, and its controls, meets WCAG 2.2 A and AA",
+      async () => {
+        const context = await browser.newContext({ viewport, colorScheme: theme, reducedMotion: "reduce" });
+        await context.route(/\/v1\//, answer);
+        const page = await context.newPage();
+        const found: string[] = [];
+        const settle = async () => {
+          await page.mouse.move(0, 0);
+          await page.waitForTimeout(600);
+        };
+        const estimates = /\/v1\/projects\/default\/measures\/estimates/;
+        await page.goto(`${base}/projects/default/measures?tab=estimates`);
+        await ready(page);
+        await page.getByRole("region", { name: "Confident estimates, last 30 days" }).waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `estimates ${violation}`));
+        await page.getByRole("combobox", { name: "Repository" }).selectOption("harbor-web");
+        await page.getByRole("button", { name: "7 days" }).click();
+        await page.getByRole("region", { name: "Confident estimates, last 7 days" }).waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `estimates of one repository over 7 days ${violation}`));
+        await page.route(estimates, (route) => route.fulfill({ status: 200, contentType: "application/json", body: goldens["calibration-empty"] ?? "{}" }));
+        await page.goto(`${base}/projects/default/measures?tab=estimates`);
+        await ready(page);
+        await page.getByText("Estimate calibration appears when work orders finish.").waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `estimates with no finished work ${violation}`));
+        await page.route(estimates, (route) => route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: { code: "unavailable", message: "the ledger could not be read" } }) }));
+        await page.goto(`${base}/projects/default/measures?tab=estimates`);
+        await page.getByRole("alert").getByText(/the ledger could not be read/).waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `estimates with a failure ${violation}`));
         await context.close();
         expect(found.map((line) => `${size} ${theme} ${line}`)).toEqual([]);
       },
