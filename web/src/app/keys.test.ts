@@ -28,6 +28,7 @@ describe("the keyboard", () => {
     expect(first.handled).toBe(true);
     expect(readKey(press("f"), first.state, { ...on, now: 1500 }).action).toEqual({ type: "go", view: "floor" });
     expect(readKey(press("N", { shiftKey: true }), first.state, { ...on, now: 1500 }).action).toEqual({ type: "go", view: "needs-you" });
+    expect(readKey(press("o"), first.state, { ...on, now: 1500 }).action).toEqual({ type: "go", view: "overview" });
   });
 
   it("forgets a G after a pause, and after a key that goes nowhere", () => {
@@ -79,6 +80,7 @@ describe("the shortcut sheet", () => {
     const mac = shortcutList(true).flatMap((group) => group.rows.map((row) => row.keys.join(" ")));
     expect(mac).toContain("⌘ K");
     expect(mac).toContain("G F");
+    expect(mac).toContain("G O");
     expect(mac).toContain("G C");
     expect(mac).toContain("T");
     const other = shortcutList(false).flatMap((group) => group.rows.map((row) => row.keys.join(" ")));

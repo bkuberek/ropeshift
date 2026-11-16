@@ -14,9 +14,29 @@ describe("the views", () => {
     openPage("/");
     const names = within(await views()).getAllByRole("link").map((link) => link.textContent);
     expect(names).toEqual([
-      "Needs you12 waiting", "Roadmap", "Plans", "Planning", "Documents", "Decisions", "Open questions", "Work orders", "Floor", "Measures",
+      "Needs you12 waiting", "Overview", "Roadmap", "Plans", "Planning", "Documents", "Decisions", "Open questions", "Work orders", "Floor", "Reviews", "Measures",
       "Conversations", "Repositories", "Agents", "Settings", "Audit", "Projects", "Workers and resources", "Members", "Usage",
     ]);
+  });
+
+  it("links Overview to the project's own address and Reviews to its view", async () => {
+    serveViews();
+    openPage("/");
+    expect(within(await views()).getByRole("link", { name: "Overview" }).getAttribute("href")).toBe("/projects/default");
+    expect(within(await views()).getByRole("link", { name: "Reviews" }).getAttribute("href")).toBe("/projects/default/reviews");
+    expect(within(await views()).getByRole("link", { name: "Overview" }).getAttribute("title")).toBe("Overview (G then O)");
+  });
+
+  it("marks Overview at the project's address and Reviews at its tabs", async () => {
+    serveViews();
+    openPage("/projects/default");
+    expect(within(await views()).getByRole("link", { name: "Overview" }).getAttribute("aria-current")).toBe("page");
+    expect(within(await views()).getByRole("link", { name: "Reviews" }).getAttribute("aria-current")).toBeNull();
+    await go("Reviews");
+    await screen.findByRole("heading", { level: 1, name: "Reviews" });
+    expect(within(await views()).getByRole("link", { name: "Reviews" }).getAttribute("aria-current")).toBe("page");
+    expect(within(await views()).getByRole("link", { name: "Overview" }).getAttribute("aria-current")).toBeNull();
+    await waitFor(() => expect(document.title).toBe("Reviews - ropeshift"));
   });
 
   it("moves to a view with no reload", async () => {

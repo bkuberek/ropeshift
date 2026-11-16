@@ -20,6 +20,15 @@ describe("the keyboard", () => {
     await waitFor(() => expect(window.location.pathname).toBe("/needs-you"));
   });
 
+  it("goes to Overview with G and O", async () => {
+    serveViews();
+    openPage("/needs-you");
+    await screen.findByRole("heading", { level: 1, name: "Needs you" });
+    await userEvent.keyboard("go");
+    expect(await screen.findByRole("heading", { level: 1, name: "Overview" })).toBeTruthy();
+    expect(window.location.pathname).toBe("/projects/default");
+  });
+
   it("opens the palette with Control+K, even from a text field, and with a slash", async () => {
     serveViews();
     openPage("/needs-you");
@@ -113,6 +122,32 @@ describe("the command palette", () => {
     expect(field.getAttribute("aria-activedescendant")).toBe(option.id);
     await userEvent.keyboard("{Enter}");
     expect(await screen.findByRole("heading", { level: 1, name: "Floor" })).toBeTruthy();
+  });
+
+  it("lists Overview, Reviews, and an entry for each tab of Reviews, and each opens its view", async () => {
+    serveViews();
+    openPage("/needs-you");
+    await screen.findByRole("heading", { level: 1, name: "Needs you" });
+    await userEvent.keyboard("{Control>}k{/Control}");
+    await userEvent.type(within(await palette()).getByRole("combobox"), "reviews");
+    const names = within(await palette()).getAllByRole("option").map((option) => option.textContent);
+    expect(names).toEqual(expect.arrayContaining(["Reviews", "Reviews: Queue", "Reviews: Pull requests", "Reviews: Agreement"]));
+    await userEvent.click(within(await palette()).getByRole("option", { name: /^Reviews: Pull requests/ }));
+    expect(await screen.findByRole("heading", { level: 1, name: "Reviews" })).toBeTruthy();
+    expect(`${window.location.pathname}${window.location.search}`).toBe(here("/reviews?tab=pull-requests"));
+  });
+
+  it("finds Overview in the palette, with its keys beside it", async () => {
+    serveViews();
+    openPage("/roadmap");
+    await screen.findByRole("heading", { level: 1, name: "Roadmap" });
+    await userEvent.keyboard("{Control>}k{/Control}");
+    await userEvent.type(within(await palette()).getByRole("combobox"), "overview");
+    const option = within(await palette()).getByRole("option", { name: /^Overview/ });
+    expect(option.textContent).toContain("G O");
+    await userEvent.click(option);
+    expect(await screen.findByRole("heading", { level: 1, name: "Overview" })).toBeTruthy();
+    expect(window.location.pathname).toBe("/projects/default");
   });
 
   it("searches the project's records through the API, and opens the one chosen", async () => {
