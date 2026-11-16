@@ -36,12 +36,15 @@ export function serveChanges(sent: Call[], answers: (route: Route) => Promise<bo
   };
 }
 
+const mod = process.platform === "darwin" ? "Meta" : "Control";
+
 export class Keys {
   constructor(readonly page: Page) {}
 
+  // press presses each key. Mod is Command on a Mac and Control elsewhere, as the application reads it.
   async press(...keys: string[]): Promise<void> {
     for (const key of keys) {
-      await this.page.keyboard.press(key);
+      await this.page.keyboard.press(key.replace(/^Mod\+/, `${mod}+`));
     }
   }
 
@@ -62,12 +65,11 @@ export class Keys {
     await this.page.locator("main h1:visible").first().waitFor();
     await this.page.waitForFunction(() => !document.querySelector("main .skeleton-rows"));
     await this.page.waitForTimeout(400);
-    await this.page.keyboard.press("Control+k");
+    await this.press("Mod+k");
     await this.page.getByRole("dialog", { name: "Command palette" }).waitFor();
     await this.landed(this.page.getByRole("combobox"));
     // The field empties as the palette opens, which a key typed in the same moment can beat, so it is emptied here.
-    await this.page.keyboard.press("Control+a");
-    await this.page.keyboard.press("Backspace");
+    await this.press("Mod+a", "Backspace");
     await this.page.keyboard.type(query);
     const option = this.page.getByRole("option", { name: new RegExp(`^${title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`) }).first();
     try {
@@ -154,7 +156,7 @@ export class Keys {
   // replaceIn reaches a field with Tab, selects what it holds, and types over it.
   async replaceIn(control: Locator, text: string): Promise<void> {
     await this.tabTo(control);
-    await this.page.keyboard.press("Control+a");
+    await this.press("Mod+a");
     await this.page.keyboard.type(text);
   }
 

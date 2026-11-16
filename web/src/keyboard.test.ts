@@ -337,7 +337,7 @@ const paths: Record<string, KeyPath> = {
       await k.palette("New assistant conversation");
       await k.landed(page.getByRole("textbox", { name: "Message to the assistant" }));
       await k.type("Hello there.");
-      await k.press("Control+Enter");
+      await k.press("Mod+Enter");
     },
   },
   "POST /v1/projects/{project}/conversations/{id}/messages": {
@@ -346,7 +346,7 @@ const paths: Record<string, KeyPath> = {
       await k.palette("Message the assistant");
       await k.landed(page.getByRole("textbox", { name: "Message to the assistant" }));
       await k.type("Hello again.");
-      await k.press("Control+Enter");
+      await k.press("Mod+Enter");
     },
   },
   "POST /v1/projects/{project}/messages": {
@@ -360,7 +360,7 @@ const paths: Record<string, KeyPath> = {
       await k.press("Enter");
       await k.tabTo(page.getByRole("textbox", { name: "Message to lane lane-wo-1" }));
       await k.type("Go on.");
-      await k.press("Control+Enter");
+      await k.press("Mod+Enter");
     },
   },
   "POST /v1/projects/{project}/conversations/{id}/compact": {
@@ -389,7 +389,7 @@ const paths: Record<string, KeyPath> = {
     run: async (k, page) => {
       await k.palette("Go to Conversations");
       await dialog(k, page, "Rename the conversation");
-      await k.press("Control+a");
+      await k.press("Mod+a");
       await k.type("Retry work");
       await k.activate(inDialog(page).getByRole("button", { name: "Rename", exact: true }));
     },
@@ -422,7 +422,7 @@ const paths: Record<string, KeyPath> = {
     run: async (k, page) => {
       await k.palette("Set the fleet's caps");
       await k.landed(page.getByLabel("Work in progress limit"));
-      await k.press("Control+a");
+      await k.press("Mod+a");
       await k.type("4");
       await k.activate(page.getByRole("button", { name: "Save", exact: true }));
     },
@@ -482,7 +482,7 @@ const paths: Record<string, KeyPath> = {
     sent: post(/^\/v1\/projects\/default\/rename$/, expect.objectContaining({ name: "harbor" })),
     run: async (k, page) => {
       await dialog(k, page, "Rename project: Default");
-      await k.press("Control+a");
+      await k.press("Mod+a");
       await k.type("harbor");
       await k.activate(inDialog(page).getByRole("button", { name: "Rename", exact: true }));
     },
