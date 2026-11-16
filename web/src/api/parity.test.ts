@@ -29,6 +29,7 @@ import {
   readFleet,
   readMembers,
   readOrchestrator,
+  readPlans,
   readPolicies,
   readRepositories,
   readRisk,
@@ -47,6 +48,7 @@ import {
   setFleetCaps,
   setFleetMode,
   setLevel,
+  startContractReview,
 } from "./admin";
 import {
   actOnWork,
@@ -188,7 +190,9 @@ const callers: Record<string, Caller> = {
   "POST /v1/projects/{project}/categories": step("addCategory", () => addCategory("release-planning")),
   "GET /v1/projects/{project}/candidates": step("searchCandidates", () => searchCandidates("retry budget")),
   "GET /v1/projects/{project}/approvals": step("readApprovals", () => readApprovals("approved")),
+  "GET /v1/projects/{project}/plans": step("readPlans", () => readPlans()),
   "GET /v1/projects/{project}/plans/{id}": step("readPlan", () => readPlan("plan-1")),
+  "POST /v1/projects/{project}/plans/{id}/reviews": step("startContractReview", () => startContractReview("plan-1", "review-1")),
   "GET /v1/projects/{project}/approvals/{id}": step("readApproval", () => readApproval("a-1")),
   "GET /v1/projects/{project}/lanes/{id}/outline": step("readOutline", () => readOutline("lane-1")),
   "GET /v1/projects/{project}/sources": step("readSources", () => readSources()),
@@ -233,7 +237,6 @@ const callers: Record<string, Caller> = {
 const uiGaps: Record<string, string> = {
   "GET /v1/projects/{project}/repositories/{id}": "U2f",
   "GET /v1/projects/{project}/policies/{version}": "U2f",
-  "GET /v1/projects/{project}/plans": "U2d",
   "GET /v1/projects/{project}/conversations/{id}": "U2h2",
 };
 

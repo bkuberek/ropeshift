@@ -1,5 +1,5 @@
 import { call, project, request } from "./client";
-import type { Orchestrator, Project, SourceBinding } from "./types";
+import type { Orchestrator, Plan, Project, SourceBinding, WorkOrder } from "./types";
 
 // The installation's and one project's records a member manages: projects, repositories, settings, the
 // agent roster, members, and the audit. Every call is a route the web listener serves, which names the
@@ -221,6 +221,8 @@ export const adminPaths = {
   orchestrator: (worker: string) => `/v1/workers/${encodeURIComponent(worker)}/orchestrator`,
   approvals: (state: string) => project(`/approvals${query({ state })}`),
   workOrders: () => project("/work-orders"),
+  plans: () => project("/plans"),
+  reviewPlan: (plan: string) => project(`/plans/${encodeURIComponent(plan)}/reviews`),
   sources: () => project("/sources"),
   claim: (id: string) => project(`/work-orders/${encodeURIComponent(id)}/claims`),
   startLane: (id: string) => project(`/work-orders/${encodeURIComponent(id)}/lanes`),
@@ -341,6 +343,31 @@ export const createPlanWork = (draft: PlanDraft) =>
     repository_id: draft.repository || undefined,
     criteria: [{ id: "c1", text: planCriterion }],
   });
+// What the New work order form sends, as `ropeshift work create` sends it: what a member left empty is left out.
+// The criteria carry the IDs the command gives them, c1 and on.
+export type NewWork = {
+  id: string;
+  kind?: "plan";
+  title: string;
+  statement?: string;
+  criteria?: { id: string; text: string }[];
+  repository_id?: string;
+  depends_on?: string[];
+  requirements?: string[];
+  agent?: string;
+  size?: string;
+  priority?: number;
+};
+
+// createWork records a work order and the contract it pins, as `ropeshift work create` does. The ID is the
+// client's, so a retry finds the work order the first attempt made.
+export const createWork = (request: NewWork) => call<WorkOrder>("POST", adminPaths.workOrders(), request);
+// readPlans lists the plans the project holds, as `ropeshift plan list` does.
+export const readPlans = () => call<{ plans: Plan[] }>("GET", adminPaths.plans());
+
+// startContractReview records a work order that reads a plan and its contracts, as `ropeshift plan review`
+// does. The ID is the client's, so a retry finds the review the first attempt made.
+export const startContractReview = (plan: string, id: string) => call<WorkOrder>("POST", adminPaths.reviewPlan(plan), { id });
 export const reviewWork = (id: string) => call<ReviewResult>("POST", adminPaths.review(id), {});
 export const claimWork = (id: string, claim: string, worker: string) => call<unknown>("POST", adminPaths.claim(id), { claim_id: claim, worker_id: worker });
 export const startLane = (id: string, lane: string) => call<unknown>("POST", adminPaths.startLane(id), { lane_id: lane });

@@ -124,6 +124,7 @@ func WebRoutes() []WebRoute {
 		{http.MethodGet, "/v1/approvals", "approval list"},
 		{http.MethodGet, "/v1/plans", "plan list"},
 		{http.MethodGet, "/v1/plans/{id}", "plan show"},
+		{http.MethodPost, "/v1/plans/{id}/reviews", "plan review"},
 		{http.MethodGet, "/v1/approvals/{id}", "approval show"},
 		{http.MethodGet, "/v1/lanes/{id}/outline", "lane outline"},
 		{http.MethodGet, "/v1/sources", "source list"},

@@ -938,6 +938,117 @@ describe.each(Object.entries(sizes))("at %s width", (size, viewport) => {
     );
 
     it(
+      "the new work order dialog, empty, with every field, with its errors, and with a refusal, meets WCAG 2.2 A and AA",
+      async () => {
+        const context = await browser.newContext({ viewport, colorScheme: theme, reducedMotion: "reduce" });
+        await context.route(/\/v1\//, answer);
+        const page = await context.newPage();
+        const found: string[] = [];
+        const settle = async () => {
+          await page.mouse.move(0, 0);
+          await page.waitForTimeout(600);
+        };
+        await page.goto(`${base}/projects/default/work`);
+        await ready(page);
+        await page.getByRole("button", { name: "New work order" }).click();
+        const dialog = page.getByRole("dialog", { name: "New work order" });
+        await dialog.waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `new work order dialog ${violation}`));
+        await dialog.getByText("More").click();
+        await page.waitForFunction(() => document.querySelectorAll("[role=dialog] select option").length > 4, null, { timeout: 20_000 });
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `new work order dialog with every field ${violation}`));
+        await dialog.getByRole("textbox", { name: "Work order ID (optional)" }).fill("has space");
+        await dialog.getByRole("textbox", { name: "Priority" }).fill("high");
+        await dialog.getByRole("textbox", { name: "Depends on" }).fill("not/an/id");
+        await dialog.getByRole("textbox", { name: "Requirements" }).fill("FR@1");
+        await dialog.getByRole("button", { name: "Create work order" }).click();
+        await dialog.getByText("Give the work order a title.").waitFor();
+        await dialog.getByText("A priority is a whole number, such as 2.").waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `new work order dialog with errors ${violation}`));
+        await dialog.getByRole("textbox", { name: "Title" }).fill("Export the invoices");
+        await dialog.getByRole("textbox", { name: "Criteria" }).fill("An export downloads.");
+        await dialog.getByRole("textbox", { name: "Work order ID (optional)" }).fill("");
+        await dialog.getByRole("textbox", { name: "Priority" }).fill("");
+        await dialog.getByRole("textbox", { name: "Depends on" }).fill("");
+        await dialog.getByRole("textbox", { name: "Requirements" }).fill("");
+        // The answer to a create the test does not serve is a refusal, which the dialog shows at its foot.
+        await dialog.getByRole("button", { name: "Create work order" }).click();
+        await dialog.getByRole("alert").waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `new work order dialog with a refusal ${violation}`));
+        await context.close();
+        expect(found.map((line) => `${size} ${theme} ${line}`)).toEqual([]);
+      },
+      120_000,
+    );
+
+    it(
+      "the start contract review dialog, on a plan, with a refusal, asking which plan, with no plan read, and with none, meets WCAG 2.2 A and AA",
+      async () => {
+        const context = await browser.newContext({ viewport, colorScheme: theme, reducedMotion: "reduce" });
+        await context.route(/\/v1\//, answer);
+        const page = await context.newPage();
+        const found: string[] = [];
+        const settle = async () => {
+          await page.mouse.move(0, 0);
+          await page.waitForTimeout(600);
+        };
+        const json = (status: number, body: unknown) => (route: Route) => route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
+        await page.goto(`${base}/projects/default/plans?plan=generated-2`);
+        await ready(page);
+        await page.getByRole("button", { name: "Start contract review" }).click();
+        const dialog = page.getByRole("dialog", { name: "Start contract review" });
+        await dialog.waitFor();
+        await dialog.getByText("Add the retry budget").waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `start contract review dialog ${violation}`));
+        await page.route(/\/v1\/projects\/default\/plans\/generated-2\/reviews$/, json(400, { error: { code: "invalid", message: "plan generated-2 has no work to review" } }));
+        await dialog.getByRole("button", { name: "Start contract review" }).click();
+        await dialog.getByRole("alert").waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `start contract review dialog with a refusal ${violation}`));
+        await page.keyboard.press("Escape");
+        await page.goto(`${base}/projects/default/plans`);
+        await ready(page);
+        await page.getByRole("button", { name: "Start contract review" }).click();
+        await dialog.getByText(/The plans could not be read/).waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `start contract review dialog with no plan read ${violation}`));
+        await page.keyboard.press("Escape");
+        await page.route(
+          /\/v1\/projects\/default\/plans$/,
+          json(200, {
+            plans: [
+              { id: "generated-2", title: "Add the retry budget", status: "active" },
+              { id: "generated-4", title: "Document the retry budget", status: "active" },
+            ],
+          }),
+        );
+        await page.getByRole("button", { name: "Start contract review" }).click();
+        await dialog.getByRole("combobox", { name: "Plan" }).waitFor();
+        await page.waitForFunction(() => document.querySelectorAll("[role=dialog] select option").length > 2, null, { timeout: 20_000 });
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `start contract review dialog asking which plan ${violation}`));
+        await dialog.getByRole("button", { name: "Start contract review" }).click();
+        await dialog.getByText("Choose the plan to review.").waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `start contract review dialog with an error ${violation}`));
+        await page.keyboard.press("Escape");
+        await page.route(/\/v1\/projects\/default\/plans$/, json(200, { plans: [] }));
+        await page.getByRole("button", { name: "Start contract review" }).click();
+        await dialog.getByText("This project has no plan to review yet.").waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `start contract review dialog with no plan ${violation}`));
+        await context.close();
+        expect(found.map((line) => `${size} ${theme} ${line}`)).toEqual([]);
+      },
+      120_000,
+    );
+
+    it(
       "the palette, the shortcut sheet, the project switcher, a menu, and a dialog meet WCAG 2.2 A and AA",
       async () => {
         const context = await browser.newContext({ viewport, colorScheme: theme, reducedMotion: "reduce" });

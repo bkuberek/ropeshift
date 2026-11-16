@@ -245,6 +245,8 @@ export function App() {
       ...(project
         ? [
             { key: "action:register", group: "Actions" as const, title: "Register repositories", icon: "repo" as const, to: inProject(project, "/repositories?dialog=register") },
+            { key: "action:new-work", group: "Actions" as const, title: "New work order", icon: "plus" as const, to: inProject(project, "/work?dialog=new"), keywords: "create add work" },
+            { key: "action:start-review", group: "Actions" as const, title: "Start contract review", icon: "play" as const, to: inProject(project, "/plans?dialog=review"), keywords: "plan review lane questions" },
             { key: "action:fleet", group: "Actions" as const, title: "Pause or drain the fleet", icon: "pause" as const, to: inProject(project, "/settings?section=fleet") },
             { key: "action:record-question", group: "Actions" as const, title: "Record question", icon: "question" as const, to: inProject(project, "/questions?dialog=record"), keywords: "ask open" },
             { key: "action:record-decision", group: "Actions" as const, title: "Record decision", icon: "decision" as const, to: inProject(project, "/decisions?dialog=record"), keywords: "decide assume assumption" },
