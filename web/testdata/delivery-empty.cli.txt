@@ -1,0 +1,13 @@
+all	done 0	failed 0	canceled 0	per week 0.0	elapsed no data	delivery no data	cost no data
+week	2026-06-29	done 0	delivery no data
+week	2026-07-06	done 0	delivery no data
+week	2026-07-13	done 0	delivery no data
+week	2026-07-20	done 0	delivery no data
+week	2026-07-27	done 0	delivery no data
+week	2026-08-03	done 0	delivery no data
+week	2026-08-10	done 0	delivery no data
+week	2026-08-17	done 0	delivery no data
+week	2026-08-24	done 0	delivery no data
+week	2026-08-31	done 0	delivery no data
+week	2026-09-07	done 0	delivery no data
+week	2026-09-14	done 0	delivery no data

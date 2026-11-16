@@ -11,6 +11,7 @@ import { useView } from "../api/useView";
 import { FloorPage } from "../floor/Floor";
 import { UsagePage, WorkersPage } from "../floor/Installation";
 import { Operations } from "../floor/Operations";
+import { DeliveryPage, MeasuresTabs } from "../measures/Delivery";
 import { WorkOrderPage, WorkOrdersPage } from "../floor/WorkOrders";
 import { LanePage } from "../lanes/LanePane";
 import { ConversationsPage } from "../talk/Conversations";
@@ -245,7 +246,19 @@ function ViewFor({ view, project, scoped, params, live, after, needs, projects, 
     case "conversations":
       return <ConversationsPage live={live} project={project} label={label} after={after} archived={archived} />;
     case "measures":
-      return <ViewPage<OperationsView> name="operations" live={live} title="Measures" note={() => "The fleet, the counts by state, the sources, and the product measures, from the ledger."} body={(read) => <Operations view={read} />} />;
+      if (param("tab") === "delivery") {
+        return <DeliveryPage live={live} projects={projects} params={params} />;
+      }
+      return (
+        <ViewPage<OperationsView>
+          name="operations"
+          live={live}
+          title="Measures"
+          note={() => "The fleet, the counts by state, the sources, and the product measures, from the ledger."}
+          above={<MeasuresTabs tab="factory" />}
+          body={(read) => <Operations view={read} />}
+        />
+      );
     case "workers":
       return <WorkersPage live={live} projects={projects} selected={param("worker")} after={after} dialog={param("dialog")} />;
     case "projects":
