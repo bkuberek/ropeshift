@@ -1,0 +1,666 @@
+{
+  "as_of": 1790002104001,
+  "items": [
+    {
+      "id": "wo-lapsed",
+      "kind": "work",
+      "since": 1790000244001,
+      "work": {
+        "actions": [
+          "reassign",
+          "cancel"
+        ],
+        "lane": {
+          "actual_state": "working",
+          "as_of": 1790000184000,
+          "freshness": "last_reported",
+          "generation": 1,
+          "generations": [
+            {
+              "lane_id": "lane-wo-lapsed",
+              "number": 1,
+              "start_reason": "initial",
+              "started_at": 1790000184000
+            }
+          ],
+          "id": "lane-wo-lapsed",
+          "ledger_reach": "reachable",
+          "liveness": "alive",
+          "model_reach": "reachable",
+          "reported_by_epoch": 1,
+          "work_order": "wo-lapsed",
+          "worker_id": "worker-a"
+        },
+        "reason": "lapsed",
+        "work_order": {
+          "claim_id": "claim-wo-lapsed",
+          "contract_id": "generated-1",
+          "contract_version": 1,
+          "fence": 1,
+          "id": "wo-lapsed",
+          "kind": "change",
+          "lease_until": 1790000244000,
+          "lease_worker": "worker-a",
+          "max_attempts": 1,
+          "repository_id": "repository-1",
+          "rev": 1,
+          "reviewed_by": "member-1",
+          "size": "unknown",
+          "state": "lapsed",
+          "title": "Rotate the keys"
+        }
+      }
+    },
+    {
+      "id": "wo-blocked",
+      "kind": "work",
+      "since": 1790000304001,
+      "work": {
+        "actions": [
+          "resolve",
+          "replan",
+          "cancel"
+        ],
+        "detail": "no_outcome",
+        "lane": {
+          "actual_state": "ended",
+          "artifacts": [
+            {
+              "created_at": 1790000304001,
+              "digest": "abc123",
+              "fence": 2,
+              "id": "generated-2",
+              "kind": "branch",
+              "lane_id": "lane-wo-blocked",
+              "uri": "lane/lane-wo-blocked"
+            }
+          ],
+          "as_of": 1790000304001,
+          "freshness": "observed",
+          "generation": 1,
+          "generations": [
+            {
+              "end_reason": "blocked",
+              "ended_at": 1790000304001,
+              "lane_id": "lane-wo-blocked",
+              "number": 1,
+              "start_reason": "initial",
+              "started_at": 1790000304001
+            }
+          ],
+          "id": "lane-wo-blocked",
+          "ledger_reach": "unknown",
+          "liveness": "dead",
+          "model_reach": "unknown",
+          "reported_by_epoch": 1,
+          "work_order": "wo-blocked",
+          "worker_id": "worker-a"
+        },
+        "reason": "blocked",
+        "work_order": {
+          "contract_id": "generated-3",
+          "contract_version": 1,
+          "fence": 2,
+          "id": "wo-blocked",
+          "kind": "change",
+          "max_attempts": 1,
+          "repository_id": "repository-1",
+          "rev": 1,
+          "reviewed_by": "member-1",
+          "size": "unknown",
+          "state": "blocked",
+          "title": "Move the archive"
+        }
+      }
+    },
+    {
+      "effect": {
+        "attempt": 1,
+        "generation": 1,
+        "id": "worker-a:1:11",
+        "key": "lane-wo-effect/1/input/nudge",
+        "kind": "input",
+        "lane_id": "lane-wo-effect",
+        "offers": [
+          "happened",
+          "not_happened",
+          "retry"
+        ],
+        "raised_at": 1790000364001,
+        "target": "the session",
+        "work_order_id": "wo-effect",
+        "worker_id": "worker-a"
+      },
+      "id": "worker-a:1:11",
+      "kind": "effect",
+      "since": 1790000364001
+    },
+    {
+      "id": "wo-accept",
+      "kind": "work",
+      "since": 1790000424001,
+      "work": {
+        "actions": [
+          "accept",
+          "rework"
+        ],
+        "lane": {
+          "actual_state": "ended",
+          "artifacts": [
+            {
+              "created_at": 1790000424001,
+              "digest": "abc123",
+              "fence": 2,
+              "id": "generated-4",
+              "kind": "branch",
+              "lane_id": "lane-wo-accept",
+              "uri": "lane/lane-wo-accept"
+            }
+          ],
+          "as_of": 1790000424001,
+          "freshness": "observed",
+          "generation": 1,
+          "generations": [
+            {
+              "end_reason": "completed",
+              "ended_at": 1790000424001,
+              "lane_id": "lane-wo-accept",
+              "number": 1,
+              "start_reason": "initial",
+              "started_at": 1790000424001
+            }
+          ],
+          "id": "lane-wo-accept",
+          "ledger_reach": "unknown",
+          "liveness": "dead",
+          "model_reach": "unknown",
+          "reported_by_epoch": 1,
+          "work_order": "wo-accept",
+          "worker_id": "worker-a"
+        },
+        "reason": "acceptance",
+        "standing": {
+          "artifacts": [
+            {
+              "created_at": 1790000424001,
+              "digest": "abc123",
+              "fence": 2,
+              "id": "generated-4",
+              "kind": "branch",
+              "lane_id": "lane-wo-accept",
+              "uri": "lane/lane-wo-accept"
+            }
+          ],
+          "assessment": {
+            "criteria": [
+              {
+                "criterion_id": "c1",
+                "standing": "member"
+              }
+            ],
+            "needs": "member"
+          },
+          "authority": "person_approves",
+          "checks": [],
+          "reviews": [
+            {
+              "attempt": 2,
+              "id": "generated-5",
+              "state": "done"
+            }
+          ],
+          "rounds": 1,
+          "state": "acceptance",
+          "verdicts": [
+            {
+              "attempt": 2,
+              "citations": [
+                "trim.go:30",
+                "FR-LOG-2"
+              ],
+              "commit": "abc123",
+              "created_at": 1790000424001,
+              "criterion": "c1",
+              "fence": 2,
+              "generation": 1,
+              "lane_id": "lane-generated-5",
+              "reasons": "The log is trimmed in trim.go, but nothing I can run shows it keeps the last day.",
+              "review_id": "generated-5",
+              "verdict": "cannot_judge",
+              "work_order_id": "wo-accept"
+            }
+          ],
+          "why": "the review could not judge criterion c1",
+          "work_order_id": "wo-accept"
+        },
+        "work_order": {
+          "contract_id": "generated-6",
+          "contract_version": 1,
+          "fence": 2,
+          "id": "wo-accept",
+          "kind": "change",
+          "max_attempts": 1,
+          "repository_id": "repository-1",
+          "rev": 1,
+          "reviewed_by": "member-1",
+          "size": "unknown",
+          "state": "acceptance",
+          "title": "Trim the log"
+        }
+      }
+    },
+    {
+      "approval": {
+        "command": "git tag v1",
+        "expires_at": 1790605284001,
+        "generation": 1,
+        "id": "approval-1",
+        "input": "{\"command\":\"git tag v1\"}",
+        "kind": "tool_call",
+        "lane_id": "lane-wo-approval",
+        "raised_at": 1790000484001,
+        "requested_by": "lane:lane-wo-approval",
+        "state": "pending",
+        "subject": "Bash",
+        "subject_digest": "sha256:5b0f2bdbb745da3d023930c22eaab241f651e111df30803c2bf5f3e2b04079e1",
+        "summary": "Bash: git tag v1",
+        "work_order_id": "wo-approval"
+      },
+      "id": "approval-1",
+      "kind": "approval",
+      "since": 1790000484001
+    },
+    {
+      "batch": {
+        "batch": {
+          "closes_at": 1790000544002,
+          "delivered_at": 1790000604001,
+          "id": "generated-7",
+          "opened_at": 1790000544001,
+          "status": "delivered"
+        },
+        "items": [
+          {
+            "blocking": true,
+            "categories": [
+              "product"
+            ],
+            "citations": [
+              "decision:decision-1"
+            ],
+            "escalation_reason": "scope_change",
+            "id": "question-1",
+            "options": [
+              "Keep the budget",
+              "Drop it"
+            ],
+            "recommendation": "Keep the budget",
+            "text": "Should the budget hold across restarts?"
+          },
+          {
+            "categories": [
+              "product"
+            ],
+            "citations": [
+              "decision:decision-1"
+            ],
+            "escalation_reason": "scope_change",
+            "id": "question-2",
+            "options": [
+              "Keep the budget",
+              "Drop it"
+            ],
+            "recommendation": "Keep the budget",
+            "text": "May the <img src=x onerror=alert(1)><script>alert(2)</script> stay?"
+          }
+        ]
+      },
+      "id": "generated-7",
+      "kind": "questions",
+      "since": 1790000604001
+    },
+    {
+      "id": "wo-parked",
+      "kind": "work",
+      "since": 1790000664001,
+      "work": {
+        "actions": [
+          "resume"
+        ],
+        "lane": {
+          "actual_state": "parked",
+          "as_of": 1790000664001,
+          "freshness": "observed",
+          "generation": 1,
+          "generations": [
+            {
+              "end_reason": "parked",
+              "ended_at": 1790000664001,
+              "lane_id": "lane-wo-parked",
+              "number": 1,
+              "start_reason": "initial",
+              "started_at": 1790000664001
+            }
+          ],
+          "id": "lane-wo-parked",
+          "ledger_reach": "unknown",
+          "liveness": "dead",
+          "model_reach": "unknown",
+          "reported_by_epoch": 1,
+          "work_order": "wo-parked",
+          "worker_id": "worker-a"
+        },
+        "reason": "human_resume",
+        "wakes": [
+          {
+            "expression": "{\"any_of\":[{\"all_of\":[{\"question_answered\":\"question-1\"}]},{\"human_resume\":true}]}",
+            "id": "wake-lane-wo-parked"
+          }
+        ],
+        "work_order": {
+          "contract_id": "generated-8",
+          "contract_version": 1,
+          "fence": 2,
+          "id": "wo-parked",
+          "kind": "change",
+          "max_attempts": 1,
+          "repository_id": "repository-1",
+          "rev": 2,
+          "reviewed_by": "member-1",
+          "size": "unknown",
+          "state": "parked",
+          "title": "Wait for the check"
+        }
+      }
+    },
+    {
+      "id": "wo-stalled",
+      "kind": "work",
+      "since": 1790000724001,
+      "work": {
+        "actions": [
+          "respawn",
+          "cancel"
+        ],
+        "lane": {
+          "actual_state": "working",
+          "as_of": 1790000724001,
+          "conditions": [
+            "stalled"
+          ],
+          "freshness": "last_reported",
+          "generation": 1,
+          "generations": [
+            {
+              "lane_id": "lane-wo-stalled",
+              "number": 1,
+              "start_reason": "initial",
+              "started_at": 1790000724001
+            }
+          ],
+          "id": "lane-wo-stalled",
+          "ledger_reach": "reachable",
+          "liveness": "alive",
+          "model_reach": "reachable",
+          "reported_by_epoch": 1,
+          "work_order": "wo-stalled",
+          "worker_id": "worker-a"
+        },
+        "reason": "stalled",
+        "work_order": {
+          "claim_id": "claim-wo-stalled",
+          "contract_id": "generated-9",
+          "contract_version": 1,
+          "fence": 1,
+          "id": "wo-stalled",
+          "kind": "change",
+          "lease_until": 1790000784001,
+          "lease_worker": "worker-a",
+          "max_attempts": 1,
+          "repository_id": "repository-1",
+          "rev": 1,
+          "reviewed_by": "member-1",
+          "size": "unknown",
+          "state": "running",
+          "title": "Read the logs"
+        }
+      }
+    },
+    {
+      "id": "wo-tripped",
+      "kind": "work",
+      "since": 1790000724001,
+      "work": {
+        "actions": [
+          "reset",
+          "cancel"
+        ],
+        "lane": {
+          "actual_state": "tripped",
+          "as_of": 1790000724001,
+          "freshness": "last_reported",
+          "generation": 1,
+          "generations": [
+            {
+              "lane_id": "lane-wo-tripped",
+              "number": 1,
+              "start_reason": "initial",
+              "started_at": 1790000724001
+            }
+          ],
+          "id": "lane-wo-tripped",
+          "ledger_reach": "reachable",
+          "liveness": "dead",
+          "model_reach": "reachable",
+          "reported_by_epoch": 1,
+          "work_order": "wo-tripped",
+          "worker_id": "worker-a"
+        },
+        "reason": "tripped",
+        "work_order": {
+          "claim_id": "claim-wo-tripped",
+          "contract_id": "generated-10",
+          "contract_version": 1,
+          "fence": 1,
+          "id": "wo-tripped",
+          "kind": "change",
+          "lease_until": 1790000784001,
+          "lease_worker": "worker-a",
+          "max_attempts": 1,
+          "repository_id": "repository-1",
+          "rev": 1,
+          "reviewed_by": "member-1",
+          "size": "unknown",
+          "state": "running",
+          "title": "Fix the flaky test"
+        }
+      }
+    },
+    {
+      "id": "wo-failed",
+      "kind": "work",
+      "since": 1790000904001,
+      "work": {
+        "actions": [
+          "retry"
+        ],
+        "detail": "It gave up on <img src=x onerror=alert(1)><script>alert(2)</script>",
+        "extra_attempt": true,
+        "lane": {
+          "actual_state": "ended",
+          "artifacts": [
+            {
+              "created_at": 1790000904001,
+              "digest": "def456",
+              "fence": 2,
+              "id": "generated-11",
+              "kind": "branch",
+              "lane_id": "lane-wo-failed",
+              "uri": "lane/lane-wo-failed"
+            }
+          ],
+          "as_of": 1790000904001,
+          "freshness": "observed",
+          "generation": 1,
+          "generations": [
+            {
+              "end_reason": "failed",
+              "ended_at": 1790000904001,
+              "lane_id": "lane-wo-failed",
+              "number": 1,
+              "start_reason": "initial",
+              "started_at": 1790000904001
+            }
+          ],
+          "id": "lane-wo-failed",
+          "ledger_reach": "unknown",
+          "liveness": "dead",
+          "model_reach": "unknown",
+          "reported_by_epoch": 1,
+          "work_order": "wo-failed",
+          "worker_id": "worker-a"
+        },
+        "reason": "failed",
+        "work_order": {
+          "attempts": 1,
+          "contract_id": "generated-12",
+          "contract_version": 1,
+          "fence": 2,
+          "id": "wo-failed",
+          "kind": "change",
+          "max_attempts": 1,
+          "repository_id": "repository-1",
+          "rev": 1,
+          "reviewed_by": "member-1",
+          "size": "unknown",
+          "state": "failed",
+          "title": "Try the impossible"
+        }
+      }
+    },
+    {
+      "approval": {
+        "detail": "{\"work_order_id\":\"wo-ruled\",\"repository\":\"app\",\"commit\":\"cab321\",\"branch\":\"lane/lane-wo-ruled\",\"base\":\"main\",\"pull_request\":11,\"url\":\"https://forge.example/acme/app/pull/wo-ruled\",\"method\":\"merge\",\"merge_authority\":\"person_approves\"}",
+        "generation": 0,
+        "id": "generated-13",
+        "kind": "merge",
+        "lane_id": "",
+        "raised_at": 1790001504001,
+        "requested_by": "system:integration",
+        "state": "pending",
+        "subject": "approve",
+        "subject_digest": "cab321",
+        "summary": "Approve the merge of pull request #11, commit cab321 of work order wo-ruled (Trim the retry log), at person_approves. The review's verdicts are on the work order.",
+        "work_order_id": "wo-ruled"
+      },
+      "id": "generated-13",
+      "kind": "approval",
+      "since": 1790001504001
+    },
+    {
+      "id": "generated-14",
+      "kind": "plan_approval",
+      "plan_approval": {
+        "approval": {
+          "detail": "{\"title\":\"The factory floor\",\"ref\":\"factory\",\"counts\":{\"architecture\":1,\"contract\":4,\"milestone\":3,\"requirements\":1,\"spec\":1},\"decisions\":2,\"difference\":{\"base\":5,\"added\":[\"architecture:factory\"],\"changed\":[\"contract:core\",\"contract:ui\",\"plan:factory\",\"spec:factory-api\"],\"contracts\":[{\"ref\":\"contract:core\",\"criteria\":{\"added\":[\"c2\"],\"changed\":[\"c1\"]},\"work_orders\":{}},{\"ref\":\"contract:ui\",\"criteria\":{},\"work_orders\":{\"added\":[\"ui-2\"]}}]},\"source\":\"plans/factory/plan.md@16\"}",
+          "generation": 0,
+          "id": "generated-14",
+          "kind": "plan",
+          "lane_id": "",
+          "plan_id": "generated-15",
+          "plan_version": 6,
+          "raised_at": 1790002104001,
+          "requested_by": "system:intake",
+          "state": "pending",
+          "subject": "generated-15@6",
+          "subject_digest": "sha256:e86a2a838f6bb9b66bb8817e866d11764a989566982a6cb03a69f0cce3d156a3",
+          "summary": "Plan The factory floor, version 6: 1 architecture, 4 contract, 3 milestone, 1 requirements, 1 spec, 2 draft decisions",
+          "work_order_id": ""
+        },
+        "counts": {
+          "architecture": 1,
+          "contract": 4,
+          "milestone": 3,
+          "requirements": 1,
+          "spec": 1
+        },
+        "decisions": 2,
+        "difference": {
+          "added": [
+            "architecture:factory"
+          ],
+          "base": 5,
+          "changed": [
+            "contract:core",
+            "contract:ui",
+            "plan:factory",
+            "spec:factory-api"
+          ],
+          "contracts": [
+            {
+              "criteria": {
+                "added": [
+                  "c2"
+                ],
+                "changed": [
+                  "c1"
+                ]
+              },
+              "ref": "contract:core",
+              "work_orders": {}
+            },
+            {
+              "criteria": {},
+              "ref": "contract:ui",
+              "work_orders": {
+                "added": [
+                  "ui-2"
+                ]
+              }
+            }
+          ]
+        },
+        "drafts": [
+          {
+            "answer": "The one already installed on the machine.",
+            "id": "d1",
+            "question": "Which agent CLI runs the first lanes?",
+            "rationale": "It needs no new sign-in."
+          },
+          {
+            "answer": "Once, and then it asks <img src=x onerror=alert(1)><script>alert(2)</script>.",
+            "id": "d2",
+            "question": "Does a lane retry a failed check?"
+          }
+        ],
+        "requested_by": "system:intake",
+        "summary": "1 added, 4 changed, 0 removed since version 5",
+        "title": "The factory floor",
+        "version": 6
+      },
+      "since": 1790002104001
+    },
+    {
+      "contract_review": {
+        "contract": "Document the retry budget",
+        "plan": "generated-16",
+        "version": 1,
+        "work_order": {
+          "contract_id": "generated-17",
+          "contract_version": 1,
+          "id": "wo-review",
+          "kind": "change",
+          "max_attempts": 1,
+          "repository_id": "repository-1",
+          "size": "unknown",
+          "state": "contract_review",
+          "title": "Document the retry budget"
+        }
+      },
+      "id": "wo-review",
+      "kind": "contract_review",
+      "since": 1790002104001
+    }
+  ],
+  "revision": 408
+}
