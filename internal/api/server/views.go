@@ -1257,7 +1257,7 @@ func (h *handler) workerLines(tx ports.ReadTx) ([]api.WorkerLine, error) {
 	}
 	out := make([]api.WorkerLine, 0, len(workers))
 	for _, worker := range workers {
-		line := api.WorkerLine{Worker: worker}
+		line := api.WorkerLine{Worker: worker, Drivers: worker.Manifest.Results()}
 		if line.Freshness, err = h.workers.WorkerFreshness(tx, worker); err != nil {
 			return nil, err
 		}

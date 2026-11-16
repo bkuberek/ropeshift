@@ -1,0 +1,63 @@
+{
+  "notices": [
+    {
+      "delivery": "c4e53106335c68b36b7af4d551674db4",
+      "channel": "desktop",
+      "kind": "questions",
+      "since": 1790000000000,
+      "attempts": 1,
+      "delivered": true,
+      "last_at": 1790000060000
+    },
+    {
+      "delivery": "c4e53106335c68b36b7af4d551674db4",
+      "channel": "webhook",
+      "kind": "questions",
+      "since": 1790000000000,
+      "attempts": 2,
+      "delivered": false,
+      "failure": "the webhook answered 503",
+      "last_at": 1790000240000
+    },
+    {
+      "delivery": "118295d2c5199323861d53abf518ee23",
+      "channel": "desktop",
+      "kind": "work",
+      "reason": "blocked",
+      "since": 1790000001000,
+      "attempts": 1,
+      "delivered": true,
+      "last_at": 1790000060000
+    },
+    {
+      "delivery": "118295d2c5199323861d53abf518ee23",
+      "channel": "webhook",
+      "kind": "work",
+      "reason": "blocked",
+      "since": 1790000001000,
+      "attempts": 2,
+      "delivered": false,
+      "failure": "the webhook answered 503",
+      "last_at": 1790000240000
+    },
+    {
+      "delivery": "d11c75f18e64e731ea29c3ef3b519cc3",
+      "channel": "desktop",
+      "kind": "approval",
+      "since": 1790000002000,
+      "attempts": 2,
+      "delivered": true,
+      "last_at": 1790000180000
+    },
+    {
+      "delivery": "d11c75f18e64e731ea29c3ef3b519cc3",
+      "channel": "webhook",
+      "kind": "approval",
+      "since": 1790000002000,
+      "attempts": 2,
+      "delivered": false,
+      "failure": "the webhook answered 503",
+      "last_at": 1790000180000
+    }
+  ]
+}

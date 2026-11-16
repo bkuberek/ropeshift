@@ -284,7 +284,7 @@ function ViewFor({ view, project, scoped, params, live, after, needs, projects, 
     case "agents":
       return <AgentsPage live={live} project={project} label={label} archived={archived} scope={scope} agent={param("agent")} tab={param("tab")} />;
     case "audit":
-      return <AuditView live={live} project={project} label={label} scope={scope} actor={param("actor")} kind={param("kind")} />;
+      return <AuditView live={live} project={project} label={label} scope={scope} actor={param("actor")} kind={param("kind")} tab={param("tab")} />;
     case "usage":
       return <UsagePage live={live} project={project} label={label} />;
     case "needs-you":

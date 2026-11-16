@@ -690,13 +690,28 @@ export type ResourceReport = {
   warnings?: ResourceWarning[];
 };
 
+// What a worker says of one agent CLI on its machine when it connects: the doctor's reading of it. Only a kind of
+// sign-in and its status are ever said, never who is signed in.
+export type DriverManifest = {
+  driver: string;
+  present: boolean;
+  version?: string;
+  qualified: boolean;
+  sign_in: { kind?: string; status: string };
+  detail?: string;
+};
+
+// The doctor's result for one driver, in the words `ropeshift worker doctor` prints: usable by the rule an offer
+// applies, and for one that is not, the word, the reason, and for a CLI that failed its version check, the fix.
+export type DriverResult = { driver: string; usable: boolean; word?: string; reason?: string; fix?: string };
+
 export type Worker = {
   id: string;
   name: string;
   epoch: number;
   protocol: number;
   last_handshake_at?: number;
-  manifest: { capacity?: { max_lanes?: number } };
+  manifest: { capacity?: { max_lanes?: number }; drivers?: DriverManifest[] };
   report?: ResourceReport;
   reported_at?: number;
 };
@@ -714,7 +729,13 @@ export type Orchestrator = {
   reported_at?: number;
 };
 
-export type WorkerLine = { worker: Worker; freshness: "observed" | "last_reported"; report_freshness?: "observed" | "last_reported"; orchestrator?: Orchestrator };
+export type WorkerLine = {
+  worker: Worker;
+  freshness: "observed" | "last_reported";
+  report_freshness?: "observed" | "last_reported";
+  drivers: DriverResult[];
+  orchestrator?: Orchestrator;
+};
 
 // A lane on the shop floor names the work it runs, because a lane's ID says nothing to a person.
 // archivable says a member may ask for the lane's worktree to be removed: the lane ended, and it still stands.
@@ -923,3 +944,55 @@ export type PlanOutline = {
 // Overturned is what one overturn did: the two decisions, the work orders it sent to rework, and the lanes it
 // told that the decision no longer stands.
 export type Overturned = { old: RecordedDecision; new: RecordedDecision; rework?: string[]; noticed?: string[] };
+
+// How one notice stands on one channel, as `ropeshift notice list` prints it: what the notice was about, how many
+// times the channel was asked, and whether it took it. More than one attempt with a delivery is a notice the channel
+// may have heard twice, because delivery is at least once. A notice names no title, question, or path.
+export type NoticeLine = {
+  delivery: string;
+  channel: string;
+  kind: string;
+  reason?: string;
+  since: number;
+  attempts: number;
+  delivered: boolean;
+  failure?: string;
+  last_at: number;
+};
+
+export type NoticeList = { notices: NoticeLine[] };
+
+// One message sent to a lane, with what became of it, as `ropeshift message list` prints it. A reply is the only
+// confirmation that a lane read it.
+export type LaneMessage = {
+  envelope: number;
+  id: string;
+  to: { kind?: string; lane: string; worker?: string; conversation?: string; generation: number };
+  from: { kind: string; id: string; seq: number };
+  reply_to?: string;
+  kind: string;
+  body: string;
+  created_at: number;
+  stale_at: number;
+  expires_at: number;
+  state: string;
+  reason?: string;
+  reply?: string;
+  carried_in?: number;
+};
+
+export type MessageList = { messages: LaneMessage[] };
+
+// What the local telemetry store says of one lane: its context at the last call, its tokens by type, the roster
+// agents that spent some, and the cost its agent reported, which is a lower bound.
+export type LaneTelemetry = {
+  lane: string;
+  context_tokens: number;
+  context_at?: number;
+  tokens: Record<string, number>;
+  cost_usd: number;
+  last_at: number;
+  agents?: Record<string, Record<string, number>>;
+};
+
+export type LaneTelemetryList = { available: boolean; lanes: LaneTelemetry[] };

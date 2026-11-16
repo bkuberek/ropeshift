@@ -964,23 +964,32 @@ func (c *invocation) fleetCaps(args []string) int {
 	return c.finish(err, fleet, func() string { return fleetLine(fleet) })
 }
 
-// doctorLine states one driver the way a person reads it: usable or not, and why.
+// doctorLine states one driver the way a person reads it: usable or not, and why. The words of a driver
+// that is not usable come from ledger.DriverManifest.Result, which the web UI shows too.
 func doctorLine(driver ledger.DriverManifest) string {
-	if v := vendorOf(driver.Driver); failedCheck(driver, v) {
-		return fmt.Sprintf("%s\tunusable\t%s. Run %s --version to see why, and repair or reinstall %s.\n", driver.Driver, driver.Detail, v.command, v.product)
+	result := driver.Result()
+	reason := result.Reason
+	if result.Fix != "" {
+		reason += ". " + result.Fix
 	}
-	if !driver.Present {
-		return fmt.Sprintf("%s\tabsent\t%s\n", driver.Driver, driver.Detail)
-	}
-	qualified := "qualified"
-	if !driver.Qualified {
-		qualified = "unqualified"
+	switch {
+	case result.Word == ledger.WordSignedOut:
+		return fmt.Sprintf("%s\t%s\t%s\t%s\t%s\n", driver.Driver, result.Word, reason, driver.Version, qualification(driver))
+	case result.Word != "":
+		return fmt.Sprintf("%s\t%s\t%s\n", driver.Driver, result.Word, reason)
 	}
 	kind := driver.SignIn.Kind
 	if kind == "" {
 		kind = "-"
 	}
-	return fmt.Sprintf("%s\t%s\t%s\tsign-in %s\t%s\n", driver.Driver, driver.Version, qualified, kind, driver.SignIn.Status)
+	return fmt.Sprintf("%s\t%s\t%s\tsign-in %s\t%s\n", driver.Driver, driver.Version, qualification(driver), kind, driver.SignIn.Status)
+}
+
+func qualification(driver ledger.DriverManifest) string {
+	if driver.Qualified {
+		return "qualified"
+	}
+	return "unqualified"
 }
 
 // workerDoctor reports this machine. Only what could leave it is printed, which is a kind

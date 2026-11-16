@@ -28,6 +28,7 @@ var equivalents = map[string]string{
 	"health":           "events",          // work.go reads the control plane's health and revision; the shell follows the event stream and shows its connection
 	"lane list":        "view shop-floor", // work.go lists lanes with their freshness; Floor lists each lane with its freshness
 	"lane show":        "view shop-floor", // work.go reads one lane; Floor and the lane page show it with its freshness
+	"message show":     "message list",    // messages.go messageShow reads one message and prints messageLine; the lane page lists each message of the lane's route with its state, reason, and reply
 	"measures":         "view operations", // measures.go reads the report for the default window; Measures shows the operations view's report
 	"project show":     "project list",    // project.go reads a project's record; Projects lists each with its state and repositories
 	"question batches": "needs",           // questions.go lists the batches that reached members; Needs you shows each batch
@@ -35,6 +36,7 @@ var equivalents = map[string]string{
 	"question show":    "view questions",  // questions.go reads one question; Open questions opens it by its ID
 	"requirement get":  "view documents",  // planning.go reads a requirement's newest version; the documents view carries every requirement
 	"requirement list": "view documents",  // planning.go lists requirements; Traceability lists them from the documents view
+	"worker doctor":    "view shop-floor", // work.go workerDoctor prints doctorLine for each driver of this machine; the Workers view shows the same result for each driver of each worker from the floor's worker lines
 	"work list":        "view plans",      // work.go lists work orders; the Work orders view lists each by group from the plans view
 
 	// Changes. The CLI command sends the request of a row the UI already sends, with a different value.
@@ -69,13 +71,8 @@ var cliOnly = map[string]string{
 // that adds it. A command whose row is added leaves this list, and the test fails until it does. The first
 // run of this test wrote it, and a command the audit did not name went by its area.
 var webGaps = map[string]string{
-	"message list":    "U2h2",
-	"message show":    "U2h2",
-	"notice list":     "U2h2",
 	"passphrase set":  "U2f",
-	"telemetry lanes": "U2h2",
 	"telemetry query": "U2h2",
-	"worker doctor":   "U2h2",
 }
 
 var gapSlice = regexp.MustCompile(`^U2[a-k][12]?$`)

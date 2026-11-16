@@ -154,6 +154,26 @@ Above the machines, Ready to start lists the work that waits for a lane: ready w
 
 A member opens a lane's page with Open. Message talks to a lane that runs headless, and Open pane to one that runs in a terminal pane, both in the conversation panel. A lane's actions menu holds what the server allows for the lane and for its work order, such as Resume, Start the next generation, Reset the breaker, Retry, End this claim, Back to ready, Back to planning, Cancel this work, or Archive the worktree of a lane that ended, each explained before it runs. Cancel this work is there for every lane whose work has not ended, not only for stuck work. The Workers page lists each machine with its orchestrator, which Start orchestrator, Stop orchestrator, and Details act on, and Details reads what `ropeshift orchestrator show` prints. [How many lanes run at once](onboarding.md#how-many-lanes-run-at-once) and [what the worker measures](onboarding.md#what-the-worker-measures) cover the caps and the readings.
 
+## Lane
+
+A lane's page shows its screen or its event stream, its facts, and under them Messages, which lists what was sent to the lane, oldest first, as `ropeshift message list` does. A row gives the message, its kind, the generation it was written for, its state, when it was sent, its body, and the lane's reply. A state claims only what its signal proves: a write to a session shows that bytes were handed over, and only a reply says the lane read the message. A message that ended without being injected says why, such as that it timed out or that its generation ended, and a body and a reply keep their line breaks and are never cut. A lane nobody wrote to says so. The [command reference](cli.md) lists each state `ropeshift message show` names.
+
+## Workers
+
+Workers lists each machine that serves the installation, with the CPU, memory, free disk, and lanes against the cap its worker last measured, its orchestrator, and its freshness, then every session on it. A measure the machine cannot provide says unavailable and never reads as zero.
+
+Drivers shows each worker's doctor result, one row for each agent CLI a worker named when it connected, as `ropeshift worker doctor` prints it for a machine with no daemon. A row gives the driver, a badge, the version, whether that version is qualified, the kind and status of its sign-in, and when the worker last reported. The badge reads Usable when the CLI is present and its sign-in is not signed out, the rule an offer applies, so a sign-in the doctor could not read stays usable. A driver that is not usable says why in the doctor's words, starting with its word:
+
+- `absent` and the doctor's detail, when the CLI is not on the machine.
+- `unusable`, the doctor's detail, and the fix, such as "Run `claude --version` to see why, and repair or reinstall Claude Code.", when the CLI is on `PATH` and failed its version check.
+- `signed out` and the kind of its sign-in, when the CLI is there and its sign-in is signed out.
+
+A worker that named no driver, because its doctor failed when it started or the worker predates the report, shows one row badged Not reported. The worker runs the doctor when it starts, and changing its driver restarts it, so a result is as old as the worker's last connect and is never marked stale. On a narrow screen each driver stacks into a block with its reason in full. [Onboarding](onboarding.md#run-ropeshift-init) covers the check.
+
+## Usage
+
+Usage breaks down the estimated cost of a project's outcomes, then lists the cost of each lane as `ropeshift telemetry lanes` does. A lane's row gives its context at its last call, its tokens by type, the tokens each roster agent spent inside it, which are part of the lane's tokens and never added to them, the cost its agent reported, and when it last called. A cost reads at least a figure, because a turn a kill stopped reports nothing, and it is estimated at list price from what agents reported, so it is not a bill. A lane that reported no cost says none reported, and no cost is ever drawn as zero. A control plane with no telemetry store says it reads none, and a store that holds nothing says no lane has reported. [Telemetry](telemetry.md#the-local-store) covers where the figures come from.
+
 ## Reviews
 
 Reviews is the work that waits for you after its lane finished, at `/projects/{project}/reviews`. The command palette lists Reviews and one entry for each of its tabs.
@@ -201,6 +221,12 @@ Admission and lane caps shows one machine at a time, and a switch at the top cho
 Estimate policy sets how a project's estimates read its delivery records: the comparable outcomes a confident estimate needs, never fewer than 5, how many of the most recent ones an estimate reads, how many trials a forecast runs, from 1 to 20,000, and whether the project shares its delivery history with the installation's pool. The field names what the pool holds and what it never does, and a value the policy would refuse holds Review change back. A version that stops sharing takes the project's records out of the pool, and when that cannot run at once, the page says so in the API's words and the next delivery tick does it. [Estimate policy](measures.md#estimate-policy) lists each setting.
 
 A policy change shows what changes before you save it, and each policy keeps its versions, so an earlier one can be restored. [Onboarding](onboarding.md#before-the-first-lane) explains what each policy governs, from [merging accepted work](onboarding.md#merging-accepted-work) to [Claude subscriptions and automated use](onboarding.md#claude-subscriptions-and-automated-use). [Delegates](authorization.md#delegates) covers the delegate policy, and [notifications](notifications.md) where a notice goes.
+
+## Audit
+
+Audit lists a log's events newest first, with who acted, the act, and its subject, and opens one event's whole record. The Installation log holds the installation's own events, and a project's log holds that project's. Filters narrow it by actor, act, and subject.
+
+A project's log has a second tab, Notices, which shows what each channel was told, as `ropeshift notice list` does: one row for each notice on each channel with its kind and reason, its state, its attempts, when it was first due and last tried, and its delivery digest. Delivery is at least once, so a channel that took a notice after more than one attempt may have heard it more than once, and its row says so. A channel that refused a notice shows the reason it gave. With no channel turned on the tab says no channel has been told anything. [Notifications](notifications.md) covers the channels and what a notice may say.
 
 ## Members
 

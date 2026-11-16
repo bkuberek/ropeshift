@@ -13,6 +13,7 @@ import { Ago, Page, useClock, ViewTime, words } from "../parts/parts";
 import { Absent, Badge, ConditionChip, EmptyState, Fact, Facts, Freshness, freshnessOf, Id, LaneBadge, Panel, TableRegion, TargetChip } from "../ui/display";
 import { useTalk } from "../talk/state";
 import { Button } from "../ui/controls";
+import { LaneMessages } from "./Messages";
 import { parseScreen, trimScreen } from "./screen";
 
 // retryMs is how long the page waits before it opens a pane's stream again: after the stream closed
@@ -327,6 +328,7 @@ export function LanePage({ id, live }: { id: string; live: Live }) {
                 </TableRegion>
               </Panel>
             ) : null}
+            <LaneMessages lane={id} live={live} />
           </div>
           <aside className="stack" aria-label="Lane facts">
             <Panel title="Facts">

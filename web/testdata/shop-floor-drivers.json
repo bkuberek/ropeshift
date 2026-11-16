@@ -1,0 +1,198 @@
+{
+  "as_of": 1790000300000,
+  "lanes": [],
+  "revision": 20,
+  "workers": [
+    {
+      "drivers": [],
+      "freshness": "last_reported",
+      "worker": {
+        "epoch": 1,
+        "id": "worker-a",
+        "last_handshake_at": 1790000000000,
+        "manifest": {
+          "capacity": {
+            "max_lanes": 0
+          },
+          "owner": {}
+        },
+        "name": "solo",
+        "protocol": 4
+      }
+    },
+    {
+      "drivers": [
+        {
+          "driver": "claude-code",
+          "fix": "Run claude --version to see why, and repair or reinstall Claude Code.",
+          "reason": "claude --version exited with status 1",
+          "usable": false,
+          "word": "unusable"
+        }
+      ],
+      "freshness": "last_reported",
+      "worker": {
+        "epoch": 1,
+        "id": "worker-fig",
+        "last_handshake_at": 1790000240000,
+        "manifest": {
+          "capacity": {
+            "max_lanes": 0
+          },
+          "drivers": [
+            {
+              "detail": "claude --version exited with status 1",
+              "driver": "claude-code",
+              "present": false,
+              "qualified": false,
+              "sign_in": {
+                "status": ""
+              }
+            }
+          ],
+          "owner": {}
+        },
+        "name": "fig",
+        "protocol": 4
+      }
+    },
+    {
+      "drivers": [
+        {
+          "driver": "claude-code",
+          "usable": true
+        }
+      ],
+      "freshness": "last_reported",
+      "worker": {
+        "epoch": 1,
+        "id": "worker-mint",
+        "last_handshake_at": 1790000060000,
+        "manifest": {
+          "capacity": {
+            "max_lanes": 0
+          },
+          "drivers": [
+            {
+              "driver": "claude-code",
+              "present": true,
+              "qualified": true,
+              "sign_in": {
+                "kind": "subscription",
+                "status": "signed_in"
+              },
+              "version": "2.1.316"
+            }
+          ],
+          "owner": {}
+        },
+        "name": "mint",
+        "protocol": 4
+      }
+    },
+    {
+      "drivers": [
+        {
+          "driver": "claude-code",
+          "reason": "no sign-in",
+          "usable": false,
+          "word": "signed out"
+        }
+      ],
+      "freshness": "observed",
+      "worker": {
+        "epoch": 1,
+        "id": "worker-oak",
+        "last_handshake_at": 1790000300000,
+        "manifest": {
+          "capacity": {
+            "max_lanes": 0
+          },
+          "drivers": [
+            {
+              "driver": "claude-code",
+              "present": true,
+              "qualified": true,
+              "sign_in": {
+                "status": "signed_out"
+              },
+              "version": "2.1.316"
+            }
+          ],
+          "owner": {}
+        },
+        "name": "oak",
+        "protocol": 4
+      }
+    },
+    {
+      "drivers": [
+        {
+          "driver": "claude-code",
+          "usable": true
+        }
+      ],
+      "freshness": "last_reported",
+      "worker": {
+        "epoch": 1,
+        "id": "worker-pear",
+        "last_handshake_at": 1790000120000,
+        "manifest": {
+          "capacity": {
+            "max_lanes": 0
+          },
+          "drivers": [
+            {
+              "driver": "claude-code",
+              "present": true,
+              "qualified": false,
+              "sign_in": {
+                "kind": "api_key",
+                "status": "signed_in"
+              },
+              "version": "2.2.0"
+            }
+          ],
+          "owner": {}
+        },
+        "name": "pear",
+        "protocol": 4
+      }
+    },
+    {
+      "drivers": [
+        {
+          "driver": "claude-code",
+          "reason": "claude is not on PATH",
+          "usable": false,
+          "word": "absent"
+        }
+      ],
+      "freshness": "last_reported",
+      "worker": {
+        "epoch": 1,
+        "id": "worker-plum",
+        "last_handshake_at": 1790000180000,
+        "manifest": {
+          "capacity": {
+            "max_lanes": 0
+          },
+          "drivers": [
+            {
+              "detail": "claude is not on PATH",
+              "driver": "claude-code",
+              "present": false,
+              "qualified": false,
+              "sign_in": {
+                "status": ""
+              }
+            }
+          ],
+          "owner": {}
+        },
+        "name": "plum",
+        "protocol": 4
+      }
+    }
+  ]
+}

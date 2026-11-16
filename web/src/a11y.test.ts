@@ -231,6 +231,16 @@ async function answer(route: Route): Promise<void> {
   if (path === "/v1/sources") {
     return json(JSON.stringify({ sources: [] }));
   }
+  // What each channel was told, what was sent to a lane, and what each lane reported of its tokens and cost.
+  if (path === "/v1/notices" && goldens.notices) {
+    return json(goldens.notices);
+  }
+  if (/^\/v1\/lanes\/[^/]+\/messages$/.test(path) && goldens["lane-messages"]) {
+    return json(goldens["lane-messages"]);
+  }
+  if (path === "/v1/telemetry/lanes" && goldens["telemetry-lanes"]) {
+    return json(goldens["telemetry-lanes"]);
+  }
   if (/^\/v1\/workers\/[^/]+\/orchestrator$/.test(path)) {
     return json(
       JSON.stringify({ id: "orchestrator-worker-a", worker_id: "worker-a", desired_state: "running", run: 4, resets: 2, actual_state: "tripped", current_generation: 3, conditions: ["day_capped"], reported_at: 1790000000000 }),
@@ -338,6 +348,7 @@ const views = [
   "/projects/default/repositories?repo=id-api",
   "/projects/default/audit",
   "/projects/default/audit?actor=delegate",
+  "/projects/default/audit?tab=notices",
   "/audit",
 ];
 
@@ -1423,6 +1434,51 @@ describe.each(Object.entries(sizes))("at %s width", (size, viewport) => {
         await page.mouse.move(0, 0);
         await page.waitForTimeout(600);
         found.push(...(await audit(page)).map((violation) => `merge dialog ${violation}`));
+        await context.close();
+        expect(found.map((line) => `${size} ${theme} ${line}`)).toEqual([]);
+      },
+      120_000,
+    );
+
+    // The Notices tab, a lane's messages, Usage's cost by lane, and the Workers page's drivers, in the states their
+    // full goldens do not reach: nothing to list, a store the control plane lacks, a read refused, and workers that
+    // reported each kind of doctor result.
+    it(
+      "the notices, lane messages, lane costs, and drivers, empty, refused, and with every doctor result, meet WCAG 2.2 A and AA",
+      async () => {
+        const context = await browser.newContext({ viewport, colorScheme: theme, reducedMotion: "reduce" });
+        await context.route(/\/v1\//, answer);
+        const page = await context.newPage();
+        const found: string[] = [];
+        const serve = async (pattern: RegExp, body: string, status = 200) => {
+          await page.unroute(pattern);
+          await page.route(pattern, (route) => route.fulfill({ status, contentType: "application/json", body }));
+        };
+        const refused = JSON.stringify({ error: { code: "internal", message: "the store could not be read" } });
+        const check = async (name: string, address: string) => {
+          await page.goto(`${base}${address}`);
+          await ready(page);
+          await page.waitForTimeout(300);
+          found.push(...(await audit(page)).map((violation) => `${name} ${violation}`));
+        };
+        await serve(/\/notices$/, goldens["notices-empty"] ?? "{}");
+        await check("notices with none","/projects/default/audit?tab=notices");
+        await serve(/\/notices$/, refused, 500);
+        await check("notices refused", "/projects/default/audit?tab=notices");
+        await serve(/\/lanes\/[^/]+\/messages$/, goldens["lane-messages-empty"] ?? "{}");
+        await check("lane messages with none", "/projects/default/lane?id=lane-wo-running");
+        await serve(/\/lanes\/[^/]+\/messages$/, refused, 500);
+        await check("lane messages refused", "/projects/default/lane?id=lane-wo-running");
+        await serve(/\/v1\/telemetry\/lanes$/, goldens["telemetry-lanes-empty"] ?? "{}");
+        await check("lane costs with none", "/usage");
+        await serve(/\/v1\/telemetry\/lanes$/, goldens["telemetry-lanes-unavailable"] ?? "{}");
+        await check("lane costs with no store", "/usage");
+        await serve(/\/v1\/telemetry\/lanes$/, refused, 500);
+        await check("lane costs refused", "/usage");
+        // The workers each reported a different doctor result: usable, an unqualified version, no CLI, a CLI that failed
+        // its version check, a signed-out CLI, and none reported.
+        await serve(/\/views\/shop-floor$/, goldens["shop-floor-drivers"] ?? "{}");
+        await check("drivers of every doctor result", "/workers");
         await context.close();
         expect(found.map((line) => `${size} ${theme} ${line}`)).toEqual([]);
       },

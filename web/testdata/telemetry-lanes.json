@@ -1,0 +1,39 @@
+{
+  "available": true,
+  "lanes": [
+    {
+      "lane": "lane-wo-running",
+      "context_tokens": 84000,
+      "context_at": 1790000900000,
+      "tokens": {
+        "cache_creation": 61000,
+        "cache_read": 2400000,
+        "input": 120400,
+        "output": 18250
+      },
+      "cost_usd": 1.2345,
+      "last_at": 1790000950000,
+      "agents": {
+        "heavy-implementation": {
+          "input": 100000,
+          "output": 15000
+        },
+        "reviewer": {
+          "input": 20400,
+          "output": 3250
+        }
+      }
+    },
+    {
+      "lane": "lane-wo-parked",
+      "context_tokens": 12000,
+      "context_at": 1790000100000,
+      "tokens": {
+        "input": 3000,
+        "output": 400
+      },
+      "cost_usd": 0.003,
+      "last_at": 1790000100000
+    }
+  ]
+}

@@ -5822,6 +5822,7 @@
       "revision": 363,
       "workers": [
         {
+          "drivers": [],
           "freshness": "observed",
           "worker": {
             "epoch": 1,

@@ -406,6 +406,7 @@
   "revision": 340,
   "workers": [
     {
+      "drivers": [],
       "freshness": "last_reported",
       "orchestrator": {
         "desired_state": "running",

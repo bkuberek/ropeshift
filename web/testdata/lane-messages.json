@@ -1,0 +1,101 @@
+{
+  "messages": [
+    {
+      "envelope": 1,
+      "id": "msg-expired",
+      "to": {
+        "lane": "lane-wo-1",
+        "generation": 1
+      },
+      "from": {
+        "kind": "member",
+        "id": "member-1",
+        "seq": 1
+      },
+      "kind": "notice",
+      "body": "The base branch moved.",
+      "created_at": 1790000001000,
+      "stale_at": 1790000121000,
+      "expires_at": 1790000601000,
+      "state": "expired",
+      "reason": "timed_out"
+    },
+    {
+      "envelope": 1,
+      "id": "msg-answered",
+      "to": {
+        "lane": "lane-wo-1",
+        "generation": 1
+      },
+      "from": {
+        "kind": "member",
+        "id": "member-1",
+        "seq": 2
+      },
+      "kind": "instruction",
+      "body": "Use two retries.",
+      "created_at": 1790000662000,
+      "stale_at": 1790000782000,
+      "expires_at": 1790001262000,
+      "state": "replied",
+      "reply": "Two retries, set in the budget."
+    },
+    {
+      "envelope": 1,
+      "id": "msg-admitted",
+      "to": {
+        "lane": "lane-wo-1",
+        "generation": 1
+      },
+      "from": {
+        "kind": "member",
+        "id": "member-1",
+        "seq": 3
+      },
+      "kind": "instruction",
+      "body": "Log the budget when it runs out.",
+      "created_at": 1790000667000,
+      "stale_at": 1790000787000,
+      "expires_at": 1790001267000,
+      "state": "admitted"
+    },
+    {
+      "envelope": 1,
+      "id": "msg-refused",
+      "to": {
+        "lane": "lane-wo-1",
+        "generation": 1
+      },
+      "from": {
+        "kind": "member",
+        "id": "member-1",
+        "seq": 4
+      },
+      "kind": "instruction",
+      "body": "Stop and wait for review.",
+      "created_at": 1790000671000,
+      "stale_at": 1790000791000,
+      "expires_at": 1790001271000,
+      "state": "refused"
+    },
+    {
+      "envelope": 1,
+      "id": "msg-queued",
+      "to": {
+        "lane": "lane-wo-1",
+        "generation": 1
+      },
+      "from": {
+        "kind": "member",
+        "id": "member-1",
+        "seq": 5
+      },
+      "kind": "instruction",
+      "body": "Name the budget retry_budget.",
+      "created_at": 1790000675000,
+      "stale_at": 1790000795000,
+      "expires_at": 1790001275000,
+      "state": "queued"
+    }
+  ]
+}

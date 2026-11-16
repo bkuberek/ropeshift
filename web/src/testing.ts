@@ -170,6 +170,14 @@ export function serveViews(answer?: (sent: Sent) => Answer | undefined, options:
     if (call.method === "GET" && /^\/v1\/lanes\/[^/]+\/outline$/.test(call.path)) {
       return { status: 200, body: golden("outline") };
     }
+    // What was sent to a lane, which the Lane view lists.
+    if (call.method === "GET" && /^\/v1\/lanes\/[^/]+\/messages$/.test(call.path)) {
+      return { status: 200, body: golden("lane-messages") };
+    }
+    // What each lane reported of its tokens and cost, which Usage lists.
+    if (call.method === "GET" && call.path === "/v1/telemetry/lanes") {
+      return { status: 200, body: golden("telemetry-lanes") };
+    }
     if (call.method === "GET" && call.path === "/v1/repositories") {
       return { status: 200, body: golden("repositories") };
     }
