@@ -222,6 +222,42 @@ func TestShowingAPlanCarriesItsApprovalAndTheDifference(t *testing.T) {
 	}
 }
 
+// The forecasts of a plan version name milestones by ID, so its approval carries each milestone's title for the
+// page to read them by.
+func TestAPlanApprovalNamesItsMilestonesByTitle(t *testing.T) {
+	t.Parallel()
+	d, w, _ := aWorld(t)
+	source := retrySource("The first draft.")
+	source.Write("m1.md", []byte("+++\nkind = \"milestone\"\nid = \"m1\"\ntitle = \"Reliable checkout\"\nplan = \"retry\"\npriority = 1\n+++\n\nWhat it delivers.\n"))
+	source.Write("m2.md", []byte("+++\nkind = \"milestone\"\nid = \"m2\"\ntitle = \"Email receipts\"\nplan = \"retry\"\npriority = 2\n+++\n\nWhat it delivers.\n"))
+	source.Write("budget.md", []byte("+++\nkind = \"contract\"\nid = \"budget\"\ntitle = \"The budget\"\nplan = \"retry\"\nmilestone = \"m1\"\n\n[[criteria]]\nid = \"c1\"\ntext = \"It retries\"\n\n[[work_orders]]\nid = \"budget-order\"\ntitle = \"Add the budget\"\nsize = \"small\"\n+++\n\nThe budget.\n"))
+	w.Planned(source)
+	need := planApprovalNeed(t, readView[api.NeedsYou](t, d, api.ViewNeedsYou, ""))
+	view, err := d.Client.Plan(t.Context(), need.Approval.Plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []api.MilestoneTitle{{ID: "m1", Title: "Reliable checkout"}, {ID: "m2", Title: "Email receipts"}}
+	if view.Approval == nil || !slices.Equal(view.Approval.Milestones, want) {
+		t.Fatalf("milestones %+v, want %+v", view.Approval, want)
+	}
+}
+
+// A plan with no milestone file names none.
+func TestAPlanApprovalWithNoMilestoneNamesNone(t *testing.T) {
+	t.Parallel()
+	d, w, _ := aWorld(t)
+	w.Planned(retrySource("The first draft."))
+	need := planApprovalNeed(t, readView[api.NeedsYou](t, d, api.ViewNeedsYou, ""))
+	view, err := d.Client.Plan(t.Context(), need.Approval.Plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.Approval == nil || len(view.Approval.Milestones) != 0 {
+		t.Fatalf("milestones %+v", view.Approval)
+	}
+}
+
 // A member decides the drafts with the plan, so Needs you shows each one's question and answer.
 func TestAPlanApprovalNeedCarriesItsDraftDecisions(t *testing.T) {
 	t.Parallel()

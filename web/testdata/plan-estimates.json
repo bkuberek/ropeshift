@@ -387,6 +387,20 @@
         "answer": "Once, and then it asks <img src=x onerror=alert(1)><script>alert(2)</script>."
       }
     ],
+    "milestones": [
+      {
+        "id": "build",
+        "title": "Build the core"
+      },
+      {
+        "id": "guide",
+        "title": "Guide a newcomer"
+      },
+      {
+        "id": "ship",
+        "title": "Ship the approval page"
+      }
+    ],
     "forecast": {
       "plan_id": "generated-1",
       "plan_version": 6,
