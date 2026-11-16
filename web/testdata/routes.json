@@ -156,6 +156,11 @@
   },
   {
     "method": "GET",
+    "pattern": "/v1/telemetry/lanes",
+    "command": "telemetry lanes"
+  },
+  {
+    "method": "GET",
     "pattern": "/v1/roster",
     "command": "agent list"
   },
@@ -443,6 +448,16 @@
     "method": "GET",
     "pattern": "/v1/projects/{project}/lanes/{id}/outline",
     "command": "lane outline"
+  },
+  {
+    "method": "GET",
+    "pattern": "/v1/projects/{project}/lanes/{id}/messages",
+    "command": "message list"
+  },
+  {
+    "method": "GET",
+    "pattern": "/v1/projects/{project}/notices",
+    "command": "notice list"
   },
   {
     "method": "GET",

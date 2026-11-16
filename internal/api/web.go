@@ -68,6 +68,7 @@ func WebRoutes() []WebRoute {
 		{http.MethodPost, DelegatesPath + "/{id}/revoke", "delegate revoke"},
 		{http.MethodPost, DelegatesPath + "/{id}/remove", "delegate remove"},
 		{http.MethodGet, OperationsPath, "operation list"},
+		{http.MethodGet, TelemetryLanesPath, "telemetry lanes"},
 	}
 	// The roster's routes read and change the installation's layer at the top, and a project's under it.
 	roster := []WebRoute{
@@ -132,6 +133,8 @@ func WebRoutes() []WebRoute {
 		{http.MethodGet, DeliveryPath, "measures delivery"},
 		{http.MethodGet, CalibrationPath, "measures estimates"},
 		{http.MethodGet, "/v1/lanes/{id}/outline", "lane outline"},
+		{http.MethodGet, "/v1/lanes/{id}/messages", "message list"},
+		{http.MethodGet, "/v1/notices", "notice list"},
 		{http.MethodGet, "/v1/sources", "source list"},
 		{http.MethodPost, "/v1/work-orders", "work create"},
 		{http.MethodPost, "/v1/work-orders/{id}/claims", "work claim"},

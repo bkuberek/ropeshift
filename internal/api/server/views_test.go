@@ -820,3 +820,42 @@ func TestOperationsCountTheFleet(t *testing.T) {
 		t.Errorf("waiting %d", view.Waiting)
 	}
 }
+
+// The Workers view shows each driver's doctor result, so the read model carries it beside the manifest, in the
+// words the command prints (DG3). A worker whose manifest names no driver has none to show.
+func TestShopFloorSaysEachDriversDoctorResult(t *testing.T) {
+	t.Parallel()
+	d, w, _ := aWorld(t)
+	w.Worker("worker-mint", "mint", ledger.Manifest{Drivers: []ledger.DriverManifest{
+		{Driver: "claude-code", Present: true, Version: "2.1.316", Qualified: true, SignIn: ledger.SignIn{Kind: ledger.SignInSubscription, Status: ledger.SignedIn}},
+	}})
+	w.Worker("worker-plum", "plum", ledger.Manifest{Drivers: []ledger.DriverManifest{
+		{Driver: "claude-code", Detail: "claude --version exited with status 1"},
+	}})
+	var raw struct {
+		Workers []struct {
+			Worker  struct{ ID string }
+			Drivers []ledger.DriverResult `json:"drivers"`
+		} `json:"workers"`
+	}
+	if err := d.Client.ReadView(t.Context(), api.ViewShopFloor, "", &raw); err != nil {
+		t.Fatal(err)
+	}
+	got := map[string][]ledger.DriverResult{}
+	for _, line := range raw.Workers {
+		got[line.Worker.ID] = line.Drivers
+	}
+	want := map[string][]ledger.DriverResult{
+		"worker-mint": {{Driver: "claude-code", Usable: true}},
+		"worker-plum": {{
+			Driver: "claude-code", Word: ledger.WordUnusable, Reason: "claude --version exited with status 1",
+			Fix: "Run claude --version to see why, and repair or reinstall Claude Code.",
+		}},
+		apitest.WorldWorker: {},
+	}
+	for id, results := range want {
+		if !slices.Equal(got[id], results) {
+			t.Errorf("%s reads %+v, want %+v", id, got[id], results)
+		}
+	}
+}
