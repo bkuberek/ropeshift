@@ -1509,6 +1509,13 @@ func TestBrokenVariants(t *testing.T) {
 	caught := 0
 	for _, v := range allVariants() {
 		t.Run(v.check+"-"+v.name, func(t *testing.T) {
+			// A check under a known-gap marker skips instead of failing, so a variant that reaches the
+			// skip was not caught. The change that fixes a gap removes its marker.
+			defer func() {
+				if t.Skipped() {
+					t.Errorf("a skip is not a catch: %s still carries a known-gap marker", v.check)
+				}
+			}()
 			err := runVariant(t, v)
 			var violation *contract.Violation
 			switch {
