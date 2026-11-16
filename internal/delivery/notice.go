@@ -48,7 +48,7 @@ func (f Forecast) noticeLine() string {
 	if f.Status != Forecasted {
 		return fmt.Sprintf("- %s: %s. %s\n", whose, strings.ReplaceAll(string(f.Status), "_", " "), f.Explanation)
 	}
-	all, p85 := f.LowerBound == LowerAll, f.LowerBound != LowerNone
+	all, p85 := f.LowerBound.OpensP50(), f.LowerBound.OpensP85()
 	return fmt.Sprintf("- %s: %s; p50 %s, p85 %s; cost p50 %s, p85 %s. %s\n", whose, confidenceWords(f.Confidence),
 		dateWords(f.EndP50, all), dateWords(f.EndP85, p85), costWords(f.CostP50USD, all), costWords(f.CostP85USD, p85), f.Explanation)
 }

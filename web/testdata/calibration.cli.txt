@@ -60,5 +60,5 @@ milestones	window	confident	outcomes 1	done 1	failed 0	canceled 0	p85 open 0	p50
 milestones	window	low	outcomes 1	done 1	failed 0	canceled 0	p85 open 1	p50 0 of 1, no rate	p85 0 of 0, no rate
 milestones	all time	confident	outcomes 1	done 1	failed 0	canceled 0	p85 open 0	p50 0 of 1, no rate	p85 1 of 1, no rate
 milestones	all time	low	outcomes 1	done 1	failed 0	canceled 0	p85 open 1	p50 0 of 1, no rate	p85 0 of 0, no rate
-milestone	plan-1	m1	confident	done	forecast p50 2026-09-14 14:13 UTC	p85 2026-09-18 14:13 UTC or later	ended 2026-09-16 14:13 UTC	p50 past	p85 within
+milestone	plan-1	m1	confident	done	forecast p50 2026-09-14 14:13 UTC	p85 2026-09-18 14:13 UTC	ended 2026-09-16 14:13 UTC	p50 past	p85 within
 milestone	plan-1	m2	low	done	forecast p50 2026-09-01 14:13 UTC	p85 2026-09-12 14:13 UTC or later	ended 2026-09-09 14:13 UTC	p50 past	p85 not compared

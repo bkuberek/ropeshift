@@ -1,5 +1,6 @@
 import type { CalibrationRate, CalibrationShare, MedianRatio, MilestoneResult } from "../api/measures";
 import { fixed, utcDate } from "./format";
+import { opened } from "./forecastWords";
 
 // How estimate calibration says a rate, a ratio, and a share. Each reads as `ropeshift measures estimates` prints
 // it, so a number and its words are the same on either surface. Nothing here computes a rate: a rate the API
@@ -24,12 +25,14 @@ export const shareText = (share: CalibrationShare) => (share.share === undefined
 export const confidenceText = (result: MilestoneResult) => result.confidence ?? "none";
 
 // forecastDates says a milestone forecast's two dates, as the command does: the p50 date is a lower bound when all
-// of the forecast is, and the p85 date unless the forecast says none of it is.
+// of the forecast is, and the p85 date when the forecast says its p85 or all of it is. A forecast that states no
+// bound has none.
 export function forecastDates(result: MilestoneResult): { p50: string; p85: string } | null {
   if (!result.forecast_p50) {
     return null;
   }
-  return { p50: utcDate(result.forecast_p50, result.lower_bound === "all"), p85: utcDate(result.forecast_p85 ?? 0, result.lower_bound !== "none") };
+  const { everything, p85 } = opened(result.lower_bound);
+  return { p50: utcDate(result.forecast_p50, everything), p85: utcDate(result.forecast_p85 ?? 0, p85) };
 }
 
 // comparedText says whether a milestone ended at or before a forecast date, or that nothing compares.

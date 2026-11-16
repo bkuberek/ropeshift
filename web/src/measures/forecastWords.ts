@@ -1,4 +1,4 @@
-import type { Forecast, PlanForecast } from "../api/measures";
+import type { Forecast, LowerBound, PlanForecast } from "../api/measures";
 import { goSpan, usd, utcDate } from "./format";
 
 // What a forecast says, in the words `ropeshift plan forecast` prints. A date or a cost that is a lower bound
@@ -22,9 +22,14 @@ export type ForecastWords = {
 
 const capitalized = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
 
+// opened says which dates and costs of a forecast are lower bounds, as the command does: `all` makes the p50 and the
+// p85 so, `p85` the p85 alone, and `none` or no word at all neither.
+export function opened(bound: LowerBound | undefined): { everything: boolean; p85: boolean } {
+  return { everything: bound === "all", p85: bound === "p85" || bound === "all" };
+}
+
 export function wordsOf(f: Forecast): ForecastWords {
-  const everything = f.lower_bound === "all";
-  const p85 = f.lower_bound !== "none";
+  const { everything, p85 } = opened(f.lower_bound);
   const lanes = f.cap > 0 ? `at most ${f.cap} lanes` : "no lane cap";
   const whatIfs: string[] = [];
   const dated = f.status === "forecast";

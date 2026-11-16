@@ -104,10 +104,10 @@ func MilestoneOutcome(baseline string, f Forecast, ends []Record) Outcome {
 	if out.Outcome != workorders.Done || f.Status != Forecasted {
 		return out
 	}
-	if f.LowerBound != LowerAll {
+	if !f.LowerBound.OpensP50() {
 		out.TimeAtOrBelowP50 = comparison(out.ActualEnd <= f.EndP50)
 	}
-	if f.LowerBound != LowerAll && f.LowerBound != LowerP85 {
+	if !f.LowerBound.OpensP85() {
 		out.TimeAtOrBelowP85 = comparison(out.ActualEnd <= f.EndP85)
 	}
 	return out

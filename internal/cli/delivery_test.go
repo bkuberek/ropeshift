@@ -153,7 +153,8 @@ func TestPlanForecastPrintsTheForecastsAndTheirWhatIfs(t *testing.T) {
 			Explanation: "Low confidence, from 2000 trials of 1 work order, at most 2 at a time.", Day: delivery.DayOf(at), CreatedAt: at,
 		}
 	}
-	kept := []delivery.Forecast{dated("", delivery.LowerP85), dated("m1", delivery.LowerAll)}
+	// A forecast that states no bound has none, as the outcome that compares it reads it, so no date of it is "or later".
+	kept := []delivery.Forecast{dated("", delivery.LowerP85), dated("m1", delivery.LowerAll), dated("m2", "")}
 	if err := s.daemon.Store.Forecast(t.Context(), apitest.Scope, func(tx ports.ForecastTx) error { return tx.Forecast().Keep(kept) }); err != nil {
 		t.Fatal(err)
 	}
@@ -165,6 +166,7 @@ func TestPlanForecastPrintsTheForecastsAndTheirWhatIfs(t *testing.T) {
 		"\tLow confidence, from 2000 trials of 1 work order, at most 2 at a time.\n",
 		"\tseed sha256:seed, 2000 trials, at most 2 lanes, revision 9, as of 2025-11-14 06:00 UTC\n",
 		"forecast\tmilestone m1\tlow\tp50 2025-11-15 09:46 UTC or later\tp85 2025-11-16 13:33 UTC or later\tcost p50 at least $3.50 p85 at least $6.00\n",
+		"forecast\tmilestone m2\tlow\tp50 2025-11-15 09:46 UTC\tp85 2025-11-16 13:33 UTC\tcost p50 $3.50 p85 $6.00\n",
 	} {
 		if !strings.Contains(text, want) {
 			t.Errorf("the forecast leaves out %q:\n%s", want, text)

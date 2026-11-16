@@ -30,6 +30,18 @@ func noticeForecasts() []delivery.Forecast {
 	}
 }
 
+// TestAForecastThatStatesNoBoundHasNoneInItsLine holds that a date with no stated bound is no lower bound, as the
+// outcome that compares the forecast reads it, so its line never says "or later" or "at least".
+func TestAForecastThatStatesNoBoundHasNoneInItsLine(t *testing.T) {
+	end := time.Date(2026, 11, 20, 14, 30, 0, 0, time.UTC).UnixMilli()
+	forecasts := []delivery.Forecast{{Plan: "plan-1", Status: delivery.Forecasted, Confidence: delivery.Confident, EndP50: end, EndP85: end + 24*hour, CostP50USD: 6, CostP85USD: 9.5, Explanation: "From 2000 trials."}}
+	text := delivery.VersionNotice("Retry budget", 2, nil, forecasts, nil)
+	want := "- plan: confident; p50 2026-11-20 14:30 UTC, p85 2026-11-21 14:30 UTC; cost p50 $6.00, p85 $9.50. From 2000 trials."
+	if !strings.Contains(text, want) {
+		t.Errorf("the notice does not say %q:\n%s", want, text)
+	}
+}
+
 // TestAVersionNoticeSaysEachEstimateAndForecastWithItsLabelAndExplanation holds FR-EST-12: what the planning lane is
 // sent holds every forecast and every estimate of the version it submitted, each with its confidence label and the
 // explanation stored with it, a lower bound as "or later", "more than", and "at least", and the work by title.

@@ -144,7 +144,7 @@ func writeMilestones(out *strings.Builder, m delivery.MilestoneCalibration) {
 		}
 		forecast := "no forecast dates"
 		if r.ForecastP50 != 0 {
-			forecast = fmt.Sprintf("forecast p50 %s\tp85 %s", dateText(r.ForecastP50, r.LowerBound == delivery.LowerAll), dateText(r.ForecastP85, r.LowerBound != delivery.LowerNone))
+			forecast = fmt.Sprintf("forecast p50 %s\tp85 %s", dateText(r.ForecastP50, r.LowerBound.OpensP50()), dateText(r.ForecastP85, r.LowerBound.OpensP85()))
 		}
 		fmt.Fprintf(out, "milestone\t%s\t%s\t%s\t%s\t%s\tended %s\tp50 %s\tp85 %s\n", r.Plan, r.Milestone, confidence, r.Outcome, forecast, dateText(r.ActualEnd, false), comparedText(r.AtOrBelowP50), comparedText(r.AtOrBelowP85))
 	}
