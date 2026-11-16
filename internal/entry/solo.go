@@ -255,8 +255,10 @@ func serveSolo(ctx context.Context, paths api.Paths, opts soloOptions, stdout, s
 	if err != nil {
 		return err
 	}
+	installed := liveInstalledBuild()
 	config := server.Config{
-		Scope: soloScope, Store: store, Projects: state, Installation: state.Installation, LeaseTTL: opts.leaseTTL.Milliseconds(), HeartbeatMs: opts.heartbeat.Milliseconds(),
+		Installed: installed.Installed,
+		Scope:     soloScope, Store: store, Projects: state, Installation: state.Installation, LeaseTTL: opts.leaseTTL.Milliseconds(), HeartbeatMs: opts.heartbeat.Milliseconds(),
 		Knowledge: soloKnowledge(opts), Matcher: lexical.Matcher{Store: store},
 		Matching: func(store ports.Store) ports.Matcher { return lexical.Matcher{Store: store} },
 		Identity: localauth.New(store, localauth.DefaultParams), Batches: batches, Windows: windows, PackTokens: soloPackTokens(paths),
@@ -285,7 +287,7 @@ func serveSolo(ctx context.Context, paths api.Paths, opts soloOptions, stdout, s
 		return err
 	}
 	ticks := append(soloTicks(state, soloScope, opts, kept, batches, windows),
-		noticeTick(config, state, liveNotifyDeps(), opts.notifyTick), spans, telemetry.measuresTick(state))
+		noticeTick(config, state, liveNotifyDeps(), opts.notifyTick), spans, telemetry.measuresTick(state), installed.tick())
 	ticksDone := make(chan struct{})
 	go func() {
 		defer close(ticksDone)

@@ -26,6 +26,7 @@ import (
 )
 
 func TestDispatchOnStartedName(t *testing.T) {
+	isolate(t)
 	tests := []struct {
 		name string
 		arg0 string
@@ -58,6 +59,7 @@ func TestDispatchOnStartedName(t *testing.T) {
 }
 
 func TestVersionPlainText(t *testing.T) {
+	isolate(t)
 	var stdout, stderr bytes.Buffer
 	if code := Main([]string{"ropeshift", "version"}, &stdout, &stderr); code != exitOK {
 		t.Fatalf("exit %d: %s", code, stderr.String())
@@ -105,6 +107,7 @@ func buildCLI(t *testing.T, dir string, ldflags string) string {
 
 func runVersionJSON(t *testing.T, path string) versionInfo {
 	t.Helper()
+	isolate(t)
 	out, err := exec.Command(path, "version", "--json").Output()
 	if err != nil {
 		t.Fatalf("%s: %v", path, err)

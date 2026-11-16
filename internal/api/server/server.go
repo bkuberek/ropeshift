@@ -21,6 +21,7 @@ import (
 	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/internal/questions"
 	"ropeshift.com/ropeshift/internal/roster"
+	"ropeshift.com/ropeshift/internal/version"
 	"ropeshift.com/ropeshift/internal/workorders"
 )
 
@@ -83,6 +84,13 @@ type Config struct {
 	// WebAddress is the address the web listener bound, which health reports so a command can name a
 	// page of the web UI. Empty means the daemon serves no web UI.
 	WebAddress string
+	// Build is the build this daemon runs, which health reports. The zero value reads it from the running
+	// binary.
+	Build version.Info
+	// Installed reads the build on disk at the daemon's own executable path, which health compares with
+	// Build. It answers from what it last read and never reads the disk itself, because health is asked
+	// for often. Nil reads none, and health warns of nothing.
+	Installed func() version.Installed
 	// Checkouts is the machine of the worker this daemon runs: the clones on it and the checkouts it keeps,
 	// which registering repositories reads and records (ADR-0022). Nil has no worker's machine, and a
 	// registration refuses.
@@ -145,6 +153,9 @@ type handler struct {
 // New returns the versioned API. The installation's routes sit at the top, and each project's routes
 // under /v1/projects/{project}/, on that project's ledger (ADR-0021).
 func New(config Config) http.Handler {
+	if config.Build.Version == "" {
+		config.Build = version.Read("ropeshiftd")
+	}
 	if config.Projects == nil {
 		config.Projects = oneProject{project: ledger.Project{
 			ID: config.Scope, Name: ledger.DefaultProjectName, State: ledger.ProjectActive, Database: "ledger",
@@ -415,9 +426,15 @@ func invalid(w http.ResponseWriter, format string, args ...any) {
 }
 
 // health reads the default project's revision, which the routes with no project serve. An installation
-// that removed that project still answers, at revision zero.
+// that removed that project still answers, at revision zero. It reports the build the daemon runs, and
+// warns when the build installed at the daemon's path is newer.
 func (h *handler) health(w http.ResponseWriter, r *http.Request) {
-	health := api.Health{Status: "ok", Web: h.WebAddress}
+	health := api.Health{Status: "ok", Web: h.WebAddress, Version: h.Build.Version, Commit: h.Build.Commit, Date: h.Build.Date}
+	if h.Installed != nil {
+		installed := h.Installed()
+		health.Installed = installed.Version
+		health.Warning = version.Warning(h.Build.Version, installed)
+	}
 	if _, err := h.self(r.Context()); errors.Is(err, ports.ErrNotFound) {
 		reply(w, http.StatusOK, health)
 		return

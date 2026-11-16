@@ -556,7 +556,9 @@ func TestDaemonServesTheWorkerSocket(t *testing.T) {
 	if target != resolved {
 		t.Errorf("the stable link points at %s", target)
 	}
-	if out, err := exec.Command(paths.StableBinary(), "version").CombinedOutput(); err != nil {
+	stable := exec.Command(paths.StableBinary(), "version")
+	stable.Env = in.env()
+	if out, err := stable.CombinedOutput(); err != nil {
 		t.Errorf("the stable path does not run: %v\n%s", err, out)
 	}
 	env := hookEnv{socket: paths.WorkerSocket(), spool: paths.Spool(), token: "a-token"}

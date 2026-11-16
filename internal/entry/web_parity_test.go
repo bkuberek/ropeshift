@@ -25,7 +25,6 @@ var equivalents = map[string]string{
 	"document list":    "view documents",  // planning.go lists the documents with their digests; the Documents view does
 	"effect list":      "needs",           // views.go lists the effects a crash left; Needs you lists each as an effect card
 	"effect show":      "needs",           // views.go reads one effect; its card in Needs you says what it lets a member say
-	"health":           "events",          // work.go reads the control plane's health and revision; the shell follows the event stream and shows its connection
 	"lane list":        "view shop-floor", // work.go lists lanes with their freshness; Floor lists each lane with its freshness
 	"lane show":        "view shop-floor", // work.go reads one lane; Floor and the lane page show it with its freshness
 	"message show":     "message list",    // messages.go messageShow reads one message and prints messageLine; the lane page lists each message of the lane's route with its state, reason, and reply

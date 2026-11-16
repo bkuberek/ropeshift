@@ -64,3 +64,11 @@ ropeshift v0.4.1 (commit dd81c214342b, built 2026-11-08T10:00:00Z, go1.27.3, lin
 | `go`, `os`, `arch` | The Go version, and the platform the binary runs on |
 
 The MCP server reports the same version in its `serverInfo`, and telemetry reports it as `service.version`.
+
+## What a daemon reports
+
+A daemon keeps running the build it started from after a package manager replaces the binary on disk. `GET /v1/health` reports the build the daemon runs, as `version`, `commit`, and `date`, and the release of the binary installed at the daemon's own executable path, as `installed`. The daemon reads that binary once a minute by starting it with `version --json`, and never while answering a request. It says nothing of the installed build when it cannot read it.
+
+When the installed release is later than the running one, `warning` says so and names the fix: `brew services restart ropeshift` for a Homebrew install, and otherwise restarting the service. A development build and an unreadable one are not releases, so neither is compared.
+
+`ropeshift version` prints the daemon's version under its own line, and the same warning. With `--json`, a `daemon` object holds the daemon's `version`, `commit`, `date`, and `installed`, and `warning` holds the warning. Neither key is present when no daemon answers.
