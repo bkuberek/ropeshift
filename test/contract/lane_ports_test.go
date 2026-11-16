@@ -136,6 +136,7 @@ func TestProfileSourceContract(t *testing.T) {
 	t.Run("in-memory", func(t *testing.T) {
 		RunProfileSource(t, func(*testing.T) ProfileRig {
 			source := fake.NewProfileSource()
+			source.SetDefaultRoot("/data/worktrees/{project}/{repo}")
 			return ProfileRig{
 				Source: source, Repository: "/work/repository",
 				Layer: func(text string) { source.Put("/work/repository", text) },
