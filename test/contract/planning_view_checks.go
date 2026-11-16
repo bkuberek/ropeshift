@@ -21,6 +21,10 @@ var PlanningViewChecks = []Check{
 	{"PV3", "once the forecast tick has forecast a plan version a planning lane submitted, the lane's open session is sent its estimates and forecasts with their labels and explanations once, and no other lane and no ended session is sent one", checkPlanningLaneIsToldItsVersion},
 	{"PV4", "a change's whole path from claim to merge, over a store whose transactions cannot reach an estimate, a forecast, the delivery records, or the pool, never reaches one", checkNoDecisionReadsAnEstimate},
 	{"PV5", "a planning lane's claim, its pack, and its read of the history reach the delivery records of the project and no estimate, forecast, or pool, so the history rests on the project's own work alone", checkPlanningHistoryReadsNothingBeyondTheRecords},
+	{"PV6", "a lease that lapses, and its work order's return to ready, read no estimate", blindly(checkLapseNotTransfer)},
+	{"PV7", "an admission refused by the work-in-progress limit and the lane caps reads no estimate", blindly(checkEligibility)},
+	{"PV8", "ready work offered to a worker is ordered by priority and reads no estimate", blindly(checkPriorityReadsNoEstimate)},
+	{"PV9", "a member's approval of a merge, bound to the reviewed commit, reads no estimate", blindly(checkMemberApprovesTheMerge)},
 	{"PV2", "a change lane and a review lane hold no delivery history in their packs, and a read of it by name is refused like a kind nobody named, however much the project has finished", checkOtherLanesReadNoHistory},
 }
 
@@ -283,23 +287,74 @@ func checkPlanningLaneIsToldItsVersion(r *Rig) error {
 	return nil
 }
 
-// makers are the transactions that make an estimate, and so read the delivery records by right: a member or intake
-// recording work, whose estimate rides in the transaction that made it.
+// makers are exactly the transactions that make an estimate, and so read the delivery records by right, found by where
+// the estimates are made: a work order created, or recorded as ledger work, a contract of no plan that intake reads, the
+// plan version intake records, and the rework an overturned decision makes. A retry, a contract review of a plan, and
+// intake's settling and proposing make none, so they are not here and read none.
 func makers(op string) bool {
-	return strings.HasPrefix(op, "work_order.") && op != "work_order.move" || strings.HasPrefix(op, "intake.")
+	switch op {
+	case "work_order.create", "work_order.record", "intake.item", "intake.plan_version", "decision.overturn":
+		return true
+	}
+	return false
 }
 
-func checkNoDecisionReadsAnEstimate(r *Rig) error {
-	var blind blindStore
-	r.Wrap = func(store ports.Store) ports.Store {
-		blind = blinded(store, makers)
-		return blind
+// blindly runs a check over a store whose decisions cannot reach an estimate, a forecast, the delivery records, or
+// the pool, and fails it if any did.
+func blindly(check func(*Rig) error) func(*Rig) error {
+	return func(r *Rig) error {
+		var blind blindStore
+		r.Wrap = func(store ports.Store) ports.Store {
+			blind = blinded(store, makers)
+			return blind
+		}
+		if err := check(r); err != nil {
+			return Violatedf("with no estimate to read: %v (reached: %v)", err, blind.reached())
+		}
+		if reads := blind.reached(); len(reads) != 0 {
+			return Violatedf("a decision reached an estimate: %v", reads)
+		}
+		return nil
 	}
-	if err := checkMergeAfterTheReview(r); err != nil {
-		return Violatedf("with no estimate to read: %v (reached: %v)", err, blind.reached())
+}
+
+var checkNoDecisionReadsAnEstimate = blindly(checkMergeAfterTheReview)
+
+// checkPriorityReadsNoEstimate offers a worker several ready orders and reads their order, which is priority and
+// never a band.
+func checkPriorityReadsNoEstimate(r *Rig) error {
+	s, err := newStatusRigOn(r, r.Store(), r.Ready)
+	if err != nil {
+		return err
 	}
-	if reads := blind.reached(); len(reads) != 0 {
-		return Violatedf("a decision reached an estimate: %v", reads)
+	var want []string
+	for _, priority := range []int64{1, 3, 2} {
+		made, err := r.NewOps(s.store).Record(r.Ctx, r.Scope, control.LedgerWork{
+			Order: workorders.WorkOrder{
+				ID: r.ID("ready"), Kind: workorders.KindChange, Title: "Ready work", RepositoryID: AcceptanceRepository, MaxAttempts: 1,
+				Priority: priority, Needs: map[string]string{"driver": "claude-code"},
+			},
+			Statement: "Do the work.",
+			Criteria:  criteriaOf(criterionOne),
+		}, r.Actor)
+		if err != nil {
+			return err
+		}
+		if _, err := r.NewOps(s.store).Pass(r.Ctx, r.Scope, made.ID, r.Actor); err != nil {
+			return err
+		}
+		want = append(want, made.ID)
+	}
+	offered, err := s.plane.Offered(r.Ctx, s.auth.WorkerID)
+	if err != nil {
+		return err
+	}
+	var got []string
+	for _, order := range offered {
+		got = append(got, order.ID)
+	}
+	if len(got) != 3 || got[0] != want[1] || got[1] != want[2] || got[2] != want[0] {
+		return Violatedf("the worker is offered %v, want priority order %v", got, []string{want[1], want[2], want[0]})
 	}
 	return nil
 }
