@@ -11,6 +11,7 @@ import (
 	"sync"
 	"testing"
 
+	"ropeshift.com/ropeshift/internal/adapters/postgres"
 	"ropeshift.com/ropeshift/internal/adapters/sqlstore"
 	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/control"
@@ -58,11 +59,11 @@ func TestEveryStatementPrepares(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	store := sqlstore.New(db, pgtest.Dialect{}, sqlstore.Options{})
+	store := sqlstore.New(db, postgres.Dialect{}, sqlstore.Options{})
 	if err := store.Migrate(ctx); err != nil {
 		t.Fatal(err)
 	}
-	statements := sqlstore.Statements(pgtest.Dialect{})
+	statements := sqlstore.Statements(postgres.Dialect{})
 	if len(statements) < 30 {
 		t.Fatalf("only %d statements", len(statements))
 	}
@@ -96,11 +97,11 @@ func TestEveryInstallationStatementPrepares(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	installation := sqlstore.NewInstallation(db, pgtest.Dialect{}, sqlstore.Options{})
+	installation := sqlstore.NewInstallation(db, postgres.Dialect{}, sqlstore.Options{})
 	if err := installation.Migrate(ctx); err != nil {
 		t.Fatal(err)
 	}
-	statements := sqlstore.InstallationStatements(pgtest.Dialect{})
+	statements := sqlstore.InstallationStatements(postgres.Dialect{})
 	if len(statements) < 10 {
 		t.Fatalf("only %d statements", len(statements))
 	}
@@ -143,7 +144,7 @@ func TestProjectsAreSchemasOfOneDatabase(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	installation := sqlstore.NewInstallation(installationDB, pgtest.Dialect{}, sqlstore.Options{Schema: "installation"})
+	installation := sqlstore.NewInstallation(installationDB, postgres.Dialect{}, sqlstore.Options{Schema: "installation"})
 	defer installation.Close()
 	if err := installation.Migrate(ctx); err != nil {
 		t.Fatal(err)
@@ -156,7 +157,7 @@ func TestProjectsAreSchemasOfOneDatabase(t *testing.T) {
 	projects.SetMaxOpenConns(4)
 	actor := ledger.Actor{Kind: ledger.ActorMember, ID: "member-1"}
 	open := func(id ledger.WorkspaceID, schema string, shared *sqlstore.Installation) *sqlstore.Store {
-		store := sqlstore.New(projects, pgtest.Dialect{}, sqlstore.Options{Schema: schema, Installation: shared})
+		store := sqlstore.New(projects, postgres.Dialect{}, sqlstore.Options{Schema: schema, Installation: shared})
 		if err := store.Migrate(ctx); err != nil {
 			t.Fatal(err)
 		}
@@ -229,7 +230,7 @@ func TestProjectsAreSchemasOfOneDatabase(t *testing.T) {
 		t.Errorf("beta does not see the member: %v", err)
 	}
 
-	legacy := sqlstore.New(projects, pgtest.Dialect{}, sqlstore.Options{Schema: "project_c"})
+	legacy := sqlstore.New(projects, postgres.Dialect{}, sqlstore.Options{Schema: "project_c"})
 	if err := legacy.Migrate(ctx); err != nil {
 		t.Fatal(err)
 	}

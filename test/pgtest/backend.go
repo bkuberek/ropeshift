@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"ropeshift.com/ropeshift/internal/adapters/postgres"
 	"ropeshift.com/ropeshift/internal/adapters/sqlstore"
 	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/test/contract"
@@ -60,7 +61,7 @@ var Backend = contract.Backend{Name: "postgres", Fresh: func(t testing.TB) contr
 				t.Fatal(err)
 			}
 			db.SetMaxOpenConns(16)
-			store := sqlstore.New(db, contract.ShiftedDialect{Dialect: Dialect{}, Offset: offset}, opts)
+			store := sqlstore.New(db, contract.ShiftedDialect{Dialect: postgres.Dialect{}, Offset: offset}, opts)
 			t.Cleanup(func() { _ = store.Close() })
 			return store
 		},
@@ -124,7 +125,7 @@ var ProjectBackend = contract.Backend{Name: "postgres-project", Fresh: func(t te
 				t.Fatal(err)
 			}
 			// The installation reads the same shifted clock, because a run window it holds ends by that time.
-			installation := sqlstore.NewInstallation(installationDB, contract.ShiftedDialect{Dialect: Dialect{}, Offset: offset}, sqlstore.Options{Schema: InstallationSchema})
+			installation := sqlstore.NewInstallation(installationDB, contract.ShiftedDialect{Dialect: postgres.Dialect{}, Offset: offset}, sqlstore.Options{Schema: InstallationSchema})
 			t.Cleanup(func() { _ = installation.Close() })
 			if err := installation.Migrate(t.Context()); err != nil {
 				t.Fatal(err)
@@ -135,7 +136,7 @@ var ProjectBackend = contract.Backend{Name: "postgres-project", Fresh: func(t te
 			}
 			db.SetMaxOpenConns(16)
 			opts.Installation, opts.Schema = installation, ProjectSchema
-			store := sqlstore.New(db, contract.ShiftedDialect{Dialect: Dialect{}, Offset: offset}, opts)
+			store := sqlstore.New(db, contract.ShiftedDialect{Dialect: postgres.Dialect{}, Offset: offset}, opts)
 			t.Cleanup(func() { _ = store.Close() })
 			return store
 		},
