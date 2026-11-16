@@ -30,6 +30,13 @@ func (f *Forecasts) Telling(windows messages.Windows) *Forecasts {
 	return f
 }
 
+// Reporting sets where a notice that failed to send is told of, which is all a failed notice gets: the next tick sends
+// it again, and no other notice waits for it.
+func (f *Forecasts) Reporting(report func(error)) *Forecasts {
+	f.report = report
+	return f
+}
+
 // owedNotice is a planning lane that has not been told of the plan version it submitted: the plan, its version, and
 // the lane.
 type owedNotice struct {
@@ -52,7 +59,7 @@ func (f *Forecasts) tell(ctx context.Context, scope ledger.WorkspaceID) error {
 		return err
 	})
 	if err != nil {
-		return err
+		return f.failed(ctx, fmt.Errorf("the notices owed to planning lanes could not be read: %w", err))
 	}
 	for _, notice := range owed {
 		if err := ctx.Err(); err != nil {
@@ -60,8 +67,23 @@ func (f *Forecasts) tell(ctx context.Context, scope ledger.WorkspaceID) error {
 		}
 		err := f.store.Write(ctx, scope, opPlanEstimatesTold, func(tx ports.WriteTx) error { return tellPlanner(tx, notice, f.windows) })
 		if err != nil {
-			return err
+			// One lane's notice that cannot be sent holds back no other, and the next tick sends it again.
+			if err := f.failed(ctx, fmt.Errorf("the notice of plan %s version %d to lane %s was not sent: %w", notice.plan, notice.version, notice.lane, err)); err != nil {
+				return err
+			}
 		}
+	}
+	return nil
+}
+
+// failed reports a notice that could not be sent and returns nil, so the tick that forecast the plans goes on, unless
+// the context ended, which stops it.
+func (f *Forecasts) failed(ctx context.Context, err error) error {
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	if f.report != nil {
+		f.report(err)
 	}
 	return nil
 }

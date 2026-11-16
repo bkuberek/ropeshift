@@ -1,11 +1,14 @@
 package contract
 
 import (
+	"context"
 	"errors"
 	"strings"
+	"sync/atomic"
 
 	"ropeshift.com/ropeshift/internal/contextpacks"
 	"ropeshift.com/ropeshift/internal/control"
+	"ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/messages"
 	"ropeshift.com/ropeshift/internal/planning"
@@ -25,6 +28,9 @@ var PlanningViewChecks = []Check{
 	{"PV7", "an admission refused by the work-in-progress limit and the lane caps reads no estimate", blindly(checkEligibility)},
 	{"PV8", "ready work offered to a worker is ordered by priority and reads no estimate", blindly(checkPriorityReadsNoEstimate)},
 	{"PV9", "a member's approval of a merge, bound to the reviewed commit, reads no estimate", blindly(checkMemberApprovesTheMerge)},
+	{"PV10", "an open planning lane on one plan is told nothing of another plan's version, and each is told its own", checkEachPlanningLaneIsToldItsOwnPlan},
+	{"PV11", "a notice that fails to send is reported and the others still go, the tick returns no error for it, and the next tick sends the one that failed", checkOneFailedNoticeStopsNoOther},
+	{"PV12", "a rework lane, a contract review lane, and an orchestrator's read of the history are refused, like any lane but planning", checkMoreReadersAreRefusedTheHistory},
 	{"PV2", "a change lane and a review lane hold no delivery history in their packs, and a read of it by name is refused like a kind nobody named, however much the project has finished", checkOtherLanesReadNoHistory},
 }
 
@@ -386,6 +392,210 @@ func checkPlanningHistoryReadsNothingBeyondTheRecords(r *Rig) error {
 	}
 	if reads := blind.reached(); len(reads) != 0 {
 		return Violatedf("the planning lane's history reached more than the project's delivery records: %v", reads)
+	}
+	return nil
+}
+
+// secondPlanSource is a plan of its own beside the approval source's, with a milestone and a contract.
+func secondPlanSource(files approvalSource) {
+	files.source.Write("m1.md", []byte(milestoneOf("m1", approvalPlan, 1)))
+	files.source.Write("budget.md", []byte(placedContract{ID: "budget", Plan: approvalPlan, Milestone: "m1"}.text()))
+	files.source.Write("plan2.md", []byte(planWith("second", "Second plan", nil, "Stripe")))
+	files.source.Write("m2.md", []byte(milestoneOf("m2", "second", 1)))
+	files.source.Write("other.md", []byte(placedContract{ID: "other", Plan: "second", Milestone: "m2"}.text()))
+}
+
+// twoPlanners is two plans from files, each with a planning lane that runs on a work order of its own.
+type twoPlanners struct {
+	first, second  string
+	lane1, lane2   *statusRig
+	order1, order2 string
+}
+
+func newTwoPlanners(r *Rig, s ports.Store) (*twoPlanners, error) {
+	files := newApprovalSource()
+	secondPlanSource(files)
+	if report, err := r.intake(s, files.source); err != nil || len(report.Problems) != 0 {
+		return nil, Violatedf("intake read %+v: %v", report, err)
+	}
+	t := &twoPlanners{}
+	var err error
+	if t.first, err = r.planID(s, "Retry budget"); err != nil {
+		return nil, err
+	}
+	if t.second, err = r.planID(s, "Second plan"); err != nil {
+		return nil, err
+	}
+	if t.lane1, err = newStatusRigOn(r, s, r.readyPlan); err != nil {
+		return nil, err
+	}
+	if t.lane2, err = newStatusRigOn(r, s, r.readyPlan); err != nil {
+		return nil, err
+	}
+	t.order1, t.order2 = t.lane1.grant.WorkOrder, t.lane2.grant.WorkOrder
+	return t, nil
+}
+
+func checkEachPlanningLaneIsToldItsOwnPlan(r *Rig) error {
+	s := r.Store()
+	t, err := newTwoPlanners(r, s)
+	if err != nil {
+		return err
+	}
+	if _, err := r.versionFromLane(s, t.first, t.order1); err != nil {
+		return err
+	}
+	if err := r.forecastRuns(s, 2, "with both plans"); err != nil {
+		return err
+	}
+	one, err := r.toldOf(s, t.lane1.lane)
+	if err != nil || len(one) != 1 || !strings.Contains(one[0].Body, "of Retry budget") {
+		return Violatedf("the first plan's lane was told %+v: %v", one, err)
+	}
+	if two, err := r.toldOf(s, t.lane2.lane); err != nil || len(two) != 0 {
+		return Violatedf("the second plan's lane was told of the first plan's version: %+v, %v", two, err)
+	}
+	if _, err := r.versionFromLane(s, t.second, t.order2); err != nil {
+		return err
+	}
+	if err := r.forecastRuns(s, 1, "after the second plan's version"); err != nil {
+		return err
+	}
+	two, err := r.toldOf(s, t.lane2.lane)
+	if err != nil || len(two) != 1 || !strings.Contains(two[0].Body, "of Second plan") || strings.Contains(two[0].Body, "Retry budget") {
+		return Violatedf("the second plan's lane was told %+v: %v", two, err)
+	}
+	if one, err = r.toldOf(s, t.lane1.lane); err != nil || len(one) != 1 {
+		return Violatedf("the first plan's lane was told again: %+v, %v", one, err)
+	}
+	return nil
+}
+
+// failsOnce is a store whose first transaction of one kind fails, as a database that went away would.
+type failsOnce struct {
+	ports.Store
+	op     string
+	failed *atomic.Bool
+}
+
+func (f failsOnce) Write(ctx context.Context, scope ledger.WorkspaceID, op string, fn func(ports.WriteTx) error) error {
+	if op == f.op && f.failed.CompareAndSwap(false, true) {
+		return errors.New("the database went away")
+	}
+	return f.Store.Write(ctx, scope, op, fn)
+}
+
+func checkOneFailedNoticeStopsNoOther(r *Rig) error {
+	failed := &atomic.Bool{}
+	r.Wrap = func(store ports.Store) ports.Store {
+		return failsOnce{Store: store, op: "plan.estimates_told", failed: failed}
+	}
+	s := r.Store()
+	t, err := newTwoPlanners(r, s)
+	if err != nil {
+		return err
+	}
+	for _, c := range []struct{ plan, order string }{{t.first, t.order1}, {t.second, t.order2}} {
+		if _, err := r.versionFromLane(s, c.plan, c.order); err != nil {
+			return err
+		}
+	}
+	var reported []error
+	forecasts := control.NewForecasts(s).Reporting(func(err error) { reported = append(reported, err) })
+	if kept, err := forecasts.Refresh(r.Ctx, r.Scope); err != nil || kept != 2 {
+		return Violatedf("the tick kept %d forecasts and returned %v, though one notice failed", kept, err)
+	}
+	if len(reported) != 1 || !strings.Contains(reported[0].Error(), "the database went away") {
+		return Violatedf("the failed notice was reported as %v", reported)
+	}
+	count := func() (int, error) {
+		one, err := r.toldOf(s, t.lane1.lane)
+		if err != nil {
+			return 0, err
+		}
+		two, err := r.toldOf(s, t.lane2.lane)
+		return len(one) + len(two), err
+	}
+	if n, err := count(); err != nil || n != 1 {
+		return Violatedf("after one failed notice, %d lanes were told: %v", n, err)
+	}
+	if _, err := forecasts.Refresh(r.Ctx, r.Scope); err != nil {
+		return err
+	}
+	if n, err := count(); err != nil || n != 2 || len(reported) != 1 {
+		return Violatedf("on the next tick, %d lanes were told and %d failures reported: %v", n, len(reported), err)
+	}
+	return nil
+}
+
+// checkMoreReadersAreRefusedTheHistory reads the history as a rework lane and a contract review lane, which read none
+// of it, and as an orchestrator, which holds no work order.
+func checkMoreReadersAreRefusedTheHistory(r *Rig) error {
+	s := r.Store()
+	if err := r.finishLikeThePlans(s); err != nil {
+		return err
+	}
+	readyKind := func(kind workorders.Kind) func(ports.Store) (string, error) {
+		return func(store ports.Store) (string, error) {
+			ops := r.NewOps(store)
+			if kind == workorders.KindContractReview {
+				files := newApprovalSource()
+				files.source.Write("m1.md", []byte(milestoneOf("m1", approvalPlan, 1)))
+				files.source.Write("budget.md", []byte(placedContract{ID: "budget", Plan: approvalPlan, Milestone: "m1"}.text()))
+				if report, err := r.intake(store, files.source); err != nil || len(report.Problems) != 0 {
+					return "", Violatedf("intake read %+v: %v", report, err)
+				}
+				plan, err := r.planID(store, "Retry budget")
+				if err != nil {
+					return "", err
+				}
+				review, err := control.NewWorkOrders(store).ReviewPlan(r.Ctx, r.Scope, r.ID("review"), plan, r.member())
+				return review.ID, err
+			}
+			work := control.LedgerWork{
+				Order: workorders.WorkOrder{
+					ID: r.ID("wo"), Kind: kind, Title: "Work of a kind", RepositoryID: AcceptanceRepository, MaxAttempts: 1,
+					Needs: map[string]string{"driver": "claude-code"},
+				},
+				Statement: "Do the work.", Criteria: criteriaOf(criterionOne),
+			}
+			if kind == workorders.KindRework {
+				work.Order.ReworkOf = r.ID("earlier")
+			}
+			made, err := ops.Record(r.Ctx, r.Scope, work, r.Actor)
+			if err != nil {
+				return "", err
+			}
+			_, err = ops.Pass(r.Ctx, r.Scope, made.ID, r.Actor)
+			return made.ID, err
+		}
+	}
+	for _, kind := range []workorders.Kind{workorders.KindRework, workorders.KindContractReview} {
+		lane, err := newStatusRigOn(r, s, readyKind(kind))
+		if err != nil {
+			return Violatedf("a %s lane: %v", kind, err)
+		}
+		pack, err := r.packOf(s, lane.grant.ClaimID)
+		if err != nil {
+			return err
+		}
+		if _, held := historyItem(pack); held || strings.Contains(pack.Text, "Delivery history") {
+			return Violatedf("the %s lane's pack holds the history: %v", kind, itemRefs(pack))
+		}
+		if found, err := lane.lookup(contextpacks.KindDeliveryHistory, "project"); !errors.Is(err, workorders.ErrInvalid) || len(found.Records) != 0 {
+			return Violatedf("the %s lane read the history: %+v, %v", kind, found, err)
+		}
+	}
+	// An orchestrator reads through the same call with no work order of its own, and is refused as well.
+	holder, err := newStatusRigOn(r, s, r.Ready)
+	if err != nil {
+		return err
+	}
+	_, err = holder.laneRead(func(request *ledger.LaneContextRequest) {
+		request.Tool, request.Kind, request.Ref, request.WorkOrder, request.Fence = lanes.ToolContextGet, string(contextpacks.KindDeliveryHistory), "project", "", 0
+	})
+	if err == nil {
+		return Violatedf("a read with no work order found the history")
 	}
 	return nil
 }

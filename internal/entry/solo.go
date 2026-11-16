@@ -831,7 +831,9 @@ func soloTicks(projects ports.Projects, home ledger.WorkspaceID, opts soloOption
 		// A large plan's simulation takes seconds, so it runs on a tick of its own and never on a request. The tick
 		// then tells a planning lane whose session is open the estimates and forecasts of the version it submitted.
 		tick("forecast", opts.forecastTick, func(ctx context.Context, p ledger.Project, store ports.Store) error {
-			_, err := control.NewForecasts(store).Telling(windows).Refresh(ctx, p.ID)
+			_, err := control.NewForecasts(store).Telling(windows).Reporting(func(err error) {
+				fmt.Fprintf(os.Stderr, "ropeshiftd: forecast tick: project %s: %v\n", p.ID, err)
+			}).Refresh(ctx, p.ID)
 			return err
 		}),
 		// An assistant's session idle past the assistant policy stops; closing a view stops nothing.

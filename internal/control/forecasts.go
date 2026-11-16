@@ -27,6 +27,7 @@ import (
 type Forecasts struct {
 	store   ports.Store
 	windows messages.Windows
+	report  func(error)
 }
 
 // NewForecasts returns the forecasts of a store.
