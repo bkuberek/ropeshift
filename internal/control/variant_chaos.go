@@ -66,6 +66,12 @@ type Sabotage struct {
 	KeepsParkWanted bool
 	// IgnoresPins tells only the lanes a decision's scope reaches, and renews no pack.
 	IgnoresPins bool
+	// BindsNoPlan lets a plan scope bind no work order, which is how a decision about a plan reached nobody.
+	BindsNoPlan bool
+	// StopsAtOnePage reads the decisions in force one page, and no further.
+	StopsAtOnePage bool
+	// OverlapsOneSide lets a scope written before the grammar overlap a narrower scope and miss a wider one.
+	OverlapsOneSide bool
 	// LeavesParkedLanes cancels work and leaves its parked lane reading parked for good.
 	LeavesParkedLanes bool
 	// EndsAnyCanceledLane takes any worker's word that a canceled lane ended.
@@ -145,6 +151,12 @@ func rebuildsPack() bool { return current().RebuildsPack }
 func keepsParkWanted() bool { return current().KeepsParkWanted }
 
 func ignoresPins() bool { return current().IgnoresPins }
+
+func bindsNoPlan() bool { return current().BindsNoPlan }
+
+func stopsAtOnePage() bool { return current().StopsAtOnePage }
+
+func overlapsOneSide() bool { return current().OverlapsOneSide }
 
 func leavesParkedLanes() bool { return current().LeavesParkedLanes }
 

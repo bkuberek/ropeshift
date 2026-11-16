@@ -973,9 +973,6 @@ type QuestionReader interface {
 	ReplacedBy(decision string) (questions.Decision, error)
 	// AnsweredBy returns the questions one decision answered.
 	AnsweredBy(decision string) ([]questions.Question, error)
-	// Overlapping returns every decision in force whose scope overlaps one, by ID. It stops at no
-	// page, because a recording decision states how it stands to each, and a pack selects from them.
-	Overlapping(scope string) ([]questions.Decision, error)
 	// Assumptions counts the open assumptions about one work order.
 	Assumptions(workOrder string) (int64, error)
 	// OpenAssumptions names them, by ID.

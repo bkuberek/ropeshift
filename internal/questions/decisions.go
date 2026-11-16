@@ -6,9 +6,6 @@ import (
 	"strings"
 )
 
-// scopeSeparator divides a scope into the parts a narrower scope extends.
-const scopeSeparator = "/"
-
 // AnswerText is what a lane reads of an answer. The answer leads, so text that has to be cut keeps
 // it and the record that holds the rest.
 func AnswerText(question Question, decision Decision) string {
@@ -45,15 +42,6 @@ func decisionLines(decision Decision) string {
 		out.WriteString("Citations: " + strings.Join(decision.Citations, ", ") + "\n")
 	}
 	return out.String()
-}
-
-// ScopesOverlap reports two scopes that cover some of the same thing: the same scope, or one
-// inside the other. An empty scope covers nothing.
-func ScopesOverlap(a, b string) bool {
-	if a == "" || b == "" {
-		return false
-	}
-	return a == b || strings.HasPrefix(a, b+scopeSeparator) || strings.HasPrefix(b, a+scopeSeparator)
 }
 
 // OverlapError refuses a decision that has not said how it stands to the decisions it

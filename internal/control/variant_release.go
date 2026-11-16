@@ -89,6 +89,15 @@ func keepsParkWanted() bool { return false }
 // ignoresPins is false: a notice finds every lane whose pack holds what changed.
 func ignoresPins() bool { return false }
 
+// bindsNoPlan is false: a plan scope binds every work order under the plan's contracts.
+func bindsNoPlan() bool { return false }
+
+// stopsAtOnePage is false: the decisions in force are read to their last page.
+func stopsAtOnePage() bool { return false }
+
+// overlapsOneSide is false: a scope overlaps one that is inside it and one that holds it.
+func overlapsOneSide() bool { return false }
+
 // leavesParkedLanes is false: a cancel ends a lane with no process, which no worker will report.
 func leavesParkedLanes() bool { return false }
 

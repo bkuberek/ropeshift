@@ -1337,10 +1337,9 @@ func allVariants() []variant {
 			check:    "D11",
 		},
 		{
-			name: "an overlap misses a wider scope",
-			sabotage: sqlstore.Sabotage{Rewrite: replace("decision.overlapping",
-				"\n     OR substr(CAST(:scope AS TEXT), 1, length(d.scope) + 1) = d.scope || '/'", "")},
-			check: "D10",
+			name:    "an overlap misses a wider scope",
+			control: control.Sabotage{OverlapsOneSide: true},
+			check:   "D10",
 		},
 		{
 			name: "a delivery and its interruption in two transactions",

@@ -310,7 +310,7 @@ func checkNoticeOneWay(r *Rig) error {
 		return err
 	}
 	decided, err := r.decision(status.store, "Keep audit data in region", func(d *questions.Decision) {
-		d.Scope, d.Reversibility = p.order.RepositoryID, questions.OneWay
+		d.Scope, d.Reversibility = "repo:"+p.order.RepositoryID, questions.OneWay
 	})
 	if err != nil {
 		return err

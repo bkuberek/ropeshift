@@ -268,7 +268,7 @@ func checkPackAtClaim(r *Rig) error {
 	if err != nil {
 		return err
 	}
-	scoped, err := r.decision(p.s, "A decision on this repository", func(d *questions.Decision) { d.Scope = p.order.RepositoryID })
+	scoped, err := r.decision(p.s, "A decision on this repository", func(d *questions.Decision) { d.Scope = "repo:" + p.order.RepositoryID })
 	if err != nil {
 		return err
 	}
@@ -471,7 +471,7 @@ func checkPackReadsEveryPage(r *Rig) error {
 	var overlapping []questions.Decision
 	err = p.s.Read(r.Ctx, r.Scope, func(tx ports.ReadTx) error {
 		var err error
-		overlapping, err = tx.Questions().Overlapping(p.order.RepositoryID)
+		overlapping, err = control.DecisionsOverlapping(tx, p.order.RepositoryID)
 		return err
 	})
 	if err != nil {
