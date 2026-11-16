@@ -48,8 +48,24 @@ export class Keys {
     }
   }
 
+  // type types text into the field the keyboard is on, a key at a time with a short pause so a controlled field keeps up
+  // on a slow runner, and waits until the field holds what was typed. A field that never does fails the path, naming
+  // what it holds.
   async type(text: string): Promise<void> {
-    await this.page.keyboard.type(text);
+    await this.page.keyboard.type(text, { delay: 5 });
+    try {
+      await this.page.waitForFunction(
+        (typed) => {
+          const field = document.activeElement as HTMLInputElement | HTMLTextAreaElement | null;
+          return !field || !("value" in field) || field.value.endsWith(typed);
+        },
+        text,
+        { timeout: 5000 },
+      );
+    } catch {
+      const held = await this.page.evaluate(() => (document.activeElement as HTMLInputElement | null)?.value ?? "");
+      throw new Error(`The field was to end with "${text}" and holds "${held}"`);
+    }
   }
 
   // go presses G, and then the key of a view.
@@ -59,8 +75,9 @@ export class Keys {
   }
 
   // palette opens the command palette, types a query, moves with the arrow keys to the action whose name starts with
-  // title, and runs it with Enter. Without a query it types the title.
-  async palette(title: string, query = `>${title}`): Promise<void> {
+  // title, and runs it with Enter. Without a query it types the first words of the title: the palette's own matching
+  // finds the action from them, and the arrows reach it among the others that match.
+  async palette(title: string, query = `>${title.slice(0, 22)}`): Promise<void> {
     // A view a person moved to takes focus on its title once it has read, so the palette opens after that.
     await this.page.locator("main h1:visible").first().waitFor();
     await this.page.waitForFunction(() => !document.querySelector("main .skeleton-rows"));
@@ -70,7 +87,7 @@ export class Keys {
     await this.landed(this.page.getByRole("combobox"));
     // The field empties as the palette opens, which a key typed in the same moment can beat, so it is emptied here.
     await this.press("Mod+a", "Backspace");
-    await this.page.keyboard.type(query);
+    await this.type(query);
     const option = this.page.getByRole("option", { name: new RegExp(`^${title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`) }).first();
     try {
       await option.waitFor({ timeout: 10_000 });
@@ -157,12 +174,12 @@ export class Keys {
   async replaceIn(control: Locator, text: string): Promise<void> {
     await this.tabTo(control);
     await this.press("Mod+a");
-    await this.page.keyboard.type(text);
+    await this.type(text);
   }
 
   // typeInto reaches a field with Tab and types into it.
   async typeInto(control: Locator, text: string): Promise<void> {
     await this.tabTo(control);
-    await this.page.keyboard.type(text);
+    await this.type(text);
   }
 }

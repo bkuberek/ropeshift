@@ -195,10 +195,10 @@ const paths: Record<string, KeyPath> = {
     },
   },
   "POST /v1/projects/{project}/questions": {
-    sent: post(/^\/v1\/projects\/default\/questions$/, expect.objectContaining({ text: "Which currency?" })),
+    sent: post(/^\/v1\/projects\/default\/questions$/, expect.objectContaining({ text: "Why retry?" })),
     run: async (k, page) => {
       await dialog(k, page, "Record question");
-      await k.type("Which currency?");
+      await k.type("Why retry?");
       await k.activate(inDialog(page).getByRole("button", { name: "Record question" }));
     },
   },
