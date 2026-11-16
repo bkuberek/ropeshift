@@ -1,0 +1,527 @@
+{
+  "as_of": 1790002104001,
+  "items": [
+    {
+      "since": 1790002044001,
+      "standing": {
+        "artifacts": [
+          {
+            "created_at": 1790001864001,
+            "digest": "fed987",
+            "fence": 2,
+            "id": "generated-1",
+            "kind": "branch",
+            "lane_id": "lane-wo-merging",
+            "uri": "lane/lane-wo-merging"
+          }
+        ],
+        "assessment": {
+          "criteria": [
+            {
+              "criterion_id": "c1",
+              "standing": "second_principal"
+            }
+          ],
+          "needs": "second_principal"
+        },
+        "authority": "person_approves",
+        "checks": [
+          {
+            "artifact_id": "generated-1",
+            "created_at": 1790001864001,
+            "criterion_id": "c1",
+            "fence": 2,
+            "id": "generated-2",
+            "lane_id": "lane-wo-merging",
+            "name": "go test",
+            "source": "lane",
+            "status": "passed",
+            "work_order_id": "wo-merging"
+          }
+        ],
+        "integrations": [
+          {
+            "approved_at": 1790002104001,
+            "approved_by_id": "member-1",
+            "approved_by_kind": "member",
+            "approved_commit": "fed987",
+            "id": "integration:wo-merging:fed987",
+            "merge_authority": "person_approves",
+            "pull_request": 12,
+            "work_order_id": "wo-merging"
+          }
+        ],
+        "pull_request": {
+          "base": "main",
+          "branch": "lane/lane-wo-merging",
+          "checks": [
+            {
+              "name": "CI result",
+              "required": true,
+              "state": "passed"
+            },
+            {
+              "name": "lint",
+              "state": "passed"
+            }
+          ],
+          "head_commit": "fed987",
+          "mergeable": "MERGEABLE",
+          "number": 12,
+          "state": "open",
+          "url": "https://forge.example/acme/app/pull/wo-merging"
+        },
+        "reviews": [
+          {
+            "attempt": 2,
+            "id": "generated-3",
+            "state": "done"
+          }
+        ],
+        "rounds": 1,
+        "state": "integrating",
+        "verdicts": [
+          {
+            "attempt": 2,
+            "citations": [
+              "retry.go:21"
+            ],
+            "commit": "fed987",
+            "created_at": 1790002044001,
+            "criterion": "c1",
+            "fence": 2,
+            "generation": 1,
+            "lane_id": "lane-generated-3",
+            "reasons": "The budget stops the retries after the third.",
+            "review_id": "generated-3",
+            "verdict": "pass",
+            "work_order_id": "wo-merging"
+          }
+        ],
+        "why": "the worker is merging fed987 into main",
+        "work_order_id": "wo-merging"
+      },
+      "work_order": {
+        "contract_id": "generated-4",
+        "contract_version": 1,
+        "fence": 2,
+        "id": "wo-merging",
+        "kind": "change",
+        "max_attempts": 1,
+        "repository_id": "repository-1",
+        "rev": 1,
+        "reviewed_by": "member-1",
+        "size": "unknown",
+        "state": "integrating",
+        "title": "Add the retry budget"
+      }
+    },
+    {
+      "since": 1790001504001,
+      "standing": {
+        "artifacts": [
+          {
+            "created_at": 1790001324001,
+            "digest": "cab321",
+            "fence": 2,
+            "id": "generated-5",
+            "kind": "branch",
+            "lane_id": "lane-wo-ruled",
+            "uri": "lane/lane-wo-ruled"
+          }
+        ],
+        "assessment": {
+          "criteria": [
+            {
+              "criterion_id": "c1",
+              "standing": "second_principal"
+            }
+          ],
+          "needs": "second_principal"
+        },
+        "authority": "person_approves",
+        "checks": [
+          {
+            "artifact_id": "generated-5",
+            "created_at": 1790001324001,
+            "criterion_id": "c1",
+            "fence": 2,
+            "id": "generated-6",
+            "lane_id": "lane-wo-ruled",
+            "name": "go test",
+            "source": "lane",
+            "status": "passed",
+            "work_order_id": "wo-ruled"
+          }
+        ],
+        "pull_request": {
+          "base": "main",
+          "branch": "lane/lane-wo-ruled",
+          "checks": [
+            {
+              "name": "CI result",
+              "required": true,
+              "state": "passed"
+            },
+            {
+              "name": "e2e",
+              "required": true,
+              "state": "pending"
+            }
+          ],
+          "head_commit": "cab321",
+          "mergeable": "MERGEABLE",
+          "number": 11,
+          "state": "open",
+          "url": "https://forge.example/acme/app/pull/wo-ruled"
+        },
+        "reviews": [
+          {
+            "attempt": 2,
+            "id": "generated-7",
+            "state": "done"
+          }
+        ],
+        "rounds": 1,
+        "state": "integrating",
+        "verdicts": [
+          {
+            "attempt": 2,
+            "citations": [
+              "retry.go:21"
+            ],
+            "commit": "cab321",
+            "created_at": 1790001504001,
+            "criterion": "c1",
+            "fence": 2,
+            "generation": 1,
+            "lane_id": "lane-generated-7",
+            "reasons": "The budget stops the retries after the third.",
+            "review_id": "generated-7",
+            "verdict": "pass",
+            "work_order_id": "wo-ruled"
+          }
+        ],
+        "why": "required checks are still running on cab321: e2e",
+        "work_order_id": "wo-ruled"
+      },
+      "work_order": {
+        "contract_id": "generated-8",
+        "contract_version": 1,
+        "fence": 2,
+        "id": "wo-ruled",
+        "kind": "change",
+        "max_attempts": 1,
+        "repository_id": "repository-1",
+        "rev": 1,
+        "reviewed_by": "member-1",
+        "size": "unknown",
+        "state": "integrating",
+        "title": "Trim the retry log"
+      }
+    },
+    {
+      "reason": "The plan changed",
+      "since": 1790000964001,
+      "standing": {
+        "artifacts": [],
+        "assessment": {
+          "criteria": [
+            {
+              "criterion_id": "c1",
+              "standing": "member"
+            }
+          ],
+          "needs": "member"
+        },
+        "authority": "person_approves",
+        "checks": [],
+        "state": "canceled",
+        "work_order_id": "wo-canceled"
+      },
+      "work_order": {
+        "contract_id": "generated-9",
+        "contract_version": 1,
+        "id": "wo-canceled",
+        "kind": "change",
+        "max_attempts": 1,
+        "repository_id": "repository-1",
+        "size": "unknown",
+        "state": "canceled",
+        "title": "Drop the old plan"
+      }
+    },
+    {
+      "reason": "It gave up on <img src=x onerror=alert(1)><script>alert(2)</script>",
+      "since": 1790000904001,
+      "standing": {
+        "artifacts": [
+          {
+            "created_at": 1790000904001,
+            "digest": "def456",
+            "fence": 2,
+            "id": "generated-10",
+            "kind": "branch",
+            "lane_id": "lane-wo-failed",
+            "uri": "lane/lane-wo-failed"
+          }
+        ],
+        "assessment": {
+          "criteria": [
+            {
+              "criterion_id": "c1",
+              "standing": "failed"
+            }
+          ],
+          "failed": [
+            "go vet"
+          ],
+          "needs": "member"
+        },
+        "authority": "person_approves",
+        "checks": [
+          {
+            "artifact_id": "generated-10",
+            "created_at": 1790000904001,
+            "criterion_id": "c1",
+            "fence": 2,
+            "id": "generated-11",
+            "lane_id": "lane-wo-failed",
+            "name": "go vet",
+            "source": "lane",
+            "status": "failed",
+            "work_order_id": "wo-failed"
+          }
+        ],
+        "state": "failed",
+        "work_order_id": "wo-failed"
+      },
+      "work_order": {
+        "attempts": 1,
+        "contract_id": "generated-12",
+        "contract_version": 1,
+        "fence": 2,
+        "id": "wo-failed",
+        "kind": "change",
+        "max_attempts": 1,
+        "repository_id": "repository-1",
+        "rev": 1,
+        "reviewed_by": "member-1",
+        "size": "unknown",
+        "state": "failed",
+        "title": "Try the impossible"
+      }
+    },
+    {
+      "since": 1790000844001,
+      "standing": {
+        "artifacts": [
+          {
+            "created_at": 1790000844001,
+            "digest": "abc123",
+            "fence": 2,
+            "id": "generated-13",
+            "kind": "branch",
+            "lane_id": "lane-wo-done",
+            "uri": "lane/lane-wo-done"
+          },
+          {
+            "created_at": 1790000844001,
+            "fence": 2,
+            "id": "generated-14",
+            "kind": "report",
+            "lane_id": "lane-wo-done",
+            "uri": "javascript:alert(3)"
+          }
+        ],
+        "assessment": {
+          "criteria": [
+            {
+              "criterion_id": "c1",
+              "standing": "second_principal"
+            }
+          ],
+          "needs": "second_principal"
+        },
+        "authority": "person_approves",
+        "checks": [
+          {
+            "artifact_id": "generated-13",
+            "created_at": 1790000844001,
+            "criterion_id": "c1",
+            "fence": 2,
+            "id": "generated-15",
+            "lane_id": "lane-wo-done",
+            "name": "go test",
+            "source": "lane",
+            "status": "passed",
+            "work_order_id": "wo-done"
+          }
+        ],
+        "reviews": [
+          {
+            "attempt": 2,
+            "id": "generated-16",
+            "state": "done"
+          }
+        ],
+        "rounds": 1,
+        "state": "done",
+        "verdicts": [
+          {
+            "attempt": 2,
+            "citations": [
+              "cut.go:12"
+            ],
+            "commit": "abc123",
+            "created_at": 1790000844001,
+            "criterion": "c1",
+            "fence": 2,
+            "generation": 1,
+            "lane_id": "lane-generated-16",
+            "reasons": "The first cut does what the criterion asks.",
+            "review_id": "generated-16",
+            "verdict": "pass",
+            "work_order_id": "wo-done"
+          }
+        ],
+        "work_order_id": "wo-done"
+      },
+      "work_order": {
+        "contract_id": "generated-17",
+        "contract_version": 1,
+        "fence": 2,
+        "id": "wo-done",
+        "kind": "change",
+        "max_attempts": 1,
+        "repository_id": "repository-1",
+        "rev": 1,
+        "reviewed_by": "member-1",
+        "size": "unknown",
+        "state": "done",
+        "title": "Ship the first cut"
+      }
+    },
+    {
+      "since": 1790000424001,
+      "standing": {
+        "artifacts": [
+          {
+            "created_at": 1790000424001,
+            "digest": "abc123",
+            "fence": 2,
+            "id": "generated-18",
+            "kind": "branch",
+            "lane_id": "lane-wo-accept",
+            "uri": "lane/lane-wo-accept"
+          }
+        ],
+        "assessment": {
+          "criteria": [
+            {
+              "criterion_id": "c1",
+              "standing": "member"
+            }
+          ],
+          "needs": "member"
+        },
+        "authority": "person_approves",
+        "checks": [],
+        "reviews": [
+          {
+            "attempt": 2,
+            "id": "generated-19",
+            "state": "done"
+          }
+        ],
+        "rounds": 1,
+        "state": "acceptance",
+        "verdicts": [
+          {
+            "attempt": 2,
+            "citations": [
+              "trim.go:30",
+              "FR-LOG-2"
+            ],
+            "commit": "abc123",
+            "created_at": 1790000424001,
+            "criterion": "c1",
+            "fence": 2,
+            "generation": 1,
+            "lane_id": "lane-generated-19",
+            "reasons": "The log is trimmed in trim.go, but nothing I can run shows it keeps the last day.",
+            "review_id": "generated-19",
+            "verdict": "cannot_judge",
+            "work_order_id": "wo-accept"
+          }
+        ],
+        "why": "the review could not judge criterion c1",
+        "work_order_id": "wo-accept"
+      },
+      "work_order": {
+        "contract_id": "generated-20",
+        "contract_version": 1,
+        "fence": 2,
+        "id": "wo-accept",
+        "kind": "change",
+        "max_attempts": 1,
+        "repository_id": "repository-1",
+        "rev": 1,
+        "reviewed_by": "member-1",
+        "size": "unknown",
+        "state": "acceptance",
+        "title": "Trim the log"
+      }
+    },
+    {
+      "since": 1790000184000,
+      "standing": {
+        "artifacts": [
+          {
+            "created_at": 1790000184000,
+            "digest": "abc123",
+            "fence": 2,
+            "id": "generated-21",
+            "kind": "branch",
+            "lane_id": "lane-generated-22",
+            "uri": "lane/lane-generated-22"
+          }
+        ],
+        "assessment": {
+          "criteria": [
+            {
+              "criterion_id": "c1",
+              "standing": "member"
+            }
+          ],
+          "needs": "member"
+        },
+        "authority": "person_merges",
+        "checks": [],
+        "reviews": [
+          {
+            "attempt": 2,
+            "id": "generated-23",
+            "state": "canceled"
+          }
+        ],
+        "state": "done",
+        "work_order_id": "generated-22"
+      },
+      "work_order": {
+        "contract_id": "generated-24",
+        "contract_version": 1,
+        "fence": 2,
+        "id": "generated-22",
+        "kind": "change",
+        "repository_id": "memory",
+        "rev": 1,
+        "reviewed_by": "member-1",
+        "size": "large",
+        "state": "done",
+        "title": "Write the API client"
+      }
+    }
+  ],
+  "revision": 408
+}

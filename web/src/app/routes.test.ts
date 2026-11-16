@@ -5,8 +5,7 @@ import { goKeys, resolve, titleOf, views } from "./routes";
 describe("an address", () => {
   it.each([
     ["/", "", "/needs-you"],
-    ["/projects/harbor", "", "/needs-you?project=harbor"],
-    ["/projects/harbor/", "", "/needs-you?project=harbor"],
+    ["/projects/harbor/overview", "", "/projects/harbor"],
     ["/projects/harbor/in-progress", "", "/projects/harbor/work?group=in-progress"],
     ["/projects/harbor/on-hold", "", "/projects/harbor/work?group=on-hold"],
     ["/projects/harbor/stuck", "", "/projects/harbor/work?group=stuck"],
@@ -37,8 +36,13 @@ describe("an address", () => {
     expect(resolve(path, "")).toEqual({ kind: "view", view, project: "" });
   });
 
+  it.each(["/projects/harbor", "/projects/harbor/"])("%s is the project's Overview", (path) => {
+    expect(resolve(path, "")).toEqual({ kind: "view", view: "overview", project: "harbor" });
+  });
+
   it.each([
     ["/projects/harbor/roadmap", "roadmap"],
+    ["/projects/harbor/reviews", "reviews"],
     ["/projects/harbor/repositories", "repositories"],
     ["/projects/harbor/agents", "agents"],
     ["/projects/harbor/settings", "settings"],
@@ -91,6 +95,11 @@ describe("the views", () => {
     expect(titleOf("needs-you")).toBe("Needs you");
   });
 
+  it("name Overview and Reviews by the view", () => {
+    expect(titleOf("overview")).toBe("Overview");
+    expect(titleOf("reviews")).toBe("Reviews");
+  });
+
   it("name the planning views by what they show", () => {
     expect(titleOf("plan")).toBe("Plan approval");
     expect(titleOf("planning")).toBe("Planning");
@@ -101,6 +110,7 @@ describe("the views", () => {
     const keys = Object.keys(goKeys);
     expect(new Set(keys).size).toBe(keys.length);
     expect(goKeys.n).toBe("needs-you");
+    expect(goKeys.o).toBe("overview");
     expect(goKeys.r).toBe("roadmap");
     expect(goKeys.d).toBe("documents");
     expect(goKeys.w).toBe("work");

@@ -6,6 +6,7 @@ import { splitProject } from "./route";
 // project's under it.
 export const installationViews = ["needs-you", "workers", "usage", "projects", "import", "members", "settings", "agents", "audit"] as const;
 export const projectViews = [
+  "overview",
   "roadmap",
   "plans",
   "plan",
@@ -18,6 +19,7 @@ export const projectViews = [
   "work-order",
   "floor",
   "lane",
+  "reviews",
   "measures",
   "conversations",
   "repositories",
@@ -47,6 +49,8 @@ export type Resolved =
 // agent's words.
 const titles: Record<View, string> = {
   "needs-you": "Needs you",
+  overview: "Overview",
+  reviews: "Reviews",
   workers: "Workers and resources",
   usage: "Usage",
   roadmap: "Roadmap",
@@ -79,6 +83,7 @@ export function titleOf(view: View): string {
 // The keys that follow G to go to a view.
 export const goKeys: Record<string, View> = {
   n: "needs-you",
+  o: "overview",
   r: "roadmap",
   d: "documents",
   w: "work",
@@ -142,9 +147,12 @@ export function resolve(pathname: string, search: string): Resolved {
     return { kind: "missing" };
   }
   const base = `/projects/${encodeURIComponent(project)}`;
-  // A project's own address is its Overview, which shows Needs you for that project.
+  // A project's own address is its Overview, which has no other address.
   if (name === "") {
-    return { kind: "redirect", to: `/needs-you?project=${encodeURIComponent(project)}` };
+    return { kind: "view", view: "overview", project };
+  }
+  if (name === "overview") {
+    return { kind: "redirect", to: base };
   }
   const old = moved[path];
   if (old) {

@@ -20,7 +20,8 @@ import type { Entry } from "./ranking";
 import { PageActionsProvider } from "./pageActions";
 import { Palette } from "./Palette";
 import { recentRecords, useDockWidth, useFlag } from "./prefs";
-import { ArrivalsProvider, CurrentProject, go, inProject, Link, useRoute } from "./route";
+import { reviewsTabs } from "../reviews/Reviews";
+import { addressOf, ArrivalsProvider, CurrentProject, go, inProject, Link, useRoute } from "./route";
 import type { View } from "./routes";
 import { goKeys, resolve, titleOf } from "./routes";
 import { addressOfView, Dock, navGroups, projectName, ProjectSwitcher, Sidebar, StatusBar, TopBar, useProjectSwitcher } from "./Shell";
@@ -304,13 +305,24 @@ export function App() {
         keywords: item.view === "floor" ? "shop floor lanes machines" : item.view === "measures" ? "operations" : item.view === "work" ? "in progress on hold stuck completed" : "",
       })),
     );
+    // Each tab of Reviews is a view of its own in the palette, beside the view itself.
+    const tabs: Entry[] = project
+      ? reviewsTabs.map((tab) => ({
+          key: `view:reviews:${tab.id}`,
+          group: "Views" as const,
+          title: `Reviews: ${tab.label}`,
+          icon: "review" as const,
+          to: inProject(project, addressOf("/reviews", { tab: tab.id === "queue" ? "" : tab.id })),
+          keywords: tab.id === "queue" ? "review accept rework merge approve" : tab.id === "pull-requests" ? "review pull request checks" : "review agreement calibration",
+        }))
+      : [];
     const recent: Entry[] = recentRecords()
       .filter((row) => row.project === project)
       .map((row) => ({ key: `recent:${row.kind}:${row.id}`, group: "Records", id: row.id, title: row.title, icon: "clock", to: row.to, meta: label }));
     const others: Entry[] = list
       .filter((row) => row.state === "active" && row.name !== project)
       .map((row) => ({ key: `project:${row.name}`, group: "Projects", id: row.name, title: `Switch to ${projectName(row, row.name)}`, icon: "projects", to: inProject(row.name, resolved.kind === "view" && route.project ? route.path : "/roadmap") }));
-    return { actions, views, recent, projects: others };
+    return { actions, views: [...views, ...tabs], recent, projects: others };
   }, [items, pageEntries, dockOpen, onConversations, theme, nextTheme, signOutNow, project, label, list, switcher, setDockOpen, resolved.kind, route.project, route.path, view]);
 
   const waiting = needs.view ? needs.view.items.length : null;

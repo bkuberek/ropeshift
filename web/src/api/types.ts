@@ -568,6 +568,25 @@ export type IntegrationRecord = {
   merged_at?: number;
 };
 
+// A check a forge runs on a pull request's head commit. A required check is one the base branch's protection
+// requires, which gates the merge.
+export type PullRequestCheck = { name: string; state: "pending" | "passed" | "failed"; details_uri?: string; required?: boolean };
+
+// A pull request as a worker last read it from the forge. mergeable is the forge's word for whether it merges
+// cleanly.
+export type PullRequest = {
+  number: number;
+  url: string;
+  state: "open" | "closed" | "merged";
+  base: string;
+  branch: string;
+  head_commit: string;
+  mergeable?: string;
+  merge_commit?: string;
+  merged_at?: string;
+  checks?: PullRequestCheck[];
+};
+
 export type Standing = {
   work_order_id: string;
   state: string;
@@ -581,6 +600,7 @@ export type Standing = {
   rounds?: number;
   authority?: string;
   why?: string;
+  pull_request?: PullRequest;
   integrations?: IntegrationRecord[];
 };
 

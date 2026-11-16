@@ -20,7 +20,13 @@ export type NavItem = { view: View; icon: IconName };
 // The sidebar: the current project's views by group, then the installation's. A view this build does
 // not have yet is not listed.
 export const navGroups: { name: string; items: NavItem[] }[] = [
-  { name: "", items: [{ view: "needs-you", icon: "inbox" }] },
+  {
+    name: "",
+    items: [
+      { view: "needs-you", icon: "inbox" },
+      { view: "overview", icon: "grid" },
+    ],
+  },
   {
     name: "Plan",
     items: [
@@ -37,6 +43,7 @@ export const navGroups: { name: string; items: NavItem[] }[] = [
     items: [
       { view: "work", icon: "stack" },
       { view: "floor", icon: "lanes" },
+      { view: "reviews", icon: "review" },
       { view: "measures", icon: "measures" },
     ],
   },
@@ -65,6 +72,9 @@ const installation = new Set<View>(["needs-you", "workers", "usage", "projects",
 
 // addressOfView is where a view of the current project, or of the installation, lives.
 export function addressOfView(view: View, project: string): string {
+  if (view === "overview") {
+    return project ? inProject(project, "") : "/projects";
+  }
   return installation.has(view) ? `/${view}` : inProject(project, `/${view}`);
 }
 

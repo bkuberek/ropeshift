@@ -59,10 +59,11 @@ describe("projects", () => {
     expect(await screen.findByRole("heading", { level: 1, name: "Needs you" })).toBeTruthy();
   });
 
-  it("opens a project's own address on Needs you for that project", async () => {
+  it("opens a project's own address on its Overview", async () => {
     serveViews(undefined, { projects: twoProjects });
     openPage("/projects/acme/");
-    await waitFor(() => expect(`${window.location.pathname}${window.location.search}`).toBe("/needs-you?project=acme"));
+    expect(await screen.findByRole("heading", { level: 1, name: "Overview" })).toBeTruthy();
+    expect(`${window.location.pathname}${window.location.search}`).toBe("/projects/acme/");
   });
 
   it("switches to the same view of another project, and reads that project's records", async () => {

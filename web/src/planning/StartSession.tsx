@@ -158,11 +158,11 @@ export function StartSessionDialog({ project, onClose }: { project: string; onCl
 }
 
 // StartSession is the button that opens the dialog, wherever a view offers to start a session.
-export function StartSession({ project, variant = "secondary", label = "Start planning session" }: { project: string; variant?: "primary" | "secondary"; label?: string }) {
+export function StartSession({ project, variant = "secondary", label = "Start planning session", disabled = false, title }: { project: string; variant?: "primary" | "secondary"; label?: string; disabled?: boolean; title?: string }) {
   const [open, setOpen] = useState(false);
   return (
     <>
-      <Button variant={variant} icon="flag" onClick={() => setOpen(true)}>
+      <Button variant={variant} icon="flag" disabled={disabled} title={title} onClick={() => setOpen(true)}>
         {label}
       </Button>
       {open ? <StartSessionDialog project={project} onClose={() => setOpen(false)} /> : null}

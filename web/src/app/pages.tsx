@@ -19,6 +19,8 @@ import { Page, StampLine, useClock, ViewTime } from "../parts/parts";
 import { Decisions } from "../planning/Decisions";
 import { DocumentsBody, DocumentsTabs } from "../planning/Documents";
 import { OpenQuestions } from "../planning/OpenQuestions";
+import { OverviewPage } from "../overview/Overview";
+import { ReviewsPage } from "../reviews/Reviews";
 import { PlanApprovalPage } from "../planning/PlanApproval";
 import { RecordDecision } from "../planning/RecordDecision";
 import { RecordQuestion } from "../planning/RecordQuestion";
@@ -209,6 +211,8 @@ function ViewFor({ view, project, scoped, params, live, after, needs, projects, 
   const archived = projects.find((row) => row.name === project)?.state === "archived";
   const scope = scoped ? "project" : "installation";
   switch (view) {
+    case "overview":
+      return <OverviewPage live={live} project={project} label={label} archived={archived} />;
     case "roadmap":
       return <RoadmapPage live={live} project={project} />;
     case "plans":
@@ -243,6 +247,8 @@ function ViewFor({ view, project, scoped, params, live, after, needs, projects, 
       return <FloorPage live={live} project={project} projects={projects} show={param("show")} after={after} />;
     case "lane":
       return <LanePage key={param("id")} id={param("id")} live={live} />;
+    case "reviews":
+      return <ReviewsPage live={live} tab={param("tab")} after={after} />;
     case "conversations":
       return <ConversationsPage live={live} project={project} label={label} after={after} archived={archived} />;
     case "measures":

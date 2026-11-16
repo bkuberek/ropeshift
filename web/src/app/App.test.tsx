@@ -8,6 +8,8 @@ import { App } from "./App";
 const needsYou = "/v1/needs-you";
 
 beforeEach(() => {
+  // These tests open the application on Needs you, the view a person signs in to.
+  window.history.replaceState(null, "", "/needs-you");
   stubEvents();
   vi.stubGlobal("matchMedia", () => ({ matches: false, addEventListener() {}, removeEventListener() {} }));
 });

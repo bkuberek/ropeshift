@@ -524,11 +524,13 @@ a.kpi:hover {
 }
 
 .kpi-label {
+  display: block;
   font-size: var(--fs-12);
   color: var(--text-2);
 }
 
 .kpi-value {
+  display: block;
   font-size: var(--fs-24);
   line-height: var(--lh-24);
   font-weight: 600;
@@ -537,6 +539,7 @@ a.kpi:hover {
 }
 
 .kpi-note {
+  display: block;
   font-size: var(--fs-12);
   color: var(--text-3);
 }

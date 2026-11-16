@@ -221,6 +221,14 @@
   .project-button {
     max-width: 44vw;
     height: 40px;
+    min-width: 0;
+  }
+
+  /* A long project name gives way, with an ellipsis, before a button or the count shrinks. */
+  .topbar > .menu-btn,
+  .topbar > .wordmark,
+  .topbar > .top-actions {
+    flex: none;
   }
 
   .topbar {

@@ -419,6 +419,14 @@ p + .kv {
   text-decoration: none;
 }
 
+/* A refusal in a cell that never wraps keeps to a width of its own, and wraps. */
+.row-refusal {
+  max-width: 18rem;
+  margin-left: auto;
+  white-space: normal;
+  text-align: left;
+}
+
 .id-link:hover .id {
   text-decoration: underline;
 }
