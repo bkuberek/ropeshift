@@ -1,0 +1,175 @@
+{
+  "min_samples": 10,
+  "recent_samples": 50,
+  "by_kind_size": [
+    {
+      "kind": "change",
+      "size": "medium",
+      "count": 12,
+      "delivery": {
+        "p50": 21600000,
+        "p85": 39600000
+      },
+      "lane": {
+        "p50": 10800000,
+        "p85": 19800000
+      },
+      "cost": {
+        "p50": 6,
+        "p85": 11
+      },
+      "mean_rounds": 2,
+      "change": {
+        "measured": 12,
+        "files": 7,
+        "added": 90,
+        "removed": 10
+      },
+      "confidence": "confident",
+      "explanation": "Based on 12 finished medium changes."
+    },
+    {
+      "kind": "change",
+      "size": "small",
+      "count": 7,
+      "delivery": {
+        "p50": 14400000,
+        "p85": 25200000
+      },
+      "lane": {
+        "p50": 7200000,
+        "p85": 12600000
+      },
+      "cost": {
+        "p50": 4,
+        "p85": 7
+      },
+      "cost_lower_bound": true,
+      "mean_rounds": 1.8571428571428572,
+      "change": {
+        "measured": 7,
+        "files": 5,
+        "added": 70,
+        "removed": 8
+      },
+      "confidence": "low",
+      "explanation": "Low confidence. Based on 7 finished small changes; a confident estimate needs 10. To find them, ropeshift ignored the capability class, the repository, the merge authority level, and the number of criteria. They took from 1h to 7h."
+    },
+    {
+      "kind": "rework",
+      "size": "small",
+      "count": 4,
+      "delivery": {
+        "p50": 10800000,
+        "p85": 14400000
+      },
+      "lane": {
+        "p50": 5400000,
+        "p85": 7200000
+      },
+      "cost": {
+        "p50": 3,
+        "p85": 4
+      },
+      "p85_open": true,
+      "mean_rounds": 1.75,
+      "change": {
+        "measured": 4,
+        "files": 3,
+        "added": 50,
+        "removed": 6
+      },
+      "confidence": "low",
+      "explanation": "Low confidence. Based on 4 finished small reworks; a confident estimate needs 10. To find them, ropeshift ignored the capability class, the repository, the merge authority level, and the number of criteria. They took from 1h to 4h. With fewer than 6, the 85th percentile cannot be read from them, so the band is open above 4h."
+    }
+  ],
+  "by_kind_size_class_repository": [
+    {
+      "kind": "change",
+      "size": "medium",
+      "capability_class": "implement",
+      "repository": "harbor-web",
+      "count": 12,
+      "delivery": {
+        "p50": 21600000,
+        "p85": 39600000
+      },
+      "lane": {
+        "p50": 10800000,
+        "p85": 19800000
+      },
+      "cost": {
+        "p50": 6,
+        "p85": 11
+      },
+      "mean_rounds": 2,
+      "change": {
+        "measured": 12,
+        "files": 7,
+        "added": 90,
+        "removed": 10
+      },
+      "confidence": "confident",
+      "explanation": "Based on 12 finished medium changes with the same capability class and repository."
+    },
+    {
+      "kind": "change",
+      "size": "small",
+      "capability_class": "implement",
+      "repository": "harbor-api",
+      "count": 7,
+      "delivery": {
+        "p50": 14400000,
+        "p85": 25200000
+      },
+      "lane": {
+        "p50": 7200000,
+        "p85": 12600000
+      },
+      "cost": {
+        "p50": 4,
+        "p85": 7
+      },
+      "cost_lower_bound": true,
+      "mean_rounds": 1.8571428571428572,
+      "change": {
+        "measured": 7,
+        "files": 5,
+        "added": 70,
+        "removed": 8
+      },
+      "confidence": "low",
+      "explanation": "Low confidence. Based on 7 finished small changes; a confident estimate needs 10. To find them, ropeshift ignored the merge authority level and the number of criteria. They took from 1h to 7h."
+    },
+    {
+      "kind": "rework",
+      "size": "small",
+      "capability_class": "implement",
+      "repository": "harbor-api",
+      "count": 4,
+      "delivery": {
+        "p50": 10800000,
+        "p85": 14400000
+      },
+      "lane": {
+        "p50": 5400000,
+        "p85": 7200000
+      },
+      "cost": {
+        "p50": 3,
+        "p85": 4
+      },
+      "p85_open": true,
+      "mean_rounds": 1.75,
+      "change": {
+        "measured": 4,
+        "files": 3,
+        "added": 50,
+        "removed": 6
+      },
+      "confidence": "low",
+      "explanation": "Low confidence. Based on 4 finished small reworks; a confident estimate needs 10. To find them, ropeshift ignored the merge authority level and the number of criteria. They took from 1h to 4h. With fewer than 6, the 85th percentile cannot be read from them, so the band is open above 4h."
+    }
+  ],
+  "repositories": {}
+}

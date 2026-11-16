@@ -7,4 +7,5 @@ var (
 	ForecastText    = forecastText
 	LookBackText    = lookBackText
 	CalibrationText = calibrationText
+	HistoryText     = deliveryHistoryText
 )

@@ -132,6 +132,7 @@ func WebRoutes() []WebRoute {
 		{http.MethodGet, "/v1/approvals/{id}", "approval show"},
 		{http.MethodGet, DeliveryPath, "measures delivery"},
 		{http.MethodGet, CalibrationPath, "measures estimates"},
+		{http.MethodGet, HistoryPath, "measures history"},
 		{http.MethodGet, "/v1/lanes/{id}/outline", "lane outline"},
 		{http.MethodGet, "/v1/sources", "source list"},
 		{http.MethodPost, "/v1/work-orders", "work create"},

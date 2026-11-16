@@ -18,6 +18,24 @@ const DefaultDeliveryWindow = "30d"
 // CalibrationPath is estimate calibration's read (FR-EST-11).
 const CalibrationPath = "/v1/measures/estimates"
 
+// HistoryPath is the delivery history a planning session sees (FR-EST-12).
+const HistoryPath = "/v1/measures/history"
+
+// DeliveryHistory is the project's finished work as a planning lane's pack holds it, grouped by kind and size and by
+// kind, size, capability class, and repository, with the repositories' names by ID, so a person reads what the session
+// reads. It holds the project's own records alone.
+type DeliveryHistory struct {
+	delivery.History
+	Repositories map[string]string `json:"repositories"`
+}
+
+// DeliveryHistory reads the delivery history a planning session sees (FR-EST-12).
+func (c *ProjectClient) DeliveryHistory(ctx context.Context) (DeliveryHistory, error) {
+	var out DeliveryHistory
+	err := c.do(ctx, http.MethodGet, HistoryPath, nil, &out)
+	return out, err
+}
+
 // DefaultCalibrationWindow is the recent window calibration covers when a read names none, beside all time.
 const DefaultCalibrationWindow = "30d"
 

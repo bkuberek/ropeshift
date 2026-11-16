@@ -21,6 +21,7 @@ func (h *handler) measureRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/measures", h.readMeasures)
 	mux.HandleFunc("GET /v1/measures/delivery", h.readDelivery)
 	mux.HandleFunc("GET /v1/measures/estimates", h.readCalibration)
+	mux.HandleFunc("GET /v1/measures/history", h.readHistory)
 	mux.HandleFunc("GET /v1/work-orders/{id}/timeline", h.readTimeline)
 	mux.HandleFunc("GET /v1/work-orders/{id}/estimate", h.readEstimate)
 	mux.HandleFunc("GET /v1/plans/{id}/forecast", h.readForecast)
@@ -179,6 +180,21 @@ func (h *handler) readCalibration(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	reply(w, http.StatusOK, report)
+}
+
+// readHistory reads the delivery history a planning session sees in its pack, from the project's own records (FR-EST-12).
+func (h *handler) readHistory(w http.ResponseWriter, r *http.Request) {
+	var view api.DeliveryHistory
+	err := h.Store.Read(r.Context(), h.Scope, func(tx ports.ReadTx) error {
+		history, names, err := control.DeliveryHistoryIn(tx.Policies(), tx.Deliveries(), tx.Repositories())
+		view = api.DeliveryHistory{History: history, Repositories: names}
+		return err
+	})
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	reply(w, http.StatusOK, view)
 }
 
 // readTimeline derives where one work order's time went as the fold would, with the spans it keeps of a full

@@ -446,6 +446,11 @@
   },
   {
     "method": "GET",
+    "pattern": "/v1/projects/{project}/measures/history",
+    "command": "measures history"
+  },
+  {
+    "method": "GET",
     "pattern": "/v1/projects/{project}/lanes/{id}/outline",
     "command": "lane outline"
   },

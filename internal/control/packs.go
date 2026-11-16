@@ -11,7 +11,6 @@ import (
 	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/contextpacks"
 	"ropeshift.com/ropeshift/internal/crashpoint"
-	"ropeshift.com/ropeshift/internal/delivery"
 	"ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/messages"
@@ -402,23 +401,11 @@ const historyRef = "project"
 // records under the estimate policy in force, with its repositories by name (FR-EST-12). It reads nothing of the
 // installation pool: the pool answers only the last tier of an estimate (FR-EST-13).
 func (r packRecords) deliveryHistory() (contextpacks.Source, error) {
-	policy, err := estimatePolicyIn(r.policies)
+	history, names, err := DeliveryHistoryIn(r.policies, r.deliveries(), r.repositories)
 	if err != nil {
 		return contextpacks.Source{}, err
 	}
-	records, err := r.deliveries().Records()
-	if err != nil {
-		return contextpacks.Source{}, err
-	}
-	repositories, err := r.repositories.Repositories()
-	if err != nil {
-		return contextpacks.Source{}, err
-	}
-	names := map[string]string{}
-	for _, repository := range repositories {
-		names[repository.ID] = repository.Name
-	}
-	text := delivery.HistoryOf(records, policy).Text(names)
+	text := history.Text(names)
 	return contextpacks.Source{
 		Kind: contextpacks.KindDeliveryHistory, Ref: historyRef, Digest: contextpacks.TextDigest(text), Trust: contextpacks.TrustWorkspace,
 		Title: "Delivery history", Text: text,
