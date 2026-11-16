@@ -25,6 +25,48 @@ function serving({ view, post }: { view?: (view: Questions) => void; post?: (cal
   });
 }
 
+describe("answering and dismissing from the command palette", () => {
+  async function palette(typed: string) {
+    openPage("/questions");
+    await screen.findByRole("article", { name: budget });
+    await userEvent.keyboard("{Control>}k{/Control}");
+    await screen.findByRole("dialog", { name: "Command palette" });
+    await userEvent.keyboard(typed);
+  }
+
+  it("opens the answer form of a question that waits, with its first choice focused, and sends nothing", async () => {
+    const sent = serving();
+    openPage("/questions");
+    await palette("answer question budget");
+    await userEvent.click(await screen.findByRole("option", { name: new RegExp(`^Answer question: ${budget}`) }));
+    const group = await screen.findByRole("group", { name: budget });
+    await waitFor(() => expect(group.contains(document.activeElement)).toBe(true));
+    expect(changes(sent)).toEqual([]);
+  });
+
+  it("opens the dismissal of a question that waits, which asks before it sends", async () => {
+    const sent = serving();
+    await palette("dismiss question budget");
+    await userEvent.click(await screen.findByRole("option", { name: new RegExp(`^Dismiss question: ${budget}`) }));
+    expect(await screen.findByRole("dialog", { name: "Dismiss this question?" })).toBeTruthy();
+    expect(changes(sent)).toEqual([]);
+  });
+
+  it("lists no answer or dismissal for a question that is closed", async () => {
+    serving({
+      view: (view) => {
+        const last = view.questions[2];
+        if (last) {
+          last.status = "answered";
+        }
+      },
+    });
+    await palette("question");
+    await screen.findByRole("listbox");
+    expect(screen.queryByRole("option", { name: new RegExp(`^(Answer|Dismiss) question: ${restart}`) })).toBeNull();
+  });
+});
+
 describe("answering from the open questions", () => {
   it("sends the recommendation, which stands chosen, as the member's answer", async () => {
     document.cookie = "ropeshift_csrf=token-from-cookie";

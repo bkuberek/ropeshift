@@ -4,6 +4,7 @@ import { join, relative } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import routes from "../../testdata/routes.json";
+import { paletteActions } from "../app/paletteActions";
 import { FakeEvents, serveApi, stubEvents } from "../testing";
 import {
   acknowledgeRisk,
@@ -282,6 +283,29 @@ describe("the routes the web listener serves", () => {
     for (const [name, slice] of Object.entries(uiGaps)) {
       expect(slice, name).toMatch(gapSlice);
     }
+  });
+});
+
+// FR-UI-9: the command palette has an action for every operation that changes something and has a control in the UI,
+// sign-in and sign-out excepted. paletteActions names each one's action, and paletteActions.test.tsx opens the
+// palette and looks for it.
+const signing = new Set(["POST /v1/sessions", "POST /v1/sessions/end"]);
+
+describe("the command palette", () => {
+  const changing = served.filter((route) => route.method !== "GET" && key(route) in callers && !signing.has(key(route))).map(key);
+
+  it("has an action for each route that changes something and has a UI caller", () => {
+    expect(
+      changing.filter((name) => !(name in paletteActions)),
+      "a changing route with a caller and no palette action",
+    ).toEqual([]);
+  });
+
+  it("names no action for a route that does not change anything, has no caller, or is the sign-in", () => {
+    expect(
+      Object.keys(paletteActions).filter((name) => !changing.includes(name)),
+      "a palette action for a route that is not one of them",
+    ).toEqual([]);
   });
 });
 

@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
@@ -68,6 +68,38 @@ describe("Projects", () => {
     expect(within(tern).queryByRole("button", { name: "Archive…" })).toBeNull();
     const active = within(table).getByText("Default").closest("tr") as HTMLElement;
     expect(within(active).getByRole("button", { name: "Back up" })).toBeTruthy();
+  });
+
+  it("opens the dialog an address names, for the project it names", async () => {
+    serveAdmin(undefined, listed);
+    openPage("/projects?dialog=archive&project=default");
+    expect(await screen.findByRole("dialog", { name: "Archive Default" })).toBeTruthy();
+    cleanup();
+    openPage("/projects?dialog=rename&project=default");
+    expect(await screen.findByRole("dialog", { name: "Rename Default" })).toBeTruthy();
+    cleanup();
+    openPage("/projects?dialog=remove&project=tern");
+    expect(await screen.findByRole("dialog", { name: "Remove Tern" })).toBeTruthy();
+  });
+
+  it("opens no dialog for a project it does not list", async () => {
+    serveAdmin(undefined, listed);
+    openPage("/projects?dialog=archive&project=nowhere");
+    await screen.findByRole("region", { name: "Projects" });
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("focuses the Back up and Restore of the project an address names", async () => {
+    serveAdmin(undefined, listed);
+    openPage("/projects?focus=Back up Default");
+    const table = await screen.findByRole("region", { name: "Projects" });
+    const active = within(table).getByText("Default").closest("tr") as HTMLElement;
+    await waitFor(() => expect(document.activeElement).toBe(within(active).getByRole("button", { name: "Back up" })));
+    cleanup();
+    openPage("/projects?focus=Restore Tern");
+    const again = await screen.findByRole("region", { name: "Projects" });
+    const tern = within(again).getByText("Tern").closest("tr") as HTMLElement;
+    await waitFor(() => expect(document.activeElement).toBe(within(tern).getByRole("button", { name: "Restore" })));
   });
 
   it("creates a project, and shows the API's refusal at the name", async () => {
@@ -141,6 +173,30 @@ describe("Repositories", () => {
     await waitFor(() => expect(sentTo(sent, "PATCH", "/v1/repositories/id-api")).toHaveLength(1));
     expect(sentTo(sent, "PATCH", "/v1/repositories/id-api")[0]?.body).toEqual({ base: "develop" });
   });
+
+  it("opens the removal an address asks for, and sends nothing", async () => {
+    const sent = serveAdmin();
+    openPage(here("/repositories?repo=id-api&dialog=remove"));
+    expect(await screen.findByRole("dialog", { name: "Remove api" })).toBeTruthy();
+    expect(sent.filter((call) => call.method !== "GET")).toEqual([]);
+  });
+
+  it("lists Change and Remove for each repository in the command palette, which select it and focus its name", async () => {
+    serveAdmin();
+    openPage(here("/repositories"));
+    await screen.findByRole("region", { name: "Repositories" });
+    await userEvent.keyboard("{Control>}k{/Control}");
+    await screen.findByRole("dialog", { name: "Command palette" });
+    await userEvent.keyboard("change repository");
+    await userEvent.click(await screen.findByRole("option", { name: /^Change repository: api/ }));
+    const record = await screen.findByRole("region", { name: "api" });
+    await waitFor(() => expect(document.activeElement).toBe(within(record).getByLabelText("Name")));
+    await userEvent.keyboard("{Control>}k{/Control}");
+    await screen.findByRole("dialog", { name: "Command palette" });
+    await userEvent.keyboard("remove repository");
+    await userEvent.click(await screen.findByRole("option", { name: /^Remove repository: api/ }));
+    expect(await screen.findByRole("dialog", { name: "Remove api" })).toBeTruthy();
+  }, 15_000);
 
   it("warns that review_approves in branch mode leaves the verdicts the only gate, and still saves", async () => {
     serveAdmin();
@@ -432,6 +488,12 @@ describe("Add agent", () => {
     await userEvent.click(await screen.findByRole("button", { name: "Add agent" }));
     return screen.findByRole("dialog", { name: "Add agent" });
   };
+  it("opens on an address that asks for it, as the command palette does", async () => {
+    serveAdmin();
+    openPage(here("/agents?dialog=add"));
+    expect(await screen.findByRole("dialog", { name: "Add agent" })).toBeTruthy();
+  });
+
   const paste = async (dialog: HTMLElement, text: string) => {
     await userEvent.click(within(dialog).getByRole("button", { name: "Paste TOML" }));
     fireEvent.change(within(dialog).getByLabelText(/Agent definition/), { target: { value: text } });

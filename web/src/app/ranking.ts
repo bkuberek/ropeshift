@@ -58,7 +58,8 @@ export function scoreOf(words: string[], entry: Entry): number | null {
   return words.every((word) => starts.some((part) => part.startsWith(word))) ? 3 : 4;
 }
 
-export type Sources = { actions: Entry[]; views: Entry[]; records: Entry[]; recent: Entry[]; projects: Entry[] };
+// more holds actions that only a typed query lists: the ones past the few the palette shows with nothing typed.
+export type Sources = { actions: Entry[]; views: Entry[]; records: Entry[]; recent: Entry[]; projects: Entry[]; more?: Entry[] };
 
 export type Group = { name: string; entries: Entry[] };
 
@@ -86,6 +87,8 @@ export function arrange(typed: string, sources: Sources): Group[] {
           { name: "Views", entries: query.scope === "all" ? ranked(query.words, sources.views) : [] },
           { name: "Records", entries: query.scope === "actions" ? [] : ranked(query.words, query.words.length ? sources.records : sources.recent, true) },
           { name: "Projects", entries: query.scope === "all" ? ranked(query.words, sources.projects) : [] },
+          // A decision past the few listed stands last, so a word that a card holds never puts it before a view.
+          { name: "Waiting for you", entries: query.scope === "records" ? [] : ranked(query.words, sources.more ?? []) },
         ];
   return groups.filter((group) => group.entries.length > 0);
 }

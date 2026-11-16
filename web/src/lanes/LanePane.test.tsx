@@ -94,6 +94,20 @@ describe("a lane's pane", () => {
     expect(document.activeElement).toBe(field);
   });
 
+  it("lists Send keys in the command palette, which puts the keyboard in the field and sends nothing", async () => {
+    const typed = serve();
+    openPage(page);
+    show(await opened(), "What is the plan for?");
+    const user = userEvent.setup();
+    await user.keyboard("{Control>}k{/Control}");
+    await screen.findByRole("dialog", { name: "Command palette" });
+    await user.keyboard("send keys");
+    await user.click(await screen.findByRole("option", { name: new RegExp(`^Send keys to the pane of lane ${lane}`) }));
+    const field = screen.getByRole("textbox", { name: "Type into the session" });
+    await waitFor(() => expect(document.activeElement).toBe(field));
+    expect(typed).toEqual([]);
+  });
+
   it("types text with no Enter when the person asks for none", async () => {
     const typed = serve();
     openPage(page);

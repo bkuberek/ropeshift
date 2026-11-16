@@ -3,6 +3,8 @@ import { useEffect, useRef, useState } from "react";
 import { addRepositories, changeRepository, readRepositories, removeRepository } from "../api/admin";
 import type { MergeAuthority, MergeMethod, RepositoryAddReport, RepositoryChange, RepositoryList, RepositoryView, ReviewTarget, StartFrom } from "../api/admin";
 import type { Live } from "../api/useView";
+import { usePageActions } from "../app/pageActions";
+import type { Entry } from "../app/ranking";
 import { addressOf, go, Link } from "../app/route";
 import { Page } from "../parts/parts";
 import { Button, Segmented } from "../ui/controls";
@@ -93,6 +95,16 @@ export function RepositoriesPage({ live, project, label: projectLabel, selected,
   const [registering, setRegistering] = useState(dialog === "register");
   const rows = (read.view?.repositories ?? []).filter((view) => view.state !== "removed");
   const chosen = rows.find((view) => view.id === selected);
+  // The command palette changes or removes a repository by selecting it: Change focuses its name, and Remove opens
+  // the dialog that asks first.
+  usePageActions(
+    archived
+      ? []
+      : rows.flatMap((view): Entry[] => [
+          { key: `action:change-repository:${view.id}`, group: "Actions", id: view.id, title: `Change repository: ${label(view)}`, icon: "repo", keywords: "edit settings base merge forge", to: addressOf("/repositories", { repo: view.id, focus: "Name" }) },
+          { key: `action:remove-repository:${view.id}`, group: "Actions", id: view.id, title: `Remove repository: ${label(view)}`, icon: "trash", keywords: "unregister delete", to: addressOf("/repositories", { repo: view.id, dialog: "remove" }) },
+        ]),
+  );
   return (
     <Page
       title="Repositories"
@@ -174,7 +186,7 @@ export function RepositoriesPage({ live, project, label: projectLabel, selected,
                 </table>
               </TableRegion>
             </Panel>
-            {chosen ? <RecordForm key={chosen.id} view={chosen} archived={archived} projectLabel={projectLabel} after={read.again} /> : null}
+            {chosen ? <RecordForm key={chosen.id} view={chosen} archived={archived} projectLabel={projectLabel} after={read.again} removeAsked={dialog === "remove"} /> : null}
             {!chosen && selected ? <Refusal>No repository {selected} in {projectLabel}.</Refusal> : null}
           </div>
         )}
@@ -184,9 +196,14 @@ export function RepositoriesPage({ live, project, label: projectLabel, selected,
   );
 }
 
-function RecordForm({ view, archived, projectLabel, after }: { view: RepositoryView; archived: boolean; projectLabel: string; after: () => void }) {
+function RecordForm({ view, archived, projectLabel, after, removeAsked = false }: { view: RepositoryView; archived: boolean; projectLabel: string; after: () => void; removeAsked?: boolean }) {
   const [draft, setDraft, saved] = useDraft<Draft>(draftOf(view));
-  const [removing, setRemoving] = useState(false);
+  const [removing, setRemoving] = useState(removeAsked && !archived);
+  useEffect(() => {
+    if (removeAsked && !archived) {
+      setRemoving(true);
+    }
+  }, [removeAsked]);
   const change = useChange();
   const toast = useToast();
   const changes = changesOf(saved, draft);
@@ -241,7 +258,7 @@ function RecordForm({ view, archived, projectLabel, after }: { view: RepositoryV
       >
         <fieldset className="form-grid record-form" disabled={archived} aria-label={`Record of ${label(view)}`}>
           <GridField label="Name">
-            <input className="input mono field-narrow" autoComplete="off" spellCheck={false} value={draft.name} onChange={(event) => set("name", event.target.value)} />
+            <input className="input mono field-narrow" data-focus="Name" autoComplete="off" spellCheck={false} value={draft.name} onChange={(event) => set("name", event.target.value)} />
           </GridField>
           <GridField label="Base branch" help={`Lanes start from this branch. Unset, the default branch: ${view.default_branch ?? "unknown"}.`}>
             <input className="input mono field-narrow" autoComplete="off" spellCheck={false} placeholder={view.default_branch ? `${view.default_branch}…` : "main…"} value={draft.base} onChange={(event) => set("base", event.target.value)} />
