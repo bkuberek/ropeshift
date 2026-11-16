@@ -26,6 +26,9 @@ const (
 const (
 	EnvStateDir = "ROPESHIFT_STATE_DIR"
 	EnvRunDir   = "ROPESHIFT_RUN_DIR"
+	// EnvWorktreeDir replaces the directory that holds lane worktrees. With a state directory set and this
+	// unset, the worktrees go under the state directory.
+	EnvWorktreeDir = "ROPESHIFT_WORKTREE_DIR"
 )
 
 // The web listener's address. EnvWeb replaces the default, for a second installation on one machine and
@@ -48,6 +51,8 @@ const (
 type Paths struct {
 	StateDir string
 	RunDir   string
+	// WorktreeDir holds the built-in root of every lane's worktree, outside every clone (FR-PROF-3).
+	WorktreeDir string
 }
 
 // TerminalSocket is the private terminal server's socket (D20).
@@ -64,6 +69,7 @@ func ResolvePaths(goos string, getenv func(string) string, home string) (Paths, 
 	case "darwin":
 		p.StateDir = filepath.Join(home, "Library", "Application Support", "ropeshift")
 		p.RunDir = filepath.Join(home, ".ropeshift", "run")
+		p.WorktreeDir = filepath.Join(home, ".ropeshift", "worktrees")
 	case "linux":
 		state := getenv("XDG_STATE_HOME")
 		if state == "" {
@@ -74,14 +80,24 @@ func ResolvePaths(goos string, getenv func(string) string, home string) (Paths, 
 		if runtime := getenv("XDG_RUNTIME_DIR"); runtime != "" {
 			p.RunDir = filepath.Join(runtime, "ropeshift")
 		}
+		data := getenv("XDG_DATA_HOME")
+		if data == "" {
+			data = filepath.Join(home, ".local", "share")
+		}
+		p.WorktreeDir = filepath.Join(data, "ropeshift", "worktrees")
 	default:
 		return Paths{}, fmt.Errorf("no paths for %s", goos)
 	}
 	if dir := getenv(EnvStateDir); dir != "" {
 		p.StateDir = dir
+		// A second installation and every test keep their worktrees apart from the person's own.
+		p.WorktreeDir = filepath.Join(dir, "worktrees")
 	}
 	if dir := getenv(EnvRunDir); dir != "" {
 		p.RunDir = dir
+	}
+	if dir := getenv(EnvWorktreeDir); dir != "" {
+		p.WorktreeDir = dir
 	}
 	if len(p.ControlSocket()) > MaxSocketPath {
 		return Paths{}, errors.New("socket path is over the limit: " + p.ControlSocket())

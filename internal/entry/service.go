@@ -37,7 +37,8 @@ var serviceName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 // PATH, and an installation moved by a variable would be another installation. Nothing else is kept,
 // so no credential reaches a service's file (NFR-SEC-1).
 var serviceVariables = []string{
-	"LANG", "LC_ALL", "LC_CTYPE", "PATH", api.EnvRunDir, api.EnvStateDir, api.EnvTelemetry, api.EnvWeb, "TZ", "XDG_STATE_HOME",
+	"LANG", "LC_ALL", "LC_CTYPE", "PATH", api.EnvRunDir, api.EnvStateDir, api.EnvTelemetry, api.EnvWeb, api.EnvWorktreeDir, "TZ",
+	"XDG_DATA_HOME", "XDG_STATE_HOME",
 }
 
 // services writes the daemon's service on this machine, through its service manager.

@@ -40,6 +40,55 @@ func TestResolvePaths(t *testing.T) {
 	}
 }
 
+func TestResolvePathsWorktreeDir(t *testing.T) {
+	const home = "/home/someone"
+	tests := []struct {
+		name string
+		goos string
+		env  map[string]string
+		want string
+	}{
+		{"macOS beside the socket folder", "darwin", nil, home + "/.ropeshift/worktrees"},
+		{"macOS ignores the XDG variable", "darwin", map[string]string{"XDG_DATA_HOME": "/data"}, home + "/.ropeshift/worktrees"},
+		{"Linux under XDG_DATA_HOME", "linux", map[string]string{"XDG_DATA_HOME": "/data"}, "/data/ropeshift/worktrees"},
+		{"Linux with XDG_DATA_HOME unset", "linux", nil, home + "/.local/share/ropeshift/worktrees"},
+		{"the worktree variable replaces it", "linux", map[string]string{"XDG_DATA_HOME": "/data", EnvWorktreeDir: "/w"}, "/w"},
+		{"the worktree variable replaces it on macOS", "darwin", map[string]string{EnvWorktreeDir: "/w"}, "/w"},
+		{"a state directory moves it under the state directory", "linux", map[string]string{EnvStateDir: "/s", "XDG_DATA_HOME": "/data"}, "/s/worktrees"},
+		{"a state directory moves it on macOS", "darwin", map[string]string{EnvStateDir: "/s"}, "/s/worktrees"},
+		{"the worktree variable wins over the state directory", "linux", map[string]string{EnvStateDir: "/s", EnvWorktreeDir: "/w"}, "/w"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := ResolvePaths(tt.goos, func(key string) string { return tt.env[key] }, home)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.WorktreeDir != tt.want {
+				t.Errorf("WorktreeDir = %q, want %q", got.WorktreeDir, tt.want)
+			}
+		})
+	}
+}
+
+// A test or a second installation sets ROPESHIFT_STATE_DIR, and nothing it starts may name the person's own
+// worktree directory.
+func TestAnExplicitStateDirectoryNeverNamesTheHomeDefault(t *testing.T) {
+	const home = "/home/someone"
+	for _, goos := range []string{"linux", "darwin"} {
+		for _, data := range []string{"", "/data"} {
+			env := map[string]string{EnvStateDir: "/tmp/state", "XDG_DATA_HOME": data}
+			got, err := ResolvePaths(goos, func(key string) string { return env[key] }, home)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.HasPrefix(got.WorktreeDir, home) || (data != "" && strings.HasPrefix(got.WorktreeDir, data)) {
+				t.Errorf("%s with XDG_DATA_HOME=%q put the worktrees at %q, outside the state directory", goos, data, got.WorktreeDir)
+			}
+		}
+	}
+}
+
 func TestResolvePathsRefuses(t *testing.T) {
 	if _, err := ResolvePaths("plan9", func(string) string { return "" }, "/home/someone"); err == nil {
 		t.Error("an unknown system resolved")
