@@ -264,7 +264,7 @@ func serveSolo(ctx context.Context, paths api.Paths, opts soloOptions, stdout, s
 		Panes:     soloPanes(terminal), Starts: soloStarts(opts, kept), WebAddress: webAddressOf(webListener),
 		Branches: branchSource(opts, kept), LaneBranchPrefix: soloLaneBranchPrefix(paths),
 		Checkouts: kept, ParseManifest: repofiles.ParseManifest, ModelClasses: soloModelClasses(paths),
-		Profile: profiles.Filesystem{User: filepath.Join(paths.StateDir, profiles.UserFile)}, LocalWorker: local.id,
+		Profile: soloProfiles(paths), Profiles: soloProfiles(paths), LocalWorker: local.id,
 	}
 	hosts := &soloHosts{kept: kept, runtime: laneRuntime}
 	config.AssistantHosts = hosts.read

@@ -94,6 +94,9 @@ func (r *Repositories) Add(ctx context.Context, scope ledger.WorkspaceID, in Rep
 			if added.Checkout, err = keepCheckout(ctx, kept, scope, held, clone, in.DryRun); err != nil {
 				return out, err
 			}
+			if added, err = r.withRootNote(ctx, scope, kept, added, added.Checkout); err != nil {
+				return out, err
+			}
 			claimed[added.Repository.Name] = true
 			first[clone.ID] = added
 		}

@@ -384,8 +384,11 @@ func addedText(report api.RepositoryAddReport) string {
 			word = "would register"
 		}
 		fmt.Fprintf(&out, "%s\t%s\t%s\t%s", word, name, id, added.Path)
-		if added.Checkout != "" && added.Checkout != added.Path {
+		switch {
+		case added.Checkout != "" && added.Checkout != added.Path:
 			fmt.Fprintf(&out, "\t(%s; this worker keeps %s)", dashIfEmpty(added.Reason), added.Checkout)
+		case added.Reason != "":
+			fmt.Fprintf(&out, "\t(%s)", added.Reason)
 		}
 		out.WriteString("\n")
 	}
