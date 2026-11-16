@@ -598,6 +598,16 @@ func (r *laneRun) failStart(reason string, err error) workorders.Report {
 	return failed(reason)
 }
 
+// recordedWorktree is the worktree the journal recorded for this lane's earlier generation, or nothing. A start
+// that begins the lane again records none until its worktree exists.
+func (r *laneRun) recordedWorktree(ctx context.Context) string {
+	record, err := r.w.journal.Lane(ctx, r.lease.Lane)
+	if err != nil {
+		return ""
+	}
+	return record.Worktree
+}
+
 // session provisions and runs the session, and returns the lane's outcome. The token
 // exists only in the session's environment, and the journal keeps its digest.
 func (r *laneRun) session(ctx context.Context) workorders.Report {
@@ -627,7 +637,7 @@ func (r *laneRun) session(ctx context.Context) workorders.Report {
 		return r.failStart(workorders.ReasonSpawnFailed, err)
 	}
 	prepared, err := r.rt.Provisioner.Prepare(ctx, LaneRequest{
-		Lane: r.lease.Lane, Repository: repository, Project: r.lease.Project, Branch: r.lease.Branch, Base: r.begins(), Overrides: r.lease.Overrides, Delegated: r.lease.Delegated, Agent: r.runsAs(), Fetch: r.fetchNames(), Private: r.orchestrating(),
+		Lane: r.lease.Lane, Repository: repository, Project: r.lease.Project, Recorded: r.recordedWorktree(ctx), Branch: r.lease.Branch, Base: r.begins(), Overrides: r.lease.Overrides, Delegated: r.lease.Delegated, Agent: r.runsAs(), Fetch: r.fetchNames(), Private: r.orchestrating(),
 		Detached: r.reviewing(), ForgeConfigDir: r.rt.forgeConfigDir(r.lease.Lane),
 		Allocate: func(settings lanes.ResourceSettings) (lanes.Allocation, error) { return r.allocate(ctx, settings) },
 		RunHook:  func(target string, perform func() error) error { return r.runHook(ctx, target, perform) },
@@ -667,7 +677,7 @@ func (r *laneRun) session(ctx context.Context) workorders.Report {
 		return r.failStart(workorders.ReasonSpawnFailed, err)
 	}
 	if prepared.Kept != nil && r.keptReported.CompareAndSwap(false, true) {
-		r.w.config.Report(fmt.Errorf("lane %s: %s", r.lease.Lane, prepared.Kept.Notice()))
+		r.w.config.Notice(fmt.Sprintf("lane %s: %s", r.lease.Lane, prepared.Kept.Notice()))
 	}
 	r.signal(ctx, lanes.OnResourcesReady)
 	r.setWorktreePath(prepared.Worktree.Path)

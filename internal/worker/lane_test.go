@@ -252,6 +252,113 @@ func TestAnExistingWorktreeInsideACloneIsKeptAndANewOneRefused(t *testing.T) {
 	}
 }
 
+// Only a lane's own worktree is kept. A worktree that holds the lane's branch and is someone else's, a person's
+// own `git worktree add` or another lane's leftover, is no place for the lane: the start is refused as it was
+// before the root moved, and nothing of the other worktree's is reused, so an archive never removes it.
+func TestAForeignWorktreeThatHoldsTheBranchIsNeverReused(t *testing.T) {
+	t.Parallel()
+	for name, tt := range map[string]struct {
+		path     string
+		recorded string
+	}{
+		"a worktree a person made, named otherwise":                      {path: "/work/app/mine"},
+		"a worktree another lane left, by its name":                      {path: "/work/app-lanes/other"},
+		"a worktree of the lane's name that its journal does not record": {path: "/work/app-lanes/l1", recorded: "/work/elsewhere/l1"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			p, source, worktrees := provisioner(nil)
+			source.SetDefaultRoot("/data/worktrees/{project}/{repo}")
+			if _, err := worktrees.Create(t.Context(), ports.WorktreeSpec{Repository: "/work/app", Path: tt.path, Branch: "lane/l1"}); err != nil {
+				t.Fatal(err)
+			}
+			lane, err := p.Prepare(t.Context(), worker.LaneRequest{Lane: "l1", Repository: "/work/app", Project: "prj-1", Recorded: tt.recorded})
+			if !errors.Is(err, ports.ErrWorktreeConflict) {
+				t.Fatalf("got %+v, %v", lane.Worktree, err)
+			}
+			if created := worktrees.Created(); len(created) != 1 {
+				t.Errorf("a second worktree was made: %+v", created)
+			}
+		})
+	}
+}
+
+// A lane's own worktree is the one its journal recorded, and a lane with no record is held to the name its
+// worktree always has, the lane's.
+func TestALaneKeepsTheWorktreeItsJournalRecorded(t *testing.T) {
+	t.Parallel()
+	p, source, worktrees := provisioner(nil)
+	source.SetDefaultRoot("/data/worktrees/{project}/{repo}")
+	if _, err := worktrees.Create(t.Context(), ports.WorktreeSpec{Repository: "/work/app", Path: "/work/app-lanes/l1", Branch: "lane/l1"}); err != nil {
+		t.Fatal(err)
+	}
+	lane, err := p.Prepare(t.Context(), worker.LaneRequest{Lane: "l1", Repository: "/work/app", Project: "prj-1", Recorded: "/work/app-lanes/l1"})
+	if err != nil || lane.Worktree.Path != "/work/app-lanes/l1" || lane.Kept == nil {
+		t.Errorf("a recorded worktree: %+v, %v", lane, err)
+	}
+}
+
+// A review lane has no branch, so its own worktree is the one its journal recorded. One in flight at an upgrade
+// goes on in it at its next generation, and the upgrade leaves no second worktree of the same review.
+func TestAReviewLaneInFlightKeepsItsRecordedWorktree(t *testing.T) {
+	t.Parallel()
+	p, source, worktrees := provisioner(nil)
+	source.SetDefaultRoot("../{repo}-lanes")
+	request := worker.LaneRequest{Lane: "review-1", Repository: "/work/app", Project: "prj-1", Base: "c0ffee", Detached: true}
+	first, err := p.Prepare(t.Context(), request)
+	if err != nil || first.Worktree.Path != "/work/app-lanes/review-1" {
+		t.Fatalf("the first generation: %+v (%v)", first.Worktree, err)
+	}
+	source.SetDefaultRoot("/data/worktrees/{project}/{repo}")
+	request.Recorded = first.Worktree.Path
+	next, err := p.Prepare(t.Context(), request)
+	if err != nil || next.Worktree.Path != "/work/app-lanes/review-1" || next.Kept == nil || next.Kept.Would != "/data/worktrees/prj-1/app/review-1" {
+		t.Fatalf("the next generation: %+v, %+v (%v)", next.Worktree, next.Kept, err)
+	}
+	if created := worktrees.Created(); len(created) != 1 {
+		t.Errorf("a second worktree of the review: %+v", created)
+	}
+	// With nothing recorded there is nothing to keep, and a worktree that is not the lane's is never taken.
+	request.Recorded = "/work/app-lanes/another"
+	other, err := p.Prepare(t.Context(), request)
+	if err != nil || other.Worktree.Path != "/data/worktrees/prj-1/app/review-1" || other.Kept != nil {
+		t.Errorf("a record that names another worktree: %+v, %+v (%v)", other.Worktree, other.Kept, err)
+	}
+}
+
+// The refusal covers every clone the worker uses, not only the ones it keeps: the repository a lane works in, and
+// each repository the daemon reads as a source, which no checkout records.
+func TestARootInsideAnUnkeptSourceCloneIsRefused(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name       string
+		layer      string
+		sources    []string
+		wantClone  string
+		repository string
+	}{
+		{"the lane's own repository, kept by nobody", "[worktree]\nroot = \"lanes\"\n", nil, "/work/app", "/work/app"},
+		{"another source clone", "[worktree]\nroot = \"/work/plans/wt\"\n", []string{"/work/plans"}, "/work/plans", "/work/app"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			p, source, worktrees := provisioner(nil)
+			p.Checkouts = fake.NewCheckouts()
+			p.Sources = tt.sources
+			source.Put(tt.repository, tt.layer)
+			_, err := p.Prepare(t.Context(), worker.LaneRequest{Lane: "l1", Repository: tt.repository, Project: "prj-1"})
+			var inside *worker.WorktreeInsideClone
+			if !errors.As(err, &inside) || inside.Clone != tt.wantClone {
+				t.Fatalf("got %v, want a refusal for %s", err, tt.wantClone)
+			}
+			if created := worktrees.Created(); len(created) != 0 {
+				t.Errorf("a worktree was made: %+v", created)
+			}
+		})
+	}
+}
+
 func TestPrepareRepeats(t *testing.T) {
 	t.Parallel()
 	p, _, _ := provisioner(nil)

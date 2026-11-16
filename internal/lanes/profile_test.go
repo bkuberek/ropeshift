@@ -301,6 +301,7 @@ func TestPlace(t *testing.T) {
 			repository: "/work/app", project: "prj-1", lane: "l1",
 			want: Placement{Path: "/lanes/app/l1", Branch: "x/l1"}},
 		{name: "a project with a path in it", settings: settings, repository: "/work/app", project: "../escape", lane: "l1", wantErr: true},
+		{name: "a project that is the current folder", settings: settings, repository: "/work/app", project: ".", lane: "l1", wantErr: true},
 		{name: "a project that is a separator", settings: settings, repository: "/work/app", project: "a/b", lane: "l1", wantErr: true},
 		{name: "a lane with a path in it", settings: settings, repository: "/work/app", lane: "../escape", wantErr: true},
 		{name: "a relative repository", settings: settings, repository: "work/app", lane: "l1", wantErr: true},

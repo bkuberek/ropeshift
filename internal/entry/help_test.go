@@ -16,6 +16,21 @@ import (
 	"ropeshift.com/ropeshift/internal/cli"
 )
 
+// A person's own ROPESHIFT_WORKTREE_DIR outranks the state directory, so a test that isolates an installation
+// clears it, or its lanes would land in the person's worktree directory.
+func TestIsolateKeepsWorktreesUnderTheTestsOwnState(t *testing.T) {
+	t.Setenv(api.EnvWorktreeDir, "/somebody/elses/worktrees")
+	t.Setenv("XDG_DATA_HOME", "/somebody/elses/data")
+	isolate(t)
+	paths, err := installationPaths()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(paths.StateDir, "worktrees"); paths.WorktreeDir != want {
+		t.Errorf("the isolated worktree directory is %q, want %q", paths.WorktreeDir, want)
+	}
+}
+
 // isolate points the CLI at a state and run directory of the test's own, so no command a test
 // routes can reach this machine's installation, and gives the process an empty stdin, so a command
 // that reads one ends instead of waiting.
@@ -23,6 +38,7 @@ func isolate(t *testing.T) {
 	t.Helper()
 	t.Setenv(api.EnvStateDir, t.TempDir())
 	t.Setenv(api.EnvRunDir, t.TempDir())
+	t.Setenv(api.EnvWorktreeDir, "")
 	empty, err := os.Open(os.DevNull)
 	if err != nil {
 		t.Fatal(err)

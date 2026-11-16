@@ -212,6 +212,43 @@ func TestAUserRootOutsideEveryCloneStillPlacesTheWorktree(t *testing.T) {
 	}
 }
 
+// A worktree that holds the lane's branch and is not the lane's own, one a person made inside the clone, is never
+// taken as the lane's place: the start is refused as before and nothing of the person's is touched or reused.
+func TestAForeignWorktreeOnRealGitIsNeitherReusedNorTouched(t *testing.T) {
+	w := newWorktreeWorkspace(t)
+	api := w.clones["api"]
+	mine := filepath.Join(api, "mine")
+	w.workspace.Git("-C", api, "worktree", "add", "--quiet", "-b", "lane/lane-1", mine)
+	before := w.worktrees(api)
+	_, err := w.prov.Prepare(t.Context(), worker.LaneRequest{Lane: "lane-1", Repository: api, Project: "prj-1"})
+	if !errors.Is(err, ports.ErrWorktreeConflict) {
+		t.Fatalf("got %v", err)
+	}
+	if after := w.worktrees(api); !slices.Equal(before, after) {
+		t.Errorf("the worktrees changed: %v, then %v", before, after)
+	}
+	if _, err := os.Stat(filepath.Join(mine, "README.txt")); err != nil {
+		t.Errorf("the person's worktree was touched: %v", err)
+	}
+}
+
+// A clone only the daemon's sources know, which no checkout records, is checked like any other: a root inside it
+// refuses the lane.
+func TestARootInsideACloneNoCheckoutRecordsIsRefused(t *testing.T) {
+	w := newWorktreeWorkspace(t)
+	source := gittest.New(t)
+	source.Commit("README.txt", "source\n")
+	w.userRoot(t, "lanes/{project}")
+	_, err := w.prov.Prepare(t.Context(), worker.LaneRequest{Lane: "lane-1", Repository: source.Dir, Project: "prj-1"})
+	var inside *worker.WorktreeInsideClone
+	if !errors.As(err, &inside) || inside.Clone != source.Dir {
+		t.Fatalf("got %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(source.Dir, "lanes")); err == nil {
+		t.Error("a folder was made in the source clone")
+	}
+}
+
 // An installation upgraded with lanes in flight: each lane's worktree stands where the old default put it, beside
 // its clone, which for a clone in a workspace's repos/ is inside the workspace. The next generation of each goes on
 // in that worktree, on real git, makes no second worktree, and is not refused for where it stands, while a lane
@@ -236,6 +273,10 @@ func TestALaneInFlightAtAnUpgradeGoesOnInItsOldWorktree(t *testing.T) {
 		}
 		if lane.Kept == nil || lane.Kept.Path != old[name] || lane.Kept.Would != filepath.Join(w.paths.WorktreeDir, "prj-1", filepath.Base(clone), "lane-1") {
 			t.Errorf("%s: the kept placement reads %+v", name, lane.Kept)
+		}
+		// The api's old worktree lies inside the workspace's clone, which a new one may not, and is said to.
+		if wantInside := map[string]string{"api": w.workspace.Dir, "workspace": ""}[name]; lane.Kept != nil && lane.Kept.Inside != wantInside {
+			t.Errorf("%s: the kept worktree lies inside %q, want %q", name, lane.Kept.Inside, wantInside)
 		}
 		if after := w.worktrees(clone); !slices.Equal(before, after) {
 			t.Errorf("%s: a worktree was made: %v, then %v", name, before, after)

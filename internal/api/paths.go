@@ -80,8 +80,9 @@ func ResolvePaths(goos string, getenv func(string) string, home string) (Paths, 
 		if runtime := getenv("XDG_RUNTIME_DIR"); runtime != "" {
 			p.RunDir = filepath.Join(runtime, "ropeshift")
 		}
+		// A relative XDG_DATA_HOME is invalid, and the specification has it ignored.
 		data := getenv("XDG_DATA_HOME")
-		if data == "" {
+		if !filepath.IsAbs(data) {
 			data = filepath.Join(home, ".local", "share")
 		}
 		p.WorktreeDir = filepath.Join(data, "ropeshift", "worktrees")
@@ -97,6 +98,9 @@ func ResolvePaths(goos string, getenv func(string) string, home string) (Paths, 
 		p.RunDir = dir
 	}
 	if dir := getenv(EnvWorktreeDir); dir != "" {
+		if !filepath.IsAbs(dir) {
+			return Paths{}, fmt.Errorf("%s must be an absolute path, not %q", EnvWorktreeDir, dir)
+		}
 		p.WorktreeDir = dir
 	}
 	if len(p.ControlSocket()) > MaxSocketPath {

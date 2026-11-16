@@ -46,12 +46,21 @@ func TestTheLaneRuntimeChecksRootsAgainstTheWorkersCheckouts(t *testing.T) {
 	root := apitest.ShortDir(t)
 	paths := api.Paths{StateDir: filepath.Join(root, "state"), RunDir: filepath.Join(root, "run"), WorktreeDir: filepath.Join(root, "worktrees")}
 	kept := soloCheckouts(paths)
-	runtime, _, err := soloLanes(paths, soloOptions{}, kept, io.Discard)
+	source := filepath.Join(root, "plans")
+	runtime, _, err := soloLanes(paths, soloOptions{sources: repeatedFlag{source, "relative/clone"}}, kept, io.Discard)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if runtime.Provisioner.Checkouts != ports.Checkouts(kept) {
 		t.Errorf("the provisioner checks roots against %v", runtime.Provisioner.Checkouts)
+	}
+	// A source clone is in no checkout, so the daemon's sources, as absolute paths, are checked as well.
+	wantRelative, err := filepath.Abs("relative/clone")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := runtime.Provisioner.Sources; len(got) != 2 || got[0] != source || got[1] != wantRelative {
+		t.Errorf("the provisioner checks the sources %v, want %v and %v", got, source, wantRelative)
 	}
 }
 

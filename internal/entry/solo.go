@@ -406,6 +406,9 @@ func startSoloWorker(
 		Report: func(err error) {
 			fmt.Fprintf(stderr, "ropeshiftd: worker: %v\n", err)
 		},
+		Notice: func(notice string) {
+			fmt.Fprintf(stderr, "ropeshiftd: worker: note: %s\n", notice)
+		},
 	})
 	hosts.serve(subject)
 	local.worker.Store(subject)
@@ -523,6 +526,7 @@ func soloLanes(paths api.Paths, opts soloOptions, kept ports.Checkouts, stderr i
 			Worktrees: gitcli.Worktrees{},
 			Hooks:     hookrun.Runner{Processes: osexec.Runner{}},
 			Checkouts: kept,
+			Sources:   absolute(opts.sources),
 		},
 		Secrets:    secrets.Resolver{},
 		Machine:    machine.Reader{Processes: osexec.Runner{}},
@@ -570,6 +574,18 @@ func soloTerminal(runner ports.ProcessRunner, paths api.Paths, env []string) (po
 // worktree inside one, for a clone.
 func soloCheckouts(paths api.Paths) *checkouts.File {
 	return &checkouts.File{Path: filepath.Join(paths.StateDir, checkouts.FileName), Reserved: []string{paths.StateDir, paths.RunDir, paths.WorktreeDir}}
+}
+
+// absolute spells the daemon's source paths as absolute ones, as a worktree root is compared with them. A path
+// that cannot be made absolute is left out, because nothing could be inside it.
+func absolute(paths []string) []string {
+	var out []string
+	for _, path := range paths {
+		if abs, err := filepath.Abs(path); err == nil {
+			out = append(out, abs)
+		}
+	}
+	return out
 }
 
 // soloProfiles reads the user's layer from the state directory and a repository's from its clone, and gives

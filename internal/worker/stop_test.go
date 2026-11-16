@@ -649,14 +649,15 @@ func TestALaneWithAnOldWorktreeRunsInItAndReportsItOnce(t *testing.T) {
 	if _, err := r.worktrees().Inspect(t.Context(), stopWorktree); !errors.Is(err, ports.ErrNotFound) {
 		t.Errorf("a worktree was made at the new root: %v", err)
 	}
-	var reports []string
+	// It is a notice, not a failure the worker went on from.
 	for _, problem := range r.problems() {
 		if strings.Contains(problem.Error(), "existing worktree") {
-			reports = append(reports, problem.Error())
+			t.Errorf("the old placement was reported as a failure: %v", problem)
 		}
 	}
-	if len(reports) != 1 || !strings.Contains(reports[0], old) || !strings.Contains(reports[0], stopWorktree) || !strings.Contains(reports[0], "inside the clone /repository") {
-		t.Errorf("the old placement was reported %q", reports)
+	notices := r.notices()
+	if len(notices) != 1 || !strings.Contains(notices[0], old) || !strings.Contains(notices[0], stopWorktree) || !strings.Contains(notices[0], "inside the clone /repository") {
+		t.Errorf("the old placement was noticed as %q", notices)
 	}
 }
 

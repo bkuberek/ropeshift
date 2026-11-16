@@ -2,6 +2,7 @@ package worker
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path"
 
@@ -50,17 +51,19 @@ func (k KeptWorktree) Notice() string {
 	return notice
 }
 
-// place says where a lane's worktree goes. A lane whose branch already stands in a worktree of its repository
-// goes on in that worktree, wherever it is, because an upgrade can move the default root under a lane in flight
-// and a second worktree for the same branch cannot be made. The root in force then applies only to a worktree not
-// yet made, which is refused when it lies inside any clone this worker keeps, in any project, before anything
-// exists there. A worktree that exists is never refused: the lane goes on in it and the second result says so.
+// place says where a lane's worktree goes. A lane that already has a worktree of its own goes on in it, wherever
+// it is, because an upgrade can move the default root under a lane in flight and a second worktree for the same
+// branch cannot be made. The root in force then applies only to a worktree not yet made, which is refused when it
+// lies inside any clone this worker uses, before anything exists there: a clone it keeps in any project, a source
+// clone the daemon reads, or the repository the lane works in. A worktree that exists is never refused: the lane
+// goes on in it and the second result says so. A worktree that is not the lane's own is never taken, so a
+// branch another worktree holds still refuses the start.
 func (p Provisioner) place(ctx context.Context, request LaneRequest, profile lanes.Profile) (lanes.Placement, *KeptWorktree, error) {
 	place, err := lanes.Place(profile.Worktree, request.Repository, request.Project, request.Lane, request.Branch)
 	if err != nil {
 		return place, nil, err
 	}
-	held, err := p.heldPlace(ctx, request, place)
+	held, err := p.ownPlace(ctx, request, place)
 	if err != nil {
 		return lanes.Placement{}, nil, err
 	}
@@ -78,6 +81,7 @@ func (p Provisioner) place(ctx context.Context, request LaneRequest, profile lan
 	if err != nil {
 		return lanes.Placement{}, nil, err
 	}
+	clones = append(append(clones, p.Sources...), request.Repository)
 	clone, inside, err := ports.InsideClone(ctx, p.Checkouts, clones, place.Path)
 	if err != nil {
 		return lanes.Placement{}, nil, err
@@ -94,14 +98,34 @@ func (p Provisioner) place(ctx context.Context, request LaneRequest, profile lan
 	return place, kept, nil
 }
 
-// heldPlace names the worktree the lane's branch is checked out in, or nothing. A review lane has no branch and
-// a store that cannot say finds nothing.
-func (p Provisioner) heldPlace(ctx context.Context, request LaneRequest, place lanes.Placement) (string, error) {
+// ownPlace names the worktree that is this lane's own, or nothing. A worktree is the lane's when its folder is
+// named for the lane, as every worktree the worker makes is, and it is the one the lane's journal recorded when
+// the journal recorded one. A lane with a branch finds it by the branch it holds, which a worktree of a
+// person's or of another lane's can hold too and is then not the lane's. A review lane has no branch, so its
+// own is the one recorded, when that stands and is detached. A store that cannot say finds nothing.
+func (p Provisioner) ownPlace(ctx context.Context, request LaneRequest, place lanes.Placement) (string, error) {
+	if request.Detached {
+		if request.Recorded == "" || path.Base(request.Recorded) != request.Lane {
+			return "", nil
+		}
+		held, err := p.Worktrees.Inspect(ctx, request.Recorded)
+		if errors.Is(err, ports.ErrNotFound) || (err == nil && !held.Detached) {
+			return "", nil
+		}
+		return request.Recorded, err
+	}
 	trees, ok := p.Worktrees.(ports.BranchTrees)
-	if !ok || request.Detached || place.Branch == "" {
+	if !ok || place.Branch == "" {
 		return "", nil
 	}
-	return trees.CheckedOut(ctx, request.Repository, place.Branch)
+	held, err := trees.CheckedOut(ctx, request.Repository, place.Branch)
+	if err != nil || held == "" || path.Base(held) != request.Lane {
+		return "", err
+	}
+	if request.Recorded != "" && !p.samePlace(ctx, held, request.Recorded) {
+		return "", nil
+	}
+	return held, nil
 }
 
 // samePlace says two paths name one directory, spelled the same or, as a disk that ignores case or a link

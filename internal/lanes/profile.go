@@ -429,7 +429,7 @@ func Place(settings WorktreeSettings, repository, project, lane, branch string) 
 	if project == "" {
 		project = DefaultProject
 	}
-	if strings.ContainsAny(project, "/\\") || project == ".." {
+	if strings.ContainsAny(project, "/\\") || project == ".." || project == "." {
 		return Placement{}, fmt.Errorf("%w: no place for project %q", ErrBadProfile, project)
 	}
 	if settings.Root == "" || lane == "" || strings.ContainsAny(lane, "/\\") || lane == ".." {

@@ -22,6 +22,10 @@ type LaneRequest struct {
 	// Project is the ID of the project the lane belongs to, which a worktree root's {project} names. Empty
 	// names the installation's only project.
 	Project string
+	// Recorded is the worktree the lane's journal recorded for an earlier generation. A lane goes on in its own
+	// worktree when the root in force would put a new one elsewhere, and only the one recorded here, or when
+	// nothing is recorded one named for the lane, is its own. Empty says the journal holds none.
+	Recorded string
 	// Branch is what the ledger assigned. Empty names a new branch for this lane.
 	Branch string
 	// Base is the commit a new branch begins at, which the control plane resolved from the base branch
@@ -99,6 +103,9 @@ type Provisioner struct {
 	// Checkouts lists every clone this worker keeps, so a worktree root inside one is refused (FR-PROF-3).
 	// Nil checks nothing, for a test of what is not about the root.
 	Checkouts ports.Checkouts
+	// Sources are the absolute paths of the clones the daemon reads as sources, which no checkout records, so
+	// the refusal checks them too. The repository a lane works in is always checked.
+	Sources []string
 	// Lookup reads the worker's environment. Nil reads the process's.
 	Lookup func(string) (string, bool)
 }

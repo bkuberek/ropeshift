@@ -71,6 +71,25 @@ func TestResolvePathsWorktreeDir(t *testing.T) {
 	}
 }
 
+// The XDG specification says a relative XDG_DATA_HOME is invalid and ignored, so the default stands. A relative
+// ROPESHIFT_WORKTREE_DIR is the person's own choice and a wrong one, which would put lanes beside whatever
+// directory the daemon started in, so the installation refuses to start and names the variable.
+func TestARelativeWorktreeDirectoryIsIgnoredOrRefused(t *testing.T) {
+	const home = "/home/someone"
+	got, err := ResolvePaths("linux", func(key string) string { return map[string]string{"XDG_DATA_HOME": "data"}[key] }, home)
+	if want := home + "/.local/share/ropeshift/worktrees"; err != nil || got.WorktreeDir != want {
+		t.Errorf("a relative XDG_DATA_HOME gave %q (%v), want %q", got.WorktreeDir, err, want)
+	}
+	_, err = ResolvePaths("linux", func(key string) string { return map[string]string{EnvWorktreeDir: "lanes"}[key] }, home)
+	if err == nil || !strings.Contains(err.Error(), EnvWorktreeDir) || !strings.Contains(err.Error(), "absolute") {
+		t.Errorf("a relative %s: %v", EnvWorktreeDir, err)
+	}
+	// The state directory moves the worktrees only when it is itself an absolute path to move them under.
+	if got, err := ResolvePaths("linux", func(key string) string { return map[string]string{EnvStateDir: "/s", EnvWorktreeDir: ""}[key] }, home); err != nil || got.WorktreeDir != "/s/worktrees" {
+		t.Errorf("an unset %s: %q (%v)", EnvWorktreeDir, got.WorktreeDir, err)
+	}
+}
+
 // A test or a second installation sets ROPESHIFT_STATE_DIR, and nothing it starts may name the person's own
 // worktree directory.
 func TestAnExplicitStateDirectoryNeverNamesTheHomeDefault(t *testing.T) {

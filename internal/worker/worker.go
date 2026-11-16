@@ -40,6 +40,9 @@ type Config struct {
 	Spool string
 	// Report receives what Run could not do, because Run outlives any one failure.
 	Report func(error)
+	// Notice receives what the worker did that a person may want to know and that is no failure, such as a
+	// lane that went on in a worktree the root in force would not choose. Nil says nothing.
+	Notice func(string)
 	// Lanes runs the lanes a member dispatches. A worker with none only holds leases.
 	Lanes *LaneRuntime
 	// Telemetry receives the worker's own spans and metrics. Nil emits nothing.
@@ -125,6 +128,9 @@ func New(link ports.WorkerLink, journal ports.Journal, clock ports.Clock, config
 	}
 	if config.Report == nil {
 		config.Report = func(error) {}
+	}
+	if config.Notice == nil {
+		config.Notice = func(string) {}
 	}
 	if config.Telemetry == nil {
 		config.Telemetry = noTelemetry{}

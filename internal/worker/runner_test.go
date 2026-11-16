@@ -36,6 +36,21 @@ type laneRig struct {
 	// problemLock guards problemList, which holds what the worker reported it could not do.
 	problemLock sync.Mutex
 	problemList []error
+	// noticeList holds what the worker said that is not a failure, which problemLock guards too.
+	noticeList []string
+}
+
+func (r *laneRig) noteNotice(notice string) {
+	r.problemLock.Lock()
+	defer r.problemLock.Unlock()
+	r.noticeList = append(r.noticeList, notice)
+}
+
+// notices are what the worker said it did that is not a failure.
+func (r *laneRig) notices() []string {
+	r.problemLock.Lock()
+	defer r.problemLock.Unlock()
+	return slices.Clone(r.noticeList)
 }
 
 func (r *laneRig) noteProblem(err error) {
@@ -100,6 +115,7 @@ func newLaneRigWith(t *testing.T, base *rig, setup func(*fake.AgentDriver)) *lan
 		Spool:     filepath.Join(dir, "spool"),
 		Telemetry: r.telemetry,
 		Report:    r.noteProblem,
+		Notice:    r.noteNotice,
 	})
 	if err := r.subject.Start(t.Context()); err != nil {
 		t.Fatal(err)
