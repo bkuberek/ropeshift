@@ -1,15 +1,21 @@
 import { useId } from "react";
 
 import { readOutline } from "../api/client";
+import type { PlanForecast } from "../api/measures";
+import { readPlanForecast } from "../api/measures";
 import type { PlanOutline } from "../api/types";
 import type { Live } from "../api/useView";
 import { useView } from "../api/useView";
 import { addressOf, Link } from "../app/route";
+import { PlanEstimates } from "../measures/PlanEstimates";
 import { Badge, Banner } from "../ui/display";
 
 // The outline is read from the repository, so a burst of events reads it once a gap, however much the
 // ledger says.
 const outlineGapMs = 1000;
+
+// The forecast tick keeps a forecast when what it rests on changes, and at least hourly.
+const forecastGapMs = 30_000;
 
 function Part({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -26,7 +32,7 @@ const empty = (outline: PlanOutline) =>
 // OutlineBody lays out what the branch holds: the documents changed or new since the lane began, the plan's
 // milestones, its contracts with how many criteria and work orders each lists, the answers it drafts, the
 // questions nobody has answered, and whether a request to approve the plan stands for the tip.
-export function OutlineBody({ outline }: { outline: PlanOutline }) {
+export function OutlineBody({ outline, estimates }: { outline: PlanOutline; estimates?: React.ReactNode }) {
   if (outline.unread) {
     return (
       <Banner tone="neutral">
@@ -111,6 +117,7 @@ export function OutlineBody({ outline }: { outline: PlanOutline }) {
           </ul>
         </Part>
       ) : null}
+      {estimates ? <Part title="Estimates">{estimates}</Part> : null}
       {outline.approval ? (
         <Banner tone="active" action={<Link className="btn btn-sm" to={addressOf("/plan", { id: outline.approval.id, version: String(outline.approval.version) })}>Review version {outline.approval.version}</Link>}>
           A request to approve version {outline.approval.version} stands for this commit.
@@ -127,6 +134,18 @@ export function OutlineBody({ outline }: { outline: PlanOutline }) {
 export function Outline({ lane, live }: { lane: string; live: Live }) {
   const heading = useId();
   const read = useView(() => readOutline(lane), `outline:${lane}`, live, outlineGapMs);
+  // The estimates and forecasts of the version a request stands for, once the ledger holds its plan. They are
+  // read as `ropeshift plan forecast` reads them, and the tick makes them, so they read again at most once a gap.
+  const standing = read.view?.approval;
+  const plan = standing?.plan_id ?? "";
+  const version = standing?.version ?? 0;
+  const forecast = useView<PlanForecast | null>(() => (plan ? readPlanForecast(plan, version) : Promise.resolve(null)), `outline:forecast:${plan}:${version}`, live, forecastGapMs);
+  const titles = new Map((read.view?.milestones ?? []).map((milestone) => [milestone.id, milestone.title]));
+  const estimates = forecast.view ? (
+    <PlanEstimates forecast={forecast.view} titleOf={(id) => titles.get(id) || id} compact />
+  ) : forecast.failure ? (
+    <p className="muted">{`The estimates are not current. ${forecast.failure}`}</p>
+  ) : null;
   return (
     <aside className="panel outline" aria-labelledby={heading}>
       <div className="panel-head">
@@ -135,7 +154,7 @@ export function Outline({ lane, live }: { lane: string; live: Live }) {
       </div>
       <div className="panel-body stack small" aria-busy={read.busy}>
         {read.failure ? <Banner tone="danger">{read.view ? `What this shows is not current. ${read.failure}` : read.failure}</Banner> : null}
-        {read.view ? <OutlineBody outline={read.view} /> : null}
+        {read.view ? <OutlineBody outline={read.view} estimates={estimates} /> : null}
         {!read.view && !read.failure ? <p className="muted">Reading the branch.</p> : null}
       </div>
     </aside>

@@ -1,5 +1,7 @@
 // What the API serves. Every value here is data, and text from an agent or a document stays text.
 
+import type { PlanForecast } from "./measures";
+
 export type Stamp = { as_of: number; revision: number };
 
 export type QuestionItem = {
@@ -877,6 +879,8 @@ export type PlanApprovalView = {
   records?: PlanEntry[];
   drafts?: DraftDecision[];
   registration?: ManifestRegistration;
+  // The version's latest forecasts and the estimate set they were made from, or the state that says why it has none.
+  forecast?: PlanForecast;
 };
 
 // One version of a plan, and where the request to approve it stands: none when nobody asked.
@@ -911,7 +915,8 @@ export type PlanOutline = {
   contracts?: OutlineContract[];
   decisions?: DraftDecision[];
   questions?: OutlineQuestion[];
-  approval?: { id: string; state: string; version: number };
+  // The request to approve the plan the tip holds, and the plan it belongs to once the ledger holds one.
+  approval?: { id: string; state: string; plan_id?: string; version: number };
   not_submitted?: string;
 };
 

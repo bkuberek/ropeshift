@@ -40,10 +40,12 @@ type OutlineQuestion struct {
 	Blocking bool   `json:"blocking,omitempty"`
 }
 
-// OutlineApproval is the request to approve the plan the branch's tip holds.
+// OutlineApproval is the request to approve the plan the branch's tip holds. Plan is the plan the version belongs
+// to once the ledger holds it, which a branch's first version does not have yet.
 type OutlineApproval struct {
 	ID      string                  `json:"id"`
 	State   authority.ApprovalState `json:"state"`
+	Plan    string                  `json:"plan_id,omitempty"`
 	Version int64                   `json:"version"`
 }
 

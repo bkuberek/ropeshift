@@ -99,7 +99,7 @@ func standingRequest(approvals []authority.Approval, commit string) *api.Outline
 	if found == nil {
 		return nil
 	}
-	return &api.OutlineApproval{ID: found.ID, State: found.State, Version: found.PlanVersion}
+	return &api.OutlineApproval{ID: found.ID, State: found.State, Plan: found.Plan, Version: found.PlanVersion}
 }
 
 // readBranch reads the lane's branch. The branch is the one the work order keeps, or else the one the lane
