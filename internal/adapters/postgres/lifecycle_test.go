@@ -3,12 +3,15 @@
 package postgres_test
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"ropeshift.com/ropeshift/internal/adapters/postgres"
 	"ropeshift.com/ropeshift/internal/control"
@@ -110,6 +113,30 @@ func TestEachProjectKeepsItsLedgerInASchemaOfItsOwn(t *testing.T) {
 	if again, err := state.Open(t.Context(), alpha); err != nil || again != store {
 		t.Errorf("a second open of a project returns another Store: %v", err)
 	}
+}
+
+// TestProjectWritesNeverStarveTheInstallation holds that a project's transaction, which reads the shared
+// records through a transaction of the installation's, cannot wait for a connection the other writers
+// hold: with a pool of two connections and more writers than that, every write still finishes.
+func TestProjectWritesNeverStarveTheInstallation(t *testing.T) {
+	state := openState(t, freshDatabase(t), postgres.Options{MaxConns: 2})
+	alpha, store := createProject(t, state, "pa", "alpha")
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	defer cancel()
+	var wg sync.WaitGroup
+	for i := range 8 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, err := control.NewWorkOrders(store).Create(ctx, alpha.ID, workorders.WorkOrder{
+				ID: fmt.Sprintf("wo-%d", i), Kind: workorders.KindChange, Title: "T", MaxAttempts: 3,
+			}, member)
+			if err != nil {
+				t.Error(err)
+			}
+		}()
+	}
+	wg.Wait()
 }
 
 // TestAProjectCreatedWithNoIDGetsOneOfItsOwn is what project create relies on: an ID no other installation

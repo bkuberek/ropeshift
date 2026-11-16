@@ -46,8 +46,9 @@ type Options struct {
 	// IdleInTransaction is the idle_in_transaction_session_timeout every connection sets. Zero is
 	// DefaultIdleInTransaction, and a negative value turns the timeout off.
 	IdleInTransaction time.Duration
-	// MaxConns bounds the pool the installation and every project share. Zero is 16, and the pool is
-	// never smaller than 2, because a migration holds one connection for its lock and runs on another.
+	// MaxConns bounds the pool every project shares, and the installation's own pool. Zero is 16, and a
+	// pool is never smaller than 2, because a migration holds one connection for its lock and runs on
+	// another.
 	MaxConns int
 	// Dialect replaces Dialect{}, so a test can wrap it to move database time.
 	Dialect sqlstore.Dialect
@@ -56,14 +57,16 @@ type Options struct {
 	Store sqlstore.Options
 }
 
-// State is an installation on Postgres: its installation schema, and the schema of each project, all
-// served by one connection pool. It is the counterpart of sqlite.State.
+// State is an installation on Postgres: its installation schema, and the schema of each project. Every
+// project's Store shares one connection pool, and the installation has a pool of its own. It is the
+// counterpart of sqlite.State.
 type State struct {
 	// Installation holds the registry and the records every project shares.
-	Installation *sqlstore.Installation
-	pool         *pgxpool.Pool
-	dialect      sqlstore.Dialect
-	opts         sqlstore.Options
+	Installation     *sqlstore.Installation
+	pool             *pgxpool.Pool
+	installationPool *pgxpool.Pool
+	dialect          sqlstore.Dialect
+	opts             sqlstore.Options
 
 	// migrating orders the callers of locked within this process.
 	migrating sync.Mutex
@@ -77,6 +80,41 @@ type State struct {
 // build's version. The URL is a postgres:// URL or a key/value connection string. A project's Store
 // opened through the state reaches the shared records there.
 func Open(ctx context.Context, url string, opts Options) (*State, error) {
+	pool, err := newPool(ctx, url, opts)
+	if err != nil {
+		return nil, err
+	}
+	// A project's transaction holds a connection while it reads the shared records through a transaction
+	// of the installation's. On one pool, enough writers would each hold a connection and wait for a
+	// second, and none would get it. The installation's own pool breaks that wait: a transaction of the
+	// installation never waits for a project's connection.
+	installationPool, err := newPool(ctx, url, opts)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	dialect := opts.Dialect
+	if dialect == nil {
+		dialect = Dialect{}
+	}
+	s := &State{pool: pool, installationPool: installationPool, dialect: dialect, opts: opts.Store, stores: map[ledger.WorkspaceID]*sqlstore.Store{}}
+	s.opts.Installation, s.opts.Schema = nil, ""
+	s.Installation = sqlstore.NewInstallation(stdlib.OpenDBFromPool(installationPool), dialect, sqlstore.Options{Schema: InstallationSchema, Trace: s.opts.Trace})
+	err = s.locked(ctx, func(ctx context.Context) error {
+		if err := s.createSchema(ctx, InstallationSchema); err != nil {
+			return err
+		}
+		return s.Installation.Migrate(ctx)
+	})
+	if err != nil {
+		_ = s.Close()
+		return nil, err
+	}
+	return s, nil
+}
+
+// newPool connects a pool whose every connection sets the idle-in-transaction timeout.
+func newPool(ctx context.Context, url string, opts Options) (*pgxpool.Pool, error) {
 	config, err := pgxpool.ParseConfig(url)
 	if err != nil {
 		return nil, fmt.Errorf("postgres: %w", err)
@@ -91,24 +129,7 @@ func Open(ctx context.Context, url string, opts Options) (*State, error) {
 		pool.Close()
 		return nil, fmt.Errorf("postgres: %w", err)
 	}
-	dialect := opts.Dialect
-	if dialect == nil {
-		dialect = Dialect{}
-	}
-	s := &State{pool: pool, dialect: dialect, opts: opts.Store, stores: map[ledger.WorkspaceID]*sqlstore.Store{}}
-	s.opts.Installation, s.opts.Schema = nil, ""
-	s.Installation = sqlstore.NewInstallation(stdlib.OpenDBFromPool(pool), dialect, sqlstore.Options{Schema: InstallationSchema, Trace: s.opts.Trace})
-	err = s.locked(ctx, func(ctx context.Context) error {
-		if err := s.createSchema(ctx, InstallationSchema); err != nil {
-			return err
-		}
-		return s.Installation.Migrate(ctx)
-	})
-	if err != nil {
-		_ = s.Close()
-		return nil, err
-	}
-	return s, nil
+	return pool, nil
 }
 
 func cmpOr(value, fallback int) int {
@@ -129,6 +150,7 @@ func (s *State) Close() error {
 	s.mu.Unlock()
 	failed = append(failed, s.Installation.Close())
 	s.pool.Close()
+	s.installationPool.Close()
 	return errors.Join(failed...)
 }
 
@@ -148,9 +170,9 @@ func (s *State) ledger(schema string, opts sqlstore.Options) *sqlstore.Store {
 	return sqlstore.New(stdlib.OpenDBFromPool(s.pool), s.dialect, opts)
 }
 
-// OpenStore opens one ledger in the default schema of the database a URL names, which keeps the records
-// every project shares in itself and has no installation. The Store owns its connections and is not
-// migrated.
+// OpenStore opens one ledger on connections of its own, in the schema opts.Store names or the database's
+// default one. With no installation in opts.Store it keeps the records every project shares in itself, as
+// a ledger of an earlier build does. The Store owns its connections and is not migrated.
 func OpenStore(url string, opts Options) (*sqlstore.Store, error) {
 	config, err := pgx.ParseConfig(url)
 	if err != nil {
