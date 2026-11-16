@@ -15,6 +15,7 @@ import (
 	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/internal/worker"
+	"ropeshift.com/ropeshift/test/apitest"
 	"ropeshift.com/ropeshift/test/gittest"
 )
 
@@ -33,7 +34,9 @@ type worktreeWorkspace struct {
 func newWorktreeWorkspace(t *testing.T) *worktreeWorkspace {
 	t.Helper()
 	gittest.Require(t)
-	home := t.TempDir()
+	// A short home, because the control socket's path has a limit, and one with its links followed, as a
+	// disk that ends /var in a link would otherwise spell each path two ways.
+	home := apitest.ShortDir(t)
 	t.Setenv(api.EnvStateDir, filepath.Join(home, "state"))
 	t.Setenv(api.EnvRunDir, filepath.Join(home, "run"))
 	t.Setenv(api.EnvWorktreeDir, "")
@@ -122,7 +125,9 @@ func TestLaneWorktreesOfAWorkspaceLandOutsideTheWorkspaceAndEveryClone(t *testin
 			t.Errorf("%s: the worktree holds no checkout: %v", repository.name, err)
 		}
 		for _, clone := range []string{w.workspace.Dir, w.clones["api"], w.clones["web"]} {
-			if lane.Worktree.Path == clone || strings.HasPrefix(lane.Worktree.Path, clone+string(filepath.Separator)) {
+			if resolved, err := filepath.EvalSymlinks(clone); err != nil {
+				t.Fatal(err)
+			} else if lane.Worktree.Path == resolved || strings.HasPrefix(lane.Worktree.Path, resolved+string(filepath.Separator)) {
 				t.Errorf("%s: the worktree %q is inside %q", repository.name, lane.Worktree.Path, clone)
 			}
 		}

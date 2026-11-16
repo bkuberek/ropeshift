@@ -10,6 +10,7 @@ import (
 	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/test/apitest"
 )
 
 // With no root in any layer, the installation's profiles put a lane's worktree under its worktree directory,
@@ -42,7 +43,7 @@ func TestTheInstallationsProfilesDefaultToTheWorktreeDirectory(t *testing.T) {
 // The lane runtime refuses a worktree root inside any clone the worker keeps, so the provisioner holds the
 // worker's checkouts. Leaving them out would pass every test of the refusal that builds its own.
 func TestTheLaneRuntimeChecksRootsAgainstTheWorkersCheckouts(t *testing.T) {
-	root := t.TempDir()
+	root := apitest.ShortDir(t)
 	paths := api.Paths{StateDir: filepath.Join(root, "state"), RunDir: filepath.Join(root, "run"), WorktreeDir: filepath.Join(root, "worktrees")}
 	kept := soloCheckouts(paths)
 	runtime, _, err := soloLanes(paths, soloOptions{}, kept, io.Discard)
