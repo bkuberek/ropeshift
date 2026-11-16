@@ -7,7 +7,7 @@
 //
 // Each view becomes <name>-<theme>-<width>.png in out. A view whose text holds one of the private words fails
 // the run, and its image stays for a person to see why. The browser is Playwright's own Chromium, which
-// `npx playwright-core install chromium-headless-shell` puts in place.
+// `npx playwright-core install chromium-headless-shell` puts in place, or the executable ROPESHIFT_TEST_CHROME names.
 
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -57,7 +57,9 @@ async function top(browser) {
     return;
   }
   const text = readFileSync(listing.top, "utf8").replace(/\s+$/, "");
-  const page = await browser.newPage({ viewport: { width: 1600, height: 400 }, deviceScaleFactor: 2 });
+  // One pixel to the pixel: the terminal's text is already wider than any page shows it, and at twice the
+  // density the image would pass the size limit of a published image (docs/development/screenshots.md).
+  const page = await browser.newPage({ viewport: { width: 1600, height: 400 }, deviceScaleFactor: 1 });
   await page.setContent(
     `<!doctype html><html><body style="margin:0;background:#000"><pre id="top" style="display:inline-block;margin:0;padding:20px 24px;` +
       `background:#000;color:#e6e6e6;font:15px/1.6 'DejaVu Sans Mono',Menlo,Consolas,monospace">${escapeHTML(text)}</pre></body></html>`,
@@ -89,7 +91,7 @@ async function capture(page, view, name) {
   }
 }
 
-const browser = await chromium.launch({ headless: true });
+const browser = await chromium.launch({ headless: true, executablePath: process.env.ROPESHIFT_TEST_CHROME || undefined });
 const failed = [];
 let taken = 0;
 try {
