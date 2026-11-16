@@ -17,8 +17,8 @@ func (h *handler) sessionRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/delegates/{id}/revoke", h.member(h.revokeDelegate))
 	mux.HandleFunc("POST /v1/delegates/{id}/remove", h.member(h.removeDelegate))
 	mux.HandleFunc("GET "+api.OperationsPath, h.operations)
-	mux.HandleFunc("GET /v1/passphrase", h.passphrase)
-	mux.HandleFunc("PUT /v1/passphrase", h.setPassphrase)
+	mux.HandleFunc("GET "+api.PassphrasePath, h.passphrase)
+	mux.HandleFunc("PUT "+api.PassphrasePath, h.setPassphrase)
 }
 
 // passphrase says whether one is set. A first run reads it so it asks for a passphrase only when

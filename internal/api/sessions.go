@@ -28,6 +28,23 @@ type SetPassphrase struct {
 	Passphrase string `json:"passphrase"`
 }
 
+// PassphrasePath is where the passphrase is read and set on the socket, and changed on the web listener.
+const PassphrasePath = "/v1/passphrase"
+
+// ChangePassphrase is the web listener's form of setting the passphrase, which it serves only as a change: Current
+// is the passphrase now in force, which proves the person at the page knows it, and Passphrase is the new one.
+// The socket's route takes SetPassphrase alone and refuses a body that names a current passphrase.
+type ChangePassphrase struct {
+	Current    string `json:"current"`
+	Passphrase string `json:"passphrase"`
+}
+
+// PassphraseChanged says how many other sessions of the member the change ended. The session it came from
+// stays.
+type PassphraseChanged struct {
+	SessionsEnded int64 `json:"sessions_ended"`
+}
+
 // PassphraseState says whether a passphrase is set. It says nothing else of it.
 type PassphraseState struct {
 	Set bool `json:"set"`
@@ -36,7 +53,7 @@ type PassphraseState struct {
 // Passphrase reads whether a passphrase is set, which needs no session.
 func (c *Client) Passphrase(ctx context.Context) (PassphraseState, error) {
 	var out PassphraseState
-	err := c.Do(ctx, http.MethodGet, "/v1/passphrase", nil, &out)
+	err := c.Do(ctx, http.MethodGet, PassphrasePath, nil, &out)
 	return out, err
 }
 
@@ -49,7 +66,7 @@ func (c *Client) SignIn(ctx context.Context, in SignIn) (Session, error) {
 
 // SetPassphrase sets the passphrase.
 func (c *Client) SetPassphrase(ctx context.Context, in SetPassphrase) error {
-	return c.Do(ctx, http.MethodPut, "/v1/passphrase", in, nil)
+	return c.Do(ctx, http.MethodPut, PassphrasePath, in, nil)
 }
 
 // SignInPath opens a session, and SignOutPath ends the one a call presents.

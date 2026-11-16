@@ -94,9 +94,61 @@ func (p *Provider) Enroll(ctx context.Context, scope ledger.WorkspaceID, proof p
 	})
 }
 
-// Authenticate names the member a passphrase belongs to. It holds no transaction while it
-// hashes.
-func (p *Provider) Authenticate(ctx context.Context, scope ledger.WorkspaceID, proof ports.Proof) (string, error) {
+// Change replaces the passphrase of the member that the current one proves. Both hashes are made outside the
+// transaction, which writes the new one only over the stored hash the current passphrase matched, so two
+// changes that both checked the same passphrase cannot both stand, and then runs alongside, so what it writes
+// stands or falls with the new hash. The current passphrase is checked before the new one is judged, so a
+// caller that does not know it is told nothing of the minimum.
+func (p *Provider) Change(ctx context.Context, scope ledger.WorkspaceID, current, next ports.Proof, actor ledger.Actor, alongside func(ports.SharedTx, string) error) error {
+	if !authority.Allowed(actor, authority.ActionSetPassphrase) {
+		return authority.ErrNoSession
+	}
+	record, err := p.member(ctx, scope)
+	if err != nil {
+		return err
+	}
+	match, err := p.matches(current.Passphrase, record.ProofDigest)
+	if err != nil {
+		return err
+	}
+	if !match {
+		return authority.ErrBadProof
+	}
+	if len(next.Passphrase) < authority.MinPassphrase {
+		return fmt.Errorf("%w: a passphrase has at least %d bytes", authority.ErrInvalid, authority.MinPassphrase)
+	}
+	digest, err := p.hash(next.Passphrase)
+	if err != nil {
+		return err
+	}
+	return p.store.Installation(scope).Write(ctx, "member.change_proof", func(tx ports.SharedTx) error {
+		stored, err := tx.Members().Member(Member)
+		if errors.Is(err, ports.ErrNotFound) {
+			return authority.ErrNotEnrolled
+		}
+		if err != nil {
+			return err
+		}
+		// The passphrase the caller proved is not the one stored any more, so another change got in first.
+		if stored.ProofDigest != record.ProofDigest {
+			return authority.ErrBadProof
+		}
+		stored.ProofDigest = digest
+		if err := tx.Members().SaveMember(stored); err != nil {
+			return err
+		}
+		if _, err := tx.Append(ledger.EventDraft{Type: eventProofSet, Actor: actor, Subject: ledger.Subject{Kind: "member", ID: Member}}); err != nil {
+			return err
+		}
+		if alongside == nil {
+			return nil
+		}
+		return alongside(tx, stored.ID)
+	})
+}
+
+// member reads the member's record, or says no passphrase is set.
+func (p *Provider) member(ctx context.Context, scope ledger.WorkspaceID) (authority.MemberRecord, error) {
 	var record authority.MemberRecord
 	err := p.store.Installation(scope).Read(ctx, func(tx ports.SharedReadTx) error {
 		var err error
@@ -104,8 +156,15 @@ func (p *Provider) Authenticate(ctx context.Context, scope ledger.WorkspaceID, p
 		return err
 	})
 	if errors.Is(err, ports.ErrNotFound) {
-		return "", authority.ErrNotEnrolled
+		return record, authority.ErrNotEnrolled
 	}
+	return record, err
+}
+
+// Authenticate names the member a passphrase belongs to. It holds no transaction while it
+// hashes.
+func (p *Provider) Authenticate(ctx context.Context, scope ledger.WorkspaceID, proof ports.Proof) (string, error) {
+	record, err := p.member(ctx, scope)
 	if err != nil {
 		return "", err
 	}

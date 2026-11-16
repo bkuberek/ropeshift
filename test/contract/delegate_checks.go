@@ -35,6 +35,7 @@ var DelegateChecks = []Check{
 	{"DL12", "past every gate, a delegate never adds an attempt to failed work, and no delegate policy lets it", checkDelegateRetryBounds},
 	{"DL13", "past every gate, a delegate accepts only work its review ruled on and every check verified, and sends work to rework only after a verdict of its attempt failed", checkDelegateAcceptanceBounds},
 	{"DL14", "past every gate, a delegate passes no review, and its acceptance of a contract review it started passes none of the work it read", checkDelegateReviewBounds},
+	{"DL15", "ending a member's other sessions keeps the one named, ends no other member's, and says how many it ended", checkEndOtherSessions},
 }
 
 var theDelegateRequest = authority.DelegateRequest{Member: theMember.ID, Label: "planning assistant", ExpiresInMs: authority.MaxDelegateTTLMs}
@@ -245,6 +246,53 @@ func checkSignOutEverywhere(r *Rig) error {
 		return nil
 	})
 	return err
+}
+
+func checkEndOtherSessions(r *Rig) error {
+	s := r.Store()
+	var ended, none int64
+	err := s.Installation(r.Scope).Write(r.Ctx, "test.sessions", func(tx ports.SharedTx) error {
+		for _, session := range []authority.Session{
+			{Digest: "d1", Member: theMember.ID, CreatedAt: tx.Now(), ExpiresAt: tx.Now() + 60_000},
+			{Digest: "d2", Member: theMember.ID, CreatedAt: tx.Now(), ExpiresAt: tx.Now() + 60_000},
+			{Digest: "d3", Member: "member-2", CreatedAt: tx.Now(), ExpiresAt: tx.Now() + 60_000},
+			{Digest: "d4", Member: theMember.ID, CreatedAt: tx.Now(), ExpiresAt: tx.Now() + 60_000},
+		} {
+			if err := tx.Members().InsertSession(session); err != nil {
+				return err
+			}
+		}
+		var err error
+		if ended, err = tx.Members().DropOtherMemberSessions(theMember.ID, "d2"); err != nil {
+			return err
+		}
+		// A member with no session of their own ends none, whichever digest is named, and no one else's ends.
+		if none, err = tx.Members().DropOtherMemberSessions("member-3", "d2"); err != nil {
+			return err
+		}
+		_, err = tx.Append(ledger.EventDraft{Type: "test.sessions", Actor: r.Actor, Subject: ledger.Subject{Kind: "member", ID: theMember.ID}})
+		return err
+	})
+	if err != nil {
+		return err
+	}
+	if ended != 2 || none != 0 {
+		return Violatedf("ending the other sessions ended %d, and a member with none ended %d", ended, none)
+	}
+	return s.Installation(r.Scope).Read(r.Ctx, func(tx ports.SharedReadTx) error {
+		sessions, err := tx.Members().Sessions()
+		if err != nil {
+			return err
+		}
+		left := map[string]bool{}
+		for _, session := range sessions {
+			left[session.Digest] = true
+		}
+		if len(left) != 2 || !left["d2"] || !left["d3"] {
+			return Violatedf("the sessions left are %+v", sessions)
+		}
+		return nil
+	})
 }
 
 func sharedEvents(r *Rig, s ports.Store) ([]ledger.Event, error) {

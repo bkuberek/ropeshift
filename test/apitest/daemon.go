@@ -204,7 +204,7 @@ func StartWith(t testing.TB, options Options) *Daemon {
 	if _, err := store.CreateWorkspace(ctx, ledger.Workspace{ID: Scope, Name: "Test"}, actor); err != nil {
 		t.Fatal(err)
 	}
-	identity := fake.NewIdentityProvider()
+	identity := fake.NewIdentityProvider().Within(store)
 	config := server.Config{
 		Scope: Scope, Store: store, LeaseTTL: LeaseTTL, Protocol: options.Protocol, HeartbeatMs: HeartbeatMs,
 		Knowledge: options.Knowledge, Matcher: lexical.Matcher{Store: store}, Identity: identity, Windows: options.Windows,
@@ -283,7 +283,7 @@ func StartInstallation(t testing.TB, names ...string) *Installation {
 			t.Fatal(err)
 		}
 	}
-	identity := fake.NewIdentityProvider()
+	identity := fake.NewIdentityProvider().Within(store)
 	machine := fake.NewCheckouts()
 	config := server.Config{
 		Scope: Scope, Store: store, Projects: state, Installation: state.Installation, LeaseTTL: LeaseTTL, HeartbeatMs: HeartbeatMs, Identity: identity,

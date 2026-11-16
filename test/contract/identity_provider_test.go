@@ -24,12 +24,15 @@ func TestIdentityProviderContract(t *testing.T) {
 	t.Run("local passphrase", func(t *testing.T) {
 		RunIdentityProvider(t, func(t *testing.T) IdentityRig {
 			rig := NewRig(t, SQLiteFile)
-			return IdentityRig{Provider: localauth.New(rig.Store(), cheapHash), Scope: rig.Scope, Member: aMember, Anyone: anyCaller}
+			store := rig.Store()
+			return IdentityRig{Provider: localauth.New(store, cheapHash), Scope: rig.Scope, Store: store, Member: aMember, Anyone: anyCaller}
 		})
 	})
 	t.Run("fake", func(t *testing.T) {
-		RunIdentityProvider(t, func(*testing.T) IdentityRig {
-			return IdentityRig{Provider: fake.NewIdentityProvider(), Scope: "workspace", Member: aMember, Anyone: anyCaller}
+		RunIdentityProvider(t, func(t *testing.T) IdentityRig {
+			rig := NewRig(t, SQLiteFile)
+			store := rig.Store()
+			return IdentityRig{Provider: fake.NewIdentityProvider().Within(store), Scope: rig.Scope, Store: store, Member: aMember, Anyone: anyCaller}
 		})
 	})
 }

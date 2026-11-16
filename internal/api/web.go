@@ -33,12 +33,14 @@ type WebRoute struct {
 }
 
 // WebRoutes is everything the web listener serves of the API. A worker's routes stay on the socket,
-// and so does setting a passphrase: the first needs no session, and any local process can reach this
-// listener.
+// and so does setting the first passphrase, which needs no session while any local process can reach this
+// listener. The listener serves a change of the passphrase: it needs a member's session, the token only its
+// own page holds, and the passphrase in force, and it ends the member's other sessions.
 func WebRoutes() []WebRoute {
 	routes := []WebRoute{
 		{http.MethodPost, SignInPath, "login"},
 		{http.MethodPost, SignOutPath, "sign-out"},
+		{http.MethodPut, PassphrasePath, "passphrase set"},
 		{http.MethodGet, ProjectsPath, "project list"},
 		{http.MethodGet, NeedsYouPath, "needs"},
 		{http.MethodPut, "/v1/workers/{id}/orchestrator", "orchestrator start"},

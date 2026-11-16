@@ -10,6 +10,11 @@
     "command": "sign-out"
   },
   {
+    "method": "PUT",
+    "pattern": "/v1/passphrase",
+    "command": "passphrase set"
+  },
+  {
     "method": "GET",
     "pattern": "/v1/projects",
     "command": "project list"

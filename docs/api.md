@@ -43,6 +43,8 @@ The `id` a client names for a work order, a contract review, a question, a decis
 
 A change to a record every project shares, such as a member's sign-in, a worker's registration or autonomy, or an orchestrator, records its event in the installation's log, and no project's log holds it.
 
+`PUT /v1/passphrase` sets the passphrase. On the socket it takes `{"passphrase": "..."}` of at least 8 bytes: the first needs no session, and a later one needs a member's session, and a body that names a current passphrase is refused with 400 `invalid`. The web listener serves the route only as a change, and takes `{"current": "...", "passphrase": "..."}` with a live session, the token its own page holds, and the passphrase in force. It answers 200 with `{"sessions_ended": N}`, the member's other sessions that the change ended in the same transaction. It answers 401 `bad_passphrase` for a missing or wrong `current`, the same answer for each, 401 `not_enrolled` while no passphrase is set, and 400 `invalid` for a new passphrase below the minimum, which it says only once `current` has proved the caller ([authorization](authorization.md#changing-the-passphrase-from-the-web-ui)).
+
 ## The combined Needs you
 
 `GET /v1/needs-you` lists what waits on a member in every active project, the longest wait first. Each item is the item a project's `needs-you` view holds, with a `project` that names its project's ID, name, and display name. `projects` lists each active project with the revision its ledger stood at and how many of its items wait. A member acts on an item through its own project's routes.

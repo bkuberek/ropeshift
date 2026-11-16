@@ -347,7 +347,8 @@ func TestASessionInAHeaderOpensNothingHere(t *testing.T) {
 	}
 }
 
-// A worker's own routes and setting the passphrase stay on the socket. A join token and a policy are a
+// A worker's own routes stay on the socket, and so does setting the first passphrase, which needs no session:
+// the web listener serves only a change, and refuses it while none is set. A join token and a policy are a
 // member's steps, which the web UI takes as the CLI does (FR-UI-7).
 func TestAWorkersRoutesStayOnTheSocket(t *testing.T) {
 	t.Parallel()
@@ -359,7 +360,6 @@ func TestAWorkersRoutesStayOnTheSocket(t *testing.T) {
 		{method: http.MethodPost, path: "/v1/workers/w/events", body: ledger.UploadBatch{}},
 		{path: "/v1/workers/w/desired?since=0"},
 		{path: "/v1/workers/w/watch"},
-		{method: http.MethodPut, path: "/v1/passphrase", body: api.SetPassphrase{Passphrase: "a new passphrase"}},
 	} {
 		t.Run(attempt.method+attempt.path, func(t *testing.T) {
 			attempt.cookies, attempt.headers = cookies, map[string]string{api.HeaderCSRF: token}
