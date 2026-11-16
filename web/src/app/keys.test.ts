@@ -31,6 +31,29 @@ describe("the keyboard", () => {
     expect(readKey(press("o"), first.state, { ...on, now: 1500 }).action).toEqual({ type: "go", view: "overview" });
   });
 
+  it.each([
+    ["n", "needs-you"],
+    ["o", "overview"],
+    ["r", "roadmap"],
+    ["d", "documents"],
+    ["w", "work"],
+    ["f", "floor"],
+    ["c", "conversations"],
+    ["a", "agents"],
+    ["s", "settings"],
+    ["u", "usage"],
+    ["p", "projects"],
+  ])("goes with G then %s to %s", (key, view) => {
+    const first = readKey(press("g"), idle, on);
+    expect(readKey(press(key), first.state, { ...on, now: 1500 }).action).toEqual({ type: "go", view });
+  });
+
+  it("reads P and A after a G as places to go, never as the project switcher or the decision's button", () => {
+    const first = readKey(press("g"), idle, on);
+    expect(readKey(press("p"), first.state, { ...on, now: 1200 }).action).toEqual({ type: "go", view: "projects" });
+    expect(readKey(press("a"), first.state, { ...on, now: 1200 }).action).toEqual({ type: "go", view: "agents" });
+  });
+
   it("forgets a G after a pause, and after a key that goes nowhere", () => {
     const first = readKey(press("g"), idle, on);
     expect(readKey(press("f"), first.state, { ...on, now: 5000 }).action).toBeNull();
@@ -83,6 +106,9 @@ describe("the shortcut sheet", () => {
     expect(mac).toContain("G O");
     expect(mac).toContain("G C");
     expect(mac).toContain("T");
+    for (const key of ["N", "O", "R", "D", "W", "F", "C", "A", "S", "U", "P"]) {
+      expect(mac, `G ${key}`).toContain(`G ${key}`);
+    }
     const other = shortcutList(false).flatMap((group) => group.rows.map((row) => row.keys.join(" ")));
     expect(other).toContain("Ctrl K");
   });

@@ -68,7 +68,10 @@ const sections: Section[] = [
   { id: "appearance", title: "Appearance and keyboard", scope: "you", note: "This browser's own choices." },
 ];
 
-const groupWords: Record<Section["scope"], string> = { installation: "Installation", worker: "Workers", project: "Project", you: "You" };
+// The ID of every section, which the accessibility checks hold to a state each.
+export const settingsSections = sections.map((section) => section.id);
+
+const groupWords: Record<Section["scope"], string> ={ installation: "Installation", worker: "Workers", project: "Project", you: "You" };
 
 const policyOf: Partial<Record<string, PolicyKind>> = {
   "autonomy-policy": "autonomy",

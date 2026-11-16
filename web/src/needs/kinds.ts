@@ -60,6 +60,35 @@ const workIcons: Record<string, IconName> = {
   worker_behind: "warning",
 };
 
+const fixedCards = ["questions", "recovery", "merge", "held-merge", "tool-call", "effect", "orchestrator", "plan-approval", "contract-review", "confirm"] as const;
+
+// CardKind names a kind of card by what its overline says: one for each kind of item, a request by what it asks, and
+// work by why it waits.
+export type CardKind = (typeof fixedCards)[number] | `work-${string}`;
+
+// cardKinds is every kind of card Needs you draws. The accessibility checks hold each to a state.
+export const cardKinds: CardKind[] = [...fixedCards, ...Object.keys(workLabels).map((reason): CardKind => `work-${reason}`)];
+
+// cardKindOf is the kind of card an item draws.
+export function cardKindOf(item: NeedItem): CardKind {
+  switch (item.kind) {
+    case "questions":
+      return "questions";
+    case "approval":
+      return item.approval.kind === "recovery" ? "recovery" : item.approval.kind === "merge" ? (isHeld(item.approval) ? "held-merge" : "merge") : "tool-call";
+    case "effect":
+      return "effect";
+    case "work":
+      return item.work.orchestrator ? "orchestrator" : `work-${item.work.reason}`;
+    case "plan_approval":
+      return "plan-approval";
+    case "contract_review":
+      return "contract-review";
+    case "confirm":
+      return "confirm";
+  }
+}
+
 // approvalKind is the overline of a request's card: a recovery act, a merge, or a call a lane asked to run.
 export function approvalKind(approval: Approval): { icon: IconName; name: string } {
   switch (approval.kind) {

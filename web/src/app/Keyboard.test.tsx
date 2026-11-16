@@ -29,6 +29,22 @@ describe("the keyboard", () => {
     expect(window.location.pathname).toBe("/projects/default");
   });
 
+  it("goes to Agents, Settings, and Projects with G and A, S, and P", async () => {
+    serveViews();
+    openPage("/needs-you");
+    await screen.findByRole("heading", { level: 1, name: "Needs you" });
+    await userEvent.keyboard("ga");
+    expect(await screen.findByRole("heading", { level: 1, name: "Agents" })).toBeTruthy();
+    expect(window.location.pathname).toBe("/projects/default/agents");
+    await userEvent.keyboard("gs");
+    expect(await screen.findByRole("heading", { level: 1, name: "Fleet" })).toBeTruthy();
+    expect(window.location.pathname).toBe("/projects/default/settings");
+    await userEvent.keyboard("gp");
+    expect(await screen.findByRole("heading", { level: 1, name: "Projects" })).toBeTruthy();
+    expect(window.location.pathname).toBe("/projects");
+    expect(screen.queryByRole("dialog", { name: "Switch project" })).toBeNull();
+  });
+
   it("opens the palette with Control+K, even from a text field, and with a slash", async () => {
     serveViews();
     openPage("/needs-you");
