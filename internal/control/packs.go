@@ -75,21 +75,23 @@ type packRecords struct {
 	evidence     ports.EvidenceReader
 	repositories ports.RepositoryReader
 	policies     ports.PolicyReader
-	deliveries   ports.DeliveryReader
 	orders       ports.WorkOrderReader
+	// deliveries opens the delivery records only when a pack asks, so a transaction that builds the pack of work that
+	// reads none never reaches them (FR-EST-12).
+	deliveries func() ports.DeliveryReader
 }
 
 func writeRecords(tx ports.WriteTx) packRecords {
 	return packRecords{
 		planning: tx.Planning(), questions: tx.Questions(), packs: tx.Packs(), evidence: tx.Evidence(),
-		repositories: tx.Repositories(), policies: tx.Policies(), deliveries: tx.Deliveries(), orders: tx.WorkOrders(),
+		repositories: tx.Repositories(), policies: tx.Policies(), deliveries: tx.Deliveries, orders: tx.WorkOrders(),
 	}
 }
 
 func readRecords(tx ports.ReadTx) packRecords {
 	return packRecords{
 		planning: tx.Planning(), questions: tx.Questions(), packs: tx.Packs(), evidence: tx.Evidence(),
-		repositories: tx.Repositories(), policies: tx.Policies(), deliveries: tx.Deliveries(), orders: tx.WorkOrders(),
+		repositories: tx.Repositories(), policies: tx.Policies(), deliveries: tx.Deliveries, orders: tx.WorkOrders(),
 	}
 }
 
@@ -404,7 +406,7 @@ func (r packRecords) deliveryHistory() (contextpacks.Source, error) {
 	if err != nil {
 		return contextpacks.Source{}, err
 	}
-	records, err := r.deliveries.Records()
+	records, err := r.deliveries().Records()
 	if err != nil {
 		return contextpacks.Source{}, err
 	}

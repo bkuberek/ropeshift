@@ -19,6 +19,8 @@ import (
 var PlanningViewChecks = []Check{
 	{"PV1", "a planning lane's pack holds the project's delivery history last, aggregated with labels and explanations, and the lane reads it by name", checkPlanningPackHoldsHistory},
 	{"PV3", "once the forecast tick has forecast a plan version a planning lane submitted, the lane's open session is sent its estimates and forecasts with their labels and explanations once, and no other lane and no ended session is sent one", checkPlanningLaneIsToldItsVersion},
+	{"PV4", "a change's whole path from claim to merge, over a store whose transactions cannot reach an estimate, a forecast, the delivery records, or the pool, never reaches one", checkNoDecisionReadsAnEstimate},
+	{"PV5", "a planning lane's claim, its pack, and its read of the history reach the delivery records of the project and no estimate, forecast, or pool, so the history rests on the project's own work alone", checkPlanningHistoryReadsNothingBeyondTheRecords},
 	{"PV2", "a change lane and a review lane hold no delivery history in their packs, and a read of it by name is refused like a kind nobody named, however much the project has finished", checkOtherLanesReadNoHistory},
 }
 
@@ -278,5 +280,57 @@ func checkPlanningLaneIsToldItsVersion(r *Rig) error {
 		return Violatedf("a lane whose session ended was told %+v: %v", told, err)
 	}
 	_ = version
+	return nil
+}
+
+// makers are the transactions that make an estimate, and so read the delivery records by right: a member or intake
+// recording work, whose estimate rides in the transaction that made it.
+func makers(op string) bool {
+	return strings.HasPrefix(op, "work_order.") && op != "work_order.move" || strings.HasPrefix(op, "intake.")
+}
+
+func checkNoDecisionReadsAnEstimate(r *Rig) error {
+	var blind blindStore
+	r.Wrap = func(store ports.Store) ports.Store {
+		blind = blinded(store, makers)
+		return blind
+	}
+	if err := checkMergeAfterTheReview(r); err != nil {
+		return Violatedf("with no estimate to read: %v (reached: %v)", err, blind.reached())
+	}
+	if reads := blind.reached(); len(reads) != 0 {
+		return Violatedf("a decision reached an estimate: %v", reads)
+	}
+	return nil
+}
+
+func checkPlanningHistoryReadsNothingBeyondTheRecords(r *Rig) error {
+	// The history is there to read before the store is blinded, so only what the lane's own transactions reach shows.
+	if err := r.finishLikeThePlans(r.Store()); err != nil {
+		return err
+	}
+	var blind blindStore
+	r.Wrap = func(store ports.Store) ports.Store {
+		blind = blindedToEstimates(store, makers)
+		return blind
+	}
+	s := r.Store()
+	plan, err := newStatusRigOn(r, s, r.readyPlan)
+	if err != nil {
+		return err
+	}
+	if _, err := plan.lookup(contextpacks.KindDeliveryHistory, "project"); err != nil {
+		return err
+	}
+	pack, err := r.packOf(s, plan.grant.ClaimID)
+	if err != nil {
+		return err
+	}
+	if _, held := historyItem(pack); !held {
+		return Violatedf("the planning pack holds %v", itemRefs(pack))
+	}
+	if reads := blind.reached(); len(reads) != 0 {
+		return Violatedf("the planning lane's history reached more than the project's delivery records: %v", reads)
+	}
 	return nil
 }
