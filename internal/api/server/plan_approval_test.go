@@ -468,7 +468,7 @@ func TestNoCallerNamesADecisionUnderThePlanApprovalPrefix(t *testing.T) {
 	}
 	reserved := derivedDecisionID("retry", 2, "d1")
 	within := api.RecordDecision{
-		ID: reserved, Status: questions.DecisionDecided, Statement: "Retry twice.", Rationale: "The budget allows it.", Scope: "retries",
+		ID: reserved, Status: questions.DecisionDecided, Statement: "Retry twice.", Rationale: "The budget allows it.", Scope: "repo:retries",
 		Reversibility: questions.Reversible, Citations: []string{"docs/retries.md"}, Categories: []string{questions.CategoryProduct},
 	}
 	for _, client := range []*api.ProjectClient{d.Client, delegate} {

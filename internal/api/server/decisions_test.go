@@ -76,7 +76,7 @@ func (r rulingRig) rule(t *testing.T, question string, ruling questions.Ruling) 
 func draftRuling(id string, status questions.DecisionStatus) questions.Ruling {
 	return questions.Ruling{
 		ID: id, Status: status, Statement: "The retry budget is three calls.", Rationale: "It follows from the contract.",
-		Citations: []string{"PAY-12"}, Scope: "checkout", Reversibility: questions.Reversible,
+		Citations: []string{"PAY-12"}, Scope: "repo:checkout", Reversibility: questions.Reversible,
 	}
 }
 

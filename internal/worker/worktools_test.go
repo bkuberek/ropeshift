@@ -204,7 +204,7 @@ func TestRungThreeDecides(t *testing.T) {
 	t.Parallel()
 	r := aToolRig(t)
 	raw := r.done(t, lanes.ToolDecisionRecord, map[string]any{
-		"question": "q1", "status": "decided", "statement": "Twice.", "rationale": "It follows.", "scope": "retries", "reversibility": "reversible",
+		"question": "q1", "status": "decided", "statement": "Twice.", "rationale": "It follows.", "scope": "repo:retries", "reversibility": "reversible",
 		"citations": []string{"PAY-12"}, "lookup": []string{"d0"}, "open": []string{"q0"},
 	})
 	var decision questions.Decision
@@ -224,11 +224,27 @@ func TestRungFourAssumes(t *testing.T) {
 	t.Parallel()
 	r := aToolRig(t)
 	r.done(t, lanes.ToolDecisionRecord, map[string]any{
-		"question": "q1", "status": "assumed", "statement": "Twice for now.", "rationale": "It can change.", "scope": "retries", "reversibility": "reversible",
+		"question": "q1", "status": "assumed", "statement": "Twice for now.", "rationale": "It can change.", "scope": "repo:retries", "reversibility": "reversible",
 	})
 	got := r.question(t, "q1")
 	if got.Status != questions.StatusAnswered || !got.Ran(questions.RungDecide) {
 		t.Errorf("question %+v", got)
+	}
+}
+
+// A scope outside the grammar is refused before the rung is climbed, and names the grammar.
+func TestADecisionWithAScopeOutsideTheGrammarIsRefused(t *testing.T) {
+	t.Parallel()
+	r := aToolRig(t)
+	reply := r.tool(t, lanes.ToolDecisionRecord, map[string]any{
+		"question": "q1", "status": "decided", "statement": "Twice.", "rationale": "It follows.", "scope": "retries", "reversibility": "reversible",
+		"citations": []string{"PAY-12"},
+	})
+	if reply.OK || !strings.Contains(reply.Message, "plan:<id>") {
+		t.Errorf("reply %+v", reply)
+	}
+	if got := r.question(t, "q1"); got.Status == questions.StatusAnswered || got.Ran(questions.RungDecide) {
+		t.Errorf("a refused scope left question %+v", got)
 	}
 }
 
@@ -240,7 +256,7 @@ func TestAOneWayCategoryCannotBeDecided(t *testing.T) {
 		t.Fatal(err)
 	}
 	reply := r.tool(t, lanes.ToolDecisionRecord, map[string]any{
-		"question": "q2", "status": "decided", "statement": "This one.", "rationale": "Because.", "scope": "keys", "reversibility": "reversible",
+		"question": "q2", "status": "decided", "statement": "This one.", "rationale": "Because.", "scope": "repo:keys", "reversibility": "reversible",
 	})
 	if reply.OK || reply.Code != lanes.CodeForbidden {
 		t.Errorf("reply %+v", reply)
@@ -288,7 +304,7 @@ func TestAToolCanBeCalledAgainAfterARefusal(t *testing.T) {
 		t.Fatalf("reply %+v", bad)
 	}
 	r.done(t, lanes.ToolDecisionRecord, map[string]any{
-		"question": "q1", "status": "decided", "statement": "Twice.", "rationale": "It follows.", "scope": "retries", "reversibility": "reversible",
+		"question": "q1", "status": "decided", "statement": "Twice.", "rationale": "It follows.", "scope": "repo:retries", "reversibility": "reversible",
 		"citations": []string{"PAY-12"},
 	})
 }
@@ -299,7 +315,7 @@ func TestAToolReadsArgumentsByTheirExactNames(t *testing.T) {
 	t.Parallel()
 	r := aToolRig(t)
 	reply := r.tool(t, lanes.ToolDecisionRecord, map[string]any{
-		"QUESTION": "q1", "Status": "decided", "statement": "Twice.", "rationale": "It follows.", "scope": "retries", "reversibility": "reversible",
+		"QUESTION": "q1", "Status": "decided", "statement": "Twice.", "rationale": "It follows.", "scope": "repo:retries", "reversibility": "reversible",
 		"citations": []string{"PAY-12"},
 	})
 	if reply.OK {
@@ -323,7 +339,7 @@ func TestAQuestionAnotherHoldsIsNotNext(t *testing.T) {
 		t.Errorf("next %s", got)
 	}
 	reply := r.tool(t, lanes.ToolDecisionRecord, map[string]any{
-		"question": "q1", "status": "decided", "statement": "Twice.", "rationale": "It follows.", "scope": "retries", "reversibility": "reversible",
+		"question": "q1", "status": "decided", "statement": "Twice.", "rationale": "It follows.", "scope": "repo:retries", "reversibility": "reversible",
 	})
 	if reply.OK {
 		t.Errorf("reply %+v", reply)

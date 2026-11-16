@@ -543,14 +543,14 @@ func (w *World) Decisions() {
 	client := w.Daemon.Client
 	first, err := client.RecordDecision(w.ctx, api.RecordDecision{
 		ID: "decision-1", Status: questions.DecisionDecided, Statement: "Retry twice.", Rationale: "It covers the outage.",
-		Scope: "retries", Categories: []string{questions.CategoryProduct}, Reversibility: questions.Reversible,
+		Scope: "repo:retries", Categories: []string{questions.CategoryProduct}, Reversibility: questions.Reversible,
 	})
 	if err != nil {
 		w.t.Fatal(err)
 	}
 	_, err = client.RecordDecision(w.ctx, api.RecordDecision{
 		ID: "decision-2", Status: questions.DecisionDecided, Statement: "Retry three times.", Rationale: "The outage ran longer.",
-		Scope: "retries", Categories: []string{questions.CategoryProduct}, Reversibility: questions.Reversible, Supersedes: first.ID,
+		Scope: "repo:retries", Categories: []string{questions.CategoryProduct}, Reversibility: questions.Reversible, Supersedes: first.ID,
 	})
 	if err != nil {
 		w.t.Fatal(err)

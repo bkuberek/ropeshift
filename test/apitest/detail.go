@@ -127,7 +127,7 @@ func Detail(w *World, clock *Clock) {
 
 	_, err = client.RecordDecision(w.ctx, api.RecordDecision{
 		ID: "decision-3", Status: questions.DecisionAssumed, Statement: "Retry until the budget runs out.",
-		Rationale: "A count cannot know the outage: " + WorldHostileBit, Scope: "retries", Citations: []string{"requirement:FR-RETRY-1"},
+		Rationale: "A count cannot know the outage: " + WorldHostileBit, Scope: "repo:retries", Citations: []string{"requirement:FR-RETRY-1"},
 		Categories: []string{questions.CategoryProduct, questions.CategoryOperations}, Reversibility: questions.Reversible, Supersedes: "decision-2",
 	})
 	if err != nil {

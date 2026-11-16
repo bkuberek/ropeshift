@@ -15,7 +15,7 @@
       "policy_version": 1,
       "rationale": "It covers the outage.",
       "reversibility": "reversible",
-      "scope": "retries",
+      "scope": "repo:retries",
       "statement": "Retry twice.",
       "status": "replaced",
       "superseded_by": "decision-2"
@@ -37,7 +37,7 @@
       "policy_version": 1,
       "rationale": "The outage ran longer.",
       "reversibility": "reversible",
-      "scope": "retries",
+      "scope": "repo:retries",
       "statement": "Retry three times.",
       "status": "replaced",
       "superseded_by": "decision-3",
@@ -64,7 +64,7 @@
       "policy_version": 1,
       "rationale": "A count cannot know the outage: <img src=x onerror=alert(1)><script>alert(2)</script>",
       "reversibility": "reversible",
-      "scope": "retries",
+      "scope": "repo:retries",
       "statement": "Retry until the budget runs out.",
       "status": "assumed",
       "supersedes": "decision-2"

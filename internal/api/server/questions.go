@@ -160,6 +160,10 @@ func (h *handler) recordDecision(w http.ResponseWriter, r *http.Request, actor l
 	if !decode(w, r, &in) {
 		return
 	}
+	if _, err := questions.ParseScope(in.Scope); err != nil {
+		fail(w, err)
+		return
+	}
 	record, err := h.questions.RecordDecision(r.Context(), h.Scope, questions.Decision{
 		ID: in.ID, Status: in.Status, Statement: in.Statement, Rationale: in.Rationale, Citations: in.Citations,
 		Scope: in.Scope, Reversibility: in.Reversibility, Categories: in.Categories, Supersedes: in.Supersedes,

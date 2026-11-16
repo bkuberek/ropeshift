@@ -134,11 +134,11 @@ func TestAPlannersQuestionIsNoOrchestratorsToWork(t *testing.T) {
 		args map[string]any
 	}{
 		"decide": {lanes.ToolDecisionRecord, map[string]any{
-			"question": "planner-q", "status": "decided", "statement": "Staff.", "rationale": "Because.", "scope": "login", "reversibility": "reversible",
+			"question": "planner-q", "status": "decided", "statement": "Staff.", "rationale": "Because.", "scope": "repo:login", "reversibility": "reversible",
 			"citations": []string{"PAY-12"},
 		}},
 		"assume": {lanes.ToolDecisionRecord, map[string]any{
-			"question": "planner-q", "status": "assumed", "statement": "Staff.", "rationale": "Because.", "scope": "login", "reversibility": "reversible",
+			"question": "planner-q", "status": "assumed", "statement": "Staff.", "rationale": "Because.", "scope": "repo:login", "reversibility": "reversible",
 			"citations": []string{"PAY-12"},
 		}},
 		"resolve":  {lanes.ToolDecisionRecord, map[string]any{"question": "planner-q", "decision": "d0"}},

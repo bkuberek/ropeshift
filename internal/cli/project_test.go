@@ -304,7 +304,7 @@ func TestTwoProjectsKeepTheirRecordsApartOnTheCommandLine(t *testing.T) {
 	if out := p.must(none, "work", "show", "wo-home", "--project", ledger.DefaultProjectName); !strings.Contains(out, "Add the retry budget") {
 		t.Errorf("the first project's wo-home: %q", out)
 	}
-	p.must(none, "decision", "record", "--project", ledger.DefaultProjectName, "--statement", "Retry the invoice upload twice.", "--scope", "retries")
+	p.must(none, "decision", "record", "--project", ledger.DefaultProjectName, "--statement", "Retry the invoice upload twice.", "--scope", "repo:retries")
 	if out := p.must(none, "decision", "list", "--project", "acme"); strings.Contains(out, "invoice upload") {
 		t.Errorf("acme lists the first project's decision: %q", out)
 	}

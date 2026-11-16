@@ -173,6 +173,10 @@ func TestExitCodes(t *testing.T) {
 		{"release with no claim", nil, []string{"work", "release", "wo", "--fence", "1"}, cli.ExitUsage},
 		{"release with no fence", nil, []string{"work", "release", "wo", "--claim-id", "c"}, cli.ExitUsage},
 
+		{"a decision with a scope of the grammar", nil, []string{"decision", "record", "--statement", "S", "--scope", "plan:p1"}, cli.ExitOK},
+		{"a decision with a bare ID as its scope", nil, []string{"decision", "record", "--statement", "S", "--scope", "p1"}, cli.ExitUsage},
+		{"a decision with a scope of an unknown kind", nil, []string{"decision", "record", "--statement", "S", "--scope", "team:p1"}, cli.ExitUsage},
+
 		{"reassign", func(s *session) { s.lapse("wo") }, []string{"work", "reassign", "wo", "--reason", "a closed laptop"}, cli.ExitOK},
 		{"reassign of work that did not lapse", func(s *session) { s.claimed("wo") }, []string{"work", "reassign", "wo", "--reason", "r"}, cli.ExitConflict},
 		{"reassign with no reason", nil, []string{"work", "reassign", "wo"}, cli.ExitUsage},
@@ -660,8 +664,8 @@ func TestQuestionCommands(t *testing.T) {
 func TestDecisionAndSearchCommands(t *testing.T) {
 	s := newSession(t)
 	s.must("decision", "record", "--id", "d1", "--statement", "The retry budget is three calls.", "--rationale", "It follows.",
-		"--scope", "checkout", "--category", "product", "--citation", "PAY-12", "--reversibility", "reversible")
-	if text := s.must("decision", "list", "--scope", "checkout", "--text", "retry"); !strings.Contains(text, "d1") {
+		"--scope", "repo:checkout", "--category", "product", "--citation", "PAY-12", "--reversibility", "reversible")
+	if text := s.must("decision", "list", "--scope", "repo:checkout", "--text", "retry"); !strings.Contains(text, "d1") {
 		t.Errorf("list %q", text)
 	}
 	if text := s.must("decision", "show", "d1"); !strings.Contains(text, "three calls") {
@@ -892,8 +896,8 @@ func TestLanePolicyCommands(t *testing.T) {
 
 func TestDecisionOverturn(t *testing.T) {
 	s := newSession(t)
-	s.must("decision", "record", "--id", "d1", "--statement", "Retries log at info.", "--assumed", "--scope", "checkout")
-	second := s.must("decision", "record", "--id", "d2", "--statement", "Retries emit a metric.", "--scope", "checkout",
+	s.must("decision", "record", "--id", "d1", "--statement", "Retries log at info.", "--assumed", "--scope", "repo:checkout")
+	second := s.must("decision", "record", "--id", "d2", "--statement", "Retries emit a metric.", "--scope", "repo:checkout",
 		"--no-conflict", "d1", "--json")
 	if !strings.Contains(second, `"overlaps":["d1"]`) || !strings.Contains(second, `"no_conflict":["d1"]`) {
 		t.Fatalf("decision record %q", second)
@@ -904,7 +908,7 @@ func TestDecisionOverturn(t *testing.T) {
 			t.Errorf("overturn %q lacks %q", text, want)
 		}
 	}
-	if text := s.must("decision", "show", "d1"); !strings.Contains(text, "overturned\tcheckout\tRetries log at info.") {
+	if text := s.must("decision", "show", "d1"); !strings.Contains(text, "overturned\trepo:checkout\tRetries log at info.") {
 		t.Errorf("the overturned decision reads %q", text)
 	}
 	if code, _, _ := s.run("decision", "overturn", "d1", "--statement", "Again."); code != cli.ExitConflict {
@@ -913,8 +917,8 @@ func TestDecisionOverturn(t *testing.T) {
 	if code, _, _ := s.run("decision", "overturn", "d2"); code != cli.ExitUsage {
 		t.Errorf("exit %d with no statement", code)
 	}
-	s.must("decision", "record", "--id", "d4", "--statement", "Replaced.", "--scope", "other")
-	s.must("decision", "record", "--id", "d5", "--statement", "Replacing.", "--scope", "other", "--supersedes", "d4")
+	s.must("decision", "record", "--id", "d4", "--statement", "Replaced.", "--scope", "repo:other")
+	s.must("decision", "record", "--id", "d5", "--statement", "Replacing.", "--scope", "repo:other", "--supersedes", "d4")
 	if text := s.must("decision", "show", "d4"); !strings.Contains(text, "replaced") {
 		t.Errorf("the replaced decision reads %q", text)
 	}

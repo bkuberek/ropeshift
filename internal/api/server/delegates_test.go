@@ -595,7 +595,7 @@ func TestTheClassOfACallTurnsOnTheCall(t *testing.T) {
 
 	// A decision: one an orchestrator could record is a card of its own, and any other is a card for a decision.
 	within := api.RecordDecision{
-		ID: "d1", Status: questions.DecisionDecided, Statement: "Retry twice.", Rationale: "The budget allows it.", Scope: "retries",
+		ID: "d1", Status: questions.DecisionDecided, Statement: "Retry twice.", Rationale: "The budget allows it.", Scope: "repo:retries",
 		Reversibility: questions.Reversible, Citations: []string{"docs/retries.md"}, Categories: []string{questions.CategoryProduct},
 	}
 	_, err = delegate.RecordDecision(ctx, within)

@@ -25,7 +25,7 @@ describe("the decisions", () => {
     const card = await decision("Retry twice.");
     expect(within(card).getByText("Replaced")).toBeTruthy();
     expect(within(card).getByText("It covers the outage.")).toBeTruthy();
-    expect(within(card).getByText("retries")).toBeTruthy();
+    expect(within(card).getByText("repo:retries")).toBeTruthy();
     expect(within(card).getByText("Reversible")).toBeTruthy();
     expect(within(card).getByText("member-1")).toBeTruthy();
   });
