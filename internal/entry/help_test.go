@@ -14,6 +14,7 @@ import (
 
 	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/cli"
+	"ropeshift.com/ropeshift/test/apitest"
 )
 
 // A person's own ROPESHIFT_WORKTREE_DIR outranks the state directory, so a test that isolates an installation
@@ -22,6 +23,8 @@ func TestIsolateKeepsWorktreesUnderTheTestsOwnState(t *testing.T) {
 	t.Setenv(api.EnvWorktreeDir, "/somebody/elses/worktrees")
 	t.Setenv("XDG_DATA_HOME", "/somebody/elses/data")
 	isolate(t)
+	// A control socket's path has a limit that a long temporary directory is over.
+	t.Setenv(api.EnvRunDir, apitest.ShortDir(t))
 	paths, err := installationPaths()
 	if err != nil {
 		t.Fatal(err)

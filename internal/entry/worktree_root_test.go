@@ -261,6 +261,11 @@ func TestALaneInFlightAtAnUpgradeGoesOnInItsOldWorktree(t *testing.T) {
 		if _, err := w.prov.Worktrees.Create(t.Context(), ports.WorktreeSpec{Repository: clone, Path: old[name], Branch: "lane/lane-1"}); err != nil {
 			t.Fatal(err)
 		}
+		// Git names a worktree by its real path, as a disk that spells a temporary directory through a link gives.
+		var err error
+		if old[name], err = filepath.EvalSymlinks(old[name]); err != nil {
+			t.Fatal(err)
+		}
 	}
 	for name, clone := range map[string]string{"api": w.clones["api"], "workspace": w.workspace.Dir} {
 		before := w.worktrees(clone)
