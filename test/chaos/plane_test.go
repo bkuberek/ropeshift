@@ -571,10 +571,13 @@ func TestSleepReturnsFromLapsed(t *testing.T) {
 }
 
 // checkSoloSleep stops the whole of a real ropeshiftd past its lease, as a closed
-// laptop does. The lease tick and the heartbeat resume together, so the sweep is held
-// back and the heartbeat comes first, which is the renewal the deadline refuses. A
-// lapse goes on record, and the same holder returns under the same fence. A late beat
-// on a loaded machine can add a lapse and its return, and changes nothing else.
+// laptop does. The lease tick and the heartbeat resume together. Before the sweep
+// lapses the expired lease, it waits up to two seconds for a renewal to begin, and a
+// renewal holds the database's write lock from its start, so the heartbeat's renewal
+// commits before the lapse: it is the renewal the deadline refuses. The workspace holds
+// one work order with one claim, so every renewal is of that lease. A lapse goes on
+// record, and the same holder returns under the same fence. A late beat on a loaded
+// machine can add a lapse and its return, and changes nothing else.
 func checkSoloSleep(w *world, sabotage ...string) error {
 	binary := filepath.Join(w.target.Dir, "ropeshiftd")
 	build := exec.Command("go", "build", "-tags", "chaos", "-o", binary, "ropeshift.com/ropeshift/cmd/ropeshiftd")
@@ -587,7 +590,7 @@ func checkSoloSleep(w *world, sabotage ...string) error {
 	daemon.Env = append([]string{
 		"HOME=" + w.target.Dir, "PATH=" + doubles.InstallFakeClaude(w.t, "no-session"),
 		api.EnvStateDir + "=" + paths.StateDir, api.EnvRunDir + "=" + paths.RunDir, api.EnvWeb + "=" + api.WebOff,
-		api.EnvTelemetry + "=127.0.0.1:0", crashpoint.EnvPause + "=sweep/candidates-read=150ms",
+		api.EnvTelemetry + "=127.0.0.1:0", crashpoint.EnvAwait + "=sweep/before-lapse=" + sqlstore.OpRenew + "/begun,2s",
 	}, sabotage...)
 	if err := daemon.Start(); err != nil {
 		return err
@@ -662,29 +665,32 @@ func checkSoloSleep(w *world, sabotage ...string) error {
 	_ = daemon.Process.Kill()
 	<-exited
 	exited <- nil
-	return checkLapsesReturned(ctx, paths)
+	return checkLapsesReturned(w, paths, resumed)
 }
 
-// checkLapsesReturned reads the ledger of a stopped daemon. Lapses and returns must
-// alternate from a lapse, and at least one of each must be on record. The kill can
-// land between a late lapse and its return.
-func checkLapsesReturned(ctx context.Context, paths api.Paths) error {
+// checkLapsesReturned reads the ledger of a stopped daemon, and logs each lapse and
+// return with its revision and its time from the wake at resumed, in Unix milliseconds.
+// Lapses and returns must alternate from a lapse, and at least one of each must be on
+// record. The kill can land between a late lapse and its return.
+func checkLapsesReturned(w *world, paths api.Paths, resumed int64) error {
 	store, err := sqlite.Open(filepath.Join(paths.StateDir, api.LedgerFileName), sqlstore.Options{})
 	if err != nil {
 		return err
 	}
 	defer store.Close()
 	lapses, returns := 0, 0
-	err = store.Read(ctx, "default", func(tx ports.ReadTx) error {
+	err = store.Read(w.rig.Ctx, "default", func(tx ports.ReadTx) error {
 		events, err := control.ReadAllEvents(tx.Events)
 		for _, e := range events {
 			switch e.Type {
 			case workorders.EventType(workorders.TriggerLeaseExpired):
+				w.t.Logf("lapse at revision %d, %+dms from the wake", e.Rev, e.RecordedAt-resumed)
 				if lapses != returns {
 					return contract.Violatedf("a second lapse with no return at revision %d", e.Rev)
 				}
 				lapses++
 			case workorders.EventType(workorders.TriggerReturnedUnstarted):
+				w.t.Logf("return at revision %d, %+dms from the wake", e.Rev, e.RecordedAt-resumed)
 				if returns+1 != lapses {
 					return contract.Violatedf("a return with no lapse at revision %d", e.Rev)
 				}

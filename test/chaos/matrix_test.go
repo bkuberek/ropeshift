@@ -279,7 +279,7 @@ func sweepCase() crashCase {
 	return crashCase{
 		name:  "sweep",
 		op:    "sweep",
-		steps: []string{"candidates-read"},
+		steps: []string{"candidates-read", "before-lapse"},
 		prepare: func(w *world) (childSpec, error) {
 			grant, err := w.claimed(1)
 			time.Sleep(10 * time.Millisecond)
