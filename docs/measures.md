@@ -185,6 +185,36 @@ A milestone's outcome compares when its last work order ended with its baseline 
 
 Outcomes are derived from the log and the baselines, so they take no revision and append no event, and a new version of the derivation drops them and folds them again with every timeline and record.
 
+## Calibration
+
+Calibration shows how often finished work landed inside the estimates it was baselined with, from its [estimate outcomes](#estimate-outcomes). It reads the project's own outcomes and delivery records alone, never the installation pool, so no other project's work reaches a rate. It is evidence about the estimator: it never changes an estimate, a forecast, a schedule, or the estimate policy.
+
+Over the last window, `30d` by default, and over all time, calibration gives for all of the project's work and then for each repository:
+
+- The p50 hit rate, the share of finished work whose delivery time, or estimated cost, was at or below its baseline p50, calibrated near 0.5.
+- The p85 hit rate, the same at p85, calibrated near 0.85.
+- The median ratio of actual to p50, by nearest rank, calibrated near 1.
+- Each of these by tier and by estimator version, and over every tier.
+- The share of the work that ended whose baseline estimate was confident, low confidence, or absent. Absent covers work with no baseline and an estimate with no history.
+- A weekly line: the same counts and rates for each of the 12 weeks up to the window's end.
+
+Confident and low-confidence outcomes are counted apart, so early low-confidence outcomes never hide whether the confident estimator is calibrated. The confident rates are the headline. The rank rule claims the same 50 and 85 percent below `min_samples`, so the low-confidence rates beside them show how far a thin band holds. Milestones are reported the same way: each milestone's baseline forecast, with its p50 and p85 dates and lower bound, beside the day its last work order ended, and how often milestones ended at or before the forecast dates, confident and low-confidence forecasts apart.
+
+These rules decide what counts:
+
+- An outcome whose baseline p85 was open counts in the p50 hit rate and the ratio, and not in the p85 hit rate. Its count shows as `p85_open`.
+- A rate shows only when at least 10 outcomes stand behind that rate; below 10, calibration shows the counts and no rate. Each rate is held to this on its own count: with 12 outcomes of which 4 were open, the p50 rate shows over 12 and the p85 rate shows no rate over 8. A cost compares only when neither the actual cost nor the band's is a lower bound, so the cost rates often rest on fewer outcomes than the time rates. The share of ended work shows from 10 ended.
+- Failed and canceled work counts apart, in the outcome counts and the share, and compares nothing.
+- Work counts in the window it ended in.
+
+The measures tick copies calibration of all of the project's work out with the product measures, for each of their windows. A point exists only where its rate shows. `tier` is a tier from 1 to 6, or `all` for every tier. No label names a work order, a repository, an estimator version, or a person, and forecasts are not exported, because a forecast belongs to one milestone:
+
+| Metric | Unit | Labels |
+|--------|------|--------|
+| `ropeshift.measure.estimate.hit_rate` | `1` | window, quantile (`p50`, `p85`), quantity (`time`, `cost`), tier, confidence (`confident`, `low`) |
+| `ropeshift.measure.estimate.ratio` | `1` | window, quantity, tier, confidence |
+| `ropeshift.measure.estimate.share` | `1` | window, confidence (`confident`, `low`, `none`) |
+
 ## Experience records
 
 The ledger keeps one experience record per lane and one per decision. Each holds the policy version in force, the settings the action ran on, the options considered, and what was chosen, and its outcome is filled in once, which may be long after the action. Nothing else ever changes a record.

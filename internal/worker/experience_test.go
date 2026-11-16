@@ -8,6 +8,7 @@ import (
 	"ropeshift.com/ropeshift/internal/adapters/fake"
 	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/control"
+	"ropeshift.com/ropeshift/internal/delivery"
 	"ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/measures"
@@ -175,5 +176,83 @@ func TestALaneThatNeverBoundHasARecordToo(t *testing.T) {
 	if record.Settings.Driver != "claude-code" || record.Settings.ModelResolved != "" || record.Outcome == nil ||
 		record.Outcome.Status != string(workorders.OutcomeFailed) {
 		t.Errorf("record %+v outcome %+v", record, record.Outcome)
+	}
+}
+
+// TestEstimateCalibrationExportsAsMetrics copies calibration out as `ropeshift.measure.estimate.*` gauges by window,
+// labeled only by window, quantile, quantity, tier, and confidence, never by a work order, a repository, or an
+// estimator version, with a rate only where 10 outcomes stand behind it (FR-OBS-15, FR-EST-11).
+func TestEstimateCalibrationExportsAsMetrics(t *testing.T) {
+	t.Parallel()
+	r := newLaneRig(t)
+	var now int64
+	if err := r.store.Read(t.Context(), scope, func(tx ports.ReadTx) (err error) {
+		now, err = tx.Now()
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	band := delivery.Estimate{
+		ID: "e-1", Status: delivery.Estimated, Confidence: delivery.Confident, Tier: 2, EstimatorVersion: delivery.EstimatorVersion,
+		DeliveryP50Ms: 4000, DeliveryP85Ms: 8000, CostP50USD: 2, CostP85USD: 4,
+	}
+	err := r.store.Fold(t.Context(), scope, func(tx ports.FoldTx) error {
+		for i := range 12 {
+			ended := now - int64(i+1)*int64(time.Minute/time.Millisecond)
+			took := int64(3000)
+			if i < 3 {
+				took = 6000
+			}
+			id := "wo-" + string(rune('a'+i))
+			record := delivery.Record{
+				WorkOrder: id, Version: delivery.Version, Keys: delivery.Keys{Kind: "change", Size: "small", Repository: "repo-1"},
+				Outcome: workorders.Done, Ended: ended, DeliveryMs: took, Usage: delivery.Usage{CostUSD: 1},
+			}
+			timeline := delivery.Timeline{WorkOrder: id, Version: delivery.Version, End: ended, Terminal: workorders.Done, Segments: []delivery.Segment{}}
+			if err := tx.Delivery().Save(timeline, &record); err != nil {
+				return err
+			}
+			if err := tx.Delivery().SaveOutcome(delivery.WorkOutcome("b-"+id, band, record)); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	telemetry := fake.NewTelemetry()
+	if err := control.NewMeasures(r.store, telemetry).Export(t.Context(), scope); err != nil {
+		t.Fatal(err)
+	}
+	allowed := map[string]bool{control.AttrMeasureWindow: true}
+	for _, label := range []string{"quantile", "quantity", "tier", "confidence"} {
+		allowed["ropeshift.measure."+label] = true
+	}
+	for _, name := range []string{"estimate.hit_rate", "estimate.ratio", "estimate.share"} {
+		measured := telemetry.Measurements(control.MetricMeasurePrefix + name)
+		if len(measured) == 0 {
+			t.Errorf("no %s", name)
+		}
+		for _, m := range measured {
+			if m.Unit != "1" || m.Kind != ports.MetricGauge {
+				t.Errorf("%s %+v", name, m)
+			}
+			for _, a := range m.Attributes {
+				if !allowed[a.Key] {
+					t.Errorf("%s carries %s", name, a.Key)
+				}
+			}
+		}
+	}
+	var headline float64
+	for _, m := range telemetry.Measurements(control.MetricMeasurePrefix + "estimate.hit_rate") {
+		is := func(key, value string) bool { return attribute(m.Attributes, "ropeshift.measure."+key) == value }
+		if attribute(m.Attributes, control.AttrMeasureWindow) == "7d" && is("confidence", "confident") && is("tier", "all") && is("quantity", "time") && is("quantile", "p50") {
+			headline = m.Value
+		}
+	}
+	if math.Abs(headline-0.75) > 1e-9 {
+		t.Errorf("the confident p50 time hit rate over 7d is %v, want 0.75", headline)
 	}
 }
