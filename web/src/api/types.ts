@@ -116,7 +116,10 @@ export type Effect = {
   offers: EffectOutcome[];
 };
 
-export type Artifact = { id: string; lane_id: string; kind: string; uri: string; digest?: string; fence?: number; created_at: number };
+// What a lane's branch changed since its base commit, as its worker measured it.
+export type ChangeSize = { files: number; added: number; removed: number };
+
+export type Artifact = { id: string; lane_id: string; kind: string; uri: string; digest?: string; fence?: number; change?: ChangeSize; created_at: number };
 
 export type Generation = {
   lane_id: string;
@@ -580,6 +583,40 @@ export type Standing = {
   why?: string;
   integrations?: IntegrationRecord[];
 };
+
+// Where one work order's time went (FR-EST-1): segments that cover its time from its first ready to its end with
+// no gap and no overlap, each of one kind, and the delivery record a change or a rework leaves once it ended.
+export type SegmentKind = "queued" | "held" | "working" | "ladder" | "person" | "usage_limit" | "review" | "integration" | "external" | "stuck";
+
+export type Segment = {
+  kind: SegmentKind;
+  state: string;
+  cause?: string;
+  round: number;
+  lane?: string;
+  review?: string;
+  from: number;
+  to: number;
+  ended?: { event?: string; record?: string; actor: { Kind: string; ID: string } };
+};
+
+export type TimelineRead = { work_order: string; version: number; start: number; end: number; terminal?: string; segments: Segment[] };
+
+export type DeliveryRecord = {
+  work_order: string;
+  outcome: string;
+  rounds: number;
+  elapsed_ms: number;
+  delivery_ms: number;
+  lane_ms: number;
+  person_ms: number;
+  by_kind: Partial<Record<SegmentKind, number>>;
+  person_waits: number[];
+  usage: { input_tokens: number; output_tokens: number; cost_usd: number; cost_lower_bound?: boolean };
+  change?: ChangeSize;
+};
+
+export type WorkTimeline = { timeline: TimelineRead; record?: DeliveryRecord };
 
 export type CompletedWork = { work_order: WorkOrder; standing: Standing; since: number; reason?: string; detail?: string };
 

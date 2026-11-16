@@ -98,6 +98,14 @@ async function answer(route: Route): Promise<void> {
   if (view && goldens[view]) {
     return json(goldens[view]);
   }
+  // What a work order's Changes and Activity tabs read: work that is running, work whose review ruled and waits
+  // for a member, work that ended with a delivery record, and work that never reached ready.
+  const evidence = /^\/v1\/work-orders\/([^/]+)\/(acceptance|timeline)$/.exec(path);
+  if (evidence) {
+    const read = ({ "wo-running": "running", "wo-accept": "reviewed", "wo-done": "ended", "wo-loose": "empty" } as Record<string, string | undefined>)[evidence[1] ?? ""];
+    const body = read ? goldens[`${evidence[2]}-${read}`] : undefined;
+    return body ? json(body) : json(JSON.stringify({ error: { code: "not_found", message: "no such work order" } }), 404);
+  }
   if (path === "/v1/documents/read") {
     return json(goldens.document ?? "{}");
   }
@@ -214,6 +222,14 @@ const views = [
   "/projects/default/work-order?id=wo-failed",
   "/projects/default/work-order?id=wo-running",
   "/projects/default/work-order?id=wo-done&tab=lanes",
+  "/projects/default/work-order?id=wo-running&tab=changes",
+  "/projects/default/work-order?id=wo-running&tab=activity",
+  "/projects/default/work-order?id=wo-accept&tab=changes",
+  "/projects/default/work-order?id=wo-accept&tab=activity",
+  "/projects/default/work-order?id=wo-done&tab=changes",
+  "/projects/default/work-order?id=wo-done&tab=activity",
+  "/projects/default/work-order?id=wo-loose&tab=changes",
+  "/projects/default/work-order?id=wo-loose&tab=activity",
   "/projects/default/floor",
   "/projects/default/lane?id=lane-wo-running",
   "/projects/default/measures",

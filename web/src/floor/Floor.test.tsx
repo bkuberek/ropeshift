@@ -375,14 +375,6 @@ describe("a work order", () => {
     expect(merged.textContent).not.toContain("The merge waits");
   });
 
-  it("says the diff and the audit are not served yet, rather than drawing nothing", async () => {
-    serveViews();
-    openPage("/work-order?id=wo-running&tab=changes");
-    expect(await screen.findByText("The diff is not served to this page yet")).toBeTruthy();
-    await userEvent.click(screen.getByRole("tab", { name: "Activity" }));
-    expect(await screen.findByText("The audit is not served to this page yet")).toBeTruthy();
-  });
-
   it("moves between its tabs with the arrow keys", async () => {
     serveViews();
     openPage("/work-order?id=wo-running");
