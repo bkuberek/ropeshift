@@ -83,20 +83,3 @@ func (s *State) openLedger(ctx context.Context, p ledger.Project) (*sqlstore.Sto
 	}
 	return store, nil
 }
-
-// ProjectSchema is the schema of a project: its ID behind a prefix, so no project's schema can be
-// the installation's or one a person made.
-func ProjectSchema(id ledger.WorkspaceID) (string, error) {
-	return schemaName(id)
-}
-
-func schemaOf(p ledger.Project) (string, error) {
-	schema, err := schemaName(p.ID)
-	if err != nil {
-		return "", err
-	}
-	if p.Database != schema {
-		return "", fmt.Errorf("%w: project %s keeps its records in schema %q, not %q", ledger.ErrInvalidProject, p.ID, schema, p.Database)
-	}
-	return schema, nil
-}
