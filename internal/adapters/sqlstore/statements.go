@@ -121,6 +121,3 @@ const createMigrations = `CREATE TABLE IF NOT EXISTS schema_migrations (
   applied_at BIGINT NOT NULL,
   checksum   TEXT
 )`
-
-// addChecksum gives a table an earlier build made its checksum column.
-const addChecksum = `ALTER TABLE schema_migrations ADD COLUMN checksum TEXT`

@@ -215,7 +215,7 @@ func (s *Store) createMigrations(ctx context.Context) error {
 		return err
 	}
 	if !has {
-		if _, err := tx.ExecContext(ctx, addChecksum); err != nil {
+		if _, err := tx.ExecContext(ctx, s.dialect.AddColumnSQL("schema_migrations", "checksum TEXT")); err != nil {
 			return err
 		}
 	}

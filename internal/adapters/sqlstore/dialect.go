@@ -34,6 +34,11 @@ type Dialect interface {
 	// schema, as text. Its result has the same shape whatever the table holds, so a cached plan of it
 	// stays valid after the table changes.
 	ColumnsSQL() string
+	// AddColumnSQL adds a column, its name and then its type, to a table in the transaction's schema, after
+	// ColumnsSQL found it missing. Two starts at once can both find it missing: on a database that can say
+	// so, the statement adds nothing when the column is there, and one that cannot must serialize the two
+	// starts' transactions.
+	AddColumnSQL(table, column string) string
 }
 
 // Migration is one schema change.

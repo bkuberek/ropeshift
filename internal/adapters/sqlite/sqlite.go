@@ -79,6 +79,13 @@ func (Dialect) ColumnsSQL() string {
 	return `SELECT name FROM pragma_table_info(:table)`
 }
 
+// AddColumnSQL adds the column. SQLite has no IF NOT EXISTS for a column, and needs none: every
+// transaction takes the write lock as it begins, so a second start reads the columns only after the first
+// committed.
+func (Dialect) AddColumnSQL(table, column string) string {
+	return `ALTER TABLE ` + table + ` ADD COLUMN ` + column
+}
+
 // Migrations reads the neutral schema and SQLite's own.
 func (Dialect) Migrations() ([]sqlstore.Migration, error) {
 	neutral, err := NeutralMigrations()
