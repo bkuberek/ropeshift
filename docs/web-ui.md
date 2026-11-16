@@ -4,6 +4,26 @@ The web UI is where a member decides what waits for a person, reads the plan and
 
 The screenshots below are `v0.1.0-alpha.15` running locally with sample data.
 
+## Keyboard
+
+Every action has a keyboard path, and `?` lists the shortcuts. A single-key shortcut is off while the cursor is in a text field or the terminal pane, and Settings turns them all off under Appearance and keyboard. `Ctrl K` (`⌘ K` on macOS) opens the command palette from anywhere, including a text field.
+
+| Keys | Does |
+| --- | --- |
+| `Ctrl K`, or `/` | Opens the command palette |
+| `?` | Shows the shortcut sheet |
+| `G` then `N`, `O`, `R`, `D`, `W`, `F`, `C`, `A`, `S`, `U`, `P` | Goes to Needs you, Overview, Roadmap, Documents, Work orders, Floor, Conversations, Agents, Settings, Usage, or Projects |
+| `P` | Opens the project switcher |
+| `.` | Opens or closes the conversation panel, with the cursor in its message box |
+| `T` | Switches the conversation target |
+| `J`, `K` | Moves to the next or the previous item of a list or a table |
+| `A` | Moves focus to the open decision's primary button, which you then press |
+| `Esc` | Closes the palette, a dialog, a menu, or the drawer, and returns focus |
+
+No single key decides anything: `A` moves focus, and `Enter` presses. The `G` waits a moment for its second key. Settings and Agents open the current project's page, and Overview the project's own page.
+
+The command palette finds a view, a record, or an action. With nothing typed it lists the current page's actions, then recent records, then views. `>` narrows it to actions and `#` to records, and the words of a query match in any order. The arrow keys move, `Enter` runs the entry, and `Esc` closes. An action opens its dialog or its page, and the palette never decides for you: a card that waits for a decision opens with its primary button focused.
+
 ## Needs you
 
 ![Needs you, with the waiting items oldest first and the selected work's review verdicts beside them](assets/screenshots/needs-you-light.png#gh-light-mode-only)
