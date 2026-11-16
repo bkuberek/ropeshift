@@ -296,7 +296,8 @@ func TestAskSaysAPlanningLaneNeedsACategory(t *testing.T) {
 }
 
 // A pack names the documents its contract cites as `document spec:checkout-api@3`, so context_get
-// has to offer that kind for a session to read one by the name the pack gives it.
+// has to offer that kind for a session to read one by the name the pack gives it, and the delivery history a
+// planning lane's pack lists as `delivery_history project`.
 func TestContextGetOffersEveryKindAPackNames(t *testing.T) {
 	var kinds []any
 	for _, tool := range ask(t, &worker{}, "tools/list", map[string]any{}).Result.Tools {
@@ -311,7 +312,7 @@ func TestContextGetOffersEveryKindAPackNames(t *testing.T) {
 	for i, kind := range kinds {
 		got[i], _ = kind.(string)
 	}
-	for _, want := range []string{"contract", "document", "requirement", "decision", "goal", "knowledge"} {
+	for _, want := range []string{"contract", "document", "requirement", "decision", "goal", "knowledge", "delivery_history"} {
 		if !slices.Contains(got, want) {
 			t.Errorf("context_get offers %v, and not %q", got, want)
 		}

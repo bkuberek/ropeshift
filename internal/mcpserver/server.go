@@ -289,6 +289,7 @@ var contextGetTool = map[string]any{
 				"type": "string", "enum": []string{
 					string(contextpacks.KindContract), string(contextpacks.KindDocument), string(contextpacks.KindRequirement),
 					string(contextpacks.KindDecision), string(contextpacks.KindGoal), string(contextpacks.KindKnowledge),
+					string(contextpacks.KindDeliveryHistory),
 				},
 			},
 			"ref": map[string]any{"type": "string", "description": "The record's name, as the pack writes it after its kind."},
