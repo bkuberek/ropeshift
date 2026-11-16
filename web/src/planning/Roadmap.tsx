@@ -268,7 +268,8 @@ export function Roadmap({ view, plans, project, forecasts = {} }: { view: View; 
   );
 }
 
-// The daemon's forecast tick keeps forecasts once a minute, so the page reads them no oftener than this.
+// The daemon's forecast tick keeps forecasts when what they rest on changes, and at least hourly, so the page reads
+// them no oftener than this.
 const forecastGapMs = 30_000;
 
 // RoadmapPage reads the roadmap and the plans view, which names the versions that wait and the ones in force,

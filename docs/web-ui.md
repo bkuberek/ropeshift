@@ -32,13 +32,26 @@ What a member does depends on the kind of item:
 
 Roadmap shows the project's goals in priority order, each with its plans and the version of each plan in force. Under each plan come its success measures, its milestones in priority order with how much of each milestone's work is done and how the rest stands by state, and each milestone's work by dependency layer, with the critical path outlined. When a newer version of a plan waits for approval, a banner says so, and Review version opens its plan approval page.
 
+Under each plan the Roadmap shows its forecast, and in each milestone's row that milestone's, as `ropeshift plan forecast` prints them: [a forecast](#forecasts) of the newest version the daemon's forecast tick has forecast. The what-ifs and what makes a forecast again wait under What-ifs and how it was made, and a low-confidence forecast's explanation never does.
+
 Start planning session opens a planning session from here, as `ropeshift plan start` does: give the goal as text or read it from a file, then choose the planning repository and the worker. [Start a planning session](onboarding.md#start-a-planning-session) describes what the session does and how its plan reaches you.
 
 ## Plans
 
-Plans lists the project's plans, each with its status, the plan version in force, the version that waits, and how much of its work is done. A plan's page shows its versions, the difference from the approved version, its contracts, its reviews, and its work. Review version opens the approval page of a version that waits.
+Plans lists the project's plans, each with its status, the plan version in force, the version that waits, and how much of its work is done. A plan's page shows its versions, the difference from the approved version, its forecast, its contracts, its reviews, and its work. Review version opens the approval page of a version that waits.
 
 Start planning session opens a planning session from here as it does from [Roadmap](#roadmap). Start contract review starts a contract review of a plan, as `ropeshift plan review` does: a work order that reads the plan and its contracts at their newest versions and collects every question a lane would have to stop and ask. On a plan's page the dialog names that plan, and on the list it asks which one. The review is recorded as a work order that is ready, and its page opens next, where Start claims it for a worker and starts its lane. The work the review reads stays where it is until the plan is approved. A plan with no work that names a repository has nothing for a review to read, and the daemon refuses it in words that show in the dialog. A second press after a refusal repeats the request under one ID, so it never starts two reviews. The command palette lists Start contract review and opens the dialog on Plans. Like the other controls, it is your own act through the route the command line uses, so the rules are the same, and the web listener takes no delegate's credential.
+
+### Forecasts
+
+A plan's page has a Forecast section, and the Roadmap shows the same forecasts, with the words `ropeshift plan forecast` prints for them. A forecast gives the plan's end and the end of each of its milestones at p50 and p85, with the estimated cost at list price, from a simulation of the plan's unfinished work that the daemon's forecast tick makes again when what it rests on changes, and at least hourly. A page reads what the tick last kept and forecasts nothing itself.
+
+- Forecast carries the Low confidence badge before it when the estimates it rests on are few, and the explanation it was made with stays on the page in words: how many trials and work orders, and which work orders have too few comparable outcomes or none.
+- A date that is a lower bound reads "or later" and a cost "at least". Work with no history is left out of the trials, so a forecast that leaves some out has lower bounds throughout.
+- The what-ifs are the p85 with one more lane, shown when the plan has a lane cap, and with each wait for a person cut to the median wait of the project's recent work.
+- The last line says what makes the forecast again: its seed, trials, lane cap, ledger revision, and the time it ran from.
+- A milestone with no comparable history, no worker to run its work, or no unfinished work says so in a word with its explanation, and shows no dates.
+- A version the tick has not forecast yet says "Forecast pending" and shows no range. A version a newer one replaced before the tick forecast it says it has none.
 
 ## Plan approval
 
@@ -159,3 +172,12 @@ Delegates lists the delegate credentials you made, each with its project, kind, 
 ![Measures, with the fleet mode, limits, and counts of work orders and lanes by state](assets/screenshots/measures-dark.png#gh-dark-mode-only)
 
 Measures shows the project's fleet, its mode, how many items wait for a person, its workers, and its limits, then how many work orders and lanes are in each state, the sources work is read from, and the product measures: the north star, human interruptions per completed work order, beside the measures that keep it honest, with review agreement, cost per outcome, and park time. Every number comes from the ledger, and the page is for reading; its count of what waits links to Needs you. [Product measures](measures.md) defines each measure, and `ropeshift measures` prints them.
+
+### Delivery
+
+The Delivery tab beside Factory shows where delivery time went and how much work finished, as `ropeshift measures delivery` prints it, from the delivery records the daemon keeps. Window reads the last 24 hours, 7 days, or 30 days. Group by reads this project's records by kind, size, roster agent, or repository, and Scope, All projects, reads every active project's records apart, one group for each project, because the percentiles of separate projects do not combine. The choices are in the address, so a link keeps them.
+
+- A row for all work, and one for each group, gives the work done, failed, and canceled, throughput per week with a line of the work done in each of the last 12 weeks, and the elapsed time, delivery time, and estimated cost at p50 and p85. Time and cost count the work that reached done alone, a cost with a lower bound reads "at least", and a measure with no work done reads "no data".
+- Where the time went draws each group's elapsed time as a bar of the kinds of segment, each with a word, a tone, and a fill of its own, and the same shares in words beside it. Time waiting for a person is set apart from the agents' time.
+- Weekly trend lists the 12 weeks up to the end of the window for all work: the work done in each and its delivery time.
+- With no finished work in the window the tab says "Delivery measures appear when work orders finish."

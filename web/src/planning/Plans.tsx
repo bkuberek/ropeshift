@@ -328,8 +328,8 @@ function PlanVersions({ detail, live }: { detail: PlanDetail; live: Live }) {
   );
 }
 
-// The daemon's forecast tick keeps a forecast once a minute, so a page that follows the ledger reads it no oftener than
-// this.
+// The daemon's forecast tick keeps a forecast when what it rests on changes, and at least hourly, so a page that
+// follows the ledger reads it no oftener than this.
 const forecastGapMs = 30_000;
 
 // PlanForecasts shows the forecasts the daemon's forecast tick last kept for the plan's newest version: the plan's
