@@ -15,6 +15,12 @@ const DeliveryPath = "/v1/measures/delivery"
 // DefaultDeliveryWindow is the window look back covers when a read names none.
 const DefaultDeliveryWindow = "30d"
 
+// CalibrationPath is estimate calibration's read (FR-EST-11).
+const CalibrationPath = "/v1/measures/estimates"
+
+// DefaultCalibrationWindow is the recent window calibration covers when a read names none, beside all time.
+const DefaultCalibrationWindow = "30d"
+
 // DeliveryGroupings are the groupings look back reads by, the default first.
 var DeliveryGroupings = []string{delivery.ByKind, delivery.BySize, delivery.ByAgent, delivery.ByRepository}
 
@@ -116,5 +122,17 @@ func PlanForecastPath(plan string, version int64) string {
 func (c *ProjectClient) PlanForecast(ctx context.Context, plan string, version int64) (PlanForecast, error) {
 	var out PlanForecast
 	err := c.do(ctx, http.MethodGet, PlanForecastPath(plan, version), nil, &out)
+	return out, err
+}
+
+// EstimateCalibration reads how often finished work landed inside its baseline estimates, over a recent window and
+// over all time (FR-EST-11).
+func (c *ProjectClient) EstimateCalibration(ctx context.Context, window string) (delivery.Calibration, error) {
+	var out delivery.Calibration
+	path := CalibrationPath
+	if window != "" {
+		path += "?" + url.Values{"window": {window}}.Encode()
+	}
+	err := c.do(ctx, http.MethodGet, path, nil, &out)
 	return out, err
 }

@@ -20,6 +20,7 @@ import (
 func (h *handler) measureRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/measures", h.readMeasures)
 	mux.HandleFunc("GET /v1/measures/delivery", h.readDelivery)
+	mux.HandleFunc("GET /v1/measures/estimates", h.readCalibration)
 	mux.HandleFunc("GET /v1/work-orders/{id}/timeline", h.readTimeline)
 	mux.HandleFunc("GET /v1/work-orders/{id}/estimate", h.readEstimate)
 	mux.HandleFunc("GET /v1/plans/{id}/forecast", h.readForecast)
@@ -152,6 +153,26 @@ func (h *handler) readDelivery(w http.ResponseWriter, r *http.Request) {
 		}
 		report = delivery.LookBackOf(records, by, now-length.Milliseconds(), now)
 		return nil
+	})
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	reply(w, http.StatusOK, report)
+}
+
+// readCalibration reads estimate calibration from the outcomes the fold keeps: over the window asked for, and over all
+// time (FR-EST-11). It reads the project's own records alone.
+func (h *handler) readCalibration(w http.ResponseWriter, r *http.Request) {
+	length, err := api.ParseWindow(cmp.Or(r.URL.Query().Get("window"), api.DefaultCalibrationWindow))
+	if err != nil {
+		refuse(w, http.StatusBadRequest, api.ErrorDetail{Code: api.CodeInvalid, Message: err.Error()})
+		return
+	}
+	var report delivery.Calibration
+	err = h.Store.Read(r.Context(), h.Scope, func(tx ports.ReadTx) error {
+		report, err = control.CalibrationIn(tx, length)
+		return err
 	})
 	if err != nil {
 		fail(w, err)
