@@ -181,7 +181,7 @@ const paths: Record<string, KeyPath> = {
   },
   "PUT /v1/passphrase": {
     sent: { method: "PUT", path: /^\/v1\/passphrase$/, body: { current: "tin-roof-anvil-1", passphrase: "copper-kettle-moss-2" } },
-    answers: reply([/\/v1\/passphrase$/, { sessions_ended: 1 }, "PUT"]),
+    answers: reply([/\/v1\/passphrase$/, { sessions_ended: 1, delegates: 0 }, "PUT"]),
     run: async (k, page) => {
       await k.palette("Settings: Change passphrase");
       await k.typeInto(page.getByLabel("Current passphrase", { exact: true }), "tin-roof-anvil-1");

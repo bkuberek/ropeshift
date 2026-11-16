@@ -77,6 +77,63 @@ describe("Change passphrase", () => {
     expect(document.body.textContent).not.toContain("tin-roof-anvil-1");
   });
 
+  it("says how many delegate credentials still act, which a change leaves alone, and offers the sign-out that ends them", async () => {
+    serve(() => ({ status: 200, body: { sessions_ended: 1, delegates: 2 } }));
+    await open();
+    fill("tin-roof-anvil-1", "copper-kettle-moss-2");
+    await userEvent.click(submit());
+    const notice = (await screen.findByText(/Passphrase changed\. 1 other session ended/)).closest("[role=status]") as HTMLElement;
+    expect(within(notice).getByText(/2 delegate credentials of yours still act/)).toBeTruthy();
+    const out = within(notice).getByRole("link", { name: "Sign out all sessions" });
+    expect(out.getAttribute("href")).toBe("/members?dialog=sign-out-all");
+    cleanup();
+
+    serve(() => ({ status: 200, body: { sessions_ended: 0, delegates: 1 } }));
+    await open();
+    fill("tin-roof-anvil-1", "copper-kettle-moss-2");
+    await userEvent.click(submit());
+    expect(await screen.findByText(/1 delegate credential of yours still acts/)).toBeTruthy();
+    cleanup();
+
+    // With none, the notice says nothing of them and offers no sign-out.
+    serve(() => ({ status: 200, body: { sessions_ended: 0, delegates: 0 } }));
+    await open();
+    fill("tin-roof-anvil-1", "copper-kettle-moss-2");
+    await userEvent.click(submit());
+    await screen.findByText(/Passphrase changed/);
+    expect(screen.queryByText(/delegate credential/)).toBeNull();
+    expect(screen.queryByRole("link", { name: "Sign out all sessions" })).toBeNull();
+  });
+
+  it("says a change that lost to another did, in the daemon's status, and asks for a new sign-in", async () => {
+    serve(() => refusal(409, "passphrase_changed", "the passphrase changed while you were changing it; sign in again"));
+    await open();
+    fill("tin-roof-anvil-1", "copper-kettle-moss-2");
+    await userEvent.click(submit());
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("The passphrase changed while you were changing it. Sign in again.");
+    // It is no wrong guess, so the current passphrase is not marked wrong.
+    expect(current().getAttribute("aria-invalid")).toBeNull();
+    expect(screen.queryByText(/not your current passphrase/)).toBeNull();
+  });
+
+  it("holds a new passphrase to the upper bound in bytes, and says why before anything is typed", async () => {
+    const sent = serve();
+    await open();
+    expect(within(fieldOf(fresh())).getByText(/at most 1024.*a terminal reads a passphrase a line at a time/i)).toBeTruthy();
+    fill("tin-roof-anvil-1", "a".repeat(1025));
+    await userEvent.click(submit());
+    expect(within(fieldOf(fresh())).getByText("Use at most 1024 bytes. This one has 1025.")).toBeTruthy();
+    expect(changes(sent)).toHaveLength(0);
+    // Counted in bytes: 513 characters of two bytes each are 1026.
+    fill("tin-roof-anvil-1", "é".repeat(513));
+    await userEvent.click(submit());
+    expect(within(fieldOf(fresh())).getByText("Use at most 1024 bytes. This one has 1026.")).toBeTruthy();
+    fill("tin-roof-anvil-1", "é".repeat(512));
+    await userEvent.click(submit());
+    await waitFor(() => expect(changes(sent)).toHaveLength(1));
+  });
+
   it("says when no other session was open, and when one was", async () => {
     let ended = 0;
     serve(() => ({ status: 200, body: { sessions_ended: ended } }));

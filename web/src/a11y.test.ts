@@ -322,7 +322,7 @@ suite.each(Object.entries(sizes))("at %s width", (size, viewport) => {
         await page.getByRole("alert").waitFor();
         await settle();
         found.push(...(await audit(page)).map((violation) => `change passphrase with a refusal ${violation}`));
-        await answering(200, { sessions_ended: 2 });
+        await answering(200, { sessions_ended: 2, delegates: 1 });
         await fillIn("tin-roof-anvil-1");
         await submit();
         await page.getByText(/Passphrase changed\. 2 other sessions ended/).waitFor();

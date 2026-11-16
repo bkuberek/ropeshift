@@ -211,8 +211,9 @@ export function signOut(): Promise<void> {
   return call("POST", paths.signOut);
 }
 
-// What a change of the passphrase ended: the member's other sessions, counted. The one it came from stays.
-export type PassphraseChanged = { sessions_ended: number };
+// What a change of the passphrase did: it ended the member's other sessions, counted, and left the delegate credentials
+// that still act, counted too. The session it came from goes on under a new token, which the answer sets as cookies.
+export type PassphraseChanged = { sessions_ended: number; delegates: number };
 
 // changePassphrase replaces the passphrase, as `ropeshift passphrase set` does after the first. The current passphrase
 // proves the person at the page knows it, and the daemon ends the member's other sessions with the change. This is the
