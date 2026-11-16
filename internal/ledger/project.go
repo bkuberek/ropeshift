@@ -57,6 +57,21 @@ var ErrProjectArchived = errors.New("the project is archived, so it is read-only
 // names that project.
 var ErrRepositoryHeld = errors.New("another project holds that repository")
 
+// HeldError is ErrRepositoryHeld with what a caller needs to say it again: the project that holds the
+// repository and the identity it holds it under, which is the repository's first commit when it has no
+// remote.
+type HeldError struct {
+	Project  string
+	Identity string
+}
+
+func (e *HeldError) Error() string {
+	return fmt.Sprintf("%s: project %s holds %s", ErrRepositoryHeld, e.Project, e.Identity)
+}
+
+// Unwrap makes the error an ErrRepositoryHeld.
+func (e *HeldError) Unwrap() error { return ErrRepositoryHeld }
+
 // projectNameLimit keeps a name usable as one segment of a URL path and a DNS label.
 const projectNameLimit = 63
 

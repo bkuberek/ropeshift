@@ -482,7 +482,7 @@ func (t *installationTx) refuseHeld(identity string) error {
 	case err != nil:
 		return err
 	}
-	return fmt.Errorf("%w: project %s holds %s", ledger.ErrRepositoryHeld, name, identity)
+	return &ledger.HeldError{Project: name, Identity: identity}
 }
 
 // Project returns the project with a name, or ErrNotFound.

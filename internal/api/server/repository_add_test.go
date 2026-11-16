@@ -153,6 +153,36 @@ func TestOnlyAMemberAddsRepositories(t *testing.T) {
 	}
 }
 
+// FR-REPO-14, DG2: a repository with no remote is identified by its first commit, so a clone with no remote
+// that shares its first commit with a repository another project holds is refused, and the reason names that
+// commit and that project, not only an identity.
+func TestACloneWithNoRemoteThatSharesAFirstCommitWithAnotherProjectIsRefusedNamingBoth(t *testing.T) {
+	t.Parallel()
+	in := apitest.StartInstallation(t, "beta")
+	root := "5ca1ab1e" + strings.Repeat("0", 32)
+	in.Checkouts.Place(ports.Clone{Path: "/held/template", ID: root, DefaultBranch: "main"})
+	in.Checkouts.Place(ports.Clone{Path: "/work/template", ID: root, DefaultBranch: "main"})
+	_, _, betaClient := in.In(t, "beta")
+	if _, err := betaClient.AddRepositories(t.Context(), api.RepositoryAdd{Paths: []string{"/held/template"}}); err != nil {
+		t.Fatal(err)
+	}
+	_, _, client := in.In(t, apitest.ProjectName)
+	for _, dryRun := range []bool{true, false} {
+		report, err := client.AddRepositories(t.Context(), api.RepositoryAdd{Paths: []string{"/work/template"}, DryRun: dryRun})
+		if err != nil || report.Refused() != 1 {
+			t.Fatalf("a clone sharing a first commit with another project's, dry run %v: %+v, %v", dryRun, report, err)
+		}
+		for _, want := range []string{"shares its first commit `5ca1ab1e`", "project beta", "give this clone a remote of its own or a history of its own"} {
+			if reason := report.Repositories[0].Reason; !strings.Contains(reason, want) {
+				t.Errorf("dry run %v: the refusal %q does not say %q", dryRun, reason, want)
+			}
+		}
+	}
+	if len(repositoriesOf(t, client)) != 0 {
+		t.Error("a refused clone was registered")
+	}
+}
+
 // ADR-0021: a removed repository stays in its project as history, leaves the repository index and this
 // worker's checkouts, and another project may then register it. The first project registering it again
 // is then refused, naming the project that holds it.

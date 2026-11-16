@@ -198,7 +198,7 @@ func (t repositoryTx) heldElsewhere(identity string) error {
 	case err != nil:
 		return err
 	case ledger.WorkspaceID(project) != t.scope:
-		return fmt.Errorf("%w: project %s holds %s", ledger.ErrRepositoryHeld, name, identity)
+		return &ledger.HeldError{Project: name, Identity: identity}
 	}
 	return nil
 }
