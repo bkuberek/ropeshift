@@ -1,0 +1,30 @@
+{
+  "guide": "get-started",
+  "title": "Get started with the web UI",
+  "world": "harbor",
+  "order": 1,
+  "signed_out": true,
+  "steps": [
+    {
+      "step": "the Sign in page",
+      "route": "/",
+      "actions": [{ "waitFor": { "text": "Agents run as you on this machine" } }],
+      "capture": { "name": "get-started-01", "clip": "window" }
+    },
+    {
+      "step": "sign in with the passphrase",
+      "actions": [
+        { "fill": { "label": "Passphrase", "value": "{{passphrase}}" } },
+        { "click": { "role": "button", "name": "Sign in" } },
+        { "waitFor": { "text": "Nothing needs you" } }
+      ],
+      "capture": { "name": "get-started-02", "clip": "window" }
+    },
+    {
+      "step": "check the worker",
+      "route": "/workers",
+      "actions": [{ "waitFor": { "text": "Workers and resources" } }],
+      "capture": { "name": "get-started-03", "clip": { "selector": "main" } }
+    }
+  ]
+}

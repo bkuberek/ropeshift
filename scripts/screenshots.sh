@@ -2,15 +2,20 @@
 # Captures every view of the web UI and `ropeshift top` on a sample project, for the README and the
 # website (docs/development/screenshots.md). make screenshots runs it.
 #
-#   screenshots.sh [-o DIR] [-r REF] [-k]
+#   screenshots.sh [-o DIR] [-r REF] [-k] [-g GUIDE | -G | -c]
 #
 #   -o DIR   where the images go, by default .scratch/shots/<version>
 #   -r REF   a commit or tag to build, by default this checkout as it stands
 #   -k       keep the isolated installation the run makes, for debugging
+#   -G       walk the guides (test/screenshots/guides) in place of the views, and capture every guide
+#   -g GUIDE like -G, but capture only the guide with this prefix, after walking the guides before it
+#   -c       run the product gap checks of the guide walk (PG6 and PG9) in place of a capture
 #
 # It builds the web UI and the binary, then runs test/screenshots with the screenshots tag, which makes an
 # isolated installation, starts the daemon on a loopback port the kernel chooses, lays out the sample with
 # the fake agent CLI, and captures with Playwright's Chromium from web/. The run stops what it started.
+# A guide walk makes one installation for each theme and world, and the guides' neutral clone folder, which
+# it removes at its end (docs/development/screenshots.md).
 
 set -eu
 
@@ -25,13 +30,22 @@ fail() {
 out=""
 ref=""
 keep=""
-while getopts o:r:k flag; do
+walk=""
+guide=""
+checks=""
+while getopts o:r:kGg:c flag; do
 	case $flag in
+	c) checks=1 ;;
 	o) out=$OPTARG ;;
 	r) ref=$OPTARG ;;
 	k) keep=1 ;;
+	G) walk=1 ;;
+	g)
+		walk=1
+		guide=$OPTARG
+		;;
 	*)
-		printf 'usage: screenshots.sh [-o DIR] [-r REF] [-k]\n' >&2
+		printf 'usage: screenshots.sh [-o DIR] [-r REF] [-k] [-g GUIDE | -G | -c]\n' >&2
 		exit 2
 		;;
 	esac
@@ -71,11 +85,19 @@ out=$(cd "$out" && pwd)
 
 # The capture runs from this checkout's web/, whatever was built.
 [ -d web/node_modules ] || npm --prefix web ci --no-audit --no-fund
-if ! (cd web && node --input-type=module -e "import { chromium } from 'playwright-core'; await (await chromium.launch()).close();") >/dev/null 2>&1; then
+if ! (cd web && node --input-type=module -e "import { chromium } from 'playwright-core'; await (await chromium.launch({ executablePath: process.env.ROPESHIFT_TEST_CHROME || undefined })).close();") >/dev/null 2>&1; then
 	(cd web && npx --no-install playwright-core install chromium-headless-shell)
 fi
 
 printf 'screenshots: capturing %s into %s\n' "$version" "$out"
-go test -tags screenshots -count=1 -timeout 20m -run '^TestCapture$' ./test/screenshots \
-	-args -binary "$build/ropeshift" -out "$out" ${keep:+-keep}
+if [ -n "$checks" ]; then
+	go test -tags screenshots -count=1 -timeout 30m -v -run '^(TestNoCommandSpendsAJoinToken|TestAssistantAnswersInALaterProject)$' ./test/screenshots \
+		-args -binary "$build/ropeshift" -out "$out" ${keep:+-keep}
+elif [ -n "$walk" ]; then
+	go test -tags screenshots -count=1 -timeout 60m -run '^TestGuides$' ./test/screenshots \
+		-args -binary "$build/ropeshift" -out "$out" ${keep:+-keep} ${guide:+-guide "$guide"}
+else
+	go test -tags screenshots -count=1 -timeout 20m -run '^TestCapture$' ./test/screenshots \
+		-args -binary "$build/ropeshift" -out "$out" ${keep:+-keep}
+fi
 printf 'screenshots: wrote %s\n' "$out"
