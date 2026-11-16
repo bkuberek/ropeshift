@@ -216,6 +216,9 @@ async function answer(route: Route): Promise<void> {
   if (path === "/v1/measures/estimates") {
     return json(goldens.calibration ?? "{}");
   }
+  if (path === "/v1/measures/history") {
+    return json(goldens.history ?? "{}");
+  }
   if (path.startsWith("/v1/plans/adopt-approval")) {
     return json(JSON.stringify({ error: { code: "not_found", message: "no such plan" } }), 404);
   }
@@ -1338,6 +1341,44 @@ describe.each(Object.entries(sizes))("at %s width", (size, viewport) => {
         expect(found.map((line) => `${size} ${theme} ${line}`)).toEqual([]);
       },
       180_000,
+    );
+
+    it(
+      "the planning pane's History tab, with groups of every kind, with no finished work, and with a failure, meets WCAG 2.2 A and AA",
+      async () => {
+        const context = await browser.newContext({ viewport, colorScheme: theme, reducedMotion: "reduce" });
+        await context.route(/\/v1\//, answer);
+        const page = await context.newPage();
+        const found: string[] = [];
+        const settle = async () => {
+          await page.mouse.move(0, 0);
+          await page.waitForTimeout(600);
+        };
+        const history = /\/v1\/projects\/default\/measures\/history$/;
+        const open = async () => {
+          await page.goto(`${base}/projects/default/planning?lane=lane-wo-running`);
+          await ready(page);
+          await page.getByRole("tab", { name: "History" }).click();
+        };
+        await open();
+        await page.getByRole("heading", { level: 3, name: "What the planning session sees" }).waitFor();
+        await page.getByText("Low confidence").first().waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `history with confident and low groups ${violation}`));
+        await page.route(history, (route) => route.fulfill({ status: 200, contentType: "application/json", body: goldens["history-empty"] ?? "{}" }));
+        await open();
+        await page.getByText("No finished work yet.", { exact: false }).waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `history with no finished work ${violation}`));
+        await page.route(history, (route) => route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: { code: "unavailable", message: "the ledger could not be read" } }) }));
+        await open();
+        await page.getByRole("alert").getByText(/the ledger could not be read/).waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `history with a failure ${violation}`));
+        await context.close();
+        expect(found.map((line) => `${size} ${theme} ${line}`)).toEqual([]);
+      },
+      120_000,
     );
 
     it(
