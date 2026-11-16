@@ -25,6 +25,23 @@ What a member does depends on the kind of item:
 
 [Authorization](authorization.md#who-can-do-what) says who may decide each kind, [delegates](authorization.md#delegates) explains confirmation cards, and [the command line](cli.md) has a command for each decision, such as `ropeshift work accept` and `ropeshift approval approve`.
 
+## Overview
+
+Overview is a project's own page, at `/projects/{project}`, and `G` then `O` goes to it. Its heading holds Register repositories, which opens the dialog Repositories opens, and Start planning session, which opens the dialog the Roadmap and Plans views open. Both are off for an archived project, whose page says so and where to restore it.
+
+A row of six figures comes first, and each links to the view that holds what it counts:
+
+- **Waiting on you**: what waits for you in this project, which Needs you lists.
+- **Lanes running**: the lanes that count against the caps, which Floor lists.
+- **In review or merging**: the work orders in acceptance or integrating, which Reviews lists.
+- **Done in 7 days**: the work orders completed in the last seven days, which Work orders lists under Completed.
+- **Interruptions per completed**: the north star of [product measures](measures.md), over the same days. A rate that counted nothing reads No data yet, never zero.
+- **Estimated cost this week**: the cost agents reported over the last seven days, which Usage breaks down. It reads at least a figure when part of it is a lower bound, and None reported when no lane reported a cost.
+
+The main column holds the current plan's milestones, each with its progress and state, and the lanes that have not ended, each with its state and the machine it runs on. The side column holds the top five items of Needs you for this project, the longest wait first, each opening its card; the review agreement of the last 30 days; and the project's recent events with who acted. Each part reads on its own, so a read that fails shows its failure in that part and leaves the rest of the page standing.
+
+A project with no repository shows an empty state with Register repositories and Import an existing project, in place of the figures.
+
 ## Roadmap
 
 ![Roadmap, with a plan's milestones in priority order, their progress, and a banner for the version that waits](assets/screenshots/roadmap-light.png#gh-light-mode-only)
@@ -118,6 +135,16 @@ Floor shows every machine that serves the project, and its lanes. Each machine s
 Above the machines, Ready to start lists the work that waits for a lane: ready work, and claimed work with no lane yet. Each row has the same Start or Start lane as the work order's page, through the same dialog. Work the server lists as stuck stays in Needs you, and the panel is not there when nothing waits.
 
 A member opens a lane's page with Open. Message talks to a lane that runs headless, and Open pane to one that runs in a terminal pane, both in the conversation panel. A lane's actions menu holds what the server allows for the lane and for its work order, such as Resume, Start the next generation, Reset the breaker, Retry, End this claim, Back to ready, Back to planning, Cancel this work, or Archive the worktree of a lane that ended, each explained before it runs. Cancel this work is there for every lane whose work has not ended, not only for stuck work. The Workers page lists each machine with its orchestrator, which Start orchestrator, Stop orchestrator, and Details act on, and Details reads what `ropeshift orchestrator show` prints. [How many lanes run at once](onboarding.md#how-many-lanes-run-at-once) and [what the worker measures](onboarding.md#what-the-worker-measures) cover the caps and the readings.
+
+## Reviews
+
+Reviews is the work that waits for you after its lane finished, at `/projects/{project}/reviews`. The command palette lists Reviews and one entry for each of its tabs.
+
+Queue lists the work orders that wait for acceptance or for a merge, the longest wait first. Each row shows the work order, its state, the verdicts of its review counted by kind, its checks counted by where each stands, the merge authority in force, and what it waits on, in the ledger's words when it has them. Each row offers the acts the server lists for it and no others: Accept, which accepts the work in one press as `ropeshift work accept` does; Rework, which asks why and sends the work back for another attempt as `ropeshift work rework` does; and Approve merge, or Retry merge for a merge that was held, which opens the merge card of [Needs you](#needs-you), bound to the reviewed commit, where Approve merge or Deny records your decision as `ropeshift approval approve` does. Work with nothing for you to do, such as a merge you approved that the worker has not reported, says so. An act the daemon refuses shows its reason in the row. An empty queue says Nothing is in review.
+
+Pull requests lists the open pull requests ropeshift opened for work in review: the pull request and the branch it merges into its base, its work order, its head commit, whether a verdict read that commit, its checks, and whether the forge says it merges cleanly. A pull request whose head moved since the review read it says it was not read by a review. Its address shows as text and is never a link.
+
+Agreement shows how often you agreed with the review agent after it judged work, for the project and for each repository, over the last 30 days and over all time: the decisions, the agreement, the work you approved and then rejected, the work you rejected and then approved, and the defects found later in work you accepted. With fewer than ten decisions in a period, it shows the counts and says Not enough decisions for a rate yet in place of a percentage. Each repository shows its merge authority beside its record. ropeshift never changes a merge authority level itself: the record is the evidence for changing one in Repositories. [Review agreement](measures.md#review-agreement) defines the figures.
 
 ## Conversations and the dock
 
