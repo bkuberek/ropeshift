@@ -21,7 +21,9 @@ type ChangeMedian struct {
 // HistoryGroup is what a planning lane reads of one group of its project's finished work (FR-EST-12): how many
 // work orders it holds, and their delivery time, lane time, and estimated cost at p50 and p85 by nearest rank, the
 // mean rounds, and the median change size, with the confidence label and explanation an estimate from just these
-// records carries. CapabilityClass and Repository are empty in a group of kind and size alone. CostLowerBound says
+// records carries. A group under the minimum reads its percentiles at the estimator's own ranks, ceil(0.5 x (n + 1))
+// and ceil(0.85 x (n + 1)), and P85Open says its p85 is the longest and cannot be read from so few, so the figures say
+// what the explanation says. CapabilityClass and Repository are empty in a group of kind and size alone. CostLowerBound says
 // some cost was never reported, and Change is absent when no work order of the group recorded a change size.
 type HistoryGroup struct {
 	Kind            string        `json:"kind"`
@@ -33,6 +35,7 @@ type HistoryGroup struct {
 	Lane            Quantiles     `json:"lane"`
 	Cost            CostQuantiles `json:"cost"`
 	CostLowerBound  bool          `json:"cost_lower_bound,omitempty"`
+	P85Open         bool          `json:"p85_open,omitempty"`
 	MeanRounds      float64       `json:"mean_rounds"`
 	Change          *ChangeMedian `json:"change,omitempty"`
 	Confidence      Confidence    `json:"confidence"`
@@ -131,8 +134,22 @@ func groupOfHistory(drawn []Record, want Keys, matched []string, policy Estimate
 			e.DroppedKeys = append(e.DroppedKeys, key)
 		}
 	}
+	if e.Confidence == Low {
+		// The estimator's own ranks, so a thin group's figures are the band an estimate from it would give.
+		group.Delivery, group.Cost, group.P85Open = Quantiles{P50: e.DeliveryP50Ms, P85: e.DeliveryP85Ms}, CostQuantiles{P50: e.CostP50USD, P85: e.CostP85USD}, e.P85Open
+		lane := slices.Sorted(slices.Values(laneTimes(drawn)))
+		group.Lane = Quantiles{P50: lane[lowRank(len(lane), 0.5)], P85: lane[min(lowRank(len(lane), 0.85), len(lane)-1)]}
+	}
 	group.Confidence, group.Explanation = e.Confidence, explain(e, want, policy, true, poolOpening{})
 	return group
+}
+
+func laneTimes(records []Record) []int64 {
+	out := make([]int64, 0, len(records))
+	for _, r := range records {
+		out = append(out, r.LaneMs)
+	}
+	return out
 }
 
 // median is the 50th percentile of values by nearest rank, of a list that has one.
@@ -181,6 +198,11 @@ func (g HistoryGroup) line(repositories map[string]string) string {
 		}
 		return fmt.Sprintf("$%.2f", usd)
 	}
+	// An open band reads as more than its p85, which is its longest record.
+	more := ""
+	if g.P85Open {
+		more = "more than "
+	}
 	change := "no change size recorded"
 	if g.Change != nil {
 		change = fmt.Sprintf("median change %d files, +%d -%d lines, of %d measured", g.Change.Files, g.Change.Added, g.Change.Removed, g.Change.Measured)
@@ -189,7 +211,7 @@ func (g HistoryGroup) line(repositories map[string]string) string {
 	if g.Confidence == Confident {
 		said = "Confident. " + said
 	}
-	return fmt.Sprintf("- %s: %d finished; delivery p50 %s, p85 %s; lane time p50 %s, p85 %s; cost p50 %s, p85 %s; mean %.1f rounds; %s. %s\n",
-		strings.Join(label, ", "), g.Count, durationWords(g.Delivery.P50), durationWords(g.Delivery.P85), durationWords(g.Lane.P50), durationWords(g.Lane.P85),
-		cost(g.Cost.P50), cost(g.Cost.P85), g.MeanRounds, change, said)
+	return fmt.Sprintf("- %s: %d finished; delivery p50 %s, p85 %s%s; lane time p50 %s, p85 %s%s; cost p50 %s, p85 %s%s; mean %.1f rounds; %s. %s\n",
+		strings.Join(label, ", "), g.Count, durationWords(g.Delivery.P50), more, durationWords(g.Delivery.P85), durationWords(g.Lane.P50), more, durationWords(g.Lane.P85),
+		cost(g.Cost.P50), more, cost(g.Cost.P85), g.MeanRounds, change, said)
 }

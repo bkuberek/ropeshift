@@ -91,7 +91,7 @@ func TestHistoryAlsoGroupsByCapabilityClassAndRepository(t *testing.T) {
 	if strings.Join(got, "|") != strings.Join(want, "|") {
 		t.Errorf("groups %v, want %v", got, want)
 	}
-	if repo2 := h.ByKindSizeClassRepository[2]; repo2.Delivery != (delivery.Quantiles{P50: 3 * hour, P85: 7 * hour}) || repo2.Change != nil {
+	if repo2 := h.ByKindSizeClassRepository[2]; repo2.Delivery != (delivery.Quantiles{P50: 7 * hour, P85: 7 * hour}) || !repo2.P85Open || repo2.Change != nil {
 		t.Errorf("repo-2 %+v", repo2)
 	}
 }
@@ -180,7 +180,7 @@ func TestHistoryTextNamesEachGroupWithItsLabel(t *testing.T) {
 		"### By kind, size, capability class, and repository",
 		"- change, medium: 12 finished; delivery p50 5h, p85 9h; lane time p50 2h, p85 4h30m; cost p50 $5.00, p85 $9.00; " +
 			"mean 1.4 rounds; median change 5 files, +50 -5 lines, of 10 measured. Confident. Based on 12 finished medium changes.",
-		"- change, large: 4 finished; delivery p50 5h, p85 11h;",
+		"- change, large: 4 finished; delivery p50 8h, p85 more than 11h; lane time p50 4h, p85 more than 5h30m; cost p50 $8.00, p85 more than $11.00;",
 		"; no change size recorded. Low confidence. Based on 4 finished large changes;",
 		"- change, medium, implement, api: 10 finished;",
 		"- change, medium, implement, web: 2 finished;",
@@ -192,5 +192,45 @@ func TestHistoryTextNamesEachGroupWithItsLabel(t *testing.T) {
 	}
 	if strings.Contains(text, "repo-1") || strings.Contains(text, "99") {
 		t.Errorf("the history names a repository ID or counts work that did not finish:\n%s", text)
+	}
+}
+
+// TestALowGroupsFiguresAgreeWithItsExplanation holds the estimator's own rule for a group under min_samples: four
+// records of 2h, 5h, 8h, and 11h give the p50 at rank ceil(0.5 x 5), the third, 8h, and no p85, because the 85th
+// percentile cannot be read from fewer than 6, so the figures show the band open above the longest, as the explanation
+// says. A group at or above min_samples keeps nearest rank, and a low group of 6 or more reads its p85 at rank
+// ceil(0.85 x (n + 1)).
+func TestALowGroupsFiguresAgreeWithItsExplanation(t *testing.T) {
+	var four []delivery.Record
+	for i, h := range []int64{2, 5, 8, 11} {
+		four = append(four, historic(fmt.Sprintf("f-%d", i), "change", "large", "implement", "repo-1", int64(i), h*hour, h*hour/2, float64(h), 1, nil))
+	}
+	g := delivery.HistoryOf(four, delivery.DefaultEstimatePolicy()).ByKindSize[0]
+	if g.Delivery != (delivery.Quantiles{P50: 8 * hour, P85: 11 * hour}) || !g.P85Open || g.Lane != (delivery.Quantiles{P50: 4 * hour, P85: 5*hour + hour/2}) ||
+		g.Cost != (delivery.CostQuantiles{P50: 8, P85: 11}) {
+		t.Errorf("four records read %+v", g)
+	}
+	if !strings.Contains(g.Explanation, "the 85th percentile cannot be read from them, so the band is open above 11h") {
+		t.Errorf("the explanation reads %q", g.Explanation)
+	}
+	if text := delivery.HistoryOf(four, delivery.DefaultEstimatePolicy()).Text(nil); !strings.Contains(text, "delivery p50 8h, p85 more than 11h") {
+		t.Errorf("the text says %q", text)
+	}
+
+	// Seven records, 1h to 7h, are still low under 10, and their p85 can be read: rank ceil(0.85 x 8) = 7, the 7h one.
+	var seven []delivery.Record
+	for i := int64(1); i <= 7; i++ {
+		seven = append(seven, historic(fmt.Sprintf("s-%d", i), "change", "large", "implement", "repo-1", i, i*hour, i*hour, float64(i), 1, nil))
+	}
+	g = delivery.HistoryOf(seven, delivery.DefaultEstimatePolicy()).ByKindSize[0]
+	if g.Confidence != delivery.Low || g.P85Open || g.Delivery != (delivery.Quantiles{P50: 4 * hour, P85: 7 * hour}) {
+		t.Errorf("seven records read %+v", g)
+	}
+	// Ten at the minimum keep nearest rank: p50 the 5th, p85 the 9th.
+	seven = append(seven, historic("s-8", "change", "large", "implement", "repo-1", 8, 8*hour, 8*hour, 8, 1, nil),
+		historic("s-9", "change", "large", "implement", "repo-1", 9, 9*hour, 9*hour, 9, 1, nil), historic("s-10", "change", "large", "implement", "repo-1", 10, 10*hour, 10*hour, 10, 1, nil))
+	g = delivery.HistoryOf(seven, delivery.DefaultEstimatePolicy()).ByKindSize[0]
+	if g.Confidence != delivery.Confident || g.P85Open || g.Delivery != (delivery.Quantiles{P50: 5 * hour, P85: 9 * hour}) {
+		t.Errorf("ten records read %+v", g)
 	}
 }
