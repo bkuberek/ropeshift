@@ -80,6 +80,37 @@ function mergeRequest(subject: "approve" | "held", workOrder: string) {
 
 const projects = JSON.stringify({ projects: [{ id: "default", name: "default", display_name: "Default", state: "active", created_at: 1, repositories: [] }] });
 
+// Two projects the ledger holds nothing in, for the views that have an empty state: "quiet" has no repository
+// either, and "fresh" has one. Every read model of either lists nothing and counts nothing.
+function emptyViews(): Record<string, unknown> {
+  const stamp = { as_of: 1790000964002, revision: 1 };
+  const measured = JSON.parse(goldens.operations ?? "{}") as Record<string, any>;
+  const nothing = { numerator: 0, denominator: 0, value: null };
+  const agreement = { decisions: 0, agreed: 0, disagreed: 0, unknown: 0, agreement_rate: nothing, approvals_overturned: 0, later_defects: 0, failures_overridden: 0 };
+  Object.assign(measured, { work_orders: {}, lanes: {}, workers: 0, workers_fresh: 0, waiting_for_a_person: 0 });
+  Object.assign(measured.measures, {
+    interruptions: 0,
+    completed: 0,
+    interruptions_per_completed: nothing,
+    overturn_rate: nothing,
+    rework: nothing,
+    cost_per_outcome: {},
+    review_agreement: { workspace: { last_30_days: agreement, all_time: agreement }, repositories: [] },
+  });
+  return {
+    "needs-you": { ...stamp, items: [] },
+    completed: { ...stamp, items: [] },
+    "in-progress": { ...stamp, items: [] },
+    "on-hold": { ...stamp, items: [] },
+    stuck: { ...stamp, items: [] },
+    plans: { ...stamp, plans: [], unplanned: [], work_actions: {} },
+    roadmap: { ...stamp, goals: [] },
+    "shop-floor": { ...stamp, workers: [], lanes: [] },
+    operations: measured,
+  };
+}
+const empty = emptyViews();
+
 // answer stands where the daemon stands, as `serveViews` does for the other tests.
 async function answer(route: Route): Promise<void> {
   const url = new URL(route.request().url());
@@ -95,6 +126,31 @@ async function answer(route: Route): Promise<void> {
     return json(JSON.stringify({ ...needs, items: [...needs.items, ...cards.items, mergeRequest("approve", "wo-running"), mergeRequest("held", "wo-held")] }));
   }
   const view = /^\/v1\/views\/([a-z-]+)$/.exec(path)?.[1];
+  const project = /^\/v1\/projects\/([^/]+)\//.exec(url.pathname)?.[1];
+  // The projects with nothing in them answer every read model, the repositories, and the audit with nothing.
+  if (project === "quiet" || project === "fresh") {
+    if (view && view in empty) {
+      return json(JSON.stringify(empty[view]));
+    }
+    if (path === "/v1/repositories") {
+      return json(project === "quiet" ? JSON.stringify({ repositories: [] }) : (goldens.repositories ?? "{}"));
+    }
+    if (path === "/v1/audit") {
+      return json(JSON.stringify({ scope: "project", as_of: 1790000964002, head: 0, next: 0, events: [] }));
+    }
+  }
+  // The project that has work in review: a change the review could not judge, one whose merge waits for the
+  // member's approval with a check running, and one whose merge the member approved.
+  if (project === "reviewing" && (view === "completed" || view === "needs-you") && goldens[`reviews-${view}`]) {
+    return json(goldens[`reviews-${view}`] ?? "{}");
+  }
+  // Its member has decided twelve times after a review, so its agreement shows a rate.
+  if (project === "reviewing" && view === "operations") {
+    const measured = JSON.parse(goldens.operations ?? "{}") as Record<string, any>;
+    const { workspace } = measured.measures.review_agreement;
+    workspace.last_30_days = { decisions: 12, agreed: 9, disagreed: 3, unknown: 0, agreement_rate: { numerator: 9, denominator: 12, value: 0.75 }, approvals_overturned: 2, later_defects: 1, failures_overridden: 1 };
+    return json(JSON.stringify(measured));
+  }
   if (view && goldens[view]) {
     return json(goldens[view]);
   }
@@ -204,6 +260,18 @@ const views = [
   "/needs-you?kind=cards&item=confirm%3Agenerated-2",
   "/needs-you?item=approval%3Amerge-approve",
   "/needs-you?item=approval%3Amerge-held",
+  "/projects/default",
+  "/projects/quiet",
+  "/projects/fresh",
+  "/projects/default/reviews",
+  "/projects/default/reviews?tab=pull-requests",
+  "/projects/default/reviews?tab=agreement",
+  "/projects/reviewing/reviews",
+  "/projects/reviewing/reviews?tab=pull-requests",
+  "/projects/reviewing/reviews?tab=agreement",
+  "/projects/fresh/reviews",
+  "/projects/fresh/reviews?tab=pull-requests",
+  "/projects/fresh/reviews?tab=agreement",
   "/projects/default/roadmap",
   "/projects/default/plans",
   "/projects/default/plans?plan=generated-2",
@@ -1210,6 +1278,42 @@ describe.each(Object.entries(sizes))("at %s width", (size, viewport) => {
           await page.getByRole("navigation", { name: "Views" }).getByRole("link", { name: "Roadmap" }).waitFor();
           found.push(...(await audit(page)).map((violation) => `drawer ${violation}`));
         }
+        await context.close();
+        expect(found.map((line) => `${size} ${theme} ${line}`)).toEqual([]);
+      },
+      120_000,
+    );
+
+    it(
+      "the rework dialog and the merge dialog of the Reviews queue meet WCAG 2.2 A and AA",
+      async () => {
+        const context = await browser.newContext({ viewport, colorScheme: theme, reducedMotion: "reduce" });
+        await context.route(/\/v1\//, answer);
+        const page = await context.newPage();
+        const found: string[] = [];
+        await page.goto(`${base}/projects/reviewing/reviews`);
+        await ready(page);
+        await page.getByRole("button", { name: "Rework wo-accept" }).click();
+        const rework = page.getByRole("dialog", { name: "Send wo-accept back for rework" });
+        await rework.waitFor();
+        await page.mouse.move(0, 0);
+        await page.waitForTimeout(600);
+        found.push(...(await audit(page)).map((violation) => `rework dialog ${violation}`));
+        await rework.getByRole("textbox").fill("The log still drops the last day.");
+        await rework.getByRole("button", { name: "Send back for rework" }).click();
+        // The test serves no change, so the server's refusal stands at the foot of the dialog.
+        await rework.getByRole("alert").waitFor();
+        await page.mouse.move(0, 0);
+        await page.waitForTimeout(600);
+        found.push(...(await audit(page)).map((violation) => `rework dialog with a refusal ${violation}`));
+        await rework.getByRole("button", { name: "Cancel" }).click();
+        await rework.waitFor({ state: "detached" });
+        await page.getByRole("button", { name: "Approve merge of wo-ruled" }).click();
+        const merge = page.getByRole("dialog", { name: "Merge request for wo-ruled" });
+        await merge.waitFor();
+        await page.mouse.move(0, 0);
+        await page.waitForTimeout(600);
+        found.push(...(await audit(page)).map((violation) => `merge dialog ${violation}`));
         await context.close();
         expect(found.map((line) => `${size} ${theme} ${line}`)).toEqual([]);
       },
