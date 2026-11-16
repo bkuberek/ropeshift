@@ -19,7 +19,7 @@ The module follows a hexagonal layout, and `test/rules` classifies every package
 | `internal/authority`, `contextpacks`, `conversations`, `delivery`, `lanes`, `ledger`, `measures`, `messages`, `parking`, `planning`, `questions`, `workorders` | Domain | The rules of the product, with no process, file, network, clock, or entropy access |
 | `internal/ports` | Ports | The interfaces the application needs, each with a fake |
 | `internal/control`, `internal/worker` | Application | The control plane and the worker |
-| `internal/adapters/...` | Adapters | Claude Code, SQLite, git, tmux, launchd, systemd, OpenTelemetry, and the other outside systems |
+| `internal/adapters/...` | Adapters | Claude Code, SQLite, Postgres, git, tmux, launchd, systemd, OpenTelemetry, and the other outside systems. No binary wires the Postgres adapter yet, and `test/rules` holds that |
 | `internal/api`, `internal/api/server` | API | The versioned API's types and client, and its HTTP handler |
 | `internal/cli`, `hook`, `mcpserver`, `shim`, `top` | Clients | The command line, hook, MCP server, session shim, and terminal view |
 | `internal/crashpoint`, `internal/version` | Support | Leaf packages |
@@ -49,7 +49,7 @@ You need Go at the version `go.mod` names, Node.js and npm for the web UI, and g
 | `make test`, `make vet`, `make lint`, `make web-test` | One part of `make check` while you iterate |
 | `make cross` | After a change that could break a platform: it builds for macOS and Linux on arm64 and amd64 |
 | `make chaos` | After a change to crash recovery, leases, or the journal: it kills real processes at random points |
-| `make check-postgres` | After a change to the store: the contract suite on a private Postgres |
+| `make check-postgres` | After a change to the store or to `internal/adapters/postgres`: the contract suite and the adapter's tests on a private Postgres. It needs `initdb` and `postgres` on `PATH` or in `ROPESHIFT_TEST_PG_BIN` |
 | `make bench`, `make sizing` | When a change can move performance. Never beside each other or beside `make chaos` |
 | `make service-test`, `make service-container` | After a change to the service manager adapters. The second needs Docker |
 | `make snapshot`, `make install-test`, `make exit-container` | After a change to packaging, `install.sh`, or the first run. They need GoReleaser and Docker |
