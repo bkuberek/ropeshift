@@ -1,0 +1,4 @@
+estimate	low	delivery p50 4h0m0s p85 7h0m0s	cost at least p50 $4.00 p85 $7.00
+	Low confidence. Based on 7 finished medium changes; a confident estimate needs 10. They took from 1h to 7h.
+baseline	no history
+	No estimate: no small change has finished in this project yet, and this project does not share history with other projects.

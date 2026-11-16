@@ -1,0 +1,4 @@
+estimate	low	delivery p50 2h0m0s p85 more than 3h0m0s	cost p50 $2.00 p85 more than $3.00
+	Low confidence. Based on 3 finished medium changes; a confident estimate needs 10. They took from 1h to 3h. With fewer than 6, the 85th percentile cannot be read from them, so the band is open above 3h.
+baseline	no history
+	No estimate: no small change has finished in this project yet, and this project does not share history with other projects.

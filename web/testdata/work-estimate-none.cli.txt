@@ -1,0 +1,4 @@
+estimate	no history
+	No estimate: no medium change has finished in this project yet, and this project does not share history with other projects.
+baseline	no history
+	No estimate: no medium change has finished in this project yet, and this project does not share history with other projects.
