@@ -8,6 +8,7 @@ import { describe, expect, it } from "vitest";
 import { aConversation, serveTalk, talking } from "../talk/serve";
 import { golden, serveViews } from "../testing";
 import { openPage } from "../opening";
+import type { PaletteAction } from "./paletteActions";
 import { paletteActions } from "./paletteActions";
 
 // Every changing route with a control has an action in the command palette (FR-UI-9). parity.test.ts holds the table
@@ -41,29 +42,41 @@ describe("the command palette", () => {
     expect(source).toContain(action.title);
   });
 
-  it.each(wanted.map((action) => [action.title.trim(), action] as const))("lists %s", async (_title, action) => {
-    if (action.at.endsWith("/conversations")) {
-      // The conversation's actions stand where its surface does, with a session running, or stopped for Resume.
+  // The actions that stand on one page are looked for in one visit, each typed in turn. A conversation's actions stand
+  // where its surface does, with a session running, or stopped for Resume.
+  const grouped = new Map<string, PaletteAction[]>();
+  for (const action of wanted) {
+    const visit = `${action.at}${action.title.startsWith("Resume") ? " with the session stopped" : ""}`;
+    grouped.set(visit, [...(grouped.get(visit) ?? []), action]);
+  }
+  const visits = [...grouped];
+
+  it.each(visits)("lists, at %s, each of its actions", async (_name, actions) => {
+    const first = actions[0];
+    if (first?.at.endsWith("/conversations")) {
       const state = talking();
-      if (action.title.startsWith("Resume")) {
+      if (first.title.startsWith("Resume")) {
         state.conversations = [aConversation({ actual_state: "stopped", desired_state: "stopped" })];
       }
       serveTalk(state);
     } else {
       serveViews((call) => (call.path.startsWith("/v1/views/search") ? { status: 200, body: search() } : undefined), { projects });
     }
-    openPage(action.at);
+    openPage(first?.at ?? "/needs-you");
     await screen.findByRole("heading", { level: 1 });
     await userEvent.keyboard("{Control>}k{/Control}");
-    await screen.findByRole("dialog", { name: "Command palette" });
-    await userEvent.keyboard(action.query ?? ">");
-    await waitFor(
-      () => {
-        const titles = screen.queryAllByRole("option").map((option) => option.textContent ?? "");
-        expect(titles.some((text) => text.includes(action.title))).toBe(true);
-      },
-      { timeout: 4000 },
-    );
+    const field = await screen.findByRole("combobox");
+    for (const action of actions) {
+      await userEvent.clear(field);
+      await userEvent.type(field, action.query ?? ">");
+      await waitFor(
+        () => {
+          const titles = screen.queryAllByRole("option").map((option) => option.textContent ?? "");
+          expect(titles.some((text) => text.includes(action.title)), `an action that starts with "${action.title}" among ${titles.length} listed`).toBe(true);
+        },
+        { timeout: 4000 },
+      );
+    }
     cleanup();
-  });
+  }, 60_000);
 });
