@@ -74,6 +74,11 @@ func (Dialect) MatchQuery(terms []string) string {
 	return strings.Join(quoted, " OR ")
 }
 
+// ColumnsSQL reads the table's columns from its pragma.
+func (Dialect) ColumnsSQL() string {
+	return `SELECT name FROM pragma_table_info(:table)`
+}
+
 // Migrations reads the neutral schema and SQLite's own.
 func (Dialect) Migrations() ([]sqlstore.Migration, error) {
 	neutral, err := NeutralMigrations()
@@ -112,22 +117,30 @@ func ReadMigrations(files fs.FS, pattern string) ([]sqlstore.Migration, error) {
 	slices.Sort(names)
 	out := make([]sqlstore.Migration, 0, len(names))
 	for _, name := range names {
-		base := strings.TrimSuffix(path.Base(name), ".sql")
-		number, _, ok := strings.Cut(base, "_")
-		if !ok {
-			return nil, fmt.Errorf("migration %s has no version", name)
-		}
-		version, err := strconv.ParseInt(number, 10, 64)
+		version, err := migrationVersion(name)
 		if err != nil {
-			return nil, fmt.Errorf("migration %s: %w", name, err)
+			return nil, err
 		}
 		text, err := fs.ReadFile(files, name)
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, sqlstore.Migration{Version: version, Name: base, SQL: string(text)})
+		out = append(out, sqlstore.Migration{Version: version, Name: strings.TrimSuffix(path.Base(name), ".sql"), SQL: string(text)})
 	}
 	return out, nil
+}
+
+// migrationVersion reads the version a schema file's name starts with, as in 0001_ledger.sql.
+func migrationVersion(name string) (int64, error) {
+	number, _, ok := strings.Cut(path.Base(name), "_")
+	if !ok {
+		return 0, fmt.Errorf("migration %s has no version", name)
+	}
+	version, err := strconv.ParseInt(number, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("migration %s: %w", name, err)
+	}
+	return version, nil
 }
 
 // fileDSN keeps writers in BEGIN IMMEDIATE, so a transaction never fails upgrading

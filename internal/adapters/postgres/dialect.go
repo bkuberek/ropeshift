@@ -29,6 +29,12 @@ func (Dialect) ClockSQL() string {
 	return "SELECT CAST(floor(extract(epoch FROM clock_timestamp()) * 1000) AS BIGINT)"
 }
 
+// ColumnsSQL reads the catalog in the schema the transaction's search path resolves to.
+func (Dialect) ColumnsSQL() string {
+	return `SELECT CAST(column_name AS TEXT) FROM information_schema.columns
+ WHERE table_schema = current_schema() AND table_name = CAST(:table AS TEXT)`
+}
+
 // Migrations reads the neutral schema and this dialect's own.
 func (Dialect) Migrations() ([]sqlstore.Migration, error) {
 	neutral, err := sqlite.NeutralMigrations()

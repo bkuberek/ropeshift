@@ -57,6 +57,16 @@ var SQLiteFile = Backend{Name: "sqlite", Fresh: func(t testing.TB) Database {
 	}
 }}
 
+// SQLiteMigrations is an empty SQLite file for each migration check.
+var SQLiteMigrations = MigrationBackend{Name: "sqlite", Fresh: func(t testing.TB) MigrationDatabase {
+	db, err := sqlite.OpenDB(filepath.Join(t.TempDir(), "migrations.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	return MigrationDatabase{DB: db, Dialect: sqlite.Dialect{}}
+}}
+
 // SQLiteMemory is the in-memory backend every fake Store uses (D6). Its database starts
 // as the image of a migrated one.
 var SQLiteMemory = Backend{Name: "memory", Fresh: func(t testing.TB) Database {

@@ -6,7 +6,6 @@ import (
 	"embed"
 	"encoding/json"
 	"fmt"
-	"io/fs"
 	"slices"
 	"strings"
 	"time"
@@ -64,46 +63,7 @@ func (s *TelemetryStore) Close() error { return s.db.Close() }
 
 // Migrate applies each schema file once.
 func (s *TelemetryStore) Migrate(ctx context.Context) error {
-	if _, err := s.db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS telemetry_migrations (name TEXT PRIMARY KEY)`); err != nil {
-		return err
-	}
-	names, err := fs.Glob(telemetryFiles, "telemetry_migrations/*.sql")
-	if err != nil {
-		return err
-	}
-	slices.Sort(names)
-	for _, name := range names {
-		if err := s.applyMigration(ctx, name); err != nil {
-			return fmt.Errorf("telemetry migration %s: %w", name, err)
-		}
-	}
-	return nil
-}
-
-func (s *TelemetryStore) applyMigration(ctx context.Context, name string) error {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = tx.Rollback() }()
-	var applied int
-	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM telemetry_migrations WHERE name = ?1`, name).Scan(&applied); err != nil {
-		return err
-	}
-	if applied > 0 {
-		return nil
-	}
-	text, err := fs.ReadFile(telemetryFiles, name)
-	if err != nil {
-		return err
-	}
-	if _, err := tx.ExecContext(ctx, string(text)); err != nil {
-		return err
-	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO telemetry_migrations (name) VALUES (?1)`, name); err != nil {
-		return err
-	}
-	return tx.Commit()
+	return telemetryMigrations.migrate(ctx, s.db)
 }
 
 // labelOf is the token type a record counts under, which the lane summary sums by. An agent's tokens count

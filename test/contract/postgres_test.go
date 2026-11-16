@@ -41,6 +41,11 @@ func TestStoreContractPostgresProject(t *testing.T) {
 	contract.Run(t, pgtest.ProjectBackend, contract.AllChecks())
 }
 
+// TestMigrationChecksumsPostgres holds the migration checksums on Postgres, in a schema of their own.
+func TestMigrationChecksumsPostgres(t *testing.T) {
+	contract.RunMigrationChecks(t, pgtest.MigrationBackend)
+}
+
 // TestEveryStatementPrepares sends every statement to a real server, which is
 // what finds a statement Postgres refuses to type (D7).
 func TestEveryStatementPrepares(t *testing.T) {

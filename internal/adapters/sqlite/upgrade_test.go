@@ -2,6 +2,7 @@ package sqlite_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -412,6 +413,47 @@ func TestAnUpgradedInstallationStartsAgainWithNoChange(t *testing.T) {
 	}
 	if after := dump(t, filepath.Join(dir, sqlite.InstallationFileName)); !mapsEqual(after, installationBefore) {
 		t.Error("a second start changed the installation database")
+	}
+}
+
+// TestAStartRefusesADatabaseWhoseAppliedMigrationChanged holds that the upgrade every start runs returns
+// the refusal of a ledger or an installation database whose applied migration no longer matches the one
+// this build ships, so the daemon stops before it serves.
+func TestAStartRefusesADatabaseWhoseAppliedMigrationChanged(t *testing.T) {
+	for _, tc := range []struct{ set, file string }{
+		{"ledger", ledgerName},
+		{"installation", sqlite.InstallationFileName},
+	} {
+		t.Run(tc.set, func(t *testing.T) {
+			t.Parallel()
+			dir := t.TempDir()
+			state, store, err := sqlite.Upgrade(t.Context(), dir, ledgerName, firstProject, upgradeActor)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_ = store.Close()
+			_ = state.Close()
+			db, err := sqlite.OpenDB(filepath.Join(dir, tc.file))
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = db.Exec(`UPDATE schema_migrations SET checksum = 'recorded-by-another-build' WHERE version = 1`)
+			if closeErr := db.Close(); err == nil {
+				err = closeErr
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			state, store, err = sqlite.Upgrade(t.Context(), dir, ledgerName, firstProject, upgradeActor)
+			if err == nil {
+				_ = store.Close()
+				_ = state.Close()
+			}
+			if !errors.Is(err, sqlstore.ErrMigrationChanged) || !strings.Contains(err.Error(), tc.set+" migration 1 (0001_") ||
+				!strings.Contains(err.Error(), "recorded-by-another-build") {
+				t.Fatalf("the start returned %v, want the refusal of %s migration 1", err, tc.set)
+			}
+		})
 	}
 }
 

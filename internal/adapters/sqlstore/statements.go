@@ -31,7 +31,9 @@ type Statement struct {
 // Statements lists every statement the Store can run, as a dialect sends it, so a
 // check can prepare each one on a real server (D7).
 func Statements(dialect Dialect) []Statement {
-	return append(rendered(every, dialect), Statement{Name: StatementReadClock, Text: dialect.ClockSQL()})
+	return append(rendered(every, dialect),
+		Statement{Name: StatementReadClock, Text: dialect.ClockSQL()},
+		Statement{Name: statementReadColumns, Text: compile(dialect.ColumnsSQL(), dialect.Placeholder).text})
 }
 
 // InstallationStatements lists every statement the installation database runs, as a dialect sends it.
@@ -102,12 +104,23 @@ VALUES
 		`SELECT count(*) FROM schema_migrations WHERE version = :version`)
 
 	stmtRecordMigration = define("migration.record",
-		`INSERT INTO schema_migrations (version, name, applied_at) VALUES (:version, :name, :applied_at)`)
+		`INSERT INTO schema_migrations (version, name, applied_at, checksum) VALUES (:version, :name, :applied_at, :checksum)`)
+
+	stmtListMigrations = define("migration.list",
+		`SELECT version, name, checksum FROM schema_migrations ORDER BY version`)
+
+	stmtBackfillChecksum = define("migration.backfill",
+		`UPDATE schema_migrations SET checksum = :checksum WHERE version = :version AND checksum IS NULL`)
 )
 
-// createMigrations runs before any migration, so it cannot be one.
+// createMigrations runs before any migration, so it cannot be one. A migration an earlier build applied
+// has no checksum until the next start records it.
 const createMigrations = `CREATE TABLE IF NOT EXISTS schema_migrations (
   version    BIGINT NOT NULL PRIMARY KEY,
   name       TEXT   NOT NULL,
-  applied_at BIGINT NOT NULL
+  applied_at BIGINT NOT NULL,
+  checksum   TEXT
 )`
+
+// addChecksum gives a table an earlier build made its checksum column.
+const addChecksum = `ALTER TABLE schema_migrations ADD COLUMN checksum TEXT`

@@ -30,6 +30,10 @@ type Dialect interface {
 	// MatchQuery renders search terms as that statement's :query. A term holds only
 	// letters and digits.
 	MatchQuery(terms []string) string
+	// ColumnsSQL selects the name of each column of the table named :table, in the transaction's
+	// schema, as text. Its result has the same shape whatever the table holds, so a cached plan of it
+	// stays valid after the table changes.
+	ColumnsSQL() string
 }
 
 // Migration is one schema change.

@@ -173,11 +173,11 @@ func (s *Store) begin(ctx context.Context, opts *sql.TxOptions) (*sql.Tx, error)
 
 // Migrate applies each schema change once, in its own transaction.
 func (s *Store) Migrate(ctx context.Context) error {
-	return s.migrate(ctx, s.dialect.Migrations)
+	return s.migrate(ctx, "ledger", s.dialect.Migrations)
 }
 
-// migrate applies the schema changes a dialect lists, each once.
-func (s *Store) migrate(ctx context.Context, list func() ([]Migration, error)) error {
+// migrate applies the schema changes a dialect lists, each once. The set names them in an error.
+func (s *Store) migrate(ctx context.Context, set string, list func() ([]Migration, error)) error {
 	if err := s.createMigrations(ctx); err != nil {
 		return fmt.Errorf("migrate: %w", err)
 	}
@@ -186,6 +186,9 @@ func (s *Store) migrate(ctx context.Context, list func() ([]Migration, error)) e
 		return err
 	}
 	slices.SortFunc(migrations, func(a, b Migration) int { return int(a.Version - b.Version) })
+	if err := s.checkApplied(ctx, set, migrations); err != nil {
+		return err
+	}
 	for _, m := range migrations {
 		if err := s.apply(ctx, m); err != nil {
 			return fmt.Errorf("migrate %s: %w", m.Name, err)
@@ -194,12 +197,9 @@ func (s *Store) migrate(ctx context.Context, list func() ([]Migration, error)) e
 	return nil
 }
 
-// createMigrations makes the table of applied migrations, in the store's schema.
+// createMigrations makes the table of applied migrations, in the store's schema, and gives a table an
+// earlier build made its checksum column.
 func (s *Store) createMigrations(ctx context.Context) error {
-	if s.scope == "" {
-		_, err := s.db.ExecContext(ctx, createMigrations)
-		return err
-	}
 	tx, err := s.begin(ctx, nil)
 	if err != nil {
 		return err
@@ -207,6 +207,15 @@ func (s *Store) createMigrations(ctx context.Context) error {
 	defer func() { _ = tx.Rollback() }()
 	if _, err := tx.ExecContext(ctx, createMigrations); err != nil {
 		return err
+	}
+	has, err := s.hasChecksum(ctx, tx)
+	if err != nil {
+		return err
+	}
+	if !has {
+		if _, err := tx.ExecContext(ctx, addChecksum); err != nil {
+			return err
+		}
 	}
 	return tx.Commit()
 }
@@ -238,7 +247,9 @@ func (s *Store) apply(ctx context.Context, m Migration) error {
 	if err != nil {
 		return err
 	}
-	if _, err := se.exec(stmtRecordMigration, params{"version": m.Version, "name": m.Name, "applied_at": now}); err != nil {
+	if _, err := se.exec(stmtRecordMigration, params{
+		"version": m.Version, "name": m.Name, "applied_at": now, "checksum": Checksum(m.SQL),
+	}); err != nil {
 		return err
 	}
 	return tx.Commit()
