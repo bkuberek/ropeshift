@@ -56,6 +56,8 @@ var equivalents = map[string]string{
 	"orchestrator stop": "orchestrator start", // orchestrator.go setsOrchestrator sends SetOrchestrator, the same PUT as start, with desired stopped; Workers sends both
 	"plan approve":      "approval approve",   // planning.go planApprove reads the plan, then sends DecideApproval with Allow for its digest; the plan approval card does
 	"plan start":        "work create",        // planstart.go openSession sends work create (plan), review, claim, and lane start; planning/session.ts sends the same calls
+	"policy show":       "policy list",        // questions.go policyShow finds one version in the rows policyList prints and prints its body; the list route returns every version with its settings, and Settings shows the newest and each earlier one in its History tab
+	"repository show":   "repository list",    // repository.go repositoryShow prints the RepositoryView of one repository; the list route returns the same view for each, with its forge health and review agreement, and Repositories opens a row's record from it
 }
 
 // cliOnly are the commands FR-UI-7 leaves to the command line, each with the clause that does.

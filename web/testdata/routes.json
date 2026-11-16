@@ -345,11 +345,6 @@
     "command": "repository list"
   },
   {
-    "method": "GET",
-    "pattern": "/v1/projects/{project}/repositories/{id}",
-    "command": "repository show"
-  },
-  {
     "method": "PATCH",
     "pattern": "/v1/projects/{project}/repositories/{id}",
     "command": "repository set"
@@ -383,11 +378,6 @@
     "method": "GET",
     "pattern": "/v1/projects/{project}/policies",
     "command": "policy list"
-  },
-  {
-    "method": "GET",
-    "pattern": "/v1/projects/{project}/policies/{version}",
-    "command": "policy show"
   },
   {
     "method": "POST",
