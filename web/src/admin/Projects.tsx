@@ -19,8 +19,15 @@ type Open = { kind: "create" } | { kind: "import"; file: File } | { kind: "renam
 
 // ProjectsPage lists every project of the installation, with what makes, imports, backs up, renames,
 // archives, restores, and removes one. Each step is a member's call the CLI makes too.
-export function ProjectsPage({ live, projects, reload, dialog }: { live: Live; projects: Project[]; reload: () => Promise<void>; dialog: string }) {
+export function ProjectsPage({ live, projects, reload, dialog, target = "" }: { live: Live; projects: Project[]; reload: () => Promise<void>; dialog: string; target?: string }) {
   const [open, setOpen] = useState<Open>(dialog === "create" ? { kind: "create" } : null);
+  // An address may name the dialog of a project, which the command palette uses: rename, archive, or remove.
+  const named = projects.find((row) => row.name === target);
+  useEffect(() => {
+    if (named && (dialog === "rename" || dialog === "archive" || dialog === "remove")) {
+      setOpen({ kind: dialog, project: named });
+    }
+  }, [dialog, named?.name]);
   const floors = useEveryFloor(live, projects);
   const toast = useToast();
   const chooser = useRef<HTMLInputElement>(null);
@@ -135,6 +142,7 @@ export function ProjectsPage({ live, projects, reload, dialog }: { live: Live; p
                           <>
                             <Button
                               small
+                              data-focus={`Restore ${shown}`}
                               loading={restore.busy}
                               onClick={() =>
                                 void restore.run(() => restoreProject(row.name)).then((back) => (back ? done(`${shown} restored to active.`) : undefined))
@@ -150,6 +158,7 @@ export function ProjectsPage({ live, projects, reload, dialog }: { live: Live; p
                           <>
                             <Button
                               small
+                              data-focus={`Back up ${shown}`}
                               loading={backup.busy}
                               onClick={() =>
                                 void backup.run(() => downloadBackup(row.name)).then((file) => {

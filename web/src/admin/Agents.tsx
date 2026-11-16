@@ -52,10 +52,16 @@ type Tab = "roster" | "guide" | "history";
 
 // AgentsPage is the roster editor (FR-AGENT-6) at the scope its address names: the installation's, or
 // one project's, which resolves over it (ADR-0025). Every change is a member's, recorded as a version.
-export function AgentsPage({ live, project, label, archived, scope, agent, tab }: { live: Live; project: string; label: string; archived: boolean; scope: Scope; agent: string; tab: string }) {
+export function AgentsPage({ live, project, label, archived, scope, agent, tab, dialog = "" }: { live: Live; project: string; label: string; archived: boolean; scope: Scope; agent: string; tab: string; dialog?: string }) {
   const read = useRead<RosterView>(() => readRoster(scope), `roster:${scope}:${project}`, live);
   const history = useRead<RosterHistory>(() => readRosterHistory(scope), `roster-history:${scope}:${project}`, live);
-  const [adding, setAdding] = useState(false);
+  // The command palette opens Add agent with `?dialog=add`.
+  const [adding, setAdding] = useState(dialog === "add");
+  useEffect(() => {
+    if (dialog === "add") {
+      setAdding(true);
+    }
+  }, [dialog]);
   const idBase = useId();
   const shown: Tab = tab === "guide" || tab === "history" ? tab : "roster";
   const agents = read.view?.roster.agents ?? [];

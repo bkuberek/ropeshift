@@ -71,6 +71,9 @@ const sections: Section[] = [
 // The ID of every section, which the accessibility checks hold to a state each.
 export const settingsSections = sections.map((section) => section.id);
 
+// settingsList is each section's ID and title, and whether it is a project's, which the command palette lists.
+export const settingsList = sections.map((section) => ({ id: section.id, title: section.title, project: section.scope === "project" }));
+
 const groupWords: Record<Section["scope"], string> ={ installation: "Installation", worker: "Workers", project: "Project", you: "You" };
 
 const policyOf: Partial<Record<string, PolicyKind>> = {

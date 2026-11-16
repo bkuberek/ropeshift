@@ -6,6 +6,7 @@ import type { NeedItem, Project, ShopFloor } from "../api/types";
 import { useNeedsYou } from "../api/useNeedsYou";
 import { useProjects } from "../api/useProjects";
 import { useView } from "../api/useView";
+import { settingsList } from "../admin/Settings";
 import { headingOf } from "../needs/kinds";
 import { NeedsYou } from "../needs/NeedsYou";
 import { useClock } from "../parts/parts";
@@ -17,6 +18,7 @@ import { ToastProvider } from "../ui/overlays";
 import { inField, idle, onMac, readKey } from "./keys";
 import { NoSuchView, PageFor } from "./pages";
 import type { Entry } from "./ranking";
+import { useFocusParam } from "./focusParam";
 import { PageActionsProvider } from "./pageActions";
 import { Palette } from "./Palette";
 import { recentRecords, useDockWidth, useFlag } from "./prefs";
@@ -126,6 +128,7 @@ export function App() {
   const dockVisible = dockOpen && signedIn && !onConversations;
   const live = useMemo(() => ({ heard: needs.heard, checkSession: needs.checkSession }), [needs.heard, needs.checkSession]);
   useDocumentTitle(resolved.kind === "view" || resolved.kind === "pick-project" || resolved.kind === "missing" ? marked : "needs-you");
+  useFocusParam(route, signedIn);
 
   useEffect(() => {
     if (route.project) {
@@ -227,22 +230,66 @@ export function App() {
   const label = projectName(current, project);
   const items = needs.view?.items ?? [];
   const sources = useMemo(() => {
+    // Each card that waits has a Decide action, and the first few stand in the list with nothing typed.
+    const decide = items.map(
+      (item: NeedItem): Entry => ({
+        key: `decide:${item.kind}:${item.id}`,
+        group: "Actions",
+        title: `Decide: ${headingOf(item)}`,
+        icon: "inbox",
+        meta: projectName(item.project, item.project?.name ?? "") || "Needs you",
+        to: `/needs-you?item=${encodeURIComponent(`${item.kind}:${item.id}`)}&focus=primary`,
+      }),
+    );
     const actions: Entry[] = [
-      ...items.slice(0, 5).map(
-        (item: NeedItem): Entry => ({
-          key: `decide:${item.kind}:${item.id}`,
-          group: "Actions",
-          title: `Decide: ${headingOf(item)}`,
-          icon: "inbox",
-          meta: projectName(item.project, item.project?.name ?? "") || "Needs you",
-          to: `/needs-you?item=${encodeURIComponent(`${item.kind}:${item.id}`)}&focus=primary`,
-        }),
-      ),
+      ...decide.slice(0, 5),
       ...pageEntries,
       { key: "action:projects", group: "Actions", title: "Switch project", icon: "projects", meta: "P", run: () => switcher.setOpen(true) },
       { key: "action:create-project", group: "Actions", title: "Create project", icon: "plus", to: "/projects?dialog=create" },
       { key: "action:import", group: "Actions", title: "Import an existing project", icon: "import", to: "/import" },
-      { key: "action:import-backup", group: "Actions", title: "Import a project from a backup", icon: "upload", to: "/projects", keywords: "restore upload" },
+      { key: "action:import-backup", group: "Actions", title: "Import a project from a backup", icon: "upload", to: "/projects?focus=Import backup", keywords: "restore upload" },
+      { key: "action:start-orchestrator", group: "Actions", title: "Start orchestrator", icon: "server", to: "/workers?focus=Start orchestrator", keywords: "worker run" },
+      ...list.flatMap((row): Entry[] => {
+        const shown = projectName(row, row.name);
+        const entry = (action: string, title: string, icon: Entry["icon"], params: Record<string, string>): Entry => ({
+          key: `action:${action}:${row.name}`,
+          group: "Actions",
+          id: row.name,
+          title: `${title}: ${shown}`,
+          icon,
+          to: addressOf("/projects", params),
+        });
+        return row.state === "archived"
+          ? [entry("restore-project", "Restore project", "restart", { focus: `Restore ${shown}` }), entry("remove-project", "Remove project", "trash", { dialog: "remove", project: row.name })]
+          : [
+              entry("rename-project", "Rename project", "pencil", { dialog: "rename", project: row.name }),
+              entry("archive-project", "Archive project", "archive", { dialog: "archive", project: row.name }),
+              entry("backup-project", "Back up project", "download", { focus: `Back up ${shown}` }),
+            ];
+      }),
+      ...settingsList
+        .filter((section) => !section.project || project)
+        .map(
+          (section): Entry => ({
+            key: `action:settings:${section.id}`,
+            group: "Actions",
+            title: `Settings: ${section.title}`,
+            icon: "sliders",
+            keywords: "change edit setting policy",
+            to: inProject(section.project ? project : "", addressOf("/settings", { section: section.id })),
+          }),
+        ),
+      { key: "action:fleet-caps", group: "Actions", title: "Set the fleet's caps", icon: "sliders", to: inProject(project, "/settings?section=fleet&focus=Work in progress limit"), keywords: "wip limit lanes per repository worker" },
+      { key: "action:revoke-delegate", group: "Actions", title: "Revoke a delegate", icon: "key", to: "/members?focus=Revoke", keywords: "credential" },
+      { key: "action:remove-delegate", group: "Actions", title: "Remove a delegate", icon: "key", to: "/members?focus=Remove", keywords: "credential" },
+      { key: "action:installation-add-agent", group: "Actions", title: "Installation agents: add an agent", icon: "roster", run: () => go("/agents?dialog=add", { installation: true }), keywords: "roster" },
+      { key: "action:installation-agent-history", group: "Actions", title: "Installation agents: restore a version", icon: "history", run: () => go("/agents?tab=history", { installation: true }), keywords: "roster revert" },
+      ...(project
+        ? [
+            { key: "action:add-agent", group: "Actions" as const, title: "Add agent", icon: "roster" as const, to: inProject(project, "/agents?dialog=add"), keywords: "roster" },
+            { key: "action:agent-history", group: "Actions" as const, title: "Agents: restore a version", icon: "history" as const, to: inProject(project, "/agents?tab=history"), keywords: "roster revert" },
+          ]
+        : []),
       ...(project
         ? [
             { key: "action:register", group: "Actions" as const, title: "Register repositories", icon: "repo" as const, to: inProject(project, "/repositories?dialog=register") },
@@ -285,6 +332,14 @@ export function App() {
                 talkRef.current?.requestMenu();
               },
             },
+            {
+              key: "action:message-assistant",
+              group: "Actions" as const,
+              title: "Message the assistant",
+              icon: "send" as const,
+              keywords: "chat talk assistant send",
+              run: () => talkRef.current?.select("assistant", "", { open: !onConversations, focus: true }),
+            },
             { key: "action:conversations", group: "Actions" as const, title: "Go to Conversations", icon: "chat" as const, meta: "G C", to: inProject(project, "/conversations") },
           ]
         : []),
@@ -322,7 +377,7 @@ export function App() {
     const others: Entry[] = list
       .filter((row) => row.state === "active" && row.name !== project)
       .map((row) => ({ key: `project:${row.name}`, group: "Projects", id: row.name, title: `Switch to ${projectName(row, row.name)}`, icon: "projects", to: inProject(row.name, resolved.kind === "view" && route.project ? route.path : "/roadmap") }));
-    return { actions, views: [...views, ...tabs], recent, projects: others };
+    return { actions, views: [...views, ...tabs], recent, projects: others, more: decide.slice(5) };
   }, [items, pageEntries, dockOpen, onConversations, theme, nextTheme, signOutNow, project, label, list, switcher, setDockOpen, resolved.kind, route.project, route.path, view]);
 
   const waiting = needs.view ? needs.view.items.length : null;

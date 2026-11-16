@@ -5,6 +5,7 @@ import { newID } from "../admin/logic";
 import { useChange } from "../admin/parts";
 import { overturnDecision } from "../api/client";
 import type { Decision, Overturned } from "../api/types";
+import { usePageActions } from "../app/pageActions";
 import { addressOf, Link } from "../app/route";
 import { plural } from "../parts/parts";
 import { Button } from "../ui/controls";
@@ -152,6 +153,12 @@ function OverturnDialog({ decision, onClose }: { decision: Decision; onClose: ()
 // replaced or overturned has none, because the ledger overturns a decision once.
 export function OverturnDecisionButton({ decision }: { decision: Decision }) {
   const [open, setOpen] = useState(false);
+  // The command palette lists it while the decision stands, and opens the same dialog.
+  usePageActions(
+    inForce(decision)
+      ? [{ key: `action:overturn:${decision.id}`, group: "Actions", id: decision.id, title: `Overturn decision: ${decision.statement}`, icon: "decision", keywords: "reverse", run: () => setOpen(true) }]
+      : [],
+  );
   if (!inForce(decision)) {
     return null;
   }

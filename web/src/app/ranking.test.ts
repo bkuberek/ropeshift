@@ -55,6 +55,14 @@ describe("the palette's list", () => {
     expect(groups.map((group) => group.name)).toEqual(["Actions", "Views", "Records", "Projects"]);
   });
 
+  it("finds an action that only a search lists, and keeps it out of the list with nothing typed", () => {
+    const more = [entry("Actions", "Decide: A fifth question")];
+    expect(arrange("", { actions, views, projects, records: [], recent, more }).flatMap((group) => group.entries.map((row) => row.title))).not.toContain("Decide: A fifth question");
+    const found = arrange("fifth", { actions, views, projects, records: [], recent, more });
+    expect(found[0]?.entries.map((row) => row.title)).toEqual(["Decide: A fifth question"]);
+    expect(arrange("> decide", { actions, views, projects, records: [], recent, more })[0]?.entries.map((row) => row.title)).toEqual(["Decide: A fifth question"]);
+  });
+
   it("keeps the search's order for records, which the server ranked", () => {
     const groups = arrange("wo-2", { actions, views, projects, records: [...records].reverse(), recent });
     expect(groups.find((group) => group.name === "Records")?.entries.map((row) => row.id)).toEqual(["WO-219", "WO-214"]);

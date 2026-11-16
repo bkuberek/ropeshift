@@ -7,6 +7,7 @@ import { readView } from "../api/client";
 import type { PaneLane, PaneScreen, ShopFloor } from "../api/types";
 import type { Live } from "../api/useView";
 import { useView } from "../api/useView";
+import { usePageActions } from "../app/pageActions";
 import { addressOf, Link } from "../app/route";
 import { laneLabel } from "../floor/states";
 import { Ago, Page, useClock, ViewTime, words } from "../parts/parts";
@@ -135,6 +136,8 @@ function Typing({ lane, live }: { lane: string; live: boolean }) {
   const [enter, setEnter] = useState(true);
   const [failure, setFailure] = useState("");
   const queue = useRef<Promise<void>>(Promise.resolve());
+  // The command palette puts the keyboard in the field, and sends nothing.
+  usePageActions(live ? [{ key: `action:pane-keys:${lane}`, group: "Actions", id: lane, title: `Send keys to the pane of lane ${lane}`, icon: "terminal", keywords: "type input session", run: () => field.current?.focus() }] : []);
 
   const send = (input: () => Promise<unknown>) => {
     setFailure("");

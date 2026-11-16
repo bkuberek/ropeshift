@@ -26,6 +26,21 @@ function serving(post?: (call: Sent) => { status: number; body?: unknown } | und
 const card = (name: string) => screen.findByRole("article", { name });
 const overturnButton = async () => within(await card("Retry until the budget runs out.")).getByRole("button", { name: `Overturn ${standing}` });
 
+describe("overturning a decision from the command palette", () => {
+  it("lists Overturn for a decision in force, opens its dialog, and sends nothing", async () => {
+    const sent = serving();
+    openPage("/decisions");
+    await card("Retry until the budget runs out.");
+    await userEvent.keyboard("{Control>}k{/Control}");
+    await screen.findByRole("dialog", { name: "Command palette" });
+    await userEvent.keyboard("overturn decision");
+    expect(screen.queryByRole("option", { name: /^Overturn decision: Retry twice\./ })).toBeNull();
+    await userEvent.click(await screen.findByRole("option", { name: /^Overturn decision: Retry until the budget runs out\./ }));
+    expect(await dialog()).toBeTruthy();
+    expect(changes(sent)).toEqual([]);
+  });
+});
+
 describe("overturning a decision", () => {
   it("is offered on a decision in force, and on none that was replaced", async () => {
     serving();

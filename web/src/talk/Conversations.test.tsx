@@ -110,6 +110,53 @@ describe("the Conversations view", () => {
   });
 });
 
+describe("the conversation's actions in the command palette", () => {
+  const palette = async (typed: string) => {
+    await screen.findByRole("log", { name: "Messages with the assistant" });
+    await userEvent.keyboard("{Control>}k{/Control}");
+    await screen.findByRole("dialog", { name: "Command palette" });
+    await userEvent.keyboard(typed);
+  };
+
+  it("lists what the menu holds, each as the menu runs it", async () => {
+    const sent = serveTalk(state);
+    openPage(here("/conversations"));
+    await palette("conversation");
+    for (const title of ["Compact the conversation's context", "Clear the conversation's context", "Rename the conversation", "Stop the assistant session", "Delete the conversation"]) {
+      expect(await screen.findByRole("option", { name: new RegExp(`^${title}`) }), title).toBeTruthy();
+    }
+    expect(screen.queryByRole("option", { name: /^Resume the assistant session/ })).toBeNull();
+    await userEvent.click(screen.getByRole("option", { name: /^Compact the conversation's context/ }));
+    await waitFor(() => expect(changes(sent)).toHaveLength(1));
+    expect(changes(sent)[0]?.path).toBe("/v1/conversations/conv-1/compact");
+  });
+
+  it("opens the rename and the deletion, which ask first", async () => {
+    serveTalk(state);
+    openPage(here("/conversations"));
+    await palette("rename the conversation");
+    await userEvent.click(await screen.findByRole("option", { name: /^Rename the conversation/ }));
+    expect(await screen.findByRole("dialog", { name: "Rename conversation" })).toBeTruthy();
+    await userEvent.keyboard("{Escape}");
+    await userEvent.keyboard("{Control>}k{/Control}");
+    await screen.findByRole("dialog", { name: "Command palette" });
+    await userEvent.keyboard("delete the conversation");
+    await userEvent.click(await screen.findByRole("option", { name: /^Delete the conversation/ }));
+    expect(await screen.findByRole("dialog", { name: /^Delete/ })).toBeTruthy();
+  });
+
+  it("offers Resume, and no stop or compaction, for a session that is stopped", async () => {
+    state.conversations = [aConversation({ actual_state: "stopped", desired_state: "stopped" })];
+    const sent = serveTalk(state);
+    openPage(here("/conversations"));
+    await palette("session");
+    await userEvent.click(await screen.findByRole("option", { name: /^Resume the assistant session/ }));
+    await waitFor(() => expect(changes(sent)).toHaveLength(1));
+    expect(changes(sent)[0]?.path).toBe("/v1/conversations/conv-1/open");
+    expect(screen.queryByRole("option", { name: /^Stop the assistant session/ })).toBeNull();
+  });
+});
+
 describe("the conversation's menu", () => {
   const open = async () => {
     const sent = serveTalk(state);

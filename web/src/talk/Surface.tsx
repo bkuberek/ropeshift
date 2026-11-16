@@ -7,6 +7,7 @@ import type { MemberList } from "../api/admin";
 import { sendMessage } from "../api/talk";
 import type { Conversation, TalkEntry } from "../api/talk";
 import type { Live } from "../api/useView";
+import { usePageActions } from "../app/pageActions";
 import { conversationStates, laneStates, lookOf } from "../floor/states";
 import { LanePane } from "../lanes/LanePane";
 import { Button, IconButton } from "../ui/controls";
@@ -245,13 +246,24 @@ export function Surface({ live, variant, onClose, projectLabel, after }: Props) 
   const noWorker = isAssistant && list.view !== null && usable.length === 0;
   const unavailable = (list.view?.workers ?? []).filter((worker) => !worker.available);
 
-  const items: { label: string; onSelect: () => void; disabled?: boolean; disabledWhy?: string }[] = [
-    { label: "Compact context", onSelect: assistant.compact, disabled: !conversation || !(state === "running" || state === "working"), disabledWhy: "The session is not running. Type to resume it." },
-    { label: "Clear context", onSelect: assistant.clear, disabled: !conversation || !(state === "running" || state === "working"), disabledWhy: "The session is not running. Type to resume it." },
-    { label: "Rename…", onSelect: assistant.askRename, disabled: !conversation, disabledWhy: "There is no conversation yet." },
-    { label: "Stop session", onSelect: assistant.stop, disabled: !conversation || asleep || state === "stopping", disabledWhy: "The session is not running." },
-    { label: "Delete conversation…", onSelect: assistant.askDelete, disabled: !conversation, disabledWhy: "There is no conversation yet." },
+  // palette is what the command palette calls an item, for as long as the item is not disabled.
+  const items: { label: string; palette: string; onSelect: () => void; disabled?: boolean; disabledWhy?: string }[] = [
+    { label: "Compact context", palette: "Compact the conversation's context", onSelect: assistant.compact, disabled: !conversation || !(state === "running" || state === "working"), disabledWhy: "The session is not running. Type to resume it." },
+    { label: "Clear context", palette: "Clear the conversation's context", onSelect: assistant.clear, disabled: !conversation || !(state === "running" || state === "working"), disabledWhy: "The session is not running. Type to resume it." },
+    { label: "Rename…", palette: "Rename the conversation", onSelect: assistant.askRename, disabled: !conversation, disabledWhy: "There is no conversation yet." },
+    { label: "Stop session", palette: "Stop the assistant session", onSelect: assistant.stop, disabled: !conversation || asleep || state === "stopping", disabledWhy: "The session is not running." },
+    { label: "Delete conversation…", palette: "Delete the conversation", onSelect: assistant.askDelete, disabled: !conversation, disabledWhy: "There is no conversation yet." },
   ];
+  usePageActions(
+    isAssistant
+      ? [
+          ...(conversation && asleep ? [{ key: "action:assistant-resume", group: "Actions" as const, title: "Resume the assistant session", icon: "play" as const, keywords: "start open", run: assistant.resume }] : []),
+          ...items
+            .filter((item) => !item.disabled)
+            .map((item) => ({ key: `action:assistant:${item.palette}`, group: "Actions" as const, title: item.palette, icon: "chat" as const, keywords: "assistant conversation", run: item.onSelect })),
+        ]
+      : [],
+  );
 
   const pane = described.mode === "pane" && !described.ended;
   const strip = pane ? openItems(stream.entries) : [];

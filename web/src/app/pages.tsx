@@ -272,7 +272,7 @@ function ViewFor({ view, project, scoped, params, live, after, needs, projects, 
     case "workers":
       return <WorkersPage live={live} projects={projects} selected={param("worker")} after={after} dialog={param("dialog")} />;
     case "projects":
-      return <ProjectsPage live={live} projects={projects} reload={reloadProjects} dialog={param("dialog")} />;
+      return <ProjectsPage live={live} projects={projects} reload={reloadProjects} dialog={param("dialog")} target={param("project")} />;
     case "import":
       return <ImportPage projects={projects} chosen={param("project")} reload={reloadProjects} />;
     case "members":
@@ -282,7 +282,7 @@ function ViewFor({ view, project, scoped, params, live, after, needs, projects, 
     case "settings":
       return <SettingsPage live={live} project={scoped ? project : ""} label={label} archived={archived} section={param("section")} worker={param("worker")} prefs={prefs} />;
     case "agents":
-      return <AgentsPage live={live} project={project} label={label} archived={archived} scope={scope} agent={param("agent")} tab={param("tab")} />;
+      return <AgentsPage live={live} project={project} label={label} archived={archived} scope={scope} agent={param("agent")} tab={param("tab")} dialog={param("dialog")} />;
     case "audit":
       return <AuditView live={live} project={project} label={label} scope={scope} actor={param("actor")} kind={param("kind")} tab={param("tab")} />;
     case "usage":

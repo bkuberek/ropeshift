@@ -49,8 +49,10 @@ function DismissDialog({ question, onClose }: { question: Question; onClose: () 
 
 // DismissQuestion is the button on a question that waits, and the dialog it opens asks before it closes the
 // question for good, as `ropeshift question dismiss` does.
-export function DismissQuestion({ question }: { question: Question }) {
-  const [open, setOpen] = useState(false);
+export function DismissQuestion({ question, asked = false, onClosed }: { question: Question; asked?: boolean; onClosed?: () => void }) {
+  const [pressed, setOpen] = useState(false);
+  // The command palette asks for the dialog from outside, through asked, and onClosed tells it the dialog closed.
+  const open = pressed || asked;
   if (!waiting(question)) {
     return null;
   }
@@ -59,7 +61,15 @@ export function DismissQuestion({ question }: { question: Question }) {
       <Button small aria-label={`Dismiss ${question.text}`} onClick={() => setOpen(true)}>
         Dismiss
       </Button>
-      {open ? <DismissDialog question={question} onClose={() => setOpen(false)} /> : null}
+      {open ? (
+        <DismissDialog
+          question={question}
+          onClose={() => {
+            setOpen(false);
+            onClosed?.();
+          }}
+        />
+      ) : null}
     </>
   );
 }
