@@ -1,9 +1,10 @@
 // @vitest-environment node
-import type { Browser, Locator, Route } from "playwright-core";
+import type { Browser, BrowserContext, Locator, Page, Route } from "playwright-core";
 import type { ViteDevServer } from "vite";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { dialogStates, views } from "./a11yStates";
+import { dialogStates, signInStates, views } from "./a11yStates";
+import type { SignInStateId } from "./app/SignIn";
 import { openBrowser, suiteFor } from "./browser";
 import { answer, audit, dialogsSeen, goldens, ready, serveApp } from "./browserApp";
 
@@ -209,6 +210,77 @@ suite.each(Object.entries(sizes))("at %s width", (size, viewport) => {
         expect(found.map((line) => `${size} ${theme} ${line}`)).toEqual([]);
       },
       120_000,
+    );
+
+    it(
+      "the Sign in page, in each of its states, meets WCAG 2.2 A and AA",
+      async () => {
+        const found: string[] = [];
+        const gone = (route: Route) => route.fulfill({ status: 401, contentType: "application/json", body: JSON.stringify({ error: { code: "session_required", message: "this session is not known" } }) });
+        const refusing = (status: number, code: string) => (route: Route) =>
+          route.fulfill({ status, contentType: "application/json", body: JSON.stringify({ error: { code, message: code } }) });
+        // How the page is made to show each state: what the daemon answers, and what a person types and presses.
+        const reach: Record<SignInStateId, (page: Page, context: BrowserContext) => Promise<void>> = {
+          default: async (page, context) => {
+            await context.route(/\/v1\//, gone);
+            await page.goto(`${base}/needs-you`);
+            await ready(page);
+          },
+          ended: async (page, context) => {
+            await page.goto(`${base}/projects/default/roadmap`);
+            await ready(page);
+            // The session is gone from the daemon's side, which the page learns at its next read.
+            await context.route(/\/v1\//, gone);
+            await page.getByText("Your session ended.").waitFor({ timeout: 20_000 });
+          },
+          empty: async (page, context) => {
+            await reach.default(page, context);
+            await page.getByRole("button", { name: "Sign in", exact: true }).click();
+            await page.getByText("Enter your passphrase.").waitFor();
+          },
+          wrong: async (page, context) => {
+            await reach.default(page, context);
+            await context.route(/\/v1\/sessions$/, refusing(401, "bad_passphrase"));
+            await page.getByLabel("Passphrase", { exact: true }).fill("a guess at it");
+            await page.getByRole("button", { name: "Sign in", exact: true }).click();
+            await page.getByText("That passphrase does not match. Check it and try again.").waitFor();
+          },
+          locked: async (page, context) => {
+            await reach.default(page, context);
+            await context.route(/\/v1\/sessions$/, refusing(429, "too_many_attempts"));
+            await page.getByLabel("Passphrase", { exact: true }).fill("a guess at it");
+            await page.getByRole("button", { name: "Sign in", exact: true }).click();
+            await page.getByText("Too many sign-in attempts. Wait a minute, then try again.").waitFor();
+          },
+          unreachable: async (page, context) => {
+            await reach.default(page, context);
+            await context.route(/\/v1\/sessions$/, (route) => route.abort());
+            await page.getByLabel("Passphrase", { exact: true }).fill("a guess at it");
+            await page.getByRole("button", { name: "Sign in", exact: true }).click();
+            await page.getByText(/The daemon did not answer, so nothing was checked/).waitFor();
+          },
+          "not-set": async (page, context) => {
+            await reach.default(page, context);
+            await context.route(/\/v1\/sessions$/, refusing(401, "not_enrolled"));
+            await page.getByLabel("Passphrase", { exact: true }).fill("a guess at it");
+            await page.getByRole("button", { name: "Sign in", exact: true }).click();
+            await page.getByText(/No passphrase is set yet/).waitFor();
+          },
+        };
+        for (const state of signInStates) {
+          const context = await browser.newContext({ viewport, colorScheme: theme, reducedMotion: "reduce" });
+          await context.route(/\/v1\//, answer);
+          const page = await context.newPage();
+          await reach[state](page, context);
+          // The button and the field change as the page settles, and axe reads a color a transition has reached.
+          await page.mouse.move(0, 0);
+          await page.waitForTimeout(600);
+          found.push(...(await audit(page)).map((violation) => `sign in, ${state} ${violation}`));
+          await context.close();
+        }
+        expect(found.map((line) => `${size} ${theme} ${line}`)).toEqual([]);
+      },
+      240_000,
     );
 
     it(

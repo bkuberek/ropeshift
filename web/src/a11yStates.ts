@@ -1,7 +1,9 @@
+import type { SignInStateId } from "./app/SignIn";
+
 // What the accessibility checks show axe-core, as data, so a test that needs no browser can hold it to the application:
-// a11yCoverage.test.ts fails for a Settings section, a work order tab, a kind of Needs you card, or a dialog that no
-// state here shows. The browser suite in a11y.test.ts opens every address below in both themes at desktop and phone
-// width, and opens each dialog by the steps its own test names.
+// a11yCoverage.test.ts fails for a Settings section, a work order tab, a kind of Needs you card, a state of the Sign in
+// page, or a dialog that no state here shows. The browser suite in a11y.test.ts opens every address below in both
+// themes at desktop and phone width, and opens each dialog by the steps its own test names.
 
 // The address of every view, each with the records a person would open.
 export const views = [
@@ -114,6 +116,11 @@ export const views = [
   "/projects/default/audit?tab=notices",
   "/audit",
 ];
+
+// The states of the Sign in page, which no address reaches: it stands in the place of a view when a session is gone.
+// The browser suite reaches each by what it makes the daemon answer, and the coverage test holds the list to the
+// states the page can show.
+export const signInStates: SignInStateId[] = ["default", "ended", "empty", "wrong", "locked", "unreachable", "not-set"];
 
 // A dialog the application opens, by the file that holds its Dialog and the name it shows, which the browser suite
 // must read on an open dialog while it audits.

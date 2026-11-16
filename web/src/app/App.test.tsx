@@ -61,7 +61,8 @@ describe("signing in", () => {
     render(<App />);
     await userEvent.type(await screen.findByLabelText("Passphrase"), "a guess");
     await userEvent.click(screen.getByRole("button", { name: "Sign in" }));
-    expect((await screen.findByRole("alert")).textContent).toBe("That passphrase does not match.");
+    const message = await screen.findByText("That passphrase does not match. Check it and try again.");
+    expect(screen.getByLabelText("Passphrase").getAttribute("aria-describedby")).toContain(message.closest("p")?.id ?? "none");
   });
 
   it("says how to set a passphrase when none is set, which this listener cannot do", async () => {

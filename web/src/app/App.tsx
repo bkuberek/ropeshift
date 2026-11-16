@@ -437,7 +437,7 @@ export function App() {
                   <Banner tone="danger">{projects.failure || needs.failure}</Banner>
                 </div>
               ) : null}
-              {needsSession ? <SignIn onSignedIn={signedInAgain} /> : null}
+              {needsSession ? <SignIn onSignedIn={signedInAgain} ended={needs.view !== null} /> : null}
               {projects.list && projects.list.length === 0 && !needsSession && view !== "projects" && view !== "import" ? (
                 <div className="screen">
                   <h1 tabIndex={-1}>No project yet</h1>
