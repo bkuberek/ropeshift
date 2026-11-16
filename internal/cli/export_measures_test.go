@@ -1,7 +1,9 @@
 package cli
 
-// ForecastText and LookBackText are what `plan forecast` and `measures delivery` print.
+// ForecastText, LookBackText, and CalibrationText are what `plan forecast`, `measures delivery`, and `measures
+// estimates` print.
 var (
-	ForecastText = forecastText
-	LookBackText = lookBackText
+	ForecastText    = forecastText
+	LookBackText    = lookBackText
+	CalibrationText = calibrationText
 )

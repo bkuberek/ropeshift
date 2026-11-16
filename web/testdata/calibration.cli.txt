@@ -1,0 +1,64 @@
+window	2026-08-22	2026-09-21
+all	window	share	ended 26	confident 18 69.2%	low 4 15.4%	none 4 15.4%
+all	window	confident	all	outcomes 18	done 17	failed 1	canceled 0	p85 open 1	time p50 7 of 17 41.2%	p85 12 of 16 75.0%	ratio 1.20 of 17	cost p50 11 of 17 64.7%	p85 13 of 16 81.2%	ratio 1.00 of 17
+all	window	confident	tier 1	outcomes 6	done 5	failed 1	canceled 0	p85 open 1	time p50 1 of 5, no rate	p85 3 of 4, no rate	ratio no median of 5	cost p50 5 of 5, no rate	p85 4 of 4, no rate	ratio no median of 5
+all	window	confident	tier 2	outcomes 12	done 12	failed 0	canceled 0	p85 open 0	time p50 6 of 12 50.0%	p85 9 of 12 75.0%	ratio 0.90 of 12	cost p50 6 of 12 50.0%	p85 9 of 12 75.0%	ratio 1.00 of 12
+all	window	confident	estimator 1	outcomes 18	done 17	failed 1	canceled 0	p85 open 1	time p50 7 of 17 41.2%	p85 12 of 16 75.0%	ratio 1.20 of 17	cost p50 11 of 17 64.7%	p85 13 of 16 81.2%	ratio 1.00 of 17
+all	window	low	all	outcomes 4	done 4	failed 0	canceled 0	p85 open 0	time p50 1 of 4, no rate	p85 2 of 4, no rate	ratio no median of 4	cost p50 0 of 4, no rate	p85 4 of 4, no rate	ratio no median of 4
+all	window	low	tier 6	outcomes 4	done 4	failed 0	canceled 0	p85 open 0	time p50 1 of 4, no rate	p85 2 of 4, no rate	ratio no median of 4	cost p50 0 of 4, no rate	p85 4 of 4, no rate	ratio no median of 4
+all	window	low	estimator 1	outcomes 4	done 4	failed 0	canceled 0	p85 open 0	time p50 1 of 4, no rate	p85 2 of 4, no rate	ratio no median of 4	cost p50 0 of 4, no rate	p85 4 of 4, no rate	ratio no median of 4
+all	all time	share	ended 27	confident 19 70.4%	low 4 14.8%	none 4 14.8%
+all	all time	confident	all	outcomes 19	done 18	failed 1	canceled 0	p85 open 1	time p50 7 of 18 38.9%	p85 12 of 17 70.6%	ratio 1.20 of 18	cost p50 12 of 18 66.7%	p85 14 of 17 82.4%	ratio 1.00 of 18
+all	all time	confident	tier 1	outcomes 6	done 5	failed 1	canceled 0	p85 open 1	time p50 1 of 5, no rate	p85 3 of 4, no rate	ratio no median of 5	cost p50 5 of 5, no rate	p85 4 of 4, no rate	ratio no median of 5
+all	all time	confident	tier 2	outcomes 13	done 13	failed 0	canceled 0	p85 open 0	time p50 6 of 13 46.2%	p85 9 of 13 69.2%	ratio 1.20 of 13	cost p50 7 of 13 53.8%	p85 10 of 13 76.9%	ratio 1.00 of 13
+all	all time	confident	estimator 1	outcomes 19	done 18	failed 1	canceled 0	p85 open 1	time p50 7 of 18 38.9%	p85 12 of 17 70.6%	ratio 1.20 of 18	cost p50 12 of 18 66.7%	p85 14 of 17 82.4%	ratio 1.00 of 18
+all	all time	low	all	outcomes 4	done 4	failed 0	canceled 0	p85 open 0	time p50 1 of 4, no rate	p85 2 of 4, no rate	ratio no median of 4	cost p50 0 of 4, no rate	p85 4 of 4, no rate	ratio no median of 4
+all	all time	low	tier 6	outcomes 4	done 4	failed 0	canceled 0	p85 open 0	time p50 1 of 4, no rate	p85 2 of 4, no rate	ratio no median of 4	cost p50 0 of 4, no rate	p85 4 of 4, no rate	ratio no median of 4
+all	all time	low	estimator 1	outcomes 4	done 4	failed 0	canceled 0	p85 open 0	time p50 1 of 4, no rate	p85 2 of 4, no rate	ratio no median of 4	cost p50 0 of 4, no rate	p85 4 of 4, no rate	ratio no median of 4
+all	week 2026-08-03	confident	all	outcomes 1	done 1	failed 0	canceled 0	p85 open 0	time p50 0 of 1, no rate	p85 0 of 1, no rate	ratio no median of 1	cost p50 1 of 1, no rate	p85 1 of 1, no rate	ratio no median of 1
+all	week 2026-08-24	confident	all	outcomes 2	done 2	failed 0	canceled 0	p85 open 0	time p50 0 of 2, no rate	p85 1 of 2, no rate	ratio no median of 2	cost p50 0 of 2, no rate	p85 1 of 2, no rate	ratio no median of 2
+all	week 2026-08-31	confident	all	outcomes 5	done 5	failed 0	canceled 0	p85 open 0	time p50 2 of 5, no rate	p85 3 of 5, no rate	ratio no median of 5	cost p50 3 of 5, no rate	p85 4 of 5, no rate	ratio no median of 5
+all	week 2026-08-31	low	all	outcomes 2	done 2	failed 0	canceled 0	p85 open 0	time p50 0 of 2, no rate	p85 0 of 2, no rate	ratio no median of 2	cost p50 0 of 2, no rate	p85 2 of 2, no rate	ratio no median of 2
+all	week 2026-09-07	confident	all	outcomes 5	done 5	failed 0	canceled 0	p85 open 0	time p50 2 of 5, no rate	p85 4 of 5, no rate	ratio no median of 5	cost p50 4 of 5, no rate	p85 4 of 5, no rate	ratio no median of 5
+all	week 2026-09-07	low	all	outcomes 1	done 1	failed 0	canceled 0	p85 open 0	time p50 0 of 1, no rate	p85 1 of 1, no rate	ratio no median of 1	cost p50 0 of 1, no rate	p85 1 of 1, no rate	ratio no median of 1
+all	week 2026-09-14	confident	all	outcomes 6	done 5	failed 1	canceled 0	p85 open 1	time p50 3 of 5, no rate	p85 4 of 4, no rate	ratio no median of 5	cost p50 4 of 5, no rate	p85 4 of 4, no rate	ratio no median of 5
+all	week 2026-09-14	low	all	outcomes 1	done 1	failed 0	canceled 0	p85 open 0	time p50 1 of 1, no rate	p85 1 of 1, no rate	ratio no median of 1	cost p50 0 of 1, no rate	p85 1 of 1, no rate	ratio no median of 1
+repository harbor-api	window	share	ended 6	confident 6	low 0	none 0
+repository harbor-api	window	confident	all	outcomes 6	done 5	failed 1	canceled 0	p85 open 1	time p50 1 of 5, no rate	p85 3 of 4, no rate	ratio no median of 5	cost p50 5 of 5, no rate	p85 4 of 4, no rate	ratio no median of 5
+repository harbor-api	window	confident	tier 1	outcomes 6	done 5	failed 1	canceled 0	p85 open 1	time p50 1 of 5, no rate	p85 3 of 4, no rate	ratio no median of 5	cost p50 5 of 5, no rate	p85 4 of 4, no rate	ratio no median of 5
+repository harbor-api	window	confident	estimator 1	outcomes 6	done 5	failed 1	canceled 0	p85 open 1	time p50 1 of 5, no rate	p85 3 of 4, no rate	ratio no median of 5	cost p50 5 of 5, no rate	p85 4 of 4, no rate	ratio no median of 5
+repository harbor-api	all time	share	ended 6	confident 6	low 0	none 0
+repository harbor-api	all time	confident	all	outcomes 6	done 5	failed 1	canceled 0	p85 open 1	time p50 1 of 5, no rate	p85 3 of 4, no rate	ratio no median of 5	cost p50 5 of 5, no rate	p85 4 of 4, no rate	ratio no median of 5
+repository harbor-api	all time	confident	tier 1	outcomes 6	done 5	failed 1	canceled 0	p85 open 1	time p50 1 of 5, no rate	p85 3 of 4, no rate	ratio no median of 5	cost p50 5 of 5, no rate	p85 4 of 4, no rate	ratio no median of 5
+repository harbor-api	all time	confident	estimator 1	outcomes 6	done 5	failed 1	canceled 0	p85 open 1	time p50 1 of 5, no rate	p85 3 of 4, no rate	ratio no median of 5	cost p50 5 of 5, no rate	p85 4 of 4, no rate	ratio no median of 5
+repository harbor-api	week 2026-08-31	confident	all	outcomes 1	done 1	failed 0	canceled 0	p85 open 0	time p50 0 of 1, no rate	p85 0 of 1, no rate	ratio no median of 1	cost p50 1 of 1, no rate	p85 1 of 1, no rate	ratio no median of 1
+repository harbor-api	week 2026-09-07	confident	all	outcomes 2	done 2	failed 0	canceled 0	p85 open 0	time p50 0 of 2, no rate	p85 2 of 2, no rate	ratio no median of 2	cost p50 2 of 2, no rate	p85 2 of 2, no rate	ratio no median of 2
+repository harbor-api	week 2026-09-14	confident	all	outcomes 3	done 2	failed 1	canceled 0	p85 open 1	time p50 1 of 2, no rate	p85 1 of 1, no rate	ratio no median of 2	cost p50 2 of 2, no rate	p85 1 of 1, no rate	ratio no median of 2
+repository harbor-web	window	share	ended 20	confident 12 60.0%	low 4 20.0%	none 4 20.0%
+repository harbor-web	window	confident	all	outcomes 12	done 12	failed 0	canceled 0	p85 open 0	time p50 6 of 12 50.0%	p85 9 of 12 75.0%	ratio 0.90 of 12	cost p50 6 of 12 50.0%	p85 9 of 12 75.0%	ratio 1.00 of 12
+repository harbor-web	window	confident	tier 2	outcomes 12	done 12	failed 0	canceled 0	p85 open 0	time p50 6 of 12 50.0%	p85 9 of 12 75.0%	ratio 0.90 of 12	cost p50 6 of 12 50.0%	p85 9 of 12 75.0%	ratio 1.00 of 12
+repository harbor-web	window	confident	estimator 1	outcomes 12	done 12	failed 0	canceled 0	p85 open 0	time p50 6 of 12 50.0%	p85 9 of 12 75.0%	ratio 0.90 of 12	cost p50 6 of 12 50.0%	p85 9 of 12 75.0%	ratio 1.00 of 12
+repository harbor-web	window	low	all	outcomes 4	done 4	failed 0	canceled 0	p85 open 0	time p50 1 of 4, no rate	p85 2 of 4, no rate	ratio no median of 4	cost p50 0 of 4, no rate	p85 4 of 4, no rate	ratio no median of 4
+repository harbor-web	window	low	tier 6	outcomes 4	done 4	failed 0	canceled 0	p85 open 0	time p50 1 of 4, no rate	p85 2 of 4, no rate	ratio no median of 4	cost p50 0 of 4, no rate	p85 4 of 4, no rate	ratio no median of 4
+repository harbor-web	window	low	estimator 1	outcomes 4	done 4	failed 0	canceled 0	p85 open 0	time p50 1 of 4, no rate	p85 2 of 4, no rate	ratio no median of 4	cost p50 0 of 4, no rate	p85 4 of 4, no rate	ratio no median of 4
+repository harbor-web	all time	share	ended 21	confident 13 61.9%	low 4 19.0%	none 4 19.0%
+repository harbor-web	all time	confident	all	outcomes 13	done 13	failed 0	canceled 0	p85 open 0	time p50 6 of 13 46.2%	p85 9 of 13 69.2%	ratio 1.20 of 13	cost p50 7 of 13 53.8%	p85 10 of 13 76.9%	ratio 1.00 of 13
+repository harbor-web	all time	confident	tier 2	outcomes 13	done 13	failed 0	canceled 0	p85 open 0	time p50 6 of 13 46.2%	p85 9 of 13 69.2%	ratio 1.20 of 13	cost p50 7 of 13 53.8%	p85 10 of 13 76.9%	ratio 1.00 of 13
+repository harbor-web	all time	confident	estimator 1	outcomes 13	done 13	failed 0	canceled 0	p85 open 0	time p50 6 of 13 46.2%	p85 9 of 13 69.2%	ratio 1.20 of 13	cost p50 7 of 13 53.8%	p85 10 of 13 76.9%	ratio 1.00 of 13
+repository harbor-web	all time	low	all	outcomes 4	done 4	failed 0	canceled 0	p85 open 0	time p50 1 of 4, no rate	p85 2 of 4, no rate	ratio no median of 4	cost p50 0 of 4, no rate	p85 4 of 4, no rate	ratio no median of 4
+repository harbor-web	all time	low	tier 6	outcomes 4	done 4	failed 0	canceled 0	p85 open 0	time p50 1 of 4, no rate	p85 2 of 4, no rate	ratio no median of 4	cost p50 0 of 4, no rate	p85 4 of 4, no rate	ratio no median of 4
+repository harbor-web	all time	low	estimator 1	outcomes 4	done 4	failed 0	canceled 0	p85 open 0	time p50 1 of 4, no rate	p85 2 of 4, no rate	ratio no median of 4	cost p50 0 of 4, no rate	p85 4 of 4, no rate	ratio no median of 4
+repository harbor-web	week 2026-08-03	confident	all	outcomes 1	done 1	failed 0	canceled 0	p85 open 0	time p50 0 of 1, no rate	p85 0 of 1, no rate	ratio no median of 1	cost p50 1 of 1, no rate	p85 1 of 1, no rate	ratio no median of 1
+repository harbor-web	week 2026-08-24	confident	all	outcomes 2	done 2	failed 0	canceled 0	p85 open 0	time p50 0 of 2, no rate	p85 1 of 2, no rate	ratio no median of 2	cost p50 0 of 2, no rate	p85 1 of 2, no rate	ratio no median of 2
+repository harbor-web	week 2026-08-31	confident	all	outcomes 4	done 4	failed 0	canceled 0	p85 open 0	time p50 2 of 4, no rate	p85 3 of 4, no rate	ratio no median of 4	cost p50 2 of 4, no rate	p85 3 of 4, no rate	ratio no median of 4
+repository harbor-web	week 2026-08-31	low	all	outcomes 2	done 2	failed 0	canceled 0	p85 open 0	time p50 0 of 2, no rate	p85 0 of 2, no rate	ratio no median of 2	cost p50 0 of 2, no rate	p85 2 of 2, no rate	ratio no median of 2
+repository harbor-web	week 2026-09-07	confident	all	outcomes 3	done 3	failed 0	canceled 0	p85 open 0	time p50 2 of 3, no rate	p85 2 of 3, no rate	ratio no median of 3	cost p50 2 of 3, no rate	p85 2 of 3, no rate	ratio no median of 3
+repository harbor-web	week 2026-09-07	low	all	outcomes 1	done 1	failed 0	canceled 0	p85 open 0	time p50 0 of 1, no rate	p85 1 of 1, no rate	ratio no median of 1	cost p50 0 of 1, no rate	p85 1 of 1, no rate	ratio no median of 1
+repository harbor-web	week 2026-09-14	confident	all	outcomes 3	done 3	failed 0	canceled 0	p85 open 0	time p50 2 of 3, no rate	p85 3 of 3, no rate	ratio no median of 3	cost p50 2 of 3, no rate	p85 3 of 3, no rate	ratio no median of 3
+repository harbor-web	week 2026-09-14	low	all	outcomes 1	done 1	failed 0	canceled 0	p85 open 0	time p50 1 of 1, no rate	p85 1 of 1, no rate	ratio no median of 1	cost p50 0 of 1, no rate	p85 1 of 1, no rate	ratio no median of 1
+milestones	window	confident	outcomes 1	done 1	failed 0	canceled 0	p85 open 0	p50 0 of 1, no rate	p85 1 of 1, no rate
+milestones	window	low	outcomes 1	done 1	failed 0	canceled 0	p85 open 1	p50 0 of 1, no rate	p85 0 of 0, no rate
+milestones	all time	confident	outcomes 1	done 1	failed 0	canceled 0	p85 open 0	p50 0 of 1, no rate	p85 1 of 1, no rate
+milestones	all time	low	outcomes 1	done 1	failed 0	canceled 0	p85 open 1	p50 0 of 1, no rate	p85 0 of 0, no rate
+milestone	plan-1	m1	confident	done	forecast p50 2026-09-14 14:13 UTC	p85 2026-09-18 14:13 UTC or later	ended 2026-09-16 14:13 UTC	p50 past	p85 within
+milestone	plan-1	m2	low	done	forecast p50 2026-09-01 14:13 UTC	p85 2026-09-12 14:13 UTC or later	ended 2026-09-09 14:13 UTC	p50 past	p85 not compared

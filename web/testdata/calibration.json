@@ -1,0 +1,3993 @@
+{
+  "from": 1787408000001,
+  "to": 1790000000001,
+  "scopes": [
+    {
+      "recent": {
+        "from": 1787408000001,
+        "to": 1790000000001,
+        "share": {
+          "ended": 26,
+          "confident": {
+            "count": 18,
+            "share": 0.6923076923076923
+          },
+          "low": {
+            "count": 4,
+            "share": 0.15384615384615385
+          },
+          "none": {
+            "count": 4,
+            "share": 0.15384615384615385
+          }
+        },
+        "confident": {
+          "total": {
+            "outcomes": 18,
+            "done": 17,
+            "failed": 1,
+            "canceled": 0,
+            "p85_open": 1,
+            "time": {
+              "p50": {
+                "n": 17,
+                "hits": 7,
+                "rate": 0.4117647058823529
+              },
+              "p85": {
+                "n": 16,
+                "hits": 12,
+                "rate": 0.75
+              },
+              "ratio": {
+                "n": 17,
+                "median": 1.2
+              }
+            },
+            "cost": {
+              "p50": {
+                "n": 17,
+                "hits": 11,
+                "rate": 0.6470588235294118
+              },
+              "p85": {
+                "n": 16,
+                "hits": 13,
+                "rate": 0.8125
+              },
+              "ratio": {
+                "n": 17,
+                "median": 1
+              }
+            }
+          },
+          "tiers": [
+            {
+              "tier": 1,
+              "outcomes": 6,
+              "done": 5,
+              "failed": 1,
+              "canceled": 0,
+              "p85_open": 1,
+              "time": {
+                "p50": {
+                  "n": 5,
+                  "hits": 1
+                },
+                "p85": {
+                  "n": 4,
+                  "hits": 3
+                },
+                "ratio": {
+                  "n": 5
+                }
+              },
+              "cost": {
+                "p50": {
+                  "n": 5,
+                  "hits": 5
+                },
+                "p85": {
+                  "n": 4,
+                  "hits": 4
+                },
+                "ratio": {
+                  "n": 5
+                }
+              }
+            },
+            {
+              "tier": 2,
+              "outcomes": 12,
+              "done": 12,
+              "failed": 0,
+              "canceled": 0,
+              "p85_open": 0,
+              "time": {
+                "p50": {
+                  "n": 12,
+                  "hits": 6,
+                  "rate": 0.5
+                },
+                "p85": {
+                  "n": 12,
+                  "hits": 9,
+                  "rate": 0.75
+                },
+                "ratio": {
+                  "n": 12,
+                  "median": 0.9
+                }
+              },
+              "cost": {
+                "p50": {
+                  "n": 12,
+                  "hits": 6,
+                  "rate": 0.5
+                },
+                "p85": {
+                  "n": 12,
+                  "hits": 9,
+                  "rate": 0.75
+                },
+                "ratio": {
+                  "n": 12,
+                  "median": 1
+                }
+              }
+            }
+          ],
+          "estimator_versions": [
+            {
+              "estimator_version": 1,
+              "outcomes": 18,
+              "done": 17,
+              "failed": 1,
+              "canceled": 0,
+              "p85_open": 1,
+              "time": {
+                "p50": {
+                  "n": 17,
+                  "hits": 7,
+                  "rate": 0.4117647058823529
+                },
+                "p85": {
+                  "n": 16,
+                  "hits": 12,
+                  "rate": 0.75
+                },
+                "ratio": {
+                  "n": 17,
+                  "median": 1.2
+                }
+              },
+              "cost": {
+                "p50": {
+                  "n": 17,
+                  "hits": 11,
+                  "rate": 0.6470588235294118
+                },
+                "p85": {
+                  "n": 16,
+                  "hits": 13,
+                  "rate": 0.8125
+                },
+                "ratio": {
+                  "n": 17,
+                  "median": 1
+                }
+              }
+            }
+          ]
+        },
+        "low": {
+          "total": {
+            "outcomes": 4,
+            "done": 4,
+            "failed": 0,
+            "canceled": 0,
+            "p85_open": 0,
+            "time": {
+              "p50": {
+                "n": 4,
+                "hits": 1
+              },
+              "p85": {
+                "n": 4,
+                "hits": 2
+              },
+              "ratio": {
+                "n": 4
+              }
+            },
+            "cost": {
+              "p50": {
+                "n": 4,
+                "hits": 0
+              },
+              "p85": {
+                "n": 4,
+                "hits": 4
+              },
+              "ratio": {
+                "n": 4
+              }
+            }
+          },
+          "tiers": [
+            {
+              "tier": 6,
+              "outcomes": 4,
+              "done": 4,
+              "failed": 0,
+              "canceled": 0,
+              "p85_open": 0,
+              "time": {
+                "p50": {
+                  "n": 4,
+                  "hits": 1
+                },
+                "p85": {
+                  "n": 4,
+                  "hits": 2
+                },
+                "ratio": {
+                  "n": 4
+                }
+              },
+              "cost": {
+                "p50": {
+                  "n": 4,
+                  "hits": 0
+                },
+                "p85": {
+                  "n": 4,
+                  "hits": 4
+                },
+                "ratio": {
+                  "n": 4
+                }
+              }
+            }
+          ],
+          "estimator_versions": [
+            {
+              "estimator_version": 1,
+              "outcomes": 4,
+              "done": 4,
+              "failed": 0,
+              "canceled": 0,
+              "p85_open": 0,
+              "time": {
+                "p50": {
+                  "n": 4,
+                  "hits": 1
+                },
+                "p85": {
+                  "n": 4,
+                  "hits": 2
+                },
+                "ratio": {
+                  "n": 4
+                }
+              },
+              "cost": {
+                "p50": {
+                  "n": 4,
+                  "hits": 0
+                },
+                "p85": {
+                  "n": 4,
+                  "hits": 4
+                },
+                "ratio": {
+                  "n": 4
+                }
+              }
+            }
+          ]
+        }
+      },
+      "all_time": {
+        "from": 0,
+        "to": 1790000000001,
+        "share": {
+          "ended": 27,
+          "confident": {
+            "count": 19,
+            "share": 0.7037037037037037
+          },
+          "low": {
+            "count": 4,
+            "share": 0.14814814814814814
+          },
+          "none": {
+            "count": 4,
+            "share": 0.14814814814814814
+          }
+        },
+        "confident": {
+          "total": {
+            "outcomes": 19,
+            "done": 18,
+            "failed": 1,
+            "canceled": 0,
+            "p85_open": 1,
+            "time": {
+              "p50": {
+                "n": 18,
+                "hits": 7,
+                "rate": 0.3888888888888889
+              },
+              "p85": {
+                "n": 17,
+                "hits": 12,
+                "rate": 0.7058823529411765
+              },
+              "ratio": {
+                "n": 18,
+                "median": 1.2
+              }
+            },
+            "cost": {
+              "p50": {
+                "n": 18,
+                "hits": 12,
+                "rate": 0.6666666666666666
+              },
+              "p85": {
+                "n": 17,
+                "hits": 14,
+                "rate": 0.8235294117647058
+              },
+              "ratio": {
+                "n": 18,
+                "median": 1
+              }
+            }
+          },
+          "tiers": [
+            {
+              "tier": 1,
+              "outcomes": 6,
+              "done": 5,
+              "failed": 1,
+              "canceled": 0,
+              "p85_open": 1,
+              "time": {
+                "p50": {
+                  "n": 5,
+                  "hits": 1
+                },
+                "p85": {
+                  "n": 4,
+                  "hits": 3
+                },
+                "ratio": {
+                  "n": 5
+                }
+              },
+              "cost": {
+                "p50": {
+                  "n": 5,
+                  "hits": 5
+                },
+                "p85": {
+                  "n": 4,
+                  "hits": 4
+                },
+                "ratio": {
+                  "n": 5
+                }
+              }
+            },
+            {
+              "tier": 2,
+              "outcomes": 13,
+              "done": 13,
+              "failed": 0,
+              "canceled": 0,
+              "p85_open": 0,
+              "time": {
+                "p50": {
+                  "n": 13,
+                  "hits": 6,
+                  "rate": 0.46153846153846156
+                },
+                "p85": {
+                  "n": 13,
+                  "hits": 9,
+                  "rate": 0.6923076923076923
+                },
+                "ratio": {
+                  "n": 13,
+                  "median": 1.2
+                }
+              },
+              "cost": {
+                "p50": {
+                  "n": 13,
+                  "hits": 7,
+                  "rate": 0.5384615384615384
+                },
+                "p85": {
+                  "n": 13,
+                  "hits": 10,
+                  "rate": 0.7692307692307693
+                },
+                "ratio": {
+                  "n": 13,
+                  "median": 1
+                }
+              }
+            }
+          ],
+          "estimator_versions": [
+            {
+              "estimator_version": 1,
+              "outcomes": 19,
+              "done": 18,
+              "failed": 1,
+              "canceled": 0,
+              "p85_open": 1,
+              "time": {
+                "p50": {
+                  "n": 18,
+                  "hits": 7,
+                  "rate": 0.3888888888888889
+                },
+                "p85": {
+                  "n": 17,
+                  "hits": 12,
+                  "rate": 0.7058823529411765
+                },
+                "ratio": {
+                  "n": 18,
+                  "median": 1.2
+                }
+              },
+              "cost": {
+                "p50": {
+                  "n": 18,
+                  "hits": 12,
+                  "rate": 0.6666666666666666
+                },
+                "p85": {
+                  "n": 17,
+                  "hits": 14,
+                  "rate": 0.8235294117647058
+                },
+                "ratio": {
+                  "n": 18,
+                  "median": 1
+                }
+              }
+            }
+          ]
+        },
+        "low": {
+          "total": {
+            "outcomes": 4,
+            "done": 4,
+            "failed": 0,
+            "canceled": 0,
+            "p85_open": 0,
+            "time": {
+              "p50": {
+                "n": 4,
+                "hits": 1
+              },
+              "p85": {
+                "n": 4,
+                "hits": 2
+              },
+              "ratio": {
+                "n": 4
+              }
+            },
+            "cost": {
+              "p50": {
+                "n": 4,
+                "hits": 0
+              },
+              "p85": {
+                "n": 4,
+                "hits": 4
+              },
+              "ratio": {
+                "n": 4
+              }
+            }
+          },
+          "tiers": [
+            {
+              "tier": 6,
+              "outcomes": 4,
+              "done": 4,
+              "failed": 0,
+              "canceled": 0,
+              "p85_open": 0,
+              "time": {
+                "p50": {
+                  "n": 4,
+                  "hits": 1
+                },
+                "p85": {
+                  "n": 4,
+                  "hits": 2
+                },
+                "ratio": {
+                  "n": 4
+                }
+              },
+              "cost": {
+                "p50": {
+                  "n": 4,
+                  "hits": 0
+                },
+                "p85": {
+                  "n": 4,
+                  "hits": 4
+                },
+                "ratio": {
+                  "n": 4
+                }
+              }
+            }
+          ],
+          "estimator_versions": [
+            {
+              "estimator_version": 1,
+              "outcomes": 4,
+              "done": 4,
+              "failed": 0,
+              "canceled": 0,
+              "p85_open": 0,
+              "time": {
+                "p50": {
+                  "n": 4,
+                  "hits": 1
+                },
+                "p85": {
+                  "n": 4,
+                  "hits": 2
+                },
+                "ratio": {
+                  "n": 4
+                }
+              },
+              "cost": {
+                "p50": {
+                  "n": 4,
+                  "hits": 0
+                },
+                "p85": {
+                  "n": 4,
+                  "hits": 4
+                },
+                "ratio": {
+                  "n": 4
+                }
+              }
+            }
+          ]
+        }
+      },
+      "weeks": [
+        {
+          "from": 1782742400001,
+          "confident": {
+            "outcomes": 0,
+            "done": 0,
+            "failed": 0,
+            "canceled": 0,
+            "p85_open": 0,
+            "time": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            },
+            "cost": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            }
+          },
+          "low": {
+            "outcomes": 0,
+            "done": 0,
+            "failed": 0,
+            "canceled": 0,
+            "p85_open": 0,
+            "time": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            },
+            "cost": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            }
+          }
+        },
+        {
+          "from": 1783347200001,
+          "confident": {
+            "outcomes": 0,
+            "done": 0,
+            "failed": 0,
+            "canceled": 0,
+            "p85_open": 0,
+            "time": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            },
+            "cost": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            }
+          },
+          "low": {
+            "outcomes": 0,
+            "done": 0,
+            "failed": 0,
+            "canceled": 0,
+            "p85_open": 0,
+            "time": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            },
+            "cost": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            }
+          }
+        },
+        {
+          "from": 1783952000001,
+          "confident": {
+            "outcomes": 0,
+            "done": 0,
+            "failed": 0,
+            "canceled": 0,
+            "p85_open": 0,
+            "time": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            },
+            "cost": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            }
+          },
+          "low": {
+            "outcomes": 0,
+            "done": 0,
+            "failed": 0,
+            "canceled": 0,
+            "p85_open": 0,
+            "time": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            },
+            "cost": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            }
+          }
+        },
+        {
+          "from": 1784556800001,
+          "confident": {
+            "outcomes": 0,
+            "done": 0,
+            "failed": 0,
+            "canceled": 0,
+            "p85_open": 0,
+            "time": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            },
+            "cost": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            }
+          },
+          "low": {
+            "outcomes": 0,
+            "done": 0,
+            "failed": 0,
+            "canceled": 0,
+            "p85_open": 0,
+            "time": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            },
+            "cost": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            }
+          }
+        },
+        {
+          "from": 1785161600001,
+          "confident": {
+            "outcomes": 0,
+            "done": 0,
+            "failed": 0,
+            "canceled": 0,
+            "p85_open": 0,
+            "time": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            },
+            "cost": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            }
+          },
+          "low": {
+            "outcomes": 0,
+            "done": 0,
+            "failed": 0,
+            "canceled": 0,
+            "p85_open": 0,
+            "time": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            },
+            "cost": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            }
+          }
+        },
+        {
+          "from": 1785766400001,
+          "confident": {
+            "outcomes": 1,
+            "done": 1,
+            "failed": 0,
+            "canceled": 0,
+            "p85_open": 0,
+            "time": {
+              "p50": {
+                "n": 1,
+                "hits": 0
+              },
+              "p85": {
+                "n": 1,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 1
+              }
+            },
+            "cost": {
+              "p50": {
+                "n": 1,
+                "hits": 1
+              },
+              "p85": {
+                "n": 1,
+                "hits": 1
+              },
+              "ratio": {
+                "n": 1
+              }
+            }
+          },
+          "low": {
+            "outcomes": 0,
+            "done": 0,
+            "failed": 0,
+            "canceled": 0,
+            "p85_open": 0,
+            "time": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            },
+            "cost": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            }
+          }
+        },
+        {
+          "from": 1786371200001,
+          "confident": {
+            "outcomes": 0,
+            "done": 0,
+            "failed": 0,
+            "canceled": 0,
+            "p85_open": 0,
+            "time": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            },
+            "cost": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            }
+          },
+          "low": {
+            "outcomes": 0,
+            "done": 0,
+            "failed": 0,
+            "canceled": 0,
+            "p85_open": 0,
+            "time": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            },
+            "cost": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            }
+          }
+        },
+        {
+          "from": 1786976000001,
+          "confident": {
+            "outcomes": 0,
+            "done": 0,
+            "failed": 0,
+            "canceled": 0,
+            "p85_open": 0,
+            "time": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            },
+            "cost": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            }
+          },
+          "low": {
+            "outcomes": 0,
+            "done": 0,
+            "failed": 0,
+            "canceled": 0,
+            "p85_open": 0,
+            "time": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            },
+            "cost": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            }
+          }
+        },
+        {
+          "from": 1787580800001,
+          "confident": {
+            "outcomes": 2,
+            "done": 2,
+            "failed": 0,
+            "canceled": 0,
+            "p85_open": 0,
+            "time": {
+              "p50": {
+                "n": 2,
+                "hits": 0
+              },
+              "p85": {
+                "n": 2,
+                "hits": 1
+              },
+              "ratio": {
+                "n": 2
+              }
+            },
+            "cost": {
+              "p50": {
+                "n": 2,
+                "hits": 0
+              },
+              "p85": {
+                "n": 2,
+                "hits": 1
+              },
+              "ratio": {
+                "n": 2
+              }
+            }
+          },
+          "low": {
+            "outcomes": 0,
+            "done": 0,
+            "failed": 0,
+            "canceled": 0,
+            "p85_open": 0,
+            "time": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            },
+            "cost": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            }
+          }
+        },
+        {
+          "from": 1788185600001,
+          "confident": {
+            "outcomes": 5,
+            "done": 5,
+            "failed": 0,
+            "canceled": 0,
+            "p85_open": 0,
+            "time": {
+              "p50": {
+                "n": 5,
+                "hits": 2
+              },
+              "p85": {
+                "n": 5,
+                "hits": 3
+              },
+              "ratio": {
+                "n": 5
+              }
+            },
+            "cost": {
+              "p50": {
+                "n": 5,
+                "hits": 3
+              },
+              "p85": {
+                "n": 5,
+                "hits": 4
+              },
+              "ratio": {
+                "n": 5
+              }
+            }
+          },
+          "low": {
+            "outcomes": 2,
+            "done": 2,
+            "failed": 0,
+            "canceled": 0,
+            "p85_open": 0,
+            "time": {
+              "p50": {
+                "n": 2,
+                "hits": 0
+              },
+              "p85": {
+                "n": 2,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 2
+              }
+            },
+            "cost": {
+              "p50": {
+                "n": 2,
+                "hits": 0
+              },
+              "p85": {
+                "n": 2,
+                "hits": 2
+              },
+              "ratio": {
+                "n": 2
+              }
+            }
+          }
+        },
+        {
+          "from": 1788790400001,
+          "confident": {
+            "outcomes": 5,
+            "done": 5,
+            "failed": 0,
+            "canceled": 0,
+            "p85_open": 0,
+            "time": {
+              "p50": {
+                "n": 5,
+                "hits": 2
+              },
+              "p85": {
+                "n": 5,
+                "hits": 4
+              },
+              "ratio": {
+                "n": 5
+              }
+            },
+            "cost": {
+              "p50": {
+                "n": 5,
+                "hits": 4
+              },
+              "p85": {
+                "n": 5,
+                "hits": 4
+              },
+              "ratio": {
+                "n": 5
+              }
+            }
+          },
+          "low": {
+            "outcomes": 1,
+            "done": 1,
+            "failed": 0,
+            "canceled": 0,
+            "p85_open": 0,
+            "time": {
+              "p50": {
+                "n": 1,
+                "hits": 0
+              },
+              "p85": {
+                "n": 1,
+                "hits": 1
+              },
+              "ratio": {
+                "n": 1
+              }
+            },
+            "cost": {
+              "p50": {
+                "n": 1,
+                "hits": 0
+              },
+              "p85": {
+                "n": 1,
+                "hits": 1
+              },
+              "ratio": {
+                "n": 1
+              }
+            }
+          }
+        },
+        {
+          "from": 1789395200001,
+          "confident": {
+            "outcomes": 6,
+            "done": 5,
+            "failed": 1,
+            "canceled": 0,
+            "p85_open": 1,
+            "time": {
+              "p50": {
+                "n": 5,
+                "hits": 3
+              },
+              "p85": {
+                "n": 4,
+                "hits": 4
+              },
+              "ratio": {
+                "n": 5
+              }
+            },
+            "cost": {
+              "p50": {
+                "n": 5,
+                "hits": 4
+              },
+              "p85": {
+                "n": 4,
+                "hits": 4
+              },
+              "ratio": {
+                "n": 5
+              }
+            }
+          },
+          "low": {
+            "outcomes": 1,
+            "done": 1,
+            "failed": 0,
+            "canceled": 0,
+            "p85_open": 0,
+            "time": {
+              "p50": {
+                "n": 1,
+                "hits": 1
+              },
+              "p85": {
+                "n": 1,
+                "hits": 1
+              },
+              "ratio": {
+                "n": 1
+              }
+            },
+            "cost": {
+              "p50": {
+                "n": 1,
+                "hits": 0
+              },
+              "p85": {
+                "n": 1,
+                "hits": 1
+              },
+              "ratio": {
+                "n": 1
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "repository": "harbor-api",
+      "recent": {
+        "from": 1787408000001,
+        "to": 1790000000001,
+        "share": {
+          "ended": 6,
+          "confident": {
+            "count": 6
+          },
+          "low": {
+            "count": 0
+          },
+          "none": {
+            "count": 0
+          }
+        },
+        "confident": {
+          "total": {
+            "outcomes": 6,
+            "done": 5,
+            "failed": 1,
+            "canceled": 0,
+            "p85_open": 1,
+            "time": {
+              "p50": {
+                "n": 5,
+                "hits": 1
+              },
+              "p85": {
+                "n": 4,
+                "hits": 3
+              },
+              "ratio": {
+                "n": 5
+              }
+            },
+            "cost": {
+              "p50": {
+                "n": 5,
+                "hits": 5
+              },
+              "p85": {
+                "n": 4,
+                "hits": 4
+              },
+              "ratio": {
+                "n": 5
+              }
+            }
+          },
+          "tiers": [
+            {
+              "tier": 1,
+              "outcomes": 6,
+              "done": 5,
+              "failed": 1,
+              "canceled": 0,
+              "p85_open": 1,
+              "time": {
+                "p50": {
+                  "n": 5,
+                  "hits": 1
+                },
+                "p85": {
+                  "n": 4,
+                  "hits": 3
+                },
+                "ratio": {
+                  "n": 5
+                }
+              },
+              "cost": {
+                "p50": {
+                  "n": 5,
+                  "hits": 5
+                },
+                "p85": {
+                  "n": 4,
+                  "hits": 4
+                },
+                "ratio": {
+                  "n": 5
+                }
+              }
+            }
+          ],
+          "estimator_versions": [
+            {
+              "estimator_version": 1,
+              "outcomes": 6,
+              "done": 5,
+              "failed": 1,
+              "canceled": 0,
+              "p85_open": 1,
+              "time": {
+                "p50": {
+                  "n": 5,
+                  "hits": 1
+                },
+                "p85": {
+                  "n": 4,
+                  "hits": 3
+                },
+                "ratio": {
+                  "n": 5
+                }
+              },
+              "cost": {
+                "p50": {
+                  "n": 5,
+                  "hits": 5
+                },
+                "p85": {
+                  "n": 4,
+                  "hits": 4
+                },
+                "ratio": {
+                  "n": 5
+                }
+              }
+            }
+          ]
+        },
+        "low": {
+          "total": {
+            "outcomes": 0,
+            "done": 0,
+            "failed": 0,
+            "canceled": 0,
+            "p85_open": 0,
+            "time": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            },
+            "cost": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            }
+          },
+          "tiers": [],
+          "estimator_versions": []
+        }
+      },
+      "all_time": {
+        "from": 0,
+        "to": 1790000000001,
+        "share": {
+          "ended": 6,
+          "confident": {
+            "count": 6
+          },
+          "low": {
+            "count": 0
+          },
+          "none": {
+            "count": 0
+          }
+        },
+        "confident": {
+          "total": {
+            "outcomes": 6,
+            "done": 5,
+            "failed": 1,
+            "canceled": 0,
+            "p85_open": 1,
+            "time": {
+              "p50": {
+                "n": 5,
+                "hits": 1
+              },
+              "p85": {
+                "n": 4,
+                "hits": 3
+              },
+              "ratio": {
+                "n": 5
+              }
+            },
+            "cost": {
+              "p50": {
+                "n": 5,
+                "hits": 5
+              },
+              "p85": {
+                "n": 4,
+                "hits": 4
+              },
+              "ratio": {
+                "n": 5
+              }
+            }
+          },
+          "tiers": [
+            {
+              "tier": 1,
+              "outcomes": 6,
+              "done": 5,
+              "failed": 1,
+              "canceled": 0,
+              "p85_open": 1,
+              "time": {
+                "p50": {
+                  "n": 5,
+                  "hits": 1
+                },
+                "p85": {
+                  "n": 4,
+                  "hits": 3
+                },
+                "ratio": {
+                  "n": 5
+                }
+              },
+              "cost": {
+                "p50": {
+                  "n": 5,
+                  "hits": 5
+                },
+                "p85": {
+                  "n": 4,
+                  "hits": 4
+                },
+                "ratio": {
+                  "n": 5
+                }
+              }
+            }
+          ],
+          "estimator_versions": [
+            {
+              "estimator_version": 1,
+              "outcomes": 6,
+              "done": 5,
+              "failed": 1,
+              "canceled": 0,
+              "p85_open": 1,
+              "time": {
+                "p50": {
+                  "n": 5,
+                  "hits": 1
+                },
+                "p85": {
+                  "n": 4,
+                  "hits": 3
+                },
+                "ratio": {
+                  "n": 5
+                }
+              },
+              "cost": {
+                "p50": {
+                  "n": 5,
+                  "hits": 5
+                },
+                "p85": {
+                  "n": 4,
+                  "hits": 4
+                },
+                "ratio": {
+                  "n": 5
+                }
+              }
+            }
+          ]
+        },
+        "low": {
+          "total": {
+            "outcomes": 0,
+            "done": 0,
+            "failed": 0,
+            "canceled": 0,
+            "p85_open": 0,
+            "time": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            },
+            "cost": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            }
+          },
+          "tiers": [],
+          "estimator_versions": []
+        }
+      },
+      "weeks": [
+        {
+          "from": 1782742400001,
+          "confident": {
+            "outcomes": 0,
+            "done": 0,
+            "failed": 0,
+            "canceled": 0,
+            "p85_open": 0,
+            "time": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            },
+            "cost": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            }
+          },
+          "low": {
+            "outcomes": 0,
+            "done": 0,
+            "failed": 0,
+            "canceled": 0,
+            "p85_open": 0,
+            "time": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            },
+            "cost": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            }
+          }
+        },
+        {
+          "from": 1783347200001,
+          "confident": {
+            "outcomes": 0,
+            "done": 0,
+            "failed": 0,
+            "canceled": 0,
+            "p85_open": 0,
+            "time": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            },
+            "cost": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            }
+          },
+          "low": {
+            "outcomes": 0,
+            "done": 0,
+            "failed": 0,
+            "canceled": 0,
+            "p85_open": 0,
+            "time": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            },
+            "cost": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            }
+          }
+        },
+        {
+          "from": 1783952000001,
+          "confident": {
+            "outcomes": 0,
+            "done": 0,
+            "failed": 0,
+            "canceled": 0,
+            "p85_open": 0,
+            "time": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            },
+            "cost": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            }
+          },
+          "low": {
+            "outcomes": 0,
+            "done": 0,
+            "failed": 0,
+            "canceled": 0,
+            "p85_open": 0,
+            "time": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            },
+            "cost": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            }
+          }
+        },
+        {
+          "from": 1784556800001,
+          "confident": {
+            "outcomes": 0,
+            "done": 0,
+            "failed": 0,
+            "canceled": 0,
+            "p85_open": 0,
+            "time": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            },
+            "cost": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            }
+          },
+          "low": {
+            "outcomes": 0,
+            "done": 0,
+            "failed": 0,
+            "canceled": 0,
+            "p85_open": 0,
+            "time": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            },
+            "cost": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            }
+          }
+        },
+        {
+          "from": 1785161600001,
+          "confident": {
+            "outcomes": 0,
+            "done": 0,
+            "failed": 0,
+            "canceled": 0,
+            "p85_open": 0,
+            "time": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            },
+            "cost": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            }
+          },
+          "low": {
+            "outcomes": 0,
+            "done": 0,
+            "failed": 0,
+            "canceled": 0,
+            "p85_open": 0,
+            "time": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            },
+            "cost": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            }
+          }
+        },
+        {
+          "from": 1785766400001,
+          "confident": {
+            "outcomes": 0,
+            "done": 0,
+            "failed": 0,
+            "canceled": 0,
+            "p85_open": 0,
+            "time": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            },
+            "cost": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            }
+          },
+          "low": {
+            "outcomes": 0,
+            "done": 0,
+            "failed": 0,
+            "canceled": 0,
+            "p85_open": 0,
+            "time": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            },
+            "cost": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            }
+          }
+        },
+        {
+          "from": 1786371200001,
+          "confident": {
+            "outcomes": 0,
+            "done": 0,
+            "failed": 0,
+            "canceled": 0,
+            "p85_open": 0,
+            "time": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            },
+            "cost": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            }
+          },
+          "low": {
+            "outcomes": 0,
+            "done": 0,
+            "failed": 0,
+            "canceled": 0,
+            "p85_open": 0,
+            "time": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            },
+            "cost": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            }
+          }
+        },
+        {
+          "from": 1786976000001,
+          "confident": {
+            "outcomes": 0,
+            "done": 0,
+            "failed": 0,
+            "canceled": 0,
+            "p85_open": 0,
+            "time": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            },
+            "cost": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            }
+          },
+          "low": {
+            "outcomes": 0,
+            "done": 0,
+            "failed": 0,
+            "canceled": 0,
+            "p85_open": 0,
+            "time": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            },
+            "cost": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            }
+          }
+        },
+        {
+          "from": 1787580800001,
+          "confident": {
+            "outcomes": 0,
+            "done": 0,
+            "failed": 0,
+            "canceled": 0,
+            "p85_open": 0,
+            "time": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            },
+            "cost": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            }
+          },
+          "low": {
+            "outcomes": 0,
+            "done": 0,
+            "failed": 0,
+            "canceled": 0,
+            "p85_open": 0,
+            "time": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            },
+            "cost": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            }
+          }
+        },
+        {
+          "from": 1788185600001,
+          "confident": {
+            "outcomes": 1,
+            "done": 1,
+            "failed": 0,
+            "canceled": 0,
+            "p85_open": 0,
+            "time": {
+              "p50": {
+                "n": 1,
+                "hits": 0
+              },
+              "p85": {
+                "n": 1,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 1
+              }
+            },
+            "cost": {
+              "p50": {
+                "n": 1,
+                "hits": 1
+              },
+              "p85": {
+                "n": 1,
+                "hits": 1
+              },
+              "ratio": {
+                "n": 1
+              }
+            }
+          },
+          "low": {
+            "outcomes": 0,
+            "done": 0,
+            "failed": 0,
+            "canceled": 0,
+            "p85_open": 0,
+            "time": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            },
+            "cost": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            }
+          }
+        },
+        {
+          "from": 1788790400001,
+          "confident": {
+            "outcomes": 2,
+            "done": 2,
+            "failed": 0,
+            "canceled": 0,
+            "p85_open": 0,
+            "time": {
+              "p50": {
+                "n": 2,
+                "hits": 0
+              },
+              "p85": {
+                "n": 2,
+                "hits": 2
+              },
+              "ratio": {
+                "n": 2
+              }
+            },
+            "cost": {
+              "p50": {
+                "n": 2,
+                "hits": 2
+              },
+              "p85": {
+                "n": 2,
+                "hits": 2
+              },
+              "ratio": {
+                "n": 2
+              }
+            }
+          },
+          "low": {
+            "outcomes": 0,
+            "done": 0,
+            "failed": 0,
+            "canceled": 0,
+            "p85_open": 0,
+            "time": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            },
+            "cost": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            }
+          }
+        },
+        {
+          "from": 1789395200001,
+          "confident": {
+            "outcomes": 3,
+            "done": 2,
+            "failed": 1,
+            "canceled": 0,
+            "p85_open": 1,
+            "time": {
+              "p50": {
+                "n": 2,
+                "hits": 1
+              },
+              "p85": {
+                "n": 1,
+                "hits": 1
+              },
+              "ratio": {
+                "n": 2
+              }
+            },
+            "cost": {
+              "p50": {
+                "n": 2,
+                "hits": 2
+              },
+              "p85": {
+                "n": 1,
+                "hits": 1
+              },
+              "ratio": {
+                "n": 2
+              }
+            }
+          },
+          "low": {
+            "outcomes": 0,
+            "done": 0,
+            "failed": 0,
+            "canceled": 0,
+            "p85_open": 0,
+            "time": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            },
+            "cost": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "repository": "harbor-web",
+      "recent": {
+        "from": 1787408000001,
+        "to": 1790000000001,
+        "share": {
+          "ended": 20,
+          "confident": {
+            "count": 12,
+            "share": 0.6
+          },
+          "low": {
+            "count": 4,
+            "share": 0.2
+          },
+          "none": {
+            "count": 4,
+            "share": 0.2
+          }
+        },
+        "confident": {
+          "total": {
+            "outcomes": 12,
+            "done": 12,
+            "failed": 0,
+            "canceled": 0,
+            "p85_open": 0,
+            "time": {
+              "p50": {
+                "n": 12,
+                "hits": 6,
+                "rate": 0.5
+              },
+              "p85": {
+                "n": 12,
+                "hits": 9,
+                "rate": 0.75
+              },
+              "ratio": {
+                "n": 12,
+                "median": 0.9
+              }
+            },
+            "cost": {
+              "p50": {
+                "n": 12,
+                "hits": 6,
+                "rate": 0.5
+              },
+              "p85": {
+                "n": 12,
+                "hits": 9,
+                "rate": 0.75
+              },
+              "ratio": {
+                "n": 12,
+                "median": 1
+              }
+            }
+          },
+          "tiers": [
+            {
+              "tier": 2,
+              "outcomes": 12,
+              "done": 12,
+              "failed": 0,
+              "canceled": 0,
+              "p85_open": 0,
+              "time": {
+                "p50": {
+                  "n": 12,
+                  "hits": 6,
+                  "rate": 0.5
+                },
+                "p85": {
+                  "n": 12,
+                  "hits": 9,
+                  "rate": 0.75
+                },
+                "ratio": {
+                  "n": 12,
+                  "median": 0.9
+                }
+              },
+              "cost": {
+                "p50": {
+                  "n": 12,
+                  "hits": 6,
+                  "rate": 0.5
+                },
+                "p85": {
+                  "n": 12,
+                  "hits": 9,
+                  "rate": 0.75
+                },
+                "ratio": {
+                  "n": 12,
+                  "median": 1
+                }
+              }
+            }
+          ],
+          "estimator_versions": [
+            {
+              "estimator_version": 1,
+              "outcomes": 12,
+              "done": 12,
+              "failed": 0,
+              "canceled": 0,
+              "p85_open": 0,
+              "time": {
+                "p50": {
+                  "n": 12,
+                  "hits": 6,
+                  "rate": 0.5
+                },
+                "p85": {
+                  "n": 12,
+                  "hits": 9,
+                  "rate": 0.75
+                },
+                "ratio": {
+                  "n": 12,
+                  "median": 0.9
+                }
+              },
+              "cost": {
+                "p50": {
+                  "n": 12,
+                  "hits": 6,
+                  "rate": 0.5
+                },
+                "p85": {
+                  "n": 12,
+                  "hits": 9,
+                  "rate": 0.75
+                },
+                "ratio": {
+                  "n": 12,
+                  "median": 1
+                }
+              }
+            }
+          ]
+        },
+        "low": {
+          "total": {
+            "outcomes": 4,
+            "done": 4,
+            "failed": 0,
+            "canceled": 0,
+            "p85_open": 0,
+            "time": {
+              "p50": {
+                "n": 4,
+                "hits": 1
+              },
+              "p85": {
+                "n": 4,
+                "hits": 2
+              },
+              "ratio": {
+                "n": 4
+              }
+            },
+            "cost": {
+              "p50": {
+                "n": 4,
+                "hits": 0
+              },
+              "p85": {
+                "n": 4,
+                "hits": 4
+              },
+              "ratio": {
+                "n": 4
+              }
+            }
+          },
+          "tiers": [
+            {
+              "tier": 6,
+              "outcomes": 4,
+              "done": 4,
+              "failed": 0,
+              "canceled": 0,
+              "p85_open": 0,
+              "time": {
+                "p50": {
+                  "n": 4,
+                  "hits": 1
+                },
+                "p85": {
+                  "n": 4,
+                  "hits": 2
+                },
+                "ratio": {
+                  "n": 4
+                }
+              },
+              "cost": {
+                "p50": {
+                  "n": 4,
+                  "hits": 0
+                },
+                "p85": {
+                  "n": 4,
+                  "hits": 4
+                },
+                "ratio": {
+                  "n": 4
+                }
+              }
+            }
+          ],
+          "estimator_versions": [
+            {
+              "estimator_version": 1,
+              "outcomes": 4,
+              "done": 4,
+              "failed": 0,
+              "canceled": 0,
+              "p85_open": 0,
+              "time": {
+                "p50": {
+                  "n": 4,
+                  "hits": 1
+                },
+                "p85": {
+                  "n": 4,
+                  "hits": 2
+                },
+                "ratio": {
+                  "n": 4
+                }
+              },
+              "cost": {
+                "p50": {
+                  "n": 4,
+                  "hits": 0
+                },
+                "p85": {
+                  "n": 4,
+                  "hits": 4
+                },
+                "ratio": {
+                  "n": 4
+                }
+              }
+            }
+          ]
+        }
+      },
+      "all_time": {
+        "from": 0,
+        "to": 1790000000001,
+        "share": {
+          "ended": 21,
+          "confident": {
+            "count": 13,
+            "share": 0.6190476190476191
+          },
+          "low": {
+            "count": 4,
+            "share": 0.19047619047619047
+          },
+          "none": {
+            "count": 4,
+            "share": 0.19047619047619047
+          }
+        },
+        "confident": {
+          "total": {
+            "outcomes": 13,
+            "done": 13,
+            "failed": 0,
+            "canceled": 0,
+            "p85_open": 0,
+            "time": {
+              "p50": {
+                "n": 13,
+                "hits": 6,
+                "rate": 0.46153846153846156
+              },
+              "p85": {
+                "n": 13,
+                "hits": 9,
+                "rate": 0.6923076923076923
+              },
+              "ratio": {
+                "n": 13,
+                "median": 1.2
+              }
+            },
+            "cost": {
+              "p50": {
+                "n": 13,
+                "hits": 7,
+                "rate": 0.5384615384615384
+              },
+              "p85": {
+                "n": 13,
+                "hits": 10,
+                "rate": 0.7692307692307693
+              },
+              "ratio": {
+                "n": 13,
+                "median": 1
+              }
+            }
+          },
+          "tiers": [
+            {
+              "tier": 2,
+              "outcomes": 13,
+              "done": 13,
+              "failed": 0,
+              "canceled": 0,
+              "p85_open": 0,
+              "time": {
+                "p50": {
+                  "n": 13,
+                  "hits": 6,
+                  "rate": 0.46153846153846156
+                },
+                "p85": {
+                  "n": 13,
+                  "hits": 9,
+                  "rate": 0.6923076923076923
+                },
+                "ratio": {
+                  "n": 13,
+                  "median": 1.2
+                }
+              },
+              "cost": {
+                "p50": {
+                  "n": 13,
+                  "hits": 7,
+                  "rate": 0.5384615384615384
+                },
+                "p85": {
+                  "n": 13,
+                  "hits": 10,
+                  "rate": 0.7692307692307693
+                },
+                "ratio": {
+                  "n": 13,
+                  "median": 1
+                }
+              }
+            }
+          ],
+          "estimator_versions": [
+            {
+              "estimator_version": 1,
+              "outcomes": 13,
+              "done": 13,
+              "failed": 0,
+              "canceled": 0,
+              "p85_open": 0,
+              "time": {
+                "p50": {
+                  "n": 13,
+                  "hits": 6,
+                  "rate": 0.46153846153846156
+                },
+                "p85": {
+                  "n": 13,
+                  "hits": 9,
+                  "rate": 0.6923076923076923
+                },
+                "ratio": {
+                  "n": 13,
+                  "median": 1.2
+                }
+              },
+              "cost": {
+                "p50": {
+                  "n": 13,
+                  "hits": 7,
+                  "rate": 0.5384615384615384
+                },
+                "p85": {
+                  "n": 13,
+                  "hits": 10,
+                  "rate": 0.7692307692307693
+                },
+                "ratio": {
+                  "n": 13,
+                  "median": 1
+                }
+              }
+            }
+          ]
+        },
+        "low": {
+          "total": {
+            "outcomes": 4,
+            "done": 4,
+            "failed": 0,
+            "canceled": 0,
+            "p85_open": 0,
+            "time": {
+              "p50": {
+                "n": 4,
+                "hits": 1
+              },
+              "p85": {
+                "n": 4,
+                "hits": 2
+              },
+              "ratio": {
+                "n": 4
+              }
+            },
+            "cost": {
+              "p50": {
+                "n": 4,
+                "hits": 0
+              },
+              "p85": {
+                "n": 4,
+                "hits": 4
+              },
+              "ratio": {
+                "n": 4
+              }
+            }
+          },
+          "tiers": [
+            {
+              "tier": 6,
+              "outcomes": 4,
+              "done": 4,
+              "failed": 0,
+              "canceled": 0,
+              "p85_open": 0,
+              "time": {
+                "p50": {
+                  "n": 4,
+                  "hits": 1
+                },
+                "p85": {
+                  "n": 4,
+                  "hits": 2
+                },
+                "ratio": {
+                  "n": 4
+                }
+              },
+              "cost": {
+                "p50": {
+                  "n": 4,
+                  "hits": 0
+                },
+                "p85": {
+                  "n": 4,
+                  "hits": 4
+                },
+                "ratio": {
+                  "n": 4
+                }
+              }
+            }
+          ],
+          "estimator_versions": [
+            {
+              "estimator_version": 1,
+              "outcomes": 4,
+              "done": 4,
+              "failed": 0,
+              "canceled": 0,
+              "p85_open": 0,
+              "time": {
+                "p50": {
+                  "n": 4,
+                  "hits": 1
+                },
+                "p85": {
+                  "n": 4,
+                  "hits": 2
+                },
+                "ratio": {
+                  "n": 4
+                }
+              },
+              "cost": {
+                "p50": {
+                  "n": 4,
+                  "hits": 0
+                },
+                "p85": {
+                  "n": 4,
+                  "hits": 4
+                },
+                "ratio": {
+                  "n": 4
+                }
+              }
+            }
+          ]
+        }
+      },
+      "weeks": [
+        {
+          "from": 1782742400001,
+          "confident": {
+            "outcomes": 0,
+            "done": 0,
+            "failed": 0,
+            "canceled": 0,
+            "p85_open": 0,
+            "time": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            },
+            "cost": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            }
+          },
+          "low": {
+            "outcomes": 0,
+            "done": 0,
+            "failed": 0,
+            "canceled": 0,
+            "p85_open": 0,
+            "time": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            },
+            "cost": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            }
+          }
+        },
+        {
+          "from": 1783347200001,
+          "confident": {
+            "outcomes": 0,
+            "done": 0,
+            "failed": 0,
+            "canceled": 0,
+            "p85_open": 0,
+            "time": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            },
+            "cost": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            }
+          },
+          "low": {
+            "outcomes": 0,
+            "done": 0,
+            "failed": 0,
+            "canceled": 0,
+            "p85_open": 0,
+            "time": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            },
+            "cost": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            }
+          }
+        },
+        {
+          "from": 1783952000001,
+          "confident": {
+            "outcomes": 0,
+            "done": 0,
+            "failed": 0,
+            "canceled": 0,
+            "p85_open": 0,
+            "time": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            },
+            "cost": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            }
+          },
+          "low": {
+            "outcomes": 0,
+            "done": 0,
+            "failed": 0,
+            "canceled": 0,
+            "p85_open": 0,
+            "time": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            },
+            "cost": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            }
+          }
+        },
+        {
+          "from": 1784556800001,
+          "confident": {
+            "outcomes": 0,
+            "done": 0,
+            "failed": 0,
+            "canceled": 0,
+            "p85_open": 0,
+            "time": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            },
+            "cost": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            }
+          },
+          "low": {
+            "outcomes": 0,
+            "done": 0,
+            "failed": 0,
+            "canceled": 0,
+            "p85_open": 0,
+            "time": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            },
+            "cost": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            }
+          }
+        },
+        {
+          "from": 1785161600001,
+          "confident": {
+            "outcomes": 0,
+            "done": 0,
+            "failed": 0,
+            "canceled": 0,
+            "p85_open": 0,
+            "time": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            },
+            "cost": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            }
+          },
+          "low": {
+            "outcomes": 0,
+            "done": 0,
+            "failed": 0,
+            "canceled": 0,
+            "p85_open": 0,
+            "time": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            },
+            "cost": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            }
+          }
+        },
+        {
+          "from": 1785766400001,
+          "confident": {
+            "outcomes": 1,
+            "done": 1,
+            "failed": 0,
+            "canceled": 0,
+            "p85_open": 0,
+            "time": {
+              "p50": {
+                "n": 1,
+                "hits": 0
+              },
+              "p85": {
+                "n": 1,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 1
+              }
+            },
+            "cost": {
+              "p50": {
+                "n": 1,
+                "hits": 1
+              },
+              "p85": {
+                "n": 1,
+                "hits": 1
+              },
+              "ratio": {
+                "n": 1
+              }
+            }
+          },
+          "low": {
+            "outcomes": 0,
+            "done": 0,
+            "failed": 0,
+            "canceled": 0,
+            "p85_open": 0,
+            "time": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            },
+            "cost": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            }
+          }
+        },
+        {
+          "from": 1786371200001,
+          "confident": {
+            "outcomes": 0,
+            "done": 0,
+            "failed": 0,
+            "canceled": 0,
+            "p85_open": 0,
+            "time": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            },
+            "cost": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            }
+          },
+          "low": {
+            "outcomes": 0,
+            "done": 0,
+            "failed": 0,
+            "canceled": 0,
+            "p85_open": 0,
+            "time": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            },
+            "cost": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            }
+          }
+        },
+        {
+          "from": 1786976000001,
+          "confident": {
+            "outcomes": 0,
+            "done": 0,
+            "failed": 0,
+            "canceled": 0,
+            "p85_open": 0,
+            "time": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            },
+            "cost": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            }
+          },
+          "low": {
+            "outcomes": 0,
+            "done": 0,
+            "failed": 0,
+            "canceled": 0,
+            "p85_open": 0,
+            "time": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            },
+            "cost": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            }
+          }
+        },
+        {
+          "from": 1787580800001,
+          "confident": {
+            "outcomes": 2,
+            "done": 2,
+            "failed": 0,
+            "canceled": 0,
+            "p85_open": 0,
+            "time": {
+              "p50": {
+                "n": 2,
+                "hits": 0
+              },
+              "p85": {
+                "n": 2,
+                "hits": 1
+              },
+              "ratio": {
+                "n": 2
+              }
+            },
+            "cost": {
+              "p50": {
+                "n": 2,
+                "hits": 0
+              },
+              "p85": {
+                "n": 2,
+                "hits": 1
+              },
+              "ratio": {
+                "n": 2
+              }
+            }
+          },
+          "low": {
+            "outcomes": 0,
+            "done": 0,
+            "failed": 0,
+            "canceled": 0,
+            "p85_open": 0,
+            "time": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            },
+            "cost": {
+              "p50": {
+                "n": 0,
+                "hits": 0
+              },
+              "p85": {
+                "n": 0,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 0
+              }
+            }
+          }
+        },
+        {
+          "from": 1788185600001,
+          "confident": {
+            "outcomes": 4,
+            "done": 4,
+            "failed": 0,
+            "canceled": 0,
+            "p85_open": 0,
+            "time": {
+              "p50": {
+                "n": 4,
+                "hits": 2
+              },
+              "p85": {
+                "n": 4,
+                "hits": 3
+              },
+              "ratio": {
+                "n": 4
+              }
+            },
+            "cost": {
+              "p50": {
+                "n": 4,
+                "hits": 2
+              },
+              "p85": {
+                "n": 4,
+                "hits": 3
+              },
+              "ratio": {
+                "n": 4
+              }
+            }
+          },
+          "low": {
+            "outcomes": 2,
+            "done": 2,
+            "failed": 0,
+            "canceled": 0,
+            "p85_open": 0,
+            "time": {
+              "p50": {
+                "n": 2,
+                "hits": 0
+              },
+              "p85": {
+                "n": 2,
+                "hits": 0
+              },
+              "ratio": {
+                "n": 2
+              }
+            },
+            "cost": {
+              "p50": {
+                "n": 2,
+                "hits": 0
+              },
+              "p85": {
+                "n": 2,
+                "hits": 2
+              },
+              "ratio": {
+                "n": 2
+              }
+            }
+          }
+        },
+        {
+          "from": 1788790400001,
+          "confident": {
+            "outcomes": 3,
+            "done": 3,
+            "failed": 0,
+            "canceled": 0,
+            "p85_open": 0,
+            "time": {
+              "p50": {
+                "n": 3,
+                "hits": 2
+              },
+              "p85": {
+                "n": 3,
+                "hits": 2
+              },
+              "ratio": {
+                "n": 3
+              }
+            },
+            "cost": {
+              "p50": {
+                "n": 3,
+                "hits": 2
+              },
+              "p85": {
+                "n": 3,
+                "hits": 2
+              },
+              "ratio": {
+                "n": 3
+              }
+            }
+          },
+          "low": {
+            "outcomes": 1,
+            "done": 1,
+            "failed": 0,
+            "canceled": 0,
+            "p85_open": 0,
+            "time": {
+              "p50": {
+                "n": 1,
+                "hits": 0
+              },
+              "p85": {
+                "n": 1,
+                "hits": 1
+              },
+              "ratio": {
+                "n": 1
+              }
+            },
+            "cost": {
+              "p50": {
+                "n": 1,
+                "hits": 0
+              },
+              "p85": {
+                "n": 1,
+                "hits": 1
+              },
+              "ratio": {
+                "n": 1
+              }
+            }
+          }
+        },
+        {
+          "from": 1789395200001,
+          "confident": {
+            "outcomes": 3,
+            "done": 3,
+            "failed": 0,
+            "canceled": 0,
+            "p85_open": 0,
+            "time": {
+              "p50": {
+                "n": 3,
+                "hits": 2
+              },
+              "p85": {
+                "n": 3,
+                "hits": 3
+              },
+              "ratio": {
+                "n": 3
+              }
+            },
+            "cost": {
+              "p50": {
+                "n": 3,
+                "hits": 2
+              },
+              "p85": {
+                "n": 3,
+                "hits": 3
+              },
+              "ratio": {
+                "n": 3
+              }
+            }
+          },
+          "low": {
+            "outcomes": 1,
+            "done": 1,
+            "failed": 0,
+            "canceled": 0,
+            "p85_open": 0,
+            "time": {
+              "p50": {
+                "n": 1,
+                "hits": 1
+              },
+              "p85": {
+                "n": 1,
+                "hits": 1
+              },
+              "ratio": {
+                "n": 1
+              }
+            },
+            "cost": {
+              "p50": {
+                "n": 1,
+                "hits": 0
+              },
+              "p85": {
+                "n": 1,
+                "hits": 1
+              },
+              "ratio": {
+                "n": 1
+              }
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "milestones": {
+    "recent": {
+      "from": 1787408000001,
+      "to": 1790000000001,
+      "confident": {
+        "outcomes": 1,
+        "done": 1,
+        "failed": 0,
+        "canceled": 0,
+        "p85_open": 0,
+        "p50": {
+          "n": 1,
+          "hits": 0
+        },
+        "p85": {
+          "n": 1,
+          "hits": 1
+        }
+      },
+      "low": {
+        "outcomes": 1,
+        "done": 1,
+        "failed": 0,
+        "canceled": 0,
+        "p85_open": 1,
+        "p50": {
+          "n": 1,
+          "hits": 0
+        },
+        "p85": {
+          "n": 0,
+          "hits": 0
+        }
+      },
+      "none": 0
+    },
+    "all_time": {
+      "from": 0,
+      "to": 1790000000001,
+      "confident": {
+        "outcomes": 1,
+        "done": 1,
+        "failed": 0,
+        "canceled": 0,
+        "p85_open": 0,
+        "p50": {
+          "n": 1,
+          "hits": 0
+        },
+        "p85": {
+          "n": 1,
+          "hits": 1
+        }
+      },
+      "low": {
+        "outcomes": 1,
+        "done": 1,
+        "failed": 0,
+        "canceled": 0,
+        "p85_open": 1,
+        "p50": {
+          "n": 1,
+          "hits": 0
+        },
+        "p85": {
+          "n": 0,
+          "hits": 0
+        }
+      },
+      "none": 0
+    },
+    "results": [
+      {
+        "plan_id": "plan-1",
+        "milestone_id": "m1",
+        "confidence": "confident",
+        "outcome": "done",
+        "forecast_p50": 1789395200000,
+        "forecast_p85": 1789740800000,
+        "actual_end": 1789568000000,
+        "at_or_below_p50": false,
+        "at_or_below_p85": true
+      },
+      {
+        "plan_id": "plan-1",
+        "milestone_id": "m2",
+        "confidence": "low",
+        "outcome": "done",
+        "forecast_p50": 1788272000000,
+        "forecast_p85": 1789222400000,
+        "lower_bound": "p85",
+        "actual_end": 1788963200000,
+        "at_or_below_p50": false,
+        "at_or_below_p85": null
+      }
+    ]
+  }
+}

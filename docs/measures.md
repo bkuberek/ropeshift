@@ -207,6 +207,8 @@ These rules decide what counts:
 - Failed and canceled work counts apart, in the outcome counts and the share, and compares nothing.
 - Work counts in the window it ended in.
 
+`ropeshift measures estimates [--window D]` and `GET /v1/measures/estimates?window=D` read calibration, with the recent window `30d` by default and all time always shown. Both return one scope for all of the project's work, then one for each repository, each holding the recent window, all time, and a weekly line of the 12 weeks up to the window's end, and the milestones, which belong to no repository. With `--json`, a rate is absent where fewer than 10 outcomes stand behind it, and its `n` and `hits` stay. A project with no outcomes reads all counts as zero.
+
 The measures tick copies calibration of all of the project's work out with the product measures, for each of their windows. A point exists only where its rate shows. `tier` is a tier from 1 to 6, or `all` for every tier. No label names a work order, a repository, an estimator version, or a person, and forecasts are not exported, because a forecast belongs to one milestone:
 
 | Metric | Unit | Labels |
