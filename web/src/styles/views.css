@@ -166,6 +166,92 @@ p.muted + *,
   font-size: var(--fs-14);
 }
 
+/* ---------- Sign in ---------- */
+.sign-in-page {
+  display: flex;
+  justify-content: center;
+  padding: var(--s-48) var(--s-16);
+}
+
+/* Signed out, no sidebar stands beside the page, so the form centers on the whole width. */
+.main:has(> .sign-in-page) {
+  grid-column: 1 / -1;
+}
+
+.sign-in {
+  width: 100%;
+  max-width: 26rem;
+  padding: var(--s-24);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-8);
+  box-shadow: var(--shadow-1);
+}
+
+.sign-in > * + * {
+  margin-top: var(--s-16);
+}
+
+/* A status region with nothing in it takes no room, and stays in the page for what arrives in it. */
+.sign-in > [role="status"]:empty {
+  margin-top: 0;
+}
+
+.sign-in-brand {
+  display: flex;
+  align-items: center;
+  gap: var(--s-8);
+  font-size: var(--fs-16);
+  line-height: var(--lh-16);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.sign-in-brand .wordmark-mark {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--r-6);
+}
+
+.sign-in-brand .wordmark-mark .i {
+  width: 18px;
+  height: 18px;
+}
+
+.sign-in .lead {
+  color: var(--text-2);
+}
+
+.sign-in .actions .btn {
+  width: 100%;
+}
+
+.sign-in-help {
+  font-size: var(--fs-13);
+  line-height: var(--lh-13);
+}
+
+.sign-in-help a {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-4);
+}
+
+/* On a phone the form is the page: no card, the same 16 px gutter every view has. */
+@media (max-width: 639px) {
+  .sign-in-page {
+    padding: var(--s-24) var(--s-16);
+  }
+
+  .sign-in {
+    max-width: none;
+    padding: 0;
+    background: none;
+    border: 0;
+    box-shadow: none;
+  }
+}
+
 .back {
   margin-top: var(--s-8);
 }

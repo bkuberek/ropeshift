@@ -121,6 +121,64 @@ func TestTheBinaryServesItsOwnWebUI(t *testing.T) {
 	}
 }
 
+// A member changes the passphrase from a web session of the real daemon, where the passphrase is an argon2id hash in
+// the installation database: the new one signs in and the old one does not, the session the change came from stays,
+// and another of the member's sessions ends with it.
+func TestAMemberChangesThePassphraseThroughTheWebListener(t *testing.T) {
+	in := newInstall(t)
+	d := in.start("--web", "127.0.0.1:0")
+	in.waitReady(d)
+	base := d.webURL(t)
+	signIn := func(passphrase string) (*http.Response, []*http.Cookie, string) {
+		response, _ := webCall(t, http.MethodPost, base+api.SignInPath, api.SignIn{Passphrase: passphrase}, nil, nil)
+		csrf := ""
+		for _, cookie := range response.Cookies() {
+			if cookie.Name == api.CookieCSRF {
+				csrf = cookie.Value
+			}
+		}
+		return response, response.Cookies(), csrf
+	}
+	first, cookies, csrf := signIn(apitest.Passphrase)
+	second, other, _ := signIn(apitest.Passphrase)
+	if first.StatusCode != http.StatusCreated || second.StatusCode != http.StatusCreated {
+		t.Fatalf("sign-ins: %d and %d", first.StatusCode, second.StatusCode)
+	}
+	const changed = "a passphrase for the next season"
+	wrong, raw := webCall(t, http.MethodPut, base+api.PassphrasePath, api.ChangePassphrase{Current: "a guess at the passphrase", Passphrase: changed}, cookies, map[string]string{api.HeaderCSRF: csrf})
+	if wrong.StatusCode != http.StatusUnauthorized || !bytes.Contains(raw, []byte(api.CodeBadPassphrase)) {
+		t.Fatalf("a wrong current passphrase: %d %s", wrong.StatusCode, raw)
+	}
+	response, raw := webCall(t, http.MethodPut, base+api.PassphrasePath, api.ChangePassphrase{Current: apitest.Passphrase, Passphrase: changed}, cookies, map[string]string{api.HeaderCSRF: csrf})
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("the change: %d %s", response.StatusCode, raw)
+	}
+	var result api.PassphraseChanged
+	if err := json.Unmarshal(raw, &result); err != nil || result.SessionsEnded < 1 {
+		t.Fatalf("the change ended %+v, %v", result, err)
+	}
+	view := base + api.InProject(ledger.DefaultProjectName, api.ViewPath(api.ViewNeedsYou))
+	rotated := response.Cookies()
+	if len(rotated) != 2 {
+		t.Fatalf("the change set cookies %v, want a new session and a new token", rotated)
+	}
+	if kept, _ := webCall(t, http.MethodGet, view, nil, rotated, nil); kept.StatusCode != http.StatusOK {
+		t.Errorf("the session the change came from, on its new token: %d", kept.StatusCode)
+	}
+	if stolen, _ := webCall(t, http.MethodGet, view, nil, cookies, nil); stolen.StatusCode != http.StatusUnauthorized {
+		t.Errorf("a copy of the cookie the session had before the change: %d", stolen.StatusCode)
+	}
+	if ended, _ := webCall(t, http.MethodGet, view, nil, other, nil); ended.StatusCode != http.StatusUnauthorized {
+		t.Errorf("another session of the member: %d", ended.StatusCode)
+	}
+	if old, _, _ := signIn(apitest.Passphrase); old.StatusCode != http.StatusUnauthorized {
+		t.Errorf("the old passphrase: %d", old.StatusCode)
+	}
+	if fresh, _, _ := signIn(changed); fresh.StatusCode != http.StatusCreated {
+		t.Errorf("the new passphrase: %d", fresh.StatusCode)
+	}
+}
+
 func TestAWebAddressOffLoopbackStopsTheDaemon(t *testing.T) {
 	in := newInstall(t)
 	d := in.start("--web", "0.0.0.0:0")

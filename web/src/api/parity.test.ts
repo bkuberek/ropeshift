@@ -59,6 +59,7 @@ import {
 import {
   actOnWork,
   answerQuestion,
+  changePassphrase,
   decideApproval,
   decideEffect,
   dismissQuestion,
@@ -121,6 +122,7 @@ const step = (fn: string, call: () => unknown): Caller => ({ fn, call });
 const callers: Record<string, Caller> = {
   "POST /v1/sessions": step("signIn", () => signIn("a passphrase")),
   "POST /v1/sessions/end": step("signOut", () => signOut()),
+  "PUT /v1/passphrase": step("changePassphrase", () => changePassphrase("the old passphrase", "the new passphrase")),
   "GET /v1/projects": step("readProjects", () => readProjects()),
   "GET /v1/needs-you": step("readNeedsYou", () => readNeedsYou()),
   "PUT /v1/workers/{id}/orchestrator": step("startOrchestrator", () => startOrchestrator("worker-1")),

@@ -36,6 +36,7 @@ import { Icon } from "../ui/Icon";
 import { Dialog, useToast } from "../ui/overlays";
 import { capsAbove, capsDraftOf, capsProblems, capsSettings, capsWords, minutesBounds, newID, nextVersion, policies, policyBody, policySettings, problemOf } from "./logic";
 import type { CapsDraft, DelegationClass, FieldSpec, PolicyKind, PolicyValue, PolicyValues } from "./logic";
+import { PassphraseForm } from "./Passphrase";
 import { dateOf, Reading, SaveBar, saveDownload, timeOf, useChange, useDraft, useLeaveGuard, useRead } from "./parts";
 
 export type Prefs = { theme: Theme; setTheme: (theme: Theme) => void; singleKeys: boolean; setSingleKeys: (on: boolean) => void };
@@ -66,6 +67,7 @@ const sections: Section[] = [
     note: "How many comparable outcomes an estimate needs and reads, how many trials a forecast runs, and whether this project shares its delivery history with the installation's pool.",
   },
   { id: "appearance", title: "Appearance and keyboard", scope: "you", note: "This browser's own choices." },
+  { id: "passphrase", title: "Change passphrase", scope: "you", note: "The passphrase that signs you in on this machine. Changing it ends your other sessions." },
 ];
 
 // The ID of every section, which the accessibility checks hold to a state each.
@@ -174,6 +176,12 @@ function SectionBody({ section, live, project, label, archived, worker, prefs }:
       {section.id === "review" ? <ReviewSection section={section} /> : null}
       {section.id === "integration" ? <IntegrationSection section={section} live={live} project={project} label={label} /> : null}
       {section.id === "appearance" ? <AppearanceSection section={section} prefs={prefs} /> : null}
+      {section.id === "passphrase" ? (
+        <>
+          <SectionHead section={section} />
+          <PassphraseForm />
+        </>
+      ) : null}
     </>
   );
 }

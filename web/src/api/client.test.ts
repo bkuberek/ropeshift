@@ -7,6 +7,7 @@ import {
   ApiError,
   actOnWork,
   answerQuestion,
+  changePassphrase,
   decideApproval,
   decideEffect,
   followEvents,
@@ -78,6 +79,16 @@ describe("the client", () => {
     }
     expect(reachable("GET", paths.events())).toBe(true);
     expect(reachable("GET", paths.pane("lane:a b"))).toBe(true);
+  });
+
+  it("changes the passphrase with the current one and the new one, by the route the listener serves", async () => {
+    const sent = serveApi(() => ({ status: 200, body: { sessions_ended: 3 } }));
+    await expect(changePassphrase("the old one", "the new one")).resolves.toEqual({ sessions_ended: 3 });
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({ method: "PUT", path: "/v1/passphrase", body: { current: "the old one", passphrase: "the new one" } });
+    expect(reachable("PUT", sent[0]?.url ?? "")).toBe(true);
+    expect(reachable("GET", "/v1/passphrase")).toBe(false);
+    expect(reachable("POST", "/v1/passphrase")).toBe(false);
   });
 
   it("offers the keys the server takes in a pane, and no other", () => {

@@ -1,6 +1,9 @@
 package authority
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+)
 
 // EnvMemberToken holds a member's session in one shell, after `eval "$(ropeshift login)"`.
 // No file holds it, and no lane may inherit it (D26).
@@ -13,8 +16,24 @@ const (
 	CommandTTLMs int64 = 60 * 1000
 )
 
-// MinPassphrase is the shortest passphrase, in bytes.
-const MinPassphrase = 8
+// The shortest and the longest passphrase, in bytes. The longest is a bound a terminal can honor: the passphrase comes
+// only from a terminal's line, which the terminal reads to a bounded length and edits with backspace, so a longer
+// one set from a browser could be one its owner cannot type again.
+const (
+	MinPassphrase = 8
+	MaxPassphrase = 1024
+)
+
+// CheckPassphrase says whether a new passphrase is within the bounds, as ErrInvalid with the bound it broke.
+func CheckPassphrase(passphrase string) error {
+	if len(passphrase) < MinPassphrase {
+		return fmt.Errorf("%w: a passphrase has at least %d bytes", ErrInvalid, MinPassphrase)
+	}
+	if len(passphrase) > MaxPassphrase {
+		return fmt.Errorf("%w: a passphrase has at most %d bytes", ErrInvalid, MaxPassphrase)
+	}
+	return nil
+}
 
 // The ways sign-in refuses.
 var (
@@ -22,6 +41,9 @@ var (
 	ErrNoSession = errors.New("this needs a member session")
 	// ErrBadProof means what a person presented proves nothing.
 	ErrBadProof = errors.New("the passphrase does not match")
+	// ErrPassphraseChanged means a change of the passphrase lost to another: the current passphrase it
+	// checked was right, and is no longer the one in force.
+	ErrPassphraseChanged = errors.New("the passphrase changed while you were changing it; sign in again")
 	// ErrNotEnrolled means nobody can sign in yet.
 	ErrNotEnrolled = errors.New("no passphrase is set: run ropeshift passphrase set on a terminal")
 	// ErrInvalid means a proof cannot be accepted as it stands.

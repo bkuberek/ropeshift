@@ -29,6 +29,9 @@ const (
 	CodeSessionRequired = "session_required"
 	// CodeBadPassphrase means a sign-in's passphrase does not match.
 	CodeBadPassphrase = "bad_passphrase"
+	// CodePassphraseChanged means a change of the passphrase lost to another that landed first, though the
+	// current passphrase it sent was right when it checked.
+	CodePassphraseChanged = "passphrase_changed"
 	// CodeResolved means a question already has its answer.
 	CodeResolved = "resolved"
 	// CodeNotEnrolled means nobody can sign in, because no passphrase is set.

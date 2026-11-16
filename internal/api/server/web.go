@@ -89,6 +89,8 @@ func NewWeb(config Config, options WebOptions) http.Handler {
 			site.routes.HandleFunc(pattern, site.openSession)
 		case api.SignOutPath:
 			site.routes.HandleFunc(pattern, site.member(site.closeSession))
+		case api.PassphrasePath:
+			site.routes.HandleFunc(pattern, site.member(site.changePassphrase))
 		case api.ProjectRoute(api.EventsPath), api.ProjectRoute(api.PanePath):
 			site.routes.HandleFunc(pattern, site.member(site.stream))
 		default:
@@ -237,6 +239,35 @@ func (s *web) openSession(w http.ResponseWriter, r *http.Request) {
 		http.SetCookie(w, cookie)
 	}
 	reply(w, http.StatusCreated, api.Session{Member: grant.Member, ExpiresAt: grant.ExpiresAt})
+}
+
+// changePassphrase replaces the passphrase for the member whose session the cookie holds. The session and the
+// token have admitted the request, and the current passphrase must prove the person at the page knows it, so a
+// session left open on a screen cannot change it. The current passphrase is a guess at the passphrase, so it
+// waits its turn at the gate a sign-in waits at, and a refusal of it stands on record as a refused sign-in does.
+// This listener serves no first passphrase: while none is set, the change is refused.
+func (s *web) changePassphrase(w http.ResponseWriter, r *http.Request, token string) {
+	var in api.ChangePassphrase
+	if !decode(w, r, &in) {
+		return
+	}
+	select {
+	case s.signIn <- struct{}{}:
+		defer func() { <-s.signIn }()
+	case <-r.Context().Done():
+		return
+	}
+	changed, err := s.sessions.ChangePassphrase(r.Context(), s.scope, ports.Proof{Passphrase: in.Current}, ports.Proof{Passphrase: in.Passphrase}, token)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	// The session goes on under a new token, in new cookies, and the token the page held, which was derived from the
+	// old one, is no longer the page's.
+	for _, cookie := range sessionCookies(changed.Token, csrfToken(changed.Token), int(changed.LifeMs/time.Second.Milliseconds())) {
+		http.SetCookie(w, cookie)
+	}
+	reply(w, http.StatusOK, api.PassphraseChanged{SessionsEnded: changed.SessionsEnded, Delegates: changed.Delegates})
 }
 
 // closeSession ends a session in the ledger, so its cookie opens nothing even if a browser keeps it.

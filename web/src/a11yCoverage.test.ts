@@ -3,8 +3,9 @@ import { join, relative } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { dialogStates, views } from "./a11yStates";
+import { dialogStates, signInStates, views } from "./a11yStates";
 import { settingsSections } from "./admin/Settings";
+import { signInStateIds } from "./app/SignIn";
 import { needsYouItems } from "./browserApp";
 import { workOrderTabs } from "./floor/WorkOrders";
 import { cardKindOf, cardKinds, keyOf } from "./needs/kinds";
@@ -31,6 +32,12 @@ describe("the axe states", () => {
   it("show every Settings section", () => {
     const shown = new Set(parsed.filter((url) => url.pathname.endsWith("/settings")).map((url) => url.searchParams.get("section")));
     expect(settingsSections.filter((id) => !shown.has(id))).toEqual([]);
+  });
+
+  it("show every state of the Sign in page, which no address reaches", () => {
+    expect(signInStateIds.filter((id) => !signInStates.includes(id)), "a state of the page that no check opens").toEqual([]);
+    expect(signInStates.filter((id) => !signInStateIds.includes(id)), "a check of a state the page cannot show").toEqual([]);
+    expect(new Set(signInStates).size).toBe(signInStates.length);
   });
 
   it("show every tab of a work order", () => {

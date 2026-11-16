@@ -2,7 +2,7 @@ package fake
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"sync"
 
 	"ropeshift.com/ropeshift/internal/authority"
@@ -17,11 +17,20 @@ const Member = "member-1"
 type IdentityProvider struct {
 	mu          sync.Mutex
 	passphrases map[ledger.WorkspaceID]string
+	store       ports.Store
 }
 
 // NewIdentityProvider returns a provider nobody has enrolled with.
 func NewIdentityProvider() *IdentityProvider {
 	return &IdentityProvider{passphrases: map[ledger.WorkspaceID]string{}}
+}
+
+// Within gives the provider the store whose installation records a change writes beside the passphrase, and
+// returns the provider. A real provider keeps its proof in those records, so a change's companion write shares a
+// transaction with it; this one keeps its passphrase in memory and swaps it once that transaction has committed.
+func (p *IdentityProvider) Within(store ports.Store) *IdentityProvider {
+	p.store = store
+	return p
 }
 
 // Enrolled reports whether a passphrase is set.
@@ -36,13 +45,44 @@ func (p *IdentityProvider) Enrolled(_ context.Context, scope ledger.WorkspaceID)
 func (p *IdentityProvider) Enroll(_ context.Context, scope ledger.WorkspaceID, proof ports.Proof, actor ledger.Actor) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if len(proof.Passphrase) < authority.MinPassphrase {
-		return fmt.Errorf("%w: a passphrase has at least %d bytes", authority.ErrInvalid, authority.MinPassphrase)
+	if err := authority.CheckPassphrase(proof.Passphrase); err != nil {
+		return err
 	}
 	if _, ok := p.passphrases[scope]; ok && !authority.Allowed(actor, authority.ActionSetPassphrase) {
 		return authority.ErrNoSession
 	}
 	p.passphrases[scope] = proof.Passphrase
+	return nil
+}
+
+// Change replaces the passphrase when the current one is right. The lock is held from the check to the swap, so
+// two changes cannot both replace what they checked, and the companion's transaction commits before the swap.
+func (p *IdentityProvider) Change(ctx context.Context, scope ledger.WorkspaceID, current, next ports.Proof, actor ledger.Actor, alongside func(ports.SharedTx, string) error) error {
+	if !authority.Allowed(actor, authority.ActionSetPassphrase) {
+		return authority.ErrNoSession
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	want, ok := p.passphrases[scope]
+	if !ok {
+		return authority.ErrNotEnrolled
+	}
+	if current.Passphrase != want {
+		return authority.ErrBadProof
+	}
+	if err := authority.CheckPassphrase(next.Passphrase); err != nil {
+		return err
+	}
+	if alongside != nil {
+		if p.store == nil {
+			return errors.New("the fake identity provider has no store for a change's companion write: give it one with Within")
+		}
+		err := p.store.Installation(scope).Write(ctx, "member.change_proof", func(tx ports.SharedTx) error { return alongside(tx, Member) })
+		if err != nil {
+			return err
+		}
+	}
+	p.passphrases[scope] = next.Passphrase
 	return nil
 }
 

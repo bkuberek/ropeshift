@@ -79,9 +79,25 @@ A session that comes back to an approved call hears that exact call first, with 
 
 ## The web listener
 
-The web UI serves on a loopback port, and any process on the machine can reach that port, so it holds to more than the socket does. It answers only to its own loopback names on its own port, which refuses a page that rebinds a hostile name to this machine. It serves a closed list of routes, each with a command that does the same, and keeps a worker's routes and the passphrase off that list. Every read needs a session here too, because a port reaches further than a socket only its owner can open.
+The web UI serves on a loopback port, and any process on the machine can reach that port, so it holds to more than the socket does. It answers only to its own loopback names on its own port, which refuses a page that rebinds a hostile name to this machine. It serves a closed list of routes, each with a command that does the same, and keeps a worker's routes and the first passphrase off that list. Every read needs a session here too, because a port reaches further than a socket only its owner can open.
 
 A session lives in a cookie no page can read, and a change also needs a token derived from it that only this listener's own page can read. A request from any other origin is refused, and that includes another port on this machine, which a same-site cookie does not stop. Signing out ends the session in the ledger, and an open event stream ends with it. Every response forbids inline scripts, so text from a document or an agent cannot run even if a page were to render it.
+
+### Changing the passphrase from the web UI
+
+The listener serves `PUT /v1/passphrase` as a change, as `ropeshift passphrase set` makes one after the first. The first passphrase is set on a terminal, under `ropeshift init`, because it needs no session and any process on the machine can reach this port, so the listener refuses a change while no passphrase is set.
+
+A change needs three things at once, and without any of them it is refused and changes nothing:
+
+- A live session in the cookie, which says who is asking.
+- The token only this listener's own page can read, which says the request came from that page.
+- The passphrase now in force, which says the person at the page knows it. A session left open on a screen therefore cannot change it.
+
+A missing and a wrong current passphrase get the same answer, `bad_passphrase`, which a wrong passphrase at sign-in gets too. The current passphrase is a guess at the passphrase, so it is held to the limits a sign-in is. The listener checks one passphrase at a time, for sign-ins and changes together, so a flood of guesses costs its sender the wait. Every refused guess is a `member.sign_in_refused` event naming the member and no part of the guess. A caller who has not proved the current passphrase is not told what a new one needs: the bounds of 8 and 1024 bytes are judged only after it. The upper bound holds for the first passphrase too, set on a terminal, because a terminal reads the passphrase a line at a time and a longer one could not be typed there again, which would lock its owner out ([the command line](cli.md)).
+
+A change that succeeds stores the new hash in one transaction with three more things. It ends every other session of the member, and it gives the session the change came from a new token and drops the old one, so a copy of the cookie that session had, held by something else on the machine, opens nothing after the change. The new session ends when the old one would have, and the answer sets the new session cookie and the new CSRF token, which the page reads for its next change. And it records a `member.sessions_ended` event that counts the sessions it ended. The answer also counts the member's delegate credentials that still act, because a change does not end a credential: signing out everywhere does, and the page offers it beside the count.
+
+The change replaces only the hash the current passphrase matched, so two changes that both checked the same passphrase cannot both stand. The one that comes second had the right passphrase when it checked, so it is not a wrong guess: it gets 409 `passphrase_changed`, saying to sign in again, and no refused sign-in is recorded. A session that ended while the change was in flight, by a sign-out in another tab, undoes it.
 
 ## A person at the terminal
 

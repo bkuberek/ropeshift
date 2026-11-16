@@ -1120,6 +1120,9 @@ type MemberWriter interface {
 	DropSession(digest string) error
 	// DropMemberSessions removes every session of a member, and says how many it removed.
 	DropMemberSessions(member string) (int64, error)
+	// DropOtherMemberSessions removes every session of a member except the one whose token has the digest
+	// kept, and says how many it removed. It touches no other member's session.
+	DropOtherMemberSessions(member, kept string) (int64, error)
 	// InsertDelegate adds a delegate credential.
 	InsertDelegate(authority.DelegateCredential) error
 	// TouchDelegate records when a credential last acted.

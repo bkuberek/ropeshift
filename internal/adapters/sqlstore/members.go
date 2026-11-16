@@ -44,6 +44,9 @@ VALUES (:workspace_id, :digest, :member_id, :created_at, :expires_at)`)
 	stmtDropMemberSessions = define("member_session.drop_member",
 		`DELETE FROM member_sessions WHERE workspace_id = :workspace_id AND member_id = :member_id`)
 
+	stmtDropOtherMemberSessions = define("member_session.drop_other",
+		`DELETE FROM member_sessions WHERE workspace_id = :workspace_id AND member_id = :member_id AND digest <> :kept`)
+
 	stmtInsertDelegate = define("delegate.insert",
 		`INSERT INTO delegate_credentials
   (workspace_id, id, digest, member_id, project_id, label, kind, created_at, expires_at, last_used_at, revoked_at, conversation_id, generation,
@@ -175,6 +178,10 @@ func (t memberTx) DropSession(digest string) error {
 
 func (t memberTx) DropMemberSessions(member string) (int64, error) {
 	return t.exec(stmtDropMemberSessions, t.scoped(params{"member_id": member}))
+}
+
+func (t memberTx) DropOtherMemberSessions(member, kept string) (int64, error) {
+	return t.exec(stmtDropOtherMemberSessions, t.scoped(params{"member_id": member, "kept": kept}))
 }
 
 func scanDelegate(row scanner) (authority.DelegateCredential, error) {

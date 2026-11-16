@@ -22,6 +22,8 @@ const (
 	eventSignedOut     = "member.signed_out"
 	eventSignInRefused = "member.sign_in_refused"
 	subjectMember      = "member"
+	// EventSessionsEnded records the other sessions of a member that a change of the passphrase ended.
+	EventSessionsEnded = "member.sessions_ended"
 )
 
 // Who a record names when nobody has proved who they are yet.
@@ -142,6 +144,97 @@ func (s *Sessions) End(ctx context.Context, scope ledger.WorkspaceID, token stri
 			return err
 		}
 		return appendSignIn(tx, eventSignedOut, actor, 0)
+	})
+}
+
+// PassphraseChange is what a change of the passphrase did. Token is the new token of the session the change came
+// from, which replaces the old one, whose digest the change dropped, and which a caller hands to its own client and
+// to no one else. ExpiresAt is the end the session already had, since a change must not lengthen it, and LifeMs what
+// is left of it by the ledger's clock. SessionsEnded counts the member's other sessions that ended, and Delegates the
+// member's delegate credentials that still act, which a change leaves alone.
+type PassphraseChange struct {
+	Token         string
+	ExpiresAt     int64
+	LifeMs        int64
+	SessionsEnded int64
+	Delegates     int64
+}
+
+// ChangePassphrase replaces the passphrase for the member whose session the token names, when the current
+// passphrase proves it. In the transaction that stores the new one, it ends every other session of that member and
+// gives the session the change came from a new token, so a copy of the old token, which a thief of the cookie holds,
+// opens nothing once the passphrase changes. The session must still stand when the change commits, so a sign-out that
+// beat the change undoes it.
+//
+// The current passphrase is a guess at the passphrase like a sign-in's, so a refusal of it is on record as a
+// refused sign-in is, naming the member and no part of the guess. A change that lost to another, with a current
+// passphrase that was right, is no guess and is not on record. The caller holds the one-at-a-time gate sign-in holds.
+func (s *Sessions) ChangePassphrase(ctx context.Context, scope ledger.WorkspaceID, current, next ports.Proof, token string) (PassphraseChange, error) {
+	actor, err := s.Member(ctx, scope, token)
+	if err != nil {
+		return PassphraseChange{}, err
+	}
+	var changed PassphraseChange
+	err = s.identity.Change(ctx, scope, current, next, actor, func(tx ports.SharedTx, member string) error {
+		changed = PassphraseChange{}
+		session, err := tx.Members().Session(digestOf(token))
+		if errors.Is(err, ports.ErrNotFound) {
+			return fmt.Errorf("%w: this session ended", authority.ErrNoSession)
+		}
+		if err != nil {
+			return err
+		}
+		now := tx.Now()
+		if !session.Live(now) || session.Member != member {
+			return fmt.Errorf("%w: this session is not the member's", authority.ErrNoSession)
+		}
+		fresh, err := newSecret()
+		if err != nil {
+			return err
+		}
+		err = tx.Members().InsertSession(authority.Session{Digest: digestOf(fresh), Member: member, CreatedAt: now, ExpiresAt: session.ExpiresAt})
+		if err != nil {
+			return err
+		}
+		// Every session but the new one goes: the old token of this session with the others.
+		dropped, err := tx.Members().DropOtherMemberSessions(member, digestOf(fresh))
+		if err != nil {
+			return err
+		}
+		changed = PassphraseChange{Token: fresh, ExpiresAt: session.ExpiresAt, LifeMs: session.ExpiresAt - now, SessionsEnded: dropped - 1}
+		credentials, err := tx.Members().Delegates(member)
+		if err != nil {
+			return err
+		}
+		for _, credential := range credentials {
+			if credential.State(now) == authority.DelegateActive {
+				changed.Delegates++
+			}
+		}
+		data, err := json.Marshal(struct {
+			Sessions int64  `json:"sessions"`
+			Reason   string `json:"reason"`
+		}{changed.SessionsEnded, "passphrase_changed"})
+		if err != nil {
+			return err
+		}
+		_, err = tx.Append(ledger.EventDraft{Type: EventSessionsEnded, Actor: actor, Subject: ledger.Subject{Kind: subjectMember, ID: member}, Data: data})
+		return err
+	})
+	if errors.Is(err, authority.ErrBadProof) {
+		if recorded := s.recordChangeRefusal(ctx, scope, actor); recorded != nil {
+			return PassphraseChange{}, recorded
+		}
+	}
+	if err != nil {
+		return PassphraseChange{}, err
+	}
+	return changed, nil
+}
+
+func (s *Sessions) recordChangeRefusal(ctx context.Context, scope ledger.WorkspaceID, actor ledger.Actor) error {
+	return s.store.Installation(scope).Write(ctx, "member.passphrase_change_refused", func(tx ports.SharedTx) error {
+		return appendSignIn(tx, eventSignInRefused, actor, 0)
 	})
 }
 

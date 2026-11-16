@@ -73,9 +73,7 @@ var cliOnly = map[string]string{
 // webGaps are the commands the web UI should have a row for and does not yet, each with the slice of U2
 // that adds it. A command whose row is added leaves this list, and the test fails until it does. The first
 // run of this test wrote it, and a command the audit did not name went by its area.
-var webGaps = map[string]string{
-	"passphrase set": "U2f",
-}
+var webGaps = map[string]string{}
 
 var gapSlice = regexp.MustCompile(`^U2[a-k][12]?$`)
 
