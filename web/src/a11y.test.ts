@@ -147,6 +147,12 @@ async function answer(route: Route): Promise<void> {
   }
   // A plan, a request to approve one that has no plan yet, the outline of a planning lane, and the sources the
   // daemon reads.
+  if (/^\/v1\/plans\/[^/]+\/forecast$/.test(path) && goldens.forecast) {
+    return json(goldens.forecast);
+  }
+  if (path === "/v1/measures/delivery") {
+    return json((url.searchParams.get("by") === "size" ? goldens["delivery-size"] : goldens.delivery) ?? "{}");
+  }
   if (path.startsWith("/v1/plans/adopt-approval")) {
     return json(JSON.stringify({ error: { code: "not_found", message: "no such plan" } }), 404);
   }
@@ -200,6 +206,7 @@ const views = [
   "/needs-you?item=approval%3Amerge-held",
   "/projects/default/roadmap",
   "/projects/default/plans",
+  "/projects/default/plans?plan=generated-2",
   "/projects/default/plan?id=generated-1&version=6",
   "/projects/default/plan?id=generated-1&version=5",
   "/projects/default/plan?id=adopt-approval&version=1",
@@ -233,6 +240,9 @@ const views = [
   "/projects/default/floor",
   "/projects/default/lane?id=lane-wo-running",
   "/projects/default/measures",
+  "/projects/default/measures?tab=delivery",
+  "/projects/default/measures?tab=delivery&window=7d&by=size",
+  "/projects/default/measures?tab=delivery&scope=all",
   "/projects/default/conversations",
   "/usage",
   "/workers",
@@ -1058,6 +1068,95 @@ describe.each(Object.entries(sizes))("at %s width", (size, viewport) => {
         await dialog.getByText("This project has no plan to review yet.").waitFor();
         await settle();
         found.push(...(await audit(page)).map((violation) => `start contract review dialog with no plan ${violation}`));
+        await context.close();
+        expect(found.map((line) => `${size} ${theme} ${line}`)).toEqual([]);
+      },
+      120_000,
+    );
+
+    it(
+      "the Delivery tab, with no finished work, with a failure, and its controls, meets WCAG 2.2 A and AA",
+      async () => {
+        const context = await browser.newContext({ viewport, colorScheme: theme, reducedMotion: "reduce" });
+        await context.route(/\/v1\//, answer);
+        const page = await context.newPage();
+        const found: string[] = [];
+        const settle = async () => {
+          await page.mouse.move(0, 0);
+          await page.waitForTimeout(600);
+        };
+        const delivery = /\/v1\/projects\/default\/measures\/delivery/;
+        await page.goto(`${base}/projects/default/measures?tab=delivery`);
+        await ready(page);
+        await page.getByRole("region", { name: "Where the time went" }).waitFor();
+        await page.getByRole("combobox", { name: "Group by" }).selectOption("agent");
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `delivery by roster agent ${violation}`));
+        await page.getByRole("button", { name: "24 hours" }).click();
+        await page.getByRole("region", { name: "Delivery by agent" }).waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `delivery over 24 hours ${violation}`));
+        await page.route(delivery, (route) => route.fulfill({ status: 200, contentType: "application/json", body: goldens["delivery-empty"] ?? "{}" }));
+        await page.goto(`${base}/projects/default/measures?tab=delivery`);
+        await ready(page);
+        await page.getByText("Delivery measures appear when work orders finish.").waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `delivery with no finished work ${violation}`));
+        await page.route(delivery, (route) => route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: { code: "unavailable", message: "the ledger could not be read" } }) }));
+        await page.goto(`${base}/projects/default/measures?tab=delivery`);
+        await page.getByRole("alert").getByText(/the ledger could not be read/).waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `delivery with a failure ${violation}`));
+        await context.close();
+        expect(found.map((line) => `${size} ${theme} ${line}`)).toEqual([]);
+      },
+      120_000,
+    );
+
+    it(
+      "a plan's forecast, on its page and on the Roadmap, confident, low, pending, replaced, and refused, meets WCAG 2.2 A and AA",
+      async () => {
+        const context = await browser.newContext({ viewport, colorScheme: theme, reducedMotion: "reduce" });
+        await context.route(/\/v1\//, answer);
+        const page = await context.newPage();
+        const found: string[] = [];
+        const settle = async () => {
+          await page.mouse.move(0, 0);
+          await page.waitForTimeout(600);
+        };
+        const forecast = /\/v1\/projects\/default\/plans\/[^/]+\/forecast$/;
+        const served = (body: string | undefined) => (route: Route) => route.fulfill({ status: 200, contentType: "application/json", body: body ?? "{}" });
+        await page.goto(`${base}/projects/default/roadmap`);
+        await ready(page);
+        await page.getByRole("group", { name: "Forecast of The factory floor" }).first().waitFor();
+        await page.getByText("What-ifs and how it was made").first().click();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `Roadmap with forecasts and one open ${violation}`));
+        await page.goto(`${base}/projects/default/plans?plan=generated-2`);
+        await ready(page);
+        await page.getByRole("heading", { level: 2, name: "Forecast" }).waitFor();
+        await page.getByText("Low confidence").first().waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `plan page with a forecast ${violation}`));
+        await page.route(forecast, served(goldens["forecast-pending"]));
+        await page.goto(`${base}/projects/default/plans?plan=generated-2`);
+        await page.getByText(/Forecast pending/).first().waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `plan page with a forecast pending ${violation}`));
+        await page.goto(`${base}/projects/default/roadmap`);
+        await page.getByRole("group", { name: "Forecast of The factory floor" }).first().waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `Roadmap with forecasts pending ${violation}`));
+        await page.route(forecast, served(goldens["forecast-superseded"]));
+        await page.goto(`${base}/projects/default/plans?plan=generated-2`);
+        await page.getByText(/replaced version 1/).first().waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `plan page with a forecast a newer version replaced ${violation}`));
+        await page.route(forecast, (route) => route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: { code: "unavailable", message: "the ledger could not be read" } }) }));
+        await page.goto(`${base}/projects/default/plans?plan=generated-2`);
+        await page.getByRole("alert").getByText(/the ledger could not be read/).waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `plan page with a forecast it could not read ${violation}`));
         await context.close();
         expect(found.map((line) => `${size} ${theme} ${line}`)).toEqual([]);
       },
