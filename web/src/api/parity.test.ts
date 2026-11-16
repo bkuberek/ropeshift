@@ -242,6 +242,8 @@ const uiGaps: Record<string, string> = {
   "GET /v1/projects/{project}/repositories/{id}": "U2f",
   "GET /v1/projects/{project}/policies/{version}": "U2f",
   "GET /v1/projects/{project}/conversations/{id}": "U2h2",
+  "GET /v1/projects/{project}/measures/delivery": "U2h1",
+  "GET /v1/projects/{project}/plans/{id}/forecast": "U2h1",
 };
 
 const gapSlice = /^U2[a-k][12]?$/;
