@@ -1,0 +1,4 @@
+plan	generated-1	version 1
+no forecast: a newer version replaced version 1 before the daemon's forecast tick forecast it
+estimate	generated-4	no history
+	No estimate: no small change has finished in this project yet, and this project does not share history with other projects.

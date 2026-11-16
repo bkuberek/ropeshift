@@ -1,11 +1,15 @@
 import { useId } from "react";
 
 import { readView } from "../api/client";
+import type { Forecast, PlanForecast } from "../api/measures";
+import { readPlanForecasts } from "../api/measures";
 import type { GoalProgress, MilestoneProgress, PlannedWork, PlanProgress, Plans, Roadmap as View } from "../api/types";
 import type { Live } from "../api/useView";
 import { useView } from "../api/useView";
 import { addressOf, Link } from "../app/route";
 import { milestoneStates, stateCounts, workLabel } from "../floor/states";
+import { absenceOf } from "../measures/forecastWords";
+import { ForecastLine } from "../measures/Forecast";
 import { Bar, Page, plural, StampLine, useClock, ViewTime } from "../parts/parts";
 import { Banner, EmptyState, Id, SkeletonRows, StateBadge, WorkBadge } from "../ui/display";
 import { layersByMilestone, noMilestone, waitingVersions } from "./roadmapLayers";
@@ -87,7 +91,7 @@ function progressWords(milestone: MilestoneProgress, work: PlannedWork[]): strin
   return [`${milestone.done} of ${milestone.total} done`, ...rest].join(" · ");
 }
 
-function MilestoneRow({ milestone, work, titleOf }: { milestone: MilestoneProgress; work: PlannedWork[]; titleOf: (id: string) => string }) {
+function MilestoneRow({ milestone, work, titleOf, forecast }: { milestone: MilestoneProgress; work: PlannedWork[]; titleOf: (id: string) => string; forecast?: Forecast }) {
   const title = milestone.title || milestone.id;
   const said = progressWords(milestone, work);
   return (
@@ -109,6 +113,7 @@ function MilestoneRow({ milestone, work, titleOf }: { milestone: MilestoneProgre
       <div className="stack-8">
         {milestone.total === 0 ? null : <Bar done={milestone.done} total={milestone.total} label={`${title}: ${milestone.done} of ${milestone.total} done`} />}
         <span className="small muted">{said}</span>
+        {forecast ? <ForecastLine forecast={forecast} summary /> : null}
       </div>
       <StateBadge table={milestoneStates} state={milestone.state} />
     </li>
@@ -122,11 +127,13 @@ function versionOf(version: { approved: number; pending: number }): string {
 
 // PlanBlock is one plan under its goal: its milestones in priority order, a line of notes on the critical path,
 // and each milestone's work by dependency layer. A plan of one work order and no milestone keeps to its line.
-function PlanBlock({ row, version, titled }: { row: PlanProgress; version: { approved: number; pending: number }; titled: boolean }) {
+function PlanBlock({ row, version, titled, forecast }: { row: PlanProgress; version: { approved: number; pending: number }; titled: boolean; forecast?: PlanForecast }) {
   const titles = new Map(row.milestones.map((milestone) => [milestone.id, milestone.title || milestone.id]));
   const said = `${row.done} of ${row.total} done`;
   const loose = row.work.filter((work) => !work.milestone || !titles.has(work.milestone));
   const plain = row.milestones.length === 0;
+  const absent = forecast ? absenceOf(forecast) : "";
+  const own = forecast?.forecasts.find((one) => !one.milestone_id);
   return (
     <>
       {titled || plain ? (
@@ -142,10 +149,21 @@ function PlanBlock({ row, version, titled }: { row: PlanProgress; version: { app
           <StateCounts states={row.states} />
         </div>
       ) : null}
+      {forecast && (absent || own) ? (
+        <div className="panel-body" role="group" aria-label={`Forecast of ${row.plan.title}`}>
+          {absent ? <p className="forecast-state muted">{absent}</p> : own ? <ForecastLine forecast={own} title={`Version ${forecast.plan_version}`} summary /> : null}
+        </div>
+      ) : null}
       {row.milestones.length ? (
         <ol className="milestones" aria-label="Milestones">
           {row.milestones.map((milestone) => (
-            <MilestoneRow key={milestone.id} milestone={milestone} work={row.work.filter((work) => work.milestone === milestone.id)} titleOf={(id) => titles.get(id) ?? id} />
+            <MilestoneRow
+              key={milestone.id}
+              milestone={milestone}
+              work={row.work.filter((work) => work.milestone === milestone.id)}
+              titleOf={(id) => titles.get(id) ?? id}
+              forecast={absent ? undefined : forecast?.forecasts.find((one) => one.milestone_id === milestone.id)}
+            />
           ))}
         </ol>
       ) : null}
@@ -169,7 +187,7 @@ function PlanBlock({ row, version, titled }: { row: PlanProgress; version: { app
   );
 }
 
-function Goal({ group, versions }: { group: GoalProgress; versions: Map<string, { approved: number; pending: number }> }) {
+function Goal({ group, versions, forecasts }: { group: GoalProgress; versions: Map<string, { approved: number; pending: number }>; forecasts: Record<string, PlanForecast> }) {
   const heading = useId();
   const one = group.plans.length === 1 ? group.plans[0] : undefined;
   const version = (row: PlanProgress) => versions.get(row.plan.id) ?? { approved: 0, pending: 0 };
@@ -196,7 +214,7 @@ function Goal({ group, versions }: { group: GoalProgress; versions: Map<string, 
         </div>
       ) : null}
       {group.plans.map((row) => (
-        <PlanBlock key={row.plan.id} row={row} version={version(row)} titled={group.plans.length > 1} />
+        <PlanBlock key={row.plan.id} row={row} version={version(row)} titled={group.plans.length > 1} forecast={forecasts[row.plan.id]} />
       ))}
     </section>
   );
@@ -204,7 +222,7 @@ function Goal({ group, versions }: { group: GoalProgress; versions: Map<string, 
 
 // Roadmap is the project's goals, each with its plans and their versions, the milestones of each plan in
 // priority order with how far each has got, and each milestone's work by dependency layer.
-export function Roadmap({ view, plans, project }: { view: View; plans: Plans | null; project: string }) {
+export function Roadmap({ view, plans, project, forecasts = {} }: { view: View; plans: Plans | null; project: string; forecasts?: Record<string, PlanForecast> }) {
   const versions = new Map((plans?.plans ?? []).map((row) => [row.plan.id, { approved: row.approved_version ?? 0, pending: row.pending_version ?? 0 }]));
   const waiting = waitingVersions(plans?.plans ?? []);
   return (
@@ -244,25 +262,32 @@ export function Roadmap({ view, plans, project }: { view: View; plans: Plans | n
           </EmptyState>
         </div>
       ) : (
-        view.goals.map((group) => <Goal key={group.goal?.id ?? "no-goal"} group={group} versions={versions} />)
+        view.goals.map((group) => <Goal key={group.goal?.id ?? "no-goal"} group={group} versions={versions} forecasts={forecasts} />)
       )}
     </>
   );
 }
 
-// RoadmapPage reads the roadmap and the plans view, which names the versions that wait and the ones in force.
+// The daemon's forecast tick keeps forecasts when what they rest on changes, and at least hourly, so the page reads
+// them no oftener than this.
+const forecastGapMs = 30_000;
+
+// RoadmapPage reads the roadmap and the plans view, which names the versions that wait and the ones in force,
+// and the newest forecast of each plan the roadmap holds.
 export function RoadmapPage({ live, project }: { live: Live; project: string }) {
   const roadmap = useView<View>(() => readView<View>("roadmap"), "roadmap", live);
   const plans = useView<Plans>(() => readView<Plans>("plans"), "roadmap:plans", live);
+  const ids = (roadmap.view?.goals ?? []).flatMap((goal) => goal.plans.map((row) => row.plan.id));
+  const forecasts = useView<Record<string, PlanForecast>>(() => readPlanForecasts(ids), `roadmap:forecasts:${ids.join(",")}`, live, forecastGapMs);
   const now = useClock();
-  const failure = roadmap.failure || plans.failure;
+  const failure = roadmap.failure || plans.failure || forecasts.failure;
   return (
     <Page title="Roadmap" note="Goals, plans, and milestones in priority order, with the critical path." actions={<StartSession project={project} />}>
       {failure ? <Banner tone="danger">{roadmap.view ? `What this view shows is not current. ${failure}` : failure}</Banner> : null}
       {roadmap.view ? (
         <ViewTime.Provider value={{ asOf: roadmap.view.as_of, elapsed: Math.max(0, now - roadmap.readAt) }}>
           <div className="view-body stack" aria-busy={roadmap.busy}>
-            <Roadmap view={roadmap.view} plans={plans.view} project={project} />
+            <Roadmap view={roadmap.view} plans={plans.view} project={project} forecasts={forecasts.view ?? {}} />
           </div>
           <StampLine stamp={roadmap.view} />
         </ViewTime.Provider>

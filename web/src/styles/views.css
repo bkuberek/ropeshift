@@ -1404,3 +1404,154 @@ tr.selected td {
     gap: var(--s-4);
   }
 }
+
+/* ---------- Delivery measures ---------- */
+.delivery-controls {
+  align-items: center;
+}
+
+.delivery-by {
+  margin: 0;
+  max-width: 36rem;
+}
+
+/* A weekly trend: a line of the work that reached done in each week, drawn in the text colour. */
+.spark {
+  display: block;
+  width: 96px;
+  height: 24px;
+}
+
+.spark polyline {
+  stroke: var(--text-2);
+}
+
+/* Where the time went: a bar of each kind of segment, each with a fill of its own beside its word, so no colour
+   carries the meaning alone. A tone is the kind's colour, and a fill is how it is drawn. */
+.share-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-16);
+}
+
+.share-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-6);
+}
+
+.share-name {
+  margin: 0;
+  font-weight: 600;
+}
+
+.share-bar {
+  display: flex;
+  gap: 1px;
+  height: 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-4);
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.share-bar > .seg {
+  min-width: 2px;
+}
+
+.share-bar > .seg.apart {
+  margin-left: var(--s-4);
+}
+
+.share-legend {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-4) var(--s-16);
+  font-size: var(--fs-13);
+  color: var(--text-2);
+}
+
+.share-legend > li {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-6);
+}
+
+.share-legend > li.apart {
+  padding-left: var(--s-12);
+  border-left: 1px solid var(--border-strong);
+}
+
+.share-legend .seg-swatch {
+  width: 14px;
+  height: 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 2px;
+}
+
+@media (forced-colors: active) {
+  .spark polyline {
+    stroke: CanvasText;
+  }
+}
+
+/* ---------- Forecasts ---------- */
+.forecasts {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-16);
+}
+
+.forecast {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+  min-width: 0;
+}
+
+.forecast p,
+.forecast-state {
+  margin: 0;
+}
+
+.forecast-title {
+  font-weight: 600;
+}
+
+/* The range: the Low confidence badge, then the word Forecast, then its dates and cost. */
+.forecast-range {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-4) var(--s-12);
+}
+
+.forecast-label {
+  font-weight: 600;
+}
+
+.forecast-ifs {
+  margin: 0;
+  padding-left: var(--s-16);
+  color: var(--text-2);
+  font-size: var(--fs-13);
+}
+
+.forecast-more > summary {
+  cursor: pointer;
+  color: var(--text-2);
+  font-size: var(--fs-13);
+}
+
+.forecast-more[open] > summary {
+  margin-bottom: var(--s-4);
+}

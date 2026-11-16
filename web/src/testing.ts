@@ -148,8 +148,16 @@ export function serveViews(answer?: (sent: Sent) => Answer | undefined, options:
     if (call.path.startsWith("/v1/documents/recorded")) {
       return { status: 200, body: golden("recorded-document") };
     }
+    // A plan's forecast, which the plan page and the Roadmap read apart from the plan.
+    if (call.method === "GET" && /^\/v1\/plans\/[^/?]+\/forecast/.test(call.path)) {
+      return { status: 200, body: golden("forecast") };
+    }
     if (call.method === "GET" && /^\/v1\/plans\/[^/?]+/.test(call.path)) {
       return { status: 200, body: golden("plan") };
+    }
+    // Delivery look back, grouped as the page asks.
+    if (call.method === "GET" && call.path.startsWith("/v1/measures/delivery")) {
+      return { status: 200, body: golden(call.path.includes("by=size") ? "delivery-size" : "delivery") };
     }
     if (call.method === "GET" && /^\/v1\/lanes\/[^/]+\/outline$/.test(call.path)) {
       return { status: 200, body: golden("outline") };

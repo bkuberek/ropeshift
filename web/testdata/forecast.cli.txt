@@ -1,0 +1,24 @@
+plan	generated-1	version 6
+forecast	plan	low	p50 2025-11-15 09:46 UTC	p85 2025-11-16 13:33 UTC or later	cost p50 $18.40 p85 at least $31.20
+	with one more lane, p85 2025-11-15 23:40 UTC or later; with each wait for a person cut to 30m0s, p85 2025-11-16 08:00 UTC or later
+	Low confidence, from 2000 trials of 7 work orders, at most 2 at a time. 2 work orders have too few comparable outcomes: wo-3 rests on 4 finished changes, and a confident estimate needs 10.
+	seed sha256:forecast-seed, 2000 trials, at most 2 lanes, revision 412, as of 2025-11-14 06:00 UTC
+forecast	milestone build	confident	p50 2025-11-14 19:53 UTC	p85 2025-11-15 12:33 UTC	cost p50 $6.10 p85 $9.80
+	with one more lane, p85 2025-11-15 07:00 UTC; with each wait for a person cut to 30m0s, p85 2025-11-15 09:46 UTC
+	From 2000 trials of 3 work orders, at most 2 at a time, each estimated from at least 10 finished comparable changes.
+	seed sha256:forecast-seed, 2000 trials, at most 2 lanes, revision 412, as of 2025-11-14 06:00 UTC
+forecast	milestone guide	no history
+	No forecast: none of the 2 unfinished work orders has finished comparable work.
+	seed sha256:forecast-seed, 2000 trials, at most 2 lanes, revision 412, as of 2025-11-14 06:00 UTC
+forecast	milestone ship	low	p50 2025-11-17 17:20 UTC or later	p85 2025-11-21 04:40 UTC or later	cost p50 at least $9.50 p85 at least $14.00
+	with each wait for a person cut to 30m0s, p85 2025-11-20 14:46 UTC or later
+	Low confidence, from 2000 trials of 2 work orders, with no lane cap. It leaves out 1 work order with no history, so every date and cost is a lower bound.
+	seed sha256:forecast-seed, 2000 trials, no lane cap, revision 412, as of 2025-11-14 06:00 UTC
+estimate	generated-4	no history
+	No estimate: no medium change has finished in this project yet, and this project does not share history with other projects.
+estimate	generated-6	no history
+	No estimate: no small change has finished in this project yet, and this project does not share history with other projects.
+estimate	generated-8	no history
+	No estimate: no small change has finished in this project yet, and this project does not share history with other projects.
+estimate	generated-10	no history
+	No estimate: no small change has finished in this project yet, and this project does not share history with other projects.

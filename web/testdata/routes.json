@@ -415,6 +415,11 @@
     "command": "plan show"
   },
   {
+    "method": "GET",
+    "pattern": "/v1/projects/{project}/plans/{id}/forecast",
+    "command": "plan forecast"
+  },
+  {
     "method": "POST",
     "pattern": "/v1/projects/{project}/plans/{id}/reviews",
     "command": "plan review"
@@ -423,6 +428,11 @@
     "method": "GET",
     "pattern": "/v1/projects/{project}/approvals/{id}",
     "command": "approval show"
+  },
+  {
+    "method": "GET",
+    "pattern": "/v1/projects/{project}/measures/delivery",
+    "command": "measures delivery"
   },
   {
     "method": "GET",

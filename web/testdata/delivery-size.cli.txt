@@ -1,0 +1,20 @@
+all	done 7	failed 1	canceled 1	per week 1.6	elapsed p50 15h0m0s p85 30h0m0s	delivery p50 10h0m0s p85 22h0m0s	cost at least p50 $3.30 p85 $6.40
+share	all	person 23.6%	queued 7.0%	review 9.6%	working 59.9%
+size	large	done 1	failed 0	canceled 0	per week 0.2	elapsed p50 60h0m0s p85 60h0m0s	delivery p50 44h0m0s p85 44h0m0s	cost p50 $12.50 p85 $12.50
+share	size large	person 25.0%	queued 6.7%	review 8.3%	working 60.0%
+size	medium	done 3	failed 1	canceled 0	per week 0.7	elapsed p50 26h0m0s p85 30h0m0s	delivery p50 20h0m0s p85 22h0m0s	cost at least p50 $4.10 p85 $6.40
+share	size medium	person 23.9%	queued 5.6%	review 8.5%	working 62.0%
+size	small	done 3	failed 0	canceled 1	per week 0.7	elapsed p50 9h0m0s p85 12h0m0s	delivery p50 6h0m0s p85 8h0m0s	cost p50 $1.20 p85 $1.80
+share	size small	person 19.2%	queued 11.5%	review 15.4%	working 53.8%
+week	2026-06-29	done 0	delivery no data
+week	2026-07-06	done 0	delivery no data
+week	2026-07-13	done 0	delivery no data
+week	2026-07-20	done 0	delivery no data
+week	2026-07-27	done 0	delivery no data
+week	2026-08-03	done 0	delivery no data
+week	2026-08-10	done 0	delivery no data
+week	2026-08-17	done 0	delivery no data
+week	2026-08-24	done 1	delivery p50 10h0m0s p85 10h0m0s
+week	2026-08-31	done 2	delivery p50 3h0m0s p85 44h0m0s
+week	2026-09-07	done 2	delivery p50 20h0m0s p85 22h0m0s
+week	2026-09-14	done 2	delivery p50 6h0m0s p85 8h0m0s

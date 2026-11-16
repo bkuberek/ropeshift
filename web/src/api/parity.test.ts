@@ -81,6 +81,7 @@ import {
   startOrchestrator,
 } from "./client";
 import { createDelegate, readDelegates, readOperations, removeDelegate, revokeDelegate, signOutAll } from "./delegates";
+import { readDelivery, readPlanForecast } from "./measures";
 import { claimAndStart, startClaimed } from "./runWork";
 import {
   clearConversation,
@@ -197,6 +198,8 @@ const callers: Record<string, Caller> = {
   "GET /v1/projects/{project}/plans": step("readPlans", () => readPlans()),
   "GET /v1/projects/{project}/plans/{id}": step("readPlan", () => readPlan("plan-1")),
   "POST /v1/projects/{project}/plans/{id}/reviews": step("startContractReview", () => startContractReview("plan-1", "review-1")),
+  "GET /v1/projects/{project}/plans/{id}/forecast": step("readPlanForecast", () => readPlanForecast("plan-1")),
+  "GET /v1/projects/{project}/measures/delivery": step("readDelivery", () => readDelivery("30d", "kind")),
   "GET /v1/projects/{project}/approvals/{id}": step("readApproval", () => readApproval("a-1")),
   "GET /v1/projects/{project}/lanes/{id}/outline": step("readOutline", () => readOutline("lane-1")),
   "GET /v1/projects/{project}/sources": step("readSources", () => readSources()),
@@ -293,7 +296,7 @@ describe("each client function the table names", () => {
 
 // The modules that hold the client functions. A function a component, a hook, or a flow imports is one the
 // UI uses, and one only these import is a wrapper with no control.
-const modules = new Set(["client.ts", "admin.ts", "delegates.ts", "talk.ts", "runWork.ts"]);
+const modules = new Set(["client.ts", "admin.ts", "delegates.ts", "measures.ts", "talk.ts", "runWork.ts"]);
 const skipped = new Set(["testing.ts", "test-setup.ts", "serve.ts"]);
 
 function sources(dir: string): string[] {

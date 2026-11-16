@@ -1,13 +1,16 @@
 import { Fragment, useId } from "react";
 
 import { readPlan } from "../api/client";
+import { readPlanForecast } from "../api/measures";
+import type { PlanForecast } from "../api/measures";
 import type { Contract, ContractHistory, PlanDetail, PlanReview, Plans as View, WorkOrder } from "../api/types";
 import type { Live } from "../api/useView";
 import { useView } from "../api/useView";
 import { addressOf, Link } from "../app/route";
 import { approvalStates, workLabel } from "../floor/states";
+import { PlanForecastView } from "../measures/Forecast";
 import { Bar, Fact, Id, LongFact, plural, Section, words } from "../parts/parts";
-import { Banner, EmptyState, StateBadge } from "../ui/display";
+import { Banner, EmptyState, SkeletonRows, StateBadge } from "../ui/display";
 import { DifferenceBlock, DraftDecisions } from "./PlanParts";
 import { StateCounts } from "./Roadmap";
 import { StartSession } from "./StartSession";
@@ -325,6 +328,29 @@ function PlanVersions({ detail, live }: { detail: PlanDetail; live: Live }) {
   );
 }
 
+// The daemon's forecast tick keeps a forecast when what it rests on changes, and at least hourly, so a page that
+// follows the ledger reads it no oftener than this.
+const forecastGapMs = 30_000;
+
+// PlanForecasts shows the forecasts the daemon's forecast tick last kept for the plan's newest version: the plan's
+// own and each milestone's, with their what-ifs and, when the estimates they rest on are few, why. It reads them
+// as `ropeshift plan forecast` does, and forecasts nothing itself.
+function PlanForecasts({ detail, names, live }: { detail: PlanDetail; names: Names; live: Live }) {
+  const read = useView<PlanForecast>(() => readPlanForecast(detail.plan.id), `forecast:${detail.plan.id}`, live, forecastGapMs);
+  return (
+    <Section title="Forecast">
+      {read.failure ? <Banner tone="danger">{read.failure}</Banner> : null}
+      {read.view ? (
+        <div className="stack" aria-busy={read.busy}>
+          <p className="muted">Version {read.view.plan_version}, as the daemon's forecast tick last kept it.</p>
+          <PlanForecastView forecast={read.view} titleOf={names.milestone} />
+        </div>
+      ) : null}
+      {!read.view && !read.failure ? <SkeletonRows rows={3} /> : null}
+    </Section>
+  );
+}
+
 export function PlanPage({ detail, live }: { detail: PlanDetail; live: Live }) {
   const names = namesOf(detail);
   return (
@@ -348,6 +374,7 @@ export function PlanPage({ detail, live }: { detail: PlanDetail; live: Live }) {
         </Banner>
       ) : null}
       <PlanVersions detail={detail} live={live} />
+      <PlanForecasts detail={detail} names={names} live={live} />
       <Section title="Contracts">
         {detail.contracts.length ? (
           detail.contracts.map((history) => <History key={history.id} history={history} orders={detail.work_orders} names={names} />)
