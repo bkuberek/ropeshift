@@ -152,6 +152,10 @@ export function serveViews(answer?: (sent: Sent) => Answer | undefined, options:
     if (call.method === "GET" && /^\/v1\/plans\/[^/?]+\/forecast/.test(call.path)) {
       return { status: 200, body: golden("forecast") };
     }
+    // A work order's estimate beside its baseline, as its page and its Activity tab read them.
+    if (call.method === "GET" && /^\/v1\/work-orders\/[^/?]+\/estimate$/.test(call.path)) {
+      return { status: 200, body: golden("work-estimate") };
+    }
     if (call.method === "GET" && /^\/v1\/plans\/[^/?]+/.test(call.path)) {
       return { status: 200, body: golden("plan") };
     }

@@ -1595,3 +1595,140 @@ tr.selected td {
 .forecast-more[open] > summary {
   margin-bottom: var(--s-4);
 }
+
+/* ---------- Estimates ---------- */
+.estimate {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+  min-width: 0;
+}
+
+.estimate p {
+  margin: 0;
+}
+
+/* The line: the Low confidence badge, then the word Estimate, then its time and cost bands. */
+.estimate-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-4) var(--s-12);
+}
+
+.estimate-label {
+  font-weight: 600;
+}
+
+.estimate-pair {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-16);
+}
+
+/* The band drawn to scale: a solid fill for a confident estimate and a hatch for a low-confidence one. The ticks
+   and the sentence in the track's label carry the numbers, so the picture never carries them alone. */
+.estimate-track {
+  --seg: var(--active);
+  position: relative;
+  height: 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 2px;
+  background: var(--neutral-bg);
+}
+
+.estimate-track[data-fill="hatch"] {
+  --seg: var(--warning);
+}
+
+.estimate-fill {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+}
+
+.estimate-track[data-fill="solid"] .estimate-fill {
+  background: var(--seg);
+}
+
+.estimate-track[data-fill="hatch"] .estimate-fill {
+  background: repeating-linear-gradient(45deg, var(--seg) 0 2px, transparent 2px 6px);
+  box-shadow: inset 0 0 0 1px var(--seg);
+}
+
+.estimate-tick {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  width: 2px;
+  background: var(--text);
+}
+
+.estimate-tick[data-tick="actual"] {
+  width: 4px;
+  background: var(--danger);
+}
+
+/* An open band has no p85 tick: the fill runs to the end of the track under an arrow. */
+.estimate-open {
+  position: absolute;
+  right: 2px;
+  top: -4px;
+  line-height: 1;
+  font-size: var(--fs-16);
+  font-weight: 700;
+  color: var(--text);
+}
+
+.estimate-more > summary {
+  cursor: pointer;
+  color: var(--text-2);
+  font-size: var(--fs-13);
+}
+
+.estimate-more[open] > summary {
+  margin-bottom: var(--s-4);
+}
+
+.estimates {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-12);
+}
+
+.estimate-work {
+  margin: 0 0 var(--s-2);
+}
+
+.estimate-tally {
+  margin: 0;
+  font-weight: 600;
+}
+
+@media (forced-colors: active) {
+  .estimate-track,
+  .estimate-fill,
+  .estimate-tick {
+    forced-color-adjust: none;
+  }
+
+  .estimate-track {
+    background: Canvas;
+    border-color: CanvasText;
+  }
+
+  .estimate-track[data-fill] .estimate-fill {
+    background: Highlight;
+  }
+
+  .estimate-track[data-fill="hatch"] .estimate-fill {
+    background: repeating-linear-gradient(45deg, Highlight 0 2px, Canvas 2px 6px);
+  }
+
+  .estimate-tick {
+    background: CanvasText;
+  }
+}

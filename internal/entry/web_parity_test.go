@@ -36,7 +36,6 @@ var equivalents = map[string]string{
 	"requirement get":  "view documents",  // planning.go reads a requirement's newest version; the documents view carries every requirement
 	"requirement list": "view documents",  // planning.go lists requirements; Traceability lists them from the documents view
 	"work list":        "view plans",      // work.go lists work orders; the Work orders view lists each by group from the plans view
-	"work show":        "view plans",      // work.go reads one work order; its page reads it from the plans view
 
 	// Changes. The CLI command sends the request of a row the UI already sends, with a different value.
 	"adopt":             "work create",        // adopt.go registers the clones, then openSession sends work create with adopt, review, claim, and lane start; admin/Import.tsx sends the same calls

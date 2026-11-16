@@ -81,7 +81,7 @@ import {
   startOrchestrator,
 } from "./client";
 import { createDelegate, readDelegates, readOperations, removeDelegate, revokeDelegate, signOutAll } from "./delegates";
-import { readCalibration, readDelivery, readPlanForecast } from "./measures";
+import { readCalibration, readDelivery, readEstimate, readPlanForecast } from "./measures";
 import { claimAndStart, startClaimed } from "./runWork";
 import {
   clearConversation,
@@ -175,6 +175,7 @@ const callers: Record<string, Caller> = {
   "POST /v1/projects/{project}/work-orders/{id}/lane-archive": step("archiveLane", () => archiveLane("wo-1", "lane-1", false)),
   "GET /v1/projects/{project}/work-orders/{id}/acceptance": step("readAcceptance", () => readAcceptance("wo-1")),
   "GET /v1/projects/{project}/work-orders/{id}/timeline": step("readTimeline", () => readTimeline("wo-1")),
+  "GET /v1/projects/{project}/work-orders/{id}/estimate": step("readEstimate", () => readEstimate("wo-1")),
   "POST /v1/projects/{project}/work-orders/{id}/lane-reset": act("reset"),
   "POST /v1/projects/{project}/work-orders/{id}/lane-respawn": act("respawn"),
   "POST /v1/projects/{project}/work-orders/{id}/lane-resume": act("resume"),

@@ -42,6 +42,64 @@ export type DeliveryGrouping = (typeof deliveryGroupings)[number]["value"];
 // no other grouping reads across projects.
 export const byProject = "project";
 
+export type EstimateStatus = "estimated" | "no_history";
+
+// One work order's band of delivery time and estimated cost, and what it rests on. The explanation is the text
+// every surface shows. An open band has no p85 of its own: the p85 it carries is the longest record's, and
+// `p85_open` says it reads as more than that. A cost that holds a lower bound reads as at least.
+export type Estimate = {
+  id?: string;
+  estimate_set_id?: string;
+  work_order_id?: string;
+  status: EstimateStatus;
+  confidence?: "confident" | "low";
+  tier?: number;
+  keys: string[];
+  dropped_keys: string[];
+  sample_count: number;
+  min_samples: number;
+  sample_ids: string[];
+  pool_samples: number;
+  delivery_p50_ms: number;
+  delivery_p85_ms: number;
+  delivery_min_ms: number;
+  delivery_max_ms: number;
+  cost_p50_usd: number;
+  cost_p85_usd: number;
+  cost_min_usd: number;
+  cost_max_usd: number;
+  p85_open: boolean;
+  cost_at_least: boolean;
+  rev: number;
+  estimator_version: number;
+  policy_version: number;
+  explanation: string;
+  current: boolean;
+  created_at?: number;
+};
+
+// The estimates made together at one ledger revision: the open work of a plan version, or one work order made
+// outside a plan.
+export type EstimateSet = {
+  id: string;
+  plan_id?: string;
+  plan_version?: number;
+  ledger_rev: number;
+  estimator_version: number;
+  policy_version: number;
+  digest: string;
+  created_at: number;
+  estimates: Estimate[];
+};
+
+// The estimate a work order's baseline holds, which its finished work is measured against: the first one recorded,
+// by a plan approval that showed it, or by the work when it was made outside a plan, with no approval.
+export type WorkBaseline = { id: string; approval_id?: string; recorded_at: number; estimate: Estimate };
+
+// WorkEstimate is a work order's current estimate, or none when none was made, and its baseline, or none before one
+// is recorded.
+export type WorkEstimate = { estimate: Estimate | null; baseline: WorkBaseline | null };
+
 export type ForecastStatus = "forecast" | "no_history" | "no_capacity" | "finished";
 
 // LowerBound says which of a forecast's results have no upper bound: all of them, or the p85 alone.
@@ -88,7 +146,7 @@ export type PlanForecast = {
   plan_id: string;
   plan_version: number;
   state: ForecastState;
-  estimate_set: { id: string; digest: string } | null;
+  estimate_set: EstimateSet | null;
   forecasts: Forecast[];
 };
 
@@ -173,6 +231,11 @@ export async function readDeliveryByProject(projects: Project[], window: string)
     }
   }
   return out;
+}
+
+// readEstimate reads one work order's current estimate and its baseline, as `ropeshift work show` prints them.
+export function readEstimate(id: string): Promise<WorkEstimate> {
+  return call("GET", project(`/work-orders/${encodeURIComponent(id)}/estimate`));
 }
 
 // readPlanForecast reads the latest forecasts the forecast tick kept for a plan's version, as `ropeshift plan
