@@ -18,9 +18,10 @@ type ProfileSource struct {
 	defaultRoot string
 }
 
-// DefaultWorktreeRoot is the root a fake profile source gives a profile that names none: a folder under
-// no clone a test places.
-const DefaultWorktreeRoot = "/ropeshift/worktrees/{project}/{repo}"
+// DefaultWorktreeRoot is the root a fake profile source gives a profile that names none: a folder beside the
+// repository's clone, never inside it, so a test that makes real directories makes them beside its own
+// temporary clone and not under a path it does not own. SetDefaultRoot gives the daemon's own shape.
+const DefaultWorktreeRoot = "../{repo}-lanes"
 
 // NewProfileSource returns a source with no layers, whose profiles with no root get DefaultWorktreeRoot.
 func NewProfileSource() *ProfileSource {

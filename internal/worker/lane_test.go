@@ -34,8 +34,7 @@ func TestPrepareOnFakes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// A profile that names no root gets the fake source's default, which lies under no clone.
-	if lane.Worktree.Path != "/ropeshift/worktrees/default/app/l1" || lane.Worktree.Branch != "lane/l1" {
+	if lane.Worktree.Path != "/work/app-lanes/l1" || lane.Worktree.Branch != "lane/l1" {
 		t.Errorf("worktree %+v", lane.Worktree)
 	}
 	if len(lane.Environment) != 1 || lane.Environment[0] != "PATH=/usr/bin" {
@@ -218,7 +217,7 @@ func TestPrepareLeavesNothingOnABadProfile(t *testing.T) {
 	if !errors.Is(err, lanes.ErrBadProfile) {
 		t.Fatalf("got %v", err)
 	}
-	if _, err := worktrees.Inspect(t.Context(), "/ropeshift/worktrees/default/app/l1"); !errors.Is(err, ports.ErrNotFound) {
+	if _, err := worktrees.Inspect(t.Context(), "/work/app-lanes/l1"); !errors.Is(err, ports.ErrNotFound) {
 		t.Errorf("a worktree was left behind: %v", err)
 	}
 }
@@ -232,7 +231,7 @@ func TestARepositoryCannotTurnPushOn(t *testing.T) {
 	if !errors.Is(err, lanes.ErrBadProfile) || !strings.Contains(err.Error(), "push_on_stop") {
 		t.Fatalf("got %v", err)
 	}
-	if _, err := worktrees.Inspect(t.Context(), "/ropeshift/worktrees/default/app/l1"); !errors.Is(err, ports.ErrNotFound) {
+	if _, err := worktrees.Inspect(t.Context(), "/work/app-lanes/l1"); !errors.Is(err, ports.ErrNotFound) {
 		t.Errorf("a worktree was left behind: %v", err)
 	}
 }
@@ -432,7 +431,7 @@ func TestPrepareDetachedMakesNoBranch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if lane.Worktree.Path != "/ropeshift/worktrees/default/app/review-1" || lane.Worktree.Branch != "" || !lane.Worktree.Detached || lane.Worktree.Head != "c0ffee" {
+	if lane.Worktree.Path != "/work/app-lanes/review-1" || lane.Worktree.Branch != "" || !lane.Worktree.Detached || lane.Worktree.Head != "c0ffee" {
 		t.Errorf("worktree %+v", lane.Worktree)
 	}
 	if created := worktrees.Created(); len(created) != 1 || !created[0].Detached || created[0].Base != "c0ffee" {
