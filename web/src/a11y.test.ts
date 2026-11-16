@@ -212,6 +212,57 @@ suite.each(Object.entries(sizes))("at %s width", (size, viewport) => {
     );
 
     it(
+      "the Change passphrase form, empty, with errors at its fields, with a wrong current passphrase, with a refusal, and after a change, meets WCAG 2.2 A and AA",
+      async () => {
+        const context = await browser.newContext({ viewport, colorScheme: theme, reducedMotion: "reduce" });
+        await context.route(/\/v1\//, answer);
+        const page = await context.newPage();
+        const found: string[] = [];
+        const settle = async () => {
+          await page.mouse.move(0, 0);
+          await page.waitForTimeout(600);
+        };
+        const answering = (status: number, body: unknown) =>
+          page.route(/\/v1\/passphrase$/, (route) => route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) }));
+        const fillIn = async (now: string) => {
+          await page.getByLabel("Current passphrase", { exact: true }).fill(now);
+          await page.getByLabel("New passphrase", { exact: true }).fill("copper-kettle-moss-2");
+          await page.getByLabel("New passphrase, again", { exact: true }).fill("copper-kettle-moss-2");
+        };
+        const submit = () => page.getByRole("button", { name: "Change passphrase" }).click();
+        await page.goto(`${base}/settings?section=passphrase`);
+        await ready(page);
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `change passphrase, empty ${violation}`));
+        await submit();
+        await page.getByText("Enter your current passphrase.").waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `change passphrase with errors at its fields ${violation}`));
+        await answering(401, { error: { code: "bad_passphrase", message: "the passphrase does not match." } });
+        await fillIn("not the passphrase");
+        await submit();
+        await page.getByText("That is not your current passphrase. Check it and try again.").waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `change passphrase with a wrong current passphrase ${violation}`));
+        await answering(401, { error: { code: "not_enrolled", message: "no passphrase is set" } });
+        await fillIn("tin-roof-anvil-1");
+        await submit();
+        await page.getByRole("alert").waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `change passphrase with a refusal ${violation}`));
+        await answering(200, { sessions_ended: 2 });
+        await fillIn("tin-roof-anvil-1");
+        await submit();
+        await page.getByText(/Passphrase changed\. 2 other sessions ended/).waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `change passphrase after a change ${violation}`));
+        await context.close();
+        expect(found.map((line) => `${size} ${theme} ${line}`)).toEqual([]);
+      },
+      120_000,
+    );
+
+    it(
       "the estimate policy, with a number the API would refuse, in review, with a refusal, with a notice, and its history, meets WCAG 2.2 A and AA",
       async () => {
         const context = await browser.newContext({ viewport, colorScheme: theme, reducedMotion: "reduce" });

@@ -179,6 +179,18 @@ const paths: Record<string, KeyPath> = {
       await k.activate(inDialog(page).getByRole("button", { name: "Create token" }));
     },
   },
+  "PUT /v1/passphrase": {
+    sent: { method: "PUT", path: /^\/v1\/passphrase$/, body: { current: "tin-roof-anvil-1", passphrase: "copper-kettle-moss-2" } },
+    answers: reply([/\/v1\/passphrase$/, { sessions_ended: 1 }, "PUT"]),
+    run: async (k, page) => {
+      await k.palette("Settings: Change passphrase");
+      await k.typeInto(page.getByLabel("Current passphrase", { exact: true }), "tin-roof-anvil-1");
+      await k.typeInto(page.getByLabel("New passphrase", { exact: true }), "copper-kettle-moss-2");
+      await k.typeInto(page.getByLabel("New passphrase, again", { exact: true }), "copper-kettle-moss-2");
+      await k.activate(page.getByRole("button", { name: "Change passphrase" }));
+      await page.getByText(/Passphrase changed\. 1 other session ended/).waitFor();
+    },
+  },
   "POST /v1/sessions/end-all": {
     sent: post(/^\/v1\/sessions\/end-all$/),
     run: async (k, page) => {

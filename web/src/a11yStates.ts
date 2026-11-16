@@ -94,6 +94,7 @@ export const views = [
   "/settings?section=backup",
   "/settings?section=autonomy",
   "/settings?section=appearance",
+  "/settings?section=passphrase",
   "/projects/default/settings?section=fleet",
   "/projects/default/settings?section=review",
   "/projects/default/settings?section=integration",

@@ -21,6 +21,7 @@ const decide: PaletteAction = { title: "Decide: ", at: home };
 const autonomy: PaletteAction = { title: "Settings: Autonomy and run windows", at: home };
 
 export const paletteActions: Record<string, PaletteAction> = {
+  "PUT /v1/passphrase": { title: "Settings: Change passphrase", at: home },
   "PUT /v1/workers/{id}/orchestrator": { title: "Start orchestrator", at: home },
   "POST /v1/projects": { title: "Create project", at: home },
   "POST /v1/projects/{project}/rename": { title: "Rename project: ", at: home },

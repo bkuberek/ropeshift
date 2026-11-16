@@ -46,6 +46,7 @@ export function inProjectOf<T>(name: string, run: () => T): T {
 export const paths = {
   signIn: "/v1/sessions",
   signOut: "/v1/sessions/end",
+  passphrase: "/v1/passphrase",
   projects: "/v1/projects",
   events: (name = "") => (name ? `/v1/projects/${encodeURIComponent(name)}/events` : project("/events")),
   needsYou: () => "/v1/needs-you",
@@ -208,6 +209,16 @@ export function signIn(passphrase: string): Promise<unknown> {
 
 export function signOut(): Promise<void> {
   return call("POST", paths.signOut);
+}
+
+// What a change of the passphrase ended: the member's other sessions, counted. The one it came from stays.
+export type PassphraseChanged = { sessions_ended: number };
+
+// changePassphrase replaces the passphrase, as `ropeshift passphrase set` does after the first. The current passphrase
+// proves the person at the page knows it, and the daemon ends the member's other sessions with the change. This is the
+// only call a page makes with a passphrase besides signing in.
+export function changePassphrase(current: string, next: string): Promise<PassphraseChanged> {
+  return call("PUT", paths.passphrase, { current, passphrase: next });
 }
 
 // Where a decision was made: Needs you, or inline in a conversation. A call that names no place is
