@@ -24,6 +24,8 @@ No single key decides anything: `A` moves focus, and `Enter` presses. The `G` wa
 
 The command palette finds a view, a record, or an action. With nothing typed it lists the current page's actions, then recent records, then views. `>` narrows it to actions and `#` to records, and the words of a query match in any order. The arrow keys move, `Enter` runs the entry, and `Esc` closes. An action opens its dialog or its page, and the palette never decides for you: a card that waits for a decision opens with its primary button focused.
 
+Every operation that changes something has an action in the palette, as the web UI has a control for it. Decide lists each card that waits in Needs you, and a typed query finds the ones past the first five. Each Settings section is `Settings:` and its name, and each project has its rename, archive, restore, remove, and back up. An open question has Answer question and Dismiss question, and a decision in force has Overturn decision. Add agent, Register repositories, Change repository, Remove repository, and the conversation's own actions, such as Rename the conversation and Compact the conversation's context, stand beside them. A work order's actions stand in the palette for the work order in view, and for any work order a search finds.
+
 ## Needs you
 
 ![Needs you, with the waiting items oldest first and the selected work's review verdicts beside them](assets/screenshots/needs-you-light.png#gh-light-mode-only)
