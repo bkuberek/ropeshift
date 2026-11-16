@@ -377,4 +377,55 @@ describe("a toast", () => {
     expect(screen.queryByText("Saved. atlas max lanes is 9.")).toBeNull();
     vi.useRealTimers();
   });
+
+  // A toast's timer fires after the provider is gone when a page unmounts with a toast showing, and a test run
+  // can then have torn the document down, so no timer may outlive the provider.
+  describe("that is still showing when its provider unmounts", () => {
+    function Harness() {
+      const toast = useToast();
+      return (
+        <button type="button" onClick={() => toast("success", "Saved.")}>
+          Save
+        </button>
+      );
+    }
+
+    it("leaves no timer behind, so nothing sets state afterward", () => {
+      vi.useFakeTimers();
+      try {
+        const { unmount } = render(
+          <ToastProvider>
+            <Harness />
+          </ToastProvider>,
+        );
+        act(() => screen.getByRole("button", { name: "Save" }).click());
+        act(() => screen.getByRole("button", { name: "Save" }).click());
+        expect(screen.getAllByText("Saved.")).toHaveLength(2);
+        expect(vi.getTimerCount()).toBe(2);
+        unmount();
+        expect(vi.getTimerCount()).toBe(0);
+        expect(() => vi.advanceTimersByTime(6000)).not.toThrow();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("leaves no timer behind for a toast the member dismissed", () => {
+      vi.useFakeTimers();
+      try {
+        render(
+          <ToastProvider>
+            <Harness />
+          </ToastProvider>,
+        );
+        act(() => screen.getByRole("button", { name: "Save" }).click());
+        expect(vi.getTimerCount()).toBe(1);
+        act(() => screen.getByRole("button", { name: "Dismiss" }).click());
+        expect(screen.queryByText("Saved.")).toBeNull();
+        expect(vi.getTimerCount()).toBe(0);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
 });
