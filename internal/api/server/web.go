@@ -257,12 +257,17 @@ func (s *web) changePassphrase(w http.ResponseWriter, r *http.Request, token str
 	case <-r.Context().Done():
 		return
 	}
-	ended, err := s.sessions.ChangePassphrase(r.Context(), s.scope, ports.Proof{Passphrase: in.Current}, ports.Proof{Passphrase: in.Passphrase}, token)
+	changed, err := s.sessions.ChangePassphrase(r.Context(), s.scope, ports.Proof{Passphrase: in.Current}, ports.Proof{Passphrase: in.Passphrase}, token)
 	if err != nil {
 		fail(w, err)
 		return
 	}
-	reply(w, http.StatusOK, api.PassphraseChanged{SessionsEnded: ended})
+	// The session goes on under a new token, in new cookies, and the token the page held, which was derived from the
+	// old one, is no longer the page's.
+	for _, cookie := range sessionCookies(changed.Token, csrfToken(changed.Token), int(changed.LifeMs/time.Second.Milliseconds())) {
+		http.SetCookie(w, cookie)
+	}
+	reply(w, http.StatusOK, api.PassphraseChanged{SessionsEnded: changed.SessionsEnded, Delegates: changed.Delegates})
 }
 
 // closeSession ends a session in the ledger, so its cookie opens nothing even if a browser keeps it.

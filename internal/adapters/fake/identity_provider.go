@@ -3,7 +3,6 @@ package fake
 import (
 	"context"
 	"errors"
-	"fmt"
 	"sync"
 
 	"ropeshift.com/ropeshift/internal/authority"
@@ -46,8 +45,8 @@ func (p *IdentityProvider) Enrolled(_ context.Context, scope ledger.WorkspaceID)
 func (p *IdentityProvider) Enroll(_ context.Context, scope ledger.WorkspaceID, proof ports.Proof, actor ledger.Actor) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if len(proof.Passphrase) < authority.MinPassphrase {
-		return fmt.Errorf("%w: a passphrase has at least %d bytes", authority.ErrInvalid, authority.MinPassphrase)
+	if err := authority.CheckPassphrase(proof.Passphrase); err != nil {
+		return err
 	}
 	if _, ok := p.passphrases[scope]; ok && !authority.Allowed(actor, authority.ActionSetPassphrase) {
 		return authority.ErrNoSession
@@ -71,8 +70,8 @@ func (p *IdentityProvider) Change(ctx context.Context, scope ledger.WorkspaceID,
 	if current.Passphrase != want {
 		return authority.ErrBadProof
 	}
-	if len(next.Passphrase) < authority.MinPassphrase {
-		return fmt.Errorf("%w: a passphrase has at least %d bytes", authority.ErrInvalid, authority.MinPassphrase)
+	if err := authority.CheckPassphrase(next.Passphrase); err != nil {
+		return err
 	}
 	if alongside != nil {
 		if p.store == nil {

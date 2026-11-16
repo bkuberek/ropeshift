@@ -67,8 +67,8 @@ func (p *Provider) Enrolled(ctx context.Context, scope ledger.WorkspaceID) (bool
 // Enroll sets the passphrase. The hash is made outside the transaction, which decides
 // whether this caller may replace what is there.
 func (p *Provider) Enroll(ctx context.Context, scope ledger.WorkspaceID, proof ports.Proof, actor ledger.Actor) error {
-	if len(proof.Passphrase) < authority.MinPassphrase {
-		return fmt.Errorf("%w: a passphrase has at least %d bytes", authority.ErrInvalid, authority.MinPassphrase)
+	if err := authority.CheckPassphrase(proof.Passphrase); err != nil {
+		return err
 	}
 	digest, err := p.hash(proof.Passphrase)
 	if err != nil {
@@ -114,8 +114,8 @@ func (p *Provider) Change(ctx context.Context, scope ledger.WorkspaceID, current
 	if !match {
 		return authority.ErrBadProof
 	}
-	if len(next.Passphrase) < authority.MinPassphrase {
-		return fmt.Errorf("%w: a passphrase has at least %d bytes", authority.ErrInvalid, authority.MinPassphrase)
+	if err := authority.CheckPassphrase(next.Passphrase); err != nil {
+		return err
 	}
 	digest, err := p.hash(next.Passphrase)
 	if err != nil {
@@ -129,9 +129,10 @@ func (p *Provider) Change(ctx context.Context, scope ledger.WorkspaceID, current
 		if err != nil {
 			return err
 		}
-		// The passphrase the caller proved is not the one stored any more, so another change got in first.
+		// The passphrase the caller proved is not the one stored any more, so another change got in first. The
+		// caller's passphrase was right, so this is no wrong guess and is said to be none.
 		if stored.ProofDigest != record.ProofDigest {
-			return authority.ErrBadProof
+			return authority.ErrPassphraseChanged
 		}
 		stored.ProofDigest = digest
 		if err := tx.Members().SaveMember(stored); err != nil {

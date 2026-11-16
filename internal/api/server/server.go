@@ -309,6 +309,8 @@ func fail(w http.ResponseWriter, err error) {
 		refuse(w, http.StatusUnauthorized, api.ErrorDetail{Code: api.CodeSessionRequired, Message: err.Error()})
 	case errors.Is(err, authority.ErrBadProof):
 		refuse(w, http.StatusUnauthorized, api.ErrorDetail{Code: api.CodeBadPassphrase, Message: err.Error()})
+	case errors.Is(err, authority.ErrPassphraseChanged):
+		refuse(w, http.StatusConflict, api.ErrorDetail{Code: api.CodePassphraseChanged, Message: err.Error()})
 	case errors.Is(err, authority.ErrNotEnrolled):
 		refuse(w, http.StatusUnauthorized, api.ErrorDetail{Code: api.CodeNotEnrolled, Message: err.Error()})
 	case errors.Is(err, authority.ErrBadDelegate):

@@ -124,16 +124,47 @@ func TestAMemberChangesThePassphraseFromTheWeb(t *testing.T) {
 	if strings.Contains(string(raw), newPassphrase) || strings.Contains(string(raw), apitest.Passphrase) {
 		t.Errorf("the answer holds a passphrase: %s", raw)
 	}
-	if left := liveSessions(t, d); len(left) != 1 || left[0] != digestOf(sessionOf(cookies)) {
-		t.Errorf("the sessions left are %v, want the one the change came from", left)
+	// The session the change came from stays, on a new token: a copy of the cookie it had opens nothing, and a copy of
+	// the token a page read from it opens no change.
+	rotated := response.Cookies()
+	fresh := sessionOf(rotated)
+	if fresh == "" || fresh == sessionOf(cookies) {
+		t.Fatalf("the change set no new session cookie: %v", rotated)
+	}
+	var session, page *http.Cookie
+	for _, cookie := range rotated {
+		switch cookie.Name {
+		case api.CookieSession:
+			session = cookie
+		case api.CookieCSRF:
+			page = cookie
+		}
+	}
+	if session == nil || page == nil {
+		t.Fatalf("cookies %v", rotated)
+	}
+	if !session.HttpOnly || session.SameSite != http.SameSiteStrictMode || session.Path != "/" || page.HttpOnly || page.Value != csrfOf(fresh) {
+		t.Errorf("the new cookies are not the sign-in's: %+v and %+v", session, page)
+	}
+	if session.MaxAge <= 0 || session.MaxAge > int(authority.LoginTTLMs/1000) || !session.Expires.IsZero() {
+		t.Errorf("the new session's life counts from now, within the old one's: %+v", session)
+	}
+	if left := liveSessions(t, d); len(left) != 1 || left[0] != digestOf(fresh) {
+		t.Errorf("the sessions left are %v, want the new one alone", left)
 	}
 	read := call{path: apitest.Route(api.ViewPath(api.ViewNeedsYou))}
 	read.cookies = cookies
+	response, raw = r.send(t, read)
+	wantStatus(t, response, raw, http.StatusUnauthorized, api.CodeSessionRequired)
+	read.cookies = rotated
 	response, raw = r.send(t, read)
 	wantStatus(t, response, raw, http.StatusOK, "")
 	read.cookies = otherTab
 	response, raw = r.send(t, read)
 	wantStatus(t, response, raw, http.StatusUnauthorized, api.CodeSessionRequired)
+	// The old token, with the new session, is not the token of this page, and the new one is.
+	response, raw = r.change(t, rotated, token, api.ChangePassphrase{Current: newPassphrase, Passphrase: "yet another passphrase"})
+	wantStatus(t, response, raw, http.StatusForbidden, api.CodeCSRF)
 	if r.signsIn(t, apitest.Passphrase) {
 		t.Error("the old passphrase still signs in")
 	}
@@ -147,6 +178,100 @@ func TestAMemberChangesThePassphraseFromTheWeb(t *testing.T) {
 	}
 	if holding(apitest.Passphrase) || holding(newPassphrase) {
 		t.Error("an event holds a passphrase")
+	}
+	response, raw = r.change(t, rotated, page.Value, api.ChangePassphrase{Current: newPassphrase, Passphrase: "yet another passphrase"})
+	wantStatus(t, response, raw, http.StatusOK, "")
+}
+
+// A change ends sessions and no delegate credential, as the documents say, and the answer counts the credentials
+// that still act, so the page can offer the sign-out that ends them.
+func TestAChangeCountsTheDelegateCredentialsThatSurviveIt(t *testing.T) {
+	t.Parallel()
+	d := apitest.Start(t)
+	r := webOn(t, d)
+	created, err := d.Client.CreateDelegate(t.Context(), api.CreateDelegate{Project: apitest.ProjectName, Label: "ci", ExpiresInMs: 24 * 60 * 60 * 1000})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cookies, token := r.signedIn(t)
+	response, raw := r.change(t, cookies, token, api.ChangePassphrase{Current: apitest.Passphrase, Passphrase: newPassphrase})
+	wantStatus(t, response, raw, http.StatusOK, "")
+	var changed api.PassphraseChanged
+	if err := json.Unmarshal(raw, &changed); err != nil {
+		t.Fatal(err)
+	}
+	if changed.Delegates != 1 {
+		t.Errorf("the change counts %d credentials that act, want 1: %s", changed.Delegates, raw)
+	}
+	// The harness's own session ended with the change, so the credentials are read through the new one.
+	response, raw = r.send(t, call{path: api.DelegatesPath, cookies: response.Cookies()})
+	wantStatus(t, response, raw, http.StatusOK, "")
+	var listed api.DelegateList
+	if err := json.Unmarshal(raw, &listed); err != nil {
+		t.Fatal(err)
+	}
+	if len(listed.Delegates) == 0 {
+		t.Fatalf("the member's credentials: %s", raw)
+	}
+	for _, credential := range listed.Delegates {
+		if credential.ID == created.ID && credential.State != "active" {
+			t.Errorf("the change ended the credential: %s", credential.State)
+		}
+	}
+}
+
+// A change that lost to another one, though its current passphrase was right, is told so with a status of its own,
+// and leaves no refused sign-in on record.
+type lostRace struct{ ports.IdentityProvider }
+
+func (lostRace) Change(context.Context, ledger.WorkspaceID, ports.Proof, ports.Proof, ledger.Actor, func(ports.SharedTx, string) error) error {
+	return authority.ErrPassphraseChanged
+}
+
+func TestAChangeThatLostARaceGetsItsOwnAnswerAndNoRefusalOnRecord(t *testing.T) {
+	t.Parallel()
+	d := apitest.Start(t)
+	d.Config.Identity = lostRace{IdentityProvider: d.Config.Identity}
+	r := webOn(t, d)
+	cookies, token := r.signedIn(t)
+	before, _ := installationEventTypes(t, d)
+	response, raw := r.change(t, cookies, token, api.ChangePassphrase{Current: apitest.Passphrase, Passphrase: newPassphrase})
+	wantStatus(t, response, raw, http.StatusConflict, api.CodePassphraseChanged)
+	if !strings.Contains(string(raw), "sign in again") {
+		t.Errorf("the answer does not say what to do: %s", raw)
+	}
+	after, _ := installationEventTypes(t, d)
+	if len(after) != len(before) {
+		t.Errorf("a lost race left events: %v", after[len(before):])
+	}
+}
+
+// A passphrase has an upper bound as well as a lower. The web says so once the current passphrase has proved the
+// caller, and the socket's first set holds to it too.
+func TestAPassphraseOverTheUpperBoundIsRefused(t *testing.T) {
+	t.Parallel()
+	d := apitest.Start(t)
+	r := webOn(t, d)
+	cookies, token := r.signedIn(t)
+	tooLong := strings.Repeat("a", authority.MaxPassphrase+1)
+	response, raw := r.change(t, cookies, token, api.ChangePassphrase{Current: apitest.Passphrase, Passphrase: tooLong})
+	wantStatus(t, response, raw, http.StatusBadRequest, api.CodeInvalid)
+	if !strings.Contains(string(raw), "1024") || strings.Contains(string(raw), tooLong) {
+		t.Errorf("the refusal does not name the bound, or repeats the passphrase: %.200s", raw)
+	}
+	response, raw = r.change(t, cookies, token, api.ChangePassphrase{Current: "a guess at the passphrase", Passphrase: tooLong})
+	wantStatus(t, response, raw, http.StatusUnauthorized, api.CodeBadPassphrase)
+	response, raw = r.change(t, cookies, token, api.ChangePassphrase{Current: apitest.Passphrase, Passphrase: strings.Repeat("b", authority.MaxPassphrase)})
+	wantStatus(t, response, raw, http.StatusOK, "")
+
+	first := apitest.StartWith(t, apitest.Options{NoMember: true})
+	err := first.Client.SetPassphrase(t.Context(), api.SetPassphrase{Passphrase: tooLong})
+	refusedWith(t, err, http.StatusBadRequest, api.CodeInvalid)
+	if state, err := first.Client.Passphrase(t.Context()); err != nil || state.Set {
+		t.Fatalf("a refused first set set one: %+v, %v", state, err)
+	}
+	if err := first.Client.SetPassphrase(t.Context(), api.SetPassphrase{Passphrase: strings.Repeat("b", authority.MaxPassphrase)}); err != nil {
+		t.Fatalf("the longest first set: %v", err)
 	}
 }
 

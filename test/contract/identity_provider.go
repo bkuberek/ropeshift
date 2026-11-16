@@ -3,6 +3,7 @@ package contract
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"ropeshift.com/ropeshift/internal/authority"
@@ -50,6 +51,7 @@ func RunIdentityProvider(t *testing.T, fresh func(*testing.T) IdentityRig) {
 		{"a change to a short passphrase is refused and changes nothing", checkIdentityChangeRefusesAShortProof},
 		{"a change replaces the passphrase, and its companion write lands in the same transaction", checkIdentityChangeCompanion},
 		{"a change whose companion fails changes nothing", checkIdentityChangeIsAtomic},
+		{"a passphrase over the upper bound is refused at the first set and at a change, and one at the bound is not", checkIdentityRefusesATooLongProof},
 	}
 	for _, check := range checks {
 		t.Run(check.name, func(t *testing.T) { check.run(t, t.Context(), fresh(t)) })
@@ -254,6 +256,31 @@ func checkIdentityChangeCompanion(t *testing.T, ctx context.Context, rig Identit
 	}
 	if err := rig.Provider.Change(ctx, rig.Scope, ports.Proof{Passphrase: otherPassphrase}, ports.Proof{Passphrase: thirdPassphrase}, rig.Member, nil); err != nil {
 		t.Fatalf("a change with no companion: %v", err)
+	}
+}
+
+func checkIdentityRefusesATooLongProof(t *testing.T, ctx context.Context, rig IdentityRig) {
+	tooLong := strings.Repeat("a", authority.MaxPassphrase+1)
+	longest := strings.Repeat("b", authority.MaxPassphrase)
+	if err := rig.Provider.Enroll(ctx, rig.Scope, ports.Proof{Passphrase: tooLong}, rig.Anyone); !errors.Is(err, authority.ErrInvalid) {
+		t.Fatalf("the first set of %d bytes: got %v, want ErrInvalid", len(tooLong), err)
+	}
+	if enrolled, err := rig.Provider.Enrolled(ctx, rig.Scope); err != nil || enrolled {
+		t.Fatalf("a refused first set set a passphrase: %v, %v", enrolled, err)
+	}
+	enroll(t, ctx, rig)
+	if err := rig.Provider.Enroll(ctx, rig.Scope, ports.Proof{Passphrase: tooLong}, rig.Member); !errors.Is(err, authority.ErrInvalid) {
+		t.Fatalf("a later set of %d bytes: got %v, want ErrInvalid", len(tooLong), err)
+	}
+	if err := rig.Provider.Change(ctx, rig.Scope, ports.Proof{Passphrase: goodPassphrase}, ports.Proof{Passphrase: tooLong}, rig.Member, nil); !errors.Is(err, authority.ErrInvalid) {
+		t.Fatalf("a change to %d bytes: got %v, want ErrInvalid", len(tooLong), err)
+	}
+	onlyTheOldStands(t, ctx, rig)
+	if err := rig.Provider.Change(ctx, rig.Scope, ports.Proof{Passphrase: goodPassphrase}, ports.Proof{Passphrase: longest}, rig.Member, nil); err != nil {
+		t.Fatalf("a change to %d bytes, the longest allowed: %v", len(longest), err)
+	}
+	if _, err := rig.Provider.Authenticate(ctx, rig.Scope, ports.Proof{Passphrase: longest}); err != nil {
+		t.Fatalf("the longest passphrase: %v", err)
 	}
 }
 

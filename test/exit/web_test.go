@@ -158,8 +158,15 @@ func TestAMemberChangesThePassphraseThroughTheWebListener(t *testing.T) {
 		t.Fatalf("the change ended %+v, %v", result, err)
 	}
 	view := base + api.InProject(ledger.DefaultProjectName, api.ViewPath(api.ViewNeedsYou))
-	if kept, _ := webCall(t, http.MethodGet, view, nil, cookies, nil); kept.StatusCode != http.StatusOK {
-		t.Errorf("the session the change came from: %d", kept.StatusCode)
+	rotated := response.Cookies()
+	if len(rotated) != 2 {
+		t.Fatalf("the change set cookies %v, want a new session and a new token", rotated)
+	}
+	if kept, _ := webCall(t, http.MethodGet, view, nil, rotated, nil); kept.StatusCode != http.StatusOK {
+		t.Errorf("the session the change came from, on its new token: %d", kept.StatusCode)
+	}
+	if stolen, _ := webCall(t, http.MethodGet, view, nil, cookies, nil); stolen.StatusCode != http.StatusUnauthorized {
+		t.Errorf("a copy of the cookie the session had before the change: %d", stolen.StatusCode)
 	}
 	if ended, _ := webCall(t, http.MethodGet, view, nil, other, nil); ended.StatusCode != http.StatusUnauthorized {
 		t.Errorf("another session of the member: %d", ended.StatusCode)

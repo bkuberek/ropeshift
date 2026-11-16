@@ -39,10 +39,12 @@ type ChangePassphrase struct {
 	Passphrase string `json:"passphrase"`
 }
 
-// PassphraseChanged says how many other sessions of the member the change ended. The session it came from
-// stays.
+// PassphraseChanged says how many other sessions of the member the change ended, and how many delegate credentials
+// of the member still act, which a change leaves alone and signing out of every session ends. The session the change
+// came from goes on under a new token, which the answer sets as cookies and never states.
 type PassphraseChanged struct {
 	SessionsEnded int64 `json:"sessions_ended"`
+	Delegates     int64 `json:"delegates"`
 }
 
 // PassphraseState says whether a passphrase is set. It says nothing else of it.
