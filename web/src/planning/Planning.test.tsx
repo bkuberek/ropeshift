@@ -297,6 +297,44 @@ describe("the plan outline", () => {
   });
 });
 
+describe("the planning pane's History tab", () => {
+  const historyPath = "/v1/measures/history";
+
+  it("sits beside the outline, reads the history only once chosen, and labels it as what the session sees", async () => {
+    const sent = serve();
+    openPage(here(`/planning?lane=${lane}`));
+    const pane = await screen.findByRole("complementary", { name: "Plan in progress" });
+    expect(within(pane).getByRole("tab", { name: "Outline", selected: true })).toBeTruthy();
+    await within(pane).findByText("docs/requirements.md");
+    expect(sent.some((call) => call.path === historyPath)).toBe(false);
+    await userEvent.click(within(pane).getByRole("tab", { name: "History" }));
+    expect(await within(pane).findByRole("heading", { level: 3, name: "What the planning session sees" })).toBeTruthy();
+    expect(sent.some((call) => call.method === "GET" && call.path === historyPath && call.project === "default")).toBe(true);
+    expect(pane.querySelectorAll("[data-group]").length).toBe(golden<{ by_kind_size: unknown[] }>("history").by_kind_size.length * 2);
+    expect(within(pane).queryByText("docs/requirements.md")).toBeNull();
+    await userEvent.click(within(pane).getByRole("tab", { name: "Outline" }));
+    expect(await within(pane).findByText("docs/requirements.md")).toBeTruthy();
+  });
+
+  it("says a project with no finished work has none to show", async () => {
+    serve((call) => (call.method === "GET" && call.path === historyPath ? { status: 200, body: golden("history-empty") } : undefined));
+    openPage(here(`/planning?lane=${lane}`));
+    const pane = await screen.findByRole("complementary", { name: "Plan in progress" });
+    await userEvent.click(await within(pane).findByRole("tab", { name: "History" }));
+    expect(await within(pane).findByText("No finished work yet. Work orders will have no estimate until comparable work finishes.")).toBeTruthy();
+  });
+
+  it("shows a refused read in the API's words and keeps the outline a tab away", async () => {
+    serve((call) => (call.method === "GET" && call.path === historyPath ? refusal(500, "unavailable", "The history could not be read.") : undefined));
+    openPage(here(`/planning?lane=${lane}`));
+    const pane = await screen.findByRole("complementary", { name: "Plan in progress" });
+    await userEvent.click(await within(pane).findByRole("tab", { name: "History" }));
+    expect(await within(pane).findByText("The history could not be read.")).toBeTruthy();
+    await userEvent.click(within(pane).getByRole("tab", { name: "Outline" }));
+    expect(await within(pane).findByText("docs/requirements.md")).toBeTruthy();
+  });
+});
+
 describe("a parked session", () => {
   it("shows the API's refusal, the last screen received labeled parked, and Resume", async () => {
     const sent = serve((call) => {

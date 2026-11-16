@@ -1,0 +1,3 @@
+The work this project has finished, from its own delivery records. Each group reads its 50 most recent work orders that finished `done`; a group under 10 is labeled low confidence, with what an estimate from it would say. Delivery time leaves out waiting for a lane, lane time is how long a lane held a place, and cost is estimated at list price. These figures are history and no promise: use them to size work and choose agents, and do not write an estimate.
+
+No work has finished in this project yet, so it has no history.

@@ -233,6 +233,8 @@ The planning lane's context pack holds a `delivery_history` item named `project`
 
 A group of fewer than `min_samples` finished work orders is labeled low confidence and carries the explanation an estimate from just those records would carry: how many it holds against the minimum, the keys it set aside, and how far apart they were. A group at or above `min_samples` reads confident. A project with no finished work says so.
 
+`ropeshift measures history` and `GET /v1/projects/{project}/measures/history` show a person what the lane reads: the command prints the item's text, and the route returns the groups with each repository's name by ID. The pack's item and the read are built by the same function from the same records, so they never differ. The web UI shows it on the planning pane's History tab ([web UI](web-ui.md#planning)).
+
 The history is built from the project's own delivery records alone, whatever `share_history` says. The installation pool answers only the last tier of an estimate ([the installation pool](#the-installation-pool)), so sharing history changes no figure in it, and it never counts or names another project's work. Like the rest of the pack it is built again for each new version of the pack, which a new claim makes and which a change to a decision the pack holds makes for the lane's next generation, so a running generation keeps the history it read. The lane reads it as it stands now with its `context_get` tool, kind `delivery_history` and reference `project`; the one tool serves every session, so it lists the kind for all, but for any lane but a planning lane, and for an orchestrator, the read is refused as a kind nobody named.
 
 ### The estimates and forecasts of a version it submitted

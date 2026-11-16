@@ -262,6 +262,44 @@ export async function readPlanForecasts(plans: string[]): Promise<Record<string,
   return out;
 }
 
+export type HistoryQuantiles = { p50: number; p85: number };
+
+// One group of a project's finished work as a planning session reads it: how many work orders it holds, their
+// delivery time, lane time, and cost at p50 and p85, the mean rounds, the median change size, and the label and
+// explanation an estimate from just these records carries. A group of kind and size alone has no capability class
+// or repository. An open p85 is the longest record's, and a cost that holds a lower bound reads as at least.
+export type HistoryGroup = {
+  kind: string;
+  size: string;
+  capability_class?: string;
+  repository?: string;
+  count: number;
+  delivery: HistoryQuantiles;
+  lane: HistoryQuantiles;
+  cost: HistoryQuantiles;
+  cost_lower_bound?: boolean;
+  p85_open?: boolean;
+  mean_rounds: number;
+  change?: { measured: number; files: number; added: number; removed: number };
+  confidence: "confident" | "low";
+  explanation: string;
+};
+
+// DeliveryHistory is what a planning session's pack holds of the project's finished work, in two groupings, with each
+// repository's name by its ID.
+export type DeliveryHistory = {
+  min_samples: number;
+  recent_samples: number;
+  by_kind_size: HistoryGroup[];
+  by_kind_size_class_repository: HistoryGroup[];
+  repositories: Record<string, string>;
+};
+
+// readDeliveryHistory reads the delivery history a planning session sees, as `ropeshift measures history` prints it.
+export function readDeliveryHistory(): Promise<DeliveryHistory> {
+  return call("GET", project("/measures/history"));
+}
+
 // readCalibration reads how often finished work landed inside its baseline estimates over a window and over
 // all time, as `ropeshift measures estimates` does.
 export function readCalibration(window: string): Promise<Calibration> {

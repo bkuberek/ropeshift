@@ -163,6 +163,10 @@ export function serveViews(answer?: (sent: Sent) => Answer | undefined, options:
     if (call.method === "GET" && call.path.startsWith("/v1/measures/delivery")) {
       return { status: 200, body: golden(call.path.includes("by=size") ? "delivery-size" : "delivery") };
     }
+    // The delivery history a planning session sees, as the planning pane's History tab reads it.
+    if (call.method === "GET" && call.path === "/v1/measures/history") {
+      return { status: 200, body: golden("history") };
+    }
     // Estimate calibration, as the Estimates tab reads it.
     if (call.method === "GET" && call.path.startsWith("/v1/measures/estimates")) {
       return { status: 200, body: golden("calibration") };
