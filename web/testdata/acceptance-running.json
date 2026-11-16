@@ -1,0 +1,16 @@
+{
+  "work_order_id": "wo-running",
+  "state": "running",
+  "assessment": {
+    "criteria": [
+      {
+        "criterion_id": "c1",
+        "standing": "member"
+      }
+    ],
+    "needs": "member"
+  },
+  "artifacts": [],
+  "checks": [],
+  "authority": "person_approves"
+}

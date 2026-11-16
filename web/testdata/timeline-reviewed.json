@@ -1,0 +1,47 @@
+{
+  "timeline": {
+    "work_order": "wo-ruled",
+    "version": 1,
+    "start": 1790002104001,
+    "end": 1790002884001,
+    "segments": [
+      {
+        "kind": "working",
+        "state": "running",
+        "round": 1,
+        "lane": "lane-wo-ruled",
+        "from": 1790002104001,
+        "to": 1790002464001,
+        "ended": {
+          "event": "worker-a:1:41",
+          "actor": {
+            "Kind": "lane",
+            "ID": "lane-wo-ruled"
+          }
+        }
+      },
+      {
+        "kind": "review",
+        "state": "acceptance",
+        "round": 1,
+        "review": "generated-1",
+        "from": 1790002464001,
+        "to": 1790002644001,
+        "ended": {
+          "record": "generated-1",
+          "actor": {
+            "Kind": "member",
+            "ID": "member-1"
+          }
+        }
+      },
+      {
+        "kind": "integration",
+        "state": "acceptance",
+        "round": 1,
+        "from": 1790002644001,
+        "to": 1790002884001
+      }
+    ]
+  }
+}
