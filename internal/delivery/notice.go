@@ -14,8 +14,8 @@ import (
 // estimate set says no work of it has an estimate.
 func VersionNotice(plan string, version int64, set *EstimateSet, forecasts []Forecast, titles map[string]string) string {
 	var out strings.Builder
-	fmt.Fprintf(&out, "Plan version %d of %s: ropeshift's estimates and forecasts for what you submitted. They are estimates drawn from this "+
-		"project's finished work, and no promise. You size the work and choose its agents; you never write an estimate. "+
+	fmt.Fprintf(&out, "Plan version %d of %s: ropeshift's estimates and forecasts for what you submitted. They are estimates drawn from "+
+		"finished work, and no promise; each explanation says what it drew on. You size the work and choose its agents; you never write an estimate. "+
 		"Read the explanation under each label before you rely on it.\n", version, oneLine(plan))
 	out.WriteString("\n### Forecasts\n\n")
 	if len(forecasts) == 0 {

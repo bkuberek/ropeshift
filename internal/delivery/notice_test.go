@@ -38,7 +38,7 @@ func TestAVersionNoticeSaysEachEstimateAndForecastWithItsLabelAndExplanation(t *
 	text := delivery.VersionNotice("Retry budget", 2, &set, noticeForecasts(), map[string]string{"wo-a": "Add the budget", "wo-b": "Wire the config", "wo-c": "Write the docs"})
 	for _, want := range []string{
 		"Plan version 2 of Retry budget",
-		"estimates drawn from this project's finished work, and no promise",
+		"estimates drawn from finished work, and no promise; each explanation says what it drew on",
 		"- plan: low confidence; p50 2026-11-20 14:30 UTC, p85 2026-11-21 14:30 UTC or later; cost p50 $6.00, p85 at least $9.50. Low confidence. Rests on the estimates of wo-b.",
 		"- milestone m1: no history. No forecast: none of its work has history.",
 		`- wo-a "Add the budget": confident; delivery p50 2h, p85 5h; cost p50 $1.25, p85 $3.50. Based on 12 finished medium changes.`,
@@ -48,6 +48,10 @@ func TestAVersionNoticeSaysEachEstimateAndForecastWithItsLabelAndExplanation(t *
 		if !strings.Contains(text, want) {
 			t.Errorf("the notice does not say %q:\n%s", want, text)
 		}
+	}
+	// One estimate drew on the installation pool, so no line before its own explanation says the work was this project's.
+	if strings.Contains(text, "this project's finished work") {
+		t.Errorf("the notice says every estimate drew on this project's own work, which a pooled one did not:\n%s", text)
 	}
 	for _, leak := range []string{"done-secret-1", "set-1", "pool"} {
 		if strings.Contains(text, leak) {
