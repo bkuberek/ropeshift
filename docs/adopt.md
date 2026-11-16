@@ -14,7 +14,7 @@ Nothing reaches a default branch before you approve the plan and the adoption br
 ## Before you adopt
 
 - Finish steps 1 to 3 of [set up a project](set-up-a-project.md): ropeshift installed, `ropeshift init` run, and the daemon running.
-- Set a worktree root if your clones sit together in one folder ([where lane worktrees go](project-structure.md#where-lane-worktrees-go)).
+- Lane worktrees go outside every clone by default, so a folder of clones needs no root of its own ([where lane worktrees go](project-structure.md#where-lane-worktrees-go)).
 - A project that already has an approved plan is refused: plan its next work with `ropeshift plan start` instead.
 - For a project of several repositories, decide which repository holds the plan. Adopting writes only there. If none of your repositories should, create one first, such as the workspace repository in [project structure](project-structure.md), and commit at least one file to it.
 

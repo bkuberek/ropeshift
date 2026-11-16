@@ -519,9 +519,10 @@ func soloLanes(paths api.Paths, opts soloOptions, kept ports.Checkouts, stderr i
 	return &worker.LaneRuntime{
 		Driver: soloDriver(runner, terminal, env),
 		Provisioner: worker.Provisioner{
-			Profiles:  profiles.Filesystem{User: filepath.Join(paths.StateDir, profiles.UserFile)},
+			Profiles:  soloProfiles(paths),
 			Worktrees: gitcli.Worktrees{},
 			Hooks:     hookrun.Runner{Processes: osexec.Runner{}},
+			Checkouts: kept,
 		},
 		Secrets:    secrets.Resolver{},
 		Machine:    machine.Reader{Processes: osexec.Runner{}},
@@ -564,10 +565,21 @@ func soloTerminal(runner ports.ProcessRunner, paths api.Paths, env []string) (po
 	return terminal, nil
 }
 
-// soloCheckouts is the checkouts this machine's worker keeps, in its state directory. The state and run
-// directories are the installation's own, with its lanes' worktrees, so no manifest registers a clone there.
+// soloCheckouts is the checkouts this machine's worker keeps, in its state directory. The state, run, and
+// worktree directories are the installation's own, so no registration takes one of them, or a lane's
+// worktree inside one, for a clone.
 func soloCheckouts(paths api.Paths) *checkouts.File {
-	return &checkouts.File{Path: filepath.Join(paths.StateDir, checkouts.FileName), Reserved: []string{paths.StateDir, paths.RunDir}}
+	return &checkouts.File{Path: filepath.Join(paths.StateDir, checkouts.FileName), Reserved: []string{paths.StateDir, paths.RunDir, paths.WorktreeDir}}
+}
+
+// soloProfiles reads the user's layer from the state directory and a repository's from its clone, and gives
+// a profile that names no worktree root the installation's worktree directory, by project and clone folder,
+// which lies outside every clone (FR-PROF-3).
+func soloProfiles(paths api.Paths) profiles.Filesystem {
+	return profiles.Filesystem{
+		User:        filepath.Join(paths.StateDir, profiles.UserFile),
+		DefaultRoot: filepath.Join(paths.WorktreeDir, lanes.ProjectToken, lanes.RepositoryToken),
+	}
 }
 
 // checkoutOf finds this machine's checkout of a project's repository: the one the worker keeps for the

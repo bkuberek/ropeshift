@@ -33,7 +33,7 @@ Reads, such as `ropeshift work list` or `ropeshift top`, need no session. An age
 |-|-------|-------|
 | State: the ledgers, the installation database, your `profile.toml`, telemetry | `~/Library/Application Support/ropeshift` | `$XDG_STATE_HOME/ropeshift`, or `~/.local/state/ropeshift` |
 | Sockets | `~/.ropeshift/run` | `$XDG_RUNTIME_DIR/ropeshift`, or `~/.ropeshift/run` |
-| Lane worktrees | Beside each repository, in `../<repository>-lanes/`, until you set a root | The same |
+| Lane worktrees | `~/.ropeshift/worktrees/<project>/<repository>/`, until you set a root | `$XDG_DATA_HOME/ropeshift/worktrees/<project>/<repository>/`, or `~/.local/share/ropeshift/worktrees/<project>/<repository>/` |
 
 Inside your repositories, ropeshift adds only the lanes' branches, refs under `refs/ropeshift/`, and git's record of each lane worktree. [Remove ropeshift from a machine](#remove-ropeshift-from-a-machine) undoes all of it.
 
@@ -111,14 +111,14 @@ In the web UI, Projects has Create project, and Repositories has Register reposi
 
 ## 5. Choose where lanes work
 
-Each lane works in a git worktree of its own, never in your checkout. By default the worktree goes beside the repository, in `../acme-app-lanes/<lane>`. If that folder would land somewhere a script or another tool walks, such as a folder of clones, set a root of your own in your profile layer, `profile.toml` in the state directory above:
+Each lane works in a git worktree of its own, never in your checkout. By default the worktree goes outside every clone, in the worktree directory in the table above, in `<project>/acme-app/<lane>`. If you want lanes somewhere else, set a root of your own in your profile layer, `profile.toml` in the state directory above:
 
 ```toml
 [worktree]
-root = "/path/to/lanes/{repo}"
+root = "/path/to/lanes/{project}/{repo}"
 ```
 
-`{repo}` becomes the repository's folder name. Write an absolute path, because the root expands no `~` and no variable. [Project structure](project-structure.md#where-lane-worktrees-go) explains the recommended place.
+`{repo}` becomes the repository's folder name, and `{project}` the project's ID. Write an absolute path, because the root expands no `~` and no variable. A root that is a registered clone, or lies inside one, is refused: the lane fails with the reason `worktree_inside_clone` before any worktree exists, and `ropeshift repository add` warns when a root would do so. `ROPESHIFT_WORKTREE_DIR` moves the worktree directory itself. [Project structure](project-structure.md#where-lane-worktrees-go) explains the places and the refusal.
 
 ## 6. Choose the branch lanes start from
 

@@ -27,7 +27,7 @@ acme-workspace/
     └── acme-web/
 ```
 
-Set a worktree root outside the workspace before the first lane, so lane worktrees do not land in `repos/` ([where lane worktrees go](project-structure.md#where-lane-worktrees-go)).
+Lane worktrees go outside the workspace and every clone by default, so none lands in `repos/`. A worktree root of your own that lies inside a registered clone is refused ([where lane worktrees go](project-structure.md#where-lane-worktrees-go)).
 
 ## 2. Register every repository in one step
 

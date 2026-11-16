@@ -502,6 +502,7 @@ func RunProfileSource(t *testing.T, fresh func(*testing.T) ProfileRig) {
 		run  func(*testing.T, context.Context, ProfileRig)
 	}{
 		{"a repository with no layer gets the defaults", checkProfileDefaults},
+		{"a profile that names no worktree root gets one with the project and the repository in it, and a layer's root wins", checkProfileRoot},
 		{"a repository layer changes one key and keeps its neighbors", checkProfileLayer},
 		{"a misspelled key is refused", checkProfileUnknownKey},
 		{"bad TOML is refused", checkProfileBadTOML},
@@ -527,6 +528,26 @@ func checkProfileDefaults(t *testing.T, ctx context.Context, r ProfileRig) {
 	}
 	if profile.RunMode != "" {
 		t.Errorf("run mode %q, and the default follows the sign-in kind", profile.RunMode)
+	}
+}
+
+// checkProfileRoot holds FR-PROF-3: the built-in layer names no root, the source gives such a profile a root
+// that holds the project and the repository, and a layer's own root wins and is said to be the layer's.
+func checkProfileRoot(t *testing.T, ctx context.Context, r ProfileRig) {
+	profile, err := r.Source.Load(ctx, r.Repository, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(profile.Worktree.Root, lanes.ProjectToken) || !strings.Contains(profile.Worktree.Root, lanes.RepositoryToken) ||
+		profile.Worktree.RootSource != lanes.RootFromDefault {
+		t.Errorf("the default root is %q from %q", profile.Worktree.Root, profile.Worktree.RootSource)
+	}
+	r.Layer("[worktree]\nroot = \"/mine/{repo}\"\n")
+	if profile, err = r.Source.Load(ctx, r.Repository, ""); err != nil {
+		t.Fatal(err)
+	}
+	if profile.Worktree.Root != "/mine/{repo}" || profile.Worktree.RootSource != lanes.RootFromRepository {
+		t.Errorf("a repository's root reads %q from %q", profile.Worktree.Root, profile.Worktree.RootSource)
 	}
 }
 

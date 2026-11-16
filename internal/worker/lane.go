@@ -19,6 +19,9 @@ import (
 type LaneRequest struct {
 	Lane       string
 	Repository string
+	// Project is the ID of the project the lane belongs to, which a worktree root's {project} names. Empty
+	// names the installation's only project.
+	Project string
 	// Branch is what the ledger assigned. Empty names a new branch for this lane.
 	Branch string
 	// Base is the commit a new branch begins at, which the control plane resolved from the base branch
@@ -79,6 +82,9 @@ type Provisioner struct {
 	Worktrees ports.Worktrees
 	// Hooks runs what a profile names. Nil refuses a profile that names a hook.
 	Hooks ports.HookRunner
+	// Checkouts lists every clone this worker keeps, so a worktree root inside one is refused (FR-PROF-3).
+	// Nil checks nothing, for a test of what is not about the root.
+	Checkouts ports.Checkouts
 	// Lookup reads the worker's environment. Nil reads the process's.
 	Lookup func(string) (string, bool)
 }
@@ -134,6 +140,14 @@ func (p Provisioner) Prepare(ctx context.Context, request LaneRequest) (Prepared
 	if err != nil {
 		return PreparedLane{}, err
 	}
+	// The place comes before anything a lane leaves behind, so a root inside a clone stops it with no
+	// resources allocated and no worktree made.
+	var place lanes.Placement
+	if !request.Private {
+		if place, err = p.place(ctx, request, profile); err != nil {
+			return PreparedLane{}, err
+		}
+	}
 	lookup := p.Lookup
 	if lookup == nil {
 		lookup = os.LookupEnv
@@ -162,10 +176,6 @@ func (p Provisioner) Prepare(ctx context.Context, request LaneRequest) (Prepared
 			Worktree: ports.Worktree{Path: request.Repository}, Environment: environment, Profile: profile, ProfileDigest: digest,
 			LaneModel: laneModel, LaneEffort: laneEffort,
 		}, nil
-	}
-	place, err := lanes.Place(profile.Worktree, request.Repository, request.Lane, request.Branch)
-	if err != nil {
-		return PreparedLane{}, err
 	}
 	worktree, err := p.worktree(ctx, request, place)
 	if err != nil {

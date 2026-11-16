@@ -624,7 +624,7 @@ func (r *laneRun) session(ctx context.Context) workorders.Report {
 		return r.failStart(workorders.ReasonSpawnFailed, err)
 	}
 	prepared, err := r.rt.Provisioner.Prepare(ctx, LaneRequest{
-		Lane: r.lease.Lane, Repository: repository, Branch: r.lease.Branch, Base: r.begins(), Overrides: r.lease.Overrides, Delegated: r.lease.Delegated, Agent: r.runsAs(), Fetch: r.fetchNames(), Private: r.orchestrating(),
+		Lane: r.lease.Lane, Repository: repository, Project: r.lease.Project, Branch: r.lease.Branch, Base: r.begins(), Overrides: r.lease.Overrides, Delegated: r.lease.Delegated, Agent: r.runsAs(), Fetch: r.fetchNames(), Private: r.orchestrating(),
 		Detached: r.reviewing(), ForgeConfigDir: r.rt.forgeConfigDir(r.lease.Lane),
 		Allocate: func(settings lanes.ResourceSettings) (lanes.Allocation, error) { return r.allocate(ctx, settings) },
 		RunHook:  func(target string, perform func() error) error { return r.runHook(ctx, target, perform) },
@@ -651,6 +651,13 @@ func (r *laneRun) session(ctx context.Context) workorders.Report {
 	if errors.As(err, &refused) {
 		report := r.failStart(workorders.ReasonDelegatePolicy, err)
 		report.Detail = refused.Detail()
+		return report
+	}
+	// The outcome names the root, the clone, and the layer that set the root, with the fix.
+	var inside *WorktreeInsideClone
+	if errors.As(err, &inside) {
+		report := r.failStart(workorders.ReasonWorktreeInsideClone, err)
+		report.Detail = inside.Detail()
 		return report
 	}
 	if err != nil {

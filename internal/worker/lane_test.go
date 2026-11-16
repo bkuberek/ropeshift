@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"ropeshift.com/ropeshift/internal/adapters/fake"
+	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/ports"
@@ -33,11 +34,149 @@ func TestPrepareOnFakes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if lane.Worktree.Path != "/work/app-lanes/l1" || lane.Worktree.Branch != "lane/l1" {
+	// A profile that names no root gets the fake source's default, which lies under no clone.
+	if lane.Worktree.Path != "/ropeshift/worktrees/default/app/l1" || lane.Worktree.Branch != "lane/l1" {
 		t.Errorf("worktree %+v", lane.Worktree)
 	}
 	if len(lane.Environment) != 1 || lane.Environment[0] != "PATH=/usr/bin" {
 		t.Errorf("environment %v", lane.Environment)
+	}
+}
+
+// keeping puts a clone on the machine and has this worker keep it for a project, as a registration does.
+func keeping(t *testing.T, machine *fake.Checkouts, project ledger.WorkspaceID, repository, at string) {
+	t.Helper()
+	machine.Place(ports.Clone{Path: at, ID: repository, DefaultBranch: "main"})
+	if err := machine.Keep(t.Context(), project, repository, at); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// With no root in any layer, a lane's worktree goes under the installation's worktree directory, by project
+// and clone folder, and not beside or inside any clone (FR-PROF-3).
+func TestAWorktreeGoesUnderTheWorktreeDirectoryByProjectAndRepository(t *testing.T) {
+	t.Parallel()
+	for project, want := range map[string]string{
+		"prj-1": "/data/ropeshift/worktrees/prj-1/api/l1",
+		"prj-2": "/data/ropeshift/worktrees/prj-2/api/l1",
+		"":      "/data/ropeshift/worktrees/default/api/l1",
+	} {
+		p, source, _ := provisioner(nil)
+		source.SetDefaultRoot("/data/ropeshift/worktrees/{project}/{repo}")
+		machine := fake.NewCheckouts()
+		keeping(t, machine, "prj-1", "r1", "/work/repos/api")
+		keeping(t, machine, "prj-2", "r1", "/work/other/api")
+		p.Checkouts = machine
+		lane, err := p.Prepare(t.Context(), worker.LaneRequest{Lane: "l1", Repository: "/work/repos/api", Project: project})
+		if err != nil || lane.Worktree.Path != want {
+			t.Errorf("project %q: worktree %q (%v), want %q", project, lane.Worktree.Path, err, want)
+		}
+	}
+}
+
+// A root that is a registered clone, or lies inside one, fails the lane before anything exists: through a
+// relative root, a root that is another project's clone, and a link that leads into a clone. The refusal
+// names the root, the clone, and the layer that set the root, and says how to fix it.
+func TestAWorktreeRootInsideAClonePreparesNothing(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name        string
+		layer       string
+		repository  string
+		wantRoot    string
+		wantClone   string
+		wantSource  string
+		wantFixWord string
+	}{
+		{"a relative root inside the repository's own clone", "[worktree]\nroot = \"lanes/{project}\"\n", "/work/app",
+			"/work/app/lanes/prj-1", "/work/app", lanes.RootFromRepository, "remove it"},
+		{"a root that is another repository's clone", "[worktree]\nroot = \"../web\"\n", "/work/app",
+			"/work/web", "/work/web", lanes.RootFromRepository, "remove it"},
+		{"a root inside a clone another project keeps", "[worktree]\nroot = \"/work/elsewhere/clone/wt\"\n", "/work/app",
+			"/work/elsewhere/clone/wt", "/work/elsewhere/clone", lanes.RootFromRepository, "remove it"},
+		{"a link that leads into a clone", "[worktree]\nroot = \"/links/app/wt\"\n", "/work/app",
+			"/links/app/wt", "/work/app", lanes.RootFromRepository, "remove it"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			p, source, worktrees := provisioner(nil)
+			machine := fake.NewCheckouts()
+			keeping(t, machine, "prj-1", "r1", "/work/app")
+			keeping(t, machine, "prj-1", "r2", "/work/web")
+			keeping(t, machine, "prj-2", "r3", "/work/elsewhere/clone")
+			machine.Link("/links/app", "/work/app")
+			p.Checkouts = machine
+			source.Put(tt.repository, tt.layer)
+			allocated := false
+			_, err := p.Prepare(t.Context(), worker.LaneRequest{
+				Lane: "l1", Repository: tt.repository, Project: "prj-1",
+				Allocate: func(lanes.ResourceSettings) (lanes.Allocation, error) {
+					allocated = true
+					return lanes.Allocation{}, nil
+				},
+			})
+			var inside *worker.WorktreeInsideClone
+			if !errors.As(err, &inside) {
+				t.Fatalf("got %v", err)
+			}
+			if inside.Root != tt.wantRoot || inside.Clone != tt.wantClone || inside.Source != tt.wantSource {
+				t.Errorf("refusal %+v", inside)
+			}
+			detail := inside.Detail()
+			for _, want := range []string{tt.wantRoot, tt.wantClone, tt.wantSource, "set `[worktree] root` in your profile to a folder outside every clone, or remove it to use the built-in root"} {
+				if !strings.Contains(detail, want) {
+					t.Errorf("the detail %q does not name %q", detail, want)
+				}
+			}
+			if allocated {
+				t.Error("resources were allocated before the root was refused")
+			}
+			if _, err := worktrees.Inspect(t.Context(), tt.wantRoot+"/l1"); !errors.Is(err, ports.ErrNotFound) {
+				t.Errorf("a worktree was left behind: %v", err)
+			}
+		})
+	}
+}
+
+// A root set by the user's layer is named as the user's, and a built-in root that lies inside a clone, which
+// a worktree directory a person put there makes, is fixed by moving that directory.
+func TestTheRefusalNamesWhereTheRootCameFrom(t *testing.T) {
+	t.Parallel()
+	p, source, _ := provisioner(nil)
+	machine := fake.NewCheckouts()
+	keeping(t, machine, "prj-1", "r1", "/work/app")
+	p.Checkouts = machine
+	source.PutUser("[worktree]\nroot = \"/work/app/wt\"\n")
+	_, err := p.Prepare(t.Context(), worker.LaneRequest{Lane: "l1", Repository: "/work/app", Project: "prj-1"})
+	var inside *worker.WorktreeInsideClone
+	if !errors.As(err, &inside) || inside.Source != lanes.RootFromUser {
+		t.Fatalf("got %v", err)
+	}
+
+	source.PutUser("")
+	source.SetDefaultRoot("/work/app/.worktrees/{project}/{repo}")
+	_, err = p.Prepare(t.Context(), worker.LaneRequest{Lane: "l1", Repository: "/work/app", Project: "prj-1"})
+	if !errors.As(err, &inside) || inside.Source != lanes.RootFromDefault {
+		t.Fatalf("got %v", err)
+	}
+	if detail := inside.Detail(); !strings.Contains(detail, api.EnvWorktreeDir) || strings.Contains(detail, "remove it") {
+		t.Errorf("the detail %q says to remove a root nobody set", detail)
+	}
+}
+
+// A root beside a clone, or above it, is outside it.
+func TestARootBesideOrAboveAClonePasses(t *testing.T) {
+	t.Parallel()
+	for _, root := range []string{"../{repo}-lanes", "../lanes/{repo}", "/elsewhere/{project}"} {
+		p, source, _ := provisioner(nil)
+		machine := fake.NewCheckouts()
+		keeping(t, machine, "prj-1", "r1", "/work/app")
+		p.Checkouts = machine
+		source.Put("/work/app", "[worktree]\nroot = \""+root+"\"\n")
+		if _, err := p.Prepare(t.Context(), worker.LaneRequest{Lane: "l1", Repository: "/work/app", Project: "prj-1"}); err != nil {
+			t.Errorf("root %q: %v", root, err)
+		}
 	}
 }
 
@@ -79,7 +218,7 @@ func TestPrepareLeavesNothingOnABadProfile(t *testing.T) {
 	if !errors.Is(err, lanes.ErrBadProfile) {
 		t.Fatalf("got %v", err)
 	}
-	if _, err := worktrees.Inspect(t.Context(), "/work/app-lanes/l1"); !errors.Is(err, ports.ErrNotFound) {
+	if _, err := worktrees.Inspect(t.Context(), "/ropeshift/worktrees/default/app/l1"); !errors.Is(err, ports.ErrNotFound) {
 		t.Errorf("a worktree was left behind: %v", err)
 	}
 }
@@ -93,7 +232,7 @@ func TestARepositoryCannotTurnPushOn(t *testing.T) {
 	if !errors.Is(err, lanes.ErrBadProfile) || !strings.Contains(err.Error(), "push_on_stop") {
 		t.Fatalf("got %v", err)
 	}
-	if _, err := worktrees.Inspect(t.Context(), "/work/app-lanes/l1"); !errors.Is(err, ports.ErrNotFound) {
+	if _, err := worktrees.Inspect(t.Context(), "/ropeshift/worktrees/default/app/l1"); !errors.Is(err, ports.ErrNotFound) {
 		t.Errorf("a worktree was left behind: %v", err)
 	}
 }
@@ -293,7 +432,7 @@ func TestPrepareDetachedMakesNoBranch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if lane.Worktree.Path != "/work/app-lanes/review-1" || lane.Worktree.Branch != "" || !lane.Worktree.Detached || lane.Worktree.Head != "c0ffee" {
+	if lane.Worktree.Path != "/ropeshift/worktrees/default/app/review-1" || lane.Worktree.Branch != "" || !lane.Worktree.Detached || lane.Worktree.Head != "c0ffee" {
 		t.Errorf("worktree %+v", lane.Worktree)
 	}
 	if created := worktrees.Created(); len(created) != 1 || !created[0].Detached || created[0].Base != "c0ffee" {

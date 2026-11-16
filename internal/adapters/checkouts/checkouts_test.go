@@ -271,3 +271,74 @@ func TestAPathInsideAReservedDirectoryIsFoundByTheFileThatDirectoryNames(t *test
 		}
 	}
 }
+
+// Every lists the checkout of every repository in every project, each path once, in order, and nothing
+// for a file that holds none.
+func TestEveryListsTheCheckoutsOfEveryProject(t *testing.T) {
+	file := filepath.Join(t.TempDir(), FileName)
+	f := &File{Path: file}
+	ctx := t.Context()
+	if every, err := f.Every(ctx); err != nil || len(every) != 0 {
+		t.Fatalf("a new file: %v, %v", every, err)
+	}
+	for _, keep := range []struct{ project, repository, path string }{
+		{"alpha", "r1", "/work/api"}, {"alpha", "r2", "/work/web"}, {"beta", "r1", "/work/api"}, {"beta", "r2", "/fork/web"},
+	} {
+		if err := f.Keep(ctx, ledger.WorkspaceID(keep.project), keep.repository, keep.path); err != nil {
+			t.Fatal(err)
+		}
+	}
+	every, err := f.Every(ctx)
+	if want := []string{"/fork/web", "/work/api", "/work/web"}; err != nil || !slices.Equal(every, want) {
+		t.Errorf("every checkout is %v (%v), want %v", every, err, want)
+	}
+}
+
+// A path is inside a clone when it is the clone or below it, by the real paths of both with every link
+// followed, and a path nothing is at is judged by the nearest directory above it that exists.
+func TestInsideCloneFollowsLinksAndJudgesAPathNothingIsAt(t *testing.T) {
+	root := real(t, t.TempDir())
+	api, web := filepath.Join(root, "repos", "api"), filepath.Join(root, "repos", "web")
+	cloneInto(t, api)
+	cloneInto(t, web)
+	outside := filepath.Join(root, "worktrees")
+	if err := os.MkdirAll(outside, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(api, ".git"), filepath.Join(outside, "into-git")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(api, filepath.Join(outside, "the-clone")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(root, "repos"), filepath.Join(outside, "the-folder")); err != nil {
+		t.Fatal(err)
+	}
+	f := &File{Path: filepath.Join(root, FileName)}
+	clones := []string{api, web, filepath.Join(root, "gone")}
+	for name, one := range map[string]struct {
+		path  string
+		clone string
+	}{
+		"the clone itself":                      {api, api},
+		"a folder inside it":                    {filepath.Join(api, "lanes"), api},
+		"a path nothing is at, deep inside it":  {filepath.Join(api, "a", "b", "c"), api},
+		"a link that leads into it":             {filepath.Join(outside, "the-clone", "x"), api},
+		"a link that leads into its git folder": {filepath.Join(outside, "into-git", "worktrees", "x"), api},
+		"a link to the folder of clones":        {filepath.Join(outside, "the-folder", "web", "lanes"), web},
+		"a path outside every clone":            {filepath.Join(outside, "prj", "api"), ""},
+		"the folder that holds the clones":      {filepath.Join(root, "repos"), ""},
+		"a sibling that shares a name prefix":   {api + "-lanes", ""},
+		"a path in no folder that exists":       {filepath.Join(root, "ghost", "prj", "api"), ""},
+	} {
+		clone, inside, err := ports.InsideClone(t.Context(), f, clones, one.path)
+		if err != nil || inside != (one.clone != "") || clone != one.clone {
+			t.Errorf("%s: %q, %v (%v), want %q", name, clone, inside, err, one.clone)
+		}
+	}
+	if ignoresCase(t, root) {
+		if clone, inside, err := ports.InsideClone(t.Context(), f, clones, filepath.Join(root, "REPOS", "API", "lanes")); err != nil || !inside || clone != api {
+			t.Errorf("a path spelled in other case: %q, %v (%v)", clone, inside, err)
+		}
+	}
+}
