@@ -52,7 +52,7 @@ func TestAPlanningLaneReadsTheOtherRepositoriesOfItsProject(t *testing.T) {
 		t.Fatal(err)
 	}
 	doubles.ReapShims(t, filepath.Join(in.paths().StateDir, "lanes", "lane-1"))
-	reads := filepath.Join(filepath.Dir(plan.Dir), filepath.Base(plan.Dir)+"-lanes", "lane-1.reads")
+	reads := filepath.Join(in.homeLaneRoot(plan.Dir), "lane-1.reads")
 
 	d := in.start("--intake-tick", "20ms", "--heartbeat", "30ms", "--lease-tick", "20ms", "--source", plan.Dir)
 	defer d.kill()

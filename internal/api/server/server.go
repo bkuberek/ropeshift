@@ -102,6 +102,9 @@ type Config struct {
 	// routes refuse.
 	Profile     ports.UserProfile
 	LocalWorker func(context.Context) (string, error)
+	// Profiles reads the profile in force for a clone on this machine, so a registration can say when the
+	// worktree root would lie inside the clone (FR-PROF-3). Nil says nothing of it.
+	Profiles ports.ProfileSource
 }
 
 type handler struct {
@@ -251,7 +254,7 @@ func newHandler(config Config) *handler {
 		approvals:     control.NewApprovals(config.Store),
 		autonomy:      control.NewAutonomy(config.Store),
 		effects:       control.NewEffects(config.Store),
-		repositories:  control.NewRepositories(config.Store),
+		repositories:  control.NewRepositories(config.Store).Rooted(config.Profiles),
 		delegates:     control.NewDelegates(config.Store),
 		conversations: control.NewConversations(config.Store, config.Windows).Hosting(config.AssistantHosts, config.HeartbeatMs),
 		workers: control.NewWorkers(config.Store, config.Scope, control.WorkerOptions{

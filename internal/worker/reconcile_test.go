@@ -408,7 +408,7 @@ func TestAWorktreeMadeBeforeACrashIsNotMadeAgain(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	place, err := lanes.Place(profile.Worktree, "/repository", "lane-1", "")
+	place, err := lanes.Place(profile.Worktree, "/repository", "", "lane-1", "")
 	if err != nil {
 		t.Fatal(err)
 	}

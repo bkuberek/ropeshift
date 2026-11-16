@@ -42,6 +42,10 @@ const (
 	// delegate that sent its own profile layer from raising the model or the effort it would run (FR-AUTH-16).
 	// The report's detail names the version and what the layer raised.
 	ReasonDelegatePolicy = "delegate_policy"
+	// ReasonWorktreeInsideClone says a lane did not start because its worktree root is a clone the worker keeps
+	// or lies inside one (FR-PROF-3). The report's detail names the root, the clone, and the layer that set the
+	// root, and says how to fix it.
+	ReasonWorktreeInsideClone = "worktree_inside_clone"
 )
 
 // CheckResult is one check a lane reports. Criterion names what it speaks for, and a check

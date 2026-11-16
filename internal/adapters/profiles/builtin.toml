@@ -50,7 +50,9 @@ human_batch_max_wait = "5m"
 
 # Nothing a lane did leaves the machine unless the user's own layer turns push_on_stop on.
 [worktree]
-root = "../{repo}-lanes"
+# No root here: with none in any layer, the daemon gives each profile its worktree directory's
+# {project}/{repo}, which lies outside every clone.
+root = ""
 branch_prefix = "lane/"
 push_on_stop = false
 

@@ -2,6 +2,8 @@ package ports
 
 import (
 	"context"
+	"errors"
+	"path"
 
 	"ropeshift.com/ropeshift/internal/ledger"
 )
@@ -46,4 +48,51 @@ type Checkouts interface {
 	Forget(ctx context.Context, project ledger.WorkspaceID, repository string) error
 	// Of lists this worker's checkouts in a project, as the path of each repository's.
 	Of(ctx context.Context, project ledger.WorkspaceID) (map[string]string, error)
+	// Every lists the path of every checkout this worker keeps, in every project, each once and in order.
+	// No lane's worktree may be one of them or inside one.
+	Every(ctx context.Context) ([]string, error)
+}
+
+// InsideClone says whether a path is one of the clones or lies inside one, and names that clone. It
+// compares what the disk says of each path, every symbolic link followed, so a root that reaches a clone
+// through a link, or that a disk that ignores case spells another way, is found. A path nothing is at is
+// judged by the nearest directory above it that exists, because a worktree's root is made after the check.
+// A clone nothing is at holds nothing.
+func InsideClone(ctx context.Context, kept Checkouts, clones []string, target string) (string, bool, error) {
+	real, err := resolveExisting(ctx, kept, target)
+	if err != nil {
+		return "", false, err
+	}
+	for _, clone := range clones {
+		for at := real; ; at = path.Dir(at) {
+			same, err := kept.SameFile(ctx, at, clone)
+			switch {
+			case errors.Is(err, ErrNotFound):
+			case err != nil:
+				return "", false, err
+			case same:
+				return clone, true, nil
+			}
+			if path.Dir(at) == at {
+				break
+			}
+		}
+	}
+	return "", false, nil
+}
+
+// resolveExisting follows every link in the part of a path that exists and keeps the rest as it is spelled.
+func resolveExisting(ctx context.Context, kept Checkouts, target string) (string, error) {
+	at, rest := path.Clean(target), ""
+	for {
+		real, _, err := kept.Resolve(ctx, at)
+		if err == nil {
+			return path.Join(real, rest), nil
+		}
+		parent := path.Dir(at)
+		if !errors.Is(err, ErrNotFound) || parent == at {
+			return "", err
+		}
+		rest, at = path.Join(path.Base(at), rest), parent
+	}
 }

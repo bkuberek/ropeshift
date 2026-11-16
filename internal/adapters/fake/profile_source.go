@@ -12,14 +12,27 @@ import (
 // ProfileSource holds repository layers in memory, and layers them with the code
 // the filesystem source uses.
 type ProfileSource struct {
-	mu     sync.Mutex
-	user   string
-	layers map[string]string
+	mu          sync.Mutex
+	user        string
+	layers      map[string]string
+	defaultRoot string
 }
 
-// NewProfileSource returns a source with no layers.
+// DefaultWorktreeRoot is the root a fake profile source gives a profile that names none: a folder beside the
+// repository's clone, never inside it, so a test that makes real directories makes them beside its own
+// temporary clone and not under a path it does not own. SetDefaultRoot gives the daemon's own shape.
+const DefaultWorktreeRoot = "../{repo}-lanes"
+
+// NewProfileSource returns a source with no layers, whose profiles with no root get DefaultWorktreeRoot.
 func NewProfileSource() *ProfileSource {
-	return &ProfileSource{layers: map[string]string{}}
+	return &ProfileSource{layers: map[string]string{}, defaultRoot: DefaultWorktreeRoot}
+}
+
+// SetDefaultRoot sets the root a profile that names none gets, as the daemon's worktree directory does.
+func (s *ProfileSource) SetDefaultRoot(root string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.defaultRoot = root
 }
 
 // Put stands for a repository's layer.
@@ -39,9 +52,13 @@ func (s *ProfileSource) PutUser(text string) {
 // Load resolves one lane's profile.
 func (s *ProfileSource) Load(_ context.Context, repository, overrides string) (lanes.Profile, error) {
 	s.mu.Lock()
-	text, user := s.layers[repository], s.user
+	text, user, defaultRoot := s.layers[repository], s.user, s.defaultRoot
 	s.mu.Unlock()
-	return profiles.ResolveLayers(user, text, overrides)
+	profile, err := profiles.ResolveLayers(user, text, overrides)
+	if err != nil {
+		return lanes.Profile{}, err
+	}
+	return profiles.ApplyDefaultRoot(profile, defaultRoot, user, text)
 }
 
 // LaneCaps reads the caps the user's layer sets.

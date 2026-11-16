@@ -223,8 +223,8 @@ func TestRS13(t *testing.T) {
 	pane.Commit(".ropeshift/profile.toml", rs13Profile(lanes.ProfileRunTmux))
 	pane.Commit("contract.md", rs13Contract("rs13p", words["pane"]))
 	s.repo = headless.Dir
-	s.worktree = filepath.Join(filepath.Dir(headless.Dir), filepath.Base(headless.Dir)+"-lanes", rs13HeadlessLane)
-	paneWorktree := filepath.Join(filepath.Dir(pane.Dir), filepath.Base(pane.Dir)+"-lanes", rs13PaneLane)
+	s.worktree = s.laneTree(headless.Dir, rs13HeadlessLane)
+	paneWorktree := s.laneTree(pane.Dir, rs13PaneLane)
 	s.others = []string{headless.Dir, s.worktree, pane.Dir, paneWorktree}
 	for _, lane := range []string{"headless", "pane"} {
 		if err := s.spend.charge(lane, rs13Charge); err != nil {

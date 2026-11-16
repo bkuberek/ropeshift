@@ -346,7 +346,7 @@ func (r *Repositories) registerEntry(ctx context.Context, scope ledger.Workspace
 			return refused(path, fmt.Sprintf("its name is held by another repository: the project's %s is %s, and the manifest's is %s",
 				entry.Name, ledger.RepositoryIdentity(record.Remote, record.ID), other)), nil
 		}
-		return Added{Path: path, Outcome: ledger.AlreadyRegistered, Repository: record, Checkout: run.checkouts[record.ID]}, nil
+		return r.withRootNote(ctx, scope, kept, Added{Path: path, Outcome: ledger.AlreadyRegistered, Repository: record, Checkout: run.checkouts[record.ID]}, run.checkouts[record.ID])
 	}
 	if record, ok := run.removed[entry.Name]; ok && !run.restore {
 		return refused(at, staysRemoved(record)), nil
@@ -377,8 +377,10 @@ func (r *Repositories) registerEntry(ctx context.Context, scope ledger.Workspace
 		return added, nil
 	}
 	run.claimed[added.Repository.Name] = true
-	added.Checkout, err = keepCheckout(ctx, kept, scope, run.checkouts, clone, run.dryRun)
-	return added, err
+	if added.Checkout, err = keepCheckout(ctx, kept, scope, run.checkouts, clone, run.dryRun); err != nil {
+		return added, err
+	}
+	return r.withRootNote(ctx, scope, kept, added, added.Checkout)
 }
 
 // manifestRun is how a run registers what a manifest lists.

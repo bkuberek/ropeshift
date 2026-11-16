@@ -194,8 +194,8 @@ func TestRS5(t *testing.T) {
 		"Then call the lane_report tool once, with outcome completed, and end your turn with the single word done."))
 
 	s.repo = headless.Dir
-	s.worktree = filepath.Join(filepath.Dir(headless.Dir), filepath.Base(headless.Dir)+"-lanes", rs5HeadlessLane)
-	paneWorktree := filepath.Join(filepath.Dir(pane.Dir), filepath.Base(pane.Dir)+"-lanes", rs5PaneLane)
+	s.worktree = s.laneTree(headless.Dir, rs5HeadlessLane)
+	paneWorktree := s.laneTree(pane.Dir, rs5PaneLane)
 	s.others = []string{headless.Dir, s.worktree, pane.Dir, paneWorktree}
 	for _, lane := range []string{"headless", "pane"} {
 		if err := s.spend.charge(lane, rs5Charge); err != nil {

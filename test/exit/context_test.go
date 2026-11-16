@@ -68,7 +68,7 @@ func TestAContextPolicyRunsAcrossALane(t *testing.T) {
 	if len(denied) != 1 || !strings.Contains(denied[0], lanes.ReasonHandOff) {
 		t.Errorf("denied %q", denied)
 	}
-	worktree := filepath.Join(filepath.Dir(repo.Dir), filepath.Base(repo.Dir)+"-lanes", "lane-1")
+	worktree := filepath.Join(in.homeLaneRoot(repo.Dir), "lane-1")
 	if _, err := os.Stat(filepath.Join(worktree, "denied-tool-ran")); !os.IsNotExist(err) {
 		t.Errorf("the held tool ran: %v", err)
 	}

@@ -107,7 +107,12 @@ type LifecycleSettings struct {
 
 // WorktreeSettings says where a lane's worktree goes, and whether its work may leave the machine.
 type WorktreeSettings struct {
-	Root         string `toml:"root" json:"root"`
+	// Root is where a lane's worktrees go. The built-in layer sets none, and the profile source gives a
+	// profile with none the installation's own root, which lies outside every clone (FR-PROF-3).
+	Root string `toml:"root" json:"root"`
+	// RootSource names the layer that set Root, for a refusal that has to say where to change it. No
+	// layer sets it, and it is no part of a lane's digest.
+	RootSource   string `toml:"-" json:"-"`
 	BranchPrefix string `toml:"branch_prefix" json:"branch_prefix"`
 	// PushOnStop sends a lane's branch and its checkpoint refs to the repository's remote when the
 	// lane stops or its worktree is removed. A push sends work off the machine, so it is off until
@@ -389,9 +394,23 @@ func inTable(path []string) string {
 	return " of [" + strings.Join(path, ".") + "]"
 }
 
-// RepositoryToken is what a worktree root's template replaces with the repository's
-// name.
-const RepositoryToken = "{repo}"
+// The tokens a worktree root's template replaces: the repository's clone folder's base name, and the ID of
+// the project the lane belongs to.
+const (
+	RepositoryToken = "{repo}"
+	ProjectToken    = "{project}"
+)
+
+// The layers a worktree root can come from, as a refusal names them.
+const (
+	RootFromDefault    = "the built-in root"
+	RootFromUser       = "the user's profile layer"
+	RootFromRepository = "the repository's profile layer"
+)
+
+// DefaultProject stands for the project of a lane whose lease names none, which is the installation's only
+// project.
+const DefaultProject = "default"
 
 // Placement says where one lane works.
 type Placement struct {
@@ -399,16 +418,24 @@ type Placement struct {
 	Branch string
 }
 
-// Place computes a lane's worktree and branch. A root is relative to the repository,
-// so `../{repo}-lanes` keeps lanes beside the repository and out of it.
-func Place(settings WorktreeSettings, repository, lane, branch string) (Placement, error) {
+// Place computes a lane's worktree and branch. A root is relative to the repository when it is not
+// absolute, so `../{repo}-lanes` keeps lanes beside the repository and out of it. The project is the ID of
+// the lane's project, and an empty one is DefaultProject: the ID, because a rename changes the name and the
+// root is computed again for every generation.
+func Place(settings WorktreeSettings, repository, project, lane, branch string) (Placement, error) {
 	if !path.IsAbs(repository) {
 		return Placement{}, fmt.Errorf("%w: repository %q is not absolute", ErrBadProfile, repository)
+	}
+	if project == "" {
+		project = DefaultProject
+	}
+	if strings.ContainsAny(project, "/\\") || project == ".." || project == "." {
+		return Placement{}, fmt.Errorf("%w: no place for project %q", ErrBadProfile, project)
 	}
 	if settings.Root == "" || lane == "" || strings.ContainsAny(lane, "/\\") || lane == ".." {
 		return Placement{}, fmt.Errorf("%w: no place for lane %q under %q", ErrBadProfile, lane, settings.Root)
 	}
-	root := strings.ReplaceAll(settings.Root, RepositoryToken, path.Base(repository))
+	root := strings.NewReplacer(RepositoryToken, path.Base(repository), ProjectToken, project).Replace(settings.Root)
 	if !path.IsAbs(root) {
 		root = path.Join(repository, root)
 	}

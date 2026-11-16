@@ -298,6 +298,30 @@ func TestRepositoryAddRegistersClonesAndSaysWhatItRefused(t *testing.T) {
 	}
 }
 
+// FR-PROF-3: `repository add` registers a clone whose worktree root would lie inside it, and says so on
+// the line it prints, so the person fixes the root before a lane fails.
+func TestRepositoryAddSaysWhenTheWorktreeRootWouldLieInsideTheClone(t *testing.T) {
+	machine := fake.NewCheckouts()
+	machine.Place(ports.Clone{Path: "/work/api", ID: aRepositoryID, DefaultBranch: "main"})
+	profiles := fake.NewProfileSource()
+	profiles.PutUser("[worktree]\nroot = \"lanes\"\n")
+	s := &session{t: t, daemon: apitest.StartWith(t, apitest.Options{Checkouts: machine, Profiles: profiles})}
+
+	code, stdout, _ := s.run("repository", "add", "/work/api")
+	for _, want := range []string{"registered\tapi\t", "worktree root /work/api/lanes", "set by the user's profile layer", "worktree_inside_clone", "or remove it to use the built-in root"} {
+		if code != cli.ExitOK || !strings.Contains(stdout, want) {
+			t.Errorf("the registration lacks %q (exit %d):\n%s", want, code, stdout)
+		}
+	}
+	if list := s.must("repository", "list"); !strings.Contains(list, "api") {
+		t.Errorf("the clone was not registered:\n%s", list)
+	}
+	profiles.PutUser("")
+	if _, stdout, _ := s.run("repository", "add", "/work/api"); strings.Contains(stdout, "worktree root") {
+		t.Errorf("a root outside the clone is reported:\n%s", stdout)
+	}
+}
+
 // FR-REPO-12: `repository set` takes several repositories and applies the same change to each, one event
 // per repository. A name the project does not hold changes none of them.
 func TestRepositorySetChangesSeveralRepositories(t *testing.T) {

@@ -264,7 +264,7 @@ func serveSolo(ctx context.Context, paths api.Paths, opts soloOptions, stdout, s
 		Panes:     soloPanes(terminal), Starts: soloStarts(opts, kept), WebAddress: webAddressOf(webListener),
 		Branches: branchSource(opts, kept), LaneBranchPrefix: soloLaneBranchPrefix(paths),
 		Checkouts: kept, ParseManifest: repofiles.ParseManifest, ModelClasses: soloModelClasses(paths),
-		Profile: profiles.Filesystem{User: filepath.Join(paths.StateDir, profiles.UserFile)}, LocalWorker: local.id,
+		Profile: soloProfiles(paths), Profiles: soloProfiles(paths), LocalWorker: local.id,
 	}
 	hosts := &soloHosts{kept: kept, runtime: laneRuntime}
 	config.AssistantHosts = hosts.read
@@ -406,6 +406,9 @@ func startSoloWorker(
 		Report: func(err error) {
 			fmt.Fprintf(stderr, "ropeshiftd: worker: %v\n", err)
 		},
+		Notice: func(notice string) {
+			fmt.Fprintf(stderr, "ropeshiftd: worker: note: %s\n", notice)
+		},
 	})
 	hosts.serve(subject)
 	local.worker.Store(subject)
@@ -519,9 +522,11 @@ func soloLanes(paths api.Paths, opts soloOptions, kept ports.Checkouts, stderr i
 	return &worker.LaneRuntime{
 		Driver: soloDriver(runner, terminal, env),
 		Provisioner: worker.Provisioner{
-			Profiles:  profiles.Filesystem{User: filepath.Join(paths.StateDir, profiles.UserFile)},
+			Profiles:  soloProfiles(paths),
 			Worktrees: gitcli.Worktrees{},
 			Hooks:     hookrun.Runner{Processes: osexec.Runner{}},
+			Checkouts: kept,
+			Sources:   absolute(opts.sources),
 		},
 		Secrets:    secrets.Resolver{},
 		Machine:    machine.Reader{Processes: osexec.Runner{}},
@@ -564,10 +569,33 @@ func soloTerminal(runner ports.ProcessRunner, paths api.Paths, env []string) (po
 	return terminal, nil
 }
 
-// soloCheckouts is the checkouts this machine's worker keeps, in its state directory. The state and run
-// directories are the installation's own, with its lanes' worktrees, so no manifest registers a clone there.
+// soloCheckouts is the checkouts this machine's worker keeps, in its state directory. The state, run, and
+// worktree directories are the installation's own, so no registration takes one of them, or a lane's
+// worktree inside one, for a clone.
 func soloCheckouts(paths api.Paths) *checkouts.File {
-	return &checkouts.File{Path: filepath.Join(paths.StateDir, checkouts.FileName), Reserved: []string{paths.StateDir, paths.RunDir}}
+	return &checkouts.File{Path: filepath.Join(paths.StateDir, checkouts.FileName), Reserved: []string{paths.StateDir, paths.RunDir, paths.WorktreeDir}}
+}
+
+// absolute spells the daemon's source paths as absolute ones, as a worktree root is compared with them. A path
+// that cannot be made absolute is left out, because nothing could be inside it.
+func absolute(paths []string) []string {
+	var out []string
+	for _, path := range paths {
+		if abs, err := filepath.Abs(path); err == nil {
+			out = append(out, abs)
+		}
+	}
+	return out
+}
+
+// soloProfiles reads the user's layer from the state directory and a repository's from its clone, and gives
+// a profile that names no worktree root the installation's worktree directory, by project and clone folder,
+// which lies outside every clone (FR-PROF-3).
+func soloProfiles(paths api.Paths) profiles.Filesystem {
+	return profiles.Filesystem{
+		User:        filepath.Join(paths.StateDir, profiles.UserFile),
+		DefaultRoot: filepath.Join(paths.WorktreeDir, lanes.ProjectToken, lanes.RepositoryToken),
+	}
 }
 
 // checkoutOf finds this machine's checkout of a project's repository: the one the worker keeps for the

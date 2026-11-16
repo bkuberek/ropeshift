@@ -155,7 +155,7 @@ func TestALaneRunsAsItsPlannedAgentAndHandsWorkToTheRoster(t *testing.T) {
 		}
 	}
 
-	laneRoot := filepath.Join(filepath.Dir(repo.Dir), filepath.Base(repo.Dir)+"-lanes")
+	laneRoot := in.homeLaneRoot(repo.Dir)
 	for _, place := range []string{
 		filepath.Join(in.home, ".claude", "agents"), filepath.Join(repo.Dir, ".claude", "agents"), filepath.Join(laneRoot, "lane-1", ".claude", "agents"),
 	} {

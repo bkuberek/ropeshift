@@ -345,6 +345,12 @@ func (s *suite) subdirectory(name string) string {
 	return dir
 }
 
+// laneTree is where the daemon puts a lane's worktree in the installation's first project when no profile names
+// a root: under the worktree directory, in the clone's folder (FR-PROF-3).
+func (s *suite) laneTree(clone, lane string) string {
+	return filepath.Join(s.paths.WorktreeDir, "default", filepath.Base(clone), lane)
+}
+
 func exists4(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
@@ -398,8 +404,8 @@ func TestRS4(t *testing.T) {
 	paneBefore := s.head(paneRemote)
 
 	s.repo = headless.Dir
-	s.worktree = filepath.Join(filepath.Dir(headless.Dir), filepath.Base(headless.Dir)+"-lanes", rs4HeadlessLane)
-	paneWorktree := filepath.Join(filepath.Dir(pane.Dir), filepath.Base(pane.Dir)+"-lanes", rs4PaneLane)
+	s.worktree = s.laneTree(headless.Dir, rs4HeadlessLane)
+	paneWorktree := s.laneTree(pane.Dir, rs4PaneLane)
 	s.others = []string{headless.Dir, s.worktree, pane.Dir, paneWorktree}
 	paneOnly := os.Getenv(envOnly) == rs4PaneHalf
 	if !paneOnly {

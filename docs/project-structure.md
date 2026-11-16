@@ -50,16 +50,28 @@ A project of one repository needs none of the extra parts: that repository is it
 
 ## Where lane worktrees go
 
-Each lane works in a git worktree of its own. By default, ropeshift puts it in a folder beside the repository, `../<repository>-lanes/<lane>`. For the workspace itself, that is a folder beside the workspace, which is fine. For a code repository inside `repos/`, it is `repos/acme-api-lanes/`: inside the folder of clones, where scripts that loop over `repos/*` find it, and inside the workspace, where an agent also reads the workspace's instruction files from a parent folder ([Claude Code memory](https://code.claude.com/docs/en/memory)).
+Each lane works in a git worktree of its own. By default, ropeshift puts it outside every clone, in the installation's worktree directory, at `<worktree directory>/<project>/<repository>/<lane>`:
 
-Put every lane worktree outside the workspace instead. Set the root in your own profile layer, `profile.toml` in the installation's directory ([where ropeshift keeps its files](cli.md#the-daemon)):
+| System | Worktree directory |
+|--------|--------------------|
+| Linux | `$XDG_DATA_HOME/ropeshift/worktrees`, or `~/.local/share/ropeshift/worktrees` when `XDG_DATA_HOME` is unset |
+| macOS | `~/.ropeshift/worktrees`, a path with no space, which some build tools mishandle |
+| With `ROPESHIFT_STATE_DIR` set | `<state directory>/worktrees`, so a second installation and every test keep their lanes apart from yours |
+
+`ROPESHIFT_WORKTREE_DIR` replaces the worktree directory in every case, and must be an absolute path: the daemon refuses to start on a relative one. A relative `XDG_DATA_HOME` is ignored, as the XDG specification says. `<project>` is the project's ID, which a rename keeps, and `<repository>` is the name of the repository's folder, so two projects whose clones share a folder name never share a lane folder. A lane in `repos/acme-api` of a workspace therefore never lands in `repos/`, where scripts that loop over `repos/*` would find it, or inside the workspace, where an agent also reads the workspace's instruction files from a parent folder ([Claude Code memory](https://code.claude.com/docs/en/memory)).
+
+To put lane worktrees somewhere else, set the root in your own profile layer, `profile.toml` in the installation's directory ([where ropeshift keeps its files](cli.md#the-daemon)):
 
 ```toml
 [worktree]
-root = "/path/to/lanes/{repo}"
+root = "/path/to/lanes/{project}/{repo}"
 ```
 
-`{repo}` becomes the name of the repository's folder, so each repository's lanes stay apart. A relative root is read from the repository's folder, which is why the default climbs out with `..`. Write an absolute path: the root expands no `~` and no variable. A lane's own `--profile` layer cannot change the root. Each lane's branch is still `lane/<lane>` in its repository.
+`{repo}` becomes the name of the repository's folder, and `{project}` the project's ID, so each repository's lanes stay apart. A relative root is read from the repository's folder. Write an absolute path: the root expands no `~` and no variable. A lane's own `--profile` layer cannot change the root. Each lane's branch is still `lane/<lane>` in its repository.
+
+A root that is a registered clone, or lies inside one, is refused, whoever set it, with symbolic links followed and the clones of every project on the machine counted. The lane fails before any worktree exists, with the reason `worktree_inside_clone`. Needs you and `ropeshift work show` name the root, the clone, and the layer that set the root, and say to set `[worktree] root` in your profile to a folder outside every clone, or to remove it to use the built-in root. `ropeshift repository add` reports a clone whose root would lie inside it and registers it all the same, so you can fix the setting before the first lane.
+
+The root applies to worktrees not yet made. A lane that already has a worktree of its own goes on in it at its next generation, wherever it is, so an upgrade from the old default, `../<repository>-lanes`, never moves a lane in flight, and the refusal does not stop one. A worktree is the lane's own when it stands in a folder named for the lane and is the one the lane's journal recorded; a worktree of a person's, or one another lane left, that holds the lane's branch is never taken, and the lane's start is refused as git refuses a branch two worktrees would hold. The worker notes in the daemon's log, once for each lane run, that the lane kept its worktree and where the root in force would put a new one, and when the worktree lies inside a clone, where a new worktree is refused and the kept one stays until the lane ends. New lanes, and lanes whose worktree was archived, take the root in force. The refusal checks every clone the worker keeps, the daemon's `--source` repositories, and the repository the lane works in.
 
 ## The repository file format
 

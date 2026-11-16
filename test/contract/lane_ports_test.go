@@ -120,7 +120,7 @@ func TestProfileSourceContract(t *testing.T) {
 		RunProfileSource(t, func(t *testing.T) ProfileRig {
 			repository := t.TempDir()
 			return ProfileRig{
-				Source: profiles.Filesystem{}, Repository: repository,
+				Source: profiles.Filesystem{DefaultRoot: "/data/worktrees/{project}/{repo}"}, Repository: repository,
 				Layer: func(text string) {
 					path := filepath.Join(repository, profiles.RepositoryFile)
 					if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
@@ -136,6 +136,7 @@ func TestProfileSourceContract(t *testing.T) {
 	t.Run("in-memory", func(t *testing.T) {
 		RunProfileSource(t, func(*testing.T) ProfileRig {
 			source := fake.NewProfileSource()
+			source.SetDefaultRoot("/data/worktrees/{project}/{repo}")
 			return ProfileRig{
 				Source: source, Repository: "/work/repository",
 				Layer: func(text string) { source.Put("/work/repository", text) },
@@ -386,8 +387,9 @@ func TestALaneGetsItsPlace(t *testing.T) {
 	repo := gittest.New(t)
 	repo.Commit(profiles.RepositoryFile, "[agent]\nmodel = \"haiku\"\n\n[worktree]\nbranch_prefix = \"work/\"\n")
 	parent := map[string]string{"HOME": "/home/someone", "PATH": "/usr/bin", "CLAUDECODE": "1", "ANTHROPIC_API_KEY": "k"}
+	worktreeDir := t.TempDir()
 	provisioner := worker.Provisioner{
-		Profiles:  profiles.Filesystem{},
+		Profiles:  profiles.Filesystem{DefaultRoot: filepath.Join(worktreeDir, lanes.ProjectToken, lanes.RepositoryToken)},
 		Worktrees: gitcli.Worktrees{Env: repo.Env()},
 		Lookup: func(name string) (string, bool) {
 			value, ok := parent[name]
@@ -395,12 +397,12 @@ func TestALaneGetsItsPlace(t *testing.T) {
 		},
 	}
 	lane, err := provisioner.Prepare(t.Context(), worker.LaneRequest{
-		Lane: "lane-1", Repository: repo.Dir, Tags: map[string]string{lanes.TagPrefix + "LANE": "lane-1"},
+		Lane: "lane-1", Repository: repo.Dir, Project: "prj-1", Tags: map[string]string{lanes.TagPrefix + "LANE": "lane-1"},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if lane.Worktree.Branch != "work/lane-1" || lane.Worktree.Path != filepath.Join(filepath.Dir(repo.Dir), "repository-lanes", "lane-1") {
+	if lane.Worktree.Branch != "work/lane-1" || lane.Worktree.Path != filepath.Join(worktreeDir, "prj-1", "repository", "lane-1") {
 		t.Errorf("worktree %+v", lane.Worktree)
 	}
 	if lane.Profile.Agent.Model != "haiku" || lane.ProfileDigest == "" {

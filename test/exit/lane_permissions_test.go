@@ -54,7 +54,7 @@ func TestALaneWorksInItsWorktreeWithNoRequestAndAsksForTheRest(t *testing.T) {
 	}
 	repo.Git("add", "out")
 	repo.Git("commit", "-q", "-m", "a link out of the worktree")
-	laneRoot := filepath.Join(filepath.Dir(repo.Dir), filepath.Base(repo.Dir)+"-lanes")
+	laneRoot := in.homeLaneRoot(repo.Dir)
 	outside := filepath.Join(laneRoot, "outside")
 
 	in.path = doubles.InstallFakeClaude(t, "lane-completed")

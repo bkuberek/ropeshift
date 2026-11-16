@@ -129,7 +129,9 @@ func start(t *testing.T, name string) *suite {
 	}
 	s := &suite{
 		t: t, home: home, scratch: scratch, binDir: filepath.Join(scratch, "bin"), spend: newSpendLedger(), before: before,
-		paths:  api.Paths{StateDir: filepath.Join(scratch, "state"), RunDir: filepath.Join(scratch, "run")},
+		paths: api.Paths{
+			StateDir: filepath.Join(scratch, "state"), RunDir: filepath.Join(scratch, "run"), WorktreeDir: filepath.Join(scratch, "state", "worktrees"),
+		},
 		stream: filepath.Join(scratch, "stream.log"), entries: readEntries(home),
 	}
 	t.Cleanup(s.finish)
@@ -456,7 +458,7 @@ func TestRS1(t *testing.T) {
 	repo.Commit(".ropeshift/profile.toml", profileText)
 	repo.Commit("contract.md", contractText)
 	s.repo = repo.Dir
-	s.worktree = filepath.Join(filepath.Dir(repo.Dir), filepath.Base(repo.Dir)+"-lanes", "rs1-lane")
+	s.worktree = s.laneTree(repo.Dir, "rs1-lane")
 
 	if err := s.spend.charge("lane", laneTurnsPaid); err != nil {
 		t.Fatal(err)

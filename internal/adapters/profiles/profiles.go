@@ -145,6 +145,29 @@ func ResolveLayers(user, repository, overrides string) (lanes.Profile, error) {
 type Filesystem struct {
 	// User is the user's layer. An empty path or an absent file has none.
 	User string
+	// DefaultRoot is the worktree root of a profile whose layers name none, a template that may hold
+	// {project} and {repo}. The daemon sets it to its worktree directory's {project}/{repo}, so a lane lands
+	// outside every clone (FR-PROF-3). Empty leaves such a profile with no root.
+	DefaultRoot string
+}
+
+// ApplyDefaultRoot gives a profile that names no worktree root defaultRoot, and records which layer set the
+// root it has: the repository's when its layer names one, else the user's, else the default. A lane's own
+// layer cannot set a root. user and repository are the layers the profile was resolved from.
+func ApplyDefaultRoot(profile lanes.Profile, defaultRoot, user, repository string) (lanes.Profile, error) {
+	if profile.Worktree.Root == "" {
+		profile.Worktree.Root, profile.Worktree.RootSource = defaultRoot, lanes.RootFromDefault
+		return profile, nil
+	}
+	layer, err := Resolve(repository)
+	if err != nil {
+		return lanes.Profile{}, err
+	}
+	profile.Worktree.RootSource = lanes.RootFromUser
+	if layer.Worktree.Root != "" {
+		profile.Worktree.RootSource = lanes.RootFromRepository
+	}
+	return profile, nil
 }
 
 func readLayer(path string) (string, error) {
@@ -170,7 +193,11 @@ func (f Filesystem) Load(_ context.Context, repository, overrides string) (lanes
 	if err != nil {
 		return lanes.Profile{}, err
 	}
-	return ResolveLayers(user, layer, overrides)
+	profile, err := ResolveLayers(user, layer, overrides)
+	if err != nil {
+		return lanes.Profile{}, err
+	}
+	return ApplyDefaultRoot(profile, f.DefaultRoot, user, layer)
 }
 
 // repositoryLayer is where a repository keeps its layer. An empty repository is none, and not

@@ -590,6 +590,77 @@ func TestAHookThatFailsFailsTheLaneBeforeASession(t *testing.T) {
 	}
 }
 
+// A worktree root inside a clone the worker keeps fails the lane before a session or a worktree, with the
+// reason `worktree_inside_clone` and a detail that names the root, the clone, the layer, and the fix, which
+// is what Needs you and `ropeshift work show` print (FR-PROF-3, FR-REPO-15).
+func TestAWorktreeRootInsideACloneFailsTheLaneWithItsOwnReason(t *testing.T) {
+	t.Parallel()
+	r := laneRigWith(t, "[worktree]\nroot = \"lanes\"\n")
+	machine := fake.NewCheckouts()
+	machine.Place(ports.Clone{Path: "/repository", ID: "r1", DefaultBranch: "main"})
+	if err := machine.Keep(t.Context(), "default", "r1", "/repository"); err != nil {
+		t.Fatal(err)
+	}
+	r.config.Provisioner.Checkouts = machine
+	if err := r.subject.Converge(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	change := r.outcome()
+	if change.Reason != workorders.ReasonWorktreeInsideClone {
+		t.Fatalf("outcome %+v", change)
+	}
+	for _, want := range []string{"/repository/lanes", "/repository", lanes.RootFromRepository, "set `[worktree] root` in your profile to a folder outside every clone, or remove it to use the built-in root"} {
+		if !strings.Contains(change.Detail, want) {
+			t.Errorf("the detail %q does not name %q", change.Detail, want)
+		}
+	}
+	if len(r.driver.Specs()) != 0 {
+		t.Error("a session started")
+	}
+	if _, err := r.worktrees().Inspect(t.Context(), "/repository/lanes/lane-1"); !errors.Is(err, ports.ErrNotFound) {
+		t.Errorf("a worktree was left behind: %v", err)
+	}
+}
+
+// A lane whose worktree stands at an old place goes on in it when the root moves, runs its session there, and
+// the worker reports the old placement once (FR-PROF-3). Nothing is made at the new root, and the lane does not
+// fail for lying inside a clone it did not choose.
+func TestALaneWithAnOldWorktreeRunsInItAndReportsItOnce(t *testing.T) {
+	t.Parallel()
+	r := laneRigWith(t, profileAt)
+	machine := fake.NewCheckouts()
+	machine.Place(ports.Clone{Path: "/repository", ID: "r1", DefaultBranch: "main"})
+	if err := machine.Keep(t.Context(), "default", "r1", "/repository"); err != nil {
+		t.Fatal(err)
+	}
+	r.config.Provisioner.Checkouts = machine
+	const old = "/repository/old-lanes/lane-1"
+	if _, err := r.worktrees().Create(t.Context(), ports.WorktreeSpec{Repository: "/repository", Path: old, Branch: "lane/lane-1"}); err != nil {
+		t.Fatal(err)
+	}
+	r.runWith()
+	if change := r.outcome(); change.Outcome != workorders.OutcomeCompleted {
+		t.Fatalf("outcome %+v", change)
+	}
+	specs := r.driver.Specs()
+	if len(specs) == 0 || specs[0].Dir != old {
+		t.Errorf("the session ran in %+v, want %s", specs, old)
+	}
+	if _, err := r.worktrees().Inspect(t.Context(), stopWorktree); !errors.Is(err, ports.ErrNotFound) {
+		t.Errorf("a worktree was made at the new root: %v", err)
+	}
+	// It is a notice, not a failure the worker went on from.
+	for _, problem := range r.problems() {
+		if strings.Contains(problem.Error(), "existing worktree") {
+			t.Errorf("the old placement was reported as a failure: %v", problem)
+		}
+	}
+	notices := r.notices()
+	if len(notices) != 1 || !strings.Contains(notices[0], old) || !strings.Contains(notices[0], stopWorktree) || !strings.Contains(notices[0], "inside the clone /repository") {
+		t.Errorf("the old placement was noticed as %q", notices)
+	}
+}
+
 // A delegate's lane start that raises the effort, under a delegate policy that restricts it, reaches the
 // worker with the version the control plane recorded, and the lane fails before anything runs, naming the
 // version (FR-AUTH-16). The outcome's reason is the delegate policy's own, and its detail names the version,

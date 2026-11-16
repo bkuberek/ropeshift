@@ -273,6 +273,7 @@ func TestPlace(t *testing.T) {
 		name       string
 		settings   WorktreeSettings
 		repository string
+		project    string
 		lane       string
 		branch     string
 		want       Placement
@@ -284,13 +285,31 @@ func TestPlace(t *testing.T) {
 			want: Placement{Path: "/work/checkout-lanes/l1", Branch: "lane/retry-t1"}},
 		{name: "an absolute root", settings: WorktreeSettings{Root: "/lanes/{repo}", BranchPrefix: "x/"}, repository: "/work/app", lane: "l1",
 			want: Placement{Path: "/lanes/app/l1", Branch: "x/l1"}},
+		{name: "the project and the repository", settings: WorktreeSettings{Root: "/data/worktrees/{project}/{repo}", BranchPrefix: "lane/"},
+			repository: "/work/repos/api", project: "prj-1", lane: "l1",
+			want: Placement{Path: "/data/worktrees/prj-1/api/l1", Branch: "lane/l1"}},
+		{name: "no project names the default one", settings: WorktreeSettings{Root: "/data/worktrees/{project}/{repo}", BranchPrefix: "lane/"},
+			repository: "/work/repos/api", lane: "l1",
+			want: Placement{Path: "/data/worktrees/default/api/l1", Branch: "lane/l1"}},
+		{name: "two projects with one folder name keep two folders", settings: WorktreeSettings{Root: "/data/worktrees/{project}/{repo}", BranchPrefix: "lane/"},
+			repository: "/work/other/api", project: "prj-2", lane: "l1",
+			want: Placement{Path: "/data/worktrees/prj-2/api/l1", Branch: "lane/l1"}},
+		{name: "a relative root with the project is relative to the repository", settings: WorktreeSettings{Root: "wt/{project}", BranchPrefix: "lane/"},
+			repository: "/work/app", project: "prj-1", lane: "l1",
+			want: Placement{Path: "/work/app/wt/prj-1/l1", Branch: "lane/l1"}},
+		{name: "a root with no project token ignores the project", settings: WorktreeSettings{Root: "/lanes/{repo}", BranchPrefix: "x/"},
+			repository: "/work/app", project: "prj-1", lane: "l1",
+			want: Placement{Path: "/lanes/app/l1", Branch: "x/l1"}},
+		{name: "a project with a path in it", settings: settings, repository: "/work/app", project: "../escape", lane: "l1", wantErr: true},
+		{name: "a project that is the current folder", settings: settings, repository: "/work/app", project: ".", lane: "l1", wantErr: true},
+		{name: "a project that is a separator", settings: settings, repository: "/work/app", project: "a/b", lane: "l1", wantErr: true},
 		{name: "a lane with a path in it", settings: settings, repository: "/work/app", lane: "../escape", wantErr: true},
 		{name: "a relative repository", settings: settings, repository: "work/app", lane: "l1", wantErr: true},
 		{name: "no root", settings: WorktreeSettings{}, repository: "/work/app", lane: "l1", wantErr: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := Place(tt.settings, tt.repository, tt.lane, tt.branch)
+			got, err := Place(tt.settings, tt.repository, tt.project, tt.lane, tt.branch)
 			if tt.wantErr {
 				if !errors.Is(err, ErrBadProfile) {
 					t.Fatalf("got %+v, %v", got, err)

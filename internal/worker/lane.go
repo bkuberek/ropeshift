@@ -19,6 +19,13 @@ import (
 type LaneRequest struct {
 	Lane       string
 	Repository string
+	// Project is the ID of the project the lane belongs to, which a worktree root's {project} names. Empty
+	// names the installation's only project.
+	Project string
+	// Recorded is the worktree the lane's journal recorded for an earlier generation. A lane goes on in its own
+	// worktree when the root in force would put a new one elsewhere, and only the one recorded here, or when
+	// nothing is recorded one named for the lane, is its own. Empty says the journal holds none.
+	Recorded string
 	// Branch is what the ledger assigned. Empty names a new branch for this lane.
 	Branch string
 	// Base is the commit a new branch begins at, which the control plane resolved from the base branch
@@ -70,6 +77,20 @@ type PreparedLane struct {
 	// LaneModel and LaneEffort say the lane's own profile layer set the model or the effort, which then
 	// wins over the roster agent the lane runs as (ADR-0025).
 	LaneModel, LaneEffort bool
+	// Kept says the lane went on in a worktree it already had, at a place other than the one the root in force
+	// gives a new worktree. Nil when the lane's worktree is where that root puts it, or is new.
+	Kept *KeptWorktree
+}
+
+// KeptWorktree is a lane's existing worktree that the root in force would not have chosen, which an upgrade that
+// moves the default root leaves behind for lanes in flight.
+type KeptWorktree struct {
+	// Path is the worktree the lane goes on in.
+	Path string
+	// Would is where the root in force puts a new worktree for the lane.
+	Would string
+	// Inside names the clone Path lies inside, which a new worktree there would be refused for. Empty when none.
+	Inside string
 }
 
 // Provisioner gives a lane its settings, its worktree, and its environment. It holds
@@ -79,6 +100,12 @@ type Provisioner struct {
 	Worktrees ports.Worktrees
 	// Hooks runs what a profile names. Nil refuses a profile that names a hook.
 	Hooks ports.HookRunner
+	// Checkouts lists every clone this worker keeps, so a worktree root inside one is refused (FR-PROF-3).
+	// Nil checks nothing, for a test of what is not about the root.
+	Checkouts ports.Checkouts
+	// Sources are the absolute paths of the clones the daemon reads as sources, which no checkout records, so
+	// the refusal checks them too. The repository a lane works in is always checked.
+	Sources []string
 	// Lookup reads the worker's environment. Nil reads the process's.
 	Lookup func(string) (string, bool)
 }
@@ -134,6 +161,17 @@ func (p Provisioner) Prepare(ctx context.Context, request LaneRequest) (Prepared
 	if err != nil {
 		return PreparedLane{}, err
 	}
+	// The place comes before anything a lane leaves behind, so a root inside a clone stops it with no
+	// resources allocated and no worktree made.
+	var (
+		place lanes.Placement
+		kept  *KeptWorktree
+	)
+	if !request.Private {
+		if place, kept, err = p.place(ctx, request, profile); err != nil {
+			return PreparedLane{}, err
+		}
+	}
 	lookup := p.Lookup
 	if lookup == nil {
 		lookup = os.LookupEnv
@@ -163,10 +201,6 @@ func (p Provisioner) Prepare(ctx context.Context, request LaneRequest) (Prepared
 			LaneModel: laneModel, LaneEffort: laneEffort,
 		}, nil
 	}
-	place, err := lanes.Place(profile.Worktree, request.Repository, request.Lane, request.Branch)
-	if err != nil {
-		return PreparedLane{}, err
-	}
 	worktree, err := p.worktree(ctx, request, place)
 	if err != nil {
 		return PreparedLane{}, err
@@ -180,7 +214,7 @@ func (p Provisioner) Prepare(ctx context.Context, request LaneRequest) (Prepared
 	}
 	return PreparedLane{
 		Worktree: worktree, Environment: environment, Profile: profile, ProfileDigest: digest, DefaultBranch: branch,
-		LaneModel: laneModel, LaneEffort: laneEffort,
+		LaneModel: laneModel, LaneEffort: laneEffort, Kept: kept,
 	}, nil
 }
 

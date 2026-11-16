@@ -9,6 +9,19 @@ import (
 	"ropeshift.com/ropeshift/test/apitest"
 )
 
+// A lane whose worktree root lies inside a clone never starts, and `work show` says the root, the clone, the
+// layer that set the root, and the fix (FR-PROF-3).
+func TestWorkShowSaysAWorktreeRootInsideACloneAndHowToFixIt(t *testing.T) {
+	s := newSession(t)
+	w := apitest.NewWorld(t, s.daemon)
+	const detail = "worktree root /work/app/lanes is inside the clone /work/app, and the user's profile layer set it: " +
+		"set `[worktree] root` in your profile to a folder outside every clone, or remove it to use the built-in root"
+	w.Running("wo-inside", "Fix the build").EndSaying(workorders.OutcomeFailed, workorders.ReasonWorktreeInsideClone, detail)
+	if text := s.must("work", "show", "wo-inside"); !strings.Contains(text, "outcome\tworktree_inside_clone\t"+detail+"\n") {
+		t.Errorf("a lane refused for its root says:\n%s", text)
+	}
+}
+
 // A lane that never started, or ended in a way its reason names, says so where a person asks about its work:
 // `work show` prints the reason its outcome gave, and what the worker said of it, such as the delegate policy
 // version that refused the start (FR-AUTH-16). The event stream carries no record's content, so the work's own

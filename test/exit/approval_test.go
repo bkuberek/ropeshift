@@ -226,7 +226,7 @@ func TestExitE7ALinkSwappedAfterTheRequestRunsNothing(t *testing.T) {
 	if a.Path != "docs/notes.md" {
 		t.Fatalf("request %+v", a)
 	}
-	worktree := filepath.Join(filepath.Dir(repo.Dir), filepath.Base(repo.Dir)+"-lanes", "lane-1")
+	worktree := filepath.Join(in.homeLaneRoot(repo.Dir), "lane-1")
 	secret := filepath.Join(t.TempDir(), "secret")
 	if err := os.WriteFile(secret, []byte("kept"), 0o600); err != nil {
 		t.Fatal(err)

@@ -174,4 +174,16 @@ func (f *Checkouts) Of(_ context.Context, project ledger.WorkspaceID) (map[strin
 	return maps.Clone(f.kept[project]), nil
 }
 
+// Every lists the checkout of every repository in every project, each path once and in order.
+func (f *Checkouts) Every(_ context.Context) ([]string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var every []string
+	for _, held := range f.kept {
+		every = append(every, slices.Collect(maps.Values(held))...)
+	}
+	slices.Sort(every)
+	return slices.Compact(every), nil
+}
+
 var _ ports.Checkouts = (*Checkouts)(nil)

@@ -324,7 +324,7 @@ func TestRS8(t *testing.T) {
 
 	s.repo = headless.Dir
 	worktree := func(dir, lane string) string {
-		return filepath.Join(filepath.Dir(dir), filepath.Base(dir)+"-lanes", lane)
+		return s.laneTree(dir, lane)
 	}
 	s.worktree = worktree(headless.Dir, rs8HeadlessLane)
 	s.others = []string{

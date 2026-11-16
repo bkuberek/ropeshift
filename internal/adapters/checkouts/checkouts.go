@@ -132,6 +132,22 @@ func (f *File) Of(_ context.Context, project ledger.WorkspaceID) (map[string]str
 	return maps.Clone(doc.Projects[project]), nil
 }
 
+// Every lists the path of every checkout this worker keeps, in every project, each once and in order.
+func (f *File) Every(_ context.Context) ([]string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	doc, err := f.read()
+	if err != nil {
+		return nil, err
+	}
+	var every []string
+	for _, held := range doc.Projects {
+		every = append(every, slices.Collect(maps.Values(held))...)
+	}
+	slices.Sort(every)
+	return slices.Compact(every), nil
+}
+
 // Find lists the clones at paths. A path that is the top of a clone is that clone, and any other
 // directory holds the clones among its children down to depth levels. A clone's own directories are not
 // searched, and neither are hidden ones.

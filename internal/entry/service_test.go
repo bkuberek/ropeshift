@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"ropeshift.com/ropeshift/internal/adapters/fake"
+	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/cli"
 	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/test/apitest"
@@ -136,6 +137,28 @@ func TestServiceInstallOnLinux(t *testing.T) {
 	want := []string{"/usr/bin/systemctl --user daemon-reload", "/usr/bin/systemctl --user enable solo-two.service", "/usr/bin/systemctl --user restart solo-two.service"}
 	if !slices.Equal(calls, want) {
 		t.Errorf("calls %q", calls)
+	}
+}
+
+// The worktree directory is part of what moves an installation, so a service keeps the variables that place it.
+func TestAServiceKeepsTheVariablesThatPlaceTheWorktrees(t *testing.T) {
+	s, _ := serviceMachine(t, "linux", nil)
+	data, worktrees := filepath.Join(t.TempDir(), "xdg-data"), filepath.Join(t.TempDir(), "worktrees")
+	s.lookup = lookupIn(map[string]string{
+		"PATH": "/usr/bin", "XDG_CONFIG_HOME": filepath.Join(s.home, "config"), "XDG_DATA_HOME": data, api.EnvWorktreeDir: worktrees,
+	})
+	installed, err := s.install(t.Context(), "solo-two", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(installed.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`Environment="XDG_DATA_HOME=` + data + `"`, `Environment="` + api.EnvWorktreeDir + `=` + worktrees + `"`} {
+		if !strings.Contains(string(raw), want) {
+			t.Errorf("the unit holds no %q:\n%s", want, raw)
+		}
 	}
 }
 

@@ -24,6 +24,9 @@ type Repositories struct {
 	// registering holds one registration from an approved plan at a time, so a decision repeated while the
 	// first registers waits for it and reads its record.
 	registering sync.Mutex
+	// profiles reads the worktree root in force for a clone, so a registration can say when it would lie
+	// inside the clone. Nil says nothing.
+	profiles ports.ProfileSource
 }
 
 // NewRepositories returns the use cases over a Store.

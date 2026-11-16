@@ -64,6 +64,28 @@ func (w Worktrees) list(ctx context.Context, repository string) ([]listed, error
 	return entries, nil
 }
 
+// CheckedOut names the linked worktree of the repository that has branch checked out. It reads the registrations
+// under the repository's worktree lock, skips the first, which is the repository's own working tree, and skips a
+// registration whose directory is gone, which the next create prunes.
+func (w Worktrees) CheckedOut(ctx context.Context, repository, branch string) (string, error) {
+	entries, err := w.list(ctx, repository)
+	if err != nil {
+		return "", err
+	}
+	for i, entry := range entries {
+		if i == 0 || entry.detached || entry.branch != branch {
+			continue
+		}
+		if info, err := os.Stat(entry.path); err != nil || !info.IsDir() {
+			continue
+		}
+		return entry.path, nil
+	}
+	return "", nil
+}
+
+var _ ports.BranchTrees = Worktrees{}
+
 // canonical resolves symlinks in the part of a path that exists, because git reports
 // a worktree's real path and a temporary directory is often behind a link.
 func canonical(path string) string {

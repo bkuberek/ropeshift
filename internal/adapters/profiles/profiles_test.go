@@ -84,6 +84,78 @@ func TestFilesystemReadsBothLayers(t *testing.T) {
 	}
 }
 
+// The built-in layer names no worktree root, because the built-in one lies under the installation's own
+// worktree directory, which only the daemon knows (FR-PROF-3).
+func TestTheBuiltInLayerNamesNoWorktreeRoot(t *testing.T) {
+	profile, err := Resolve()
+	if err != nil || profile.Worktree.Root != "" {
+		t.Errorf("the built-in root is %q (%v)", profile.Worktree.Root, err)
+	}
+}
+
+// With no root in any layer, the daemon's default root is the one in force. A layer's own root wins, the
+// repository's over the user's, and the profile says which layer set it.
+func TestAProfileWithNoRootGetsTheDefaultRoot(t *testing.T) {
+	const defaultRoot = "/data/ropeshift/worktrees/{project}/{repo}"
+	dir := t.TempDir()
+	user := filepath.Join(dir, UserFile)
+	repository := t.TempDir()
+	write := func(path, text string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(text), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tests := []struct {
+		name            string
+		user, layer     string
+		defaultRoot     string
+		wantRoot, wantS string
+	}{
+		{"no layer sets one", "", "", defaultRoot, defaultRoot, lanes.RootFromDefault},
+		{"a layer with other settings", "[agent]\nmodel = \"haiku\"\n", "[worktree]\nbranch_prefix = \"x/\"\n", defaultRoot, defaultRoot, lanes.RootFromDefault},
+		{"the user's root", "[worktree]\nroot = \"/mine/{repo}\"\n", "", defaultRoot, "/mine/{repo}", lanes.RootFromUser},
+		{"the repository's root", "", "[worktree]\nroot = \"../lanes\"\n", defaultRoot, "../lanes", lanes.RootFromRepository},
+		{"the repository's root over the user's", "[worktree]\nroot = \"/mine\"\n", "[worktree]\nroot = \"../lanes\"\n", defaultRoot, "../lanes", lanes.RootFromRepository},
+		{"a root left empty is none", "[worktree]\nroot = \"\"\n", "", defaultRoot, defaultRoot, lanes.RootFromDefault},
+		{"no default and no root", "", "", "", "", lanes.RootFromDefault},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			write(user, tt.user)
+			write(filepath.Join(repository, RepositoryFile), tt.layer)
+			profile, err := Filesystem{User: user, DefaultRoot: tt.defaultRoot}.Load(t.Context(), repository, "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if profile.Worktree.Root != tt.wantRoot || profile.Worktree.RootSource != tt.wantS {
+				t.Errorf("root %q from %q, want %q from %q", profile.Worktree.Root, profile.Worktree.RootSource, tt.wantRoot, tt.wantS)
+			}
+		})
+	}
+}
+
+// Where the root came from is for a lane's refusal and not for its digest, so two machines that differ only
+// in where their worktrees go record one profile only when the root is the same.
+func TestTheRootSourceIsNotInTheDigest(t *testing.T) {
+	a, err := Filesystem{DefaultRoot: "/w/{project}/{repo}"}.Load(t.Context(), "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := a
+	b.Worktree.RootSource = lanes.RootFromUser
+	first, err := a.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second, err := b.Digest(); err != nil || second != first {
+		t.Errorf("the digest moved with the root's source: %s, %s (%v)", first, second, err)
+	}
+}
+
 // TestLayersApplyInOrder sets one key in every layer. Each layer wins over the one before
 // it, and each changes the digest a lane records.
 func TestLayersApplyInOrder(t *testing.T) {

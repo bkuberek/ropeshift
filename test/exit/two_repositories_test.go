@@ -269,7 +269,7 @@ func TestOnePlanAcrossTwoRepositoriesMergesInDependencyOrder(t *testing.T) {
 	if denied := deniedCalls(in); !slices.Contains(denied, lanes.ReasonReadOnlyTree) {
 		t.Errorf("a commit in the api was not denied: %q", denied)
 	}
-	readOnly := filepath.Join(clones, "web-lanes", "lane-web.reads")
+	readOnly := filepath.Join(in.homeLaneRoot(webRepo.Dir), "lane-web.reads")
 	in.waitFor("the read-only worktree to go", func() bool {
 		_, err := os.Stat(readOnly)
 		return errors.Is(err, os.ErrNotExist)
