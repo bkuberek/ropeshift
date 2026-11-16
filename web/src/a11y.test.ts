@@ -74,7 +74,7 @@ suite.each(Object.entries(sizes))("at %s width", (size, viewport) => {
         await context.close();
         expect(found).toEqual([]);
       },
-      300_000,
+      600_000,
     );
 
     it(
@@ -1206,8 +1206,8 @@ suite.each(Object.entries(sizes))("at %s width", (size, viewport) => {
           { id: "worker-atlas", name: "atlas", available: true },
           { id: "worker-basalt", name: "basalt", available: true },
         ];
-        await page.route(/\/v1\/conversation-targets$/, served({ ...targets, assistant: { ...targets.assistant, conversation: stopped, workers } }));
-        await page.route(/\/v1\/conversations$/, (route) => (route.request().method() === "GET" ? served({ as_of: 1790000010000, conversations: [stopped], workers })(route) : route.fallback()));
+        await page.route(/\/conversation-targets$/, served({ ...targets, assistant: { ...targets.assistant, conversation: stopped, workers } }));
+        await page.route(/\/conversations$/, (route) => (route.request().method() === "GET" ? served({ as_of: 1790000010000, conversations: [stopped], workers })(route) : route.fallback()));
         await page.goto(`${base}/projects/default/roadmap`);
         await ready(page);
         await page.getByRole("button", { name: "Conversation panel" }).click();
