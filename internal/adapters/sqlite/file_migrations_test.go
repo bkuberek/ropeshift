@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io/fs"
 	"maps"
 	"path"
@@ -32,12 +33,27 @@ type fileSet struct {
 	name  string
 	table string
 	files fs.FS
-	open  func(file string) (fileMigrator, error)
+	// open opens a database file whose migrations warn to warn.
+	open func(file string, warn func(string)) (fileMigrator, error)
 }
 
 var fileSets = []fileSet{
-	{"journal", "journal_migrations", sqlite.JournalFiles, func(file string) (fileMigrator, error) { return sqlite.OpenJournal(file) }},
-	{"telemetry", "telemetry_migrations", sqlite.TelemetryFiles, func(file string) (fileMigrator, error) { return sqlite.OpenTelemetry(file) }},
+	{"journal", "journal_migrations", sqlite.JournalFiles, func(file string, warn func(string)) (fileMigrator, error) {
+		journal, err := sqlite.OpenJournal(file)
+		if err != nil {
+			return nil, err
+		}
+		journal.Warn = warn
+		return journal, nil
+	}},
+	{"telemetry", "telemetry_migrations", sqlite.TelemetryFiles, func(file string, warn func(string)) (fileMigrator, error) {
+		store, err := sqlite.OpenTelemetry(file)
+		if err != nil {
+			return nil, err
+		}
+		store.Warn = warn
+		return store, nil
+	}},
 }
 
 // fileRun is one check of one set on a new database file.
@@ -48,6 +64,8 @@ type fileRun struct {
 	migrator fileMigrator
 	// shipped is the text of each file this build ships, by its name.
 	shipped map[string]string
+	// warnings are what the migrations warned, in order.
+	warnings *[]string
 }
 
 var fileChecks = []struct {
@@ -80,22 +98,69 @@ var fileChecks = []struct {
 		err := r.migrator.MigrateFrom(r.t.Context(), mapFS(edited))
 		r.wantRefused(err, sqlstore.MigrationError{
 			Set: r.set.name, Version: version(r.t, first), File: path.Base(first),
-			Recorded: checksum(r.shipped[first]), Shipped: checksum(edited[first]), Err: sqlstore.ErrMigrationChanged,
+			Recorded: checksum(r.shipped[first]), Shipped: checksum(edited[first]),
 		})
 		r.wantApplied(r.shipped)
 	}},
-	{"a file this build no longer ships refuses to start", func(r fileRun) {
+	{"a refusal applies no file that is pending", func(r fileRun) {
 		r.migrate()
-		names := slices.Sorted(maps.Keys(r.shipped))
-		last := names[len(names)-1]
-		withdrawn := maps.Clone(r.shipped)
-		delete(withdrawn, last)
-		err := r.migrator.MigrateFrom(r.t.Context(), mapFS(withdrawn))
+		first := slices.Sorted(maps.Keys(r.shipped))[0]
+		edited := r.later()
+		edited[first] += "\n-- edited after it was applied\n"
+		err := r.migrator.MigrateFrom(r.t.Context(), mapFS(edited))
 		r.wantRefused(err, sqlstore.MigrationError{
-			Set: r.set.name, Version: version(r.t, last), File: path.Base(last),
-			Recorded: checksum(r.shipped[last]), Err: sqlstore.ErrMigrationNotShipped,
+			Set: r.set.name, Version: version(r.t, first), File: path.Base(first),
+			Recorded: checksum(r.shipped[first]), Shipped: checksum(edited[first]),
 		})
 		r.wantApplied(r.shipped)
+	}},
+	{"a refusal records no checksum of a file from before checksums", func(r fileRun) {
+		// The later files make two applied, as the telemetry store ships one.
+		later := r.later()
+		if err := r.migrator.MigrateFrom(r.t.Context(), mapFS(later)); err != nil {
+			r.t.Fatal(err)
+		}
+		names := slices.Sorted(maps.Keys(later))
+		first, last := names[0], names[len(names)-1]
+		if _, err := r.db.ExecContext(r.t.Context(), "UPDATE "+r.set.table+" SET checksum = NULL WHERE name = ?1", last); err != nil {
+			r.t.Fatal(err)
+		}
+		edited := maps.Clone(later)
+		edited[first] += "\n-- edited after it was applied\n"
+		err := r.migrator.MigrateFrom(r.t.Context(), mapFS(edited))
+		r.wantRefused(err, sqlstore.MigrationError{
+			Set: r.set.name, Version: version(r.t, first), File: path.Base(first),
+			Recorded: checksum(later[first]), Shipped: checksum(edited[first]),
+		})
+		want := checksums(later)
+		want[last] = ""
+		r.wantRecorded(want)
+	}},
+	{"a database a later build migrated warns once and starts", func(r fileRun) {
+		later := r.later()
+		if err := r.migrator.MigrateFrom(r.t.Context(), mapFS(later)); err != nil {
+			r.t.Fatal(err)
+		}
+		*r.warnings = nil
+		if err := r.migrator.Migrate(r.t.Context()); err != nil {
+			r.t.Fatalf("the start returned %v, want it to start", err)
+		}
+		if len(*r.warnings) != 1 {
+			r.t.Fatalf("the start warned %q, want one warning", *r.warnings)
+		}
+		warning := (*r.warnings)[0]
+		parts := []string{r.set.name}
+		for name := range later {
+			if _, ok := r.shipped[name]; !ok {
+				parts = append(parts, strconv.FormatInt(version(r.t, name), 10), path.Base(name))
+			}
+		}
+		for _, part := range parts {
+			if !strings.Contains(warning, part) {
+				r.t.Errorf("the warning %q does not name %q", warning, part)
+			}
+		}
+		r.wantApplied(later)
 	}},
 }
 
@@ -106,7 +171,8 @@ func TestFileMigrationChecksums(t *testing.T) {
 			t.Run(set.name+"/"+check.name, func(t *testing.T) {
 				t.Parallel()
 				file := filepath.Join(t.TempDir(), set.name+".db")
-				migrator, err := set.open(file)
+				var warnings []string
+				migrator, err := set.open(file, func(warning string) { warnings = append(warnings, warning) })
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -116,7 +182,7 @@ func TestFileMigrationChecksums(t *testing.T) {
 					t.Fatal(err)
 				}
 				t.Cleanup(func() { _ = db.Close() })
-				check.run(fileRun{t: t, set: set, db: db, migrator: migrator, shipped: shippedFiles(t, set)})
+				check.run(fileRun{t: t, set: set, db: db, migrator: migrator, shipped: shippedFiles(t, set), warnings: &warnings})
 			})
 		}
 	}
@@ -165,6 +231,26 @@ func checksum(text string) string {
 	return hex.EncodeToString(sum[:])
 }
 
+// later is the files a later build ships: this build's, and two past the newest.
+func (r fileRun) later() map[string]string {
+	out := maps.Clone(r.shipped)
+	names := slices.Sorted(maps.Keys(r.shipped))
+	newest := version(r.t, names[len(names)-1])
+	for v := newest + 1; v <= newest+2; v++ {
+		out[fmt.Sprintf("%s/%04d_later.sql", r.set.table, v)] = fmt.Sprintf("CREATE TABLE later_%d (id INTEGER);\n", v)
+	}
+	return out
+}
+
+// checksums is the checksum of each file's text, by its name.
+func checksums(files map[string]string) map[string]string {
+	out := make(map[string]string, len(files))
+	for name, text := range files {
+		out[name] = checksum(text)
+	}
+	return out
+}
+
 // migrate migrates with the files this build ships.
 func (r fileRun) migrate() {
 	r.t.Helper()
@@ -175,6 +261,13 @@ func (r fileRun) migrate() {
 
 // wantApplied holds that the database recorded each file, with its checksum, and no other.
 func (r fileRun) wantApplied(files map[string]string) {
+	r.t.Helper()
+	r.wantRecorded(checksums(files))
+}
+
+// wantRecorded holds that the database recorded exactly the files want names, each with its checksum,
+// where an empty checksum is one the database recorded as NULL.
+func (r fileRun) wantRecorded(want map[string]string) {
 	r.t.Helper()
 	rows, err := r.db.QueryContext(r.t.Context(), "SELECT name, checksum FROM "+r.set.table+" ORDER BY name")
 	if err != nil {
@@ -193,21 +286,17 @@ func (r fileRun) wantApplied(files map[string]string) {
 	if err := rows.Err(); err != nil {
 		r.t.Fatal(err)
 	}
-	want := map[string]string{}
-	for name, text := range files {
-		want[name] = checksum(text)
-	}
 	if !maps.Equal(got, want) {
 		r.t.Errorf("the %s recorded\n%v\nwant\n%v", r.set.name, got, want)
 	}
 }
 
-// wantRefused holds that a start refused with want, and that its message names the set, the version,
-// the file, and both checksums.
+// wantRefused holds that a start refused with want, that its message names the set, the version, the
+// file, and both checksums, and that it says what a person does next.
 func (r fileRun) wantRefused(err error, want sqlstore.MigrationError) {
 	r.t.Helper()
-	if !errors.Is(err, want.Err) {
-		r.t.Fatalf("the start returned %v, want %v", err, want.Err)
+	if !errors.Is(err, sqlstore.ErrMigrationChanged) {
+		r.t.Fatalf("the start returned %v, want %v", err, sqlstore.ErrMigrationChanged)
 	}
 	var refused *sqlstore.MigrationError
 	if !errors.As(err, &refused) {
@@ -216,7 +305,10 @@ func (r fileRun) wantRefused(err error, want sqlstore.MigrationError) {
 	if *refused != want {
 		r.t.Errorf("the start refused %+v, want %+v", *refused, want)
 	}
-	for _, part := range []string{want.Set + " migration", strconv.FormatInt(want.Version, 10), want.File, want.Recorded, want.Shipped} {
+	for _, part := range []string{
+		want.Set + " migration", strconv.FormatInt(want.Version, 10), want.File, want.Recorded, want.Shipped,
+		"the build that migrated", "restore the state directory from a backup", "docs/troubleshooting.md#database-refuses-to-start",
+	} {
 		if !strings.Contains(err.Error(), part) {
 			r.t.Errorf("the refusal %q does not name %q", err, part)
 		}

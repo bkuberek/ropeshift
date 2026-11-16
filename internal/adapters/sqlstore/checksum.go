@@ -1,7 +1,6 @@
 package sqlstore
 
 import (
-	"cmp"
 	"context"
 	"crypto/sha256"
 	"database/sql"
@@ -9,17 +8,21 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 )
 
 // A database records the checksum of each migration it applies. A start refuses a database whose
-// applied migrations differ from the ones this build ships, because the schema such a database holds is
-// not the one the statements expect.
-var (
-	// ErrMigrationChanged is a migration whose text changed after a database applied it.
-	ErrMigrationChanged = errors.New("an applied migration changed")
-	// ErrMigrationNotShipped is a migration a database applied that this build does not ship.
-	ErrMigrationNotShipped = errors.New("an applied migration is not shipped")
-)
+// applied migration changed, because the schema such a database holds is not the one the statements
+// expect. A migration the database applied that this build does not ship, as a later build leaves, is
+// only warned of, so an earlier build starts again after an upgrade.
+
+// ErrMigrationChanged is a migration whose text changed after a database applied it.
+var ErrMigrationChanged = errors.New("an applied migration changed")
+
+// refusalNextStep is what a person does about a refusal, and the user doc that says more.
+const refusalNextStep = "to start, run the build that migrated this database, or restore the state directory from a backup; " +
+	"docs/troubleshooting.md#database-refuses-to-start says how: " +
+	"https://github.com/bkuberek/ropeshift/blob/main/docs/troubleshooting.md#database-refuses-to-start"
 
 // Checksum is the SHA-256 of a migration's text exactly as it ships, in lowercase hex.
 func Checksum(text string) string {
@@ -27,32 +30,54 @@ func Checksum(text string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// MigrationError names an applied migration a start refuses. It wraps ErrMigrationChanged or
-// ErrMigrationNotShipped.
+// MigrationError names an applied migration whose text changed, which a start refuses. It wraps
+// ErrMigrationChanged.
 type MigrationError struct {
 	// Set names the migrations: ledger, installation, journal, or telemetry.
 	Set     string
 	Version int64
 	// File is the migration's file name.
 	File string
-	// Recorded is the checksum the database recorded, empty when it recorded none. Shipped is the
-	// checksum of the file this build ships, empty when it ships none.
+	// Recorded is the checksum the database recorded, and Shipped the checksum of the file this build
+	// ships.
 	Recorded string
 	Shipped  string
-	Err      error
 }
 
 func (e *MigrationError) Error() string {
-	recorded := cmp.Or(e.Recorded, "none")
-	if errors.Is(e.Err, ErrMigrationNotShipped) {
-		return fmt.Sprintf("%s migration %d (%s) was applied, and this build does not ship it: recorded sha256 %s",
-			e.Set, e.Version, e.File, recorded)
-	}
 	return fmt.Sprintf("%s migration %d (%s) changed after it was applied: recorded sha256 %s, shipped sha256 %s",
-		e.Set, e.Version, e.File, recorded, e.Shipped)
+		e.Set, e.Version, e.File, e.Recorded, e.Shipped)
 }
 
-func (e *MigrationError) Unwrap() error { return e.Err }
+func (e *MigrationError) Unwrap() error { return ErrMigrationChanged }
+
+// Refusal is a start's refusal of a database: each applied migration that changed, and then once what a
+// person does next.
+func Refusal(changed []*MigrationError) error {
+	errs := make([]error, len(changed))
+	for i, e := range changed {
+		errs[i] = e
+	}
+	return fmt.Errorf("%w\n%s", errors.Join(errs...), refusalNextStep)
+}
+
+// Unshipped is a migration a database applied that this build does not ship.
+type Unshipped struct {
+	Version int64
+	// File is the migration's file name.
+	File string
+}
+
+// UnshippedWarning is the one warning a start gives for the migrations of a set the database applied
+// and this build does not ship. The start goes on with them in place.
+func UnshippedWarning(set string, unshipped []Unshipped) string {
+	named := make([]string, len(unshipped))
+	for i, u := range unshipped {
+		named[i] = fmt.Sprintf("%d (%s)", u.Version, u.File)
+	}
+	return fmt.Sprintf("the %s database holds migrations this build does not ship: %s; a later build migrated it, and this build starts on the schema it left",
+		set, strings.Join(named, ", "))
+}
 
 // statementReadColumns names the dialect's statement that lists a table's columns.
 const statementReadColumns = "migration.columns"
@@ -88,8 +113,8 @@ type appliedMigration struct {
 
 // checkApplied compares each migration the database applied with the one this build ships under its
 // version, in one transaction. It records the checksum of one an earlier build applied without one. It
-// refuses, naming each, one whose text changed and one this build no longer ships, and then records
-// nothing.
+// refuses, naming each, one whose text changed, and then records nothing. It warns once of those this
+// build does not ship, and goes on.
 func (s *Store) checkApplied(ctx context.Context, set string, shipped []Migration) error {
 	tx, err := s.begin(ctx, nil)
 	if err != nil {
@@ -105,13 +130,12 @@ func (s *Store) checkApplied(ctx context.Context, set string, shipped []Migratio
 	for _, m := range shipped {
 		byVersion[m.Version] = m
 	}
-	var refused []error
+	var changed []*MigrationError
+	var unshipped []Unshipped
 	for _, a := range applied {
 		m, ok := byVersion[a.version]
 		if !ok {
-			refused = append(refused, &MigrationError{
-				Set: set, Version: a.version, File: a.name + ".sql", Recorded: a.checksum.String, Err: ErrMigrationNotShipped,
-			})
+			unshipped = append(unshipped, Unshipped{Version: a.version, File: a.name + ".sql"})
 			continue
 		}
 		sum := Checksum(m.SQL)
@@ -121,15 +145,21 @@ func (s *Store) checkApplied(ctx context.Context, set string, shipped []Migratio
 				return err
 			}
 		case a.checksum.String != sum:
-			refused = append(refused, &MigrationError{
-				Set: set, Version: a.version, File: m.Name + ".sql", Recorded: a.checksum.String, Shipped: sum, Err: ErrMigrationChanged,
+			changed = append(changed, &MigrationError{
+				Set: set, Version: a.version, File: m.Name + ".sql", Recorded: a.checksum.String, Shipped: sum,
 			})
 		}
 	}
-	if len(refused) > 0 {
-		return errors.Join(refused...)
+	if len(changed) > 0 {
+		return Refusal(changed)
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	if len(unshipped) > 0 && s.warn != nil {
+		s.warn(UnshippedWarning(set, unshipped))
+	}
+	return nil
 }
 
 // listApplied reads every row of schema_migrations, in version order.

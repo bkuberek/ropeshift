@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"slices"
 	"strconv"
 	"strings"
@@ -33,22 +34,22 @@ type MigrationDatabase struct {
 type migrationSet struct {
 	name    string
 	shipped func(sqlstore.Dialect) ([]sqlstore.Migration, error)
-	migrate func(ctx context.Context, db *sql.DB, dialect sqlstore.Dialect, schema string) error
+	migrate func(ctx context.Context, db *sql.DB, dialect sqlstore.Dialect, opts sqlstore.Options) error
 }
 
 var migrationSets = []migrationSet{
 	{
 		name:    "ledger",
 		shipped: sqlstore.Dialect.Migrations,
-		migrate: func(ctx context.Context, db *sql.DB, dialect sqlstore.Dialect, schema string) error {
-			return sqlstore.New(db, dialect, sqlstore.Options{Schema: schema}).Migrate(ctx)
+		migrate: func(ctx context.Context, db *sql.DB, dialect sqlstore.Dialect, opts sqlstore.Options) error {
+			return sqlstore.New(db, dialect, opts).Migrate(ctx)
 		},
 	},
 	{
 		name:    "installation",
 		shipped: sqlstore.Dialect.InstallationMigrations,
-		migrate: func(ctx context.Context, db *sql.DB, dialect sqlstore.Dialect, schema string) error {
-			return sqlstore.NewInstallation(db, dialect, sqlstore.Options{Schema: schema}).Migrate(ctx)
+		migrate: func(ctx context.Context, db *sql.DB, dialect sqlstore.Dialect, opts sqlstore.Options) error {
+			return sqlstore.NewInstallation(db, dialect, opts).Migrate(ctx)
 		},
 	},
 }
@@ -83,6 +84,22 @@ func withoutLast(migrations []sqlstore.Migration) []sqlstore.Migration {
 func firstEdited(migrations []sqlstore.Migration) []sqlstore.Migration {
 	migrations[0].SQL += "\n-- edited after it was applied\n"
 	return migrations
+}
+
+// withLater ships two migrations past the newest, as a later build does.
+func withLater(migrations []sqlstore.Migration) []sqlstore.Migration {
+	newest := slices.MaxFunc(migrations, func(a, b sqlstore.Migration) int { return int(a.Version - b.Version) }).Version
+	for version := newest + 1; version <= newest+2; version++ {
+		migrations = append(migrations, sqlstore.Migration{
+			Version: version, Name: fmt.Sprintf("%04d_later", version), SQL: fmt.Sprintf("CREATE TABLE later_%d (id BIGINT)", version),
+		})
+	}
+	return migrations
+}
+
+// editedWithLater ships the oldest migration edited and two migrations past the newest.
+func editedWithLater(migrations []sqlstore.Migration) []sqlstore.Migration {
+	return withLater(firstEdited(migrations))
 }
 
 // appliedMigration is one row of schema_migrations, as a check compares it.
@@ -123,23 +140,61 @@ var migrationChecks = []struct {
 		r.migrate(r.db.Dialect)
 		shipped := r.shipped(r.db.Dialect)
 		edited := r.shipped(shippedDialect{r.db.Dialect, firstEdited})
-		err := r.set.migrate(r.t.Context(), r.db.DB, shippedDialect{r.db.Dialect, firstEdited}, r.db.Schema)
+		err := r.set.migrate(r.t.Context(), r.db.DB, shippedDialect{r.db.Dialect, firstEdited}, r.options())
 		r.wantRefused(err, sqlstore.MigrationError{
 			Set: r.set.name, Version: shipped[0].Version, File: shipped[0].Name + ".sql",
-			Recorded: checksum(shipped[0].SQL), Shipped: checksum(edited[0].SQL), Err: sqlstore.ErrMigrationChanged,
+			Recorded: checksum(shipped[0].SQL), Shipped: checksum(edited[0].SQL),
 		})
 		r.wantApplied(shipped)
 	}},
-	{"a migration this build no longer ships refuses to start", func(r migrationRun) {
+	{"a refusal applies no migration that is pending", func(r migrationRun) {
+		r.migrate(r.db.Dialect)
+		shipped := r.shipped(r.db.Dialect)
+		edited := r.shipped(shippedDialect{r.db.Dialect, firstEdited})
+		err := r.set.migrate(r.t.Context(), r.db.DB, shippedDialect{r.db.Dialect, editedWithLater}, r.options())
+		r.wantRefused(err, sqlstore.MigrationError{
+			Set: r.set.name, Version: shipped[0].Version, File: shipped[0].Name + ".sql",
+			Recorded: checksum(shipped[0].SQL), Shipped: checksum(edited[0].SQL),
+		})
+		r.wantApplied(shipped)
+	}},
+	{"a refusal records no checksum of a migration from before checksums", func(r migrationRun) {
 		r.migrate(r.db.Dialect)
 		shipped := r.shipped(r.db.Dialect)
 		last := shipped[len(shipped)-1]
-		err := r.set.migrate(r.t.Context(), r.db.DB, shippedDialect{r.db.Dialect, withoutLast}, r.db.Schema)
+		r.exec(fmt.Sprintf("UPDATE %s SET checksum = NULL WHERE version = %d", r.table(), last.Version))
+		edited := r.shipped(shippedDialect{r.db.Dialect, firstEdited})
+		err := r.set.migrate(r.t.Context(), r.db.DB, shippedDialect{r.db.Dialect, firstEdited}, r.options())
 		r.wantRefused(err, sqlstore.MigrationError{
-			Set: r.set.name, Version: last.Version, File: last.Name + ".sql",
-			Recorded: checksum(last.SQL), Err: sqlstore.ErrMigrationNotShipped,
+			Set: r.set.name, Version: shipped[0].Version, File: shipped[0].Name + ".sql",
+			Recorded: checksum(shipped[0].SQL), Shipped: checksum(edited[0].SQL),
 		})
-		r.wantApplied(shipped)
+		want := recordsOf(shipped)
+		want[len(want)-1].checksum = ""
+		r.wantRecorded(want)
+	}},
+	{"a database a later build migrated warns once and starts", func(r migrationRun) {
+		r.migrate(shippedDialect{r.db.Dialect, withLater})
+		later := r.shipped(shippedDialect{r.db.Dialect, withLater})
+		var warnings []string
+		opts := r.options()
+		opts.Warn = func(warning string) { warnings = append(warnings, warning) }
+		if err := r.set.migrate(r.t.Context(), r.db.DB, r.db.Dialect, opts); err != nil {
+			r.t.Fatalf("the start returned %v, want it to start", err)
+		}
+		if len(warnings) != 1 {
+			r.t.Fatalf("the start warned %q, want one warning", warnings)
+		}
+		parts := []string{r.set.name}
+		for _, m := range later[len(later)-2:] {
+			parts = append(parts, strconv.FormatInt(m.Version, 10), m.Name+".sql")
+		}
+		for _, part := range parts {
+			if !strings.Contains(warnings[0], part) {
+				r.t.Errorf("the warning %q does not name %q", warnings[0], part)
+			}
+		}
+		r.wantApplied(later)
 	}},
 }
 
@@ -163,9 +218,14 @@ func checksum(text string) string {
 	return hex.EncodeToString(sum[:])
 }
 
+// options are the stores' options on the database.
+func (r migrationRun) options() sqlstore.Options {
+	return sqlstore.Options{Schema: r.db.Schema}
+}
+
 func (r migrationRun) migrate(dialect sqlstore.Dialect) {
 	r.t.Helper()
-	if err := r.set.migrate(r.t.Context(), r.db.DB, dialect, r.db.Schema); err != nil {
+	if err := r.set.migrate(r.t.Context(), r.db.DB, dialect, r.options()); err != nil {
 		r.t.Fatalf("migrate: %v", err)
 	}
 }
@@ -195,8 +255,24 @@ func (r migrationRun) exec(statement string) {
 	}
 }
 
+// recordsOf is the row each shipped migration records, with its checksum.
+func recordsOf(shipped []sqlstore.Migration) []appliedMigration {
+	out := make([]appliedMigration, 0, len(shipped))
+	for _, m := range shipped {
+		out = append(out, appliedMigration{version: m.Version, name: m.Name, checksum: checksum(m.SQL)})
+	}
+	return out
+}
+
 // wantApplied holds that the database recorded each shipped migration, with its checksum, and no other.
 func (r migrationRun) wantApplied(shipped []sqlstore.Migration) {
+	r.t.Helper()
+	r.wantRecorded(recordsOf(shipped))
+}
+
+// wantRecorded holds that schema_migrations holds exactly the rows want lists, in version order, where an
+// empty checksum is one the database recorded as NULL.
+func (r migrationRun) wantRecorded(want []appliedMigration) {
 	r.t.Helper()
 	rows, err := r.db.DB.QueryContext(r.t.Context(), "SELECT version, name, checksum FROM "+r.table()+" ORDER BY version")
 	if err != nil {
@@ -216,21 +292,17 @@ func (r migrationRun) wantApplied(shipped []sqlstore.Migration) {
 	if err := rows.Err(); err != nil {
 		r.t.Fatal(err)
 	}
-	want := make([]appliedMigration, 0, len(shipped))
-	for _, m := range shipped {
-		want = append(want, appliedMigration{version: m.Version, name: m.Name, checksum: checksum(m.SQL)})
-	}
 	if !slices.Equal(got, want) {
 		r.t.Errorf("the %s database recorded\n%v\nwant\n%v", r.set.name, got, want)
 	}
 }
 
-// wantRefused holds that a start refused with want, and that its message names the set, the version,
-// the file, and both checksums.
+// wantRefused holds that a start refused with want, that its message names the set, the version, the
+// file, and both checksums, and that it says what a person does next.
 func (r migrationRun) wantRefused(err error, want sqlstore.MigrationError) {
 	r.t.Helper()
-	if !errors.Is(err, want.Err) {
-		r.t.Fatalf("the start returned %v, want %v", err, want.Err)
+	if !errors.Is(err, sqlstore.ErrMigrationChanged) {
+		r.t.Fatalf("the start returned %v, want %v", err, sqlstore.ErrMigrationChanged)
 	}
 	var refused *sqlstore.MigrationError
 	if !errors.As(err, &refused) {
@@ -239,9 +311,13 @@ func (r migrationRun) wantRefused(err error, want sqlstore.MigrationError) {
 	if *refused != want {
 		r.t.Errorf("the start refused %+v, want %+v", *refused, want)
 	}
-	for _, part := range []string{want.Set + " migration", strconv.FormatInt(want.Version, 10), want.File, want.Recorded, want.Shipped} {
+	for _, part := range append([]string{want.Set + " migration", strconv.FormatInt(want.Version, 10), want.File, want.Recorded, want.Shipped}, refusalNextStep...) {
 		if !strings.Contains(err.Error(), part) {
 			r.t.Errorf("the refusal %q does not name %q", err, part)
 		}
 	}
 }
+
+// refusalNextStep is what every refusal tells a person to do: run the build that migrated the database,
+// or restore it, as the user docs' troubleshooting page says.
+var refusalNextStep = []string{"the build that migrated", "restore the state directory from a backup", "docs/troubleshooting.md#database-refuses-to-start"}

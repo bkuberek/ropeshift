@@ -47,7 +47,7 @@ func init() { childRoles["upgrade"] = roleUpgrade }
 
 // roleUpgrade starts a state directory the way the daemon does.
 func roleUpgrade(c *child) error {
-	state, store, err := sqlite.Upgrade(c.ctx, c.spec.Path, upgradeLedger, ledger.Workspace{ID: upgradeScope, Name: "Solo"}, ledger.Actor{Kind: ledger.ActorSystem, ID: "solo"})
+	state, store, err := sqlite.Upgrade(c.ctx, c.spec.Path, upgradeLedger, ledger.Workspace{ID: upgradeScope, Name: "Solo"}, ledger.Actor{Kind: ledger.ActorSystem, ID: "solo"}, nil)
 	if err != nil {
 		return err
 	}

@@ -270,7 +270,7 @@ func StartInstallation(t testing.TB, names ...string) *Installation {
 	if err := seedState(ctx, dir, ids...); err != nil {
 		t.Fatal(err)
 	}
-	state, store, err := sqlite.Upgrade(ctx, dir, api.LedgerFileName, ledger.Workspace{ID: Scope, Name: "Test"}, actor)
+	state, store, err := sqlite.Upgrade(ctx, dir, api.LedgerFileName, ledger.Workspace{ID: Scope, Name: "Test"}, actor, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

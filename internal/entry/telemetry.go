@@ -137,6 +137,7 @@ func openTelemetry(ctx context.Context, paths api.Paths, address string, deps te
 	if err != nil {
 		return nil, err
 	}
+	store.Warn = warnTo(stderr)
 	if err := store.Migrate(ctx); err != nil {
 		_ = store.Close()
 		return nil, err

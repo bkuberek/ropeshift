@@ -24,6 +24,9 @@ const cursorThrough = "events_through"
 // writer, no workspace, and no event log.
 type Journal struct {
 	db *sql.DB
+	// Warn receives what Migrate goes on past that a person may want to know, such as schema files the
+	// journal applied that this build does not ship. Nil says nothing.
+	Warn func(string)
 }
 
 // OpenJournal opens a journal file.
@@ -50,7 +53,7 @@ func (j *Journal) Close() error { return j.db.Close() }
 // Migrate applies each schema file once. A journal is local and short-lived enough
 // that its one version table is its own.
 func (j *Journal) Migrate(ctx context.Context) error {
-	return journalMigrations.migrate(ctx, j.db)
+	return journalMigrations.migrate(ctx, j.db, j.Warn)
 }
 
 // Identity returns the saved identity.

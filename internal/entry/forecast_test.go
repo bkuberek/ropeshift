@@ -21,7 +21,7 @@ import (
 func TestTheForecastTickForecastsEachProjectsPlans(t *testing.T) {
 	member := ledger.Actor{Kind: ledger.ActorMember, ID: "member-1"}
 	ctx := t.Context()
-	state, home, err := sqlite.Upgrade(ctx, t.TempDir(), "ledger.db", ledger.Workspace{ID: soloScope, Name: "Solo"}, member)
+	state, home, err := sqlite.Upgrade(ctx, t.TempDir(), "ledger.db", ledger.Workspace{ID: soloScope, Name: "Solo"}, member, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

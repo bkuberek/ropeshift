@@ -27,11 +27,13 @@ type Store struct {
 	installation *Installation
 	// scope is the statement that puts each transaction in the store's schema, or empty.
 	scope string
+	// warn receives what a migration goes on past, or is nil.
+	warn func(string)
 }
 
 // New returns a Store on an open database. It owns db from here on, and never the installation's.
 func New(db *sql.DB, dialect Dialect, opts Options) *Store {
-	s := &Store{db: db, dialect: dialect, trace: opts.Trace, installation: opts.Installation}
+	s := &Store{db: db, dialect: dialect, trace: opts.Trace, installation: opts.Installation, warn: opts.Warn}
 	if opts.Schema != "" {
 		s.scope = dialect.SchemaSQL(opts.Schema)
 	}

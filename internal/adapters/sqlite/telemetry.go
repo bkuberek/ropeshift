@@ -38,6 +38,9 @@ const retentionStep = 100
 // journal and the ledger, so it keeps its own failure domain and retention.
 type TelemetryStore struct {
 	db *sql.DB
+	// Warn receives what Migrate goes on past that a person may want to know, such as schema files the
+	// store applied that this build does not ship. Nil says nothing.
+	Warn func(string)
 }
 
 // OpenTelemetry opens a telemetry file.
@@ -63,7 +66,7 @@ func (s *TelemetryStore) Close() error { return s.db.Close() }
 
 // Migrate applies each schema file once.
 func (s *TelemetryStore) Migrate(ctx context.Context) error {
-	return telemetryMigrations.migrate(ctx, s.db)
+	return telemetryMigrations.migrate(ctx, s.db, s.Warn)
 }
 
 // labelOf is the token type a record counts under, which the lane summary sums by. An agent's tokens count

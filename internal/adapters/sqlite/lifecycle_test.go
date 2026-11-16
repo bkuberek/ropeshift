@@ -161,7 +161,7 @@ func TestAProjectsBackupImportsIntoAFreshInstallation(t *testing.T) {
 	}
 
 	dir := t.TempDir()
-	to, home, err := sqlite.Upgrade(t.Context(), dir, "ledger.db", ledger.Workspace{ID: "default", Name: "Default"}, member)
+	to, home, err := sqlite.Upgrade(t.Context(), dir, "ledger.db", ledger.Workspace{ID: "default", Name: "Default"}, member, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

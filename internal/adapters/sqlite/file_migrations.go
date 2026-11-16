@@ -33,8 +33,9 @@ var (
 )
 
 // migrate applies each file once, in name order, after it checks the files the database applied before
-// against the ones this build ships, as the Store's migrations do.
-func (m fileMigrations) migrate(ctx context.Context, db *sql.DB) error {
+// against the ones this build ships, as the Store's migrations do. warn receives the warning for files
+// this build does not ship, or is nil.
+func (m fileMigrations) migrate(ctx context.Context, db *sql.DB, warn func(string)) error {
 	if err := m.createTable(ctx, db); err != nil {
 		return fmt.Errorf("%s migrations: %w", m.set, err)
 	}
@@ -51,7 +52,7 @@ func (m fileMigrations) migrate(ctx context.Context, db *sql.DB) error {
 		}
 		shipped[name] = string(text)
 	}
-	if err := m.checkApplied(ctx, db, shipped); err != nil {
+	if err := m.checkApplied(ctx, db, shipped, warn); err != nil {
 		return err
 	}
 	for _, name := range names {
@@ -63,7 +64,8 @@ func (m fileMigrations) migrate(ctx context.Context, db *sql.DB) error {
 }
 
 // createTable makes the table of applied files, and gives a table an earlier build made its checksum
-// column.
+// column. These databases are SQLite files only, whose transactions take the write lock as they begin,
+// so two starts at once cannot both find the column missing.
 func (m fileMigrations) createTable(ctx context.Context, db *sql.DB) error {
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
@@ -87,8 +89,9 @@ func (m fileMigrations) createTable(ctx context.Context, db *sql.DB) error {
 
 // checkApplied compares each file the database applied with the one this build ships under its name, in
 // one transaction. It records the checksum of one an earlier build applied without one. It refuses,
-// naming each, one whose text changed and one this build no longer ships, and then records nothing.
-func (m fileMigrations) checkApplied(ctx context.Context, db *sql.DB, shipped map[string]string) error {
+// naming each, one whose text changed, and then records nothing. It warns once of those this build does
+// not ship, and goes on.
+func (m fileMigrations) checkApplied(ctx context.Context, db *sql.DB, shipped map[string]string, warn func(string)) error {
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -114,15 +117,14 @@ func (m fileMigrations) checkApplied(ctx context.Context, db *sql.DB, shipped ma
 	if err := errors.Join(rows.Err(), rows.Close()); err != nil {
 		return err
 	}
-	var refused []error
+	var changed []*sqlstore.MigrationError
+	var unshipped []sqlstore.Unshipped
 	for _, a := range recorded {
-		// A name with no version is still refused, under version 0.
+		// A name with no version is still named, under version 0.
 		version, _ := migrationVersion(a.name)
 		text, ok := shipped[a.name]
 		if !ok {
-			refused = append(refused, &sqlstore.MigrationError{
-				Set: m.set, Version: version, File: path.Base(a.name), Recorded: a.checksum.String, Err: sqlstore.ErrMigrationNotShipped,
-			})
+			unshipped = append(unshipped, sqlstore.Unshipped{Version: version, File: path.Base(a.name)})
 			continue
 		}
 		sum := sqlstore.Checksum(text)
@@ -132,15 +134,21 @@ func (m fileMigrations) checkApplied(ctx context.Context, db *sql.DB, shipped ma
 				return err
 			}
 		case a.checksum.String != sum:
-			refused = append(refused, &sqlstore.MigrationError{
-				Set: m.set, Version: version, File: path.Base(a.name), Recorded: a.checksum.String, Shipped: sum, Err: sqlstore.ErrMigrationChanged,
+			changed = append(changed, &sqlstore.MigrationError{
+				Set: m.set, Version: version, File: path.Base(a.name), Recorded: a.checksum.String, Shipped: sum,
 			})
 		}
 	}
-	if len(refused) > 0 {
-		return errors.Join(refused...)
+	if len(changed) > 0 {
+		return sqlstore.Refusal(changed)
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	if len(unshipped) > 0 && warn != nil {
+		warn(sqlstore.UnshippedWarning(m.set, unshipped))
+	}
+	return nil
 }
 
 // apply runs one file and records it with its checksum, in one transaction, unless the database applied

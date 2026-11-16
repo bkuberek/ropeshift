@@ -15,14 +15,14 @@ var JournalFiles, TelemetryFiles fs.FS = journalFiles, telemetryFiles
 func (j *Journal) MigrateFrom(ctx context.Context, files fs.FS) error {
 	m := journalMigrations
 	m.files = files
-	return m.migrate(ctx, j.db)
+	return m.migrate(ctx, j.db, j.Warn)
 }
 
 // MigrateFrom migrates the telemetry store as a build that ships files would.
 func (s *TelemetryStore) MigrateFrom(ctx context.Context, files fs.FS) error {
 	m := telemetryMigrations
 	m.files = files
-	return m.migrate(ctx, s.db)
+	return m.migrate(ctx, s.db, s.Warn)
 }
 
 // UpgradeSteps names the steps of an upgrade, in order.
