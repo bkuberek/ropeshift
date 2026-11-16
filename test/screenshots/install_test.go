@@ -138,6 +138,10 @@ func (in *install) env() []string {
 		"XDG_RUNTIME_DIR=" + filepath.Join(in.root, "run"),
 		"XDG_STATE_HOME=" + filepath.Join(in.root, "state"),
 		"XDG_CONFIG_HOME=" + filepath.Join(in.home, ".config"),
+		// The state and the lanes' worktrees are named outright, so no variable of the environment this run
+		// started in can move either toward the person's own installation.
+		api.EnvStateDir + "=" + filepath.Join(in.root, "state", "ropeshift"),
+		api.EnvWorktreeDir + "=" + filepath.Join(in.root, "worktrees"),
 		"LANG=C.UTF-8",
 		"TZ=UTC",
 		"GIT_CONFIG_NOSYSTEM=1",
@@ -148,7 +152,10 @@ func (in *install) env() []string {
 
 func (in *install) paths() api.Paths {
 	in.t.Helper()
-	env := map[string]string{"XDG_RUNTIME_DIR": filepath.Join(in.root, "run"), "XDG_STATE_HOME": filepath.Join(in.root, "state")}
+	env := map[string]string{
+		"XDG_RUNTIME_DIR": filepath.Join(in.root, "run"), "XDG_STATE_HOME": filepath.Join(in.root, "state"),
+		api.EnvStateDir: filepath.Join(in.root, "state", "ropeshift"), api.EnvWorktreeDir: filepath.Join(in.root, "worktrees"),
+	}
 	paths, err := api.ResolvePaths(runtime.GOOS, func(key string) string { return env[key] }, in.home)
 	if err != nil {
 		in.t.Fatal(err)

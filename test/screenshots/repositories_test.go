@@ -14,6 +14,9 @@ import (
 // repository inside the installation, so the pages show a neutral address and nothing leaves the machine.
 const remoteBase = "https://git.example.com/orders/"
 
+// harborRemoteBase is the same for the guide walk's repositories.
+const harborRemoteBase = "https://git.example.com/harbor/"
+
 // The sample's author, as git and every commit name it.
 const (
 	authorName  = "Sample Author"
@@ -31,7 +34,7 @@ func (in *install) gitSetup() {
 	config := "[user]\n\tname = " + authorName + "\n\temail = " + authorEmail + "\n" +
 		"[init]\n\tdefaultBranch = main\n" +
 		"[protocol \"file\"]\n\tallow = always\n" +
-		"[url \"" + remotes + "/\"]\n\tinsteadOf = " + remoteBase + "\n"
+		"[url \"" + remotes + "/\"]\n\tinsteadOf = " + remoteBase + "\n\tinsteadOf = " + harborRemoteBase + "\n"
 	// The daemon's git reads the home's .gitconfig, and gittest's commands read the file it names.
 	for _, name := range []string{".gitconfig", "gitconfig"} {
 		if err := os.WriteFile(filepath.Join(in.home, name), []byte(config), 0o600); err != nil {
@@ -47,10 +50,17 @@ type clone struct {
 	name string
 }
 
-// newClone makes a bare remote and a clone of it with one commit of files.
+// newClone makes a bare remote and a clone of it with one commit of files, in a folder of the installation.
 func (in *install) newClone(folder, name string, files map[string]string) *clone {
 	in.t.Helper()
-	dir := filepath.Join(in.root, folder, name)
+	return in.newCloneAt(filepath.Join(in.root, folder, name), remoteBase, files)
+}
+
+// newCloneAt is newClone at a directory, whose last element names the repository, behind a neutral address
+// that begins with base.
+func (in *install) newCloneAt(dir, base string, files map[string]string) *clone {
+	in.t.Helper()
+	name := filepath.Base(dir)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		in.t.Fatal(err)
 	}
@@ -62,7 +72,7 @@ func (in *install) newClone(folder, name string, files map[string]string) *clone
 	c.Git("commit", "--quiet", "-m", "Start "+name)
 	bare := filepath.Join(in.root, "remotes", name+".git")
 	c.Git("clone", "--quiet", "--bare", dir, bare)
-	c.Git("remote", "add", "origin", remoteBase+name+".git")
+	c.Git("remote", "add", "origin", base+name+".git")
 	c.Git("fetch", "--quiet", "origin")
 	c.Git("branch", "--quiet", "--set-upstream-to", "origin/main", "main")
 	c.Git("remote", "set-head", "origin", "main")

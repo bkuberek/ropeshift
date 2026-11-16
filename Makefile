@@ -12,7 +12,7 @@ REAL_PATH := $(PATH)
 CANARY := $(CURDIR)/test/doubles/canary
 export PATH := $(CANARY):$(PATH)
 
-.PHONY: check format vet lint test web-test web-build licenses cross bench sizing check-postgres chaos canary real qualify service-test service-container linux-bundle release-check snapshot install-test exit-container screenshots
+.PHONY: check format vet lint test web-test web-build licenses cross bench sizing check-postgres chaos canary real qualify service-test service-container linux-bundle release-check snapshot install-test exit-container screenshots guide-shots screenshots-publish
 
 check: format vet lint test web-test licenses release-check canary
 
@@ -152,7 +152,7 @@ release-check:
 	else \
 		echo "release-check: goreleaser is not installed, so the release configuration was not checked"; \
 	fi
-	@sh -n install.sh scripts/release.sh scripts/release-ui.sh scripts/homebrew-formula.sh scripts/service-container.sh scripts/screenshots.sh
+	@sh -n install.sh scripts/release.sh scripts/release-ui.sh scripts/homebrew-formula.sh scripts/service-container.sh scripts/screenshots.sh scripts/screenshots-publish.sh
 
 # A release as a tag would build it, from this commit with no tag and no publishing: the four
 # archives with the web UI embedded, the .deb and .rpm packages, the checksums, the release notes, and
@@ -199,6 +199,25 @@ SHOTS_KEEP ?=
 screenshots:
 	sh scripts/screenshots.sh $(if $(SHOTS_OUT),-o "$(SHOTS_OUT)") $(if $(SHOTS_REF),-r "$(SHOTS_REF)") $(if $(SHOTS_KEEP),-k)
 	@$(MAKE) --no-print-directory canary
+
+# The guides' images: the guide walk drives the web UI through each step of the guides in
+# test/screenshots/guides, in the light and the dark theme, each on a fresh installation with the fake agent CLI
+# (docs/development/screenshots.md). GUIDE names one guide by its prefix, which the walk captures after walking
+# the guides before it, and by default every guide is captured. CHECKS=1 runs the walk's product gap checks in
+# place of a capture. It takes the output, ref, and keep variables of screenshots, and never runs in `make check`.
+GUIDE ?=
+CHECKS ?=
+
+guide-shots:
+	sh scripts/screenshots.sh $(if $(SHOTS_OUT),-o "$(SHOTS_OUT)") $(if $(SHOTS_REF),-r "$(SHOTS_REF)") $(if $(SHOTS_KEEP),-k) $(if $(CHECKS),-c,$(if $(GUIDE),-g "$(GUIDE)",-G))
+	@$(MAKE) --no-print-directory canary
+
+# Optimizes the captures of a screenshot run with pngquant and copies the ones the table in
+# docs/development/screenshots.md names into docs/assets/screenshots. SHOTS is the directory the run wrote.
+SHOTS ?=
+
+screenshots-publish:
+	sh scripts/screenshots-publish.sh $(if $(SHOTS),-s "$(SHOTS)")
 
 # The release's qualification suite: the production probe on the installed CLI, which ends with that
 # version's row for the matrix the binary ships (internal/adapters/claudecode/matrix.json).
