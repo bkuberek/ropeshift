@@ -12,10 +12,6 @@ import (
 	"time"
 )
 
-// EnvPause holds a process at one named step, as "op/step=duration", so a test can
-// order a race between two loops of a daemon that runs as its own process.
-const EnvPause = "ROPESHIFT_CHAOS_PAUSE"
-
 // EnvAwait holds a process at one named step until another named step is hit, or for
 // at most a bound, as "op/step=op/step,duration". Only a hit after the wait began
 // releases it. A test uses it to make one loop of a daemon that runs as its own process
@@ -34,19 +30,6 @@ func init() {
 			if op+"/"+step == target {
 				_ = syscall.Kill(os.Getpid(), syscall.SIGKILL)
 				select {}
-			}
-		})
-		return
-	}
-	if spec := os.Getenv(EnvPause); spec != "" {
-		name, value, _ := strings.Cut(spec, "=")
-		pause, err := time.ParseDuration(value)
-		if err != nil {
-			panic(fmt.Sprintf("crashpoint: %s: %v", EnvPause, err))
-		}
-		Arm(func(op, step string) {
-			if op+"/"+step == name {
-				time.Sleep(pause)
 			}
 		})
 		return
