@@ -54,6 +54,9 @@ const (
 	// KindChecks is what the lane whose work a review judges reported of it. Its ref is
 	// `<work order>@<fence>`, the attempt it speaks of.
 	KindChecks Kind = "checks"
+	// KindDeliveryHistory is a project's finished work, aggregated, which only a planning lane's pack holds and only a
+	// planning lane reads (FR-EST-12). Its ref is `project`.
+	KindDeliveryHistory Kind = "delivery_history"
 )
 
 // Trust says who could have written an item. It is a hint to the agent, not a security control
@@ -96,6 +99,9 @@ type Selection struct {
 	Overlapping []Source
 	Goals       []Source
 	Added       []Source
+	// History is a planning lane's view of its project's delivery history, last because a pack cut for its budget keeps
+	// everything a lane works from first.
+	History []Source
 }
 
 // Ordered reads a selection in the design's order, and a record that two steps select stays where
@@ -105,7 +111,7 @@ func (s Selection) Ordered() []Source {
 	if s.Contract != nil {
 		out = append(out, *s.Contract)
 	}
-	for _, step := range [][]Source{s.Documents, s.Requirements, s.Decisions, s.Reported, s.Overlapping, s.Goals, s.Added} {
+	for _, step := range [][]Source{s.Documents, s.Requirements, s.Decisions, s.Reported, s.Overlapping, s.Goals, s.Added, s.History} {
 		for _, source := range step {
 			held := slices.ContainsFunc(out, func(other Source) bool { return other.Kind == source.Kind && other.Ref == source.Ref })
 			if !held {

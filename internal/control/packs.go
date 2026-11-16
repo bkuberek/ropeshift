@@ -11,6 +11,7 @@ import (
 	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/contextpacks"
 	"ropeshift.com/ropeshift/internal/crashpoint"
+	"ropeshift.com/ropeshift/internal/delivery"
 	"ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/messages"
@@ -68,18 +69,28 @@ func (p *Packs) AddPackItem(ctx context.Context, scope ledger.WorkspaceID, addit
 
 // packRecords are what a pack draws from, in either kind of transaction.
 type packRecords struct {
-	planning  ports.PlanningReader
-	questions ports.QuestionReader
-	packs     ports.PackReader
-	evidence  ports.EvidenceReader
+	planning     ports.PlanningReader
+	questions    ports.QuestionReader
+	packs        ports.PackReader
+	evidence     ports.EvidenceReader
+	repositories ports.RepositoryReader
+	policies     ports.PolicyReader
+	deliveries   ports.DeliveryReader
+	orders       ports.WorkOrderReader
 }
 
 func writeRecords(tx ports.WriteTx) packRecords {
-	return packRecords{planning: tx.Planning(), questions: tx.Questions(), packs: tx.Packs(), evidence: tx.Evidence()}
+	return packRecords{
+		planning: tx.Planning(), questions: tx.Questions(), packs: tx.Packs(), evidence: tx.Evidence(),
+		repositories: tx.Repositories(), policies: tx.Policies(), deliveries: tx.Deliveries(), orders: tx.WorkOrders(),
+	}
 }
 
 func readRecords(tx ports.ReadTx) packRecords {
-	return packRecords{planning: tx.Planning(), questions: tx.Questions(), packs: tx.Packs(), evidence: tx.Evidence()}
+	return packRecords{
+		planning: tx.Planning(), questions: tx.Questions(), packs: tx.Packs(), evidence: tx.Evidence(),
+		repositories: tx.Repositories(), policies: tx.Policies(), deliveries: tx.Deliveries(), orders: tx.WorkOrders(),
+	}
 }
 
 func contractSource(contract planning.Contract) contextpacks.Source {
@@ -366,7 +377,49 @@ func (r packRecords) selection(order workorders.WorkOrder) (contextpacks.Selecti
 		}
 		selection.Added = append(selection.Added, source)
 	}
+	if seesDeliveryHistory(order.Kind) {
+		history, err := r.deliveryHistory()
+		if err != nil {
+			return selection, err
+		}
+		selection.History = []contextpacks.Source{history}
+	}
 	return selection, nil
+}
+
+// seesDeliveryHistory says a work order's lane reads its project's delivery history, which is the planning lane's
+// alone: it sizes work and chooses agents with it. No change, rework, or review lane reads an estimate, a forecast,
+// or history, so a band cannot anchor how a lane works or how a reviewer judges (FR-EST-12).
+func seesDeliveryHistory(kind workorders.Kind) bool { return kind == workorders.KindPlan }
+
+// historyRef names the project's delivery history among a pack's items.
+const historyRef = "project"
+
+// deliveryHistory reads the project's finished work as a planning lane's history, from the project's own delivery
+// records under the estimate policy in force, with its repositories by name (FR-EST-12). It reads nothing of the
+// installation pool: the pool answers only the last tier of an estimate (FR-EST-13).
+func (r packRecords) deliveryHistory() (contextpacks.Source, error) {
+	policy, err := estimatePolicyIn(r.policies)
+	if err != nil {
+		return contextpacks.Source{}, err
+	}
+	records, err := r.deliveries.Records()
+	if err != nil {
+		return contextpacks.Source{}, err
+	}
+	repositories, err := r.repositories.Repositories()
+	if err != nil {
+		return contextpacks.Source{}, err
+	}
+	names := map[string]string{}
+	for _, repository := range repositories {
+		names[repository.ID] = repository.Name
+	}
+	text := delivery.HistoryOf(records, policy).Text(names)
+	return contextpacks.Source{
+		Kind: contextpacks.KindDeliveryHistory, Ref: historyRef, Digest: contextpacks.TextDigest(text), Trust: contextpacks.TrustWorkspace,
+		Title: "Delivery history", Text: text,
+	}, nil
 }
 
 // buildPack fits what a work order selects to a budget, at the ratio this workspace has measured.
@@ -698,6 +751,8 @@ func (r packRecords) lookup(kind contextpacks.Kind, ref, workOrder string) ([]co
 		source, err = r.goal(ref)
 	case contextpacks.KindKnowledge:
 		return r.knowledge(ref, workOrder)
+	case contextpacks.KindDeliveryHistory:
+		return r.history(ref, workOrder)
 	default:
 		return nil, fmt.Errorf("%w: no kind %q", workorders.ErrInvalid, kind)
 	}
@@ -742,6 +797,28 @@ func (r packRecords) documentNamed(ref string) ([]contextpacks.Source, error) {
 		return nil, err
 	}
 	return []contextpacks.Source{documentSource(found)}, nil
+}
+
+// history reads the project's delivery history as it stands now, for a lane of planning work alone. For any other
+// lane, and for an orchestrator, which holds no work order, the kind is one nobody named, so a read of it says no more
+// than a read of a kind that does not exist (FR-EST-12).
+func (r packRecords) history(ref, workOrder string) ([]contextpacks.Source, error) {
+	var kind workorders.Kind
+	if workOrder != "" {
+		order, err := r.orders.Get(workOrder)
+		if err != nil {
+			return nil, err
+		}
+		kind = order.Kind
+	}
+	if !seesDeliveryHistory(kind) {
+		return nil, fmt.Errorf("%w: no kind %q", workorders.ErrInvalid, contextpacks.KindDeliveryHistory)
+	}
+	if ref != historyRef {
+		return nil, nil
+	}
+	source, err := r.deliveryHistory()
+	return []contextpacks.Source{source}, err
 }
 
 func (r packRecords) knowledge(ref, workOrder string) ([]contextpacks.Source, error) {
