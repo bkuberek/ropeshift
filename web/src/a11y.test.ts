@@ -1,397 +1,34 @@
 // @vitest-environment node
-import { readFileSync, readdirSync } from "node:fs";
-import { createRequire } from "node:module";
-import { join } from "node:path";
-
-import type { Browser, Page, Route } from "playwright-core";
-import { chromium } from "playwright-core";
+import type { Browser, Locator, Route } from "playwright-core";
 import type { ViteDevServer } from "vite";
-import { createServer } from "vite";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+
+import { dialogStates, views } from "./a11yStates";
+import { openBrowser, suiteFor } from "./browser";
+import { answer, audit, dialogsSeen, goldens, ready, serveApp } from "./browserApp";
 
 // The accessibility checks: axe-core in a real browser, over every view of the application, in both
 // themes, at desktop and at phone width, on what the Go tests wrote from a real ledger. They run with
-// the WCAG 2.0, 2.1, and 2.2 A and AA rules, and any violation fails the build. The browser is the
-// installed Google Chrome, which continuous integration's runners carry.
-
-const require = createRequire(import.meta.url);
-const axeSource = readFileSync(require.resolve("axe-core/axe.min.js"), "utf8");
-const tags = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22a", "wcag22aa"];
-
-const goldens = Object.fromEntries(
-  readdirSync("testdata")
-    .filter((name) => name.endsWith(".json"))
-    .map((name) => [name.replace(/\.json$/, ""), readFileSync(join("testdata", name), "utf8")]),
-);
-
-// What the conversation surface reads: what the member can talk to, with a planning session on a pane, a
-// headless lane, and an interactive lane beside the stopped orchestrator the ledger wrote.
-const talkTargets = JSON.stringify({
-  ...JSON.parse(goldens["conversation-targets"] ?? "{}"),
-  planning: [
-    { lane: "lane-wo-running", work_order: "wo-plan", title: "Plan alerts", kind: "plan", worker: "worker-a", worker_name: "solo", generation: 1, run_mode: "tmux", state: "working" },
-  ],
-  lanes: [
-    { lane: "lane-wo-1", work_order: "wo-1", title: "Add the retry budget", kind: "change", worker: "worker-a", worker_name: "solo", generation: 1, run_mode: "headless", state: "working" },
-    { lane: "lane-wo-pane", work_order: "wo-2", title: "Highlight spans", kind: "change", worker: "worker-a", worker_name: "solo", generation: 1, run_mode: "tmux", state: "working" },
-  ],
-});
-
-// Two merge requests, as the ledger holds them: the merge of a reviewed commit to approve at person_approves, whose
-// work order has a page, and a merge the forge refused, held until a member decides it.
-function mergeRequest(subject: "approve" | "held", workOrder: string) {
-  const commit = "9f8e7d6c5b4a39281706f5e4d3c2b1a098765432";
-  const detail = {
-    work_order_id: workOrder,
-    repository: "harbor-web",
-    commit,
-    branch: "ropeshift/" + workOrder,
-    base: "main",
-    pull_request: 12,
-    url: "https://github.com/acme/harbor-web/pull/12",
-    method: "squash",
-    merge_authority: "person_approves",
-    ...(subject === "held" ? { reason: "the base branch requires 2 approving reviews", request: "merge:" + workOrder + ":1" } : {}),
-  };
-  const id = `merge-${subject}`;
-  return {
-    kind: "approval",
-    id,
-    since: 1790000500000,
-    approval: {
-      id,
-      lane_id: "",
-      work_order_id: workOrder,
-      generation: 0,
-      kind: "merge",
-      subject,
-      subject_digest: commit,
-      summary:
-        subject === "held"
-          ? `The merge of pull request #12, commit 9f8e7d6 of work order ${workOrder} (Add the retry budget), cannot go on: ${detail.reason}. Approve to try it again, or deny to send the work back for rework.`
-          : `Approve the merge of pull request #12, commit 9f8e7d6 of work order ${workOrder} (Add the retry budget), at person_approves. The review's verdicts are on the work order.`,
-      requested_by: "system:integration",
-      state: "pending",
-      raised_at: 1790000500000,
-      detail: JSON.stringify(detail),
-    },
-  };
-}
-
-const projects = JSON.stringify({ projects: [{ id: "default", name: "default", display_name: "Default", state: "active", created_at: 1, repositories: [] }] });
-
-// Two projects the ledger holds nothing in, for the views that have an empty state: "quiet" has no repository
-// either, and "fresh" has one. Every read model of either lists nothing and counts nothing.
-function emptyViews(): Record<string, unknown> {
-  const stamp = { as_of: 1790000964002, revision: 1 };
-  const measured = JSON.parse(goldens.operations ?? "{}") as Record<string, any>;
-  const nothing = { numerator: 0, denominator: 0, value: null };
-  const agreement = { decisions: 0, agreed: 0, disagreed: 0, unknown: 0, agreement_rate: nothing, approvals_overturned: 0, later_defects: 0, failures_overridden: 0 };
-  Object.assign(measured, { work_orders: {}, lanes: {}, workers: 0, workers_fresh: 0, waiting_for_a_person: 0 });
-  Object.assign(measured.measures, {
-    interruptions: 0,
-    completed: 0,
-    interruptions_per_completed: nothing,
-    overturn_rate: nothing,
-    rework: nothing,
-    cost_per_outcome: {},
-    review_agreement: { workspace: { last_30_days: agreement, all_time: agreement }, repositories: [] },
-  });
-  return {
-    "needs-you": { ...stamp, items: [] },
-    completed: { ...stamp, items: [] },
-    "in-progress": { ...stamp, items: [] },
-    "on-hold": { ...stamp, items: [] },
-    stuck: { ...stamp, items: [] },
-    plans: { ...stamp, plans: [], unplanned: [], work_actions: {} },
-    roadmap: { ...stamp, goals: [] },
-    "shop-floor": { ...stamp, workers: [], lanes: [] },
-    operations: measured,
-  };
-}
-const empty = emptyViews();
-
-// answer stands where the daemon stands, as `serveViews` does for the other tests.
-async function answer(route: Route): Promise<void> {
-  const url = new URL(route.request().url());
-  const path = url.pathname.replace(/^\/v1\/projects\/[^/]+/, "/v1");
-  const json = (body: string, status = 200) => route.fulfill({ status, contentType: "application/json", body });
-  if (url.pathname === "/v1/projects") {
-    return json(projects);
-  }
-  if (path === "/v1/needs-you") {
-    // Needs you with the confirmation cards a delegate prepared, and the merge requests, beside every other kind.
-    const needs = JSON.parse(goldens["needs-you"] ?? "{}") as { items: unknown[] };
-    const cards = JSON.parse(goldens["needs-you-cards"] ?? "{}") as { items: unknown[] };
-    return json(JSON.stringify({ ...needs, items: [...needs.items, ...cards.items, mergeRequest("approve", "wo-running"), mergeRequest("held", "wo-held")] }));
-  }
-  const view = /^\/v1\/views\/([a-z-]+)$/.exec(path)?.[1];
-  const project = /^\/v1\/projects\/([^/]+)\//.exec(url.pathname)?.[1];
-  // The projects with nothing in them answer every read model, the repositories, and the audit with nothing.
-  if (project === "quiet" || project === "fresh") {
-    if (view && view in empty) {
-      return json(JSON.stringify(empty[view]));
-    }
-    if (path === "/v1/repositories") {
-      return json(project === "quiet" ? JSON.stringify({ repositories: [] }) : (goldens.repositories ?? "{}"));
-    }
-    if (path === "/v1/audit") {
-      return json(JSON.stringify({ scope: "project", as_of: 1790000964002, head: 0, next: 0, events: [] }));
-    }
-  }
-  // The project that has work in review: a change the review could not judge, one whose merge waits for the
-  // member's approval with a check running, and one whose merge the member approved.
-  if (project === "reviewing" && (view === "completed" || view === "needs-you") && goldens[`reviews-${view}`]) {
-    return json(goldens[`reviews-${view}`] ?? "{}");
-  }
-  // Its member has decided twelve times after a review, so its agreement shows a rate.
-  if (project === "reviewing" && view === "operations") {
-    const measured = JSON.parse(goldens.operations ?? "{}") as Record<string, any>;
-    const { workspace } = measured.measures.review_agreement;
-    workspace.last_30_days = { decisions: 12, agreed: 9, disagreed: 3, unknown: 0, agreement_rate: { numerator: 9, denominator: 12, value: 0.75 }, approvals_overturned: 2, later_defects: 1, failures_overridden: 1 };
-    return json(JSON.stringify(measured));
-  }
-  if (view && goldens[view]) {
-    return json(goldens[view]);
-  }
-  // What a work order's Changes and Activity tabs read: work that is running, work whose review ruled and waits
-  // for a member, work that ended with a delivery record, and work that never reached ready.
-  const evidence = /^\/v1\/work-orders\/([^/]+)\/(acceptance|timeline)$/.exec(path);
-  if (evidence) {
-    const read = ({ "wo-running": "running", "wo-accept": "reviewed", "wo-done": "ended", "wo-loose": "empty" } as Record<string, string | undefined>)[evidence[1] ?? ""];
-    const body = read ? goldens[`${evidence[2]}-${read}`] : undefined;
-    return body ? json(body) : json(JSON.stringify({ error: { code: "not_found", message: "no such work order" } }), 404);
-  }
-  // A work order's estimate beside its baseline.
-  if (/^\/v1\/work-orders\/[^/]+\/estimate$/.test(path) && goldens["work-estimate"]) {
-    return json(goldens["work-estimate"]);
-  }
-  if (path === "/v1/documents/read") {
-    return json(goldens.document ?? "{}");
-  }
-  if (path === "/v1/documents/versions") {
-    return json(goldens["document-versions"] ?? "{}");
-  }
-  if (path === "/v1/documents/recorded") {
-    return json(goldens["recorded-document"] ?? "{}");
-  }
-  // What the projects, repositories, settings, agents, members, and audit pages read.
-  const admin: Record<string, string | undefined> = {
-    "/v1/repositories": goldens.repositories,
-    "/v1/fleet": goldens.fleet,
-    "/v1/policies": goldens["policies-recovery"],
-    "/v1/roster": goldens.roster,
-    "/v1/roster/history": goldens["roster-history"],
-    "/v1/members": goldens.members,
-    "/v1/audit": goldens.audit,
-    "/v1/workers": JSON.stringify({ workers: [{ id: "worker-1", name: "atlas", manifest: { capacity: { max_lanes: 6 } } }] }),
-    "/v1/workers/worker-1/caps": goldens["worker-caps"],
-    "/v1/categories": JSON.stringify({ categories: ["security", "data"] }),
-  };
-  // What the delegates panel, the delegate policy, and the audit's delegate rows read.
-  if (path === "/v1/policies" && url.searchParams.get("kind") === "delegate") {
-    return json(goldens["policies-delegate"] ?? "{}");
-  }
-  if (path === "/v1/policies" && url.searchParams.get("kind") === "estimate") {
-    return json(goldens["policies-estimate"] ?? "{}");
-  }
-  if (path === "/v1/audit" && url.searchParams.get("actor") === "delegate") {
-    return json(goldens["audit-delegates"] ?? "{}");
-  }
-  const delegates: Record<string, string | undefined> = { "/v1/delegates": goldens.delegates, "/v1/operations": goldens["operation-classes"] };
-  if (delegates[path]) {
-    return json(delegates[path] ?? "{}");
-  }
-  if (admin[path]) {
-    return json(admin[path] ?? "{}");
-  }
-  // A plan, a request to approve one that has no plan yet, the outline of a planning lane, and the sources the
-  // daemon reads.
-  if (/^\/v1\/plans\/[^/]+\/forecast$/.test(path) && goldens.forecast) {
-    return json(goldens.forecast);
-  }
-  if (path === "/v1/measures/delivery") {
-    return json((url.searchParams.get("by") === "size" ? goldens["delivery-size"] : goldens.delivery) ?? "{}");
-  }
-  if (path === "/v1/measures/estimates") {
-    return json(goldens.calibration ?? "{}");
-  }
-  if (path === "/v1/measures/history") {
-    return json(goldens.history ?? "{}");
-  }
-  if (path.startsWith("/v1/plans/adopt-approval")) {
-    return json(JSON.stringify({ error: { code: "not_found", message: "no such plan" } }), 404);
-  }
-  if (path.startsWith("/v1/plans/") && goldens.plan) {
-    return json(goldens.plan);
-  }
-  if (path === "/v1/approvals/adopt-approval" && goldens["approval-adopted"]) {
-    return json(goldens["approval-adopted"]);
-  }
-  if (/^\/v1\/lanes\/[^/]+\/outline$/.test(path) && goldens.outline) {
-    return json(goldens.outline);
-  }
-  if (path === "/v1/sources") {
-    return json(JSON.stringify({ sources: [] }));
-  }
-  // What each channel was told, what was sent to a lane, and what each lane reported of its tokens and cost.
-  if (path === "/v1/notices" && goldens.notices) {
-    return json(goldens.notices);
-  }
-  if (/^\/v1\/lanes\/[^/]+\/messages$/.test(path) && goldens["lane-messages"]) {
-    return json(goldens["lane-messages"]);
-  }
-  if (path === "/v1/telemetry/lanes" && goldens["telemetry-lanes"]) {
-    return json(goldens["telemetry-lanes"]);
-  }
-  if (/^\/v1\/workers\/[^/]+\/orchestrator$/.test(path)) {
-    return json(
-      JSON.stringify({ id: "orchestrator-worker-a", worker_id: "worker-a", desired_state: "running", run: 4, resets: 2, actual_state: "tripped", current_generation: 3, conditions: ["day_capped"], reported_at: 1790000000000 }),
-    );
-  }
-  if (path === "/v1/conversation-targets") {
-    return json(talkTargets);
-  }
-  if (path === "/v1/conversations" && goldens.conversations) {
-    return json(goldens.conversations);
-  }
-  if (/^\/v1\/conversations\/[^/]+\/entries$/.test(path) && goldens["conversation-entries"]) {
-    return json(goldens["conversation-entries"]);
-  }
-  if (/^\/v1\/lanes\/[^/]+\/stream$/.test(path) && goldens["lane-stream"]) {
-    return json(goldens["lane-stream"]);
-  }
-  if (/^\/v1\/orchestrators\/[^/]+\/stream$/.test(path) && goldens["orchestrator-stream"]) {
-    return json(goldens["orchestrator-stream"]);
-  }
-  if (path === "/v1/events" || path.startsWith("/v1/panes/")) {
-    return route.fulfill({ status: 200, contentType: "text/event-stream", body: ": open\n\n" });
-  }
-  return json(JSON.stringify({ error: { code: "not_found", message: "not served in this test" } }), 404);
-}
-
-// The address of every view, each with the records a person would open.
-const views = [
-  "/needs-you",
-  "/needs-you?item=questions%3Agenerated-7",
-  "/needs-you?item=plan_approval%3Agenerated-13",
-  "/needs-you?item=work%3Awo-failed",
-  "/needs-you?kind=cards&item=confirm%3Agenerated-1",
-  "/needs-you?kind=cards&item=confirm%3Agenerated-2",
-  "/needs-you?item=approval%3Amerge-approve",
-  "/needs-you?item=approval%3Amerge-held",
-  "/projects/default",
-  "/projects/quiet",
-  "/projects/fresh",
-  "/projects/default/reviews",
-  "/projects/default/reviews?tab=pull-requests",
-  "/projects/default/reviews?tab=agreement",
-  "/projects/reviewing/reviews",
-  "/projects/reviewing/reviews?tab=pull-requests",
-  "/projects/reviewing/reviews?tab=agreement",
-  "/projects/fresh/reviews",
-  "/projects/fresh/reviews?tab=pull-requests",
-  "/projects/fresh/reviews?tab=agreement",
-  "/projects/default/roadmap",
-  "/projects/default/plans",
-  "/projects/default/plans?plan=generated-2",
-  "/projects/default/plan?id=generated-1&version=6",
-  "/projects/default/plan?id=generated-1&version=5",
-  "/projects/default/plan?id=adopt-approval&version=1",
-  "/projects/default/planning",
-  "/projects/default/planning?lane=lane-wo-running",
-  "/projects/default/documents?kind=requirements",
-  "/projects/default/documents?kind=spec",
-  "/projects/default/documents?id=spec%3Afactory-api",
-  "/projects/default/documents?id=spec%3Afactory-api&version=2&against=1",
-  "/projects/default/documents?kind=requirements&key=FAC-2",
-  "/projects/default/documents?path=docs%2Fspecs%2Fretry.md",
-  "/projects/default/traceability",
-  "/projects/default/traceability?key=FAC-2",
-  "/projects/default/decisions",
-  "/projects/default/questions",
-  "/projects/default/work?group=all",
-  "/projects/default/work-order?id=wo-accept",
-  "/projects/default/work-order?id=generated-28",
-  "/projects/default/work-order?id=generated-26",
-  "/projects/default/work-order?id=wo-failed",
-  "/projects/default/work-order?id=wo-running",
-  "/projects/default/work-order?id=wo-done&tab=lanes",
-  "/projects/default/work-order?id=wo-running&tab=changes",
-  "/projects/default/work-order?id=wo-running&tab=activity",
-  "/projects/default/work-order?id=wo-accept&tab=changes",
-  "/projects/default/work-order?id=wo-accept&tab=activity",
-  "/projects/default/work-order?id=wo-done&tab=changes",
-  "/projects/default/work-order?id=wo-done&tab=activity",
-  "/projects/default/work-order?id=wo-loose&tab=changes",
-  "/projects/default/work-order?id=wo-loose&tab=activity",
-  "/projects/default/floor",
-  "/projects/default/lane?id=lane-wo-running",
-  "/projects/default/measures",
-  "/projects/default/measures?tab=delivery",
-  "/projects/default/measures?tab=delivery&window=7d&by=size",
-  "/projects/default/measures?tab=delivery&scope=all",
-  "/projects/default/measures?tab=estimates",
-  "/projects/default/measures?tab=estimates&window=7d&repository=harbor-web",
-  "/projects/default/conversations",
-  "/usage",
-  "/workers",
-  "/projects",
-  "/import",
-  "/members",
-  "/settings?section=admission",
-  "/settings?section=assistant",
-  "/projects/default/settings?section=recovery",
-  "/projects/default/settings?section=fleet",
-  "/projects/default/settings?section=delegate-policy",
-  "/projects/default/settings?section=estimate",
-  "/agents",
-  "/projects/default/agents?agent=heavy-implementation",
-  "/projects/default/agents?tab=history",
-  "/projects/default/repositories?repo=id-api",
-  "/projects/default/audit",
-  "/projects/default/audit?actor=delegate",
-  "/projects/default/audit?tab=notices",
-  "/audit",
-];
+// the WCAG 2.0, 2.1, and 2.2 A and AA rules, and any violation fails the build. The browser is the first
+// that starts of the executable in ROPESHIFT_TEST_CHROME, Google Chrome, a chromium on the PATH, and
+// Playwright's Chromium; continuous integration's runners carry Google Chrome.
 
 const sizes = { desktop: { width: 1440, height: 900 }, phone: { width: 390, height: 844 } } as const;
 const themes = ["light", "dark"] as const;
 
-type Violation = { id: string; help: string; nodes: { target: string[] }[] };
-
-async function audit(page: Page): Promise<string[]> {
-  await page.evaluate(axeSource);
-  const violations = (await page.evaluate(
-    (runOnly) =>
-      (window as unknown as { axe: { run: (context: Document, options: object) => Promise<{ violations: unknown[] }> } }).axe
-        .run(document, { runOnly: { type: "tag", values: runOnly }, resultTypes: ["violations"] })
-        .then((result) => result.violations),
-    tags,
-  )) as Violation[];
-  return violations.map((violation) => `${violation.id}: ${violation.help} at ${violation.nodes.map((node) => node.target.join(" ")).join(", ")}`);
-}
-
-// ready waits until the view's title stands and no skeleton holds the place of its body.
-async function ready(page: Page): Promise<void> {
-  await page.locator("main h1:visible").first().waitFor({ timeout: 20_000 });
-  await page.waitForFunction(() => !document.querySelector("main .skeleton-rows"), null, { timeout: 20_000 });
-  await page.waitForTimeout(150);
-}
+const opened = await openBrowser();
+const suite = suiteFor(opened);
 
 let server: ViteDevServer;
 let browser: Browser;
 let base = "";
 
 beforeAll(async () => {
-  server = await createServer({ configFile: "vite.config.ts", logLevel: "error", server: { host: "127.0.0.1", port: 0, strictPort: false, hmr: false } });
-  await server.listen();
-  base = (server.resolvedUrls?.local[0] ?? "").replace(/\/$/, "");
-  try {
-    browser = await chromium.launch({ channel: "chrome", headless: true });
-  } catch (error) {
-    throw new Error(`The accessibility checks run in the installed Google Chrome, which did not start: ${String(error)}`);
+  if (opened.kind !== "ready") {
+    return;
   }
+  browser = opened.browser;
+  ({ server, base } = await serveApp());
 }, 120_000);
 
 afterAll(async () => {
@@ -408,7 +45,7 @@ const targetKinds = [
   { name: /Lane.*lane-wo-pane/, ready: { role: "region", name: "Pane of lane lane-wo-pane" } },
 ] as const;
 
-describe.each(Object.entries(sizes))("at %s width", (size, viewport) => {
+suite.each(Object.entries(sizes))("at %s width", (size, viewport) => {
   describe.each(themes)("in the %s theme", (theme) => {
     it(
       "every view meets WCAG 2.2 A and AA",
@@ -1481,6 +1118,109 @@ describe.each(Object.entries(sizes))("at %s width", (size, viewport) => {
       120_000,
     );
 
+    // The dialogs of the installation's pages, which the coverage test holds to an axe state each: the project
+    // dialogs, the join token, the delegate dialogs, the sign-out of every session, the repository dialogs, the
+    // risk a member reads, a roster change in review, and the choice of a worker for the assistant.
+    it(
+      "the dialogs of Projects, Workers, Members, Repositories, Settings, Agents, and the assistant meet WCAG 2.2 A and AA",
+      async () => {
+        const context = await browser.newContext({ viewport, colorScheme: theme, reducedMotion: "reduce" });
+        await context.route(/\/v1\//, answer);
+        const page = await context.newPage();
+        const found: string[] = [];
+        const settle = async () => {
+          await page.mouse.move(0, 0);
+          await page.waitForTimeout(600);
+        };
+        const check = async (name: string, dialog: Locator) => {
+          await dialog.waitFor();
+          await settle();
+          found.push(...(await audit(page)).map((violation) => `${name} ${violation}`));
+        };
+        const served = (body: unknown, status = 200) => (route: Route) => route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
+        // The project dialogs, with an archived project beside the active one.
+        const listed = [
+          { id: "default", name: "default", display_name: "Default", state: "active", created_at: 1, repositories: [] },
+          { id: "old", name: "old", display_name: "Old", state: "archived", created_at: 1, repositories: [] },
+        ];
+        await page.route(/\/v1\/projects$/, (route) => (route.request().method() === "GET" ? served({ projects: listed })(route) : route.fallback()));
+        await page.goto(`${base}/projects`);
+        await ready(page);
+        await page.getByRole("row", { name: /Old/ }).waitFor();
+        await page.getByRole("button", { name: "Create project" }).first().click();
+        await check("create project dialog", page.getByRole("dialog", { name: "Create project" }));
+        await page.keyboard.press("Escape");
+        await page.getByRole("button", { name: "Archive…" }).click();
+        await check("archive project dialog", page.getByRole("dialog", { name: /^Archive / }));
+        await page.keyboard.press("Escape");
+        await page.getByRole("button", { name: "Actions for Default" }).click();
+        await page.getByRole("menuitem", { name: "Rename…" }).click();
+        await check("rename project dialog", page.getByRole("dialog", { name: /^Rename / }));
+        await page.keyboard.press("Escape");
+        await page.getByRole("button", { name: "Remove…" }).click();
+        await check("remove project dialog", page.getByRole("dialog", { name: /^Remove / }));
+        await page.keyboard.press("Escape");
+        await page.locator("input[type=file]").setInputFiles({ name: "tidewater.db", mimeType: "application/octet-stream", buffer: Buffer.from("SQLite format 3\0") });
+        await check("import backup dialog", page.getByRole("dialog", { name: "Import backup" }));
+        await page.unroute(/\/v1\/projects$/);
+        // The join token, the delegate dialogs, and the sign-out of every session.
+        await page.goto(`${base}/workers?dialog=token`);
+        await check("join token dialog", page.getByRole("dialog", { name: "Create join token" }));
+        await page.goto(`${base}/members?dialog=delegate`);
+        const create = page.getByRole("dialog", { name: "Create delegate" });
+        await check("create delegate dialog", create);
+        await page.route(/\/v1\/delegates$/, (route) =>
+          route.request().method() === "POST"
+            ? served({ id: "delegate-1", label: "ci", project: "default", kind: "delegate", created_at: 1790000000000, expires_at: 1790003600000, last_used_at: null, revoked_at: null, state: "active", token: "rsd_0123456789abcdef" })(route)
+            : route.fallback(),
+        );
+        await create.getByRole("textbox", { name: "Label" }).fill("ci");
+        await create.getByRole("button", { name: "Create", exact: true }).click();
+        await check("delegate created dialog", page.getByRole("dialog", { name: "Delegate created" }));
+        await page.goto(`${base}/members?dialog=sign-out-all`);
+        await check("sign out all sessions dialog", page.getByRole("dialog", { name: "Sign out all sessions" }));
+        // The repository dialogs.
+        await page.goto(`${base}/projects/default/repositories?dialog=register`);
+        await check("register repositories dialog", page.getByRole("dialog", { name: /^Register repositories in / }));
+        await page.goto(`${base}/projects/default/repositories?repo=id-api`);
+        await ready(page);
+        await page.getByRole("button", { name: "Remove…" }).click();
+        await check("remove repository dialog", page.getByRole("dialog", { name: /^Remove / }));
+        // The risk a member reads before standing behind a worker's level.
+        await page.route(/\/v1\/workers\/worker-1\/autonomy$/, served({ as_of: 1790000000000, worker_id: "worker-1", sign_in: "subscription", level: "attended", chosen_level: "assisted", risk_acknowledged: false, may_claim: false }));
+        await page.route(/\/v1\/autonomy\/risk$/, served({ statement: "A worker at this level runs the agent's commands without asking.", digest: "sha256:abc" }));
+        await page.goto(`${base}/settings?section=autonomy`);
+        await ready(page);
+        await page.getByRole("button", { name: "Read the stated risk" }).click();
+        await check("stated risk dialog", page.getByRole("dialog", { name: "The stated risk" }));
+        // A roster change in review.
+        await page.goto(`${base}/projects/default/agents?tab=guide`);
+        await ready(page);
+        await page.getByRole("textbox", { name: "Routing guide" }).fill("Pick the lightest agent that can do the work.");
+        await page.getByRole("button", { name: "Review change" }).click();
+        await check("roster review dialog", page.getByRole("dialog", { name: "Review the routing guide change" }));
+        // The assistant asks which worker runs a stopped conversation when several can.
+        const targets = JSON.parse(goldens["conversation-targets"] ?? "{}") as { assistant: { conversation: Record<string, unknown>; workers: unknown[] } };
+        const stopped = { ...targets.assistant.conversation, actual_state: "stopped", desired_state: "stopped", worker_id: undefined };
+        const workers = [
+          { id: "worker-atlas", name: "atlas", available: true },
+          { id: "worker-basalt", name: "basalt", available: true },
+        ];
+        await page.route(/\/v1\/conversation-targets$/, served({ ...targets, assistant: { ...targets.assistant, conversation: stopped, workers } }));
+        await page.route(/\/v1\/conversations$/, (route) => (route.request().method() === "GET" ? served({ as_of: 1790000010000, conversations: [stopped], workers })(route) : route.fallback()));
+        await page.goto(`${base}/projects/default/roadmap`);
+        await ready(page);
+        await page.getByRole("button", { name: "Conversation panel" }).click();
+        const dock = page.getByRole("complementary", { name: "Conversation" });
+        await dock.getByRole("textbox", { name: "Message to the assistant" }).fill("Hello");
+        await page.keyboard.press("Control+Enter");
+        await check("choose a worker dialog", page.getByRole("dialog", { name: "Choose a worker" }));
+        await context.close();
+        expect(found.map((line) => `${size} ${theme} ${line}`)).toEqual([]);
+      },
+      240_000,
+    );
+
     // The Notices tab, a lane's messages, Usage's cost by lane, and the Workers page's drivers, in the states their
     // full goldens do not reach: nothing to list, a store the control plane lacks, a read refused, and workers that
     // reported each kind of doctor result.
@@ -1549,5 +1289,14 @@ describe.each(Object.entries(sizes))("at %s width", (size, viewport) => {
         60_000,
       );
     }
+  });
+});
+
+// The coverage test holds the dialogs of the source to the list of states. This holds the list to the browser: each
+// dialog it names was open during an audit of the tests above, which it reads, so it runs with all of them.
+suite("the dialogs the states list", () => {
+  it("were each open during an audit", () => {
+    const unseen = dialogStates.filter((row) => ![...dialogsSeen].some((name) => row.title.test(name))).map((row) => `${row.file}: ${String(row.title)}`);
+    expect(unseen).toEqual([]);
   });
 });

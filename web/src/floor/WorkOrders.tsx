@@ -285,6 +285,9 @@ const tabs: { id: Tab; label: string }[] = [
   { id: "activity", label: "Activity" },
 ];
 
+// The ID of every tab, which the accessibility checks hold to a state each.
+export const workOrderTabs: string[] = tabs.map((tab) => tab.id);
+
 // needFor finds what the work order waits on in Needs you: its acceptance, its review, a request of its
 // lane, or why it stopped.
 function needFor(needs: NeedsYou, id: string): NeedItem | undefined {
