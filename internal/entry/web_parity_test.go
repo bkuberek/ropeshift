@@ -65,6 +65,7 @@ var cliOnly = map[string]string{
 	"init":              "FR-UI-7: init sets up this machine, with its passphrase, worker, doctor, and sample",
 	"service install":   "FR-UI-7: service install and service uninstall act on the machine's service manager",
 	"service uninstall": "FR-UI-7: service install and service uninstall act on the machine's service manager",
+	"telemetry query":   "FR-UI-7: members do not run telemetry query, which gives an orchestrator agent the worker's raw store with --json; Usage shows each lane's context, tokens, and cost from telemetry lanes",
 	"top":               "FR-UI-7: top is the terminal's own view",
 	"work write":        "FR-UI-7: work write stores one event under a claim's fence, which the worker protocol relies on",
 }
@@ -73,8 +74,7 @@ var cliOnly = map[string]string{
 // that adds it. A command whose row is added leaves this list, and the test fails until it does. The first
 // run of this test wrote it, and a command the audit did not name went by its area.
 var webGaps = map[string]string{
-	"passphrase set":  "U2f",
-	"telemetry query": "U2h2",
+	"passphrase set": "U2f",
 }
 
 var gapSlice = regexp.MustCompile(`^U2[a-k][12]?$`)
