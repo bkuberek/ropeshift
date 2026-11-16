@@ -23,7 +23,23 @@ var ErrBadLanePolicy = errors.New("invalid lane policy")
 type LanePolicy struct {
 	Version           int64  `toml:"version" json:"version"`
 	OnContractVersion string `toml:"on_contract_version" json:"on_contract_version"`
-	OnOneWayDecision  string `toml:"on_one_way_decision" json:"on_one_way_decision"`
+	// OnBindingDecision is what a decision that binds a lane's work does to the lane (ADR-0030). Unset
+	// tells it, as the built-in policy does.
+	OnBindingDecision string `toml:"on_binding_decision" json:"on_binding_decision,omitempty"`
+	// OnOneWayDecision, when a policy sets it, overrides OnBindingDecision for a one-way decision, so a
+	// member can park on what cannot be undone and tell on the rest. Unset follows OnBindingDecision.
+	OnOneWayDecision string `toml:"on_one_way_decision" json:"on_one_way_decision,omitempty"`
+}
+
+// BindingResponse is what a decision that binds a lane's work does to the lane: notify or park.
+func (p LanePolicy) BindingResponse(oneWay bool) string {
+	if oneWay && p.OnOneWayDecision != "" {
+		return p.OnOneWayDecision
+	}
+	if p.OnBindingDecision != "" {
+		return p.OnBindingDecision
+	}
+	return LaneNotify
 }
 
 // LanePolicyFile is the table a member publishes.
@@ -42,23 +58,37 @@ type LanePolicyDraft struct {
 const BuiltInLanePolicyBody = `[lane_policy]
 version = 1
 on_contract_version = "notify"
-on_one_way_decision = "notify"
+on_binding_decision = "notify"
 `
 
 // DefaultLanePolicy is what BuiltInLanePolicyBody says.
 func DefaultLanePolicy() LanePolicy {
-	return LanePolicy{Version: 1, OnContractVersion: LaneNotify, OnOneWayDecision: LaneNotify}
+	return LanePolicy{Version: 1, OnContractVersion: LaneNotify, OnBindingDecision: LaneNotify}
 }
 
-// Check accepts a policy a workspace can run on.
+// Check accepts a policy a workspace can run on. A policy states what a contract change does to a lane. The
+// keys for a decision are optional, so a policy published before them keeps its meaning.
 func (p LanePolicy) Check() error {
 	if p.Version < 1 {
 		return fmt.Errorf("%w: version %d", ErrBadLanePolicy, p.Version)
 	}
-	for _, value := range []string{p.OnContractVersion, p.OnOneWayDecision} {
-		if value != LaneNotify && value != LanePark {
-			return fmt.Errorf("%w: %q is neither %s nor %s", ErrBadLanePolicy, value, LaneNotify, LanePark)
+	if err := checkLaneResponse(p.OnContractVersion); err != nil {
+		return err
+	}
+	for _, value := range []string{p.OnBindingDecision, p.OnOneWayDecision} {
+		if value == "" {
+			continue
 		}
+		if err := checkLaneResponse(value); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func checkLaneResponse(value string) error {
+	if value != LaneNotify && value != LanePark {
+		return fmt.Errorf("%w: %q is neither %s nor %s", ErrBadLanePolicy, value, LaneNotify, LanePark)
 	}
 	return nil
 }

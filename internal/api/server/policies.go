@@ -4,7 +4,9 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strconv"
+	"strings"
 
 	"github.com/BurntSushi/toml"
 
@@ -27,8 +29,13 @@ const lanePolicyTable = "lane_policy"
 // value would close or open a gate that nobody chose.
 var policyKeys = []string{"version", "reversible_default", "one_way_categories", "max_assumptions_per_work_order"}
 
-// lanePolicyKeys are the settings a lane policy must state.
-var lanePolicyKeys = []string{"version", "on_contract_version", "on_one_way_decision"}
+// lanePolicyKeys are the settings a lane policy must state, and lanePolicyDecisionKeys the ones it must
+// state at least one of: what a decision that binds a lane's work does, for any such decision or for a
+// one-way one alone (ADR-0030). A policy that states only the second keeps the meaning it had.
+var (
+	lanePolicyKeys         = []string{"version", "on_contract_version"}
+	lanePolicyDecisionKeys = []string{"on_binding_decision", "on_one_way_decision"}
+)
 
 // readPolicy reads a body as its author wrote it. The API is where TOML ends: the control
 // plane holds no parser, and it keeps the body with what this returns.
@@ -63,6 +70,9 @@ func readLanePolicy(body string) (authority.LanePolicyDraft, error) {
 		if !meta.IsDefined(lanePolicyTable, key) {
 			return authority.LanePolicyDraft{}, fmt.Errorf("%w: a lane policy states %s", authority.ErrBadLanePolicy, key)
 		}
+	}
+	if !slices.ContainsFunc(lanePolicyDecisionKeys, func(key string) bool { return meta.IsDefined(lanePolicyTable, key) }) {
+		return authority.LanePolicyDraft{}, fmt.Errorf("%w: a lane policy states %s", authority.ErrBadLanePolicy, strings.Join(lanePolicyDecisionKeys, " or "))
 	}
 	return authority.LanePolicyDraft{Body: body, Policy: file.LanePolicy}, nil
 }

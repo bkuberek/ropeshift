@@ -56,7 +56,8 @@ export const policies: Record<PolicyKind, { table: string; fields: FieldSpec[] }
     table: "lane_policy",
     fields: [
       { key: "on_contract_version", label: "When a contract changes under a lane", type: "choice", choices: ["notify", "park"], help: "notify tells the lane and lets it go on; park stops it until a member resumes it." },
-      { key: "on_one_way_decision", label: "When a one-way decision lands under a lane", type: "choice", choices: ["notify", "park"] },
+      { key: "on_binding_decision", label: "When a decision lands under a lane", type: "choice", choices: ["notify", "park"], help: "A decision that binds a lane's work tells the lane in either case; park also stops it until a member resumes it." },
+      { key: "on_one_way_decision", label: "When a one-way decision lands under a lane", type: "choice", choices: ["", "notify", "park"], optional: true, help: "Left empty, a one-way decision does what the setting above says." },
     ],
   },
   recovery: {
