@@ -56,6 +56,8 @@ var equivalents = map[string]string{
 	"orchestrator stop": "orchestrator start", // orchestrator.go setsOrchestrator sends SetOrchestrator, the same PUT as start, with desired stopped; Workers sends both
 	"plan approve":      "approval approve",   // planning.go planApprove reads the plan, then sends DecideApproval with Allow for its digest; the plan approval card does
 	"plan start":        "work create",        // planstart.go openSession sends work create (plan), review, claim, and lane start; planning/session.ts sends the same calls
+	"policy show":       "policy list",        // questions.go policyShow finds one version in the rows policyList prints and prints its body; the list route returns every version with its settings, and Settings shows the newest and each earlier one in its History tab
+	"repository show":   "repository list",    // repository.go repositoryShow prints the RepositoryView of one repository; the list route returns the same view for each, with its forge health and review agreement, and Repositories opens a row's record from it
 }
 
 // cliOnly are the commands FR-UI-7 leaves to the command line, each with the clause that does.
@@ -63,6 +65,7 @@ var cliOnly = map[string]string{
 	"init":              "FR-UI-7: init sets up this machine, with its passphrase, worker, doctor, and sample",
 	"service install":   "FR-UI-7: service install and service uninstall act on the machine's service manager",
 	"service uninstall": "FR-UI-7: service install and service uninstall act on the machine's service manager",
+	"telemetry query":   "FR-UI-7: members do not run telemetry query, which gives an orchestrator agent the worker's raw store with --json; Usage shows each lane's context, tokens, and cost from telemetry lanes",
 	"top":               "FR-UI-7: top is the terminal's own view",
 	"work write":        "FR-UI-7: work write stores one event under a claim's fence, which the worker protocol relies on",
 }
@@ -71,8 +74,7 @@ var cliOnly = map[string]string{
 // that adds it. A command whose row is added leaves this list, and the test fails until it does. The first
 // run of this test wrote it, and a command the audit did not name went by its area.
 var webGaps = map[string]string{
-	"passphrase set":  "U2f",
-	"telemetry query": "U2h2",
+	"passphrase set": "U2f",
 }
 
 var gapSlice = regexp.MustCompile(`^U2[a-k][12]?$`)

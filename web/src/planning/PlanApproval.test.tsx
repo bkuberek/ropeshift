@@ -477,6 +477,27 @@ describe("the Estimates group and the decision card", () => {
     expect(open?.textContent).toContain("delivery p50 2h0m0s p85 more than 3h0m0s");
   });
 
+  it("names each milestone's forecast by its title", async () => {
+    serve(forecasted);
+    openPage(page());
+    const group = await screen.findByRole("region", { name: "Estimates" });
+    const titles = [...group.querySelectorAll(".forecast-title")].map((node) => node.textContent);
+    expect(titles).toEqual(["Plan", "Build the core", "Guide a newcomer", "Ship the approval page"]);
+  });
+
+  it("names a milestone's forecast by its ID when the version lists no title for it", async () => {
+    serve((view) => {
+      forecasted(view);
+      if (view.approval) {
+        view.approval.milestones = view.approval.milestones?.filter((row) => row.id !== "guide");
+      }
+    });
+    openPage(page());
+    const group = await screen.findByRole("region", { name: "Estimates" });
+    const titles = [...group.querySelectorAll(".forecast-title")].map((node) => node.textContent);
+    expect(titles).toEqual(["Plan", "Build the core", "guide", "Ship the approval page"]);
+  });
+
   it("says on the decision card that approving records the estimates as the baseline, and that new history never voids it", async () => {
     serve();
     openPage(page());

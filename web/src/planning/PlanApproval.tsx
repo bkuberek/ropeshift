@@ -28,6 +28,8 @@ export type Subject = {
   detail: PlanApprovalDetail;
   records: PlanEntry[];
   drafts: DraftDecision[];
+  // milestones are the titles of the version's milestones, by the ID its forecasts name them by.
+  milestones?: { id: string; title: string }[];
   version: number;
   // registration is what approving registers of the repositories the version's manifest lists, when it lists any.
   registration?: ManifestRegistration;
@@ -59,6 +61,7 @@ export async function readSubject(id: string, version: string): Promise<Subject>
       detail: held?.detail ?? noDetail,
       records: held?.records ?? [],
       drafts: held?.drafts ?? [],
+      milestones: held?.milestones,
       version: held?.approval.plan_version ?? Number(version || view.versions[0]?.version || 0),
       registration: held?.registration,
       forecast: held?.forecast,
@@ -288,7 +291,7 @@ export function PlanApprovalBody({ subject, live, after, reload }: { subject: Su
           </Panel>
           {subject.forecast ? (
             <Panel title="Estimates">
-              <PlanEstimates forecast={subject.forecast} titleOf={(id) => id} />
+              <PlanEstimates forecast={subject.forecast} titleOf={(id) => subject.milestones?.find((row) => row.id === id)?.title || id} />
             </Panel>
           ) : null}
           <Panel title="Documents">

@@ -151,7 +151,7 @@ func writeForecasts(out *strings.Builder, view api.PlanForecast, indent string) 
 		if f.Status != delivery.Forecasted {
 			fmt.Fprintf(out, "%sforecast\t%s\t%s\n", indent, whose, strings.ReplaceAll(string(f.Status), "_", " "))
 		} else {
-			all, p85 := f.LowerBound == delivery.LowerAll, f.LowerBound != delivery.LowerNone
+			all, p85 := f.LowerBound.OpensP50(), f.LowerBound.OpensP85()
 			fmt.Fprintf(out, "%sforecast\t%s\t%s\tp50 %s\tp85 %s\tcost p50 %s p85 %s\n", indent, whose, f.Confidence,
 				dateText(f.EndP50, all), dateText(f.EndP85, p85), costText(f.CostP50USD, all), costText(f.CostP85USD, p85))
 			ifs := []string{}

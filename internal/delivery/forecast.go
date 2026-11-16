@@ -81,6 +81,13 @@ const (
 	LowerAll  LowerBound = "all"
 )
 
+// OpensP50 says the p50 date and cost are lower bounds: only `all` makes them so. A forecast that states no
+// bound has none, as the comparison of its outcome reads it.
+func (b LowerBound) OpensP50() bool { return b == LowerAll }
+
+// OpensP85 says the p85 date and cost, and a what-if's p85 date, are lower bounds: `p85` and `all` make them so.
+func (b LowerBound) OpensP85() bool { return b == LowerP85 || b == LowerAll }
+
 // Forecast is one milestone's or the plan's forecast (FR-EST-8, FR-EST-9, FR-EST-14), with what makes it again:
 // the seed, the trials, the cap, the time it ran from, the median wait, the estimate policy version, and the
 // revision. End dates are epoch milliseconds, and costs are estimated at list price. Milestone is empty for the

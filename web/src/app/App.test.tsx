@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -168,10 +168,14 @@ describe("the stream", () => {
     render(<App />);
     await screen.findByRole("heading", { name: "Needs you" });
     const stream = await openLedgerStream();
-    stream.onopen?.();
-    expect((await screen.findByRole("status")).textContent).toBe("Live");
-    stream.onerror?.();
-    await waitFor(() => expect(screen.getByRole("status").textContent).toBe("Reconnecting"));
+    // The status says Connecting until the stream opens, and a state change a stream's callback makes reaches the
+    // page only once React flushes it, so each callback runs in act, which returns after the flush. The element
+    // is there all along, so waiting for it would read its text before the change shows.
+    expect(screen.getByRole("status").textContent).toBe("Connecting");
+    await act(async () => stream.onopen?.());
+    expect(screen.getByRole("status").textContent).toBe("Live");
+    await act(async () => stream.onerror?.());
+    expect(screen.getByRole("status").textContent).toBe("Reconnecting");
   });
 });
 

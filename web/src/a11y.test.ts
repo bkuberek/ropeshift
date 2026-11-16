@@ -1212,6 +1212,10 @@ suite.each(Object.entries(sizes))("at %s width", (size, viewport) => {
         await ready(page);
         await page.getByRole("button", { name: "Conversation panel" }).click();
         const dock = page.getByRole("complementary", { name: "Conversation" });
+        // Which worker runs the session is asked from the workers the dock has read, and the dock reads them once it
+        // opens. Until the stopped conversation shows its Resume button, the dock knows no worker and the first key or
+        // the send starts a session with no question, so the dialog never opens.
+        await dock.getByRole("button", { name: "Resume", exact: true }).waitFor();
         await dock.getByRole("textbox", { name: "Message to the assistant" }).fill("Hello");
         await page.keyboard.press("Control+Enter");
         await check("choose a worker dialog", page.getByRole("dialog", { name: "Choose a worker" }));

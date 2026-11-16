@@ -252,8 +252,6 @@ const callers: Record<string, Caller> = {
 // uiGaps are the routes the listener serves that no client function calls yet, each with the slice of U2
 // that adds the call. The first run of this test wrote the list.
 const uiGaps: Record<string, string> = {
-  "GET /v1/projects/{project}/repositories/{id}": "U2f",
-  "GET /v1/projects/{project}/policies/{version}": "U2f",
   "GET /v1/projects/{project}/conversations/{id}": "U2h2",
 };
 

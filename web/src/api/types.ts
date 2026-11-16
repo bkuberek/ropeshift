@@ -899,6 +899,8 @@ export type PlanApprovalView = {
   detail: PlanApprovalDetail;
   records?: PlanEntry[];
   drafts?: DraftDecision[];
+  // Each milestone the version holds, by the ID its forecasts name it by, with its title.
+  milestones?: { id: string; title: string }[];
   registration?: ManifestRegistration;
   // The version's latest forecasts and the estimate set they were made from, or the state that says why it has none.
   forecast?: PlanForecast;

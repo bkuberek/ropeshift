@@ -253,16 +253,35 @@ const toastMs = 6000;
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const next = useRef(0);
-  const dismiss = useCallback((id: number) => setToasts((was) => was.filter((toast) => toast.id !== id)), []);
+  // timers are the pending dismissals by toast ID. None outlives its toast or the provider: a timer that fires after
+  // an unmount sets state on a page that is gone.
+  const timers = useRef(new Map<number, ReturnType<typeof setTimeout>>());
+  const dismiss = useCallback((id: number) => {
+    clearTimeout(timers.current.get(id));
+    timers.current.delete(id);
+    setToasts((was) => was.filter((toast) => toast.id !== id));
+  }, []);
   const show = useCallback(
     (tone: ToastTone, text: string) => {
       next.current += 1;
       const id = next.current;
       setToasts((was) => [...was, { id, tone, text }]);
-      setTimeout(() => dismiss(id), toastMs);
+      timers.current.set(
+        id,
+        setTimeout(() => dismiss(id), toastMs),
+      );
     },
     [dismiss],
   );
+  useEffect(() => {
+    const pending = timers.current;
+    return () => {
+      for (const timer of pending.values()) {
+        clearTimeout(timer);
+      }
+      pending.clear();
+    };
+  }, []);
   return (
     <ToastContext.Provider value={show}>
       {children}

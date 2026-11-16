@@ -190,6 +190,9 @@ func planApprovalView(tx ports.ReadTx, plan string, wanted int64) (*api.PlanAppr
 		return nil, err
 	}
 	view.Records, view.Drafts = version.Records, version.Decisions
+	if view.Milestones, err = milestoneTitles(tx.Planning(), version.Records); err != nil {
+		return nil, err
+	}
 	if view.Registration, err = registrationView(tx, chosen.ID); err != nil {
 		return nil, err
 	}
@@ -199,6 +202,24 @@ func planApprovalView(tx ports.ReadTx, plan string, wanted int64) (*api.PlanAppr
 	}
 	view.Forecast = &forecast
 	return view, nil
+}
+
+// milestoneTitles names each milestone a plan version holds by the ID its file gives, which is the one a
+// forecast names it by, with the title of its document, in the order the version lists them.
+func milestoneTitles(planned ports.PlanningReader, records []planning.Entry) ([]api.MilestoneTitle, error) {
+	var out []api.MilestoneTitle
+	for _, entry := range records {
+		kind, id, ok := planning.ParseDocumentRef(entry.Ref)
+		if !ok || kind != planning.FileMilestone {
+			continue
+		}
+		document, err := planned.Document(entry.Ref)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, api.MilestoneTitle{ID: id, Title: document.Title})
+	}
+	return out, nil
 }
 
 // registrationView reads what a plan approval recorded it registered, or nil when it recorded nothing.
