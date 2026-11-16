@@ -7,6 +7,8 @@ import (
 	"ropeshift.com/ropeshift/internal/contextpacks"
 	"ropeshift.com/ropeshift/internal/control"
 	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/messages"
+	"ropeshift.com/ropeshift/internal/planning"
 	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/internal/workorders"
 )
@@ -16,6 +18,7 @@ import (
 // or history.
 var PlanningViewChecks = []Check{
 	{"PV1", "a planning lane's pack holds the project's delivery history last, aggregated with labels and explanations, and the lane reads it by name", checkPlanningPackHoldsHistory},
+	{"PV3", "once the forecast tick has forecast a plan version a planning lane submitted, the lane's open session is sent its estimates and forecasts with their labels and explanations once, and no other lane and no ended session is sent one", checkPlanningLaneIsToldItsVersion},
 	{"PV2", "a change lane and a review lane hold no delivery history in their packs, and a read of it by name is refused like a kind nobody named, however much the project has finished", checkOtherLanesReadNoHistory},
 }
 
@@ -145,5 +148,135 @@ func checkOtherLanesReadNoHistory(r *Rig) error {
 			return Violatedf("the %s lane's read by tool name read %v", name, err)
 		}
 	}
+	return nil
+}
+
+// versionFromLane records a newer version of a plan as the plan work order's lane submitted it: the plan's newest
+// version again, from that work order.
+func (r *Rig) versionFromLane(s ports.Store, plan, workOrder string) (planning.PlanVersion, error) {
+	var next planning.PlanVersion
+	err := s.Write(r.Ctx, r.Scope, "plan.version_from_lane", func(tx ports.WriteTx) error {
+		latest, err := tx.Planning().LatestPlanVersion(plan)
+		if err != nil {
+			return err
+		}
+		next = latest
+		next.Version, next.Digest, next.WorkOrder = latest.Version+1, r.ID("sha256:version"), workOrder
+		if _, err := tx.Append(r.noteDraft(r.ID("note"))); err != nil {
+			return err
+		}
+		return tx.Planning().InsertPlanVersion(next)
+	})
+	return next, err
+}
+
+// toldOf reads what a lane was sent.
+func (r *Rig) toldOf(s ports.Store, lane string) ([]messages.Message, error) {
+	return control.NewMessages(s, nil).LaneMessages(r.Ctx, r.Scope, lane)
+}
+
+func checkPlanningLaneIsToldItsVersion(r *Rig) error {
+	s := r.Store()
+	files := newApprovalSource()
+	files.source.Write("m1.md", []byte(milestoneOf("m1", approvalPlan, 1)))
+	files.source.Write("budget.md", []byte(placedContract{ID: "budget", Plan: approvalPlan, Milestone: "m1"}.text()))
+	if report, err := r.intake(s, files.source); err != nil || len(report.Problems) != 0 {
+		return Violatedf("intake read %+v: %v", report, err)
+	}
+	plan, err := r.planID(s, "Retry budget")
+	if err != nil {
+		return err
+	}
+	ids, err := r.ordersByFileID(s, "budget")
+	if err != nil {
+		return err
+	}
+	// A planning lane runs, and a change lane runs beside it.
+	planner, err := newStatusRigOn(r, s, r.readyPlan)
+	if err != nil {
+		return err
+	}
+	changer, err := newStatusRigOn(r, s, r.Ready)
+	if err != nil {
+		return err
+	}
+	// Version 1 came from files, so no lane submitted it and nobody is told of it.
+	if err := r.forecastRuns(s, 1, "after intake"); err != nil {
+		return err
+	}
+	if told, err := r.toldOf(s, planner.lane); err != nil || len(told) != 0 {
+		return Violatedf("the planning lane was told of a version no lane submitted: %+v, %v", told, err)
+	}
+
+	version, err := r.versionFromLane(s, plan, planner.grant.WorkOrder)
+	if err != nil {
+		return err
+	}
+	if told, err := r.toldOf(s, planner.lane); err != nil || len(told) != 0 {
+		return Violatedf("the planning lane was told before the tick forecast the version: %+v, %v", told, err)
+	}
+	if err := r.forecastRuns(s, 1, "after the lane's version"); err != nil {
+		return err
+	}
+	told, err := r.toldOf(s, planner.lane)
+	if err != nil || len(told) != 1 {
+		return Violatedf("the planning lane was told %+v: %v", told, err)
+	}
+	notice := told[0]
+	if notice.Kind != messages.KindNotice || notice.To.Lane != planner.lane || notice.To.Generation != 1 || notice.State != messages.Queued || notice.From.Kind != string(ledger.ActorSystem) {
+		return Violatedf("the notice reads %+v", notice)
+	}
+	for _, want := range []string{
+		"Plan version 2 of Retry budget", "### Forecasts", "- plan: ", "- milestone m1: ", "### Estimates", "- " + ids["budget-order"] + " ",
+		"No estimate: no", "you never write an estimate",
+	} {
+		if !strings.Contains(notice.Body, want) {
+			return Violatedf("the notice does not say %q:\n%s", want, notice.Body)
+		}
+	}
+	if told, err := r.toldOf(s, changer.lane); err != nil || len(told) != 0 {
+		return Violatedf("a change lane was told of a plan version: %+v, %v", told, err)
+	}
+
+	// A tick that forecasts nothing new tells nobody again, and neither does one that forecasts the version again.
+	if err := r.forecastRuns(s, 0, "with nothing new"); err != nil {
+		return err
+	}
+	if err := r.finishLikeThePlans(s); err != nil {
+		return err
+	}
+	if err := r.forecastRuns(s, 1, "after work like the plan's finished"); err != nil {
+		return err
+	}
+	if told, err := r.toldOf(s, planner.lane); err != nil || len(told) != 1 || told[0].ID != notice.ID {
+		return Violatedf("the planning lane was told again: %+v, %v", told, err)
+	}
+
+	// A version recorded from the work of any other kind is told to no lane, whatever else holds it.
+	if _, err := r.versionFromLane(s, plan, changer.grant.WorkOrder); err != nil {
+		return err
+	}
+	if err := r.forecastRuns(s, 1, "for a version from a change's work"); err != nil {
+		return err
+	}
+	if told, err := r.toldOf(s, changer.lane); err != nil || len(told) != 0 {
+		return Violatedf("a change lane was told of a version recorded from its work: %+v, %v", told, err)
+	}
+
+	// Its session ends, so a later version it submitted has nobody to tell, and records no message that expires.
+	holder := workorders.Holder{Lease: planner.grant.Lease, Lane: planner.lane, Generation: 1}
+	if err := r.NewOps(s).EndLane(r.Ctx, r.Scope, holder, LaneFinished(r.ID("commit"), LaneCheck(criterionOne, true)), ledger.Actor{Kind: ledger.ActorWorker, ID: planner.auth.WorkerID}); err != nil {
+		return err
+	}
+	if _, err := r.versionFromLane(s, plan, planner.grant.WorkOrder); err != nil {
+		return err
+	}
+	if err := r.forecastRuns(s, 1, "after the lane ended"); err != nil {
+		return err
+	}
+	if told, err := r.toldOf(s, planner.lane); err != nil || len(told) != 1 {
+		return Violatedf("a lane whose session ended was told %+v: %v", told, err)
+	}
+	_ = version
 	return nil
 }

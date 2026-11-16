@@ -12,6 +12,7 @@ import (
 	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/delivery"
 	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/messages"
 	"ropeshift.com/ropeshift/internal/planning"
 	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/internal/roster"
@@ -24,7 +25,8 @@ import (
 // simulation runs outside any transaction, and its forecasts are kept, with the estimate set they were made from,
 // in a transaction that takes no revision.
 type Forecasts struct {
-	store ports.Store
+	store   ports.Store
+	windows messages.Windows
 }
 
 // NewForecasts returns the forecasts of a store.
@@ -48,7 +50,8 @@ type forecastRun struct {
 
 // Refresh forecasts each plan version that is due, and returns how many it kept forecasts for. What a forecast is
 // made from is read at one revision, whose recorded time it runs from, so the same revision gives the same
-// forecast.
+// forecast. Then it sends each planning lane whose session is open the estimates and forecasts of the version it
+// submitted, which the tick has now forecast (FR-EST-12).
 func (f *Forecasts) Refresh(ctx context.Context, scope ledger.WorkspaceID) (int, error) {
 	var runs []forecastRun
 	err := f.store.Read(ctx, scope, func(tx ports.ReadTx) error {
@@ -78,7 +81,7 @@ func (f *Forecasts) Refresh(ctx context.Context, scope ledger.WorkspaceID) (int,
 			kept++
 		}
 	}
-	return kept, nil
+	return kept, f.tell(ctx, scope)
 }
 
 // keep keeps one run's forecasts, and the set they were made from when it is new. It keeps nothing when the plan

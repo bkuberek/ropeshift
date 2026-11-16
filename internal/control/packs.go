@@ -377,7 +377,7 @@ func (r packRecords) selection(order workorders.WorkOrder) (contextpacks.Selecti
 		}
 		selection.Added = append(selection.Added, source)
 	}
-	if seesDeliveryHistory(order.Kind) {
+	if seesEstimates(order.Kind) {
 		history, err := r.deliveryHistory()
 		if err != nil {
 			return selection, err
@@ -387,10 +387,11 @@ func (r packRecords) selection(order workorders.WorkOrder) (contextpacks.Selecti
 	return selection, nil
 }
 
-// seesDeliveryHistory says a work order's lane reads its project's delivery history, which is the planning lane's
-// alone: it sizes work and chooses agents with it. No change, rework, or review lane reads an estimate, a forecast,
-// or history, so a band cannot anchor how a lane works or how a reviewer judges (FR-EST-12).
-func seesDeliveryHistory(kind workorders.Kind) bool { return kind == workorders.KindPlan }
+// seesEstimates says a work order's lane reads its project's delivery history, and is sent the estimates and forecasts
+// of the plan versions it submitted, which is the planning lane's alone: it sizes work and chooses agents with them. No
+// change, rework, or review lane and no orchestrator reads an estimate, a forecast, or history, so a band cannot anchor
+// how a lane works or how a reviewer judges (FR-EST-12).
+func seesEstimates(kind workorders.Kind) bool { return kind == workorders.KindPlan }
 
 // historyRef names the project's delivery history among a pack's items.
 const historyRef = "project"
@@ -811,7 +812,7 @@ func (r packRecords) history(ref, workOrder string) ([]contextpacks.Source, erro
 		}
 		kind = order.Kind
 	}
-	if !seesDeliveryHistory(kind) {
+	if !seesEstimates(kind) {
 		return nil, fmt.Errorf("%w: no kind %q", workorders.ErrInvalid, contextpacks.KindDeliveryHistory)
 	}
 	if ref != historyRef {

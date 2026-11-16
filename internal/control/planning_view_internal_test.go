@@ -21,7 +21,7 @@ func TestOnlyPlanningWorkSeesDeliveryHistory(t *testing.T) {
 		{workorders.KindContractReview, false},
 		{"", false},
 	} {
-		if got := seesDeliveryHistory(c.kind); got != c.sees {
+		if got := seesEstimates(c.kind); got != c.sees {
 			t.Errorf("work of kind %q sees history: %v", c.kind, got)
 		}
 	}
