@@ -436,6 +436,11 @@
   },
   {
     "method": "GET",
+    "pattern": "/v1/projects/{project}/measures/estimates",
+    "command": "measures estimates"
+  },
+  {
+    "method": "GET",
     "pattern": "/v1/projects/{project}/lanes/{id}/outline",
     "command": "lane outline"
   },

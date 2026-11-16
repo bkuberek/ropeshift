@@ -92,6 +92,68 @@ export type PlanForecast = {
   forecasts: Forecast[];
 };
 
+// Estimate calibration: how often finished work landed inside the estimates it was baselined with. A rate or a
+// median is absent where fewer than 10 outcomes stand behind it, and its count stays.
+
+// CalibrationRate is how often something held among the outcomes that could be compared: n of them were, and
+// hits of those held.
+export type CalibrationRate = { n: number; hits: number; rate?: number };
+
+export type MedianRatio = { n: number; median?: number };
+
+// Comparisons are what one quantity, delivery time or cost, did against its baseline: the share at or below
+// the p50 band, the share at or below the p85 band, and the median ratio of actual to p50.
+export type Comparisons = { p50: CalibrationRate; p85: CalibrationRate; ratio: MedianRatio };
+
+// Standing is the calibration of one group of outcomes. An outcome whose baseline p85 was open counts in
+// `p85_open`, in the p50 rate, and in the ratio, and not in the p85 rate.
+export type Standing = { outcomes: number; done: number; failed: number; canceled: number; p85_open: number; time: Comparisons; cost: Comparisons };
+
+export type TierStanding = Standing & { tier: number };
+
+export type VersionStanding = Standing & { estimator_version: number };
+
+// Calibrated is one confidence's outcomes over one period: all together, then by tier and by estimator version.
+export type Calibrated = { total: Standing; tiers: TierStanding[]; estimator_versions: VersionStanding[] };
+
+// CalibrationShare is a count of ended work and its share of all that ended, absent under 10 ended.
+export type CalibrationShare = { count: number; share?: number };
+
+export type ConfidenceShare = { ended: number; confident: CalibrationShare; low: CalibrationShare; none: CalibrationShare };
+
+// CalibrationPeriod is calibration over one stretch of time. Confident is the headline, and low confidence
+// stands apart.
+export type CalibrationPeriod = { from: number; to: number; share: ConfidenceShare; confident: Calibrated; low: Calibrated };
+
+export type CalibrationWeek = { from: number; confident: Standing; low: Standing };
+
+// CalibrationScope is calibration over one repository's work, or over all of the project's work when the
+// repository is absent.
+export type CalibrationScope = { repository?: string; recent: CalibrationPeriod; all_time: CalibrationPeriod; weeks: CalibrationWeek[] };
+
+export type MilestoneResult = {
+  plan_id: string;
+  milestone_id: string;
+  confidence?: "confident" | "low";
+  outcome: string;
+  forecast_p50?: number;
+  forecast_p85?: number;
+  lower_bound?: LowerBound;
+  actual_end: number;
+  at_or_below_p50: boolean | null;
+  at_or_below_p85: boolean | null;
+};
+
+export type MilestoneStanding = { outcomes: number; done: number; failed: number; canceled: number; p85_open: number; p50: CalibrationRate; p85: CalibrationRate };
+
+export type MilestonePeriod = { from: number; to: number; confident: MilestoneStanding; low: MilestoneStanding; none: number };
+
+export type MilestoneCalibration = { recent: MilestonePeriod; all_time: MilestonePeriod; results: MilestoneResult[] };
+
+// Calibration is all of the project's work and then each repository's, over the window from `from` to `to` and
+// over all time, and each milestone's forecast beside its actual.
+export type Calibration = { from: number; to: number; scopes: CalibrationScope[]; milestones: MilestoneCalibration };
+
 // readDelivery reads look back over a window by a grouping, as `ropeshift measures delivery` does.
 export function readDelivery(window: string, by: string): Promise<LookBack> {
   return call("GET", project(`/measures/delivery?${new URLSearchParams({ window, by })}`));
@@ -135,4 +197,10 @@ export async function readPlanForecasts(plans: string[]): Promise<Record<string,
     }),
   );
   return out;
+}
+
+// readCalibration reads how often finished work landed inside its baseline estimates over a window and over
+// all time, as `ropeshift measures estimates` does.
+export function readCalibration(window: string): Promise<Calibration> {
+  return call("GET", project(`/measures/estimates?${new URLSearchParams({ window })}`));
 }

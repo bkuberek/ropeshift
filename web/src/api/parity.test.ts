@@ -81,7 +81,7 @@ import {
   startOrchestrator,
 } from "./client";
 import { createDelegate, readDelegates, readOperations, removeDelegate, revokeDelegate, signOutAll } from "./delegates";
-import { readDelivery, readPlanForecast } from "./measures";
+import { readCalibration, readDelivery, readPlanForecast } from "./measures";
 import { claimAndStart, startClaimed } from "./runWork";
 import {
   clearConversation,
@@ -200,6 +200,7 @@ const callers: Record<string, Caller> = {
   "POST /v1/projects/{project}/plans/{id}/reviews": step("startContractReview", () => startContractReview("plan-1", "review-1")),
   "GET /v1/projects/{project}/plans/{id}/forecast": step("readPlanForecast", () => readPlanForecast("plan-1")),
   "GET /v1/projects/{project}/measures/delivery": step("readDelivery", () => readDelivery("30d", "kind")),
+  "GET /v1/projects/{project}/measures/estimates": step("readCalibration", () => readCalibration("30d")),
   "GET /v1/projects/{project}/approvals/{id}": step("readApproval", () => readApproval("a-1")),
   "GET /v1/projects/{project}/lanes/{id}/outline": step("readOutline", () => readOutline("lane-1")),
   "GET /v1/projects/{project}/sources": step("readSources", () => readSources()),

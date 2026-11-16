@@ -77,9 +77,6 @@ var webGaps = map[string]string{
 	"telemetry lanes": "U2h2",
 	"telemetry query": "U2h2",
 	"worker doctor":   "U2h2",
-
-	// The Measures view's Estimates tab reads calibration.
-	"measures estimates": "U2h",
 }
 
 var gapSlice = regexp.MustCompile(`^U2[a-k][12]?$`)

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import routes from "../../testdata/routes.json";
 import { refusal, serveApi } from "../testing";
-import { deliveryGroupings, readDelivery, readDeliveryByProject, readPlanForecast, readPlanForecasts } from "./measures";
+import { deliveryGroupings, readCalibration, readDelivery, readDeliveryByProject, readPlanForecast, readPlanForecasts } from "./measures";
 import type { LookBack } from "./measures";
 import type { Project, Route } from "./types";
 
@@ -21,6 +21,13 @@ describe("the reads of delivery and forecasts", () => {
     const sent = serveApi(() => ({ status: 200, body: lookBack("size", []) }));
     await readDelivery("7d", "size");
     expect(sent.map((call) => call.path)).toEqual(["/v1/measures/delivery?window=7d&by=size"]);
+    expect(reachable("GET", sent[0]?.url ?? "")).toBe(true);
+  });
+
+  it("reads estimate calibration over a window from the route the listener serves", async () => {
+    const sent = serveApi(() => ({ status: 200, body: { from: 1, to: 2, scopes: [], milestones: {} } }));
+    await readCalibration("7d");
+    expect(sent.map((call) => call.path)).toEqual(["/v1/measures/estimates?window=7d"]);
     expect(reachable("GET", sent[0]?.url ?? "")).toBe(true);
   });
 

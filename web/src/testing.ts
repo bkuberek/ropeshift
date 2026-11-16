@@ -159,6 +159,10 @@ export function serveViews(answer?: (sent: Sent) => Answer | undefined, options:
     if (call.method === "GET" && call.path.startsWith("/v1/measures/delivery")) {
       return { status: 200, body: golden(call.path.includes("by=size") ? "delivery-size" : "delivery") };
     }
+    // Estimate calibration, as the Estimates tab reads it.
+    if (call.method === "GET" && call.path.startsWith("/v1/measures/estimates")) {
+      return { status: 200, body: golden("calibration") };
+    }
     if (call.method === "GET" && /^\/v1\/lanes\/[^/]+\/outline$/.test(call.path)) {
       return { status: 200, body: golden("outline") };
     }

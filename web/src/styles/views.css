@@ -1509,6 +1509,38 @@ tr.selected td {
   }
 }
 
+/* Estimate calibration: a hit rate in words, with a meter under it that has a tick at the value a calibrated
+   estimator's rate comes near. The words carry the meaning, so the meter is decoration. */
+.hits {
+  white-space: nowrap;
+}
+
+.hits > .meter {
+  min-width: 6rem;
+  margin-top: var(--s-4);
+}
+
+@media (forced-colors: active) {
+  .hits > .meter,
+  .hits > .meter > i,
+  .hits > .meter > b {
+    forced-color-adjust: none;
+  }
+
+  .hits > .meter {
+    background: Canvas;
+    border: 1px solid CanvasText;
+  }
+
+  .hits > .meter > i {
+    background: Highlight;
+  }
+
+  .hits > .meter > b {
+    background: CanvasText;
+  }
+}
+
 /* ---------- Forecasts ---------- */
 .forecasts {
   list-style: none;
