@@ -409,6 +409,20 @@ p + .kv {
   white-space: normal;
 }
 
+/* A driver's reason is shown in full: it wraps, and never ends in an ellipsis. */
+.drivers .driver-reason {
+  max-width: 56ch;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+/* What a member wrote to a lane, and what the lane replied, is text: it keeps its line breaks, wraps, and is never cut. */
+.message-text {
+  max-width: 48ch;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .row-actions {
   display: inline-flex;
   gap: var(--s-4);

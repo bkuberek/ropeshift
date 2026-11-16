@@ -5,9 +5,10 @@ import type { AuditEvent, AuditPage, MemberList, Scope } from "../api/admin";
 import type { Live } from "../api/useView";
 import { addressOf, go } from "../app/route";
 import { Page } from "../parts/parts";
-import { Button, Segmented } from "../ui/controls";
+import { Button, Segmented, TabPanel, Tabs } from "../ui/controls";
 import { Actor, EmptyState, Panel, TableRegion } from "../ui/display";
 import { Field, Select } from "../ui/forms";
+import { NoticesTab } from "./Notices";
 import { Reading, timeOf, useRead } from "./parts";
 
 const actors = ["", "member", "delegate", "worker", "lane", "orchestrator", "system"];
@@ -19,9 +20,56 @@ function EventActor({ event, you }: { event: AuditEvent; you: string }) {
 
 type Filters = { actor: string; kind: string; subject: string };
 
-// AuditPage lists a log's events newest first, at the scope its address names: who did what to which
-// record, and when. Selecting a row shows its whole record.
-export function AuditView({ live, project, label, scope, actor, kind }: { live: Live; project: string; label: string; scope: Scope; actor: string; kind: string }) {
+type AuditTab = "events" | "notices";
+
+// AuditView is a log at the scope its address names. A project's log has two tabs: its events, and what each of
+// its channels was told, which the installation's log has none of.
+export function AuditView({ live, project, label, scope, actor, kind, tab }: { live: Live; project: string; label: string; scope: Scope; actor: string; kind: string; tab: string }) {
+  const tabbed = scope === "project" && project !== "";
+  const chosen: AuditTab = tabbed && tab === "notices" ? "notices" : "events";
+  const tabsId = useId();
+  return (
+    <Page
+      title="Audit"
+      note={scope === "project" ? `Every event in ${label}'s ledger, newest first.` : "The installation's own events: projects, members, workers, and the roster's installation layer."}
+      actions={
+        <Segmented<Scope>
+          label="Log"
+          value={scope}
+          choices={[
+            { value: "installation", label: "Installation" },
+            ...(project ? [{ value: "project" as const, label: `Project: ${label}` }] : []),
+          ]}
+          onChange={(next) => go(next === "installation" ? "/audit" : `/projects/${encodeURIComponent(project)}/audit`, { installation: true })}
+        />
+      }
+    >
+      {tabbed ? (
+        <>
+          <Tabs<AuditTab>
+            label="Audit"
+            idBase={tabsId}
+            selected={chosen}
+            tabs={[
+              { id: "events", label: "Events" },
+              { id: "notices", label: "Notices" },
+            ]}
+            onSelect={(next) => go(`/projects/${encodeURIComponent(project)}${addressOf("/audit", { tab: next === "notices" ? next : undefined })}`, { installation: true, stay: true })}
+          />
+          <TabPanel idBase={tabsId} selected={chosen}>
+            {chosen === "notices" ? <NoticesTab live={live} project={project} /> : <AuditEvents live={live} project={project} scope={scope} actor={actor} kind={kind} />}
+          </TabPanel>
+        </>
+      ) : (
+        <AuditEvents live={live} project={project} scope={scope} actor={actor} kind={kind} />
+      )}
+    </Page>
+  );
+}
+
+// AuditEvents lists a log's events newest first: who did what to which record, and when. Selecting a row shows
+// its whole record.
+function AuditEvents({ live, project, scope, actor, kind }: { live: Live; project: string; scope: Scope; actor: string; kind: string }) {
   const [filters, setFilters] = useState<Filters>({ actor, kind, subject: "" });
   const [typed, setTyped] = useState<Filters>({ actor, kind, subject: "" });
   const [pages, setPages] = useState<number[]>([0]);
@@ -42,21 +90,7 @@ export function AuditView({ live, project, label, scope, actor, kind }: { live: 
   const filtered = filters.actor !== "" || filters.kind !== "" || filters.subject !== "";
   const events = read.view?.events ?? [];
   return (
-    <Page
-      title="Audit"
-      note={scope === "project" ? `Every event in ${label}'s ledger, newest first.` : "The installation's own events: projects, members, workers, and the roster's installation layer."}
-      actions={
-        <Segmented<Scope>
-          label="Log"
-          value={scope}
-          choices={[
-            { value: "installation", label: "Installation" },
-            ...(project ? [{ value: "project" as const, label: `Project: ${label}` }] : []),
-          ]}
-          onChange={(next) => go(next === "installation" ? "/audit" : `/projects/${encodeURIComponent(project)}/audit`, { installation: true })}
-        />
-      }
-    >
+    <>
       <form
         className="filters-row"
         noValidate
@@ -197,6 +231,6 @@ export function AuditView({ live, project, label, scope, actor, kind }: { live: 
           </div>
         )}
       </Reading>
-    </Page>
+    </>
   );
 }

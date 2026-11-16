@@ -12,6 +12,8 @@ import { Button, LinkTabs } from "../ui/controls";
 import { Absent, Banner, EmptyState, Fact, Facts, Freshness, freshnessOf, Id, LaneBadge, Panel, ProjectTag, Refusal, SkeletonRows, StateBadge, TableRegion, TargetChip } from "../ui/display";
 import { Dialog, useToast } from "../ui/overlays";
 import { Icon } from "../ui/Icon";
+import { DriversPanel } from "./Drivers";
+import { LaneCosts } from "./LaneCosts";
 import { bytes, sessionOf } from "./resources";
 import { laneLabel, workerStates } from "./states";
 
@@ -402,6 +404,7 @@ export function WorkersPage({ live, projects, selected, after, dialog = "" }: { 
                 </table>
               </TableRegion>
             </Panel>
+            <DriversPanel workers={[...workers.values()]} />
             <Panel
               title="Sessions"
               flush
@@ -507,6 +510,7 @@ export function UsagePage({ live, project, label }: { live: Live; project: strin
         <Panel title="History">
           <p className="muted">No history yet: no source has reported a window or a day's estimated cost.</p>
         </Panel>
+        <LaneCosts live={live} />
         {operations.failure ? <Banner tone="danger">{operations.failure}</Banner> : null}
         {report ? (
           <ViewTime.Provider value={{ asOf: operations.view?.as_of ?? 0, elapsed: Math.max(0, now - operations.readAt) }}>

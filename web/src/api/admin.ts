@@ -1,5 +1,5 @@
 import { call, project, request } from "./client";
-import type { Orchestrator, Plan, Project, SourceBinding, Standing, WorkOrder, WorkTimeline } from "./types";
+import type { LaneTelemetryList, MessageList, NoticeList, Orchestrator, Plan, Project, SourceBinding, Standing, WorkOrder, WorkTimeline } from "./types";
 
 // The installation's and one project's records a member manages: projects, repositories, settings, the
 // agent roster, members, and the audit. Every call is a route the web listener serves, which names the
@@ -231,6 +231,9 @@ export const adminPaths = {
   review: (id: string) => project(`/work-orders/${encodeURIComponent(id)}/review`),
   acceptance: (id: string) => project(`/work-orders/${encodeURIComponent(id)}/acceptance`),
   timeline: (id: string) => project(`/work-orders/${encodeURIComponent(id)}/timeline`),
+  notices: () => project("/notices"),
+  laneMessages: (lane: string) => project(`/lanes/${encodeURIComponent(lane)}/messages`),
+  laneTelemetry: () => "/v1/telemetry/lanes",
 };
 
 // Projects
@@ -275,6 +278,13 @@ export const revertRoster = (scope: Scope, version: number) => call<RosterVersio
 
 export const readMembers = () => call<MemberList>("GET", adminPaths.members());
 export const readAudit = (scope: Scope, q: AuditQuery) => call<AuditPage>("GET", adminPaths.audit(scope, q));
+// readNotices reads what each channel was told of a project's, and how many times, as `ropeshift notice list` does.
+export const readNotices = () => call<NoticeList>("GET", adminPaths.notices());
+// readLaneMessages reads what was sent to a lane, oldest first, as `ropeshift message list` does.
+export const readLaneMessages = (lane: string) => call<MessageList>("GET", adminPaths.laneMessages(lane));
+// readLaneTelemetry reads each lane's context, tokens, and cost from the worker's local store, as `ropeshift
+// telemetry lanes` does.
+export const readLaneTelemetry = () => call<LaneTelemetryList>("GET", adminPaths.laneTelemetry());
 
 // Workers
 

@@ -1,0 +1,11 @@
+worker	worker-a
+worker	worker-fig
+claude-code	unusable	claude --version exited with status 1. Run claude --version to see why, and repair or reinstall Claude Code.
+worker	worker-mint
+claude-code	2.1.316	qualified	sign-in subscription	signed_in
+worker	worker-oak
+claude-code	signed out	no sign-in	2.1.316	qualified
+worker	worker-pear
+claude-code	2.2.0	unqualified	sign-in api_key	signed_in
+worker	worker-plum
+claude-code	absent	claude is not on PATH

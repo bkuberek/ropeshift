@@ -3,6 +3,8 @@ package cli_test
 import (
 	"bytes"
 	"context"
+	"fmt"
+	"strings"
 	"testing"
 
 	"ropeshift.com/ropeshift/internal/cli"
@@ -56,4 +58,28 @@ func TestTheDoctorSaysEachDriverInTheWordsTheDomainWrites(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestTheDoctorGoldenPrintsAsTheWebTestsRead writes what `worker doctor` prints for the manifest of each worker in
+// the golden of a shop floor whose workers reported different results, so a web test holds the Workers view to the
+// command's own words. Each worker's lines follow a `worker` line naming it.
+func TestTheDoctorGoldenPrintsAsTheWebTestsRead(t *testing.T) {
+	var floor struct {
+		Workers []struct {
+			Worker struct {
+				ID       string          `json:"id"`
+				Manifest ledger.Manifest `json:"manifest"`
+			} `json:"worker"`
+		} `json:"workers"`
+	}
+	readGolden(t, "shop-floor-drivers.json", &floor)
+	if len(floor.Workers) < 6 {
+		t.Fatalf("the golden holds %d workers", len(floor.Workers))
+	}
+	var text strings.Builder
+	for _, line := range floor.Workers {
+		_, stdout := doctorRun(line.Worker.Manifest)
+		fmt.Fprintf(&text, "worker\t%s\n%s", line.Worker.ID, stdout)
+	}
+	holdsText(t, "doctor.cli.txt", text.String())
 }

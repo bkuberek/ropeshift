@@ -175,6 +175,22 @@ export const workerStates: Record<string, StateLook> = {
   disconnected: { label: "Disconnected", tone: "danger", glyph: "cross" },
 };
 
+// driverStates are a driver's doctor result: usable by the rule an offer applies, not usable, or not reported by a
+// worker whose manifest names no driver.
+export const driverStates: Record<string, StateLook> = {
+  usable: { label: "Usable", tone: "success", glyph: "check" },
+  unusable: { label: "Not usable", tone: "danger", glyph: "cross" },
+  not_reported: { label: "Not reported", tone: "neutral", glyph: "question" },
+};
+
+// noticeStates are how a notice stands on one channel, in the command's words: the channel took it, or it has not,
+// which is a refusal when the channel gave a reason, and otherwise an attempt that has no word yet.
+export const noticeStates: Record<string, StateLook> = {
+  delivered: { label: "Delivered", tone: "success", glyph: "check" },
+  refused: { label: "Not delivered", tone: "danger", glyph: "cross" },
+  pending: { label: "Not delivered", tone: "warning", glyph: "half" },
+};
+
 // lookOf finds a state's look in a table, and a state the table lacks shows as its own name, neutral.
 export function lookOf(table: Record<string, StateLook>, state: string): StateLook {
   return table[state] ?? { label: state, tone: "neutral", glyph: "ring" };

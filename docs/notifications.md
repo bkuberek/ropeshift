@@ -46,6 +46,6 @@ A delivery follows no redirect and uses no proxy, and it goes only to the addres
 
 ## Delivery is at least once
 
-The ledger records each attempt before it is made, and what became of it after. A crash between the two repeats the notice on the next tick, with the same `delivery` and the next `attempt`, so a receiver can hear a notice twice. `ropeshift notice list` shows how many attempts each notice took on each channel.
+The ledger records each attempt before it is made, and what became of it after. A crash between the two repeats the notice on the next tick, with the same `delivery` and the next `attempt`, so a receiver can hear a notice twice. `ropeshift notice list` shows how many attempts each notice took on each channel, and so does the Notices tab of a project's [Audit view](web-ui.md#audit).
 
 A channel that refuses is asked again after 1, 2, 4, and 8 minutes, up to 5 attempts. Once the thing no longer waits, nothing more is sent about it. One tick sends at most 20 notices, and the rest go on the next. The web UI still shows whatever a channel could not be told.
