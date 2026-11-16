@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"strings"
 	"sync"
 	"testing"
 
@@ -137,40 +136,27 @@ func TestProjectsAreSchemasOfOneDatabase(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer admin.Close()
-	if err := pgtest.CreateSchemas(ctx, admin, "installation", "project_a", "project_b", "project_c"); err != nil {
-		t.Fatal(err)
-	}
-	installationDB, err := sql.Open("pgx", server.DSN(name))
+	// One state serves the installation and both projects on one pool of four connections.
+	state, err := postgres.Open(ctx, server.DSN(name), postgres.Options{MaxConns: 4})
 	if err != nil {
 		t.Fatal(err)
 	}
-	installation := sqlstore.NewInstallation(installationDB, postgres.Dialect{}, sqlstore.Options{Schema: "installation"})
-	defer installation.Close()
-	if err := installation.Migrate(ctx); err != nil {
-		t.Fatal(err)
-	}
-	projects, err := sql.Open("pgx", server.DSN(name))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer projects.Close()
-	projects.SetMaxOpenConns(4)
+	defer state.Close()
+	installation := state.Installation
 	actor := ledger.Actor{Kind: ledger.ActorMember, ID: "member-1"}
-	open := func(id ledger.WorkspaceID, schema string, shared *sqlstore.Installation) *sqlstore.Store {
-		store := sqlstore.New(projects, postgres.Dialect{}, sqlstore.Options{Schema: schema, Installation: shared})
-		if err := store.Migrate(ctx); err != nil {
+	open := func(id ledger.WorkspaceID, project string) *sqlstore.Store {
+		created, err := state.Create(ctx, ledger.Project{ID: id, Name: project}, actor)
+		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := store.CreateWorkspace(ctx, ledger.Workspace{ID: id, Name: schema}, actor); err != nil {
+		store, err := state.Open(ctx, created)
+		if err != nil {
 			t.Fatal(err)
 		}
-		if _, _, err := installation.CreateProject(ctx, ledger.Project{ID: id, Name: strings.ReplaceAll(schema, "_", "-"), Database: schema}, actor); err != nil {
-			t.Fatal(err)
-		}
-		return store
+		return store.(*sqlstore.Store)
 	}
-	alpha := open("pa", "project_a", installation)
-	beta := open("pb", "project_b", installation)
+	alpha := open("pa", "project-a")
+	beta := open("pb", "project-b")
 
 	var wg sync.WaitGroup
 	for i := range 8 {
@@ -197,8 +183,8 @@ func TestProjectsAreSchemasOfOneDatabase(t *testing.T) {
 		}
 		return n
 	}
-	if a, b := count("SELECT count(*) FROM project_a.work_orders"), count("SELECT count(*) FROM project_b.work_orders"); a != 4 || b != 4 {
-		t.Errorf("project_a holds %d work orders and project_b %d, want 4 each", a, b)
+	if a, b := count("SELECT count(*) FROM project_pa.work_orders"), count("SELECT count(*) FROM project_pb.work_orders"); a != 4 || b != 4 {
+		t.Errorf("project_pa holds %d work orders and project_pb %d, want 4 each", a, b)
 	}
 	if n := count("SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public'"); n != 0 {
 		t.Errorf("the public schema holds %d tables, so a statement ran outside its schema", n)
@@ -220,8 +206,8 @@ func TestProjectsAreSchemasOfOneDatabase(t *testing.T) {
 	if n := count("SELECT count(*) FROM installation.members"); n != 1 {
 		t.Errorf("the installation's schema holds %d members", n)
 	}
-	if n := count("SELECT count(*) FROM project_a.members"); n != 0 {
-		t.Errorf("project_a holds %d members", n)
+	if n := count("SELECT count(*) FROM project_pa.members"); n != 0 {
+		t.Errorf("project_pa holds %d members", n)
 	}
 	if err := beta.Read(ctx, "pb", func(tx ports.ReadTx) error {
 		_, err := tx.Members().Member("member-1")
@@ -230,7 +216,15 @@ func TestProjectsAreSchemasOfOneDatabase(t *testing.T) {
 		t.Errorf("beta does not see the member: %v", err)
 	}
 
-	legacy := sqlstore.New(projects, postgres.Dialect{}, sqlstore.Options{Schema: "project_c"})
+	// A project of an earlier build keeps the shared records in its own schema, with no installation.
+	if err := pgtest.CreateSchemas(ctx, admin, "project_c"); err != nil {
+		t.Fatal(err)
+	}
+	legacy, err := postgres.OpenStore(server.DSN(name), postgres.Options{Store: sqlstore.Options{Schema: "project_c"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer legacy.Close()
 	if err := legacy.Migrate(ctx); err != nil {
 		t.Fatal(err)
 	}
