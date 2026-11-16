@@ -103,6 +103,8 @@ func WebRoutes() []WebRoute {
 		{http.MethodPost, "/v1/work-orders/{id}/lane-archive", "lane archive"},
 		{http.MethodPost, "/v1/work-orders/{id}/retry", "work retry"},
 		{http.MethodPost, "/v1/work-orders/{id}/claims/{claim}/release", "work release"},
+		{http.MethodGet, "/v1/work-orders/{id}/acceptance", "work acceptance"},
+		{http.MethodGet, "/v1/work-orders/{id}/timeline", "work timeline"},
 		{http.MethodGet, PanePath, "lane attach"},
 		{http.MethodPost, PaneInputPath, "lane attach"},
 		{http.MethodPost, BackupDownloadPath, "backup"},

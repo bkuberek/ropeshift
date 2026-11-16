@@ -1,5 +1,5 @@
 import { call, project, request } from "./client";
-import type { Orchestrator, Plan, Project, SourceBinding, WorkOrder } from "./types";
+import type { Orchestrator, Plan, Project, SourceBinding, Standing, WorkOrder, WorkTimeline } from "./types";
 
 // The installation's and one project's records a member manages: projects, repositories, settings, the
 // agent roster, members, and the audit. Every call is a route the web listener serves, which names the
@@ -229,6 +229,8 @@ export const adminPaths = {
   release: (id: string, claim: string) => project(`/work-orders/${encodeURIComponent(id)}/claims/${encodeURIComponent(claim)}/release`),
   archiveLane: (id: string) => project(`/work-orders/${encodeURIComponent(id)}/lane-archive`),
   review: (id: string) => project(`/work-orders/${encodeURIComponent(id)}/review`),
+  acceptance: (id: string) => project(`/work-orders/${encodeURIComponent(id)}/acceptance`),
+  timeline: (id: string) => project(`/work-orders/${encodeURIComponent(id)}/timeline`),
 };
 
 // Projects
@@ -368,6 +370,13 @@ export const readPlans = () => call<{ plans: Plan[] }>("GET", adminPaths.plans()
 // startContractReview records a work order that reads a plan and its contracts, as `ropeshift plan review`
 // does. The ID is the client's, so a retry finds the review the first attempt made.
 export const startContractReview = (plan: string, id: string) => call<WorkOrder>("POST", adminPaths.reviewPlan(plan), { id });
+
+// readAcceptance reads where a work order stands with what stays linked to it, as `ropeshift work acceptance` does.
+export const readAcceptance = (id: string) => call<Standing>("GET", adminPaths.acceptance(id));
+
+// readTimeline reads where a work order's time went, and its delivery record once it ended, as
+// `ropeshift work timeline` does.
+export const readTimeline = (id: string) => call<WorkTimeline>("GET", adminPaths.timeline(id));
 export const reviewWork = (id: string) => call<ReviewResult>("POST", adminPaths.review(id), {});
 export const claimWork = (id: string, claim: string, worker: string) => call<unknown>("POST", adminPaths.claim(id), { claim_id: claim, worker_id: worker });
 export const startLane = (id: string, lane: string) => call<unknown>("POST", adminPaths.startLane(id), { lane_id: lane });

@@ -1,0 +1,94 @@
+{
+  "timeline": {
+    "work_order": "wo-shipped",
+    "version": 1,
+    "start": 1790000784001,
+    "end": 1790002044001,
+    "terminal": "done",
+    "segments": [
+      {
+        "kind": "working",
+        "state": "running",
+        "round": 1,
+        "lane": "lane-wo-shipped",
+        "from": 1790000784001,
+        "to": 1790001264001,
+        "ended": {
+          "event": "worker-a:1:35",
+          "actor": {
+            "Kind": "lane",
+            "ID": "lane-wo-shipped"
+          }
+        }
+      },
+      {
+        "kind": "review",
+        "state": "acceptance",
+        "round": 1,
+        "review": "generated-1",
+        "from": 1790001264001,
+        "to": 1790001444001,
+        "ended": {
+          "record": "generated-1",
+          "actor": {
+            "Kind": "member",
+            "ID": "member-1"
+          }
+        }
+      },
+      {
+        "kind": "person",
+        "state": "acceptance",
+        "round": 1,
+        "from": 1790001444001,
+        "to": 1790002044001,
+        "ended": {
+          "event": "generated-2",
+          "actor": {
+            "Kind": "member",
+            "ID": "member-1"
+          }
+        }
+      }
+    ]
+  },
+  "record": {
+    "work_order": "wo-shipped",
+    "version": 1,
+    "kind": "change",
+    "size": "unknown",
+    "agent": "implementation",
+    "capability_class": "standard",
+    "repository": "repository-1",
+    "merge_authority": "person_approves",
+    "criteria": 1,
+    "plan": "generated-3",
+    "outcome": "done",
+    "rounds": 1,
+    "started": 1790000784001,
+    "ended": 1790002044001,
+    "elapsed_ms": 1260000,
+    "delivery_ms": 1260000,
+    "lane_ms": 480000,
+    "person_ms": 600000,
+    "by_kind": {
+      "person": 600000,
+      "review": 180000,
+      "working": 480000
+    },
+    "person_waits": [
+      600000
+    ],
+    "usage": {
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "cost_usd": 0
+    },
+    "change": {
+      "files": 3,
+      "added": 42,
+      "removed": 7
+    },
+    "lane_cap_known": false
+  }
+}

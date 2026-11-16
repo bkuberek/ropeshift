@@ -1,0 +1,11 @@
+{
+  "work_order_id": "wo-loose",
+  "state": "intake",
+  "assessment": {
+    "criteria": [],
+    "needs": "member"
+  },
+  "artifacts": [],
+  "checks": [],
+  "authority": "person_approves"
+}

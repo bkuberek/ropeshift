@@ -301,6 +301,16 @@
   },
   {
     "method": "GET",
+    "pattern": "/v1/projects/{project}/work-orders/{id}/acceptance",
+    "command": "work acceptance"
+  },
+  {
+    "method": "GET",
+    "pattern": "/v1/projects/{project}/work-orders/{id}/timeline",
+    "command": "work timeline"
+  },
+  {
+    "method": "GET",
     "pattern": "/v1/projects/{project}/panes/{id}",
     "command": "lane attach"
   },

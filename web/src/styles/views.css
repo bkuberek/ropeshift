@@ -1286,3 +1286,121 @@ tr.selected td {
   flex: 1 1 14rem;
   min-width: 0;
 }
+
+/* ---------- Work order: Changes and Activity tabs ---------- */
+.evidence-criteria {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-12);
+  font-size: var(--fs-13);
+  line-height: var(--lh-13);
+}
+
+.evidence-criteria > li + li {
+  padding-top: var(--s-12);
+  border-top: 1px solid var(--border);
+}
+
+/* A segment of a timeline is drawn in its kind's tone and fill, so no kind reads by color alone. */
+.seg,
+.seg-swatch {
+  --seg: var(--neutral);
+  box-shadow: inset 0 0 0 1px var(--seg);
+}
+
+.seg[data-tone="active"],
+.seg-swatch[data-tone="active"] {
+  --seg: var(--active);
+}
+
+.seg[data-tone="warning"],
+.seg-swatch[data-tone="warning"] {
+  --seg: var(--warning);
+}
+
+.seg[data-tone="danger"],
+.seg-swatch[data-tone="danger"] {
+  --seg: var(--danger);
+}
+
+.fill-solid {
+  background: var(--seg);
+}
+
+.fill-tint {
+  background: var(--neutral-bg);
+}
+
+.fill-hatch {
+  background: repeating-linear-gradient(45deg, var(--seg) 0 2px, transparent 2px 6px);
+}
+
+.fill-dots {
+  background: radial-gradient(circle, var(--seg) 1.2px, transparent 1.6px) 0 0 / 5px 5px;
+}
+
+.fill-lines {
+  background: repeating-linear-gradient(90deg, var(--seg) 0 2px, transparent 2px 5px);
+}
+
+.timeline-rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-8);
+}
+
+.timeline-row {
+  display: grid;
+  grid-template-columns: 9rem minmax(0, 1fr);
+  gap: var(--s-12);
+  align-items: center;
+}
+
+.timeline-round {
+  font-size: var(--fs-13);
+  color: var(--text-2);
+}
+
+.timeline-bar {
+  position: relative;
+  height: 20px;
+  border-radius: var(--r-4);
+  background: var(--surface-2);
+  overflow: hidden;
+}
+
+.timeline-bar > .seg {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  min-width: 2px;
+}
+
+.timeline-key {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-4) var(--s-16);
+  margin: var(--s-8) 0 var(--s-12);
+  font-size: var(--fs-12);
+  color: var(--text-2);
+}
+
+.timeline-key > li {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-6);
+}
+
+.seg-swatch {
+  display: inline-block;
+  width: 16px;
+  height: 12px;
+  border-radius: 2px;
+}
+
+@media (max-width: 639px) {
+  .timeline-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--s-4);
+  }
+}

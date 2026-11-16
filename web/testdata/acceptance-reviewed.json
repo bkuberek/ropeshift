@@ -1,0 +1,70 @@
+{
+  "work_order_id": "wo-ruled",
+  "state": "acceptance",
+  "assessment": {
+    "criteria": [
+      {
+        "criterion_id": "c1",
+        "standing": "second_principal"
+      }
+    ],
+    "needs": "second_principal"
+  },
+  "artifacts": [
+    {
+      "id": "generated-1",
+      "lane_id": "lane-wo-ruled",
+      "kind": "branch",
+      "uri": "lane/lane-wo-ruled",
+      "digest": "cab321",
+      "fence": 2,
+      "change": {
+        "files": 1,
+        "added": 4,
+        "removed": 19
+      },
+      "created_at": 1790002464001
+    }
+  ],
+  "checks": [
+    {
+      "id": "generated-2",
+      "work_order_id": "wo-ruled",
+      "lane_id": "lane-wo-ruled",
+      "fence": 2,
+      "artifact_id": "generated-1",
+      "criterion_id": "c1",
+      "name": "go test",
+      "status": "passed",
+      "source": "lane",
+      "created_at": 1790002464001
+    }
+  ],
+  "reviews": [
+    {
+      "id": "generated-3",
+      "state": "done",
+      "attempt": 2
+    }
+  ],
+  "verdicts": [
+    {
+      "criterion": "c1",
+      "verdict": "pass",
+      "reasons": "The budget stops the retries after the third.",
+      "citations": [
+        "retry.go:21"
+      ],
+      "review_id": "generated-3",
+      "work_order_id": "wo-ruled",
+      "attempt": 2,
+      "commit": "cab321",
+      "lane_id": "lane-generated-3",
+      "generation": 1,
+      "fence": 2,
+      "created_at": 1790002644001
+    }
+  ],
+  "rounds": 1,
+  "authority": "person_approves"
+}

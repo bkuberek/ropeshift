@@ -78,8 +78,6 @@ var webGaps = map[string]string{
 	"plan forecast":     "U2h1",
 	"telemetry lanes":   "U2h2",
 	"telemetry query":   "U2h2",
-	"work acceptance":   "U2g",
-	"work timeline":     "U2g",
 	"worker doctor":     "U2h2",
 }
 

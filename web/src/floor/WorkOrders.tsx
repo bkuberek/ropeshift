@@ -9,13 +9,16 @@ import { ApprovalDecision } from "../needs/ApprovalDecision";
 import { ContractReviewCard } from "../needs/ContractReviewCard";
 import { headingOf } from "../needs/kinds";
 import { WorkCard } from "../needs/WorkCard";
-import { Ago, Lasted, Page, StampLine, useClock, ViewTime, words } from "../parts/parts";
+import { Lasted, Page, StampLine, useClock, ViewTime, words } from "../parts/parts";
 import { Verdicts } from "../parts/Verdicts";
 import { Icon } from "../ui/Icon";
 import { Button, LinkTabs, TabPanel, Tabs } from "../ui/controls";
-import { Absent, Banner, ConditionChip, Digest, EmptyState, Fact, Facts, Freshness, freshnessOf, Id, LaneBadge, Panel, RecordChip, SkeletonRows, StateBadge, TableRegion, WorkBadge } from "../ui/display";
+import { Absent, Banner, ConditionChip, Digest, EmptyState, Fact, Facts, Freshness, freshnessOf, Id, LaneBadge, Panel, RecordChip, SkeletonRows, TableRegion, WorkBadge } from "../ui/display";
 import type { WorkGroup } from "./states";
-import { checkStates, workStates } from "./states";
+import { workStates } from "./states";
+import { Checks } from "./Checks";
+import { standingWords, waitingStandingWords } from "./evidence";
+import { ActivityTab, ChangesTab } from "./EvidenceTabs";
 import { NewWorkOrder } from "./NewWorkOrder";
 import { StartWork } from "./StartWork";
 import { WakeWords } from "./WakeWords";
@@ -229,24 +232,6 @@ function Stepper({ state, rounds }: { state: string; rounds?: number }) {
   );
 }
 
-function Checks({ standing }: { standing: Standing }) {
-  if (!standing.checks.length) {
-    return <p className="muted">No check reported on this work's commit.</p>;
-  }
-  return (
-    <ul className="checks" aria-label="Checks">
-      {standing.checks.map((check) => (
-        <li key={check.id}>
-          <StateBadge table={checkStates} state={check.status} />
-          <span className="mono">{check.name}</span>
-          <span className="subtle small">{words(check.source)}</span>
-          <span className="subtle small">{check.criterion_id ? `for ${check.criterion_id}` : ""}</span>
-        </li>
-      ))}
-    </ul>
-  );
-}
-
 // Merges lists who approved each reviewed commit for merge, at which level, and what landed, and for work
 // waiting to merge, what the merge waits on.
 function Merges({ standing, merging }: { standing: Standing; merging: boolean }) {
@@ -273,18 +258,11 @@ function Merges({ standing, merging }: { standing: Standing; merging: boolean })
   );
 }
 
-const standingWords: Record<string, string> = {
-  covered: "Covered by a check",
-  failed: "A check failed",
-  second_principal: "Only the lane said so",
-  member: "No check covered it",
-};
-
 function Criteria({ standing, waiting }: { standing: Standing; waiting: boolean }) {
   if (!standing.assessment.criteria.length) {
     return null;
   }
-  const table = waiting ? { ...standingWords, second_principal: "Needs a member", member: "Needs a member" } : standingWords;
+  const table = waiting ? waitingStandingWords : standingWords;
   return (
     <ul className="criteria" aria-label="Acceptance criteria">
       {standing.assessment.criteria.map((criterion) => (
@@ -459,11 +437,7 @@ export function WorkOrderPage({ live, id, tab, dialog, needs, after }: { live: L
                   </EmptyState>
                 )
               ) : null}
-              {chosen === "changes" ? (
-                <EmptyState icon="branch" title="The diff is not served to this page yet">
-                  {order.branch ? `The work's changes are on branch ${order.branch}.` : "The work has no branch yet."} A later build shows the change from the base commit to the reviewed commit here.
-                </EmptyState>
-              ) : null}
+              {chosen === "changes" ? <ChangesTab id={order.id} live={live} /> : null}
               {chosen === "checks" ? (
                 standing ? (
                   <div className="stack-8">
@@ -518,17 +492,7 @@ export function WorkOrderPage({ live, id, tab, dialog, needs, after }: { live: L
                 )
               ) : null}
               {chosen === "lanes" ? <Worktrees order={order} allowance={row.allowed} lanes={lanes} after={after} /> : null}
-              {chosen === "activity" ? (
-                <EmptyState icon="history" title="The audit is not served to this page yet">
-                  {row.since ? (
-                    <>
-                      It reached {workStates[order.state]?.label.toLowerCase() ?? order.state} <Ago at={row.since} />. A later build lists each of its events here.
-                    </>
-                  ) : (
-                    "A later build lists each of its events here."
-                  )}
-                </EmptyState>
-              ) : null}
+              {chosen === "activity" ? <ActivityTab id={order.id} live={live} /> : null}
             </TabPanel>
           </div>
           <aside className="stack" aria-label="Decision and facts">

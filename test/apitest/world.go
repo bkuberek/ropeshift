@@ -40,6 +40,9 @@ type World struct {
 	seq    int64
 	// Questions is what a lane's question reaches a person through.
 	Questions *control.Questions
+	// At, when set, is when the worker reports every event of the lanes this world runs from then on. A world with
+	// none reports the first millisecond, which the ledger clamps to the time of the event before it.
+	At        func() int64
 	questions int
 }
 
@@ -62,6 +65,9 @@ func NewClock() *Clock {
 
 // Advance moves database time.
 func (c *Clock) Advance(by time.Duration) { c.at.Add(by.Milliseconds()) }
+
+// Now is database time, in epoch milliseconds.
+func (c *Clock) Now() int64 { return c.at.Load() }
 
 // Dialect is the wrapper Options.Clock takes.
 func (c *Clock) Dialect(inner sqlstore.Dialect) sqlstore.Dialect { return clockedDialect{inner, c} }
@@ -116,6 +122,8 @@ type Lane struct {
 	Grant workorders.Grant
 	// next counts the generations after the first that this lane started.
 	next int64
+	// at is when this lane's worker reports its events happened.
+	at func() int64
 }
 
 // Generation is the generation this lane runs now.
@@ -196,7 +204,7 @@ func (w *World) Run(id string) *Lane {
 	if _, err := leases.Dispatch(w.ctx, Scope, id, lane, worldMember); err != nil {
 		w.t.Fatal(err)
 	}
-	l := &Lane{w: w, ID: lane, Grant: grant}
+	l := &Lane{w: w, ID: lane, Grant: grant, at: w.At}
 	l.Upload(ledger.UploadLaneStarted, nil)
 	l.Status(ledger.LaneStatus{ActualState: "working", Liveness: "alive", ModelReach: "reachable", LedgerReach: "reachable"})
 	return l
@@ -276,12 +284,20 @@ func (l *Lane) Refused(eventType string, payload []byte) []ledger.UploadResult {
 	l.w.seq++
 	reply, err := l.w.plane.Upload(l.w.ctx, ledger.UploadBatch{Auth: l.w.auth, Epoch: l.w.epoch, Events: []ledger.UploadEvent{{
 		Epoch: l.w.epoch, Seq: l.w.seq, Type: eventType, WorkOrder: l.Grant.WorkOrder, ClaimID: l.Grant.ClaimID,
-		Fence: l.Grant.Fence, Lane: l.ID, Generation: l.Generation(), Payload: payload, OccurredAt: 1,
+		Fence: l.Grant.Fence, Lane: l.ID, Generation: l.Generation(), Payload: payload, OccurredAt: l.occurred(),
 	}}})
 	if err != nil {
 		l.w.t.Fatal(err)
 	}
 	return reply.Rejected
+}
+
+// occurred is the time this lane's worker reports for an event.
+func (l *Lane) occurred() int64 {
+	if l.at == nil {
+		return 1
+	}
+	return l.at()
 }
 
 // Status reports a lane's state.
