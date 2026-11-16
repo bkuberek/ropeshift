@@ -1708,6 +1708,33 @@ tr.selected td {
   font-weight: 600;
 }
 
+/* The planning pane's History tab: each group's label, then its figures, then its explanation. */
+.history-groups {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-12);
+}
+
+.history-groups p {
+  margin: 0;
+}
+
+.history-label {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-4) var(--s-8);
+}
+
+.history-figures {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2) var(--s-12);
+}
+
 @media (forced-colors: active) {
   .estimate-track,
   .estimate-fill,

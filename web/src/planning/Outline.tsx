@@ -1,13 +1,15 @@
-import { useId } from "react";
+import { useId, useState } from "react";
 
 import { readOutline } from "../api/client";
-import type { PlanForecast } from "../api/measures";
-import { readPlanForecast } from "../api/measures";
+import type { DeliveryHistory, PlanForecast } from "../api/measures";
+import { readDeliveryHistory, readPlanForecast } from "../api/measures";
 import type { PlanOutline } from "../api/types";
 import type { Live } from "../api/useView";
 import { useView } from "../api/useView";
 import { addressOf, Link } from "../app/route";
+import { DeliveryHistoryView } from "../measures/DeliveryHistory";
 import { PlanEstimates } from "../measures/PlanEstimates";
+import { TabPanel, Tabs } from "../ui/controls";
 import { Badge, Banner } from "../ui/display";
 
 // The outline is read from the repository, so a burst of events reads it once a gap, however much the
@@ -129,10 +131,33 @@ export function OutlineBody({ outline, estimates }: { outline: PlanOutline; esti
   );
 }
 
+type PaneTab = "outline" | "history";
+const paneTabs: { id: PaneTab; label: string }[] = [
+  { id: "outline", label: "Outline" },
+  { id: "history", label: "History" },
+];
+
+// Finished work changes the history only when a work order ends, so a burst of events reads it once a gap.
+const historyGapMs = 5000;
+
+// HistoryTab reads the delivery history the planning session's pack holds, as `ropeshift measures history` prints it,
+// when the tab is chosen, and again when the ledger says something happened.
+function HistoryTab({ live }: { live: Live }) {
+  const read = useView<DeliveryHistory>(() => readDeliveryHistory(), "planning:history", live, historyGapMs);
+  return (
+    <div className="stack small">
+      {read.failure ? <Banner tone="danger">{read.view ? `What this shows is not current. ${read.failure}` : read.failure}</Banner> : null}
+      {read.view ? <DeliveryHistoryView view={read.view} /> : read.failure ? null : <p className="muted">Reading the history.</p>}
+    </div>
+  );
+}
+
 // Outline follows the plan a planning lane is writing, from its branch. It reads again when the ledger
 // says something happened, which is when the session may have committed.
 export function Outline({ lane, live }: { lane: string; live: Live }) {
   const heading = useId();
+  const tabs = useId();
+  const [tab, setTab] = useState<PaneTab>("outline");
   const read = useView(() => readOutline(lane), `outline:${lane}`, live, outlineGapMs);
   // The estimates and forecasts of the version a request stands for, once the ledger holds its plan. They are
   // read as `ropeshift plan forecast` reads them, and the tick makes them, so they read again at most once a gap.
@@ -153,9 +178,18 @@ export function Outline({ lane, live }: { lane: string; live: Live }) {
         {read.view && !read.failure ? <span className="fresh">live</span> : null}
       </div>
       <div className="panel-body stack small" aria-busy={read.busy}>
-        {read.failure ? <Banner tone="danger">{read.view ? `What this shows is not current. ${read.failure}` : read.failure}</Banner> : null}
-        {read.view ? <OutlineBody outline={read.view} estimates={estimates} /> : null}
-        {!read.view && !read.failure ? <p className="muted">Reading the branch.</p> : null}
+        <Tabs label="Plan in progress" idBase={tabs} selected={tab} tabs={paneTabs} onSelect={setTab} />
+        <TabPanel idBase={tabs} selected={tab}>
+          {tab === "history" ? (
+            <HistoryTab live={live} />
+          ) : (
+            <div className="stack small">
+              {read.failure ? <Banner tone="danger">{read.view ? `What this shows is not current. ${read.failure}` : read.failure}</Banner> : null}
+              {read.view ? <OutlineBody outline={read.view} estimates={estimates} /> : null}
+              {!read.view && !read.failure ? <p className="muted">Reading the branch.</p> : null}
+            </div>
+          )}
+        </TabPanel>
       </div>
     </aside>
   );
