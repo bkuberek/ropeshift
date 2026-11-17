@@ -367,6 +367,55 @@ func TestAWorkerKeepsARefusedEndBesideAParkRefusedAgain(t *testing.T) {
 	}
 }
 
+// TestAMemberWakesALaneTheWorkerEndedAndTheLedgerHoldsParked is the lane after its park is sent again: the
+// worker's record of it reads ended, because it ended the lane when the park was refused, and the ledger
+// holds it parked. A member's wake brings it back on the same machine. The worker claims it, provisions a
+// new generation on the lane's worktree and branch, and starts a session in it, and the lane's end moves
+// the work order on with no claim left behind.
+func TestAMemberWakesALaneTheWorkerEndedAndTheLedgerHoldsParked(t *testing.T) {
+	t.Parallel()
+	r := newInstallationRig(t)
+	r.parkedInProject("pb", "lane-b")
+	r.leftWithAParkItRefused("lane-b")
+	r.restart()
+	r.pass()
+	if err := r.subject.Upload(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	r.noRefusals()
+	if row := r.row("pb"); row.State != workorders.Parked {
+		t.Fatalf("the ledger holds the work order %+v, want it parked", row)
+	}
+	if record, err := r.journal.Lane(t.Context(), "lane-b"); err != nil || record.State != lanes.StateEnded {
+		t.Fatalf("the worker keeps the lane as %+v: %v", record, err)
+	}
+	if _, err := control.NewWakes(r.stores["pb"]).ResumeLane(t.Context(), "pb", "lane-b", member); err != nil {
+		t.Fatal(err)
+	}
+	r.pass()
+	r.subject.Wait()
+	row := r.awaitOrder("pb", workorders.Acceptance)
+	if row.ClaimID != "" {
+		t.Errorf("the work order keeps a claim: %+v", row)
+	}
+	r.noRefusals()
+	specs := r.driver.Specs()
+	if len(specs) != 2 || specs[1].Lane != "lane-b" || specs[1].Generation != 3 {
+		t.Fatalf("sessions started: %+v", specs)
+	}
+	if specs[1].Dir != specs[0].Dir {
+		t.Errorf("the woken session runs in %s, the lane's worktree is %s", specs[1].Dir, specs[0].Dir)
+	}
+	worktree, err := r.lanes.Provisioner.Worktrees.Inspect(t.Context(), specs[1].Dir)
+	if err != nil || worktree.Branch != "lane/lane-b" {
+		t.Errorf("the lane's worktree reads %+v: %v", worktree, err)
+	}
+	generations := r.generations("pb", "lane-b")
+	if len(generations) != 3 || generations[2].EndReason != string(workorders.OutcomeCompleted) || generations[2].SessionID == "" {
+		t.Errorf("generations %+v", generations)
+	}
+}
+
 // TestAWorkerSendsAgainAResumeTheLedgerRefusedForItsProject starts a worker on a journal an earlier build
 // left: a lane of the second project woke, its resume named no project and was refused, and its end was
 // fenced, while the work order stayed claimed with no lane. The worker sends the resume again with the
