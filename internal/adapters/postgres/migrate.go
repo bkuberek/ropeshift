@@ -19,10 +19,13 @@ import (
 const MigrationLock int64 = 0x726f7065736869
 
 // DefaultLockTimeout is how long a caller waits for the migration lock when Options.LockTimeout is zero.
+// The wait includes the turn behind the other callers of the process and the time another process holds the
+// lock, such as a long migration, so it also caps how long a start of the server waits behind that process.
 const DefaultLockTimeout = time.Minute
 
-// ErrLockTimeout means another session held the migration lock for the whole of Options.LockTimeout.
-var ErrLockTimeout = errors.New("postgres: another session holds the migration lock")
+// ErrLockTimeout means a caller did not get the migration lock within Options.LockTimeout, because another
+// session held it, or because callers of this process took their turns for that long.
+var ErrLockTimeout = errors.New("postgres: the wait for the migration lock timed out")
 
 const (
 	// lockPoll is how often a caller that waits for the lock tries it again.
@@ -96,7 +99,7 @@ func (s *State) waiting(ctx context.Context) (context.Context, context.CancelFun
 // waitFailed names why a caller did not get the lock: the caller's own context, or the end of the wait.
 func (s *State) waitFailed(ctx, wait context.Context, err error) error {
 	if ctx.Err() == nil && errors.Is(wait.Err(), context.DeadlineExceeded) {
-		return fmt.Errorf("%w for %s", ErrLockTimeout, s.lockTimeout)
+		return fmt.Errorf("%w after %s", ErrLockTimeout, s.lockTimeout)
 	}
 	return fmt.Errorf("postgres: migration lock: %w", err)
 }

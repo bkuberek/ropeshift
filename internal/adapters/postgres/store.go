@@ -50,9 +50,10 @@ type Options struct {
 	// pool is never smaller than 2, because a migration holds one connection for its lock and runs on
 	// another.
 	MaxConns int
-	// LockTimeout bounds how long a caller waits for the migration lock, which another process holds
-	// while it makes a schema or migrates one. Zero is DefaultLockTimeout, and a negative value waits for
-	// as long as the caller's context lasts.
+	// LockTimeout bounds how long a caller waits for the migration lock: its turn behind the other callers
+	// of this process, and the time another process holds the lock while it makes a schema or migrates
+	// one. It does not bound the work a caller does once it holds the lock. Zero is DefaultLockTimeout,
+	// and a negative value waits for as long as the caller's context lasts.
 	LockTimeout time.Duration
 	// Dialect replaces Dialect{}, so a test can wrap it to move database time.
 	Dialect sqlstore.Dialect
@@ -84,9 +85,11 @@ type State struct {
 }
 
 // Open connects to the database a URL names, makes the installation's schema, and brings it to this
-// build's version. It drops the schemas that carry a project's prefix and that no registered project names,
-// which only a crash in the middle of a Create or a Remove leaves. The URL is a postgres:// URL or a
-// key/value connection string. A project's Store opened through the state reaches the shared records there.
+// build's version. It drops the schemas that a generated project ID names and that no registered project
+// names, which only a crash in the middle of a Create or a Remove leaves, and it releases the entries of the
+// repository index that no record backs, which only a crash or a failed commit in the middle of a project's
+// write leaves. The URL is a postgres:// URL or a key/value connection string. A project's Store opened
+// through the state reaches the shared records there.
 func Open(ctx context.Context, url string, opts Options) (*State, error) {
 	pool, err := newPool(ctx, url, opts)
 	if err != nil {
@@ -119,7 +122,10 @@ func Open(ctx context.Context, url string, opts Options) (*State, error) {
 		if err := s.Installation.Migrate(ctx); err != nil {
 			return err
 		}
-		return s.sweep(ctx)
+		if err := s.sweep(ctx); err != nil {
+			return err
+		}
+		return s.reconcileIndex(ctx)
 	})
 	if err != nil {
 		_ = s.Close()

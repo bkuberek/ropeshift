@@ -59,12 +59,6 @@ func schemaOf(p ledger.Project) (string, error) {
 	return p.Database, nil
 }
 
-// projectSchema reports whether a schema's name is one a project's ID could give, in either case.
-func projectSchema(name string) bool {
-	id, ok := strings.CutPrefix(name, schemaPrefix)
-	return ok && id != "" && len(name) <= schemaLimit && !strings.ContainsFunc(id, func(c rune) bool { return !identifierRune(c) })
-}
-
 // step is one move of a project's lifecycle. Each is safe to repeat, so a crash after any of them leaves
 // the next attempt to finish.
 type step func(context.Context) error
@@ -81,13 +75,17 @@ func run(ctx context.Context, steps []step) error {
 // creation is the creation of one project. The schema exists and is migrated before the registry names
 // the project, as a SQLite ledger file does, so a crash between the two leaves a schema the registry does
 // not know. A retry with the same ID registers it, and the sweep that opens a State drops one that no retry
-// claims, such as the schema of a project that gave itself an ID. Every step runs under the migration lock,
-// so no other process sees a schema that is made but not yet registered.
+// claims, such as the schema of a project that gave itself an ID. A step that fails without a crash drops
+// the schema the creation made. Every step runs under the migration lock, so no other process sees a schema
+// that is made but not yet registered.
 type creation struct {
-	s          *State
-	p          ledger.Project
-	actor      ledger.Actor
-	schema     string
+	s      *State
+	p      ledger.Project
+	actor  ledger.Actor
+	schema string
+	// made is whether this creation made the schema, which it drops if a later step fails. A schema a
+	// crashed creation left, or one a person made, is not its to drop.
+	made       bool
 	store      *sqlstore.Store
 	registered ledger.Project
 }
@@ -117,9 +115,9 @@ func (s *State) newCreation(p ledger.Project, actor ledger.Actor) (*creation, er
 	return &creation{s: s, p: p, actor: actor, schema: schema}, nil
 }
 
-// refuseTaken refuses a project whose name or schema another project holds, and one whose ID the registry
-// keeps on another schema, before any step makes a schema. It runs under the lock, so what it reads is
-// what the registry step finds.
+// refuseTaken refuses a project whose name or schema another project holds, one whose ID differs only in
+// case from another project's, and one whose ID the registry keeps on another schema, before any step makes
+// a schema. It runs under the lock, so what it reads is what the registry step finds.
 func (c *creation) refuseTaken(ctx context.Context) error {
 	held, err := c.s.Installation.Projects(ctx)
 	if err != nil {
@@ -131,6 +129,10 @@ func (c *creation) refuseTaken(ctx context.Context) error {
 			if other.Database != c.schema {
 				return fmt.Errorf("%w: project %s keeps its records in schema %q", ledger.ErrProjectExists, other.ID, other.Database)
 			}
+		case strings.EqualFold(string(other.ID), string(c.p.ID)):
+			// A project an earlier build registered keeps the case of its ID in its schema's name, so its
+			// schema differs from this one's. The IDs still name one project to a person.
+			return fmt.Errorf("%w: project %s has an ID that differs from %q only in case", ledger.ErrProjectExists, other.ID, c.p.ID)
 		case other.Name == c.p.Name:
 			return fmt.Errorf("%w: project %s is named %q", ledger.ErrProjectExists, other.ID, c.p.Name)
 		case other.Database == c.schema:
@@ -144,7 +146,17 @@ func (c *creation) refuseTaken(ctx context.Context) error {
 func (c *creation) steps() []step {
 	return []step{
 		// The schema.
-		func(ctx context.Context) error { return c.s.createSchema(ctx, c.schema) },
+		func(ctx context.Context) error {
+			existed, err := c.s.schemaExists(ctx, c.schema)
+			if err != nil {
+				return err
+			}
+			if err := c.s.createSchema(ctx, c.schema); err != nil {
+				return err
+			}
+			c.made = !existed
+			return nil
+		},
 		// Its tables, at this build's version.
 		func(ctx context.Context) error {
 			c.store = c.s.ledger(c.schema, c.s.opts)
@@ -180,9 +192,8 @@ func (s *State) Create(ctx context.Context, p ledger.Project, actor ledger.Actor
 			return err
 		}
 		if err := run(ctx, c.steps()); err != nil {
-			return err
+			return c.abandon(ctx, err)
 		}
-		s.keep(c.registered.ID, c.store)
 		return nil
 	})
 	if err != nil {
@@ -191,7 +202,34 @@ func (s *State) Create(ctx context.Context, p ledger.Project, actor ledger.Actor
 		}
 		return ledger.Project{}, err
 	}
+	// The Store is kept only once the lock is released, because a failed release is an error of Create,
+	// which closes the Store it made.
+	s.keep(c.registered.ID, c.store)
 	return c.registered, nil
+}
+
+// abandon drops the schema a creation made, after a later step failed with cause, so a failure leaves no
+// schema behind for the sweep. The caller holds the migration lock, so the schema is not one another
+// process is about to register. A schema the registry names stays: the step that failed may have
+// committed. The drop runs although the caller's context ended, as the release of the lock does. It returns
+// cause, joined with the failure of the drop.
+func (c *creation) abandon(ctx context.Context, cause error) error {
+	if c.store != nil {
+		_ = c.store.Close()
+		c.store = nil
+	}
+	if !c.made {
+		return cause
+	}
+	ctx, stop := context.WithTimeout(context.WithoutCancel(ctx), unlockLimit)
+	defer stop()
+	if _, err := c.s.Installation.ProjectByID(ctx, c.p.ID); !errors.Is(err, ports.ErrNotFound) {
+		return cause
+	}
+	if _, err := c.s.pool.Exec(ctx, `DROP SCHEMA IF EXISTS `+quote(c.schema)+` CASCADE`); err != nil {
+		return errors.Join(cause, fmt.Errorf("postgres: drop schema %s: %w", c.schema, err))
+	}
+	return cause
 }
 
 // keep holds a Store the state opened as the one Open returns for its project. A Store it already holds
@@ -218,7 +256,9 @@ func (s *State) forget(id ledger.WorkspaceID) {
 
 // removal is the removal of one project. The registry forgets the project first, in one transaction with
 // the event that records who removed it, and the schema goes after, so a crash between the two leaves a
-// schema no project names, and never a project whose ledger is gone.
+// schema no project names, and never a project whose ledger is gone. Both steps run under the migration
+// lock, so an Open or a Create in another process cannot register or make the project's schema between
+// them.
 type removal struct {
 	s      *State
 	p      ledger.Project
@@ -236,51 +276,77 @@ func (s *State) newRemoval(p ledger.Project, actor ledger.Actor) (*removal, erro
 	return &removal{s: s, p: p, actor: actor, schema: schema}, nil
 }
 
+// forgetProject has the registry forget the project, once the registry agrees that the record's schema is
+// the project's. A record a caller kept, or made up, never points the drop at another project's schema.
+func (r *removal) forgetProject(ctx context.Context) error {
+	held, err := r.s.Installation.ProjectByID(ctx, r.p.ID)
+	switch {
+	case err == nil:
+		if held.Database != r.schema {
+			return fmt.Errorf("%w: the registry keeps project %s in schema %q, not %q", ledger.ErrInvalidProject, r.p.ID, held.Database, r.schema)
+		}
+		if err := r.s.Installation.DropProject(ctx, r.p.ID, r.actor); err != nil {
+			return err
+		}
+	case errors.Is(err, ports.ErrNotFound):
+		// A removal that stopped after the registry forgot the project left the schema. A schema another
+		// project holds is not that one, and with no schema either, there is nothing to remove.
+		if err := r.refuseHeldSchema(ctx); err != nil {
+			return err
+		}
+		left, serr := r.s.schemaExists(ctx, r.schema)
+		if serr != nil {
+			return serr
+		}
+		if !left {
+			return err
+		}
+	default:
+		return err
+	}
+	r.s.forget(r.p.ID)
+	return nil
+}
+
+// refuseHeldSchema refuses a record whose schema a registered project holds.
+func (r *removal) refuseHeldSchema(ctx context.Context) error {
+	held, err := r.s.Installation.Projects(ctx)
+	if err != nil {
+		return err
+	}
+	for _, other := range held {
+		if other.Database == r.schema {
+			return fmt.Errorf("%w: project %s keeps its records in schema %q, not project %s", ledger.ErrInvalidProject, other.ID, r.schema, r.p.ID)
+		}
+	}
+	return nil
+}
+
+// steps are the steps of a removal. The caller holds the migration lock.
 func (r *removal) steps() []step {
 	return []step{
 		// The registry's row, the project's repositories in the index, and the event.
+		r.forgetProject,
+		// The schema, with every table of the project's ledger. An Open that runs after the registry forgot
+		// the project is refused.
 		func(ctx context.Context) error {
-			err := r.s.Installation.DropProject(ctx, r.p.ID, r.actor)
-			if errors.Is(err, ports.ErrNotFound) {
-				// A removal that stopped after this step left the schema, and the registry no longer holds
-				// the project. With no schema either, there is nothing to remove.
-				left, serr := r.s.schemaExists(ctx, r.schema)
-				if serr != nil {
-					return serr
-				}
-				if !left {
-					return err
-				}
-				err = nil
-			}
-			if err != nil {
-				return err
-			}
 			r.s.forget(r.p.ID)
+			if _, err := r.s.pool.Exec(ctx, `DROP SCHEMA IF EXISTS `+quote(r.schema)+` CASCADE`); err != nil {
+				return fmt.Errorf("postgres: drop schema %s: %w", r.schema, err)
+			}
 			return nil
-		},
-		// The schema, with every table of the project's ledger. It goes under the lock every change to a
-		// schema takes, so an Open or a Create in another process cannot make the schema again or migrate it
-		// while it drops. An Open that runs after the registry forgot the project is refused.
-		func(ctx context.Context) error {
-			return r.s.locked(ctx, func(ctx context.Context) error {
-				r.s.forget(r.p.ID)
-				if _, err := r.s.pool.Exec(ctx, `DROP SCHEMA IF EXISTS `+quote(r.schema)+` CASCADE`); err != nil {
-					return fmt.Errorf("postgres: drop schema %s: %w", r.schema, err)
-				}
-				return nil
-			})
 		},
 	}
 }
 
-// Remove forgets a project and drops its schema, which a repeat of Remove finishes after a crash.
+// Remove forgets a project and drops its schema, which a repeat of Remove finishes after a crash. Every
+// step runs under the migration lock.
 func (s *State) Remove(ctx context.Context, p ledger.Project, actor ledger.Actor) error {
 	r, err := s.newRemoval(p, actor)
 	if err != nil {
 		return err
 	}
-	return run(ctx, r.steps())
+	return s.locked(ctx, func(ctx context.Context) error { return run(ctx, r.steps()) })
 }
 
 func (s *State) schemaExists(ctx context.Context, name string) (bool, error) {

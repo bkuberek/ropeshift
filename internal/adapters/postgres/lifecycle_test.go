@@ -296,6 +296,66 @@ func TestRemoveNeverDropsASchemaThatIsNotTheProjects(t *testing.T) {
 	}
 }
 
+// registerLegacy registers a project the way an earlier build did, on a schema that keeps the capitals of
+// its ID, and makes that schema.
+func registerLegacy(t *testing.T, state *postgres.State, id ledger.WorkspaceID, name string) ledger.Project {
+	t.Helper()
+	db := state.SQLDB()
+	defer db.Close()
+	schema := "project_" + string(id)
+	if _, err := db.ExecContext(t.Context(), `CREATE SCHEMA "`+schema+`"`); err != nil {
+		t.Fatal(err)
+	}
+	legacy, _, err := state.Installation.CreateProject(t.Context(),
+		ledger.Project{ID: id, Name: name, Database: schema, State: ledger.ProjectActive}, member)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return legacy
+}
+
+// TestRemoveChecksTheRecordAgainstTheRegistry holds that a stale or forged record, which names a schema its
+// ID could give but not the one the registry keeps the project on, drops no project's schema, whether the
+// registry still holds the project or has forgotten it.
+func TestRemoveChecksTheRecordAgainstTheRegistry(t *testing.T) {
+	state := openState(t, freshDatabase(t), postgres.Options{})
+	db := state.SQLDB()
+	defer db.Close()
+	alpha, store := createProject(t, state, "pa", "alpha")
+	newWorkOrder(t, store, alpha.ID, "wo-1", "Add the retry budget")
+	// A project an earlier build registered beside "pa", whose ID differs from it only in case.
+	legacy := registerLegacy(t, state, "PA", "legacy")
+	forged := legacy
+	forged.Database = alpha.Database
+
+	if err := state.Remove(t.Context(), forged, member); !errors.Is(err, ledger.ErrInvalidProject) {
+		t.Errorf("a record that names another project's schema: %v", err)
+	}
+	for _, name := range []string{"alpha", "legacy"} {
+		if _, err := state.Named(t.Context(), name); err != nil {
+			t.Errorf("the registry forgot %s: %v", name, err)
+		}
+	}
+	if !schemaExists(t, db, alpha.Database) || !schemaExists(t, db, legacy.Database) {
+		t.Error("a schema went")
+	}
+
+	// With the legacy project gone from the registry, the same record names a schema the registry gives
+	// to another project.
+	if err := state.Remove(t.Context(), legacy, member); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.Remove(t.Context(), forged, member); !errors.Is(err, ledger.ErrInvalidProject) {
+		t.Errorf("a record of a forgotten project that names another project's schema: %v", err)
+	}
+	if !schemaExists(t, db, alpha.Database) {
+		t.Error("the schema of a registered project went")
+	}
+	if got := workOrderIDs(t, store, alpha.ID); !slices.Equal(got, []string{"wo-1"}) {
+		t.Errorf("alpha's work orders: %v", got)
+	}
+}
+
 // TestCreateRepeatsAfterACrashAtAnyStep holds the design's lifecycle: a crash after each step of creating a
 // project leaves nothing the next attempt cannot finish, with one registry row, one workspace, one
 // event, and each migration applied once.
@@ -336,6 +396,62 @@ func TestCreateRepeatsAfterACrashAtAnyStep(t *testing.T) {
 				t.Errorf("projects %+v, %v", projects, err)
 			}
 		})
+	}
+}
+
+// refuseRegistrations makes the registry refuse every project, as a failed registry step does, and returns
+// what lifts the refusal.
+func refuseRegistrations(t *testing.T, db *sql.DB) (lift func()) {
+	t.Helper()
+	for _, statement := range []string{
+		`CREATE FUNCTION installation.refuse_project() RETURNS trigger LANGUAGE plpgsql
+  AS $$ BEGIN RAISE EXCEPTION 'the registry refuses the project'; END $$`,
+		`CREATE TRIGGER refuse_project BEFORE INSERT ON installation.projects
+  FOR EACH ROW EXECUTE FUNCTION installation.refuse_project()`,
+	} {
+		if _, err := db.ExecContext(t.Context(), statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return func() {
+		if _, err := db.ExecContext(t.Context(), `DROP TRIGGER refuse_project ON installation.projects`); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// TestACreateThatFailsLeavesNoSchemaItMade holds that a Create that fails after it made the schema, at the
+// registry's step, drops that schema before it returns, so the failure leaves nothing behind. A schema it
+// did not make, one a crashed Create left for a retry, stays.
+func TestACreateThatFailsLeavesNoSchemaItMade(t *testing.T) {
+	state := openState(t, freshDatabase(t), postgres.Options{})
+	db := state.SQLDB()
+	defer db.Close()
+	lift := refuseRegistrations(t, db)
+
+	if _, err := state.Create(t.Context(), ledger.Project{ID: "pa", Name: "alpha"}, member); err == nil {
+		t.Fatal("a project was registered although the registry refused it")
+	}
+	if schemaExists(t, db, "project_pa") {
+		t.Error("the failed Create left its schema")
+	}
+
+	// A crashed Create left this schema for a retry, and a failure of the retry does not take it away.
+	if err := state.CreateUpTo(t.Context(), ledger.Project{ID: "pb", Name: "beta"}, member, 3); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := state.Create(t.Context(), ledger.Project{ID: "pb", Name: "beta"}, member); err == nil {
+		t.Fatal("a project was registered although the registry refused it")
+	}
+	if !schemaExists(t, db, "project_pb") {
+		t.Error("a Create dropped a schema an earlier one made")
+	}
+
+	lift()
+	for _, id := range []ledger.WorkspaceID{"pa", "pb"} {
+		if _, err := state.Create(t.Context(), ledger.Project{ID: id, Name: "project-" + string(id)}, member); err != nil {
+			t.Errorf("Create of %s after the refusal ended: %v", id, err)
+		}
 	}
 }
 
@@ -394,42 +510,47 @@ func TestOpenRefusesAProjectTheRegistryDoesNotHold(t *testing.T) {
 }
 
 // TestRemoveAndOpenNeverLeaveASchemaBehind holds the interleaving of a removal with an Open of the same
-// project: the drop waits for the migration lock, as every other change to a schema does, and an Open
-// that runs after the registry forgot the project is refused, so it never makes the schema again.
+// project: the whole removal, the registry's step and the drop, waits for the migration lock, as every
+// other change to a schema does, so nothing sees a project the registry forgot whose schema still stands,
+// and an Open that runs after the removal is refused, so it never makes the schema again.
 func TestRemoveAndOpenNeverLeaveASchemaBehind(t *testing.T) {
 	url := freshDatabase(t)
 	state := openState(t, url, postgres.Options{})
 	db := state.SQLDB()
 	defer db.Close()
 	alpha, _ := createProject(t, state, "pa", "alpha")
+	// A second state is a second process, whose cache starts empty.
+	other := openState(t, url, postgres.Options{})
 	release := holdMigrationLock(t, url)
 
 	removed := make(chan error, 1)
 	go func() { removed <- state.Remove(t.Context(), alpha, member) }()
-	// The registry forgets the project first, and the drop waits.
-	for deadline := time.Now().Add(15 * time.Second); ; time.Sleep(10 * time.Millisecond) {
-		if _, err := state.Named(t.Context(), "alpha"); errors.Is(err, ports.ErrNotFound) {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("the registry still names the project")
-		}
-	}
-	opened := opening(t.Context(), state, alpha)
+	waitForLockWaiter(t, state)
+	opened := opening(t.Context(), other, alpha)
 	select {
 	case err := <-removed:
 		t.Fatalf("Remove finished while another session held the migration lock: %v", err)
 	case <-time.After(500 * time.Millisecond):
 	}
+	if _, err := state.Named(t.Context(), "alpha"); err != nil {
+		t.Errorf("the registry forgot the project before the removal held the migration lock: %v", err)
+	}
+	if !schemaExists(t, db, alpha.Database) {
+		t.Error("the schema went before the removal held the migration lock")
+	}
 	release()
 	if err := <-removed; err != nil {
 		t.Fatal(err)
 	}
-	if err := <-opened; !errors.Is(err, ports.ErrNotFound) {
-		t.Errorf("Open of a project that was removed: %v", err)
+	// Whichever of the two takes the lock first, the removal ends with no schema and no project.
+	if err := <-opened; err != nil && !errors.Is(err, ports.ErrNotFound) {
+		t.Errorf("Open that raced the removal: %v", err)
 	}
 	if schemaExists(t, db, alpha.Database) {
 		t.Error("the schema is there after the removal")
+	}
+	if _, err := state.Open(t.Context(), alpha); !errors.Is(err, ports.ErrNotFound) {
+		t.Errorf("Open of a project that was removed: %v", err)
 	}
 }
 
