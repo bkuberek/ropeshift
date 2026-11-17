@@ -318,7 +318,7 @@ func reviseBrief(tx ports.ReadTx, plan string) (string, string, error) {
 // the revision records beside the work. Work that is not finished, work a rework that finished already redid, a
 // decision that is not in force, and a decision the plan's open revision does not list for the work are refused.
 func (q *Questions) DecisionRework(ctx context.Context, scope ledger.WorkspaceID, workOrder string, decisions []string, actor ledger.Actor) (string, error) {
-	if authority.PartyOf(actor) != authority.PartyPerson || !authority.Allowed(actor, authority.ActionRework) {
+	if !authority.Allowed(actor, authority.ActionApprovePlan) {
 		return "", workorders.ErrForbidden
 	}
 	if len(decisions) == 0 {

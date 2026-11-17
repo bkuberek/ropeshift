@@ -255,7 +255,7 @@ var operations = append(onInstallation(
 	memberOnly(OpPlanConfirmRevision, "Confirm a plan revision", ActionApprovePlan),
 	memberOnly(OpPlanRevise, "Revise a plan", ActionApprovePlan),
 	// Rework for the decisions a plan's revision lists costs a lane and a review apiece, so a member chooses it.
-	memberOnly(OpWorkOrderDecisionRework, "Rework work for a decision", ActionRework),
+	memberOnly(OpWorkOrderDecisionRework, "Rework work for a decision", ActionApprovePlan),
 	consent(OpQuestionRecord, "Record a question"),
 	consent(OpQuestionDismiss, "Dismiss a question", ActionDismissQuestion),
 	oneWay(consent(OpQuestionAnswer, "Answer a question", ActionAnswerQuestion)),
