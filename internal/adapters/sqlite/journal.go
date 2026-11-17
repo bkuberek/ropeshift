@@ -86,10 +86,28 @@ func (j *Journal) ServerURL(ctx context.Context) (string, error) {
 	return url, err
 }
 
-// SaveServerURL replaces the address of the server this worker joined.
+// SaveServerURL replaces the address of the server this worker joined, and leaves it pinned to no authority.
 func (j *Journal) SaveServerURL(ctx context.Context, url string) error {
-	_, err := j.db.ExecContext(ctx, `INSERT INTO server_link (id, server_url) VALUES (1, ?1)
-ON CONFLICT (id) DO UPDATE SET server_url = ?1`, url)
+	return j.SaveServerLink(ctx, url, "")
+}
+
+// ServerCA returns the SHA-256 of the certificate authority this worker pinned when it joined, in lowercase
+// hexadecimal, or the empty string for a worker that pinned none, which verifies its server through the system's
+// roots or reaches it over loopback. It is ErrNotFound for a worker that joined no server.
+func (j *Journal) ServerCA(ctx context.Context) (string, error) {
+	var ca string
+	err := j.db.QueryRowContext(ctx, `SELECT ca_sha256 FROM server_link WHERE id = 1`).Scan(&ca)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", fmt.Errorf("server link: %w", ports.ErrNotFound)
+	}
+	return ca, err
+}
+
+// SaveServerLink replaces the address of the server this worker joined and the certificate authority it pinned,
+// together, so a worker never holds the address of one server and the pin of another.
+func (j *Journal) SaveServerLink(ctx context.Context, url, ca string) error {
+	_, err := j.db.ExecContext(ctx, `INSERT INTO server_link (id, server_url, ca_sha256) VALUES (1, ?1, ?2)
+ON CONFLICT (id) DO UPDATE SET server_url = ?1, ca_sha256 = ?2`, url, ca)
 	return err
 }
 
