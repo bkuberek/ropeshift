@@ -48,7 +48,7 @@ func (w *Worker) reportMessage(ctx context.Context, id string, report messages.R
 		w.config.Report(fmt.Errorf("message %s to the orchestrator: %w", id, err))
 		return
 	}
-	go w.uploadSoon(ctx)
+	w.goTracked(trackedUpload, func() { w.uploadSoon(ctx) })
 }
 
 // noteOrchestratorMessages takes the messages a digest holds: the worker holds each one now.

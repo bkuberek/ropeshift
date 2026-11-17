@@ -98,6 +98,9 @@ type Worker struct {
 	polledAt  time.Time
 	laneGroup sync.WaitGroup
 	marked    sync.Once
+	// trackedLock guards tracked, how many goroutines of each kind goTracked started and have not ended.
+	trackedLock sync.Mutex
+	tracked     map[string]int
 	// reissued says this process sent again what an earlier build's resumes left refused, or found nothing to.
 	reissued atomic.Bool
 	// performingLock guards performing, the effects a goroutine of this process is performing now.
@@ -366,14 +369,16 @@ func (w *Worker) applyBeat(ctx context.Context, held []ledger.HeldLease, reply l
 	return w.journal.SaveLeases(ctx, kept)
 }
 
-// Wait returns when every lane this worker runs has ended, and any qualification probe with them.
+// Wait returns when every lane this worker runs has ended, with the work goTracked started and any
+// qualification probe. Run and ServeLanes start that work too, so a caller that stops the worker ends both
+// before it waits.
 func (w *Worker) Wait() {
 	w.laneGroup.Wait()
 	w.probes.Wait()
 }
 
-// Unfinished names what Wait still waits on: each lane whose goroutine runs, each forge step, and the
-// probe. A process that gives up waiting says what it left running.
+// Unfinished names what Wait still waits on: each lane whose goroutine runs, each forge step, how many of
+// each kind goTracked started, and the probe. A process that gives up waiting says what it left running.
 func (w *Worker) Unfinished() []string {
 	var names []string
 	w.mu.Lock()
@@ -390,6 +395,11 @@ func (w *Worker) Unfinished() []string {
 		}
 	}
 	w.performingLock.Unlock()
+	w.trackedLock.Lock()
+	for kind, count := range w.tracked {
+		names = append(names, fmt.Sprintf("%s (%d)", kind, count))
+	}
+	w.trackedLock.Unlock()
 	w.qualLock.Lock()
 	if w.probe != nil {
 		names = append(names, "probe of "+w.probe.version)
@@ -397,6 +407,36 @@ func (w *Worker) Unfinished() []string {
 	w.qualLock.Unlock()
 	slices.Sort(names)
 	return names
+}
+
+// The kinds of work goTracked counts: a call on the worker socket, an upload sent ahead of the next
+// heartbeat, and a question tool's question carried to the control plane.
+const (
+	trackedSocketCall = "socket call"
+	trackedUpload     = "upload"
+	trackedConversion = "question conversion"
+)
+
+// goTracked runs work that outlasts the call that started it, and writes the journal or reaches the
+// control plane, on a goroutine Wait covers, and counts it under kind for Unfinished. Its callers are Run,
+// ServeLanes, and goroutines it covers already, so no start races a Wait that follows them.
+func (w *Worker) goTracked(kind string, work func()) {
+	w.trackedLock.Lock()
+	if w.tracked == nil {
+		w.tracked = map[string]int{}
+	}
+	w.tracked[kind]++
+	w.trackedLock.Unlock()
+	w.laneGroup.Go(func() {
+		defer func() {
+			w.trackedLock.Lock()
+			if w.tracked[kind]--; w.tracked[kind] == 0 {
+				delete(w.tracked, kind)
+			}
+			w.trackedLock.Unlock()
+		}()
+		work()
+	})
 }
 
 // leaseKey names a lease by its project and work order, because two projects can hold a work order with

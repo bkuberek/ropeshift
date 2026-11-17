@@ -35,7 +35,8 @@ const questionIDBytes = 16
 
 // ServeLanes answers the worker socket until the listener closes. Hooks and
 // `ropeshift mcp` reach the worker here, and each connection is one line and one
-// answer. It stays open while the control plane is away, so a lane can still report.
+// answer. It stays open while the control plane is away, so a lane can still report. Wait covers each
+// connection it took.
 func (w *Worker) ServeLanes(ctx context.Context, listener net.Listener) error {
 	stop := context.AfterFunc(ctx, func() { _ = listener.Close() })
 	defer stop()
@@ -47,7 +48,7 @@ func (w *Worker) ServeLanes(ctx context.Context, listener net.Listener) error {
 			}
 			return err
 		}
-		go w.serveLane(ctx, conn)
+		w.goTracked(trackedSocketCall, func() { w.serveLane(ctx, conn) })
 	}
 }
 
@@ -172,7 +173,8 @@ func (w *Worker) deliverHook(ctx context.Context, event lanes.HookEvent) {
 		event.Generation = run.processGeneration()
 		run.rt.Driver.TakeHook(ctx, event)
 		if len(event.Asked) != 0 {
-			go w.convertAsked(ctx, run.record(), event.Asked, run.askCategories())
+			record, asked, categories := run.record(), event.Asked, run.askCategories()
+			w.goTracked(trackedConversion, func() { w.convertAsked(ctx, record, asked, categories) })
 		}
 	}
 }

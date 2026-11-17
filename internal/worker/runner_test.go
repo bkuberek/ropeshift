@@ -108,7 +108,11 @@ func newLaneRigWith(t *testing.T, base *rig, setup func(*fake.AgentDriver)) *lan
 	if base.workerJournal != nil {
 		journal = base.workerJournal
 	}
-	r.subject = worker.New(base.link, journal, base.clock, worker.Config{
+	var link ports.WorkerLink = base.link
+	if base.workerLink != nil {
+		link = base.workerLink
+	}
+	r.subject = worker.New(link, journal, base.clock, worker.Config{
 		Name:      "test",
 		JoinToken: func(ctx context.Context) (string, error) { return base.plane.CreateJoinToken(ctx, member) },
 		Lanes:     config,

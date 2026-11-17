@@ -45,6 +45,9 @@ type rig struct {
 	// workerJournal stands between a lane rig's worker and the journal when a test must
 	// stop that worker at one call. Nil leaves the journal itself.
 	workerJournal ports.Journal
+	// workerLink stands between a lane rig's worker and the control plane when a test must
+	// hold that worker at one call. Nil leaves the link itself.
+	workerLink ports.WorkerLink
 	// offset moves database time.
 	offset *atomic.Int64
 	// kind is the next work order's, and a change when it is empty.
