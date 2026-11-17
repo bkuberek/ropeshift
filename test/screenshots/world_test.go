@@ -108,10 +108,47 @@ func (w *world) repositories() {
 // the newest item of Needs you.
 func (w *world) secondProject() {
 	in := w.in
-	in.must("project", "create", "catalog", "--display-name", "Catalog")
-	in.must("repository", "add", w.catalog.Dir, "--project", "catalog")
-	in.must("work", "create", "--project", "catalog", "--title", "Index products by category",
+	in.must("project", "create", catalogProject, "--display-name", "Catalog")
+	in.must("repository", "add", w.catalog.Dir, "--project", catalogProject)
+	in.must("work", "create", "--project", catalogProject, "--title", "Index products by category",
 		"--criterion", "A category page reads its products from the index", "--size", "medium")
+}
+
+// The records the guide that runs several projects at once adds to the sample.
+const (
+	catalogProject   = "catalog"
+	orderCatalogFind = "catalog-search"
+	laneCatalogFind  = "lane-catalog-search"
+)
+
+// severalProjects lays out what the guide that runs several projects at once reads beyond the sample: a lane at
+// work in Catalog beside the sample's own, so the Floor's All projects shows another project's lane, and a third
+// project, Promotions, with a repository and nothing running, which the guide archives. Catalog's first work still
+// waits for a member's review of its contract, so two projects have work waiting. Only the guide walk lays it
+// out, and the view captures keep the sample as it is.
+func (w *world) severalProjects() {
+	in := w.in
+	in.t.Helper()
+	var list api.RepositoryList
+	in.read(&list, "repository", "list", "--project", catalogProject)
+	if len(list.Repositories) != 1 {
+		in.t.Fatalf("catalog holds %+v", list.Repositories)
+	}
+	in.must("work", "create", "--project", catalogProject, "--id", orderCatalogFind, "--title", "Search products by name",
+		"--criterion", "A search returns every product whose name holds the words", "--size", "small",
+		"--repository", list.Repositories[0].ID)
+	in.must("work", "review", orderCatalogFind, "--project", catalogProject)
+	in.reap(laneCatalogFind)
+	in.must("work", "claim", orderCatalogFind, "--worker", w.worker, "--claim-id", "claim-"+laneCatalogFind, "--project", catalogProject)
+	in.must("lane", "start", orderCatalogFind, "--lane", laneCatalogFind, "--project", catalogProject)
+	in.waitFor("the catalog lane at work", func() bool {
+		var view ledger.LaneView
+		code, raw, _ := in.run("lane", "show", laneCatalogFind, "--json", "--project", catalogProject)
+		return code == 0 && json.Unmarshal([]byte(raw), &view) == nil && view.ActualState == "working"
+	})
+	promotions := in.newClone("src", "promotions-service", promotionsFiles())
+	in.must("project", "create", "promotions", "--display-name", "Promotions")
+	in.must("repository", "add", promotions.Dir, "--project", "promotions")
 }
 
 // approvePlan waits for intake to read the plan and its work, and approves it as a member would.
@@ -144,13 +181,13 @@ func (w *world) approvePlan() {
 	}
 }
 
-// decisions records what the team decided before the work began.
+// decisions records what the team decided before the work began, each bound to the contract it is about.
 func (w *world) decisions() {
 	w.in.must("decision", "record", "--id", "d-key-ttl", "--statement", "Store each idempotency key for 24 hours.",
-		"--rationale", "A partner retries for up to a day after an outage.", "--scope", "idempotency keys",
+		"--rationale", "A partner retries for up to a day after an outage.", "--scope", "contract:retries",
 		"--citation", "requirement:ORD-3", "--citation", "docs/architecture.md", "--category", questions.CategoryProduct, "--reversibility", "reversible")
 	w.in.must("decision", "record", "--id", "d-limiter-store", "--assumed", "--statement", "Keep rate limit counters in process memory for now.",
-		"--rationale", "One instance serves the API today; a shared store waits for the second.", "--scope", "rate limits",
+		"--rationale", "One instance serves the API today; a shared store waits for the second.", "--scope", "contract:rate-limit",
 		"--citation", "requirement:ORD-4", "--category", questions.CategoryArchitecture, "--reversibility", "reversible")
 }
 

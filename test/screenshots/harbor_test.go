@@ -5,6 +5,12 @@ package screenshots
 import (
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
+	"time"
+
+	"ropeshift.com/ropeshift/test/doubles"
+	"ropeshift.com/ropeshift/test/doubles/ghstate"
 )
 
 // guidesFolder is the one fixed, neutral folder the guide walk's clones live in. A field of the web UI shows
@@ -19,8 +25,8 @@ const subscription = "claude.ai"
 // harbor is the world the guides 1 to 7 walk: a fresh installation of Harbor, a project of two code
 // repositories and a planning repository. It holds what the web UI cannot make: the daemon and its connected
 // worker, the fake agent CLI signed in with a subscription, as on a person's own machine, so the worker starts
-// at attended, and three clones on disk that no project has registered. Everything a guide tells a person to do
-// in the web UI, the walk does there.
+// at attended, three clones on disk that no project has registered, and the fake GitHub CLI signed in to a
+// fake forge. Everything a guide tells a person to do in the web UI, the walk does there.
 type harbor struct {
 	in *install
 	// src is the folder of clones, which a guide's Folder field names, and api and web are the clones in it.
@@ -29,7 +35,17 @@ type harbor struct {
 	// plan is the planning repository's clone, beside the folder of clones, which a guide registers as one
 	// repository.
 	plan *clone
+	// gh is the directory of the fake GitHub CLI, which keeps the fake forge beside it.
+	gh string
 }
+
+// harborBinding is where guide 7 tells ropeshift harbor-api lives on GitHub. The clone's remote is behind the
+// neutral address, which names another host, so the guide names the binding.
+const harborBinding = "github.com/harbor/harbor-api"
+
+// harborRequiredChecks are the checks the fake forge's CI runs on each pull request, which the base branch's
+// protection requires.
+var harborRequiredChecks = []string{"build", "test"}
 
 // newHarbor makes the folder of clones and starts the installation's daemon, and answers once its worker has
 // connected. The installation has the first project and nothing else.
@@ -62,10 +78,12 @@ func newHarbor(in *install) *harbor {
 	in.signIn = subscription
 	in.scripts = harborLanes()
 	in.writeFixture(harborTurns())
+	h.fakeForge()
 	// The beat is the world's three minutes: the worker uploads a forge report, such as guide 6's merge, as soon as
 	// it records it, and a lane's state change publishes at once, so no step waits for a heartbeat to see either.
+	// The forge tick is short, so guide 7's worker reads its sign-in and its pull request while the walk waits.
 	in.start("--intake-tick", "200ms", "--lease-tick", "200ms", "--wake-tick", "200ms", "--batch-tick", "500ms",
-		"--delivery-tick", "1s", "--forecast-tick", "1s", "--heartbeat", "3m", "--lease-ttl", "15m")
+		"--delivery-tick", "1s", "--forecast-tick", "1s", "--heartbeat", "3m", "--lease-ttl", "15m", "--forge-tick", "2s")
 	in.waitFor("the worker's session", func() bool {
 		list := in.workers()
 		return len(list) == 1 && list[0].Epoch >= 1
@@ -75,8 +93,69 @@ func newHarbor(in *install) *harbor {
 
 // vars are the names a guide's {{name}} can stand for in this world.
 func (h *harbor) vars() map[string]string {
-	return map[string]string{"src": h.src, "api": h.api.Dir, "web": h.web.Dir, "plan": h.plan.Dir}
+	return map[string]string{"src": h.src, "api": h.api.Dir, "web": h.web.Dir, "plan": h.plan.Dir, "binding": harborBinding}
 }
+
+// fakeForge puts the fake GitHub CLI on the daemon's PATH, after the fake agent CLI and ahead of the canary, so
+// the pull requests of guide 7 open on a fake forge and nothing reaches GitHub. Its sign-in is the fake's own,
+// and no credential is read. It also stands for the forge's CI: each pull request a worker opens soon has the
+// checks its base branch requires, passed.
+func (h *harbor) fakeForge() {
+	in := h.in
+	in.t.Helper()
+	h.gh = doubles.InstallFakeGH(in.t)
+	claude, rest, _ := strings.Cut(in.path, string(os.PathListSeparator))
+	in.path = strings.Join([]string{claude, h.gh, rest}, string(os.PathListSeparator))
+	stop, done := make(chan struct{}), make(chan struct{})
+	// Registered after the fake's directory, so the CI stops before the directory goes.
+	in.t.Cleanup(func() {
+		close(stop)
+		<-done
+	})
+	go func() {
+		defer close(done)
+		tick := time.NewTicker(200 * time.Millisecond)
+		defer tick.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-tick.C:
+			}
+			if err := h.runChecks(); err != nil {
+				in.t.Errorf("the fake forge's CI: %v", err)
+				return
+			}
+		}
+	}()
+}
+
+// runChecks gives each open pull request with no checks yet the required checks, passed on its head.
+func (h *harbor) runChecks() error {
+	state, err := ghstate.Read(h.gh)
+	if err != nil {
+		return err
+	}
+	if !slices.ContainsFunc(state.PullRequests, unchecked) {
+		return nil
+	}
+	return ghstate.Edit(h.gh, func(s *ghstate.State) error {
+		for i := range s.PullRequests {
+			pr := &s.PullRequests[i]
+			if !unchecked(*pr) {
+				continue
+			}
+			for _, name := range harborRequiredChecks {
+				pr.Checks = append(pr.Checks, ghstate.Check{Typename: "CheckRun", Name: name, Status: "COMPLETED", Conclusion: "SUCCESS"})
+			}
+			pr.Required = slices.Clone(harborRequiredChecks)
+		}
+		return nil
+	})
+}
+
+// unchecked is an open pull request that no check has run on yet.
+func unchecked(pr ghstate.PullRequest) bool { return pr.State == "OPEN" && len(pr.Checks) == 0 }
 
 // harborAPIFiles is the API repository of Harbor, which tracks the berths and sailings of a small port.
 func harborAPIFiles() map[string]string {

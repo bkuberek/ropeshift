@@ -1,0 +1,91 @@
+{
+  "guide": "github",
+  "title": "Connect a GitHub repository",
+  "world": "harbor",
+  "order": 7,
+  "steps": [
+    {
+      "step": "review the API through pull requests",
+      "route": "/projects/harbor/repositories",
+      "actions": [
+        { "click": { "role": "link", "name": "harbor-api" } },
+        { "click": { "role": "button", "name": "pull_request", "in": { "role": "group", "name": "Review target" } } },
+        { "fill": { "label": "Forge binding", "value": "{{binding}}" } },
+        { "waitFor": { "text": "review target branch → pull_request", "exact": false } }
+      ],
+      "capture": { "name": "github-01", "clip": { "role": "region", "name": "harbor-api" } }
+    },
+    {
+      "step": "save the review target",
+      "actions": [
+        { "click": { "role": "button", "name": "Save" } },
+        { "waitFor": { "text": "Saved harbor-api." } },
+        { "click": { "role": "button", "name": "Dismiss" } }
+      ]
+    },
+    {
+      "step": "see the worker signed in to gh",
+      "route": "/projects/harbor/repositories",
+      "actions": [{ "waitFor": { "text": "gh signed in", "in": { "role": "region", "name": "Repositories" }, "timeout": 60000 } }]
+    },
+    {
+      "step": "start the sailings work",
+      "route": "/projects/harbor/work",
+      "actions": [
+        { "click": { "role": "link", "name": "Serve the sailings of each berth" } },
+        { "click": { "role": "button", "name": "Start" } },
+        { "fill": { "label": "Lane ID (optional)", "value": "serve-sailings", "in": { "role": "dialog", "name": "Start Serve the sailings of each berth" } } },
+        { "click": { "role": "button", "name": "Start", "in": { "role": "dialog", "name": "Start Serve the sailings of each berth" } } },
+        { "waitFor": { "text": "Claimed Serve the sailings of each berth on solo. Its lane is starting." } },
+        { "click": { "role": "button", "name": "Dismiss" } }
+      ]
+    },
+    {
+      "step": "wait for the pull request",
+      "route": "/projects/harbor/reviews?tab=pull-requests",
+      "actions": [{ "waitFor": { "text": "lane/serve-sailings into main", "timeout": 150000 } }]
+    },
+    {
+      "step": "start the review of the pull request",
+      "route": "/projects/harbor/floor",
+      "actions": [
+        { "click": { "role": "button", "name": "Start Review: Serve the sailings of each berth" } },
+        { "fill": { "label": "Lane ID (optional)", "value": "review-serve-sailings", "in": { "role": "dialog", "name": "Start Review: Serve the sailings of each berth" } } },
+        { "click": { "role": "button", "name": "Start", "in": { "role": "dialog", "name": "Start Review: Serve the sailings of each berth" } } },
+        { "waitFor": { "text": "Claimed Review: Serve the sailings of each berth on solo. Its lane is starting." } },
+        { "click": { "role": "button", "name": "Dismiss" } }
+      ]
+    },
+    {
+      "step": "read the open pull requests",
+      "route": "/projects/harbor/reviews?tab=pull-requests",
+      "actions": [
+        { "waitFor": { "text": "Read by the review", "timeout": 150000 } },
+        { "waitFor": { "text": "2 passed", "timeout": 60000 } },
+        { "waitFor": { "text": "Merges cleanly" } }
+      ],
+      "capture": { "name": "github-02", "clip": "window" }
+    },
+    {
+      "step": "approve the merge of the pull request",
+      "route": "/needs-you?kind=approvals",
+      "actions": [
+        { "click": { "role": "link", "name": "Approve the merge of", "exact": false } },
+        { "waitFor": { "text": "harbor-api/pull/1", "exact": false, "in": { "role": "article", "name": "Approve the merge of", "exact": false } } },
+        { "click": { "role": "button", "name": "Approve merge" } },
+        { "waitFor": { "text": "no longer waits", "exact": false } }
+      ]
+    },
+    {
+      "step": "read the pull request and checks tab",
+      "route": "/projects/harbor/work?group=completed",
+      "actions": [
+        { "waitFor": { "text": "Serve the sailings of each berth", "timeout": 150000 } },
+        { "click": { "role": "link", "name": "Serve the sailings of each berth" } },
+        { "click": { "role": "tab", "name": "Pull request and checks" } },
+        { "waitFor": { "text": "pull request #1", "exact": false, "in": { "role": "tabpanel", "name": "Pull request and checks" } } }
+      ],
+      "capture": { "name": "github-03", "clip": { "role": "tabpanel", "name": "Pull request and checks" } }
+    }
+  ]
+}

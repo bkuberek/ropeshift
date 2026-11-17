@@ -82,8 +82,8 @@ A guide's world is the installation its walk starts from. Each theme runs its ow
 
 | World | What it holds |
 | --- | --- |
-| `harbor` | A fresh installation: the first project, a connected worker at `attended`, the fake agent CLI signed in with a subscription, and three clones on disk and registered nowhere: the code repositories `harbor-api` and `harbor-web`, and the planning repository `harbor-plan`. Guides 1 to 7 walk it as one story |
-| `sample` | The sample project of `make screenshots`, for the guides that read a project with history |
+| `harbor` | A fresh installation: the first project, a connected worker at `attended`, the fake agent CLI signed in with a subscription, the fake GitHub CLI, and three clones on disk and registered nowhere: the code repositories `harbor-api` and `harbor-web`, and the planning repository `harbor-plan`. Guides 1 to 7 walk it as one story |
+| `sample` | The sample project of `make screenshots`, for the guides that read a project with history, with what guide 8 adds: a lane at work in the second project, Catalog, and a third project, Promotions, with nothing running |
 
 Go prepares only what the web UI cannot do: the clones, the fake agent CLI's scripted turns, and the installation. Everything a guide tells a person to do in the web UI, the walk does in the web UI.
 
@@ -92,6 +92,8 @@ For guides 3 and 4, the walk also lays out `moorings`, a folder of three clones 
 The harbor daemon runs its delivery and forecast ticks every second, and guide 3 visits other pages before its Roadmap capture, so the Roadmap shows the forecast the daemon made and not a pending line.
 
 For guides 5 and 6, each lane a guide starts, a review's included, plays a script of its own in [harbor_runs_test.go](../../test/screenshots/harbor_runs_test.go), under the name the guide types into the Start dialog's Lane ID. The orchestrator a guide starts plays a script that claims nothing, because the lanes it starts get names no script can know, so the walk starts every lane, the review of finished work included, from the web UI. The profile layer of `moorings-api` sets `ask_wait` to two seconds, so guide 5's lane on Moorings parks a moment after it asks the question it cannot go on without, and Needs you offers its Resume.
+
+For guide 7, the harbor daemon finds the fake GitHub CLI of [test/doubles](../../test/doubles) on its `PATH` ahead of the canary, so the walk's pull requests open on a fake forge and nothing reaches GitHub. Its sign-in is the fake's own, and the kit stands for the forge's CI too: each pull request a worker opens soon has two passed checks, `build` and `test`, which its base branch requires. The daemon reads the forge every two seconds. Guide 8's walk adds its lane and its third project to the sample before it starts, and the view captures of `make screenshots` keep the sample as it is.
 
 The harbor clones live in one fixed, neutral folder, `/tmp/ropeshift-guides`, the code repositories in its `src` folder and the planning repository beside it, so a field that shows a path shows one of those and the private-word check can stay on for every image. The kit creates the folder, removes it at the end of the run, and refuses to start while it exists, which another walk, or one that was killed, leaves. Remove it and run again.
 
@@ -141,7 +143,7 @@ An action is exactly one of four:
 | `press` | Presses a key, such as `Enter` or `Escape` |
 | `waitFor {text}` | Waits until the text shows, for 20 seconds, or for the `timeout` it sets in milliseconds, over 20000 and at most 180000, for what the daemon does in its own time |
 
-A name, label, or text matches whole, and must match one element, so a step that is ambiguous fails and does not press whichever control came first. `exact: false` matches part of it. `in {role, name}` limits a click, fill, or wait to the dialog, region, or other element it names. A value or a route can hold `{{name}}`, which a variable of the world replaces: `passphrase` in every world, and in harbor `src`, the folder of the code repositories' clones, and `api`, `web`, and `plan`, the clones.
+A name, label, or text matches whole, and must match one element, so a step that is ambiguous fails and does not press whichever control came first. `exact: false` matches part of it. `in {role, name}` limits a click, fill, or wait to the dialog, region, or other element it names. A value or a route can hold `{{name}}`, which a variable of the world replaces: `passphrase` in every world, and in harbor `src`, the folder of the code repositories' clones, `api`, `web`, and `plan`, the clones, and `binding`, where guide 7 says `harbor-api` lives on GitHub.
 
 A `clip` is `"window"`, the whole 1440 by 900 window, or one element: `{"selector": "main"}`, or `{"role": "dialog", "name": "Register repositories"}`, with an optional `pad`, the pixels to keep around it, which must fit in the window. A dialog, a card, or a panel is clipped to its element, and a whole window is for a step that shows a view's place in the frame. A `width` over 1440 and at most 2560, and a `height` over 900 and at most 1600, enlarge the window for one image, for a panel whose table does not fit or a page that runs past the bottom, and the walk goes on at 1440 by 900.
 
@@ -190,7 +192,6 @@ Every published image has a row, and every row names a capture and the name it i
 | `agents-project-<theme>-1440.png` | `agents-<theme>.png` | Web UI guide |
 | `settings-project-<theme>-1440.png` | `settings-<theme>.png` | Web UI guide |
 | `members-<theme>-1440.png` | `members-<theme>.png` | Web UI guide |
-| `repository-<theme>-1440.png` | `repository-<theme>.png` | GitHub guide |
 | `top.png` | `top.png` | README |
 | `get-started-01-<theme>.png` | `get-started-01-<theme>.png` | Get started |
 | `get-started-02-<theme>.png` | `get-started-02-<theme>.png` | Get started |
@@ -241,5 +242,14 @@ Every published image has a row, and every row names a capture and the name it i
 | `review-07-<theme>.png` | `review-07-<theme>.png` | Review and merge |
 | `review-08-<theme>.png` | `review-08-<theme>.png` | Review and merge |
 | `review-09-<theme>.png` | `review-09-<theme>.png` | Review and merge |
+| `github-01-<theme>.png` | `github-01-<theme>.png` | Connect a GitHub repository |
+| `github-02-<theme>.png` | `github-02-<theme>.png` | Connect a GitHub repository |
+| `github-03-<theme>.png` | `github-03-<theme>.png` | Connect a GitHub repository |
+| `several-01-<theme>.png` | `several-01-<theme>.png` | Run several projects at once |
+| `several-02-<theme>.png` | `several-02-<theme>.png` | Run several projects at once |
+| `several-03-<theme>.png` | `several-03-<theme>.png` | Run several projects at once |
+| `several-04-<theme>.png` | `several-04-<theme>.png` | Run several projects at once |
+| `several-05-<theme>.png` | `several-05-<theme>.png` | Run several projects at once |
+| `several-06-<theme>.png` | `several-06-<theme>.png` | Run several projects at once |
 
 After a release, run `make screenshots` at its tag, look at each image, and publish. Then update the version that the README's screenshots section and the web UI guide name.
