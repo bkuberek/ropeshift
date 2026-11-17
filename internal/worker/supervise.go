@@ -72,6 +72,12 @@ func (r *laneRun) supervised(ctx context.Context, report workorders.Report) (wor
 		if r.departed.Load() {
 			return report, false
 		}
+		// A session that ended while a long `lane_wait` waits for its park does not end the lane: the lane parks,
+		// as it was told it would, with the wake it asked for (FR-SPEND-1).
+		if r.waitPending() && !r.parkingOf().Open() {
+			r.sessionOver.Store(true)
+			r.parkForWait(ctx)
+		}
 		if r.parks(ctx) {
 			r.commitParked(ctx)
 			return report, false
@@ -87,7 +93,7 @@ func (r *laneRun) supervised(ctx context.Context, report workorders.Report) (wor
 		case r.mayRestart(ctx):
 			moved = r.backOff(ctx)
 		default:
-			if ctx.Err() != nil && (r.crashed || r.currentFlight() != nil || r.orchestrating()) {
+			if ctx.Err() != nil && (r.crashed || r.currentFlight() != nil || r.orchestrating() || r.waitPending()) {
 				return report, false
 			}
 			return report, true
@@ -514,6 +520,12 @@ func (r *laneRun) waitParkOf() (lanes.ParkRequest, int64, bool) {
 	return lanes.ParkRequest{Trigger: lanes.ParkWait, Expr: lanes.WaitWake(r.waitParkAt), PastCompaction: true}, r.waitParkAt, true
 }
 
+// waitPending says a long `lane_wait` asked for a park that has not begun.
+func (r *laneRun) waitPending() bool {
+	_, _, asked := r.waitParkOf()
+	return asked
+}
+
 // settleWaitPark drops the park a pass started, unless the lane waited longer since.
 func (r *laneRun) settleWaitPark(at int64) {
 	r.handleLock.Lock()
@@ -531,13 +543,17 @@ func (r *laneRun) parkForWait(ctx context.Context) bool {
 		return false
 	}
 	err := r.beginParking(ctx, request)
-	if errors.Is(err, ErrNoParking) {
-		return true
+	switch {
+	case err == nil:
+		r.settleWaitPark(at)
+	case errors.Is(err, ErrNoParking):
+	default:
+		// A park that failed to begin, as one does while the worker shuts down, keeps its request, so no later
+		// turn end reads the lane as one with nothing to wait on and nudges it.
+		if ctx.Err() == nil {
+			r.w.config.Report(fmt.Errorf("lane %s: %w", r.lease.Lane, err))
+		}
 	}
-	if err != nil {
-		r.w.config.Report(fmt.Errorf("lane %s: %w", r.lease.Lane, err))
-	}
-	r.settleWaitPark(at)
 	return true
 }
 
