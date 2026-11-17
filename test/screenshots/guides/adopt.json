@@ -48,10 +48,10 @@
       "step": "answer in Needs you",
       "route": "/needs-you",
       "actions": [
-        { "click": { "role": "link", "name": "A question", "exact": false } },
+        { "waitFor": { "text": "Which branches in flight should the plan keep?", "in": { "role": "region", "name": "The selected item" } } },
         { "click": { "role": "radio", "name": "Keep feature/cancel-booking, and leave out spike/map-view" } },
         { "click": { "role": "button", "name": "Send this answer" } },
-        { "waitFor": { "text": "A question no longer waits", "in": { "role": "region", "name": "The selected item" } } }
+        { "waitFor": { "text": "should the plan keep? no longer waits", "in": { "role": "region", "name": "The selected item" } } }
       ]
     },
     {

@@ -58,7 +58,7 @@
       "actions": [
         { "click": { "role": "radio", "name": "Show them, marked closed" } },
         { "click": { "role": "button", "name": "Send this answer" } },
-        { "waitFor": { "text": "A question no longer waits", "in": { "role": "region", "name": "The selected item" } } }
+        { "waitFor": { "text": "list berths that are closed for maintenance? no longer waits", "in": { "role": "region", "name": "The selected item" } } }
       ]
     },
     {
@@ -68,7 +68,7 @@
         { "waitFor": { "text": "sailings look?", "in": { "role": "region", "name": "The selected item" } } },
         { "click": { "role": "radio", "name": "The next 7 days" } },
         { "click": { "role": "button", "name": "Send this answer" } },
-        { "waitFor": { "text": "A question no longer waits", "in": { "role": "region", "name": "The selected item" } } }
+        { "waitFor": { "text": "sailings look? no longer waits", "in": { "role": "region", "name": "The selected item" } } }
       ]
     },
     {
