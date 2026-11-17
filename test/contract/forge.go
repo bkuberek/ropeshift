@@ -31,6 +31,9 @@ type ForgeRig struct {
 	Comments func(t *testing.T, number int64) []string
 	// SignOut breaks the sign-in for the binding's host, with what the CLI says of it.
 	SignOut func(t *testing.T, detail string)
+	// Limit makes the forge refuse every read for a rate limit, with the wait the rate names, and a zero rate
+	// lifts it.
+	Limit func(t *testing.T, rate ports.ForgeRate)
 	// Missing returns the forge as a machine with no CLI runs it.
 	Missing func(t *testing.T) ports.Forge
 }
@@ -58,6 +61,7 @@ func RunForge(t *testing.T, fresh func(*testing.T) ForgeRig) {
 		{"a sign-in with a problem says so", checkForgeSignedOut},
 		{"no CLI reads as missing, and an operation is unavailable", checkForgeMissing},
 	}
+	checks = append(checks, forgeReadChecks...)
 	for _, check := range checks {
 		t.Run(check.name, func(t *testing.T) {
 			check.run(t, t.Context(), fresh(t))

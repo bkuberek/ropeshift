@@ -42,6 +42,8 @@ func main() {
 		prMerge(dir, args[2:])
 	case len(args) >= 2 && args[0] == "pr" && args[1] == "checks":
 		prChecks(dir, args[2:])
+	case len(args) >= 1 && args[0] == "api":
+		api(dir, args[1:])
 	default:
 		fail(2, "fakegh: unsupported command %q", strings.Join(args, " "))
 	}
@@ -191,7 +193,19 @@ func prComment(dir string, args []string) {
 	fmt.Println(pullURL(repo, number) + "#issuecomment-1")
 }
 
+// read reads the state for a pull request command, which a rate limit refuses as gh prints it.
 func read(dir string) ghstate.State {
+	state := readRaw(dir)
+	if limit := state.RateLimit; limit != nil {
+		if limit.Secondary {
+			fail(1, "GraphQL: You have exceeded a secondary rate limit. Please wait a few minutes before you try again.")
+		}
+		fail(1, "GraphQL: API rate limit already exceeded for user ID 1.")
+	}
+	return state
+}
+
+func readRaw(dir string) ghstate.State {
 	state, err := ghstate.Read(dir)
 	if err != nil {
 		fail(2, "fakegh: %v", err)

@@ -26,6 +26,8 @@ type forgePR struct {
 	// refusal is what a merge of it comes to while it is set, and method is how it was merged.
 	refusal *ledger.MergeResult
 	method  ledger.MergeMethod
+	// rev counts what changed of it, which a probe's tag carries, as a response's ETag changes with its body.
+	rev int64
 }
 
 // Forge is a forge held in memory, as the control plane reads its checks and as a worker runs it. A test
@@ -41,6 +43,8 @@ type Forge struct {
 	health  map[string]ledger.ForgeHealthReport
 	missing bool
 	calls   []string
+	// limit is the rate limit every read is refused for, while it is set.
+	limit *ports.ForgeRate
 	// Fail is what every read and operation returns while it is set.
 	Fail error
 }
@@ -82,6 +86,11 @@ func (f *Forge) Push(binding ledger.ForgeBinding, branch, commit string) {
 		f.heads = map[string]string{}
 	}
 	f.heads[headKey(binding.String(), branch)] = commit
+	for _, held := range f.prs {
+		if held.binding == binding.String() && held.pr.Branch == branch {
+			held.rev++
+		}
+	}
 }
 
 // MergeByPerson merges a pull request at its head, as a person does on the forge, with a merge commit.
@@ -91,6 +100,7 @@ func (f *Forge) MergeByPerson(number int64, mergeCommit string) {
 	if held := f.find(number); held != nil {
 		held.pr.HeadCommit = f.heads[headKey(held.binding, held.pr.Branch)]
 		held.pr.State, held.pr.MergeCommit, held.pr.MergedAt = ledger.PullRequestMerged, mergeCommit, "2026-01-02T03:04:05Z"
+		held.rev++
 	}
 }
 
@@ -101,6 +111,7 @@ func (f *Forge) Refuse(number int64, result *ledger.MergeResult) {
 	defer f.mu.Unlock()
 	if held := f.find(number); held != nil {
 		held.refusal = result
+		held.rev++
 		if result != nil && result.Outcome == ledger.MergeConflict {
 			held.pr.Mergeable = "CONFLICTING"
 		} else {
@@ -126,6 +137,7 @@ func (f *Forge) Close(number int64) {
 	if held := f.find(number); held != nil {
 		held.pr.HeadCommit = f.heads[headKey(held.binding, held.pr.Branch)]
 		held.pr.State = ledger.PullRequestClosed
+		held.rev++
 	}
 }
 
@@ -135,6 +147,7 @@ func (f *Forge) SetChecks(number int64, checks ...ledger.PullRequestCheck) {
 	defer f.mu.Unlock()
 	if held := f.find(number); held != nil {
 		held.pr.Checks = slices.Clone(checks)
+		held.rev++
 	}
 }
 
@@ -264,7 +277,7 @@ func (f *Forge) PullRequest(_ context.Context, ref ports.PullRequestRef) (ledger
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls = append(f.calls, fmt.Sprintf("read %d", ref.Number))
-	if err := f.usable(ref.Repo.Binding.Host); err != nil {
+	if err := f.readable(ref.Repo.Binding.Host); err != nil {
 		return ledger.PullRequest{}, err
 	}
 	held := f.find(ref.Number)
@@ -272,6 +285,64 @@ func (f *Forge) PullRequest(_ context.Context, ref ports.PullRequestRef) (ledger
 		return ledger.PullRequest{}, fmt.Errorf("pull request %d: %w", ref.Number, ports.ErrNotFound)
 	}
 	return f.current(held), nil
+}
+
+// Limit makes every read refuse for a rate limit, with the wait the rate names, until it is called with a zero
+// rate.
+func (f *Forge) Limit(rate ports.ForgeRate) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.limit = nil
+	if rate != (ports.ForgeRate{}) {
+		f.limit = &rate
+	}
+}
+
+// readable is what a read needs before it answers: a forge that can be reached and signed in to, and a rate limit
+// that has not refused it.
+func (f *Forge) readable(host string) error {
+	if err := f.usable(host); err != nil {
+		return err
+	}
+	if f.limit != nil {
+		return &ports.RateLimitedError{Rate: *f.limit, Detail: "the fake forge is over its limit"}
+	}
+	return nil
+}
+
+// ReadPullRequests reads each pull request of the repository the forge holds, in one call, and leaves out a number
+// it does not hold.
+func (f *Forge) ReadPullRequests(_ context.Context, repo ports.ForgeRepo, numbers []int64) (ports.PullRequestsRead, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = append(f.calls, fmt.Sprintf("batch %s %v", repo.Binding, numbers))
+	if err := f.readable(repo.Binding.Host); err != nil {
+		return ports.PullRequestsRead{}, err
+	}
+	read := ports.PullRequestsRead{Pulls: map[int64]ledger.PullRequest{}}
+	for _, number := range numbers {
+		if held := f.find(number); held != nil && held.binding == repo.Binding.String() {
+			read.Pulls[number] = f.current(held)
+		}
+	}
+	return read, nil
+}
+
+// ProbeChecks says whether a pull request changed since the probe that gave the tag. The tag is what the pull
+// request's revision and head were, so a push, a check, a merge, or a close each change it.
+func (f *Forge) ProbeChecks(_ context.Context, ref ports.PullRequestRef, _, tag string) (ports.ChecksProbe, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = append(f.calls, fmt.Sprintf("probe %d", ref.Number))
+	if err := f.readable(ref.Repo.Binding.Host); err != nil {
+		return ports.ChecksProbe{}, err
+	}
+	held := f.find(ref.Number)
+	if held == nil || held.binding != ref.Repo.Binding.String() {
+		return ports.ChecksProbe{}, fmt.Errorf("pull request %d: %w", ref.Number, ports.ErrNotFound)
+	}
+	now := fmt.Sprintf("%d:%s", held.rev, f.current(held).HeadCommit)
+	return ports.ChecksProbe{Unchanged: tag == now, Tag: now}, nil
 }
 
 // Comment posts once per key.
@@ -347,5 +418,6 @@ func (f *Forge) Merge(_ context.Context, ref ports.PullRequestRef, head string, 
 	}
 	held.pr.HeadCommit, held.method = head, method
 	held.pr.State, held.pr.MergeCommit, held.pr.MergedAt = ledger.PullRequestMerged, fmt.Sprintf("%040x", 0xfeed0000+merges+1), "2026-01-02T03:04:05Z"
+	held.rev++
 	return ledger.MergeResult{Outcome: ledger.MergeMerged, MergeCommit: held.pr.MergeCommit, MergedAt: held.pr.MergedAt}, nil
 }

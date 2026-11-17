@@ -3,6 +3,7 @@ package ports
 import (
 	"context"
 	"errors"
+	"time"
 
 	"ropeshift.com/ropeshift/internal/ledger"
 )
@@ -33,6 +34,57 @@ type PullRequestRef struct {
 	Number int64
 }
 
+// ErrForgeRateLimited means the forge refused a read because the sign-in is over a rate limit. The error that
+// wraps it is a RateLimitedError, which says how long the forge asked a caller to wait.
+var ErrForgeRateLimited = errors.New("the forge is rate limiting this sign-in")
+
+// ForgeRate is what a forge's response said of its rate limits (FR-SPEND-20). A field the response did not carry is
+// its zero value.
+type ForgeRate struct {
+	// Exhausted says no request is left in the window, and Reset is when the window ends.
+	Exhausted bool
+	Reset     time.Time
+	// RetryAfter is how long a refusal asked a caller to wait, which a secondary limit sends.
+	RetryAfter time.Duration
+	// PollInterval is the least time the endpoint asks between two reads of it.
+	PollInterval time.Duration
+	// Secondary says the refusal was the forge's secondary limit and not the primary one.
+	Secondary bool
+}
+
+// RateLimitedError is a read the forge refused for a rate limit. A caller holds its reads of that repository
+// until the wait the rate names, and then longer each time it is refused again.
+type RateLimitedError struct {
+	Rate   ForgeRate
+	Detail string
+}
+
+func (e *RateLimitedError) Error() string {
+	if e.Detail == "" {
+		return ErrForgeRateLimited.Error()
+	}
+	return ErrForgeRateLimited.Error() + ": " + e.Detail
+}
+
+// Is makes errors.Is(err, ErrForgeRateLimited) true for the error.
+func (e *RateLimitedError) Is(target error) bool { return target == ErrForgeRateLimited }
+
+// PullRequestsRead is what one query read of several pull requests of a repository. A number the query could not
+// answer completely is not in Pulls, and the caller reads it on its own.
+type PullRequestsRead struct {
+	Pulls map[int64]ledger.PullRequest
+	Rate  ForgeRate
+}
+
+// ChecksProbe is what a conditional read said of a pull request's checks. Unchanged says nothing a read would
+// report has changed since the read that gave Tag, and a conditional answer of that kind does not count against the
+// primary rate limit. Tag is what the next probe passes, and it is opaque to the caller.
+type ChecksProbe struct {
+	Unchanged bool
+	Tag       string
+	Rate      ForgeRate
+}
+
 // Forge is a forge as a worker runs it (ADR-0020): the control plane requests each operation as a
 // recorded effect, and the worker runs it here, in the repository's checkout, under the person's own
 // sign-in. Nothing here signs in, reads a token, or stores one.
@@ -43,6 +95,14 @@ type Forge interface {
 	// PullRequest reads a pull request's state, head commit, mergeability, and the checks on its head, each
 	// marked when the base branch's protection requires it.
 	PullRequest(ctx context.Context, ref PullRequestRef) (ledger.PullRequest, error)
+	// ReadPullRequests reads several pull requests of one repository, with the checks on each head, in one query,
+	// which costs one call where one read each costs two apiece (FR-SPEND-20). A pull request the query cannot
+	// answer completely is left out of the answer.
+	ReadPullRequests(ctx context.Context, repo ForgeRepo, numbers []int64) (PullRequestsRead, error)
+	// ProbeChecks asks whether the pull request or the checks on its head changed since the probe that gave tag,
+	// with conditional requests that carry each response's ETag. An empty tag is a probe that has nothing to
+	// compare, which answers changed and gives the tag to use next.
+	ProbeChecks(ctx context.Context, ref PullRequestRef, head, tag string) (ChecksProbe, error)
 	// Merge merges a pull request with a merge method only while its head is the given commit, and never
 	// past branch protection. It reads the pull request first, so a pull request an earlier attempt merged
 	// at that head answers merged and merges nothing twice. A refusal is a result, with the outcome that says
