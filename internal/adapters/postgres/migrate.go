@@ -132,7 +132,8 @@ func (s *State) kept(id ledger.WorkspaceID) (*sqlstore.Store, bool) {
 
 // Open returns a project's Store, making its schema and bringing it to this build's version on first
 // use, and keeping it open after. A project whose Store the state holds comes back at once, with no wait
-// for any lock.
+// for any lock. Any other must be one the registry holds, which Open reads under the lock that Create and
+// Remove take, so it never makes the schema of a project a removal has forgotten.
 func (s *State) Open(ctx context.Context, p ledger.Project) (ports.Store, error) {
 	if store, ok := s.kept(p.ID); ok {
 		return store, nil
@@ -148,6 +149,9 @@ func (s *State) Open(ctx context.Context, p ledger.Project) (ports.Store, error)
 			store = kept
 			return nil
 		}
+		if err := s.registered(ctx, p.ID, schema); err != nil {
+			return err
+		}
 		opened, err := s.migrated(ctx, schema)
 		if err != nil {
 			return err
@@ -160,6 +164,20 @@ func (s *State) Open(ctx context.Context, p ledger.Project) (ports.Store, error)
 		return nil, err
 	}
 	return store, nil
+}
+
+// registered holds that the registry names a project, on the schema its record gives.
+func (s *State) registered(ctx context.Context, id ledger.WorkspaceID, schema string) error {
+	held, err := s.Installation.ProjectByID(ctx, id)
+	switch {
+	case errors.Is(err, ports.ErrNotFound):
+		return fmt.Errorf("%w: the registry holds no project %s", ports.ErrNotFound, id)
+	case err != nil:
+		return err
+	case held.Database != schema:
+		return fmt.Errorf("%w: the registry keeps project %s in schema %q, not %q", ledger.ErrInvalidProject, id, held.Database, schema)
+	}
+	return nil
 }
 
 // migrated opens a project's Store at this build's schema. The caller holds the migration lock.

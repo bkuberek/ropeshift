@@ -14,6 +14,10 @@ Every step that makes a schema, migrates one, or drops one runs under a session 
 
 A caller waits for the lock until its context ends or `Options.LockTimeout` passes, one minute unless the option says otherwise, and then fails with `postgres.ErrLockTimeout`. A project whose Store the process already holds comes back from `Open` without touching the lock. A session that holds the lock and stops is a defect to find on the server: `pg_locks` lists it with `locktype = 'advisory'`.
 
+## Opening and removing a project
+
+The registry decides which projects exist. `State.Open` returns the Store the process already keeps for a project, and otherwise reads the registry under the migration lock and refuses a project it does not hold with `ports.ErrNotFound`, so it never makes the schema of a project a removal has forgotten. `State.Remove` deletes the registry's row and then drops the schema under the same lock, so an `Open` or a `Create` in another process cannot make the schema again while it drops.
+
 ## Idle transactions
 
 Every connection sets `idle_in_transaction_session_timeout`, 30 seconds unless `Options.IdleInTransaction` says otherwise, so a process stopped inside a transaction cannot stall every writer of its project. The two transactions of a write are idle in turn: the project's while the installation's side runs a statement, and the side's while the project runs one.

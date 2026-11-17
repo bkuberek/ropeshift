@@ -219,13 +219,17 @@ func (r *removal) steps() []step {
 			r.s.forget(r.p.ID)
 			return nil
 		},
-		// The schema, with every table of the project's ledger.
+		// The schema, with every table of the project's ledger. It goes under the lock every change to a
+		// schema takes, so an Open or a Create in another process cannot make the schema again or migrate it
+		// while it drops. An Open that runs after the registry forgot the project is refused.
 		func(ctx context.Context) error {
-			r.s.forget(r.p.ID)
-			if _, err := r.s.pool.Exec(ctx, `DROP SCHEMA IF EXISTS `+quote(r.schema)+` CASCADE`); err != nil {
-				return fmt.Errorf("postgres: drop schema %s: %w", r.schema, err)
-			}
-			return nil
+			return r.s.locked(ctx, func(ctx context.Context) error {
+				r.s.forget(r.p.ID)
+				if _, err := r.s.pool.Exec(ctx, `DROP SCHEMA IF EXISTS `+quote(r.schema)+` CASCADE`); err != nil {
+					return fmt.Errorf("postgres: drop schema %s: %w", r.schema, err)
+				}
+				return nil
+			})
 		},
 	}
 }
