@@ -12,7 +12,7 @@ In the web UI:
 2. In Goal, write what the plan is for, such as "Let partners see their own usage and rate limits". You can read the goal from a file instead, or leave it empty and the session asks.
 3. Choose the Planning repository and the Worker, and select Start planning session.
 
-You see the Planning page for the new session. It shows the session's pane, and beside it Plan in progress: the documents, milestones, contracts, and draft decisions the session has committed to its branch so far.
+You see the Planning page for the new session. It shows the session's pane, and beside it Plan in progress: the documents, milestones, contracts, and draft decisions the session has committed to its branch so far. A document can be a decision record, a file of kind `decision` with a status of `proposed`, `accepted`, `superseded`, or `rejected`, which a contract cites as `decision:<id>` ([decisions](project-structure.md#decisions)).
 
 ![The Planning page, with the session's pane, the field that types into it, and the plan in progress beside it](assets/screenshots/planning-light.png#gh-light-mode-only)
 ![The Planning page, with the session's pane, the field that types into it, and the plan in progress beside it](assets/screenshots/planning-dark.png#gh-dark-mode-only)

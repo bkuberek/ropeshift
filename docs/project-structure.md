@@ -99,6 +99,7 @@ A Markdown file with no front matter is an ordinary document: `ropeshift documen
 | `architecture` | An architecture document | `plan`, `requirements` |
 | `experience-design` | An experience design | `plan`, `requirements`, `assets` |
 | `milestone` | A milestone | `plan`, `priority`, `depends_on`, `existing`, `[[exit_criteria]]` |
+| `decision` | A decision record, such as an architecture decision record | `status` (`proposed`, `accepted`, `superseded`, or `rejected`; `proposed` when absent), `plan`, `requirements` |
 | `contract` | A contract, its criteria, and its work orders | `plan`, `milestone`, `shared`, `uses`, `documents`, `reads`, `existing`, `[[criteria]]`, `[[work_orders]]` |
 | `repositories` | The manifest of the project's repositories | `plan`, and a `[[repository]]` table for each, with `name`, `remote`, `path`, and `description` |
 
@@ -111,7 +112,22 @@ A Markdown file with no front matter is an ordinary document: `ropeshift documen
 
 ### Decisions
 
-There is no file kind for a decision. A plan carries the answers you gave its planning session as draft decisions, in its `[[decision]]` tables, and approving the plan records each one in the ledger as your decision. Decisions made later, by you or an orchestrator, are recorded in the ledger directly, and `ropeshift decision list` finds them. Decision records you keep in your own format stay in your repository as prose, and lanes can read them.
+A decision record you keep in your repository, such as an architecture decision record, is a file of kind `decision`. Its `status` is `proposed`, `accepted`, `superseded`, or `rejected`, and `proposed` when the file states none; any other value makes the file a problem. It may name no plan, because a record often predates any plan. Each committed change to the file is a new version, so a change of status is a version, and a version keeps the status it had.
+
+```markdown
++++
+kind = "decision"
+id = "adr-0007"
+title = "Bound every call with a retry budget"
+status = "accepted"
++++
+
+The context, the decision, and its consequences, in prose.
+```
+
+A contract cites a decision record as `decision:adr-0007`, and a plan may list it in `documents`. The contract is pinned to the version at its commit, so a record that is superseded later changes nothing a lane already read, and the lane's context pack holds that version with its status. `ropeshift document recorded decision:adr-0007 --json` lists every version with its status, and for a record that names a plan, the Documents view shows the status beside each version.
+
+A plan also carries the answers you gave its planning session as draft decisions, in its `[[decision]]` tables, and approving the plan records each one in the ledger as your decision. Decisions made later, by you or an orchestrator, are recorded in the ledger directly, and `ropeshift decision list` finds them. A decision record in another format stays in your repository as prose, and lanes can read it.
 
 ### A minimal contract
 
