@@ -832,7 +832,7 @@ func (j *Journal) BeginLane(ctx context.Context, lane lanes.Record, event ledger
 // laneTables are the journal's tables that hold rows of a lane, by the column that names it.
 var laneTables = []struct{ table, column string }{
 	{"messages", "lane"}, {"hook_events", "lane"}, {"lane_restarts", "lane"}, {"lane_allocations", "lane"}, {"open_approvals", "lane"},
-	{"lanes", "id"},
+	{"generation_digests", "lane"}, {"lanes", "id"},
 }
 
 // ForgetLanes removes what the journal holds of lanes that ended for good, and stores an event, together.

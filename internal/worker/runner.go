@@ -210,6 +210,13 @@ type laneRun struct {
 	// assisted is what an assistant's run holds beside the lane code's state, and the handle's lock guards
 	// its making.
 	assisted *assistantState
+	// digest is the builder of this generation's digest, for the generation digestGeneration, and
+	// digestStartMs is when that generation began. The digest lock guards all three, and is taken before the
+	// handle's.
+	digestLock       sync.Mutex
+	digest           *lanes.DigestBuilder
+	digestGeneration int64
+	digestStartMs    int64
 }
 
 func newOnce() *sync.Once { return &sync.Once{} }
@@ -218,7 +225,7 @@ func newOnce() *sync.Once { return &sync.Once{} }
 func newRun(w *Worker, lease ledger.DesiredLease) *laneRun {
 	return &laneRun{
 		w: w, rt: w.config.Lanes, lease: lease, generation: firstGeneration, stopOnce: newOnce(),
-		state: newLaneState(lanes.Pending, w.clock.Now()), pack: lease.Pack,
+		state: newLaneState(lanes.Pending, w.clock.Now()), pack: lease.Pack, digestStartMs: w.clock.Now().UnixMilli(),
 	}
 }
 
@@ -876,7 +883,7 @@ func (r *laneRun) spec(ctx context.Context, prepared PreparedLane, repository, p
 		r.w.config.Report(fmt.Errorf("lane %s: version %s offers no headless lane on this sign-in, so it runs in tmux", r.lease.Lane, capabilities.Version))
 		mode = ports.RunModeInteractive
 	}
-	r.startedMode = mode
+	r.setStartedMode(mode)
 	if !slices.Contains(capabilities.RunModes, mode) {
 		return ports.SessionSpec{}, fmt.Errorf("the driver has no run mode %q", mode)
 	}
@@ -983,6 +990,9 @@ func readyTimeout(profile lanes.Profile) time.Duration {
 func (r *laneRun) watch(ctx context.Context, events <-chan ports.DriverEvent) workorders.Report {
 	defer func() {
 		if !r.departed.Load() {
+			// The digest ends first: a handoff waits on the session's end to begin the next generation, and
+			// the digest is of the one that ended.
+			r.endDigest(ctx)
 			r.sessionOver.Store(true)
 		}
 	}()
@@ -1018,6 +1028,7 @@ func (r *laneRun) watch(ctx context.Context, events <-chan ports.DriverEvent) wo
 			r.w.drainBeforeActing(ctx)
 		}
 		clears := event.Kind == ports.EventTurnEnded && r.owesBrief.Load()
+		r.foldEvent(ctx, event)
 		r.observeEvent(ctx, event)
 		switch event.Kind {
 		case ports.EventSessionBound:
@@ -1077,6 +1088,8 @@ func (r *laneRun) expireToken(ctx context.Context) {
 // the generation before it.
 func (r *laneRun) saveProgress(ctx context.Context, cursor int64) {
 	generation := r.currentGeneration()
+	// The digest is kept first, so it holds every event up to the position the progress names.
+	r.saveDigest(ctx)
 	r.cursor = cursor
 	progress := lanes.Progress{
 		Cursor: cursor, Cost: r.cost, Usage: r.usage, PriorUSD: r.priorUSD, PriorUnknown: r.priorUnknown,

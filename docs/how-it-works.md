@@ -57,6 +57,8 @@ Work becomes `ready` only when it passes a definition of ready: its contract is 
 
 **A deterministic daemon** keeps each session healthy, starts a lane again after a crash, and fences out a lane that lost its claim, so two writers never write the same work.
 
+**A generation's digest** is what the worker records when a generation of a lane, an orchestrator, or an assistant ends: its turns, how many calls it made to each tool, the paths its file-writing tools were called with, when it started and ended, and how long its turns took, plus how long the model's API took on a headless session. The worker builds it from events it already receives, the stream of a headless session and the hooks of an interactive one, so it adds work to neither. It holds no command, no file's contents, no prompt, and no reply: a shell command counts as a call to the shell and nothing more, so a file a shell command wrote is not in its list of paths, which stops at the first 200, and the branch's diff shows that file. A figure a session cannot give is absent and never zero. A digest marked incomplete says the worker knows it missed events, such as a line it could not read. The ledger keeps one digest for each generation, in the project's records and, for an orchestrator, in the installation's, and a backup carries it. Nothing turns it off.
+
 ## Waiting costs no credits
 
 A session that waits spends its credits on nothing: every turn it takes while it polls or sleeps reads its whole context again. Ropeshift never keeps a session alive to wait. Plain code waits instead, and a lane waits live for at most `max_live_wait`, five minutes by default.

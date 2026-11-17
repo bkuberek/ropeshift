@@ -85,6 +85,18 @@ type Journal interface {
 	SaveReport(ctx context.Context, lane string, report []byte) (bool, error)
 	// ExpireToken ends a lane's token, because its process ended.
 	ExpireToken(ctx context.Context, lane string) error
+	// SaveDigest keeps what a generation's digest has so far, and the state it ended with when over is
+	// true. A save of a digest that is over changes nothing.
+	SaveDigest(ctx context.Context, lane string, generation int64, state []byte, over bool) error
+	// Digest returns what SaveDigest kept of a generation, or ErrNotFound.
+	Digest(ctx context.Context, lane string, generation int64) (lanes.DigestRecord, error)
+	// UnrecordedDigests lists the generations that are over and whose digest no event carries yet, which
+	// is what a crash between a generation's end and its record leaves.
+	UnrecordedDigests(ctx context.Context) ([]lanes.DigestRecord, error)
+	// RecordDigest marks a finished digest recorded and stores the event that carries it, in one write. It
+	// reports false, and stores nothing, for a digest that is recorded already, is not over, or was never
+	// saved, so a repeat records nothing new.
+	RecordDigest(ctx context.Context, lane string, generation int64, event ledger.UploadEvent) (bool, error)
 	// MergeHook stores one hook event. A repeat of the same generation, event, and
 	// subject adds to the first.
 	MergeHook(ctx context.Context, event lanes.HookEvent) error

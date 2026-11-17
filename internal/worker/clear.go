@@ -76,6 +76,8 @@ func (r *laneRun) cleared(ctx context.Context, session string, atMs int64) {
 		return
 	}
 	crashpoint.Hit("worker.clear", "cleared")
+	// The generation a clear ends has done all it will, and its digest is its own.
+	r.endDigest(ctx)
 	// What a generation reports resets before the generation moves, so a save that reads this one
 	// reads nothing of the last.
 	r.state.noteCleared(atMs)
@@ -83,6 +85,7 @@ func (r *laneRun) cleared(ctx context.Context, session string, atMs int64) {
 	r.handleLock.Lock()
 	r.generation, r.instruction = stored.Generation, ""
 	r.handleLock.Unlock()
+	r.digestBegins(r.w.clock.Now().UnixMilli())
 	r.nudged.Store(false)
 	if life := r.life; life != nil {
 		r.sequence.Go(func() { r.uploadBounded(life) })

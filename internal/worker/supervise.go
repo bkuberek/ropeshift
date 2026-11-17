@@ -408,6 +408,7 @@ func (r *laneRun) enterGeneration(next int64, resume string, progress lanes.Prog
 	r.owesBrief.Store(false)
 	r.cost = progress.Cost
 	r.state.newGeneration(r.w.clock.Now(), progress.BaselineTokens)
+	r.digestBegins(r.w.clock.Now().UnixMilli())
 }
 
 // retryBrief sends a brief that showed no evidence once more, as a new message, after

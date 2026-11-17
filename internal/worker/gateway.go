@@ -179,6 +179,7 @@ func (w *Worker) AnswerLane(ctx context.Context, line []byte) lanes.Reply {
 func (w *Worker) deliverHook(ctx context.Context, event lanes.HookEvent) {
 	if run := w.runOf(event.Lane); run != nil && run.currentGeneration() == event.Generation {
 		run.observeHook(ctx, event)
+		run.foldHook(ctx, event)
 		event.Generation = run.processGeneration()
 		run.rt.Driver.TakeHook(ctx, event)
 		if len(event.Asked) != 0 {
