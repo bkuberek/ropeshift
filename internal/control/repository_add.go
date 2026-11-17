@@ -148,7 +148,7 @@ func (r *Repositories) register(ctx context.Context, scope ledger.WorkspaceID, c
 		return added, err
 	}
 	// The record the clone registers as is read in the transaction, and these say what it found.
-	id, sharedWith, keptHere := clone.ID, "", how.keptAt(clone)
+	id, sharedWith, keptHere := clone.ID, "", how.keptAt(ctx, clone)
 	var gone ledger.Repository
 	err = r.store.Write(ctx, scope, "repository.register", func(tx ports.WriteTx) error {
 		if err := refuseHeldRoots(tx.Repositories(), clone); err != nil {
@@ -271,11 +271,14 @@ func restoreIn(repositories ports.RepositoryWriter, found DetectedRepository) (d
 // says the path kept, and a dry run the path it would keep.
 func keepCheckout(ctx context.Context, kept ports.Checkouts, scope ledger.WorkspaceID, held map[string]string, clone ports.Clone, id string, dryRun bool) (string, error) {
 	if path, ok := held[id]; ok && path != clone.Path {
+		if samePath(ctx, kept, path, clone.Path) {
+			return path, nil
+		}
 		found, _, err := kept.Find(ctx, []string{path}, 1)
 		if err != nil {
 			return "", err
 		}
-		if slices.ContainsFunc(found, func(c ports.Clone) bool { return c.Path == path && holdsRoot(c, id) }) {
+		if slices.ContainsFunc(found, func(c ports.Clone) bool { return samePath(ctx, kept, c.Path, path) && holdsRoot(c, id) }) {
 			return path, nil
 		}
 	}

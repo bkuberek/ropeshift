@@ -683,16 +683,13 @@ func checkoutOf(opts soloOptions, kept ports.Checkouts) func(context.Context, le
 // or nothing when it keeps it as none.
 func checkoutIdentity(kept ports.Checkouts, project ledger.WorkspaceID, path string) func(context.Context) string {
 	return func(ctx context.Context) string {
-		own, err := filepath.Abs(path)
-		if err != nil {
-			return ""
-		}
+		own := resolvedPath(path)
 		held, err := kept.Of(ctx, project)
 		if err != nil {
 			return ""
 		}
 		for _, id := range slices.Sorted(maps.Keys(held)) {
-			if held[id] == own {
+			if resolvedPath(held[id]) == own {
 				return id
 			}
 		}
@@ -705,16 +702,12 @@ func checkoutIdentity(kept ports.Checkouts, project ledger.WorkspaceID, path str
 // refuses a repository for sharing its first commit with. A path another clone replaced holds none.
 func keptElsewhere(kept ports.Checkouts, project ledger.WorkspaceID, path string) func(context.Context, string) (repofiles.Kept, bool, error) {
 	return func(ctx context.Context, id string) (repofiles.Kept, bool, error) {
-		own, err := filepath.Abs(path)
-		if err != nil {
-			return repofiles.Kept{}, false, err
-		}
 		held, err := kept.Of(ctx, project)
 		if err != nil {
 			return repofiles.Kept{}, false, err
 		}
 		other, ok := held[id]
-		if !ok || other == own {
+		if !ok || resolvedPath(other) == resolvedPath(path) {
 			return repofiles.Kept{}, false, nil
 		}
 		found, _, err := kept.Find(ctx, []string{other}, 1)
@@ -722,12 +715,12 @@ func keptElsewhere(kept ports.Checkouts, project ledger.WorkspaceID, path string
 			return repofiles.Kept{}, false, err
 		}
 		at := slices.IndexFunc(found, func(c ports.Clone) bool {
-			return c.Path == other && (c.ID == id || slices.Contains(c.Roots, id))
+			return resolvedPath(c.Path) == resolvedPath(other) && (c.ID == id || slices.Contains(c.Roots, id))
 		})
 		if at < 0 {
 			return repofiles.Kept{}, false, nil
 		}
-		return repofiles.Kept{Path: other, Remote: found[at].Remote}, true, nil
+		return repofiles.Kept{Path: found[at].Path, Remote: found[at].Remote}, true, nil
 	}
 }
 
@@ -759,22 +752,47 @@ func projectSources(ctx context.Context, opts soloOptions, kept ports.Checkouts,
 	// A checkout the worker keeps names the record it is the checkout of, and a repository keeps that ID when it
 	// is one of its roots, so a record registered under the lowest-root rule keeps its external keys. A source
 	// with no checkout kept is named by the record the project holds for it.
+	// Paths are compared as the directories they name, however each is spelled.
 	identities := map[string]string{}
 	for _, id := range slices.Sorted(maps.Keys(held)) {
-		identities[held[id]] = id
+		identities[resolvedPath(held[id])] = id
 	}
-	for _, path := range slices.Sorted(maps.Values(held)) {
-		if !slices.Contains(paths, path) {
-			paths = append(paths, path)
+	read := map[string]bool{}
+	var unique []string
+	for _, path := range append(paths, slices.Sorted(maps.Values(held))...) {
+		if key := resolvedPath(path); !read[key] {
+			read[key] = true
+			unique = append(unique, path)
 		}
 	}
-	sources := make([]ports.WorkSource, 0, len(paths))
-	for _, path := range paths {
+	sources := make([]ports.WorkSource, 0, len(unique))
+	for _, path := range unique {
 		sources = append(sources, repofiles.New(repofiles.Config{
-			Repository: path, Ref: opts.ref, Directory: opts.directory, Identity: identities[path], Records: records, KeptElsewhere: keptElsewhere(kept, project, path),
+			Repository: path, Ref: opts.ref, Directory: opts.directory, Identity: identities[resolvedPath(path)], Records: records, KeptElsewhere: keptElsewhere(kept, project, path),
 		}))
 	}
 	return sources, nil
+}
+
+// resolvedPath is the directory a path names: its symbolic links followed in the part that exists, and the
+// rest as it is spelled, so a path spelled through a link, as a temporary directory is on a machine whose /var is
+// a link, equals the real one.
+func resolvedPath(path string) string {
+	at, err := filepath.Abs(path)
+	if err != nil {
+		return filepath.Clean(path)
+	}
+	rest := ""
+	for {
+		if real, err := filepath.EvalSymlinks(at); err == nil {
+			return filepath.Join(real, rest)
+		}
+		parent := filepath.Dir(at)
+		if parent == at {
+			return filepath.Join(at, rest)
+		}
+		rest, at = filepath.Join(filepath.Base(at), rest), parent
+	}
 }
 
 // soloStarts places the lane of every claim from this machine's checkouts: where the base branch stands,

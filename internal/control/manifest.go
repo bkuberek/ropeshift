@@ -502,7 +502,7 @@ func heldAs(ctx context.Context, kept ports.Checkouts, dir planningDirectory, en
 		return path, ""
 	}
 	switch {
-	case dir.root == "" || path == checkout:
+	case dir.root == "" || path == checkout || (checkout != "" && samePath(ctx, kept, path, checkout)):
 		return path, ""
 	case path == dir.clone && record.ID != dir.planner.ID:
 		return path, ledger.RepositoryIdentity(dir.planner.Remote, dir.planner.ID) + ", the planning repository"

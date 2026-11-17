@@ -59,11 +59,25 @@ func matchIn(repositories ports.RepositoryReader, clone ports.Clone, keptHere []
 	})
 }
 
+// samePath says two paths name one directory on this worker's machine, however each is spelled: a checkout kept
+// through a symbolic link, as a temporary directory is on a machine whose /var is a link, is the clone at the
+// path the link leads to.
+func samePath(ctx context.Context, kept ports.Checkouts, a, b string) bool {
+	if a == b {
+		return true
+	}
+	if kept == nil {
+		return false
+	}
+	same, err := kept.SameFile(ctx, a, b)
+	return err == nil && same
+}
+
 // keptAt lists the records this worker keeps the clone's path as the checkout of.
-func (how registration) keptAt(clone ports.Clone) []string {
+func (how registration) keptAt(ctx context.Context, clone ports.Clone) []string {
 	var ids []string
 	for id, path := range how.held {
-		if path == clone.Path {
+		if samePath(ctx, how.kept, path, clone.Path) {
 			ids = append(ids, id)
 		}
 	}
@@ -100,15 +114,15 @@ func (how registration) holdersOf(ctx context.Context, clone ports.Clone) (map[s
 	}
 	for _, id := range rootsOf(clone) {
 		path, ok := how.held[id]
-		if !ok || path == clone.Path {
+		if !ok || samePath(ctx, how.kept, path, clone.Path) {
 			continue
 		}
 		found, _, err := how.kept.Find(ctx, []string{path}, 1)
 		if err != nil {
 			return nil, err
 		}
-		if at := slices.IndexFunc(found, func(c ports.Clone) bool { return c.Path == path && holdsRoot(c, id) }); at >= 0 {
-			out[id] = holder{path: path, remote: found[at].Remote}
+		if at := slices.IndexFunc(found, func(c ports.Clone) bool { return samePath(ctx, how.kept, c.Path, path) && holdsRoot(c, id) }); at >= 0 {
+			out[id] = holder{path: found[at].Path, remote: found[at].Remote}
 		}
 	}
 	return out, nil

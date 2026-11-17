@@ -88,6 +88,12 @@ func (f *Checkouts) Reserve(dir string) {
 func (f *Checkouts) Resolve(_ context.Context, at string) (string, bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	real, reserved := f.resolveLocked(at)
+	return real, reserved, nil
+}
+
+// resolveLocked follows the links in a path. The caller holds the lock.
+func (f *Checkouts) resolveLocked(at string) (string, bool) {
 	at = path.Clean(at)
 	for range 40 {
 		moved := false
@@ -103,7 +109,7 @@ func (f *Checkouts) Resolve(_ context.Context, at string) (string, bool, error) 
 		}
 	}
 	reserved := slices.ContainsFunc(f.reserved, func(dir string) bool { return at == dir || strings.HasPrefix(at, dir+"/") })
-	return at, reserved, nil
+	return at, reserved
 }
 
 // Place puts a clone on the machine at its path, and names its directory after the path when it names none.
@@ -131,7 +137,8 @@ func (f *Checkouts) Find(_ context.Context, paths []string, depth int) ([]ports.
 	var found []ports.Clone
 	var unread []ports.UnreadPath
 	for _, given := range paths {
-		given = path.Clean(given)
+		// A path that leads through a symbolic link is the directory it leads to, as on a disk.
+		given, _ = f.resolveLocked(given)
 		if clone, ok := f.clones[given]; ok {
 			found = append(found, clone)
 			continue

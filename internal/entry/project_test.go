@@ -393,6 +393,74 @@ func TestAClonePathCountsAsKeptElsewhereOnlyWhileItHoldsTheRecordsFirstCommit(t 
 	}
 }
 
+// aliasOf returns a spelling of a directory that leads through a symbolic link, as a temporary directory does on
+// a machine whose /var is a link to /private/var.
+func aliasOf(t *testing.T, dir string) string {
+	t.Helper()
+	alias := filepath.Join(t.TempDir(), "alias")
+	if err := os.Symlink(filepath.Dir(dir), alias); err != nil {
+		t.Fatal(err)
+	}
+	return filepath.Join(alias, filepath.Base(dir))
+}
+
+// A path is the directory it names, however it is spelled: a checkout kept through a symbolic link is the clone
+// at the path it leads to, and a source given through one is the checkout kept at the real path.
+func TestKeptPathsAreComparedByTheDirectoryTheyNameAndNotHowTheyAreSpelled(t *testing.T) {
+	m := newMergedSource(t)
+	design := gittest.New(t)
+	design.Commit("DESIGN.md", "design\n")
+	id := design.Roots("HEAD")[0]
+	spelled := aliasOf(t, design.Dir)
+	kept := &checkouts.File{Path: filepath.Join(t.TempDir(), checkouts.FileName), Env: m.workspace.Env()}
+
+	// Kept through the link, and another clone asks.
+	if err := kept.Keep(t.Context(), soloScope, id, spelled); err != nil {
+		t.Fatal(err)
+	}
+	if got, held, err := keptElsewhere(kept, soloScope, m.workspace.Dir)(t.Context(), id); err != nil || !held || got.Path != design.Dir {
+		t.Errorf("a clone kept through a link reads %+v, %v (%v), want it kept at %s", got, held, err, design.Dir)
+	}
+	// The clone the record is kept through the link for is not another clone.
+	if got, held, err := keptElsewhere(kept, soloScope, design.Dir)(t.Context(), id); err != nil || held {
+		t.Errorf("the clone kept through a link counts as kept elsewhere for its own real path: %+v, %v (%v)", got, held, err)
+	}
+	if got := checkoutIdentity(kept, soloScope, design.Dir)(t.Context()); got != id {
+		t.Errorf("the real path of a checkout kept through a link has the identity %q, want %s", got, id)
+	}
+
+	// Kept at the real path, and a source or a clone is given through the link.
+	if err := kept.Keep(t.Context(), soloScope, id, design.Dir); err != nil {
+		t.Fatal(err)
+	}
+	if got, held, err := keptElsewhere(kept, soloScope, spelled)(t.Context(), id); err != nil || held {
+		t.Errorf("a path through a link to the kept clone counts as kept elsewhere: %+v, %v (%v)", got, held, err)
+	}
+	if got := checkoutIdentity(kept, soloScope, spelled)(t.Context()); got != id {
+		t.Errorf("a path through a link to a kept checkout has the identity %q, want %s", got, id)
+	}
+
+	// A daemon source given through a link to a kept checkout is read once, under its record's ID.
+	if err := kept.Keep(t.Context(), soloScope, m.lowest, m.workspace.Dir); err != nil {
+		t.Fatal(err)
+	}
+	sources, err := projectSources(t.Context(), soloOptions{sources: repeatedFlag{aliasOf(t, m.workspace.Dir)}}, kept, soloScope, soloScope, nil)
+	if err != nil || len(sources) != 2 {
+		t.Fatalf("the project reads %d sources (%v), want its two checkouts, each once", len(sources), err)
+	}
+	var named []string
+	for _, source := range sources {
+		description, err := source.Describe(t.Context())
+		if err != nil {
+			t.Fatal(err)
+		}
+		named = append(named, description.Instance)
+	}
+	if slices.Sort(named); !slices.Equal(named, slices.Sorted(slices.Values([]string{id, m.lowest}))) {
+		t.Errorf("the sources are named %v, want %v", named, []string{id, m.lowest})
+	}
+}
+
 // A daemon source that shares its first commit with a clone this worker keeps at another path, with another
 // remote or none, is not read under the record's ID: intake reports it as it reports a repository the project
 // removed, makes no record or key for it, and no lane resolves to it.
