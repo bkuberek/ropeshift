@@ -10,6 +10,7 @@ import (
 	"ropeshift.com/ropeshift/internal/adapters/fake"
 	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/control"
+	"ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/messages"
 	"ropeshift.com/ropeshift/internal/parking"
@@ -38,6 +39,165 @@ var BindingChecks = []Check{
 	{"BD14", "a decision that reaches finished work and its finished rework reworks the rework alone", checkBindingReworksTheTipOfAChain},
 	{"BD15", "a lane that asked a question is not parked by the decision that answers it", checkBindingAskerIsNotParked},
 	{"BD16", "work held for another reason waits for a member's pass under a person's one-way decision, and the reason returns after it", checkBindingHoldsHeldWork},
+	{"BD17", "a decision that reaches finished work whose rework runs starts no rework, and tells its lane", liveReworkIsTheTip("running")},
+	{"BD18", "a decision that reaches finished work whose rework is parked starts no rework, and tells its lane", liveReworkIsTheTip("parked")},
+	{"BD19", "a decision that reaches finished work whose rework has lapsed starts no rework, and tells its lane", liveReworkIsTheTip("lapsed")},
+	{"BD20", "an overturn parks the lane that asked the question under on_binding_decision park", checkBindingOverturnParksTheAsker},
+	{"BD21", "an overturn that reaches finished work whose rework runs starts no rework, and lists the rework it reached", checkBindingOverturnTakesTheLiveTip},
+}
+
+// checkBindingOverturnTakesTheLiveTip holds the same of an overturn: it reworks finished work once, and a later
+// overturn of the decision that replaced it reaches the rework a lane runs and starts no second one beside it.
+func checkBindingOverturnTakesTheLiveTip(r *Rig) error {
+	m, err := midPlanWorld(r)
+	if err != nil {
+		return err
+	}
+	d, err := m.decide(r.member(), "plan:"+m.plan, questions.Reversible)
+	if err != nil {
+		return err
+	}
+	overturned, err := r.overturn(m.s, d.ID)
+	if err != nil {
+		return err
+	}
+	first, err := m.reworkIDs(m.orders["done"])
+	if err != nil || len(first) != 1 || !slices.Equal(overturned.Rework, first) {
+		return Violatedf("the first overturn started rework %v of the finished work and listed %v: %v", first, overturned.Rework, err)
+	}
+	m.orders["redone"] = first[0]
+	if _, err := r.NewOps(m.s).Pass(r.Ctx, r.Scope, first[0], r.member()); err != nil {
+		return err
+	}
+	lane, err := m.laneOn("redone")
+	if err != nil {
+		return err
+	}
+	again, err := r.overturn(m.s, overturned.New.ID)
+	if err != nil {
+		return err
+	}
+	if rework, err := m.reworkIDs(m.orders["done"]); err != nil || !slices.Equal(rework, first) {
+		return Violatedf("the second overturn left the finished work with rework %v, want only %v: %v", rework, first, err)
+	}
+	if !slices.Equal(again.Rework, first) {
+		return Violatedf("the second overturn listed rework %v, want the one a lane runs, %v", again.Rework, first)
+	}
+	if err := m.noticeNames(lane, again.New.ID); err != nil {
+		return err
+	}
+	return r.CheckQuestions(m.s)
+}
+
+// liveReworkIsTheTip holds that the rework of finished work that a lane has, running, parked, or lapsed, is the tip
+// of its chain: a later one-way decision starts no second rework of the finished work beside it, which would fork the
+// chain, and tells its lane, renews its pack, and lists it as the rework the decision reached.
+func liveReworkIsTheTip(standing string) func(*Rig) error {
+	return func(r *Rig) error { return liveReworkTakesTheDecision(r, standing) }
+}
+
+func liveReworkTakesTheDecision(r *Rig, standing string) error {
+	m, err := midPlanWorld(r)
+	if err != nil {
+		return err
+	}
+	if _, err := m.decide(r.member(), "plan:"+m.plan, questions.OneWay); err != nil {
+		return err
+	}
+	first, err := m.reworkIDs(m.orders["done"])
+	if err != nil || len(first) != 1 {
+		return Violatedf("the first decision started rework %v of the finished work: %v", first, err)
+	}
+	m.orders["redone"] = first[0]
+	if _, err := r.NewOps(m.s).Pass(r.Ctx, r.Scope, first[0], r.member()); err != nil {
+		return err
+	}
+	lane, err := m.laneOn("redone")
+	if err != nil {
+		return err
+	}
+	want := workorders.Running
+	switch standing {
+	case "parked":
+		want = workorders.Parked
+		wake := r.ID("wake")
+		if err := accepted(lane.parkingUpload(wake, lanes.HumanWake())); err != nil {
+			return err
+		}
+		if err := accepted(lane.parkedUpload(wake, true)); err != nil {
+			return err
+		}
+	case "lapsed":
+		want = workorders.Lapsed
+		if err := r.Expire(m.s); err != nil {
+			return err
+		}
+	}
+	if rework, err := m.order("redone"); err != nil || rework.State != want {
+		return Violatedf("the rework reads %s, want %s: %v", rework.State, want, err)
+	}
+	before, err := lane.newestPack()
+	if err != nil {
+		return err
+	}
+	second, err := m.decide(r.member(), "plan:"+m.plan, questions.OneWay)
+	if err != nil {
+		return err
+	}
+	if again, err := m.reworkIDs(m.orders["done"]); err != nil || !slices.Equal(again, first) {
+		return Violatedf("a rework that is %s: the finished work has rework %v after the second decision, want only %v: %v", standing, again, first, err)
+	}
+	if chain, err := m.reworkIDs(first[0]); err != nil || len(chain) != 0 {
+		return Violatedf("a rework that is %s has rework %v after the second decision, want none: %v", standing, chain, err)
+	}
+	if err := m.noticeNames(lane, second.ID); err != nil {
+		return Violatedf("a rework that is %s: %v", standing, err)
+	}
+	after, err := lane.newestPack()
+	if err != nil {
+		return err
+	}
+	if after.Version <= before.Version || !packHolds(after, second.ID) {
+		return Violatedf("the pack of a rework that is %s is version %d holding %v, want a version after %d that holds %s", standing, after.Version, itemRefs(after), before.Version, second.ID)
+	}
+	reached, err := m.reached()
+	if err != nil {
+		return err
+	}
+	if len(reached) != 2 || !slices.Equal(reached[1].Rework, first) || !slices.Equal(reached[1].WorkOrders, []string{m.orders["done"]}) {
+		return Violatedf("the second decision reached %+v, want the finished work with the rework %v it gained", reached, first)
+	}
+	return r.CheckQuestions(m.s)
+}
+
+// checkBindingOverturnParksTheAsker holds that the exception a decision makes of the lane that asked the question it
+// answers is the answer's alone: when the decision is overturned, that lane is parked as the lane policy says.
+func checkBindingOverturnParksTheAsker(r *Rig) error {
+	m, err := midPlanWorld(r)
+	if err != nil {
+		return err
+	}
+	if err := m.ids.publishBinding(2, authority.LanePark, ""); err != nil {
+		return err
+	}
+	asked, err := m.ids.askAs("Which ID scheme do the work orders take?", false)
+	if err != nil {
+		return err
+	}
+	answered, err := r.NewOps(m.s).Answer(r.Ctx, r.Scope, asked.QuestionID, questions.Answer{DecisionID: r.ID("d"), Statement: "Ulids."}, r.member())
+	if err != nil {
+		return err
+	}
+	if wanted, err := m.ids.wanted(); err != nil || wanted != "" {
+		return Violatedf("the answer asked the lane that asked to park: %q %v", wanted, err)
+	}
+	if _, err := r.overturn(m.s, answered.ID); err != nil {
+		return err
+	}
+	if wanted, err := m.ids.wanted(); err != nil || wanted == "" {
+		return Violatedf("on_binding_decision park, and overturning the answer asked nothing of the lane that asked: %v", err)
+	}
+	return r.CheckQuestions(m.s)
 }
 
 // checkBindingHoldsHeldWork holds that a start hold that is a reading of facts does not keep work out of the hold a

@@ -222,7 +222,7 @@ func parkAsPolicySays(tx ports.WriteTx, touched reach, how string, oneWay bool, 
 		reason = "one-way decision " + decision
 	}
 	for _, lane := range slices.Sorted(maps.Keys(touched.lanes)) {
-		if how == boundAnswered && touched.asked[lane] && !parksAskingLanes() {
+		if touched.asked[lane] && (how == boundAnswered && !parksAskingLanes() || how != boundAnswered && sparesAskersOnOverturn()) {
 			continue
 		}
 		work, err := laneWork(tx, lane)
@@ -297,9 +297,10 @@ func chainTips(finished []workorders.WorkOrder) []workorders.WorkOrder {
 }
 
 // reworkFinished starts one rework of each finished work order, in contract review, where a person reviews it as
-// they would any work, naming every decision that reached it. A rework of that work order that has not started
-// gains the decisions instead of a second one: the pack it starts from holds every decision that binds it. It
-// returns the rework of each work order, started or gained.
+// they would any work, naming every decision that reached it. A rework of that work order that has not finished
+// is the tip of its chain and gains the decisions instead of a second one beside it: one that has not started
+// starts from a pack that holds every decision that binds it, and one a lane has is told and has its pack
+// renewed by the reach of the decision. It returns the rework of each work order, started or gained.
 func reworkFinished(tx ports.WriteTx, finished []workorders.WorkOrder, why []because, actor ledger.Actor) ([]string, error) {
 	if len(finished) == 0 || reworksNothing() {
 		return nil, nil
@@ -308,10 +309,19 @@ func reworkFinished(tx ports.WriteTx, finished []workorders.WorkOrder, why []bec
 	if err != nil {
 		return nil, err
 	}
+	// A rework that failed or was canceled is no tip: the work it was to redo is done again by a new one.
 	waiting := map[string]string{}
 	for _, row := range rows {
-		if row.ReworkOf != "" && workorders.ResponseOf(row) == workorders.Unstarted && !reworksEachDecision() {
+		if row.ReworkOf == "" || reworksEachDecision() {
+			continue
+		}
+		switch workorders.ResponseOf(row) {
+		case workorders.Unstarted:
 			waiting[row.ReworkOf] = row.ID
+		case workorders.Live:
+			if !branchesTheChain() {
+				waiting[row.ReworkOf] = row.ID
+			}
 		}
 	}
 	var reasons []string
