@@ -156,4 +156,4 @@ Adopting does not move files between repositories. To use the layout in [project
 
 ## Next
 
-Approving the plan creates its work orders. [Your first plan, end to end](first-plan.md#4-let-the-work-run) shows them run, and [Learn ropeshift](../README.md#learn-ropeshift) lists the guides.
+Approving the plan creates its work orders. [Watch work run](watch-work-run.md), the next guide, starts them, and [Learn ropeshift](../README.md#learn-ropeshift) lists the guides.
