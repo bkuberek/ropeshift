@@ -116,3 +116,19 @@ func TestTheMakefileQuotesWhatAShellOrMakeWouldReadAsMore(t *testing.T) {
 		t.Errorf("a Makefile with no repository has the list\n%s", empty)
 	}
 }
+
+// The merge commit of a consolidation names the design repository, and only a subject of that form reads back as
+// one, so a worker finds its own merge on a branch and takes no other commit for it.
+func TestTheImportCommitSubjectNamesTheDesignRepositoryAndReadsBack(t *testing.T) {
+	if got := ImportCommitSubject("design"); got != "chore: import the design history into the workspace" {
+		t.Errorf("the subject reads %q", got)
+	}
+	if design, ok := ImportedDesign(ImportCommitSubject("acme-design")); !ok || design != "acme-design" {
+		t.Errorf("the subject reads back as %q, %v", design, ok)
+	}
+	for _, subject := range []string{WorkspaceCommitSubject, "chore: import the  history into the workspace", "chore: import the design history", "import the design history into the workspace", ""} {
+		if design, ok := ImportedDesign(subject); ok {
+			t.Errorf("%q reads as the import of %q", subject, design)
+		}
+	}
+}

@@ -26,6 +26,30 @@ const (
 	WorktreesLine  = "/" + WorktreesFolder + "/"
 )
 
+// The subject of the merge commit a consolidation makes on the adoption branch is "chore: import the <design>
+// history into the workspace", where <design> is the design repository's clone folder name (FR-ADOPT-13).
+const (
+	importSubjectPrefix = "chore: import the "
+	importSubjectSuffix = " history into the workspace"
+)
+
+// ImportCommitSubject is the subject of the merge commit that imports the history of the design repository
+// named design.
+func ImportCommitSubject(design string) string {
+	return importSubjectPrefix + design + importSubjectSuffix
+}
+
+// ImportedDesign names the design repository a merge commit's subject says it imported, and reports whether the
+// subject is an import's.
+func ImportedDesign(subject string) (string, bool) {
+	rest, found := strings.CutPrefix(subject, importSubjectPrefix)
+	if !found {
+		return "", false
+	}
+	design, found := strings.CutSuffix(rest, importSubjectSuffix)
+	return design, found && design != ""
+}
+
 // WorkspaceRepository is one code repository of the project, as the manifest and the Makefile list it: its name,
 // its remote, and the path of its clone relative to the planning repository's clone.
 type WorkspaceRepository struct {

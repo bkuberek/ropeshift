@@ -105,6 +105,25 @@ type Restructured struct {
 	Manifest string
 	// Moves are the clones the person moves into the repository's folder of clones, each as the commands that do it.
 	Moves []planning.Move
+	// Consolidated is what the worker imported when it consolidated a design repository into this repository
+	// (FR-ADOPT-13), and nil when it imported nothing. Commit is then the merge commit.
+	Consolidated *Consolidated
+}
+
+// Consolidated is the design repository's history, which the worker merged into the repository an adopt lane
+// plans in, and what that merge settled and left for the session.
+type Consolidated struct {
+	// Design is the design repository's clone folder name.
+	Design string
+	// SecondParent is the design repository's tip, the merge commit's second parent, which holds the design
+	// repository's version of every file.
+	SecondParent string
+	// Collisions are the paths both repositories held, each with the version the merge kept.
+	Collisions []planning.Collision
+	// LeftOut are the code trees the merge commit removed, which stay readable at the second parent.
+	LeftOut []string
+	// Instructions are the design repository's instruction files at the second parent, as paths.
+	Instructions []string
 }
 
 // restructuredNotice tells an adopt lane what the worker restructured, so it neither writes those files again nor

@@ -26,8 +26,15 @@ func (r *laneRun) writeInventory(ctx context.Context, repository, worktree strin
 	if r.rt.Inventory == nil || !offered {
 		return errNoInventory
 	}
+	// A consolidation's merge commit holds the design repository's documents, so the repository the lane plans in
+	// is read at it, and the session onboards what was imported (FR-ADOPT-13). Any other lane reads the commit its
+	// branch began from.
+	base := r.lease.BaseCommit
+	if done := r.restructuredOf(); done != nil && done.Consolidated != nil {
+		base = done.Commit
+	}
 	requests := []ports.InventoryRequest{{
-		Path: repository, Repository: r.lease.Repository, Name: r.lease.RepositoryName, BaseBranch: r.lease.BaseRef, BaseCommit: r.lease.BaseCommit,
+		Path: repository, Repository: r.lease.Repository, Name: r.lease.RepositoryName, BaseBranch: r.lease.BaseRef, BaseCommit: base,
 	}}
 	var inventory planning.Inventory
 	for _, read := range r.lease.Reads {
