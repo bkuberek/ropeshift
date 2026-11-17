@@ -1000,7 +1000,7 @@ func (h *handler) readPlans(tx ports.ReadTx, _ *http.Request, stamp api.Stamp) (
 	if err != nil {
 		return nil, err
 	}
-	view := api.Plans{Stamp: stamp, Plans: []api.PlanDetail{}, Unplanned: []workorders.WorkOrder{}}
+	view := api.Plans{Stamp: stamp, Plans: []api.PlanDetail{}, Unplanned: []workorders.WorkOrder{}, Reviews: []workorders.WorkOrder{}}
 	if view.WorkActions, err = allowances(tx, orders); err != nil {
 		return nil, err
 	}
@@ -1054,6 +1054,14 @@ func (h *handler) readPlans(tx ports.ReadTx, _ *http.Request, stamp api.Stamp) (
 		view.Plans = append(view.Plans, detail)
 	}
 	for _, order := range orders {
+		// A review is listed on its own while it waits or runs, so a member can start it, and once it ends the
+		// work it judged lists it. It is never unplanned work, whether or not its contract is in a plan.
+		if order.Kind == workorders.KindReview {
+			if order.OpenReview() {
+				view.Reviews = append(view.Reviews, order)
+			}
+			continue
+		}
 		if !held[order.ID] {
 			view.Unplanned = append(view.Unplanned, order)
 		}

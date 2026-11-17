@@ -164,7 +164,7 @@ function emptyViews(): Record<string, unknown> {
     "in-progress": { ...stamp, items: [] },
     "on-hold": { ...stamp, items: [] },
     stuck: { ...stamp, items: [] },
-    plans: { ...stamp, plans: [], unplanned: [], work_actions: {} },
+    plans: { ...stamp, plans: [], unplanned: [], reviews: [], work_actions: {} },
     roadmap: { ...stamp, goals: [] },
     "shop-floor": { ...stamp, workers: [], lanes: [] },
     operations: measured,

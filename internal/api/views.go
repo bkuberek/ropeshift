@@ -356,11 +356,14 @@ type WorkAllowance struct {
 }
 
 // Plans is the plans and contracts view. Unplanned is work no plan holds, which stands nowhere else
-// until it starts. WorkActions says what a member can do to each work order of the project, by its ID.
+// until it starts. Reviews are the reviews of lane work that have not ended: a review is no part of the plan
+// its contract belongs to, so no plan lists it, and a ready one waits for a member to start it as any ready
+// work does. WorkActions says what a member can do to each work order of the project, by its ID.
 type Plans struct {
 	Stamp
 	Plans       []PlanDetail             `json:"plans"`
 	Unplanned   []workorders.WorkOrder   `json:"unplanned"`
+	Reviews     []workorders.WorkOrder   `json:"reviews"`
 	WorkActions map[string]WorkAllowance `json:"work_actions"`
 }
 

@@ -18,6 +18,7 @@ import { Talkable, TalkToLane, useTalkable } from "../talk/controls";
 import { useTalk } from "../talk/state";
 import { SessionUse } from "./Installation";
 import { machineMeasures, sessionOf } from "./resources";
+import { ReviewOf } from "./ReviewOf";
 import { StartWork, startOf } from "./StartWork";
 import { counting, laneLabel } from "./states";
 import { WorkActionDialog } from "./WorkActions";
@@ -265,6 +266,7 @@ function ReadyToStart({ index, after }: { index: WorkIndex | null; after: () => 
               <span className="cell-note">
                 <Id value={row.order.id} />
               </span>
+              <ReviewOf order={row.order} />
             </span>
             <WorkBadge state={row.order.state} />
             <StartWork order={row.order} allowed={row.allowed} small after={after} />

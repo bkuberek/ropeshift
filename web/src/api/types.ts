@@ -171,6 +171,8 @@ export type WorkOrder = {
   agent?: string;
   requirements?: string[];
   adopt?: boolean;
+  // reviews is the work order a review judges.
+  reviews?: string;
 };
 
 export type WorkAction = "reassign" | "resolve" | "replan" | "reset" | "respawn" | "resume" | "accept" | "rework" | "cancel" | "retry";
@@ -412,7 +414,9 @@ export type PlanDetail = {
   approved_version?: number;
 };
 
-export type Plans = Stamp & { plans: PlanDetail[]; unplanned: WorkOrder[]; work_actions: Record<string, Allowance> };
+// reviews are the reviews of lane work that have not ended. A plan lists none of them, and a ready one waits
+// for a member to start it.
+export type Plans = Stamp & { plans: PlanDetail[]; unplanned: WorkOrder[]; reviews: WorkOrder[]; work_actions: Record<string, Allowance> };
 
 export type DocumentKind = "requirements" | "spec" | "design" | "decision" | "other";
 
