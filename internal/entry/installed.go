@@ -1,11 +1,10 @@
 package entry
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -22,6 +21,9 @@ const installedEvery = time.Minute
 
 // installedTimeout bounds one read of the installed build, which starts that build once.
 const installedTimeout = 5 * time.Second
+
+// installedOutputMax is the most of the binary's output that is read. Its version line is under 300 bytes.
+const installedOutputMax = 64 << 10
 
 // installedBuild is the last answer to what version the binary at the daemon's own path reports. The
 // daemon's health reads it from here, so asking for health never touches the disk.
@@ -87,21 +89,39 @@ func readInstalledVersion(ctx context.Context, path string) (string, error) {
 	}
 	ctx, cancel := context.WithTimeout(ctx, installedTimeout)
 	defer cancel()
-	var stdout bytes.Buffer
 	cmd := exec.CommandContext(ctx, path, "version", "--json")
 	cmd.Args[0] = commandDaemon
 	cmd.Env = []string{}
-	cmd.Stdout = &stdout
 	cmd.WaitDelay = time.Second
-	if err := cmd.Run(); err != nil {
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
 		return "", err
+	}
+	if err := cmd.Start(); err != nil {
+		return "", err
+	}
+	// The binary is not trusted to stop writing, so one byte past the limit is read, and a binary that
+	// writes it is stopped.
+	out, readErr := io.ReadAll(io.LimitReader(stdout, installedOutputMax+1))
+	over := len(out) > installedOutputMax
+	if over {
+		cancel()
+	}
+	waitErr := cmd.Wait()
+	switch {
+	case over:
+		return "", fmt.Errorf("%s wrote more than %d bytes", path, installedOutputMax)
+	case readErr != nil:
+		return "", readErr
+	case waitErr != nil:
+		return "", waitErr
 	}
 	var reported buildversion.Info
-	if err := json.NewDecoder(&stdout).Decode(&reported); err != nil {
+	if err := json.Unmarshal(out, &reported); err != nil {
 		return "", err
 	}
-	if reported.Version == "" {
-		return "", errors.New("the binary reports no version")
+	if !buildversion.IsRelease(reported.Version) {
+		return "", fmt.Errorf("the binary reports %q, which is no release", reported.Version)
 	}
 	return reported.Version, nil
 }

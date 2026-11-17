@@ -99,7 +99,7 @@ func TestHealthSaysWhereTheWebUIListens(t *testing.T) {
 func TestHealthComparesTheRunningBuildWithTheInstalledOne(t *testing.T) {
 	t.Parallel()
 	running := version.Info{Version: "v0.1.0-alpha.16", Commit: "0123456789abcdef", Date: "2026-11-08T10:00:00Z"}
-	const cellar = "/opt/homebrew/Cellar/ropeshift/0.1.0-alpha.17/bin/ropeshift"
+	const cellar = "/opt/homebrew/opt/ropeshift/bin/ropeshiftd"
 	tests := []struct {
 		name        string
 		installed   func() version.Installed
@@ -111,6 +111,7 @@ func TestHealthComparesTheRunningBuildWithTheInstalledOne(t *testing.T) {
 			[]string{"v0.1.0-alpha.17 is installed", "still running v0.1.0-alpha.16", "brew services restart ropeshift"}},
 		{"an earlier release installed", func() version.Installed { return version.Installed{Path: cellar, Version: "v0.1.0-alpha.15"} }, "v0.1.0-alpha.15", nil},
 		{"an installed build that cannot be read", func() version.Installed { return version.Installed{Path: cellar} }, "", nil},
+		{"an installed build that reports no release", func() version.Installed { return version.Installed{Path: cellar, Version: "latest"} }, "", nil},
 		{"no reader of the installed build", nil, "", nil},
 	}
 	for _, tt := range tests {

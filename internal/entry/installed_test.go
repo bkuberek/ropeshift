@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	buildversion "ropeshift.com/ropeshift/internal/version"
@@ -33,6 +34,11 @@ func TestTheInstalledVersionIsWhatTheBinaryAtItsPathReports(t *testing.T) {
 		{"output that is no JSON", commandDaemon, `not a version`, "", true},
 		{"a binary that reports no version", commandDaemon, `{"command":"ropeshiftd"}`, "", true},
 		{"a binary that is no ropeshift", "other", `{"version":"v0.2.0"}`, "", true},
+		{"a development build", commandDaemon, `{"command":"ropeshiftd","version":"dev"}`, "", true},
+		{"a version that is no release", commandDaemon, `{"command":"ropeshiftd","version":"v0.2.0+dirty"}`, "", true},
+		{"a version that is text", commandDaemon, `{"command":"ropeshiftd","version":"the newest"}`, "", true},
+		{"output past the limit", commandDaemon, `{"version":"v0.2.0","pad":"` + strings.Repeat("a", 2*installedOutputMax) + `"}`, "", true},
+		{"output at the limit's edge", commandDaemon, `{"version":"v0.2.0","pad":"` + strings.Repeat("a", installedOutputMax-100) + `"}`, "v0.2.0", false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

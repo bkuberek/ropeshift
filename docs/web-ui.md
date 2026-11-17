@@ -267,7 +267,7 @@ Delegates lists the delegate credentials you made, each with its project, kind, 
 
 The sidebar's footer names the version the daemon runs, such as `ropeshift v0.1.0-alpha.16`. It is left out when the sidebar narrows to icons. Settings, About, gives the same version with the commit and the build date when the build stamped them, and the release installed at the daemon's own executable path when the daemon could read it. `ropeshift version` prints the daemon's version beside its own.
 
-A package manager replaces the binary on disk and leaves the daemon running the build it started from. The daemon reads the installed binary's version once a minute, and when that is a later release than the one running, the status bar shows Daemon out of date, and About shows a warning that says the same. The warning names the fix: `brew services restart ropeshift` for a Homebrew install, and otherwise restarting the service. A development build, or a binary the daemon cannot read, shows no warning. [Versioning](versioning.md#what-a-daemon-reports) describes what the daemon compares.
+A package manager replaces the binary on disk and leaves the daemon running the build it started from. The daemon reads the installed binary's version once a minute, and when that is a later release than the one running, the status bar shows Daemon out of date, and About shows a warning that says the same. The warning names the fix: `brew services restart ropeshift` when the daemon runs through `brew services`, and otherwise restarting the service. A development build, or a binary the daemon cannot read, shows no warning. [Versioning](versioning.md#what-a-daemon-reports) describes what the daemon compares.
 
 ## Measures
 

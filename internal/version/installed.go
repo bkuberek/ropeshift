@@ -92,18 +92,15 @@ func comparePreRelease(a, b []string) int {
 	return cmp.Compare(len(a), len(b))
 }
 
-// homebrewMarkers are the path elements that name a Homebrew install: its Cellar, its prefixes, and the
-// opt link an Intel Mac's service runs through.
-var homebrewMarkers = []string{"/Cellar/", "/homebrew/", "/Homebrew/", "/.linuxbrew/", "/usr/local/opt/ropeshift/"}
+// brewServicePath is the path element of the opt link that `brew services` runs the daemon through. A
+// service that `ropeshift service install` writes names the binary by another path, even inside a Homebrew
+// prefix, and `brew services` does not manage it.
+const brewServicePath = "/opt/ropeshift/bin/"
 
-func homebrew(path string) bool {
-	for _, marker := range homebrewMarkers {
-		if strings.Contains(path, marker) {
-			return true
-		}
-	}
-	return false
-}
+func homebrew(path string) bool { return strings.Contains(path, brewServicePath) }
+
+// IsRelease reports whether v is a release version, as a build reports it.
+func IsRelease(v string) bool { return isRelease(v) }
 
 // Warning says that a running daemon is older than the build installed at its path, and how to run the
 // installed one. A daemon that reports no version predates the report, so it is older than any release.

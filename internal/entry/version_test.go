@@ -61,18 +61,22 @@ func TestVersionWarnsWhenTheDaemonSaysItIsStale(t *testing.T) {
 
 func TestVersionWarnsOfADaemonOlderThanThisBinary(t *testing.T) {
 	cases := []struct {
-		name   string
-		daemon string
-		warns  bool
+		name      string
+		daemon    string
+		installed string
+		warns     bool
 	}{
-		{"a daemon older than this binary", "v0.1.0-alpha.16", true},
-		{"a daemon that reports no version", "", true},
-		{"a daemon as new as this binary", "v0.1.0-alpha.17", false},
-		{"a daemon newer than this binary", "v0.1.0-alpha.18", false},
+		{"a daemon older than this binary", "v0.1.0-alpha.16", "", true},
+		{"a daemon that reports no version", "", "", true},
+		{"a daemon as new as this binary", "v0.1.0-alpha.17", "", false},
+		{"a daemon newer than this binary", "v0.1.0-alpha.18", "", false},
+		// The daemon read the build installed at its own path and found it current, so a binary run from
+		// somewhere else does not overrule it.
+		{"a daemon that found its installed build current", "v0.1.0-alpha.16", "v0.1.0-alpha.16", false},
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
-			withDaemon(t, &api.Health{Status: "ok", Version: tt.daemon})
+			withDaemon(t, &api.Health{Status: "ok", Version: tt.daemon, Installed: tt.installed})
 			built := readBuild
 			t.Cleanup(func() { readBuild = built })
 			readBuild = func(command string) versionInfo {

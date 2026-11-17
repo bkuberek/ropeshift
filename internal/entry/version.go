@@ -98,10 +98,11 @@ func runVersion(command string, args []string, stdout, stderr io.Writer) int {
 	return exitOK
 }
 
-// daemonWarning is the daemon's own warning, which compares the build installed at its path, or else the
-// same comparison with this binary as the installed build.
+// daemonWarning is the daemon's own warning, which compares the build installed at its path. A daemon that
+// found no installed build to compare, or is too old to say, has none, and the comparison is then made with
+// this binary as the installed build. A daemon that did read its installed build is not second-guessed.
 func daemonWarning(health api.Health, own buildversion.Info) string {
-	if health.Warning != "" {
+	if health.Installed != "" {
 		return health.Warning
 	}
 	path, err := os.Executable()

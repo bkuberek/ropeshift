@@ -431,9 +431,10 @@ func invalid(w http.ResponseWriter, format string, args ...any) {
 func (h *handler) health(w http.ResponseWriter, r *http.Request) {
 	health := api.Health{Status: "ok", Web: h.WebAddress, Version: h.Build.Version, Commit: h.Build.Commit, Date: h.Build.Date}
 	if h.Installed != nil {
-		installed := h.Installed()
-		health.Installed = installed.Version
-		health.Warning = version.Warning(h.Build.Version, installed)
+		if installed := h.Installed(); version.IsRelease(installed.Version) {
+			health.Installed = installed.Version
+			health.Warning = version.Warning(h.Build.Version, installed)
+		}
 	}
 	if _, err := h.self(r.Context()); errors.Is(err, ports.ErrNotFound) {
 		reply(w, http.StatusOK, health)

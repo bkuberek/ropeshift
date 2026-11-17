@@ -39,7 +39,8 @@ func TestCompare(t *testing.T) {
 }
 
 func TestWarning(t *testing.T) {
-	const cellar = "/opt/homebrew/Cellar/ropeshift/0.1.0-alpha.17/bin/ropeshift"
+	// cellar names the binary `brew services` runs, through the opt link of a Homebrew prefix.
+	const cellar = "/opt/homebrew/opt/ropeshift/bin/ropeshiftd"
 	tests := []struct {
 		name      string
 		running   string
@@ -59,6 +60,12 @@ func TestWarning(t *testing.T) {
 			[]string{"v0.1.0 is installed", "Restart the ropeshift service"}},
 		{"the opt link of an Intel Mac", "v0.1.0-alpha.16", Installed{Path: "/usr/local/opt/ropeshift/bin/ropeshiftd", Version: "v0.1.0"},
 			[]string{"brew services restart ropeshift"}},
+		{"the opt link of a Linux Homebrew", "v0.1.0-alpha.16", Installed{Path: "/home/linuxbrew/.linuxbrew/opt/ropeshift/bin/ropeshiftd", Version: "v0.1.0"},
+			[]string{"brew services restart ropeshift"}},
+		{"a service that ropeshift installed from a Homebrew path", "v0.1.0-alpha.16", Installed{Path: "/opt/homebrew/bin/ropeshiftd", Version: "v0.1.0"},
+			[]string{"Restart the ropeshift service to run it."}},
+		{"a service that ropeshift installed from the Cellar", "v0.1.0-alpha.16", Installed{Path: "/opt/homebrew/Cellar/ropeshift/0.1.0/bin/ropeshiftd", Version: "v0.1.0"},
+			[]string{"Restart the ropeshift service to run it."}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -76,7 +83,17 @@ func TestWarning(t *testing.T) {
 			}
 		})
 	}
-	if got := Warning("v0.1.0", Installed{Path: "/usr/local/bin/ropeshift", Version: "v0.2.0"}); strings.Contains(got, "brew") {
-		t.Errorf("a build outside Homebrew was told to use brew: %q", got)
+	for _, path := range []string{"/usr/local/bin/ropeshift", "/opt/homebrew/bin/ropeshiftd", "/opt/homebrew/Cellar/ropeshift/0.2.0/bin/ropeshift"} {
+		if got := Warning("v0.1.0", Installed{Path: path, Version: "v0.2.0"}); strings.Contains(got, "brew") {
+			t.Errorf("a service at %s was told to use brew: %q", path, got)
+		}
+	}
+}
+
+func TestIsRelease(t *testing.T) {
+	for v, want := range map[string]bool{"v0.1.0": true, "v0.1.0-alpha.16": true, "dev": false, "": false, "v0.1.0+dirty": false, "0.1.0": false, "latest": false} {
+		if got := IsRelease(v); got != want {
+			t.Errorf("IsRelease(%q) = %v, want %v", v, got, want)
+		}
 	}
 }
