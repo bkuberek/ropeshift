@@ -159,7 +159,7 @@ func peer(address string) *fakeConn {
 // goes through.
 func TestAPlaintextConnectionFromAPeerThatIsNotOursIsClosedBeforeAnythingIsRead(t *testing.T) {
 	t.Parallel()
-	proxies, err := server.ParseProxies([]string{"10.0.0.0/8", "fd00::/8"})
+	proxies, err := server.ParseProxies([]string{"10.0.0.0/8", "fd00::/16"})
 	if err != nil {
 		t.Fatal(err)
 	}
