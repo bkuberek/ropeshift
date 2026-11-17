@@ -509,6 +509,10 @@ func (w *Worker) await(ctx context.Context, hints <-chan int64) error {
 	// settled is nil until a move arms the window, which runs from the first move, so a lane that keeps
 	// moving still publishes once per window.
 	var settled <-chan time.Time
+	// failed says a settled publish failed. Later moves then wait for the next cycle, which retries after
+	// retryEvery as it does any failure, so a control plane that is away hears one failure a cycle and not
+	// one a window.
+	failed := false
 	for {
 		select {
 		case <-ctx.Done():
@@ -522,13 +526,13 @@ func (w *Worker) await(ctx context.Context, hints <-chan int64) error {
 		case <-beat.C:
 			return nil
 		case <-w.moved:
-			if settled == nil {
+			if settled == nil && !failed {
 				settle.Reset(publishSettle)
 				settled = settle.C
 			}
 		case <-settled:
 			settled = nil
-			w.publishMoved(ctx)
+			failed = !w.publishMoved(ctx)
 		}
 	}
 }
@@ -576,8 +580,9 @@ func (w *Worker) laneMoved() {
 }
 
 // publishMoved sends the lanes' settled moves as a cycle sends them after its heartbeat: Publish, then
-// Upload, which takes its turn with every other upload. A failure waits for the next cycle.
-func (w *Worker) publishMoved(ctx context.Context) {
+// Upload, which takes its turn with every other upload. It says whether they went, and a failure waits for
+// the next cycle.
+func (w *Worker) publishMoved(ctx context.Context) bool {
 	err := w.Publish(ctx)
 	if err == nil {
 		err = w.Upload(ctx)
@@ -585,6 +590,7 @@ func (w *Worker) publishMoved(ctx context.Context) {
 	if err != nil && ctx.Err() == nil {
 		w.config.Report(err)
 	}
+	return err == nil
 }
 
 // watch holds the hint stream open and reopens it after a break. A stream that

@@ -3,6 +3,7 @@ package worker_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -142,5 +143,27 @@ func TestALaneThatKeepsMovingStillPublishes(t *testing.T) {
 	}
 	if moved, seen := r.keepMoving(t, 3*worker.PublishSettle, compacting); !seen {
 		t.Fatalf("a lane that moved for %s was never published while it moved", moved)
+	}
+}
+
+// TestAnAwayPlaneHearsOneFailedPublishPerCycle keeps a worker whose control plane is away from reporting a
+// failure every window while a lane keeps moving: the first publish that fails leaves the rest to the next
+// cycle, which tries again after its own retry wait. The heartbeat is an hour off, so the lane's moves for
+// four windows, and the window its last move opens, report one failure.
+func TestAnAwayPlaneHearsOneFailedPublishPerCycle(t *testing.T) {
+	r, _ := runBeatingRarely(t)
+	r.awaitWorking(t, 2*worker.PublishSettle+5*time.Second)
+	r.link.FailUpload.Store(true)
+	before := len(r.problems())
+	r.keepMoving(t, 4*worker.PublishSettle, func() bool { return false })
+	time.Sleep(worker.PublishSettle + 500*time.Millisecond)
+	var failed []error
+	for _, problem := range r.problems()[before:] {
+		if strings.Contains(problem.Error(), "the control plane is away") {
+			failed = append(failed, problem)
+		}
+	}
+	if len(failed) != 1 {
+		t.Errorf("a lane that moved for four windows while the plane was away reported %d failed publishes: %v", len(failed), failed)
 	}
 }
