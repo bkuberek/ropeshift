@@ -2,6 +2,7 @@ package planning
 
 import (
 	"encoding/json"
+	"errors"
 	"maps"
 	"reflect"
 	"slices"
@@ -117,8 +118,8 @@ func TestARestructuringIsCheckedBeforeItIsKept(t *testing.T) {
 }
 
 // A restructuring a work order kept before it held the request still reads: its fields are all optional, so
-// nothing a stored one lacks makes it invalid. What it lacks is named, so a worker can say why it cannot read
-// the layout again.
+// nothing a stored one lacks makes it invalid. What it lacks is named, and it is incomplete, so a worker can fail
+// the work with the reason restructure_incomplete and say why it cannot read the layout again.
 func TestAnOldRestructuringStillReadsAndNamesWhatItLacks(t *testing.T) {
 	digest := aLayoutPlan().WithDigest().Digest
 	old := `{"shape":"workspace_files","digest":"` + digest + `"}`
@@ -132,12 +133,22 @@ func TestAnOldRestructuringStillReadsAndNamesWhatItLacks(t *testing.T) {
 	if got := kept.Missing(); !reflect.DeepEqual(got, []string{"root", "parts"}) {
 		t.Errorf("an old restructuring lacks %v, want the root and the parts", got)
 	}
+	if err := kept.Incomplete(); !errors.Is(err, ErrIncompleteRestructure) || !strings.Contains(err.Error(), "no root and no parts") {
+		t.Errorf("an old restructuring is incomplete as %v, want the error that names the root and the parts", err)
+	}
 	whole := Restructure{Shape: ShapeWorkspaceFiles, Digest: digest, Root: "/work/ws", Parts: aLayoutPlan().Parts()}
 	if got := whole.Missing(); len(got) != 0 {
 		t.Errorf("a restructuring with its root and parts lacks %v", got)
 	}
-	if got := (Restructure{Shape: ShapePlanned, Digest: digest, Root: "/work/ws"}).Missing(); !reflect.DeepEqual(got, []string{"parts"}) {
+	if err := whole.Incomplete(); err != nil {
+		t.Errorf("a restructuring with its root and parts is incomplete: %v", err)
+	}
+	noParts := Restructure{Shape: ShapePlanned, Digest: digest, Root: "/work/ws"}
+	if got := noParts.Missing(); !reflect.DeepEqual(got, []string{"parts"}) {
 		t.Errorf("a restructuring with no parts lacks %v", got)
+	}
+	if err := noParts.Incomplete(); !errors.Is(err, ErrIncompleteRestructure) || strings.Contains(err.Error(), "root") {
+		t.Errorf("a restructuring with no parts is incomplete as %v, want the error that names the parts alone", err)
 	}
 }
 

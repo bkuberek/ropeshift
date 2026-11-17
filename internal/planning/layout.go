@@ -225,6 +225,21 @@ func (r Restructure) Missing() []string {
 	return missing
 }
 
+// ErrIncompleteRestructure marks a restructuring kept before the request its plan was read with and the digests of
+// the plan's parts were, which a worker cannot read the layout against again.
+var ErrIncompleteRestructure = errors.New("the restructuring is incomplete")
+
+// Incomplete says why a worker cannot read the layout again as the plan did, naming what the restructuring lacks, or
+// is nil when it lacks nothing. The error is ErrIncompleteRestructure.
+func (r Restructure) Incomplete() error {
+	missing := r.Missing()
+	if len(missing) == 0 {
+		return nil
+	}
+	return fmt.Errorf("%w: it has no %s, because it was kept before the plan's request and the digests of its parts were, so the layout cannot be read again as the plan read it",
+		ErrIncompleteRestructure, strings.Join(missing, " and no "))
+}
+
 // isDigest says a string is the SHA-256 digest of something, as DigestSHA256 spells one.
 func isDigest(value string) bool {
 	hash, ok := strings.CutPrefix(value, DigestSHA256)

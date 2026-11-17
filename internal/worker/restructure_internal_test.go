@@ -324,17 +324,18 @@ func TestALayoutThatChangedFailsTheWorkWithWhatDiffers(t *testing.T) {
 }
 
 // A restructuring kept before the request its plan was read with was cannot be read against the layout, and the
-// work fails with a reason that names what it lacks.
+// work fails with a reason of its own, restructure_incomplete, that names what it lacks and tells the person to
+// plan again and restart. The layout did not change, so the reason is not layout_changed.
 func TestARestructuringKeptBeforeTheRequestIsRefusedWithWhatItLacks(t *testing.T) {
 	t.Parallel()
 	r := newRestructureRig(t)
 	plan, _ := r.plan()
 	r.start(map[string]any{"shape": plan.Shape, "digest": plan.Digest})
 	report, failed := r.restructure()
-	if !failed || report.Reason != workorders.ReasonLayoutChanged {
+	if !failed || report.Outcome != workorders.OutcomeFailed || report.Reason != workorders.ReasonRestructureIncomplete {
 		t.Fatalf("the restructuring reported %+v, failed %v", report, failed)
 	}
-	for _, want := range []string{"root", "parts", "ropeshift adopt --restructure"} {
+	for _, want := range []string{"no root and no parts", "ropeshift adopt --dry-run again", "restart with ropeshift adopt --restructure"} {
 		if !strings.Contains(report.Detail, want) {
 			t.Errorf("the detail leaves out %q: %s", want, report.Detail)
 		}

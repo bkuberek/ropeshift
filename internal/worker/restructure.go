@@ -24,9 +24,14 @@ var errNoRestructure = errors.New("this worker cannot read layouts and commit fi
 // rerun tells a person what to do about a layout that is not the plan's.
 const rerun = " Run ropeshift adopt --restructure again to plan from the layout as it is."
 
+// replanAndRestart tells a person what to do about a restructuring the worker cannot read the layout against: plan the
+// layout again, which keeps the request and the digests of the plan's parts, and restart with the restructuring.
+const replanAndRestart = " Run ropeshift adopt --dry-run again to plan the layout as it is, then restart with ropeshift adopt --restructure."
+
 // restructure makes the restructuring an adopt lane's work carries, after its worktree exists and before its
 // inventory is written (FR-ADOPT-14). It reads the layout again as the plan did and compares digests, and when they
-// differ the work fails with the reason layout_changed, naming the parts that differ. When they match it commits
+// differ the work fails with the reason layout_changed, naming the parts that differ, and a restructuring kept
+// without the request or the parts to read the layout against fails with restructure_incomplete. When they match it commits
 // the files the plan lists to the lane's branch in one commit, as one bracketed effect, and a retry after a crash
 // finds the commit and makes none. It reports whether the lane must not start, and the report that says why.
 //
@@ -62,7 +67,7 @@ func (r *laneRun) restructure(ctx context.Context, repository, worktree string) 
 	if found {
 		// The files are on the branch. What the plan lists now is what the person still has to move.
 		var moves []planning.Move
-		if len(choice.Missing()) == 0 {
+		if choice.Incomplete() == nil {
 			if again, err := r.replan(ctx, choice); err == nil {
 				moves = again.Moves
 			}
@@ -70,9 +75,8 @@ func (r *laneRun) restructure(ctx context.Context, repository, worktree string) 
 		r.setRestructured(describeRestructure(made, project, moves))
 		return workorders.Report{}, false
 	}
-	if missing := choice.Missing(); len(missing) != 0 {
-		return r.layoutChanged(fmt.Errorf("the restructuring this adoption kept has no %s: it was kept before the plan's request and the digests of "+
-			"its parts were, so the layout cannot be read again as the plan read it.%s", strings.Join(missing, " and no "), rerun)), true
+	if incomplete := choice.Incomplete(); incomplete != nil {
+		return r.restructureIncomplete(incomplete), true
 	}
 	plan, err := r.replan(ctx, choice)
 	if err != nil {
@@ -122,6 +126,14 @@ func spell(names []string) string {
 func (r *laneRun) layoutChanged(detail error) workorders.Report {
 	report := r.failStart(workorders.ReasonLayoutChanged, detail)
 	report.Detail = detail.Error()
+	return report
+}
+
+// restructureIncomplete fails the work with the reason restructure_incomplete, and the detail says what the restructuring
+// lacks and how to go on. The layout was not read, so it did not change as far as the worker knows.
+func (r *laneRun) restructureIncomplete(incomplete error) workorders.Report {
+	report := r.failStart(workorders.ReasonRestructureIncomplete, incomplete)
+	report.Detail = incomplete.Error() + "." + replanAndRestart
 	return report
 }
 
