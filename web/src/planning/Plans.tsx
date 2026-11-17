@@ -11,7 +11,7 @@ import { ReviewOf } from "../floor/ReviewOf";
 import { approvalStates, workLabel } from "../floor/states";
 import { PlanForecastView } from "../measures/Forecast";
 import { Bar, Fact, Id, LongFact, plural, Section, words } from "../parts/parts";
-import { Banner, EmptyState, SkeletonRows, StateBadge } from "../ui/display";
+import { Banner, EmptyState, ScopeName, SkeletonRows, StateBadge } from "../ui/display";
 import { DifferenceBlock, DraftDecisions } from "./PlanParts";
 import { StateCounts } from "./Roadmap";
 import { StartSession } from "./StartSession";
@@ -290,6 +290,11 @@ function Review({ review }: { review: PlanReview }) {
             {review.open_questions.map((question) => (
               <li key={question.id}>
                 <Link to={addressOf("/questions", { id: question.id })}>{question.text}</Link>
+                {question.scope ? (
+                  <p className="small muted">
+                    Scope: <ScopeName scope={question.scope} title={question.scope_title} />
+                  </p>
+                ) : null}
               </li>
             ))}
           </ul>

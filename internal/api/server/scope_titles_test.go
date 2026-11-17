@@ -3,6 +3,7 @@ package server_test
 import (
 	"encoding/json"
 	"maps"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -286,6 +287,37 @@ func TestALanesStreamNamesTheScopeOfEachQuestion(t *testing.T) {
 	}
 	if !maps.Equal(streamed, want) {
 		t.Errorf("the lane's stream names the scopes %v, want %v", streamed, want)
+	}
+}
+
+// TestAPlansReviewNamesTheScopeOfWhatItLeftOpen holds that each question a plan's review left open carries the
+// scope an answer to it takes and the plan's title, read in the read of the plans view.
+func TestAPlansReviewNamesTheScopeOfWhatItLeftOpen(t *testing.T) {
+	t.Parallel()
+	d := apitest.Start(t)
+	w := apitest.NewWorld(t, d)
+	w.Recorded("wo-trim", "Trim the log")
+	plan := w.PlanOf("wo-trim")
+	if _, err := d.Client.ReviewPlan(t.Context(), plan, api.ReviewPlan{ID: "review-trim"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.Questions.Ask(t.Context(), apitest.Scope, questions.Ask{
+		ID: "q-review", Text: "Does the plan cover a restart?", Categories: []string{questions.CategoryProduct},
+		SubjectKind: planning.SubjectPlan, SubjectID: plan, Lane: "lane-asking", Generation: 1,
+	}, ledger.Actor{Kind: ledger.ActorLane, ID: "lane-asking"}); err != nil {
+		t.Fatal(err)
+	}
+	type named struct{ id, scope, title string }
+	var open []named
+	for _, detail := range readView[api.Plans](t, d, api.ViewPlans, "").Plans {
+		for _, review := range detail.Reviews {
+			for _, question := range review.Open {
+				open = append(open, named{question.ID, question.Scope, question.ScopeTitle})
+			}
+		}
+	}
+	if want := []named{{"q-review", "plan:" + plan, "Trim the log"}}; !slices.Equal(open, want) {
+		t.Errorf("the plans view leaves open %v, want %v", open, want)
 	}
 }
 

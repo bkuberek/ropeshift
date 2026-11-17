@@ -324,10 +324,11 @@ type ContractHistory struct {
 	Versions []planning.Contract `json:"versions"`
 }
 
-// PlanReview is one review of a plan, and what it left open.
+// PlanReview is one review of a plan, and what it left open: each question with the scope an answer to it takes
+// and the plan's title, as QuestionView says.
 type PlanReview struct {
 	WorkOrder workorders.WorkOrder `json:"work_order"`
-	Open      []questions.Question `json:"open_questions"`
+	Open      []QuestionView       `json:"open_questions"`
 }
 
 // PlanDetail is a plan, its contract versions, and its review results. Milestones are the plan's

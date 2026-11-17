@@ -993,7 +993,15 @@ func (h *handler) readPlans(tx ports.ReadTx, _ *http.Request, stamp api.Stamp) (
 	if err != nil {
 		return nil, err
 	}
-	open, err := unresolved(tx, ports.RecordFilter{})
+	unanswered, err := unresolved(tx, ports.RecordFilter{})
+	if err != nil {
+		return nil, err
+	}
+	// What a plan's review left open is the questions about the plan, each named with its scope and the plan's
+	// title, read once for them all.
+	open, err := questionViews(tx, slices.DeleteFunc(unanswered, func(question questions.Question) bool {
+		return question.SubjectKind != planning.SubjectPlan
+	}))
 	if err != nil {
 		return nil, err
 	}
@@ -1053,9 +1061,9 @@ func (h *handler) readPlans(tx ports.ReadTx, _ *http.Request, stamp api.Stamp) (
 			held[order.ID] = held[order.ID] || order.ReviewsPlan == plan.ID || ofPlan[order.ContractID]
 			switch {
 			case order.ReviewsPlan == plan.ID:
-				review := api.PlanReview{WorkOrder: order, Open: []questions.Question{}}
+				review := api.PlanReview{WorkOrder: order, Open: []api.QuestionView{}}
 				for _, question := range open {
-					if question.SubjectKind == planning.SubjectPlan && question.SubjectID == plan.ID {
+					if question.SubjectID == plan.ID {
 						review.Open = append(review.Open, question)
 					}
 				}
