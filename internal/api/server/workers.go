@@ -5,8 +5,10 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"ropeshift.com/ropeshift/internal/api"
+	"ropeshift.com/ropeshift/internal/control"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/internal/questions"
@@ -16,6 +18,7 @@ import (
 // credential.
 func (h *handler) workerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/workers/tokens", h.member(h.createJoinToken))
+	mux.HandleFunc("POST /v1/workers/tokens/{id}/revoke", h.member(h.revokeJoinToken))
 	mux.HandleFunc("POST /v1/workers/register", h.register)
 	mux.HandleFunc("GET /v1/workers", h.listWorkers)
 	mux.HandleFunc("POST /v1/workers/{id}/sessions", h.openSession)
@@ -88,10 +91,18 @@ func authOf(r *http.Request) ledger.WorkerAuth {
 }
 
 // createJoinToken makes a join token for the member who asked, and on a group server the join string a worker is
-// handed in its place. Every join string is personal to that member: the record of the token names them, and no
-// other member's worker joins as theirs. The server makes no token when it could make no string, because a token
-// with no URL around it is no way to join a server from another machine.
+// handed in its place. The record of the token names that member. The token lives a day unless the member names
+// another lifetime, up to thirty days. The server makes no token when it could make no string, because a token with no
+// URL around it is no way to join a server from another machine.
 func (h *handler) createJoinToken(w http.ResponseWriter, r *http.Request, actor ledger.Actor) {
+	var in api.CreateJoinToken
+	if r.ContentLength != 0 && !decode(w, r, &in) {
+		return
+	}
+	if in.ExpiresInMs < 0 || in.ExpiresInMs > control.MaxJoinTokenLifetime.Milliseconds() {
+		invalid(w, "a join token lives for more than nothing and at most %s", control.MaxJoinTokenLifetime)
+		return
+	}
 	group := h.Mode == api.ModeGroup
 	if group {
 		if h.WorkerURL == "" {
@@ -104,14 +115,14 @@ func (h *handler) createJoinToken(w http.ResponseWriter, r *http.Request, actor 
 			return
 		}
 	}
-	token, err := h.plane.CreateJoinToken(r.Context(), actor)
+	made, err := h.plane.MakeJoinToken(r.Context(), actor, time.Duration(in.ExpiresInMs)*time.Millisecond)
 	if err != nil {
 		fail(w, err)
 		return
 	}
-	out := api.JoinTokenResponse{Token: token}
+	out := api.JoinTokenResponse{ID: made.ID, Token: made.Token, ExpiresAt: made.ExpiresAt}
 	if group {
-		joined, err := (api.JoinString{WorkerURL: h.WorkerURL, CASHA256: h.CAFingerprint, Token: token}).Encode()
+		joined, err := (api.JoinString{WorkerURL: h.WorkerURL, CASHA256: h.CAFingerprint, Token: made.Token}).Encode()
 		if err != nil {
 			fail(w, err)
 			return
@@ -119,6 +130,17 @@ func (h *handler) createJoinToken(w http.ResponseWriter, r *http.Request, actor 
 		out.JoinString = joined
 	}
 	reply(w, http.StatusCreated, out)
+}
+
+// revokeJoinToken ends a join token no worker used. A token that is revoked already is revoked, and one a worker used
+// is refused, because that worker holds a credential from it.
+func (h *handler) revokeJoinToken(w http.ResponseWriter, r *http.Request, actor ledger.Actor) {
+	id := r.PathValue("id")
+	if err := h.plane.RevokeJoinToken(r.Context(), actor, id); err != nil {
+		fail(w, err)
+		return
+	}
+	reply(w, http.StatusOK, api.JoinTokenRevoked{ID: id})
 }
 
 func (h *handler) register(w http.ResponseWriter, r *http.Request) {

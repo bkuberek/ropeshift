@@ -78,16 +78,25 @@ ON CONFLICT (workspace_id, worker_id, cap, started_at) DO UPDATE
  ORDER BY started_at, worker_id, cap`)
 
 	stmtInsertJoinGrant = define("join_grant.insert",
-		`INSERT INTO join_grants (workspace_id, id, digest, created_by)
-VALUES (:workspace_id, :id, :digest, :created_by)`)
+		`INSERT INTO join_grants (workspace_id, id, digest, created_by, expires_at)
+VALUES (:workspace_id, :id, :digest, :created_by, :expires_at)`)
 
 	stmtReadJoinGrant = define("join_grant.read",
-		`SELECT id, digest, created_by, used_by FROM join_grants
+		`SELECT id, digest, created_by, used_by, expires_at, revoked_at FROM join_grants
  WHERE workspace_id = :workspace_id AND id = :id`)
 
+	// A grant is spent once, and only while it stands: not used, not revoked, and not past its expiry. The update
+	// states each of these itself, so two registrations of one token that read it unspent at once cannot both
+	// spend it, and a store that runs them side by side answers one of them with no changed row.
 	stmtSpendJoinGrant = define("join_grant.spend",
 		`UPDATE join_grants SET used_by = :worker
- WHERE workspace_id = :workspace_id AND id = :id AND used_by IS NULL`)
+ WHERE workspace_id = :workspace_id AND id = :id AND used_by IS NULL AND revoked_at = 0
+   AND (expires_at = 0 OR expires_at > :now)`)
+
+	// A grant is revoked only while no worker used it.
+	stmtRevokeJoinGrant = define("join_grant.revoke",
+		`UPDATE join_grants SET revoked_at = :now
+ WHERE workspace_id = :workspace_id AND id = :id AND used_by IS NULL AND revoked_at = 0`)
 
 	stmtFindOrchestrator = define("orchestrator.of_worker",
 		`SELECT id, worker_id, desired_state, run, resets, actual_state, generation, conditions, reported_at, settings FROM orchestrators
@@ -469,7 +478,7 @@ func (t workerTx) OpenEpoch(w ledger.Worker) (int64, error) {
 }
 
 func (t workerTx) InsertJoinGrant(g ledger.JoinGrant) error {
-	_, err := t.exec(stmtInsertJoinGrant, t.scoped(params{"id": g.ID, "digest": g.Digest, "created_by": g.CreatedBy}))
+	_, err := t.exec(stmtInsertJoinGrant, t.scoped(params{"id": g.ID, "digest": g.Digest, "created_by": g.CreatedBy, "expires_at": g.ExpiresAt}))
 	return err
 }
 
@@ -480,7 +489,7 @@ func (t workerTx) JoinGrant(id string) (ledger.JoinGrant, error) {
 	}
 	var g ledger.JoinGrant
 	var used sql.NullString
-	err = row.Scan(&g.ID, &g.Digest, &g.CreatedBy, &used)
+	err = row.Scan(&g.ID, &g.Digest, &g.CreatedBy, &used, &g.ExpiresAt, &g.RevokedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ledger.JoinGrant{}, fmt.Errorf("join grant %s: %w", id, ports.ErrNotFound)
 	}
@@ -488,7 +497,15 @@ func (t workerTx) JoinGrant(id string) (ledger.JoinGrant, error) {
 	return g, err
 }
 
-func (t workerTx) SpendJoinGrant(id, worker string) error {
-	_, err := t.exec(stmtSpendJoinGrant, t.scoped(params{"id": id, "worker": worker}))
-	return err
+// SpendJoinGrant marks a grant used by a worker, and says whether it did: exactly one changed row is a spend, and a
+// grant another registration spent first, or one that was revoked or expired meanwhile, changes none.
+func (t workerTx) SpendJoinGrant(id, worker string) (bool, error) {
+	changed, err := t.exec(stmtSpendJoinGrant, t.scoped(params{"id": id, "worker": worker, "now": t.now}))
+	return changed == 1, err
+}
+
+// RevokeJoinGrant ends a grant no worker used, and says whether it did.
+func (t workerTx) RevokeJoinGrant(id string) (bool, error) {
+	changed, err := t.exec(stmtRevokeJoinGrant, t.scoped(params{"id": id, "now": t.now}))
+	return changed == 1, err
 }

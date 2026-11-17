@@ -149,6 +149,7 @@ var routeOperations = map[string]routeOperation{
 	"POST /v1/installation/backup":                     fixed(authority.OpInstallationBackup),
 	"POST " + api.InstallationBackupDownloadPath:       fixed(authority.OpInstallationBackup),
 	"POST /v1/workers/tokens":                          fixed(authority.OpWorkerJoinToken),
+	"POST /v1/workers/tokens/{id}/revoke":              fixed(authority.OpWorkerJoinTokenRevoke),
 	"PUT /v1/workers/{id}/autonomy":                    fixed(authority.OpAutonomySet),
 	"POST /v1/workers/{id}/autonomy/acknowledgement":   fixed(authority.OpAutonomyAcknowledge),
 	"POST /v1/workers/{id}/windows":                    fixed(authority.OpAutonomyWindow),

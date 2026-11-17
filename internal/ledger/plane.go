@@ -35,6 +35,14 @@ const RevisionInstallation = string(InstallationScope)
 var (
 	// ErrBadJoinToken means the token is unknown, wrong, or spent.
 	ErrBadJoinToken = errors.New("join token refused")
+	// ErrJoinTokenExpired and ErrJoinTokenRevoked mean the token is right and unspent, and ended: its lifetime
+	// ran out, or a member revoked it. Each is a bad token too, so a client address that tries them counts as
+	// one that tries any wrong token. Only the holder of a token's secret is told which.
+	ErrJoinTokenExpired = fmt.Errorf("%w: it expired", ErrBadJoinToken)
+	ErrJoinTokenRevoked = fmt.Errorf("%w: a member revoked it", ErrBadJoinToken)
+	// ErrJoinTokenUsed means a revocation of a token a worker already used, which that worker holds a credential
+	// from, so the token no longer opens anything a revocation could close.
+	ErrJoinTokenUsed = errors.New("join token already used")
 	// ErrBadCredential means the worker must register again.
 	ErrBadCredential = errors.New("worker credential refused")
 	// ErrStaleEpoch means a newer session of this worker is open, so this process
@@ -628,12 +636,16 @@ type WorkerRecord struct {
 	ProofDigest string
 }
 
-// JoinGrant is a join token as the ledger holds it: by digest, and spent once.
+// JoinGrant is a join token as the ledger holds it: by digest, and spent once. A token with no ExpiresAt, as the
+// solo daemon's own is, never expires, and a RevokedAt of zero says no member revoked it. Both are milliseconds of the
+// ledger's clock.
 type JoinGrant struct {
 	ID        string
 	Digest    string
 	CreatedBy string
 	UsedBy    string
+	ExpiresAt int64
+	RevokedAt int64
 }
 
 // RunKindAssistant is the kind of a run that is the assistant's session, which a worker carries in the run's

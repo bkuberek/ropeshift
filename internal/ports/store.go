@@ -1189,8 +1189,13 @@ type WorkerWriter interface {
 	CloseWindow(id, by string, at int64) (bool, error)
 	// InsertJoinGrant records a join token by its digest.
 	InsertJoinGrant(ledger.JoinGrant) error
-	// SpendJoinGrant marks a grant used by a worker.
-	SpendJoinGrant(id, worker string) error
+	// SpendJoinGrant marks a grant used by a worker, and reports whether it did. It does so only while the grant
+	// is unused, unrevoked, and unexpired at the transaction's time, and changes exactly one row when it does,
+	// so of two registrations that read one grant unspent at once, one spends it.
+	SpendJoinGrant(id, worker string) (bool, error)
+	// RevokeJoinGrant ends a grant no worker used, and reports whether it did. A grant that was used, or revoked
+	// already, changes nothing.
+	RevokeJoinGrant(id string) (bool, error)
 	// Insert adds a worker with no session yet.
 	Insert(ledger.WorkerRecord) error
 	// ReplaceProof swaps a worker's proof digest.

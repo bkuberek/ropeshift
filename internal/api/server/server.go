@@ -349,8 +349,14 @@ func fail(w http.ResponseWriter, err error) {
 		})
 	case errors.Is(err, ledger.ErrBadCredential):
 		refuse(w, http.StatusUnauthorized, api.ErrorDetail{Code: api.CodeBadCredential, Message: err.Error()})
+	case errors.Is(err, ledger.ErrJoinTokenExpired):
+		refuse(w, http.StatusUnauthorized, api.ErrorDetail{Code: api.CodeJoinTokenExpired, Message: err.Error()})
+	case errors.Is(err, ledger.ErrJoinTokenRevoked):
+		refuse(w, http.StatusUnauthorized, api.ErrorDetail{Code: api.CodeJoinTokenRevoked, Message: err.Error()})
 	case errors.Is(err, ledger.ErrBadJoinToken):
 		refuse(w, http.StatusUnauthorized, api.ErrorDetail{Code: api.CodeBadJoinToken, Message: err.Error()})
+	case errors.Is(err, ledger.ErrJoinTokenUsed):
+		refuse(w, http.StatusConflict, api.ErrorDetail{Code: api.CodeJoinTokenUsed, Message: err.Error()})
 	case errors.Is(err, authority.ErrNoSession):
 		refuse(w, http.StatusUnauthorized, api.ErrorDetail{Code: api.CodeSessionRequired, Message: err.Error()})
 	case errors.Is(err, authority.ErrBadProof):

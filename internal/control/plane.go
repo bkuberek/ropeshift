@@ -207,9 +207,19 @@ func homeMode(projects []ledger.DesiredProject) ledger.FleetMode {
 	return ledger.FleetRun
 }
 
-// CreateJoinToken makes a single-use token for one worker of the installation.
+// CreateJoinToken makes a single-use token for one worker of the installation that never expires.
 func (p *Plane) CreateJoinToken(ctx context.Context, actor ledger.Actor) (string, error) {
 	return createJoinToken(ctx, p.installation, actor)
+}
+
+// MakeJoinToken makes a single-use token that expires after a lifetime, a day for zero and at most thirty days.
+func (p *Plane) MakeJoinToken(ctx context.Context, actor ledger.Actor, lifetime time.Duration) (JoinToken, error) {
+	return makeJoinToken(ctx, p.installation, actor, lifetime)
+}
+
+// RevokeJoinToken ends a token no worker used.
+func (p *Plane) RevokeJoinToken(ctx context.Context, actor ledger.Actor, id string) error {
+	return revokeJoinToken(ctx, p.installation, actor, id)
 }
 
 // Register exchanges a join token for a credential.
