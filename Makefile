@@ -129,7 +129,7 @@ check-postgres:
 KILLS ?= 120
 
 chaos:
-	KILLS=$(KILLS) $(GO) test -tags chaos -count=1 -timeout 45m ./test/chaos/...
+	KILLS=$(KILLS) $(GO) test -tags chaos -count=1 -timeout 45m ./internal/crashpoint/... ./test/chaos/...
 	@$(MAKE) --no-print-directory canary
 
 # The one layer that starts real sessions, and only when asked by name. The guards'

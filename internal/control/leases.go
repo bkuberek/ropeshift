@@ -300,6 +300,7 @@ func (l *Leases) Sweep(ctx context.Context, scope ledger.WorkspaceID, actor ledg
 	crashpoint.Hit("sweep", "candidates-read")
 	var lapsed []string
 	for _, id := range candidates {
+		crashpoint.Hit("sweep", "before-lapse")
 		changed, err := l.lapse(ctx, scope, id, actor)
 		if err != nil {
 			return lapsed, err
