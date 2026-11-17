@@ -441,7 +441,7 @@ func (q *Questions) DecisionRework(ctx context.Context, scope ledger.WorkspaceID
 			return fmt.Errorf("%w: work order %s got no rework", workorders.ErrInvalid, order.ID)
 		}
 		rework = made[0]
-		return recordRework(tx, order, rework, actor)
+		return recordRework(tx, order, rework, decisions, actor)
 	})
 	return rework, err
 }
@@ -516,9 +516,9 @@ func decisionReasons(tx ports.WriteTx, listed planning.RevisionWork, order worko
 	return why, nil
 }
 
-// recordRework puts the rework a member made of a finished work order on the revision of its plan that lists the
-// work.
-func recordRework(tx ports.WriteTx, order workorders.WorkOrder, rework string, actor ledger.Actor) error {
+// recordRework puts the rework a member made of a finished work order, for the decisions given, on the revision of
+// its plan that lists the work.
+func recordRework(tx ports.WriteTx, order workorders.WorkOrder, rework string, decisions []string, actor ledger.Actor) error {
 	plan, err := newScopeFacts(tx.Planning(), tx.WorkOrders()).planOf(order.ContractID, order.ContractVersion)
 	if err != nil || plan == "" {
 		return err
@@ -530,7 +530,7 @@ func recordRework(tx ports.WriteTx, order workorders.WorkOrder, rework string, a
 	if err != nil {
 		return err
 	}
-	if next := open.Reworked(order.ID, rework); !reflect.DeepEqual(next, open) {
+	if next := open.Reworked(order.ID, rework, decisions); !reflect.DeepEqual(next, open) {
 		return saveRevision(tx, next, planning.EventRevisionExtended, actor)
 	}
 	return nil

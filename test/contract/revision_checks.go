@@ -36,6 +36,7 @@ var RevisionChecks = []Check{
 	{"PRV16", "rework for a decision is refused for finished work the revision does not list", checkRevisionReworkOfUnlistedWork},
 	{"PRV17", "a one-way decision recorded after a branch's approval keeps the hold on its work when intake records the version", checkRevisionBranchKeepsALaterHold},
 	{"PRV18", "a branch approved before any decision of the revision leaves the revision open, since the version it approved", checkRevisionBranchRebasesWhatItApprovedBefore},
+	{"PRV19", "a revision a branch's approval splits gives each part only the rework its own decisions made", checkRevisionSplitSharesNoRework},
 }
 
 func checkRevisionReworkOfUnlistedWork(r *Rig) error {
@@ -303,6 +304,55 @@ func checkRevisionBranchRebasesWhatItApprovedBefore(r *Rig) error {
 	}
 	if counts[planning.EventRevisionRebased] != 1 {
 		return Violatedf("the log holds %v, want the revision rebased once", counts)
+	}
+	return r.CheckQuestions(m.s)
+}
+
+// checkRevisionSplitSharesNoRework has a decision reach a finished work order, a member make rework of it for that
+// decision, and a branch's approval split the revision after a second decision reached the same work order. The
+// revision the approval closes holds the rework, and the new one holds the second decision with none: nobody has
+// asked for rework for it, so the card must still offer it.
+func checkRevisionSplitSharesNoRework(r *Rig) error {
+	m, err := midPlanWorld(r)
+	if err != nil {
+		return err
+	}
+	done := m.orders["done"]
+	shown, err := m.decide(r.member(), "contract:"+m.contractOf("done"), questions.Reversible)
+	if err != nil {
+		return err
+	}
+	rework, err := r.NewOps(m.s).DecisionRework(r.Ctx, r.Scope, done, []string{shown.ID}, r.member())
+	if err != nil {
+		return err
+	}
+	session, pending, err := m.branchAsksForApproval()
+	if err != nil {
+		return err
+	}
+	if _, err := r.approve(m.s, pending, true, theMember); err != nil {
+		return err
+	}
+	r.DB.ShiftClock(1_000)
+	later, err := m.decide(r.member(), "contract:"+m.contractOf("done"), questions.Reversible)
+	if err != nil {
+		return err
+	}
+	if err := m.intakeTakesTheBranch(session); err != nil {
+		return err
+	}
+	all, err := m.revisions()
+	if err != nil || len(all) != 2 {
+		return Violatedf("the plan has the revisions %+v, want the one the approval closed and the one for the later decision: %v", all, err)
+	}
+	settled, open := all[0], all[1]
+	if len(settled.Finished) != 1 || settled.Finished[0].WorkOrder != done || !slices.Equal(settled.Finished[0].Decisions, []string{shown.ID}) ||
+		settled.Finished[0].Rework != rework || !slices.Equal(settled.Finished[0].ReworkFor, []string{shown.ID}) {
+		return Violatedf("the revision the approval closed lists %+v, want the finished work with the rework %s made for %s", settled.Finished, rework, shown.ID)
+	}
+	if len(open.Finished) != 1 || open.Finished[0].WorkOrder != done || !slices.Equal(open.Finished[0].Decisions, []string{later.ID}) ||
+		open.Finished[0].Rework != "" || len(open.Finished[0].ReworkFor) != 0 {
+		return Violatedf("the new revision lists %+v, want the finished work for %s with no rework, because the rework %s was made for %s", open.Finished, later.ID, rework, shown.ID)
 	}
 	return r.CheckQuestions(m.s)
 }

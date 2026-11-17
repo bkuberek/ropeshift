@@ -2,6 +2,7 @@ package planning_test
 
 import (
 	"encoding/json"
+	"reflect"
 	"slices"
 	"testing"
 
@@ -34,16 +35,76 @@ func TestARevisionListsEachDecisionAndEachFinishedWorkOrderOnce(t *testing.T) {
 
 func TestARevisionRecordsTheReworkOfOneWorkOrderAndLeavesOthers(t *testing.T) {
 	revision := planning.Revision{ID: "r1", PlanID: "factory"}.Extend("d1", 10, []string{"done", "load"})
-	reworked := revision.Reworked("done", "redo")
+	reworked := revision.Reworked("done", "redo", []string{"d1"})
 
 	if reworked.Finished[0].Rework != "redo" || reworked.Finished[1].Rework != "" {
 		t.Errorf("rework recorded as %+v", reworked.Finished)
 	}
-	if revision.Finished[0].Rework != "" {
+	if revision.Finished[0].Rework != "" || len(revision.Finished[0].ReworkFor) != 0 {
 		t.Errorf("recording rework changed the revision it started from")
 	}
-	if skipped := revision.Reworked("elsewhere", "redo"); slices.ContainsFunc(skipped.Finished, func(work planning.RevisionWork) bool { return work.Rework != "" }) {
+	if skipped := revision.Reworked("elsewhere", "redo", []string{"d1"}); slices.ContainsFunc(skipped.Finished, func(work planning.RevisionWork) bool { return work.Rework != "" }) {
 		t.Errorf("rework of a work order the revision does not list was recorded: %+v", skipped.Finished)
+	}
+}
+
+func TestARevisionRecordsTheDecisionsEachReworkWasMadeFor(t *testing.T) {
+	revision := planning.Revision{ID: "r1", PlanID: "factory"}.Extend("d1", 10, []string{"done"}).Extend("d2", 20, []string{"done"}).Extend("d3", 30, []string{"done"})
+
+	first := revision.Reworked("done", "redo", []string{"d2"})
+	if !slices.Equal(first.Finished[0].ReworkFor, []string{"d2"}) {
+		t.Errorf("rework for d2 recorded as %v", first.Finished[0].ReworkFor)
+	}
+	taken := first.Reworked("done", "redo", []string{"d3", "d1", "nobody"})
+	if !slices.Equal(taken.Finished[0].ReworkFor, []string{"d1", "d2", "d3"}) {
+		t.Errorf("the rework that took more decisions is for %v, want d1, d2 and d3 in the order the work lists them, and no decision the work lacks", taken.Finished[0].ReworkFor)
+	}
+	if again := taken.Reworked("done", "redo", []string{"d1"}); !reflect.DeepEqual(again, taken) {
+		t.Errorf("recording the same rework for a decision it holds changed the revision: %+v", again.Finished)
+	}
+	replaced := taken.Reworked("done", "redo-2", []string{"d3"})
+	if replaced.Finished[0].Rework != "redo-2" || !slices.Equal(replaced.Finished[0].ReworkFor, []string{"d3"}) {
+		t.Errorf("a different rework is %q for %v, want it to replace the first and be for d3 alone", replaced.Finished[0].Rework, replaced.Finished[0].ReworkFor)
+	}
+}
+
+func TestARevisionRestrictedToSomeDecisionsKeepsOnlyTheReworkTheirDecisionsMade(t *testing.T) {
+	revision := planning.Revision{ID: "r1", PlanID: "factory"}.Extend("d1", 10, []string{"done", "load"}).Extend("d2", 20, []string{"done"})
+
+	shownOnly := revision.Reworked("done", "redo", []string{"d1"})
+	shown, later := shownOnly.Restrict([]string{"d1"}), shownOnly.Restrict([]string{"d2"})
+	if shown.Finished[0].Rework != "redo" || !slices.Equal(shown.Finished[0].ReworkFor, []string{"d1"}) {
+		t.Errorf("the revision that holds d1 lists %+v, want the rework made for it", shown.Finished)
+	}
+	if len(later.Finished) != 1 || later.Finished[0].WorkOrder != "done" || later.Finished[0].Rework != "" || len(later.Finished[0].ReworkFor) != 0 {
+		t.Errorf("the revision that holds d2 lists %+v, want the same finished work with no rework, because the rework was made for d1", later.Finished)
+	}
+
+	both := revision.Reworked("done", "redo", []string{"d1", "d2"})
+	for _, keep := range [][]string{{"d1"}, {"d2"}} {
+		got := both.Restrict(keep)
+		if got.Finished[0].Rework != "redo" || !slices.Equal(got.Finished[0].ReworkFor, keep) {
+			t.Errorf("restricted to %v the rework is %q for %v, want the rework made for the decisions kept", keep, got.Finished[0].Rework, got.Finished[0].ReworkFor)
+		}
+	}
+
+	other := revision.Reworked("load", "redo-load", []string{"d1"})
+	if kept := other.Restrict([]string{"d1", "d2"}); kept.Finished[0].Rework != "" || kept.Finished[1].Rework != "redo-load" {
+		t.Errorf("restricting kept the rework of the wrong work order: %+v", kept.Finished)
+	}
+}
+
+func TestARevisionThatRecordedItsReworkWithoutDecisionsKeepsItOnlyWhereItsDecisionsAreAllKept(t *testing.T) {
+	legacy := planning.Revision{ID: "r1", PlanID: "factory"}.Extend("d1", 10, []string{"done"}).Extend("d2", 20, []string{"done"})
+	legacy.Finished[0].Rework = "redo"
+
+	if kept := legacy.Restrict([]string{"d1", "d2"}); kept.Finished[0].Rework != "redo" {
+		t.Errorf("restricted to every decision the work has, the rework is %q, want redo", kept.Finished[0].Rework)
+	}
+	for _, keep := range [][]string{{"d1"}, {"d2"}} {
+		if got := legacy.Restrict(keep); got.Finished[0].Rework != "" {
+			t.Errorf("restricted to %v the rework is %q, want none: the revision never said which decisions it was for", keep, got.Finished[0].Rework)
+		}
 	}
 }
 
