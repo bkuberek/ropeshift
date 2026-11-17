@@ -4,6 +4,10 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"path"
+	"strings"
 )
 
 // LayoutShape is the shape `ropeshift adopt` proposes for what it detects around a clone (FR-ADOPT-12).
@@ -170,6 +174,49 @@ type AdoptionPlan struct {
 	// repository, which the registration itself changes. A restructuring sends it back, so a layout that changed
 	// in between is found.
 	Digest string `json:"digest,omitempty"`
+}
+
+// Restructure is the restructuring a member chose from an adoption plan, as an adopt work order keeps it: the
+// shape, the digest of the plan it was chosen from, and for a consolidation the design repository and the code
+// trees to leave out.
+type Restructure struct {
+	Shape  LayoutShape `json:"shape"`
+	Digest string      `json:"digest"`
+	// DesignPath is the clone of the design repository, and DesignRoot its first-parent root, which the history
+	// a consolidation imports is checked against.
+	DesignPath string `json:"design_path,omitempty"`
+	DesignRoot string `json:"design_root,omitempty"`
+	// LeaveOut names the design repository's code trees a consolidation removes, relative to its top.
+	LeaveOut []string `json:"leave_out,omitempty"`
+}
+
+// ErrBadRestructure marks a restructuring that cannot be kept.
+var ErrBadRestructure = errors.New("invalid restructuring")
+
+// Validate refuses a restructuring that names a shape with nothing to restructure, carries no digest, or holds
+// a design repository or code trees outside a consolidation.
+func (r Restructure) Validate() error {
+	if !r.Shape.Restructures() {
+		return fmt.Errorf("%w: the shape %q offers nothing to restructure", ErrBadRestructure, r.Shape)
+	}
+	if hash, ok := strings.CutPrefix(r.Digest, DigestSHA256); !ok || len(hash) != sha256.Size*2 || strings.Trim(hash, "0123456789abcdef") != "" {
+		return fmt.Errorf("%w: the digest %q is no SHA-256 digest of a plan", ErrBadRestructure, r.Digest)
+	}
+	if r.Shape != ShapeConsolidate {
+		if r.DesignPath != "" || r.DesignRoot != "" || len(r.LeaveOut) != 0 {
+			return fmt.Errorf("%w: a design repository and code trees to leave out belong to a consolidation, and this is the %s shape", ErrBadRestructure, r.Shape)
+		}
+		return nil
+	}
+	if !path.IsAbs(r.DesignPath) || r.DesignRoot == "" {
+		return fmt.Errorf("%w: a consolidation names the design repository by its absolute path and its first-parent root", ErrBadRestructure)
+	}
+	for _, tree := range r.LeaveOut {
+		if tree == "" || tree == "." || path.IsAbs(tree) || path.Clean(tree) != tree || tree == ".." || strings.HasPrefix(tree, "../") {
+			return fmt.Errorf("%w: %q is no code tree below the design repository's top", ErrBadRestructure, tree)
+		}
+	}
+	return nil
 }
 
 // ComputeDigest is the digest of the plan as it stands.

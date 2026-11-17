@@ -8,6 +8,7 @@ import (
 
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/measures"
+	"ropeshift.com/ropeshift/internal/planning"
 )
 
 // Kind says what a work order produces.
@@ -77,6 +78,10 @@ type WorkOrder struct {
 	// project's documents and plan what remains, and the worker gives it the inventory of the project's
 	// repositories before it starts.
 	Adopt bool `json:"adopt,omitempty"`
+	// Restructure is the restructuring a member chose when they adopted, from the plan of the layout they read:
+	// its shape, the plan's digest, and for a consolidation the design repository and the code trees to leave
+	// out. Only adopting work carries one.
+	Restructure *planning.Restructure `json:"restructure,omitempty"`
 	// Agent names the roster agent this work's lane runs as (ADR-0025). Empty leaves the choice to the
 	// roster's default mapping.
 	Agent           string `json:"agent,omitempty"`
@@ -145,6 +150,14 @@ func New(draft WorkOrder) (WorkOrder, error) {
 	}
 	if draft.Adopt && draft.Kind != KindPlan {
 		return WorkOrder{}, fmt.Errorf("%w: only planning work adopts a project, and this is a %s", ErrInvalid, draft.Kind)
+	}
+	if draft.Restructure != nil {
+		if !draft.Adopt {
+			return WorkOrder{}, fmt.Errorf("%w: only work that adopts a project restructures it", ErrInvalid)
+		}
+		if err := draft.Restructure.Validate(); err != nil {
+			return WorkOrder{}, fmt.Errorf("%w: %v", ErrInvalid, err)
+		}
 	}
 	draft.State = Intake
 	return draft, nil

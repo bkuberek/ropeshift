@@ -22,6 +22,7 @@ var AdoptChecks = []Check{
 	{"AS3", "adoption is refused for a project that already has an approved plan, and not before", checkAdoptionRefusedOnceAPlanIsApproved},
 	{"AS4", "an adopt lane's branch asks for approval grouped into what exists, continues, is new, and is left out, with every file it changed", checkAnAdoptedPlanAsksGrouped},
 	{"AS5", "an adoption whose branch cannot be read asks all the same, and says why it shows no change", checkAnAdoptedPlanWithNoBaseSaysWhy},
+	{"AS6", "an adopt work order keeps the restructuring a member chose through a rebuild, and only adopting work restructures", checkAnAdoptOrderKeepsItsRestructuring},
 }
 
 // adoptOrder records ready planning work that adopts the project, in a repository.
@@ -120,6 +121,51 @@ func checkOnlyPlanningWorkAdopts(r *Rig) error {
 		return Violatedf("a change that adopts was recorded: %v", err)
 	}
 	return nil
+}
+
+// checkAnAdoptOrderKeepsItsRestructuring records adopting work with a consolidation, reads it back, and reads it
+// again after the projection is rebuilt from the log, and holds that work which does not adopt, or whose
+// restructuring cannot be kept, is refused.
+func checkAnAdoptOrderKeepsItsRestructuring(r *Rig) error {
+	s := r.Store()
+	chosen := &planning.Restructure{
+		Shape: planning.ShapeConsolidate, Digest: planning.DigestSHA256 + strings.Repeat("b", 64),
+		DesignPath: "/work/ws/repos/design", DesignRoot: strings.Repeat("c", 40), LeaveOut: []string{"tools", "web/app"},
+	}
+	record := func(order workorders.WorkOrder) (workorders.WorkOrder, error) {
+		order.Kind, order.Title, order.MaxAttempts = workorders.KindPlan, "Adopt the project", 1
+		return r.NewOps(s).Record(r.Ctx, r.Scope, control.LedgerWork{Order: order, Statement: "Onboard.", Criteria: criteriaOf(criterionOne)}, r.member())
+	}
+	made, err := record(workorders.WorkOrder{ID: r.ID("adopt"), Adopt: true, Restructure: chosen})
+	if err != nil {
+		return err
+	}
+	if !reflect.DeepEqual(made.Restructure, chosen) {
+		return Violatedf("the work order recorded reads %+v, want %+v", made.Restructure, chosen)
+	}
+	plain, err := record(workorders.WorkOrder{ID: r.ID("adopt"), Adopt: true})
+	if err != nil {
+		return err
+	}
+	if err := r.NewOps(s).Rebuild(r.Ctx, r.Scope, r.Actor); err != nil {
+		return err
+	}
+	for id, want := range map[string]*planning.Restructure{made.ID: chosen, plain.ID: nil} {
+		row, err := r.WorkOrder(s, id)
+		if err != nil || !row.Adopt || !reflect.DeepEqual(row.Restructure, want) {
+			return Violatedf("after a rebuild work order %s reads %+v, want the restructuring %+v: %v", id, row.Restructure, want, err)
+		}
+	}
+	for name, order := range map[string]workorders.WorkOrder{
+		"work that does not adopt":      {ID: r.ID("plan"), Restructure: chosen},
+		"a restructuring of one shape":  {ID: r.ID("single"), Adopt: true, Restructure: &planning.Restructure{Shape: planning.ShapeSingle, Digest: chosen.Digest}},
+		"a restructuring with no check": {ID: r.ID("nodigest"), Adopt: true, Restructure: &planning.Restructure{Shape: planning.ShapePlanned}},
+	} {
+		if _, err := record(order); !errors.Is(err, workorders.ErrInvalid) {
+			return Violatedf("%s was recorded: %v", name, err)
+		}
+	}
+	return r.CheckProjection(s)
 }
 
 func checkAdoptionRefusedOnceAPlanIsApproved(r *Rig) error {

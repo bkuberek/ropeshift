@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/planning"
 	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/internal/workorders"
 )
@@ -15,7 +16,7 @@ const workOrderColumns = `id, kind, state, title, repository_id, priority, size,
        contract_id, contract_version, fence, claim_id, lease_worker, lease_until,
        takeover_after, branch, resume_lane_id, rework_of, attempts, max_attempts,
        deadline, reviewed_by, rev, reviews_plan, review_pins, plan_commit, base, start_held, reviews, reviews_fence,
-       unknown_repository, continues, adopt, agent`
+       unknown_repository, continues, adopt, restructure, agent`
 
 var (
 	stmtReadWorkOrder = define("work_order.read",
@@ -68,12 +69,12 @@ var (
   (workspace_id, id, kind, state, title, repository_id, priority, size, requirements, needs,
    contract_id, contract_version, fence, claim_id, lease_worker, lease_until,
    takeover_after, branch, resume_lane_id, rework_of, attempts, max_attempts, deadline, reviewed_by, rev, reviews_plan, review_pins, plan_commit, base, start_held, reviews, reviews_fence,
-   unknown_repository, continues, adopt, agent)
+   unknown_repository, continues, adopt, restructure, agent)
 VALUES
   (:workspace_id, :id, :kind, :state, :title, :repository_id, :priority, :size, :requirements, :needs,
    :contract_id, :contract_version, :fence, :claim_id, :lease_worker, :lease_until,
    :takeover_after, :branch, :resume_lane_id, :rework_of, :attempts, :max_attempts, :deadline, :reviewed_by, :rev, :reviews_plan, :review_pins, :plan_commit, :base, :start_held, :reviews, :reviews_fence,
-   :unknown_repository, :continues, :adopt, :agent)`)
+   :unknown_repository, :continues, :adopt, :restructure, :agent)`)
 
 	stmtDeleteWorkOrders = define("work_order.delete_all",
 		`DELETE FROM work_orders WHERE workspace_id = :workspace_id`)
@@ -281,7 +282,12 @@ func workOrderParams(scope ledger.WorkspaceID, w workorders.WorkOrder) (params, 
 	if err != nil {
 		return nil, err
 	}
+	restructure, err := encodeJSON(w.Restructure != nil, w.Restructure)
+	if err != nil {
+		return nil, err
+	}
 	return params{
+		"restructure":        restructure,
 		"start_held":         hold,
 		"reviews":            nullText(w.Reviews),
 		"reviews_fence":      nullInt(w.ReviewsFence),
@@ -341,18 +347,24 @@ func scanWorkOrder(row scanner) (workorders.WorkOrder, error) {
 	var kind, state string
 	var title, repository, size, requirements, needs, contractID, claimID, leaseWorker sql.NullString
 	var branch, resumeLane, reworkOf, reviewedBy, reviewsPlan, reviewPins, planCommit, base, startHeld sql.NullString
-	var reviews, unknownRepository, continues sql.NullString
+	var reviews, unknownRepository, continues, restructure sql.NullString
 	var contractVersion, leaseUntil, takeoverAfter, deadline, reviewsFence sql.NullInt64
 	var adopt int64
 	err := row.Scan(&w.ID, &kind, &state, &title, &repository, &w.Priority, &size, &requirements, &needs,
 		&contractID, &contractVersion, &w.Fence, &claimID, &leaseWorker, &leaseUntil,
 		&takeoverAfter, &branch, &resumeLane, &reworkOf, &w.Attempts, &w.MaxAttempts,
 		&deadline, &reviewedBy, &w.Rev, &reviewsPlan, &reviewPins, &planCommit, &base, &startHeld, &reviews, &reviewsFence,
-		&unknownRepository, &continues, &adopt, &w.Agent)
+		&unknownRepository, &continues, &adopt, &restructure, &w.Agent)
 	if err != nil {
 		return workorders.WorkOrder{}, err
 	}
 	w.Continues, w.Adopt = continues.String, adopt != 0
+	if restructure.Valid {
+		w.Restructure = new(planning.Restructure)
+		if err := json.Unmarshal([]byte(restructure.String), w.Restructure); err != nil {
+			return workorders.WorkOrder{}, fmt.Errorf("restructure: %w", err)
+		}
+	}
 	w.ReviewsPlan, w.PlanCommit, w.Base = reviewsPlan.String, planCommit.String, base.String
 	w.Reviews, w.ReviewsFence = reviews.String, reviewsFence.Int64
 	if startHeld.Valid {
