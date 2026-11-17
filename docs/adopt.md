@@ -2,7 +2,7 @@
 
 Most projects already have code, some documents, and a few branches in flight. Adopting brings such a project into ropeshift without rewriting it: an adopt session reads what is there, onboards your documents into ropeshift's format, marks what the code already does, and plans what remains. You review the result as one plan and one branch, and your default branch does not change until you decide.
 
-For a project that already has code, this guide takes the place of setting up your projects and planning your first change, the two guides before it in [the README's documentation](../README.md#documentation). It follows Moorings, which books a harbor's moorings for visiting boats, with two code repositories, `moorings-api` and `moorings-web`, and its documents in `moorings-docs`. Put your own names in their place.
+For a project that already has code, this guide takes the place of [set up your projects](set-up-projects.md) and [plan your first change](plan-your-first-change.md), the two guides before it. It follows Moorings, which books a harbor's moorings for visiting boats, with two code repositories, `moorings-api` and `moorings-web`, and its documents in `moorings-docs`. Put your own names in their place.
 
 ## What adopting does
 
@@ -112,7 +112,7 @@ Open pull requests and issues are not read yet, and the inventory says so.
 
 The session is a planning session, so it runs in a pane, its questions are yours, and it survives a detach, a park, and a restart of the daemon. Its brief asks the agent to:
 
-- **Onboard, not rewrite.** Add front matter to your existing requirements, specs, architecture notes, and decision records, keeping their prose and their IDs. Move a file only when the format needs it elsewhere, with `git mv`, so its history follows it.
+- **Onboard, not rewrite.** Add front matter to your existing requirements, specs, architecture notes, and decision records, keeping their prose and their IDs. Move a file only when the format needs it elsewhere, with `git mv`, so its history follows it. A decision record gets front matter of kind `decision` and a `status` of `proposed`, `accepted`, `superseded`, or `rejected`, which the session takes from the record's own status line, or `proposed` when the record states none. It needs no plan. Once its status is `accepted`, the record answers a lane's question like any decision you have recorded: the orchestrator finds it on the first rung of the question ladder, so check the status the session chose for each record before you merge the branch.
 - **Ask about what belongs to someone else.** A file whose front matter belongs to another tool, a document whose meaning is unclear, and two documents that contradict each other are questions for you, not guesses.
 - **Mark what is done**, with evidence.
 - **Plan what remains**, with shared contracts first, as any plan does.

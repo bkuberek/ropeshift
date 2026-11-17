@@ -4,7 +4,7 @@ This guide turns a goal into an approved plan in the web UI. You start a plannin
 
 ## Before you start
 
-- Finish set up your projects, the guide before this one in [the README's documentation](../README.md#documentation): the project has its repositories, and one of them is its planning repository.
+- Finish [set up your projects](set-up-projects.md), the guide before this one: the project has its repositories, and one of them is its planning repository.
 - The planning session runs in a terminal pane on the worker's machine, so that machine needs tmux, which [get started with the web UI](getting-started.md) installs.
 
 ## In the web UI
@@ -53,7 +53,7 @@ In the sidebar, select Needs you. It opens on the oldest item, here the session'
 ![Needs you, with the first question from the planning session, its options, and Something else](assets/screenshots/plan-04-light.png#gh-light-mode-only)
 ![Needs you, with the first question from the planning session, its options, and Something else](assets/screenshots/plan-04-dark.png#gh-dark-mode-only)
 
-Choose an option, or choose Something else and write your answer. The button counts the answers that are ready, `Send 0 of 1 answer` until you choose. Select Send this answer. The answer is recorded once, as your decision, and the session hears it. Then select the next question, and answer it the same way.
+Choose an option, or choose Something else and write your answer. The button counts the answers that are ready, `Send 0 of 1 answer` until you choose. Select Send this answer. The answer is recorded once, as your decision, and the session hears it. The item stays on the page, saying you answered it, until you move on. Then select the next question, and answer it the same way.
 
 ### 5. Follow the plan in the Outline
 
@@ -71,9 +71,9 @@ Only committed files show, so a file the session is still writing appears at its
 
 ### 6. Let the session submit the version
 
-When the plan is finished, the session submits it as a version for your approval, and its lane ends, so the Planning page then shows no session running. The session never submits while a blocking question is open.
+When the plan is finished, the session submits it as a version for your approval, and its lane ends. The Planning page then says No planning session is running, and shows the plan of the last session below it, as its branch holds it. The session never submits while a blocking question is open.
 
-Needs you then lists the version as a plan approval, and the session's work order beside it as waiting for acceptance. Approving the plan accepts the work order.
+Needs you then lists the version as a plan approval, and only that: approving the plan accepts the session's work order, so the work order does not wait there as well.
 
 ### 7. Read the plan approval in Needs you
 
