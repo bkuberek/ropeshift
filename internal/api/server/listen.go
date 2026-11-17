@@ -62,7 +62,7 @@ func PrivateDir(dir string) error {
 // so a socket already at the path is a leftover from a process that died.
 func Listen(socket string) (net.Listener, error) {
 	if len(socket) > api.MaxSocketPath {
-		return nil, fmt.Errorf("socket path is over %d bytes: %s", api.MaxSocketPath, socket)
+		return nil, api.SocketPathTooLong(socket)
 	}
 	if err := PrivateDir(filepath.Dir(socket)); err != nil {
 		return nil, err

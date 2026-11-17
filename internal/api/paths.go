@@ -1,7 +1,6 @@
 package api
 
 import (
-	"errors"
 	"fmt"
 	"path/filepath"
 )
@@ -110,7 +109,13 @@ func ResolvePaths(goos string, getenv func(string) string, home string) (Paths, 
 		p.WorktreeDir = dir
 	}
 	if len(p.ControlSocket()) > MaxSocketPath {
-		return Paths{}, errors.New("socket path is over the limit: " + p.ControlSocket())
+		return Paths{}, SocketPathTooLong(p.ControlSocket())
 	}
 	return p, nil
+}
+
+// SocketPathTooLong is the error for a socket path over MaxSocketPath. It names the
+// limit, the path, and the way out.
+func SocketPathTooLong(socket string) error {
+	return fmt.Errorf("socket path is over the limit (%d bytes): %s; set %s to a shorter directory", MaxSocketPath, socket, EnvRunDir)
 }
