@@ -34,12 +34,50 @@ func (f RecordFilter) query() string {
 
 // QuestionList is the answer to a list of questions.
 type QuestionList struct {
-	Questions []questions.Question `json:"questions"`
+	Questions []QuestionView `json:"questions"`
+}
+
+// QuestionView is a question as a read answers it. Scope is the scope an answer to it takes, from the record it is
+// about (questions.ScopeOf), and ScopeTitle the title of that record, as DecisionView says.
+type QuestionView struct {
+	questions.Question
+	Scope      string `json:"scope,omitempty"`
+	ScopeTitle string `json:"scope_title,omitempty"`
+}
+
+// QuestionBatch is a delivered batch as a read answers it: what still waits for a member in it.
+type QuestionBatch struct {
+	Batch questions.Batch `json:"batch"`
+	Items []QuestionItem  `json:"items"`
+}
+
+// QuestionItem is one question of a batch, with the title of the record its scope names, as DecisionView says.
+type QuestionItem struct {
+	questions.Item
+	ScopeTitle string `json:"scope_title,omitempty"`
 }
 
 // DecisionList is the answer to a list of decisions.
 type DecisionList struct {
-	Decisions []questions.Decision `json:"decisions"`
+	Decisions []DecisionView `json:"decisions"`
+}
+
+// DecisionView is a decision as a read answers it. ScopeTitle is the title of the record its scope names, read in
+// the same read: a plan's, a contract's newest version's, or a work order's title, or a repository's name. It is
+// empty when the ledger holds no such record, for a scope written before the grammar, and for a title that only
+// repeats the scope's ID, so a display shows the scope alone.
+type DecisionView struct {
+	questions.Decision
+	ScopeTitle string `json:"scope_title,omitempty"`
+}
+
+// ScopeLabel is how a client names a scope: the scope, and beside it the title of the record it names when the
+// read gave one.
+func ScopeLabel(scope, title string) string {
+	if scope == "" || title == "" {
+		return scope
+	}
+	return scope + " · " + title
 }
 
 // RecordQuestion asks for a question to be recorded. The client generates ID, so a retry
@@ -110,7 +148,7 @@ type AnswerQuestion struct {
 
 // BatchList is what reached members and still waits for them.
 type BatchList struct {
-	Batches []questions.Presented `json:"batches"`
+	Batches []QuestionBatch `json:"batches"`
 }
 
 // CategoryList is every category of a workspace, built-in and added.
@@ -136,15 +174,15 @@ type CandidateList struct {
 }
 
 // Questions lists the questions a filter selects.
-func (c *ProjectClient) Questions(ctx context.Context, filter RecordFilter) ([]questions.Question, error) {
+func (c *ProjectClient) Questions(ctx context.Context, filter RecordFilter) ([]QuestionView, error) {
 	var out QuestionList
 	err := c.do(ctx, http.MethodGet, "/v1/questions"+filter.query(), nil, &out)
 	return out.Questions, err
 }
 
 // Question reads one question.
-func (c *ProjectClient) Question(ctx context.Context, id string) (questions.Question, error) {
-	var out questions.Question
+func (c *ProjectClient) Question(ctx context.Context, id string) (QuestionView, error) {
+	var out QuestionView
 	err := c.do(ctx, http.MethodGet, "/v1/questions/"+url.PathEscape(id), nil, &out)
 	return out, err
 }
@@ -170,7 +208,7 @@ func (c *ProjectClient) AnswerQuestion(ctx context.Context, id string, in Answer
 
 // Batches lists the delivered batches that still wait for a member, within one category.
 // An empty category lists them all.
-func (c *ProjectClient) Batches(ctx context.Context, category string) ([]questions.Presented, error) {
+func (c *ProjectClient) Batches(ctx context.Context, category string) ([]QuestionBatch, error) {
 	path := "/v1/question-batches"
 	if category != "" {
 		path += "?category=" + url.QueryEscape(category)
@@ -181,15 +219,15 @@ func (c *ProjectClient) Batches(ctx context.Context, category string) ([]questio
 }
 
 // Decisions lists the decisions a filter selects.
-func (c *ProjectClient) Decisions(ctx context.Context, filter RecordFilter) ([]questions.Decision, error) {
+func (c *ProjectClient) Decisions(ctx context.Context, filter RecordFilter) ([]DecisionView, error) {
 	var out DecisionList
 	err := c.do(ctx, http.MethodGet, "/v1/decisions"+filter.query(), nil, &out)
 	return out.Decisions, err
 }
 
 // Decision reads one decision.
-func (c *ProjectClient) Decision(ctx context.Context, id string) (questions.Decision, error) {
-	var out questions.Decision
+func (c *ProjectClient) Decision(ctx context.Context, id string) (DecisionView, error) {
+	var out DecisionView
 	err := c.do(ctx, http.MethodGet, "/v1/decisions/"+url.PathEscape(id), nil, &out)
 	return out, err
 }

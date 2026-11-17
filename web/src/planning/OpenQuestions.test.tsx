@@ -8,6 +8,9 @@ import { golden, here, serveViews } from "../testing";
 
 const filters = () => screen.findByRole("navigation", { name: "Filter by category" });
 
+// scopeOf reads what a question's card says of its scope.
+const scopeOf = (card: HTMLElement) => within(card).getByText("Scope").closest("div")?.querySelector("dd")?.textContent;
+
 // Filtering is the server's: a test that served the same list for every category would pass with no
 // filter at all, so this serves only what the category holds.
 function serveByCategory() {
@@ -39,6 +42,29 @@ describe("the open questions", () => {
     openPage("/questions");
     const card = await screen.findByRole("article", { name: "Does the plan cover a restart?" });
     expect(within(card).getByText("Open")).toBeTruthy();
+  });
+
+  it("names what a question's answer binds, with the title of the record its scope names", async () => {
+    const review = golden<Questions>("questions").questions.find((question) => question.id === "question-review");
+    expect(review?.scope).toMatch(/^plan:/);
+    expect(review?.scope_title).toBeTruthy();
+    serveViews();
+    openPage("/questions");
+    const card = await screen.findByRole("article", { name: "Does the plan cover a restart?" });
+    expect(scopeOf(card)).toBe(`${review?.scope} · ${review?.scope_title}`);
+    const other = await screen.findByRole("article", { name: "Should the budget hold across restarts?" });
+    expect(within(other).queryByText("Scope")).toBeNull();
+  });
+
+  it("names a question's scope by its ID alone when the read gave no title", async () => {
+    const view = golden<Questions>("questions");
+    for (const question of view.questions) {
+      delete question.scope_title;
+    }
+    serveViews((call) => (call.path.startsWith("/v1/views/questions") ? { status: 200, body: view } : undefined));
+    openPage("/questions");
+    const card = await screen.findByRole("article", { name: "Does the plan cover a restart?" });
+    expect(scopeOf(card)).toBe(view.questions.find((question) => question.id === "question-review")?.scope);
   });
 
   it("shows how far a question climbed the ladder", async () => {

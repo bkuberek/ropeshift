@@ -5,7 +5,9 @@ import (
 	"slices"
 	"testing"
 
+	"ropeshift.com/ropeshift/internal/planning"
 	"ropeshift.com/ropeshift/internal/questions"
+	"ropeshift.com/ropeshift/internal/workorders"
 )
 
 func TestBatchPolicyFillsWhatIsNotStated(t *testing.T) {
@@ -58,6 +60,23 @@ func TestPresentShowsWhatWaitsForAMember(t *testing.T) {
 	}
 	if none := questions.Present(batch, rows, "business"); len(none.Items) != 0 || none.Items == nil {
 		t.Fatalf("an unused category shows %+v", none.Items)
+	}
+}
+
+// TestAnItemSaysWhatItsAnswerBinds holds that an item a member answers carries the scope its answer takes: the
+// record its question is about, and none for a question about nothing.
+func TestAnItemSaysWhatItsAnswerBinds(t *testing.T) {
+	rows := []questions.Question{
+		{ID: "q1", Text: "Keep the budget?", Status: questions.StatusNeedsHuman, SubjectKind: planning.SubjectPlan, SubjectID: "p1"},
+		{ID: "q2", Text: "Trim the log?", Status: questions.StatusNeedsHuman, SubjectKind: workorders.SubjectKind, SubjectID: "w1"},
+		{ID: "q3", Text: "Anything else?", Status: questions.StatusNeedsHuman},
+	}
+	var scopes []string
+	for _, item := range questions.Present(questions.Batch{ID: "b1"}, rows, "").Items {
+		scopes = append(scopes, item.Scope)
+	}
+	if want := []string{"plan:p1", "wo:w1", ""}; !slices.Equal(scopes, want) {
+		t.Errorf("the items bind %q, want %q", scopes, want)
 	}
 }
 

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"ropeshift.com/ropeshift/internal/api"
+	"ropeshift.com/ropeshift/internal/control"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/internal/questions"
@@ -39,12 +40,13 @@ func filterOf(r *http.Request) ports.RecordFilter {
 }
 
 func (h *handler) listQuestions(w http.ResponseWriter, r *http.Request) {
-	list := api.QuestionList{Questions: []questions.Question{}}
+	list := api.QuestionList{Questions: []api.QuestionView{}}
 	err := h.Store.Read(r.Context(), h.Scope, func(tx ports.ReadTx) error {
 		rows, err := tx.Questions().Questions(filterOf(r))
-		if err == nil && rows != nil {
-			list.Questions = rows
+		if err != nil {
+			return err
 		}
+		list.Questions, err = questionViews(tx, rows)
 		return err
 	})
 	if err != nil {
@@ -71,17 +73,67 @@ func (h *handler) recordQuestion(w http.ResponseWriter, r *http.Request, actor l
 }
 
 func (h *handler) showQuestion(w http.ResponseWriter, r *http.Request) {
-	var row questions.Question
+	var view api.QuestionView
 	err := h.Store.Read(r.Context(), h.Scope, func(tx ports.ReadTx) error {
-		var err error
-		row, err = tx.Questions().Question(r.PathValue("id"))
+		row, err := tx.Questions().Question(r.PathValue("id"))
+		if err != nil {
+			return err
+		}
+		views, err := questionViews(tx, []questions.Question{row})
+		if err == nil {
+			view = views[0]
+		}
 		return err
 	})
 	if err != nil {
 		fail(w, err)
 		return
 	}
-	reply(w, http.StatusOK, row)
+	reply(w, http.StatusOK, view)
+}
+
+// questionViews answers questions with the scope an answer to each takes, from the record it is about, and the
+// title of that record, read in the read that read them, once for each kind of scope they hold.
+func questionViews(tx ports.ReadTx, rows []questions.Question) ([]api.QuestionView, error) {
+	views := make([]api.QuestionView, 0, len(rows))
+	scopes := make([]string, 0, len(rows))
+	for _, row := range rows {
+		scope := questions.ScopeOf(row.SubjectKind, row.SubjectID)
+		views = append(views, api.QuestionView{Question: row, Scope: scope})
+		scopes = append(scopes, scope)
+	}
+	titles, err := control.ScopeTitles(tx, scopes)
+	if err != nil {
+		return nil, err
+	}
+	for i := range views {
+		views[i].ScopeTitle = titles[views[i].Scope]
+	}
+	return views, nil
+}
+
+// questionBatches answers presented batches with the title of the record each item's scope names, read once for
+// each kind of scope every batch holds.
+func questionBatches(tx ports.ReadTx, presented []questions.Presented) ([]api.QuestionBatch, error) {
+	var scopes []string
+	for _, batch := range presented {
+		for _, item := range batch.Items {
+			scopes = append(scopes, item.Scope)
+		}
+	}
+	titles, err := control.ScopeTitles(tx, scopes)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]api.QuestionBatch, 0, len(presented))
+	for _, batch := range presented {
+		items := make([]api.QuestionItem, 0, len(batch.Items))
+		for _, item := range batch.Items {
+			items = append(items, api.QuestionItem{Item: item, ScopeTitle: titles[item.Scope]})
+		}
+		out = append(out, api.QuestionBatch{Batch: batch.Batch, Items: items})
+	}
+	return out, nil
 }
 
 func (h *handler) dismissQuestion(w http.ResponseWriter, r *http.Request, actor ledger.Actor) {
@@ -115,22 +167,24 @@ func (h *handler) answerQuestion(w http.ResponseWriter, r *http.Request, actor l
 // category, and nothing is assigned to anyone.
 func (h *handler) listBatches(w http.ResponseWriter, r *http.Request) {
 	category := r.URL.Query().Get("category")
-	list := api.BatchList{Batches: []questions.Presented{}}
+	list := api.BatchList{Batches: []api.QuestionBatch{}}
 	err := h.Store.Read(r.Context(), h.Scope, func(tx ports.ReadTx) error {
 		batches, err := tx.Questions().WaitingBatches()
 		if err != nil {
 			return err
 		}
+		var waiting []questions.Presented
 		for _, batch := range batches {
 			rows, err := tx.Questions().BatchQuestions(batch.ID)
 			if err != nil {
 				return err
 			}
 			if presented := questions.Present(batch, rows, category); len(presented.Items) != 0 {
-				list.Batches = append(list.Batches, presented)
+				waiting = append(waiting, presented)
 			}
 		}
-		return nil
+		list.Batches, err = questionBatches(tx, waiting)
+		return err
 	})
 	if err != nil {
 		fail(w, err)
@@ -140,12 +194,13 @@ func (h *handler) listBatches(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *handler) listDecisions(w http.ResponseWriter, r *http.Request) {
-	list := api.DecisionList{Decisions: []questions.Decision{}}
+	list := api.DecisionList{Decisions: []api.DecisionView{}}
 	err := h.Store.Read(r.Context(), h.Scope, func(tx ports.ReadTx) error {
 		rows, err := tx.Questions().Decisions(filterOf(r))
-		if err == nil && rows != nil {
-			list.Decisions = rows
+		if err != nil {
+			return err
 		}
+		list.Decisions, err = decisionViews(tx, rows)
 		return err
 	})
 	if err != nil {
@@ -177,17 +232,46 @@ func (h *handler) recordDecision(w http.ResponseWriter, r *http.Request, actor l
 }
 
 func (h *handler) showDecision(w http.ResponseWriter, r *http.Request) {
-	var row questions.Decision
+	var view api.DecisionView
 	err := h.Store.Read(r.Context(), h.Scope, func(tx ports.ReadTx) error {
-		var err error
-		row, err = tx.Questions().Decision(r.PathValue("id"))
+		row, err := tx.Questions().Decision(r.PathValue("id"))
+		if err != nil {
+			return err
+		}
+		views, err := decisionViews(tx, []questions.Decision{row})
+		if err == nil {
+			view = views[0]
+		}
 		return err
 	})
 	if err != nil {
 		fail(w, err)
 		return
 	}
-	reply(w, http.StatusOK, row)
+	reply(w, http.StatusOK, view)
+}
+
+// decisionViews answers decisions with the title of the record each one's scope names, read in the read that
+// read them, once for each kind of scope they hold.
+func decisionViews(tx ports.ReadTx, rows []questions.Decision) ([]api.DecisionView, error) {
+	titles, err := decisionScopeTitles(tx, rows)
+	if err != nil {
+		return nil, err
+	}
+	views := make([]api.DecisionView, 0, len(rows))
+	for _, row := range rows {
+		views = append(views, api.DecisionView{Decision: row, ScopeTitle: titles[row.Scope]})
+	}
+	return views, nil
+}
+
+// decisionScopeTitles names the record each decision's scope names, by the scope.
+func decisionScopeTitles(tx ports.ReadTx, rows []questions.Decision) (map[string]string, error) {
+	scopes := make([]string, 0, len(rows))
+	for _, row := range rows {
+		scopes = append(scopes, row.Scope)
+	}
+	return control.ScopeTitles(tx, scopes)
 }
 
 func (h *handler) listCategories(w http.ResponseWriter, r *http.Request) {

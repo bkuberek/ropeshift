@@ -119,7 +119,7 @@ func TestAMemberRecordsDecisionsFromTheBrowser(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		return row
+		return row.Decision
 	}
 	b.r.d.HoldRepository(t, "billing")
 	raw := b.send(t, http.MethodPost, "/v1/decisions", api.RecordDecision{

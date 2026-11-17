@@ -56,6 +56,17 @@ export function Id({ value }: { value: string }) {
   );
 }
 
+// ScopeName names what a decision or a question binds: its scope, and beside it the title of the record the
+// scope names, which the read gives when the ledger holds that record. With no title, the scope stands alone.
+export function ScopeName({ scope, title }: { scope: string; title?: string }) {
+  return (
+    <>
+      <span>{scope}</span>
+      {title ? ` · ${title}` : null}
+    </>
+  );
+}
+
 // RecordChip names a record: its kind's icon and its identifier, in mono, and a link to it when it has one.
 export function RecordChip({ id, icon, to, label }: { id: string; icon?: IconName; to?: string; label?: string }) {
   const body = (

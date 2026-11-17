@@ -20,12 +20,15 @@ func filterFlags(set *flag.FlagSet, filter *api.RecordFilter) {
 	set.StringVar(&filter.Text, "text", "", "only records that match these words, best first")
 }
 
-func questionLine(q questions.Question) string {
-	return fmt.Sprintf("%s\t%s\t%s\t%s\n", q.ID, q.Status, strings.Join(q.Categories, ","), q.Text)
+// questionLine names the scope an answer to a question takes with the title of the record it names, when the read
+// gave one.
+func questionLine(q api.QuestionView) string {
+	return fmt.Sprintf("%s\t%s\t%s\t%s\t%s\n", q.ID, q.Status, strings.Join(q.Categories, ","), api.ScopeLabel(q.Scope, q.ScopeTitle), q.Text)
 }
 
-func decisionLine(d questions.Decision) string {
-	return fmt.Sprintf("%s\t%s\t%s\t%s\n", d.ID, d.Status, d.Scope, d.Statement)
+// decisionLine names a decision's scope with the title of the record it names, when the read gave one.
+func decisionLine(d api.DecisionView) string {
+	return fmt.Sprintf("%s\t%s\t%s\t%s\n", d.ID, d.Status, api.ScopeLabel(d.Scope, d.ScopeTitle), d.Statement)
 }
 
 func (c *invocation) questionList(args []string) int {
@@ -46,7 +49,7 @@ func (c *invocation) questionList(args []string) int {
 	defer client.Close()
 	rows, err := client.Questions(c.ctx, filter)
 	if rows == nil {
-		rows = []questions.Question{}
+		rows = []api.QuestionView{}
 	}
 	return c.finish(err, api.QuestionList{Questions: rows}, func() string {
 		var out strings.Builder
@@ -109,7 +112,9 @@ func (c *invocation) questionRecord(args []string) int {
 	}
 	defer client.Close()
 	row, err := client.RecordQuestion(c.ctx, request)
-	return c.finish(err, row, func() string { return questionLine(row) })
+	return c.finish(err, row, func() string {
+		return questionLine(api.QuestionView{Question: row, Scope: questions.ScopeOf(row.SubjectKind, row.SubjectID)})
+	})
 }
 
 func (c *invocation) questionDismiss(args []string) int {
@@ -164,7 +169,7 @@ func (c *invocation) questionAnswer(args []string) int {
 	}
 	defer client.Close()
 	row, err := client.AnswerQuestion(c.ctx, positional[0], request)
-	return c.finish(err, row, func() string { return decisionLine(row) })
+	return c.finish(err, row, func() string { return decisionLine(api.DecisionView{Decision: row}) })
 }
 
 func (c *invocation) questionBatches(args []string) int {
@@ -184,7 +189,7 @@ func (c *invocation) questionBatches(args []string) int {
 	defer client.Close()
 	rows, err := client.Batches(c.ctx, *category)
 	if rows == nil {
-		rows = []questions.Presented{}
+		rows = []api.QuestionBatch{}
 	}
 	return c.finish(err, api.BatchList{Batches: rows}, func() string {
 		var out strings.Builder
@@ -199,7 +204,7 @@ func (c *invocation) questionBatches(args []string) int {
 }
 
 // itemLines shows one question with all a member needs to answer it once.
-func itemLines(item questions.Item) string {
+func itemLines(item api.QuestionItem) string {
 	var out strings.Builder
 	blocking := ""
 	if item.Blocking {
@@ -207,6 +212,9 @@ func itemLines(item questions.Item) string {
 	}
 	fmt.Fprintf(&out, "  %s\t%s\t%s%s\n", item.ID, strings.Join(item.Categories, ","), item.Text, blocking)
 	fmt.Fprintf(&out, "    options: %s\n    recommendation: %s\n", strings.Join(item.Options, " | "), item.Recommendation)
+	if item.Scope != "" {
+		fmt.Fprintf(&out, "    scope: %s\n", api.ScopeLabel(item.Scope, item.ScopeTitle))
+	}
 	if len(item.Citations) != 0 {
 		fmt.Fprintf(&out, "    citations: %s\n", strings.Join(item.Citations, ", "))
 	}
@@ -231,7 +239,7 @@ func (c *invocation) decisionList(args []string) int {
 	defer client.Close()
 	rows, err := client.Decisions(c.ctx, filter)
 	if rows == nil {
-		rows = []questions.Decision{}
+		rows = []api.DecisionView{}
 	}
 	return c.finish(err, api.DecisionList{Decisions: rows}, func() string {
 		var out strings.Builder
@@ -306,7 +314,7 @@ func (c *invocation) decisionRecord(args []string) int {
 	}
 	defer client.Close()
 	row, err := client.RecordDecision(c.ctx, request)
-	return c.finish(err, row, func() string { return decisionLine(row) })
+	return c.finish(err, row, func() string { return decisionLine(api.DecisionView{Decision: row}) })
 }
 
 func (c *invocation) decisionOverturn(args []string) int {
@@ -343,8 +351,8 @@ func (c *invocation) decisionOverturn(args []string) int {
 	row, err := client.OverturnDecision(c.ctx, positional[0], request)
 	return c.finish(err, row, func() string {
 		var out strings.Builder
-		out.WriteString(decisionLine(row.Old))
-		out.WriteString(decisionLine(row.New))
+		out.WriteString(decisionLine(api.DecisionView{Decision: row.Old}))
+		out.WriteString(decisionLine(api.DecisionView{Decision: row.New}))
 		for _, id := range row.Rework {
 			out.WriteString("rework\t" + id + "\n")
 		}

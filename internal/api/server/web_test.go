@@ -23,7 +23,6 @@ import (
 	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/ports"
-	"ropeshift.com/ropeshift/internal/questions"
 	"ropeshift.com/ropeshift/test/apitest"
 	"ropeshift.com/ropeshift/web"
 )
@@ -490,7 +489,7 @@ func TestAPageReadsAViewAsUnrenderedJSON(t *testing.T) {
 		if item.Batch == nil {
 			continue
 		}
-		found = found || slices.ContainsFunc(item.Batch.Items, func(q questions.Item) bool { return strings.Contains(q.Text, apitest.WorldHostileBit) })
+		found = found || slices.ContainsFunc(item.Batch.Items, func(q api.QuestionItem) bool { return strings.Contains(q.Text, apitest.WorldHostileBit) })
 	}
 	if !found {
 		t.Error("the question's text did not survive as data")

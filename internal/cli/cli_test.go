@@ -677,7 +677,7 @@ func TestQuestionCommands(t *testing.T) {
 			t.Errorf("%v: %q", tt.args, text)
 		}
 	}
-	var want, got questions.Question
+	var want, got api.QuestionView
 	want, err := s.daemon.Client.Question(t.Context(), "q1")
 	if err != nil {
 		t.Fatal(err)
@@ -694,6 +694,30 @@ func TestQuestionCommands(t *testing.T) {
 	}
 	if code, _, _ := s.run("question", "show", "absent"); code != cli.ExitNotFound {
 		t.Errorf("exit %d", code)
+	}
+}
+
+// TestADecisionNamesTheRecordItsScopeNames holds that list and show name a scope with the title of the record it
+// names, and a scope whose record says nothing more than its ID by the ID alone.
+func TestADecisionNamesTheRecordItsScopeNames(t *testing.T) {
+	s := newSession(t)
+	s.daemon.HoldClone(t, "checkout", "payments")
+	s.daemon.HoldRepository(t, "billing")
+	s.must("decision", "record", "--id", "d1", "--statement", "Retry three times.", "--scope", "repo:checkout")
+	s.must("decision", "record", "--id", "d2", "--statement", "Bill monthly.", "--scope", "repo:billing")
+	titled, alone := "d1\tdecided\trepo:checkout · payments\tRetry three times.\n", "d2\tdecided\trepo:billing\tBill monthly.\n"
+	if text := s.must("decision", "list"); text != titled+alone {
+		t.Errorf("list %q", text)
+	}
+	if text := s.must("decision", "show", "d1"); text != titled {
+		t.Errorf("show %q", text)
+	}
+	if text := s.must("decision", "show", "d2"); text != alone {
+		t.Errorf("show %q", text)
+	}
+	var read api.DecisionView
+	if err := json.Unmarshal([]byte(s.must("decision", "show", "d1", "--json")), &read); err != nil || read.ScopeTitle != "payments" {
+		t.Errorf("show --json %+v: %v", read, err)
 	}
 }
 
@@ -885,11 +909,12 @@ func TestPassphraseSetFromATerminalEndsTheMembersSessions(t *testing.T) {
 }
 
 // deliveredBatch takes one question past the gate and delivers its batch, which is the
-// ledger's own path, because a person's commands stop at the batch.
-func (s *session) deliveredBatch(id, category string) {
+// ledger's own path, because a person's commands stop at the batch. Record adds flags to the
+// command that records the question.
+func (s *session) deliveredBatch(id, category string, record ...string) {
 	s.t.Helper()
 	ctx := s.t.Context()
-	s.must("question", "record", "--id", id, "--text", "What is the retry budget?", "--category", category)
+	s.must(append([]string{"question", "record", "--id", id, "--text", "What is the retry budget?", "--category", category}, record...)...)
 	orchestrator := ledger.Actor{Kind: ledger.ActorOrchestrator, ID: "orchestrator-1"}
 	use := control.NewQuestions(s.daemon.Store, questions.BatchPolicy{WindowMs: 1})
 	if _, err := use.Take(ctx, apitest.Scope, id, 60_000, orchestrator); err != nil {
@@ -1030,6 +1055,29 @@ func TestDecisionOverturn(t *testing.T) {
 	s.must("decision", "record", "--id", "d5", "--statement", "Replacing.", "--scope", "repo:other", "--supersedes", "d4")
 	if text := s.must("decision", "show", "d4"); !strings.Contains(text, "replaced") {
 		t.Errorf("the replaced decision reads %q", text)
+	}
+}
+
+// TestAQuestionNamesWhatItsAnswerBinds holds that list, show, and batches name the scope an answer to a question
+// takes, with the title of the record it names, and that a question about nothing names none.
+func TestAQuestionNamesWhatItsAnswerBinds(t *testing.T) {
+	s := newSession(t)
+	apitest.NewWorld(t, s.daemon).Recorded("wo-trim", "Trim the log")
+	s.deliveredBatch("q1", "security", "--subject-kind", "work_order", "--subject", "wo-trim")
+	s.must("question", "record", "--id", "q2", "--text", "Anything else?", "--category", "data")
+	titled := "q1\tneeds_human\tsecurity\two:wo-trim · Trim the log\tWhat is the retry budget?\n"
+	alone := "q2\topen\tdata\t\tAnything else?\n"
+	if text := s.must("question", "list"); text != titled+alone {
+		t.Errorf("list %q", text)
+	}
+	if text := s.must("question", "show", "q1"); text != titled {
+		t.Errorf("show %q", text)
+	}
+	if text := s.must("question", "show", "q2"); text != alone {
+		t.Errorf("show %q", text)
+	}
+	if text := s.must("question", "batches"); !strings.Contains(text, "\n    scope: wo:wo-trim · Trim the log\n") {
+		t.Errorf("batches %q", text)
 	}
 }
 

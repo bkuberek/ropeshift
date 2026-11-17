@@ -799,7 +799,7 @@ func standInAnswered() []any {
 }
 
 // rs15Questions lists what the ledger holds of questions.
-func (s *suite) rs15Questions() []questions.Question {
+func (s *suite) rs15Questions() []api.QuestionView {
 	s.t.Helper()
 	var list api.QuestionList
 	if err := json.Unmarshal(s.cli("question", "list", "--json"), &list); err != nil {

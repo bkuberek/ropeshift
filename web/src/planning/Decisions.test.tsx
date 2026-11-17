@@ -8,6 +8,9 @@ import { golden, here, serveViews, withStyles } from "../testing";
 
 const decision = (name: string) => screen.findByRole("article", { name });
 
+// scopeOf reads what a decision's card says of its scope.
+const scopeOf = (card: HTMLElement) => within(card).getByText("Scope").closest("div")?.querySelector("dd")?.textContent;
+
 const worker = "f518dab3196776ff0132570251797fb7";
 const longId = "2ebe3638daa637d3312b07a26757baab";
 
@@ -127,6 +130,29 @@ describe("the decisions", () => {
     await userEvent.click(screen.getByRole("link", { name: "decision-1" }));
     expect(await decision("Retry twice.")).toBeTruthy();
     expect(window.location.search).toBe("?id=decision-1");
+  });
+
+  it("names a decision's scope with the title of the record it names", async () => {
+    serveViews();
+    openPage("/decisions");
+    expect(scopeOf(await decision("Retry twice."))).toBe("repo:retries · retry-budget");
+  });
+
+  it("names a decision's scope with that title on the decision's own page", async () => {
+    serveViews();
+    openPage("/decisions?id=decision-3");
+    await screen.findByRole("heading", { level: 1, name: "decision-3" });
+    expect(scopeOf(await decision("Retry until the budget runs out."))).toBe("repo:retries · retry-budget");
+  });
+
+  it("names a scope by its ID alone when the read gave no title", async () => {
+    const view = golden<Decisions>("decisions");
+    for (const row of view.decisions) {
+      delete row.scope_title;
+    }
+    serveViews((call) => (call.path.startsWith("/v1/views/decisions") ? { status: 200, body: view } : undefined));
+    openPage("/decisions");
+    expect(scopeOf(await decision("Retry twice."))).toBe("repo:retries");
   });
 
   it("says so when no decision has that ID", async () => {

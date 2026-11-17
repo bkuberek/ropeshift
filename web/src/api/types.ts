@@ -13,6 +13,10 @@ export type QuestionItem = {
   recommendation?: string;
   escalation_reason?: string;
   citations?: string[];
+  // scope is what an answer binds: the record the question is about. scope_title is that record's title, absent
+  // when the ledger holds no such record or its title only repeats the ID, so the scope shows alone.
+  scope?: string;
+  scope_title?: string;
 };
 
 export type Batch = {
@@ -361,6 +365,10 @@ export type Question = {
   escalation_reason?: string;
   ladder_trace?: LadderStep[];
   claimed_by?: string;
+  // scope is what an answer binds: the record the question is about. scope_title is that record's title, absent
+  // when the ledger holds no such record or its title only repeats the ID, so the scope shows alone.
+  scope?: string;
+  scope_title?: string;
 };
 
 // RecordQuestion is what a member sends to record a question: the client's ID, its text, and what it is about.
@@ -399,7 +407,7 @@ export type OverturnDecision = { id: string; statement: string; rationale?: stri
 
 // RecordedDecision is a decision as the API answers it after it is recorded, with the decisions whose scope
 // it overlaps.
-export type RecordedDecision = Omit<Decision, "lineage" | "superseded_by" | "decided_by_name">;
+export type RecordedDecision = Omit<Decision, "lineage" | "superseded_by" | "decided_by_name" | "scope_title">;
 
 export type PlanReview = { work_order: WorkOrder; open_questions: Question[] };
 
@@ -512,6 +520,9 @@ export type Decision = {
   rationale?: string;
   citations?: string[];
   scope?: string;
+  // scope_title is the title of the record the scope names, absent when the ledger holds no such record or its
+  // title only repeats the ID, so the scope shows alone.
+  scope_title?: string;
   reversibility?: string;
   categories?: string[];
   decided_by?: string;

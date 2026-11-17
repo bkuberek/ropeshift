@@ -548,10 +548,11 @@ func Populate(w *World, clock *Clock) {
 	w.Goal("goal-1", "Ship solo mode", "wo-running")
 }
 
-// Decisions records a decision about the retries repository, which no work runs in, and what replaced it.
+// Decisions records a decision about the retries repository, which no work runs in, and what replaced it. Its
+// clone's directory names it apart from its ID, so its scope reads with that name.
 func (w *World) Decisions() {
 	w.t.Helper()
-	w.Daemon.HoldRepository(w.t, "retries")
+	w.Daemon.HoldClone(w.t, "retries", "retry-budget")
 	client := w.Daemon.Client
 	first, err := client.RecordDecision(w.ctx, api.RecordDecision{
 		ID: "decision-1", Status: questions.DecisionDecided, Statement: "Retry twice.", Rationale: "It covers the outage.",

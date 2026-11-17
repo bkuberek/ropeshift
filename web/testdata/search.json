@@ -590,7 +590,7 @@
       "id": "retries",
       "kind": "repository",
       "state": "active",
-      "title": "retries"
+      "title": "retry-budget"
     }
   ],
   "revision": 345

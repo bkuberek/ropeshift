@@ -67,7 +67,7 @@ func (p BatchPolicy) Filled() BatchPolicy {
 }
 
 // Item is what a member needs to answer one question once: its options, the recommendation,
-// and what the ladder considered. Nothing is assigned to anyone.
+// what the ladder considered, and the scope an answer to it takes (ScopeOf). Nothing is assigned to anyone.
 type Item struct {
 	ID               string   `json:"id"`
 	Text             string   `json:"text"`
@@ -77,6 +77,7 @@ type Item struct {
 	Recommendation   string   `json:"recommendation,omitempty"`
 	EscalationReason string   `json:"escalation_reason,omitempty"`
 	Citations        []string `json:"citations,omitempty"`
+	Scope            string   `json:"scope,omitempty"`
 }
 
 // Presented is a delivered batch as members see it.
@@ -96,6 +97,7 @@ func Present(batch Batch, rows []Question, category string) Presented {
 		presented.Items = append(presented.Items, Item{
 			ID: row.ID, Text: row.Text, Categories: row.Categories, Blocking: row.Blocking, Options: row.Options,
 			Recommendation: row.Recommendation, EscalationReason: row.EscalationReason, Citations: citationsOf(row),
+			Scope: ScopeOf(row.SubjectKind, row.SubjectID),
 		})
 	}
 	return presented

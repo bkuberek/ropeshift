@@ -1,6 +1,7 @@
 import type { Decision, Decisions as View } from "../api/types";
 import { addressOf, Link } from "../app/route";
 import { Fact, Id, Line, words } from "../parts/parts";
+import { ScopeName } from "../ui/display";
 import { CategoryFilter } from "./CategoryFilter";
 import { OverturnDecisionButton } from "./OverturnDecision";
 import { inForce } from "./records";
@@ -58,7 +59,11 @@ function DecisionLine({ decision }: { decision: Decision }) {
               <Linked ids={[decision.superseded_by]} />
             </Fact>
           ) : null}
-          {decision.scope ? <Fact name="Scope">{decision.scope}</Fact> : null}
+          {decision.scope ? (
+            <Fact name="Scope">
+              <ScopeName scope={decision.scope} title={decision.scope_title} />
+            </Fact>
+          ) : null}
           {decision.reversibility ? <Fact name="Reversibility">{words(decision.reversibility)}</Fact> : null}
           {decision.categories?.length ? <Fact name="Categories">{decision.categories.map((name) => words(name)).join(", ")}</Fact> : null}
           {decision.decided_by ? (
