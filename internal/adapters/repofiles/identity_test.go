@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"strings"
 	"testing"
 
 	"ropeshift.com/ropeshift/internal/ledger"
@@ -241,6 +242,46 @@ func TestARepositoryIsNamedByAnyRootThatNamesItsRecord(t *testing.T) {
 				t.Errorf("the instance is %s (%v), want %s", got, err, tt.want)
 			}
 		})
+	}
+}
+
+// A shallow clone's first commit is a grafted one that moves with its depth, and not its repository's, so every
+// read of its identity is refused with one error that says how to make the clone whole.
+func TestAShallowCloneIsRefusedWhereverItsIdentityIsRead(t *testing.T) {
+	origin := gittest.New(t)
+	origin.Commit("README.md", "first\n")
+	origin.Commit("NOTES.md", "second\n")
+	root := origin.Roots("HEAD")[0]
+	shallow := origin.ShallowClone("shallow")
+	want := shallow.Dir + " is a shallow clone; its first commit is not its repository's; run git fetch --unshallow"
+	refused := func(read string, err error) {
+		t.Helper()
+		var clone *ShallowCloneError
+		if !errors.As(err, &clone) || clone.Path != shallow.Dir || err.Error() != want {
+			t.Errorf("%s reads %v, want the refusal %q", read, err, want)
+		}
+	}
+	records := func(_ context.Context, id string) (ledger.Repository, bool, error) {
+		return ledger.NewRepository(root), id == root, nil
+	}
+	for name, config := range map[string]Config{
+		"with no identity":           {},
+		"with its record's identity": {Identity: root},
+		"with the project's records": {Records: records},
+	} {
+		config.Repository, config.Env = shallow.Dir, shallow.Env()
+		source := New(config)
+		got, err := source.Instance(t.Context())
+		refused(name+": the instance "+got, err)
+		_, err = source.Describe(t.Context())
+		refused(name+": the description", err)
+		roots, err := source.Roots(t.Context())
+		refused(name+": the roots "+strings.Join(roots, " "), err)
+	}
+	// Made whole, the clone is its repository again.
+	shallow.Git("fetch", "--quiet", "--unshallow")
+	if got := instanceOf(t, shallow, ""); got != root {
+		t.Errorf("the clone made whole is %s, want its repository's first commit %s", got, root)
 	}
 }
 

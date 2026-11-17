@@ -266,6 +266,17 @@ func (r *Repo) Clone(name string) *Repo {
 	return &Repo{T: r.T, Dir: dir, Home: r.Home}
 }
 
+// ShallowClone makes a clone beside this one that holds only the tip of its default branch, as `git clone
+// --depth 1` does. Its one commit is grafted: git reads it as having no parent, so the first commit the clone
+// holds is that tip and not this repository's first commit. A local clone ignores a depth, so it clones
+// through a file URL.
+func (r *Repo) ShallowClone(name string) *Repo {
+	r.T.Helper()
+	dir := filepath.Join(filepath.Dir(r.Dir), name)
+	r.Git("clone", "--quiet", "--depth", "1", "file://"+filepath.ToSlash(r.Dir), dir)
+	return &Repo{T: r.T, Dir: dir, Home: r.Home}
+}
+
 // RemoteHead reads the commit a remote holds for a ref, or nothing when it holds none.
 func (r *Repo) RemoteHead(remote, ref string) string {
 	r.T.Helper()

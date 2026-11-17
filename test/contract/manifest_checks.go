@@ -46,6 +46,7 @@ var ManifestChecks = []Check{
 	{"RM22", "a path this worker keeps for a record holds nothing of it once another clone replaced the clone there, so a clone of the record's first commit at another path is not refused for sharing it", checkAReplacedCloneHoldsNothing},
 	{"RM23", "a path this worker keeps for a record, spelled through a symbolic link, is the clone it leads to: a clone of the record's first commit at another path is refused or is a second clone as for the real path, the same clone registered again keeps the checkout as it was, and a record kept through a link still matches its clone's other roots", checkAKeptPathSpelledThroughALinkIsTheSameClone},
 	{"RM18", "on real git repositories, a workspace that merged an unrelated history is its own record whether or not the repository that history came from is kept or removed, unless that repository's record is from before the first-parent rule and kept, which refuses the workspace for sharing its first commit", checkMergedWorkspaceOnRealRepositories},
+	{"RM33", "on real git repositories, a shallow clone is refused, in a dry run too, because its first commit is not its repository's, with the reason that says to fetch its whole history, and records nothing; made whole, it registers under its repository's first commit", checkShallowCloneIsRefused},
 	{"RM26", "a clone spelled in another case, on a disk that ignores case, is the clone it spells, so it is no clone that shares its first commit, with no remote either", checkASpellingOfAClonesDirectoryIsNotAnotherClone},
 	{"RM25", "a clone of one run that has its own record is matched to it, as it is alone, and not to the record of an earlier clone of the run whose history it merged", checkARunMatchesEachCloneAsItWouldAlone},
 	{"RM24", "two repositories that merged one history are each their own record, whichever registers first, and neither is matched to the record that history made", checkTwoRepositoriesThatMergedOneHistoryAreEachTheirOwn},
@@ -1800,6 +1801,41 @@ func checkMergedWorkspaceOnRealRepositories(r *Rig) error {
 	}
 	if want := sharedRefusal(legacyRoot, legacy.Name, keptAt); shared.Outcome != ledger.RegistrationRefused || shared.Reason != want {
 		return Violatedf("a workspace that merged a kept legacy repository's history reads %+v, want the refusal %q", shared, want)
+	}
+	return r.CheckProjection(s)
+}
+
+// checkShallowCloneIsRefused registers a shallow clone, made with git itself from a repository of two commits:
+// its one commit is grafted, so the first commit it holds is not its repository's.
+func checkShallowCloneIsRefused(r *Rig) error {
+	origin := gittest.New(r.T)
+	origin.Commit("README.md", "first\n")
+	origin.Commit("NOTES.md", "second\n")
+	root := origin.Roots("HEAD")[0]
+	shallow := origin.ShallowClone("shallow")
+	s := r.Store()
+	repositories := r.repositories(s)
+	machine := &checkouts.File{Path: filepath.Join(r.T.TempDir(), checkouts.FileName), Env: origin.Env()}
+	for _, dryRun := range []bool{true, false} {
+		added, err := repositories.Add(r.Ctx, r.Scope, control.RepositoryAdd{Paths: []string{shallow.Dir}, DryRun: dryRun}, machine, r.member())
+		if err != nil {
+			return err
+		}
+		if len(added) != 1 || added[0].Outcome != ledger.RegistrationRefused || added[0].Path != shallow.Dir || added[0].Reason != ledger.ShallowClone {
+			return Violatedf("a shallow clone reads %+v, dry run %v, want %s refused with %q", added, dryRun, shallow.Dir, ledger.ShallowClone)
+		}
+	}
+	if listed, err := r.listRepositories(s); err != nil || len(listed) != 0 {
+		return Violatedf("a refused shallow clone left records %+v: %v", listed, err)
+	}
+	if held, err := machine.Of(r.Ctx, r.Scope); err != nil || len(held) != 0 {
+		return Violatedf("a refused shallow clone left the checkouts %v: %v", held, err)
+	}
+	// Made whole, the clone registers under its repository's first commit.
+	shallow.Git("fetch", "--quiet", "--unshallow")
+	added, err := repositories.Add(r.Ctx, r.Scope, control.RepositoryAdd{Paths: []string{shallow.Dir}}, machine, r.member())
+	if err != nil || len(added) != 1 || added[0].Outcome != ledger.Registered || added[0].Repository.ID != root {
+		return Violatedf("the clone made whole reads %+v (%v), want a record under %s", added, err, root)
 	}
 	return r.CheckProjection(s)
 }

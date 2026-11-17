@@ -78,6 +78,10 @@ func SharedFirstCommit(root, name, path string) string {
 		ShortCommit(root), name, path)
 }
 
+// ShallowClone says why a shallow clone is refused, after its path: the commit it holds with no parent is a
+// grafted one that changes with its depth, not the first commit that identifies its repository.
+const ShallowClone = "is a shallow clone; its first commit is not its repository's; run git fetch --unshallow"
+
 // ShortCommit is the first eight characters of a commit ID, which name it in a message.
 func ShortCommit(commit string) string {
 	if len(commit) > 8 {
