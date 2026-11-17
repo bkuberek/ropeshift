@@ -21,6 +21,18 @@ import (
 type Folders struct {
 	// Env replaces the environment of git commands. Nil runs them in the process's.
 	Env []string
+	// between, when set, runs between the check that the folder is a folder and the opening of it, so a test can swap
+	// the folder at the one moment no real swap is timed to land.
+	between func()
+}
+
+// folderID names the folder a file's info is of by its device and inode, which a link swapped in for it does not share.
+func folderID(info os.FileInfo) ports.FolderID {
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		return ""
+	}
+	return ports.FolderID(fmt.Sprintf("%d:%d", uint64(stat.Dev), uint64(stat.Ino))) //nolint:unconvert // the width of Dev differs by platform
 }
 
 // Inspect reads what is at an absolute path: whether it exists, is a link, is an empty directory, whether its
@@ -96,39 +108,53 @@ func (f Folders) cloneTop(ctx context.Context, path string, found ports.FolderIn
 
 // Write makes the folder when it is absent, never its parents, and each file under it with the folders the file
 // needs. A file opens only to be created, so one that exists stays as it is.
-func (f Folders) Write(_ context.Context, path string, files []ports.FolderFile) error {
+func (f Folders) Write(_ context.Context, path string, files []ports.FolderFile, want ports.FolderID) (ports.FolderID, error) {
 	parent, err := os.OpenRoot(filepath.Dir(path))
 	if err != nil {
-		return err
+		return "", err
 	}
 	defer func() { _ = parent.Close() }()
 	name := filepath.Base(path)
 	if err := parent.Mkdir(name, 0o755); err != nil && !errors.Is(err, fs.ErrExist) {
-		return err
+		return "", err
 	}
 	// A folder that became a link between the inspection and now is not written through.
-	info, err := parent.Lstat(name)
+	checked, err := parent.Lstat(name)
 	if err != nil {
-		return err
+		return "", err
 	}
-	if !info.IsDir() {
-		return fmt.Errorf("%s is no longer a folder", path)
+	if !checked.IsDir() {
+		return "", fmt.Errorf("%s is no longer a folder", path)
+	}
+	if f.between != nil {
+		f.between()
 	}
 	// Every folder and file is made through the folder's root, which refuses a link that leads out of it, so a link
-	// planted at a nested folder, or swapped in after the checks, is not followed.
+	// planted at a nested folder is not followed.
 	folder, err := parent.OpenRoot(name)
 	if err != nil {
-		return err
+		// The check found a folder here, so a root that cannot be opened on it is a link that leads out, swapped in since.
+		return "", fmt.Errorf("%w: %v", ports.ErrFolderChanged, err)
 	}
 	defer func() { _ = folder.Close() }()
+	// The check ran on the path, and the root is what the open handle holds, so the handle is compared with what the
+	// check found: a folder swapped in after the check is another file, and nothing is written into it.
+	opened, err := folder.Stat(".")
+	if err != nil {
+		return "", err
+	}
+	id := folderID(opened)
+	if !os.SameFile(checked, opened) || id == "" || (want != "" && id != want) {
+		return "", ports.ErrFolderChanged
+	}
 	for _, file := range files {
 		local := filepath.FromSlash(file.Path)
 		if !filepath.IsLocal(local) {
-			return fmt.Errorf("%s names a path outside the folder", file.Path)
+			return "", fmt.Errorf("%s names a path outside the folder", file.Path)
 		}
 		if dir := filepath.Dir(local); dir != "." {
 			if err := folder.MkdirAll(dir, 0o755); err != nil {
-				return err
+				return "", err
 			}
 		}
 		out, err := folder.OpenFile(local, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
@@ -136,17 +162,17 @@ func (f Folders) Write(_ context.Context, path string, files []ports.FolderFile)
 			continue
 		}
 		if err != nil {
-			return err
+			return "", err
 		}
 		_, err = out.WriteString(file.Text)
 		if closed := out.Close(); err == nil {
 			err = closed
 		}
 		if err != nil {
-			return fmt.Errorf("write %s: %w", file.Path, err)
+			return "", fmt.Errorf("write %s: %w", file.Path, err)
 		}
 	}
-	return nil
+	return id, nil
 }
 
 // Files lists every file under the folder, leaving out the git directory at its top.
@@ -179,8 +205,20 @@ func (f Folders) Files(_ context.Context, path string) ([]string, error) {
 // whatever the user's git configuration names, and `git init` copies no template, because the folder's hooks are code
 // the commit would run. A .git is the worker's own only when the caller says its journal records the git init: then a
 // commit made before a crash is answered, not made twice, and an init with no commit is gone on from.
-func (f Folders) FirstCommit(ctx context.Context, path, message string, resumed bool) (string, error) {
+func (f Folders) FirstCommit(ctx context.Context, path, message string, resumed bool, folder ports.FolderID) (string, error) {
 	git := gitcli.Git{Dir: path, Env: f.Env, Extra: gitcli.NoHooks()}
+	// Git finds the folder by its path, so the path is read again just before each command, and a path that is no longer
+	// the folder Write named runs nothing.
+	same := func() error {
+		info, err := os.Lstat(path)
+		if err != nil || !info.IsDir() || folder == "" || folderID(info) != folder {
+			return ports.ErrFolderChanged
+		}
+		return nil
+	}
+	if err := same(); err != nil {
+		return "", err
+	}
 	if _, err := os.Lstat(filepath.Join(path, ".git")); err == nil {
 		if !resumed {
 			return "", errors.New("the folder holds a repository this worker did not make")
@@ -190,6 +228,9 @@ func (f Folders) FirstCommit(ctx context.Context, path, message string, resumed 
 		}
 	}
 	for _, args := range [][]string{{"init", "--quiet", "--template="}, {"add", "-A"}, {"-c", "commit.gpgsign=false", "commit", "--quiet", "-m", message}} {
+		if err := same(); err != nil {
+			return "", err
+		}
 		if _, err := git.Output(ctx, args...); err != nil {
 			return "", describe(err)
 		}

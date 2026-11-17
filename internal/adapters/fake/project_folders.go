@@ -182,19 +182,24 @@ func (f *ProjectFolders) top(at string, directory bool) string {
 }
 
 // Write makes the folder and its files, and leaves a file that exists.
-func (f *ProjectFolders) Write(_ context.Context, folder string, files []ports.FolderFile) error {
+func (f *ProjectFolders) Write(_ context.Context, folder string, files []ports.FolderFile, want ports.FolderID) (ports.FolderID, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	folder = path.Clean(folder)
 	if !f.dirs[path.Dir(folder)] {
-		return fmt.Errorf("%s: %w", path.Dir(folder), ports.ErrNotFound)
+		return "", fmt.Errorf("%s: %w", path.Dir(folder), ports.ErrNotFound)
+	}
+	// A folder is named by its path, which is all a memory disk says of it.
+	id := ports.FolderID("fake:" + folder)
+	if want != "" && want != id {
+		return "", ports.ErrFolderChanged
 	}
 	f.dirs[folder] = true
 	created := 0
 	for _, file := range files {
 		target := path.Join(folder, file.Path)
 		if !strings.HasPrefix(target, folder+"/") {
-			return errors.New("a file outside the folder")
+			return "", errors.New("a file outside the folder")
 		}
 		f.placeDir(path.Dir(target))
 		if _, exists := f.files[target]; !exists {
@@ -205,7 +210,7 @@ func (f *ProjectFolders) Write(_ context.Context, folder string, files []ports.F
 	if created > 0 {
 		f.calls = append(f.calls, fmt.Sprintf("write %s: %d files", folder, created))
 	}
-	return nil
+	return id, nil
 }
 
 // Files lists the files under a folder.
@@ -217,10 +222,13 @@ func (f *ProjectFolders) Files(_ context.Context, folder string) ([]string, erro
 
 // FirstCommit makes the folder a clone, and commits unless CommitError says it fails. A folder that is a clone already
 // is the worker's own only on a resume.
-func (f *ProjectFolders) FirstCommit(_ context.Context, folder, message string, resumed bool) (string, error) {
+func (f *ProjectFolders) FirstCommit(_ context.Context, folder, message string, resumed bool, named ports.FolderID) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	folder = path.Clean(folder)
+	if _, link := f.links[folder]; link || named != ports.FolderID("fake:"+folder) {
+		return "", ports.ErrFolderChanged
+	}
 	if f.tops[folder] && !resumed {
 		return "", errors.New("the folder holds a repository this worker did not make")
 	}

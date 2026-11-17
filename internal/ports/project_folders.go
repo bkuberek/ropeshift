@@ -1,6 +1,9 @@
 package ports
 
-import "context"
+import (
+	"context"
+	"errors"
+)
 
 // FolderInspection is what a worker finds of the folder it is asked to write.
 type FolderInspection struct {
@@ -36,8 +39,11 @@ type ProjectFolders interface {
 	// Write makes the folder when it is absent, never its parents, and then each file with the folders it
 	// needs, every file opened only to be created. A file that exists is left as it is and is not an error,
 	// so a write the worker repeats after a crash writes the rest. Paths are relative to the folder and
-	// slash separated.
-	Write(ctx context.Context, path string, files []FolderFile) error
+	// slash separated. It answers with the folder it wrote, named by what the disk says of it, which the
+	// worker keeps. When want names a folder, the one opened must be that one, and a folder that became
+	// another between the check and the open, or since an earlier write, is ErrFolderChanged and nothing is
+	// written.
+	Write(ctx context.Context, path string, files []FolderFile, want FolderID) (FolderID, error)
 	// Files lists every file under the folder, as paths relative to it, slash separated and sorted, leaving
 	// out the git directory at its top. A path with nothing at it holds none.
 	Files(ctx context.Context, path string) ([]string, error)
@@ -46,6 +52,15 @@ type ProjectFolders interface {
 	// A step that fails leaves what the earlier steps made. A folder that already holds a .git is taken as the
 	// worker's own only when resumed says the worker journaled its git init: a resume answers with the commit
 	// the repository holds and runs nothing, or goes on from an init with no commit, and a .git the worker did
-	// not make is an error.
-	FirstCommit(ctx context.Context, path, message string, resumed bool) (string, error)
+	// not make is an error. Just before it runs git, which finds the folder by its path, it reads the path again,
+	// and a path that is not the folder Write named is ErrFolderChanged and runs nothing.
+	FirstCommit(ctx context.Context, path, message string, resumed bool, folder FolderID) (string, error)
 }
+
+// FolderID names a folder by what the disk says of it, so a later step can tell it from another folder at the same
+// path. It is opaque to the worker, which keeps it in its journal.
+type FolderID string
+
+// ErrFolderChanged says the folder at a path is not the one the worker wrote: it was swapped for a link or for another
+// folder.
+var ErrFolderChanged = errors.New("the folder is no longer the one this worker wrote")

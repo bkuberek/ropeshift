@@ -43,8 +43,11 @@ type templateJournal struct {
 	NeedsRepository bool `json:"needs_repository"`
 	// Initialized says the worker was about to run git init in the folder, so a .git it finds on a resume is its own.
 	// A .git with no such record is somebody else's repository, which the worker commits nothing in.
-	Initialized bool                        `json:"initialized,omitempty"`
-	Report      *ledger.TemplateWriteReport `json:"report,omitempty"`
+	Initialized bool `json:"initialized,omitempty"`
+	// Folder names the folder the worker wrote, by what the disk said of it, so a resume and the first commit are held to that
+	// folder and not to another that a link swapped in at the path.
+	Folder string                      `json:"folder,omitempty"`
+	Report *ledger.TemplateWriteReport `json:"report,omitempty"`
 }
 
 func (rt *TemplateRuntime) journalPath(request string) string {

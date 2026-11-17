@@ -41,6 +41,8 @@ type templateRig struct {
 	kept    *checkouts.File
 	writes  *control.TemplateWrites
 	subject *worker.Worker
+	// folders stands in front of the machine's folders when a test must act between two of the worker's steps.
+	folders ports.ProjectFolders
 }
 
 func newTemplateRig(t *testing.T, env []string) *templateRig {
@@ -78,9 +80,17 @@ func (r *templateRig) workerOn(link ports.WorkerLink, report func(error)) *worke
 		},
 		Report: report,
 		Templates: &worker.TemplateRuntime{
-			Folders: projectfolders.Folders{Env: r.env}, Checkouts: r.kept, Render: render, StateDir: r.state,
+			Folders: r.foldersOrDefault(), Checkouts: r.kept, Render: render, StateDir: r.state,
 		},
 	})
+}
+
+// foldersOrDefault is the folders this rig's worker writes: the machine's, unless a test put its own in front.
+func (r *templateRig) foldersOrDefault() ports.ProjectFolders {
+	if r.folders != nil {
+		return r.folders
+	}
+	return projectfolders.Folders{Env: r.env}
 }
 
 func (r *templateRig) folder(parts ...string) string {
@@ -451,6 +461,55 @@ func TestAFolderInAnUnregisteredCloneThatTracksItGetsNoGitCommand(t *testing.T) 
 	}
 	if count := clone.Git("rev-list", "--count", "HEAD"); count != "1" {
 		t.Errorf("the clone has %s commits, and the write made none", count)
+	}
+}
+
+// afterWrite runs a step once the folders have written, which is the moment between the worker's write and its commit.
+type afterWrite struct {
+	ports.ProjectFolders
+	step func(path string)
+}
+
+func (a afterWrite) Write(ctx context.Context, path string, files []ports.FolderFile, want ports.FolderID) (ports.FolderID, error) {
+	id, err := a.ProjectFolders.Write(ctx, path, files, want)
+	if err == nil {
+		a.step(path)
+	}
+	return id, err
+}
+
+// A folder swapped for a link to a sibling between the write and the first commit is not committed in: the worker runs git
+// nowhere, and refuses the request with the folder's change as the reason.
+func TestAFolderSwappedForALinkBeforeTheFirstCommitIsRefused(t *testing.T) {
+	t.Parallel()
+	gittest.Require(t)
+	r := newTemplateRig(t, nil)
+	folder, moved, sibling := r.folder("harbor"), r.folder("moved"), r.folder("sibling")
+	r.folders = afterWrite{ProjectFolders: projectfolders.Folders{Env: r.env}, step: func(path string) {
+		for _, step := range []func() error{
+			func() error { return os.Rename(path, moved) },
+			func() error { return os.Mkdir(sibling, 0o755) },
+			func() error { return os.Symlink(sibling, path) },
+		} {
+			if err := step(); err != nil {
+				t.Error(err)
+			}
+		}
+	}}
+	subject := r.workerOn(r.link, func(err error) { t.Errorf("the worker reported %v", err) })
+	if err := subject.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	r.subject = subject
+	id := r.ask(ledger.TemplateWriteRequest{Shape: "monorepo", Path: folder, FirstCommit: true})
+	view := r.settle(id)
+	if view.State != ledger.TemplateWriteRefused || view.Report.Reason != ledger.TemplateRefusedChanged || view.Report.Commit != "" || view.Report.Detail == "" {
+		t.Fatalf("the request is %+v, want a refusal that the folder changed", view)
+	}
+	for _, dir := range []string{sibling, moved} {
+		if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
+			t.Errorf("git ran in %s", dir)
+		}
 	}
 }
 

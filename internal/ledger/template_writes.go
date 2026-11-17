@@ -36,7 +36,9 @@ const (
 	// symbolic link through a spelling that a check of the link does not see.
 	TemplateRefusedNotClean = "path_not_clean"
 	// TemplateRefusedReserved is a folder at or inside one ropeshift keeps for itself: its state, run, or worktree folder.
-	TemplateRefusedReserved     = "path_reserved"
+	TemplateRefusedReserved = "path_reserved"
+	// TemplateRefusedChanged is a folder that became another, by a link swapped in for it, after the worker checked it.
+	TemplateRefusedChanged      = "folder_changed"
 	TemplateRefusedNoParent     = "parent_missing"
 	TemplateRefusedLink         = "path_is_link"
 	TemplateRefusedNotDirectory = "path_not_a_directory"

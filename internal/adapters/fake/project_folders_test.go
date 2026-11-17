@@ -41,12 +41,16 @@ func TestProjectFoldersWriteAndCommit(t *testing.T) {
 	machine := fake.NewProjectFolders()
 	machine.Dir("/srv/code")
 	files := []ports.FolderFile{{Path: "AGENTS.md", Text: "agents"}, {Path: "plan/goal.md", Text: "goal"}}
-	if err := machine.Write(t.Context(), "/srv/code/harbor", files); err != nil {
-		t.Fatal(err)
+	id, err := machine.Write(t.Context(), "/srv/code/harbor", files, "")
+	if err != nil || id == "" {
+		t.Fatalf("a write names the folder %q (%v)", id, err)
 	}
 	machine.Place("/srv/code/harbor/AGENTS.md", "mine")
-	if err := machine.Write(t.Context(), "/srv/code/harbor", files); err != nil {
-		t.Fatal(err)
+	if again, err := machine.Write(t.Context(), "/srv/code/harbor", files, id); err != nil || again != id {
+		t.Fatalf("a repeated write says %q (%v), want %q", again, err, id)
+	}
+	if _, err := machine.Write(t.Context(), "/srv/code/other", files, id); !errors.Is(err, ports.ErrFolderChanged) {
+		t.Errorf("a write of another folder than the one named: %v", err)
 	}
 	if text, _ := machine.Text("/srv/code/harbor/AGENTS.md"); text != "mine" {
 		t.Errorf("a repeated write replaced a file: %q", text)
@@ -54,17 +58,20 @@ func TestProjectFoldersWriteAndCommit(t *testing.T) {
 	if got, err := machine.Files(t.Context(), "/srv/code/harbor"); err != nil || !slices.Equal(got, []string{"AGENTS.md", "plan/goal.md"}) {
 		t.Errorf("the folder holds %v (%v)", got, err)
 	}
-	if err := machine.Write(t.Context(), "/srv/none/harbor", files); !errors.Is(err, ports.ErrNotFound) {
+	if _, err := machine.Write(t.Context(), "/srv/none/harbor", files, ""); !errors.Is(err, ports.ErrNotFound) {
 		t.Errorf("a write made the parents of a folder: %v", err)
 	}
-	first, err := machine.FirstCommit(t.Context(), "/srv/code/harbor", "chore: start harbor", false)
+	first, err := machine.FirstCommit(t.Context(), "/srv/code/harbor", "chore: start harbor", false, id)
 	if err != nil || first == "" {
 		t.Fatalf("the first commit is %q (%v)", first, err)
 	}
-	if _, err := machine.FirstCommit(t.Context(), "/srv/code/harbor", "chore: start harbor", false); err == nil {
+	if _, err := machine.FirstCommit(t.Context(), "/srv/code/harbor", "chore: start harbor", false, id); err == nil {
 		t.Error("a repository the worker did not journal was taken as its own")
 	}
-	if again, err := machine.FirstCommit(t.Context(), "/srv/code/harbor", "chore: start harbor", true); err != nil || again != first {
+	if _, err := machine.FirstCommit(t.Context(), "/srv/code/harbor", "chore: start harbor", true, "another"); !errors.Is(err, ports.ErrFolderChanged) {
+		t.Errorf("a first commit in a folder that is not the one written: %v", err)
+	}
+	if again, err := machine.FirstCommit(t.Context(), "/srv/code/harbor", "chore: start harbor", true, id); err != nil || again != first {
 		t.Errorf("a second first commit is %q (%v), want %q", again, err, first)
 	}
 	if got := machine.Inspected("/srv/code/harbor"); got.CloneTop != "/srv/code/harbor" {
@@ -80,10 +87,11 @@ func TestProjectFoldersFailACommitAsGitDoes(t *testing.T) {
 	machine := fake.NewProjectFolders()
 	machine.Dir("/srv/code")
 	machine.CommitError = errors.New("Author identity unknown")
-	if err := machine.Write(t.Context(), "/srv/code/harbor", []ports.FolderFile{{Path: "AGENTS.md", Text: "agents"}}); err != nil {
+	id, err := machine.Write(t.Context(), "/srv/code/harbor", []ports.FolderFile{{Path: "AGENTS.md", Text: "agents"}}, "")
+	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := machine.FirstCommit(t.Context(), "/srv/code/harbor", "chore: start harbor", false); err == nil {
+	if _, err := machine.FirstCommit(t.Context(), "/srv/code/harbor", "chore: start harbor", false, id); err == nil {
 		t.Fatal("a commit with no identity was made")
 	}
 	if machine.Commit("/srv/code/harbor") != "" {

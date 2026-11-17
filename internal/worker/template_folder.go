@@ -121,8 +121,25 @@ func (w *Worker) writeTemplate(ctx context.Context, rt *TemplateRuntime, request
 		folderFiles = append(folderFiles, ports.FolderFile{Path: file.Path, Text: file.Text})
 		paths = append(paths, file.Path)
 	}
-	if err := rt.Folders.Write(ctx, request.Path, folderFiles); err != nil {
+	changed := func() (ledger.TemplateWriteReport, templateJournal, error) {
+		return ledger.TemplateWriteReport{
+			Outcome: ledger.TemplateOutcomeRefused, Reason: ledger.TemplateRefusedChanged,
+			Detail: "the folder is no longer the one this worker wrote: it was swapped for a link or for another folder",
+		}, journal, nil
+	}
+	folder, err := rt.Folders.Write(ctx, request.Path, folderFiles, ports.FolderID(journal.Folder))
+	if errors.Is(err, ports.ErrFolderChanged) {
+		return changed()
+	}
+	if err != nil {
 		return ledger.TemplateWriteReport{}, journal, fmt.Errorf("writing the files: %w", err)
+	}
+	// The folder written is kept, so a resume and the first commit are held to that folder and no other at the path.
+	if journal.Folder == "" {
+		journal.Folder = string(folder)
+		if err := rt.save(request.ID, journal); err != nil {
+			return ledger.TemplateWriteReport{}, journal, err
+		}
 	}
 	name := data.Project
 	if request.Project != "" {
@@ -138,7 +155,10 @@ func (w *Worker) writeTemplate(ctx context.Context, rt *TemplateRuntime, request
 				return ledger.TemplateWriteReport{}, journal, err
 			}
 		}
-		commit, err := rt.Folders.FirstCommit(ctx, request.Path, "chore: start "+name, resumed)
+		commit, err := rt.Folders.FirstCommit(ctx, request.Path, "chore: start "+name, resumed, ports.FolderID(journal.Folder))
+		if errors.Is(err, ports.ErrFolderChanged) {
+			return changed()
+		}
 		if err != nil {
 			report.CommitError = err.Error()
 		} else {

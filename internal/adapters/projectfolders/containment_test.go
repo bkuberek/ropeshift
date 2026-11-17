@@ -1,6 +1,7 @@
 package projectfolders_test
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -24,6 +25,67 @@ func gitEnv(t *testing.T, config string, more []string) []string {
 		t.Fatal(err)
 	}
 	return append([]string{"HOME=" + home, "PATH=" + os.Getenv("PATH"), "GIT_CONFIG_GLOBAL=" + file, "GIT_CONFIG_NOSYSTEM=1"}, more...)
+}
+
+// put writes a folder's files and returns the folder it wrote.
+func put(t *testing.T, f projectfolders.Folders, folder string, files []ports.FolderFile) ports.FolderID {
+	t.Helper()
+	id, err := f.Write(t.Context(), folder, files, "")
+	if err != nil || id == "" {
+		t.Fatalf("a write names the folder %q (%v)", id, err)
+	}
+	return id
+}
+
+// A write that is told which folder it wrote before finds it again, and refuses a folder that is another one.
+func TestWriteRefusesAFolderThatIsNotTheOneItWrote(t *testing.T) {
+	gittest.Require(t)
+	f := projectfolders.Folders{Env: gitEnv(t, identity, nil)}
+	root := t.TempDir()
+	folder := filepath.Join(root, "harbor")
+	files := []ports.FolderFile{{Path: "AGENTS.md", Text: "agents"}}
+	id := put(t, f, folder, files)
+	if again, err := f.Write(t.Context(), folder, files, id); err != nil || again != id {
+		t.Fatalf("a write of the same folder says %q (%v), want %q", again, err, id)
+	}
+	other := filepath.Join(root, "other")
+	if _, err := f.Write(t.Context(), other, files, id); !errors.Is(err, ports.ErrFolderChanged) {
+		t.Errorf("a write of a folder that is not the one it wrote: %v", err)
+	}
+}
+
+// A folder swapped for a link to a sibling between the worker's write and its first commit is not committed in: git is
+// never run there, and the refusal says the folder changed.
+func TestFirstCommitRefusesAFolderSwappedForALinkToASibling(t *testing.T) {
+	gittest.Require(t)
+	f := projectfolders.Folders{Env: gitEnv(t, identity, nil)}
+	root := t.TempDir()
+	folder := filepath.Join(root, "harbor")
+	id := put(t, f, folder, []ports.FolderFile{{Path: "AGENTS.md", Text: "agents\n"}})
+	moved, sibling := filepath.Join(root, "moved"), filepath.Join(root, "sibling")
+	for _, step := range []func() error{
+		func() error { return os.Rename(folder, moved) },
+		func() error { return os.Mkdir(sibling, 0o755) },
+		func() error { return os.Symlink(sibling, folder) },
+	} {
+		if err := step(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, resumed := range []bool{false, true} {
+		commit, err := f.FirstCommit(t.Context(), folder, "chore: start harbor", resumed, id)
+		if !errors.Is(err, ports.ErrFolderChanged) || commit != "" {
+			t.Errorf("resumed %v: the first commit is %q (%v), want a refusal that the folder changed", resumed, commit, err)
+		}
+	}
+	for _, dir := range []string{sibling, moved} {
+		if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
+			t.Errorf("git ran in %s", dir)
+		}
+	}
+	if _, err := f.FirstCommit(t.Context(), moved, "chore: start harbor", false, ""); !errors.Is(err, ports.ErrFolderChanged) {
+		t.Errorf("a first commit with no folder named: %v", err)
+	}
 }
 
 func script(t *testing.T, path, marker string) {
@@ -52,7 +114,7 @@ func TestWriteDoesNotFollowALinkPlantedAtANestedFolder(t *testing.T) {
 	if err := os.Symlink(outside, filepath.Join(folder, "plan")); err != nil {
 		t.Fatal(err)
 	}
-	err := f.Write(t.Context(), folder, []ports.FolderFile{{Path: "AGENTS.md", Text: "agents"}, {Path: "plan/goal.md", Text: "goal"}})
+	_, err := f.Write(t.Context(), folder, []ports.FolderFile{{Path: "AGENTS.md", Text: "agents"}, {Path: "plan/goal.md", Text: "goal"}}, "")
 	if err == nil {
 		t.Fatal("a write went through a link planted at a nested folder")
 	}
@@ -77,7 +139,7 @@ func TestWriteDoesNotFollowALinkPlantedAtAFile(t *testing.T) {
 	if err := os.Symlink(target, filepath.Join(folder, "AGENTS.md")); err != nil {
 		t.Fatal(err)
 	}
-	if err := f.Write(t.Context(), folder, []ports.FolderFile{{Path: "AGENTS.md", Text: "agents"}}); err != nil {
+	if _, err := f.Write(t.Context(), folder, []ports.FolderFile{{Path: "AGENTS.md", Text: "agents"}}, ""); err != nil {
 		t.Fatalf("a link at a file's name is a file that exists, and is left: %v", err)
 	}
 	if text, _ := os.ReadFile(target); string(text) != "mine" {
@@ -102,10 +164,8 @@ func TestFirstCommitRunsNoHookAndSignsNothing(t *testing.T) {
 	config := identity + "[core]\n\thooksPath = " + hooks + "\n[init]\n\ttemplateDir = " + templates + "\n[commit]\n\tgpgsign = true\n[gpg]\n\tprogram = /bin/false\n"
 	f := projectfolders.Folders{Env: gitEnv(t, config, nil)}
 	folder := filepath.Join(t.TempDir(), "harbor")
-	if err := f.Write(t.Context(), folder, []ports.FolderFile{{Path: "AGENTS.md", Text: "agents\n"}}); err != nil {
-		t.Fatal(err)
-	}
-	commit, err := f.FirstCommit(t.Context(), folder, "chore: start harbor", false)
+	id := put(t, f, folder, []ports.FolderFile{{Path: "AGENTS.md", Text: "agents\n"}})
+	commit, err := f.FirstCommit(t.Context(), folder, "chore: start harbor", false, id)
 	if err != nil || commit == "" {
 		t.Fatalf("the first commit is %q (%v)", commit, err)
 	}
@@ -139,27 +199,25 @@ func TestFirstCommitRefusesARepositoryTheWorkerDidNotMake(t *testing.T) {
 			t.Fatalf("git %v: %v\n%s", args, err, out)
 		}
 	}
-	prepare := func(commit bool) string {
+	prepare := func(commit bool) (string, ports.FolderID) {
 		t.Helper()
 		folder := filepath.Join(t.TempDir(), "harbor")
-		if err := f.Write(t.Context(), folder, []ports.FolderFile{{Path: "AGENTS.md", Text: "agents\n"}}); err != nil {
-			t.Fatal(err)
-		}
+		made := put(t, f, folder, []ports.FolderFile{{Path: "AGENTS.md", Text: "agents\n"}})
 		git(folder, "init", "--quiet")
 		if commit {
 			git(folder, "add", "-A")
 			git(folder, "commit", "--quiet", "-m", "planted")
 		}
-		return folder
+		return folder, made
 	}
 	for name, commit := range map[string]bool{"with no commit": false, "with a commit": true} {
-		folder := prepare(commit)
-		if id, err := f.FirstCommit(t.Context(), folder, "chore: start harbor", false); err == nil || !strings.Contains(err.Error(), "did not make") {
+		folder, made := prepare(commit)
+		if id, err := f.FirstCommit(t.Context(), folder, "chore: start harbor", false, made); err == nil || !strings.Contains(err.Error(), "did not make") {
 			t.Errorf("a .git %s was taken: %q, %v", name, id, err)
 		}
 	}
-	folder := prepare(false)
-	if id, err := f.FirstCommit(t.Context(), folder, "chore: start harbor", true); err != nil || id == "" {
+	folder, made := prepare(false)
+	if id, err := f.FirstCommit(t.Context(), folder, "chore: start harbor", true, made); err != nil || id == "" {
 		t.Errorf("a resume that journaled its git init is refused: %q, %v", id, err)
 	}
 }

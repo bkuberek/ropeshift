@@ -97,30 +97,30 @@ func TestWriteMakesTheFolderAndKeepsWhatItFinds(t *testing.T) {
 	f, root, _ := folders(t)
 	folder := filepath.Join(root, "harbor")
 	files := []ports.FolderFile{{Path: "AGENTS.md", Text: "agents\n"}, {Path: "plan/goal.md", Text: "goal\n"}}
-	if err := f.Write(t.Context(), folder, files); err != nil {
-		t.Fatal(err)
-	}
+	id := put(t, f, folder, files)
 	if err := os.WriteFile(filepath.Join(folder, "AGENTS.md"), []byte("mine\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Remove(filepath.Join(folder, "plan", "goal.md")); err != nil {
 		t.Fatal(err)
 	}
-	if err := f.Write(t.Context(), folder, files); err != nil {
-		t.Fatal(err)
+	// A repeat names the folder it wrote the first time, and finds it, and says it is the same one.
+	again, err := f.Write(t.Context(), folder, files, id)
+	if err != nil || again != id {
+		t.Fatalf("a repeated write says %q (%v), want the folder it wrote, %q", again, err, id)
 	}
 	kept, _ := os.ReadFile(filepath.Join(folder, "AGENTS.md"))
 	restored, _ := os.ReadFile(filepath.Join(folder, "plan", "goal.md"))
 	if string(kept) != "mine\n" || string(restored) != "goal\n" {
 		t.Errorf("a repeated write left %q and %q", kept, restored)
 	}
-	if err := f.Write(t.Context(), filepath.Join(root, "no", "parent"), files); err == nil {
+	if _, err := f.Write(t.Context(), filepath.Join(root, "no", "parent"), files, ""); err == nil {
 		t.Error("a write made the parents of a folder")
 	}
 	if _, err := os.Stat(filepath.Join(root, "no")); err == nil {
 		t.Error("a write left a parent behind")
 	}
-	if err := f.Write(t.Context(), folder, []ports.FolderFile{{Path: "../outside", Text: "x"}}); err == nil {
+	if _, err := f.Write(t.Context(), folder, []ports.FolderFile{{Path: "../outside", Text: "x"}}, id); err == nil {
 		t.Error("a write went outside the folder")
 	}
 	if _, err := os.Stat(filepath.Join(root, "outside")); err == nil {
@@ -139,7 +139,7 @@ func TestWriteRefusesAFolderThatIsNowALink(t *testing.T) {
 	if err := os.Symlink(target, link); err != nil {
 		t.Fatal(err)
 	}
-	if err := f.Write(t.Context(), link, []ports.FolderFile{{Path: "AGENTS.md", Text: "x"}}); err == nil {
+	if _, err := f.Write(t.Context(), link, []ports.FolderFile{{Path: "AGENTS.md", Text: "x"}}, ""); err == nil {
 		t.Error("a write went through a link")
 	}
 	if entries, _ := os.ReadDir(target); len(entries) != 0 {
@@ -151,10 +151,8 @@ func TestWriteRefusesAFolderThatIsNowALink(t *testing.T) {
 func TestFilesListsTheFolderWithoutItsGitDirectory(t *testing.T) {
 	f, root, _ := folders(t)
 	folder := filepath.Join(root, "harbor")
-	if err := f.Write(t.Context(), folder, []ports.FolderFile{{Path: "b.md", Text: "b"}, {Path: "a/c.md", Text: "c"}}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := f.FirstCommit(t.Context(), folder, "chore: start harbor", false); err != nil {
+	id := put(t, f, folder, []ports.FolderFile{{Path: "b.md", Text: "b"}, {Path: "a/c.md", Text: "c"}})
+	if _, err := f.FirstCommit(t.Context(), folder, "chore: start harbor", false, id); err != nil {
 		t.Fatal(err)
 	}
 	got, err := f.Files(t.Context(), folder)
@@ -171,15 +169,13 @@ func TestFilesListsTheFolderWithoutItsGitDirectory(t *testing.T) {
 func TestFirstCommitIsMadeOnceAndAnswersWithTheCommitAfterward(t *testing.T) {
 	f, root, _ := folders(t)
 	folder := filepath.Join(root, "harbor")
-	if err := f.Write(t.Context(), folder, []ports.FolderFile{{Path: "AGENTS.md", Text: "agents\n"}}); err != nil {
-		t.Fatal(err)
-	}
-	first, err := f.FirstCommit(t.Context(), folder, "chore: start harbor", false)
+	id := put(t, f, folder, []ports.FolderFile{{Path: "AGENTS.md", Text: "agents\n"}})
+	first, err := f.FirstCommit(t.Context(), folder, "chore: start harbor", false, id)
 	if err != nil || len(first) < 7 {
 		t.Fatalf("the first commit is %q (%v)", first, err)
 	}
 	// A worker that journaled its git init is resuming, and finds its own commit.
-	again, err := f.FirstCommit(t.Context(), folder, "chore: start harbor", true)
+	again, err := f.FirstCommit(t.Context(), folder, "chore: start harbor", true, id)
 	if err != nil || again != first {
 		t.Errorf("a second first commit is %q (%v), want %q", again, err, first)
 	}
@@ -194,10 +190,8 @@ func TestFirstCommitSaysWhatGitSaidWhenItRefuses(t *testing.T) {
 	gittest.Require(t)
 	f := projectfolders.Folders{Env: gitEnv(t, "[user]\n\tuseConfigOnly = true\n", nil)}
 	folder := filepath.Join(t.TempDir(), "harbor")
-	if err := f.Write(t.Context(), folder, []ports.FolderFile{{Path: "AGENTS.md", Text: "agents\n"}}); err != nil {
-		t.Fatal(err)
-	}
-	_, err := f.FirstCommit(t.Context(), folder, "chore: start harbor", false)
+	id := put(t, f, folder, []ports.FolderFile{{Path: "AGENTS.md", Text: "agents\n"}})
+	_, err := f.FirstCommit(t.Context(), folder, "chore: start harbor", false, id)
 	if err == nil {
 		t.Fatal("a commit with no identity was made")
 	}
