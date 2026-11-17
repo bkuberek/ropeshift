@@ -1,0 +1,63 @@
+# AGENTS.md
+
+{{ if .Example -}}
+> Template: the project definition, the plan's rules, and the code's rules, for the root of a monorepo. Copy it to `AGENTS.md`, replace `acme` and every example value, and delete every line that starts with `>`. In a monorepo the planning session and every lane work in worktrees of this one repository, so all of them read this file. Keep it short, and put what holds for one package in that package's own `AGENTS.md`, with a `CLAUDE.md` beside it that imports it, which an agent reads once it works there.
+{{ else -}}
+> Started by `ropeshift new` for the {{ .Project }} project: the project definition, the plan's rules, and the code's rules, for the root of a monorepo. Replace each placeholder, and delete every line that starts with `>`. In a monorepo the planning session and every lane work in worktrees of this one repository, so all of them read this file. Keep it short, and put what holds for one package in that package's own `AGENTS.md`, with a `CLAUDE.md` beside it that imports it, which an agent reads once it works there.
+{{ end }}
+This file defines the {{ .Project }} project and its rules for every agent that works in this repository: ropeshift's planning sessions, lanes, and reviews, and your own agent sessions. `CLAUDE.md` imports it.
+
+## The project
+
+> Two or three sentences: what the product is, who it serves, and the phase it is in.
+
+{{ if .Example -}}
+acme lets customers manage their accounts and billing on their own. The plan of record is in `plan/`, and the current focus is in `docs/status.md`.
+{{ else -}}
+Replace this line: what {{ .Project }} is, who it serves, and the phase it is in. The plan of record is in `plan/`.
+{{ end }}
+## Where things live
+
+| Path | Holds |
+|------|-------|
+| `apps/api/`, `apps/web/` | The deployable applications, each with its own `AGENTS.md` and `CLAUDE.md` |
+| `packages/` | The libraries the applications share |
+| `plan/` | The plan of record, in ropeshift's file format: the goal, plans, requirements, specs, architecture, experience designs, milestones, and contracts |
+| `docs/decisions/` | Architecture decision records, `NNNN-short-title.md` |
+| `docs/glossary.md`, `docs/status.md` | The project's terms, and the current focus |
+| `scripts/` | The checks: `./scripts/check` and `./scripts/verify` |
+
+## Commands
+
+| Task | Command |
+|------|---------|
+| Install the dependencies | `make deps` |
+| Quick check, before every commit | `./scripts/check` |
+| Full verify, before the work is done | `./scripts/verify` |
+
+## Which document wins
+
+When two documents disagree, an accepted decision wins over a requirement, a requirement wins over a spec, an architecture document, or an experience design, and those win over notes and code comments. A contradiction is a question for a person: ask it, and never settle it by choosing one side.
+
+## Writing plan files
+
+- Plan files go under `plan/`: one file per document, milestone, or contract, named after its `id`, in lowercase with hyphens, ending in `.md`, starting with `+++` front matter that holds a known `kind`, a stable `id`, and a `title`.
+- This repository is the whole project, so it needs no manifest, and every work order changes it: leave `repo` out, or write `repo = "."`.
+- Every contract belongs to a milestone, cites the documents it depends on, maps each criterion to requirement IDs, and has a criterion that `./scripts/verify` passes, mapped to `QA-1`.
+- Say in a contract's statement which package its work changes, and cite code and evidence as `{{ .Project }}:apps/api/handler.go`.
+- Requirements are `ACC-3`, an area code and a number, never reused. Never write a version number. Treat only accepted ADRs as binding.
+
+## Rules for every change
+
+- Use Conventional Commits, and keep each commit to one coherent change with its tests.
+- Run `./scripts/check` before each commit and `./scripts/verify` before you report the work done, exactly as written, with no pipe or redirect, and report both results.
+- Ask through the ask tool when the contract, its documents, and the decisions do not answer a question.
+- Change `AGENTS.md`, `CLAUDE.md`, `plan/`, `.ropeshift/`, `.claude/`, `.mcp.json`, and `scripts/` only when your contract asks for it.
+
+## Privacy
+
+Never commit a secret, a token, a local path, or a host name. Name a secret by reference, such as `env:ANTHROPIC_API_KEY`.
+
+## Steps that need a person
+
+Approving a plan, answering a question in Needs you, signing in with `eval "$(ropeshift login)"`, opening a run window for a subscription worker, merging at `person_merges`, and changing a repository setting or a policy are a member's steps.

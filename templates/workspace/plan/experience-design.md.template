@@ -1,0 +1,15 @@
++++
+# An experience design: what a person sees and does. Copy this file to plan/design/<id>.md. A contract
+# cites it as experience-design:<id>.
+kind = "experience-design"
+id = "account-settings"
+title = "Account settings page"
+plan = "{{ .Project }}-v1"
+# The requirement IDs this design addresses.
+requirements = ["ACC-3"]
+# Paths to the images or other files the design shows, relative to the root of this repository. A path
+# that leaves the repository is refused.
+assets = ["docs/design/account-settings.png"]
++++
+
+What the customer sees on the settings page, what each control does, and what an error looks like, in prose.

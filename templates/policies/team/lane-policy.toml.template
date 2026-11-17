@@ -1,0 +1,13 @@
+# The lane policy: what a change under a running lane does to it. Publish it as a member:
+# ropeshift policy publish --file lane-policy.toml
+#
+# Every key must be stated. Set `version` to one more than the newest version
+# `ropeshift policy list --kind lane` prints; the built-in version is 1, which notifies on both.
+[lane_policy]
+version = 2
+# A new version of the lane's contract or of a document it cites: "notify" tells the lane and lets it
+# go on, and "park" also asks it to park until it is resumed.
+on_contract_version = "notify"
+# A one-way decision recorded while the lane runs, on the work it does. A team parks the lane, because
+# work that goes on past a choice nobody can take back may have to be thrown away.
+on_one_way_decision = "park"

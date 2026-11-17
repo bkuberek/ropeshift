@@ -1,0 +1,16 @@
+# The decision policy: what an orchestrator may decide or assume on the question ladder, and what
+# always reaches a person. Publish it as a member: ropeshift policy publish --file decision-policy.toml
+#
+# Every key must be stated, and a key the policy does not have is refused. Set `version` to one more
+# than the newest version `ropeshift policy list --kind decision` prints; the built-in version is 1.
+[decision_policy]
+version = 2
+# A reversible choice an orchestrator cannot answer from the plan becomes a recorded assumption, which a
+# member can overturn later. "assume" is the only value.
+reversible_default = "assume"
+# Categories no orchestrator decides or assumes. A version must keep security, compliance, and data.
+# A team adds business, so that pricing, terms, and commitments always reach a person.
+one_way_categories = ["security", "compliance", "data", "business"]
+# At most this many assumptions on one work order before its questions reach a person. The built-in
+# value is 5. Fewer assumptions keep rework small when several people answer questions.
+max_assumptions_per_work_order = 3

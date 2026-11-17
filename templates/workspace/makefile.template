@@ -1,0 +1,92 @@
+# The workspace Makefile: clone, fetch, and show the status of every repository of the project, and run
+# the ropeshift steps a person takes from here.{{ if .Example }} Copy it to Makefile at the root of the workspace.{{ end }}
+#
+# Ropeshift never runs this file, and it clones nothing itself. It reads the manifest,
+# plan/repositories.md. Keep REPOSITORIES in step with the manifest: the same names, remotes, and paths.
+
+# The ropeshift project these repositories belong to. Create it once: ropeshift project create {{ .Project }}
+PROJECT := {{ .Project }}
+
+# The folder the code repositories are cloned into. The workspace's .gitignore ignores it.
+CODE_DIR := repos
+
+# Each code repository as name=remote. Its clone goes to $(CODE_DIR)/name.
+REPOSITORIES :={{ range $i, $r := .Repositories }} \
+  {{ $r.Name }}={{ $r.Remote }}{{ end }}
+
+NAMES := $(foreach entry,$(REPOSITORIES),$(firstword $(subst =, ,$(entry))))
+WORKSPACE := $(notdir $(CURDIR))
+
+.PHONY: help setup fetch status hooks register-check register lanes
+
+help:
+	@echo 'make setup           clone each missing repository into $(CODE_DIR)/'
+	@echo 'make fetch           fetch the workspace and every repository'
+	@echo 'make status          show the branch and the changed files of every repository'
+	@echo 'make hooks           install a pre-commit hook that runs the quick check of each repository'
+	@echo 'make register-check  show what registering the repositories with ropeshift would do'
+	@echo 'make register        register every repository, and name this one the planning repository'
+	@echo 'make lanes           list merged lane branches and checkpoint refs, deleting nothing'
+
+# Clone each repository that has no clone yet. A registered repository with no clone holds its work on
+# this machine as no_checkout, so a fresh machine runs this before anything else.
+setup:
+	@mkdir -p $(CODE_DIR)
+	@for entry in $(REPOSITORIES); do \
+	  name=$${entry%%=*}; remote=$${entry#*=}; \
+	  if [ -e "$(CODE_DIR)/$$name/.git" ]; then echo "$$name: present"; \
+	  else git clone "$$remote" "$(CODE_DIR)/$$name" || exit 1; fi; \
+	done
+	@git check-ignore -q "$(CODE_DIR)/x" || echo "warning: .gitignore does not ignore $(CODE_DIR)/"
+
+fetch:
+	@if [ -n "$$(git remote)" ]; then git fetch --all --prune --quiet && echo "$(WORKSPACE): fetched"; \
+	else echo "$(WORKSPACE): no remote"; fi
+	@for name in $(NAMES); do \
+	  dir=$(CODE_DIR)/$$name; \
+	  if [ ! -e "$$dir/.git" ]; then echo "$$name: missing, run make setup"; \
+	  elif git -C "$$dir" fetch --all --prune --quiet; then echo "$$name: fetched"; \
+	  else echo "$$name: fetch failed"; fi; \
+	done
+
+status:
+	@for dir in . $(addprefix $(CODE_DIR)/,$(NAMES)); do \
+	  label=$$dir; if [ "$$dir" = . ]; then label=$(WORKSPACE); fi; \
+	  if [ ! -e "$$dir/.git" ]; then echo "$$label: missing"; continue; fi; \
+	  head=$$(git -C "$$dir" status --short --branch | head -n 1); \
+	  changed=$$(git -C "$$dir" status --porcelain | wc -l | tr -d ' '); \
+	  echo "$$label: $$head, $$changed changed"; \
+	done
+
+# Optional, for a project with no CI. Each clone gets a pre-commit hook in its own .git/hooks that runs
+# scripts/check. Lane worktrees use their clone's hooks, so every lane commit runs the quick check, and a
+# lane cannot edit the hook, which sits outside its worktree. Ropeshift's own merges and pushes run no hook.
+hooks:
+	@for name in $(NAMES); do \
+	  dir=$(CODE_DIR)/$$name; \
+	  if [ ! -x "$$dir/scripts/check" ]; then echo "$$name: no scripts/check, skipped"; continue; fi; \
+	  if [ -n "$$(git -C "$$dir" config core.hooksPath)" ]; then echo "$$name: core.hooksPath is set, skipped"; continue; fi; \
+	  hook=$$(git -C "$$dir" rev-parse --absolute-git-dir)/hooks/pre-commit; \
+	  if [ -e "$$hook" ]; then echo "$$name: a pre-commit hook exists, kept"; continue; fi; \
+	  printf '#!/bin/sh\nexec ./scripts/check\n' > "$$hook" && chmod +x "$$hook" && echo "$$name: installed"; \
+	done
+
+# Registration needs a member's session, so ropeshift asks for the passphrase on the terminal. The
+# workspace needs at least one commit first, because a repository's identity is read from its history.
+register-check:
+	ropeshift repository add . $(CODE_DIR) --project $(PROJECT) --dry-run
+
+register:
+	ropeshift repository add . $(CODE_DIR) --project $(PROJECT)
+	ropeshift repository set $(WORKSPACE) --planning --project $(PROJECT)
+
+# Ropeshift never deletes a branch. After ropeshift lane archive <lane>, delete a merged branch with
+# git branch -d lane/<lane>, and a checkpoint ref you no longer need with git update-ref -d <ref>.
+lanes:
+	@for dir in . $(addprefix $(CODE_DIR)/,$(NAMES)); do \
+	  if [ ! -e "$$dir/.git" ]; then continue; fi; \
+	  base=$$(git -C "$$dir" symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null || echo main); \
+	  echo "$$dir, merged into $$base:"; \
+	  git -C "$$dir" branch --list 'lane/*' --merged "$$base" --format='  %(refname:short)' 2>/dev/null; \
+	  git -C "$$dir" for-each-ref --format='  %(refname)' refs/ropeshift/; \
+	done

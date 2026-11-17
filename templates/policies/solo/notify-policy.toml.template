@@ -1,0 +1,10 @@
+# The notify policy: where ropeshift tells you that something waits, beyond the web UI's Needs you.
+# Publish it as a member: ropeshift policy publish --file notify-policy.toml
+#
+# The built-in version 1 sends nothing off the machine. Set `version` to one more than the newest
+# version `ropeshift policy list --kind notify` prints.
+[notify_policy]
+version = 2
+# A desktop notification on this machine, through osascript on macOS and notify-send on Linux. It
+# carries the project's name and one fixed sentence, never a title, a question, or a path.
+desktop = true

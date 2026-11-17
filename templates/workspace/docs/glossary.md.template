@@ -1,0 +1,9 @@
+# Glossary
+
+> Template: the project's terms, so that people, planning sessions, and lanes use one word for one thing. Copy it to `docs/glossary.md` and delete every line that starts with `>`. A lane reads it when its contract names the planning repository in `reads`.
+
+| Term | Meaning |
+|------|---------|
+| Account | The record of one customer: their display name, email address, and sign-in |
+| Display name | The name the product shows for a customer, which the customer chooses |
+| Confirmed address | An email address whose owner followed the link sent to it |

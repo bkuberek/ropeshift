@@ -1,0 +1,20 @@
+# The delegation policy: which permission requests of a lane the orchestrator may decide for a member.
+# Publish it as a member: ropeshift policy publish --file delegation-policy.toml
+#
+# The built-in version 1 delegates nothing. Set `version` to one more than the newest version
+# `ropeshift policy list --kind delegation` prints.
+[delegation_policy]
+version = 2
+
+# Each class names a tool and exactly one of command_prefix, path, or agent. A command matches when it
+# is the prefix, or the prefix followed by a space and arguments, with no shell syntax. A prefix admits
+# any arguments, so name entry points that take none. A team lists only entry points every repository of
+# the project has, and leaves costly per-use agents with a member: it names no `agent` class.
+
+[[delegation_policy.classes]]
+tool = "Bash"
+command_prefix = "./scripts/check"
+
+[[delegation_policy.classes]]
+tool = "Bash"
+command_prefix = "./scripts/verify"

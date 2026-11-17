@@ -1,0 +1,38 @@
++++
+# A shared contract is one that other contracts build on, such as an interface. Copy this file to
+# plan/contracts/<id>.md. Its work is built first: each work order of a contract that lists it in `uses`
+# waits for its work orders.
+kind = "contract"
+id = "accounts-api"
+title = "Account endpoints in the API"
+plan = "{{ .Project }}-v1"
+milestone = "m1-accounts"
+shared = true
+documents = ["spec:accounts-endpoints", "architecture:{{ .Project }}-accounts"]
+
+[[criteria]]
+id = "c1"
+text = "GET /account returns the signed-in customer's display name and email address"
+requirements = ["ACC-1"]
+
+[[criteria]]
+id = "c2"
+text = "PATCH /account changes the email address only once the customer confirms the new one"
+requirements = ["ACC-2"]
+
+[[criteria]]
+id = "c3"
+text = "The full verify of {{ .Project }}-api, ./scripts/verify, passes at the reviewed commit"
+requirements = ["QA-1"]
+
+[[work_orders]]
+id = "account-endpoints"
+title = "Add the account endpoints"
+repo = "{{ .Project }}-api"
+priority = 2
+size = "medium"
+needs = { driver = "claude-code" }
++++
+
+What the endpoints must offer the contracts that use them, in prose: the shape of each call, and what
+stays the same for existing clients.

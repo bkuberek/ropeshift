@@ -1,0 +1,34 @@
+# Your own layer of the lane profile, for one machine. Copy it to profile.toml in the installation's state
+# directory:
+#
+#   macOS: ~/Library/Application Support/ropeshift/profile.toml
+#   Linux: $XDG_STATE_HOME/ropeshift/profile.toml, or ~/.local/state/ropeshift/profile.toml
+#
+# Only this layer sets the machine's lane caps, push_on_stop, and [agent.classes], and only it can widen
+# what lanes do. A key ropeshift does not know refuses the whole profile and no lane starts, so keep to
+# the keys below. The worker reads a change at its next start and its next measure.
+
+[worktree]
+# Every lane worktree of every repository goes under this root, outside the workspace and every clone,
+# with each project's and repository's lanes apart: {project} becomes the project's ID and {repo} the name of the clone's folder. Write an absolute
+# path, because the root expands no ~ and no variable. Choose a folder with no CLAUDE.md or AGENTS.md in
+# it or above it, because the agent CLI reads instruction files from every folder above its own.
+root = "/path/to/lanes/{project}/{repo}"
+# true pushes each lane's branch and checkpoint refs to the repository's remote when the lane stops, so
+# its work survives the loss of this machine and a parked lane can resume on another. false keeps every
+# lane's work on this machine until a merge or a pull request sends it. A worker that joined a group
+# server ignores this key and always pushes.
+push_on_stop = false
+
+[admission]
+# The most lanes at once on one agent sign-in. Every lane on one subscription draws on its usage limits.
+# 0 caps nothing.
+max_lanes_per_sign_in = 3
+# The most lanes at once on this machine. Unset, the worker's recommendation from the machine's cores and
+# memory holds. Set it lower on a machine with no swap.
+# max_lanes = 2
+
+[telemetry]
+# Keep the repository and branch out of lane telemetry, for repositories whose names must not leave this
+# machine in an export.
+# omit_repository = true

@@ -1,0 +1,14 @@
+# The pre-commit configuration, read by https://pre-commit.com/. Run `pre-commit install` once in each
+# clone, and the hook below runs before every commit.
+#
+# One local hook runs the repository's quick check, scripts/check, and passes when the repository has none.
+# Add the hooks of the tools the repository uses under `hooks`, or as further `repos`.
+repos:
+  - repo: local
+    hooks:
+      - id: check
+        name: scripts/check
+        entry: sh -c 'if [ -x scripts/check ]; then exec scripts/check; fi'
+        language: system
+        pass_filenames: false
+        always_run: true

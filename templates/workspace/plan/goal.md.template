@@ -1,0 +1,28 @@
++++
+{{ if .Example -}}
+# A goal says what success is and how it is measured. Copy this file to plan/goal.md, or to
+# plan/goals/<id>.md when a project pursues several goals. A plan names its goal in `goal`.
+{{ else -}}
+# A goal says what success is and how it is measured. A plan names its goal in `goal`.
+{{ end -}}
+kind = "goal"
+# A stable ID. Keep it when you rename or move the file: the record follows the ID, not the path.
+{{ if .Example -}}
+id = "self-service-accounts"
+title = "Customers manage their own accounts"
+# How you will know the goal is met, one measurable statement each.
+success_measures = [
+  "A customer changes their display name and email address without contacting support",
+  "Requests to support about account details fall by half after the release",
+]
+{{ else -}}
+id = "{{ .Project }}-goal"
+title = "State the goal in one line"
+# How you will know the goal is met, one measurable statement each. Replace the placeholder.
+success_measures = [
+  "State one measurable sign that the goal is met",
+]
+{{ end -}}
++++
+
+Why this goal matters, who it serves, and what it leaves out, in prose.

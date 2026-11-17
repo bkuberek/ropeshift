@@ -1,0 +1,13 @@
+# The dependency update configuration, read by GitHub Dependabot:
+# https://docs.github.com/en/code-security/dependabot/dependabot-version-updates/configuring-dependabot-version-updates
+#
+# Copy it to .github/dependabot.yml in a repository that has a package manager. Give each package manager
+# of the repository one entry under `updates`, with the folder that holds its manifest as `directory`.
+# The entry below is for Go modules: replace its ecosystem with npm, pip, cargo, bundler, maven, gradle,
+# docker, or github-actions, or add an entry for each.
+version: 2
+updates:
+  - package-ecosystem: "gomod"
+    directory: "/"
+    schedule:
+      interval: "weekly"

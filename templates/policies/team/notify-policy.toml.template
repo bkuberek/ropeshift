@@ -1,0 +1,14 @@
+# The notify policy: where ropeshift tells members that something waits, beyond the web UI's Needs you.
+# Publish it as a member: ropeshift policy publish --file notify-policy.toml
+#
+# Set `version` to one more than the newest version `ropeshift policy list --kind notify` prints; the
+# built-in version 1 sends nothing off the machine.
+[notify_policy]
+version = 2
+desktop = false
+# An HTTPS address that receives each notice as JSON, such as a relay into the team's chat. It holds a
+# host and a path only: a query or a user name in it is refused, because an address ends up in logs.
+webhook_url = "https://hooks.example.com/ropeshift"
+# The name of the variable in the daemon's environment that holds the signing key. The key itself never
+# goes in a policy.
+webhook_secret_env = "ROPESHIFT_WEBHOOK_KEY"

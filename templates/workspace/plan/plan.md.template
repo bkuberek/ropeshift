@@ -1,0 +1,60 @@
++++
+{{ if .Example -}}
+# A plan holds the documents, milestones, and contracts that pursue one goal. Copy this file to
+# plan/plan.md. Approving a version of the plan approves every document version it lists, records its
+# draft decisions as the approving member's decisions, and passes the contract review of its work.
+{{ else -}}
+# A plan holds the documents, milestones, and contracts that pursue one goal. Approving a version of the
+# plan approves every document version it lists, records its draft decisions as the approving member's
+# decisions, and passes the contract review of its work.
+{{ end -}}
+kind = "plan"
+# The plan's ID names the plan, not a version. Ropeshift numbers each committed change as a new version
+# of the same plan. A later plan for another goal gets an ID of its own, such as {{ .Project }}-v2.
+id = "{{ .Project }}-v1"
+{{ if .Example -}}
+title = "Self-service accounts"
+# The id of the goal file.
+goal = "self-service-accounts"
+# Every document the plan holds, as kind:id. A listed document must exist, so remove the entries for
+# the templates you do not copy. Contracts are not listed: each names this plan in its `plan` key.
+documents = [
+  "requirements:acme-accounts",
+  "spec:accounts-endpoints",
+  "architecture:acme-accounts",
+  "experience-design:account-settings",
+  "milestone:m1-accounts",
+  "repositories:acme",
+]
+
+# A draft decision records an answer the person gave while planning. It binds nothing until the plan is
+# approved. A planning session writes these from the conversation; a plan written by hand usually has none.
+[[decision]]
+id = "d1"
+question = "Does a new email address take effect before the customer confirms it?"
+answer = "No. It takes effect once the customer follows the link sent to the new address."
+rationale = "An unconfirmed address could lock the customer out of account recovery."
+# true holds the plan's approval while the question behind it is still open.
+blocking = false
+
+# An adoption records each branch or issue the plan does not carry, with the reason, so approval shows it.
+# [[left_out]]
+# ref = "branch:spike/old-settings"
+# reason = "An experiment the team abandoned"
+{{ else -}}
+title = "State the plan in one line"
+# The id of the goal file.
+goal = "{{ .Project }}-goal"
+# Every document the plan holds, as kind:id. A listed document must exist, so add an entry for each
+# document you write. Contracts are not listed: each names this plan in its `plan` key.
+documents = [
+  "requirements:{{ .Project }}-requirements",
+{{- if .Repositories }}
+  "repositories:{{ .Project }}",
+{{- end }}
+]
+{{ end -}}
++++
+
+How the work is planned, in prose: the order of the milestones, the shared contracts built first, and what
+the plan leaves for later.

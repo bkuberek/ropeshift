@@ -1,0 +1,36 @@
++++
+# The record's kind, ID, and status. The ID is stable, so a contract cites the record as decision:adr-0001
+# whatever its file is named. The status is proposed, accepted, superseded, or rejected, and a record that
+# states none is proposed. Only an accepted record answers a question a lane asks. Keep the status in step
+# with the Status section below.
+kind = "decision"
+id = "adr-0001"
+title = "Keep the plan of record in the workspace repository"
+status = "proposed"
++++
+
+# ADR-0001: Keep the plan of record in the workspace repository
+
+> Template: an architecture decision record, in the project's own format. Copy it to `docs/decisions/0001-short-title.md`, number records in order, and delete every line that starts with `>`. Ropeshift reads this file as a document of kind `decision`: each committed change to its status is a new version, a contract cites it as `decision:adr-0001`, and an accepted record answers a question at the first rung of the ladder. Decisions made through ropeshift, in a plan approval or an answer, live in its ledger.
+
+## Status
+
+Proposed
+
+> Proposed until a member accepts it, then Accepted. The workspace's `AGENTS.md` tells agents to treat only accepted records as binding.
+
+## Context
+
+The forces at play: the requirements by ID, the constraints, and the evidence, each external fact with its source URL. When the record settles a question someone asked in ropeshift, cite that decision's ledger ID here.
+
+## Decision
+
+The decision in one or two sentences, then its specifics.
+
+## Consequences
+
+What becomes easier, what becomes harder, and the risks accepted.
+
+## Alternatives considered
+
+Each alternative, and why it was not chosen.

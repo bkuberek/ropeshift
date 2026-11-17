@@ -1,0 +1,60 @@
+# AGENTS.md
+
+{{ if .Example -}}
+> Template: the instructions for one code repository, for its root. Copy it to `AGENTS.md`, replace `acme-api` and every example value, and delete every line that starts with `>`. Ropeshift's lanes and reviews work in worktrees of this repository and read this file, never the workspace's, so every rule a change here must follow belongs in this file or in the contract.
+{{ else -}}
+> Started by `ropeshift new`: the instructions for one code repository, for its root. Replace each placeholder, and delete every line that starts with `>`. Ropeshift's lanes and reviews work in worktrees of this repository and read this file, never the workspace's, so every rule a change here must follow belongs in this file or in the contract.
+{{ end }}
+This file gives coding agents, ropeshift lanes among them, what they need to change `{{ if .Example }}acme-api{{ else }}{{ .Project }}{{ end }}`: what it is, its commands, its rules, and how a change is checked. `CLAUDE.md` imports it.
+
+## What this repository is
+
+{{ if .Example -}}
+`acme-api` is the HTTP API of the acme project. The project's plan of record, with its requirements, decisions, and contracts, lives in the `acme-workspace` repository, not here.
+{{ else -}}
+Replace this line with what `{{ .Project }}` is for. The project's plan of record, with its requirements, decisions, and contracts, lives in the project's planning repository, not here.
+{{ end }}
+## Commands
+
+> Name one entry point for each check, and make it take no arguments: ropeshift's delegation policy can then let the orchestrator approve exactly that command.
+
+| Task | Command |
+|------|---------|
+| Install the dependencies | `make deps` |
+| Quick check, before every commit | `./scripts/check` |
+| Full verify, before the work is done | `./scripts/verify` |
+| Run the service locally | `make run` |
+
+## Layout
+
+> The parts of the code an agent needs first: where the entry points, the domain, and the tests are.
+
+{{ if .Example -}}
+- `cmd/api/`: the entry point.
+- `internal/accounts/`: the accounts domain and its handlers.
+- `internal/**/*_test.go`: the tests, beside the code they test.
+{{ else -}}
+- `src/`: replace this line with where the entry points and the code are.
+- `tests/`: replace this line with where the tests are.
+{{ end }}
+## Rules
+
+- Write the test that shows a behavior change before the change, and keep tests and code in one commit.
+- Use Conventional Commits: `feat:`, `fix:`, `docs:`, `chore:`. Keep each commit to one coherent change.
+- When documents disagree, an accepted decision wins over a requirement, and a requirement over a spec or design. A contradiction is a question, never a choice.
+
+## Working as a ropeshift lane
+
+- Work only in your worktree, and commit on your own branch. Never push, and never move another branch.
+- Run `./scripts/check` before each commit and `./scripts/verify` before you report the work done, exactly as written, with no pipe or redirect, and report both results with your outcome.
+- Ask through the ask tool when the contract, its documents, and the decisions do not answer a question.
+- Change `AGENTS.md`, `CLAUDE.md`, `.ropeshift/`, `.claude/`, `.mcp.json`, and the scripts under `scripts/` only when your contract asks for it, because they configure and check every later lane.
+- Read other repositories only through the read-only trees your brief names.
+
+## Privacy
+
+{{ if .Example -}}
+This repository is public. Never copy text from the acme workspace's documents into code, comments, commit messages, or pull request text here, and never commit a secret, a token, a local path, or a host name.
+{{ else -}}
+If this repository is public, never copy text from the planning repository's documents into code, comments, commit messages, or pull request text here. Never commit a secret, a token, a local path, or a host name.
+{{ end -}}

@@ -1,0 +1,99 @@
+# AGENTS.md
+
+{{ if .Example -}}
+> Template: the project definition and rules, for the root of the workspace repository. Copy it to `AGENTS.md`, replace `acme` and every example value, and delete every line that starts with `>`.
+{{ else -}}
+> Started by `ropeshift new` for the {{ .Project }} project: the project definition and rules, for the root of the workspace repository. Replace each placeholder, and delete every line that starts with `>`.
+{{ end }}
+This file defines the {{ .Project }} project for every agent that works in this workspace: ropeshift's planning and adopt sessions, which run in worktrees of this repository, and your own agent sessions here. `CLAUDE.md` imports it. Each code repository has an `AGENTS.md` of its own for the agents that change it, because a lane works in a worktree of that repository and never reads this file.
+
+## The project
+
+> Two or three sentences: what the product is, who it serves, and the phase it is in.
+
+{{ if .Example -}}
+acme lets customers manage their accounts and billing on their own. The plan of record is in `plan/`, and the current focus is in `docs/status.md`.
+{{ else -}}
+Replace this line: what {{ .Project }} is, who it serves, and the phase it is in. The plan of record is in `plan/`.
+{{ end }}
+## Repositories
+
+> The manifest is the record of the repositories. This table adds only what the manifest has no key for.
+
+{{ if .Repositories -}}
+The manifest, `plan/repositories.md`, lists every repository of the project with its remote, its path under `repos/`, and its purpose, and `make setup` clones any that is missing. This repository, `{{ .Workspace }}`, is the planning repository and is not in the manifest.
+{{ else -}}
+The project has no code repository yet. List each one in a manifest, `plan/repositories.md`, which `ropeshift template show workspace/plan/repositories.md` prints, with its remote, its path under `repos/`, and its purpose, and `make setup` clones any that is missing. This repository, `{{ .Workspace }}`, is the planning repository and is not in the manifest.
+{{ end }}
+| Repository | Visibility | Reviewed through |
+|------------|------------|------------------|
+| `{{ .Workspace }}` | Private | Plan approval |
+{{ if .Example -}}
+| `acme-api` | Public | Pull requests |
+| `acme-web` | Private | Pull requests |
+{{ else -}}
+{{ range .Repositories -}}
+| `{{ .Name }}` | Public or private | Pull requests |
+{{ end -}}
+{{ end }}
+## Where things live
+
+| Path | Holds |
+|------|-------|
+| `plan/` | The plan of record, in ropeshift's file format: the goal, plans, requirements, specs, architecture, experience designs, milestones, contracts, and the manifest |
+| `docs/decisions/` | Architecture decision records, one file each, `NNNN-short-title.md` |
+| `docs/research/` | Research and evaluations, each fact with its source URL |
+| `docs/glossary.md` | The project's terms |
+| `docs/status.md` | The current focus |
+| `repos/` | The code repositories, each a clone of its own, ignored by this repository |
+
+## Which document wins
+
+When two documents disagree, an accepted decision wins over a requirement, a requirement wins over a spec, an architecture document, or an experience design, and those win over notes and code comments. A contradiction is a question for a person: ask it, and never settle it by choosing one side.
+
+## IDs
+
+- Requirements: an area code and a number, such as `ACC-3`. An ID is never reused, even after its requirement is deleted.
+- Decisions: `ADR-0007` for a record in `docs/decisions/`, and the ledger's own ID for a decision recorded through ropeshift.
+- Milestones: `m1-accounts`. Contracts: the deliverable, such as `accounts-api`. Criteria: `c1`. Exit criteria: `e1`. Draft decisions: `d1`.
+- Cite a document as `kind:id`, such as `spec:accounts-endpoints`, a requirement by its ID, and code as `repository:path`, such as `{{ .Project }}-api:internal/accounts/handler.go`.
+
+## Writing plan files
+
+- Plan files go under `plan/`: one file per document, milestone, or contract, named after its `id`, in lowercase with hyphens, ending in `.md`.
+- Every plan file starts with a `+++` line, holds TOML front matter with a known `kind`, a stable `id`, and a `title`, and ends its front matter with another `+++` line.
+- Every contract belongs to a milestone, cites the documents it depends on in `documents`, and maps each criterion to requirement IDs.
+- Every contract has a criterion that the full verify of the repository it changes passes, mapped to `QA-1`.
+- Every work order names its repository in `repo`, by its name in the manifest. An absent `repo` is this workspace.
+- A contract whose lanes must read this workspace's own prose, such as an ADR or the glossary, names `{{ .Workspace }}` in `reads`. A contract for a public repository does so only when its lanes need it.
+- Never write a version number. Ropeshift numbers every committed change.
+- Treat only accepted ADRs as binding.
+
+## Conventions
+
+- Write in English, in a plain engineering tone.
+- Use Conventional Commits: `docs:`, `feat:`, `fix:`, `chore:`. Keep each commit to one coherent change.
+- Use lowercase, hyphenated file names, except `README.md`, `AGENTS.md`, and `CLAUDE.md`.
+
+## Privacy
+
+- This repository is private. Nothing from `plan/` or `docs/` goes into a public repository's code, comments, commit messages, or pull requests unless a person checked it first.
+- Never commit a secret, a token, a local path, or a host name. Name a secret by reference, such as `env:ANTHROPIC_API_KEY`.
+
+## Steps that need a person
+
+| Step | How |
+|------|-----|
+| Approving a plan | `ropeshift plan approve`, or Needs you |
+| Answering a question that reached Needs you | `ropeshift question answer`, or Needs you |
+| Signing in | `eval "$(ropeshift login)"` in a terminal, for one hour |
+| Registering repositories | `make register`, which asks for the passphrase |
+| Opening a run window for a subscription worker | `ropeshift worker window-open <worker>` |
+| Merging at `person_merges` | On the forge, or `git merge` of the lane's branch |
+| Changing a repository's settings or a policy | `ropeshift repository set`, `ropeshift policy publish` |
+
+## Working with ropeshift
+
+- A planning session writes plan files on its own branch of this repository. Write nothing outside `plan/` and `docs/` there.
+- Never edit ropeshift's state, and never ask a person for their passphrase. An agent outside ropeshift acts through a delegate credential a member made, and a consent action it prepares waits for the member's confirmation.
+- `ropeshift needs` lists what waits for a person, and `ropeshift view roadmap` shows each milestone's progress. Read them instead of keeping that state in a file.

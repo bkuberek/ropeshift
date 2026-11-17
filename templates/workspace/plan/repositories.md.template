@@ -1,0 +1,48 @@
++++
+{{ if .Example -}}
+# The manifest: every code repository of the project, kept in the planning repository. Copy this file to
+# plan/repositories.md, and list it in the plan's `documents` as repositories:<id>. Approving a plan
+# version registers each repository it names that the project lacks, from the clone at its path.
+{{ else -}}
+# The manifest: every code repository of the project, kept in the planning repository. The plan lists it
+# in `documents` as repositories:<id>. Approving a plan version registers each repository it names that
+# the project lacks, from the clone at its path.
+{{ end -}}
+#
+# A manifest names repositories and sets nothing else. The review target, merge method, base branch,
+# start_from, forge binding, and merge authority stay a member's settings, and any key the format does
+# not have is a problem `ropeshift source list` reports, with no effect.
+kind = "repositories"
+# Usually the project's name.
+id = "{{ .Project }}"
+{{ if .Example -}}
+title = "Acme repositories"
+{{ else -}}
+title = "{{ .Project }} repositories"
+{{ end -}}
+plan = "{{ .Project }}-v1"
+{{ range $i, $r := .Repositories }}
+[[repository]]
+{{ if eq $i 0 -}}
+# The repository's name in the project. Work orders name it in `repo`, and contracts in `reads`.
+{{ end -}}
+name = "{{ $r.Name }}"
+{{ if eq $i 0 -}}
+# Approval registers the clone at `path` only when its remote is this one.
+{{ end -}}
+remote = "{{ $r.Remote }}"
+{{ if eq $i 0 -}}
+# Where the clone sits, relative to the planning repository's clone: inside its ignored repos/ folder,
+# or beside it, as ../{{ $r.Name }}. It must stay inside the folder that holds the planning repository's
+# clone, and must not be that clone. Keep it in step with CODE_DIR and REPOSITORIES in the Makefile.
+{{ end -}}
+path = "repos/{{ $r.Name }}"
+{{ if $.Example -}}
+description = "{{ if eq $i 0 }}The HTTP API{{ else }}The web client{{ end }}"
+{{ else -}}
+description = "State what {{ $r.Name }} is for"
+{{ end -}}
+{{ end -}}
++++
+
+The code repositories of the {{ .Project }} project. The planning repository, which holds this file, is not listed.

@@ -1,0 +1,21 @@
++++
+# A milestone is one step of the plan. Copy this file to plan/milestones/<id>.md. Every contract of a
+# plan that has milestones names one in its `milestone` key.
+kind = "milestone"
+id = "m1-accounts"
+title = "Customers manage their own accounts"
+plan = "{{ .Project }}-v1"
+# Milestones run in priority order, the lower number first.
+priority = 1
+# Milestones that must finish first, by id. Every work order here waits for every work order of each.
+depends_on = []
+# true records a milestone the code already delivers: it holds no work, and nothing waits for it.
+# existing = true
+
+# Each exit criterion says how the milestone is known to be done.
+[[exit_criteria]]
+id = "e1"
+text = "A customer changes their display name and email address on the live site"
++++
+
+What this milestone delivers, and why it comes in this place, in prose.

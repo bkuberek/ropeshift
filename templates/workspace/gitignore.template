@@ -1,0 +1,19 @@
+# The workspace's .gitignore.{{ if .Example }} Copy it to .gitignore at the root of the workspace.{{ end }}
+
+# The code repositories, each a clone of its own, which make setup clones. Intake reads only what this
+# repository commits, so a clone here is never read as part of the plan. Keep the name in step with
+# CODE_DIR in the Makefile.
+/repos/
+
+# Personal instructions and settings for Claude Code on this machine.
+CLAUDE.local.md
+/.claude/settings.local.json
+
+# Environment files, which hold values for one machine and may hold secrets. Commit an example with no
+# values as .env.example.
+.env
+.env.*
+!.env.example
+
+# Operating system files.
+.DS_Store
