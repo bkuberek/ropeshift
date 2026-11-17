@@ -129,9 +129,10 @@ func checkWorkerURL(given string, plan serverTransport) (string, error) {
 // of what a proxy on this machine forwards: every client is one address, which the limit on wrong guesses counts as
 // one. A proxy on another machine is right to leave loopback out, so this is a warning.
 //
-// Which loopback addresses reach the listener depends on its address: every address of both families, which `::` and
-// an empty host are, is reached at 127.0.0.1 and at ::1, and a proxy on this machine uses either, so both must be
-// listed. Every IPv4 address, and localhost, are reached at 127.0.0.1, and the IPv6 loopback address at itself.
+// Which loopback addresses reach the listener depends on its address: every address, which `::`, `0.0.0.0`, and an
+// empty host all are, is reached at 127.0.0.1 and at ::1, because Go listens on an unspecified address with a socket of
+// both families where the system has one, and a proxy on this machine uses either, so both must be listed. localhost is
+// reached at 127.0.0.1, and a loopback address at itself.
 func loopbackWarnings(listen string, plan serverTransport) []string {
 	if plan.mode != transportProxy {
 		return nil
@@ -166,8 +167,6 @@ func loopbackReached(listen string) []netip.Addr {
 	case err != nil:
 		// A host name of the network is no address loopback reaches.
 		return nil
-	case ip.IsUnspecified() && ip.Is4():
-		return []netip.Addr{v4}
 	case ip.IsUnspecified():
 		return []netip.Addr{v4, v6}
 	case ip.IsLoopback():

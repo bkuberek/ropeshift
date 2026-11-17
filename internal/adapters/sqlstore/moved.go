@@ -54,7 +54,7 @@ ON CONFLICT DO NOTHING`)
 var sharedTables = []*sharedTable{
 	newSharedTable("members", "", []string{"id"}, "id", "identity_subject", "display_name", "status", "proof_digest"),
 	newSharedTable("member_sessions", "", []string{"digest"}, "digest", "member_id", "created_at", "expires_at"),
-	newSharedTable("join_grants", "", []string{"id"}, "id", "digest", "created_by", "used_by"),
+	newSharedTable("join_grants", "", []string{"id"}, "id", "digest", "created_by", "used_by", "expires_at", "revoked_at"),
 	newSharedTable("workers", "", []string{"id"}, "id", "name", "epoch", "protocol", "capabilities", "proof_digest", "last_handshake_at"),
 	newSharedTable("worker_autonomy", "", []string{"worker_id"}, "worker_id", "level", "acknowledged_by", "acknowledged_kind", "acknowledged_digest", "acknowledged_at"),
 	newSharedTable("run_windows", "", []string{"id"}, "id", "worker_id", "opened_by", "opened_kind", "opened_at", "closes_at", "closed_by", "closed_at"),

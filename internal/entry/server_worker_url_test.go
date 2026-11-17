@@ -201,16 +201,19 @@ func TestAProxyListenerThatLoopbackCanReachWarnsWhenLoopbackIsNotListed(t *testi
 	proxied := func(listen string, proxies ...string) serverOptions {
 		return serverOptions{listen: listen, tls: "off", trustedProxies: proxies, publicURL: "https://ropeshift.example"}
 	}
-	// A listener on every address of both families, which `::` and an empty host are, is reached from this machine at
-	// 127.0.0.1 and at ::1, and a proxy on this machine uses either, so each must be listed. A listener on every IPv4
-	// address is reached at 127.0.0.1 alone, and a loopback address is reached at itself.
+	// A listener on every address, which `::`, `0.0.0.0`, and an empty host all are, is reached from this machine at
+	// 127.0.0.1 and at ::1, and a proxy on this machine uses either, so each must be listed: Go listens on `0.0.0.0`
+	// with a socket of both families where the system has one. localhost is reached at 127.0.0.1, and a loopback
+	// address is reached at itself.
 	both := []string{"127.0.0.1", "::1"}
 	tests := []struct {
 		name    string
 		opts    serverOptions
 		missing []string
 	}{
-		{"every IPv4 address, loopback not listed", proxied("0.0.0.0:7400", "10.0.0.0/8"), []string{"127.0.0.1"}},
+		{"every IPv4 address, loopback not listed", proxied("0.0.0.0:7400", "10.0.0.0/8"), both},
+		{"every IPv4 address, with only IPv4 loopback listed", proxied("0.0.0.0:7400", "127.0.0.1"), []string{"::1"}},
+		{"every IPv4 address, with only IPv6 loopback listed", proxied("0.0.0.0:7400", "::1"), []string{"127.0.0.1"}},
 		{"no host, loopback not listed", proxied(":7400", "10.0.0.5"), both},
 		{"every address, loopback not listed", proxied("[::]:7400", "10.0.0.0/8"), both},
 		{"every address, with only IPv4 loopback listed", proxied("[::]:7400", "127.0.0.1"), []string{"::1"}},
@@ -220,8 +223,8 @@ func TestAProxyListenerThatLoopbackCanReachWarnsWhenLoopbackIsNotListed(t *testi
 		{"localhost, not listed", proxied("localhost:7400", "10.0.0.5"), []string{"127.0.0.1"}},
 		{"the IPv6 loopback address, not listed", proxied("[::1]:7400", "10.0.0.5"), []string{"::1"}},
 		{"the IPv6 loopback address, with only the IPv4 one listed", proxied("[::1]:7400", "127.0.0.1"), []string{"::1"}},
-		{"every IPv4 address, with loopback listed", proxied("0.0.0.0:7400", "10.0.0.0/8", "127.0.0.1"), nil},
-		{"every IPv4 address, with a range of loopback listed", proxied("0.0.0.0:7400", "127.0.0.0/8"), nil},
+		{"every IPv4 address, with both loopback addresses listed", proxied("0.0.0.0:7400", "10.0.0.0/8", "127.0.0.1", "::1"), nil},
+		{"every IPv4 address, with a range of IPv4 loopback and the IPv6 one listed", proxied("0.0.0.0:7400", "127.0.0.0/8", "::1"), nil},
 		{"every address, with both loopback addresses listed", proxied("[::]:7400", "127.0.0.0/8", "::1"), nil},
 		{"no host, with both loopback addresses listed", proxied(":7400", "127.0.0.1", "::1"), nil},
 		{"the IPv6 loopback address, listed", proxied("[::1]:7400", "::1"), nil},
