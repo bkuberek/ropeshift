@@ -337,6 +337,29 @@ func checkSpendLimitsByTier(r *Rig) error {
 	if err := expect(baselined, 10, 20, string(delivery.BasisBaselinedBand)); err != nil {
 		return err
 	}
+	// A new version of the policy moves the limit at once, and a revert, which is the earlier values published as
+	// a newer version, puts it back.
+	publish := func(version int64, hardMultiplier string) error {
+		policy, err := authority.DefaultSpendPolicy().Set("hard_multiplier", hardMultiplier)
+		if err != nil {
+			return err
+		}
+		policy.Version = version
+		_, err = control.NewSpend(s).PublishSpendPolicy(r.Ctx, r.Scope, authority.SpendPolicyDraft{Body: policy.Body(), Policy: policy}, theMember)
+		return err
+	}
+	if err := publish(2, "3"); err != nil {
+		return err
+	}
+	if err := expect(baselined, 10, 30, string(delivery.BasisBaselinedBand)); err != nil {
+		return err
+	}
+	if err := publish(3, "2"); err != nil {
+		return err
+	}
+	if err := expect(baselined, 10, 20, string(delivery.BasisBaselinedBand)); err != nil {
+		return err
+	}
 	none, err := r.Ready(s)
 	if err != nil {
 		return err
