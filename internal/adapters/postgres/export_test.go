@@ -25,7 +25,7 @@ const (
 
 // CreateUpTo runs the first steps of creating a project and stops, as a crash after them would.
 func (s *State) CreateUpTo(ctx context.Context, p ledger.Project, actor ledger.Actor, steps int) error {
-	c, err := s.newCreation(ctx, p, actor)
+	c, err := s.newCreation(p, actor)
 	if err != nil {
 		return err
 	}
@@ -34,7 +34,7 @@ func (s *State) CreateUpTo(ctx context.Context, p ledger.Project, actor ledger.A
 			_ = c.store.Close()
 		}
 	}()
-	return run(ctx, c.steps()[:steps])
+	return s.locked(ctx, func(ctx context.Context) error { return run(ctx, c.steps()[:steps]) })
 }
 
 // RemoveUpTo runs the first steps of removing a project and stops, as a crash after them would.

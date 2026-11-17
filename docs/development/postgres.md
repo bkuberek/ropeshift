@@ -14,9 +14,13 @@ Every step that makes a schema, migrates one, or drops one runs under a session 
 
 A caller waits for the lock until its context ends or `Options.LockTimeout` passes, one minute unless the option says otherwise, and then fails with `postgres.ErrLockTimeout`. A project whose Store the process already holds comes back from `Open` without touching the lock. A session that holds the lock and stops is a defect to find on the server: `pg_locks` lists it with `locktype = 'advisory'`.
 
-## Opening and removing a project
+## Creating, opening, and removing a project
 
-The registry decides which projects exist. `State.Open` returns the Store the process already keeps for a project, and otherwise reads the registry under the migration lock and refuses a project it does not hold with `ports.ErrNotFound`, so it never makes the schema of a project a removal has forgotten. `State.Remove` deletes the registry's row and then drops the schema under the same lock, so an `Open` or a `Create` in another process cannot make the schema again while it drops.
+The registry decides which projects exist. A project's schema is named `project_` and its ID in lowercase, so a generated ID, which is in capitals, gives a name `psql` reads without quotes. Two IDs that differ only in case name one schema, and `State.Create` refuses the second. A project an earlier build registered on a schema that kept the ID's capitals still opens and is removed with that schema.
+
+`State.Create` runs under the migration lock from the first check to the registry's row: it refuses a name or a schema another project holds, makes the schema, migrates it, makes the workspace, and registers the project. A crash after the schema and before the registry's row leaves a schema no project names. A retry with the same ID registers it, and `postgres.Open` drops the rest: it drops every schema that starts with `project_` and that no registered project names, under the lock, so one that a `Create` is making is never one it drops. The prefix is ropeshift's in its database, and a schema of that form that a person made goes too.
+
+`State.Open` returns the Store the process already keeps for a project, and otherwise reads the registry under the lock and refuses a project it does not hold with `ports.ErrNotFound`, so it never makes the schema of a project a removal has forgotten. `State.Remove` deletes the registry's row and then drops the schema under the same lock, so an `Open` or a `Create` in another process cannot make the schema again while it drops.
 
 ## Idle transactions
 

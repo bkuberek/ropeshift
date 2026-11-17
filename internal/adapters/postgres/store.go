@@ -84,8 +84,9 @@ type State struct {
 }
 
 // Open connects to the database a URL names, makes the installation's schema, and brings it to this
-// build's version. The URL is a postgres:// URL or a key/value connection string. A project's Store
-// opened through the state reaches the shared records there.
+// build's version. It drops the schemas that carry a project's prefix and that no registered project names,
+// which only a crash in the middle of a Create or a Remove leaves. The URL is a postgres:// URL or a
+// key/value connection string. A project's Store opened through the state reaches the shared records there.
 func Open(ctx context.Context, url string, opts Options) (*State, error) {
 	pool, err := newPool(ctx, url, opts)
 	if err != nil {
@@ -115,7 +116,10 @@ func Open(ctx context.Context, url string, opts Options) (*State, error) {
 		if err := s.createSchema(ctx, InstallationSchema); err != nil {
 			return err
 		}
-		return s.Installation.Migrate(ctx)
+		if err := s.Installation.Migrate(ctx); err != nil {
+			return err
+		}
+		return s.sweep(ctx)
 	})
 	if err != nil {
 		_ = s.Close()
@@ -178,7 +182,8 @@ func (s *State) Close() error {
 
 // Ledger returns a Store on the pool, in a schema it makes if the database has none, and reaching the
 // installation's records. The Store is not migrated, and the caller closes it, which leaves the pool and
-// every other Store open.
+// every other Store open. A schema it makes under a project's prefix is a schema no project names, which
+// the next Open of a State drops.
 func (s *State) Ledger(ctx context.Context, schema string, opts sqlstore.Options) (*sqlstore.Store, error) {
 	err := s.locked(ctx, func(ctx context.Context) error { return s.createSchema(ctx, schema) })
 	if err != nil {
