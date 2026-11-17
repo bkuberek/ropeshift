@@ -49,6 +49,10 @@ type Database struct {
 	Damage func(t testing.TB, statement string) error
 	// Restartable is false for a database that lives inside its only handle.
 	Restartable bool
+	// Installation is true when the Store keeps the repository index of an installation, so a repository
+	// that one workspace holds is refused to another (FR-PROJ-6), and false for a Store that keeps a record
+	// in each workspace and has no index to keep.
+	Installation bool
 }
 
 // Backend makes empty databases.

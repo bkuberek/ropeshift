@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -342,6 +343,74 @@ func TestAStalledRepairGivesUpAfterItsBound(t *testing.T) {
 	}
 }
 
+// TestARollbackThatCannotFinishGivesUp holds that the rollback of the repair's transaction on the project,
+// which runs when the repair fails, has a bound of its own. The repair stalls at its replacement of the
+// index, as in the test above, and the server process that holds the project's transaction is stopped, so
+// the rollback is never answered, as it is not when a connection is lost. The write that failed returns
+// when the repair's bound and the rollback's have passed.
+func TestARollbackThatCannotFinishGivesUp(t *testing.T) {
+	url := freshDatabase(t)
+	state := openState(t, url, postgres.Options{})
+	state.SetRepairWait(2 * time.Second)
+	state.SetRollbackWait(500 * time.Millisecond)
+	db := state.SQLDB()
+	defer db.Close()
+	alpha, alphaStore := createProject(t, state, "pa", "alpha")
+	const other = "https://example.com/acme/other"
+	if err := insertRepository(t.Context(), alphaStore, alpha.ID, "r1", "invoices", invoices); err != nil {
+		t.Fatal(err)
+	}
+	if err := insertRepository(t.Context(), alphaStore, alpha.ID, "r2", "other", other); err != nil {
+		t.Fatal(err)
+	}
+	_, session := otherSession(t, url)
+	for _, statement := range []string{`BEGIN`, `SELECT 1 FROM installation.repository_index WHERE identity = 'example.com/acme/other' FOR UPDATE`} {
+		if _, err := session.ExecContext(t.Context(), statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	lift := deferRepositoryTrigger(t, db, "project_pa", "UPDATE", `RAISE EXCEPTION 'the commit is refused';`)
+
+	start := time.Now()
+	written := make(chan error, 1)
+	go func() { written <- moveRemote(t.Context(), alphaStore, alpha.ID, "r1", billing) }()
+
+	// The server process that holds the repair's transaction on the project has read the project's records
+	// and sits in the transaction, waiting for the repair's next statement.
+	var pid int
+	for deadline := time.Now().Add(15 * time.Second); pid == 0; time.Sleep(5 * time.Millisecond) {
+		err := db.QueryRowContext(t.Context(), `SELECT pid FROM pg_stat_activity
+ WHERE datname = current_database() AND state = 'idle in transaction' AND query LIKE '%.repositories WHERE workspace_id%'`).Scan(&pid)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			t.Fatal(err)
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the repair never held a transaction on the project")
+		}
+	}
+	// An unbounded rollback ends when the process is let go. The test lets it go late, so that it fails and
+	// does not hang, and never leaves a stopped server process behind.
+	if err := syscall.Kill(pid, syscall.SIGSTOP); err != nil {
+		t.Fatal(err)
+	}
+	resume := func() { _ = syscall.Kill(pid, syscall.SIGCONT) }
+	t.Cleanup(resume)
+	late := time.AfterFunc(8*time.Second, resume)
+	defer late.Stop()
+
+	if err := <-written; err == nil {
+		t.Fatal("the project's commit was not refused")
+	}
+	if took := time.Since(start); took > 6*time.Second {
+		t.Errorf("the write returned after %s, with a repair bound of 2s and a rollback bound of 500ms", took)
+	}
+	resume()
+	lift()
+	if _, err := session.ExecContext(t.Context(), `ROLLBACK`); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // insertRecordWithoutEntry puts a repository record in a project's schema as a write that never reached the
 // repository index would, so the record's repository can be one that another project holds.
 func insertRecordWithoutEntry(t *testing.T, db *sql.DB, schema string, scope ledger.WorkspaceID, id, name, remote string) {
@@ -406,6 +475,99 @@ func TestAConflictIsReportedWithWhatToDoAndOnlyWhenItChanges(t *testing.T) {
 	}
 	if got := warned.all(); len(got) < 2 || !strings.Contains(strings.Join(got[1:], "\n"), "r-b2") {
 		t.Errorf("warnings %q, want a new one that names r-b2", got)
+	}
+}
+
+// TestAConflictNamesBothProjectsWhateverTheirNames holds that the warning for a conflict never leaves a
+// project's place in it blank: a project whose registry name is empty is named by its ID.
+func TestAConflictNamesBothProjectsWhateverTheirNames(t *testing.T) {
+	// The registry keeps one project with an empty name at most, so each case blanks one of the two.
+	for _, tt := range []struct {
+		name  string
+		blank string
+		want  []string
+	}{
+		{"the holder's name is empty", "pa", []string{"record r-b1 of project beta names", "which project pa holds;"}},
+		{"the name of the project that keeps the record is empty", "pb", []string{"record r-b1 of project pb names", "which project alpha holds;"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			url := freshDatabase(t)
+			first := openState(t, url, postgres.Options{})
+			db := first.SQLDB()
+			defer db.Close()
+			alpha, alphaStore := createProject(t, first, "pa", "alpha")
+			beta, _ := createProject(t, first, "pb", "beta")
+			if err := insertRepository(t.Context(), alphaStore, alpha.ID, "r1", "invoices", invoices); err != nil {
+				t.Fatal(err)
+			}
+			insertRecordWithoutEntry(t, db, "project_pb", beta.ID, "r-b1", "b1", invoices)
+			if _, err := db.ExecContext(t.Context(), `UPDATE installation.projects SET name = '' WHERE id = $1`, tt.blank); err != nil {
+				t.Fatal(err)
+			}
+
+			var warned warnings
+			state, err := postgres.Open(t.Context(), url, postgres.Options{Store: sqlstore.Options{Warn: warned.add}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = state.Close() })
+			got := warned.all()
+			if len(got) != 1 {
+				t.Fatalf("warnings %q, want one for the conflict", got)
+			}
+			for _, want := range tt.want {
+				if !strings.Contains(got[0], want) {
+					t.Errorf("the warning %q does not say %q", got[0], want)
+				}
+			}
+		})
+	}
+}
+
+// TestAConflictThatEndsWithItsRecordIsReportedAgainWhenItReturns holds that the memory of a reported conflict
+// goes when the conflict does, also when it ends because the conflicting record was removed, which leaves the
+// project's entries in agreement with its records and so needs no rebuild: a conflict that comes back is a
+// new one, and is reported.
+func TestAConflictThatEndsWithItsRecordIsReportedAgainWhenItReturns(t *testing.T) {
+	url := freshDatabase(t)
+	first := openState(t, url, postgres.Options{})
+	db := first.SQLDB()
+	defer db.Close()
+	alpha, alphaStore := createProject(t, first, "pa", "alpha")
+	beta, _ := createProject(t, first, "pb", "beta")
+	if err := insertRepository(t.Context(), alphaStore, alpha.ID, "r1", "invoices", invoices); err != nil {
+		t.Fatal(err)
+	}
+	insertRecordWithoutEntry(t, db, "project_pb", beta.ID, "r-b1", "b1", invoices)
+
+	var warned warnings
+	state, err := postgres.Open(t.Context(), url, postgres.Options{Store: sqlstore.Options{Warn: warned.add}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = state.Close() })
+	if got := warned.all(); len(got) != 1 {
+		t.Fatalf("warnings %q, want one for the conflict", got)
+	}
+
+	// The conflicting record is removed. The project's entries agree with its records again.
+	if _, err := db.ExecContext(t.Context(), `DELETE FROM project_pb.repositories WHERE id = 'r-b1'`); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.ReconcileIndex(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if got := warned.all(); len(got) != 1 {
+		t.Fatalf("warnings %q, want no new one while there is no conflict", got)
+	}
+
+	// The same conflict comes back later, and is reported.
+	insertRecordWithoutEntry(t, db, "project_pb", beta.ID, "r-b1", "b1", invoices)
+	if err := state.ReconcileIndex(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if got := warned.all(); len(got) != 2 || !strings.Contains(got[1], "r-b1") {
+		t.Errorf("warnings %q, want the conflict that came back reported once more", got)
 	}
 }
 

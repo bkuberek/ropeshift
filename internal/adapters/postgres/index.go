@@ -156,10 +156,44 @@ func (s *State) reconcileProject(ctx context.Context, p ledger.Project, entries 
 		return err
 	}
 	records, err := recordedRepositories(ctx, s.pool, schema, p.ID)
-	if err != nil || indexAgrees(entries, records, p.ID) {
+	if err != nil {
 		return err
 	}
+	if indexAgrees(entries, records, p.ID) {
+		// No conflict is left, which includes one that ended because its record was removed, and a
+		// conflict that comes back later is a new one to report.
+		s.forgetConflicts(p.ID)
+		return nil
+	}
 	return s.rebuildProjectIndex(ctx, p)
+}
+
+// projectLabel names a project by its name, or by its ID when it has no name.
+func projectLabel(name string, id ledger.WorkspaceID) string {
+	if name != "" {
+		return name
+	}
+	return string(id)
+}
+
+// holderLabel names the project that holds a repository for a warning, as "project" and its name or ID, and
+// says "another project" when the index names none.
+func (s *State) holderLabel(ctx context.Context, id ledger.WorkspaceID) string {
+	if id == "" {
+		return "another project"
+	}
+	name := ""
+	if held, err := s.Installation.ProjectByID(ctx, id); err == nil {
+		name = held.Name
+	}
+	return "project " + projectLabel(name, id)
+}
+
+// forgetConflicts drops what the state remembers of the conflicts it reported for a project.
+func (s *State) forgetConflicts(id ledger.WorkspaceID) {
+	s.reportedMu.Lock()
+	defer s.reportedMu.Unlock()
+	delete(s.reported, id)
 }
 
 // repairAfterFailedWrite brings a project's part of the repository index back into agreement with its
@@ -213,7 +247,7 @@ func (s *State) rebuildProjectIndex(ctx context.Context, p ledger.Project) error
 	if err != nil {
 		return err
 	}
-	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+	defer s.rollback(ctx, tx)
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`SET LOCAL lock_timeout = %d`, revisionWait.Milliseconds())); err != nil {
 		return err
 	}
@@ -236,14 +270,14 @@ func (s *State) rebuildProjectIndex(ctx context.Context, p ledger.Project) error
 		}
 	}
 	if indexAgrees(entries, records, p.ID) {
-		s.reportConflicts(ctx, p, nil, index)
+		s.forgetConflicts(p.ID)
 	} else {
 		_, wanted := indexedIdentities(records, p.ID)
 		conflicts, err := s.Installation.ReplaceProjectRepositories(ctx, p.ID, wanted)
 		if err != nil {
 			return err
 		}
-		s.reportConflicts(ctx, p, conflicts, index)
+		s.reportConflicts(ctx, p, conflicts)
 	}
 	return tx.Commit(ctx)
 }
@@ -252,24 +286,23 @@ func (s *State) rebuildProjectIndex(ctx context.Context, p ledger.Project) error
 // index, which no rebuild can settle: each warning names the record, the project that keeps it, and the
 // project that holds the repository, and says what to do. A conflict is reported once. The same set of
 // conflicts that a later rebuild of the project finds again is not reported again, and a set that changed is
-// reported in full. A project with no conflicts is forgotten, so one that comes back is reported. The index
-// is the entries as the rebuild read them, which name the holder of each conflicting identity.
-func (s *State) reportConflicts(ctx context.Context, p ledger.Project, conflicts, index []ledger.IndexedRepository) {
+// reported in full. A project with no conflicts is forgotten, so one that comes back is reported. A project
+// is named by its name, or by its ID when the registry holds no name for it, so no place in a warning is
+// blank. The holders are read after the rebuild that found the conflicts, so a repository that another
+// project took since the rebuild read the index is named too.
+func (s *State) reportConflicts(ctx context.Context, p ledger.Project, conflicts []ledger.IndexedRepository) {
 	var lines []string
-	for _, c := range conflicts {
-		var holder ledger.WorkspaceID
-		for _, entry := range index {
-			if entry.Identity == c.Identity {
-				holder = entry.Project
-				break
+	if len(conflicts) > 0 {
+		holders := make(map[string]ledger.WorkspaceID)
+		if index, err := s.Installation.RepositoryIndex(ctx); err == nil {
+			for _, entry := range index {
+				holders[entry.Identity] = entry.Project
 			}
 		}
-		name := string(holder)
-		if held, err := s.Installation.ProjectByID(ctx, holder); err == nil {
-			name = held.Name
+		for _, c := range conflicts {
+			lines = append(lines, fmt.Sprintf("postgres: repository index: record %s of project %s names %s, which %s holds; remove one of the two records, and the next Open holds the repository for the other",
+				c.Repository, projectLabel(p.Name, p.ID), c.Identity, s.holderLabel(ctx, holders[c.Identity])))
 		}
-		lines = append(lines, fmt.Sprintf("postgres: repository index: record %s of project %s names %s, which project %s holds; remove one of the two records, and the next Open holds the repository for the other",
-			c.Repository, p.Name, c.Identity, name))
 	}
 	slices.Sort(lines)
 	key := strings.Join(lines, "\n")
