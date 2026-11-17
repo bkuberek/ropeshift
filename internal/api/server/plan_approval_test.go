@@ -344,10 +344,15 @@ func TestAPlanApprovalNeedCarriesWhatAnAdoptionGroups(t *testing.T) {
 // ledger holds no record of until a member approves it, for the work order the lane ran.
 func askAboutABranch(t *testing.T, d *apitest.Daemon, id, workOrder string, detail []byte) {
 	t.Helper()
-	request := authority.Approval{
+	raiseBranchRequest(t, d, authority.Approval{
 		ID: id, Kind: authority.KindPlan, WorkOrder: workOrder, Subject: "shop@1", SubjectDigest: "sha256:abc", Summary: "Plan shop, version 1",
 		RequestedBy: "lane:lane-1", State: authority.ApprovalPending, RaisedAt: 1, PlanVersion: 1, Detail: string(detail),
-	}
+	})
+}
+
+// raiseBranchRequest records a request a planning lane's branch raised, with the event that says so.
+func raiseBranchRequest(t *testing.T, d *apitest.Daemon, request authority.Approval) {
+	t.Helper()
 	err := d.Store.Write(t.Context(), apitest.Scope, "test.approval", func(tx ports.WriteTx) error {
 		if _, err := tx.Approvals().Insert(request); err != nil {
 			return err
@@ -378,6 +383,42 @@ func TestAPlanApprovalNeedOfABranchCarriesTheDraftsItsRequestHolds(t *testing.T)
 	need := planApprovalNeed(t, readView[api.NeedsYou](t, d, api.ViewNeedsYou, ""))
 	if !reflect.DeepEqual(need.Drafts, drafts) || need.Decisions != len(drafts) {
 		t.Errorf("the need drafts %+v (%d decisions), want %+v", need.Drafts, need.Decisions, drafts)
+	}
+}
+
+// A branch's second version of a plan the ledger holds is a version the ledger holds no record of until a member
+// approves it, so its plan page reads the version from its request and does not answer not found.
+func TestShowingAPlanReadsTheSecondVersionOfABranchTheLedgerHoldsNoRecordOf(t *testing.T) {
+	d, w, _ := aWorld(t)
+	w.Planned(retrySource("The first draft."))
+	first := planApprovalNeed(t, readView[api.NeedsYou](t, d, api.ViewNeedsYou, ""))
+	if _, err := d.Client.DecideApproval(t.Context(), first.Approval.ID, api.DecideApproval{Digest: first.Approval.SubjectDigest, Allow: true}); err != nil {
+		t.Fatal(err)
+	}
+	drafts := []planning.DraftDecision{{ID: "d2", Question: "How many retries?", Answer: "Three", Rationale: "It is what the spec says."}}
+	detail, err := json.Marshal(planning.PlanDetail{Title: "Retry budget", Ref: "retry", Decisions: len(drafts), Drafts: drafts, Source: "abc123"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	raiseBranchRequest(t, d, authority.Approval{
+		ID: "branch-v2", Kind: authority.KindPlan, Plan: first.Approval.Plan, WorkOrder: "plan-1", Subject: "retry@2", SubjectDigest: "sha256:second",
+		Summary: "Plan retry, version 2", RequestedBy: "lane:lane-1", State: authority.ApprovalPending, RaisedAt: 2, PlanVersion: 2, Detail: string(detail),
+	})
+	reads := map[string]func() (api.PlanView, error){
+		"with no version": func() (api.PlanView, error) { return d.Client.Plan(t.Context(), first.Approval.Plan) },
+		"by its version":  func() (api.PlanView, error) { return d.Client.PlanVersion(t.Context(), first.Approval.Plan, 2) },
+	}
+	for name, read := range reads {
+		view, err := read()
+		if err != nil {
+			t.Fatalf("the plan %s: %v", name, err)
+		}
+		if view.Approval == nil || view.Approval.Approval.ID != "branch-v2" || !view.Approval.Approval.Open() || !reflect.DeepEqual(view.Approval.Drafts, drafts) {
+			t.Errorf("the plan %s reads %+v, want the branch's open request with its drafts", name, view.Approval)
+		}
+		if len(view.Versions) != 2 || view.Versions[0].Version != 2 || view.Versions[0].Approval != "branch-v2" {
+			t.Errorf("the plan %s lists %+v", name, view.Versions)
+		}
 	}
 }
 
