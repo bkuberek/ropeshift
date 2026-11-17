@@ -36,6 +36,37 @@ var BindingChecks = []Check{
 	{"BD12", "a lane's wake on a decision names a scope in the grammar", checkBindingWakeNamesAScope},
 	{"BD13", "a plan whose file names it with an id that is not plain is approved and its questions are answered", checkBindingUnplainPlanID},
 	{"BD14", "a decision that reaches finished work and its finished rework reworks the rework alone", checkBindingReworksTheTipOfAChain},
+	{"BD15", "a lane that asked a question is not parked by the decision that answers it", checkBindingAskerIsNotParked},
+}
+
+// checkBindingAskerIsNotParked holds that under `on_binding_decision = park`, the answer to a lane's question
+// leaves that lane running, because the answer is what it waits for, and that the same policy still parks the lane
+// when a decision it did not ask for reaches it.
+func checkBindingAskerIsNotParked(r *Rig) error {
+	m, err := midPlanWorld(r)
+	if err != nil {
+		return err
+	}
+	if err := m.ids.publishBinding(2, authority.LanePark, ""); err != nil {
+		return err
+	}
+	asked, err := m.ids.askAs("Which ID scheme do the work orders take?", false)
+	if err != nil {
+		return err
+	}
+	if _, err := r.NewOps(m.s).Answer(r.Ctx, r.Scope, asked.QuestionID, questions.Answer{DecisionID: r.ID("d"), Statement: "Ulids."}, r.member()); err != nil {
+		return err
+	}
+	if wanted, err := m.ids.wanted(); err != nil || wanted != "" {
+		return Violatedf("the lane that asked was asked to park by the answer it waited for: %q %v", wanted, err)
+	}
+	if _, err := m.decide(r.member(), "plan:"+m.plan, questions.Reversible); err != nil {
+		return err
+	}
+	if wanted, err := m.ids.wanted(); err != nil || wanted == "" {
+		return Violatedf("on_binding_decision park, and a decision the lane did not ask for asked nothing of it: %v", err)
+	}
+	return r.CheckQuestions(m.s)
 }
 
 // checkBindingReworksTheTipOfAChain holds that a chain of rework is reworked once, at its tip: a one-way decision

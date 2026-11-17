@@ -93,7 +93,7 @@ func (q *Questions) applyBinding(tx ports.WriteTx, record questions.Decision, ho
 		}
 	}
 	crashpoint.Hit("decision.record", "noticed")
-	if err := parkAsPolicySays(tx, touched, oneWay, record.ID, actor); err != nil {
+	if err := parkAsPolicySays(tx, touched, how, oneWay, record.ID, actor); err != nil {
 		return err
 	}
 	crashpoint.Hit("decision.record", "parked")
@@ -187,8 +187,9 @@ func releaseDecisionHold(tx ports.WriteTx, order workorders.WorkOrder, actor led
 
 // parkAsPolicySays asks each lane a decision reached to park when the lane policy says so, `on_one_way_decision`
 // for a one-way decision when a policy sets it and `on_binding_decision` otherwise. A lane of a `plan`,
-// `contract_review`, or `review` work order is told and never parked.
-func parkAsPolicySays(tx ports.WriteTx, touched reach, oneWay bool, decision string, actor ledger.Actor) error {
+// `contract_review`, or `review` work order is told and never parked, and neither is a lane that asked the question
+// a decision answers: the answer is what it waits for, so it reads the answer and goes on.
+func parkAsPolicySays(tx ports.WriteTx, touched reach, how string, oneWay bool, decision string, actor ledger.Actor) error {
 	if parksNothing() {
 		return nil
 	}
@@ -201,6 +202,9 @@ func parkAsPolicySays(tx ports.WriteTx, touched reach, oneWay bool, decision str
 		reason = "one-way decision " + decision
 	}
 	for _, lane := range slices.Sorted(maps.Keys(touched.lanes)) {
+		if how == boundAnswered && touched.asked[lane] && !parksAskingLanes() {
+			continue
+		}
 		work, err := laneWork(tx, lane)
 		if err != nil {
 			return err

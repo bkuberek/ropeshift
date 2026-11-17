@@ -603,7 +603,7 @@ func (q *Questions) overturnIn(tx ports.WriteTx, id string, overturn questions.O
 	if result.Noticed, err = q.noticeLanes(tx, id, result.New.ID, touched, actor); err != nil {
 		return questions.Overturned{}, err
 	}
-	if err := parkAsPolicySays(tx, touched, result.New.Reversibility == questions.OneWay, result.New.ID, actor); err != nil {
+	if err := parkAsPolicySays(tx, touched, boundOverturned, result.New.Reversibility == questions.OneWay, result.New.ID, actor); err != nil {
 		return questions.Overturned{}, err
 	}
 	crashpoint.Hit("decision.overturn", "noticed")

@@ -111,6 +111,7 @@ func tellsNobody() bool         { return false }
 func renewsNoPack() bool        { return false }
 func parksNothing() bool        { return false }
 func parksAnyDecision() bool    { return false }
+func parksAskingLanes() bool    { return false }
 func reworksNothing() bool      { return false }
 func reworksReversible() bool   { return false }
 func reworksEachDecision() bool { return false }

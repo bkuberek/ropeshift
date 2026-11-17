@@ -91,6 +91,8 @@ type Sabotage struct {
 	// ParksAnyDecision asks a lane to park for a decision the policy only tells it of, by reading every
 	// decision as a one-way one.
 	ParksAnyDecision bool
+	// ParksAskingLanes asks the lane that asked a question to park for the decision that answers it.
+	ParksAskingLanes bool
 	// ReworksNothing starts no rework of finished work a one-way decision binds.
 	ReworksNothing bool
 	// ReworksReversible reworks finished work a reversible decision binds, which a member does in one action.
@@ -204,6 +206,8 @@ func renewsNoPack() bool { return current().RenewsNoPack }
 func parksNothing() bool { return current().ParksNothing }
 
 func parksAnyDecision() bool { return current().ParksAnyDecision }
+
+func parksAskingLanes() bool { return current().ParksAskingLanes }
 
 func reworksNothing() bool { return current().ReworksNothing }
 
