@@ -87,13 +87,38 @@ func authOf(r *http.Request) ledger.WorkerAuth {
 	return ledger.WorkerAuth{WorkerID: r.PathValue("id"), Credential: bearer(r)}
 }
 
+// createJoinToken makes a join token for the member who asked, and on a group server the join string a worker is
+// handed in its place. Every join string is personal to that member: the record of the token names them, and no
+// other member's worker joins as theirs. The server makes no token when it could make no string, because a token
+// with no URL around it is no way to join a server from another machine.
 func (h *handler) createJoinToken(w http.ResponseWriter, r *http.Request, actor ledger.Actor) {
+	group := h.Mode == api.ModeGroup
+	if group {
+		if h.WorkerURL == "" {
+			refuse(w, http.StatusConflict, api.ErrorDetail{Code: api.CodeNoWorkerURL, Message: "this server does not know the URL its workers reach it at, so it cannot make a join string: start it with --worker-url (or set ROPESHIFT_WORKER_URL)"})
+			return
+		}
+		// A server whose settings no worker could read makes no token either.
+		if _, err := (api.JoinString{WorkerURL: h.WorkerURL, CASHA256: h.CAFingerprint, Token: "placeholder"}).Encode(); err != nil {
+			refuse(w, http.StatusConflict, api.ErrorDetail{Code: api.CodeNoWorkerURL, Message: "this server's worker URL is not one a worker can join: " + err.Error()})
+			return
+		}
+	}
 	token, err := h.plane.CreateJoinToken(r.Context(), actor)
 	if err != nil {
 		fail(w, err)
 		return
 	}
-	reply(w, http.StatusCreated, api.JoinTokenResponse{Token: token})
+	out := api.JoinTokenResponse{Token: token}
+	if group {
+		joined, err := (api.JoinString{WorkerURL: h.WorkerURL, CASHA256: h.CAFingerprint, Token: token}).Encode()
+		if err != nil {
+			fail(w, err)
+			return
+		}
+		out.JoinString = joined
+	}
+	reply(w, http.StatusCreated, out)
 }
 
 func (h *handler) register(w http.ResponseWriter, r *http.Request) {

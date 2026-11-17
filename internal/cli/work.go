@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"cmp"
 	"context"
 	"crypto/rand"
 	"fmt"
@@ -824,8 +825,10 @@ func (c *invocation) workerList(args []string) int {
 	})
 }
 
-// workerToken prints a join token. This is the one time anyone sees it, because the
-// ledger keeps only its digest.
+// workerToken makes a join token and prints it. On a group server it prints the join string the token is inside, which
+// is what a worker is handed: one line holding the server's URL, the fingerprint of its authority, and the token. This
+// is the one time anyone sees it, because the ledger keeps only the token's digest. The join string is personal to the
+// member who made it.
 func (c *invocation) workerToken(args []string) int {
 	set := c.flags()
 	positional, ok := c.parse(set, args)
@@ -837,8 +840,8 @@ func (c *invocation) workerToken(args []string) int {
 	}
 	client := c.client()
 	defer client.Close()
-	token, err := client.CreateJoinToken(c.ctx)
-	return c.finish(err, api.JoinTokenResponse{Token: token}, func() string { return token + "\n" })
+	made, err := client.NewJoinToken(c.ctx)
+	return c.finish(err, made, func() string { return cmp.Or(made.JoinString, made.Token) + "\n" })
 }
 
 func (c *invocation) laneReset(args []string) int {
