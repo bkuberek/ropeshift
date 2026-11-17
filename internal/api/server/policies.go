@@ -138,6 +138,28 @@ func readSpendPolicy(body string) (authority.SpendPolicyDraft, error) {
 	return authority.SpendPolicyDraft{Body: body, Policy: policy}, nil
 }
 
+// installationSpendPolicyTable is the table an installation spend policy's body holds. The installation keeps it, as it
+// keeps the autonomy policy, and it publishes through the same route.
+const installationSpendPolicyTable = "installation_spend_policy"
+
+// readInstallationSpendPolicy reads a body whose table is `installation_spend_policy`. A version states every key.
+func readInstallationSpendPolicy(body string) (authority.InstallationSpendPolicyDraft, error) {
+	var file authority.InstallationSpendPolicyFile
+	meta, err := toml.Decode(body, &file)
+	if err != nil {
+		return authority.InstallationSpendPolicyDraft{}, fmt.Errorf("%w: %v", authority.ErrBadSpendPolicy, err)
+	}
+	if unknown := meta.Undecoded(); len(unknown) > 0 {
+		return authority.InstallationSpendPolicyDraft{}, fmt.Errorf("%w: unknown setting %s", authority.ErrBadSpendPolicy, unknown[0])
+	}
+	for _, key := range authority.InstallationSpendPolicyFileKeys {
+		if !meta.IsDefined(installationSpendPolicyTable, key) {
+			return authority.InstallationSpendPolicyDraft{}, fmt.Errorf("%w: an installation spend policy states %s", authority.ErrBadSpendPolicy, key)
+		}
+	}
+	return authority.InstallationSpendPolicyDraft{Body: body, Policy: file.InstallationSpendPolicy}, nil
+}
+
 // estimatePolicyTable is the table an estimate policy's body holds.
 const estimatePolicyTable = "estimate_policy"
 
@@ -352,6 +374,19 @@ func (h *handler) publishPolicy(w http.ResponseWriter, r *http.Request, actor le
 		reply(w, http.StatusCreated, record)
 		return
 	}
+	if holdsTable(in.Body, installationSpendPolicyTable) {
+		draft, err := readInstallationSpendPolicy(in.Body)
+		if err != nil {
+			fail(w, err)
+			return
+		}
+		if record, err = h.spend.PublishInstallationSpendPolicy(r.Context(), h.Scope, draft, actor); err != nil {
+			fail(w, err)
+			return
+		}
+		reply(w, http.StatusCreated, record)
+		return
+	}
 	if holdsLanePolicy(in.Body) {
 		draft, err := readLanePolicy(in.Body)
 		if err != nil {
@@ -404,6 +439,9 @@ func (h *handler) policyVersions(r *http.Request) ([]authority.PolicyVersion, er
 	}
 	if r.URL.Query().Get("kind") == string(authority.PolicySpend) {
 		return h.spend.SpendPolicyVersions(r.Context(), h.Scope)
+	}
+	if r.URL.Query().Get("kind") == string(authority.PolicyInstallationSpend) {
+		return h.spend.InstallationSpendPolicyVersions(r.Context(), h.Scope)
 	}
 	if r.URL.Query().Get("kind") == string(delivery.PolicyEstimate) {
 		return h.estimates.EstimatePolicyVersions(r.Context(), h.Scope)

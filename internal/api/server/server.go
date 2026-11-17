@@ -253,6 +253,7 @@ func (h *handler) projectRoutes(mux *http.ServeMux) {
 	h.eventRoutes(mux)
 	h.noticeRoutes(mux)
 	h.measureRoutes(mux)
+	h.spendRoutes(mux)
 	h.paneRoutes(mux)
 	h.projectRosterRoutes(mux)
 	h.conversationRoutes(mux)
