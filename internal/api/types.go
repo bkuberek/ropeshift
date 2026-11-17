@@ -40,6 +40,9 @@ const (
 	// CodeInsecureTransport means a request reached the reverse proxy in front of a server over plain http, which
 	// the server answers none of: a credential in it crossed a network in the clear.
 	CodeInsecureTransport = "insecure_transport"
+	// CodeNoWorkerURL means a group server has no URL its workers reach it at, so it makes no join string: it is
+	// started with --worker-url (ROPESHIFT_WORKER_URL).
+	CodeNoWorkerURL = "no_worker_url"
 	// CodePassphraseChanged means a change of the passphrase lost to another that landed first, though the
 	// current passphrase it sent was right when it checked.
 	CodePassphraseChanged = "passphrase_changed"

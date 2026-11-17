@@ -417,11 +417,11 @@ func TestServerServesTLSWithItsOwnAuthority(t *testing.T) {
 			t.Errorf("%s: %v, %v", name, info, err)
 		}
 	}
-	health, err := s.healthOver(t, apitest.PinnedTLS(fingerprint, "127.0.0.1"))
+	health, err := s.healthOver(t, api.PinnedTLS(fingerprint, "127.0.0.1"))
 	if err != nil || health.Mode != api.ModeGroup {
 		t.Fatalf("a client that pins the fingerprint reads %+v: %v", health, err)
 	}
-	if _, err := s.healthOver(t, apitest.PinnedTLS(strings.Repeat("0", 64), "127.0.0.1")); err == nil {
+	if _, err := s.healthOver(t, api.PinnedTLS(strings.Repeat("0", 64), "127.0.0.1")); err == nil {
 		t.Error("a client that pins another fingerprint reached the server")
 	}
 	if said := s.d.stdout.String(); strings.Contains(said, "server http://") {

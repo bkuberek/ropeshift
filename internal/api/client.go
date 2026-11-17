@@ -111,7 +111,7 @@ func (c *Client) send(ctx context.Context, method, path string, in, out any) err
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		return fmt.Errorf("%w: %v", ErrUnreachable, err)
+		return fmt.Errorf("%w: %w", ErrUnreachable, err)
 	}
 	defer response.Body.Close()
 	if response.StatusCode >= http.StatusBadRequest {

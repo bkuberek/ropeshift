@@ -25,9 +25,12 @@ const (
 )
 
 // JoinTokenResponse carries a new join token. It is shown once, and the ledger keeps
-// only its digest.
+// only its digest. A group server also answers a join string, which holds the token with the URL its workers
+// reach the server at and the fingerprint of its certificate authority, and which a worker is handed in place of
+// the token. A solo daemon answers none.
 type JoinTokenResponse struct {
-	Token string `json:"token"`
+	Token      string `json:"token"`
+	JoinString string `json:"join_string,omitempty"`
 }
 
 // WorkerList is the answer to a list of workers.
@@ -54,9 +57,15 @@ func workerPath(id string, rest ...string) string {
 
 // CreateJoinToken makes a join token.
 func (c *Client) CreateJoinToken(ctx context.Context) (string, error) {
+	out, err := c.NewJoinToken(ctx)
+	return out.Token, err
+}
+
+// NewJoinToken makes a join token, and a join string with it when the server is a group server.
+func (c *Client) NewJoinToken(ctx context.Context) (JoinTokenResponse, error) {
 	var out JoinTokenResponse
 	err := c.Do(ctx, http.MethodPost, "/v1/workers/tokens", struct{}{}, &out)
-	return out.Token, err
+	return out, err
 }
 
 // Workers lists the registered workers.
