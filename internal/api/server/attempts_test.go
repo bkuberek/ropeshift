@@ -22,7 +22,61 @@ var attemptsStart = time.Date(2030, time.March, 1, 12, 0, 0, 0, time.UTC)
 func addr(s string) netip.Addr { return netip.MustParseAddr(s) }
 
 func limiter(clock *fake.Clock, max, capacity int) *server.Attempts {
-	return server.NewAttempts(server.AttemptLimits{MaxFailures: max, Lockout: 15 * time.Minute, Capacity: capacity, Now: clock.Now})
+	// The tests of the limit see the limit alone, so no address is held to a few guesses in flight here.
+	return server.NewAttempts(server.AttemptLimits{MaxFailures: max, Lockout: 15 * time.Minute, Capacity: capacity, InFlight: 100, Now: clock.Now})
+}
+
+// An address has two guesses in flight at most, whatever the limit on failures is, so a client holds two places of
+// the line of passphrase checks and no more, and the line is not filled by a few addresses sending many at once.
+// An address is counted as the limit counts it, so the addresses of one /64 share the two.
+func TestAnAddressHasNoMoreThanTwoGuessesInFlight(t *testing.T) {
+	t.Parallel()
+	clock := fake.NewClock(attemptsStart)
+	a := server.NewAttempts(server.AttemptLimits{MaxFailures: 10, Lockout: 15 * time.Minute, Capacity: 100, Now: clock.Now})
+	client := addr("203.0.113.7")
+	first, _ := a.Begin(client)
+	second, _ := a.Begin(client)
+	if first == nil || second == nil {
+		t.Fatal("two guesses in flight were not let through a limit of ten")
+	}
+	if third, wait := a.Begin(client); third != nil || wait != time.Second {
+		t.Fatalf("a third guess in flight is refused for %s, with attempt %v", wait, third)
+	}
+	other, _ := a.Begin(addr("203.0.113.8"))
+	if other == nil {
+		t.Error("another address was refused because of the first's guesses in flight")
+	}
+	other.Release()
+	first.Release()
+	third, _ := a.Begin(client)
+	if third == nil {
+		t.Fatal("a guess that finished made no room")
+	}
+	third.Release()
+	second.Release()
+
+	// Two addresses of one /64 are one address, and share the two.
+	one, _ := a.Begin(addr("2001:db8:1:2::1"))
+	two, _ := a.Begin(addr("2001:db8:1:2:aaaa::2"))
+	if one == nil || two == nil {
+		t.Fatal("two guesses of an IPv6 address were refused")
+	}
+	if more, _ := a.Begin(addr("2001:db8:1:2:bbbb::3")); more != nil {
+		t.Error("a third address of the same /64 had a place of its own")
+	}
+	one.Release()
+	two.Release()
+
+	// A server may allow more, and the limit is what it says.
+	wide := server.NewAttempts(server.AttemptLimits{MaxFailures: 10, Lockout: 15 * time.Minute, InFlight: 5, Now: clock.Now})
+	for i := range 5 {
+		if attempt, _ := wide.Begin(client); attempt == nil {
+			t.Fatalf("guess %d of five in flight was refused", i+1)
+		}
+	}
+	if attempt, _ := wide.Begin(client); attempt != nil {
+		t.Error("a sixth guess in flight was let through a limit of five")
+	}
 }
 
 // fails makes n wrong guesses from a client, each let through and found wrong.
@@ -379,7 +433,7 @@ func TestATableFullOfGuessesInFlightLetsTheNextThrough(t *testing.T) {
 
 func TestManyGuessesAtOnceCountEachOnce(t *testing.T) {
 	t.Parallel()
-	a := server.NewAttempts(server.AttemptLimits{MaxFailures: 5, Lockout: time.Hour, Capacity: 100})
+	a := server.NewAttempts(server.AttemptLimits{MaxFailures: 5, Lockout: time.Hour, Capacity: 100, InFlight: 1000})
 	client := addr("203.0.113.7")
 	var wrong, refused int
 	var mu sync.Mutex

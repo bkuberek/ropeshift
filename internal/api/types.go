@@ -37,6 +37,9 @@ const (
 	// CodeTooManyAttempts means a client address made too many wrong guesses at a passphrase or a join token. It
 	// comes as HTTP 429 with a Retry-After header, and refuses every guess from the address until it ends.
 	CodeTooManyAttempts = "too_many_attempts"
+	// CodeInsecureTransport means a request reached the reverse proxy in front of a server over plain http, which
+	// the server answers none of: a credential in it crossed a network in the clear.
+	CodeInsecureTransport = "insecure_transport"
 	// CodePassphraseChanged means a change of the passphrase lost to another that landed first, though the
 	// current passphrase it sent was right when it checked.
 	CodePassphraseChanged = "passphrase_changed"

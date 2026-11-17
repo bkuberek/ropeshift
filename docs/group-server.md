@@ -4,7 +4,7 @@
 
 A group server is the control plane on its own, on Postgres: the API, the worker plane, and the web UI on one listener. Each machine that runs work runs a worker of its own, which dials the server, so no machine opens a port for it. Solo mode, where one daemon runs both, is unchanged and ignores the variable.
 
-The listener serves plaintext on a loopback address, and TLS on any other: [choose a TLS mode](#choose-a-tls-mode) says where its certificate comes from. A worker joins over a loopback `http://` address in this version, so a worker and its server run on one machine.
+The listener serves plaintext on a loopback address, and TLS on any other, or plaintext to a reverse proxy that terminates TLS: [choose a TLS mode](#choose-a-tls-mode) says which, and where a certificate comes from. A worker joins over a loopback `http://` address in this version, so a worker and its server run on one machine.
 
 ## What a server does and does not do
 
@@ -126,8 +126,9 @@ Plaintext crosses loopback and nothing else. A listener on a loopback address se
 |--------------|-------------|--------------|
 | A LAN or a tailnet, with no certificate you manage | One the server makes from its own certificate authority | `--name` |
 | A certificate you already have, such as one from a public authority or from [`tailscale cert`](https://tailscale.com/kb/1153/enabling-https) | The files you supply | `--tls-cert` and `--tls-key` |
+| A reverse proxy you run, such as nginx, Caddy, or a container platform's proxy, that terminates TLS | The proxy's own | `--tls off`, `--trusted-proxies`, and `--public-url` |
 
-The listener speaks HTTP/1.1 over TLS 1.2 or later in both modes. The web UI's pages answer to loopback host names in this version, so a browser on another machine is refused with the code `foreign_host`. That is not what protects the listener: the `Host` header is the client's to choose, and a client on your network can send a loopback name. What protects it is that every route but the sign-in page and the route that signs in needs a credential, and that wrong guesses at a passphrase or a join token are counted and refused, as [limit wrong guesses](#limit-wrong-guesses) says.
+The listener speaks HTTP/1.1 in every mode, over TLS 1.2 or later when it serves TLS. Where members' browsers reach the web UI depends on the mode. Behind a proxy, the web UI answers to the host of `--public-url`, as [run behind a reverse proxy](#run-behind-a-reverse-proxy) says. In the other modes its pages answer to loopback host names in this version, so a browser on another machine is refused with the code `foreign_host`. That is not what protects the listener: the `Host` header is the client's to choose, and a client on your network can send a loopback name. What protects it is that every route but the sign-in page and the route that signs in needs a credential, and that wrong guesses at a passphrase or a join token are counted and refused, as [limit wrong guesses](#limit-wrong-guesses) says.
 
 ### Use the server's own authority
 
@@ -167,18 +168,86 @@ The authority never replaces itself. A server whose authority has expired, or wh
 
 3. The certificate has to chain to roots that the clients trust, and cover the names they reach the server by.
 
+## Run behind a reverse proxy
+
+Use this when a proxy you run already terminates TLS for a public name, as the proxy of a container platform or an nginx or a Caddy does, and the server sits behind it on a network only the proxy reaches. The server serves plaintext to the proxy and serves the web UI at the proxy's name.
+
+1. List the proxies. `--trusted-proxies` names the addresses and CIDR ranges of every proxy that connects to the server, repeated or comma separated, and `ROPESHIFT_TRUSTED_PROXIES` gives the same in a container. List the hop that records the client's address in `X-Forwarded-For`, and every hop between it and the server. Otherwise one proxy's address stands for every client behind it, and the limit on wrong guesses counts them as one. When the proxy and the server share a container network whose addresses change across restarts, name that network's range.
+
+2. Say where members reach the proxy. `--public-url` (`ROPESHIFT_PUBLIC_URL`) is the https origin of the proxy's public name, such as `https://ropeshift.example`, with a port only when it is not 443.
+
+3. Start the server with TLS off.
+
+   ```sh
+   ropeshiftd server --listen 10.0.0.9:7400 --tls off --trusted-proxies 10.0.0.5/32 --public-url https://ropeshift.example
+   ```
+
+   The server here is at `10.0.0.9` and its proxy is at `10.0.0.5`. The server prints `ropeshiftd: server http://10.0.0.9:7400` and the public URL it was given. It refuses to start with TLS off off loopback unless both settings are given, and it refuses a public URL that is not an `https://` origin, or has a path, a user, or a query. The address `--listen` binds is the one the proxy reaches, so on a shared host bind the proxy's network and no wider.
+
+   List only the proxy. Every address in `--trusted-proxies` may connect in plaintext and say who a client is, so a range such as `10.0.0.0/8` trusts every host in it, and any of them can send a request with an `X-Forwarded-For` of its choice. Name the proxy's own address, as `10.0.0.5/32` does, and name a range only when the proxy's address changes within it.
+
+4. Set the proxy to terminate TLS, keep the `Host` header the browser sent, add the client's address to `X-Forwarded-For`, say `https` in `X-Forwarded-Proto`, and pass streams on as they are written. A page of the web UI holds a stream open for its live updates, so a proxy that buffers a response, or closes a connection that is silent for a minute, breaks it. The nginx and Caddy examples below do each.
+
+### What the server takes from a proxy
+
+- **Plaintext only from loopback and listed addresses.** A connection from any other address is closed as it is accepted, before the server reads a byte from it, so it never sees a credential or a body. The plaintext hop belongs on a network that only the proxy reaches.
+- **Headers only from a listed peer.** The server reads `X-Forwarded-For` and `X-Forwarded-Proto` from a connection whose address is listed, and ignores them from every other. A connection from loopback that is not listed is served, and its headers are ignored: list `127.0.0.1` when the proxy runs on the server's own machine. `Forwarded` and `X-Real-IP` are never read.
+- **The client is the rightmost address in `X-Forwarded-For` that is not listed.** A proxy adds the address it was reached from at the end of the list, so a client can write what it likes at the start and no further. The server reads every `X-Forwarded-For` line, splits them on commas, and takes an address with a port or in brackets as the address. It stops at an entry that is no address, such as a name or an empty entry, and takes the last listed hop it passed as the client. The limit on wrong guesses counts by this client.
+- **A proxy that says its client used plain http is refused.** A request whose nearest proxy sent `X-Forwarded-Proto: http` is answered with 403 and the code `insecure_transport`, whatever route it is for, because a passphrase in it crossed a network in the clear. A request with no `X-Forwarded-Proto` is served, because the proxy is the one that terminates TLS.
+- **Strict entries.** Each entry of `--trusted-proxies` is an address or a CIDR range, and nothing else: no name, no port, no zone. A range with bits set past its prefix, such as `10.0.0.5/24`, is refused with the range it means, and so are `0.0.0.0/0` and `::/0`, which would trust every client to say who it is.
+
+### What the server does with the public URL
+
+- The web UI answers to the host of the public URL, in any case, and to loopback host names. A request for another host is refused with `foreign_host`. The proxy therefore passes the `Host` header on as the browser sent it.
+- A page served under the public host is that origin's alone: a request there whose `Origin` header is anything but the public origin is refused with `foreign_origin`. On loopback the origin is the loopback origin of the name used.
+- The session and token cookies are `Secure` when they are set for a request to the public host and the public URL is `https`. A request on loopback, from the person at the server's own machine, sets cookies that are not `Secure`, because a browser sends no `Secure` cookie back over http.
+
+### An nginx example
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name ropeshift.example;
+    # ssl_certificate and ssl_certificate_key name your certificate.
+
+    location / {
+        proxy_pass http://10.0.0.9:7400;
+        proxy_http_version 1.1;
+        proxy_set_header Host $http_host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_buffering off;
+        proxy_read_timeout 1h;
+    }
+}
+```
+
+`proxy_set_header Host $http_host` keeps the `Host` header exactly as the browser sent it, port included, where nginx sends the upstream's own by default. `$host` is a host name, and nginx documents the port as a variable of its own, so a public URL with a port, such as `https://ropeshift.example:8443`, would be refused with `foreign_host` behind it. `$proxy_add_x_forwarded_for` is the client's own `X-Forwarded-For` with `$remote_addr` added at the end. `proxy_buffering off` and a long `proxy_read_timeout` keep streams open, where nginx buffers a response by default and closes a connection that is silent for 60 seconds. List nginx's address in `--trusted-proxies`. Sources: [`ngx_http_proxy_module`](https://nginx.org/en/docs/http/ngx_http_proxy_module.html).
+
+### A Caddy example
+
+```caddyfile
+ropeshift.example {
+    reverse_proxy 10.0.0.9:7400 {
+        flush_interval -1
+    }
+}
+```
+
+Caddy terminates TLS for the name, passes the `Host` header on unchanged, sets `X-Forwarded-For` and `X-Forwarded-Proto`, and ignores the `X-Forwarded-*` headers a client sends unless the client's address is one of Caddy's own `trusted_proxies`. `flush_interval -1` turns response buffering off and flushes after each write. List Caddy's address in `--trusted-proxies`. Sources: [`reverse_proxy`](https://caddyserver.com/docs/caddyfile/directives/reverse_proxy).
+
 ## Limit wrong guesses
 
 The server counts every wrong guess at a secret by the address the connection came from: a wrong passphrase at the sign-in page, in a change of the passphrase, or in a call that signs in with a session, and a wrong join token at a worker's registration. After 10 wrong guesses within 15 minutes, the address is refused for 15 minutes. A refusal is HTTP 429 with the code `too_many_attempts` and a `Retry-After` header that says how many seconds remain, and it covers the right passphrase too. A right passphrase clears the address's count. A join token that works clears nothing, and a worker that holds its credential is not refused, because a credential is no guess.
 
 - `--signin-max-failures` and `--signin-lockout` set the two numbers, one for how many wrong guesses and one for how long they count and how long a refusal lasts. Both must be above zero.
-- The address is the one the TCP connection came from. Clients that reach the server through one machine, such as a NAT or a proxy, share that machine's address and count together, and no header a client sends changes the address.
-- An IPv6 address counts with the rest of its /64, because one host holds a whole /64 and could take a new address from it for every guess. An IPv4 address, and an IPv4 address in its IPv6 form, counts as itself.
+- The address is the one the TCP connection came from, and behind a reverse proxy it is the client the proxy names, as [run behind a reverse proxy](#run-behind-a-reverse-proxy) says. A header changes the address only when a listed proxy sends it. Clients that reach the server through one machine that is not a listed proxy, such as a NAT, share that machine's address and count together.
+- An IPv6 address counts with the rest of its /64, because one host holds a whole /64 and could take a new address from it for every guess. An IPv4 address counts as itself, and so does an IPv4-mapped IPv6 address (`::ffff:0:0/96`), which counts as the IPv4 address. Other IPv6 forms of an IPv4 address are not that address: every client behind NAT64's `64:ff9b::/96` shares one count, and so does every link-local client on `fe80::/64`.
 - A guess that fails for any reason after the check counts as wrong, such as a store that is down or a client that leaves once its passphrase was checked. Only a request that proves nothing is not counted: no passphrase is set, the session a change needs was gone, the new passphrase is outside its bounds, or another change won.
 - Guesses sent at once count as wrong until each is judged, so a client cannot get more guesses than the limit by sending them together.
 - The counts live in the server's memory and a restart clears them. The server tracks at most 10,000 addresses at a time, and lets go of the longest idle one that is not refused when it needs room.
 - The control socket is no client address and is never limited.
-- The sign-in page checks one guess at a time, so each guess costs the server a password hash, and a limit per address bounds only what one address costs. It does not stop many addresses from guessing at once.
+- A passphrase check is a password hash, which costs on purpose, so the server runs one at a time and lets no more than 16 wait their turn. An address has two checks in the line at most, whatever its limit on wrong guesses is, and a third is refused at once with 429 and `Retry-After: 1`. So a few addresses cannot fill the line and leave a member with nothing but a refusal: it takes eight addresses to fill it. A check that finds the line full is refused with 503 and `Retry-After: 1`. Neither refusal is counted against anybody. The limit per address bounds what one address costs, and the line bounds what every address costs together. It does not stop many addresses from guessing at once: each gets its own count, and the line turns away what it cannot take.
 
 ## Settings
 
@@ -189,6 +258,9 @@ The server counts every wrong guess at a secret by the address the connection ca
 | The host names and addresses of the certificate the server makes, repeated or comma separated | `--name` | `ROPESHIFT_SERVER_NAMES` | None: required off loopback with no supplied certificate |
 | The file of a certificate to serve, with its key | `--tls-cert` | `ROPESHIFT_TLS_CERT` | None |
 | The file of that certificate's key | `--tls-key` | `ROPESHIFT_TLS_KEY` | None |
+| `off` serves plaintext to the reverse proxies listed, which terminate TLS | `--tls` | `ROPESHIFT_TLS` | `on` |
+| The addresses and CIDR ranges of the reverse proxies, repeated or comma separated | `--trusted-proxies` | `ROPESHIFT_TRUSTED_PROXIES` | None: required with `--tls off` off loopback |
+| The https origin members' browsers use behind a reverse proxy | `--public-url` | `ROPESHIFT_PUBLIC_URL` | None: required with `--trusted-proxies` |
 | Wrong guesses one client address may make within the lockout | `--signin-max-failures` | `ROPESHIFT_SIGNIN_MAX_FAILURES` | `10` |
 | How long wrong guesses count, and how long a refused address stays refused | `--signin-lockout` | `ROPESHIFT_SIGNIN_LOCKOUT` | `15m` |
 | The server's state directory | None | `ROPESHIFT_STATE_DIR` | [By platform](cli.md#the-daemon) |

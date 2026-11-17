@@ -12,6 +12,7 @@ import (
 	"ropeshift.com/ropeshift/internal/adapters/clock"
 	"ropeshift.com/ropeshift/internal/adapters/servertls"
 	"ropeshift.com/ropeshift/internal/api"
+	"ropeshift.com/ropeshift/internal/api/server"
 	"ropeshift.com/ropeshift/test/apitest"
 )
 
@@ -72,6 +73,26 @@ func suppliedCertificate(t *testing.T) (listener, client *tls.Config) {
 		t.Fatal("the authority's certificate is not a certificate")
 	}
 	return pair.TLSConfig(), &tls.Config{RootCAs: roots, MinVersion: tls.VersionTLS12}
+}
+
+// proxiedLink is mode (c): the listener serves plaintext to the test proxy, which is the only proxy it lists, and
+// the worker reaches the proxy over TLS, pinned to the proxy's authority. The proxy sets the headers a real one does.
+func proxiedLink(t *testing.T, protocol int) *LinkRig {
+	t.Helper()
+	authority, err := servertls.OpenAuthority(filepath.Join(t.TempDir(), "tls"), servertls.Options{Names: []string{"127.0.0.1"}, Clock: clock.System{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	proxies, err := server.ParseProxies([]string{"127.0.0.1/32"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return networkLink(t, protocol, nil, func(network *apitest.Web) (*api.Client, error) {
+		proxy := apitest.ReverseProxy(t, network.Host, authority.TLSConfig())
+		return api.NewTLSClient("https://"+proxy, apitest.PinnedTLS(authority.Fingerprint(), "127.0.0.1"))
+	}, func(options *apitest.NetworkOptions) {
+		options.Proxies, options.PublicURL, options.Client = proxies, "https://ropeshift.example", proxies.Client
+	})
 }
 
 // A client pinned to one authority reaches no server that holds another, so the rigs above prove the chain a

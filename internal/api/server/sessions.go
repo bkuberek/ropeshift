@@ -44,10 +44,15 @@ func (h *handler) signIn(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer attempt.Release()
+	leave, ok := enterGate(h.Hashes, w, r)
+	if !ok {
+		return
+	}
+	defer leave()
 	grant, err := h.sessions.SignIn(r.Context(), h.Scope, ports.Proof{Passphrase: in.Passphrase}, in.TTLMs)
 	attempt.Judge(err, true)
 	if err != nil {
-		fail(w, err)
+		answerGuess(w, err, h.Warn)
 		return
 	}
 	reply(w, http.StatusCreated, api.Session{Token: grant.Token, Member: grant.Member, ExpiresAt: grant.ExpiresAt})

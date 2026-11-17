@@ -114,7 +114,7 @@ func (h *handler) register(w http.ResponseWriter, r *http.Request) {
 	// A join that worked proves no passphrase, so it clears nothing of what its address has failed at.
 	attempt.Judge(err, false)
 	if err != nil {
-		fail(w, err)
+		answerGuess(w, err, h.Warn)
 		return
 	}
 	reply(w, http.StatusOK, credential)

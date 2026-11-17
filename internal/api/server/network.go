@@ -133,20 +133,26 @@ type network struct {
 	// client says which address a request came from, which the limits on guessing a passphrase or a join token
 	// count by.
 	client func(*http.Request) netip.Addr
+	// proxies are the peers whose forwarded headers are read.
+	proxies *Proxies
 }
 
 // NewNetwork returns the handler of a group server's TCP listener over the same use cases as the socket.
 func NewNetwork(config Config, options WebOptions) http.Handler {
+	// The web UI's sign-in and the API's pass one gate, so the checks of a listener are one line.
+	if config.Hashes == nil {
+		config.Hashes = NewHashGate(DefaultHashDepth)
+	}
 	n := &network{
 		api: New(config), web: NewWeb(config, options), sessions: control.NewSessions(config.Store, config.Identity),
 		scope: config.Scope, workerRoutes: http.NewServeMux(), joinRoutes: http.NewServeMux(), recheck: options.Recheck,
-		client: options.Client,
+		client: options.Client, proxies: options.Proxies,
 	}
 	if n.recheck <= 0 {
 		n.recheck = defaultRecheck
 	}
 	if n.client == nil {
-		n.client = PeerAddress
+		n.client = n.proxies.Client
 	}
 	for _, route := range PlaneRoutes() {
 		mux := n.workerRoutes
@@ -182,6 +188,12 @@ func presented(r *http.Request) []credentialKind {
 
 func (n *network) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	r = r.WithContext(withClient(r.Context(), n.client(r)))
+	// A listed proxy that says its own client came over plain http has put what the request carries on a network in
+	// the clear, so the server answers none of it, whatever route it is for.
+	if forwarded := n.proxies.Resolve(r); forwarded.Via && forwarded.Proto == "http" {
+		refuse(w, http.StatusForbidden, api.ErrorDetail{Code: api.CodeInsecureTransport, Message: "this server answers requests that reached its proxy over https"})
+		return
+	}
 	if r.Header.Get(api.HeaderDelegate) != "" {
 		refuse(w, http.StatusForbidden, api.ErrorDetail{Code: api.CodeForbidden, Message: "A delegate uses the local socket, never the network listener."})
 		return
