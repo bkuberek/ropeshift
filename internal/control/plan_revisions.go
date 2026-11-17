@@ -45,7 +45,7 @@ func reviseApprovedPlans(tx ports.WriteTx, decision questions.Decision, touched 
 	facts := newScopeFacts(tx.Planning(), tx.WorkOrders())
 	plans := map[string]bool{}
 	for _, order := range touched.orders {
-		plan, err := facts.planOf(order.ContractID)
+		plan, err := facts.planOf(order.ContractID, order.ContractVersion)
 		if err != nil {
 			return err
 		}
@@ -64,7 +64,7 @@ func reviseApprovedPlans(tx ports.WriteTx, decision questions.Decision, touched 
 		var listed []string
 		if (!oneWay && !listsNoFinishedWork()) || (oneWay && listsOneWayFinishedWork()) {
 			for _, order := range finished {
-				if of, err := facts.planOf(order.ContractID); err != nil {
+				if of, err := facts.planOf(order.ContractID, order.ContractVersion); err != nil {
 					return err
 				} else if of == plan {
 					listed = append(listed, order.ID)
@@ -405,7 +405,7 @@ func refuseReworkedWork(tx ports.WriteTx, order workorders.WorkOrder) error {
 // revisionListing is the revision of the plan a finished work order belongs to, when it is open and lists the work
 // order, which is what lets a member make rework for the decisions it lists.
 func revisionListing(tx ports.WriteTx, order workorders.WorkOrder) (planning.RevisionWork, error) {
-	plan, err := newScopeFacts(tx.Planning(), tx.WorkOrders()).planOf(order.ContractID)
+	plan, err := newScopeFacts(tx.Planning(), tx.WorkOrders()).planOf(order.ContractID, order.ContractVersion)
 	if err != nil {
 		return planning.RevisionWork{}, err
 	}
@@ -457,7 +457,7 @@ func decisionReasons(tx ports.WriteTx, listed planning.RevisionWork, order worko
 // recordRework puts the rework a member made of a finished work order on the revision of its plan that lists the
 // work.
 func recordRework(tx ports.WriteTx, order workorders.WorkOrder, rework string, actor ledger.Actor) error {
-	plan, err := newScopeFacts(tx.Planning(), tx.WorkOrders()).planOf(order.ContractID)
+	plan, err := newScopeFacts(tx.Planning(), tx.WorkOrders()).planOf(order.ContractID, order.ContractVersion)
 	if err != nil || plan == "" {
 		return err
 	}
