@@ -49,15 +49,20 @@ export class Keys {
   }
 
   // type types text into the field the keyboard is on, a key at a time with a short pause so a controlled field keeps up
-  // on a slow runner, and waits until the field holds what was typed. A field that never does fails the path, naming
-  // what it holds.
+  // on a slow runner, and waits until the field holds what was typed. Keys typed while the keyboard is on no field land
+  // nowhere, so it first waits for one to take it. A field that never does fails the path, naming what it holds.
   async type(text: string): Promise<void> {
+    try {
+      await this.page.waitForFunction(() => document.activeElement instanceof HTMLInputElement || document.activeElement instanceof HTMLTextAreaElement, undefined, { timeout: 10_000 });
+    } catch {
+      throw new Error(`The keyboard never reached a field to type "${text}" into. It is on ${await this.where()}`);
+    }
     await this.page.keyboard.type(text, { delay: 5 });
     try {
       await this.page.waitForFunction(
         (typed) => {
           const field = document.activeElement as HTMLInputElement | HTMLTextAreaElement | null;
-          return !field || !("value" in field) || field.value.endsWith(typed);
+          return !!field && "value" in field && field.value.endsWith(typed);
         },
         text,
         { timeout: 5000 },
