@@ -130,16 +130,16 @@ type splitJournal struct {
 }
 
 func (j splitJournal) EndLane(ctx context.Context, id string, event ledger.UploadEvent) (ledger.UploadEvent, error) {
-	record, err := j.Journal.Lane(ctx, id)
+	record, err := j.Lane(ctx, id)
 	if err != nil {
 		return ledger.UploadEvent{}, err
 	}
 	record.State, record.TokenDigest = lanes.StateEnded, ""
-	if err := j.Journal.SaveLane(ctx, record); err != nil {
+	if err := j.SaveLane(ctx, record); err != nil {
 		return ledger.UploadEvent{}, err
 	}
 	crashpoint.Hit("worker.lane", laneSplitStep)
-	return j.Journal.Append(ctx, event)
+	return j.Append(ctx, event)
 }
 
 // laneScript is one session that reports completed and ends its turn. A lane with a session has left
@@ -676,7 +676,7 @@ func soloSleepRound(w *world, binary, dir string, sabotage []string) (string, er
 	defer func() {
 		_ = daemon.Process.Signal(syscall.SIGCONT)
 		_ = daemon.Process.Kill()
-		<-exited
+		ignoreExit(<-exited)
 	}()
 	client := api.NewUnixClient(paths.ControlSocket()).Project(ledger.DefaultProjectName)
 	defer client.Close()
@@ -745,7 +745,7 @@ func soloSleepRound(w *world, binary, dir string, sabotage []string) (string, er
 		return "", contract.Violatedf("after the sleep %+v", row)
 	}
 	_ = daemon.Process.Kill()
-	<-exited
+	ignoreExit(<-exited)
 	exited <- nil
 	return checkLapsesReturned(w, paths, resumed)
 }

@@ -467,7 +467,7 @@ func (s splitAnswer) Answer(ctx context.Context, scope ledger.WorkspaceID, id st
 		return questions.Decision{}, err
 	}
 	crashpoint.Hit("question.answer", "split")
-	return s.Ops.RecordDecision(ctx, scope, questions.Decision{
+	return s.RecordDecision(ctx, scope, questions.Decision{
 		ID: answer.DecisionID, Status: questions.DecisionDecided, Statement: answer.Statement, QuestionID: id,
 	}, actor)
 }
@@ -514,7 +514,7 @@ func (s splitTell) tell(ctx context.Context, scope ledger.WorkspaceID, id string
 			ID: messages.DerivedID(string(messages.KindAnswer), id, attachment.Lane), To: messages.Target{Lane: attachment.Lane},
 			ReplyTo: id, Kind: messages.KindAnswer, Body: "The answer.",
 		}
-		if _, err := s.Ops.Send(ctx, scope, draft, actor); err != nil {
+		if _, err := s.Send(ctx, scope, draft, actor); err != nil {
 			return err
 		}
 	}

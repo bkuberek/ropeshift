@@ -302,15 +302,15 @@ func sessionsApart(w *world, spec childSpec) error {
 	var order []string
 	told := false
 	for _, record := range records {
-		switch {
-		case record.Op == witnessSpawn:
+		switch record.Op {
+		case witnessSpawn:
 			spawned[record.Key]++
 			order = append(order, "spawn "+record.Key)
-		case record.Op == witnessEnded:
+		case witnessEnded:
 			order = append(order, "ended "+record.Key)
-		case record.Op == witnessStranded:
+		case witnessStranded:
 			return contract.Violatedf("session %s found its lane still reading parked", record.Key)
-		case record.Op == witnessTold:
+		case witnessTold:
 			told = told || record.Key == second
 		}
 	}
