@@ -3,6 +3,7 @@ package fake
 import (
 	"database/sql"
 	"fmt"
+	"path/filepath"
 	"slices"
 	"testing"
 
@@ -79,6 +80,61 @@ func TestAMigratedStoreIsAtTheLatestMigration(t *testing.T) {
 	}
 	if after := query(t, db, applied); !slices.Equal(after, before) {
 		t.Errorf("migrating a copy applied migrations again:\n%v\nwas\n%v", after, before)
+	}
+}
+
+// TestASeededStateCreatesItsProjectsOnCopies seeds a state directory, opens it, and creates two projects
+// on their seeded ledgers: each ledger, and the installation, holds the migrations of its seed and no
+// other, applied when the process migrated the seed, and a project's workspace is in its own ledger alone.
+func TestASeededStateCreatesItsProjectsOnCopies(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	dir := t.TempDir()
+	if err := SeedState(dir, "pa", "pb"); err != nil {
+		t.Fatal(err)
+	}
+	state, err := sqlite.OpenState(ctx, dir, sqlstore.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = state.Close() })
+	actor := ledger.Actor{Kind: ledger.ActorMember, ID: "member-1"}
+	stores := map[ledger.WorkspaceID]*sqlstore.Store{}
+	for _, p := range []ledger.Project{{ID: "pa", Name: "alpha"}, {ID: "pb", Name: "beta"}} {
+		_, store, err := state.CreateProject(ctx, p, actor)
+		if err != nil {
+			t.Fatalf("creating %s: %v", p.ID, err)
+		}
+		stores[p.ID] = store
+	}
+	if created, err := stores["pb"].CreateWorkspace(ctx, ledger.Workspace{ID: "pa", Name: "alpha"}, actor); err != nil || !created {
+		t.Errorf("project pb's ledger found project pa's workspace: created %v, %v", created, err)
+	}
+	const recorded = `SELECT version || ' ' || applied_at || ' ' || checksum FROM schema_migrations ORDER BY version`
+	for file, image := range map[string]func() ([]byte, error){
+		sqlite.InstallationFileName:                installationImage,
+		filepath.Join(sqlite.ProjectsDir, "pa.db"): ledgerImage,
+		filepath.Join(sqlite.ProjectsDir, "pb.db"): ledgerImage,
+	} {
+		bytes, err := image()
+		if err != nil {
+			t.Fatal(err)
+		}
+		seed, err := openImage(bytes)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := query(t, seed, recorded)
+		_ = seed.Close()
+		db, err := sqlite.OpenDB(filepath.Join(dir, file))
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := query(t, db, recorded)
+		_ = db.Close()
+		if len(want) == 0 || !slices.Equal(got, want) {
+			t.Errorf("%s records the migrations\n%v\nand its seed\n%v", file, got, want)
+		}
 	}
 }
 
