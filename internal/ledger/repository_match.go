@@ -1,6 +1,7 @@
 package ledger
 
 import (
+	"fmt"
 	"slices"
 	"strings"
 )
@@ -23,11 +24,13 @@ func RemotesDiffer(a, b string) bool {
 //  1. a record the caller already ties to the clone, named in preferred, whose ID is a root of the clone and
 //     that is not removed, such as the record this worker keeps at the clone's path;
 //  2. the record whose ID is the first-parent root, removed or not;
-//  3. a record that is not removed whose ID is the clone's lowest root, which earlier says, unless apart says
-//     the record is another repository than the clone, as one with a different remote is.
+//  3. the first legacy record, over the clone's other roots in ascending order, that is not removed and that
+//     apart does not say is another repository than the clone, as one with a different remote is. Earlier
+//     says it. A record made since is named by its first-parent root, and no other root of a clone matches
+//     it, so two repositories that merged one history are each their own record.
 //
-// A removed record is never matched by the lowest root. A nil apart never says so. No record means the clone
-// is a new record under its first-parent root.
+// A removed record is never matched by one of the other roots. A nil apart never says so. No record means
+// the clone is a new record under its first-parent root.
 func MatchRepository(first string, roots, preferred []string, apart func(Repository) bool, lookup RepositoryLookup) (record Repository, found, earlier bool, err error) {
 	for _, id := range preferred {
 		if id != first && !slices.Contains(roots, id) {
@@ -45,16 +48,40 @@ func MatchRepository(first string, roots, preferred []string, apart func(Reposit
 	if err != nil || found {
 		return record, found, false, err
 	}
-	lowest := first
-	for _, root := range roots {
-		lowest = min(lowest, root)
+	for _, root := range slices.Sorted(slices.Values(roots)) {
+		if root == first {
+			continue
+		}
+		record, found, err = lookup(root)
+		if err != nil {
+			return Repository{}, false, false, err
+		}
+		if found && record.IdentityLegacy && !record.Removed() && (apart == nil || !apart(record)) {
+			return record, true, true, nil
+		}
 	}
-	if lowest == first {
-		return Repository{}, false, false, nil
+	return Repository{}, false, false, nil
+}
+
+// SharesFirstCommit says two clones of one first commit are two repositories: a remote tells repositories
+// apart, so two clones with the same remote are one repository, and two with different remotes, or one with
+// none, are not.
+func SharesFirstCommit(keptRemote, cloneRemote string) bool {
+	was := RepositoryIdentity(keptRemote, "")
+	return was == "" || was != RepositoryIdentity(cloneRemote, "")
+}
+
+// SharedFirstCommit says why a clone is refused for sharing its first commit with a repository this worker
+// keeps at a path.
+func SharedFirstCommit(root, name, path string) string {
+	return fmt.Sprintf("shares its first commit `%s` with repository `%s` at `%s`; ropeshift identifies a repository by that commit, so give this clone a remote of its own or a history of its own",
+		ShortCommit(root), name, path)
+}
+
+// ShortCommit is the first eight characters of a commit ID, which name it in a message.
+func ShortCommit(commit string) string {
+	if len(commit) > 8 {
+		return commit[:8]
 	}
-	record, found, err = lookup(lowest)
-	if err != nil || !found || record.Removed() || (apart != nil && apart(record)) {
-		return Repository{}, false, false, err
-	}
-	return record, true, true, nil
+	return commit
 }

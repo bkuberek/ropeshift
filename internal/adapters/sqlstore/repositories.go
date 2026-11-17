@@ -10,14 +10,14 @@ import (
 	"ropeshift.com/ropeshift/internal/ports"
 )
 
-const repositoryColumns = `id, name, remote, default_branch, base_branch, forge_binding, merge_method, review_target, start_from, merge_authority, state, planning`
+const repositoryColumns = `id, name, remote, default_branch, base_branch, forge_binding, merge_method, review_target, start_from, merge_authority, state, planning, identity_legacy`
 
 var (
 	stmtInsertRepository = define("repository.insert",
 		`INSERT INTO repositories
-  (workspace_id, id, name, remote, default_branch, base_branch, forge_binding, merge_method, review_target, start_from, merge_authority, state, planning)
+  (workspace_id, id, name, remote, default_branch, base_branch, forge_binding, merge_method, review_target, start_from, merge_authority, state, planning, identity_legacy)
 VALUES
-  (:workspace_id, :id, :name, :remote, :default_branch, :base_branch, :forge_binding, :merge_method, :review_target, :start_from, :merge_authority, :state, :planning)
+  (:workspace_id, :id, :name, :remote, :default_branch, :base_branch, :forge_binding, :merge_method, :review_target, :start_from, :merge_authority, :state, :planning, :identity_legacy)
 ON CONFLICT DO NOTHING`)
 
 	stmtRepository = define("repository.get",
@@ -74,9 +74,9 @@ func (t repositoryTx) scoped(p params) params {
 func scanRepository(row scanner) (ledger.Repository, error) {
 	var r ledger.Repository
 	var method, target, start, authority, state string
-	var planning int64
-	err := row.Scan(&r.ID, &r.Name, &r.Remote, &r.DefaultBranch, &r.BaseBranch, &r.ForgeBinding, &method, &target, &start, &authority, &state, &planning)
-	r.Planning = planning != 0
+	var planning, legacy int64
+	err := row.Scan(&r.ID, &r.Name, &r.Remote, &r.DefaultBranch, &r.BaseBranch, &r.ForgeBinding, &method, &target, &start, &authority, &state, &planning, &legacy)
+	r.Planning, r.IdentityLegacy = planning != 0, legacy != 0
 	r.State = ledger.RepositoryState(state)
 	r.MergeMethod, r.ReviewTarget, r.StartFrom = ledger.MergeMethod(method), ledger.ReviewTarget(target), ledger.StartFrom(start)
 	r.MergeAuthority = ledger.MergeAuthority(authority)
@@ -132,6 +132,7 @@ func repositoryParams(r ledger.Repository) params {
 		"id": r.ID, "name": r.Name, "remote": r.Remote, "default_branch": r.DefaultBranch, "base_branch": r.BaseBranch,
 		"forge_binding": r.ForgeBinding, "merge_method": string(r.MergeMethod), "review_target": string(r.Target()), "start_from": string(r.StartFrom),
 		"merge_authority": string(r.Level()), "state": string(cmp.Or(r.State, ledger.RepositoryActive)), "planning": flag(r.Planning),
+		"identity_legacy": flag(r.IdentityLegacy),
 	}
 }
 

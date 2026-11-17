@@ -370,18 +370,14 @@ func (r *Repositories) registerEntry(ctx context.Context, scope ledger.Workspace
 	if record, ok := run.removedAt(clone.Remote); ok && !run.restore {
 		return refused(real, staysRemoved(record)), nil
 	}
-	if again, ok := run.seen.again(clone); ok {
-		again.Path = real
-		return again, nil
-	}
-	added, err := r.register(ctx, scope, clone, registration{
-		claimed: run.claimed, dryRun: run.dryRun, restore: run.restore, planning: run.planning, cause: run.cause, kept: kept, held: run.checkouts,
+	added, again, err := r.register(ctx, scope, clone, registration{
+		claimed: run.claimed, dryRun: run.dryRun, restore: run.restore, planning: run.planning, cause: run.cause, kept: kept, held: run.checkouts, seen: run.seen,
 	}, actor)
 	if err != nil {
 		return refused(real, err.Error()), err
 	}
 	added.Path = real
-	if added.Outcome == ledger.RegistrationRefused {
+	if again || added.Outcome == ledger.RegistrationRefused {
 		return added, nil
 	}
 	run.claimed[added.Repository.Name] = true
@@ -502,7 +498,7 @@ func heldAs(ctx context.Context, kept ports.Checkouts, dir planningDirectory, en
 		return path, ""
 	}
 	switch {
-	case dir.root == "" || path == checkout:
+	case dir.root == "" || path == checkout || (checkout != "" && samePath(ctx, kept, path, checkout)):
 		return path, ""
 	case path == dir.clone && record.ID != dir.planner.ID:
 		return path, ledger.RepositoryIdentity(dir.planner.Remote, dir.planner.ID) + ", the planning repository"

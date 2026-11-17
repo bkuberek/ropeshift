@@ -186,6 +186,10 @@ type Repository struct {
 	// Planning says a member named this repository its project's planning repository, the plan of record
 	// (ADR-0022). A project names at most one.
 	Planning bool `json:"planning,omitempty"`
+	// IdentityLegacy says the record was made before a repository's identity was the root reached by
+	// following first parents (FR-REPO-14), so its ID is the lowest root its repository had then, and any root
+	// of a clone of it may match it. A record made now is false, and only the first-parent root matches it.
+	IdentityLegacy bool `json:"identity_legacy,omitempty"`
 }
 
 // Removed reports a record kept as history after its repository left the project.

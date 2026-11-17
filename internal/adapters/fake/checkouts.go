@@ -49,18 +49,39 @@ func (f *Checkouts) Spell(variant, of string) {
 
 // SameFile says two paths name one file once the links in each are followed and the spellings the machine
 // holds are read as the paths they spell.
-func (f *Checkouts) SameFile(ctx context.Context, a, b string) (bool, error) {
-	first, _, err := f.Resolve(ctx, a)
-	if err != nil {
-		return false, err
-	}
-	second, _, err := f.Resolve(ctx, b)
-	if err != nil {
-		return false, err
-	}
+func (f *Checkouts) SameFile(_ context.Context, a, b string) (bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	first, _ := f.resolveLocked(a)
+	second, _ := f.resolveLocked(b)
+	// As on a disk, a path nothing is at is ErrNotFound, whatever the other path is.
+	for _, at := range []string{first, second} {
+		if !f.existsLocked(at) {
+			return false, fmt.Errorf("nothing is at %s: %w", at, ports.ErrNotFound)
+		}
+	}
 	return f.spelled(first) == f.spelled(second), nil
+}
+
+// existsLocked says the machine holds a directory at a path: a clone, or a directory above one or inside one,
+// a path the machine reads another path as, or a checkout this worker keeps. The machine holds no other
+// directory. The caller holds the lock.
+func (f *Checkouts) existsLocked(at string) bool {
+	at = f.spelled(at)
+	holds := func(held string) bool {
+		held = f.spelled(held)
+		return at == held || strings.HasPrefix(at, held+"/") || strings.HasPrefix(held, at+"/")
+	}
+	if slices.ContainsFunc(slices.Collect(maps.Keys(f.clones)), holds) || slices.ContainsFunc(slices.Collect(maps.Values(f.spellings)), holds) ||
+		slices.ContainsFunc(f.reserved, holds) {
+		return true
+	}
+	for _, held := range f.kept {
+		if slices.ContainsFunc(slices.Collect(maps.Values(held)), holds) {
+			return true
+		}
+	}
+	return false
 }
 
 // spelled reads a path as the path it spells, a spelling of one of its directories included.
@@ -88,6 +109,12 @@ func (f *Checkouts) Reserve(dir string) {
 func (f *Checkouts) Resolve(_ context.Context, at string) (string, bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	real, reserved := f.resolveLocked(at)
+	return real, reserved, nil
+}
+
+// resolveLocked follows the links in a path. The caller holds the lock.
+func (f *Checkouts) resolveLocked(at string) (string, bool) {
 	at = path.Clean(at)
 	for range 40 {
 		moved := false
@@ -103,7 +130,7 @@ func (f *Checkouts) Resolve(_ context.Context, at string) (string, bool, error) 
 		}
 	}
 	reserved := slices.ContainsFunc(f.reserved, func(dir string) bool { return at == dir || strings.HasPrefix(at, dir+"/") })
-	return at, reserved, nil
+	return at, reserved
 }
 
 // Place puts a clone on the machine at its path, and names its directory after the path when it names none.
@@ -131,7 +158,8 @@ func (f *Checkouts) Find(_ context.Context, paths []string, depth int) ([]ports.
 	var found []ports.Clone
 	var unread []ports.UnreadPath
 	for _, given := range paths {
-		given = path.Clean(given)
+		// A path that leads through a symbolic link is the directory it leads to, as on a disk.
+		given, _ = f.resolveLocked(given)
 		if clone, ok := f.clones[given]; ok {
 			found = append(found, clone)
 			continue

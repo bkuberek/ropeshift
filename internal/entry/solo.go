@@ -17,6 +17,7 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -96,6 +97,8 @@ type soloOptions struct {
 	// records reads the first project's records, which name the repositories of the daemon's sources: a
 	// source with no checkout kept for it keeps the ID of the record registration would match it to.
 	records func(ctx context.Context, id string) (ledger.Repository, bool, error)
+	// report says a line of what the daemon found and will not do, as a source it refuses, and nothing more.
+	report func(line string)
 }
 
 // recordsIn reads a project's records by ID from its store.
@@ -688,6 +691,11 @@ func checkoutOf(opts soloOptions, kept ports.Checkouts) func(context.Context, le
 				instance, err := repofiles.New(repofiles.Config{
 					Repository: path, Ref: opts.ref, Directory: opts.directory, Records: opts.records, KeptElsewhere: keptElsewhere(kept, project, path),
 				}).Instance(ctx)
+				var shared *repofiles.SharedFirstCommitError
+				if errors.As(err, &shared) {
+					// Intake reports a source registration would refuse. It is no checkout of any record.
+					continue
+				}
 				if err != nil {
 					return "", err
 				}
@@ -700,30 +708,58 @@ func checkoutOf(opts soloOptions, kept ports.Checkouts) func(context.Context, le
 	}
 }
 
-// keptElsewhere says this worker keeps, in a project, a clone of a record at another path than a repository's
-// own, which still exists and still holds the record's first commit: the clone registration refuses a
-// repository for sharing its first commit with.
-func keptElsewhere(kept ports.Checkouts, project ledger.WorkspaceID, path string) func(context.Context, string) (bool, error) {
-	return func(ctx context.Context, id string) (bool, error) {
-		own, err := filepath.Abs(path)
-		if err != nil {
-			return false, err
-		}
+// checkoutIdentity names, at each read, the record this worker keeps a path as the checkout of in a project,
+// or nothing when it keeps it as none.
+func checkoutIdentity(kept ports.Checkouts, project ledger.WorkspaceID, path string) func(context.Context) string {
+	return func(ctx context.Context) string {
 		held, err := kept.Of(ctx, project)
 		if err != nil {
-			return false, err
+			return ""
+		}
+		for _, id := range slices.Sorted(maps.Keys(held)) {
+			if sameDir(ctx, kept, held[id], path) {
+				return id
+			}
+		}
+		return ""
+	}
+}
+
+// sameDir says two paths name one directory on this worker's machine, by what the disk says of each: a
+// symbolic link is followed, and a disk that ignores case reads two spellings that differ in case as one.
+// Paths nothing is at are one only when they are spelled alike.
+func sameDir(ctx context.Context, kept ports.Checkouts, a, b string) bool {
+	if a == b {
+		return true
+	}
+	same, err := kept.SameFile(ctx, a, b)
+	return err == nil && same
+}
+
+// keptElsewhere reads, in a project, the clone this worker keeps of a record at another path than a
+// repository's own, which still exists and still holds the record's first commit: the clone registration
+// refuses a repository for sharing its first commit with. A path another clone replaced holds none.
+func keptElsewhere(kept ports.Checkouts, project ledger.WorkspaceID, path string) func(context.Context, string) (repofiles.Kept, bool, error) {
+	return func(ctx context.Context, id string) (repofiles.Kept, bool, error) {
+		held, err := kept.Of(ctx, project)
+		if err != nil {
+			return repofiles.Kept{}, false, err
 		}
 		other, ok := held[id]
-		if !ok || other == own {
-			return false, nil
+		if !ok || sameDir(ctx, kept, other, path) {
+			return repofiles.Kept{}, false, nil
 		}
 		found, _, err := kept.Find(ctx, []string{other}, 1)
 		if err != nil {
-			return false, err
+			return repofiles.Kept{}, false, err
 		}
-		return slices.ContainsFunc(found, func(c ports.Clone) bool {
-			return c.Path == other && (c.ID == id || slices.Contains(c.Roots, id))
-		}), nil
+		at := slices.IndexFunc(found, func(c ports.Clone) bool {
+			return sameDir(ctx, kept, c.Path, other) && (c.ID == id || slices.Contains(c.Roots, id))
+		})
+		if at < 0 {
+			return repofiles.Kept{}, false, nil
+		}
+		return repofiles.Kept{Path: found[at].Path, Remote: found[at].Remote}, true, nil
 	}
 }
 
@@ -755,19 +791,23 @@ func projectSources(ctx context.Context, opts soloOptions, kept ports.Checkouts,
 	// A checkout the worker keeps names the record it is the checkout of, and a repository keeps that ID when it
 	// is one of its roots, so a record registered under the lowest-root rule keeps its external keys. A source
 	// with no checkout kept is named by the record the project holds for it.
-	identities := map[string]string{}
-	for _, id := range slices.Sorted(maps.Keys(held)) {
-		identities[held[id]] = id
-	}
-	for _, path := range slices.Sorted(maps.Values(held)) {
-		if !slices.Contains(paths, path) {
-			paths = append(paths, path)
+	// Paths are compared as the directories they name, however each is spelled.
+	var unique []string
+	for _, path := range append(paths, slices.Sorted(maps.Values(held))...) {
+		if !slices.ContainsFunc(unique, func(read string) bool { return sameDir(ctx, kept, read, path) }) {
+			unique = append(unique, path)
 		}
 	}
-	sources := make([]ports.WorkSource, 0, len(paths))
-	for _, path := range paths {
+	sources := make([]ports.WorkSource, 0, len(unique))
+	for _, path := range unique {
+		var identity string
+		for _, id := range slices.Sorted(maps.Keys(held)) {
+			if sameDir(ctx, kept, held[id], path) {
+				identity = id
+			}
+		}
 		sources = append(sources, repofiles.New(repofiles.Config{
-			Repository: path, Ref: opts.ref, Directory: opts.directory, Identity: identities[path], Records: records, KeptElsewhere: keptElsewhere(kept, project, path),
+			Repository: path, Ref: opts.ref, Directory: opts.directory, Identity: identity, Records: records, KeptElsewhere: keptElsewhere(kept, project, path),
 		}))
 	}
 	return sources, nil
@@ -840,11 +880,52 @@ func keepStableBinary(ctx context.Context, paths api.Paths, runner ports.Process
 func soloKnowledge(opts soloOptions, kept ports.Checkouts) []ports.KnowledgeSource {
 	sources := make([]ports.KnowledgeSource, 0, len(opts.sources))
 	for _, path := range opts.sources {
-		sources = append(sources, repodocs.New(repofiles.Config{
+		sources = append(sources, refusable{repodocs.New(repofiles.Config{
 			Repository: path, Ref: opts.ref, Directory: opts.directory, Records: opts.records, KeptElsewhere: keptElsewhere(kept, soloScope, path),
-		}))
+			IdentityOf: checkoutIdentity(kept, soloScope, path),
+		})})
 	}
 	return sources
+}
+
+// refusable is a documents source that stops serving while its repository shares its first commit with a
+// clone this worker keeps at another path, which registration refuses and intake reports. The Documents view
+// lists the other sources, and a document of this one is not found, where an error would fail them all.
+type refusable struct{ ports.KnowledgeSource }
+
+// refused says the repository is one registration would refuse, and reads any other failure as none.
+func (s refusable) refused(ctx context.Context) bool {
+	var shared *repofiles.SharedFirstCommitError
+	_, err := s.KnowledgeSource.Describe(ctx)
+	return errors.As(err, &shared)
+}
+
+func (s refusable) Describe(ctx context.Context) (ports.SourceDescription, error) {
+	if s.refused(ctx) {
+		return ports.SourceDescription{Adapter: repodocs.Adapter}, nil
+	}
+	return s.KnowledgeSource.Describe(ctx)
+}
+
+func (s refusable) List(ctx context.Context) ([]ports.KnowledgeDocument, error) {
+	if s.refused(ctx) {
+		return nil, nil
+	}
+	return s.KnowledgeSource.List(ctx)
+}
+
+func (s refusable) Read(ctx context.Context, key ledger.ExternalKey, version string) (ports.KnowledgeDocument, error) {
+	if s.refused(ctx) {
+		return ports.KnowledgeDocument{}, fmt.Errorf("document %s: this repository shares its first commit with another this worker keeps: %w", key, ports.ErrNotFound)
+	}
+	return s.KnowledgeSource.Read(ctx, key, version)
+}
+
+func (s refusable) Versions(ctx context.Context, key ledger.ExternalKey) ([]ports.KnowledgeVersion, error) {
+	if s.refused(ctx) {
+		return nil, fmt.Errorf("document %s: this repository shares its first commit with another this worker keeps: %w", key, ports.ErrNotFound)
+	}
+	return s.KnowledgeSource.Versions(ctx, key)
 }
 
 // soloBatches reads how long questions gather from the user's layer. A layer that does not
@@ -930,12 +1011,39 @@ func eachProject(projects ports.Projects, work func(context.Context, ledger.Proj
 	}
 }
 
+// refusalLog remembers, for each project, which refusals of a source held at its last intake poll, so a poll
+// that finds the same refusals says nothing, and one that finds a refusal that began since says it once.
+type refusalLog struct {
+	mu   sync.Mutex
+	held map[ledger.WorkspaceID]map[string]bool
+}
+
+// began records the refusals a poll of a project found and returns the ones its last poll did not.
+func (l *refusalLog) began(project ledger.WorkspaceID, now map[string]bool) []string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	var began []string
+	for line := range now {
+		if !l.held[project][line] {
+			began = append(began, line)
+		}
+	}
+	slices.Sort(began)
+	l.held[project] = now
+	return began
+}
+
 // soloTicks are the control plane's ticks, each run in every active project. Intake reads the repositories
 // of each project this worker keeps a checkout of, and the daemon's sources in the first project.
 func soloTicks(projects ports.Projects, home ledger.WorkspaceID, opts soloOptions, kept ports.Checkouts, batches questions.BatchPolicy, windows messages.Windows) []control.Tick {
 	tick := func(name string, every time.Duration, work func(context.Context, ledger.Project, ports.Store) error) control.Tick {
 		return control.Tick{Name: name, Every: every, Run: eachProject(projects, work)}
 	}
+	report := opts.report
+	if report == nil {
+		report = func(line string) { fmt.Fprintf(os.Stderr, "ropeshiftd: %s\n", line) }
+	}
+	refusals := &refusalLog{held: map[ledger.WorkspaceID]map[string]bool{}}
 	return []control.Tick{
 		tick("batches", opts.batchTick, func(ctx context.Context, p ledger.Project, store ports.Store) error {
 			_, err := control.NewQuestions(store, batches).DeliverBatches(ctx, p.ID, tickActor("batch-tick"))
@@ -998,10 +1106,20 @@ func soloTicks(projects ports.Projects, home ledger.WorkspaceID, opts soloOption
 			if err != nil {
 				failed = append(failed, err)
 			}
+			refused := map[string]bool{}
 			for _, source := range sources {
-				if _, err := intake.Poll(ctx, p.ID, source); err != nil {
+				_, err := intake.Poll(ctx, p.ID, source)
+				var shared *repofiles.SharedFirstCommitError
+				switch {
+				case errors.As(err, &shared):
+					// A source registration would refuse is left alone, and said so once while that holds.
+					refused[shared.Error()] = true
+				case err != nil:
 					failed = append(failed, err)
 				}
+			}
+			for _, line := range refusals.began(p.ID, refused) {
+				report(fmt.Sprintf("intake: project %s does not read a source: %s", p.ID, line))
 			}
 			if _, err := intake.TakeInPlans(ctx, p.ID, acceptedCommits(opts, kept, p.ID)); err != nil {
 				failed = append(failed, err)

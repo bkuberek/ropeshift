@@ -4,11 +4,15 @@
 package gittest
 
 import (
+	"crypto/sha1" //nolint:gosec // git names a SHA-1 repository's objects by SHA-1, which is what this reproduces
+	"encoding/hex"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -198,19 +202,60 @@ func (r *Repo) MergeUnrelated(other *Repo) string {
 	return r.Git("rev-parse", "HEAD")
 }
 
+// pairs counts the pairs this process made.
+var pairs atomic.Int64
+
 // NewUnrelatedPair creates two repositories that share no commit and holds each one commit. The first one's
 // first commit sorts after the second's, so merging the second into the first gives a history whose lowest
 // root is not the first-parent root.
 func NewUnrelatedPair(t testing.TB) (higher, lower *Repo) {
 	t.Helper()
 	higher, lower = New(t), New(t)
-	// The files differ, so the two first commits differ however close in time they are made.
-	higher.Commit("README.md", "a workspace\n")
-	lower.Commit("DESIGN.md", "a design\n")
+	// The files differ, so the two first commits differ however close in time they are made, and the pair's
+	// number makes them differ from those of another pair made in the same second.
+	pair := pairs.Add(1)
+	higher.Commit("README.md", fmt.Sprintf("a workspace, pair %d\n", pair))
+	lower.Commit("DESIGN.md", fmt.Sprintf("a design, pair %d\n", pair))
 	if higher.Roots("HEAD")[0] < lower.Roots("HEAD")[0] {
 		higher, lower = lower, higher
 	}
 	return higher, lower
+}
+
+// emptyTree is the ID of the tree with no entry, which git knows without storing it.
+const emptyTree = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+
+// NewWithRootBelow creates a repository with one commit whose first commit sorts below every root given, so
+// merging it into a history that holds those roots gives that history a new lowest root. It looks for the
+// commit by hashing candidates in the process, one second apart in their dates, until one hashes low enough,
+// which takes about as many tries as the limit has sixteenths to come down, and writes only that one.
+func NewWithRootBelow(t testing.TB, roots ...string) *Repo {
+	t.Helper()
+	limit := slices.Min(roots)
+	const first, tries = int64(1_000_000_000), 200_000_000
+	for date := first; date < first+tries; date++ {
+		who := fmt.Sprintf("Test <test@example.invalid> %d +0000", date)
+		body := fmt.Sprintf("tree %s\nauthor %s\ncommitter %s\n\na history that sorts lower\n", emptyTree, who, who)
+		sum := sha1.Sum([]byte(fmt.Sprintf("commit %d\x00%s", len(body), body)))
+		if hex.EncodeToString(sum[:]) >= limit {
+			continue
+		}
+		repo := New(t)
+		write := func(kind, content string) string {
+			cmd := exec.Command("git", "hash-object", "-t", kind, "-w", "--stdin")
+			cmd.Dir, cmd.Env, cmd.Stdin = repo.Dir, repo.Env(), strings.NewReader(content)
+			out, err := cmd.CombinedOutput()
+			if err != nil {
+				t.Fatalf("git hash-object: %v\n%s", err, out)
+			}
+			return strings.TrimSpace(string(out))
+		}
+		write("tree", "")
+		repo.Git("update-ref", "refs/heads/main", write("commit", body))
+		return repo
+	}
+	t.Fatalf("no first commit sorted below %s in %d tries", limit, tries)
+	return nil
 }
 
 // Clone makes a repository beside this one that fetches from it, with this one as its origin.
