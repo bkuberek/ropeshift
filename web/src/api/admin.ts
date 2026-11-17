@@ -124,6 +124,11 @@ export type AuditEvent = {
 export type AuditPage = { scope: "installation" | "project"; as_of: number; head: number; next: number; scanned?: boolean; events: AuditEvent[] };
 export type AuditQuery = { actor?: string; kind?: string; subject?: string; before?: number; limit?: number };
 
+// A project template as the daemon's binary renders it with the example data: the shapes of `ropeshift new` that
+// write it, the path it has in a new folder, and the text `ropeshift template show` prints for it.
+export type Template = { name: string; shapes: string[]; writes_to: string; content: string };
+export type TemplateList = { version: string; templates: Template[] };
+
 export type WorkerRecord = { id: string; name?: string; epoch?: number; protocol?: number; manifest?: { capacity?: { max_lanes?: number } }; last_handshake_at?: number };
 export type WorkerList = { workers: WorkerRecord[] };
 
@@ -226,6 +231,7 @@ export const adminPaths = {
   rosterRevert: (scope: Scope) => scoped(scope, "/roster/revert"),
   members: () => "/v1/members",
   audit: (scope: Scope, q: AuditQuery) => scoped(scope, `/audit${query({ actor: q.actor, kind: q.kind, subject: q.subject, before: q.before, limit: q.limit })}`),
+  templates: () => "/v1/templates",
   workers: () => "/v1/workers",
   joinToken: () => "/v1/workers/tokens",
   autonomy: (worker: string) => `/v1/workers/${encodeURIComponent(worker)}/autonomy`,
@@ -303,6 +309,11 @@ export const readLaneMessages = (lane: string) => call<MessageList>("GET", admin
 // readLaneTelemetry reads each lane's context, tokens, and cost from the worker's local store, as `ropeshift
 // telemetry lanes` does.
 export const readLaneTelemetry = () => call<LaneTelemetryList>("GET", adminPaths.laneTelemetry());
+
+// Templates
+
+// listTemplates reads every template the daemon's binary embeds, as `ropeshift template show` lists and prints them.
+export const listTemplates = () => call<TemplateList>("GET", adminPaths.templates());
 
 // Workers
 

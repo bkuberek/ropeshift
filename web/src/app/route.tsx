@@ -25,7 +25,7 @@ export function inProject(project: string, to: string): string {
 }
 
 // The installation's views, whose addresses name no project.
-const installationPaths = new Set(["/needs-you", "/workers", "/usage", "/projects", "/import", "/members"]);
+const installationPaths = new Set(["/needs-you", "/workers", "/usage", "/projects", "/templates", "/import", "/members"]);
 
 // placed is where a link to a view goes: into the project the page shows, unless it names a project or
 // is a view of the installation.

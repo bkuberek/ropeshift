@@ -62,6 +62,7 @@ export const navGroups: { name: string; items: NavItem[] }[] = [
     name: "Installation",
     items: [
       { view: "projects", icon: "projects" },
+      { view: "templates", icon: "doc" },
       { view: "workers", icon: "server" },
       { view: "members", icon: "users" },
       { view: "usage", icon: "gauge" },
@@ -69,7 +70,7 @@ export const navGroups: { name: string; items: NavItem[] }[] = [
   },
 ];
 
-const installation = new Set<View>(["needs-you", "workers", "usage", "projects", "import", "members"]);
+const installation = new Set<View>(["needs-you", "workers", "usage", "projects", "templates", "import", "members"]);
 
 // addressOfView is where a view of the current project, or of the installation, lives.
 export function addressOfView(view: View, project: string): string {

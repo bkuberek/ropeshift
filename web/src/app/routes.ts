@@ -1,10 +1,10 @@
 import { splitProject } from "./route";
 
-// The application's views. Needs you, Workers, Usage, Projects, Import, and Members belong to the
+// The application's views. Needs you, Workers, Usage, Projects, Templates, Import, and Members belong to the
 // installation; the rest to one project, whose name leads the address: /projects/{project}/{view}.
 // Settings, Agents, and Audit have both scopes: the installation's with no project in the address, and a
 // project's under it.
-export const installationViews = ["needs-you", "workers", "usage", "projects", "import", "members", "settings", "agents", "audit"] as const;
+export const installationViews = ["needs-you", "workers", "usage", "projects", "templates", "import", "members", "settings", "agents", "audit"] as const;
 export const projectViews = [
   "overview",
   "roadmap",
@@ -68,6 +68,7 @@ const titles: Record<View, string> = {
   measures: "Measures",
   conversations: "Conversations",
   projects: "Projects",
+  templates: "Templates",
   import: "Import an existing project",
   members: "Members",
   settings: "Settings",
