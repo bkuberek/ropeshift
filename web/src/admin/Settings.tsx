@@ -397,8 +397,14 @@ function WorkerAutonomy({ worker, name, live }: { worker: string; name: string; 
   const change = useChange();
   const toast = useToast();
   const view = read.view;
+  // act reads again and says so after any request that resolved, whatever its body: these routes answer 204.
   const act = async (run: () => Promise<unknown>, text: string) => {
-    if ((await change.run(run)) !== undefined) {
+    let answered = false;
+    await change.run(async () => {
+      await run();
+      answered = true;
+    });
+    if (answered) {
       toast("success", text);
       read.again();
     }
