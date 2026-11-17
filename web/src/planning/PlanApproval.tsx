@@ -75,7 +75,9 @@ export async function readSubject(id: string, version: string): Promise<Subject>
   if (approval.kind !== "plan") {
     throw new ApiError(404, "not_found", `${id} is no plan and no request to approve one.`);
   }
-  return { address: id, versions: [], approval, detail: detailOf(approval), records: [], drafts: [], version: approval.plan_version ?? 1 };
+  // The ledger holds no record of a branch's version until it is approved, so its request carries its drafts.
+  const detail = detailOf(approval);
+  return { address: id, versions: [], approval, detail, records: [], drafts: detail.drafts ?? [], version: approval.plan_version ?? 1 };
 }
 
 function DeclineDialog({ subject, onClose, onDone, after }: { subject: Subject; onClose: () => void; onDone: () => void; after: () => Promise<void> }) {
@@ -153,7 +155,8 @@ function Decision({ subject, after, reload }: { subject: Subject; after: () => P
       await after();
       reload();
     });
-  const decisions = subject.detail.decisions ?? subject.drafts.length;
+  // The drafts the page lists are the ones approving decides, so the sentence counts them and nothing else.
+  const decisions = subject.drafts.length;
   const contracts = subject.detail.counts?.contract ?? 0;
   const open = state === "pending";
   const resolution = open ? undefined : (

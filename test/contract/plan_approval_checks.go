@@ -792,6 +792,7 @@ func checkLaneBranchAsksBeforeItIsRecorded(r *Rig) error {
 	}
 	if pending.WorkOrder != id || pending.Plan != "" || pending.PlanVersion != 1 || detail.Ref != approvalPlan || detail.Source != acceptedHead ||
 		!strings.HasPrefix(pending.RequestedBy, "lane:") || detail.Title != "Retry budget" || detail.Decisions != 1 ||
+		len(detail.Drafts) != 1 || detail.Drafts[0].Answer != "Stripe" ||
 		detail.Difference.Base != 0 || len(detail.Difference.Added) != 3 || pending.SubjectDigest == "" {
 		return Violatedf("the request is %+v with detail %+v", pending, detail)
 	}

@@ -183,7 +183,7 @@ func askAboutBranch(tx ports.WriteTx, branch acceptedPlan, batch ports.ChangeBat
 		}
 		ask := planAsk{
 			ref: item.Plan.ID, title: item.Plan.Title, version: 1, digest: planning.PlanDigest(entries), entries: entries,
-			decisions: len(item.Plan.Decisions), source: branch.commit, workOrder: branch.order.ID,
+			decisions: len(item.Plan.Decisions), drafts: item.Plan.Decisions, source: branch.commit, workOrder: branch.order.ID,
 		}
 		if branch.order.Adopt {
 			ask.adoption = adoptionOf(batch, *item.Plan, changes)

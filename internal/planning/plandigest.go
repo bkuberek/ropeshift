@@ -254,11 +254,14 @@ func (d Difference) Summary() string {
 type PlanDetail struct {
 	Title string `json:"title"`
 	// Ref is the plan's own ID in its file, which names it before the ledger holds it.
-	Ref        string         `json:"ref,omitempty"`
-	Counts     map[string]int `json:"counts,omitempty"`
-	Decisions  int            `json:"decisions,omitempty"`
-	Difference Difference     `json:"difference"`
-	Source     string         `json:"source,omitempty"`
+	Ref       string         `json:"ref,omitempty"`
+	Counts    map[string]int `json:"counts,omitempty"`
+	Decisions int            `json:"decisions,omitempty"`
+	// Drafts are the answers a version drafts, which a branch's version carries here because the ledger holds
+	// none of its records until a member approves it. A version the ledger holds drafts what its record says.
+	Drafts     []DraftDecision `json:"drafts,omitempty"`
+	Difference Difference      `json:"difference"`
+	Source     string          `json:"source,omitempty"`
 	// Adoption groups a plan that adopts an existing project, and lists every file its branch changed
 	// (ADR-0023). Any other plan has none.
 	Adoption *Adoption `json:"adoption,omitempty"`

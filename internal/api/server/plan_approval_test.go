@@ -333,11 +333,22 @@ func TestAPlanApprovalNeedCarriesWhatAnAdoptionGroups(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	askAboutABranch(t, d, "adopt-approval", detail)
+	need := planApprovalNeed(t, readView[api.NeedsYou](t, d, api.ViewNeedsYou, ""))
+	if need.Adoption == nil || !reflect.DeepEqual(*need.Adoption, adoption) {
+		t.Errorf("the need groups %+v, want %+v", need.Adoption, adoption)
+	}
+}
+
+// askAboutABranch raises the request a planning lane's branch raises for its plan's first version, which the
+// ledger holds no record of until a member approves it.
+func askAboutABranch(t *testing.T, d *apitest.Daemon, id string, detail []byte) {
+	t.Helper()
 	request := authority.Approval{
-		ID: "adopt-approval", Kind: authority.KindPlan, WorkOrder: "adopt-1", Subject: "shop@1", SubjectDigest: "sha256:abc", Summary: "Plan Adopt shop, version 1",
+		ID: id, Kind: authority.KindPlan, WorkOrder: "plan-1", Subject: "shop@1", SubjectDigest: "sha256:abc", Summary: "Plan shop, version 1",
 		RequestedBy: "lane:lane-1", State: authority.ApprovalPending, RaisedAt: 1, PlanVersion: 1, Detail: string(detail),
 	}
-	err = d.Store.Write(t.Context(), apitest.Scope, "test.approval", func(tx ports.WriteTx) error {
+	err := d.Store.Write(t.Context(), apitest.Scope, "test.approval", func(tx ports.WriteTx) error {
 		if _, err := tx.Approvals().Insert(request); err != nil {
 			return err
 		}
@@ -351,9 +362,22 @@ func TestAPlanApprovalNeedCarriesWhatAnAdoptionGroups(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+}
+
+// A first version from a planning lane's branch drafts the answers its request carries, because the ledger
+// holds no version of the plan yet, so Needs you lists the same drafts that approving decides.
+func TestAPlanApprovalNeedOfABranchCarriesTheDraftsItsRequestHolds(t *testing.T) {
+	t.Parallel()
+	d, _, _ := aWorld(t)
+	drafts := []planning.DraftDecision{{ID: "sailings", Question: "Do the sailings get a page of their own?", Answer: "No.", Rationale: "The person said so."}}
+	detail, err := json.Marshal(planning.PlanDetail{Title: "Berths", Ref: "harbor-v1", Decisions: len(drafts), Drafts: drafts})
+	if err != nil {
+		t.Fatal(err)
+	}
+	askAboutABranch(t, d, "branch-approval", detail)
 	need := planApprovalNeed(t, readView[api.NeedsYou](t, d, api.ViewNeedsYou, ""))
-	if need.Adoption == nil || !reflect.DeepEqual(*need.Adoption, adoption) {
-		t.Errorf("the need groups %+v, want %+v", need.Adoption, adoption)
+	if !reflect.DeepEqual(need.Drafts, drafts) || need.Decisions != len(drafts) {
+		t.Errorf("the need drafts %+v (%d decisions), want %+v", need.Drafts, need.Decisions, drafts)
 	}
 }
 

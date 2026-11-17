@@ -521,14 +521,15 @@ func (h *handler) needs(tx ports.ReadTx, stamp api.Stamp) ([]api.NeedItem, error
 }
 
 // planApprovalNeed is what a member reads of a plan version they are asked to approve, with the answers
-// the version drafts. A version the ledger no longer holds drafts nothing a member could read.
+// the version drafts: those its record holds, or for a branch's version, which the ledger holds no record of
+// until it is approved, those its request carries.
 func planApprovalNeed(planned ports.PlanningReader, a authority.Approval) (*api.PlanApprovalNeed, error) {
 	detail := api.PlanDetailOf(a)
 	counts := detail.Counts
 	if counts == nil {
 		counts = map[string]int{}
 	}
-	drafts := []planning.DraftDecision{}
+	drafts := nonNil(detail.Drafts)
 	version, err := planned.PlanVersion(a.Plan, a.PlanVersion)
 	switch {
 	case err == nil:
