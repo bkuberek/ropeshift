@@ -178,7 +178,7 @@ func (in *install) start(args ...string) {
 	}
 	in.t.Cleanup(func() { _ = log.Close() })
 	cmd.Stdout, cmd.Stderr = io.MultiWriter(d.stdout, log), io.MultiWriter(d.stderr, log)
-	if err := cmd.Start(); err != nil {
+	if err := procs.Start(in.t, cmd); err != nil {
 		in.t.Fatal(err)
 	}
 	in.t.Logf("the daemon is process %d", cmd.Process.Pid)

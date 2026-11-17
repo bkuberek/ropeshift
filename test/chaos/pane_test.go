@@ -28,6 +28,7 @@ import (
 	"ropeshift.com/ropeshift/test/contract"
 	"ropeshift.com/ropeshift/test/doubles"
 	"ropeshift.com/ropeshift/test/gittest"
+	"ropeshift.com/ropeshift/test/procs"
 )
 
 // paneOp is the prefix of a checked start's steps.
@@ -130,7 +131,7 @@ func (r *paneRun) daemon(kill string) error {
 		cmd.Env = append(cmd.Env, crashpoint.EnvKill+"="+kill)
 	}
 	cmd.Stderr = &r.stderr
-	if err := cmd.Start(); err != nil {
+	if err := procs.Start(r.t, cmd); err != nil {
 		return err
 	}
 	exited := make(chan error, 1)

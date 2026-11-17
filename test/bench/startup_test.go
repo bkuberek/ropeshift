@@ -16,6 +16,7 @@ import (
 	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/test/doubles"
+	"ropeshift.com/ropeshift/test/procs"
 )
 
 const (
@@ -71,7 +72,7 @@ func TestTopStartsWithinTheBudget(t *testing.T) {
 		api.EnvTelemetry + "=127.0.0.1:0"}
 	cmd := exec.Command(daemon, "solo")
 	cmd.Env = env
-	if err := cmd.Start(); err != nil {
+	if err := procs.Start(t, cmd); err != nil {
 		t.Fatal(err)
 	}
 	defer func() {
@@ -135,7 +136,7 @@ func timeDaemon(t *testing.T, binary string) time.Duration {
 	client := api.NewUnixClient(paths.ControlSocket()).Project(ledger.DefaultProjectName)
 	defer client.Close()
 	start := time.Now()
-	if err := cmd.Start(); err != nil {
+	if err := procs.Start(t, cmd); err != nil {
 		t.Fatal(err)
 	}
 	defer func() {

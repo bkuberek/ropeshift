@@ -24,6 +24,7 @@ import (
 	"ropeshift.com/ropeshift/test/apitest"
 	"ropeshift.com/ropeshift/test/doubles"
 	"ropeshift.com/ropeshift/test/gittest"
+	"ropeshift.com/ropeshift/test/procs"
 )
 
 // The sizing run is NFR-PERF-3 for one worker: 50 lanes at once on the double. It is behind its own
@@ -218,7 +219,7 @@ func (s *sizing) startDaemon() {
 	}
 	s.daemon.Stdout, s.daemon.Stderr = logFile, logFile
 	s.started = time.Now()
-	if err := s.daemon.Start(); err != nil {
+	if err := procs.Start(t, s.daemon); err != nil {
 		t.Fatal(err)
 	}
 	s.exited = make(chan error, 1)

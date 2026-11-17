@@ -36,6 +36,7 @@ import (
 	"ropeshift.com/ropeshift/test/apitest"
 	"ropeshift.com/ropeshift/test/contract"
 	"ropeshift.com/ropeshift/test/doubles"
+	"ropeshift.com/ropeshift/test/procs"
 )
 
 const reportedEvent = "work_order.note"
@@ -663,7 +664,7 @@ func soloSleepRound(w *world, binary, dir string, sabotage []string) (string, er
 		api.EnvTelemetry + "=127.0.0.1:0",
 		crashpoint.EnvAwait + "=sweep/before-lapse=" + sqlstore.OpRenew + "/begun," + soloSleepAwait.String(),
 	}, sabotage...)
-	if err := daemon.Start(); err != nil {
+	if err := procs.Start(w.t, daemon); err != nil {
 		return "", err
 	}
 	exited := make(chan error, 1)
