@@ -10,6 +10,7 @@ import { IconButton, Kbd } from "../ui/controls";
 import { Absent } from "../ui/display";
 import { moveInMenu, trapTab, usePopover } from "../ui/overlays";
 import { createPortal } from "react-dom";
+import { shortVersion } from "./buildVersion";
 import { dockWidth } from "./prefs";
 import { go, inProject, Link } from "./route";
 import type { View } from "./routes";
@@ -343,14 +344,11 @@ type SidebarProps = {
   onSheet: () => void;
   open: boolean;
   onClose: () => void;
-  // version is the release the daemon runs, which the footer names once the daemon has said.
-  version?: string;
 };
 
 // Sidebar lists the views: the current one has a selected fill, an ink bar, and aria-current. On a phone
-// it is a drawer over a scrim, which Escape closes. Its footer holds the theme, the shortcut sheet, and the
-// version the daemon runs.
-export function Sidebar({ view, project, waiting, theme, onTheme, onSheet, open, onClose, version }: SidebarProps) {
+// it is a drawer over a scrim, which Escape closes. Its footer holds the theme and the shortcut sheet.
+export function Sidebar({ view, project, waiting, theme, onTheme, onSheet, open, onClose }: SidebarProps) {
   const nav = useRef<HTMLElement>(null);
   useEffect(() => {
     if (open) {
@@ -418,7 +416,6 @@ export function Sidebar({ view, project, waiting, theme, onTheme, onSheet, open,
           </button>
           <span className="spacer" />
           <IconButton icon="keyboard" label="Keyboard shortcuts" shortcut="?" small onClick={onSheet} />
-          {version ? <span className="sidebar-version">ropeshift {version}</span> : null}
         </div>
       </nav>
       {open ? <div className="drawer-scrim" aria-hidden="true" onClick={onClose} /> : null}
@@ -433,14 +430,17 @@ type StatusProps = {
   project: string;
   // warning says the installed ropeshift is newer than the daemon that runs, and how to run it.
   warning?: string;
+  // version is the release the daemon runs, which the status bar ends with once the daemon has said.
+  version?: string;
 };
 
 const runningLanes = new Set(["provisioning", "starting", "briefing", "working", "needs_decision", "compacting", "handing_off", "idle", "backoff"]);
 
 // StatusBar is the status line on every page: the connection, the project's lanes against its
 // machines' caps, each machine, and what no source has reported yet, which says so and is never zero. When the
-// installed ropeshift is newer than the daemon, it says so too, and names the fix.
-export function StatusBar({ connection, floor, floorAgeMs, project, warning }: StatusProps) {
+// installed ropeshift is newer than the daemon, it says so too, and names the fix. The version the daemon runs is
+// the last item at the right end, with that warning beside it.
+export function StatusBar({ connection, floor, floorAgeMs, project, warning, version }: StatusProps) {
   const workers = floor?.workers ?? [];
   const lanes = (floor?.lanes ?? []).filter((lane) => runningLanes.has(lane.actual_state)).length;
   const caps = workers.map((line) => line.worker.manifest?.capacity?.max_lanes).filter((cap): cap is number => typeof cap === "number" && cap > 0);
@@ -487,19 +487,11 @@ export function StatusBar({ connection, floor, floorAgeMs, project, warning }: S
           </Link>
         );
       })}
-      {warning ? (
-        <Link to="/settings?section=about" installation className="sb-item" title={warning}>
-          <Icon name="warning" size="sm" />
-          <span className="sb-warn">Daemon out of date</span>
-          <span className="visually-hidden">: {warning}</span>
-        </Link>
-      ) : null}
       <Link to="/usage" className="sb-item sb-right" title="No source has reported a sign-in's windows or cost yet">
         <span className="sb-label">Est. cost</span>
         <Absent>unavailable</Absent>
       </Link>
       <Link to="/usage" className="sb-compact" title="Open Usage">
-        {warning ? <span className="sb-warn">Daemon out of date</span> : null}
         {floor ? (
           <span>
             Lanes {lanes}
@@ -511,6 +503,18 @@ export function StatusBar({ connection, floor, floorAgeMs, project, warning }: S
           Est. cost <Absent>unavailable</Absent>
         </span>
       </Link>
+      {warning ? (
+        <Link to="/settings?section=about" installation className="sb-item sb-warning" title={warning}>
+          <Icon name="warning" size="sm" />
+          <span className="sb-warn">Daemon out of date</span>
+          <span className="visually-hidden">: {warning}</span>
+        </Link>
+      ) : null}
+      {version ? (
+        <Link to="/settings?section=about" installation className="sb-item sb-version" title={`${version}. The version the daemon runs. Open Settings, About`} aria-label={`ropeshift version ${version}`}>
+          {shortVersion(version)}
+        </Link>
+      ) : null}
     </footer>
   );
 }

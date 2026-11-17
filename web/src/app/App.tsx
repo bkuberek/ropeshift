@@ -429,7 +429,6 @@ export function App() {
                 theme={themeWords[theme]}
                 onTheme={nextTheme}
                 onSheet={() => setSheetOpen(true)}
-                version={health?.version}
                 open={navOpen}
                 onClose={() => setNavOpen(false)}
               />
@@ -479,7 +478,7 @@ export function App() {
                 <Surface live={live} variant="dock" onClose={() => setDockOpen(false)} projectLabel={label} after={needs.reload} />
               </Dock>
             ) : null}
-            {signedIn ? <StatusBar connection={needs.connection} floor={floor.view} floorAgeMs={Math.max(0, now - floor.readAt)} project={project} warning={health?.warning} /> : <footer className="statusbar" aria-label="Status" />}
+            {signedIn ? <StatusBar connection={needs.connection} floor={floor.view} floorAgeMs={Math.max(0, now - floor.readAt)} project={project} warning={health?.warning} version={health?.version} /> : <footer className="statusbar" aria-label="Status" />}
           </div>
           <Palette open={paletteOpen} onClose={() => setPaletteOpen(false)} project={project} projectLabel={label} sources={sources} onConversation={chooseConversation} />
           <ShortcutSheet open={sheetOpen} onClose={() => setSheetOpen(false)} mac={mac} singleKeys={singleKeys} onSingleKeys={setSingleKeys} />
