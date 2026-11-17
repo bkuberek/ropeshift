@@ -90,7 +90,26 @@ function Forge({ view }: { view: RepositoryView }) {
 
 // RepositoriesPage lists the project's repositories, opens one's record below the table, and registers
 // more from a folder of clones after a dry run.
-export function RepositoriesPage({ live, project, label: projectLabel, selected, dialog, archived }: { live: Live; project: string; label: string; selected: string; dialog: string; archived: boolean }) {
+export function RepositoriesPage({
+  live,
+  project,
+  label: projectLabel,
+  selected,
+  dialog,
+  folder = "",
+  worker = "",
+  archived,
+}: {
+  live: Live;
+  project: string;
+  label: string;
+  selected: string;
+  dialog: string;
+  // folder and worker fill the Register dialog when Start a project from a template hands a folder it wrote to registration.
+  folder?: string;
+  worker?: string;
+  archived: boolean;
+}) {
   const read = useRead<RepositoryList>(() => readRepositories(), `repositories:${project}`, live);
   // The command palette opens Register repositories with `?dialog=register`. The dialog opens after the page has
   // taken its arrival focus, so that focus does not leave it outside.
@@ -198,7 +217,13 @@ export function RepositoriesPage({ live, project, label: projectLabel, selected,
           </div>
         )}
       </Reading>
-      <RegisterDialog open={registering} projectLabel={projectLabel} onClose={() => setRegistering(false)} after={read.again} />
+      <RegisterDialog
+        open={registering}
+        projectLabel={projectLabel}
+        onClose={() => setRegistering(false)}
+        after={read.again}
+        prefill={dialog === "register" && folder ? { folder, worker } : undefined}
+      />
     </Page>
   );
 }
@@ -413,7 +438,21 @@ function RemoveRepositoryDialog({ view, projectLabel, onClose, after }: { view: 
 
 // RegisterDialog registers repositories in two steps: where the clones are, then a dry run that records
 // nothing, then Register (FR-UI-8).
-export function RegisterDialog({ open, projectLabel, onClose, after }: { open: boolean; projectLabel: string; onClose: () => void; after: () => void }) {
+export function RegisterDialog({
+  open,
+  projectLabel,
+  onClose,
+  after,
+  prefill,
+}: {
+  open: boolean;
+  projectLabel: string;
+  onClose: () => void;
+  after: () => void;
+  // prefill is a folder Start a project from a template wrote on a worker: the dialog opens with it filled, as one repository, at its dry
+  // run, and registers only when the member says so.
+  prefill?: { folder: string; worker: string };
+}) {
   const [mode, setMode] = useState<"one" | "folder">("folder");
   const [path, setPath] = useState("");
   const [depth, setDepth] = useState("1");
@@ -426,6 +465,11 @@ export function RegisterDialog({ open, projectLabel, onClose, after }: { open: b
       setDry(null);
       setEmpty(false);
       change.setFailure("");
+      if (prefill) {
+        setMode("one");
+        setPath(prefill.folder);
+        void change.run(() => addRepositories([prefill.folder], 0, true)).then((report) => report && setDry(report));
+      }
     }
   }, [open]);
   const paths = [path.trim()];
@@ -511,7 +555,10 @@ export function RegisterDialog({ open, projectLabel, onClose, after }: { open: b
         >
           <div className="field">
             <span className="label">Worker</span>
-            <p className="help">The worker of the machine the daemon runs on, whose disk holds the clones.</p>
+            <p className="help">
+              {prefill?.worker ? <strong>{prefill.worker}. </strong> : null}
+              The worker of the machine the daemon runs on, whose disk holds the clones.
+            </p>
           </div>
           <fieldset className="field">
             <legend className="label">What to register</legend>

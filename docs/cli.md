@@ -57,6 +57,7 @@ One worker per machine serves every active project, and one orchestrator per mac
 - It prints each file it wrote and each file it left, then the commands that register the folder, which need a member's session. They start with `git -C <path> init`, `git -C <path> add -A`, and `git -C <path> commit -m "chore: start <name>"` when the folder needs a repository of its own: when no clone holds it, or when the clone that holds it ignores it, as a workspace ignores its `repos/` folder. A folder that is the top of a clone, or that a clone tracks, gets no git commands. A path a shell would split or expand is printed in single quotes.
 - With `--json` it prints one document with `path`, `project`, `written`, `left`, and `commands`.
 - It needs no daemon, no session, and no project, clones nothing, and registers nothing. The only git commands it runs read: `git rev-parse --show-toplevel` in the folder, and `git check-ignore` in a clone that holds it, to choose the commands it prints. A delegate's credential exits 8.
+- The web UI has a control for it: [Start a project from a template](web-ui.md#start-a-project-from-a-template) asks a worker you pick to write the same files, and the same commands, into a folder on its machine, and makes the folder's first commit when you ask. It is the one part of `new` that runs on a daemon, and registering what it wrote stays a separate step.
 
 ## Commands
 

@@ -44,6 +44,7 @@ import {
   readRoster,
   readRosterHistory,
   readSources,
+  readTemplateWrite,
   readTimeline,
   readWorkers,
   releaseClaim,
@@ -58,6 +59,7 @@ import {
   setFleetMode,
   setLevel,
   startContractReview,
+  writeTemplates,
 } from "./admin";
 import {
   actOnWork,
@@ -138,6 +140,8 @@ const callers: Record<string, Caller> = {
   "POST /v1/projects/import/upload": step("importUpload", () => importUpload("AAAA", "tidewater")),
   "POST /v1/installation/backup/download": step("downloadInstallationBackup", () => downloadInstallationBackup()),
   "GET /v1/templates": step("listTemplates", () => listTemplates()),
+  "POST /v1/workers/{id}/template-writes": step("writeTemplates", () => writeTemplates("worker-1", { shape: "monorepo", path: "/srv/code/harbor" })),
+  "GET /v1/workers/{id}/template-writes/{request}": step("readTemplateWrite", () => readTemplateWrite("worker-1", "request-1")),
   "GET /v1/workers": step("readWorkers", () => readWorkers()),
   "POST /v1/workers/tokens": step("createJoinToken", () => createJoinToken()),
   "GET /v1/workers/{id}/autonomy": step("readAutonomy", () => readAutonomy("worker-1")),

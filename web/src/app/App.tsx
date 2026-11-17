@@ -261,6 +261,7 @@ export function App() {
       ...pageEntries,
       { key: "action:projects", group: "Actions", title: "Switch project", icon: "projects", meta: "P", run: () => switcher.setOpen(true) },
       { key: "action:create-project", group: "Actions", title: "Create project", icon: "plus", to: "/projects?dialog=create" },
+      { key: "action:start-from-template", group: "Actions", title: "Start a project from a template", icon: "doc", to: "/projects?dialog=template", keywords: "new write files shape workspace monorepo repository" },
       { key: "action:import", group: "Actions", title: "Adopt a project", icon: "import", to: "/import", keywords: "import existing project clones" },
       { key: "action:import-backup", group: "Actions", title: "Import a project from a backup", icon: "upload", to: "/projects?focus=Import backup", keywords: "restore upload" },
       { key: "action:start-orchestrator", group: "Actions", title: "Start orchestrator", icon: "server", to: "/workers?focus=Start orchestrator", keywords: "worker run" },

@@ -275,13 +275,13 @@ function ViewFor({ view, project, scoped, params, live, after, needs, projects, 
     case "projects":
       return <ProjectsPage live={live} projects={projects} reload={reloadProjects} dialog={param("dialog")} target={param("project")} />;
     case "templates":
-      return <TemplatesPage live={live} selected={param("name")} />;
+      return <TemplatesPage live={live} selected={param("name")} projects={projects} reload={reloadProjects} />;
     case "import":
       return <ImportPage projects={projects} chosen={param("project")} reload={reloadProjects} />;
     case "members":
       return <MembersPage live={live} onSignedOut={onSignedOut} dialog={param("dialog")} />;
     case "repositories":
-      return <RepositoriesPage live={live} project={project} label={label} selected={param("repo")} dialog={param("dialog")} archived={archived} />;
+      return <RepositoriesPage live={live} project={project} label={label} selected={param("repo")} dialog={param("dialog")} folder={param("folder")} worker={param("worker")} archived={archived} />;
     case "settings":
       return <SettingsPage live={live} project={scoped ? project : ""} label={label} archived={archived} section={param("section")} worker={param("worker")} prefs={prefs} />;
     case "agents":

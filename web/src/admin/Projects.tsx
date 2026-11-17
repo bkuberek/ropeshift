@@ -14,13 +14,14 @@ import { Field } from "../ui/forms";
 import { Icon } from "../ui/Icon";
 import { Dialog, Menu, useToast } from "../ui/overlays";
 import { base64Of, dateOf, saveDownload, useChange } from "./parts";
+import { StartFromTemplate } from "./StartFromTemplate";
 
-type Open = { kind: "create" } | { kind: "import"; file: File } | { kind: "rename" | "archive" | "remove"; project: Project } | null;
+type Open = { kind: "create" } | { kind: "template" } | { kind: "import"; file: File } | { kind: "rename" | "archive" | "remove"; project: Project } | null;
 
 // ProjectsPage lists every project of the installation, with what makes, imports, backs up, renames,
 // archives, restores, and removes one. Each step is a member's call the CLI makes too.
 export function ProjectsPage({ live, projects, reload, dialog, target = "" }: { live: Live; projects: Project[]; reload: () => Promise<void>; dialog: string; target?: string }) {
-  const [open, setOpen] = useState<Open>(dialog === "create" ? { kind: "create" } : null);
+  const [open, setOpen] = useState<Open>(dialog === "create" ? { kind: "create" } : dialog === "template" ? { kind: "template" } : null);
   // An address may name the dialog of a project, which the command palette uses: rename, archive, or remove.
   const named = projects.find((row) => row.name === target);
   useEffect(() => {
@@ -37,6 +38,8 @@ export function ProjectsPage({ live, projects, reload, dialog, target = "" }: { 
   useEffect(() => {
     if (dialog === "create") {
       setOpen({ kind: "create" });
+    } else if (dialog === "template") {
+      setOpen({ kind: "template" });
     }
   }, [dialog]);
   const done = async (text: string) => {
@@ -72,6 +75,9 @@ export function ProjectsPage({ live, projects, reload, dialog, target = "" }: { 
             <Icon name="import" size="sm" />
             Import an existing project
           </Link>
+          <Button icon="doc" onClick={() => setOpen({ kind: "template" })}>
+            Start a project from a template
+          </Button>
           <Button variant="primary" icon="plus" onClick={() => setOpen({ kind: "create" })}>
             Create project
           </Button>
@@ -187,6 +193,7 @@ export function ProjectsPage({ live, projects, reload, dialog, target = "" }: { 
         </Panel>
       )}
       <CreateDialog open={open?.kind === "create"} onClose={() => setOpen(null)} onDone={(made) => void done(`Created project ${made.name}.`).then(() => go(`/projects/${encodeURIComponent(made.name)}/repositories`))} />
+      <StartFromTemplate open={open?.kind === "template"} onClose={() => setOpen(null)} projects={projects} reload={reload} />
       {open?.kind === "import" ? <ImportBackupDialog file={open.file} onClose={() => setOpen(null)} onDone={(made) => void done(`Imported project ${made.name}.`)} /> : null}
       {open?.kind === "rename" ? <RenameDialog project={open.project} onClose={() => setOpen(null)} onDone={(made) => void done(`Renamed to ${projectName(made, made.name)}.`)} /> : null}
       {open?.kind === "archive" ? <ArchiveDialog project={open.project} onClose={() => setOpen(null)} onDone={() => void done(`${projectName(open.project, open.project.name)} is archived and read-only.`)} /> : null}
