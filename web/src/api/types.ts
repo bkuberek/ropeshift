@@ -733,6 +733,9 @@ export type Orchestrator = {
   // conditions are what its worker last said beside its state, and reported_at when.
   conditions?: string[];
   reported_at?: number;
+  // waiting_for is what holds a run a member wants before its session starts, as the control plane reads it:
+  // run_window is an attended worker's orchestrator with no run window open.
+  waiting_for?: string;
 };
 
 export type WorkerLine = {

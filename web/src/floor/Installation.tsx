@@ -16,7 +16,8 @@ import { Icon } from "../ui/Icon";
 import { DriversPanel } from "./Drivers";
 import { LaneCosts } from "./LaneCosts";
 import { bytes, sessionOf } from "./resources";
-import { laneLabel, workerStates } from "./states";
+import { OpenRunWindow } from "./RunWindow";
+import { orchestratorLabel, workerStates } from "./states";
 
 type FloorRead = { project: string; view: ShopFloor };
 
@@ -195,7 +196,7 @@ function OrchestratorDetails({ line }: { line: WorkerLine }) {
         ) : (
           <Facts>
             <Fact name="Wanted">{words(read.row.desired_state)}</Fact>
-            <Fact name="State">{read.row.actual_state ? laneLabel(read.row.actual_state) : <Absent>not reported</Absent>}</Fact>
+            <Fact name="State">{orchestratorLabel(read.row) ?? <Absent>not reported</Absent>}</Fact>
             <Fact name="Generation">{read.row.current_generation ?? <Absent>none yet</Absent>}</Fact>
             <Fact name="Starts">{read.row.run}</Fact>
             <Fact name="Breaker resets">{read.row.resets}</Fact>
@@ -436,11 +437,12 @@ export function WorkersPage({ live, projects, selected, after, dialog = "" }: { 
                             <span className="row-tight">
                               {orchestrator ? (
                                 <TargetChip kind="orchestrator" small>
-                                  {orchestrator.actual_state ? laneLabel(orchestrator.actual_state) : `Wanted ${words(orchestrator.desired_state).toLowerCase()}`}
+                                  {orchestratorLabel(orchestrator) ?? `Wanted ${words(orchestrator.desired_state).toLowerCase()}`}
                                 </TargetChip>
                               ) : (
                                 <Absent>none</Absent>
                               )}
+                              {orchestrator?.waiting_for === "run_window" ? <OpenRunWindow worker={line.worker.id} name={line.worker.name || line.worker.id} /> : null}
                               {stopped ? <StartOrchestrator line={line} after={after} /> : <StopOrchestrator line={line} after={after} />}
                               {orchestrator ? <OrchestratorDetails line={line} /> : null}
                             </span>
@@ -493,7 +495,14 @@ export function WorkersPage({ live, projects, selected, after, dialog = "" }: { 
                           <td data-label="Session">
                             <TargetChip kind="orchestrator" small />
                           </td>
-                          <td data-label="State">{line.orchestrator?.actual_state ? laneLabel(line.orchestrator.actual_state) : <Absent>not reported</Absent>}</td>
+                          <td data-label="State">
+                            {(line.orchestrator && orchestratorLabel(line.orchestrator)) ?? <Absent>not reported</Absent>}
+                            {line.orchestrator?.waiting_for === "run_window" ? (
+                              <span className="cell-note">
+                                <OpenRunWindow worker={line.worker.id} name={line.worker.name || line.worker.id} />
+                              </span>
+                            ) : null}
+                          </td>
                           <td data-label="Machine">{line.worker.name || line.worker.id}</td>
                           <td data-label="Project">Every project it serves</td>
                           <td data-label="Counts toward caps">No</td>

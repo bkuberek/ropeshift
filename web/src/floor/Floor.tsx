@@ -20,7 +20,8 @@ import { SessionUse, useFloorLive } from "./Installation";
 import { machineMeasures, sessionOf } from "./resources";
 import { ReviewOf } from "./ReviewOf";
 import { StartWork, startOf } from "./StartWork";
-import { counting, laneLabel } from "./states";
+import { OpenRunWindow } from "./RunWindow";
+import { counting, laneLabel, orchestratorLabel } from "./states";
 import { WorkActionDialog } from "./WorkActions";
 import type { RecoverAction } from "./recoverSpecs";
 import { labelOf, recoveries, specs } from "./recoverSpecs";
@@ -203,7 +204,7 @@ function Machine({ line, rows, after }: { line: WorkerLine; rows: Row[]; after: 
             onClick={() => talk.select("orchestrator", worker.id, { name, open: true, focus: true })}
           >
             <TargetChip kind="orchestrator" small>
-              Orchestrator · {orchestrator.actual_state ? laneLabel(orchestrator.actual_state).toLowerCase() : `wanted ${words(orchestrator.desired_state).toLowerCase()}`}
+              Orchestrator · {orchestratorLabel(orchestrator)?.toLowerCase() ?? `wanted ${words(orchestrator.desired_state).toLowerCase()}`}
               {orchestrator.current_generation ? ` · gen ${orchestrator.current_generation}` : ""}
             </TargetChip>
             <span className="visually-hidden">, talk to the orchestrator on {name}</span>
@@ -211,6 +212,7 @@ function Machine({ line, rows, after }: { line: WorkerLine; rows: Row[]; after: 
         ) : (
           <span className="subtle small">No orchestrator</span>
         )}
+        {orchestrator?.waiting_for === "run_window" ? <OpenRunWindow worker={worker.id} name={name} /> : null}
         <span className="res">
           <span>Lanes</span>
           <strong>

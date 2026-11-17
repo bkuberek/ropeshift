@@ -3,7 +3,7 @@ import { useId, useRef, useState } from "react";
 import type { Conversation } from "../api/talk";
 import type { Live } from "../api/useView";
 import { useArrivalFocus } from "../app/route";
-import { conversationStates, laneStates, lookOf } from "../floor/states";
+import { conversationStates, laneStates, lookOf, waitingLabel } from "../floor/states";
 import { agoLabel, agoWords } from "../needs/wait";
 import { Button } from "../ui/controls";
 import { Banner, LookBadge, TargetChip } from "../ui/display";
@@ -21,6 +21,13 @@ function Active({ at, now }: { at: number; now: number }) {
       <span className="visually-hidden">{agoWords(age)}</span>
     </span>
   );
+}
+
+// orchestratorNote is what an orchestrator's row adds about its run: what holds it before its session starts, or a state
+// other than running.
+function orchestratorNote(state: string, waiting?: string): string {
+  const said = waitingLabel(waiting)?.toLowerCase() ?? (state === "running" ? "" : state);
+  return said ? ` · ${said}` : "";
 }
 
 type Props = { live: Live; project: string; label: string; after: () => Promise<void>; archived: boolean };
@@ -51,7 +58,7 @@ export function ConversationsPage({ live, project, label, after, archived }: Pro
       kind: "orchestrator" as const,
       id: row.worker,
       main: row.name || row.worker,
-      note: `${row.name || row.worker} · serves ${row.projects.join(", ") || label}${row.state === "running" ? "" : ` · ${row.state}`}`,
+      note: `${row.name || row.worker} · serves ${row.projects.join(", ") || label}${orchestratorNote(row.state, row.waiting_for)}`,
     })),
     ...(targets.view?.planning ?? []).map((row) => ({ kind: "planning" as const, id: row.lane, main: row.title || row.work_order, note: [row.work_order, row.lane, lookOf(laneStates, row.state).label.toLowerCase()].join(" · ") })),
     ...(targets.view?.lanes ?? []).map((row) => ({

@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { createPortal } from "react-dom";
 
 import type { ConversationTargets } from "../api/talk";
+import { waitingLabel } from "../floor/states";
 import { TargetChip } from "../ui/display";
 import { Icon } from "../ui/Icon";
 import { moveInMenu, usePopover } from "../ui/overlays";
@@ -44,7 +45,13 @@ export function TargetMenu({ targets, current, assistant, onChoose, onNew, openS
     {
       kind: "orchestrator",
       title: "Orchestrator",
-      rows: (targets?.orchestrators ?? []).map((row) => ({ kind: "orchestrator", id: row.worker, main: row.name || row.worker, name: row.name, note: row.state === "running" ? undefined : row.state })),
+      rows: (targets?.orchestrators ?? []).map((row) => ({
+        kind: "orchestrator",
+        id: row.worker,
+        main: row.name || row.worker,
+        name: row.name,
+        note: waitingLabel(row.waiting_for)?.toLowerCase() ?? (row.state === "running" ? undefined : row.state),
+      })),
     },
     {
       kind: "planning",

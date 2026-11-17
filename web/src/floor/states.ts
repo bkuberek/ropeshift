@@ -206,6 +206,24 @@ export function laneLabel(state: string): string {
   return laneStates[state]?.label ?? state;
 }
 
+// What holds an orchestrator's run before its session starts, as the control plane reads it. Its worker holds the run in
+// provisioning until there is something to judge, and an attended worker with no run window open judges no new work.
+export const waitingStates: Record<string, string> = {
+  run_window: "Waiting for a run window",
+};
+
+// waitingLabel says what holds an orchestrator's run, or nothing when nothing does. A value this build has no words for
+// shows as its own name.
+export function waitingLabel(waiting: string | undefined): string | undefined {
+  return waiting ? (waitingStates[waiting] ?? waiting) : undefined;
+}
+
+// orchestratorLabel says how an orchestrator reads: what holds a run whose session has not started, or the state its
+// worker last said, or nothing before it said one.
+export function orchestratorLabel(orchestrator: { actual_state?: string; waiting_for?: string }): string | undefined {
+  return waitingLabel(orchestrator.waiting_for) ?? (orchestrator.actual_state ? laneLabel(orchestrator.actual_state) : undefined);
+}
+
 // stateCounts lists counts in the machine's order, and anything else after it, so nothing is hidden.
 export function stateCounts(states: Record<string, number>): [string, number][] {
   const known = Object.keys(workStates).filter((state) => states[state]);

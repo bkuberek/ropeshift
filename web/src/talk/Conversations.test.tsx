@@ -57,6 +57,15 @@ describe("the Conversations view", () => {
     expect(screen.queryByRole("complementary", { name: "Conversation" })?.hasAttribute("hidden") ?? true).toBe(true);
   });
 
+  it("says an orchestrator waits for a run window in place of its provisioning", async () => {
+    state.targets.orchestrators = [{ ...(state.targets.orchestrators[0] as object), state: "provisioning", desired_state: "running", waiting_for: "run_window" } as never];
+    serveTalk(state);
+    openPage(here("/conversations"));
+    const sessions = await screen.findByRole("list", { name: "Sessions you can talk to" });
+    await waitFor(() => expect(within(sessions).getAllByRole("button")[0]?.textContent).toContain("atlas · serves default · waiting for a run window"));
+    expect(within(sessions).getAllByRole("button")[0]?.textContent).not.toContain("provisioning");
+  });
+
   it("is in the sidebar's Talk group, and G then C goes there", async () => {
     serveTalk(state);
     openPage(here("/roadmap"));

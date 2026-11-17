@@ -268,6 +268,15 @@ describe("switching the target", () => {
     expect(within(menu).getByRole("menuitemradio", { name: /Orchestrator.*atlas.*stopped/ })).toBeTruthy();
   });
 
+  it("says in Switch target that an orchestrator waits for a run window", async () => {
+    state.targets.orchestrators = [{ ...(state.targets.orchestrators[0] as object), state: "provisioning", desired_state: "running", waiting_for: "run_window" } as never];
+    const { dock } = await open(state);
+    await userEvent.click(await within(dock).findByRole("button", { name: "Switch target" }));
+    const menu = await screen.findByRole("menu", { name: "Switch conversation target" });
+    expect(within(menu).getByRole("menuitemradio", { name: /Orchestrator.*atlas.*waiting for a run window/ })).toBeTruthy();
+    expect(within(menu).queryByRole("menuitemradio", { name: /provisioning/ })).toBeNull();
+  });
+
   it("switches to a lane: its header, its stream, its composer, announced politely", async () => {
     withLanes();
     const { dock } = await open(state);
