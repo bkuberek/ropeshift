@@ -253,9 +253,9 @@ type checking struct {
 	checks atomic.Int64
 }
 
-func (c *checking) Authenticate(ctx context.Context, scope ledger.WorkspaceID, proof ports.Proof) (string, error) {
+func (c *checking) Authenticate(ctx context.Context, scope ledger.WorkspaceID, proof ports.Proof, alongside func(ports.SharedTx, string) error) (string, error) {
 	c.checks.Add(1)
-	return c.IdentityProvider.Authenticate(ctx, scope, proof)
+	return c.IdentityProvider.Authenticate(ctx, scope, proof, alongside)
 }
 
 func (c *checking) Change(ctx context.Context, scope ledger.WorkspaceID, current, next ports.Proof, actor ledger.Actor, alongside func(tx ports.SharedTx, member string) error) error {
@@ -296,8 +296,8 @@ type abandoning struct {
 	cancel context.CancelFunc
 }
 
-func (a abandoning) Authenticate(ctx context.Context, scope ledger.WorkspaceID, proof ports.Proof) (string, error) {
-	member, err := a.IdentityProvider.Authenticate(ctx, scope, proof)
+func (a abandoning) Authenticate(ctx context.Context, scope ledger.WorkspaceID, proof ports.Proof, alongside func(ports.SharedTx, string) error) (string, error) {
+	member, err := a.IdentityProvider.Authenticate(ctx, scope, proof, alongside)
 	a.cancel()
 	return member, err
 }

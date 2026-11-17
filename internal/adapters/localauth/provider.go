@@ -128,17 +128,9 @@ func (p *Provider) Change(ctx context.Context, scope ledger.WorkspaceID, current
 		return err
 	}
 	return p.store.Installation(scope).Write(ctx, "member.change_proof", func(tx ports.SharedTx) error {
-		stored, err := tx.Members().Member(Member)
-		if errors.Is(err, ports.ErrNotFound) {
-			return authority.ErrNotEnrolled
-		}
+		stored, err := standing(tx, record)
 		if err != nil {
 			return err
-		}
-		// The passphrase the caller proved is not the one stored any more, so another change got in first. The
-		// caller's passphrase was right, so this is no wrong guess and is said to be none.
-		if stored.ProofDigest != record.ProofDigest {
-			return authority.ErrPassphraseChanged
 		}
 		stored.ProofDigest = digest
 		if err := tx.Members().SaveMember(stored); err != nil {
@@ -168,9 +160,27 @@ func (p *Provider) member(ctx context.Context, scope ledger.WorkspaceID) (author
 	return record, err
 }
 
-// Authenticate names the member a passphrase belongs to. It holds no transaction while it
-// hashes.
-func (p *Provider) Authenticate(ctx context.Context, scope ledger.WorkspaceID, proof ports.Proof) (string, error) {
+// standing reads the member's record in a write and finds there the hash a passphrase was checked against. Another
+// hash means a change landed after the check. The passphrase was right, so that is no wrong guess and is said to be
+// none.
+func standing(tx ports.SharedTx, checked authority.MemberRecord) (authority.MemberRecord, error) {
+	stored, err := tx.Members().Member(checked.ID)
+	if errors.Is(err, ports.ErrNotFound) {
+		return stored, authority.ErrNotEnrolled
+	}
+	if err != nil {
+		return stored, err
+	}
+	if stored.ProofDigest != checked.ProofDigest {
+		return stored, authority.ErrPassphraseChanged
+	}
+	return stored, nil
+}
+
+// Authenticate names the member a passphrase belongs to. It holds no transaction while it hashes. alongside then runs
+// in the sign-in's write only over the hash the passphrase matched, so a session it issues cannot outlive a change
+// that landed after the check.
+func (p *Provider) Authenticate(ctx context.Context, scope ledger.WorkspaceID, proof ports.Proof, alongside func(ports.SharedTx, string) error) (string, error) {
 	record, err := p.member(ctx, scope)
 	if err != nil {
 		return "", err
@@ -181,6 +191,18 @@ func (p *Provider) Authenticate(ctx context.Context, scope ledger.WorkspaceID, p
 	}
 	if !match {
 		return "", authority.ErrBadProof
+	}
+	if alongside == nil {
+		return record.ID, nil
+	}
+	err = p.store.Installation(scope).Write(ctx, "member.sign_in", func(tx ports.SharedTx) error {
+		if _, err := standing(tx, record); err != nil {
+			return err
+		}
+		return alongside(tx, record.ID)
+	})
+	if err != nil {
+		return "", err
 	}
 	return record.ID, nil
 }

@@ -41,9 +41,9 @@ var (
 	ErrNoSession = errors.New("this needs a member session")
 	// ErrBadProof means what a person presented proves nothing.
 	ErrBadProof = errors.New("the passphrase does not match")
-	// ErrPassphraseChanged means a change of the passphrase lost to another: the current passphrase it
-	// checked was right, and is no longer the one in force.
-	ErrPassphraseChanged = errors.New("the passphrase changed while you were changing it; sign in again")
+	// ErrPassphraseChanged means a change of the passphrase landed while a sign-in or another change was in
+	// flight: the passphrase that one checked was right, and is no longer the one in force.
+	ErrPassphraseChanged = errors.New("the passphrase changed during this request; sign in again")
 	// ErrNotEnrolled means nobody can sign in yet.
 	ErrNotEnrolled = errors.New("no passphrase is set: run ropeshift passphrase set on a terminal")
 	// ErrInvalid means a proof cannot be accepted as it stands.

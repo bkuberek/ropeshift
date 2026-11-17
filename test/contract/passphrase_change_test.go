@@ -1,7 +1,6 @@
 package contract
 
 import (
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -360,34 +359,13 @@ func TestTwoChangesFromOnePassphraseCannotBothStand(t *testing.T) {
 	}
 }
 
-// interposed runs before each write to the installation's records, which is how a test lets another change land
-// between a change's check of the current passphrase and its write, with nothing compiled into the adapter.
-type interposed struct {
-	ports.Store
-	before func(op string)
-}
-
-func (s interposed) Installation(scope ledger.WorkspaceID) ports.Installation {
-	return interposedInstallation{Installation: s.Store.Installation(scope), before: s.before}
-}
-
-type interposedInstallation struct {
-	ports.Installation
-	before func(op string)
-}
-
-func (i interposedInstallation) Write(ctx context.Context, op string, fn func(ports.SharedTx) error) error {
-	i.before(op)
-	return i.Installation.Write(ctx, op, fn)
-}
-
 // A change whose current passphrase was right, and which another change then moved, is told so, and leaves no
 // refused sign-in on record: the guess was not wrong, and a refusal on record would read as an attack.
 func TestAChangeThatLostARaceIsToldSoAndLeavesNoRefusalOnRecord(t *testing.T) {
 	t.Parallel()
 	rig, winner, browser, _ := twoSessions(t)
 	armed := true
-	store := interposed{Store: rig.Store(), before: func(op string) {
+	store := &Interposed{Store: rig.Store(), Before: func(op string) {
 		if op != "member.change_proof" || !armed {
 			return
 		}
@@ -413,6 +391,46 @@ func TestAChangeThatLostARaceIsToldSoAndLeavesNoRefusalOnRecord(t *testing.T) {
 	}
 	if _, err := winner.SignIn(rig.Ctx, rig.Scope, ports.Proof{Passphrase: otherPassphrase}, 0); !errors.Is(err, authority.ErrBadProof) {
 		t.Errorf("the passphrase that lost: %v", err)
+	}
+}
+
+// A sign-in checks the passphrase outside any transaction, so a change can land between that check and the write that
+// issues the session. The passphrase the sign-in proved is then no longer in force, and a session issued on it would
+// outlive a change that ended every other one, so the sign-in issues none. The passphrase was right when it was
+// checked, so the refusal says the passphrase changed, and no refused sign-in is on record.
+func TestASignInThatAChangeOvertookIssuesNoSession(t *testing.T) {
+	t.Parallel()
+	rig, winner, browser, _ := twoSessions(t)
+	armed := true
+	store := &Interposed{Store: rig.Store(), Before: func(op string) {
+		if op != "member.sign_in" || !armed {
+			return
+		}
+		armed = false
+		if _, err := winner.ChangePassphrase(rig.Ctx, rig.Scope, ports.Proof{Passphrase: goodPassphrase}, ports.Proof{Passphrase: otherPassphrase}, browser.Token); err != nil {
+			t.Errorf("the change that lands first: %v", err)
+		}
+	}}
+	late := control.NewSessions(store, localauth.New(store, cheapHash))
+	before := len(installationEvents(t, rig))
+	grant, err := late.SignIn(rig.Ctx, rig.Scope, ports.Proof{Passphrase: goodPassphrase}, 0)
+	if armed {
+		t.Fatal("the sign-in made no write for the change to land before")
+	}
+	if !errors.Is(err, authority.ErrPassphraseChanged) || grant.Token != "" {
+		t.Fatalf("got %+v, %v; want ErrPassphraseChanged and no session", grant, err)
+	}
+	// The change left the session it came from, under its new token, and the sign-in added none.
+	if left := sessionDigests(t, rig); len(left) != 1 {
+		t.Errorf("%d sessions stand after the change, want the changer's alone", len(left))
+	}
+	for _, event := range installationEvents(t, rig)[before:] {
+		if event.Type == control.EventSignedIn || event.Type == "member.sign_in_refused" {
+			t.Errorf("the overtaken sign-in left %s on record", event.Type)
+		}
+	}
+	if _, err := winner.SignIn(rig.Ctx, rig.Scope, ports.Proof{Passphrase: otherPassphrase}, 0); err != nil {
+		t.Errorf("the new passphrase: %v", err)
 	}
 }
 

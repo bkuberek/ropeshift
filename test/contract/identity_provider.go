@@ -15,8 +15,9 @@ import (
 type IdentityRig struct {
 	Provider ports.IdentityProvider
 	Scope    ledger.WorkspaceID
-	// Store holds what a change writes beside a proof, which a check reads back.
-	Store ports.Store
+	// Store is the store the provider writes through, which holds what a companion writes beside a proof. A check
+	// reads it back, and steps into the provider's writes through it.
+	Store *Interposed
 	// Member is a caller with a session.
 	Member ledger.Actor
 	// Anyone is a caller with no session.
@@ -53,6 +54,8 @@ func RunIdentityProvider(t *testing.T, fresh func(*testing.T) IdentityRig) {
 		{"a change replaces the passphrase, and its companion write lands in the same transaction", checkIdentityChangeCompanion},
 		{"a change whose companion fails changes nothing", checkIdentityChangeIsAtomic},
 		{"a passphrase over the upper bound is refused at the first set and at a change, and one at the bound is not", checkIdentityRefusesATooLongProof},
+		{"a sign-in's companion write lands in a write of its own, told the member", checkIdentitySignInCompanion},
+		{"a sign-in whose passphrase a change replaced after the check runs no companion and is told the passphrase changed", checkIdentitySignInOvertakenByAChange},
 	}
 	for _, check := range checks {
 		t.Run(check.name, func(t *testing.T) { check.run(t, t.Context(), fresh(t)) })
@@ -64,7 +67,7 @@ func checkIdentityUnenrolled(t *testing.T, ctx context.Context, rig IdentityRig)
 	if err != nil || enrolled {
 		t.Fatalf("enrolled %v, %v", enrolled, err)
 	}
-	if _, err := rig.Provider.Authenticate(ctx, rig.Scope, ports.Proof{Passphrase: goodPassphrase}); !errors.Is(err, authority.ErrNotEnrolled) {
+	if _, err := rig.Provider.Authenticate(ctx, rig.Scope, ports.Proof{Passphrase: goodPassphrase}, nil); !errors.Is(err, authority.ErrNotEnrolled) {
 		t.Fatalf("got %v, want ErrNotEnrolled", err)
 	}
 }
@@ -82,7 +85,7 @@ func checkIdentityAuthenticates(t *testing.T, ctx context.Context, rig IdentityR
 	if err != nil || !enrolled {
 		t.Fatalf("enrolled %v, %v", enrolled, err)
 	}
-	member, err := rig.Provider.Authenticate(ctx, rig.Scope, ports.Proof{Passphrase: goodPassphrase})
+	member, err := rig.Provider.Authenticate(ctx, rig.Scope, ports.Proof{Passphrase: goodPassphrase}, nil)
 	if err != nil || member == "" {
 		t.Fatalf("member %q, %v", member, err)
 	}
@@ -91,7 +94,7 @@ func checkIdentityAuthenticates(t *testing.T, ctx context.Context, rig IdentityR
 func checkIdentityRefusesAWrongProof(t *testing.T, ctx context.Context, rig IdentityRig) {
 	enroll(t, ctx, rig)
 	for _, wrong := range []string{"", otherPassphrase, goodPassphrase + " "} {
-		if _, err := rig.Provider.Authenticate(ctx, rig.Scope, ports.Proof{Passphrase: wrong}); !errors.Is(err, authority.ErrBadProof) {
+		if _, err := rig.Provider.Authenticate(ctx, rig.Scope, ports.Proof{Passphrase: wrong}, nil); !errors.Is(err, authority.ErrBadProof) {
 			t.Errorf("%q: got %v, want ErrBadProof", wrong, err)
 		}
 	}
@@ -117,7 +120,7 @@ func checkIdentitySecondEnrollment(t *testing.T, ctx context.Context, rig Identi
 	if runs != 0 || companionWritten(t, ctx, rig) {
 		t.Errorf("a refused set ran its companion %d times", runs)
 	}
-	if _, err := rig.Provider.Authenticate(ctx, rig.Scope, ports.Proof{Passphrase: goodPassphrase}); err != nil {
+	if _, err := rig.Provider.Authenticate(ctx, rig.Scope, ports.Proof{Passphrase: goodPassphrase}, nil); err != nil {
 		t.Fatalf("the refused change moved the passphrase: %v", err)
 	}
 	var told string
@@ -131,14 +134,14 @@ func checkIdentitySecondEnrollment(t *testing.T, ctx context.Context, rig Identi
 	if runs != 1 || !companionWritten(t, ctx, rig) {
 		t.Fatalf("the companion ran %d times, and its event is written: %v", runs, companionWritten(t, ctx, rig))
 	}
-	member, err := rig.Provider.Authenticate(ctx, rig.Scope, ports.Proof{Passphrase: otherPassphrase})
+	member, err := rig.Provider.Authenticate(ctx, rig.Scope, ports.Proof{Passphrase: otherPassphrase}, nil)
 	if err != nil {
 		t.Fatalf("the new passphrase: %v", err)
 	}
 	if told != member {
 		t.Errorf("the companion was told member %q, and the passphrase names %q", told, member)
 	}
-	if _, err := rig.Provider.Authenticate(ctx, rig.Scope, ports.Proof{Passphrase: goodPassphrase}); !errors.Is(err, authority.ErrBadProof) {
+	if _, err := rig.Provider.Authenticate(ctx, rig.Scope, ports.Proof{Passphrase: goodPassphrase}, nil); !errors.Is(err, authority.ErrBadProof) {
 		t.Fatalf("the old passphrase: got %v, want ErrBadProof", err)
 	}
 }
@@ -173,11 +176,11 @@ func companionWritten(t *testing.T, ctx context.Context, rig IdentityRig) bool {
 // onlyTheOldStands holds that the passphrase is still goodPassphrase, and no later one proves anything.
 func onlyTheOldStands(t *testing.T, ctx context.Context, rig IdentityRig) {
 	t.Helper()
-	if _, err := rig.Provider.Authenticate(ctx, rig.Scope, ports.Proof{Passphrase: goodPassphrase}); err != nil {
+	if _, err := rig.Provider.Authenticate(ctx, rig.Scope, ports.Proof{Passphrase: goodPassphrase}, nil); err != nil {
 		t.Fatalf("the refused change moved the passphrase: %v", err)
 	}
 	for _, later := range []string{otherPassphrase, thirdPassphrase} {
-		if _, err := rig.Provider.Authenticate(ctx, rig.Scope, ports.Proof{Passphrase: later}); !errors.Is(err, authority.ErrBadProof) {
+		if _, err := rig.Provider.Authenticate(ctx, rig.Scope, ports.Proof{Passphrase: later}, nil); !errors.Is(err, authority.ErrBadProof) {
 			t.Fatalf("%q proves the member after a refused change: %v", later, err)
 		}
 	}
@@ -257,14 +260,14 @@ func checkIdentityChangeCompanion(t *testing.T, ctx context.Context, rig Identit
 	if runs != 1 || !companionWritten(t, ctx, rig) {
 		t.Fatalf("the companion ran %d times, and its event is written: %v", runs, companionWritten(t, ctx, rig))
 	}
-	member, err := rig.Provider.Authenticate(ctx, rig.Scope, ports.Proof{Passphrase: otherPassphrase})
+	member, err := rig.Provider.Authenticate(ctx, rig.Scope, ports.Proof{Passphrase: otherPassphrase}, nil)
 	if err != nil {
 		t.Fatalf("the new passphrase: %v", err)
 	}
 	if told != member {
 		t.Errorf("the companion was told member %q, and the passphrase names %q", told, member)
 	}
-	if _, err := rig.Provider.Authenticate(ctx, rig.Scope, ports.Proof{Passphrase: goodPassphrase}); !errors.Is(err, authority.ErrBadProof) {
+	if _, err := rig.Provider.Authenticate(ctx, rig.Scope, ports.Proof{Passphrase: goodPassphrase}, nil); !errors.Is(err, authority.ErrBadProof) {
 		t.Fatalf("the old passphrase: got %v, want ErrBadProof", err)
 	}
 	// The new passphrase is now the current one, and the old one cannot change it again.
@@ -296,8 +299,65 @@ func checkIdentityRefusesATooLongProof(t *testing.T, ctx context.Context, rig Id
 	if err := rig.Provider.Change(ctx, rig.Scope, ports.Proof{Passphrase: goodPassphrase}, ports.Proof{Passphrase: longest}, rig.Member, nil); err != nil {
 		t.Fatalf("a change to %d bytes, the longest allowed: %v", len(longest), err)
 	}
-	if _, err := rig.Provider.Authenticate(ctx, rig.Scope, ports.Proof{Passphrase: longest}); err != nil {
+	if _, err := rig.Provider.Authenticate(ctx, rig.Scope, ports.Proof{Passphrase: longest}, nil); err != nil {
 		t.Fatalf("the longest passphrase: %v", err)
+	}
+}
+
+func checkIdentitySignInCompanion(t *testing.T, ctx context.Context, rig IdentityRig) {
+	enroll(t, ctx, rig)
+	runs := 0
+	var told string
+	companion := func(tx ports.SharedTx, member string) error {
+		told = member
+		return accompany(rig, &runs)(tx, member)
+	}
+	member, err := rig.Provider.Authenticate(ctx, rig.Scope, ports.Proof{Passphrase: goodPassphrase}, companion)
+	if err != nil || member == "" {
+		t.Fatalf("member %q, %v", member, err)
+	}
+	if runs != 1 || !companionWritten(t, ctx, rig) {
+		t.Fatalf("the companion ran %d times, and its event is written: %v", runs, companionWritten(t, ctx, rig))
+	}
+	if told != member {
+		t.Errorf("the companion was told member %q, and the passphrase names %q", told, member)
+	}
+	// A wrong passphrase runs no companion.
+	if _, err := rig.Provider.Authenticate(ctx, rig.Scope, ports.Proof{Passphrase: otherPassphrase}, accompany(rig, &runs)); !errors.Is(err, authority.ErrBadProof) || runs != 1 {
+		t.Errorf("a wrong passphrase: %v, and the companion ran %d times", err, runs)
+	}
+}
+
+// checkIdentitySignInOvertakenByAChange lands a change between a sign-in's check of the passphrase and its write. The
+// passphrase the sign-in proved is no longer in force when it would write, so what its companion would write, a
+// session, must not stand: the change has ended every session it knew of. The passphrase was right when it was
+// checked, so the refusal is the one a change that lost gets, which is no wrong guess.
+func checkIdentitySignInOvertakenByAChange(t *testing.T, ctx context.Context, rig IdentityRig) {
+	enroll(t, ctx, rig)
+	armed := true
+	rig.Store.Before = func(string) {
+		if !armed {
+			return
+		}
+		armed = false
+		if err := rig.Provider.Change(ctx, rig.Scope, ports.Proof{Passphrase: goodPassphrase}, ports.Proof{Passphrase: otherPassphrase}, rig.Member, nil); err != nil {
+			t.Errorf("the change that lands first: %v", err)
+		}
+	}
+	runs := 0
+	member, err := rig.Provider.Authenticate(ctx, rig.Scope, ports.Proof{Passphrase: goodPassphrase}, accompany(rig, &runs))
+	rig.Store.Before = nil
+	if armed {
+		t.Fatal("the sign-in made no write for the change to land before")
+	}
+	if !errors.Is(err, authority.ErrPassphraseChanged) || member != "" {
+		t.Fatalf("member %q, %v; want ErrPassphraseChanged", member, err)
+	}
+	if runs != 0 || companionWritten(t, ctx, rig) {
+		t.Errorf("an overtaken sign-in ran its companion %d times", runs)
+	}
+	if _, err := rig.Provider.Authenticate(ctx, rig.Scope, ports.Proof{Passphrase: otherPassphrase}, accompany(rig, &runs)); err != nil || runs != 1 {
+		t.Errorf("the passphrase that landed first: %v, and the companion ran %d times", err, runs)
 	}
 }
 
