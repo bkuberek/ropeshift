@@ -48,6 +48,11 @@ const (
 	callBytes = 8
 )
 
+// EnvTestDeadline raises a hook's deadline to a Go duration, in a build with the hookdeadline tag,
+// which only tests make, so a test that checks what a hook decided does not race when it decided. A
+// release build reads nothing by this name (deadline_release.go), and test/rules checks that.
+const EnvTestDeadline = "ROPESHIFT_TEST_HOOK_DEADLINE"
+
 const (
 	eventPreToolUse         = "PreToolUse"
 	eventPostToolUse        = "PostToolUse"
@@ -74,6 +79,9 @@ type config struct {
 	lane       string
 	workOrder  string
 	generation int64
+	// raised is the deadline a test build gave the hook in place of hardDeadline. A release build
+	// gives none.
+	raised time.Duration
 	// out is what the hook took and has not handed on, which its deadline settles.
 	out *outbox
 }
@@ -83,8 +91,18 @@ func read(event string, getenv func(string) string) config {
 	return config{
 		event: event, socket: getenv(api.EnvWorkerSocket), spool: getenv(api.EnvSpool), token: getenv(api.EnvLaneToken),
 		policy: getenv(api.EnvPolicy), lane: getenv(api.EnvLaneID), workOrder: getenv(api.EnvWorkOrder),
-		session: getenv(lanes.EnvMessagingSocket), generation: generation,
+		session: getenv(lanes.EnvMessagingSocket), generation: generation, raised: raisedDeadline(getenv),
 	}
+}
+
+// within is one of a hook's bounds. A deadline a test build raised replaces hardDeadline, and every
+// bound inside it grows in proportion, so the bounds keep their order. A deadline at or below the real
+// one changes nothing.
+func (c config) within(bound time.Duration) time.Duration {
+	if c.raised <= hardDeadline {
+		return bound
+	}
+	return time.Duration(float64(bound) * float64(c.raised) / float64(hardDeadline))
 }
 
 // Main runs one hook. It has no failure path: whatever happens, the process exits 0. The deadline
@@ -101,7 +119,7 @@ func Main(args []string, stdin io.Reader, stdout io.Writer, getenv func(string) 
 	event, input := take(cfg, stdin)
 	if cfg.event != eventPermissionRequest {
 		untilDecided(cfg, event, stdout)
-		timer := time.AfterFunc(hardDeadline, func() { expire(cfg) })
+		timer := time.AfterFunc(cfg.within(hardDeadline), func() { expire(cfg) })
 		defer timer.Stop()
 	}
 	run(cfg, event, input, stdout)
@@ -317,7 +335,7 @@ func deferGated(cfg config, input []byte) (verdict, []byte) {
 		Version: lanes.SocketProtocol, Token: cfg.token,
 		Approval: &lanes.ApprovalRequest{Tool: call.Tool, Input: call.Input, Call: newCallID(), Peek: true},
 	}
-	reply, err := api.CallLane(cfg.socket, request, dialDeadline, peekDeadline)
+	reply, err := api.CallLane(cfg.socket, request, cfg.within(dialDeadline), cfg.within(peekDeadline))
 	if err != nil || !reply.OK || reply.Approval == nil {
 		return callPassed, nil
 	}
@@ -448,7 +466,7 @@ func reground(cfg config, event lanes.HookEvent, stdout io.Writer) {
 		_ = json.Unmarshal(raw, &policy)
 	}
 	cfg.out.owe(stdout, grounding(cfg, event, policy.Ground, 0))
-	generation := forwardWithin(cfg, event, groundAck)
+	generation := forwardWithin(cfg, event, cfg.within(groundAck))
 	cfg.out.answer(stdout, grounding(cfg, event, policy.Ground, generation))
 }
 
@@ -481,7 +499,7 @@ func encode(specific any) []byte {
 // is an answer, so it spools nothing, and a hook that missed its ack spools an event the worker may
 // have, which is safe because the worker merges by meaning.
 func forward(cfg config, event lanes.HookEvent) int64 {
-	return forwardWithin(cfg, event, ackDeadline)
+	return forwardWithin(cfg, event, cfg.within(ackDeadline))
 }
 
 func forwardWithin(cfg config, event lanes.HookEvent, ack time.Duration) int64 {
@@ -491,7 +509,7 @@ func forwardWithin(cfg config, event lanes.HookEvent, ack time.Duration) int64 {
 	cfg.out.hold(&event)
 	if cfg.socket != "" {
 		request := lanes.Request{Version: lanes.SocketProtocol, Token: cfg.token, Hook: &event}
-		if reply, err := api.CallLane(cfg.socket, request, dialDeadline, ack); err == nil {
+		if reply, err := api.CallLane(cfg.socket, request, cfg.within(dialDeadline), ack); err == nil {
 			cfg.out.hold(nil)
 			return reply.Generation
 		}

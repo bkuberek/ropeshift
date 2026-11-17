@@ -17,8 +17,10 @@ import (
 	"time"
 
 	"ropeshift.com/ropeshift/internal/api"
+	"ropeshift.com/ropeshift/internal/hook"
 	"ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/test/apitest"
+	"ropeshift.com/ropeshift/test/doubles"
 )
 
 const toolPayload = `{"session_id":"s1","hook_event_name":"PostToolUse","tool_name":"Bash","tool_use_id":"toolu_1","tool_input":{"command":"a command the hook must not forward"},"tool_response":{"stdout":"output"}}`
@@ -36,21 +38,58 @@ const hookToken = "a-token"
 // hookEnv is the environment a lane's process gives its hooks.
 type hookEnv struct {
 	socket, spool, token, policy string
+	// deadline raises the hook's deadline, for a test that checks what a hook decided and not when.
+	// Zero keeps the real one.
+	deadline time.Duration
 }
 
+// verdictDeadline is the deadline of a hook whose verdict a test checks. It is far past what a loaded
+// machine takes to decide, so the verdict never races the real deadline, which the tests of the
+// deadline itself keep.
+const verdictDeadline = 2 * time.Second
+
 func (e hookEnv) list() []string {
-	return []string{
+	env := []string{
 		api.EnvWorkerSocket + "=" + e.socket, api.EnvSpool + "=" + e.spool, api.EnvLaneToken + "=" + e.token,
 		api.EnvPolicy + "=" + e.policy, api.EnvLaneID + "=lane-1", api.EnvGeneration + "=3", api.EnvWorkOrder + "=wo",
 	}
+	if e.deadline != 0 {
+		env = append(env, hook.EnvTestDeadline+"="+e.deadline.String())
+	}
+	return env
 }
 
-func runHook(t *testing.T, env hookEnv, event, input string) hookRun {
+// raisedBuild is ropeshift built with the hookdeadline tag, once, by the first test that raises a
+// hook's deadline.
+var raisedBuild struct {
+	once sync.Once
+	path string
+	err  error
+}
+
+// binary is the ropeshift a hook in this environment runs as: the normal build, or, for an environment
+// that raises the deadline, the hookdeadline build, which is the only one that reads it.
+func (e hookEnv) binary(t *testing.T) string {
 	t.Helper()
 	if binaries.err != nil {
 		t.Fatal(binaries.err)
 	}
-	cmd := exec.Command(binaries.cli, "hook", event)
+	if e.deadline == 0 {
+		return binaries.cli
+	}
+	raisedBuild.once.Do(func() {
+		raisedBuild.path, raisedBuild.err = doubles.Binary(binaries.dir, doubles.PrebuiltHookDeadline,
+			"ropeshift.com/ropeshift/cmd/ropeshift", "hookdeadline")
+	})
+	if raisedBuild.err != nil {
+		t.Fatal(raisedBuild.err)
+	}
+	return raisedBuild.path
+}
+
+func runHook(t *testing.T, env hookEnv, event, input string) hookRun {
+	t.Helper()
+	cmd := exec.Command(env.binary(t), "hook", event)
 	cmd.Env = env.list()
 	cmd.Stdin = strings.NewReader(input)
 	var stdout bytes.Buffer
@@ -341,8 +380,11 @@ func deniedBy(t *testing.T, stdout string) string {
 	return output.Specific.Reason
 }
 
+// The policy decides with no worker. The hook's deadline is raised, so this checks the verdict the
+// policy reaches, and TestAPolicyHookStillDecidingAtItsDeadlineDenies checks the real deadline.
 func TestPreToolUseDeniesWithTheWorkerDown(t *testing.T) {
 	env := newHookEnv(t)
+	env.deadline = verdictDeadline
 	env.policy = filepath.Join(t.TempDir(), "policy.json")
 	rules := `{"deny":[{"tool":"Bash","command_prefix":"git push --force","reason":"a force push is denied"}]}`
 	if err := os.WriteFile(env.policy, []byte(rules), 0o600); err != nil {
@@ -360,9 +402,10 @@ func TestPreToolUseDeniesWithTheWorkerDown(t *testing.T) {
 
 func TestAPolicyThatCannotBeReadDenies(t *testing.T) {
 	env := newHookEnv(t)
+	env.deadline = verdictDeadline
 	env.policy = filepath.Join(t.TempDir(), "absent.json")
 	run := runHook(t, env, "PreToolUse", `{"tool_name":"Bash","tool_input":{"command":"ls"}}`)
-	if run.exit != 0 || deniedBy(t, run.stdout) == "" {
+	if run.exit != 0 || deniedBy(t, run.stdout) != "the policy file cannot be read" {
 		t.Errorf("exit %d, stdout %q", run.exit, run.stdout)
 	}
 }
@@ -378,12 +421,12 @@ const (
 // heldPastTheDeadline runs one PreToolUse hook on a policy that denies a force push and defers the
 // question tool, and returns what it printed. Its spool is a FIFO no one reads, so handing on its
 // event holds it past its deadline, the way a stall on a loaded machine does, until this reads it.
+// The deadline is raised, so the hook reaches its verdict before it however loaded the machine is,
+// and this reads the FIFO only once that deadline has passed.
 func heldPastTheDeadline(t *testing.T, input string) string {
 	t.Helper()
-	if binaries.err != nil {
-		t.Fatal(binaries.err)
-	}
 	env := newHookEnv(t)
+	env.deadline = verdictDeadline
 	env.policy = filepath.Join(t.TempDir(), "policy.json")
 	rules := `{"deny":[{"tool":"Bash","command_prefix":"git push --force","reason":"a force push is denied"}],"question_tool":"defer"}`
 	if err := os.WriteFile(env.policy, []byte(rules), 0o600); err != nil {
@@ -392,7 +435,7 @@ func heldPastTheDeadline(t *testing.T, input string) string {
 	if err := syscall.Mkfifo(env.spool, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command(binaries.cli, "hook", "PreToolUse")
+	cmd := exec.Command(env.binary(t), "hook", "PreToolUse")
 	cmd.Env = env.list()
 	cmd.Stdin = strings.NewReader(input)
 	var stdout bytes.Buffer
@@ -405,7 +448,7 @@ func heldPastTheDeadline(t *testing.T, input string) string {
 	select {
 	case err := <-exited:
 		t.Fatalf("the hook ended before its event was down: %v", err)
-	case <-time.After(500 * time.Millisecond):
+	case <-time.After(env.deadline + 500*time.Millisecond):
 	}
 	opened := make(chan *os.File, 1)
 	go func() {
