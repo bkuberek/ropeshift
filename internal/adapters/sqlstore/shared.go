@@ -24,10 +24,11 @@ import (
 // project's: a crash between the two, or a commit of the project's that fails, leaves the index disagreeing
 // with the records. It may hold an entry whose record is missing or still removed, or the identity of a
 // remote move that did not happen, and it may lack the entry of a record that a removal released. A retry
-// in the same project completes some of these, and until the next start another project can register the
-// identity of a record that has no entry. The next start repairs the index from the records that
-// committed: SQLite's rebuilds the whole index, and Postgres's rebuilds the entries of each project whose
-// entries disagree with its records.
+// in the same project completes some of these, and until the index is repaired another project can register
+// the identity of a record that has no entry. A store whose database keeps running repairs it when the
+// project's commit fails, through Options.AfterFailedWrite. The next start repairs the index from the
+// records that committed: SQLite's rebuilds the whole index, and Postgres's rebuilds the entries of each
+// project whose entries disagree with its records.
 //
 // The project's transaction and the side are idle in turn: each waits while the other runs a statement. A
 // server that ends a session left idle inside a transaction (idle_in_transaction_session_timeout) ends the

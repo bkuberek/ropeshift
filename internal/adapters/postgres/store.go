@@ -84,6 +84,9 @@ type State struct {
 	lockTimeout time.Duration
 	// dropWait bounds how long the drop of a schema waits for a lock on one of its tables.
 	dropWait time.Duration
+	// afterFailedWrite repairs the repository index after a write that failed once the index had committed.
+	// Nil does nothing, which a test uses to look at what the failed write left.
+	afterFailedWrite func(context.Context, ledger.WorkspaceID)
 
 	// mu guards the Stores the state keeps open, one per project, so every call to a project shares them.
 	// No caller waits for the migration lock while it holds mu.
@@ -120,7 +123,8 @@ func Open(ctx context.Context, url string, opts Options) (*State, error) {
 		migrating: make(chan struct{}, 1), lockTimeout: lockTimeout(opts.LockTimeout), dropWait: defaultDropWait,
 		stores: map[ledger.WorkspaceID]*sqlstore.Store{},
 	}
-	s.opts.Installation, s.opts.Schema = nil, ""
+	s.opts.Installation, s.opts.Schema, s.opts.AfterFailedWrite = nil, "", nil
+	s.afterFailedWrite = s.repairAfterFailedWrite
 	s.Installation = sqlstore.NewInstallation(stdlib.OpenDBFromPool(installationPool), dialect, sqlstore.Options{Schema: InstallationSchema, Trace: s.opts.Trace})
 	err = s.locked(ctx, func(ctx context.Context) error {
 		if err := s.createSchema(ctx, InstallationSchema); err != nil {
@@ -207,6 +211,11 @@ func (s *State) Ledger(ctx context.Context, schema string, opts sqlstore.Options
 
 func (s *State) ledger(schema string, opts sqlstore.Options) *sqlstore.Store {
 	opts.Installation, opts.Schema = s.Installation, schema
+	opts.AfterFailedWrite = func(ctx context.Context, project ledger.WorkspaceID) {
+		if repair := s.afterFailedWrite; repair != nil {
+			repair(ctx, project)
+		}
+	}
 	return sqlstore.New(stdlib.OpenDBFromPool(s.pool), s.dialect, opts)
 }
 

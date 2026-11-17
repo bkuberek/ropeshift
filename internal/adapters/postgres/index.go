@@ -2,12 +2,14 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 
 	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/ports"
 )
 
 // revisionWait bounds how long the repair of the repository index waits for a project's revision, which a
@@ -141,6 +143,27 @@ func (s *State) reconcileProject(ctx context.Context, p ledger.Project, entries 
 		return err
 	}
 	return s.rebuildProjectIndex(ctx, p)
+}
+
+// repairAfterFailedWrite brings a project's part of the repository index back into agreement with its
+// records after a write of the project failed once the index had committed its part, so a server that stays
+// up does not refuse or admit other projects until its next start. The Store calls it before the write
+// returns its error. It waits for the migration lock for Options.LockTimeout at most. A repair that cannot
+// run is left to the next Open, with a warning. A project the registry does not hold has nothing to
+// repair, and Open releases its entries.
+func (s *State) repairAfterFailedWrite(ctx context.Context, id ledger.WorkspaceID) {
+	p, err := s.Installation.ProjectByID(ctx, id)
+	if errors.Is(err, ports.ErrNotFound) {
+		return
+	}
+	name := string(id)
+	if err == nil {
+		name = p.Name
+		err = s.repairProjectIndex(ctx, p)
+	}
+	if err != nil {
+		s.warn("postgres: repository index of project %s after a failed write: %v; the next Open repairs it", name, err)
+	}
 }
 
 // repairProjectIndex rebuilds a project's part of the repository index from its committed records, for a

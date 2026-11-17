@@ -8,11 +8,13 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"ropeshift.com/ropeshift/internal/adapters/postgres"
+	"ropeshift.com/ropeshift/internal/adapters/sqlstore"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/ports"
 )
@@ -71,7 +73,7 @@ func repositoryIndex(t *testing.T, state *postgres.State) []ledger.IndexedReposi
 // another project. The next Open puts the record's own identity back.
 func TestARemoteMoveThatFailsToCommitIsRepairedByTheNextOpen(t *testing.T) {
 	url := freshDatabase(t)
-	state := openState(t, url, postgres.Options{})
+	state := openStateThatLeavesFailedWrites(t, url)
 	db := state.SQLDB()
 	defer db.Close()
 	alpha, alphaStore := createProject(t, state, "pa", "alpha")
@@ -113,7 +115,7 @@ func TestARemoteMoveThatFailsToCommitIsRepairedByTheNextOpen(t *testing.T) {
 // record that is still removed, which blocks every other project. The next Open releases it.
 func TestARestoreThatFailsToCommitIsRepairedByTheNextOpen(t *testing.T) {
 	url := freshDatabase(t)
-	state := openState(t, url, postgres.Options{})
+	state := openStateThatLeavesFailedWrites(t, url)
 	db := state.SQLDB()
 	defer db.Close()
 	alpha, alphaStore := createProject(t, state, "pa", "alpha")
@@ -155,12 +157,137 @@ func TestARestoreThatFailsToCommitIsRepairedByTheNextOpen(t *testing.T) {
 	}
 }
 
+// openStateThatLeavesFailedWrites opens a state that does not repair the repository index when a write
+// fails, so a test can look at what the failed write left and at what the next Open does about it.
+func openStateThatLeavesFailedWrites(t *testing.T, url string) *postgres.State {
+	t.Helper()
+	state := openState(t, url, postgres.Options{})
+	state.WithoutRepairAfterFailedWrite()
+	return state
+}
+
+// warnings collects what a state warns about, through Options.Store.Warn.
+type warnings struct {
+	mu   sync.Mutex
+	list []string
+}
+
+func (w *warnings) add(message string) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.list = append(w.list, message)
+}
+
+func (w *warnings) all() []string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return slices.Clone(w.list)
+}
+
+// TestAFailedMoveIsRepairedWithoutReopeningTheState holds that a server that stays up does not wait for
+// its next start: a move of a remote whose project commit failed, after the index side had committed, is
+// repaired before the write returns its error, so no other project can register the identity the record
+// still has, and none is refused the identity of the move that did not happen.
+func TestAFailedMoveIsRepairedWithoutReopeningTheState(t *testing.T) {
+	url := freshDatabase(t)
+	state := openState(t, url, postgres.Options{})
+	db := state.SQLDB()
+	defer db.Close()
+	alpha, alphaStore := createProject(t, state, "pa", "alpha")
+	beta, betaStore := createProject(t, state, "pb", "beta")
+	if err := insertRepository(t.Context(), alphaStore, alpha.ID, "r1", "invoices", invoices); err != nil {
+		t.Fatal(err)
+	}
+
+	lift := deferRepositoryTrigger(t, db, "project_pa", "UPDATE", `RAISE EXCEPTION 'the commit is refused';`)
+	if err := moveRemote(t.Context(), alphaStore, alpha.ID, "r1", billing); err == nil {
+		t.Fatal("the project's commit was not refused")
+	}
+	lift()
+	if got, want := repositoryIndex(t, state), []ledger.IndexedRepository{held(alpha.ID, "r1", invoices)}; !slices.Equal(got, want) {
+		t.Errorf("the index after the failed write: %+v, want %+v", got, want)
+	}
+	if err := registerRepository(t.Context(), betaStore, beta.ID, invoices, nil); !errors.Is(err, ledger.ErrRepositoryHeld) {
+		t.Errorf("another project registering the identity the record still has: %v", err)
+	}
+	if err := registerRepository(t.Context(), betaStore, beta.ID, billing, nil); err != nil {
+		t.Errorf("another project registering the identity the move did not take: %v", err)
+	}
+}
+
+// TestAFailedRestoreIsRepairedWithoutReopeningTheState holds the same for a Restore, which holds the
+// identity before the project commits.
+func TestAFailedRestoreIsRepairedWithoutReopeningTheState(t *testing.T) {
+	url := freshDatabase(t)
+	state := openState(t, url, postgres.Options{})
+	db := state.SQLDB()
+	defer db.Close()
+	alpha, alphaStore := createProject(t, state, "pa", "alpha")
+	beta, betaStore := createProject(t, state, "pb", "beta")
+	if err := insertRepository(t.Context(), alphaStore, alpha.ID, "r1", "invoices", invoices); err != nil {
+		t.Fatal(err)
+	}
+	err := changeRepository(t.Context(), alphaStore, alpha.ID, "r1", func(w ports.RepositoryWriter) error { return w.Remove("r1") })
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	lift := deferRepositoryTrigger(t, db, "project_pa", "UPDATE", `RAISE EXCEPTION 'the commit is refused';`)
+	err = changeRepository(t.Context(), alphaStore, alpha.ID, "r1", func(w ports.RepositoryWriter) error { return w.Restore("r1") })
+	if err == nil {
+		t.Fatal("the project's commit was not refused")
+	}
+	lift()
+	if got := repositoryIndex(t, state); len(got) != 0 {
+		t.Errorf("the index after the failed write: %+v, with the record still removed", got)
+	}
+	if err := registerRepository(t.Context(), betaStore, beta.ID, invoices, nil); err != nil {
+		t.Errorf("registering the repository after the failed write: %v", err)
+	}
+}
+
+// TestARepairThatFailsIsLeftToTheNextOpen holds that a write that fails still returns its own error when the
+// repair after it cannot run, here because another session holds the migration lock for longer than
+// Options.LockTimeout. The state warns, and the next Open repairs the index.
+func TestARepairThatFailsIsLeftToTheNextOpen(t *testing.T) {
+	url := freshDatabase(t)
+	var warned warnings
+	state := openState(t, url, postgres.Options{LockTimeout: 300 * time.Millisecond, Store: sqlstore.Options{Warn: warned.add}})
+	db := state.SQLDB()
+	defer db.Close()
+	alpha, alphaStore := createProject(t, state, "pa", "alpha")
+	if err := insertRepository(t.Context(), alphaStore, alpha.ID, "r1", "invoices", invoices); err != nil {
+		t.Fatal(err)
+	}
+
+	lift := deferRepositoryTrigger(t, db, "project_pa", "UPDATE", `RAISE EXCEPTION 'the commit is refused';`)
+	release := holdMigrationLock(t, url)
+	err := moveRemote(t.Context(), alphaStore, alpha.ID, "r1", billing)
+	if err == nil || errors.Is(err, postgres.ErrLockTimeout) {
+		t.Fatalf("the write ended with %v, want the refusal of its own commit", err)
+	}
+	lift()
+	got := warned.all()
+	if len(got) != 1 || !strings.Contains(got[0], "alpha") || !strings.Contains(got[0], "next Open") {
+		t.Errorf("warnings %q, want one that names the project and says the next Open repairs it", got)
+	}
+	if got, want := repositoryIndex(t, state), []ledger.IndexedRepository{held(alpha.ID, "r1", billing)}; !slices.Equal(got, want) {
+		t.Fatalf("the index after the failed repair: %+v, want %+v", got, want)
+	}
+
+	release()
+	next := openState(t, url, postgres.Options{})
+	if got, want := repositoryIndex(t, next), []ledger.IndexedRepository{held(alpha.ID, "r1", invoices)}; !slices.Equal(got, want) {
+		t.Errorf("the next Open left the index at %+v, want %+v", got, want)
+	}
+}
+
 // TestTheRepairOfAProjectRunsInAnOpenState holds the repair a caller can run when a write of a project
 // fails, without opening a state again: it takes the migration lock, and it brings the project's part of
 // the index into agreement with its records. A project whose index is in agreement is left alone.
 func TestTheRepairOfAProjectRunsInAnOpenState(t *testing.T) {
 	url := freshDatabase(t)
-	state := openState(t, url, postgres.Options{})
+	state := openStateThatLeavesFailedWrites(t, url)
 	db := state.SQLDB()
 	defer db.Close()
 	alpha, alphaStore := createProject(t, state, "pa", "alpha")
@@ -326,7 +453,7 @@ func TestARebuildLeavesTheEntriesOfAMoveThatIsCommitting(t *testing.T) {
 // already held the identity. The repair names the record that exists, and never leaves the identity free.
 func TestAnEntryThatNeverCommittedDoesNotTakeTheIdentityFromALaterRecord(t *testing.T) {
 	url := freshDatabase(t)
-	state := openState(t, url, postgres.Options{})
+	state := openStateThatLeavesFailedWrites(t, url)
 	db := state.SQLDB()
 	defer db.Close()
 	alpha, alphaStore := createProject(t, state, "pa", "alpha")
@@ -367,7 +494,7 @@ func TestAnEntryTheRemovalOfARecordTookIsPutBack(t *testing.T) {
 	}
 	t.Run("a removal whose commit failed", func(t *testing.T) {
 		url := freshDatabase(t)
-		state := openState(t, url, postgres.Options{})
+		state := openStateThatLeavesFailedWrites(t, url)
 		db := state.SQLDB()
 		defer db.Close()
 		alpha, alphaStore := createProject(t, state, "pa", "alpha")

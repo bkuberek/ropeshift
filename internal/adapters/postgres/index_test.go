@@ -43,7 +43,7 @@ const invoices = "https://example.com/acme/invoices"
 // every other project from registering the repository. The next Open of a state releases it.
 func TestAnEntryWhoseRecordNeverCommittedIsReleasedByTheNextOpen(t *testing.T) {
 	url := freshDatabase(t)
-	state := openState(t, url, postgres.Options{})
+	state := openStateThatLeavesFailedWrites(t, url)
 	db := state.SQLDB()
 	defer db.Close()
 	alpha, alphaStore := createProject(t, state, "pa", "alpha")

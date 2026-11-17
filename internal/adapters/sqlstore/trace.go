@@ -1,5 +1,11 @@
 package sqlstore
 
+import (
+	"context"
+
+	"ropeshift.com/ropeshift/internal/ledger"
+)
+
 // Mode says what kind of transaction a statement ran in.
 type Mode string
 
@@ -34,6 +40,13 @@ type Options struct {
 	// Warn receives what a migration goes on past that a person may want to know, such as migrations the
 	// database applied that this build does not ship. Nil says nothing.
 	Warn func(string)
+	// AfterFailedWrite is called when a write fails after the repository index committed its part and
+	// before the project committed its own: the project's commit failed, or its outcome is unknown. The
+	// index may then disagree with the project's records, and the function may bring it back, which a
+	// store whose database does not rebuild the index while it runs needs. It is called with the write's
+	// scope, on a context that the write's cancellation does not end, and the write returns its own error
+	// after it. A failure of the write at any other point does not call it. Nil does nothing.
+	AfterFailedWrite func(ctx context.Context, project ledger.WorkspaceID)
 }
 
 // Names a trace check needs.
