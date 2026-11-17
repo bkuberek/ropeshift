@@ -50,9 +50,10 @@ type Options struct {
 	// pool is never smaller than 2, because a migration holds one connection for its lock and runs on
 	// another.
 	MaxConns int
-	// LockTimeout bounds how long a caller waits for the migration lock, which another process holds
-	// while it makes a schema or migrates one. Zero is DefaultLockTimeout, and a negative value waits for
-	// as long as the caller's context lasts.
+	// LockTimeout bounds how long a caller waits for the migration lock: its turn behind the other callers
+	// of this process, and the time another process holds the lock while it makes a schema or migrates
+	// one. It does not bound the work a caller does once it holds the lock. Zero is DefaultLockTimeout,
+	// and a negative value waits for as long as the caller's context lasts.
 	LockTimeout time.Duration
 	// Dialect replaces Dialect{}, so a test can wrap it to move database time.
 	Dialect sqlstore.Dialect

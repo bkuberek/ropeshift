@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"errors"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -255,6 +256,34 @@ func TestAFailedUnlockLeavesNoClosedStoreInTheCache(t *testing.T) {
 	newWorkOrder(t, store, alpha.ID, "wo-1", "Add the retry budget")
 	if got := workOrderIDs(t, store, alpha.ID); !slices.Equal(got, []string{"wo-1"}) {
 		t.Errorf("work orders %v", got)
+	}
+}
+
+// TestTheLockTimeoutAlsoBoundsTheWaitBehindACallerOfTheSameProcess holds that the deadline covers the whole
+// wait, behind another caller of this process as well as behind another session, and that the error
+// does not put the wait on another session.
+func TestTheLockTimeoutAlsoBoundsTheWaitBehindACallerOfTheSameProcess(t *testing.T) {
+	url := freshDatabase(t)
+	first := openState(t, url, postgres.Options{})
+	beta, _ := createProject(t, first, "pb", "beta")
+	gamma, _ := createProject(t, first, "pc", "gamma")
+	state := openState(t, url, postgres.Options{LockTimeout: 600 * time.Millisecond})
+	holdMigrationLock(t, url)
+
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	ahead := opening(ctx, state, beta)
+	waitForLockWaiter(t, state)
+	behind := opening(ctx, state, gamma)
+	for name, waiter := range map[string]<-chan error{"the caller ahead": ahead, "the caller behind it": behind} {
+		err := <-waiter
+		if !errors.Is(err, postgres.ErrLockTimeout) {
+			t.Errorf("%s: %v", name, err)
+			continue
+		}
+		if strings.Contains(err.Error(), "another session") {
+			t.Errorf("%s: the error puts the wait on another session: %v", name, err)
+		}
 	}
 }
 
