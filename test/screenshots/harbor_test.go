@@ -16,15 +16,19 @@ const guidesFolder = "/tmp/ropeshift-guides"
 // subscription is the word `claude auth status` reports for a sign-in with a subscription.
 const subscription = "claude.ai"
 
-// harbor is the world the guides 1 to 7 walk: a fresh installation of Harbor, a project of two repositories.
-// It holds what the web UI cannot make: the daemon and its connected worker, the fake agent CLI signed in with
-// a subscription, as on a person's own machine, so the worker starts at attended, and two clones on disk that
-// no project has registered. Everything a guide tells a person to do in the web UI, the walk does there.
+// harbor is the world the guides 1 to 7 walk: a fresh installation of Harbor, a project of two code
+// repositories and a planning repository. It holds what the web UI cannot make: the daemon and its connected
+// worker, the fake agent CLI signed in with a subscription, as on a person's own machine, so the worker starts
+// at attended, and three clones on disk that no project has registered. Everything a guide tells a person to do
+// in the web UI, the walk does there.
 type harbor struct {
 	in *install
-	// src is the folder of clones, which a guide's Folder field names, and api and web are the clones.
+	// src is the folder of clones, which a guide's Folder field names, and api and web are the clones in it.
 	src      string
 	api, web *clone
+	// plan is the planning repository's clone, beside the folder of clones, which a guide registers as one
+	// repository.
+	plan *clone
 }
 
 // newHarbor makes the folder of clones and starts the installation's daemon, and answers once its worker has
@@ -47,6 +51,7 @@ func newHarbor(in *install) *harbor {
 	in.gitSetup()
 	h.api = in.newCloneAt(filepath.Join(h.src, "harbor-api"), harborRemoteBase, harborAPIFiles())
 	h.web = in.newCloneAt(filepath.Join(h.src, "harbor-web"), harborRemoteBase, harborWebFiles())
+	h.plan = in.newCloneAt(filepath.Join(guidesFolder, "harbor-plan"), harborRemoteBase, harborPlanFiles())
 	state := in.paths().StateDir
 	if err := os.MkdirAll(state, 0o700); err != nil {
 		in.t.Fatal(err)
@@ -67,7 +72,7 @@ func newHarbor(in *install) *harbor {
 
 // vars are the names a guide's {{name}} can stand for in this world.
 func (h *harbor) vars() map[string]string {
-	return map[string]string{"src": h.src, "api": h.api.Dir, "web": h.web.Dir}
+	return map[string]string{"src": h.src, "api": h.api.Dir, "web": h.web.Dir, "plan": h.plan.Dir}
 }
 
 // harborAPIFiles is the API repository of Harbor, which tracks the berths and sailings of a small port.
@@ -91,6 +96,18 @@ func harborWebFiles() map[string]string {
 		"package.json":    lines("{", "  \"name\": \"harbor-web\",", "  \"private\": true", "}"),
 		"src/berths.ts":   lines("// listBerths reads the berths from the API.", "export async function listBerths(): Promise<void> {}"),
 		"src/sailings.ts": lines("// listSailings reads the sailings from the API.", "export async function listSailings(): Promise<void> {}"),
+	}
+}
+
+// harborPlanFiles is the planning repository of Harbor, which holds the instructions its agents read and,
+// once a planning session writes it, the plan.
+func harborPlanFiles() map[string]string {
+	return map[string]string{
+		"README.md": lines("# harbor-plan", "", "The plan of Harbor: its goals, documents, milestones, and contracts."),
+		"AGENTS.md": lines("# Harbor", "",
+			"Harbor tracks the berths and the sailings of a small port. Its code is in two repositories:",
+			"harbor-api, the API, and harbor-web, the port's public pages.", "",
+			"Plan files go in plan/, in ropeshift's file format."),
 	}
 }
 

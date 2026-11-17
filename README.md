@@ -131,6 +131,7 @@ A subscription worker starts at `attended`, where it claims work only inside a r
 ### Learn ropeshift
 
 - [Get started with the web UI](docs/getting-started.md): install ropeshift, set up the machine, start the service, sign in to the web UI, and find your way around it.
+- [Set up your projects](docs/set-up-projects.md): create a project for each product in the web UI, register its repositories, name its planning repository, and keep a manifest of them.
 
 ### Concepts
 
@@ -143,8 +144,6 @@ A subscription worker starts at `attended`, where it claims work only inside a r
 ### Reference
 
 - [Onboarding](docs/onboarding.md): the detail behind every step of the guides, and what to know before a lane runs.
-- [Set up a project](docs/set-up-a-project.md): from a fresh machine to a project with an approved plan and merged work, with each choice explained.
-- [Projects of several repositories](docs/multiple-repositories.md): one plan across repositories, the manifest, dependencies, read-only reads, and merge order.
 - [Your first plan, end to end](docs/first-plan.md): a planning session, plan approval, lanes, reviews, and acceptance, in the web UI and on the command line.
 - [Adopt an existing project](docs/adopt.md): bring in a project that already has code, documents, and branches, and review it as one plan.
 - [Connect a GitHub repository](docs/github.md): review through pull requests, the forge binding, merge authority, and required checks.

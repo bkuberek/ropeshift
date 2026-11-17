@@ -150,6 +150,16 @@ On Linux, a user's systemd manager stops when that user's last session ends, and
 loginctl enable-linger "$USER"
 ```
 
+## Where ropeshift keeps its state
+
+| | macOS | Linux |
+|-|-------|-------|
+| State: the ledgers, the installation database, your `profile.toml`, telemetry | `~/Library/Application Support/ropeshift` | `$XDG_STATE_HOME/ropeshift`, or `~/.local/state/ropeshift` |
+| Sockets | `~/.ropeshift/run` | `$XDG_RUNTIME_DIR/ropeshift`, or `~/.ropeshift/run` |
+| Lane worktrees | `~/.ropeshift/worktrees/<project>/<repository>/`, until you set a root | `$XDG_DATA_HOME/ropeshift/worktrees/<project>/<repository>/`, or `~/.local/share/ropeshift/worktrees/<project>/<repository>/` |
+
+Inside your repositories, ropeshift adds only the lanes' branches, refs under `refs/ropeshift/`, and git's record of each lane worktree. [Remove ropeshift from a machine](#remove-ropeshift-from-a-machine) undoes all of it. [Where lane worktrees go](project-structure.md#where-lane-worktrees-go) says how to set a root of your own.
+
 ## Before the first lane
 
 ### The limit of same-user isolation
@@ -172,6 +182,14 @@ push_on_stop = true
 ```
 
 Only your layer sets it, because a push sends work off the machine. A repository's `.ropeshift/profile.toml` and a lane's `--profile` layer cannot change it: a layer that sets another value is refused, and the lane does not start. A push never forces and runs no repository hook.
+
+### What ropeshift pushes
+
+Nothing, by default. Lanes commit on branches of their own on this machine, and their work stays here. Ropeshift pushes only when you choose it:
+
+- With review target `pull_request`, the worker pushes each change's branch and opens a pull request under your own `gh` sign-in ([review through pull requests](#review-through-pull-requests)).
+- At `person_approves` or `review_approves`, ropeshift pushes the merge it makes ([merging accepted work](#merging-accepted-work)).
+- With `push_on_stop` in your profile, the worker pushes each lane's branch when the lane stops, as the section above describes.
 
 ### What a lane does without asking
 
@@ -372,6 +390,16 @@ The branch a planning or adopt session leaves has no review agent: your plan app
 - A head that moved after the approval, because someone pushed to the branch, voids the approval of the old commit: the planning work returns to `acceptance` at the new head, and the plan it holds asks for its own approval, which merges the new head. A new head whose plans did not change asks for no new approval, and waits in `acceptance` for you to send it back with `ropeshift work rework` or merge it yourself.
 - A conflict sends the planning work back to the session on the same branch, with the conflict in its brief, to merge the base into the branch; ropeshift never resolves a conflict itself.
 
+### Check gates without CI
+
+A change can go through three kinds of checks:
+
+- **Your commit hooks.** A lane commits with git, and git runs the repository's commit hooks, so a quick check in a pre-commit hook runs on every lane commit. Ropeshift's own merge runs no hook.
+- **Checks a lane reports.** A lane reports the checks it ran with its outcome. A failed one blocks acceptance. A passing one stands behind no criterion, because no agent stands behind a lane's own checks.
+- **Required checks on GitHub.** With review target `pull_request` at `person_approves` or `review_approves`, the checks the base branch requires gate ropeshift's merge, and a failure sends the work back.
+
+With no forge, nothing runs checks on a branch that was never pushed, so the review's verdicts and your acceptance are the gate. Write the check into the contract as a criterion, such as "`make verify` passes", so the review judges it, and keep `person_merges` or `person_approves` until you trust it.
+
 ### Claude subscriptions and automated use
 
 Ropeshift is designed to run the unmodified `claude` binary that you installed and signed in to, as your own session. It is an independent project. It is not affiliated with or endorsed by Anthropic, and no vendor has approved this use. Nothing here is legal advice.
@@ -404,3 +432,19 @@ ropeshift backup --installation /path/to/installation-backup.db
 The daemon copies a ledger through SQLite's online backup, so it goes on writing while the copy is made. Each copy is one SQLite file, readable only by its owner, and a file already at the path is never replaced. The first command copies one project, chosen as for any command on a project's records: every record of it, its work, plans, questions, decisions, policies, and repositories, and nothing of another project. `ropeshift project import` registers that copy in another installation with the project's ID. The worker's journal, which holds the lanes on this machine, stays outside the copy.
 
 The second copies the installation database, `installation.db`: the registry of projects, the member, the passphrase's hash, the member sessions, the workers, their autonomy and run windows, and the orchestrators. Restoring a whole installation takes its installation backup and each project's backup. A fresh installation runs on a copy of its first project when the copy is its `ledger.db` before its first start, and asks for a new passphrase at its first sign-in unless its `installation.db` is a copy too.
+
+## Clean up after work merges
+
+Ropeshift never deletes a branch. After work merges:
+
+1. `ropeshift lane archive <lane>` removes the lane's worktree and keeps its branch. A lane whose commits no remote holds reads `unpushed_work`, and `--force` removes it anyway.
+2. Delete the merged branch with git: `git branch -d lane/<lane>`.
+3. Uncommitted work a lane left when it stopped is saved under `refs/ropeshift/`. List those refs with `git for-each-ref refs/ropeshift/`, and delete one you no longer need with `git update-ref -d <ref>`.
+
+## Remove ropeshift from a machine
+
+1. Let every lane end, or cancel its work: `ropeshift lane list` shows none running.
+2. Stop the daemon: `ropeshift service uninstall`, `brew services stop ropeshift`, or Ctrl-C in its terminal.
+3. Delete the state and socket directories in [where ropeshift keeps its state](#where-ropeshift-keeps-its-state). This deletes every project's ledger, so run `ropeshift backup` first for a project you want to keep.
+4. In each repository, remove the lane worktrees with `git worktree remove <path>`, then `git worktree prune`, and delete the `lane/` branches and the `refs/ropeshift/` refs as in [clean up after work merges](#clean-up-after-work-merges).
+5. Uninstall the binary: `brew uninstall ropeshift`, or delete `ropeshift` and `ropeshiftd` from `~/.local/bin`.

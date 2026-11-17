@@ -82,12 +82,12 @@ A guide's world is the installation its walk starts from. Each theme runs its ow
 
 | World | What it holds |
 | --- | --- |
-| `harbor` | A fresh installation: the first project, a connected worker at `attended`, the fake agent CLI signed in with a subscription, and two clones, `harbor-api` and `harbor-web`, on disk and registered nowhere. Guides 1 to 7 walk it as one story |
+| `harbor` | A fresh installation: the first project, a connected worker at `attended`, the fake agent CLI signed in with a subscription, and three clones on disk and registered nowhere: the code repositories `harbor-api` and `harbor-web`, and the planning repository `harbor-plan`. Guides 1 to 7 walk it as one story |
 | `sample` | The sample project of `make screenshots`, for the guides that read a project with history |
 
 Go prepares only what the web UI cannot do: the clones, the fake agent CLI's scripted turns, and the installation. Everything a guide tells a person to do in the web UI, the walk does in the web UI.
 
-The harbor clones live in one fixed, neutral folder, `/tmp/ropeshift-guides/src`, so a field that shows a path shows that one and the private-word check can stay on for every image. The kit creates the folder, removes it at the end of the run, and refuses to start while it exists, which another walk, or one that was killed, leaves. Remove it and run again.
+The harbor clones live in one fixed, neutral folder, `/tmp/ropeshift-guides`, the code repositories in its `src` folder and the planning repository beside it, so a field that shows a path shows one of those and the private-word check can stay on for every image. The kit creates the folder, removes it at the end of the run, and refuses to start while it exists, which another walk, or one that was killed, leaves. Remove it and run again.
 
 ### The step format
 
@@ -135,7 +135,7 @@ An action is exactly one of four:
 | `press` | Presses a key, such as `Enter` or `Escape` |
 | `waitFor {text}` | Waits until the text shows |
 
-A name, label, or text matches whole, and must match one element, so a step that is ambiguous fails and does not press whichever control came first. `exact: false` matches part of it. `in {role, name}` limits a click, fill, or wait to the dialog, region, or other element it names. A value or a route can hold `{{name}}`, which a variable of the world replaces: `passphrase` in every world, and `src`, `api`, and `web` in harbor, the folders of the clones.
+A name, label, or text matches whole, and must match one element, so a step that is ambiguous fails and does not press whichever control came first. `exact: false` matches part of it. `in {role, name}` limits a click, fill, or wait to the dialog, region, or other element it names. A value or a route can hold `{{name}}`, which a variable of the world replaces: `passphrase` in every world, and in harbor `src`, the folder of the code repositories' clones, and `api`, `web`, and `plan`, the clones.
 
 A `clip` is `"window"`, the whole 1440 by 900 window, or one element: `{"selector": "main"}`, or `{"role": "dialog", "name": "Register repositories"}`, with an optional `pad`, the pixels to keep around it, which must fit in the window. A dialog, a card, or a panel is clipped to its element, and a whole window is for a step that shows a view's place in the frame.
 
@@ -187,7 +187,6 @@ Every published image has a row, and every row names a capture and the name it i
 | `agents-project-<theme>-1440.png` | `agents-<theme>.png` | Web UI guide |
 | `settings-project-<theme>-1440.png` | `settings-<theme>.png` | Web UI guide |
 | `members-<theme>-1440.png` | `members-<theme>.png` | Web UI guide |
-| `repositories-<theme>-1440.png` | `repositories-<theme>.png` | Set up a project |
 | `repository-<theme>-1440.png` | `repository-<theme>.png` | GitHub guide |
 | `import-<theme>-1440.png` | `import-<theme>.png` | Adopt guide |
 | `top.png` | `top.png` | README |
@@ -198,5 +197,14 @@ Every published image has a row, and every row names a capture and the name it i
 | `get-started-05-<theme>.png` | `get-started-05-<theme>.png` | Get started |
 | `get-started-06-<theme>.png` | `get-started-06-<theme>.png` | Get started |
 | `get-started-07-<theme>.png` | `get-started-07-<theme>.png` | Get started |
+| `projects-01-<theme>.png` | `projects-01-<theme>.png` | Set up your projects |
+| `projects-02-<theme>.png` | `projects-02-<theme>.png` | Set up your projects |
+| `projects-03-<theme>.png` | `projects-03-<theme>.png` | Set up your projects |
+| `projects-04-<theme>.png` | `projects-04-<theme>.png` | Set up your projects |
+| `projects-05-<theme>.png` | `projects-05-<theme>.png` | Set up your projects |
+| `projects-06-<theme>.png` | `projects-06-<theme>.png` | Set up your projects |
+| `projects-07-<theme>.png` | `projects-07-<theme>.png` | Set up your projects |
+| `projects-08-<theme>.png` | `projects-08-<theme>.png` | Set up your projects |
+| `projects-09-<theme>.png` | `projects-09-<theme>.png` | Set up your projects |
 
 After a release, run `make screenshots` at its tag, look at each image, and publish. Then update the version that the README's screenshots section and the web UI guide name.
