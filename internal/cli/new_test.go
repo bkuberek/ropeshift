@@ -261,11 +261,32 @@ func TestNewRefusesWhatItCannotWriteBeforeWritingAnything(t *testing.T) {
 			return []string{"new", "workspace", folder, "--repository", "-api=git@example.invalid:o/a.git"}
 		}, "dash"},
 		{"a repository named twice", func(folder string) []string {
-			return []string{"new", "workspace", folder, "--repository", "orchid-api=r1", "--repository", "orchid-api=r2"}
+			return []string{"new", "workspace", folder, "--repository", "orchid-api=" + orchidAPI.Remote, "--repository", "orchid-api=" + orchidWeb.Remote}
 		}, "twice"},
 		{"a repository with an empty remote", func(folder string) []string {
 			return []string{"new", "workspace", folder, "--repository", "orchid-api="}
 		}, "remote"},
+		{"a remote that ends the manifest's string", func(folder string) []string {
+			return []string{"new", "workspace", folder, "--repository", `orchid-api=https://example.invalid/a".git`}
+		}, "remote"},
+		{"a remote with a newline", func(folder string) []string {
+			return []string{"new", "workspace", folder, "--repository", "orchid-api=https://example.invalid/a\nb.git"}
+		}, "remote"},
+		{"a remote with a tab", func(folder string) []string {
+			return []string{"new", "workspace", folder, "--repository", "orchid-api=https://example.invalid/a\tb.git"}
+		}, "remote"},
+		{"a remote that runs a command in the Makefile", func(folder string) []string {
+			return []string{"new", "workspace", folder, "--repository", "orchid-api=https://example.invalid/$(touch pwned).git"}
+		}, "remote"},
+		{"a remote that is no git remote", func(folder string) []string {
+			return []string{"new", "workspace", folder, "--repository", "orchid-api=r1"}
+		}, "remote"},
+		{"a local path as the remote", func(folder string) []string {
+			return []string{"new", "workspace", folder, "--repository", "orchid-api=/srv/repo.git"}
+		}, "use a file:// URL"},
+		{"a relative path as the remote", func(folder string) []string {
+			return []string{"new", "workspace", folder, "--repository", "orchid-api=../repo"}
+		}, "use a file:// URL"},
 		{"a repository on a monorepo", func(folder string) []string {
 			return []string{"new", "monorepo", folder, "--repository", "orchid-api=r1"}
 		}, "usage"},

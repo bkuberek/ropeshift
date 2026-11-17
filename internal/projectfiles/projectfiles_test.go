@@ -147,8 +147,8 @@ func TestWhatNoShapeWritesIsRefusedBeforeAnythingRenders(t *testing.T) {
 		{"an unknown shape", "library", nil, `"library"`},
 		{"repositories on a monorepo", projectfiles.Monorepo, two[:1], "monorepo"},
 		{"repositories on a repository", projectfiles.Repository, two[:1], "repository"},
-		{"a name the ledger refuses", projectfiles.Workspace, []projectfiles.CodeRepository{{Name: "-api", Remote: "r"}}, "dash"},
-		{"a name with a slash", projectfiles.Workspace, []projectfiles.CodeRepository{{Name: "a/b", Remote: "r"}}, "slash"},
+		{"a name the ledger refuses", projectfiles.Workspace, []projectfiles.CodeRepository{{Name: "-api", Remote: two[0].Remote}}, "dash"},
+		{"a name with a slash", projectfiles.Workspace, []projectfiles.CodeRepository{{Name: "a/b", Remote: two[0].Remote}}, "slash"},
 		{"a name given twice", projectfiles.Workspace, []projectfiles.CodeRepository{two[0], two[0]}, "orchid-api"},
 		{"no remote", projectfiles.Workspace, []projectfiles.CodeRepository{{Name: "orchid-api"}}, "remote"},
 	}
@@ -167,7 +167,7 @@ func TestWhatNoShapeWritesIsRefusedBeforeAnythingRenders(t *testing.T) {
 			}
 		})
 	}
-	if err := projectfiles.Check(projectfiles.Workspace, []projectfiles.CodeRepository{{Name: "-api", Remote: "r"}}); !errors.Is(err, ledger.ErrInvalidRepository) {
+	if err := projectfiles.Check(projectfiles.Workspace, []projectfiles.CodeRepository{{Name: "-api", Remote: two[0].Remote}}); !errors.Is(err, ledger.ErrInvalidRepository) {
 		t.Errorf("a refused name is %v, want the ledger's reason", err)
 	}
 	for _, shape := range projectfiles.Shapes() {
