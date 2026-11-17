@@ -209,13 +209,17 @@ function OrchestratorDetails({ line }: { line: WorkerLine }) {
   );
 }
 
-// JoinToken makes a join token and shows it once: the ledger keeps only its digest.
+// JoinToken makes a join token and shows it once: the ledger keeps only its digest. A group server answers a join
+// string with it, which is what a worker is given, and is the member's own: the token in it is recorded as theirs.
 function JoinToken({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [token, setToken] = useState("");
+  const [joinString, setJoinString] = useState("");
+  const shown = joinString || token;
   const { act, busy, failure } = useAct(async () => {});
   const toast = useToast();
   const close = () => {
     setToken("");
+    setJoinString("");
     onClose();
   };
   return (
@@ -226,14 +230,25 @@ function JoinToken({ open, onClose }: { open: boolean; onClose: () => void }) {
       footer={
         <>
           <span className="spacer" />
-          {token ? (
+          {shown ? (
             <Button variant="primary" onClick={close}>
               Done
             </Button>
           ) : (
             <>
               <Button onClick={close}>Cancel</Button>
-              <Button variant="primary" loading={busy} onClick={() => void act(() => createJoinToken().then((made) => setToken(made.token)))}>
+              <Button
+                variant="primary"
+                loading={busy}
+                onClick={() =>
+                  void act(() =>
+                    createJoinToken().then((made) => {
+                      setToken(made.token);
+                      setJoinString(made.join_string ?? "");
+                    }),
+                  )
+                }
+              >
                 Create token
               </Button>
             </>
@@ -241,18 +256,25 @@ function JoinToken({ open, onClose }: { open: boolean; onClose: () => void }) {
         </>
       }
     >
-      {token ? (
+      {shown ? (
         <div className="field-stack">
-          <p className="small">This is the only time the token is shown. A worker on another machine registers with it once, from a terminal on that machine.</p>
+          {joinString ? (
+            <p className="small">
+              This is the only time the join string is shown. It is yours: the worker that joins with it is recorded as made by you, and whoever holds it before it is used can join a worker in your name. It works once. On the worker&apos;s machine, run{" "}
+              <code className="mono">ropeshiftd worker join</code> with it as the argument, or set it in <code className="mono">ROPESHIFT_JOIN</code> to keep it out of the process list.
+            </p>
+          ) : (
+            <p className="small">This is the only time the token is shown. A worker on another machine registers with it once, from a terminal on that machine.</p>
+          )}
           <div className="row-tight token-row">
-            <code className="mono token">{token}</code>
+            <code className="mono token">{shown}</code>
             <Button
               small
               icon="copy"
               onClick={() =>
-                void navigator.clipboard?.writeText(token).then(
-                  () => toast("success", "Copied the join token."),
-                  () => toast("warning", "The browser did not let this page copy. Select the token and copy it."),
+                void navigator.clipboard?.writeText(shown).then(
+                  () => toast("success", joinString ? "Copied the join string." : "Copied the join token."),
+                  () => toast("warning", joinString ? "The browser did not let this page copy. Select the join string and copy it." : "The browser did not let this page copy. Select the token and copy it."),
                 )
               }
             >
@@ -333,7 +355,7 @@ export function WorkersPage({ live, projects, selected, after, dialog = "" }: { 
                 ) : undefined
               }
             >
-              {group ? "A worker joins with a join token, from a terminal on its own machine." : "The worker that runs with this installation has not reported yet."}
+              {group ? "A worker joins with a join string, from a terminal on its own machine." : "The worker that runs with this installation has not reported yet."}
             </EmptyState>
           </div>
         ) : null}

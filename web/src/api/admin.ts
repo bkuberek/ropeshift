@@ -369,7 +369,9 @@ export const listTemplates = () => call<TemplateList>("GET", adminPaths.template
 // Workers
 
 export const readWorkers = () => call<WorkerList>("GET", adminPaths.workers());
-export const createJoinToken = () => call<{ token: string }>("POST", adminPaths.joinToken(), {});
+// A group server answers a join string too, which holds the token with the URL its workers reach it at and the
+// fingerprint of its authority, and which is what a worker is given in place of the token.
+export const createJoinToken = () => call<{ token: string; join_string?: string }>("POST", adminPaths.joinToken(), {});
 export const readAutonomy = (worker: string) => call<Autonomy>("GET", adminPaths.autonomy(worker));
 export const setLevel = (worker: string, level: Level) => call<Autonomy>("PUT", adminPaths.autonomy(worker), { level });
 // A worker's caps live in the user's profile on its own machine, so a worker on another machine is refused in the

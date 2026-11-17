@@ -736,6 +736,42 @@ describe("Workers", () => {
     expect(within(dialog).getByText(/only time the token is shown/)).toBeTruthy();
     expect(sentTo(sent, "POST", "/v1/workers/tokens")).toHaveLength(1);
   });
+
+  it("shows the join string a group server makes, once, and says it is the member's own", async () => {
+    const joinString = "ropeshift-join-1.eyJ3b3JrZXJfdXJsIjoiaHR0cHM6Ly9yb3Blc2hpZnQubGFuOjc0MDAiLCJ0b2tlbiI6ImpvaW4tc2VjcmV0In0";
+    const sent = serveAdmin((call) => {
+      if (call.method === "GET" && call.path === "/v1/health") {
+        return { status: 200, body: groupHealth };
+      }
+      return call.method === "POST" && call.path === "/v1/workers/tokens" ? { status: 201, body: { token: "join-secret", join_string: joinString } } : undefined;
+    });
+    openPage("/workers?dialog=token");
+    const dialog = await screen.findByRole("dialog", { name: "Create join token" });
+    await userEvent.click(within(dialog).getByRole("button", { name: "Create token" }));
+    expect(await within(dialog).findByText(joinString)).toBeTruthy();
+    // The join string holds the token, and the dialog shows the string a worker is given and not the token beside it.
+    expect(within(dialog).queryByText("join-secret")).toBeNull();
+    expect(within(dialog).getByText(/only time the join string is shown/)).toBeTruthy();
+    expect(within(dialog).getByText(/yours/)).toBeTruthy();
+    expect(within(dialog).getByText(/ROPESHIFT_JOIN/)).toBeTruthy();
+    expect(sentTo(sent, "POST", "/v1/workers/tokens")).toHaveLength(1);
+  });
+
+  it("says what to set when a group server has no worker URL", async () => {
+    serveAdmin((call) => {
+      if (call.method === "GET" && call.path === "/v1/health") {
+        return { status: 200, body: groupHealth };
+      }
+      return call.method === "POST" && call.path === "/v1/workers/tokens"
+        ? { status: 409, body: { error: { code: "no_worker_url", message: "this server does not know the URL its workers reach it at: start it with --worker-url (or set ROPESHIFT_WORKER_URL)" } } }
+        : undefined;
+    });
+    openPage("/workers?dialog=token");
+    const dialog = await screen.findByRole("dialog", { name: "Create join token" });
+    await userEvent.click(within(dialog).getByRole("button", { name: "Create token" }));
+    expect(await within(dialog).findByText(/--worker-url/)).toBeTruthy();
+    expect(within(dialog).queryByRole("button", { name: "Copy" })).toBeNull();
+  });
 });
 
 describe("Workers dialog focus", () => {
