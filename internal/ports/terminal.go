@@ -2,8 +2,13 @@ package ports
 
 import (
 	"context"
+	"errors"
 	"io"
 )
+
+// ErrPaneRelayUnavailable says a control plane relays no pane of a worker's machine, so a member's view of
+// a lane's terminal is refused, and the error that wraps this one names the view.
+var ErrPaneRelayUnavailable = errors.New("pane_relay_unavailable")
 
 // PaneSpec is one pane to open. Command runs directly, with no shell, and the terminal
 // adds nothing a session can read but its own variables, so a command that needs an
