@@ -185,6 +185,14 @@ describe("the decision an answer becomes", () => {
     return (sent[0]?.body as { id: string }).id;
   };
 
+  it("names the decision it replaces only when one is named", async () => {
+    const sent = serveApi(() => ({ status: 200, body: {} }));
+    await answerQuestion("q1", "Wordmark.");
+    await answerQuestion("q1", "Wordmark.", "needs_you", "pd-p17");
+    expect(sent[0]?.body).toEqual({ id: "answer-q1", answer: "Wordmark." });
+    expect(sent[1]?.body).toEqual({ id: "answer-q1", answer: "Wordmark.", place: "needs_you", supersedes: "pd-p17" });
+  });
+
   it("is named after a plain question", async () => {
     expect(await sentID("q1")).toBe("answer-q1");
     expect(await sentID("01JD5Z8Q4M3N2P1R0S9T8V7W6X")).toBe("answer-01JD5Z8Q4M3N2P1R0S9T8V7W6X");

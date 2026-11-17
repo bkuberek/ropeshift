@@ -1085,6 +1085,34 @@ describe("a plan approval", () => {
     expect(within((await card())).getByText(/decides each draft decision as yours/)).toBeTruthy();
   });
 
+  it("lists a draft a decision outside the plan replaced, which approving does not decide again, as the ledger wrote it", async () => {
+    show({ ...goldenNeedsYou(), items: [golden<NeedItem>("needs-you-replaced-draft-approval")] }, undefined, "plan_approval");
+    const shown = await cardNamed(/^Approve Retry budget/);
+    const row = within(within(shown).getByRole("list", { name: "Replaced draft decisions" })).getByRole("listitem");
+    expect(row.textContent).toContain("d1");
+    expect(row.textContent).toContain("replaced");
+    expect(row.textContent).toContain("d-adyen");
+    expect(row.textContent).toContain("Q: Which provider first? A: Adyen");
+  });
+
+  it("names a draft a decision outside the plan overturned, and says when none stands for it", async () => {
+    const { view, item: need } = planView();
+    need.plan_approval.replaced = [
+      { draft: "d1", decision: "pd-1", status: "overturned", in_force: "d-wordmark", statement: "Q: Which logo set? A: Wordmark" },
+      { draft: "d2", decision: "pd-2", status: "replaced" },
+    ];
+    show(view, undefined, "plan_approval");
+    const rows = within(within(await card()).getByRole("list", { name: "Replaced draft decisions" })).getAllByRole("listitem");
+    expect(rows[0]?.textContent).toContain("overturned");
+    expect(rows[0]?.textContent).toContain("d-wordmark");
+    expect(rows[1]?.textContent).toContain("No decision stands for it.");
+  });
+
+  it("lists no replaced draft when a plan has none", async () => {
+    show(undefined, undefined, "plan_approval");
+    expect(within(await card()).queryByRole("list", { name: "Replaced draft decisions" })).toBeNull();
+  });
+
   it("approves with the digest this page read", async () => {
     const { view, item: need } = planView();
     const sent = serveApi(() => ({ status: 200 }));

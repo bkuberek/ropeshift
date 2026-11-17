@@ -287,8 +287,15 @@ export async function decisionIDOf(question: string): Promise<string> {
   return `answer_${hex.slice(0, 40)}`;
 }
 
-export async function answerQuestion(id: string, answer: string, place?: Place): Promise<RecordedDecision | undefined> {
-  return call<RecordedDecision | undefined>("POST", paths.answer(id), { id: await decisionIDOf(id), answer, ...(place ? { place } : {}) });
+// answerQuestion answers a question, which records a decision. `supersedes` names the decision in force the answer
+// replaces, with no rework: the daemon ends it in the transaction that records the answer.
+export async function answerQuestion(id: string, answer: string, place?: Place, supersedes?: string): Promise<RecordedDecision | undefined> {
+  return call<RecordedDecision | undefined>("POST", paths.answer(id), {
+    id: await decisionIDOf(id),
+    answer,
+    ...(place ? { place } : {}),
+    ...(supersedes ? { supersedes } : {}),
+  });
 }
 
 // recordQuestion records a question as it is, as `ropeshift question record` does. The ID is the client's, so a

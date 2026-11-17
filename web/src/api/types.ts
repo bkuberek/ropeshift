@@ -211,6 +211,11 @@ export type WorkNeed = {
 
 export type DraftDecision = { id: string; question: string; answer: string; rationale?: string; blocking?: boolean };
 
+// A draft that approval does not decide again: a decision recorded outside the plan replaced or overturned what an
+// earlier version decided for it, and its text has not changed. `in_force` is the decision standing now, with its
+// statement, and is absent when the ledger holds none.
+export type ReplacedDraft = { draft: string; decision: string; status: string; in_force?: string; statement?: string };
+
 export type PartDifference = { added?: string[]; changed?: string[]; removed?: string[] };
 
 export type ContractDifference = { ref: string; criteria: PartDifference; work_orders: PartDifference };
@@ -247,6 +252,8 @@ export type PlanApprovalNeed = {
   counts: Record<string, number>;
   decisions: number;
   drafts: DraftDecision[];
+  // The drafts approval does not decide again, each with the decision in force. Absent when there are none.
+  replaced?: ReplacedDraft[];
   difference: Difference;
   summary: string;
   // Adoption groups a plan that adopts an existing project.
@@ -971,6 +978,8 @@ export type PlanApprovalView = {
   detail: PlanApprovalDetail;
   records?: PlanEntry[];
   drafts?: DraftDecision[];
+  // The drafts approval does not decide again, each with the decision in force. Absent when there are none.
+  replaced?: ReplacedDraft[];
   // Each milestone the version holds, by the ID its forecasts name it by, with its title.
   milestones?: { id: string; title: string }[];
   registration?: ManifestRegistration;

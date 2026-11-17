@@ -8,11 +8,13 @@ import { DecisionCard } from "../ui/DecisionCard";
 import { RecordChip, Refusal, ScopeName } from "../ui/display";
 import { Field } from "../ui/forms";
 import type { Frame } from "./frame";
+import { ReplacesField } from "./Replaces";
 import { useAct } from "./useAct";
 
 const ownWords = "__own_words__";
 
-export type Draft = { choice: string; words: string };
+// replaces is the ID of the decision in force the answer replaces, or empty when it replaces none.
+export type Draft = { choice: string; words: string; replaces: string };
 
 // A recommendation is ready to send, so a batch that needs only agreement takes one press. One that is
 // none of the options waits in the box for a person's own words, and that choice starts chosen, so what
@@ -23,12 +25,12 @@ export function startingDraft(item: QuestionItem): Draft {
   const recommendation = item.recommendation ?? "";
   const oneWay = item.escalation_reason === "one_way";
   if (recommendation !== "" && options.includes(recommendation)) {
-    return { choice: oneWay ? "" : recommendation, words: "" };
+    return { choice: oneWay ? "" : recommendation, words: "", replaces: "" };
   }
   if (options.length === 0) {
-    return { choice: ownWords, words: oneWay ? "" : recommendation };
+    return { choice: ownWords, words: oneWay ? "" : recommendation, replaces: "" };
   }
-  return { choice: oneWay || recommendation === "" ? "" : ownWords, words: recommendation };
+  return { choice: oneWay || recommendation === "" ? "" : ownWords, words: recommendation, replaces: "" };
 }
 
 // apartFromOptions says a recommendation stands in the box for a person's own words.
@@ -119,6 +121,7 @@ export function AnswerField({ item, draft, onChange, disabled, quiet = false }: 
           ))}
         </p>
       ) : null}
+      <ReplacesField value={draft.replaces} onChange={(replaces) => onChange({ ...draft, replaces })} />
     </fieldset>
   );
 }
@@ -150,9 +153,10 @@ export function QuestionBatch({ batch, after, frame, compact = false, place, onA
       const refused: string[] = [];
       const answered: Answered = { by: "", answers: [] };
       for (const item of ready) {
-        const answer = answerOf(draftOf(item));
+        const draft = draftOf(item);
+        const answer = answerOf(draft);
         try {
-          const recorded = await answerQuestion(item.id, answer, place);
+          const recorded = await answerQuestion(item.id, answer, place, draft.replaces);
           answered.by ||= recorded?.decided_by ?? "";
           answered.answers.push({ id: item.id, question: item.text, answer });
         } catch (error) {

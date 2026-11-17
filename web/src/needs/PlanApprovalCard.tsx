@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import { decideApproval, inProjectOf, readPlan } from "../api/client";
 import type { Adoption, ContractDifference, Difference, FileChange, ManifestRegistration, PartDifference, PlanApprovalNeed } from "../api/types";
 import { addressOf, ItemProject, Link } from "../app/route";
-import { registrationOf, registrationTitle, RegistrationRows } from "../planning/PlanParts";
+import { registrationOf, registrationTitle, RegistrationRows, ReplacedDrafts } from "../planning/PlanParts";
 import { RevisionSince } from "../planning/RevisionSince";
 import { words } from "../parts/parts";
 import { Button } from "../ui/controls";
@@ -341,6 +341,7 @@ export function PlanApprovalCard({ id, need, after, frame, registered, onRegiste
         ) : (
           <p className="muted">It drafts no decision.</p>
         )}
+        <ReplacedDrafts replaced={need.replaced ?? []} />
       </Part>
       <Field label="Reason, which the plan's author reads (optional)">
         <input className="input" type="text" autoComplete="off" value={reason} disabled={busy} onChange={(event) => setReason(event.target.value)} />

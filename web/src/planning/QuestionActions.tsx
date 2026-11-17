@@ -41,7 +41,7 @@ function AnswerForm({ question, id, onDone }: { question: Question; id: string; 
     }
     // No place is named, so the listener the answer came through is what the decision records.
     const sent = await change.run(async () => {
-      await answerQuestion(question.id, answer);
+      await answerQuestion(question.id, answer, undefined, draft.replaces);
       return true;
     });
     if (sent) {

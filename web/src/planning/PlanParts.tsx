@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 
 import { readRecorded, readView } from "../api/client";
-import type { Adoption, ApprovalDecided, ContractHistory, Difference, DraftDecision, ManifestRegistration, Plans, PlanEntry, WorkOrder } from "../api/types";
+import type { Adoption, ApprovalDecided, ContractHistory, Difference, DraftDecision, ManifestRegistration, Plans, PlanEntry, ReplacedDraft, WorkOrder } from "../api/types";
 import type { Live } from "../api/useView";
 import { useView } from "../api/useView";
 import { addressOf, Link } from "../app/route";
@@ -104,10 +104,52 @@ function proposerWords(requestedBy: string) {
 // DraftDecisions lists the answers a plan version drafts: the question, the answer, the rationale, and
 // whether a blocking question stood behind it. They bind nothing until a member approves the plan, and the
 // ledger records who the session asked, not who answered, so each says who proposed it.
-export function DraftDecisions({ drafts, proposedBy }: { drafts: DraftDecision[]; proposedBy: string }) {
+export function DraftDecisions({ drafts, proposedBy, replaced = [] }: { drafts: DraftDecision[]; proposedBy: string; replaced?: ReplacedDraft[] }) {
   if (drafts.length === 0) {
     return <p className="muted small">The version drafts no decision.</p>;
   }
+  return (
+    <>
+      <DraftList drafts={drafts} proposedBy={proposedBy} />
+      <ReplacedDrafts replaced={replaced} />
+    </>
+  );
+}
+
+// ReplacedDrafts lists the drafts approving does not decide again, because a decision recorded outside the plan
+// replaced or overturned what an earlier version decided for them and their text has not changed. Each names the
+// decision in force, which stays the answer. It shows nothing when no draft is replaced.
+export function ReplacedDrafts({ replaced }: { replaced: ReplacedDraft[] }) {
+  if (replaced.length === 0) {
+    return null;
+  }
+  return (
+    <div className="stack">
+      <p className="small muted">Approving does not decide these again: a decision recorded outside the plan replaced what an earlier version decided for them, and their text has not changed.</p>
+      <ul className="drafts stack" aria-label="Replaced draft decisions">
+        {replaced.map((row) => (
+          <li key={row.draft} className="draft">
+            <p className="item-title">
+              <span className="mono">{row.draft}</span> is {row.status}
+            </p>
+            <p className="small muted">
+              {row.in_force ? (
+                <>
+                  In force: <span className="mono">{row.in_force}</span>
+                  {row.statement ? ` ${row.statement}` : ""}
+                </>
+              ) : (
+                "No decision stands for it."
+              )}
+            </p>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function DraftList({ drafts, proposedBy }: { drafts: DraftDecision[]; proposedBy: string }) {
   return (
     <ol className="drafts stack" aria-label="Draft decisions">
       {drafts.map((draft) => (
