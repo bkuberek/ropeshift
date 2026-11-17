@@ -187,8 +187,11 @@ func (w *Worker) measureUnattended(record lanes.Record) {
 // unreportedEnd counts the turn a session ended in with no result for it, or may have, where its stream closed
 // before it said how it ended. The driver's meter counts a turn that stopped, and this counts the generation's
 // last turn, so the cost the ledger records at the lane's end, which the measures and the delivery record read,
-// is a lower bound wherever the lane's telemetry says it is.
+// is a lower bound wherever the lane's telemetry says it is. An end an earlier worker read and told the telemetry of
+// counts in the meter alone.
 func (r *laneRun) unreportedEnd() {
 	r.cost.ObserveStopped()
-	r.measureUnreported()
+	if !r.endTold {
+		r.measureUnreported()
+	}
 }

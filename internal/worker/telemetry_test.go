@@ -562,3 +562,47 @@ func TestATurnACrashLeftUnreportedOutlivesTheWorkerThatReadIt(t *testing.T) {
 		t.Errorf("the ledger counts %d turns of unknown cost, want the one the crash left", got)
 	}
 }
+
+// A worker that read a session's end counted the turn it crashed in, and died before the lane's next generation. The
+// next worker adopts the same session and reads that end again, and the lane counts the turn once: in its telemetry
+// and in the ledger's record of its end alike.
+func TestASessionEndReadAgainIsCountedOnce(t *testing.T) {
+	t.Parallel()
+	r := laneRigWith(t, restarts)
+	r.driver.Play(script(crashed()))
+	r.start()
+	r.laneState(lanes.Backoff)
+	r.awaitCharge(t)
+	r.stopWorker()
+	r.subject.Wait()
+	driver := fake.NewAgentDriver()
+	driver.Leave("lane-1", 1, lanes.Session{Found: true, Liveness: lanes.LivenessDead, Readable: true})
+	driver.Play(script([]fake.DriverStep{{Crash: true}}))
+	driver.PlayAfter(script([]fake.DriverStep{{Bound: true}, r.reports(workorders.OutcomeCompleted), completed(0.01)}))
+	config := *r.config
+	config.Driver = driver
+	next := worker.New(r.link, r.journal, r.clock, worker.Config{Name: "test", Lanes: &config, Telemetry: r.telemetry})
+	if err := next.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if err := next.Sync(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := next.Reconcile(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	r.clock.Advance(40 * time.Second)
+	next.Wait()
+	if adopted := driver.Adopted(); len(adopted) != 1 {
+		t.Fatalf("%d adoptions, want the session the first worker read the end of", len(adopted))
+	}
+	if change := r.outcome(); change.Outcome != workorders.OutcomeCompleted {
+		t.Fatalf("outcome %+v", change)
+	}
+	if unreported := r.telemetry.Measurements(ledger.MetricCostUnreported); len(unreported) != 1 {
+		t.Errorf("%d turns counted unreported, want the one the crash left: %+v", len(unreported), unreported)
+	}
+	if got := r.laneResult().UnknownCostTurns; got != 1 {
+		t.Errorf("the ledger counts %d turns of unknown cost, want the one the crash left", got)
+	}
+}
