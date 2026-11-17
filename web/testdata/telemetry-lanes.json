@@ -12,6 +12,7 @@
         "output": 18250
       },
       "cost_usd": 1.2345,
+      "lower_bound": true,
       "last_at": 1790000950000,
       "agents": {
         "heavy-implementation": {
@@ -33,6 +34,7 @@
         "output": 400
       },
       "cost_usd": 0.003,
+      "lower_bound": false,
       "last_at": 1790000100000
     }
   ]

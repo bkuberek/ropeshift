@@ -18,7 +18,10 @@ func TestTelemetryCommandsReadTheLocalStore(t *testing.T) {
 	store.Hold([]ports.TelemetryRecord{
 		{ID: 1, Signal: ports.SignalMetric, Name: "ropeshift.lane.cost", Lane: "lane-1", ObservedAt: 1000, Value: &cost, Attributes: map[string]any{}, Detail: map[string]any{}},
 		{ID: 2, Signal: ports.SignalLog, Name: "claude_code.api_request", Lane: "lane-2", ObservedAt: 2000, Attributes: map[string]any{"model": "m"}, Detail: map[string]any{}},
-	}, []ports.LaneTelemetry{{Lane: "lane-1", ContextTokens: 4200, Tokens: map[string]int64{"input": 10, "output": 3}, CostUSD: 0.25}})
+	}, []ports.LaneTelemetry{
+		{Lane: "lane-1", ContextTokens: 4200, Tokens: map[string]int64{"input": 10, "output": 3}, CostUSD: 0.25},
+		{Lane: "lane-3", ContextTokens: 900, Tokens: map[string]int64{"input": 5}, CostUSD: 0.5, LowerBound: true},
+	})
 	s := &session{t: t, daemon: apitest.StartWith(t, apitest.Options{Telemetry: store})}
 	var records api.TelemetryRecords
 	if err := json.Unmarshal([]byte(s.must("telemetry", "query", "--signal", "metric", "--json")), &records); err != nil {
@@ -30,9 +33,17 @@ func TestTelemetryCommandsReadTheLocalStore(t *testing.T) {
 	if text := s.must("telemetry", "query", "--lane", "lane-2"); !strings.Contains(text, "claude_code.api_request") || strings.Contains(text, "lane-1") {
 		t.Errorf("query %q", text)
 	}
+	// A cost reads "at least" only when some of it went unreported.
 	if text := s.must("telemetry", "lanes"); !strings.Contains(text, "context 4200") || !strings.Contains(text, "input 10, output 3") ||
-		!strings.HasSuffix(text, "\tcost at least $0.25\n") {
+		!strings.Contains(text, "\tcost $0.25\n") || !strings.HasSuffix(text, "lane-3\tcontext 900\tinput 5\tcost at least $0.50\n") {
 		t.Errorf("lanes %q", text)
+	}
+	var lanes api.LaneTelemetryList
+	if err := json.Unmarshal([]byte(s.must("telemetry", "lanes", "--json")), &lanes); err != nil {
+		t.Fatal(err)
+	}
+	if len(lanes.Lanes) != 2 || lanes.Lanes[0].LowerBound || !lanes.Lanes[1].LowerBound {
+		t.Errorf("lanes --json %+v", lanes)
 	}
 	if code, _, _ := s.run("telemetry", "query", "--limit", "-1"); code != cli.ExitUsage {
 		t.Errorf("a negative limit exited %d", code)

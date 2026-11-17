@@ -71,8 +71,8 @@ func (h *handler) laneTelemetry(w http.ResponseWriter, r *http.Request) {
 	}
 	for _, lane := range lanes {
 		out.Lanes = append(out.Lanes, api.LaneTelemetry{
-			Lane: lane.Lane, ContextTokens: lane.ContextTokens, ContextAt: lane.ContextAt, Tokens: lane.Tokens, CostUSD: lane.CostUSD, LastAt: lane.LastAt,
-			Agents: lane.Agents,
+			Lane: lane.Lane, ContextTokens: lane.ContextTokens, ContextAt: lane.ContextAt, Tokens: lane.Tokens, CostUSD: lane.CostUSD,
+			LowerBound: lane.LowerBound, LastAt: lane.LastAt, Agents: lane.Agents,
 		})
 	}
 	reply(w, http.StatusOK, out)

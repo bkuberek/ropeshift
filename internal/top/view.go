@@ -397,7 +397,7 @@ func (m Model) laneLines() []string {
 			clean(lane.Liveness), clean(lane.ModelReach), clean(lane.LedgerReach), clean(conditions), m.freshness(lane.Freshness, lane.AsOf)))
 		var measured []string
 		if figure, ok := figures[lane.ID]; ok {
-			measured = append(measured, fmt.Sprintf("context %d  tokens %d  cost %s", figure.ContextTokens, laneTokens(figure), api.Dollars(figure.CostUSD)))
+			measured = append(measured, fmt.Sprintf("context %d  tokens %d  cost %s", figure.ContextTokens, laneTokens(figure), api.Cost(figure.CostUSD, figure.LowerBound)))
 		}
 		if session, ok := sessions[lane.ID]; ok {
 			measured = append(measured, api.SessionWords(session))

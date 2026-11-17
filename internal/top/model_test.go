@@ -360,17 +360,18 @@ func TestEveryActionNamesACommand(t *testing.T) {
 }
 
 // TestALaneShowsItsContextTokensAndCost reads the worker's local telemetry beside the shop floor, so an
-// operator sees each lane's context, tokens, and cost with no backend.
+// operator sees each lane's context, tokens, and cost with no backend. A cost some of which went unreported
+// reads "at least", and one that is all reported does not.
 func TestALaneShowsItsContextTokensAndCost(t *testing.T) {
 	snapshot := golden(t)
 	snapshot.Telemetry = api.LaneTelemetryList{Available: true, Lanes: []api.LaneTelemetry{
-		{Lane: "lane-wo-accept", ContextTokens: 42000, Tokens: map[string]int64{"input": 1000, "output": 200, "cache_read": 40000}, CostUSD: 0.1234},
+		{Lane: "lane-wo-accept", ContextTokens: 42000, Tokens: map[string]int64{"input": 1000, "output": 200, "cache_read": 40000}, CostUSD: 0.1234, LowerBound: true},
 		{Lane: "lane-wo-blocked", ContextTokens: 10, Tokens: map[string]int64{"input": 10}, CostUSD: 0.004},
 	}}
 	wide, _ := loaded(t, snapshot).Update(top.Resized(240, 40))
 	frame := wide.View()
-	if line := figuresOf(frame, "lane-wo-accept"); !strings.Contains(line, "context 42000") || !strings.Contains(line, "tokens 41200") || !strings.HasSuffix(line, "cost $0.12") {
-		t.Errorf("the lane does not state its telemetry in dollars and cents: %q", line)
+	if line := figuresOf(frame, "lane-wo-accept"); !strings.Contains(line, "context 42000") || !strings.Contains(line, "tokens 41200") || !strings.HasSuffix(line, "cost at least $0.12") {
+		t.Errorf("the lane does not state its telemetry in dollars and cents, at least what was reported: %q", line)
 	}
 	if line := figuresOf(frame, "lane-wo-blocked"); !strings.HasSuffix(line, "cost under $0.01") {
 		t.Errorf("a cost under a cent reads as something else: %q", line)

@@ -146,14 +146,15 @@ func TestGoldenLaneMessages(t *testing.T) {
 }
 
 // TestGoldenLaneTelemetry writes what Usage reads of each lane's cost, from the route `telemetry lanes` reads: lanes
-// with their tokens, the roster agents that spent some, and the cost their agents reported, a lower bound. A control
-// plane with no telemetry store says so, and one with a store that holds nothing lists no lane.
+// with their tokens, the roster agents that spent some, and the cost their agents reported, a lower bound for a lane
+// some of whose cost went unreported and exact for the other. A control plane with no telemetry store says so, and one
+// with a store that holds nothing lists no lane.
 func TestGoldenLaneTelemetry(t *testing.T) {
 	t.Parallel()
 	held := fake.NewTelemetry()
 	held.Hold(nil, []ports.LaneTelemetry{
 		{
-			Lane: "lane-wo-running", ContextTokens: 84000, ContextAt: 1_790_000_900_000, LastAt: 1_790_000_950_000, CostUSD: 1.2345,
+			Lane: "lane-wo-running", ContextTokens: 84000, ContextAt: 1_790_000_900_000, LastAt: 1_790_000_950_000, CostUSD: 1.2345, LowerBound: true,
 			Tokens: map[string]int64{"input": 120_400, "output": 18_250, "cache_read": 2_400_000, "cache_creation": 61_000},
 			Agents: map[string]map[string]int64{"heavy-implementation": {"input": 100_000, "output": 15_000}, "reviewer": {"input": 20_400, "output": 3_250}},
 		},
@@ -163,6 +164,9 @@ func TestGoldenLaneTelemetry(t *testing.T) {
 	read, err := d.Client.LaneTelemetry(t.Context())
 	if err != nil || !read.Available || len(read.Lanes) != 2 {
 		t.Fatalf("the lanes read %+v: %v", read, err)
+	}
+	if !read.Lanes[0].LowerBound || read.Lanes[1].LowerBound {
+		t.Errorf("the lanes' lower bounds read %t and %t, want true and false", read.Lanes[0].LowerBound, read.Lanes[1].LowerBound)
 	}
 	holdsGolden(t, "telemetry-lanes", steady(pretty(t, read)))
 
