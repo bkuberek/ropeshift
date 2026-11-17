@@ -52,6 +52,7 @@ func WebRoutes() []WebRoute {
 		{http.MethodPost, ProjectsPath + "/{project}/remove", "project remove"},
 		{http.MethodPost, ImportUploadPath, "project import"},
 		{http.MethodPost, InstallationBackupDownloadPath, "backup"},
+		{http.MethodGet, TemplatesPath, "template show"},
 		{http.MethodGet, "/v1/workers", "worker list"},
 		{http.MethodPost, "/v1/workers/tokens", "worker token"},
 		{http.MethodGet, "/v1/workers/{id}/autonomy", "worker autonomy"},

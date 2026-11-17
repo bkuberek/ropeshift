@@ -71,6 +71,11 @@
   },
   {
     "method": "GET",
+    "pattern": "/v1/templates",
+    "command": "template show"
+  },
+  {
+    "method": "GET",
     "pattern": "/v1/workers",
     "command": "worker list"
   },

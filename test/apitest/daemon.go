@@ -244,6 +244,8 @@ type Options struct {
 	LaneBranchPrefix string
 	// Attempts limits the wrong guesses of an address on the network listener. Nil limits none.
 	Attempts *server.Attempts
+	// Templates is the list of templates the daemon serves. Nil serves none, and the route refuses.
+	Templates []api.Template
 }
 
 // Start serves the API until the test ends.
@@ -277,7 +279,7 @@ func StartWith(t testing.TB, options Options) *Daemon {
 		Telemetry: options.Telemetry, Backup: options.Backup, Panes: options.Panes, WebAddress: options.WebAddress,
 		Build: options.Build, Installed: options.Installed, Mode: options.Mode,
 		Checkouts: options.Checkouts, Profiles: options.Profiles, ParseManifest: repofiles.ParseManifest, Starts: options.Starts, Branches: options.Branches, LaneBranchPrefix: options.LaneBranchPrefix,
-		Attempts: options.Attempts,
+		Attempts: options.Attempts, Templates: options.Templates,
 	}
 	daemon := serve(t, config, options.Wrap)
 	daemon.Store = store

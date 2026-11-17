@@ -286,9 +286,13 @@ func serveSolo(ctx context.Context, paths api.Paths, opts soloOptions, stdout, s
 		return err
 	}
 	installed := liveInstalledBuild(stderr)
+	templateList, err := renderedTemplates()
+	if err != nil {
+		return err
+	}
 	config := server.Config{
-		Installed: installed.Installed,
-		Scope:     soloScope, Store: store, Projects: state, Installation: state.Installation, LeaseTTL: opts.leaseTTL.Milliseconds(), HeartbeatMs: opts.heartbeat.Milliseconds(),
+		Installed: installed.Installed, Templates: templateList,
+		Scope: soloScope, Store: store, Projects: state, Installation: state.Installation, LeaseTTL: opts.leaseTTL.Milliseconds(), HeartbeatMs: opts.heartbeat.Milliseconds(),
 		Knowledge: soloKnowledge(opts, kept), Matcher: lexical.Matcher{Store: store},
 		Matching: func(store ports.Store) ports.Matcher { return lexical.Matcher{Store: store} },
 		Identity: localauth.New(store, localauth.DefaultParams), Batches: batches, Windows: windows, PackTokens: soloPackTokens(paths),

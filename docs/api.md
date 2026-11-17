@@ -8,7 +8,7 @@ An installation holds one or more projects, and the API names the project in the
 
 | Routes | Under | What they reach |
 |--------|-------|-----------------|
-| The installation's | `/v1/` | The registry of projects, members and their sessions, the passphrase, workers with their autonomy, run windows, and orchestrators, the worker's telemetry, the health of the control plane, the installation's backup, the combined Needs you, and the protocol a worker speaks with its credential |
+| The installation's | `/v1/` | The registry of projects, members and their sessions, the passphrase, workers with their autonomy, run windows, and orchestrators, the worker's telemetry, the health of the control plane, the installation's backup, the project templates, the combined Needs you, and the protocol a worker speaks with its credential |
 | A project's | `/v1/projects/{project}/` | Everything else: work orders, lanes, plans, requirements, documents, questions, decisions, policies, approvals, effects, notices, repositories, the fleet's mode and caps, the read models, the event stream, measures, and backups |
 
 A route on a project's records with no project in its path does not exist and answers 404.
@@ -44,6 +44,10 @@ The `id` a client names for a work order, a contract review, a question, a decis
 A change to a record every project shares, such as a member's sign-in, a worker's registration or autonomy, or an orchestrator, records its event in the installation's log, and no project's log holds it.
 
 `PUT /v1/passphrase` sets the passphrase. On the socket it takes `{"passphrase": "..."}` of 8 to 1024 bytes: the first needs no session, and a later one needs a member's session, and a body that names a current passphrase is refused with 400 `invalid`. The web listener serves the route only as a change, and takes `{"current": "...", "passphrase": "..."}` with a live session, the token its own page holds, and the passphrase in force. It answers 200 with `{"sessions_ended": N, "delegates": N}`: the member's other sessions that the change ended in the same transaction, and the member's delegate credentials that still act, which it leaves alone. The session the change came from goes on under a new token, which the answer sets in new `ropeshift_session` and `ropeshift_csrf` cookies, and the old token opens nothing. It answers 401 `bad_passphrase` for a missing or wrong `current`, the same answer for each, 401 `not_enrolled` while no passphrase is set, 409 `passphrase_changed` when another change landed between the check of `current` and the write, and 400 `invalid` for a new passphrase outside the bounds, which it says only once `current` has proved the caller ([authorization](authorization.md#changing-the-passphrase-from-the-web-ui)).
+
+## The project templates
+
+`GET /v1/templates` lists the project templates the daemon's binary embeds, and needs no session. It answers `version`, the build version of the daemon's binary, and `templates`, one for each template, sorted by name. Each has `name`; `shapes`, the shapes of `ropeshift new` that write it, in the order `workspace`, `monorepo`, `repository`, and empty for a template no shape writes; `writes_to`, the path the template's file has in a new project's folder, `profile.toml` for the user profile, which `ropeshift init` writes to the state directory, and empty for a template nothing writes; and `content`, the text `ropeshift template show` prints, rendered for the example project. A daemon started with no templates answers 501 `unavailable`. `ropeshift template show` reads this route when `version` equals its own, and the web UI's Templates view reads it.
 
 ## The combined Needs you
 
