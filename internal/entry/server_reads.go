@@ -27,6 +27,7 @@ const (
 	readPanes           = "a lane's pane"
 	readWorkSource      = "a repository's work source"
 	readAcceptedCommits = "an accepted commit"
+	readLayouts         = "a repository's layout"
 )
 
 // unavailableRead is one wiring field of serverReads, what its refusal names, and the reason it carries.
@@ -47,6 +48,7 @@ var unavailableReads = []unavailableRead{
 	{"panes", readPanes, ports.ErrPaneRelayUnavailable},
 	{"workSource", readWorkSource, ports.ErrRepositoryReadsUnavailable},
 	{"acceptedCommits", readAcceptedCommits, ports.ErrRepositoryReadsUnavailable},
+	{"layouts", readLayouts, ports.ErrRepositoryReadsUnavailable},
 }
 
 // serverReads is what a group server wires where solo mode wires a clone or a terminal.
@@ -67,6 +69,8 @@ type serverReads struct {
 	workSource func(repository ledger.Repository) ports.WorkSource
 	// acceptedCommits reads a repository at the commit a member accepted.
 	acceptedCommits control.PlanSource
+	// layouts reads how the clones on a machine are laid out, for the plan of an adoption.
+	layouts ports.Layouts
 }
 
 // unavailableServerReads wires every read a group server cannot make to its refusal.
@@ -93,6 +97,7 @@ func unavailableServerReads() serverReads {
 		acceptedCommits: func(context.Context, string, string) (ports.WorkSource, error) {
 			return nil, repositoryRead(readAcceptedCommits)
 		},
+		layouts: unavailableLayouts{},
 	}
 }
 
@@ -193,6 +198,37 @@ func (unavailableCheckouts) Every(context.Context) ([]string, error) {
 
 func (unavailableCheckouts) All(context.Context) ([]ports.Checkout, error) {
 	return nil, repositoryRead(readCheckouts)
+}
+
+// unavailableLayouts reads the layout of no clone.
+type unavailableLayouts struct{}
+
+func (unavailableLayouts) IgnoredDirectories(context.Context, string) ([]string, error) {
+	return nil, repositoryRead(readLayouts)
+}
+
+func (unavailableLayouts) Plan(context.Context, string) (ports.PlanContent, error) {
+	return ports.PlanContent{}, repositoryRead(readLayouts)
+}
+
+func (unavailableLayouts) Documents(context.Context, string) (int, error) {
+	return 0, repositoryRead(readLayouts)
+}
+
+func (unavailableLayouts) Tip(context.Context, string) (string, error) {
+	return "", repositoryRead(readLayouts)
+}
+
+func (unavailableLayouts) Tracked(context.Context, string, string) ([]string, error) {
+	return nil, repositoryRead(readLayouts)
+}
+
+func (unavailableLayouts) CodeTrees(context.Context, string) ([]ports.CodeTree, error) {
+	return nil, repositoryRead(readLayouts)
+}
+
+func (unavailableLayouts) Instructions(context.Context, string) (bool, error) {
+	return false, repositoryRead(readLayouts)
 }
 
 // unavailablePanes reaches no terminal.

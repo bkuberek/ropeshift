@@ -398,6 +398,18 @@
       "exemptable": false
     },
     {
+      "id": "adoption.plan",
+      "label": "Plan an adoption",
+      "class": "member_only",
+      "exemptable": false
+    },
+    {
+      "id": "adoption.restructure",
+      "label": "Restructure by adopting",
+      "class": "member_only",
+      "exemptable": false
+    },
+    {
       "id": "repository.set",
       "label": "Change a repository's settings",
       "class": "operational",

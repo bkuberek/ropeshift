@@ -157,6 +157,34 @@ func TestOnlyAMemberRegistersARepository(t *testing.T) {
 	}
 }
 
+// TestOnlyAMemberPlansOrRestructuresAnAdoption holds the two adoption operations to members: planning one reads
+// paths on the machine, and restructuring changes the planning repository's layout, so no agent, worker, or
+// tick does either, and no delegate is granted them.
+func TestOnlyAMemberPlansOrRestructuresAnAdoption(t *testing.T) {
+	for _, action := range []authority.Action{authority.ActionPlanAdoption, authority.ActionRestructure} {
+		if !authority.Allowed(ledger.Actor{Kind: ledger.ActorMember, ID: "m"}, action) {
+			t.Errorf("a member may not %s", action)
+		}
+		for _, kind := range []ledger.ActorKind{ledger.ActorOrchestrator, ledger.ActorLane, ledger.ActorWorker, ledger.ActorSystem, ledger.ActorDelegate} {
+			if authority.Allowed(ledger.Actor{Kind: kind, ID: "x"}, action) {
+				t.Errorf("%s may %s", kind, action)
+			}
+		}
+		if !slices.Contains(authority.Actions(), action) {
+			t.Errorf("Actions() does not list %s, so the member test never holds it to the function", action)
+		}
+	}
+	for id, actions := range map[string][]authority.Action{
+		authority.OpAdoptionPlan:        {authority.ActionRegisterRepository, authority.ActionPlanAdoption},
+		authority.OpAdoptionRestructure: {authority.ActionRestructure},
+	} {
+		op, ok := authority.OperationOf(id)
+		if !ok || op.Class != authority.ClassMemberOnly || !slices.Equal(op.Actions, actions) {
+			t.Errorf("operation %s reads %+v, want member only with %v", id, op, actions)
+		}
+	}
+}
+
 // An orchestrator recovers stuck work only through a recovery act its policy bounds. Retrying outside one,
 // deciding a recovery request, and resetting a breaker outright stay a member's (ADR-0014).
 func TestAnOrchestratorRecoversOnlyWithinItsPolicy(t *testing.T) {

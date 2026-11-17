@@ -110,6 +110,12 @@ const (
 	// are read on a member's machine, so only a member, who reads where each one leads, has this, and no row
 	// below may ever grant it.
 	ActionRegisterManifest Action = "repository.register_manifest"
+	// ActionPlanAdoption reads the layout around a clone on the worker's machine and plans how adopting it would
+	// register and restructure its repositories, and ActionRestructure starts an adoption that restructures the
+	// planning repository. The first reads paths on a member's machine and the second changes how the project is
+	// laid out, so only a member has them, and no row below may ever grant them.
+	ActionPlanAdoption Action = "adoption.plan"
+	ActionRestructure  Action = "adoption.restructure"
 	// ActionRunOrchestrator starts or stops a worker's orchestrator. No agent may ask for one: the
 	// first passphrase needs no session, which is safe only while no agent runs unasked.
 	ActionRunOrchestrator Action = "orchestrator.run"
@@ -167,7 +173,7 @@ func Actions() []Action {
 		ActionSetAutonomy, ActionOpenWindow, ActionAcknowledgeRisk, ActionPassAutonomy, ActionUnblock, ActionDecideEffect, ActionApprovePlan,
 		ActionSetRepository, ActionRegisterRepository, ActionRegisterManifest, ActionManageProject, ActionRecordMerge, ActionMerge, ActionDecideMerge, ActionChangeRoster,
 		ActionRaiseMergeAuthority, ActionReviewPullRequest, ActionDecideOneWay, ActionManageSessions, ActionBackupInstallation, ActionConfirmCard,
-		ActionConverse, ActionBackupProject, ActionSetLaneCaps, ActionMessageOrchestrator, ActionStartReview,
+		ActionConverse, ActionBackupProject, ActionSetLaneCaps, ActionMessageOrchestrator, ActionStartReview, ActionPlanAdoption, ActionRestructure,
 	}
 }
 

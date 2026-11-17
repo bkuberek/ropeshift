@@ -151,6 +151,9 @@ type CreateWorkOrder struct {
 	// Adopt makes planning work adopt an existing project (ADR-0023). A project with an approved plan
 	// refuses it.
 	Adopt bool `json:"adopt,omitempty"`
+	// Restructure is the restructuring a member chose from the plan of the layout, which only adopting work
+	// carries and only a member sends.
+	Restructure *planning.Restructure `json:"restructure,omitempty"`
 	// Agent names the roster agent the work's lane runs as (ADR-0025). Empty leaves it to the default
 	// mapping.
 	Agent string `json:"agent,omitempty"`

@@ -324,6 +324,8 @@ type Installation struct {
 	State *sqlite.State
 	// Checkouts is the machine of the worker the daemon runs, with the clones a test places on it.
 	Checkouts *fake.Checkouts
+	// Layouts is how the clones on that machine are laid out, which a test places beside each clone.
+	Layouts *fake.Layouts
 }
 
 // StartInstallation serves an installation with the projects named after its first one, until the test
@@ -354,17 +356,17 @@ func StartInstallation(t testing.TB, names ...string) *Installation {
 		}
 	}
 	identity := fake.NewIdentityProvider().Within(store)
-	machine := fake.NewCheckouts()
+	machine, layouts := fake.NewCheckouts(), fake.NewLayouts()
 	config := server.Config{
 		Scope: Scope, Store: store, Projects: state, Installation: state.Installation, LeaseTTL: LeaseTTL, HeartbeatMs: HeartbeatMs, Identity: identity,
 		Matcher:   lexical.Matcher{Store: store},
 		Matching:  func(store ports.Store) ports.Matcher { return lexical.Matcher{Store: store} },
-		Checkouts: machine,
+		Checkouts: machine, Layouts: layouts,
 	}
 	daemon := serve(t, config, nil)
 	daemon.Store = store
 	daemon.signIn(t, identity)
-	return &Installation{Daemon: daemon, State: state, Checkouts: machine}
+	return &Installation{Daemon: daemon, State: state, Checkouts: machine, Layouts: layouts}
 }
 
 // In returns the Store and the member's client of one project.

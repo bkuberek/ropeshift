@@ -106,6 +106,8 @@ const (
 	OpCategoryAdd                         = "category.add"
 	OpRepositoryRegister                  = "repository.register"
 	OpRepositoryRegisterManifest          = "repository.register_manifest"
+	OpAdoptionPlan                        = "adoption.plan"
+	OpAdoptionRestructure                 = "adoption.restructure"
 	OpRepositorySet                       = "repository.set"
 	OpRepositoryLowerMergeAuthority       = "repository.lower_merge_authority"
 	OpRepositoryReviewTargetBranch        = "repository.review_target_branch"
@@ -260,6 +262,10 @@ var operations = append(onInstallation(
 	// A manifest names paths on the machine in a file an agent can write, and its card would show the text
 	// and not where each path leads, so registering from one is a member's alone.
 	memberOnly(OpRepositoryRegisterManifest, "Register from a repository manifest", ActionRegisterRepository, ActionRegisterManifest),
+	// Planning an adoption reads the paths of clones on the machine, as registering from a manifest does, and a
+	// restructuring changes the layout of the planning repository, so each is a member's alone.
+	memberOnly(OpAdoptionPlan, "Plan an adoption", ActionRegisterRepository, ActionPlanAdoption),
+	memberOnly(OpAdoptionRestructure, "Restructure by adopting", ActionRestructure),
 	operational(OpRepositorySet, "Change a repository's settings", ActionSetRepository),
 	operational(OpRepositoryLowerMergeAuthority, "Lower merge authority", ActionSetRepository),
 	operational(OpRepositoryReviewTargetBranch, "Review on the branch", ActionSetRepository),

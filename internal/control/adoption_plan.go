@@ -68,7 +68,7 @@ type foundClone struct {
 // clone, every directory the clone ignores, to the depth, and every path named, as `repository add` reads them,
 // and never the folder around the clone. It records nothing: the registrations are a dry run.
 func (a *Adoptions) Plan(ctx context.Context, scope ledger.WorkspaceID, in AdoptionRequest, kept ports.Checkouts, layouts ports.Layouts, actor ledger.Actor) (planning.AdoptionPlan, error) {
-	if !authority.Allowed(actor, authority.ActionRegisterRepository) {
+	if !authority.Allowed(actor, authority.ActionPlanAdoption) || !authority.Allowed(actor, authority.ActionRegisterRepository) {
 		return planning.AdoptionPlan{}, workorders.ErrForbidden
 	}
 	if err := in.validate(); err != nil {

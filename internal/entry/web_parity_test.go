@@ -39,7 +39,6 @@ var equivalents = map[string]string{
 	"work list":        "view plans",      // work.go lists work orders; the Work orders view lists each by group from the plans view
 
 	// Changes. The CLI command sends the request of a row the UI already sends, with a different value.
-	"adopt":             "work create",        // adopt.go registers the clones, then openSession sends work create with adopt, review, claim, and lane start; admin/Import.tsx sends the same calls
 	"agent add":         "agent set",          // agent.go agentAdd sends a roster change with the op add, from another agent or with the definition readAgentFile reads from a TOML file; Add agent sends both on the same route, the definition read from a pasted [[agent]] table
 	"agent disable":     "agent set",          // agent.go agentToggle sends a roster change with the op disable; Agents sends it from the agent's toggle
 	"agent enable":      "agent set",          // agentToggle with the op enable; Agents sends it from the same toggle
@@ -73,6 +72,7 @@ var cliOnly = map[string]string{
 // of P4 that adds it. A command whose row is added leaves this list, and the test fails until it does. The
 // first run of this test wrote it, and a command the audit did not name went by its area.
 var webGaps = map[string]string{
+	"adopt": "P3e", // adopt.go reads the layout and prints the plan from POST /v1/adoption/plan, and starts the session with work create; P3e's Import reads the plan from the same route (FR-ADOPT-12)
 	// new.go writes a shape's starting files on this machine; P4i's dialog asks a worker the member picks to
 	// write them, through one route that takes the shape from its body (FR-TPL-5).
 	"new workspace":  "P4i",
@@ -80,7 +80,7 @@ var webGaps = map[string]string{
 	"new repository": "P4i",
 }
 
-var gapSlice = regexp.MustCompile(`^(U2[a-k][12]?|P4[a-j][12]?)$`)
+var gapSlice = regexp.MustCompile(`^(U2[a-k]|P[34][a-j])[12]?$`)
 
 // TestEveryCommandHasAWebRoute holds the CLI to the web listener: each command is named by a row of
 // WebRoutes, or is in exactly one of equivalents, cliOnly, and webGaps. An entry whose command a row now
