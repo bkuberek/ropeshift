@@ -119,8 +119,11 @@ type TreeFile struct {
 type Commit struct {
 	Hash    string
 	Subject string
-	// Files are the paths the commit changed, in the order git lists them.
+	// Files are the paths the commit changed, in the order git lists them. A merge commit lists what it changed
+	// against its first parent.
 	Files []string
+	// Parents are the commits the commit grew from, the first parent first.
+	Parents []string
 }
 
 // FileCommits is what a worktrees store offers to commit files to a lane's branch before the lane starts, so
@@ -136,6 +139,53 @@ type FileCommits interface {
 	// Commits lists the commits the worktree's branch holds beyond base, newest first, or its last few when
 	// base is empty. A worktree that is gone is ErrNotFound.
 	Commits(ctx context.Context, path, base string) ([]Commit, error)
+}
+
+// HistoryImport asks for the history of another repository to be merged into a worktree's branch as an unrelated
+// history, in one merge commit (FR-ADOPT-13).
+type HistoryImport struct {
+	// Source is the clone the history is read from. It is only read: nothing is written to it.
+	Source string
+	// Commit is the tip of the history to merge, which the fetch asks Source for by its ID.
+	Commit string
+	// Root is the first-parent root the history must begin at, and a history that begins elsewhere is
+	// *HistoryRootError.
+	Root string
+	// LeaveOut names trees of the history, relative to its top, that the merge commit removes. A path the
+	// branch held already is never removed.
+	LeaveOut []string
+	// Files are added to the merge commit by the rules of TreeFile, after the paths both histories hold are
+	// settled.
+	Files []TreeFile
+	// Subject is the merge commit's subject.
+	Subject string
+}
+
+// HistoryRootError says the history a merge was asked to import begins at another first commit than the one
+// it was planned from, so the repository is not the one the plan read.
+type HistoryRootError struct {
+	// Want is the first-parent root the import named, and Got the one the fetched history has.
+	Want, Got string
+}
+
+func (e *HistoryRootError) Error() string {
+	return "the history to import begins at " + e.Got + ", and the plan named " + e.Want
+}
+
+// HistoryImports is what a worktrees store offers to import the history of another repository into a lane's
+// branch before the lane starts, so a worker can consolidate a design repository into the workspace. A worker
+// whose store does not offer it consolidates nothing.
+type HistoryImports interface {
+	FileCommits
+	// ImportHistory fetches the commit from the source, checks that its first-parent root is the one named, and
+	// merges it into the worktree's branch with the branch first and the history second, with no commit
+	// rewritten. For every path both hold, the merge keeps the branch's version, except `.gitignore`, which
+	// becomes the branch's lines followed by each of the history's lines the branch lacks, in order. It then
+	// removes the trees left out, adds the files, and commits all of it as one merge commit with the subject, in
+	// the name of the product and with no hook run and no signature asked for. A branch that holds the commit
+	// already is done, and the commit that comes back is empty, so a retry after a crash that left the merge
+	// makes no second one; a merge a crash left half made is made again from the start.
+	ImportHistory(ctx context.Context, path string, in HistoryImport) (Commit, error)
 }
 
 // BranchTrees is what a worktrees store offers to find where a branch already stands, so a lane that began in a
