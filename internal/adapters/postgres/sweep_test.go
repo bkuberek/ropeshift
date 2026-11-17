@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"ropeshift.com/ropeshift/internal/adapters/postgres"
+	"ropeshift.com/ropeshift/internal/adapters/sqlstore"
 	"ropeshift.com/ropeshift/internal/ledger"
 )
 
@@ -71,6 +72,102 @@ func TestOpeningAStateDropsTheSchemasNoProjectNames(t *testing.T) {
 	}
 	if projects, err := next.List(t.Context()); err != nil || len(projects) != 1 {
 		t.Errorf("projects %+v, %v", projects, err)
+	}
+}
+
+// TestTheSweepLeavesASchemaThatOnlyStartsWithThePrefix holds that a schema a person made under a project's
+// prefix, such as a copy of a project's schema, survives the sweep, while the schemas a crashed Create left
+// go: the one of an ID this build generated, and the one an earlier build wrote with capitals.
+func TestTheSweepLeavesASchemaThatOnlyStartsWithThePrefix(t *testing.T) {
+	url := freshDatabase(t)
+	state := openState(t, url, postgres.Options{})
+	db := state.SQLDB()
+	defer db.Close()
+	createProject(t, state, "pa", "alpha")
+	if err := state.CreateUpTo(t.Context(), ledger.Project{Name: "ghost"}, member, 2); err != nil {
+		t.Fatal(err)
+	}
+	people := []string{"project_pa_backup", "project_Backup", "project_01jabcdefghjkmnpqrstvwxyz0x"}
+	for _, name := range append([]string{"project_01JABCDEFGHJKMNPQRSTVWXYZ0"}, people...) {
+		if _, err := db.ExecContext(t.Context(), `CREATE SCHEMA "`+name+`"`); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	next := openState(t, url, postgres.Options{})
+	got := projectSchemas(t, next)
+	slices.Sort(got)
+	want := append([]string{"project_pa"}, people...)
+	slices.Sort(want)
+	if !slices.Equal(got, want) {
+		t.Errorf("schemas with a project's prefix after the sweep: %v, want %v", got, want)
+	}
+}
+
+// refuseDrops makes the server refuse every DROP SCHEMA in the test's database, as a schema that a lock or
+// a missing right keeps in place does, and returns what lifts the refusal.
+func refuseDrops(t *testing.T, state *postgres.State) (lift func()) {
+	t.Helper()
+	db := state.SQLDB()
+	defer db.Close()
+	for _, statement := range []string{
+		`CREATE FUNCTION refuse_drop() RETURNS event_trigger LANGUAGE plpgsql
+  AS $$ BEGIN RAISE EXCEPTION 'schemas stay'; END $$`,
+		`CREATE EVENT TRIGGER refuse_drop ON ddl_command_start WHEN TAG IN ('DROP SCHEMA') EXECUTE FUNCTION refuse_drop()`,
+	} {
+		if _, err := db.ExecContext(t.Context(), statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return func() {
+		lifting := state.SQLDB()
+		defer lifting.Close()
+		if _, err := lifting.ExecContext(t.Context(), `DROP EVENT TRIGGER refuse_drop`); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// TestAFailedDropDoesNotFailOpen holds that a schema the sweep cannot drop stays, with a warning, and the
+// state opens: a person's database may keep a schema in place for a reason the sweep cannot see. The next
+// Open drops it once it can.
+func TestAFailedDropDoesNotFailOpen(t *testing.T) {
+	url := freshDatabase(t)
+	state := openState(t, url, postgres.Options{})
+	if err := state.CreateUpTo(t.Context(), ledger.Project{Name: "ghost"}, member, 2); err != nil {
+		t.Fatal(err)
+	}
+	ghost := projectSchemas(t, state)
+	if len(ghost) != 1 {
+		t.Fatalf("schemas %v", ghost)
+	}
+	lift := refuseDrops(t, state)
+
+	var mu sync.Mutex
+	var warnings []string
+	warn := func(message string) {
+		mu.Lock()
+		defer mu.Unlock()
+		warnings = append(warnings, message)
+	}
+	next, err := postgres.Open(t.Context(), url, postgres.Options{Store: sqlstore.Options{Warn: warn}})
+	if err != nil {
+		t.Fatalf("Open failed because a schema could not be dropped: %v", err)
+	}
+	t.Cleanup(func() { _ = next.Close() })
+	if got := projectSchemas(t, next); !slices.Equal(got, ghost) {
+		t.Errorf("schemas after the failed drop: %v, want %v", got, ghost)
+	}
+	mu.Lock()
+	if len(warnings) != 1 || !strings.Contains(warnings[0], ghost[0]) {
+		t.Errorf("warnings %q, want one that names %s", warnings, ghost[0])
+	}
+	mu.Unlock()
+
+	lift()
+	again := openState(t, url, postgres.Options{})
+	if got := projectSchemas(t, again); len(got) != 0 {
+		t.Errorf("schemas after the drop could run: %v", got)
 	}
 }
 

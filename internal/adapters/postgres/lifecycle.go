@@ -59,12 +59,6 @@ func schemaOf(p ledger.Project) (string, error) {
 	return p.Database, nil
 }
 
-// projectSchema reports whether a schema's name is one a project's ID could give, in either case.
-func projectSchema(name string) bool {
-	id, ok := strings.CutPrefix(name, schemaPrefix)
-	return ok && id != "" && len(name) <= schemaLimit && !strings.ContainsFunc(id, func(c rune) bool { return !identifierRune(c) })
-}
-
 // step is one move of a project's lifecycle. Each is safe to repeat, so a crash after any of them leaves
 // the next attempt to finish.
 type step func(context.Context) error

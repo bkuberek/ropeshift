@@ -17,6 +17,11 @@ func (s *State) SQLDB() *sql.DB { return stdlib.OpenDBFromPool(s.pool) }
 // lock holds one.
 func (s *State) AcquiredConns() int { return int(s.pool.Stat().AcquiredConns()) }
 
+// GeneratedSchema and SchemaName give a test the naming of a project's schema, which needs no database.
+func GeneratedSchema(name string) bool { return generatedSchema(name) }
+
+func SchemaName(id ledger.WorkspaceID) (string, error) { return schemaName(id) }
+
 // The number of steps in creating and in removing a project.
 const (
 	CreateSteps = createSteps
