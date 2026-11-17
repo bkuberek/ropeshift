@@ -123,6 +123,13 @@ type Config struct {
 	// Templates are the project templates this daemon's binary embeds, rendered with the example data, which
 	// the templates route serves. Nil has none, and the route refuses.
 	Templates []api.Template
+	// Hashes lets one passphrase check run at a time, and no more than its depth wait for it, so a crowd of
+	// guessers cannot hold it for as long as they like. The network listener makes one when none is given. Nil
+	// checks without one, as the control socket does.
+	Hashes *HashGate
+	// Warn hears what a refusal leaves out of its answer, which is what broke in the server and no business of the
+	// client that was refused. Nil hears nothing.
+	Warn func(string)
 }
 
 type handler struct {

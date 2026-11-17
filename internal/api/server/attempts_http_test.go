@@ -4,10 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
+	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -15,6 +18,7 @@ import (
 
 	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/api/server"
+	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/control"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/ports"
@@ -338,6 +342,108 @@ func TestAGuessWhoseClientLeavesAfterTheCheckStillCounts(t *testing.T) {
 	if got := send(apitest.Passphrase); got != http.StatusTooManyRequests {
 		t.Errorf("the right passphrase from that address answered %d", got)
 	}
+}
+
+// refusingStore is a store that cannot write the record of a refused sign-in, and says why in words of its own,
+// which name a host and a port that no client has any business knowing.
+type refusingStore struct{ ports.Store }
+
+const storeSecret = "the log is down at db.internal:5432"
+
+func (s refusingStore) Installation(scope ledger.WorkspaceID) ports.Installation {
+	return refusingInstallation{s.Store.Installation(scope)}
+}
+
+type refusingInstallation struct{ ports.Installation }
+
+func (i refusingInstallation) Write(ctx context.Context, op string, fn func(ports.SharedTx) error) error {
+	if op == "member.sign_in_refused" {
+		return errors.New(storeSecret)
+	}
+	return i.Installation.Write(ctx, op, fn)
+}
+
+// heard collects what the server's log is told.
+type heardLog struct {
+	mu   sync.Mutex
+	list []string
+}
+
+func (h *heardLog) warn(text string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.list = append(h.list, text)
+}
+
+func (h *heardLog) any(part string) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return slices.ContainsFunc(h.list, func(text string) bool { return strings.Contains(text, part) })
+}
+
+// A wrong passphrase is a wrong passphrase when the record of it cannot be written. It is answered as one, with no
+// word of what broke, it counts against its address, and the server's log is told what broke.
+func TestAWrongPassphraseWhoseRefusalCannotBeRecordedIsStillRefusedAndCounted(t *testing.T) {
+	t.Parallel()
+	var log heardLog
+	d := apitest.StartWith(t, apitest.Options{Attempts: server.NewAttempts(server.AttemptLimits{MaxFailures: 3, Lockout: 15 * time.Minute})})
+	d.Config.Store = refusingStore{d.Config.Store}
+	d.Config.Warn = log.warn
+	r := &webRig{d: d, web: d.ServeNetworkWith(t, apitest.NetworkOptions{Assets: builtAssets, Recheck: 20 * time.Millisecond, Client: byHeader})}
+	for i := range 3 {
+		response, raw := r.signInAs(t, "203.0.113.7", wrongPassphrase)
+		wantStatus(t, response, raw, http.StatusUnauthorized, api.CodeBadPassphrase)
+		if strings.Contains(string(raw), "db.internal") || strings.Contains(string(raw), "log is down") {
+			t.Fatalf("guess %d: the answer says what broke in the server: %s", i+1, raw)
+		}
+		var body api.ErrorBody
+		if err := json.Unmarshal(raw, &body); err != nil || body.Error.Message != authority.ErrBadProof.Error() {
+			t.Fatalf("guess %d: the message is %q, %v, and wants %q", i+1, body.Error.Message, err, authority.ErrBadProof.Error())
+		}
+	}
+	if !log.any(storeSecret) {
+		t.Error("the server's log was told nothing of what broke")
+	}
+	response, raw := r.signInAs(t, "203.0.113.7", apitest.Passphrase)
+	wantStatus(t, response, raw, http.StatusTooManyRequests, api.CodeTooManyAttempts)
+}
+
+// failing is an identity provider whose check breaks with an error of its own, as a database that went away does.
+type failing struct {
+	ports.IdentityProvider
+	err error
+}
+
+func (f failing) Authenticate(context.Context, ledger.WorkspaceID, ports.Proof) (string, error) {
+	return "", f.err
+}
+
+// What breaks in the server while it checks a guess is told to nobody who made one: the answer is the same words
+// whatever broke, the log hears the rest, and the guess counts, because a request that can be made to break after
+// its check must not be a guess for free.
+func TestWhatBreaksWhileAGuessIsCheckedIsToldToTheLogAndNotToTheClient(t *testing.T) {
+	t.Parallel()
+	var log heardLog
+	d := apitest.StartWith(t, apitest.Options{Attempts: server.NewAttempts(server.AttemptLimits{MaxFailures: 3, Lockout: 15 * time.Minute})})
+	d.Config.Identity = failing{d.Config.Identity, errors.New("dial tcp db.internal:5432: connection refused")}
+	d.Config.Warn = log.warn
+	r := &webRig{d: d, web: d.ServeNetworkWith(t, apitest.NetworkOptions{Assets: builtAssets, Recheck: 20 * time.Millisecond, Client: byHeader})}
+	for range 3 {
+		response, raw := r.signInAs(t, "203.0.113.7", apitest.Passphrase)
+		wantStatus(t, response, raw, http.StatusServiceUnavailable, api.CodeUnavailable)
+		if strings.Contains(string(raw), "db.internal") || strings.Contains(string(raw), "refused") {
+			t.Fatalf("the answer says what broke in the server: %s", raw)
+		}
+	}
+	if !log.any("db.internal:5432") {
+		t.Error("the server's log was told nothing of what broke")
+	}
+	response, raw := r.signInAs(t, "203.0.113.7", apitest.Passphrase)
+	wantStatus(t, response, raw, http.StatusTooManyRequests, api.CodeTooManyAttempts)
+	// The same break on the registration route.
+	token := r.joinToken(t)
+	response, raw = r.registerAs(t, "203.0.113.8", token, "worker-a")
+	wantStatus(t, response, raw, http.StatusOK, "")
 }
 
 // The control socket's callers prove themselves by the file permissions of the socket, and no limit applies to

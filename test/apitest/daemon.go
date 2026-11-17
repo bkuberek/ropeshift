@@ -112,20 +112,25 @@ type NetworkOptions struct {
 	Wrap func(http.Handler) http.Handler
 	// TLS is what the listener serves. Nil serves plaintext, as a server on loopback does.
 	TLS *tls.Config
-	// Client says which address a request came from, for the limits that count by it. Nil is the TCP peer.
+	// Client says which address a request came from, for the limits that count by it. Nil is the address the
+	// listed proxies say, or the TCP peer when none is listed.
 	Client func(*http.Request) netip.Addr
+	// Proxies are the peers the listener reads forwarded headers from and takes plaintext from.
+	Proxies *server.Proxies
+	// PublicURL is the origin browsers reach the listener at, behind a proxy that terminates TLS.
+	PublicURL string
 }
 
 // ServeNetworkWith serves a daemon's network listener on a real loopback port until the test ends. The
 // client of a listener that serves TLS is the caller's to make, because it decides whom to trust.
 func (d *Daemon) ServeNetworkWith(t testing.TB, options NetworkOptions) *Web {
 	t.Helper()
-	listener, err := server.ListenNetwork("127.0.0.1:0", options.TLS)
+	listener, err := server.ListenNetwork("127.0.0.1:0", server.Transport{TLS: options.TLS, Proxies: options.Proxies})
 	if err != nil {
 		t.Fatal(err)
 	}
 	port := listener.Addr().(*net.TCPAddr).Port
-	handler := server.NewNetwork(d.Config, server.WebOptions{Port: port, Assets: options.Assets, Recheck: options.Recheck, Client: options.Client})
+	handler := server.NewNetwork(d.Config, server.WebOptions{Port: port, Assets: options.Assets, Recheck: options.Recheck, Client: options.Client, Proxies: options.Proxies, PublicURL: options.PublicURL})
 	if options.Wrap != nil {
 		handler = options.Wrap(handler)
 	}
@@ -246,6 +251,8 @@ type Options struct {
 	Attempts *server.Attempts
 	// Templates is the list of templates the daemon serves. Nil serves none, and the route refuses.
 	Templates []api.Template
+	// Hashes is the gate the passphrase checks of the network listener pass. Nil gives the listener its own.
+	Hashes *server.HashGate
 }
 
 // Start serves the API until the test ends.
@@ -279,7 +286,7 @@ func StartWith(t testing.TB, options Options) *Daemon {
 		Telemetry: options.Telemetry, Backup: options.Backup, Panes: options.Panes, WebAddress: options.WebAddress,
 		Build: options.Build, Installed: options.Installed, Mode: options.Mode,
 		Checkouts: options.Checkouts, Profiles: options.Profiles, ParseManifest: repofiles.ParseManifest, Starts: options.Starts, Branches: options.Branches, LaneBranchPrefix: options.LaneBranchPrefix,
-		Attempts: options.Attempts, Templates: options.Templates,
+		Attempts: options.Attempts, Templates: options.Templates, Hashes: options.Hashes,
 	}
 	daemon := serve(t, config, options.Wrap)
 	daemon.Store = store

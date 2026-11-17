@@ -310,6 +310,32 @@ func PeerAddress(r *http.Request) netip.Addr {
 	return clean(peer.Addr())
 }
 
+// answerGuess answers a request that made a guess at a secret, which anyone can make. What is wrong with the guess
+// is the client's to hear: a wrong passphrase is the sentinel's own words, and what proves nothing, such as no
+// passphrase set or a session that ended, is answered as it always is. What broke in the server is the log's, and
+// reaches a client as one fixed sentence, because a store's own words name hosts, ports, and tables.
+func answerGuess(w http.ResponseWriter, err error, warn func(string)) {
+	switch {
+	case errors.Is(err, authority.ErrBadProof):
+		if err.Error() != authority.ErrBadProof.Error() {
+			tell(warn, err)
+		}
+		fail(w, authority.ErrBadProof)
+	case errors.Is(err, ledger.ErrBadJoinToken), provesNothing(err):
+		fail(w, err)
+	default:
+		tell(warn, err)
+		refuse(w, http.StatusServiceUnavailable, api.ErrorDetail{Code: api.CodeUnavailable, Message: "the server could not check this: try again shortly"})
+	}
+}
+
+// tell gives the log what broke, unless nobody is listening or the client is what went away.
+func tell(warn func(string), err error) {
+	if warn != nil && !errors.Is(err, context.Canceled) {
+		warn(err.Error())
+	}
+}
+
 type clientKey struct{}
 
 // withClient records which address a request came from, for the limits that count by it. A request that

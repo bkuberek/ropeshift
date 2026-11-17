@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net"
+	"net/netip"
 	"os"
 	"path/filepath"
 
@@ -20,18 +21,68 @@ const (
 // public listener.
 func ListenWeb(address string) (net.Listener, error) { return listenLoopback("web listener", address) }
 
-// ListenNetwork binds a group server's one listener (ADR-0031). With a TLS config it binds any address, and
-// everything it accepts is encrypted. With none it serves plaintext, which only loopback may carry (NFR-SEC-2),
-// so it binds a loopback address and nothing else.
-func ListenNetwork(address string, config *tls.Config) (net.Listener, error) {
-	if config == nil {
+// Transport is how a group server's listener is secured (ADR-0031): by TLS, or, with no TLS config, by serving
+// plaintext to loopback and to the proxies it lists.
+type Transport struct {
+	TLS     *tls.Config
+	Proxies *Proxies
+}
+
+// ListenNetwork binds a group server's one listener. With a TLS config it binds any address, and everything it
+// accepts is encrypted. With none it serves plaintext, which only loopback and a reverse proxy that terminates TLS
+// may carry (NFR-SEC-2): it binds a loopback address and nothing else unless proxies are listed, and it takes a
+// connection only from loopback and from a listed proxy, and closes any other before a byte is read.
+func ListenNetwork(address string, transport Transport) (net.Listener, error) {
+	if transport.TLS == nil && transport.Proxies.Len() == 0 {
 		return listenLoopback("server listener without TLS", address)
 	}
 	listener, err := listenTCP(address)
 	if err != nil {
 		return nil, err
 	}
-	return tls.NewListener(listener, config), nil
+	if transport.TLS != nil {
+		return tls.NewListener(listener, transport.TLS), nil
+	}
+	return FilterPeers(listener, transport.Proxies), nil
+}
+
+// FilterPeers is a listener that takes a connection from loopback and from a listed proxy, and closes any other
+// at once, before anything is read from it, so a peer that is not one of ours gets no part of the server, a
+// credential or a body included.
+func FilterPeers(listener net.Listener, proxies *Proxies) net.Listener {
+	return &peerFilter{Listener: listener, proxies: proxies}
+}
+
+type peerFilter struct {
+	net.Listener
+	proxies *Proxies
+}
+
+// Accept returns the next connection from a peer that is ours. A peer whose address cannot be read is no peer
+// of ours, and a connection that is not ours is closed at once, with nothing read, and the next is awaited.
+func (f *peerFilter) Accept() (net.Conn, error) {
+	for {
+		conn, err := f.Listener.Accept()
+		if err != nil {
+			return nil, err
+		}
+		if f.ours(conn.RemoteAddr()) {
+			return conn, nil
+		}
+		_ = conn.Close()
+	}
+}
+
+func (f *peerFilter) ours(remote net.Addr) bool {
+	if remote == nil {
+		return false
+	}
+	pair, err := netip.ParseAddrPort(remote.String())
+	if err != nil {
+		return false
+	}
+	peer := clean(pair.Addr())
+	return peer.IsLoopback() || f.proxies.Contains(peer)
 }
 
 // Loopback says an address names this machine alone. A name other than `localhost` could resolve anywhere, so

@@ -56,9 +56,16 @@ type WebOptions struct {
 	// Recheck is how often an open stream asks whether its session still stands. Zero takes the
 	// default.
 	Recheck time.Duration
-	// Client says which address a request came from, for the limits that count by it. Nil is the address of
-	// its TCP connection, which is the right answer until a listener sits behind a proxy.
+	// Client says which address a request came from, for the limits that count by it. Nil is the address the
+	// listed proxies say, and the address of its TCP connection when none is listed.
 	Client func(*http.Request) netip.Addr
+	// Proxies are the peers whose forwarded headers are read. Nil lists none.
+	Proxies *Proxies
+	// PublicURL is the origin browsers reach the listener at behind a proxy that terminates TLS, such as
+	// https://ropeshift.example. The web UI answers to its host as well as to loopback names, takes it as the
+	// origin of a page served under that host, and marks its cookies Secure when it is https. Empty serves
+	// loopback names alone.
+	PublicURL string
 }
 
 // web is the API as a browser reaches it: a closed list of routes, behind checks the local socket
@@ -71,10 +78,15 @@ type web struct {
 	assets   fs.FS
 	hosts    map[string]bool
 	recheck  time.Duration
-	// signIn lets one hash run at a time, so a flood of guesses costs its sender the wait.
-	signIn chan struct{}
+	// hashes lets one passphrase check run at a time, and no more than a line of them wait, so a flood of guesses
+	// costs its sender the wait and costs the server no more than the line.
+	hashes *HashGate
 	// attempts limits the wrong guesses of a client address. Nil limits none.
 	attempts *Attempts
+	// warn hears what an answer leaves out.
+	warn func(string)
+	// public is where members' browsers reach a server behind a reverse proxy. Nil serves loopback alone.
+	public *publicOrigin
 }
 
 // NewWeb returns the web listener's handler over the same use cases as the API.
@@ -82,8 +94,16 @@ func NewWeb(config Config, options WebOptions) http.Handler {
 	port := strconv.Itoa(options.Port)
 	site := &web{
 		api: New(config), routes: http.NewServeMux(), sessions: control.NewSessions(config.Store, config.Identity), scope: config.Scope,
-		assets: options.Assets, recheck: options.Recheck, signIn: make(chan struct{}, 1), attempts: config.Attempts,
+		assets: options.Assets, recheck: options.Recheck, hashes: config.Hashes, attempts: config.Attempts, warn: config.Warn,
 		hosts: map[string]bool{"127.0.0.1:" + port: true, "localhost:" + port: true, "[::1]:" + port: true},
+	}
+	if site.hashes == nil {
+		site.hashes = NewHashGate(DefaultHashDepth)
+	}
+	// A public URL that does not read is left out, and the entry that gave it has checked it already.
+	if public, err := parsePublicOrigin(options.PublicURL); err == nil {
+		site.public = public
+		site.hosts[public.host] = true
 	}
 	if site.recheck <= 0 {
 		site.recheck = defaultRecheck
@@ -116,11 +136,17 @@ func (s *web) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		refuse(w, http.StatusForbidden, api.ErrorDetail{Code: api.CodeForbidden, Message: "A delegate uses the local socket, never the web listener."})
 		return
 	}
-	if !s.hosts[r.Host] {
-		refuse(w, http.StatusForbidden, api.ErrorDetail{Code: api.CodeForeignHost, Message: "this listener answers only to its own loopback names"})
+	if !s.hosts[strings.ToLower(r.Host)] {
+		refuse(w, http.StatusForbidden, api.ErrorDetail{Code: api.CodeForeignHost, Message: "this listener answers only to its own names"})
 		return
 	}
-	if origin := r.Header.Get("Origin"); origin != "" && origin != "http://"+r.Host {
+	// A page served under a host is that host's origin alone: the public origin under the public host, and the
+	// http origin of its own name on loopback.
+	want := "http://" + r.Host
+	if s.public != nil && strings.EqualFold(r.Host, s.public.host) {
+		want = s.public.origin
+	}
+	if origin := r.Header.Get("Origin"); origin != "" && origin != want {
 		refuse(w, http.StatusForbidden, api.ErrorDetail{Code: api.CodeForeignOrigin, Message: "this listener answers only its own pages"})
 		return
 	}
@@ -211,11 +237,18 @@ func (s *web) stream(w http.ResponseWriter, r *http.Request, token string) {
 
 // sessionCookies sets a life in seconds from now and no date, because a browser's clock is not the
 // ledger's, and the ledger decides when a session ends either way.
-func sessionCookies(session, csrf string, maxAge int) []*http.Cookie {
+func sessionCookies(session, csrf string, maxAge int, secure bool) []*http.Cookie {
 	return []*http.Cookie{
-		{Name: api.CookieSession, Value: session, Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode, MaxAge: maxAge},
-		{Name: api.CookieCSRF, Value: csrf, Path: "/", SameSite: http.SameSiteStrictMode, MaxAge: maxAge},
+		{Name: api.CookieSession, Value: session, Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode, MaxAge: maxAge, Secure: secure},
+		{Name: api.CookieCSRF, Value: csrf, Path: "/", SameSite: http.SameSiteStrictMode, MaxAge: maxAge, Secure: secure},
 	}
+}
+
+// secure says a response to a request carries Secure cookies: it was served under the host of an https public
+// URL, which is the proxy's, where the browser holds the cookie to https. A page served on loopback is http, and a
+// browser sends no Secure cookie back over it.
+func (s *web) secure(r *http.Request) bool {
+	return s.public != nil && s.public.secure && strings.EqualFold(r.Host, s.public.host)
 }
 
 // openSession signs a person in. The token goes into a cookie no page can read, so the answer a page
@@ -234,20 +267,19 @@ func (s *web) openSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer attempt.Release()
-	select {
-	case s.signIn <- struct{}{}:
-		defer func() { <-s.signIn }()
-	case <-r.Context().Done():
+	leave, ok := enterGate(s.hashes, w, r)
+	if !ok {
 		return
 	}
+	defer leave()
 	grant, err := s.sessions.SignIn(r.Context(), s.scope, ports.Proof{Passphrase: in.Passphrase}, in.TTLMs)
 	attempt.Judge(err, true)
 	if err != nil {
-		fail(w, err)
+		answerGuess(w, err, s.warn)
 		return
 	}
 	lifeSeconds := int(authority.BoundTTL(in.TTLMs) / time.Second.Milliseconds())
-	for _, cookie := range sessionCookies(grant.Token, csrfToken(grant.Token), lifeSeconds) {
+	for _, cookie := range sessionCookies(grant.Token, csrfToken(grant.Token), lifeSeconds, s.secure(r)) {
 		http.SetCookie(w, cookie)
 	}
 	reply(w, http.StatusCreated, api.Session{Member: grant.Member, ExpiresAt: grant.ExpiresAt})
@@ -268,21 +300,20 @@ func (s *web) changePassphrase(w http.ResponseWriter, r *http.Request, token str
 		return
 	}
 	defer attempt.Release()
-	select {
-	case s.signIn <- struct{}{}:
-		defer func() { <-s.signIn }()
-	case <-r.Context().Done():
+	leave, ok := enterGate(s.hashes, w, r)
+	if !ok {
 		return
 	}
+	defer leave()
 	changed, err := s.sessions.ChangePassphrase(r.Context(), s.scope, ports.Proof{Passphrase: in.Current}, ports.Proof{Passphrase: in.Passphrase}, token)
 	attempt.Judge(err, true)
 	if err != nil {
-		fail(w, err)
+		answerGuess(w, err, s.warn)
 		return
 	}
 	// The session goes on under a new token, in new cookies, and the token the page held, which was derived from the
 	// old one, is no longer the page's.
-	for _, cookie := range sessionCookies(changed.Token, csrfToken(changed.Token), int(changed.LifeMs/time.Second.Milliseconds())) {
+	for _, cookie := range sessionCookies(changed.Token, csrfToken(changed.Token), int(changed.LifeMs/time.Second.Milliseconds()), s.secure(r)) {
 		http.SetCookie(w, cookie)
 	}
 	reply(w, http.StatusOK, api.PassphraseChanged{SessionsEnded: changed.SessionsEnded, Delegates: changed.Delegates})
@@ -290,7 +321,7 @@ func (s *web) changePassphrase(w http.ResponseWriter, r *http.Request, token str
 
 // closeSession ends a session in the ledger, so its cookie opens nothing even if a browser keeps it.
 func (s *web) closeSession(w http.ResponseWriter, r *http.Request, token string) {
-	for _, cookie := range sessionCookies("", "", -1) {
+	for _, cookie := range sessionCookies("", "", -1, s.secure(r)) {
 		http.SetCookie(w, cookie)
 	}
 	s.forward(w, r, token)

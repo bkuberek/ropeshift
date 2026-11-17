@@ -505,6 +505,63 @@ func TestServerRefusesAnAddressThatGuessesTooOften(t *testing.T) {
 	}
 }
 
+// A server behind a reverse proxy that terminates TLS (mode c) takes plaintext from the proxy it lists, says where
+// members reach it, reads the client from the proxy's X-Forwarded-For, marks its cookies Secure under its public
+// URL, and answers none of a request its proxy says came in over plain http. The test is the proxy: it connects from
+// loopback, which it lists.
+func TestServerBehindAProxyReadsItsClientsFromAListedPeer(t *testing.T) {
+	s := startServer(t, aDatabase(t), "--tls", "off", "--trusted-proxies", "127.0.0.1", "--public-url", "https://ropeshift.example", "--signin-max-failures", "2")
+	if !strings.HasPrefix(s.address, "http://127.0.0.1:") {
+		t.Fatalf("the server says it serves %q", s.address)
+	}
+	if got := s.d.said(t, "ropeshiftd: public url "); got != "https://ropeshift.example" {
+		t.Fatalf("the server says its public URL is %q", got)
+	}
+	signIn := func(client, passphrase, proto string) (*http.Response, []byte) {
+		t.Helper()
+		raw, err := json.Marshal(api.SignIn{Passphrase: passphrase})
+		if err != nil {
+			t.Fatal(err)
+		}
+		request, err := http.NewRequestWithContext(t.Context(), http.MethodPost, s.address+api.SignInPath, bytes.NewReader(raw))
+		if err != nil {
+			t.Fatal(err)
+		}
+		request.Host = "ropeshift.example"
+		request.Header.Set("Content-Type", "application/json")
+		request.Header.Set("Origin", "https://ropeshift.example")
+		request.Header.Set("X-Forwarded-For", client)
+		request.Header.Set("X-Forwarded-Proto", proto)
+		response, err := http.DefaultClient.Do(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer response.Body.Close()
+		body, _ := io.ReadAll(response.Body)
+		return response, body
+	}
+	for i := range 2 {
+		if response, body := signIn("203.0.113.7", "a passphrase nobody chose", "https"); response.StatusCode != http.StatusUnauthorized {
+			t.Fatalf("guess %d answered %d: %s", i+1, response.StatusCode, body)
+		}
+	}
+	if response, body := signIn("203.0.113.7", apitest.Passphrase, "https"); response.StatusCode != http.StatusTooManyRequests {
+		t.Errorf("a client that guessed twice answered %d: %s", response.StatusCode, body)
+	}
+	response, body := signIn("203.0.113.8", apitest.Passphrase, "https")
+	if response.StatusCode != http.StatusCreated {
+		t.Fatalf("another client through the same proxy answered %d: %s", response.StatusCode, body)
+	}
+	for _, cookie := range response.Cookies() {
+		if !cookie.Secure {
+			t.Errorf("the cookie %s is not Secure under an https public URL", cookie.Name)
+		}
+	}
+	if response, body := signIn("203.0.113.9", apitest.Passphrase, "http"); response.StatusCode != http.StatusForbidden || !strings.Contains(string(body), api.CodeInsecureTransport) {
+		t.Errorf("a request the proxy said was http answered %d: %s", response.StatusCode, body)
+	}
+}
+
 // workerCredential reads the credential a worker keeps in its journal, as only its user may.
 func workerCredential(t *testing.T, machine *install) string {
 	t.Helper()

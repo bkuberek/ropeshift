@@ -136,8 +136,9 @@ func tcpLink(t *testing.T, protocol int) *LinkRig {
 }
 
 // networkLink is the rig of every link on the network listener. serving is what the listener serves, nil for
-// plaintext, and dial makes the client a worker would use on the address the listener bound.
-func networkLink(t *testing.T, protocol int, serving *tls.Config, dial func(*apitest.Web) (*api.Client, error)) *LinkRig {
+// plaintext, and dial makes the client a worker would use on the address the listener bound. with changes how
+// the listener is served, as a link behind a proxy lists the proxy.
+func networkLink(t *testing.T, protocol int, serving *tls.Config, dial func(*apitest.Web) (*api.Client, error), with ...func(*apitest.NetworkOptions)) *LinkRig {
 	t.Helper()
 	wire := &faultyWire{}
 	offset := &atomic.Int64{}
@@ -145,13 +146,17 @@ func networkLink(t *testing.T, protocol int, serving *tls.Config, dial func(*api
 		Protocol: protocol,
 		Clock:    func(d sqlstore.Dialect) sqlstore.Dialect { return ShiftedDialect{d, offset} },
 	})
-	network := daemon.ServeNetworkWith(t, apitest.NetworkOptions{
+	options := apitest.NetworkOptions{
 		Assets: fstest.MapFS{"placeholder.html": {Data: []byte("not built")}}, TLS: serving,
 		Wrap: func(next http.Handler) http.Handler {
 			wire.next = next
 			return wire
 		},
-	})
+	}
+	for _, change := range with {
+		change(&options)
+	}
+	network := daemon.ServeNetworkWith(t, options)
 	client, err := dial(network)
 	if err != nil {
 		t.Fatal(err)
@@ -186,6 +191,9 @@ func TestWorkerLinkContract(t *testing.T) {
 	})
 	t.Run("https with a supplied certificate", func(t *testing.T) {
 		RunWorkerLink(t, LinkBackend{Name: "https-supplied-certificate", Fresh: secureLink(suppliedCertificate)})
+	})
+	t.Run("https behind a reverse proxy", func(t *testing.T) {
+		RunWorkerLink(t, LinkBackend{Name: "https-behind-a-proxy", Fresh: proxiedLink})
 	})
 }
 

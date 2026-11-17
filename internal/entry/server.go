@@ -64,6 +64,12 @@ type serverOptions struct {
 	// addresses the certificate the server makes covers (ADR-0031).
 	tlsCert, tlsKey string
 	names           []string
+	// tls is "off" behind a reverse proxy that terminates TLS, and trustedProxies are the addresses and ranges of
+	// the proxies the server takes plaintext from and reads forwarded headers from. publicURL is the origin members'
+	// browsers reach the proxy at (ADR-0031).
+	tls            string
+	trustedProxies []string
+	publicURL      string
 	// signinMax is how many wrong guesses at a passphrase or a join token a client address may make within
 	// signinLockout, which is also how long it is refused after (ADR-0031).
 	signinMax     int
@@ -112,6 +118,12 @@ func serverFlags(opts *serverOptions, getenv func(string) string) *flag.FlagSet 
 		opts.names = append(opts.names, splitList(value)...)
 		return nil
 	})
+	flags.StringVar(&opts.tls, "tls", getenv(envTLS), "on, the default, serves TLS on any address but a loopback one; off serves plaintext to the reverse proxies --trusted-proxies lists, which terminate TLS ("+envTLS+")")
+	flags.Func("trusted-proxies", "the address or CIDR range of a reverse proxy, repeated or comma separated, that the server takes plaintext from beside loopback and reads X-Forwarded-For and X-Forwarded-Proto from, with --tls off ("+envTrustedProxies+")", func(value string) error {
+		opts.trustedProxies = append(opts.trustedProxies, splitList(value)...)
+		return nil
+	})
+	flags.StringVar(&opts.publicURL, "public-url", getenv(envPublicURL), "the https origin members' browsers use behind a reverse proxy, such as https://ropeshift.example, with --tls off ("+envPublicURL+")")
 	flags.DurationVar(&opts.leaseTick, "lease-tick", 5*time.Second, "how often expired leases lapse")
 	flags.DurationVar(&opts.intakeTick, "intake-tick", 30*time.Second, "how often sources are polled")
 	flags.DurationVar(&opts.batchTick, "batch-tick", 5*time.Second, "how often closed batches reach members")
@@ -157,10 +169,13 @@ func parseServer(args []string, getenv func(string) string, stderr io.Writer) (s
 		return opts, false
 	}
 	// A flag wins over the environment, as it does for every other setting.
-	named := false
-	flags.Visit(func(f *flag.Flag) { named = named || f.Name == "name" })
-	if !named {
+	given := map[string]bool{}
+	flags.Visit(func(f *flag.Flag) { given[f.Name] = true })
+	if !given["name"] {
 		opts.names = splitList(getenv(envServerNames))
+	}
+	if !given["trusted-proxies"] {
+		opts.trustedProxies = splitList(getenv(envTrustedProxies))
 	}
 	return opts, true
 }
@@ -382,15 +397,20 @@ func serveServer(ctx context.Context, paths api.Paths, opts serverOptions, trans
 		Scope: home.ID, Store: store, Projects: state, Installation: state.Installation,
 		LeaseTTL: opts.leaseTTL.Milliseconds(), HeartbeatMs: opts.heartbeat.Milliseconds(),
 		Installed: installed.Installed, WebAddress: listener.webAddress(),
-		Attempts: server.NewAttempts(server.AttemptLimits{MaxFailures: opts.signinMax, Lockout: opts.signinLockout}),
-		Matcher:  lexical.Matcher{Store: store}, Matching: func(store ports.Store) ports.Matcher { return lexical.Matcher{Store: store} },
+		Attempts: server.NewAttempts(server.AttemptLimits{MaxFailures: opts.signinMax, Lockout: opts.signinLockout}), Warn: warnTo(stderr),
+		Matcher: lexical.Matcher{Store: store}, Matching: func(store ports.Store) ports.Matcher { return lexical.Matcher{Store: store} },
 		Identity: localauth.New(store, localauth.DefaultParams), Batches: batches, Windows: windows, PackTokens: soloPackTokens(paths),
 		LaneBranchPrefix: soloLaneBranchPrefix(paths),
 		Knowledge:        reads.knowledge, Starts: reads.starts, Branches: reads.branches, Checkouts: reads.checkouts,
 		ParseManifest: reads.parseManifest, Panes: reads.panes,
 	}
 	controlServer := &http.Server{Handler: server.New(config), ReadHeaderTimeout: 10 * time.Second}
-	networkServer := networkHTTPServer(server.NewNetwork(config, server.WebOptions{Port: bound.Port, Assets: assets}))
+	web := server.WebOptions{Port: bound.Port, Assets: assets, Proxies: transport.proxies, PublicURL: transport.publicURL}
+	if transport.proxies != nil {
+		// The limit on wrong guesses counts the client a listed proxy names, and no other address.
+		web.Client = transport.proxies.Client
+	}
+	networkServer := networkHTTPServer(server.NewNetwork(config, web))
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	serveErr := make(chan error, 2)
@@ -398,6 +418,9 @@ func serveServer(ctx context.Context, paths api.Paths, opts serverOptions, trans
 	go func() { serveErr <- networkServer.Serve(listener) }()
 	fmt.Fprintf(stdout, "ropeshiftd: serving %s\n", paths.ControlSocket())
 	fmt.Fprintf(stdout, "ropeshiftd: server %s://%s\n", listener.scheme(), bound)
+	if listener.publicURL != "" {
+		fmt.Fprintf(stdout, "ropeshiftd: public url %s\n", listener.publicURL)
+	}
 	if listener.fingerprint != "" {
 		fmt.Fprintf(stdout, "ropeshiftd: certificate authority %s\n", listener.authorityFile)
 		fmt.Fprintf(stdout, "ropeshiftd: certificate authority sha256 %s\n", listener.fingerprint)

@@ -51,6 +51,148 @@ func TestAServerTakesItsCertificateSettingsFromFlagsAndTheEnvironment(t *testing
 	}
 }
 
+// A server behind a reverse proxy takes the same three settings from its flags and from its environment, and a flag
+// wins over the variable.
+func TestAServerTakesItsProxySettingsFromFlagsAndTheEnvironment(t *testing.T) {
+	t.Parallel()
+	given := map[string]string{"ROPESHIFT_TLS": "off", "ROPESHIFT_TRUSTED_PROXIES": "10.0.0.0/8, 172.16.0.0/12", "ROPESHIFT_PUBLIC_URL": "https://env.example"}
+	tests := []struct {
+		name    string
+		args    []string
+		env     map[string]string
+		tls     string
+		proxies []string
+		public  string
+	}{
+		{"the defaults", nil, nil, "", nil, ""},
+		{"the environment", nil, given, "off", []string{"10.0.0.0/8", "172.16.0.0/12"}, "https://env.example"},
+		{"flags over the environment", []string{"--tls", "on", "--trusted-proxies", "192.168.0.0/16", "--trusted-proxies", "fd00::/8,::1", "--public-url", "https://flag.example"}, given, "on", []string{"192.168.0.0/16", "fd00::/8", "::1"}, "https://flag.example"},
+		{"one flag", []string{"--public-url", "https://flag.example"}, given, "off", []string{"10.0.0.0/8", "172.16.0.0/12"}, "https://flag.example"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var stderr bytes.Buffer
+			opts, ok := parseServer(append([]string{"--database", "postgres://db/x"}, tt.args...), env(tt.env), &stderr)
+			if !ok {
+				t.Fatalf("refused: %s", &stderr)
+			}
+			if opts.tls != tt.tls || !slices.Equal(opts.trustedProxies, tt.proxies) || opts.publicURL != tt.public {
+				t.Errorf("tls %q, proxies %q, public URL %q", opts.tls, opts.trustedProxies, opts.publicURL)
+			}
+		})
+	}
+}
+
+// Behind a proxy that terminates TLS the listener takes plaintext, which only loopback and the proxies it lists may
+// send (NFR-SEC-2), so TLS off with no proxy listed, or with no public URL for its members to use, is no server to
+// start, and says what is missing.
+func TestAServerBehindAProxyNeedsItsProxiesAndItsPublicURL(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		opts    serverOptions
+		mode    transportMode
+		proxies int
+		public  string
+		refuses []string
+	}{
+		{name: "the proxy's network", opts: serverOptions{listen: "0.0.0.0:7400", tls: "off", trustedProxies: []string{"10.0.0.0/8"}, publicURL: "https://ropeshift.example"}, mode: transportProxy, proxies: 1, public: "https://ropeshift.example"},
+		{name: "a public URL in capitals, with its default port", opts: serverOptions{listen: "0.0.0.0:7400", tls: "off", trustedProxies: []string{"10.0.0.0/8", "fd00::/8"}, publicURL: "HTTPS://Ropeshift.Example:443/"}, mode: transportProxy, proxies: 2, public: "https://ropeshift.example"},
+		{name: "a public URL with a port", opts: serverOptions{listen: ":7400", tls: "off", trustedProxies: []string{"10.0.0.2"}, publicURL: "https://ropeshift.example:8443"}, mode: transportProxy, proxies: 1, public: "https://ropeshift.example:8443"},
+		{name: "a proxy on this machine", opts: serverOptions{listen: "127.0.0.1:7400", tls: "off", trustedProxies: []string{"127.0.0.1"}, publicURL: "https://ropeshift.example"}, mode: transportProxy, proxies: 1, public: "https://ropeshift.example"},
+		{name: "TLS off on loopback with nothing else", opts: serverOptions{listen: "127.0.0.1:7400", tls: "off"}, mode: transportLoopback},
+		{name: "TLS on is what a server has", opts: serverOptions{listen: "127.0.0.1:7400", tls: "on"}, mode: transportLoopback},
+		{name: "off loopback with nothing", opts: serverOptions{listen: "0.0.0.0:7400", tls: "off"}, refuses: []string{"--trusted-proxies", "--public-url"}},
+		{name: "no public URL", opts: serverOptions{listen: "0.0.0.0:7400", tls: "off", trustedProxies: []string{"10.0.0.0/8"}}, refuses: []string{"--public-url"}},
+		{name: "no public URL beside a proxy on loopback", opts: serverOptions{listen: "127.0.0.1:7400", tls: "off", trustedProxies: []string{"127.0.0.1"}}, refuses: []string{"--public-url"}},
+		{name: "no proxy", opts: serverOptions{listen: "0.0.0.0:7400", tls: "off", publicURL: "https://ropeshift.example"}, refuses: []string{"--trusted-proxies"}},
+		{name: "no proxy on loopback", opts: serverOptions{listen: "127.0.0.1:7400", tls: "off", publicURL: "https://ropeshift.example"}, refuses: []string{"--trusted-proxies"}},
+		{name: "a public URL that is http", opts: serverOptions{listen: "0.0.0.0:7400", tls: "off", trustedProxies: []string{"10.0.0.0/8"}, publicURL: "http://ropeshift.example"}, refuses: []string{"https"}},
+		{name: "a public URL with a path", opts: serverOptions{listen: "0.0.0.0:7400", tls: "off", trustedProxies: []string{"10.0.0.0/8"}, publicURL: "https://ropeshift.example/ropeshift"}, refuses: []string{"--public-url"}},
+		{name: "a public URL with credentials", opts: serverOptions{listen: "0.0.0.0:7400", tls: "off", trustedProxies: []string{"10.0.0.0/8"}, publicURL: "https://me:hunter2@ropeshift.example"}, refuses: []string{"--public-url"}},
+		{name: "a public URL that is a name", opts: serverOptions{listen: "0.0.0.0:7400", tls: "off", trustedProxies: []string{"10.0.0.0/8"}, publicURL: "ropeshift.example"}, refuses: []string{"--public-url"}},
+		{name: "every address as a proxy", opts: serverOptions{listen: "0.0.0.0:7400", tls: "off", trustedProxies: []string{"0.0.0.0/0"}, publicURL: "https://ropeshift.example"}, refuses: []string{"--trusted-proxies", "0.0.0.0/0"}},
+		{name: "every IPv6 address as a proxy", opts: serverOptions{listen: "0.0.0.0:7400", tls: "off", trustedProxies: []string{"10.0.0.0/8", "::/0"}, publicURL: "https://ropeshift.example"}, refuses: []string{"--trusted-proxies", "::/0"}},
+		{name: "a proxy that is a name", opts: serverOptions{listen: "0.0.0.0:7400", tls: "off", trustedProxies: []string{"proxy.internal"}, publicURL: "https://ropeshift.example"}, refuses: []string{"--trusted-proxies", "proxy.internal"}},
+		{name: "a certificate beside TLS off", opts: serverOptions{listen: "0.0.0.0:7400", tls: "off", trustedProxies: []string{"10.0.0.0/8"}, publicURL: "https://ropeshift.example", tlsCert: "/c.pem", tlsKey: "/k.pem"}, refuses: []string{"--tls off", "--tls-cert"}},
+		{name: "names beside TLS off", opts: serverOptions{listen: "0.0.0.0:7400", tls: "off", trustedProxies: []string{"10.0.0.0/8"}, publicURL: "https://ropeshift.example", names: []string{"ropeshift.example"}}, refuses: []string{"--tls off", "--name"}},
+		{name: "proxies without TLS off", opts: serverOptions{listen: "0.0.0.0:7400", trustedProxies: []string{"10.0.0.0/8"}, names: []string{"ropeshift.lan"}}, refuses: []string{"--trusted-proxies", "--tls off"}},
+		{name: "proxies with a certificate", opts: serverOptions{listen: "0.0.0.0:7400", trustedProxies: []string{"10.0.0.0/8"}, tlsCert: "/c.pem", tlsKey: "/k.pem"}, refuses: []string{"--trusted-proxies", "--tls off"}},
+		{name: "a public URL without TLS off", opts: serverOptions{listen: "0.0.0.0:7400", publicURL: "https://ropeshift.example", names: []string{"ropeshift.lan"}}, refuses: []string{"--public-url", "--tls off"}},
+		{name: "a public URL on loopback", opts: serverOptions{listen: "127.0.0.1:7400", publicURL: "https://ropeshift.example"}, refuses: []string{"--public-url", "--tls off"}},
+		{name: "a value that is not on or off", opts: serverOptions{listen: "127.0.0.1:7400", tls: "maybe"}, refuses: []string{"--tls", "maybe"}},
+		{name: "a value in capitals", opts: serverOptions{listen: "127.0.0.1:7400", tls: "OFF"}, refuses: []string{"--tls", "OFF"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			plan, err := planTransport(tt.opts)
+			if len(tt.refuses) > 0 {
+				if err == nil {
+					t.Fatalf("the plan is %+v", plan)
+				}
+				for _, want := range tt.refuses {
+					if !strings.Contains(err.Error(), want) {
+						t.Errorf("the refusal does not say %q: %v", want, err)
+					}
+				}
+				if strings.Contains(err.Error(), "hunter2") {
+					t.Errorf("the refusal repeats a password: %v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if plan.mode != tt.mode || plan.proxies.Len() != tt.proxies || plan.publicURL != tt.public {
+				t.Errorf("the plan is %+v", plan)
+			}
+		})
+	}
+}
+
+// With TLS off and a proxy listed, the server refuses before it opens a database, and says what to set.
+func TestAServerWithTLSOffAndNoProxyIsRefusedBeforeItConnects(t *testing.T) {
+	isolate(t)
+	t.Setenv("ROPESHIFT_GROUP_MODE", "preview")
+	code, stdout, stderr := runMain(commandDaemon, "server", "--database", "host=/nowhere dbname=none", "--listen", "0.0.0.0:7400", "--tls", "off")
+	if code != exitUsage || stdout != "" {
+		t.Fatalf("exit %d, stdout %q", code, stdout)
+	}
+	for _, want := range []string{"--trusted-proxies", "--public-url", "ROPESHIFT_TRUSTED_PROXIES", "ROPESHIFT_PUBLIC_URL"} {
+		if !strings.Contains(stderr, want) {
+			t.Errorf("stderr %q does not name %s", stderr, want)
+		}
+	}
+}
+
+// Behind a proxy the listener serves plaintext to the proxy and to loopback, reports no web address of its own,
+// and says where members reach it. A peer that is not listed is closed, which the listener's own tests hold.
+func TestTheServerBehindAProxyServesPlaintextToItsProxy(t *testing.T) {
+	t.Parallel()
+	state := t.TempDir()
+	plan, err := planTransport(serverOptions{listen: "127.0.0.1:0", tls: "off", trustedProxies: []string{"127.0.0.1"}, publicURL: "https://ropeshift.example"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	listener, err := plan.listen("127.0.0.1:0", state, clock.System{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = listener.Close() })
+	serve(t, listener)
+	response, err := http.Get("http://" + listener.Addr().String() + "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = response.Body.Close()
+	if response.StatusCode != http.StatusOK || listener.fingerprint != "" || listener.scheme() != "http" || listener.webAddress() != "" || listener.publicURL != "https://ropeshift.example" {
+		t.Errorf("status %d, fingerprint %q, scheme %q, web address %q, public URL %q", response.StatusCode, listener.fingerprint, listener.scheme(), listener.webAddress(), listener.publicURL)
+	}
+	if _, err := os.Stat(filepath.Join(state, tlsDirectory)); err == nil {
+		t.Error("a server behind a proxy made a certificate authority")
+	}
+}
+
 // The limit on wrong guesses is 10 within 15 minutes unless a setting says otherwise, from a flag or from the
 // environment a container gives, and a flag wins.
 func TestAServerTakesItsSignInLimitFromFlagsAndTheEnvironment(t *testing.T) {
