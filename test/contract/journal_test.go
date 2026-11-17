@@ -51,6 +51,10 @@ func TestJournalContract(t *testing.T) {
 		{"pending stops at the high-water mark", checkJournalPending},
 		{"the high-water mark never moves back", checkJournalMark},
 		{"a repeated answer keeps one rejection", checkJournalRejections},
+		{"refused events read back in order", checkJournalRefused},
+		{"a reissue replaces refused events once", checkJournalReissue},
+		{"a reissue waits for an unanswered event of its lane", checkJournalReissueWaits},
+		{"a reissue refuses a copy of another lane", checkJournalReissueOneLane},
 		{"leases are replaced whole", checkJournalLeases},
 		{"desired state round trips", checkJournalDesired},
 		{"a migration repeats as a no-op", checkJournalMigrate},
@@ -455,6 +459,130 @@ func checkJournalRejections(t *testing.T, ctx context.Context, j ports.Journal) 
 	rejected, err := j.Rejected(ctx)
 	if err != nil || len(rejected) != 1 || rejected[0] != result {
 		t.Errorf("rejected %+v: %v", rejected, err)
+	}
+}
+
+func checkJournalRefused(t *testing.T, ctx context.Context, j ports.Journal) {
+	for i := range 3 {
+		if _, err := j.Append(ctx, ledger.UploadEvent{Type: "e", Lane: fmt.Sprintf("lane-%d", i+1), Project: "pb", OccurredAt: 1}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	refusals := []ports.JournalResult{{Seq: 1, Status: ledger.UploadInvalid}, {Seq: 3, Status: ledger.UploadFenced}}
+	if err := j.Acknowledge(ctx, 3, refusals); err != nil {
+		t.Fatal(err)
+	}
+	refused, err := j.Refused(ctx)
+	if err != nil || len(refused) != 2 || refused[0].Seq != 1 || refused[0].Lane != "lane-1" || refused[1].Seq != 3 || refused[1].Project != "pb" {
+		t.Errorf("refused %+v: %v", refused, err)
+	}
+}
+
+// laneEvent is an event of a lane's second generation under one claim.
+func laneEvent(eventType, lane string) ledger.UploadEvent {
+	return ledger.UploadEvent{Type: eventType, Lane: lane, WorkOrder: "wo", ClaimID: "c", Fence: 1, Generation: 2, OccurredAt: 1}
+}
+
+func checkJournalReissue(t *testing.T, ctx context.Context, j ports.Journal) {
+	if err := j.SaveLane(ctx, lanes.Record{ID: "lane-1", WorkOrder: "wo", ClaimID: "c", Fence: 1, Generation: 2, State: lanes.StateRunning}); err != nil {
+		t.Fatal(err)
+	}
+	resumed, err := j.Append(ctx, laneEvent(ledger.UploadLaneResumed, "lane-1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := j.Append(ctx, laneEvent(ledger.UploadLaneStatus, "lane-2"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	parked, err := j.CommitParked(ctx, "lane-1", lanes.ParkProgress{Wake: "lane-1/g2", Generation: 2}, laneEvent(ledger.UploadLaneParked, "lane-1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	refusals := []ports.JournalResult{
+		{Seq: resumed.Seq, Status: ledger.UploadInvalid}, {Seq: other.Seq, Status: ledger.UploadFenced}, {Seq: parked.Seq, Status: ledger.UploadFenced},
+	}
+	if err := j.Acknowledge(ctx, parked.Seq, refusals); err != nil {
+		t.Fatal(err)
+	}
+	copies := []ledger.UploadEvent{resumed, parked}
+	for i := range copies {
+		copies[i].Project = "pb"
+	}
+	reissue := ports.Reissue{Lane: "lane-1", Project: "pb", Copies: copies}
+	if stored, err := j.Reissue(ctx, reissue); err != nil || !stored {
+		t.Fatalf("stored %v: %v", stored, err)
+	}
+	pending, err := j.Pending(ctx, 10)
+	if err != nil || len(pending) != 2 {
+		t.Fatalf("pending %+v: %v", pending, err)
+	}
+	if pending[0].Type != ledger.UploadLaneResumed || pending[1].Type != ledger.UploadLaneParked || pending[0].Project != "pb" || pending[0].Seq <= parked.Seq {
+		t.Errorf("pending %+v", pending)
+	}
+	if refused, err := j.Refused(ctx); err != nil || len(refused) != 1 || refused[0].Seq != other.Seq {
+		t.Errorf("refused %+v: %v", refused, err)
+	}
+	got, err := j.Lane(ctx, "lane-1")
+	if err != nil || got.Project != "pb" || got.Parking == nil || got.Parking.Seq != pending[1].Seq {
+		t.Errorf("the lane %+v, parking %+v: %v", got, got.Parking, err)
+	}
+	if err := j.Acknowledge(ctx, pending[1].Seq, nil); err != nil {
+		t.Fatal(err)
+	}
+	if stored, err := j.Reissue(ctx, reissue); err != nil || stored {
+		t.Errorf("a second reissue stored %v: %v", stored, err)
+	}
+	if pending, err := j.Pending(ctx, 10); err != nil || len(pending) != 0 {
+		t.Errorf("pending after a second reissue %+v: %v", pending, err)
+	}
+}
+
+func checkJournalReissueOneLane(t *testing.T, ctx context.Context, j ports.Journal) {
+	resumed, err := j.Append(ctx, laneEvent(ledger.UploadLaneResumed, "lane-1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := j.Append(ctx, laneEvent(ledger.UploadLaneStatus, "lane-2"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	refusals := []ports.JournalResult{{Seq: resumed.Seq, Status: ledger.UploadInvalid}, {Seq: other.Seq, Status: ledger.UploadFenced}}
+	if err := j.Acknowledge(ctx, other.Seq, refusals); err != nil {
+		t.Fatal(err)
+	}
+	copies := []ledger.UploadEvent{resumed, other}
+	if stored, err := j.Reissue(ctx, ports.Reissue{Lane: "lane-1", Project: "pb", Copies: copies}); err == nil || stored {
+		t.Errorf("a copy of another lane: stored %v, %v", stored, err)
+	}
+	if refused, err := j.Refused(ctx); err != nil || len(refused) != 2 {
+		t.Errorf("refused %+v: %v", refused, err)
+	}
+	if pending, err := j.Pending(ctx, 10); err != nil || len(pending) != 0 {
+		t.Errorf("pending %+v: %v", pending, err)
+	}
+}
+
+func checkJournalReissueWaits(t *testing.T, ctx context.Context, j ports.Journal) {
+	resumed, err := j.Append(ctx, laneEvent(ledger.UploadLaneResumed, "lane-1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := j.Acknowledge(ctx, resumed.Seq, []ports.JournalResult{{Seq: resumed.Seq, Status: ledger.UploadInvalid}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := j.Append(ctx, laneEvent(ledger.UploadLaneStatus, "lane-1")); err != nil {
+		t.Fatal(err)
+	}
+	resumed.Project = "pb"
+	if stored, err := j.Reissue(ctx, ports.Reissue{Lane: "lane-1", Project: "pb", Copies: []ledger.UploadEvent{resumed}}); err != nil || stored {
+		t.Errorf("stored %v ahead of an unanswered event: %v", stored, err)
+	}
+	if refused, err := j.Refused(ctx); err != nil || len(refused) != 1 {
+		t.Errorf("refused %+v: %v", refused, err)
+	}
+	if pending, err := j.Pending(ctx, 10); err != nil || len(pending) != 1 {
+		t.Errorf("pending %+v: %v", pending, err)
 	}
 }
 

@@ -31,6 +31,9 @@ type installationRig struct {
 	driver  *fake.AgentDriver
 	subject *worker.Worker
 	profile *fake.ProfileSource
+	clock   *fake.Clock
+	lanes   *worker.LaneRuntime
+	dir     string
 }
 
 func newInstallationRig(t *testing.T) *installationRig {
@@ -60,7 +63,7 @@ func newInstallationRig(t *testing.T) *installationRig {
 	r.driver = fake.NewAgentDriver()
 	r.profile = fake.NewProfileSource()
 	dir := t.TempDir()
-	config := &worker.LaneRuntime{
+	r.lanes, r.dir = &worker.LaneRuntime{
 		Driver: r.driver,
 		Provisioner: worker.Provisioner{
 			Profiles: r.profile, Worktrees: fake.NewWorktrees(), Hooks: fake.NewHookRunner(),
@@ -71,17 +74,24 @@ func newInstallationRig(t *testing.T) *installationRig {
 		Socket:     "/run/worker.sock", Spool: "/state/hooks.spool", Binary: "/state/bin/ropeshift",
 		StateDir: dir, RunDir: dir,
 		Telemetry: worker.LaneTelemetry{Endpoint: "http://127.0.0.1:7318", Header: "x-ropeshift-telemetry=t", Workspace: "pa"},
-	}
-	r.subject = worker.New(&fake.WorkerLink{Plane: r.plane}, r.journal, fake.NewClock(time.UnixMilli(1_000_000)), worker.Config{
+	}, dir
+	r.clock = fake.NewClock(time.UnixMilli(1_000_000))
+	r.restart()
+	return r
+}
+
+// restart starts the worker again on the same journal, as a new process of it does.
+func (r *installationRig) restart() {
+	r.t.Helper()
+	r.subject = worker.New(&fake.WorkerLink{Plane: r.plane}, r.journal, r.clock, worker.Config{
 		Name:      "test",
 		JoinToken: func(ctx context.Context) (string, error) { return r.plane.CreateJoinToken(ctx, member) },
-		Lanes:     config,
-		Spool:     filepath.Join(dir, "spool"),
+		Lanes:     r.lanes,
+		Spool:     filepath.Join(r.dir, "spool"),
 	})
-	if err := r.subject.Start(ctx); err != nil {
-		t.Fatal(err)
+	if err := r.subject.Start(r.t.Context()); err != nil {
+		r.t.Fatal(err)
 	}
-	return r
 }
 
 // dispatch records the same work order ID in a project, claims it for the worker, and starts a lane on it.

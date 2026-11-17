@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"maps"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"ropeshift.com/ropeshift/internal/crashpoint"
@@ -88,6 +89,8 @@ type Worker struct {
 	polledAt  time.Time
 	laneGroup sync.WaitGroup
 	marked    sync.Once
+	// reissued says this process sent again what an earlier build's resumes left refused, or found nothing to.
+	reissued atomic.Bool
 	// performingLock guards performing, the effects a goroutine of this process is performing now.
 	performingLock sync.Mutex
 	performing     map[string]bool
@@ -423,6 +426,12 @@ func (w *Worker) Record(ctx context.Context, event ledger.UploadEvent) (ledger.U
 func (w *Worker) Upload(ctx context.Context) error {
 	w.uploading.Lock()
 	defer w.uploading.Unlock()
+	return w.uploadHeld(ctx)
+}
+
+// uploadHeld is Upload for a caller that holds uploading, so no other upload answers an event while that
+// caller reads what the ledger answered.
+func (w *Worker) uploadHeld(ctx context.Context) error {
 	w.mu.Lock()
 	auth := ledger.WorkerAuth{WorkerID: w.identity.WorkerID, Credential: w.identity.Credential}
 	epoch := w.identity.Epoch

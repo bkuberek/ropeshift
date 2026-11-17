@@ -12,6 +12,15 @@ import (
 // JournalResult is what the journal keeps about one event the ledger rejected.
 type JournalResult = ledger.UploadResult
 
+// Reissue is what a worker sends again of one lane in place of events the ledger refused. Each copy names
+// the refused event it replaces by its sequence number. Project is what the lane's record takes when it
+// names no project.
+type Reissue struct {
+	Lane    string
+	Project string
+	Copies  []ledger.UploadEvent
+}
+
 // Journal is the worker's local durable store, separate from the ledger in every
 // mode, so a crash test in solo mode exercises the same recovery as group mode.
 type Journal interface {
@@ -33,6 +42,15 @@ type Journal interface {
 	Acknowledge(ctx context.Context, through int64, rejected []JournalResult) error
 	// Rejected lists the events the ledger refused.
 	Rejected(ctx context.Context) ([]JournalResult, error)
+	// Refused returns the events the ledger refused, in order.
+	Refused(ctx context.Context) ([]ledger.UploadEvent, error)
+	// Reissue stores a reissue's copies under new sequence numbers, in order, forgets the refusal of each
+	// event a copy replaces, moves the lane's parked commit to the copy that replaces it, and gives the
+	// lane's record the project it lacks, in one transaction. It stores nothing and returns false while
+	// the journal holds an event of the lane past the high-water mark, which a copy must not go ahead of,
+	// or when an event a copy names holds no refusal, because another call sent it again already. A copy
+	// of another lane than the reissue's is an error, and stores nothing.
+	Reissue(ctx context.Context, reissue Reissue) (bool, error)
 	// Leases lists the leases this worker holds.
 	Leases(ctx context.Context) ([]ledger.HeldLease, error)
 	// SaveLeases replaces them.

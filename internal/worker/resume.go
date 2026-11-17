@@ -167,7 +167,7 @@ func (r *laneRun) resumeRecord(record lanes.Record, next int64, choice lanes.Res
 		pending = ""
 	}
 	stored := lanes.Record{
-		ID: r.lease.Lane, WorkOrder: r.lease.WorkOrder, ClaimID: r.lease.ClaimID, Fence: r.lease.Fence, Generation: next,
+		ID: r.lease.Lane, Project: r.lease.Project, WorkOrder: r.lease.WorkOrder, ClaimID: r.lease.ClaimID, Fence: r.lease.Fence, Generation: next,
 		State: lanes.StateRunning, Actual: lanes.Provisioning, Worktree: record.Worktree, Branch: record.Branch,
 		Handoff: &lanes.HandoffProgress{Reason: string(choice.Rule), Document: from.Handoff, Begun: true},
 		Parking: &lanes.ParkProgress{
