@@ -121,6 +121,19 @@ func (w *Worker) NoteCIHint(binding ledger.ForgeBinding, head string) {
 
 func hintKey(binding, head string) string { return binding + "\x00" + head }
 
+// hearHints notes each CI hint a heartbeat's answer carried, and keeps the mark the next heartbeat names. A hint
+// that names a repository this worker watches nothing in does nothing.
+func (w *Worker) hearHints(reply ledger.HeartbeatReply) {
+	for _, hint := range reply.Hints {
+		if binding, err := ledger.ParseForgeBinding(hint.Binding); err == nil {
+			w.NoteCIHint(binding, hint.Head)
+		}
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.hintsThrough = reply.HintsSeq
+}
+
 // takeHint says a hint names this pull request, and drops it. Its caller holds forgeLock.
 func (w *Worker) takeHint(watched ledger.DesiredPullRequest) bool {
 	now, hinted := w.clock.Now(), false

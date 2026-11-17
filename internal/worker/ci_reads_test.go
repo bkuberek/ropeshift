@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"ropeshift.com/ropeshift/internal/control"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/ports"
 )
@@ -117,6 +118,44 @@ func TestAnUnchangedHeadIsProbedAndNotRead(t *testing.T) {
 	f.advance(time.Second)
 	if got := f.forge.Calls(); count(got, "probe ") != 3 || count(got, "read ") != reads+1 {
 		t.Fatalf("a read after a check finished took %v, want a probe and a read", got)
+	}
+}
+
+// A hint a heartbeat's answer carries reads the pull request it names at once, once, and the worker sends the mark
+// of the last hint it heard so the next answer carries only what is new.
+func TestAHintInAHeartbeatReadsThePullRequestAtOnce(t *testing.T) {
+	t.Parallel()
+	f, reads, _ := ciRig(t)
+	f.converge(2)
+	first := reads()
+	board := control.NewCIHints(f.clock.Now)
+	since := board.Since
+	f.link.Hints.Store(&since)
+	beat := func() {
+		f.t.Helper()
+		if _, err := f.subject.Beat(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+		f.advance(time.Second)
+	}
+	beat()
+	if reads() != first {
+		t.Fatalf("a heartbeat with no hint read the pull request: %d reads, %d before", reads(), first)
+	}
+	board.Note(ledger.ForgeBinding{Host: "github.com", Owner: "acme", Repo: "other"}, "")
+	beat()
+	if reads() != first {
+		t.Fatalf("a hint for another repository read this one: %d reads", reads())
+	}
+	board.Note(widgets, "fake-head")
+	beat()
+	if reads() != first+1 {
+		t.Fatalf("a hint in a heartbeat did not read the pull request: %d reads, %d before", reads(), first)
+	}
+	beat()
+	beat()
+	if reads() != first+1 {
+		t.Fatalf("a hint was heard twice: %d reads, %d before", reads(), first)
 	}
 }
 

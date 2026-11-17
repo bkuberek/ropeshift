@@ -33,7 +33,12 @@ type Plane struct {
 	mu sync.Mutex
 	// served holds the plane of each project a call reached, by the project's ID.
 	served map[ledger.WorkspaceID]*Workers
+	// hints are the CI hints the signed webhook deliveries made, which a heartbeat hands to a worker.
+	hints *CIHints
 }
+
+// CIHints is the board a signed CI webhook delivery puts a hint on, for the workers' heartbeats to carry.
+func (p *Plane) CIHints() *CIHints { return p.hints }
 
 // NewPlane returns the plane over an installation's registry and its shared records. matching makes the
 // question ladder's matcher of a project's Store, and nil leaves an orchestrator to search for itself.
@@ -41,7 +46,7 @@ func NewPlane(registry ports.Projects, installation ports.Installation, home led
 	options = withPlaneDefaults(options)
 	return &Plane{
 		registry: registry, installation: installation, home: home, options: options, matching: matching,
-		served: map[ledger.WorkspaceID]*Workers{},
+		served: map[ledger.WorkspaceID]*Workers{}, hints: NewCIHints(time.Now),
 	}
 }
 
@@ -276,6 +281,7 @@ func (p *Plane) Heartbeat(ctx context.Context, beat ledger.Heartbeat) (ledger.He
 		}
 	}
 	reply.ReportError = saveReport(ctx, p.installation, beat, p.options.HeartbeatMs)
+	reply.Hints, reply.HintsSeq = p.hints.Since(beat.HintsThrough)
 	revisions, projects, sum, err := p.revisions(ctx)
 	if err != nil {
 		return ledger.HeartbeatReply{}, err

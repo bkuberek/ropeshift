@@ -35,6 +35,9 @@ type WorkerLink struct {
 	FailUpload atomic.Bool
 	// FailTemplateReport refuses every report of a template write, as a control plane that is away would.
 	FailTemplateReport atomic.Bool
+	// Hints, once set, makes every heartbeat's answer carry the CI hints after the beat's mark, as the control
+	// plane's board gives them.
+	Hints atomic.Pointer[func(after int64) ([]ledger.CIHint, int64)]
 }
 
 // AssistantCredential calls the plane.
@@ -70,6 +73,9 @@ func (l *WorkerLink) Heartbeat(ctx context.Context, beat ledger.Heartbeat) (ledg
 	reply, err := l.Plane.Heartbeat(ctx, beat)
 	if err == nil && l.CorruptNonce.Load() {
 		reply.Nonce = "not-" + reply.Nonce
+	}
+	if hints := l.Hints.Load(); err == nil && hints != nil {
+		reply.Hints, reply.HintsSeq = (*hints)(beat.HintsThrough)
 	}
 	return reply, err
 }

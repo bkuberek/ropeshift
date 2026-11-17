@@ -154,6 +154,18 @@ type Heartbeat struct {
 	// Report is what the worker measured since its last heartbeat that was answered, and absent when it
 	// measured nothing new (FR-OBS-8).
 	Report *ResourceReport `json:"report,omitempty"`
+	// HintsThrough is the last CI hint the worker has heard of, from HeartbeatReply.HintsSeq, so the reply carries
+	// the ones after it (FR-SPEND-20). A control plane that sends none leaves it zero.
+	HintsThrough int64 `json:"hints_through,omitempty"`
+}
+
+// CIHint says a forge reported, in a signed webhook delivery, that the checks of a head changed in a repository. It
+// carries no state: the worker reads the pull requests at the head, and the read decides (FR-SPEND-20). An empty
+// Head names every pull request of the repository.
+type CIHint struct {
+	Seq     int64  `json:"seq"`
+	Binding string `json:"binding"`
+	Head    string `json:"head,omitempty"`
 }
 
 // RenewedLease is a lease that holds, with what a worker counts from its send.
@@ -186,6 +198,11 @@ type HeartbeatReply struct {
 	// ReportError says the control plane did not keep the report this heartbeat carried, and why. The
 	// rest of the answer stands, and the worker sends the report again.
 	ReportError string `json:"report_error,omitempty"`
+	// Hints are the CI hints after the beat's HintsThrough, and HintsSeq is the last one this control plane has
+	// made, which the worker sends back as HintsThrough. A hint is a prompt to read sooner, so one a worker misses
+	// costs nothing but the delay.
+	Hints    []CIHint `json:"hints,omitempty"`
+	HintsSeq int64    `json:"hints_seq,omitempty"`
 }
 
 // DesiredRequest reads desired state. Since is the revision the worker has, and Revisions what it has
