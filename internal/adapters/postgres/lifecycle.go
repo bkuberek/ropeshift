@@ -117,9 +117,9 @@ func (s *State) newCreation(p ledger.Project, actor ledger.Actor) (*creation, er
 	return &creation{s: s, p: p, actor: actor, schema: schema}, nil
 }
 
-// refuseTaken refuses a project whose name or schema another project holds, and one whose ID the registry
-// keeps on another schema, before any step makes a schema. It runs under the lock, so what it reads is
-// what the registry step finds.
+// refuseTaken refuses a project whose name or schema another project holds, one whose ID differs only in
+// case from another project's, and one whose ID the registry keeps on another schema, before any step makes
+// a schema. It runs under the lock, so what it reads is what the registry step finds.
 func (c *creation) refuseTaken(ctx context.Context) error {
 	held, err := c.s.Installation.Projects(ctx)
 	if err != nil {
@@ -131,6 +131,10 @@ func (c *creation) refuseTaken(ctx context.Context) error {
 			if other.Database != c.schema {
 				return fmt.Errorf("%w: project %s keeps its records in schema %q", ledger.ErrProjectExists, other.ID, other.Database)
 			}
+		case strings.EqualFold(string(other.ID), string(c.p.ID)):
+			// A project an earlier build registered keeps the case of its ID in its schema's name, so its
+			// schema differs from this one's. The IDs still name one project to a person.
+			return fmt.Errorf("%w: project %s has an ID that differs from %q only in case", ledger.ErrProjectExists, other.ID, c.p.ID)
 		case other.Name == c.p.Name:
 			return fmt.Errorf("%w: project %s is named %q", ledger.ErrProjectExists, other.ID, c.p.Name)
 		case other.Database == c.schema:
@@ -238,30 +242,57 @@ func (s *State) newRemoval(p ledger.Project, actor ledger.Actor) (*removal, erro
 	return &removal{s: s, p: p, actor: actor, schema: schema}, nil
 }
 
+// forgetProject has the registry forget the project, once the registry agrees that the record's schema is
+// the project's. A record a caller kept, or made up, never points the drop at another project's schema.
+func (r *removal) forgetProject(ctx context.Context) error {
+	held, err := r.s.Installation.ProjectByID(ctx, r.p.ID)
+	switch {
+	case err == nil:
+		if held.Database != r.schema {
+			return fmt.Errorf("%w: the registry keeps project %s in schema %q, not %q", ledger.ErrInvalidProject, r.p.ID, held.Database, r.schema)
+		}
+		if err := r.s.Installation.DropProject(ctx, r.p.ID, r.actor); err != nil {
+			return err
+		}
+	case errors.Is(err, ports.ErrNotFound):
+		// A removal that stopped after the registry forgot the project left the schema. A schema another
+		// project holds is not that one, and with no schema either, there is nothing to remove.
+		if err := r.refuseHeldSchema(ctx); err != nil {
+			return err
+		}
+		left, serr := r.s.schemaExists(ctx, r.schema)
+		if serr != nil {
+			return serr
+		}
+		if !left {
+			return err
+		}
+	default:
+		return err
+	}
+	r.s.forget(r.p.ID)
+	return nil
+}
+
+// refuseHeldSchema refuses a record whose schema a registered project holds.
+func (r *removal) refuseHeldSchema(ctx context.Context) error {
+	held, err := r.s.Installation.Projects(ctx)
+	if err != nil {
+		return err
+	}
+	for _, other := range held {
+		if other.Database == r.schema {
+			return fmt.Errorf("%w: project %s keeps its records in schema %q, not project %s", ledger.ErrInvalidProject, other.ID, r.schema, r.p.ID)
+		}
+	}
+	return nil
+}
+
 // steps are the steps of a removal. The caller holds the migration lock.
 func (r *removal) steps() []step {
 	return []step{
 		// The registry's row, the project's repositories in the index, and the event.
-		func(ctx context.Context) error {
-			err := r.s.Installation.DropProject(ctx, r.p.ID, r.actor)
-			if errors.Is(err, ports.ErrNotFound) {
-				// A removal that stopped after this step left the schema, and the registry no longer holds
-				// the project. With no schema either, there is nothing to remove.
-				left, serr := r.s.schemaExists(ctx, r.schema)
-				if serr != nil {
-					return serr
-				}
-				if !left {
-					return err
-				}
-				err = nil
-			}
-			if err != nil {
-				return err
-			}
-			r.s.forget(r.p.ID)
-			return nil
-		},
+		r.forgetProject,
 		// The schema, with every table of the project's ledger. An Open that runs after the registry forgot
 		// the project is refused.
 		func(ctx context.Context) error {

@@ -147,6 +147,25 @@ func TestTwoIDsThatDifferInCaseShareNoSchema(t *testing.T) {
 	}
 }
 
+// TestAnIDThatDiffersInCaseFromALegacyProjectIsRefused holds that a new ID that differs only in case from
+// the ID of a project an earlier build registered on a schema with its capitals is refused before any
+// schema is made, although the two schema names differ.
+func TestAnIDThatDiffersInCaseFromALegacyProjectIsRefused(t *testing.T) {
+	state := openState(t, freshDatabase(t), postgres.Options{})
+	db := state.SQLDB()
+	defer db.Close()
+	registerLegacy(t, state, "PA", "legacy")
+	if _, err := state.Create(t.Context(), ledger.Project{ID: "pa", Name: "alpha"}, member); !errors.Is(err, ledger.ErrProjectExists) {
+		t.Errorf("an ID that differs in case from a legacy project's: %v", err)
+	}
+	if schemaExists(t, db, "project_pa") {
+		t.Error("the refused Create made a schema")
+	}
+	if projects, err := state.List(t.Context()); err != nil || len(projects) != 1 {
+		t.Errorf("projects %+v, %v", projects, err)
+	}
+}
+
 // TestAProjectOnAnUppercaseSchemaStillOpens holds that a project an earlier build registered, whose schema
 // keeps the capitals of its ID, opens, survives the sweep, and is removed with its schema.
 func TestAProjectOnAnUppercaseSchemaStillOpens(t *testing.T) {

@@ -296,6 +296,66 @@ func TestRemoveNeverDropsASchemaThatIsNotTheProjects(t *testing.T) {
 	}
 }
 
+// registerLegacy registers a project the way an earlier build did, on a schema that keeps the capitals of
+// its ID, and makes that schema.
+func registerLegacy(t *testing.T, state *postgres.State, id ledger.WorkspaceID, name string) ledger.Project {
+	t.Helper()
+	db := state.SQLDB()
+	defer db.Close()
+	schema := "project_" + string(id)
+	if _, err := db.ExecContext(t.Context(), `CREATE SCHEMA "`+schema+`"`); err != nil {
+		t.Fatal(err)
+	}
+	legacy, _, err := state.Installation.CreateProject(t.Context(),
+		ledger.Project{ID: id, Name: name, Database: schema, State: ledger.ProjectActive}, member)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return legacy
+}
+
+// TestRemoveChecksTheRecordAgainstTheRegistry holds that a stale or forged record, which names a schema its
+// ID could give but not the one the registry keeps the project on, drops no project's schema, whether the
+// registry still holds the project or has forgotten it.
+func TestRemoveChecksTheRecordAgainstTheRegistry(t *testing.T) {
+	state := openState(t, freshDatabase(t), postgres.Options{})
+	db := state.SQLDB()
+	defer db.Close()
+	alpha, store := createProject(t, state, "pa", "alpha")
+	newWorkOrder(t, store, alpha.ID, "wo-1", "Add the retry budget")
+	// A project an earlier build registered beside "pa", whose ID differs from it only in case.
+	legacy := registerLegacy(t, state, "PA", "legacy")
+	forged := legacy
+	forged.Database = alpha.Database
+
+	if err := state.Remove(t.Context(), forged, member); !errors.Is(err, ledger.ErrInvalidProject) {
+		t.Errorf("a record that names another project's schema: %v", err)
+	}
+	for _, name := range []string{"alpha", "legacy"} {
+		if _, err := state.Named(t.Context(), name); err != nil {
+			t.Errorf("the registry forgot %s: %v", name, err)
+		}
+	}
+	if !schemaExists(t, db, alpha.Database) || !schemaExists(t, db, legacy.Database) {
+		t.Error("a schema went")
+	}
+
+	// With the legacy project gone from the registry, the same record names a schema the registry gives
+	// to another project.
+	if err := state.Remove(t.Context(), legacy, member); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.Remove(t.Context(), forged, member); !errors.Is(err, ledger.ErrInvalidProject) {
+		t.Errorf("a record of a forgotten project that names another project's schema: %v", err)
+	}
+	if !schemaExists(t, db, alpha.Database) {
+		t.Error("the schema of a registered project went")
+	}
+	if got := workOrderIDs(t, store, alpha.ID); !slices.Equal(got, []string{"wo-1"}) {
+		t.Errorf("alpha's work orders: %v", got)
+	}
+}
+
 // TestCreateRepeatsAfterACrashAtAnyStep holds the design's lifecycle: a crash after each step of creating a
 // project leaves nothing the next attempt cannot finish, with one registry row, one workspace, one
 // event, and each migration applied once.
