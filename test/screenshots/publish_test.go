@@ -59,13 +59,14 @@ func newPublishRun(t *testing.T, outputBytes int) *publishRun {
 	return r
 }
 
-// publish runs the step, with the stand-in as the optimizer unless optimizer says another.
-func (r *publishRun) publish(optimizer string) (string, error) {
+// publish runs the step, with the stand-in as the optimizer unless optimizer says another, and any more
+// arguments after the directories.
+func (r *publishRun) publish(optimizer string, args ...string) (string, error) {
 	r.t.Helper()
 	if optimizer == "" {
 		optimizer = filepath.Join(r.dir, "bin", "pngquant")
 	}
-	cmd := exec.Command("sh", publishScript(r.t), "-s", r.shots, "-t", r.table, "-o", r.out)
+	cmd := exec.Command("sh", append([]string{publishScript(r.t), "-s", r.shots, "-t", r.table, "-o", r.out}, args...)...)
 	cmd.Env = append(os.Environ(), "PNGQUANT="+optimizer)
 	raw, err := cmd.CombinedOutput()
 	return string(raw), err
@@ -113,6 +114,65 @@ func TestPublishCopiesTheTableThroughTheOptimizer(t *testing.T) {
 	}
 	if !strings.Contains(output, "published 5 images") {
 		t.Errorf("the step does not say what it published:\n%s", output)
+	}
+}
+
+// A guide's captures publish alone, from a run that walked only that guide and captured no view.
+func TestPublishOneGuideAlone(t *testing.T) {
+	r := newPublishRun(t, 2000)
+	for _, name := range []string{"floor-light-1440.png", "floor-dark-1440.png", "top.png"} {
+		if err := os.Remove(filepath.Join(r.shots, name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	output, err := r.publish("", "-g", "get-started")
+	if err != nil {
+		t.Fatalf("the step failed: %v\n%s", err, output)
+	}
+	want := "get-started-01-dark.png get-started-01-light.png"
+	if got := strings.Join(r.published(), " "); got != want {
+		t.Errorf("published %q, want %q", got, want)
+	}
+	if !strings.Contains(output, "published 2 images") {
+		t.Errorf("the step does not say what it published:\n%s", output)
+	}
+}
+
+func TestPublishOneGuideStopsOnAMissingTheme(t *testing.T) {
+	r := newPublishRun(t, 2000)
+	if err := os.Remove(filepath.Join(r.shots, "get-started-01-dark.png")); err != nil {
+		t.Fatal(err)
+	}
+	output, err := r.publish("", "-g", "get-started")
+	if err == nil || !strings.Contains(output, "get-started-01-dark.png") {
+		t.Errorf("a guide with one theme missing did not stop the step: %v\n%s", err, output)
+	}
+	if got := r.published(); len(got) > 0 {
+		t.Errorf("the step published %v beside a missing capture", got)
+	}
+}
+
+func TestPublishOneGuideStopsOnAnImageOverTheLimit(t *testing.T) {
+	r := newPublishRun(t, 250001)
+	output, err := r.publish("", "-g", "get-started")
+	if err == nil || !strings.Contains(output, "over 250000 bytes") {
+		t.Errorf("a guide's image over the limit did not stop the step: %v\n%s", err, output)
+	}
+	if got := r.published(); len(got) > 0 {
+		t.Errorf("the step published %v beside an oversized image", got)
+	}
+}
+
+func TestPublishOneGuideStopsOnAGuideTheTableLacks(t *testing.T) {
+	r := newPublishRun(t, 2000)
+	for _, guide := range []string{"set-up", "get", "Get-Started", "get-started-01"} {
+		output, err := r.publish("", "-g", guide)
+		if err == nil || !strings.Contains(output, guide) {
+			t.Errorf("guide %q, which the table has no capture of, did not stop the step: %v\n%s", guide, err, output)
+		}
+	}
+	if got := r.published(); len(got) > 0 {
+		t.Errorf("the step published %v for a guide the table lacks", got)
 	}
 }
 

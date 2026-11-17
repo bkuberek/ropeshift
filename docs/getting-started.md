@@ -1,14 +1,20 @@
-# Get started
+# Get started with the web UI
 
-This guide takes one small piece of work from an empty machine to accepted work, in solo mode, on macOS or Linux. It uses the sample contract that `ropeshift init` writes, and a git repository of your own. [Onboarding](onboarding.md) explains each step in depth, and what to know before a lane runs. [Before you start](set-up-a-project.md#before-you-start) says which steps need you at a terminal, where ropeshift keeps its state, and what it pushes.
+This guide sets up ropeshift on one machine, macOS or Linux, and signs you in to its web UI. A few steps need a terminal; after them, you work in the web UI. At the end you have a running service, a worker whose agent CLI is usable, and a first look around the web UI.
 
-You need:
+## What needs a terminal
 
-- git, and tmux for lanes in a terminal pane.
-- The Claude Code CLI, installed and signed in through Anthropic's own flow ([agent sign-in](onboarding.md#install-and-sign-in-to-an-agent-cli)).
-- A git repository with at least one commit, where an agent may add a section to `README.md`.
+| Step | Why it needs a terminal | Where the web UI shows it afterwards |
+|------|-------------------------|--------------------------------------|
+| Install ropeshift, git, and tmux | A package manager installs software | None |
+| Install Claude Code and sign in | Ropeshift never reads, stores, or relays agent credentials, so Claude Code signs in through Anthropic's own flow | Workers and resources, Drivers |
+| `ropeshift init` | The first passphrase comes only from a terminal, and setting up the machine is a command | Sign in, with that passphrase |
+| Start the service | It acts on the machine's service manager | The web UI at `http://127.0.0.1:7317` |
+| `loginctl enable-linger`, on Linux | A setting of the service manager | None |
 
-## 1. Install ropeshift
+## In a terminal
+
+### 1. Install ropeshift
 
 Install a release with Homebrew:
 
@@ -22,145 +28,161 @@ Or with the install script, which installs to `~/.local/bin`:
 curl -fsSL https://raw.githubusercontent.com/bkuberek/ropeshift/main/install.sh | sh
 ```
 
-Check the installation:
+The README's [Install](../README.md#install) section lists the `.deb` and `.rpm` packages. Check the installation:
 
 ```sh
 ropeshift version
 ```
 
-You see the release, the commit it was built from, and the platform. [Onboarding](onboarding.md#install-ropeshift) lists the `.deb` and `.rpm` packages.
+It prints one line: the release, the commit it was built from, when it was built, the Go version, and the platform.
 
-## 2. Set up the machine
+```text
+ropeshift <version> (commit <commit>, built <date>, <go version>, <os>/<arch>)
+```
+
+### 2. Install git and tmux
+
+Ropeshift works in your git repositories, and runs a planning session in a tmux pane. On macOS:
+
+```sh
+brew install git tmux
+```
+
+On Linux, install both from your distribution's packages, such as `sudo apt install git tmux`.
+
+### 3. Install Claude Code and sign in
+
+Install Claude Code, then run it and sign in through [Anthropic's own flow](https://code.claude.com/docs/en/authentication):
+
+```sh
+claude
+```
+
+Check the sign-in:
+
+```sh
+claude auth status
+```
+
+It says whether you are signed in, and how. A machine signed in with a Claude subscription starts at the `attended` level; read [Claude subscription accounts](../README.md#claude-subscription-accounts) before you go on.
+
+### 4. Set up the machine
 
 ```sh
 ropeshift init
 ```
 
-1. It asks for a passphrase on the terminal, twice. You use it to sign in to the web UI and to approve changes.
-2. It waits for the worker to register, and prints `Worker: registered as <worker-id>`. Keep that ID.
-3. It runs the doctor, and prints a line for each agent CLI under `Agent CLIs:`. A line that says `not installed` or `not signed in` tells you what to do; do it, and run `ropeshift init` again.
-4. It writes the sample contract, and prints `Sample contract: wrote <path>`.
+It asks for a new passphrase twice. You sign in to the web UI with it, and a change you make from a terminal asks for it. On a machine signed in with a subscription, it prints:
 
-It exits 0 once an agent CLI is usable. A run on a subscription says the worker starts at `attended`: read [Claude subscriptions and automated use](onboarding.md#claude-subscriptions-and-automated-use) before the first lane.
-
-## 3. Commit the sample contract
-
-Copy the sample into your repository and commit it. The sample asks for a section of `README.md` that names the command which runs the tests:
-
-```sh
-cd /path/to/repository
-cp "<path>" sample-contract.md
-git add sample-contract.md
-git commit -m "chore: add a ropeshift sample contract"
+```text
+Daemon: started for this run, and stopped at its end.
+New passphrase:
+Again:
+Passphrase: set. A change asks for it on the terminal, and eval "$(ropeshift login)" holds a session in one shell.
+Worker: registered as <worker-id>.
+Agent CLIs:
+  claude-code <version>: signed in with a subscription. This worker starts at attended, so an orchestrator claims work only inside a run window you open. Anthropic's Consumer Terms restrict automated use of a subscription, and no vendor has approved this use. Read docs/onboarding.md, and ropeshift worker risk prints what a member acknowledges before this worker runs unattended.
+Ropeshift never reads, stores, relays, or proxies an agent CLI's credentials. Each CLI keeps its own sign-in.
+Sample contract: wrote <installation directory>/sample-contract.md.
+  Copy it into a repository, change it to your own work, and commit it, and intake reads it.
+Before the first lane:
+  Lanes run as the same operating system user as you, so nothing on this machine separates an agent
+  from your files, your browser, or a session you hold. A passphrase raises the cost of an agent
+  approving its own request, and does not make it impossible.
+  A repository's own settings and hooks run in its lanes. Run lanes on work from outside your team
+  only behind another operating system user, a container, a virtual machine, or another machine.
+  docs/onboarding.md and docs/authorization.md say more.
+Next: run the daemon with ropeshift service install (brew services start ropeshift on a Homebrew install), or in the foreground with ropeshiftd solo --source <repository>.
 ```
 
-`<path>` is the path `ropeshift init` printed. Keep the sample as it is for this first run; change it to your own work later.
+- `Worker: registered as <worker-id>` names this machine's worker.
+- Under `Agent CLIs:`, a line that says `not installed` or `not signed in` says what to do. Do it, and run `ropeshift init` again. A machine signed in with an API key starts at `unattended` instead. A Claude Code version ropeshift has not qualified adds a sentence saying the worker checks it before its first lane.
+- It exits 0 once an agent CLI is usable.
 
-## 4. Start the daemon
+### 5. Start the service
 
-In a terminal of its own, start the daemon with your repository as its source:
-
-```sh
-ropeshiftd solo --source /path/to/repository
-```
-
-The daemon keeps running in that terminal. It reads the repository at its default branch, and serves the web UI at `http://127.0.0.1:7317`, on loopback only. [Run the daemon as a service](onboarding.md#run-the-daemon-as-a-service) runs it in the background instead.
-
-## 5. Sign in to the web UI
-
-1. Open `http://127.0.0.1:7317` in a browser on the same machine. You see the Sign in page.
-2. Enter the passphrase from step 2, and select Sign in.
-
-You see Needs you, which lists what waits for a person in every project.
-
-A command that changes something asks for the passphrase on the terminal. To type it once, hold a session in your shell:
+With a Homebrew install:
 
 ```sh
-eval "$(ropeshift login)"
+brew services start ropeshift
 ```
 
-The session lasts an hour, in that shell only.
-
-## 6. Pass the work order's review
-
-Intake reads the repository every 30 seconds by default. It reads the sample, and records its work order in `contract_review`, because no approved plan covers its contract yet.
-
-1. In Needs you, select the work order's Contract review card. It names the contract and its version.
-2. Select Pass the review.
-
-The same from the command line:
+With any other install:
 
 ```sh
-ropeshift work list
-ropeshift work review <work-order-id>
+ropeshift service install
 ```
 
-`work list` prints the work order's ID, its state, and its title. Either way, the work order moves to `ready`, and Work orders lists it under Open.
+It writes the service's definition for launchd on macOS or systemd on Linux, starts the daemon, and prints the service's name and its file. Use one of the two, never both: two daemons for one installation conflict. [Run the daemon as a service](onboarding.md#run-the-daemon-as-a-service) says more.
 
-## 7. Run the lane
-
-Start the work on your worker:
-
-1. In Work orders, open the work order, which is `ready`.
-2. Select Start. The dialog lists your workers, with the one you have already chosen when there is only one.
-3. Select Start in the dialog. It claims the work for the worker, then starts its lane.
-
-If the claim goes through and the lane start is refused, the work stays claimed. The dialog says so, and Start lane tries the lane again.
-
-The same from the command line:
+On Linux, turn lingering on once, so the daemon and its lanes keep running after you log out:
 
 ```sh
-ropeshift work claim <work-order-id> --worker <worker-id>
-ropeshift lane start <work-order-id>
+loginctl enable-linger "$USER"
 ```
 
-The worker starts a Claude Code session in a worktree of its own, on a branch of its own, never in your checkout. To watch it:
+The daemon serves the web UI at `http://127.0.0.1:7317`, on this machine only.
 
-```sh
-ropeshift lane list
-ropeshift lane attach <lane-id>
-```
+## In the web UI
 
-`lane list` names the lane and its state. `lane attach` puts your terminal on the session's pane; press `C-b d` to detach, which leaves the lane running. In the web UI, Floor shows the lane.
+### 1. Open the web UI
 
-`ropeshift worker list` prints the worker's ID again if you need it.
+Open `http://127.0.0.1:7317` in a browser on the same machine. You see the Sign in page, with Passphrase.
 
-## 8. Run the review
+![The Sign in page, with the Passphrase field and the Sign in button](assets/screenshots/get-started-01-light.png#gh-light-mode-only)
+![The Sign in page, with the Passphrase field and the Sign in button](assets/screenshots/get-started-01-dark.png#gh-dark-mode-only)
 
-When the lane ends with a commit, ropeshift makes a review work order for that commit, titled `Review: <title>`, and it is `ready` at once. An agent never approves its own work, so a second, read-only lane judges each criterion. Start it as you did the first: open the review work order in Work orders, or find it under Ready to start on Floor, and select Start. From the command line:
+### 2. Sign in
 
-```sh
-ropeshift work list
-ropeshift work claim <review-id> --worker <worker-id>
-ropeshift lane start <review-id>
-```
+Enter the passphrase you set with `ropeshift init`, and select Sign in. You see Needs you, with nothing waiting. The project switcher at the top shows Default, the project every installation starts with.
 
-The review gives each criterion a verdict: `pass`, `fail`, or `cannot_judge`, with its reasons and citations. A failed criterion sends the work back to `ready` for another attempt, with the review's findings in that attempt's first prompt; start it again.
+![Needs you with nothing waiting, the project switcher on Default, and the sidebar](assets/screenshots/get-started-02-light.png#gh-light-mode-only)
+![Needs you with nothing waiting, the project switcher on Default, and the sidebar](assets/screenshots/get-started-02-dark.png#gh-dark-mode-only)
 
-## 9. Accept the work
+### 3. Check the worker
 
-When every criterion passes, the work waits for you in Needs you.
+In the sidebar, under Installation, select Workers and resources. Machines lists this machine, with its state, its lanes against its cap, and its measures. Drivers shows `claude-code` with its result, Usable; its version; whether ropeshift has qualified that version; and its sign-in, such as `subscription signed in`.
 
-![A work order waiting for acceptance, with the review's verdict on each criterion and the Accept button](assets/screenshots/work-order-light.png#gh-light-mode-only)
-![A work order waiting for acceptance, with the review's verdict on each criterion and the Accept button](assets/screenshots/work-order-dark.png#gh-dark-mode-only)
+![Workers and resources, with this machine under Machines and claude-code under Drivers](assets/screenshots/get-started-03-light.png#gh-light-mode-only)
+![Workers and resources, with this machine under Machines and claude-code under Drivers](assets/screenshots/get-started-03-dark.png#gh-dark-mode-only)
 
-1. In Needs you, select the work order. Its card shows the review's verdict on each criterion.
-2. Read the verdicts, and select Accept, or Send back for rework with a reason.
+### 4. Find the worker's level
 
-The same from the command line:
+In the sidebar, under Project, select Settings, then Autonomy and run windows. The worker's level is `attended` on a subscription: it claims work only inside a run window a member opens, in the Run window panel. Read the stated risk is there until a member acknowledges it.
 
-```sh
-ropeshift work show <work-order-id>
-ropeshift work accept <work-order-id>
-```
+![Autonomy and run windows, with the worker at attended and Read the stated risk](assets/screenshots/get-started-04-light.png#gh-light-mode-only)
+![Autonomy and run windows, with the worker at attended and Read the stated risk](assets/screenshots/get-started-04-dark.png#gh-dark-mode-only)
 
-`work show` prints a `verdict` line for each criterion. After `work accept`, the work order reads `done`.
+### 5. Read the stated risk
 
-A new repository merges nothing by itself: its merge authority is `person_merges`, and its review target is `branch`, so the lane's branch stays on this machine and you merge it when you choose. `ropeshift work acceptance <work-order-id>` names the branch and its commit. [Connect a GitHub repository](github.md) shows how to review through pull requests and let ropeshift merge.
+Select Read the stated risk. The stated risk says what running automated sessions on this sign-in means. If you stand behind it, select I stand behind it: the panel says the stated risk is acknowledged for this worker. The worker stays at `attended` until you choose another level, and it runs `unattended` only once a member has acknowledged the risk.
 
-## Next steps
+![The stated risk, with Cancel and I stand behind it](assets/screenshots/get-started-05-light.png#gh-light-mode-only)
+![The stated risk, with Cancel and I stand behind it](assets/screenshots/get-started-05-dark.png#gh-dark-mode-only)
 
-- Let an orchestrator claim ready work, including reviews, instead of claiming each one: [your first plan](first-plan.md#4-let-the-work-run).
-- Plan real work with a planning session: [your first plan, end to end](first-plan.md).
-- Review and merge through GitHub: [connect a GitHub repository](github.md).
-- Read what a lane may do without asking, and the limit of same-user isolation: [before the first lane](onboarding.md#before-the-first-lane).
+### 6. Open the command palette
+
+Press `Ctrl K`, or `⌘ K` on macOS, or select Search or run a command at the top. The command palette searches views, records, and actions. With nothing typed, it lists the actions of the page you are on, such as Switch project, Create project, and Start orchestrator. Type to narrow the list, start with `>` for actions only or `#` for records only, and press `Enter` to open one. `Esc` closes it.
+
+![The command palette open over Needs you](assets/screenshots/get-started-06-light.png#gh-light-mode-only)
+![The command palette open over Needs you](assets/screenshots/get-started-06-dark.png#gh-dark-mode-only)
+
+### 7. Show the keyboard shortcuts
+
+Press `?`. The sheet lists every shortcut: the ones that work anywhere, `G` then a letter to go to a view, and the keys of lists and decisions. The Single-key shortcuts switch turns off the shortcuts of one key, such as `P` and `G`. `Esc` closes the sheet.
+
+![The keyboard shortcuts sheet](assets/screenshots/get-started-07-light.png#gh-light-mode-only)
+![The keyboard shortcuts sheet](assets/screenshots/get-started-07-dark.png#gh-dark-mode-only)
+
+## A tour of the frame
+
+Every view sits in the same frame, as the window in step 2 shows.
+
+- The top bar holds the project switcher, which `P` opens; Search or run a command, the palette; Needs you, with the count of what waits for you in every project; the conversation panel, which `.` opens and closes; the theme; and your account, with Sign out.
+- The sidebar puts Needs you and Overview first, then the project's views in groups: Plan (Roadmap, Plans, Planning, Documents, Decisions, Open questions), Work (Work orders, Floor, Reviews, Measures), Talk (Conversations), and Project (Repositories, Agents, Settings, Audit). Installation (Projects, Workers and resources, Members, Usage) belongs to the whole installation.
+- The theme follows the system's light or dark setting. The theme button, and Theme at the foot of the sidebar, switch between the system's setting, light, and dark.
+- The status bar at the bottom shows whether the view is live, the lanes running against the machine's cap, the worker's measures, and the estimated cost. Its right end names the version the daemon runs and leads to Settings, About, which gives its version, commit, and build date.
+
+## Next
+
+Set up your projects, the next guide in [Learn ropeshift](../README.md#learn-ropeshift).

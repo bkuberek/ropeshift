@@ -40,11 +40,12 @@ lint:
 test:
 	$(GO) test -race -count=1 -timeout 45m ./...
 
-# The web application's types and tests, on the packages its lockfile pins.
+# The web application's types and tests, on the packages its lockfile pins. Playwright's browsers
+# stay in this checkout, as scripts/screenshots.sh keeps them, unless the caller names a directory.
 web-test:
 	@test -d web/node_modules || npm --prefix web ci
 	npm --prefix web run typecheck
-	npm --prefix web test
+	PLAYWRIGHT_BROWSERS_PATH="$${PLAYWRIGHT_BROWSERS_PATH:-$(CURDIR)/.scratch/playwright}" npm --prefix web test
 
 # Writes the application where the binary embeds it, so a build after this one serves it. A plain
 # checkout serves the placeholder page, and every GoReleaser build writes this output first
@@ -214,11 +215,12 @@ guide-shots:
 	@$(MAKE) --no-print-directory canary
 
 # Optimizes the captures of a screenshot run with pngquant and copies the ones the table in
-# docs/development/screenshots.md names into docs/assets/screenshots. SHOTS is the directory the run wrote.
+# docs/development/screenshots.md names into docs/assets/screenshots. SHOTS is the directory the run wrote, and
+# GUIDE publishes only the captures of the guide with that prefix, from a run that may have captured nothing else.
 SHOTS ?=
 
 screenshots-publish:
-	sh scripts/screenshots-publish.sh $(if $(SHOTS),-s "$(SHOTS)")
+	sh scripts/screenshots-publish.sh $(if $(SHOTS),-s "$(SHOTS)") $(if $(GUIDE),-g "$(GUIDE)")
 
 # The release's qualification suite: the production probe on the installed CLI, which ends with that
 # version's row for the matrix the binary ships (internal/adapters/claudecode/matrix.json).

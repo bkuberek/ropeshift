@@ -11,9 +11,11 @@
 #   -g GUIDE like -G, but capture only the guide with this prefix, after walking the guides before it
 #   -c       run the product gap checks of the guide walk (PG6 and PG9) in place of a capture
 #
-# It builds the web UI and the binary, then runs test/screenshots with the screenshots tag, which makes an
-# isolated installation, starts the daemon on a loopback port the kernel chooses, lays out the sample with
-# the fake agent CLI, and captures with Playwright's Chromium from web/. The run stops what it started.
+# It builds the web UI and the binary with the screenshots tag, which reports a fixed machine and worker ID,
+# then runs test/screenshots with the same tag, which makes an isolated installation, starts the daemon on a
+# loopback port the kernel chooses, lays out the sample with the fake agent CLI, and captures with
+# Playwright's Chromium from web/. Playwright's browsers live in .scratch/playwright unless
+# PLAYWRIGHT_BROWSERS_PATH names another directory. The run stops what it started.
 # A guide walk makes one installation for each theme and world, and the guides' neutral clone folder, which
 # it removes at its end (docs/development/screenshots.md).
 
@@ -21,6 +23,11 @@ set -eu
 
 cd "$(git rev-parse --show-toplevel)"
 top=$(pwd)
+
+# Playwright's browsers go in a directory of this checkout, which git ignores, and never in the cache that
+# every other project on the machine shares. Every npm and node step below inherits it.
+PLAYWRIGHT_BROWSERS_PATH=${PLAYWRIGHT_BROWSERS_PATH:-$top/.scratch/playwright}
+export PLAYWRIGHT_BROWSERS_PATH
 
 fail() {
 	printf 'screenshots: %s\n' "$*" >&2
@@ -75,7 +82,9 @@ fi
 date=$(git show -s --format=%cI "$commit")
 
 stamp="ropeshift.com/ropeshift/internal/version"
-(cd "$source" && CGO_ENABLED=0 go build -trimpath \
+# The screenshots tag reports a fixed machine and worker ID, so the images show nothing of this machine. A
+# ref from before the tag reports the machine it runs on.
+(cd "$source" && CGO_ENABLED=0 go build -trimpath -tags screenshots \
 	-ldflags "-X $stamp.version=$version -X $stamp.commit=$commit -X $stamp.date=$date" \
 	-o "$build/ropeshift" ./cmd/ropeshift)
 

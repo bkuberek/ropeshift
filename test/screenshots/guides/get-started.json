@@ -22,9 +22,55 @@
     },
     {
       "step": "check the worker",
-      "route": "/workers",
-      "actions": [{ "waitFor": { "text": "Workers and resources" } }],
-      "capture": { "name": "get-started-03", "clip": { "selector": "main" } }
+      "actions": [
+        { "click": { "role": "link", "name": "Workers and resources" } },
+        { "waitFor": { "text": "Machines" } },
+        { "waitFor": { "text": "claude-code" } }
+      ],
+      "capture": { "name": "get-started-03", "clip": "window" }
+    },
+    {
+      "step": "open Autonomy and run windows",
+      "actions": [
+        { "click": { "role": "link", "name": "Settings" } },
+        { "click": { "role": "link", "name": "Autonomy and run windows" } },
+        { "waitFor": { "text": "Claims while a member has opened a run window" } },
+        { "waitFor": { "text": "Read the stated risk" } }
+      ],
+      "capture": { "name": "get-started-04", "clip": { "selector": "main" } }
+    },
+    {
+      "step": "read the stated risk",
+      "actions": [
+        { "click": { "role": "button", "name": "Read the stated risk" } },
+        { "waitFor": { "text": "I stand behind it", "in": { "role": "dialog", "name": "The stated risk" } } }
+      ],
+      "capture": { "name": "get-started-05", "clip": { "role": "dialog", "name": "The stated risk" } }
+    },
+    {
+      "step": "acknowledge the stated risk",
+      "actions": [
+        { "click": { "role": "button", "name": "I stand behind it" } },
+        { "waitFor": { "text": "The stated risk is acknowledged for this worker." } }
+      ]
+    },
+    {
+      "step": "open the command palette",
+      "route": "/needs-you",
+      "actions": [
+        { "press": "ControlOrMeta+K" },
+        { "waitFor": { "text": "Actions", "in": { "role": "dialog", "name": "Command palette" } } }
+      ],
+      "capture": { "name": "get-started-06", "clip": "window" }
+    },
+    {
+      "step": "show the keyboard shortcuts",
+      "actions": [
+        { "press": "Escape" },
+        { "press": "?" },
+        { "waitFor": { "text": "Show these shortcuts", "in": { "role": "dialog", "name": "Keyboard shortcuts" } } }
+      ],
+      "capture": { "name": "get-started-07", "clip": { "role": "dialog", "name": "Keyboard shortcuts" } }
     }
   ]
 }

@@ -2,7 +2,7 @@
 
 This guide turns a goal into accepted work: a planning session writes the plan, you approve it, lanes carry out its work orders, a review agent judges each change, and you accept the result. Each step shows the web UI first, then the command line that does the same.
 
-Before you start, finish [Get started](getting-started.md): the daemon runs with your repository as a source, you can sign in to the web UI at `http://127.0.0.1:7317`, and `ropeshift worker list` names your worker. The planning session runs in a tmux pane, so the machine needs tmux.
+Before you start, finish [Get started with the web UI](getting-started.md), and register your repository with `ropeshift repository add /path/to/repository`: the daemon reads your repository, you can sign in to the web UI at `http://127.0.0.1:7317`, and `ropeshift worker list` names your worker. The planning session runs in a tmux pane, so the machine needs tmux.
 
 ## 1. Start a planning session
 
@@ -96,7 +96,7 @@ ropeshift orchestrator start <worker-id>
 ropeshift worker window-open <worker-id>
 ```
 
-`worker window-open` opens a window of 4 hours unless `--for` says otherwise, and 12 hours at most. `ropeshift worker autonomy <worker-id>` shows the worker's level, its run window, and whether its orchestrator can claim now. A worker on an API key starts at `unattended`, and needs no window. To run one work order by hand instead, claim it and start its lane, as in [Get started](getting-started.md#7-run-the-lane).
+`worker window-open` opens a window of 4 hours unless `--for` says otherwise, and 12 hours at most. `ropeshift worker autonomy <worker-id>` shows the worker's level, its run window, and whether its orchestrator can claim now. A worker on an API key starts at `unattended`, and needs no window. To run one work order by hand instead, claim it with `ropeshift work claim <work-order-id> --worker <worker-id>` and start its lane with `ropeshift lane start <work-order-id>`.
 
 Work runs in milestone order: work of a milestone waits for the work of each milestone it depends on. Work that depends on other work in the same repository starts from that work once its accepted commit is in the base branch, and until you merge it, it reads `waiting_for_merge` ([where a lane starts](onboarding.md#where-a-lane-starts)).
 

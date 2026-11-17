@@ -17,7 +17,7 @@ Website: [ropeshift.com](https://ropeshift.com/)
 
 ## Status
 
-Alpha. Solo mode works: one machine, macOS or Linux, with the Claude Code CLI as the agent runtime, a local ledger, the web UI, and the `top` terminal view. Install a pre-release with `brew install bkuberek/tap/ropeshift` or the install script, then follow [docs/onboarding.md](docs/onboarding.md). Expect breaking changes before 1.0.0. The group and cluster modes described below are the design and are not built yet.
+Alpha. Solo mode works: one machine, macOS or Linux, with the Claude Code CLI as the agent runtime, a local ledger, the web UI, and the `top` terminal view. Install a pre-release with `brew install bkuberek/tap/ropeshift` or the install script, then follow [Get started with the web UI](docs/getting-started.md). Expect breaking changes before 1.0.0. The group and cluster modes described below are the design and are not built yet.
 
 ## Install
 
@@ -49,7 +49,7 @@ On Debian, Ubuntu, Fedora, or RHEL, download the `.deb` or `.rpm` package for yo
 
 `go install` is not an install channel for now: install from a release.
 
-Ropeshift also needs git, tmux for lanes in a terminal pane, and the Claude Code CLI installed and signed in. Then follow [Onboarding](docs/onboarding.md). [Releasing](docs/releasing.md#install-channels) lists every channel.
+Ropeshift also needs git, tmux for lanes in a terminal pane, and the Claude Code CLI installed and signed in. Then follow [Get started with the web UI](docs/getting-started.md), from setting up the machine to signing in to the web UI. [Releasing](docs/releasing.md#install-channels) lists every channel.
 
 ## Screenshots
 
@@ -128,21 +128,13 @@ A subscription worker starts at `attended`, where it claims work only inside a r
 
 ## Documentation
 
-### Start here
+### Learn ropeshift
 
-- [How ropeshift works](docs/how-it-works.md): the plan, the lanes, the review, the question ladder, and where a person comes in, in plain words.
-- [Get started](docs/getting-started.md): the short path from installing a release to a first piece of accepted work.
-- [Your first plan, end to end](docs/first-plan.md): a planning session, plan approval, lanes, reviews, and acceptance, in the web UI and on the command line.
-
-### Guides
-
-- [Set up a project](docs/set-up-a-project.md): from a fresh machine to a project with an approved plan and merged work, with each choice explained.
-- [Projects of several repositories](docs/multiple-repositories.md): one plan across repositories, the manifest, dependencies, read-only reads, and merge order.
-- [Adopt an existing project](docs/adopt.md): bring in a project that already has code, documents, and branches, and review it as one plan.
-- [Connect a GitHub repository](docs/github.md): review through pull requests, the forge binding, merge authority, and required checks.
+- [Get started with the web UI](docs/getting-started.md): install ropeshift, set up the machine, start the service, sign in to the web UI, and find your way around it.
 
 ### Concepts
 
+- [How ropeshift works](docs/how-it-works.md): the plan, the lanes, the review, the question ladder, and where a person comes in, in plain words.
 - [Vision](docs/vision.md): the problem, the principles, and the non-goals.
 - [Project structure](docs/project-structure.md): the recommended layout of a project, the repository file format, and what stays in your repositories.
 - [Authorization](docs/authorization.md): who may approve what, and the limit of same-user isolation.
@@ -151,6 +143,11 @@ A subscription worker starts at `attended`, where it claims work only inside a r
 ### Reference
 
 - [Onboarding](docs/onboarding.md): the detail behind every step of the guides, and what to know before a lane runs.
+- [Set up a project](docs/set-up-a-project.md): from a fresh machine to a project with an approved plan and merged work, with each choice explained.
+- [Projects of several repositories](docs/multiple-repositories.md): one plan across repositories, the manifest, dependencies, read-only reads, and merge order.
+- [Your first plan, end to end](docs/first-plan.md): a planning session, plan approval, lanes, reviews, and acceptance, in the web UI and on the command line.
+- [Adopt an existing project](docs/adopt.md): bring in a project that already has code, documents, and branches, and review it as one plan.
+- [Connect a GitHub repository](docs/github.md): review through pull requests, the forge binding, merge authority, and required checks.
 - [Web UI](docs/web-ui.md): each main view of the web UI, what it shows, and what a member does there.
 - [Command line](docs/cli.md): every command, the daemon's flags, and the exit codes.
 - [API](docs/api.md): the routes of the installation and of each project.

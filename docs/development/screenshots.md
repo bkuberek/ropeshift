@@ -12,7 +12,7 @@ A test holds the user docs to their images: `go test ./test/rules` fails for a m
 
 ## Run it
 
-You need what `make check` needs, plus tmux, because the sample's planning session runs in a pane. The first run installs the web packages and Playwright's Chromium when they are missing. On a machine with no Chromium of Playwright's, set `ROPESHIFT_TEST_CHROME` to any Chrome or Chromium executable, as [web tests](web-tests.md#the-browser) say.
+You need what `make check` needs, plus tmux, because the sample's planning session runs in a pane. The first run installs the web packages and Playwright's Chromium when they are missing. The kit keeps Playwright's browsers in `.scratch/playwright` in the checkout, which git ignores, and never in the cache every project on the machine shares, unless `PLAYWRIGHT_BROWSERS_PATH` already names another directory, and `make web-test`, which runs the walk's own test, does the same. To use a Chrome or Chromium you have in place of Playwright's, set `ROPESHIFT_TEST_CHROME` to its executable, as [web tests](web-tests.md#the-browser) say.
 
 ```sh
 make screenshots
@@ -35,13 +35,28 @@ The capture code always comes from this checkout, so a ref much older than it ma
 
 ## What it does
 
-[scripts/screenshots.sh](../../scripts/screenshots.sh) builds the web UI and the binary, stamped with the version `git describe` gives. It then runs [test/screenshots](../../test/screenshots) with the `screenshots` build tag, which:
+[scripts/screenshots.sh](../../scripts/screenshots.sh) builds the web UI and the binary, stamped with the version `git describe` gives, with the `screenshots` build tag, which reports [a fixed machine](#the-fixed-machine). It then runs [test/screenshots](../../test/screenshots) with the same tag, which:
 
 1. Makes an isolated installation under a new temporary directory: its own home, state, runtime, configuration, and worktree directories, named outright with `ROPESHIFT_STATE_DIR` and `ROPESHIFT_WORKTREE_DIR`, so it never reads or writes your own installation, its daemon, or its port.
 2. Starts the daemon from that installation, with the web UI on a loopback port the kernel chooses and the terminal server on a socket inside it.
 3. Lays out the sample through the binary's command line: two projects, three repositories with local remotes behind a neutral address, a plan with milestones and contracts approved and a second version waiting, decisions and assumptions, lanes in each state, reviews with verdicts, questions an orchestrator takes up the ladder, a delegate's confirmation cards, a planning session, and a conversation with the assistant. Every session is the fake agent CLI from [test/doubles](../../test/doubles), playing a script in [fixture_test.go](../../test/screenshots/fixture_test.go).
 4. Runs [web/scripts/screenshots.mjs](../../web/scripts/screenshots.mjs), which opens each view in Playwright's Chromium and waits for its data and fonts before each image.
 5. Stops the daemon, the lanes, and the terminal server, ends anything else still running from the installation, and removes it.
+
+### The fixed machine
+
+The binary under capture reports one fixed machine in place of the one it runs on, so every image shows the same figures and nothing of the machine that captured it. The Workers view, the status bar, and `ropeshift top` all read it:
+
+| Measure | What it reports |
+| --- | --- |
+| Cores | 10 |
+| Load | 1.84, 1.62, and 1.47 over one, five, and fifteen minutes |
+| Memory | 9.6 GiB used of 32 GiB, 22.4 GiB available |
+| Free disk | 412 GiB of 926 GiB on each watched volume |
+| CPU use and memory pressure | Unavailable, as on macOS |
+| Worker ID | `3f9a2c7e5b1d4086a4e2c8f06d9b1e57` |
+
+Admission reads the same machine. [figures_screenshots.go](../../internal/adapters/machine/figures_screenshots.go) and [identity_screenshots.go](../../internal/worker/identity_screenshots.go) hold it, and only the `screenshots` build tag compiles them. `go test ./test/rules` fails when a normal build holds either, so a release reports the machine it runs on. A ref built with `SHOTS_REF` from before the tag existed reports its own machine.
 
 ## The view captures
 
@@ -67,7 +82,7 @@ A guide's world is the installation its walk starts from. Each theme runs its ow
 
 | World | What it holds |
 | --- | --- |
-| `harbor` | A fresh installation: the first project, a connected worker, the fake agent CLI, and two clones, `harbor-api` and `harbor-web`, on disk and registered nowhere. Guides 1 to 7 walk it as one story |
+| `harbor` | A fresh installation: the first project, a connected worker at `attended`, the fake agent CLI signed in with a subscription, and two clones, `harbor-api` and `harbor-web`, on disk and registered nowhere. Guides 1 to 7 walk it as one story |
 | `sample` | The sample project of `make screenshots`, for the guides that read a project with history |
 
 Go prepares only what the web UI cannot do: the clones, the fake agent CLI's scripted turns, and the installation. Everything a guide tells a person to do in the web UI, the walk does in the web UI.
@@ -143,15 +158,18 @@ Publishing copies captures into `docs/assets/screenshots/`, where the docs show 
 
 ```sh
 make screenshots-publish SHOTS=.scratch/shots/<version>
+make screenshots-publish SHOTS=.scratch/shots/<version> GUIDE=get-started
 ```
 
-[scripts/screenshots-publish.sh](../../scripts/screenshots-publish.sh) reads the table below, stops when a capture it names is missing, and puts each capture through `pngquant --quality=70-90 --speed 1 --strip` into the published name. It copies nothing when a capture is missing or an optimized image is over the size limit. `pngquant` is the optimizer, and the step stops with the command that installs it, `brew install pngquant` or your distribution's package, when it is missing.
+[scripts/screenshots-publish.sh](../../scripts/screenshots-publish.sh) reads the table below, stops when a capture it names is missing, and puts each capture through `pngquant --quality=70-90 --speed 1 --strip` into the published name. It copies nothing when a capture is missing or an optimized image is over the size limit.
+
+The first publishes every row, so its directory must hold every view capture and every guide's. The second publishes one guide's rows alone, the ones whose capture is `<guide>-NN-<theme>.png`, from the directory of a `make guide-shots GUIDE=<guide>` run. It holds them to the same checks: both themes of each, and each image at most 250 KB. It stops when the table has no row for the guide. `pngquant` is the optimizer, and the step stops with the command that installs it, `brew install pngquant` or your distribution's package, when it is missing.
 
 Each published image is at most 250 KB, which `go test ./test/rules` holds the docs to. A window capture of a view comes to 100 to 210 KB, a dialog or a card clipped to its element to much less. Clip a capture that is over the limit to the element that matters. A published image is refreshed only when its view changes, because each refresh adds the whole image to the repository's history.
 
 ### The published images
 
-Every published image has a row, and every row names a capture and the name it is published as. `<theme>` is `light` and `dark`, and each doc shows both, one for each GitHub theme. The view captures of `make screenshots` are the 1440-wide ones, dropping the width from the name. A guide's rows name its captures, as `get-started-01-<theme>.png` to `get-started-01-<theme>.png`.
+Every published image has a row, and every row names a capture and the name it is published as. `<theme>` is `light` and `dark`, and each doc shows both, one for each GitHub theme. The view captures of `make screenshots` are the 1440-wide ones, dropping the width from the name. A guide's rows name its captures, as `get-started-01-<theme>.png` to `get-started-07-<theme>.png`.
 
 | Capture | Published as | Shown in |
 | --- | --- | --- |
@@ -163,7 +181,7 @@ Every published image has a row, and every row names a capture and the name it i
 | `roadmap-<theme>-1440.png` | `roadmap-<theme>.png` | Web UI guide |
 | `planning-<theme>-1440.png` | `planning-<theme>.png` | First plan |
 | `plan-approval-<theme>-1440.png` | `plan-approval-<theme>.png` | Web UI guide, first plan |
-| `work-order-<theme>-1440.png` | `work-order-<theme>.png` | Getting started, first plan |
+| `work-order-<theme>-1440.png` | `work-order-<theme>.png` | First plan |
 | `documents-requirement-<theme>-1440.png` | `documents-<theme>.png` | Web UI guide |
 | `conversations-<theme>-1440.png` | `conversations-<theme>.png` | Web UI guide |
 | `agents-project-<theme>-1440.png` | `agents-<theme>.png` | Web UI guide |
@@ -173,5 +191,12 @@ Every published image has a row, and every row names a capture and the name it i
 | `repository-<theme>-1440.png` | `repository-<theme>.png` | GitHub guide |
 | `import-<theme>-1440.png` | `import-<theme>.png` | Adopt guide |
 | `top.png` | `top.png` | README |
+| `get-started-01-<theme>.png` | `get-started-01-<theme>.png` | Get started |
+| `get-started-02-<theme>.png` | `get-started-02-<theme>.png` | Get started |
+| `get-started-03-<theme>.png` | `get-started-03-<theme>.png` | Get started |
+| `get-started-04-<theme>.png` | `get-started-04-<theme>.png` | Get started |
+| `get-started-05-<theme>.png` | `get-started-05-<theme>.png` | Get started |
+| `get-started-06-<theme>.png` | `get-started-06-<theme>.png` | Get started |
+| `get-started-07-<theme>.png` | `get-started-07-<theme>.png` | Get started |
 
 After a release, run `make screenshots` at its tag, look at each image, and publish. Then update the version that the README's screenshots section and the web UI guide name.

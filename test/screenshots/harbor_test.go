@@ -13,10 +13,13 @@ import (
 // while it exists, which a run that is still going or one that was killed leaves.
 const guidesFolder = "/tmp/ropeshift-guides"
 
+// subscription is the word `claude auth status` reports for a sign-in with a subscription.
+const subscription = "claude.ai"
+
 // harbor is the world the guides 1 to 7 walk: a fresh installation of Harbor, a project of two repositories.
-// It holds what the web UI cannot make: the daemon and its connected worker, the fake agent CLI, and two
-// clones on disk that no project has registered. Everything a guide tells a person to do in the web UI, the
-// walk does there.
+// It holds what the web UI cannot make: the daemon and its connected worker, the fake agent CLI signed in with
+// a subscription, as on a person's own machine, so the worker starts at attended, and two clones on disk that
+// no project has registered. Everything a guide tells a person to do in the web UI, the walk does there.
 type harbor struct {
 	in *install
 	// src is the folder of clones, which a guide's Folder field names, and api and web are the clones.
@@ -51,6 +54,7 @@ func newHarbor(in *install) *harbor {
 	if err := os.WriteFile(filepath.Join(state, "profile.toml"), []byte(userProfile), 0o600); err != nil {
 		in.t.Fatal(err)
 	}
+	in.signIn = subscription
 	in.writeFixture(harborTurns())
 	in.start("--intake-tick", "200ms", "--lease-tick", "200ms", "--wake-tick", "200ms", "--batch-tick", "500ms",
 		"--heartbeat", "3m", "--lease-ttl", "15m")

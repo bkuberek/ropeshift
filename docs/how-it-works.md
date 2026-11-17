@@ -106,6 +106,6 @@ Everything else runs without you.
 
 ## Next steps
 
-- Try it on one small piece of work: [get started](getting-started.md).
+- Install it and sign in to the web UI: [get started with the web UI](getting-started.md).
 - Set up a real project, with each decision explained: [set up a project](set-up-a-project.md).
 - See how to lay out your repositories: [project structure](project-structure.md).

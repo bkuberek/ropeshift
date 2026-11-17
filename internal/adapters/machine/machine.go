@@ -60,9 +60,9 @@ func (r Reader) Reading(ctx context.Context) (lanes.MachineReading, error) {
 	goos := r.goos()
 	switch goos {
 	case "linux":
-		return r.readLinux()
+		return pinReading(r.readLinux())
 	case "darwin":
-		return r.readDarwin(ctx)
+		return pinReading(r.readDarwin(ctx))
 	}
 	return lanes.MachineReading{}, fmt.Errorf("no reading on %s", goos)
 }
@@ -213,9 +213,9 @@ func FreeCPU(load float64, cores int64) int64 {
 func (r Reader) Sample(ctx context.Context, volumes []lanes.Volume) (lanes.MachineSample, error) {
 	switch r.goos() {
 	case "linux":
-		return r.sampleLinux(volumes), nil
+		return pinSample(r.sampleLinux(volumes)), nil
 	case "darwin":
-		return r.sampleDarwin(ctx, volumes), nil
+		return pinSample(r.sampleDarwin(ctx, volumes)), nil
 	}
 	return lanes.MachineSample{}, fmt.Errorf("no sample on %s", r.goos())
 }

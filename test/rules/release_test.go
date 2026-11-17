@@ -70,3 +70,40 @@ func TestSessionOverrideCompilesToNothing(t *testing.T) {
 		t.Error("the realsession build holds no override, so this check cannot fail")
 	}
 }
+
+// TestScreenshotMachineCompilesToNothing reads the bytes of two builds of the binary. A normal build holds
+// neither the fixed machine nor the fixed worker ID that the images of the web UI show, and the screenshots
+// build, which make screenshots captures, holds both, which proves the check can fail.
+func TestScreenshotMachineCompilesToNothing(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds the binary twice")
+	}
+	build := func(tags ...string) []byte {
+		out := filepath.Join(t.TempDir(), "ropeshift")
+		args := append([]string{"build", "-trimpath", "-o", out}, tags...)
+		args = append(args, "./cmd/ropeshift")
+		cmd := exec.Command("go", args...)
+		cmd.Dir = repoRoot(t)
+		cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
+		if output, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("build %v: %v\n%s", tags, err, output)
+		}
+		raw, err := os.ReadFile(out)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return raw
+	}
+	// The free disk the fixed machine is written with, and the worker ID, in
+	// internal/adapters/machine/figures_screenshots.go and internal/worker/identity_screenshots.go.
+	markers := []string{"412 GiB", "3f9a2c7e5b1d4086a4e2c8f06d9b1e57"}
+	release, screenshots := build(), build("-tags", "screenshots")
+	for _, marker := range markers {
+		if bytes.Contains(release, []byte(marker)) {
+			t.Errorf("a normal build holds %q of the screenshots build", marker)
+		}
+		if !bytes.Contains(screenshots, []byte(marker)) {
+			t.Errorf("the screenshots build holds no %q, so this check cannot fail", marker)
+		}
+	}
+}
