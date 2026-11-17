@@ -163,6 +163,52 @@ suite.each(Object.entries(sizes))("at %s width", (size, viewport) => {
     );
 
     it(
+      "Import, on the dry run, on the Restructure choice with a code tree left out, and on the refusal of a plan that changed, meets WCAG 2.2 A and AA",
+      async () => {
+        const context = await browser.newContext({ viewport, colorScheme: theme, reducedMotion: "reduce" });
+        await context.route(/\/v1\//, answer);
+        const page = await context.newPage();
+        const found: string[] = [];
+        // Buttons and checks turn from disabled to enabled as the plan is read, and axe reads a color a transition
+        // has reached, so each audit waits for the transitions to end.
+        const check = async (name: string) => {
+          await page.mouse.move(0, 0);
+          await page.waitForTimeout(600);
+          found.push(...(await audit(page)).map((violation) => `${name} ${violation}`));
+        };
+        // The plan route answers the consolidation, with the code tree left out when the request names it, and the
+        // layout that replaced it once a test says the layout changed.
+        let layout: "read" | "changed" = "read";
+        await page.route(/\/v1\/adoption\/plan$/, (route) => {
+          const asked = route.request().postDataJSON() as { leave_out?: string[] };
+          const name = layout === "changed" ? "single" : asked.leave_out?.includes("tools") ? "consolidate-left-out" : "consolidate";
+          return route.fulfill({ status: 200, contentType: "application/json", body: goldens[`adoption-plan-${name}`] ?? "{}" });
+        });
+        await page.goto(`${base}/import`);
+        await ready(page);
+        await page.getByLabel("Folders", { exact: true }).fill("/work/ws");
+        await page.waitForFunction(() => document.querySelector("select")?.value === "worker-1");
+        await page.getByRole("button", { name: "Run dry run" }).click();
+        await page.getByRole("region", { name: "Clones found" }).waitFor();
+        await check("import dry run");
+        await page.getByRole("checkbox", { name: "Restructure the planning repository as listed" }).check();
+        // A tree left out checks once the plan is read again, so the check waits for the answer.
+        await page.getByRole("checkbox", { name: /Leave out tools/ }).click();
+        await page.waitForFunction(() => document.querySelector<HTMLInputElement>("input[type=checkbox]:checked + span code")?.textContent === "tools");
+        await check("import restructure choice");
+        await page.getByRole("button", { name: "Continue" }).click();
+        await page.getByRole("button", { name: "Continue" }).click();
+        layout = "changed";
+        await page.getByRole("button", { name: "Start adopt session" }).click();
+        await page.getByRole("alert").filter({ hasText: "The layout changed since you read the plan" }).waitFor();
+        await check("import refusal of a plan that changed");
+        await context.close();
+        expect(found.map((line) => `${size} ${theme} ${line}`)).toEqual([]);
+      },
+      180_000,
+    );
+
+    it(
       "the lane caps form, with a number above the recommendation, with a refusal, with no recommendation, and for a worker on another machine, meets WCAG 2.2 A and AA",
       async () => {
         const context = await browser.newContext({ viewport, colorScheme: theme, reducedMotion: "reduce" });

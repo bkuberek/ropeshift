@@ -1,0 +1,77 @@
+{
+  "layout": {
+    "root": "/work/api",
+    "folders": null,
+    "clones": [
+      {
+        "name": "api",
+        "path": "/work/api",
+        "identity": "api",
+        "where": "here",
+        "documents": 0
+      },
+      {
+        "name": "web",
+        "path": "/work/web",
+        "identity": "web",
+        "where": "path",
+        "documents": 0
+      }
+    ]
+  },
+  "shape": "workspace_files",
+  "planning": {
+    "name": "",
+    "why": "nothing settles it: the clone adopt runs in has no plan content or folder of clones, and no design repository was chosen",
+    "undecided": true
+  },
+  "repositories": [
+    {
+      "name": "api",
+      "path": "/work/api",
+      "id": "api",
+      "outcome": "registered"
+    },
+    {
+      "name": "web",
+      "path": "/work/web",
+      "id": "web",
+      "outcome": "registered"
+    }
+  ],
+  "files": [
+    {
+      "path": "plan/repositories.md",
+      "action": "add",
+      "detail": "the manifest of the project's repositories"
+    },
+    {
+      "path": ".gitignore",
+      "action": "append",
+      "detail": "repos/"
+    },
+    {
+      "path": "Makefile",
+      "action": "add",
+      "detail": "setup, fetch, and status over the manifest"
+    }
+  ],
+  "takes": null,
+  "collisions": null,
+  "code_trees": null,
+  "moves": [
+    {
+      "name": "web",
+      "from": "/work/web",
+      "to": "/work/api/repos/web",
+      "commands": [
+        "mv /work/web /work/api/repos/web",
+        "ropeshift repository add /work/api/repos/web"
+      ]
+    }
+  ],
+  "notes": [
+    "No repository is known to hold the plan; name it with --planning NAME."
+  ],
+  "digest": "sha256:717ed179106b0d30f0984373862f51faafd292ffd8b46a2d77593a5a5ae56cf6"
+}

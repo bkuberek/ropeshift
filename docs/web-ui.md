@@ -37,7 +37,7 @@ No single key decides anything: `A` moves focus, and `Enter` presses. The `G` wa
 
 The command palette finds a view, a record, or an action. With nothing typed it lists the current page's actions, then recent records, then views. `>` narrows it to actions and `#` to records, and the words of a query match in any order. The arrow keys move, `Enter` runs the entry, and `Esc` closes. An action opens its dialog or its page, and the palette never decides for you: a card that waits for a decision opens with its primary button focused.
 
-Every operation that changes something has an action in the palette, as the web UI has a control for it. Decide lists each card that waits in Needs you, and a typed query finds the ones past the first five. Each Settings section is `Settings:` and its name, and each project has its rename, archive, restore, remove, and back up. An open question has Answer question and Dismiss question, and a decision in force has Overturn decision. Add agent, Register repositories, Change repository, Remove repository, and the conversation's own actions, such as Rename the conversation and Compact the conversation's context, stand beside them. A work order's actions stand in the palette for the work order in view, and for any work order a search finds.
+Every operation that changes something has an action in the palette, as the web UI has a control for it. Decide lists each card that waits in Needs you, and a typed query finds the ones past the first five. Each Settings section is `Settings:` and its name, and each project has its rename, archive, restore, remove, and back up. An open question has Answer question and Dismiss question, and a decision in force has Overturn decision. Add agent, Register repositories, Adopt a project, Change repository, Remove repository, and the conversation's own actions, such as Rename the conversation and Compact the conversation's context, stand beside them. A work order's actions stand in the palette for the work order in view, and for any work order a search finds.
 
 ## Needs you
 
@@ -200,6 +200,17 @@ A member opens a lane's page with Open. Message talks to a lane that runs headle
 ## Lane
 
 A lane's page shows its screen or its event stream, its facts, and under them Messages, which lists what was sent to the lane, oldest first, as `ropeshift message list` does. A row gives the message, its kind, the generation it was written for, its state, when it was sent, its body, and the lane's reply. A state claims only what its signal proves: a write to a session shows that bytes were handed over, and only a reply says the lane read the message. A message that ended without being injected says why, such as that it timed out or that its generation ended, and a body and a reply keep their line breaks and are never cut. A lane nobody wrote to says so. The [command reference](cli.md) lists each state `ropeshift message show` names.
+
+## Import an existing project
+
+Import, at `/import`, adopts a project that already has code, documents, and branches, as `ropeshift adopt` does ([adopt an existing project](adopt.md)). The command palette lists it as Adopt a project, and the project switcher, Projects, Repositories, and an empty Overview open the same page. It has four steps: Worker and folders, Dry run, Planning repository, and Adopt session.
+
+- **Worker and folders** takes absolute paths on the daemon's machine, one to a line, and a depth. The first is the clone you adopt from, the top of a git clone with a commit. Each other line is a clone, or a folder holding clones, searched to the depth, as the paths of `ropeshift adopt` are. Run dry run reads the plan through the plan route and records nothing: a new project is created only when the session starts.
+- **Dry run** shows the plan as `ropeshift adopt --dry-run` prints it: the layout, the shape, where the plan lives, the design repository, and each clone with what registering would do with it. When the shape offers a restructuring, the Restructure choice lists every file it adds, every path it takes, every collision with the version kept, every move as the commands you run, and a check box for each code tree of the design repository, which leaves the tree out and reads the plan again. Restructuring happens only when you check Restructure the planning repository as listed.
+- **Planning repository** chooses the repository the plan lives in. With Restructure chosen, it is the one the plan names.
+- **Start adopt session** makes the calls the command line makes, in its order: it reads the plan again, creates a new project, registers the repositories the plan lists, names the planning repository, and records and starts the adopt work, which carries the plan's digest and choices when Restructure is chosen. A plan that differs from the one you read, because the layout changed in between, starts nothing: the page shows the refusal, and the new plan to read and choose from again.
+
+The page cannot name the design repository or the repository that holds the plan together with a restructuring when the layout leaves either open; `--design` and `--planning` do.
 
 ## Templates
 

@@ -9,8 +9,8 @@
       "route": "/projects",
       "actions": [
         { "click": { "role": "link", "name": "Import an existing project" } },
-        { "waitFor": { "text": "Worker and folder" } },
-        { "fill": { "label": "Folder", "value": "{{moorings}}" } },
+        { "waitFor": { "text": "Worker and folders" } },
+        { "fill": { "label": "Folders", "value": "{{moorings}}/moorings-docs\n{{moorings}}" } },
         { "fill": { "label": "Depth", "value": "1" } }
       ],
       "capture": { "name": "adopt-01", "clip": "window" }

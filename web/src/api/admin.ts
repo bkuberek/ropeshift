@@ -53,6 +53,36 @@ export type RepositoryChange = Partial<{
 export type RepositoryAdded = { path: string; entered?: string; outcome: "registered" | "known" | "refused"; repository?: Repository; checkout?: string; reason?: string };
 export type RepositoryAddReport = { dry_run: boolean; repositories: RepositoryAdded[] };
 
+// The plan of an adoption, as `ropeshift adopt --dry-run` reports it (FR-ADOPT-12). A list the layout has none of may
+// come as null.
+export type LayoutShape = "single" | "planned" | "consolidate" | "workspace_files";
+export type LayoutClone = { name: string; path: string; identity: string; where: "here" | "ignored" | "path"; plan?: boolean; documents: number; instructions?: boolean };
+export type PlannedRepository = { name?: string; path: string; id?: string; outcome: "registered" | "known" | "refused" | "not_registered"; reason?: string };
+export type PlannedFile = { path: string; action: "add" | "append"; detail?: string };
+export type PlannedCodeTree = { path: string; build_file: string; whole?: boolean; left_out?: boolean };
+export type PlannedMove = { name: string; from: string; to: string; commands: string[] };
+export type AdoptionPlan = {
+  layout: { root: string; folders: string[] | null; clones: LayoutClone[] };
+  shape: LayoutShape;
+  planning: { name: string; path?: string; why: string; undecided?: boolean };
+  design?: { name: string; path: string; root: string; why: string };
+  repositories: PlannedRepository[];
+  files: PlannedFile[] | null;
+  takes: string[] | null;
+  collisions: { path: string; kept: "workspace" | "union" }[] | null;
+  code_trees: PlannedCodeTree[] | null;
+  moves: PlannedMove[] | null;
+  notes?: string[];
+  digest: string;
+};
+
+// AdoptionPlanRequest asks for the plan of adopting the clone at root, which is the clone `ropeshift adopt` runs in,
+// with the clones the paths name beside it.
+export type AdoptionPlanRequest = { root: string; paths?: string[]; depth?: number; planning?: string; design?: string; leave_out?: string[]; new_project?: boolean };
+
+// The restructuring a member chose from a plan, as an adopt work order keeps it.
+export type Restructure = { shape: LayoutShape; digest: string; design_path?: string; design_root?: string; leave_out?: string[] };
+
 export type Fleet = { fleet_mode: "run" | "pause" | "drain"; wip_limit: number; lanes_per_repository: number; lanes_per_worker: number };
 
 export type PolicyVersion = { id: string; kind: string; version: number; digest: string; body: string; settings: string; authored_by: string; created_at: number };
@@ -220,6 +250,7 @@ export const adminPaths = {
   repositories: () => project("/repositories"),
   repository: (id: string) => project(`/repositories/${encodeURIComponent(id)}`),
   removeRepository: (id: string) => project(`/repositories/${encodeURIComponent(id)}/remove`),
+  adoptionPlan: (scope: Scope) => scoped(scope, "/adoption/plan"),
   fleet: () => project("/fleet"),
   fleetMode: () => project("/fleet/mode"),
   fleetCaps: () => project("/fleet/caps"),
@@ -344,7 +375,13 @@ export const readApprovals = (state: string) => call<{ approvals: Approval[] }>(
 export type ReadyFailure = { check: string; detail: string };
 export type ReviewResult = { state: string; failures?: ReadyFailure[] };
 
-export type AdoptDraft = { id: string; title: string; statement: string; criterion: string; repository: string };
+// readAdoptionPlan reads the plan of an adoption, as `ropeshift adopt --dry-run` does, and records nothing. A project
+// that does not exist yet has no route of its own, so its plan is read at the installation's, with no record of any
+// project read.
+export const readAdoptionPlan = (scope: Scope, request: AdoptionPlanRequest) =>
+  call<AdoptionPlan>("POST", adminPaths.adoptionPlan(scope), scope === "installation" ? { ...request, new_project: true } : request);
+
+export type AdoptDraft = { id: string; title: string; statement: string; criterion: string; repository: string; restructure?: Restructure };
 
 export const createAdoptWork = (draft: AdoptDraft) =>
   call<{ id: string; title: string }>("POST", adminPaths.workOrders(), {
@@ -354,6 +391,7 @@ export const createAdoptWork = (draft: AdoptDraft) =>
     statement: draft.statement,
     repository_id: draft.repository || undefined,
     adopt: true,
+    restructure: draft.restructure,
     criteria: [{ id: "c1", text: draft.criterion }],
   });
 // What a planning session's work order is called when its goal says nothing, how long a title taken from a

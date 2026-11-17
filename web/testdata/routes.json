@@ -175,6 +175,11 @@
     "command": "telemetry lanes"
   },
   {
+    "method": "POST",
+    "pattern": "/v1/adoption/plan",
+    "command": "adopt"
+  },
+  {
     "method": "GET",
     "pattern": "/v1/roster",
     "command": "agent list"
@@ -373,6 +378,11 @@
     "method": "POST",
     "pattern": "/v1/projects/{project}/repositories/{id}/remove",
     "command": "repository remove"
+  },
+  {
+    "method": "POST",
+    "pattern": "/v1/projects/{project}/adoption/plan",
+    "command": "adopt"
   },
   {
     "method": "GET",
