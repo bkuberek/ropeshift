@@ -25,13 +25,14 @@ var AdoptChecks = []Check{
 	{"AS6", "an adopt work order keeps the restructuring a member chose through a rebuild, and only adopting work restructures", checkAnAdoptOrderKeepsItsRestructuring},
 }
 
-// adoptOrder records ready planning work that adopts the project, in a repository.
-func (w *startWorld) adoptOrder(repository string) (string, error) {
+// adoptOrder records ready planning work that adopts the project, in a repository, with the restructuring a
+// member chose when there is one.
+func (w *startWorld) adoptOrder(repository string, restructure *planning.Restructure) (string, error) {
 	ops := w.r.NewOps(w.s)
 	made, err := ops.Record(w.r.Ctx, w.r.Scope, control.LedgerWork{
 		Order: workorders.WorkOrder{
 			ID: w.r.ID("adopt"), Kind: workorders.KindPlan, Title: "Adopt the project", RepositoryID: repository, Adopt: true,
-			MaxAttempts: defaultMaxAttempts, Needs: map[string]string{"driver": "claude-code"},
+			Restructure: restructure, MaxAttempts: defaultMaxAttempts, Needs: map[string]string{"driver": "claude-code"},
 		},
 		Statement: "Onboard the project.",
 		Criteria:  criteriaOf(criterionOne),
@@ -65,7 +66,11 @@ func checkAnAdoptLaneIsToldItAdopts(r *Rig) error {
 	if _, err := plane.OpenSession(r.Ctx, ledger.SessionRequest{Auth: auth, Protocol: ledger.ProtocolVersion, Manifest: UsableManifest}); err != nil {
 		return err
 	}
-	adopt, err := w.adoptOrder(startRepository)
+	chosen := &planning.Restructure{
+		Shape: planning.ShapeWorkspaceFiles, Digest: planning.DigestSHA256 + strings.Repeat("e", 64), Root: "/work/ws", Paths: []string{"/work/libs"},
+		Depth: 2, Planning: "ws", Parts: map[string]string{planning.PartFiles: planning.DigestSHA256 + strings.Repeat("f", 64)},
+	}
+	adopt, err := w.adoptOrder(startRepository, chosen)
 	if err != nil {
 		return err
 	}
@@ -99,7 +104,13 @@ func checkAnAdoptLaneIsToldItAdopts(r *Rig) error {
 	if lease := told[adopt]; lease.Lane != lanes[adopt] || !lease.Adopt || !lease.Inventory || lease.Kind != string(workorders.KindPlan) || len(lease.Reads) != 2 {
 		return Violatedf("the adopt lane is told %+v", lease)
 	}
-	if lease := told[plan]; lease.Lane != lanes[plan] || lease.Adopt || lease.Inventory {
+	// The lane is told the restructuring the member chose, as the planning package spells it, so the worker that
+	// runs it reads the layout again the way the plan did.
+	var toldRestructure planning.Restructure
+	if err := json.Unmarshal(told[adopt].Restructure, &toldRestructure); err != nil || !reflect.DeepEqual(&toldRestructure, chosen) {
+		return Violatedf("the adopt lane is told the restructuring %s, want %+v: %v", told[adopt].Restructure, chosen, err)
+	}
+	if lease := told[plan]; lease.Lane != lanes[plan] || lease.Adopt || lease.Inventory || len(lease.Restructure) != 0 {
 		return Violatedf("a planning lane that does not adopt is told %+v", lease)
 	}
 	if err := r.NewOps(s).Rebuild(r.Ctx, r.Scope, r.Actor); err != nil {
@@ -147,10 +158,20 @@ func checkAnAdoptOrderKeepsItsRestructuring(r *Rig) error {
 	if err != nil {
 		return err
 	}
+	// A restructuring that holds the request its plan was read with and the digests of the plan's parts keeps
+	// them, and one that holds none, as every restructuring kept before they existed, still reads.
+	whole := &planning.Restructure{
+		Shape: planning.ShapeWorkspaceFiles, Digest: chosen.Digest, Root: "/work/ws", Paths: []string{"/work/libs"}, Depth: 2,
+		Planning: "ws", Design: "docs", Parts: map[string]string{planning.PartFiles: chosen.Digest, planning.PartMoves: chosen.Digest},
+	}
+	kept, err := record(workorders.WorkOrder{ID: r.ID("adopt"), Adopt: true, Restructure: whole})
+	if err != nil {
+		return err
+	}
 	if err := r.NewOps(s).Rebuild(r.Ctx, r.Scope, r.Actor); err != nil {
 		return err
 	}
-	for id, want := range map[string]*planning.Restructure{made.ID: chosen, plain.ID: nil} {
+	for id, want := range map[string]*planning.Restructure{made.ID: chosen, plain.ID: nil, kept.ID: whole} {
 		row, err := r.WorkOrder(s, id)
 		if err != nil || !row.Adopt || !reflect.DeepEqual(row.Restructure, want) {
 			return Violatedf("after a rebuild work order %s reads %+v, want the restructuring %+v: %v", id, row.Restructure, want, err)
@@ -277,7 +298,7 @@ func checkAnAdoptedPlanAsksGrouped(r *Rig) error {
 	}
 	path := w.path(startRepository)
 	base := w.git.Touch(path, "main", "README.md")
-	id, err := w.adoptOrder(startRepository)
+	id, err := w.adoptOrder(startRepository, nil)
 	if err != nil {
 		return err
 	}
@@ -325,7 +346,7 @@ func checkAnAdoptedPlanWithNoBaseSaysWhy(r *Rig) error {
 	}
 	path := w.path(startRepository)
 	w.git.Grow(path, "main")
-	id, err := w.adoptOrder(startRepository)
+	id, err := w.adoptOrder(startRepository, nil)
 	if err != nil {
 		return err
 	}

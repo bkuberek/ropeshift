@@ -1,6 +1,7 @@
 package ledger
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -254,6 +255,10 @@ type DesiredLease struct {
 	// Adopt says the lane adopts an existing project (ADR-0023): a planning lane whose brief onboards what the
 	// project already holds and plans what remains.
 	Adopt bool `json:"adopt,omitempty"`
+	// Restructure is the restructuring a member chose when they adopted (FR-ADOPT-12), as the work order keeps
+	// it: the JSON of a planning.Restructure, which this package cannot import. It is empty for a lane that does
+	// not adopt and for an adoption that restructures nothing, and a worker decodes it where it acts on it.
+	Restructure json.RawMessage `json:"restructure,omitempty"`
 	// Deadline is the work order's, in database time. Zero means it has none.
 	Deadline int64 `json:"deadline,omitempty"`
 	// Resets counts the human resets of this lane's breaker, for a worker to compare with

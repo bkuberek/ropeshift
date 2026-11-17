@@ -110,6 +110,25 @@ func TestAdoptWorkKeepsItsRestructuringAndOnlyAMemberChoosesOne(t *testing.T) {
 	} else {
 		refusedWith(t, err, http.StatusBadRequest, api.CodeInvalid)
 	}
+	// The request the plan was read with and the digests of its parts are kept as they were sent, and a request
+	// that cannot be kept is refused.
+	whole := &planning.Restructure{
+		Shape: planning.ShapeWorkspaceFiles, Digest: chosen.Digest, Root: "/work/ws", Paths: []string{"/work/libs"}, Depth: 2,
+		Planning: "ws", Design: "docs", Parts: map[string]string{planning.PartFiles: chosen.Digest, planning.PartLayout: chosen.Digest},
+	}
+	if kept, err := create(client, "adopt-5", whole); err != nil || !reflect.DeepEqual(kept.Restructure, whole) {
+		t.Errorf("a restructuring with its request reads %+v: %v", kept.Restructure, err)
+	}
+	if read, err := client.WorkOrder(t.Context(), "adopt-5"); err != nil || !reflect.DeepEqual(read.Restructure, whole) {
+		t.Errorf("the work order reads %+v: %v", read.Restructure, err)
+	}
+	relative := *whole
+	relative.Root = "ws"
+	if _, err := create(client, "adopt-6", &relative); err == nil {
+		t.Error("a request with a relative root was kept")
+	} else {
+		refusedWith(t, err, http.StatusBadRequest, api.CodeInvalid)
+	}
 
 	created := aDelegate(t, in.Client.Client, apitest.ProjectName)
 	delegate := asDelegate(t, in.Socket, created.Token, apitest.ProjectName)

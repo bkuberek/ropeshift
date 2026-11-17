@@ -2,6 +2,7 @@ package cli_test
 
 import (
 	"encoding/json"
+	"maps"
 	"slices"
 	"strings"
 	"testing"
@@ -168,6 +169,33 @@ func TestAdoptRestructureSendsTheDigestAndTheChoices(t *testing.T) {
 	}
 	if !held["ws"].Planning {
 		t.Errorf("the workspace is not the planning repository: %+v", held["ws"])
+	}
+}
+
+// The choices carry the request the plan was read with and the digests of the plan's parts, so a worker reads the
+// layout again the way the plan did, and names what differs when it reads another.
+func TestAdoptRestructureSendsTheRequestAndThePartsOfThePlan(t *testing.T) {
+	a := newAdoption(t)
+	a.aWorkspace()
+	flags := []string{"--leave-out", "tools", "--depth", "2", "--design", "design", "--planning", "ws", "/work/ws/repos/api"}
+	planned := a.plan(workspaceClone, flags...)
+	args := append([]string{"adopt", "--restructure", "--worker", "worker-a", "--no-attach"}, flags...)
+	if code, _, stderr := a.runIn(workspaceClone, "", args...); code != cli.ExitOK {
+		t.Fatalf("exit %d: %s", code, stderr)
+	}
+	orders := a.workOrders("ws")
+	if len(orders) != 1 || orders[0].Restructure == nil {
+		t.Fatalf("the adopt work is %+v", orders)
+	}
+	got := orders[0].Restructure
+	if got.Root != workspaceClone.Path || !slices.Equal(got.Paths, []string{"/work/ws/repos/api"}) || got.Depth != 2 || got.Planning != "ws" || got.Design != "design" {
+		t.Errorf("the work carries the request %+v", got)
+	}
+	if want := planned.Parts(); len(got.Parts) == 0 || !maps.Equal(got.Parts, want) {
+		t.Errorf("the work carries the parts %v, want %v", got.Parts, want)
+	}
+	if got.Missing() != nil {
+		t.Errorf("a restructuring the command sent lacks %v", got.Missing())
 	}
 }
 
