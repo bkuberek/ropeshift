@@ -321,8 +321,18 @@ func serveSolo(ctx context.Context, paths api.Paths, opts soloOptions, stdout, s
 			fmt.Fprintf(stderr, "ropeshiftd: %s tick: %v\n", name, err)
 		})
 	}()
-	workerDone, err := startSoloWorker(ctx, paths, store, opts, laneRuntime, telemetry, hosts, local, stderr)
+	plane := control.NewWorkers(store, soloScope, control.WorkerOptions{
+		HeartbeatMs: opts.heartbeat.Milliseconds(), LeaseTTLMs: opts.leaseTTL.Milliseconds(),
+	})
+	client := api.NewUnixClient(paths.ControlSocket())
+	workerDone, err := startSoloWorker(ctx, paths, workerConnection{
+		link: workerlink.New(client), name: "solo", close: client.Close,
+		joinToken: func(ctx context.Context) (string, error) {
+			return plane.CreateJoinToken(ctx, tickActor("solo"))
+		},
+	}, opts, laneRuntime, telemetry, hosts, local, stderr)
 	if err != nil {
+		client.Close()
 		return err
 	}
 
@@ -409,12 +419,23 @@ func openJournal(ctx context.Context, stateDir string, stderr io.Writer) (*sqlit
 	return journal, nil
 }
 
+// workerConnection is how a worker reaches its control plane and joins it: the link it speaks the plane
+// protocol over, the name and the join token it registers with while it holds no credential, and what ends
+// the link. Solo mode's worker speaks over the private socket, and a group worker over a server's address.
+type workerConnection struct {
+	link      ports.WorkerLink
+	name      string
+	joinToken func(context.Context) (string, error)
+	close     func()
+}
+
 // startSoloWorker runs the worker in this process, on the real protocol over the
 // private socket, so solo mode exercises the path a group's worker takes. A first
 // start makes its own join token, because the person who started the daemon owns
-// the control plane.
+// the control plane. The link and the registration are the connection's, so a group's
+// worker runs this same code over another link.
 func startSoloWorker(
-	ctx context.Context, paths api.Paths, store ports.Store, opts soloOptions, runtime *worker.LaneRuntime, telemetry *soloTelemetry, hosts *soloHosts,
+	ctx context.Context, paths api.Paths, connection workerConnection, opts soloOptions, runtime *worker.LaneRuntime, telemetry *soloTelemetry, hosts *soloHosts,
 	local *soloWorker, stderr io.Writer,
 ) (<-chan struct{}, error) {
 	if err := keepStableBinary(ctx, paths, osexec.Runner{}); err != nil {
@@ -430,15 +451,9 @@ func startSoloWorker(
 		_ = journal.Close()
 		return nil, err
 	}
-	plane := control.NewWorkers(store, soloScope, control.WorkerOptions{
-		HeartbeatMs: opts.heartbeat.Milliseconds(), LeaseTTLMs: opts.leaseTTL.Milliseconds(),
-	})
-	client := api.NewUnixClient(paths.ControlSocket())
-	subject := worker.New(workerlink.New(client), journal, clock.System{}, worker.Config{
-		Name: "solo",
-		JoinToken: func(ctx context.Context) (string, error) {
-			return plane.CreateJoinToken(ctx, tickActor("solo"))
-		},
+	subject := worker.New(connection.link, journal, clock.System{}, worker.Config{
+		Name:      connection.name,
+		JoinToken: connection.joinToken,
 		Manifest:  soloManifest(),
 		Spool:     paths.Spool(),
 		Lanes:     runtime,
@@ -463,7 +478,7 @@ func startSoloWorker(
 	go func() {
 		defer close(done)
 		defer journal.Close()
-		defer client.Close()
+		defer connection.close()
 		if err := subject.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
 			fmt.Fprintf(stderr, "ropeshiftd: worker: %v\n", err)
 		}
