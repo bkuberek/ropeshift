@@ -142,7 +142,7 @@ export function RestructureChoice({ plan, chosen, busy, refusal, onChoose, onLea
             <tbody>
               {files.map((file) => (
                 <tr key={`${file.action}:${file.path}`}>
-                  <td data-label="Change">{file.action === "add" ? "Add" : "Append a line to"}</td>
+                  <td data-label="Change">{file.action === "add" ? "Add" : (file.lines?.length ?? 1) > 1 ? "Append lines to" : "Append a line to"}</td>
                   <td data-label="Path" className="wrap">
                     <code>{file.path}</code>
                   </td>

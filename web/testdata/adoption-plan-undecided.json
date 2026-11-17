@@ -48,7 +48,11 @@
     {
       "path": ".gitignore",
       "action": "append",
-      "detail": "repos/"
+      "detail": "repos/, /.ropeshift/worktrees/",
+      "lines": [
+        "repos/",
+        "/.ropeshift/worktrees/"
+      ]
     },
     {
       "path": "Makefile",
@@ -73,5 +77,5 @@
   "notes": [
     "No repository is known to hold the plan; name it with --planning NAME."
   ],
-  "digest": "sha256:717ed179106b0d30f0984373862f51faafd292ffd8b46a2d77593a5a5ae56cf6"
+  "digest": "sha256:39077c17ba56e666ef578ed9f5f3094d00cecbc9b9f0d9c92a9235c24fbfb992"
 }
