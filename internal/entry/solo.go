@@ -281,7 +281,7 @@ func serveSolo(ctx context.Context, paths api.Paths, opts soloOptions, stdout, s
 	if err != nil {
 		return err
 	}
-	installed := liveInstalledBuild()
+	installed := liveInstalledBuild(stderr)
 	config := server.Config{
 		Installed: installed.Installed,
 		Scope:     soloScope, Store: store, Projects: state, Installation: state.Installation, LeaseTTL: opts.leaseTTL.Milliseconds(), HeartbeatMs: opts.heartbeat.Milliseconds(),
