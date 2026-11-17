@@ -35,7 +35,7 @@ The capture code always comes from this checkout, so a ref much older than it ma
 
 ## What it does
 
-[scripts/screenshots.sh](../../scripts/screenshots.sh) builds the web UI and the binary, stamped with the version `git describe` gives, with the `screenshots` build tag, which reports [a fixed machine](#the-fixed-machine). It then runs [test/screenshots](../../test/screenshots) with the same tag, which:
+[scripts/screenshots.sh](../../scripts/screenshots.sh) builds the web UI and the binary, stamped with the nearest release tag, as `git describe --tags --abbrev=0` gives it, so the status bar of every image names a release and not a commit after it, with the `screenshots` build tag, which reports [a fixed machine](#the-fixed-machine). It then runs [test/screenshots](../../test/screenshots) with the same tag, which:
 
 1. Makes an isolated installation under a new temporary directory: its own home, state, runtime, configuration, and worktree directories, named outright with `ROPESHIFT_STATE_DIR` and `ROPESHIFT_WORKTREE_DIR`, so it never reads or writes your own installation, its daemon, or its port.
 2. Starts the daemon from that installation, with the web UI on a loopback port the kernel chooses and the terminal server on a socket inside it.

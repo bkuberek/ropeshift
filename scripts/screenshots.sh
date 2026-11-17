@@ -66,7 +66,7 @@ trap 'rm -rf "$build"' EXIT INT TERM
 
 if [ -n "$ref" ]; then
 	commit=$(git rev-parse --verify --quiet "$ref^{commit}") || fail "no commit $ref here; fetch it first"
-	version=$(git describe --tags --always "$commit")
+	version=$(git describe --tags --abbrev=0 "$commit" 2>/dev/null || git rev-parse --short "$commit")
 	source="$build/source"
 	mkdir "$source"
 	git archive --format=tar "$commit" | tar -x -C "$source"
@@ -74,7 +74,7 @@ if [ -n "$ref" ]; then
 	npm --prefix "$source/web" run build
 else
 	commit=$(git rev-parse HEAD)
-	version=$(git describe --tags --always --dirty)
+	version=$(git describe --tags --abbrev=0 2>/dev/null || git rev-parse --short HEAD)
 	source=$top
 	make --no-print-directory web-build
 fi
