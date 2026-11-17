@@ -14,6 +14,8 @@ to start, run the build that migrated this database, or restore the state direct
 A release never changes a schema change it shipped, so another build migrated this database, usually a development build. Do one of these:
 
 - Run the build that migrated the database.
-- Stop the daemon and restore the state directory from a copy made before that build ran. Backups made with `ropeshift backup` restore the installation database and each project's ledger, as [backing up](onboarding.md#back-up-a-project-and-the-installation) describes.
+- Move the current state directory aside, so nothing the other build wrote is lost, and restore the state directory from a copy made before that build ran.
 
-A database that a later release migrated does not stop an earlier one. After a downgrade, the daemon prints one warning for each database that names the schema changes its build does not ship, and starts on the schema the later release left.
+Backups made with `ropeshift backup` cover the installation database and each project's ledger, as [backing up](onboarding.md#back-up-a-project-and-the-installation) describes. They do not cover the telemetry store or the worker's journal. When the refusal names one of those two, run the build that migrated it, or restore a full copy of the state directory.
+
+A database that a later release migrated does not stop an earlier one. After a downgrade, the daemon prints a warning naming each database whose applied schema changes its build does not ship, and the schema changes themselves, and starts on the schema the later release left. A project's ledger can warn more than once in one start.
