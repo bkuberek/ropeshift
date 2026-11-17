@@ -46,6 +46,30 @@ func TestAnAcceptanceLineSaysWhatTheReviewFound(t *testing.T) {
 	}
 }
 
+// A merge request names its work by the work order's title, as the web UI does, and by the work order's ID when
+// it was raised before a merge request held the title.
+func TestAMergeLineNamesTheWorkByItsTitle(t *testing.T) {
+	merge := func(subject, detail string) api.NeedItem {
+		return api.NeedItem{Kind: api.NeedApproval, ID: "merge-1", Approval: &authority.Approval{
+			ID: "merge-1", Kind: authority.KindMerge, WorkOrder: "wo-1", Subject: subject, SubjectDigest: "abc123", Detail: detail,
+		}}
+	}
+	tests := []struct {
+		name string
+		item api.NeedItem
+		want string
+	}{
+		{"a merge request", merge("merge", `{"work_order_id":"wo-1","title":"Trim the retry log","commit":"abc123"}`), "approve the merge of Trim the retry log at abc123"},
+		{"a held merge", merge(authority.MergeHeld, `{"work_order_id":"wo-1","title":"Trim the retry log","commit":"abc123","reason":"a required check failed"}`), "the merge of Trim the retry log is held: a required check failed"},
+		{"a request raised before the title", merge("merge", `{"work_order_id":"wo-1","commit":"abc123"}`), "approve the merge of wo-1 at abc123"},
+	}
+	for _, tt := range tests {
+		if line := what(tt.item); line != tt.want {
+			t.Errorf("%s: %q, want %q", tt.name, line, tt.want)
+		}
+	}
+}
+
 // A recovery request says which act the orchestrator asked for, on which work, why, and the limit it went
 // past, so a person at a terminal reads what approving it does.
 func TestARecoveryLineSaysWhatItAsksAndWhy(t *testing.T) {
