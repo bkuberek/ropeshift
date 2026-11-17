@@ -4,6 +4,8 @@
 package gittest
 
 import (
+	"crypto/sha1" //nolint:gosec // git names a SHA-1 repository's objects by SHA-1, which is what this reproduces
+	"encoding/hex"
 	"fmt"
 	"os"
 	"os/exec"
@@ -214,18 +216,39 @@ func NewUnrelatedPair(t testing.TB) (higher, lower *Repo) {
 	return higher, lower
 }
 
+// emptyTree is the ID of the tree with no entry, which git knows without storing it.
+const emptyTree = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+
 // NewWithRootBelow creates a repository with one commit whose first commit sorts below every root given, so
-// merging it into a history that holds those roots gives that history a new lowest root.
+// merging it into a history that holds those roots gives that history a new lowest root. It looks for the
+// commit by hashing candidates in the process, one second apart in their dates, until one hashes low enough,
+// which takes about as many tries as the limit has sixteenths to come down, and writes only that one.
 func NewWithRootBelow(t testing.TB, roots ...string) *Repo {
 	t.Helper()
-	for attempt := range 200 {
-		repo := New(t)
-		repo.Commit("LOWER.md", fmt.Sprintf("a history that sorts lower, attempt %d\n", attempt))
-		if root := repo.Roots("HEAD")[0]; root < slices.Min(roots) {
-			return repo
+	limit := slices.Min(roots)
+	const first, tries = int64(1_000_000_000), 200_000_000
+	for date := first; date < first+tries; date++ {
+		who := fmt.Sprintf("Test <test@example.invalid> %d +0000", date)
+		body := fmt.Sprintf("tree %s\nauthor %s\ncommitter %s\n\na history that sorts lower\n", emptyTree, who, who)
+		sum := sha1.Sum([]byte(fmt.Sprintf("commit %d\x00%s", len(body), body)))
+		if hex.EncodeToString(sum[:]) >= limit {
+			continue
 		}
+		repo := New(t)
+		write := func(kind, content string) string {
+			cmd := exec.Command("git", "hash-object", "-t", kind, "-w", "--stdin")
+			cmd.Dir, cmd.Env, cmd.Stdin = repo.Dir, repo.Env(), strings.NewReader(content)
+			out, err := cmd.CombinedOutput()
+			if err != nil {
+				t.Fatalf("git hash-object: %v\n%s", err, out)
+			}
+			return strings.TrimSpace(string(out))
+		}
+		write("tree", "")
+		repo.Git("update-ref", "refs/heads/main", write("commit", body))
+		return repo
 	}
-	t.Fatalf("no first commit sorted below %v in 200 attempts", roots)
+	t.Fatalf("no first commit sorted below %s in %d tries", limit, tries)
 	return nil
 }
 
