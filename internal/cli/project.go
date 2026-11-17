@@ -174,13 +174,15 @@ func (c *invocation) projectCreate(args []string) int {
 }
 
 func (c *invocation) projectRename(args []string) int {
-	positional, code := c.positionals(c.flags(), args, 2, "the project's name and its new name")
+	set := c.flags()
+	display := set.String("display-name", "", "the name to show, which may hold spaces and capitals; the project keeps the one it has without it")
+	positional, code := c.positionals(set, args, 2, "the project's name and its new name")
 	if positional == nil {
 		return code
 	}
 	client := c.client()
 	defer client.Close()
-	renamed, err := client.RenameProject(c.ctx, positional[0], api.RenameProject{Name: positional[1]})
+	renamed, err := client.RenameProject(c.ctx, positional[0], api.RenameProject{Name: positional[1], DisplayName: *display})
 	return c.finish(err, renamed, func() string { return fmt.Sprintf("renamed project %s to %s\n", positional[0], renamed.Name) })
 }
 
