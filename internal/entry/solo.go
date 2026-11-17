@@ -330,7 +330,7 @@ func serveSolo(ctx context.Context, paths api.Paths, opts soloOptions, stdout, s
 		joinToken: func(ctx context.Context) (string, error) {
 			return plane.CreateJoinToken(ctx, tickActor("solo"))
 		},
-	}, opts, laneRuntime, telemetry, hosts, local, stderr)
+	}, laneRuntime, telemetry, hosts, local, stderr)
 	if err != nil {
 		client.Close()
 		return err
@@ -435,7 +435,7 @@ type workerConnection struct {
 // the control plane. The link and the registration are the connection's, so a group's
 // worker runs this same code over another link.
 func startSoloWorker(
-	ctx context.Context, paths api.Paths, connection workerConnection, opts soloOptions, runtime *worker.LaneRuntime, telemetry *soloTelemetry, hosts *soloHosts,
+	ctx context.Context, paths api.Paths, connection workerConnection, runtime *worker.LaneRuntime, telemetry *soloTelemetry, hosts *soloHosts,
 	local *soloWorker, stderr io.Writer,
 ) (<-chan struct{}, error) {
 	if err := keepStableBinary(ctx, paths, osexec.Runner{}); err != nil {

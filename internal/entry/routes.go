@@ -116,16 +116,31 @@ func groupRoutes(command string) []routeGroup {
 	if command != commandDaemon {
 		return nil
 	}
-	return []routeGroup{{"Run a group server or its workers (preview)", []route{{
-		Command: cli.Command{
-			Name: "server", Args: "--database <url> [flags]", Summary: "run the control plane alone, on Postgres, for workers that dial it",
-			Detail: groupGateNote + "\n" +
-				"It serves the API, the worker plane, and the web UI on one listener, which binds a loopback address in\n" +
-				"this version, and a control socket in its run directory for the commands run on its machine.",
+	return []routeGroup{{"Run a group server or its workers (preview)", []route{
+		{
+			Command: cli.Command{
+				Name: "server", Args: "--database <url> [flags]", Summary: "run the control plane alone, on Postgres, for workers that dial it",
+				Detail: groupGateNote + "\n" +
+					"It serves the API, the worker plane, and the web UI on one listener, which binds a loopback address in\n" +
+					"this version, and a control socket in its run directory for the commands run on its machine.",
+			},
+			run:   runServer,
+			flags: func() *flag.FlagSet { return serverFlags(new(serverOptions), os.Getenv) },
 		},
-		run:   runServer,
-		flags: func() *flag.FlagSet { return serverFlags(new(serverOptions), os.Getenv) },
-	}}}}
+		{
+			Command: cli.Command{
+				Name: "worker", Args: "[join --server <url> <join token>] [flags]", Summary: "run this machine's worker alone, on a server it joined",
+				Detail: groupGateNote + "\n" +
+					"`ropeshiftd worker join --server <url> [--name <name>] <join token>` registers this machine with a server,\n" +
+					"with a join token a member made by `ropeshift worker token` on the server's machine, and keeps the server's\n" +
+					"address and the worker's credential in its journal, which only its user reads. In this version the server's\n" +
+					"address is a loopback http:// URL. `ropeshiftd worker` then runs the worker: its lanes, terminal, checkouts,\n" +
+					"drivers, hooks, and MCP on this machine's worker socket, and its link to the server.",
+			},
+			run:   runWorker,
+			flags: func() *flag.FlagSet { return workerFlags(new(workerOptions)) },
+		},
+	}}}
 }
 
 // findRoute returns the route a binary answers for a first word.
