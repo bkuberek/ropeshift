@@ -92,7 +92,14 @@ function Forge({ view }: { view: RepositoryView }) {
 // more from a folder of clones after a dry run.
 export function RepositoriesPage({ live, project, label: projectLabel, selected, dialog, archived }: { live: Live; project: string; label: string; selected: string; dialog: string; archived: boolean }) {
   const read = useRead<RepositoryList>(() => readRepositories(), `repositories:${project}`, live);
-  const [registering, setRegistering] = useState(dialog === "register");
+  // The command palette opens Register repositories with `?dialog=register`. The dialog opens after the page has
+  // taken its arrival focus, so that focus does not leave it outside.
+  const [registering, setRegistering] = useState(false);
+  useEffect(() => {
+    if (dialog === "register") {
+      setRegistering(true);
+    }
+  }, [dialog]);
   const rows = (read.view?.repositories ?? []).filter((view) => view.state !== "removed");
   const chosen = rows.find((view) => view.id === selected);
   // The command palette changes or removes a repository by selecting it: Change focuses its name, and Remove opens

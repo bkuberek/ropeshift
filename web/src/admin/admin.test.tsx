@@ -1,7 +1,8 @@
-import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
+import { go } from "../app/route";
 import { openPage } from "../opening";
 import type { Sent } from "../testing";
 import { golden, here, refusal, serveViews } from "../testing";
@@ -291,6 +292,16 @@ describe("Repositories", () => {
     await userEvent.click(within(dialog).getByRole("button", { name: "Register 1 repository" }));
     await waitFor(() => expect(sentTo(sent, "POST", "/v1/repositories")).toHaveLength(2));
     expect(sentTo(sent, "POST", "/v1/repositories")[1]?.body).toEqual({ paths: ["/work"], depth: 1, dry_run: false });
+  });
+
+  it("moves keyboard focus into the register dialog when a move to the page opens it", async () => {
+    serveAdmin();
+    openPage(here("/decisions"));
+    await screen.findByRole("heading", { level: 1, name: "Decisions" });
+    act(() => go(here("/repositories?dialog=register")));
+    const dialog = await screen.findByRole("dialog", { name: "Register repositories in default" });
+    await waitFor(() => expect(dialog.contains(document.activeElement)).toBe(true));
+    expect(document.activeElement).not.toBe(screen.getByRole("heading", { level: 1, name: "Repositories" }));
   });
 });
 
