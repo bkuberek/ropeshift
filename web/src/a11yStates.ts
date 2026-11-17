@@ -136,6 +136,7 @@ export const dialogStates: DialogState[] = [
   { file: "talk/useAssistant.tsx", title: /^Delete / },
   { file: "talk/useAssistant.tsx", title: /^Choose a worker$/ },
   { file: "admin/Projects.tsx", title: /^Create project$/ },
+  { file: "admin/StartFromTemplate.tsx", title: /^Start a project from a template$/ },
   { file: "admin/Projects.tsx", title: /^Import backup$/ },
   { file: "admin/Projects.tsx", title: /^Rename / },
   { file: "admin/Projects.tsx", title: /^Archive / },

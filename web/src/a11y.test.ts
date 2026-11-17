@@ -1363,6 +1363,45 @@ suite.each(Object.entries(sizes))("at %s width", (size, viewport) => {
         // The repository dialogs.
         await page.goto(`${base}/projects/default/repositories?dialog=register`);
         await check("register repositories dialog", page.getByRole("dialog", { name: /^Register repositories in / }));
+        // Start a project from a template: the empty form, the wait for the worker, the worker's refusal brought back to the form,
+        // and what was written, with the hand-off to registration and without it.
+        const asked = { id: "request-1", worker: "worker-1", requested_by: "member", requested_at: Date.now(), expires_at: Date.now() + 120_000, shape: "workspace", path: "/srv/code/harbor", first_commit: true, state: "offered", registrable: false };
+        let reading: Record<string, unknown> = asked;
+        await page.route(/\/v1\/workers$/, served({ workers: [{ id: "worker-1", name: "atlas", epoch: 1, protocol: 5 }, { id: "worker-2", name: "elder", epoch: 1, protocol: 4 }] }));
+        await page.route(/\/v1\/workers\/worker-1\/template-writes$/, (route) => served(asked, 202)(route));
+        await page.route(/\/v1\/workers\/worker-1\/template-writes\/request-1$/, (route) => served(reading)(route));
+        const report = {
+          request: "request-1",
+          outcome: "written",
+          project: "harbor",
+          files: ["AGENTS.md", "Makefile", "plan/goal.md"],
+          commit: "3f9c2ab",
+          clone: true,
+          commands: ["make -C /srv/code/harbor setup", "ropeshift project create harbor", "make -C /srv/code/harbor register"],
+        };
+        const start = page.getByRole("dialog", { name: "Start a project from a template" });
+        const send = async () => {
+          await start.getByRole("textbox", { name: "Folder" }).fill("/srv/code/harbor");
+          await start.getByRole("button", { name: "Write files" }).click();
+        };
+        await page.goto(`${base}/projects?dialog=template`);
+        await check("start a project from a template dialog", start);
+        await send();
+        await start.getByText("Waiting for atlas").waitFor();
+        await check("start a project from a template dialog, waiting", start);
+        reading = { ...asked, state: "refused", report: { request: "request-1", outcome: "refused", reason: "path_not_empty", detail: "the folder holds files" } };
+        await start.getByText(/the folder holds files \(path_not_empty\)/).waitFor();
+        await check("start a project from a template dialog, refused", start);
+        reading = { ...asked, state: "written", registrable: true, report };
+        await start.getByRole("button", { name: "Write files" }).click();
+        await start.getByText(/atlas wrote 3 files/).waitFor();
+        await check("start a project from a template dialog, written with Register", start);
+        reading = { ...asked, state: "written", registrable: false, report };
+        await page.goto(`${base}/projects?dialog=template`);
+        await send();
+        await start.getByText(/atlas wrote 3 files/).waitFor();
+        await check("start a project from a template dialog, written without Register", start);
+        await page.unroute(/\/v1\/workers$/);
         await page.goto(`${base}/projects/default/repositories?repo=id-api`);
         await ready(page);
         await page.getByRole("button", { name: "Remove…" }).click();

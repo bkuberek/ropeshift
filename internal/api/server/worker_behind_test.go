@@ -9,6 +9,7 @@ import (
 	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/control"
 	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/internal/workorders"
 	"ropeshift.com/ropeshift/test/apitest"
 )
@@ -63,9 +64,25 @@ func TestAClaimHeldUntilItsWorkerUpgradesIsStuckAndNeedsYou(t *testing.T) {
 		}
 		return found[0], true
 	}
+	// A control plane accepts a worker one protocol behind its own, so a session on a protocol two behind is one
+	// that an earlier build opened and that outlives the upgrade. The test records such a session the way opening
+	// one does.
 	behind := func(protocol int) {
 		t.Helper()
-		if _, err := d.workers.OpenSession(ctx, ledger.SessionRequest{Auth: d.auth, Protocol: protocol}); err != nil {
+		err := d.Store.Installation(apitest.Scope).Write(ctx, "test.worker_behind", func(tx ports.SharedTx) error {
+			record, err := tx.Workers().Find(d.auth.WorkerID)
+			if err != nil {
+				return err
+			}
+			next := record.Worker
+			next.Protocol = protocol
+			if _, err := tx.Workers().OpenEpoch(next); err != nil {
+				return err
+			}
+			_, err = tx.Append(ledger.EventDraft{Type: "worker.session_opened", Actor: ledger.Actor{Kind: ledger.ActorWorker, ID: record.ID}, Subject: ledger.Subject{Kind: "worker", ID: record.ID}})
+			return err
+		})
+		if err != nil {
 			t.Fatal(err)
 		}
 	}

@@ -35,6 +35,7 @@ func (h *handler) workerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/workers/{id}/approvals/decide", h.workerDecideApproval)
 	mux.HandleFunc("POST /v1/workers/{id}/assistant-credentials", h.workerAssistantCredential)
 	mux.HandleFunc("POST /v1/workers/{id}/assistant-entries", h.workerAssistantEntry)
+	mux.HandleFunc("POST /v1/workers/{id}/template-reports", h.workerTemplateReport)
 }
 
 // workerAssistantCredential makes the credential of one generation of an assistant's run the worker holds.

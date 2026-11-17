@@ -12,6 +12,7 @@ import (
 	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/planning"
+	"ropeshift.com/ropeshift/internal/projectfiles"
 )
 
 // adoptCriterion is the one criterion an adopt session's work order holds.
@@ -312,28 +313,8 @@ func (c *invocation) refusePlanned(client *api.ProjectClient, name string) int {
 	return ExitOK
 }
 
-// projectNameOf makes a project name of a directory's name: lowercase letters and digits, with a hyphen for
-// each run of anything else. It is empty when nothing is left.
-func projectNameOf(directory string) string {
-	var out strings.Builder
-	gap := false
-	for _, r := range strings.ToLower(directory) {
-		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
-			if gap && out.Len() > 0 {
-				out.WriteByte('-')
-			}
-			out.WriteRune(r)
-			gap = false
-			continue
-		}
-		gap = true
-	}
-	name := out.String()
-	if len(name) > 63 {
-		name = strings.TrimRight(name[:63], "-")
-	}
-	return name
-}
+// projectNameOf makes a project name of a directory's name, as `new` and a worker writing a folder do.
+func projectNameOf(directory string) string { return projectfiles.NameOf(directory) }
 
 // register registers the repository and every clone the detection found, as `repository add` does, and says
 // what became of each. A clone refused is said and left out; the repository the command runs in must register,

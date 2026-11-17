@@ -322,6 +322,10 @@ func (p *Plane) Desired(ctx context.Context, request ledger.DesiredRequest) (led
 		}
 		facts, err := readAutonomy(tx.Policies(), tx.Workers(), record, now)
 		state.MaxRespawnsPerDay = facts.respawns()
+		if err != nil {
+			return err
+		}
+		state.TemplateWrites, err = desiredTemplateWrites(tx, record)
 		return err
 	})
 	if err != nil {

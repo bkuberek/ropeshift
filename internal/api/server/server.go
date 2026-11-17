@@ -126,6 +126,9 @@ type Config struct {
 	// Templates are the project templates this daemon's binary embeds, rendered with the example data, which
 	// the templates route serves. Nil has none, and the route refuses.
 	Templates []api.Template
+	// Reserved are the folders this daemon keeps for itself on its own machine: its state, run, and worktree folders, each
+	// as spelled and as it resolves. A template write for the daemon's own worker is refused at or inside any of them.
+	Reserved []string
 	// Hashes lets one passphrase check run at a time, and no more than its depth wait for it, so a crowd of
 	// guessers cannot hold it for as long as they like. The network listener makes one when none is given. Nil
 	// checks without one, as the control socket does.
@@ -177,6 +180,9 @@ type handler struct {
 	// caps reads and sets the lane caps of the worker this daemon runs, which only the first project's
 	// handler holds.
 	caps *control.LaneCaps
+	// templateWrites records a member's requests that a worker write a shape's starting files, which only the
+	// first project's handler holds.
+	templateWrites *control.TemplateWrites
 }
 
 // New returns the versioned API. The installation's routes sit at the top, and each project's routes
@@ -201,6 +207,7 @@ func New(config Config) http.Handler {
 	projects := newRouter(config, home)
 	home.lifecycle, home.router = control.NewProjects(config.Projects), projects
 	home.caps = control.NewLaneCaps(config.Installation, config.Profile, config.LocalWorker)
+	home.templateWrites = control.NewTemplateWrites(config.Installation, config.HeartbeatMs, config.LocalWorker).Reserving(config.Reserved...)
 	mux := http.NewServeMux()
 	home.installationRoutes(mux)
 	projects.registryRoutes(mux)
@@ -219,6 +226,7 @@ func (h *handler) installationRoutes(mux *http.ServeMux) {
 	h.orchestratorRoutes(mux)
 	h.autonomyRoutes(mux)
 	h.capsRoutes(mux)
+	h.templateWriteRoutes(mux)
 	h.telemetryRoutes(mux)
 	h.installationRosterRoutes(mux)
 	h.templateRoutes(mux)

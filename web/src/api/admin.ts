@@ -183,6 +183,51 @@ export type TemplateList = { version: string; templates: Template[] };
 export type WorkerRecord = { id: string; name?: string; epoch?: number; protocol?: number; manifest?: { capacity?: { max_lanes?: number } }; last_handshake_at?: number };
 export type WorkerList = { workers: WorkerRecord[] };
 
+// The oldest plane protocol a worker is offered a template write on. A worker on an older one, which the daemon still
+// accepts, drops the request, so the dialog lists it as disabled and the daemon refuses a request for it.
+export const protocolTemplateWrites = 5;
+
+// A request that a worker write a shape's starting files into a folder on its machine, as `ropeshift new` writes them
+// (FR-TPL-5): the shape, the absolute folder, the code repositories of a workspace, the project a repository's
+// commands name, and whether the worker makes the folder's first commit.
+export type TemplateShape = "workspace" | "monorepo" | "repository";
+export type TemplateRepository = { name: string; remote: string };
+export type TemplateWriteRequest = { shape: TemplateShape; path: string; repositories?: TemplateRepository[]; project?: string; first_commit?: boolean };
+
+// What the worker did with a request. A refusal has its reason and detail; a write has the files it made, the first
+// commit or why it failed, whether the folder is now a clone, and the commands that register it.
+export type TemplateWriteReport = {
+  request: string;
+  outcome: "written" | "refused";
+  reason?: string;
+  detail?: string;
+  project?: string;
+  files?: string[];
+  commit?: string;
+  commit_error?: string;
+  clone?: boolean;
+  commands?: string[];
+};
+
+// A request as the daemon reads it: offered to its worker for two minutes, then written, refused, or expired. A
+// folder is registrable from the web UI when its report says it is a clone and the worker is the daemon's own.
+export type TemplateWriteView = {
+  id: string;
+  worker: string;
+  requested_by: string;
+  requested_at: number;
+  expires_at: number;
+  shape: TemplateShape;
+  path: string;
+  project?: string;
+  repositories?: TemplateRepository[];
+  first_commit?: boolean;
+  state: "offered" | "written" | "refused" | "expired";
+  report?: TemplateWriteReport;
+  reported_at?: number;
+  registrable: boolean;
+};
+
 // A worker's lane caps (FR-PROJ-7): max_lanes is null while it follows the worker's recommendation, and 0 caps
 // nothing. The recommendation is the worker's last report, with the numbers behind it and why, and the warning
 // says a cap above it stands all the same.
@@ -289,6 +334,8 @@ export const adminPaths = {
   joinTokenRevoke: (id: string) => `/v1/workers/tokens/${encodeURIComponent(id)}/revoke`,
   autonomy: (worker: string) => `/v1/workers/${encodeURIComponent(worker)}/autonomy`,
   caps: (worker: string) => `/v1/workers/${encodeURIComponent(worker)}/caps`,
+  templateWrites: (worker: string) => `/v1/workers/${encodeURIComponent(worker)}/template-writes`,
+  templateWrite: (worker: string, request: string) => `/v1/workers/${encodeURIComponent(worker)}/template-writes/${encodeURIComponent(request)}`,
   acknowledge: (worker: string) => `/v1/workers/${encodeURIComponent(worker)}/autonomy/acknowledgement`,
   windows: (worker: string) => `/v1/workers/${encodeURIComponent(worker)}/windows`,
   risk: () => "/v1/autonomy/risk",
@@ -367,6 +414,10 @@ export const readLaneTelemetry = () => call<LaneTelemetryList>("GET", adminPaths
 
 // listTemplates reads every template the daemon's binary embeds, as `ropeshift template show` lists and prints them.
 export const listTemplates = () => call<TemplateList>("GET", adminPaths.templates());
+// writeTemplates asks a worker to write a shape's starting files into a folder on its machine, as `ropeshift new` does,
+// and answers with the request, which the worker settles within two minutes. readTemplateWrite reads how it stands.
+export const writeTemplates = (worker: string, request: TemplateWriteRequest) => call<TemplateWriteView>("POST", adminPaths.templateWrites(worker), request);
+export const readTemplateWrite = (worker: string, request: string) => call<TemplateWriteView>("GET", adminPaths.templateWrite(worker, request));
 
 // Workers
 

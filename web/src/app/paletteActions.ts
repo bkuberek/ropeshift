@@ -26,6 +26,7 @@ export const paletteActions: Record<string, PaletteAction> = {
   "PUT /v1/passphrase": { title: "Settings: Change passphrase", at: home },
   "PUT /v1/workers/{id}/orchestrator": { title: "Start orchestrator", at: home },
   "POST /v1/projects": { title: "Create project", at: home },
+  "POST /v1/workers/{id}/template-writes": { title: "Start a project from a template", at: home },
   "POST /v1/projects/{project}/rename": { title: "Rename project: ", at: home },
   "POST /v1/projects/{project}/archive": { title: "Archive project: ", at: home },
   "POST /v1/projects/{project}/restore": { title: "Restore project: ", at: home },

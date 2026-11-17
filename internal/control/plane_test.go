@@ -73,12 +73,45 @@ func newPlaneRig(t *testing.T, protocol int) *planeRig {
 		t.Fatal(err)
 	}
 	r.auth = ledger.WorkerAuth{WorkerID: "worker-1", Credential: credential.Credential}
-	session, err := r.plane.OpenSession(ctx, ledger.SessionRequest{Auth: r.auth, Protocol: protocol, Manifest: apiKeyManifest})
+	// A control plane accepts a worker one protocol behind its own. A protocol further behind is a session an
+	// earlier build opened, which outlives the upgrade, so it is opened on the current protocol and then recorded
+	// the way that build recorded it.
+	opened := protocol
+	if protocol < ledger.ProtocolVersion-1 {
+		opened = ledger.ProtocolVersion
+	}
+	session, err := r.plane.OpenSession(ctx, ledger.SessionRequest{Auth: r.auth, Protocol: opened, Manifest: apiKeyManifest})
 	if err != nil {
 		t.Fatal(err)
 	}
 	r.epoch = session.Epoch
+	if opened != protocol {
+		r.epoch = r.recordProtocol(protocol)
+	}
 	return r
+}
+
+// recordProtocol records the protocol the worker's session was opened on, in a new epoch, and returns the epoch.
+func (r *planeRig) recordProtocol(protocol int) int64 {
+	r.t.Helper()
+	var epoch int64
+	err := r.state.Installation.Write(r.t.Context(), "test.record_protocol", func(tx ports.SharedTx) error {
+		record, err := tx.Workers().Find(r.auth.WorkerID)
+		if err != nil {
+			return err
+		}
+		next := record.Worker
+		next.Protocol = protocol
+		if epoch, err = tx.Workers().OpenEpoch(next); err != nil {
+			return err
+		}
+		_, err = tx.Append(ledger.EventDraft{Type: "worker.session_opened", Actor: projectMember, Subject: ledger.Subject{Kind: "worker", ID: record.ID}})
+		return err
+	})
+	if err != nil {
+		r.t.Fatal(err)
+	}
+	return epoch
 }
 
 // ready records a work order a worker may claim in a project.
@@ -218,7 +251,7 @@ func TestADelegateWhoseIDNamesNoOneDispatchesNoLane(t *testing.T) {
 func TestARestrictedDelegatesLaneReachesNoWorkerThatWouldDropItsRecord(t *testing.T) {
 	delegate := authority.DelegateActor(projectMember.ID, authority.DelegateIDPrefix+"lanes")
 	const overrides = "[agent]\neffort = \"max\"\n"
-	for _, protocol := range []int{ledger.ProtocolVersion - 1, ledger.ProtocolVersion} {
+	for _, protocol := range []int{ledger.ProtocolDelegatedLayers - 1, ledger.ProtocolVersion} {
 		t.Run(fmt.Sprintf("protocol %d", protocol), func(t *testing.T) {
 			r := newPlaneRig(t, protocol)
 			ctx := t.Context()
@@ -245,7 +278,7 @@ func TestARestrictedDelegatesLaneReachesNoWorkerThatWouldDropItsRecord(t *testin
 			switch {
 			case held.WorkOrder == "" || held.ClaimID == "" || held.Fence == 0:
 				t.Errorf("the worker is not offered its claim: %+v", leases)
-			case protocol < ledger.ProtocolVersion && (held.Lane != "" || held.Overrides != "" || held.Delegated != nil):
+			case protocol < ledger.ProtocolDelegatedLayers && (held.Lane != "" || held.Overrides != "" || held.Delegated != nil):
 				t.Errorf("a worker a version behind is offered %+v", held)
 			case protocol == ledger.ProtocolVersion && (held.Lane != "lane-restricted" || held.Delegated == nil || !held.Delegated.Restricted):
 				t.Errorf("a worker on the current protocol is offered %+v", held)
@@ -267,7 +300,7 @@ func TestARestrictedDelegatesLaneReachesNoWorkerThatWouldDropItsRecord(t *testin
 func TestASingleProjectLinkOffersALeaseAsThePlaneDoes(t *testing.T) {
 	delegate := authority.DelegateActor(projectMember.ID, authority.DelegateIDPrefix+"link")
 	const overrides = "[agent]\neffort = \"max\"\n"
-	for _, protocol := range []int{ledger.ProtocolVersion - 1, ledger.ProtocolVersion} {
+	for _, protocol := range []int{ledger.ProtocolDelegatedLayers - 1, ledger.ProtocolVersion} {
 		t.Run(fmt.Sprintf("protocol %d", protocol), func(t *testing.T) {
 			r := newPlaneRig(t, protocol)
 			ctx := t.Context()
@@ -297,7 +330,7 @@ func TestASingleProjectLinkOffersALeaseAsThePlaneDoes(t *testing.T) {
 			switch {
 			case held.WorkOrder == "" || held.ClaimID == "" || held.Fence == 0:
 				t.Errorf("the worker is not offered its claim: %+v", offered)
-			case protocol < ledger.ProtocolVersion && (held.Lane != "" || held.Overrides != "" || held.Delegated != nil):
+			case protocol < ledger.ProtocolDelegatedLayers && (held.Lane != "" || held.Overrides != "" || held.Delegated != nil):
 				t.Errorf("a worker a version behind is offered %+v", held)
 			case protocol == ledger.ProtocolVersion && (held.Lane != "lane-restricted" || held.Delegated == nil || !held.Delegated.Restricted):
 				t.Errorf("a worker on the current protocol is offered %+v", held)

@@ -65,6 +65,8 @@ type SharedReadTx interface {
 	Policies() PolicyReader
 	// Roster reads the installation's layer of the agent roster.
 	Roster() RosterReader
+	// TemplateWrites reads the requests to write a shape's starting files on a worker's machine.
+	TemplateWrites() TemplateWriteReader
 }
 
 // SharedTx is one write transaction of the shared records, which holds the installation's revision.
@@ -85,4 +87,6 @@ type SharedTx interface {
 	Policies() PolicyWriter
 	// Roster reads and writes the installation's layer of the agent roster, and refuses a project's.
 	Roster() RosterWriter
+	// TemplateWrites reads and writes the requests to write a shape's starting files on a worker's machine.
+	TemplateWrites() TemplateWriteWriter
 }

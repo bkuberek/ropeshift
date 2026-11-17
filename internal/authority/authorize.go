@@ -130,6 +130,10 @@ const (
 	// ActionSetLaneCaps sets a machine's lane caps, per worker and per sign-in (FR-PROJ-7). They protect the
 	// machine and the sign-in, which are a person's, so no agent has this, and no row below may ever grant it.
 	ActionSetLaneCaps Action = "worker.lane_caps"
+	// ActionWriteTemplates asks a worker to write a shape's starting files into a folder on its machine
+	// (FR-TPL-5). It writes files at a path a caller chooses, on a machine that is a person's, so no agent
+	// has this, and no row below may ever grant it.
+	ActionWriteTemplates Action = "template.write"
 	// ActionRaiseMergeAuthority gives a repository a merge authority that leaves more to ropeshift, and
 	// ActionReviewPullRequest moves its review target to a pull request. Each is a consent operation no
 	// delegate policy may exempt (ADR-0024), so only a member has them.
@@ -174,6 +178,7 @@ func Actions() []Action {
 		ActionSetRepository, ActionRegisterRepository, ActionRegisterManifest, ActionManageProject, ActionRecordMerge, ActionMerge, ActionDecideMerge, ActionChangeRoster,
 		ActionRaiseMergeAuthority, ActionReviewPullRequest, ActionDecideOneWay, ActionManageSessions, ActionBackupInstallation, ActionConfirmCard,
 		ActionConverse, ActionBackupProject, ActionSetLaneCaps, ActionMessageOrchestrator, ActionStartReview, ActionPlanAdoption, ActionRestructure,
+		ActionWriteTemplates,
 	}
 }
 

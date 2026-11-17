@@ -51,6 +51,8 @@ var equivalents = map[string]string{
 	"decline":           "approval approve",   // delegates.go decideCard, for decline, sends DecideApproval with Allow false for a card; the confirmation card does
 	"fleet drain":       "fleet pause",        // work.go setsFleet sends SetFleetMode, the same PUT /fleet/mode as fleet pause, with the mode drain; Settings sends all three modes
 	"fleet run":         "fleet pause",        // setsFleet with the mode run, on the same route
+	"new monorepo":      "new workspace",      // new.go newFolder writes a shape's starting files; Start a project from a template sends the shape monorepo in the body of the POST /v1/workers/{id}/template-writes that new workspace's row names (templateWriteRoutes takes the shape from the body)
+	"new repository":    "new workspace",      // newFolder with the shape repository, and its --project in the body's project; the dialog sends both on the same route
 	"orchestrator stop": "orchestrator start", // orchestrator.go setsOrchestrator sends SetOrchestrator, the same PUT as start, with desired stopped; Workers sends both
 	"plan approve":      "approval approve",   // planning.go planApprove reads the plan, then sends DecideApproval with Allow for its digest; the plan approval card does
 	"plan start":        "work create",        // planstart.go openSession sends work create (plan), review, claim, and lane start; planning/session.ts sends the same calls
@@ -72,13 +74,7 @@ var cliOnly = map[string]string{
 // webGaps are the commands the web UI should have a row for and does not yet, each with the slice of U2 or
 // of P4 that adds it. A command whose row is added leaves this list, and the test fails until it does. The
 // first run of this test wrote it, and a command the audit did not name went by its area.
-var webGaps = map[string]string{
-	// new.go writes a shape's starting files on this machine; P4i's dialog asks a worker the member picks to
-	// write them, through one route that takes the shape from its body (FR-TPL-5).
-	"new workspace":  "P4i",
-	"new monorepo":   "P4i",
-	"new repository": "P4i",
-}
+var webGaps = map[string]string{}
 
 var gapSlice = regexp.MustCompile(`^(U2[a-k]|P[34][a-j])[12]?$`)
 

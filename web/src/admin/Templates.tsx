@@ -1,7 +1,8 @@
-import { useEffect, useId, useMemo, useRef } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 
 import type { Template, TemplateList } from "../api/admin";
 import { listTemplates } from "../api/admin";
+import type { Project } from "../api/types";
 import type { Live } from "../api/useView";
 import { addressOf, go, Link, useArrivalFocus } from "../app/route";
 import { Page } from "../parts/parts";
@@ -10,6 +11,7 @@ import { Badge, Banner, EmptyState, SkeletonRows } from "../ui/display";
 import { useNarrow } from "../ui/narrow";
 import { useToast } from "../ui/overlays";
 import { useRead } from "./parts";
+import { StartFromTemplate } from "./StartFromTemplate";
 
 // The folders of templates in the order the list shows them, and the name of the group the top-level files fall under.
 const folders = ["workspace", "monorepo", "repository", "user", "policies"];
@@ -33,9 +35,10 @@ export function groupsOf(templates: Template[]): Group[] {
 
 const textOf = (name: string) => `ropeshift template show ${name}`;
 
-type BodyProps = { view: TemplateList; stale: string; selected: string };
+type BodyProps = { view: TemplateList; stale: string; selected: string; projects: Project[]; reload: () => Promise<void> };
 
-function TemplatesBody({ view, stale, selected }: BodyProps) {
+function TemplatesBody({ view, stale, selected, projects, reload }: BodyProps) {
+  const [starting, setStarting] = useState(false);
   const narrow = useNarrow();
   const toast = useToast();
   const title = useRef<HTMLHeadingElement>(null);
@@ -79,6 +82,9 @@ function TemplatesBody({ view, stale, selected }: BodyProps) {
             </h1>
             <p className="subtle small">{view.templates.length} templates</p>
           </div>
+          <Button small icon="plus" onClick={() => setStarting(true)}>
+            Start a project from a template
+          </Button>
         </div>
         <div className="split-list-body">
           {stale ? (
@@ -153,16 +159,18 @@ function TemplatesBody({ view, stale, selected }: BodyProps) {
           </EmptyState>
         )}
       </section>
+      <StartFromTemplate open={starting} onClose={() => setStarting(false)} projects={projects} reload={reload} />
     </div>
   );
 }
 
 // TemplatesPage is the Templates view (FR-TPL-5, FR-UI-7): every template the daemon's binary embeds, beside the
-// selected template's text, which is what `ropeshift template show` prints and `ropeshift new` writes. It is read-only.
-export function TemplatesPage({ live, selected }: { live: Live; selected: string }) {
+// selected template's text, which is what `ropeshift template show` prints and `ropeshift new` writes. The templates are read-only,
+// and the header starts a project from them on a worker the member picks.
+export function TemplatesPage({ live, selected, projects, reload }: { live: Live; selected: string; projects: Project[]; reload: () => Promise<void> }) {
   const read = useRead<TemplateList>(() => listTemplates(), "templates", live);
   if (read.view) {
-    return <TemplatesBody view={read.view} stale={read.failure} selected={selected} />;
+    return <TemplatesBody view={read.view} stale={read.failure} selected={selected} projects={projects} reload={reload} />;
   }
   return (
     <Page title="Templates">

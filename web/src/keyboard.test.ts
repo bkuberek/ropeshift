@@ -172,6 +172,26 @@ const paths: Record<string, KeyPath> = {
       await k.press("Enter");
     },
   },
+  "POST /v1/workers/{id}/template-writes": {
+    sent: post(/^\/v1\/workers\/worker-1\/template-writes$/, { shape: "monorepo", path: "/srv/code/harbor", first_commit: true }),
+    answers: reply(
+      [/\/v1\/workers$/, { workers: [{ id: "worker-1", name: "atlas", epoch: 1, protocol: 5 }] }],
+      [
+        /\/v1\/workers\/worker-1\/template-writes$/,
+        { id: "request-1", worker: "worker-1", requested_by: "member", requested_at: 1, expires_at: 4102444800000, shape: "monorepo", path: "/srv/code/harbor", state: "offered", registrable: false },
+        "POST",
+      ],
+    ),
+    run: async (k, page) => {
+      await k.palette("Start a project from a template");
+      const start = inDialog(page);
+      await page.waitForFunction(() => (document.querySelector("[role=dialog] select") as HTMLSelectElement | null)?.value === "worker-1");
+      await k.activate(start.getByRole("button", { name: "Monorepo" }));
+      await k.typeInto(start.getByLabel("Folder"), "/srv/code/harbor");
+      await k.activate(start.getByRole("button", { name: "Write files" }));
+      await start.getByText("Waiting for atlas").waitFor();
+    },
+  },
   "POST /v1/workers/tokens": {
     sent: post(/^\/v1\/workers\/tokens$/),
     // Only an installation in group mode offers a join token.

@@ -59,6 +59,25 @@
   margin-top: 0;
 }
 
+/* A code repository of a new workspace: its name, its remote, and the button that takes the row out. */
+.repo-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) auto;
+  gap: var(--s-8);
+  align-items: end;
+  margin-bottom: var(--s-8);
+}
+
+.repo-row > .field {
+  margin-top: 0;
+}
+
+@media (max-width: 639px) {
+  .repo-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 .panel-tabs {
   padding: 0 var(--s-8);
 }

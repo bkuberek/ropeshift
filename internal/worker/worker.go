@@ -51,6 +51,9 @@ type Config struct {
 	Notice func(string)
 	// Lanes runs the lanes a member dispatches. A worker with none only holds leases.
 	Lanes *LaneRuntime
+	// Templates writes the starting files a member asks this worker for (FR-TPL-5). A worker with none is
+	// offered no request, because it speaks no protocol that reads one.
+	Templates *TemplateRuntime
 	// Telemetry receives the worker's own spans and metrics. Nil emits nothing.
 	Telemetry ports.Telemetry
 }
