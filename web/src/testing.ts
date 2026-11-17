@@ -4,7 +4,7 @@ import { waitFor } from "@testing-library/react";
 import { expect, onTestFinished, vi } from "vitest";
 
 import type { Health } from "./api/admin";
-import type { Approval, MergeDetail, NeedsYou } from "./api/types";
+import type { Approval, Completed, MergeDetail, NeedsYou, Stuck } from "./api/types";
 import needsYou from "../testdata/needs-you.json";
 
 // What a daemon says of itself when the build installed at its path is the one it runs.
@@ -174,6 +174,14 @@ export function serveViews(answer?: (sent: Sent) => Answer | undefined, options:
     // A plan's forecast, which the plan page and the Roadmap read apart from the plan.
     if (call.method === "GET" && /^\/v1\/plans\/[^/?]+\/forecast/.test(call.path)) {
       return { status: 200, body: golden("forecast") };
+    }
+    // Where a work order stands, as its Changes and its Pull request and checks tabs read it: the standing the
+    // completed or the stuck view holds of it.
+    const acceptance = /^\/v1\/work-orders\/([^/?]+)\/acceptance$/.exec(call.path);
+    if (call.method === "GET" && acceptance) {
+      const id = decodeURIComponent(acceptance[1] ?? "");
+      const held = [...golden<Completed>("completed").items, ...golden<Stuck>("stuck").items].find((item) => item.work_order?.id === id)?.standing;
+      return held ? { status: 200, body: held } : refusal(404, "not_found", "no such work order");
     }
     // A work order's estimate beside its baseline, as its page and its Activity tab read them.
     if (call.method === "GET" && /^\/v1\/work-orders\/[^/?]+\/estimate$/.test(call.path)) {

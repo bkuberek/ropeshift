@@ -2,7 +2,7 @@ import { cleanup, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
-import type { Completed, InProgress, Operations, ResourceReport, ShopFloor, Stuck } from "../api/types";
+import type { Completed, InProgress, Operations, ResourceReport, ShopFloor, Standing, Stuck } from "../api/types";
 import { openPage } from "../opening";
 import { golden, groupHealth, here, mergeRequest, openLedgerStream, refusal, reviewedCommit, serveViews } from "../testing";
 
@@ -10,6 +10,27 @@ function serving<T>(name: string, change: (view: T) => void) {
   const view = golden<T>(name);
   change(view);
   return serveViews((call) => (call.path.startsWith(`/v1/views/${name}`) ? { status: 200, body: view } : undefined));
+}
+
+// servingStanding lists one work order among the completed, in a state, and answers where it stands with the
+// first completed work's standing as the change leaves it.
+function servingStanding(id: string, title: string, state: string, change: (standing: Standing) => void) {
+  const view = golden<Completed>("completed");
+  const first = view.items[0];
+  if (!first) {
+    throw new Error("the golden view lists no completed work");
+  }
+  const item = structuredClone(first);
+  item.work_order = { ...item.work_order, id, title, state };
+  item.standing = { ...item.standing, work_order_id: id, state };
+  change(item.standing);
+  view.items = [item];
+  return serveViews((call) => {
+    if (call.path.startsWith("/v1/views/completed")) {
+      return { status: 200, body: view };
+    }
+    return call.method === "GET" && call.path === `/v1/work-orders/${id}/acceptance` ? { status: 200, body: item.standing } : undefined;
+  });
 }
 
 // row finds the table row that names a record, by its title or its ID.
@@ -327,22 +348,11 @@ describe("a work order", () => {
   });
 
   it("states who approved each merge, at which level, what landed, and what a merge still waits on", async () => {
-    serving<Completed>("completed", (view) => {
-      const first = view.items[0];
-      if (!first) {
-        throw new Error("the golden view lists no completed work");
-      }
-      const waiting = structuredClone(first);
-      waiting.work_order = { ...waiting.work_order, id: "wo-merging", title: "Merge the retry budget", state: "integrating" };
-      waiting.standing = {
-        ...waiting.standing,
-        state: "integrating",
-        why: "required checks are still running on 1111aaaa: CI result",
-        integrations: [
-          { id: "i1", work_order_id: "wo-merging", approved_commit: "1111aaaa2222", merge_authority: "review_approves", approved_by_kind: "review", approved_by_id: "lane-r/1", approved_at: 1 },
-        ],
-      };
-      view.items = [waiting];
+    servingStanding("wo-merging", "Merge the retry budget", "integrating", (standing) => {
+      standing.why = "required checks are still running on 1111aaaa: CI result";
+      standing.integrations = [
+        { id: "i1", work_order_id: "wo-merging", approved_commit: "1111aaaa2222", merge_authority: "review_approves", approved_by_kind: "review", approved_by_id: "lane-r/1", approved_at: 1 },
+      ];
     });
     openPage("/work-order?id=wo-merging&tab=checks");
     const waiting = await screen.findByRole("list", { name: "Merge" });
@@ -353,26 +363,59 @@ describe("a work order", () => {
   });
 
   it("states what a merge landed, and who approved it", async () => {
-    serving<Completed>("completed", (view) => {
-      const first = view.items[0];
-      if (!first) {
-        throw new Error("the golden view lists no completed work");
-      }
-      const merged = structuredClone(first);
-      merged.work_order = { ...merged.work_order, id: "wo-merged", title: "Merged by a member", state: "done" };
-      merged.standing = {
-        ...merged.standing,
-        integrations: [
-          { id: "i2", work_order_id: "wo-merged", approved_commit: "3333bbbb4444", merge_authority: "person_approves", approved_by_kind: "member", approved_by_id: "dana", approved_at: 1, merged_commit: "5555cccc6666", merged_at: 2 },
-        ],
-      };
-      view.items = [merged];
+    servingStanding("wo-merged", "Merged by a member", "done", (standing) => {
+      standing.integrations = [
+        { id: "i2", work_order_id: "wo-merged", approved_commit: "3333bbbb4444", merge_authority: "person_approves", approved_by_kind: "member", approved_by_id: "dana", approved_at: 1, merged_commit: "5555cccc6666", merged_at: 2 },
+      ];
     });
     openPage("/work-order?id=wo-merged&tab=checks");
     const merged = await screen.findByRole("list", { name: "Merge" });
     expect(merged.textContent).toContain("dana");
     expect(merged.textContent).toContain("merged 5555cccc");
     expect(merged.textContent).not.toContain("The merge waits");
+  });
+
+  // The pull request is on record once the forge reports it, which is before the review ends and before any
+  // merge, so the tab reads where the work stands now rather than waiting for the work to finish.
+  it("names the pull request the work lands through before the merge", async () => {
+    const standing = golden<Standing>("acceptance-reviewed");
+    standing.work_order_id = "wo-running";
+    standing.pull_request = {
+      number: 12,
+      url: "https://github.com/acme/harbor-web/pull/12",
+      state: "open",
+      base: "main",
+      branch: "lane/wo-running",
+      head_commit: "9f8e7d6c5b4a39281706",
+      checks: [{ name: "CI result", state: "passed", required: true }],
+    };
+    serveViews((call) => (call.method === "GET" && call.path === "/v1/work-orders/wo-running/acceptance" ? { status: 200, body: standing } : undefined));
+    openPage("/work-order?id=wo-running&tab=checks");
+    const pr = await screen.findByRole("region", { name: "Pull request #12" });
+    expect(pr.textContent).toContain("Open");
+    expect(pr.textContent).toContain("https://github.com/acme/harbor-web/pull/12");
+    expect(pr.textContent).toContain("9f8e7d6c");
+    expect(pr.textContent).toContain("lane/wo-running into main");
+    expect(pr.querySelector("a[href^='https:']")).toBeNull();
+  });
+
+  it("says the pull request merged, and the commit the merge made", async () => {
+    const standing = golden<Standing>("acceptance-ended");
+    standing.work_order_id = "wo-done";
+    standing.pull_request = {
+      number: 3,
+      url: "https://github.com/acme/harbor-web/pull/3",
+      state: "merged",
+      base: "main",
+      branch: "lane/wo-done",
+      head_commit: "1111aaaa2222",
+      merge_commit: "c2bfd2113333",
+    };
+    serveViews((call) => (call.method === "GET" && call.path === "/v1/work-orders/wo-done/acceptance" ? { status: 200, body: standing } : undefined));
+    openPage("/work-order?id=wo-done&tab=checks");
+    const pr = await screen.findByRole("region", { name: "Pull request #3" });
+    expect(pr.textContent).toContain("Merged");
+    expect(pr.textContent).toContain("c2bfd211");
   });
 
   it("moves between its tabs with the arrow keys", async () => {
