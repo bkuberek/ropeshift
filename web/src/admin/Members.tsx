@@ -17,9 +17,10 @@ import { Reading, useChange, useRead } from "./parts";
 export function MembersPage({ live, onSignedOut, dialog = "" }: { live: Live; onSignedOut: () => void; dialog?: string }) {
   const read = useRead<MemberList>(() => readMembers(), "members", live);
   const change = useChange();
-  const [creating, setCreating] = useState(dialog === "delegate");
-  const [leaving, setLeaving] = useState(dialog === "sign-out-all");
-  // The palette opens a dialog of this page by its address, while the page may already be open.
+  const [creating, setCreating] = useState(false);
+  const [leaving, setLeaving] = useState(false);
+  // The palette opens a dialog of this page by its address. The dialog opens after the page has taken its
+  // arrival focus, so that focus does not leave it outside, and the page may already be open.
   useEffect(() => {
     if (dialog === "delegate") {
       setCreating(true);

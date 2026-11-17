@@ -218,7 +218,14 @@ function JoinToken({ open, onClose }: { open: boolean; onClose: () => void }) {
 // that has not reported says so, a measure its machine cannot provide says it is unavailable, and neither is
 // ever drawn as zero. A value past a threshold warns, and stops no work.
 export function WorkersPage({ live, projects, selected, after, dialog = "" }: { live: Live; projects: Project[]; selected: string; after: () => Promise<void>; dialog?: string }) {
-  const [joining, setJoining] = useState(dialog === "token");
+  // The palette opens Create join token with `?dialog=token`. The dialog opens after the page has taken its
+  // arrival focus, so that focus does not leave it outside.
+  const [joining, setJoining] = useState(false);
+  useEffect(() => {
+    if (dialog === "token") {
+      setJoining(true);
+    }
+  }, [dialog]);
   const floors = useEveryFloor(live, projects);
   const now = useClock();
   const reads = floors.view ?? [];

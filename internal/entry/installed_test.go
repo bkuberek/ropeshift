@@ -3,6 +3,7 @@ package entry
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -104,6 +105,61 @@ func TestTheInstalledBuildIsReadByItsTickAndNeverByAsking(t *testing.T) {
 	}
 	if got := build.Installed().Version; got != "" {
 		t.Errorf("an unreadable build still reports %q", got)
+	}
+}
+
+// A read that fails clears the answer, and the reason is said once for each change of outcome, so a
+// build that stays unreadable does not fill the log once a minute.
+func TestAFailedReadOfTheInstalledBuildIsSaidOncePerChange(t *testing.T) {
+	var said []string
+	var fail error
+	build := &installedBuild{path: "/opt/homebrew/opt/ropeshift/bin/ropeshiftd",
+		read: func(context.Context, string) (string, error) { return "v0.2.0", fail },
+		note: func(format string, args ...any) { said = append(said, fmt.Sprintf(format, args...)) },
+	}
+	tick := build.tick()
+	run := func() {
+		t.Helper()
+		if err := tick.Run(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	run()
+	run()
+	if len(said) != 0 {
+		t.Fatalf("reads that succeed said %q", said)
+	}
+	fail = errors.New("no such file")
+	run()
+	run()
+	run()
+	if len(said) != 1 || !strings.Contains(said[0], "no such file") || !strings.Contains(said[0], build.path) {
+		t.Fatalf("three reads that fail the same way said %q, want one line naming the path and the reason", said)
+	}
+	fail = errors.New("signal: killed")
+	run()
+	run()
+	if len(said) != 2 || !strings.Contains(said[1], "signal: killed") {
+		t.Fatalf("a read that fails another way said %q, want one more line", said)
+	}
+	fail = nil
+	run()
+	run()
+	if len(said) != 3 || !strings.Contains(said[2], build.path) || !strings.Contains(said[2], "v0.2.0") {
+		t.Fatalf("a read that succeeds again said %q, want one more line", said)
+	}
+	fail = errors.New("no such file")
+	run()
+	if len(said) != 4 {
+		t.Fatalf("a failure after a success said %q, want one more line", said)
+	}
+}
+
+// A build with nothing listening reads without a log.
+func TestTheInstalledBuildReadsWithNoLog(t *testing.T) {
+	build := &installedBuild{path: "/p", read: func(context.Context, string) (string, error) { return "", errors.New("gone") }}
+	if err := build.tick().Run(t.Context()); err != nil {
+		t.Fatal(err)
 	}
 }
 

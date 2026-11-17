@@ -1121,8 +1121,9 @@ type MemberWriter interface {
 	DropSessions(before int64) error
 	// DropSession removes one session, by the digest of its token.
 	DropSession(digest string) error
-	// DropMemberSessions removes every session of a member, and says how many it removed.
-	DropMemberSessions(member string) (int64, error)
+	// DropMemberSessions removes every session of a member, and says how many of them had not expired at now. A
+	// session that had expired is removed and not counted.
+	DropMemberSessions(member string, now int64) (int64, error)
 	// DropOtherMemberSessions removes every session of a member except the one whose token has the digest
 	// kept, and says how many of them had not expired at now. A session that had expired is removed and not
 	// counted. It touches no other member's session.

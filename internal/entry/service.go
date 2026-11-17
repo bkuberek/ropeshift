@@ -59,7 +59,7 @@ type services struct {
 
 // liveServices is this machine.
 func liveServices() (services, error) {
-	executable, err := os.Executable()
+	executable, err := executablePath()
 	if err != nil {
 		return services{}, err
 	}
