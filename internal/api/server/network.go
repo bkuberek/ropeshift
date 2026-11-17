@@ -24,9 +24,10 @@ import (
 //   - a worker's credential in Authorization, which reaches the routes of PlaneRoutes and no other;
 //   - a join token in the body of the registration, the one route a worker calls before it has a credential;
 //   - a member's session as a bearer token in the Ropeshift-Session header, which reaches the API;
-//   - the web UI's session cookie with its CSRF token, which reaches the web listener's closed list.
+//   - the web UI's session cookie with its CSRF token, which reaches the web listener's closed list;
+//   - for GitHub's webhook route alone, the signature of the body, which the route verifies itself.
 //
-// Only OpenRoutes take no credential. A request that presents two credentials, or a delegate's, is refused.
+// Only OpenRoutes take no credential of ours. A request that presents two credentials, or a delegate's, is refused.
 
 // credentialKind names what a request proves itself with.
 type credentialKind string
@@ -54,6 +55,7 @@ func OpenRoutes() []OpenRoute {
 		{http.MethodGet, "/", "The application's own files, which every path outside /v1 reads, the sign-in page among them: static, and the same for every caller."},
 		{http.MethodHead, "/", "The same files, asked for their headers alone."},
 		{http.MethodPost, api.SignInPath, "The sign-in route: its credential is the passphrase in its body, which the web handler checks one attempt at a time, and its answer is a cookie only that page can read."},
+		{http.MethodPost, api.GitHubWebhookPath, "The route of GitHub's webhook deliveries of CI events: its credential is the HMAC-SHA256 signature of the body under the key its repository's record names in the server's environment, which is verified in constant time before any of the body is trusted, and a refusal of any kind answers alike and is counted. A delivery that holds is a hint to read sooner, which carries no state and changes nothing."},
 	}
 }
 
@@ -219,6 +221,13 @@ func (n *network) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case len(kinds) == 0:
 		if r.Method == http.MethodPost && r.URL.Path == api.SignInPath {
 			n.web.ServeHTTP(w, r)
+			return
+		}
+		// A delivery of GitHub's carries no credential of ours: its signature is the credential, which the handler
+		// verifies before it reads a word of the body, and the body has a limit and a window like the other two.
+		if r.Method == http.MethodPost && r.URL.Path == api.GitHubWebhookPath {
+			bounded(w, r, unauthenticatedWindow, ciWebhookBodyMax)
+			n.api.ServeHTTP(w, r)
 			return
 		}
 		n.missing(w, r)

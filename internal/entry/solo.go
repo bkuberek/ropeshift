@@ -305,6 +305,9 @@ func serveSolo(ctx context.Context, paths api.Paths, opts soloOptions, stdout, s
 		Branches: branchSource(opts, kept), LaneBranchPrefix: soloLaneBranchPrefix(paths),
 		Checkouts: kept, Layouts: kept, ParseManifest: repofiles.ParseManifest, ModelClasses: soloModelClasses(paths),
 		Profile: soloProfiles(paths), Profiles: soloProfiles(paths), LocalWorker: local.id, Reserved: reservedFolders(paths),
+		// The keys of the CI webhooks are in the daemon's environment. The route is on the control socket, which a
+		// solo daemon does not expose, so a delivery reaches it only where a person forwards the socket to GitHub.
+		Env: os.LookupEnv, Warn: warnTo(stderr),
 	}
 	hosts := &soloHosts{kept: kept, runtime: laneRuntime}
 	config.AssistantHosts = hosts.read

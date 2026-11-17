@@ -181,6 +181,12 @@ var namedRoutes = map[string]string{
 	"api.ConversationTargetsPath": "chat targets", "api.TemplatesPath": "template show",
 }
 
+// externalCallers are the routes a person's command does not call, because a forge does, each with what it proves
+// itself by.
+var externalCallers = map[string]string{
+	"api.GitHubWebhookPath": "the signature of its body under its repository's key, which the route verifies itself",
+}
+
 var (
 	literalRoute = regexp.MustCompile(`mux\.HandleFunc\("((?:GET|POST|PUT|DELETE|PATCH) /[^"]+)"`)
 	namedRoute   = regexp.MustCompile(`mux\.HandleFunc\("(?:GET|POST|PUT|DELETE|PATCH) "\+(api\.\w+),`)
@@ -214,6 +220,9 @@ func TestEveryOperationHasACommand(t *testing.T) {
 				}
 			}
 			if found := namedRoute.FindStringSubmatch(line); found != nil {
+				if _, external := externalCallers[found[1]]; external {
+					continue
+				}
 				command, named := namedRoutes[found[1]]
 				if !named || !cli.HasCommand(command) {
 					t.Errorf("%s has no command", found[1])

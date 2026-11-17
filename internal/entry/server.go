@@ -407,6 +407,8 @@ func serveServer(ctx context.Context, paths api.Paths, opts serverOptions, trans
 		LaneBranchPrefix: soloLaneBranchPrefix(paths),
 		Knowledge:        reads.knowledge, Starts: reads.starts, Branches: reads.branches, Checkouts: reads.checkouts,
 		ParseManifest: reads.parseManifest, Panes: reads.panes, Layouts: reads.layouts,
+		// The keys of the CI webhooks are in the server's environment, which the network listener's webhook route reads.
+		Env: os.LookupEnv,
 	}
 	controlServer := &http.Server{Handler: server.New(config), ReadHeaderTimeout: 10 * time.Second}
 	web := server.WebOptions{Port: bound.Port, Assets: assets, Proxies: transport.proxies, PublicURL: transport.publicURL}

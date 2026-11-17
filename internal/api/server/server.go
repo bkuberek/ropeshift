@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"time"
 
 	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/authority"
@@ -141,6 +142,10 @@ type Config struct {
 	// Warn hears what a refusal leaves out of its answer, which is what broke in the server and no business of the
 	// client that was refused. Nil hears nothing.
 	Warn func(string)
+	// Env reads the server's environment variables, where the key each repository's CI webhook deliveries are
+	// signed with is kept, under the name the repository's record gives (FR-SPEND-20). Nil has none, and every
+	// delivery is refused.
+	Env func(string) (string, bool)
 }
 
 type handler struct {
@@ -155,8 +160,10 @@ type handler struct {
 	workers       *control.Workers
 	// plane serves the plane protocol across every project. The first project's handler serves its routes,
 	// and every project's handler reads the workers and orchestrators every project shares through it.
-	plane        *control.Plane
-	fleet        *control.Fleet
+	plane *control.Plane
+	fleet *control.Fleet
+	// ciWebhooks takes the signed webhook deliveries of CI events, which only the first project's handler holds.
+	ciWebhooks   *control.CIWebhooks
 	wakes        *control.Wakes
 	messages     *control.Messages
 	sessions     *control.Sessions
@@ -204,6 +211,7 @@ func New(config Config) http.Handler {
 		Protocol: config.Protocol, HeartbeatMs: config.HeartbeatMs, LeaseTTLMs: config.LeaseTTL, Batches: config.Batches, Windows: config.Windows,
 		PackTokens: config.PackTokens, Starts: config.Starts,
 	}, matching(config))
+	home.ciWebhooks = control.NewCIWebhooks(home.plane, home.plane.CIHints(), config.Env, time.Now, config.Warn)
 	projects := newRouter(config, home)
 	home.lifecycle, home.router = control.NewProjects(config.Projects), projects
 	home.caps = control.NewLaneCaps(config.Installation, config.Profile, config.LocalWorker)
@@ -232,6 +240,7 @@ func (h *handler) installationRoutes(mux *http.ServeMux) {
 	h.templateRoutes(mux)
 	h.newAdoptionRoutes(mux)
 	mux.HandleFunc("GET /v1/health", h.health)
+	mux.HandleFunc("POST "+api.GitHubWebhookPath, h.githubWebhook)
 	mux.HandleFunc("GET "+api.AuditPath, h.installationAudit)
 	mux.HandleFunc("GET "+api.MembersPath, h.listMembers)
 	mux.HandleFunc("POST "+api.InstallationBackupDownloadPath, h.member(h.downloadInstallationBackup))
