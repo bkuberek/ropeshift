@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -570,14 +571,31 @@ func TestSleepReturnsFromLapsed(t *testing.T) {
 	}
 }
 
+// The solo-sleep check runs a daemon's real loops, so its timing is in the daemon's
+// flags. The lease leaves room for a slow first renewal before the stop, the stop
+// outlasts the lease and the margin, so the lease has expired at the wake, and the
+// await bound is at least the lease, so the lease decides soloSleepWindow.
+const (
+	soloSleepTick     = 40 * time.Millisecond
+	soloSleepTTL      = 2 * time.Second
+	soloSleepStop     = 3 * time.Second
+	soloSleepMargin   = 50 * time.Millisecond
+	soloSleepAwait    = 10 * time.Second
+	soloSleepAttempts = 5
+)
+
+// errSoloSleepInconclusive fails a solo-sleep check none of whose rounds was
+// conclusive. It is not a violation, so it never counts as a catch.
+var errSoloSleepInconclusive = errors.New("no solo-sleep round was conclusive")
+
 // checkSoloSleep stops the whole of a real ropeshiftd past its lease, as a closed
-// laptop does. The lease tick and the heartbeat resume together. Before the sweep
-// lapses the expired lease, it waits up to two seconds for a renewal to begin, and a
-// renewal holds the database's write lock from its start, so the heartbeat's renewal
-// commits before the lapse: it is the renewal the deadline refuses. The workspace holds
-// one work order with one claim, so every renewal is of that lease. A lapse goes on
-// record, and the same holder returns under the same fence. A late beat on a loaded
-// machine can add a lapse and its return, and changes nothing else.
+// laptop does, and expects a lapse on record and the same holder back under the same
+// fence. It judges only a conclusive round (soloSleepRound), and runs up to
+// soloSleepAttempts rounds, each on a fresh daemon with fresh state and run
+// directories. It never stops and wakes the same daemon twice: an inconclusive round
+// can leave a lapse and its return on record, which pass the ledger check by
+// themselves. When no round is conclusive, it fails with errSoloSleepInconclusive and
+// never passes.
 func checkSoloSleep(w *world, sabotage ...string) error {
 	binary := filepath.Join(w.target.Dir, "ropeshiftd")
 	build := exec.Command("go", "build", "-tags", "chaos", "-o", binary, "ropeshift.com/ropeshift/cmd/ropeshiftd")
@@ -585,15 +603,68 @@ func checkSoloSleep(w *world, sabotage ...string) error {
 	if out, err := build.CombinedOutput(); err != nil {
 		return fmt.Errorf("build: %v\n%s", err, out)
 	}
-	paths := api.Paths{StateDir: filepath.Join(w.target.Dir, "state"), RunDir: filepath.Join(w.target.Dir, "run")}
-	daemon := exec.Command(binary, "solo", "--heartbeat", "40ms", "--lease-ttl", "500ms", "--lease-tick", "40ms")
+	return retrySoloSleep(soloSleepAttempts, w.t.Logf, func(attempt int) (string, error) {
+		// A short directory name keeps the control socket's path within a unix
+		// socket address.
+		return soloSleepRound(w, binary, filepath.Join(w.target.Dir, strconv.Itoa(attempt)), sabotage)
+	})
+}
+
+// retrySoloSleep runs round for attempts 1 to attempts until one is conclusive, and
+// logs why each inconclusive round could not decide. A violation or any other error
+// ends it at once. When no round is conclusive, it returns errSoloSleepInconclusive
+// with every reason.
+func retrySoloSleep(attempts int, logf func(string, ...any), round func(attempt int) (string, error)) error {
+	var reasons []string
+	for attempt := 1; attempt <= attempts; attempt++ {
+		reason, err := round(attempt)
+		if err != nil || reason == "" {
+			return err
+		}
+		logf("solo-sleep round %d of %d is inconclusive: %s", attempt, attempts, reason)
+		reasons = append(reasons, fmt.Sprintf("round %d: %s", attempt, reason))
+	}
+	return fmt.Errorf("%w in %d rounds: %s", errSoloSleepInconclusive, attempts, strings.Join(reasons, "; "))
+}
+
+// soloSleepRound runs one round of checkSoloSleep on a daemon whose home, state, and
+// run directories are in dir. It returns why the round is inconclusive, or "" for a
+// round that decided, with a violation when the ledger is wrong. A round is
+// conclusive only when both of these hold:
+//
+//   - The stop lands before the lease the worker held at the first read ends, by more
+//     than soloSleepMargin for the signal's delivery. Every renewal before the stop sets
+//     its own clock plus the lease, and its clock reads after the first read, so the
+//     lease never drops below the first read's before the stop. The ledger's clock is
+//     this host's wall clock, so no sweep can hold an expired candidate at the stop.
+//   - The first lapse comes after the wake and within soloSleepWindow. The stop outlasts
+//     the lease, so the lease has expired at the wake. Before the sweep lapses an
+//     expired lease, it waits up to soloSleepAwait for a renewal that begins after its
+//     wait began, and a renewal holds the database's write lock from its start. A lapse
+//     before the bound was released by that renewal, which commits or is refused before
+//     the lapse: it is the renewal after the wake that the deadline must refuse. A
+//     renewal after the wake that revived the lease set it a whole lease past the wake,
+//     so a lapse within the lease of the wake cannot follow one. A lapse before the wake
+//     can only come before the first read.
+//
+// The workspace holds one work order with one claim, so every renewal is of that
+// lease. A late beat on a loaded machine can add a later lapse and its return, and
+// changes nothing else.
+func soloSleepRound(w *world, binary, dir string, sabotage []string) (string, error) {
+	if err := os.Mkdir(dir, 0o700); err != nil {
+		return "", err
+	}
+	paths := api.Paths{StateDir: filepath.Join(dir, "state"), RunDir: filepath.Join(dir, "run")}
+	tick := soloSleepTick.String()
+	daemon := exec.Command(binary, "solo", "--heartbeat", tick, "--lease-ttl", soloSleepTTL.String(), "--lease-tick", tick)
 	daemon.Env = append([]string{
-		"HOME=" + w.target.Dir, "PATH=" + doubles.InstallFakeClaude(w.t, "no-session"),
+		"HOME=" + dir, "PATH=" + doubles.InstallFakeClaude(w.t, "no-session"),
 		api.EnvStateDir + "=" + paths.StateDir, api.EnvRunDir + "=" + paths.RunDir, api.EnvWeb + "=" + api.WebOff,
-		api.EnvTelemetry + "=127.0.0.1:0", crashpoint.EnvAwait + "=sweep/before-lapse=" + sqlstore.OpRenew + "/begun,2s",
+		api.EnvTelemetry + "=127.0.0.1:0",
+		crashpoint.EnvAwait + "=sweep/before-lapse=" + sqlstore.OpRenew + "/begun," + soloSleepAwait.String(),
 	}, sabotage...)
 	if err := daemon.Start(); err != nil {
-		return err
+		return "", err
 	}
 	exited := make(chan error, 1)
 	go func() { exited <- daemon.Wait() }()
@@ -610,57 +681,63 @@ func checkSoloSleep(w *world, sabotage ...string) error {
 		return err == nil && len(workers) == 1 && workers[0].Epoch >= 1, nil
 	})
 	if err != nil {
-		return err
+		return "", err
 	}
 	workers, err := client.Workers(ctx)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if _, err := apitest.SignIn(ctx, client); err != nil {
-		return err
+		return "", err
 	}
 	if _, err := client.CreateWorkOrder(ctx, api.CreateWorkOrder{ID: "wo", Title: "T", Criteria: criterion()}); err != nil {
-		return err
+		return "", err
 	}
 	if _, err := client.Review(ctx, "wo"); err != nil {
-		return err
+		return "", err
 	}
 	grant, err := client.Claim(ctx, "wo", api.ClaimRequest{ClaimID: "c1", WorkerID: workers[0].ID})
 	if err != nil {
-		return err
+		return "", err
 	}
-	first, err := client.WorkOrder(ctx, "wo")
+	base, err := client.WorkOrder(ctx, "wo")
 	if err != nil {
-		return err
+		return "", err
 	}
-	err = until("the worker's first renewal", func() (bool, error) {
+	if base.State != workorders.Claimed {
+		return fmt.Sprintf("the work order was %s at the first read", base.State), nil
+	}
+	err = until("a renewal after the first read", func() (bool, error) {
 		row, err := client.WorkOrder(ctx, "wo")
-		return err == nil && row.LeaseUntil > first.LeaseUntil, nil
+		return err == nil && row.LeaseUntil > base.LeaseUntil, nil
 	})
 	if err != nil {
-		return err
+		return "", err
 	}
 	if err := daemon.Process.Signal(syscall.SIGSTOP); err != nil {
-		return err
+		return "", err
 	}
-	time.Sleep(time.Second)
+	if reason := soloSleepStopReason(time.Now().UnixMilli(), base.LeaseUntil); reason != "" {
+		return reason, nil
+	}
+	time.Sleep(soloSleepStop)
 	resumed := time.Now().UnixMilli()
 	if err := daemon.Process.Signal(syscall.SIGCONT); err != nil {
-		return err
+		return "", err
 	}
 	err = until("a lease held after the wake", func() (bool, error) {
 		row, err := client.WorkOrder(ctx, "wo")
 		return err == nil && row.State == workorders.Claimed && row.LeaseUntil > resumed, nil
 	})
 	if err != nil {
-		return err
+		return "", err
 	}
 	row, err := client.WorkOrder(ctx, "wo")
 	if err != nil {
-		return err
+		return "", err
 	}
 	if row.Fence != grant.Fence || row.ClaimID != grant.ClaimID {
-		return contract.Violatedf("after the sleep %+v", row)
+		return "", contract.Violatedf("after the sleep %+v", row)
 	}
 	_ = daemon.Process.Kill()
 	<-exited
@@ -668,44 +745,80 @@ func checkSoloSleep(w *world, sabotage ...string) error {
 	return checkLapsesReturned(w, paths, resumed)
 }
 
-// checkLapsesReturned reads the ledger of a stopped daemon, and logs each lapse and
-// return with its revision and its time from the wake at resumed, in Unix milliseconds.
-// Lapses and returns must alternate from a lapse, and at least one of each must be on
-// record. The kill can land between a late lapse and its return.
-func checkLapsesReturned(w *world, paths api.Paths, resumed int64) error {
+// soloSleepStopReason returns why a stop at stopped, under a lease the first read saw
+// end at leaseUntil, both in Unix milliseconds, cannot decide a round, or "".
+func soloSleepStopReason(stopped, leaseUntil int64) string {
+	if stopped+soloSleepMargin.Milliseconds() < leaseUntil {
+		return ""
+	}
+	return fmt.Sprintf("stopped at %dms, %dms before the first read's lease ended at %dms, within the %s margin",
+		stopped, leaseUntil-stopped, leaseUntil, soloSleepMargin)
+}
+
+// soloSleepWindow is how long after the wake, in milliseconds, the first lapse may
+// come in a conclusive round: before the await bound, so a renewal released the
+// sweep, and before the lease, so no renewal after the wake revived the lease and let
+// it expire again.
+func soloSleepWindow() int64 {
+	return min(soloSleepAwait, soloSleepTTL).Milliseconds()
+}
+
+// checkLapsesReturned reads the ledger of a stopped daemon and judges its lapses and
+// returns with soloSleepLapses.
+func checkLapsesReturned(w *world, paths api.Paths, resumed int64) (string, error) {
 	store, err := sqlite.Open(filepath.Join(paths.StateDir, api.LedgerFileName), sqlstore.Options{})
 	if err != nil {
-		return err
+		return "", err
 	}
 	defer store.Close()
-	lapses, returns := 0, 0
+	var events []ledger.Event
 	err = store.Read(w.rig.Ctx, "default", func(tx ports.ReadTx) error {
-		events, err := control.ReadAllEvents(tx.Events)
-		for _, e := range events {
-			switch e.Type {
-			case workorders.EventType(workorders.TriggerLeaseExpired):
-				w.t.Logf("lapse at revision %d, %+dms from the wake", e.Rev, e.RecordedAt-resumed)
-				if lapses != returns {
-					return contract.Violatedf("a second lapse with no return at revision %d", e.Rev)
-				}
-				lapses++
-			case workorders.EventType(workorders.TriggerReturnedUnstarted):
-				w.t.Logf("return at revision %d, %+dms from the wake", e.Rev, e.RecordedAt-resumed)
-				if returns+1 != lapses {
-					return contract.Violatedf("a return with no lapse at revision %d", e.Rev)
-				}
-				returns++
-			}
-		}
+		var err error
+		events, err = control.ReadAllEvents(tx.Events)
 		return err
 	})
 	if err != nil {
-		return err
+		return "", err
 	}
-	if returns == 0 {
-		return contract.Violatedf("a sleep past the lease left %d lapses and %d returns on record", lapses, returns)
+	return soloSleepLapses(events, resumed, w.t.Logf)
+}
+
+// soloSleepLapses logs each lapse and return in events with its revision and its time
+// from the wake at resumed, in Unix milliseconds. Lapses and returns must alternate
+// from a lapse, and at least one of each must be on record. The kill can land between
+// a late lapse and its return. It returns why the round is inconclusive when the
+// first lapse is before the wake or past soloSleepWindow.
+func soloSleepLapses(events []ledger.Event, resumed int64, logf func(string, ...any)) (string, error) {
+	lapses, returns := 0, 0
+	var first int64
+	for _, e := range events {
+		switch e.Type {
+		case workorders.EventType(workorders.TriggerLeaseExpired):
+			logf("lapse at revision %d, %+dms from the wake", e.Rev, e.RecordedAt-resumed)
+			if lapses != returns {
+				return "", contract.Violatedf("a second lapse with no return at revision %d", e.Rev)
+			}
+			if lapses == 0 {
+				first = e.RecordedAt - resumed
+			}
+			lapses++
+		case workorders.EventType(workorders.TriggerReturnedUnstarted):
+			logf("return at revision %d, %+dms from the wake", e.Rev, e.RecordedAt-resumed)
+			if returns+1 != lapses {
+				return "", contract.Violatedf("a return with no lapse at revision %d", e.Rev)
+			}
+			returns++
+		}
 	}
-	return nil
+	switch {
+	case lapses > 0 && first < 0:
+		return fmt.Sprintf("the first lapse came %dms before the wake", -first), nil
+	case lapses > 0 && first >= soloSleepWindow():
+		return fmt.Sprintf("the first lapse came %dms after the wake, not within %dms", first, soloSleepWindow()), nil
+	case returns == 0:
+		return "", contract.Violatedf("a sleep past the lease left %d lapses and %d returns on record", lapses, returns)
+	}
+	return "", nil
 }
 
 func TestSoloSleepLapsesAndReturns(t *testing.T) {
