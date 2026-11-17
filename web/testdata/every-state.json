@@ -3316,6 +3316,34 @@
           ]
         }
       ],
+      "reviews": [
+        {
+          "contract_id": "generated-15",
+          "contract_version": 1,
+          "id": "generated-14",
+          "kind": "review",
+          "max_attempts": 1,
+          "repository_id": "repository-1",
+          "reviews": "wo-acceptance",
+          "reviews_fence": 2,
+          "size": "unknown",
+          "state": "ready",
+          "title": "Review: Finished and waiting for a word"
+        },
+        {
+          "contract_id": "generated-3",
+          "contract_version": 1,
+          "id": "generated-2",
+          "kind": "review",
+          "max_attempts": 1,
+          "repository_id": "repository-1",
+          "reviews": "wl-ended",
+          "reviews_fence": 2,
+          "size": "unknown",
+          "state": "ready",
+          "title": "Review: A lane in ended"
+        }
+      ],
       "revision": 363,
       "unplanned": [
         {

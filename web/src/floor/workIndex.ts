@@ -56,6 +56,10 @@ export function index(plans: Plans, running: InProgress, held: OnHold, stuck: St
   for (const order of plans.unplanned) {
     row(order);
   }
+  // A review stands in no plan, so the view lists the ones that have not ended apart.
+  for (const order of plans.reviews ?? []) {
+    row(order);
+  }
   for (const line of running.items) {
     Object.assign(row(line.work_order), { since: line.since, lane: line.lane });
   }

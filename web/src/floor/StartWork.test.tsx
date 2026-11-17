@@ -406,3 +406,51 @@ describe("the command palette", () => {
     expect(`${window.location.pathname}${window.location.search}`).toContain(`/work-order?id=${ready}`);
   });
 });
+
+// A review of a finished lane is ready work that no plan lists, so the plans view lists it apart, with the
+// work it judges. A member starts it as any ready work: the same claim, then the same lane start.
+describe("a ready review", () => {
+  const review = "review-of-guide";
+  const reviewTitle = `Review: ${title}`;
+  const withReview = (view: Plans) => {
+    view.reviews = [{ id: review, kind: "review", state: "ready", title: reviewTitle, repository_id: "repository-1", reviews: ready }];
+    view.work_actions[review] = { actions: ["claim", "cancel"] };
+  };
+
+  it("is listed on the floor as a review of the work it judges, and starts through the same dialog", async () => {
+    const sent = serving({ plans: withReview });
+    openPage("/floor");
+    const list = await screen.findByRole("region", { name: "Ready to start" });
+    const item = within(list).getByText(reviewTitle).closest("li") as HTMLElement;
+    expect(within(item).getByText("Review of")).toBeTruthy();
+    expect(within(item).getByRole("link", { name: ready }).getAttribute("href")).toBe(here(`/work-order?id=${ready}`));
+    await userEvent.click(within(item).getByRole("button", { name: `Start ${reviewTitle}` }));
+    const box = await dialog(`Start ${reviewTitle}`);
+    await waitFor(() => expect((within(box).getByRole("combobox", { name: "Worker" }) as HTMLSelectElement).value).toBe("worker-a"));
+    await userEvent.click(within(box).getByRole("button", { name: "Start" }));
+    await waitFor(() => expect(changes(sent)).toHaveLength(2));
+    expect(changes(sent).map((call) => call.path)).toEqual([`/v1/work-orders/${review}/claims`, `/v1/work-orders/${review}/lanes`]);
+    expect(changes(sent)[0]?.body).toMatchObject({ worker_id: "worker-a" });
+  });
+
+  it("is a row of the work orders list, labelled with the work it judges", async () => {
+    serving({ plans: withReview });
+    openPage("/work");
+    const row = (await screen.findByRole("link", { name: reviewTitle })).closest("tr") as HTMLElement;
+    expect(within(row).getByText("Review of")).toBeTruthy();
+    expect(within(row).getByRole("link", { name: ready }).getAttribute("href")).toBe(here(`/work-order?id=${ready}`));
+  });
+
+  it("starts from its own page, and the command palette lists the start", async () => {
+    const sent = serving({ plans: withReview });
+    openPage(`/work-order?id=${review}`);
+    await screen.findByRole("heading", { level: 1, name: new RegExp(`^${review}`) });
+    await userEvent.keyboard("{Control>}k{/Control}");
+    await userEvent.click(await within(await screen.findByRole("dialog", { name: "Command palette" })).findByRole("option", { name: new RegExp(`^Start work: ${reviewTitle}`) }));
+    const box = await dialog(`Start ${reviewTitle}`);
+    await waitFor(() => expect((within(box).getByRole("combobox", { name: "Worker" }) as HTMLSelectElement).value).toBe("worker-a"));
+    await userEvent.click(within(box).getByRole("button", { name: "Start" }));
+    await waitFor(() => expect(changes(sent)).toHaveLength(2));
+    expect(changes(sent)[0]?.path).toBe(`/v1/work-orders/${review}/claims`);
+  });
+});

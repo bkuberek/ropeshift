@@ -20,6 +20,7 @@ import { Checks } from "./Checks";
 import { standingWords, waitingStandingWords } from "./evidence";
 import { ActivityTab, ChangesTab } from "./EvidenceTabs";
 import { NewWorkOrder } from "./NewWorkOrder";
+import { ReviewOf } from "./ReviewOf";
 import { StartWork } from "./StartWork";
 import { WakeWords } from "./WakeWords";
 import { WorkEstimatePanel } from "./WorkEstimatePanel";
@@ -123,6 +124,7 @@ function WorkTable({ rows, label, repositories }: { rows: WorkRow[]; label: stri
                 <Link to={workAddress(row.order.id)} data-item>
                   {titleOf(row)}
                 </Link>
+                <ReviewOf order={row.order} />
                 <Under row={row} />
               </td>
               <td data-label="State">
@@ -407,6 +409,7 @@ export function WorkOrderPage({ live, id, tab, dialog, needs, after }: { live: L
             {words(order.kind)}
             {order.size ? ` · ${order.size}` : ""}
           </span>
+          <ReviewOf order={order} />
           {order.repository_id ? (
             <span className="row-tight">
               <Icon name="repo" size="sm" />
