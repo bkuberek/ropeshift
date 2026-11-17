@@ -157,7 +157,7 @@ In the sidebar, under Project, select Settings, then Autonomy and run windows. T
 
 ### 5. Read the stated risk
 
-Select Read the stated risk. The stated risk says what running automated sessions on this sign-in means. If you stand behind it, select I stand behind it, then reload the page: the panel says the stated risk is acknowledged for this worker. The worker stays at `attended` until you choose another level, and it runs `unattended` only once a member has acknowledged the risk.
+Select Read the stated risk. The stated risk says what running automated sessions on this sign-in means. If you stand behind it, select I stand behind it: the panel says the stated risk is acknowledged for this worker. The worker stays at `attended` until you choose another level, and it runs `unattended` only once a member has acknowledged the risk.
 
 ![The stated risk, with Cancel and I stand behind it](assets/screenshots/get-started-05-light.png#gh-light-mode-only)
 ![The stated risk, with Cancel and I stand behind it](assets/screenshots/get-started-05-dark.png#gh-dark-mode-only)
@@ -183,6 +183,7 @@ Every view sits in the same frame, as the window in step 2 shows.
 - The top bar holds the project switcher, which `P` opens; Search or run a command, the palette; Needs you, with the count of what waits for you in every project; the conversation panel, which `.` opens and closes; the theme; and your account, with Sign out.
 - The sidebar puts Needs you and Overview first, then the project's views in groups: Plan (Roadmap, Plans, Planning, Documents, Decisions, Open questions), Work (Work orders, Floor, Reviews, Measures), Talk (Conversations), and Project (Repositories, Agents, Settings, Audit). Installation (Projects, Workers and resources, Members, Usage) belongs to the whole installation.
 - The theme follows the system's light or dark setting. The theme button, and Theme at the foot of the sidebar, switch between the system's setting, light, and dark.
+- The foot of the sidebar names the version the daemon runs, and Settings, About gives its version, commit, and build date.
 - The status bar at the bottom shows whether the view is live, the lanes running against the machine's cap, the worker's measures, and the estimated cost.
 
 ## Next
