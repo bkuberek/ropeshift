@@ -2,6 +2,7 @@ package server_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"sync"
@@ -136,6 +137,65 @@ func (h *holding) Authenticate(ctx context.Context, scope ledger.WorkspaceID, pr
 	case <-ctx.Done():
 	}
 	return h.IdentityProvider.Authenticate(ctx, scope, proof)
+}
+
+// One address holds two places of the line at most, so a few addresses cannot fill it and leave a member the
+// immediate 503: of twelve sign-ins at once from three addresses, six are in the line, two for each address, and
+// six are refused at once with 429. A member at another address still finds a place, and every sign-in that was in
+// the line finishes when it is let to.
+func TestOneAddressCannotHoldMoreThanTwoPlacesOfTheLine(t *testing.T) {
+	t.Parallel()
+	gate := server.NewHashGate(16)
+	attempts := server.NewAttempts(server.AttemptLimits{MaxFailures: 10, Lockout: 15 * time.Minute})
+	d := apitest.StartWith(t, apitest.Options{Attempts: attempts, Hashes: gate})
+	identity := &holding{IdentityProvider: d.Config.Identity, started: make(chan struct{}), release: make(chan struct{})}
+	d.Config.Identity = identity
+	r := &webRig{d: d, web: d.ServeNetworkWith(t, apitest.NetworkOptions{Assets: builtAssets, Recheck: 20 * time.Millisecond, Client: byHeader})}
+
+	type result struct {
+		status int
+		code   string
+		retry  string
+	}
+	results := make(chan result, 32)
+	signIn := func(client string) {
+		response, raw := r.signInAs(t, client, apitest.Passphrase)
+		var body api.ErrorBody
+		_ = json.Unmarshal(raw, &body)
+		results <- result{response.StatusCode, body.Error.Code, response.Header.Get("Retry-After")}
+	}
+	for _, client := range []string{"203.0.113.1", "203.0.113.2", "203.0.113.3"} {
+		for range 4 {
+			go signIn(client)
+		}
+	}
+	for range 6 {
+		select {
+		case got := <-results:
+			if got.status != http.StatusTooManyRequests || got.code != api.CodeTooManyAttempts || got.retry != "1" {
+				t.Fatalf("a sign-in beyond two of its address answered %d %s with Retry-After %q", got.status, got.code, got.retry)
+			}
+		case <-time.After(10 * time.Second):
+			t.Fatalf("six of twelve sign-ins were not refused at once: the line holds %d places", gate.Held())
+		}
+	}
+	held(t, gate, 6)
+	go signIn("203.0.113.4")
+	held(t, gate, 7)
+	close(identity.release)
+	for range 7 {
+		select {
+		case got := <-results:
+			if got.status != http.StatusCreated {
+				t.Errorf("a sign-in that was in the line answered %d", got.status)
+			}
+		case <-time.After(30 * time.Second):
+			t.Fatal("the sign-ins in the line never finished")
+		}
+	}
+	if gate.Held() != 0 || attempts.Tracked() != 0 {
+		t.Errorf("the line holds %d places and the limit holds %d addresses after every sign-in finished", gate.Held(), attempts.Tracked())
+	}
 }
 
 // With the gate full, a sign-in is refused with 503 and a Retry-After, whoever sends it and by whichever route, and

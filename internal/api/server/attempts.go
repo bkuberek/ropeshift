@@ -28,6 +28,11 @@ const (
 	DefaultLockout     = 15 * time.Minute
 	// DefaultCapacity is how many addresses the limit tracks at once.
 	DefaultCapacity = 10_000
+	// DefaultInFlight is how many guesses one address may have in flight at once. Each is a place in the line of
+	// passphrase checks, so this is what bounds how much of the line one address can hold: a member signing in is
+	// refused for want of a place only when more addresses than the line holds are guessing at once, and not when
+	// a few of them send as many as the limit on failures allows.
+	DefaultInFlight = 2
 	// inFlightWait is what a client is told to wait when it is refused only because the guesses it has in flight
 	// could, if all were wrong, reach the limit.
 	inFlightWait = time.Second
@@ -39,7 +44,9 @@ type AttemptLimits struct {
 	MaxFailures int
 	Lockout     time.Duration
 	Capacity    int
-	Now         func() time.Time
+	// InFlight is how many guesses of one address may be in flight at once.
+	InFlight int
+	Now      func() time.Time
 }
 
 // Attempts limits the wrong guesses each client address makes at a passphrase or a join token. Its counts live
@@ -50,6 +57,7 @@ type Attempts struct {
 	max      int
 	lockout  time.Duration
 	capacity int
+	inFlight int
 	now      func() time.Time
 
 	mu        sync.Mutex
@@ -68,7 +76,10 @@ type tally struct {
 
 // NewAttempts returns a limit with the numbers it is given.
 func NewAttempts(limits AttemptLimits) *Attempts {
-	a := &Attempts{max: limits.MaxFailures, lockout: limits.Lockout, capacity: limits.Capacity, now: limits.Now, clients: map[netip.Addr]*tally{}}
+	a := &Attempts{max: limits.MaxFailures, lockout: limits.Lockout, capacity: limits.Capacity, inFlight: limits.InFlight, now: limits.Now, clients: map[netip.Addr]*tally{}}
+	if a.inFlight <= 0 {
+		a.inFlight = DefaultInFlight
+	}
 	if a.max <= 0 {
 		a.max = DefaultMaxFailures
 	}
@@ -106,8 +117,9 @@ func grouped(client netip.Addr) netip.Addr {
 }
 
 // Begin lets a client's next guess through, or refuses it and says how long to wait. A guess is refused while
-// the address is locked out, and while the address's failures and the guesses it already has in flight could,
-// if all were wrong, reach the limit. The guess it lets through is the caller's to judge.
+// the address is locked out, while the address's failures and the guesses it already has in flight could, if all
+// were wrong, reach the limit, and while the address already has as many guesses in flight as it may. The guess it
+// lets through is the caller's to judge.
 func (a *Attempts) Begin(client netip.Addr) (*Attempt, time.Duration) {
 	client = grouped(client)
 	now := a.now()
@@ -123,7 +135,7 @@ func (a *Attempts) Begin(client netip.Addr) (*Attempt, time.Duration) {
 		if record.until.After(now) {
 			return nil, record.until.Sub(now)
 		}
-		if len(record.failures)+record.pending >= a.max {
+		if len(record.failures)+record.pending >= a.max || record.pending >= a.inFlight {
 			return nil, inFlightWait
 		}
 	} else if record = a.room(client, now); record == nil {

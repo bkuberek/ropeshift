@@ -39,10 +39,11 @@ func byHeader(r *http.Request) netip.Addr {
 	return server.PeerAddress(r)
 }
 
-// limitedNetwork is a network listener that refuses a client address after three wrong guesses in 15 minutes.
+// limitedNetwork is a network listener that refuses a client address after three wrong guesses in 15 minutes. It
+// lets many guesses of an address be in flight, so a test of the limit sees the limit alone.
 func limitedNetwork(t *testing.T, client func(*http.Request) netip.Addr) *webRig {
 	t.Helper()
-	d := apitest.StartWith(t, apitest.Options{Attempts: server.NewAttempts(server.AttemptLimits{MaxFailures: 3, Lockout: 15 * time.Minute})})
+	d := apitest.StartWith(t, apitest.Options{Attempts: server.NewAttempts(server.AttemptLimits{MaxFailures: 3, Lockout: 15 * time.Minute, InFlight: 100})})
 	return &webRig{d: d, web: d.ServeNetworkWith(t, apitest.NetworkOptions{Assets: builtAssets, Recheck: 20 * time.Millisecond, Client: client})}
 }
 
