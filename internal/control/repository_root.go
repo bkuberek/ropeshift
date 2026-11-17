@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"path"
-	"strings"
 
 	"ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/internal/ledger"
@@ -58,10 +57,6 @@ func (r *Repositories) withRootNote(ctx context.Context, scope ledger.WorkspaceI
 	if err != nil || note == "" {
 		return added, err
 	}
-	if added.Reason == "" {
-		added.Reason = note
-	} else {
-		added.Reason = strings.Join([]string{added.Reason, note}, "; ")
-	}
+	added.Reason = noted(added.Reason, note)
 	return added, nil
 }

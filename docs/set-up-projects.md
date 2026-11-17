@@ -178,6 +178,47 @@ When you approve a plan version whose manifest names a repository the project la
 
 On a new machine, `ropeshift repository add --manifest <file>` registers what a manifest lists with no plan approval, and has no control in the web UI. [Onboarding](onboarding.md#start-the-daemon-and-run-the-sample) gives every rule of the manifest.
 
+### Keep the clones inside the planning repository
+
+A workspace can keep its code repositories in a folder of its own, such as `repos/`, and its manifest then lists each clone by a path inside the planning repository's clone:
+
+```markdown
++++
+kind = "repositories"
+id = "harbor"
+title = "Harbor repositories"
+plan = "harbor-v1"
+
+[[repository]]
+name = "harbor-api"
+remote = "https://git.example.com/harbor/harbor-api.git"
+path = "repos/harbor-api"
+description = "The berths and the sailings, and the API the port's pages call"
+
+[[repository]]
+name = "harbor-web"
+remote = "https://git.example.com/harbor/harbor-web.git"
+path = "repos/harbor-web"
+description = "The port's public pages"
++++
+
+The repositories of Harbor.
+```
+
+A path may go deeper, as `repos/payments/api`. Ropeshift registers each clone from its path as it does a clone beside the planning repository. Ignore the folder in the planning repository's `.gitignore`, so git shows nothing of the clones:
+
+```text
+repos/
+```
+
+A path inside the planning repository's clone that the planning repository does not ignore is registered all the same, and is reported. The outcome in the plan approval page and its card, in the approval's registration, and in `ropeshift repository add --manifest` has this reason:
+
+```text
+the planning repository does not ignore `repos/harbor-api`; add it to `.gitignore`, or its files show as untracked content there and can be committed by mistake
+```
+
+When the planning repository's clone is on the machine of the daemon's worker, intake reports the same as a problem of the manifest file, which `source list` shows. The problem does not stop the manifest from being recorded. A path that leads out of the folder holding the planning repository's clone is refused, also through a symbolic link inside the clone.
+
 ## Where lanes work
 
 Each lane works in a git worktree of its own, never in your checkout. By default, the worktree goes outside every clone, in the installation's worktree directory, at `<worktree directory>/<project>/<repository>/<lane>`:

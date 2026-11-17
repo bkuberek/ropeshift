@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"maps"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -332,6 +333,20 @@ func (f *File) SameFile(_ context.Context, a, b string) (bool, error) {
 		return false, err
 	}
 	return os.SameFile(first, second), nil
+}
+
+// Ignored says the repository whose clone is at clone ignores path, which `git check-ignore` answers: exit 0
+// for a path it ignores, 1 for one it does not, and any other status is git failing to answer.
+func (f *File) Ignored(ctx context.Context, clone, path string) (bool, error) {
+	_, err := gitcli.Git{Dir: clone, Env: f.Env}.Output(ctx, "check-ignore", "-q", "--", path)
+	var exit *exec.ExitError
+	switch {
+	case err == nil:
+		return true, nil
+	case errors.As(err, &exit) && exit.ExitCode() == 1:
+		return false, nil
+	}
+	return false, err
 }
 
 // statOf reads what the disk says of a path, every symbolic link followed.

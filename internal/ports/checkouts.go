@@ -56,6 +56,10 @@ type Checkouts interface {
 	// each, so two spellings of one directory, as a disk that ignores case allows, are one. A path nothing is
 	// at is ErrNotFound.
 	SameFile(ctx context.Context, a, b string) (same bool, err error)
+	// Ignored says the git repository whose clone is at clone ignores path, a path inside the clone, written
+	// relative to it. A folder the repository ignores ignores everything in it. Git failing to answer is an
+	// error, and is never read as a path that is not ignored.
+	Ignored(ctx context.Context, clone, path string) (ignored bool, err error)
 	// Keep records path as this worker's checkout of a project's repository, in place of any other.
 	Keep(ctx context.Context, project ledger.WorkspaceID, repository, path string) error
 	// Forget drops this worker's checkout of a project's repository.

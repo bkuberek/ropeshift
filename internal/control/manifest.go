@@ -348,7 +348,11 @@ func (r *Repositories) registerEntry(ctx context.Context, scope ledger.Workspace
 			return refused(path, fmt.Sprintf("its name is held by another repository: the project's %s is %s, and the manifest's is %s",
 				entry.Name, ledger.RepositoryIdentity(record.Remote, record.ID), other)), nil
 		}
-		return r.withRootNote(ctx, scope, kept, Added{Path: path, Outcome: ledger.AlreadyRegistered, Repository: record, Checkout: run.checkouts[record.ID]}, run.checkouts[record.ID])
+		held, err := r.withRootNote(ctx, scope, kept, Added{Path: path, Outcome: ledger.AlreadyRegistered, Repository: record, Checkout: run.checkouts[record.ID]}, run.checkouts[record.ID])
+		if err != nil {
+			return held, err
+		}
+		return withUnignoredNote(ctx, kept, dir, entry, held, at)
 	}
 	if record, ok := run.removed[entry.Name]; ok && !run.restore {
 		return refused(at, staysRemoved(record)), nil
@@ -385,6 +389,9 @@ func (r *Repositories) registerEntry(ctx context.Context, scope ledger.Workspace
 		return added, err
 	}
 	if added, err = r.withRootNote(ctx, scope, kept, added, added.Checkout); err != nil {
+		return added, err
+	}
+	if added, err = withUnignoredNote(ctx, kept, dir, entry, added, at); err != nil {
 		return added, err
 	}
 	run.seen.note(clone, added)

@@ -246,6 +246,9 @@ func (r *fileRecorder) manifestProblems(manifest planning.RepositoriesFile) (str
 			"target, merge method, start_from, forge binding, and merge authority are a member's settings, which ropeshift repository set "+
 			"changes", strings.Join(manifest.Ignored, ", "), manifest.ID))
 	}
+	for _, path := range r.refs.unignored[r.item.Path] {
+		problems = append(problems, unignoredReason(path))
+	}
 	listed := map[string]bool{}
 	for _, repository := range manifest.Repositories {
 		listed[repository.Name] = true

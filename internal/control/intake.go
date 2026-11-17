@@ -53,6 +53,8 @@ type Intake struct {
 	windows messages.Windows
 	// starts reads the branches work orders continue, when set (Checking).
 	starts *Starts
+	// kept is this worker's machine, when set (Placing).
+	kept ports.Checkouts
 }
 
 // NewIntake returns the use case over a Store.
@@ -63,6 +65,14 @@ func NewIntake(store ports.Store) *Intake {
 // Telling sets how long what a new contract version sends a lane stays useful.
 func (i *Intake) Telling(windows messages.Windows) *Intake {
 	i.windows = windows
+	return i
+}
+
+// Placing makes intake read, on this worker's machine, where each path of a manifest leads, so it can report a
+// path inside the planning repository's clone that the planning repository does not ignore (FR-REPO-15). A
+// machine that keeps no clone of the planning repository says nothing of it.
+func (i *Intake) Placing(kept ports.Checkouts) *Intake {
+	i.kept = kept
 	return i
 }
 
@@ -153,6 +163,7 @@ func (i *Intake) record(ctx context.Context, scope ledger.WorkspaceID, source po
 		return report, err
 	}
 	refs.missing = missing
+	refs.unignored = i.unignoredPaths(ctx, scope, batch)
 	for _, item := range batch.Records {
 		report.saw(item.Path, item.Source)
 		if detail := repeatedKey(item, held); detail != "" {

@@ -1101,7 +1101,7 @@ func soloTicks(projects ports.Projects, home ledger.WorkspaceID, opts soloOption
 		}),
 		tick("intake", opts.intakeTick, func(ctx context.Context, p ledger.Project, store ports.Store) error {
 			var failed []error
-			intake := control.NewIntake(store).Telling(windows).Checking(soloStarts(opts, kept))
+			intake := control.NewIntake(store).Telling(windows).Checking(soloStarts(opts, kept)).Placing(kept)
 			sources, err := projectSources(ctx, opts, kept, home, p.ID, recordsIn(store, p.ID))
 			if err != nil {
 				failed = append(failed, err)

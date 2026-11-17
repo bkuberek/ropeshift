@@ -30,6 +30,9 @@ type batchRefs struct {
 	// missing are the work orders that continue a branch their repository does not hold, by the ID the
 	// file gives each, with what a person reads of it.
 	missing map[string]string
+	// unignored are the paths of each manifest file that lead inside the planning repository's clone and are
+	// not ignored by it, by the file's path.
+	unignored map[string][]string
 }
 
 type batchContract struct {

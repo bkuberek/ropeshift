@@ -25,11 +25,13 @@ type Checkouts struct {
 	reserved []string
 	// spellings are the second spellings of a directory the machine holds, each to the one it spells.
 	spellings map[string]string
+	// ignored are the paths each clone's repository ignores, relative to the clone.
+	ignored map[string][]string
 }
 
 // NewCheckouts returns a machine with no clone on it.
 func NewCheckouts() *Checkouts {
-	return &Checkouts{clones: map[string]ports.Clone{}, kept: map[ledger.WorkspaceID]map[string]string{}, links: map[string]string{}, spellings: map[string]string{}}
+	return &Checkouts{clones: map[string]ports.Clone{}, kept: map[ledger.WorkspaceID]map[string]string{}, links: map[string]string{}, spellings: map[string]string{}, ignored: map[string][]string{}}
 }
 
 // Link puts a symbolic link on the machine at a path, leading to an absolute path.
@@ -95,6 +97,26 @@ func (f *Checkouts) spelled(at string) string {
 		}
 	}
 	return at
+}
+
+// Ignore says the repository whose clone is at a path ignores each of the paths given, relative to the clone, and
+// everything inside it, as a .gitignore line for a folder does.
+func (f *Checkouts) Ignore(clone string, paths ...string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	clone = path.Clean(clone)
+	for _, ignored := range paths {
+		f.ignored[clone] = append(f.ignored[clone], path.Clean(ignored))
+	}
+}
+
+// Ignored says a clone's repository ignores a path, relative to the clone, which it does when the path or a folder
+// above it was named to Ignore. A clone that ignores nothing ignores nothing.
+func (f *Checkouts) Ignored(_ context.Context, clone, at string) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	at = path.Clean(at)
+	return slices.ContainsFunc(f.ignored[path.Clean(clone)], func(held string) bool { return at == held || strings.HasPrefix(at, held+"/") }), nil
 }
 
 // Reserve names a directory the installation keeps for itself, as its state directory.

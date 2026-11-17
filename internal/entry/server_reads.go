@@ -171,6 +171,10 @@ func (unavailableCheckouts) SameFile(context.Context, string, string) (bool, err
 	return false, repositoryRead(readCheckouts)
 }
 
+func (unavailableCheckouts) Ignored(context.Context, string, string) (bool, error) {
+	return false, repositoryRead(readCheckouts)
+}
+
 func (unavailableCheckouts) Keep(context.Context, ledger.WorkspaceID, string, string) error {
 	return repositoryRead(readCheckouts)
 }
