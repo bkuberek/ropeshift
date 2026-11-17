@@ -1,9 +1,13 @@
 package entry
 
 import (
+	"context"
+	"errors"
 	"io"
+	"net"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -110,5 +114,42 @@ func TestAStoppingDaemonWaitsOnItsWorkerOnceTheSocketStops(t *testing.T) {
 	case <-held.began:
 	default:
 		t.Error("the stop never waited on the worker")
+	}
+}
+
+// failedWorker stands for a worker whose loop ends on its own, as a refused registration ends it, and whose
+// socket serves until its context ends, as the worker's does. What it started has ended.
+type failedWorker struct {
+	*heldWorker
+}
+
+func (failedWorker) Run(context.Context) error {
+	return errors.New("the control plane refused this worker")
+}
+
+func (failedWorker) ServeLanes(ctx context.Context, _ net.Listener) error {
+	<-ctx.Done()
+	return nil
+}
+
+// TestAWorkerWhoseLoopEndsOnItsOwnStillStops runs a worker whose loop fails while the daemon's context goes
+// on. The socket stops with the loop, so the stop's wait on it ends, and the worker's journal and link close.
+func TestAWorkerWhoseLoopEndsOnItsOwnStillStops(t *testing.T) {
+	t.Parallel()
+	held := newHeldWorker()
+	held.free()
+	var closed atomic.Bool
+	var log strings.Builder
+	done := superviseWorker(t.Context(), failedWorker{held}, nil, func() { closed.Store(true) }, &log)
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the worker never stopped after its loop ended: its socket still serves")
+	}
+	if !closed.Load() {
+		t.Error("the worker's journal and link stayed open after its loop ended")
+	}
+	if want := "ropeshiftd: worker: the control plane refused this worker\n"; log.String() != want {
+		t.Errorf("the daemon said %q, want %q", log.String(), want)
 	}
 }

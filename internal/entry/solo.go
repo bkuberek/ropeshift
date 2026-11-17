@@ -475,26 +475,47 @@ func startSoloWorker(
 	})
 	hosts.serve(subject)
 	local.worker.Store(subject)
+	closeAfter := func() {
+		connection.close()
+		_ = journal.Close()
+	}
+	return superviseWorker(ctx, subject, socket, closeAfter, stderr), nil
+}
+
+// runningWorker is the worker a daemon runs: its loop, the socket its lanes reach it on, and what a stopping
+// daemon waits on.
+type runningWorker interface {
+	stoppingWorker
+	Run(ctx context.Context) error
+	ServeLanes(ctx context.Context, listener net.Listener) error
+}
+
+// superviseWorker runs the worker's loop and serves its lanes' socket, and once the loop ends, closes the
+// worker's journal and link after what it started. The returned channel closes after that. The loop ends
+// with the daemon's context or on its own, as a refused registration ends it, and the socket stops with the
+// loop either way, because the wait on what the worker started begins only once the socket has stopped.
+func superviseWorker(ctx context.Context, subject runningWorker, socket net.Listener, closeAfter func(), stderr io.Writer) <-chan struct{} {
+	serving, stopServing := context.WithCancel(ctx)
 	socketDone := make(chan struct{})
 	go func() {
 		defer close(socketDone)
-		if err := subject.ServeLanes(ctx, socket); err != nil {
+		if err := subject.ServeLanes(serving, socket); err != nil {
 			fmt.Fprintf(stderr, "ropeshiftd: worker socket: %v\n", err)
 		}
 	}()
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		defer journal.Close()
-		defer connection.close()
+		defer closeAfter()
 		if err := subject.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
 			fmt.Fprintf(stderr, "ropeshiftd: worker: %v\n", err)
 		}
+		stopServing()
 		// Run returns before the goroutines it started for lanes, forge requests, and probes, and they write
 		// the journal and upload over the link until they end, so both close after them.
 		stopWorker(subject, socketDone, workerStopGrace, stderr)
 	}()
-	return done, nil
+	return done
 }
 
 // stopWorker waits for the socket to take no more connections, and then for what the worker started, for at

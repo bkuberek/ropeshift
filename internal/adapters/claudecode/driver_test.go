@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"flag"
+	"fmt"
 	"io/fs"
 	"maps"
 	"os"
@@ -673,6 +674,92 @@ func TestAFailedPingReadsUnknownAndNeverDead(t *testing.T) {
 	if err != nil || observation.Liveness != lanes.LivenessUnknown {
 		t.Errorf("observation %+v: %v", observation, err)
 	}
+}
+
+// stopUnread stops a session nobody reads, from a context that never ends, as a stop a worker sent goes on
+// after the worker leaves. It returns within its signals' graces and the wait after the last one, with the
+// end unconfirmed, and a reader that comes back gets every event the session wrote, with its end last.
+func stopUnread(t *testing.T, driver ports.AgentDriver, handle ports.SessionHandle, grace time.Duration, wrote func([]ports.DriverEvent) error) {
+	t.Helper()
+	stopped := make(chan error, 1)
+	go func() { stopped <- driver.Stop(context.Background(), handle, ports.StopInterrupt) }()
+	limit := 2*grace + claudecode.KillWait + 3*time.Second
+	select {
+	case err := <-stopped:
+		if !errors.Is(err, claudecode.ErrStopUnconfirmed) {
+			t.Errorf("a stop whose session's end nobody read returned %v", err)
+		}
+	case <-time.After(limit):
+		t.Fatalf("the stop still waits %v after it began, on an end nobody reads", limit)
+	}
+	events, err := driver.Events(t.Context(), handle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var read []ports.DriverEvent
+	deadline := time.After(20 * time.Second)
+	for {
+		select {
+		case event, open := <-events:
+			if open {
+				read = append(read, event)
+				continue
+			}
+		case <-deadline:
+			t.Fatalf("a reader that came back read %d events and no end", len(read))
+		}
+		break
+	}
+	if len(read) == 0 || read[len(read)-1].Kind != ports.EventSessionEnded {
+		t.Fatalf("a reader that came back read no end last: %+v", read)
+	}
+	if err := wrote(read); err != nil {
+		t.Error(err)
+	}
+}
+
+// TestAStopReturnsWhenNobodyReadsTheStream stops a headless session whose stream nobody reads, as a worker
+// on its way out leaves its lanes' sessions. The session writes more than the stream holds, so the reader
+// of its shim waits behind the stream, and the session's end is never read while nobody reads.
+func TestAStopReturnsWhenNobodyReadsTheStream(t *testing.T) {
+	const grace = 20 * time.Millisecond
+	lines := 2 * claudecode.EventBuffer
+	_, path, spec := session(t, "stopped-turn", nil)
+	turn := []map[string]any{{"init": true}}
+	for range lines {
+		turn = append(turn, map[string]any{"raw": "not a stream line"})
+	}
+	writeFixture(t, path, map[string]any{"turns": [][]map[string]any{append(turn, map[string]any{"hold": true})}})
+	driver := claudecode.New(osexec.Runner{}, claudecode.Options{Env: []string{"PATH=" + path}, StopGrace: grace})
+	handle, err := driver.Start(t.Context(), spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The session's first line says it is in its turn and takes an interrupt as a turn does.
+	for deadline := time.Now().Add(20 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+		observation, err := driver.Observe(t.Context(), handle)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if observation.Malformed > 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the session wrote nothing")
+		}
+	}
+	stopUnread(t, driver, handle, grace, func(read []ports.DriverEvent) error {
+		malformed := 0
+		for _, event := range read {
+			if event.Kind == ports.EventMalformed {
+				malformed++
+			}
+		}
+		if malformed != lines {
+			return fmt.Errorf("a reader that came back read %d of the session's %d lines", malformed, lines)
+		}
+		return nil
+	})
 }
 
 func writeFixture(t *testing.T, path string, body map[string]any) {
