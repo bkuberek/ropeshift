@@ -46,6 +46,7 @@ var ManifestChecks = []Check{
 	{"RM22", "a path this worker keeps for a record holds nothing of it once another clone replaced the clone there, so a clone of the record's first commit at another path is not refused for sharing it", checkAReplacedCloneHoldsNothing},
 	{"RM23", "a path this worker keeps for a record, spelled through a symbolic link, is the clone it leads to: a clone of the record's first commit at another path is refused or is a second clone as for the real path, the same clone registered again keeps the checkout as it was, and a record kept through a link still matches its clone's other roots", checkAKeptPathSpelledThroughALinkIsTheSameClone},
 	{"RM18", "on real git repositories, a workspace that merged an unrelated history is its own record whether or not the repository that history came from is kept or removed, unless that repository's record is from before the first-parent rule and kept, which refuses the workspace for sharing its first commit", checkMergedWorkspaceOnRealRepositories},
+	{"RM25", "a clone of one run that has its own record is matched to it, as it is alone, and not to the record of an earlier clone of the run whose history it merged", checkARunMatchesEachCloneAsItWouldAlone},
 	{"RM24", "two repositories that merged one history are each their own record, whichever registers first, and neither is matched to the record that history made", checkTwoRepositoriesThatMergedOneHistoryAreEachTheirOwn},
 	{"RM6", "a manifest registers only a clone inside the directory that holds the planning repository's clone, symbolic links followed: a path or a link that leads out of it, the planning clone itself, and the installation's own directories register nothing, each refused naming where it leads", checkManifestPathsStayBesideThePlanningClone},
 }
@@ -1531,6 +1532,45 @@ func checkAnyRootMatchesTheRecordAtASecondPath(r *Rig) error {
 	}
 	if d := got["/work/d"]; d.Outcome != ledger.AlreadyRegistered || d.Repository.ID != second || !strings.Contains(d.Reason, "matched by its earlier identity") {
 		return Violatedf("a clone whose lowest root names another repository's record reads %+v, want the record of its remote", d)
+	}
+	return r.CheckProjection(s)
+}
+
+func checkARunMatchesEachCloneAsItWouldAlone(r *Rig) error {
+	s := r.Store()
+	repositories := r.repositories(s)
+	remote := func(name string) string { return "git@github.com:acme/" + name + ".git" }
+	// B has a record of its own, with a remote of its own, and C's history merged in. C's first commit sorts
+	// above B's, and C is registered first in the run.
+	b, c := firstCommit("e1"), firstCommit("e2")
+	if _, err := r.detect(s, b, remote("b"), "main"); err != nil {
+		return err
+	}
+	kept := fake.NewCheckouts()
+	kept.Place(rootClone("c", c, ""))
+	kept.Place(rootClone("b", b, remote("b"), b, c))
+	for _, dryRun := range []bool{true, false} {
+		got, err := r.addAt(repositories, kept, dryRun, "/work/c", "/work/b")
+		if err != nil {
+			return err
+		}
+		if added := got["/work/c"]; added.Outcome != ledger.Registered || added.Repository.ID != c {
+			return Violatedf("C reads %+v, dry run %v", added, dryRun)
+		}
+		if added := got["/work/b"]; added.Outcome != ledger.AlreadyRegistered || added.Repository.ID != b {
+			return Violatedf("B, which has a record of its own, reads %+v in a run with C, dry run %v", added, dryRun)
+		}
+	}
+	// The same two clones, with the second a second clone of the first's remote, are one repository.
+	d := firstCommit("e3")
+	kept.Place(rootClone("d1", d, remote("d")))
+	kept.Place(rootClone("d2", d, remote("d")))
+	got, err := r.addAt(repositories, kept, true, "/work/d1", "/work/d2")
+	if err != nil {
+		return err
+	}
+	if second := got["/work/d2"]; second.Outcome != ledger.AlreadyRegistered || second.Repository.ID != d || !strings.Contains(second.Reason, "a second clone of") {
+		return Violatedf("a second clone of the same remote in a dry run reads %+v", second)
 	}
 	return r.CheckProjection(s)
 }

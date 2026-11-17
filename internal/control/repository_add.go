@@ -83,16 +83,15 @@ func (r *Repositories) Add(ctx context.Context, scope ledger.WorkspaceID, in Rep
 	claimed := map[string]bool{}
 	seen := seenRun{}
 	for _, clone := range clones {
-		if again, ok := seen.again(clone); ok {
-			again.Entered = enteredAs(clone)
-			out = append(out, again)
-			continue
-		}
-		added, err := r.register(ctx, scope, clone, registration{claimed: claimed, dryRun: in.DryRun, restore: true, kept: kept, held: held}, actor)
+		added, again, err := r.register(ctx, scope, clone, registration{claimed: claimed, dryRun: in.DryRun, restore: true, kept: kept, held: held, seen: seen}, actor)
 		if err != nil {
 			return out, err
 		}
 		added.Entered = enteredAs(clone)
+		if again {
+			out = append(out, added)
+			continue
+		}
 		if added.Outcome != ledger.RegistrationRefused {
 			if added.Checkout, err = keepCheckout(ctx, kept, scope, held, clone, added.Repository.ID, in.DryRun); err != nil {
 				return out, err
@@ -137,31 +136,45 @@ type registration struct {
 	// clone that shares its first commit with another repository's from a second clone of one.
 	kept ports.Checkouts
 	held map[string]string
+	// seen are the clones the run registered so far, by the record each came to.
+	seen seenRun
 }
 
 // register makes or refreshes one clone's record in its own transaction, so a refusal undoes only that
 // clone's.
-func (r *Repositories) register(ctx context.Context, scope ledger.WorkspaceID, clone ports.Clone, how registration, actor ledger.Actor) (Added, error) {
+//
+// A clone that matches the record an earlier clone of the run registered is a second clone of that repository,
+// which comes back with true and writes nothing, or is refused when the two share their first commit.
+func (r *Repositories) register(ctx context.Context, scope ledger.WorkspaceID, clone ports.Clone, how registration, actor ledger.Actor) (Added, bool, error) {
 	added := Added{Path: clone.Path}
 	holders, err := how.holdersOf(ctx, clone)
 	if err != nil {
-		return added, err
+		return added, false, err
 	}
 	// The record the clone registers as is read in the transaction, and these say what it found.
 	id, sharedWith, keptHere := clone.ID, "", how.keptAt(ctx, clone)
 	var gone ledger.Repository
+	var second Added
 	err = r.store.Write(ctx, scope, "repository.register", func(tx ports.WriteTx) error {
 		if err := refuseHeldRoots(tx.Repositories(), clone); err != nil {
 			return err
 		}
-		record, matched, earlier, err := matchIn(tx.Repositories(), clone, keptHere, holders)
+		record, matched, earlier, err := matchIn(tx.Repositories(), clone, keptHere, holders, how.seen)
 		if err != nil {
 			return err
 		}
 		id, sharedWith, added.Reason = clone.ID, "", ""
 		if matched {
 			id = record.ID
-			if kept, ok := holders[id]; ok && !record.Removed() && sharesFirstCommit(kept, clone) {
+			if first, ok := how.seen[id]; ok && !record.Removed() {
+				if sharesFirstCommit(ctx, how.kept, holder{path: first.path, remote: first.remote}, clone) {
+					sharedWith = ledger.SharedFirstCommit(id, cmp.Or(record.Name, id), first.path)
+					return errSharesFirstCommit
+				}
+				second = secondClone(clone, first)
+				return errSecondClone
+			}
+			if kept, ok := holders[id]; ok && !record.Removed() && sharesFirstCommit(ctx, how.kept, kept, clone) {
 				sharedWith = ledger.SharedFirstCommit(id, cmp.Or(record.Name, id), kept.path)
 				return errSharesFirstCommit
 			}
@@ -216,15 +229,17 @@ func (r *Repositories) register(ctx context.Context, scope ledger.WorkspaceID, c
 	})
 	switch {
 	case errors.Is(err, errDryRun):
-		return added, nil
+		return added, false, nil
+	case errors.Is(err, errSecondClone):
+		return second, true, nil
 	case errors.Is(err, errStaysRemoved):
 		return Added{
 			Path: clone.Path, Outcome: ledger.RegistrationRefused, Repository: ledger.Repository{ID: id, Remote: clone.Remote}, Reason: staysRemoved(gone),
-		}, nil
+		}, false, nil
 	case errors.Is(err, errSharesFirstCommit):
 		return Added{
 			Path: clone.Path, Outcome: ledger.RegistrationRefused, Repository: ledger.Repository{ID: id, Remote: clone.Remote}, Reason: sharedWith,
-		}, nil
+		}, false, nil
 	case errors.Is(err, ledger.ErrRepositoryHeld):
 		reason := err.Error()
 		if held := (*ledger.HeldError)(nil); clone.Remote == "" && errors.As(err, &held) {
@@ -232,9 +247,9 @@ func (r *Repositories) register(ctx context.Context, scope ledger.WorkspaceID, c
 		}
 		return Added{
 			Path: clone.Path, Outcome: ledger.RegistrationRefused, Repository: ledger.Repository{ID: id, Remote: clone.Remote}, Reason: reason,
-		}, nil
+		}, false, nil
 	}
-	return added, err
+	return added, false, err
 }
 
 // namePlanning names a repository the project's planning repository, as a member's change to its record,
