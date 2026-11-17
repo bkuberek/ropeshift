@@ -634,7 +634,12 @@ func (s *driverSession) playTurn(steps []DriverStep) (ports.SessionEnd, bool) {
 			s.events <- ports.DriverEvent{Kind: ports.EventReply, Text: step.Reply, MessageID: step.ReplyID}
 		case step.Turn != nil:
 			result := ports.TurnResult{Status: step.Turn.Status, Reason: step.Turn.Reason, Usage: step.Turn.Usage, Compaction: step.Turn.Compaction, Deferred: step.Turn.Deferred}
-			result.CostUSD = s.meter.ObserveTurn(step.Turn.TotalUSD)
+			// A stopped turn reports no cost, as a driver's meter counts it.
+			if step.Turn.Status == ports.TurnStopped {
+				s.meter.ObserveStopped()
+			} else {
+				result.CostUSD = s.meter.ObserveTurn(step.Turn.TotalUSD)
+			}
 			result.Cost = s.meter
 			s.events <- ports.DriverEvent{Kind: ports.EventTurnEnded, Turn: &result}
 			answered = true

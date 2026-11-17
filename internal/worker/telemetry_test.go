@@ -5,6 +5,7 @@ import (
 	"math"
 	"strings"
 	"testing"
+	"time"
 
 	"ropeshift.com/ropeshift/internal/adapters/fake"
 	"ropeshift.com/ropeshift/internal/authority"
@@ -327,9 +328,36 @@ func TestPerLaneMetricsFromDriverReports(t *testing.T) {
 	}
 }
 
+// laneResult is what the ledger recorded at the lane's end: the payload of the change it made to its work order, or,
+// for a lane that moved its work order nowhere, as a canceled lane does, its own end.
+func (r *laneRig) laneResult() workorders.LaneResult {
+	r.t.Helper()
+	raw := r.outcome().Payload
+	if len(raw) == 0 {
+		err := r.store.Read(r.t.Context(), scope, func(tx ports.ReadTx) error {
+			events, err := tx.EventsAbout(ledger.Subject{Kind: ledger.SubjectLane, ID: "lane-1"})
+			for _, e := range events {
+				if e.Type == ledger.EventLaneEnded {
+					raw = e.Data
+				}
+			}
+			return err
+		})
+		if err != nil {
+			r.t.Fatal(err)
+		}
+	}
+	var result workorders.LaneResult
+	if err := json.Unmarshal(raw, &result); err != nil {
+		r.t.Fatalf("the ledger holds no result of the lane: %v", err)
+	}
+	return result
+}
+
 // TestATurnWhoseCostWentUnreportedIsCounted holds the lower bound of a lane's cost: a turn that stopped reports no
 // cost, and a session that crashed never reports its last turn's, so the worker counts each, under the lane and the
-// generation it ran in. A lane whose every turn reported its cost counts none.
+// generation it ran in. The ledger's record of the lane's end counts the same turns, so the measures and the delivery
+// record read a lower bound where the lane table does. A lane whose every turn reported its cost counts none.
 func TestATurnWhoseCostWentUnreportedIsCounted(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
@@ -375,7 +403,28 @@ func TestATurnWhoseCostWentUnreportedIsCounted(t *testing.T) {
 					t.Errorf("an unreported turn is not the lane's: %+v", m.Attributes)
 				}
 			}
+			if got := r.laneResult().UnknownCostTurns; got != int64(tt.want) {
+				t.Errorf("the ledger counts %d turns of unknown cost, and the lane table %d", got, tt.want)
+			}
 		})
+	}
+}
+
+// A crashed lane starts again, and the turn the crash left unreported stays in the ledger's record of the lane's end,
+// which sums every generation's cost.
+func TestATurnACrashLeftUnreportedOutlivesItsGeneration(t *testing.T) {
+	r := laneRigWith(t, restarts)
+	r.driver.Play(script(crashed()))
+	r.driver.PlayAfter(script([]fake.DriverStep{{Bound: true}, r.reports(workorders.OutcomeCompleted), completed(0.01)}))
+	r.start()
+	r.laneState(lanes.Backoff)
+	r.clock.Advance(31 * time.Second)
+	r.subject.Wait()
+	if specs := r.driver.Specs(); len(specs) != 2 {
+		t.Fatalf("%d sessions, want the crashed one and the one after it", len(specs))
+	}
+	if got := r.laneResult().UnknownCostTurns; got != 1 {
+		t.Errorf("the ledger counts %d turns of unknown cost over both generations, want 1", got)
 	}
 }
 
@@ -398,5 +447,8 @@ func TestATurnAStopKilledIsCountedUnreported(t *testing.T) {
 	r.waitEnded(t)
 	if unreported := r.telemetry.Measurements(ledger.MetricCostUnreported); len(unreported) != 1 {
 		t.Fatalf("%d turns counted unreported, want 1: %+v", len(unreported), unreported)
+	}
+	if got := r.laneResult().UnknownCostTurns; got != 1 {
+		t.Errorf("the ledger counts %d turns of unknown cost, and the lane table 1", got)
 	}
 }

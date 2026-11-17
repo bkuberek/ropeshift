@@ -1001,7 +1001,7 @@ func (r *laneRun) watch(ctx context.Context, events <-chan ports.DriverEvent) wo
 			// session's socket is no input a driver counts, so a crash with every counted input answered may still
 			// have died in one.
 			if event.End != nil && (event.End.Crashed || event.End.InputUnanswered) {
-				r.measureUnreported()
+				r.unreportedEnd()
 			}
 			if event.End != nil && (event.End.Crashed || r.orchestratorLost(ctx)) {
 				r.crashed, r.crashedAt = true, r.w.clock.Now()

@@ -27,15 +27,16 @@ func (u Usage) Add(other Usage) Usage {
 
 // CostMeter turns a session's running total into a generation's cost. A vendor
 // reports one total that accumulates across resumes, so a turn's cost is a difference.
-// A stopped turn reports nothing, so the cost is a lower bound and UnknownTurns says
-// by how many turns.
+// A turn that stopped, or that a session ended in with no result, reports nothing, so the
+// cost is a lower bound and UnknownTurns says by how many turns.
 type CostMeter struct {
 	// SessionTotalUSD is the last running total seen. A generation that resumes a
 	// session starts from the value the one before it stopped at.
 	SessionTotalUSD float64
 	// CostUSD is what this generation added.
 	CostUSD float64
-	// UnknownTurns counts the stopped turns whose cost is unknown.
+	// UnknownTurns counts the turns whose cost is unknown: each turn that stopped, and the
+	// turn a session crashed in or ended in with an input unanswered.
 	UnknownTurns int64
 }
 
