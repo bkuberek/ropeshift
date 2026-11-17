@@ -107,6 +107,21 @@ func TestNeedsYouHoldsOneItemForAPlanThatNeedsRevisionUntilAMemberSettlesIt(t *t
 			t.Errorf("work that waits for the revision also asks for a review of its own: %+v", item)
 		}
 	}
+	client := api.NewUnixClient(d.Socket)
+	defer client.Close()
+	combined, err := client.NeedsYou(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var labeled bool
+	for _, item := range combined.Items {
+		if item.Kind == api.NeedPlanRevision {
+			labeled = item.Project != nil && item.Project.Name == apitest.ProjectName && item.ID == plan
+		}
+	}
+	if !labeled {
+		t.Errorf("the combined Needs you holds no revision item labeled with its project: %+v", combined.Items)
+	}
 	if _, err := d.Client.ConfirmRevision(t.Context(), plan); err != nil {
 		t.Fatal(err)
 	}
