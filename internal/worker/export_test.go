@@ -19,6 +19,9 @@ const MaxBriefAttempts = maxBriefAttempts
 // AttachedWaits is how many waits in a row a terminal attached with no input keeps a planning lane.
 const AttachedWaits = attachedWaits
 
+// PublishSettle is how long a lane's moves settle before a running worker publishes them.
+const PublishSettle = publishSettle
+
 // WakeWaiting counts what a worker read for its orchestrator and has not told it. A debounce starts
 // where a worker reads an item, so a test has to see that before it moves its clock.
 func (w *Worker) WakeWaiting() int {

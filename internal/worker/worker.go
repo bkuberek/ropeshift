@@ -22,6 +22,9 @@ const (
 	// retryEvery bounds how long a worker waits to try again after a failure, so a
 	// control plane that returns is noticed well before the next heartbeat.
 	retryEvery = time.Second
+	// publishSettle is how long a worker lets a lane's moves settle before it publishes them, so a burst,
+	// such as a lane's start, goes out as one status and one upload rather than waiting on the heartbeat.
+	publishSettle = time.Second
 )
 
 // Config is what a worker is told at start.
@@ -76,6 +79,10 @@ type Worker struct {
 	published  map[string]publishedStatus
 	// holding names what each lane was last held back by, so a note goes out once.
 	holding map[string]string
+
+	// moved carries a wake to the loop when a lane's state moves. It holds one, because one publish reads
+	// every lane.
+	moved chan struct{}
 
 	uploading sync.Mutex
 	// spoolLock makes the passes that take the spool take turns, because each renames, reads, and removes the
@@ -141,7 +148,7 @@ func New(link ports.WorkerLink, journal ports.Journal, clock ports.Clock, config
 	return &Worker{
 		link: link, journal: journal, clock: clock, config: config,
 		deadlines: map[string]time.Time{}, running: map[string]*laneRun{}, published: map[string]publishedStatus{},
-		holding: map[string]string{},
+		holding: map[string]string{}, moved: make(chan struct{}, 1),
 	}
 }
 
@@ -484,6 +491,25 @@ func (w *Worker) Run(ctx context.Context) error {
 	for {
 		w.cycle(ctx)
 		w.tick(ctx)
+		if err := w.await(ctx, hints); err != nil {
+			return err
+		}
+	}
+}
+
+// await waits for the next cycle: a hint, which it reads and reconciles on, or the heartbeat. A lane whose
+// state moves meanwhile wakes it, and once the moves settle it publishes them, so a status does not wait on
+// the heartbeat. Only this loop publishes, so a settled publish never races a cycle's.
+func (w *Worker) await(ctx context.Context, hints <-chan int64) error {
+	beat := time.NewTimer(w.pause())
+	defer beat.Stop()
+	settle := time.NewTimer(publishSettle)
+	settle.Stop()
+	defer settle.Stop()
+	// settled is nil until a move arms the window, which runs from the first move, so a lane that keeps
+	// moving still publishes once per window.
+	var settled <-chan time.Time
+	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -492,7 +518,17 @@ func (w *Worker) Run(ctx context.Context) error {
 				w.config.Report(err)
 			}
 			w.tick(ctx)
-		case <-time.After(w.pause()):
+			return nil
+		case <-beat.C:
+			return nil
+		case <-w.moved:
+			if settled == nil {
+				settle.Reset(publishSettle)
+				settled = settle.C
+			}
+		case <-settled:
+			settled = nil
+			w.publishMoved(ctx)
 		}
 	}
 }
@@ -525,6 +561,26 @@ func (w *Worker) cycle(ctx context.Context) {
 	if err != nil && ctx.Err() == nil {
 		w.config.Report(err)
 		wait(ctx, min(retryEvery, w.pause()))
+	}
+}
+
+// laneMoved wakes the loop to publish a lane's move. A wake that waits already covers this one.
+func (w *Worker) laneMoved() {
+	select {
+	case w.moved <- struct{}{}:
+	default:
+	}
+}
+
+// publishMoved sends the lanes' settled moves as a cycle sends them after its heartbeat: Publish, then
+// Upload, which takes its turn with every other upload. A failure waits for the next cycle.
+func (w *Worker) publishMoved(ctx context.Context) {
+	err := w.Publish(ctx)
+	if err == nil {
+		err = w.Upload(ctx)
+	}
+	if err != nil && ctx.Err() == nil {
+		w.config.Report(err)
 	}
 }
 
