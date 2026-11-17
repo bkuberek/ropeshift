@@ -139,6 +139,64 @@ describe("the planning pane with no session", () => {
     expect(within(last).queryByRole("region", { name: /^Pane of lane/ })).toBeNull();
   });
 
+  // servedEnded answers completed work in which wo-failed, which ended last, and wo-done were planning sessions.
+  function servedEnded(outline?: PlanOutline) {
+    const completed = golden<Completed>("completed");
+    for (const item of completed.items) {
+      item.work_order.kind = ["wo-failed", "wo-done"].includes(item.work_order.id) ? "plan" : "change";
+    }
+    return serve((call) => {
+      if (call.path === "/v1/views/in-progress" || call.path === "/v1/views/on-hold") {
+        return { status: 200, body: { as_of: 1, revision: 1, items: [] } };
+      }
+      if (outline && /^\/v1\/lanes\/[^/]+\/outline$/.test(call.path)) {
+        return { status: 200, body: outline };
+      }
+      return call.path === "/v1/views/completed" ? { status: 200, body: completed } : undefined;
+    });
+  }
+
+  it("shows the last session a member accepted, and none that failed or was canceled after it", async () => {
+    const sent = servedEnded();
+    openPage(here("/planning"));
+    const last = await screen.findByRole("region", { name: "The last planning session" });
+    expect(within(last).getByRole("link", { name: "Ship the first cut" }).getAttribute("href")).toBe("/projects/default/work-order?id=wo-done");
+    expect(last.textContent).toContain("lane lane-wo-done");
+    await within(last).findByRole("heading", { name: "Documents" });
+    expect(sent.some((call) => call.path === "/v1/lanes/lane-wo-failed/outline")).toBe(false);
+  });
+
+  it("reads the accepted plan once, however much the ledger says, because it does not change", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const sent = servedEnded();
+      openPage(here("/planning"));
+      const last = await screen.findByRole("region", { name: "The last planning session" });
+      await within(last).findByRole("heading", { name: "Documents" });
+      const reads = () => sent.filter((call) => call.path === "/v1/lanes/lane-wo-done/outline").length;
+      expect(reads()).toBe(1);
+      const events = await openLedgerStream();
+      for (let i = 0; i < 3; i++) {
+        act(() => events.emit());
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(2_000);
+        });
+      }
+      expect(reads()).toBe(1);
+      expect(within(last).queryByRole("heading", { name: "Documents" })).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("says why the accepted plan cannot be read, as a note and not as a failure", async () => {
+    servedEnded({ unread: "commit abc123, which a member accepted, could not be read: no such revision: abc123" } as PlanOutline);
+    openPage(here("/planning"));
+    const last = await screen.findByRole("region", { name: "The last planning session" });
+    expect(await within(last).findByText(/commit abc123, which a member accepted, could not be read/)).toBeTruthy();
+    expect(within(last).queryByRole("alert")).toBeNull();
+  });
+
   it("shows no last session when no planning session has ended", async () => {
     const completed = golden<Completed>("completed");
     for (const item of completed.items) {

@@ -499,12 +499,18 @@ func acceptLanesPlan(tx ports.WriteTx, approval authority.Approval, member ledge
 // PlanApprovalIsCurrent reports whether a request to approve a plan was raised for the commit a work order's
 // branch holds in its current attempt, which approving it needs to accept the work order.
 func PlanApprovalIsCurrent(evidence ports.EvidenceReader, order workorders.WorkOrder, approval authority.Approval) (bool, error) {
+	commit, err := AttemptCommit(evidence, order)
+	return commit != "" && commit == planDetailOf(approval).Source, err
+}
+
+// AttemptCommit is the commit a work order's branch held when its current attempt last reported it: the one a
+// member accepts, and empty when the attempt reported no branch.
+func AttemptCommit(evidence ports.EvidenceReader, order workorders.WorkOrder) (string, error) {
 	artifacts, err := evidence.Artifacts(order.ID)
 	if err != nil {
-		return false, err
+		return "", err
 	}
-	branch := attemptBranch(artifacts, order.Fence)
-	return branch.Digest != "" && branch.Digest == planDetailOf(approval).Source, nil
+	return attemptBranch(artifacts, order.Fence).Digest, nil
 }
 
 // approvedBeforeRecorded finds the approval a member gave to the branch that this version came from, if

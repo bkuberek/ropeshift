@@ -27,28 +27,32 @@ export function sessionsOf(running: InProgress | null, held: OnHold | null): Ses
 // An ended session is its work order and the lane that ran it last.
 export type EndedSession = { order: WorkOrder; lane: string };
 
-// lastSessionOf finds the planning session that ended last, from completed work, which lists the newest end
-// first, with the lane of its latest artifact. A session that left no artifact names no lane to read.
+// lastSessionOf finds the last planning session a member accepted, from completed work, which lists the newest
+// end first, with the lane of its latest artifact. A session that failed or was canceled has no plan anyone
+// accepted, and one that left no artifact names no lane to read.
 export function lastSessionOf(completed: Completed | null): EndedSession | undefined {
   for (const item of completed?.items ?? []) {
     const lane = item.standing.artifacts.findLast((artifact) => artifact.lane_id)?.lane_id;
-    if (item.work_order.kind === "plan" && lane) {
+    if (item.work_order.kind === "plan" && item.work_order.state === "done" && lane) {
       return { order: item.work_order, lane };
     }
   }
   return undefined;
 }
 
-// LastSession shows the plan of the session that ended last, as its branch holds it, so the outline it submitted
-// stays in reach once its lane has ended.
+// Completed work changes only when a work order ends, so a burst of events reads it once a gap.
+const completedGapMs = 5000;
+
+// LastSession shows the plan of the last session a member accepted, at the commit they accepted, so the outline
+// it submitted stays in reach once its lane has ended and its branch is gone.
 function LastSession({ session, live }: { session: EndedSession; live: Live }) {
   return (
     <section className="stack" aria-label="The last planning session">
       <p className="muted">
         The last session, <Link to={addressOf("/work-order", { id: session.order.id })}>{session.order.title || session.order.id}</Link>, on lane{" "}
-        <span className="mono">{session.lane}</span>, has ended. Its plan, as its branch holds it:
+        <span className="mono">{session.lane}</span>, has ended. Its plan, at the commit that was accepted:
       </p>
-      <Outline lane={session.lane} live={live} title="Plan of the last session" />
+      <Outline lane={session.lane} live={live} title="Plan of the last session" settled />
     </section>
   );
 }
@@ -76,7 +80,7 @@ export function PlanningPage({ live, project, label, lane, after }: { live: Live
   const laneId = lane || chosen?.lane?.id || "";
   // Completed work is read only while no session is shown, for the session that ended last.
   const idle = ready && !laneId;
-  const completed = useView<Completed | null>(() => (idle ? readView<Completed>("completed") : Promise.resolve(null)), `planning:completed:${idle}`, live);
+  const completed = useView<Completed | null>(() => (idle ? readView<Completed>("completed") : Promise.resolve(null)), `planning:completed:${idle}`, live, completedGapMs);
   const last = idle ? lastSessionOf(completed.view) : undefined;
 
   if (!laneId) {

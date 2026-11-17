@@ -154,12 +154,14 @@ function HistoryTab({ live }: { live: Live }) {
 
 // Outline follows the plan a planning lane is writing, from its branch. It reads again when the ledger
 // says something happened, which is when the session may have committed. A page showing a session that ended
-// gives it a title of its own.
-export function Outline({ lane, live, title = "Plan in progress" }: { lane: string; live: Live; title?: string }) {
+// gives it a title of its own. A settled session is one a member accepted, whose outline is the commit they
+// accepted and never changes, so it is read once.
+export function Outline({ lane, live, title = "Plan in progress", settled = false }: { lane: string; live: Live; title?: string; settled?: boolean }) {
   const heading = useId();
   const tabs = useId();
   const [tab, setTab] = useState<PaneTab>("outline");
-  const read = useView(() => readOutline(lane), `outline:${lane}`, live, outlineGapMs);
+  const followed = settled ? { heard: 0, checkSession: live.checkSession } : live;
+  const read = useView(() => readOutline(lane), `outline:${lane}`, followed, outlineGapMs);
   // The estimates and forecasts of the version a request stands for, once the ledger holds its plan. They are
   // read as `ropeshift plan forecast` reads them, and the tick makes them, so they read again at most once a gap.
   const standing = read.view?.approval;
