@@ -403,7 +403,7 @@
       "worker_id": "worker-a"
     }
   ],
-  "revision": 344,
+  "revision": 345,
   "workers": [
     {
       "drivers": [],

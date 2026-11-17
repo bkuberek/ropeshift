@@ -195,6 +195,7 @@ func TestADecisionWithinPolicyIsACardForEveryDelegate(t *testing.T) {
 	} {
 		// Each decision covers a scope of its own, so the first one confirmed overlaps nothing the second covers.
 		id := "d-" + strings.ReplaceAll(c.name, " ", "-")
+		d.HoldRepository(t, id)
 		_, err := c.client.RecordDecision(ctx, api.RecordDecision{
 			ID: id, Status: questions.DecisionDecided, Statement: "The retry budget is two.", Rationale: "The budget allows it.",
 			Scope: "repo:" + id, Reversibility: questions.Reversible, Citations: []string{"docs/retries.md"}, Categories: []string{questions.CategoryProduct},
@@ -422,6 +423,7 @@ func TestAnOrchestratorsToolsStateWhatADelegateWroteAsTheDelegates(t *testing.T)
 			t.Fatal(err)
 		}
 	}
+	d.HoldRepository(t, "retries")
 	decision := api.RecordDecision{
 		ID: "d-assistant", Status: questions.DecisionDecided, Statement: "The retry budget for the harbor client is two.", Rationale: "The budget allows it.",
 		Scope: "repo:retries", Reversibility: questions.Reversible, Citations: []string{"docs/retries.md"}, Categories: []string{questions.CategoryProduct},

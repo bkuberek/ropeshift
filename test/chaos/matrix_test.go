@@ -808,7 +808,8 @@ func supersedeCase() crashCase {
 			if err != nil {
 				return childSpec{}, err
 			}
-			return childSpec{Role: "supersede", Key: w.rig.ID("d"), ClaimID: old.ID}, nil
+			key := w.rig.ID("d")
+			return childSpec{Role: "supersede", Key: key, ClaimID: old.ID}, w.rig.HoldRepository(w.store, key)
 		},
 		settled: func(w *world, spec childSpec) error {
 			if err := countEvents(w, questions.EventDecisionEnded, spec.ClaimID, 1); err != nil {
@@ -843,7 +844,8 @@ func ruleCase() crashCase {
 			if err != nil {
 				return childSpec{}, err
 			}
-			return childSpec{Role: "rule", Key: id, ClaimID: w.rig.ID("d")}, nil
+			claim := w.rig.ID("d")
+			return childSpec{Role: "rule", Key: id, ClaimID: claim}, w.rig.HoldRepository(w.store, claim)
 		},
 		settled: func(w *world, spec childSpec) error {
 			if err := w.questionIs(spec.Key, questions.StatusAnswered, ""); err != nil {

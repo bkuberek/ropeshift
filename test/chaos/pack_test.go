@@ -22,7 +22,8 @@ func oneWayCase() crashCase {
 		op:    "decision.record",
 		steps: []string{"held", "noticed", "parked", "reworked", "bound"},
 		prepare: func(w *world) (childSpec, error) {
-			return childSpec{Role: "one-way", Key: w.rig.ID("d")}, nil
+			key := w.rig.ID("d")
+			return childSpec{Role: "one-way", Key: key}, w.rig.HoldRepository(w.store, key)
 		},
 		settled: func(w *world, spec childSpec) error {
 			return countEvents(w, questions.EventDecisionRecorded, spec.Key, 1)

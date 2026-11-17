@@ -98,6 +98,38 @@
           },
           "merge_authority": "person_approves",
           "repository_id": "repository-1"
+        },
+        {
+          "all_time": {
+            "agreed": 0,
+            "agreement_rate": {
+              "denominator": 0,
+              "numerator": 0,
+              "value": null
+            },
+            "approvals_overturned": 0,
+            "decisions": 0,
+            "disagreed": 0,
+            "failures_overridden": 0,
+            "later_defects": 0,
+            "unknown": 0
+          },
+          "last_30_days": {
+            "agreed": 0,
+            "agreement_rate": {
+              "denominator": 0,
+              "numerator": 0,
+              "value": null
+            },
+            "approvals_overturned": 0,
+            "decisions": 0,
+            "disagreed": 0,
+            "failures_overridden": 0,
+            "later_defects": 0,
+            "unknown": 0
+          },
+          "merge_authority": "person_merges",
+          "repository_id": "retries"
         }
       ],
       "workspace": {
@@ -143,7 +175,7 @@
     },
     "work_in_progress": 6
   },
-  "revision": 344,
+  "revision": 345,
   "sources": [
     {
       "adapter": "fake",

@@ -48,6 +48,13 @@ func TestExitE3LadderAndAttach(t *testing.T) {
 	use := control.NewQuestions(store, questions.BatchPolicy{WindowMs: standInWindowMs, MaxWaitMs: 60_000})
 	member := ledger.Actor{Kind: ledger.ActorMember, ID: "member-1"}
 	ctx := t.Context()
+	// The ledger holds the repository each decision names: the member's, and the orchestrator's script's.
+	for _, id := range []string{"retries", "logging", "queues"} {
+		found := control.DetectedRepository{ID: id, Remote: "https://example.invalid/acme/" + id + ".git", DefaultBranch: "main"}
+		if _, err := control.NewRepositories(store).Detect(ctx, soloScope, found, ledger.Actor{Kind: ledger.ActorSystem, ID: "intake"}); err != nil {
+			t.Fatal(err)
+		}
+	}
 	_, err := use.RecordDecision(ctx, soloScope, questions.Decision{
 		ID: "d-budget", Status: questions.DecisionDecided, Statement: "Retry twice.", Rationale: "It follows.", Scope: "repo:retries",
 		Reversibility: "reversible", DecidedBy: member.ID, Citations: []string{"PAY-12"},

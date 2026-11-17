@@ -121,6 +121,7 @@ func TestAMemberRecordsDecisionsFromTheBrowser(t *testing.T) {
 		}
 		return row
 	}
+	b.r.d.HoldRepository(t, "billing")
 	raw := b.send(t, http.MethodPost, "/v1/decisions", api.RecordDecision{
 		ID: "d-web-1", Status: questions.DecisionDecided, Statement: "Charge in euros.", Rationale: "Every customer is in the union.", Scope: "repo:billing",
 		Reversibility: questions.OneWay, Categories: []string{questions.CategoryProduct}, Citations: []string{"requirement:FR-BILL-1"},
@@ -147,13 +148,14 @@ func TestAMemberRecordsDecisionsFromTheBrowser(t *testing.T) {
 	wantCode(t, b.send(t, http.MethodPost, "/v1/decisions", api.RecordDecision{ID: "d-web-4", Status: questions.DecisionDecided, Statement: "Again.", Supersedes: "d-web-2"}, http.StatusConflict), api.CodeDecisionEnded)
 	// What the ledger would not take for its form is refused in its words.
 	for name, request := range map[string]api.RecordDecision{
-		"no statement":             {ID: "d-web-5", Status: questions.DecisionDecided},
-		"a status it never opens":  {ID: "d-web-6", Status: questions.DecisionOverturned, Statement: "x"},
-		"a reversibility it lacks": {ID: "d-web-7", Status: questions.DecisionDecided, Statement: "x", Reversibility: "sometimes"},
-		"an unknown category":      {ID: "d-web-8", Status: questions.DecisionDecided, Statement: "x", Categories: []string{"no-such-category"}},
-		"a bare ID as scope":       {ID: "d-web-9", Status: questions.DecisionDecided, Statement: "x", Scope: "billing"},
-		"a scope of no kind":       {ID: "d-web-10", Status: questions.DecisionDecided, Statement: "x", Scope: "team:billing"},
-		"a scope with a path":      {ID: "d-web-11", Status: questions.DecisionDecided, Statement: "x", Scope: "repo:billing/eu"},
+		"no statement":               {ID: "d-web-5", Status: questions.DecisionDecided},
+		"a status it never opens":    {ID: "d-web-6", Status: questions.DecisionOverturned, Statement: "x"},
+		"a reversibility it lacks":   {ID: "d-web-7", Status: questions.DecisionDecided, Statement: "x", Reversibility: "sometimes"},
+		"an unknown category":        {ID: "d-web-8", Status: questions.DecisionDecided, Statement: "x", Categories: []string{"no-such-category"}},
+		"a bare ID as scope":         {ID: "d-web-9", Status: questions.DecisionDecided, Statement: "x", Scope: "billing"},
+		"a scope of no kind":         {ID: "d-web-10", Status: questions.DecisionDecided, Statement: "x", Scope: "team:billing"},
+		"a scope with a path":        {ID: "d-web-11", Status: questions.DecisionDecided, Statement: "x", Scope: "repo:billing/eu"},
+		"a scope that names nothing": {ID: "d-web-12", Status: questions.DecisionDecided, Statement: "x", Scope: "wo:ghost"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			wantCode(t, b.send(t, http.MethodPost, "/v1/decisions", request, http.StatusBadRequest), api.CodeInvalid)

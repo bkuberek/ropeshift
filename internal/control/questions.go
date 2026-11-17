@@ -142,6 +142,9 @@ func (q *Questions) RecordDecision(ctx context.Context, scope ledger.WorkspaceID
 	}
 	record.DecidedBy = actor.ID
 	err = q.store.Write(ctx, scope, "decision.record", func(tx ports.WriteTx) error {
+		if err := checkHeld(tx, record.Scope); err != nil {
+			return err
+		}
 		var err error
 		record, err = q.decideInTx(tx, record, actor)
 		return err

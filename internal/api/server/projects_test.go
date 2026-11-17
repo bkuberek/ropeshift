@@ -13,6 +13,7 @@ import (
 	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/planning"
+	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/internal/questions"
 	"ropeshift.com/ropeshift/test/apitest"
 )
@@ -65,6 +66,10 @@ func TestTwoProjectsKeepTheirRecordsApart(t *testing.T) {
 		t.Errorf("acme's wo-same reads %+v, %v", same, err)
 	}
 
+	in.Checkouts.Place(ports.Clone{Path: "/work/retries", ID: "retries", Remote: "https://example.invalid/acme/retries.git", DefaultBranch: "main"})
+	if _, err := home.AddRepositories(t.Context(), api.RepositoryAdd{Paths: []string{"/work/retries"}}); err != nil {
+		t.Fatal(err)
+	}
 	_, err = home.RecordDecision(t.Context(), api.RecordDecision{
 		ID: "decision-retry", Status: questions.DecisionDecided, Statement: "Retry the invoice upload twice.",
 		Rationale: "It covers the outage.", Scope: "repo:retries", Categories: []string{questions.CategoryProduct}, Reversibility: questions.Reversible,

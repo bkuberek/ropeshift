@@ -440,5 +440,14 @@ func (d *Daemon) Completed(t *testing.T, id string, result workorders.LaneResult
 	}
 }
 
+// HoldRepository registers a repository under an ID, as intake detects one, so a decision's scope can name it.
+func (d *Daemon) HoldRepository(t testing.TB, id string) {
+	t.Helper()
+	found := control.DetectedRepository{ID: id, Remote: "https://example.invalid/acme/" + id + ".git", DefaultBranch: "main"}
+	if _, err := control.NewRepositories(d.Store).Detect(t.Context(), Scope, found, ledger.Actor{Kind: ledger.ActorSystem, ID: "intake"}); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // Route is where a project route, as it reads under /v1, lives for the harness's project.
 func Route(path string) string { return api.InProject(ProjectName, path) }

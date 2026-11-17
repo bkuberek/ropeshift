@@ -107,6 +107,7 @@ func TestALaneReadsPastItsPack(t *testing.T) {
 	t.Parallel()
 	r := inASession(t)
 	ops := control.NewQuestions(r.store, questions.BatchPolicy{})
+	holdRepository(t, r.store, "pay")
 	decided, err := ops.RecordDecision(t.Context(), scope, questions.Decision{
 		ID: "d-1", Status: questions.DecisionDecided, Statement: "Use two retries.", Scope: "repo:pay",
 	}, member)
@@ -281,6 +282,7 @@ func TestANextGenerationReadsTheNewestPack(t *testing.T) {
 	r.letGoOnFailure(t)
 	ops := control.NewQuestions(r.store, questions.BatchPolicy{})
 	first := r.pinned(t)
+	holdRepository(t, r.store, "elsewhere")
 	if _, err := ops.RecordDecision(t.Context(), scope, questions.Decision{ID: "d-old", Status: questions.DecisionDecided, Statement: "Use two retries.", Scope: "repo:elsewhere"}, member); err != nil {
 		t.Fatal(err)
 	}
