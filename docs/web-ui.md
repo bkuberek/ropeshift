@@ -301,7 +301,7 @@ A package manager replaces the binary on disk and leaves the daemon running the 
 ![Measures, with the fleet mode, limits, and counts of work orders and lanes by state](assets/screenshots/measures-light.png#gh-light-mode-only)
 ![Measures, with the fleet mode, limits, and counts of work orders and lanes by state](assets/screenshots/measures-dark.png#gh-dark-mode-only)
 
-Measures shows the project's fleet, its mode, how many items wait for a person, its workers, and its limits, then how many work orders and lanes are in each state, the sources work is read from, and the product measures: the north star, human interruptions per completed work order, beside the measures that keep it honest, with review agreement, cost per outcome, and park time. Every number comes from the ledger, and the page is for reading; its count of what waits links to Needs you. [Product measures](measures.md) defines each measure, and `ropeshift measures` prints them.
+Measures shows the project's fleet, its mode, how many items wait for a person, its workers, and its limits, then how many work orders and lanes are in each state, the sources work is read from, and the product measures: the north star, human interruptions per completed work order, beside the measures that keep it honest, with review agreement, cost per outcome, and park time. A cost per outcome reads at least a figure only when some of it was never reported, as the Overview reads a lower bound, and so does Usage's estimated cost by outcome. Every number comes from the ledger, and the page is for reading; its count of what waits links to Needs you. [Product measures](measures.md) defines each measure, and `ropeshift measures` prints them.
 
 ### Delivery
 

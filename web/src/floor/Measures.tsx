@@ -165,12 +165,13 @@ export function Measures({ report }: { report: MeasureReport }) {
           <tbody>
             {costs.length ? (
               costs.map(([kind, cost]) => {
-                const each = cost.per_done_usd === null ? noData : `${cost.lower_bound ? "at least " : ""}${dollars(cost.per_done_usd)} each`;
+                const atLeast = cost.lower_bound ? "at least " : "";
+                const each = cost.per_done_usd === null ? noData : `${atLeast}${dollars(cost.per_done_usd)} each`;
                 return (
                   <tr key={kind}>
                     <th scope="row">{words(kind)}</th>
                     <td>
-                      {each}, {dollars(cost.total_usd)} over {cost.done} done
+                      {each}, {`${atLeast}${dollars(cost.total_usd)}`} over {cost.done} done
                     </td>
                   </tr>
                 );
@@ -183,7 +184,10 @@ export function Measures({ report }: { report: MeasureReport }) {
           </tbody>
         </table>
       </div>
-      <p className="muted tables-note">Cost is what the agent reported, an estimate and a lower bound: a turn a kill stopped reports nothing.</p>
+      <p className="muted tables-note">
+        Cost is what the agent reported, an estimate. It reads at least a figure only when some of it was never reported, because a turn stopped, or a session
+        ended before a turn's result.
+      </p>
     </Section>
   );
 }
