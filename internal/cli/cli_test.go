@@ -45,6 +45,11 @@ func newSession(t *testing.T) *session {
 	return &session{t: t, daemon: apitest.Start(t)}
 }
 
+func newSessionWith(t *testing.T, options apitest.Options) *session {
+	t.Helper()
+	return &session{t: t, daemon: apitest.StartWith(t, options)}
+}
+
 func (s *session) run(args ...string) (int, string, string) {
 	s.t.Helper()
 	var stdout, stderr bytes.Buffer

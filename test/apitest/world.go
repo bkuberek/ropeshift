@@ -54,12 +54,23 @@ const worldStart = 1_790_000_000_000
 // Clock is database time a test moves by hand, so a read model's times repeat exactly.
 type Clock struct {
 	at atomic.Int64
+	// perRead is how far the clock moves each time the store reads it.
+	perRead int64
 }
 
 // NewClock returns a clock at a fixed time.
 func NewClock() *Clock {
 	c := &Clock{}
 	c.at.Store(worldStart)
+	return c
+}
+
+// NewSteppingClock returns a clock that moves forward a millisecond each time the store reads it, so records
+// written one after another carry increasing times however fast the machine is, and a duration between two
+// of them is never zero.
+func NewSteppingClock() *Clock {
+	c := NewClock()
+	c.perRead = 1
 	return c
 }
 
@@ -77,9 +88,9 @@ type clockedDialect struct {
 	clock *Clock
 }
 
-// ClockSQL reads the hand-moved clock.
+// ClockSQL reads the hand-moved clock, and moves a stepping one on.
 func (d clockedDialect) ClockSQL() string {
-	return "SELECT " + strconv.FormatInt(d.clock.at.Load(), 10)
+	return "SELECT " + strconv.FormatInt(d.clock.at.Add(d.clock.perRead)-d.clock.perRead, 10)
 }
 
 // NewWorld registers one worker on a daemon.
