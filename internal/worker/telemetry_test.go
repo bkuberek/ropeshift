@@ -1,7 +1,9 @@
 package worker_test
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"math"
 	"strings"
 	"testing"
@@ -456,6 +458,82 @@ func TestATurnAStopKilledIsCountedUnreported(t *testing.T) {
 	}
 }
 
+// leftBehind journals lane-1 as a worker that died left it, in its first generation: at one state, with its session's
+// start settled one way, and under a token, or under none where a worker read its session's end.
+func (r *laneRig) leftBehind(t *testing.T, actual lanes.ActualState, spawned lanes.EffectState, token string) {
+	t.Helper()
+	ctx := t.Context()
+	record := lanes.Record{
+		ID: "lane-1", WorkOrder: r.id, ClaimID: r.grant.ClaimID, Fence: r.grant.Fence, Generation: 1, State: lanes.StateRunning, Process: 1,
+	}
+	if token != "" {
+		record.TokenDigest = lanes.TokenDigest(token)
+	}
+	begun := ledger.UploadEvent{
+		Epoch: r.subject.Session().Epoch, Type: ledger.UploadLaneStarted, WorkOrder: r.id, ClaimID: record.ClaimID,
+		Fence: record.Fence, Lane: "lane-1", Generation: 1, OccurredAt: 1,
+	}
+	if _, err := r.journal.BeginLane(ctx, record, begun); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.journal.SaveActual(ctx, "lane-1", actual, ""); err != nil {
+		t.Fatal(err)
+	}
+	spawn := lanes.NewEffect(lanes.EffectSession, "lane-1", 1, "", "")
+	if _, err := r.journal.BeginEffect(ctx, spawn); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.journal.FinishEffect(ctx, spawn.Key, spawned, ""); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// unreadable finds the session an earlier process left, and cannot adopt it.
+type unreadable struct{ *fake.AgentDriver }
+
+func (unreadable) Adopt(context.Context, ports.SessionHandle, ports.AdoptFrom) error {
+	return errors.New("the session's stream cannot be read")
+}
+
+// A worker that finds a lane's session and cannot adopt it reads no end of it either, so the turn the session may have
+// ended in counts as it does for a session the worker finds gone: by what the worker last recorded of the lane, once
+// in the ledger's record of the lane's end, and in its telemetry only while the lane's token stands, because a worker
+// that read the session's end ended the token as it counted the turn.
+func TestATurnASessionNoWorkerCanReadMayHaveEndedInIsCounted(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name            string
+		actual          lanes.ActualState
+		token           string
+		told, ledgerHas int
+	}{
+		{"a lane at work", lanes.Working, "token", 1, 1},
+		{"a lane at rest", lanes.Idle, "token", 0, 0},
+		{"a lane at work whose session's end a worker read", lanes.Working, "", 0, 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			r := newLaneRig(t)
+			r.leftBehind(t, tt.actual, lanes.EffectCompleted, tt.token)
+			r.driver.Leave("lane-1", 1, sessionAlive)
+			r.config.Driver = unreadable{AgentDriver: r.driver}
+			if err := r.subject.Converge(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			if change := r.outcome(); change.Reason != workorders.ReasonWorkerRestarted {
+				t.Fatalf("outcome %+v", change)
+			}
+			if unreported := r.telemetry.Measurements(ledger.MetricCostUnreported); len(unreported) != tt.told {
+				t.Errorf("%d turns counted unreported, want %d: %+v", len(unreported), tt.told, unreported)
+			}
+			if got := r.laneResult().UnknownCostTurns; got != int64(tt.ledgerHas) {
+				t.Errorf("the ledger counts %d turns of unknown cost, want %d", got, tt.ledgerHas)
+			}
+		})
+	}
+}
+
 // A worker that finds a lane's session gone, with no end it can read, cannot see whether the session ended inside a
 // turn, which then reported no cost. What it last recorded of the lane decides: a lane at rest ran no turn, unless an
 // input a crash left unknown reached the session, a session that never started ran none, and a lane at work counts
@@ -479,27 +557,7 @@ func TestATurnASessionNobodySawEndMayHaveEndedInIsCounted(t *testing.T) {
 			t.Parallel()
 			r := newLaneRig(t)
 			ctx := t.Context()
-			record := lanes.Record{
-				ID: "lane-1", WorkOrder: r.id, ClaimID: r.grant.ClaimID, Fence: r.grant.Fence, Generation: 1, State: lanes.StateRunning,
-				TokenDigest: lanes.TokenDigest("token"), Process: 1,
-			}
-			begun := ledger.UploadEvent{
-				Epoch: r.subject.Session().Epoch, Type: ledger.UploadLaneStarted, WorkOrder: r.id, ClaimID: record.ClaimID,
-				Fence: record.Fence, Lane: "lane-1", Generation: 1, OccurredAt: 1,
-			}
-			if _, err := r.journal.BeginLane(ctx, record, begun); err != nil {
-				t.Fatal(err)
-			}
-			if err := r.journal.SaveActual(ctx, "lane-1", tt.actual, ""); err != nil {
-				t.Fatal(err)
-			}
-			spawn := lanes.NewEffect(lanes.EffectSession, "lane-1", 1, "", "")
-			if _, err := r.journal.BeginEffect(ctx, spawn); err != nil {
-				t.Fatal(err)
-			}
-			if err := r.journal.FinishEffect(ctx, spawn.Key, tt.spawn, ""); err != nil {
-				t.Fatal(err)
-			}
+			r.leftBehind(t, tt.actual, tt.spawn, "token")
 			if tt.input {
 				if _, err := r.journal.BeginEffect(ctx, lanes.NewEffect(lanes.EffectInput, "lane-1", 1, "", "nudge")); err != nil {
 					t.Fatal(err)

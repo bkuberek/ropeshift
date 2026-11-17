@@ -602,8 +602,10 @@ func (r *laneRun) adopt(ctx context.Context) error {
 }
 
 // unread settles a lane whose session cannot be read. Parking and a handoff still finish,
-// because those are the failures with somewhere to go.
+// because those are the failures with somewhere to go. The turn the session may have ended in counts first, so the
+// lane's end, its next generation, or its wake carries it.
 func (r *laneRun) unread(ctx context.Context) error {
+	r.unreadEnd(ctx)
 	if r.parkingOf().Open() {
 		return r.finishParking(ctx)
 	}
@@ -611,6 +613,20 @@ func (r *laneRun) unread(ctx context.Context) error {
 		return r.finishHandoff(ctx)
 	}
 	return r.finish(ctx, r.unattended(ctx))
+}
+
+// unreadEnd counts the turn a session this run cannot read may have ended in, as endUnattended does for a lane no run
+// holds: what the journal last recorded of the lane decides, and a read that fails counts. The telemetry hears of it
+// only while the lane's token stood at adoption, because a worker that read the session's end ended the token as it
+// counted the turn.
+func (r *laneRun) unreadEnd(ctx context.Context) {
+	record, err := r.w.journal.Lane(ctx, r.lease.Lane)
+	if err != nil {
+		r.w.config.Report(fmt.Errorf("lane %s: %w", r.lease.Lane, err))
+	} else if !r.w.endedInATurn(ctx, record) {
+		return
+	}
+	r.unreportedEnd(ctx)
 }
 
 // unattended is the outcome of a lane whose session cannot be read.
