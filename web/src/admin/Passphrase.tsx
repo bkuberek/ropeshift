@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import type { FormEvent, RefObject } from "react";
 
 import { ApiError, changePassphrase } from "../api/client";
+import { lockedOut, tooManyAttempts } from "../app/attempts";
 import { Link } from "../app/route";
 import { Button } from "../ui/controls";
 import { Banner, Panel, Refusal } from "../ui/display";
@@ -58,6 +59,8 @@ export function PassphraseForm() {
   const [problems, setProblems] = useState<Problems>({});
   const [failure, setFailure] = useState("");
   const [notice, setNotice] = useState<{ text: string; delegates: number } | null>(null);
+  // locked holds the wait a group server's limit on wrong guesses gave, which the Sign in page shows too.
+  const [locked, setLocked] = useState<{ seconds: number | undefined } | null>(null);
   const [busy, setBusy] = useState(false);
   const running = useRef(false);
   const currentField = useRef<HTMLInputElement>(null);
@@ -75,7 +78,12 @@ export function PassphraseForm() {
 
   const refused = (error: unknown) => {
     const code = error instanceof ApiError ? error.code : "";
-    if (code === "bad_passphrase") {
+    if (lockedOut(error)) {
+      // Nothing was checked, so no field is marked wrong. The current passphrase is not kept for the wait.
+      setCurrent("");
+      setLocked({ seconds: error.retryAfter });
+      focus(currentField);
+    } else if (code === "bad_passphrase") {
       setCurrent("");
       setProblems({ current: "That is not your current passphrase. Check it and try again." });
       focus(currentField);
@@ -103,6 +111,7 @@ export function PassphraseForm() {
     }
     setNotice(null);
     setFailure("");
+    setLocked(null);
     const found = problemsOf(current, fresh, again);
     setProblems(found);
     const first = found.current ? currentField : found.fresh ? freshField : found.again ? againField : null;
@@ -153,6 +162,7 @@ export function PassphraseForm() {
         {failure ? <Refusal>{failure}</Refusal> : null}
       </form>
       <div role="status">
+        {locked ? <Banner tone="warning">{tooManyAttempts(locked.seconds)}</Banner> : null}
         {notice ? (
           <Banner icon="check">
             <p>{notice.text}</p>
