@@ -107,7 +107,7 @@ func TestACachedOpenDoesNotWaitForTheMigrationLock(t *testing.T) {
 		t.Error("a cached project's Open waited behind another project's wait for the lock")
 	}
 	cancel()
-	<-waiting
+	t.Logf("the Open that waited ended with %v", <-waiting)
 }
 
 // TestACallerThatGivesUpWaitingForTheLockReturnsAtOnce holds that a caller whose context ends returns,
@@ -139,7 +139,7 @@ func TestACallerThatGivesUpWaitingForTheLockReturnsAtOnce(t *testing.T) {
 		t.Error("a caller whose context ended still waits for the lock")
 	}
 	stop()
-	<-waiting
+	t.Logf("the Open that waited ended with %v", <-waiting)
 }
 
 // failingMigration is a change to a project's ledger that the server refuses.
