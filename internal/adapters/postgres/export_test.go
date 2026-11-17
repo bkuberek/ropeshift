@@ -27,6 +27,14 @@ func SchemaName(id ledger.WorkspaceID) (string, error) { return schemaName(id) }
 // a test that looks at what the failed write leaves for the next Open.
 func (s *State) WithoutRepairAfterFailedWrite() { s.afterFailedWrite = nil }
 
+// SetRepairWait changes how long the repair after a failed write may take, for a test that cannot wait for
+// the default.
+func (s *State) SetRepairWait(d time.Duration) { s.repairWait = d }
+
+// SetDropLimit changes how long the whole drop of a schema may run, for a test that cannot wait for the
+// default.
+func (s *State) SetDropLimit(d time.Duration) { s.dropLimit = d }
+
 // SetDropWait changes how long the drop of a schema waits for a lock, for a test that cannot wait for the
 // default.
 func (s *State) SetDropWait(d time.Duration) { s.dropWait = d }

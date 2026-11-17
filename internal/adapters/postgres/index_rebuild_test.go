@@ -282,6 +282,133 @@ func TestARepairThatFailsIsLeftToTheNextOpen(t *testing.T) {
 	}
 }
 
+// TestAStalledRepairGivesUpAfterItsBound holds that the repair after a failed write has a bound of its own,
+// whatever it waits for: a session that holds a row of the index the repair replaces keeps the repair at its
+// statement, as a lost connection does, and the write that failed returns its own error when the bound
+// passes, with a warning, with the migration lock released. The next Open repairs the index.
+func TestAStalledRepairGivesUpAfterItsBound(t *testing.T) {
+	url := freshDatabase(t)
+	var warned warnings
+	state := openState(t, url, postgres.Options{Store: sqlstore.Options{Warn: warned.add}})
+	state.SetRepairWait(500 * time.Millisecond)
+	db := state.SQLDB()
+	defer db.Close()
+	alpha, alphaStore := createProject(t, state, "pa", "alpha")
+	const other = "https://example.com/acme/other"
+	if err := insertRepository(t.Context(), alphaStore, alpha.ID, "r1", "invoices", invoices); err != nil {
+		t.Fatal(err)
+	}
+	if err := insertRepository(t.Context(), alphaStore, alpha.ID, "r2", "other", other); err != nil {
+		t.Fatal(err)
+	}
+
+	// The write moves r1 and never touches r2's entry, which this session holds. The repair replaces all of
+	// the project's entries, and waits for it.
+	_, session := otherSession(t, url)
+	for _, statement := range []string{`BEGIN`, `SELECT 1 FROM installation.repository_index WHERE identity = 'example.com/acme/other' FOR UPDATE`} {
+		if _, err := session.ExecContext(t.Context(), statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// A repair with no bound ends when the session lets go. The test lets go late, so that it fails and does
+	// not hang.
+	let := time.AfterFunc(8*time.Second, func() { _, _ = session.ExecContext(context.WithoutCancel(t.Context()), `ROLLBACK`) })
+	defer let.Stop()
+	lift := deferRepositoryTrigger(t, db, "project_pa", "UPDATE", `RAISE EXCEPTION 'the commit is refused';`)
+
+	start := time.Now()
+	err := moveRemote(t.Context(), alphaStore, alpha.ID, "r1", billing)
+	took := time.Since(start)
+	lift()
+	if err == nil {
+		t.Fatal("the project's commit was not refused")
+	}
+	if took > 4*time.Second {
+		t.Errorf("the write returned after %s, with a repair bound of 500ms", took)
+	}
+	got := warned.all()
+	if len(got) != 1 || !strings.Contains(got[0], "alpha") || !strings.Contains(got[0], "next Open") {
+		t.Errorf("warnings %q, want one that names the project and says the next Open repairs it", got)
+	}
+
+	if _, err := session.ExecContext(t.Context(), `ROLLBACK`); err != nil {
+		t.Fatal(err)
+	}
+	next := openState(t, url, postgres.Options{})
+	want := []ledger.IndexedRepository{held(alpha.ID, "r1", invoices), held(alpha.ID, "r2", other)}
+	slices.SortFunc(want, func(a, b ledger.IndexedRepository) int { return strings.Compare(a.Identity, b.Identity) })
+	if got := repositoryIndex(t, next); !slices.Equal(got, want) {
+		t.Errorf("the next Open left the index at %+v, want %+v", got, want)
+	}
+}
+
+// insertRecordWithoutEntry puts a repository record in a project's schema as a write that never reached the
+// repository index would, so the record's repository can be one that another project holds.
+func insertRecordWithoutEntry(t *testing.T, db *sql.DB, schema string, scope ledger.WorkspaceID, id, name, remote string) {
+	t.Helper()
+	_, err := db.ExecContext(t.Context(),
+		fmt.Sprintf(`INSERT INTO %s.repositories (workspace_id, id, name, remote, default_branch) VALUES ($1, $2, $3, $4, 'main')`, schema),
+		string(scope), id, name, remote)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestAConflictIsReportedWithWhatToDoAndOnlyWhenItChanges holds the warning for a record whose repository
+// another project holds in the index, which no rebuild can settle: it names the record, the project that
+// keeps it, and the project that holds the repository, and says what to do. It is given once for a
+// conflict that stays, however many times the project's entries are rebuilt, and again when the conflict
+// changes.
+func TestAConflictIsReportedWithWhatToDoAndOnlyWhenItChanges(t *testing.T) {
+	url := freshDatabase(t)
+	first := openState(t, url, postgres.Options{})
+	db := first.SQLDB()
+	defer db.Close()
+	alpha, alphaStore := createProject(t, first, "pa", "alpha")
+	beta, _ := createProject(t, first, "pb", "beta")
+	const other = "https://example.com/acme/other"
+	if err := insertRepository(t.Context(), alphaStore, alpha.ID, "r1", "invoices", invoices); err != nil {
+		t.Fatal(err)
+	}
+	if err := insertRepository(t.Context(), alphaStore, alpha.ID, "r2", "other", other); err != nil {
+		t.Fatal(err)
+	}
+	insertRecordWithoutEntry(t, db, "project_pb", beta.ID, "r-b1", "b1", invoices)
+
+	var warned warnings
+	state, err := postgres.Open(t.Context(), url, postgres.Options{Store: sqlstore.Options{Warn: warned.add}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = state.Close() })
+	got := warned.all()
+	if len(got) != 1 {
+		t.Fatalf("warnings %q, want one for the conflict", got)
+	}
+	for _, want := range []string{"r-b1", "beta", "alpha", "example.com/acme/invoices", "remove"} {
+		if !strings.Contains(got[0], want) {
+			t.Errorf("the warning %q does not say %q", got[0], want)
+		}
+	}
+
+	// The same conflict, rebuilt again, is not reported again.
+	if err := state.RepairProjectIndex(t.Context(), beta); err != nil {
+		t.Fatal(err)
+	}
+	if got := warned.all(); len(got) != 1 {
+		t.Errorf("warnings %q, want the one already given", got)
+	}
+
+	// A conflict that changed is reported again.
+	insertRecordWithoutEntry(t, db, "project_pb", beta.ID, "r-b2", "b2", other)
+	if err := state.RepairProjectIndex(t.Context(), beta); err != nil {
+		t.Fatal(err)
+	}
+	if got := warned.all(); len(got) < 2 || !strings.Contains(strings.Join(got[1:], "\n"), "r-b2") {
+		t.Errorf("warnings %q, want a new one that names r-b2", got)
+	}
+}
+
 // TestTheRepairOfAProjectRunsInAnOpenState holds the repair a caller can run when a write of a project
 // fails, without opening a state again: it takes the migration lock, and it brings the project's part of
 // the index into agreement with its records. A project whose index is in agreement is left alone.
@@ -484,10 +611,10 @@ func TestAnEntryThatNeverCommittedDoesNotTakeTheIdentityFromALaterRecord(t *test
 	}
 }
 
-// TestAnEntryTheRemovalOfARecordTookIsPutBack holds the other direction: a record of a project loses its
-// entry when another record of the same repository, which took the entry first, is removed, and when the
-// removal's project commit fails after the index side committed. The next Open holds the identity again for
-// the record that is still in the project.
+// TestAnEntryTheRemovalOfARecordTookIsPutBack holds the other direction: a record of a project is left
+// without its entry when its removal's project commit fails after the index side committed, which the next
+// Open puts back. A removal that commits does not leave the entry of another record of the same repository
+// behind: the repository stays held, in the same write.
 func TestAnEntryTheRemovalOfARecordTookIsPutBack(t *testing.T) {
 	remove := func(id string) func(ports.RepositoryWriter) error {
 		return func(w ports.RepositoryWriter) error { return w.Remove(id) }
@@ -523,11 +650,11 @@ func TestAnEntryTheRemovalOfARecordTookIsPutBack(t *testing.T) {
 			t.Errorf("another project registering the repository of a record that is in its project: %v", err)
 		}
 	})
-	t.Run("a removal of a record whose repository another record holds", func(t *testing.T) {
+	t.Run("a removal of the record that took the repository, which another record shares", func(t *testing.T) {
 		url := freshDatabase(t)
 		state := openState(t, url, postgres.Options{})
 		alpha, store := createProject(t, state, "pa", "alpha")
-		beta, _ := createProject(t, state, "pb", "beta")
+		beta, betaStore := createProject(t, state, "pb", "beta")
 		if err := insertRepository(t.Context(), store, alpha.ID, "r-x", "x", invoices); err != nil {
 			t.Fatal(err)
 		}
@@ -537,20 +664,21 @@ func TestAnEntryTheRemovalOfARecordTookIsPutBack(t *testing.T) {
 		if err := changeRepository(t.Context(), store, alpha.ID, "r-x", remove("r-x")); err != nil {
 			t.Fatal(err)
 		}
-		if got := repositoryIndex(t, state); len(got) != 0 {
-			t.Fatalf("the removal left the index at %+v, with a record of the repository in the project", got)
+		// The write that removed the record passed the repository to the other one, with no Open between.
+		if got, want := repositoryIndex(t, state), []ledger.IndexedRepository{held(alpha.ID, "r-y", invoices)}; !slices.Equal(got, want) {
+			t.Fatalf("the removal left the index at %+v, want %+v", got, want)
 		}
-
-		next := openState(t, url, postgres.Options{})
-		if got, want := repositoryIndex(t, next), []ledger.IndexedRepository{held(alpha.ID, "r-y", invoices)}; !slices.Equal(got, want) {
-			t.Errorf("the next Open left the index at %+v, want %+v", got, want)
+		if err := registerRepository(t.Context(), betaStore, beta.ID, invoices, nil); !errors.Is(err, ledger.ErrRepositoryHeld) {
+			t.Errorf("another project registering the repository of a record that is in its project: %v", err)
 		}
-		opened, err := next.Open(t.Context(), beta)
-		if err != nil {
+		if err := changeRepository(t.Context(), store, alpha.ID, "r-y", remove("r-y")); err != nil {
 			t.Fatal(err)
 		}
-		if err := registerRepository(t.Context(), opened, beta.ID, invoices, nil); !errors.Is(err, ledger.ErrRepositoryHeld) {
-			t.Errorf("another project registering the repository of a record that is in its project: %v", err)
+		if got := repositoryIndex(t, state); len(got) != 0 {
+			t.Errorf("removing the last record of the repository left the index at %+v", got)
+		}
+		if err := registerRepository(t.Context(), betaStore, beta.ID, invoices, nil); err != nil {
+			t.Errorf("another project registering a repository whose last record left its project: %v", err)
 		}
 	})
 }
