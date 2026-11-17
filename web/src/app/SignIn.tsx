@@ -12,15 +12,15 @@ import { Icon } from "../ui/Icon";
 export const passphraseHelp = "https://github.com/bkuberek/ropeshift/blob/main/docs/onboarding.md#run-ropeshift-init";
 
 // Every state the page can show, which the accessibility checks open one by one: a page nobody has asked anything
-// of, one whose session ended, an empty try, a passphrase that does not match, a limit on attempts, a daemon that did
-// not answer, and a daemon with no passphrase set.
-export const signInStateIds = ["default", "ended", "empty", "wrong", "locked", "unreachable", "not-set"] as const;
+// of, one whose session ended, an empty try, a passphrase that does not match, a daemon that did not answer, and a
+// daemon with no passphrase set.
+export const signInStateIds = ["default", "ended", "empty", "wrong", "unreachable", "not-set"] as const;
 
 export type SignInStateId = (typeof signInStateIds)[number];
 
-type Outcome = { kind: "wrong" | "empty" | "locked" | "unreachable" | "not-set" } | { kind: "other"; message: string } | null;
+type Outcome = { kind: "wrong" | "empty" | "unreachable" | "not-set" } | { kind: "other"; message: string } | null;
 
-// outcomeOf reads a refusal by its code, which is what the page decides on, and by the status for a limit.
+// outcomeOf reads a refusal by its code, which is what the page decides on.
 function outcomeOf(error: unknown): Outcome {
   if (error instanceof ApiError) {
     if (error.code === "bad_passphrase") {
@@ -28,9 +28,6 @@ function outcomeOf(error: unknown): Outcome {
     }
     if (error.code === "not_enrolled") {
       return { kind: "not-set" };
-    }
-    if (error.code === "too_many_attempts" || error.status === 429) {
-      return { kind: "locked" };
     }
     if (error.code === "unreachable") {
       return { kind: "unreachable" };
@@ -92,8 +89,7 @@ export function SignIn({ onSignedIn, ended = false }: { onSignedIn: () => Promis
         </h1>
         <p className="lead">Agents run as you on this machine, so a person proves they are one before deciding anything.</p>
         <div role="status">
-          {outcome?.kind === "locked" ? <Banner tone="warning">Too many sign-in attempts. Wait a minute, then try again.</Banner> : null}
-          {ended && outcome?.kind !== "locked" ? <Banner icon="clock">Your session ended. Sign in again to carry on where you were.</Banner> : null}
+          {ended ? <Banner icon="clock">Your session ended. Sign in again to carry on where you were.</Banner> : null}
         </div>
         {outcome?.kind === "unreachable" ? (
           <Banner tone="danger">The daemon did not answer, so nothing was checked. Check that it is running with ropeshift health, then try again.</Banner>

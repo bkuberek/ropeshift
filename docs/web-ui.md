@@ -15,7 +15,6 @@ The page says what happened in the place it belongs to:
 - **A session that ended** while you were using the page shows "Your session ended" above the form: you signed out in another tab, the session ran out, or a change of the passphrase ended it. What you were doing stays on the page behind the form and is there when you sign in again. A first visit and a sign-out of your own show no such notice.
 - **A daemon that did not answer** says nothing was checked, and to check that the daemon runs with `ropeshift health`.
 - **No passphrase set** says to run `ropeshift passphrase set` on a terminal, because the first passphrase is never set from a browser.
-- **Too many attempts** says to wait a minute. The daemon checks one passphrase at a time, so a flood of guesses costs its sender the wait, and it does not lock sign-in out: any process on the machine can reach the port, so a lockout would shut the member out. The page shows this state when the daemon answers that there were too many attempts.
 
 ## Keyboard
 

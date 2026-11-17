@@ -10,7 +10,7 @@ import { App } from "./App";
 import { passphraseHelp, signInStateIds } from "./SignIn";
 
 // The Sign in page: the product's mark and name, the passphrase field and its errors, and one state for each way
-// the page can find itself: a wrong passphrase, one the daemon limits, a session that ended, a daemon that does not
+// the page can find itself: a wrong passphrase, a session that ended, a daemon that does not
 // answer, and a daemon with no passphrase set.
 
 beforeEach(() => {
@@ -98,25 +98,6 @@ describe("the Sign in page", () => {
     // Typing again takes the message back, since it no longer describes what is typed.
     await userEvent.type(field(), "x");
     expect(screen.queryByText(/does not match/)).toBeNull();
-  });
-
-  it("says when the daemon limits attempts, and sends a second try from the same form", async () => {
-    let answers = 0;
-    const sent = signedOut(() => {
-      answers++;
-      return answers === 1 ? refusal(429, "too_many_attempts", "slow down") : { status: 201, body: { member: "local", expires_at: 1 } };
-    });
-    await attempt();
-    const notice = await screen.findByText("Too many sign-in attempts. Wait a minute, then try again.");
-    expect(notice.closest("[role=status]")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Sign in" })).toBeTruthy();
-    expect(field().value).toBe("");
-    // A limit by status alone is the same limit.
-    cleanup();
-    signedOut(() => refusal(429, "unavailable", "wait"));
-    await attempt();
-    expect(await screen.findByText("Too many sign-in attempts. Wait a minute, then try again.")).toBeTruthy();
-    expect(sent.filter((call) => call.method === "POST").length).toBeGreaterThan(0);
   });
 
   it("says when the daemon did not answer, as an alert, and leaves nothing checked", async () => {
@@ -221,6 +202,6 @@ describe("the Sign in page", () => {
   });
 
   it("names the states it can show, one for each the accessibility checks open", () => {
-    expect([...signInStateIds]).toEqual(["default", "ended", "empty", "wrong", "locked", "unreachable", "not-set"]);
+    expect([...signInStateIds]).toEqual(["default", "ended", "empty", "wrong", "unreachable", "not-set"]);
   });
 });
