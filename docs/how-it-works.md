@@ -71,7 +71,7 @@ What happens after a passing review is your choice, set per repository:
 | `person_approves` | You approve the merge, and ropeshift merges the reviewed commit |
 | `review_approves` | The review's pass is the approval, and ropeshift merges once every required check is green |
 
-Ropeshift merges only the exact commit the review read, never through an agent, and records every approval and merge. Work merges after the work it depends on, in its own repository or another ([connect a GitHub repository](github.md#5-choose-the-merge-authority)).
+Ropeshift merges only the exact commit the review read, never through an agent, and records every approval and merge. Work merges after the work it depends on, in its own repository or another ([merging accepted work](onboarding.md#merging-accepted-work)).
 
 ## Projects of several repositories
 

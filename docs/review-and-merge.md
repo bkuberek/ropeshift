@@ -18,7 +18,7 @@ What happens once the review passes depends on the repository's merge authority:
 | `person_approves` | Approve its merge in Needs you, which accepts it | The reviewed commit, once you approve |
 | `review_approves` | Nothing, unless the merge cannot land | The reviewed commit, once the review passes |
 
-Ropeshift merges only the commit the review judged, in one step of its own, never through an agent. `review_approves` lets a passing review merge with no person in between, so keep a first project at `person_merges` or `person_approves` until you have seen how often you agree with the review. [Connect a GitHub repository](github.md#5-choose-the-merge-authority) gives what each level does through pull requests.
+Ropeshift merges only the commit the review judged, in one step of its own, never through an agent. `review_approves` lets a passing review merge with no person in between, so keep a first project at `person_merges` or `person_approves` until you have seen how often you agree with the review. [Connect a GitHub repository](github.md#merging-through-pull-requests) gives what each level does through pull requests.
 
 ## In the web UI
 
@@ -119,4 +119,4 @@ git branch -d lane/serve-berths
 
 ## Next
 
-[Connect a GitHub repository](github.md) reviews work through pull requests, and [Learn ropeshift](../README.md#learn-ropeshift) lists the guides.
+[Connect a GitHub repository](github.md) reviews a repository's changes through pull requests on GitHub.
