@@ -356,6 +356,8 @@ func assistantUpload(tx ports.WriteTx, worker, id string, e ledger.UploadEvent) 
 	switch e.Type {
 	case ledger.UploadMessage:
 		return true, messageUpload(tx, worker, id, e)
+	case ledger.UploadGenerationDigest:
+		return true, assistantDigest(tx, worker, id, record, e)
 	case ledger.UploadLaneStatus:
 		var status ledger.LaneStatus
 		if err := json.Unmarshal(e.Payload, &status); err != nil {

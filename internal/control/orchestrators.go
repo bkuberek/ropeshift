@@ -184,6 +184,9 @@ func orchestratorUpload(tx ports.SharedTx, worker, id string, e ledger.UploadEve
 	if !row.Belongs(e.Lane) {
 		return fmt.Errorf("%w: %s is not this worker's orchestrator", workorders.ErrInvalid, e.Lane)
 	}
+	if e.Type == ledger.UploadGenerationDigest {
+		return orchestratorDigest(tx, worker, id, row, e)
+	}
 	report := ledger.OrchestratorReport{Lane: e.Lane, Generation: e.Generation, Kind: e.Type, At: tx.Now()}
 	switch e.Type {
 	case ledger.UploadLaneStatus:
