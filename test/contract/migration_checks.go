@@ -120,7 +120,7 @@ var migrationChecks = []struct {
 	name string
 	run  func(r migrationRun)
 }{
-	{"a ledger from before the identity marker marks each repository it holds as legacy, and a repository made after is not", func(r migrationRun) {
+	{"a ledger from before the identity marker marks each repository it holds as legacy, a repository this build writes is not, and one an older build writes without the column is", func(r migrationRun) {
 		if r.set.name != "ledger" {
 			return
 		}
@@ -130,8 +130,11 @@ var migrationChecks = []struct {
 		table := r.set.qualify(r.db, "repositories")
 		r.exec("INSERT INTO " + table + " (workspace_id, id) VALUES ('w', 'old')")
 		r.migrate(r.db.Dialect)
-		r.exec("INSERT INTO " + table + " (workspace_id, id) VALUES ('w', 'new')")
-		for id, want := range map[string]int64{"old": 1, "new": 0} {
+		// This build names the column and writes false. A build from before the column does not name it, as after
+		// a downgrade, and its record is legacy, which keeps the match by another root that it relies on.
+		r.exec("INSERT INTO " + table + " (workspace_id, id, identity_legacy) VALUES ('w', 'new', 0)")
+		r.exec("INSERT INTO " + table + " (workspace_id, id) VALUES ('w', 'older-build')")
+		for id, want := range map[string]int64{"old": 1, "new": 0, "older-build": 1} {
 			var got int64
 			if err := r.db.DB.QueryRowContext(r.t.Context(), "SELECT identity_legacy FROM "+table+" WHERE id = '"+id+"'").Scan(&got); err != nil {
 				r.t.Fatal(err)
