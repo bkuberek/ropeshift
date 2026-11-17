@@ -30,7 +30,7 @@ var VerdictAcceptanceChecks = []Check{
 	{"VA9", "a member who decides while a review is open cancels it", checkMemberDecisionCancelsTheReview},
 	{"VA10", "the tick sends passed work back when a forge check fails after the review", checkTickReworksAfterTheReview},
 	{"VA11", "a review that fails or is canceled leaves the work to its evidence", checkReviewWithoutVerdictsLeavesTheEvidence},
-	{"VA12", "a review is not a completed work order in the measures", checkReviewIsNotCompletedWork},
+	{"VA12", "a review is not a completed work order in the measures, and counts as a review done in the cost per outcome", checkReviewIsNotCompletedWork},
 }
 
 func say(criterion string, kind workorders.VerdictKind) workorders.CriterionVerdict {
@@ -742,6 +742,13 @@ func checkReviewIsNotCompletedWork(r *Rig) error {
 	}
 	if report.Completed != 1 {
 		return Violatedf("the measures count %d completed work orders, and one change and its review ended", report.Completed)
+	}
+	// Cost per outcome divides each kind's cost by that kind's work that reached done, so the review's own row
+	// counts the review, and the change's row the change.
+	for kind, want := range map[workorders.Kind]int64{workorders.KindChange: 1, workorders.KindReview: 1} {
+		if got := report.CostPerOutcome[string(kind)].Done; got != want {
+			return Violatedf("the cost per outcome of %s counts %d done, and %d ended done", kind, got, want)
+		}
 	}
 	return nil
 }

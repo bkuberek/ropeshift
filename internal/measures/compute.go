@@ -82,6 +82,9 @@ type History struct {
 	Decisions     []DecisionFacts
 	Parks         []Park
 	Lanes         []LaneCost
+	// Reviews are the work orders that judge other work. A review is no completed work order, no flow time, and
+	// no work in progress, and the reviews that reached done are what the cost per outcome of reviews divides by.
+	Reviews []WorkOrderFacts
 	// Attachments counts lanes attached to a question another asked, by when: each is a question
 	// the ladder's second rung kept from being asked again.
 	Attachments []int64
@@ -213,6 +216,11 @@ func Compute(h History, w Window) Report {
 		intakeToDone = append(intakeToDone, order.DoneAt-order.CreatedAt)
 		if order.ReadyAt != 0 {
 			readyToDone = append(readyToDone, order.DoneAt-order.ReadyAt)
+		}
+	}
+	for _, review := range h.Reviews {
+		if w.holds(review.DoneAt) {
+			done[review.Kind]++
 		}
 	}
 	r.InterruptionsPerCompleted = ratio(r.Interruptions, r.Completed)

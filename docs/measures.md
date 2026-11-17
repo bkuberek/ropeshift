@@ -22,7 +22,7 @@ A window runs back from now, `7d` by default. Work in progress is a count of now
 | Measure | How the ledger gives it |
 |---------|-------------------------|
 | Interruptions | One delivered batch of questions, however many it holds; one approval a person decided, at the web UI, the command line, or a pane; and one forced action: a member resetting a lane's breaker, resetting or replacing a stuck orchestrator, ending a lapsed holder's ownership, taking work out of `blocked`, resuming a lane only a person can resume, or saying what became of an effect a crash left unknown. An approval an orchestrator decided under delegation reached no person and does not count |
-| Completed work orders | Work orders that reached `done` |
+| Completed work orders | Work orders that reached `done`. A review judges other work, so it is no completed work order, no flow time, and no work in progress |
 | Interruptions per completed work order | Interruptions over completed work orders |
 | Overturn rate | Decisions and assumptions an orchestrator or a lane recorded, and assumptions anyone recorded, that were later overturned, over all of them |
 | Rework | Rework work orders created, over completed work orders |
@@ -32,7 +32,7 @@ A window runs back from now, `7d` by default. Work in progress is a count of now
 | Park time | From a lane beginning to park to its wake firing, by what fired it, at the median and the 95th percentile |
 | Flow time | From the first time a work order was `ready`, and from its creation, to `done`, at the median and the 95th percentile |
 | Work in progress | Work orders in `claimed`, `running`, or `parked` |
-| Cost per outcome | What lanes' agents reported, over work orders of that kind that reached `done`. A lane's cost is the difference between the session's running totals, summed over its generations, because a total accumulates across resumes. A turn a kill stopped reports nothing, so a total is a lower bound, and a surface says so when some lane reported a turn with no cost or lost its holder before it reported |
+| Cost per outcome | What lanes' agents reported, over work orders of that kind that reached `done`: a review lane's cost is over the reviews that reached `done`. A lane's cost is the difference between the session's running totals, summed over its generations, because a total accumulates across resumes. A turn a kill stopped reports nothing, so a total is a lower bound, and a surface says so when some lane reported a turn with no cost or lost its holder before it reported |
 
 ## Review agreement
 

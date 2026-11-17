@@ -72,9 +72,9 @@ type historian struct {
 	recorded  map[string]int64
 	citations map[string][]string
 	parking   map[string]int64
-	// reviews are the work orders that judge other work. A review is a lane's cost and no outcome of its own, so
-	// it is no completed work order and no flow time.
-	reviews   map[string]bool
+	// reviews are the work orders that judge other work, by where the history holds each. A review is no completed
+	// work order and no flow time, and the reviews that reached done are its kind's outcomes in the cost per outcome.
+	reviews   map[string]int
 	approvals map[string]authority.ApprovalState
 	// orchestrators are the last projection each orchestrator's events held.
 	orchestrators map[string]ledger.Orchestrator
@@ -89,7 +89,7 @@ func HistoryIn(tx ports.ReadTx) (measures.History, error) {
 	h := &historian{
 		tx: tx, orders: map[string]int{}, questions: map[string]int{}, asked: map[string]questions.Question{},
 		decisions: map[string]int{}, recorded: map[string]int64{}, citations: map[string][]string{}, parking: map[string]int64{},
-		reviews: map[string]bool{}, approvals: map[string]authority.ApprovalState{}, orchestrators: map[string]ledger.Orchestrator{},
+		reviews: map[string]int{}, approvals: map[string]authority.ApprovalState{}, orchestrators: map[string]ledger.Orchestrator{},
 	}
 	for _, e := range events {
 		h.read(e)
@@ -195,26 +195,29 @@ func (h *historian) workOrder(e ledger.Event, member bool) {
 		if json.Unmarshal(e.Data, &created) != nil {
 			return
 		}
+		facts := measures.WorkOrderFacts{
+			ID: id, Kind: string(created.Kind), State: string(created.State), CreatedAt: e.RecordedAt, ReworkOf: created.ReworkOf,
+		}
 		if created.Kind == workorders.KindReview {
-			h.reviews[id] = true
+			h.reviews[id] = len(h.history.Reviews)
+			h.history.Reviews = append(h.history.Reviews, facts)
 			return
 		}
 		h.orders[id] = len(h.history.WorkOrders)
-		h.history.WorkOrders = append(h.history.WorkOrders, measures.WorkOrderFacts{
-			ID: id, Kind: string(created.Kind), State: string(created.State), CreatedAt: e.RecordedAt, ReworkOf: created.ReworkOf,
-		})
+		h.history.WorkOrders = append(h.history.WorkOrders, facts)
 		return
 	}
 	var change workorders.Change
 	if json.Unmarshal(e.Data, &change) != nil {
 		return
 	}
-	if h.reviews[id] {
-		// What a review's lane spent counts, by the kind that ran it, and so does a person taking it out of a
-		// stop. Nothing else of a review does.
+	if at, review := h.reviews[id]; review {
+		// What a review's lane spent counts, by the kind that ran it, and so does its reaching done, and a person
+		// taking it out of a stop. Nothing else of a review does.
 		if member && slices.Contains(forcedTriggers, change.Trigger) {
 			h.interrupted(e, measures.InterruptionForced, e.ID)
 		}
+		moved(&h.history.Reviews[at], change.Trigger, e.RecordedAt)
 		switch change.Trigger {
 		case workorders.TriggerLaneCompleted, workorders.TriggerLaneBlocked, workorders.TriggerLaneFailed, workorders.TriggerLaneFailedRetry, workorders.TriggerAttemptsExhausted:
 			h.laneResult(string(workorders.KindReview), e.RecordedAt, change.Payload)
@@ -235,16 +238,8 @@ func (h *historian) workOrder(e ledger.Event, member bool) {
 	if member && slices.Contains(forcedTriggers, change.Trigger) {
 		h.interrupted(e, measures.InterruptionForced, e.ID)
 	}
-	edge, ok := workorders.Taken(workorders.State(order.State), change.Trigger)
-	if !ok {
+	if !moved(order, change.Trigger, e.RecordedAt) {
 		return
-	}
-	order.State = string(edge.To)
-	switch {
-	case edge.To == workorders.Ready && order.ReadyAt == 0:
-		order.ReadyAt = e.RecordedAt
-	case edge.To == workorders.Done:
-		order.DoneAt = e.RecordedAt
 	}
 	switch change.Trigger {
 	case workorders.TriggerWakeFired:
@@ -258,6 +253,24 @@ func (h *historian) workOrder(e ledger.Event, member bool) {
 		// A holder whose ownership a person ended never reports what its lane spent.
 		h.history.Lanes = append(h.history.Lanes, measures.LaneCost{WorkOrderKind: order.Kind, EndedAt: e.RecordedAt, LowerBound: true})
 	}
+}
+
+// moved takes the edge a recorded trigger took from the state a work order's facts hold, and keeps when it first
+// reached `ready` and when it reached `done`. It says whether the trigger moved the work order: one the machine
+// never takes from that state moves nothing.
+func moved(order *measures.WorkOrderFacts, trigger workorders.Trigger, at int64) bool {
+	edge, ok := workorders.Taken(workorders.State(order.State), trigger)
+	if !ok {
+		return false
+	}
+	order.State = string(edge.To)
+	switch {
+	case edge.To == workorders.Ready && order.ReadyAt == 0:
+		order.ReadyAt = at
+	case edge.To == workorders.Done:
+		order.DoneAt = at
+	}
+	return true
 }
 
 // WakeTrigger names what fired a wake by the kind of its cause, such as `answer` or `tick`, and never
