@@ -65,9 +65,13 @@ func (r *laneRun) mayRestart(ctx context.Context) bool {
 
 // supervised runs generations until one gives the lane an outcome. It reports false when
 // the worker is going away, because a lane in `backoff` or `tripped` is not over, and the
-// next worker goes on from what the journal holds.
+// next worker goes on from what the journal holds. Neither is a lane whose session the worker
+// departed from on its way out.
 func (r *laneRun) supervised(ctx context.Context, report workorders.Report) (workorders.Report, bool) {
 	for {
+		if r.departed.Load() {
+			return report, false
+		}
 		if r.parks(ctx) {
 			r.commitParked(ctx)
 			return report, false
