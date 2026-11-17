@@ -13,11 +13,16 @@ var remoteSchemes = []string{"https", "ssh", "git", "file"}
 // scp-like [user@]host:path. The characters are a short allowlist, because the remote is written into a
 // TOML string in the manifest and, unquoted, into a Makefile variable that the setup recipe expands into a
 // shell word: nothing outside the list can end the string or the line, start a comment, a substitution, or a
-// second command. A host that starts with a dash is refused so no remote reads as an option of git or ssh.
+// second command. A host that starts with a dash is refused so no remote reads as an option of git or ssh, and a
+// remote that holds `::` is refused because git reads `transport::address` as a remote helper, such as `ext::`,
+// which runs a command.
 func checkRemote(remote string) error {
 	if i := strings.IndexFunc(remote, func(r rune) bool { return !remoteRune(r) }); i >= 0 {
 		bad := []rune(remote[i:])[0]
 		return fmt.Errorf("a remote holds only letters, digits, and - . _ ~ / : @ %% +, and %q has %q", remote, bad)
+	}
+	if strings.Contains(remote, "::") {
+		return fmt.Errorf("a remote names no remote helper, which git reads from transport::address, and %q names one", remote)
 	}
 	if scheme, rest, found := strings.Cut(remote, "://"); found {
 		if !slices.Contains(remoteSchemes, scheme) {
