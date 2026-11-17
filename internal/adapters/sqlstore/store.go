@@ -357,9 +357,8 @@ func (s *Store) Write(ctx context.Context, scope ledger.WorkspaceID, op string, 
 	}
 	defer func() { _ = tx.Rollback() }()
 	crashpoint.Hit(op, "begun")
-	t := &writeTx{session: s.session(ctx, tx, ModeWrite, op), scope: scope, side: s.shared(), index: s.indexSide()}
+	t := &writeTx{session: s.session(ctx, tx, ModeWrite, op), scope: scope, side: s.shared()}
 	defer t.side.rollback()
-	defer t.index.rollback()
 	if err := t.open(); err != nil {
 		return err
 	}
@@ -374,10 +373,11 @@ func (s *Store) Write(ctx context.Context, scope ledger.WorkspaceID, op string, 
 		return nil
 	}
 	crashpoint.Hit(op, "before-commit")
-	if err := t.index.commit(); err != nil {
+	wrote, err := t.side.commit()
+	if err != nil {
 		return fmt.Errorf("%s: commit the repository index: %w", op, err)
 	}
-	if t.index != nil && t.index.tx != nil {
+	if wrote {
 		crashpoint.Hit("repository_index", "committed")
 	}
 	if err := tx.Commit(); err != nil {
@@ -469,10 +469,9 @@ type writeTx struct {
 	rev     int64
 	revHeld bool
 	events  int
-	// side reads the records every project shares, on a store that has an installation, and index keeps
-	// the installation's repository index.
-	side  *shared
-	index *shared
+	// side reads the records every project shares, on a store that has an installation, and keeps the
+	// installation's repository index.
+	side *shared
 }
 
 // openRevisionFirst takes the revision and then reads the clock. On Postgres at

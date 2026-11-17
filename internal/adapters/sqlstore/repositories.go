@@ -240,9 +240,5 @@ func (t *readTx) Repositories() ports.RepositoryReader {
 }
 
 func (t *writeTx) Repositories() ports.RepositoryWriter {
-	tx := repositoryTx{session: t.session, scope: t.scope}
-	if t.index != nil {
-		tx.index, _ = t.index.session(t.session, t.scope)
-	}
-	return tx
+	return repositoryTx{session: t.session, scope: t.scope, index: t.side.index(t.session)}
 }

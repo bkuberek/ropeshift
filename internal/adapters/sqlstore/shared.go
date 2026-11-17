@@ -8,35 +8,38 @@ import (
 )
 
 // shared is the installation's side of one project transaction (ADR-0021). A project's ledger holds
-// none of the records every project shares, so a transaction that reads one runs a read transaction on
-// the installation database beside its own. It only reads: a change to a shared record commits through
-// the Installation, in a transaction of its own. The read begins at its first statement and takes no
-// writer lock, so a project transaction never waits on the installation's writer, nor holds it.
+// none of the records every project shares, so a transaction that reads one runs a transaction on the
+// installation database beside its own. The side is one transaction on one connection of the
+// installation's pool, whatever the write does with it, so writes that each hold a connection never wait
+// for a second one.
+//
+// The side reads. It begins at its first statement, read-only, and takes no writer lock, so a project
+// transaction never waits on the installation's writer, nor holds it. A change to a shared record commits
+// through the Installation, in a transaction of its own.
 //
 // The one exception is the repository index, which a project's write keeps current as it registers a
-// repository, so the refusal of a repository another project holds is decided under the index's lock.
-// That side is a write transaction of its own, which begins only when a write touches the index, and
-// commits just before the project's: a crash between the two leaves an entry whose record is missing,
-// which a retry in the same project completes and the daemon's next start drops when it rebuilds the
-// index from the records. A crash never leaves a record that holds no entry.
+// repository, so the refusal of a repository another project holds is decided under the index's lock. The
+// first statement that writes the index ends a read-only side, which has changed nothing, and begins a
+// writing one in its place, and every read after it runs there. The side commits just before the
+// project's: a crash between the two leaves an entry whose record is missing, which a retry in the same
+// project completes and the daemon's next start drops when it rebuilds the index from the records. A crash
+// never leaves a record that holds no entry.
+//
+// The project's transaction and the side are idle in turn: each waits while the other runs a statement. A
+// server that ends a session left idle inside a transaction (idle_in_transaction_session_timeout) ends the
+// side when a project statement runs longer than that timeout between two uses of the side, and the write
+// fails. The side begins at its first use and ends when the write's function returns, before the project's
+// commit, so a write keeps it only as long as the function needs it.
 type shared struct {
 	installation *Installation
-	readOnly     bool
 	tx           *sql.Tx
-	se           *session
+	writing      bool
+	reads        *session
+	writes       *session
 }
 
-// shared returns the installation's read side of a transaction, or nil for a store with no installation.
+// shared returns the installation's side of a transaction, or nil for a store with no installation.
 func (s *Store) shared() *shared {
-	if s.installation == nil {
-		return nil
-	}
-	return &shared{installation: s.installation, readOnly: true}
-}
-
-// indexSide returns the installation's write side of a transaction, for the repository index alone, or
-// nil for a store with no installation.
-func (s *Store) indexSide() *shared {
 	if s.installation == nil {
 		return nil
 	}
@@ -50,36 +53,72 @@ func (sh *shared) session(own *session, scope ledger.WorkspaceID) (*session, led
 	if sh == nil {
 		return own, scope
 	}
-	if sh.se == nil {
-		sh.se = &session{store: own.store, ctx: own.ctx, id: own.id, mode: own.mode, op: own.op, begin: sh.begin}
+	if sh.reads == nil {
+		sh.reads = sh.derive(own, false)
 	}
-	return sh.se, ledger.InstallationScope
+	return sh.reads, ledger.InstallationScope
 }
 
-// begin starts the side's transaction on the installation database, once.
-func (sh *shared) begin() error {
-	if sh.tx != nil {
+// index returns where a write keeps the installation's repository index, or nil for a store with no
+// installation.
+func (sh *shared) index(own *session) *session {
+	if sh == nil {
 		return nil
 	}
-	tx, err := sh.installation.core.begin(sh.se.ctx, &sql.TxOptions{ReadOnly: sh.readOnly})
+	if sh.writes == nil {
+		sh.writes = sh.derive(own, true)
+	}
+	return sh.writes
+}
+
+func (sh *shared) derive(own *session, write bool) *session {
+	se := &session{store: own.store, ctx: own.ctx, id: own.id, mode: own.mode, op: own.op}
+	se.begin = func() error { return sh.open(se, write) }
+	return se
+}
+
+// open puts a session of the side on the side's transaction, and begins it if the side has none or one that
+// cannot write for a session that does. It runs before each statement of the session, because the
+// transaction a session ran on may have given way to a writing one.
+func (sh *shared) open(se *session, write bool) error {
+	if sh.tx != nil && (sh.writing || !write) {
+		se.on = sh.tx
+		return nil
+	}
+	if sh.tx != nil {
+		// A read-only transaction cannot start to write. It has changed nothing, so it ends before the
+		// writing one begins, and the side never holds two connections.
+		_ = sh.tx.Rollback()
+		sh.tx = nil
+	}
+	tx, err := sh.installation.core.begin(se.ctx, &sql.TxOptions{ReadOnly: !write})
 	if err != nil {
 		return fmt.Errorf("the installation database: %w", err)
 	}
-	sh.tx, sh.se.on = tx, tx
+	sh.tx, sh.writing, se.on = tx, write, tx
 	return nil
 }
 
-// commit commits the side, if it began.
-func (sh *shared) commit() error {
+// commit ends the side before the project commits, which is the repository index's turn to hold its
+// entries ahead of the records. A side that only read ends with nothing to keep. It reports whether the
+// side had written, and a failure of that commit.
+func (sh *shared) commit() (wrote bool, err error) {
 	if sh == nil || sh.tx == nil {
-		return nil
+		return false, nil
 	}
-	return sh.tx.Commit()
+	tx := sh.tx
+	sh.tx = nil
+	if !sh.writing {
+		_ = tx.Rollback()
+		return false, nil
+	}
+	return true, tx.Commit()
 }
 
 // rollback ends the installation's side, if it began and did not commit.
 func (sh *shared) rollback() {
 	if sh != nil && sh.tx != nil {
 		_ = sh.tx.Rollback()
+		sh.tx = nil
 	}
 }
