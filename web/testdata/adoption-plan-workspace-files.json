@@ -1,0 +1,102 @@
+{
+  "layout": {
+    "root": "/work/design",
+    "folders": null,
+    "clones": [
+      {
+        "name": "design",
+        "path": "/work/design",
+        "identity": "design",
+        "where": "here",
+        "documents": 3
+      },
+      {
+        "name": "api",
+        "path": "/work/api",
+        "identity": "api",
+        "where": "path",
+        "documents": 0
+      },
+      {
+        "name": "web",
+        "path": "/work/web",
+        "identity": "web",
+        "where": "path",
+        "documents": 0
+      }
+    ]
+  },
+  "shape": "workspace_files",
+  "planning": {
+    "name": "design",
+    "path": "/work/design",
+    "why": "the clone adopt runs in"
+  },
+  "design": {
+    "name": "design",
+    "path": "/work/design",
+    "root": "design",
+    "why": "it holds the most Markdown documents (3)"
+  },
+  "repositories": [
+    {
+      "name": "api",
+      "path": "/work/api",
+      "id": "api",
+      "outcome": "registered"
+    },
+    {
+      "name": "design",
+      "path": "/work/design",
+      "id": "design",
+      "outcome": "registered"
+    },
+    {
+      "name": "web",
+      "path": "/work/web",
+      "id": "web",
+      "outcome": "registered"
+    }
+  ],
+  "files": [
+    {
+      "path": "plan/repositories.md",
+      "action": "add",
+      "detail": "the manifest of the project's repositories"
+    },
+    {
+      "path": ".gitignore",
+      "action": "append",
+      "detail": "repos/"
+    },
+    {
+      "path": "Makefile",
+      "action": "add",
+      "detail": "setup, fetch, and status over the manifest"
+    }
+  ],
+  "takes": null,
+  "collisions": null,
+  "code_trees": null,
+  "moves": [
+    {
+      "name": "api",
+      "from": "/work/api",
+      "to": "/work/design/repos/api",
+      "commands": [
+        "mv /work/api /work/design/repos/api",
+        "ropeshift repository add /work/design/repos/api"
+      ]
+    },
+    {
+      "name": "web",
+      "from": "/work/web",
+      "to": "/work/design/repos/web",
+      "commands": [
+        "mv /work/web /work/design/repos/web",
+        "ropeshift repository add /work/design/repos/web"
+      ]
+    }
+  ],
+  "digest": "sha256:5f80e0eb492ad5c6b8eb0eaf751631ee1c0c98f2062eae9914c57cdd66c60120"
+}

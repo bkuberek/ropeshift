@@ -1,0 +1,35 @@
+{
+  "layout": {
+    "root": "/work/solo",
+    "folders": null,
+    "clones": [
+      {
+        "name": "solo",
+        "path": "/work/solo",
+        "identity": "solo",
+        "where": "here",
+        "documents": 2
+      }
+    ]
+  },
+  "shape": "single",
+  "planning": {
+    "name": "solo",
+    "path": "/work/solo",
+    "why": "the clone adopt runs in"
+  },
+  "repositories": [
+    {
+      "name": "solo",
+      "path": "/work/solo",
+      "id": "solo",
+      "outcome": "registered"
+    }
+  ],
+  "files": null,
+  "takes": null,
+  "collisions": null,
+  "code_trees": null,
+  "moves": null,
+  "digest": "sha256:abbe362ca284e37017175d5e1d6813f5b11ea899f53917935b31e165f57d569f"
+}

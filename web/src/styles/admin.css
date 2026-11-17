@@ -248,6 +248,22 @@
   white-space: nowrap;
 }
 
+/* The plan of an adoption lists every path a consolidation takes, which a design repository makes as long as it
+   likes, so that list scrolls inside its own region. */
+.plan-scroll {
+  max-height: 16rem;
+  overflow-y: auto;
+}
+
+.plan-notes {
+  margin: 0;
+  padding-left: var(--s-16);
+}
+
+.plan-choice {
+  gap: var(--s-8);
+}
+
 /* The Templates view: a row names a template in mono, with the shapes that write it and the path it is written to,
    and the selected template's text sits in a block that scrolls on its own. */
 .template-item {

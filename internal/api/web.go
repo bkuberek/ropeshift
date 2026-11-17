@@ -73,6 +73,8 @@ func WebRoutes() []WebRoute {
 		{http.MethodPost, DelegatesPath + "/{id}/remove", "delegate remove"},
 		{http.MethodGet, OperationsPath, "operation list"},
 		{http.MethodGet, TelemetryLanesPath, "telemetry lanes"},
+		// The plan of an adoption into a project that does not exist yet reads no record of any project.
+		{http.MethodPost, AdoptionPlanPath, "adopt"},
 	}
 	// The roster's routes read and change the installation's layer at the top, and a project's under it.
 	roster := []WebRoute{
@@ -119,6 +121,7 @@ func WebRoutes() []WebRoute {
 		{http.MethodPatch, "/v1/repositories/{id}", "repository set"},
 		{http.MethodPost, "/v1/repositories", "repository add"},
 		{http.MethodPost, "/v1/repositories/{id}/remove", "repository remove"},
+		{http.MethodPost, AdoptionPlanPath, "adopt"},
 		{http.MethodGet, "/v1/fleet", "fleet show"},
 		{http.MethodPut, "/v1/fleet/mode", "fleet pause"},
 		{http.MethodPut, "/v1/fleet/caps", "fleet caps"},

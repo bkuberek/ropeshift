@@ -73,6 +73,8 @@ export const paletteActions: Record<string, PaletteAction> = {
   "POST /v1/projects/{project}/work-orders": { title: "New work order", at: home },
   "POST /v1/projects/{project}/panes/{id}/input": { title: "Send keys to the pane of lane ", at: `${project}/lane?id=lane-wo-running`, elsewhere: "lanes/LanePane.test.tsx" },
   "PATCH /v1/projects/{project}/repositories/{id}": { title: "Change repository: ", at: `${project}/repositories` },
+  "POST /v1/adoption/plan": { title: "Adopt a project", at: home },
+  "POST /v1/projects/{project}/adoption/plan": { title: "Adopt a project", at: home },
   "POST /v1/projects/{project}/repositories": { title: "Register repositories", at: home },
   "POST /v1/projects/{project}/repositories/{id}/remove": { title: "Remove repository: ", at: `${project}/repositories` },
   "PUT /v1/projects/{project}/fleet/mode": { title: "Pause or drain the fleet", at: home },

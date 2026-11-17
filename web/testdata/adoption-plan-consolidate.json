@@ -1,0 +1,96 @@
+{
+  "layout": {
+    "root": "/work/ws",
+    "folders": [
+      "/work/ws/repos"
+    ],
+    "clones": [
+      {
+        "name": "ws",
+        "path": "/work/ws",
+        "identity": "ws",
+        "where": "here",
+        "documents": 1
+      },
+      {
+        "name": "api",
+        "path": "/work/ws/repos/api",
+        "identity": "api",
+        "where": "ignored",
+        "documents": 0
+      },
+      {
+        "name": "design",
+        "path": "/work/ws/repos/design",
+        "identity": "design",
+        "where": "ignored",
+        "plan": true,
+        "documents": 2
+      }
+    ]
+  },
+  "shape": "consolidate",
+  "planning": {
+    "name": "ws",
+    "path": "/work/ws",
+    "why": "the clone adopt runs in"
+  },
+  "design": {
+    "name": "design",
+    "path": "/work/ws/repos/design",
+    "root": "design",
+    "why": "it holds plan content (2)"
+  },
+  "repositories": [
+    {
+      "name": "ws",
+      "path": "/work/ws",
+      "id": "ws",
+      "outcome": "registered"
+    },
+    {
+      "name": "api",
+      "path": "/work/ws/repos/api",
+      "id": "api",
+      "outcome": "registered"
+    },
+    {
+      "name": "design",
+      "path": "/work/ws/repos/design",
+      "id": "design",
+      "outcome": "not_registered",
+      "reason": "its history is imported into ws by --restructure, so it is not registered"
+    }
+  ],
+  "files": [
+    {
+      "path": "plan/repositories.md",
+      "action": "add",
+      "detail": "the manifest of the project's repositories"
+    },
+    {
+      "path": "Makefile",
+      "action": "add",
+      "detail": "setup, fetch, and status over the manifest"
+    }
+  ],
+  "takes": [
+    "docs/a.md",
+    "plan/goal.md",
+    "tools/go.mod"
+  ],
+  "collisions": [
+    {
+      "path": ".gitignore",
+      "kept": "union"
+    }
+  ],
+  "code_trees": [
+    {
+      "path": "tools",
+      "build_file": "tools/go.mod"
+    }
+  ],
+  "moves": null,
+  "digest": "sha256:f2590478875d7eec5734633a705a73e71b64aa5781902380bc108d11413377b1"
+}

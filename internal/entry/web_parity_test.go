@@ -72,7 +72,6 @@ var cliOnly = map[string]string{
 // of P4 that adds it. A command whose row is added leaves this list, and the test fails until it does. The
 // first run of this test wrote it, and a command the audit did not name went by its area.
 var webGaps = map[string]string{
-	"adopt": "P3e", // adopt.go reads the layout and prints the plan from POST /v1/adoption/plan, and starts the session with work create; P3e's Import reads the plan from the same route (FR-ADOPT-12)
 	// new.go writes a shape's starting files on this machine; P4i's dialog asks a worker the member picks to
 	// write them, through one route that takes the shape from its body (FR-TPL-5).
 	"new workspace":  "P4i",

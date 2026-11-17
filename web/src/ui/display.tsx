@@ -246,9 +246,9 @@ export function SkeletonRows({ rows = 4, label = "Reading…" }: { rows?: number
 }
 
 // TableRegion holds a table that may scroll sideways. It is named and focusable, so a keyboard can scroll it.
-export function TableRegion({ label, children }: { label: string; children: ReactNode }) {
+export function TableRegion({ label, children, className = "" }: { label: string; children: ReactNode; className?: string }) {
   return (
-    <div className="table-wrap" role="region" aria-label={label} tabIndex={0}>
+    <div className={`table-wrap${className ? ` ${className}` : ""}`} role="region" aria-label={label} tabIndex={0}>
       {children}
     </div>
   );

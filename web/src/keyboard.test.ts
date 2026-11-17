@@ -253,6 +253,30 @@ const paths: Record<string, KeyPath> = {
       await k.activate(inDialog(page).getByRole("button", { name: /^Remove/ }).last());
     },
   },
+  "POST /v1/adoption/plan": {
+    sent: post(/^\/v1\/adoption\/plan$/, expect.objectContaining({ root: "/work/api", new_project: true })),
+    answers: reply([/\/v1\/adoption\/plan$/, JSON.parse(goldens["adoption-plan-single"] ?? "{}"), "POST"]),
+    run: async (k, page) => {
+      await k.palette("Adopt a project");
+      await k.typeInto(page.getByLabel("Folders", { exact: true }), "/work/api");
+      await k.activate(page.getByRole("button", { name: "Run dry run" }));
+    },
+  },
+  "POST /v1/projects/{project}/adoption/plan": {
+    sent: post(/^\/v1\/projects\/default\/adoption\/plan$/, expect.objectContaining({ root: "/work/api" })),
+    answers: reply(
+      [/\/v1\/projects\/default\/adoption\/plan$/, JSON.parse(goldens["adoption-plan-single"] ?? "{}"), "POST"],
+      [/\/v1\/projects\/default\/approvals\?state=approved$/, { approvals: [] }],
+    ),
+    run: async (k, page) => {
+      await k.palette("Adopt a project");
+      await k.typeInto(page.getByLabel("Folders", { exact: true }), "/work/api");
+      // The project is the second option of its list: the first is a new project.
+      await k.tabTo(page.getByLabel("Project", { exact: true }));
+      await k.press("ArrowDown");
+      await k.activate(page.getByRole("button", { name: "Run dry run" }));
+    },
+  },
   "POST /v1/projects/{project}/questions/{id}/answer": {
     sent: post(/^\/v1\/projects\/default\/questions\/question-1\/answer$/, expect.objectContaining({ answer: "Keep the budget" })),
     run: async (k, page) => {

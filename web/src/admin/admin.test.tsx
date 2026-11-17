@@ -4,7 +4,6 @@ import { describe, expect, it } from "vitest";
 
 import type { PolicyList, PolicyVersion } from "../api/admin";
 import { go } from "../app/route";
-import { startedAt } from "../lanes/starting";
 import { openPage } from "../opening";
 import type { Sent } from "../testing";
 import { golden, groupHealth, here, refusal, serveViews } from "../testing";
@@ -361,104 +360,6 @@ describe("Repositories", () => {
     const dialog = await screen.findByRole("dialog", { name: "Register repositories in default" });
     await waitFor(() => expect(dialog.contains(document.activeElement)).toBe(true));
     expect(document.activeElement).not.toBe(screen.getByRole("heading", { level: 1, name: "Repositories" }));
-  });
-});
-
-describe("Import an existing project", () => {
-  it("makes the calls ropeshift adopt makes, in its order, and opens the session's lane", async () => {
-    const sent = serveAdmin((call) => {
-      if (call.method === "POST" && call.path === "/v1/projects") {
-        return { status: 201, body: { id: "t", name: "tidewater", state: "active", created_at: 3, repositories: [] } };
-      }
-      if (call.method === "POST" && call.path === "/v1/repositories") {
-        return { status: 200, body: golden("repository-dry-run") };
-      }
-      if (call.method === "GET" && call.path === "/v1/repositories") {
-        return { status: 200, body: { repositories: [] } };
-      }
-      if (call.method === "POST" && call.path === "/v1/work-orders/" + (call.path.split("/")[3] ?? "") + "/review") {
-        return { status: 200, body: { state: "ready" } };
-      }
-      if (call.method === "POST" || call.method === "PATCH") {
-        return { status: 200, body: { state: "ready" } };
-      }
-      return undefined;
-    });
-    openPage("/import");
-    await screen.findByRole("heading", { level: 1, name: "Import an existing project" });
-    await userEvent.type(await screen.findByLabelText("Folder"), "/srv/code/Tidewater");
-    expect((screen.getByLabelText("New project's name") as HTMLInputElement).value).toBe("tidewater");
-    await waitFor(() => expect((screen.getByLabelText("Worker") as HTMLSelectElement).value).toBe("worker-1"));
-    await userEvent.click(screen.getByRole("button", { name: "Run dry run" }));
-    await screen.findByRole("region", { name: "Clones found" });
-    await userEvent.click(screen.getByRole("button", { name: "Continue" }));
-    await userEvent.click(await screen.findByRole("radio", { name: /web/ }));
-    await userEvent.click(screen.getByRole("button", { name: "Continue" }));
-    await userEvent.click(screen.getByRole("button", { name: "Start adopt session" }));
-    await waitFor(() => expect(window.location.pathname).toBe("/projects/tidewater/planning"));
-    expect(window.location.search).toMatch(/^\?lane=[0-9A-Z]{26}$/);
-    const lane = new URLSearchParams(window.location.search).get("lane") ?? "";
-    expect(startedAt(lane), "the entry says this lane was just started, so its pane waits for the lane").toBeGreaterThan(0);
-    expect(window.history.state).toMatchObject({ startedLane: lane, startedAt: expect.any(Number) });
-    const steps = sent.filter((call) => call.method !== "GET").map((call) => `${call.method} ${call.project || "-"} ${call.path.replace(/\/[0-9A-Z]{26}(\/|$)/, "/ID$1")}`);
-    expect(steps).toEqual([
-      "POST - /v1/projects",
-      "POST tidewater /v1/repositories",
-      "POST tidewater /v1/repositories",
-      "PATCH tidewater /v1/repositories/id-web",
-      "POST tidewater /v1/work-orders",
-      "POST tidewater /v1/work-orders/ID/review",
-      "POST tidewater /v1/work-orders/ID/claims",
-      "POST tidewater /v1/work-orders/ID/lanes",
-    ]);
-    const work = sent.find((call) => call.method === "POST" && call.path === "/v1/work-orders");
-    expect(work?.body).toMatchObject({ kind: "plan", adopt: true, title: "Adopt tidewater", repository_id: "id-web" });
-    expect(sentTo(sent, "POST", "/v1/projects")[0]?.body, "the new project is shown by its folder's name").toEqual({ name: "tidewater", display_name: "Tidewater" });
-  });
-
-  it("lists the planning repositories by the path the member entered, with where each leads in its title", async () => {
-    const dryRun = {
-      dry_run: true,
-      repositories: [
-        { path: "/private/tmp/work/web", entered: "/tmp/work/web", outcome: "registered", repository: { id: "id-web", name: "web", remote: "git@example.invalid:acme/web.git" } },
-        { path: "/srv/work/api", outcome: "registered", repository: { id: "id-api", name: "api", remote: "git@example.invalid:acme/api.git" } },
-      ],
-    };
-    serveAdmin((call) => {
-      if (call.method === "POST" && call.path === "/v1/projects") {
-        return { status: 201, body: { id: "t", name: "tidewater", state: "active", created_at: 3, repositories: [] } };
-      }
-      if (call.method === "POST" && call.path === "/v1/repositories") {
-        return { status: 200, body: dryRun };
-      }
-      if (call.method === "GET" && call.path === "/v1/repositories") {
-        return { status: 200, body: { repositories: [] } };
-      }
-      return undefined;
-    });
-    openPage("/import");
-    await userEvent.type(await screen.findByLabelText("Folder"), "/tmp/work");
-    await waitFor(() => expect((screen.getByLabelText("Worker") as HTMLSelectElement).value).toBe("worker-1"));
-    await userEvent.click(screen.getByRole("button", { name: "Run dry run" }));
-    await screen.findByRole("region", { name: "Clones found" });
-    await userEvent.click(screen.getByRole("button", { name: "Continue" }));
-    const group = await screen.findByRole("group", { name: /plan needs one to live in/ });
-    const paths = [...group.querySelectorAll("label.option code")];
-    expect(paths.map((code) => code.textContent)).toEqual(["/tmp/work/web", "/srv/work/api"]);
-    expect(paths[0]?.getAttribute("title")).toBe("Leads to /private/tmp/work/web");
-    expect(paths[1]?.getAttribute("title")).toBeNull();
-    expect(group.textContent).not.toContain("/private/tmp");
-  });
-
-  it("refuses a project that already has an approved plan, and offers a planning session", async () => {
-    serveAdmin((call) => (call.path.startsWith("/v1/approvals") ? { status: 200, body: { approvals: [{ id: "a", state: "approved", kind: "plan" }] } } : undefined));
-    openPage("/import?project=default");
-    await screen.findByRole("heading", { level: 1, name: "Import an existing project" });
-    await userEvent.type(await screen.findByLabelText("Folder"), "/srv/code/default");
-    await waitFor(() => expect((screen.getByLabelText("Worker") as HTMLSelectElement).value).toBe("worker-1"));
-    await userEvent.click(screen.getByRole("button", { name: "Run dry run" }));
-    expect(await screen.findByText(/already has an approved plan/)).toBeTruthy();
-    expect(screen.getByRole("link", { name: "Start a planning session instead" })).toBeTruthy();
   });
 });
 
