@@ -192,6 +192,11 @@ type laneRun struct {
 	wake []ledger.WakeItem
 	// adopted says this run took over a session an earlier process left.
 	adopted atomic.Bool
+	// endTold says an earlier worker read the end of this generation's session, and told the telemetry of a turn
+	// it ended in then, so a run that reads that end again counts the turn in its meter alone. endKept says the
+	// journal's meter counts that turn too, so the run counts it nowhere.
+	endTold bool
+	endKept bool
 	// assisted is what an assistant's run holds beside the lane code's state, and the handle's lock guards
 	// its making.
 	assisted *assistantState
@@ -212,7 +217,7 @@ func newRun(w *Worker, lease ledger.DesiredLease) *laneRun {
 func (w *Worker) resumedRun(lease ledger.DesiredLease, record lanes.Record) *laneRun {
 	run := newRun(w, lease)
 	run.generation, run.resumeFrom, run.startedMode = record.Generation, record.ResumeSession, record.RunMode
-	run.cost, run.usage = record.Progress.Cost, record.Progress.Usage
+	run.cost, run.usage, run.endKept = record.Progress.Cost, record.Progress.Usage, record.Progress.EndCounted
 	run.priorUSD, run.priorUnknown = record.Progress.PriorUSD, record.Progress.PriorUnknown
 	if record.Actual != "" {
 		run.state = laneStateOf(record, w.clock.Now())
@@ -532,6 +537,8 @@ func (w *Worker) adoptedRun(ctx context.Context, record lanes.Record, located po
 	run.fenced.Store(w.leaseGone(ctx, record))
 	run.setHandle(located.Handle)
 	run.bound, run.cursor = record.SessionID != "", record.Progress.Cursor
+	// A session's token ends only when a worker reads its end, or with its generation or its lane.
+	run.endTold = record.TokenDigest == ""
 	run.state = laneStateOf(record, w.clock.Now())
 	run.noteProcess(located.Handle)
 	run.state.keepContext(record.Progress)
@@ -595,8 +602,10 @@ func (r *laneRun) adopt(ctx context.Context) error {
 }
 
 // unread settles a lane whose session cannot be read. Parking and a handoff still finish,
-// because those are the failures with somewhere to go.
+// because those are the failures with somewhere to go. The turn the session may have ended in counts first, so the
+// lane's end, its next generation, or its wake carries it.
 func (r *laneRun) unread(ctx context.Context) error {
+	r.unreadEnd(ctx)
 	if r.parkingOf().Open() {
 		return r.finishParking(ctx)
 	}
@@ -604,6 +613,20 @@ func (r *laneRun) unread(ctx context.Context) error {
 		return r.finishHandoff(ctx)
 	}
 	return r.finish(ctx, r.unattended(ctx))
+}
+
+// unreadEnd counts the turn a session this run cannot read may have ended in, as endUnattended does for a lane no run
+// holds: what the journal last recorded of the lane decides, and a read that fails counts. The telemetry hears of it
+// only while the lane's token stood at adoption, because a worker that read the session's end ended the token as it
+// counted the turn.
+func (r *laneRun) unreadEnd(ctx context.Context) {
+	record, err := r.w.journal.Lane(ctx, r.lease.Lane)
+	if err != nil {
+		r.w.config.Report(fmt.Errorf("lane %s: %w", r.lease.Lane, err))
+	} else if !r.w.endedInATurn(ctx, record) {
+		return
+	}
+	r.unreportedEnd(ctx)
 }
 
 // unattended is the outcome of a lane whose session cannot be read.
@@ -956,7 +979,7 @@ func (r *laneRun) watch(ctx context.Context, events <-chan ports.DriverEvent) wo
 			// A stream that closed before its session ended says nothing of how it ended, so the lane settles as
 			// crashed, and the turn it may have died in counts as unreported, as a crash's does.
 			if !open {
-				r.unreportedEnd()
+				r.unreportedEnd(ctx)
 				return failed(workorders.ReasonCrashed)
 			}
 			event = next
@@ -998,15 +1021,16 @@ func (r *laneRun) watch(ctx context.Context, events <-chan ports.DriverEvent) wo
 			r.saveProgress(ctx, event.Seq)
 		case ports.EventSessionEnded:
 			r.noteRefusedResume(ctx)
-			r.expireToken(ctx)
 			// A session that ended with an input unanswered never reported the cost of the turn it ended in, though
 			// a kill the worker asked for crashes nothing. Crashed counts too: a turn a message started through the
 			// session's socket is no input a driver counts, so a crash with every counted input answered may still
 			// have died in one. Known limitation: a crash at rest counts a turn too, since the stream shows no documented
-			// start for a turn a socket message begins.
+			// start for a turn a socket message begins. The turn counts before the token ends, so a token that ended
+			// says its telemetry has the turn.
 			if event.End != nil && (event.End.Crashed || event.End.InputUnanswered) {
-				r.unreportedEnd()
+				r.unreportedEnd(ctx)
 			}
+			r.expireToken(ctx)
 			if event.End != nil && (event.End.Crashed || r.orchestratorLost(ctx)) {
 				r.crashed, r.crashedAt = true, r.w.clock.Now()
 				r.signal(ctx, lanes.OnActivity, lanes.OnSessionGone)
@@ -1040,6 +1064,7 @@ func (r *laneRun) saveProgress(ctx context.Context, cursor int64) {
 	progress := lanes.Progress{
 		Cursor: cursor, Cost: r.cost, Usage: r.usage, PriorUSD: r.priorUSD, PriorUnknown: r.priorUnknown,
 		Instruction: r.instructionInProgress(), Carried: r.carriedIDs(), Pack: r.readPack(), OwesBrief: r.owesBrief.Load(),
+		EndCounted: r.endKept,
 	}
 	r.state.journalContext(&progress)
 	if _, err := r.w.journal.SaveProgress(ctx, r.lease.Lane, generation, progress); err != nil {

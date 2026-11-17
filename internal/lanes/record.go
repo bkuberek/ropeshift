@@ -107,6 +107,9 @@ type Progress struct {
 	CompactSeen    bool  `json:"compact_seen,omitempty"`
 	// OwesBrief says a clear left this generation with a session that does not know its work.
 	OwesBrief bool `json:"owes_brief,omitempty"`
+	// EndCounted says a worker counted the turn this generation's session ended in, or may have, as one whose cost
+	// went unreported: Cost holds it, and the telemetry has it.
+	EndCounted bool `json:"end_counted,omitempty"`
 }
 
 // TokenDigest is how a worker stores and compares a lane token.
