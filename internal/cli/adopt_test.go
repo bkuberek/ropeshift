@@ -120,6 +120,32 @@ func TestAdoptMakesTheProjectAndStartsTheAdoptSession(t *testing.T) {
 	}
 }
 
+// A directory name that is no display name, one too long to show or one with a character that shows as nothing,
+// does not fail the adopt: the project is made with no display name, and a list shows its name.
+func TestAdoptMakesTheProjectWithNoDisplayNameWhenTheDirectoryNameIsNoDisplayName(t *testing.T) {
+	for _, tt := range []struct {
+		name, directory string
+	}{
+		{"too long", strings.Repeat("a", 101)},
+		{"a zero-width space", "Shop" + string(rune(0x200b)) + "App"},
+		{"a text-direction override", "Shop" + string(rune(0x202e)) + "App"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			a := newAdoption(t)
+			clone := ports.Clone{Path: "/work/" + tt.directory, ID: "8f405162738495a6b7c8d9e0f1a2b3c4d5e6f708", DefaultBranch: "main"}
+			a.in.Checkouts.Place(clone)
+			code, _, stderr := a.runIn(clone, "", "adopt", "--worker", "worker-a", "--no-attach", "--project", "odd-dir")
+			if code != cli.ExitOK {
+				t.Fatalf("exit %d: %s", code, stderr)
+			}
+			made, held := a.projects()["odd-dir"]
+			if !held || made.DisplayName != "" {
+				t.Errorf("the project is %+v, want one with no display name", made)
+			}
+		})
+	}
+}
+
 // A project named with --project takes the repository and every clone under the given paths. With several
 // repositories, --planning names the one that holds the plan.
 func TestAdoptRegistersTheClonesUnderItsPathsInTheProjectItIsNamed(t *testing.T) {
