@@ -120,8 +120,9 @@ var MigrationBackend = contract.MigrationBackend{Name: "postgres", Fresh: func(t
 }}
 
 // ProjectBackend runs the contract suite on a project of an installation: the project's schema and the
-// installation's in one database and on one pool, each Store setting its schema on every transaction, with
-// the records every project shares in the installation's schema.
+// installation's in one database, the project's Store on the pool every project shares and the installation
+// on a pool of its own, each Store setting its schema on every transaction, with the records every project
+// shares in the installation's schema.
 var ProjectBackend = contract.Backend{Name: "postgres-project", Fresh: func(t testing.TB) contract.Database {
 	server, err := Shared()
 	if err != nil {

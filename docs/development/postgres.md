@@ -22,6 +22,14 @@ The registry decides which projects exist. A project's schema is named `project_
 
 `State.Open` returns the Store the process already keeps for a project, and otherwise reads the registry under the lock and refuses a project it does not hold with `ports.ErrNotFound`, so it never makes the schema of a project a removal has forgotten. `State.Remove` deletes the registry's row and then drops the schema under the same lock, so an `Open` or a `Create` in another process cannot make the schema again while it drops.
 
+## Between the adapter and the database
+
+The migration lock is a session advisory lock, which belongs to one server connection from the call that takes it to the call that releases it. A connection pooler in transaction pooling mode hands each transaction to any server connection, so the lock could be taken on one and released on another, or stay on a connection that serves someone else. PgBouncer lists session-level advisory locks as supported in session pooling and never in transaction pooling ([PgBouncer features](https://www.pgbouncer.org/features.html)). Point the adapter at the database itself, or at a pooler in session pooling mode.
+
+pgx prepares each statement on first use and caches the prepared statement on its connection, by the statement's text ([pgx `ConnConfig`](https://pkg.go.dev/github.com/jackc/pgx/v5#ConnConfig)). A connection of the project pool serves every project, and a transaction picks its project by setting `search_path`, so one statement text runs against each project's schema in turn. PostgreSQL parses a prepared statement again when `search_path` changes ([PREPARE](https://www.postgresql.org/docs/current/sql-prepare.html)), so the statement reads the right tables. What pgx keeps is the description of the statement's result, and a statement whose result has other columns in another schema fails with `cached plan must not change result type` ([plancache.c](https://github.com/postgres/postgres/blob/master/src/backend/utils/cache/plancache.c)).
+
+The cache therefore assumes that every project schema the process uses is at one version. `State.Open` brings a project's schema to the process's version before it returns the Store, so the assumption holds inside one process. It does not hold across two builds that share a database while a migration changes the columns of a statement's result. Stop the old processes before the new build opens the database.
+
 ## Idle transactions
 
 Every connection sets `idle_in_transaction_session_timeout`, 30 seconds unless `Options.IdleInTransaction` says otherwise, so a process stopped inside a transaction cannot stall every writer of its project. The two transactions of a write are idle in turn: the project's while the installation's side runs a statement, and the side's while the project runs one.
