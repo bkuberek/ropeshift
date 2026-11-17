@@ -168,38 +168,20 @@ func TestAdoptRegistersTheClonesUnderItsPathsInTheProjectItIsNamed(t *testing.T)
 	}
 }
 
-// A project of several repositories that names none asks the person on the terminal.
-func TestAdoptAsksWhichRepositoryHoldsThePlan(t *testing.T) {
+// A project of several repositories that names none plans in the clone adopt runs in, as the detection says, and
+// asks nobody.
+func TestAdoptPlansInTheCloneItRunsInWhenItNamesNone(t *testing.T) {
 	a := newAdoption(t)
-	code, stdout, stderr := a.runIn(shopClone, "web\n", "adopt", "/work/libs", "--worker", "worker-a")
+	code, stdout, stderr := a.runIn(shopClone, "web\n", "adopt", "/work/libs", "--worker", "worker-a", "--no-attach")
 	if code != cli.ExitOK {
 		t.Fatalf("exit %d: %s", code, stderr)
 	}
-	if !strings.Contains(stdout, "Which repository holds the plan?") || !strings.Contains(stdout, "api, Shop_App, web") {
+	if strings.Contains(stdout, "Which repository holds the plan?") {
 		t.Errorf("adopt asked:\n%s", stdout)
 	}
-	if !a.repositories("shop-app")["web"].Planning {
-		t.Errorf("web is not the planning repository: %+v", a.repositories("shop-app"))
-	}
-	if orders := a.workOrders("shop-app"); len(orders) != 1 || orders[0].RepositoryID != webClone.ID {
-		t.Errorf("the adopt session's work is %+v", orders)
-	}
-}
-
-// With nobody at a terminal to ask, a project of several repositories that names none stops before any work,
-// and says how to name one. Running it again with the name goes on from there.
-func TestAdoptWithNobodyToAskNamesTheChoice(t *testing.T) {
-	a := newAdoption(t)
-	code, _, stderr := a.runIn(shopClone, "", "adopt", "/work/libs", "--worker", "worker-a", "--no-attach")
-	if code != cli.ExitUsage || !strings.Contains(stderr, "--planning") || !strings.Contains(stderr, "api, Shop_App, web") {
-		t.Fatalf("exit %d: %s", code, stderr)
-	}
-	if orders := a.workOrders("shop-app"); len(orders) != 0 {
-		t.Fatalf("work was recorded with no planning repository: %+v", orders)
-	}
-	code, stdout, stderr := a.runIn(shopClone, "", "adopt", "/work/libs", "--planning", "Shop_App", "--worker", "worker-a", "--no-attach")
-	if code != cli.ExitOK || !strings.Contains(stdout, "already registered") {
-		t.Fatalf("again with --planning: exit %d: %s%s", code, stdout, stderr)
+	held := a.repositories("shop-app")
+	if !held["Shop_App"].Planning || held["web"].Planning {
+		t.Errorf("the planning repository is not the clone adopt ran in: %+v", held)
 	}
 	if orders := a.workOrders("shop-app"); len(orders) != 1 || orders[0].RepositoryID != shopClone.ID {
 		t.Errorf("the adopt session's work is %+v", orders)

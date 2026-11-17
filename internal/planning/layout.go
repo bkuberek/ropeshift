@@ -170,7 +170,7 @@ type AdoptionPlan struct {
 	Moves      []Move            `json:"moves"`
 	// Notes say what the detection could not settle, with the flag that settles it.
 	Notes []string `json:"notes,omitempty"`
-	// Digest is the SHA-256 of the plan's JSON with no digest, and of what a registration said of each
+	// Digest is the SHA-256 of the plan's JSON with no digest, no notes, and nothing a registration said of each
 	// repository, which the registration itself changes. A restructuring sends it back, so a layout that changed
 	// in between is found.
 	Digest string `json:"digest,omitempty"`
@@ -221,7 +221,7 @@ func (r Restructure) Validate() error {
 
 // ComputeDigest is the digest of the plan as it stands.
 func (p AdoptionPlan) ComputeDigest() string {
-	p.Digest = ""
+	p.Digest, p.Notes = "", nil
 	repositories := make([]PlannedRepository, 0, len(p.Repositories))
 	for _, repository := range p.Repositories {
 		kept := PlannedRepository{Name: repository.Name, Path: repository.Path}

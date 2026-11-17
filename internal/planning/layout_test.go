@@ -60,6 +60,7 @@ func TestThePlanDigestIgnoresWhatARegistrationSaid(t *testing.T) {
 		after.Repositories[i].Reason = "matched by its earlier identity"
 		after.Repositories[i].ID = "abc"
 	}
+	after.Notes = []string{"The project does not exist yet, so no record was read."}
 	if got := after.WithDigest(); got.Digest != before.Digest {
 		t.Errorf("a plan whose clones registered has the digest %s, want %s", got.Digest, before.Digest)
 	}
