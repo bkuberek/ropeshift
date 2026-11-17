@@ -6,6 +6,7 @@ import (
 	"slices"
 	"testing"
 
+	"ropeshift.com/ropeshift/internal/adapters/fake"
 	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/questions"
 	"ropeshift.com/ropeshift/internal/workorders"
@@ -16,9 +17,15 @@ import (
 // plan needing revision.
 func anApprovedPlanWithADecision(t *testing.T) (*apitest.Daemon, *apitest.World, string) {
 	t.Helper()
+	return anApprovedPlanFrom(t, retrySource("The first draft."))
+}
+
+// anApprovedPlanFrom is anApprovedPlanWithADecision for a plan read from a source the test goes on to change.
+func anApprovedPlanFrom(t *testing.T, source *fake.WorkSource) (*apitest.Daemon, *apitest.World, string) {
+	t.Helper()
 	d := apitest.Start(t)
 	w := apitest.NewWorld(t, d)
-	w.Planned(retrySource("The first draft."))
+	w.Planned(source)
 	need := planApprovalNeed(t, readView[api.NeedsYou](t, d, api.ViewNeedsYou, ""))
 	if _, err := d.Client.DecideApproval(t.Context(), need.Approval.ID, api.DecideApproval{Digest: need.Approval.SubjectDigest, Allow: true}); err != nil {
 		t.Fatal(err)
@@ -65,6 +72,75 @@ func TestAMembersDecisionInsideAnApprovedPlanShowsAsItsRevision(t *testing.T) {
 	}
 	if _, err := d.Client.PlanRevision(t.Context(), "absent"); refusal(t, err).Code != api.CodeNotFound {
 		t.Errorf("a plan nobody has: %v", err)
+	}
+}
+
+func revisionNeeds(t *testing.T, d *apitest.Daemon) []*api.PlanRevisionView {
+	t.Helper()
+	var found []*api.PlanRevisionView
+	for _, item := range readView[api.NeedsYou](t, d, api.ViewNeedsYou, "").Items {
+		if item.Kind == api.NeedPlanRevision {
+			if item.PlanRevision == nil {
+				t.Fatalf("a plan revision carries nothing: %+v", item)
+			}
+			found = append(found, item.PlanRevision)
+		}
+	}
+	return found
+}
+
+func TestNeedsYouHoldsOneItemForAPlanThatNeedsRevisionUntilAMemberSettlesIt(t *testing.T) {
+	t.Parallel()
+	d, _, plan := anApprovedPlanWithADecision(t)
+	if _, err := d.Client.RecordDecision(t.Context(), api.RecordDecision{
+		ID: "d-second", Status: questions.DecisionDecided, Statement: "Use two colors.", Rationale: "It prints.", Citations: []string{"brand-guide"},
+		Scope: "plan:" + plan, Reversibility: questions.Reversible, Categories: []string{questions.CategoryProduct}, NoConflict: []string{"d-logo"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	needs := revisionNeeds(t, d)
+	if len(needs) != 1 || needs[0].Plan != plan || needs[0].Title != "Retry budget" || len(needs[0].Decisions) != 2 {
+		t.Fatalf("revision items %+v, want one for the plan that lists both decisions", needs)
+	}
+	for _, item := range readView[api.NeedsYou](t, d, api.ViewNeedsYou, "").Items {
+		if item.Kind == api.NeedContractReview {
+			t.Errorf("work that waits for the revision also asks for a review of its own: %+v", item)
+		}
+	}
+	if _, err := d.Client.ConfirmRevision(t.Context(), plan); err != nil {
+		t.Fatal(err)
+	}
+	if needs := revisionNeeds(t, d); len(needs) != 0 {
+		t.Errorf("a confirmed revision still waits: %+v", needs)
+	}
+}
+
+func TestAPlanApprovalShowsTheDecisionsSinceBesideTheDifferenceBeforeAndAfterItIsApproved(t *testing.T) {
+	t.Parallel()
+	source := retrySource("The first draft.")
+	d, w, plan := anApprovedPlanFrom(t, source)
+	source.Write("spec.md", []byte("+++\nkind = \"spec\"\nid = \"api\"\ntitle = \"The API\"\nplan = \"retry\"\n+++\n\nThe second draft.\n"))
+	w.Planned(source)
+	waiting, err := d.Client.PlanVersion(t.Context(), plan, 2)
+	if err != nil || waiting.Approval == nil || waiting.Approval.Revision == nil || waiting.Approval.Revision.Revision == nil {
+		t.Fatalf("the request for version 2 shows %+v: %v", waiting.Approval, err)
+	}
+	if got := waiting.Approval.Revision; len(got.Decisions) != 1 || got.Decisions[0].ID != "d-logo" || got.Revision.ApprovedVersion != 1 {
+		t.Errorf("the waiting request shows %+v", got)
+	}
+	if _, err := d.Client.DecideApproval(t.Context(), waiting.Approval.Approval.ID, api.DecideApproval{Digest: waiting.Approval.Approval.SubjectDigest, Allow: true}); err != nil {
+		t.Fatal(err)
+	}
+	approved, err := d.Client.PlanVersion(t.Context(), plan, 2)
+	if err != nil || approved.Approval == nil || approved.Approval.Revision == nil || approved.Approval.Revision.Revision == nil {
+		t.Fatalf("the approved request shows %+v: %v", approved.Approval, err)
+	}
+	closed := approved.Approval.Revision.Revision
+	if closed.Open() || closed.Outcome != "approved" || closed.Approval != waiting.Approval.Approval.ID || len(approved.Approval.Revision.Decisions) != 1 {
+		t.Errorf("the approved request shows the revision %+v", approved.Approval.Revision)
+	}
+	if revisionNeeds(t, d) != nil {
+		t.Error("an approved version leaves the plan needing revision")
 	}
 }
 
