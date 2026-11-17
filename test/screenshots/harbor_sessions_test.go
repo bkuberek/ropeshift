@@ -66,11 +66,13 @@ func inFlight(c *clone, branch, message string, files map[string]string) {
 	c.Git("checkout", "--quiet", "main")
 }
 
-// mooringsAPIFiles is the API of Moorings, which books the harbor's moorings for visiting boats.
+// mooringsAPIFiles is the API of Moorings, which books the harbor's moorings for visiting boats. Its profile
+// layer parks guide 5's lane soon after it asks.
 func mooringsAPIFiles() map[string]string {
 	return map[string]string{
-		"README.md": lines("# moorings-api", "", "Bookings of the harbor's moorings, and the API the booking pages call."),
-		"go.mod":    "module example.com/moorings-api\n\ngo 1.24\n",
+		".ropeshift/profile.toml": mooringsAPIProfile,
+		"README.md":               lines("# moorings-api", "", "Bookings of the harbor's moorings, and the API the booking pages call."),
+		"go.mod":                  "module example.com/moorings-api\n\ngo 1.24\n",
 		"internal/bookings/bookings.go": lines("package bookings", "",
 			"// Book holds a mooring for a boat for a span of nights.", "func Book() {}"),
 		"internal/bookings/bookings_test.go": lines("package bookings", "", "import \"testing\"", "",

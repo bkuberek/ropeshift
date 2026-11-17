@@ -76,13 +76,31 @@ type text struct {
 	Text  string   `json:"text"`
 	Exact *bool    `json:"exact,omitempty"`
 	In    *element `json:"in,omitempty"`
+	// Timeout is how long this wait may take, in milliseconds, past the walk's own patience.
+	Timeout int `json:"timeout,omitempty"`
 }
 
-// snapshot is an image a step takes: its name, and what it clips to.
+// The waits a step may ask for: longer than the walk's own patience, up to a few minutes.
+const (
+	walkPatienceMs = 20_000
+	maxPatienceMs  = 180_000
+)
+
+// snapshot is an image a step takes: its name, what it clips to, and a larger window for it alone.
 type snapshot struct {
-	Name string          `json:"name"`
-	Clip json.RawMessage `json:"clip"`
+	Name   string          `json:"name"`
+	Clip   json.RawMessage `json:"clip"`
+	Width  int             `json:"width,omitempty"`
+	Height int             `json:"height,omitempty"`
 }
+
+// The sizes a capture's window can take: larger than the walk's own, up to a large desktop screen.
+const (
+	walkWidth  = 1440
+	maxWidth   = 2560
+	walkHeight = 900
+	maxHeight  = 1600
+)
 
 // clipBox is a clip to one element: a selector, or a role and name, with pad pixels around it.
 type clipBox struct {
@@ -257,6 +275,9 @@ func checkAction(a action) string {
 		if a.WaitFor.Text == "" {
 			problem = "waitFor names the text to wait for"
 		}
+		if t := a.WaitFor.Timeout; t != 0 && (t <= walkPatienceMs || t > maxPatienceMs) {
+			problem = cmpProblem(problem, fmt.Sprintf("waitFor waits %d ms, and a timeout is over %d and at most %d", t, walkPatienceMs, maxPatienceMs))
+		}
 		problem = cmpProblem(problem, checkElement(a.WaitFor.In))
 	}
 	switch {
@@ -287,6 +308,12 @@ func checkCapture(prefix string, c snapshot) string {
 	number, found := strings.CutPrefix(c.Name, prefix+"-")
 	if !found || !imageNumber.MatchString(number) {
 		return fmt.Sprintf("the image %q is not named <guide>-NN, such as %s-01", c.Name, prefix)
+	}
+	if c.Width != 0 && (c.Width <= walkWidth || c.Width > maxWidth) {
+		return fmt.Sprintf("image %s widens the window to %d pixels, and a width is over %d and at most %d", c.Name, c.Width, walkWidth, maxWidth)
+	}
+	if c.Height != 0 && (c.Height <= walkHeight || c.Height > maxHeight) {
+		return fmt.Sprintf("image %s makes the window %d pixels tall, and a height is over %d and at most %d", c.Name, c.Height, walkHeight, maxHeight)
 	}
 	var word string
 	if err := json.Unmarshal(c.Clip, &word); err == nil {
@@ -441,6 +468,12 @@ func TestGuideFormatCanFail(t *testing.T) {
 		{"a click with no name", func(g *guide) { g.Steps[0].Actions = []action{click("button", "")} }, "click names a role and a name"},
 		{"a fill with no label", func(g *guide) { g.Steps[0].Actions = []action{{Fill: &field{Value: "x"}}} }, "fill names the field's label"},
 		{"a waitFor with no text", func(g *guide) { g.Steps[0].Actions = []action{{WaitFor: &text{}}} }, "waitFor names the text"},
+		{"a waitFor no longer than the walk's patience", func(g *guide) {
+			g.Steps[0].Actions = []action{{WaitFor: &text{Text: "Idle", Timeout: 5000}}}
+		}, "waitFor waits 5000 ms"},
+		{"a waitFor past a few minutes", func(g *guide) {
+			g.Steps[0].Actions = []action{{WaitFor: &text{Text: "Idle", Timeout: 600_000}}}
+		}, "waitFor waits 600000 ms"},
 		{"a scope with no name", func(g *guide) {
 			g.Steps[0].Actions = []action{{Click: &control{element: element{Role: "button", Name: "Go"}, In: &element{Role: "dialog"}}}}
 		}, "scopes to an element"},
@@ -453,6 +486,10 @@ func TestGuideFormatCanFail(t *testing.T) {
 		}, "a selector and a role at once"},
 		{"a clip with a field the format lacks", func(g *guide) { g.Steps[0].Capture.Clip = json.RawMessage(`{"selector": "#a", "margin": 4}`) }, "neither"},
 		{"a clip with a negative pad", func(g *guide) { g.Steps[0].Capture.Clip = json.RawMessage(`{"selector": "#a", "pad": -1}`) }, "pads its clip"},
+		{"a width no wider than the walk's", func(g *guide) { g.Steps[0].Capture.Width = 1440 }, "widens the window to 1440 pixels"},
+		{"a width past a wide screen", func(g *guide) { g.Steps[0].Capture.Width = 3000 }, "widens the window to 3000 pixels"},
+		{"a height no taller than the walk's", func(g *guide) { g.Steps[0].Capture.Height = 900 }, "makes the window 900 pixels tall"},
+		{"a height past a tall screen", func(g *guide) { g.Steps[0].Capture.Height = 2000 }, "makes the window 2000 pixels tall"},
 		{"a step that takes an image twice", func(g *guide) {
 			g.Steps = append(g.Steps, walkStep{Step: "again", Capture: &snapshot{Name: "projects-01", Clip: window}})
 		}, "takes image projects-01 again"},

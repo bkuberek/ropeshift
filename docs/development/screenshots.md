@@ -91,6 +91,8 @@ For guides 3 and 4, the walk also lays out `moorings`, a folder of three clones 
 
 The harbor daemon runs its delivery and forecast ticks every second, and guide 3 visits other pages before its Roadmap capture, so the Roadmap shows the forecast the daemon made and not a pending line.
 
+For guides 5 and 6, each lane a guide starts, a review's included, plays a script of its own in [harbor_runs_test.go](../../test/screenshots/harbor_runs_test.go), under the name the guide types into the Start dialog's Lane ID. The orchestrator a guide starts plays a script that claims nothing, because the lanes it starts get names no script can know, so the walk starts every lane, the review of finished work included, from the web UI. The profile layer of `moorings-api` sets `ask_wait` to two seconds, so guide 5's lane on Moorings parks a moment after it asks the question it cannot go on without, and Needs you offers its Resume.
+
 The harbor clones live in one fixed, neutral folder, `/tmp/ropeshift-guides`, the code repositories in its `src` folder and the planning repository beside it, so a field that shows a path shows one of those and the private-word check can stay on for every image. The kit creates the folder, removes it at the end of the run, and refuses to start while it exists, which another walk, or one that was killed, leaves. Remove it and run again.
 
 ### The step format
@@ -128,7 +130,7 @@ A guide is one file, `test/screenshots/guides/<guide>.json`, named for the prefi
 | `step` | The step's name, unique in the guide, which a failed run says |
 | `route` | An optional path to open before the actions. A step with no route continues on the page the one before it left |
 | `actions` | The actions of the step, in order |
-| `capture` | An optional image: `name` is `<guide>-NN`, and `clip` says what it shows |
+| `capture` | An optional image: `name` is `<guide>-NN`, `clip` says what it shows, and an optional `width` and `height` enlarge the window for it alone |
 
 An action is exactly one of four:
 
@@ -137,13 +139,13 @@ An action is exactly one of four:
 | `click {role, name}` | Presses the control with that role and accessible name |
 | `fill {label, value}` | Types `value` into the field with that label |
 | `press` | Presses a key, such as `Enter` or `Escape` |
-| `waitFor {text}` | Waits until the text shows |
+| `waitFor {text}` | Waits until the text shows, for 20 seconds, or for the `timeout` it sets in milliseconds, over 20000 and at most 180000, for what the daemon does in its own time |
 
 A name, label, or text matches whole, and must match one element, so a step that is ambiguous fails and does not press whichever control came first. `exact: false` matches part of it. `in {role, name}` limits a click, fill, or wait to the dialog, region, or other element it names. A value or a route can hold `{{name}}`, which a variable of the world replaces: `passphrase` in every world, and in harbor `src`, the folder of the code repositories' clones, and `api`, `web`, and `plan`, the clones.
 
-A `clip` is `"window"`, the whole 1440 by 900 window, or one element: `{"selector": "main"}`, or `{"role": "dialog", "name": "Register repositories"}`, with an optional `pad`, the pixels to keep around it, which must fit in the window. A dialog, a card, or a panel is clipped to its element, and a whole window is for a step that shows a view's place in the frame.
+A `clip` is `"window"`, the whole 1440 by 900 window, or one element: `{"selector": "main"}`, or `{"role": "dialog", "name": "Register repositories"}`, with an optional `pad`, the pixels to keep around it, which must fit in the window. A dialog, a card, or a panel is clipped to its element, and a whole window is for a step that shows a view's place in the frame. A `width` over 1440 and at most 2560, and a `height` over 900 and at most 1600, enlarge the window for one image, for a panel whose table does not fit or a page that runs past the bottom, and the walk goes on at 1440 by 900.
 
-[web/scripts/guides.mjs](../../web/scripts/guides.mjs) walks the steps, and [web/src/guides.test.ts](../../web/src/guides.test.ts) tests it on a page of its own in `make web-test`. Each image is written as `<name>-<theme>.png` at 1440 by 900 and twice the pixel density. A guide's images are not captured at phone width.
+[web/scripts/guides.mjs](../../web/scripts/guides.mjs) walks the steps, and [web/src/guides.test.ts](../../web/src/guides.test.ts) tests it on a page of its own in `make web-test`. Each image is written as `<name>-<theme>.png` at 1440 by 900, or at its capture's width and height, and twice the pixel density. A guide's images are not captured at phone width.
 
 The walk fails a capture whose page shows the installation's temporary path, the fake agent CLI's, or this machine's home directory, user name, or host name, and keeps its image. A failed step keeps what the page showed as `failed-<guide>-<step number>-<theme>.png` beside the images.
 
@@ -178,14 +180,11 @@ Every published image has a row, and every row names a capture and the name it i
 | Capture | Published as | Shown in |
 | --- | --- | --- |
 | `needs-you-<theme>-1440.png` | `needs-you-<theme>.png` | README, web UI guide |
-| `needs-you-question-<theme>-1440.png` | `needs-you-question-<theme>.png` | First plan |
 | `decisions-<theme>-1440.png` | `decisions-<theme>.png` | README |
-| `floor-<theme>-1440.png` | `floor-<theme>.png` | README, web UI guide, first plan |
+| `floor-<theme>-1440.png` | `floor-<theme>.png` | README, web UI guide |
 | `measures-<theme>-1440.png` | `measures-<theme>.png` | README, web UI guide |
 | `roadmap-<theme>-1440.png` | `roadmap-<theme>.png` | Web UI guide |
-| `planning-<theme>-1440.png` | `planning-<theme>.png` | First plan |
-| `plan-approval-<theme>-1440.png` | `plan-approval-<theme>.png` | Web UI guide, first plan |
-| `work-order-<theme>-1440.png` | `work-order-<theme>.png` | First plan |
+| `plan-approval-<theme>-1440.png` | `plan-approval-<theme>.png` | Web UI guide |
 | `documents-requirement-<theme>-1440.png` | `documents-<theme>.png` | Web UI guide |
 | `conversations-<theme>-1440.png` | `conversations-<theme>.png` | Web UI guide |
 | `agents-project-<theme>-1440.png` | `agents-<theme>.png` | Web UI guide |
@@ -223,5 +222,24 @@ Every published image has a row, and every row names a capture and the name it i
 | `adopt-03-<theme>.png` | `adopt-03-<theme>.png` | Adopt an existing project |
 | `adopt-04-<theme>.png` | `adopt-04-<theme>.png` | Adopt an existing project |
 | `adopt-05-<theme>.png` | `adopt-05-<theme>.png` | Adopt an existing project |
+| `run-01-<theme>.png` | `run-01-<theme>.png` | Watch work run |
+| `run-02-<theme>.png` | `run-02-<theme>.png` | Watch work run |
+| `run-03-<theme>.png` | `run-03-<theme>.png` | Watch work run |
+| `run-04-<theme>.png` | `run-04-<theme>.png` | Watch work run |
+| `run-05-<theme>.png` | `run-05-<theme>.png` | Watch work run |
+| `run-06-<theme>.png` | `run-06-<theme>.png` | Watch work run |
+| `run-07-<theme>.png` | `run-07-<theme>.png` | Watch work run |
+| `run-08-<theme>.png` | `run-08-<theme>.png` | Watch work run |
+| `run-09-<theme>.png` | `run-09-<theme>.png` | Watch work run |
+| `run-10-<theme>.png` | `run-10-<theme>.png` | Watch work run |
+| `review-01-<theme>.png` | `review-01-<theme>.png` | Review and merge |
+| `review-02-<theme>.png` | `review-02-<theme>.png` | Review and merge |
+| `review-03-<theme>.png` | `review-03-<theme>.png` | Review and merge |
+| `review-04-<theme>.png` | `review-04-<theme>.png` | Review and merge |
+| `review-05-<theme>.png` | `review-05-<theme>.png` | Review and merge |
+| `review-06-<theme>.png` | `review-06-<theme>.png` | Review and merge |
+| `review-07-<theme>.png` | `review-07-<theme>.png` | Review and merge |
+| `review-08-<theme>.png` | `review-08-<theme>.png` | Review and merge |
+| `review-09-<theme>.png` | `review-09-<theme>.png` | Review and merge |
 
 After a release, run `make screenshots` at its tag, look at each image, and publish. Then update the version that the README's screenshots section and the web UI guide name.

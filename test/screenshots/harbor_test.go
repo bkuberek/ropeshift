@@ -60,9 +60,13 @@ func newHarbor(in *install) *harbor {
 		in.t.Fatal(err)
 	}
 	in.signIn = subscription
+	in.scripts = harborLanes()
 	in.writeFixture(harborTurns())
+	// The worker uploads a forge report, such as guide 6's merge, with its next heartbeat when no lane runs, so the
+	// beat is short enough for the walk to see the merge land. Once the worker uploads a forge report as soon as it
+	// records it, the beat can go back to the world's three minutes unless another step needs it short.
 	in.start("--intake-tick", "200ms", "--lease-tick", "200ms", "--wake-tick", "200ms", "--batch-tick", "500ms",
-		"--delivery-tick", "1s", "--forecast-tick", "1s", "--heartbeat", "3m", "--lease-ttl", "15m")
+		"--delivery-tick", "1s", "--forecast-tick", "1s", "--heartbeat", "5s", "--lease-ttl", "15m")
 	in.waitFor("the worker's session", func() bool {
 		list := in.workers()
 		return len(list) == 1 && list[0].Epoch >= 1

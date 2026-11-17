@@ -134,6 +134,8 @@ A subscription worker starts at `attended`, where it claims work only inside a r
 - [Set up your projects](docs/set-up-projects.md): create a project for each product in the web UI, register its repositories, name its planning repository, and keep a manifest of them.
 - [Plan your first change](docs/plan-your-first-change.md): start a planning session in the web UI, answer its questions, follow the plan it writes, and approve it.
 - [Adopt an existing project](docs/adopt.md): import a project that already has code, documents, and branches in the web UI, and review it as one plan.
+- [Watch work run](docs/watch-work-run.md): start an approved plan's work in the web UI, watch its lanes, and answer what they ask of you.
+- [Review and merge](docs/review-and-merge.md): read the review of finished work, accept it, and merge it from the web UI or with git.
 
 ### Concepts
 
@@ -146,7 +148,6 @@ A subscription worker starts at `attended`, where it claims work only inside a r
 ### Reference
 
 - [Onboarding](docs/onboarding.md): the detail behind every step of the guides, and what to know before a lane runs.
-- [Your first plan, end to end](docs/first-plan.md): a planning session, plan approval, lanes, reviews, and acceptance, in the web UI and on the command line.
 - [Connect a GitHub repository](docs/github.md): review through pull requests, the forge binding, merge authority, and required checks.
 - [Web UI](docs/web-ui.md): each main view of the web UI, what it shows, and what a member does there.
 - [Command line](docs/cli.md): every command, the daemon's flags, and the exit codes.

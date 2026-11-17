@@ -1,0 +1,151 @@
+{
+  "guide": "run",
+  "title": "Watch work run",
+  "world": "harbor",
+  "order": 5,
+  "steps": [
+    {
+      "step": "start the orchestrator",
+      "route": "/projects/harbor",
+      "actions": [
+        { "click": { "role": "link", "name": "Workers and resources" } },
+        { "click": { "role": "button", "name": "Start orchestrator" } },
+        { "waitFor": { "text": "Asked solo to run its orchestrator.", "exact": false } }
+      ]
+    },
+    {
+      "step": "open a run window",
+      "route": "/settings?section=autonomy",
+      "actions": [
+        { "fill": { "label": "Hours", "value": "4" } },
+        { "click": { "role": "button", "name": "Open window" } },
+        { "waitFor": { "text": "Close window" } }
+      ],
+      "capture": { "name": "run-02", "clip": { "role": "region", "name": "Run window" } }
+    },
+    {
+      "step": "see the orchestrator running",
+      "route": "/projects/harbor",
+      "actions": [
+        { "click": { "role": "link", "name": "Workers and resources" } },
+        { "waitFor": { "text": "Stop orchestrator" } },
+        { "waitFor": { "text": "Idle", "exact": true, "in": { "role": "region", "name": "Machines" }, "timeout": 150000 } }
+      ],
+      "capture": { "name": "run-01", "clip": "window" }
+    },
+    {
+      "step": "fill in Start on a ready work order",
+      "route": "/projects/harbor/work",
+      "actions": [
+        { "click": { "role": "link", "name": "Serve the list of berths" } },
+        { "click": { "role": "button", "name": "Start" } },
+        { "fill": { "label": "Lane ID (optional)", "value": "serve-berths", "in": { "role": "dialog", "name": "Start Serve the list of berths" } } }
+      ],
+      "capture": { "name": "run-03", "clip": { "role": "dialog", "name": "Start Serve the list of berths" } }
+    },
+    {
+      "step": "start the lane",
+      "actions": [
+        { "click": { "role": "button", "name": "Start", "in": { "role": "dialog", "name": "Start Serve the list of berths" } } },
+        { "waitFor": { "text": "Claimed Serve the list of berths on solo. Its lane is starting." } },
+        { "click": { "role": "button", "name": "Dismiss" } },
+        { "waitFor": { "text": "Allow this one call", "in": { "role": "article", "name": "Allow Bash?" } } }
+      ]
+    },
+    {
+      "step": "read the Floor",
+      "actions": [
+        { "click": { "role": "link", "name": "Floor" } },
+        { "waitFor": { "text": "Needs a decision", "in": { "role": "region", "name": "Lanes on solo" } } },
+        { "waitFor": { "text": "Orchestrator · idle", "exact": false } }
+      ],
+      "capture": { "name": "run-04", "clip": "window" }
+    },
+    {
+      "step": "open the lane",
+      "actions": [
+        { "click": { "role": "link", "name": "Open lane serve-berths" } },
+        { "waitFor": { "text": "Needs a decision", "exact": false } }
+      ],
+      "capture": { "name": "run-05", "clip": { "selector": "main" }, "height": 1200 }
+    },
+    {
+      "step": "open the approval request",
+      "route": "/needs-you",
+      "actions": [
+        { "click": { "role": "link", "name": "Allow Bash?", "exact": false } },
+        { "waitFor": { "text": "Allow this one call" } }
+      ],
+      "capture": { "name": "run-06", "clip": { "role": "article", "name": "Allow Bash?" } }
+    },
+    {
+      "step": "allow the call",
+      "actions": [{ "click": { "role": "button", "name": "Allow this one call" } }, { "waitFor": { "text": "Allow Bash? no longer waits", "exact": false } }]
+    },
+    {
+      "step": "open the lane's pane in the conversation panel",
+      "route": "/projects/harbor/floor",
+      "actions": [
+        { "click": { "role": "button", "name": "Open pane of lane serve-berths" } },
+        { "waitFor": { "text": "Working", "exact": true, "in": { "role": "complementary", "name": "Conversation" } } },
+        { "waitFor": { "text": "Type into the session", "in": { "role": "complementary", "name": "Conversation" } } }
+      ],
+      "capture": { "name": "run-07", "clip": { "role": "complementary", "name": "Conversation" } }
+    },
+    {
+      "step": "close the conversation panel",
+      "actions": [{ "click": { "role": "button", "name": "Close the conversation panel" } }]
+    },
+    {
+      "step": "start a work order of Moorings",
+      "route": "/projects/moorings/work",
+      "actions": [
+        { "click": { "role": "link", "name": "Finish cancelling a booking" } },
+        { "click": { "role": "button", "name": "Start" } },
+        { "fill": { "label": "Lane ID (optional)", "value": "finish-cancel", "in": { "role": "dialog", "name": "Start Finish cancelling a booking" } } },
+        { "click": { "role": "button", "name": "Start", "in": { "role": "dialog", "name": "Start Finish cancelling a booking" } } },
+        { "waitFor": { "text": "Claimed Finish cancelling a booking on solo. Its lane is starting." } }
+      ]
+    },
+    {
+      "step": "open the parked lane",
+      "route": "/needs-you?kind=stuck",
+      "actions": [
+        { "click": { "role": "link", "name": "Finish cancelling a booking", "exact": false } },
+        { "waitFor": { "text": "Resume lets it go on now, without waiting.", "in": { "role": "article", "name": "Finish cancelling a booking" } } }
+      ],
+      "capture": { "name": "run-08", "clip": "window" }
+    },
+    {
+      "step": "resume the lane",
+      "actions": [
+        { "click": { "role": "button", "name": "Resume", "in": { "role": "article", "name": "Finish cancelling a booking" } } },
+        { "waitFor": { "text": "no longer waits", "exact": false } }
+      ]
+    },
+    {
+      "step": "open the lane's question",
+      "route": "/projects/harbor/questions",
+      "actions": [
+        { "waitFor": { "text": "In what order should GET /berths list the berths?" } },
+        { "click": { "role": "button", "name": "Answer In what order should GET /berths list the berths?" } },
+        { "waitFor": { "text": "Each answer is recorded once, as yours: it becomes a decision, and the question closes." } }
+      ],
+      "capture": { "name": "run-09", "clip": "window" }
+    },
+    {
+      "step": "answer the question",
+      "actions": [
+        { "click": { "role": "radio", "name": "By berth number" } },
+        { "click": { "role": "button", "name": "Send this answer" } },
+        { "waitFor": { "text": "Answered the question." } }
+      ]
+    },
+    {
+      "step": "read the Overview",
+      "route": "/projects/harbor",
+      "actions": [{ "waitFor": { "text": "Berths in the API", "exact": false, "in": { "role": "list", "name": "Milestones" } } }],
+      "capture": { "name": "run-10", "clip": "window" }
+    }
+  ]
+}

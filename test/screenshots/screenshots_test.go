@@ -152,7 +152,6 @@ func (w *world) views() []view {
 	p := w.projectPath
 	views := []view{
 		{Name: "needs-you", Path: "/needs-you"},
-		{Name: "needs-you-question", Path: "/needs-you?" + q("item", w.questionItem)},
 		{Name: "needs-you-card", Path: "/needs-you?kind=cards&" + q("item", w.cardItem)},
 		{Name: "needs-you-plan-approval", Path: "/needs-you?" + q("item", w.planItem)},
 		{Name: "roadmap", Path: p("roadmap")},

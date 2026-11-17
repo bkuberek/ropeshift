@@ -86,7 +86,7 @@ To run the sample, copy `sample-contract.md` into the repository, change it to y
 
 ## Start a planning session
 
-[Your first plan, end to end](first-plan.md) walks through a session, its approval, and its work in order. With the daemon running, one command opens a planning session and puts your terminal in it:
+In the web UI, Start planning session on Overview, Roadmap, Plans, or Planning starts one, as [plan your first change](plan-your-first-change.md) shows, and [watch work run](watch-work-run.md) and [review and merge](review-and-merge.md) take its plan's work from lanes to merged work. With the daemon running, one command opens a planning session and puts your terminal in it:
 
 ```sh
 ropeshift plan start --goal "Replace the checkout page"

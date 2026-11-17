@@ -41,7 +41,9 @@ type install struct {
 	// path is the PATH of every process: the fake CLI, then the canary, then the system's directories.
 	path string
 	// signIn is the word the fake CLI's `claude auth status` reports, an API key when it is empty.
-	signIn  string
+	signIn string
+	// scripts are the lane scripts of the world's fake CLI, the sample's when it is nil.
+	scripts map[string]any
 	session string
 	daemon  *process
 	web     string

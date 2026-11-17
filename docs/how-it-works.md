@@ -26,7 +26,7 @@ Agents can work for a long time on their own, and they stop whenever they need a
 
 Work starts from a plan, and the plan lives in git, in files you can read and review like any other change.
 
-**The planning session.** You start one with a goal, such as "Let partners see their own usage". A planning agent asks you what it needs to know, reads the code as it is, and writes the plan as files on a branch of its own. Your default branch does not change. You can talk to it in a terminal or answer its questions in the web UI ([your first plan](first-plan.md)).
+**The planning session.** You start one with a goal, such as "Let partners see their own usage". A planning agent asks you what it needs to know, reads the code as it is, and writes the plan as files on a branch of its own. Your default branch does not change. You can talk to it in a terminal or answer its questions in the web UI ([plan your first change](plan-your-first-change.md)).
 
 **What the plan holds.** Each file is Markdown with a small header that says what kind of file it is ([project structure](project-structure.md#the-repository-file-format)):
 

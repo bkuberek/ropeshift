@@ -117,4 +117,4 @@ The session's branch holds the plan, and merges like any change, at the planning
 
 ## Next
 
-Approving the plan creates its work orders. [Your first plan, end to end](first-plan.md#4-let-the-work-run) shows them run, and [Learn ropeshift](../README.md#learn-ropeshift) lists the guides.
+Approving the plan creates its work orders. [Watch work run](watch-work-run.md) starts them, and [Learn ropeshift](../README.md#learn-ropeshift) lists the guides.
