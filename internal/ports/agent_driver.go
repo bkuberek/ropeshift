@@ -264,6 +264,9 @@ type Observation struct {
 	ContextTokens int64
 	// Malformed counts stream lines that did not parse.
 	Malformed int
+	// Attached says a person's terminal is attached to the session's pane. A session with no pane, and
+	// a read that could not tell, say nobody is.
+	Attached bool
 }
 
 // Located is what Find learned of a session from an earlier process.

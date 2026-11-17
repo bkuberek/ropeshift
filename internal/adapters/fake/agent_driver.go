@@ -118,6 +118,11 @@ type AgentDriver struct {
 	probeErr  error
 	// noHeadless stands for a version whose `-p` lost a subscription's login.
 	noHeadless bool
+	// attached stands for a person's terminal attached to every session's pane.
+	attached bool
+	// observeErr is what the next Observe says, and observeFailed that one Observe said it.
+	observeErr    error
+	observeFailed bool
 }
 
 // compactInput is what a compaction reads as, in a list of inputs.
@@ -649,12 +654,20 @@ func (d *AgentDriver) Observe(_ context.Context, h ports.SessionHandle) (ports.O
 		return ports.Observation{Liveness: ports.LivenessUnknown}, err
 	}
 	d.mu.Lock()
-	unknown := d.unknown
+	unknown, attached, failure := d.unknown, d.attached, d.observeErr
+	if failure != nil {
+		d.observeErr, d.observeFailed = nil, true
+	}
 	d.mu.Unlock()
+	if failure != nil {
+		return ports.Observation{Liveness: ports.LivenessUnknown}, failure
+	}
 	if unknown {
 		return ports.Observation{Liveness: ports.LivenessUnknown}, nil
 	}
-	observation := ports.Observation{Liveness: ports.LivenessAlive, SessionID: session.script.SessionID, ModelResolved: session.script.Model}
+	observation := ports.Observation{
+		Liveness: ports.LivenessAlive, SessionID: session.script.SessionID, ModelResolved: session.script.Model, Attached: attached,
+	}
 	select {
 	case <-session.done:
 		observation.Liveness = ports.LivenessDead
@@ -708,6 +721,43 @@ func (d *AgentDriver) Send(_ context.Context, h ports.SessionHandle, in ports.In
 		path = ports.SendSocket
 	}
 	return ports.SendReceipt{ID: in.ID, Path: path}, nil
+}
+
+// SetAttached says whether a person's terminal is attached to every session's pane, as Observe reads it.
+func (d *AgentDriver) SetAttached(on bool) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.attached = on
+}
+
+// FailObserve makes the next Observe say this, as a read of a pane that failed once.
+func (d *AgentDriver) FailObserve(err error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.observeErr, d.observeFailed = err, false
+}
+
+// ObserveFailed says an Observe returned what FailObserve set.
+func (d *AgentDriver) ObserveFailed() bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.observeFailed
+}
+
+// Type is a person typing a line into a lane's session, which starts the session's next turn as an
+// input the worker sent would. The worker sent nothing, so Sent leaves it out.
+func (d *AgentDriver) Type(lane string, generation int64, text string) error {
+	id := sessionID(lane, generation)
+	session, err := d.session(ports.SessionHandle{ID: id})
+	if err != nil {
+		return err
+	}
+	select {
+	case <-session.done:
+		return fmt.Errorf("%s: %w", id, ports.ErrNoSession)
+	case session.inputs <- ports.Input{Text: text}:
+		return nil
+	}
 }
 
 // Decide has no path in a headless fake, as in the driver at this unit.

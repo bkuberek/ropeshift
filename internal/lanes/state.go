@@ -238,11 +238,15 @@ const (
 	// DayCapped says a tripped lane's breaker tripped on its daily cap on generations, and not on its window
 	// alone, so only a member's reset starts it again (ADR-0014).
 	DayCapped Condition = "day_capped"
+	// WaitingForPerson says a planning lane ended its turn in the conversation and waits at rest for the
+	// person it talks to (ADR-0018).
+	WaitingForPerson Condition = "waiting_for_person"
 )
 
 // EveryCondition lists the conditions, in the design's order.
 var EveryCondition = []Condition{
 	Stalled, Overdue, WaitingExternal, NearBudget, BriefUnconfirmed, PackOversized, HandoffDegraded, DegradedMode, UnpushedWork, Drifted, DayCapped,
+	WaitingForPerson,
 }
 
 // Facts is what a lane's conditions derive from.
@@ -269,6 +273,8 @@ type Facts struct {
 	Drifted          bool
 	// DayCapped says the breaker's last verdict found the lane's day full.
 	DayCapped bool
+	// WaitingForPerson says a planning lane at rest waits for the person it talks to.
+	WaitingForPerson bool
 }
 
 // Conditions derives a lane's conditions, in the design's order. `waiting_external`
@@ -295,6 +301,7 @@ func Conditions(f Facts) []Condition {
 	raise(UnpushedWork, f.UnpushedWork)
 	raise(Drifted, f.Drifted)
 	raise(DayCapped, f.State == Tripped && f.DayCapped)
+	raise(WaitingForPerson, f.WaitingForPerson)
 	return out
 }
 

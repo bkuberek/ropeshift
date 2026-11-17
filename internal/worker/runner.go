@@ -558,13 +558,19 @@ func (r *laneRun) adopt(ctx context.Context) error {
 		r.w.config.Report(fmt.Errorf("lane %s: reading its session: %w", r.lease.Lane, err))
 		return r.unread(ctx)
 	}
-	if _, ok := r.reported(ctx); ok {
+	_, reported := r.reported(ctx)
+	if reported {
 		r.stop(ctx, ports.StopAtRest)
 	}
 	r.resumeParking(ctx)
 	r.resumeHandoff(ctx)
-	if len(r.blockingQuestions()) != 0 && r.state.current() == lanes.Idle {
+	switch {
+	case r.state.current() != lanes.Idle:
+	case len(r.blockingQuestions()) != 0:
 		r.awaitAnswer(ctx)
+	case r.planning() && !reported && !r.owesBrief.Load():
+		// A planning lane at rest with nothing to report was waiting for its person, and goes on waiting.
+		r.awaitPerson(ctx)
 	}
 	return r.conclude(ctx, r.watch(ctx, events))
 }
@@ -1037,6 +1043,8 @@ func (r *laneRun) bindSession(ctx context.Context, session, model string) bool {
 
 // afterTurn decides what an idle lane does: stop if it reported, and nudge it once if
 // it did not (FR-LANE-2). A turn that failed has nothing to nudge, and neither has one a clear ended.
+// A planning lane is a conversation, so a turn it ends with no report waits for its person instead
+// (ADR-0018).
 func (r *laneRun) afterTurn(ctx context.Context, turn *ports.TurnResult, clears bool) {
 	if r.orchestrating() {
 		r.orchestratorRests(ctx, turn)
@@ -1075,6 +1083,10 @@ func (r *laneRun) afterTurn(ctx context.Context, turn *ports.TurnResult, clears 
 		return
 	}
 	if r.contextAtRest(ctx) {
+		return
+	}
+	if r.planning() {
+		r.awaitPerson(ctx)
 		return
 	}
 	if r.nudged.CompareAndSwap(false, true) {

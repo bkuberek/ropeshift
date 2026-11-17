@@ -43,7 +43,8 @@
     "degraded_mode",
     "unpushed_work",
     "drifted",
-    "day_capped"
+    "day_capped",
+    "waiting_for_person"
   ],
   "liveness": [
     "alive",
@@ -818,7 +819,7 @@
             "actual_state": "backoff",
             "as_of": 1790000133001,
             "conditions": [
-              "overdue"
+              "stalled"
             ],
             "freshness": "observed",
             "generation": 1,
@@ -950,7 +951,7 @@
             "actual_state": "retiring",
             "as_of": 1790000133001,
             "conditions": [
-              "stalled"
+              "waiting_for_person"
             ],
             "freshness": "observed",
             "generation": 1,
@@ -994,7 +995,7 @@
             "actual_state": "tripped",
             "as_of": 1790000133001,
             "conditions": [
-              "waiting_external",
+              "overdue",
               "day_capped"
             ],
             "freshness": "observed",
@@ -1436,6 +1437,59 @@
           }
         },
         {
+          "id": "wl-backoff",
+          "kind": "work",
+          "since": 1790000133001,
+          "work": {
+            "actions": [
+              "respawn",
+              "cancel"
+            ],
+            "lane": {
+              "actual_state": "backoff",
+              "as_of": 1790000133001,
+              "conditions": [
+                "stalled"
+              ],
+              "freshness": "observed",
+              "generation": 1,
+              "generations": [
+                {
+                  "lane_id": "lane-wl-backoff",
+                  "number": 1,
+                  "start_reason": "initial",
+                  "started_at": 1790000133001
+                }
+              ],
+              "id": "lane-wl-backoff",
+              "ledger_reach": "reachable",
+              "liveness": "alive",
+              "model_reach": "reachable",
+              "reported_by_epoch": 1,
+              "work_order": "wl-backoff",
+              "worker_id": "worker-a"
+            },
+            "reason": "stalled",
+            "work_order": {
+              "claim_id": "claim-wl-backoff",
+              "contract_id": "generated-26",
+              "contract_version": 1,
+              "fence": 1,
+              "id": "wl-backoff",
+              "kind": "change",
+              "lease_until": 1790000193001,
+              "lease_worker": "worker-a",
+              "max_attempts": 1,
+              "repository_id": "repository-1",
+              "rev": 1,
+              "reviewed_by": "member-1",
+              "size": "unknown",
+              "state": "running",
+              "title": "A lane in backoff"
+            }
+          }
+        },
+        {
           "id": "wl-ended",
           "kind": "work",
           "since": 1790000133001,
@@ -1583,59 +1637,6 @@
           }
         },
         {
-          "id": "wl-retiring",
-          "kind": "work",
-          "since": 1790000133001,
-          "work": {
-            "actions": [
-              "respawn",
-              "cancel"
-            ],
-            "lane": {
-              "actual_state": "retiring",
-              "as_of": 1790000133001,
-              "conditions": [
-                "stalled"
-              ],
-              "freshness": "observed",
-              "generation": 1,
-              "generations": [
-                {
-                  "lane_id": "lane-wl-retiring",
-                  "number": 1,
-                  "start_reason": "initial",
-                  "started_at": 1790000133001
-                }
-              ],
-              "id": "lane-wl-retiring",
-              "ledger_reach": "unknown",
-              "liveness": "unknown",
-              "model_reach": "unknown",
-              "reported_by_epoch": 1,
-              "work_order": "wl-retiring",
-              "worker_id": "worker-a"
-            },
-            "reason": "stalled",
-            "work_order": {
-              "claim_id": "claim-wl-retiring",
-              "contract_id": "generated-29",
-              "contract_version": 1,
-              "fence": 1,
-              "id": "wl-retiring",
-              "kind": "change",
-              "lease_until": 1790000193001,
-              "lease_worker": "worker-a",
-              "max_attempts": 1,
-              "repository_id": "repository-1",
-              "rev": 1,
-              "reviewed_by": "member-1",
-              "size": "unknown",
-              "state": "running",
-              "title": "A lane in retiring"
-            }
-          }
-        },
-        {
           "id": "wl-tripped",
           "kind": "work",
           "since": 1790000133001,
@@ -1648,7 +1649,7 @@
               "actual_state": "tripped",
               "as_of": 1790000133001,
               "conditions": [
-                "waiting_external",
+                "overdue",
                 "day_capped"
               ],
               "freshness": "observed",
@@ -5188,7 +5189,7 @@
           "actual_state": "backoff",
           "as_of": 1790000133001,
           "conditions": [
-            "overdue"
+            "stalled"
           ],
           "freshness": "observed",
           "generation": 1,
@@ -5473,7 +5474,7 @@
           "actual_state": "retiring",
           "as_of": 1790000133001,
           "conditions": [
-            "stalled"
+            "waiting_for_person"
           ],
           "freshness": "observed",
           "generation": 1,
@@ -5523,7 +5524,7 @@
           "actual_state": "tripped",
           "as_of": 1790000133001,
           "conditions": [
-            "waiting_external",
+            "overdue",
             "day_capped"
           ],
           "freshness": "observed",
@@ -6063,9 +6064,9 @@
             "respawn",
             "cancel"
           ],
-          "id": "wl-retiring",
+          "id": "wl-backoff",
           "lane": {
-            "actual_state": "retiring",
+            "actual_state": "backoff",
             "as_of": 1790000133001,
             "conditions": [
               "stalled"
@@ -6074,28 +6075,28 @@
             "generation": 1,
             "generations": [
               {
-                "lane_id": "lane-wl-retiring",
+                "lane_id": "lane-wl-backoff",
                 "number": 1,
                 "start_reason": "initial",
                 "started_at": 1790000133001
               }
             ],
-            "id": "lane-wl-retiring",
-            "ledger_reach": "unknown",
-            "liveness": "unknown",
-            "model_reach": "unknown",
+            "id": "lane-wl-backoff",
+            "ledger_reach": "reachable",
+            "liveness": "alive",
+            "model_reach": "reachable",
             "reported_by_epoch": 1,
-            "work_order": "wl-retiring",
+            "work_order": "wl-backoff",
             "worker_id": "worker-a"
           },
           "reason": "stalled",
           "since": 1790000133001,
           "work_order": {
-            "claim_id": "claim-wl-retiring",
-            "contract_id": "generated-29",
+            "claim_id": "claim-wl-backoff",
+            "contract_id": "generated-26",
             "contract_version": 1,
             "fence": 1,
-            "id": "wl-retiring",
+            "id": "wl-backoff",
             "kind": "change",
             "lease_until": 1790000193001,
             "lease_worker": "worker-a",
@@ -6105,7 +6106,7 @@
             "reviewed_by": "member-1",
             "size": "unknown",
             "state": "running",
-            "title": "A lane in retiring"
+            "title": "A lane in backoff"
           }
         },
         {
@@ -6118,7 +6119,7 @@
             "actual_state": "tripped",
             "as_of": 1790000133001,
             "conditions": [
-              "waiting_external",
+              "overdue",
               "day_capped"
             ],
             "freshness": "observed",

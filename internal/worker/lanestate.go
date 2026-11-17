@@ -72,6 +72,8 @@ type laneState struct {
 	handoffDegraded bool
 	// dayCapped says the breaker's last verdict found the lane's day full.
 	dayCapped bool
+	// forPerson says a planning lane waits at rest for the person it talks to.
+	forPerson bool
 	// askLimit is how long a lane rests on a blocking question, and drainLimit how long a
 	// draining fleet lets a turn run.
 	askLimit time.Duration
@@ -150,6 +152,13 @@ func (s *laneState) usageBackoff() time.Duration {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.usageBase
+}
+
+// waitForPerson marks the start and the end of a planning lane's wait for its person.
+func (s *laneState) waitForPerson(on bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.forPerson = on
 }
 
 // askWait reads a profile's limit. A value it cannot read takes the default, because a lane must
@@ -499,7 +508,7 @@ func (r *laneRun) status(ctx context.Context) ledger.LaneStatus {
 		WaitDeclared: now.Before(s.waitUntil), PastDeadline: r.lease.Deadline != 0 && now.UnixMilli() > r.lease.Deadline,
 		ContextTokens: s.context, WarnTokens: s.policy.WarnTokens, BriefUnconfirmed: s.unconfirmed, Degraded: s.degraded,
 		UnpushedWork: s.unpushed, HandoffDegraded: s.handoffDegraded, PackOversized: s.policy.Oversized(s.baseline),
-		DayCapped: s.dayCapped,
+		DayCapped: s.dayCapped, WaitingForPerson: s.forPerson && state == lanes.Idle,
 	}
 	out := ledger.LaneStatus{
 		ActualState: string(state), Liveness: string(liveness),
