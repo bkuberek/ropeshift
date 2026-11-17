@@ -53,7 +53,8 @@ ON CONFLICT (workspace_id, id) DO NOTHING`)
 	stmtSaveApproval = define("approval.save",
 		`UPDATE approval_requests
    SET state = :state, decided_by = :decided_by, decided_kind = :decided_kind, decided_digest = :decided_digest,
-       decided_at = :decided_at, reason = :reason, policy_version = :policy_version, channel = :channel, used_by = :used_by
+       decided_at = :decided_at, reason = :reason, policy_version = :policy_version, channel = :channel, used_by = :used_by,
+       detail = :detail
  WHERE workspace_id = :workspace_id AND id = :id AND state = :from_state`)
 )
 
@@ -181,7 +182,7 @@ func (t approvalTx) Save(a authority.Approval, from authority.ApprovalState) (bo
 	n, err := t.exec(stmtSaveApproval, t.scoped(params{
 		"id": a.ID, "state": string(a.State), "from_state": string(from), "decided_by": nullText(a.DecidedBy), "decided_kind": nullText(a.DecidedKind),
 		"decided_digest": nullText(a.DecidedDigest), "decided_at": decidedAt, "reason": a.Reason, "policy_version": a.PolicyVersion,
-		"channel": a.Channel, "used_by": a.UsedBy,
+		"channel": a.Channel, "used_by": a.UsedBy, "detail": a.Detail,
 	}))
 	return n > 0, err
 }

@@ -111,6 +111,7 @@ func newWorld(t *testing.T, variant string) *world {
 		return contract.Database{
 			Restartable: true,
 			ShiftClock:  func(int64) { t.Fatal("a crash run keeps real time") },
+			FreezeClock: func(int64) { t.Fatal("a crash run keeps real time") },
 			Open: func(t testing.TB, opts sqlstore.Options) ports.Store {
 				store, err := sqlite.Open(target.Path, opts)
 				if err != nil {

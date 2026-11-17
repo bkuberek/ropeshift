@@ -265,4 +265,13 @@ type PlanDetail struct {
 	// Adoption groups a plan that adopts an existing project, and lists every file its branch changed
 	// (ADR-0023). Any other plan has none.
 	Adoption *Adoption `json:"adoption,omitempty"`
+	// Shown is what the request showed of the plan's open revision at the moment a member approved the version.
+	// It is nil until a member approves, and for an approval recorded before this was kept.
+	Shown *ShownDecisions `json:"shown,omitempty"`
+}
+
+// ShownDecisions are the decisions a plan's open revision listed when a member approved a version of the plan, in the
+// order it listed them. The list may be empty, which says the approval showed none: it is not the same as no list.
+type ShownDecisions struct {
+	IDs []string `json:"ids"`
 }

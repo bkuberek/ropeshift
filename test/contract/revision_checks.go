@@ -1,6 +1,7 @@
 package contract
 
 import (
+	"encoding/json"
 	"errors"
 	"slices"
 	"strings"
@@ -37,6 +38,9 @@ var RevisionChecks = []Check{
 	{"PRV17", "a one-way decision recorded after a branch's approval keeps the hold on its work when intake records the version", checkRevisionBranchKeepsALaterHold},
 	{"PRV18", "a branch approved before any decision of the revision leaves the revision open, since the version it approved", checkRevisionBranchRebasesWhatItApprovedBefore},
 	{"PRV19", "a revision a branch's approval splits gives each part only the rework its own decisions made", checkRevisionSplitSharesNoRework},
+	{"PRV20", "a decision recorded in the same millisecond as a branch's approval is one the approval did not show, and keeps the hold it put on work", checkRevisionBranchKeepsADecisionOfTheSameMillisecond},
+	{"PRV21", "a decision recorded after a branch's approval is one it did not show, though the clock has stepped back behind the approval", checkRevisionBranchKeepsADecisionTheClockPlacesBefore},
+	{"PRV22", "an approval closes the revision for every decision it showed, though the clock has stepped back behind them", checkRevisionApprovalClosesWhatTheClockPlacesAfter},
 }
 
 func checkRevisionReworkOfUnlistedWork(r *Rig) error {
@@ -353,6 +357,211 @@ func checkRevisionSplitSharesNoRework(r *Rig) error {
 	if len(open.Finished) != 1 || open.Finished[0].WorkOrder != done || !slices.Equal(open.Finished[0].Decisions, []string{later.ID}) ||
 		open.Finished[0].Rework != "" || len(open.Finished[0].ReworkFor) != 0 {
 		return Violatedf("the new revision lists %+v, want the finished work for %s with no rework, because the rework %s was made for %s", open.Finished, later.ID, rework, shown.ID)
+	}
+	return r.CheckQuestions(m.s)
+}
+
+// freezeClock stops database time where it stands, so the writes that follow read one millisecond, and returns what
+// starts it again.
+func (r *Rig) freezeClock(s ports.Store) (func(), error) {
+	var now int64
+	err := s.Read(r.Ctx, r.Scope, func(tx ports.ReadTx) error {
+		var err error
+		now, err = tx.Now()
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	r.DB.FreezeClock(now)
+	return func() { r.DB.FreezeClock(0) }, nil
+}
+
+// showed reads the decisions an approval recorded as the ones it showed of the plan's revision, and false when it
+// recorded none.
+func (m *midPlan) showed(approval authority.Approval) ([]string, bool, error) {
+	var row authority.Approval
+	err := m.s.Read(m.r.Ctx, m.r.Scope, func(tx ports.ReadTx) error {
+		var err error
+		row, err = tx.Approvals().Approval(approval.ID)
+		return err
+	})
+	if err != nil {
+		return nil, false, err
+	}
+	var detail planning.PlanDetail
+	if err := json.Unmarshal([]byte(row.Detail), &detail); err != nil {
+		return nil, false, Violatedf("the detail of %s is %q: %v", row.ID, row.Detail, err)
+	}
+	if detail.Shown == nil {
+		return nil, false, nil
+	}
+	return detail.Shown.IDs, true, nil
+}
+
+// demandShowed says an approval recorded the decisions given as the ones it showed.
+func (m *midPlan) demandShowed(approval authority.Approval, want ...string) error {
+	showed, recorded, err := m.showed(approval)
+	if err != nil {
+		return err
+	}
+	if !recorded || !slices.Equal(showed, want) {
+		return Violatedf("the approval %s recorded that it showed %v (recorded: %v), want %v", approval.ID, showed, recorded, want)
+	}
+	return nil
+}
+
+// demandSplitHoldsLater says an approval closed a revision that lists the decision it showed alone, that a new revision
+// lists the later one alone, and that the work the later one-way decision binds is still held by it, until a member
+// confirms the new revision.
+func (m *midPlan) demandSplitHoldsLater(shown, later questions.Decision, approved authority.Approval) error {
+	all, err := m.revisions()
+	if err != nil || len(all) != 2 {
+		return Violatedf("the plan has the revisions %+v, want the one the approval closed and one for the later decision %s: %v", all, later.ID, err)
+	}
+	settled, open := all[0], all[1]
+	if settled.Open() || settled.Outcome != planning.RevisionApproved || settled.Approval != approved.ID || !slices.Equal(settled.DecisionIDs, []string{shown.ID}) {
+		return Violatedf("the first revision is %+v, want it closed as approved by %s, listing %s alone", settled, approved.ID, shown.ID)
+	}
+	if !open.Open() || !slices.Equal(open.DecisionIDs, []string{later.ID}) {
+		return Violatedf("the second revision is %+v, want it open for %s alone, which the approval did not show", open, later.ID)
+	}
+	load, err := m.order("load")
+	if err != nil || load.State != workorders.ContractReview || load.StartHeld == nil || load.StartHeld.Reason != workorders.HoldDecision {
+		return Violatedf("work the later one-way decision binds is %s, held by %+v, want contract review, held by the decision: %v", load.State, load.StartHeld, err)
+	}
+	if err := m.waitsOnRevision("load"); err != nil {
+		return err
+	}
+	if _, err := m.r.NewOps(m.s).ConfirmRevision(m.r.Ctx, m.r.Scope, m.plan, m.r.member()); err != nil {
+		return err
+	}
+	if load, err = m.order("load"); err != nil || load.State != workorders.Ready || load.StartHeld != nil {
+		return Violatedf("Confirm left the work %s, held by %+v: %v", load.State, load.StartHeld, err)
+	}
+	return m.r.CheckQuestions(m.s)
+}
+
+func checkRevisionBranchKeepsADecisionOfTheSameMillisecond(r *Rig) error {
+	m, err := midPlanWorld(r)
+	if err != nil {
+		return err
+	}
+	shown, err := m.decide(r.member(), "contract:"+m.contractOf("web"), questions.Reversible)
+	if err != nil {
+		return err
+	}
+	session, pending, err := m.branchAsksForApproval()
+	if err != nil {
+		return err
+	}
+	thaw, err := r.freezeClock(m.s)
+	if err != nil {
+		return err
+	}
+	defer thaw()
+	approved, err := r.approve(m.s, pending, true, theMember)
+	if err != nil {
+		return err
+	}
+	later, err := m.decide(r.member(), "contract:"+m.contractOf("load"), questions.OneWay)
+	if err != nil {
+		return err
+	}
+	thaw()
+	if open, err := m.demandOpen("a member decided in the millisecond after approving a branch"); err != nil {
+		return err
+	} else if open.ListedAt[later.ID] != approved.DecidedAt {
+		return Violatedf("the decision was listed at %d and the approval decided at %d, want one millisecond: the clock did not stop", open.ListedAt[later.ID], approved.DecidedAt)
+	}
+	if err := m.demandShowed(approved, shown.ID); err != nil {
+		return err
+	}
+	if err := m.intakeTakesTheBranch(session); err != nil {
+		return err
+	}
+	return m.demandSplitHoldsLater(shown, later, approved)
+}
+
+func checkRevisionBranchKeepsADecisionTheClockPlacesBefore(r *Rig) error {
+	m, err := midPlanWorld(r)
+	if err != nil {
+		return err
+	}
+	shown, err := m.decide(r.member(), "contract:"+m.contractOf("web"), questions.Reversible)
+	if err != nil {
+		return err
+	}
+	session, pending, err := m.branchAsksForApproval()
+	if err != nil {
+		return err
+	}
+	approved, err := r.approve(m.s, pending, true, theMember)
+	if err != nil {
+		return err
+	}
+	// The host's clock is set back a minute after the member approved, as a time service does, and the next decision
+	// is recorded at a time before the approval.
+	const step = 60_000
+	r.DB.ShiftClock(-step)
+	later, err := m.decide(r.member(), "contract:"+m.contractOf("load"), questions.OneWay)
+	r.DB.ShiftClock(step)
+	if err != nil {
+		return err
+	}
+	if open, err := m.demandOpen("a member decided after the clock stepped back"); err != nil {
+		return err
+	} else if open.ListedAt[later.ID] >= approved.DecidedAt {
+		return Violatedf("the decision was listed at %d and the approval decided at %d, want the decision to read earlier: the clock did not step back", open.ListedAt[later.ID], approved.DecidedAt)
+	}
+	if err := m.intakeTakesTheBranch(session); err != nil {
+		return err
+	}
+	return m.demandSplitHoldsLater(shown, later, approved)
+}
+
+func checkRevisionApprovalClosesWhatTheClockPlacesAfter(r *Rig) error {
+	m, err := midPlanWorld(r)
+	if err != nil {
+		return err
+	}
+	decided, err := m.decide(r.member(), "plan:"+m.plan, questions.OneWay)
+	if err != nil {
+		return err
+	}
+	m.source.Write("spec.md", []byte(DocumentText("spec", "api", "The API", midPlanID, "The second draft.")))
+	if _, err := r.intake(m.s, m.source); err != nil {
+		return err
+	}
+	pending, err := r.theOpenPlanApproval(m.s)
+	if err != nil {
+		return err
+	}
+	// The clock is set back a minute before the member approves, so the decision reads as recorded after the approval,
+	// though the member had it in front of them.
+	const step = 60_000
+	r.DB.ShiftClock(-step)
+	approved, err := r.approve(m.s, pending, true, theMember)
+	r.DB.ShiftClock(step)
+	if err != nil {
+		return err
+	}
+	all, err := m.revisions()
+	if err != nil || len(all) != 1 {
+		return Violatedf("the plan has the revisions %+v after the approval, want the one it closed: %v", all, err)
+	}
+	revision := all[0]
+	if revision.ListedAt[decided.ID] <= approved.DecidedAt {
+		return Violatedf("the decision was listed at %d and the approval decided at %d, want the decision to read later: the clock did not step back", revision.ListedAt[decided.ID], approved.DecidedAt)
+	}
+	if revision.Open() || revision.Outcome != planning.RevisionApproved || revision.Approval != approved.ID || !slices.Equal(revision.DecisionIDs, []string{decided.ID}) {
+		return Violatedf("the approval left the revision %+v, want it closed as approved by %s, listing %s that the member had in front of them", revision, approved.ID, decided.ID)
+	}
+	if err := m.demandShowed(approved, decided.ID); err != nil {
+		return err
+	}
+	if load, err := m.order("load"); err != nil || load.State != workorders.Ready || load.StartHeld != nil {
+		return Violatedf("the approval left the waiting work %s, held by %+v: %v", load.State, load.StartHeld, err)
 	}
 	return r.CheckQuestions(m.s)
 }

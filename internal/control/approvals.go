@@ -200,6 +200,11 @@ func (a *Approvals) DecideFrom(ctx context.Context, scope ledger.WorkspaceID, de
 		if channel != "" {
 			record.Channel = channel
 		}
+		if record.Kind == authority.KindPlan && record.State == authority.ApprovalApproved {
+			if record, err = showDecisions(tx, record); err != nil {
+				return err
+			}
+		}
 		if err := noteApproval(tx, record, row.State, actor); err != nil {
 			return err
 		}

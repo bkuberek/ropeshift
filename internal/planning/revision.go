@@ -91,6 +91,27 @@ func (r Revision) Through(at int64) []string {
 	return earlier
 }
 
+// Within lists the decisions the revision lists that are among the ones given, in the order it lists them.
+func (r Revision) Within(ids []string) []string {
+	return r.listed(ids, true)
+}
+
+// Outside lists the decisions the revision lists that are not among the ones given, in the order it lists them. It
+// is every decision Within leaves out.
+func (r Revision) Outside(ids []string) []string {
+	return r.listed(ids, false)
+}
+
+func (r Revision) listed(ids []string, among bool) []string {
+	var listed []string
+	for _, id := range r.DecisionIDs {
+		if slices.Contains(ids, id) == among {
+			listed = append(listed, id)
+		}
+	}
+	return listed
+}
+
 // Extend returns the revision with one more decision, recorded at a moment, and with the finished work orders that
 // decision reached under each of them. A decision or a work order it lists already stays listed once, with the
 // moment it was first listed.

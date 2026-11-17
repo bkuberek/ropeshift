@@ -744,7 +744,8 @@ type ApprovalWriter interface {
 	// Insert adds a request, and reports whether it was new.
 	Insert(authority.Approval) (bool, error)
 	// Save is the compare-and-set of a request's state: it replaces what can change on one that still
-	// stands in the state its caller read, and reports whether it did.
+	// stands in the state its caller read, and reports whether it did. A plan approval's detail changes
+	// when a member approves it, because it then records the decisions it showed.
 	Save(approval authority.Approval, from authority.ApprovalState) (bool, error)
 	// LinkPlan names the plan version a plan approval is about once the ledger holds it, for a request
 	// that was raised for a branch nothing had read yet. It reports whether the request had none.

@@ -127,6 +127,28 @@ func TestARevisionNamesTheDecisionsListedAfterAMoment(t *testing.T) {
 	}
 }
 
+func TestARevisionNamesTheDecisionsItListsAmongSomeAndTheRest(t *testing.T) {
+	revision := planning.Revision{ID: "r1", PlanID: "factory"}.Extend("d1", 10, nil).Extend("d2", 10, nil).Extend("d3", 5, nil)
+
+	for _, test := range []struct {
+		ids          []string
+		within, rest []string
+	}{
+		{[]string{"d3", "d1"}, []string{"d1", "d3"}, []string{"d2"}},
+		{[]string{"d1", "d2", "d3", "nobody"}, []string{"d1", "d2", "d3"}, nil},
+		{[]string{}, nil, []string{"d1", "d2", "d3"}},
+		{nil, nil, []string{"d1", "d2", "d3"}},
+		{[]string{"nobody"}, nil, []string{"d1", "d2", "d3"}},
+	} {
+		if got := revision.Within(test.ids); !slices.Equal(got, test.within) {
+			t.Errorf("within %v the revision lists %v, want %v, in the order it lists them whatever the times say", test.ids, got, test.within)
+		}
+		if got := revision.Outside(test.ids); !slices.Equal(got, test.rest) {
+			t.Errorf("outside %v the revision lists %v, want %v", test.ids, got, test.rest)
+		}
+	}
+}
+
 func TestARevisionRestrictedToSomeDecisionsKeepsTheirOrderAndTheWorkTheyReached(t *testing.T) {
 	revision := planning.Revision{ID: "r1", PlanID: "factory"}.Extend("d1", 10, []string{"done"}).Extend("d2", 20, []string{"done", "load"}).Extend("d3", 30, nil)
 	later := revision.Restrict([]string{"d3", "d2"})
