@@ -685,6 +685,16 @@ describe("Members and the audit", () => {
     expect(within(table).getByText("member-1")).toBeTruthy();
   });
 
+  it("moves keyboard focus into the sign out dialog when a move to the page opens it", async () => {
+    serveAdmin();
+    openPage("/decisions");
+    await screen.findByRole("heading", { level: 1, name: "Decisions" });
+    act(() => go("/members?dialog=sign-out-all"));
+    const dialog = await screen.findByRole("dialog", { name: "Sign out all sessions" });
+    await waitFor(() => expect(dialog.contains(document.activeElement)).toBe(true));
+    expect(document.activeElement).not.toBe(screen.getByRole("heading", { level: 1, name: "Members" }));
+  });
+
   it("lists events newest first, filters them, and opens one's whole record", async () => {
     const sent = serveAdmin();
     openPage(here("/audit"));
@@ -706,6 +716,18 @@ describe("Workers", () => {
     expect(await within(dialog).findByText("join-secret")).toBeTruthy();
     expect(within(dialog).getByText(/only time the token is shown/)).toBeTruthy();
     expect(sentTo(sent, "POST", "/v1/workers/tokens")).toHaveLength(1);
+  });
+});
+
+describe("Workers dialog focus", () => {
+  it("moves keyboard focus into the join token dialog when a move to the page opens it", async () => {
+    serveAdmin();
+    openPage("/decisions");
+    await screen.findByRole("heading", { level: 1, name: "Decisions" });
+    act(() => go("/workers?dialog=token"));
+    const dialog = await screen.findByRole("dialog", { name: "Create join token" });
+    await waitFor(() => expect(dialog.contains(document.activeElement)).toBe(true));
+    expect(document.activeElement).not.toBe(screen.getByRole("heading", { level: 1, name: "Workers and resources" }));
   });
 });
 
