@@ -446,6 +446,39 @@ describe("a work order", () => {
     expect(pr.querySelector("a[href^='https:']")).toBeNull();
   });
 
+  // The merge gate reads the checks on the pull request, and they show whatever the review's state: while a review
+  // is open the tick records no forge check, and the review's end moves the work on in the same step. A forge
+  // check on record that the pull request lists too shows once, as the pull request was last read.
+  it("lists the checks on the pull request beside the checks on record, while the review is still open", async () => {
+    const standing = golden<Standing>("acceptance-reviewed");
+    standing.work_order_id = "wo-running";
+    standing.reviews = [{ id: "wo-running-review", state: "running", attempt: 1 }];
+    standing.checks = [
+      { id: "k1", name: "go test", status: "passed", source: "lane" },
+      { id: "forge:wo-running:1:CI result", name: "CI result", status: "passed", source: "forge" },
+    ];
+    standing.pull_request = {
+      number: 12,
+      url: "https://github.com/acme/harbor-web/pull/12",
+      state: "open",
+      base: "main",
+      branch: "lane/wo-running",
+      head_commit: "9f8e7d6c5b4a39281706",
+      checks: [
+        { name: "CI result", state: "passed", required: true },
+        { name: "e2e", state: "pending", required: true },
+        { name: "lint", state: "failed" },
+      ],
+    };
+    serveViews((call) => (call.method === "GET" && call.path === "/v1/work-orders/wo-running/acceptance" ? { status: 200, body: standing } : undefined));
+    openPage("/work-order?id=wo-running&tab=checks");
+    const checks = await screen.findByRole("list", { name: "Checks" });
+    const rows = within(checks).getAllByRole("listitem");
+    expect(rows.map((row) => row.querySelector(".mono")?.textContent)).toEqual(["go test", "CI result", "e2e", "lint"]);
+    expect(rows.map((row) => row.lastElementChild?.textContent)).toEqual(["Lane", "Pull request #12, required", "Pull request #12, required", "Pull request #12"]);
+    expect(rows[2]?.textContent).toContain("Pending");
+  });
+
   it("says the pull request merged, and the commit the merge made", async () => {
     const standing = golden<Standing>("acceptance-ended");
     standing.work_order_id = "wo-done";
