@@ -100,7 +100,8 @@ func (w *Worker) bracket(ctx context.Context, effect lanes.Effect, perform func(
 }
 
 // inLanesProject gives an effect the project of its lane: the run that holds the lane names it in its lease,
-// and a lane no run holds names it in its record. An effect of a lane neither knows keeps no project.
+// and a lane no run holds, or one whose lease names none, names it in its record. An effect of a lane
+// neither knows keeps no project.
 func (w *Worker) inLanesProject(ctx context.Context, effect lanes.Effect) lanes.Effect {
 	if effect.Project != "" || effect.Lane == "" {
 		return effect
@@ -108,7 +109,7 @@ func (w *Worker) inLanesProject(ctx context.Context, effect lanes.Effect) lanes.
 	w.mu.Lock()
 	run := w.running[effect.Lane]
 	w.mu.Unlock()
-	if run != nil {
+	if run != nil && run.lease.Project != "" {
 		effect.Project = run.lease.Project
 		return effect
 	}
