@@ -21,10 +21,14 @@ import (
 // repository, so the refusal of a repository another project holds is decided under the index's lock. The
 // first statement that writes the index ends a read-only side, which has changed nothing, and begins a
 // writing one in its place, and every read after it runs there. The side commits just before the
-// project's: a crash between the two, or a commit of the project's that fails, leaves an entry whose record
-// is missing, which a retry in the same project completes. The next start drops it: SQLite's rebuilds the
-// index from the records, and Postgres's releases each entry that no record of its project backs. A crash
-// never leaves a record that holds no entry.
+// project's: a crash between the two, or a commit of the project's that fails, leaves the index disagreeing
+// with the records. It may hold an entry whose record is missing or still removed, or the identity of a
+// remote move that did not happen, and it may lack the entry of a record that a removal released. A retry
+// in the same project completes some of these, and until the index is repaired another project can register
+// the identity of a record that has no entry. A store whose database keeps running repairs it when the
+// project's commit fails, through Options.AfterFailedWrite. The next start repairs the index from the
+// records that committed: SQLite's rebuilds the whole index, and Postgres's rebuilds the entries of each
+// project whose entries disagree with its records.
 //
 // The project's transaction and the side are idle in turn: each waits while the other runs a statement. A
 // server that ends a session left idle inside a transaction (idle_in_transaction_session_timeout) ends the

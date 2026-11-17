@@ -213,6 +213,12 @@ func (s *State) Create(ctx context.Context, p ledger.Project, actor ledger.Actor
 // process is about to register. A schema the registry names stays: the step that failed may have
 // committed. The drop runs although the caller's context ended, as the release of the lock does. It returns
 // cause, joined with the failure of the drop.
+//
+// The read of the registry sees what has committed by then, which is not always what the failed step
+// decided. A step that failed because its connection was lost in the middle of its commit may still commit
+// on the server after the read, and the drop then takes the schema of a project the registry names. Nothing
+// in this process can tell that apart, and the project is made whole by the same call: Create with the
+// project's ID finds the registry's row, makes the schema again, and migrates it.
 func (c *creation) abandon(ctx context.Context, cause error) error {
 	if c.store != nil {
 		_ = c.store.Close()
@@ -226,8 +232,8 @@ func (c *creation) abandon(ctx context.Context, cause error) error {
 	if _, err := c.s.Installation.ProjectByID(ctx, c.p.ID); !errors.Is(err, ports.ErrNotFound) {
 		return cause
 	}
-	if _, err := c.s.pool.Exec(ctx, `DROP SCHEMA IF EXISTS `+quote(c.schema)+` CASCADE`); err != nil {
-		return errors.Join(cause, fmt.Errorf("postgres: drop schema %s: %w", c.schema, err))
+	if err := c.s.dropSchema(ctx, c.schema); err != nil {
+		return errors.Join(cause, err)
 	}
 	return cause
 }
@@ -331,10 +337,7 @@ func (r *removal) steps() []step {
 		// the project is refused.
 		func(ctx context.Context) error {
 			r.s.forget(r.p.ID)
-			if _, err := r.s.pool.Exec(ctx, `DROP SCHEMA IF EXISTS `+quote(r.schema)+` CASCADE`); err != nil {
-				return fmt.Errorf("postgres: drop schema %s: %w", r.schema, err)
-			}
-			return nil
+			return r.s.dropSchema(ctx, r.schema)
 		},
 	}
 }

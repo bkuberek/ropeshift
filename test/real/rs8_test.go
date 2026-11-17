@@ -5,7 +5,6 @@ package real
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -413,6 +412,6 @@ func (s *suite) reportRefused(row messages.Message, version string) {
 		s.t.Error("a refused message came back as a replay")
 	}
 	if prompts > 1 {
-		s.t.Error(fmt.Sprintf("%d prompts on record, and a refused message is none of them", prompts))
+		s.t.Errorf("%d prompts on record, and a refused message is none of them", prompts)
 	}
 }

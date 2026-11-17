@@ -122,6 +122,45 @@ func TestReleasingRepositoriesRemovesOnlyTheEntriesItNames(t *testing.T) {
 	}
 }
 
+func TestReplacingAProjectsRepositoriesLeavesTheOtherProjectsAlone(t *testing.T) {
+	installation := openInstallation(t, t.TempDir())
+	ctx := t.Context()
+	entries := []ledger.IndexedRepository{
+		{Identity: "github.com/acme/app", Project: "default", Repository: "app"},
+		{Identity: "github.com/acme/site", Project: "p2", Repository: "site"},
+		{Identity: "github.com/acme/docs", Project: "p2", Repository: "docs"},
+	}
+	if _, err := installation.IndexRepositories(ctx, entries); err != nil {
+		t.Fatal(err)
+	}
+	replacement := []ledger.IndexedRepository{
+		{Identity: "github.com/acme/site", Project: "p2", Repository: "site-copy"},
+		{Identity: "github.com/acme/app", Project: "p2", Repository: "app-copy"},
+		{Identity: "github.com/acme/blog", Project: "p2", Repository: "blog"},
+	}
+	conflicts, err := installation.ReplaceProjectRepositories(ctx, "p2", replacement)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(conflicts, replacement[1:2]) {
+		t.Errorf("the conflicts are %+v, want the identity another project holds", conflicts)
+	}
+	index, err := installation.RepositoryIndex(ctx)
+	want := []ledger.IndexedRepository{entries[0], replacement[2], replacement[0]}
+	if err != nil || !slices.Equal(index, want) {
+		t.Errorf("the index holds %+v: %v, want %+v", index, err, want)
+	}
+	if _, err := installation.ReplaceProjectRepositories(ctx, "p2", entries[:1]); err == nil {
+		t.Error("an entry of another project replaced a project's entries")
+	}
+	if index, err = installation.RepositoryIndex(ctx); err != nil || !slices.Equal(index, want) {
+		t.Errorf("a refused replacement left the index at %+v: %v", index, err)
+	}
+	if events, err := installation.Events(ctx, 0, 100); err != nil || len(events) != 0 {
+		t.Errorf("a replacement of routing data logged %+v: %v", events, err)
+	}
+}
+
 func TestTheRepositoryIndexKeepsTheFirstProjectThatHoldsARepository(t *testing.T) {
 	installation := openInstallation(t, t.TempDir())
 	ctx := t.Context()

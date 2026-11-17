@@ -29,11 +29,16 @@ type Store struct {
 	scope string
 	// warn receives what a migration goes on past, or is nil.
 	warn func(string)
+	// afterFailedWrite is called when a write fails after the repository index committed, or is nil.
+	afterFailedWrite func(context.Context, ledger.WorkspaceID)
 }
 
 // New returns a Store on an open database. It owns db from here on, and never the installation's.
 func New(db *sql.DB, dialect Dialect, opts Options) *Store {
-	s := &Store{db: db, dialect: dialect, trace: opts.Trace, installation: opts.Installation, warn: opts.Warn}
+	s := &Store{
+		db: db, dialect: dialect, trace: opts.Trace, installation: opts.Installation, warn: opts.Warn,
+		afterFailedWrite: opts.AfterFailedWrite,
+	}
 	if opts.Schema != "" {
 		s.scope = dialect.SchemaSQL(opts.Schema)
 	}
@@ -381,6 +386,11 @@ func (s *Store) Write(ctx context.Context, scope ledger.WorkspaceID, op string, 
 		crashpoint.Hit("repository_index", "committed")
 	}
 	if err := tx.Commit(); err != nil {
+		if wrote && s.afterFailedWrite != nil {
+			// The index holds what the write entered, and the records may not have committed. The write's
+			// context may be what failed the commit, so the repair does not take it.
+			s.afterFailedWrite(context.WithoutCancel(ctx), scope)
+		}
 		return fmt.Errorf("%s: commit: %w", op, err)
 	}
 	crashpoint.Hit(op, "committed")

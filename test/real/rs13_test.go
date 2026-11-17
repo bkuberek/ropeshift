@@ -4,7 +4,6 @@ package real
 
 import (
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -367,6 +366,6 @@ func TestRS13(t *testing.T) {
 		t.Errorf("ropeshift's own lane spans: %d", spans[ledger.SpanLane])
 	}
 	if size > rs13Cap {
-		t.Error(fmt.Sprintf("the store holds %d bytes, past its bound", size))
+		t.Errorf("the store holds %d bytes, past its bound", size)
 	}
 }

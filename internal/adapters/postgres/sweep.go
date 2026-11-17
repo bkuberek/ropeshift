@@ -53,11 +53,11 @@ func (s *State) sweep(ctx context.Context) error {
 		if named[name] || !generatedSchema(name) {
 			continue
 		}
-		if _, err := s.pool.Exec(ctx, `DROP SCHEMA IF EXISTS `+quote(name)+` CASCADE`); err != nil {
+		if err := s.dropSchema(ctx, name); err != nil {
 			if ctxErr := ctx.Err(); ctxErr != nil {
 				return ctxErr
 			}
-			s.warn("postgres: sweep: drop schema %s: %v", name, err)
+			s.warn("%v", err)
 		}
 	}
 	return nil
