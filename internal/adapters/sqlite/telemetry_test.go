@@ -125,6 +125,41 @@ func TestLaneTelemetryPrefersRopeshiftsOwnFigures(t *testing.T) {
 
 func near(a, b float64) bool { return a-b < 1e-9 && b-a < 1e-9 }
 
+// TestALanesCostIsALowerBoundOnlyWhenATurnWentUnreported sums the turns the worker counted whose cost was never
+// reported: a lane with any has a cost that is a lower bound, whichever source the cost came from, and the count
+// adds nothing to the cost. A lane whose every turn reported its cost is no lower bound, whatever another lane says.
+func TestALanesCostIsALowerBoundOnlyWhenATurnWentUnreported(t *testing.T) {
+	store := openTelemetry(t)
+	records := []ports.TelemetryRecord{
+		metric("lane-1", "ropeshift.lane.cost", 0.25, 10, nil),
+		metric("lane-1", "ropeshift.lane.cost.unreported", 1, 11, nil),
+		metric("lane-2", "ropeshift.lane.cost", 0.5, 12, nil),
+		metric("lane-3", "claude_code.cost.usage", 0.1, 13, nil),
+		metric("lane-3", "ropeshift.lane.cost.unreported", 1, 14, nil),
+		metric("lane-3", "ropeshift.lane.cost.unreported", 1, 15, nil),
+		metric("lane-4", "ropeshift.lane.cost", 0.5, 16, nil),
+	}
+	if err := store.Append(t.Context(), 100, records); err != nil {
+		t.Fatal(err)
+	}
+	lanes, err := store.Lanes(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]bool{"lane-1": true, "lane-2": false, "lane-3": true, "lane-4": false}
+	if len(lanes) != len(want) {
+		t.Fatalf("lanes %+v", lanes)
+	}
+	for _, lane := range lanes {
+		if lane.LowerBound != want[lane.Lane] {
+			t.Errorf("%s reads a lower bound %t, want %t", lane.Lane, lane.LowerBound, want[lane.Lane])
+		}
+	}
+	if !near(lanes[0].CostUSD, 0.25) || !near(lanes[2].CostUSD, 0.1) {
+		t.Errorf("an unreported turn changed a cost: %+v", lanes)
+	}
+}
+
 func TestRetentionDropsWhatIsOlderThanTheAge(t *testing.T) {
 	store := openTelemetry(t)
 	day := time.Hour.Milliseconds() * 24
