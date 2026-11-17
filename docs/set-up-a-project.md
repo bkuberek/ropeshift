@@ -2,7 +2,7 @@
 
 This guide takes you from a fresh machine to a project with one repository, a first approved plan, and its work accepted and merged. It explains each choice on the way, so you know what you chose and how to change it later.
 
-For the fastest path through one sample work order, follow [get started](getting-started.md). For the same planning steps with every screen shown, follow [your first plan](first-plan.md). For a project that spans several repositories, read this guide first, then [projects of several repositories](multiple-repositories.md). To bring in a project that already has documents and branches, see [adopt an existing project](adopt.md).
+To install ropeshift and sign in to the web UI first, follow [get started with the web UI](getting-started.md). For the same planning steps with every screen shown, follow [your first plan](first-plan.md). For a project that spans several repositories, read this guide first, then [projects of several repositories](multiple-repositories.md). To bring in a project that already has documents and branches, see [adopt an existing project](adopt.md).
 
 ## Before you start
 

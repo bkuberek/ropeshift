@@ -67,7 +67,7 @@ A guide's world is the installation its walk starts from. Each theme runs its ow
 
 | World | What it holds |
 | --- | --- |
-| `harbor` | A fresh installation: the first project, a connected worker, the fake agent CLI, and two clones, `harbor-api` and `harbor-web`, on disk and registered nowhere. Guides 1 to 7 walk it as one story |
+| `harbor` | A fresh installation: the first project, a connected worker at `attended`, the fake agent CLI signed in with a subscription, and two clones, `harbor-api` and `harbor-web`, on disk and registered nowhere. Guides 1 to 7 walk it as one story |
 | `sample` | The sample project of `make screenshots`, for the guides that read a project with history |
 
 Go prepares only what the web UI cannot do: the clones, the fake agent CLI's scripted turns, and the installation. Everything a guide tells a person to do in the web UI, the walk does in the web UI.
@@ -163,7 +163,7 @@ Every published image has a row, and every row names a capture and the name it i
 | `roadmap-<theme>-1440.png` | `roadmap-<theme>.png` | Web UI guide |
 | `planning-<theme>-1440.png` | `planning-<theme>.png` | First plan |
 | `plan-approval-<theme>-1440.png` | `plan-approval-<theme>.png` | Web UI guide, first plan |
-| `work-order-<theme>-1440.png` | `work-order-<theme>.png` | Getting started, first plan |
+| `work-order-<theme>-1440.png` | `work-order-<theme>.png` | First plan |
 | `documents-requirement-<theme>-1440.png` | `documents-<theme>.png` | Web UI guide |
 | `conversations-<theme>-1440.png` | `conversations-<theme>.png` | Web UI guide |
 | `agents-project-<theme>-1440.png` | `agents-<theme>.png` | Web UI guide |
@@ -173,5 +173,12 @@ Every published image has a row, and every row names a capture and the name it i
 | `repository-<theme>-1440.png` | `repository-<theme>.png` | GitHub guide |
 | `import-<theme>-1440.png` | `import-<theme>.png` | Adopt guide |
 | `top.png` | `top.png` | README |
+| `get-started-01-<theme>.png` | `get-started-01-<theme>.png` | Get started |
+| `get-started-02-<theme>.png` | `get-started-02-<theme>.png` | Get started |
+| `get-started-03-<theme>.png` | `get-started-03-<theme>.png` | Get started |
+| `get-started-04-<theme>.png` | `get-started-04-<theme>.png` | Get started |
+| `get-started-05-<theme>.png` | `get-started-05-<theme>.png` | Get started |
+| `get-started-06-<theme>.png` | `get-started-06-<theme>.png` | Get started |
+| `get-started-07-<theme>.png` | `get-started-07-<theme>.png` | Get started |
 
 After a release, run `make screenshots` at its tag, look at each image, and publish. Then update the version that the README's screenshots section and the web UI guide name.
