@@ -620,6 +620,33 @@ func TestDocumentRecordedPrintsAStoredVersion(t *testing.T) {
 	}
 }
 
+// TestDocumentRecordedSaysTheStatusOfEachVersionOfADecisionRecord reads a decision record whose status changed
+// in a commit: each version states the status it had.
+func TestDocumentRecordedSaysTheStatusOfEachVersionOfADecisionRecord(t *testing.T) {
+	s := newSession(t)
+	source := fake.NewWorkSource()
+	record := func(status string) []byte {
+		return []byte("+++\nkind = \"decision\"\nid = \"adr-0007\"\ntitle = \"Retry budget\"\nstatus = \"" + status + "\"\nplan = \"a-plan\"\n+++\n\nEvery call has a budget.\n")
+	}
+	source.Write("plan.md", []byte(contract.PlanText("a-plan", "The plan", "")))
+	for _, status := range []string{"proposed", "accepted"} {
+		source.Write("decision.md", record(status))
+		if report, err := control.NewIntake(s.daemon.Store).Poll(t.Context(), apitest.Scope, source); err != nil || len(report.Problems) != 0 {
+			t.Fatalf("report %+v: %v", report, err)
+		}
+	}
+	var read api.RecordedRead
+	if err := json.Unmarshal([]byte(s.must("document", "recorded", "decision:adr-0007", "--version", "1", "--json")), &read); err != nil {
+		t.Fatal(err)
+	}
+	if read.Version.Status != "proposed" || len(read.Document.Versions) != 2 || read.Document.Versions[0].Status != "accepted" || read.Document.Versions[1].Status != "proposed" {
+		t.Errorf("statuses %+v", read)
+	}
+	if text := s.must("document", "recorded", "decision:adr-0007"); text != "Every call has a budget.\n" {
+		t.Errorf("newest %q", text)
+	}
+}
+
 func TestQuestionCommands(t *testing.T) {
 	s := newSession(t)
 	s.must("category", "add", "pricing")
