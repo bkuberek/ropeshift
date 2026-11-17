@@ -330,13 +330,13 @@ type reach struct {
 }
 
 // readsWhatIsBound says a work order that only reads or judges stands over work a decision binds: a contract
-// review of the plan a plan scope names, or a review of work the decision reached.
-func readsWhatIsBound(order workorders.WorkOrder, scope questions.Scope, bound []workorders.WorkOrder) bool {
+// review of the plan a plan scope names, or a review of work the decision reached, which `bound` holds by ID.
+func readsWhatIsBound(order workorders.WorkOrder, scope questions.Scope, bound map[string]bool) bool {
 	switch order.Kind {
 	case workorders.KindContractReview:
 		return scope.Kind == questions.ScopePlan && order.ReviewsPlan == scope.ID
 	case workorders.KindReview:
-		return slices.ContainsFunc(bound, func(b workorders.WorkOrder) bool { return b.ID == order.Reviews })
+		return bound[order.Reviews]
 	}
 	return false
 }
@@ -399,8 +399,12 @@ func reachOf(tx ports.WriteTx, decision questions.Decision) (reach, error) {
 		}
 	}
 	plan, _ := questions.ParseScope(decision.Scope)
+	bound := map[string]bool{}
+	for _, order := range touched.orders {
+		bound[order.ID] = true
+	}
 	for _, order := range orders {
-		if readsWhatIsBound(order, plan, touched.orders) {
+		if readsWhatIsBound(order, plan, bound) {
 			touched.told = append(touched.told, order)
 		}
 	}
