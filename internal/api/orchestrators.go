@@ -12,11 +12,15 @@ type SetOrchestrator struct {
 	Desired string `json:"desired_state"`
 }
 
-// WaitingForRunWindow is what holds the run of an attended worker's orchestrator while no run window is
-// open. Its worker starts the session only when there is something to judge, and new work is not, until a
-// member opens a window, so the run reads `provisioning` until then, or until a question or a message
-// wakes it.
-const WaitingForRunWindow = "run_window"
+// What holds the run of an orchestrator a member wants before its session starts. Its worker starts the
+// session only when there is something to judge, and until then says the run reads `awaiting_wake`.
+const (
+	// WaitingForRunWindow is that wait on an attended worker with no run window open, where new work is
+	// nothing to judge until a member opens a window, or until a question or a message wakes the run.
+	WaitingForRunWindow = "run_window"
+	// WaitingForWork is that wait on any other worker.
+	WaitingForWork = "work"
+)
 
 // Orchestrator is a worker's orchestrator as a client reads it: the ledger's record, and WaitingFor, what
 // holds a run a member wants before its session starts, which the control plane reads at the time of the
@@ -29,8 +33,11 @@ type Orchestrator struct {
 // OrchestratorState says how an orchestrator reads, in the words every client prints: what holds a run
 // whose session has not started, or else the state its worker last said, which is empty until it says one.
 func OrchestratorState(o Orchestrator) string {
-	if o.WaitingFor == WaitingForRunWindow {
+	switch o.WaitingFor {
+	case WaitingForRunWindow:
 		return "waiting for a run window"
+	case WaitingForWork:
+		return "waiting for work"
 	}
 	return o.Actual
 }

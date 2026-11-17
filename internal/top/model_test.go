@@ -436,6 +436,11 @@ func TestAPrintedFrameClipsNoLaneOrWorker(t *testing.T) {
 	if frame := top.Frame(snapshot, time.UnixMilli(snapshot.Needs.AsOf), 200); !strings.Contains(frame, "orchestrator waiting for a run window, wanted running") {
 		t.Errorf("a run that waits for a window reads otherwise:\n%s", frame)
 	}
+	// A run held until there is something to judge, on a worker a window does not hold, waits for work.
+	worker.Orchestrator = &api.Orchestrator{Orchestrator: ledger.Orchestrator{Desired: "running", Actual: "provisioning"}, WaitingFor: api.WaitingForWork}
+	if frame := top.Frame(snapshot, time.UnixMilli(snapshot.Needs.AsOf), 200); !strings.Contains(frame, "orchestrator waiting for work, wanted running") {
+		t.Errorf("a run that waits for work reads otherwise:\n%s", frame)
+	}
 	// A process tree the worker reported before the floor read its orchestrator still says whose it is.
 	worker.Orchestrator = nil
 	if frame := top.Frame(snapshot, time.UnixMilli(snapshot.Needs.AsOf), 200); !strings.Contains(frame, "observed  orchestrator cpu 0.25 cores  rss 300.0 MiB") && !strings.Contains(frame, "reported  orchestrator cpu 0.25 cores  rss 300.0 MiB") {

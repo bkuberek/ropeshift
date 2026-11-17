@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"ropeshift.com/ropeshift/internal/api"
+	"ropeshift.com/ropeshift/internal/control"
 	"ropeshift.com/ropeshift/internal/ledger"
 )
 
@@ -31,18 +32,21 @@ func (h *handler) workerOrchestrate(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *handler) showOrchestrator(w http.ResponseWriter, r *http.Request) {
-	row, waits, err := h.plane.OrchestratorStanding(r.Context(), r.PathValue("id"))
+	row, wait, err := h.plane.OrchestratorStanding(r.Context(), r.PathValue("id"))
 	if err != nil {
 		fail(w, err)
 		return
 	}
-	reply(w, http.StatusOK, api.Orchestrator{Orchestrator: row, WaitingFor: waitingFor(waits)})
+	reply(w, http.StatusOK, api.Orchestrator{Orchestrator: row, WaitingFor: waitingFor(wait)})
 }
 
-// waitingFor names what holds an orchestrator's run, which is a run window or nothing.
-func waitingFor(awaitsWindow bool) string {
-	if awaitsWindow {
+// waitingFor names what holds an orchestrator's run: a run window, work, or nothing.
+func waitingFor(wait control.OrchestratorWait) string {
+	switch wait {
+	case control.WaitsForRunWindow:
 		return api.WaitingForRunWindow
+	case control.WaitsForWork:
+		return api.WaitingForWork
 	}
 	return ""
 }
