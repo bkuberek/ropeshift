@@ -29,9 +29,22 @@ func (s *State) Create(ctx context.Context, p ledger.Project, actor ledger.Actor
 }
 
 // Rename gives a project a new name, and the display name it is given or the one it has. The ID, the database,
-// and every record keep their identity.
+// and every record keep their identity. The registry renames the project first, because it refuses a name another
+// project holds, and the project's ledger then keeps the name the project is shown by, which a backup carries. A
+// crash between the two leaves the ledger's name as it was, and a repeat of the rename brings it up to date.
 func (s *State) Rename(ctx context.Context, id ledger.WorkspaceID, name, displayName string, actor ledger.Actor) (ledger.Project, error) {
-	return s.Installation.RenameProject(ctx, id, name, displayName, actor)
+	renamed, err := s.Installation.RenameProject(ctx, id, name, displayName, actor)
+	if err != nil {
+		return ledger.Project{}, err
+	}
+	store, err := s.ledgerOf(ctx, renamed)
+	if err != nil {
+		return ledger.Project{}, err
+	}
+	if err := store.RenameWorkspace(ctx, renamed.ID, sqlstore.WorkspaceName(renamed), actor); err != nil {
+		return ledger.Project{}, fmt.Errorf("project %s is renamed, and its ledger keeps the name it had: %w", renamed.ID, err)
+	}
+	return renamed, nil
 }
 
 // SetState archives or restores a project.

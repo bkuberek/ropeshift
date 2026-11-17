@@ -48,7 +48,13 @@ func startTalk(t *testing.T) *talkDaemon {
 // startTalkWith is startTalk on a daemon with these options, such as a clock that repeats.
 func startTalkWith(t *testing.T, options apitest.Options) *talkDaemon {
 	t.Helper()
-	d := &talkDaemon{Daemon: apitest.StartWith(t, options), hosts: map[string]control.AssistantHost{}}
+	return startTalkOn(t, apitest.StartWith(t, options))
+}
+
+// startTalkOn is startTalk on a daemon a test started, such as an installation's.
+func startTalkOn(t *testing.T, daemon *apitest.Daemon) *talkDaemon {
+	t.Helper()
+	d := &talkDaemon{Daemon: daemon, hosts: map[string]control.AssistantHost{}}
 	config := d.Config
 	config.AssistantHosts = func(context.Context, ledger.WorkspaceID) (map[string]control.AssistantHost, error) {
 		return d.hosts, nil
@@ -142,6 +148,31 @@ func (d *talkDaemon) assistant(t *testing.T) (conversations.Conversation, *api.P
 	client.UseDelegate(grant.Token)
 	client.UseWhy(aWhy)
 	return record, client.Project(apitest.ProjectName), grant
+}
+
+// An assistant's pack names the project as the project's own ledger does, which a rename keeps current, so a
+// generation that starts after a rename reads the name the project is shown by now.
+func TestAnAssistantNamesTheProjectAsItIsShownAfterARename(t *testing.T) {
+	in := apitest.StartInstallation(t)
+	d := startTalkOn(t, in.Daemon)
+	opened, err := d.client.CreateConversation(t.Context(), api.CreateConversation{ID: "conv-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	record := opened.Conversation.Conversation
+	d.running(t, record)
+	if _, err := in.Client.RenameProject(t.Context(), apitest.ProjectName, api.RenameProject{Name: "harbor", DisplayName: "Harbor docs"}); err != nil {
+		t.Fatal(err)
+	}
+	grant, err := d.workers.AssistantCredential(t.Context(), ledger.AssistantCredentialRequest{
+		Auth: d.auth, Epoch: d.epoch, Conversation: record.ID, Lane: record.RunLane, Generation: 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if grant.Context.ProjectName != "Harbor docs" {
+		t.Errorf("the assistant names the project %q, want Harbor docs", grant.Context.ProjectName)
+	}
 }
 
 func (d *talkDaemon) entries(t *testing.T, id string) []api.TalkEntry {

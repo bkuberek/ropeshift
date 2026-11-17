@@ -138,6 +138,15 @@ func (s *State) kept(id ledger.WorkspaceID) (*sqlstore.Store, bool) {
 // for any lock. Any other must be one the registry holds, which Open reads under the lock that Create and
 // Remove take, so it never makes the schema of a project a removal has forgotten.
 func (s *State) Open(ctx context.Context, p ledger.Project) (ports.Store, error) {
+	store, err := s.ledgerOf(ctx, p)
+	if err != nil {
+		return nil, err
+	}
+	return store, nil
+}
+
+// ledgerOf is Open, with the Store the state keeps.
+func (s *State) ledgerOf(ctx context.Context, p ledger.Project) (*sqlstore.Store, error) {
 	if store, ok := s.kept(p.ID); ok {
 		return store, nil
 	}

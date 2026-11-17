@@ -164,11 +164,7 @@ func (c *creation) steps() []step {
 		},
 		// The project's workspace, which a retry finds and leaves as it is.
 		func(ctx context.Context) error {
-			name := c.p.DisplayName
-			if name == "" {
-				name = c.p.Name
-			}
-			_, err := c.store.CreateWorkspace(ctx, ledger.Workspace{ID: c.p.ID, Name: name}, c.actor)
+			_, err := c.store.CreateWorkspace(ctx, ledger.Workspace{ID: c.p.ID, Name: sqlstore.WorkspaceName(c.p)}, c.actor)
 			return err
 		},
 		// The registry's row and event, which decide that the project exists.
@@ -373,9 +369,23 @@ func (s *State) Index(ctx context.Context) ([]ledger.IndexedRepository, error) {
 	return s.Installation.RepositoryIndex(ctx)
 }
 
-// Rename gives a project a new name. The ID, the schema, and every record keep their identity.
+// Rename gives a project a new name, and the display name it is given or the one it has. The ID, the schema, and
+// every record keep their identity. The registry renames the project first, because it refuses a name another
+// project holds, and the project's schema then keeps the name the project is shown by. A crash between the two
+// leaves the schema's name as it was, and a repeat of the rename brings it up to date.
 func (s *State) Rename(ctx context.Context, id ledger.WorkspaceID, name, displayName string, actor ledger.Actor) (ledger.Project, error) {
-	return s.Installation.RenameProject(ctx, id, name, displayName, actor)
+	renamed, err := s.Installation.RenameProject(ctx, id, name, displayName, actor)
+	if err != nil {
+		return ledger.Project{}, err
+	}
+	store, err := s.ledgerOf(ctx, renamed)
+	if err != nil {
+		return ledger.Project{}, err
+	}
+	if err := store.RenameWorkspace(ctx, renamed.ID, sqlstore.WorkspaceName(renamed), actor); err != nil {
+		return ledger.Project{}, fmt.Errorf("project %s is renamed, and its schema keeps the name it had: %w", renamed.ID, err)
+	}
+	return renamed, nil
 }
 
 // SetState archives or restores a project. Archiving keeps the schema, and the registry's state is what

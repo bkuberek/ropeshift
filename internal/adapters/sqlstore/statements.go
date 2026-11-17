@@ -66,6 +66,9 @@ RETURNING rev`)
 		`SELECT id, name, fleet_mode, rev, policy_version, wip_limit, repository_limit, worker_limit
   FROM workspaces WHERE id = :workspace_id`)
 
+	stmtRenameWorkspace = define("workspace.rename",
+		`UPDATE workspaces SET name = :name WHERE id = :workspace_id AND name <> :name`)
+
 	stmtSaveFleet = define("workspace.save_fleet",
 		`UPDATE workspaces
    SET fleet_mode = :fleet_mode, wip_limit = :wip_limit, repository_limit = :repository_limit, worker_limit = :worker_limit
