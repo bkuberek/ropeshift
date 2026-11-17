@@ -80,6 +80,33 @@ func Names() []string {
 	return names
 }
 
+// tomlString is the template function that writes text as a TOML basic string, quotes included: the quote, the
+// backslash, and every control character are escaped, and bytes that are not UTF-8 become U+FFFD, so no text
+// ends the string, adds a line, or makes the file invalid.
+func tomlString(text string) string {
+	var out strings.Builder
+	out.WriteByte('"')
+	for _, r := range strings.ToValidUTF8(text, "�") {
+		switch {
+		case r == '"' || r == '\\':
+			out.WriteByte('\\')
+			out.WriteRune(r)
+		case r == '\n':
+			out.WriteString(`\n`)
+		case r == '\r':
+			out.WriteString(`\r`)
+		case r == '\t':
+			out.WriteString(`\t`)
+		case r < 0x20 || r == 0x7f:
+			fmt.Fprintf(&out, `\u%04X`, r)
+		default:
+			out.WriteRune(r)
+		}
+	}
+	out.WriteByte('"')
+	return out.String()
+}
+
 // Render returns the text of the template named name, rendered over data. A name that no template has is
 // ErrUnknown.
 func Render(name string, data Data) (string, error) {
@@ -90,7 +117,7 @@ func Render(name string, data Data) (string, error) {
 	if data.Example {
 		data = example
 	}
-	parsed, err := template.New(name).Option("missingkey=error").Parse(string(source))
+	parsed, err := template.New(name).Option("missingkey=error").Funcs(template.FuncMap{"tomlString": tomlString}).Parse(string(source))
 	if err != nil {
 		return "", fmt.Errorf("template %s: %w", name, err)
 	}

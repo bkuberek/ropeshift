@@ -30,7 +30,7 @@ name = "{{ $r.Name }}"
 {{ if eq $i 0 -}}
 # Approval registers the clone at `path` only when its remote is this one.
 {{ end -}}
-remote = "{{ $r.Remote }}"
+remote = {{ tomlString $r.Remote }}
 {{ if eq $i 0 -}}
 # Where the clone sits, relative to the planning repository's clone: inside its ignored repos/ folder,
 # or beside it, as ../{{ $r.Name }}. It must stay inside the folder that holds the planning repository's

@@ -107,7 +107,8 @@ func Path(name string) string {
 }
 
 // Check refuses a folder no shape writes: an unknown shape, code repositories on a shape other than a
-// workspace, a name the ledger refuses as a repository's, a name given twice, and a repository with no remote.
+// workspace, a name the ledger refuses as a repository's, a name given twice, and a repository whose remote is
+// empty or is not a single-line git remote.
 func Check(shape Shape, repositories []CodeRepository) error {
 	if !shape.Valid() {
 		return fmt.Errorf("%w: no shape %q; the shapes are workspace, monorepo, and repository", ErrInvalid, shape)
@@ -126,6 +127,9 @@ func Check(shape Shape, repositories []CodeRepository) error {
 		seen[repository.Name] = true
 		if repository.Remote == "" {
 			return fmt.Errorf("%w: repository %s has no remote", ErrInvalid, repository.Name)
+		}
+		if err := checkRemote(repository.Remote); err != nil {
+			return fmt.Errorf("%w: repository %s: %w", ErrInvalid, repository.Name, err)
 		}
 	}
 	return nil
