@@ -76,6 +76,7 @@ func packVariants() []variant {
 		{name: "a revision that lists the work a one-way decision reworked", control: control.Sabotage{ListsOneWayFinishedWork: true}, check: "PRV3"},
 		{name: "a revision that lists no finished work to rework", control: control.Sabotage{ListsNoFinishedWork: true}, check: "PRV10"},
 		{name: "work that passes review while its plan's revision is open", control: control.Sabotage{WaitsOnNoRevision: true}, check: "PRV4"},
+		{name: "work of a plan that no decision of its revision binds, which waits for it", control: control.Sabotage{WaitsPlanWide: true}, check: "PRV12"},
 		{name: "work that waits on a revision after Confirm", control: control.Sabotage{KeepsWaitingWork: true}, check: "PRV4"},
 		{name: "work a one-way decision held, which Confirm leaves held", control: control.Sabotage{KeepsDecisionHolds: true}, check: "PRV5"},
 		{name: "a revision any actor confirms", control: control.Sabotage{ConfirmsAnyActor: true}, check: "PRV6"},

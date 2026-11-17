@@ -30,7 +30,7 @@ type PlanView struct {
 	// Versions lists every version of the plan, newest first, with where its approval stands.
 	Versions []PlanVersionLine `json:"versions"`
 	// Revision is the plan's open revision when it has one: the decisions made inside its approved version, which
-	// keep its unstarted work in contract review until a member confirms the version or approves a later one.
+	// keep the work they bind in contract review until a member confirms the version or approves a later one.
 	Revision *PlanRevisionView `json:"revision,omitempty"`
 }
 

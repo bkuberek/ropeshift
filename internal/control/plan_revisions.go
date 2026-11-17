@@ -127,8 +127,37 @@ func saveRevision(tx ports.WriteTx, revision planning.Revision, kind string, act
 	return err
 }
 
-// revisionWait says why work of a plan waits for it, from the plan's open revision, or nothing for a plan with none.
-func revisionWait(planned ports.PlanningReader, plan string) (string, error) {
+// RevisionBinds counts the decisions of a revision whose scope binds a work order. Work waits for a revision when a
+// decision it lists binds it, and work that none binds does not (ADR-0030): a decision about one contract holds the
+// work of that contract, and the plan's other work goes on.
+func RevisionBinds(planned ports.PlanningReader, orders ports.WorkOrderReader, asked ports.QuestionReader, revision planning.Revision, order workorders.WorkOrder) (int, error) {
+	if waitsPlanWide() {
+		return len(revision.DecisionIDs), nil
+	}
+	facts := newScopeFacts(planned, orders)
+	var bound int
+	for _, id := range revision.DecisionIDs {
+		decision, err := asked.Decision(id)
+		if errors.Is(err, ports.ErrNotFound) {
+			continue
+		}
+		if err != nil {
+			return 0, err
+		}
+		binds, err := facts.covers(decision.Scope, order)
+		if err != nil {
+			return 0, err
+		}
+		if binds {
+			bound++
+		}
+	}
+	return bound, nil
+}
+
+// revisionWait says why a work order waits for its plan's open revision: the decisions since the approved version
+// that bind it. It says nothing for work of a plan with no open revision, and for work no decision binds.
+func revisionWait(planned ports.PlanningReader, orders ports.WorkOrderReader, asked ports.QuestionReader, plan string, order workorders.WorkOrder) (string, error) {
 	if plan == "" || waitsOnNoRevision() {
 		return "", nil
 	}
@@ -139,8 +168,12 @@ func revisionWait(planned ports.PlanningReader, plan string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("the plan needs revision: %d decisions since version %d wait for a member to confirm that version or approve a later one",
-		len(revision.DecisionIDs), revision.ApprovedVersion), nil
+	bound, err := RevisionBinds(planned, orders, asked, revision, order)
+	if err != nil || bound == 0 {
+		return "", err
+	}
+	return fmt.Sprintf("the plan needs revision: %d decisions since version %d bind this work, and wait for a member to confirm that version or approve a later one",
+		bound, revision.ApprovedVersion), nil
 }
 
 // settlePlanWork runs the pass of contract review again for the work of a plan that waits in it, once what held it

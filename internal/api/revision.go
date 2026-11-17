@@ -11,8 +11,9 @@ import (
 )
 
 // PlanRevisionView is what a member reads of a plan that decisions have moved past: the decisions made since the
-// version a member approved, with what each says, the finished work the reversible ones reached, and the work that
-// waits in contract review until the revision closes. Revision is absent for a plan with none open.
+// version a member approved, with what each says, the finished work the reversible ones reached, and the work those
+// decisions bind that waits in contract review until the revision closes. Revision is absent for a plan with none
+// open.
 type PlanRevisionView struct {
 	Plan      string                 `json:"plan"`
 	Title     string                 `json:"title"`
@@ -42,7 +43,8 @@ type RevisionFinishedWork struct {
 	Rework    string           `json:"rework,omitempty"`
 }
 
-// RevisionWaitingWork is a work order of the plan that waits in contract review for the revision to close.
+// RevisionWaitingWork is a work order that a decision of the revision binds, which waits in contract review for the
+// revision to close.
 type RevisionWaitingWork struct {
 	WorkOrder string `json:"work_order"`
 	Title     string `json:"title"`

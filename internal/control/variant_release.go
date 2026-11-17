@@ -130,6 +130,7 @@ func extendsNothing() bool          { return false }
 func listsNoFinishedWork() bool     { return false }
 func listsOneWayFinishedWork() bool { return false }
 func waitsOnNoRevision() bool       { return false }
+func waitsPlanWide() bool           { return false }
 func confirmsAnyActor() bool        { return false }
 func keepsWaitingWork() bool        { return false }
 func keepsDecisionHolds() bool      { return false }

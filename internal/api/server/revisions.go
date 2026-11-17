@@ -91,8 +91,8 @@ func openRevisionView(tx ports.ReadTx, plan planning.Plan) (api.PlanRevisionView
 	return revisionView(tx, plan, revision)
 }
 
-// revisionView reads a revision with what its decisions say, the finished work they reached, and the work that
-// waits for it. A closed revision waits for nothing.
+// revisionView reads a revision with what its decisions say, the finished work they reached, and the work its
+// decisions bind that waits in contract review for it. A closed revision waits for nothing.
 func revisionView(tx ports.ReadTx, plan planning.Plan, revision planning.Revision) (api.PlanRevisionView, error) {
 	view := api.PlanRevisionView{
 		Plan: plan.ID, Title: plan.Title, Revision: &revision,
@@ -139,7 +139,15 @@ func revisionView(tx ports.ReadTx, plan planning.Plan, revision planning.Revisio
 			return api.PlanRevisionView{}, err
 		}
 		for _, order := range orders {
-			if order.State == workorders.ContractReview && (order.Kind == workorders.KindChange || order.Kind == workorders.KindRework) {
+			if order.State != workorders.ContractReview || (order.Kind != workorders.KindChange && order.Kind != workorders.KindRework) {
+				continue
+			}
+			// Work waits for the revision when a decision it lists binds it, and no other work of the plan does.
+			bound, err := control.RevisionBinds(tx.Planning(), tx.WorkOrders(), tx.Questions(), revision, order)
+			if err != nil {
+				return api.PlanRevisionView{}, err
+			}
+			if bound > 0 {
 				view.Waiting = append(view.Waiting, api.RevisionWaitingWork{WorkOrder: order.ID, Title: order.Title})
 			}
 		}

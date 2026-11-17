@@ -34,7 +34,7 @@ type RevisionWork struct {
 
 // Revision is what a member is asked to settle for a plan whose approved version decisions have moved past: the
 // decisions a member recorded, answered, or overturned inside it, and the finished work the reversible ones
-// reached. A plan has one open revision at most, and unstarted work under the plan waits in contract review
+// reached. A plan has one open revision at most, and unstarted work those decisions bind waits in contract review
 // until it closes (ADR-0030).
 type Revision struct {
 	ID              string `json:"id"`

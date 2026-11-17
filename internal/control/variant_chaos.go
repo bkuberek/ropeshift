@@ -124,6 +124,8 @@ type Sabotage struct {
 	ListsOneWayFinishedWork bool
 	// WaitsOnNoRevision lets work of a plan pass its contract review while the plan's revision is open.
 	WaitsOnNoRevision bool
+	// WaitsPlanWide holds every work order of a plan for its open revision, and not the work its decisions bind.
+	WaitsPlanWide bool
 	// ConfirmsAnyActor lets any actor confirm a revision.
 	ConfirmsAnyActor bool
 	// KeepsWaitingWork leaves the work that waited in review as it was when a revision is settled.
@@ -269,6 +271,8 @@ func listsNoFinishedWork() bool { return current().ListsNoFinishedWork }
 func listsOneWayFinishedWork() bool { return current().ListsOneWayFinishedWork }
 
 func waitsOnNoRevision() bool { return current().WaitsOnNoRevision }
+
+func waitsPlanWide() bool { return current().WaitsPlanWide }
 
 func confirmsAnyActor() bool { return current().ConfirmsAnyActor }
 

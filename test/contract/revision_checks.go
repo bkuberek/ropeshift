@@ -29,6 +29,7 @@ var RevisionChecks = []Check{
 	{"PRV9", "revising starts a planning session whose brief lists the decisions with their statements and scopes", checkRevisionStartsASession},
 	{"PRV10", "a member makes the rework of finished work a reversible decision reached and its revision lists, once, naming the decisions", checkRevisionDecisionRework},
 	{"PRV11", "a decision answered in a batch of the plan review opens one revision for the batch", checkRevisionOneForABatch},
+	{"PRV12", "only work a decision of the revision binds waits for it, and work of the plan that none binds passes its review", checkRevisionWaitsForBoundWorkOnly},
 }
 
 // revisions lists every revision of a plan, by when it opened.
@@ -528,6 +529,55 @@ func checkRevisionDecisionRework(r *Rig) error {
 	}
 	if _, err := ops.DecisionRework(r.Ctx, r.Scope, done, []string{first.ID}, r.member()); !errors.Is(err, workorders.ErrInvalid) {
 		return Violatedf("rework for a decision once its revision closed was %v, want invalid", err)
+	}
+	return r.CheckQuestions(m.s)
+}
+
+// checkRevisionWaitsForBoundWorkOnly holds ADR-0030's reach of the wait: a revision holds the work its decisions
+// bind, by their scopes, and not every work order of the plan. A decision about one contract leaves the work of
+// another contract of the plan to pass its review while the revision is open, and a decision that binds it holds it.
+func checkRevisionWaitsForBoundWorkOnly(r *Rig) error {
+	m, err := midPlanWorld(r)
+	if err != nil {
+		return err
+	}
+	ops := r.NewOps(m.s)
+	if _, err := m.decide(r.member(), "contract:"+m.contractOf("web"), questions.Reversible); err != nil {
+		return err
+	}
+	if _, err := m.demandOpen("a member decided about one contract of the plan"); err != nil {
+		return err
+	}
+	load, err := m.order("load")
+	if err != nil {
+		return err
+	}
+	if load.State != workorders.Ready {
+		return Violatedf("a decision about another contract moved work that it does not bind to %s", load.State)
+	}
+	// Unstarted work no decision of the revision binds goes back to review and passes it, whatever the plan's revision.
+	if err := ops.Move(r.Ctx, r.Scope, load.ID, workorders.TriggerBackToReview, r.member()); err != nil {
+		return err
+	}
+	result, err := ops.Pass(r.Ctx, r.Scope, load.ID, r.member())
+	if err != nil {
+		return err
+	}
+	if result.State != workorders.Ready {
+		return Violatedf("work of the plan that no decision of its open revision binds is %s after its review, with %+v, want ready", result.State, result.Failures)
+	}
+	// A decision that binds it holds it, and Confirm releases it.
+	if _, err := m.decide(r.member(), "contract:"+m.contractOf("load"), questions.Reversible); err != nil {
+		return err
+	}
+	if err := m.waitsOnRevision("load"); err != nil {
+		return err
+	}
+	if _, err := ops.ConfirmRevision(r.Ctx, r.Scope, m.plan, r.member()); err != nil {
+		return err
+	}
+	if load, err = m.order("load"); err != nil || load.State != workorders.Ready {
+		return Violatedf("Confirm left the work its decision bound %s: %v", load.State, err)
 	}
 	return r.CheckQuestions(m.s)
 }
