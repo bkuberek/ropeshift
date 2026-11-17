@@ -2,6 +2,7 @@ package control
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"ropeshift.com/ropeshift/internal/authority"
@@ -51,12 +52,17 @@ func (p *Projects) Create(ctx context.Context, name, displayName string, actor l
 }
 
 // Rename changes a project's name, and its display name when one is given. Its ID, its database, and every record
-// keep their identity. A rename to the name it has changes only the display name.
+// keep their identity. A rename to the name it has changes only the display name. A rename that stopped after the
+// registry changed the name and before the project's ledger kept it leaves the project under its new name, so the
+// old one is not found, and the refusal says that repeating the rename under the new name finishes it.
 func (p *Projects) Rename(ctx context.Context, name, newName, displayName string, actor ledger.Actor) (ledger.Project, error) {
 	if err := p.allowed(actor); err != nil {
 		return ledger.Project{}, err
 	}
 	project, err := p.registry.Named(ctx, name)
+	if errors.Is(err, ports.ErrNotFound) {
+		return ledger.Project{}, fmt.Errorf("%w: if an earlier rename of this project stopped half done, the project already has its new name: run `ropeshift project rename <new-name> <new-name>` to finish writing it to the project's ledger", err)
+	}
 	if err != nil {
 		return ledger.Project{}, err
 	}
