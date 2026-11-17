@@ -258,6 +258,21 @@ WHERE lane = ?1 AND seq > coalesce((SELECT value FROM cursors WHERE name = ?2), 
 	return true, tx.Commit()
 }
 
+// Forget drops the refusals of the events it names, in one transaction.
+func (j *Journal) Forget(ctx context.Context, seqs []int64) error {
+	tx, err := j.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	for _, seq := range seqs {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM rejections WHERE seq = ?1`, seq); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
 // moveParkedCommit points a lane's parked commit at the copy that replaced it.
 func moveParkedCommit(ctx context.Context, tx *sql.Tx, lane string, moved map[int64]int64) error {
 	var raw []byte
