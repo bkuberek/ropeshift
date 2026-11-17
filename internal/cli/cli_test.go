@@ -810,6 +810,22 @@ func TestPassphraseSetNeedsTwoThatMatch(t *testing.T) {
 	}
 }
 
+// A shell can still export a token that opens nothing, such as one from an installation that was set up again. The
+// first passphrase needs no session, so that token is not one the set came from and no session of it ended: the
+// command says what a first set says, as it does with no token exported.
+func TestTheFirstPassphraseSetWithAStaleTokenExportedSaysWhatAFirstSetSays(t *testing.T) {
+	daemon := apitest.StartWith(t, apitest.Options{NoMember: true})
+	s := &session{t: t, daemon: daemon}
+	code, stdout, stderr := s.runAs("a token nothing issued", (&asked{passphrase: apitest.Passphrase}).read, "passphrase", "set")
+	if code != cli.ExitOK || stdout != "passphrase set\n" {
+		t.Fatalf("exit %d, stdout %q, want %q: %s", code, stdout, "passphrase set\n", stderr)
+	}
+	code, stdout, stderr = s.runAs("a token nothing issued", (&asked{passphrase: apitest.Passphrase}).read, "login")
+	if code != cli.ExitOK || !strings.HasPrefix(stdout, "export ") {
+		t.Fatalf("the first passphrase does not sign in: exit %d, %s", code, stderr)
+	}
+}
+
 // A later passphrase set from the terminal ends the member's sessions as a change from the web UI does, and says how
 // many others it ended. A terminal holds no cookie a new token could reach, so the session the command came from ends
 // too, and a shell that exported one is told how to sign in again.
