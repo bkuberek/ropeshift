@@ -58,6 +58,12 @@ type BriefSpec struct {
 	// Adopt says this planning lane adopts an existing project (ADR-0023), so it is told how to onboard what
 	// the project holds and where the inventory of it is.
 	Adopt bool
+	// ManifestTemplate is the manifest of a project's code repositories as a template renders it with the
+	// example data (FR-TPL-3). A planning brief shows it after the other formats. Empty shows none.
+	ManifestTemplate string
+	// IntakeDirectory is the directory the daemon's intake reads plan files under, relative to the
+	// repository, and empty when it reads the whole repository.
+	IntakeDirectory string
 }
 
 // ReadTree is another repository of the project checked out for a lane to read, at the commit its claim
@@ -104,8 +110,9 @@ func writeContinuation(out *strings.Builder, c Continuation) {
 
 // planningNotice tells a planning lane what the ledger takes from it: files, at a commit, and only
 // once a person accepts it. It shows every format the lane writes, because a session holds no document
-// of them (FR-SESSION-5).
-func planningNotice() string {
+// of them (FR-SESSION-5), the manifest of a project's code repositories when the spec holds one (FR-TPL-3),
+// and where intake reads.
+func planningNotice(spec BriefSpec) string {
 	var out strings.Builder
 	out.WriteString("This is planning work. Its output is repository files, and nothing else you do reaches the ledger. " +
 		"Each file is Markdown with TOML front matter between +++ lines, and its kind says what it is. A file's id is stable, " +
@@ -115,6 +122,13 @@ func planningNotice() string {
 	for _, example := range planning.FormatExamples {
 		out.WriteString("\n" + example.Intro + "\n\n```markdown\n" + example.Text + "```\n")
 	}
+	if manifest := strings.TrimSuffix(spec.ManifestTemplate, "\n"); manifest != "" {
+		out.WriteString("\nA project of more than one code repository also keeps a manifest of them in this repository, which approving " +
+			"the plan registers the repositories from. This is its format, shown for a project of its own: name your own plan in plan, as " +
+			"the formats above do. A path in it is relative to the planning repository's clone and stays inside the folder that holds it.\n" +
+			"\n```markdown\n" + manifest + "\n```\n")
+	}
+	out.WriteString("\n" + intakeNotice(spec.IntakeDirectory) + "\n")
 	out.WriteString("\n" +
 		"- Every document, milestone, and contract names its plan with plan, and the plan lists every document it holds in " +
 		"documents. Write the plan file too: a file that names a plan nobody wrote is a problem, and intake records nothing from it. " +
@@ -145,6 +159,15 @@ func planningNotice() string {
 		"the plan yourself. A change you make after that is a new version of the plan, which the person approves too, so finish the " +
 		"plan before you report.\n")
 	return out.String()
+}
+
+// intakeNotice says where intake reads plan files: under the daemon's directory when it has one, and
+// otherwise anywhere in the repository, with the folder a lane should keep them in.
+func intakeNotice(directory string) string {
+	if dir := strings.Trim(directory, "/"); dir != "" && dir != "." {
+		return "Intake reads plan files only under `" + dir + "/`; write every plan file there."
+	}
+	return "Keep plan files in `plan/`; intake reads every committed `.md` file whose first line is `+++`."
 }
 
 // reviewNotice tells a review lane what a review is for. It finds, and it decides nothing.
@@ -260,7 +283,7 @@ func Brief(spec BriefSpec) string {
 		writeRework(&out, *spec.Rework)
 	}
 	if spec.Kind == workorders.KindPlan {
-		out.WriteString("\n" + planningNotice())
+		out.WriteString("\n" + planningNotice(spec))
 		if spec.Adopt {
 			out.WriteString(adoptNotice())
 		}

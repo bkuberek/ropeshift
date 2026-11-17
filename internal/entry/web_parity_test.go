@@ -69,12 +69,14 @@ var cliOnly = map[string]string{
 	"work write":        "FR-UI-7: work write stores one event under a claim's fence, which the worker protocol relies on",
 }
 
-// webGaps are the commands the web UI should have a row for and does not yet, each with the slice of U2
-// that adds it. A command whose row is added leaves this list, and the test fails until it does. The first
-// run of this test wrote it, and a command the audit did not name went by its area.
-var webGaps = map[string]string{}
+// webGaps are the commands the web UI should have a row for and does not yet, each with the slice of U2 or
+// of P4 that adds it. A command whose row is added leaves this list, and the test fails until it does. The
+// first run of this test wrote it, and a command the audit did not name went by its area.
+var webGaps = map[string]string{
+	"template show": "P4h", // template.go prints a template as templates.Render returns it; P4h's Templates view shows each one from GET /v1/templates (FR-TPL-5, DG1)
+}
 
-var gapSlice = regexp.MustCompile(`^U2[a-k][12]?$`)
+var gapSlice = regexp.MustCompile(`^(U2[a-k][12]?|P4[a-j][12]?)$`)
 
 // TestEveryCommandHasAWebRoute holds the CLI to the web listener: each command is named by a row of
 // WebRoutes, or is in exactly one of equivalents, cliOnly, and webGaps. An entry whose command a row now
@@ -128,7 +130,7 @@ func TestEveryCommandHasAWebRoute(t *testing.T) {
 		case !exists[command]:
 			t.Errorf("webGaps names %q, which is no command", command)
 		case !gapSlice.MatchString(slice):
-			t.Errorf("webGaps names %q as %q, which is no slice of U2", command, slice)
+			t.Errorf("webGaps names %q as %q, which is no slice of U2 or P4", command, slice)
 		}
 	}
 	if len(commands) < 100 {

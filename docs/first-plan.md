@@ -27,6 +27,8 @@ Your terminal joins the session's pane. Detach with `C-b d`, which leaves the se
 
 The session plans in the project's planning repository, and reads every other repository of the project, read-only. It writes only on its own branch, so your default branch does not change.
 
+Its first prompt shows the session every file format it writes, and where intake reads: under the daemon's `--dir` when it has one, and otherwise in `plan/`, though intake reads any committed `.md` file whose first line is `+++`. A project of several repositories also keeps a manifest of them, which the prompt shows too. `ropeshift template show workspace/plan/repositories.md` prints it, and [Set up your projects](set-up-projects.md#keep-a-manifest-in-the-planning-repository) explains it.
+
 ## 2. Answer its questions
 
 The planning agent asks what it needs to know to write the plan. Where its questions reach you depends on whether a terminal is attached to the session.

@@ -68,6 +68,11 @@ type LaneRuntime struct {
 	// ForgeEvery is how often the forge's sign-in is read for each repository, and how long a failed forge
 	// request waits before its next attempt. Zero takes a minute.
 	ForgeEvery time.Duration
+	// ManifestTemplate and IntakeDirectory are what a planning lane's first brief shows of the manifest of a
+	// project's code repositories and of where intake reads plan files (FR-TPL-3). The entry package renders
+	// the manifest and passes the daemon's --dir, because this package never imports the templates.
+	ManifestTemplate string
+	IntakeDirectory  string
 }
 
 // laneRun is one lane this process is running.
