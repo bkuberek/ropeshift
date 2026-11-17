@@ -35,11 +35,12 @@ const templateShowDetail = "A template prints as the example project acme render
 	"the path the template's file has in a new project's folder, or for profile.toml its path in the state directory, " +
 	"and empty for a template no project starts with. It needs no daemon and no session."
 
-// templatesSection is the commands help prints under "Templates". None acts on a project's records.
+// templatesSection is the commands help prints under "Templates": the `new` commands, which write a new
+// project's starting files, and `template show`. None acts on a project's records.
 func templatesSection() []registered {
 	show := command("template show", "[<name>] [--json]", "print a template as it renders for an example project, or list every template", (*invocation).templateShow)
 	show.Detail = templateShowDetail
-	return installation(show)
+	return installation(append(newCommands(), show)...)
 }
 
 // templateShow is `ropeshift template show`: it reads the templates embedded in this binary, and nothing else.

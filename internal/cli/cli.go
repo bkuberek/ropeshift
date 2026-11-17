@@ -53,6 +53,12 @@ type Options struct {
 	// RepositoryRoot is the top of the git working tree that holds the working directory, or empty when
 	// none does. Nil never finds one.
 	RepositoryRoot func(context.Context) (string, error)
+	// CloneTop is the top of the git work tree that holds a directory, as `git -C <dir> rev-parse
+	// --show-toplevel` names it, or empty when none does or git is missing. Nil never finds one.
+	CloneTop func(ctx context.Context, dir string) (string, error)
+	// CloneIgnores says whether the clone whose top is top ignores path, as `git -C <top> check-ignore -q --
+	// <path>` answers. Nil ignores nothing.
+	CloneIgnores func(ctx context.Context, top, path string) (bool, error)
 	// ReadPassphrase asks a person on their terminal. Nil means there is no terminal.
 	ReadPassphrase func(prompt string) (string, error)
 	// Terminal is the keyboard, when both ends of this process are a terminal. A live view needs one.
@@ -99,6 +105,8 @@ type invocation struct {
 	envProject     string
 	repositoryHere func(context.Context) (string, error)
 	repositoryRoot func(context.Context) (string, error)
+	cloneTop       func(context.Context, string) (string, error)
+	cloneIgnores   func(context.Context, string, string) (bool, error)
 	// command is what help says about the running command.
 	command Command
 	// helped says the command printed its help instead of running.
@@ -113,6 +121,7 @@ func Run(args []string, stdout, stderr io.Writer, opts Options) int {
 		session: opts.Session, delegate: opts.Delegate, readPassphrase: opts.ReadPassphrase, terminal: opts.Terminal,
 		panes: opts.Panes, startDaemon: opts.StartDaemon, stateDir: opts.StateDir, install: opts.InstallService, uninstall: opts.UninstallService,
 		envProject: opts.Project, repositoryHere: opts.RepositoryHere, repositoryRoot: opts.RepositoryRoot,
+		cloneTop: opts.CloneTop, cloneIgnores: opts.CloneIgnores,
 	}
 	found, rest, ok := find(args)
 	if !ok {

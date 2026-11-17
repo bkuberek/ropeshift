@@ -25,11 +25,12 @@ const (
 
 // MachineLocalCommands are the commands that act on the machine they run on, not through the API alone: a
 // service, the first run, the doctor, a passphrase typed on a terminal, a pane a person attaches to, a copy
-// written to a file the caller names, and clones registered from paths on this machine. No class gates
-// what they do to the machine, so a delegate runs none of them (ADR-0024).
+// written to a file the caller names, clones registered from paths on this machine, and a new project's
+// files written to a folder the caller names. No class gates what they do to the machine, so a delegate runs
+// none of them (ADR-0024).
 var MachineLocalCommands = []string{
 	"service install", "service uninstall", "init", "worker doctor", "login", "passphrase set", "lane attach", "plan start", "adopt",
-	"backup", "repository add",
+	"backup", "repository add", "new workspace", "new monorepo", "new repository",
 }
 
 // RedirectingFlags are the flags no delegate's command takes, by name: each points the command at another

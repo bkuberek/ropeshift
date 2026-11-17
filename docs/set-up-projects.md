@@ -6,6 +6,7 @@ This guide creates a project in the web UI for each product you work on, and reg
 
 - Finish [get started with the web UI](getting-started.md): the service runs, and you are signed in to the web UI.
 - Clone each repository with git. Ropeshift clones nothing: it registers the clones already on the machine the daemon runs on. [Project structure](project-structure.md#the-recommended-layout) recommends a layout for a project of one repository that grows to several.
+- For a project that has no repository yet, write its first files with `ropeshift new` and run the git commands it prints, which make each folder's first commit ([start a project](project-structure.md#start-a-project)). This guide then registers the folders in the web UI.
 
 In this guide, the code repositories are clones in one folder, and the planning repository is a clone beside it:
 
