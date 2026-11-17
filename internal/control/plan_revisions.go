@@ -202,7 +202,7 @@ func settlePlanWork(tx ports.WriteTx, plan string, actor ledger.Actor) error {
 			if order.State != workorders.ContractReview {
 				continue
 			}
-			if stands {
+			if stands && !releasesBoundWork() {
 				bound, err := RevisionBinds(tx.Planning(), tx.WorkOrders(), tx.Questions(), standing, order)
 				if err != nil {
 					return err
@@ -255,10 +255,12 @@ func (p *PlanRevisions) ConfirmRevision(ctx context.Context, scope ledger.Worksp
 
 // closeApprovedRevision ends the revision of a plan whose later version a member approved, naming the approval, and
 // releases the work that waited for it. Approving the version is the member's word on the decisions the request
-// showed beside the difference, which are the ones recorded when the member approved it. A decision recorded after
-// that no approval showed, so the revision goes on for those decisions alone, since the version the member
-// approved, and the work they bind keeps waiting. The version's approval never inherits the earlier one, so this
-// passes nothing the earlier approval did not cover.
+// showed beside the difference, which are the ones recorded at or before the moment the member approved it. A
+// decision recorded after that no approval showed, so the revision splits there: the one the approval closed lists
+// the decisions it showed, and a new one, since the version the member approved, lists the later decisions and
+// keeps waiting for the work they bind. When the approval showed none of them, the revision goes on as it is, since
+// the version approved. The version's approval never inherits the earlier one, so this passes nothing the earlier
+// approval did not cover.
 func closeApprovedRevision(tx ports.WriteTx, plan string, approval authority.Approval, member ledger.Actor) error {
 	if keepsRevisionOnApproval() {
 		return nil
@@ -270,15 +272,46 @@ func closeApprovedRevision(tx ports.WriteTx, plan string, approval authority.App
 	if err != nil {
 		return err
 	}
-	next, kind := open.Close(authority.Principal(member), tx.Now(), planning.RevisionApproved, approval.ID), planning.EventRevisionClosed
-	if later := open.After(approval.DecidedAt); len(later) != 0 && !closesLaterDecisions() {
-		next, kind = open.Restrict(later), planning.EventRevisionNarrowed
-		next.ApprovedVersion = max(open.ApprovedVersion, approval.PlanVersion)
+	shown, later := open.Through(approval.DecidedAt), open.After(approval.DecidedAt)
+	if closesLaterDecisions() {
+		shown, later = open.DecisionIDs, nil
 	}
-	if err := saveRevision(tx, next, kind, member); err != nil {
+	approved := max(open.ApprovedVersion, approval.PlanVersion)
+	by := authority.Principal(member)
+	switch {
+	case len(later) == 0:
+		err = saveRevision(tx, open.Close(by, tx.Now(), planning.RevisionApproved, approval.ID), planning.EventRevisionClosed, member)
+	case len(shown) == 0:
+		rebased := open
+		rebased.ApprovedVersion = approved
+		err = saveRevision(tx, rebased, planning.EventRevisionRebased, member)
+	case narrowsRevisionInPlace():
+		narrowed := open.Restrict(later)
+		narrowed.ApprovedVersion = approved
+		err = saveRevision(tx, narrowed, planning.EventRevisionRebased, member)
+	default:
+		err = splitRevision(tx, open, shown, later, approved, approval, member)
+	}
+	if err != nil {
 		return err
 	}
 	return settlePlanWork(tx, plan, member)
+}
+
+// splitRevision closes a revision for the decisions an approval showed, naming the approval, and opens a new one,
+// since the version it approved, for the decisions recorded after it.
+func splitRevision(tx ports.WriteTx, open planning.Revision, shown, later []string, approved int64, approval authority.Approval, member ledger.Actor) error {
+	closed := open.Restrict(shown).Close(authority.Principal(member), tx.Now(), planning.RevisionApproved, approval.ID)
+	if err := saveRevision(tx, closed, planning.EventRevisionClosed, member); err != nil {
+		return err
+	}
+	id, err := newID(tx.Now())
+	if err != nil {
+		return err
+	}
+	next := open.Restrict(later)
+	next.ID, next.ApprovedVersion, next.OpenedAt = id, approved, tx.Now()
+	return saveRevision(tx, next, planning.EventRevisionOpened, member)
 }
 
 // ReviseSession starts a planning session that revises a plan a revision is open on. It records the `plan` work

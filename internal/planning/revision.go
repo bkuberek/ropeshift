@@ -9,12 +9,12 @@ import (
 )
 
 // The events of a plan revision. Each holds the whole revision as it stands, so a replay needs nothing else.
-// A revision is narrowed when a member approves a version that came before some of its decisions: it goes on for
-// the decisions recorded after the approval.
+// A revision is rebased when a member approves a version before any of its decisions were recorded: it goes on, since
+// the approved version.
 const (
 	EventRevisionOpened   = "plan.revision_opened"
 	EventRevisionExtended = "plan.revision_extended"
-	EventRevisionNarrowed = "plan.revision_narrowed"
+	EventRevisionRebased  = "plan.revision_rebased"
 	EventRevisionClosed   = "plan.revision_closed"
 )
 
@@ -64,8 +64,8 @@ func (r Revision) Open() bool { return r.ClosedAt == 0 }
 // Names says a decision is one the revision lists.
 func (r Revision) Names(decision string) bool { return slices.Contains(r.DecisionIDs, decision) }
 
-// After lists the decisions the revision listed after a moment, in the order it lists them. A decision with no
-// time on record is not one of them.
+// After lists the decisions the revision listed after a moment, in the order it lists them. A decision listed at the
+// moment is not one of them, and neither is one with no time on record.
 func (r Revision) After(at int64) []string {
 	var later []string
 	for _, id := range r.DecisionIDs {
@@ -74,6 +74,18 @@ func (r Revision) After(at int64) []string {
 		}
 	}
 	return later
+}
+
+// Through lists the decisions the revision listed at a moment or before it, in the order it lists them. It is every
+// decision After leaves out.
+func (r Revision) Through(at int64) []string {
+	var earlier []string
+	for _, id := range r.DecisionIDs {
+		if r.ListedAt[id] <= at {
+			earlier = append(earlier, id)
+		}
+	}
+	return earlier
 }
 
 // Extend returns the revision with one more decision, recorded at a moment, and with the finished work orders that

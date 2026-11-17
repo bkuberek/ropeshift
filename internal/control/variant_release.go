@@ -139,6 +139,8 @@ func marksNoAssumption() bool       { return false }
 func reusesAnyWorkOrder() bool      { return false }
 func reworksUnlistedWork() bool     { return false }
 func closesLaterDecisions() bool    { return false }
+func narrowsRevisionInPlace() bool  { return false }
+func releasesBoundWork() bool       { return false }
 func briefsNoDecisions() bool       { return false }
 
 // leavesParkedLanes is false: a cancel ends a lane with no process, which no worker will report.

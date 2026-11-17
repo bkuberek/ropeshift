@@ -143,6 +143,12 @@ type Sabotage struct {
 	// ClosesLaterDecisions closes a revision for every decision it lists when a member approves a later version, the
 	// ones recorded after the approval included.
 	ClosesLaterDecisions bool
+	// NarrowsRevisionInPlace rewrites a revision with the decisions recorded after an approval, which leaves the
+	// approval no revision to show.
+	NarrowsRevisionInPlace bool
+	// ReleasesBoundWork lets a revision that stays open release the work its decisions bind when a member settles
+	// the plan.
+	ReleasesBoundWork bool
 	// BriefsNoDecisions starts a revising session with a brief that lists no decision.
 	BriefsNoDecisions bool
 	// LeavesParkedLanes cancels work and leaves its parked lane reading parked for good.
@@ -298,6 +304,10 @@ func reusesAnyWorkOrder() bool { return current().ReusesAnyWorkOrder }
 func reworksUnlistedWork() bool { return current().ReworksUnlistedWork }
 
 func closesLaterDecisions() bool { return current().ClosesLaterDecisions }
+
+func narrowsRevisionInPlace() bool { return current().NarrowsRevisionInPlace }
+
+func releasesBoundWork() bool { return current().ReleasesBoundWork }
 
 func briefsNoDecisions() bool { return current().BriefsNoDecisions }
 

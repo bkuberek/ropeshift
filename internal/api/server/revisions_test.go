@@ -167,3 +167,37 @@ func TestRevisionRoutesTakeNoCallWithNoMemberSession(t *testing.T) {
 		t.Errorf("a refused call changed the revision: %+v: %v", view.Revision, err)
 	}
 }
+
+// A decision recorded in the millisecond a member approves a later version is one the approval showed, because the
+// approval shows every decision recorded at or before the moment it was decided. A clock that does not move puts
+// the decision and the approval at that moment, so approving closes the revision that lists it.
+func TestADecisionRecordedAtTheMomentOfAnApprovalIsOneTheApprovalShowed(t *testing.T) {
+	t.Parallel()
+	d := apitest.StartWith(t, apitest.Options{Clock: apitest.NewClock().Dialect})
+	w := apitest.NewWorld(t, d)
+	source := retrySource("The first draft.")
+	w.Planned(source)
+	first := planApprovalNeed(t, readView[api.NeedsYou](t, d, api.ViewNeedsYou, ""))
+	if _, err := d.Client.DecideApproval(t.Context(), first.Approval.ID, api.DecideApproval{Digest: first.Approval.SubjectDigest, Allow: true}); err != nil {
+		t.Fatal(err)
+	}
+	plans, err := d.Client.Plans(t.Context())
+	if err != nil || len(plans) != 1 {
+		t.Fatalf("plans %+v: %v", plans, err)
+	}
+	if _, err := d.Client.RecordDecision(t.Context(), api.RecordDecision{
+		ID: "d-logo", Status: questions.DecisionDecided, Statement: "Use the wordmark.", Rationale: "It reads at small sizes.", Citations: []string{"brand-guide"},
+		Scope: "plan:" + plans[0].ID, Reversibility: questions.Reversible, Categories: []string{questions.CategoryProduct},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	source.Write("spec.md", []byte("+++\nkind = \"spec\"\nid = \"api\"\ntitle = \"The API\"\nplan = \"retry\"\n+++\n\nThe second draft.\n"))
+	w.Planned(source)
+	second := planApprovalNeed(t, readView[api.NeedsYou](t, d, api.ViewNeedsYou, ""))
+	if _, err := d.Client.DecideApproval(t.Context(), second.Approval.ID, api.DecideApproval{Digest: second.Approval.SubjectDigest, Allow: true}); err != nil {
+		t.Fatal(err)
+	}
+	if view, err := d.Client.PlanRevision(t.Context(), plans[0].ID); err != nil || view.Revision != nil {
+		t.Errorf("a decision recorded at the moment of the approval left the revision %+v: %v", view.Revision, err)
+	}
+}

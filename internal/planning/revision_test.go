@@ -57,6 +57,9 @@ func TestARevisionNamesTheDecisionsListedAfterAMoment(t *testing.T) {
 		if got := revision.After(test.at); !slices.Equal(got, test.want) {
 			t.Errorf("after %d the revision lists %v, want %v", test.at, got, test.want)
 		}
+		if got, all := revision.Through(test.at), revision.DecisionIDs; len(got)+len(test.want) != len(all) || !slices.Equal(append(slices.Clone(got), test.want...), all) {
+			t.Errorf("through %d the revision lists %v, want what is left of %v after %v", test.at, got, all, test.want)
+		}
 	}
 	if legacy := (planning.Revision{DecisionIDs: []string{"d1"}}); len(legacy.After(0)) != 0 {
 		t.Errorf("a decision no time is known for was listed after the approval: %v", legacy.After(0))

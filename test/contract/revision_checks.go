@@ -31,9 +31,11 @@ var RevisionChecks = []Check{
 	{"PRV11", "a decision answered in a batch of the plan review opens one revision for the batch", checkRevisionOneForABatch},
 	{"PRV12", "only work a decision of the revision binds waits for it, and work of the plan that none binds passes its review", checkRevisionWaitsForBoundWorkOnly},
 	{"PRV13", "a revising session's branch closes the revision once intake records the version a member approved, and approving the branch closes nothing before", checkRevisionClosesOnBranchApproval},
-	{"PRV14", "a branch's approval closes the revision only for the decisions recorded before it, and the later ones keep holding their work", checkRevisionBranchKeepsLaterDecisions},
+	{"PRV14", "a branch's approval closes the revision only for the decisions recorded before it, and a new revision holds the work of the later ones", checkRevisionBranchSplitsAtItsApproval},
 	{"PRV15", "a member's own assumption inside an approved plan opens a revision, as a decision does", checkRevisionOpensOnAssumption},
 	{"PRV16", "rework for a decision is refused for finished work the revision does not list", checkRevisionReworkOfUnlistedWork},
+	{"PRV17", "a one-way decision recorded after a branch's approval keeps the hold on its work when intake records the version", checkRevisionBranchKeepsALaterHold},
+	{"PRV18", "a branch approved before any decision of the revision leaves the revision open, since the version it approved", checkRevisionBranchRebasesWhatItApprovedBefore},
 }
 
 func checkRevisionReworkOfUnlistedWork(r *Rig) error {
@@ -169,23 +171,117 @@ func checkRevisionClosesOnBranchApproval(r *Rig) error {
 	return r.CheckQuestions(m.s)
 }
 
-func checkRevisionBranchKeepsLaterDecisions(r *Rig) error {
+// branchApprovedBeforeADecision has a member decide something about the plan, approve the branch of a revising
+// session, and decide again about the work of one contract, a moment after the approval, which intake then records.
+// The member's first decision stands in the revision the approval answers, and the second is one no approval showed.
+func (m *midPlan) branchApprovedBeforeADecision(reversibility string) (shown, later questions.Decision, approved authority.Approval, err error) {
+	r := m.r
+	if shown, err = m.decide(r.member(), "contract:"+m.contractOf("web"), questions.Reversible); err != nil {
+		return
+	}
+	var session string
+	var pending authority.Approval
+	if session, pending, err = m.branchAsksForApproval(); err != nil {
+		return
+	}
+	if approved, err = r.approve(m.s, pending, true, theMember); err != nil {
+		return
+	}
+	r.DB.ShiftClock(1_000)
+	if later, err = m.decide(r.member(), "contract:"+m.contractOf("load"), reversibility); err != nil {
+		return
+	}
+	err = m.intakeTakesTheBranch(session)
+	return
+}
+
+func checkRevisionBranchSplitsAtItsApproval(r *Rig) error {
 	m, err := midPlanWorld(r)
 	if err != nil {
 		return err
 	}
-	shown, err := m.decide(r.member(), "contract:"+m.contractOf("web"), questions.Reversible)
+	shown, later, approved, err := m.branchApprovedBeforeADecision(questions.Reversible)
 	if err != nil {
+		return err
+	}
+	all, err := m.revisions()
+	if err != nil || len(all) != 2 {
+		return Violatedf("the plan has the revisions %+v, want the one the approval closed and the one for the later decision: %v", all, err)
+	}
+	settled, open := all[0], all[1]
+	if settled.Open() || settled.Outcome != planning.RevisionApproved || settled.Approval != approved.ID || settled.ClosedBy != authority.Principal(theMember) ||
+		!slices.Equal(settled.DecisionIDs, []string{shown.ID}) || settled.ApprovedVersion != 1 {
+		return Violatedf("the first revision is %+v, want it closed as approved by %s, listing %s alone, so the approval's page shows it", settled, approved.ID, shown.ID)
+	}
+	if !open.Open() || open.ID == settled.ID || !slices.Equal(open.DecisionIDs, []string{later.ID}) || open.ApprovedVersion != 2 || open.OpenedAt < settled.ClosedAt {
+		return Violatedf("the second revision is %+v, want a new one, open for %s alone, since version 2: the approval showed %s", open, later.ID, shown.ID)
+	}
+	if err := m.waitsOnRevision("load"); err != nil {
+		return err
+	}
+	counts, err := m.revisionEvents()
+	if err != nil {
+		return err
+	}
+	if counts[planning.EventRevisionClosed] != 1 || counts[planning.EventRevisionOpened] != 2 {
+		return Violatedf("the log holds %v, want one closing and two openings", counts)
+	}
+	if _, err := r.NewOps(m.s).ConfirmRevision(r.Ctx, r.Scope, m.plan, r.member()); err != nil {
+		return err
+	}
+	if load, err := m.order("load"); err != nil || load.State != workorders.Ready {
+		return Violatedf("Confirm left the work of the later decision %s: %v", load.State, err)
+	}
+	return r.CheckQuestions(m.s)
+}
+
+func checkRevisionBranchKeepsALaterHold(r *Rig) error {
+	m, err := midPlanWorld(r)
+	if err != nil {
+		return err
+	}
+	if _, _, _, err := m.branchApprovedBeforeADecision(questions.OneWay); err != nil {
+		return err
+	}
+	load, err := m.order("load")
+	if err != nil {
+		return err
+	}
+	if load.State != workorders.ContractReview || load.StartHeld == nil || load.StartHeld.Reason != workorders.HoldDecision {
+		return Violatedf("work a one-way decision recorded after the approval binds is %s, held by %+v, want it held by the decision", load.State, load.StartHeld)
+	}
+	// A member's pass ends the hold, and the revision still keeps the work in review until it is settled.
+	if err := m.waitsOnRevision("load"); err != nil {
+		return err
+	}
+	if _, err := r.NewOps(m.s).ConfirmRevision(r.Ctx, r.Scope, m.plan, r.member()); err != nil {
+		return err
+	}
+	if load, err = m.order("load"); err != nil || load.State != workorders.Ready || load.StartHeld != nil {
+		return Violatedf("Confirm left the work %s, held by %+v: %v", load.State, load.StartHeld, err)
+	}
+	return r.CheckQuestions(m.s)
+}
+
+func checkRevisionBranchRebasesWhatItApprovedBefore(r *Rig) error {
+	m, err := midPlanWorld(r)
+	if err != nil {
+		return err
+	}
+	// A revising session needs a revision, and a member confirms that one before approving the session's branch.
+	if _, err := m.decide(r.member(), "contract:"+m.contractOf("web"), questions.Reversible); err != nil {
 		return err
 	}
 	session, pending, err := m.branchAsksForApproval()
 	if err != nil {
 		return err
 	}
+	if _, err := r.NewOps(m.s).ConfirmRevision(r.Ctx, r.Scope, m.plan, r.member()); err != nil {
+		return err
+	}
 	if _, err := r.approve(m.s, pending, true, theMember); err != nil {
 		return err
 	}
-	// A decision recorded after the member approved the branch is one no approval showed.
 	r.DB.ShiftClock(1_000)
 	later, err := m.decide(r.member(), "contract:"+m.contractOf("load"), questions.Reversible)
 	if err != nil {
@@ -194,31 +290,19 @@ func checkRevisionBranchKeepsLaterDecisions(r *Rig) error {
 	if err := m.intakeTakesTheBranch(session); err != nil {
 		return err
 	}
-	revision, err := m.demandOpen("intake recorded a branch approved before a member's last decision")
-	if err != nil {
-		return err
-	}
-	if !slices.Equal(revision.DecisionIDs, []string{later.ID}) || revision.Names(shown.ID) || revision.ApprovedVersion != 2 {
-		return Violatedf("the revision is %+v, want it open for %s alone, since version 2: the approval showed %s", revision, later.ID, shown.ID)
+	all, err := m.revisions()
+	if err != nil || len(all) != 2 || all[0].Outcome != planning.RevisionConfirmed || !all[1].Open() || !slices.Equal(all[1].DecisionIDs, []string{later.ID}) || all[1].ApprovedVersion != 2 {
+		return Violatedf("the plan has the revisions %+v, want the one Confirm closed and one for %s, still open and since version 2: the approval showed no decision: %v", all, later.ID, err)
 	}
 	if err := m.waitsOnRevision("load"); err != nil {
 		return err
-	}
-	if all, err := m.revisions(); err != nil || len(all) != 1 {
-		return Violatedf("the plan has the revisions %+v, want the one that stays open: %v", all, err)
 	}
 	counts, err := m.revisionEvents()
 	if err != nil {
 		return err
 	}
-	if counts[planning.EventRevisionClosed] != 0 || counts[planning.EventRevisionNarrowed] != 1 {
-		return Violatedf("the log holds %v, want one narrowing and no closing", counts)
-	}
-	if _, err := r.NewOps(m.s).ConfirmRevision(r.Ctx, r.Scope, m.plan, r.member()); err != nil {
-		return err
-	}
-	if load, err := m.order("load"); err != nil || load.State != workorders.Ready {
-		return Violatedf("Confirm left the work of the later decision %s: %v", load.State, err)
+	if counts[planning.EventRevisionRebased] != 1 {
+		return Violatedf("the log holds %v, want the revision rebased once", counts)
 	}
 	return r.CheckQuestions(m.s)
 }
