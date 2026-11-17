@@ -24,6 +24,7 @@ import {
   readProjects,
   readRecorded,
   readView,
+  retryAfterOf,
   sendBack,
   signIn,
   signOut,
@@ -137,6 +138,28 @@ describe("the client", () => {
     const refused = await readNeedsYou().catch((error: unknown) => error);
     expect(refused).toBeInstanceOf(ApiError);
     expect((refused as ApiError).status).toBe(502);
+  });
+
+  it("reads a Retry-After as a number of seconds between a second and a day, and anything else as no number", async () => {
+    const cases: [string | null, number | undefined][] = [
+      ["900", 900],
+      [" 45 ", 45],
+      ["0", 1],
+      ["86400", 86400],
+      ["86401", 86400],
+      ["9".repeat(400), 86400],
+      ["-30", undefined],
+      ["1.5", undefined],
+      ["soon", undefined],
+      ["Wed, 21 Oct 2026 07:28:00 GMT", undefined],
+      ["", undefined],
+      [null, undefined],
+    ];
+    for (const [header, seconds] of cases) {
+      expect(retryAfterOf(header), `Retry-After ${String(header).slice(0, 12)}`).toBe(seconds);
+    }
+    serveApi(() => ({ ...refusal(429, "too_many_attempts"), headers: { "Retry-After": "9".repeat(400) } }));
+    await expect(readNeedsYou()).rejects.toMatchObject({ status: 429, retryAfter: 86400 });
   });
 
   it("follows from a revision", () => {

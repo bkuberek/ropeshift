@@ -6,6 +6,7 @@ import { Button } from "../ui/controls";
 import { Banner } from "../ui/display";
 import { Field } from "../ui/forms";
 import { Icon } from "../ui/Icon";
+import { lockedOut, tooManyAttempts } from "./attempts";
 
 // Where the passphrase comes from, in the guide that says how `ropeshift init` and `ropeshift passphrase set` ask
 // for it. A test holds the address to a heading of that guide.
@@ -26,6 +27,9 @@ type Outcome =
 
 // outcomeOf reads a refusal by its code, which is what the page decides on, and by the status for a limit.
 function outcomeOf(error: unknown): Outcome {
+  if (lockedOut(error)) {
+    return { kind: "locked", seconds: error.retryAfter };
+  }
   if (error instanceof ApiError) {
     if (error.code === "bad_passphrase") {
       return { kind: "wrong" };
@@ -33,24 +37,11 @@ function outcomeOf(error: unknown): Outcome {
     if (error.code === "not_enrolled") {
       return { kind: "not-set" };
     }
-    if (error.code === "too_many_attempts" || error.status === 429) {
-      return { kind: "locked", seconds: error.retryAfter };
-    }
     if (error.code === "unreachable") {
       return { kind: "unreachable" };
     }
   }
   return { kind: "other", message: error instanceof Error ? error.message : String(error) };
-}
-
-// waitOf says how long a limited address waits: the seconds a server gave, in whole minutes from one minute up, and a
-// minute when it gave none.
-function waitOf(seconds: number | undefined): string {
-  if (seconds !== undefined && seconds < 60) {
-    return seconds === 1 ? "1 second" : `${seconds} seconds`;
-  }
-  const minutes = Math.ceil((seconds ?? 60) / 60);
-  return minutes === 1 ? "a minute" : `${minutes} minutes`;
 }
 
 // SignIn asks for the passphrase, which goes to the daemon and nowhere else. The session comes back in a cookie this
@@ -106,7 +97,7 @@ export function SignIn({ onSignedIn, ended = false }: { onSignedIn: () => Promis
         </h1>
         <p className="lead">Agents run as you on this machine, so a person proves they are one before deciding anything.</p>
         <div role="status">
-          {outcome?.kind === "locked" ? <Banner tone="warning">{`Too many sign-in attempts. Wait ${waitOf(outcome.seconds)}, then try again.`}</Banner> : null}
+          {outcome?.kind === "locked" ? <Banner tone="warning">{tooManyAttempts(outcome.seconds)}</Banner> : null}
           {ended && outcome?.kind !== "locked" ? <Banner icon="clock">Your session ended. Sign in again to carry on where you were.</Banner> : null}
         </div>
         {outcome?.kind === "unreachable" ? (

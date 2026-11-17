@@ -113,12 +113,28 @@ export class ApiError extends Error {
   }
 }
 
-// refusalOf reads a refusal's code and message, and its Retry-After when the header is a number of seconds, the
-// one form the server sends.
+// The bounds a Retry-After is held to, in seconds. The server never asks for less than a second, and a refusal for too
+// many attempts cannot mean no wait. A day is longer than any limit on sign-in attempts is meant to hold a person off,
+// and a number past it is more likely a broken header than a setting; the server answers a try after a day with the
+// wait that is left, so a person told a day is never let in early.
+export const shortestRetrySeconds = 1;
+export const longestRetrySeconds = 24 * 60 * 60;
+
+// retryAfterOf reads a Retry-After header as a number of seconds, the one form the server sends, held to the bounds
+// above, so a 0 says a second and a number too long to count says a day. A date, a negative number, or anything else
+// is no number of seconds.
+export function retryAfterOf(header: string | null): number | undefined {
+  const wait = header?.trim() ?? "";
+  if (!/^\d+$/.test(wait)) {
+    return undefined;
+  }
+  return Math.min(longestRetrySeconds, Math.max(shortestRetrySeconds, Number(wait)));
+}
+
+// refusalOf reads a refusal's code and message, and its Retry-After when the header is a number of seconds.
 async function refusalOf(response: Response): Promise<ApiError> {
   const refused = (await response.json().catch(() => null)) as { error?: { code: string; message: string } } | null;
-  const wait = response.headers.get("Retry-After")?.trim() ?? "";
-  const retryAfter = /^\d+$/.test(wait) ? Number(wait) : undefined;
+  const retryAfter = retryAfterOf(response.headers.get("Retry-After"));
   return new ApiError(response.status, refused?.error?.code ?? "unavailable", refused?.error?.message ?? response.statusText, retryAfter);
 }
 
