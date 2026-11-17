@@ -500,11 +500,15 @@ func (s *paneSession) markAttached(every time.Duration) {
 	}
 }
 
-// refreshMarker is one beat. It reports a pane the server no longer holds.
+// refreshMarker is one beat. It reports a pane the server no longer holds. What it read is also what
+// observe says, and a beat that could not read the clients says nobody is attached.
 func (s *paneSession) refreshMarker() (paneGone bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), shimDialDeadline)
 	defer cancel()
 	clients, err := s.terminal.Clients(ctx, s.name)
+	s.mu.Lock()
+	s.seen.Attached = err == nil && clients > 0
+	s.mu.Unlock()
 	switch {
 	case errors.Is(err, ports.ErrNotFound):
 		return true

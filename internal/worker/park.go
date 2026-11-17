@@ -339,17 +339,7 @@ func (r *laneRun) awaitAnswer(ctx context.Context) {
 	deadline := r.w.clock.Now().Add(r.state.askWait())
 	r.sequence.Go(func() {
 		defer r.waiting.Store(false)
-		for r.w.clock.Now().Before(deadline) || r.state.compactionHolds(r.w.clock.Now()) {
-			if !r.restsOn(ctx) {
-				return
-			}
-			select {
-			case <-ctx.Done():
-				return
-			case <-time.After(superviseEvery):
-			}
-		}
-		if !r.restsOn(ctx) {
+		if !r.restUntil(ctx, deadline) {
 			return
 		}
 		request := lanes.ParkRequest{
@@ -357,6 +347,54 @@ func (r *laneRun) awaitAnswer(ctx context.Context) {
 		}
 		r.parkReported(ctx, request)
 	})
+}
+
+// awaitPerson holds a planning lane at rest for the person it talks to, because a turn that ends in the
+// conversation asks for the person's next line (ADR-0018). A person attached to its pane when `ask_wait`
+// runs out keeps the session for another wait. With nobody attached it parks on a wake only a person
+// ends, because no process waits on a person. A line the person types starts a turn, which ends the wait,
+// and the next rest starts it again.
+func (r *laneRun) awaitPerson(ctx context.Context) {
+	if !r.waiting.CompareAndSwap(false, true) {
+		return
+	}
+	r.state.waitForPerson(true)
+	r.sequence.Go(func() {
+		defer r.waiting.Store(false)
+		defer r.state.waitForPerson(false)
+		for {
+			if !r.restUntil(ctx, r.w.clock.Now().Add(r.state.askWait())) {
+				return
+			}
+			if !r.personAttached(ctx) {
+				break
+			}
+		}
+		r.parkReported(ctx, lanes.ParkRequest{Trigger: lanes.ParkWaitingForPerson, Expr: lanes.HumanWake(), PastCompaction: true})
+	})
+}
+
+// personAttached reads whether a person is attached to the lane's pane. A read that fails says nobody
+// is, as the hook reads a marker it cannot (ADR-0018).
+func (r *laneRun) personAttached(ctx context.Context) bool {
+	observation, err := r.rt.Driver.Observe(ctx, r.sessionHandle())
+	return err == nil && observation.Attached
+}
+
+// restUntil holds while the lane rests, until the deadline and past it while a compaction at rest may
+// still end, and says whether the lane still rests then.
+func (r *laneRun) restUntil(ctx context.Context, deadline time.Time) bool {
+	for r.w.clock.Now().Before(deadline) || r.state.compactionHolds(r.w.clock.Now()) {
+		if !r.restsOn(ctx) {
+			return false
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(superviseEvery):
+		}
+	}
+	return r.restsOn(ctx)
 }
 
 // restsOn says the wait goes on. A compaction at rest does not end it, because an automatic one ends

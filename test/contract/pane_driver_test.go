@@ -629,3 +629,55 @@ func TestAPlanningLanesHookSeesAPersonAttachToItsPane(t *testing.T) {
 		t.Errorf("the session after the detach: %v", err)
 	}
 }
+
+// A planning lane that ended its turn waits for its person, so the worker reads two things from the
+// driver: whether a person is attached to the pane, and the turn a line the person types there starts,
+// which is what wakes the wait. The worker sent nothing, so the turn comes from the pane alone.
+func TestAPanesObservationSeesItsPersonAndTheTurnTheyType(t *testing.T) {
+	r := newPaneRig(t, "pane-two-turns")
+	r.spec.Planning = true
+	s := r.start()
+	s.until(ports.EventTurnEnded)
+	attached := func() bool {
+		observed, err := r.driver.Observe(t.Context(), s.handle)
+		return err == nil && observed.Attached
+	}
+	eventually := func(what string, ok func() bool) {
+		t.Helper()
+		deadline := time.Now().Add(15 * time.Second)
+		for time.Now().Before(deadline) {
+			if ok() {
+				return
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+		t.Fatalf("never saw %s", what)
+	}
+	if attached() {
+		t.Fatal("the session reads a person attached before anyone attached")
+	}
+
+	person := doubles.NewPTY(t)
+	done := make(chan error, 1)
+	go func() {
+		done <- claudecode.Panes{Terminal: r.terminal, Console: ports.Console{Stdin: person.Terminal, Stdout: person.Terminal, Stderr: person.Terminal}}.
+			Attach(context.Background(), r.spec.Lane, r.spec.Generation)
+	}()
+	person.WaitFor(t, "fakeclaude")
+	eventually("the person attached", attached)
+
+	doubles.WaitOutPaste(t, r.terminal)
+	person.Type(t, "Keep the admin console for staff.\r")
+	if admitted := s.until(ports.EventInputAdmitted); admitted.InputID != "" {
+		t.Errorf("a typed line admitted as the worker's input %q", admitted.InputID)
+	}
+	if turn := s.until(ports.EventTurnEnded).Turn; turn == nil || turn.Status != ports.TurnCompleted {
+		t.Errorf("the typed turn ended %+v", turn)
+	}
+
+	person.Type(t, "\x02d")
+	if err := <-done; err != nil {
+		t.Fatalf("the attach ended with %v", err)
+	}
+	eventually("nobody attached after the detach", func() bool { return !attached() })
+}

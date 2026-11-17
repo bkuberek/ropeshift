@@ -24,6 +24,9 @@ const (
 	ParkSignIn ParkTrigger = "sign_in_expired"
 	// ParkPolicy is a lane a policy stopped, for a person to look at what changed under it.
 	ParkPolicy ParkTrigger = "policy"
+	// ParkWaitingForPerson is a planning lane at rest that waited out `ask_wait` for its person with
+	// nobody attached to its pane.
+	ParkWaitingForPerson ParkTrigger = "waiting_for_person"
 )
 
 // ParkRequest asks a lane to park.
