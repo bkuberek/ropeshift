@@ -140,7 +140,7 @@ func (r *Repositories) register(ctx context.Context, scope ledger.WorkspaceID, c
 		if err := refuseHeldRoots(tx.Repositories(), clone); err != nil {
 			return err
 		}
-		record, matched, earlier, err := matchIn(tx.Repositories(), clone, keptHere)
+		record, matched, earlier, err := matchIn(tx.Repositories(), clone, keptHere, holders)
 		if err != nil {
 			return err
 		}

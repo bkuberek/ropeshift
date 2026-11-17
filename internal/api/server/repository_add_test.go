@@ -213,6 +213,38 @@ func TestAMergedCloneWithNoRemoteThatAnotherProjectHoldsUnderItsLowestRootIsRefu
 	}
 }
 
+// A workspace with a remote of its own that merged the history of a repository with another remote is a
+// repository of its own: the other repository's record keeps its remote, and so its place in the
+// repository index, when this worker keeps no clone of it.
+func TestAWorkspaceWithItsOwnRemoteLeavesTheRecordOfTheHistoryItMergedAlone(t *testing.T) {
+	t.Parallel()
+	in := apitest.StartInstallation(t, "beta")
+	design, workspace := "1a"+strings.Repeat("0", 38), "2b"+strings.Repeat("0", 38)
+	designRemote, workspaceRemote := "git@example.invalid:acme/design.git", "git@example.invalid:acme/workspace.git"
+	in.Checkouts.Place(ports.Clone{Path: "/work/design", ID: design, Remote: designRemote, DefaultBranch: "main"})
+	in.Checkouts.Place(ports.Clone{Path: "/work/workspace", ID: workspace, Roots: []string{design, workspace}, Remote: workspaceRemote, DefaultBranch: "main"})
+	in.Checkouts.Place(ports.Clone{Path: "/beta/design", ID: "id-copy", Remote: designRemote, DefaultBranch: "main"})
+	_, _, client := in.In(t, apitest.ProjectName)
+	if _, err := client.AddRepositories(t.Context(), api.RepositoryAdd{Paths: []string{"/work/design"}}); err != nil {
+		t.Fatal(err)
+	}
+	in.Checkouts.Remove("/work/design")
+	report, err := client.AddRepositories(t.Context(), api.RepositoryAdd{Paths: []string{"/work/workspace"}})
+	if err != nil || report.Refused() != 0 || outcomes(report)["/work/workspace"] != ledger.Registered {
+		t.Fatalf("registering the workspace: %+v, %v", report, err)
+	}
+	named := repositoriesOf(t, client)
+	if len(named) != 2 || named["design"].ID != design || named["design"].Remote != designRemote || named["workspace"].ID != workspace || named["workspace"].Remote != workspaceRemote {
+		t.Errorf("the project holds %+v, want the design record untouched and the workspace under its own root", named)
+	}
+	// The design repository still holds its place in the repository index, so another project cannot register it.
+	_, _, betaClient := in.In(t, "beta")
+	refused, err := betaClient.AddRepositories(t.Context(), api.RepositoryAdd{Paths: []string{"/beta/design"}})
+	if err != nil || refused.Refused() != 1 || !strings.Contains(refused.Repositories[0].Reason, apitest.ProjectName) {
+		t.Errorf("another project registering the design repository's remote: %+v, %v", refused, err)
+	}
+}
+
 // ADR-0021: a removed repository stays in its project as history, leaves the repository index and this
 // worker's checkouts, and another project may then register it. The first project registering it again
 // is then refused, naming the project that holds it.

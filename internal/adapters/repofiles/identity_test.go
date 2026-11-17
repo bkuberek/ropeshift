@@ -111,6 +111,42 @@ func TestARepositoryWithNoIdentityIsNamedByTheRecordTheProjectHolds(t *testing.T
 	}
 }
 
+// A record with another remote than the repository's is another repository, so the repository is not read under
+// its ID unless this worker keeps a clone of that record elsewhere, which registration refuses as sharing a first
+// commit.
+func TestARecordWithAnotherRemoteIsNotNamedByTheLowestRoot(t *testing.T) {
+	workspace, own, imported := mergedWorkspace(t)
+	workspace.Git("remote", "add", "origin", "git@example.invalid:acme/workspace.git")
+	record := func(remote string) func(context.Context, string) (ledger.Repository, bool, error) {
+		held := ledger.NewRepository(imported)
+		held.Remote = remote
+		return func(_ context.Context, id string) (ledger.Repository, bool, error) {
+			return held, id == imported, nil
+		}
+	}
+	elsewhere := func(kept bool) func(context.Context, string) (bool, error) {
+		return func(context.Context, string) (bool, error) { return kept, nil }
+	}
+	for name, tt := range map[string]struct {
+		remote string
+		kept   func(context.Context, string) (bool, error)
+		want   string
+	}{
+		"another remote and no clone kept":              {"git@example.invalid:acme/design.git", nil, own},
+		"another remote and a clone not kept elsewhere": {"git@example.invalid:acme/design.git", elsewhere(false), own},
+		"another remote and a clone kept elsewhere":     {"git@example.invalid:acme/design.git", elsewhere(true), imported},
+		"the same remote in another spelling":           {"https://example.invalid/acme/workspace", nil, imported},
+		"a record with no remote":                       {"", nil, imported},
+	} {
+		t.Run(name, func(t *testing.T) {
+			source := New(Config{Repository: workspace.Dir, Env: workspace.Env(), Records: record(tt.remote), KeptElsewhere: tt.kept})
+			if got, err := source.Instance(t.Context()); err != nil || got != tt.want {
+				t.Errorf("the instance is %s (%v), want %s", got, err, tt.want)
+			}
+		})
+	}
+}
+
 func TestTheDescriptionNamesTheRepositoryByTheInstance(t *testing.T) {
 	workspace, _, imported := mergedWorkspace(t)
 	description, err := New(Config{Repository: workspace.Dir, Env: workspace.Env(), Identity: imported}).Describe(t.Context())

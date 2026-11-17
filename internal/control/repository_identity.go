@@ -45,9 +45,15 @@ func holdsRoot(clone ports.Clone, root string) bool {
 // first-parent root, else a record that is not removed whose ID is its lowest root, which earlier says. With
 // none, the clone is a new record under its first-parent root. A removed record is never matched by the
 // lowest root, so a workspace that imported a design repository's history does not bring that repository's
-// record back.
-func matchIn(repositories ports.RepositoryReader, clone ports.Clone, keptHere []string) (record ledger.Repository, found, earlier bool, err error) {
-	return ledger.MatchRepository(clone.ID, rootsOf(clone), keptHere, func(id string) (ledger.Repository, bool, error) {
+// record back. A record with another remote than the clone's is another repository, and is not matched by
+// the lowest root unless this worker keeps a clone of it at another path, which is then a clone that shares
+// its first commit.
+func matchIn(repositories ports.RepositoryReader, clone ports.Clone, keptHere []string, holders map[string]holder) (record ledger.Repository, found, earlier bool, err error) {
+	apart := func(record ledger.Repository) bool {
+		_, kept := holders[record.ID]
+		return !kept && ledger.RemotesDiffer(record.Remote, clone.Remote)
+	}
+	return ledger.MatchRepository(clone.ID, rootsOf(clone), keptHere, apart, func(id string) (ledger.Repository, bool, error) {
 		record, err := repositories.Repository(id)
 		if errors.Is(err, ports.ErrNotFound) {
 			return ledger.Repository{}, false, nil

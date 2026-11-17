@@ -41,6 +41,7 @@ var ManifestChecks = []Check{
 	{"RM16", "a clone that shares its first commit with a repository this worker keeps at another path that still holds it is refused, naming that commit, the repository, and its path, when the two remotes differ or neither has one, in one run and across runs, in a dry run too; the same remote, a path that is gone, and the same path with a new remote are not refused", checkClonesThatShareAFirstCommitAreRefused},
 	{"RM17", "a manifest entry whose clone shares its first commit with a repository this worker keeps at another path is refused with the same reason, and the first registration stands", checkManifestEntrySharingAFirstCommitIsRefused},
 	{"RM19", "a clone is matched to the record this worker already keeps at its path when that record's ID is one of the clone's roots, so a root merged in later does not split one repository into two records", checkANewLowerRootDoesNotSplitTheRecordKeptAtThePath},
+	{"RM20", "a clone is not matched by its lowest root to a record whose remote differs from its own unless this worker keeps a clone of that record at another path, which refuses it for sharing that first commit; a clone or a record with no remote is matched as before, and the same path with a moved remote refreshes its record", checkALowestRootDoesNotAttachAnotherRepositoryToARecord},
 	{"RM18", "on real git repositories, a workspace that merged an unrelated history registers under its first-parent root once the repository that history came from is removed, and is refused for sharing that history's first commit while it is kept", checkMergedWorkspaceOnRealRepositories},
 	{"RM6", "a manifest registers only a clone inside the directory that holds the planning repository's clone, symbolic links followed: a path or a link that leads out of it, the planning clone itself, and the installation's own directories register nothing, each refused naming where it leads", checkManifestPathsStayBesideThePlanningClone},
 }
@@ -1395,6 +1396,82 @@ func checkANewLowerRootDoesNotSplitTheRecordKeptAtThePath(r *Rig) error {
 	}
 	if held, err := kept.Of(r.Ctx, r.Scope); err != nil || held[older] != "/work/ws" || len(held) != 1 {
 		return Violatedf("the worker keeps %v: %v", held, err)
+	}
+	return r.CheckProjection(s)
+}
+
+func checkALowestRootDoesNotAttachAnotherRepositoryToARecord(r *Rig) error {
+	s := r.Store()
+	repositories := r.repositories(s)
+	kept := fake.NewCheckouts()
+	remote := func(name string) string { return "git@github.com:acme/" + name + ".git" }
+
+	// A design repository with a remote, whose clone this worker no longer has, and a workspace with a remote
+	// of its own that merged its history: the workspace is a repository of its own, and the record stays as it was.
+	design, workspace := firstCommit("90"), firstCommit("91")
+	kept.Place(rootClone("design", design, remote("design")))
+	if _, err := r.addAt(repositories, kept, false, "/work/design"); err != nil {
+		return err
+	}
+	kept.Remove("/work/design")
+	kept.Place(rootClone("workspace", workspace, remote("workspace"), design, workspace))
+	got, err := r.addAt(repositories, kept, false, "/work/workspace")
+	if err != nil {
+		return err
+	}
+	if made := got["/work/workspace"]; made.Outcome != ledger.Registered || made.Repository.ID != workspace || strings.Contains(made.Reason, "earlier identity") {
+		return Violatedf("a workspace with its own remote that merged a design repository's history reads %+v", made)
+	}
+	if record, err := r.theRepository(s, design); err != nil || record.Removed() || record.Remote != remote("design") {
+		return Violatedf("the design repository's record reads %+v: %v", record, err)
+	}
+
+	// While this worker keeps the design repository's clone, the workspace shares its first commit and is refused.
+	other, merged := firstCommit("92"), firstCommit("93")
+	kept.Place(rootClone("other", other, remote("other")))
+	if _, err := r.addAt(repositories, kept, false, "/work/other"); err != nil {
+		return err
+	}
+	kept.Place(rootClone("merged", merged, remote("merged"), other, merged))
+	if got, err = r.addAt(repositories, kept, false, "/work/merged"); err != nil {
+		return err
+	}
+	if refused := got["/work/merged"]; refused.Outcome != ledger.RegistrationRefused || refused.Reason != sharedRefusal(other, "other", "/work/other") {
+		return Violatedf("a workspace that merged a kept repository's history reads %+v", refused)
+	}
+	if record, err := r.theRepository(s, other); err != nil || record.Remote != remote("other") {
+		return Violatedf("the kept repository's record reads %+v: %v", record, err)
+	}
+
+	// The same path with a moved remote is still its record, which a remote that moved refreshes.
+	before, after := firstCommit("94"), firstCommit("95")
+	kept.Place(rootClone("moved", before, remote("before")))
+	if _, err := r.addAt(repositories, kept, false, "/work/moved"); err != nil {
+		return err
+	}
+	kept.Place(rootClone("moved", after, remote("after"), before, after))
+	if got, err = r.addAt(repositories, kept, false, "/work/moved"); err != nil {
+		return err
+	}
+	if again := got["/work/moved"]; again.Outcome != ledger.AlreadyRegistered || again.Repository.ID != before || again.Repository.Remote != remote("after") {
+		return Violatedf("the same path with a moved remote reads %+v", again)
+	}
+
+	// A clone with no remote, or a record with none, is matched by its lowest root as before.
+	for i, shape := range []struct{ record, clone string }{{remote("bare-record"), ""}, {"", remote("bare-clone")}} {
+		old, merged := firstCommit(fmt.Sprintf("96%d", i)), firstCommit(fmt.Sprintf("97%d", i))
+		kept.Place(rootClone(fmt.Sprintf("old-%d", i), old, shape.record))
+		if _, err := r.addAt(repositories, kept, false, fmt.Sprintf("/work/old-%d", i)); err != nil {
+			return err
+		}
+		kept.Remove(fmt.Sprintf("/work/old-%d", i))
+		kept.Place(rootClone(fmt.Sprintf("new-%d", i), merged, shape.clone, old, merged))
+		if got, err = r.addAt(repositories, kept, false, fmt.Sprintf("/work/new-%d", i)); err != nil {
+			return err
+		}
+		if matched := got[fmt.Sprintf("/work/new-%d", i)]; matched.Outcome != ledger.AlreadyRegistered || matched.Repository.ID != old {
+			return Violatedf("a clone with remote %q matched to a record with remote %q reads %+v", shape.clone, shape.record, matched)
+		}
 	}
 	return r.CheckProjection(s)
 }

@@ -319,13 +319,48 @@ func TestAKnowledgeSourceWithNoCheckoutKeepsTheIDOfItsRecord(t *testing.T) {
 	m := newMergedSource(t)
 	m.record(t, m.lowest)
 	opts := soloOptions{sources: repeatedFlag{m.workspace.Dir}, records: recordsIn(m.store, soloScope)}
-	sources := soloKnowledge(opts)
+	sources := soloKnowledge(opts, &checkouts.File{Path: filepath.Join(t.TempDir(), checkouts.FileName)})
 	if len(sources) != 1 {
 		t.Fatalf("the daemon reads %d knowledge sources", len(sources))
 	}
 	description, err := sources[0].Describe(t.Context())
 	if err != nil || description.Instance != m.lowest {
 		t.Errorf("the knowledge source names %q (%v), want its record's ID %s", description.Instance, err, m.lowest)
+	}
+}
+
+// A clone of a record kept at another path counts only while that path exists and still holds the record's first
+// commit.
+func TestAClonePathCountsAsKeptElsewhereOnlyWhileItHoldsTheRecordsFirstCommit(t *testing.T) {
+	m := newMergedSource(t)
+	design := gittest.New(t)
+	design.Commit("DESIGN.md", "design\n")
+	kept := &checkouts.File{Path: filepath.Join(t.TempDir(), checkouts.FileName), Env: m.workspace.Env()}
+	id := design.Roots("HEAD")[0]
+	if err := kept.Keep(t.Context(), soloScope, id, design.Dir); err != nil {
+		t.Fatal(err)
+	}
+	for name, tt := range map[string]struct {
+		path string
+		want bool
+	}{
+		"another path holds it": {m.workspace.Dir, true},
+		"the record's own path": {design.Dir, false},
+		"a path nothing is at":  {filepath.Join(t.TempDir(), "absent"), true},
+	} {
+		got, err := keptElsewhere(kept, soloScope, tt.path)(t.Context(), id)
+		if err != nil || got != tt.want {
+			t.Errorf("%s: kept elsewhere %v (%v), want %v", name, got, err, tt.want)
+		}
+	}
+	if err := os.RemoveAll(design.Dir); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := keptElsewhere(kept, soloScope, m.workspace.Dir)(t.Context(), id); err != nil || got {
+		t.Errorf("a kept path that is gone counts as kept elsewhere: %v (%v)", got, err)
+	}
+	if got, err := keptElsewhere(kept, soloScope, m.workspace.Dir)(t.Context(), "no-such-record"); err != nil || got {
+		t.Errorf("a record this worker keeps no clone of counts as kept elsewhere: %v (%v)", got, err)
 	}
 }
 

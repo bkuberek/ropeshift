@@ -22,7 +22,16 @@ func removedRecord(id string) Repository {
 	return record
 }
 
+func remoteRecord(id, remote string) Repository {
+	record := NewRepository(id)
+	record.Remote = remote
+	return record
+}
+
 func TestMatchRepositoryReadsRecordsInOrder(t *testing.T) {
+	apartByRemote := func(remote string) func(Repository) bool {
+		return func(record Repository) bool { return RemotesDiffer(record.Remote, remote) }
+	}
 	tests := []struct {
 		name      string
 		first     string
@@ -31,26 +40,40 @@ func TestMatchRepositoryReadsRecordsInOrder(t *testing.T) {
 		records   []Repository
 		want      string
 		earlier   bool
+		// apart says a record is another repository than the clone, and is never matched by the lowest root.
+		apart func(Repository) bool
 	}{
 		{"the first-parent root's record wins over the lowest root's", "c", []string{"a", "c"}, nil,
-			[]Repository{NewRepository("a"), NewRepository("c")}, "c", false},
+			[]Repository{NewRepository("a"), NewRepository("c")}, "c", false, nil},
 		{"the lowest root's record when the first-parent root has none", "c", []string{"a", "c"}, nil,
-			[]Repository{NewRepository("a")}, "a", true},
-		{"no record at all", "c", []string{"a", "c"}, nil, nil, "", false},
+			[]Repository{NewRepository("a")}, "a", true, nil},
+		{"no record at all", "c", []string{"a", "c"}, nil, nil, "", false, nil},
 		{"a removed record is never matched by the lowest root", "c", []string{"a", "c"}, nil,
-			[]Repository{removedRecord("a")}, "", false},
+			[]Repository{removedRecord("a")}, "", false, nil},
 		{"a removed record of the first-parent root is still its record", "c", []string{"a", "c"}, nil,
-			[]Repository{removedRecord("c")}, "c", false},
+			[]Repository{removedRecord("c")}, "c", false, nil},
 		{"a record the caller keeps at the clone wins over the first-parent root's", "c", []string{"a", "b", "c"}, []string{"b"},
-			[]Repository{NewRepository("b"), NewRepository("c")}, "b", true},
+			[]Repository{NewRepository("b"), NewRepository("c")}, "b", true, nil},
 		{"a preferred ID that is no root of the clone is ignored", "c", []string{"a", "c"}, []string{"z"},
-			[]Repository{NewRepository("z"), NewRepository("c")}, "c", false},
+			[]Repository{NewRepository("z"), NewRepository("c")}, "c", false, nil},
 		{"a preferred record that is removed is skipped", "c", []string{"a", "c"}, []string{"a"},
-			[]Repository{removedRecord("a"), NewRepository("c")}, "c", false},
+			[]Repository{removedRecord("a"), NewRepository("c")}, "c", false, nil},
+		{"a lowest-root record that is another repository is not matched", "c", []string{"a", "c"}, nil,
+			[]Repository{remoteRecord("a", "git@example.invalid:acme/design.git")}, "", false, apartByRemote("git@example.invalid:acme/workspace.git")},
+		{"a lowest-root record with the clone's remote in another spelling is matched", "c", []string{"a", "c"}, nil,
+			[]Repository{remoteRecord("a", "https://example.invalid/acme/app.git")}, "a", true, apartByRemote("git@example.invalid:acme/app.git")},
+		{"a lowest-root record with no remote is matched", "c", []string{"a", "c"}, nil,
+			[]Repository{NewRepository("a")}, "a", true, apartByRemote("git@example.invalid:acme/workspace.git")},
+		{"a clone with no remote matches a lowest-root record with one", "c", []string{"a", "c"}, nil,
+			[]Repository{remoteRecord("a", "git@example.invalid:acme/design.git")}, "a", true, apartByRemote("")},
+		{"a record kept at the clone is matched whatever its remote", "c", []string{"a", "c"}, []string{"a"},
+			[]Repository{remoteRecord("a", "git@example.invalid:acme/design.git")}, "a", true, apartByRemote("git@example.invalid:acme/workspace.git")},
+		{"the first-parent root's record is matched whatever its remote", "c", []string{"a", "c"}, nil,
+			[]Repository{remoteRecord("c", "git@example.invalid:acme/design.git")}, "c", false, apartByRemote("git@example.invalid:acme/workspace.git")},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			record, found, earlier, err := MatchRepository(tt.first, tt.roots, tt.preferred, lookupOf(tt.records...))
+			record, found, earlier, err := MatchRepository(tt.first, tt.roots, tt.preferred, tt.apart, lookupOf(tt.records...))
 			if err != nil || found != (tt.want != "") || record.ID != tt.want || earlier != tt.earlier {
 				t.Errorf("matched %q (found %v, earlier %v, %v), want %q (earlier %v)", record.ID, found, earlier, err, tt.want, tt.earlier)
 			}
@@ -58,9 +81,27 @@ func TestMatchRepositoryReadsRecordsInOrder(t *testing.T) {
 	}
 }
 
+func TestRemotesDifferOnlyWhenBothNameADifferentRepository(t *testing.T) {
+	tests := []struct {
+		a, b string
+		want bool
+	}{
+		{"git@example.invalid:acme/app.git", "https://example.invalid/acme/app", false},
+		{"git@example.invalid:acme/app.git", "git@example.invalid:acme/other.git", true},
+		{"", "git@example.invalid:acme/app.git", false},
+		{"git@example.invalid:acme/app.git", "", false},
+		{"", "", false},
+	}
+	for _, tt := range tests {
+		if got := RemotesDiffer(tt.a, tt.b); got != tt.want {
+			t.Errorf("RemotesDiffer(%q, %q) = %v, want %v", tt.a, tt.b, got, tt.want)
+		}
+	}
+}
+
 func TestMatchRepositoryReportsALookupFailure(t *testing.T) {
 	failure := errors.New("the store is down")
-	_, _, _, err := MatchRepository("c", []string{"a", "c"}, nil, func(string) (Repository, bool, error) { return Repository{}, false, failure })
+	_, _, _, err := MatchRepository("c", []string{"a", "c"}, nil, nil, func(string) (Repository, bool, error) { return Repository{}, false, failure })
 	if !errors.Is(err, failure) {
 		t.Errorf("the failure reads %v", err)
 	}

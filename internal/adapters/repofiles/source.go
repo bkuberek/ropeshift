@@ -36,6 +36,10 @@ type Config struct {
 	// its roots names is the record registration would match it to, in the order registration matches a
 	// clone, so a repository read from a path no checkout is kept for keeps the ID of its record.
 	Records func(ctx context.Context, id string) (ledger.Repository, bool, error)
+	// KeptElsewhere says this worker keeps a clone of a record at another path than this repository's, that
+	// still exists and still holds the record's first commit. Nil says it keeps none. A record with another
+	// remote than this repository's names it only then.
+	KeptElsewhere func(ctx context.Context, id string) (bool, error)
 	// Env replaces the environment of git commands.
 	Env []string
 }
@@ -111,10 +115,25 @@ func (s *Source) Instance(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	record, found, _, err := ledger.MatchRepository(root, roots, nil, func(id string) (ledger.Repository, bool, error) {
+	// A record with another remote than this repository's is another repository, unless this worker keeps a
+	// clone of it elsewhere, which registration refuses as sharing its first commit.
+	remote, _ := s.repositoryFacts(ctx)
+	var keptErr error
+	apart := func(record ledger.Repository) bool {
+		if !ledger.RemotesDiffer(record.Remote, remote) {
+			return false
+		}
+		if s.config.KeptElsewhere == nil {
+			return true
+		}
+		kept, err := s.config.KeptElsewhere(ctx, record.ID)
+		keptErr = errors.Join(keptErr, err)
+		return !kept
+	}
+	record, found, _, err := ledger.MatchRepository(root, roots, nil, apart, func(id string) (ledger.Repository, bool, error) {
 		return s.config.Records(ctx, id)
 	})
-	if err != nil || !found {
+	if err = errors.Join(err, keptErr); err != nil || !found {
 		return root, err
 	}
 	return record.ID, nil

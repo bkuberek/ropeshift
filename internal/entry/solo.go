@@ -285,7 +285,7 @@ func serveSolo(ctx context.Context, paths api.Paths, opts soloOptions, stdout, s
 	config := server.Config{
 		Installed: installed.Installed,
 		Scope:     soloScope, Store: store, Projects: state, Installation: state.Installation, LeaseTTL: opts.leaseTTL.Milliseconds(), HeartbeatMs: opts.heartbeat.Milliseconds(),
-		Knowledge: soloKnowledge(opts), Matcher: lexical.Matcher{Store: store},
+		Knowledge: soloKnowledge(opts, kept), Matcher: lexical.Matcher{Store: store},
 		Matching: func(store ports.Store) ports.Matcher { return lexical.Matcher{Store: store} },
 		Identity: localauth.New(store, localauth.DefaultParams), Batches: batches, Windows: windows, PackTokens: soloPackTokens(paths),
 		Telemetry: telemetry.store,
@@ -648,7 +648,9 @@ func checkoutOf(opts soloOptions, kept ports.Checkouts) func(context.Context, le
 			for _, path := range opts.sources {
 				// A source is the checkout of the record registration would match it to, and no other record's
 				// merely because it holds one of that repository's first commits.
-				instance, err := repofiles.New(repofiles.Config{Repository: path, Ref: opts.ref, Directory: opts.directory, Records: opts.records}).Instance(ctx)
+				instance, err := repofiles.New(repofiles.Config{
+					Repository: path, Ref: opts.ref, Directory: opts.directory, Records: opts.records, KeptElsewhere: keptElsewhere(kept, project, path),
+				}).Instance(ctx)
 				if err != nil {
 					return "", err
 				}
@@ -658,6 +660,33 @@ func checkoutOf(opts soloOptions, kept ports.Checkouts) func(context.Context, le
 			}
 		}
 		return "", fmt.Errorf("%w: this worker keeps no checkout of repository %q in project %s", ports.ErrNotFound, id, project)
+	}
+}
+
+// keptElsewhere says this worker keeps, in a project, a clone of a record at another path than a repository's
+// own, which still exists and still holds the record's first commit: the clone registration refuses a
+// repository for sharing its first commit with.
+func keptElsewhere(kept ports.Checkouts, project ledger.WorkspaceID, path string) func(context.Context, string) (bool, error) {
+	return func(ctx context.Context, id string) (bool, error) {
+		own, err := filepath.Abs(path)
+		if err != nil {
+			return false, err
+		}
+		held, err := kept.Of(ctx, project)
+		if err != nil {
+			return false, err
+		}
+		other, ok := held[id]
+		if !ok || other == own {
+			return false, nil
+		}
+		found, _, err := kept.Find(ctx, []string{other}, 1)
+		if err != nil {
+			return false, err
+		}
+		return slices.ContainsFunc(found, func(c ports.Clone) bool {
+			return c.Path == other && (c.ID == id || slices.Contains(c.Roots, id))
+		}), nil
 	}
 }
 
@@ -700,7 +729,9 @@ func projectSources(ctx context.Context, opts soloOptions, kept ports.Checkouts,
 	}
 	sources := make([]ports.WorkSource, 0, len(paths))
 	for _, path := range paths {
-		sources = append(sources, repofiles.New(repofiles.Config{Repository: path, Ref: opts.ref, Directory: opts.directory, Identity: identities[path], Records: records}))
+		sources = append(sources, repofiles.New(repofiles.Config{
+			Repository: path, Ref: opts.ref, Directory: opts.directory, Identity: identities[path], Records: records, KeptElsewhere: keptElsewhere(kept, project, path),
+		}))
 	}
 	return sources, nil
 }
@@ -769,10 +800,12 @@ func keepStableBinary(ctx context.Context, paths api.Paths, runner ports.Process
 
 // soloKnowledge reads documents from the repositories this daemon reads work from, at the
 // ref intake reads.
-func soloKnowledge(opts soloOptions) []ports.KnowledgeSource {
+func soloKnowledge(opts soloOptions, kept ports.Checkouts) []ports.KnowledgeSource {
 	sources := make([]ports.KnowledgeSource, 0, len(opts.sources))
 	for _, path := range opts.sources {
-		sources = append(sources, repodocs.New(repofiles.Config{Repository: path, Ref: opts.ref, Directory: opts.directory, Records: opts.records}))
+		sources = append(sources, repodocs.New(repofiles.Config{
+			Repository: path, Ref: opts.ref, Directory: opts.directory, Records: opts.records, KeptElsewhere: keptElsewhere(kept, soloScope, path),
+		}))
 	}
 	return sources
 }
