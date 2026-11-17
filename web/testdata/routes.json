@@ -85,6 +85,11 @@
     "command": "worker token"
   },
   {
+    "method": "POST",
+    "pattern": "/v1/workers/tokens/{id}/revoke",
+    "command": "worker token-revoke"
+  },
+  {
     "method": "GET",
     "pattern": "/v1/workers/{id}/autonomy",
     "command": "worker autonomy"

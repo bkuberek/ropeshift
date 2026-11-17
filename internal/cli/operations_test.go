@@ -70,6 +70,7 @@ var operations = map[string]string{
 	"POST /v1/work-orders/{id}/lane-respawn":           "lane respawn",
 	"POST /v1/work-orders/{id}/lane-archive":           "lane archive",
 	"POST /v1/workers/tokens":                          "worker token",
+	"POST /v1/workers/tokens/{id}/revoke":              "worker token-revoke",
 	"GET /v1/workers":                                  "worker list",
 	"GET /v1/lanes":                                    "lane list",
 	"GET /v1/lanes/{id}":                               "lane show",

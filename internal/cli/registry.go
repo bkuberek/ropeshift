@@ -186,7 +186,8 @@ func registry() []section {
 		}},
 		{"Workers and orchestrators", installation(
 			command("worker list", "", "list registered workers", (*invocation).workerList),
-			command("worker token", "", "make a join token, and a join string on a group server", (*invocation).workerToken),
+			command("worker token", "[--expires-in <duration>]", "make a join token, and a join string on a group server", (*invocation).workerToken),
+			command("worker token-revoke", "<token id>", "revoke a join token no worker used", (*invocation).workerTokenRevoke),
 			command("worker doctor", "", "report which agent CLIs are usable here, and where lane worktrees go", (*invocation).workerDoctor),
 			command("worker autonomy", "<id>", "show a worker's level and run window", (*invocation).workerAutonomy),
 			command("worker level", "<id> manual|attended|unattended", "choose a worker's level", (*invocation).workerLevel),

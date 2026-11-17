@@ -55,6 +55,7 @@ func WebRoutes() []WebRoute {
 		{http.MethodGet, TemplatesPath, "template show"},
 		{http.MethodGet, "/v1/workers", "worker list"},
 		{http.MethodPost, "/v1/workers/tokens", "worker token"},
+		{http.MethodPost, "/v1/workers/tokens/{id}/revoke", "worker token-revoke"},
 		{http.MethodGet, "/v1/workers/{id}/autonomy", "worker autonomy"},
 		{http.MethodPut, "/v1/workers/{id}/autonomy", "worker level"},
 		{http.MethodPost, "/v1/workers/{id}/autonomy/acknowledgement", "worker acknowledge-risk"},
