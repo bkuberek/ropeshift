@@ -127,6 +127,22 @@ describe("the Workers page", () => {
     expect(within(region).getAllByRole("columnheader")).toHaveLength(row.querySelectorAll("td").length);
   });
 
+  // A worker's ID is 32 characters that cannot break, so the cells of sentences give way instead: Memory and
+  // Freshness wrap, and the table fits its panel at desktop width with its last column in view.
+  it("lets the Memory and Freshness cells wrap, so the Machines table keeps its last column in view", async () => {
+    serveFloor((view) => {
+      const line = view.workers[0];
+      if (line) {
+        line.worker.report = report();
+        line.worker.reported_at = view.as_of - 120000;
+        line.report_freshness = "last_reported";
+      }
+    });
+    openPage("/workers");
+    const row = await machineRow();
+    expect(["Memory", "Freshness"].filter((column) => !cell(row, column)?.classList.contains("wrap"))).toEqual([]);
+  });
+
   it("says a measure the machine cannot provide is unavailable, and never draws it as zero", async () => {
     serveFloor((view) => {
       const line = view.workers[0];

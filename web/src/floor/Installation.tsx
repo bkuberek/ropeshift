@@ -350,7 +350,7 @@ export function WorkersPage({ live, projects, selected, after, dialog = "" }: { 
                               <NotReported />
                             )}
                           </td>
-                          <td data-label="Memory">
+                          <td data-label="Memory" className="wrap">
                             {machine ? (
                               <>
                                 {machine.memory_used_bytes !== undefined && machine.memory_total_bytes !== undefined ? (
@@ -393,7 +393,7 @@ export function WorkersPage({ live, projects, selected, after, dialog = "" }: { 
                               {orchestrator ? <OrchestratorDetails line={line} /> : null}
                             </span>
                           </td>
-                          <td data-label="Freshness">
+                          <td data-label="Freshness" className="wrap">
                             <Freshness kind={freshnessOf(line.freshness)} source="the worker's heartbeat">
                               {line.worker.last_handshake_at ? (
                                 <>
