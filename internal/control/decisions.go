@@ -54,6 +54,8 @@ func (q *Questions) Rule(ctx context.Context, scope ledger.WorkspaceID, id strin
 		}
 		if record.Scope == "" {
 			record.Scope = questions.ScopeOf(question.SubjectKind, question.SubjectID)
+		} else if err := checkHeld(tx, record.Scope); err != nil {
+			return err
 		}
 		for _, category := range question.Categories {
 			if !slices.Contains(record.Categories, category) {

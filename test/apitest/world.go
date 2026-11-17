@@ -548,9 +548,10 @@ func Populate(w *World, clock *Clock) {
 	w.Goal("goal-1", "Ship solo mode", "wo-running")
 }
 
-// Decisions records a decision, and what replaced it.
+// Decisions records a decision about the retries repository, which no work runs in, and what replaced it.
 func (w *World) Decisions() {
 	w.t.Helper()
+	w.Daemon.HoldRepository(w.t, "retries")
 	client := w.Daemon.Client
 	first, err := client.RecordDecision(w.ctx, api.RecordDecision{
 		ID: "decision-1", Status: questions.DecisionDecided, Statement: "Retry twice.", Rationale: "It covers the outage.",

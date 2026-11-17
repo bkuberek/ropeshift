@@ -211,6 +211,32 @@ func (f *scopeFacts) covers(scope string, order workorders.WorkOrder) (bool, err
 	return f.binds(typed, order)
 }
 
+// checkHeld refuses a scope a person or an orchestrator named when its ID names no record of its kind the ledger
+// holds, because such a scope would bind nothing. A repository is named by the identity of its record, as work
+// orders hold it, so a name the project does not hold names none. A scope outside the grammar is admit's to
+// refuse. A scope the control plane builds from a question's subject is not held to this: the question named
+// that record, and an answer to it is never refused for it (ScopeOf).
+func checkHeld(tx ports.WriteTx, text string) error {
+	scope, err := questions.ParseScope(text)
+	if err != nil || scope.Zero() {
+		return nil
+	}
+	switch scope.Kind {
+	case questions.ScopePlan:
+		_, err = tx.Planning().Plan(scope.ID)
+	case questions.ScopeContract:
+		_, err = tx.Planning().LatestContract(scope.ID)
+	case questions.ScopeWorkOrder:
+		_, err = tx.WorkOrders().Get(scope.ID)
+	case questions.ScopeRepository:
+		_, err = tx.Repositories().Repository(scope.ID)
+	}
+	if errors.Is(err, ports.ErrNotFound) {
+		return scope.Unheld()
+	}
+	return err
+}
+
 // legacyOverlap is the rule of a scope written before the grammar: the same scope, or one inside the
 // other, divided by `/`. An empty scope covers nothing.
 func legacyOverlap(a, b string) bool {

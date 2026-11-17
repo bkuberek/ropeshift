@@ -27,10 +27,14 @@ type toolRig struct {
 	token string
 }
 
+// aToolRig is a toolRig whose ledger holds the repositories its rulings name.
 func aToolRig(t *testing.T) *toolRig {
 	t.Helper()
 	o := newOrchestratorRig(t, aSession())
 	o.wokenOnce(t)
+	for _, id := range []string{"retries", "keys", "logging"} {
+		holdRepository(t, o.store, id)
+	}
 	r := &toolRig{orchestratorRig: o}
 	for _, entry := range o.specs()[0].Env {
 		if value, ok := strings.CutPrefix(entry, lanes.EnvLaneToken+"="); ok {
@@ -38,6 +42,15 @@ func aToolRig(t *testing.T) *toolRig {
 		}
 	}
 	return r
+}
+
+// holdRepository registers a repository under an ID, as intake detects one, so a decision's scope can name it.
+func holdRepository(t *testing.T, store ports.Store, id string) {
+	t.Helper()
+	found := control.DetectedRepository{ID: id, Remote: "https://example.invalid/acme/" + id + ".git", DefaultBranch: "main"}
+	if _, err := control.NewRepositories(store).Detect(t.Context(), scope, found, ledger.Actor{Kind: ledger.ActorSystem, ID: "intake"}); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func callTool(t *testing.T, subject *worker.Worker, token, tool string, args map[string]any) lanes.Reply {
@@ -241,6 +254,22 @@ func TestADecisionWithAScopeOutsideTheGrammarIsRefused(t *testing.T) {
 		"citations": []string{"PAY-12"},
 	})
 	if reply.OK || !strings.Contains(reply.Message, "plan:<id>") {
+		t.Errorf("reply %+v", reply)
+	}
+	if got := r.question(t, "q1"); got.Status == questions.StatusAnswered || got.Ran(questions.RungDecide) {
+		t.Errorf("a refused scope left question %+v", got)
+	}
+}
+
+// A scope whose ID names no record the ledger holds is refused before the rung is climbed, and names the scope.
+func TestADecisionWithAScopeThatNamesNothingIsRefused(t *testing.T) {
+	t.Parallel()
+	r := aToolRig(t)
+	reply := r.tool(t, lanes.ToolDecisionRecord, map[string]any{
+		"question": "q1", "status": "decided", "statement": "Twice.", "rationale": "It follows.", "scope": "wo:ghost", "reversibility": "reversible",
+		"citations": []string{"PAY-12"},
+	})
+	if reply.OK || reply.Code != lanes.CodeInvalid || !strings.Contains(reply.Message, `"wo:ghost" names no work order`) {
 		t.Errorf("reply %+v", reply)
 	}
 	if got := r.question(t, "q1"); got.Status == questions.StatusAnswered || got.Ran(questions.RungDecide) {

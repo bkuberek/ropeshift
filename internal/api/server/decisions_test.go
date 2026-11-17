@@ -47,6 +47,7 @@ func rulingRigOn(t *testing.T, daemon *apitest.Daemon) rulingRig {
 	if err != nil {
 		t.Fatal(err)
 	}
+	daemon.HoldRepository(t, "checkout")
 	return rulingRig{daemon: daemon, use: control.NewQuestions(daemon.Store, questions.BatchPolicy{}), worker: worker, epoch: session.Epoch}
 }
 

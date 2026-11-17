@@ -116,7 +116,8 @@ func verdict(criterion, word, reasons string, citations ...string) map[string]an
 	return map[string]any{"criterion": criterion, "verdict": word, "reasons": reasons, "citations": citations}
 }
 
-// lanes is every scripted lane.
+// lanes is every scripted lane but the orchestrator, whose script names contracts by the IDs intake gives them
+// (orchestratorScript).
 func lanes() map[string]any {
 	script := func(turns ...[]step) map[string]any { return map[string]any{"turns": turns} }
 	return map[string]any{
@@ -229,34 +230,44 @@ func lanes() map[string]any {
 			}}),
 			result(0.21, 2600),
 		)),
-		// An orchestrator's decision names what it binds, and states how it stands to each decision in force whose
-		// scope overlaps its own: the retry key decision binds the retries contract, which the member's decision on
-		// idempotency keys binds too, and the log level decision binds the rate limit contract, as the member's
-		// assumption on the limiter's store does.
-		orchestrator: script(turn(
-			step{"mcp": "question_next", "arguments": map[string]any{"project": sampleProject}},
-			step{"mcp": "decision_record", "arguments": map[string]any{
-				"project": sampleProject, "question": qRetryKey, "status": "decided", "statement": "A retry reuses the original request's idempotency key.",
-				"rationale": "A new key would let fulfillment apply the order twice.", "scope": "contract:retries", "reversibility": "reversible",
-				"no_conflict": []string{"d-key-ttl"}, "citations": []string{"requirement:ORD-3"}, "lookup": []string{}, "open": []string{},
-			}},
-			step{"mcp": "decision_record", "arguments": map[string]any{
-				"project": sampleProject, "question": qLogLevel, "status": "assumed", "statement": "Log a rate limit rejection at info level for now.",
-				"rationale": "A rejection is expected traffic, and a warning would page the on-call engineer.", "scope": "contract:rate-limit",
-				"reversibility": "reversible", "no_conflict": []string{"d-limiter-store"}, "citations": []string{"docs/runbook.md"},
-				"lookup": []string{}, "open": []string{},
-			}},
-			step{"mcp": "question_escalate", "arguments": map[string]any{
-				"project": sampleProject, "question": qSigningKeys, "reason": "one_way", "options": []string{"Keep the old key valid for 24 hours", "Sign everyone out at the rotation"},
-				"recommendation": "Keep the old key valid for 24 hours", "lookup": []string{}, "open": []string{},
-			}},
-			step{"mcp": "question_escalate", "arguments": map[string]any{
-				"project": sampleProject, "question": qPartnerTier, "reason": "scope_change", "options": []string{"One limit for every client", "A higher tier for partners"},
-				"recommendation": "A higher tier for partners", "lookup": []string{}, "open": []string{},
-			}},
-			result(0.09, 1800),
-		)),
 	}
+}
+
+// sampleRuling is what one of the orchestrator's decisions binds, a contract by the ID the ledger gave it at
+// intake, and the decisions in force whose scope overlaps it, which it states no conflict with.
+type sampleRuling struct {
+	contract   string
+	noConflict []string
+}
+
+// orchestratorScript is the orchestrator's turn. Its decisions name what they bind and state how they stand to each
+// decision in force whose scope overlaps theirs: the retry key decision binds the retries contract, which the
+// member's decision on idempotency keys binds too, and the log level decision binds the rate limit contract, as the
+// member's assumption on the limiter's store does. The plan's decisions bind both contracts.
+func orchestratorScript(retries, rateLimit sampleRuling) map[string]any {
+	return map[string]any{"turns": [][]step{turn(
+		step{"mcp": "question_next", "arguments": map[string]any{"project": sampleProject}},
+		step{"mcp": "decision_record", "arguments": map[string]any{
+			"project": sampleProject, "question": qRetryKey, "status": "decided", "statement": "A retry reuses the original request's idempotency key.",
+			"rationale": "A new key would let fulfillment apply the order twice.", "scope": "contract:" + retries.contract, "reversibility": "reversible",
+			"no_conflict": retries.noConflict, "citations": []string{"requirement:ORD-3"}, "lookup": []string{}, "open": []string{},
+		}},
+		step{"mcp": "decision_record", "arguments": map[string]any{
+			"project": sampleProject, "question": qLogLevel, "status": "assumed", "statement": "Log a rate limit rejection at info level for now.",
+			"rationale": "A rejection is expected traffic, and a warning would page the on-call engineer.", "scope": "contract:" + rateLimit.contract,
+			"reversibility": "reversible", "no_conflict": rateLimit.noConflict, "citations": []string{"docs/runbook.md"},
+			"lookup": []string{}, "open": []string{},
+		}},
+		step{"mcp": "question_escalate", "arguments": map[string]any{
+			"project": sampleProject, "question": qSigningKeys, "reason": "one_way", "options": []string{"Keep the old key valid for 24 hours", "Sign everyone out at the rotation"},
+			"recommendation": "Keep the old key valid for 24 hours", "lookup": []string{}, "open": []string{},
+		}},
+		step{"mcp": "question_escalate", "arguments": map[string]any{
+			"project": sampleProject, "question": qPartnerTier, "reason": "scope_change", "options": []string{"One limit for every client", "A higher tier for partners"},
+			"recommendation": "A higher tier for partners", "lookup": []string{}, "open": []string{},
+		}},
+		result(0.09, 1800),
+	)}}
 }
 
 // assistantTurns are the turns of the assistant's conversation: the session's opening prompt, which it

@@ -103,7 +103,7 @@ Questions reach you in batches, each with its options and a recommendation. Ever
 
 ### What a decision does to work
 
-A decision names what it binds in its scope: `plan:<id>` for a plan, its contracts, and the work under them, `contract:<id>` for a contract and the work that pins it, `wo:<id>` for a work order and its rework, and `repo:<id>` for the work that runs in a repository. An answer takes the scope of its question, so the answers of a plan review bind the plan. Ropeshift finds the work through the ledger, never from the text of an ID, and a decision with no scope binds nothing.
+A decision names what it binds in its scope: `plan:<id>` for a plan, its contracts, and the work under them, `contract:<id>` for a contract and the work that pins it, `wo:<id>` for a work order and its rework, and `repo:<id>` for the work that runs in a repository. An answer takes the scope of its question, so the answers of a plan review bind the plan. Ropeshift finds the work through the ledger, never from the text of an ID, and a decision with no scope binds nothing. A scope a person or an orchestrator names must name a record of its kind that the ledger holds, a repository by its identity, or the decision is refused, so a mistyped ID never binds nothing in silence.
 
 A decision that is in force and binds work acts on it in the transaction that records it, whether it is reversible or not and whoever recorded it:
 

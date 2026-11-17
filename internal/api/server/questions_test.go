@@ -70,6 +70,7 @@ func TestDecisionsAndCandidates(t *testing.T) {
 	t.Parallel()
 	daemon := apitest.Start(t)
 	ctx := t.Context()
+	daemon.HoldRepository(t, "checkout")
 	decided, err := daemon.Client.RecordDecision(ctx, api.RecordDecision{
 		ID: "d1", Status: questions.DecisionDecided, Statement: "The retry budget is three calls.", Rationale: "It follows.",
 		Citations: []string{"PAY-12"}, Scope: "repo:checkout", Reversibility: questions.Reversible, Categories: []string{questions.CategoryProduct},

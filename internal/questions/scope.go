@@ -32,6 +32,15 @@ const scopeGrammar = "plan:<id>, contract:<id>, wo:<id>, or repo:<id>"
 // ErrBadScope marks a scope outside the grammar. It is an invalid request.
 var ErrBadScope = errors.New("a scope is " + scopeGrammar)
 
+// ErrUnheldScope marks a scope whose ID names no record of its kind in the ledger, so it would bind nothing. It is
+// an invalid request.
+var ErrUnheldScope = errors.New("a scope names a record the ledger holds")
+
+// scopeNouns name the record each kind of scope names.
+var scopeNouns = map[ScopeKind]string{
+	ScopePlan: "plan", ScopeContract: "contract", ScopeWorkOrder: "work order", ScopeRepository: "repository",
+}
+
 // Scope is what a decision binds: one record of one kind. The zero Scope binds nothing.
 type Scope struct {
 	Kind ScopeKind
@@ -66,6 +75,11 @@ func (s Scope) String() string {
 
 // Zero reports a scope that binds nothing.
 func (s Scope) Zero() bool { return s.Kind == "" }
+
+// Unheld is the refusal of a scope whose ID names no record of its kind in the ledger.
+func (s Scope) Unheld() error {
+	return fmt.Errorf("%w: %w: %q names no %s", ErrInvalid, ErrUnheldScope, s.String(), scopeNouns[s.Kind])
+}
 
 // ScopeOf is the scope of a question about a record: what an answer to it binds. A contract review lane's
 // question is about its plan, any other lane's about its work order, and a question about nothing binds

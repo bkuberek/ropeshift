@@ -20,6 +20,7 @@ const hour = time.Hour
 // e10Decision records a decision as the world's orchestrator does.
 func e10Decision(t *testing.T, w *apitest.World, id, statement string) questions.Decision {
 	t.Helper()
+	w.Daemon.HoldRepository(t, "retries-"+id)
 	decision, err := w.Questions.RecordDecision(t.Context(), apitest.Scope, questions.Decision{
 		ID: id, Status: questions.DecisionDecided, Statement: statement, Rationale: "It follows.", Citations: []string{"PAY-12"},
 		Scope: "repo:retries-" + id, Reversibility: questions.Reversible, Categories: []string{questions.CategoryProduct},

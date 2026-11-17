@@ -95,9 +95,12 @@ func ruling(id string, status questions.DecisionStatus) questions.Ruling {
 	}
 }
 
-// OnRung takes a question to a rung for one holder.
+// OnRung takes a question to a rung for one holder, in a ledger that holds the repository a ruling's scope names.
 func (r *Rig) OnRung(s ports.Store, text string, rung int64, change func(*questions.Ask)) (string, ledger.Actor, error) {
 	holder := r.orchestrator(RungHolder)
+	if err := r.holdScopedRepository(s, checkoutScope); err != nil {
+		return "", holder, err
+	}
 	asked, err := r.ask(s, text, r.ID("lane"), change)
 	if err != nil {
 		return "", holder, err
@@ -125,6 +128,9 @@ func (r *Rig) Assumed(s ports.Store, text, workOrder string) (questions.Decision
 	}
 	draft := ruling(r.ID("d"), questions.DecisionAssumed)
 	draft.Scope = "repo:assumption-" + draft.ID
+	if err := r.holdScopedRepository(s, draft.Scope); err != nil {
+		return questions.Decision{}, err
+	}
 	return r.NewOps(s).Rule(r.Ctx, r.Scope, id, draft, holder)
 }
 
@@ -193,6 +199,9 @@ func checkOneWayNoBypass(r *Rig) error {
 			Categories: []string{questions.CategoryProduct},
 		}
 		change(&draft)
+		if err := r.holdScopedRepository(s, draft.Scope); err != nil {
+			return draft.ID, err
+		}
 		_, err := ops.RecordDecision(r.Ctx, r.Scope, draft, orchestrator)
 		return draft.ID, err
 	}

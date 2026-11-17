@@ -184,9 +184,13 @@ func checkAnswerEveryPath(r *Rig) error {
 			if err != nil {
 				return "", err
 			}
+			scope := "repo:" + r.ID("s")
+			if err := r.holdScopedRepository(s.store, scope); err != nil {
+				return "", err
+			}
 			decided, err := r.NewOps(s.store).RecordDecision(r.Ctx, r.Scope, questions.Decision{
 				ID: r.ID("d"), Status: questions.DecisionDecided, Statement: "Twice.", Rationale: "It follows.",
-				Citations: []string{"PAY-12"}, Scope: "repo:" + r.ID("s"), Reversibility: questions.Reversible,
+				Citations: []string{"PAY-12"}, Scope: scope, Reversibility: questions.Reversible,
 			}, r.Actor)
 			if err != nil {
 				return "", err
@@ -370,6 +374,9 @@ func checkNoticeReplaced(r *Rig) error {
 	draft := questions.Decision{
 		ID: r.ID("d"), Status: questions.DecisionDecided, Statement: "Three times.", Rationale: "It follows.",
 		Citations: []string{"PAY-12"}, Scope: "repo:" + r.ID("s"), Reversibility: questions.Reversible, Supersedes: old.ID,
+	}
+	if err := r.holdScopedRepository(s.store, draft.Scope); err != nil {
+		return err
 	}
 	if _, err := r.NewOps(s.store).RecordDecision(r.Ctx, r.Scope, draft, r.Actor); err != nil {
 		return err

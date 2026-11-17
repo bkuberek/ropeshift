@@ -1,9 +1,11 @@
 package contract
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"sync"
 
 	"ropeshift.com/ropeshift/internal/adapters/fake"
@@ -142,7 +144,40 @@ func (r *Rig) decision(s ports.Store, statement string, change func(*questions.D
 	if change != nil {
 		change(&draft)
 	}
+	if err := r.holdScopedRepository(s, draft.Scope); err != nil {
+		return questions.Decision{}, err
+	}
 	return r.NewOps(s).RecordDecision(r.Ctx, r.Scope, draft, r.Actor)
+}
+
+// holdScopedRepository registers the repository a `repo:` scope names, so the ledger holds what a decision of
+// the check binds. Any other scope is the check's own to hold.
+func (r *Rig) holdScopedRepository(s ports.Store, scope string) error {
+	id, found := strings.CutPrefix(scope, "repo:")
+	if !found {
+		return nil
+	}
+	return r.HoldRepository(s, id)
+}
+
+// HoldRepository registers a repository under an ID, once, so a scope can name it.
+func (r *Rig) HoldRepository(s ports.Store, id string) error {
+	return s.Write(r.Ctx, r.Scope, "test.repository", func(tx ports.WriteTx) error {
+		record := ledger.NewRepository(id)
+		record.Name = id
+		made, err := tx.Repositories().Insert(record)
+		if err != nil || !made {
+			return err
+		}
+		data, err := json.Marshal(map[string]string{"name": record.Name})
+		if err != nil {
+			return err
+		}
+		_, err = tx.Append(ledger.EventDraft{
+			Type: ledger.EventRepositoryRegistered, Actor: r.member(), Subject: ledger.Subject{Kind: ledger.SubjectRepository, ID: id}, Data: data,
+		})
+		return err
+	})
 }
 
 // questionBook replays the whole log.
@@ -1454,6 +1489,9 @@ func checkDecisionActors(r *Rig) error {
 		draft := questions.Decision{
 			ID: r.ID("d"), Status: questions.DecisionDecided, Statement: "Three.", Rationale: "It follows.",
 			Citations: []string{"PAY-12"}, Scope: "repo:" + string(kind), Reversibility: questions.Reversible,
+		}
+		if err := r.holdScopedRepository(s, draft.Scope); err != nil {
+			return err
 		}
 		if _, err := ops.RecordDecision(r.Ctx, r.Scope, draft, ledger.Actor{Kind: kind, ID: "someone"}); err != nil {
 			return Violatedf("a %s could not decide: %v", kind, err)

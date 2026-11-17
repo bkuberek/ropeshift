@@ -1040,6 +1040,9 @@ func checkEachEventFires(r *Rig) error {
 		return err
 	}
 	draft := questions.Decision{ID: r.ID("d"), Status: questions.DecisionDecided, Statement: "Stripe.", Rationale: "It follows.", Scope: scope}
+	if err := r.holdScopedRepository(s, scope); err != nil {
+		return err
+	}
 	if _, err := ops.RecordDecision(r.Ctx, r.Scope, draft, r.Actor); err != nil {
 		return err
 	}
@@ -1348,6 +1351,9 @@ func (r *Rig) endedDecisions(s ports.Store, scope string) error {
 func checkDecisionPastAPage(r *Rig) error {
 	s := r.Store()
 	const scope = "repo:payments"
+	if err := r.holdScopedRepository(s, scope); err != nil {
+		return err
+	}
 	if err := r.endedDecisions(s, scope); err != nil {
 		return err
 	}

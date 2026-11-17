@@ -26,9 +26,9 @@ type world struct {
 	project                       string
 	worker                        string
 	ordersAPI, ordersWeb, catalog *clone
-	// orders names each work order by its title.
-	orders map[string]string
-	plan   string
+	// orders names each work order by its title, and contracts the ID the ledger gave its contract.
+	orders, contracts map[string]string
+	plan              string
 	// The records a view opens, which the ledger names.
 	cardItem, planItem         string
 	planningLane, conversation string
@@ -36,7 +36,7 @@ type world struct {
 }
 
 func newWorld(in *install) *world {
-	return &world{in: in, project: sampleProject, orders: map[string]string{}}
+	return &world{in: in, project: sampleProject, orders: map[string]string{}, contracts: map[string]string{}}
 }
 
 // populate lays out the sample through the binary, in the order a team would reach each state.
@@ -68,8 +68,9 @@ func (w *world) populate() {
 
 	w.repositories()
 	w.converse()
-	w.approvePlan()
+	w.readPlan()
 	w.decisions()
+	w.approvePlan()
 	w.askQuestions()
 	w.runLanes()
 	w.ladder()
@@ -151,8 +152,9 @@ func (w *world) severalProjects() {
 	in.must("repository", "add", promotions.Dir, "--project", "promotions")
 }
 
-// approvePlan waits for intake to read the plan and its work, and approves it as a member would.
-func (w *world) approvePlan() {
+// readPlan waits for intake to read the plan and its work, and keeps the ID the ledger gave each contract, by the
+// title of its work, which the decisions bound to a contract name it by.
+func (w *world) readPlan() {
 	in := w.in
 	in.waitFor("the plan", func() bool {
 		var plans api.PlanList
@@ -166,8 +168,21 @@ func (w *world) approvePlan() {
 	in.waitFor("the plan's work and its approval", func() bool {
 		var view api.PlanView
 		in.read(&view, "plan", "show", w.plan)
+		for _, row := range view.WorkOrders {
+			w.contracts[row.Title] = row.ContractID
+		}
 		return len(view.WorkOrders) == len(contracts) && view.Approval != nil && view.Approval.Approval.Open()
 	})
+	for _, c := range contracts {
+		if w.contracts[c.order] == "" {
+			in.t.Fatalf("no contract for the work titled %q", c.order)
+		}
+	}
+}
+
+// approvePlan approves the plan as a member would.
+func (w *world) approvePlan() {
+	in := w.in
 	in.must("plan", "approve", w.plan)
 	var orders api.WorkOrderList
 	in.read(&orders, "work", "list")
@@ -181,13 +196,15 @@ func (w *world) approvePlan() {
 	}
 }
 
-// decisions records what the team decided before the work began, each bound to the contract it is about.
+// decisions records what the team decided before the work began, each bound to the contract it is about by the ID
+// the ledger gave it. They come before the plan's approval, while no work is ready, so binding the contracts sends
+// no work back to review.
 func (w *world) decisions() {
 	w.in.must("decision", "record", "--id", "d-key-ttl", "--statement", "Store each idempotency key for 24 hours.",
-		"--rationale", "A partner retries for up to a day after an outage.", "--scope", "contract:retries",
+		"--rationale", "A partner retries for up to a day after an outage.", "--scope", "contract:"+w.contracts[orderRetries],
 		"--citation", "requirement:ORD-3", "--citation", "docs/architecture.md", "--category", questions.CategoryProduct, "--reversibility", "reversible")
 	w.in.must("decision", "record", "--id", "d-limiter-store", "--assumed", "--statement", "Keep rate limit counters in process memory for now.",
-		"--rationale", "One instance serves the API today; a shared store waits for the second.", "--scope", "contract:rate-limit",
+		"--rationale", "One instance serves the API today; a shared store waits for the second.", "--scope", "contract:"+w.contracts[orderRateLimit],
 		"--citation", "requirement:ORD-4", "--category", questions.CategoryArchitecture, "--reversibility", "reversible")
 }
 
@@ -309,9 +326,27 @@ func (w *world) openReviewOf(order string) string {
 	return found
 }
 
-// ladder starts the worker's orchestrator, which decides two questions and takes two to a person.
+// ladder starts the worker's orchestrator, which decides two questions and takes two to a person. Its script names
+// the contracts by their ledger IDs, and states no conflict with the decisions its own overlap: the member's on the
+// same contract, and the plan's, which bind every contract of the plan. A session reads the script as it starts,
+// so the orchestrator's reads this one.
 func (w *world) ladder() {
 	in := w.in
+	var planned api.DecisionList
+	in.read(&planned, "decision", "list", "--scope", "plan:"+w.plan)
+	if len(planned.Decisions) == 0 {
+		in.t.Fatalf("the plan %s decided nothing at its approval", w.plan)
+	}
+	var plan []string
+	for _, decision := range planned.Decisions {
+		plan = append(plan, decision.ID)
+	}
+	in.scripts = lanes()
+	in.scripts[orchestrator] = orchestratorScript(
+		sampleRuling{contract: w.contracts[orderRetries], noConflict: append([]string{"d-key-ttl"}, plan...)},
+		sampleRuling{contract: w.contracts[orderRateLimit], noConflict: append([]string{"d-limiter-store"}, plan...)},
+	)
+	in.writeFixture(assistantTurns())
 	in.reap(orchestrator)
 	in.must("orchestrator", "start", w.worker)
 	in.waitFor("the questions to reach a person", func() bool {

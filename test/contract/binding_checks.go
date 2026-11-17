@@ -47,6 +47,7 @@ var BindingChecks = []Check{
 	{"BD21", "an overturn that reaches finished work whose rework runs starts no rework, and lists the rework it reached", checkBindingOverturnTakesTheLiveTip},
 	{"BD22", "a work order overlaps a repository that only its rework runs in", checkBindingReworkRunsIn},
 	{"BD23", "a plan scope binds work by the plan of the contract version it is pinned to, not the plan the contract moved to", checkBindingPinnedPlan},
+	{"BD24", "the control plane records no scope that names nothing the ledger holds, however a decision reaches it", checkBindingRefusesUnheldScopes},
 }
 
 // checkBindingOverturnTakesTheLiveTip holds the same of an overturn: it reworks finished work once, and a later
@@ -412,6 +413,9 @@ func checkBindingWakeNamesAScope(r *Rig) error {
 	if err != nil {
 		return Violatedf("a wake on a decision of a scope in the grammar was refused: %v", err)
 	}
+	if err := r.HoldRepository(s, "payments"); err != nil {
+		return err
+	}
 	if _, err := r.NewOps(s).RecordDecision(r.Ctx, r.Scope, questions.Decision{
 		ID: r.ID("d"), Status: questions.DecisionDecided, Statement: "Stripe.", Rationale: "It follows.", Citations: []string{"PAY-12"},
 		Scope: "repo:payments", Reversibility: questions.Reversible, Categories: []string{questions.CategoryProduct},
@@ -445,10 +449,70 @@ func checkBindingRefusesBadScopes(r *Rig) error {
 		return Violatedf("an orchestrator's ruling scoped %q was recorded or refused as %v", draft.Scope, err)
 	}
 	draft.Scope = "repo:refunds"
+	if err := r.holdScopedRepository(s, draft.Scope); err != nil {
+		return err
+	}
 	if _, err := ops.Rule(r.Ctx, r.Scope, id, draft, holder); err != nil {
 		return Violatedf("a ruling in the grammar was refused: %v", err)
 	}
 	return r.CheckQuestions(s)
+}
+
+// checkBindingRefusesUnheldScopes holds a scope a person or an orchestrator names to a record of its kind the
+// ledger holds, so no decision binds nothing by a mistyped ID. An answer takes its question's own scope, which the
+// control plane builds, so a question about a record the ledger does not hold is still answered.
+func checkBindingRefusesUnheldScopes(r *Rig) error {
+	m, err := midPlanWorld(r)
+	if err != nil {
+		return err
+	}
+	web, err := m.order("web")
+	if err != nil {
+		return err
+	}
+	repository := r.ID("repository")
+	if err := r.HoldRepository(m.s, repository); err != nil {
+		return err
+	}
+	ops := r.NewOps(m.s)
+	id, holder, err := r.OnRung(m.s, "How many refund retries?", questions.RungDecide, nil)
+	if err != nil {
+		return err
+	}
+	unheld := []string{"plan:ghost", "contract:ghost", "wo:ghost", "repo:ghost", "plan:" + web.ContractID, "contract:" + m.plan, "repo:" + web.ID}
+	for _, scope := range unheld {
+		_, err := ops.RecordDecision(r.Ctx, r.Scope, questions.Decision{
+			ID: r.ID("d"), Status: questions.DecisionDecided, Statement: "Charge in euros.", Rationale: "It follows.", Citations: []string{"PAY-12"},
+			Scope: scope, Reversibility: questions.Reversible, Categories: []string{questions.CategoryProduct},
+		}, r.member())
+		if !errors.Is(err, questions.ErrUnheldScope) || !errors.Is(err, questions.ErrInvalid) || !strings.Contains(fmt.Sprint(err), scope) {
+			return Violatedf("a member's decision scoped %q was recorded or refused as %v", scope, err)
+		}
+		draft := ruling(r.ID("d"), questions.DecisionDecided)
+		draft.Scope = scope
+		if _, err := ops.Rule(r.Ctx, r.Scope, id, draft, holder); !errors.Is(err, questions.ErrUnheldScope) || !errors.Is(err, questions.ErrInvalid) {
+			return Violatedf("an orchestrator's ruling scoped %q was recorded or refused as %v", scope, err)
+		}
+	}
+	if question, err := r.readQuestion(m.s, id); err != nil || !question.Status.Unresolved() {
+		return Violatedf("a refused ruling left the question %+v: %v", question, err)
+	}
+	for _, scope := range []string{"plan:" + m.plan, "contract:" + web.ContractID, "wo:" + web.ID, "repo:" + repository} {
+		if _, err := m.decide(r.member(), scope, questions.Reversible); err != nil {
+			return Violatedf("a decision scoped %q, which names a record the ledger holds, was refused: %v", scope, err)
+		}
+	}
+	asked, err := r.ask(m.s, "Which retry budget?", r.ID("lane"), func(a *questions.Ask) {
+		a.SubjectKind, a.SubjectID = workorders.SubjectKind, "ghost"
+	})
+	if err != nil {
+		return err
+	}
+	answered, err := ops.Answer(r.Ctx, r.Scope, asked.QuestionID, questions.Answer{DecisionID: r.ID("d"), Statement: "Twice.", Rationale: "It follows."}, r.member())
+	if err != nil || answered.Scope != "wo:ghost" {
+		return Violatedf("an answer to a question about a work order the ledger does not hold is %+v: %v", answered, err)
+	}
+	return r.CheckQuestions(m.s)
 }
 
 // decide records a decision of the scenario's plan, with the other decisions it overlaps stated as no conflict.

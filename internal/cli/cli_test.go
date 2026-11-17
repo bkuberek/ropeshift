@@ -178,7 +178,11 @@ func TestExitCodes(t *testing.T) {
 		{"release with no claim", nil, []string{"work", "release", "wo", "--fence", "1"}, cli.ExitUsage},
 		{"release with no fence", nil, []string{"work", "release", "wo", "--claim-id", "c"}, cli.ExitUsage},
 
-		{"a decision with a scope of the grammar", nil, []string{"decision", "record", "--statement", "S", "--scope", "plan:p1"}, cli.ExitOK},
+		{
+			"a decision with a scope of the grammar", func(s *session) { s.daemon.HoldRepository(s.t, "p1") },
+			[]string{"decision", "record", "--statement", "S", "--scope", "repo:p1"}, cli.ExitOK,
+		},
+		{"a decision with a scope that names nothing", nil, []string{"decision", "record", "--statement", "S", "--scope", "plan:p1"}, cli.ExitUsage},
 		{"a decision with a bare ID as its scope", nil, []string{"decision", "record", "--statement", "S", "--scope", "p1"}, cli.ExitUsage},
 		{"a decision with a scope of an unknown kind", nil, []string{"decision", "record", "--statement", "S", "--scope", "team:p1"}, cli.ExitUsage},
 
@@ -695,6 +699,10 @@ func TestQuestionCommands(t *testing.T) {
 
 func TestDecisionAndSearchCommands(t *testing.T) {
 	s := newSession(t)
+	if code, _, stderr := s.run("decision", "record", "--statement", "S", "--scope", "wo:ghost"); code != cli.ExitUsage || !strings.Contains(stderr, `"wo:ghost" names no work order`) {
+		t.Errorf("a scope that names nothing: exit %d, %q", code, stderr)
+	}
+	s.daemon.HoldRepository(t, "checkout")
 	s.must("decision", "record", "--id", "d1", "--statement", "The retry budget is three calls.", "--rationale", "It follows.",
 		"--scope", "repo:checkout", "--category", "product", "--citation", "PAY-12", "--reversibility", "reversible")
 	if text := s.must("decision", "list", "--scope", "repo:checkout", "--text", "retry"); !strings.Contains(text, "d1") {
@@ -995,6 +1003,8 @@ func TestLanePolicyCommands(t *testing.T) {
 
 func TestDecisionOverturn(t *testing.T) {
 	s := newSession(t)
+	s.daemon.HoldRepository(t, "checkout")
+	s.daemon.HoldRepository(t, "other")
 	s.must("decision", "record", "--id", "d1", "--statement", "Retries log at info.", "--assumed", "--scope", "repo:checkout")
 	second := s.must("decision", "record", "--id", "d2", "--statement", "Retries emit a metric.", "--scope", "repo:checkout",
 		"--no-conflict", "d1", "--json")

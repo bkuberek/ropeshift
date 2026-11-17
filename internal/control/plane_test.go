@@ -443,6 +443,10 @@ func TestAnOrchestratorCannotCiteAnotherProjectsRecord(t *testing.T) {
 	if _, err := control.NewQuestions(r.stores["pa"], questions.BatchPolicy{}).RecordQuestion(ctx, "pa", questions.Question{ID: "q-a", Text: "What is the retry budget?"}, member); err != nil {
 		t.Fatal(err)
 	}
+	retries := control.DetectedRepository{ID: "retries", Remote: "https://example.invalid/acme/retries.git", DefaultBranch: "main"}
+	if _, err := control.NewRepositories(r.stores["pb"]).Detect(ctx, "pb", retries, ledger.Actor{Kind: ledger.ActorSystem, ID: "intake"}); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := control.NewQuestions(r.stores["pb"], questions.BatchPolicy{}).RecordDecision(ctx, "pb", questions.Decision{
 		ID: "d-b", Status: questions.DecisionDecided, Statement: "The retry budget is two retries.", Rationale: "It follows.",
 		Scope: "repo:retries", Reversibility: questions.Reversible, DecidedBy: member.ID, Citations: []string{"PAY-12"},

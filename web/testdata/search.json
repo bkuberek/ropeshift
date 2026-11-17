@@ -585,7 +585,13 @@
       "kind": "repository",
       "state": "active",
       "title": "app"
+    },
+    {
+      "id": "retries",
+      "kind": "repository",
+      "state": "active",
+      "title": "retries"
     }
   ],
-  "revision": 344
+  "revision": 345
 }
