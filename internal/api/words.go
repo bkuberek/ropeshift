@@ -15,6 +15,15 @@ func Dollars(usd float64) string {
 	return fmt.Sprintf("$%.2f", usd)
 }
 
+// Cost says an estimated cost as Dollars does, read "at least" when it is a lower bound because some
+// of it was never reported.
+func Cost(usd float64, lowerBound bool) string {
+	if lowerBound {
+		return "at least " + Dollars(usd)
+	}
+	return Dollars(usd)
+}
+
 // Count says how many of something there are, in the singular for one: "1 batch of questions", and
 // "2 batches of questions".
 func Count(n int64, one, many string) string {

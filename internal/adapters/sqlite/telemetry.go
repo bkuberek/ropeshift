@@ -198,7 +198,8 @@ type laneFigures struct {
 // Lanes sums what the store holds of each lane. Context is the newest reading from either source,
 // because both report the same call. Tokens and cost come from ropeshift's own metrics, which the
 // worker took from the driver, and from the agent's telemetry only for a lane ropeshift said nothing
-// of, so nothing counts twice.
+// of, so nothing counts twice. A lane's cost is a lower bound when the worker counted a turn whose
+// cost went unreported, whichever source the cost came from.
 func (s *TelemetryStore) Lanes(ctx context.Context) ([]ports.LaneTelemetry, error) {
 	summaries := map[string]*ports.LaneTelemetry{}
 	get := func(lane string) *ports.LaneTelemetry {
@@ -211,6 +212,9 @@ func (s *TelemetryStore) Lanes(ctx context.Context) ([]ports.LaneTelemetry, erro
 		return nil, err
 	}
 	if err := s.context(ctx, get); err != nil {
+		return nil, err
+	}
+	if err := s.unreported(ctx, get); err != nil {
 		return nil, err
 	}
 	own, err := s.figures(ctx, ledger.MetricTokens, ledger.MetricCost)
@@ -290,6 +294,28 @@ func (s *TelemetryStore) context(ctx context.Context, get func(string) *ports.La
 		}
 		summary := get(lane)
 		summary.ContextTokens, summary.ContextAt = int64(tokens), at
+	}
+	return rows.Err()
+}
+
+// unreported sums the turns the worker counted whose cost was never reported, per lane, and marks the
+// cost of each lane with any as a lower bound.
+func (s *TelemetryStore) unreported(ctx context.Context, get func(string) *ports.LaneTelemetry) error {
+	rows, err := s.db.QueryContext(ctx, `SELECT lane_id, SUM(value) FROM telemetry_records
+ WHERE name = ?1 AND lane_id != '' AND value IS NOT NULL GROUP BY lane_id`, ledger.MetricCostUnreported)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var lane string
+		var turns float64
+		if err := rows.Scan(&lane, &turns); err != nil {
+			return err
+		}
+		if turns > 0 {
+			get(lane).LowerBound = true
+		}
 	}
 	return rows.Err()
 }

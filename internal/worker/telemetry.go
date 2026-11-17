@@ -145,7 +145,7 @@ func (r *laneRun) measureAgent(agent string, usage *lanes.Usage) {
 
 // measureTurn records a turn's tokens by type and its cost. The cost is the turn's share of the
 // session's running total, a difference between totals, because a total accumulates across resumes.
-// A turn a kill stopped reports nothing, so a sum of these is a lower bound.
+// A turn that stopped reports no cost, so it counts as unreported.
 func (r *laneRun) measureTurn(turn *ports.TurnResult) {
 	if turn == nil {
 		return
@@ -161,4 +161,13 @@ func (r *laneRun) measureTurn(turn *ports.TurnResult) {
 	if turn.CostUSD != 0 {
 		r.measure(ledger.MetricCost, ports.MetricCounter, "USD", turn.CostUSD)
 	}
+	if turn.Status == ports.TurnStopped {
+		r.measureUnreported()
+	}
+}
+
+// measureUnreported counts one turn whose cost was never reported, which makes the sum of the lane's
+// cost a lower bound: a turn that stopped, or the turn a session died in with no result for its input.
+func (r *laneRun) measureUnreported() {
+	r.measure(ledger.MetricCostUnreported, ports.MetricCounter, "{turn}", 1)
 }

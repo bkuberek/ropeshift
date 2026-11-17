@@ -59,14 +59,17 @@ func (q TelemetryQuery) Values() url.Values {
 }
 
 // LaneTelemetry is what the local store says of one lane: context at its last call, tokens by type,
-// and the cost its agent reported, which is a lower bound.
+// and the cost its agent reported.
 type LaneTelemetry struct {
 	Lane          string           `json:"lane"`
 	ContextTokens int64            `json:"context_tokens"`
 	ContextAt     int64            `json:"context_at,omitempty"`
 	Tokens        map[string]int64 `json:"tokens"`
 	CostUSD       float64          `json:"cost_usd"`
-	LastAt        int64            `json:"last_at"`
+	// LowerBound says some of the cost was never reported, because a turn stopped or a session crashed
+	// with no result for its input, so CostUSD is a lower bound and reads "at least".
+	LowerBound bool  `json:"lower_bound"`
+	LastAt     int64 `json:"last_at"`
 	// Agents are the tokens each roster agent spent inside the lane, by agent and then type, where the
 	// driver reported which agent spent them. They are part of Tokens (FR-AGENT-12).
 	Agents map[string]map[string]int64 `json:"agents,omitempty"`

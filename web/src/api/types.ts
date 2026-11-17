@@ -1012,13 +1012,15 @@ export type LaneMessage = {
 export type MessageList = { messages: LaneMessage[] };
 
 // What the local telemetry store says of one lane: its context at the last call, its tokens by type, the roster
-// agents that spent some, and the cost its agent reported, which is a lower bound.
+// agents that spent some, and the cost its agent reported, a lower bound when lower_bound says so.
 export type LaneTelemetry = {
   lane: string;
   context_tokens: number;
   context_at?: number;
   tokens: Record<string, number>;
   cost_usd: number;
+  // lower_bound says some of the cost was never reported, so it reads "at least".
+  lower_bound: boolean;
   last_at: number;
   agents?: Record<string, Record<string, number>>;
 };

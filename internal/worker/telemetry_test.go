@@ -326,3 +326,52 @@ func TestPerLaneMetricsFromDriverReports(t *testing.T) {
 		}
 	}
 }
+
+// TestATurnWhoseCostWentUnreportedIsCounted holds the lower bound of a lane's cost: a turn that stopped reports no
+// cost, and a session that died with no result for its input never reports its last turn's, so the worker counts
+// each, under the lane and the generation it ran in. A lane whose every turn reported its cost counts none.
+func TestATurnWhoseCostWentUnreportedIsCounted(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name     string
+		restarts string
+		steps    func(r *laneRig) []fake.DriverStep
+		want     int
+	}{
+		{"a turn that stopped", "", func(r *laneRig) []fake.DriverStep {
+			return []fake.DriverStep{
+				{Bound: true}, {Turn: &fake.DriverTurn{Status: ports.TurnStopped, Reason: "aborted_streaming"}},
+				r.reports(workorders.OutcomeCompleted), completed(0.25),
+			}
+		}, 1},
+		{"a session that died with no result for its input", noRestarts, func(*laneRig) []fake.DriverStep {
+			return []fake.DriverStep{{Bound: true}, completed(0.25), {Crash: true}}
+		}, 1},
+		{"turns that reported their cost", "", func(r *laneRig) []fake.DriverStep {
+			return []fake.DriverStep{{Bound: true}, completed(0.25), r.reports(workorders.OutcomeCompleted), completed(0.4)}
+		}, 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			r := laneRigWith(t, tt.restarts)
+			r.driver.Play(script(tt.steps(r)))
+			if err := r.subject.Converge(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			unreported := r.telemetry.Measurements(ledger.MetricCostUnreported)
+			if len(unreported) != tt.want {
+				t.Fatalf("%d turns counted unreported, want %d: %+v", len(unreported), tt.want, unreported)
+			}
+			for _, m := range unreported {
+				if m.Kind != ports.MetricCounter || m.Unit != "{turn}" || m.Value != 1 {
+					t.Errorf("an unreported turn is measured as %+v", m)
+				}
+				if attribute(m.Attributes, lanes.AttrLane) != "lane-1" || attribute(m.Attributes, lanes.AttrWorkOrder) != r.id ||
+					attribute(m.Attributes, lanes.AttrGeneration) != int64(1) {
+					t.Errorf("an unreported turn is not the lane's: %+v", m.Attributes)
+				}
+			}
+		})
+	}
+}

@@ -20,10 +20,14 @@ function dollars(value: number): string {
   return value > 0 && value < 0.005 ? "under $0.01" : `$${value.toFixed(2)}`;
 }
 
-// CostOf says what a lane's agent reported it cost. It is a lower bound, because a turn a kill stopped reports
-// nothing, so a figure reads "at least". A lane that reported no cost says so, and is never drawn as a cost of zero.
+// CostOf says what a lane's agent reported it cost. A cost some of which was never reported is a lower bound, and
+// reads "at least", as the Overview reads one. A lane that reported no cost says so, and is never drawn as a cost of
+// zero.
 function CostOf({ lane }: { lane: LaneTelemetry }) {
-  return lane.cost_usd > 0 ? <>at least {dollars(lane.cost_usd)}</> : <Absent>none reported</Absent>;
+  if (lane.cost_usd <= 0) {
+    return <Absent>none reported</Absent>;
+  }
+  return <>{`${lane.lower_bound ? "at least " : ""}${dollars(lane.cost_usd)}`}</>;
 }
 
 // TokensOf lists a lane's tokens by type and, under them, what each roster agent that spent some used. An agent's
@@ -76,7 +80,7 @@ export function LaneCosts({ live }: { live: Live }) {
         <Panel
           title="Estimated cost by lane"
           flush
-          foot="Costs are estimated at list price from what each lane's agent reported, and are not a bill. A turn a kill stopped reports nothing, so a cost is a lower bound. An agent's tokens are part of its lane's, and are not added to them."
+          foot="Costs are estimated at list price from what each lane's agent reported, and are not a bill. A cost reads at least a figure when some of it was never reported, because a turn stopped or a session crashed before its turn ended. An agent's tokens are part of its lane's, and are not added to them."
         >
           <TableRegion label="Estimated cost by lane">
             <table className="table stack-on-phone">

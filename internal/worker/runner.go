@@ -996,6 +996,10 @@ func (r *laneRun) watch(ctx context.Context, events <-chan ports.DriverEvent) wo
 		case ports.EventSessionEnded:
 			r.noteRefusedResume(ctx)
 			r.expireToken(ctx)
+			// A session that crashed had no result for its input, so the turn it died in never reported its cost.
+			if event.End != nil && event.End.Crashed {
+				r.measureUnreported()
+			}
 			if event.End != nil && (event.End.Crashed || r.orchestratorLost(ctx)) {
 				r.crashed, r.crashedAt = true, r.w.clock.Now()
 				r.signal(ctx, lanes.OnActivity, lanes.OnSessionGone)
