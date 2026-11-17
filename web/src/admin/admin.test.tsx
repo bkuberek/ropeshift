@@ -411,6 +411,40 @@ describe("Import an existing project", () => {
     expect(sentTo(sent, "POST", "/v1/projects")[0]?.body, "the new project is shown by its folder's name").toEqual({ name: "tidewater", display_name: "Tidewater" });
   });
 
+  it("lists the planning repositories by the path the member entered, with where each leads in its title", async () => {
+    const dryRun = {
+      dry_run: true,
+      repositories: [
+        { path: "/private/tmp/work/web", entered: "/tmp/work/web", outcome: "registered", repository: { id: "id-web", name: "web", remote: "git@example.invalid:acme/web.git" } },
+        { path: "/srv/work/api", outcome: "registered", repository: { id: "id-api", name: "api", remote: "git@example.invalid:acme/api.git" } },
+      ],
+    };
+    serveAdmin((call) => {
+      if (call.method === "POST" && call.path === "/v1/projects") {
+        return { status: 201, body: { id: "t", name: "tidewater", state: "active", created_at: 3, repositories: [] } };
+      }
+      if (call.method === "POST" && call.path === "/v1/repositories") {
+        return { status: 200, body: dryRun };
+      }
+      if (call.method === "GET" && call.path === "/v1/repositories") {
+        return { status: 200, body: { repositories: [] } };
+      }
+      return undefined;
+    });
+    openPage("/import");
+    await userEvent.type(await screen.findByLabelText("Folder"), "/tmp/work");
+    await waitFor(() => expect((screen.getByLabelText("Worker") as HTMLSelectElement).value).toBe("worker-1"));
+    await userEvent.click(screen.getByRole("button", { name: "Run dry run" }));
+    await screen.findByRole("region", { name: "Clones found" });
+    await userEvent.click(screen.getByRole("button", { name: "Continue" }));
+    const group = await screen.findByRole("group", { name: /plan needs one to live in/ });
+    const paths = [...group.querySelectorAll("label.option code")];
+    expect(paths.map((code) => code.textContent)).toEqual(["/tmp/work/web", "/srv/work/api"]);
+    expect(paths[0]?.getAttribute("title")).toBe("Leads to /private/tmp/work/web");
+    expect(paths[1]?.getAttribute("title")).toBeNull();
+    expect(group.textContent).not.toContain("/private/tmp");
+  });
+
   it("refuses a project that already has an approved plan, and offers a planning session", async () => {
     serveAdmin((call) => (call.path.startsWith("/v1/approvals") ? { status: 200, body: { approvals: [{ id: "a", state: "approved", kind: "plan" }] } } : undefined));
     openPage("/import?project=default");

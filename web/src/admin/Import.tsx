@@ -272,7 +272,9 @@ export function ImportPage({ projects, chosen, reload }: { projects: Project[]; 
                     <span>
                       <strong>{row.repository?.name || row.repository?.id}</strong>
                       <br />
-                      <span className="small muted mono">{row.path}</span>
+                      <code className="small muted mono" title={row.entered ? `Leads to ${row.path}` : undefined}>
+                        {row.entered || row.path}
+                      </code>
                     </span>
                   </label>
                 ))}
