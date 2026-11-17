@@ -365,6 +365,9 @@ describe("ready work on the floor", () => {
           order.state = "running";
           view.work_actions[ready] = { actions: ["cancel"] };
         }
+        for (const plan of view.plans) {
+          plan.reviews = [];
+        }
       },
     });
     openPage("/floor");
@@ -473,5 +476,38 @@ describe("a ready review", () => {
     await userEvent.click(within(box).getByRole("button", { name: "Start" }));
     await waitFor(() => expect(changes(sent)).toHaveLength(2));
     expect(changes(sent)[0]?.path).toBe(`/v1/work-orders/${review}/claims`);
+  });
+});
+
+// A contract review stands in its plan's reviews, not among the plan's work, and a member starts it as any
+// ready work: the same claim, then the same lane start.
+describe("a ready contract review", () => {
+  const review = "review-1";
+  const reviewTitle = "Review Write the docs";
+
+  it("is listed on the floor, and starts through the same dialog", async () => {
+    const sent = serving();
+    openPage("/floor");
+    const list = await screen.findByRole("region", { name: "Ready to start" });
+    const item = within(list).getByText(reviewTitle).closest("li") as HTMLElement;
+    await userEvent.click(within(item).getByRole("button", { name: `Start ${reviewTitle}` }));
+    const box = await dialog(`Start ${reviewTitle}`);
+    await waitFor(() => expect((within(box).getByRole("combobox", { name: "Worker" }) as HTMLSelectElement).value).toBe("worker-a"));
+    await userEvent.click(within(box).getByRole("button", { name: "Start" }));
+    await waitFor(() => expect(changes(sent)).toHaveLength(2));
+    expect(changes(sent).map((call) => call.path)).toEqual([`/v1/work-orders/${review}/claims`, `/v1/work-orders/${review}/lanes`]);
+  });
+
+  it("is a row of the work orders list", async () => {
+    serving();
+    openPage("/work");
+    expect((await screen.findByRole("link", { name: reviewTitle })).closest("tr")).toBeTruthy();
+  });
+
+  it("starts from its own page", async () => {
+    serving();
+    openPage(`/work-order?id=${review}`);
+    expect(await screen.findByRole("heading", { level: 1, name: new RegExp(`^${review}`) })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "Start" })).toBeTruthy();
   });
 });

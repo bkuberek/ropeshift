@@ -52,6 +52,10 @@ export function index(plans: Plans, running: InProgress, held: OnHold, stuck: St
       const at = row(order);
       at.plan = detail;
     }
+    // A contract review stands in its plan's reviews, not among the plan's work.
+    for (const review of detail.reviews) {
+      row(review.work_order).plan = detail;
+    }
   }
   for (const order of plans.unplanned) {
     row(order);

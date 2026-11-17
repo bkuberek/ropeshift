@@ -7,6 +7,7 @@ import type { Contract, ContractHistory, PlanDetail, PlanReview, Plans as View, 
 import type { Live } from "../api/useView";
 import { useView } from "../api/useView";
 import { addressOf, Link } from "../app/route";
+import { ReviewOf } from "../floor/ReviewOf";
 import { approvalStates, workLabel } from "../floor/states";
 import { PlanForecastView } from "../measures/Forecast";
 import { Bar, Fact, Id, LongFact, plural, Section, words } from "../parts/parts";
@@ -44,6 +45,7 @@ function WorkRows({ orders, names }: { orders: WorkOrder[]; names?: Names }) {
         return (
           <li key={order.id} className="list-row">
             <p className="list-row-title">{order.title || order.id}</p>
+            <ReviewOf order={order} />
             <ul className="chips">
               <li className="chip-strong">{workLabel(order.state)}</li>
               {order.size !== undefined ? <li>{sizeWords(order.size)}</li> : null}
@@ -116,7 +118,8 @@ function PlanLine({ detail }: { detail: PlanDetail }) {
 }
 
 export function PlanList({ view, project }: { view: View; project: string }) {
-  if (view.plans.length === 0 && view.unplanned.length === 0) {
+  const reviews = view.reviews ?? [];
+  if (view.plans.length === 0 && view.unplanned.length === 0 && reviews.length === 0) {
     return (
       <div className="panel">
         <EmptyState icon="plan" title="No plans yet" action={<StartSession project={project} variant="primary" />}>
@@ -135,6 +138,11 @@ export function PlanList({ view, project }: { view: View; project: string }) {
       {view.unplanned.length ? (
         <Section title="Work with no plan">
           <WorkRows orders={view.unplanned} />
+        </Section>
+      ) : null}
+      {reviews.length ? (
+        <Section title="Reviews that have not ended">
+          <WorkRows orders={reviews} />
         </Section>
       ) : null}
     </>

@@ -281,6 +281,28 @@ describe("a planning session", () => {
     expect(within(head).getByText(/Approving the plan stays yours/)).toBeTruthy();
   });
 
+  it("says a session that waits for its person is waiting for you, beside its state", async () => {
+    serve((call) => {
+      if (call.method === "GET" && call.path === "/v1/views/in-progress") {
+        const running = golden<InProgress>("in-progress");
+        const first = running.items.find((item) => item.lane?.id === lane);
+        if (first?.lane) {
+          first.work_order.kind = "plan";
+          first.work_order.title = "Saved searches v2";
+          first.lane.actual_state = "idle";
+          first.lane.conditions = ["waiting_for_person"];
+        }
+        return { status: 200, body: running };
+      }
+      return undefined;
+    });
+    openPage(here(`/planning?lane=${lane}`));
+    const title = await screen.findByRole("heading", { level: 1, name: "Saved searches v2" });
+    const head = title.closest(".convo-head") as HTMLElement;
+    expect(within(head).getByText("Idle")).toBeTruthy();
+    expect(within(head).getByText("Waiting for you").className).toContain("cond");
+  });
+
   it("opens in Conversations, which names no target", async () => {
     serve();
     openPage(here(`/planning?lane=${lane}`));
