@@ -851,12 +851,52 @@ func keepStableBinary(ctx context.Context, paths api.Paths, runner ports.Process
 func soloKnowledge(opts soloOptions, kept ports.Checkouts) []ports.KnowledgeSource {
 	sources := make([]ports.KnowledgeSource, 0, len(opts.sources))
 	for _, path := range opts.sources {
-		sources = append(sources, repodocs.New(repofiles.Config{
+		sources = append(sources, refusable{repodocs.New(repofiles.Config{
 			Repository: path, Ref: opts.ref, Directory: opts.directory, Records: opts.records, KeptElsewhere: keptElsewhere(kept, soloScope, path),
 			IdentityOf: checkoutIdentity(kept, soloScope, path),
-		}))
+		})})
 	}
 	return sources
+}
+
+// refusable is a documents source that stops serving while its repository shares its first commit with a
+// clone this worker keeps at another path, which registration refuses and intake reports. The Documents view
+// lists the other sources, and a document of this one is not found, where an error would fail them all.
+type refusable struct{ ports.KnowledgeSource }
+
+// refused says the repository is one registration would refuse, and reads any other failure as none.
+func (s refusable) refused(ctx context.Context) bool {
+	var shared *repofiles.SharedFirstCommitError
+	_, err := s.KnowledgeSource.Describe(ctx)
+	return errors.As(err, &shared)
+}
+
+func (s refusable) Describe(ctx context.Context) (ports.SourceDescription, error) {
+	if s.refused(ctx) {
+		return ports.SourceDescription{Adapter: repodocs.Adapter}, nil
+	}
+	return s.KnowledgeSource.Describe(ctx)
+}
+
+func (s refusable) List(ctx context.Context) ([]ports.KnowledgeDocument, error) {
+	if s.refused(ctx) {
+		return nil, nil
+	}
+	return s.KnowledgeSource.List(ctx)
+}
+
+func (s refusable) Read(ctx context.Context, key ledger.ExternalKey, version string) (ports.KnowledgeDocument, error) {
+	if s.refused(ctx) {
+		return ports.KnowledgeDocument{}, fmt.Errorf("document %s: this repository shares its first commit with another this worker keeps: %w", key, ports.ErrNotFound)
+	}
+	return s.KnowledgeSource.Read(ctx, key, version)
+}
+
+func (s refusable) Versions(ctx context.Context, key ledger.ExternalKey) ([]ports.KnowledgeVersion, error) {
+	if s.refused(ctx) {
+		return nil, fmt.Errorf("document %s: this repository shares its first commit with another this worker keeps: %w", key, ports.ErrNotFound)
+	}
+	return s.KnowledgeSource.Versions(ctx, key)
 }
 
 // soloBatches reads how long questions gather from the user's layer. A layer that does not

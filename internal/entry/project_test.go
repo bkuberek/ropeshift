@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"slices"
@@ -15,11 +16,13 @@ import (
 	"ropeshift.com/ropeshift/internal/adapters/fake"
 	"ropeshift.com/ropeshift/internal/adapters/repofiles"
 	"ropeshift.com/ropeshift/internal/adapters/sqlite"
+	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/control"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/internal/questions"
 	"ropeshift.com/ropeshift/internal/workorders"
+	"ropeshift.com/ropeshift/test/apitest"
 	"ropeshift.com/ropeshift/test/contract"
 	"ropeshift.com/ropeshift/test/gittest"
 )
@@ -545,6 +548,37 @@ func TestASourceThatSharesAFirstCommitWithAKeptCloneIsReportedAndNotRead(t *test
 	}
 	if path, err := find(t.Context(), soloScope, m.own); !errors.Is(err, ports.ErrNotFound) || errors.As(err, &shared) {
 		t.Errorf("the refused source resolves to %q (%v), and its refusal must not stop the lookup", path, err)
+	}
+}
+
+// One daemon source that shares its first commit with a clone this worker keeps is not read, and the Documents
+// view still lists the documents of the others: the refused source is out of service, as intake leaves it, and
+// does not fail the response.
+func TestTheDocumentsViewListsTheOtherSourcesWhenOneIsRefused(t *testing.T) {
+	m := newMergedSource(t)
+	m.legacyRecord(t, m.lowest)
+	other := gittest.New(t)
+	other.Commit("NOTES.md", "# Notes\n\nThe other repository.\n")
+	kept := &checkouts.File{Path: filepath.Join(t.TempDir(), checkouts.FileName), Env: m.workspace.Env()}
+	if err := kept.Keep(t.Context(), soloScope, m.lowest, m.design.Dir); err != nil {
+		t.Fatal(err)
+	}
+	sources := soloKnowledge(soloOptions{sources: repeatedFlag{m.workspace.Dir, other.Dir}, records: recordsIn(m.store, soloScope)}, kept)
+	d := apitest.StartWith(t, apitest.Options{Knowledge: sources})
+	documents, err := d.Client.Documents(t.Context())
+	if err != nil {
+		t.Fatalf("the Documents view fails: %v", err)
+	}
+	var paths []string
+	for _, document := range documents {
+		paths = append(paths, document.Path)
+	}
+	if !slices.Contains(paths, "NOTES.md") || slices.Contains(paths, "contract.md") {
+		t.Errorf("the view lists %v, want the other repository's NOTES.md and nothing of the refused source", paths)
+	}
+	var read api.Document
+	if err := d.Client.Do(t.Context(), http.MethodGet, api.InProject(apitest.ProjectName, "/v1/documents/read?path=NOTES.md"), nil, &read); err != nil || read.Path != "NOTES.md" {
+		t.Errorf("reading the other repository's document fails: %+v (%v)", read, err)
 	}
 }
 
