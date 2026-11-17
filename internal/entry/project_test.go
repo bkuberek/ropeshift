@@ -394,7 +394,7 @@ func TestAClonePathCountsAsKeptElsewhereOnlyWhileItHoldsTheRecordsFirstCommit(t 
 		"a path nothing is at":  {filepath.Join(t.TempDir(), "absent"), true},
 	} {
 		got, held, err := keptElsewhere(kept, soloScope, tt.path)(t.Context(), id)
-		if err != nil || held != tt.want || (held && got.Path != design.Dir) {
+		if err != nil || held != tt.want || (held && !sameDirectory(got.Path, design.Dir)) {
 			t.Errorf("%s: kept elsewhere %+v, %v (%v), want %v at %s", name, got, held, err, tt.want, design.Dir)
 		}
 	}
@@ -416,6 +416,17 @@ func TestAClonePathCountsAsKeptElsewhereOnlyWhileItHoldsTheRecordsFirstCommit(t 
 	if got, held, err := keptElsewhere(kept, soloScope, m.workspace.Dir)(t.Context(), "no-such-record"); err != nil || held {
 		t.Errorf("a record this worker keeps no clone of counts as kept elsewhere: %+v, %v (%v)", got, held, err)
 	}
+}
+
+// sameDirectory reports whether two paths name one directory, however each is spelled: a temporary directory
+// is /var/... on a machine whose /var is a link to /private/var, and the product reports the real path.
+func sameDirectory(a, b string) bool {
+	first, err := os.Stat(a)
+	if err != nil {
+		return false
+	}
+	second, err := os.Stat(b)
+	return err == nil && os.SameFile(first, second)
 }
 
 // aliasOf returns a spelling of a directory that leads through a symbolic link, as a temporary directory does on
@@ -443,7 +454,7 @@ func TestKeptPathsAreComparedByTheDirectoryTheyNameAndNotHowTheyAreSpelled(t *te
 	if err := kept.Keep(t.Context(), soloScope, id, spelled); err != nil {
 		t.Fatal(err)
 	}
-	if got, held, err := keptElsewhere(kept, soloScope, m.workspace.Dir)(t.Context(), id); err != nil || !held || got.Path != design.Dir {
+	if got, held, err := keptElsewhere(kept, soloScope, m.workspace.Dir)(t.Context(), id); err != nil || !held || !sameDirectory(got.Path, design.Dir) {
 		t.Errorf("a clone kept through a link reads %+v, %v (%v), want it kept at %s", got, held, err, design.Dir)
 	}
 	// The clone the record is kept through the link for is not another clone.

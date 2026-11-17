@@ -132,7 +132,7 @@ func TestJoiningAgainWithTheSameServerIsRefused(t *testing.T) {
 	}
 	// The token it did not spend still joins a worker that has not joined.
 	t.Setenv(api.EnvStateDir, t.TempDir())
-	t.Setenv(api.EnvRunDir, t.TempDir())
+	t.Setenv(api.EnvRunDir, apitest.ShortDir(t))
 	if code, _, stderr := runMain(commandDaemon, "worker", "join", "--server", r.server, second); code != exitOK {
 		t.Errorf("the unspent token joined no other worker: exit %d: %s", code, stderr)
 	}
@@ -195,7 +195,7 @@ func TestAJoinTokenJoinsOneWorker(t *testing.T) {
 	}
 	// A second machine's worker: its own state, the same token.
 	t.Setenv(api.EnvStateDir, t.TempDir())
-	t.Setenv(api.EnvRunDir, t.TempDir())
+	t.Setenv(api.EnvRunDir, apitest.ShortDir(t))
 	if code, _, _ := runMain(commandDaemon, "worker", "join", "--server", r.server, token); code != exitError {
 		t.Errorf("a used token joined a second worker: exit %d", code)
 	}
