@@ -26,6 +26,13 @@ var noHooks = []string{"GIT_CONFIG_COUNT=1", "GIT_CONFIG_KEY_0=core.hooksPath", 
 // on a folder it does not trust.
 func NoHooks() []string { return append([]string(nil), noHooks...) }
 
+// NoHooksNoSigning is NoHooks plus commit.gpgsign=false, for a caller that makes a commit on a folder it does not
+// trust and must not sign it, whatever the user's git configuration names.
+func NoHooksNoSigning() []string {
+	return []string{"GIT_CONFIG_COUNT=2", "GIT_CONFIG_KEY_0=core.hooksPath", "GIT_CONFIG_VALUE_0=" + os.DevNull,
+		"GIT_CONFIG_KEY_1=commit.gpgsign", "GIT_CONFIG_VALUE_1=false"}
+}
+
 // The trailers a commit a merge makes carries, which is how a repeat finds it.
 const (
 	trailerWorkOrder = "Ropeshift-Work-Order: "
