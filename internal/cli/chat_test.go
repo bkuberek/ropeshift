@@ -227,6 +227,24 @@ func TestAnOrchestratorShowsItWaitsForARunWindow(t *testing.T) {
 	}
 }
 
+// With a run window open, the run that waits for something to judge waits for work, and `orchestrator start` and
+// `orchestrator stop` print the orchestrator as `orchestrator show` does, whatever holds its run.
+func TestOrchestratorStartAndStopPrintWhatShowPrints(t *testing.T) {
+	s := newTalking(t)
+	s.orchestratorAwaitsAWake()
+	worker := s.auth.WorkerID
+	if start, show := s.must("orchestrator", "start", worker), s.must("orchestrator", "show", worker); start != show || !strings.Contains(start, "reads waiting for a run window") {
+		t.Errorf("with no window, start %q and show %q", start, show)
+	}
+	s.must("worker", "window-open", worker)
+	if start, show := s.must("orchestrator", "start", worker), s.must("orchestrator", "show", worker); start != show || !strings.Contains(start, "reads waiting for work") {
+		t.Errorf("with a window open, start %q and show %q", start, show)
+	}
+	if stop, show := s.must("orchestrator", "stop", worker), s.must("orchestrator", "show", worker); stop != show || !strings.Contains(stop, "asked to be stopped, reads provisioning") {
+		t.Errorf("stopped, stop %q and show %q", stop, show)
+	}
+}
+
 func TestAMessageAndAnAttachReachTheOrchestrator(t *testing.T) {
 	s := newTalking(t)
 	code, _, stderr := s.run(nil, "message", "send", "--orchestrator", s.auth.WorkerID, "--body", "Look at WO-1")

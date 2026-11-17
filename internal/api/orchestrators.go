@@ -49,9 +49,9 @@ func (c *Client) Orchestrator(ctx context.Context, worker string) (Orchestrator,
 	return out, err
 }
 
-// SetOrchestrator records what a member asks of a worker's orchestrator.
-func (c *Client) SetOrchestrator(ctx context.Context, worker string, in SetOrchestrator) (ledger.Orchestrator, error) {
-	var out ledger.Orchestrator
+// SetOrchestrator records what a member asks of a worker's orchestrator, and reads it back as Orchestrator does.
+func (c *Client) SetOrchestrator(ctx context.Context, worker string, in SetOrchestrator) (Orchestrator, error) {
+	var out Orchestrator
 	err := c.Do(ctx, http.MethodPut, workerPath(worker, "orchestrator"), in, &out)
 	return out, err
 }

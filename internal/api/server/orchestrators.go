@@ -56,12 +56,12 @@ func (h *handler) setOrchestrator(w http.ResponseWriter, r *http.Request, actor 
 	if !decode(w, r, &in) {
 		return
 	}
-	row, err := h.plane.SetOrchestrator(r.Context(), r.PathValue("id"), in.Desired, actor)
-	if err != nil {
+	if _, err := h.plane.SetOrchestrator(r.Context(), r.PathValue("id"), in.Desired, actor); err != nil {
 		fail(w, err)
 		return
 	}
-	reply(w, http.StatusOK, row)
+	// The answer is what a read says after the change, so every client prints it as a read does.
+	h.showOrchestrator(w, r)
 }
 
 // workerDigest is the read a worker makes before it spends anything on a wake.
