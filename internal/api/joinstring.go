@@ -27,7 +27,7 @@ const (
 	maxJoinToken  = 512
 )
 
-// JoinString is what a join string holds. Its fields are the credential, so printing one prints none of them.
+// JoinString is what a join string holds. Its token is a credential, so printing one prints none of its fields.
 type JoinString struct {
 	// WorkerURL is where a worker reaches the server: an https:// URL, or an http:// URL of a loopback address.
 	WorkerURL string

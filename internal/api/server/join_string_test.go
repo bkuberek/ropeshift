@@ -104,9 +104,9 @@ func TestAGroupServerWithNoWorkerURLMakesNoJoinToken(t *testing.T) {
 	}
 }
 
-// Every join string is personal to the member who made it: the token's record names that member, and nothing in
-// the string or its answer makes it shared.
-func TestAJoinStringIsPersonalToTheMemberWhoMadeIt(t *testing.T) {
+// The record of a join token names the member who made it, and nothing in the string or its answer makes it shared.
+// The worker that registers with it has no owner of its own: nothing records one on a worker yet.
+func TestTheRecordOfAJoinTokenNamesTheMemberWhoMadeIt(t *testing.T) {
 	t.Parallel()
 	d := apitest.StartWith(t, apitest.Options{Mode: api.ModeGroup, WorkerURL: "https://ropeshift.lan:7400", CAFingerprint: caPin})
 	if _, err := d.Client.NewJoinToken(t.Context()); err != nil {

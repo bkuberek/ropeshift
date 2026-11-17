@@ -27,8 +27,8 @@ import (
 // hooks, and MCP on this machine's worker socket, and a link to a server over HTTP. It runs the code
 // startSoloWorker runs, over another link, and holds neither a ledger nor a tick that decides. It joins a
 // server once, with a join string a member made, and keeps the server's address, the certificate authority it
-// pins, and its credential in its journal. A join string carries a join token and the fingerprint of an
-// authority, and both are credentials, so nothing a worker prints or logs shows either.
+// pins, and its credential in its journal. A join string carries a join token, which is a credential until it is
+// spent and for a short while after (see Register), so nothing a worker prints or logs shows the string or its token.
 
 // envJoin is how a container, or a person who keeps a secret out of the process list, gives a worker the join
 // string it registers with.

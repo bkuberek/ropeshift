@@ -12,7 +12,7 @@ The listener serves plaintext on a loopback address, and TLS on any other, or pl
 - **It reads no repository and shows no pane.** The server keeps no clone and has no terminal. A read that solo mode makes from a clone, such as a document, a lane's base, or a repository's registration, is refused with the code `repository_reads_unavailable`, and a view of a lane's terminal with `pane_relay_unavailable`. Each refusal names the read. Work that needs a repository therefore does not run on a preview server yet.
 - **It holds no agent.** It never runs an agent CLI and holds no agent credential. Lanes run on workers.
 - **Every request carries a credential.** A worker's credential opens the worker plane and nothing else, a join token opens the registration of one worker, a member's session as a bearer token in the `Ropeshift-Session` header opens the API, and the web UI's session cookie with its CSRF token opens the routes the web UI uses. Only the web UI's own files and the route that signs a member in need none. A bearer session never sets or changes the passphrase: the control socket sets it, and the web UI changes it with the passphrase in force. Wrong guesses at a passphrase or a join token are [limited per address](#limit-wrong-guesses).
-- **It keeps secrets out of the process list and its output.** The database's connection string and a worker's join string reach the commands through `ROPESHIFT_DATABASE` and `ROPESHIFT_JOIN`. An argument is visible to every process on the machine, so the help never shows a value the environment holds. A join token and the fingerprint of an authority are credentials, and no log, error, or help shows either.
+- **It keeps secrets out of the process list and its output.** The database's connection string and a worker's join string reach the commands through `ROPESHIFT_DATABASE` and `ROPESHIFT_JOIN`. An argument is visible to every process on the machine, so the help never shows a value the environment holds. A join token is a credential, and no log, error, or help shows one or the join string that holds it. The fingerprint of an authority is public, as the authority's certificate is.
 
 ## Before you start
 
@@ -82,7 +82,7 @@ The first passphrase is set on the server's own machine, over its control socket
 
 ## Join a worker
 
-A worker joins with a join string, which a member makes and which works once. A join string is one line that holds a format version, the URL the worker reaches the server at, the fingerprint of the server's certificate authority when the server is its own, and a join token. It is the only thing a worker needs, from any machine that reaches the server.
+A worker joins with a join string, which a member makes, which expires, and which joins one worker. A join string is one line that holds a format version, the URL the worker reaches the server at, the fingerprint of the server's certificate authority when the server is its own, and a join token. It is the only thing a worker needs, from any machine that reaches the server.
 
 1. In the second terminal, make a join string. The command prints it once, and the server keeps only a digest of the token in it.
 
@@ -92,9 +92,19 @@ A worker joins with a join string, which a member makes and which works once. A 
 
    Workers and resources in the web UI makes one too, with Create join token. Solo mode makes none: its one worker is the daemon's own, and a solo installation shows no join string.
 
-   Every join string is personal to the member who made it: the record of its token names that member, and the worker that joins with it is theirs. A join string is a credential until its token is spent, so give it only to the machine that is to join, and make another for the next machine.
+   A join string expires 24 hours after it is made. `--expires-in` names another lifetime, up to 30 days, as a duration such as `72h`, and 30 days is `720h`.
 
-2. In a third terminal, give the worker directories of its own, and join with the string. The string is a secret until the join spends its token, so it goes in the environment and not in an argument. The worker keeps the server's address, the authority it pinned, and its own credential in its journal, which only its user can read. Joining prints the worker's ID and the server's URL, and never the credential, the token, or the fingerprint.
+   ```sh
+   ropeshift worker token --expires-in 72h
+   ```
+
+   The command prints the string alone on its output, so a pipe carries nothing else, and says on its error stream when the token expires and its ID. With `--json` it prints all of that, and the token and the string with it. A member revokes a token that no worker used with `ropeshift worker token-revoke <id>`, or with Revoke join token in Workers and resources, which asks for the ID. A token that expired or was revoked is refused with `join_token_expired` or `join_token_revoked`, and a wrong secret for the same token is a bad token, so only whoever holds a token learns that it ended. Each counts as a wrong guess for the address that sent it, like any wrong token ([limit wrong guesses](#limit-wrong-guesses)). A token a worker used cannot be revoked, because that worker holds a credential from it.
+
+   The record of a join token names the member who made it. The worker that registers with it has no owner of its own yet: nothing records one on the worker.
+
+   A join string is a credential, and it is not spent when a worker joins with it. Until a worker joins, whoever holds the string can join a worker with it. After a worker joined, whoever holds the string and that worker's ID can ask for the worker's credential again, and the server then issues a new one and ends the old, until the worker opens its first session or the token expires, whichever is first. That window is there so a worker whose first answer was lost can join again, and it is short, because a worker opens its first session as it starts. After it the server refuses the used token as it refuses any spent token. Give a string only to the machine that is to join, and make another for the next machine.
+
+2. In a third terminal, give the worker directories of its own, and join with the string. The string is a secret until the join spends its token, so it goes in the environment and not in an argument. The worker keeps the server's address, the authority it pinned, and its own credential in its journal, which only its user can read. Joining prints the worker's ID and the server's URL, and never the credential, the join string, or the token in it.
 
    ```sh
    export ROPESHIFT_GROUP_MODE=preview
@@ -189,15 +199,16 @@ The listener speaks HTTP/1.1 in every mode, over TLS 1.2 or later when it serves
 
    A server off loopback with no name is refused before it opens the database. A name is a host name or an address, with no port and no scheme.
 
-2. At its first start the server makes a certificate authority, valid for ten years, and its key in the `tls` directory of its state directory. It then prints where it serves, where the authority's certificate is, and where its workers reach it:
+2. At its first start the server makes a certificate authority, valid for ten years, and its key in the `tls` directory of its state directory. It then prints where it serves, where the authority's certificate is, the SHA-256 of that certificate, and where its workers reach it:
 
    ```text
    ropeshiftd: server https://0.0.0.0:7400
    ropeshiftd: certificate authority /home/you/ropeshift-group/server/state/tls/ca.crt
+   ropeshiftd: certificate authority sha256 <64 hexadecimal digits>
    ropeshiftd: worker url https://ropeshift.lan:7400
    ```
 
-   The server does not print the SHA-256 of the authority's certificate, which a worker pins. It is a credential, because a worker that pins it trusts what that authority signs, so it is in the join strings the server makes and in no log. A person who wants to compare it reads it from the file with `openssl x509 -noout -fingerprint -sha256 -in ca.crt`.
+   The fingerprint is public, as the authority's certificate is. A worker pins it from the join string, so a person who is handed a join string by a route that might be tampered with compares the fingerprint in it with this one, which is the line a server prints at every start. `openssl x509 -noout -fingerprint -sha256 -in ca.crt` prints the same value, in capital letters with colons.
 
 3. The server issues its own certificate from that authority for the names. The certificate lasts 90 days, and the server issues the next one when 30 days are left, with no restart. The authority, the certificate, and the keys stay where they are across a restart, and the keys are readable only by the server's user. A change of `--name` issues a new certificate from the same authority.
 
@@ -223,7 +234,7 @@ The authority never replaces itself. A server whose authority has expired, or wh
 
 Use this when a proxy you run already terminates TLS for a public name, as the proxy of a container platform or an nginx or a Caddy does, and the server sits behind it on a network only the proxy reaches. The server serves plaintext to the proxy and serves the web UI at the proxy's name.
 
-1. List the proxies. `--trusted-proxies` names the addresses and CIDR ranges of every proxy that connects to the server, repeated or comma separated, and `ROPESHIFT_TRUSTED_PROXIES` gives the same in a container. List the hop that records the client's address in `X-Forwarded-For`, and every hop between it and the server. Otherwise one proxy's address stands for every client behind it, and the limit on wrong guesses counts them as one. When the proxy and the server share a container network whose addresses change across restarts, name that network's range. A proxy on the server's own machine connects from `127.0.0.1` (or `::1`), so list it. A server whose listener loopback can reach, and that lists no loopback address, starts with a warning that says so, because it would read nothing the proxy forwards: every member would sign in from one address and share one limit on wrong guesses. A proxy on another machine is right to leave loopback out, and the warning is then about a proxy you do not run.
+1. List the proxies. `--trusted-proxies` names the addresses and CIDR ranges of every proxy that connects to the server, repeated or comma separated, and `ROPESHIFT_TRUSTED_PROXIES` gives the same in a container. List the hop that records the client's address in `X-Forwarded-For`, and every hop between it and the server. Otherwise one proxy's address stands for every client behind it, and the limit on wrong guesses counts them as one. When the proxy and the server share a container network whose addresses change across restarts, name that network's range. A proxy on the server's own machine connects from `127.0.0.1` or from `::1`, so list the one it uses. A listener on every address of both families, which `[::]` and an empty host are, is reached at both, and a proxy on the machine may use either, so list both. A listener on every IPv4 address (`0.0.0.0`) or on `localhost` is reached at `127.0.0.1`, and one on `[::1]` at `::1`. A server whose listener loopback can reach, and that lists none of the loopback addresses it is reached at, starts with a warning that names the ones missing, because it would read nothing a proxy on its machine forwards: every member would sign in from one address and share one limit on wrong guesses. A proxy on another machine is right to leave loopback out, and the warning is then about a proxy you do not run.
 
 2. Say where members reach the proxy. `--public-url` (`ROPESHIFT_PUBLIC_URL`) is the https origin of the proxy's public name, such as `https://ropeshift.example`, with a port only when it is not 443.
 
@@ -293,7 +304,7 @@ Caddy terminates TLS for the name, passes the `Host` header on unchanged, sets `
 
 ## Limit wrong guesses
 
-The server counts every wrong guess at a secret by the address the connection came from: a wrong passphrase at the sign-in page, in a change of the passphrase, or in a call that signs in with a session, and a wrong join token at a worker's registration. After 10 wrong guesses within 15 minutes, the address is refused for 15 minutes. A refusal is HTTP 429 with the code `too_many_attempts` and a `Retry-After` header that says how many seconds remain, and it covers the right passphrase too. A right passphrase clears the address's count. A join token that works clears nothing, and a worker that holds its credential is not refused, because a credential is no guess.
+The server counts every wrong guess at a secret by the address the connection came from: a wrong passphrase at the sign-in page, in a change of the passphrase, or in a call that signs in with a session, and a wrong join token at a worker's registration, which an expired or a revoked join token is too. After 10 wrong guesses within 15 minutes, the address is refused for 15 minutes. A refusal is HTTP 429 with the code `too_many_attempts` and a `Retry-After` header that says how many seconds remain, and it covers the right passphrase too. A right passphrase clears the address's count. A join token that works clears nothing, and a worker that holds its credential is not refused, because a credential is no guess.
 
 - `--signin-max-failures` and `--signin-lockout` set the two numbers, one for how many wrong guesses and one for how long they count and how long a refusal lasts. Both must be above zero.
 - The address is the one the TCP connection came from, and behind a reverse proxy it is the client the proxy names, as [run behind a reverse proxy](#run-behind-a-reverse-proxy) says. A header changes the address only when a listed proxy sends it. Clients that reach the server through one machine that is not a listed proxy, such as a NAT, share that machine's address and count together.
@@ -318,6 +329,7 @@ The server counts every wrong guess at a secret by the address the connection ca
 | The https origin members' browsers use behind a reverse proxy | `--public-url` | `ROPESHIFT_PUBLIC_URL` | None: required with `--trusted-proxies` |
 | The URL workers reach the server at, which join strings carry | `--worker-url` | `ROPESHIFT_WORKER_URL` | [By mode](#choose-the-worker-url) |
 | A worker's join string, given to `ropeshiftd worker join` | The one argument | `ROPESHIFT_JOIN` | None: required to join |
+| How long a join token lives, given to `ropeshift worker token` | `--expires-in` | None | `24h`, and at most `720h` |
 | Wrong guesses one client address may make within the lockout | `--signin-max-failures` | `ROPESHIFT_SIGNIN_MAX_FAILURES` | `10` |
 | How long wrong guesses count, and how long a refused address stays refused | `--signin-lockout` | `ROPESHIFT_SIGNIN_LOCKOUT` | `15m` |
 | The server's state directory | None | `ROPESHIFT_STATE_DIR` | [By platform](cli.md#the-daemon) |
