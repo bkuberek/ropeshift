@@ -97,16 +97,29 @@ export const workActions: Record<WorkAction, { verb: string; needsReason: boolea
 const csrfCookie = "ropeshift_csrf";
 const csrfHeader = "Ropeshift-Csrf";
 
-// ApiError is a refusal the server explained. The UI decides on the code, never on the text.
+// ApiError is a refusal the server explained. The UI decides on the code, never on the text. retryAfter is the
+// number of seconds a Retry-After header asked the client to wait, which a group server sends with its limit on
+// wrong guesses.
 export class ApiError extends Error {
   readonly code: string;
   readonly status: number;
+  readonly retryAfter: number | undefined;
 
-  constructor(status: number, code: string, message: string) {
+  constructor(status: number, code: string, message: string, retryAfter?: number) {
     super(message);
     this.status = status;
     this.code = code;
+    this.retryAfter = retryAfter;
   }
+}
+
+// refusalOf reads a refusal's code and message, and its Retry-After when the header is a number of seconds, the
+// one form the server sends.
+async function refusalOf(response: Response): Promise<ApiError> {
+  const refused = (await response.json().catch(() => null)) as { error?: { code: string; message: string } } | null;
+  const wait = response.headers.get("Retry-After")?.trim() ?? "";
+  const retryAfter = /^\d+$/.test(wait) ? Number(wait) : undefined;
+  return new ApiError(response.status, refused?.error?.code ?? "unavailable", refused?.error?.message ?? response.statusText, retryAfter);
 }
 
 function readCookie(name: string): string {
@@ -132,8 +145,7 @@ export async function call<T>(method: string, path: string, body?: unknown): Pro
     throw new ApiError(0, "unreachable", "The daemon did not answer.");
   }
   if (!response.ok) {
-    const refused = (await response.json().catch(() => null)) as { error?: { code: string; message: string } } | null;
-    throw new ApiError(response.status, refused?.error?.code ?? "unavailable", refused?.error?.message ?? response.statusText);
+    throw await refusalOf(response);
   }
   if (response.status === 204) {
     return undefined as T;
@@ -153,8 +165,7 @@ export async function request(method: string, path: string, body: unknown): Prom
     throw new ApiError(0, "unreachable", "The daemon did not answer.");
   }
   if (!response.ok) {
-    const refused = (await response.json().catch(() => null)) as { error?: { code: string; message: string } } | null;
-    throw new ApiError(response.status, refused?.error?.code ?? "unavailable", refused?.error?.message ?? response.statusText);
+    throw await refusalOf(response);
   }
   const named = /filename="([^"]+)"/.exec(response.headers.get("Content-Disposition") ?? "")?.[1];
   return { blob: await response.blob(), name: named ?? "ropeshift-backup.db" };

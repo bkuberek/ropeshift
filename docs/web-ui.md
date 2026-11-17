@@ -15,6 +15,7 @@ The page says what happened in the place it belongs to:
 - **A session that ended** while you were using the page shows "Your session ended" above the form: you signed out in another tab, the session ran out, or a change of the passphrase ended it. What you were doing stays on the page behind the form and is there when you sign in again. A first visit and a sign-out of your own show no such notice.
 - **A daemon that did not answer** says nothing was checked, and to check that the daemon runs with `ropeshift health`.
 - **No passphrase set** says to run `ropeshift passphrase set` on a terminal, because the first passphrase is never set from a browser.
+- **Too many attempts** says how long to wait before trying again. A [group server](group-server.md#limit-wrong-guesses) refuses an address that made too many wrong guesses for a while, and the page shows the wait the server's `Retry-After` header gives, or a minute when it gives none. A daemon on one machine sets no such limit: it checks one passphrase at a time, so a flood of guesses costs its sender the wait.
 
 ## Keyboard
 

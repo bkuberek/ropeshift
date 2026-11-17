@@ -91,7 +91,7 @@ export function withStyles(): void {
 // as one project's routes read under /v1, with project the name it took out.
 export type Sent = { method: string; url: string; path: string; project: string; body: unknown; csrf: string | null };
 
-type Answer = { status: number; body?: unknown };
+type Answer = { status: number; body?: unknown; headers?: Record<string, string> };
 
 // The project every page opens on in a test, and the registry that lists it.
 export const testProject = "default";
@@ -129,7 +129,7 @@ export function serveApi(answers: (sent: Sent) => Answer | undefined, { projects
     if (!answer) {
       throw new Error(`nothing answers ${call.method} ${url}`);
     }
-    return new Response(answer.status === 204 ? null : JSON.stringify(answer.body ?? {}), { status: answer.status });
+    return new Response(answer.status === 204 ? null : JSON.stringify(answer.body ?? {}), { status: answer.status, headers: answer.headers });
   });
   vi.stubGlobal("fetch", fetcher);
   return sent;
