@@ -30,9 +30,9 @@ type world struct {
 	orders map[string]string
 	plan   string
 	// The records a view opens, which the ledger names.
-	questionItem, cardItem, planItem string
-	planningLane, conversation       string
-	repository, agent                string
+	cardItem, planItem         string
+	planningLane, conversation string
+	repository, agent          string
 }
 
 func newWorld(in *install) *world {
@@ -282,7 +282,6 @@ func (w *world) ladder() {
 		in.view("needs-you", &needs)
 		for _, item := range needs.Items {
 			if item.Kind == api.NeedQuestions && item.Batch != nil && len(item.Batch.Items) == 2 {
-				w.questionItem = item.Kind + ":" + item.ID
 				return true
 			}
 		}

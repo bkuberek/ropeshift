@@ -1,0 +1,117 @@
+{
+  "guide": "review",
+  "title": "Review and merge",
+  "world": "harbor",
+  "order": 6,
+  "steps": [
+    {
+      "step": "start the review from the Floor",
+      "route": "/projects/harbor/floor",
+      "actions": [
+        { "click": { "role": "button", "name": "Start Review: Serve the list of berths" } },
+        { "fill": { "label": "Lane ID (optional)", "value": "review-serve-berths", "in": { "role": "dialog", "name": "Start Review: Serve the list of berths" } } },
+        { "click": { "role": "button", "name": "Start", "in": { "role": "dialog", "name": "Start Review: Serve the list of berths" } } },
+        { "waitFor": { "text": "Claimed Review: Serve the list of berths on solo. Its lane is starting." } },
+        { "click": { "role": "button", "name": "Dismiss" } }
+      ]
+    },
+    {
+      "step": "read what the review found",
+      "route": "/projects/harbor/work?group=review",
+      "actions": [
+        { "click": { "role": "link", "name": "Serve the list of berths" } },
+        { "waitFor": { "text": "GET /berths returns every berth with whether it is open", "exact": false, "in": { "role": "tabpanel", "name": "Review" } } }
+      ],
+      "capture": { "name": "review-01", "clip": { "selector": "main" }, "height": 1200 }
+    },
+    {
+      "step": "read the Changes tab",
+      "actions": [
+        { "click": { "role": "tab", "name": "Changes" } },
+        { "waitFor": { "text": "lane/serve-berths", "exact": false, "in": { "role": "tabpanel", "name": "Changes" } } }
+      ],
+      "capture": { "name": "review-02", "clip": { "role": "tabpanel", "name": "Changes" } }
+    },
+    {
+      "step": "read the Reviews queue",
+      "route": "/projects/harbor/reviews",
+      "actions": [{ "waitFor": { "text": "Your word: the review passed every criterion", "exact": false } }],
+      "capture": { "name": "review-03", "clip": "window" }
+    },
+    {
+      "step": "read the work in Needs you",
+      "route": "/needs-you?kind=approvals",
+      "actions": [
+        { "click": { "role": "link", "name": "Serve the list of berths", "exact": false } },
+        { "waitFor": { "text": "Send back for rework", "in": { "role": "article", "name": "Serve the list of berths" } } }
+      ],
+      "capture": { "name": "review-04", "clip": { "role": "article", "name": "Serve the list of berths" } }
+    },
+    {
+      "step": "let ropeshift merge the API's changes",
+      "route": "/projects/harbor/repositories",
+      "actions": [
+        { "click": { "role": "link", "name": "harbor-api" } },
+        { "click": { "role": "radio", "name": "person_approves", "exact": false } },
+        { "waitFor": { "text": "→ person_approves", "exact": false } }
+      ],
+      "capture": { "name": "review-05", "clip": { "role": "region", "name": "harbor-api" } }
+    },
+    {
+      "step": "save the merge authority",
+      "actions": [
+        { "click": { "role": "button", "name": "Save" } },
+        { "waitFor": { "text": "Saved harbor-api." } },
+        { "click": { "role": "button", "name": "Dismiss" } }
+      ]
+    },
+    {
+      "step": "read the merge approval",
+      "route": "/needs-you?kind=approvals",
+      "actions": [
+        { "click": { "role": "link", "name": "Approve the merge of", "exact": false } },
+        { "waitFor": { "text": "Approve merge", "in": { "role": "article", "name": "Approve the merge of", "exact": false } } }
+      ],
+      "capture": { "name": "review-06", "clip": { "role": "article", "name": "Approve the merge of", "exact": false } }
+    },
+    {
+      "step": "approve the merge",
+      "actions": [
+        { "click": { "role": "button", "name": "Approve merge" } },
+        { "waitFor": { "text": "no longer waits", "exact": false } }
+      ]
+    },
+    {
+      "step": "fill in Archive the worktree",
+      "route": "/projects/harbor/work?group=review",
+      "actions": [
+        { "click": { "role": "link", "name": "Serve the list of berths" } },
+        { "click": { "role": "button", "name": "More actions" } },
+        { "click": { "role": "menuitem", "name": "Archive the worktree of lane serve-berths…" } },
+        { "waitFor": { "text": "Asks the worker that ran the lane to remove its worktree on its next pass.", "exact": false, "in": { "role": "dialog", "name": "Archive the worktree: lane serve-berths" } } }
+      ],
+      "capture": { "name": "review-08", "clip": { "role": "dialog", "name": "Archive the worktree: lane serve-berths" } }
+    },
+    {
+      "step": "archive the worktree",
+      "actions": [
+        { "click": { "role": "button", "name": "Archive the worktree", "in": { "role": "dialog", "name": "Archive the worktree: lane serve-berths" } } }
+      ]
+    },
+    {
+      "step": "read the Activity tab",
+      "route": "/projects/harbor/work?group=completed",
+      "actions": [
+        { "click": { "role": "link", "name": "Serve the list of berths" } },
+        { "click": { "role": "tab", "name": "Activity" } },
+        { "waitFor": { "text": "Timeline", "exact": false, "in": { "role": "tabpanel", "name": "Activity" } } }
+      ],
+      "capture": { "name": "review-07", "clip": { "role": "region", "name": "Timeline" }, "width": 1600 }
+    },
+    {
+      "step": "read the agreement",
+      "route": "/projects/harbor/reviews?tab=agreement",
+      "capture": { "name": "review-09", "clip": "window" }
+    }
+  ]
+}

@@ -10,7 +10,7 @@ export type Action =
   | { click: Locate & { in?: Locate } }
   | { fill: { label: string; value: string; exact?: boolean; in?: Locate } }
   | { press: string }
-  | { waitFor: { text: string; exact?: boolean; in?: Locate } };
+  | { waitFor: { text: string; exact?: boolean; in?: Locate; timeout?: number } };
 
 // A clip is the window, or an element named by a selector or by a role and name, with pad pixels around it.
 export type Clip = "window" | ({ selector: string; pad?: number } | (Locate & { pad?: number }));
@@ -19,7 +19,8 @@ export type Step = {
   step: string;
   route?: string;
   actions?: Action[];
-  capture?: { name: string; clip: Clip };
+  // width and height enlarge the window for this image alone.
+  capture?: { name: string; clip: Clip; width?: number; height?: number };
 };
 
 export type Guide = {

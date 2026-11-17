@@ -18,6 +18,7 @@ const fixture = `<!doctype html><html><head><meta charset="utf-8"><title>Fixture
 <style>body{margin:0;font:16px sans-serif} main{padding:24px} #card{width:200px;height:100px;background:#cde;margin:40px}</style></head>
 <body><main><h1>Projects</h1>
 <button id="open" type="button">Create project</button>
+<button id="later" type="button">Arrive later</button>
 <div id="card" role="region" aria-label="Summary">A summary</div>
 <div id="dialog" role="dialog" aria-label="Create project" hidden>
   <label>Name <input id="name"></label>
@@ -26,6 +27,9 @@ const fixture = `<!doctype html><html><head><meta charset="utf-8"><title>Fixture
 <p id="status"></p></main>
 <script>
 document.getElementById("open").onclick = () => { document.getElementById("dialog").hidden = false; };
+document.getElementById("later").onclick = () => {
+  setTimeout(() => { document.getElementById("status").textContent = "Arrived"; }, 1500);
+};
 document.getElementById("save").onclick = () => {
   document.getElementById("status").textContent = "Saved " + document.getElementById("name").value;
 };
@@ -160,6 +164,37 @@ suite("the guide walk", () => {
     expect(result.failure).toBeUndefined();
     expect(result.taken).toBe(0);
     expect(written).toEqual([]);
+  });
+
+  it("waits past its patience only for a wait that sets a timeout", async () => {
+    const arrive = (timeout?: number): Guide => ({
+      guide: "late",
+      steps: [{ step: "wait for it", route: "/", actions: [{ click: { role: "button", name: "Arrive later" } }, { waitFor: { text: "Arrived", timeout } }] }],
+    });
+    const patient = await runGuide(await fresh(), arrive(5000), options({ timeout: 500 }));
+    await done();
+    expect(patient.failure).toBeUndefined();
+    const hasty = await runGuide(await fresh(), arrive(), options({ timeout: 500 }));
+    await done();
+    expect(hasty.failure).toMatch(/^late step 1 \(wait for it\): .*Arrived/);
+  });
+
+  it("enlarges the window for a capture that sets a size, and goes on at the size it had", async () => {
+    const tab = await fresh();
+    const wide: Guide = {
+      guide: "wide",
+      steps: [
+        { step: "show the page wide", route: "/", actions: [{ waitFor: { text: "Projects" } }], capture: { name: "wide-01", clip: "window", width: 1600 } },
+        { step: "show it tall", capture: { name: "wide-02", clip: "window", height: 1000 } },
+        { step: "show it again", capture: { name: "wide-03", clip: "window" } },
+      ],
+    };
+    const result = await runGuide(tab, wide, options());
+    await done();
+    expect(result.failure).toBeUndefined();
+    expect(size("wide-01-light.png")).toEqual([3200, 1800]);
+    expect(size("wide-02-light.png")).toEqual([2880, 2000]);
+    expect(size("wide-03-light.png")).toEqual([2880, 1800]);
   });
 
   it("fails a capture of a page that shows a private word, and keeps the image", async () => {

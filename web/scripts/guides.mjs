@@ -15,10 +15,11 @@
 //    "capture": {"name": "get-started-02", "clip": "window"}}
 //
 // An action presses a control by role and name (`click`), types into a field by label (`fill`), presses a key
-// (`press`), or waits for text to show (`waitFor`). `in` limits a click, fill, or wait to the region, dialog, or
+// (`press`), or waits for text to show (`waitFor`), for 20 seconds or the `timeout` a wait sets in milliseconds. `in` limits a click, fill, or wait to the region, dialog, or
 // other element named by a role and name. A value or a route may hold {{name}}, which a variable of the listing,
 // or the passphrase, replaces. A capture is the window, or the element a selector or a role and name names,
-// with `pad` pixels around it, written as <name>-<theme>.png at 1440 by 900 and twice the pixel density.
+// with `pad` pixels around it, written as <name>-<theme>.png at 1440 by 900 and twice the pixel density. A
+// capture's `width` and `height` enlarge the window for that image alone, for a page that does not fit in 1440 by 900.
 //
 // A step that fails stops its guide and the walk, and the run names the guide and the step. Each capture also
 // fails when the page shows one of the private words, and its image stays for a person to see why. A guide the
@@ -115,7 +116,8 @@ async function act(page, verb, spec, vars, timeout) {
       return;
     case "waitFor": {
       const text = expand(spec.text, vars);
-      await scoped(page, spec.in).getByText(text, { exact: spec.exact ?? false }).first().waitFor({ state: "visible", timeout });
+      // A wait for what the daemon does in its own time, such as an orchestrator starting, may take longer.
+      await scoped(page, spec.in).getByText(text, { exact: spec.exact ?? false }).first().waitFor({ state: "visible", timeout: spec.timeout ?? timeout });
       return;
     }
     default:
@@ -141,6 +143,7 @@ async function capture(page, spec, options, timeout) {
     if (clip.pad) {
       await target.scrollIntoViewIfNeeded({ timeout });
       const box = await target.boundingBox();
+      const frame = page.viewportSize() ?? viewport;
       const x = Math.max(0, box.x - clip.pad);
       const y = Math.max(0, box.y - clip.pad);
       await page.screenshot({
@@ -148,8 +151,8 @@ async function capture(page, spec, options, timeout) {
         clip: {
           x,
           y,
-          width: Math.min(viewport.width - x, box.width + 2 * clip.pad),
-          height: Math.min(viewport.height - y, box.height + 2 * clip.pad),
+          width: Math.min(frame.width - x, box.width + 2 * clip.pad),
+          height: Math.min(frame.height - y, box.height + 2 * clip.pad),
         },
       });
     } else {
@@ -179,8 +182,20 @@ export async function runGuide(page, guide, options) {
         await perform(page, action, vars, timeout);
       }
       if (step.capture && options.capture) {
-        await quiet(page, timeout);
-        await capture(page, step.capture, options, timeout);
+        // A larger window holds for this image alone, and the walk goes on at the size it had.
+        const was = page.viewportSize() ?? viewport;
+        const larger = Boolean(step.capture.width || step.capture.height);
+        if (larger) {
+          await page.setViewportSize({ width: step.capture.width ?? was.width, height: step.capture.height ?? was.height });
+        }
+        try {
+          await quiet(page, timeout);
+          await capture(page, step.capture, options, timeout);
+        } finally {
+          if (larger) {
+            await page.setViewportSize(was);
+          }
+        }
         taken++;
       }
     } catch (error) {
