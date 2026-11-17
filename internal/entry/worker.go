@@ -26,11 +26,12 @@ import (
 // A group worker is the worker of solo mode on its own (ADR-0031): its lanes, terminal, checkouts, drivers,
 // hooks, and MCP on this machine's worker socket, and a link to a server over HTTP. It runs the code
 // startSoloWorker runs, over another link, and holds neither a ledger nor a tick that decides. It joins a
-// server once, with a join token a member made, and keeps the server's address and its credential in its
-// journal.
+// server once, with a join string a member made, and keeps the server's address, the certificate authority it
+// pins, and its credential in its journal. A join string carries a join token and the fingerprint of an
+// authority, and both are credentials, so nothing a worker prints or logs shows either.
 
 // envJoin is how a container, or a person who keeps a secret out of the process list, gives a worker the join
-// token it registers with.
+// string it registers with.
 const envJoin = "ROPESHIFT_JOIN"
 
 // workerOptions is the command line of `ropeshiftd worker`.
@@ -48,14 +49,11 @@ func workerFlags(opts *workerOptions) *flag.FlagSet {
 
 // joinOptions is the command line of `ropeshiftd worker join`.
 type joinOptions struct {
-	server string
-	name   string
-	token  string
+	name string
 }
 
 func joinFlags(opts *joinOptions) *flag.FlagSet {
 	flags := flag.NewFlagSet("ropeshiftd worker join", flag.ContinueOnError)
-	flags.StringVar(&opts.server, "server", "", "the server's address, a loopback http:// URL in this version")
 	flags.StringVar(&opts.name, "name", "", "the worker's name in the server's list, by default this machine's host name")
 	return flags
 }
@@ -125,20 +123,20 @@ func runJoin(args []string, stdout, stderr io.Writer) int {
 	if err := flags.Parse(args); err != nil {
 		return exitUsage
 	}
-	// A join token is secret until it is spent, and an argument is visible to every process on the machine, so
-	// the environment is the documented way to give it. An argument is taken too, and the two together are
-	// refused, because neither says which is meant.
+	// A join string holds a token that is secret until it is spent, and an argument is visible to every process
+	// on the machine, so the environment is the documented way to give it. An argument is taken too, and the two
+	// together are refused, because neither says which is meant.
 	fromEnvironment := os.Getenv(envJoin)
 	switch {
-	case opts.server == "" || flags.NArg() > 1 || flags.NArg() == 0 && fromEnvironment == "":
-		fmt.Fprintf(stderr, "usage: ropeshiftd worker join --server <url> [--name <name>] [<join token>]\nGive the join token in %s, or as the one argument.\n", envJoin)
+	case flags.NArg() > 1 || flags.NArg() == 0 && fromEnvironment == "":
+		fmt.Fprintf(stderr, "usage: ropeshiftd worker join [--name <name>] [<join string>]\nGive the join string in %s, or as the one argument. A member makes one with `ropeshift worker token` on the server.\n", envJoin)
 		return exitUsage
 	case flags.NArg() == 1 && fromEnvironment != "":
-		fmt.Fprintf(stderr, "ropeshiftd worker join: give the join token in %s or as an argument, not both\n", envJoin)
+		fmt.Fprintf(stderr, "ropeshiftd worker join: give the join string in %s or as an argument, not both\n", envJoin)
 		return exitUsage
 	}
-	opts.token = cmp.Or(fromEnvironment, flags.Arg(0))
-	address, err := api.ServerAddress(opts.server)
+	// The refusal of a string says what kind of wrong it is and never repeats it.
+	joined, err := api.ParseJoinString(cmp.Or(fromEnvironment, flags.Arg(0)))
 	if err != nil {
 		fmt.Fprintf(stderr, "ropeshiftd worker join: %v\n", err)
 		return exitUsage
@@ -150,7 +148,7 @@ func runJoin(args []string, stdout, stderr io.Writer) int {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	if err := joinServer(ctx, paths, address, opts, stdout, stderr); err != nil {
+	if err := joinServer(ctx, paths, joined, opts, stdout, stderr); err != nil {
 		fmt.Fprintf(stderr, "ropeshiftd worker join: %v\n", err)
 		if errors.Is(err, errBusy) {
 			return exitBusy
@@ -160,11 +158,13 @@ func runJoin(args []string, stdout, stderr io.Writer) int {
 	return exitOK
 }
 
-// joinServer registers this machine's worker with a server and keeps the answer. The worker's ID is on
-// disk before it asks, so a join that stops between the exchange and the saving of its answer repeats the
-// same registration, as a worker's first start does. A worker that holds a credential already keeps it: it
-// joins the server it joined, and no other.
-func joinServer(ctx context.Context, paths api.Paths, address string, opts joinOptions, stdout, stderr io.Writer) error {
+// joinServer registers this machine's worker with the server a join string names, trusting the authority it pins
+// or the system's roots, and keeps the answer. The worker's ID is on disk before it asks, so a join that stops
+// between the exchange and the saving of its answer repeats the same registration, as a worker's first start
+// does. The link is saved before the credential, so a join that stops between the two leaves a worker that has not
+// joined, which joins again, and not one that holds a credential and no server. A worker that holds a credential
+// already keeps it: it joins the server it joined, and no other.
+func joinServer(ctx context.Context, paths api.Paths, joined api.JoinString, opts joinOptions, stdout, stderr io.Writer) error {
 	if err := server.PrivateDir(paths.StateDir); err != nil {
 		return err
 	}
@@ -202,23 +202,28 @@ func joinServer(ctx context.Context, paths api.Paths, address string, opts joinO
 		}
 		return fmt.Errorf("this worker already joined %s: remove its state directory to join again", joined)
 	}
-	client, err := api.NewTCPClient(address)
+	client, err := api.NewServerClient(api.ServerLink{URL: joined.WorkerURL, CASHA256: joined.CASHA256})
 	if err != nil {
 		return err
 	}
 	defer client.Close()
-	credential, err := workerlink.New(client).Register(ctx, ledger.Registration{JoinToken: opts.token, WorkerID: identity.WorkerID, Name: cmp.Or(opts.name, hostName())})
+	credential, err := workerlink.New(client).Register(ctx, ledger.Registration{JoinToken: joined.Token, WorkerID: identity.WorkerID, Name: cmp.Or(opts.name, hostName())})
 	if err != nil {
+		// A server that is not trusted is refused before the join token leaves this machine, and the refusal says
+		// which trust failed: the pin of the string, or the system's roots when it pins none.
+		if reason, ok := api.TrustFailure(err); ok {
+			return fmt.Errorf("this worker does not trust the server, and the join token was not sent: %s", reason)
+		}
 		return fmt.Errorf("the server refused the join: %w", err)
+	}
+	if err := journal.SaveServerLink(ctx, joined.WorkerURL, joined.CASHA256); err != nil {
+		return err
 	}
 	identity.Credential = credential.Credential
 	if err := journal.SaveIdentity(ctx, identity); err != nil {
 		return err
 	}
-	if err := journal.SaveServerURL(ctx, address); err != nil {
-		return err
-	}
-	fmt.Fprintf(stdout, "ropeshiftd: worker %s joined %s\n", identity.WorkerID, address)
+	fmt.Fprintf(stdout, "ropeshiftd: worker %s joined %s\n", identity.WorkerID, joined.WorkerURL)
 	return nil
 }
 
@@ -240,25 +245,30 @@ func hostName() string {
 	return name
 }
 
-// joinedServer reads the server a worker joined from its journal, or says how to join one.
-func joinedServer(ctx context.Context, paths api.Paths, stderr io.Writer) (string, error) {
+// joinedServer reads the link to the server a worker joined from its journal, which is the server's address and the
+// certificate authority the worker pinned, or says how to join one.
+func joinedServer(ctx context.Context, paths api.Paths, stderr io.Writer) (api.ServerLink, error) {
 	journal, err := openWorkerJournal(ctx, paths, stderr)
 	if err != nil {
-		return "", err
+		return api.ServerLink{}, err
 	}
 	defer journal.Close()
 	identity, err := journal.Identity(ctx)
 	if err != nil && !errors.Is(err, ports.ErrNotFound) {
-		return "", err
+		return api.ServerLink{}, err
 	}
 	address, urlErr := journal.ServerURL(ctx)
 	if urlErr != nil && !errors.Is(urlErr, ports.ErrNotFound) {
-		return "", urlErr
+		return api.ServerLink{}, urlErr
+	}
+	ca, caErr := journal.ServerCA(ctx)
+	if caErr != nil && !errors.Is(caErr, ports.ErrNotFound) {
+		return api.ServerLink{}, caErr
 	}
 	if identity.Credential == "" || address == "" {
-		return "", errors.New("this worker has joined no server: run `ropeshiftd worker join --server <url> <join token>` first")
+		return api.ServerLink{}, errors.New("this worker has joined no server: run `ropeshiftd worker join <join string>` first, with a join string a member makes by `ropeshift worker token` on the server")
 	}
-	return address, nil
+	return api.ServerLink{URL: address, CASHA256: ca}, nil
 }
 
 // serveWorker runs this machine's worker until the context ends. It reaches its server over the link the
@@ -272,11 +282,11 @@ func serveWorker(ctx context.Context, paths api.Paths, opts workerOptions, stdou
 		return err
 	}
 	defer lock.Close()
-	address, err := joinedServer(ctx, paths, stderr)
+	link, err := joinedServer(ctx, paths, stderr)
 	if err != nil {
 		return err
 	}
-	client, err := api.NewTCPClient(address)
+	client, err := api.NewServerClient(link)
 	if err != nil {
 		return err
 	}
@@ -297,7 +307,7 @@ func serveWorker(ctx context.Context, paths api.Paths, opts workerOptions, stdou
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(stdout, "ropeshiftd: worker for %s\n", address)
+	fmt.Fprintf(stdout, "ropeshiftd: worker for %s\n", link.URL)
 	<-done
 	return nil
 }

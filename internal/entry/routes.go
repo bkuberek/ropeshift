@@ -121,22 +121,26 @@ func groupRoutes(command string) []routeGroup {
 			Command: cli.Command{
 				Name: "server", Args: "--database <url> [flags]", Summary: "run the control plane alone, on Postgres, for workers that dial it",
 				Detail: groupGateNote + "\n" +
-					"It serves the API, the worker plane, and the web UI on one listener, which binds a loopback address in\n" +
-					"this version, and a control socket in its run directory for the commands run on its machine.",
+					"It serves the API, the worker plane, and the web UI on one listener, which serves TLS off loopback or\n" +
+					"plaintext to the reverse proxies it lists, and a control socket in its run directory for the commands run\n" +
+					"on its machine.",
 			},
 			run:   runServer,
 			flags: func() *flag.FlagSet { return serverFlags(new(serverOptions), os.Getenv) },
 		},
 		{
 			Command: cli.Command{
-				Name: "worker", Args: "[join --server <url> [<join token>]] [flags]", Summary: "run this machine's worker alone, on a server it joined",
+				Name: "worker", Args: "[join [<join string>]] [flags]", Summary: "run this machine's worker alone, on a server it joined",
 				Detail: groupGateNote + "\n" +
-					"`ropeshiftd worker join --server <url> [--name <name>]` registers this machine with a server, with a join\n" +
-					"token a member made by `ropeshift worker token` on the server's machine. Give the token in " + envJoin + ",\n" +
-					"which keeps it out of the process list, or as the one argument. It keeps the server's address and the\n" +
-					"worker's credential in its journal, which only its user reads. In this version the server's address is a\n" +
-					"loopback http:// URL. `ropeshiftd worker` then runs the worker: its lanes, terminal, checkouts, drivers,\n" +
-					"hooks, and MCP on this machine's worker socket, and its link to the server.",
+					"`ropeshiftd worker join [--name <name>] [<join string>]` registers this machine with a server. A join\n" +
+					"string is what a member makes by `ropeshift worker token` on the server's machine, or in Workers and\n" +
+					"resources: the server's URL, the certificate authority to trust when the server is its own, and a join token\n" +
+					"that works once. Give it in " + envJoin + ", which keeps it out of the process list, or as the one argument.\n" +
+					"The worker trusts the authority the string names and no other, or the system's roots when it names none,\n" +
+					"and refuses a server that is not trusted, saying which. It keeps the server's address, the authority it\n" +
+					"trusts, and its own credential in its journal, which only its user reads. `ropeshiftd worker` then runs the\n" +
+					"worker: its lanes, terminal, checkouts, drivers, hooks, and MCP on this machine's worker socket, and its\n" +
+					"link to the server.",
 			},
 			run:   runWorker,
 			flags: func() *flag.FlagSet { return workerFlags(new(workerOptions)) },
