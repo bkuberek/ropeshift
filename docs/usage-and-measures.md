@@ -32,7 +32,7 @@ In the sidebar, select Overview. Six figures lead the page, and each opens the v
 
 ### 2. Read the north star and what keeps it honest
 
-In the sidebar, select Measures. The Factory tab shows the project's fleet, its work orders and lanes by state, the sources it reads work from, and then Product measures, over the last 7 days.
+In the sidebar, select Measures. The Factory tab shows the project's fleet, its work orders and lanes by state, the sources it reads work from, and then Product measures, which read the last 7 days.
 
 The north star is human interruptions per completed work order. Fewer interruptions mean more autonomy only while the measures beside it hold: a rising overturn rate means agents guess instead of asking, and rising rework means assumptions cost more than questions would have ([the north star and its counterweights](measures.md#the-north-star-and-its-counterweights)). Below them stand the interruptions by kind, the work orders completed, the repeated-question rate, the repeats prevented, the work in progress, flow time from ready and from intake to done, park time by what woke the lane, and cost per outcome ([definitions](measures.md#definitions)).
 
@@ -67,7 +67,7 @@ Select the Estimates tab. It compares each finished work order with the estimate
 ![The Estimates tab of Default, with two work orders ended, both with no estimate, and no rate yet](assets/screenshots/measures-04-light.png#gh-light-mode-only)
 ![The Estimates tab of Default, with two work orders ended, both with no estimate, and no rate yet](assets/screenshots/measures-04-dark.png#gh-dark-mode-only)
 
-A rate shows only when at least 10 outcomes stand behind it, and the share of ended work from 10 ended, so a new project shows counts and "Not enough finished estimated work for a rate yet", as here. Both work orders that ended here count as Absent: nothing comparable had finished when their plan was approved, so the estimates in their baselines had no history. The rates fill as work finishes against an estimate a person saw: each change or rework that ends with an estimate in its baseline is one more outcome, and an estimate is confident once 10 comparable work orders have finished, the estimate policy's minimum ([estimates](measures.md#estimates)).
+A rate shows only when at least 10 outcomes stand behind it, and the share of ended work from 10 ended, so a new project shows counts and "Not enough finished estimated work for a rate yet", as here. Both work orders that ended here count as Absent: nothing comparable had finished when their plan was approved, so the estimates in their baselines had no history. The rates fill as work finishes against an estimate a person saw: each change or rework that ends with an estimate in its baseline is one more outcome, and an estimate is confident once as many comparable work orders have finished as the estimate policy asks, 10 in its built-in version ([estimates](measures.md#estimates)).
 
 ### 5. Read a plan's forecast and a work order's estimate
 

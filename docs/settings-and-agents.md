@@ -69,7 +69,7 @@ The other policies of the Project group save, review, and restore the same way:
 |---------|-----------------|
 | Review policy | Says where the bound on review rounds is set: in a profile, a file this page does not change ([settings only a file holds](#settings-only-a-file-holds)) |
 | Integration policy | Lists each repository's merge authority, where dependent work starts from, and its review target, with Edit record, which opens the repository's record |
-| Lane policy | Whether a contract or a decision that changes under a running lane tells the lane and lets it go on, `notify`, or stops it until a member resumes it, `park` |
+| Lane policy | Whether a contract that changes, or a decision that lands, under a running lane tells the lane and lets it go on, `notify`, or also stops it until a member resumes it, `park` |
 | Delegation policy | The approval classes an orchestrator decides for a lane, so they never wait on you ([delegation](authorization.md#delegation)) |
 | Delegate policy | The consent operations a delegate runs without a card, and whether a delegate's lane start may raise the model and effort ([delegates](authorization.md#delegates)) |
 | Estimate policy | How many finished outcomes an estimate needs and reads, the trials of a forecast, and whether the project shares its delivery history ([estimate policy](measures.md#estimate-policy)) |
@@ -85,13 +85,13 @@ Select Notifications. The web UI always shows what waits on you, in Needs you, a
 ![Notifications of Default, with desktop notifications off and no webhook](assets/screenshots/settings-05-light.png#gh-light-mode-only)
 ![Notifications of Default, with desktop notifications off and no webhook](assets/screenshots/settings-05-dark.png#gh-dark-mode-only)
 
-A notice leaves the machine, so it says only the project's name and one fixed sentence for what waits, such as "A lane stopped, and it needs you.", and never a title, a question, or a path. [Notifications](notifications.md) lists every field, and the Audit's Notices tab shows what each channel was told ([usage and measures](usage-and-measures.md#7-read-who-did-what)).
+A notice leaves the machine, so it carries the project's name, one fixed sentence for what waits, such as "A lane stopped, and it needs you.", and the notice's kind and delivery digest, and never a title, a question, or a path. [Notifications](notifications.md) lists every field, and the Audit's Notices tab shows what each channel was told ([usage and measures](usage-and-measures.md#7-read-who-did-what)).
 
 ### 6. Read an agent
 
 In the sidebar, select Agents. A session receives the roster as the agents it may hand work to, and a lane can run as one of them. The switch at the top chooses the scope you read and change: the installation's, or the project's. The project's roster is the built-in roster, then the installation's changes over it, then the project's over those.
 
-The Roster tab lists each agent with its access, class, effort, and approval, and its source: the nearest scope that changed any of its fields. Select an agent, here `heavy-implementation`. Its definition gives each field with its source, Built-in, Installation, or Project, so you see which scope set it. Here the project raised its effort to `max`.
+The Roster tab lists each agent with its access, class, effort, and approval, and its source: the nearest scope that changed any of its fields. Select an agent, here `heavy-implementation`. Its definition gives each field with its source, Built-in, Installation, Project, or Unset, so you see which scope set it. Here the project raised its effort to `max`.
 
 ![Agents of Default, with the roster and the definition of heavy-implementation, its effort set by the project](assets/screenshots/settings-06-light.png#gh-light-mode-only)
 ![Agents of Default, with the roster and the definition of heavy-implementation, its effort set by the project](assets/screenshots/settings-06-dark.png#gh-dark-mode-only)
@@ -142,7 +142,7 @@ In Settings, select Backup, under Installation. Back up installation downloads a
 
 ### 12. Change your passphrase
 
-In Settings, select Change passphrase, under You. Enter the current passphrase and the new one twice; a passphrase has at least 8 bytes and at most 1024. A change ends every other session of yours, in every browser and terminal, and this browser stays signed in. A delegate's credential keeps working until you sign out all sessions. The first passphrase is set in a terminal, by `ropeshift init` or `ropeshift passphrase set`. [Settings](web-ui.md#settings) describes the form.
+In Settings, select Change passphrase, under You. Enter the current passphrase and the new one twice; a passphrase has at least 8 bytes and at most 1024. A change ends every other session of yours, in every browser and terminal, and this browser stays signed in. A delegate's credential keeps working; only its expiry, Revoke, or Sign out all sessions ends it. The first passphrase is set in a terminal, by `ropeshift init` or `ropeshift passphrase set`. [Settings](web-ui.md#settings) describes the form.
 
 ## Settings only a file holds
 
