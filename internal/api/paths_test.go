@@ -1,6 +1,7 @@
 package api
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -113,7 +114,23 @@ func TestResolvePathsRefuses(t *testing.T) {
 		t.Error("an unknown system resolved")
 	}
 	long := "/" + strings.Repeat("a", MaxSocketPath)
-	if _, err := ResolvePaths("darwin", func(string) string { return "" }, long); err == nil {
-		t.Error("a socket path over the limit resolved")
+	_, err := ResolvePaths("darwin", func(string) string { return "" }, long)
+	if err == nil {
+		t.Fatal("a socket path over the limit resolved")
+	}
+	assertSocketAdvice(t, err, "control.sock")
+}
+
+func TestSocketPathTooLongNamesTheLimitThePathAndTheFix(t *testing.T) {
+	err := SocketPathTooLong("/very/long/path.sock")
+	assertSocketAdvice(t, err, "/very/long/path.sock")
+}
+
+func assertSocketAdvice(t *testing.T, err error, path string) {
+	t.Helper()
+	for _, want := range []string{strconv.Itoa(MaxSocketPath), path, EnvRunDir, "shorter directory"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the message %q does not say %q", err, want)
+		}
 	}
 }

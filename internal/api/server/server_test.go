@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -482,8 +483,14 @@ func TestListenMakesAPrivateSocket(t *testing.T) {
 func TestListenRefusesAPathOverTheLimit(t *testing.T) {
 	t.Parallel()
 	long := "/tmp/" + string(make([]byte, 0)) + filepath.Join(fillPath(120), api.ControlSocketName)
-	if _, err := server.Listen(long); err == nil {
-		t.Error("a socket path over the limit was accepted")
+	_, err := server.Listen(long)
+	if err == nil {
+		t.Fatal("a socket path over the limit was accepted")
+	}
+	for _, want := range []string{strconv.Itoa(api.MaxSocketPath), long, api.EnvRunDir, "shorter directory"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the message %q does not say %q", err, want)
+		}
 	}
 }
 
