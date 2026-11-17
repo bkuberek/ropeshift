@@ -14,6 +14,7 @@ import (
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/messages"
 	"ropeshift.com/ropeshift/internal/parking"
+	"ropeshift.com/ropeshift/internal/planning"
 	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/internal/questions"
 	"ropeshift.com/ropeshift/internal/workorders"
@@ -45,6 +46,7 @@ var BindingChecks = []Check{
 	{"BD20", "an overturn parks the lane that asked the question under on_binding_decision park", checkBindingOverturnParksTheAsker},
 	{"BD21", "an overturn that reaches finished work whose rework runs starts no rework, and lists the rework it reached", checkBindingOverturnTakesTheLiveTip},
 	{"BD22", "a work order overlaps a repository that only its rework runs in", checkBindingReworkRunsIn},
+	{"BD23", "a plan scope binds work by the plan of the contract version it is pinned to, not the plan the contract moved to", checkBindingPinnedPlan},
 }
 
 // checkBindingOverturnTakesTheLiveTip holds the same of an overturn: it reworks finished work once, and a later
@@ -873,4 +875,55 @@ func checkBindingReworkRunsIn(r *Rig) error {
 		}
 		return nil
 	})
+}
+
+// checkBindingPinnedPlan holds that a plan scope reads the plan of the contract version work is pinned to. A
+// contract that moves to another plan while a lane runs its work leaves that work on the version it pinned, which
+// the first plan holds: a decision on that plan binds it, and a decision on the plan the contract moved to does
+// not, until the work takes the new version.
+func checkBindingPinnedPlan(r *Rig) error {
+	m, err := midPlanWorld(r)
+	if err != nil {
+		return err
+	}
+	m.source.Write("later.md", []byte(PlanText("later", "Later", "")))
+	m.source.Write("web.md", []byte(placedContract{ID: "web", Plan: "later"}.text()))
+	if _, err := r.intake(m.s, m.source); err != nil {
+		return err
+	}
+	later, err := r.planID(m.s, "Later")
+	if err != nil {
+		return err
+	}
+	web, err := m.order("web")
+	if err != nil {
+		return err
+	}
+	var moved planning.Contract
+	err = m.s.Read(r.Ctx, r.Scope, func(tx ports.ReadTx) error {
+		moved, err = tx.Planning().LatestContract(web.ContractID)
+		return err
+	})
+	if err != nil {
+		return err
+	}
+	if web.ContractVersion != 1 || moved.Version != 2 || moved.PlanID != later {
+		return Violatedf("the running work is pinned to version %d, and the contract's latest is version %d under plan %q, want 1, and 2 under %q",
+			web.ContractVersion, moved.Version, moved.PlanID, later)
+	}
+	first, err := m.decide(r.member(), "plan:"+m.plan, questions.Reversible)
+	if err != nil {
+		return err
+	}
+	if err := m.noticeNames(m.web, first.ID); err != nil {
+		return Violatedf("the lane on work pinned to a version of the plan was not told of a decision on it: %v", err)
+	}
+	second, err := m.decide(r.member(), "plan:"+later, questions.Reversible)
+	if err != nil {
+		return err
+	}
+	if err := m.noticeNames(m.web, second.ID); err == nil {
+		return Violatedf("the lane on work pinned to a version of plan %s was told of a decision on plan %s, which the contract moved to", m.plan, later)
+	}
+	return r.CheckQuestions(m.s)
 }
