@@ -104,3 +104,43 @@ func TestABurstOfLaneMovesPublishesOnce(t *testing.T) {
 		t.Errorf("one burst of moves published %d statuses", published)
 	}
 }
+
+// keepMoving moves the lane into `compacting` and back out each round until span runs out, each move far
+// inside one window, and asks seen between moves. The lane reads `compacting` for nearly all of each round,
+// so a publish at any moment almost always finds it there, and the last move leaves it `working`. It returns
+// how long after the first move seen said yes, and whether it did before span ran out.
+func (r *laneRig) keepMoving(t *testing.T, span time.Duration, seen func() bool) (time.Duration, bool) {
+	t.Helper()
+	const compacting, working = 290 * time.Millisecond, 10 * time.Millisecond
+	began := time.Now()
+	for time.Since(began) < span {
+		r.hook(t, lanes.HookEvent{Event: "PreCompact", Subject: "s", Detail: "auto"})
+		for held := time.Now(); time.Since(held) < compacting; time.Sleep(10 * time.Millisecond) {
+			if seen() {
+				return time.Since(began), true
+			}
+		}
+		r.hook(t, lanes.HookEvent{Event: "PostCompact", Subject: "s", Detail: "auto"})
+		time.Sleep(working)
+	}
+	return time.Since(began), false
+}
+
+// TestALaneThatKeepsMovingStillPublishes holds a publish to one window from a lane's first move: a later move
+// does not put the window off, so a lane that moves more often than once a window is seen while it moves, and
+// not only once it stops. A window that closes in the moment the lane is between moves finds nothing new, and
+// a loaded machine runs late, so the lane moves for three windows.
+func TestALaneThatKeepsMovingStillPublishes(t *testing.T) {
+	r, _ := runBeatingRarely(t)
+	r.awaitWorking(t, 2*worker.PublishSettle+5*time.Second)
+	compacting := func() bool {
+		view, err := r.plane.Lane(t.Context(), "lane-1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return view.ActualState == string(lanes.Compacting)
+	}
+	if moved, seen := r.keepMoving(t, 3*worker.PublishSettle, compacting); !seen {
+		t.Fatalf("a lane that moved for %s was never published while it moved", moved)
+	}
+}
