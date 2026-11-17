@@ -539,7 +539,7 @@ func cloneAt(ctx context.Context, kept ports.Checkouts, entry planning.ManifestR
 	top := slices.IndexFunc(found, func(clone ports.Clone) bool { return filepath.Clean(clone.Path) == real })
 	if top < 0 {
 		for _, path := range unread {
-			if strings.HasPrefix(path.Reason, "is a git clone") {
+			if strings.HasPrefix(path.Reason, "is a git clone") || path.Reason == ledger.ShallowClone {
 				return ports.Clone{}, fmt.Sprintf("%s %s", real, path.Reason)
 			}
 		}

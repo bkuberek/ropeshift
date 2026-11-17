@@ -1412,6 +1412,56 @@ suite.each(Object.entries(sizes))("at %s width", (size, viewport) => {
         60_000,
       );
     }
+
+    // At desktop width the Machines table of a worker that reported every measure, under its whole 32-character
+    // ID, fits its panel: its last column is in view, and none waits behind a sideways scroll.
+    if (size === "desktop") {
+      it(
+        "the Machines table keeps its last column in view",
+        async () => {
+          const gib = 1024 ** 3;
+          const floor = JSON.parse(goldens["shop-floor"] ?? "{}");
+          for (const line of floor.workers) {
+            line.worker.id = "3f9a2c7e5b1d4086a4e2c8f06d9b1e57";
+            line.worker.reported_at = line.worker.last_handshake_at;
+            line.report_freshness = "last_reported";
+            line.worker.report = {
+              interval_ms: 15000,
+              machine: {
+                cores: 8,
+                cpu_percent: 42.4,
+                load_1: 1,
+                load_5: 2.5,
+                load_15: 3,
+                memory_total_bytes: 32 * gib,
+                memory_used_bytes: 12 * gib,
+                memory_available_bytes: 20 * gib,
+                memory_pressure_some: 1.5,
+                volumes: [
+                  { roles: ["state"], free_bytes: 5 * gib, total_bytes: 100 * gib },
+                  { roles: ["worktrees"], free_bytes: 120 * gib, total_bytes: 500 * gib },
+                ],
+              },
+              caps: { max_lanes: 7, max_lanes_set: false, max_lanes_per_sign_in: 0 },
+              sessions: [],
+              warnings: [],
+            };
+          }
+          const context = await browser.newContext({ viewport, colorScheme: theme, reducedMotion: "reduce" });
+          await context.route(/\/v1\//, answer);
+          const page = await context.newPage();
+          await page.route(/\/views\/shop-floor$/, (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(floor) }));
+          await page.goto(`${base}/workers`);
+          await ready(page);
+          const region = page.locator('.table-wrap[aria-label="Machines"]');
+          await region.locator('td[data-label="Freshness"]', { hasText: "Resources measured" }).waitFor();
+          const [table, panel] = await region.evaluate((wrap) => [wrap.scrollWidth, wrap.clientWidth]);
+          expect(table, "the Machines table's width, against its panel's").toBeLessThanOrEqual(panel ?? 0);
+          await context.close();
+        },
+        60_000,
+      );
+    }
   });
 });
 

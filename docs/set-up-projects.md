@@ -64,7 +64,7 @@ Select Run dry run. Step 2, Dry run, lists each clone it found, with its path as
 |--------|---------------|
 | Will register | The repository is new to the installation, and registering adds it to this project |
 | Already in this project | Registering records nothing new |
-| Refused, with the reason | The clone cannot be registered here: a repository another project holds, which the reason names; a path that holds no clone; or a clone that shares its first commit with another clone on this machine, as [how ropeshift tells repositories apart](#how-ropeshift-tells-repositories-apart) explains |
+| Refused, with the reason | The clone cannot be registered here: a repository another project holds, which the reason names; a path that holds no clone; a shallow clone; or a clone that shares its first commit with another clone on this machine, as [how ropeshift tells repositories apart](#how-ropeshift-tells-repositories-apart) explains |
 
 The foot of the dialog counts the refused clones and those already here. Back returns to step 1.
 
@@ -127,6 +127,14 @@ Press `P` again. The switcher lists every project, Default, Harbor, and Tidewate
 ## How ropeshift tells repositories apart
 
 A repository is identified by its remote, or by its first commit when it has none, so every clone of one repository is the same repository, and the dry run shows that identity for each clone. The first commit is the root reached by following first parents from the tip of the default branch, so a workspace that takes in another repository's history with an unrelated merge gains a second root and keeps the identity it had.
+
+A shallow clone, such as one made with `git clone --depth 1`, holds only the latest commits, and the oldest of them stands in for a first commit that changes with the clone's depth. Registering one is refused, and a repository the daemon reads from `--source` that is a shallow clone is not read, as below:
+
+```text
+/work/api is a shallow clone; its first commit is not its repository's; run git fetch --unshallow
+```
+
+Run `git fetch --unshallow` in the clone to fetch its whole history, then register it.
 
 Two clones cut from one template, or two forks of one repository, start at the same first commit, and a first commit alone cannot tell them apart. A clone is refused when this machine's worker keeps another clone with that first commit at another path that still exists, and the two have different remotes or neither has one:
 

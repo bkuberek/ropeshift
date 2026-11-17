@@ -253,7 +253,7 @@ func (f *File) below(ctx context.Context, dir string, depth int) ([]ports.Clone,
 }
 
 // cloneAt reads the clone whose working tree's top is dir. A directory that is no clone's top says
-// nothing, and a clone git cannot describe, such as one with no commit, says why.
+// nothing, and a clone git cannot describe, such as one with no commit, says why, as a shallow clone does.
 func (f *File) cloneAt(ctx context.Context, dir string) (ports.Clone, string, bool) {
 	if _, err := os.Lstat(filepath.Join(dir, ".git")); err != nil {
 		return ports.Clone{}, "", false
@@ -271,7 +271,11 @@ func (f *File) cloneAt(ctx context.Context, dir string) (ports.Clone, string, bo
 	}
 	source := repofiles.New(repofiles.Config{Repository: real, Env: f.Env})
 	description, err := source.Describe(ctx)
-	if err != nil {
+	var shallow *repofiles.ShallowCloneError
+	switch {
+	case errors.As(err, &shallow):
+		return ports.Clone{}, ledger.ShallowClone, false
+	case err != nil:
 		return ports.Clone{}, fmt.Sprintf("is a git clone git cannot describe: %v", err), false
 	}
 	roots, err := source.Roots(ctx)

@@ -589,6 +589,35 @@ func TestASourceThatSharesAFirstCommitWithAKeptCloneIsReportedAndNotRead(t *test
 	}
 }
 
+// A daemon source that is a shallow clone is not read, as registration refuses it: intake says so once, makes no
+// record under its grafted first commit, and the tick does not fail.
+func TestAShallowSourceIsReportedAndNotRead(t *testing.T) {
+	m := newMergedSource(t)
+	shallow := m.workspace.ShallowClone("shallow")
+	var reported []string
+	opts := soloOptions{
+		intakeTick: time.Second, sources: repeatedFlag{shallow.Dir}, records: recordsIn(m.store, soloScope),
+		report: func(line string) { reported = append(reported, line) },
+	}
+	kept := &checkouts.File{Path: filepath.Join(t.TempDir(), checkouts.FileName), Env: m.workspace.Env()}
+	ticks := soloTicks(m.state, soloScope, opts, kept, questions.BatchPolicy{}, nil)
+	at := slices.IndexFunc(ticks, func(tick control.Tick) bool { return tick.Name == "intake" })
+	for range 3 {
+		if err := ticks[at].Run(t.Context()); err != nil {
+			t.Errorf("a shallow source fails the intake tick with %v", err)
+		}
+	}
+	if want := shallow.Dir + " " + ledger.ShallowClone; len(reported) != 1 || !strings.Contains(reported[0], want) {
+		t.Errorf("intake reported %q, want one line with %q", reported, want)
+	}
+	if ids, _ := m.records(t); len(ids) != 0 {
+		t.Errorf("intake left records %v for a shallow source", ids)
+	}
+	if path, err := checkoutOf(opts, kept)(t.Context(), soloScope, m.own); !errors.Is(err, ports.ErrNotFound) {
+		t.Errorf("a record resolves to the shallow source %q (%v), want none", path, err)
+	}
+}
+
 // One daemon source that shares its first commit with a clone this worker keeps is not read, and the Documents
 // view still lists the documents of the others: the refused source is out of service, as intake leaves it, and
 // does not fail the response.

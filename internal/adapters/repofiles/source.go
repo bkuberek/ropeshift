@@ -67,6 +67,33 @@ func (e *SharedFirstCommitError) Error() string {
 	return ledger.SharedFirstCommit(e.Root, e.Name, e.Path)
 }
 
+// ShallowCloneError says a repository is not read because it is a shallow clone, whose first commit is a
+// grafted one and not its repository's: ropeshift identifies a repository by that commit, and registration
+// refuses the clone for the same reason.
+type ShallowCloneError struct {
+	// Path is the clone.
+	Path string
+}
+
+func (e *ShallowCloneError) Error() string {
+	return e.Path + " " + ledger.ShallowClone
+}
+
+// Refusal says a read failed because registration refuses the repository, which is then not read either: it
+// is a shallow clone, or it shares its first commit with a clone this worker keeps at another path. It returns
+// the refusal.
+func Refusal(err error) (string, bool) {
+	var shared *SharedFirstCommitError
+	var shallow *ShallowCloneError
+	switch {
+	case errors.As(err, &shared):
+		return shared.Error(), true
+	case errors.As(err, &shallow):
+		return shallow.Error(), true
+	}
+	return "", false
+}
+
 // Source reads contract files at a committed ref. An uncommitted edit is not intake,
 // so a contract version always names a commit.
 type Source struct {
@@ -87,8 +114,28 @@ func New(config Config) *Source {
 }
 
 // Roots lists every first commit the ref reaches, sorted. A repository that merged an unrelated history has
-// more than one.
+// more than one. A shallow clone is refused.
 func (s *Source) Roots(ctx context.Context) ([]string, error) {
+	if err := s.whole(ctx); err != nil {
+		return nil, err
+	}
+	return s.roots(ctx)
+}
+
+// whole refuses a shallow clone: the commits it holds with no parent are grafted ones that change with its
+// depth, so none of them is a first commit of its repository.
+func (s *Source) whole(ctx context.Context) error {
+	shallow, err := s.git.Text(ctx, "rev-parse", "--is-shallow-repository")
+	if err != nil {
+		return err
+	}
+	if shallow == "true" {
+		return &ShallowCloneError{Path: s.config.Repository}
+	}
+	return nil
+}
+
+func (s *Source) roots(ctx context.Context) ([]string, error) {
 	ref, err := s.ref(ctx)
 	if err != nil {
 		return nil, err
@@ -109,14 +156,17 @@ func (s *Source) Roots(ctx context.Context) ([]string, error) {
 // not exist, and neither identifies the history. That is the root reached by following first parents from
 // the ref, so merging an unrelated history into the repository never changes it (FR-REPO-14). A configured
 // identity that is one of the repository's roots wins, so a record stored under the lowest-root rule keeps
-// its ID.
+// its ID. A shallow clone is refused.
 func (s *Source) Instance(ctx context.Context) (string, error) {
+	if err := s.whole(ctx); err != nil {
+		return "", err
+	}
 	identity := s.config.Identity
 	if s.config.IdentityOf != nil {
 		identity = cmp.Or(s.config.IdentityOf(ctx), identity)
 	}
 	if identity != "" {
-		roots, err := s.Roots(ctx)
+		roots, err := s.roots(ctx)
 		if err != nil {
 			return "", err
 		}
@@ -138,7 +188,7 @@ func (s *Source) Instance(ctx context.Context) (string, error) {
 	if s.config.Records == nil {
 		return root, nil
 	}
-	roots, err := s.Roots(ctx)
+	roots, err := s.roots(ctx)
 	if err != nil {
 		return "", err
 	}

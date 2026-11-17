@@ -721,8 +721,7 @@ func checkoutOf(opts soloOptions, kept ports.Checkouts) func(context.Context, le
 				instance, err := repofiles.New(repofiles.Config{
 					Repository: path, Ref: opts.ref, Directory: opts.directory, Records: opts.records, KeptElsewhere: keptElsewhere(kept, project, path),
 				}).Instance(ctx)
-				var shared *repofiles.SharedFirstCommitError
-				if errors.As(err, &shared) {
+				if _, refused := repofiles.Refusal(err); refused {
 					// Intake reports a source registration would refuse. It is no checkout of any record.
 					continue
 				}
@@ -918,42 +917,42 @@ func soloKnowledge(opts soloOptions, kept ports.Checkouts) []ports.KnowledgeSour
 	return sources
 }
 
-// refusable is a documents source that stops serving while its repository shares its first commit with a
-// clone this worker keeps at another path, which registration refuses and intake reports. The Documents view
-// lists the other sources, and a document of this one is not found, where an error would fail them all.
+// refusable is a documents source that stops serving while registration refuses its repository, as a shallow
+// clone or one that shares its first commit with a clone this worker keeps at another path, and intake reports
+// it. The Documents view lists the other sources, and a document of this one is not found, where an error would
+// fail them all.
 type refusable struct{ ports.KnowledgeSource }
 
-// refused says the repository is one registration would refuse, and reads any other failure as none.
-func (s refusable) refused(ctx context.Context) bool {
-	var shared *repofiles.SharedFirstCommitError
+// refusal says why registration would refuse the repository, when it would, and reads any other failure as none.
+func (s refusable) refusal(ctx context.Context) (string, bool) {
 	_, err := s.KnowledgeSource.Describe(ctx)
-	return errors.As(err, &shared)
+	return repofiles.Refusal(err)
 }
 
 func (s refusable) Describe(ctx context.Context) (ports.SourceDescription, error) {
-	if s.refused(ctx) {
+	if _, refused := s.refusal(ctx); refused {
 		return ports.SourceDescription{Adapter: repodocs.Adapter}, nil
 	}
 	return s.KnowledgeSource.Describe(ctx)
 }
 
 func (s refusable) List(ctx context.Context) ([]ports.KnowledgeDocument, error) {
-	if s.refused(ctx) {
+	if _, refused := s.refusal(ctx); refused {
 		return nil, nil
 	}
 	return s.KnowledgeSource.List(ctx)
 }
 
 func (s refusable) Read(ctx context.Context, key ledger.ExternalKey, version string) (ports.KnowledgeDocument, error) {
-	if s.refused(ctx) {
-		return ports.KnowledgeDocument{}, fmt.Errorf("document %s: this repository shares its first commit with another this worker keeps: %w", key, ports.ErrNotFound)
+	if why, refused := s.refusal(ctx); refused {
+		return ports.KnowledgeDocument{}, fmt.Errorf("document %s: %s: %w", key, why, ports.ErrNotFound)
 	}
 	return s.KnowledgeSource.Read(ctx, key, version)
 }
 
 func (s refusable) Versions(ctx context.Context, key ledger.ExternalKey) ([]ports.KnowledgeVersion, error) {
-	if s.refused(ctx) {
-		return nil, fmt.Errorf("document %s: this repository shares its first commit with another this worker keeps: %w", key, ports.ErrNotFound)
+	if why, refused := s.refusal(ctx); refused {
+		return nil, fmt.Errorf("document %s: %s: %w", key, why, ports.ErrNotFound)
 	}
 	return s.KnowledgeSource.Versions(ctx, key)
 }
@@ -1139,12 +1138,10 @@ func soloTicks(projects ports.Projects, home ledger.WorkspaceID, opts soloOption
 			refused := map[string]bool{}
 			for _, source := range sources {
 				_, err := intake.Poll(ctx, p.ID, source)
-				var shared *repofiles.SharedFirstCommitError
-				switch {
-				case errors.As(err, &shared):
+				if why, refuses := repofiles.Refusal(err); refuses {
 					// A source registration would refuse is left alone, and said so once while that holds.
-					refused[shared.Error()] = true
-				case err != nil:
+					refused[why] = true
+				} else if err != nil {
 					failed = append(failed, err)
 				}
 			}

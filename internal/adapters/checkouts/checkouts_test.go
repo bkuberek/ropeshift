@@ -161,6 +161,32 @@ func TestFindSaysWhyAPathHoldsNoClone(t *testing.T) {
 	}
 }
 
+// A shallow clone holds no clone to register, named alone or below a folder: its first commit is a grafted one,
+// not its repository's, and the reason says how to make it whole.
+func TestFindRefusesAShallowClone(t *testing.T) {
+	root := real(t, t.TempDir())
+	origin := cloneInto(t, filepath.Join(root, "whole"))
+	origin.Commit("NOTES.txt", "second\n")
+	shallow := origin.ShallowClone("shallow")
+	folder := filepath.Join(root, "folder")
+	if err := os.MkdirAll(folder, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	below := filepath.Join(folder, "below")
+	origin.Git("clone", "--quiet", "--depth", "1", "file://"+filepath.ToSlash(origin.Dir), below)
+	f := &File{Path: filepath.Join(t.TempDir(), FileName), Env: origin.Env()}
+
+	for given, refused := range map[string]string{shallow.Dir: shallow.Dir, folder: below} {
+		clones, unread, err := f.Find(t.Context(), []string{given}, 1)
+		if err != nil || len(clones) != 0 || len(unread) != 1 {
+			t.Fatalf("%s reads %+v, unread %+v: %v", given, clones, unread, err)
+		}
+		if unread[0].Path != refused || unread[0].Reason != ledger.ShallowClone {
+			t.Errorf("%s reads unread %+v, want %s refused with %q", given, unread[0], refused, ledger.ShallowClone)
+		}
+	}
+}
+
 // The file keeps one path per repository of each project, and survives a new reader.
 func TestTheFileKeepsACheckoutPerProjectRepository(t *testing.T) {
 	file := filepath.Join(t.TempDir(), FileName)
