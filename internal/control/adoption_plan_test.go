@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 
 	"ropeshift.com/ropeshift/internal/adapters/fake"
@@ -16,16 +17,49 @@ import (
 	"ropeshift.com/ropeshift/internal/workorders"
 )
 
+// testLedger is the one ledger the plans of a test read. Making a ledger migrates every schema file, which costs
+// more than the rest of a plan test, so it is made when the first plan asks for it and every later plan of the
+// test reads the same one. A plan records nothing, which TestAnAdoptionPlanRecordsNothingAndItsDigestFollowsTheLayout
+// holds, so one plan leaves the next nothing to read that the ledger did not hold before it.
+type testLedger struct {
+	t     *testing.T
+	mu    sync.Mutex
+	store ports.Store
+}
+
+func (l *testLedger) get() ports.Store {
+	l.t.Helper()
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.store == nil {
+		l.store = ledgerOf(l.t, "acme")
+	}
+	return l.store
+}
+
 // adoptionMachine is a worker's machine with the clones a test lays out on it.
 type adoptionMachine struct {
 	t         *testing.T
 	checkouts *fake.Checkouts
 	layouts   *fake.Layouts
+	ledger    *testLedger
 }
 
 func newAdoptionMachine(t *testing.T) *adoptionMachine {
 	t.Helper()
-	return &adoptionMachine{t: t, checkouts: fake.NewCheckouts(), layouts: fake.NewLayouts()}
+	return &adoptionMachine{t: t, checkouts: fake.NewCheckouts(), layouts: fake.NewLayouts(), ledger: &testLedger{t: t}}
+}
+
+// another is a second machine for the same test, with no clone on it and the ledger of this one.
+func (m *adoptionMachine) another() *adoptionMachine {
+	m.t.Helper()
+	return &adoptionMachine{t: m.t, checkouts: fake.NewCheckouts(), layouts: fake.NewLayouts(), ledger: m.ledger}
+}
+
+// store is the ledger every plan of the machine's test reads.
+func (m *adoptionMachine) store() ports.Store {
+	m.t.Helper()
+	return m.ledger.get()
 }
 
 // clone places a clone with its own first commit and remote, and what it holds.
@@ -38,8 +72,7 @@ func (m *adoptionMachine) clone(at string, layout fake.CloneLayout) {
 
 func (m *adoptionMachine) plan(in control.AdoptionRequest) (planning.AdoptionPlan, error) {
 	m.t.Helper()
-	store := ledgerOf(m.t, "acme")
-	return control.NewAdoptions(control.NewRepositories(store)).Plan(m.t.Context(), "acme", in, m.checkouts, m.layouts, projectMember)
+	return control.NewAdoptions(control.NewRepositories(m.store())).Plan(m.t.Context(), "acme", in, m.checkouts, m.layouts, projectMember)
 }
 
 func (m *adoptionMachine) mustPlan(in control.AdoptionRequest) planning.AdoptionPlan {
@@ -88,6 +121,7 @@ func designOf(m *adoptionMachine, files int, extra ...string) {
 
 // A clone with no other clone found is a single repository, and restructuring offers nothing.
 func TestAdoptionOfALoneCloneIsTheSingleShape(t *testing.T) {
+	t.Parallel()
 	m := newAdoptionMachine(t)
 	workspaceOf(m)
 	plan := m.mustPlan(control.AdoptionRequest{Root: "/work/ws"})
@@ -108,6 +142,7 @@ func TestAdoptionOfALoneCloneIsTheSingleShape(t *testing.T) {
 // A clone that holds plan content, with clones found in a folder it ignores, is planned: it plans in itself,
 // and the manifest is what restructuring offers, when none exists.
 func TestAdoptionOfAClonePlannedAlreadyOffersTheManifest(t *testing.T) {
+	t.Parallel()
 	m := newAdoptionMachine(t)
 	m.clone("/work/ws", fake.CloneLayout{Ignored: []string{"repos"}, Plan: ports.PlanContent{Files: 1}, Tracked: []string{"README.md", "plan/goal.md"}})
 	m.clone("/work/ws/repos/api", fake.CloneLayout{Tracked: []string{"go.mod"}})
@@ -142,6 +177,7 @@ func TestAdoptionOfAClonePlannedAlreadyOffersTheManifest(t *testing.T) {
 // lists the paths it takes, the colliding ones with the version kept, the code trees, and the files it adds, and
 // leaves the design repository out of what it registers.
 func TestAdoptionOfAWorkspaceWithADesignRepositoryConsolidates(t *testing.T) {
+	t.Parallel()
 	m := newAdoptionMachine(t)
 	workspaceOf(m)
 	designOf(m, 3)
@@ -192,6 +228,7 @@ func TestAdoptionOfAWorkspaceWithADesignRepositoryConsolidates(t *testing.T) {
 // With no clone holding plan content, the design repository is the one with the most committed Markdown
 // documents, and a tie names none and says how to name one.
 func TestTheDesignRepositoryIsTheOneWithTheMostDocumentsAndATieNamesNone(t *testing.T) {
+	t.Parallel()
 	m := newAdoptionMachine(t)
 	workspaceOf(m)
 	m.clone("/work/ws/repos/notes", fake.CloneLayout{Tracked: []string{"a.md", "b.md", "c.md", "d.md"}})
@@ -201,7 +238,7 @@ func TestTheDesignRepositoryIsTheOneWithTheMostDocumentsAndATieNamesNone(t *test
 		t.Errorf("the repository with four documents reads %s, %+v", plan.Shape, plan.Design)
 	}
 
-	tied := newAdoptionMachine(t)
+	tied := m.another()
 	workspaceOf(tied)
 	tied.clone("/work/ws/repos/a", fake.CloneLayout{Tracked: []string{"x.md", "y.md", "z.md"}})
 	tied.clone("/work/ws/repos/b", fake.CloneLayout{Tracked: []string{"x.md", "y.md", "z.md"}})
@@ -225,6 +262,7 @@ func TestTheDesignRepositoryIsTheOneWithTheMostDocumentsAndATieNamesNone(t *test
 // Any other layout with clones is the workspace files: clones named by paths beside the clone are listed to move
 // into its folder of clones, the folder is ignored, and each file is added only when the clone lacks it.
 func TestAdoptionOfClonesNamedByPathsIsTheWorkspaceFiles(t *testing.T) {
+	t.Parallel()
 	m := newAdoptionMachine(t)
 	m.clone("/work/ws", fake.CloneLayout{Tracked: []string{"README.md", "Makefile"}})
 	m.clone("/work/api", fake.CloneLayout{Tracked: []string{"go.mod"}})
@@ -254,7 +292,7 @@ func TestAdoptionOfClonesNamedByPathsIsTheWorkspaceFiles(t *testing.T) {
 
 	// A clone already inside the clone's folder of clones moves nowhere, and a folder already ignored is not
 	// added to the ignore file again.
-	inside := newAdoptionMachine(t)
+	inside := m.another()
 	inside.clone("/work/ws", fake.CloneLayout{Ignored: []string{"repos"}, Tracked: []string{"README.md"}})
 	inside.clone("/work/ws/repos/api", fake.CloneLayout{Tracked: []string{"go.mod"}})
 	inside.clone("/work/web", fake.CloneLayout{Tracked: []string{"package.json"}})
@@ -269,6 +307,7 @@ func TestAdoptionOfClonesNamedByPathsIsTheWorkspaceFiles(t *testing.T) {
 
 // Clones are searched for down to the depth, one level by default, and a path that holds no clone is refused.
 func TestAdoptionSearchesAnIgnoredFolderToTheDepth(t *testing.T) {
+	t.Parallel()
 	m := newAdoptionMachine(t)
 	workspaceOf(m)
 	m.clone("/work/ws/repos/group/deep", fake.CloneLayout{Tracked: []string{"go.mod"}})
@@ -287,6 +326,7 @@ func TestAdoptionSearchesAnIgnoredFolderToTheDepth(t *testing.T) {
 
 // The folder around the clone is never scanned: a clone beside it is seen only when a path names it.
 func TestAdoptionNeverScansTheFolderAroundTheClone(t *testing.T) {
+	t.Parallel()
 	m := newAdoptionMachine(t)
 	workspaceOf(m)
 	m.clone("/work/beside", fake.CloneLayout{Tracked: []string{"go.mod"}})
@@ -298,6 +338,7 @@ func TestAdoptionNeverScansTheFolderAroundTheClone(t *testing.T) {
 // A build file at the top of the design repository makes the whole of it one code tree, which cannot be left
 // out, and a tree left out must be one the design repository has, in a consolidation.
 func TestLeavingOutNamesACodeTreeOfTheDesignRepository(t *testing.T) {
+	t.Parallel()
 	m := newAdoptionMachine(t)
 	workspaceOf(m)
 	designOf(m, 2, "go.mod")
@@ -310,7 +351,7 @@ func TestLeavingOutNamesACodeTreeOfTheDesignRepository(t *testing.T) {
 			t.Errorf("leaving out %s: %v", name, err)
 		}
 	}
-	single := newAdoptionMachine(t)
+	single := m.another()
 	workspaceOf(single)
 	if _, err := single.plan(control.AdoptionRequest{Root: "/work/ws", LeaveOut: []string{"tools"}}); !errors.Is(err, ledger.ErrInvalidRepository) {
 		t.Errorf("leaving a tree out of a layout that consolidates nothing: %v", err)
@@ -319,6 +360,7 @@ func TestLeavingOutNamesACodeTreeOfTheDesignRepository(t *testing.T) {
 
 // --planning keeps its meaning: it names the repository that holds the plan.
 func TestPlanningNamesTheRepositoryThatHoldsThePlan(t *testing.T) {
+	t.Parallel()
 	m := newAdoptionMachine(t)
 	workspaceOf(m)
 	m.clone("/work/ws/repos/api", fake.CloneLayout{Tracked: []string{"go.mod"}})
@@ -334,10 +376,12 @@ func TestPlanningNamesTheRepositoryThatHoldsThePlan(t *testing.T) {
 
 // A dry run records nothing, and the digest is the same for the same layout and follows a clone added.
 func TestAnAdoptionPlanRecordsNothingAndItsDigestFollowsTheLayout(t *testing.T) {
+	t.Parallel()
 	m := newAdoptionMachine(t)
 	workspaceOf(m)
 	designOf(m, 1)
-	store := ledgerOf(t, "acme")
+	// The ledger every plan of this test reads, so the events compared are those of the one the plans used.
+	store := m.store()
 	adoptions := control.NewAdoptions(control.NewRepositories(store))
 	events := func() int {
 		var n int
@@ -388,6 +432,7 @@ func TestAnAdoptionPlanRecordsNothingAndItsDigestFollowsTheLayout(t *testing.T) 
 // A project the adoption has yet to create has no records, so each repository reads as one that would
 // register, and the plan says why.
 func TestAnAdoptionPlanOfAProjectNotCreatedYetReadsNoRecords(t *testing.T) {
+	t.Parallel()
 	m := newAdoptionMachine(t)
 	workspaceOf(m)
 	m.clone("/work/ws/repos/api", fake.CloneLayout{Tracked: []string{"go.mod"}})
@@ -406,10 +451,11 @@ func TestAnAdoptionPlanOfAProjectNotCreatedYetReadsNoRecords(t *testing.T) {
 
 // Only a member reads paths on the machine.
 func TestOnlyAMemberPlansAnAdoption(t *testing.T) {
+	t.Parallel()
 	m := newAdoptionMachine(t)
 	workspaceOf(m)
 	delegate := ledger.Actor{Kind: ledger.ActorDelegate, ID: "delegate-1"}
-	_, err := control.NewAdoptions(control.NewRepositories(ledgerOf(t, "acme"))).Plan(t.Context(), "acme", control.AdoptionRequest{Root: "/work/ws"}, m.checkouts, m.layouts, delegate)
+	_, err := control.NewAdoptions(control.NewRepositories(m.store())).Plan(t.Context(), "acme", control.AdoptionRequest{Root: "/work/ws"}, m.checkouts, m.layouts, delegate)
 	if !errors.Is(err, workorders.ErrForbidden) {
 		t.Errorf("a delegate's plan: %v", err)
 	}
@@ -428,6 +474,7 @@ func TestOnlyAMemberPlansAnAdoption(t *testing.T) {
 
 // A root that is not itself the top of a clone is refused, even when exactly one clone sits below it.
 func TestAnAdoptionRootThatHoldsOneCloneIsNotThatClone(t *testing.T) {
+	t.Parallel()
 	m := newAdoptionMachine(t)
 	m.clone("/work/ws/repos/api", fake.CloneLayout{Tracked: []string{"go.mod"}})
 	if _, err := m.plan(control.AdoptionRequest{Root: "/work/ws/repos"}); !errors.Is(err, ledger.ErrInvalidRepository) {
@@ -440,6 +487,7 @@ func TestAnAdoptionRootThatHoldsOneCloneIsNotThatClone(t *testing.T) {
 
 // The depth is bounded, so a request cannot walk a tree as deep as it likes.
 func TestAnAdoptionDepthIsBounded(t *testing.T) {
+	t.Parallel()
 	m := newAdoptionMachine(t)
 	workspaceOf(m)
 	if _, err := m.plan(control.AdoptionRequest{Root: "/work/ws", Depth: control.MaxAdoptionDepth}); err != nil {
@@ -452,6 +500,7 @@ func TestAnAdoptionDepthIsBounded(t *testing.T) {
 
 // A path with a space or a quote in it is quoted in the commands the plan lists, so they run as printed.
 func TestTheMovesAreQuotedForAShell(t *testing.T) {
+	t.Parallel()
 	m := newAdoptionMachine(t)
 	m.clone("/work/ws", fake.CloneLayout{Tracked: []string{"README.md", "Makefile"}})
 	m.clone("/work/my api", fake.CloneLayout{Tracked: []string{"go.mod"}})
@@ -476,6 +525,7 @@ func TestTheMovesAreQuotedForAShell(t *testing.T) {
 // Run from a code clone with a design repository beside it, the plan lives in the design repository, and moves
 // the code clone into it. --planning still decides.
 func TestAdoptionFromACodeCloneWithTheDesignRepositoryBesidePlansThere(t *testing.T) {
+	t.Parallel()
 	m := newAdoptionMachine(t)
 	m.clone("/work/api", fake.CloneLayout{Tracked: []string{"go.mod", "main.go"}})
 	m.clone("/work/design", fake.CloneLayout{Plan: ports.PlanContent{Files: 1}, Tracked: []string{"docs/a.md", "docs/b.md", "plan/goal.md"}})
@@ -499,6 +549,7 @@ func TestAdoptionFromACodeCloneWithTheDesignRepositoryBesidePlansThere(t *testin
 // and the plan says so rather than choosing the clone adopt runs in. A folder the clone ignores that holds
 // clones makes it a workspace, which plans in itself.
 func TestAdoptionWithNoDesignRepositoryLeavesThePlanningRepositoryUndecided(t *testing.T) {
+	t.Parallel()
 	m := newAdoptionMachine(t)
 	m.clone("/work/api", fake.CloneLayout{Tracked: []string{"go.mod"}})
 	m.clone("/work/web", fake.CloneLayout{Tracked: []string{"package.json"}})
@@ -508,7 +559,7 @@ func TestAdoptionWithNoDesignRepositoryLeavesThePlanningRepositoryUndecided(t *t
 		t.Errorf("no design repository reads planning %+v, notes %v", plan.Planning, plan.Notes)
 	}
 
-	tied := newAdoptionMachine(t)
+	tied := m.another()
 	tied.clone("/work/api", fake.CloneLayout{Tracked: []string{"go.mod"}})
 	tied.clone("/work/a", fake.CloneLayout{Tracked: []string{"x.md", "y.md"}})
 	tied.clone("/work/b", fake.CloneLayout{Tracked: []string{"x.md", "y.md"}})
@@ -519,7 +570,7 @@ func TestAdoptionWithNoDesignRepositoryLeavesThePlanningRepositoryUndecided(t *t
 		t.Errorf("--planning a reads %+v", plan.Planning)
 	}
 
-	workspace := newAdoptionMachine(t)
+	workspace := m.another()
 	workspaceOf(workspace)
 	workspace.clone("/work/ws/repos/api", fake.CloneLayout{Tracked: []string{"go.mod"}})
 	workspace.clone("/work/web", fake.CloneLayout{Tracked: []string{"package.json"}})
