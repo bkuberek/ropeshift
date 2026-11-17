@@ -265,7 +265,8 @@ describe("the tabs of a work order's page", () => {
     openPage(`/work-order?id=wo-running&tab=activity`);
     const side = await screen.findByRole("complementary", { name: "Decision and facts" });
     const panel = await within(side).findByRole("region", { name: "Estimate" });
-    expect(panel.querySelector('[data-band="estimate"]')?.textContent).toContain("delivery p50 6h0m0s p85 11h0m0s");
+    // The panel stands, with a skeleton in it, before the estimate is read, so the bands are waited for.
+    await waitFor(() => expect(panel.querySelector('[data-band="estimate"]')?.textContent).toContain("delivery p50 6h0m0s p85 11h0m0s"));
     expect(panel.querySelector('[data-band="baseline"]')?.textContent).toContain("Low confidence");
     expect(panel.querySelectorAll("details.estimate-more")).toHaveLength(2);
     expect(sent.some((call) => call.method === "GET" && call.path === "/v1/work-orders/wo-running/estimate" && call.project === "default")).toBe(true);
