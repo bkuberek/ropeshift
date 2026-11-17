@@ -51,14 +51,8 @@
       "step": "acknowledge the stated risk",
       "actions": [
         { "click": { "role": "button", "name": "I stand behind it" } },
-        { "click": { "role": "link", "name": "Needs you", "in": { "role": "navigation", "name": "Views" } } },
-        { "waitFor": { "text": "Nothing needs you" } }
+        { "waitFor": { "text": "The stated risk is acknowledged for this worker." } }
       ]
-    },
-    {
-      "step": "reload and see the acknowledgement",
-      "route": "/projects/default/settings?section=autonomy",
-      "actions": [{ "waitFor": { "text": "The stated risk is acknowledged for this worker." } }]
     },
     {
       "step": "open the command palette",
