@@ -30,7 +30,7 @@
         { "click": { "role": "button", "name": "Continue" } },
         { "click": { "role": "radio", "name": "moorings-docs", "exact": false } }
       ],
-      "capture": { "name": "adopt-03", "clip": "window" }
+      "capture": { "name": "adopt-03", "clip": { "role": "region", "name": "Planning repository" } }
     },
     {
       "step": "start the adopt session",
@@ -62,7 +62,7 @@
         { "waitFor": { "text": "What exists", "in": { "role": "region", "name": "What the adoption does" } } },
         { "waitFor": { "text": "What continues", "in": { "role": "region", "name": "What the adoption does" } } }
       ],
-      "capture": { "name": "adopt-05", "clip": "window" }
+      "capture": { "name": "adopt-05", "clip": { "role": "region", "name": "What the adoption does" } }
     },
     {
       "step": "approve version 1",

@@ -119,7 +119,12 @@
       "actions": [
         { "click": { "role": "link", "name": "Roadmap", "in": { "role": "navigation", "name": "Views" } } },
         { "waitFor": { "text": "Berths in the API" } },
-        { "waitFor": { "text": "Serve the list of berths" } }
+        { "waitFor": { "text": "Serve the list of berths" } },
+        { "click": { "role": "link", "name": "Work orders", "in": { "role": "navigation", "name": "Views" } } },
+        { "waitFor": { "text": "Build the berths page" } },
+        { "click": { "role": "link", "name": "Roadmap", "in": { "role": "navigation", "name": "Views" } } },
+        { "waitFor": { "text": "Serve the list of berths" } },
+        { "waitFor": { "text": "p50" } }
       ],
       "capture": { "name": "plan-09", "clip": "window" }
     }

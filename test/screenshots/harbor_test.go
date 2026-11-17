@@ -62,7 +62,7 @@ func newHarbor(in *install) *harbor {
 	in.signIn = subscription
 	in.writeFixture(harborTurns())
 	in.start("--intake-tick", "200ms", "--lease-tick", "200ms", "--wake-tick", "200ms", "--batch-tick", "500ms",
-		"--heartbeat", "3m", "--lease-ttl", "15m")
+		"--delivery-tick", "1s", "--forecast-tick", "1s", "--heartbeat", "3m", "--lease-ttl", "15m")
 	in.waitFor("the worker's session", func() bool {
 		list := in.workers()
 		return len(list) == 1 && list[0].Epoch >= 1
