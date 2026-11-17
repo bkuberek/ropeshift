@@ -36,7 +36,7 @@ var BindingChecks = []Check{
 	{"BD10", "an overturn tells a lane that the decision had told", checkBindingOverturnTellsAgain},
 	{"BD11", "the control plane records no scope outside the grammar, however a decision reaches it", checkBindingRefusesBadScopes},
 	{"BD12", "a lane's wake on a decision names a scope in the grammar", checkBindingWakeNamesAScope},
-	{"BD13", "a plan whose file names it with an id that is not plain is approved and its questions are answered", checkBindingUnplainPlanID},
+	{"BD13", "a plan or contract whose file names it with an id that is not plain is reported against the file and recorded as nothing", checkBindingUnplainFileID},
 	{"BD14", "a decision that reaches finished work and its finished rework reworks the rework alone", checkBindingReworksTheTipOfAChain},
 	{"BD15", "a lane that asked a question is not parked by the decision that answers it", checkBindingAskerIsNotParked},
 	{"BD16", "work held for another reason waits for a member's pass under a person's one-way decision, and the reason returns after it", checkBindingHoldsHeldWork},
@@ -340,62 +340,40 @@ func checkBindingReworksTheTipOfAChain(r *Rig) error {
 	return r.CheckQuestions(m.s)
 }
 
-// dottedPlanFile is a plan whose file names it with an id that is no plain ID, as an author may write one. The
-// ledger gives the plan an ID of its own, which is what a scope names, so the file's id never reaches a scope.
+// dottedPlanFile is a plan whose file names it with an id that is no plain ID. A scope names a plan by its ID
+// (`plan:<id>`), so intake refuses the file.
 const dottedPlanFile = `+++
 kind = "plan"
 id = "2026.q4"
 title = "Dotted"
-
-[[decision]]
-id = "currency"
-question = "Which currency do invoices use?"
-answer = "Euro"
-rationale = "The brand guide says so."
 +++
 
 How.
 `
 
-// checkBindingUnplainPlanID holds that the scopes the control plane builds itself never fail the grammar: a plan
-// the author named "2026.q4" in its file is approved, its review's questions are answered, and the answer is
-// scoped by the ID the ledger gave the plan.
-func checkBindingUnplainPlanID(r *Rig) error {
+// checkBindingUnplainFileID holds that a plan or a contract whose file names it with an id that is no plain ID
+// is a problem intake reports against the file, with the ID and the rule, and that nothing of the file is
+// recorded: a scope that names the plan or the contract is always one the grammar accepts.
+func checkBindingUnplainFileID(r *Rig) error {
 	s := r.Store()
 	source := fake.NewWorkSource()
 	source.Write("plan.md", []byte(dottedPlanFile))
-	source.Write("alpha.md", []byte(placedContract{ID: "alpha", Plan: "2026.q4"}.text()))
-	if _, err := r.intake(s, source); err != nil {
-		return err
-	}
-	plan, err := r.planID(s, "Dotted")
+	source.Write("alpha.md", []byte(placedContract{ID: "alpha v2"}.text()))
+	source.Write("beta.md", []byte(placedContract{ID: "beta"}.text()))
+	report, err := r.intake(s, source)
 	if err != nil {
 		return err
 	}
-	pending, err := r.theOpenPlanApproval(s)
-	if err != nil {
-		return err
+	if report.Versions != 1 || len(report.Problems) != 2 {
+		return Violatedf("intake read %d contracts and reported %+v, want the plain contract and two problems", report.Versions, report.Problems)
 	}
-	if _, err := r.approve(s, pending, true, theMember); err != nil {
-		return Violatedf("a plan whose id is not plain was not approved: %v", err)
+	for path, id := range map[string]string{"plan.md": "2026.q4", "alpha.md": "alpha v2"} {
+		if err := problemsMention(report.Problems, path, id, "must be a plain ID"); err != nil {
+			return err
+		}
 	}
-	review, err := newStatusRigOn(r, s, func(store ports.Store) (string, error) {
-		order, err := r.reviewOf(store, plan)
-		return order.ID, err
-	})
-	if err != nil {
-		return err
-	}
-	asked, err := review.askAs("Which currency do invoices use?", false)
-	if err != nil {
-		return err
-	}
-	answer, err := r.NewOps(s).Answer(r.Ctx, r.Scope, asked.QuestionID, questions.Answer{DecisionID: r.ID("d"), Statement: "Euro."}, r.member())
-	if err != nil {
-		return Violatedf("a question about a plan whose id is not plain was not answered: %v", err)
-	}
-	if want := "plan:" + plan; answer.Scope != want {
-		return Violatedf("the answer is scoped %q, want %q", answer.Scope, want)
+	if _, err := r.planID(s, "Dotted"); err == nil {
+		return Violatedf("a plan whose id is not plain was recorded")
 	}
 	return r.CheckQuestions(s)
 }

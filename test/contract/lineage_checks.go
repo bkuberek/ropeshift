@@ -182,6 +182,32 @@ func checkPlanProblemStays(r *Rig) error {
 	return l.wantNoProblem()
 }
 
+// A plan lane that writes a plan or a contract whose id is not a plain ID leaves a file the plan's commit cannot
+// read: the problem names the file, the ID, and the rule, and the plan that read it.
+func checkPlanUnplainFileID(r *Rig) error {
+	l, err := r.onMain(alphaOn("One."))
+	if err != nil {
+		return err
+	}
+	branch := l.main.Fork()
+	branch.Write("dotted.md", []byte(dottedPlanFile))
+	branch.Write("spaced.md", []byte(placedContract{ID: "spaced out"}.text()))
+	if err := l.takeIn(branch); err != nil {
+		return err
+	}
+	if err := l.wantProblems(map[string]bool{"dotted.md": true, "spaced.md": true}); err != nil {
+		return err
+	}
+	problems, err := l.problems()
+	if err != nil {
+		return err
+	}
+	if err := problemsMention(problems, "dotted.md", "2026.q4", "must be a plain ID"); err != nil {
+		return err
+	}
+	return problemsMention(problems, "spaced.md", "spaced out", "must be a plain ID")
+}
+
 // A merge that brings the broken file to main makes it main's own problem, once.
 func checkMergedPlanProblem(r *Rig) error {
 	l, err := r.onMain(alphaOn("One."))

@@ -29,7 +29,8 @@ Why this goal matters, in prose.
 	},
 	{
 		Kind: FilePlan,
-		Intro: "A plan lists every document it holds in documents, each as kind:id. A draft decision records an answer the person " +
+		Intro: "A plan's id, like a contract's, is a plain ID: 1 to 64 ASCII letters, digits, hyphens, and underscores, so 2026.q4 is refused. " +
+			"A plan lists every document it holds in documents, each as kind:id. A draft decision records an answer the person " +
 			"gave you in conversation, with the question, the answer, and the reason. It binds nothing until the person approves the plan.",
 		Text: `+++
 kind = "plan"

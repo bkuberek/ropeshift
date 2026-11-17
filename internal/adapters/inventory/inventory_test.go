@@ -158,6 +158,36 @@ func TestTwoInventoriesAtTheSameCommitsAreTheSameBytes(t *testing.T) {
 	}
 }
 
+// A plan or contract file whose id is not a plain ID is one intake refuses, so the inventory reports it as a
+// file that does not read cleanly, with the reason intake gives.
+func TestAnInventoryReportsAPlanOrContractWhoseIDIsNotPlain(t *testing.T) {
+	t.Parallel()
+	repo := gittest.New(t)
+	repo.Commit("plan/plan.md", "+++\nkind = \"plan\"\nid = \"2026.q4\"\ntitle = \"Q4\"\n+++\n\nHow.\n")
+	repo.Commit("plan/api.md", strings.Replace(contractFile, `id = "retry"`, `id = "retry api"`, 1))
+	repo.Commit("plan/retry.md", contractFile)
+	base := repo.Git("rev-parse", "main")
+	found, err := inventory.Git{Env: repo.Env()}.Take(t.Context(), ports.InventoryRequest{
+		Path: repo.Dir, Repository: "id-payments", Name: "payments", BaseBranch: "main", BaseCommit: base,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	files := map[string]planning.InventoryFile{}
+	for _, file := range found.Files {
+		files[file.Path] = file
+	}
+	if len(files) != 3 || !files["plan/retry.md"].Clean {
+		t.Fatalf("ropeshift files %+v", found.Files)
+	}
+	for path, id := range map[string]string{"plan/plan.md": "2026.q4", "plan/api.md": "retry api"} {
+		file := files[path]
+		if file.Clean || !strings.Contains(file.Problem, id) || !strings.Contains(file.Problem, "must be a plain ID") {
+			t.Errorf("%s reads %+v, want a problem that names %q and the rule", path, file, id)
+		}
+	}
+}
+
 func TestAnInventoryOfACommitTheRepositoryLacksIsNotFound(t *testing.T) {
 	t.Parallel()
 	_, clone, _ := existing(t)

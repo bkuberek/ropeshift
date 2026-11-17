@@ -447,9 +447,26 @@ func (f GoalFile) Normalize() (GoalFile, error) {
 	return f, needsIdentity(f.ID, f.Title)
 }
 
-// Normalize refuses a plan file that cannot become a record. Each document it lists is cited by kind
-// and ID, and each draft decision carries the question and the answer the person gave.
+// plainFileID refuses the ID of a plan or contract file that is not a plain ID. A scope names a plan or a
+// contract by that ID (`plan:<id>`, `contract:<id>`), and an agent reads and writes the ID as it is, so the
+// ID is held to the rule every ID a caller names for a record is held to.
+func plainFileID(kind FileKind, id string) error {
+	if id == "" {
+		return fmt.Errorf("%w: no id", ErrBadFile)
+	}
+	if !ledger.PlainID(id) {
+		return fmt.Errorf("%w: %s id %q must be a plain ID: 1 to %d ASCII letters, digits, '-', and '_'",
+			ErrBadFile, kind, id, ledger.MaxRecordID)
+	}
+	return nil
+}
+
+// Normalize refuses a plan file that cannot become a record. Its ID is a plain ID. Each document it lists is
+// cited by kind and ID, and each draft decision carries the question and the answer the person gave.
 func (f PlanFile) Normalize() (PlanFile, error) {
+	if err := plainFileID(FilePlan, f.ID); err != nil {
+		return f, err
+	}
 	if err := needsIdentity(f.ID, f.Title); err != nil {
 		return f, err
 	}
@@ -675,11 +692,11 @@ func needsIdentity(id, title string) error {
 }
 
 // Normalize fills the defaults of a contract file and refuses one that cannot
-// become records. A contract with no criteria is valid here, because the
+// become records. Its ID is a plain ID. A contract with no criteria is valid here, because the
 // definition of ready is what refuses it.
 func (f ContractFile) Normalize() (ContractFile, error) {
-	if f.ID == "" {
-		return f, fmt.Errorf("%w: no id", ErrBadFile)
+	if err := plainFileID(FileContract, f.ID); err != nil {
+		return f, err
 	}
 	if f.Title == "" {
 		return f, fmt.Errorf("%w: %s has no title", ErrBadFile, f.ID)

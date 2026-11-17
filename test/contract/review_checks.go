@@ -49,6 +49,7 @@ var PlanLaneChecks = []Check{
 	{"PL28", "a merge of a file a plan could not read reports it once", checkMergedPlanProblem},
 	{"PL29", "reading a plan's commit keeps what main could not read", checkPlanKeepsMainProblems},
 	{"PL30", "a plan's conflict stays until a version holds the plan's text", checkPlanConflictStays},
+	{"PL31", "a plan or contract file a plan's commit names by an id that is not plain is reported against the file", checkPlanUnplainFileID},
 }
 
 const (

@@ -118,6 +118,7 @@ A Markdown file with no front matter is an ordinary document: `ropeshift documen
 ### IDs and versions
 
 - Every file has a stable `id`. Keep it when you rename or move the file, and the record follows.
+- The `id` of a `plan` or `contract` file is a plain ID: 1 to 64 ASCII letters, digits, `-`, and `_`, such as `payments-v2`. A file with an `id` such as `2026.q4` or `payments v2` is a problem that `ropeshift source list` reports with the file, the ID, and this rule, and intake records nothing from it.
 - One document cites another as `<kind>:<id>`, such as `spec:accounts-api`. A plan lists every document it holds in `documents`.
 - Never write a version number. Each committed change to a file is a new version, numbered by the ledger, and an approval binds to the exact content it read.
 - A requirement's ID is yours, such as `ACC-3`, and each criterion of a contract names the requirements it serves.
