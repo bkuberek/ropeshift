@@ -47,12 +47,13 @@ func liveInstalledBuild() *installedBuild {
 }
 
 // daemonPath is where this daemon's binary is installed: the absolute path the service manager started it
-// by, which is the path a package manager's upgrade replaces, or else its executable's own path.
+// by, which is the path a package manager's upgrade replaces, or else its executable's own path. A path
+// inside a Homebrew Cellar names a version, so the opt link of its keg stands for it, and an upgrade shows.
 func daemonPath() (string, error) {
 	if len(os.Args) > 0 && filepath.IsAbs(os.Args[0]) {
-		return os.Args[0], nil
+		return preferOptLink(os.Args[0]), nil
 	}
-	return os.Executable()
+	return executablePath()
 }
 
 // Installed is what the last read found. It is empty until the first read ends, and after a read that
