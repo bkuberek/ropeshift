@@ -142,8 +142,22 @@ export class Keys {
     });
   }
 
-  // tabTo presses Tab, or Shift+Tab, until the keyboard is on the control, and gives up after max presses.
+  // rendered waits until the control is in the page. A view reads its data after the keys that moved to it, and a view's
+  // code may load first, so a walk that starts at once cycles through the frame while the control is still to come, and
+  // can spend every press before it arrives. A control that never renders fails here, by name and by address, which is
+  // not the failure of a control that renders and cannot be reached with Tab. Waiting uses no pointer.
+  async rendered(control: Locator, timeoutMs = 20_000): Promise<void> {
+    try {
+      await control.first().waitFor({ state: "attached", timeout: timeoutMs });
+    } catch {
+      throw new Error(`The control ${String(control)} never rendered on ${await this.page.evaluate(() => location.pathname + location.search)} in ${timeoutMs} ms`);
+    }
+  }
+
+  // tabTo waits for the control to render, and then presses Tab, or Shift+Tab, until the keyboard is on the control, and
+  // gives up after max presses.
   async tabTo(control: Locator, { back = false, max = 120 } = {}): Promise<void> {
+    await this.rendered(control);
     const visited: string[] = [];
     for (let at = 0; at < max; at++) {
       if (await this.focused(control)) {
