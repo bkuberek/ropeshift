@@ -20,8 +20,10 @@ import (
 
 const soloScope = ledger.WorkspaceID("default")
 
-// standInWindowMs is long enough for five escalations. The stand-in for an orchestrator
-// opens the batch, so its window applies until escalation has a route to the daemon.
+// standInWindowMs is the window of the batch a stand-in for an orchestrator opens, in a test that does not
+// depend on what the batch holds. The stand-in opens the batch, so its window applies until escalation has a
+// route to the daemon. A test that does depend on it keeps the batch open with openBatchWindowMs and closes it
+// with closeBatch.
 const standInWindowMs = 400
 
 // ledgerOf opens the running daemon's ledger, which is how a test stands in for an
@@ -36,10 +38,36 @@ func (in *install) ledgerOf() *sqlstore.Store {
 	return store
 }
 
-// escalate climbs a question the way an orchestrator does, up to a person.
-func escalate(t *testing.T, ctx context.Context, store ports.Store, id, category string) {
+// openBatchWindowMs keeps the batch the stand-in opens open until a test closes it with closeBatch, so the
+// batch holds every question the test escalates however long the escalations take.
+const openBatchWindowMs = 600_000
+
+// closeBatch brings the close of the open batch to now, once a test has escalated every question it means the
+// batch to hold. The daemon's next tick delivers it. A batch that closes on a condition, and not on a window,
+// does not lose a question to a slow machine.
+func closeBatch(t *testing.T, ctx context.Context, store ports.Store) {
 	t.Helper()
-	escalateWithin(t, ctx, store, id, category, standInWindowMs)
+	orchestrator := ledger.Actor{Kind: ledger.ActorOrchestrator, ID: "orchestrator-1"}
+	err := store.Write(ctx, soloScope, "test.close_batch", func(tx ports.WriteTx) error {
+		batch, err := tx.Questions().OpenBatch()
+		if err != nil {
+			return err
+		}
+		moved, err := tx.Questions().HastenBatch(batch.ID, tx.Now())
+		if err != nil || !moved {
+			return err
+		}
+		batch.ClosesAt = tx.Now()
+		event, err := questions.RecordEvent(questions.EventBatchChanged, questions.SubjectBatch, batch.ID, batch, orchestrator)
+		if err != nil {
+			return err
+		}
+		_, err = tx.Append(event)
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 }
 
 // escalateWithin is escalate with the batch window the stand-in opens, for a test whose
@@ -95,8 +123,12 @@ func TestQuestionsReachMembersAsOneBatch(t *testing.T) {
 		t.Fatalf("delivered before any escalation: %+v", got)
 	}
 	for i, id := range ids {
-		escalate(t, ctx, store, id, categories[i])
+		escalateWithin(t, ctx, store, id, categories[i], openBatchWindowMs)
 	}
+	if got := in.batches().Batches; len(got) != 0 {
+		t.Fatalf("delivered before the batch closed: %+v", got)
+	}
+	closeBatch(t, ctx, store)
 	in.waitFor("the batch", func() bool { return len(in.batches().Batches) == 1 })
 	batch := in.batches().Batches[0]
 	if len(batch.Items) != 5 {
