@@ -66,10 +66,10 @@ export function tilesOf({ project, needs, floor, operations }: TileInput): Tile[
     { id: "done", label: "Done in 7 days", value: measures ? String(measures.completed) : null, none: unread, note: window, to: addressOf("/work", { group: "completed" }) },
     {
       id: "interruptions",
-      label: "Interruptions per completed",
+      label: "Interruptions per completed work order",
       value: ratio && ratio.value !== null ? String(Math.round(ratio.value * 100) / 100) : null,
       none: ratio ? "No data yet" : unread,
-      note: "work orders completed in the window",
+      note: window ? `interruptions over completed work orders, ${window}` : "interruptions over completed work orders",
       to: "/measures",
     },
     {
