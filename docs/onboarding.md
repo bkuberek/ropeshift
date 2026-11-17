@@ -57,13 +57,15 @@ A worker that runs on a subscription is bound to the one person who signed in. A
 1. With no daemon running, it runs one for the length of its own run, because a daemon's first start is what registers its worker, and it stops that daemon at its end.
 2. It asks for the first passphrase on the terminal, twice. The passphrase comes only from a terminal, never from stdin, a flag, or a variable. A passphrase already set stays as it is.
 3. It waits for the worker's registration.
-4. It runs the doctor, and says for each agent CLI what to do next: install it, repair it, sign in through its vendor's own flow, or nothing, with the level the worker starts at.
-5. It writes a sample contract to the installation's directory, and keeps one already there.
+4. It writes your own profile layer, `profile.toml`, to the installation's directory from the user profile template, and keeps one already there. With `--worktree-root <path>`, the profile sets `[worktree] root` to the path, which must be absolute. A path that names neither `{project}` nor `{repo}` gets `/{project}/{repo}` appended, so lanes of different projects and repositories never share a folder, and `init` says so. Without the flag, the root line is commented out and the built-in root holds. `init` never changes a profile that exists: with the flag, it says to set `[worktree] root` in that file by hand.
+5. It runs the doctor, and says for each agent CLI what to do next: install it, repair it, sign in through its vendor's own flow, or nothing, with the level the worker starts at. It then prints the doctor's worktree section: the root in force and the layer that set it, and a line for each checkout of every project whose root falls inside a clone.
+6. It writes a sample contract to the installation's directory, and keeps one already there.
 
 ```text
 Agent CLIs:
   claude-code: not installed. Install Claude Code, sign in through Anthropic's own flow, and run ropeshift init again.
 Ropeshift never reads, stores, relays, or proxies an agent CLI's credentials. Each CLI keeps its own sign-in.
+Worktree root: <worktree directory>/{project}/{repo} (the built-in root)
 ```
 
 It exits 0 when an agent CLI is usable and 1 when none is, after every other step. The installation's directory is `~/Library/Application Support/ropeshift` on macOS, and `$XDG_STATE_HOME/ropeshift` or `~/.local/state/ropeshift` on Linux.

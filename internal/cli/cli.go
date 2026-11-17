@@ -14,6 +14,7 @@ import (
 
 	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/authority"
+	"ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/internal/ledger"
 )
 
@@ -39,6 +40,9 @@ type Options struct {
 	Socket string
 	// Doctor asks this machine what it can run. It reaches no daemon.
 	Doctor func(context.Context) (ledger.Manifest, error)
+	// Worktree asks this machine where lane worktrees go, and which checkouts the root puts inside a clone. It
+	// reaches no daemon. Nil leaves the section out of the doctor's report.
+	Worktree func(context.Context) (lanes.WorktreeReport, error)
 	// Session is the member's session this shell holds, if any.
 	Session string
 	// Delegate is the delegate credential this shell holds, if any, which a command presents in place of a
@@ -81,6 +85,7 @@ type Options struct {
 // invocation is one running command.
 type invocation struct {
 	doctor         func(context.Context) (ledger.Manifest, error)
+	worktree       func(context.Context) (lanes.WorktreeReport, error)
 	readPassphrase func(prompt string) (string, error)
 	terminal       io.Reader
 	panes          Panes
@@ -117,7 +122,7 @@ type invocation struct {
 // name.
 func Run(args []string, stdout, stderr io.Writer, opts Options) int {
 	base := &invocation{
-		ctx: context.Background(), stdout: stdout, stderr: stderr, socket: opts.Socket, doctor: opts.Doctor,
+		ctx: context.Background(), stdout: stdout, stderr: stderr, socket: opts.Socket, doctor: opts.Doctor, worktree: opts.Worktree,
 		session: opts.Session, delegate: opts.Delegate, readPassphrase: opts.ReadPassphrase, terminal: opts.Terminal,
 		panes: opts.Panes, startDaemon: opts.StartDaemon, stateDir: opts.StateDir, install: opts.InstallService, uninstall: opts.UninstallService,
 		envProject: opts.Project, repositoryHere: opts.RepositoryHere, repositoryRoot: opts.RepositoryRoot,

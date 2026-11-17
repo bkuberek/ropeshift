@@ -236,4 +236,18 @@ func (f *Checkouts) Every(_ context.Context) ([]string, error) {
 	return slices.Compact(every), nil
 }
 
+// All lists every checkout with its project and repository, by project and then repository.
+func (f *Checkouts) All(_ context.Context) ([]ports.Checkout, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var all []ports.Checkout
+	for _, project := range slices.Sorted(maps.Keys(f.kept)) {
+		held := f.kept[project]
+		for _, repository := range slices.Sorted(maps.Keys(held)) {
+			all = append(all, ports.Checkout{Project: project, Repository: repository, Path: held[repository]})
+		}
+	}
+	return all, nil
+}
+
 var _ ports.Checkouts = (*Checkouts)(nil)

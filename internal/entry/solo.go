@@ -560,6 +560,17 @@ func runDoctor(ctx context.Context) (ledger.Manifest, error) {
 	return worker.BuildManifest(ctx, soloDriver(osexec.Runner{}, nil, env), soloManifest())
 }
 
+// worktreeReport is the doctor's worktree section. It reads the root in force from the user's layer in the state
+// directory, as a lane's start does, and each checkout this worker keeps, in every project, and says which
+// the root puts inside a clone. It needs no daemon.
+func worktreeReport(ctx context.Context, paths api.Paths) (lanes.WorktreeReport, error) {
+	profile, err := soloProfiles(paths).Load(ctx, "", "")
+	if err != nil {
+		return lanes.WorktreeReport{}, err
+	}
+	return worker.WorktreeReport(ctx, profile, soloCheckouts(paths))
+}
+
 // soloLanes wires what a lane runs on: the unmodified agent CLI, the repositories this
 // daemon reads work from, and the worker's own paths. It returns the worker's terminal server
 // too, which is nil on a machine with no tmux.

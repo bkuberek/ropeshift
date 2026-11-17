@@ -149,6 +149,24 @@ func (f *File) Every(_ context.Context) ([]string, error) {
 	return slices.Compact(every), nil
 }
 
+// All lists every checkout this worker keeps with its project and repository, by project and then repository.
+func (f *File) All(_ context.Context) ([]ports.Checkout, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	doc, err := f.read()
+	if err != nil {
+		return nil, err
+	}
+	var all []ports.Checkout
+	for _, project := range slices.Sorted(maps.Keys(doc.Projects)) {
+		held := doc.Projects[project]
+		for _, repository := range slices.Sorted(maps.Keys(held)) {
+			all = append(all, ports.Checkout{Project: project, Repository: repository, Path: held[repository]})
+		}
+	}
+	return all, nil
+}
+
 // Find lists the clones at paths. A path that is the top of a clone is that clone, and any other
 // directory holds the clones among its children down to depth levels. A clone's own directories are not
 // searched, and neither are hidden ones.

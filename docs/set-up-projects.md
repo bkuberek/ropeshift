@@ -228,7 +228,7 @@ Each lane works in a git worktree of its own, never in your checkout. By default
 | macOS | `~/.ropeshift/worktrees` |
 | Linux | `$XDG_DATA_HOME/ropeshift/worktrees`, or `~/.local/share/ropeshift/worktrees` |
 
-To put lane worktrees somewhere else, set a root in your own profile layer, `profile.toml` in the installation's directory ([where ropeshift keeps its state](onboarding.md#where-ropeshift-keeps-its-state)). No setting of the web UI changes it, so edit the file:
+To put lane worktrees somewhere else, set a root in your own profile layer, `profile.toml` in the installation's directory ([where ropeshift keeps its state](onboarding.md#where-ropeshift-keeps-its-state)). `ropeshift init --worktree-root <absolute path>` writes that file with the root set, when none exists. A path that names neither `{project}` nor `{repo}` gets `/{project}/{repo}` appended, and `init` says so; a relative path exits 2. `init` never changes a profile that exists, so with one there, or to change the root later, edit the file. No setting of the web UI changes it:
 
 ```toml
 [worktree]
@@ -236,6 +236,8 @@ root = "/path/to/lanes/{project}/{repo}"
 ```
 
 `{repo}` becomes the repository's folder name, and `{project}` the project's ID. Write an absolute path, because the root expands no `~` and no variable. A root that is a registered clone, or lies inside one, is refused: the lane fails with the reason `worktree_inside_clone` before any worktree exists, and Needs you names the root and the clone. [Where lane worktrees go](project-structure.md#where-lane-worktrees-go) explains the places and the refusal.
+
+To check a root before a lane does, run `ropeshift worker doctor`, or `ropeshift init` again. Its `Worktree root:` section names the root in force and the layer that set it, the built-in root or your profile. For each checkout this worker keeps, in every project, whose root resolves inside a clone, it adds a line with the project, the checkout, the root, the clone, and the fix. A built-in root outside every clone adds no line.
 
 ## Next
 

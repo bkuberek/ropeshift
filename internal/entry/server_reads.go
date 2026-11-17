@@ -191,6 +191,10 @@ func (unavailableCheckouts) Every(context.Context) ([]string, error) {
 	return nil, repositoryRead(readCheckouts)
 }
 
+func (unavailableCheckouts) All(context.Context) ([]ports.Checkout, error) {
+	return nil, repositoryRead(readCheckouts)
+}
+
 // unavailablePanes reaches no terminal.
 type unavailablePanes struct{}
 

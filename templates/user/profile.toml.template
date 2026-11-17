@@ -12,8 +12,9 @@
 # Every lane worktree of every repository goes under this root, outside the workspace and every clone,
 # with each project's and repository's lanes apart: {project} becomes the project's ID and {repo} the name of the clone's folder. Write an absolute
 # path, because the root expands no ~ and no variable. Choose a folder with no CLAUDE.md or AGENTS.md in
-# it or above it, because the agent CLI reads instruction files from every folder above its own.
-root = "/path/to/lanes/{project}/{repo}"
+# it or above it, because the agent CLI reads instruction files from every folder above its own. With no
+# root set, the built-in root holds: the installation's worktree directory, by project and repository.
+{{if .WorktreeRoot}}root = {{tomlString .WorktreeRoot}}{{else}}# root = "/path/to/lanes/{project}/{repo}"{{end}}
 # true pushes each lane's branch and checkpoint refs to the repository's remote when the lane stops, so
 # its work survives the loss of this machine and a parked lane can resume on another. false keeps every
 # lane's work on this machine until a merge or a pull request sends it. A worker that joined a group

@@ -31,12 +31,7 @@ func (e *WorktreeInsideClone) Error() string {
 // that set the root, and the fix. A root the built-in layer chose lies under a worktree directory a person
 // put inside a clone, so its fix moves that directory.
 func (e *WorktreeInsideClone) Detail() string {
-	if e.Source == lanes.RootFromDefault {
-		return fmt.Sprintf("worktree root %s is inside the clone %s, and %s set it: set ROPESHIFT_WORKTREE_DIR to a folder outside every clone",
-			e.Root, e.Clone, e.Source)
-	}
-	return fmt.Sprintf("worktree root %s is inside the clone %s, and %s set it: set `[worktree] root` in your profile to a folder outside every clone, or remove it to use the built-in root",
-		e.Root, e.Clone, e.Source)
+	return fmt.Sprintf("worktree root %s is inside the clone %s, and %s set it: %s", e.Root, e.Clone, e.Source, lanes.RootFix(e.Source))
 }
 
 // Notice says, in a line, that a lane went on in a worktree it already had and where a new one would go.
