@@ -552,6 +552,43 @@ func TestAPolicyHookStillDecidingAtItsDeadlineDenies(t *testing.T) {
 	}
 }
 
+// policyDeadlineOf runs one PreToolUse hook of a build, with verdictDeadline in its environment and a
+// policy file that is a FIFO no one writes, so only the hook's deadline ends it, and returns how long
+// that took. A build that reads a raised deadline takes verdictDeadline, and a release build keeps its
+// real deadline whatever its environment holds. binary may be a ropeshiftd link to the build.
+func policyDeadlineOf(t *testing.T, binary string) time.Duration {
+	t.Helper()
+	build, err := filepath.EvalSymlinks(binary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := newHookEnv(t)
+	env.deadline = verdictDeadline
+	env.policy = filepath.Join(t.TempDir(), "policy.json")
+	if err := syscall.Mkfifo(env.policy, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if writer, err := os.OpenFile(env.policy, os.O_WRONLY|syscall.O_NONBLOCK, 0); err == nil {
+			_ = writer.Close()
+		}
+	})
+	cmd := exec.Command(build, "hook", "PreToolUse")
+	cmd.Env = env.list()
+	cmd.Stdin = strings.NewReader(passedCall)
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
+	start := time.Now()
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("the hook: %v", err)
+	}
+	took := time.Since(start)
+	if reason := deniedBy(t, stdout.String()); reason != "the policy check ran out of time" {
+		t.Fatalf("a hook with no verdict at its deadline answered %q", stdout.String())
+	}
+	return took
+}
+
 // A session that lost its place hears who it is however early its hook's deadline comes, even before
 // the hook has read what the policy file adds, and its event reaches the spool once. A policy file
 // that is a FIFO no one writes holds the hook in that read past the deadline.
