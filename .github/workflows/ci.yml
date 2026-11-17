@@ -99,13 +99,44 @@ jobs:
           golangci-lint: "true"
           goreleaser: "true"
           tmux: "true"
-      - name: make check
-        run: make check 2>&1 | tee "$RUNNER_TEMP/check.log"
+      # Linux leaves the web tests to the web-test job, which runs beside this one. macOS runs make check,
+      # web tests included, so the web suite also runs against macOS's Chrome.
+      - name: make ${{ matrix.os == 'ubuntu-latest' && 'check-go' || 'check' }}
+        env:
+          TARGET: ${{ matrix.os == 'ubuntu-latest' && 'check-go' || 'check' }}
+        run: make "$TARGET" 2>&1 | tee "$RUNNER_TEMP/check.log"
       - if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: check-${{ matrix.os }}-log
           path: ${{ runner.temp }}/check.log
+          retention-days: 14
+
+  # The web application's typecheck and tests (make web-test), apart from the Go checks, so the two run
+  # side by side. The tests read the goldens committed under web/testdata and start no Go, so the job
+  # sets up Node alone. The browser tests use the Google Chrome that the ubuntu-latest image ships.
+  web-test:
+    name: make web-test
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: make web-test
+        run: make web-test 2>&1 | tee "$RUNNER_TEMP/web-test.log"
+      - if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: web-test-log
+          path: ${{ runner.temp }}/web-test.log
           retention-days: 14
 
   cross:
@@ -386,7 +417,7 @@ jobs:
   result:
     name: CI result
     if: always()
-    needs: [changes, check, cross, chaos, postgres, snapshot, install-test, exit-container, service, chaos-long]
+    needs: [changes, check, web-test, cross, chaos, postgres, snapshot, install-test, exit-container, service, chaos-long]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
