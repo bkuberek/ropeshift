@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -201,15 +202,20 @@ func (r *Repo) MergeUnrelated(other *Repo) string {
 	return r.Git("rev-parse", "HEAD")
 }
 
+// pairs counts the pairs this process made.
+var pairs atomic.Int64
+
 // NewUnrelatedPair creates two repositories that share no commit and holds each one commit. The first one's
 // first commit sorts after the second's, so merging the second into the first gives a history whose lowest
 // root is not the first-parent root.
 func NewUnrelatedPair(t testing.TB) (higher, lower *Repo) {
 	t.Helper()
 	higher, lower = New(t), New(t)
-	// The files differ, so the two first commits differ however close in time they are made.
-	higher.Commit("README.md", "a workspace\n")
-	lower.Commit("DESIGN.md", "a design\n")
+	// The files differ, so the two first commits differ however close in time they are made, and the pair's
+	// number makes them differ from those of another pair made in the same second.
+	pair := pairs.Add(1)
+	higher.Commit("README.md", fmt.Sprintf("a workspace, pair %d\n", pair))
+	lower.Commit("DESIGN.md", fmt.Sprintf("a design, pair %d\n", pair))
 	if higher.Roots("HEAD")[0] < lower.Roots("HEAD")[0] {
 		higher, lower = lower, higher
 	}

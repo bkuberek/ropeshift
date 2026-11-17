@@ -1793,7 +1793,7 @@ func checkMergedWorkspaceOnRealRepositories(r *Rig) error {
 		return err
 	}
 	if shared.Outcome != ledger.RegistrationRefused || shared.Reason != sharedRefusal(legacyRoot, legacy.Name, oldDesign.Dir) {
-		return Violatedf("a workspace that merged a kept legacy repository's history reads %+v", shared)
+		return Violatedf("a workspace that merged a kept legacy repository's history reads %+v, want the refusal %q", shared, sharedRefusal(legacyRoot, legacy.Name, oldDesign.Dir))
 	}
 	return r.CheckProjection(s)
 }

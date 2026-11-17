@@ -5,6 +5,21 @@ import (
 	"testing"
 )
 
+// Pairs made in one test, in the same second, share no commit with each other, so a repository of one pair is
+// never the repository of another by its first commit.
+func TestPairsMadeTogetherShareNoFirstCommit(t *testing.T) {
+	seen := map[string]bool{}
+	for range 4 {
+		higher, lower := NewUnrelatedPair(t)
+		for _, root := range []string{higher.Roots("HEAD")[0], lower.Roots("HEAD")[0]} {
+			if seen[root] {
+				t.Fatalf("the first commit %s was made twice", root)
+			}
+			seen[root] = true
+		}
+	}
+}
+
 // A history whose first commit sorts below a limit is made whatever the limit is, however many leading zeros it
 // has, and the repository holds one valid commit.
 func TestNewWithRootBelowReachesALowLimit(t *testing.T) {
