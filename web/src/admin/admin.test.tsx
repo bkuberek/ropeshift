@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { go } from "../app/route";
 import { openPage } from "../opening";
 import type { Sent } from "../testing";
-import { golden, here, refusal, serveViews } from "../testing";
+import { golden, groupHealth, here, refusal, serveViews } from "../testing";
 import { DryRun } from "./Repositories";
 
 type Answer = { status: number; body?: unknown };
@@ -743,7 +743,12 @@ describe("Members and the audit", () => {
 
 describe("Workers", () => {
   it("creates a join token and shows it once", async () => {
-    const sent = serveAdmin((call) => (call.method === "POST" && call.path === "/v1/workers/tokens" ? { status: 201, body: { token: "join-secret" } } : undefined));
+    const sent = serveAdmin((call) => {
+      if (call.method === "GET" && call.path === "/v1/health") {
+        return { status: 200, body: groupHealth };
+      }
+      return call.method === "POST" && call.path === "/v1/workers/tokens" ? { status: 201, body: { token: "join-secret" } } : undefined;
+    });
     openPage("/workers?dialog=token");
     const dialog = await screen.findByRole("dialog", { name: "Create join token" });
     await userEvent.click(within(dialog).getByRole("button", { name: "Create token" }));
@@ -755,7 +760,7 @@ describe("Workers", () => {
 
 describe("Workers dialog focus", () => {
   it("moves keyboard focus into the join token dialog when a move to the page opens it", async () => {
-    serveAdmin();
+    serveAdmin((call) => (call.method === "GET" && call.path === "/v1/health" ? { status: 200, body: groupHealth } : undefined));
     openPage("/decisions");
     await screen.findByRole("heading", { level: 1, name: "Decisions" });
     act(() => go("/workers?dialog=token"));

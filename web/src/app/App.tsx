@@ -148,6 +148,8 @@ export function App() {
 
   const floor = useView<ShopFloor | null>(() => (project && signedIn ? readView<ShopFloor>("shop-floor") : Promise.resolve(null)), `status:${project}:${signedIn}`, live);
   const health = useHealth(live, signedIn).view;
+  // A join token is for a worker on another machine, which only an installation in group mode takes in.
+  const group = health?.mode === "group";
   const now = useClock();
 
   const signOutNow = useCallback(() => void signOut().then(needs.forget, needs.reload), [needs.forget, needs.reload]);
@@ -303,7 +305,7 @@ export function App() {
             { key: "action:add-category", group: "Actions" as const, title: "Add category", icon: "plus" as const, to: inProject(project, `/${view === "decisions" ? "decisions" : "questions"}?dialog=category`), keywords: "question decision filter" },
           ]
         : []),
-      { key: "action:join-token", group: "Actions", title: "Create join token", icon: "key", to: "/workers?dialog=token" },
+      ...(group ? [{ key: "action:join-token", group: "Actions" as const, title: "Create join token", icon: "key" as const, to: "/workers?dialog=token" }] : []),
       { key: "action:backup-installation", group: "Actions", title: "Back up the installation", icon: "download", to: inProject(project, "/settings?section=backup") },
       { key: "action:dock", group: "Actions", title: dockOpen ? "Close the conversation panel" : "Open the conversation panel", icon: "chat", meta: ".", run: toggleDock },
       ...(project
@@ -380,7 +382,7 @@ export function App() {
       .filter((row) => row.state === "active" && row.name !== project)
       .map((row) => ({ key: `project:${row.name}`, group: "Projects", id: row.name, title: `Switch to ${projectName(row, row.name)}`, icon: "projects", to: inProject(row.name, resolved.kind === "view" && route.project ? route.path : "/roadmap") }));
     return { actions, views: [...views, ...tabs], recent, projects: others, more: decide.slice(5) };
-  }, [items, pageEntries, dockOpen, onConversations, theme, nextTheme, signOutNow, project, label, list, switcher, setDockOpen, resolved.kind, route.project, route.path, view]);
+  }, [items, pageEntries, dockOpen, onConversations, theme, nextTheme, signOutNow, project, label, list, switcher, setDockOpen, resolved.kind, route.project, route.path, view, group]);
 
   const waiting = needs.view ? needs.view.items.length : null;
   const shell = `app${navOpen ? " nav-open" : ""}${dockVisible ? " dock-open" : ""}`;

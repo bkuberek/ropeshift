@@ -72,6 +72,9 @@ func TestHealthReadsTheStore(t *testing.T) {
 	if health.Status != "ok" || health.Revision < 1 {
 		t.Errorf("health %+v", health)
 	}
+	if health.Mode != api.ModeSolo {
+		t.Errorf("mode %q, want %q for a daemon that names none", health.Mode, api.ModeSolo)
+	}
 	if err := d.Store.Close(); err != nil {
 		t.Fatal(err)
 	}

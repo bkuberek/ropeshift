@@ -67,7 +67,7 @@ The MCP server reports the same version in its `serverInfo`, and telemetry repor
 
 ## What a daemon reports
 
-A daemon keeps running the build it started from after a package manager replaces the binary on disk. `GET /v1/health` reports the build the daemon runs, as `version`, `commit`, and `date`, and the release of the binary installed at the daemon's own executable path, as `installed`. The daemon reads that binary once a minute by starting it with `version --json`, and never while answering a request. It says nothing of the installed build when it cannot read it.
+A daemon keeps running the build it started from after a package manager replaces the binary on disk. `GET /v1/health` reports the build the daemon runs, as `version`, `commit`, and `date`, and the release of the binary installed at the daemon's own executable path, as `installed`. The daemon reads that binary once a minute by starting it with `version --json`, and never while answering a request. It says nothing of the installed build when it cannot read it. The same answer carries `mode`, `solo` for a daemon that runs its own worker, which is how the web UI knows whether a worker on another machine can join.
 
 When the installed release is later than the running one, `warning` says so and names the fix: `brew services restart ropeshift` when the daemon runs through `brew services`, which names the binary by its Homebrew `opt` link, and otherwise restarting the service, including one `ropeshift service install` wrote. A development build and an unreadable one are not releases, so neither is compared.
 

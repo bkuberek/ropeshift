@@ -174,6 +174,8 @@ const paths: Record<string, KeyPath> = {
   },
   "POST /v1/workers/tokens": {
     sent: post(/^\/v1\/workers\/tokens$/),
+    // Only an installation in group mode offers a join token.
+    answers: reply([/\/v1\/health$/, { status: "ok", revision: 1, mode: "group", version: "v0.1.0-alpha.16" }]),
     run: async (k, page) => {
       await k.palette("Create join token");
       await k.activate(inDialog(page).getByRole("button", { name: "Create token" }));

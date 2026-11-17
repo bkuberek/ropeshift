@@ -10,8 +10,8 @@ import { serveViews } from "../testing";
 describe("an address that names a control to focus", () => {
   it("focuses the control once the view has read, and leaves the address without the name", async () => {
     serveViews();
-    openPage("/workers?focus=Create join token");
-    const button = await screen.findByRole("button", { name: "Create join token" });
+    openPage("/workers?focus=Start orchestrator");
+    const button = await screen.findByRole("button", { name: "Start orchestrator" });
     await waitFor(() => expect(document.activeElement).toBe(button));
     expect(window.location.search).toBe("");
     expect(window.location.pathname).toBe("/workers");
@@ -19,15 +19,15 @@ describe("an address that names a control to focus", () => {
 
   it("matches the start of a control's name, in any case", async () => {
     serveViews();
-    openPage("/workers?focus=create join");
-    const button = await screen.findByRole("button", { name: "Create join token" });
+    openPage("/workers?focus=start orch");
+    const button = await screen.findByRole("button", { name: "Start orchestrator" });
     await waitFor(() => expect(document.activeElement).toBe(button));
   });
 
   it("presses nothing", async () => {
     const sent = serveViews();
-    openPage("/workers?focus=Create join token");
-    const button = await screen.findByRole("button", { name: "Create join token" });
+    openPage("/workers?focus=Start orchestrator");
+    const button = await screen.findByRole("button", { name: "Start orchestrator" });
     await waitFor(() => expect(document.activeElement).toBe(button));
     expect(sent.filter((call) => call.method !== "GET")).toEqual([]);
     expect(screen.queryByRole("dialog")).toBeNull();

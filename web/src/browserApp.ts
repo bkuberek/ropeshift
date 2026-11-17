@@ -245,6 +245,7 @@ export async function answer(route: Route): Promise<void> {
     "/v1/health": JSON.stringify({
       status: "ok",
       revision: 1,
+      mode: "solo",
       version: "v0.1.0-alpha.16",
       commit: "0123456789abcdef0123456789abcdef01234567",
       date: "2026-11-08T10:00:00Z",

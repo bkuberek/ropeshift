@@ -4,6 +4,7 @@
 package server
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -84,6 +85,8 @@ type Config struct {
 	// WebAddress is the address the web listener bound, which health reports so a command can name a
 	// page of the web UI. Empty means the daemon serves no web UI.
 	WebAddress string
+	// Mode is how the installation runs, as health reports it: api.ModeSolo or api.ModeGroup. Empty means solo.
+	Mode string
 	// Build is the build this daemon runs, which health reports. The zero value reads it from the running
 	// binary.
 	Build version.Info
@@ -431,7 +434,7 @@ func invalid(w http.ResponseWriter, format string, args ...any) {
 // that removed that project still answers, at revision zero. It reports the build the daemon runs, and
 // warns when the build installed at the daemon's path is newer.
 func (h *handler) health(w http.ResponseWriter, r *http.Request) {
-	health := api.Health{Status: "ok", Web: h.WebAddress, Version: h.Build.Version, Commit: h.Build.Commit, Date: h.Build.Date}
+	health := api.Health{Status: "ok", Mode: cmp.Or(h.Mode, api.ModeSolo), Web: h.WebAddress, Version: h.Build.Version, Commit: h.Build.Commit, Date: h.Build.Date}
 	if h.Installed != nil {
 		if installed := h.Installed(); version.IsRelease(installed.Version) {
 			health.Installed = installed.Version

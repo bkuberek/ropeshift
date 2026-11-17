@@ -97,10 +97,19 @@ type ErrorDetail struct {
 	Decisions []string `json:"decisions,omitempty"`
 }
 
+// The modes an installation runs in, which health reports. Solo is one person's installation with its worker in
+// the daemon's own process, and group is a control plane that workers on other machines join.
+const (
+	ModeSolo  = "solo"
+	ModeGroup = "group"
+)
+
 // Health answers only after the server read the store.
 type Health struct {
 	Status   string `json:"status"`
 	Revision int64  `json:"revision"`
+	// Mode is how the installation runs: ModeSolo or ModeGroup.
+	Mode string `json:"mode"`
 	// Web is the address the daemon's web UI listens on, as `host:port`, with the port it bound even
 	// when it asked the kernel to pick one. It is empty when the daemon serves no web UI.
 	Web string `json:"web,omitempty"`

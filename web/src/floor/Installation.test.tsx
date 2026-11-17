@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import type { Orchestrator, ResourceReport, ShopFloor } from "../api/types";
 import { openPage } from "../opening";
-import { golden, refusal, serveViews } from "../testing";
+import { golden, groupHealth, refusal, runningHealth, serveViews } from "../testing";
 import { bytes } from "./resources";
 
 const gib = 1024 ** 3;
@@ -195,6 +195,61 @@ describe("a worker's orchestrator", () => {
     await machineRow();
     await userEvent.click(await screen.findByRole("button", { name: "Details of the orchestrator on solo" }));
     expect((await within(await screen.findByRole("dialog", { name: "Orchestrator on solo" })).findByRole("alert")).textContent).toBe("no orchestrator for worker-a");
+  });
+});
+
+// A join token lets a worker on another machine register, which only a group installation has: a solo installation
+// runs its own worker, so it offers none, on the page, in its address, or in the command palette.
+describe("the join token", () => {
+  const serveMode = (health: typeof runningHealth) => serveViews((call) => (call.method === "GET" && call.path === "/v1/health" ? { status: 200, body: health } : undefined));
+  const joinOptions = async () => {
+    await userEvent.keyboard("{Control>}k{/Control}");
+    const field = await screen.findByRole("combobox");
+    await userEvent.type(field, "join token");
+    return screen.queryAllByRole("option").filter((option) => (option.textContent ?? "").includes("Create join token"));
+  };
+
+  it("is not offered in a solo installation, beside the machines or in the palette", async () => {
+    serveMode(runningHealth);
+    openPage("/workers");
+    await machineRow();
+    expect(screen.queryByRole("button", { name: "Create join token" })).toBeNull();
+    expect(await joinOptions()).toHaveLength(0);
+  });
+
+  it("does not open from its address in a solo installation", async () => {
+    serveMode(runningHealth);
+    openPage("/workers?dialog=token");
+    await machineRow();
+    expect(screen.queryByRole("dialog", { name: "Create join token" })).toBeNull();
+  });
+
+  it("is not offered in a solo installation that has no worker yet", async () => {
+    serveViews((call) => {
+      if (call.method === "GET" && call.path.startsWith("/v1/views/shop-floor")) {
+        const view = golden<ShopFloor>("shop-floor");
+        return { status: 200, body: { ...view, workers: [], lanes: [] } };
+      }
+      return undefined;
+    });
+    openPage("/workers");
+    await screen.findByText("No worker has connected");
+    expect(screen.queryByRole("button", { name: "Create join token" })).toBeNull();
+    expect(screen.queryByText(/join token/)).toBeNull();
+  });
+
+  it("is offered in a group installation, beside the machines and in the palette", async () => {
+    serveMode(groupHealth);
+    openPage("/workers");
+    await machineRow();
+    expect(await screen.findByRole("button", { name: "Create join token" })).toBeTruthy();
+    expect(await joinOptions()).toHaveLength(1);
+  });
+
+  it("opens from its address in a group installation", async () => {
+    serveMode(groupHealth);
+    openPage("/workers?dialog=token");
+    expect(await screen.findByRole("dialog", { name: "Create join token" })).toBeTruthy();
   });
 });
 
