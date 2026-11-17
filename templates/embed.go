@@ -42,6 +42,9 @@ type Data struct {
 	Project      string
 	Repositories []Repository
 	Example      bool
+	// WorktreeRoot is the worktree root user/profile.toml sets. Empty leaves the root commented out, so the
+	// built-in root holds.
+	WorktreeRoot string
 }
 
 // example is the data of the acme example.

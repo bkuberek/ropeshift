@@ -6,13 +6,14 @@ These templates are the files a project starts from: the instructions agents rea
 
 `templates.Names()` lists every template by its path without `.template`, sorted, such as `workspace/agents.md`, `workspace/plan/contract.md`, `user/profile.toml`, and `policies/team/decision-policy.toml`. `templates.Render(name, data)` returns one template's text, and an unknown name is `templates.ErrUnknown`.
 
-`templates.Data` holds three fields:
+`templates.Data` holds four fields:
 
 | Field | Holds |
 |-------|-------|
 | `Project` | The project's name |
 | `Repositories` | The project's code repositories, each with a `Name` and a `Remote` |
 | `Example` | Whether to render the example |
+| `WorktreeRoot` | The root `user/profile.toml` sets, which `ropeshift init --worktree-root` gives. Empty leaves the root line commented out, so the built-in root holds |
 
 With `Example` true, a template renders the example project: `acme`, with the repositories `acme-api` and `acme-web`, and the comments that explain each part. `Project` and `Repositories` are then ignored.
 
