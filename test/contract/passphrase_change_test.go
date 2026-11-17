@@ -134,6 +134,37 @@ func TestAPassphraseChangeEndsTheMembersOtherSessionsAndRotatesTheOneItCameFrom(
 	}
 }
 
+// A session that expired and that no sweep has removed yet is removed by the change and is not counted as ended:
+// the count says what the change took from the member, and an expired session was not theirs to lose.
+func TestAPassphraseChangeCountsOnlyTheSessionsThatHadNotExpired(t *testing.T) {
+	t.Parallel()
+	rig, sessions, browser, _ := twoSessions(t)
+	err := rig.Store().Installation(rig.Scope).Write(rig.Ctx, "test.expired_session", func(tx ports.SharedTx) error {
+		members, err := tx.Members().Sessions()
+		if err != nil {
+			return err
+		}
+		if err := tx.Members().InsertSession(authority.Session{Digest: "expired", Member: members[0].Member, CreatedAt: tx.Now() - 120_000, ExpiresAt: tx.Now() - 60_000}); err != nil {
+			return err
+		}
+		_, err = tx.Append(ledger.EventDraft{Type: "test.expired_session", Actor: rig.Actor, Subject: ledger.Subject{Kind: "member", ID: members[0].Member}})
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	changed, err := sessions.ChangePassphrase(rig.Ctx, rig.Scope, ports.Proof{Passphrase: goodPassphrase}, ports.Proof{Passphrase: otherPassphrase}, browser.Token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if changed.SessionsEnded != 1 {
+		t.Errorf("the change ended %d other sessions, want the terminal's alone", changed.SessionsEnded)
+	}
+	if left := sessionDigests(t, rig); len(left) != 1 || left[0] != digestOfToken(changed.Token) {
+		t.Errorf("the sessions left are %v, want the new one alone", left)
+	}
+}
+
 // A change ends sessions and no credential: a delegate's credential keeps acting, as the documents say, and the
 // answer counts the credentials that do, so the page can offer the sign-out that ends them.
 func TestAPassphraseChangeLeavesTheMembersDelegateCredentialsAndCountsThem(t *testing.T) {
