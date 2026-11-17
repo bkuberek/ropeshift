@@ -46,6 +46,7 @@ var ManifestChecks = []Check{
 	{"RM22", "a path this worker keeps for a record holds nothing of it once another clone replaced the clone there, so a clone of the record's first commit at another path is not refused for sharing it", checkAReplacedCloneHoldsNothing},
 	{"RM23", "a path this worker keeps for a record, spelled through a symbolic link, is the clone it leads to: a clone of the record's first commit at another path is refused or is a second clone as for the real path, the same clone registered again keeps the checkout as it was, and a record kept through a link still matches its clone's other roots", checkAKeptPathSpelledThroughALinkIsTheSameClone},
 	{"RM18", "on real git repositories, a workspace that merged an unrelated history is its own record whether or not the repository that history came from is kept or removed, unless that repository's record is from before the first-parent rule and kept, which refuses the workspace for sharing its first commit", checkMergedWorkspaceOnRealRepositories},
+	{"RM26", "a clone spelled in another case, on a disk that ignores case, is the clone it spells, so it is no clone that shares its first commit, with no remote either", checkASpellingOfAClonesDirectoryIsNotAnotherClone},
 	{"RM25", "a clone of one run that has its own record is matched to it, as it is alone, and not to the record of an earlier clone of the run whose history it merged", checkARunMatchesEachCloneAsItWouldAlone},
 	{"RM24", "two repositories that merged one history are each their own record, whichever registers first, and neither is matched to the record that history made", checkTwoRepositoriesThatMergedOneHistoryAreEachTheirOwn},
 	{"RM6", "a manifest registers only a clone inside the directory that holds the planning repository's clone, symbolic links followed: a path or a link that leads out of it, the planning clone itself, and the installation's own directories register nothing, each refused naming where it leads", checkManifestPathsStayBesideThePlanningClone},
@@ -1532,6 +1533,36 @@ func checkAnyRootMatchesTheRecordAtASecondPath(r *Rig) error {
 	}
 	if d := got["/work/d"]; d.Outcome != ledger.AlreadyRegistered || d.Repository.ID != second || !strings.Contains(d.Reason, "matched by its earlier identity") {
 		return Violatedf("a clone whose lowest root names another repository's record reads %+v, want the record of its remote", d)
+	}
+	return r.CheckProjection(s)
+}
+
+func checkASpellingOfAClonesDirectoryIsNotAnotherClone(r *Rig) error {
+	s := r.Store()
+	repositories := r.repositories(s)
+	kept := fake.NewCheckouts()
+	root := firstCommit("f0")
+	// ~/code/App and ~/Code/app are one directory, and a worker that finds it by both spellings meets one clone.
+	kept.Place(rootClone("App", root, ""))
+	kept.Place(rootClone("app", root, ""))
+	kept.Spell("/work/App", "/work/app")
+	got, err := r.addAt(repositories, kept, false, "/work/App", "/work/app")
+	if err != nil {
+		return err
+	}
+	if first := got["/work/App"]; first.Outcome != ledger.Registered || first.Repository.ID != root {
+		return Violatedf("the first spelling reads %+v", first)
+	}
+	if second := got["/work/app"]; second.Outcome != ledger.AlreadyRegistered || second.Repository.ID != root {
+		return Violatedf("the second spelling of the same directory, with no remote, reads %+v, want a second clone of the first", second)
+	}
+	// Registered again by the other spelling, it is the checkout kept and no clone that shares its first commit.
+	again, err := r.addAt(repositories, kept, false, "/work/app")
+	if err != nil {
+		return err
+	}
+	if app := again["/work/app"]; app.Outcome != ledger.AlreadyRegistered || app.Checkout != "/work/App" {
+		return Violatedf("the other spelling registered again reads %+v, want the checkout kept as it was", app)
 	}
 	return r.CheckProjection(s)
 }

@@ -683,18 +683,28 @@ func checkoutOf(opts soloOptions, kept ports.Checkouts) func(context.Context, le
 // or nothing when it keeps it as none.
 func checkoutIdentity(kept ports.Checkouts, project ledger.WorkspaceID, path string) func(context.Context) string {
 	return func(ctx context.Context) string {
-		own := resolvedPath(path)
 		held, err := kept.Of(ctx, project)
 		if err != nil {
 			return ""
 		}
 		for _, id := range slices.Sorted(maps.Keys(held)) {
-			if resolvedPath(held[id]) == own {
+			if sameDir(ctx, kept, held[id], path) {
 				return id
 			}
 		}
 		return ""
 	}
+}
+
+// sameDir says two paths name one directory on this worker's machine, by what the disk says of each: a
+// symbolic link is followed, and a disk that ignores case reads two spellings that differ in case as one.
+// Paths nothing is at are one only when they are spelled alike.
+func sameDir(ctx context.Context, kept ports.Checkouts, a, b string) bool {
+	if a == b {
+		return true
+	}
+	same, err := kept.SameFile(ctx, a, b)
+	return err == nil && same
 }
 
 // keptElsewhere reads, in a project, the clone this worker keeps of a record at another path than a
@@ -707,7 +717,7 @@ func keptElsewhere(kept ports.Checkouts, project ledger.WorkspaceID, path string
 			return repofiles.Kept{}, false, err
 		}
 		other, ok := held[id]
-		if !ok || resolvedPath(other) == resolvedPath(path) {
+		if !ok || sameDir(ctx, kept, other, path) {
 			return repofiles.Kept{}, false, nil
 		}
 		found, _, err := kept.Find(ctx, []string{other}, 1)
@@ -715,7 +725,7 @@ func keptElsewhere(kept ports.Checkouts, project ledger.WorkspaceID, path string
 			return repofiles.Kept{}, false, err
 		}
 		at := slices.IndexFunc(found, func(c ports.Clone) bool {
-			return resolvedPath(c.Path) == resolvedPath(other) && (c.ID == id || slices.Contains(c.Roots, id))
+			return sameDir(ctx, kept, c.Path, other) && (c.ID == id || slices.Contains(c.Roots, id))
 		})
 		if at < 0 {
 			return repofiles.Kept{}, false, nil
@@ -753,46 +763,25 @@ func projectSources(ctx context.Context, opts soloOptions, kept ports.Checkouts,
 	// is one of its roots, so a record registered under the lowest-root rule keeps its external keys. A source
 	// with no checkout kept is named by the record the project holds for it.
 	// Paths are compared as the directories they name, however each is spelled.
-	identities := map[string]string{}
-	for _, id := range slices.Sorted(maps.Keys(held)) {
-		identities[resolvedPath(held[id])] = id
-	}
-	read := map[string]bool{}
 	var unique []string
 	for _, path := range append(paths, slices.Sorted(maps.Values(held))...) {
-		if key := resolvedPath(path); !read[key] {
-			read[key] = true
+		if !slices.ContainsFunc(unique, func(read string) bool { return sameDir(ctx, kept, read, path) }) {
 			unique = append(unique, path)
 		}
 	}
 	sources := make([]ports.WorkSource, 0, len(unique))
 	for _, path := range unique {
+		var identity string
+		for _, id := range slices.Sorted(maps.Keys(held)) {
+			if sameDir(ctx, kept, held[id], path) {
+				identity = id
+			}
+		}
 		sources = append(sources, repofiles.New(repofiles.Config{
-			Repository: path, Ref: opts.ref, Directory: opts.directory, Identity: identities[resolvedPath(path)], Records: records, KeptElsewhere: keptElsewhere(kept, project, path),
+			Repository: path, Ref: opts.ref, Directory: opts.directory, Identity: identity, Records: records, KeptElsewhere: keptElsewhere(kept, project, path),
 		}))
 	}
 	return sources, nil
-}
-
-// resolvedPath is the directory a path names: its symbolic links followed in the part that exists, and the
-// rest as it is spelled, so a path spelled through a link, as a temporary directory is on a machine whose /var is
-// a link, equals the real one.
-func resolvedPath(path string) string {
-	at, err := filepath.Abs(path)
-	if err != nil {
-		return filepath.Clean(path)
-	}
-	rest := ""
-	for {
-		if real, err := filepath.EvalSymlinks(at); err == nil {
-			return filepath.Join(real, rest)
-		}
-		parent := filepath.Dir(at)
-		if parent == at {
-			return filepath.Join(at, rest)
-		}
-		rest, at = filepath.Join(filepath.Base(at), rest), parent
-	}
 }
 
 // soloStarts places the lane of every claim from this machine's checkouts: where the base branch stands,

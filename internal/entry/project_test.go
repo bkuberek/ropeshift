@@ -483,6 +483,40 @@ func TestKeptPathsAreComparedByTheDirectoryTheyNameAndNotHowTheyAreSpelled(t *te
 	}
 }
 
+// foldingCase is a machine whose disk ignores case, as APFS does by default: two paths that differ only in case
+// name one directory.
+type foldingCase struct{ ports.Checkouts }
+
+func (f foldingCase) SameFile(ctx context.Context, a, b string) (bool, error) {
+	if strings.EqualFold(a, b) {
+		return true, nil
+	}
+	return f.Checkouts.SameFile(ctx, a, b)
+}
+
+// On a disk that ignores case, `~/code/App` and a kept `~/Code/app` are one directory: it is read once, is the
+// checkout kept, and is not a clone of its own record kept elsewhere, which would refuse it for sharing its first
+// commit with itself when it has no remote.
+func TestKeptPathsThatDifferOnlyInCaseAreOneDirectoryOnADiskThatIgnoresCase(t *testing.T) {
+	m := newMergedSource(t)
+	kept := foldingCase{&checkouts.File{Path: filepath.Join(t.TempDir(), checkouts.FileName), Env: m.workspace.Env()}}
+	id := m.workspace.Roots("HEAD")[0]
+	if err := kept.Keep(t.Context(), soloScope, id, m.workspace.Dir); err != nil {
+		t.Fatal(err)
+	}
+	variant := strings.ToUpper(m.workspace.Dir)
+	if got, held, err := keptElsewhere(kept, soloScope, variant)(t.Context(), id); err != nil || held {
+		t.Errorf("the kept directory spelled in another case counts as kept elsewhere: %+v, %v (%v)", got, held, err)
+	}
+	if got := checkoutIdentity(kept, soloScope, variant)(t.Context()); got != id {
+		t.Errorf("the kept directory spelled in another case has the identity %q, want %s", got, id)
+	}
+	sources, err := projectSources(t.Context(), soloOptions{sources: repeatedFlag{variant}}, kept, soloScope, soloScope, nil)
+	if err != nil || len(sources) != 1 {
+		t.Errorf("the project reads %d sources (%v), want the one directory once", len(sources), err)
+	}
+}
+
 // A daemon source that shares its first commit with a clone this worker keeps at another path, with another
 // remote or none, is not read under the record's ID: intake reports it as it reports a repository the project
 // removed, makes no record or key for it, and no lane resolves to it.
