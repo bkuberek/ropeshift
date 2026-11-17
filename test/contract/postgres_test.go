@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -71,6 +72,29 @@ func TestTwoFirstStartsAddTheChecksumColumnPostgres(t *testing.T) {
 	}
 	second := make(chan error, 1)
 	go func() { second <- store.Migrate(ctx) }()
+	waitForLockWait(t, db.DB, second, "ALTER TABLE%")
+	if err := first.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-second; err != nil {
+		t.Fatalf("the second start returned %v, want it to start", err)
+	}
+}
+
+// waitForLockWait waits until a session of the database waits on a lock while it runs a statement that
+// matches one of the LIKE patterns. The patterns name statements of the start under test, so a lock wait of
+// another session, such as an autovacuum's, never counts. It fails when the start returns on second first,
+// or when no such session waits within 30 seconds.
+func waitForLockWait(t *testing.T, db *sql.DB, second <-chan error, statementLike ...string) {
+	t.Helper()
+	matches := make([]string, len(statementLike))
+	args := make([]any, len(statementLike))
+	for i, like := range statementLike {
+		matches[i] = fmt.Sprintf("query LIKE $%d", i+1)
+		args[i] = like
+	}
+	query := `SELECT count(*) FROM pg_stat_activity
+ WHERE datname = current_database() AND state = 'active' AND wait_event_type = 'Lock' AND (` + strings.Join(matches, " OR ") + `)`
 	deadline := time.Now().Add(30 * time.Second)
 	for waiting := 0; waiting == 0; {
 		select {
@@ -82,17 +106,9 @@ func TestTwoFirstStartsAddTheChecksumColumnPostgres(t *testing.T) {
 			t.Fatal("the second start never waited on the first start's lock")
 		}
 		time.Sleep(10 * time.Millisecond)
-		err := db.DB.QueryRowContext(ctx,
-			`SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'`).Scan(&waiting)
-		if err != nil {
+		if err := db.QueryRowContext(t.Context(), query, args...).Scan(&waiting); err != nil {
 			t.Fatal(err)
 		}
-	}
-	if err := first.Commit(); err != nil {
-		t.Fatal(err)
-	}
-	if err := <-second; err != nil {
-		t.Fatalf("the second start returned %v, want it to start", err)
 	}
 }
 
