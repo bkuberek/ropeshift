@@ -172,6 +172,19 @@ export type Autonomy = {
 };
 export type Risk = { statement: string; digest: string };
 
+// Health is what the daemon says of itself: the build it runs, the release installed at its own path when it could
+// read it, and a warning when that release is later than the one running.
+export type Health = {
+  status: string;
+  revision: number;
+  web?: string;
+  version: string;
+  commit?: string;
+  date?: string;
+  installed?: string;
+  warning?: string;
+};
+
 export type Approval = { id: string; state: string; kind?: string };
 
 // Scope names whose layer of the roster a call reads or changes. It is never inferred: the page states it.
@@ -218,6 +231,7 @@ export const adminPaths = {
   acknowledge: (worker: string) => `/v1/workers/${encodeURIComponent(worker)}/autonomy/acknowledgement`,
   windows: (worker: string) => `/v1/workers/${encodeURIComponent(worker)}/windows`,
   risk: () => "/v1/autonomy/risk",
+  health: () => "/v1/health",
   orchestrator: (worker: string) => `/v1/workers/${encodeURIComponent(worker)}/orchestrator`,
   approvals: (state: string) => project(`/approvals${query({ state })}`),
   workOrders: () => project("/work-orders"),
@@ -297,6 +311,7 @@ export const setLevel = (worker: string, level: Level) => call<Autonomy>("PUT", 
 export const readCaps = (worker: string) => call<WorkerCaps>("GET", adminPaths.caps(worker));
 export const setCaps = (worker: string, caps: LaneCapSettings) => call<WorkerCaps>("PUT", adminPaths.caps(worker), caps);
 export const readRisk = () => call<Risk>("GET", adminPaths.risk());
+export const readHealth = () => call<Health>("GET", adminPaths.health());
 export const acknowledgeRisk = (worker: string, digest: string) => call<Autonomy>("POST", adminPaths.acknowledge(worker), { digest });
 // A window's ID makes a second press of the same open find the first.
 export const openWindow = (worker: string, id: string, lengthMs: number) => call<RunWindow>("POST", adminPaths.windows(worker), { id, length_ms: lengthMs });

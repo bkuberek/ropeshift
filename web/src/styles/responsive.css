@@ -29,7 +29,8 @@
   .sidebar .nav-group .overline,
   .sidebar .nav-link .count,
   .sidebar .nav-link .key,
-  .sidebar-foot .spacer {
+  .sidebar-foot .spacer,
+  .sidebar-foot .sidebar-version {
     display: none;
   }
 
@@ -175,7 +176,8 @@
 
   .sidebar .nav-group .overline,
   .sidebar .nav-link .count,
-  .sidebar-foot .spacer {
+  .sidebar-foot .spacer,
+  .sidebar-foot .sidebar-version {
     display: revert;
   }
 

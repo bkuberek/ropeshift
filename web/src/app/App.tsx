@@ -3,6 +3,7 @@ import type { CSSProperties } from "react";
 
 import { readView, setCurrentProject, signOut } from "../api/client";
 import type { NeedItem, Project, ShopFloor } from "../api/types";
+import { useHealth } from "../api/useHealth";
 import { useNeedsYou } from "../api/useNeedsYou";
 import { useProjects } from "../api/useProjects";
 import { useView } from "../api/useView";
@@ -146,6 +147,7 @@ export function App() {
   }, [resolved.kind, resolved.kind === "redirect" ? resolved.to : "", resolved.kind === "pick-project" ? resolved.path : "", project, query]);
 
   const floor = useView<ShopFloor | null>(() => (project && signedIn ? readView<ShopFloor>("shop-floor") : Promise.resolve(null)), `status:${project}:${signedIn}`, live);
+  const health = useHealth(live, signedIn).view;
   const now = useClock();
 
   const signOutNow = useCallback(() => void signOut().then(needs.forget, needs.reload), [needs.forget, needs.reload]);
@@ -427,6 +429,7 @@ export function App() {
                 theme={themeWords[theme]}
                 onTheme={nextTheme}
                 onSheet={() => setSheetOpen(true)}
+                version={health?.version}
                 open={navOpen}
                 onClose={() => setNavOpen(false)}
               />
@@ -476,7 +479,7 @@ export function App() {
                 <Surface live={live} variant="dock" onClose={() => setDockOpen(false)} projectLabel={label} after={needs.reload} />
               </Dock>
             ) : null}
-            {signedIn ? <StatusBar connection={needs.connection} floor={floor.view} floorAgeMs={Math.max(0, now - floor.readAt)} project={project} /> : <footer className="statusbar" aria-label="Status" />}
+            {signedIn ? <StatusBar connection={needs.connection} floor={floor.view} floorAgeMs={Math.max(0, now - floor.readAt)} project={project} warning={health?.warning} /> : <footer className="statusbar" aria-label="Status" />}
           </div>
           <Palette open={paletteOpen} onClose={() => setPaletteOpen(false)} project={project} projectLabel={label} sources={sources} onConversation={chooseConversation} />
           <ShortcutSheet open={sheetOpen} onClose={() => setSheetOpen(false)} mac={mac} singleKeys={singleKeys} onSingleKeys={setSingleKeys} />

@@ -71,4 +71,4 @@ A daemon keeps running the build it started from after a package manager replace
 
 When the installed release is later than the running one, `warning` says so and names the fix: `brew services restart ropeshift` for a Homebrew install, and otherwise restarting the service. A development build and an unreadable one are not releases, so neither is compared.
 
-`ropeshift version` prints the daemon's version under its own line, and the same warning. With `--json`, a `daemon` object holds the daemon's `version`, `commit`, `date`, and `installed`, and `warning` holds the warning. Neither key is present when no daemon answers.
+`ropeshift version` prints the daemon's version under its own line, and the same warning. With `--json`, a `daemon` object holds the daemon's `version`, `commit`, `date`, and `installed`, and `warning` holds the warning. Neither key is present when no daemon answers. The [web UI](web-ui.md#version) shows both.

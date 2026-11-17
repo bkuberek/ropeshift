@@ -27,8 +27,9 @@ describe("projects", () => {
     const sent = serveViews(undefined, { projects: twoProjects });
     openPage("/projects/acme/roadmap");
     await screen.findByRole("heading", { level: 1, name: "Roadmap" });
-    // The registry and the combined Needs you are the installation's, and read every project.
-    const scoped = () => sent.filter((call) => call.url !== "/v1/projects" && call.url !== "/v1/needs-you");
+    // The registry, the combined Needs you, and the daemon's health are the installation's, and read every project.
+    const installation = new Set(["/v1/projects", "/v1/needs-you", "/v1/health"]);
+    const scoped = () => sent.filter((call) => !installation.has(call.url));
     // The heading can render before the view's first call is sent, so wait for one.
     await waitFor(() => expect(scoped().length).toBeGreaterThan(0));
     for (const call of scoped()) {
