@@ -1,7 +1,8 @@
-import { screen, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
+import type { PlanForecast } from "../api/measures";
 import type { Plans, Roadmap } from "../api/types";
 import { openPage } from "../opening";
 import { golden, here, serveViews } from "../testing";
@@ -15,7 +16,7 @@ const doneShare = (bar: HTMLElement) => bar.querySelector<HTMLElement>("i")?.sty
 
 // The two goldens name their generated IDs apart, so a plan the roadmap and the plans view both hold is joined
 // here by its title, as the page joins them by ID.
-function serve(change: (view: Roadmap) => void = () => {}, plans?: (view: Plans) => void) {
+function serve(change: (view: Roadmap) => void = () => {}, plans?: (view: Plans) => void, forecast?: () => PlanForecast) {
   const view = golden<Roadmap>("roadmap");
   change(view);
   const held = golden<Plans>("plans");
@@ -26,7 +27,12 @@ function serve(change: (view: Roadmap) => void = () => {}, plans?: (view: Plans)
     }
   }
   plans?.(held);
-  serveViews((call) => (call.path.startsWith("/v1/views/roadmap") ? { status: 200, body: view } : call.path.startsWith("/v1/views/plans") ? { status: 200, body: held } : undefined));
+  serveViews((call) => {
+    if (forecast && /^\/v1\/plans\/[^/?]+\/forecast/.test(call.path)) {
+      return { status: 200, body: forecast() };
+    }
+    return call.path.startsWith("/v1/views/roadmap") ? { status: 200, body: view } : call.path.startsWith("/v1/views/plans") ? { status: 200, body: held } : undefined;
+  });
 }
 
 const items = (list: HTMLElement) => within(list).getAllByRole("listitem").filter((item) => item.parentElement === list);
@@ -38,6 +44,26 @@ async function opened() {
 }
 
 describe("the roadmap", () => {
+  it("reads a pending forecast again until the forecast tick has made it, though the ledger says nothing", async () => {
+    // The forecast tick keeps a forecast with no revision, so no event says it came: an open page asks again.
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const made = golden<PlanForecast>("forecast");
+      let answer: PlanForecast = { ...made, state: "pending", forecasts: [] };
+      serve(undefined, undefined, () => answer);
+      openPage(here("/roadmap"));
+      const goal = await screen.findByRole("region", { name: "Run the factory" });
+      await waitFor(() => expect(within(goal).getAllByText(/^Forecast pending/).length).toBeGreaterThan(0));
+      answer = made;
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(31_000);
+      });
+      await waitFor(() => expect(within(goal).queryByText(/^Forecast pending/)).toBeNull());
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("puts each plan under its goal, with its version and how far its work got", async () => {
     const goal = await opened();
     const plan = within(goal).getByRole("link", { name: "The factory floor" });

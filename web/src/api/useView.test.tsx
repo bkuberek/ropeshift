@@ -40,3 +40,39 @@ describe("useView with a gap", () => {
     vi.useRealTimers();
   });
 });
+
+// Some of what a view reads changes with no ledger event to hear, as a forecast the daemon's tick keeps. While what
+// it read says it waits for that, it asks again once a gap with nothing heard, and stops once it no longer waits.
+function Waiting({ read }: { read: () => Promise<string> }) {
+  const state = useView<string>(read, "waits", { heard: 0, checkSession: async () => {} }, 30_000, (view) => view === "pending");
+  return <p>{state.view ?? "nothing yet"}</p>;
+}
+
+describe("useView while what it read waits", () => {
+  it("asks again once a gap with nothing heard, until what it reads no longer waits", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      let answer = "pending";
+      const read = vi.fn(async () => answer);
+      render(<Waiting read={read} />);
+      await waitFor(() => expect(screen.getByText("pending")).toBeTruthy());
+      expect(read).toHaveBeenCalledTimes(1);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(31_000);
+      });
+      expect(read, "once a gap, though nothing was heard").toHaveBeenCalledTimes(2);
+      answer = "made";
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(31_000);
+      });
+      await waitFor(() => expect(screen.getByText("made")).toBeTruthy());
+      const asked = read.mock.calls.length;
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(120_000);
+      });
+      expect(read, "nothing more, once it no longer waits").toHaveBeenCalledTimes(asked);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

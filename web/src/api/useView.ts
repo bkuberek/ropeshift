@@ -21,9 +21,11 @@ const nothing = { view: null, readAt: 0, failure: "", refusedCode: "", busy: fal
 // leaves the last answer standing beside the failure, because an old page says more than a blank one,
 // and each answer but the newest is dropped, so a slow read cannot undo a later one. `key` names what
 // is read, and `gapMs` holds a costly read to one per gap, however much a person hears. A read of something
-// else, a new key, is not held.
-export function useView<T>(read: () => Promise<T>, key: string, live: Live, gapMs = 0): ViewRead<T> {
+// else, a new key, is not held. `waits` says what was read waits for something no ledger event announces, such as
+// a forecast the daemon's tick keeps with no revision: while it does, the view asks again once a gap, heard or not.
+export function useView<T>(read: () => Promise<T>, key: string, live: Live, gapMs = 0, waits?: (view: T) => boolean): ViewRead<T> {
   const [state, setState] = useState<ViewRead<T>>(nothing);
+  const [again, setAgain] = useState(0);
   const asked = useRef(0);
   const lastRead = useRef(0);
   const lastKey = useRef(key);
@@ -31,6 +33,15 @@ export function useView<T>(read: () => Promise<T>, key: string, live: Live, gapM
   latest.current = read;
   const session = useRef(live.checkSession);
   session.current = live.checkSession;
+  const waiting = waits !== undefined && state.view !== null && waits(state.view);
+
+  useEffect(() => {
+    if (!waiting) {
+      return;
+    }
+    const timer = setInterval(() => setAgain((times) => times + 1), Math.max(gapMs, 1_000));
+    return () => clearInterval(timer);
+  }, [waiting, gapMs]);
 
   useEffect(() => {
     const run = async () => {
@@ -65,7 +76,7 @@ export function useView<T>(read: () => Promise<T>, key: string, live: Live, gapM
     }
     const held = setTimeout(() => void run(), wait);
     return () => clearTimeout(held);
-  }, [key, live.heard, gapMs]);
+  }, [key, live.heard, gapMs, again]);
 
   return state;
 }

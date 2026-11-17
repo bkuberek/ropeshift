@@ -103,7 +103,7 @@ A plan's page has a Forecast section, and the Roadmap shows the same forecasts, 
 - The what-ifs are the p85 with one more lane, shown when the plan has a lane cap, and with each wait for a person cut to the median wait of the project's recent work.
 - The last line says what makes the forecast again: its seed, trials, lane cap, ledger revision, and the time it ran from.
 - A milestone with no comparable history, no worker to run its work, or no unfinished work says so in a word with its explanation, and shows no dates.
-- A version the tick has not forecast yet says "Forecast pending" and shows no range. A version a newer one replaced before the tick forecast it says it has none.
+- A version the tick has not forecast yet says "Forecast pending" and shows no range, and the page reads it again every 30 seconds until the tick has, because keeping a forecast records no event a page could hear. A version a newer one replaced before the tick forecast it says it has none.
 
 ### Estimate bands
 

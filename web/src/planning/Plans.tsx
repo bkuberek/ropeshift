@@ -337,14 +337,15 @@ function PlanVersions({ detail, live }: { detail: PlanDetail; live: Live }) {
 }
 
 // The daemon's forecast tick keeps a forecast when what it rests on changes, and at least hourly, so a page that
-// follows the ledger reads it no oftener than this.
+// follows the ledger reads it no oftener than this. A keep takes no revision, so no event says a pending forecast
+// came: while it is pending, the page asks again once a gap.
 const forecastGapMs = 30_000;
 
 // PlanForecasts shows the forecasts the daemon's forecast tick last kept for the plan's newest version: the plan's
 // own and each milestone's, with their what-ifs and, when the estimates they rest on are few, why. It reads them
 // as `ropeshift plan forecast` does, and forecasts nothing itself.
 function PlanForecasts({ detail, names, live }: { detail: PlanDetail; names: Names; live: Live }) {
-  const read = useView<PlanForecast>(() => readPlanForecast(detail.plan.id), `forecast:${detail.plan.id}`, live, forecastGapMs);
+  const read = useView<PlanForecast>(() => readPlanForecast(detail.plan.id), `forecast:${detail.plan.id}`, live, forecastGapMs, (held) => held.state === "pending");
   return (
     <Section title="Forecast">
       {read.failure ? <Banner tone="danger">{read.failure}</Banner> : null}

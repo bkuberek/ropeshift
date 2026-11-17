@@ -16,7 +16,8 @@ import { Badge, Banner } from "../ui/display";
 // ledger says.
 const outlineGapMs = 1000;
 
-// The forecast tick keeps a forecast when what it rests on changes, and at least hourly.
+// The forecast tick keeps a forecast when what it rests on changes, and at least hourly. A keep takes no revision,
+// so no event says a pending forecast came: while it is pending, the outline asks again once a gap.
 const forecastGapMs = 30_000;
 
 function Part({ title, children }: { title: string; children: React.ReactNode }) {
@@ -167,7 +168,9 @@ export function Outline({ lane, live, title = "Plan in progress", settled = fals
   const standing = read.view?.approval;
   const plan = standing?.plan_id ?? "";
   const version = standing?.version ?? 0;
-  const forecast = useView<PlanForecast | null>(() => (plan ? readPlanForecast(plan, version) : Promise.resolve(null)), `outline:forecast:${plan}:${version}`, live, forecastGapMs);
+  const forecast = useView<PlanForecast | null>(() => (plan ? readPlanForecast(plan, version) : Promise.resolve(null)), `outline:forecast:${plan}:${version}`, live, forecastGapMs, (held) =>
+    held?.state === "pending",
+  );
   const titles = new Map((read.view?.milestones ?? []).map((milestone) => [milestone.id, milestone.title]));
   const estimates = forecast.view ? (
     <PlanEstimates forecast={forecast.view} titleOf={(id) => titles.get(id) || id} compact />

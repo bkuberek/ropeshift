@@ -269,7 +269,8 @@ export function Roadmap({ view, plans, project, forecasts = {} }: { view: View; 
 }
 
 // The daemon's forecast tick keeps forecasts when what they rest on changes, and at least hourly, so the page reads
-// them no oftener than this.
+// them no oftener than this. A keep takes no revision, so no event says a pending forecast came: while one is
+// pending, the page asks again once a gap.
 const forecastGapMs = 30_000;
 
 // RoadmapPage reads the roadmap and the plans view, which names the versions that wait and the ones in force,
@@ -278,7 +279,9 @@ export function RoadmapPage({ live, project }: { live: Live; project: string }) 
   const roadmap = useView<View>(() => readView<View>("roadmap"), "roadmap", live);
   const plans = useView<Plans>(() => readView<Plans>("plans"), "roadmap:plans", live);
   const ids = (roadmap.view?.goals ?? []).flatMap((goal) => goal.plans.map((row) => row.plan.id));
-  const forecasts = useView<Record<string, PlanForecast>>(() => readPlanForecasts(ids), `roadmap:forecasts:${ids.join(",")}`, live, forecastGapMs);
+  const forecasts = useView<Record<string, PlanForecast>>(() => readPlanForecasts(ids), `roadmap:forecasts:${ids.join(",")}`, live, forecastGapMs, (held) =>
+    Object.values(held).some((one) => one.state === "pending"),
+  );
   const now = useClock();
   const failure = roadmap.failure || plans.failure || forecasts.failure;
   return (
