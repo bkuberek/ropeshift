@@ -1,4 +1,4 @@
-ropeshift top   12 need you   14 lanes   1 worker   read 0s ago
+ropeshift top   12 need you   14 lanes   2 workers   read 0s ago
 NEEDS YOU
 >   12m  work            wo-lapsed  lapsed  Rotate the keys
     11m  work            wo-blocked  blocked  Move the archive  no_outcome
@@ -31,6 +31,9 @@ LANES
   lane-wo-effect  wo-effect  working  liveness alive  model reachable  ledger reachable  -  last reported 10m ago
   lane-wo-running  wo-running  working  liveness alive  model reachable  ledger reachable  -  last reported 4m ago
 WORKERS
+  7c41e9a05d2b4f68b3a1e6d29c084f5a  build-host-07  epoch 1  observed
+    cpu 38%  load 3.42 2.87 2.15  memory 41.0 GiB used of 64.0 GiB, 23.0 GiB available, pressure 4.2%  disk state 182.0~
+    measured 0s ago
   worker-a  solo  epoch 1  last reported  orchestrator not reported, wanted running
     resources not reported
 j/k move   r read now   q quit

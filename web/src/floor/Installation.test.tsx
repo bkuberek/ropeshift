@@ -67,12 +67,17 @@ async function table(name: string): Promise<HTMLElement> {
   return found;
 }
 
+// solo is the golden floor's worker that runs its lanes. The floor holds a second machine, which reported every measure.
+const solo = (view: ShopFloor) => view.workers.find((line) => line.worker.name === "solo");
+
 async function machineRow(): Promise<HTMLElement> {
   const region = await table("Machines");
   return waitFor(() => {
-    const row = within(region).getAllByRole("row")[1];
+    const row = within(region)
+      .getAllByRole("row")
+      .find((tr) => cell(tr, "Machine")?.querySelector("strong")?.textContent === "solo");
     if (!row) {
-      throw new Error("no machine row");
+      throw new Error("no machine row names solo");
     }
     return row;
   });
@@ -96,7 +101,7 @@ async function sessionRow(name: string): Promise<HTMLElement> {
 describe("the Workers page", () => {
   it("shows what each worker last measured of its machine, with the cap in force and the recommendation", async () => {
     serveFloor((view) => {
-      const line = view.workers[0];
+      const line = solo(view);
       if (line) {
         line.worker.report = report();
         line.worker.reported_at = view.as_of - 5000;
@@ -145,7 +150,7 @@ describe("the Workers page", () => {
 
   it("says a measure the machine cannot provide is unavailable, and never draws it as zero", async () => {
     serveFloor((view) => {
-      const line = view.workers[0];
+      const line = solo(view);
       if (line) {
         line.worker.report = { ...report(), machine: { cores: 4, volumes: [] }, sessions: [], warnings: [] };
         line.worker.reported_at = view.as_of - 120000;
