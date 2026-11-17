@@ -3,6 +3,7 @@ package contract
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 
@@ -10,6 +11,7 @@ import (
 	"ropeshift.com/ropeshift/internal/control"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/messages"
+	"ropeshift.com/ropeshift/internal/parking"
 	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/internal/questions"
 	"ropeshift.com/ropeshift/internal/workorders"
@@ -30,6 +32,29 @@ var BindingChecks = []Check{
 	{"BD9", "a decision tells the lane of a contract review and never moves or reworks the review", checkBindingReadersAreOnlyTold},
 	{"BD10", "an overturn tells a lane that the decision had told", checkBindingOverturnTellsAgain},
 	{"BD11", "the control plane records no scope outside the grammar, however a decision reaches it", checkBindingRefusesBadScopes},
+	{"BD12", "a lane's wake on a decision names a scope in the grammar", checkBindingWakeNamesAScope},
+}
+
+// checkBindingWakeNamesAScope holds the grammar at the other place a scope is written, a lane's wake on a
+// decision, which a decision of that scope fires.
+func checkBindingWakeNamesAScope(r *Rig) error {
+	s := r.Store()
+	for _, key := range []string{"payments", "payments/refunds", "team:payments"} {
+		if _, err := r.Parking(s, fmt.Sprintf(`{%q:%q}`, parking.DecisionRecorded, key)); !errors.Is(err, questions.ErrBadScope) {
+			return Violatedf("a wake on a decision of %q was stored or refused as %v", key, err)
+		}
+	}
+	request, err := r.Parked(s, fmt.Sprintf(`{%q:%q}`, parking.DecisionRecorded, "repo:payments"))
+	if err != nil {
+		return Violatedf("a wake on a decision of a scope in the grammar was refused: %v", err)
+	}
+	if _, err := r.NewOps(s).RecordDecision(r.Ctx, r.Scope, questions.Decision{
+		ID: r.ID("d"), Status: questions.DecisionDecided, Statement: "Stripe.", Rationale: "It follows.", Citations: []string{"PAY-12"},
+		Scope: "repo:payments", Reversibility: questions.Reversible, Categories: []string{questions.CategoryProduct},
+	}, r.member()); err != nil {
+		return err
+	}
+	return r.ExpectWoken(s, request)
 }
 
 // checkBindingRefusesBadScopes holds the grammar at the control plane, so a worker of an older build that sends a

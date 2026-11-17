@@ -37,6 +37,7 @@ func packVariants() []variant {
 		{name: "a notice that does not read the index", control: control.Sabotage{IgnoresPins: true}, check: "N3"},
 		{name: "a plan scope that binds no work", control: control.Sabotage{BindsNoPlan: true}, check: "MP10"},
 		{name: "a decision recorded with any scope at all", control: control.Sabotage{AcceptsAnyScope: true}, check: "BD11"},
+		{name: "a wake on a decision of any key at all", control: control.Sabotage{AcceptsAnyScope: true}, check: "BD12"},
 		{name: "a plan scope that binds no work to overturn", control: control.Sabotage{BindsNoPlan: true}, check: "MP13"},
 		{name: "ready work that stays ready under a decision", control: control.Sabotage{KeepsReadyWork: true}, check: "MP11"},
 		{name: "ready work that stays ready under a person's decision", control: control.Sabotage{KeepsReadyWork: true}, check: "BD1"},
