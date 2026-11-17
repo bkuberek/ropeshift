@@ -6,7 +6,7 @@ import type { Autonomy, WorkerRecord } from "../api/admin";
 import type { InProgress, Plans, Search, ShopFloor } from "../api/types";
 import { openPage } from "../opening";
 import type { Sent } from "../testing";
-import { golden, here, refusal, serveViews } from "../testing";
+import { golden, groupHealth, here, refusal, serveViews } from "../testing";
 
 // The golden project's one ready work order, which a plan holds, and its one worker.
 const ready = "generated-28";
@@ -18,6 +18,7 @@ type Served = {
   running?: (view: InProgress) => void;
   workers?: WorkerRecord[];
   search?: Search["records"];
+  group?: boolean;
   post?: (call: Sent) => { status: number; body?: unknown } | undefined;
 };
 
@@ -28,7 +29,7 @@ const autonomy = (worker: string): Autonomy => ({ as_of: 1, worker_id: worker, s
 
 // serving serves the golden project, with the changes a test needs: the plans' work orders, the shop
 // floor, the workers the installation holds, and what a change answers. A change nothing answers is a 200.
-function serving({ plans, floor, running, workers = [solo], search, post }: Served = {}) {
+function serving({ plans, floor, running, workers = [solo], search, group = false, post }: Served = {}) {
   const view = golden<Plans>("plans");
   plans?.(view);
   const shop = golden<ShopFloor>("shop-floor");
@@ -50,6 +51,9 @@ function serving({ plans, floor, running, workers = [solo], search, post }: Serv
     }
     if (search && call.path.startsWith("/v1/views/search")) {
       return { status: 200, body: { as_of: 1, revision: 1, records: search } };
+    }
+    if (group && call.method === "GET" && call.path === "/v1/health") {
+      return { status: 200, body: groupHealth };
     }
     if (call.path === "/v1/workers") {
       return { status: 200, body: { workers } };
@@ -169,6 +173,23 @@ describe("starting a ready work order", () => {
     expect(start.getAttribute("aria-describedby")).toBeTruthy();
     await userEvent.click(start);
     expect(changes(sent)).toHaveLength(0);
+  });
+
+  it("names no join token when no worker has joined a solo installation", async () => {
+    serving({ workers: [] });
+    openPage(`/work-order?id=${ready}`);
+    await userEvent.click(await pageButton("Start"));
+    const box = await dialog(`Start ${title}`);
+    await waitFor(() => expect(box.textContent).toContain("No worker has joined."));
+    expect(box.textContent).not.toMatch(/join token/);
+  });
+
+  it("names the join token when no worker has joined a group installation", async () => {
+    serving({ workers: [], group: true });
+    openPage(`/work-order?id=${ready}`);
+    await userEvent.click(await pageButton("Start"));
+    const box = await dialog(`Start ${title}`);
+    await waitFor(() => expect(box.textContent).toContain("with its join token."));
   });
 
   it("shows the API's words when the claim is refused, and starts no lane", async () => {
