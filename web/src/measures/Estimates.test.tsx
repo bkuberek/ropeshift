@@ -19,6 +19,28 @@ const served = (name = "calibration", change?: (report: Calibration) => void) =>
   return serveViews((call) => (call.path.startsWith("/v1/measures/estimates") ? { status: 200, body: report } : undefined));
 };
 
+// unrated takes every rate and median out of a report and leaves at most `most` outcomes behind each, as the API
+// answers while fewer than 10 stand behind any.
+function unrated(value: unknown, most: number): void {
+  if (Array.isArray(value)) {
+    value.forEach((one) => unrated(one, most));
+    return;
+  }
+  if (value === null || typeof value !== "object") {
+    return;
+  }
+  const record = value as Record<string, unknown>;
+  if (typeof record.n === "number") {
+    record.n = Math.min(record.n, most);
+    if (typeof record.hits === "number") {
+      record.hits = Math.min(record.hits, record.n as number);
+    }
+    delete record.rate;
+    delete record.median;
+  }
+  Object.values(record).forEach((one) => unrated(one, most));
+}
+
 // lines are the printed lines that begin as given. A test that finds none would hold the tab to nothing, so none fails it.
 function lines(text: string, prefix: string): string[] {
   const found = text.split("\n").filter((line) => line.startsWith(prefix));
@@ -137,7 +159,18 @@ describe("the Estimates tab", () => {
     expect(tier[5]?.textContent).toBe("1 of 5, no rate");
     expect(tier[7]?.textContent).toBe("no median of 5");
     expect(tier.some((cell) => cell.querySelector(".meter"))).toBe(false);
-    expect(screen.getByText(/Not enough finished estimated work for a rate yet/)).toBeTruthy();
+    // A rate shows, so the tab says when one does, and not that there is too little work for one.
+    expect(screen.getByText(/A rate shows when at least 10 outcomes stand behind it, and below that only its counts stand\./)).toBeTruthy();
+    expect(screen.queryByText(/Not enough finished estimated work for a rate yet/)).toBeNull();
+  });
+
+  it("says how near a rate the work is while no group has 10 outcomes behind one", async () => {
+    served("calibration", (report) => unrated(report, 6));
+    open();
+    await tableOf("Confident estimates, last 30 days");
+    expect(
+      screen.getByText(/Not enough finished estimated work for a rate yet: a rate needs 10 outcomes behind it, and the most any group has is 6\. Below that only its counts stand\./),
+    ).toBeTruthy();
   });
 
   it("counts the open p85 bands that the p85 rate leaves out", async () => {

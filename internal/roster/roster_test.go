@@ -142,6 +142,34 @@ func TestChangesAddDisableResetAndEditTheGuide(t *testing.T) {
 	}
 }
 
+// TestAnAddedDefinitionIsSummarizedByWhereItWasRead holds the history's line for an added agent to where its
+// definition came from: a file, text pasted in the web UI, another agent, or a definition that says neither.
+func TestAnAddedDefinitionIsSummarizedByWhereItWasRead(t *testing.T) {
+	definition := &Agent{Name: "scout", Purpose: "Finds the code a change touches.", Kind: KindLookup, Access: AccessReadOnly, Class: ClassSmall, Effort: "low", Enabled: true}
+	for _, tt := range []struct {
+		change Change
+		want   string
+	}{
+		{Change{Op: OpAdd, Agent: "scout", Definition: definition, DefinitionFrom: DefinitionFile}, "add scout from a file"},
+		{Change{Op: OpAdd, Agent: "scout", Definition: definition, DefinitionFrom: DefinitionPasted}, "add scout from a pasted definition"},
+		{Change{Op: OpAdd, Agent: "scout", Definition: definition}, "add scout from a definition"},
+		{Change{Op: OpAdd, Agent: "scout", From: "explore"}, "add scout from explore"},
+	} {
+		if got := Summarize(tt.change); got != tt.want {
+			t.Errorf("%+v: %q, want %q", tt.change, got, tt.want)
+		}
+	}
+	base := Resolve(Layer{}, Layer{})
+	for _, change := range []Change{
+		{Op: OpAdd, Agent: "scout", Definition: definition, DefinitionFrom: "clipboard"},
+		{Op: OpAdd, Agent: "scout", From: "explore", DefinitionFrom: DefinitionPasted},
+	} {
+		if _, err := Apply(Layer{}, base, change); !errors.Is(err, ErrInvalid) {
+			t.Errorf("%+v: got %v, want %v", change, err, ErrInvalid)
+		}
+	}
+}
+
 // TestTheDefaultMappingChoosesEachLanesAgent is FR-AGENT-13: by kind and size, a named agent first,
 // rework one implementation tier up and never into a per-use agent, and an unknown or disabled agent
 // refused by name.

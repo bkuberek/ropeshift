@@ -206,7 +206,7 @@ export function DeliveryBody({ report, scope, windowName }: { report: LookBack; 
   const all = report.groups[0]?.key === "" ? report.groups[0] : undefined;
   return (
     <>
-      <Panel title={`By ${(groupName[report.by] ?? report.by).toLowerCase()}`} flush foot={`From ${utcDate(report.from, false)} to ${utcDate(report.to, false)}. Time reads as the work's delivery time, which leaves out the waits a person caused. ${scope === "all" ? "Each project's own records are read apart, because the percentiles of separate projects do not combine." : ""}`}>
+      <Panel title={`By ${(groupName[report.by] ?? report.by).toLowerCase()}`} flush foot={`From ${utcDate(report.from, false)} to ${utcDate(report.to, false)}. Time reads as the work's delivery time, which leaves out the time it waited for a lane, and keeps every wait for a person. ${scope === "all" ? "Each project's own records are read apart, because the percentiles of separate projects do not combine." : ""}`}>
         <GroupsTable report={report} by={report.by} />
       </Panel>
       <WhereTheTimeWent report={report} by={report.by} />

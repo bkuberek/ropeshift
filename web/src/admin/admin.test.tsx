@@ -2,6 +2,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
+import type { PolicyList, PolicyVersion } from "../api/admin";
 import { go } from "../app/route";
 import { startedAt } from "../lanes/starting";
 import { openPage } from "../opening";
@@ -730,6 +731,8 @@ describe("Add agent", () => {
           report: "",
           enabled: true,
         },
+        // The history names it as pasted, not as read from a file.
+        definition_from: "pasted",
       },
     });
   });
@@ -987,6 +990,20 @@ describe("Estimate policy", () => {
     expect((screen.getByRole("checkbox", { name: /Share delivery history/ }) as HTMLInputElement).checked).toBe(true);
     // The pool's note names what it holds, and what it never does.
     expect(screen.getByText(/kind, size, capability class, durations, and cost, and no ID, title, repository, or content/)).toBeTruthy();
+  });
+
+  it("says a policy no member has saved is the built-in default, with no author or date", async () => {
+    // A project with no saved version answers the built-in one, which nothing recorded, so it has no time.
+    const stored = golden<PolicyList>("policies-estimate");
+    const builtIn = { ...stored.versions[stored.versions.length - 1], id: "built-in", authored_by: "built-in", created_at: 0 } as PolicyVersion;
+    serveAdmin((call) => (call.method === "GET" && call.path === "/v1/policies?kind=estimate" ? { status: 200, body: { versions: [builtIn] } } : undefined));
+    open();
+    expect(await screen.findByText("Version 1, the built-in default.")).toBeTruthy();
+    expect(screen.queryByText(/by built-in/)).toBeNull();
+    await userEvent.click(screen.getByRole("tab", { name: /History/ }));
+    const version = await screen.findByRole("region", { name: "Version 1" });
+    expect(within(version).getByText("The built-in default")).toBeTruthy();
+    expect(version.textContent).not.toMatch(/built-in,/);
   });
 
   it("saves the next version after its difference is reviewed, with every setting stated", async () => {

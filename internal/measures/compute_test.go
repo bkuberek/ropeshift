@@ -117,6 +117,28 @@ func TestEveryMeasureFromAScriptedHistory(t *testing.T) {
 	}
 }
 
+// A review's cost per outcome is its lanes' cost over the reviews that reached done, and a review is no completed
+// work order, no flow time, and no work in progress.
+func TestAReviewCountsInItsOwnCostPerOutcomeAndInNoCompletedWork(t *testing.T) {
+	h := measures.History{
+		WorkOrders: []measures.WorkOrderFacts{{ID: "w1", Kind: "change", State: "done", CreatedAt: 1 * hour, ReadyAt: 2 * hour, DoneAt: 12 * hour}},
+		Reviews: []measures.WorkOrderFacts{
+			{ID: "r1", Kind: "review", State: "done", CreatedAt: 10 * hour, ReadyAt: 10 * hour, DoneAt: 11 * hour},
+			{ID: "r2", Kind: "review", State: "done", CreatedAt: 12 * hour, ReadyAt: 12 * hour, DoneAt: 13 * hour},
+			{ID: "r3", Kind: "review", State: "running", CreatedAt: 14 * hour, ReadyAt: 14 * hour},
+			{ID: "r4", Kind: "review", State: "done", CreatedAt: 1 * hour, ReadyAt: 1 * hour, DoneAt: 3 * hour}, // before
+		},
+		Lanes: []measures.LaneCost{{WorkOrderKind: "review", EndedAt: 11 * hour, CostUSD: 0.5}, {WorkOrderKind: "review", EndedAt: 13 * hour, CostUSD: 0.25}},
+	}
+	r := measures.Compute(h, measures.Window{Name: "test", From: 10 * hour, To: 20 * hour})
+	if review := r.CostPerOutcome["review"]; review.Done != 2 || review.PerDone == nil || *review.PerDone != 0.375 {
+		t.Errorf("review cost %+v", review)
+	}
+	if r.Completed != 1 || r.WorkInProgress != 0 || r.IntakeToDone.Count != 1 || r.ReadyToDone.Count != 1 {
+		t.Errorf("completed %d, in progress %d, intake to done %+v, ready to done %+v", r.Completed, r.WorkInProgress, r.IntakeToDone, r.ReadyToDone)
+	}
+}
+
 // A rate of nothing is no rate, so an empty window says so rather than reading zero.
 func TestAnEmptyWindowHasNoRates(t *testing.T) {
 	r := measures.Compute(scripted(), measures.Window{Name: "empty", From: 100 * hour, To: 200 * hour})

@@ -9,6 +9,7 @@ import (
 
 	"ropeshift.com/ropeshift/internal/cli"
 	"ropeshift.com/ropeshift/internal/roster"
+	"ropeshift.com/ropeshift/test/apitest"
 )
 
 // agentCase is one text of an agent's definition and what `agent add --file` makes of it: the agent it reads, or a
@@ -63,5 +64,38 @@ func TestAnAgentFileReadsTheWayTheWebUIReadsPastedText(t *testing.T) {
 				t.Errorf("the file reads as\n%+v\nand the case says\n%+v", plain(got), plain(*c.Agent))
 			}
 		})
+	}
+}
+
+// TestTheRosterHistoryNamesWhereAnAddedDefinitionCameFrom holds the roster's history to the true source of an added
+// agent's definition: `agent add --file` names a file, and a definition the web UI's Paste TOML sends says it was
+// pasted.
+func TestTheRosterHistoryNamesWhereAnAddedDefinitionCameFrom(t *testing.T) {
+	s := newSession(t)
+	path := filepath.Join(t.TempDir(), "scout.toml")
+	text := "[[agent]]\npurpose = \"Finds the code a change touches.\"\nkind = \"lookup\"\naccess = \"read_only\"\nclass = \"small\"\neffort = \"low\"\ninstructions = \"Name each file the change touches.\"\ntools.allow = [\"read\", \"search\"]\n"
+	if err := os.WriteFile(path, []byte(text), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s.must("agent", "add", "scout", "--file", path, "--project", apitest.ProjectName)
+	definition, err := cli.ReadAgentFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pasted := roster.Change{Op: roster.OpAdd, Agent: "finder", Definition: &definition, DefinitionFrom: roster.DefinitionPasted}
+	if _, err := s.daemon.Client.ChangeRoster(t.Context(), pasted); err != nil {
+		t.Fatal(err)
+	}
+	history, err := s.daemon.Client.RosterHistory(t.Context(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var summaries []string
+	for _, version := range history.Versions {
+		summaries = append(summaries, version.Summary)
+	}
+	want := []string{"add finder from a pasted definition", "add scout from a file"}
+	if len(summaries) < len(want) || !reflect.DeepEqual(summaries[:len(want)], want) {
+		t.Errorf("the history says %q, want it to begin %q", summaries, want)
 	}
 }

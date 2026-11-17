@@ -791,7 +791,9 @@ function PolicySection({ section, kind, live, project, archived }: { section: Se
             <div className="panel">
               <div className="panel-body field-stack">
                 <p className="small muted">
-                  {current ? (
+                  {current && builtInDefault(current) ? (
+                    <>Version {current.version}, the built-in default.</>
+                  ) : current ? (
                     <>
                       Version {current.version}, by {current.authored_by}, {dateOf(current.created_at)}.
                     </>
@@ -858,6 +860,10 @@ function PolicySection({ section, kind, live, project, archived }: { section: Se
   );
 }
 
+// builtInDefault says a version is the built-in policy no member has saved. Nothing recorded it, so the API answers
+// it with no time, and it has no author to name.
+const builtInDefault = (version: PolicyVersion) => version.created_at === 0;
+
 function PolicyHistory({ versions, archived, onRevert }: { versions: PolicyVersion[]; archived: boolean; onRevert: (version: PolicyVersion) => void }) {
   return (
     <div className="stack">
@@ -868,9 +874,7 @@ function PolicyHistory({ versions, archived, onRevert }: { versions: PolicyVersi
           level={3}
           actions={
             <>
-              <span className="subtle small">
-                {version.authored_by}, {dateOf(version.created_at)}
-              </span>
+              <span className="subtle small">{builtInDefault(version) ? "The built-in default" : `${version.authored_by}, ${dateOf(version.created_at)}`}</span>
               <span className="spacer" />
               {at === 0 ? (
                 <span className="small muted">In force</span>

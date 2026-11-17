@@ -259,7 +259,7 @@ func (c *invocation) agentAdd(args []string) int {
 		if err != nil {
 			return c.usageError("%v", err)
 		}
-		change.Definition = &definition
+		change.Definition, change.DefinitionFrom = &definition, roster.DefinitionFile
 	}
 	return c.changeRoster(*installation, change)
 }

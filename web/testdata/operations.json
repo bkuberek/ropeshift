@@ -27,9 +27,9 @@
         "total_usd": 0
       },
       "review": {
-        "done": 0,
+        "done": 2,
         "lower_bound": false,
-        "per_done_usd": null,
+        "per_done_usd": 0,
         "total_usd": 0
       }
     },

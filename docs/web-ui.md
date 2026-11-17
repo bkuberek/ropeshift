@@ -103,7 +103,7 @@ A plan's page has a Forecast section, and the Roadmap shows the same forecasts, 
 - The what-ifs are the p85 with one more lane, shown when the plan has a lane cap, and with each wait for a person cut to the median wait of the project's recent work.
 - The last line says what makes the forecast again: its seed, trials, lane cap, ledger revision, and the time it ran from.
 - A milestone with no comparable history, no worker to run its work, or no unfinished work says so in a word with its explanation, and shows no dates.
-- A version the tick has not forecast yet says "Forecast pending" and shows no range. A version a newer one replaced before the tick forecast it says it has none.
+- A version the tick has not forecast yet says "Forecast pending" and shows no range, and the page reads it again every 30 seconds until the tick has, because keeping a forecast records no event a page could hear. A version a newer one replaced before the tick forecast it says it has none.
 
 ### Estimate bands
 
@@ -318,7 +318,7 @@ The Estimates tab beside Delivery shows how often finished work landed inside th
 
 - How the work that ended was estimated gives, for the window and for all time, how much work ended and how much of it had a confident estimate, a low-confidence one, or none. The share shows from 10 ended.
 - Confident estimates are the headline, and Low confidence stands apart after them, so a thin band never hides whether the confident estimates are calibrated. Each has a table for the window and one for all time: a row for all work, then one for each tier and each estimator version, with the outcomes and how they ended, the count of open p85 bands, and for time and for cost the p50 hit rate, the p85 hit rate, and the median ratio of actual to p50. A hit rate reads as its counts and its percent, with a meter beneath it and a tick at the value a calibrated estimator comes near, 50% for p50 and 85% for p85. A ratio comes near 1.
-- A rate shows from 10 outcomes behind it. Under that, the row shows its counts and "no rate", a ratio shows "no median", and the tab says "Not enough finished estimated work for a rate yet". An outcome whose baseline p85 was open counts in the p50 rate and the ratio, and is left out of the p85 rate.
+- A rate shows from 10 outcomes behind it. Under that, the row shows its counts and "no rate", a ratio shows "no median", and while no rate shows anywhere in the scope, the tab says "Not enough finished estimated work for a rate yet" and the most outcomes any group has. An outcome whose baseline p85 was open counts in the p50 rate and the ratio, and is left out of the p85 rate.
 - Weekly calibration lists the weeks up to the end of the window that had outcomes, a table for each confidence, with the same columns.
 - Milestones give how often milestones ended at or before their forecast p50 and p85 dates, confident and low confidence apart, and each ended milestone's forecast dates beside the day it ended, with "or later" on a date that is a lower bound.
 - With no work ended, the tab says "Estimate calibration appears when work orders finish."
