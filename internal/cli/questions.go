@@ -373,7 +373,7 @@ func policyLine(p authority.PolicyVersion) string {
 func policyKind(kind string) (authority.PolicyKind, bool) {
 	switch authority.PolicyKind(kind) {
 	case authority.PolicyDecision, authority.PolicyLane, authority.PolicyDelegation, authority.PolicyAutonomy, authority.PolicyNotify, authority.PolicyRecovery,
-		authority.PolicySpend, delivery.PolicyEstimate:
+		authority.PolicySpend, authority.PolicyInstallationSpend, delivery.PolicyEstimate:
 		return authority.PolicyKind(kind), true
 	}
 	return "", false

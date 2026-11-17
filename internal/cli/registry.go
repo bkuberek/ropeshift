@@ -112,6 +112,12 @@ func registry() []section {
 			command("policy show", "<version> [--kind K]", "show one version as it was written", (*invocation).policyShow),
 			command("policy publish", "--file F", "publish a new version", (*invocation).policyPublish),
 		}},
+		{"Spend", []registered{
+			command("spend", "[--work-order W]", "show where spend stands, or one work order's charged spend against its limits", (*invocation).spend),
+			command("spend show", "", "show each spend setting with its value and version, and the spend of each open work order against its limits", (*invocation).spendShow),
+			command("spend set", "[--installation] <key>=<value>...", "publish a new version of the spend policy with only the keys named changed", (*invocation).spendSet),
+			command("spend revert", "<version> [--installation]", "record an earlier version of the spend policy as the newest", (*invocation).spendRevert),
+		}},
 		{"Agents", agentCommands()},
 		{"Documents and sources", []registered{
 			command("document list", "", "list documents, each with its digest", (*invocation).documentList),
