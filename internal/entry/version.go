@@ -81,7 +81,7 @@ func runVersion(command string, args []string, stdout, stderr io.Writer) int {
 		}
 	}
 	if !*asJSON {
-		fmt.Fprintln(stdout, report.Info.String())
+		fmt.Fprintln(stdout, report.String())
 		if report.Daemon != nil {
 			fmt.Fprintln(stdout, "daemon "+cmp.Or(report.Daemon.Version, "(version not reported)"))
 		}
