@@ -147,7 +147,7 @@ type Document struct {
 	Instance string `json:"instance"`
 	Path     string `json:"path"`
 	Title    string `json:"title"`
-	// Kind says which of requirements, specs, architecture documents, experience designs, milestones, and designs this is, or none of them.
+	// Kind says which of requirements, specs, architecture documents, experience designs, milestones, decision records, and designs this is, or none of them.
 	Kind    planning.DocumentKind `json:"kind"`
 	Version string                `json:"version"`
 	Digest  string                `json:"digest"`
@@ -185,7 +185,8 @@ const (
 
 // RecordedVersion is one version of a planning document the ledger keeps: its number, its digest, the
 // file and commit it came from, when intake recorded it, and where it stands in review. PlanVersion is
-// the plan version that covers it, or that waits to.
+// the plan version that covers it, or that waits to. Status is the status a decision record had in this
+// version, and it is absent for every other kind of document.
 type RecordedVersion struct {
 	Version     int64  `json:"version"`
 	Digest      string `json:"digest"`
@@ -193,6 +194,7 @@ type RecordedVersion struct {
 	RecordedAt  int64  `json:"recorded_at"`
 	Review      string `json:"review"`
 	PlanVersion int64  `json:"plan_version,omitempty"`
+	Status      string `json:"status,omitempty"`
 }
 
 // RecordedDocument is a planning document intake recorded from a plan's files, with every version,

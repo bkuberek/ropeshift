@@ -42,7 +42,7 @@ func TestEveryPlanningExampleIsAFile(t *testing.T) {
 	}
 	for _, kind := range []planning.FileKind{
 		planning.FileGoal, planning.FilePlan, planning.FileRequirements, planning.FileSpec, planning.FileArchitecture,
-		planning.FileExperienceDesign, planning.FileMilestone, planning.FileContract,
+		planning.FileExperienceDesign, planning.FileMilestone, planning.FileDecision, planning.FileContract,
 	} {
 		if !kinds[kind] {
 			t.Errorf("no example shows a %s file (FR-SESSION-5)", kind)
@@ -88,7 +88,11 @@ func TestThePlanningExamplesNameEachOther(t *testing.T) {
 	if len(plan.Documents) != len(held) {
 		t.Errorf("the plan lists %v, and the examples show %d documents", plan.Documents, len(held))
 	}
-	for _, requirements := range [][]string{docs[planning.FileSpec].Spec.Requirements, docs[planning.FileArchitecture].Architecture.Requirements, docs[planning.FileExperienceDesign].Experience.Requirements} {
+	decision := docs[planning.FileDecision].Decision
+	if decision == nil || decision.ID != "adr-0007" || decision.Status != planning.DecisionAccepted {
+		t.Fatalf("decision %+v", decision)
+	}
+	for _, requirements := range [][]string{docs[planning.FileSpec].Spec.Requirements, docs[planning.FileArchitecture].Architecture.Requirements, docs[planning.FileExperienceDesign].Experience.Requirements, decision.Requirements} {
 		for _, key := range requirements {
 			if !known[key] {
 				t.Errorf("a document addresses %s, which the requirements example lacks", key)
@@ -103,6 +107,9 @@ func TestThePlanningExamplesNameEachOther(t *testing.T) {
 		if !slices.Contains(plan.Documents, ref) {
 			t.Errorf("the contract cites %s, which its plan does not list", ref)
 		}
+	}
+	if !slices.Contains(contract.Documents, "decision:adr-0007") {
+		t.Errorf("the contract cites %v, and no example cites a decision record", contract.Documents)
 	}
 	for _, criterion := range contract.Criteria {
 		if len(criterion.Requirements) == 0 {

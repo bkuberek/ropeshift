@@ -26,6 +26,8 @@ var DocumentChecks = []Check{
 	{"DC9", "a requirements file is a document, and its requirements keep their own versions", checkRequirementsDocument},
 	{"DC10", "a document arrives with the plan it names whatever order the files sort in", checkDocumentBatchOrder},
 	{"DC11", "the files a planning lane is shown are a valid set: intake reads them with no problem, and their work reaches ready", checkFormatExamplesAreASet},
+	{"DC12", "a decision record with no plan is a document, a status that changes is a new version, and one that states none is proposed", checkDecisionStatusVersions},
+	{"DC13", "a contract pins a cited decision record to the version at its commit, and the record's later versions move nothing", checkContractPinsDecision},
 }
 
 const (
@@ -724,7 +726,7 @@ func checkFormatExamplesAreASet(r *Rig) error {
 		return Violatedf("no contract checkout-retry in %+v", contracts)
 	}
 	retry := contracts[i]
-	if len(retry.Documents) != 2 || retry.Milestone != "m1-reliable-checkout" || !slices.Equal(retry.Uses, []string{"payments-client"}) {
+	if len(retry.Documents) != 3 || retry.Documents[2].Document != "decision:adr-0007" || retry.Milestone != "m1-reliable-checkout" || !slices.Equal(retry.Uses, []string{"payments-client"}) {
 		return Violatedf("contract %+v", retry)
 	}
 	return r.CheckPlanning(s)

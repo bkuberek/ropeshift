@@ -1,0 +1,82 @@
+{
+  "as_of": 1790000000000,
+  "revision": 25,
+  "documents": [
+    {
+      "adapter": "fake-knowledge",
+      "instance": "memory",
+      "path": "design.md",
+      "title": "The retry budget",
+      "kind": "design",
+      "version": "2",
+      "digest": "sha256:082d1fde95b7ed5569a557dd167368455b5dc361f7cb8057a37b6f0b21da251d",
+      "source": "design.md@2"
+    },
+    {
+      "adapter": "fake-knowledge",
+      "instance": "memory",
+      "path": "spec.md",
+      "title": "The API",
+      "kind": "spec",
+      "version": "1",
+      "digest": "sha256:c3a2c277e071cd78f8ecedac4ed56bc76c0d0d2f92fe55bb4ed7e0c3402121b6",
+      "source": "spec.md@1",
+      "record": "spec:api"
+    }
+  ],
+  "requirements": [],
+  "plans": [
+    {
+      "plan": {
+        "id": "generated-1",
+        "title": "Retry budget",
+        "status": "active",
+        "source": "plan.md@4"
+      },
+      "documents": [
+        {
+          "id": "decision:adr-0007",
+          "kind": "decision",
+          "title": "Retry budget",
+          "path": "docs/decisions/0007-retry-budget.md",
+          "versions": [
+            {
+              "version": 2,
+              "digest": "sha256:6154665f9b04b6744d706a1b5699061fc95cb12a067abe4d46e91c63fffa6964",
+              "source": "docs/decisions/0007-retry-budget.md@5",
+              "recorded_at": 1790000000000,
+              "review": "pending",
+              "plan_version": 2,
+              "status": "accepted"
+            },
+            {
+              "version": 1,
+              "digest": "sha256:e1c2b61680c315bc3a354ebaa18194a4e2029ab7c7f992e6ae387fa3479824f1",
+              "source": "docs/decisions/0007-retry-budget.md@4",
+              "recorded_at": 1790000000000,
+              "review": "none",
+              "status": "proposed"
+            }
+          ]
+        },
+        {
+          "id": "spec:api",
+          "kind": "spec",
+          "title": "The API",
+          "path": "spec.md",
+          "versions": [
+            {
+              "version": 1,
+              "digest": "sha256:2e429406105fed0d58ff1f4fd99c509a34c66e51af88f89bde811698482249ba",
+              "source": "spec.md@4",
+              "recorded_at": 1790000000000,
+              "review": "pending",
+              "plan_version": 2
+            }
+          ]
+        }
+      ],
+      "requirements": []
+    }
+  ]
+}

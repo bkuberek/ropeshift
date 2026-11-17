@@ -6,15 +6,16 @@ import { words } from "../parts/parts";
 // with the other documents, so none falls out of every list.
 export type DocumentHome = DocumentKind;
 
-export const homes: DocumentHome[] = ["requirements", "spec", "design", "other"];
+export const homes: DocumentHome[] = ["requirements", "spec", "design", "decision", "other"];
 
-export const homeWords: Record<DocumentHome, string> = { requirements: "Requirements", spec: "Specs", design: "Designs", other: "Other" };
+export const homeWords: Record<DocumentHome, string> = { requirements: "Requirements", spec: "Specs", design: "Designs", decision: "Decisions", other: "Other" };
 
 export function homeOfKind(kind: string): DocumentHome {
   switch (kind) {
     case "requirements":
     case "spec":
     case "design":
+    case "decision":
       return kind;
     case "architecture":
     case "experience-design":
@@ -31,6 +32,7 @@ const kindWords: Record<string, string> = {
   architecture: "Architecture",
   "experience-design": "Experience design",
   milestone: "Milestone",
+  decision: "Decision record",
   other: "Document",
 };
 
@@ -50,15 +52,17 @@ export function reviewWords(version: RecordedVersion): string {
   }
 }
 
-// versionLabel is a version's line in the selector: its number, and the plan version it stands in.
+// versionLabel is a version's line in the selector: its number, the status a decision record had in it, and
+// the plan version it stands in.
 export function versionLabel(version: RecordedVersion): string {
+  const head = version.status ? `v${version.version} · ${version.status}` : `v${version.version}`;
   switch (version.review) {
     case "approved":
-      return `v${version.version} · approved in plan v${version.plan_version ?? 0}`;
+      return `${head} · approved in plan v${version.plan_version ?? 0}`;
     case "pending":
-      return `v${version.version} · in pending plan v${version.plan_version ?? 0}`;
+      return `${head} · in pending plan v${version.plan_version ?? 0}`;
     default:
-      return `v${version.version}`;
+      return head;
   }
 }
 
@@ -95,7 +99,7 @@ const fileItem = (document: DocumentRow): TreeItem => ({
 // every other file of the repository as it stands. A file the ledger holds as a goal, a plan, or a contract
 // shows on its own page, so it is left out.
 export function treeOf(view: Documents): Record<DocumentHome, TreeItem[]> {
-  const tree: Record<DocumentHome, TreeItem[]> = { requirements: [], spec: [], design: [], other: [] };
+  const tree: Record<DocumentHome, TreeItem[]> = { requirements: [], spec: [], design: [], decision: [], other: [] };
   for (const plan of view.plans) {
     for (const document of plan.documents) {
       tree[recordedItem(document).kind].push(recordedItem(document));

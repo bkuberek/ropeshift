@@ -157,6 +157,12 @@ func documentLists(kind planning.FileKind, version planning.DocumentVersion) []t
 			return nil
 		}
 		return []textList{{"Addresses requirements", file.Requirements}, {"Assets", file.Assets}}
+	case planning.FileDecision:
+		var file planning.DecisionFile
+		if version.Decode(&file) != nil {
+			return nil
+		}
+		return []textList{{"Status", []string{string(file.Status)}}, {"Addresses requirements", file.Requirements}}
 	case planning.FileMilestone:
 		var file planning.MilestoneFile
 		if version.Decode(&file) != nil {

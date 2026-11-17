@@ -136,9 +136,9 @@ The panel beside the terminal has two tabs, Outline and History. History is labe
 ![Documents, with a requirements document in the reader and the trace of one requirement to its criteria, work orders, and verdicts](assets/screenshots/documents-light.png#gh-light-mode-only)
 ![Documents, with a requirements document in the reader and the trace of one requirement to its criteria, work orders, and verdicts](assets/screenshots/documents-dark.png#gh-dark-mode-only)
 
-Documents holds the project's requirements, specs, designs, and other documents, and has two tabs: Reader and Traceability.
+Documents holds the project's requirements, specs, designs, decision records, and other documents, and has two tabs: Reader and Traceability.
 
-- **Reader** lists the documents by kind and shows one at a time, at the version you choose: its file, digest, review state, and the plan that approved it. Compare with shows how two versions differ, and the link button copies the document's address. A document's text comes from a repository, so the reader shows it as text only. In a requirements document, each requirement shows where it stands, and selecting one opens its trace beside the reader: the criteria that serve it under their contracts, the work orders that carry them, and the verdicts on that work with the commit each judged.
+- **Reader** lists the documents by kind and shows one at a time, at the version you choose: its file, digest, review state, and the plan that approved it. A decision record also shows its status, beside each version in the selector. Compare with shows how two versions differ, and the link button copies the document's address. A document's text comes from a repository, so the reader shows it as text only. In a requirements document, each requirement shows where it stands, and selecting one opens its trace beside the reader: the criteria that serve it under their contracts, the work orders that carry them, and the verdicts on that work with the commit each judged.
 - **Traceability** is a matrix of every requirement, with its status, its criteria, its work orders, and its latest verdict, or the evidence when existing code already meets it. Filter it by status or by plan.
 
 Both tabs are for reading. `ropeshift document` and `ropeshift requirement` read the same records from [the command line](cli.md).

@@ -42,6 +42,8 @@ func ParseFile(raw []byte) (planning.Document, error) {
 		doc.Experience, err = decode[planning.ExperienceDesignFile](header)
 	case planning.FileMilestone:
 		doc.Milestone, err = decode[planning.MilestoneFile](header)
+	case planning.FileDecision:
+		doc.Decision, err = decode[planning.DecisionFile](header)
 	case planning.FileRepositories:
 		doc.Repositories, err = decodeManifest(header)
 	default:

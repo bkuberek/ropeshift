@@ -414,7 +414,7 @@ export type PlanDetail = {
 
 export type Plans = Stamp & { plans: PlanDetail[]; unplanned: WorkOrder[]; work_actions: Record<string, Allowance> };
 
-export type DocumentKind = "requirements" | "spec" | "design" | "other";
+export type DocumentKind = "requirements" | "spec" | "design" | "decision" | "other";
 
 export type DocumentRow = {
   adapter: string;
@@ -453,6 +453,8 @@ export type RecordedVersion = {
   recorded_at: number;
   review: ReviewState;
   plan_version?: number;
+  // status is the status a decision record had in this version, and is absent for every other kind.
+  status?: string;
 };
 
 // A planning document intake recorded from a plan's files, with every version, newest first.

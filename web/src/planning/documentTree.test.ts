@@ -10,7 +10,7 @@ describe("the document tree", () => {
   const tree = treeOf(view);
 
   it("groups documents by the kind a person looks for them under, and none falls out", () => {
-    expect(Object.keys(tree)).toEqual(["requirements", "spec", "design", "other"]);
+    expect(Object.keys(tree)).toEqual(["requirements", "spec", "design", "decision", "other"]);
     const everything = Object.values(tree).flat();
     const recorded = view.plans.flatMap((plan) => plan.documents);
     const live = view.documents.filter((document) => !document.record);
@@ -81,5 +81,23 @@ describe("where a version stands", () => {
     expect(versionLabel({ version: 7, digest: "d", recorded_at: 1, review: "approved", plan_version: 3 })).toBe("v7 · approved in plan v3");
     expect(versionLabel({ version: 8, digest: "d", recorded_at: 1, review: "pending", plan_version: 4 })).toBe("v8 · in pending plan v4");
     expect(versionLabel({ version: 6, digest: "d", recorded_at: 1, review: "none" })).toBe("v6");
+  });
+
+  it("puts the status of a decision record beside its version", () => {
+    expect(versionLabel({ version: 7, digest: "d", recorded_at: 1, review: "approved", plan_version: 3, status: "accepted" })).toBe("v7 · accepted · approved in plan v3");
+    expect(versionLabel({ version: 8, digest: "d", recorded_at: 1, review: "pending", plan_version: 4, status: "proposed" })).toBe("v8 · proposed · in pending plan v4");
+    expect(versionLabel({ version: 6, digest: "d", recorded_at: 1, review: "none", status: "superseded" })).toBe("v6 · superseded");
+  });
+});
+
+describe("the decision records", () => {
+  const decisions = golden<Documents>("documents-decision");
+
+  it("have a home of their own, between the designs and the others", () => {
+    expect(homeOfKind("decision")).toBe("decision");
+    const tree = treeOf(decisions);
+    expect(tree.decision.map((item) => item.params)).toEqual([{ id: "decision:adr-0007" }]);
+    expect(tree.spec.map((item) => item.title)).toContain("The API");
+    expect(openedDocument(decisions, new URLSearchParams("kind=decision"))?.kind).toBe("decision");
   });
 });

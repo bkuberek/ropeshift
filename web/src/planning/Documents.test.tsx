@@ -43,6 +43,14 @@ describe("the document tree", () => {
     expect(within(nav).getByRole("link", { name: "The retry spec" }).getAttribute("href")).toBe(here("/documents?path=docs%2Fspecs%2Fretry.md&instance=memory"));
   });
 
+  it("lists the decision records under their own heading", async () => {
+    serve(() => {}, (call) => (call.path.startsWith("/v1/views/documents") ? { status: 200, body: golden<Documents>("documents-decision") } : undefined));
+    openPage(here("/documents"));
+    const nav = await tree();
+    expect(within(nav).getByText("Decisions")).toBeTruthy();
+    expect(within(nav).getByRole("link", { name: "Retry budget" }).getAttribute("href")).toBe(here("/documents?id=decision%3Aadr-0007"));
+  });
+
   it("lists a file a plan recorded once, and the files of the repository beside it", async () => {
     serveViews();
     openPage(here("/documents"));
@@ -200,6 +208,35 @@ describe("reading a version the ledger stored", () => {
     Object.defineProperty(navigator, "clipboard", { value: { writeText: async (text: string) => void written.push(text) }, configurable: true });
     await userEvent.click(screen.getByRole("button", { name: "Copy link" }));
     await waitFor(() => expect(written).toEqual([window.location.href]));
+  });
+});
+
+describe("reading a decision record", () => {
+  const decision = here("/documents?id=decision%3Aadr-0007");
+  const serveDecision = () => {
+    const read = golden<RecordedRead>("recorded-decision");
+    return serveViews((call) => {
+      if (call.path.startsWith("/v1/views/documents")) {
+        return { status: 200, body: golden<Documents>("documents-decision") };
+      }
+      return call.path.startsWith("/v1/documents/recorded") ? { status: 200, body: read } : undefined;
+    });
+  };
+
+  it("puts the status of each version beside it in the selector", async () => {
+    serveDecision();
+    openPage(decision);
+    const select = await screen.findByRole("combobox", { name: "Version" });
+    expect(within(select).getAllByRole("option").map((option) => option.textContent)).toEqual(["v2 · accepted · in pending plan v2", "v1 · proposed"]);
+  });
+
+  it("says the status of the version it reads", async () => {
+    serveDecision();
+    openPage(decision);
+    await screen.findByRole("combobox", { name: "Version" });
+    const facts = screen.getAllByRole("term").map((term) => term.closest("div")?.textContent);
+    expect(facts).toContain("KindDecision record");
+    expect(facts).toContain("StatusProposed");
   });
 });
 

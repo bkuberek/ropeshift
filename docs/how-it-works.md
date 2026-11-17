@@ -34,6 +34,7 @@ Work starts from a plan, and the plan lives in git, in files you can read and re
 |------|------------|
 | Requirements | What the product must do, each with a stable ID such as `PAY-12` |
 | Specs, architecture, experience designs | How it is built, citing the requirements they address |
+| Decision records | A choice already made and why, with a status of proposed, accepted, superseded, or rejected |
 | Milestones | Steps in priority order, each waiting for the milestones it depends on |
 | Contracts | What one piece of work must deliver, as criteria a reviewer can check, each criterion serving a requirement |
 | Work orders | The units an agent carries out under a contract, each in one repository |
