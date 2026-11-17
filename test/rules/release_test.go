@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"ropeshift.com/ropeshift/internal/hook"
 )
 
 // TestCrashStepsCompileToNothing reads the bytes of two builds. A normal build
@@ -104,6 +106,49 @@ func TestSessionOverrideCompilesToNothing(t *testing.T) {
 		t.Error("the realsession build holds no override, so this check cannot fail")
 	}
 }
+
+// TestTheHookDeadlineSeamCompilesToNothing reads the bytes of two builds of the hook. A normal build
+// holds no read of the variable that raises a hook's deadline, so whatever a hook's environment
+// holds, it keeps its real deadline, and the hookdeadline build that the exit tests make does, which
+// proves the check can fail. GoReleaser builds every release, and it never sets that tag.
+func TestTheHookDeadlineSeamCompilesToNothing(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds two binaries")
+	}
+	build := func(tags ...string) []byte {
+		out := filepath.Join(t.TempDir(), "probe")
+		args := append([]string{"build", "-o", out}, tags...)
+		args = append(args, "./test/rules/testdata/deadlineprobe")
+		cmd := exec.Command("go", args...)
+		cmd.Dir = repoRoot(t)
+		cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
+		if output, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("build %v: %v\n%s", tags, err, output)
+		}
+		raw, err := os.ReadFile(out)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return raw
+	}
+	marker := []byte(hook.EnvTestDeadline)
+	if bytes.Contains(build(), marker) {
+		t.Errorf("a normal build reads %s", marker)
+	}
+	if !bytes.Contains(build("-tags", hookDeadlineTag), marker) {
+		t.Errorf("the %s build reads no %s, so this check cannot fail", hookDeadlineTag, marker)
+	}
+	release, err := os.ReadFile(filepath.Join(repoRoot(t), ".goreleaser.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(release, []byte(hookDeadlineTag)) {
+		t.Errorf("the release build names the %s tag", hookDeadlineTag)
+	}
+}
+
+// hookDeadlineTag is the build tag that lets a test raise a hook's deadline.
+const hookDeadlineTag = "hookdeadline"
 
 // TestScreenshotsBuildNamesTheNearestReleaseTag holds the screenshots script to stamping its binary with the
 // release tag nearest the commit, which the status bar of every image shows, and never with the commit
