@@ -69,6 +69,7 @@ func TestAProjectNeedsAnIDANameAKnownStateAndADatabase(t *testing.T) {
 // bytes, with no control character and no space at either end. An empty one is valid, because a project may have
 // none and a rename given none keeps the one it has.
 func TestADisplayNameIsShortTrimmedTextWithNoControlCharacter(t *testing.T) {
+	zwj, zwnj := string(rune(0x200d)), string(rune(0x200c))
 	for _, tt := range []struct {
 		name        string
 		displayName string
@@ -94,6 +95,21 @@ func TestADisplayNameIsShortTrimmedTextWithNoControlCharacter(t *testing.T) {
 		{"a line separator", "Harbor" + string(rune(0x2028)) + "docs", false},
 		{"a paragraph separator", "Harbor" + string(rune(0x2029)) + "docs", false},
 		{"letters from other scripts", "Ünïcödé 日本語 العربية", true},
+		{"a Persian name with a non-joiner", "می" + zwnj + "خواهم", true},
+		{"a profession emoji with a joiner", "\U0001F469" + zwj + "\U0001F4BB Team", true},
+		{"a flag emoji with a variation selector and a joiner", "\U0001F3F3️" + zwj + "\U0001F308", true},
+		{"a skin tone modifier before a joiner", "\U0001F469\U0001F3FD" + zwj + "\U0001F4BB", true},
+		{"a joiner at the start", zwj + "Harbor", false},
+		{"a joiner at the end", "Harbor" + zwj, false},
+		{"a non-joiner at the start", zwnj + "Harbor", false},
+		{"a non-joiner at the end", "Harbor" + zwnj, false},
+		{"a doubled joiner", "a" + zwj + zwj + "b", false},
+		{"a non-joiner then a joiner", "a" + zwnj + zwj + "b", false},
+		{"a joiner after a space", "a " + zwj + "b", false},
+		{"a joiner before a space", "a" + zwj + " b", false},
+		{"a joiner next to a zero-width space", "a" + zwj + string(rune(0x200b)) + "b", false},
+		{"a zero-width space next to a non-joiner", "a" + string(rune(0x200b)) + zwnj + "b", false},
+		{"a joiner next to a bidi override", "a" + zwj + string(rune(0x202e)) + "b", false},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			err := ValidateDisplayName(tt.displayName)
