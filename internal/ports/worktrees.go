@@ -103,6 +103,41 @@ type ReviewTrees interface {
 	WriteContextFile(ctx context.Context, path, name, text string) (string, error)
 }
 
+// TreeFile is one file a restructuring adds to a worktree (FR-ADOPT-14). It is added only when the worktree
+// holds nothing there already: a file whose text is given is written only when no file is at its path, and
+// lines are added to a file only when it holds no line like each.
+type TreeFile struct {
+	// Path is relative to the worktree's top, with slashes.
+	Path string
+	// Text is the whole content of a file that is added when none is at Path.
+	Text string
+	// Lines are the lines added to the file at Path, which is made when none is there, in place of Text.
+	Lines []string
+}
+
+// Commit is one commit of a worktree's branch.
+type Commit struct {
+	Hash    string
+	Subject string
+	// Files are the paths the commit changed, in the order git lists them.
+	Files []string
+}
+
+// FileCommits is what a worktrees store offers to commit files to a lane's branch before the lane starts, so
+// a worker can restructure the repository a lane plans in, and to find a commit it made. A worker whose store
+// does not offer it restructures nothing.
+type FileCommits interface {
+	Worktrees
+	// CommitFiles adds the files to the worktree at path and commits what that changed, as one commit with the
+	// subject, in the name of the product and with no hook run and no signature asked for. A file the worktree
+	// holds already is left as it is, and when every file is held already nothing is committed and the commit
+	// that comes back is empty, so a retry after a crash that left the commit makes no second one.
+	CommitFiles(ctx context.Context, path string, files []TreeFile, subject string) (Commit, error)
+	// Commits lists the commits the worktree's branch holds beyond base, newest first, or its last few when
+	// base is empty. A worktree that is gone is ErrNotFound.
+	Commits(ctx context.Context, path, base string) ([]Commit, error)
+}
+
 // BranchTrees is what a worktrees store offers to find where a branch already stands, so a lane that began in a
 // worktree goes on in it when the root a profile names moves, as it does at an upgrade. A worker whose store does
 // not offer it places every worktree by the root in force.
