@@ -45,6 +45,19 @@ func TestAStoppedTurnIsAnUnknownCost(t *testing.T) {
 	}
 }
 
+// A turn that reported a total is a known turn, even when the total did not rise, so a generation's mean known
+// turn cost has the turns it is the mean of (FR-SPEND-3).
+func TestAGenerationCountsItsKnownTurns(t *testing.T) {
+	meter := CostMeter{SessionTotalUSD: 1}
+	meter.ObserveTurn(1.1)
+	meter.ObserveTurn(1.1)
+	meter.ObserveStopped()
+	meter.ObserveTurn(1.4)
+	if meter.KnownTurns != 3 || meter.UnknownTurns != 1 || !near(meter.CostUSD, 0.4) {
+		t.Errorf("%+v", meter)
+	}
+}
+
 func near(a, b float64) bool {
 	diff := a - b
 	return diff < 1e-9 && diff > -1e-9

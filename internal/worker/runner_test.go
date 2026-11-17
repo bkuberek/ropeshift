@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"math"
 	"os"
 	"path/filepath"
 	"slices"
@@ -252,6 +253,30 @@ func TestReportedLaneStopsAtTheEndOfItsTurn(t *testing.T) {
 	}
 	if result.CostUSD != 0.25 {
 		t.Errorf("result %+v", result)
+	}
+}
+
+// A lane tells the ledger what its generation spent when it ends (ADR-0037): the cost its turns reported and how many
+// turns reported one, so charged spend can fold the generation.
+func TestALaneReportsWhatItsGenerationSpent(t *testing.T) {
+	t.Parallel()
+	r := newLaneRig(t)
+	r.driver.Play(script([]fake.DriverStep{{Bound: true}, completed(0.1), r.reports(workorders.OutcomeCompleted), completed(0.25)}))
+	if err := r.subject.Converge(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	var generations []ledger.Generation
+	err := r.store.Read(t.Context(), scope, func(tx ports.ReadTx) error {
+		var err error
+		generations, err = tx.Lanes().Generations("lane-1")
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := ledger.GenerationUsage{CostUSD: 0.25, KnownTurns: 2}
+	if len(generations) != 1 || generations[0].Usage.KnownTurns != want.KnownTurns || math.Abs(generations[0].Usage.CostUSD-want.CostUSD) > 1e-9 {
+		t.Errorf("the ledger holds %+v, want %+v", generations, want)
 	}
 }
 

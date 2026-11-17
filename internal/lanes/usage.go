@@ -38,10 +38,14 @@ type CostMeter struct {
 	// UnknownTurns counts the turns whose cost is unknown: each turn that stopped, and the
 	// turn a session crashed in or ended in with an input unanswered.
 	UnknownTurns int64
+	// KnownTurns counts the turns that reported a total, which is what the mean cost of a known turn is the mean
+	// of. A stopped turn is charged at that mean.
+	KnownTurns int64
 }
 
 // ObserveTurn takes one turn's running total and returns the turn's cost.
 func (m *CostMeter) ObserveTurn(totalUSD float64) float64 {
+	m.KnownTurns++
 	cost := max(totalUSD-m.SessionTotalUSD, 0)
 	m.SessionTotalUSD = max(m.SessionTotalUSD, totalUSD)
 	m.CostUSD += cost

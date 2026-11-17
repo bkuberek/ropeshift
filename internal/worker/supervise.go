@@ -367,6 +367,7 @@ func (r *laneRun) nextGeneration(ctx context.Context, next int64, reason ledger.
 		r.w.config.Report(fmt.Errorf("lane %s: %w", r.lease.Lane, err))
 		return false
 	}
+	r.recordUsage(ctx)
 	r.priorUSD, r.priorUnknown = r.priorUSD+r.cost.CostUSD, r.priorUnknown+r.cost.UnknownTurns
 	record.Generation, record.ResumeSession = next, resume
 	record.Progress = lanes.Progress{Cost: meter, Usage: r.usage, PriorUSD: r.priorUSD, PriorUnknown: r.priorUnknown}
