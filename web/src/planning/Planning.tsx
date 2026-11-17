@@ -10,7 +10,7 @@ import { LanePane } from "../lanes/LanePane";
 import { startedAt } from "../lanes/starting";
 import { useTalk } from "../talk/state";
 import { Button } from "../ui/controls";
-import { EmptyState, LaneBadge, Refusal, TargetChip } from "../ui/display";
+import { ConditionChip, EmptyState, LaneBadge, Refusal, TargetChip } from "../ui/display";
 import { Icon } from "../ui/Icon";
 import { Outline } from "./Outline";
 import { StartSession } from "./StartSession";
@@ -125,7 +125,14 @@ export function PlanningPage({ live, project, label, lane, after }: { live: Live
             {title}
           </h1>
           <span className="spacer" />
-          {found ? <LaneBadge state={found.actual_state} /> : null}
+          {found ? (
+            <span className="row-tight">
+              <LaneBadge state={found.actual_state} />
+              {(found.conditions ?? []).map((condition) => (
+                <ConditionChip key={condition} name={condition} />
+              ))}
+            </span>
+          ) : null}
           <Button small icon="chat" onClick={() => talk.select("planning", laneId, { open: true, focus: true })}>
             Talk to the planning session
           </Button>
