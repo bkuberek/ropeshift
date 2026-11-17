@@ -484,6 +484,11 @@ func (h *handler) needs(tx ports.ReadTx, stamp api.Stamp) ([]api.NeedItem, error
 		return nil, err
 	}
 	items = append(items, reviews...)
+	revisions, err := planRevisionNeeds(tx)
+	if err != nil {
+		return nil, err
+	}
+	items = append(items, revisions...)
 	effects, err := waitingEffects(tx)
 	if err != nil {
 		return nil, err

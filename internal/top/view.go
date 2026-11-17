@@ -126,6 +126,9 @@ func commandsFor(item api.NeedItem) []string {
 		return []string{"ropeshift plan show " + plan, fmt.Sprintf("ropeshift plan approve %s --version %d", plan, item.PlanApproval.Version)}
 	case api.NeedContractReview:
 		return []string{"ropeshift work review " + clean(item.ID)}
+	case api.NeedPlanRevision:
+		plan := clean(item.ID)
+		return []string{"ropeshift plan revision " + plan, "ropeshift plan confirm " + plan, "ropeshift plan revise " + plan}
 	case api.NeedConfirm:
 		return []string{"ropeshift confirm " + clean(item.ID), "ropeshift decline " + clean(item.ID)}
 	}
@@ -186,6 +189,11 @@ func what(item api.NeedItem) string {
 	case item.PlanApproval != nil:
 		need := item.PlanApproval
 		return fmt.Sprintf("plan %s v%d waits: %s", clean(need.Title), need.Version, clean(need.Summary))
+	case item.PlanRevision != nil && item.PlanRevision.Revision != nil:
+		need := item.PlanRevision
+		return fmt.Sprintf("plan %s needs revision: %s since v%d, %s reached",
+			clean(need.Title), api.Count(int64(len(need.Decisions)), "decision", "decisions"), need.Revision.ApprovedVersion,
+			api.Count(int64(len(need.Finished)), "finished work order", "finished work orders"))
 	case item.ContractReview != nil:
 		need := item.ContractReview
 		return fmt.Sprintf("contract review: %s version %d, work %s", clean(need.Contract), need.Version, clean(need.WorkOrder.Title))

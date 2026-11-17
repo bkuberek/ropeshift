@@ -20,6 +20,7 @@ import (
 	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/planning"
 	"ropeshift.com/ropeshift/internal/top"
 	"ropeshift.com/ropeshift/internal/workorders"
 	"ropeshift.com/ropeshift/test/exit/ptypair"
@@ -164,6 +165,28 @@ func TestAPlanApprovalAndAContractReviewSayWhatToDo(t *testing.T) {
 	moved := keyed(t, loaded(t, snapshot), "j").View()
 	if !strings.Contains(moved, "    ropeshift work review wo-review") {
 		t.Errorf("a contract review offers no review:\n%s", moved)
+	}
+}
+
+// A plan that needs revision says how many decisions moved past which version and how much finished work they
+// reached, and names the commands that read the revision, confirm the version, and revise the plan.
+func TestAPlanRevisionSaysWhatToDo(t *testing.T) {
+	snapshot := top.Snapshot{}
+	snapshot.Needs.Items = []api.NeedItem{
+		{Kind: api.NeedPlanRevision, ID: "plan-1", PlanRevision: &api.PlanRevisionView{
+			Plan: "plan-1", Title: "Retry budget", Revision: &planning.Revision{ID: "r1", PlanID: "plan-1", ApprovedVersion: 2, DecisionIDs: []string{"d1", "d2"}},
+			Decisions: []api.RevisionDecision{{ID: "d1"}, {ID: "d2"}},
+			Finished:  []api.RevisionFinishedWork{{WorkOrder: "wo-done", Title: "Add the budget"}},
+		}},
+	}
+	frame := loaded(t, snapshot).View()
+	for _, want := range []string{
+		"plan Retry budget needs revision: 2 decisions since v2, 1 finished work order reached",
+		"    ropeshift plan revision plan-1", "    ropeshift plan confirm plan-1", "    ropeshift plan revise plan-1",
+	} {
+		if !strings.Contains(frame, want) {
+			t.Errorf("no %q in:\n%s", want, frame)
+		}
 	}
 }
 

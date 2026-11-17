@@ -62,6 +62,10 @@ const (
 	NeedContractReview = "contract_review"
 	// NeedConfirm is a confirmation card a delegate prepared, which runs only when a member confirms it.
 	NeedConfirm = "confirm"
+	// NeedPlanRevision is a plan whose approved version decisions have moved past: one item for the plan, with the
+	// decisions since and the finished work they reached, which waits for a member to confirm the version or
+	// revise it (FR-PLAN-11).
+	NeedPlanRevision = "plan_revision"
 )
 
 // Why work waits for a person. The first five are the design's stuck list.
@@ -172,6 +176,7 @@ type NeedItem struct {
 	PlanApproval   *PlanApprovalNeed   `json:"plan_approval,omitempty"`
 	ContractReview *ContractReviewNeed `json:"contract_review,omitempty"`
 	Card           *CardNeed           `json:"card,omitempty"`
+	PlanRevision   *PlanRevisionView   `json:"plan_revision,omitempty"`
 }
 
 // CardNeed is a confirmation card that waits for a member: the request, the operation it runs, and the
