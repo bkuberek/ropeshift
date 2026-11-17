@@ -49,6 +49,9 @@ func (r *laneRun) restructure(ctx context.Context, repository, worktree string) 
 	if err != nil {
 		return r.failStart(workorders.ReasonSpawnFailed, fmt.Errorf("the restructuring the work kept cannot be read: %w", err)), true
 	}
+	if choice.Shape == planning.ShapeConsolidate {
+		return r.consolidate(ctx, choice, worktree)
+	}
 	if choice.Shape != planning.ShapePlanned && choice.Shape != planning.ShapeWorkspaceFiles {
 		return workorders.Report{}, false
 	}
@@ -75,17 +78,9 @@ func (r *laneRun) restructure(ctx context.Context, repository, worktree string) 
 		r.setRestructured(describeRestructure(made, project, moves))
 		return workorders.Report{}, false
 	}
-	if incomplete := choice.Incomplete(); incomplete != nil {
-		return r.restructureIncomplete(incomplete), true
-	}
-	plan, err := r.replan(ctx, choice)
-	if err != nil {
-		return r.layoutChanged(fmt.Errorf("the layout around %s could not be read again as the plan read it: %w.%s", choice.Root, err, rerun)), true
-	}
-	if plan.Digest != choice.Digest {
-		differs := plan.DiffersIn(choice.Parts)
-		return r.layoutChanged(fmt.Errorf("the layout around %s is not the one the plan was read from: its %s differ. The plan's digest was %s, and the layout now gives %s.%s",
-			choice.Root, spell(differs), choice.Digest, plan.Digest, rerun)), true
+	plan, report, failed := r.verifyPlan(ctx, choice)
+	if failed {
+		return report, true
 	}
 	files, err := adoption.Files(ctx, plan, project, r.rt.Provisioner.Checkouts)
 	if err != nil {
@@ -107,6 +102,26 @@ func (r *laneRun) restructure(ctx context.Context, repository, worktree string) 
 	}
 	r.setRestructured(describeRestructure(made, project, plan.Moves))
 	return workorders.Report{}, false
+}
+
+// verifyPlan reads the layout again as the plan did and compares digests, before anything is written. A
+// restructuring kept without the request or the parts to read the layout against fails with restructure_incomplete,
+// and a layout that reads another plan fails with layout_changed, naming the parts that differ. It reports whether
+// the lane must not start, and the report that says why.
+func (r *laneRun) verifyPlan(ctx context.Context, choice planning.Restructure) (planning.AdoptionPlan, workorders.Report, bool) {
+	if incomplete := choice.Incomplete(); incomplete != nil {
+		return planning.AdoptionPlan{}, r.restructureIncomplete(incomplete), true
+	}
+	plan, err := r.replan(ctx, choice)
+	if err != nil {
+		return plan, r.layoutChanged(fmt.Errorf("the layout around %s could not be read again as the plan read it: %w.%s", choice.Root, err, rerun)), true
+	}
+	if plan.Digest != choice.Digest {
+		differs := plan.DiffersIn(choice.Parts)
+		return plan, r.layoutChanged(fmt.Errorf("the layout around %s is not the one the plan was read from: its %s differ. The plan's digest was %s, and the layout now gives %s.%s",
+			choice.Root, spell(differs), choice.Digest, plan.Digest, rerun)), true
+	}
+	return plan, workorders.Report{}, false
 }
 
 // spell lists names as a sentence does: "a", "a and b", and "a, b, and c".
@@ -140,7 +155,9 @@ func (r *laneRun) restructureIncomplete(incomplete error) workorders.Report {
 // replan reads the layout as the plan did, from the request the work kept: the same root, paths, depth, and names,
 // and the project's records as the lease gives them.
 func (r *laneRun) replan(ctx context.Context, choice planning.Restructure) (planning.AdoptionPlan, error) {
-	request := adoption.Request{Root: choice.Root, Paths: choice.Paths, Depth: choice.Depth, Planning: choice.Planning, Design: choice.Design}
+	request := adoption.Request{
+		Root: choice.Root, Paths: choice.Paths, Depth: choice.Depth, Planning: choice.Planning, Design: choice.Design, LeaveOut: choice.LeaveOut,
+	}
 	return adoption.Plan(ctx, request, r.rt.Provisioner.Checkouts, r.rt.Layouts, r.registered)
 }
 
@@ -236,11 +253,13 @@ func (w *Worker) findRestructure(ctx context.Context, effect lanes.Effect) lanes
 	if !offered {
 		return lanes.FoundUnknown
 	}
-	base := ""
+	base, consolidating := "", false
 	if state, err := w.desired(ctx); err == nil {
 		for _, lease := range state.Leases {
 			if lease.Lane == effect.Lane {
 				base = lease.BaseCommit
+				var choice planning.Restructure
+				consolidating = json.Unmarshal(lease.Restructure, &choice) == nil && choice.Shape == planning.ShapeConsolidate
 			}
 		}
 	}
@@ -252,7 +271,13 @@ func (w *Worker) findRestructure(ctx context.Context, effect lanes.Effect) lanes
 		w.config.Report(fmt.Errorf("effect %s: %w", effect.Key, err))
 		return lanes.FoundUnknown
 	}
-	if _, found := workspaceCommit(commits); found {
+	found := false
+	if consolidating {
+		_, found = importCommit(commits)
+	} else {
+		_, found = workspaceCommit(commits)
+	}
+	if found {
 		return lanes.Found
 	}
 	return lanes.FoundNothing

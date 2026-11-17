@@ -48,6 +48,9 @@ type Worktrees struct {
 	held        map[string]map[string]string
 	fileCommits map[string][]ports.Commit
 	commitFail  error
+	// imports are the history imports made, and importFail what makes ImportHistory fail.
+	imports    []ports.HistoryImport
+	importFail error
 }
 
 // NewWorktrees returns an empty store.
@@ -444,6 +447,46 @@ func (w *Worktrees) CommitFiles(_ context.Context, path string, files []ports.Tr
 	return commit, nil
 }
 
+// FailImports makes every ImportHistory fail with err, until it is given nil.
+func (w *Worktrees) FailImports(err error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.importFail = err
+}
+
+// Imports lists every history import ImportHistory made, in order, and none it found made already.
+func (w *Worktrees) Imports() []ports.HistoryImport {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return slices.Clone(w.imports)
+}
+
+// ImportHistory merges nothing, and keeps the merge commit it would make by the rules of ports.HistoryImports: the
+// commit has the history's tip as its second parent, lists the files asked for, and a repeat of an import the
+// worktree holds is done and makes none.
+func (w *Worktrees) ImportHistory(_ context.Context, path string, in ports.HistoryImport) (ports.Commit, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.importFail != nil {
+		return ports.Commit{}, w.importFail
+	}
+	for _, made := range w.fileCommits[path] {
+		if len(made.Parents) == 2 && made.Parents[1] == in.Commit {
+			return ports.Commit{}, nil
+		}
+	}
+	var files []string
+	for _, file := range in.Files {
+		files = append(files, file.Path)
+	}
+	slices.Sort(files)
+	w.grown++
+	commit := ports.Commit{Hash: fmt.Sprintf("import-%d", w.grown), Subject: in.Subject, Files: files, Parents: []string{"base-of-" + path, in.Commit}}
+	w.fileCommits[path] = append([]ports.Commit{commit}, w.fileCommits[path]...)
+	w.imports = append(w.imports, in)
+	return commit, nil
+}
+
 // withLines adds each line the text does not hold, each on a line of its own, and says whether it added any.
 func withLines(text string, lines []string) (string, bool) {
 	held := map[string]bool{}
@@ -475,9 +518,10 @@ func (w *Worktrees) Commits(_ context.Context, path, _ string) ([]ports.Commit, 
 }
 
 var (
-	_ ports.Worktrees    = (*Worktrees)(nil)
-	_ ports.FileCommits  = (*Worktrees)(nil)
-	_ ports.ReviewTrees  = (*Worktrees)(nil)
-	_ ports.ChangeSizes  = (*Worktrees)(nil)
-	_ ports.BranchMerger = (*Worktrees)(nil)
+	_ ports.Worktrees      = (*Worktrees)(nil)
+	_ ports.FileCommits    = (*Worktrees)(nil)
+	_ ports.HistoryImports = (*Worktrees)(nil)
+	_ ports.ReviewTrees    = (*Worktrees)(nil)
+	_ ports.ChangeSizes    = (*Worktrees)(nil)
+	_ ports.BranchMerger   = (*Worktrees)(nil)
 )

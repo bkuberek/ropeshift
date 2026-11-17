@@ -140,6 +140,48 @@ ropeshift repository add <planning clone>/repos/<name>
 
 They are yours to run. Ropeshift never moves, deletes, or writes to a clone other than through a lane worktree of the planning repository, so the worker lists the moves and runs none of them, and the session tells you about them and runs none either.
 
+## Consolidating a design repository
+
+With `--restructure`, in the `consolidate` shape, the worker imports the design repository's history into the workspace on the adoption branch. The shape is a workspace that holds no plan content, with its design repository in a folder the workspace ignores, such as `repos/`. The worker acts at the same point as for the workspace files, after the lane's worktree exists and before the inventory is written, and starts with the same check: it reads the layout again as the plan did and compares digests, and the work fails with `layout_changed` or `restructure_incomplete` as [the workspace files](#the-workspace-files) describes. The design repository's choices travel with the work: its clone, its first commit, and the code trees you left out.
+
+In the lane's worktree of the workspace, the worker then:
+
+1. Fetches the design repository's tip from its clone with `git fetch`, which reads the clone and writes nothing to it. The tip is the one the plan read: the remote's default branch when the clone has a remote, else its default branch.
+2. Checks that the fetched history begins at the first commit the plan stored for the design repository, following first parents. When it begins elsewhere, the work fails with `layout_changed` and nothing is merged.
+3. Merges it with `git merge --allow-unrelated-histories --no-ff --no-commit`, so the workspace is the first parent and the design repository the second, and each design file arrives at its own path at the root. No commit is rewritten.
+4. Settles the paths both repositories hold, and removes each tree you left out.
+5. Adds what the other restructurings add, each only when it is absent: the manifest of the code folder with the design repository left out, a `Makefile` when the workspace has none, and the `/.ropeshift/worktrees/` line when git does not ignore that folder in the workspace.
+6. Commits all of it as one merge commit, `chore: import the <design> history into the workspace`, in the product's name, with no hook run.
+
+Every design commit keeps its ID, so `git log` and `git blame` on a design file read through the merge with no `--follow`. The workspace's identity does not change: ropeshift identifies a repository by its first-parent root, which stays the workspace's own, and the merge gives its history a second root.
+
+### Paths both repositories hold
+
+| Path | What the merge commit keeps |
+|------|-----------------------------|
+| `.gitignore` | The workspace's lines, followed by each of the design repository's lines the workspace lacks, in order |
+| Any other path both hold | The workspace's version. The design repository's version stays in the merge's second parent, which `git show <second parent>:<path>` reads |
+
+The dry run lists each of these paths as a `collision` with the version kept, and each path the merge takes from the design repository as a `take`. A path the design repository holds beside a path the workspace holds as a folder, or the reverse, cannot be kept apart by keeping a version, and the work fails with the path named and the worktree as it was.
+
+### Code trees you leave out
+
+A code tree of the design repository comes with the history and stays in the workspace, unless you pass `--leave-out PATH` or clear its box in Import after the dry run. The merge commit then removes the tree, and it stays readable in the second parent and in the old repository. A tree left out never takes a file with it that the workspace held at a path inside it. Moving a code tree into a repository of its own is yours to do.
+
+### What the session is told
+
+The inventory of the planning repository is read at the merge commit, so the session onboards the documents the design repository brought. Its brief names the merge commit, its second parent, every colliding path with the version kept, every tree left out, and the design repository's instruction files, `AGENTS.md` and `CLAUDE.md`, at the second parent. It tells the session to merge those instructions into the workspace's own as one commit on its branch, keeping both sets of rules, and to ask you about each contradiction between them.
+
+### A restart, and the clones
+
+A crash at any point is safe. A restart looks for the merge commit on the branch by its subject and its two parents, and finds it or finds nothing. A merge begun and not committed is thrown away, with the files the effect wrote, and made again from the start. Once the merge commit is there the layout is not compared again, because you may have moved clones or committed to the design repository since, and the worker makes no second merge.
+
+### After the branch merges
+
+Merge the adoption branch with a merge commit. A squash or rebase merge keeps the files and drops the design repository's commits, because only a merge commit keeps the second parent.
+
+The design repository is not registered by adopt, and its clone is never written, archived, or given another remote: ropeshift never deletes, archives, or rewrites it. If the project already holds it as a registered repository, take it out with `ropeshift repository remove`, which keeps its record as history. Archive the old repository on its forge yourself when you no longer need it, and delete the clone when you are done with it.
+
 ## The adopt session
 
 The session is a planning session, so it runs in a pane, its questions are yours, and it survives a detach, a park, and a restart of the daemon. Its brief asks the agent to:
@@ -178,12 +220,12 @@ Import reads the layout as `ropeshift adopt` does. For a workspace whose code re
 | Changes | Does not change |
 |---------|-----------------|
 | The planning repository gains one branch with the onboarded documents and the plan | Your default branch, until that branch merges |
-| With `--restructure`, that branch also holds one commit of the workspace files | Any clone: the moves are commands you run |
+| With `--restructure`, that branch also holds one commit of the workspace files, or, in a consolidation, one merge commit that imports the design repository's history | Any clone: the moves are commands you run, and the design repository's clone is only read |
 | The project and its repositories are registered, with the safe settings | Any other repository: the session only reads them |
 | Kept branches get work orders that continue them | The branches themselves, which ropeshift never moves |
 | Your documents gain front matter | Their prose, their IDs, and their history |
 
-Adopting does not move files between repositories or clones between folders. To use the layout in [project structure](project-structure.md), run the moves a restructuring lists, or set up the workspace and its clones first, then adopt.
+Adopting does not move clones between folders, and it brings files from one repository into another only in a consolidation, as a merge that keeps the design repository's history. To use the layout in [project structure](project-structure.md), run the moves a restructuring lists, or set up the workspace and its clones first, then adopt.
 
 `ropeshift adopt` does the same from a terminal, as [the command line](cli.md) describes.
 
@@ -198,7 +240,7 @@ Approving the plan creates its work orders. [Watch work run](watch-work-run.md),
 | Flag | What it does |
 |------|--------------|
 | `--dry-run` | Prints the plan and records nothing: no project, no record, no checkout, and no file. With `--json` it prints the plan as JSON |
-| `--restructure` | Sends the plan's digest, its choices, the request it was read with, and the digest of each of its parts with the adopt work, and prints the moves as commands for you to run. Without it adopt never restructures, and with it a layout of the `single` shape is a usage error. [The workspace files](#the-workspace-files) says what the worker does with it |
+| `--restructure` | Sends the plan's digest, its choices, the request it was read with, and the digest of each of its parts with the adopt work, and prints the moves as commands for you to run. Without it adopt never restructures, and with it a layout of the `single` shape is a usage error. [The workspace files](#the-workspace-files) and [consolidating a design repository](#consolidating-a-design-repository) say what the worker does with it |
 | `--depth N` | How many levels below a folder to look for clones |
 | `--planning NAME` | The repository that holds the plan, by its clone's folder name. By default the shape says, and when it says none, adopt asks on the terminal, and with no terminal stops with exit 2 and the names to choose from |
 | `--design NAME` | The design repository, by its clone's folder name |
@@ -214,7 +256,7 @@ A code tree is the topmost directory below a repository's top that holds a build
 |-------|------|---------------------|------------------------|
 | `single` | No clone found other than the one adopt runs in | It | Nothing |
 | `planned` | It holds plan content, and clones were found | It | The manifest, when no `repositories` file exists, and the ignore line for the folder lane worktrees go in |
-| `consolidate` | It holds no plan content, clones sit in a folder it ignores, and one of them is the design repository | It | Importing the design repository's history |
+| `consolidate` | It holds no plan content, clones sit in a folder it ignores, and one of them is the design repository | It | Importing the design repository's history in one merge commit, with the manifest, the ignore line for the folder lane worktrees go in, and a Makefile when it has none |
 | `workspace_files` | Any other layout with clones | It when a folder it ignores holds clones; else the design repository when one was chosen and is another clone; else none is settled, and `--planning NAME` names it | The manifest, the ignore lines, and a Makefile |
 
 ### The dry run

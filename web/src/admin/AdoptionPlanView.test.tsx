@@ -58,6 +58,7 @@ describe("the plan of an adoption, as the dry run prints it", () => {
     expect(rows("Files added").map((row) => row.textContent)).toEqual([
       "Addplan/repositories.mdthe manifest of the project's repositories",
       "AddMakefilesetup, fetch, and status over the manifest",
+      "Append a line to.gitignore/.ropeshift/worktrees/",
     ]);
     const tree = screen.getByRole("checkbox", { name: /Leave out tools \(tools\/go\.mod\)/ }) as HTMLInputElement;
     expect(tree.checked).toBe(false);

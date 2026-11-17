@@ -428,21 +428,52 @@ func TestARestructuredLaneRunAgainMakesNoSecondCommit(t *testing.T) {
 	}
 }
 
-// A lane with no restructuring, and one whose shape offers nothing the worker writes yet, restructure nothing.
-func TestALaneWithNoRestructuringOrAShapeTheWorkerDoesNotWriteIsLeftAlone(t *testing.T) {
+// A lane with no restructuring restructures nothing.
+func TestALaneWithNoRestructuringIsLeftAlone(t *testing.T) {
 	t.Parallel()
 	r := newRestructureRig(t)
 	r.start(nil)
 	if report, failed := r.restructure(); failed || len(r.commits()) != 0 || r.run.restructuredOf() != nil {
 		t.Errorf("a lane with no restructuring: %+v, failed %v", report, failed)
 	}
-	plan, choice := r.plan()
+}
+
+// consolidating is the restructuring a member chose for a consolidation, as a plan of the layout the rig lays out
+// would give it, which reads as another shape.
+func (r *restructureRig) consolidating() planning.Restructure {
+	r.t.Helper()
+	_, choice := r.plan()
 	choice.Shape = planning.ShapeConsolidate
 	choice.DesignPath, choice.DesignRoot = "/work/design", "abc"
-	_ = plan
-	r.start(choice)
-	if report, failed := r.restructure(); failed || len(r.commits()) != 0 {
-		t.Errorf("a consolidation: %+v, failed %v", report, failed)
+	return choice
+}
+
+// A worker whose worktrees cannot import a history fails a consolidation, and commits nothing.
+func TestAConsolidationOnAStoreThatImportsNothingFailsTheLane(t *testing.T) {
+	t.Parallel()
+	r := newRestructureRig(t)
+	r.start(r.consolidating())
+	r.run.rt.Provisioner.Worktrees = struct{ ports.FileCommits }{r.worktrees}
+	report, failed := r.restructure()
+	if !failed || report.Reason != workorders.ReasonSpawnFailed {
+		t.Errorf("a store that imports nothing reported %+v, failed %v", report, failed)
+	}
+	if commits := r.commits(); len(commits) != 0 || len(r.worktrees.Imports()) != 0 {
+		t.Errorf("a store that imports nothing made %+v and %+v", commits, r.worktrees.Imports())
+	}
+}
+
+// A consolidation the layout no longer reads as fails with layout_changed, and imports nothing.
+func TestAConsolidationChosenForALayoutThatIsNoneFailsWithLayoutChanged(t *testing.T) {
+	t.Parallel()
+	r := newRestructureRig(t)
+	r.start(r.consolidating())
+	report, failed := r.restructure()
+	if !failed || report.Reason != workorders.ReasonLayoutChanged || !strings.Contains(report.Detail, string(planning.ShapeWorkspaceFiles)) {
+		t.Fatalf("the restructuring reported %+v, failed %v", report, failed)
+	}
+	if len(r.commits()) != 0 || len(r.worktrees.Imports()) != 0 {
+		t.Errorf("a consolidation of no design repository imported %+v", r.worktrees.Imports())
 	}
 }
 

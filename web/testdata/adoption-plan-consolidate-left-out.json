@@ -72,6 +72,14 @@
       "path": "Makefile",
       "action": "add",
       "detail": "setup, fetch, and status over the manifest"
+    },
+    {
+      "path": ".gitignore",
+      "action": "append",
+      "detail": "/.ropeshift/worktrees/",
+      "lines": [
+        "/.ropeshift/worktrees/"
+      ]
     }
   ],
   "takes": [
@@ -92,5 +100,5 @@
     }
   ],
   "moves": null,
-  "digest": "sha256:3c9e009c6b58b4a8a2fcb2545ba284b932d2a124303492ff95a3d08f1475da53"
+  "digest": "sha256:8b5fc9f37ae361fc5ce082f652ce8525ccf574fccd9e7522c58938ff7d4ca292"
 }

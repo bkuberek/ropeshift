@@ -233,6 +233,56 @@ func TestAdoptionOfAWorkspaceWithADesignRepositoryConsolidates(t *testing.T) {
 	}
 }
 
+// A consolidation lists the line that ignores the folder a lane's worktree goes in as P3f's restructuring does: only
+// when the workspace's clone does not ignore it already, and git says so.
+func TestAConsolidationListsTheWorktreeFolderLineUnlessTheWorkspaceIgnoresItAlready(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		ignores string
+		want    []string
+	}{
+		{name: "not ignored", want: []string{planning.WorktreesLine}},
+		{name: "ignored", ignores: planning.WorktreesFolder},
+		{name: "a folder above it ignored", ignores: ".ropeshift"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			m := newAdoptionMachine(t)
+			m.open("/work/ws", fake.CloneLayout{Ignored: []string{"repos"}, Tracked: []string{".gitignore", "README.md"}})
+			designOf(m, 3)
+			if tt.ignores != "" {
+				m.checkouts.Ignore("/work/ws", tt.ignores)
+			}
+			plan := m.mustPlan(control.AdoptionRequest{Root: "/work/ws"})
+			if plan.Shape != planning.ShapeConsolidate {
+				t.Fatalf("the layout reads %s", plan.Shape)
+			}
+			if got := ignoreLinesOf(plan); !slices.Equal(got, tt.want) {
+				t.Errorf("the plan appends %v to the merged ignore file, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// A Makefile or a manifest the design repository commits arrives in the merge at its own path, so the workspace
+// has one afterwards, and the plan lists none to add.
+func TestAConsolidationAddsNoMakefileOrManifestTheDesignRepositoryBrings(t *testing.T) {
+	t.Parallel()
+	m := newAdoptionMachine(t)
+	workspaceOf(m)
+	m.checkouts.Ignore("/work/ws", planning.WorktreesFolder)
+	designOf(m, 3, "Makefile", "plan/repositories.md")
+	plan := m.mustPlan(control.AdoptionRequest{Root: "/work/ws"})
+	if got := filesOf(plan); len(got) != 0 {
+		t.Errorf("the plan adds %v although the design repository brings both", got)
+	}
+	if !slices.Contains(plan.Takes, "Makefile") || !slices.Contains(plan.Takes, "plan/repositories.md") {
+		t.Errorf("the plan takes %v", plan.Takes)
+	}
+}
+
 // With no clone holding plan content, the design repository is the one with the most committed Markdown
 // documents, and a tie names none and says how to name one.
 func TestTheDesignRepositoryIsTheOneWithTheMostDocumentsAndATieNamesNone(t *testing.T) {

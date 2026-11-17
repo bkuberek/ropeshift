@@ -3,6 +3,7 @@ package worker
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"maps"
 	"os"
 	"os/exec"
@@ -35,36 +36,56 @@ type gitWorkspace struct {
 	lane     string
 	tip      string
 	ids      map[string]string
+	// reads are the clones the lane's lease reads beside the workspace, by name.
+	reads []string
 }
 
 func newGitWorkspace(t *testing.T, designFiles map[string]string) *gitWorkspace {
+	t.Helper()
+	w := newEmptyGitWorkspace(t)
+	w.clone("ws", designFiles)
+	w.clone("api", map[string]string{"go.mod": "module api\n", "README.md": "api\n"})
+	w.clone("web", map[string]string{"package.json": "{}\n", "README.md": "web\n"})
+	w.begin("api", "web")
+	return w
+}
+
+// newEmptyGitWorkspace is a folder for clones to be made in, and nothing else.
+func newEmptyGitWorkspace(t *testing.T) *gitWorkspace {
 	t.Helper()
 	gittest.Require(t)
 	base, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	w := &gitWorkspace{t: t, base: base, ids: map[string]string{}}
-	w.clone("ws", designFiles)
-	w.clone("api", map[string]string{"go.mod": "module api\n", "README.md": "api\n"})
-	w.clone("web", map[string]string{"package.json": "{}\n", "README.md": "web\n"})
-	w.kept = &checkouts.File{Path: filepath.Join(t.TempDir(), checkouts.FileName), Env: w.env}
+	return &gitWorkspace{t: t, base: base, ids: map[string]string{}}
+}
+
+// begin makes the lane's worktree of the workspace clone "ws" on a branch of its own, once every clone is made,
+// and reads the identity of the workspace and of each clone the lane reads, named by their paths below the base.
+func (w *gitWorkspace) begin(reads ...string) {
+	w.t.Helper()
+	w.kept = &checkouts.File{Path: filepath.Join(w.t.TempDir(), checkouts.FileName), Env: w.env}
 	w.worktree = gitcli.Worktrees{Env: w.env}
 	ws := w.path("ws")
-	w.lane = filepath.Join(t.TempDir(), "lane-1")
-	made, err := w.worktree.Create(t.Context(), ports.WorktreeSpec{Repository: ws, Path: w.lane, Branch: "lane/adopt"})
+	w.lane = filepath.Join(w.t.TempDir(), "lane-1")
+	made, err := w.worktree.Create(w.t.Context(), ports.WorktreeSpec{Repository: ws, Path: w.lane, Branch: "lane/adopt"})
 	if err != nil {
-		t.Fatal(err)
+		w.t.Fatal(err)
 	}
 	w.tip = made.Head
-	found, _, err := w.kept.Find(t.Context(), []string{ws, w.path("api"), w.path("web")}, 1)
+	w.reads = reads
+	paths := []string{ws}
+	for _, name := range reads {
+		paths = append(paths, w.path(name))
+	}
+	found, _, err := w.kept.Find(w.t.Context(), paths, 1)
 	if err != nil {
-		t.Fatal(err)
+		w.t.Fatal(err)
 	}
 	for _, clone := range found {
 		w.ids[filepath.Base(clone.Path)] = clone.ID
 	}
-	return w
 }
 
 func (w *gitWorkspace) path(name string) string { return filepath.Join(w.base, name) }
@@ -97,6 +118,13 @@ func (w *gitWorkspace) git(dir string, args ...string) string {
 // adapters.
 func (w *gitWorkspace) run(request adoption.Request) *laneRun {
 	w.t.Helper()
+	return w.runChoosing(request, nil)
+}
+
+// runChoosing is run with a say in the restructuring the work carries, as a member's command sets it from the
+// plan: choose may change what the plan alone would give.
+func (w *gitWorkspace) runChoosing(request adoption.Request, choose func(plan planning.AdoptionPlan, chosen *planning.Restructure)) *laneRun {
+	w.t.Helper()
 	register := func(_ context.Context, clones []adoption.Found) ([]planning.PlannedRepository, error) {
 		var out []planning.PlannedRepository
 		for _, one := range clones {
@@ -108,16 +136,23 @@ func (w *gitWorkspace) run(request adoption.Request) *laneRun {
 	if err != nil {
 		w.t.Fatal(err)
 	}
-	raw, err := json.Marshal(planning.Restructure{
-		Shape: plan.Shape, Digest: plan.Digest, Root: request.Root, Paths: request.Paths, Depth: request.Depth, Planning: request.Planning, Parts: plan.Parts(),
-	})
+	chosen := planning.Restructure{
+		Shape: plan.Shape, Digest: plan.Digest, Root: request.Root, Paths: request.Paths, Depth: request.Depth, Planning: request.Planning,
+		Design: request.Design, LeaveOut: request.LeaveOut, Parts: plan.Parts(),
+	}
+	if choose != nil {
+		choose(plan, &chosen)
+	}
+	raw, err := json.Marshal(chosen)
 	if err != nil {
 		w.t.Fatal(err)
 	}
 	lease := ledger.DesiredLease{
 		Project: "p1", WorkOrder: "wo", Lane: "lane-1", Kind: string(workorders.KindPlan), Adopt: true,
 		Repository: w.ids["ws"], RepositoryName: "ws", BaseCommit: w.tip, Restructure: raw,
-		Reads: []ledger.RepositoryRead{{Repository: w.ids["api"], Name: "api", Commit: "c1"}, {Repository: w.ids["web"], Name: "web", Commit: "c2"}},
+	}
+	for i, name := range w.reads {
+		lease.Reads = append(lease.Reads, ledger.RepositoryRead{Repository: w.ids[filepath.Base(name)], Name: filepath.Base(name), Commit: fmt.Sprintf("c%d", i+1)})
 	}
 	journal, err := fake.NewJournal()
 	if err != nil {
