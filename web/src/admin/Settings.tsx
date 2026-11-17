@@ -38,6 +38,7 @@ import { Dialog, useToast } from "../ui/overlays";
 import { capsAbove, capsDraftOf, capsProblems, capsSettings, capsWords, minutesBounds, newID, nextVersion, policies, policyBody, policySettings, problemOf } from "./logic";
 import type { CapsDraft, DelegationClass, FieldSpec, PolicyKind, PolicyValue, PolicyValues } from "./logic";
 import { PassphraseForm } from "./Passphrase";
+import { RiskStatement } from "./RiskStatement";
 import { dateOf, Reading, SaveBar, saveDownload, timeOf, useChange, useDraft, useLeaveGuard, useRead } from "./parts";
 
 export type Prefs = { theme: Theme; setTheme: (theme: Theme) => void; singleKeys: boolean; setSingleKeys: (on: boolean) => void };
@@ -496,7 +497,7 @@ function WorkerAutonomy({ worker, name, live }: { worker: string; name: string; 
               </>
             }
           >
-            <p className="prose small pre-wrap">{risk?.statement}</p>
+            <RiskStatement text={risk?.statement ?? ""} />
           </Dialog>
         </div>
       ) : null}

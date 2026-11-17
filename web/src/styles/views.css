@@ -944,6 +944,12 @@ details.older[open] > summary {
   list-style: revert;
 }
 
+.risk-statement a {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-4);
+}
+
 .prose code {
   background: var(--surface-2);
   border-radius: 3px;
