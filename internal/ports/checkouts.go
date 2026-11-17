@@ -40,6 +40,13 @@ type UnreadPath struct {
 	Reason string
 }
 
+// Checkout is this worker's checkout of one repository of a project.
+type Checkout struct {
+	Project    ledger.WorkspaceID
+	Repository string
+	Path       string
+}
+
 // Checkouts is a worker's own clones: where it finds them on its machine, and the path of its checkout of
 // each repository it runs lanes in, by project, which it keeps in its configuration (ADR-0022). A path
 // means nothing on another machine, so none is in a project's records.
@@ -69,6 +76,9 @@ type Checkouts interface {
 	// Every lists the path of every checkout this worker keeps, in every project, each once and in order.
 	// No lane's worktree may be one of them or inside one.
 	Every(ctx context.Context) ([]string, error)
+	// All lists every checkout this worker keeps with its project and repository, by project and then
+	// repository.
+	All(ctx context.Context) ([]Checkout, error)
 }
 
 // InsideClone says whether a path is one of the clones or lies inside one, and names that clone. It

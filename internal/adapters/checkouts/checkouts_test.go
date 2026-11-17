@@ -373,6 +373,30 @@ func TestEveryListsTheCheckoutsOfEveryProject(t *testing.T) {
 	}
 }
 
+// All lists each checkout with its project and repository, by project and then repository, and nothing for a
+// file that holds none.
+func TestAllListsEveryCheckoutWithItsProject(t *testing.T) {
+	f := &File{Path: filepath.Join(t.TempDir(), FileName)}
+	ctx := t.Context()
+	if all, err := f.All(ctx); err != nil || len(all) != 0 {
+		t.Fatalf("a new file: %v, %v", all, err)
+	}
+	for _, keep := range []struct{ project, repository, path string }{
+		{"beta", "r2", "/fork/web"}, {"alpha", "r2", "/work/web"}, {"beta", "r1", "/work/api"}, {"alpha", "r1", "/work/api"},
+	} {
+		if err := f.Keep(ctx, ledger.WorkspaceID(keep.project), keep.repository, keep.path); err != nil {
+			t.Fatal(err)
+		}
+	}
+	want := []ports.Checkout{
+		{Project: "alpha", Repository: "r1", Path: "/work/api"}, {Project: "alpha", Repository: "r2", Path: "/work/web"},
+		{Project: "beta", Repository: "r1", Path: "/work/api"}, {Project: "beta", Repository: "r2", Path: "/fork/web"},
+	}
+	if all, err := f.All(ctx); err != nil || !slices.Equal(all, want) {
+		t.Errorf("all is %v (%v), want %v", all, err, want)
+	}
+}
+
 // A path is inside a clone when it is the clone or below it, by the real paths of both with every link
 // followed, and a path nothing is at is judged by the nearest directory above it that exists.
 func TestInsideCloneFollowsLinksAndJudgesAPathNothingIsAt(t *testing.T) {
