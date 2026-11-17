@@ -1001,6 +1001,25 @@ describe("operations", () => {
     expect(within(measures).getByText("Autonomous decision rate").closest("div")?.textContent).toContain("No data yet");
   });
 
+  it("reads a cost per outcome as at least a figure only where some of it went unreported, and says so", async () => {
+    serving<Operations>("operations", (view) => {
+      view.measures.cost_per_outcome = {
+        change: { total_usd: 3, done: 2, per_done_usd: 1.5, lower_bound: true },
+        plan: { total_usd: 0.5, done: 1, per_done_usd: 0.5, lower_bound: false },
+      };
+    });
+    openPage("/measures");
+    const measures = await screen.findByRole("region", { name: "Product measures" });
+    const costs = within(measures).getByRole("table", { name: "Cost per outcome" });
+    expect(within(costs).getAllByRole("row").map((row) => row.querySelector("td")?.textContent)).toEqual([
+      "at least $1.50 each, at least $3.00 over 2 done",
+      "$0.50 each, $0.50 over 1 done",
+    ]);
+    const note = measures.querySelector(".tables-note")?.textContent ?? "";
+    expect(note).toMatch(/reads at least a figure only when some of it was never reported/);
+    expect(note).not.toMatch(/an estimate and a lower bound/);
+  });
+
   it("counts a batch of questions as one interruption, and names each kind", async () => {
     serving<Operations>("operations", (view) => {
       view.measures.interruptions = 4;
@@ -1075,7 +1094,7 @@ describe("operations", () => {
     });
     openPage("/measures");
     const table = await screen.findByRole("table", { name: "Cost per outcome" });
-    expect(within(table).getByRole("row").textContent).toContain("at least $1.50 each, $3.00 over 2 done");
+    expect(within(table).getByRole("row").textContent).toContain("at least $1.50 each, at least $3.00 over 2 done");
   });
 
   it("states money in dollars and cents, and a cost under a cent as under a cent", async () => {

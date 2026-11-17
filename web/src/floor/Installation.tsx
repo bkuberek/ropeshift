@@ -586,7 +586,7 @@ export function UsagePage({ live, project, label }: { live: Live; project: strin
         {operations.failure ? <Banner tone="danger">{operations.failure}</Banner> : null}
         {report ? (
           <ViewTime.Provider value={{ asOf: operations.view?.as_of ?? 0, elapsed: Math.max(0, now - operations.readAt) }}>
-            <Panel title={`Estimated cost by outcome in ${label}`} flush foot="Costs are estimated at list price from what agents reported, and are not a bill. A turn a kill stopped reports nothing, so a sum is a lower bound.">
+            <Panel title={`Estimated cost by outcome in ${label}`} flush foot="Costs are estimated at list price from what agents reported, and are not a bill. A cost reads at least a figure only when some of it was never reported, because a turn stopped, or a session ended before a turn's result.">
               {costs.length ? (
                 <TableRegion label="Estimated cost by outcome">
                   <table className="table stack-on-phone">

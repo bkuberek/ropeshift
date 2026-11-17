@@ -970,10 +970,12 @@ func (s *session) agentUsage(p parsed) (ports.DriverEvent, bool) {
 }
 
 // finish reports how the session ended, and lets the shim go. No `result` for an input
-// means the process died mid-turn, unless someone asked it to stop.
+// means the process died mid-turn, unless someone asked it to stop, and the input went
+// unanswered either way.
 func (s *session) finish(status ports.ExitStatus, err error) {
 	s.mu.Lock()
-	crashed := !s.stopping && (s.inFlight > 0 || status.Code != 0 || status.Signal != "" || err != nil)
+	unanswered := s.inFlight > 0
+	crashed := !s.stopping && (unanswered || status.Code != 0 || status.Signal != "" || err != nil)
 	last := s.last
 	s.over = true
 	s.mu.Unlock()
@@ -983,7 +985,8 @@ func (s *session) finish(status ports.ExitStatus, err error) {
 		defer cancel()
 		_ = s.client.Shutdown(ctx)
 	}
-	s.events <- ports.DriverEvent{Kind: ports.EventSessionEnded, End: &ports.SessionEnd{Crashed: crashed, Exit: status}, Seq: last}
+	end := &ports.SessionEnd{Crashed: crashed, InputUnanswered: unanswered, Exit: status}
+	s.events <- ports.DriverEvent{Kind: ports.EventSessionEnded, End: end, Seq: last}
 	close(s.events)
 	close(s.done)
 }

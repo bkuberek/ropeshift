@@ -370,7 +370,7 @@ func TestPaneEndingMidTurnIsACrash(t *testing.T) {
 	r := newPaneRig(t, "pane-crash")
 	s := r.start()
 	end := s.ended()
-	if !end.Crashed || end.Exit.Code != 137 {
+	if !end.Crashed || !end.InputUnanswered || end.Exit.Code != 137 {
 		t.Errorf("end %+v", end)
 	}
 }
@@ -382,8 +382,9 @@ func TestPaneInterruptEndsTheProcess(t *testing.T) {
 	if err := r.driver.Stop(t.Context(), s.handle, ports.StopInterrupt); err != nil {
 		t.Fatal(err)
 	}
-	if end := s.ended(); end.Crashed {
-		t.Errorf("a stop read as a crash: %+v", end)
+	// The interrupt ends the process inside the turn, and no Stop hook follows, so its input is unanswered.
+	if end := s.ended(); end.Crashed || !end.InputUnanswered {
+		t.Errorf("a stop read as a crash, or as a turn that ended: %+v", end)
 	}
 	observed, err := r.driver.Observe(t.Context(), s.handle)
 	if err != nil {

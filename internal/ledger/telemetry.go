@@ -30,8 +30,8 @@ const (
 	MetricTokens          = "ropeshift.lane.tokens"
 	MetricCost            = "ropeshift.lane.cost"
 	// MetricCostUnreported counts a lane's turns whose cost was never reported: a turn that stopped, which
-	// reports none, and the turn a session died in with no result for its input. Any one makes the lane's
-	// cost a lower bound.
+	// reports none, and the turn a session crashed in, or ended in with an input unanswered, as a kill at a
+	// stop leaves it, or whose stream closed with no end. Any one makes the lane's cost a lower bound.
 	MetricCostUnreported = "ropeshift.lane.cost.unreported"
 	// MetricAgentTokens counts the tokens a roster agent spent inside a lane, where the driver reports
 	// which agent spent them (FR-AGENT-12). They are part of the lane's own usage, kept apart so a lane's

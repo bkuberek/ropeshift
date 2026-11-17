@@ -80,7 +80,7 @@ export function LaneCosts({ live }: { live: Live }) {
         <Panel
           title="Estimated cost by lane"
           flush
-          foot="Costs are estimated at list price from what each lane's agent reported, and are not a bill. A cost reads at least a figure when some of it was never reported, because a turn stopped or a session crashed before its turn ended. An agent's tokens are part of its lane's, and are not added to them."
+          foot="Costs are estimated at list price from what each lane's agent reported, and are not a bill. A cost reads at least a figure when some of it was never reported, because a turn stopped, or a session ended before a turn's result. An agent's tokens are part of its lane's, and are not added to them."
         >
           <TableRegion label="Estimated cost by lane">
             <table className="table stack-on-phone">

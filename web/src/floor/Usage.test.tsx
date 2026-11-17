@@ -1,7 +1,7 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import type { LaneTelemetryList } from "../api/types";
+import type { LaneTelemetryList, Operations } from "../api/types";
 import { openPage } from "../opening";
 import { golden, refusal, serveViews } from "../testing";
 
@@ -101,5 +101,35 @@ describe("the cost of each lane on the Usage page", () => {
     serveLanes(() => refusal(500, "internal", "the telemetry store could not be read"));
     openPage("/usage");
     expect(await screen.findByText(/the telemetry store could not be read/)).toBeTruthy();
+  });
+});
+
+// The estimated cost of each outcome reads as a lower bound only where the measures flag one, as the Overview's sum
+// does: a sum every lane reported in full is the whole of what was reported.
+describe("the estimated cost by outcome on the Usage page", () => {
+  function serveOutcomes() {
+    const measured = golden<Operations>("operations");
+    measured.measures.cost_per_outcome = {
+      change: { total_usd: 3, done: 2, per_done_usd: 1.5, lower_bound: true },
+      plan: { total_usd: 0.5, done: 1, per_done_usd: 0.5, lower_bound: false },
+    };
+    return serveViews((call) => (call.method === "GET" && call.path.startsWith("/v1/views/operations") ? { status: 200, body: measured } : undefined));
+  }
+
+  it("says at least only of a sum that is a lower bound, and says that is the only one", async () => {
+    serveOutcomes();
+    openPage("/usage");
+    const outcomes = await screen.findByRole("region", { name: /^Estimated cost by outcome in/ });
+    const rows = await waitFor(() => {
+      const found = within(outcomes).getAllByRole("row").slice(1);
+      if (found.length !== 2) {
+        throw new Error("no outcome rows");
+      }
+      return found;
+    });
+    expect(rows.map((row) => flat(cell(row, "Est. cost")))).toEqual(["at least $3.00", "$0.50"]);
+    const foot = flat(outcomes.querySelector(".panel-foot"));
+    expect(foot).toMatch(/reads at least a figure only when some of it was never reported/);
+    expect(foot).not.toMatch(/so a sum is a lower bound/);
   });
 });

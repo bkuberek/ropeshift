@@ -354,7 +354,11 @@ type TurnResult struct {
 type SessionEnd struct {
 	// Crashed says the process died mid-turn, which is no `result` for an input.
 	Crashed bool
-	Exit    ExitStatus
+	// InputUnanswered says at least one input the session took never got its result, whoever ended the
+	// session: a kill mid-turn, at a stop or at an interrupt that did not land, crashes nothing and still
+	// leaves the turn it ended unreported.
+	InputUnanswered bool
+	Exit            ExitStatus
 }
 
 // DriverEvent is one normalized event.

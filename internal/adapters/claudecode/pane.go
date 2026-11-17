@@ -612,12 +612,12 @@ func (s *paneSession) watch() {
 
 // finish reports how the session ended and removes its pane. A pane that vanished, or a
 // process that ended inside a turn or on its own with a failure, crashed, unless someone
-// asked it to stop.
+// asked it to stop. A process that ended inside a turn left its prompt unanswered either way.
 func (s *paneSession) finish(status ports.ExitStatus, vanished bool) {
 	s.mu.Lock()
 	inTurn := s.promptMs > s.stopMs
 	crashed := !s.stopping && (vanished || inTurn || status.Code != 0 || status.Signal != "")
-	s.push(ports.DriverEvent{Kind: ports.EventSessionEnded, End: &ports.SessionEnd{Crashed: crashed, Exit: status}})
+	s.push(ports.DriverEvent{Kind: ports.EventSessionEnded, End: &ports.SessionEnd{Crashed: crashed, InputUnanswered: inTurn, Exit: status}})
 	s.last = true
 	s.wake.Broadcast()
 	s.mu.Unlock()

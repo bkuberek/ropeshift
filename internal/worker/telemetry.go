@@ -167,7 +167,16 @@ func (r *laneRun) measureTurn(turn *ports.TurnResult) {
 }
 
 // measureUnreported counts one turn whose cost was never reported, which makes the sum of the lane's
-// cost a lower bound: a turn that stopped, or the turn a session died in with no result for its input.
+// cost a lower bound: a turn that stopped, or the turn a session crashed in or ended in with an input unanswered.
 func (r *laneRun) measureUnreported() {
 	r.measure(ledger.MetricCostUnreported, ports.MetricCounter, "{turn}", 1)
+}
+
+// unreportedEnd counts the turn a session ended in with no result for it, or may have, where its stream closed
+// before it said how it ended. The driver's meter counts a turn that stopped, and this counts the generation's
+// last turn, so the cost the ledger records at the lane's end, which the measures and the delivery record read,
+// is a lower bound wherever the lane's telemetry says it is.
+func (r *laneRun) unreportedEnd() {
+	r.cost.ObserveStopped()
+	r.measureUnreported()
 }

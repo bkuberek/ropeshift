@@ -118,12 +118,14 @@ type LaneResult struct {
 	Change *ledger.ChangeSize `json:"change,omitempty"`
 	// MaxReviewRounds is the bound on review rounds the profile of the lane that ended named, which a
 	// review's verdicts are settled against. Zero names none, and the default holds.
-	MaxReviewRounds  int64   `json:"max_review_rounds,omitempty"`
-	CostUSD          float64 `json:"cost_usd,omitempty"`
-	SessionTotalUSD  float64 `json:"session_total_cost_usd,omitempty"`
-	UnknownCostTurns int64   `json:"unknown_cost_turns,omitempty"`
-	InputTokens      int64   `json:"input_tokens,omitempty"`
-	OutputTokens     int64   `json:"output_tokens,omitempty"`
+	MaxReviewRounds int64   `json:"max_review_rounds,omitempty"`
+	CostUSD         float64 `json:"cost_usd,omitempty"`
+	SessionTotalUSD float64 `json:"session_total_cost_usd,omitempty"`
+	// UnknownCostTurns counts the turns of every generation whose cost was never reported: each turn that stopped,
+	// and the turn a session crashed in or ended in with an input unanswered. Any one makes CostUSD a lower bound.
+	UnknownCostTurns int64 `json:"unknown_cost_turns,omitempty"`
+	InputTokens      int64 `json:"input_tokens,omitempty"`
+	OutputTokens     int64 `json:"output_tokens,omitempty"`
 	// Settings are what the lane ran on, for the experience record of a lane that never bound.
 	Settings *measures.Settings `json:"settings,omitempty"`
 }

@@ -32,7 +32,7 @@ A window runs back from now, `7d` by default. Work in progress is a count of now
 | Park time | From a lane beginning to park to its wake firing, by what fired it, at the median and the 95th percentile |
 | Flow time | From the first time a work order was `ready`, and from its creation, to `done`, at the median and the 95th percentile |
 | Work in progress | Work orders in `claimed`, `running`, or `parked` |
-| Cost per outcome | What lanes' agents reported, over work orders of that kind that reached `done`: a review lane's cost is over the reviews that reached `done`. A lane's cost is the difference between the session's running totals, summed over its generations, because a total accumulates across resumes. A turn a kill stopped reports nothing, so a total is a lower bound, and a surface says so when some lane reported a turn with no cost or lost its holder before it reported |
+| Cost per outcome | What lanes' agents reported, over work orders of that kind that reached `done`: a review lane's cost is over the reviews that reached `done`. A lane's cost is the difference between the session's running totals, summed over its generations, because a total accumulates across resumes. A turn that stopped reports no cost, and neither does the turn a session crashed in or was killed in before its result, so a total is a lower bound only when some lane had such a turn or lost its holder before it reported, and a surface then reads it as "at least". A lane's end counts the same turns its telemetry counts, so the measures, the delivery record, and the lane's own cost read a lower bound in the same places |
 
 ## Review agreement
 
