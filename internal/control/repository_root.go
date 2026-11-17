@@ -39,7 +39,7 @@ func (r *Repositories) rootNote(ctx context.Context, scope ledger.WorkspaceID, k
 	if err != nil {
 		return "", nil
 	}
-	_, inside, err := ports.InsideClone(ctx, kept, []string{checkout}, place.Path)
+	_, inside, err := ports.InsideClone(ctx, kept, []string{checkout}, place.Path, "")
 	if err != nil || !inside {
 		return "", err
 	}

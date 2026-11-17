@@ -32,7 +32,7 @@ func WorktreeReport(ctx context.Context, profile lanes.Profile, kept ports.Check
 			return report, err
 		}
 		root := path.Dir(place.Path)
-		clone, inside, err := ports.InsideClone(ctx, kept, clones, root)
+		clone, inside, err := ports.InsideClone(ctx, kept, clones, root, "")
 		if err != nil {
 			return report, err
 		}

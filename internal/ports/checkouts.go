@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"path"
+	"strings"
 
 	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/planning"
 )
 
 // ErrRepositoryReadsUnavailable says a control plane reads no repository on its own machine: a group
@@ -100,7 +102,12 @@ func SamePath(ctx context.Context, kept Checkouts, a, b string) bool {
 // through a link, or that a disk that ignores case spells another way, is found. A path nothing is at is
 // judged by the nearest directory above it that exists, because a worktree's root is made after the check.
 // A clone nothing is at holds nothing.
-func InsideClone(ctx context.Context, kept Checkouts, clones []string, target string) (string, bool, error) {
+//
+// workspace is the path of the project's workspace when it is a clone, or empty. A path inside that clone is
+// allowed when it lies under the clone's own .ropeshift/worktrees/ folder and the clone ignores that folder
+// (FR-PROF-3). Every other path inside it, and every path inside any other clone, the project's code clones
+// inside the workspace included, is inside a clone as before.
+func InsideClone(ctx context.Context, kept Checkouts, clones []string, target, workspace string) (string, bool, error) {
 	real, err := resolveExisting(ctx, kept, target)
 	if err != nil {
 		return "", false, err
@@ -113,14 +120,62 @@ func InsideClone(ctx context.Context, kept Checkouts, clones []string, target st
 			case err != nil:
 				return "", false, err
 			case same:
-				return clone, true, nil
+				open, err := openedByWorkspace(ctx, kept, clone, workspace, real)
+				if err != nil {
+					return "", false, err
+				}
+				if !open {
+					return clone, true, nil
+				}
 			}
-			if path.Dir(at) == at {
+			if path.Dir(at) == at || same {
 				break
 			}
 		}
 	}
 	return "", false, nil
+}
+
+// openedByWorkspace says a path inside clone is allowed because clone is the workspace, the path lies under its
+// folder for worktrees, and the clone ignores that folder.
+func openedByWorkspace(ctx context.Context, kept Checkouts, clone, workspace, real string) (bool, error) {
+	if workspace == "" {
+		return false, nil
+	}
+	isWorkspace, err := kept.SameFile(ctx, clone, workspace)
+	switch {
+	case errors.Is(err, ErrNotFound):
+		return false, nil
+	case err != nil || !isWorkspace:
+		return false, err
+	}
+	under, err := underWorktreeFolder(ctx, kept, workspace, real)
+	if err != nil || !under {
+		return false, err
+	}
+	return kept.Ignored(ctx, workspace, planning.WorktreesFolder+"/")
+}
+
+// UnderWorkspaceWorktrees says a path lies under a workspace's .ropeshift/worktrees/ folder, whether or not the
+// workspace ignores it, so a refusal can name the line to add.
+func UnderWorkspaceWorktrees(ctx context.Context, kept Checkouts, workspace, target string) (bool, error) {
+	real, err := resolveExisting(ctx, kept, target)
+	if err != nil {
+		return false, err
+	}
+	return underWorktreeFolder(ctx, kept, workspace, real)
+}
+
+// underWorktreeFolder compares a real path with the workspace's folder for worktrees, every link followed in both.
+func underWorktreeFolder(ctx context.Context, kept Checkouts, workspace, real string) (bool, error) {
+	root, _, err := kept.Resolve(ctx, workspace)
+	if errors.Is(err, ErrNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return strings.HasPrefix(real+"/", path.Join(root, planning.WorktreesFolder)+"/"), nil
 }
 
 // resolveExisting follows every link in the part of a path that exists and keeps the rest as it is spelled.

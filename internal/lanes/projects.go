@@ -57,6 +57,20 @@ const (
 	WorkspaceFromPlanning = "the planning repository's clone"
 )
 
+// Workspace is a project's workspace on one worker: the folder that holds its clones.
+type Workspace struct {
+	// Path is the workspace's folder.
+	Path string `json:"path"`
+	// Found says how the worker found it: WorkspaceFromProfile or WorkspaceFromPlanning.
+	Found string `json:"found"`
+	// Clone says the workspace is a git clone, so its folder for worktrees must be ignored. A plain folder
+	// needs no check.
+	Clone bool `json:"clone"`
+	// Ignored says lane worktrees may go in the workspace's .ropeshift/worktrees/ folder: a plain folder, or a
+	// clone whose repository ignores it.
+	Ignored bool `json:"ignored"`
+}
+
 // UnignoredNotice is what a lane's start says when its built-in root fell back to the root outside every clone
 // because the workspace does not ignore the folder for worktrees.
 func UnignoredNotice(workspace string) string {
