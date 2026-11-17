@@ -1,6 +1,6 @@
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type { Orchestrator, ResourceReport, ShopFloor } from "../api/types";
 import { openPage } from "../opening";
@@ -187,6 +187,117 @@ describe("a worker's orchestrator", () => {
     expect(sent.some((call) => call.method === "GET" && call.path === "/v1/workers/worker-a/orchestrator")).toBe(true);
     await userEvent.keyboard("{Escape}");
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Orchestrator on solo" })).toBeNull());
+  });
+
+  // A worker reports its orchestrator to the installation's log, which no project's stream carries. The Floor
+  // and this page read the floor again on their own, so both follow the orchestrator to idle and never disagree.
+  describe("as its worker reports it, with nothing on the project's stream", () => {
+    function serveOrchestrator(state: { actual: string }) {
+      return serveViews((call) => {
+        if (!call.path.startsWith("/v1/views/shop-floor")) {
+          return undefined;
+        }
+        const view = golden<ShopFloor>("shop-floor");
+        for (const line of view.workers) {
+          if (line.orchestrator) {
+            line.orchestrator.actual_state = state.actual;
+          }
+        }
+        return { status: 200, body: view };
+      });
+    }
+
+    async function follow(path: string, shows: (state: string) => Promise<void>) {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      try {
+        const state = { actual: "provisioning" };
+        serveOrchestrator(state);
+        openPage(path);
+        await shows("provisioning");
+        state.actual = "idle";
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(5_000);
+        });
+        await shows("idle");
+      } finally {
+        vi.useRealTimers();
+      }
+    }
+
+    it("shows it idle on Workers and resources", async () => {
+      await follow("/workers", async (state) => {
+        const row = await machineRow();
+        await waitFor(() => expect(within(cell(row, "Orchestrator") as HTMLElement).getByText(state === "idle" ? "Idle" : "Provisioning")).toBeTruthy());
+      });
+    });
+
+    it("shows it idle on the Floor", async () => {
+      await follow("/floor", async (state) => {
+        expect(await screen.findByText(new RegExp(`^Orchestrator · ${state}`))).toBeTruthy();
+      });
+    });
+
+    const passMs = (ms: number) =>
+      act(async () => {
+        await vi.advanceTimersByTimeAsync(ms);
+      });
+
+    // A hidden tab shows nobody the floor, so it reads nothing on its own, and reads once when it is shown again.
+    it("reads nothing while the tab is hidden, and once when it is shown again", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      let visibility: DocumentVisibilityState = "visible";
+      Object.defineProperty(document, "visibilityState", { configurable: true, get: () => visibility });
+      const turn = (to: DocumentVisibilityState) =>
+        act(() => {
+          visibility = to;
+          document.dispatchEvent(new Event("visibilitychange"));
+        });
+      try {
+        const sent = serveOrchestrator({ actual: "idle" });
+        const reads = () => sent.filter((call) => call.path.startsWith("/v1/views/shop-floor")).length;
+        openPage("/workers");
+        await machineRow();
+        await passMs(1_000);
+        const before = reads();
+        turn("hidden");
+        await passMs(15_000);
+        expect(reads(), "reads while hidden").toBe(before);
+        turn("visible");
+        await waitFor(() => expect(reads(), "reads once shown").toBe(before + 1));
+        await passMs(1_000);
+        expect(reads(), "reads once shown").toBe(before + 1);
+      } finally {
+        delete (document as { visibilityState?: DocumentVisibilityState }).visibilityState;
+        vi.useRealTimers();
+      }
+    });
+
+    // A read still out when the next one is due is not asked again, so a slow daemon gets no pile of reads.
+    it("asks for no second read while one is still out", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      try {
+        serveOrchestrator({ actual: "idle" });
+        const served = globalThis.fetch;
+        let hang = false;
+        let hung = 0;
+        vi.stubGlobal("fetch", (url: string, init?: RequestInit) => {
+          if (hang && url.includes("/views/shop-floor")) {
+            hung += 1;
+            return new Promise<Response>(() => {});
+          }
+          return served(url, init);
+        });
+        openPage("/workers");
+        await machineRow();
+        hang = true;
+        await passMs(5_000);
+        expect(hung, "the read that is due").toBe(1);
+        await passMs(15_000);
+        expect(hung, "reads asked while one was out").toBe(1);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
   });
 
   it("says what the server refused, in its words", async () => {

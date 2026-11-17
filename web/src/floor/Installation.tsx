@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { createJoinToken, readOrchestrator, stopOrchestrator } from "../api/admin";
 import { inProjectOf, readView, startOrchestrator } from "../api/client";
@@ -20,14 +20,66 @@ import { laneLabel, workerStates } from "./states";
 
 type FloorRead = { project: string; view: ShopFloor };
 
+// A worker reports its orchestrator and its resources to the installation's log, which no project's stream
+// carries, so a read of the floor also runs this often.
+const installationMs = 5000;
+
+// useFloorLive is what a read of the floor follows: the project's stream, and the installation's reports at
+// installationMs. The Floor, Workers and resources, and Projects all follow it, so they show an orchestrator
+// alike. A hidden tab shows nobody the floor, so it reads nothing on its own and reads once when it is shown
+// again, and a read still out when the next is due is not asked again. `track` wraps a read so it counts as out.
+export function useFloorLive(live: Live): { live: Live; track: <T>(read: () => Promise<T>) => () => Promise<T> } {
+  const [ticks, setTicks] = useState(0);
+  const out = useRef(0);
+  useEffect(() => {
+    let timer: ReturnType<typeof setInterval> | undefined;
+    const due = () => {
+      if (out.current === 0) {
+        setTicks((was) => was + 1);
+      }
+    };
+    const follow = () => {
+      clearInterval(timer);
+      timer = document.visibilityState === "hidden" ? undefined : setInterval(due, installationMs);
+    };
+    const shown = () => {
+      follow();
+      if (document.visibilityState !== "hidden") {
+        due();
+      }
+    };
+    follow();
+    document.addEventListener("visibilitychange", shown);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", shown);
+    };
+  }, []);
+  const followed = useMemo(() => ({ heard: live.heard + ticks, checkSession: live.checkSession }), [live.heard, live.checkSession, ticks]);
+  const track = useCallback(
+    <T,>(read: () => Promise<T>) =>
+      async () => {
+        out.current += 1;
+        try {
+          return await read();
+        } finally {
+          out.current -= 1;
+        }
+      },
+    [],
+  );
+  return { live: followed, track };
+}
+
 // useEveryFloor reads the floor of every active project, because a machine serves them all and its
 // sessions belong to each.
 export function useEveryFloor(live: Live, projects: Project[]) {
   const names = projects.filter((row) => row.state === "active").map((row) => row.name);
+  const floor = useFloorLive(live);
   return useView<FloorRead[]>(
-    () => Promise.all(names.map((name) => inProjectOf(name, () => readView<ShopFloor>("shop-floor")).then((view) => ({ project: name, view })))),
+    floor.track(() => Promise.all(names.map((name) => inProjectOf(name, () => readView<ShopFloor>("shop-floor")).then((view) => ({ project: name, view }))))),
     `floors:${names.join(",")}`,
-    live,
+    floor.live,
   );
 }
 
