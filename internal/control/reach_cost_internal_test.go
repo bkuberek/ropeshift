@@ -39,14 +39,11 @@ func reachCost(t *testing.T, changes int) time.Duration {
 	t.Helper()
 	const scope = ledger.WorkspaceID("reach")
 	actor := ledger.Actor{Kind: ledger.ActorMember, ID: "member-1"}
-	store, err := fake.NewStore()
+	store, err := fake.NewMigratedStore()
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = store.Close() })
-	if err := store.Migrate(t.Context()); err != nil {
-		t.Fatal(err)
-	}
 	if _, err := store.CreateWorkspace(t.Context(), ledger.Workspace{ID: scope, Name: string(scope)}, actor); err != nil {
 		t.Fatal(err)
 	}

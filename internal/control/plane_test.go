@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"ropeshift.com/ropeshift/internal/adapters/fake"
 	"ropeshift.com/ropeshift/internal/adapters/lexical"
 	"ropeshift.com/ropeshift/internal/adapters/sqlite"
 	"ropeshift.com/ropeshift/internal/adapters/sqlstore"
@@ -41,13 +42,19 @@ type planeRig struct {
 func newPlaneRig(t *testing.T, protocol int) *planeRig {
 	t.Helper()
 	ctx := t.Context()
-	state, err := sqlite.OpenState(ctx, t.TempDir(), sqlstore.Options{})
+	projects := []ledger.Project{{ID: "pa", Name: "alpha"}, {ID: "pb", Name: "beta"}}
+	// The installation and each project's ledger start as copies of migrated databases.
+	dir := t.TempDir()
+	if err := fake.SeedState(dir, projects[0].ID, projects[1].ID); err != nil {
+		t.Fatal(err)
+	}
+	state, err := sqlite.OpenState(ctx, dir, sqlstore.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = state.Close() })
 	r := &planeRig{t: t, state: state, stores: map[ledger.WorkspaceID]ports.Store{}}
-	for _, p := range []ledger.Project{{ID: "pa", Name: "alpha"}, {ID: "pb", Name: "beta"}} {
+	for _, p := range projects {
 		_, store, err := state.CreateProject(ctx, p, projectMember)
 		if err != nil {
 			t.Fatal(err)
