@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"ropeshift.com/ropeshift/internal/adapters/fake"
-	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/messages"
@@ -617,22 +616,22 @@ func (m *midPlan) reworkOf(id string) ([]workorders.WorkOrder, error) {
 	return slices.DeleteFunc(rows, func(row workorders.WorkOrder) bool { return row.ReworkOf != id }), nil
 }
 
-// checkMidPlanNeedsRevision holds G5: approval of version 1 is the last time the plan asks a member for
-// anything, whatever the decisions since.
+// checkMidPlanNeedsRevision holds G5: the answers of a member inside an approved plan leave the plan needing
+// revision, with one open revision that lists each of them and waits for a member to confirm the approved version
+// or approve a later one.
 func checkMidPlanNeedsRevision(r *Rig) error {
 	m, err := midPlanAnswered(r)
 	if err != nil {
 		return err
 	}
-	approvals, err := r.planApprovals(m.s)
+	revision, err := m.demandOpen(fmt.Sprintf("%d decisions of a member inside an approved plan", len(m.answers)))
 	if err != nil {
 		return err
 	}
-	var gap error
-	if !slices.ContainsFunc(approvals, func(a authority.Approval) bool { return a.Plan == m.plan && a.Open() }) {
-		gap = Violatedf("%d decisions of a member inside an approved plan left %d plan approvals, none open", len(m.answers), len(approvals))
+	if len(revision.DecisionIDs) != len(m.answers) || revision.ApprovedVersion != 1 {
+		return Violatedf("the revision of version %d lists %d decisions, want the %d answers of version 1", revision.ApprovedVersion, len(revision.DecisionIDs), len(m.answers))
 	}
-	return knownGap(r, "GAP-MP-G5", gap)
+	return nil
 }
 
 func checkMidPlanOverturn(r *Rig) error {

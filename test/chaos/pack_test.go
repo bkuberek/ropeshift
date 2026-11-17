@@ -20,7 +20,7 @@ func oneWayCase() crashCase {
 	return crashCase{
 		name:  "a one-way decision",
 		op:    "decision.record",
-		steps: []string{"held", "noticed", "parked", "reworked", "bound"},
+		steps: []string{"held", "noticed", "parked", "reworked", "revised", "bound"},
 		prepare: func(w *world) (childSpec, error) {
 			key := w.rig.ID("d")
 			return childSpec{Role: "one-way", Key: key}, w.rig.HoldRepository(w.store, key)
@@ -66,6 +66,27 @@ func packVariants() []variant {
 		{name: "a rework for each decision of a batch", control: control.Sabotage{ReworksEachDecision: true}, check: "BD8"},
 		{name: "a contract review a decision moves and reworks", control: control.Sabotage{ReworksAnyKind: true}, check: "MP15"},
 		{name: "a contract review's lane that nothing tells", control: control.Sabotage{TellsNobody: true}, check: "BD9"},
+		{name: "a plan no decision of a member marks as needing revision", control: control.Sabotage{MarksNoRevision: true}, check: "PRV1"},
+		{name: "a plan no answer of a batch marks as needing revision", control: control.Sabotage{MarksNoRevision: true}, check: "MP12"},
+		{name: "a plan no answer of a batch marks, for the batch's one revision", control: control.Sabotage{MarksNoRevision: true}, check: "PRV11"},
+		{name: "a revision that lists no later decision", control: control.Sabotage{ExtendsNothing: true}, check: "PRV1"},
+		{name: "a revision an orchestrator's decision opens", control: control.Sabotage{MarksAnyActor: true}, check: "PRV2"},
+		{name: "a revision a member's overturn does not open", control: control.Sabotage{MarksNoOverturn: true}, check: "PRV8"},
+		{name: "a revision that lists no finished work", control: control.Sabotage{ListsNoFinishedWork: true}, check: "PRV3"},
+		{name: "a revision that lists the work a one-way decision reworked", control: control.Sabotage{ListsOneWayFinishedWork: true}, check: "PRV3"},
+		{name: "a revision that lists no finished work to rework", control: control.Sabotage{ListsNoFinishedWork: true}, check: "PRV10"},
+		{name: "work that passes review while its plan's revision is open", control: control.Sabotage{WaitsOnNoRevision: true}, check: "PRV4"},
+		{name: "work that waits on a revision after Confirm", control: control.Sabotage{KeepsWaitingWork: true}, check: "PRV4"},
+		{name: "work a one-way decision held, which Confirm leaves held", control: control.Sabotage{KeepsDecisionHolds: true}, check: "PRV5"},
+		{name: "a revision any actor confirms", control: control.Sabotage{ConfirmsAnyActor: true}, check: "PRV6"},
+		{name: "a revision that stays open when a later version is approved", control: control.Sabotage{KeepsRevisionOnApproval: true}, check: "PRV7"},
+		{name: "a revising session whose brief lists no decision", control: control.Sabotage{BriefsNoDecisions: true}, check: "PRV9"},
+		{name: "a rework for each decision a member names", control: control.Sabotage{ReworksEachDecision: true}, check: "PRV10"},
+		{
+			name:     "a plan whose closed revision still reads as open",
+			sabotage: sqlstore.Sabotage{Rewrite: replace("plan_revision.open", " AND closed_at IS NULL", "")},
+			check:    "PRV4",
+		},
 		{
 			name: "an end notice a lane's earlier notice swallows",
 			sabotage: sqlstore.Sabotage{Rewrite: replace("decision_notice.insert",

@@ -54,6 +54,7 @@ func TestDefinitionOfReady(t *testing.T) {
 		{"an open blocking question", func(f *ReadyFacts) { f.OpenBlockingQuestions = 1 }, []ReadyCheck{CheckQuestions}},
 		{"a repository the project does not hold", func(f *ReadyFacts) { f.UnknownRepository = "api" }, []ReadyCheck{CheckRepository}},
 		{"an agent the roster cannot give", func(f *ReadyFacts) { f.AgentProblem = `unknown agent: the resolved roster holds no agent "ghost"` }, []ReadyCheck{CheckAgent}},
+		{"a plan that needs revision", func(f *ReadyFacts) { f.PlanRevision = "plan Factory needs revision: 2 decisions since version 1" }, []ReadyCheck{CheckPlanRevision}},
 		{
 			"every failure is named",
 			func(f *ReadyFacts) {

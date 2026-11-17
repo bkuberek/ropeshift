@@ -121,6 +121,21 @@ func sparesAskersOnOverturn() bool { return false }
 func branchesTheChain() bool       { return false }
 func reworksAnyKind() bool         { return false }
 
+// A plan needs revision when a member decides inside its approved version, and each of these is what a normal build
+// does the other way: none of them breaks it.
+func marksNoRevision() bool         { return false }
+func marksAnyActor() bool           { return false }
+func marksNoOverturn() bool         { return false }
+func extendsNothing() bool          { return false }
+func listsNoFinishedWork() bool     { return false }
+func listsOneWayFinishedWork() bool { return false }
+func waitsOnNoRevision() bool       { return false }
+func confirmsAnyActor() bool        { return false }
+func keepsWaitingWork() bool        { return false }
+func keepsDecisionHolds() bool      { return false }
+func keepsRevisionOnApproval() bool { return false }
+func briefsNoDecisions() bool       { return false }
+
 // leavesParkedLanes is false: a cancel ends a lane with no process, which no worker will report.
 func leavesParkedLanes() bool { return false }
 

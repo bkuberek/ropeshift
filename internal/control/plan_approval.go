@@ -56,6 +56,9 @@ func approvePlan(tx ports.WriteTx, approval authority.Approval, member ledger.Ac
 	if err := decideDrafts(tx, version, member); err != nil {
 		return err
 	}
+	if err := closeApprovedRevision(tx, version.PlanID, approval, member); err != nil {
+		return err
+	}
 	if _, err := passCoveredReviews(tx, member); err != nil {
 		return err
 	}
@@ -555,6 +558,9 @@ func finishApproved(tx ports.WriteTx, version planning.PlanVersion, approval aut
 		}
 	}
 	if err := decideDrafts(tx, version, member); err != nil {
+		return err
+	}
+	if err := closeApprovedRevision(tx, version.PlanID, approval, member); err != nil {
 		return err
 	}
 	if _, err := passCoveredReviews(tx, member); err != nil {

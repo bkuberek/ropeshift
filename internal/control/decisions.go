@@ -606,6 +606,13 @@ func (q *Questions) overturnIn(tx ports.WriteTx, id string, overturn questions.O
 		return questions.Overturned{}, err
 	}
 	crashpoint.Hit("decision.overturn", "reworked")
+	// An overturn reworked the finished work it reached, so it lists none.
+	if !marksNoOverturn() {
+		if err := reviseApprovedPlans(tx, result.New, touched, nil, true, actor); err != nil {
+			return questions.Overturned{}, err
+		}
+	}
+	crashpoint.Hit("decision.overturn", "revised")
 	if result.Noticed, err = q.noticeLanes(tx, id, result.New.ID, touched, actor); err != nil {
 		return questions.Overturned{}, err
 	}
