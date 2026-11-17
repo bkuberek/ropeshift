@@ -26,7 +26,6 @@ import (
 	"ropeshift.com/ropeshift/test/contract"
 	"ropeshift.com/ropeshift/test/doubles"
 	"ropeshift.com/ropeshift/test/gittest"
-	"ropeshift.com/ropeshift/test/procs"
 )
 
 var binaries struct {
@@ -50,6 +49,40 @@ func TestMain(m *testing.M) {
 	code := doubles.Main(m)
 	_ = os.RemoveAll(dir)
 	os.Exit(code)
+}
+
+// raised is ropeshift built with the hookdeadline tag, and a ropeshiftd link to it, made once by the
+// first test that needs them. Its hook reads a raised deadline from its environment, and in every
+// other way it is the normal build.
+var raised struct {
+	once        sync.Once
+	cli, daemon string
+	err         error
+}
+
+// raisedBuild returns the hookdeadline build, as the CLI and as the daemon.
+func raisedBuild(t *testing.T) (cli, daemon string) {
+	t.Helper()
+	if binaries.err != nil {
+		t.Fatal(binaries.err)
+	}
+	raised.once.Do(func() {
+		raised.cli, raised.err = doubles.Binary(binaries.dir, doubles.PrebuiltHookDeadline,
+			"ropeshift.com/ropeshift/cmd/ropeshift", "hookdeadline")
+		if raised.err != nil {
+			return
+		}
+		dir := filepath.Join(binaries.dir, "hookdeadline")
+		if raised.err = os.Mkdir(dir, 0o700); raised.err != nil {
+			return
+		}
+		raised.daemon = filepath.Join(dir, "ropeshiftd")
+		raised.err = os.Symlink(raised.cli, raised.daemon)
+	})
+	if raised.err != nil {
+		t.Fatal(raised.err)
+	}
+	return raised.cli, raised.daemon
 }
 
 // install is one home directory with no configuration in it.
@@ -184,19 +217,15 @@ func (b *lockedBuffer) tail(n int) string {
 	return strings.Join(lines, "")
 }
 
+// start runs the daemon of the hookdeadline build, and raises the deadline of every hook the install's
+// double runs to verdictDeadline. Its lanes' hooks then reach their verdicts however loaded the machine
+// is, so a test checks what they decided and not a race with the real deadline, which the hook's own
+// tests keep on the normal build (hook_test.go). The daemon itself runs as the normal build does.
 func (in *install) start(args ...string) *daemon {
 	in.t.Helper()
-	cmd := exec.Command(binaries.daemon, append([]string{"solo"}, args...)...)
-	cmd.Env = append(in.env(), in.daemonEnv...)
-	d := &daemon{cmd: cmd, stdout: &lockedBuffer{}, stderr: &lockedBuffer{}, exited: make(chan error, 1)}
-	cmd.Stdout, cmd.Stderr = d.stdout, d.stderr
-	if err := procs.Start(in.t, cmd); err != nil {
-		in.t.Fatal(err)
-	}
-	go func() { d.exited <- cmd.Wait() }()
-	in.t.Cleanup(func() { d.kill() })
-	in.daemons = append(in.daemons, d)
-	return d
+	_, daemon := raisedBuild(in.t)
+	doubles.RaiseHookDeadline(in.t, in.path, verdictDeadline)
+	return in.startBinary(daemon, args...)
 }
 
 func (d *daemon) kill() {

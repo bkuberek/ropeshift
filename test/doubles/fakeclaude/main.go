@@ -68,6 +68,11 @@ const usageCommand = "/usage"
 // signedOutMark beside the binary says the sign-in expired, until a test removes it.
 const signedOutMark = "signed-out"
 
+// hookEnvFile beside the binary holds variables, one per line, that every hook a session runs gets on
+// top of the session's environment. A lane passes a session only its own variables, so this is how a
+// test hands a lane's hooks one, such as a raised deadline.
+const hookEnvFile = "hook-env"
+
 // laneScript replaces a fixture's turns for one lane.
 type laneScript struct {
 	Turns       [][]step `json:"turns"`
@@ -1022,9 +1027,11 @@ func (s *session) hook(event string, input map[string]any) [][]byte {
 	if err != nil {
 		fail("%v", err)
 	}
+	env := hookEnvironment()
 	for _, group := range s.settings.Hooks[event] {
 		for _, h := range group.Hooks {
 			cmd := exec.Command("/bin/sh", "-c", h.Command)
+			cmd.Env = env
 			cmd.Stdin = bytes.NewReader(raw)
 			cmd.Stderr = os.Stderr
 			out, err := cmd.Output()
@@ -1041,6 +1048,22 @@ func (s *session) hook(event string, input map[string]any) [][]byte {
 		}
 	}
 	return outputs
+}
+
+// hookEnvironment is a hook's whole environment: the session's, with the lines of hookEnvFile on top.
+// With no such file it is nil, so a hook inherits the session's environment as it is.
+func hookEnvironment() []string {
+	raw, err := os.ReadFile(filepath.Join(filepath.Dir(os.Args[0]), hookEnvFile))
+	if err != nil {
+		return nil
+	}
+	env := os.Environ()
+	for line := range strings.Lines(string(raw)) {
+		if line = strings.TrimSpace(line); line != "" {
+			env = append(env, line)
+		}
+	}
+	return env
 }
 
 func (s *session) currentSession() string {

@@ -206,6 +206,10 @@ func TestParkedLaneSurvivesUpgrade(t *testing.T) {
 
 	running := in.startBinary(later, parkFlags(repo.Dir)...)
 	in.waitReady(running)
+	// The later build is a release build, so this test runs the shipped hook end to end, at its real deadline.
+	if took := policyDeadlineOf(t, running.cmd.Path); took >= verdictDeadline/2 {
+		t.Errorf("a hook of the later build took %v to reach its deadline, so its deadline is raised", took)
+	}
 	if !hasTable(t, ledgerPath, "later_release") {
 		t.Fatal("the later build did not run its migration")
 	}

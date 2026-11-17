@@ -20,7 +20,6 @@ import (
 	"ropeshift.com/ropeshift/internal/hook"
 	"ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/test/apitest"
-	"ropeshift.com/ropeshift/test/doubles"
 )
 
 const toolPayload = `{"session_id":"s1","hook_event_name":"PostToolUse","tool_name":"Bash","tool_use_id":"toolu_1","tool_input":{"command":"a command the hook must not forward"},"tool_response":{"stdout":"output"}}`
@@ -59,14 +58,6 @@ func (e hookEnv) list() []string {
 	return env
 }
 
-// raisedBuild is ropeshift built with the hookdeadline tag, once, by the first test that raises a
-// hook's deadline.
-var raisedBuild struct {
-	once sync.Once
-	path string
-	err  error
-}
-
 // binary is the ropeshift a hook in this environment runs as: the normal build, or, for an environment
 // that raises the deadline, the hookdeadline build, which is the only one that reads it.
 func (e hookEnv) binary(t *testing.T) string {
@@ -77,14 +68,8 @@ func (e hookEnv) binary(t *testing.T) string {
 	if e.deadline == 0 {
 		return binaries.cli
 	}
-	raisedBuild.once.Do(func() {
-		raisedBuild.path, raisedBuild.err = doubles.Binary(binaries.dir, doubles.PrebuiltHookDeadline,
-			"ropeshift.com/ropeshift/cmd/ropeshift", "hookdeadline")
-	})
-	if raisedBuild.err != nil {
-		t.Fatal(raisedBuild.err)
-	}
-	return raisedBuild.path
+	cli, _ := raisedBuild(t)
+	return cli
 }
 
 func runHook(t *testing.T, env hookEnv, event, input string) hookRun {
@@ -565,6 +550,43 @@ func TestAPolicyHookStillDecidingAtItsDeadlineDenies(t *testing.T) {
 	if len(lines) != 1 || lines[0].Subject != "t1" || lines[0].Detail != lanes.DetailDenied {
 		t.Errorf("the spool holds %+v", lines)
 	}
+}
+
+// policyDeadlineOf runs one PreToolUse hook of a build, with verdictDeadline in its environment and a
+// policy file that is a FIFO no one writes, so only the hook's deadline ends it, and returns how long
+// that took. A build that reads a raised deadline takes verdictDeadline, and a release build keeps its
+// real deadline whatever its environment holds. binary may be a ropeshiftd link to the build.
+func policyDeadlineOf(t *testing.T, binary string) time.Duration {
+	t.Helper()
+	build, err := filepath.EvalSymlinks(binary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := newHookEnv(t)
+	env.deadline = verdictDeadline
+	env.policy = filepath.Join(t.TempDir(), "policy.json")
+	if err := syscall.Mkfifo(env.policy, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if writer, err := os.OpenFile(env.policy, os.O_WRONLY|syscall.O_NONBLOCK, 0); err == nil {
+			_ = writer.Close()
+		}
+	})
+	cmd := exec.Command(build, "hook", "PreToolUse")
+	cmd.Env = env.list()
+	cmd.Stdin = strings.NewReader(passedCall)
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
+	start := time.Now()
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("the hook: %v", err)
+	}
+	took := time.Since(start)
+	if reason := deniedBy(t, stdout.String()); reason != "the policy check ran out of time" {
+		t.Fatalf("a hook with no verdict at its deadline answered %q", stdout.String())
+	}
+	return took
 }
 
 // A session that lost its place hears who it is however early its hook's deadline comes, even before
