@@ -67,6 +67,37 @@ describe("the plan list", () => {
     expect(row?.textContent).toContain("wo-loose");
   });
 
+  it("lists the reviews that have not ended, each linked to the work it judges", async () => {
+    serve((view) => {
+      view.reviews = [{ id: "wo-review", kind: "review", state: "ready", title: "Review: Trim the log", repository_id: "repository-1", reviews: "wo-judged" }];
+    });
+    openPage("/plans");
+    const open = await screen.findByRole("region", { name: "Reviews that have not ended" });
+    const row = within(open).getByText("Review: Trim the log").closest("li") as HTMLElement;
+    expect(row.textContent).toContain("Ready");
+    expect(row.textContent).toContain("wo-review");
+    expect(within(row).getByText("Review of")).toBeTruthy();
+    expect(within(row).getByRole("link", { name: "wo-judged" }).getAttribute("href")).toBe(here("/work-order?id=wo-judged"));
+  });
+
+  it("shows no section of reviews when none is open", async () => {
+    serveViews();
+    openPage("/plans");
+    await screen.findByRole("link", { name: "Write the docs" });
+    expect(screen.queryByRole("region", { name: "Reviews that have not ended" })).toBeNull();
+  });
+
+  it("is not empty while a review is open", async () => {
+    serve((view) => {
+      view.plans = [];
+      view.unplanned = [];
+      view.reviews = [{ id: "wo-review", kind: "review", state: "ready", title: "Review: Trim the log", repository_id: "repository-1", reviews: "wo-judged" }];
+    });
+    openPage("/plans");
+    expect(await screen.findByText("Review: Trim the log")).toBeTruthy();
+    expect(screen.queryByText("No plans yet")).toBeNull();
+  });
+
   it("says so when there are no plans", async () => {
     serve((view) => {
       view.plans = [];
