@@ -98,7 +98,7 @@ func (q *Questions) applyBinding(tx ports.WriteTx, record questions.Decision, ho
 	}
 	crashpoint.Hit("decision.record", "parked")
 	var rework []string
-	finished := touched.in(workorders.Finished)
+	finished := chainTips(touched.in(workorders.Finished))
 	if oneWay || reworksReversible() {
 		if rework, err = reworkFinished(tx, finished, []because{{record.ID, how}}, actor); err != nil {
 			return err
@@ -248,6 +248,28 @@ func recordReached(tx ports.WriteTx, decision string, finished []workorders.Work
 	}
 	_, err = tx.Append(event)
 	return err
+}
+
+// chainTips keeps the latest finished work order of each chain of rework: the work order a later finished rework
+// in the list is the rework of is left out, because the rework of the tip covers it. A decision that reaches a
+// finished work order and its finished rework makes one rework, of the rework.
+func chainTips(finished []workorders.WorkOrder) []workorders.WorkOrder {
+	if reworksWholeChain() {
+		return finished
+	}
+	covered := map[string]bool{}
+	for _, order := range finished {
+		if order.ReworkOf != "" {
+			covered[order.ReworkOf] = true
+		}
+	}
+	var tips []workorders.WorkOrder
+	for _, order := range finished {
+		if !covered[order.ID] {
+			tips = append(tips, order)
+		}
+	}
+	return tips
 }
 
 // reworkFinished starts one rework of each finished work order, in contract review, where a person reviews it as

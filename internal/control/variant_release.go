@@ -114,6 +114,7 @@ func parksAnyDecision() bool    { return false }
 func reworksNothing() bool      { return false }
 func reworksReversible() bool   { return false }
 func reworksEachDecision() bool { return false }
+func reworksWholeChain() bool   { return false }
 func reworksAnyKind() bool      { return false }
 
 // leavesParkedLanes is false: a cancel ends a lane with no process, which no worker will report.

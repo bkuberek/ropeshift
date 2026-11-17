@@ -35,6 +35,51 @@ var BindingChecks = []Check{
 	{"BD11", "the control plane records no scope outside the grammar, however a decision reaches it", checkBindingRefusesBadScopes},
 	{"BD12", "a lane's wake on a decision names a scope in the grammar", checkBindingWakeNamesAScope},
 	{"BD13", "a plan whose file names it with an id that is not plain is approved and its questions are answered", checkBindingUnplainPlanID},
+	{"BD14", "a decision that reaches finished work and its finished rework reworks the rework alone", checkBindingReworksTheTipOfAChain},
+}
+
+// checkBindingReworksTheTipOfAChain holds that a chain of rework is reworked once, at its tip: a one-way decision
+// starts a rework of the finished work, which finishes, and the next one-way decision reaches both and starts a rework
+// of the rework, which covers the work it redid.
+func checkBindingReworksTheTipOfAChain(r *Rig) error {
+	m, err := midPlanWorld(r)
+	if err != nil {
+		return err
+	}
+	if _, err := m.decide(r.member(), "plan:"+m.plan, questions.OneWay); err != nil {
+		return err
+	}
+	first, err := m.reworkIDs(m.orders["done"])
+	if err != nil || len(first) != 1 {
+		return Violatedf("the first decision started rework %v of the finished work: %v", first, err)
+	}
+	m.orders["redone"] = first[0]
+	if _, err := r.NewOps(m.s).Pass(r.Ctx, r.Scope, first[0], r.member()); err != nil {
+		return err
+	}
+	if err := m.finish("redone"); err != nil {
+		return err
+	}
+	if redone, err := m.order("redone"); err != nil || !redone.State.Completed() {
+		return Violatedf("the rework did not finish: %+v %v", redone, err)
+	}
+	if _, err := m.decide(r.member(), "plan:"+m.plan, questions.OneWay); err != nil {
+		return err
+	}
+	if again, err := m.reworkIDs(m.orders["done"]); err != nil || !slices.Equal(again, first) {
+		return Violatedf("the finished work has rework %v after the second decision, want only %v: %v", again, first, err)
+	}
+	if chain, err := m.reworkIDs(first[0]); err != nil || len(chain) != 1 {
+		return Violatedf("the finished rework has rework %v after the second decision, want one: %v", chain, err)
+	}
+	reached, err := m.reached()
+	if err != nil {
+		return err
+	}
+	if len(reached) != 2 || !slices.Equal(reached[1].WorkOrders, first) {
+		return Violatedf("the second decision reached %+v, want the tip of the chain alone", reached)
+	}
+	return r.CheckQuestions(m.s)
 }
 
 // dottedPlanFile is a plan whose file names it with an id that is no plain ID, as an author may write one. The

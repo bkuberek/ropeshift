@@ -54,6 +54,7 @@ func packVariants() []variant {
 		{name: "finished work a one-way decision does not rework", control: control.Sabotage{ReworksNothing: true}, check: "BD6"},
 		{name: "finished work a one-way decision of the batch does not rework", control: control.Sabotage{ReworksNothing: true}, check: "BD8"},
 		{name: "finished work a reversible decision reworks", control: control.Sabotage{ReworksReversible: true}, check: "BD7"},
+		{name: "a rework of every order of a chain of rework", control: control.Sabotage{ReworksWholeChain: true}, check: "BD14"},
 		{name: "a rework for each decision of a batch", control: control.Sabotage{ReworksEachDecision: true}, check: "BD8"},
 		{name: "a contract review a decision moves and reworks", control: control.Sabotage{ReworksAnyKind: true}, check: "MP15"},
 		{name: "a contract review's lane that nothing tells", control: control.Sabotage{TellsNobody: true}, check: "BD9"},

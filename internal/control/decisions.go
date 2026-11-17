@@ -592,7 +592,7 @@ func (q *Questions) overturnIn(tx ports.WriteTx, id string, overturn questions.O
 		return questions.Overturned{}, err
 	}
 	why := []because{{result.Old.ID, boundOverturned}}
-	finished := touched.in(workorders.Finished)
+	finished := chainTips(touched.in(workorders.Finished))
 	if result.Rework, err = reworkFinished(tx, finished, why, actor); err != nil {
 		return questions.Overturned{}, err
 	}

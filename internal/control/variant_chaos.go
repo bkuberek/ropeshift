@@ -97,6 +97,8 @@ type Sabotage struct {
 	ReworksReversible bool
 	// ReworksEachDecision starts a rework for every decision, and merges none.
 	ReworksEachDecision bool
+	// ReworksWholeChain reworks every finished work order of a chain of rework, not its tip alone.
+	ReworksWholeChain bool
 	// ReworksAnyKind lets a decision move and rework a contract review and a review.
 	ReworksAnyKind bool
 	// LeavesParkedLanes cancels work and leaves its parked lane reading parked for good.
@@ -208,6 +210,8 @@ func reworksNothing() bool { return current().ReworksNothing }
 func reworksReversible() bool { return current().ReworksReversible }
 
 func reworksEachDecision() bool { return current().ReworksEachDecision }
+
+func reworksWholeChain() bool { return current().ReworksWholeChain }
 
 func reworksAnyKind() bool { return current().ReworksAnyKind }
 
