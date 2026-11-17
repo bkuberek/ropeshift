@@ -20,7 +20,6 @@ import (
 	"ropeshift.com/ropeshift/internal/hook"
 	"ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/test/apitest"
-	"ropeshift.com/ropeshift/test/doubles"
 )
 
 const toolPayload = `{"session_id":"s1","hook_event_name":"PostToolUse","tool_name":"Bash","tool_use_id":"toolu_1","tool_input":{"command":"a command the hook must not forward"},"tool_response":{"stdout":"output"}}`
@@ -59,14 +58,6 @@ func (e hookEnv) list() []string {
 	return env
 }
 
-// raisedBuild is ropeshift built with the hookdeadline tag, once, by the first test that raises a
-// hook's deadline.
-var raisedBuild struct {
-	once sync.Once
-	path string
-	err  error
-}
-
 // binary is the ropeshift a hook in this environment runs as: the normal build, or, for an environment
 // that raises the deadline, the hookdeadline build, which is the only one that reads it.
 func (e hookEnv) binary(t *testing.T) string {
@@ -77,14 +68,8 @@ func (e hookEnv) binary(t *testing.T) string {
 	if e.deadline == 0 {
 		return binaries.cli
 	}
-	raisedBuild.once.Do(func() {
-		raisedBuild.path, raisedBuild.err = doubles.Binary(binaries.dir, doubles.PrebuiltHookDeadline,
-			"ropeshift.com/ropeshift/cmd/ropeshift", "hookdeadline")
-	})
-	if raisedBuild.err != nil {
-		t.Fatal(raisedBuild.err)
-	}
-	return raisedBuild.path
+	cli, _ := raisedBuild(t)
+	return cli
 }
 
 func runHook(t *testing.T, env hookEnv, event, input string) hookRun {

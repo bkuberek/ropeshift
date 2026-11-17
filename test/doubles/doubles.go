@@ -25,6 +25,7 @@ import (
 	"ropeshift.com/ropeshift/internal/adapters/osexec"
 	"ropeshift.com/ropeshift/internal/adapters/tmux"
 	"ropeshift.com/ropeshift/internal/api/shimlink"
+	"ropeshift.com/ropeshift/internal/hook"
 	"ropeshift.com/ropeshift/test/procs"
 )
 
@@ -49,10 +50,12 @@ func Fixtures(t testing.TB) map[string][]byte {
 	return out
 }
 
-// The files fakeclaude reads and leaves beside itself.
+// The files fakeclaude reads and leaves beside itself. HookEnvFile holds variables, one per line, that
+// every hook its sessions run gets on top of the session's environment.
 const (
 	FixtureFile = "fixture.json"
 	SeenDir     = "seen"
+	HookEnvFile = "hook-env"
 )
 
 // Seen is what one fakeclaude process saw, for a test to read.
@@ -262,6 +265,23 @@ func SetFakeClaudeVersion(t testing.TB, path, version string) {
 		t.Fatal(err)
 	}
 	if err := os.Rename(next, file); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// RaiseHookDeadline gives every hook the sessions of an installed double run a raised deadline, which
+// only a build of ropeshift with the hookdeadline tag reads (internal/hook). A lane passes its session
+// only the lane's own variables, so a daemon's environment cannot carry one to the hooks, and the double
+// hands it to them. path is a PATH InstallFakeClaude returned, and a PATH whose first directory holds no
+// double is left as it is.
+func RaiseHookDeadline(t testing.TB, path string, deadline time.Duration) {
+	t.Helper()
+	dir := BinDir(path)
+	if _, err := os.Stat(filepath.Join(dir, FixtureFile)); err != nil {
+		return
+	}
+	entry := hook.EnvTestDeadline + "=" + deadline.String() + "\n"
+	if err := os.WriteFile(filepath.Join(dir, HookEnvFile), []byte(entry), 0o600); err != nil {
 		t.Fatal(err)
 	}
 }

@@ -549,19 +549,21 @@ func TestDaemonServesTheWorkerSocket(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, err := filepath.EvalSymlinks(binaries.cli)
+	resolved, err := filepath.EvalSymlinks(d.cmd.Path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if target != resolved {
-		t.Errorf("the stable link points at %s", target)
+		t.Errorf("the stable link points at %s, and the daemon runs %s", target, resolved)
 	}
 	stable := exec.Command(paths.StableBinary(), "version")
 	stable.Env = in.env()
 	if out, err := stable.CombinedOutput(); err != nil {
 		t.Errorf("the stable path does not run: %v\n%s", err, out)
 	}
-	env := hookEnv{socket: paths.WorkerSocket(), spool: paths.Spool(), token: "a-token"}
+	// The hook's deadline is raised, so this checks that the worker refuses the hook, and not that the
+	// refusal arrives within the real deadline on a loaded machine.
+	env := hookEnv{socket: paths.WorkerSocket(), spool: paths.Spool(), token: "a-token", deadline: verdictDeadline}
 	if run := runHook(t, env, "Stop", `{}`); run.exit != 0 {
 		t.Fatalf("exit %d", run.exit)
 	}
