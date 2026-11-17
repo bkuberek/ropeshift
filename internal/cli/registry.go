@@ -212,6 +212,7 @@ func registry() []section {
 			installation(command("service install", "[--name N] [-- daemon flags]", "run the daemon as this machine's service, from now on", (*invocation).serviceInstall))[0],
 			installation(command("service uninstall", "[--name N]", "stop the daemon's service and remove it, which stops no lane", (*invocation).serviceUninstall))[0],
 		}},
+		{"Templates", templatesSection()},
 	}
 }
 
