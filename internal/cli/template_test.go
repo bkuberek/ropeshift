@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"ropeshift.com/ropeshift/internal/cli"
+	"ropeshift.com/ropeshift/internal/projectfiles"
 	"ropeshift.com/ropeshift/templates"
 )
 
@@ -87,7 +88,8 @@ func TestTemplateShowJSONListsEachNameWithWhereItIsWritten(t *testing.T) {
 		}
 		byName[entry.Name] = entry.WritesTo
 	}
-	// Every template a shape of `new` or `init` writes, with its path. P4e's table is the other half of this.
+	// Every template a shape of `new` or `init` writes, with its path, pinned here so that a change to
+	// projectfiles' table shows in this list as well.
 	written := map[string]string{
 		"workspace/agents.md":            "AGENTS.md",
 		"monorepo/agents.md":             "AGENTS.md",
@@ -125,6 +127,54 @@ func TestTemplateShowJSONListsEachNameWithWhereItIsWritten(t *testing.T) {
 	// An empty path is an empty string and not null, so a script reads it with no check.
 	if !strings.Contains(stdout, `"writes_to":""`) {
 		t.Errorf("a template nothing writes has no empty writes_to: %s", stdout)
+	}
+}
+
+// writesToOf reads the list `template show --json` prints, by template name.
+func writesToOf(t *testing.T) map[string]string {
+	t.Helper()
+	code, stdout, stderr := bare("template", "show", "--json")
+	if code != cli.ExitOK || stderr != "" {
+		t.Fatalf("exit %d, stderr %q", code, stderr)
+	}
+	var got []listing
+	if err := json.Unmarshal([]byte(stdout), &got); err != nil {
+		t.Fatalf("%v: %s", err, stdout)
+	}
+	byName := map[string]string{}
+	for _, entry := range got {
+		byName[entry.Name] = entry.WritesTo
+	}
+	return byName
+}
+
+// The writes_to of each template agrees with what `new` writes: every file of every shape, the manifest of a
+// workspace with a code repository included, is listed with its path, and every other template with a path is
+// the user profile, which `init` writes.
+func TestTemplateShowWritesToAgreesWithWhatEachShapeWrites(t *testing.T) {
+	byName := writesToOf(t)
+	written := map[string]bool{"user/profile.toml": true}
+	named := func(name string, _ projectfiles.Data) (string, error) { return name, nil }
+	for _, shape := range projectfiles.Shapes() {
+		data := projectfiles.Data{Project: "orchid"}
+		if shape == projectfiles.Workspace {
+			data.Repositories = []projectfiles.CodeRepository{{Name: "orchid-api", Remote: "git@example.invalid:orchid/orchid-api.git"}}
+		}
+		files, err := projectfiles.Files(shape, data, named)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, file := range files {
+			written[file.Template] = true
+			if got, ok := byName[file.Template]; !ok || got != file.Path {
+				t.Errorf("a %s writes %s to %s, and template show lists %q (listed %v)", shape, file.Template, file.Path, got, ok)
+			}
+		}
+	}
+	for name, path := range byName {
+		if path != "" && !written[name] {
+			t.Errorf("%s writes to %q, and no shape writes it", name, path)
+		}
 	}
 }
 
