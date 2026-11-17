@@ -204,6 +204,9 @@ func planApprovalView(tx ports.ReadTx, plan string, wanted int64) (*api.PlanAppr
 	default:
 		return nil, err
 	}
+	if view.Replaced, err = control.ReplacedDrafts(tx.Questions(), plan, chosen.PlanVersion, view.Drafts); err != nil {
+		return nil, err
+	}
 	if view.Registration, err = registrationView(tx, chosen.ID); err != nil {
 		return nil, err
 	}

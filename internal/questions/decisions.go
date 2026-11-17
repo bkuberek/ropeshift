@@ -127,6 +127,18 @@ func (d Decision) SameContent(other Decision) bool {
 		slices.Equal(d.Categories, other.Categories)
 }
 
+// ReplacedDraft is a draft decision of a plan version that approval will not decide again, because a decision
+// recorded outside the plan replaced or overturned the one an earlier version derived for it, and the draft's
+// text has not changed. Decision is that earlier decision and Status how it ended. InForce is the decision
+// standing now, with its Statement, and is empty when the ledger holds none.
+type ReplacedDraft struct {
+	Draft     string         `json:"draft"`
+	Decision  string         `json:"decision"`
+	Status    DecisionStatus `json:"status"`
+	InForce   string         `json:"in_force,omitempty"`
+	Statement string         `json:"statement,omitempty"`
+}
+
 // Overturn is what a member records in place of a decision. The client generates DecisionID,
 // so a retry finds what the first attempt wrote.
 type Overturn struct {

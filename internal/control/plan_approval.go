@@ -126,11 +126,12 @@ func draftClash(tx ports.WriteTx, version planning.PlanVersion) error {
 				clashes = append(clashes, clash)
 			}
 		}
-		before, at, found, err := earlierPlanDecision(tx, version, draft.ID)
+		before, at, found, err := earlierPlanDecision(tx.Questions(), version.PlanID, version.Version, draft.ID)
 		if err != nil {
 			return err
 		}
-		if !found {
+		// A decision that no longer stands is carried forward by nothing, so it clashes with nothing.
+		if !found || !before.Status.InForce() {
 			continue
 		}
 		own, err := planOwn(tx, before, version.PlanID, at)
@@ -220,7 +221,9 @@ func decisionAuthor(tx ports.WriteTx, id string) (string, error) {
 // decideDrafts makes each answer a plan drafted a decision of the member who approved it, with a
 // citation to the plan version, once no decision draftClash names holds an ID a draft derives. A draft the
 // plan already decided the same way in an earlier version stays as it is, and one that changed replaces the
-// earlier answer, so one answer to a question is in force.
+// earlier answer, so one answer to a question is in force. A draft whose earlier decision a decision outside
+// the plan replaced or overturned is not decided again while its text is unchanged, and when it changed it is
+// decided and supersedes the decision in force (FR-PLAN-13).
 func decideDrafts(tx ports.WriteTx, version planning.PlanVersion, member ledger.Actor) error {
 	if err := draftClash(tx, version); err != nil {
 		return err
@@ -228,16 +231,14 @@ func decideDrafts(tx ports.WriteTx, version planning.PlanVersion, member ledger.
 	asked := &Questions{}
 	for _, draft := range version.Decisions {
 		decision := draftDecision(version, draft, member)
-		earlier, _, found, err := earlierPlanDecision(tx, version, draft.ID)
+		standing, err := standingOf(tx.Questions(), version, draft, decision)
 		if err != nil {
 			return err
 		}
-		if found && earlier.Statement == decision.Statement && earlier.Rationale == decision.Rationale {
+		if standing.settled() {
 			continue
 		}
-		if found {
-			decision.Supersedes = earlier.ID
-		}
+		decision.Supersedes = standing.supersedes()
 		if _, err := asked.decideInTx(tx, decision, member); err != nil {
 			return err
 		}
@@ -245,23 +246,110 @@ func decideDrafts(tx ports.WriteTx, version planning.PlanVersion, member ledger.
 	return nil
 }
 
-// earlierPlanDecision finds the decision in force under the ID an earlier version of the plan derived for a
-// draft, and that version. Only plan approval names a decision under the IDs it derives now, but a ledger may
-// hold one another writer recorded there before, which draftClash refuses (planOwn).
-func earlierPlanDecision(tx ports.WriteTx, version planning.PlanVersion, draft string) (questions.Decision, int64, bool, error) {
-	for earlier := version.Version - 1; earlier >= 1; earlier-- {
-		decision, err := tx.Questions().Decision(planDecisionID(version.PlanID, earlier, draft))
+// earlierPlanDecision finds the decision under the ID an earlier version of the plan derived for a draft, the
+// nearest version's whatever its status, and that version. Only plan approval names a decision under the IDs it
+// derives now, but a ledger may hold one another writer recorded there before, which draftClash refuses (planOwn).
+func earlierPlanDecision(q ports.QuestionReader, plan string, version int64, draft string) (questions.Decision, int64, bool, error) {
+	for earlier := version - 1; earlier >= 1; earlier-- {
+		decision, err := q.Decision(planDecisionID(plan, earlier, draft))
 		if errors.Is(err, ports.ErrNotFound) {
 			continue
 		}
 		if err != nil {
 			return questions.Decision{}, 0, false, err
 		}
-		if decision.Status.InForce() {
-			return decision, earlier, true, nil
-		}
+		return decision, earlier, true, nil
 	}
 	return questions.Decision{}, 0, false, nil
+}
+
+// draftStanding is where a draft of a plan version stands against what earlier versions decided for it.
+type draftStanding struct {
+	// earlier is the decision the nearest earlier version derived for the draft, when one did.
+	earlier questions.Decision
+	found   bool
+	// unchanged says the draft's text is the earlier decision's.
+	unchanged bool
+	// inForce is the decision standing for the draft: the earlier one while it is in force, and when it ended the
+	// one that took its place. It is empty when the ledger holds none.
+	inForce questions.Decision
+	// held says a decision stands for the draft.
+	held bool
+}
+
+// ended says the earlier decision no longer stands.
+func (s draftStanding) ended() bool { return s.found && !s.earlier.Status.InForce() }
+
+// settled says approval records nothing for the draft: an earlier version's decision stands for it, or one outside
+// the plan replaced it and the draft says what the earlier decision said.
+func (s draftStanding) settled() bool { return s.found && s.unchanged }
+
+// supersedes is the decision a decision recorded for the draft replaces: the one in force.
+func (s draftStanding) supersedes() string {
+	if s.held {
+		return s.inForce.ID
+	}
+	return ""
+}
+
+// standingOf reads where a draft stands. The draft's text is unchanged when it makes the statement and the
+// rationale of the earlier decision, which is the decision it would make now.
+func standingOf(q ports.QuestionReader, version planning.PlanVersion, draft planning.DraftDecision, decision questions.Decision) (draftStanding, error) {
+	earlier, _, found, err := earlierPlanDecision(q, version.PlanID, version.Version, draft.ID)
+	if err != nil || !found || (decidesReplacedDrafts() && !earlier.Status.InForce()) {
+		return draftStanding{}, err
+	}
+	standing := draftStanding{
+		earlier: earlier, found: true,
+		unchanged: earlier.Statement == decision.Statement && earlier.Rationale == decision.Rationale,
+	}
+	standing.inForce, standing.held, err = inForceFrom(q, earlier)
+	return standing, err
+}
+
+// inForceFrom follows a decision to the one that stands in its place: the decision itself when it is in force, and
+// otherwise the decision that superseded it, and the one that superseded that. A decision that ends is superseded by
+// exactly one, so the chain ends at a decision in force, or at none when the ledger holds no successor.
+func inForceFrom(q ports.QuestionReader, decision questions.Decision) (questions.Decision, bool, error) {
+	seen := map[string]bool{}
+	for !seen[decision.ID] {
+		if decision.Status.InForce() {
+			return decision, true, nil
+		}
+		seen[decision.ID] = true
+		next, err := q.ReplacedBy(decision.ID)
+		if errors.Is(err, ports.ErrNotFound) {
+			return questions.Decision{}, false, nil
+		}
+		if err != nil {
+			return questions.Decision{}, false, err
+		}
+		decision = next
+	}
+	return questions.Decision{}, false, nil
+}
+
+// ReplacedDrafts lists the drafts of one version of a plan that approval will not decide again, because a decision
+// outside the plan replaced or overturned what an earlier version decided for them and their text has not changed,
+// each with the decision in force. It is the comparison a member reads before approving, and it reads the ledger as
+// approval will (FR-PLAN-13).
+func ReplacedDrafts(q ports.QuestionReader, plan string, version int64, drafts []planning.DraftDecision) ([]questions.ReplacedDraft, error) {
+	at := planning.PlanVersion{PlanID: plan, Version: version}
+	var replaced []questions.ReplacedDraft
+	for _, draft := range drafts {
+		standing, err := standingOf(q, at, draft, draftDecision(at, draft, ledger.Actor{}))
+		if err != nil {
+			return nil, err
+		}
+		if !standing.ended() || !standing.unchanged {
+			continue
+		}
+		replaced = append(replaced, questions.ReplacedDraft{
+			Draft: draft.ID, Decision: standing.earlier.ID, Status: standing.earlier.Status,
+			InForce: standing.inForce.ID, Statement: standing.inForce.Statement,
+		})
+	}
+	return replaced, nil
 }
 
 // coverKey names a contract version by the record and the digest of its file.

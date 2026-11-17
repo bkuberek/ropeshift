@@ -144,7 +144,9 @@ func showsByTime() bool             { return false }
 func releasesBoundWork() bool       { return false }
 func briefsNoDecisions() bool       { return false }
 
-// An answer that names a decision replaces it, once: neither of these breaks it in a normal build.
+// A replaced draft stays replaced, and an answer that names a decision replaces it, once: none of these breaks it in
+// a normal build.
+func decidesReplacedDrafts() bool { return false }
 func answersReplaceNothing() bool { return false }
 func bindsAnswersTwice() bool     { return false }
 

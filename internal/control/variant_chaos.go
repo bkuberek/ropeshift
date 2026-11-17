@@ -154,6 +154,9 @@ type Sabotage struct {
 	ReleasesBoundWork bool
 	// BriefsNoDecisions starts a revising session with a brief that lists no decision.
 	BriefsNoDecisions bool
+	// DecidesReplacedDrafts has plan approval decide a draft again when a decision outside the plan replaced or
+	// overturned the one an earlier version derived for it, as if no earlier version had decided it.
+	DecidesReplacedDrafts bool
 	// AnswersReplaceNothing leaves the decision an answer names in force.
 	AnswersReplaceNothing bool
 	// BindsAnswersTwice applies what an answer binds a second time, after the answer is recorded.
@@ -319,6 +322,8 @@ func showsByTime() bool { return current().ShowsByTime }
 func releasesBoundWork() bool { return current().ReleasesBoundWork }
 
 func briefsNoDecisions() bool { return current().BriefsNoDecisions }
+
+func decidesReplacedDrafts() bool { return current().DecidesReplacedDrafts }
 
 func answersReplaceNothing() bool { return current().AnswersReplaceNothing }
 

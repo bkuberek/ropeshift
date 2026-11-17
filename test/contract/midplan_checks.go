@@ -504,8 +504,8 @@ func checkMidPlanMemberSupersedes(r *Rig) error {
 	return m.replacedBy(m.p17, recorded.ID)
 }
 
-// checkMidPlanReplacedDraftStays holds G2: a member replaced the draft, and the next version of the plan
-// decides it again.
+// checkMidPlanReplacedDraftStays holds that a draft a member replaced is not decided again by the next version
+// of the plan, whose text of it is unchanged.
 func checkMidPlanReplacedDraftStays(r *Rig) error {
 	m, err := midPlanWorld(r)
 	if err != nil {
@@ -529,13 +529,12 @@ func checkMidPlanReplacedDraftStays(r *Rig) error {
 	if err != nil {
 		return err
 	}
-	var gap error
 	for _, decision := range inForce {
 		if decision.Status.InForce() && strings.Contains(decision.Statement, "Monogram") {
-			gap = Violatedf("version 2 decided %q again as %s, after a member replaced it", decision.Statement, decision.ID)
+			return Violatedf("version 2 decided %q again as %s, after a member replaced it", decision.Statement, decision.ID)
 		}
 	}
-	return knownGap(r, "GAP-MP-G2", gap)
+	return nil
 }
 
 func checkMidPlanAnswerWakes(r *Rig) error {
