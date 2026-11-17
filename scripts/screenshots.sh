@@ -14,7 +14,8 @@
 # It builds the web UI and the binary with the screenshots tag, which reports a fixed machine and worker ID,
 # then runs test/screenshots with the same tag, which makes an isolated installation, starts the daemon on a
 # loopback port the kernel chooses, lays out the sample with the fake agent CLI, and captures with
-# Playwright's Chromium from web/. The run stops what it started.
+# Playwright's Chromium from web/. Playwright's browsers live in .scratch/playwright unless
+# PLAYWRIGHT_BROWSERS_PATH names another directory. The run stops what it started.
 # A guide walk makes one installation for each theme and world, and the guides' neutral clone folder, which
 # it removes at its end (docs/development/screenshots.md).
 
@@ -22,6 +23,11 @@ set -eu
 
 cd "$(git rev-parse --show-toplevel)"
 top=$(pwd)
+
+# Playwright's browsers go in a directory of this checkout, which git ignores, and never in the cache that
+# every other project on the machine shares. Every npm and node step below inherits it.
+PLAYWRIGHT_BROWSERS_PATH=${PLAYWRIGHT_BROWSERS_PATH:-$top/.scratch/playwright}
+export PLAYWRIGHT_BROWSERS_PATH
 
 fail() {
 	printf 'screenshots: %s\n' "$*" >&2
