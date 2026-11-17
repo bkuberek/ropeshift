@@ -29,8 +29,7 @@
   .sidebar .nav-group .overline,
   .sidebar .nav-link .count,
   .sidebar .nav-link .key,
-  .sidebar-foot .spacer,
-  .sidebar-foot .sidebar-version {
+  .sidebar-foot .spacer {
     display: none;
   }
 
@@ -176,8 +175,7 @@
 
   .sidebar .nav-group .overline,
   .sidebar .nav-link .count,
-  .sidebar-foot .spacer,
-  .sidebar-foot .sidebar-version {
+  .sidebar-foot .spacer {
     display: revert;
   }
 
@@ -264,7 +262,28 @@
   .sb-compact {
     display: inline-flex;
     flex: 1;
+    min-width: 0;
+    overflow: hidden;
     border-right: 0;
+  }
+
+  /* The warning and the version stay at the right end of the phone's bar. The warning keeps only its
+     icon, and its words stay for a screen reader. */
+  .sb-item.sb-warning,
+  .sb-item.sb-version {
+    display: inline-flex;
+  }
+
+  .sb-item.sb-warning {
+    border-left: 1px solid var(--border);
+  }
+
+  .sb-item.sb-warning .sb-warn {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
   }
 
   .split,

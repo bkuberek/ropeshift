@@ -23,10 +23,48 @@ const statusBar = async () => {
 const staleLink = { name: /Daemon out of date\s*: ropeshift v0.1.0-alpha.17 is installed/ };
 
 describe("the version the daemon runs", () => {
-  it("is named in the sidebar footer", async () => {
+  it("is the last item at the right end of the status bar, and leads to About", async () => {
     serveHealth({ status: 200, body: runningHealth });
     openPage("/");
-    expect(await within(await sidebar()).findByText("ropeshift v0.1.0-alpha.16")).toBeTruthy();
+    const bar = await statusBar();
+    const link = await within(bar).findByRole("link", { name: "ropeshift version v0.1.0-alpha.16" });
+    expect(link.textContent).toBe("v0.1.0-alpha.16");
+    expect(link.getAttribute("href")).toBe("/settings?section=about");
+    expect(bar.lastElementChild).toBe(link);
+  });
+
+  it("is not in the sidebar", async () => {
+    serveHealth({ status: 200, body: runningHealth });
+    openPage("/");
+    const nav = await sidebar();
+    await statusBar();
+    await within(document.querySelector(".statusbar") as HTMLElement).findByText("v0.1.0-alpha.16");
+    expect(within(nav).queryByText(/v0\.1\.0-alpha\.16/)).toBeNull();
+    expect(within(nav).queryByText(/ropeshift/i)).toBeNull();
+    expect(document.querySelector(".sidebar-version")).toBeNull();
+  });
+
+  it("is shortened to the nearest release and the commit for a described build, and named in full on hover and to a screen reader", async () => {
+    const described = "v0.1.0-alpha.16-12-gabc1234def-dirty";
+    serveHealth({ status: 200, body: { ...runningHealth, version: described } });
+    openPage("/");
+    const link = await within(await statusBar()).findByRole("link", { name: `ropeshift version ${described}` });
+    expect(link.textContent).toBe("v0.1.0-alpha.16+abc1234");
+    expect(link.getAttribute("title")).toContain(described);
+  });
+
+  it("is dev and the commit for a build named only by its commit", async () => {
+    serveHealth({ status: 200, body: { ...runningHealth, version: "abc1234def5678-dirty" } });
+    openPage("/");
+    const link = await within(await statusBar()).findByRole("link", { name: "ropeshift version abc1234def5678-dirty" });
+    expect(link.textContent).toBe("dev+abc1234");
+  });
+
+  it("is shown as it is for a development build", async () => {
+    serveHealth({ status: 200, body: { ...runningHealth, version: "dev" } });
+    openPage("/");
+    const link = await within(await statusBar()).findByRole("link", { name: "ropeshift version dev" });
+    expect(link.textContent).toBe("dev");
   });
 
   it("is given by Settings, About, with the commit, the build date, and the installed release", async () => {
@@ -59,12 +97,12 @@ describe("the version the daemon runs", () => {
     expect(within(tree).getByRole("link", { name: "About" }).getAttribute("href")).toBe("/settings?section=about");
   });
 
-  it("is left out of the sidebar when the daemon does not say", async () => {
+  it("is left out of the status bar when the daemon does not say", async () => {
     serveHealth(refusal(503, "unavailable"));
     openPage("/");
     await sidebar();
-    await statusBar();
-    expect(document.querySelector(".sidebar-version")).toBeNull();
+    const bar = await statusBar();
+    expect(within(bar).queryByRole("link", { name: /^ropeshift version/ })).toBeNull();
   });
 });
 
@@ -72,8 +110,9 @@ describe("the warning that the installed ropeshift is newer than the daemon", ()
   it("is not shown when the daemon runs the installed release", async () => {
     serveHealth({ status: 200, body: runningHealth });
     openPage("/");
-    await within(await sidebar()).findByText("ropeshift v0.1.0-alpha.16");
-    expect(within(await statusBar()).queryByText("Daemon out of date")).toBeNull();
+    const bar = await statusBar();
+    await within(bar).findByRole("link", { name: "ropeshift version v0.1.0-alpha.16" });
+    expect(within(bar).queryByText("Daemon out of date")).toBeNull();
   });
 
   it("is in the status bar, names the fix, and leads to About", async () => {
@@ -83,6 +122,16 @@ describe("the warning that the installed ropeshift is newer than the daemon", ()
     expect(link.getAttribute("href")).toBe("/settings?section=about");
     expect(link.textContent).toContain("brew services restart ropeshift");
     expect(link.getAttribute("title")).toBe(stale.warning);
+  });
+
+  it("sits right before the version, at the right end", async () => {
+    serveHealth({ status: 200, body: stale });
+    openPage("/");
+    const bar = await statusBar();
+    const warning = await within(bar).findByRole("link", staleLink);
+    const version = within(bar).getByRole("link", { name: "ropeshift version v0.1.0-alpha.16" });
+    expect(warning.nextElementSibling).toBe(version);
+    expect(bar.lastElementChild).toBe(version);
   });
 
   it("is in About as a warning, beside the installed release", async () => {
