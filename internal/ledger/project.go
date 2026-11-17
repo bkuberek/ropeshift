@@ -149,7 +149,10 @@ func ValidateProjectName(name string) error {
 // ValidateDisplayName refuses a display name a list or a heading cannot show whole: one longer than
 // displayNameLimit characters, one with a control character, a Unicode format character, a line or paragraph
 // separator, or bytes that are no UTF-8, and one with space at either end, which a caller trims first. It runs on
-// a write only: a name stored before it refused these still loads and lists. An empty display name is valid: a project may have none, and a rename
+// a write only. The zero width joiner (U+200D) and non-joiner (U+200C) are the one exception to the format rule: each
+// is allowed when it sits between two visible characters, and a name that starts or ends with one, doubles one, or
+// puts one next to a space or another format character is refused. A visible character is any that is not a format or
+// separator character, a control character, or a space, so a variation selector or a skin tone modifier counts. A name stored before it refused these still loads and lists. An empty display name is valid: a project may have none, and a rename
 // given none keeps the one it has.
 func ValidateDisplayName(name string) error {
 	if !utf8.ValidString(name) {
@@ -164,7 +167,14 @@ func ValidateDisplayName(name string) error {
 	if strings.ContainsFunc(name, unicode.IsControl) {
 		return fmt.Errorf("%w: display name %q holds a control character", ErrInvalidProject, name)
 	}
-	if strings.ContainsFunc(name, isInvisibleFormat) {
+	runes := []rune(name)
+	for i, r := range runes {
+		if !isInvisibleFormat(r) {
+			continue
+		}
+		if isJoiner(r) && i > 0 && i < len(runes)-1 && isVisible(runes[i-1]) && isVisible(runes[i+1]) {
+			continue
+		}
 		return fmt.Errorf("%w: display name %q holds a format or separator character, which shows as nothing or reorders the text around it", ErrInvalidProject, name)
 	}
 	return nil
@@ -176,6 +186,20 @@ func ValidateDisplayName(name string) error {
 func isInvisibleFormat(r rune) bool {
 	const lineSeparator, paragraphSeparator = 0x2028, 0x2029
 	return unicode.Is(unicode.Cf, r) || r == lineSeparator || r == paragraphSeparator
+}
+
+// isJoiner is whether a character is the zero width joiner, which joins the characters of an emoji sequence, or
+// the zero width non-joiner, which Persian and some Indic names need between letters.
+func isJoiner(r rune) bool {
+	const zeroWidthNonJoiner, zeroWidthJoiner = 0x200c, 0x200d
+	return r == zeroWidthNonJoiner || r == zeroWidthJoiner
+}
+
+// isVisible is whether a character shows as something: not a format or separator character (which covers another
+// joiner), not a control character, and not a space. A combining mark or a variation selector such as U+FE0F
+// counts, as does a skin tone modifier, so an emoji sequence like a flag joined to a rainbow keeps its joiner.
+func isVisible(r rune) bool {
+	return !isInvisibleFormat(r) && !unicode.IsControl(r) && !unicode.IsSpace(r)
 }
 
 // IndexedRepository is one entry of the installation's repository index: which project holds the
