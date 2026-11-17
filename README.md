@@ -138,6 +138,8 @@ A subscription worker starts at `attended`, where it claims work only inside a r
 - [Review and merge](docs/review-and-merge.md): read the review of finished work, accept it, and merge it from the web UI or with git.
 - [Connect a GitHub repository](docs/github.md): sign in to the GitHub CLI, review a repository's changes through pull requests, and read each pull request and its checks.
 - [Run several projects at once](docs/several-projects.md): switch between projects, read what waits in all of them, watch every project's lanes, set the caps they share, and back up and archive a project.
+- [Settings and agents](docs/settings-and-agents.md): change a policy and restore an earlier version, edit and add agents of the roster, create a delegate, back up the installation, and find the settings only a file holds.
+- [Usage and measures](docs/usage-and-measures.md): read the Overview's figures, the product, delivery, and estimate measures, a plan's forecast, the estimated cost of each lane, and the audit log.
 
 ### Concepts
 

@@ -75,4 +75,4 @@ An archived project waits on nobody, the switcher marks it read-only, and its ro
 
 ## Next
 
-[Learn ropeshift](../README.md#learn-ropeshift) lists the guides.
+[Settings and agents](settings-and-agents.md) changes a policy and restores an earlier version, edits the agent roster, and names the settings only a file holds.

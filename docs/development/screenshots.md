@@ -93,7 +93,7 @@ The harbor daemon runs its delivery and forecast ticks every second, and guide 3
 
 For guides 5 and 6, each lane a guide starts, a review's included, plays a script of its own in [harbor_runs_test.go](../../test/screenshots/harbor_runs_test.go), under the name the guide types into the Start dialog's Lane ID. The orchestrator a guide starts plays a script that claims nothing, because the lanes it starts get names no script can know, so the walk starts every lane, the review of finished work included, from the web UI. The profile layer of `moorings-api` sets `ask_wait` to two seconds, so guide 5's lane on Moorings parks a moment after it asks the question it cannot go on without, and Needs you offers its Resume.
 
-For guide 7, the harbor daemon finds the fake GitHub CLI of [test/doubles](../../test/doubles) on its `PATH` ahead of the canary, so the walk's pull requests open on a fake forge and nothing reaches GitHub. Its sign-in is the fake's own, and the kit stands for the forge's CI too: each pull request a worker opens soon has two passed checks, `build` and `test`, which its base branch requires. The daemon reads the forge every two seconds. Guide 8's walk adds its lane and its third project to the sample before it starts, and the view captures of `make screenshots` keep the sample as it is.
+For guide 7, the harbor daemon finds the fake GitHub CLI of [test/doubles](../../test/doubles) on its `PATH` ahead of the canary, so the walk's pull requests open on a fake forge and nothing reaches GitHub. Its sign-in is the fake's own, and the kit stands for the forge's CI too: each pull request a worker opens soon has two passed checks, `build` and `test`, which its base branch requires. The daemon reads the forge every two seconds. Guide 8's walk adds its lane and its third project to the sample before it starts, and the view captures of `make screenshots` keep the sample as it is. The sample daemon of the guide walk runs its delivery and forecast ticks every second, as harbor's does, so guide 10's plan page shows the forecast the daemon made and not a pending line; the view captures keep the daemon's defaults.
 
 The harbor clones live in one fixed, neutral folder, `/tmp/ropeshift-guides`, the code repositories in its `src` folder and the planning repository beside it, so a field that shows a path shows one of those and the private-word check can stay on for every image. The kit creates the folder, removes it at the end of the run, and refuses to start while it exists, which another walk, or one that was killed, leaves. Remove it and run again.
 
@@ -251,5 +251,22 @@ Every published image has a row, and every row names a capture and the name it i
 | `several-04-<theme>.png` | `several-04-<theme>.png` | Run several projects at once |
 | `several-05-<theme>.png` | `several-05-<theme>.png` | Run several projects at once |
 | `several-06-<theme>.png` | `several-06-<theme>.png` | Run several projects at once |
+| `settings-01-<theme>.png` | `settings-01-<theme>.png` | Settings and agents |
+| `settings-02-<theme>.png` | `settings-02-<theme>.png` | Settings and agents |
+| `settings-03-<theme>.png` | `settings-03-<theme>.png` | Settings and agents |
+| `settings-04-<theme>.png` | `settings-04-<theme>.png` | Settings and agents |
+| `settings-05-<theme>.png` | `settings-05-<theme>.png` | Settings and agents |
+| `settings-06-<theme>.png` | `settings-06-<theme>.png` | Settings and agents |
+| `settings-07-<theme>.png` | `settings-07-<theme>.png` | Settings and agents |
+| `settings-08-<theme>.png` | `settings-08-<theme>.png` | Settings and agents |
+| `settings-09-<theme>.png` | `settings-09-<theme>.png` | Settings and agents |
+| `settings-10-<theme>.png` | `settings-10-<theme>.png` | Settings and agents |
+| `measures-01-<theme>.png` | `measures-01-<theme>.png` | Usage and measures |
+| `measures-02-<theme>.png` | `measures-02-<theme>.png` | Usage and measures |
+| `measures-03-<theme>.png` | `measures-03-<theme>.png` | Usage and measures |
+| `measures-04-<theme>.png` | `measures-04-<theme>.png` | Usage and measures |
+| `measures-05-<theme>.png` | `measures-05-<theme>.png` | Usage and measures |
+| `measures-06-<theme>.png` | `measures-06-<theme>.png` | Usage and measures |
+| `measures-07-<theme>.png` | `measures-07-<theme>.png` | Usage and measures |
 
 After a release, run `make screenshots` at its tag, look at each image, and publish. Then update the version that the README's screenshots section and the web UI guide name.
