@@ -106,7 +106,7 @@ func TestNeedsYouHoldsAPlanApprovalWithWhatItHoldsAndHowItDiffers(t *testing.T) 
 	view := readView[api.NeedsYou](t, d, api.ViewNeedsYou, "")
 	need := planApprovalNeed(t, view)
 	if need.Title != "Retry budget" || need.Version != 1 || need.RequestedBy != "system:intake" || need.Decisions != 1 ||
-		need.Approval.SubjectDigest == "" || need.Approval.Kind != authority.KindPlan {
+		need.Approval.SubjectDigest == "" || need.Approval.Kind != authority.KindPlan || need.Revision != nil {
 		t.Errorf("need %+v", need)
 	}
 	if need.Counts["contract"] != 1 || need.Counts["spec"] != 1 {

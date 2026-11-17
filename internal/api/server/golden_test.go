@@ -352,6 +352,26 @@ func TestGoldenAdoptedApproval(t *testing.T) {
 	holdsGolden(t, "approval-adopted", steady(pretty(t, shown)))
 }
 
+// TestGoldenRevisedApproval writes the request to approve a later version of a plan that needs revision as Needs
+// you holds it, with the decisions made since the approved version beside the difference.
+func TestGoldenRevisedApproval(t *testing.T) {
+	t.Parallel()
+	clock := apitest.NewClock()
+	d := apitest.StartWith(t, apitest.Options{Clock: clock.Dialect})
+	w := apitest.NewWorld(t, d)
+	source := retrySource("The first draft.")
+	approvedPlanWithADecisionOn(t, d, w, source)
+	source.Write("spec.md", []byte("+++\nkind = \"spec\"\nid = \"api\"\ntitle = \"The API\"\nplan = \"retry\"\n+++\n\nThe second draft.\n"))
+	w.Planned(source)
+	for _, item := range readView[api.NeedsYou](t, d, api.ViewNeedsYou, "").Items {
+		if item.Kind == api.NeedPlanApproval {
+			holdsGolden(t, "needs-you-revised-approval", steady(pretty(t, item)))
+			return
+		}
+	}
+	t.Fatal("no request waits for the later version")
+}
+
 // TestGoldenOutline writes the outline of a planning session as the planning pane reads it.
 func TestGoldenOutline(t *testing.T) {
 	d, w, _ := aPlanningSession(t)

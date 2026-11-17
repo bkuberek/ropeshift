@@ -216,7 +216,7 @@ func planApprovalView(tx ports.ReadTx, plan string, wanted int64) (*api.PlanAppr
 	if err != nil {
 		return nil, err
 	}
-	if view.Revision, err = revisionOfApproval(tx, record, *view); err != nil {
+	if view.Revision, err = revisionOfApproval(tx, record, view.Approval); err != nil {
 		return nil, err
 	}
 	return view, nil

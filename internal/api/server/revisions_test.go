@@ -25,6 +25,13 @@ func anApprovedPlanFrom(t *testing.T, source *fake.WorkSource) (*apitest.Daemon,
 	t.Helper()
 	d := apitest.Start(t)
 	w := apitest.NewWorld(t, d)
+	return d, w, approvedPlanWithADecisionOn(t, d, w, source)
+}
+
+// approvedPlanWithADecisionOn approves the plan a source holds on a daemon and records a decision of a member about
+// it, and returns the plan's ID.
+func approvedPlanWithADecisionOn(t *testing.T, d *apitest.Daemon, w *apitest.World, source *fake.WorkSource) string {
+	t.Helper()
 	w.Planned(source)
 	need := planApprovalNeed(t, readView[api.NeedsYou](t, d, api.ViewNeedsYou, ""))
 	if _, err := d.Client.DecideApproval(t.Context(), need.Approval.ID, api.DecideApproval{Digest: need.Approval.SubjectDigest, Allow: true}); err != nil {
@@ -40,7 +47,7 @@ func anApprovedPlanFrom(t *testing.T, source *fake.WorkSource) (*apitest.Daemon,
 	}); err != nil {
 		t.Fatal(err)
 	}
-	return d, w, plans[0].ID
+	return plans[0].ID
 }
 
 func refusal(t *testing.T, err error) api.ErrorDetail {
@@ -156,6 +163,21 @@ func TestAPlanApprovalShowsTheDecisionsSinceBesideTheDifferenceBeforeAndAfterItI
 	}
 	if revisionNeeds(t, d) != nil {
 		t.Error("an approved version leaves the plan needing revision")
+	}
+}
+
+func TestNeedsYouShowsTheDecisionsSinceOnTheRequestForALaterVersion(t *testing.T) {
+	t.Parallel()
+	source := retrySource("The first draft.")
+	d, w, _ := anApprovedPlanFrom(t, source)
+	source.Write("spec.md", []byte("+++\nkind = \"spec\"\nid = \"api\"\ntitle = \"The API\"\nplan = \"retry\"\n+++\n\nThe second draft.\n"))
+	w.Planned(source)
+	need := planApprovalNeed(t, readView[api.NeedsYou](t, d, api.ViewNeedsYou, ""))
+	if need.Version != 2 || need.Revision == nil || need.Revision.Revision == nil || need.Revision.Revision.ApprovedVersion != 1 {
+		t.Fatalf("the request for version %d carries the revision %+v, want the one that stands since version 1", need.Version, need.Revision)
+	}
+	if got := need.Revision.Decisions; len(got) != 1 || got[0].ID != "d-logo" || got[0].Statement != "Use the wordmark." {
+		t.Errorf("the request lists the decisions %+v, want d-logo", got)
 	}
 }
 

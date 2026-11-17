@@ -151,6 +151,10 @@ type PlanApprovalNeed struct {
 	Summary     string                   `json:"summary"`
 	// Adoption groups a plan that adopts an existing project, with every file its branch changed (ADR-0023).
 	Adoption *planning.Adoption `json:"adoption,omitempty"`
+	// Revision is the plan's open revision when this version is a later one, which the member reads beside the
+	// difference: the decisions made since the approved version, and approving this version is the word on them.
+	// It is absent when no decision moved past the approved version.
+	Revision *PlanRevisionView `json:"revision,omitempty"`
 }
 
 // ContractReviewNeed is work in `contract_review` that no plan approval covers, so a member passes its

@@ -461,7 +461,7 @@ func (h *handler) needs(tx ports.ReadTx, stamp api.Stamp) ([]api.NeedItem, error
 		switch {
 		case !approvals[i].Open():
 		case approvals[i].Kind == authority.KindPlan:
-			need, err := planApprovalNeed(tx.Planning(), approvals[i])
+			need, err := planApprovalNeed(tx, approvals[i])
 			if err != nil {
 				return nil, err
 			}
@@ -554,24 +554,36 @@ func acceptedByApproving(evidence ports.EvidenceReader, order workorders.WorkOrd
 // planApprovalNeed is what a member reads of a plan version they are asked to approve, with the answers
 // the version drafts: those its record holds, or for a branch's version, which the ledger holds no record of
 // until it is approved, those its request carries.
-func planApprovalNeed(planned ports.PlanningReader, a authority.Approval) (*api.PlanApprovalNeed, error) {
+func planApprovalNeed(tx ports.ReadTx, a authority.Approval) (*api.PlanApprovalNeed, error) {
 	detail := api.PlanDetailOf(a)
 	counts := detail.Counts
 	if counts == nil {
 		counts = map[string]int{}
 	}
 	drafts := nonNil(detail.Drafts)
-	version, err := planned.PlanVersion(a.Plan, a.PlanVersion)
+	version, err := tx.Planning().PlanVersion(a.Plan, a.PlanVersion)
 	switch {
 	case err == nil:
 		drafts = nonNil(version.Decisions)
 	case !errors.Is(err, ports.ErrNotFound):
 		return nil, err
 	}
-	return &api.PlanApprovalNeed{
+	need := &api.PlanApprovalNeed{
 		Approval: a, Title: detail.Title, Version: a.PlanVersion, RequestedBy: a.RequestedBy, Counts: counts, Decisions: detail.Decisions,
 		Drafts: drafts, Difference: detail.Difference, Summary: detail.Difference.Summary(), Adoption: detail.Adoption,
-	}, nil
+	}
+	if a.Plan == "" {
+		return need, nil
+	}
+	plan, err := tx.Planning().Plan(a.Plan)
+	if errors.Is(err, ports.ErrNotFound) {
+		return need, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	need.Revision, err = revisionOfApproval(tx, plan, a)
+	return need, err
 }
 
 // contractReviewNeeds lists the work whose contract waits for a member's review and that no plan
