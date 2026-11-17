@@ -88,6 +88,32 @@ func (d *Daemon) ServeWeb(t testing.TB, assets fs.FS, recheck time.Duration) *We
 	return &Web{Host: listener.Addr().String(), Port: port, HTTP: &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}
 }
 
+// ServeNetwork serves a daemon's network listener, a group server's one TCP listener, on a real loopback
+// port until the test ends. wrap stands between the socket and the handler, as Options.Wrap does.
+func (d *Daemon) ServeNetwork(t testing.TB, assets fs.FS, recheck time.Duration, wrap func(http.Handler) http.Handler) *Web {
+	t.Helper()
+	listener, err := server.ListenServer("127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := listener.Addr().(*net.TCPAddr).Port
+	handler := server.NewNetwork(d.Config, server.WebOptions{Port: port, Assets: assets, Recheck: recheck})
+	if wrap != nil {
+		handler = wrap(handler)
+	}
+	httpServer := &http.Server{Handler: handler, ReadHeaderTimeout: 10 * time.Second}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_ = httpServer.Serve(listener)
+	}()
+	t.Cleanup(func() {
+		_ = httpServer.Close()
+		<-done
+	})
+	return &Web{Host: listener.Addr().String(), Port: port, HTTP: &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}
+}
+
 // maxShortBase keeps a socket under the 104-byte limit with a directory, a run
 // directory, and a session's private directory on top. A macOS temporary directory
 // is longer than this.
@@ -169,6 +195,8 @@ type Options struct {
 	Panes server.Panes
 	// WebAddress is where the daemon says its web UI listens. Empty serves none.
 	WebAddress string
+	// Mode is the mode the daemon says it runs in. Empty is a solo daemon, which says none.
+	Mode string
 	// Build is the build the daemon says it runs. The zero value is the test binary's own.
 	Build version.Info
 	// Installed reads the build on disk at the daemon's path, which health compares with Build. Nil reads none.
@@ -214,7 +242,7 @@ func StartWith(t testing.TB, options Options) *Daemon {
 		Scope: Scope, Store: store, LeaseTTL: LeaseTTL, Protocol: options.Protocol, HeartbeatMs: HeartbeatMs,
 		Knowledge: options.Knowledge, Matcher: lexical.Matcher{Store: store}, Identity: identity, Windows: options.Windows,
 		Telemetry: options.Telemetry, Backup: options.Backup, Panes: options.Panes, WebAddress: options.WebAddress,
-		Build: options.Build, Installed: options.Installed,
+		Build: options.Build, Installed: options.Installed, Mode: options.Mode,
 		Checkouts: options.Checkouts, Profiles: options.Profiles, ParseManifest: repofiles.ParseManifest, Starts: options.Starts, Branches: options.Branches, LaneBranchPrefix: options.LaneBranchPrefix,
 	}
 	daemon := serve(t, config, options.Wrap)
