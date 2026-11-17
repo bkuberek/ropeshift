@@ -478,6 +478,52 @@ func TestAConflictIsReportedWithWhatToDoAndOnlyWhenItChanges(t *testing.T) {
 	}
 }
 
+// TestAConflictNamesBothProjectsWhateverTheirNames holds that the warning for a conflict never leaves a
+// project's place in it blank: a project whose registry name is empty is named by its ID.
+func TestAConflictNamesBothProjectsWhateverTheirNames(t *testing.T) {
+	// The registry keeps one project with an empty name at most, so each case blanks one of the two.
+	for _, tt := range []struct {
+		name  string
+		blank string
+		want  []string
+	}{
+		{"the holder's name is empty", "pa", []string{"record r-b1 of project beta names", "which project pa holds;"}},
+		{"the name of the project that keeps the record is empty", "pb", []string{"record r-b1 of project pb names", "which project alpha holds;"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			url := freshDatabase(t)
+			first := openState(t, url, postgres.Options{})
+			db := first.SQLDB()
+			defer db.Close()
+			alpha, alphaStore := createProject(t, first, "pa", "alpha")
+			beta, _ := createProject(t, first, "pb", "beta")
+			if err := insertRepository(t.Context(), alphaStore, alpha.ID, "r1", "invoices", invoices); err != nil {
+				t.Fatal(err)
+			}
+			insertRecordWithoutEntry(t, db, "project_pb", beta.ID, "r-b1", "b1", invoices)
+			if _, err := db.ExecContext(t.Context(), `UPDATE installation.projects SET name = '' WHERE id = $1`, tt.blank); err != nil {
+				t.Fatal(err)
+			}
+
+			var warned warnings
+			state, err := postgres.Open(t.Context(), url, postgres.Options{Store: sqlstore.Options{Warn: warned.add}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = state.Close() })
+			got := warned.all()
+			if len(got) != 1 {
+				t.Fatalf("warnings %q, want one for the conflict", got)
+			}
+			for _, want := range tt.want {
+				if !strings.Contains(got[0], want) {
+					t.Errorf("the warning %q does not say %q", got[0], want)
+				}
+			}
+		})
+	}
+}
+
 // TestAConflictThatEndsWithItsRecordIsReportedAgainWhenItReturns holds that the memory of a reported conflict
 // goes when the conflict does, also when it ends because the conflicting record was removed, which leaves the
 // project's entries in agreement with its records and so needs no rebuild: a conflict that comes back is a
