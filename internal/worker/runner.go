@@ -558,13 +558,19 @@ func (r *laneRun) adopt(ctx context.Context) error {
 		r.w.config.Report(fmt.Errorf("lane %s: reading its session: %w", r.lease.Lane, err))
 		return r.unread(ctx)
 	}
-	if _, ok := r.reported(ctx); ok {
+	_, reported := r.reported(ctx)
+	if reported {
 		r.stop(ctx, ports.StopAtRest)
 	}
 	r.resumeParking(ctx)
 	r.resumeHandoff(ctx)
-	if len(r.blockingQuestions()) != 0 && r.state.current() == lanes.Idle {
+	switch {
+	case r.state.current() != lanes.Idle:
+	case len(r.blockingQuestions()) != 0:
 		r.awaitAnswer(ctx)
+	case r.planning() && !reported && !r.owesBrief.Load():
+		// A planning lane at rest with nothing to report was waiting for its person, and goes on waiting.
+		r.awaitPerson(ctx)
 	}
 	return r.conclude(ctx, r.watch(ctx, events))
 }

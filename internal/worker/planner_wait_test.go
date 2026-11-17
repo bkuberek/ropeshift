@@ -36,6 +36,24 @@ func (r *laneRig) waitsForItsPerson(t *testing.T) {
 	}
 }
 
+// awaitParked reads until the work order parks, moving the worker's clock a second at a time, so every wait
+// on that clock ends however many reads it takes.
+func (r *laneRig) awaitParked(t *testing.T) {
+	t.Helper()
+	deadline := time.Now().Add(20 * time.Second)
+	for time.Now().Before(deadline) {
+		if err := r.subject.Upload(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+		if r.row().State == workorders.Parked {
+			return
+		}
+		r.clock.Advance(time.Second)
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("work order %s, want parked", r.row().State)
+}
+
 // nudged says the worker sent the lane its nudge.
 func (r *laneRig) nudged() bool {
 	return slices.ContainsFunc(r.driver.Sent(), func(sent ports.Input) bool { return sent.Text == lanes.Nudge })
@@ -108,6 +126,25 @@ func TestAPlanningLaneParksWhenNobodyIsAttachedAsItsWaitRunsOut(t *testing.T) {
 	}
 	if r.nudged() {
 		t.Errorf("a planning lane waiting for its person was nudged: %+v", r.driver.Sent())
+	}
+}
+
+// A worker that restarts while a planning lane waits for its person takes the wait up again from the
+// session it adopts, so the lane still parks once nobody has been attached for `ask_wait`.
+func TestAPlanningLaneWaitsOnForItsPersonAfterAWorkerRestart(t *testing.T) {
+	t.Parallel()
+	r := planningRigWith(t, profileAt+"[lifecycle]\nask_wait = \"5m\"\nhandoff_timeout = \"30ms\"\n", func(*fake.AgentDriver) {})
+	r.driver.Play(script([]fake.DriverStep{{Bound: true}, completed(0.01)}))
+	r.start()
+	r.waitsForItsPerson(t)
+	r.clock.Advance(4 * time.Minute)
+
+	r.takeOver(t, fake.DriverScript{SessionID: "session-1", Model: "resolved-model", Silent: true})
+	r.waitsForItsPerson(t)
+	r.awaitParked(t)
+	r.subject.Wait()
+	if wake := r.wakeOf(t, 1); wake.Expr != lanes.HumanWake() {
+		t.Errorf("wake %+v, want one only a person ends", wake)
 	}
 }
 
