@@ -194,6 +194,33 @@ func TestOneFailedReadOfThePaneDoesNotParkAPlanningLane(t *testing.T) {
 	r.subject.Wait()
 }
 
+// A lane parked for its person says so in the handoff it leaves, and a member's Resume wakes it into its
+// next generation, which goes on with the plan.
+func TestAPlanningLaneParkedForItsPersonSaysWhyAndWakesOnResume(t *testing.T) {
+	t.Parallel()
+	r := planningRigWith(t, profileAt+"[lifecycle]\nask_wait = \"5m\"\nhandoff_timeout = \"30ms\"\n", func(*fake.AgentDriver) {})
+	r.driver.Play(script([]fake.DriverStep{{Bound: true}, completed(0.01)}))
+	r.driver.PlayAfter(script([]fake.DriverStep{{Bound: true}, r.reports(workorders.OutcomeCompleted), completed(0.02)}))
+	if _, err := r.subject.Reconcile(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	r.waitsForItsPerson(t)
+	r.awaitParked(t)
+	r.subject.Wait()
+	if _, doc := r.storedHandoff(t, 1); doc.Reason != string(lanes.ParkWaitingForPerson) {
+		t.Errorf("the handoff says the lane parked for %q", doc.Reason)
+	}
+
+	r.wake(t)
+	if woken := r.row(); woken.State != workorders.Ready || woken.ResumeLaneID != "lane-1" {
+		t.Fatalf("a member's Resume left %+v", woken)
+	}
+	r.resumed(t)
+	if specs := r.driver.Specs(); len(specs) != 2 || specs[1].Generation != 2 || !specs[1].Planning {
+		t.Errorf("sessions %+v, want a second planning generation", specs)
+	}
+}
+
 // Every lane that is no plan keeps the nudge and then the outcome `no_outcome`, whoever is attached to its
 // pane.
 func TestALaneThatIsNoPlanIsNudgedAndBlockedWithAPersonAttached(t *testing.T) {
