@@ -66,10 +66,15 @@ func Summarize(change Change) string {
 		}
 		return fmt.Sprintf("set %s %s", change.Agent, strings.Join(parts, " "))
 	case OpAdd:
-		if change.From != "" {
+		switch {
+		case change.From != "":
 			return fmt.Sprintf("add %s from %s", change.Agent, change.From)
+		case change.DefinitionFrom == DefinitionFile:
+			return fmt.Sprintf("add %s from a file", change.Agent)
+		case change.DefinitionFrom == DefinitionPasted:
+			return fmt.Sprintf("add %s from a pasted definition", change.Agent)
 		}
-		return fmt.Sprintf("add %s from a file", change.Agent)
+		return fmt.Sprintf("add %s from a definition", change.Agent)
 	case OpGuideSet:
 		return "set the routing guide"
 	case OpGuideReset:

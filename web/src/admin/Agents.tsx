@@ -578,7 +578,7 @@ function AddAgentDialog({ agents, scope, version, onClose, after, again }: { age
   const toast = useToast();
   const definition = source === "toml" ? parsed?.agent : undefined;
   const save = () => {
-    const request: RosterChange | null = source === "copy" ? { op: "add", agent: name, from } : definition ? { op: "add", agent: name, definition } : null;
+    const request: RosterChange | null = source === "copy" ? { op: "add", agent: name, from } : definition ? { op: "add", agent: name, definition, definition_from: "pasted" } : null;
     if (request) {
       void change.run(() => changeRoster(scope, request)).then((made) => {
         if (made) {

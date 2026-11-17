@@ -731,6 +731,8 @@ describe("Add agent", () => {
           report: "",
           enabled: true,
         },
+        // The history names it as pasted, not as read from a file.
+        definition_from: "pasted",
       },
     });
   });

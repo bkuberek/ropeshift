@@ -235,15 +235,23 @@ const (
 	OpGuideReset = "guide_reset"
 )
 
+// Where an added agent's definition was read: a file `agent add --file` names, or text pasted in the web UI.
+const (
+	DefinitionFile   = "file"
+	DefinitionPasted = "pasted"
+)
+
 // Change is one change to one scope's layer, as a member asks for it.
 type Change struct {
 	Op    string `json:"op"`
 	Agent string `json:"agent,omitempty"`
 	// Fields are `set`'s field and value pairs. A list takes comma-separated categories.
 	Fields map[string]string `json:"fields,omitempty"`
-	// Definition is an added agent read from a file, and From the agent an added one copies.
-	Definition *Agent `json:"definition,omitempty"`
-	From       string `json:"from,omitempty"`
+	// Definition is an added agent's whole definition, and DefinitionFrom where it was read: a file, or text pasted
+	// in the web UI, or nothing said. From is the agent an added one copies.
+	Definition     *Agent `json:"definition,omitempty"`
+	DefinitionFrom string `json:"definition_from,omitempty"`
+	From           string `json:"from,omitempty"`
 	// Guide is the text `guide_set` sets.
 	Guide string `json:"guide,omitempty"`
 }
@@ -318,6 +326,10 @@ func (l *Layer) add(current Resolved, change Change) error {
 	switch {
 	case change.Definition != nil && change.From != "":
 		return fmt.Errorf("%w: an agent is added from a file or from another agent, not both", ErrInvalid)
+	case change.DefinitionFrom != "" && change.Definition == nil:
+		return fmt.Errorf("%w: a change says where a definition was read, and holds none", ErrInvalid)
+	case change.DefinitionFrom != "" && change.DefinitionFrom != DefinitionFile && change.DefinitionFrom != DefinitionPasted:
+		return fmt.Errorf("%w: a definition is read from a file or pasted, not %q", ErrInvalid, change.DefinitionFrom)
 	case change.Definition != nil:
 		agent = *change.Definition
 	case change.From != "":

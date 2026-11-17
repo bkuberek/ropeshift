@@ -95,7 +95,8 @@ export type RosterHistory = { scope: string; versions: RosterEntry[] };
 export type RosterChange =
   | { op: "set"; agent: string; fields: Record<string, string> }
   | { op: "add"; agent: string; from: string }
-  | { op: "add"; agent: string; definition: AgentFields }
+  // definition_from says where the definition was read, which the roster's history names.
+  | { op: "add"; agent: string; definition: AgentFields; definition_from: "file" | "pasted" }
   | { op: "disable" | "enable" | "reset"; agent: string }
   | { op: "guide_set"; guide: string }
   | { op: "guide_reset" };
