@@ -5,7 +5,7 @@ import type { Place } from "../api/client";
 import type { Batch, QuestionItem } from "../api/types";
 import { Button } from "../ui/controls";
 import { DecisionCard } from "../ui/DecisionCard";
-import { RecordChip, Refusal } from "../ui/display";
+import { RecordChip, Refusal, ScopeName } from "../ui/display";
 import { Field } from "../ui/forms";
 import type { Frame } from "./frame";
 import { useAct } from "./useAct";
@@ -80,6 +80,11 @@ export function AnswerField({ item, draft, onChange, disabled, quiet = false }: 
           </span>
         ))}
       </div>
+      {item.scope ? (
+        <p className="small muted">
+          Scope: <ScopeName scope={item.scope} title={item.scope_title} />
+        </p>
+      ) : null}
       {options.map((option) => (
         <Choice
           key={option}

@@ -161,17 +161,17 @@ type ContractReviewNeed struct {
 // NeedItem is one thing that waits for a person. Since is database time, and Kind says which field
 // holds the rest. Project names its project in the combined Needs you.
 type NeedItem struct {
-	Project        *ProjectLabel        `json:"project,omitempty"`
-	Kind           string               `json:"kind"`
-	ID             string               `json:"id"`
-	Since          int64                `json:"since"`
-	Batch          *questions.Presented `json:"batch,omitempty"`
-	Approval       *authority.Approval  `json:"approval,omitempty"`
-	Effect         *EffectView          `json:"effect,omitempty"`
-	Work           *WorkNeed            `json:"work,omitempty"`
-	PlanApproval   *PlanApprovalNeed    `json:"plan_approval,omitempty"`
-	ContractReview *ContractReviewNeed  `json:"contract_review,omitempty"`
-	Card           *CardNeed            `json:"card,omitempty"`
+	Project        *ProjectLabel       `json:"project,omitempty"`
+	Kind           string              `json:"kind"`
+	ID             string              `json:"id"`
+	Since          int64               `json:"since"`
+	Batch          *QuestionBatch      `json:"batch,omitempty"`
+	Approval       *authority.Approval `json:"approval,omitempty"`
+	Effect         *EffectView         `json:"effect,omitempty"`
+	Work           *WorkNeed           `json:"work,omitempty"`
+	PlanApproval   *PlanApprovalNeed   `json:"plan_approval,omitempty"`
+	ContractReview *ContractReviewNeed `json:"contract_review,omitempty"`
+	Card           *CardNeed           `json:"card,omitempty"`
 }
 
 // CardNeed is a confirmation card that waits for a member: the request, the operation it runs, and the
@@ -397,8 +397,8 @@ type Decisions struct {
 // Questions is the open questions, and the categories that filter them.
 type Questions struct {
 	Stamp
-	Categories []string             `json:"categories"`
-	Questions  []questions.Question `json:"questions"`
+	Categories []string       `json:"categories"`
+	Questions  []QuestionView `json:"questions"`
 }
 
 // WorkLine is a work order, the lane on it, and when it reached the state it stands in.

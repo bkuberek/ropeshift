@@ -13,6 +13,10 @@ export type QuestionItem = {
   recommendation?: string;
   escalation_reason?: string;
   citations?: string[];
+  // scope is what an answer binds: the record the question is about. scope_title is that record's title, absent
+  // when the ledger holds no such record or its title only repeats the ID, so the scope shows alone.
+  scope?: string;
+  scope_title?: string;
 };
 
 export type Batch = {
@@ -361,6 +365,10 @@ export type Question = {
   escalation_reason?: string;
   ladder_trace?: LadderStep[];
   claimed_by?: string;
+  // scope is what an answer binds: the record the question is about. scope_title is that record's title, absent
+  // when the ledger holds no such record or its title only repeats the ID, so the scope shows alone.
+  scope?: string;
+  scope_title?: string;
 };
 
 // RecordQuestion is what a member sends to record a question: the client's ID, its text, and what it is about.

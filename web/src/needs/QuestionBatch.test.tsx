@@ -42,6 +42,17 @@ describe("a batch of 18 questions raised in the middle of a plan", () => {
     expect(startingDraft(item).choice).toBe("");
   });
 
+  it("names what each answer binds, with the title of the record its scope names, or the scope alone", () => {
+    const batch = midPlanBatch();
+    const scoped = [{ scope: "plan:p1", scope_title: "Checkout retries" }, { scope: "wo:w2" }];
+    batch.items = batch.items.map((item, index) => ({ ...item, ...scoped[index] }));
+    show(batch);
+    const scopeOf = (name: string) => [...screen.getByRole("group", { name }).querySelectorAll("p")].find((line) => line.textContent?.startsWith("Scope"))?.textContent;
+    expect(scopeOf("Question 1")).toBe("Scope: plan:p1 · Checkout retries");
+    expect(scopeOf("Question 2")).toBe("Scope: wo:w2");
+    expect(scopeOf("Question 3")).toBeUndefined();
+  });
+
   it("sends the recommendations and the one answer a person changed", async () => {
     const sent = serveApi(() => ({ status: 201 }));
     show(midPlanBatch());

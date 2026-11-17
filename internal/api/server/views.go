@@ -413,22 +413,22 @@ func waitingEffects(tx ports.ReadTx) ([]api.EffectView, error) {
 	return out, nil
 }
 
-func waitingBatches(tx ports.ReadTx) ([]questions.Presented, error) {
+func waitingBatches(tx ports.ReadTx) ([]api.QuestionBatch, error) {
 	batches, err := tx.Questions().WaitingBatches()
 	if err != nil {
 		return nil, err
 	}
-	out := []questions.Presented{}
+	var waiting []questions.Presented
 	for _, batch := range batches {
 		rows, err := tx.Questions().BatchQuestions(batch.ID)
 		if err != nil {
 			return nil, err
 		}
 		if presented := questions.Present(batch, rows, ""); len(presented.Items) != 0 {
-			out = append(out, presented)
+			waiting = append(waiting, presented)
 		}
 	}
-	return out, nil
+	return questionBatches(tx, waiting)
 }
 
 // needs is everything a member can act on, the longest wait first. A tie falls to the ID, so two
@@ -1201,7 +1201,11 @@ func (h *handler) readQuestions(tx ports.ReadTx, r *http.Request, stamp api.Stam
 	}
 	categories := append(questions.BuiltIn(), added...)
 	slices.Sort(categories)
-	return api.Questions{Stamp: stamp, Categories: categories, Questions: open}, nil
+	views, err := questionViews(tx, open)
+	if err != nil {
+		return nil, err
+	}
+	return api.Questions{Stamp: stamp, Categories: categories, Questions: views}, nil
 }
 
 func (h *handler) readInProgress(tx ports.ReadTx, _ *http.Request, stamp api.Stamp) (any, error) {

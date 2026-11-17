@@ -8,7 +8,6 @@ import (
 
 	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/cli"
-	"ropeshift.com/ropeshift/internal/questions"
 	"ropeshift.com/ropeshift/internal/workorders"
 	"ropeshift.com/ropeshift/test/contract"
 	"ropeshift.com/ropeshift/test/doubles"
@@ -85,7 +84,7 @@ func (in *install) runLane(fixture string) (string, *daemon) {
 	return id, d
 }
 
-func (in *install) questions() []questions.Question {
+func (in *install) questions() []api.QuestionView {
 	in.t.Helper()
 	var list api.QuestionList
 	if err := json.Unmarshal([]byte(in.must("question", "list", "--json")), &list); err != nil {

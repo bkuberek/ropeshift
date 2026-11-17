@@ -103,7 +103,7 @@ func (s *suite) questionNamed(text string) (questions.Question, bool) {
 	}
 	for _, row := range list.Questions {
 		if strings.Contains(strings.ToLower(row.Text), text) {
-			return row, true
+			return row.Question, true
 		}
 	}
 	return questions.Question{}, false

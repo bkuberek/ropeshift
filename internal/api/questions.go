@@ -34,7 +34,27 @@ func (f RecordFilter) query() string {
 
 // QuestionList is the answer to a list of questions.
 type QuestionList struct {
-	Questions []questions.Question `json:"questions"`
+	Questions []QuestionView `json:"questions"`
+}
+
+// QuestionView is a question as a read answers it. Scope is the scope an answer to it takes, from the record it is
+// about (questions.ScopeOf), and ScopeTitle the title of that record, as DecisionView says.
+type QuestionView struct {
+	questions.Question
+	Scope      string `json:"scope,omitempty"`
+	ScopeTitle string `json:"scope_title,omitempty"`
+}
+
+// QuestionBatch is a delivered batch as a read answers it: what still waits for a member in it.
+type QuestionBatch struct {
+	Batch questions.Batch `json:"batch"`
+	Items []QuestionItem  `json:"items"`
+}
+
+// QuestionItem is one question of a batch, with the title of the record its scope names, as DecisionView says.
+type QuestionItem struct {
+	questions.Item
+	ScopeTitle string `json:"scope_title,omitempty"`
 }
 
 // DecisionList is the answer to a list of decisions.
@@ -128,7 +148,7 @@ type AnswerQuestion struct {
 
 // BatchList is what reached members and still waits for them.
 type BatchList struct {
-	Batches []questions.Presented `json:"batches"`
+	Batches []QuestionBatch `json:"batches"`
 }
 
 // CategoryList is every category of a workspace, built-in and added.
@@ -154,15 +174,15 @@ type CandidateList struct {
 }
 
 // Questions lists the questions a filter selects.
-func (c *ProjectClient) Questions(ctx context.Context, filter RecordFilter) ([]questions.Question, error) {
+func (c *ProjectClient) Questions(ctx context.Context, filter RecordFilter) ([]QuestionView, error) {
 	var out QuestionList
 	err := c.do(ctx, http.MethodGet, "/v1/questions"+filter.query(), nil, &out)
 	return out.Questions, err
 }
 
 // Question reads one question.
-func (c *ProjectClient) Question(ctx context.Context, id string) (questions.Question, error) {
-	var out questions.Question
+func (c *ProjectClient) Question(ctx context.Context, id string) (QuestionView, error) {
+	var out QuestionView
 	err := c.do(ctx, http.MethodGet, "/v1/questions/"+url.PathEscape(id), nil, &out)
 	return out, err
 }
@@ -188,7 +208,7 @@ func (c *ProjectClient) AnswerQuestion(ctx context.Context, id string, in Answer
 
 // Batches lists the delivered batches that still wait for a member, within one category.
 // An empty category lists them all.
-func (c *ProjectClient) Batches(ctx context.Context, category string) ([]questions.Presented, error) {
+func (c *ProjectClient) Batches(ctx context.Context, category string) ([]QuestionBatch, error) {
 	path := "/v1/question-batches"
 	if category != "" {
 		path += "?category=" + url.QueryEscape(category)

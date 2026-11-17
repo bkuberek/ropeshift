@@ -1,6 +1,7 @@
 import type { Question, Questions as View } from "../api/types";
 import { Link } from "../app/route";
 import { Fact, Id, Line, words } from "../parts/parts";
+import { ScopeName } from "../ui/display";
 import { CategoryFilter } from "./CategoryFilter";
 import { QuestionActions } from "./QuestionActions";
 
@@ -47,6 +48,11 @@ function QuestionLine({ question }: { question: Question }) {
           </ul>
         ) : null}
         <dl className="kv">
+          {question.scope ? (
+            <Fact name="Scope">
+              <ScopeName scope={question.scope} title={question.scope_title} />
+            </Fact>
+          ) : null}
           {question.asked_by ? (
             <Fact name="Asked by">
               <Id value={question.asked_by} />

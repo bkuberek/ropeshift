@@ -165,7 +165,7 @@ func waitsFor(wakes []api.WakeView) string {
 func what(item api.NeedItem) string {
 	switch {
 	case item.Batch != nil:
-		return strconv.Itoa(len(item.Batch.Items)) + " to answer"
+		return strconv.Itoa(len(item.Batch.Items)) + " to answer" + batchScopes(item.Batch.Items)
 	case item.Approval != nil && item.Approval.Kind == authority.KindMerge:
 		// A merge request names its work by the work order's title, and one raised before it held the title by the
 		// work order's ID.
@@ -214,6 +214,21 @@ func what(item api.NeedItem) string {
 		line += "  " + clean(item.Work.Detail)
 	}
 	return line
+}
+
+// batchScopes names what a batch's answers bind, each scope once in the batch's order, with the title of the
+// record it names when the read gave one. A batch about nothing names nothing.
+func batchScopes(items []api.QuestionItem) string {
+	var named []string
+	for _, item := range items {
+		if label := clean(api.ScopeLabel(item.Scope, item.ScopeTitle)); label != "" && !slices.Contains(named, label) {
+			named = append(named, label)
+		}
+	}
+	if len(named) == 0 {
+		return ""
+	}
+	return "  " + strings.Join(named, ", ")
 }
 
 // preparer names the delegate that prepared a card, by its credential's label and the member it acts for, as
