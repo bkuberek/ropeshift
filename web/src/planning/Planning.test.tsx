@@ -1,6 +1,6 @@
-import { act, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type { PlanForecast } from "../api/measures";
 import type { InProgress, OnHold, PlanOutline } from "../api/types";
@@ -194,6 +194,82 @@ describe("a planning session", () => {
     expect(await screen.findByRole("heading", { level: 1, name: "Planning session" })).toBeTruthy();
     expect(screen.getByRole("region", { name: "Pane of lane lane-new" })).toBeTruthy();
     expect(await screen.findByRole("heading", { level: 2, name: "Plan in progress" })).toBeTruthy();
+  });
+});
+
+// A lane the page was sent to right after it started reaches the ledger only once its worker reads its desired
+// state, so its pane answers not_found until then.
+describe("a planning session that just started", () => {
+  const fresh = "lane-new";
+  const streams = () => FakeEvents.opened.filter((stream) => stream.path === `/v1/panes/${fresh}`);
+
+  // serveStarting answers the pane's refusal with not_found while the lane is missing.
+  function serveStarting(missing: () => boolean) {
+    serve((call) => (call.method === "GET" && call.path === `/v1/panes/${fresh}` && missing() ? refusal(404, "not_found", `lane ${fresh}: not found`) : undefined));
+  }
+
+  // refuseNext waits for the next stream of the pane, and refuses it as the server does a lane it does not hold.
+  async function refuseNext(count: number) {
+    await waitFor(() => expect(streams()).toHaveLength(count));
+    act(() => streams()[count - 1]?.drop());
+  }
+
+  async function passMs(ms: number) {
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(ms);
+    });
+  }
+
+  it("asks again until the lane reaches the ledger, without showing the refusal, and then takes input", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      let missing = true;
+      serveStarting(() => missing);
+      openPage(here(`/planning?lane=${fresh}`));
+      await screen.findByRole("heading", { level: 1, name: "Planning session" });
+      const pane = screen.getByRole("region", { name: `Pane of lane ${fresh}` });
+      for (let count = 1; count <= 3; count++) {
+        await refuseNext(count);
+        await waitFor(() => expect(within(pane).getByRole("status").textContent).toMatch(/starting/i));
+        expect(within(pane).queryByRole("alert")).toBeNull();
+        await passMs(5_000);
+      }
+      missing = false;
+      await waitFor(() => expect(streams()).toHaveLength(4));
+      act(() => streams()[3]?.send("screen", { lane_id: fresh, generation: 1, screen: "What is the plan for?" }));
+      await waitFor(() => expect(within(pane).getByRole("status").textContent).toMatch(/generation 1/i));
+      expect(within(pane).queryByRole("alert")).toBeNull();
+      fireEvent.change(within(pane).getByRole("textbox", { name: "Type into the session" }), { target: { value: "Saved searches" } });
+      expect((within(pane).getByRole("button", { name: "Send" }) as HTMLButtonElement).disabled).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("says the lane never started once the window passes, and stops asking", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      serveStarting(() => true);
+      openPage(here(`/planning?lane=${fresh}`));
+      await screen.findByRole("heading", { level: 1, name: "Planning session" });
+      const pane = screen.getByRole("region", { name: `Pane of lane ${fresh}` });
+      let count = 0;
+      while (!within(pane).queryByRole("alert")) {
+        count++;
+        if (count > 100) {
+          throw new Error("the pane asked more than 100 times and never said the lane did not start");
+        }
+        await refuseNext(count);
+        await passMs(5_000);
+      }
+      expect(within(pane).getByRole("alert").textContent).toMatch(new RegExp(`lane ${fresh} has not started`, "i"));
+      expect(within(pane).getByRole("alert").textContent).toMatch(/reload/i);
+      const asked = streams().length;
+      await passMs(60_000);
+      expect(streams()).toHaveLength(asked);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

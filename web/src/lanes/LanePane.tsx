@@ -24,34 +24,56 @@ const retryMs = 3000;
 // The refusals that can pass, so the page asks again.
 const passing = new Set(["no_pane", "unreachable", "unavailable", "session_required"]);
 
+// A lane that was just started reaches the ledger only when the worker holding its claim reads its desired
+// state, a heartbeat or two later, so until then its pane answers not_found. The page asks again after each
+// wait in turn, repeating the last, for as long as startingMs, and then says the lane has not started.
+const startingWaitsMs = [500, 1000, 2000, retryMs];
+const startingMs = 120_000;
+
+function neverStarted(lane: string): string {
+  return `Lane ${lane} has not started: its worker has not reported it in ${startingMs / 60_000} minutes. The Floor shows whether the worker is connected. Reload this page to look again.`;
+}
+
 // The keys an empty field sends to the session, so a person can answer a menu without leaving it.
 const fieldKeys: Record<string, PaneKey> = { Enter: "Enter", Escape: "Escape", ArrowUp: "Up", ArrowDown: "Down" };
 
 type Shown =
   | { kind: "opening" }
+  | { kind: "starting" }
   | { kind: "screen"; generation: number; screen: string }
   | { kind: "away"; generation: number; state: string; screen: string }
   | { kind: "refused"; message: string; screen: string };
 
 // usePane follows a lane's pane. The server follows the lane from one generation's pane to the next, so
-// the page holds one stream for the life of the page.
-function usePane(lane: string, live: Live): Shown {
+// the page holds one stream for the life of the page. A lane that may be starting is one the ledger may not
+// hold yet, so its not_found passes for a while.
+function usePane(lane: string, live: Live, starting: boolean): Shown {
   const [shown, setShown] = useState<Shown>({ kind: "opening" });
   const session = useRef(live.checkSession);
   session.current = live.checkSession;
+  const mayStart = useRef(starting);
+  mayStart.current = starting;
 
   useEffect(() => {
     let stream: EventSource | null = null;
     let retry: ReturnType<typeof setTimeout> | undefined;
     let gone = false;
     let last = "";
+    const since = Date.now();
+    let waits = 0;
     const explain = async () => {
       const refused = await paneRefusal(lane);
       if (gone) {
         return;
       }
+      const missing = refused?.code === "not_found" && mayStart.current;
+      if (missing && Date.now() - since < startingMs) {
+        setShown({ kind: "starting" });
+        retry = setTimeout(open, startingWaitsMs[Math.min(waits++, startingWaitsMs.length - 1)]);
+        return;
+      }
       if (refused) {
-        setShown({ kind: "refused", message: refused.message, screen: last });
+        setShown({ kind: "refused", message: missing ? neverStarted(lane) : refused.message, screen: last });
         if (refused.code === "session_required") {
           await session.current();
         }
@@ -99,6 +121,8 @@ function statusOf(shown: Shown): string {
   switch (shown.kind) {
     case "opening":
       return "Opening the pane.";
+    case "starting":
+      return "The lane is starting. Its pane shows here once its worker reports it.";
     case "screen":
       return `Live, generation ${shown.generation}.`;
     case "refused":
@@ -226,9 +250,10 @@ function Typing({ lane, live }: { lane: string; live: boolean }) {
 
 // LanePane is a lane's live pane. A page that holds it may say the person is detached, which takes the
 // typing away and leaves the screen, and the state the ledger gives the lane, which labels the last screen
-// received when the lane is parked and has no process to show.
-export function LanePane({ lane, live, attached = true, state = "" }: { lane: string; live: Live; attached?: boolean; state?: string }) {
-  const shown = usePane(lane, live);
+// received when the lane is parked and has no process to show. A page sent to a lane that was just started
+// says it may be starting, so the pane waits for the ledger to hold it.
+export function LanePane({ lane, live, attached = true, state = "", starting = false }: { lane: string; live: Live; attached?: boolean; state?: string; starting?: boolean }) {
+  const shown = usePane(lane, live, starting);
   const screen = shown.kind === "screen" || shown.kind === "away" || shown.kind === "refused" ? shown.screen : "";
   const parked = shown.kind !== "screen" && (state === "parked" || (shown.kind === "away" && shown.state === "parked"));
   return (
