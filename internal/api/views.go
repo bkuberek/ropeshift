@@ -474,7 +474,7 @@ type WorkerLine struct {
 	Freshness       string                `json:"freshness"`
 	ReportFreshness string                `json:"report_freshness,omitempty"`
 	Drivers         []ledger.DriverResult `json:"drivers"`
-	Orchestrator    *ledger.Orchestrator  `json:"orchestrator,omitempty"`
+	Orchestrator    *Orchestrator         `json:"orchestrator,omitempty"`
 }
 
 // FloorLane is a lane and the title of the work it runs, because a lane's ID says nothing to a person.

@@ -730,12 +730,12 @@ func (h *handler) orchestratorTargets(ctx context.Context) ([]api.OrchestratorTa
 			continue
 		}
 		target := api.OrchestratorTarget{Worker: worker.ID, Name: worker.Name, State: ledger.OrchestratorStopped, Desired: ledger.OrchestratorStopped, Projects: []string{}}
-		row, err := h.plane.Orchestrator(ctx, worker.ID)
+		row, waits, err := h.plane.OrchestratorStanding(ctx, worker.ID)
 		if err != nil && !errors.Is(err, ports.ErrNotFound) {
 			return nil, err
 		}
 		if err == nil {
-			target.Desired, target.Generation = row.Desired, row.Generation
+			target.Desired, target.Generation, target.WaitingFor = row.Desired, row.Generation, waitingFor(waits)
 			target.State = cmp.Or(row.Actual, row.Desired)
 			if row.Desired != ledger.OrchestratorRunning {
 				target.State = ledger.OrchestratorStopped

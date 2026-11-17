@@ -36,6 +36,36 @@ func orchestratorOf(ctx context.Context, installation ports.Installation, worker
 	return row, err
 }
 
+// AwaitsWindow says the run of an orchestrator a member wants waits for a run window before its session
+// starts, read in a project's transaction.
+func (w *Workers) AwaitsWindow(tx ports.ReadTx, row ledger.Orchestrator) (bool, error) {
+	now, err := tx.Now()
+	if err != nil {
+		return false, err
+	}
+	return awaitsWindow(tx.Policies(), tx.Workers(), row, now)
+}
+
+// awaitsWindow says a run waits for a run window. A worker holds an orchestrator's generation in
+// `provisioning` until its wake digest holds something to judge, and the digest of an attended worker with
+// no window open holds no new work, so the run waits for a member to open one, or for a question or a
+// message. A manual worker's run waits for a question whatever the window, and an unattended one claims
+// with none.
+func awaitsWindow(policies ports.PolicyReader, workers ports.WorkerReader, row ledger.Orchestrator, now int64) (bool, error) {
+	if row.Desired != ledger.OrchestratorRunning || row.Actual != string(lanes.Provisioning) {
+		return false, nil
+	}
+	record, err := workers.Find(row.WorkerID)
+	if err != nil {
+		return false, err
+	}
+	facts, err := readAutonomy(policies, workers, record, now)
+	if err != nil {
+		return false, err
+	}
+	return facts.standing.Level == authority.LevelAttended && !facts.standing.WindowOpen, nil
+}
+
 // SetOrchestrator records what a member asks of a worker's orchestrator. A start of one that is
 // running asks for nothing new, unless its breaker tripped, which only a person may reset, or its
 // session stalled, which a new run replaces: a worker stops the run nobody asks for any more.

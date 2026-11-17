@@ -194,6 +194,32 @@ func TestChatTalksUntilInputEndsAndThenStops(t *testing.T) {
 	}
 }
 
+// An attended worker holds its orchestrator's run until a member opens a run window, and `orchestrator show`
+// says so in the words the web UI uses.
+func TestAnOrchestratorShowsItWaitsForARunWindow(t *testing.T) {
+	s := newTalking(t)
+	if _, err := s.workers.SetOrchestrator(t.Context(), s.auth.WorkerID, ledger.OrchestratorRunning, ledger.Actor{Kind: ledger.ActorMember, ID: "member"}); err != nil {
+		t.Fatal(err)
+	}
+	session, err := s.workers.OpenSession(t.Context(), ledger.SessionRequest{Auth: s.auth, Protocol: ledger.ProtocolVersion})
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.Marshal(ledger.LaneStatus{ActualState: "provisioning", Liveness: "unknown"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reply, err := s.workers.Upload(t.Context(), ledger.UploadBatch{Auth: s.auth, Epoch: session.Epoch, Events: []ledger.UploadEvent{{
+		Epoch: session.Epoch, Seq: 1, Type: ledger.UploadLaneStatus, Lane: "orchestrator-1", Generation: 1, Payload: raw, OccurredAt: 1,
+	}}})
+	if err != nil || len(reply.Rejected) != 0 {
+		t.Fatalf("upload: %+v %v", reply, err)
+	}
+	if out := s.must("orchestrator", "show", s.auth.WorkerID); !strings.Contains(out, "reads waiting for a run window") {
+		t.Errorf("show %q", out)
+	}
+}
+
 func TestAMessageAndAnAttachReachTheOrchestrator(t *testing.T) {
 	s := newTalking(t)
 	code, _, stderr := s.run(nil, "message", "send", "--orchestrator", s.auth.WorkerID, "--body", "Look at WO-1")
