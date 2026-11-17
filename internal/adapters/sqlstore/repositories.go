@@ -146,7 +146,8 @@ func (t repositoryTx) Insert(r ledger.Repository) (bool, error) {
 }
 
 // Detected replaces what git said of a repository. A remote that moves takes the record's place in the
-// index to the new identity, which another project must not hold.
+// index to the new identity, which another project must not hold, and gives up the old one, which another
+// record of the project that shares it keeps.
 func (t repositoryTx) Detected(id, remote, defaultBranch string) (bool, error) {
 	var before ledger.Repository
 	if t.index != nil {
@@ -163,10 +164,31 @@ func (t repositoryTx) Detected(id, remote, defaultBranch string) (bool, error) {
 	if was == now {
 		return true, nil
 	}
-	if _, err := t.index.exec(stmtReleaseRepository, params{"identity": was, "project_id": string(t.scope), "repository_id": id}); err != nil {
+	if err := t.release(was, id); err != nil {
 		return false, err
 	}
 	return true, t.hold(now, id)
+}
+
+// release gives up an identity that a record held in the repository index. Records of one project that
+// share an identity share one entry, and the record that took it may be the one that leaves it, so the
+// identity passes to another record of the project that is not removed and holds it, in the same write.
+// The caller has changed the record in this transaction, so the records read here are the ones that stay.
+func (t repositoryTx) release(identity, id string) error {
+	if _, err := t.index.exec(stmtReleaseRepository, params{"identity": identity, "project_id": string(t.scope), "repository_id": id}); err != nil {
+		return err
+	}
+	records, err := t.Repositories()
+	if err != nil {
+		return err
+	}
+	for _, other := range records {
+		if other.ID != id && !other.Removed() && ledger.RepositoryIdentity(other.Remote, other.ID) == identity {
+			_, err = t.index.exec(stmtIndexRepository, params{"identity": identity, "project_id": string(t.scope), "repository_id": other.ID})
+			return err
+		}
+	}
+	return nil
 }
 
 // hold enters an identity in the repository index for this project, unless another project holds it,
@@ -224,21 +246,7 @@ func (t repositoryTx) Remove(id string) error {
 	if _, err := t.exec(stmtRepositoryState, t.scoped(params{"id": id, "state": string(ledger.RepositoryRemoved)})); err != nil || t.index == nil {
 		return err
 	}
-	identity := ledger.RepositoryIdentity(record.Remote, id)
-	if _, err = t.index.exec(stmtReleaseRepository, params{"identity": identity, "project_id": string(t.scope), "repository_id": id}); err != nil {
-		return err
-	}
-	records, err := t.Repositories()
-	if err != nil {
-		return err
-	}
-	for _, other := range records {
-		if other.ID != id && !other.Removed() && ledger.RepositoryIdentity(other.Remote, other.ID) == identity {
-			_, err = t.index.exec(stmtIndexRepository, params{"identity": identity, "project_id": string(t.scope), "repository_id": other.ID})
-			return err
-		}
-	}
-	return nil
+	return t.release(ledger.RepositoryIdentity(record.Remote, id), id)
 }
 
 // Restore brings a removed record back into its project, and holds its identity in the repository index

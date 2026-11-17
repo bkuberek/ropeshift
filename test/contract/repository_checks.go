@@ -35,6 +35,7 @@ var RepositoryChecks = []Check{
 	{"RB14", "a project of one repository plans in it, and a member names at most one planning repository, each change one audited event", checkPlanningRepository},
 	{"RB15", "with a planning repository named, intake reads plan files only from it and reports each one another repository holds", checkPlanFilesOnlyFromThePlanningRepository},
 	{"RB16", "removing one clone of a repository leaves the repository held by a project's other clone, and removing the last clone gives it up", checkRemovingAClonePassesTheRepositoryToItsSibling},
+	{"RB17", "moving one clone's remote away leaves the repository held by a project's other clone, and moving the last clone away gives it up", checkMovingAClonePassesTheRepositoryToItsSibling},
 }
 
 func (r *Rig) repositories(s ports.Store) *control.Repositories { return control.NewRepositories(s) }
@@ -641,6 +642,52 @@ func checkRemovingAClonePassesTheRepositoryToItsSibling(r *Rig) error {
 	}
 	if err := register(other, "repo-b", "b"); err != nil {
 		return Violatedf("another project registering a repository whose last clone left its project: %v", err)
+	}
+	return nil
+}
+
+// checkMovingAClonePassesTheRepositoryToItsSibling holds the same for a clone whose remote git reports as
+// another one: it gives up the repository it held, and the project's other clone of that repository keeps
+// the project's claim on it, in the same write, so another project cannot register the repository while the
+// server runs. The last clone to move away gives it up. A store with no installation has no claim to keep.
+func checkMovingAClonePassesTheRepositoryToItsSibling(r *Rig) error {
+	s := r.Store()
+	intake := ledger.Actor{Kind: ledger.ActorSystem, ID: "intake"}
+	const (
+		remote = "https://example.invalid/acme/shared.git"
+		movedX = "https://example.invalid/acme/moved-x.git"
+		movedY = "https://example.invalid/acme/moved-y.git"
+	)
+	register := func(scope ledger.WorkspaceID, id, directory, at string) error {
+		_, err := r.repositories(s).Detect(r.Ctx, scope, control.DetectedRepository{ID: id, Remote: at, DefaultBranch: "main", Directory: directory}, intake)
+		return err
+	}
+	other := ledger.WorkspaceID("workspace-b")
+	if _, err := s.CreateWorkspace(r.Ctx, ledger.Workspace{ID: other, Name: "B"}, r.Actor); err != nil {
+		return err
+	}
+	for _, clone := range []string{"x", "y"} {
+		if err := register(r.Scope, "repo-"+clone, clone, remote); err != nil {
+			return err
+		}
+	}
+	if err := register(other, "repo-b", "b", remote); err == nil {
+		return nil
+	} else if !errors.Is(err, ledger.ErrRepositoryHeld) {
+		return err
+	}
+	// The first clone took the repository, so moving it is what could give the repository up.
+	if err := register(r.Scope, "repo-x", "x", movedX); err != nil {
+		return err
+	}
+	if err := register(other, "repo-b", "b", remote); !errors.Is(err, ledger.ErrRepositoryHeld) {
+		return Violatedf("another project registering a repository whose other clone is still in its project: %v", err)
+	}
+	if err := register(r.Scope, "repo-y", "y", movedY); err != nil {
+		return err
+	}
+	if err := register(other, "repo-b", "b", remote); err != nil {
+		return Violatedf("another project registering a repository whose last clone moved away: %v", err)
 	}
 	return nil
 }
