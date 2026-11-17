@@ -2,6 +2,7 @@ package control_test
 
 import (
 	"errors"
+	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -20,36 +21,54 @@ import (
 // A layout is a folder of real git clones, each made from a repository of its own, so the detection reads what
 // git says of them.
 type layout struct {
-	t    *testing.T
-	base string
-	env  []string
+	t      *testing.T
+	base   string
+	env    []string
+	ledger *testLedger
 }
 
 func newLayout(t *testing.T) *layout {
+	t.Helper()
+	return newLayoutOn(t, &testLedger{t: t})
+}
+
+func newLayoutOn(t *testing.T, ledger *testLedger) *layout {
 	t.Helper()
 	gittest.Require(t)
 	base, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &layout{t: t, base: base}
+	return &layout{t: t, base: base, ledger: ledger}
 }
 
-// clone makes a clone at a path below the layout, holding the files, and returns where it is.
+// fresh is a second layout for the same test, in a folder of its own and with the ledger of this one.
+func (l *layout) fresh() *layout {
+	l.t.Helper()
+	return newLayoutOn(l.t, l.ledger)
+}
+
+// clone makes a clone at a path below the layout, holding the files, and returns where it is. Its origin holds
+// the files in one commit, because the detection reads the files git lists and not how they came to be.
 func (l *layout) clone(rel string, files map[string]string) string {
 	l.t.Helper()
 	origin := gittest.NewIn(l.t, filepath.Join(l.base, ".origins", strings.ReplaceAll(rel, "/", "-")))
 	if l.env == nil {
 		l.env = origin.Env()
 	}
-	for _, name := range slices.Sorted(func(yield func(string) bool) {
-		for name := range files {
-			if !yield(name) {
-				return
-			}
+	names := slices.Sorted(maps.Keys(files))
+	for _, name := range names {
+		file := filepath.Join(origin.Dir, name)
+		if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
+			l.t.Fatal(err)
 		}
-	}) {
-		origin.Commit(name, files[name])
+		if err := os.WriteFile(file, []byte(files[name]), 0o600); err != nil {
+			l.t.Fatal(err)
+		}
+	}
+	if len(names) > 0 {
+		origin.Git(append([]string{"add", "--"}, names...)...)
+		origin.Git("commit", "--quiet", "-m", "files of "+rel)
 	}
 	dest := filepath.Join(l.base, filepath.FromSlash(rel))
 	if err := os.MkdirAll(filepath.Dir(dest), 0o700); err != nil {
@@ -65,7 +84,7 @@ func (l *layout) path(rel string) string { return filepath.Join(l.base, filepath
 func (l *layout) plan(in control.AdoptionRequest) (planning.AdoptionPlan, error) {
 	l.t.Helper()
 	machine := &checkouts.File{Path: filepath.Join(l.t.TempDir(), checkouts.FileName), Env: l.env}
-	return control.NewAdoptions(control.NewRepositories(ledgerOf(l.t, "acme"))).Plan(l.t.Context(), "acme", in, machine, machine, projectMember)
+	return control.NewAdoptions(control.NewRepositories(l.ledger.get())).Plan(l.t.Context(), "acme", in, machine, machine, projectMember)
 }
 
 func (l *layout) mustPlan(in control.AdoptionRequest) planning.AdoptionPlan {
@@ -93,6 +112,7 @@ func workspaceFiles(extra map[string]string) map[string]string {
 
 // A clone with nothing else around it reads as the single shape.
 func TestGitLayoutOfALoneCloneIsSingle(t *testing.T) {
+	t.Parallel()
 	l := newLayout(t)
 	l.clone("ws", workspaceFiles(nil))
 	plan := l.mustPlan(control.AdoptionRequest{Root: l.path("ws")})
@@ -103,6 +123,7 @@ func TestGitLayoutOfALoneCloneIsSingle(t *testing.T) {
 
 // A clone that commits a plan file, with a clone in the folder it ignores, reads as planned.
 func TestGitLayoutOfAPlannedCloneIsPlanned(t *testing.T) {
+	t.Parallel()
 	l := newLayout(t)
 	l.clone("ws", workspaceFiles(map[string]string{"plan/goal.md": goalDocument}))
 	l.clone("ws/repos/api", map[string]string{"go.mod": "module api\n"})
@@ -118,7 +139,7 @@ func TestGitLayoutOfAPlannedCloneIsPlanned(t *testing.T) {
 	}
 
 	// A manifest the clone commits leaves nothing to add.
-	l = newLayout(t)
+	l = l.fresh()
 	l.clone("ws", workspaceFiles(map[string]string{"plan/goal.md": goalDocument, "plan/repositories.md": manifestDocument}))
 	l.clone("ws/repos/api", map[string]string{"go.mod": "module api\n"})
 	if again := l.mustPlan(control.AdoptionRequest{Root: l.path("ws")}); again.Shape != planning.ShapePlanned || len(again.Files) != 0 {
@@ -129,6 +150,7 @@ func TestGitLayoutOfAPlannedCloneIsPlanned(t *testing.T) {
 // A workspace with no plan content, whose ignored folder holds a design repository and a code repository, reads
 // as a consolidation, and lists what it takes, what collides, and the code trees.
 func TestGitLayoutOfAWorkspaceWithADesignRepositoryConsolidates(t *testing.T) {
+	t.Parallel()
 	l := newLayout(t)
 	l.clone("ws", workspaceFiles(nil))
 	l.clone("ws/repos/design", map[string]string{
@@ -164,6 +186,7 @@ func TestGitLayoutOfAWorkspaceWithADesignRepositoryConsolidates(t *testing.T) {
 // With no design repository to import, clones named by paths beside the clone are listed to move into its
 // folder of clones, and the plan adds the manifest, the ignore line, and a Makefile.
 func TestGitLayoutOfClonesBesideAWorkspaceIsTheWorkspaceFiles(t *testing.T) {
+	t.Parallel()
 	l := newLayout(t)
 	l.clone("ws", map[string]string{"README.md": "a workspace\n"})
 	l.clone("api", map[string]string{"go.mod": "module api\n", "README.md": "api\n"})
@@ -189,6 +212,7 @@ func TestGitLayoutOfClonesBesideAWorkspaceIsTheWorkspaceFiles(t *testing.T) {
 // Clones two levels down are found only at depth two, and a clone beside the one adopt runs in is seen only when
 // a path names it.
 func TestGitLayoutSearchesToTheDepthAndNoFurther(t *testing.T) {
+	t.Parallel()
 	l := newLayout(t)
 	l.clone("ws", workspaceFiles(nil))
 	l.clone("ws/repos/group/deep", map[string]string{"go.mod": "module deep\n"})
@@ -209,6 +233,7 @@ func TestGitLayoutSearchesToTheDepthAndNoFurther(t *testing.T) {
 // Two candidates with the same number of documents name no design repository, and a build file at the top of
 // the design repository makes the whole of it one code tree that cannot be left out.
 func TestGitLayoutDesignChoicesAndTheRootBuildFile(t *testing.T) {
+	t.Parallel()
 	l := newLayout(t)
 	l.clone("ws", workspaceFiles(nil))
 	l.clone("ws/repos/one", map[string]string{"a.md": "a\n", "b.md": "b\n"})
@@ -220,7 +245,7 @@ func TestGitLayoutDesignChoicesAndTheRootBuildFile(t *testing.T) {
 		t.Errorf("--design two reads design %+v and shape %s", plan.Design, plan.Shape)
 	}
 
-	l = newLayout(t)
+	l = l.fresh()
 	l.clone("ws", workspaceFiles(nil))
 	l.clone("ws/repos/design", map[string]string{"plan/goal.md": goalDocument, "go.mod": "module design\n", "main.go": "package main\n"})
 	plan := l.mustPlan(control.AdoptionRequest{Root: l.path("ws")})
@@ -235,10 +260,12 @@ func TestGitLayoutDesignChoicesAndTheRootBuildFile(t *testing.T) {
 // A plan records nothing: no event, no record, and no checkout file. It is the same for the same layout, and it
 // changes when a clone is added.
 func TestGitLayoutPlanRecordsNothingAndItsDigestIsStable(t *testing.T) {
+	t.Parallel()
 	l := newLayout(t)
 	l.clone("ws", workspaceFiles(nil))
 	l.clone("ws/repos/design", map[string]string{"plan/goal.md": goalDocument, "docs/a.md": "a\n"})
-	store := ledgerOf(t, "acme")
+	// The ledger every plan of this test reads, so the events compared are those of the one the plans used.
+	store := l.ledger.get()
 	checkoutFile := filepath.Join(t.TempDir(), checkouts.FileName)
 	machine := &checkouts.File{Path: checkoutFile, Env: l.env}
 	adoptions := control.NewAdoptions(control.NewRepositories(store))
