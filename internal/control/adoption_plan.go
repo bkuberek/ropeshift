@@ -155,7 +155,7 @@ func detect(ctx context.Context, in AdoptionRequest, kept ports.Checkouts, layou
 		return nil, nil, nil, fmt.Errorf("%w: run adopt in the top of a git clone with a commit; %s is none", ledger.ErrInvalidRepository, in.Root)
 	}
 	top := roots[0]
-	ignored, err := layouts.Ignored(ctx, top.Path)
+	ignored, err := layouts.IgnoredDirectories(ctx, top.Path)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -414,7 +414,7 @@ func newHome(ctx context.Context, home foundClone, layouts ports.Layouts) (plann
 	if held.tracked, err = layouts.Tracked(ctx, home.Path, tip); err != nil {
 		return held, err
 	}
-	if held.ignored, err = layouts.Ignored(ctx, home.Path); err != nil {
+	if held.ignored, err = layouts.IgnoredDirectories(ctx, home.Path); err != nil {
 		return held, err
 	}
 	held.content = home.content

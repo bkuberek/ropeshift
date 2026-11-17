@@ -53,8 +53,8 @@ func (l *Layouts) read(clone string) (CloneLayout, error) {
 	return layout, nil
 }
 
-// Ignored lists the ignored directories placed for the clone.
-func (l *Layouts) Ignored(_ context.Context, clone string) ([]string, error) {
+// IgnoredDirectories lists the ignored directories placed for the clone.
+func (l *Layouts) IgnoredDirectories(_ context.Context, clone string) ([]string, error) {
 	layout, err := l.read(clone)
 	return slices.Clone(layout.Ignored), err
 }

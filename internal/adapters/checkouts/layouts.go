@@ -21,9 +21,9 @@ func (f *File) source(clone string) *repofiles.Source {
 	return repofiles.New(repofiles.Config{Repository: clone, Env: f.Env})
 }
 
-// Ignored lists the directories a clone's ignore rules leave out of its working tree. Git collapses a directory
-// that is ignored whole into one entry, so a directory inside one is not listed.
-func (f *File) Ignored(ctx context.Context, clone string) ([]string, error) {
+// IgnoredDirectories lists the directories a clone's ignore rules leave out of its working tree. Git collapses a
+// directory that is ignored whole into one entry, so a directory inside one is not listed.
+func (f *File) IgnoredDirectories(ctx context.Context, clone string) ([]string, error) {
 	out, err := f.git(clone).Output(ctx, "ls-files", "--others", "--ignored", "--exclude-standard", "--directory", "-z")
 	if err != nil {
 		return nil, err

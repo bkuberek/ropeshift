@@ -19,7 +19,7 @@ func TestFakeLayoutsReadWhatAClonePlaced(t *testing.T) {
 	})
 	ctx := t.Context()
 
-	if got, err := layouts.Ignored(ctx, "/work/design"); err != nil || !reflect.DeepEqual(got, []string{"scratch"}) {
+	if got, err := layouts.IgnoredDirectories(ctx, "/work/design"); err != nil || !reflect.DeepEqual(got, []string{"scratch"}) {
 		t.Errorf("ignored directories read %v: %v", got, err)
 	}
 	if got, err := layouts.Plan(ctx, "/work/design"); err != nil || !got.Held() || !got.Manifest {
@@ -48,7 +48,7 @@ func TestFakeLayoutsReadWhatAClonePlaced(t *testing.T) {
 	if got, err := layouts.Plan(ctx, "/work/ghost"); err != nil || got.Held() {
 		t.Errorf("a clone nothing was placed for reads plan content %+v: %v", got, err)
 	}
-	if ignored, err := layouts.Ignored(ctx, "/work/ghost"); err != nil || len(ignored) != 0 {
+	if ignored, err := layouts.IgnoredDirectories(ctx, "/work/ghost"); err != nil || len(ignored) != 0 {
 		t.Errorf("a clone nothing was placed for ignores %v: %v", ignored, err)
 	}
 	ghost, err := layouts.Tip(ctx, "/work/ghost")

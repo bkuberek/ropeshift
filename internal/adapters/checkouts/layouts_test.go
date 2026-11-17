@@ -36,7 +36,7 @@ func TestIgnoredListsTheDirectoriesACloneIgnores(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	got, err := layoutsOf(repo).Ignored(t.Context(), repo.Dir)
+	got, err := layoutsOf(repo).IgnoredDirectories(t.Context(), repo.Dir)
 	if want := []string{"node_modules", "repos"}; err != nil || !reflect.DeepEqual(got, want) {
 		t.Errorf("ignored directories read %v, want %v: %v", got, want, err)
 	}

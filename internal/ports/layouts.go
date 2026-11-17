@@ -32,9 +32,9 @@ func (p PlanContent) Held() bool { return p.Files > 0 }
 // reads only what a clone commits and what its ignore rules say, and it writes nothing. A clone is named by the
 // path of its top, and what it holds is read at the tip of its default branch.
 type Layouts interface {
-	// Ignored lists the directories the clone's ignore rules leave out of its working tree, relative to its top,
-	// with slashes and no trailing one, in order. A directory inside one of them is not listed.
-	Ignored(ctx context.Context, clone string) ([]string, error)
+	// IgnoredDirectories lists the directories the clone's ignore rules leave out of its working tree, relative to
+	// its top, with slashes and no trailing one, in order. A directory inside one of them is not listed.
+	IgnoredDirectories(ctx context.Context, clone string) ([]string, error)
 	// Plan says what plan content the clone holds.
 	Plan(ctx context.Context, clone string) (PlanContent, error)
 	// Documents counts the Markdown documents the clone commits.
