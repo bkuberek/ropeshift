@@ -439,6 +439,75 @@ describe("Settings", () => {
     expect(panel.querySelector('[aria-hidden="true"]')?.textContent).toBe("in 2h");
   });
 
+  // The autonomy routes that change something answer 204 with no body, so the panel must read again and
+  // toast on the answer's status alone.
+  describe("autonomy actions that answer 204", () => {
+    const asOf = 1_760_000_000_000;
+    const autonomy = "/v1/workers/worker-1/autonomy";
+    const serveAutonomy = (state: { acknowledged: boolean; window: boolean }, closing?: Answer) =>
+      serveAdmin((call) => {
+        if (call.path === autonomy && call.method === "GET") {
+          return {
+            status: 200,
+            body: {
+              as_of: asOf,
+              worker_id: "worker-1",
+              sign_in: "subscription",
+              level: "attended",
+              risk_acknowledged: state.acknowledged,
+              may_claim: true,
+              window: state.window ? { id: "w1", worker_id: "worker-1", opened_by: "member-1", opened_at: asOf - 60_000, closes_at: asOf + 3_600_000 } : undefined,
+            },
+          };
+        }
+        if (call.path === "/v1/autonomy/risk") {
+          return { status: 200, body: { statement: "An unattended worker acts on its own.", digest: "digest-1" } };
+        }
+        if (call.method === "POST" && call.path === `${autonomy}/acknowledgement`) {
+          state.acknowledged = true;
+          return { status: 204 };
+        }
+        if (call.method === "DELETE" && call.path === "/v1/workers/worker-1/windows") {
+          if (closing) {
+            return closing;
+          }
+          state.window = false;
+          return { status: 204 };
+        }
+        return undefined;
+      });
+
+    it("updates the panel and says so after the stated risk is acknowledged", async () => {
+      const sent = serveAutonomy({ acknowledged: false, window: false });
+      openPage("/settings?section=autonomy");
+      await userEvent.click(await screen.findByRole("button", { name: "Read the stated risk" }));
+      const dialog = await screen.findByRole("dialog", { name: "The stated risk" });
+      await userEvent.click(within(dialog).getByRole("button", { name: "I stand behind it" }));
+      expect(await screen.findByText("You stand behind the stated risk for atlas.")).toBeTruthy();
+      expect(await screen.findByText("The stated risk is acknowledged for this worker.")).toBeTruthy();
+      expect(screen.queryByRole("button", { name: "Read the stated risk" })).toBeNull();
+      expect(sentTo(sent, "POST", `${autonomy}/acknowledgement`)[0]?.body).toEqual({ digest: "digest-1" });
+    });
+
+    it("updates the panel and says so after a run window is closed", async () => {
+      const sent = serveAutonomy({ acknowledged: true, window: true });
+      openPage("/settings?section=autonomy");
+      await userEvent.click(await screen.findByRole("button", { name: "Close window" }));
+      expect(await screen.findByText("Closed atlas's run window. Its lanes keep running.")).toBeTruthy();
+      expect(await screen.findByRole("button", { name: "Open window" })).toBeTruthy();
+      expect(screen.queryByRole("button", { name: "Close window" })).toBeNull();
+      expect(sentTo(sent, "DELETE", "/v1/workers/worker-1/windows")).toHaveLength(1);
+    });
+
+    it("keeps the panel and says nothing after a refused action", async () => {
+      serveAutonomy({ acknowledged: true, window: true }, refusal(403, "forbidden"));
+      openPage("/settings?section=autonomy");
+      await userEvent.click(await screen.findByRole("button", { name: "Close window" }));
+      expect(await screen.findByText("forbidden")).toBeTruthy();
+      expect(screen.queryByText(/Closed atlas/)).toBeNull();
+    });
+  });
+
   it("lists the project's sections under the project and the rest at the installation", async () => {
     serveAdmin();
     openPage(here("/settings"));
