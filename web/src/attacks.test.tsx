@@ -179,8 +179,9 @@ describe("the source", () => {
   it("makes no link but its own, and the one constant that names the passphrase help", () => {
     for (const path of source("src")) {
       const text = readFileSync(path, "utf8");
+      const allowed = path === join("src", "app", "SignIn.tsx") ? /: ("#main">?|\{to\}|\{passphraseHelp\})$/ : /: ("#main">?|\{to\})$/;
       for (const [, href] of text.matchAll(/<a\s[^>]*href=(\S+)/g)) {
-        expect(`${path}: ${href}`).toMatch(/: ("#main">?|\{to\}|\{passphraseHelp\})$/);
+        expect(`${path}: ${href}`).toMatch(allowed);
       }
     }
     expect(readFileSync("src/app/SignIn.tsx", "utf8")).toMatch(/export const passphraseHelp = "https:\/\/github\.com\/bkuberek\/ropeshift\/blob\/main\/docs\/[a-z-]+\.md#[a-z-]+";/);

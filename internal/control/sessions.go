@@ -196,8 +196,9 @@ func (s *Sessions) ChangePassphrase(ctx context.Context, scope ledger.WorkspaceI
 		if err != nil {
 			return err
 		}
-		// Every session but the new one goes: the old token of this session with the others.
-		dropped, err := tx.Members().DropOtherMemberSessions(member, digestOf(fresh))
+		// Every session but the new one goes, the old token of this session with the others. The count holds the
+		// sessions that had not expired, and this session's old token is one of them.
+		dropped, err := tx.Members().DropOtherMemberSessions(member, digestOf(fresh), now)
 		if err != nil {
 			return err
 		}

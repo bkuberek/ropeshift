@@ -44,6 +44,10 @@ VALUES (:workspace_id, :digest, :member_id, :created_at, :expires_at)`)
 	stmtDropMemberSessions = define("member_session.drop_member",
 		`DELETE FROM member_sessions WHERE workspace_id = :workspace_id AND member_id = :member_id`)
 
+	stmtCountLiveOtherMemberSessions = define("member_session.count_live_other",
+		`SELECT COUNT(*) FROM member_sessions
+ WHERE workspace_id = :workspace_id AND member_id = :member_id AND digest <> :kept AND expires_at > :now`)
+
 	stmtDropOtherMemberSessions = define("member_session.drop_other",
 		`DELETE FROM member_sessions WHERE workspace_id = :workspace_id AND member_id = :member_id AND digest <> :kept`)
 
@@ -180,8 +184,19 @@ func (t memberTx) DropMemberSessions(member string) (int64, error) {
 	return t.exec(stmtDropMemberSessions, t.scoped(params{"member_id": member}))
 }
 
-func (t memberTx) DropOtherMemberSessions(member, kept string) (int64, error) {
-	return t.exec(stmtDropOtherMemberSessions, t.scoped(params{"member_id": member, "kept": kept}))
+func (t memberTx) DropOtherMemberSessions(member, kept string, now int64) (int64, error) {
+	row, err := t.row(stmtCountLiveOtherMemberSessions, t.scoped(params{"member_id": member, "kept": kept, "now": now}))
+	if err != nil {
+		return 0, err
+	}
+	var live int64
+	if err := row.Scan(&live); err != nil {
+		return 0, err
+	}
+	if _, err := t.exec(stmtDropOtherMemberSessions, t.scoped(params{"member_id": member, "kept": kept})); err != nil {
+		return 0, err
+	}
+	return live, nil
 }
 
 func scanDelegate(row scanner) (authority.DelegateCredential, error) {

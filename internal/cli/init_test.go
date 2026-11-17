@@ -5,9 +5,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"ropeshift.com/ropeshift/internal/cli"
@@ -96,6 +98,45 @@ func TestInitSaysWhereEachSignInStands(t *testing.T) {
 				t.Errorf("started a daemon %d times beside one that answers", r.started)
 			}
 		})
+	}
+}
+
+// TestInitThatStartedTheDaemonNamesHowToRunItNext holds the hint after a run that started a daemon of its
+// own: it names the service, the Homebrew service, and the foreground command.
+func TestInitThatStartedTheDaemonNamesHowToRunItNext(t *testing.T) {
+	var armed, refused atomic.Bool
+	r := newInitRun(t, apitest.Options{Wrap: func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			if armed.Load() && !refused.Swap(true) {
+				conn, _, err := w.(http.Hijacker).Hijack()
+				if err == nil {
+					_ = conn.Close()
+				}
+				return
+			}
+			next.ServeHTTP(w, req)
+		})
+	}})
+	armed.Store(true)
+	var stdout, stderr bytes.Buffer
+	code := cli.Run([]string{"init"}, &stdout, &stderr, cli.Options{
+		Socket: r.daemon.Socket, StateDir: r.stateDir,
+		Doctor: func(context.Context) (ledger.Manifest, error) { return claudeCode("api_key", "signed_in", true), nil },
+		StartDaemon: func(context.Context) (func() error, error) {
+			r.started++
+			return func() error { return nil }, nil
+		},
+	})
+	if code != cli.ExitOK || r.started != 1 {
+		t.Fatalf("exit %d after %d daemon starts, stderr %q", code, r.started, stderr.String())
+	}
+	for _, want := range []string{"Daemon: started for this run", "ropeshift service install", "brew services start ropeshift", "ropeshiftd solo"} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Errorf("did not say %q:\n%s", want, stdout.String())
+		}
+	}
+	if strings.Contains(stdout.String(), "start the daemon with ropeshiftd solo --source") {
+		t.Errorf("named the foreground command as the only way to start the daemon:\n%s", stdout.String())
 	}
 }
 

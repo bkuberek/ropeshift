@@ -1121,8 +1121,9 @@ type MemberWriter interface {
 	// DropMemberSessions removes every session of a member, and says how many it removed.
 	DropMemberSessions(member string) (int64, error)
 	// DropOtherMemberSessions removes every session of a member except the one whose token has the digest
-	// kept, and says how many it removed. It touches no other member's session.
-	DropOtherMemberSessions(member, kept string) (int64, error)
+	// kept, and says how many of them had not expired at now. A session that had expired is removed and not
+	// counted. It touches no other member's session.
+	DropOtherMemberSessions(member, kept string, now int64) (int64, error)
 	// InsertDelegate adds a delegate credential.
 	InsertDelegate(authority.DelegateCredential) error
 	// TouchDelegate records when a credential last acted.

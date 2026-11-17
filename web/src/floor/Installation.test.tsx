@@ -116,6 +116,17 @@ describe("the Workers page", () => {
     expect(cell(await sessionRow("Every project it serves"), "CPU · Mem")?.textContent).toBe("unavailable · 200.0 MiB");
   });
 
+  it("puts a machine's Autonomy link under its name, so the table has no last column to clip", async () => {
+    serveFloor(() => undefined);
+    openPage("/workers");
+    const row = await machineRow();
+    const region = await table("Machines");
+    const link = within(cell(row, "Machine") as HTMLElement).getByRole("link", { name: "Autonomy" });
+    expect(link.getAttribute("href")).toMatch(/section=autonomy&worker=/);
+    expect(within(region).queryByRole("columnheader", { name: "Settings" })).toBeNull();
+    expect(within(region).getAllByRole("columnheader")).toHaveLength(row.querySelectorAll("td").length);
+  });
+
   it("says a measure the machine cannot provide is unavailable, and never draws it as zero", async () => {
     serveFloor((view) => {
       const line = view.workers[0];

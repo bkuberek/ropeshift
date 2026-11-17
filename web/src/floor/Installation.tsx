@@ -294,9 +294,6 @@ export function WorkersPage({ live, projects, selected, after, dialog = "" }: { 
                       <th scope="col">Free disk</th>
                       <th scope="col">Orchestrator</th>
                       <th scope="col">Freshness</th>
-                      <th scope="col">
-                        <span className="visually-hidden">Settings</span>
-                      </th>
                     </tr>
                   </thead>
                   <tbody>
@@ -313,6 +310,12 @@ export function WorkersPage({ live, projects, selected, after, dialog = "" }: { 
                             <strong>{line.worker.name || line.worker.id}</strong>
                             <span className="cell-note">
                               <Id value={line.worker.id} />
+                            </span>
+                            <span className="cell-note">
+                              <Link className="btn btn-sm" to={addressOf("/settings", { section: "autonomy", worker: line.worker.id })} installation>
+                                <Icon name="sliders" size="sm" />
+                                Autonomy
+                              </Link>
                             </span>
                           </td>
                           <td data-label="State">
@@ -390,12 +393,6 @@ export function WorkersPage({ live, projects, selected, after, dialog = "" }: { 
                                 {line.report_freshness === "observed" ? "" : ", last reported"}
                               </span>
                             ) : null}
-                          </td>
-                          <td className="actions-cell">
-                            <Link className="btn btn-sm" to={addressOf("/settings", { section: "autonomy", worker: line.worker.id })} installation>
-                              <Icon name="sliders" size="sm" />
-                              Autonomy
-                            </Link>
                           </td>
                         </tr>
                       );

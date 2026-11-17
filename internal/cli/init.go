@@ -148,7 +148,7 @@ func (c *invocation) setUp(client *api.Client, result *initResult) (int, bool) {
 	}
 	c.say(beforeTheFirstLane)
 	if result.Daemon == "started" {
-		c.say("Next: start the daemon with ropeshiftd solo --source <repository>.\n")
+		c.say("Next: run the daemon with ropeshift service install (brew services start ropeshift on a Homebrew install), or in the foreground with ropeshiftd solo --source <repository>.\n")
 	}
 	return ExitOK, true
 }
