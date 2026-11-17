@@ -251,6 +251,9 @@ export type PlanApprovalNeed = {
   summary: string;
   // Adoption groups a plan that adopts an existing project.
   adoption?: Adoption;
+  // The plan's open revision, which a member reads beside the difference: approving this version is the word on
+  // the decisions made since the approved version.
+  revision?: PlanRevisionView;
 };
 
 export type ContractReviewNeed = { work_order: WorkOrder; contract: string; version: number; plan: string };
@@ -278,6 +281,8 @@ export type PlanRevision = {
   plan_id: string;
   approved_version: number;
   decision_ids: string[];
+  // When the revision first listed each decision, which is when it was recorded.
+  listed_at?: Record<string, number>;
   finished: { work_order: string; decisions: string[]; rework?: string }[];
   opened_at: number;
   closed_at?: number;

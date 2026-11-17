@@ -1041,6 +1041,23 @@ describe("a plan approval", () => {
     expect(within(difference).getByRole("listitem", { name: "contract:ui" }).textContent).toContain("Work orders added: ui-2");
   });
 
+  it("shows the decisions made since the approved version beside the difference, with the work that waits for them", async () => {
+    const revised = golden<NeedItem>("needs-you-revised-approval");
+    show({ ...goldenNeedsYou(), items: [revised] }, undefined, "plan_approval");
+    const shown = await cardNamed(/^Approve Retry budget/);
+    const since = within(shown).getByRole("list", { name: "Decisions since version 1" });
+    expect(within(since).getAllByRole("listitem")).toHaveLength(1);
+    expect(since.textContent).toContain("Use the wordmark.");
+    expect(since.textContent).toContain("Reversible, binds plan:");
+    expect(within(shown).getByText(/1 work order waits in contract review until a member confirms version 1 or approves a later one/)).toBeTruthy();
+    expect(within(shown).getByRole("button", { name: "Approve this plan" })).toBeTruthy();
+  });
+
+  it("shows no decisions since when none moved past the approved version", async () => {
+    show(undefined, undefined, "plan_approval");
+    expect(within(await card()).queryByRole("list", { name: /^Decisions since version/ })).toBeNull();
+  });
+
   it("says a first version has nothing to differ from", async () => {
     const { view, item: need } = planView();
     need.plan_approval.difference = { base: 0, added: ["plan:factory", "spec:factory-api"] };
