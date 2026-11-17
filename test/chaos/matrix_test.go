@@ -180,7 +180,7 @@ func crashMatrix() []crashCase {
 		installationDetectCase("repository.detect", withSteps()),
 		installationDetectCase("repository_index", []string{"committed"}),
 		installationWindowCase(),
-	}, slices.Concat(reconcileCases(), stopCases(), handoffCases(), wakeCases(), parkCases(), resumeCases(), messageCases(), effectCases(), limitCases(), orchestratorCases(), autonomyCases(), planLaneCases(), cancelCases(), noticeCases())...)
+	}, slices.Concat(reconcileCases(), restructureCases(), stopCases(), handoffCases(), wakeCases(), parkCases(), resumeCases(), messageCases(), effectCases(), limitCases(), orchestratorCases(), autonomyCases(), planLaneCases(), cancelCases(), noticeCases())...)
 }
 
 const longTTL = int64(60_000)

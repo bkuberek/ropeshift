@@ -67,7 +67,11 @@
     {
       "path": ".gitignore",
       "action": "append",
-      "detail": "repos/"
+      "detail": "repos/, /.ropeshift/worktrees/",
+      "lines": [
+        "repos/",
+        "/.ropeshift/worktrees/"
+      ]
     },
     {
       "path": "Makefile",
@@ -98,5 +102,5 @@
       ]
     }
   ],
-  "digest": "sha256:5f80e0eb492ad5c6b8eb0eaf751631ee1c0c98f2062eae9914c57cdd66c60120"
+  "digest": "sha256:30614a3bc239822590050c828d47fe0d0fde34e8e46a3770b1b272c1f1517027"
 }

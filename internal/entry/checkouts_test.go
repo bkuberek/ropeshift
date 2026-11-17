@@ -40,6 +40,21 @@ func TestTheInstallationsProfilesDefaultToTheWorktreeDirectory(t *testing.T) {
 	}
 }
 
+// A lane that carries a restructuring reads the layout around its clones again, so the lane runtime holds the
+// worker's own layouts, the same machine's checkouts the plan was read from (FR-ADOPT-14).
+func TestTheLaneRuntimeReadsLayoutsFromTheWorkersCheckouts(t *testing.T) {
+	root := apitest.ShortDir(t)
+	paths := api.Paths{StateDir: filepath.Join(root, "state"), RunDir: filepath.Join(root, "run"), WorktreeDir: filepath.Join(root, "worktrees")}
+	kept := soloCheckouts(paths)
+	runtime, _, err := soloLanes(paths, soloOptions{}, kept, io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runtime.Layouts != ports.Layouts(kept) {
+		t.Errorf("the lane runtime reads layouts from %v", runtime.Layouts)
+	}
+}
+
 // The lane runtime refuses a worktree root inside any clone the worker keeps, so the provisioner holds the
 // worker's checkouts. Leaving them out would pass every test of the refusal that builds its own.
 func TestTheLaneRuntimeChecksRootsAgainstTheWorkersCheckouts(t *testing.T) {

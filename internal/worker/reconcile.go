@@ -51,6 +51,11 @@ var effectSteps = map[lanes.EffectKind]struct{ started, performed, finished func
 		performed: func() { crashpoint.Hit("effect.hook", "performed") },
 		finished:  func() { crashpoint.Hit("effect.hook", "finished") },
 	},
+	lanes.EffectRestructure: {
+		started:   func() { crashpoint.Hit("effect.restructure", "started") },
+		performed: func() { crashpoint.Hit("effect.restructure", "performed") },
+		finished:  func() { crashpoint.Hit("effect.restructure", "finished") },
+	},
 }
 
 // bracket performs one external effect between two journal writes, so a crash at any
@@ -357,6 +362,8 @@ func (w *Worker) find(ctx context.Context, effect lanes.Effect, session ports.Lo
 		}
 		w.config.Report(fmt.Errorf("effect %s: %w", effect.Key, err))
 		return lanes.FoundUnknown
+	case lanes.EffectRestructure:
+		return w.findRestructure(ctx, effect)
 	}
 	return lanes.FoundNothing
 }

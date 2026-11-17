@@ -177,6 +177,18 @@ func checkAnAdoptOrderKeepsItsRestructuring(r *Rig) error {
 			return Violatedf("after a rebuild work order %s reads %+v, want the restructuring %+v: %v", id, row.Restructure, want, err)
 		}
 	}
+	// What the worker answers a restructuring with, the reason restructure_incomplete or none, is read from what it
+	// kept, so the restructuring that holds no request still reads as incomplete after a rebuild, and the whole one
+	// still reads as complete.
+	for id, incomplete := range map[string]bool{made.ID: true, kept.ID: false} {
+		row, err := r.WorkOrder(s, id)
+		if err != nil {
+			return err
+		}
+		if got := errors.Is(row.Restructure.Incomplete(), planning.ErrIncompleteRestructure); got != incomplete {
+			return Violatedf("after a rebuild work order %s reads as incomplete %v, want %v: %v", id, got, incomplete, row.Restructure.Incomplete())
+		}
+	}
 	for name, order := range map[string]workorders.WorkOrder{
 		"work that does not adopt":      {ID: r.ID("plan"), Restructure: chosen},
 		"a restructuring of one shape":  {ID: r.ID("single"), Adopt: true, Restructure: &planning.Restructure{Shape: planning.ShapeSingle, Digest: chosen.Digest}},

@@ -66,11 +66,19 @@
       "path": "plan/repositories.md",
       "action": "add",
       "detail": "the manifest of the project's repositories"
+    },
+    {
+      "path": ".gitignore",
+      "action": "append",
+      "detail": "/.ropeshift/worktrees/",
+      "lines": [
+        "/.ropeshift/worktrees/"
+      ]
     }
   ],
   "takes": null,
   "collisions": null,
   "code_trees": null,
   "moves": null,
-  "digest": "sha256:2ea23ac8f1100626adf4b3c6acee409bb4c4180c3eb6385e889cc19e624de629"
+  "digest": "sha256:de4bcdefeaa8738aaf7001950d4e96b858e87f40ab5ed88a8ffb03471feea9a8"
 }

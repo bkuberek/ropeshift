@@ -58,6 +58,9 @@ type BriefSpec struct {
 	// Adopt says this planning lane adopts an existing project (ADR-0023), so it is told how to onboard what
 	// the project holds and where the inventory of it is.
 	Adopt bool
+	// Restructured is what the worker did to the repository this adopt lane plans in before it started, and nil
+	// when it did nothing (FR-ADOPT-14).
+	Restructured *Restructured
 	// ManifestTemplate is the manifest of a project's code repositories as a template renders it with the
 	// example data (FR-TPL-3). A planning brief shows it after the other formats. Empty shows none.
 	ManifestTemplate string
@@ -286,6 +289,9 @@ func Brief(spec BriefSpec) string {
 		out.WriteString("\n" + planningNotice(spec))
 		if spec.Adopt {
 			out.WriteString(adoptNotice())
+			if spec.Restructured != nil {
+				out.WriteString(restructuredNotice(*spec.Restructured))
+			}
 		}
 	}
 	if spec.Review != nil {

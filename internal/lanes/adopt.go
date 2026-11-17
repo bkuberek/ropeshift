@@ -91,6 +91,52 @@ is new, and what is left out, with every file you added, changed, or moved, and 
 decide.
 `
 
+// Restructured is what the worker did to the repository an adopt lane plans in before the lane started
+// (FR-ADOPT-14): the commit it made on the lane's branch, and the moves it leaves to the person.
+type Restructured struct {
+	// Commit is the commit that holds the workspace files and Subject its subject, and both are empty when the
+	// repository held every file already, so there was nothing to commit.
+	Commit  string
+	Subject string
+	// Files are the paths the commit holds.
+	Files []string
+	// Manifest is the reference the plan lists the manifest by in its documents, such as repositories:shop, and it
+	// is empty when the commit holds no manifest.
+	Manifest string
+	// Moves are the clones the person moves into the repository's folder of clones, each as the commands that do it.
+	Moves []planning.Move
+}
+
+// restructuredNotice tells an adopt lane what the worker restructured, so it neither writes those files again nor
+// plans without them, and what stays the person's: the moves, which ropeshift never runs.
+func restructuredNotice(done Restructured) string {
+	var out strings.Builder
+	out.WriteString("\nBefore you started, the worker restructured this repository.")
+	if done.Commit == "" {
+		out.WriteString(" It found every workspace file in the repository already, so it made no commit.\n")
+	} else {
+		out.WriteString(" Commit " + done.Commit + " on your branch, \"" + done.Subject + "\", holds these files:\n")
+		for _, file := range done.Files {
+			out.WriteString("- " + file + "\n")
+		}
+		out.WriteString("They are part of your branch as they are: do not write them again, and do not undo them.\n")
+	}
+	if done.Manifest != "" {
+		out.WriteString("The manifest, " + planning.ManifestPath + ", is a document of kind repositories. List it in the plan's documents as `" +
+			done.Manifest + "`, so the plan holds it and approving the plan registers the repositories it names.\n")
+	}
+	if len(done.Moves) != 0 {
+		out.WriteString("The plan also lists moves, each a command for the person to run, because ropeshift never moves a clone. Tell the person " +
+			"about them in the conversation, and never run them yourself:\n")
+		for _, move := range done.Moves {
+			for _, command := range move.Commands {
+				out.WriteString("- " + command + "\n")
+			}
+		}
+	}
+	return out.String()
+}
+
 // adoptNotice tells a planning lane that adopts a project what adoption asks of it beyond any plan, with an
 // example of every record it writes for work that already exists, a document before and after onboarding,
 // and the shape of the inventory it reads.

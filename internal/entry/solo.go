@@ -640,7 +640,7 @@ func worktreeReport(ctx context.Context, paths api.Paths) (lanes.WorktreeReport,
 // soloLanes wires what a lane runs on: the unmodified agent CLI, the repositories this
 // daemon reads work from, and the worker's own paths. It returns the worker's terminal server
 // too, which is nil on a machine with no tmux.
-func soloLanes(paths api.Paths, opts soloOptions, kept ports.Checkouts, stderr io.Writer) (*worker.LaneRuntime, ports.Terminal, error) {
+func soloLanes(paths api.Paths, opts soloOptions, kept *checkouts.File, stderr io.Writer) (*worker.LaneRuntime, ports.Terminal, error) {
 	override, err := lanes.ParseOverride(os.Getenv(envSessionOverride))
 	if err != nil {
 		return nil, nil, err
@@ -679,6 +679,9 @@ func soloLanes(paths api.Paths, opts soloOptions, kept ports.Checkouts, stderr i
 		RunDir:     paths.RunDir,
 		Override:   override,
 		Inventory:  inventory.Git{},
+		// An adopt lane that carries a restructuring reads the layout around its clones again, from this
+		// worker's own checkouts, before it commits the workspace files (FR-ADOPT-14).
+		Layouts: kept,
 		// gh runs with the daemon's own environment, where the person's sign-in is (ADR-0020).
 		Forge:      ghcli.Forge{},
 		ForgeEvery: opts.forgeTick,

@@ -43,6 +43,11 @@ type Worktrees struct {
 	// merges is every branch merge asked for, and mergeAs what each comes to while it is set.
 	merges  []ports.BranchMerge
 	mergeAs *ledger.MergeResult
+	// held is the files each worktree holds by CommitFiles or SeedFile, fileCommits the commits CommitFiles
+	// made in each, and commitFail what makes it fail.
+	held        map[string]map[string]string
+	fileCommits map[string][]ports.Commit
+	commitFail  error
 }
 
 // NewWorktrees returns an empty store.
@@ -50,7 +55,7 @@ func NewWorktrees() *Worktrees {
 	return &Worktrees{
 		byPath: map[string]ports.Worktree{}, branches: map[string]string{}, ahead: map[string]int64{},
 		snapshots: map[string]string{}, contexts: map[string][]string{}, files: map[string]map[string]string{}, touched: map[string][]string{},
-		history: map[string][]string{}, tips: map[string]string{},
+		history: map[string][]string{}, tips: map[string]string{}, fileCommits: map[string][]ports.Commit{},
 	}
 }
 
@@ -370,8 +375,108 @@ func (w *Worktrees) Merges() []ports.BranchMerge {
 	return slices.Clone(w.merges)
 }
 
+// SeedFile puts a file in a worktree as committed work the lane's base holds, so a file added there later finds it.
+func (w *Worktrees) SeedFile(path, name, text string) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.held == nil {
+		w.held = map[string]map[string]string{}
+	}
+	if w.held[path] == nil {
+		w.held[path] = map[string]string{}
+	}
+	w.held[path][name] = text
+}
+
+// FileText reads a file of a worktree, and whether the worktree holds it.
+func (w *Worktrees) FileText(path, name string) (string, bool) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	text, ok := w.held[path][name]
+	return text, ok
+}
+
+// FailCommits makes every CommitFiles fail with err, until it is given nil.
+func (w *Worktrees) FailCommits(err error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.commitFail = err
+}
+
+// CommitFiles adds the files to a worktree by the rules of ports.FileCommits, and keeps the commit it makes.
+func (w *Worktrees) CommitFiles(_ context.Context, path string, files []ports.TreeFile, subject string) (ports.Commit, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.commitFail != nil {
+		return ports.Commit{}, w.commitFail
+	}
+	if w.held == nil {
+		w.held = map[string]map[string]string{}
+	}
+	if w.held[path] == nil {
+		w.held[path] = map[string]string{}
+	}
+	var changed []string
+	for _, file := range files {
+		text, held := w.held[path][file.Path]
+		var next string
+		switch {
+		case len(file.Lines) != 0:
+			var added bool
+			if next, added = withLines(text, file.Lines); !added {
+				continue
+			}
+		case held:
+			continue
+		default:
+			next = file.Text
+		}
+		w.held[path][file.Path] = next
+		changed = append(changed, file.Path)
+	}
+	if len(changed) == 0 {
+		return ports.Commit{}, nil
+	}
+	slices.Sort(changed)
+	w.grown++
+	commit := ports.Commit{Hash: fmt.Sprintf("file-commit-%d", w.grown), Subject: subject, Files: changed}
+	w.fileCommits[path] = append([]ports.Commit{commit}, w.fileCommits[path]...)
+	return commit, nil
+}
+
+// withLines adds each line the text does not hold, each on a line of its own, and says whether it added any.
+func withLines(text string, lines []string) (string, bool) {
+	held := map[string]bool{}
+	for line := range strings.SplitSeq(text, "\n") {
+		held[line] = true
+	}
+	var missing []string
+	for _, line := range lines {
+		if !held[line] {
+			missing = append(missing, line)
+			held[line] = true
+		}
+	}
+	if len(missing) == 0 {
+		return text, false
+	}
+	if text != "" && !strings.HasSuffix(text, "\n") {
+		text += "\n"
+	}
+	return text + strings.Join(missing, "\n") + "\n", true
+}
+
+// Commits lists the commits CommitFiles made in a worktree, newest first. The fake keeps no history beyond them,
+// so a base says nothing, and a worktree it never made a commit in has none.
+func (w *Worktrees) Commits(_ context.Context, path, _ string) ([]ports.Commit, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return slices.Clone(w.fileCommits[path]), nil
+}
+
 var (
 	_ ports.Worktrees    = (*Worktrees)(nil)
+	_ ports.FileCommits  = (*Worktrees)(nil)
 	_ ports.ReviewTrees  = (*Worktrees)(nil)
 	_ ports.ChangeSizes  = (*Worktrees)(nil)
 	_ ports.BranchMerger = (*Worktrees)(nil)

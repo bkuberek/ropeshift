@@ -223,6 +223,61 @@ func TestAnAdoptBriefShowsTheInventoryAsTheWorkerWritesIt(t *testing.T) {
 	}
 }
 
+func aRestructured() *Restructured {
+	return &Restructured{
+		Commit: "9fceb02d0ae598e95dc970b74767f19372d61af8", Subject: planning.WorkspaceCommitSubject,
+		Files:    []string{".gitignore", "Makefile", "plan/repositories.md"},
+		Manifest: "repositories:shop",
+		Moves: []planning.Move{
+			{Name: "api", From: "/work/api", To: "/work/ws/repos/api", Commands: []string{"mv /work/api /work/ws/repos/api", "ropeshift repository add /work/ws/repos/api"}},
+			{Name: "web", From: "/work/web", To: "/work/ws/repos/web", Commands: []string{"mv /work/web /work/ws/repos/web", "ropeshift repository add /work/ws/repos/web"}},
+		},
+	}
+}
+
+// An adopt lane whose repository the worker restructured is told which commit holds the workspace files, which
+// files they are, that the plan lists the manifest in its documents by the reference the brief gives, and that
+// the moves are the person's commands and never its own.
+func TestAnAdoptBriefTellsTheCommitTheFilesAndTheMovesTheWorkerLeft(t *testing.T) {
+	brief := Brief(BriefSpec{WorkOrder: "wo", Title: "Adopt the project", Kind: workorders.KindPlan, Adopt: true, Restructured: aRestructured()})
+	for _, want := range []string{
+		"9fceb02d0ae598e95dc970b74767f19372d61af8", planning.WorkspaceCommitSubject, ".gitignore", "Makefile", "plan/repositories.md",
+		"`repositories:shop`", "documents", "mv /work/api /work/ws/repos/api", "ropeshift repository add /work/ws/repos/web", "never run them",
+	} {
+		if !strings.Contains(brief, want) {
+			t.Errorf("the brief leaves out %q:\n%s", want, brief)
+		}
+	}
+}
+
+// When the repository held every file already, the brief says the worker made no commit, names no manifest it did
+// not write, and still lists the moves.
+func TestAnAdoptBriefWithNoCommitSaysTheWorkerMadeNoneAndNamesNoManifest(t *testing.T) {
+	left := aRestructured()
+	left.Commit, left.Files, left.Manifest = "", nil, ""
+	brief := Brief(BriefSpec{WorkOrder: "wo", Title: "Adopt the project", Kind: workorders.KindPlan, Adopt: true, Restructured: left})
+	for _, want := range []string{"made no commit", "mv /work/api /work/ws/repos/api"} {
+		if !strings.Contains(brief, want) {
+			t.Errorf("the brief leaves out %q", want)
+		}
+	}
+	for _, unwanted := range []string{"repositories:shop", planning.WorkspaceCommitSubject} {
+		if strings.Contains(brief, unwanted) {
+			t.Errorf("a brief with no commit holds %q", unwanted)
+		}
+	}
+}
+
+// An adopt lane that was not restructured is told nothing of it.
+func TestAnAdoptBriefThatWasNotRestructuredSaysNothingOfIt(t *testing.T) {
+	brief := Brief(BriefSpec{WorkOrder: "wo", Title: "Adopt the project", Kind: workorders.KindPlan, Adopt: true})
+	for _, unwanted := range []string{"restructured this repository", planning.WorkspaceCommitSubject} {
+		if strings.Contains(brief, unwanted) {
+			t.Errorf("an adopt brief with no restructuring holds %q", unwanted)
+		}
+	}
+}
+
 // Planning work that does not adopt is told nothing of adoption.
 func TestAPlanningBriefThatDoesNotAdoptSaysNothingOfIt(t *testing.T) {
 	brief := Brief(BriefSpec{WorkOrder: "wo", Title: "Plan it", Kind: workorders.KindPlan})

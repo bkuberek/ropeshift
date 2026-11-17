@@ -39,7 +39,10 @@ describe("the plan of an adoption, as the dry run prints it", () => {
     expect(within(clones[0] as HTMLElement).getByText(/plan content, 2 Markdown documents/)).toBeTruthy();
     expect(within(clones[1] as HTMLElement).getByText(/in a folder the clone ignores/)).toBeTruthy();
     const files = rows("Files added");
-    expect(files.map((row) => row.textContent)).toEqual([expect.stringContaining("plan/repositories.md")]);
+    expect(files.map((row) => row.textContent)).toEqual([
+      expect.stringContaining("plan/repositories.md"),
+      "Append a line to.gitignore/.ropeshift/worktrees/",
+    ]);
     expect(screen.queryByRole("region", { name: /Paths taken/ })).toBeNull();
     expect(screen.queryByRole("region", { name: "Collisions" })).toBeNull();
   });
@@ -77,7 +80,7 @@ describe("the plan of an adoption, as the dry run prints it", () => {
     expect(screen.getByText("workspace_files")).toBeTruthy();
     expect(rows("Files added").map((row) => row.textContent)).toEqual([
       "Addplan/repositories.mdthe manifest of the project's repositories",
-      "Append a line to.gitignorerepos/",
+      "Append lines to.gitignorerepos/, /.ropeshift/worktrees/",
       "AddMakefilesetup, fetch, and status over the manifest",
     ]);
     const commands = screen.getByRole("region", { name: "Commands that move api" });

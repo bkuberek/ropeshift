@@ -19,9 +19,9 @@ import (
 // lists lead into.
 const (
 	// ManifestPath is where the manifest of the project's repositories goes in the planning repository.
-	ManifestPath = "plan/repositories.md"
+	ManifestPath = planning.ManifestPath
 	// CodeFolder is the folder of the planning repository that the moves lead into.
-	CodeFolder = "repos"
+	CodeFolder = planning.CodeFolder
 	// Program is the command the moves tell a person to run.
 	Program = "ropeshift"
 )

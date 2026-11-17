@@ -62,8 +62,16 @@ func (m *adoptionMachine) store() ports.Store {
 	return m.ledger.get()
 }
 
-// clone places a clone with its own first commit and remote, and what it holds.
+// clone places a clone with its own first commit and remote, and what it holds. The clone ignores the folder a
+// lane's worktree goes in, as a workspace that has adopted does, so a plan lists only what a test is about.
 func (m *adoptionMachine) clone(at string, layout fake.CloneLayout) {
+	m.t.Helper()
+	m.open(at, layout)
+	m.checkouts.Ignore(at, planning.WorktreesFolder)
+}
+
+// open places a clone that ignores nothing beyond what its layout says.
+func (m *adoptionMachine) open(at string, layout fake.CloneLayout) {
 	m.t.Helper()
 	name := path.Base(at)
 	m.checkouts.Place(ports.Clone{Path: at, ID: "root-" + name, Remote: "git@example.invalid:acme/" + name + ".git", DefaultBranch: "main"})
@@ -302,6 +310,60 @@ func TestAdoptionOfClonesNamedByPathsIsTheWorkspaceFiles(t *testing.T) {
 	}
 	if slices.Contains(filesOf(got), "append .gitignore") {
 		t.Errorf("a folder already ignored is appended again: %v", filesOf(got))
+	}
+}
+
+// ignoreLinesOf are the lines the plan appends to the planning repository's ignore file, and none when it
+// appends nothing there.
+func ignoreLinesOf(plan planning.AdoptionPlan) []string {
+	for _, file := range plan.Files {
+		if file.Path == ".gitignore" && file.Action == planning.ActionAppend {
+			return file.Lines
+		}
+	}
+	return nil
+}
+
+// The folder a lane's worktree goes in is left out of the planning repository by a line the plan lists, beside the
+// line for the folder of clones, and only when the clone does not ignore that folder already. The clone says so
+// through the one query of what a repository ignores, so a folder above it that is ignored counts.
+func TestThePlanListsTheLineThatIgnoresTheWorktreeFolderUnlessTheCloneIgnoresItAlready(t *testing.T) {
+	t.Parallel()
+	planned := fake.CloneLayout{Ignored: []string{"repos"}, Plan: ports.PlanContent{Files: 2, Manifest: true}, Tracked: []string{"README.md", "plan/repositories.md"}}
+	beside := fake.CloneLayout{Tracked: []string{"README.md", "plan/repositories.md", "Makefile"}}
+	tests := []struct {
+		name    string
+		layout  fake.CloneLayout
+		sibling bool
+		ignores string
+		want    []string
+	}{
+		{name: "planned, folder not ignored", layout: planned, want: []string{planning.WorktreesLine}},
+		{name: "planned, folder ignored", layout: planned, ignores: planning.WorktreesFolder},
+		{name: "planned, a folder above it ignored", layout: planned, ignores: ".ropeshift"},
+		{name: "beside, neither ignored", layout: beside, sibling: true, want: []string{planning.CodeFolderLine, planning.WorktreesLine}},
+		{name: "beside, worktrees ignored", layout: beside, sibling: true, ignores: planning.WorktreesFolder, want: []string{planning.CodeFolderLine}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			m := newAdoptionMachine(t)
+			m.open("/work/ws", tt.layout)
+			request := control.AdoptionRequest{Root: "/work/ws"}
+			if tt.sibling {
+				m.clone("/work/api", fake.CloneLayout{Tracked: []string{"go.mod"}})
+				request.Paths = []string{"/work/api"}
+			} else {
+				m.clone("/work/ws/repos/api", fake.CloneLayout{Tracked: []string{"go.mod"}})
+			}
+			if tt.ignores != "" {
+				m.checkouts.Ignore("/work/ws", tt.ignores)
+			}
+			plan := m.mustPlan(request)
+			if got := ignoreLinesOf(plan); !slices.Equal(got, tt.want) {
+				t.Errorf("the plan appends %v to the ignore file, want %v", got, tt.want)
+			}
+		})
 	}
 }
 

@@ -71,6 +71,7 @@ var childRoles = map[string]func(*child) error{
 	"worker-upload":     roleWorkerUpload,
 	"worker-lane":       roleWorkerLane,
 	"worker-reconcile":  roleWorkerReconcile,
+	"worker-adopt":      roleWorkerAdopt,
 	"dispatch":          roleDispatch,
 	"end-lane":          roleEndLane,
 	"worker-daemon":     roleWorkerDaemon,

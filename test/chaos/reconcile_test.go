@@ -226,24 +226,35 @@ func roleWorkerReconcile(c *child) error {
 		AgentDriver: fake.NewAgentDriver(), dir: dir, log: c.log, journal: journal, blind: c.spec.Variant == retriesBlind,
 	}
 	driver.Play(driver.start())
-	subject := worker.New(workerlink.New(client.Client), journal, clock.System{}, worker.Config{
+	subject := worker.New(workerlink.New(client.Client), journal, clock.System{}, workerOf(c, &worker.LaneRuntime{
+		Driver:      driver,
+		Provisioner: worker.Provisioner{Profiles: fake.NewProfileSource(), Worktrees: lastingWorktrees{dir: dir, log: c.log}},
+		Secrets:     fake.SecretResolver{},
+		Repository:  func(context.Context, string, string) (string, error) { return "/repository", nil },
+	}))
+	return claimAndConverge(c, subject, client)
+}
+
+// workerOf is the configuration of a child's worker, which runs the lanes the runtime holds.
+func workerOf(c *child, runtime *worker.LaneRuntime) worker.Config {
+	return worker.Config{
 		Name:      "child",
 		JoinToken: func(context.Context) (string, error) { return c.spec.Key, nil },
 		Report:    func(err error) { fmt.Fprintln(os.Stderr, "worker:", err) },
-		Lanes: &worker.LaneRuntime{
-			Driver:      driver,
-			Provisioner: worker.Provisioner{Profiles: fake.NewProfileSource(), Worktrees: lastingWorktrees{dir: dir, log: c.log}},
-			Secrets:     fake.SecretResolver{},
-			Repository:  func(context.Context, string, string) (string, error) { return "/repository", nil },
-		},
-	})
+		Lanes:     runtime,
+	}
+}
+
+// claimAndConverge signs the worker in, claims the child's work and starts its lane, which are safe to repeat,
+// and makes one pass that runs the lane to its end.
+func claimAndConverge(c *child, subject *worker.Worker, client *api.ProjectClient) error {
 	if err := subject.Start(c.ctx); err != nil {
 		return err
 	}
 	if _, err := apitest.SignIn(c.ctx, client); err != nil {
 		return err
 	}
-	_, err = client.Claim(c.ctx, c.spec.WorkOrder, api.ClaimRequest{
+	_, err := client.Claim(c.ctx, c.spec.WorkOrder, api.ClaimRequest{
 		ClaimID: c.spec.ClaimID, WorkerID: subject.Auth().WorkerID, TTLMs: longTTL,
 	})
 	var refused *api.Error

@@ -120,6 +120,8 @@ type PlannedFile struct {
 	Path   string `json:"path"`
 	Action string `json:"action"`
 	Detail string `json:"detail,omitempty"`
+	// Lines are the lines an append adds to the file, each only when the file holds no line like it.
+	Lines []string `json:"lines,omitempty"`
 }
 
 // What a collision keeps.
@@ -221,6 +223,21 @@ func (r Restructure) Missing() []string {
 		missing = append(missing, "parts")
 	}
 	return missing
+}
+
+// ErrIncompleteRestructure marks a restructuring kept before the request its plan was read with and the digests of
+// the plan's parts were, which a worker cannot read the layout against again.
+var ErrIncompleteRestructure = errors.New("the restructuring is incomplete")
+
+// Incomplete says why a worker cannot read the layout again as the plan did, naming what the restructuring lacks, or
+// is nil when it lacks nothing. The error is ErrIncompleteRestructure.
+func (r Restructure) Incomplete() error {
+	missing := r.Missing()
+	if len(missing) == 0 {
+		return nil
+	}
+	return fmt.Errorf("%w: it has no %s, because it was kept before the plan's request and the digests of its parts were, so the layout cannot be read again as the plan read it",
+		ErrIncompleteRestructure, strings.Join(missing, " and no "))
 }
 
 // isDigest says a string is the SHA-256 digest of something, as DigestSHA256 spells one.

@@ -58,7 +58,8 @@ export type RepositoryAddReport = { dry_run: boolean; repositories: RepositoryAd
 export type LayoutShape = "single" | "planned" | "consolidate" | "workspace_files";
 export type LayoutClone = { name: string; path: string; identity: string; where: "here" | "ignored" | "path"; plan?: boolean; documents: number; instructions?: boolean };
 export type PlannedRepository = { name?: string; path: string; id?: string; outcome: "registered" | "known" | "refused" | "not_registered"; reason?: string };
-export type PlannedFile = { path: string; action: "add" | "append"; detail?: string };
+// lines are the lines an append adds to the file, each only when the file holds none like it.
+export type PlannedFile = { path: string; action: "add" | "append"; detail?: string; lines?: string[] };
 export type PlannedCodeTree = { path: string; build_file: string; whole?: boolean; left_out?: boolean };
 export type PlannedMove = { name: string; from: string; to: string; commands: string[] };
 export type AdoptionPlan = {

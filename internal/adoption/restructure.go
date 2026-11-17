@@ -16,7 +16,7 @@ import (
 // restructuring fills in what `--restructure` would do in the shape: the files it adds to the planning
 // repository, the paths a consolidation takes and where the two repositories collide, the design repository's code
 // trees, and the moves it leaves to the person.
-func restructuring(ctx context.Context, plan *planning.AdoptionPlan, in Request, found []Found, registers []Found, design *designClone, planned *Found, layouts ports.Layouts) error {
+func restructuring(ctx context.Context, plan *planning.AdoptionPlan, in Request, found []Found, registers []Found, design *designClone, planned *Found, kept ports.Checkouts, layouts ports.Layouts) error {
 	if !plan.Shape.Restructures() {
 		return nil
 	}
@@ -29,21 +29,28 @@ func restructuring(ctx context.Context, plan *planning.AdoptionPlan, in Request,
 		return err
 	}
 	manifest := planning.PlannedFile{Path: ManifestPath, Action: planning.ActionAdd, Detail: "the manifest of the project's repositories"}
-	makefile := planning.PlannedFile{Path: "Makefile", Action: planning.ActionAdd, Detail: "setup, fetch, and status over the manifest"}
+	makefile := planning.PlannedFile{Path: planning.MakefilePath, Action: planning.ActionAdd, Detail: "setup, fetch, and status over the manifest"}
 	switch plan.Shape {
 	case planning.ShapePlanned:
 		if held.lacksManifest() {
 			plan.Files = append(plan.Files, manifest)
+		}
+		if err := ignoring(ctx, plan, home, nil, kept); err != nil {
+			return err
 		}
 	case planning.ShapeWorkspaceFiles:
 		if held.lacksManifest() {
 			plan.Files = append(plan.Files, manifest)
 		}
 		plan.Moves = movesOf(home, registers)
+		var lines []string
 		if len(plan.Moves) != 0 && !held.ignores(CodeFolder) {
-			plan.Files = append(plan.Files, planning.PlannedFile{Path: ".gitignore", Action: planning.ActionAppend, Detail: CodeFolder + "/"})
+			lines = append(lines, planning.CodeFolderLine)
 		}
-		if !held.tracks("Makefile") {
+		if err := ignoring(ctx, plan, home, lines, kept); err != nil {
+			return err
+		}
+		if !held.tracks(planning.MakefilePath) {
 			plan.Files = append(plan.Files, makefile)
 		}
 	case planning.ShapeConsolidate:
@@ -54,6 +61,27 @@ func restructuring(ctx context.Context, plan *planning.AdoptionPlan, in Request,
 			plan.Files = append(plan.Files, makefile)
 		}
 		return consolidation(ctx, plan, in, design, held.tracked, layouts)
+	}
+	return nil
+}
+
+// ignoring lists the ignore file's append: the lines a restructuring needs already, and the line that leaves a
+// lane's worktree folder out of the planning repository, unless its clone ignores that folder. The clone says so
+// through the one query of what a repository ignores, and never by a look at its ignore file, because a rule
+// can sit in a global file or an exclude file. A path inside the folder is asked about, because a folder the
+// repository ignores ignores everything in it.
+func ignoring(ctx context.Context, plan *planning.AdoptionPlan, home Found, lines []string, kept ports.Checkouts) error {
+	ignored, err := kept.Ignored(ctx, home.Path, path.Join(planning.WorktreesFolder, "lane"))
+	if err != nil {
+		return err
+	}
+	if !ignored {
+		lines = append(lines, planning.WorktreesLine)
+	}
+	if len(lines) != 0 {
+		plan.Files = append(plan.Files, planning.PlannedFile{
+			Path: planning.GitignorePath, Action: planning.ActionAppend, Detail: strings.Join(lines, ", "), Lines: lines,
+		})
 	}
 	return nil
 }
