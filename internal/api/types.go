@@ -104,6 +104,17 @@ type Health struct {
 	// Web is the address the daemon's web UI listens on, as `host:port`, with the port it bound even
 	// when it asked the kernel to pick one. It is empty when the daemon serves no web UI.
 	Web string `json:"web,omitempty"`
+	// Version is the release the daemon runs, and Commit and Date are the revision and the time it was
+	// built from, when the build stamped them.
+	Version string `json:"version"`
+	Commit  string `json:"commit,omitempty"`
+	Date    string `json:"date,omitempty"`
+	// Installed is the release of the build on disk at the daemon's own executable path, as the daemon last
+	// read it. It is empty when the daemon could not read that build.
+	Installed string `json:"installed,omitempty"`
+	// Warning says the installed build is newer than the one running, and how to run it. It is empty
+	// otherwise.
+	Warning string `json:"warning,omitempty"`
 }
 
 // CreateWorkOrder asks for a work order that lives only in the ledger, with the

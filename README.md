@@ -31,6 +31,8 @@ brew install bkuberek/tap/ropeshift
 
 Homebrew may ask you to trust the tap first. If it does, run `brew trust bkuberek/tap` once.
 
+After `brew upgrade`, run `brew services restart ropeshift`, because the upgrade replaces the binary and leaves the running daemon on the old version.
+
 Or install with the install script:
 
 ```sh

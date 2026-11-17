@@ -247,8 +247,20 @@
   padding: var(--s-8);
   border-top: 1px solid var(--border);
   display: flex;
+  flex-wrap: wrap;
   gap: var(--s-4);
   align-items: center;
+}
+
+.sidebar-version {
+  flex: 1 0 100%;
+  padding: 0 var(--s-4);
+  color: var(--text-2);
+  font-size: var(--fs-12);
+  font-family: var(--font-mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Main */
@@ -358,7 +370,8 @@ a.sb-item:hover {
   font-weight: 600;
 }
 
-.sb-item .sb-warn {
+.sb-item .sb-warn,
+.sb-compact .sb-warn {
   color: var(--warning);
   font-weight: 600;
 }

@@ -121,6 +121,11 @@
   },
   {
     "method": "GET",
+    "pattern": "/v1/health",
+    "command": "health"
+  },
+  {
+    "method": "GET",
     "pattern": "/v1/members",
     "command": "member list"
   },

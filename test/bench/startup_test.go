@@ -15,6 +15,7 @@ import (
 
 	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/test/apitest"
 	"ropeshift.com/ropeshift/test/doubles"
 )
 
@@ -38,10 +39,15 @@ func benchBinary(t *testing.T, dir, name, cmd string) string {
 
 func TestCommandStartup(t *testing.T) {
 	binary := benchBinary(t, t.TempDir(), doubles.PrebuiltRopeshift, "cmd/ropeshift")
+	// The command looks for a daemon on its run directory's socket, so the run directory is one no daemon
+	// holds.
+	env := append(os.Environ(), api.EnvRunDir+"="+apitest.ShortDir(t))
 	samples := make([]time.Duration, 0, startupRuns)
 	for range startupRuns {
 		start := time.Now()
-		if err := exec.Command(binary, "version", "--json").Run(); err != nil {
+		version := exec.Command(binary, "version", "--json")
+		version.Env = env
+		if err := version.Run(); err != nil {
 			t.Fatal(err)
 		}
 		samples = append(samples, time.Since(start))

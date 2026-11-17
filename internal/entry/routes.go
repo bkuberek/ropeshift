@@ -37,7 +37,7 @@ func routes(command string) []routeGroup {
 			run:     func(args []string, stdout, stderr io.Writer) int { return runHelp(command, args, stdout, stderr) },
 		},
 		{
-			Command: cli.Command{Name: "version", Args: "[--json]", Summary: "print the version"},
+			Command: cli.Command{Name: "version", Args: "[--json]", Summary: "print the version, and the daemon's when one answers"},
 			run:     func(args []string, stdout, stderr io.Writer) int { return runVersion(command, args, stdout, stderr) },
 			flags:   func() *flag.FlagSet { set, _ := versionFlags(command); return set },
 		},

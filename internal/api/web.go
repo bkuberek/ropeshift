@@ -62,6 +62,7 @@ func WebRoutes() []WebRoute {
 		{http.MethodGet, "/v1/workers/{id}/caps", "worker caps"},
 		{http.MethodPut, "/v1/workers/{id}/caps", "worker caps"},
 		{http.MethodGet, RiskPath, "worker risk"},
+		{http.MethodGet, "/v1/health", "health"},
 		{http.MethodGet, MembersPath, "member list"},
 		{http.MethodGet, AuditPath, "audit"},
 		{http.MethodPost, SignOutAllPath, "sign-out"},

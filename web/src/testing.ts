@@ -3,8 +3,19 @@ import { readFileSync } from "node:fs";
 import { waitFor } from "@testing-library/react";
 import { expect, onTestFinished, vi } from "vitest";
 
+import type { Health } from "./api/admin";
 import type { Approval, MergeDetail, NeedsYou } from "./api/types";
 import needsYou from "../testdata/needs-you.json";
+
+// What a daemon says of itself when the build installed at its path is the one it runs.
+export const runningHealth: Health = {
+  status: "ok",
+  revision: 1,
+  version: "v0.1.0-alpha.16",
+  commit: "0123456789abcdef0123456789abcdef01234567",
+  date: "2026-11-08T10:00:00Z",
+  installed: "v0.1.0-alpha.16",
+};
 
 // The view a Go test wrote from a real ledger, so these tests run on what the API serves.
 export function goldenNeedsYou(): NeedsYou {
@@ -134,6 +145,10 @@ export function serveViews(answer?: (sent: Sent) => Answer | undefined, options:
     const view = /^\/v1\/views\/([a-z-]+)/.exec(call.path)?.[1];
     if (view) {
       return { status: 200, body: golden(view) };
+    }
+    // The daemon's own build, which the sidebar names and Settings, About gives.
+    if (call.method === "GET" && call.path === "/v1/health") {
+      return { status: 200, body: runningHealth };
     }
     // The page reads the combined Needs you, of every active project, which the golden view stands for.
     if (call.path === "/v1/needs-you") {

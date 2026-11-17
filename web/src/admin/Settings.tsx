@@ -23,12 +23,13 @@ import {
 import type { Autonomy, Fleet, Level, PolicyList, PolicyVersion, RepositoryList, Risk, WorkerCaps, WorkerList } from "../api/admin";
 import { readOperations } from "../api/delegates";
 import type { Operation } from "../api/delegates";
+import { useHealth } from "../api/useHealth";
 import type { Live } from "../api/useView";
 import { addressOf, go, Link } from "../app/route";
 import type { Theme } from "../app/theme";
 import { Until } from "../parts/parts";
 import { Button, Segmented, Tabs, TabPanel } from "../ui/controls";
-import { Banner, Panel, Refusal, SkeletonRows, TableRegion } from "../ui/display";
+import { Banner, Fact, Facts, Panel, Refusal, SkeletonRows, TableRegion } from "../ui/display";
 import { Diff } from "../ui/Diff";
 import { lineDiff } from "../ui/lineDiff";
 import { Field, Select } from "../ui/forms";
@@ -50,6 +51,7 @@ const sections: Section[] = [
   { id: "autonomy-policy", title: "Autonomy defaults", scope: "installation", note: "The level a new worker starts at, and what an attended worker may run. Every project shares this policy." },
   { id: "assistant", title: "Assistant", scope: "installation", note: "When an idle assistant session stops. A stopped conversation stays in the ledger and resumes when you send." },
   { id: "backup", title: "Backup", scope: "installation", note: "A copy of the installation's own records: the projects' registry, the members and the passphrase's hash, and the workers." },
+  { id: "about", title: "About", scope: "installation", note: "The build of the daemon this page talks to, and whether a newer ropeshift is installed beside it." },
   { id: "autonomy", title: "Autonomy and run windows", scope: "worker", note: "How freely each worker claims work, and the windows an attended worker runs in." },
   { id: "fleet", title: "Fleet", scope: "project", note: "The project's fleet mode and the caps a claim is held to, inside the machines' caps." },
   { id: "review", title: "Review policy", scope: "project", note: "How many review rounds a change gets before it waits on a member." },
@@ -171,6 +173,7 @@ function SectionBody({ section, live, project, label, archived, worker, prefs }:
       {kind ? <PolicySection section={section} kind={kind} live={live} project={project} archived={archived} /> : null}
       {section.id === "admission" ? <AdmissionSection section={section} live={live} selected={worker} /> : null}
       {section.id === "backup" ? <BackupSection section={section} /> : null}
+      {section.id === "about" ? <AboutSection section={section} live={live} /> : null}
       {section.id === "autonomy" ? <AutonomySection section={section} live={live} selected={worker} /> : null}
       {section.id === "fleet" ? <FleetSection section={section} live={live} project={project} label={label} archived={archived} /> : null}
       {section.id === "review" ? <ReviewSection section={section} /> : null}
@@ -637,6 +640,44 @@ function IntegrationSection({ section, live, project, label }: { section: Sectio
             </TableRegion>
           )}
         </Panel>
+      </Reading>
+    </>
+  );
+}
+
+// AboutSection gives the version the daemon runs, with the commit and build date a release build stamps, and
+// the release installed at the daemon's path when the daemon could read it. A newer installed release is a
+// warning that says how to run it.
+function AboutSection({ section, live }: { section: Section; live: Live }) {
+  const read = useHealth(live, true);
+  const health = read.view;
+  return (
+    <>
+      <SectionHead section={section} />
+      <Reading failure={read.failure} ready={health !== null}>
+        {health ? (
+          <>
+            {health.warning ? <Banner tone="warning">{health.warning}</Banner> : null}
+            <Panel>
+              <Facts label="Daemon build">
+                <Fact name="Version" mono>
+                  {health.version}
+                </Fact>
+                {health.commit ? (
+                  <Fact name="Commit" mono>
+                    {health.commit}
+                  </Fact>
+                ) : null}
+                {health.date ? <Fact name="Built">{health.date}</Fact> : null}
+                {health.installed ? (
+                  <Fact name="Installed" mono>
+                    {health.installed}
+                  </Fact>
+                ) : null}
+              </Facts>
+            </Panel>
+          </>
+        ) : null}
       </Reading>
     </>
   );

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 
@@ -15,6 +16,7 @@ import (
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/planning"
 	"ropeshift.com/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/version"
 	"ropeshift.com/ropeshift/internal/workorders"
 	"ropeshift.com/ropeshift/test/apitest"
 )
@@ -89,6 +91,52 @@ func TestHealthSaysWhereTheWebUIListens(t *testing.T) {
 	off, err := apitest.Start(t).Client.Health(t.Context())
 	if err != nil || off.Web != "" {
 		t.Errorf("a daemon with no web UI says %+v: %v", off, err)
+	}
+}
+
+// Health reports the build the daemon runs, and warns only when the build installed at its path is a later
+// release than the one running.
+func TestHealthComparesTheRunningBuildWithTheInstalledOne(t *testing.T) {
+	t.Parallel()
+	running := version.Info{Version: "v0.1.0-alpha.16", Commit: "0123456789abcdef", Date: "2026-11-08T10:00:00Z"}
+	const cellar = "/opt/homebrew/opt/ropeshift/bin/ropeshiftd"
+	tests := []struct {
+		name        string
+		installed   func() version.Installed
+		wantVersion string
+		wantWarning []string
+	}{
+		{"the same release", func() version.Installed { return version.Installed{Path: cellar, Version: "v0.1.0-alpha.16"} }, "v0.1.0-alpha.16", nil},
+		{"a later release installed", func() version.Installed { return version.Installed{Path: cellar, Version: "v0.1.0-alpha.17"} }, "v0.1.0-alpha.17",
+			[]string{"v0.1.0-alpha.17 is installed", "still running v0.1.0-alpha.16", "brew services restart ropeshift"}},
+		{"an earlier release installed", func() version.Installed { return version.Installed{Path: cellar, Version: "v0.1.0-alpha.15"} }, "v0.1.0-alpha.15", nil},
+		{"an installed build that cannot be read", func() version.Installed { return version.Installed{Path: cellar} }, "", nil},
+		{"an installed build that reports no release", func() version.Installed { return version.Installed{Path: cellar, Version: "latest"} }, "", nil},
+		{"no reader of the installed build", nil, "", nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			d := apitest.StartWith(t, apitest.Options{Build: running, Installed: tt.installed})
+			health, err := d.Client.Health(t.Context())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if health.Version != running.Version || health.Commit != running.Commit || health.Date != running.Date {
+				t.Errorf("health says the daemon runs %q, %q, %q", health.Version, health.Commit, health.Date)
+			}
+			if health.Installed != tt.wantVersion {
+				t.Errorf("installed %q, want %q", health.Installed, tt.wantVersion)
+			}
+			if len(tt.wantWarning) == 0 && health.Warning != "" {
+				t.Errorf("warned %q, want nothing", health.Warning)
+			}
+			for _, part := range tt.wantWarning {
+				if !strings.Contains(health.Warning, part) {
+					t.Errorf("warning %q lacks %q", health.Warning, part)
+				}
+			}
+		})
 	}
 }
 

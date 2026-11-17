@@ -25,6 +25,7 @@ import (
 	"ropeshift.com/ropeshift/internal/messages"
 	"ropeshift.com/ropeshift/internal/planning"
 	"ropeshift.com/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/version"
 	"ropeshift.com/ropeshift/internal/workorders"
 )
 
@@ -168,6 +169,10 @@ type Options struct {
 	Panes server.Panes
 	// WebAddress is where the daemon says its web UI listens. Empty serves none.
 	WebAddress string
+	// Build is the build the daemon says it runs. The zero value is the test binary's own.
+	Build version.Info
+	// Installed reads the build on disk at the daemon's path, which health compares with Build. Nil reads none.
+	Installed func() version.Installed
 	// Checkouts is the machine of the daemon's worker. Nil has none, and registering a repository refuses.
 	Checkouts ports.Checkouts
 	// Profiles reads the profile in force for a clone, which a registration reads the worktree root from. Nil
@@ -209,6 +214,7 @@ func StartWith(t testing.TB, options Options) *Daemon {
 		Scope: Scope, Store: store, LeaseTTL: LeaseTTL, Protocol: options.Protocol, HeartbeatMs: HeartbeatMs,
 		Knowledge: options.Knowledge, Matcher: lexical.Matcher{Store: store}, Identity: identity, Windows: options.Windows,
 		Telemetry: options.Telemetry, Backup: options.Backup, Panes: options.Panes, WebAddress: options.WebAddress,
+		Build: options.Build, Installed: options.Installed,
 		Checkouts: options.Checkouts, Profiles: options.Profiles, ParseManifest: repofiles.ParseManifest, Starts: options.Starts, Branches: options.Branches, LaneBranchPrefix: options.LaneBranchPrefix,
 	}
 	daemon := serve(t, config, options.Wrap)
