@@ -459,8 +459,9 @@ func requestEntries(rows []authority.Approval) []api.TalkEntry {
 }
 
 // questionEntry renders a question as it stands now, at the time it was recorded, with where an answer came
-// from when a member's answer recorded it.
-func questionEntry(tx ports.ReadTx, question questions.Question) (api.TalkEntry, error) {
+// from when a member's answer recorded it, and the scope an answer to it takes with that record's title.
+func questionEntry(tx ports.ReadTx, view api.QuestionView) (api.TalkEntry, error) {
+	question := view.Question
 	events, err := tx.EventsAbout(ledger.Subject{Kind: questions.SubjectQuestion, ID: question.ID})
 	if err != nil {
 		return api.TalkEntry{}, err
@@ -469,7 +470,7 @@ func questionEntry(tx ports.ReadTx, question questions.Question) (api.TalkEntry,
 	if len(events) != 0 {
 		at = events[0].RecordedAt
 	}
-	held := api.TalkQuestion{Question: question, Batch: question.BatchID}
+	held := api.TalkQuestion{Question: question, Batch: question.BatchID, Scope: view.Scope, ScopeTitle: view.ScopeTitle}
 	if question.DecisionID != "" {
 		decided, err := tx.EventsAbout(ledger.Subject{Kind: questions.SubjectDecision, ID: question.DecisionID})
 		if err != nil {
@@ -549,8 +550,12 @@ func (h *handler) laneStream(w http.ResponseWriter, r *http.Request, _ ledger.Ac
 		if err != nil {
 			return nil, err
 		}
-		for _, question := range asked {
-			entry, err := questionEntry(tx, question)
+		views, err := questionViews(tx, asked)
+		if err != nil {
+			return nil, err
+		}
+		for _, view := range views {
+			entry, err := questionEntry(tx, view)
 			if err != nil {
 				return nil, err
 			}

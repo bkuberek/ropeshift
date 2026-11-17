@@ -118,6 +118,10 @@ type TalkQuestion struct {
 	// Channel is where a member's answer came from: the web listener, the command line, or the
 	// conversation it showed in. It is empty until a member answers.
 	Channel string `json:"channel,omitempty"`
+	// Scope is the scope an answer to the question takes, from the record it is about (questions.ScopeOf), and
+	// ScopeTitle the title of that record, as QuestionView says.
+	Scope      string `json:"scope,omitempty"`
+	ScopeTitle string `json:"scope_title,omitempty"`
 }
 
 // TalkFromAssistant is the kind of sender the assistant is in a conversation.

@@ -248,6 +248,47 @@ func TestAnOrchestratorReadsAScopeWithTheTitleOfItsRecord(t *testing.T) {
 	}
 }
 
+// TestALanesStreamNamesTheScopeOfEachQuestion holds that each question in a lane's stream carries the scope an
+// answer to it takes and the title of that record, read in the read of the stream, as Needs you gives them, so
+// the question card in a conversation names them as its card in Needs you does.
+func TestALanesStreamNamesTheScopeOfEachQuestion(t *testing.T) {
+	t.Parallel()
+	d := startTalk(t)
+	w := apitest.NewWorld(t, d.Daemon)
+	lane := w.Running("wo-retry", "Add the retry budget")
+	plan := w.PlanOf("wo-retry")
+	type named struct{ scope, title string }
+	want := map[string]named{
+		"q-work": {"wo:wo-retry", "Add the retry budget"}, "q-plan": {"plan:" + plan, "Add the retry budget"},
+		"q-gone": {"wo:wo-gone", ""}, "q-none": {"", ""},
+	}
+	asker := ledger.Actor{Kind: ledger.ActorLane, ID: lane.ID}
+	for id, subject := range map[string][2]string{
+		"q-work": {workorders.SubjectKind, "wo-retry"}, "q-plan": {planning.SubjectPlan, plan},
+		"q-gone": {workorders.SubjectKind, "wo-gone"}, "q-none": {"", ""},
+	} {
+		if _, err := w.Questions.Ask(t.Context(), apitest.Scope, questions.Ask{
+			ID: id, Text: "Is " + id + " settled?", Categories: []string{questions.CategoryProduct}, Lane: lane.ID, Generation: 1,
+			SubjectKind: subject[0], SubjectID: subject[1],
+		}, asker); err != nil {
+			t.Fatal(err)
+		}
+	}
+	page, err := d.client.LaneStream(t.Context(), lane.ID, api.TalkQuery{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	streamed := map[string]named{}
+	for _, entry := range page.Entries {
+		if entry.Kind == api.TalkKindQuestion && entry.Question != nil {
+			streamed[entry.Question.Question.ID] = named{entry.Question.Scope, entry.Question.ScopeTitle}
+		}
+	}
+	if !maps.Equal(streamed, want) {
+		t.Errorf("the lane's stream names the scopes %v, want %v", streamed, want)
+	}
+}
+
 // TestADecisionReadsWithTheTitleOfTheRecordItsScopeNames holds that every read of decisions names the record
 // each scope names, in the same answer: the list, one decision, and the decisions view.
 func TestADecisionReadsWithTheTitleOfTheRecordItsScopeNames(t *testing.T) {
