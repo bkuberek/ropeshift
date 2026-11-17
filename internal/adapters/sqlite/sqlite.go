@@ -86,6 +86,10 @@ func (Dialect) AddColumnSQL(table, column string) string {
 	return `ALTER TABLE ` + table + ` ADD COLUMN ` + column
 }
 
+// LostCreateRace is never true: a transaction takes the write lock as it begins, so two starts never make
+// the same table at once.
+func (Dialect) LostCreateRace(error) bool { return false }
+
 // Migrations reads the neutral schema and SQLite's own.
 func (Dialect) Migrations() ([]sqlstore.Migration, error) {
 	neutral, err := NeutralMigrations()

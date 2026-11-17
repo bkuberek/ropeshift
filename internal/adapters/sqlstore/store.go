@@ -205,8 +205,19 @@ func (s *Store) migrate(ctx context.Context, set string, list func() ([]Migratio
 }
 
 // createMigrations makes the table of applied migrations, in the store's schema, and gives a table an
-// earlier build made its checksum column.
+// earlier build made its checksum column. Two first starts at once can both begin to make the table, and
+// a database that tells the second so makes it find the table the first committed: the one retry makes it
+// start.
 func (s *Store) createMigrations(ctx context.Context) error {
+	err := s.makeMigrationsTable(ctx)
+	if err != nil && s.dialect.LostCreateRace(err) {
+		err = s.makeMigrationsTable(ctx)
+	}
+	return err
+}
+
+// makeMigrationsTable is one attempt of createMigrations, in one transaction.
+func (s *Store) makeMigrationsTable(ctx context.Context) error {
 	tx, err := s.begin(ctx, nil)
 	if err != nil {
 		return err

@@ -393,6 +393,22 @@ func startWeb(config server.Config, listener net.Listener, stdout, stderr io.Wri
 	return webServer, nil
 }
 
+// openJournal opens the worker's journal, creating it when it is missing, at this build's schema. It says
+// what its migration goes on past, such as migrations it applied that this build does not ship, as
+// openLedger does.
+func openJournal(ctx context.Context, stateDir string, stderr io.Writer) (*sqlite.Journal, error) {
+	journal, err := sqlite.OpenJournal(filepath.Join(stateDir, api.JournalFileName))
+	if err != nil {
+		return nil, err
+	}
+	journal.Warn = warnTo(stderr)
+	if err := journal.Migrate(ctx); err != nil {
+		_ = journal.Close()
+		return nil, err
+	}
+	return journal, nil
+}
+
 // startSoloWorker runs the worker in this process, on the real protocol over the
 // private socket, so solo mode exercises the path a group's worker takes. A first
 // start makes its own join token, because the person who started the daemon owns
@@ -404,13 +420,8 @@ func startSoloWorker(
 	if err := keepStableBinary(ctx, paths, osexec.Runner{}); err != nil {
 		return nil, err
 	}
-	journal, err := sqlite.OpenJournal(filepath.Join(paths.StateDir, api.JournalFileName))
+	journal, err := openJournal(ctx, paths.StateDir, stderr)
 	if err != nil {
-		return nil, err
-	}
-	journal.Warn = warnTo(stderr)
-	if err := journal.Migrate(ctx); err != nil {
-		_ = journal.Close()
 		return nil, err
 	}
 	runtime.Telemetry = telemetry.lane

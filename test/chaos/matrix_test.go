@@ -264,7 +264,7 @@ func renewCase() crashCase {
 	return crashCase{
 		name:  "renewal",
 		op:    sqlstore.OpRenew,
-		steps: []string{"begun", "before-commit", "committed"},
+		steps: []string{"begun", "decided", "before-commit", "committed"},
 		prepare: func(w *world) (childSpec, error) {
 			holder, err := w.running(longTTL)
 			return holderSpec("renew", holder), err

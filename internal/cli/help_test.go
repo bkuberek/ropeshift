@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"ropeshift.com/ropeshift/internal/cli"
+	"ropeshift.com/ropeshift/internal/version"
 )
 
 // alone runs one command line with no control plane to reach.
@@ -101,6 +102,23 @@ func TestAGroupListsItsCommands(t *testing.T) {
 		if !listed(stderrMissing, command) {
 			t.Errorf("work does not list %s:\n%s", command, stderrMissing)
 		}
+	}
+}
+
+// TestTheListLinksTheReferenceOfThisBuild holds that the link to the command reference names the tag of
+// the release that prints it, and main for a development build.
+func TestTheListLinksTheReferenceOfThisBuild(t *testing.T) {
+	ref := "main"
+	if v := version.Read("ropeshift").Version; v != version.Development {
+		ref = v
+	}
+	want := "https://github.com/bkuberek/ropeshift/blob/" + ref + "/docs/cli.md"
+	code, stdout, stderr := alone()
+	if code != cli.ExitUsage || stdout != "" {
+		t.Fatalf("no command: exit %d, stdout %q", code, stdout)
+	}
+	if !strings.HasSuffix(stderr, want+"\n") {
+		t.Errorf("the list does not end with the link %s:\n%s", want, stderr)
 	}
 }
 

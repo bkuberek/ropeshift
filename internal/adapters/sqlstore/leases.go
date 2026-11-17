@@ -306,6 +306,9 @@ func (s *Store) Renew(ctx context.Context, scope ledger.WorkspaceID, lease worko
 	if err != nil {
 		return err
 	}
+	// The statement has decided, for a renewal that won and for one the guard refused, and the
+	// transaction still holds the writer lock. A renewal that ended before this step decided nothing.
+	crashpoint.Hit(OpRenew, "decided")
 	if !won {
 		current, err := (workOrderTx{session: t.session, scope: scope}).Get(lease.WorkOrder)
 		if err != nil {

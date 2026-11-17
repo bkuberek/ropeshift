@@ -140,7 +140,8 @@ func (r *paneRun) daemon(kill string) error {
 	r.t.Cleanup(func() {
 		_ = cmd.Process.Kill()
 		select {
-		case <-exited:
+		case err := <-exited:
+			ignoreExit(err)
 		case <-time.After(5 * time.Second):
 		}
 	})
@@ -288,7 +289,8 @@ func runPaneCrash(r *paneRun, step paneStep) error {
 	killed := false
 	err = until("the kill, or the lane's end", func() (bool, error) {
 		select {
-		case <-r.exited:
+		case err := <-r.exited:
+			ignoreExit(err)
 			killed = true
 			return true, nil
 		default:
@@ -389,7 +391,7 @@ func TestPaneRandomKills(t *testing.T) {
 			if err := r.process.Process.Signal(syscall.SIGKILL); err != nil {
 				t.Fatal(err)
 			}
-			<-r.exited
+			ignoreExit(<-r.exited)
 			if err := r.atMostOnce(); err != nil {
 				t.Fatal(err)
 			}
@@ -442,7 +444,8 @@ func runRestartCrash(t *testing.T, step string, extra ...string) error {
 	}
 	if err := until("the kill", func() (bool, error) {
 		select {
-		case <-r.exited:
+		case err := <-r.exited:
+			ignoreExit(err)
 			return true, nil
 		default:
 			return settled(r.state(id)), nil

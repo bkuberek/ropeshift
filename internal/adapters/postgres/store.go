@@ -209,6 +209,8 @@ func (s *State) Ledger(ctx context.Context, schema string, opts sqlstore.Options
 	return s.ledger(schema, opts), nil
 }
 
+// ledger opens a project's Store in its schema. Its warnings name the schema, so those of one project and
+// another tell apart.
 func (s *State) ledger(schema string, opts sqlstore.Options) *sqlstore.Store {
 	opts.Installation, opts.Schema = s.Installation, schema
 	opts.AfterFailedWrite = func(ctx context.Context, project ledger.WorkspaceID) {
@@ -216,6 +218,7 @@ func (s *State) ledger(schema string, opts sqlstore.Options) *sqlstore.Store {
 			repair(ctx, project)
 		}
 	}
+	opts.Warn = sqlstore.WarnFor(opts.Warn, schema)
 	return sqlstore.New(stdlib.OpenDBFromPool(s.pool), s.dialect, opts)
 }
 

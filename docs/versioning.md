@@ -65,6 +65,8 @@ ropeshift v0.4.1 (commit dd81c214342b, built 2026-11-08T10:00:00Z, go1.27.3, lin
 
 The MCP server reports the same version in its `serverInfo`, and telemetry reports it as `service.version`.
 
+A link a binary prints to the documentation, such as the command reference its help ends with or the troubleshooting page a database refusal names, points at the tag of the release the binary is, so the page matches the build. A development build links `main`.
+
 ## What a daemon reports
 
 A daemon keeps running the build it started from after a package manager replaces the binary on disk. `GET /v1/health` reports the build the daemon runs, as `version`, `commit`, and `date`, and the release of the binary installed at the daemon's own executable path, as `installed`. The daemon reads that binary once a minute by starting it with `version --json`, and never while answering a request. It says nothing of the installed build when it cannot read it. The same answer carries `mode`, `solo` for a daemon that runs its own worker, which is how the web UI knows whether a worker on another machine can join.

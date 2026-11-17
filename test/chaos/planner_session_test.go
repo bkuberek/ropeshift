@@ -99,7 +99,8 @@ func (p *plannerRun) run(t *testing.T, args ...string) *person {
 	t.Cleanup(func() {
 		_ = cmd.Process.Kill()
 		select {
-		case <-exited:
+		case err := <-exited:
+			ignoreExit(err)
 		case <-time.After(5 * time.Second):
 		}
 	})
@@ -250,7 +251,7 @@ func TestAPlanningSessionSurvivesADetachAndAWorkerRestart(t *testing.T) {
 	if err := p.process.Process.Signal(syscall.SIGKILL); err != nil {
 		t.Fatal(err)
 	}
-	<-p.exited
+	ignoreExit(<-p.exited)
 	if err := p.restart(); err != nil {
 		t.Fatal(err)
 	}

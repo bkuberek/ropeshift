@@ -130,16 +130,16 @@ type splitJournal struct {
 }
 
 func (j splitJournal) EndLane(ctx context.Context, id string, event ledger.UploadEvent) (ledger.UploadEvent, error) {
-	record, err := j.Journal.Lane(ctx, id)
+	record, err := j.Lane(ctx, id)
 	if err != nil {
 		return ledger.UploadEvent{}, err
 	}
 	record.State, record.TokenDigest = lanes.StateEnded, ""
-	if err := j.Journal.SaveLane(ctx, record); err != nil {
+	if err := j.SaveLane(ctx, record); err != nil {
 		return ledger.UploadEvent{}, err
 	}
 	crashpoint.Hit("worker.lane", laneSplitStep)
-	return j.Journal.Append(ctx, event)
+	return j.Append(ctx, event)
 }
 
 // laneScript is one session that reports completed and ends its turn. A lane with a session has left
@@ -638,15 +638,19 @@ func retrySoloSleep(attempts int, logf func(string, ...any), round func(attempt 
 //     its own clock plus the lease, and its clock reads after the first read, so the
 //     lease never drops below the first read's before the stop. The ledger's clock is
 //     this host's wall clock, so no sweep can hold an expired candidate at the stop.
-//   - The first lapse comes after the wake and within soloSleepWindow. The stop outlasts
-//     the lease, so the lease has expired at the wake. Before the sweep lapses an
-//     expired lease, it waits up to soloSleepAwait for a renewal that begins after its
-//     wait began, and a renewal holds the database's write lock from its start. A lapse
-//     before the bound was released by that renewal, which commits or is refused before
-//     the lapse: it is the renewal after the wake that the deadline must refuse. A
-//     renewal after the wake that revived the lease set it a whole lease past the wake,
-//     so a lapse within the lease of the wake cannot follow one. A lapse before the wake
-//     can only come before the first read.
+//   - The first lapse comes at or after the wake and before soloSleepWindow has passed,
+//     which is [0, soloSleepWindow) from the wake. The stop outlasts the lease, so the
+//     lease has expired at the wake. Before the sweep lapses an expired lease, it waits
+//     up to soloSleepAwait for a renewal that began after its wait began to hit
+//     renewDecided, which a renewal does once its statement has run, won or refused. A
+//     renewal holds the database's write lock from its start until it commits or ends,
+//     so a lapse before the bound was released by a renewal that commits or is refused
+//     before the lapse: it is the renewal after the wake that the deadline must refuse.
+//     A renewal that ends before its statement, on a failed clock read or a cancelled
+//     context, hits no such step and releases nothing. A renewal after the wake that
+//     revived the lease set it a whole lease past the wake, so a lapse within the lease
+//     of the wake cannot follow one. A lapse before the wake can only come before the
+//     first read.
 //
 // The workspace holds one work order with one claim, so every renewal is of that
 // lease. A late beat on a loaded machine can add a later lapse and its return, and
@@ -662,7 +666,7 @@ func soloSleepRound(w *world, binary, dir string, sabotage []string) (string, er
 		"HOME=" + dir, "PATH=" + doubles.InstallFakeClaude(w.t, "no-session"),
 		api.EnvStateDir + "=" + paths.StateDir, api.EnvRunDir + "=" + paths.RunDir, api.EnvWeb + "=" + api.WebOff,
 		api.EnvTelemetry + "=127.0.0.1:0",
-		crashpoint.EnvAwait + "=sweep/before-lapse=" + sqlstore.OpRenew + "/begun," + soloSleepAwait.String(),
+		crashpoint.EnvAwait + "=sweep/before-lapse=" + sqlstore.OpRenew + "/" + renewDecided + "," + soloSleepAwait.String(),
 	}, sabotage...)
 	if err := procs.Start(w.t, daemon); err != nil {
 		return "", err
@@ -672,7 +676,7 @@ func soloSleepRound(w *world, binary, dir string, sabotage []string) (string, er
 	defer func() {
 		_ = daemon.Process.Signal(syscall.SIGCONT)
 		_ = daemon.Process.Kill()
-		<-exited
+		ignoreExit(<-exited)
 	}()
 	client := api.NewUnixClient(paths.ControlSocket()).Project(ledger.DefaultProjectName)
 	defer client.Close()
@@ -741,7 +745,7 @@ func soloSleepRound(w *world, binary, dir string, sabotage []string) (string, er
 		return "", contract.Violatedf("after the sleep %+v", row)
 	}
 	_ = daemon.Process.Kill()
-	<-exited
+	ignoreExit(<-exited)
 	exited <- nil
 	return checkLapsesReturned(w, paths, resumed)
 }
@@ -757,9 +761,10 @@ func soloSleepStopReason(stopped, leaseUntil int64) string {
 }
 
 // soloSleepWindow is how long after the wake, in milliseconds, the first lapse may
-// come in a conclusive round: before the await bound, so a renewal released the
-// sweep, and before the lease, so no renewal after the wake revived the lease and let
-// it expire again.
+// come in a conclusive round: a lapse in [0, soloSleepWindow) from the wake is
+// conclusive, and one at the window or past it is not. The window ends before the
+// await bound, so a renewal released the sweep, and before the lease, so no renewal
+// after the wake revived the lease and let it expire again.
 func soloSleepWindow() int64 {
 	return min(soloSleepAwait, soloSleepTTL).Milliseconds()
 }
@@ -788,7 +793,7 @@ func checkLapsesReturned(w *world, paths api.Paths, resumed int64) (string, erro
 // from the wake at resumed, in Unix milliseconds. Lapses and returns must alternate
 // from a lapse, and at least one of each must be on record. The kill can land between
 // a late lapse and its return. It returns why the round is inconclusive when the
-// first lapse is before the wake or past soloSleepWindow.
+// first lapse is before the wake, or at or past soloSleepWindow after it.
 func soloSleepLapses(events []ledger.Event, resumed int64, logf func(string, ...any)) (string, error) {
 	lapses, returns := 0, 0
 	var first int64

@@ -17,7 +17,7 @@ func mustAwait(t *testing.T, spec string) func(op, step string) {
 }
 
 func TestAwaitHoldsTheStepUntilTheReleaseStepIsHit(t *testing.T) {
-	hit := mustAwait(t, "sweep/before-lapse=lease.renew/begun,1m")
+	hit := mustAwait(t, "sweep/before-lapse=lease.renew/decided,1m")
 	done := make(chan struct{})
 	go func() {
 		hit("sweep", "before-lapse")
@@ -33,7 +33,7 @@ func TestAwaitHoldsTheStepUntilTheReleaseStepIsHit(t *testing.T) {
 	// does not release it, so the release step is hit until the waiter returns.
 	deadline := time.After(10 * time.Second)
 	for {
-		hit("lease.renew", "begun")
+		hit("lease.renew", "decided")
 		select {
 		case <-done:
 			return
@@ -45,7 +45,7 @@ func TestAwaitHoldsTheStepUntilTheReleaseStepIsHit(t *testing.T) {
 }
 
 func TestAwaitReturnsAtTheBoundWhenTheReleaseStepIsNeverHit(t *testing.T) {
-	hit := mustAwait(t, "sweep/before-lapse=lease.renew/begun,100ms")
+	hit := mustAwait(t, "sweep/before-lapse=lease.renew/decided,100ms")
 	start := time.Now()
 	hit("sweep", "before-lapse")
 	if waited := time.Since(start); waited < 100*time.Millisecond || waited > 10*time.Second {
@@ -54,8 +54,8 @@ func TestAwaitReturnsAtTheBoundWhenTheReleaseStepIsNeverHit(t *testing.T) {
 }
 
 func TestAwaitIsNotReleasedByAHitBeforeItArrived(t *testing.T) {
-	hit := mustAwait(t, "sweep/before-lapse=lease.renew/begun,100ms")
-	hit("lease.renew", "begun")
+	hit := mustAwait(t, "sweep/before-lapse=lease.renew/decided,100ms")
+	hit("lease.renew", "decided")
 	start := time.Now()
 	hit("sweep", "before-lapse")
 	if waited := time.Since(start); waited < 100*time.Millisecond {
@@ -64,7 +64,7 @@ func TestAwaitIsNotReleasedByAHitBeforeItArrived(t *testing.T) {
 }
 
 func TestAwaitPassesOtherStepsThrough(t *testing.T) {
-	hit := mustAwait(t, "sweep/before-lapse=lease.renew/begun,1m")
+	hit := mustAwait(t, "sweep/before-lapse=lease.renew/decided,1m")
 	start := time.Now()
 	hit("sweep", "candidates-read")
 	hit("lapse", "begun")
@@ -74,7 +74,7 @@ func TestAwaitPassesOtherStepsThrough(t *testing.T) {
 }
 
 func TestAwaitRefusesAMalformedSpec(t *testing.T) {
-	for _, spec := range []string{"", "sweep/before-lapse", "sweep/before-lapse=lease.renew/begun", "sweep/before-lapse=lease.renew/begun,soon"} {
+	for _, spec := range []string{"", "sweep/before-lapse", "sweep/before-lapse=lease.renew/decided", "sweep/before-lapse=lease.renew/decided,soon"} {
 		if _, err := awaiting(spec); err == nil {
 			t.Errorf("%q was accepted", spec)
 		}

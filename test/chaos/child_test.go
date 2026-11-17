@@ -105,6 +105,10 @@ type child struct {
 // afterTests stops what a tagged suite started.
 var afterTests = func() error { return nil }
 
+// ignoreExit discards the error a process exited with. A process these tests kill on purpose exits with the
+// error that says so, and what a test waits for is the exit.
+func ignoreExit(error) {}
+
 func TestMain(m *testing.M) {
 	if raw := os.Getenv(childEnv); raw != "" {
 		os.Exit(childMain(raw))

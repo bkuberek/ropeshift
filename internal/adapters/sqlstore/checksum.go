@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+
+	"ropeshift.com/ropeshift/internal/version"
 )
 
 // A database records the checksum of each migration it applies. A start refuses a database whose
@@ -19,10 +21,15 @@ import (
 // ErrMigrationChanged is a migration whose text changed after a database applied it.
 var ErrMigrationChanged = errors.New("an applied migration changed")
 
-// refusalNextStep is what a person does about a refusal, and the user doc that says more.
-const refusalNextStep = "to start, run the build that migrated this database, or restore the state directory from a backup; " +
-	"docs/troubleshooting.md#database-refuses-to-start says how: " +
-	"https://github.com/bkuberek/ropeshift/blob/main/docs/troubleshooting.md#database-refuses-to-start"
+// refusalPage is the user doc that says what a person does about a refusal.
+const refusalPage = "docs/troubleshooting.md#database-refuses-to-start"
+
+// refusalNextStep is what a person does about a refusal, and the link to the doc that says more, which names
+// the tag of the release that refuses.
+func refusalNextStep() string {
+	return "to start, run the build that migrated this database, or restore the state directory from a backup; " +
+		refusalPage + " says how: " + version.DocsURL(refusalPage)
+}
 
 // Checksum is the SHA-256 of a migration's text exactly as it ships, in lowercase hex.
 func Checksum(text string) string {
@@ -58,7 +65,7 @@ func Refusal(changed []*MigrationError) error {
 	for i, e := range changed {
 		errs[i] = e
 	}
-	return fmt.Errorf("%w\n%s", errors.Join(errs...), refusalNextStep)
+	return fmt.Errorf("%w\n%s", errors.Join(errs...), refusalNextStep())
 }
 
 // Unshipped is a migration a database applied that this build does not ship.
@@ -77,6 +84,16 @@ func UnshippedWarning(set string, unshipped []Unshipped) string {
 	}
 	return fmt.Sprintf("the %s database holds migrations this build does not ship: %s; a later build migrated it, and this build starts on the schema it left",
 		set, strings.Join(named, ", "))
+}
+
+// WarnFor wraps warn so each warning it receives names the database it is about, as "database: warning".
+// A start that opens several ledgers gives each one's warning the same text, and the name tells them
+// apart. A nil warn stays nil.
+func WarnFor(warn func(string), database string) func(string) {
+	if warn == nil {
+		return nil
+	}
+	return func(warning string) { warn(database + ": " + warning) }
 }
 
 // statementReadColumns names the dialect's statement that lists a table's columns.
