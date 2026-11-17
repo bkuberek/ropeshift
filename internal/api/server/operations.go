@@ -166,7 +166,8 @@ var routeOperations = map[string]routeOperation{
 	"POST /v1/delegates/{id}/remove":                   fixed(authority.OpDelegateRemove),
 	"POST /v1/backup":                                  fixed(authority.OpProjectBackup),
 	"POST " + api.BackupDownloadPath:                   fixed(authority.OpProjectBackup),
-	"POST /v1/work-orders":                             resolved(byKind(authority.OpWorkOrderCreate, authority.OpWorkOrderCreateByAssistant), authority.OpWorkOrderCreate, authority.OpWorkOrderCreateByAssistant).about(subjectWorkOrder).named(bodyField("id")).checked(plainID(workorders.ErrInvalid)),
+	"POST /v1/work-orders":                             resolved(workOrderCreateOperation, authority.OpWorkOrderCreate, authority.OpWorkOrderCreateByAssistant, authority.OpAdoptionRestructure).about(subjectWorkOrder).named(bodyField("id")).checked(plainID(workorders.ErrInvalid)),
+	"POST /v1/adoption/plan":                           fixed(authority.OpAdoptionPlan),
 	"POST /v1/work-orders/{id}/review":                 resolved(reviewOperation, authority.OpWorkOrderReviewPlan, authority.OpWorkOrderReview).about(subjectWorkOrder),
 	"POST /v1/work-orders/{id}/claims":                 fixed(authority.OpWorkOrderClaim),
 	"POST /v1/work-orders/{id}/lanes":                  fixed(authority.OpLaneStart),
@@ -1025,6 +1026,19 @@ func byKind(outside, assistant string) resolver {
 		}
 		return []string{outside}, false, nil
 	}
+}
+
+// workOrderCreateOperation reads the operations a call that creates a work order runs: the creation, as a
+// credential's kind makes it, and with it a restructuring, which only a member chooses (FR-ADOPT-12).
+func workOrderCreateOperation(h *handler, r *http.Request, body []byte) ([]string, bool, error) {
+	ids, oneWay, err := byKind(authority.OpWorkOrderCreate, authority.OpWorkOrderCreateByAssistant)(h, r, body)
+	var in struct {
+		Restructure *struct{} `json:"restructure"`
+	}
+	if err == nil && json.Unmarshal(body, &in) == nil && in.Restructure != nil {
+		ids = append(ids, authority.OpAdoptionRestructure)
+	}
+	return ids, oneWay, err
 }
 
 // repositoryAddOperation reads whether a registration names paths, or a manifest, which only a member

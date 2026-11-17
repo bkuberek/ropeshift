@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"ropeshift.com/ropeshift/internal/adapters/fake"
 	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/cli"
 	"ropeshift.com/ropeshift/internal/ledger"
@@ -168,7 +169,7 @@ func TestAdoptRegistersTheClonesUnderItsPathsInTheProjectItIsNamed(t *testing.T)
 	}
 }
 
-// A project of several repositories that names none asks the person on the terminal.
+// A project of several repositories whose layout settles none asks the person on the terminal.
 func TestAdoptAsksWhichRepositoryHoldsThePlan(t *testing.T) {
 	a := newAdoption(t)
 	code, stdout, stderr := a.runIn(shopClone, "web\n", "adopt", "/work/libs", "--worker", "worker-a")
@@ -186,8 +187,8 @@ func TestAdoptAsksWhichRepositoryHoldsThePlan(t *testing.T) {
 	}
 }
 
-// With nobody at a terminal to ask, a project of several repositories that names none stops before any work,
-// and says how to name one. Running it again with the name goes on from there.
+// With nobody at a terminal to ask, a project of several repositories whose layout settles none stops before
+// any work, and says how to name one. Running it again with the name goes on from there.
 func TestAdoptWithNobodyToAskNamesTheChoice(t *testing.T) {
 	a := newAdoption(t)
 	code, _, stderr := a.runIn(shopClone, "", "adopt", "/work/libs", "--worker", "worker-a", "--no-attach")
@@ -203,6 +204,80 @@ func TestAdoptWithNobodyToAskNamesTheChoice(t *testing.T) {
 	}
 	if orders := a.workOrders("shop-app"); len(orders) != 1 || orders[0].RepositoryID != shopClone.ID {
 		t.Errorf("the adopt session's work is %+v", orders)
+	}
+}
+
+// Run from a code clone with the design repository beside it, adopt plans in the design repository, and asks
+// nobody, as the layout settles it. --planning still decides.
+func TestAdoptFromACodeCloneWithTheDesignRepositoryBesidePlansInIt(t *testing.T) {
+	a := newAdoption(t)
+	design := ports.Clone{Path: "/work/design", ID: "9a8b7c6d5e4f30211203f4e5d6c7b8a998877665", Remote: "https://example.invalid/acme/design.git", DefaultBranch: "main"}
+	a.in.Checkouts.Place(design)
+	a.in.Layouts.Set(design.Path, fake.CloneLayout{Plan: ports.PlanContent{Files: 1}, Tracked: []string{"docs/a.md", "docs/b.md", "plan/goal.md"}})
+	code, stdout, stderr := a.runIn(shopClone, "", "adopt", "/work/design", "--worker", "worker-a", "--no-attach")
+	if code != cli.ExitOK {
+		t.Fatalf("exit %d: %s%s", code, stdout, stderr)
+	}
+	held := a.repositories("shop-app")
+	if !held["design"].Planning || held["Shop_App"].Planning {
+		t.Errorf("the planning repository is not the design repository: %+v", held)
+	}
+	if orders := a.workOrders("shop-app"); len(orders) != 1 || orders[0].RepositoryID != design.ID {
+		t.Errorf("the adopt session's work is %+v", orders)
+	}
+	b := newAdoption(t)
+	b.in.Checkouts.Place(design)
+	b.in.Layouts.Set(design.Path, fake.CloneLayout{Plan: ports.PlanContent{Files: 1}, Tracked: []string{"docs/a.md", "docs/b.md", "plan/goal.md"}})
+	if code, _, stderr := b.runIn(shopClone, "", "adopt", "/work/design", "--planning", "Shop_App", "--worker", "worker-a", "--no-attach"); code != cli.ExitOK {
+		t.Fatalf("--planning: exit %d: %s", code, stderr)
+	}
+	if held := b.repositories("shop-app"); !held["Shop_App"].Planning || held["design"].Planning {
+		t.Errorf("--planning did not decide: %+v", held)
+	}
+}
+
+// When the repository the layout plans in is refused, because another project holds it, adopt stops with exit 2
+// and names the refusal and --planning, and does not plan in the clone it runs in without saying so. It stops
+// when the project is created by the adoption and when it exists already.
+func TestAdoptStopsWhenTheRepositoryItPlansInIsRefused(t *testing.T) {
+	a := newAdoption(t)
+	design := ports.Clone{Path: "/work/design", ID: "9a8b7c6d5e4f30211203f4e5d6c7b8a998877665", Remote: "https://example.invalid/acme/design.git", DefaultBranch: "main"}
+	a.in.Checkouts.Place(design)
+	a.in.Layouts.Set(design.Path, fake.CloneLayout{Plan: ports.PlanContent{Files: 1}, Tracked: []string{"docs/a.md", "docs/b.md", "plan/goal.md"}})
+	if code, _, stderr := a.runIn(design, "", "adopt", "--project", "other", "--worker", "worker-a", "--no-attach"); code != cli.ExitOK {
+		t.Fatalf("adopting the design repository in another project: exit %d: %s", code, stderr)
+	}
+	for _, again := range []string{"the project the adoption creates", "the project it made"} {
+		code, _, stderr := a.runIn(shopClone, "", "adopt", "/work/design", "--project", "acme", "--worker", "worker-a", "--no-attach")
+		if code != cli.ExitUsage || !strings.Contains(stderr, "--planning") || !strings.Contains(stderr, "other") || !strings.Contains(stderr, "design") {
+			t.Fatalf("%s: exit %d: %s", again, code, stderr)
+		}
+		if orders := a.workOrders("acme"); len(orders) != 0 {
+			t.Fatalf("%s: work was recorded: %+v", again, orders)
+		}
+	}
+	// --planning names the clone it runs in, and the adoption goes on there.
+	if code, _, stderr := a.runIn(shopClone, "", "adopt", "/work/design", "--project", "acme", "--planning", "Shop_App", "--worker", "worker-a", "--no-attach"); code != cli.ExitOK {
+		t.Errorf("--planning Shop_App: exit %d: %s", code, stderr)
+	}
+}
+
+// A layout that settles no planning repository cannot be restructured, because the plan's digest must come from
+// a plan that names where the plan lives, and a depth above the server's bound is a usage error.
+func TestAdoptRestructureNeedsTheRepositoryThatHoldsThePlanNamed(t *testing.T) {
+	a := newAdoption(t)
+	code, _, stderr := a.runIn(shopClone, "", "adopt", "--restructure", "/work/libs", "--worker", "worker-a", "--no-attach")
+	if code != cli.ExitUsage || !strings.Contains(stderr, "--planning") {
+		t.Errorf("exit %d: %s", code, stderr)
+	}
+	if len(a.projects()) != 1 {
+		t.Errorf("a refused restructuring made projects: %v", a.projects())
+	}
+	if code, _, stderr := a.runIn(shopClone, "", "adopt", "--restructure", "--planning", "Shop_App", "/work/libs", "--worker", "worker-a", "--no-attach"); code != cli.ExitOK {
+		t.Errorf("--restructure with --planning: exit %d: %s", code, stderr)
+	}
+	if code, _, stderr := a.runIn(shopClone, "", "adopt", "--dry-run", "--depth", "5"); code != cli.ExitUsage || !strings.Contains(stderr, "depth") {
+		t.Errorf("--depth 5: exit %d: %s", code, stderr)
 	}
 }
 

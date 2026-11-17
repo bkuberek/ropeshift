@@ -229,6 +229,8 @@ type sessionDraft struct {
 	title, statement, criterion string
 	adopt                       bool
 	repository, worker          string
+	// restructure is what an adopt session's work carries of the plan a member chose to restructure by.
+	restructure *planning.Restructure
 }
 
 // openSession makes the member calls in order. A step that fails says which work order it left behind.
@@ -239,7 +241,7 @@ func (c *invocation) openSession(client *api.ProjectClient, draft sessionDraft) 
 		return planStarted{}, c.failure(err)
 	}
 	created, err := client.CreateWorkOrder(c.ctx, api.CreateWorkOrder{
-		ID: id, Kind: workorders.KindPlan, Title: draft.title, Statement: draft.statement, RepositoryID: repository, Adopt: draft.adopt,
+		ID: id, Kind: workorders.KindPlan, Title: draft.title, Statement: draft.statement, RepositoryID: repository, Adopt: draft.adopt, Restructure: draft.restructure,
 		Criteria: []planning.Criterion{{ID: "c1", Text: draft.criterion}},
 	})
 	if err != nil {

@@ -98,6 +98,9 @@ type Config struct {
 	// which registering repositories reads and records (ADR-0022). Nil has no worker's machine, and a
 	// registration refuses.
 	Checkouts ports.Checkouts
+	// Layouts reads how the clones on that machine are laid out, for the plan of an adoption (FR-ADOPT-12). Nil
+	// reads none, and the plan refuses.
+	Layouts ports.Layouts
 	// ParseManifest reads the text of a repository manifest (ADR-0022). Nil reads none, and a registration
 	// from a manifest refuses.
 	ParseManifest func([]byte) (planning.RepositoriesFile, error)
@@ -152,6 +155,7 @@ type handler struct {
 	effects      *control.Effects
 	notices      *control.Notices
 	repositories *control.Repositories
+	adoptions    *control.Adoptions
 	recoveries   *control.Recoveries
 	estimates    *control.EstimatePolicies
 	delegates    *control.Delegates
@@ -210,6 +214,7 @@ func (h *handler) installationRoutes(mux *http.ServeMux) {
 	h.telemetryRoutes(mux)
 	h.installationRosterRoutes(mux)
 	h.templateRoutes(mux)
+	h.newAdoptionRoutes(mux)
 	mux.HandleFunc("GET /v1/health", h.health)
 	mux.HandleFunc("GET "+api.AuditPath, h.installationAudit)
 	mux.HandleFunc("GET "+api.MembersPath, h.listMembers)
@@ -225,6 +230,7 @@ func (h *handler) projectRoutes(mux *http.ServeMux) {
 	h.messageRoutes(mux)
 	h.approvalRoutes(mux)
 	h.repositoryRoutes(mux)
+	h.adoptionRoutes(mux)
 	h.effectRoutes(mux)
 	h.viewRoutes(mux)
 	h.eventRoutes(mux)
@@ -267,8 +273,10 @@ func matching(config Config) func(ports.Store) ports.Matcher {
 }
 
 func newHandler(config Config) *handler {
+	repositories := control.NewRepositories(config.Store).Rooted(config.Profiles)
 	return &handler{
 		Config:        config,
+		adoptions:     control.NewAdoptions(repositories),
 		workOrders:    control.NewWorkOrders(config.Store),
 		leases:        control.NewLeases(config.Store).Budgeted(config.PackTokens).Starting(config.Starts),
 		reviews:       control.NewReviews(config.Store),
@@ -283,7 +291,7 @@ func newHandler(config Config) *handler {
 		approvals:     control.NewApprovals(config.Store),
 		autonomy:      control.NewAutonomy(config.Store),
 		effects:       control.NewEffects(config.Store),
-		repositories:  control.NewRepositories(config.Store).Rooted(config.Profiles),
+		repositories:  repositories,
 		delegates:     control.NewDelegates(config.Store),
 		conversations: control.NewConversations(config.Store, config.Windows).Hosting(config.AssistantHosts, config.HeartbeatMs),
 		workers: control.NewWorkers(config.Store, config.Scope, control.WorkerOptions{
@@ -504,7 +512,7 @@ func (h *handler) createWorkOrder(w http.ResponseWriter, r *http.Request, actor 
 	record, err := h.workOrders.Record(r.Context(), h.Scope, control.LedgerWork{
 		Order: workorders.WorkOrder{
 			ID: in.ID, Kind: kind, Title: in.Title, RepositoryID: in.RepositoryID, Priority: in.Priority,
-			Size: in.Size, Requirements: in.Requirements, Needs: in.Needs, Adopt: in.Adopt, Agent: in.Agent,
+			Size: in.Size, Requirements: in.Requirements, Needs: in.Needs, Adopt: in.Adopt, Restructure: in.Restructure, Agent: in.Agent,
 		},
 		Statement: in.Statement,
 		Criteria:  in.Criteria,

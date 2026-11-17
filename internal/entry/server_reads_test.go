@@ -84,6 +84,17 @@ var probes = map[string]func(reads serverReads) []error{
 		_, err := reads.acceptedCommits(context.Background(), "repository", "0123456789abcdef")
 		return []error{err}
 	},
+	"layouts": func(reads serverReads) []error {
+		ctx := context.Background()
+		_, ignoredErr := reads.layouts.IgnoredDirectories(ctx, "/somewhere")
+		_, planErr := reads.layouts.Plan(ctx, "/somewhere")
+		_, documentsErr := reads.layouts.Documents(ctx, "/somewhere")
+		_, tipErr := reads.layouts.Tip(ctx, "/somewhere")
+		_, trackedErr := reads.layouts.Tracked(ctx, "/somewhere", "0123456789abcdef")
+		_, treesErr := reads.layouts.CodeTrees(ctx, "/somewhere")
+		_, instructionsErr := reads.layouts.Instructions(ctx, "/somewhere")
+		return []error{ignoredErr, planErr, documentsErr, tipErr, trackedErr, treesErr, instructionsErr}
+	},
 }
 
 // A server has no clone and no terminal beside it, so every read it would make from one is wired to a

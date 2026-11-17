@@ -402,7 +402,7 @@ func serveServer(ctx context.Context, paths api.Paths, opts serverOptions, trans
 		Identity: localauth.New(store, localauth.DefaultParams), Batches: batches, Windows: windows, PackTokens: soloPackTokens(paths),
 		LaneBranchPrefix: soloLaneBranchPrefix(paths),
 		Knowledge:        reads.knowledge, Starts: reads.starts, Branches: reads.branches, Checkouts: reads.checkouts,
-		ParseManifest: reads.parseManifest, Panes: reads.panes,
+		ParseManifest: reads.parseManifest, Panes: reads.panes, Layouts: reads.layouts,
 	}
 	controlServer := &http.Server{Handler: server.New(config), ReadHeaderTimeout: 10 * time.Second}
 	web := server.WebOptions{Port: bound.Port, Assets: assets, Proxies: transport.proxies, PublicURL: transport.publicURL}

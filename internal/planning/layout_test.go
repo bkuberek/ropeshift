@@ -60,6 +60,7 @@ func TestThePlanDigestIgnoresWhatARegistrationSaid(t *testing.T) {
 		after.Repositories[i].Reason = "matched by its earlier identity"
 		after.Repositories[i].ID = "abc"
 	}
+	after.Notes = []string{"The project does not exist yet, so no record was read."}
 	if got := after.WithDigest(); got.Digest != before.Digest {
 		t.Errorf("a plan whose clones registered has the digest %s, want %s", got.Digest, before.Digest)
 	}
@@ -67,6 +68,38 @@ func TestThePlanDigestIgnoresWhatARegistrationSaid(t *testing.T) {
 	left.Repositories[0].Outcome = OutcomeNotRegistered
 	if got := left.WithDigest(); got.Digest == before.Digest {
 		t.Error("a plan that leaves a repository unregistered has the digest of one that registers it")
+	}
+}
+
+// A restructuring a member chooses holds a shape that offers one, the digest of the plan it was chosen from,
+// and for a consolidation the design repository and the code trees to leave out.
+func TestARestructuringIsCheckedBeforeItIsKept(t *testing.T) {
+	digest := aLayoutPlan().WithDigest().Digest
+	ok := Restructure{Shape: ShapeConsolidate, Digest: digest, DesignPath: "/work/ws/repos/design", DesignRoot: strings.Repeat("a", 40), LeaveOut: []string{"tools"}}
+	if err := ok.Validate(); err != nil {
+		t.Fatalf("a consolidation with its design repository: %v", err)
+	}
+	if err := (Restructure{Shape: ShapeWorkspaceFiles, Digest: digest}).Validate(); err != nil {
+		t.Errorf("the workspace files with a digest: %v", err)
+	}
+	for name, bad := range map[string]Restructure{
+		"no shape":                         {Digest: digest},
+		"the single shape":                 {Shape: ShapeSingle, Digest: digest},
+		"an unknown shape":                 {Shape: "other", Digest: digest},
+		"no digest":                        {Shape: ShapePlanned},
+		"a digest that is no digest":       {Shape: ShapePlanned, Digest: "sha256:abc"},
+		"a consolidation with no design":   {Shape: ShapeConsolidate, Digest: digest, DesignRoot: "abc"},
+		"a consolidation with no root":     {Shape: ShapeConsolidate, Digest: digest, DesignPath: "/work/design"},
+		"a relative design path":           {Shape: ShapeConsolidate, Digest: digest, DesignPath: "design", DesignRoot: "abc"},
+		"a design outside a consolidation": {Shape: ShapePlanned, Digest: digest, DesignPath: "/work/design"},
+		"a tree left out of the files":     {Shape: ShapeWorkspaceFiles, Digest: digest, LeaveOut: []string{"tools"}},
+		"the whole repository left out":    {Shape: ShapeConsolidate, Digest: digest, DesignPath: "/work/design", DesignRoot: "abc", LeaveOut: []string{"."}},
+		"a path above the repository":      {Shape: ShapeConsolidate, Digest: digest, DesignPath: "/work/design", DesignRoot: "abc", LeaveOut: []string{"../x"}},
+		"an absolute tree":                 {Shape: ShapeConsolidate, Digest: digest, DesignPath: "/work/design", DesignRoot: "abc", LeaveOut: []string{"/tools"}},
+	} {
+		if err := bad.Validate(); err == nil {
+			t.Errorf("%s was kept", name)
+		}
 	}
 }
 

@@ -157,3 +157,46 @@ Adopting does not move files between repositories. To use the layout in [project
 ## Next
 
 Approving the plan creates its work orders. [Watch work run](watch-work-run.md), the next guide, starts them, and [Learn ropeshift](../README.md#learn-ropeshift) lists the guides.
+
+## Layouts and flags
+
+`ropeshift adopt` reads the layout around the repository it runs in before it registers anything. It reads that repository, every folder the repository ignores, searched for clones down to `--depth` levels (one by default), and every `<path>` you name, each a clone or a folder searched to the same depth. It never scans the folder around the repository, so a clone beside it is seen only when a path names it.
+
+| Flag | What it does |
+|------|--------------|
+| `--dry-run` | Prints the plan and records nothing: no project, no record, no checkout, and no file. With `--json` it prints the plan as JSON |
+| `--restructure` | Sends the plan's digest and choices with the adopt work. Without it adopt never restructures, and with it a layout of the `single` shape is a usage error |
+| `--depth N` | How many levels below a folder to look for clones |
+| `--planning NAME` | The repository that holds the plan, by its clone's folder name. By default the shape says, and when it says none, adopt asks on the terminal, and with no terminal stops with exit 2 and the names to choose from |
+| `--design NAME` | The design repository, by its clone's folder name |
+| `--leave-out PATH` | A code tree of the design repository that a consolidation removes, relative to its top. Repeatable |
+
+The design repository is the clone that holds plan content, a committed file in ropeshift's format, else the clone with the most committed Markdown documents. A tie names none, and the dry run says to pass `--design NAME`.
+
+A code tree is the topmost directory below a repository's top that holds a build file: `go.mod`, `package.json`, `Cargo.toml`, `pyproject.toml`, `setup.py`, `pom.xml`, `build.gradle`, `build.gradle.kts`, `Gemfile`, `mix.exs`, `composer.json`, `CMakeLists.txt`, or a `*.csproj`. A build file at the top makes the whole repository one code tree, which cannot be left out.
+
+### Shapes
+
+| Shape | When | Planning repository | `--restructure` offers |
+|-------|------|---------------------|------------------------|
+| `single` | No clone found other than the one adopt runs in | It | Nothing |
+| `planned` | It holds plan content, and clones were found | It | The manifest, when no `repositories` file exists |
+| `consolidate` | It holds no plan content, clones sit in a folder it ignores, and one of them is the design repository | It | Importing the design repository's history |
+| `workspace_files` | Any other layout with clones | It when a folder it ignores holds clones; else the design repository when one was chosen and is another clone; else none is settled, and `--planning NAME` names it | The manifest, the ignore line, and a Makefile |
+
+### The dry run
+
+The dry run prints one fact to a line:
+
+| Line | What it says |
+|------|--------------|
+| `Layout`, `Clone` | The clone adopt runs in, and each clone found with where it was found and what it holds |
+| `Shape`, `Planning repository`, `Design repository` | The shape, where the plan lives, and the design repository with why it is the one |
+| `would register`, `already registered`, `refused`, `not registered` | Each repository, with the outcome a registration gives it. A `consolidate` layout lists the design repository as `not registered` |
+| `add`, `append` | A file the restructuring would add to the planning repository, or a line it would append |
+| `take`, `collision` | A path a consolidation takes from the design repository, and a path both repositories hold with the version kept: `workspace`, or `union` for `.gitignore` |
+| `code tree` | A code tree of the design repository with its build file, and whether it is left out |
+| `move`, `run` | A clone to move into the planning repository's folder of clones, and the commands that do it, which ropeshift never runs |
+| `Digest` | The SHA-256 of the plan, which `--restructure` sends back so a layout that changed in between is found |
+
+Ropeshift never moves, deletes, or writes to a clone other than through a lane worktree of the planning repository, and never changes a remote.

@@ -261,7 +261,7 @@ const uiGaps: Record<string, string> = {
   "GET /v1/projects/{project}/conversations/{id}": "U2h2",
 };
 
-const gapSlice = /^U2[a-k][12]?$/;
+const gapSlice = /^(U2[a-k]|P[34][a-j])[12]?$/;
 
 const key = (route: Route) => `${route.method} ${route.pattern}`;
 
