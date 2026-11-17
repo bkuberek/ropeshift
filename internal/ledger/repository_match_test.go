@@ -68,6 +68,18 @@ func TestMatchRepositoryReadsRecordsInOrder(t *testing.T) {
 			[]Repository{remoteRecord("a", "git@example.invalid:acme/design.git")}, "a", true, apartByRemote("")},
 		{"a record kept at the clone is matched whatever its remote", "c", []string{"a", "c"}, []string{"a"},
 			[]Repository{remoteRecord("a", "git@example.invalid:acme/design.git")}, "a", true, apartByRemote("git@example.invalid:acme/workspace.git")},
+		{"a higher root's record when the lowest root has none", "d", []string{"a", "b", "d"}, nil,
+			[]Repository{NewRepository("b")}, "b", true, nil},
+		{"the lowest root's record wins over a higher one's", "d", []string{"a", "b", "d"}, nil,
+			[]Repository{NewRepository("a"), NewRepository("b")}, "a", true, nil},
+		{"a removed lowest-root record is passed over for the next root", "d", []string{"a", "b", "d"}, nil,
+			[]Repository{removedRecord("a"), NewRepository("b")}, "b", true, nil},
+		{"a lowest-root record that is another repository is passed over for the next root", "d", []string{"a", "b", "d"}, nil,
+			[]Repository{remoteRecord("a", "git@example.invalid:acme/design.git"), remoteRecord("b", "git@example.invalid:acme/workspace.git")}, "b", true,
+			apartByRemote("git@example.invalid:acme/workspace.git")},
+		{"every other root another repository's", "d", []string{"a", "b", "d"}, nil,
+			[]Repository{remoteRecord("a", "git@example.invalid:acme/design.git"), remoteRecord("b", "git@example.invalid:acme/tools.git")}, "", false,
+			apartByRemote("git@example.invalid:acme/workspace.git")},
 		{"the first-parent root's record is matched whatever its remote", "c", []string{"a", "c"}, nil,
 			[]Repository{remoteRecord("c", "git@example.invalid:acme/design.git")}, "c", false, apartByRemote("git@example.invalid:acme/workspace.git")},
 	}
@@ -78,6 +90,24 @@ func TestMatchRepositoryReadsRecordsInOrder(t *testing.T) {
 				t.Errorf("matched %q (found %v, earlier %v, %v), want %q (earlier %v)", record.ID, found, earlier, err, tt.want, tt.earlier)
 			}
 		})
+	}
+}
+
+func TestSharesFirstCommitUnlessBothClonesNameOneRemote(t *testing.T) {
+	tests := []struct {
+		kept, clone string
+		want        bool
+	}{
+		{"git@example.invalid:acme/app.git", "https://example.invalid/acme/app", false},
+		{"git@example.invalid:acme/app.git", "git@example.invalid:acme/fork.git", true},
+		{"", "", true},
+		{"", "git@example.invalid:acme/app.git", true},
+		{"git@example.invalid:acme/app.git", "", true},
+	}
+	for _, tt := range tests {
+		if got := SharesFirstCommit(tt.kept, tt.clone); got != tt.want {
+			t.Errorf("SharesFirstCommit(%q, %q) = %v, want %v", tt.kept, tt.clone, got, tt.want)
+		}
 	}
 }
 

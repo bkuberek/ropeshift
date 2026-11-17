@@ -32,9 +32,6 @@ func rootsOf(clone ports.Clone) []string {
 	return roots
 }
 
-// lowestRoot is the lowest first commit a clone holds, which names a record registered under the earlier rule.
-func lowestRoot(clone ports.Clone) string { return rootsOf(clone)[0] }
-
 // holdsRoot says a clone holds a first commit.
 func holdsRoot(clone ports.Clone, root string) bool {
 	return clone.ID == root || slices.Contains(clone.Roots, root)
@@ -101,7 +98,7 @@ func (how registration) holdersOf(ctx context.Context, clone ports.Clone) (map[s
 	if how.kept == nil {
 		return out, nil
 	}
-	for _, id := range []string{clone.ID, lowestRoot(clone)} {
+	for _, id := range rootsOf(clone) {
 		path, ok := how.held[id]
 		if !ok || path == clone.Path {
 			continue
@@ -125,15 +122,7 @@ func sharesFirstCommit(kept holder, clone ports.Clone) bool {
 	if kept.path == clone.Path {
 		return false
 	}
-	was := ledger.RepositoryIdentity(kept.remote, "")
-	return was == "" || was != ledger.RepositoryIdentity(clone.Remote, "")
-}
-
-// sharedFirstCommit says why a clone is refused for sharing its first commit with a repository this worker
-// keeps.
-func sharedFirstCommit(root, name, path string) string {
-	return fmt.Sprintf("shares its first commit `%s` with repository `%s` at `%s`; ropeshift identifies a repository by that commit, so give this clone a remote of its own or a history of its own",
-		short(root), name, path)
+	return ledger.SharesFirstCommit(kept.remote, clone.Remote)
 }
 
 // heldCommit says why a clone with no remote is refused when another project holds the repository its first
@@ -162,23 +151,25 @@ func (s seenRun) note(clone ports.Clone, added Added) {
 
 // again says what becomes of a clone that matches a record an earlier clone of the run registered: refused
 // when the two share their first commit, and a second clone of the repository when they do not. It reads the
-// records as matchIn does, by the first-parent root first and then by the lowest root.
+// records as matchIn does, by the first-parent root first and then by every other root, lowest first.
 func (s seenRun) again(clone ports.Clone) (Added, bool) {
-	id := clone.ID
-	if _, ok := s[id]; !ok {
-		if id = lowestRoot(clone); id == clone.ID {
-			return Added{}, false
+	var id string
+	var earlier seenClone
+	for _, root := range append([]string{clone.ID}, rootsOf(clone)...) {
+		var ok bool
+		if earlier, ok = s[root]; ok {
+			id = root
+			break
 		}
 	}
-	earlier, ok := s[id]
-	if !ok {
+	if id == "" {
 		return Added{}, false
 	}
 	repository := earlier.added.Repository
 	if sharesFirstCommit(holder{path: earlier.path, remote: earlier.remote}, clone) {
 		return Added{
 			Path: clone.Path, Outcome: ledger.RegistrationRefused, Repository: ledger.Repository{ID: id, Remote: clone.Remote},
-			Reason: sharedFirstCommit(id, cmp.Or(repository.Name, id), earlier.path),
+			Reason: ledger.SharedFirstCommit(id, cmp.Or(repository.Name, id), earlier.path),
 		}, true
 	}
 	return Added{

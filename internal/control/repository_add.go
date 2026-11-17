@@ -162,7 +162,7 @@ func (r *Repositories) register(ctx context.Context, scope ledger.WorkspaceID, c
 		if matched {
 			id = record.ID
 			if kept, ok := holders[id]; ok && !record.Removed() && sharesFirstCommit(kept, clone) {
-				sharedWith = sharedFirstCommit(id, cmp.Or(record.Name, id), kept.path)
+				sharedWith = ledger.SharedFirstCommit(id, cmp.Or(record.Name, id), kept.path)
 				return errSharesFirstCommit
 			}
 		}

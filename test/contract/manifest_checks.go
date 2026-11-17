@@ -42,6 +42,8 @@ var ManifestChecks = []Check{
 	{"RM17", "a manifest entry whose clone shares its first commit with a repository this worker keeps at another path is refused with the same reason, and the first registration stands", checkManifestEntrySharingAFirstCommitIsRefused},
 	{"RM19", "a clone is matched to the record this worker already keeps at its path when that record's ID is one of the clone's roots, so a root merged in later does not split one repository into two records", checkANewLowerRootDoesNotSplitTheRecordKeptAtThePath},
 	{"RM20", "a clone is not matched by its lowest root to a record whose remote differs from its own unless this worker keeps a clone of that record at another path, which refuses it for sharing that first commit; a clone or a record with no remote is matched as before, and the same path with a moved remote refreshes its record", checkALowestRootDoesNotAttachAnotherRepositoryToARecord},
+	{"RM21", "a clone is matched by any root it holds, lowest first, to a record that is not removed and not another repository's, so a lower root merged in later neither splits the record at a second path nor hides a clone that shares its first commit", checkAnyRootMatchesTheRecordAtASecondPath},
+	{"RM22", "a path this worker keeps for a record holds nothing of it once another clone replaced the clone there, so a clone of the record's first commit at another path is not refused for sharing it", checkAReplacedCloneHoldsNothing},
 	{"RM18", "on real git repositories, a workspace that merged an unrelated history registers under its first-parent root once the repository that history came from is removed, and is refused for sharing that history's first commit while it is kept", checkMergedWorkspaceOnRealRepositories},
 	{"RM6", "a manifest registers only a clone inside the directory that holds the planning repository's clone, symbolic links followed: a path or a link that leads out of it, the planning clone itself, and the installation's own directories register nothing, each refused naming where it leads", checkManifestPathsStayBesideThePlanningClone},
 }
@@ -1472,6 +1474,84 @@ func checkALowestRootDoesNotAttachAnotherRepositoryToARecord(r *Rig) error {
 		if matched := got[fmt.Sprintf("/work/new-%d", i)]; matched.Outcome != ledger.AlreadyRegistered || matched.Repository.ID != old {
 			return Violatedf("a clone with remote %q matched to a record with remote %q reads %+v", shape.clone, shape.record, matched)
 		}
+	}
+	return r.CheckProjection(s)
+}
+
+func checkAnyRootMatchesTheRecordAtASecondPath(r *Rig) error {
+	s := r.Store()
+	repositories := r.repositories(s)
+	kept := fake.NewCheckouts()
+	remote := func(name string) string { return "git@github.com:acme/" + name + ".git" }
+	// A record registered under the lowest root its clone had then, with a remote. Its clone has since merged a
+	// history whose first commit sorts lower still, so the lowest root of a clone of it names no record.
+	lowest, legacy, own := firstCommit("a0"), firstCommit("a1"), firstCommit("a2")
+	if _, err := r.detect(s, legacy, remote("app"), "main"); err != nil {
+		return err
+	}
+	if err := kept.Keep(r.Ctx, r.Scope, legacy, "/work/a"); err != nil {
+		return err
+	}
+	kept.Place(rootClone("a", own, remote("app"), legacy, own))
+
+	// A second clone of the same remote is a second clone of the record, and makes no record of its own.
+	kept.Place(rootClone("b", own, remote("app"), lowest, legacy, own))
+	got, err := r.addAt(repositories, kept, false, "/work/b")
+	if err != nil {
+		return err
+	}
+	if b := got["/work/b"]; b.Outcome != ledger.AlreadyRegistered || b.Repository.ID != legacy || b.Checkout != "/work/a" {
+		return Violatedf("a second clone with a lower root merged in reads %+v, want the legacy record kept at /work/a", b)
+	}
+	// One with another remote shares the record's first commit with the clone this worker keeps, and is refused.
+	kept.Place(rootClone("c", own, remote("fork"), lowest, legacy, own))
+	if got, err = r.addAt(repositories, kept, false, "/work/c"); err != nil {
+		return err
+	}
+	if c := got["/work/c"]; c.Outcome != ledger.RegistrationRefused || c.Reason != sharedRefusal(legacy, "app", "/work/a") {
+		return Violatedf("a fork whose lower root was merged in reads %+v", c)
+	}
+	for _, id := range []string{lowest, own} {
+		if _, err := r.theRepository(s, id); !errors.Is(err, ports.ErrNotFound) {
+			return Violatedf("a record was made under %s: %v", id, err)
+		}
+	}
+	// A root that names a record which is another repository's is passed over for the next one.
+	other, second := firstCommit("a3"), firstCommit("a4")
+	if _, err := r.detect(s, other, remote("other"), "main"); err != nil {
+		return err
+	}
+	if _, err := r.detect(s, second, remote("app-two"), "main"); err != nil {
+		return err
+	}
+	kept.Place(rootClone("d", firstCommit("a5"), remote("app-two"), other, second, firstCommit("a5")))
+	if got, err = r.addAt(repositories, kept, false, "/work/d"); err != nil {
+		return err
+	}
+	if d := got["/work/d"]; d.Outcome != ledger.AlreadyRegistered || d.Repository.ID != second || !strings.Contains(d.Reason, "matched by its earlier identity") {
+		return Violatedf("a clone whose lowest root names another repository's record reads %+v, want the record of its remote", d)
+	}
+	return r.CheckProjection(s)
+}
+
+func checkAReplacedCloneHoldsNothing(r *Rig) error {
+	s := r.Store()
+	repositories := r.repositories(s)
+	kept := fake.NewCheckouts()
+	root := firstCommit("b0")
+	kept.Place(rootClone("one", root, "git@github.com:acme/one.git"))
+	if _, err := r.addAt(repositories, kept, false, "/work/one"); err != nil {
+		return err
+	}
+	// Another repository now stands where the record's clone was kept.
+	kept.Place(rootClone("one", firstCommit("b1"), "git@github.com:acme/replacement.git"))
+	kept.Place(rootClone("two", root, "git@github.com:acme/two.git"))
+	got, err := r.addAt(repositories, kept, false, "/work/two")
+	if err != nil {
+		return err
+	}
+	if two := got["/work/two"]; two.Outcome != ledger.AlreadyRegistered || two.Repository.ID != root || two.Checkout != "/work/two" {
+		return Violatedf("a clone of a record whose kept path another clone replaced reads %+v", two)
 	}
 	return r.CheckProjection(s)
 }

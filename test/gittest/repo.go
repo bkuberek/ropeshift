@@ -4,6 +4,7 @@
 package gittest
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -211,6 +212,21 @@ func NewUnrelatedPair(t testing.TB) (higher, lower *Repo) {
 		higher, lower = lower, higher
 	}
 	return higher, lower
+}
+
+// NewWithRootBelow creates a repository with one commit whose first commit sorts below every root given, so
+// merging it into a history that holds those roots gives that history a new lowest root.
+func NewWithRootBelow(t testing.TB, roots ...string) *Repo {
+	t.Helper()
+	for attempt := range 200 {
+		repo := New(t)
+		repo.Commit("LOWER.md", fmt.Sprintf("a history that sorts lower, attempt %d\n", attempt))
+		if root := repo.Roots("HEAD")[0]; root < slices.Min(roots) {
+			return repo
+		}
+	}
+	t.Fatalf("no first commit sorted below %v in 200 attempts", roots)
+	return nil
 }
 
 // Clone makes a repository beside this one that fetches from it, with this one as its origin.
