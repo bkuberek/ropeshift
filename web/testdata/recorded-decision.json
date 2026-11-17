@@ -1,0 +1,43 @@
+{
+  "as_of": 1790000000000,
+  "document": {
+    "id": "decision:adr-0007",
+    "kind": "decision",
+    "title": "Retry budget",
+    "path": "docs/decisions/0007-retry-budget.md",
+    "versions": [
+      {
+        "version": 2,
+        "digest": "sha256:6154665f9b04b6744d706a1b5699061fc95cb12a067abe4d46e91c63fffa6964",
+        "source": "docs/decisions/0007-retry-budget.md@5",
+        "recorded_at": 1790000000000,
+        "review": "pending",
+        "plan_version": 2,
+        "status": "accepted"
+      },
+      {
+        "version": 1,
+        "digest": "sha256:e1c2b61680c315bc3a354ebaa18194a4e2029ab7c7f992e6ae387fa3479824f1",
+        "source": "docs/decisions/0007-retry-budget.md@4",
+        "recorded_at": 1790000000000,
+        "review": "none",
+        "status": "proposed"
+      }
+    ]
+  },
+  "plan": {
+    "id": "generated-1",
+    "title": "Retry budget",
+    "status": "active",
+    "source": "plan.md@4"
+  },
+  "version": {
+    "version": 1,
+    "digest": "sha256:e1c2b61680c315bc3a354ebaa18194a4e2029ab7c7f992e6ae387fa3479824f1",
+    "source": "docs/decisions/0007-retry-budget.md@4",
+    "recorded_at": 1790000000000,
+    "review": "none",
+    "status": "proposed"
+  },
+  "body": "Every call has a budget.\n"
+}

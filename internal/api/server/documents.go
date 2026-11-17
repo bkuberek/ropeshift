@@ -110,10 +110,18 @@ func recordedDocument(tx ports.ReadTx, record planning.DocumentRecord, versions 
 		if !marked {
 			mark = reviewMark{state: api.ReviewNone}
 		}
-		document.Versions = append(document.Versions, api.RecordedVersion{
+		recorded := api.RecordedVersion{
 			Version: version.Version, Digest: version.Digest, Source: version.Source, RecordedAt: at[version.Version],
 			Review: mark.state, PlanVersion: mark.planVersion,
-		})
+		}
+		if record.Kind == planning.FileDecision {
+			var file planning.DecisionFile
+			if err := version.Decode(&file); err != nil {
+				return api.RecordedDocument{}, err
+			}
+			recorded.Status = string(file.Status)
+		}
+		document.Versions = append(document.Versions, recorded)
 	}
 	return document, nil
 }
