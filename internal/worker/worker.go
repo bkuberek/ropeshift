@@ -564,7 +564,10 @@ func (w *Worker) cycle(ctx context.Context) {
 	}
 }
 
-// laneMoved wakes the loop to publish a lane's move. A wake that waits already covers this one.
+// laneMoved wakes the loop to publish a lane's move. It never blocks, because the loop moves lanes too: its
+// Publish reads each lane's status, and that read moves a lane whose brief is past its grace (status, then
+// settleBrief, then signal), so a send that waited for the loop to take it would wait on itself. moved holds
+// one wake and drops the rest, because a wake that waits already covers them: one publish reads every lane.
 func (w *Worker) laneMoved() {
 	select {
 	case w.moved <- struct{}{}:
