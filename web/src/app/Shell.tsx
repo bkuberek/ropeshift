@@ -1,9 +1,10 @@
 import { useEffect, useId, useRef, useState } from "react";
 import type { KeyboardEvent, ReactNode, RefObject } from "react";
 
-import type { NeedsProject, Project, ProjectLabel, ShopFloor } from "../api/types";
+import type { NeedsProject, Operations, Project, ProjectLabel, ShopFloor } from "../api/types";
 import type { Connection } from "../api/useNeedsYou";
 import { machineMeasures } from "../floor/resources";
+import { costOf } from "../overview/figures";
 import type { IconName } from "../ui/Icon";
 import { Icon } from "../ui/Icon";
 import { IconButton, Kbd } from "../ui/controls";
@@ -428,6 +429,8 @@ type StatusProps = {
   connection: Connection;
   floor: ShopFloor | null;
   floorAgeMs: number;
+  // operations holds the project's measures, whose estimated cost the bar says as Overview does, or null until read.
+  operations?: Operations | null;
   project: string;
   // warning says the installed ropeshift is newer than the daemon that runs, and how to run it.
   warning?: string;
@@ -438,14 +441,24 @@ type StatusProps = {
 const runningLanes = new Set(["provisioning", "starting", "briefing", "working", "needs_decision", "compacting", "handing_off", "idle", "backoff"]);
 
 // StatusBar is the status line on every page: the connection, the project's lanes against its
-// machines' caps, each machine, and what no source has reported yet, which says so and is never zero. When the
-// installed ropeshift is newer than the daemon, it says so too, and names the fix. The version the daemon runs is
-// the last item at the right end, with that warning beside it.
-export function StatusBar({ connection, floor, floorAgeMs, project, warning, version }: StatusProps) {
+// machines' caps, each machine, the estimated cost of the measures' window, and what no source has reported yet,
+// which says so and is never zero. When the installed ropeshift is newer than the daemon, it says so too, and names
+// the fix. The version the daemon runs is the last item at the right end, with that warning beside it.
+export function StatusBar({ connection, floor, floorAgeMs, operations = null, project, warning, version }: StatusProps) {
   const workers = floor?.workers ?? [];
   const lanes = (floor?.lanes ?? []).filter((lane) => runningLanes.has(lane.actual_state)).length;
   const caps = workers.map((line) => line.worker.manifest?.capacity?.max_lanes).filter((cap): cap is number => typeof cap === "number" && cap > 0);
   const cap = caps.length === workers.length && caps.length ? caps.reduce((sum, value) => sum + value, 0) : null;
+  // An answer that holds no measures says nothing of cost, as no answer does, and never stops the bar.
+  const measured = operations?.measures ? operations : null;
+  const span = measured?.measures.window.name ?? "";
+  const cost = measured ? costOf(measured) : null;
+  const costWords = cost === null ? <Absent>{measured ? "none reported" : "unavailable"}</Absent> : <strong>{cost}</strong>;
+  const costTitle = !measured
+    ? "The project's measures are not read yet"
+    : cost === null
+      ? `No lane reported a cost in the last ${span}`
+      : `Estimated cost of the last ${span}, at list price from what agents reported. It is not a bill`;
   return (
     <footer className="statusbar" aria-label="Status">
       <span className="sb-item live" role="status">
@@ -488,9 +501,9 @@ export function StatusBar({ connection, floor, floorAgeMs, project, warning, ver
           </Link>
         );
       })}
-      <Link to="/usage" className="sb-item sb-right" title="No source has reported a sign-in's windows or cost yet">
-        <span className="sb-label">Est. cost</span>
-        <Absent>unavailable</Absent>
+      <Link to="/usage" className="sb-item sb-right" title={costTitle}>
+        <span className="sb-label">{span ? `Est. cost ${span}` : "Est. cost"}</span>
+        {costWords}
       </Link>
       <Link to="/usage" className="sb-compact" title="Open Usage">
         {floor ? (
@@ -500,9 +513,7 @@ export function StatusBar({ connection, floor, floorAgeMs, project, warning, ver
           </span>
         ) : null}
         <span aria-hidden="true">·</span>
-        <span>
-          Est. cost <Absent>unavailable</Absent>
-        </span>
+        <span>Est. cost {costWords}</span>
       </Link>
       {warning ? (
         <Link to="/settings?section=about" installation className="sb-item sb-warning" title={warning}>

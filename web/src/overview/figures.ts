@@ -23,8 +23,8 @@ function dollars(value: number): string {
 }
 
 // costOf sums the estimated cost of every outcome of the window. A sum is a lower bound when any part of it is,
-// and it is no figure when no lane reported a cost.
-function costOf(operations: Operations): string | null {
+// and it is no figure when no lane reported a cost. The status bar says the same figure.
+export function costOf(operations: Operations): string | null {
   const costs = Object.values(operations.measures.cost_per_outcome);
   const total = costs.reduce((sum, cost) => sum + cost.total_usd, 0);
   if (total === 0) {

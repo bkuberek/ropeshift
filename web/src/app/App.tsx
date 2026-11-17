@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 
 import { readView, setCurrentProject, signOut } from "../api/client";
-import type { NeedItem, Project, ShopFloor } from "../api/types";
+import type { NeedItem, Operations, Project, ShopFloor } from "../api/types";
 import { useHealth } from "../api/useHealth";
 import { useNeedsYou } from "../api/useNeedsYou";
 import { useProjects } from "../api/useProjects";
@@ -35,6 +35,9 @@ import { themeWords, useTheme } from "./theme";
 // The project a browser showed last, so an address that names none opens on it again. Storage can be
 // missing or refused, and then the first active project opens.
 const lastProject = "ropeshift-project";
+
+// statusMeasuresGapMs holds the status bar's read of the project's measures to one per gap.
+const statusMeasuresGapMs = 30_000;
 
 function remembered(): string {
   try {
@@ -147,6 +150,14 @@ export function App() {
   }, [resolved.kind, resolved.kind === "redirect" ? resolved.to : "", resolved.kind === "pick-project" ? resolved.path : "", project, query]);
 
   const floor = useView<ShopFloor | null>(() => (project && signedIn ? readView<ShopFloor>("shop-floor") : Promise.resolve(null)), `status:${project}:${signedIn}`, live);
+  // The status bar's estimated cost is Overview's, from the project's measures. Each read of them reads the whole
+  // event log, so the bar asks again no oftener than once a gap however much it hears.
+  const operations = useView<Operations | null>(
+    () => (project && signedIn ? readView<Operations>("operations") : Promise.resolve(null)),
+    `status:operations:${project}:${signedIn}`,
+    live,
+    statusMeasuresGapMs,
+  );
   const health = useHealth(live, signedIn).view;
   // A join token is for a worker on another machine, which only an installation in group mode takes in.
   const group = health?.mode === "group";
@@ -480,7 +491,19 @@ export function App() {
                 <Surface live={live} variant="dock" onClose={() => setDockOpen(false)} projectLabel={label} after={needs.reload} />
               </Dock>
             ) : null}
-            {signedIn ? <StatusBar connection={needs.connection} floor={floor.view} floorAgeMs={Math.max(0, now - floor.readAt)} project={project} warning={health?.warning} version={health?.version} /> : <footer className="statusbar" aria-label="Status" />}
+            {signedIn ? (
+              <StatusBar
+                connection={needs.connection}
+                floor={floor.view}
+                floorAgeMs={Math.max(0, now - floor.readAt)}
+                operations={operations.view}
+                project={project}
+                warning={health?.warning}
+                version={health?.version}
+              />
+            ) : (
+              <footer className="statusbar" aria-label="Status" />
+            )}
           </div>
           <Palette open={paletteOpen} onClose={() => setPaletteOpen(false)} project={project} projectLabel={label} sources={sources} onConversation={chooseConversation} />
           <ShortcutSheet open={sheetOpen} onClose={() => setSheetOpen(false)} mac={mac} singleKeys={singleKeys} onSingleKeys={setSingleKeys} />

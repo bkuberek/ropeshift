@@ -644,6 +644,24 @@ describe("the status bar", () => {
     const machine = await statusOf("solo");
     expect(machine.textContent).toBe("solonot reported");
   });
+
+  it("shows the estimated cost Overview shows, from the project's measures, and leads to Usage", async () => {
+    serving<Operations>("operations", (view) => {
+      view.measures.cost_per_outcome = {
+        change: { total_usd: 12.5, done: 9, per_done_usd: 1.39, lower_bound: true },
+        review: { total_usd: 0.73, done: 3, per_done_usd: 0.24, lower_bound: false },
+      };
+    });
+    openPage("/floor");
+    await waitFor(async () => expect((await statusOf("Est. cost")).textContent).toBe("Est. cost 7dat least $13.23"));
+    expect((await statusOf("Est. cost")).getAttribute("href")).toBe("/usage");
+  });
+
+  it("says no lane reported a cost, and never draws the cost as zero", async () => {
+    serveViews();
+    openPage("/floor");
+    await waitFor(async () => expect((await statusOf("Est. cost")).textContent).toBe("Est. cost 7dnone reported"));
+  });
 });
 
 describe("the floor", () => {
