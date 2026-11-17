@@ -37,6 +37,18 @@ The folder of clones can have any name, such as `repos/` or `development/`. The 
 
 A project of one repository needs none of the extra parts: that repository is its planning repository, and the plan can live in a `plan/` folder beside the code. Start there, and move to a workspace when a second repository joins.
 
+## Start a project
+
+`ropeshift new` writes a new project's starting files into a folder, and prints the commands that register it ([command line](cli.md#a-new-project)). It needs no daemon and no session, and never replaces a file. Choose the shape by where the plan lives:
+
+| Command | Writes | For |
+|---------|--------|-----|
+| `ropeshift new workspace <folder> --repository acme-api=<remote>` | The workspace above, with each code repository in the Makefile and the manifest at `repos/<name>` | A project of several repositories. The printed `make -C <folder> setup` clones each one into `repos/` |
+| `ropeshift new monorepo <folder>` | `AGENTS.md`, `CLAUDE.md`, the plan in `plan/`, and `catalog-info.yaml` beside the code | A project of one repository, which plans in itself |
+| `ropeshift new repository <folder> --project acme` | `AGENTS.md`, `CLAUDE.md`, and `catalog-info.yaml`, with no `plan/` | A code repository of a project that plans in another repository, such as a new one in a workspace's `repos/` |
+
+Every shape also writes `.gitignore`, `SECURITY.md`, and `CODEOWNERS`, and a monorepo and a repository a `.pre-commit-config.yaml`. The project is named after the folder. When the folder has no repository of its own, the printed commands make its first commit first, because a repository is registered by its first commit.
+
 ## Why each part is where it is
 
 | Part | Why |

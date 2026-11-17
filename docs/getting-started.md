@@ -11,6 +11,7 @@ This guide sets up ropeshift on one machine, macOS or Linux, and signs you in to
 | `ropeshift init` | The first passphrase comes only from a terminal, and setting up the machine is a command | Sign in, with that passphrase |
 | Start the service | It acts on the machine's service manager | The web UI at `http://127.0.0.1:7317` |
 | `loginctl enable-linger`, on Linux | A setting of the service manager | None |
+| `ropeshift new`, to start a project that has no repository yet | It writes the project's starting files into a folder on this machine ([project structure](project-structure.md#start-a-project)) | Projects and Repositories, once you register the folder |
 
 ## In a terminal
 

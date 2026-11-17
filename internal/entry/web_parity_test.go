@@ -74,6 +74,11 @@ var cliOnly = map[string]string{
 // first run of this test wrote it, and a command the audit did not name went by its area.
 var webGaps = map[string]string{
 	"template show": "P4h", // template.go prints a template as templates.Render returns it; P4h's Templates view shows each one from GET /v1/templates (FR-TPL-5, DG1)
+	// new.go writes a shape's starting files on this machine; P4i's dialog asks a worker the member picks to
+	// write them, through one route that takes the shape from its body (FR-TPL-5).
+	"new workspace":  "P4i",
+	"new monorepo":   "P4i",
+	"new repository": "P4i",
 }
 
 var gapSlice = regexp.MustCompile(`^(U2[a-k][12]?|P4[a-j][12]?)$`)

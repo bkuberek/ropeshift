@@ -260,6 +260,8 @@ func TestADelegateRunsNoMachineLocalCommand(t *testing.T) {
 	for _, args := range [][]string{
 		{"service", "install"}, {"service", "uninstall"}, {"init"}, {"worker", "doctor"}, {"login"}, {"passphrase", "set"},
 		{"lane", "attach", "l1"}, {"plan", "start"}, {"adopt"}, {"backup", "/tmp/copy.db"}, {"repository", "add", "."},
+		{"new", "workspace", filepath.Join(opts.StateDir, "w")}, {"new", "monorepo", filepath.Join(opts.StateDir, "m")},
+		{"new", "repository", filepath.Join(opts.StateDir, "r")},
 	} {
 		var stdout, stderr bytes.Buffer
 		code := cli.Run(args, &stdout, &stderr, opts)
@@ -269,6 +271,9 @@ func TestADelegateRunsNoMachineLocalCommand(t *testing.T) {
 	}
 	if ran {
 		t.Error("a machine-local command ran for a delegate")
+	}
+	if entries, err := os.ReadDir(opts.StateDir); err != nil || len(entries) != 0 {
+		t.Errorf("a delegate's new wrote %v (%v)", entries, err)
 	}
 }
 
