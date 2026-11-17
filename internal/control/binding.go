@@ -50,8 +50,9 @@ func (r reach) in(response workorders.Response) []workorders.WorkOrder {
 
 // applyBinding is what recording or answering a decision does to the work it binds, in the transaction that
 // records it (ADR-0030). Unstarted work returns to contract review, every lane the decision reaches is told and
-// parks when the lane policy says so, and finished work gets rework when the decision is one-way, and a notice
-// when it is not. A decision with no scope in the grammar acts on no work: only a one-way decision of that kind
+// parks when the lane policy says so, finished work gets rework when the decision is one-way, and a notice
+// when it is not, and a member's decision inside an approved plan marks the plan as needing revision. A decision
+// with no scope in the grammar acts on no work: only a one-way decision of that kind
 // still tells the lanes it was found by, as it always did. A scope written before the grammar keeps the reach it
 // had, which `covers` reads for lookups, and nothing records one now. A draft decision of a plan binds what its
 // approval covers, and nothing else.
@@ -108,6 +109,10 @@ func (q *Questions) applyBinding(tx ports.WriteTx, record questions.Decision, ho
 		return err
 	}
 	crashpoint.Hit("decision.record", "reworked")
+	if err := reviseApprovedPlans(tx, record, touched, finished, oneWay, actor); err != nil {
+		return err
+	}
+	crashpoint.Hit("decision.record", "revised")
 	packs, err := packsOfWork(tx, touched.in(workorders.Live))
 	if err != nil {
 		return err
@@ -124,8 +129,9 @@ func (q *Questions) applyBinding(tx ports.WriteTx, record questions.Decision, ho
 // returnUnstarted sends ready work back to contract review, where work in `intake`, `planning`, or contract review
 // already stands, and holds work in review when a person's one-way decision binds it, so the pass of its review
 // reads a choice nobody can take back. Any other decision holds nothing: covered work passes its review again at
-// the next tick, with the decision in what it reads. Plan revision (FR-PLAN-13) holds work for every decision a
-// member makes, and replaces this hold.
+// the next tick, with the decision in what it reads. The hold is per work order, and a member's pass of its review,
+// a Confirm of the plan's revision, or the approval of a later version of the plan ends it. A plan revision waits
+// separately, for the work its decisions bind (FR-PLAN-11).
 func returnUnstarted(tx ports.WriteTx, orders []workorders.WorkOrder, decision string, oneWay bool, actor ledger.Actor) error {
 	if keepsReadyWork() {
 		return nil

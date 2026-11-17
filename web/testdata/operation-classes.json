@@ -323,6 +323,24 @@
       "exemptable": false
     },
     {
+      "id": "plan.confirm_revision",
+      "label": "Confirm a plan revision",
+      "class": "member_only",
+      "exemptable": false
+    },
+    {
+      "id": "plan.revise",
+      "label": "Revise a plan",
+      "class": "member_only",
+      "exemptable": false
+    },
+    {
+      "id": "work_order.decision_rework",
+      "label": "Rework work for a decision",
+      "class": "member_only",
+      "exemptable": false
+    },
+    {
       "id": "question.record",
       "label": "Record a question",
       "class": "consent",

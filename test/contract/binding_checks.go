@@ -24,8 +24,8 @@ import (
 // world of the mid-plan scenario: a plan with a lane running on three work orders, one finished, one ready,
 // and a contract review.
 var BindingChecks = []Check{
-	{"BD1", "a person's one-way decision returns ready work to contract review and holds it until a member passes its review", checkBindingHoldsReadyWork},
-	{"BD2", "a decision that can be taken back returns ready work to review and holds nothing", checkBindingReversibleHoldsNothing},
+	{"BD1", "a person's one-way decision returns ready work to contract review and holds it until a member passes its review and the plan's revision is confirmed", checkBindingHoldsReadyWork},
+	{"BD2", "a decision that can be taken back returns ready work to review and holds nothing but a person's revision of the plan", checkBindingReversibleHoldsNothing},
 	{"BD3", "a decision binds only the work its scope names", checkBindingScopeIsExact},
 	{"BD4", "a running lane is told and its pack renewed, and it parks when on_binding_decision says", checkBindingLaneFollowsPolicy},
 	{"BD5", "on_one_way_decision parks a lane for a one-way decision alone", checkBindingOneWayParksAlone},
@@ -70,7 +70,7 @@ func checkBindingOverturnTakesTheLiveTip(r *Rig) error {
 		return Violatedf("the first overturn started rework %v of the finished work and listed %v: %v", first, overturned.Rework, err)
 	}
 	m.orders["redone"] = first[0]
-	if _, err := r.NewOps(m.s).Pass(r.Ctx, r.Scope, first[0], r.member()); err != nil {
+	if err := m.passAfterConfirm(first[0]); err != nil {
 		return err
 	}
 	lane, err := m.laneOn("redone")
@@ -113,7 +113,7 @@ func liveReworkTakesTheDecision(r *Rig, standing string) error {
 		return Violatedf("the first decision started rework %v of the finished work: %v", first, err)
 	}
 	m.orders["redone"] = first[0]
-	if _, err := r.NewOps(m.s).Pass(r.Ctx, r.Scope, first[0], r.member()); err != nil {
+	if err := m.passAfterConfirm(first[0]); err != nil {
 		return err
 	}
 	lane, err := m.laneOn("redone")
@@ -312,7 +312,7 @@ func checkBindingReworksTheTipOfAChain(r *Rig) error {
 		return Violatedf("the first decision started rework %v of the finished work: %v", first, err)
 	}
 	m.orders["redone"] = first[0]
-	if _, err := r.NewOps(m.s).Pass(r.Ctx, r.Scope, first[0], r.member()); err != nil {
+	if err := m.passAfterConfirm(first[0]); err != nil {
 		return err
 	}
 	if err := m.finish("redone"); err != nil {
@@ -495,6 +495,11 @@ func checkBindingRefusesUnheldScopes(r *Rig) error {
 
 // decide records a decision of the scenario's plan, with the other decisions it overlaps stated as no conflict.
 func (m *midPlan) decide(by ledger.Actor, scope, reversibility string) (questions.Decision, error) {
+	return m.record(by, scope, reversibility, questions.DecisionDecided)
+}
+
+// record records a decision of the scenario's plan with a status, with the other decisions it overlaps stated as no conflict.
+func (m *midPlan) record(by ledger.Actor, scope, reversibility string, status questions.DecisionStatus) (questions.Decision, error) {
 	var overlapping []questions.Decision
 	err := m.s.Read(m.r.Ctx, m.r.Scope, func(tx ports.ReadTx) error {
 		var err error
@@ -509,7 +514,7 @@ func (m *midPlan) decide(by ledger.Actor, scope, reversibility string) (question
 		noConflict = append(noConflict, decision.ID)
 	}
 	return m.r.NewOps(m.s).RecordDecision(m.r.Ctx, m.r.Scope, questions.Decision{
-		ID: m.r.ID("d"), Status: questions.DecisionDecided, Statement: "Binding decision " + m.r.ID("s"), Rationale: "The brand guide says so.",
+		ID: m.r.ID("d"), Status: status, Statement: "Binding decision " + m.r.ID("s"), Rationale: "The brand guide says so.",
 		Citations: []string{"brand-guide"}, Scope: scope, Reversibility: reversibility, Categories: []string{questions.CategoryProduct}, NoConflict: noConflict,
 	}, by)
 }
@@ -584,9 +589,11 @@ func checkBindingHoldsReadyWork(r *Rig) error {
 	if _, err := r.NewOps(m.s).Promote(r.Ctx, r.Scope, tickActor); err != nil {
 		return err
 	}
-	if load, err = m.order("load"); err != nil || load.State != workorders.ContractReview {
-		return Violatedf("the tick returned held work to %s: %v", load.State, err)
+	if load, err = m.order("load"); err != nil || load.State != workorders.ContractReview || load.StartHeld == nil || load.StartHeld.Reason != workorders.HoldDecision {
+		return Violatedf("the tick left held work %s, held by %+v: %v", load.State, load.StartHeld, err)
 	}
+	// A member's pass reads the decision, which ends the hold. The plan needs revision, so the work waits for it:
+	// the hold and the wait are two reasons, and only the wait is still there.
 	result, err := r.NewOps(m.s).Pass(r.Ctx, r.Scope, load.ID, r.member())
 	if err != nil {
 		return err
@@ -594,8 +601,18 @@ func checkBindingHoldsReadyWork(r *Rig) error {
 	if load, err = m.order("load"); err != nil {
 		return err
 	}
-	if result.State != workorders.Ready || load.State != workorders.Ready || load.StartHeld != nil {
+	if result.State != workorders.ContractReview || load.State != workorders.ContractReview || load.StartHeld != nil {
 		return Violatedf("a member passing the review left the work %s, held by %+v: %+v", load.State, load.StartHeld, result)
+	}
+	if slices.ContainsFunc(result.Failures, func(f workorders.ReadyFailure) bool { return f.Check == workorders.CheckDecisions }) ||
+		!slices.ContainsFunc(result.Failures, func(f workorders.ReadyFailure) bool { return f.Check == workorders.CheckPlanRevision }) {
+		return Violatedf("after a member's pass the work fails %+v, want the plan's revision and no hold by a decision", result.Failures)
+	}
+	if _, err := r.NewOps(m.s).ConfirmRevision(r.Ctx, r.Scope, m.plan, r.member()); err != nil {
+		return err
+	}
+	if load, err = m.order("load"); err != nil || load.State != workorders.Ready || load.StartHeld != nil {
+		return Violatedf("Confirm left the work %s, held by %+v: %v", load.State, load.StartHeld, err)
 	}
 	running, err := m.order("ids")
 	if err != nil || running.State != workorders.Running {
@@ -609,9 +626,13 @@ func checkBindingReversibleHoldsNothing(r *Rig) error {
 	if err != nil {
 		return err
 	}
-	// A decision a person made that can be taken back, and one an orchestrator recorded: neither holds the work.
-	for name, by := range map[string]ledger.Actor{"a person's": r.member(), "an orchestrator's": m.holder} {
-		if _, err := m.decide(by, "plan:"+m.plan, questions.Reversible); err != nil {
+	// A decision an orchestrator recorded that can be taken back, and one a person made: neither holds the work. The
+	// person's marks the plan as needing revision, which keeps the work in review until a member confirms it.
+	for _, step := range []struct {
+		name string
+		by   ledger.Actor
+	}{{"an orchestrator's", m.holder}, {"a person's", r.member()}} {
+		if _, err := m.decide(step.by, "plan:"+m.plan, questions.Reversible); err != nil {
 			return err
 		}
 		load, err := m.order("load")
@@ -619,14 +640,21 @@ func checkBindingReversibleHoldsNothing(r *Rig) error {
 			return err
 		}
 		if load.State != workorders.ContractReview || load.StartHeld != nil {
-			return Violatedf("ready work %s reversible decision binds is %s, held by %+v", name, load.State, load.StartHeld)
+			return Violatedf("ready work %s reversible decision binds is %s, held by %+v", step.name, load.State, load.StartHeld)
 		}
 		if _, err := r.NewOps(m.s).Promote(r.Ctx, r.Scope, tickActor); err != nil {
 			return err
 		}
-		if load, err = m.order("load"); err != nil || load.State != workorders.Ready {
-			return Violatedf("the tick left the work %s, and nobody held it: %v", load.State, err)
+		revised := step.by == r.member()
+		if load, err = m.order("load"); err != nil || (load.State == workorders.Ready) == revised || load.StartHeld != nil {
+			return Violatedf("the tick left the work %s, held by %+v, after %s decision: %v", load.State, load.StartHeld, step.name, err)
 		}
+	}
+	if _, err := r.NewOps(m.s).ConfirmRevision(r.Ctx, r.Scope, m.plan, r.member()); err != nil {
+		return err
+	}
+	if load, err := m.order("load"); err != nil || load.State != workorders.Ready {
+		return Violatedf("Confirm left the work %s, and nobody held it: %v", load.State, err)
 	}
 	return nil
 }

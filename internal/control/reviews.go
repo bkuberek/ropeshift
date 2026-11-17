@@ -247,6 +247,9 @@ func readyFailures(planned ports.PlanningReader, orders ports.WorkOrderReader, a
 	if w.StartHeld != nil && w.StartHeld.Reason == workorders.HoldDecision {
 		facts.HeldByDecision = w.StartHeld.Detail
 	}
+	if facts.PlanRevision, err = revisionWait(planned, orders, asked, plan, w); err != nil {
+		return nil, err
+	}
 	if facts.AgentProblem, err = agentProblem(crew, w); err != nil {
 		return nil, err
 	}

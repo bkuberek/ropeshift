@@ -22,6 +22,7 @@ import (
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/messages"
 	"ropeshift.com/ropeshift/internal/parking"
+	"ropeshift.com/ropeshift/internal/planning"
 	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/internal/questions"
 	"ropeshift.com/ropeshift/internal/workorders"
@@ -152,6 +153,9 @@ type Ops interface {
 	AddPackItem(ctx context.Context, scope ledger.WorkspaceID, addition contextpacks.Addition, actor ledger.Actor) error
 	PublishLanePolicy(ctx context.Context, scope ledger.WorkspaceID, draft authority.LanePolicyDraft, actor ledger.Actor) (authority.PolicyVersion, error)
 	LanePolicyVersions(ctx context.Context, scope ledger.WorkspaceID) ([]authority.PolicyVersion, error)
+	ConfirmRevision(ctx context.Context, scope ledger.WorkspaceID, plan string, actor ledger.Actor) (planning.Revision, error)
+	ReviseSession(ctx context.Context, scope ledger.WorkspaceID, plan string, session control.ReviseSession, actor ledger.Actor) (workorders.WorkOrder, error)
+	DecisionRework(ctx context.Context, scope ledger.WorkspaceID, workOrder string, decisions []string, actor ledger.Actor) (string, error)
 }
 
 type realOps struct {
@@ -165,6 +169,7 @@ type realOps struct {
 	*control.Wakes
 	*control.Messages
 	*control.Packs
+	*control.PlanRevisions
 }
 
 // The limits a batch runs under here: a window long enough that a blocking question can
@@ -204,6 +209,7 @@ func RealOps(store ports.Store) Ops {
 		control.NewSessions(store, provenMember{store: store}), control.NewWorkOrders(store), control.NewLeases(store), control.NewIntake(store), control.NewReviews(store),
 		control.NewQuestions(store, questions.BatchPolicy{WindowMs: BatchWindowMs, MaxWaitMs: BatchMaxWaitMs}),
 		control.NewAcceptances(store), control.NewWakes(store), control.NewMessages(store, nil), control.NewPacks(store),
+		control.NewPlanRevisions(store),
 	}
 }
 

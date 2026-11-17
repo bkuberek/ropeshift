@@ -110,6 +110,47 @@ type Sabotage struct {
 	BranchesTheChain bool
 	// ReworksAnyKind lets a decision move and rework a contract review and a review.
 	ReworksAnyKind bool
+	// MarksNoRevision never opens or extends a plan's revision, whatever a member decides.
+	MarksNoRevision bool
+	// MarksAnyActor lets a decision an orchestrator records mark a plan as needing revision.
+	MarksAnyActor bool
+	// MarksNoOverturn leaves the revision of a plan alone when a member overturns a decision inside it.
+	MarksNoOverturn bool
+	// ExtendsNothing leaves a decision off the revision that stands.
+	ExtendsNothing bool
+	// ListsNoFinishedWork lists no finished work on a revision, whatever the decision reached.
+	ListsNoFinishedWork bool
+	// ListsOneWayFinishedWork lists the finished work a one-way decision reworked, beside the rework.
+	ListsOneWayFinishedWork bool
+	// WaitsOnNoRevision lets work of a plan pass its contract review while the plan's revision is open.
+	WaitsOnNoRevision bool
+	// WaitsPlanWide holds every work order of a plan for its open revision, and not the work its decisions bind.
+	WaitsPlanWide bool
+	// ConfirmsAnyActor lets any actor confirm a revision.
+	ConfirmsAnyActor bool
+	// KeepsWaitingWork leaves the work that waited in review as it was when a revision is settled.
+	KeepsWaitingWork bool
+	// KeepsDecisionHolds leaves a hold a person's one-way decision put on work when a revision is settled.
+	KeepsDecisionHolds bool
+	// KeepsRevisionOnApproval leaves a revision open when a member approves a later version.
+	KeepsRevisionOnApproval bool
+	// MarksNoAssumption opens no revision for a member's assumption.
+	MarksNoAssumption bool
+	// ReusesAnyWorkOrder returns the work order that has the ID of a revising session, whatever its kind.
+	ReusesAnyWorkOrder bool
+	// ReworksUnlistedWork makes rework for a decision of finished work its revision does not list.
+	ReworksUnlistedWork bool
+	// ClosesLaterDecisions closes a revision for every decision it lists when a member approves a later version, the
+	// ones recorded after the approval included.
+	ClosesLaterDecisions bool
+	// NarrowsRevisionInPlace rewrites a revision with the decisions recorded after an approval, which leaves the
+	// approval no revision to show.
+	NarrowsRevisionInPlace bool
+	// ReleasesBoundWork lets a revision that stays open release the work its decisions bind when a member settles
+	// the plan.
+	ReleasesBoundWork bool
+	// BriefsNoDecisions starts a revising session with a brief that lists no decision.
+	BriefsNoDecisions bool
 	// LeavesParkedLanes cancels work and leaves its parked lane reading parked for good.
 	LeavesParkedLanes bool
 	// EndsAnyCanceledLane takes any worker's word that a canceled lane ended.
@@ -231,6 +272,44 @@ func sparesAskersOnOverturn() bool { return current().SparesAskersOnOverturn }
 func branchesTheChain() bool { return current().BranchesTheChain }
 
 func reworksAnyKind() bool { return current().ReworksAnyKind }
+
+func marksNoRevision() bool { return current().MarksNoRevision }
+
+func marksAnyActor() bool { return current().MarksAnyActor }
+
+func marksNoOverturn() bool { return current().MarksNoOverturn }
+
+func extendsNothing() bool { return current().ExtendsNothing }
+
+func listsNoFinishedWork() bool { return current().ListsNoFinishedWork }
+
+func listsOneWayFinishedWork() bool { return current().ListsOneWayFinishedWork }
+
+func waitsOnNoRevision() bool { return current().WaitsOnNoRevision }
+
+func waitsPlanWide() bool { return current().WaitsPlanWide }
+
+func confirmsAnyActor() bool { return current().ConfirmsAnyActor }
+
+func keepsWaitingWork() bool { return current().KeepsWaitingWork }
+
+func keepsDecisionHolds() bool { return current().KeepsDecisionHolds }
+
+func keepsRevisionOnApproval() bool { return current().KeepsRevisionOnApproval }
+
+func marksNoAssumption() bool { return current().MarksNoAssumption }
+
+func reusesAnyWorkOrder() bool { return current().ReusesAnyWorkOrder }
+
+func reworksUnlistedWork() bool { return current().ReworksUnlistedWork }
+
+func closesLaterDecisions() bool { return current().ClosesLaterDecisions }
+
+func narrowsRevisionInPlace() bool { return current().NarrowsRevisionInPlace }
+
+func releasesBoundWork() bool { return current().ReleasesBoundWork }
+
+func briefsNoDecisions() bool { return current().BriefsNoDecisions }
 
 func leavesParkedLanes() bool { return current().LeavesParkedLanes }
 

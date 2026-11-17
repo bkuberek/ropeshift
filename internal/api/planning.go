@@ -29,6 +29,9 @@ type PlanView struct {
 	Approval *PlanApprovalView `json:"approval,omitempty"`
 	// Versions lists every version of the plan, newest first, with where its approval stands.
 	Versions []PlanVersionLine `json:"versions"`
+	// Revision is the plan's open revision when it has one: the decisions made inside its approved version, which
+	// keep the work they bind in contract review until a member confirms the version or approves a later one.
+	Revision *PlanRevisionView `json:"revision,omitempty"`
 }
 
 // PlanVersionLine is one version of a plan and where the request to approve it stands: the request's ID and
@@ -55,6 +58,10 @@ type PlanApprovalView struct {
 	// Forecast is the version's latest forecasts with the estimate set they were made from, as the forecast tick
 	// kept them, or the state that says why it has none, "forecast pending" until the tick forecasts it (FR-EST-10).
 	Forecast *PlanForecast `json:"forecast,omitempty"`
+	// Revision is the revision this approval answers, beside the difference: the plan's open revision while the request
+	// waits, and the one the approval closed once it is approved. It is absent when no decision moved past the
+	// approved version.
+	Revision *PlanRevisionView `json:"revision,omitempty"`
 }
 
 // MilestoneTitle is a milestone's ID, which a forecast names it by, and its title.

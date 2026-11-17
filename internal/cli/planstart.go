@@ -84,6 +84,57 @@ func (c *invocation) planStart(args []string) int {
 	return c.joinSession(client, started, *noAttach)
 }
 
+// planRevise opens a planning session that revises a plan whose revision is open: the control plane records the
+// planning work order with a brief that lists the decisions made since the approved version, and the calls that
+// follow are the ones `plan start` makes. Approving the version the session writes closes the revision.
+func (c *invocation) planRevise(args []string) int {
+	set := c.flags()
+	worker := set.String("worker", "", "the worker that runs the session, by default the one worker online")
+	repository := set.String("repository", "", "the repository to plan in, by default the one source the daemon reads")
+	noAttach := set.Bool("no-attach", false, "start the session and leave your terminal alone")
+	positional, ok := c.parse(set, args)
+	if !ok {
+		return ExitUsage
+	}
+	if len(positional) != 1 {
+		return c.usageError("takes one plan ID")
+	}
+	plan := positional[0]
+	client, exit := c.projectClient()
+	if client == nil {
+		return exit
+	}
+	defer client.Close()
+	view, err := client.PlanRevision(c.ctx, plan)
+	if err != nil {
+		return c.failure(err)
+	}
+	if view.Revision == nil {
+		return c.refusal(api.CodeNotFound, "plan %s has no revision open, so there is nothing to revise", plan)
+	}
+	chosenRepository, code := c.chooseRepository(client, *repository)
+	if code != ExitOK {
+		return code
+	}
+	chosenWorker, code := c.chooseWorker(client, *worker)
+	if code != ExitOK {
+		return code
+	}
+	id, err := newID()
+	if err != nil {
+		return c.failure(err)
+	}
+	created, err := client.ReviseSession(c.ctx, plan, api.ReviseSession{ID: id, Repository: chosenRepository})
+	if err != nil {
+		return c.failure(err)
+	}
+	started, code := c.continueSession(client, created, chosenRepository, chosenWorker)
+	if code != ExitOK {
+		return code
+	}
+	return c.joinSession(client, started, *noAttach)
+}
+
 // joinSession puts the person's terminal on a session's pane, or says how to join it when there is no
 // terminal to put there or the person asked for none.
 func (c *invocation) joinSession(client *api.ProjectClient, started planStarted, noAttach bool) int {
@@ -235,18 +286,24 @@ type sessionDraft struct {
 
 // openSession makes the member calls in order. A step that fails says which work order it left behind.
 func (c *invocation) openSession(client *api.ProjectClient, draft sessionDraft) (planStarted, int) {
-	repository, worker := draft.repository, draft.worker
 	id, err := newID()
 	if err != nil {
 		return planStarted{}, c.failure(err)
 	}
 	created, err := client.CreateWorkOrder(c.ctx, api.CreateWorkOrder{
-		ID: id, Kind: workorders.KindPlan, Title: draft.title, Statement: draft.statement, RepositoryID: repository, Adopt: draft.adopt, Restructure: draft.restructure,
+		ID: id, Kind: workorders.KindPlan, Title: draft.title, Statement: draft.statement, RepositoryID: draft.repository, Adopt: draft.adopt, Restructure: draft.restructure,
 		Criteria: []planning.Criterion{{ID: "c1", Text: draft.criterion}},
 	})
 	if err != nil {
 		return planStarted{}, c.failure(err)
 	}
+	return c.continueSession(client, created, draft.repository, draft.worker)
+}
+
+// continueSession takes a planning work order that is recorded through its review, its claim, and its lane. A step
+// that fails says which work order it left behind.
+func (c *invocation) continueSession(client *api.ProjectClient, created workorders.WorkOrder, repository, worker string) (planStarted, int) {
+	id := created.ID
 	c.say("Work order %s recorded: %s.\n", created.ID, created.Title)
 	left := func(code int) (planStarted, int) {
 		if !c.asJSON {

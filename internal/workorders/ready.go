@@ -24,6 +24,10 @@ const (
 	// CheckDecisions fails while a decision a person made binds the work, and no member has passed its review
 	// again to read the decision (ADR-0030).
 	CheckDecisions ReadyCheck = "decisions"
+	// CheckPlanRevision fails while a decision of its plan's open revision binds the work: a member decided something
+	// inside the plan's approved version, and no member has confirmed that version or approved a later one
+	// (ADR-0030).
+	CheckPlanRevision ReadyCheck = "plan_revision"
 )
 
 // DependencyFact is what the definition of ready knows about one dependency.
@@ -52,6 +56,8 @@ type ReadyFacts struct {
 	// HeldByDecision says a decision a person made binds the work and its review has not read it, with the
 	// words that name the decision.
 	HeldByDecision string
+	// PlanRevision says decisions of the work's plan's open revision bind it, with the words that name them.
+	PlanRevision string
 }
 
 // ReadyFailure is one check that did not pass.
@@ -87,6 +93,9 @@ func DefinitionOfReady(f ReadyFacts) []ReadyFailure {
 	}
 	if f.HeldByDecision != "" {
 		failed = append(failed, ReadyFailure{CheckDecisions, f.HeldByDecision})
+	}
+	if f.PlanRevision != "" {
+		failed = append(failed, ReadyFailure{CheckPlanRevision, f.PlanRevision})
 	}
 	return failed
 }

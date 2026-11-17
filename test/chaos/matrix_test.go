@@ -862,7 +862,7 @@ func overturnCase() crashCase {
 	return crashCase{
 		name:  "overturn a decision",
 		op:    "decision.overturn",
-		steps: withSteps("overturned", "succeeded", "reworked", "noticed", "repacked", "measured"),
+		steps: withSteps("overturned", "succeeded", "reworked", "revised", "noticed", "repacked", "measured"),
 		prepare: func(w *world) (childSpec, error) {
 			done, err := w.rig.Completed(w.store, true)
 			if err != nil {

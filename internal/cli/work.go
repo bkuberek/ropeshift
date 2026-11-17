@@ -527,6 +527,32 @@ func (c *invocation) workRework(args []string) int {
 	return c.finish(err, result, func() string { return fmt.Sprintf("%s\t%s\n", id, result.State) })
 }
 
+// workDecisionRework makes the rework of one finished work order for the decisions its plan's revision lists, which
+// a reversible decision does not make by itself.
+func (c *invocation) workDecisionRework(args []string) int {
+	set := c.flags()
+	var decisions repeated
+	set.Var(&decisions, "decision", "a decision the plan's revision lists for the work, repeatable")
+	positional, ok := c.parse(set, args)
+	if !ok {
+		return ExitUsage
+	}
+	id, ok := c.oneID(positional)
+	if !ok {
+		return ExitUsage
+	}
+	if len(decisions) == 0 {
+		return c.usageError("--decision is required")
+	}
+	client, exit := c.projectClient()
+	if client == nil {
+		return exit
+	}
+	defer client.Close()
+	result, err := client.DecisionRework(c.ctx, id, api.DecisionRework{Decisions: decisions})
+	return c.finish(err, result, func() string { return fmt.Sprintf("%s\t%s\n", id, result.Rework) })
+}
+
 func (c *invocation) workReassign(args []string) int {
 	set := c.flags()
 	var request api.ReassignRequest

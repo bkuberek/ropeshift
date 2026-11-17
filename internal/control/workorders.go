@@ -96,7 +96,35 @@ type LedgerWork struct {
 // client generates the work order's ID, so a retry returns what the first attempt
 // wrote.
 func (w *WorkOrders) Record(ctx context.Context, scope ledger.WorkspaceID, work LedgerWork, actor ledger.Actor) (workorders.WorkOrder, error) {
-	record, err := workorders.New(work.Order)
+	record, err := checkLedgerOrder(work.Order)
+	if err != nil {
+		return workorders.WorkOrder{}, err
+	}
+	err = w.store.Write(ctx, scope, "work_order.record", func(tx ports.WriteTx) error {
+		existing, err := tx.WorkOrders().Get(record.ID)
+		if err == nil {
+			record = existing
+			return nil
+		}
+		if !errors.Is(err, ports.ErrNotFound) {
+			return err
+		}
+		if err := refusePlannedAdoption(tx.Approvals(), record); err != nil {
+			return err
+		}
+		pinned, err := recordLedgerWork(tx, record, work, actor)
+		record = pinned
+		return err
+	})
+	if err != nil {
+		return workorders.WorkOrder{}, err
+	}
+	return record, nil
+}
+
+// checkLedgerOrder makes the work order that ledger work records, and refuses one that cannot be recorded.
+func checkLedgerOrder(order workorders.WorkOrder) (workorders.WorkOrder, error) {
+	record, err := workorders.New(order)
 	if err != nil {
 		return workorders.WorkOrder{}, err
 	}
@@ -118,25 +146,6 @@ func (w *WorkOrders) Record(ctx context.Context, scope ledger.WorkspaceID, work 
 	}
 	if record.Size, err = planning.CheckSize(record.Size); err != nil {
 		return workorders.WorkOrder{}, fmt.Errorf("%w: %v", workorders.ErrInvalid, err)
-	}
-	err = w.store.Write(ctx, scope, "work_order.record", func(tx ports.WriteTx) error {
-		existing, err := tx.WorkOrders().Get(record.ID)
-		if err == nil {
-			record = existing
-			return nil
-		}
-		if !errors.Is(err, ports.ErrNotFound) {
-			return err
-		}
-		if err := refusePlannedAdoption(tx.Approvals(), record); err != nil {
-			return err
-		}
-		pinned, err := recordLedgerWork(tx, record, work, actor)
-		record = pinned
-		return err
-	})
-	if err != nil {
-		return workorders.WorkOrder{}, err
 	}
 	return record, nil
 }

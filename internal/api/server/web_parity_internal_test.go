@@ -30,11 +30,15 @@ var opExempt = map[string]string{
 // opGaps are the operations the web UI should offer and does not yet, each with the slice of U2 that adds
 // it. An entry stays only while the operation has no route the web listener serves, so it leaves the list
 // when its gap closes, and the first run of this test wrote it.
-var opGaps = map[string]string{}
+var opGaps = map[string]string{
+	authority.OpPlanConfirmRevision:     "P8c",
+	authority.OpPlanRevise:              "P8c",
+	authority.OpWorkOrderDecisionRework: "P8c",
+}
 
 var (
 	placeholder = regexp.MustCompile(`\{[^}]*\}`)
-	gapSlice    = regexp.MustCompile(`^(U2[a-k]|P[34][a-j])[12]?$`)
+	gapSlice    = regexp.MustCompile(`^(U2[a-k]|P[34][a-j]|P8c)[12]?$`)
 )
 
 // shape is a route's pattern with every placeholder unnamed, so two patterns compare whatever each calls
