@@ -197,6 +197,11 @@ func (j *Journal) Refused(ctx context.Context) ([]ledger.UploadEvent, error) {
 // commit's, and the lane's record takes the project it lacks. Removing each refusal first makes a second
 // call for the same events store nothing.
 func (j *Journal) Reissue(ctx context.Context, reissue ports.Reissue) (bool, error) {
+	for _, event := range reissue.Copies {
+		if event.Lane != reissue.Lane {
+			return false, fmt.Errorf("a reissue of lane %s holds event %d of lane %s", reissue.Lane, event.Seq, event.Lane)
+		}
+	}
 	tx, err := j.db.BeginTx(ctx, nil)
 	if err != nil {
 		return false, err

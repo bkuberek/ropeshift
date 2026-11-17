@@ -426,6 +426,12 @@ func (w *Worker) Record(ctx context.Context, event ledger.UploadEvent) (ledger.U
 func (w *Worker) Upload(ctx context.Context) error {
 	w.uploading.Lock()
 	defer w.uploading.Unlock()
+	return w.uploadHeld(ctx)
+}
+
+// uploadHeld is Upload for a caller that holds uploading, so no other upload answers an event while that
+// caller reads what the ledger answered.
+func (w *Worker) uploadHeld(ctx context.Context) error {
 	w.mu.Lock()
 	auth := ledger.WorkerAuth{WorkerID: w.identity.WorkerID, Credential: w.identity.Credential}
 	epoch := w.identity.Epoch

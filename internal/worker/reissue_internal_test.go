@@ -9,12 +9,14 @@ import (
 )
 
 // Only a resume that named no project goes again, and only while a lease still awaits the generation it
-// began under the same claim on the same lane. The writes of the lane under that claim follow it, and
-// nothing of another lane or another claim does.
+// began under the same claim on the same lane, for the same work order at the same fence. The writes of
+// the lane under that lease follow it, and nothing of another lane or another claim does.
 func TestWhatGoesAgainOfARefusedResume(t *testing.T) {
 	t.Parallel()
 	event := func(seq int64, eventType, lane, claim, project string, generation int64) ledger.UploadEvent {
-		return ledger.UploadEvent{Seq: seq, Epoch: 1, Type: eventType, Lane: lane, ClaimID: claim, Project: project, Generation: generation}
+		return ledger.UploadEvent{
+			Seq: seq, Epoch: 1, Type: eventType, Lane: lane, ClaimID: claim, Project: project, Generation: generation, WorkOrder: "wo", Fence: 3,
+		}
 	}
 	resumed := event(4, ledger.UploadLaneResumed, "lane-b", "claim-b", "", 2)
 	refused := []ledger.UploadEvent{
@@ -24,7 +26,9 @@ func TestWhatGoesAgainOfARefusedResume(t *testing.T) {
 		event(6, ledger.UploadGenerationBound, "lane-b", "claim-b", "pb", 2),
 		event(7, ledger.UploadLaneEnded, "lane-b", "claim-b", "", 2),
 	}
-	awaiting := ledger.DesiredLease{Project: "pb", Lane: "lane-b", ClaimID: "claim-b", Resume: &ledger.DesiredResume{Generation: 1}}
+	awaiting := ledger.DesiredLease{
+		Project: "pb", Lane: "lane-b", WorkOrder: "wo", ClaimID: "claim-b", Fence: 3, Resume: &ledger.DesiredResume{Generation: 1},
+	}
 	copied := func(e ledger.UploadEvent) ledger.UploadEvent {
 		e.Epoch, e.Project = 9, "pb"
 		return e
@@ -41,6 +45,10 @@ func TestWhatGoesAgainOfARefusedResume(t *testing.T) {
 	later.Resume = &ledger.DesiredResume{Generation: 2}
 	otherLane := awaiting
 	otherLane.Lane = "lane-c"
+	fenced := awaiting
+	fenced.Fence = 4
+	otherOrder := awaiting
+	otherOrder.WorkOrder = "wo-2"
 	tests := []struct {
 		name    string
 		refused []ledger.UploadEvent
@@ -50,6 +58,8 @@ func TestWhatGoesAgainOfARefusedResume(t *testing.T) {
 		{"a claim the ledger no longer awaits a resume under", []ledger.UploadEvent{resumed}, running},
 		{"a lease that awaits another generation", []ledger.UploadEvent{resumed}, later},
 		{"a lease of another lane", []ledger.UploadEvent{resumed}, otherLane},
+		{"a lease at another fence", []ledger.UploadEvent{resumed}, fenced},
+		{"a lease of another work order", []ledger.UploadEvent{resumed}, otherOrder},
 		{"no lease", []ledger.UploadEvent{resumed}, ledger.DesiredLease{}},
 	}
 	for _, tt := range tests {

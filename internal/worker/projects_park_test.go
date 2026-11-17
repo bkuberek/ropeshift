@@ -3,6 +3,7 @@ package worker_test
 import (
 	"encoding/json"
 	"errors"
+	"slices"
 	"testing"
 	"time"
 
@@ -139,8 +140,9 @@ func (r *installationRig) noRefusals() {
 
 // leftByAnEarlierBuild claims a woken lane, and journals what a build that named no project in a resume
 // left of the generation it began there: the resume, which the ledger refused, and the generation's end,
-// which the ledger fenced. It returns the claim the lane woke under.
-func (r *installationRig) leftByAnEarlierBuild(lane string) ledger.DesiredLease {
+// which the ledger fenced, or which that build never uploaded when uploaded is false. It returns the claim
+// the lane woke under.
+func (r *installationRig) leftByAnEarlierBuild(lane string, uploaded bool) ledger.DesiredLease {
 	r.t.Helper()
 	ctx := r.t.Context()
 	if err := r.subject.Sync(ctx); err != nil {
@@ -191,14 +193,22 @@ func (r *installationRig) leftByAnEarlierBuild(lane string) ledger.DesiredLease 
 	if _, err := r.journal.EndLane(ctx, lane, at(ledger.UploadLaneEnded, lease.Project, ended)); err != nil {
 		r.t.Fatal(err)
 	}
-	if err := r.subject.Upload(ctx); err != nil {
-		r.t.Fatal(err)
+	want := []string{ledger.UploadInvalid}
+	if uploaded {
+		if err := r.subject.Upload(ctx); err != nil {
+			r.t.Fatal(err)
+		}
+		want = append(want, ledger.UploadFenced)
 	}
 	rejected, err := r.journal.Rejected(ctx)
 	if err != nil {
 		r.t.Fatal(err)
 	}
-	if len(rejected) != 2 || rejected[0].Status != ledger.UploadInvalid || rejected[1].Status != ledger.UploadFenced {
+	statuses := make([]string, 0, len(rejected))
+	for _, result := range rejected {
+		statuses = append(statuses, result.Status)
+	}
+	if !slices.Equal(statuses, want) {
 		r.t.Fatalf("the earlier build's writes were refused as %+v", rejected)
 	}
 	return lease
@@ -210,9 +220,56 @@ func (r *installationRig) leftByAnEarlierBuild(lane string) ledger.DesiredLease 
 // claim's project, and the end after it, so the ledger records the generation and the claim goes.
 func TestAWorkerSendsAgainAResumeTheLedgerRefusedForItsProject(t *testing.T) {
 	t.Parallel()
+	sendsAgain(t, true)
+}
+
+// TestAWorkerSendsAgainAResumeAndAnEndItNeverUploaded is the same journal with the lane's end never
+// uploaded before the earlier build stopped. The end goes first and is fenced, and it goes again after
+// the resume with the rest, so the claim still goes.
+func TestAWorkerSendsAgainAResumeAndAnEndItNeverUploaded(t *testing.T) {
+	t.Parallel()
+	sendsAgain(t, false)
+}
+
+// TestAWorkerSendsNothingAgainUnderAClaimTheLedgerMovedOn starts a worker on the same journal after the
+// claim the lane woke under was given back: the lane is claimed again under a new claim, the refused writes
+// belong to one the ledger awaits nothing under, so none goes again, and the lane resumes under the new
+// claim as any woken lane does.
+func TestAWorkerSendsNothingAgainUnderAClaimTheLedgerMovedOn(t *testing.T) {
+	t.Parallel()
 	r := newInstallationRig(t)
 	r.parkedInProject("pb", "lane-b")
-	lease := r.leftByAnEarlierBuild("lane-b")
+	lease := r.leftByAnEarlierBuild("lane-b", true)
+	held := workorders.Lease{WorkOrder: lease.WorkOrder, ClaimID: lease.ClaimID, Fence: lease.Fence}
+	if err := control.NewLeases(r.stores["pb"]).Release(t.Context(), "pb", held, member); err != nil {
+		t.Fatal(err)
+	}
+	before, err := r.journal.Rejected(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.restart()
+	r.pass()
+	r.subject.Wait()
+	r.awaitOrder("pb", workorders.Acceptance)
+	after, err := r.journal.Rejected(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(after, before) {
+		t.Errorf("the refusals went from %+v to %+v", before, after)
+	}
+	generations := r.generations("pb", "lane-b")
+	if len(generations) != 2 || generations[1].StartReason != ledger.StartHandoff {
+		t.Errorf("generations %+v", generations)
+	}
+}
+
+func sendsAgain(t *testing.T, uploaded bool) {
+	t.Helper()
+	r := newInstallationRig(t)
+	r.parkedInProject("pb", "lane-b")
+	lease := r.leftByAnEarlierBuild("lane-b", uploaded)
 	if row := r.row("pb"); row.State != workorders.Claimed || row.ClaimID != lease.ClaimID {
 		t.Fatalf("the earlier build left %+v", row)
 	}

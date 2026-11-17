@@ -16,11 +16,18 @@ import (
 // refused under that claim, so the ledger records what the lane did and the claim ends the way the lane
 // did. The ledger answers each copy by its usual rules, and a copy it refuses stays refused.
 //
-// What the journal holds goes first, because a copy must not go ahead of an unanswered write of its lane.
-// A pass that still finds one leaves the copies to the next pass.
+// What the journal holds goes first, before the refused events are read, and no other upload runs until
+// the copies are stored: a write of the lane the earlier build journaled and never uploaded is then either
+// refused and among the copies, or still unanswered, which the journal will not put a copy ahead of. A
+// pass that finds one unanswered leaves the copies to the next pass.
 func (w *Worker) reissueResumes(ctx context.Context) error {
 	if w.reissued.Load() {
 		return nil
+	}
+	w.uploading.Lock()
+	defer w.uploading.Unlock()
+	if err := w.uploadHeld(ctx); err != nil {
+		return err
 	}
 	refused, err := w.journal.Refused(ctx)
 	if err != nil {
@@ -35,9 +42,6 @@ func (w *Worker) reissueResumes(ctx context.Context) error {
 		w.reissued.Store(true)
 		return nil
 	}
-	if err := w.Upload(ctx); err != nil {
-		return err
-	}
 	done := true
 	for _, reissue := range found {
 		stored, err := w.journal.Reissue(ctx, reissue)
@@ -51,13 +55,13 @@ func (w *Worker) reissueResumes(ctx context.Context) error {
 		}
 	}
 	w.reissued.Store(done)
-	return w.Upload(ctx)
+	return w.uploadHeld(ctx)
 }
 
 // reissues finds each refused resume that named no project and that the ledger still awaits: a lease of
-// this worker holds the resume's claim on its lane and waits for the generation it began. Each takes that
-// resume and every later refused event of the lane under the claim, in order, under this epoch, with the
-// claim's project where an event names none.
+// this worker holds the resume's claim on its lane, for the same work order at the same fence, and waits
+// for the generation it began. Each takes that resume and every later refused event of the lane under
+// that lease, in order, under this epoch, with the claim's project where an event names none.
 func reissues(refused []ledger.UploadEvent, leases []ledger.DesiredLease, epoch int64) []ports.Reissue {
 	awaiting := map[string]ledger.DesiredLease{}
 	for _, lease := range leases {
@@ -69,14 +73,14 @@ func reissues(refused []ledger.UploadEvent, leases []ledger.DesiredLease, epoch 
 	for i := range refused {
 		resumed := refused[i]
 		lease, ok := awaiting[resumed.ClaimID]
-		if !ok || resumed.Type != ledger.UploadLaneResumed || resumed.Project != "" || resumed.Lane != lease.Lane ||
+		if !ok || resumed.Type != ledger.UploadLaneResumed || resumed.Project != "" || !underLease(resumed, lease) ||
 			resumed.Generation != lease.Resume.Generation+1 {
 			continue
 		}
 		delete(awaiting, resumed.ClaimID)
 		reissue := ports.Reissue{Lane: resumed.Lane, Project: lease.Project}
 		for _, event := range refused[i:] {
-			if event.Lane != resumed.Lane || event.ClaimID != resumed.ClaimID {
+			if !underLease(event, lease) {
 				continue
 			}
 			if event.Project == "" {
@@ -88,4 +92,9 @@ func reissues(refused []ledger.UploadEvent, leases []ledger.DesiredLease, epoch 
 		out = append(out, reissue)
 	}
 	return out
+}
+
+// underLease says an event is a lane's write under a lease: the same lane, claim, work order, and fence.
+func underLease(event ledger.UploadEvent, lease ledger.DesiredLease) bool {
+	return event.Lane == lease.Lane && event.ClaimID == lease.ClaimID && event.WorkOrder == lease.WorkOrder && event.Fence == lease.Fence
 }

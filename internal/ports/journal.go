@@ -48,7 +48,8 @@ type Journal interface {
 	// event a copy replaces, moves the lane's parked commit to the copy that replaces it, and gives the
 	// lane's record the project it lacks, in one transaction. It stores nothing and returns false while
 	// the journal holds an event of the lane past the high-water mark, which a copy must not go ahead of,
-	// or when an event a copy names holds no refusal, because another call sent it again already.
+	// or when an event a copy names holds no refusal, because another call sent it again already. A copy
+	// of another lane than the reissue's is an error, and stores nothing.
 	Reissue(ctx context.Context, reissue Reissue) (bool, error)
 	// Leases lists the leases this worker holds.
 	Leases(ctx context.Context) ([]ledger.HeldLease, error)

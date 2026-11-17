@@ -54,6 +54,7 @@ func TestJournalContract(t *testing.T) {
 		{"refused events read back in order", checkJournalRefused},
 		{"a reissue replaces refused events once", checkJournalReissue},
 		{"a reissue waits for an unanswered event of its lane", checkJournalReissueWaits},
+		{"a reissue refuses a copy of another lane", checkJournalReissueOneLane},
 		{"leases are replaced whole", checkJournalLeases},
 		{"desired state round trips", checkJournalDesired},
 		{"a migration repeats as a no-op", checkJournalMigrate},
@@ -534,6 +535,31 @@ func checkJournalReissue(t *testing.T, ctx context.Context, j ports.Journal) {
 	}
 	if pending, err := j.Pending(ctx, 10); err != nil || len(pending) != 0 {
 		t.Errorf("pending after a second reissue %+v: %v", pending, err)
+	}
+}
+
+func checkJournalReissueOneLane(t *testing.T, ctx context.Context, j ports.Journal) {
+	resumed, err := j.Append(ctx, laneEvent(ledger.UploadLaneResumed, "lane-1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := j.Append(ctx, laneEvent(ledger.UploadLaneStatus, "lane-2"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	refusals := []ports.JournalResult{{Seq: resumed.Seq, Status: ledger.UploadInvalid}, {Seq: other.Seq, Status: ledger.UploadFenced}}
+	if err := j.Acknowledge(ctx, other.Seq, refusals); err != nil {
+		t.Fatal(err)
+	}
+	copies := []ledger.UploadEvent{resumed, other}
+	if stored, err := j.Reissue(ctx, ports.Reissue{Lane: "lane-1", Project: "pb", Copies: copies}); err == nil || stored {
+		t.Errorf("a copy of another lane: stored %v, %v", stored, err)
+	}
+	if refused, err := j.Refused(ctx); err != nil || len(refused) != 2 {
+		t.Errorf("refused %+v: %v", refused, err)
+	}
+	if pending, err := j.Pending(ctx, 10); err != nil || len(pending) != 0 {
+		t.Errorf("pending %+v: %v", pending, err)
 	}
 }
 
