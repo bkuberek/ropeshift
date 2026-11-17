@@ -41,6 +41,7 @@ const (
 	opImportProject = "project.import"
 	opIndex         = "repository_index.rebuild"
 	opIndexRelease  = "repository_index.release_entries"
+	opIndexReplace  = "repository_index.replace_project"
 )
 
 const projectColumns = `id, name, display_name, state, database, created_at`
@@ -595,6 +596,44 @@ func (in *Installation) ReleaseRepositories(ctx context.Context, entries []ledge
 		return fmt.Errorf("%s: commit: %w", opIndexRelease, err)
 	}
 	return nil
+}
+
+// ReplaceProjectRepositories replaces one project's entries in the repository index with entries, in their
+// order, in one transaction, and leaves every other project's entries as they are. An entry whose identity
+// another project holds, or an earlier entry of the call holds, comes back as a conflict and enters nothing.
+// Every entry must name the project. The index is routing data rebuilt from the project's records, so it
+// appends no event.
+func (in *Installation) ReplaceProjectRepositories(ctx context.Context, project ledger.WorkspaceID, entries []ledger.IndexedRepository) ([]ledger.IndexedRepository, error) {
+	for _, entry := range entries {
+		if entry.Project != project {
+			return nil, fmt.Errorf("%s: entry %s names project %s, not %s", opIndexReplace, entry.Identity, entry.Project, project)
+		}
+	}
+	tx, err := in.core.begin(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	se := in.core.session(ctx, tx, ModeWrite, opIndexReplace)
+	if _, err := se.exec(stmtForgetProjectRepositories, params{"project_id": string(project)}); err != nil {
+		return nil, err
+	}
+	var conflicts []ledger.IndexedRepository
+	for _, entry := range entries {
+		n, err := se.exec(stmtIndexRepository, params{
+			"identity": entry.Identity, "project_id": string(entry.Project), "repository_id": entry.Repository,
+		})
+		if err != nil {
+			return nil, err
+		}
+		if n == 0 {
+			conflicts = append(conflicts, entry)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("%s: commit: %w", opIndexReplace, err)
+	}
+	return conflicts, nil
 }
 
 // RepositoryIndex lists which project holds each repository, by identity.

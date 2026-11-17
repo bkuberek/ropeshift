@@ -22,6 +22,12 @@ func GeneratedSchema(name string) bool { return generatedSchema(name) }
 
 func SchemaName(id ledger.WorkspaceID) (string, error) { return schemaName(id) }
 
+// RepairProjectIndex rebuilds a project's part of the repository index, as a caller that saw a write of the
+// project fail would.
+func (s *State) RepairProjectIndex(ctx context.Context, p ledger.Project) error {
+	return s.repairProjectIndex(ctx, p)
+}
+
 // The number of steps in creating and in removing a project.
 const (
 	CreateSteps = createSteps

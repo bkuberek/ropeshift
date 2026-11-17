@@ -6,22 +6,23 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"slices"
 	"testing"
-	"time"
 
 	"ropeshift.com/ropeshift/internal/adapters/postgres"
 	"ropeshift.com/ropeshift/internal/ledger"
 )
 
-// deferRepositoryTrigger runs a function in a project's schema when a transaction that inserted a
-// repository commits, which is after the write has committed its entry in the repository index. The body
-// is the plpgsql the function runs. It returns what removes the trigger.
-func deferRepositoryTrigger(t *testing.T, db *sql.DB, schema, body string) (lift func()) {
+// deferRepositoryTrigger runs a function in a project's schema when a transaction that inserted or updated
+// a repository commits, which is after the write has committed its changes to the repository index. The
+// event is INSERT or UPDATE, and the body is the plpgsql the function runs. It returns what removes the
+// trigger.
+func deferRepositoryTrigger(t *testing.T, db *sql.DB, schema, event, body string) (lift func()) {
 	t.Helper()
 	for _, statement := range []string{
 		fmt.Sprintf(`CREATE FUNCTION %s.at_commit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN %s RETURN NULL; END $$`, schema, body),
-		fmt.Sprintf(`CREATE CONSTRAINT TRIGGER at_commit AFTER INSERT ON %s.repositories
-  DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION %s.at_commit()`, schema, schema),
+		fmt.Sprintf(`CREATE CONSTRAINT TRIGGER at_commit AFTER %s ON %s.repositories
+  DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION %s.at_commit()`, event, schema, schema),
 	} {
 		if _, err := db.ExecContext(t.Context(), statement); err != nil {
 			t.Fatal(err)
@@ -48,7 +49,7 @@ func TestAnEntryWhoseRecordNeverCommittedIsReleasedByTheNextOpen(t *testing.T) {
 	alpha, alphaStore := createProject(t, state, "pa", "alpha")
 	beta, betaStore := createProject(t, state, "pb", "beta")
 
-	lift := deferRepositoryTrigger(t, db, "project_pa", `RAISE EXCEPTION 'the commit is refused';`)
+	lift := deferRepositoryTrigger(t, db, "project_pa", "INSERT", `RAISE EXCEPTION 'the commit is refused';`)
 	if err := registerRepository(t.Context(), alphaStore, alpha.ID, invoices, nil); err == nil {
 		t.Fatal("the project's commit was not refused")
 	}
@@ -83,25 +84,21 @@ func TestAReconcileLeavesTheEntryOfAWriteThatIsCommitting(t *testing.T) {
 	db := state.SQLDB()
 	defer db.Close()
 	alpha, alphaStore := createProject(t, state, "pa", "alpha")
-	deferRepositoryTrigger(t, db, "project_pa", `PERFORM pg_sleep(1.5);`)
+	release := holdCommits(t, url, db, "project_pa", "INSERT")
 
 	written := make(chan error, 1)
 	go func() { written <- registerRepository(t.Context(), alphaStore, alpha.ID, invoices, nil) }()
 	// The entry shows once the write committed it, with the project's commit still to come.
-	for deadline := time.Now().Add(15 * time.Second); ; time.Sleep(5 * time.Millisecond) {
-		if index, err := state.Index(t.Context()); err == nil && len(index) == 1 {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("the write never entered the index")
-		}
-	}
-	next := openState(t, url, postgres.Options{})
+	want := []ledger.IndexedRepository{held(alpha.ID, "r-pa", invoices)}
+	waitForIndex(t, state, want)
+	next := openingState(t, url)
+	waitForRepairToWait(t, db, next)
+	release()
 	if err := <-written; err != nil {
 		t.Fatal(err)
 	}
-	if index, err := next.Index(t.Context()); err != nil || len(index) != 1 || index[0].Project != alpha.ID {
-		t.Errorf("the index after the write committed: %+v, %v", index, err)
+	if got := repositoryIndex(t, finishOpening(t, next)); !slices.Equal(got, want) {
+		t.Errorf("the index after the write committed: %+v, want %+v", got, want)
 	}
 }
 
