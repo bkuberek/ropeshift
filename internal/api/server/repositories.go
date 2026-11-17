@@ -3,7 +3,9 @@ package server
 import (
 	"context"
 	"errors"
+	"maps"
 	"net/http"
+	"slices"
 
 	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/control"
@@ -19,6 +21,21 @@ func (h *handler) repositoryRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("PATCH /v1/repositories/{id}", h.member(h.changeRepository))
 	mux.HandleFunc("POST /v1/repositories", h.member(h.addRepositories))
 	mux.HandleFunc("POST /v1/repositories/{id}/remove", h.member(h.removeRepository))
+}
+
+// ciAfter applies a change's CI keys over the settings in force, one key at a time in name order, and returns the
+// settings that result, or nil for a change that names none. One value outside its range refuses all of them.
+func ciAfter(current ledger.CISettings, edits map[string]string) (*ledger.CISettings, error) {
+	if len(edits) == 0 {
+		return nil, nil
+	}
+	for _, key := range slices.Sorted(maps.Keys(edits)) {
+		var err error
+		if current, err = current.Set(key, edits[key]); err != nil {
+			return nil, err
+		}
+	}
+	return &current, nil
 }
 
 // removeRepository takes a repository out of its project once no open work targets it (ADR-0021). The
@@ -193,9 +210,14 @@ func (h *handler) changeRepository(w http.ResponseWriter, r *http.Request, actor
 		fail(w, err)
 		return
 	}
+	ci, err := ciAfter(record.CI, in.CI)
+	if err != nil {
+		fail(w, err)
+		return
+	}
 	changed, err := h.repositories.Change(r.Context(), h.Scope, record.ID, control.RepositoryChange{
 		Name: in.Name, Base: in.Base, MergeMethod: in.MergeMethod, StartFrom: in.StartFrom, ReviewTarget: in.ReviewTarget, MergeAuthority: in.MergeAuthority,
-		Planning: in.Planning, ForgeBinding: in.ForgeBinding,
+		Planning: in.Planning, ForgeBinding: in.ForgeBinding, CI: ci,
 	}, actor)
 	if err != nil {
 		fail(w, err)

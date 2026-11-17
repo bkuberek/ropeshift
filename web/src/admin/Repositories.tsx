@@ -23,9 +23,38 @@ const authorities: { level: MergeAuthority; text: string }[] = [
 
 const rank = (level: MergeAuthority | undefined) => authorities.findIndex((row) => row.level === (level ?? "person_merges"));
 
-type Draft = { name: string; base: string; start_from: StartFrom; planning: boolean; review_target: ReviewTarget; merge_method: MergeMethod; forge_binding: string; merge_authority: MergeAuthority };
+type Draft = {
+  name: string;
+  base: string;
+  start_from: StartFrom;
+  planning: boolean;
+  review_target: ReviewTarget;
+  merge_method: MergeMethod;
+  forge_binding: string;
+  merge_authority: MergeAuthority;
+  ci: Record<string, string>;
+};
+
+// The `[ci]` keys, in the order the form shows them. Their values and their ranges are the server's: the form
+// reads the value in force from the view and sends what a member typed.
+const ciKeys = [
+  "ci_history_window",
+  "ci_history_min_records",
+  "ci_no_history_p50",
+  "ci_no_history_p85",
+  "ci_min_interval",
+  "ci_steady_interval",
+  "ci_timeout_multiplier",
+  "ci_timeout_no_history",
+  "ci_queue_timeout_multiplier",
+  "ci_queue_timeout_no_history",
+  "ci_auto_rerun",
+  "ci_log_excerpt_lines",
+  "ci_log_excerpt_bytes",
+];
 
 const draftOf = (view: RepositoryView): Draft => ({
+  ci: Object.fromEntries(ciKeys.map((key) => [key, String(view.ci_effective?.[key] ?? "")])),
   name: view.name ?? "",
   base: view.base_branch ?? "",
   start_from: view.start_from,
@@ -45,17 +74,34 @@ const fieldWords: Record<keyof Draft, string> = {
   merge_method: "merge method",
   forge_binding: "forge binding",
   merge_authority: "merge authority",
+  ci: "CI keys",
 };
 
-// changesOf is what a save sends: only the fields a member changed, as the API names them.
+// changesOf is what a save sends: only the fields a member changed, as the API names them, and of the CI keys only
+// those that changed.
 function changesOf(was: Draft, now: Draft): RepositoryChange {
   const out: RepositoryChange = {};
   for (const key of Object.keys(was) as (keyof Draft)[]) {
-    if (was[key] !== now[key]) {
+    if (key !== "ci" && was[key] !== now[key]) {
       (out as Record<string, unknown>)[key] = now[key];
     }
   }
+  const ci = ciKeys.filter((key) => was.ci[key] !== now.ci[key]);
+  if (ci.length > 0) {
+    out.ci = Object.fromEntries(ci.map((key) => [key, now.ci[key] ?? ""]));
+  }
   return out;
+}
+
+// summaryOf says each change a save would make, in a member's words.
+function summaryOf(was: Draft, now: Draft): string {
+  const parts = (Object.keys(was) as (keyof Draft)[])
+    .filter((key) => key !== "ci" && was[key] !== now[key])
+    .map((key) => `${fieldWords[key]} ${shownValue(was[key] as string | boolean)} → ${shownValue(now[key] as string | boolean)}`);
+  for (const key of ciKeys.filter((key) => was.ci[key] !== now.ci[key])) {
+    parts.push(`${key} ${was.ci[key]} → ${now.ci[key]}`);
+  }
+  return parts.join(", ");
 }
 
 function shownValue(value: string | boolean): string {
@@ -239,10 +285,10 @@ function RecordForm({ view, archived, projectLabel, after, removeAsked = false }
   const change = useChange();
   const toast = useToast();
   const changes = changesOf(saved, draft);
-  const changed = Object.keys(changes) as (keyof Draft)[];
-  useLeaveGuard(changed.length > 0);
-  const summary = changed.map((key) => `${fieldWords[key]} ${shownValue(saved[key])} → ${shownValue(draft[key])}`).join(", ");
+  useLeaveGuard(Object.keys(changes).length > 0);
+  const summary = summaryOf(saved, draft);
   const set = <K extends keyof Draft>(key: K, value: Draft[K]) => setDraft((was) => ({ ...was, [key]: value }));
+  const setCI = (key: string, value: string) => setDraft((was) => ({ ...was, ci: { ...was.ci, [key]: value } }));
   const raising = rank(draft.merge_authority) > rank(saved.merge_authority);
   const agreement = view.review_agreement.last_30_days;
   // The binding is checked as the server reads it, once the person leaves the field or tries to save. A refusal
@@ -380,6 +426,11 @@ function RecordForm({ view, archived, projectLabel, after, removeAsked = false }
               <option value="rebase">rebase</option>
             </Select>
           </GridField>
+          {ciKeys.map((key, index) => (
+            <GridField key={key} label={key} help={index === 0 ? "How ropeshift reads this repository's CI: when it reads checks, how long it waits, and how often it reruns an infrastructure failure. A value outside its range is refused with the range named." : undefined}>
+              <input className="input mono field-narrow" autoComplete="off" spellCheck={false} value={draft.ci[key] ?? ""} onChange={(event) => setCI(key, event.target.value)} />
+            </GridField>
+          ))}
         </fieldset>
         {change.failure && !refusedAtBinding ? <Refusal>{change.failure}</Refusal> : null}
       </form>

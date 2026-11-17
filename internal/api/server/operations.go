@@ -1087,7 +1087,9 @@ func repositoryOperation(h *handler, r *http.Request, body []byte) ([]string, bo
 			ids = append(ids, authority.OpRepositoryReviewTargetBranch)
 		}
 	}
-	if in.ForgeBinding != nil || in.MergeMethod != nil {
+	// The CI keys are what a repository's forge is read by, so a delegate's change to one is the card a forge
+	// setting is.
+	if in.ForgeBinding != nil || in.MergeMethod != nil || len(in.CI) != 0 {
 		ids = append(ids, authority.OpRepositoryForge)
 	}
 	if len(ids) == 0 {
@@ -1197,6 +1199,9 @@ func repositoryChanges(h *handler, r *http.Request, body []byte) (any, error) {
 	}
 	if in.Planning != nil {
 		add("planning", before.Planning, *in.Planning)
+	}
+	for _, key := range slices.Sorted(maps.Keys(in.CI)) {
+		add("ci."+key, before.CI.Text(key), in.CI[key])
 	}
 	return changes, nil
 }
