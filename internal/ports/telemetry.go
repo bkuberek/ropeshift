@@ -115,8 +115,8 @@ type LaneTelemetry struct {
 	ContextAt     int64
 	Tokens        map[string]int64
 	CostUSD       float64
-	// LowerBound says some of the lane's cost was never reported, because a turn stopped or a session
-	// crashed with no result for its input, so CostUSD is a lower bound.
+	// LowerBound says some of the lane's cost was never reported, because a turn stopped, or a session
+	// crashed or ended with an input unanswered, so CostUSD is a lower bound.
 	LowerBound bool
 	LastAt     int64
 	// Agents are the tokens each roster agent spent inside the lane, by agent and then type, where the

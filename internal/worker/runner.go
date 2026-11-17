@@ -996,8 +996,11 @@ func (r *laneRun) watch(ctx context.Context, events <-chan ports.DriverEvent) wo
 		case ports.EventSessionEnded:
 			r.noteRefusedResume(ctx)
 			r.expireToken(ctx)
-			// A session that crashed had no result for its input, so the turn it died in never reported its cost.
-			if event.End != nil && event.End.Crashed {
+			// A session that ended with an input unanswered never reported the cost of the turn it ended in, though
+			// a kill the worker asked for crashes nothing. Crashed counts too: a turn a message started through the
+			// session's socket is no input a driver counts, so a crash with every counted input answered may still
+			// have died in one.
+			if event.End != nil && (event.End.Crashed || event.End.InputUnanswered) {
 				r.measureUnreported()
 			}
 			if event.End != nil && (event.End.Crashed || r.orchestratorLost(ctx)) {

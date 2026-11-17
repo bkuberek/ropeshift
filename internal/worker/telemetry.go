@@ -167,7 +167,7 @@ func (r *laneRun) measureTurn(turn *ports.TurnResult) {
 }
 
 // measureUnreported counts one turn whose cost was never reported, which makes the sum of the lane's
-// cost a lower bound: a turn that stopped, or the turn a session died in with no result for its input.
+// cost a lower bound: a turn that stopped, or the turn a session crashed in or ended in with an input unanswered.
 func (r *laneRun) measureUnreported() {
 	r.measure(ledger.MetricCostUnreported, ports.MetricCounter, "{turn}", 1)
 }

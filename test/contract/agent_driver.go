@@ -44,6 +44,7 @@ func RunAgentDriver(t *testing.T, fresh func(*testing.T) DriverRig) {
 		{"a child session's usage is not the lane's context", checkChildUsage},
 		{"cost is a difference of running totals", checkCostDifference},
 		{"a turn ends at its result, and an interrupt stops it", checkInterruptedTurn},
+		{"a kill mid-turn is no crash, and leaves its input unanswered", checkKilledTurn},
 		{"no result is a crash", checkNoResult},
 		{"a failed result is a failed turn and not a crash", checkFailedTurn},
 		{"a line that does not parse is counted and survived", checkMalformedLine},
@@ -293,14 +294,27 @@ func checkInterruptedTurn(t *testing.T, ctx context.Context, rig DriverRig) {
 	if turn.Status != ports.TurnStopped || turn.Cost.UnknownTurns != 1 {
 		t.Errorf("turn %+v", turn)
 	}
-	if end := s.ended(); end.Crashed {
-		t.Errorf("a stopped turn read as a crash: %+v", end)
+	if end := s.ended(); end.Crashed || end.InputUnanswered {
+		t.Errorf("a stopped turn read as a crash, or as one with no result: %+v", end)
+	}
+}
+
+// checkKilledTurn is a stop that kills a turn: nothing crashed, and the turn's input never got its result,
+// so the turn never reported its cost.
+func checkKilledTurn(t *testing.T, ctx context.Context, rig DriverRig) {
+	s := startScenario(t, ctx, rig, ScenarioStopped)
+	s.until(ports.EventUsage)
+	if err := rig.Driver.Stop(ctx, s.handle, ports.StopNow); err != nil {
+		t.Fatal(err)
+	}
+	if end := s.ended(); end.Crashed || !end.InputUnanswered {
+		t.Errorf("a kill mid-turn ended as %+v", end)
 	}
 }
 
 func checkNoResult(t *testing.T, ctx context.Context, rig DriverRig) {
 	s := startScenario(t, ctx, rig, ScenarioCrash)
-	if end := s.ended(); !end.Crashed {
+	if end := s.ended(); !end.Crashed || !end.InputUnanswered {
 		t.Errorf("no result read as a clean end: %+v", end)
 	}
 }
@@ -340,7 +354,7 @@ func checkStopAtRest(t *testing.T, ctx context.Context, rig DriverRig) {
 	if err := rig.Driver.Stop(ctx, s.handle, ports.StopAtRest); err != nil {
 		t.Fatal(err)
 	}
-	if end := s.ended(); end.Crashed || end.Exit.Code != 0 {
+	if end := s.ended(); end.Crashed || end.InputUnanswered || end.Exit.Code != 0 {
 		t.Errorf("end %+v", end)
 	}
 }

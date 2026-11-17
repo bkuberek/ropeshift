@@ -328,8 +328,8 @@ func TestPerLaneMetricsFromDriverReports(t *testing.T) {
 }
 
 // TestATurnWhoseCostWentUnreportedIsCounted holds the lower bound of a lane's cost: a turn that stopped reports no
-// cost, and a session that died with no result for its input never reports its last turn's, so the worker counts
-// each, under the lane and the generation it ran in. A lane whose every turn reported its cost counts none.
+// cost, and a session that crashed never reports its last turn's, so the worker counts each, under the lane and the
+// generation it ran in. A lane whose every turn reported its cost counts none.
 func TestATurnWhoseCostWentUnreportedIsCounted(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
@@ -345,6 +345,9 @@ func TestATurnWhoseCostWentUnreportedIsCounted(t *testing.T) {
 			}
 		}, 1},
 		{"a session that died with no result for its input", noRestarts, func(*laneRig) []fake.DriverStep {
+			return []fake.DriverStep{{Bound: true}, {Crash: true}}
+		}, 1},
+		{"a session that crashed at rest", noRestarts, func(*laneRig) []fake.DriverStep {
 			return []fake.DriverStep{{Bound: true}, completed(0.25), {Crash: true}}
 		}, 1},
 		{"turns that reported their cost", "", func(r *laneRig) []fake.DriverStep {
@@ -373,5 +376,27 @@ func TestATurnWhoseCostWentUnreportedIsCounted(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// A stop whose interrupt never lands ends in a kill. Nothing crashed, but the turn it killed never got the result
+// that carries its cost, so it counts as unreported all the same.
+func TestATurnAStopKilledIsCountedUnreported(t *testing.T) {
+	t.Parallel()
+	r := laneRigWith(t, "")
+	working := make(chan struct{})
+	r.driver.Play(script([]fake.DriverStep{{Bound: true}, {Do: func(ports.SessionSpec) { close(working) }}, {Stuck: true}}))
+	r.start()
+	<-working
+	r.cancelWork(t)
+	if err := r.subject.Sync(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.subject.Reconcile(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	r.waitEnded(t)
+	if unreported := r.telemetry.Measurements(ledger.MetricCostUnreported); len(unreported) != 1 {
+		t.Fatalf("%d turns counted unreported, want 1: %+v", len(unreported), unreported)
 	}
 }
