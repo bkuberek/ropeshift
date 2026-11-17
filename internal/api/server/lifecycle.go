@@ -99,7 +99,7 @@ func (h *handler) renameProject(w http.ResponseWriter, r *http.Request, actor le
 		return
 	}
 	name := r.PathValue("project")
-	p, err := h.lifecycle.Rename(r.Context(), name, in.Name, actor)
+	p, err := h.lifecycle.Rename(r.Context(), name, in.Name, in.DisplayName, actor)
 	h.answerLifecycle(w, r, name, p, err)
 }
 

@@ -39,7 +39,7 @@ func TestOnlyAMemberTakesAProjectThroughItsLifecycle(t *testing.T) {
 	lane := ledger.Actor{Kind: ledger.ActorLane, ID: "lane-1"}
 	steps := map[string]func() error{
 		"create":  func() error { _, err := projects.Create(t.Context(), "beta", "", lane); return err },
-		"rename":  func() error { _, err := projects.Rename(t.Context(), "acme", "beta", lane); return err },
+		"rename":  func() error { _, err := projects.Rename(t.Context(), "acme", "beta", "", lane); return err },
 		"archive": func() error { _, err := projects.Archive(t.Context(), "acme", lane); return err },
 		"restore": func() error { _, err := projects.Restore(t.Context(), "acme", lane); return err },
 		"remove": func() error {

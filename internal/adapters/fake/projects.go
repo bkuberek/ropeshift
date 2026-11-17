@@ -1,6 +1,7 @@
 package fake
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"slices"
@@ -173,7 +174,7 @@ func (f *Projects) Create(_ context.Context, p ledger.Project, _ ledger.Actor) (
 	return p, nil
 }
 
-func (f *Projects) Rename(_ context.Context, id ledger.WorkspaceID, name string, _ ledger.Actor) (ledger.Project, error) {
+func (f *Projects) Rename(_ context.Context, id ledger.WorkspaceID, name, displayName string, _ ledger.Actor) (ledger.Project, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	at, err := f.find(id)
@@ -183,8 +184,9 @@ func (f *Projects) Rename(_ context.Context, id ledger.WorkspaceID, name string,
 	if err := f.named(name, id); err != nil {
 		return ledger.Project{}, err
 	}
-	if f.projects[at].Name != name {
-		f.projects[at].Name = name
+	displayName = cmp.Or(displayName, f.projects[at].DisplayName)
+	if f.projects[at].Name != name || f.projects[at].DisplayName != displayName {
+		f.projects[at].Name, f.projects[at].DisplayName = name, displayName
 		f.events = append(f.events, ledger.EventProjectRenamed+" "+string(id))
 	}
 	return f.projects[at], nil

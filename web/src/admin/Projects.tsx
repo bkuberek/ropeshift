@@ -188,7 +188,7 @@ export function ProjectsPage({ live, projects, reload, dialog, target = "" }: { 
       )}
       <CreateDialog open={open?.kind === "create"} onClose={() => setOpen(null)} onDone={(made) => void done(`Created project ${made.name}.`).then(() => go(`/projects/${encodeURIComponent(made.name)}/repositories`))} />
       {open?.kind === "import" ? <ImportBackupDialog file={open.file} onClose={() => setOpen(null)} onDone={(made) => void done(`Imported project ${made.name}.`)} /> : null}
-      {open?.kind === "rename" ? <RenameDialog project={open.project} onClose={() => setOpen(null)} onDone={(made) => void done(`Renamed to ${made.name}.`)} /> : null}
+      {open?.kind === "rename" ? <RenameDialog project={open.project} onClose={() => setOpen(null)} onDone={(made) => void done(`Renamed to ${projectName(made, made.name)}.`)} /> : null}
       {open?.kind === "archive" ? <ArchiveDialog project={open.project} onClose={() => setOpen(null)} onDone={() => void done(`${projectName(open.project, open.project.name)} is archived and read-only.`)} /> : null}
       {open?.kind === "remove" ? <RemoveDialog project={open.project} onClose={() => setOpen(null)} onDone={() => void done(`Removed ${projectName(open.project, open.project.name)}.`)} /> : null}
     </Page>
@@ -311,9 +311,12 @@ function ImportBackupDialog({ file, onClose, onDone }: { file: File; onClose: ()
   );
 }
 
+// RenameDialog changes a project's name and the display name it is shown by, or either alone.
 function RenameDialog({ project, onClose, onDone }: { project: Project; onClose: () => void; onDone: (made: Project) => void }) {
   const [name, setName] = useState(project.name);
+  const [display, setDisplay] = useState(project.display_name ?? "");
   const change = useChange();
+  const unchanged = name.trim() === project.name && display.trim() === (project.display_name ?? "");
   return (
     <Dialog
       open
@@ -323,15 +326,25 @@ function RenameDialog({ project, onClose, onDone }: { project: Project; onClose:
         <>
           <span className="spacer" />
           <Button onClick={onClose}>Cancel</Button>
-          <Button variant="primary" loading={change.busy} disabled={name.trim() === project.name} onClick={() => void change.run(() => renameProject(project.name, name.trim())).then((made) => made && onDone(made))}>
+          <Button
+            variant="primary"
+            loading={change.busy}
+            disabled={unchanged}
+            onClick={() => void change.run(() => renameProject(project.name, name.trim(), display.trim())).then((made) => made && onDone(made))}
+          >
             Rename
           </Button>
         </>
       }
     >
-      <Field label="New name" help="The project keeps its ID and every record. Addresses and --project use the new name." error={change.failure || undefined}>
-        <input className="input mono" autoComplete="off" spellCheck={false} value={name} onChange={(event) => setName(event.target.value)} />
-      </Field>
+      <div className="field-stack">
+        <Field label="New name" help="The project keeps its ID and every record. Addresses and --project use the new name." error={change.failure || undefined}>
+          <input className="input mono" autoComplete="off" spellCheck={false} value={name} onChange={(event) => setName(event.target.value)} />
+        </Field>
+        <Field label="Display name" help="What the web UI shows the project as. Leave it empty to keep the one it has.">
+          <input className="input" autoComplete="off" value={display} onChange={(event) => setDisplay(event.target.value)} />
+        </Field>
+      </div>
     </Dialog>
   );
 }

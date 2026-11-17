@@ -58,11 +58,11 @@ func TestARenameKeepsEverythingButTheName(t *testing.T) {
 	createProject(t, state, "pb", "beta")
 	newWorkOrder(t, store, alpha.ID, "wo-1", "Add the retry budget")
 
-	renamed, err := state.Rename(t.Context(), alpha.ID, "gamma", member)
+	renamed, err := state.Rename(t.Context(), alpha.ID, "gamma", "", member)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if renamed.ID != alpha.ID || renamed.Database != alpha.Database || renamed.Name != "gamma" {
+	if renamed.ID != alpha.ID || renamed.Database != alpha.Database || renamed.Name != "gamma" || renamed.DisplayName != alpha.DisplayName {
 		t.Errorf("renamed %+v", renamed)
 	}
 	if _, err := state.Named(t.Context(), "alpha"); !errors.Is(err, ports.ErrNotFound) {
@@ -75,11 +75,32 @@ func TestARenameKeepsEverythingButTheName(t *testing.T) {
 	if got := workOrderIDs(t, opened, renamed.ID); !slices.Equal(got, []string{"wo-1"}) {
 		t.Errorf("work orders after a rename: %v", got)
 	}
-	if _, err := state.Rename(t.Context(), alpha.ID, "beta", member); !errors.Is(err, ledger.ErrProjectExists) {
+	if _, err := state.Rename(t.Context(), alpha.ID, "beta", "", member); !errors.Is(err, ledger.ErrProjectExists) {
 		t.Errorf("a name another project holds: %v", err)
 	}
-	if _, err := state.Rename(t.Context(), alpha.ID, "Not A Slug", member); !errors.Is(err, ledger.ErrInvalidProject) {
+	if _, err := state.Rename(t.Context(), alpha.ID, "Not A Slug", "", member); !errors.Is(err, ledger.ErrInvalidProject) {
 		t.Errorf("a name that is no slug: %v", err)
+	}
+	want := []string{ledger.EventProjectCreated + " by member-1", ledger.EventProjectRenamed + " by member-1"}
+	if got := installationEvents(t, state, alpha.ID); !slices.Equal(got, want) {
+		t.Errorf("events %v", got)
+	}
+}
+
+// A rename sets the display name it is given, and a rename to the same name with a new display name changes
+// that alone, with its event. One that changes neither records nothing.
+func TestARenameSetsTheDisplayNameItIsGiven(t *testing.T) {
+	state := openState(t, t.TempDir())
+	alpha, _ := createProject(t, state, "pa", "alpha")
+	shown, err := state.Rename(t.Context(), alpha.ID, "alpha", "Alpha docs", member)
+	if err != nil || shown.Name != "alpha" || shown.DisplayName != "Alpha docs" {
+		t.Fatalf("renamed %+v: %v", shown, err)
+	}
+	if named, err := state.Named(t.Context(), "alpha"); err != nil || named.DisplayName != "Alpha docs" {
+		t.Errorf("the registry holds %+v: %v", named, err)
+	}
+	if _, err := state.Rename(t.Context(), alpha.ID, "alpha", "Alpha docs", member); err != nil {
+		t.Fatal(err)
 	}
 	want := []string{ledger.EventProjectCreated + " by member-1", ledger.EventProjectRenamed + " by member-1"}
 	if got := installationEvents(t, state, alpha.ID); !slices.Equal(got, want) {

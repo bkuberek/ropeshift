@@ -99,8 +99,12 @@ func TestAdoptMakesTheProjectAndStartsTheAdoptSession(t *testing.T) {
 	if code != cli.ExitOK {
 		t.Fatalf("exit %d: %s", code, stderr)
 	}
-	if _, made := a.projects()["shop-app"]; !made {
+	made, held := a.projects()["shop-app"]
+	if !held {
 		t.Fatalf("no project shop-app among %v", a.projects())
+	}
+	if made.DisplayName != "Shop_App" {
+		t.Errorf("the project is shown as %q, want the repository's directory Shop_App", made.DisplayName)
 	}
 	if shop, held := a.repositories("shop-app")["Shop_App"]; !held || shop.ID != shopClone.ID || !shop.PlanOfRecord {
 		t.Errorf("the project's repositories are %+v", a.repositories("shop-app"))

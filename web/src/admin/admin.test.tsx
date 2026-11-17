@@ -84,6 +84,29 @@ describe("Projects", () => {
     expect(await screen.findByRole("dialog", { name: "Remove Tern" })).toBeTruthy();
   });
 
+  it("renames a project with the display name it is shown by, and changes the display name alone", async () => {
+    const sent = serveAdmin((call) => (call.method === "POST" && call.url === "/v1/projects/default/rename" ? { status: 200, body: { id: "d", name: "harbor", display_name: "Harbor", state: "active", created_at: 1, repositories: [] } } : undefined), listed);
+    openPage("/projects?dialog=rename&project=default");
+    const dialog = await screen.findByRole("dialog", { name: "Rename Default" });
+    const display = within(dialog).getByLabelText("Display name") as HTMLInputElement;
+    expect(display.value).toBe("Default");
+    await userEvent.clear(display);
+    await userEvent.type(display, "Harbor");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Rename" }));
+    await waitFor(() => expect(sentTo(sent, "POST", "/v1/projects/default/rename")).toHaveLength(1));
+    expect(sentTo(sent, "POST", "/v1/projects/default/rename")[0]?.body).toEqual({ name: "default", display_name: "Harbor" });
+    cleanup();
+    openPage("/projects?dialog=rename&project=default");
+    const again = await screen.findByRole("dialog", { name: "Rename Default" });
+    await userEvent.clear(within(again).getByLabelText("New name"));
+    await userEvent.type(within(again).getByLabelText("New name"), "harbor");
+    await userEvent.clear(within(again).getByLabelText("Display name"));
+    await userEvent.type(within(again).getByLabelText("Display name"), "Harbor");
+    await userEvent.click(within(again).getByRole("button", { name: "Rename" }));
+    await waitFor(() => expect(sentTo(sent, "POST", "/v1/projects/default/rename")).toHaveLength(2));
+    expect(sentTo(sent, "POST", "/v1/projects/default/rename")[1]?.body).toEqual({ name: "harbor", display_name: "Harbor" });
+  });
+
   it("opens no dialog for a project it does not list", async () => {
     serveAdmin(undefined, listed);
     openPage("/projects?dialog=archive&project=nowhere");
@@ -385,6 +408,7 @@ describe("Import an existing project", () => {
     ]);
     const work = sent.find((call) => call.method === "POST" && call.path === "/v1/work-orders");
     expect(work?.body).toMatchObject({ kind: "plan", adopt: true, title: "Adopt tidewater", repository_id: "id-web" });
+    expect(sentTo(sent, "POST", "/v1/projects")[0]?.body, "the new project is shown by its folder's name").toEqual({ name: "tidewater", display_name: "Tidewater" });
   });
 
   it("refuses a project that already has an approved plan, and offers a planning session", async () => {
