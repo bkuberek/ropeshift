@@ -16,9 +16,11 @@ import (
 )
 
 // TestWorkTimelinePrintsWhereTheTimeWent shows a person each segment of a work order's time, and, once it
-// ended, its four durations, tokens, and estimated cost (FR-EST-1, FR-EST-4).
+// ended, its four durations, tokens, and estimated cost (FR-EST-1, FR-EST-4). A segment of no length is no
+// segment, so the work's steps are given database time that moves with each write and not the machine's
+// own, on which a fast machine writes two steps in one millisecond.
 func TestWorkTimelinePrintsWhereTheTimeWent(t *testing.T) {
-	s := newSession(t)
+	s := newSessionWith(t, apitest.Options{Clock: apitest.NewSteppingClock().Dialect})
 	s.completed("wo")
 	s.must("work", "accept", "wo")
 	text := s.must("work", "timeline", "wo")

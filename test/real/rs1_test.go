@@ -28,6 +28,7 @@ import (
 	"ropeshift.com/ropeshift/test/apitest"
 	"ropeshift.com/ropeshift/test/doubles"
 	"ropeshift.com/ropeshift/test/gittest"
+	"ropeshift.com/ropeshift/test/procs"
 )
 
 const (
@@ -553,7 +554,7 @@ func (s *suite) launchDaemon(env []string) *daemon {
 	cmd.Env = env
 	d := &daemon{cmd: cmd, exited: make(chan error, 1), stderr: &bytes.Buffer{}}
 	cmd.Stderr = d.stderr
-	if err := cmd.Start(); err != nil {
+	if err := procs.Start(s.t, cmd); err != nil {
 		s.t.Fatal(err)
 	}
 	go func() { d.exited <- cmd.Wait() }()

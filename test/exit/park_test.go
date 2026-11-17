@@ -20,6 +20,7 @@ import (
 	"ropeshift.com/ropeshift/test/contract"
 	"ropeshift.com/ropeshift/test/doubles"
 	"ropeshift.com/ropeshift/test/gittest"
+	"ropeshift.com/ropeshift/test/procs"
 )
 
 // parkProfile asks a lane to wait a moment on a person, and gives it a moment to hand off.
@@ -164,7 +165,7 @@ func (in *install) startBinary(path string, args ...string) *daemon {
 	cmd.Env = append(in.env(), in.daemonEnv...)
 	d := &daemon{cmd: cmd, stdout: &lockedBuffer{}, stderr: &lockedBuffer{}, exited: make(chan error, 1)}
 	cmd.Stdout, cmd.Stderr = d.stdout, d.stderr
-	if err := cmd.Start(); err != nil {
+	if err := procs.Start(in.t, cmd); err != nil {
 		in.t.Fatal(err)
 	}
 	go func() { d.exited <- cmd.Wait() }()
