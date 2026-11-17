@@ -242,8 +242,8 @@ export async function decisionIDOf(question: string): Promise<string> {
   return `answer_${hex.slice(0, 40)}`;
 }
 
-export async function answerQuestion(id: string, answer: string, place?: Place): Promise<unknown> {
-  return call("POST", paths.answer(id), { id: await decisionIDOf(id), answer, ...(place ? { place } : {}) });
+export async function answerQuestion(id: string, answer: string, place?: Place): Promise<RecordedDecision | undefined> {
+  return call<RecordedDecision | undefined>("POST", paths.answer(id), { id: await decisionIDOf(id), answer, ...(place ? { place } : {}) });
 }
 
 // recordQuestion records a question as it is, as `ropeshift question record` does. The ID is the client's, so a

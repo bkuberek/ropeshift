@@ -43,7 +43,7 @@ Every operation that changes something has an action in the palette, as the web 
 ![Needs you, with the waiting items oldest first and the selected work's review verdicts beside them](assets/screenshots/needs-you-light.png#gh-light-mode-only)
 ![Needs you, with the waiting items oldest first and the selected work's review verdicts beside them](assets/screenshots/needs-you-dark.png#gh-dark-mode-only)
 
-Needs you lists everything that waits for a member in every active project, oldest first, and is the page the web UI opens on. The filters narrow the list to Decisions, Approvals, Cards, or Stuck, and the project menu to one project. Selecting an item opens its card beside the list, with what it asks, why it waits, and the evidence for it. `J` and `K` move through the list, and `A` moves focus to the card's primary button.
+Needs you lists everything that waits for a member in every active project, oldest first, and is the page the web UI opens on. The filters narrow the list to Decisions, Approvals, Cards, or Stuck, and the project menu to one project. Selecting an item opens its card beside the list, with what it asks, why it waits, and the evidence for it. `J` and `K` move through the list, and `A` moves focus to the card's primary button. An item that stops waiting stays where it stood until you move on: questions you answered on the page say you answered them, as the member the ledger recorded, with each answer, and anything settled somewhere else says it was decided or resolved in another place.
 
 What a member does depends on the kind of item:
 
