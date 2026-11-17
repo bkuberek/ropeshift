@@ -455,6 +455,9 @@ func checkRevisionOnlyAMemberMarks(r *Rig) error {
 	if revision, err := m.open(); err != nil || revision != nil {
 		return Violatedf("an orchestrator's decision about the plan opened %+v: %v", revision, err)
 	}
+	if err := r.HoldRepository(m.s, "nowhere"); err != nil {
+		return err
+	}
 	if _, err := m.decide(r.member(), "repo:nowhere", questions.Reversible); err != nil {
 		return err
 	}
