@@ -97,6 +97,20 @@ func TestHealthSaysWhereTheWebUIListens(t *testing.T) {
 	}
 }
 
+// Health says which mode the daemon runs in, so the web UI offers a group server's controls only on one. A
+// daemon that sets none is a solo daemon.
+func TestHealthSaysAGroupServersMode(t *testing.T) {
+	t.Parallel()
+	group, err := apitest.StartWith(t, apitest.Options{Mode: api.ModeGroup}).Client.Health(t.Context())
+	if err != nil || group.Mode != api.ModeGroup {
+		t.Errorf("a group server says %+v: %v", group, err)
+	}
+	solo, err := apitest.Start(t).Client.Health(t.Context())
+	if err != nil || solo.Mode != api.ModeSolo {
+		t.Errorf("a daemon that sets no mode says %+v: %v", solo, err)
+	}
+}
+
 // Health reports the build the daemon runs, and warns only when the build installed at its path is a later
 // release than the one running.
 func TestHealthComparesTheRunningBuildWithTheInstalledOne(t *testing.T) {

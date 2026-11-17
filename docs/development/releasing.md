@@ -66,7 +66,7 @@ The workflow `.github/workflows/ci.yml` runs on every pull request to `main`, on
 | `make check` | Formatting, vet, lint, the license check, the release configuration check, the race-enabled tests, and the web tests and typecheck, on Linux, and on macOS | Linux on every run. macOS on a push to `main`, the nightly run, and a manual run, not on a pull request |
 | `make cross` | The build for every release platform | Every run |
 | `make chaos` | The crash tests at their default size | Every run |
-| `make check-postgres` | The store contract suite and the Postgres adapter's tests on a private Postgres, which the job takes from the runner image and installs from the distribution only if the image has none | Every run |
+| `make check-postgres` | The store contract suite, the Postgres adapter's tests, and the exit tests of a group server and its workers on a private Postgres, which the job takes from the runner image and installs from the distribution only if the image has none | Every run |
 | `make snapshot` | One snapshot, which the next two jobs share | Every run |
 | `make install-test` | An install of that snapshot through every channel | Every run |
 | `make exit-container` | The first work order with no network, from that snapshot's archive and under `strace`. It fails if a test skips | Every run |

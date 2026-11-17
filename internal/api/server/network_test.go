@@ -1,0 +1,579 @@
+package server_test
+
+import (
+	"context"
+	"encoding/json"
+	"io"
+	"net"
+	"net/http"
+	"regexp"
+	"slices"
+	"strings"
+	"testing"
+	"time"
+
+	"ropeshift.com/ropeshift/internal/api"
+	"ropeshift.com/ropeshift/internal/api/server"
+	"ropeshift.com/ropeshift/internal/control"
+	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/test/apitest"
+)
+
+// The network listener is a group server's one TCP listener (ADR-0031). It serves the web UI, the API,
+// and the worker plane, and no route of it trusts the transport: a request proves itself with a worker's
+// credential, a join token, a member's session as a bearer token, or the web UI's session cookie with its
+// CSRF token. These tests hold the list of what is open, and walk every route there is with no credential.
+
+// openRoutes is every route the network listener serves with no credential of any kind. A route added to
+// this list is a route anyone who reaches the listener can call, so it changes here, in a review that reads it.
+var openRoutes = []string{
+	"GET /",
+	"HEAD /",
+	"POST /v1/sessions",
+}
+
+func networkOn(t *testing.T) *webRig {
+	t.Helper()
+	d := apitest.Start(t)
+	return &webRig{d: d, web: d.ServeNetwork(t, builtAssets, 20*time.Millisecond, nil)}
+}
+
+func TestTheNetworkListenerOpensOnlyWhatTheTestNames(t *testing.T) {
+	t.Parallel()
+	var listed []string
+	for _, route := range server.OpenRoutes() {
+		listed = append(listed, route.Method+" "+route.Pattern)
+		if route.Why == "" {
+			t.Errorf("%s %s says nothing of why it is open", route.Method, route.Pattern)
+		}
+	}
+	if !slices.Equal(listed, openRoutes) {
+		t.Errorf("the listener opens %v, and the test names %v", listed, openRoutes)
+	}
+}
+
+// substitute fills a pattern's wildcards with a value that names nothing.
+var wildcard = regexp.MustCompile(`\{[^}]*\}`)
+
+func pathOf(pattern string) string {
+	return wildcard.ReplaceAllStringFunc(pattern, func(name string) string {
+		if name == "{project}" {
+			return "default"
+		}
+		return "nothing"
+	})
+}
+
+// walked is every route the walk calls: each row of the web listener's closed list, each of the plane's,
+// and the routes of the API no list names, which a member's session reaches and nothing else may.
+func walked() []api.WebRoute {
+	var routes []api.WebRoute
+	routes = append(routes, api.WebRoutes()...)
+	for _, route := range server.PlaneRoutes() {
+		routes = append(routes, api.WebRoute{Method: route.Method, Pattern: route.Pattern})
+	}
+	for _, other := range []string{
+		"GET /v1/passphrase", "PUT /v1/passphrase", "GET /v1/sessions", "POST /v1/sessions/end", "POST /v1/sessions/end-all",
+		"GET /v1/health", "GET /v1/members", "GET /v1/workers", "POST /v1/workers/tokens", "GET /v1/lanes", "GET /v1/lanes/nothing",
+		"GET /v1/fleet", "PUT /v1/fleet/mode", "GET /v1/approvals", "POST /v1/work-orders/nothing/claims", "POST /v1/work-orders/nothing/writes",
+		"GET /v1/sources", "GET /v1/delegates", "POST /v1/delegates", "GET /v1/operations", "GET /v1/audit", "GET /v1/backup",
+		"POST /v1/backup", "GET /v1/projects/default/sources", "POST /v1/projects/default/work-orders/nothing/writes",
+		"POST /v1/projects/default/work-orders/nothing/claims", "GET /v1/projects/default/lanes", "GET /v1/projects/default/fleet",
+		"DELETE /v1/workers/nothing", "PATCH /v1/projects", "GET /v1", "GET /v1/", "GET /v1/nothing",
+		"POST /v1/nothing", "GET /v1/projects", "GET /v1/projects/", "GET /v1/projects/nothing/nothing", "GET /v1//workers",
+		"GET /v1/workers/nothing/../tokens", "GET /v1/%2e%2e/%2e%2e/v1/health", "OPTIONS /v1/health", "TRACE /v1/health", "HEAD /v1/health",
+		"GET /v1/health?x=1", "GET /v1/projects/default/events", "GET /v1/projects/default/lanes/nothing/pane",
+	} {
+		method, path, _ := strings.Cut(other, " ")
+		routes = append(routes, api.WebRoute{Method: method, Pattern: path})
+	}
+	return routes
+}
+
+// With no credential every route of the listener is refused, except the ones it opens: the walk is the
+// table of the listener's routes, and no route of it trusts the transport.
+func TestEveryRouteOfTheNetworkListenerRefusesARequestWithNoCredential(t *testing.T) {
+	t.Parallel()
+	r := networkOn(t)
+	opens := map[string]bool{"POST /v1/sessions": true}
+	count := 0
+	for _, route := range walked() {
+		path := pathOf(route.Pattern)
+		key := route.Method + " " + route.Pattern
+		t.Run(key, func(t *testing.T) {
+			response, raw := r.send(t, call{method: route.Method, path: path})
+			count++
+			if opens[key] {
+				if response.StatusCode == http.StatusUnauthorized {
+					t.Errorf("the open route %s refused: %s", key, raw)
+				}
+				return
+			}
+			if route.Method == http.MethodHead || route.Method == http.MethodOptions || route.Method == "TRACE" {
+				if response.StatusCode != http.StatusUnauthorized {
+					t.Errorf("%s answered %d with no credential", key, response.StatusCode)
+				}
+				return
+			}
+			var body api.ErrorBody
+			if err := json.Unmarshal(raw, &body); err != nil {
+				t.Fatalf("%s answered %d with %q, which is no refusal of the API", key, response.StatusCode, raw)
+			}
+			if response.StatusCode != http.StatusUnauthorized || !slices.Contains([]string{api.CodeSessionRequired, api.CodeBadCredential, api.CodeBadJoinToken}, body.Error.Code) {
+				t.Errorf("%s answered %d %s with no credential", key, response.StatusCode, body.Error.Code)
+			}
+		})
+	}
+	if count < 120 {
+		t.Errorf("the walk called %d routes, so it reads too little of the table", count)
+	}
+}
+
+// A path that only reads like the API's, or that an unclean spelling brings to it, reaches no route of it: it is
+// the application's own file, or the API's route behind the same credential check, and never the API with none.
+func TestAnOddSpellingOfAPathReachesNoAPIRouteWithNoCredential(t *testing.T) {
+	t.Parallel()
+	r := networkOn(t)
+	credential := r.registered(t, "odd")
+	apiBody := func(raw []byte) bool {
+		return strings.Contains(string(raw), `"status":"ok"`) || strings.Contains(string(raw), `"members"`) || strings.Contains(string(raw), `"workers"`)
+	}
+	notTheAPI := []string{
+		"//v1/health", "//v1/members", "//v1//workers", "/x/../v1/health", "/x/../v1/members", "/./v1/health", "/%2e/v1/health",
+		"/v1x/health", "//v1/workers/tokens", "///v1/health", "/V1/health", "/%76%31x/health",
+	}
+	for _, path := range notTheAPI {
+		for name, headers := range map[string]map[string]string{
+			"no credential": nil, "a session": {api.HeaderSession: r.d.Session}, "a worker": {"Authorization": "Bearer " + credential},
+		} {
+			response, raw := r.send(t, call{path: path, headers: headers})
+			if apiBody(raw) || strings.HasPrefix(response.Header.Get("Content-Type"), "application/json") && response.StatusCode == http.StatusOK {
+				t.Errorf("GET %s with %s answered the API's own data: %d %.100s", path, name, response.StatusCode, raw)
+			}
+		}
+	}
+	// A path that does start in the API's keeps its check, whatever its spelling.
+	for _, path := range []string{"/v1/../v1/health", "/v1/./health", "/v1/x/../health", "/v1//health"} {
+		response, raw := r.send(t, call{path: path})
+		wantStatus(t, response, raw, http.StatusUnauthorized, api.CodeSessionRequired)
+		response, raw = r.send(t, call{path: path, headers: map[string]string{api.HeaderSession: "nothing"}})
+		wantStatus(t, response, raw, http.StatusUnauthorized, api.CodeSessionRequired)
+		response, raw = r.send(t, call{path: path, headers: map[string]string{"Authorization": "Bearer " + credential}})
+		wantStatus(t, response, raw, http.StatusForbidden, api.CodeForbidden)
+	}
+}
+
+// A path that is not the API's takes no credential, because it is the application's own file, and only a
+// file: nothing else of the listener answers outside /v1.
+func TestOnlyTheApplicationsFilesAreOpenOutsideTheAPI(t *testing.T) {
+	t.Parallel()
+	r := networkOn(t)
+	for _, path := range []string{"/", "/lanes/some-lane", "/assets/app-abc123.js", "/assets/app-abc123.css", "/missing.css"} {
+		for _, method := range []string{http.MethodGet, http.MethodHead} {
+			response, raw := r.send(t, call{method: method, path: path})
+			if response.StatusCode == http.StatusUnauthorized || response.StatusCode >= http.StatusInternalServerError {
+				t.Errorf("%s %s answered %d: %s", method, path, response.StatusCode, raw)
+			}
+		}
+	}
+	for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodPatch} {
+		response, raw := r.send(t, call{method: method, path: "/", body: struct{}{}})
+		wantStatus(t, response, raw, http.StatusMethodNotAllowed, "")
+	}
+}
+
+// Only a request addressed to one of the listener's own names is answered, as the web listener holds.
+func TestTheNetworkListenerAnswersOnlyItsOwnNames(t *testing.T) {
+	t.Parallel()
+	r := networkOn(t)
+	response, raw := r.send(t, call{path: "/", headers: map[string]string{"Host": "attacker.example"}})
+	wantStatus(t, response, raw, http.StatusForbidden, api.CodeForeignHost)
+}
+
+// A member's session reaches the API as a bearer token, and a wrong one reaches nothing.
+func TestAMembersSessionReachesTheAPIAsABearerToken(t *testing.T) {
+	t.Parallel()
+	r := networkOn(t)
+	response, raw := r.send(t, call{path: "/v1/health", headers: map[string]string{api.HeaderSession: r.d.Session}})
+	wantStatus(t, response, raw, http.StatusOK, "")
+	response, raw = r.send(t, call{path: "/v1/members", headers: map[string]string{api.HeaderSession: r.d.Session}})
+	wantStatus(t, response, raw, http.StatusOK, "")
+	for _, wrong := range []string{"nothing", "a-session-that-was-never-made", strings.Repeat("x", 4096)} {
+		for _, route := range walked() {
+			response, raw := r.send(t, call{method: route.Method, path: pathOf(route.Pattern), headers: map[string]string{api.HeaderSession: wrong}})
+			if route.Pattern == api.SignInPath && route.Method == http.MethodPost {
+				continue
+			}
+			if response.StatusCode != http.StatusUnauthorized && response.StatusCode != http.StatusForbidden {
+				t.Fatalf("%s %s with a session that is none answered %d: %s", route.Method, route.Pattern, response.StatusCode, raw)
+			}
+		}
+	}
+}
+
+// The passphrase is set on the server's own machine, over its control socket, and changed from the web UI with
+// the passphrase in force, which also ends the member's other sessions. A session as a bearer token holds
+// neither proof, so it changes nothing of the passphrase: the route the socket sets it by is closed to it.
+func TestAMembersBearerSessionNeverChangesThePassphrase(t *testing.T) {
+	t.Parallel()
+	r := networkOn(t)
+	header := map[string]string{api.HeaderSession: r.d.Session}
+	for _, method := range []string{http.MethodPut, http.MethodPost, http.MethodPatch, http.MethodDelete} {
+		response, raw := r.send(t, call{method: method, path: api.PassphrasePath, body: api.SetPassphrase{Passphrase: "taken over"}, headers: header})
+		wantStatus(t, response, raw, http.StatusForbidden, api.CodeForbidden)
+	}
+	// What a session may still read of it is whether one is set, which says nothing of the passphrase.
+	response, raw := r.send(t, call{path: api.PassphrasePath, headers: header})
+	wantStatus(t, response, raw, http.StatusOK, "")
+	if !strings.Contains(string(raw), `"set":true`) {
+		t.Errorf("the passphrase's state reads %s", raw)
+	}
+	if _, err := r.d.Client.SignIn(t.Context(), api.SignIn{Passphrase: "taken over"}); err == nil {
+		t.Error("a bearer session set the passphrase")
+	}
+	if _, err := r.d.Client.SignIn(t.Context(), api.SignIn{Passphrase: apitest.Passphrase}); err != nil {
+		t.Errorf("the passphrase in force no longer signs in: %v", err)
+	}
+	// A session that is none gets the refusal of a session, not a hint of this route's.
+	response, raw = r.send(t, call{method: http.MethodPut, path: api.PassphrasePath, body: api.SetPassphrase{Passphrase: "x"}, headers: map[string]string{api.HeaderSession: "nothing"}})
+	wantStatus(t, response, raw, http.StatusUnauthorized, api.CodeSessionRequired)
+}
+
+// A session that ended opens nothing, whichever way it reached the listener.
+func TestASessionThatEndedOpensNothingOverTheNetwork(t *testing.T) {
+	t.Parallel()
+	r := networkOn(t)
+	session, err := r.d.Client.SignIn(t.Context(), api.SignIn{Passphrase: apitest.Passphrase})
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, raw := r.send(t, call{path: "/v1/health", headers: map[string]string{api.HeaderSession: session.Token}})
+	wantStatus(t, response, raw, http.StatusOK, "")
+	ending := r.d.Client.WithCredential("")
+	ending.UseSession(session.Token)
+	if err := ending.SignOut(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	response, raw = r.send(t, call{path: "/v1/health", headers: map[string]string{api.HeaderSession: session.Token}})
+	wantStatus(t, response, raw, http.StatusUnauthorized, api.CodeSessionRequired)
+}
+
+// The web UI signs in through the open route, and from then on its cookie and its CSRF token open the
+// routes of its closed list and nothing else.
+func TestTheWebSessionCookieOpensOnlyTheWebUIsRoutes(t *testing.T) {
+	t.Parallel()
+	r := networkOn(t)
+	cookies, token := r.signedIn(t)
+	response, raw := r.send(t, call{path: api.ProjectsPath, cookies: cookies})
+	wantStatus(t, response, raw, http.StatusOK, "")
+	// A change with no CSRF token is the cross-site request the cookie alone would let through.
+	response, raw = r.send(t, call{method: http.MethodPost, path: api.SignOutPath, body: struct{}{}, cookies: cookies})
+	wantStatus(t, response, raw, http.StatusForbidden, api.CodeCSRF)
+	// A route the web UI does not serve stays closed to its cookie.
+	for _, path := range []string{api.PassphrasePath, "/v1/workers/nothing/heartbeat", "/v1/work-orders/nothing/claims"} {
+		response, raw = r.send(t, call{method: http.MethodPost, path: path, body: struct{}{}, cookies: cookies, headers: map[string]string{api.HeaderCSRF: token}})
+		if response.StatusCode < 400 {
+			t.Errorf("%s answered %d to the web UI's cookie: %s", path, response.StatusCode, raw)
+		}
+	}
+	response, raw = r.send(t, call{path: "/v1/workers/nothing/watch", cookies: cookies})
+	if response.StatusCode < 400 {
+		t.Errorf("a worker route answered %d to the web UI's cookie: %s", response.StatusCode, raw)
+	}
+}
+
+// A request carries one credential. Two of them leave no way to say which the caller means, and the
+// listener never picks the more generous one.
+func TestARequestCarriesOneCredential(t *testing.T) {
+	t.Parallel()
+	r := networkOn(t)
+	cookies, _ := r.signedIn(t)
+	pairs := []map[string]string{
+		{api.HeaderSession: r.d.Session, "Authorization": "Bearer a-credential"},
+	}
+	for _, headers := range pairs {
+		response, raw := r.send(t, call{path: "/v1/health", headers: headers})
+		wantStatus(t, response, raw, http.StatusBadRequest, api.CodeInvalid)
+	}
+	response, raw := r.send(t, call{path: "/v1/health", cookies: cookies, headers: map[string]string{api.HeaderSession: r.d.Session}})
+	wantStatus(t, response, raw, http.StatusBadRequest, api.CodeInvalid)
+	response, raw = r.send(t, call{path: "/v1/workers/nothing/desired?since=0", cookies: cookies, headers: map[string]string{"Authorization": "Bearer a-credential"}})
+	wantStatus(t, response, raw, http.StatusBadRequest, api.CodeInvalid)
+}
+
+// A delegate acts on the socket of the machine it was made on, and never over a network.
+func TestADelegateNeverReachesTheNetworkListener(t *testing.T) {
+	t.Parallel()
+	r := networkOn(t)
+	for _, headers := range []map[string]string{
+		{api.HeaderDelegate: "a-delegate-credential"},
+		{api.HeaderDelegate: "a-delegate-credential", api.HeaderSession: r.d.Session},
+	} {
+		response, raw := r.send(t, call{path: "/v1/health", headers: headers})
+		wantStatus(t, response, raw, http.StatusForbidden, api.CodeForbidden)
+	}
+}
+
+// registered is a worker that joined through the listener, with the credential it holds.
+func (r *webRig) registered(t *testing.T, id string) string {
+	t.Helper()
+	plane := control.NewWorkers(r.d.Store, apitest.Scope, control.WorkerOptions{HeartbeatMs: apitest.HeartbeatMs, LeaseTTLMs: apitest.LeaseTTL})
+	token, err := plane.CreateJoinToken(t.Context(), ledger.Actor{Kind: ledger.ActorSystem, ID: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, raw := r.send(t, call{method: http.MethodPost, path: "/v1/workers/register", body: ledger.Registration{JoinToken: token, WorkerID: id, Name: id}})
+	wantStatus(t, response, raw, http.StatusOK, "")
+	var credential ledger.WorkerCredential
+	if err := json.Unmarshal(raw, &credential); err != nil || credential.Credential == "" {
+		t.Fatalf("%v: %s", err, raw)
+	}
+	return credential.Credential
+}
+
+// A worker joins with a join token and then holds a credential. Its credential opens the plane's routes for
+// it and no route that is a member's, whether the credential is its own or any other string.
+func TestAWorkersCredentialOpensOnlyThePlane(t *testing.T) {
+	t.Parallel()
+	r := networkOn(t)
+	credential := r.registered(t, "worker-a")
+	planeRoutes := map[string]bool{}
+	for _, route := range server.PlaneRoutes() {
+		planeRoutes[route.Method+" "+route.Pattern] = true
+	}
+	for _, bearer := range []string{credential, "not-a-credential"} {
+		for _, route := range walked() {
+			key := route.Method + " " + route.Pattern
+			if key == "POST /v1/workers/register" {
+				continue
+			}
+			response, raw := r.send(t, call{method: route.Method, path: pathOf(route.Pattern), headers: map[string]string{"Authorization": "Bearer " + bearer}})
+			if planeRoutes[key] {
+				// The listener hands it to the use case, which answers for a credential that is not the worker's.
+				if response.StatusCode == http.StatusForbidden || response.StatusCode == http.StatusNotFound && !strings.Contains(string(raw), "not_found") {
+					t.Errorf("%s answered %d to a worker credential: %s", key, response.StatusCode, raw)
+				}
+				continue
+			}
+			if route.Method == http.MethodHead || route.Method == http.MethodOptions || route.Method == "TRACE" {
+				if response.StatusCode < 400 {
+					t.Errorf("%s answered %d to a worker credential", key, response.StatusCode)
+				}
+				continue
+			}
+			wantStatus(t, response, raw, http.StatusForbidden, api.CodeForbidden)
+		}
+	}
+}
+
+// The worker's own credential carries a heartbeat through the listener, and another worker's carries none of
+// this worker's.
+func TestAWorkersCredentialCarriesItsPlaneCalls(t *testing.T) {
+	t.Parallel()
+	r := networkOn(t)
+	credential := r.registered(t, "worker-b")
+	response, raw := r.send(t, call{
+		method: http.MethodPost, path: "/v1/workers/worker-b/sessions", body: ledger.SessionRequest{Protocol: ledger.ProtocolVersion},
+		headers: map[string]string{"Authorization": "Bearer " + credential},
+	})
+	wantStatus(t, response, raw, http.StatusOK, "")
+	response, raw = r.send(t, call{
+		method: http.MethodPost, path: "/v1/workers/worker-b/sessions", body: ledger.SessionRequest{Protocol: ledger.ProtocolVersion},
+		headers: map[string]string{"Authorization": "Bearer someone-elses"},
+	})
+	wantStatus(t, response, raw, http.StatusUnauthorized, api.CodeBadCredential)
+}
+
+// Registration is the one route a worker calls before it holds a credential, so its credential is the join
+// token in the request, and a request with none, or with another's, goes no further.
+func TestRegistrationNeedsAJoinToken(t *testing.T) {
+	t.Parallel()
+	r := networkOn(t)
+	for _, body := range []any{
+		struct{}{},
+		ledger.Registration{WorkerID: "worker-c", Name: "worker-c"},
+		ledger.Registration{JoinToken: "not-a-join-token", WorkerID: "worker-c", Name: "worker-c"},
+	} {
+		response, raw := r.send(t, call{method: http.MethodPost, path: "/v1/workers/register", body: body})
+		wantStatus(t, response, raw, http.StatusUnauthorized, api.CodeBadJoinToken)
+	}
+	response, raw := r.send(t, call{method: http.MethodPost, path: "/v1/workers/register", body: ledger.Registration{JoinToken: "x", WorkerID: "worker-c"}, headers: map[string]string{api.HeaderSession: r.d.Session}})
+	wantStatus(t, response, raw, http.StatusForbidden, api.CodeForbidden)
+	// A body past the limit is refused without being read to its end.
+	huge := strings.Repeat("x", 1<<20)
+	response, raw = r.send(t, call{method: http.MethodPost, path: "/v1/workers/register", body: map[string]string{"join_token": huge}})
+	if response.StatusCode < 400 || response.StatusCode >= 500 {
+		t.Errorf("an oversized registration answered %d: %.80s", response.StatusCode, raw)
+	}
+	// A join token is used once: the same one registers the same worker again and no other.
+	plane := control.NewWorkers(r.d.Store, apitest.Scope, control.WorkerOptions{HeartbeatMs: apitest.HeartbeatMs, LeaseTTLMs: apitest.LeaseTTL})
+	token, err := plane.CreateJoinToken(t.Context(), ledger.Actor{Kind: ledger.ActorSystem, ID: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, raw = r.send(t, call{method: http.MethodPost, path: "/v1/workers/register", body: ledger.Registration{JoinToken: token, WorkerID: "worker-d", Name: "d"}})
+	wantStatus(t, response, raw, http.StatusOK, "")
+	response, raw = r.send(t, call{method: http.MethodPost, path: "/v1/workers/register", body: ledger.Registration{JoinToken: token, WorkerID: "worker-e", Name: "e"}})
+	wantStatus(t, response, raw, http.StatusUnauthorized, api.CodeBadJoinToken)
+}
+
+// A body is read before the credential it comes with can be checked: the join token of a registration, the
+// passphrase of a sign-in, and the call of a worker whose credential a use case checks. A client that sends
+// one a byte at a time holds nothing past the window the listener gives it.
+func TestASlowBodyIsCutOffOnEveryRouteThatReadsOneBeforeACredentialIsChecked(t *testing.T) {
+	defer server.SetBodyWindows(300*time.Millisecond, 300*time.Millisecond)()
+	r := networkOn(t)
+	for _, route := range []struct{ name, head string }{
+		{"registration", "POST /v1/workers/register HTTP/1.1\r\n"},
+		{"sign-in", "POST /v1/sessions HTTP/1.1\r\n"},
+		{"sign-in with a cookie that expired", "POST /v1/sessions HTTP/1.1\r\nCookie: ropeshift_session=expired\r\n"},
+		{"a worker's heartbeat", "POST /v1/workers/worker-a/heartbeat HTTP/1.1\r\nAuthorization: Bearer a-credential\r\n"},
+		{"a worker's upload", "POST /v1/workers/worker-a/events HTTP/1.1\r\nAuthorization: Bearer a-credential\r\n"},
+	} {
+		t.Run(route.name, func(t *testing.T) {
+			conn, err := net.Dial("tcp", r.web.Host)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer conn.Close()
+			_, err = io.WriteString(conn, route.head+"Host: "+r.web.Host+"\r\nContent-Type: application/json\r\nContent-Length: 1000\r\n\r\n{\"join_token\":")
+			if err != nil {
+				t.Fatal(err)
+			}
+			started := time.Now()
+			if err := conn.SetReadDeadline(started.Add(10 * time.Second)); err != nil {
+				t.Fatal(err)
+			}
+			answer, _ := io.ReadAll(conn)
+			if waited := time.Since(started); waited > 5*time.Second {
+				t.Errorf("the listener held a half-sent body for %s", waited)
+			}
+			if !strings.HasPrefix(string(answer), "HTTP/1.1 4") {
+				t.Errorf("a half-sent body is answered %q", answer)
+			}
+		})
+	}
+}
+
+// Each class of route has the most it reads of a body before a credential is checked: a registration and a
+// sign-in are a few lines, and a worker's call is what its use case takes.
+func TestABodyPastItsRoutesLimitIsRefusedBeforeItIsRead(t *testing.T) {
+	t.Parallel()
+	r := networkOn(t)
+	padded := func(size int) map[string]string {
+		return map[string]string{"join_token": "x", "passphrase": strings.Repeat("y", size)}
+	}
+	for _, test := range []struct {
+		name    string
+		path    string
+		headers map[string]string
+		size    int
+	}{
+		{"a registration", "/v1/workers/register", nil, 32 << 10},
+		{"a sign-in", api.SignInPath, nil, 32 << 10},
+		{"a worker's call", "/v1/workers/worker-a/events", map[string]string{"Authorization": "Bearer a-credential"}, 2 << 20},
+	} {
+		response, raw := r.send(t, call{method: http.MethodPost, path: test.path, body: padded(test.size), headers: test.headers})
+		if response.StatusCode != http.StatusRequestEntityTooLarge && response.StatusCode != http.StatusBadRequest {
+			t.Errorf("%s of %d bytes answered %d: %.100s", test.name, test.size, response.StatusCode, raw)
+		}
+		if strings.Contains(string(raw), "a-credential") {
+			t.Errorf("%s: the refusal repeats the credential: %s", test.name, raw)
+		}
+	}
+}
+
+// The stream a worker holds open for hints has no body to wait for, so the window a body has to arrive in never
+// ends it.
+func TestAWorkersWatchOutlivesTheBodyWindow(t *testing.T) {
+	defer server.SetBodyWindows(300*time.Millisecond, 300*time.Millisecond)()
+	r := networkOn(t)
+	credential := r.registered(t, "watcher")
+	response, raw := r.send(t, call{
+		method: http.MethodPost, path: "/v1/workers/watcher/sessions", body: ledger.SessionRequest{Protocol: ledger.ProtocolVersion},
+		headers: map[string]string{"Authorization": "Bearer " + credential},
+	})
+	wantStatus(t, response, raw, http.StatusOK, "")
+	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
+	defer cancel()
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, r.web.URL("/v1/workers/watcher/watch"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("Authorization", "Bearer "+credential)
+	stream, err := r.web.HTTP.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stream.Body.Close()
+	if stream.StatusCode != http.StatusOK {
+		t.Fatalf("the watch answered %d", stream.StatusCode)
+	}
+	ended := make(chan struct{})
+	go func() {
+		defer close(ended)
+		_, _ = io.Copy(io.Discard, stream.Body)
+	}()
+	select {
+	case <-ended:
+		if ctx.Err() == nil {
+			t.Error("the stream ended before its worker's window to read anything of it, and nobody ended it")
+		}
+	case <-time.After(1500 * time.Millisecond):
+	}
+}
+
+// A stream a bearer token opened ends with its session, as the web UI's does, so a session that ended
+// leaves nothing listening.
+func TestAStreamOpenedWithABearerTokenEndsWithItsSession(t *testing.T) {
+	t.Parallel()
+	r := networkOn(t)
+	session, err := r.d.Client.SignIn(t.Context(), api.SignIn{Passphrase: apitest.Passphrase})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), streamWait)
+	defer cancel()
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, r.web.URL(apitest.Route(api.EventsPath)+"?after=0"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set(api.HeaderSession, session.Token)
+	response, err := r.web.HTTP.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK || !strings.HasPrefix(response.Header.Get("Content-Type"), "text/event-stream") {
+		t.Fatalf("status %d, type %q", response.StatusCode, response.Header.Get("Content-Type"))
+	}
+	ended := make(chan struct{})
+	go func() {
+		defer close(ended)
+		_, _ = io.Copy(io.Discard, response.Body)
+	}()
+	ending := r.d.Client.WithCredential("")
+	ending.UseSession(session.Token)
+	if err := ending.SignOut(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-ended:
+	case <-ctx.Done():
+		t.Fatal("the stream outlived its session")
+	}
+}
+
+// The listener's refusals carry no cache and no credential, and say nothing of what the caller sent.
+func TestARefusalOnTheNetworkListenerIsNotCached(t *testing.T) {
+	t.Parallel()
+	r := networkOn(t)
+	response, _ := r.send(t, call{path: "/v1/members"})
+	if got := response.Header.Get("Cache-Control"); got != "no-store" {
+		t.Errorf("Cache-Control is %q", got)
+	}
+	response, raw := r.send(t, call{path: "/v1/members", headers: map[string]string{api.HeaderSession: "a-secret-session"}})
+	if strings.Contains(string(raw), "a-secret-session") || strings.Contains(response.Header.Get("Set-Cookie"), "a-secret-session") {
+		t.Errorf("a refusal repeats the session: %s", raw)
+	}
+}

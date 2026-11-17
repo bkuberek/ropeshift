@@ -72,6 +72,16 @@ func Main(args []string, stdout, stderr io.Writer) int {
 		}
 		return r.run(rest[1:], stdout, stderr)
 	}
+	if r, ok := findGroupRoute(command, rest[0]); ok {
+		if !groupPreview(os.Getenv) {
+			return refuseGroup(command, r.Name, stderr)
+		}
+		if asksForHelp(rest[1:]) {
+			r.writeUsage(stdout, command)
+			return exitOK
+		}
+		return r.run(rest[1:], stdout, stderr)
+	}
 	if command == commandCLI && cli.IsCommand(rest[0]) {
 		return cli.Run(rest, stdout, stderr, cliOptions())
 	}

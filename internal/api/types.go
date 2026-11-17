@@ -24,6 +24,11 @@ const (
 	// CodeUnpushedWork refuses a removal that could lose work no remote holds.
 	CodeUnpushedWork = "unpushed_work"
 	CodeUnavailable  = "unavailable"
+	// CodeRepositoryReadsUnavailable says a group server reads no repository on its own machine yet, so the
+	// read the call needed is refused and names itself.
+	CodeRepositoryReadsUnavailable = "repository_reads_unavailable"
+	// CodePaneRelayUnavailable says a group server relays no pane of a worker yet.
+	CodePaneRelayUnavailable = "pane_relay_unavailable"
 	// CodeSessionRequired means a call needs an authenticated member, and came with none
 	// that is live.
 	CodeSessionRequired = "session_required"

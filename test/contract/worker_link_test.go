@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"testing/fstest"
 
 	"ropeshift.com/ropeshift/internal/adapters/fake"
 	"ropeshift.com/ropeshift/internal/adapters/sqlite"
@@ -124,6 +125,34 @@ func httpLink(t *testing.T, protocol int) *LinkRig {
 	}
 }
 
+// tcpLink is httpLink on a TCP listener: the group server's network listener, whose every route carries a
+// credential, reached by the client a group worker uses over a loopback address.
+func tcpLink(t *testing.T, protocol int) *LinkRig {
+	t.Helper()
+	wire := &faultyWire{}
+	offset := &atomic.Int64{}
+	daemon := apitest.StartWith(t, apitest.Options{
+		Protocol: protocol,
+		Clock:    func(d sqlstore.Dialect) sqlstore.Dialect { return ShiftedDialect{d, offset} },
+	})
+	network := daemon.ServeNetwork(t, fstest.MapFS{"placeholder.html": {Data: []byte("not built")}}, 0, func(next http.Handler) http.Handler {
+		wire.next = next
+		return wire
+	})
+	client, err := api.NewTCPClient("http://" + network.Host)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(client.Close)
+	plane := control.NewWorkers(daemon.Store, apitest.Scope, control.WorkerOptions{Protocol: protocol, HeartbeatMs: linkHeartbeat, LeaseTTLMs: linkTTL})
+	return &LinkRig{
+		Store: daemon.Store, Scope: apitest.Scope, Plane: plane, Link: workerlink.New(client),
+		CorruptNonce: func() { wire.corruptNonce.Store(true) },
+		DropHints:    func() { wire.dropHints.Store(true) },
+		ShiftClock:   func(delta int64) { offset.Add(delta) },
+	}
+}
+
 // TestWorkerLinkContract runs with no other test, and its backends one after the other, so
 // the check that reads a window of real time runs alone.
 func TestWorkerLinkContract(t *testing.T) {
@@ -135,6 +164,9 @@ func TestWorkerLinkContract(t *testing.T) {
 	})
 	t.Run("project", func(t *testing.T) {
 		RunWorkerLink(t, LinkBackend{Name: "project", Fresh: projectLink})
+	})
+	t.Run("tcp", func(t *testing.T) {
+		RunWorkerLink(t, LinkBackend{Name: "tcp", Fresh: tcpLink})
 	})
 }
 

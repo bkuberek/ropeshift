@@ -19,6 +19,12 @@ const (
 // public listener.
 func ListenWeb(address string) (net.Listener, error) { return listenLoopback("web listener", address) }
 
+// ListenServer binds a group server's one listener, on a loopback address and nothing else until the
+// server serves TLS (ADR-0031).
+func ListenServer(address string) (net.Listener, error) {
+	return listenLoopback("server listener", address)
+}
+
 // ListenTelemetry binds the worker's OTLP receiver, on a loopback address and nothing else. An agent's
 // OTLP exporter speaks HTTP to a host and port, and cannot reach a unix socket, so the receiver is the
 // second TCP listener the design names (FR-OBS-3).

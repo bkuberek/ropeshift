@@ -1,6 +1,6 @@
 # The Postgres adapter
 
-`internal/adapters/postgres` keeps an installation on one Postgres database: the installation's own records in the `installation` schema, and each project in a schema of its own, named `project_<id>` with the ID in lowercase. It shares the statements of `internal/adapters/sqlstore` with the SQLite adapter, and `make check-postgres` runs the store contract suite and the adapter's own tests on a private server. The server's binaries come from `PATH` or from the directory `ROPESHIFT_TEST_PG_BIN` names. No solo binary imports the adapter, and `make check` holds that.
+`internal/adapters/postgres` keeps an installation on one Postgres database: the installation's own records in the `installation` schema, and each project in a schema of its own, named `project_<id>` with the ID in lowercase. It shares the statements of `internal/adapters/sqlstore` with the SQLite adapter, and `make check-postgres` runs the store contract suite and the adapter's own tests on a private server. It also runs the exit tests of a group server and its workers as separate processes (`go test -tags postgres -run TestServer ./test/exit`). The server's binaries come from `PATH` or from the directory `ROPESHIFT_TEST_PG_BIN` names. Only the wiring of `ropeshiftd server`, `internal/entry/server.go`, imports the adapter and its driver, so solo mode runs on SQLite alone, and `make check` holds that.
 
 ## Connections
 

@@ -109,6 +109,41 @@ func routes(command string) []routeGroup {
 	}}}
 }
 
+// groupRoutes lists what a binary answers only with the preview gate on: the group mode commands of the
+// daemon (ADR-0031). They stay out of routes, so no list, help, or reference of the public commands holds
+// one, and they run only after a check of the gate.
+func groupRoutes(command string) []routeGroup {
+	if command != commandDaemon {
+		return nil
+	}
+	return []routeGroup{{"Run a group server or its workers (preview)", []route{
+		{
+			Command: cli.Command{
+				Name: "server", Args: "--database <url> [flags]", Summary: "run the control plane alone, on Postgres, for workers that dial it",
+				Detail: groupGateNote + "\n" +
+					"It serves the API, the worker plane, and the web UI on one listener, which binds a loopback address in\n" +
+					"this version, and a control socket in its run directory for the commands run on its machine.",
+			},
+			run:   runServer,
+			flags: func() *flag.FlagSet { return serverFlags(new(serverOptions), os.Getenv) },
+		},
+		{
+			Command: cli.Command{
+				Name: "worker", Args: "[join --server <url> [<join token>]] [flags]", Summary: "run this machine's worker alone, on a server it joined",
+				Detail: groupGateNote + "\n" +
+					"`ropeshiftd worker join --server <url> [--name <name>]` registers this machine with a server, with a join\n" +
+					"token a member made by `ropeshift worker token` on the server's machine. Give the token in " + envJoin + ",\n" +
+					"which keeps it out of the process list, or as the one argument. It keeps the server's address and the\n" +
+					"worker's credential in its journal, which only its user reads. In this version the server's address is a\n" +
+					"loopback http:// URL. `ropeshiftd worker` then runs the worker: its lanes, terminal, checkouts, drivers,\n" +
+					"hooks, and MCP on this machine's worker socket, and its link to the server.",
+			},
+			run:   runWorker,
+			flags: func() *flag.FlagSet { return workerFlags(new(workerOptions)) },
+		},
+	}}}
+}
+
 // findRoute returns the route a binary answers for a first word.
 func findRoute(command, word string) (route, bool) {
 	for _, group := range routes(command) {
@@ -121,13 +156,30 @@ func findRoute(command, word string) (route, bool) {
 	return route{}, false
 }
 
-// groups is what help lists for a binary: the CLI's commands, then its own routes.
+// findGroupRoute returns the group route a binary holds for a first word, whether or not the gate is on.
+func findGroupRoute(command, word string) (route, bool) {
+	for _, group := range groupRoutes(command) {
+		for _, r := range group.routes {
+			if r.Name == word {
+				return r, true
+			}
+		}
+	}
+	return route{}, false
+}
+
+// groups is what help lists for a binary: the CLI's commands, then its own routes, and with the preview
+// gate on, its group routes.
 func groups(command string) []cli.Group {
 	var all []cli.Group
 	if command == commandCLI {
 		all = cli.Groups()
 	}
-	for _, group := range routes(command) {
+	listing := routes(command)
+	if groupPreview(os.Getenv) {
+		listing = append(listing, groupRoutes(command)...)
+	}
+	for _, group := range listing {
 		listed := cli.Group{Title: group.title}
 		for _, r := range group.routes {
 			listed.Commands = append(listed.Commands, r.Command)
@@ -157,6 +209,11 @@ func runHelp(command string, args []string, stdout, stderr io.Writer) int {
 		args = []string{"help"}
 	}
 	if r, ok := findRoute(command, args[0]); ok {
+		r.writeUsage(stdout, command)
+		return exitOK
+	}
+	// A group command is no command to a person who has not turned the preview on.
+	if r, ok := findGroupRoute(command, args[0]); ok && groupPreview(os.Getenv) {
 		r.writeUsage(stdout, command)
 		return exitOK
 	}

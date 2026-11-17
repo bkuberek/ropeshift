@@ -8,6 +8,11 @@ import (
 	"ropeshift.com/ropeshift/internal/ledger"
 )
 
+// ErrRepositoryReadsUnavailable says a control plane reads no repository on its own machine: a group
+// server keeps no clone, so each read that solo mode makes from one is refused, and the error that wraps
+// this one names the read.
+var ErrRepositoryReadsUnavailable = errors.New("repository_reads_unavailable")
+
 // Clone is a git clone on a worker's machine, with what git says of it.
 type Clone struct {
 	// Path is the top of the clone's working tree, as an absolute path.
