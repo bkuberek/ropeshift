@@ -108,6 +108,28 @@ func TestARenameSetsTheDisplayNameItIsGiven(t *testing.T) {
 	}
 }
 
+// A display name no list could show whole, or one with a control character, is refused on a create and on a
+// rename, and the refused rename changes nothing.
+func TestTheRegistryRefusesADisplayNameItCannotShow(t *testing.T) {
+	state := openState(t, t.TempDir())
+	alpha, _ := createProject(t, state, "pa", "alpha")
+	for _, displayName := range []string{strings.Repeat("a", 101), "Alpha\x1b[2J", " Alpha"} {
+		if _, err := state.Create(t.Context(), ledger.Project{Name: "beta", DisplayName: displayName}, member); !errors.Is(err, ledger.ErrInvalidProject) {
+			t.Errorf("created with display name %q: %v", displayName, err)
+		}
+		if _, err := state.Rename(t.Context(), alpha.ID, "alpha", displayName, member); !errors.Is(err, ledger.ErrInvalidProject) {
+			t.Errorf("renamed to display name %q: %v", displayName, err)
+		}
+	}
+	if named, err := state.Named(t.Context(), "alpha"); err != nil || named.DisplayName != alpha.DisplayName {
+		t.Errorf("the registry holds %+v: %v", named, err)
+	}
+	want := []string{ledger.EventProjectCreated + " by member-1"}
+	if got := installationEvents(t, state, alpha.ID); !slices.Equal(got, want) {
+		t.Errorf("events %v", got)
+	}
+}
+
 // TestArchivingAndRestoringRecordEachMove holds the state a project's lifecycle moves through.
 func TestArchivingAndRestoringRecordEachMove(t *testing.T) {
 	state := openState(t, t.TempDir())
@@ -245,6 +267,31 @@ func TestAnImportIsRefusedWhereAnotherProjectStands(t *testing.T) {
 	}
 	if _, err := to.Import(t.Context(), filepath.Join(t.TempDir(), "absent.db"), "x", member); err == nil {
 		t.Error("a file that is not there imported")
+	}
+}
+
+// A backup an earlier build made may name its project in a way no display name may take now. It still imports,
+// by the name it is given, with no display name.
+func TestABackupWhoseNameNoListCanShowImportsWithNoDisplayName(t *testing.T) {
+	from := openState(t, t.TempDir())
+	acme, _ := createProject(t, from, "acme-id", "acme")
+	backup := filepath.Join(t.TempDir(), "acme.db")
+	if _, err := from.Backup(t.Context(), acme, backup); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sqlite.OpenDB(backup)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE workspaces SET name = ?`, strings.Repeat("Acme ", 30)); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	imported, err := openState(t, t.TempDir()).Import(t.Context(), backup, "acme", member)
+	if err != nil || imported.Name != "acme" || imported.DisplayName != "" {
+		t.Errorf("imported %+v: %v", imported, err)
 	}
 }
 

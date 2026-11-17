@@ -19,8 +19,8 @@ A route on a project's records with no project in its path does not exist and an
 
 | Route | Body | Step |
 |-------|------|------|
-| `POST /v1/projects` | `{"name": "...", "display_name": "..."}` | Create |
-| `POST /v1/projects/{project}/rename` | `{"name": "...", "display_name": "..."}` | Rename, and set the display name; with no `display_name` the project keeps the one it has, and with the name it has it changes only the display name |
+| `POST /v1/projects` | `{"name": "...", "display_name": "..."}` | Create. The server trims space from either end of `display_name`, which then holds at most 100 characters and no control character |
+| `POST /v1/projects/{project}/rename` | `{"name": "...", "display_name": "..."}` | Rename, and set the display name, which the server trims and refuses as it does on a create; with no `display_name` the project keeps the one it has, and with the name it has it changes only the display name |
 | `POST /v1/projects/{project}/archive` | `{}` | Archive, once every lane ended |
 | `POST /v1/projects/{project}/restore` | `{}` | Restore |
 | `POST /v1/projects/{project}/remove` | `{"confirm": "...", "backup": "..."}` or `{"confirm": "...", "no_backup": true}` | Remove an archived project |

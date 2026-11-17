@@ -44,6 +44,9 @@ func (p *Projects) Create(ctx context.Context, name, displayName string, actor l
 	if err := ledger.ValidateProjectName(name); err != nil {
 		return ledger.Project{}, err
 	}
+	if err := ledger.ValidateDisplayName(displayName); err != nil {
+		return ledger.Project{}, err
+	}
 	return p.registry.Create(ctx, ledger.Project{Name: name, DisplayName: displayName}, actor)
 }
 

@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 // A project is a workspace whose ledger is a database of its own, and an installation holds many
@@ -75,6 +77,9 @@ func (e *HeldError) Unwrap() error { return ErrRepositoryHeld }
 // projectNameLimit keeps a name usable as one segment of a URL path and a DNS label.
 const projectNameLimit = 63
 
+// displayNameLimit keeps a display name short enough for a list or a heading to show whole.
+const displayNameLimit = 100
+
 // ProjectState is where a project is in its lifecycle.
 type ProjectState string
 
@@ -110,6 +115,9 @@ func (p Project) Validate() error {
 	if err := ValidateProjectName(p.Name); err != nil {
 		return err
 	}
+	if err := ValidateDisplayName(p.DisplayName); err != nil {
+		return err
+	}
 	if !p.State.Valid() {
 		return fmt.Errorf("%w: state %q", ErrInvalidProject, p.State)
 	}
@@ -134,6 +142,26 @@ func ValidateProjectName(name string) error {
 				return fmt.Errorf("%w: %q holds %q, and a name holds lowercase letters, digits, and hyphens", ErrInvalidProject, name, c)
 			}
 		}
+	}
+	return nil
+}
+
+// ValidateDisplayName refuses a display name a list or a heading cannot show whole: one longer than
+// displayNameLimit characters, one with a control character or bytes that are no UTF-8, and one with space at
+// either end, which a caller trims first. An empty display name is valid: a project may have none, and a rename
+// given none keeps the one it has.
+func ValidateDisplayName(name string) error {
+	if !utf8.ValidString(name) {
+		return fmt.Errorf("%w: display name %q is not UTF-8", ErrInvalidProject, name)
+	}
+	if count := utf8.RuneCountInString(name); count > displayNameLimit {
+		return fmt.Errorf("%w: a display name has at most %d characters, and this one has %d", ErrInvalidProject, displayNameLimit, count)
+	}
+	if strings.TrimSpace(name) != name {
+		return fmt.Errorf("%w: display name %q starts or ends with space", ErrInvalidProject, name)
+	}
+	if strings.ContainsFunc(name, unicode.IsControl) {
+		return fmt.Errorf("%w: display name %q holds a control character", ErrInvalidProject, name)
 	}
 	return nil
 }

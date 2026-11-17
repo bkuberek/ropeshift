@@ -77,8 +77,9 @@ func removeLedgerFile(file string) error {
 }
 
 // Import registers a project from its backup, keeping the ID the backup holds. The name is the one
-// given, or the backup's own when it is a slug. The copy lands in the projects folder at this build's
-// schema before the registry names it, and a refusal or a failure removes it again.
+// given, or the backup's own when it is a slug, and the backup's own name is the display name when it differs
+// and a display name may take it. The copy lands in the projects folder at this build's schema before the
+// registry names it, and a refusal or a failure removes it again.
 func (s *State) Import(ctx context.Context, backup string, name string, actor ledger.Actor) (ledger.Project, error) {
 	workspace, err := backedUpWorkspace(backup)
 	if err != nil {
@@ -91,7 +92,7 @@ func (s *State) Import(ctx context.Context, backup string, name string, actor le
 		}
 		p.Name = workspace.Name
 	}
-	if workspace.Name != p.Name {
+	if workspace.Name != p.Name && ledger.ValidateDisplayName(workspace.Name) == nil {
 		p.DisplayName = workspace.Name
 	}
 	if p.Database, err = projectDatabase(p.ID); err != nil {

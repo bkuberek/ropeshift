@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/control"
@@ -49,7 +50,7 @@ func (h *handler) createProject(w http.ResponseWriter, r *http.Request, actor le
 	if !decode(w, r, &in) {
 		return
 	}
-	p, err := h.lifecycle.Create(r.Context(), in.Name, in.DisplayName, actor)
+	p, err := h.lifecycle.Create(r.Context(), in.Name, strings.TrimSpace(in.DisplayName), actor)
 	h.answerProject(w, r.Context(), http.StatusCreated, p, err)
 }
 
@@ -99,7 +100,7 @@ func (h *handler) renameProject(w http.ResponseWriter, r *http.Request, actor le
 		return
 	}
 	name := r.PathValue("project")
-	p, err := h.lifecycle.Rename(r.Context(), name, in.Name, in.DisplayName, actor)
+	p, err := h.lifecycle.Rename(r.Context(), name, in.Name, strings.TrimSpace(in.DisplayName), actor)
 	h.answerLifecycle(w, r, name, p, err)
 }
 
