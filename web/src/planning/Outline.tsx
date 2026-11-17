@@ -153,8 +153,9 @@ function HistoryTab({ live }: { live: Live }) {
 }
 
 // Outline follows the plan a planning lane is writing, from its branch. It reads again when the ledger
-// says something happened, which is when the session may have committed.
-export function Outline({ lane, live }: { lane: string; live: Live }) {
+// says something happened, which is when the session may have committed. A page showing a session that ended
+// gives it a title of its own.
+export function Outline({ lane, live, title = "Plan in progress" }: { lane: string; live: Live; title?: string }) {
   const heading = useId();
   const tabs = useId();
   const [tab, setTab] = useState<PaneTab>("outline");
@@ -174,11 +175,11 @@ export function Outline({ lane, live }: { lane: string; live: Live }) {
   return (
     <aside className="panel outline" aria-labelledby={heading}>
       <div className="panel-head">
-        <h2 id={heading}>Plan in progress</h2>
+        <h2 id={heading}>{title}</h2>
         {read.view && !read.failure ? <span className="fresh">live</span> : null}
       </div>
       <div className="panel-body stack small" aria-busy={read.busy}>
-        <Tabs label="Plan in progress" idBase={tabs} selected={tab} tabs={paneTabs} onSelect={setTab} />
+        <Tabs label={title} idBase={tabs} selected={tab} tabs={paneTabs} onSelect={setTab} />
         <TabPanel idBase={tabs} selected={tab}>
           {tab === "history" ? (
             <HistoryTab live={live} />

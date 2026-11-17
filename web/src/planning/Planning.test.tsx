@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import type { PlanForecast } from "../api/measures";
-import type { InProgress, OnHold, PlanOutline } from "../api/types";
+import type { Completed, InProgress, OnHold, PlanOutline } from "../api/types";
 import { openPage } from "../opening";
 import type { Sent } from "../testing";
 import { FakeEvents, golden, here, openLedgerStream, refusal, serveViews } from "../testing";
@@ -112,6 +112,47 @@ describe("the planning pane with no session", () => {
     expect(within(dialog).getByText("Read from goal.md. Edit it above before you start.")).toBeTruthy();
     await user.upload(within(dialog).getByLabelText("Or read the goal from a file"), new File(["x".repeat(300 * 1024)], "big.md", { type: "text/markdown" }));
     expect(await within(dialog).findByText(/big\.md is 300 KiB\. A goal is a few pages/)).toBeTruthy();
+  });
+
+  it("shows the plan of the session that ended last, from its branch, with its work order", async () => {
+    const completed = golden<Completed>("completed");
+    const ended = completed.items.find((item) => item.standing.artifacts.some((artifact) => artifact.lane_id === "lane-wo-done"));
+    if (!ended) {
+      throw new Error("the golden holds no work that lane-wo-done ran");
+    }
+    ended.work_order.kind = "plan";
+    ended.work_order.title = "Berths and sailings";
+    const sent = serve((call) => {
+      if (call.path === "/v1/views/in-progress" || call.path === "/v1/views/on-hold") {
+        return { status: 200, body: { as_of: 1, revision: 1, items: [] } };
+      }
+      return call.path === "/v1/views/completed" ? { status: 200, body: completed } : undefined;
+    });
+    openPage(here("/planning"));
+    expect(await screen.findByText("No planning session is running")).toBeTruthy();
+    const last = await screen.findByRole("region", { name: "The last planning session" });
+    expect(within(last).getByRole("link", { name: "Berths and sailings" }).getAttribute("href")).toBe(`/projects/default/work-order?id=${ended.work_order.id}`);
+    expect(last.textContent).toContain("lane lane-wo-done");
+    const plan = await within(last).findByRole("complementary", { name: "Plan of the last session" });
+    expect(await within(plan).findByRole("heading", { name: "Documents" })).toBeTruthy();
+    expect(sent.some((call) => call.path === "/v1/lanes/lane-wo-done/outline")).toBe(true);
+    expect(within(last).queryByRole("region", { name: /^Pane of lane/ })).toBeNull();
+  });
+
+  it("shows no last session when no planning session has ended", async () => {
+    const completed = golden<Completed>("completed");
+    for (const item of completed.items) {
+      item.work_order.kind = "change";
+    }
+    serve((call) => {
+      if (call.path === "/v1/views/in-progress" || call.path === "/v1/views/on-hold") {
+        return { status: 200, body: { as_of: 1, revision: 1, items: [] } };
+      }
+      return call.path === "/v1/views/completed" ? { status: 200, body: completed } : undefined;
+    });
+    openPage(here("/planning"));
+    expect(await screen.findByText("No planning session is running")).toBeTruthy();
+    expect(screen.queryByRole("region", { name: "The last planning session" })).toBeNull();
   });
 
   it("shows the API's refusal at the dialog, and stays open", async () => {
