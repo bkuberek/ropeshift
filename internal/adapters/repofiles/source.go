@@ -164,8 +164,9 @@ func (s *Source) Instance(ctx context.Context) (string, error) {
 		return root, err
 	}
 	// Registration refuses a clone that shares its first commit with one this worker keeps at another path, so
-	// such a repository is not read under the record's ID either, which would put two under one ID.
-	if s.config.KeptElsewhere != nil {
+	// such a repository is not read under the record's ID either, which would put two under one ID. A record the
+	// project removed is not refused, as registration does not refuse it: intake reports that it was removed.
+	if s.config.KeptElsewhere != nil && !record.Removed() {
 		kept, held, err := s.config.KeptElsewhere(ctx, record.ID)
 		if err != nil {
 			return "", err

@@ -200,6 +200,19 @@ func TestARepositoryThatSharesAFirstCommitWithAKeptCloneIsNotRead(t *testing.T) 
 	}
 }
 
+// A repository the project removed is not refused for sharing a first commit, as registration does not refuse it:
+// the source is named by the removed record, and intake reports that the project removed it.
+func TestARemovedRecordIsNotRefusedForSharingAFirstCommit(t *testing.T) {
+	workspace, own, _ := mergedWorkspace(t)
+	removed := ledger.NewRepository(own)
+	removed.State = ledger.RepositoryRemoved
+	records := func(_ context.Context, id string) (ledger.Repository, bool, error) { return removed, id == own, nil }
+	source := New(Config{Repository: workspace.Dir, Env: workspace.Env(), Records: records, KeptElsewhere: keptAt("/work/other", "git@example.invalid:acme/other.git")})
+	if got, err := source.Instance(t.Context()); err != nil || got != own {
+		t.Errorf("the instance is %s (%v), want the removed record's ID %s and no refusal", got, err, own)
+	}
+}
+
 // A lower root merged in after a record was registered under the lowest root it had leaves the lowest root with
 // no record, and the repository is still that record's.
 func TestARepositoryIsNamedByAnyRootThatNamesItsRecord(t *testing.T) {
