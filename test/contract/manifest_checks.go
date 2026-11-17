@@ -40,6 +40,7 @@ var ManifestChecks = []Check{
 	{"RM15", "a clone is matched to the record whose ID is its first-parent root, else to a record that is not removed whose ID is its lowest root, said to be matched by its earlier identity, else it is a new record under its first-parent root; a removed record is never matched by the lowest root", checkRegistrationMatchesARecordByItsRoots},
 	{"RM16", "a clone that shares its first commit with a repository this worker keeps at another path that still holds it is refused, naming that commit, the repository, and its path, when the two remotes differ or neither has one, in one run and across runs, in a dry run too; the same remote, a path that is gone, and the same path with a new remote are not refused", checkClonesThatShareAFirstCommitAreRefused},
 	{"RM17", "a manifest entry whose clone shares its first commit with a repository this worker keeps at another path is refused with the same reason, and the first registration stands", checkManifestEntrySharingAFirstCommitIsRefused},
+	{"RM19", "a clone is matched to the record this worker already keeps at its path when that record's ID is one of the clone's roots, so a root merged in later does not split one repository into two records", checkANewLowerRootDoesNotSplitTheRecordKeptAtThePath},
 	{"RM18", "on real git repositories, a workspace that merged an unrelated history registers under its first-parent root once the repository that history came from is removed, and is refused for sharing that history's first commit while it is kept", checkMergedWorkspaceOnRealRepositories},
 	{"RM6", "a manifest registers only a clone inside the directory that holds the planning repository's clone, symbolic links followed: a path or a link that leads out of it, the planning clone itself, and the installation's own directories register nothing, each refused naming where it leads", checkManifestPathsStayBesideThePlanningClone},
 }
@@ -1360,6 +1361,40 @@ func checkClonesThatShareAFirstCommitAreRefused(r *Rig) error {
 	}
 	if record, err := r.theRepository(s, moved); err != nil || record.Remote != remote("after") {
 		return Violatedf("the record after the remote moved reads %+v: %v", record, err)
+	}
+	return r.CheckProjection(s)
+}
+
+func checkANewLowerRootDoesNotSplitTheRecordKeptAtThePath(r *Rig) error {
+	s := r.Store()
+	repositories := r.repositories(s)
+	kept := fake.NewCheckouts()
+	// The record was registered under the lowest root the clone had then.
+	older, lowest, own := firstCommit("81"), firstCommit("80"), firstCommit("82")
+	if _, err := r.detect(s, older, "", "main"); err != nil {
+		return err
+	}
+	if err := kept.Keep(r.Ctx, r.Scope, older, "/work/ws"); err != nil {
+		return err
+	}
+	// The clone has since merged a history whose first commit sorts lower still.
+	kept.Place(rootClone("ws", own, "", lowest, older, own))
+	for _, dryRun := range []bool{true, false} {
+		got, err := r.addAt(repositories, kept, dryRun, "/work/ws")
+		if err != nil {
+			return err
+		}
+		if ws := got["/work/ws"]; ws.Outcome != ledger.AlreadyRegistered || ws.Repository.ID != older || !strings.Contains(ws.Reason, "matched by its earlier identity") {
+			return Violatedf("a clone with a new lower root reads %+v, dry run %v, want the record kept at its path", ws, dryRun)
+		}
+	}
+	for _, id := range []string{lowest, own} {
+		if _, err := r.theRepository(s, id); !errors.Is(err, ports.ErrNotFound) {
+			return Violatedf("a second record was made under %s: %v", id, err)
+		}
+	}
+	if held, err := kept.Of(r.Ctx, r.Scope); err != nil || held[older] != "/work/ws" || len(held) != 1 {
+		return Violatedf("the worker keeps %v: %v", held, err)
 	}
 	return r.CheckProjection(s)
 }

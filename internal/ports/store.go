@@ -799,6 +799,9 @@ type RepositoryWriter interface {
 	// Settings replaces the name and the settings a member gives. The store itself refuses a combination
 	// that cannot hold, and a name another record of the workspace holds.
 	Settings(ledger.Repository) error
+	// RefuseHeld refuses an identity another project holds in the installation's repository index, with a
+	// *ledger.HeldError, and says nothing of one this project holds or nobody does.
+	RefuseHeld(identity string) error
 }
 
 // EvidenceReader reads what a work order's lanes left and what its checks said.

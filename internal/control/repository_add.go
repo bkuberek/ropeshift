@@ -134,10 +134,13 @@ func (r *Repositories) register(ctx context.Context, scope ledger.WorkspaceID, c
 		return added, err
 	}
 	// The record the clone registers as is read in the transaction, and these say what it found.
-	id, sharedWith := clone.ID, ""
+	id, sharedWith, keptHere := clone.ID, "", how.keptAt(clone)
 	var gone ledger.Repository
 	err = r.store.Write(ctx, scope, "repository.register", func(tx ports.WriteTx) error {
-		record, matched, earlier, err := matchIn(tx.Repositories(), clone)
+		if err := refuseHeldRoots(tx.Repositories(), clone); err != nil {
+			return err
+		}
+		record, matched, earlier, err := matchIn(tx.Repositories(), clone, keptHere)
 		if err != nil {
 			return err
 		}

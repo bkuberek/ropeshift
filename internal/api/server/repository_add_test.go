@@ -183,6 +183,36 @@ func TestACloneWithNoRemoteThatSharesAFirstCommitWithAnotherProjectIsRefusedNami
 	}
 }
 
+// A repository with no remote that another project holds under its lowest root is still that repository when
+// its clone has since merged an unrelated history, so the first-parent root it is read under now does not
+// let a second project register it.
+func TestAMergedCloneWithNoRemoteThatAnotherProjectHoldsUnderItsLowestRootIsRefused(t *testing.T) {
+	t.Parallel()
+	in := apitest.StartInstallation(t, "beta")
+	lowest, own := "1a"+strings.Repeat("0", 38), "2b"+strings.Repeat("0", 38)
+	in.Checkouts.Place(ports.Clone{Path: "/held/old", ID: lowest, DefaultBranch: "main"})
+	in.Checkouts.Place(ports.Clone{Path: "/work/merged", ID: own, Roots: []string{lowest, own}, DefaultBranch: "main"})
+	_, _, betaClient := in.In(t, "beta")
+	if _, err := betaClient.AddRepositories(t.Context(), api.RepositoryAdd{Paths: []string{"/held/old"}}); err != nil {
+		t.Fatal(err)
+	}
+	_, _, client := in.In(t, apitest.ProjectName)
+	for _, dryRun := range []bool{true, false} {
+		report, err := client.AddRepositories(t.Context(), api.RepositoryAdd{Paths: []string{"/work/merged"}, DryRun: dryRun})
+		if err != nil || report.Refused() != 1 {
+			t.Fatalf("a merged clone of a repository another project holds, dry run %v: %+v, %v", dryRun, report, err)
+		}
+		for _, want := range []string{"shares its first commit `1a000000`", "project beta"} {
+			if reason := report.Repositories[0].Reason; !strings.Contains(reason, want) {
+				t.Errorf("dry run %v: the refusal %q does not say %q", dryRun, reason, want)
+			}
+		}
+	}
+	if len(repositoriesOf(t, client)) != 0 {
+		t.Error("a refused clone was registered")
+	}
+}
+
 // ADR-0021: a removed repository stays in its project as history, leaves the repository index and this
 // worker's checkouts, and another project may then register it. The first project registering it again
 // is then refused, naming the project that holds it.

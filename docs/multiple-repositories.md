@@ -54,7 +54,7 @@ In the web UI, Repositories has Register repositories. Register the workspace's 
 
 A repository is identified by its remote, or by its first commit when it has none. The first commit is the root reached by following first parents from the tip of its default branch. When a workspace takes in another repository's history with an unrelated merge, the workspace gains a second root and keeps the identity it had.
 
-A repository registered before this rule was named by the lowest root it had, and it keeps that ID. Registering its clone again matches the record whose ID is the clone's first-parent root, or else a record that is not removed whose ID is the clone's lowest root, and the line for the clone says it was matched by its earlier identity. A repository you removed is never matched this way, so a workspace that took in a removed repository's history registers as a repository of its own, and the removed record stays removed.
+A repository registered before this rule was named by the lowest root it had, and it keeps that ID. Registering its clone again matches the record this worker keeps at the clone's path when that record's ID is one of the clone's first commits, or else the record whose ID is the clone's first-parent root, or else a record that is not removed whose ID is the clone's lowest root, and the line for the clone says it was matched by its earlier identity when the record's ID is not the first-parent root. A repository the daemon reads from `--source` with no checkout kept keeps the ID of the record found in the same order. A repository you removed is never matched this way, so a workspace that took in a removed repository's history registers as a repository of its own, and the removed record stays removed.
 
 ### Clones that share a first commit
 
@@ -64,7 +64,7 @@ Two clones cut from one template, or two forks of one repository, start at the s
 shares its first commit `5ca1ab1e` with repository `template-a` at `/work/template-a`; ropeshift identifies a repository by that commit, so give this clone a remote of its own or a history of its own
 ```
 
-To register it, give the clone a remote of its own, or a history of its own. A second clone of one remote is the same repository and is not refused, and a clone at the same path with a new remote refreshes its record, because a remote can move. Within one run, the second such clone gets the same refusal. A clone with no remote that shares its first commit with a repository another project holds is refused too, and the reason names that commit and that project.
+To register it, give the clone a remote of its own, or a history of its own. A second clone of one remote is the same repository and is not refused, and a clone at the same path with a new remote refreshes its record, because a remote can move. Within one run, the second such clone gets the same refusal. A clone with no remote that shares any first commit it holds with a repository another project holds is refused too, and the reason names that commit and that project.
 
 ## 3. Name the planning repository
 

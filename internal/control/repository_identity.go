@@ -40,29 +40,47 @@ func holdsRoot(clone ports.Clone, root string) bool {
 	return clone.ID == root || slices.Contains(clone.Roots, root)
 }
 
-// matchIn finds the record a clone registers as. It is the record whose ID is the clone's first-parent root;
-// else a record that is not removed whose ID is the clone's lowest root, which earlier says; else none, and
-// the clone is a new record under its first-parent root. A removed record is never matched by the lowest
-// root, so a workspace that imported a design repository's history does not bring that repository's record
-// back.
-func matchIn(repositories ports.RepositoryReader, clone ports.Clone) (record ledger.Repository, found, earlier bool, err error) {
-	record, err = repositories.Repository(clone.ID)
-	switch {
-	case err == nil:
-		return record, true, false, nil
-	case !errors.Is(err, ports.ErrNotFound):
-		return ledger.Repository{}, false, false, err
-	}
-	if lowest := lowestRoot(clone); lowest != clone.ID {
-		record, err = repositories.Repository(lowest)
-		switch {
-		case err == nil && !record.Removed():
-			return record, true, true, nil
-		case err != nil && !errors.Is(err, ports.ErrNotFound):
-			return ledger.Repository{}, false, false, err
+// matchIn finds the record a clone registers as, as ledger.MatchRepository orders it: the record this worker
+// keeps at the clone's path when its ID is one of the clone's roots, else the record whose ID is the clone's
+// first-parent root, else a record that is not removed whose ID is its lowest root, which earlier says. With
+// none, the clone is a new record under its first-parent root. A removed record is never matched by the
+// lowest root, so a workspace that imported a design repository's history does not bring that repository's
+// record back.
+func matchIn(repositories ports.RepositoryReader, clone ports.Clone, keptHere []string) (record ledger.Repository, found, earlier bool, err error) {
+	return ledger.MatchRepository(clone.ID, rootsOf(clone), keptHere, func(id string) (ledger.Repository, bool, error) {
+		record, err := repositories.Repository(id)
+		if errors.Is(err, ports.ErrNotFound) {
+			return ledger.Repository{}, false, nil
+		}
+		return record, err == nil, err
+	})
+}
+
+// keptAt lists the records this worker keeps the clone's path as the checkout of.
+func (how registration) keptAt(clone ports.Clone) []string {
+	var ids []string
+	for id, path := range how.held {
+		if path == clone.Path {
+			ids = append(ids, id)
 		}
 	}
-	return ledger.Repository{}, false, false, nil
+	slices.Sort(ids)
+	return ids
+}
+
+// refuseHeldRoots refuses a clone with no remote when another project holds any first commit it has. A
+// repository with no remote is identified by its first commit, so one that merged a history, or whose
+// record another project holds under a lower root, is that other project's repository.
+func refuseHeldRoots(repositories ports.RepositoryWriter, clone ports.Clone) error {
+	if clone.Remote != "" {
+		return nil
+	}
+	for _, root := range rootsOf(clone) {
+		if err := repositories.RefuseHeld(root); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // holder is the clone this worker keeps for a record.
