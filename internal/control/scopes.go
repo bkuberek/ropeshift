@@ -52,7 +52,7 @@ func (f *scopeFacts) order(id string) (workorders.WorkOrder, bool, error) {
 
 // binds says whether a scope covers a work order: a plan covers the work of its contracts, a contract the
 // work that pins it, a work order itself and its rework, and a repository the work that runs in it. A scope
-// that binds nothing, such as one written before the grammar, covers no work.
+// written before the grammar is not one it reads: `covers` reads that scope by the rule it had.
 func (f *scopeFacts) binds(scope questions.Scope, order workorders.WorkOrder) (bool, error) {
 	switch scope.Kind {
 	case questions.ScopePlan:
