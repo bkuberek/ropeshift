@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"ropeshift.com/ropeshift/internal/api"
+	"ropeshift.com/ropeshift/internal/control"
 	"ropeshift.com/ropeshift/internal/ledger"
 )
 
@@ -31,18 +32,21 @@ func (h *handler) workerOrchestrate(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *handler) showOrchestrator(w http.ResponseWriter, r *http.Request) {
-	row, waits, err := h.plane.OrchestratorStanding(r.Context(), r.PathValue("id"))
+	row, wait, err := h.plane.OrchestratorStanding(r.Context(), r.PathValue("id"))
 	if err != nil {
 		fail(w, err)
 		return
 	}
-	reply(w, http.StatusOK, api.Orchestrator{Orchestrator: row, WaitingFor: waitingFor(waits)})
+	reply(w, http.StatusOK, api.Orchestrator{Orchestrator: row, WaitingFor: waitingFor(wait)})
 }
 
-// waitingFor names what holds an orchestrator's run, which is a run window or nothing.
-func waitingFor(awaitsWindow bool) string {
-	if awaitsWindow {
+// waitingFor names what holds an orchestrator's run: a run window, work, or nothing.
+func waitingFor(wait control.OrchestratorWait) string {
+	switch wait {
+	case control.WaitsForRunWindow:
 		return api.WaitingForRunWindow
+	case control.WaitsForWork:
+		return api.WaitingForWork
 	}
 	return ""
 }
@@ -52,12 +56,12 @@ func (h *handler) setOrchestrator(w http.ResponseWriter, r *http.Request, actor 
 	if !decode(w, r, &in) {
 		return
 	}
-	row, err := h.plane.SetOrchestrator(r.Context(), r.PathValue("id"), in.Desired, actor)
-	if err != nil {
+	if _, err := h.plane.SetOrchestrator(r.Context(), r.PathValue("id"), in.Desired, actor); err != nil {
 		fail(w, err)
 		return
 	}
-	reply(w, http.StatusOK, row)
+	// The answer is what a read says after the change, so every client prints it as a read does.
+	h.showOrchestrator(w, r)
 }
 
 // workerDigest is the read a worker makes before it spends anything on a wake.

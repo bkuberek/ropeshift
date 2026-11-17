@@ -1302,11 +1302,11 @@ func (h *handler) workerLines(tx ports.ReadTx) ([]api.WorkerLine, error) {
 		row, err := tx.Workers().Orchestrator(worker.ID)
 		switch {
 		case err == nil:
-			waits, waitErr := h.workers.AwaitsWindow(tx, row)
+			wait, waitErr := h.workers.OrchestratorWait(tx, row)
 			if waitErr != nil {
 				return nil, waitErr
 			}
-			line.Orchestrator = &api.Orchestrator{Orchestrator: row, WaitingFor: waitingFor(waits)}
+			line.Orchestrator = &api.Orchestrator{Orchestrator: row, WaitingFor: waitingFor(wait)}
 		case !isNotFound(err):
 			return nil, err
 		}

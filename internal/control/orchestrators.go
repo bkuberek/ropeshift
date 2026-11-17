@@ -36,34 +36,65 @@ func orchestratorOf(ctx context.Context, installation ports.Installation, worker
 	return row, err
 }
 
-// AwaitsWindow says the run of an orchestrator a member wants waits for a run window before its session
-// starts, read in a project's transaction.
-func (w *Workers) AwaitsWindow(tx ports.ReadTx, row ledger.Orchestrator) (bool, error) {
+// OrchestratorWait is what holds the run of an orchestrator a member wants before its session starts, which
+// the control plane reads at the time of a read and no event holds.
+type OrchestratorWait int
+
+// The values of OrchestratorWait.
+const (
+	// WaitsForNothing is a run its worker does not hold: one that prepares or runs its session, or one no
+	// member wants.
+	WaitsForNothing OrchestratorWait = iota
+	// WaitsForWork is a run its worker holds until there is something to judge.
+	WaitsForWork
+	// WaitsForRunWindow is that run on an attended worker with no run window open, which judges no new work
+	// until a member opens one, or a question or a message wakes it.
+	WaitsForRunWindow
+)
+
+// OrchestratorWait reads what holds the run of a worker's orchestrator, in a project's transaction.
+func (w *Workers) OrchestratorWait(tx ports.ReadTx, row ledger.Orchestrator) (OrchestratorWait, error) {
 	now, err := tx.Now()
 	if err != nil {
-		return false, err
+		return WaitsForNothing, err
 	}
-	return awaitsWindow(tx.Policies(), tx.Workers(), row, now)
+	return orchestratorWait(tx.Policies(), tx.Workers(), row, now)
 }
 
-// awaitsWindow says a run waits for a run window. A worker holds an orchestrator's generation in
-// `provisioning` until its wake digest holds something to judge, and the digest of an attended worker with
-// no window open holds no new work, so the run waits for a member to open one, or for a question or a
-// message. A manual worker's run waits for a question whatever the window, and an unattended one claims
-// with none.
-func awaitsWindow(policies ports.PolicyReader, workers ports.WorkerReader, row ledger.Orchestrator, now int64) (bool, error) {
-	if row.Desired != ledger.OrchestratorRunning || row.Actual != string(lanes.Provisioning) {
-		return false, nil
+// orchestratorWait reads the worker's standing only for a run that waits, since nothing else needs it.
+func orchestratorWait(policies ports.PolicyReader, workers ports.WorkerReader, row ledger.Orchestrator, now int64) (OrchestratorWait, error) {
+	if !awaitsWake(row) {
+		return WaitsForNothing, nil
 	}
 	record, err := workers.Find(row.WorkerID)
 	if err != nil {
-		return false, err
+		return WaitsForNothing, err
 	}
 	facts, err := readAutonomy(policies, workers, record, now)
 	if err != nil {
-		return false, err
+		return WaitsForNothing, err
 	}
-	return facts.standing.Level == authority.LevelAttended && !facts.standing.WindowOpen, nil
+	return waitOf(row, facts.standing), nil
+}
+
+// awaitsWake says the worker holds the run of an orchestrator a member wants until there is something to judge,
+// which it says beside the run's state, whichever generation it holds. A run a wake reached prepares its session,
+// and its worker no longer says so.
+func awaitsWake(row ledger.Orchestrator) bool {
+	return row.Desired == ledger.OrchestratorRunning && slices.Contains(row.Conditions, string(lanes.AwaitingWake))
+}
+
+// waitOf says what holds a run, from what its worker last said of it and the worker's standing. The wake digest
+// of an attended worker with no window open holds no new work, so its run waits for a member to open one, or for
+// a question or a message. Any other worker's run waits for work.
+func waitOf(row ledger.Orchestrator, standing authority.AutonomyStanding) OrchestratorWait {
+	switch {
+	case !awaitsWake(row):
+		return WaitsForNothing
+	case standing.Level == authority.LevelAttended && !standing.WindowOpen:
+		return WaitsForRunWindow
+	}
+	return WaitsForWork
 }
 
 // SetOrchestrator records what a member asks of a worker's orchestrator. A start of one that is

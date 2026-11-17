@@ -241,12 +241,15 @@ const (
 	// WaitingForPerson says a planning lane ended its turn in the conversation and waits at rest for the
 	// person it talks to (ADR-0018).
 	WaitingForPerson Condition = "waiting_for_person"
+	// AwaitingWake says an orchestrator's generation is held until there is something for it to judge, before
+	// it prepares a session, so the state it stands in is a wait and not a preparation.
+	AwaitingWake Condition = "awaiting_wake"
 )
 
 // EveryCondition lists the conditions, in the design's order.
 var EveryCondition = []Condition{
 	Stalled, Overdue, WaitingExternal, NearBudget, BriefUnconfirmed, PackOversized, HandoffDegraded, DegradedMode, UnpushedWork, Drifted, DayCapped,
-	WaitingForPerson,
+	WaitingForPerson, AwaitingWake,
 }
 
 // Facts is what a lane's conditions derive from.
@@ -275,6 +278,8 @@ type Facts struct {
 	DayCapped bool
 	// WaitingForPerson says a planning lane at rest waits for the person it talks to.
 	WaitingForPerson bool
+	// AwaitingWake says an orchestrator's generation waits for something to judge.
+	AwaitingWake bool
 }
 
 // Conditions derives a lane's conditions, in the design's order. `waiting_external`
@@ -302,6 +307,7 @@ func Conditions(f Facts) []Condition {
 	raise(Drifted, f.Drifted)
 	raise(DayCapped, f.State == Tripped && f.DayCapped)
 	raise(WaitingForPerson, f.WaitingForPerson)
+	raise(AwaitingWake, f.AwaitingWake)
 	return out
 }
 

@@ -646,6 +646,22 @@ describe("the floor", () => {
     expect(open.getAttribute("href")).toBe("/settings?section=autonomy&worker=worker-a");
   });
 
+  // A run held until there is something to judge, on a worker a window does not hold, waits for work, and no window
+  // would change that.
+  it("says an orchestrator waits for work, with no way to a run window", async () => {
+    serving<ShopFloor>("shop-floor", (view) => {
+      const orchestrator = view.workers.find((line) => line.worker.name === "solo")?.orchestrator;
+      if (orchestrator) {
+        orchestrator.actual_state = "provisioning";
+        orchestrator.waiting_for = "work";
+      }
+    });
+    openPage("/floor");
+    const machine = await screen.findByRole("region", { name: "solo" });
+    expect(within(machine).getByText(/^Orchestrator/).textContent).toBe("Orchestrator · waiting for work");
+    expect(within(machine).queryByRole("link", { name: /Open run window/ })).toBeNull();
+  });
+
   it("offers no run window to an orchestrator that waits for none", async () => {
     serving<ShopFloor>("shop-floor", (view) => {
       const orchestrator = view.workers.find((line) => line.worker.name === "solo")?.orchestrator;

@@ -50,6 +50,6 @@ func setsOrchestrator(desired string) func(*invocation, []string) int {
 		client := c.client()
 		defer client.Close()
 		row, err := client.SetOrchestrator(c.ctx, worker, api.SetOrchestrator{Desired: desired})
-		return c.finish(err, row, func() string { return orchestratorLine(api.Orchestrator{Orchestrator: row}) })
+		return c.finish(err, row, func() string { return orchestratorLine(row) })
 	}
 }

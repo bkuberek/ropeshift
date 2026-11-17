@@ -6,6 +6,7 @@ import (
 
 	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/authority"
+	"ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/internal/ledger"
 )
 
@@ -36,10 +37,14 @@ func (d *talkDaemon) orchestratorReads(t *testing.T) (floor, row, target string)
 	return floor, read.WaitingFor, targets.Orchestrators[0].WaitingFor
 }
 
-// orchestratorSays reports the orchestrator's state, as its worker would.
-func (d *talkDaemon) orchestratorSays(t *testing.T, state string) {
+// orchestratorSays reports the orchestrator's state and conditions, as its worker would.
+func (d *talkDaemon) orchestratorSays(t *testing.T, state string, conditions ...lanes.Condition) {
 	t.Helper()
-	raw, err := json.Marshal(ledger.LaneStatus{ActualState: state, Liveness: "unknown"})
+	status := ledger.LaneStatus{ActualState: state, Liveness: "unknown"}
+	for _, condition := range conditions {
+		status.Conditions = append(status.Conditions, string(condition))
+	}
+	raw, err := json.Marshal(status)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,9 +57,10 @@ func (d *talkDaemon) orchestratorSays(t *testing.T, state string) {
 	}
 }
 
-// A worker holds its orchestrator's run in `provisioning` until there is something to judge, and an attended
-// worker's orchestrator judges no new work with no run window open, so every read says the run waits for a
-// window, and none says so once a member opens one, at another level, or once the session started.
+// A worker says its orchestrator's run awaits a wake while there is nothing to judge, and an attended worker's
+// orchestrator judges no new work with no run window open, so every read says the run waits for a window. With
+// a window open, or at another level, the same wait is for work. A run a wake reached prepares its session,
+// and no read says it waits, nor once the session started.
 func TestAnAttendedOrchestratorWaitsForARunWindow(t *testing.T) {
 	t.Parallel()
 	d := startTalk(t)
@@ -62,14 +68,14 @@ func TestAnAttendedOrchestratorWaitsForARunWindow(t *testing.T) {
 	if _, err := d.workers.SetOrchestrator(ctx, d.auth.WorkerID, ledger.OrchestratorRunning, talkMember); err != nil {
 		t.Fatal(err)
 	}
-	d.orchestratorSays(t, "provisioning")
+	d.orchestratorSays(t, "provisioning", lanes.AwaitingWake)
 	if floor, row, target := d.orchestratorReads(t); floor != api.WaitingForRunWindow || row != api.WaitingForRunWindow || target != api.WaitingForRunWindow {
 		t.Fatalf("an attended worker with no window: floor %q, orchestrator %q, target %q", floor, row, target)
 	}
 	if _, err := d.Client.OpenWindow(ctx, d.auth.WorkerID, api.OpenWindow{ID: "w1", LengthMs: 60_000}); err != nil {
 		t.Fatal(err)
 	}
-	if floor, row, target := d.orchestratorReads(t); floor != "" || row != "" || target != "" {
+	if floor, row, target := d.orchestratorReads(t); floor != api.WaitingForWork || row != api.WaitingForWork || target != api.WaitingForWork {
 		t.Errorf("an open window: floor %q, orchestrator %q, target %q", floor, row, target)
 	}
 	if err := d.Client.CloseWindow(ctx, d.auth.WorkerID); err != nil {
@@ -78,11 +84,15 @@ func TestAnAttendedOrchestratorWaitsForARunWindow(t *testing.T) {
 	if err := d.Client.SetAutonomy(ctx, d.auth.WorkerID, api.SetAutonomy{Level: authority.LevelManual}); err != nil {
 		t.Fatal(err)
 	}
-	if floor, row, target := d.orchestratorReads(t); floor != "" || row != "" || target != "" {
+	if floor, row, target := d.orchestratorReads(t); floor != api.WaitingForWork || row != api.WaitingForWork || target != api.WaitingForWork {
 		t.Errorf("a manual worker, whom no window lets claim: floor %q, orchestrator %q, target %q", floor, row, target)
 	}
 	if err := d.Client.SetAutonomy(ctx, d.auth.WorkerID, api.SetAutonomy{Level: authority.LevelAttended}); err != nil {
 		t.Fatal(err)
+	}
+	d.orchestratorSays(t, "provisioning")
+	if floor, row, target := d.orchestratorReads(t); floor != "" || row != "" || target != "" {
+		t.Errorf("a run a wake reached, with no window open: floor %q, orchestrator %q, target %q", floor, row, target)
 	}
 	d.orchestratorSays(t, "idle")
 	if floor, row, target := d.orchestratorReads(t); floor != "" || row != "" || target != "" {
@@ -97,7 +107,7 @@ func TestAStoppedOrchestratorWaitsForNoWindow(t *testing.T) {
 	if _, err := d.workers.SetOrchestrator(t.Context(), d.auth.WorkerID, ledger.OrchestratorRunning, talkMember); err != nil {
 		t.Fatal(err)
 	}
-	d.orchestratorSays(t, "provisioning")
+	d.orchestratorSays(t, "provisioning", lanes.AwaitingWake)
 	if _, err := d.workers.SetOrchestrator(t.Context(), d.auth.WorkerID, ledger.OrchestratorStopped, talkMember); err != nil {
 		t.Fatal(err)
 	}
