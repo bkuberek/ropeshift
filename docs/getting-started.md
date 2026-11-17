@@ -92,14 +92,12 @@ Before the first lane:
   A repository's own settings and hooks run in its lanes. Run lanes on work from outside your team
   only behind another operating system user, a container, a virtual machine, or another machine.
   docs/onboarding.md and docs/authorization.md say more.
-Next: start the daemon with ropeshiftd solo --source <repository>.
+Next: run the daemon with ropeshift service install (brew services start ropeshift on a Homebrew install), or in the foreground with ropeshiftd solo --source <repository>.
 ```
 
 - `Worker: registered as <worker-id>` names this machine's worker.
 - Under `Agent CLIs:`, a line that says `not installed` or `not signed in` says what to do. Do it, and run `ropeshift init` again. A machine signed in with an API key starts at `unattended` instead. A Claude Code version ropeshift has not qualified adds a sentence saying the worker checks it before its first lane.
 - It exits 0 once an agent CLI is usable.
-
-The last line names a daemon in the foreground. This guide runs the daemon as a service instead, in the next step.
 
 ### 5. Start the service
 
