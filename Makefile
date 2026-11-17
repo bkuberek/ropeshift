@@ -214,11 +214,12 @@ guide-shots:
 	@$(MAKE) --no-print-directory canary
 
 # Optimizes the captures of a screenshot run with pngquant and copies the ones the table in
-# docs/development/screenshots.md names into docs/assets/screenshots. SHOTS is the directory the run wrote.
+# docs/development/screenshots.md names into docs/assets/screenshots. SHOTS is the directory the run wrote, and
+# GUIDE publishes only the captures of the guide with that prefix, from a run that may have captured nothing else.
 SHOTS ?=
 
 screenshots-publish:
-	sh scripts/screenshots-publish.sh $(if $(SHOTS),-s "$(SHOTS)")
+	sh scripts/screenshots-publish.sh $(if $(SHOTS),-s "$(SHOTS)") $(if $(GUIDE),-g "$(GUIDE)")
 
 # The release's qualification suite: the production probe on the installed CLI, which ends with that
 # version's row for the matrix the binary ships (internal/adapters/claudecode/matrix.json).
