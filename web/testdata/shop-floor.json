@@ -403,8 +403,77 @@
       "worker_id": "worker-a"
     }
   ],
-  "revision": 341,
+  "revision": 344,
   "workers": [
+    {
+      "drivers": [],
+      "freshness": "observed",
+      "report_freshness": "observed",
+      "worker": {
+        "epoch": 1,
+        "id": "7c41e9a05d2b4f68b3a1e6d29c084f5a",
+        "last_handshake_at": 1790000964001,
+        "manifest": {
+          "capacity": {
+            "max_lanes": 0
+          },
+          "owner": {}
+        },
+        "name": "build-host-07",
+        "protocol": 4,
+        "report": {
+          "caps": {
+            "max_lanes": 11,
+            "max_lanes_per_sign_in": 0,
+            "max_lanes_set": false
+          },
+          "interval_ms": 15000,
+          "machine": {
+            "cores": 12,
+            "cpu_percent": 37.5,
+            "load_1": 3.42,
+            "load_15": 2.15,
+            "load_5": 2.87,
+            "memory_available_bytes": 24696061952,
+            "memory_pressure_some": 4.2,
+            "memory_total_bytes": 68719476736,
+            "memory_used_bytes": 44023414784,
+            "volumes": [
+              {
+                "free_bytes": 195421011968,
+                "roles": [
+                  "state"
+                ],
+                "total_bytes": 493921239040
+              },
+              {
+                "free_bytes": 1406601789440,
+                "roles": [
+                  "worktrees"
+                ],
+                "total_bytes": 1964947537920
+              }
+            ]
+          },
+          "recommendation": {
+            "basis": "estimates",
+            "by_cpu": 11,
+            "by_memory": 30,
+            "cores": 12,
+            "lane_cpu": 1,
+            "lane_memory_bytes": 2147483648,
+            "max_lanes": 11,
+            "memory_total_bytes": 68719476736,
+            "observed_lanes": 0,
+            "reason": "12 cores less 1 reserved, at 1 per lane, fit 11 lanes; 64.0 GiB of memory less 4.0 GiB reserved, at 2.0 GiB per lane, fit 30; the lower is 11, from the estimates",
+            "reserve_cpu": 1,
+            "reserve_memory_bytes": 4294967296
+          },
+          "sessions": []
+        },
+        "reported_at": 1790000964001
+      }
+    },
     {
       "drivers": [],
       "freshness": "last_reported",

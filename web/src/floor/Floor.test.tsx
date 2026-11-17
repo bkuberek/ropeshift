@@ -617,7 +617,7 @@ describe("the floor", () => {
 
   it("states an orchestrator's state in its chip", async () => {
     serving<ShopFloor>("shop-floor", (view) => {
-      const orchestrator = view.workers[0]?.orchestrator;
+      const orchestrator = view.workers.find((line) => line.worker.name === "solo")?.orchestrator;
       if (orchestrator) {
         orchestrator.actual_state = "working";
         orchestrator.current_generation = 5;
@@ -630,12 +630,13 @@ describe("the floor", () => {
 
   it("says when a worker runs no orchestrator", async () => {
     serving<ShopFloor>("shop-floor", (view) => {
-      if (view.workers[0]) {
-        view.workers[0].orchestrator = undefined;
+      const line = view.workers.find((one) => one.worker.name === "solo");
+      if (line) {
+        line.orchestrator = undefined;
       }
     });
     openPage("/floor");
-    expect(await screen.findByText("No orchestrator")).toBeTruthy();
+    expect(await within(await screen.findByRole("region", { name: "solo" })).findByText("No orchestrator")).toBeTruthy();
   });
 
   it("offers a lane's act through a dialog that says what it does", async () => {
@@ -724,7 +725,7 @@ describe("operations", () => {
     serveViews();
     openPage("/measures");
     const fleet = await screen.findByRole("region", { name: "Fleet" });
-    expect(within(fleet).getByText("Workers").closest("div")?.textContent).toContain("0 of 1 observed");
+    expect(within(fleet).getByText("Workers").closest("div")?.textContent).toContain("1 of 2 observed");
   });
 
   it("states a zero where a state holds nothing", async () => {

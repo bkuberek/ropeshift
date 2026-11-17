@@ -251,7 +251,7 @@ func TestTheCursorStaysOnSomethingThatNeedsAPerson(t *testing.T) {
 // One worker reads as one worker, and one lane as one lane.
 func TestTheHeaderCountsInWords(t *testing.T) {
 	snapshot := golden(t)
-	snapshot.Floor.Lanes = snapshot.Floor.Lanes[:1]
+	snapshot.Floor.Lanes, snapshot.Floor.Workers = snapshot.Floor.Lanes[:1], snapshot.Floor.Workers[:1]
 	header, _, _ := strings.Cut(loaded(t, snapshot).View(), "\n")
 	if !strings.HasPrefix(header, "ropeshift top   12 need you   1 lane   1 worker   ") {
 		t.Errorf("header %q", header)

@@ -102,7 +102,41 @@ func aDetailedWorld(t *testing.T) *apitest.Daemon {
 	apitest.Populate(w, clock)
 	apitest.Detail(w, clock)
 	project.Change()
+	aMeasuredMachine(t, w)
 	return d
+}
+
+// measuredWorker is a worker ID of the length a worker makes its own: 16 random bytes in hex.
+const measuredWorker = "7c41e9a05d2b4f68b3a1e6d29c084f5a"
+
+// aMeasuredMachine joins a second worker that reported every measure the Workers view's Machines table shows, so
+// that table holds a full row beside the world's worker, which has reported nothing.
+func aMeasuredMachine(t *testing.T, w *apitest.World) {
+	t.Helper()
+	cpu, load1, load5, load15, pressure := 37.5, 3.42, 2.87, 2.15, 4.2
+	total, used, available := int64(64)<<30, int64(41)<<30, int64(23)<<30
+	settings, err := lanes.Admission{}.Recommending()
+	if err != nil {
+		t.Fatal(err)
+	}
+	recommended, ok := lanes.Recommend(lanes.RecommendInput{Cores: 12, MemoryTotalBytes: &total, Settings: settings})
+	if !ok {
+		t.Fatal("a machine of 12 cores has no recommendation")
+	}
+	w.Reporting(measuredWorker, "build-host-07", ledger.ResourceReport{
+		IntervalMs: 15_000, AgeMs: 1_000,
+		Machine: ledger.MachineResources{
+			Cores: 12, CPUPercent: &cpu, Load1: &load1, Load5: &load5, Load15: &load15,
+			MemoryTotalBytes: &total, MemoryUsedBytes: &used, MemoryAvailableBytes: &available, MemoryPressureSome: &pressure,
+			Volumes: []ledger.VolumeResources{
+				{Roles: []string{"state"}, FreeBytes: 182 << 30, TotalBytes: 460 << 30},
+				{Roles: []string{"worktrees"}, FreeBytes: 1_310 << 30, TotalBytes: 1_830 << 30},
+			},
+		},
+		Recommendation: &recommended,
+		Caps:           ledger.LaneCaps{MaxLanes: recommended.MaxLanes},
+		Sessions:       []ledger.SessionResources{},
+	})
 }
 
 func readAny(t *testing.T, d *apitest.Daemon, name string) any {
