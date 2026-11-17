@@ -593,6 +593,9 @@ func checkMidPlanWorkStates(r *Rig) error {
 		return err
 	} else if load.State != workorders.ContractReview {
 		missing = append(missing, fmt.Sprintf("work that has not started is %s", load.State))
+	} else if load.StartHeld == nil || load.StartHeld.Reason != workorders.HoldDecision {
+		// The plan's revision keeps the work in review as well, so a person's one-way decision is held to its own hold.
+		missing = append(missing, fmt.Sprintf("work that has not started is held by %+v, and no decision holds it", load.StartHeld))
 	}
 	reworked, err := m.reworkOf(m.orders["done"])
 	if err != nil {
