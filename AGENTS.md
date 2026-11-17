@@ -19,6 +19,7 @@ The module follows a hexagonal layout, and `test/rules` classifies every package
 | `internal/authority`, `contextpacks`, `conversations`, `delivery`, `lanes`, `ledger`, `measures`, `messages`, `parking`, `planning`, `projectfiles`, `questions`, `workorders` | Domain | The rules of the product, with no process, file, network, clock, or entropy access |
 | `internal/ports` | Ports | The interfaces the application needs, each with a fake |
 | `internal/control`, `internal/worker` | Application | The control plane and the worker |
+| `internal/adoption` | Shared | The logic both planes use to plan an adoption: it reads git and the disk only through the ports it is given |
 | `internal/adapters/...` | Adapters | Claude Code, SQLite, Postgres, git, tmux, launchd, systemd, OpenTelemetry, and the other outside systems. No binary wires the Postgres adapter yet, and `test/rules` holds that |
 | `internal/api`, `internal/api/server` | API | The versioned API's types and client, and its HTTP handler |
 | `internal/cli`, `hook`, `mcpserver`, `shim`, `top` | Clients | The command line, hook, MCP server, session shim, and terminal view |
@@ -35,7 +36,8 @@ The module follows a hexagonal layout, and `test/rules` classifies every package
 
 - A main imports only `internal/entry`.
 - Domain and port packages import only the domain and a short list of pure standard library packages, and no third-party module.
-- The application imports the domain, ports, and support packages. The control plane and the worker do not import each other.
+- The application imports the domain, ports, support packages, and the shared logic. The control plane and the worker do not import each other.
+- The shared logic imports the domain, ports, and support packages, and only the standard library packages that reach no process, file, or network. It imports no adapter and neither plane.
 - Only `internal/entry` imports adapters. An adapter imports the domain, ports, other adapters, support packages, and the API client.
 - Clients reach the ledger only through the API or the worker's socket. No path from a client reaches the ports, the application, an adapter, or the API server, and no path from the hook reaches an adapter.
 - Every port has a fake, there is one authorization function, and every Go module and web package must carry a license the license check allows.

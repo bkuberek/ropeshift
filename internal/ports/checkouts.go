@@ -81,6 +81,20 @@ type Checkouts interface {
 	All(ctx context.Context) ([]Checkout, error)
 }
 
+// SamePath says two paths name one directory on this worker's machine, however each is spelled: a checkout kept
+// through a symbolic link, as a temporary directory is on a machine whose /var is a link, is the clone at the
+// path the link leads to. A machine that cannot tell says they differ.
+func SamePath(ctx context.Context, kept Checkouts, a, b string) bool {
+	if a == b {
+		return true
+	}
+	if kept == nil {
+		return false
+	}
+	same, err := kept.SameFile(ctx, a, b)
+	return err == nil && same
+}
+
 // InsideClone says whether a path is one of the clones or lies inside one, and names that clone. It
 // compares what the disk says of each path, every symbolic link followed, so a root that reaches a clone
 // through a link, or that a disk that ignores case spells another way, is found. A path nothing is at is

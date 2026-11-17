@@ -66,25 +66,11 @@ func matchIn(repositories ports.RepositoryReader, clone ports.Clone, keptHere []
 	})
 }
 
-// samePath says two paths name one directory on this worker's machine, however each is spelled: a checkout kept
-// through a symbolic link, as a temporary directory is on a machine whose /var is a link, is the clone at the
-// path the link leads to.
-func samePath(ctx context.Context, kept ports.Checkouts, a, b string) bool {
-	if a == b {
-		return true
-	}
-	if kept == nil {
-		return false
-	}
-	same, err := kept.SameFile(ctx, a, b)
-	return err == nil && same
-}
-
 // keptAt lists the records this worker keeps the clone's path as the checkout of.
 func (how registration) keptAt(ctx context.Context, clone ports.Clone) []string {
 	var ids []string
 	for id, path := range how.held {
-		if samePath(ctx, how.kept, path, clone.Path) {
+		if ports.SamePath(ctx, how.kept, path, clone.Path) {
 			ids = append(ids, id)
 		}
 	}
@@ -121,14 +107,14 @@ func (how registration) holdersOf(ctx context.Context, clone ports.Clone) (map[s
 	}
 	for _, id := range rootsOf(clone) {
 		path, ok := how.held[id]
-		if !ok || samePath(ctx, how.kept, path, clone.Path) {
+		if !ok || ports.SamePath(ctx, how.kept, path, clone.Path) {
 			continue
 		}
 		found, _, err := how.kept.Find(ctx, []string{path}, 1)
 		if err != nil {
 			return nil, err
 		}
-		if at := slices.IndexFunc(found, func(c ports.Clone) bool { return samePath(ctx, how.kept, c.Path, path) && holdsRoot(c, id) }); at >= 0 {
+		if at := slices.IndexFunc(found, func(c ports.Clone) bool { return ports.SamePath(ctx, how.kept, c.Path, path) && holdsRoot(c, id) }); at >= 0 {
 			out[id] = holder{path: found[at].Path, remote: found[at].Remote}
 		}
 	}
@@ -140,7 +126,7 @@ func (how registration) holdersOf(ctx context.Context, clone ports.Clone) (map[s
 // remote are one repository, and two with different remotes, or with none, are not. The same path with a new
 // remote is not a second clone, because a remote can move.
 func sharesFirstCommit(ctx context.Context, machine ports.Checkouts, kept holder, clone ports.Clone) bool {
-	if samePath(ctx, machine, kept.path, clone.Path) {
+	if ports.SamePath(ctx, machine, kept.path, clone.Path) {
 		return false
 	}
 	return ledger.SharesFirstCommit(kept.remote, clone.Remote)

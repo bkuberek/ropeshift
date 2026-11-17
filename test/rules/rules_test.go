@@ -150,6 +150,14 @@ func TestDependencyDirectionFixtures(t *testing.T) {
 		{"the API client imports the ports", "api-client-imports-ports", "api-client-light"},
 		{"the API handlers wire an adapter", "api-server-imports-adapter", "only-entry-wires"},
 		{"an adapter imports the API handlers", "adapter-imports-api-server", "adapters-outward"},
+		{"shared logic reaches the operating system", "shared-imports-os", "shared-pure"},
+		{"shared logic runs a process", "shared-runs-a-process", "shared-pure"},
+		{"shared logic reaches the file system", "shared-reads-the-disk", "shared-pure"},
+		{"shared logic uses the file path package", "shared-uses-filepath", "shared-pure"},
+		{"shared logic reaches a third-party module", "shared-third-party", "shared-pure"},
+		{"shared logic imports an adapter", "shared-imports-adapter", "shared-inward"},
+		{"shared logic imports a plane", "shared-imports-control", "shared-inward"},
+		{"a client imports the shared logic", "client-imports-shared", "clients-through-api"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -174,7 +182,7 @@ func TestDependencyDirectionFixtures(t *testing.T) {
 
 // TestAllowedAPIShapes proves the rules do not refuse the layout they describe.
 func TestAllowedAPIShapes(t *testing.T) {
-	for _, fixture := range []string{"adapter-imports-api-client", "api-server-is-allowed"} {
+	for _, fixture := range []string{"adapter-imports-api-client", "api-server-is-allowed", "application-uses-shared"} {
 		t.Run(fixture, func(t *testing.T) {
 			pkgs, err := LoadPackages(filepath.Join("testdata", "dependencies", fixture))
 			if err != nil {
