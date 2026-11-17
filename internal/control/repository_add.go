@@ -32,7 +32,10 @@ type Added struct {
 	Manifest string
 	Remote   string
 	Path     string
-	Outcome  ledger.RepositoryOutcome
+	// Entered is the path the clone was reached by, before symbolic links were followed, for display. A path
+	// that holds no clone has none, because Path is then the path as named.
+	Entered string
+	Outcome ledger.RepositoryOutcome
 	// Repository is the record as it stands, or as it would after a dry run. A path that holds no clone
 	// has none, and a refused clone has only what git said of it.
 	Repository ledger.Repository
@@ -81,6 +84,7 @@ func (r *Repositories) Add(ctx context.Context, scope ledger.WorkspaceID, in Rep
 	seen := seenRun{}
 	for _, clone := range clones {
 		if again, ok := seen.again(clone); ok {
+			again.Entered = enteredAs(clone)
 			out = append(out, again)
 			continue
 		}
@@ -88,6 +92,7 @@ func (r *Repositories) Add(ctx context.Context, scope ledger.WorkspaceID, in Rep
 		if err != nil {
 			return out, err
 		}
+		added.Entered = enteredAs(clone)
 		if added.Outcome != ledger.RegistrationRefused {
 			if added.Checkout, err = keepCheckout(ctx, kept, scope, held, clone, added.Repository.ID, in.DryRun); err != nil {
 				return out, err
@@ -104,6 +109,15 @@ func (r *Repositories) Add(ctx context.Context, scope ledger.WorkspaceID, in Rep
 		out = append(out, Added{Path: path.Path, Outcome: ledger.RegistrationRefused, Reason: path.Reason})
 	}
 	return out, nil
+}
+
+// enteredAs is the path a clone was reached by when that is not its path, which is when a symbolic link led
+// to it, and is empty otherwise.
+func enteredAs(clone ports.Clone) string {
+	if clone.Entered == clone.Path {
+		return ""
+	}
+	return clone.Entered
 }
 
 // registration is how one clone is registered.

@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
@@ -6,6 +6,7 @@ import { go } from "../app/route";
 import { openPage } from "../opening";
 import type { Sent } from "../testing";
 import { golden, here, refusal, serveViews } from "../testing";
+import { DryRun } from "./Repositories";
 
 type Answer = { status: number; body?: unknown };
 
@@ -286,12 +287,45 @@ describe("Repositories", () => {
     await userEvent.click(within(dialog).getByRole("button", { name: "Run dry run" }));
     const table = await within(dialog).findByRole("region", { name: "Clones found" });
     expect(within(table).getByText("Will register")).toBeTruthy();
+    expect(within(table).getByText("/srv/code/web")).toBeTruthy();
+    expect(within(table).queryByText("/work/web")).toBeNull();
     expect(within(table).getByText("Already in this project")).toBeTruthy();
     expect(within(table).getByText(/^Refused: /)).toBeTruthy();
     expect(sentTo(sent, "POST", "/v1/repositories")[0]?.body).toEqual({ paths: ["/work"], depth: 1, dry_run: true });
     await userEvent.click(within(dialog).getByRole("button", { name: "Register 1 repository" }));
     await waitFor(() => expect(sentTo(sent, "POST", "/v1/repositories")).toHaveLength(2));
     expect(sentTo(sent, "POST", "/v1/repositories")[1]?.body).toEqual({ paths: ["/work"], depth: 1, dry_run: false });
+  });
+
+  describe("the dry run's table", () => {
+    const remote = "git@example.invalid:acme/a-repository-with-a-remote-too-long-for-its-column.git";
+    const long = "/srv/code/a/deep/folder/of/clones/each/with/a/long/name/a-repository-with-a-long-name";
+    const report = {
+      dry_run: true,
+      repositories: [
+        { path: `/private${long}`, entered: long, outcome: "registered" as const, repository: { id: "id-a", remote } },
+        { path: "/work/web", outcome: "known" as const },
+      ],
+    };
+
+    it("gives the result its own cell, and lets the path and the identity wrap", () => {
+      const { container } = render(<DryRun report={report as never} />);
+      const [first] = container.querySelectorAll("tbody tr");
+      const cells = first?.querySelectorAll("td") ?? [];
+      expect(cells[0]?.classList.contains("wrap")).toBe(true);
+      expect(cells[1]?.classList.contains("wrap")).toBe(true);
+      expect(cells[2]?.classList.contains("result")).toBe(true);
+      expect(cells[2]?.classList.contains("wrap")).toBe(false);
+      expect(within(cells[2] as HTMLElement).getByText("Will register")).toBeTruthy();
+    });
+
+    it("shows the path the member named, with where it leads in its title, and the path as given when none was named", () => {
+      const { container } = render(<DryRun report={report as never} />);
+      const paths = [...container.querySelectorAll("tbody td:first-child code")];
+      expect(paths.map((code) => code.textContent)).toEqual([long, "/work/web"]);
+      expect(paths[0]?.getAttribute("title")).toBe(`Leads to /private${long}`);
+      expect(paths[1]?.getAttribute("title")).toBeNull();
+    });
   });
 
   it("moves keyboard focus into the register dialog when a move to the page opens it", async () => {
