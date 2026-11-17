@@ -86,6 +86,7 @@ func PlaneRoutes() []PlaneRoute {
 		{http.MethodPost, "/v1/workers/{id}/approvals/decide", false},
 		{http.MethodPost, "/v1/workers/{id}/assistant-credentials", false},
 		{http.MethodPost, "/v1/workers/{id}/assistant-entries", false},
+		{http.MethodPost, "/v1/workers/{id}/template-reports", false},
 		{http.MethodPost, "/v1/workers/{id}/orchestrator/digest", false},
 		{http.MethodPost, "/v1/workers/{id}/orchestrator/acts/{verb}", false},
 	}

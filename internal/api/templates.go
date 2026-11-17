@@ -3,7 +3,14 @@ package api
 import (
 	"context"
 	"net/http"
+
+	"ropeshift.com/ropeshift/internal/ledger"
 )
+
+// TemplateWrite is the body of a request that a worker write a shape's starting files into a folder on its
+// machine, as `ropeshift new` writes them (FR-TPL-5): the shape, the absolute folder, the code repositories of a
+// workspace, the project a repository's commands name, and whether the worker makes the folder's first commit.
+type TemplateWrite = ledger.TemplateWriteRequest
 
 // TemplatesPath lists the project templates the daemon's binary embeds.
 const TemplatesPath = "/v1/templates"

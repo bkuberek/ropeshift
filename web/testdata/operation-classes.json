@@ -81,6 +81,12 @@
       "exemptable": false
     },
     {
+      "id": "template.write",
+      "label": "Write a project's starting files",
+      "class": "member_only",
+      "exemptable": false
+    },
+    {
       "id": "orchestrator.run",
       "label": "Start or stop an orchestrator",
       "class": "operational",

@@ -57,6 +57,7 @@ const (
 	OpAutonomyAcknowledge                 = "autonomy.acknowledge"
 	OpAutonomyWindow                      = "autonomy.window"
 	OpWorkerLaneCaps                      = "worker.lane_caps"
+	OpTemplateWrite                       = "template.write"
 	OpOrchestratorRun                     = "orchestrator.run"
 	OpRosterChange                        = "roster.change"
 	OpSessionEnd                          = "session.end"
@@ -198,6 +199,10 @@ var operations = append(onInstallation(
 	// A worker's lane caps live in the user's profile on its machine and set what that machine admits. No
 	// ledger record holds them for a card to bind to, so a delegate's call is refused, not carded.
 	memberOnly(OpWorkerLaneCaps, "Set a worker's lane caps", ActionSetLaneCaps),
+	// A template write puts files at a path a caller chooses on a machine, which a delegate could choose, and
+	// no ledger record holds them for a card to bind to, as for worker.lane_caps and
+	// repository.register_manifest, so a delegate's call is refused, not carded.
+	memberOnly(OpTemplateWrite, "Write a project's starting files", ActionWriteTemplates),
 	operational(OpOrchestratorRun, "Start or stop an orchestrator", ActionRunOrchestrator),
 	memberOnly(OpSessionEnd, "Sign out", ActionManageSessions),
 	memberOnly(OpSessionEndAll, "Sign out all sessions", ActionManageSessions),

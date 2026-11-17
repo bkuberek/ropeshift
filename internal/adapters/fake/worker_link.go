@@ -33,6 +33,8 @@ type WorkerLink struct {
 	StripPacks atomic.Bool
 	// FailUpload refuses every upload, as a control plane that is away would.
 	FailUpload atomic.Bool
+	// FailTemplateReport refuses every report of a template write, as a control plane that is away would.
+	FailTemplateReport atomic.Bool
 }
 
 // AssistantCredential calls the plane.
@@ -43,6 +45,14 @@ func (l *WorkerLink) AssistantCredential(ctx context.Context, request ledger.Ass
 // AssistantEntry calls the plane.
 func (l *WorkerLink) AssistantEntry(ctx context.Context, request ledger.AssistantEntryRequest) error {
 	return l.Plane.AssistantEntry(ctx, request)
+}
+
+// ReportTemplateWrite calls the plane, unless it is away.
+func (l *WorkerLink) ReportTemplateWrite(ctx context.Context, report ledger.TemplateWriteReport) error {
+	if l.FailTemplateReport.Load() {
+		return errPlaneAway
+	}
+	return l.Plane.ReportTemplateWrite(ctx, report)
 }
 
 // Register calls the plane.

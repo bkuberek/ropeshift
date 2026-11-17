@@ -169,6 +169,9 @@ type handler struct {
 	// caps reads and sets the lane caps of the worker this daemon runs, which only the first project's
 	// handler holds.
 	caps *control.LaneCaps
+	// templateWrites records a member's requests that a worker write a shape's starting files, which only the
+	// first project's handler holds.
+	templateWrites *control.TemplateWrites
 }
 
 // New returns the versioned API. The installation's routes sit at the top, and each project's routes
@@ -193,6 +196,7 @@ func New(config Config) http.Handler {
 	projects := newRouter(config, home)
 	home.lifecycle, home.router = control.NewProjects(config.Projects), projects
 	home.caps = control.NewLaneCaps(config.Installation, config.Profile, config.LocalWorker)
+	home.templateWrites = control.NewTemplateWrites(config.Installation, config.HeartbeatMs, config.LocalWorker)
 	mux := http.NewServeMux()
 	home.installationRoutes(mux)
 	projects.registryRoutes(mux)
@@ -211,6 +215,7 @@ func (h *handler) installationRoutes(mux *http.ServeMux) {
 	h.orchestratorRoutes(mux)
 	h.autonomyRoutes(mux)
 	h.capsRoutes(mux)
+	h.templateWriteRoutes(mux)
 	h.telemetryRoutes(mux)
 	h.installationRosterRoutes(mux)
 	h.templateRoutes(mux)

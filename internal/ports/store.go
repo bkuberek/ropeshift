@@ -1076,6 +1076,26 @@ type RosterWriter interface {
 	Insert(roster.Version) (bool, error)
 }
 
+// TemplateWriteReader reads the requests a member made of workers to write a shape's starting files
+// (FR-TPL-5), which the installation holds.
+type TemplateWriteReader interface {
+	// Find reads one request, or ErrNotFound.
+	Find(id string) (ledger.TemplateWriteRecord, error)
+	// Offered lists the requests of a worker that no report has settled, oldest first, expired ones
+	// included: the caller keeps the ones not yet expired.
+	Offered(worker string) ([]ledger.TemplateWriteRecord, error)
+}
+
+// TemplateWriteWriter writes template write requests.
+type TemplateWriteWriter interface {
+	TemplateWriteReader
+	// Insert records a new offered request.
+	Insert(ledger.TemplateWriteRecord) error
+	// Settle records the first report of a request: its state, the report, and when it came. It says
+	// whether this report was the first, and a request that is already settled changes nothing.
+	Settle(id string, state ledger.TemplateWriteState, report ledger.TemplateWriteReport, reportedAt int64) (bool, error)
+}
+
 // MeasureReader reads experience records.
 type MeasureReader interface {
 	// Experience returns the record of one subject, or ErrNotFound.

@@ -156,6 +156,26 @@ func (c *Client) AssistantEntry(ctx context.Context, worker string, in ledger.As
 	return c.Do(ctx, http.MethodPost, workerPath(worker, "assistant-entries"), in, nil)
 }
 
+// ReportTemplateWrite says what this worker did with a request to write a shape's starting files.
+func (c *Client) ReportTemplateWrite(ctx context.Context, worker string, in ledger.TemplateWriteReport) error {
+	return c.Do(ctx, http.MethodPost, workerPath(worker, "template-reports"), in, nil)
+}
+
+// RequestTemplateWrite asks a worker to write a shape's starting files into a folder on its machine, as a
+// member.
+func (c *Client) RequestTemplateWrite(ctx context.Context, worker string, in TemplateWrite) (ledger.TemplateWriteView, error) {
+	var out ledger.TemplateWriteView
+	err := c.Do(ctx, http.MethodPost, workerPath(worker, "template-writes"), in, &out)
+	return out, err
+}
+
+// TemplateWriteView reads a template write request, with its state and what the worker reported.
+func (c *Client) TemplateWriteView(ctx context.Context, worker, request string) (ledger.TemplateWriteView, error) {
+	var out ledger.TemplateWriteView
+	err := c.Do(ctx, http.MethodGet, workerPath(worker, "template-writes", url.PathEscape(request)), nil, &out)
+	return out, err
+}
+
 // LaneContext reads what a workspace holds, for a lane this worker holds.
 func (c *Client) LaneContext(ctx context.Context, worker string, in ledger.LaneContextRequest) (ledger.LaneContext, error) {
 	var out ledger.LaneContext

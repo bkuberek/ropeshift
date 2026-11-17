@@ -11,8 +11,9 @@ import (
 // (ADR-0021). Version 3 adds the assistant's sessions: desired state's assistants, the worker routes that
 // make a generation's credential and record a reply, and uploads from an assistant's run (ADR-0024). Version 4
 // adds the delegate that sent a lane's own layer: a desired lease's delegated layer, which the worker holds the
-// layer to (FR-AUTH-16).
-const ProtocolVersion = 4
+// layer to (FR-AUTH-16). Version 5 adds template writes: desired state's template_writes, which ask a worker to
+// write a shape's starting files into a folder, and the worker route that reports one (FR-TPL-5).
+const ProtocolVersion = 5
 
 // ProtocolAssistants is the oldest protocol a worker runs the assistant on.
 const ProtocolAssistants = 3
@@ -21,6 +22,11 @@ const ProtocolAssistants = 3
 // under a delegate policy that restricts a raise of the model or the effort. An older worker drops that record
 // and would run the layer unrestricted, so it holds the lane's claim with no lane until it is upgraded.
 const ProtocolDelegatedLayers = 4
+
+// ProtocolTemplateWrites is the oldest protocol a worker is offered a template write on. An older worker drops
+// desired state's template_writes and would never report one, so it is offered none and a request for it is
+// refused.
+const ProtocolTemplateWrites = 5
 
 // ProtocolOldest is the oldest plane protocol any build serves. Version 1 named no project and served
 // only the installation's default project; a worker that speaks it is refused and must be upgraded.
@@ -476,6 +482,9 @@ type DesiredState struct {
 	Assistants []DesiredAssistant `json:"assistants,omitempty"`
 	// Forget are the deleted conversations whose text this worker still holds, until it says it forgot it.
 	Forget []DesiredForget `json:"forget,omitempty"`
+	// TemplateWrites are the requests to write a shape's starting files that name this worker and that it has
+	// not reported, until each expires. A worker on a protocol older than ProtocolTemplateWrites is offered none.
+	TemplateWrites []DesiredTemplateWrite `json:"template_writes,omitempty"`
 }
 
 // WatchRequest opens the stream of revision hints.

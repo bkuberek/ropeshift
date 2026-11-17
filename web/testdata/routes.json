@@ -75,6 +75,16 @@
     "command": "template show"
   },
   {
+    "method": "POST",
+    "pattern": "/v1/workers/{id}/template-writes",
+    "command": "new workspace"
+  },
+  {
+    "method": "GET",
+    "pattern": "/v1/workers/{id}/template-writes/{request}",
+    "command": "new workspace"
+  },
+  {
     "method": "GET",
     "pattern": "/v1/workers",
     "command": "worker list"

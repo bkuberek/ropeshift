@@ -34,6 +34,7 @@ var workerPlane = map[string]string{
 	"POST /v1/workers/{id}/orchestrator/acts/{verb}": "a worker's credential",
 	"POST /v1/workers/{id}/assistant-credentials":    "a worker's credential",
 	"POST /v1/workers/{id}/assistant-entries":        "a worker's credential",
+	"POST /v1/workers/{id}/template-reports":         "a worker's credential",
 }
 
 // operations names the command of every other route, so a new route fails here until it has one.
@@ -93,6 +94,8 @@ var operations = map[string]string{
 	"PUT /v1/workers/{id}/autonomy":                    "worker level",
 	"GET /v1/workers/{id}/caps":                        "worker caps",
 	"PUT /v1/workers/{id}/caps":                        "worker caps",
+	"POST /v1/workers/{id}/template-writes":            "new workspace",
+	"GET /v1/workers/{id}/template-writes/{request}":   "new workspace",
 	"POST /v1/workers/{id}/autonomy/acknowledgement":   "worker acknowledge-risk",
 	"POST /v1/workers/{id}/windows":                    "worker window-open",
 	"DELETE /v1/workers/{id}/windows":                  "worker window-close",

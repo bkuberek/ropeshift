@@ -405,11 +405,13 @@ func (w *Workers) Desired(ctx context.Context, request ledger.DesiredRequest) (l
 	if err != nil {
 		return ledger.DesiredState{}, err
 	}
+	var asked ledger.WorkerRecord
 	err = w.store.Read(ctx, w.scope, func(tx ports.ReadTx) error {
 		record, err := authenticate(tx.Workers(), request.Auth)
 		if err != nil {
 			return err
 		}
+		asked = record
 		workspace, err := tx.Workspace()
 		if err != nil {
 			return err
@@ -431,6 +433,17 @@ func (w *Workers) Desired(ctx context.Context, request ledger.DesiredRequest) (l
 		}
 		state.MaxRespawnsPerDay = facts.respawns()
 		return nil
+	})
+	if err != nil {
+		return ledger.DesiredState{}, err
+	}
+	if state.Unchanged {
+		return state, nil
+	}
+	err = w.store.Installation(w.scope).Read(ctx, func(tx ports.SharedReadTx) error {
+		var err error
+		state.TemplateWrites, err = desiredTemplateWrites(tx, asked)
+		return err
 	})
 	if err != nil {
 		return ledger.DesiredState{}, err

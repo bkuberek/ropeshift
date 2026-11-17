@@ -48,4 +48,7 @@ type WorkerLink interface {
 	AssistantCredential(ctx context.Context, request ledger.AssistantCredentialRequest) (ledger.AssistantGrant, error)
 	// AssistantEntry records a reply an assistant's run this worker holds wrote, once.
 	AssistantEntry(ctx context.Context, request ledger.AssistantEntryRequest) error
+	// ReportTemplateWrite says what this worker did with a request to write a shape's starting files. The
+	// first report of a request is recorded, and a later one is accepted and changes nothing.
+	ReportTemplateWrite(ctx context.Context, report ledger.TemplateWriteReport) error
 }

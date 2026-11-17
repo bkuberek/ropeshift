@@ -53,6 +53,9 @@ func WebRoutes() []WebRoute {
 		{http.MethodPost, ImportUploadPath, "project import"},
 		{http.MethodPost, InstallationBackupDownloadPath, "backup"},
 		{http.MethodGet, TemplatesPath, "template show"},
+		// One route takes every shape, so `new monorepo` and `new repository` are equivalents of this row.
+		{http.MethodPost, "/v1/workers/{id}/template-writes", "new workspace"},
+		{http.MethodGet, "/v1/workers/{id}/template-writes/{request}", "new workspace"},
 		{http.MethodGet, "/v1/workers", "worker list"},
 		{http.MethodPost, "/v1/workers/tokens", "worker token"},
 		{http.MethodGet, "/v1/workers/{id}/autonomy", "worker autonomy"},

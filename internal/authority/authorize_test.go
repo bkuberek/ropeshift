@@ -237,3 +237,23 @@ func TestOnlyAMemberSetsTheLaneCaps(t *testing.T) {
 		t.Error("Actions() does not list the action, so the member test never holds it to the function")
 	}
 }
+
+// TestOnlyAMemberWritesTemplates holds writing a shape's files on a machine to a person, and the operation to
+// the member-only class on the installation, which no delegate's card stands in for (FR-TPL-5).
+func TestOnlyAMemberWritesTemplates(t *testing.T) {
+	if !authority.Allowed(ledger.Actor{Kind: ledger.ActorMember, ID: "m"}, authority.ActionWriteTemplates) {
+		t.Error("a member may not write a project's starting files")
+	}
+	for _, kind := range []ledger.ActorKind{ledger.ActorOrchestrator, ledger.ActorLane, ledger.ActorWorker, ledger.ActorSystem, ledger.ActorDelegate} {
+		if authority.Allowed(ledger.Actor{Kind: kind, ID: "x"}, authority.ActionWriteTemplates) {
+			t.Errorf("%s may write a project's starting files", kind)
+		}
+	}
+	if !slices.Contains(authority.Actions(), authority.ActionWriteTemplates) {
+		t.Error("Actions() does not list the action, so the member test never holds it to the function")
+	}
+	op, ok := authority.OperationOf(authority.OpTemplateWrite)
+	if !ok || op.Class != authority.ClassMemberOnly || !op.Installation || op.DelegateMayRun() || op.Label != "Write a project's starting files" {
+		t.Errorf("template.write is %+v, want a member-only operation on the installation", op)
+	}
+}
