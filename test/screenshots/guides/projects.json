@@ -1,0 +1,125 @@
+{
+  "guide": "projects",
+  "title": "Set up your projects",
+  "world": "harbor",
+  "order": 2,
+  "steps": [
+    {
+      "step": "open Projects",
+      "route": "/needs-you",
+      "actions": [
+        { "click": { "role": "link", "name": "Projects" } },
+        { "waitFor": { "text": "Every project in this installation." } },
+        { "waitFor": { "text": "Default" } }
+      ],
+      "capture": { "name": "projects-01", "clip": "window" }
+    },
+    {
+      "step": "fill in Create project",
+      "actions": [
+        { "click": { "role": "button", "name": "Create project" } },
+        { "fill": { "label": "Display name", "value": "Harbor", "in": { "role": "dialog", "name": "Create project" } } },
+        { "fill": { "label": "Name", "value": "harbor", "in": { "role": "dialog", "name": "Create project" } } }
+      ],
+      "capture": { "name": "projects-02", "clip": { "role": "dialog", "name": "Create project" } }
+    },
+    {
+      "step": "create Harbor",
+      "actions": [
+        { "click": { "role": "button", "name": "Create project", "in": { "role": "dialog", "name": "Create project" } } },
+        { "waitFor": { "text": "No repositories in Harbor yet" } }
+      ],
+      "capture": { "name": "projects-03", "clip": "window" }
+    },
+    {
+      "step": "choose a folder of clones",
+      "route": "/projects/harbor/repositories?dialog=register",
+      "actions": [
+        { "waitFor": { "text": "Step 1 of 2", "in": { "role": "dialog", "name": "Register repositories in Harbor" } } },
+        { "click": { "role": "radio", "name": "A folder of clones", "in": { "role": "dialog", "name": "Register repositories in Harbor" } } },
+        { "fill": { "label": "Folder", "value": "{{src}}", "in": { "role": "dialog", "name": "Register repositories in Harbor" } } },
+        { "fill": { "label": "Depth", "value": "1", "in": { "role": "dialog", "name": "Register repositories in Harbor" } } }
+      ],
+      "capture": { "name": "projects-04", "clip": { "role": "dialog", "name": "Register repositories in Harbor" } }
+    },
+    {
+      "step": "run the dry run",
+      "actions": [
+        { "click": { "role": "button", "name": "Run dry run", "in": { "role": "dialog", "name": "Register repositories in Harbor" } } },
+        { "waitFor": { "text": "Will register", "in": { "role": "dialog", "name": "Register repositories in Harbor" } } },
+        { "waitFor": { "text": "harbor-web", "in": { "role": "dialog", "name": "Register repositories in Harbor" } } }
+      ],
+      "capture": { "name": "projects-05", "clip": { "role": "dialog", "name": "Register repositories in Harbor" } }
+    },
+    {
+      "step": "register the two clones",
+      "actions": [
+        { "click": { "role": "button", "name": "Register 2 repositories", "in": { "role": "dialog", "name": "Register repositories in Harbor" } } },
+        { "waitFor": { "text": "Registered 2 repositories in Harbor." } },
+        { "waitFor": { "text": "2 repositories in Harbor. A repository belongs to one project." } }
+      ],
+      "capture": { "name": "projects-06", "clip": "window" }
+    },
+    {
+      "step": "register the planning repository",
+      "actions": [
+        { "click": { "role": "button", "name": "Dismiss" } },
+        { "click": { "role": "button", "name": "Register repositories" } },
+        { "click": { "role": "radio", "name": "One repository", "in": { "role": "dialog", "name": "Register repositories in Harbor" } } },
+        { "fill": { "label": "Path to the clone", "value": "{{plan}}", "in": { "role": "dialog", "name": "Register repositories in Harbor" } } },
+        { "click": { "role": "button", "name": "Run dry run", "in": { "role": "dialog", "name": "Register repositories in Harbor" } } },
+        { "waitFor": { "text": "Will register", "in": { "role": "dialog", "name": "Register repositories in Harbor" } } },
+        { "click": { "role": "button", "name": "Register 1 repository", "in": { "role": "dialog", "name": "Register repositories in Harbor" } } },
+        { "waitFor": { "text": "Registered 1 repository in Harbor." } },
+        { "waitFor": { "text": "3 repositories in Harbor. A repository belongs to one project." } },
+        { "click": { "role": "button", "name": "Dismiss" } }
+      ]
+    },
+    {
+      "step": "check Planning repository",
+      "actions": [
+        { "click": { "role": "link", "name": "harbor-plan" } },
+        { "click": { "role": "checkbox", "name": "The project's plan lives in this repository", "in": { "role": "region", "name": "harbor-plan" } } },
+        { "waitFor": { "text": "planning repository no → yes", "in": { "role": "region", "name": "harbor-plan" } } }
+      ],
+      "capture": { "name": "projects-07", "clip": { "role": "region", "name": "harbor-plan" } }
+    },
+    {
+      "step": "save the record",
+      "actions": [
+        { "click": { "role": "button", "name": "Save", "in": { "role": "region", "name": "harbor-plan" } } },
+        { "waitFor": { "text": "Saved harbor-plan." } },
+        { "waitFor": { "text": "Planning", "in": { "role": "region", "name": "Repositories" } } },
+        { "click": { "role": "button", "name": "Dismiss" } }
+      ]
+    },
+    {
+      "step": "open the Overview",
+      "actions": [
+        { "click": { "role": "link", "name": "Overview" } },
+        { "waitFor": { "text": "Start planning session" } }
+      ],
+      "capture": { "name": "projects-08", "clip": "window" }
+    },
+    {
+      "step": "create a second project from the switcher",
+      "actions": [
+        { "press": "p" },
+        { "click": { "role": "menuitem", "name": "Create project", "in": { "role": "dialog", "name": "Switch project" } } },
+        { "fill": { "label": "Display name", "value": "Tidewater", "in": { "role": "dialog", "name": "Create project" } } },
+        { "fill": { "label": "Name", "value": "tidewater", "in": { "role": "dialog", "name": "Create project" } } },
+        { "click": { "role": "button", "name": "Create project", "in": { "role": "dialog", "name": "Create project" } } },
+        { "waitFor": { "text": "No repositories in Tidewater yet" } }
+      ]
+    },
+    {
+      "step": "open the project switcher",
+      "actions": [
+        { "press": "p" },
+        { "waitFor": { "text": "Harbor", "in": { "role": "dialog", "name": "Switch project" } } },
+        { "waitFor": { "text": "Tidewater", "in": { "role": "dialog", "name": "Switch project" } } }
+      ],
+      "capture": { "name": "projects-09", "clip": { "role": "dialog", "name": "Switch project" } }
+    }
+  ]
+}
