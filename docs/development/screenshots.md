@@ -87,6 +87,10 @@ A guide's world is the installation its walk starts from. Each theme runs its ow
 
 Go prepares only what the web UI cannot do: the clones, the fake agent CLI's scripted turns, and the installation. Everything a guide tells a person to do in the web UI, the walk does in the web UI.
 
+For guides 3 and 4, the walk also lays out `moorings`, a folder of three clones with documents and two branches in flight that guide 4 imports, and scripts the two planning sessions those guides start ([harbor_sessions_test.go](../../test/screenshots/harbor_sessions_test.go)). A session started from the web UI plays the fake CLI's own turns, so guide 3's planning session plays them first and guide 4's adopt session second. Guide 3's session asks a question, takes the line the walk types into it and asks a second, writes the plan with the second answer, and submits it in the same turn, after a pause that leaves the plan on the Planning page. A planning lane whose turn ends with no outcome and no blocking question open waits for its person, so the session submits in the turn that finishes the plan and never leaves the lane waiting. In the walk, `{{moorings}}` is the folder guide 4 imports.
+
+The harbor daemon runs its delivery and forecast ticks every second, and guide 3 visits other pages before its Roadmap capture, so the Roadmap shows the forecast the daemon made and not a pending line.
+
 The harbor clones live in one fixed, neutral folder, `/tmp/ropeshift-guides`, the code repositories in its `src` folder and the planning repository beside it, so a field that shows a path shows one of those and the private-word check can stay on for every image. The kit creates the folder, removes it at the end of the run, and refuses to start while it exists, which another walk, or one that was killed, leaves. Remove it and run again.
 
 ### The step format
@@ -188,7 +192,6 @@ Every published image has a row, and every row names a capture and the name it i
 | `settings-project-<theme>-1440.png` | `settings-<theme>.png` | Web UI guide |
 | `members-<theme>-1440.png` | `members-<theme>.png` | Web UI guide |
 | `repository-<theme>-1440.png` | `repository-<theme>.png` | GitHub guide |
-| `import-<theme>-1440.png` | `import-<theme>.png` | Adopt guide |
 | `top.png` | `top.png` | README |
 | `get-started-01-<theme>.png` | `get-started-01-<theme>.png` | Get started |
 | `get-started-02-<theme>.png` | `get-started-02-<theme>.png` | Get started |
@@ -206,5 +209,19 @@ Every published image has a row, and every row names a capture and the name it i
 | `projects-07-<theme>.png` | `projects-07-<theme>.png` | Set up your projects |
 | `projects-08-<theme>.png` | `projects-08-<theme>.png` | Set up your projects |
 | `projects-09-<theme>.png` | `projects-09-<theme>.png` | Set up your projects |
+| `plan-01-<theme>.png` | `plan-01-<theme>.png` | Plan your first change |
+| `plan-02-<theme>.png` | `plan-02-<theme>.png` | Plan your first change |
+| `plan-03-<theme>.png` | `plan-03-<theme>.png` | Plan your first change |
+| `plan-04-<theme>.png` | `plan-04-<theme>.png` | Plan your first change |
+| `plan-05-<theme>.png` | `plan-05-<theme>.png` | Plan your first change |
+| `plan-06-<theme>.png` | `plan-06-<theme>.png` | Plan your first change |
+| `plan-07-<theme>.png` | `plan-07-<theme>.png` | Plan your first change |
+| `plan-08-<theme>.png` | `plan-08-<theme>.png` | Plan your first change |
+| `plan-09-<theme>.png` | `plan-09-<theme>.png` | Plan your first change |
+| `adopt-01-<theme>.png` | `adopt-01-<theme>.png` | Adopt an existing project |
+| `adopt-02-<theme>.png` | `adopt-02-<theme>.png` | Adopt an existing project |
+| `adopt-03-<theme>.png` | `adopt-03-<theme>.png` | Adopt an existing project |
+| `adopt-04-<theme>.png` | `adopt-04-<theme>.png` | Adopt an existing project |
+| `adopt-05-<theme>.png` | `adopt-05-<theme>.png` | Adopt an existing project |
 
 After a release, run `make screenshots` at its tag, look at each image, and publish. Then update the version that the README's screenshots section and the web UI guide name.

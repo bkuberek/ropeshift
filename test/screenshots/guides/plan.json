@@ -1,0 +1,147 @@
+{
+  "guide": "plan",
+  "title": "Plan your first change",
+  "world": "harbor",
+  "order": 3,
+  "steps": [
+    {
+      "step": "fill in Start planning session",
+      "route": "/projects/harbor",
+      "actions": [
+        { "click": { "role": "button", "name": "Start planning session" } },
+        { "waitFor": { "text": "The session writes the plan and its draft decisions to a branch of its own.", "in": { "role": "dialog", "name": "Start planning session" } } },
+        { "fill": { "label": "Goal", "value": "Show every berth and its sailings on the public pages.", "in": { "role": "dialog", "name": "Start planning session" } } }
+      ],
+      "capture": { "name": "plan-01", "clip": { "role": "dialog", "name": "Start planning session" } }
+    },
+    {
+      "step": "start the session",
+      "actions": [
+        { "click": { "role": "button", "name": "Start planning session", "in": { "role": "dialog", "name": "Start planning session" } } },
+        { "waitFor": { "text": "Plan in progress" } },
+        { "waitFor": { "text": "plan/goal.md", "in": { "role": "complementary", "name": "Plan in progress" } } },
+        { "waitFor": { "text": "Open questions", "in": { "role": "complementary", "name": "Plan in progress" } } },
+        { "waitFor": { "text": "closed for maintenance?", "in": { "role": "complementary", "name": "Plan in progress" } } },
+        { "waitFor": { "text": "A blocking question is open", "in": { "role": "complementary", "name": "Plan in progress" } } },
+        { "waitFor": { "text": "Live, generation 1." } }
+      ],
+      "capture": { "name": "plan-02", "clip": "window" }
+    },
+    {
+      "step": "type a line into the session",
+      "route": "/projects/harbor/planning",
+      "actions": [
+        { "waitFor": { "text": "Live, generation 1." } },
+        { "fill": { "label": "Type into the session", "value": "Put the sailings under each berth, not on a page of their own." } }
+      ],
+      "capture": { "name": "plan-03", "clip": { "selector": ".convo-term" } }
+    },
+    {
+      "step": "send the line",
+      "actions": [
+        { "click": { "role": "button", "name": "Send" } },
+        { "waitFor": { "text": "Draft decisions", "in": { "role": "complementary", "name": "Plan in progress" } } },
+        { "waitFor": { "text": "sailings look?", "in": { "role": "complementary", "name": "Plan in progress" } } }
+      ]
+    },
+    {
+      "step": "open the first question in Needs you",
+      "route": "/needs-you",
+      "actions": [
+        { "waitFor": { "text": "list berths that are closed for maintenance?", "in": { "role": "region", "name": "The selected item" } } },
+        { "waitFor": { "text": "Send 0 of 1 answer", "in": { "role": "region", "name": "The selected item" } } }
+      ],
+      "capture": { "name": "plan-04", "clip": "window" }
+    },
+    {
+      "step": "answer the first question",
+      "actions": [
+        { "click": { "role": "radio", "name": "Show them, marked closed" } },
+        { "click": { "role": "button", "name": "Send this answer" } },
+        { "waitFor": { "text": "list berths that are closed for maintenance? no longer waits", "in": { "role": "region", "name": "The selected item" } } }
+      ]
+    },
+    {
+      "step": "answer the second question",
+      "route": "/needs-you",
+      "actions": [
+        { "waitFor": { "text": "sailings look?", "in": { "role": "region", "name": "The selected item" } } },
+        { "click": { "role": "radio", "name": "The next 7 days" } },
+        { "click": { "role": "button", "name": "Send this answer" } },
+        { "waitFor": { "text": "sailings look? no longer waits", "in": { "role": "region", "name": "The selected item" } } }
+      ]
+    },
+    {
+      "step": "follow the plan in the Outline",
+      "actions": [
+        { "click": { "role": "link", "name": "Planning", "in": { "role": "navigation", "name": "Views" } } },
+        { "waitFor": { "text": "Plan in progress" } },
+        { "waitFor": { "text": "Draft decisions", "in": { "role": "complementary", "name": "Plan in progress" } } },
+        { "waitFor": { "text": "Berths page", "in": { "role": "complementary", "name": "Plan in progress" } } }
+      ],
+      "capture": { "name": "plan-05", "clip": { "role": "complementary", "name": "Plan in progress" } }
+    },
+    {
+      "step": "wait for the session to submit the version",
+      "actions": [{ "waitFor": { "text": "No planning session is running" } }]
+    },
+    {
+      "step": "open the plan approval in Needs you",
+      "route": "/needs-you",
+      "actions": [
+        { "click": { "role": "link", "name": "Approve Berths and sailings on the public pages, version 1?", "exact": false } },
+        { "waitFor": { "text": "Open the full plan approval" } }
+      ],
+      "capture": { "name": "plan-06", "clip": "window" }
+    },
+    {
+      "step": "open the full plan approval",
+      "actions": [
+        { "click": { "role": "link", "name": "Open the full plan approval" } },
+        { "waitFor": { "text": "Approve version 1" } }
+      ],
+      "capture": { "name": "plan-07", "clip": "window" }
+    },
+    {
+      "step": "read the decision card",
+      "actions": [{ "waitFor": { "text": "Decline…", "in": { "role": "complementary", "name": "Your decision" } } }],
+      "capture": { "name": "plan-08", "clip": { "role": "complementary", "name": "Your decision" } }
+    },
+    {
+      "step": "approve version 1",
+      "actions": [
+        { "click": { "role": "button", "name": "Approve version 1" } },
+        { "waitFor": { "text": "Approved by" } }
+      ]
+    },
+    {
+      "step": "open the Roadmap",
+      "actions": [
+        { "click": { "role": "link", "name": "Roadmap", "in": { "role": "navigation", "name": "Views" } } },
+        { "waitFor": { "text": "Berths in the API" } },
+        { "waitFor": { "text": "Serve the list of berths" } }
+      ]
+    },
+    {
+      "step": "give the forecast time, on the Floor",
+      "route": "/floor"
+    },
+    {
+      "step": "give the forecast time, in Work orders",
+      "route": "/work-orders"
+    },
+    {
+      "step": "give the forecast time, in Measures",
+      "route": "/measures"
+    },
+    {
+      "step": "read the forecast on the Roadmap",
+      "route": "/roadmap",
+      "actions": [
+        { "waitFor": { "text": "Serve the list of berths" } },
+        { "waitFor": { "text": "No forecast: none of the 4 unfinished work orders of this plan has finished history." } }
+      ],
+      "capture": { "name": "plan-09", "clip": { "role": "list", "name": "Milestones" } }
+    }
+  ]
+}

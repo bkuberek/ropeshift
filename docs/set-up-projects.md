@@ -197,4 +197,4 @@ root = "/path/to/lanes/{project}/{repo}"
 
 ## Next
 
-Plan your first change, the next guide in [Learn ropeshift](../README.md#learn-ropeshift). For a project that already has code, documents, and branches, [adopt an existing project](adopt.md) brings it in as a plan instead.
+[Plan your first change](plan-your-first-change.md) is the next guide. For a project that already has code, documents, and branches, [adopt an existing project](adopt.md) brings it in as a plan instead.
