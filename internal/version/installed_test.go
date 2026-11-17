@@ -66,6 +66,18 @@ func TestWarning(t *testing.T) {
 			[]string{"Restart the ropeshift service to run it."}},
 		{"a service that ropeshift installed from the Cellar", "v0.1.0-alpha.16", Installed{Path: "/opt/homebrew/Cellar/ropeshift/0.1.0/bin/ropeshiftd", Version: "v0.1.0"},
 			[]string{"Restart the ropeshift service to run it."}},
+		{"brew named as the manager of a path outside the opt link", "v0.1.0-alpha.16", Installed{Path: "/usr/local/bin/ropeshiftd", Version: "v0.1.0", Manager: ManagerBrew},
+			[]string{"Run brew services restart ropeshift to run it."}},
+		{"brew named as the manager of an opt link", "v0.1.0-alpha.16", Installed{Path: cellar, Version: "v0.1.0", Manager: ManagerBrew},
+			[]string{"Run brew services restart ropeshift to run it."}},
+		{"ropeshift named as the manager of an opt link", "v0.1.0-alpha.16", Installed{Path: cellar, Version: "v0.1.0", Manager: ManagerRopeshift},
+			[]string{"Restart the ropeshift service to run it."}},
+		{"ropeshift named as the manager of a path outside Homebrew", "v0.1.0-alpha.16", Installed{Path: "/usr/local/bin/ropeshiftd", Version: "v0.1.0", Manager: ManagerRopeshift},
+			[]string{"Restart the ropeshift service to run it."}},
+		{"a manager no one knows, on an opt link", "v0.1.0-alpha.16", Installed{Path: cellar, Version: "v0.1.0", Manager: "launchd"},
+			[]string{"brew services restart ropeshift"}},
+		{"a manager no one knows, outside Homebrew", "v0.1.0-alpha.16", Installed{Path: "/usr/local/bin/ropeshiftd", Version: "v0.1.0", Manager: "launchd"},
+			[]string{"Restart the ropeshift service to run it."}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

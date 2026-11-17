@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/control"
 	buildversion "ropeshift.com/ropeshift/internal/version"
 )
@@ -29,6 +30,8 @@ const installedOutputMax = 64 << 10
 // daemon's health reads it from here, so asking for health never touches the disk.
 type installedBuild struct {
 	path string
+	// manager is what the daemon was told runs it, or empty when it was told nothing.
+	manager string
 	// read starts the binary at path and returns the version it reports.
 	read func(ctx context.Context, path string) (string, error)
 	// note says what a read found when the outcome changed. It is nil when nothing listens.
@@ -44,12 +47,24 @@ type installedBuild struct {
 // the daemon's log, which is stderr.
 func liveInstalledBuild(log io.Writer) *installedBuild {
 	note := func(format string, args ...any) { fmt.Fprintf(log, "ropeshiftd: "+format+"\n", args...) }
+	manager := serviceManagerOf(os.Getenv)
 	path, err := daemonPath()
 	if err != nil {
 		// With no path to read, the answer stays empty, and the first read says why.
-		return &installedBuild{read: func(context.Context, string) (string, error) { return "", err }, note: note}
+		return &installedBuild{manager: manager, read: func(context.Context, string) (string, error) { return "", err }, note: note}
 	}
-	return &installedBuild{path: path, read: readInstalledVersion, note: note}
+	return &installedBuild{path: path, manager: manager, read: readInstalledVersion, note: note}
+}
+
+// serviceManagerOf is the service manager the environment says started the daemon, read once as the daemon
+// starts. A value no one knows is no answer, so the path of the binary decides, as it does for a service
+// that was written before the variable existed.
+func serviceManagerOf(getenv func(string) string) string {
+	switch manager := getenv(api.EnvServiceManager); manager {
+	case buildversion.ManagerBrew, buildversion.ManagerRopeshift:
+		return manager
+	}
+	return ""
 }
 
 // daemonPath is where this daemon's binary is installed: the absolute path the service manager started it
@@ -74,7 +89,7 @@ func (b *installedBuild) Installed() buildversion.Installed {
 // the answer is cleared instead of kept, and the failure is noted once, until the outcome changes.
 func (b *installedBuild) tick() control.Tick {
 	return control.Tick{Name: "installed-build", Every: installedEvery, Run: func(ctx context.Context) error {
-		read := buildversion.Installed{Path: b.path}
+		read := buildversion.Installed{Path: b.path, Manager: b.manager}
 		var err error
 		read.Version, err = b.read(ctx, b.path)
 		if err != nil {

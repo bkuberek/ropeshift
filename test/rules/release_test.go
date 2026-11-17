@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -36,6 +37,39 @@ func TestCrashStepsCompileToNothing(t *testing.T) {
 	}
 	if !bytes.Contains(build("-tags", "chaos"), marker) {
 		t.Error("the chaos build holds no crash step, so this check cannot fail")
+	}
+}
+
+// TestTheFormulaTellsTheDaemonThatBrewRunsIt renders the Homebrew formula from made-up checksums and reads
+// its service block as text. The daemon takes its restart advice from this variable, so a formula that lost
+// it would send a Homebrew user to the wrong command.
+func TestTheFormulaTellsTheDaemonThatBrewRunsIt(t *testing.T) {
+	root := repoRoot(t)
+	var checksums strings.Builder
+	for _, platform := range []string{"darwin_arm64", "darwin_amd64", "linux_arm64", "linux_amd64"} {
+		checksums.WriteString(strings.Repeat("ab", 32) + "  ropeshift_0.1.0_" + platform + ".tar.gz\n")
+	}
+	dir := t.TempDir()
+	sums, formula := filepath.Join(dir, "checksums.txt"), filepath.Join(dir, "ropeshift.rb")
+	if err := os.WriteFile(sums, []byte(checksums.String()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("sh", filepath.Join(root, "scripts", "homebrew-formula.sh"), sums, "file:///dist", formula)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("render the formula: %v\n%s", err, out)
+	}
+	raw, err := os.ReadFile(formula)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, service, found := strings.Cut(string(raw), "  service do\n")
+	if !found {
+		t.Fatalf("the formula has no service block:\n%s", raw)
+	}
+	service, _, _ = strings.Cut(service, "\n  end\n")
+	const want = `environment_variables PATH: std_service_path_env, ROPESHIFT_SERVICE_MANAGER: "brew"`
+	if !strings.Contains(service, want) {
+		t.Errorf("the service block holds no %q:\n%s", want, service)
 	}
 }
 

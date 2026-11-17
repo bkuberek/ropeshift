@@ -82,7 +82,7 @@ func TestServiceInstallOnMacOS(t *testing.T) {
 	daemon := filepath.Join(filepath.Dir(s.executable), "ropeshiftd")
 	for _, want := range []string{
 		"<string>" + daemon + "</string>\n\t\t<string>solo</string>\n\t\t<string>--source</string>\n\t\t<string>/repo</string>\n\t\t<string>--intake-tick</string>\n\t\t<string>5s</string>\n",
-		"<key>LANG</key>\n\t\t<string>en_US.UTF-8</string>\n\t\t<key>PATH</key>\n\t\t<string>/opt/bin:/usr/bin</string>\n\t\t<key>ROPESHIFT_STATE_DIR</key>\n\t\t<string>" + state + "</string>\n\t\t<key>ROPESHIFT_WEB</key>\n\t\t<string>off</string>\n\t</dict>",
+		"<key>LANG</key>\n\t\t<string>en_US.UTF-8</string>\n\t\t<key>PATH</key>\n\t\t<string>/opt/bin:/usr/bin</string>\n\t\t<key>ROPESHIFT_STATE_DIR</key>\n\t\t<string>" + state + "</string>\n\t\t<key>ROPESHIFT_WEB</key>\n\t\t<string>off</string>\n\t\t<key>ROPESHIFT_SERVICE_MANAGER</key>\n\t\t<string>ropeshift</string>\n\t</dict>",
 		"<key>StandardOutPath</key>\n\t<string>" + state + "/dev.ropeshift.ropeshiftd.log</string>",
 		"<key>ProcessType</key>\n\t<string>Interactive</string>",
 	} {
@@ -124,7 +124,7 @@ func TestServiceInstallOnLinux(t *testing.T) {
 	daemon := filepath.Join(filepath.Dir(s.executable), "ropeshiftd")
 	for _, want := range []string{
 		`ExecStart="` + daemon + `" "solo" "--source" "/repo"` + "\n",
-		`Environment="PATH=/usr/bin"` + "\n" + `Environment="XDG_STATE_HOME=` + xdgState + `"` + "\n",
+		`Environment="PATH=/usr/bin"` + "\n" + `Environment="XDG_STATE_HOME=` + xdgState + `"` + "\n" + `Environment="ROPESHIFT_SERVICE_MANAGER=ropeshift"` + "\n",
 	} {
 		if !strings.Contains(string(raw), want) {
 			t.Errorf("the unit holds no %q:\n%s", want, raw)
@@ -159,6 +159,40 @@ func TestAServiceKeepsTheVariablesThatPlaceTheWorktrees(t *testing.T) {
 		if !strings.Contains(string(raw), want) {
 			t.Errorf("the unit holds no %q:\n%s", want, raw)
 		}
+	}
+}
+
+// A service says that ropeshift wrote it, whatever the installing shell says, so the daemon never takes
+// the unit of a Homebrew install for one that `brew services` runs.
+func TestAServiceNamesRopeshiftAsItsManagerWhateverTheShellSays(t *testing.T) {
+	for _, goos := range []string{"darwin", "linux"} {
+		t.Run(goos, func(t *testing.T) {
+			s, _ := serviceMachine(t, goos, nil)
+			s.lookup = lookupIn(map[string]string{
+				"PATH": "/usr/bin", "XDG_CONFIG_HOME": filepath.Join(s.home, "config"), api.EnvServiceManager: "brew",
+			})
+			installed, err := s.install(t.Context(), "", nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			raw, err := os.ReadFile(installed.Path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := strings.Count(string(raw), api.EnvServiceManager); got != 1 {
+				t.Errorf("the definition names %s %d times:\n%s", api.EnvServiceManager, got, raw)
+			}
+			want := `Environment="` + api.EnvServiceManager + `=ropeshift"`
+			if goos == "darwin" {
+				want = "<key>" + api.EnvServiceManager + "</key>\n\t\t<string>ropeshift</string>"
+			}
+			if !strings.Contains(string(raw), want) {
+				t.Errorf("the definition holds no %q:\n%s", want, raw)
+			}
+			if strings.Contains(string(raw), "brew") {
+				t.Errorf("the definition holds the shell's manager:\n%s", raw)
+			}
+		})
 	}
 }
 

@@ -36,12 +36,13 @@ class Ropeshift < Formula
     bin.install_symlink "ropeshift" => "ropeshiftd"
   end
 
-  # launchd throttles a job with no process class, so the daemon runs as an interactive one.
+  # launchd throttles a job with no process class, so the daemon runs as an interactive one. The daemon
+  # reads ROPESHIFT_SERVICE_MANAGER to name `brew services restart ropeshift` when its binary is newer.
   service do
     run [opt_bin/"ropeshiftd", "solo"]
     keep_alive true
     process_type :interactive
-    environment_variables PATH: std_service_path_env
+    environment_variables PATH: std_service_path_env, ROPESHIFT_SERVICE_MANAGER: "brew"
     log_path var/"log/ropeshift.log"
     error_log_path var/"log/ropeshift.log"
   end

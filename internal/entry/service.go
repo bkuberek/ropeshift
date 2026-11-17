@@ -21,6 +21,7 @@ import (
 	"ropeshift.com/ropeshift/internal/api/server"
 	"ropeshift.com/ropeshift/internal/cli"
 	"ropeshift.com/ropeshift/internal/ports"
+	buildversion "ropeshift.com/ropeshift/internal/version"
 )
 
 // The service's name when a person names none: a launchd label on macOS, and a unit's name on Linux.
@@ -112,6 +113,9 @@ func (s services) install(ctx context.Context, name string, daemonArgs []string)
 			env = append(env, variable+"="+value)
 		}
 	}
+	// The daemon is told that ropeshift runs it, whatever the installing shell says, so a unit that names
+	// a Homebrew opt link is still not taken for one that `brew services` runs.
+	env = append(env, api.EnvServiceManager+"="+buildversion.ManagerRopeshift)
 	var definition []byte
 	switch s.goos {
 	case "darwin":

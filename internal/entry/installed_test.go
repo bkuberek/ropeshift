@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"ropeshift.com/ropeshift/internal/api"
 	buildversion "ropeshift.com/ropeshift/internal/version"
 )
 
@@ -105,6 +106,54 @@ func TestTheInstalledBuildIsReadByItsTickAndNeverByAsking(t *testing.T) {
 	}
 	if got := build.Installed().Version; got != "" {
 		t.Errorf("an unreadable build still reports %q", got)
+	}
+}
+
+// The service manager the daemon was started under is read once, and each answer carries it, also the answer
+// of a read that failed, so the advice for a build that is read later still names the right command.
+func TestTheInstalledBuildCarriesTheServiceManagerItWasStartedUnder(t *testing.T) {
+	var fail error
+	build := &installedBuild{path: "/usr/local/bin/ropeshiftd", manager: buildversion.ManagerBrew,
+		read: func(context.Context, string) (string, error) { return "v0.2.0", fail }}
+	tick := build.tick()
+	if err := tick.Run(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if got := build.Installed(); got.Manager != buildversion.ManagerBrew || got.Version != "v0.2.0" {
+		t.Errorf("after a read: %+v", got)
+	}
+	warning := buildversion.Warning("v0.1.0", build.Installed())
+	if !strings.Contains(warning, "brew services restart ropeshift") {
+		t.Errorf("the warning for a daemon under brew: %q", warning)
+	}
+	fail = errors.New("no such file")
+	_ = tick.Run(t.Context())
+	if got := build.Installed(); got.Manager != buildversion.ManagerBrew || got.Version != "" {
+		t.Errorf("after a read that failed: %+v", got)
+	}
+}
+
+// An environment that names no manager, or one that no one knows, leaves the choice to the path.
+func TestTheServiceManagerIsWhatTheEnvironmentNames(t *testing.T) {
+	tests := []struct{ value, want string }{
+		{"brew", buildversion.ManagerBrew},
+		{"ropeshift", buildversion.ManagerRopeshift},
+		{"", ""},
+		{"launchd", ""},
+		{"Brew", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.value, func(t *testing.T) {
+			lookup := func(name string) string {
+				if name != api.EnvServiceManager {
+					t.Errorf("read %s", name)
+				}
+				return tt.value
+			}
+			if got := serviceManagerOf(lookup); got != tt.want {
+				t.Errorf("%q named %q, want %q", tt.value, got, tt.want)
+			}
+		})
 	}
 }
 

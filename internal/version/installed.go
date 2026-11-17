@@ -13,7 +13,17 @@ type Installed struct {
 	Path string
 	// Version is the release that build reports. It is empty when the build could not be read.
 	Version string
+	// Manager is what started the daemon as a service, as the daemon was told: ManagerBrew or
+	// ManagerRopeshift. It is empty when the daemon was told nothing, and then the path decides.
+	Manager string
 }
+
+// The service managers a daemon is told it runs under. `brew services` runs the Homebrew formula's
+// service, and `ropeshift service install` writes a launchd agent or a systemd user unit.
+const (
+	ManagerBrew      = "brew"
+	ManagerRopeshift = "ropeshift"
+)
 
 // Compare orders two releases by semantic versioning precedence: negative when a is the earlier, zero
 // when they are the same, and positive when a is the later. It reports false when either is not a
@@ -92,12 +102,22 @@ func comparePreRelease(a, b []string) int {
 	return cmp.Compare(len(a), len(b))
 }
 
-// brewServicePath is the path element of the opt link that `brew services` runs the daemon through. A
-// service that `ropeshift service install` writes names the binary by another path, even inside a Homebrew
-// prefix, and `brew services` does not manage it.
+// brewServicePath is the path element of the opt link that `brew services` runs the daemon through. It is
+// what decides for a daemon that was told no manager, which a service from before the manager was named is.
+// A service that `ropeshift service install` writes can name the same opt link, so a daemon that was told
+// its manager never asks the path.
 const brewServicePath = "/opt/ropeshift/bin/"
 
-func homebrew(path string) bool { return strings.Contains(path, brewServicePath) }
+// homebrew reports whether `brew services` runs the daemon: as the daemon was told, and else by its path.
+func homebrew(installed Installed) bool {
+	switch installed.Manager {
+	case ManagerBrew:
+		return true
+	case ManagerRopeshift:
+		return false
+	}
+	return strings.Contains(installed.Path, brewServicePath)
+}
 
 // IsRelease reports whether v is a release version, as a build reports it.
 func IsRelease(v string) bool { return isRelease(v) }
@@ -122,7 +142,7 @@ func Warning(running string, installed Installed) string {
 
 func stale(installed Installed, running string) string {
 	fix := "Restart the ropeshift service to run it."
-	if homebrew(installed.Path) {
+	if homebrew(installed) {
 		fix = "Run brew services restart ropeshift to run it."
 	}
 	return "ropeshift " + installed.Version + " is installed, but the daemon is still running " + running + ". " + fix

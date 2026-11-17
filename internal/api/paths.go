@@ -47,6 +47,12 @@ const (
 	EnvTelemetry            = "ROPESHIFT_TELEMETRY"
 )
 
+// EnvServiceManager names what runs the daemon as a service: "brew" in the Homebrew formula's service, and
+// "ropeshift" in a unit that `ropeshift service install` writes. The daemon reads it once, to name the
+// right command when its installed build is newer than the one it runs. Unset, the daemon guesses from
+// the path of its binary.
+const EnvServiceManager = "ROPESHIFT_SERVICE_MANAGER"
+
 // Paths says where one installation keeps its files (D19).
 type Paths struct {
 	StateDir string
