@@ -1,0 +1,2 @@
+# A migration's checksum covers its exact bytes, so no checkout converts the line endings of a SQL file.
+*.sql -text

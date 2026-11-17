@@ -203,9 +203,9 @@ func holdInstallation(stateDir string) (*os.File, error) {
 // openLedger brings the state directory to this build (ADR-0021) and opens the default project's ledger,
 // which keeps the ledger file and the solo workspace, with the records every project shares in the
 // installation database beside it. A repository a second project holds too stays with the first, and
-// the daemon says so.
+// the daemon says so, as it does for migrations a database applied that this build does not ship.
 func openLedger(ctx context.Context, stateDir string, stderr io.Writer) (*sqlite.State, ports.Store, error) {
-	state, store, err := sqlite.Upgrade(ctx, stateDir, api.LedgerFileName, ledger.Workspace{ID: soloScope, Name: "Solo"}, tickActor("solo"))
+	state, store, err := sqlite.Upgrade(ctx, stateDir, api.LedgerFileName, ledger.Workspace{ID: soloScope, Name: "Solo"}, tickActor("solo"), warnTo(stderr))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -214,6 +214,12 @@ func openLedger(ctx context.Context, stateDir string, stderr io.Writer) (*sqlite
 			conflict.Identity, conflict.Project, conflict.Repository)
 	}
 	return state, store, nil
+}
+
+// warnTo prints what a database's migration goes on past, such as migrations it applied that this build
+// does not ship.
+func warnTo(stderr io.Writer) func(string) {
+	return func(warning string) { fmt.Fprintf(stderr, "ropeshiftd: warning: %s\n", warning) }
 }
 
 // serveSolo runs until the context ends. It has no shutdown step that correctness
@@ -380,6 +386,7 @@ func startSoloWorker(
 	if err != nil {
 		return nil, err
 	}
+	journal.Warn = warnTo(stderr)
 	if err := journal.Migrate(ctx); err != nil {
 		_ = journal.Close()
 		return nil, err

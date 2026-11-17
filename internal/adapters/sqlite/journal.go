@@ -7,8 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/fs"
-	"slices"
 
 	"ropeshift.com/ropeshift/internal/crashpoint"
 	"ropeshift.com/ropeshift/internal/lanes"
@@ -26,6 +24,9 @@ const cursorThrough = "events_through"
 // writer, no workspace, and no event log.
 type Journal struct {
 	db *sql.DB
+	// Warn receives what Migrate goes on past that a person may want to know, such as schema files the
+	// journal applied that this build does not ship. Nil says nothing.
+	Warn func(string)
 }
 
 // OpenJournal opens a journal file.
@@ -52,46 +53,7 @@ func (j *Journal) Close() error { return j.db.Close() }
 // Migrate applies each schema file once. A journal is local and short-lived enough
 // that its one version table is its own.
 func (j *Journal) Migrate(ctx context.Context) error {
-	if _, err := j.db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS journal_migrations (name TEXT PRIMARY KEY)`); err != nil {
-		return err
-	}
-	names, err := fs.Glob(journalFiles, "journal_migrations/*.sql")
-	if err != nil {
-		return err
-	}
-	slices.Sort(names)
-	for _, name := range names {
-		if err := j.applyMigration(ctx, name); err != nil {
-			return fmt.Errorf("journal migration %s: %w", name, err)
-		}
-	}
-	return nil
-}
-
-func (j *Journal) applyMigration(ctx context.Context, name string) error {
-	tx, err := j.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = tx.Rollback() }()
-	var applied int
-	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM journal_migrations WHERE name = ?1`, name).Scan(&applied); err != nil {
-		return err
-	}
-	if applied > 0 {
-		return nil
-	}
-	text, err := journalFiles.ReadFile(name)
-	if err != nil {
-		return err
-	}
-	if _, err := tx.ExecContext(ctx, string(text)); err != nil {
-		return err
-	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO journal_migrations (name) VALUES (?1)`, name); err != nil {
-		return err
-	}
-	return tx.Commit()
+	return journalMigrations.migrate(ctx, j.db, j.Warn)
 }
 
 // Identity returns the saved identity.

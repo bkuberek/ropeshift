@@ -29,6 +29,18 @@ func (Dialect) ClockSQL() string {
 	return "SELECT CAST(floor(extract(epoch FROM clock_timestamp()) * 1000) AS BIGINT)"
 }
 
+// ColumnsSQL reads the catalog in the schema the transaction's search path resolves to.
+func (Dialect) ColumnsSQL() string {
+	return `SELECT CAST(column_name AS TEXT) FROM information_schema.columns
+ WHERE table_schema = current_schema() AND table_name = CAST(:table AS TEXT)`
+}
+
+// AddColumnSQL adds the column unless the table has it. A second start that read the columns before the
+// first committed waits on the first's lock, and then finds the column there.
+func (Dialect) AddColumnSQL(table, column string) string {
+	return `ALTER TABLE ` + table + ` ADD COLUMN IF NOT EXISTS ` + column
+}
+
 // Migrations reads the neutral schema and this dialect's own.
 func (Dialect) Migrations() ([]sqlstore.Migration, error) {
 	neutral, err := sqlite.NeutralMigrations()

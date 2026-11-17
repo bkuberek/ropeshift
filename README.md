@@ -157,6 +157,7 @@ A subscription worker starts at `attended`, where it claims work only inside a r
 - [Telemetry](docs/telemetry.md): what is recorded, where it stays, and when it leaves the machine.
 - [Versioning](docs/versioning.md): what a version promises, and what `ropeshift version` reports.
 - [Releasing](docs/releasing.md): what a release holds, and each install channel.
+- [Troubleshooting](docs/troubleshooting.md): what to do when the daemon refuses to start on a database.
 
 ## License and contributions
 

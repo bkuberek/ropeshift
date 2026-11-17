@@ -29,7 +29,7 @@ func (in *Installation) Close() error { return in.core.Close() }
 
 // Migrate brings the installation's schema to this build's version, apart from any project's.
 func (in *Installation) Migrate(ctx context.Context) error {
-	return in.core.migrate(ctx, in.core.dialect.InstallationMigrations)
+	return in.core.migrate(ctx, "installation", in.core.dialect.InstallationMigrations)
 }
 
 // The operations of the installation database, as traces and crash steps name them.

@@ -97,6 +97,28 @@ func CreateSchemas(ctx context.Context, db *sql.DB, names ...string) error {
 	return nil
 }
 
+// MigrationBackend is an empty database on the shared server for each migration check, whose stores
+// keep their tables in a schema, as each project and the installation do on one database (ADR-0021).
+var MigrationBackend = contract.MigrationBackend{Name: "postgres", Fresh: func(t testing.TB) contract.MigrationDatabase {
+	server, err := Shared()
+	if err != nil {
+		t.Fatal(err)
+	}
+	name, err := server.NewDatabase(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("pgx", server.DSN(name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	if err := CreateSchemas(t.Context(), db, ProjectSchema); err != nil {
+		t.Fatal(err)
+	}
+	return contract.MigrationDatabase{DB: db, Dialect: postgres.Dialect{}, Schema: ProjectSchema}
+}}
+
 // ProjectBackend runs the contract suite on a project of an installation: the project's schema and the
 // installation's in one database and on one pool, each Store setting its schema on every transaction, with
 // the records every project shares in the installation's schema.

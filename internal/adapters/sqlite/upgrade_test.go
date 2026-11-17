@@ -2,6 +2,7 @@ package sqlite_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -209,7 +210,7 @@ func legacyDir(t *testing.T) (string, legacy) {
 
 func upgrade(t *testing.T, dir string) (*sqlite.State, *sqlstore.Store) {
 	t.Helper()
-	state, store, err := sqlite.Upgrade(t.Context(), dir, ledgerName, firstProject, upgradeActor)
+	state, store, err := sqlite.Upgrade(t.Context(), dir, ledgerName, firstProject, upgradeActor, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -398,7 +399,7 @@ func TestTheUpgradeKeepsTheWorkspaceTheFileAndEveryRecord(t *testing.T) {
 
 func TestAnUpgradedInstallationStartsAgainWithNoChange(t *testing.T) {
 	dir, _ := legacyDir(t)
-	state, store, err := sqlite.Upgrade(t.Context(), dir, ledgerName, firstProject, upgradeActor)
+	state, store, err := sqlite.Upgrade(t.Context(), dir, ledgerName, firstProject, upgradeActor, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -412,6 +413,91 @@ func TestAnUpgradedInstallationStartsAgainWithNoChange(t *testing.T) {
 	}
 	if after := dump(t, filepath.Join(dir, sqlite.InstallationFileName)); !mapsEqual(after, installationBefore) {
 		t.Error("a second start changed the installation database")
+	}
+}
+
+// TestAStartRefusesADatabaseWhoseAppliedMigrationChanged holds that the upgrade every start runs returns
+// the refusal of a ledger or an installation database whose applied migration no longer matches the one
+// this build ships, so the daemon stops before it serves.
+func TestAStartRefusesADatabaseWhoseAppliedMigrationChanged(t *testing.T) {
+	for _, tc := range []struct{ set, file string }{
+		{"ledger", ledgerName},
+		{"installation", sqlite.InstallationFileName},
+	} {
+		t.Run(tc.set, func(t *testing.T) {
+			t.Parallel()
+			dir := t.TempDir()
+			state, store, err := sqlite.Upgrade(t.Context(), dir, ledgerName, firstProject, upgradeActor, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_ = store.Close()
+			_ = state.Close()
+			db, err := sqlite.OpenDB(filepath.Join(dir, tc.file))
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = db.Exec(`UPDATE schema_migrations SET checksum = 'recorded-by-another-build' WHERE version = 1`)
+			if closeErr := db.Close(); err == nil {
+				err = closeErr
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			state, store, err = sqlite.Upgrade(t.Context(), dir, ledgerName, firstProject, upgradeActor, nil)
+			if err == nil {
+				_ = store.Close()
+				_ = state.Close()
+			}
+			if !errors.Is(err, sqlstore.ErrMigrationChanged) || !strings.Contains(err.Error(), tc.set+" migration 1 (0001_") ||
+				!strings.Contains(err.Error(), "recorded-by-another-build") {
+				t.Fatalf("the start returned %v, want the refusal of %s migration 1", err, tc.set)
+			}
+		})
+	}
+}
+
+// TestAStartWarnsOfMigrationsALaterBuildApplied holds that the upgrade every start runs goes on past a
+// ledger or an installation database that holds a migration this build does not ship, as one a later
+// build migrated does, and hands its caller one warning that names it.
+func TestAStartWarnsOfMigrationsALaterBuildApplied(t *testing.T) {
+	for _, tc := range []struct{ set, file string }{
+		{"ledger", ledgerName},
+		{"installation", sqlite.InstallationFileName},
+	} {
+		t.Run(tc.set, func(t *testing.T) {
+			t.Parallel()
+			dir := t.TempDir()
+			state, store, err := sqlite.Upgrade(t.Context(), dir, ledgerName, firstProject, upgradeActor, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_ = store.Close()
+			_ = state.Close()
+			db, err := sqlite.OpenDB(filepath.Join(dir, tc.file))
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = db.Exec(`INSERT INTO schema_migrations (version, name, applied_at, checksum) VALUES (9001, '9001_later', 0, 'recorded-by-a-later-build')`)
+			if closeErr := db.Close(); err == nil {
+				err = closeErr
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			var warnings []string
+			state, store, err = sqlite.Upgrade(t.Context(), dir, ledgerName, firstProject, upgradeActor, func(warning string) {
+				warnings = append(warnings, warning)
+			})
+			if err != nil {
+				t.Fatalf("the start returned %v, want it to start", err)
+			}
+			_ = store.Close()
+			_ = state.Close()
+			if len(warnings) != 1 || !strings.Contains(warnings[0], tc.set) || !strings.Contains(warnings[0], "9001 (9001_later.sql)") {
+				t.Fatalf("the start warned %q, want one warning that names %s migration 9001", warnings, tc.set)
+			}
+		})
 	}
 }
 

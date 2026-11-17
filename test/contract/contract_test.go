@@ -24,6 +24,13 @@ func TestStoreContract(t *testing.T) {
 	}
 }
 
+// TestMigrationChecksums holds the checksum each applied migration of a ledger and of the installation
+// database records, and the start that refuses one this build changed or no longer ships, on SQLite.
+func TestMigrationChecksums(t *testing.T) {
+	t.Parallel()
+	RunMigrationChecks(t, SQLiteMigrations)
+}
+
 // TestFakeStoreIsTheAdapter runs a small path through the exported fake, which
 // is what every core test will hold.
 func TestFakeStoreIsTheAdapter(t *testing.T) {

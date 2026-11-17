@@ -61,7 +61,7 @@ func registryOf(store ports.Store, scope ledger.WorkspaceID) ports.Projects {
 // project's own database, and an archived project runs none until it is restored.
 func TestEveryActiveProjectRunsItsTicks(t *testing.T) {
 	member := ledger.Actor{Kind: ledger.ActorMember, ID: "member-1"}
-	state, store, err := sqlite.Upgrade(t.Context(), t.TempDir(), "ledger.db", ledger.Workspace{ID: soloScope, Name: "Solo"}, member)
+	state, store, err := sqlite.Upgrade(t.Context(), t.TempDir(), "ledger.db", ledger.Workspace{ID: soloScope, Name: "Solo"}, member, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,7 +103,7 @@ func TestEveryActiveProjectRunsItsTicks(t *testing.T) {
 // only in that project.
 func TestIntakeReadsEachProjectsOwnCheckouts(t *testing.T) {
 	member := ledger.Actor{Kind: ledger.ActorMember, ID: "member-1"}
-	state, store, err := sqlite.Upgrade(t.Context(), t.TempDir(), "ledger.db", ledger.Workspace{ID: soloScope, Name: "Solo"}, member)
+	state, store, err := sqlite.Upgrade(t.Context(), t.TempDir(), "ledger.db", ledger.Workspace{ID: soloScope, Name: "Solo"}, member, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -9,6 +9,7 @@ import (
 	"os"
 	"sync"
 	"testing"
+	"time"
 
 	"ropeshift.com/ropeshift/internal/adapters/postgres"
 	"ropeshift.com/ropeshift/internal/adapters/sqlstore"
@@ -39,6 +40,60 @@ func TestStoreContractPostgres(t *testing.T) {
 // the installation's share one database (ADR-0021).
 func TestStoreContractPostgresProject(t *testing.T) {
 	contract.Run(t, pgtest.ProjectBackend, contract.AllChecks())
+}
+
+// TestMigrationChecksumsPostgres holds the migration checksums on Postgres, in a schema of their own.
+func TestMigrationChecksumsPostgres(t *testing.T) {
+	contract.RunMigrationChecks(t, pgtest.MigrationBackend)
+}
+
+// TestTwoFirstStartsAddTheChecksumColumnPostgres holds two starts at once on a database from before
+// checksums: the second finds the column missing while the first adds it, waits on the first's lock, and
+// still starts.
+func TestTwoFirstStartsAddTheChecksumColumnPostgres(t *testing.T) {
+	db := pgtest.MigrationBackend.Fresh(t)
+	ctx := t.Context()
+	store := sqlstore.New(db.DB, db.Dialect, sqlstore.Options{Schema: db.Schema})
+	if err := store.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	table := db.Schema + ".schema_migrations"
+	if _, err := db.DB.ExecContext(ctx, "ALTER TABLE "+table+" DROP COLUMN checksum"); err != nil {
+		t.Fatal(err)
+	}
+	first, err := db.DB.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = first.Rollback() }()
+	if _, err := first.ExecContext(ctx, "ALTER TABLE "+table+" ADD COLUMN checksum TEXT"); err != nil {
+		t.Fatal(err)
+	}
+	second := make(chan error, 1)
+	go func() { second <- store.Migrate(ctx) }()
+	deadline := time.Now().Add(30 * time.Second)
+	for waiting := 0; waiting == 0; {
+		select {
+		case err := <-second:
+			t.Fatalf("the second start returned %v before it waited on the first", err)
+		default:
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the second start never waited on the first start's lock")
+		}
+		time.Sleep(10 * time.Millisecond)
+		err := db.DB.QueryRowContext(ctx,
+			`SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'`).Scan(&waiting)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := first.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-second; err != nil {
+		t.Fatalf("the second start returned %v, want it to start", err)
+	}
 }
 
 // TestEveryStatementPrepares sends every statement to a real server, which is

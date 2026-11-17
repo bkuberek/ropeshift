@@ -2,9 +2,28 @@ package sqlite
 
 import (
 	"context"
+	"io/fs"
 
 	"ropeshift.com/ropeshift/internal/ledger"
 )
+
+// JournalFiles and TelemetryFiles are the schema files this build ships for the journal and the
+// telemetry store.
+var JournalFiles, TelemetryFiles fs.FS = journalFiles, telemetryFiles
+
+// MigrateFrom migrates the journal as a build that ships files would.
+func (j *Journal) MigrateFrom(ctx context.Context, files fs.FS) error {
+	m := journalMigrations
+	m.files = files
+	return m.migrate(ctx, j.db, j.Warn)
+}
+
+// MigrateFrom migrates the telemetry store as a build that ships files would.
+func (s *TelemetryStore) MigrateFrom(ctx context.Context, files fs.FS) error {
+	m := telemetryMigrations
+	m.files = files
+	return m.migrate(ctx, s.db, s.Warn)
+}
 
 // UpgradeSteps names the steps of an upgrade, in order.
 func UpgradeSteps() []string {

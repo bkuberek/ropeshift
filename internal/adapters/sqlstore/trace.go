@@ -31,6 +31,9 @@ type Options struct {
 	// Schema is the schema every transaction of the store runs in, on a server that holds several
 	// projects and the installation as schemas of one database. Empty uses the connection's own.
 	Schema string
+	// Warn receives what a migration goes on past that a person may want to know, such as migrations the
+	// database applied that this build does not ship. Nil says nothing.
+	Warn func(string)
 }
 
 // Names a trace check needs.

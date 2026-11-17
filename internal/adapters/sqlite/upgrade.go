@@ -20,8 +20,10 @@ const defaultDisplayName = "Default"
 // workspace. The steps each repeat safely after a crash, and a start after a finished upgrade changes
 // nothing but the repository index, which every start rebuilds. It returns the state and the first
 // project's Store, which the caller closes, and which the state lends to every call to that project.
-func Upgrade(ctx context.Context, dir, ledgerName string, first ledger.Workspace, actor ledger.Actor) (*State, *sqlstore.Store, error) {
-	u := &upgrade{dir: dir, ledgerName: ledgerName, first: first, actor: actor}
+// warn receives what a migration of the installation database or of any ledger goes on past, then and
+// later; nil says nothing.
+func Upgrade(ctx context.Context, dir, ledgerName string, first ledger.Workspace, actor ledger.Actor, warn func(string)) (*State, *sqlstore.Store, error) {
+	u := &upgrade{dir: dir, ledgerName: ledgerName, first: first, actor: actor, warn: warn}
 	if err := u.through(ctx, len(upgradeSteps)); err != nil {
 		u.close()
 		return nil, nil, err
@@ -35,6 +37,7 @@ type upgrade struct {
 	ledgerName string
 	first      ledger.Workspace
 	actor      ledger.Actor
+	warn       func(string)
 	state      *State
 	store      *sqlstore.Store
 	// scope is the workspace the ledger holds, which its project keeps as its ID.
@@ -81,7 +84,7 @@ func (u *upgrade) close() {
 // openInstallation opens the installation database, creating it when it is missing, at this build's
 // schema.
 func (u *upgrade) openInstallation(ctx context.Context) error {
-	state, err := OpenState(ctx, u.dir, sqlstore.Options{})
+	state, err := OpenState(ctx, u.dir, sqlstore.Options{Warn: u.warn})
 	if err != nil {
 		return err
 	}
