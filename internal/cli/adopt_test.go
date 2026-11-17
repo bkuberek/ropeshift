@@ -236,6 +236,32 @@ func TestAdoptFromACodeCloneWithTheDesignRepositoryBesidePlansInIt(t *testing.T)
 	}
 }
 
+// When the repository the layout plans in is refused, because another project holds it, adopt stops with exit 2
+// and names the refusal and --planning, and does not plan in the clone it runs in without saying so. It stops
+// when the project is created by the adoption and when it exists already.
+func TestAdoptStopsWhenTheRepositoryItPlansInIsRefused(t *testing.T) {
+	a := newAdoption(t)
+	design := ports.Clone{Path: "/work/design", ID: "9a8b7c6d5e4f30211203f4e5d6c7b8a998877665", Remote: "https://example.invalid/acme/design.git", DefaultBranch: "main"}
+	a.in.Checkouts.Place(design)
+	a.in.Layouts.Set(design.Path, fake.CloneLayout{Plan: ports.PlanContent{Files: 1}, Tracked: []string{"docs/a.md", "docs/b.md", "plan/goal.md"}})
+	if code, _, stderr := a.runIn(design, "", "adopt", "--project", "other", "--worker", "worker-a", "--no-attach"); code != cli.ExitOK {
+		t.Fatalf("adopting the design repository in another project: exit %d: %s", code, stderr)
+	}
+	for _, again := range []string{"the project the adoption creates", "the project it made"} {
+		code, _, stderr := a.runIn(shopClone, "", "adopt", "/work/design", "--project", "acme", "--worker", "worker-a", "--no-attach")
+		if code != cli.ExitUsage || !strings.Contains(stderr, "--planning") || !strings.Contains(stderr, "other") || !strings.Contains(stderr, "design") {
+			t.Fatalf("%s: exit %d: %s", again, code, stderr)
+		}
+		if orders := a.workOrders("acme"); len(orders) != 0 {
+			t.Fatalf("%s: work was recorded: %+v", again, orders)
+		}
+	}
+	// --planning names the clone it runs in, and the adoption goes on there.
+	if code, _, stderr := a.runIn(shopClone, "", "adopt", "/work/design", "--project", "acme", "--planning", "Shop_App", "--worker", "worker-a", "--no-attach"); code != cli.ExitOK {
+		t.Errorf("--planning Shop_App: exit %d: %s", code, stderr)
+	}
+}
+
 // A layout that settles no planning repository cannot be restructured, because the plan's digest must come from
 // a plan that names where the plan lives, and a depth above the server's bound is a usage error.
 func TestAdoptRestructureNeedsTheRepositoryThatHoldsThePlanNamed(t *testing.T) {

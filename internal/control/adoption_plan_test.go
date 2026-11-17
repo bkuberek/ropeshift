@@ -456,7 +456,8 @@ func TestTheMovesAreQuotedForAShell(t *testing.T) {
 	m.clone("/work/ws", fake.CloneLayout{Tracked: []string{"README.md", "Makefile"}})
 	m.clone("/work/my api", fake.CloneLayout{Tracked: []string{"go.mod"}})
 	m.clone("/work/it's", fake.CloneLayout{Tracked: []string{"go.mod"}})
-	plan := m.mustPlan(control.AdoptionRequest{Root: "/work/ws", Paths: []string{"/work/my api", "/work/it's"}})
+	m.clone("/work/new\nline", fake.CloneLayout{Tracked: []string{"go.mod"}})
+	plan := m.mustPlan(control.AdoptionRequest{Root: "/work/ws", Paths: []string{"/work/my api", "/work/it's", "/work/new\nline"}})
 	var commands []string
 	for _, move := range plan.Moves {
 		commands = append(commands, move.Commands...)
@@ -464,6 +465,8 @@ func TestTheMovesAreQuotedForAShell(t *testing.T) {
 	want := []string{
 		`mv '/work/it'\''s' '/work/ws/repos/it'\''s'`, `ropeshift repository add '/work/ws/repos/it'\''s'`,
 		`mv '/work/my api' '/work/ws/repos/my api'`, `ropeshift repository add '/work/ws/repos/my api'`,
+		// Single quotes hold a newline as it is, so the command runs as it prints.
+		"mv '/work/new\nline' '/work/ws/repos/new\nline'", "ropeshift repository add '/work/ws/repos/new\nline'",
 	}
 	if !slices.Equal(commands, want) {
 		t.Errorf("the commands read %q, want %q", commands, want)

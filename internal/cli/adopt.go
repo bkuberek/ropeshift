@@ -80,6 +80,9 @@ func (c *invocation) adopt(args []string) int {
 	if *dryRun {
 		return c.finish(nil, plan, func() string { return adoptionPlanText(plan) })
 	}
+	if reason, refused := planningRefusal(plan); refused {
+		return c.refusedPlanning(plan, reason)
+	}
 	if !exists {
 		if name, code = c.createAdoptingProject(client, name, root); code != ExitOK {
 			return code
@@ -95,6 +98,12 @@ func (c *invocation) adopt(args []string) int {
 	report, code := c.register(project, root, registrablePaths(plan))
 	if code != ExitOK {
 		return code
+	}
+	// A project the adoption just created had no record to refuse by, so what the registration said is read again.
+	for _, added := range report.Repositories {
+		if added.Path == plan.Planning.Path && added.Outcome == ledger.RegistrationRefused && plan.Planning.Path != plan.Layout.Root {
+			return c.refusedPlanning(plan, added.Reason)
+		}
 	}
 	repository, code := c.adoptedPlanningRepository(project, *planningName, registeredAt(report, plan.Planning.Path))
 	if code != ExitOK {
@@ -145,6 +154,26 @@ func registrablePaths(plan planning.AdoptionPlan) []string {
 		}
 	}
 	return paths
+}
+
+// planningRefusal is why a registration of the repository the plan lives in would be refused, when the plan says
+// so and that repository is not the clone adopt runs in.
+func planningRefusal(plan planning.AdoptionPlan) (string, bool) {
+	if plan.Planning.Path == "" || plan.Planning.Path == plan.Layout.Root {
+		return "", false
+	}
+	for _, repository := range plan.Repositories {
+		if repository.Path == plan.Planning.Path && repository.Outcome == string(ledger.RegistrationRefused) {
+			return repository.Reason, true
+		}
+	}
+	return "", false
+}
+
+// refusedPlanning stops an adoption whose planning repository is not registered, rather than plan in another
+// clone without saying so.
+func (c *invocation) refusedPlanning(plan planning.AdoptionPlan, reason string) int {
+	return c.usageError("the repository that holds the plan, %s, was refused: %s; name another with --planning NAME", plan.Planning.Name, reason)
 }
 
 // registeredAt is the record of the clone a registration reported at a path, or empty when it reported none.
