@@ -110,11 +110,11 @@ A decision that is in force and binds work acts on it in the transaction that re
 | Where the work stands | What happens |
 |-----------------------|--------------|
 | Not started, and `ready` | It returns to contract review. When a person recorded a one-way decision, the work waits there until a member passes its review again, which reads a choice nobody can take back. Any other decision holds nothing, and the next tick passes the review again with the decision in what it reads |
-| Claimed, running, parked, lapsed, or blocked | Its lane is told, and its next context pack holds the decision. A lane that asked the question the decision answers reads the answer in place of a notice. The lane goes on or parks as the [lane policy](cli.md) says |
+| Claimed, running, parked, lapsed, or blocked | Its lane is told, and its next context pack holds the decision. A lane that asked the question the decision answers reads the answer in place of a notice, and goes on. Any other lane goes on or parks as the [lane policy](cli.md) says |
 | Finished: waiting for acceptance, integrating, or done | A one-way decision, and an overturn, start one rework of it. A reversible decision lists it on record, and a member reworks what it touches |
 | Failed or canceled | Nothing. A retry starts from a pack that holds the decision |
 
-A plan, a contract review, and a review are never moved or reworked by a decision. Their lanes are told. A batch of decisions starts at most one rework of a finished work order, and a rework that has not started takes the later decisions instead of a second one.
+A plan, a contract review, and a review are never moved or reworked by a decision. Their lanes are told. A batch of decisions starts at most one rework of a finished work order, and a rework that has not started takes the later decisions instead of a second one. Work that was already reworked and finished is reworked once more at the end of its chain of rework, never at each link.
 
 The lane policy's `on_binding_decision` is `notify`, the default, or `park`, and it answers for every decision that binds a lane's work. A policy that sets `on_one_way_decision` answers for one-way decisions instead, so a team can park on what cannot be undone and tell on the rest.
 
