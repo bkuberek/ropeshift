@@ -488,10 +488,41 @@ func startSoloWorker(
 		}
 		// Run returns before the goroutines it started for lanes, forge requests, and probes, and they write
 		// the journal and upload over the link until they end, so both close after them.
-		subject.Wait()
+		awaitWorker(subject, workerStopGrace, stderr)
 		<-socketDone
 	}()
 	return done, nil
+}
+
+// workerStopGrace bounds how long a stopping daemon waits for the goroutines its worker started before it
+// closes the journal and the link anyway. Each of them ends with the worker's context, so this is for one
+// that does not: a service manager kills a daemon slow to stop, systemd after 90 seconds by default
+// (https://www.freedesktop.org/software/systemd/man/latest/systemd-system.conf.html), and a kill closes
+// nothing.
+const workerStopGrace = 20 * time.Second
+
+// stoppingWorker is what a stopping daemon waits on before it closes its worker's journal and link.
+type stoppingWorker interface {
+	Wait()
+	Unfinished() []string
+}
+
+// awaitWorker waits for what the worker started to end, for at most grace. A wait that runs out says what
+// is still running, and the journal and link close after it all the same.
+func awaitWorker(subject stoppingWorker, grace time.Duration, stderr io.Writer) {
+	ended := make(chan struct{})
+	go func() {
+		defer close(ended)
+		subject.Wait()
+	}()
+	timer := time.NewTimer(grace)
+	defer timer.Stop()
+	select {
+	case <-ended:
+	case <-timer.C:
+		fmt.Fprintf(stderr, "ropeshiftd: worker: still running after %s, closing its journal and link anyway: %s\n",
+			grace, strings.Join(subject.Unfinished(), ", "))
+	}
 }
 
 // soloWorker holds the worker this daemon runs, once it has one, for the routes that act on its machine.

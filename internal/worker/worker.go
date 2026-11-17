@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -368,6 +370,33 @@ func (w *Worker) applyBeat(ctx context.Context, held []ledger.HeldLease, reply l
 func (w *Worker) Wait() {
 	w.laneGroup.Wait()
 	w.probes.Wait()
+}
+
+// Unfinished names what Wait still waits on: each lane whose goroutine runs, each forge step, and the
+// probe. A process that gives up waiting says what it left running.
+func (w *Worker) Unfinished() []string {
+	var names []string
+	w.mu.Lock()
+	for lane := range w.running {
+		names = append(names, "lane "+lane)
+	}
+	w.mu.Unlock()
+	w.performingLock.Lock()
+	for key := range w.performing {
+		if step, ok := strings.CutPrefix(key, forgeStep); ok {
+			kind, scoped, _ := strings.Cut(step, "/")
+			_, id, _ := strings.Cut(scoped, "\x00")
+			names = append(names, "forge "+kind+" "+id)
+		}
+	}
+	w.performingLock.Unlock()
+	w.qualLock.Lock()
+	if w.probe != nil {
+		names = append(names, "probe of "+w.probe.version)
+	}
+	w.qualLock.Unlock()
+	slices.Sort(names)
+	return names
 }
 
 // leaseKey names a lease by its project and work order, because two projects can hold a work order with
