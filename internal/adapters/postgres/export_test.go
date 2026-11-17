@@ -43,6 +43,12 @@ func (s *State) SetDropLimit(d time.Duration) { s.dropLimit = d }
 // default.
 func (s *State) SetDropWait(d time.Duration) { s.dropWait = d }
 
+// ReconcileIndex runs the comparison of every project's entries with its records that Open runs, as a
+// state that runs it again would.
+func (s *State) ReconcileIndex(ctx context.Context) error {
+	return s.locked(ctx, func(ctx context.Context) error { return s.reconcileIndex(ctx) })
+}
+
 // RepairProjectIndex rebuilds a project's part of the repository index, as a caller that saw a write of the
 // project fail would.
 func (s *State) RepairProjectIndex(ctx context.Context, p ledger.Project) error {

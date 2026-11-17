@@ -156,10 +156,23 @@ func (s *State) reconcileProject(ctx context.Context, p ledger.Project, entries 
 		return err
 	}
 	records, err := recordedRepositories(ctx, s.pool, schema, p.ID)
-	if err != nil || indexAgrees(entries, records, p.ID) {
+	if err != nil {
 		return err
 	}
+	if indexAgrees(entries, records, p.ID) {
+		// No conflict is left, which includes one that ended because its record was removed, and a
+		// conflict that comes back later is a new one to report.
+		s.forgetConflicts(p.ID)
+		return nil
+	}
 	return s.rebuildProjectIndex(ctx, p)
+}
+
+// forgetConflicts drops what the state remembers of the conflicts it reported for a project.
+func (s *State) forgetConflicts(id ledger.WorkspaceID) {
+	s.reportedMu.Lock()
+	defer s.reportedMu.Unlock()
+	delete(s.reported, id)
 }
 
 // repairAfterFailedWrite brings a project's part of the repository index back into agreement with its
@@ -236,7 +249,7 @@ func (s *State) rebuildProjectIndex(ctx context.Context, p ledger.Project) error
 		}
 	}
 	if indexAgrees(entries, records, p.ID) {
-		s.reportConflicts(ctx, p, nil, index)
+		s.forgetConflicts(p.ID)
 	} else {
 		_, wanted := indexedIdentities(records, p.ID)
 		conflicts, err := s.Installation.ReplaceProjectRepositories(ctx, p.ID, wanted)

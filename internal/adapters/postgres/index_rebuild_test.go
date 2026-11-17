@@ -478,6 +478,53 @@ func TestAConflictIsReportedWithWhatToDoAndOnlyWhenItChanges(t *testing.T) {
 	}
 }
 
+// TestAConflictThatEndsWithItsRecordIsReportedAgainWhenItReturns holds that the memory of a reported conflict
+// goes when the conflict does, also when it ends because the conflicting record was removed, which leaves the
+// project's entries in agreement with its records and so needs no rebuild: a conflict that comes back is a
+// new one, and is reported.
+func TestAConflictThatEndsWithItsRecordIsReportedAgainWhenItReturns(t *testing.T) {
+	url := freshDatabase(t)
+	first := openState(t, url, postgres.Options{})
+	db := first.SQLDB()
+	defer db.Close()
+	alpha, alphaStore := createProject(t, first, "pa", "alpha")
+	beta, _ := createProject(t, first, "pb", "beta")
+	if err := insertRepository(t.Context(), alphaStore, alpha.ID, "r1", "invoices", invoices); err != nil {
+		t.Fatal(err)
+	}
+	insertRecordWithoutEntry(t, db, "project_pb", beta.ID, "r-b1", "b1", invoices)
+
+	var warned warnings
+	state, err := postgres.Open(t.Context(), url, postgres.Options{Store: sqlstore.Options{Warn: warned.add}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = state.Close() })
+	if got := warned.all(); len(got) != 1 {
+		t.Fatalf("warnings %q, want one for the conflict", got)
+	}
+
+	// The conflicting record is removed. The project's entries agree with its records again.
+	if _, err := db.ExecContext(t.Context(), `DELETE FROM project_pb.repositories WHERE id = 'r-b1'`); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.ReconcileIndex(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if got := warned.all(); len(got) != 1 {
+		t.Fatalf("warnings %q, want no new one while there is no conflict", got)
+	}
+
+	// The same conflict comes back later, and is reported.
+	insertRecordWithoutEntry(t, db, "project_pb", beta.ID, "r-b1", "b1", invoices)
+	if err := state.ReconcileIndex(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if got := warned.all(); len(got) != 2 || !strings.Contains(got[1], "r-b1") {
+		t.Errorf("warnings %q, want the conflict that came back reported once more", got)
+	}
+}
+
 // TestTheRepairOfAProjectRunsInAnOpenState holds the repair a caller can run when a write of a project
 // fails, without opening a state again: it takes the migration lock, and it brings the project's part of
 // the index into agreement with its records. A project whose index is in agreement is left alone.
