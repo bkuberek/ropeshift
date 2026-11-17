@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -30,7 +32,14 @@ type assistantRig struct {
 
 func newAssistantRig(t *testing.T, scripts ...fake.DriverScript) *assistantRig {
 	t.Helper()
-	o := newOrchestratorRig(t, scripts...)
+	return newAssistantRigOn(t, newRig(t), scripts...)
+}
+
+// newAssistantRigOn builds on a rig a test has already set up, such as one whose worker reaches the control
+// plane through a wrapper.
+func newAssistantRigOn(t *testing.T, base *rig, scripts ...fake.DriverScript) *assistantRig {
+	t.Helper()
+	o := newOrchestratorRigOn(t, base, scripts...)
 	o.config.AssistantCommands, o.config.Routes = []string{"lane list", "work show"}, []string{"lane-shim", "hook"}
 	o.tick(t)
 	a := &assistantRig{orchestratorRig: o}
@@ -418,6 +427,97 @@ func TestDeletingAConversationLeavesNothingOfItOnTheWorker(t *testing.T) {
 	}
 	if strings.Contains(string(scanned), "launch codes") {
 		t.Errorf("the journal holds what the member wrote: %s", scanned)
+	}
+}
+
+// awayReplies is a control plane that is away for an assistant's first reply: it holds the first try until
+// the test lets it fail with a passing failure. A quiet one then holds every later try to its deadline, and
+// one that came back records it.
+type awayReplies struct {
+	*fake.WorkerLink
+	quiet   bool
+	tries   atomic.Int64
+	reached chan struct{}
+	release chan struct{}
+	freed   sync.Once
+}
+
+func newAwayReplies(base *rig, quiet bool) *awayReplies {
+	link := &awayReplies{WorkerLink: base.link, quiet: quiet, reached: make(chan struct{}), release: make(chan struct{})}
+	base.workerLink = link
+	return link
+}
+
+func (l *awayReplies) AssistantEntry(ctx context.Context, request ledger.AssistantEntryRequest) error {
+	if l.tries.Add(1) == 1 {
+		close(l.reached)
+		<-l.release
+		return errors.New("the control plane is away")
+	}
+	if l.quiet {
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	return l.WorkerLink.AssistantEntry(ctx, request)
+}
+
+// fail lets the first try fail. It is safe to call twice.
+func (l *awayReplies) fail() { l.freed.Do(func() { close(l.release) }) }
+
+// replyingAssistant has an assistant write one reply, and returns once the reply's first try reached the
+// control plane.
+func replyingAssistant(t *testing.T, base *rig, link *awayReplies) *assistantRig {
+	t.Helper()
+	reply := []fake.DriverStep{{Reply: "Two merges wait.", ReplyID: "msg_01"}, completed(0.01)}
+	a := newAssistantRigOn(t, base, script([]fake.DriverStep{{Bound: true}, completed(0.01)}, reply, []fake.DriverStep{{Hold: true}}))
+	t.Cleanup(link.fail)
+	ctx := t.Context()
+	if _, err := a.convs.Create(ctx, scope, control.NewConversation{ID: "conv-1"}, member); err != nil {
+		t.Fatal(err)
+	}
+	a.awaitAssistant(t, "a session at rest", func() bool { return a.conversation(t, "conv-1").Actual == conversations.Running })
+	if _, err := a.convs.Send(ctx, scope, "conv-1", control.MemberMessage{ID: "m-1", Body: "Which merges wait?"}, member); err != nil {
+		t.Fatal(err)
+	}
+	a.awaitAssistant(t, "a reply's first try", func() bool {
+		select {
+		case <-link.reached:
+			return true
+		default:
+			return false
+		}
+	})
+	return a
+}
+
+// A running worker tries a reply again after a passing failure, and records it once the control plane is back.
+func TestARunningWorkerTriesAReplyAgain(t *testing.T) {
+	base := newRig(t)
+	link := newAwayReplies(base, false)
+	a := replyingAssistant(t, base, link)
+	link.fail()
+	a.awaitAssistant(t, "the reply on record", func() bool { return len(a.replies(t, "conv-1")) == 1 })
+	if tries := link.tries.Load(); tries != 2 {
+		t.Errorf("the worker tried the reply %d times", tries)
+	}
+}
+
+// TestAStoppingWorkerTriesNoReplyAgain stops a worker while an assistant's reply is on its first try, and the
+// try then fails with the control plane away and quiet. The try in flight ends within its own deadline, and a
+// stopping worker tries no reply again, so the tries left do not hold the worker's wait, which a service
+// manager bounds.
+func TestAStoppingWorkerTriesNoReplyAgain(t *testing.T) {
+	base := newRig(t)
+	link := newAwayReplies(base, true)
+	a := replyingAssistant(t, base, link)
+
+	a.stopWorker()
+	link.fail()
+	if waited, stacks := a.waitedWithin(keptLaneStop); !waited {
+		t.Fatalf("the worker still waits on a reply's tries %s after it stopped; goroutines:\n%s", keptLaneStop, stacks)
+	}
+	if tries := link.tries.Load(); tries != 1 {
+		t.Errorf("a stopping worker tried a reply %d times", tries)
 	}
 }
 

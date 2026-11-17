@@ -357,7 +357,9 @@ func (r *laneRun) startOver(ctx context.Context) bool {
 }
 
 // postReply records one message the session wrote as a reply in its conversation, apart from the stream,
-// which must keep reading. The vendor's message ID makes a retry record it once.
+// which must keep reading. The vendor's message ID makes a retry record it once. A try in flight ends within
+// its deadline whatever happens to the worker, and a stopping worker tries no reply again, because a service
+// manager bounds the worker's wait, which covers the tries.
 func (r *laneRun) postReply(ctx context.Context, event ports.DriverEvent) {
 	state := r.assistant()
 	state.mu.Lock()
@@ -376,6 +378,7 @@ func (r *laneRun) postReply(ctx context.Context, event ports.DriverEvent) {
 		ID: event.MessageID, Body: event.Text,
 	}
 	r.stopped.Go(func() {
+		stopping := ctx.Done()
 		ctx := context.WithoutCancel(ctx)
 		for attempt := range 3 {
 			bounded, cancel := context.WithTimeout(ctx, assistantDeadline)
@@ -391,7 +394,12 @@ func (r *laneRun) postReply(ctx context.Context, event ports.DriverEvent) {
 				r.w.config.Report(fmt.Errorf("lane %s: a reply: %w", r.lease.Lane, err))
 				return
 			}
-			time.Sleep(time.Duration(attempt+1) * retryEvery)
+			select {
+			case <-stopping:
+				r.w.config.Report(fmt.Errorf("lane %s: a reply the worker stopped before it recorded: %w", r.lease.Lane, err))
+				return
+			case <-time.After(time.Duration(attempt+1) * retryEvery):
+			}
 		}
 	})
 }
