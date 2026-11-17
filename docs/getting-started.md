@@ -185,4 +185,4 @@ Every view sits in the same frame, as the window in step 2 shows.
 
 ## Next
 
-Set up your projects, the next guide in [Learn ropeshift](../README.md#learn-ropeshift).
+[Set up your projects](set-up-projects.md), the next guide in [Learn ropeshift](../README.md#learn-ropeshift).

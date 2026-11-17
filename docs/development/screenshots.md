@@ -187,7 +187,6 @@ Every published image has a row, and every row names a capture and the name it i
 | `agents-project-<theme>-1440.png` | `agents-<theme>.png` | Web UI guide |
 | `settings-project-<theme>-1440.png` | `settings-<theme>.png` | Web UI guide |
 | `members-<theme>-1440.png` | `members-<theme>.png` | Web UI guide |
-| `repositories-<theme>-1440.png` | `repositories-<theme>.png` | Set up a project |
 | `repository-<theme>-1440.png` | `repository-<theme>.png` | GitHub guide |
 | `import-<theme>-1440.png` | `import-<theme>.png` | Adopt guide |
 | `top.png` | `top.png` | README |
@@ -198,5 +197,14 @@ Every published image has a row, and every row names a capture and the name it i
 | `get-started-05-<theme>.png` | `get-started-05-<theme>.png` | Get started |
 | `get-started-06-<theme>.png` | `get-started-06-<theme>.png` | Get started |
 | `get-started-07-<theme>.png` | `get-started-07-<theme>.png` | Get started |
+| `projects-01-<theme>.png` | `projects-01-<theme>.png` | Set up your projects |
+| `projects-02-<theme>.png` | `projects-02-<theme>.png` | Set up your projects |
+| `projects-03-<theme>.png` | `projects-03-<theme>.png` | Set up your projects |
+| `projects-04-<theme>.png` | `projects-04-<theme>.png` | Set up your projects |
+| `projects-05-<theme>.png` | `projects-05-<theme>.png` | Set up your projects |
+| `projects-06-<theme>.png` | `projects-06-<theme>.png` | Set up your projects |
+| `projects-07-<theme>.png` | `projects-07-<theme>.png` | Set up your projects |
+| `projects-08-<theme>.png` | `projects-08-<theme>.png` | Set up your projects |
+| `projects-09-<theme>.png` | `projects-09-<theme>.png` | Set up your projects |
 
 After a release, run `make screenshots` at its tag, look at each image, and publish. Then update the version that the README's screenshots section and the web UI guide name.

@@ -73,6 +73,20 @@ What happens after a passing review is your choice, set per repository:
 
 Ropeshift merges only the exact commit the review read, never through an agent, and records every approval and merge. Work merges after the work it depends on, in its own repository or another ([connect a GitHub repository](github.md#5-choose-the-merge-authority)).
 
+## Projects of several repositories
+
+Many products are more than one repository: an API, a web client, a shared library, and a repository that holds the plan. Ropeshift treats them as one project with one plan ([set up your projects](set-up-projects.md)).
+
+**One planning repository.** The plan of record lives in one repository of the project, its planning repository, and intake reads plan files only from there. Planning sessions run there.
+
+**One repository per work order.** A contract lives in the planning repository, and each of its work orders names the repository it changes with `repo`. Work that spans repositories is several work orders joined by dependencies ([a contract across repositories](project-structure.md#a-contract-across-repositories)).
+
+**Dependencies across repositories.** Work that depends on work in another repository becomes ready only once that work is `done`: once its merge landed, or, in a repository at `person_merges` with review target `branch`, once you accepted it, because ropeshift cannot see a merge you make yourself. Within one repository, a repository set to start from `accepted` lets dependent work start from accepted work before it merges. That never applies across repositories, because a build in one repository cannot use an unmerged branch of another.
+
+**Read-only reads.** A lane writes only in its own repository. It also reads, read-only, each repository its work order's dependencies target, at the commit ropeshift's merge of that dependency made, or at the base branch tip when ropeshift recorded no merge, and each repository its contract names in `reads`, such as `reads = ["acme-api"]`, at the base branch tip. The worker checks each one out beside the lane's worktree, in a folder named after the lane with `.reads` after it, and the lane's brief names them. The lane may read them and may not edit, commit, push, or change branch there, and the worker removes them when the lane ends. The review of that lane reads the same repositories at the same commits, so it judges the work against the code the writer saw. A planning session reads every repository of the project at its base branch tip.
+
+**Merge order.** Changes merge one by one, in dependency order, within and across repositories. Approved work whose dependency is not yet `done` waits in `integrating`, and `ropeshift work show` prints a `waiting` line naming each dependency with its repository and state. At `person_merges` with pull requests, the same line tells you which pull request to merge first. Merges across repositories are not atomic: each lands on its own. A milestone whose work spans repositories is done once its work has merged in every one. In a repository at `person_merges` with review target `branch`, the roadmap shows such a milestone as accepted, not merged ([merging accepted work](onboarding.md#merging-accepted-work)).
+
 ## Questions and decisions
 
 When a lane has a question, the question climbs a ladder, and a person is the last rung:
@@ -109,5 +123,5 @@ Everything else runs without you.
 ## Next steps
 
 - Install it and sign in to the web UI: [get started with the web UI](getting-started.md).
-- Set up a real project, with each decision explained: [set up a project](set-up-a-project.md).
+- Create your projects and register their repositories: [set up your projects](set-up-projects.md).
 - See how to lay out your repositories: [project structure](project-structure.md).

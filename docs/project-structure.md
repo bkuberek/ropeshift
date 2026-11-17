@@ -45,7 +45,7 @@ A project of one repository needs none of the extra parts: that repository is it
 | `AGENTS.md` or `CLAUDE.md` | A planning session runs in a worktree of the planning repository, so its agent reads these instructions. Say what the project is, where plan files go (`plan/`), which document wins when two disagree, and which checks a change must pass |
 | `Makefile` | Ropeshift clones nothing. A registered repository whose clone is missing holds its work as `no_checkout` until the clone is there. A `make setup` that clones each missing repository, a `make fetch`, and a `make status` make a fresh machine ready in one step |
 | `repos/` is git-ignored | Intake reads only what git has committed, file by file, so the clones inside the workspace are never read as part of it. Each clone is a repository of its own, registered on its own |
-| The manifest lists `repos/acme-api` | A manifest path is relative to the planning repository's clone, and may lead into a folder inside it, or beside it, such as `../acme-api`. It must stay inside the folder that holds the planning repository's clone ([projects of several repositories](multiple-repositories.md#5-keep-a-manifest-in-the-planning-repository)) |
+| The manifest lists `repos/acme-api` | A manifest path is relative to the planning repository's clone, and may lead into a folder inside it, or beside it, such as `../acme-api`. It must stay inside the folder that holds the planning repository's clone ([keep a manifest in the planning repository](set-up-projects.md#keep-a-manifest-in-the-planning-repository)) |
 | Lane worktrees are outside | See [where lane worktrees go](#where-lane-worktrees-go) |
 
 ## Where lane worktrees go
@@ -155,6 +155,39 @@ The load balancer needs an endpoint that says the service is up, and which build
 
 `repo = "."` means the repository that holds the file. In a project of several repositories, `repo` names the repository a work order changes, by its name in the project. Every planning session is shown an example of each kind, and writes these files for you.
 
+### A contract across repositories
+
+In a project of several repositories, the contracts live in the planning repository, and each work order names the repository it changes by its name in the project. A design decision written down in the workspace, which the web client then implements, looks like this:
+
+```markdown
++++
+kind = "contract"
+id = "accounts-web"
+title = "Account settings page"
+plan = "acme-v1"
+milestone = "m1-accounts"
+documents = ["architecture:acme-accounts"]
+uses = ["accounts-api"]
+
+[[criteria]]
+id = "c1"
+text = "A signed-in user changes their display name on the settings page"
+requirements = ["ACC-3"]
+
+[[work_orders]]
+id = "settings-page"
+title = "Build the account settings page"
+repo = "acme-web"
+size = "medium"
++++
+
+The page calls the accounts API that accounts-api delivers.
+```
+
+- `documents` cites the architecture document in the workspace that records the design. Intake pins the citation to the version at this commit, and the lane reads it.
+- `repo = "acme-web"` sends the work to the web client. A name the project does not hold keeps the work from `ready`, and `source list` names it.
+- `uses = ["accounts-api"]` builds on the shared contract `accounts-api`, which is marked `shared = true` and whose work order has `repo = "acme-api"`. Every work order here waits for that contract's work, so the API lands first ([projects of several repositories](how-it-works.md#projects-of-several-repositories)).
+
 ## What to commit, and what not
 
 | Commit | Do not commit |
@@ -180,11 +213,11 @@ The plan is reviewable as a change like any other, and the ledger records what h
 
 The daemon's `--ref` and `--dir` flags apply to every repository it reads, in every project of the installation:
 
-- `--ref <branch>` reads that branch instead of each default branch. Use it only when every repository has that branch. A team on a long-lived branch usually keeps the default ref and sets each repository's base branch instead, so lanes start from that branch ([set up a project](set-up-a-project.md#6-choose-the-branch-lanes-start-from)).
+- `--ref <branch>` reads that branch instead of each default branch. Use it only when every repository has that branch. A team on a long-lived branch usually keeps the default ref and sets each repository's base branch instead, so lanes start from that branch ([where a lane starts](onboarding.md#where-a-lane-starts)).
 - `--dir <folder>` reads only that folder of each repository. With a named planning repository you seldom need it, because plan files are read only from there. If you set it, every repository's plan files and documents must sit under that folder, and the planning agent must be told so in the instructions file, because nothing else tells it.
 
 ## Next steps
 
-- Set up a project of one repository: [set up a project](set-up-a-project.md).
-- Grow to several repositories: [projects of several repositories](multiple-repositories.md).
+- Create a project and register its repositories: [set up your projects](set-up-projects.md).
+- How work spans several repositories: [projects of several repositories](how-it-works.md#projects-of-several-repositories).
 - Bring in a project that already exists: [adopt an existing project](adopt.md).
