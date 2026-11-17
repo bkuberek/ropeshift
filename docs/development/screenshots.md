@@ -160,6 +160,20 @@ The walk fails a capture whose page shows the installation's temporary path, the
 | `TestNoCommandSpendsAJoinToken` | Nothing a person runs spends a join token: `ropeshift worker token` makes one, and neither program has a command that takes one |
 | `TestAssistantAnswersInALaterProject` | A conversation with the assistant works in a project created after the installation's first, as it does in the first |
 
+## The group scenario
+
+`make guide-shots SCENARIO=1` runs the group scenario, which the guides of a group server will start from. It captures nothing yet: the kit holds the scenario and checks that it works. It needs `initdb` and `postgres` on `PATH` or in `ROPESHIFT_TEST_PG_BIN`, as `make check-postgres` does.
+
+The scenario is three installations and a database, all of them the run's own:
+
+- **A Postgres** that the run starts and stops, on a socket in its own directory.
+- **A group server** in an installation of its own, with the fake agent CLI first on `PATH`, serving TLS in a certificate its own authority issues, on a loopback port the kernel chooses. Its database connection string reaches it through the environment.
+- **Two workers**, each in an installation of its own, with its own home, state directory, run directory, and worker socket. A member makes a join string for each with `ropeshift worker token` on the server, and each worker joins with `ropeshiftd worker join`, the string in `ROPESHIFT_JOIN`, so the string and the fingerprint in it are never in a process list or an output.
+
+`TestGroupScenario` waits until the server lists both workers and each has reported what it measured of its machine twice, which a worker does on the heartbeats it sends over the link its join string made. Every port is one the kernel chose, and nothing reads or writes the person's installation, the Homebrew daemon, or port 7317.
+
+The screenshots build fixes the ID of a solo worker and not the ID a group worker makes when it joins, so a capture of a group server's Workers page names a different ID each run until a guide fixes it.
+
 ## Publishing images
 
 Publishing copies captures into `docs/assets/screenshots/`, where the docs show them. It runs on the directory a capture run wrote:
