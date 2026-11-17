@@ -2,8 +2,8 @@ import type { PlanRevisionView } from "../api/types";
 import { Id } from "../ui/display";
 
 // RevisionSince lists the decisions a member made since the version a member approved, with the finished work the
-// reversible ones reached and the work that waits in contract review while the revision is open. A plan version is
-// approved beside it, and a plan that is not yet approved again says why its unstarted work waits.
+// reversible ones reached and the work they bind that waits in contract review while the revision is open. A plan
+// version is approved beside it, and a plan that is not yet approved again says why that work waits.
 export function RevisionSince({ revision }: { revision: PlanRevisionView }) {
   const base = revision.revision?.approved_version ?? 0;
   const open = revision.revision?.closed_at === undefined;

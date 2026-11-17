@@ -85,8 +85,8 @@ export function PlanRevisionCard({ need, after, frame }: { need: PlanRevisionVie
       }
     >
       <p>
-        A member decided something inside the approved plan. Its unstarted work waits in contract review until you confirm that version
-        against these decisions, or approve a new version that reflects them.
+        A member decided something inside the approved plan. The work these decisions bind waits in contract review until you confirm that
+        version against them, or approve a new version that reflects them. The plan's other work goes on.
       </p>
       <Facts>
         <Fact name="Plan">{need.title}</Fact>

@@ -319,7 +319,7 @@ function PlanVersions({ detail, live }: { detail: PlanDetail; live: Live }) {
       {read.failure ? <Banner tone="danger">{read.failure}</Banner> : null}
       {view?.revision?.revision ? (
         <Banner tone="warning">
-          <strong>This plan needs revision.</strong> Decisions made inside version {view.revision.revision.approved_version} keep its unstarted work in contract review until a
+          <strong>This plan needs revision.</strong> Decisions made inside version {view.revision.revision.approved_version} keep the work they bind in contract review until a
           member confirms that version or approves a later one. Both wait in <Link to="/needs-you?kind=decisions">Needs you</Link>.
         </Banner>
       ) : null}

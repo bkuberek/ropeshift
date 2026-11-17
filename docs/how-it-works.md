@@ -109,7 +109,7 @@ A decision that is in force and binds work acts on it in the transaction that re
 
 | Where the work stands | What happens |
 |-----------------------|--------------|
-| Not started, and `ready` | It returns to contract review. When a person recorded a one-way decision, the work waits there until a member passes its review again, which reads a choice nobody can take back. Any other decision holds nothing, and the next tick passes the review again with the decision in what it reads. When a member's decision binds work of an approved plan, the plan [needs revision](#a-plan-that-needs-revision), and the plan's work waits in contract review until a member settles it |
+| Not started, and `ready` | It returns to contract review. When a person recorded a one-way decision, the work waits there until a member passes its review again, which reads a choice nobody can take back. Any other decision holds nothing, and the next tick passes the review again with the decision in what it reads. When a member's decision binds work of an approved plan, the plan [needs revision](#a-plan-that-needs-revision), and the work that decision binds waits in contract review until a member settles it |
 | Claimed, running, parked, lapsed, or blocked | Its lane is told, and its next context pack holds the decision. A lane that asked the question the decision answers reads the answer in place of a notice, and goes on. Any other lane goes on or parks as the [lane policy](cli.md) says |
 | Finished: waiting for acceptance, integrating, or done | A one-way decision, and an overturn, start one rework of it. A reversible decision lists it on record, and a member reworks what it touches |
 | Failed or canceled | Nothing. A retry starts from a pack that holds the decision |
@@ -122,7 +122,7 @@ The lane policy's `on_binding_decision` is `notify`, the default, or `park`, and
 
 A decision a member records, answers, or overturns, whose scope contains work of an approved plan version, marks that plan as needing revision. The plan keeps one open revision at a time. It lists the decisions made since the approved version, in the order they were made, and the finished work the reversible ones reached. A decision an orchestrator records within policy marks nothing, because covered work already proceeds under policy, and neither does a decision that binds no work of an approved plan.
 
-While a revision is open, work of the plan that waits in contract review stays there, and the plan shows once in Needs you with its decisions, the finished work they reached, and two choices:
+While a revision is open, the work its decisions bind, by their scopes, waits in contract review, and the plan's other work goes on. The plan shows once in Needs you with its decisions, the finished work they reached, and two choices:
 
 - **Confirm** records that the approved version stands with those decisions. It closes the revision and runs the definition of ready again for the work that waited.
 - **Revise** starts a planning session whose brief lists the decisions with their statements and scopes. The version it writes needs its own approval, which never inherits the earlier one and shows those decisions beside the difference from the approved version. Approving it closes the revision.
