@@ -601,6 +601,51 @@ func TestADropThatCannotTakeItsLocksGivesUp(t *testing.T) {
 	}
 }
 
+// TestADropThatRunsTooLongGivesUp holds that the whole drop of a schema is bounded, and not only its wait
+// for locks: a drop that is stuck for another reason, here a trigger of the database that sleeps, ends at
+// the limit with the schema as it was, and a repeat of Remove finishes once the cause is gone.
+func TestADropThatRunsTooLongGivesUp(t *testing.T) {
+	url := freshDatabase(t)
+	state := openState(t, url, postgres.Options{})
+	state.SetDropLimit(400 * time.Millisecond)
+	db := state.SQLDB()
+	defer db.Close()
+	alpha, _ := createProject(t, state, "pa", "alpha")
+	for _, statement := range []string{
+		// The sleep is long enough to fail the test that has no bound, and short enough not to hang it.
+		`CREATE FUNCTION slow_drop() RETURNS event_trigger LANGUAGE plpgsql AS $$ BEGIN PERFORM pg_sleep(8); END $$`,
+		`CREATE EVENT TRIGGER slow_drop ON ddl_command_start WHEN TAG IN ('DROP SCHEMA') EXECUTE FUNCTION slow_drop()`,
+	} {
+		if _, err := db.ExecContext(t.Context(), statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
+	defer cancel()
+	start := time.Now()
+	err := state.Remove(ctx, alpha, member)
+	if err == nil || ctx.Err() != nil {
+		t.Fatalf("Remove with a drop that sleeps ended with %v, want the failure of the drop", err)
+	}
+	if took := time.Since(start); took > 5*time.Second {
+		t.Errorf("the drop ran for %s, with a limit of 400ms", took)
+	}
+	if !schemaExists(t, db, alpha.Database) {
+		t.Error("the schema went although its drop was stopped")
+	}
+
+	if _, err := db.ExecContext(t.Context(), `DROP EVENT TRIGGER slow_drop`); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.Remove(t.Context(), alpha, member); err != nil {
+		t.Fatalf("the repeat of Remove: %v", err)
+	}
+	if schemaExists(t, db, alpha.Database) {
+		t.Error("the schema is still there after the repeat")
+	}
+}
+
 func TestImportAndBackupAreNotThereYet(t *testing.T) {
 	state := openState(t, freshDatabase(t), postgres.Options{})
 	alpha, _ := createProject(t, state, "pa", "alpha")

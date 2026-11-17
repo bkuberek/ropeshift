@@ -32,6 +32,11 @@ const defaultMaxConns = 16
 // so every other caller waits for as long as it does.
 const defaultDropWait = 30 * time.Second
 
+// defaultDropLimit is how long the whole drop of a schema may run, whatever it waits for or does. A drop
+// removes the files of the schema's tables, which takes no time that grows with their rows, so a drop that
+// runs this long is stuck, as one behind a lock a session never lets go of, or in a trigger of the database.
+const defaultDropLimit = time.Minute
+
 // idleSetting is the server setting that ends a session left inside a transaction.
 const idleSetting = "idle_in_transaction_session_timeout"
 
@@ -82,8 +87,9 @@ type State struct {
 	// which a caller whose context ends stops waiting for.
 	migrating   chan struct{}
 	lockTimeout time.Duration
-	// dropWait bounds how long the drop of a schema waits for a lock on one of its tables.
-	dropWait time.Duration
+	// dropWait bounds how long the drop of a schema waits for a lock on one of its tables, and dropLimit
+	// bounds the whole statement.
+	dropWait, dropLimit time.Duration
 	// repairWait bounds the repair of the repository index after a failed write, from its first wait to its
 	// last statement.
 	repairWait time.Duration
@@ -127,7 +133,7 @@ func Open(ctx context.Context, url string, opts Options) (*State, error) {
 	}
 	s := &State{
 		pool: pool, installationPool: installationPool, dialect: dialect, opts: opts.Store,
-		migrating: make(chan struct{}, 1), lockTimeout: lockTimeout(opts.LockTimeout), dropWait: defaultDropWait,
+		migrating: make(chan struct{}, 1), lockTimeout: lockTimeout(opts.LockTimeout), dropWait: defaultDropWait, dropLimit: defaultDropLimit,
 		stores: map[ledger.WorkspaceID]*sqlstore.Store{}, reported: map[ledger.WorkspaceID]string{},
 	}
 	s.opts.Installation, s.opts.Schema, s.opts.AfterFailedWrite = nil, "", nil
@@ -257,8 +263,10 @@ func (s *State) createSchema(ctx context.Context, name string) error {
 
 // dropSchema drops a schema with every table in it, when the database has it. The drop waits for the locks
 // of the schema's tables for at most dropWait and then fails, so a session with a transaction open on one of
-// them cannot hold up every caller of the migration lock, which the callers of dropSchema hold. A failed drop
-// leaves the schema as it was, and the same call finishes it once the session is gone.
+// them cannot hold up every caller of the migration lock, which the callers of dropSchema hold. The whole
+// statement is bounded as well, by dropLimit, because a drop can be stuck at more than a lock, such as in a
+// trigger of the database. A failed drop leaves the schema as it was, and the same call finishes it once its
+// cause is gone.
 func (s *State) dropSchema(ctx context.Context, name string) error {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -266,6 +274,9 @@ func (s *State) dropSchema(ctx context.Context, name string) error {
 	}
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`SET LOCAL lock_timeout = %d`, s.dropWait.Milliseconds())); err != nil {
+		return fmt.Errorf("postgres: drop schema %s: %w", name, err)
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`SET LOCAL statement_timeout = %d`, s.dropLimit.Milliseconds())); err != nil {
 		return fmt.Errorf("postgres: drop schema %s: %w", name, err)
 	}
 	if _, err := tx.Exec(ctx, `DROP SCHEMA IF EXISTS `+quote(name)+` CASCADE`); err != nil {
