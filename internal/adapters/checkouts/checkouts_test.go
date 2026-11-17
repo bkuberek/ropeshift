@@ -237,6 +237,34 @@ func TestResolveFollowsLinksAndNamesTheInstallationsDirectories(t *testing.T) {
 	}
 }
 
+// Ignored is what git check-ignore says of a path inside a clone: ignored by a folder above it, not ignored,
+// and an error when git cannot answer.
+func TestIgnoredSaysWhatTheClonesGitignoreHolds(t *testing.T) {
+	workspace := gittest.New(t)
+	workspace.Commit(".gitignore", "repos/\n/scratch\n")
+	dir := real(t, workspace.Dir)
+	cloneInto(t, filepath.Join(dir, "repos", "api"))
+	cloneInto(t, filepath.Join(dir, "repos", "payments", "api"))
+	cloneInto(t, filepath.Join(dir, "vendor", "ledger"))
+	f := &File{Env: workspace.Env()}
+	for path, want := range map[string]bool{
+		"repos/api":          true,
+		"repos/payments/api": true,
+		"repos/not-there":    true,
+		"scratch":            true,
+		"vendor/ledger":      false,
+		"vendor":             false,
+		"docs":               false,
+	} {
+		if got, err := f.Ignored(t.Context(), dir, path); err != nil || got != want {
+			t.Errorf("%s is ignored: %v (%v), want %v", path, got, err, want)
+		}
+	}
+	if got, err := f.Ignored(t.Context(), t.TempDir(), "repos/api"); err == nil {
+		t.Errorf("a directory that is no clone says %v, want an error", got)
+	}
+}
+
 // ignoresCase says the disk a directory is on reads two spellings that differ in case as one name, as a macOS
 // volume does by default. A test of a case variant skips where it does not, because there the two are two files.
 func ignoresCase(t *testing.T, dir string) bool {
