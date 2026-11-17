@@ -46,8 +46,12 @@ const (
 
 const (
 	defaultStopGrace = 5 * time.Second
-	versionTimeout   = 30 * time.Second
-	eventBuffer      = 256
+	// killWait bounds a stop's wait for a session's end after SIGKILL, which ends a process at once. The
+	// end can still go unread: it waits behind every event before it, and a worker on its way out reads
+	// none of them, because it leaves its lanes' sessions running for the worker after it.
+	killWait       = 2 * time.Second
+	versionTimeout = 30 * time.Second
+	eventBuffer    = 256
 	// shimStartLimit bounds the wait for a new shim's first answer.
 	shimStartLimit = 30 * time.Second
 	// shimDialDeadline bounds one try at reaching a shim.
@@ -62,6 +66,9 @@ const (
 // ErrSessionExists means a shim already holds this generation, so a retry that reached
 // this far must look for it and not start a second.
 var ErrSessionExists = errors.New("a shim already holds this generation")
+
+// ErrStopUnconfirmed means a stop sent its last signal and read no end of the session within killWait.
+var ErrStopUnconfirmed = errors.New("the stop sent its last signal and read no end of the session")
 
 // ErrNoBinary means the lane's PATH holds no agent CLI.
 var ErrNoBinary = errors.New("claude is not on PATH")
@@ -1178,7 +1185,9 @@ func (d *Driver) HoldTools(_ context.Context, h ports.SessionHandle, reason stri
 
 // Stop ends a session. A session that does not end within the grace takes the next
 // signal, and SIGKILL is last. A session whose reader is gone reads ended, so a failed
-// request here is not a failed stop.
+// request here is not a failed stop. After SIGKILL the stop waits killWait for the end
+// and then returns it unconfirmed, because an end that nobody reads the events before
+// never arrives. It drops nothing: a reader that comes back still gets every event.
 func (d *Driver) Stop(ctx context.Context, h ports.SessionHandle, how ports.StopMode) error {
 	s, err := d.session(h)
 	if err != nil {
@@ -1200,6 +1209,8 @@ func (d *Driver) Stop(ctx context.Context, h ports.SessionHandle, how ports.Stop
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
+	case <-time.After(killWait):
+		return fmt.Errorf("%s: %w", h.ID, ErrStopUnconfirmed)
 	}
 }
 
