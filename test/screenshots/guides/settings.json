@@ -1,0 +1,166 @@
+{
+  "guide": "settings",
+  "title": "Settings and agents",
+  "world": "sample",
+  "order": 2,
+  "steps": [
+    {
+      "step": "open Settings",
+      "route": "/projects/default/settings",
+      "actions": [{ "waitFor": { "text": "Fleet mode" } }],
+      "capture": { "name": "settings-01", "clip": "window", "height": 960 }
+    },
+    {
+      "step": "change a setting and review the change",
+      "actions": [
+        { "click": { "role": "link", "name": "Recovery policy" } },
+        { "waitFor": { "text": "Breaker resets per day" } },
+        { "fill": { "label": "Breaker resets per day", "value": "1" } },
+        { "waitFor": { "text": "max_breaker_resets_per_day 2 → 1" } },
+        { "click": { "role": "button", "name": "Review change" } },
+        { "waitFor": { "text": "Records version 2.", "exact": false, "in": { "role": "dialog", "name": "Review the recovery policy change" } } }
+      ],
+      "capture": { "name": "settings-02", "clip": { "role": "dialog", "name": "Review the recovery policy change" } }
+    },
+    {
+      "step": "save the new version",
+      "actions": [
+        { "click": { "role": "button", "name": "Save version 2", "in": { "role": "dialog", "name": "Review the recovery policy change" } } },
+        { "waitFor": { "text": "Saved recovery policy version 2." } },
+        { "click": { "role": "button", "name": "Dismiss" } }
+      ]
+    },
+    {
+      "step": "read the policy's versions",
+      "actions": [
+        { "click": { "role": "tab", "name": "History", "exact": false } },
+        { "waitFor": { "text": "In force", "in": { "role": "tabpanel", "name": "History", "exact": false } } }
+      ],
+      "capture": { "name": "settings-03", "clip": { "role": "tabpanel", "name": "History", "exact": false } }
+    },
+    {
+      "step": "restore an earlier version",
+      "actions": [
+        { "click": { "role": "button", "name": "Revert" } },
+        { "waitFor": { "text": "Records version 3.", "exact": false, "in": { "role": "dialog", "name": "Revert to version 1" } } },
+        { "click": { "role": "button", "name": "Save version 3", "in": { "role": "dialog", "name": "Revert to version 1" } } },
+        { "waitFor": { "text": "Saved recovery policy version 3." } },
+        { "click": { "role": "button", "name": "Dismiss" } }
+      ]
+    },
+    {
+      "step": "read the decision policy",
+      "route": "/projects/default/settings?section=decision",
+      "actions": [
+        { "waitFor": { "text": "One-way categories" } },
+        { "waitFor": { "text": "architecture", "in": { "role": "group", "name": "One-way categories" } } }
+      ],
+      "capture": { "name": "settings-04", "clip": { "selector": "main" } }
+    },
+    {
+      "step": "read the notifications",
+      "route": "/projects/default/settings?section=notify",
+      "actions": [{ "waitFor": { "text": "Desktop notifications" } }],
+      "capture": { "name": "settings-05", "clip": { "selector": "main" } }
+    },
+    {
+      "step": "select an agent of the roster",
+      "route": "/projects/default/agents?agent=heavy-implementation",
+      "actions": [{ "waitFor": { "text": "Report format", "exact": false } }],
+      "capture": { "name": "settings-06", "clip": "window", "height": 1080 }
+    },
+    {
+      "step": "read the agent's driver preview",
+      "actions": [
+        { "click": { "role": "tab", "name": "Driver preview" } },
+        { "waitFor": { "text": "Model", "exact": true, "in": { "role": "tabpanel", "name": "Driver preview" } } },
+        { "click": { "role": "tab", "name": "Definition" } }
+      ]
+    },
+    {
+      "step": "change an agent and review the change",
+      "actions": [
+        {
+          "fill": {
+            "label": "Instructions",
+            "exact": false,
+            "value": "Map what the change touches before editing, keep each step working, and test the behavior that could break. Run the whole test suite before you report."
+          }
+        },
+        { "waitFor": { "text": "Changed: instructions" } },
+        { "click": { "role": "button", "name": "Review change" } },
+        { "waitFor": { "text": "Run the whole test suite", "exact": false, "in": { "role": "dialog", "name": "Review the roster change" } } }
+      ],
+      "capture": { "name": "settings-07", "clip": { "role": "dialog", "name": "Review the roster change" } }
+    },
+    {
+      "step": "save the roster change",
+      "actions": [
+        { "click": { "role": "button", "name": "Save version", "exact": false, "in": { "role": "dialog", "name": "Review the roster change" } } },
+        { "waitFor": { "text": "Saved project roster version", "exact": false } },
+        { "click": { "role": "button", "name": "Dismiss" } }
+      ]
+    },
+    {
+      "step": "add an agent from TOML",
+      "actions": [
+        { "click": { "role": "button", "name": "Add agent" } },
+        { "click": { "role": "button", "name": "Paste TOML", "in": { "role": "dialog", "name": "Add agent" } } },
+        {
+          "fill": {
+            "label": "Agent definition (TOML)",
+            "in": { "role": "dialog", "name": "Add agent" },
+            "value": "[[agent]]\nname = \"sql-migration\"\npurpose = \"A database migration and its rollback, from a spec that names the tables.\"\ninstructions = \"Run the migration and its rollback on a scratch database.\"\nkind = \"implementation\"\naccess = \"writing\"\nclass = \"standard\"\neffort = \"medium\"\n[agent.tools]\nallow = [\"read\", \"search\", \"edit\", \"shell\", \"context\"]"
+          }
+        },
+        { "waitFor": { "text": "[agents.sql-migration]", "in": { "role": "dialog", "name": "Add agent" } } }
+      ],
+      "capture": { "name": "settings-08", "clip": { "role": "dialog", "name": "Add agent" }, "height": 1600 }
+    },
+    {
+      "step": "save the new agent",
+      "actions": [
+        { "click": { "role": "button", "name": "Save version", "exact": false, "in": { "role": "dialog", "name": "Add agent" } } },
+        { "waitFor": { "text": "Added sql-migration", "exact": false } },
+        { "click": { "role": "button", "name": "Dismiss" } }
+      ]
+    },
+    {
+      "step": "read the routing guide",
+      "route": "/projects/default/agents?tab=guide",
+      "actions": [{ "waitFor": { "text": "Every session reads this to pick an agent for a piece of work." } }]
+    },
+    {
+      "step": "read the roster's history",
+      "route": "/projects/default/agents?tab=history",
+      "actions": [{ "waitFor": { "text": "sql-migration added", "exact": false } }],
+      "capture": { "name": "settings-09", "clip": "window", "height": 960 }
+    },
+    {
+      "step": "create a delegate",
+      "route": "/members",
+      "actions": [
+        { "click": { "role": "button", "name": "Create delegate" } },
+        { "fill": { "label": "Label", "value": "Release notes writer", "in": { "role": "dialog", "name": "Create delegate" } } },
+        { "click": { "role": "button", "name": "Create", "in": { "role": "dialog", "name": "Create delegate" } } },
+        { "waitFor": { "text": "Run this in the agent's shell", "exact": false, "in": { "role": "dialog", "name": "Delegate created" } } },
+        { "click": { "role": "button", "name": "Done", "in": { "role": "dialog", "name": "Delegate created" } } }
+      ]
+    },
+    {
+      "step": "read the members and delegates",
+      "route": "/members",
+      "actions": [{ "waitFor": { "text": "Release notes writer" } }],
+      "capture": { "name": "settings-10", "clip": "window", "height": 960 }
+    },
+    {
+      "step": "back up the installation",
+      "route": "/settings?section=backup",
+      "actions": [
+        { "click": { "role": "button", "name": "Back up installation" } },
+        { "waitFor": { "text": "Backup downloaded: ", "exact": false } },
+        { "click": { "role": "button", "name": "Dismiss" } }
+      ]
+    }
+  ]
+}
