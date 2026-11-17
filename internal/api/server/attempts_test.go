@@ -1,6 +1,8 @@
 package server_test
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -153,6 +155,52 @@ func TestARightGuessClearsTheCountAndAGuessThatProvedNothingLeavesIt(t *testing.
 	}
 }
 
+// A host holds a whole /64 of IPv6 addresses, so it would have a fresh count for every address it takes from
+// it. IPv6 addresses count by their /64, and an IPv4 address in its IPv6 form is the IPv4 address.
+func TestIPv6AddressesOfOneSlash64ShareACounter(t *testing.T) {
+	t.Parallel()
+	clock := fake.NewClock(attemptsStart)
+	a := limiter(clock, 3, 100)
+	fails(t, a, addr("2001:db8:1:2::1"), 1)
+	fails(t, a, addr("2001:db8:1:2:aaaa:bbbb:cccc:dddd"), 1)
+	fails(t, a, addr("2001:db8:1:2:ffff:ffff:ffff:ffff"), 1)
+	for _, same := range []string{"2001:db8:1:2::", "2001:db8:1:2::7", "2001:db8:1:2:1234:5678:9abc:def0"} {
+		if attempt, _ := a.Begin(addr(same)); attempt != nil {
+			t.Errorf("%s has a count of its own beside the rest of its /64", same)
+		}
+	}
+	for _, other := range []string{"2001:db8:1:3::1", "2001:db8:1:1:ffff:ffff:ffff:ffff", "2001:db8:2:2::1", "203.0.113.7"} {
+		attempt, wait := a.Begin(addr(other))
+		if attempt == nil {
+			t.Errorf("%s is refused for %s because of another /64", other, wait)
+			continue
+		}
+		attempt.Release()
+	}
+}
+
+// A flood of addresses from one /64 holds one slot of the table, so it cannot push anyone else out of it.
+func TestAFloodOfAddressesFromOneSlash64HoldsOneSlot(t *testing.T) {
+	t.Parallel()
+	clock := fake.NewClock(attemptsStart)
+	a := limiter(clock, 3, 8)
+	refused := addr("203.0.113.1")
+	fails(t, a, refused, 3)
+	fails(t, a, addr("198.51.100.1"), 1)
+	for i := range 500 {
+		attempt, _ := a.Begin(netip.AddrFrom16([16]byte{0x20, 0x01, 0x0d, 0xb8, 0, 1, 0, 2, 0, 0, 0, 0, 0, 0, byte(i >> 8), byte(i)}))
+		if attempt != nil {
+			attempt.Fail()
+		}
+	}
+	if got := a.Tracked(); got != 3 {
+		t.Errorf("the table holds %d addresses, with one /64 flooding it and two others", got)
+	}
+	if attempt, _ := a.Begin(refused); attempt != nil {
+		t.Error("a flood from one /64 lifted a refusal")
+	}
+}
+
 // A guess settles once: the first word on it stands, so a handler that fails after it judged cannot count it twice.
 func TestAGuessSettlesOnce(t *testing.T) {
 	t.Parallel()
@@ -214,7 +262,10 @@ func TestGuessesInFlightCountAgainstTheLimit(t *testing.T) {
 	}
 }
 
-func TestJudgeCountsAWrongPassphraseAndAWrongJoinTokenAndNothingElse(t *testing.T) {
+// A guess that ends in an error is wrong unless the error is on a short list of what proves nothing: the check
+// either ran and said no, or it ran and something broke after, and a client that can make a request fail after
+// the check must not be able to guess for free.
+func TestJudgeFailsClosedAndLetsThroughOnlyWhatProvesNothing(t *testing.T) {
 	t.Parallel()
 	clock := fake.NewClock(attemptsStart)
 	for name, test := range map[string]struct {
@@ -222,14 +273,21 @@ func TestJudgeCountsAWrongPassphraseAndAWrongJoinTokenAndNothingElse(t *testing.
 		clears bool
 		counts bool
 	}{
-		"a wrong passphrase":    {authority.ErrBadProof, true, true},
-		"a wrong join token":    {ledger.ErrBadJoinToken, false, true},
-		"a wrapped wrong proof": {fmt.Errorf("sign in: %w", authority.ErrBadProof), true, true},
-		"no passphrase set":     {authority.ErrNotEnrolled, true, false},
-		"a store that is down":  {fmt.Errorf("the store: %w", http.ErrServerClosed), true, false},
-		"an expired session":    {authority.ErrNoSession, true, false},
-		"a right guess":         {nil, true, false},
-		"a right join token":    {nil, false, false},
+		"a wrong passphrase":                   {authority.ErrBadProof, true, true},
+		"a wrong join token":                   {ledger.ErrBadJoinToken, false, true},
+		"a wrapped wrong proof":                {fmt.Errorf("sign in: %w", authority.ErrBadProof), true, true},
+		"a wrong proof beside a failed record": {errors.Join(authority.ErrBadProof, errors.New("the log is down")), true, true},
+		"a store that is down":                 {fmt.Errorf("the store: %w", http.ErrServerClosed), true, true},
+		"a client that went away":              {context.Canceled, true, true},
+		"a deadline that passed":               {context.DeadlineExceeded, true, true},
+		"an error nobody named":                {errors.New("something broke"), true, true},
+		"a join that broke after its token":    {errors.New("the log is down"), false, true},
+		"no passphrase set":                    {authority.ErrNotEnrolled, true, false},
+		"an expired session":                   {authority.ErrNoSession, true, false},
+		"a new passphrase outside its bounds":  {authority.ErrInvalid, true, false},
+		"a change that lost to another":        {authority.ErrPassphraseChanged, true, false},
+		"a right guess":                        {nil, true, false},
+		"a right join token":                   {nil, false, false},
 	} {
 		a := limiter(clock, 1, 100)
 		client := addr("203.0.113.9")

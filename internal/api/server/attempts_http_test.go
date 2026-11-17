@@ -1,11 +1,15 @@
 package server_test
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"net/netip"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -13,6 +17,7 @@ import (
 	"ropeshift.com/ropeshift/internal/api/server"
 	"ropeshift.com/ropeshift/internal/control"
 	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/test/apitest"
 )
 
@@ -239,6 +244,99 @@ func TestGuessesSentAtOnceAreLetThroughNoMoreThanTheLimitAllows(t *testing.T) {
 	wait.Wait()
 	if statuses[http.StatusUnauthorized] != 3 || statuses[http.StatusTooManyRequests] != 37 {
 		t.Errorf("of forty guesses at once: %v", statuses)
+	}
+}
+
+// checking is an identity provider that counts the proofs it is asked to check, which is what a hash costs.
+type checking struct {
+	ports.IdentityProvider
+	checks atomic.Int64
+}
+
+func (c *checking) Authenticate(ctx context.Context, scope ledger.WorkspaceID, proof ports.Proof) (string, error) {
+	c.checks.Add(1)
+	return c.IdentityProvider.Authenticate(ctx, scope, proof)
+}
+
+func (c *checking) Change(ctx context.Context, scope ledger.WorkspaceID, current, next ports.Proof, actor ledger.Actor, alongside func(tx ports.SharedTx, member string) error) error {
+	c.checks.Add(1)
+	return c.IdentityProvider.Change(ctx, scope, current, next, actor, alongside)
+}
+
+// A refused address costs the server no hash: its guesses are turned away before anything checks a passphrase,
+// the right one with the rest, and the checks the server runs are the ones the limit let through.
+func TestARefusedAddressRunsNoHash(t *testing.T) {
+	t.Parallel()
+	d := apitest.StartWith(t, apitest.Options{Attempts: server.NewAttempts(server.AttemptLimits{MaxFailures: 3, Lockout: 15 * time.Minute})})
+	identity := &checking{IdentityProvider: d.Config.Identity}
+	d.Config.Identity = identity
+	r := &webRig{d: d, web: d.ServeNetworkWith(t, apitest.NetworkOptions{Assets: builtAssets, Recheck: 20 * time.Millisecond, Client: byHeader})}
+	for range 3 {
+		response, raw := r.signInAs(t, "203.0.113.7", wrongPassphrase)
+		wantStatus(t, response, raw, http.StatusUnauthorized, api.CodeBadPassphrase)
+	}
+	if got := identity.checks.Load(); got != 3 {
+		t.Fatalf("three guesses ran %d checks", got)
+	}
+	for _, passphrase := range []string{wrongPassphrase, apitest.Passphrase, "", wrongPassphrase} {
+		response, raw := r.signInAs(t, "203.0.113.7", passphrase)
+		wantStatus(t, response, raw, http.StatusTooManyRequests, api.CodeTooManyAttempts)
+	}
+	signed, raw := r.signInAs(t, "203.0.113.8", apitest.Passphrase)
+	wantStatus(t, signed, raw, http.StatusCreated, "")
+	if got := identity.checks.Load(); got != 4 {
+		t.Errorf("the refused address ran checks: %d in all, want 4", got)
+	}
+}
+
+// abandoning is an identity provider whose client goes away the moment its check is done, which is when a client
+// that means to guess without being counted goes.
+type abandoning struct {
+	ports.IdentityProvider
+	cancel context.CancelFunc
+}
+
+func (a abandoning) Authenticate(ctx context.Context, scope ledger.WorkspaceID, proof ports.Proof) (string, error) {
+	member, err := a.IdentityProvider.Authenticate(ctx, scope, proof)
+	a.cancel()
+	return member, err
+}
+
+// A guess whose client leaves after the check still counts. A client that cancels each request the moment the
+// server has judged it must not get more guesses than one that waits.
+func TestAGuessWhoseClientLeavesAfterTheCheckStillCounts(t *testing.T) {
+	t.Parallel()
+	d := apitest.StartWith(t, apitest.Options{Attempts: server.NewAttempts(server.AttemptLimits{MaxFailures: 3, Lockout: 15 * time.Minute})})
+	identity := d.Config.Identity
+	send := func(passphrase string) int {
+		t.Helper()
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		config := d.Config
+		config.Identity = abandoning{identity, cancel}
+		handler := server.NewNetwork(config, server.WebOptions{Port: 7400, Assets: builtAssets})
+		body, err := json.Marshal(api.SignIn{Passphrase: passphrase})
+		if err != nil {
+			t.Fatal(err)
+		}
+		request := httptest.NewRequestWithContext(ctx, http.MethodPost, "http://127.0.0.1:7400"+api.SignInPath, bytes.NewReader(body))
+		request.RemoteAddr = "203.0.113.7:4000"
+		request.Header.Set("Content-Type", "application/json")
+		recorder := httptest.NewRecorder()
+		handler.ServeHTTP(recorder, request)
+		return recorder.Code
+	}
+	var let int
+	for range 20 {
+		if send(wrongPassphrase) != http.StatusTooManyRequests {
+			let++
+		}
+	}
+	if let != 3 {
+		t.Errorf("%d of 20 guesses whose client left were let through a limit of 3", let)
+	}
+	if got := send(apitest.Passphrase); got != http.StatusTooManyRequests {
+		t.Errorf("the right passphrase from that address answered %d", got)
 	}
 }
 

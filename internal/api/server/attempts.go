@@ -91,15 +91,25 @@ func (a *Attempts) Tracked() int {
 	return len(a.clients)
 }
 
-// normal is how an address is keyed: an IPv4 address in its IPv6 form is the IPv4 address, and a zone names a
-// link on the server's machine and no client.
-func normal(client netip.Addr) netip.Addr { return client.WithZone("").Unmap() }
+// clean is an address as it is: an IPv4 address in its IPv6 form is the IPv4 address, and a zone names a link on
+// the server's machine and no client.
+func clean(client netip.Addr) netip.Addr { return client.WithZone("").Unmap() }
+
+// grouped is the address a client is counted by. A host holds a whole /64 of IPv6 addresses and takes a new one
+// for every request it likes, so IPv6 addresses count by their /64, and an IPv4 address counts as itself.
+func grouped(client netip.Addr) netip.Addr {
+	client = clean(client)
+	if client.Is6() {
+		return netip.PrefixFrom(client, 64).Masked().Addr()
+	}
+	return client
+}
 
 // Begin lets a client's next guess through, or refuses it and says how long to wait. A guess is refused while
 // the address is locked out, and while the address's failures and the guesses it already has in flight could,
 // if all were wrong, reach the limit. The guess it lets through is the caller's to judge.
 func (a *Attempts) Begin(client netip.Addr) (*Attempt, time.Duration) {
-	client = normal(client)
+	client = grouped(client)
 	now := a.now()
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -220,18 +230,31 @@ func (t *Attempt) Pass() { t.settle(passed) }
 // nothing.
 func (t *Attempt) Release() { t.settle(released) }
 
-// Judge settles a guess by what became of it. A wrong passphrase and a wrong join token are wrong guesses, a
-// request that succeeded is a right guess when clears says it proves the passphrase, and anything else proves
-// nothing.
+// Judge settles a guess by what became of it, and fails closed. A request that succeeded is a right guess when
+// clears says it proves the passphrase. A request that ended in an error proved nothing only when the error says
+// the check never ran or the guess was right; every other error counts as a wrong guess, a wrong passphrase and a
+// wrong join token first, and a store that broke or a client that left after the check with them. Otherwise a
+// client that can make a request fail after its check could guess for free.
 func (t *Attempt) Judge(err error, clears bool) {
 	switch {
-	case errors.Is(err, authority.ErrBadProof), errors.Is(err, ledger.ErrBadJoinToken):
-		t.Fail()
 	case err == nil && clears:
 		t.Pass()
-	default:
+	case err == nil, provesNothing(err):
 		t.Release()
+	default:
+		t.Fail()
 	}
+}
+
+// provesNothing says an error is no wrong guess: no passphrase was set to guess at, the session that a change
+// needs was gone before anything was checked, or the passphrase was right and what followed was the new one's
+// bounds or a change that another won.
+func provesNothing(err error) bool {
+	if errors.Is(err, authority.ErrBadProof) || errors.Is(err, ledger.ErrBadJoinToken) {
+		return false
+	}
+	return errors.Is(err, authority.ErrNotEnrolled) || errors.Is(err, authority.ErrNoSession) ||
+		errors.Is(err, authority.ErrInvalid) || errors.Is(err, authority.ErrPassphraseChanged)
 }
 
 type outcome int
@@ -284,7 +307,7 @@ func PeerAddress(r *http.Request) netip.Addr {
 	if err != nil {
 		return netip.Addr{}
 	}
-	return normal(peer.Addr())
+	return clean(peer.Addr())
 }
 
 type clientKey struct{}

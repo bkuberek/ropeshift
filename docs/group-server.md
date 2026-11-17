@@ -128,6 +128,7 @@ Plaintext crosses loopback and nothing else. A listener on a loopback address se
 | A certificate you already have, such as one from a public authority or from [`tailscale cert`](https://tailscale.com/kb/1153/enabling-https) | The files you supply | `--tls-cert` and `--tls-key` |
 
 The listener speaks HTTP/1.1 over TLS 1.2 or later in both modes. The web UI's pages answer to loopback host names in this version, so a browser on another machine is refused with the code `foreign_host`. That is not what protects the listener: the `Host` header is the client's to choose, and a client on your network can send a loopback name. What protects it is that every route but the sign-in page and the route that signs in needs a credential, and that wrong guesses at a passphrase or a join token are counted and refused, as [limit wrong guesses](#limit-wrong-guesses) says.
+
 ### Use the server's own authority
 
 1. Start the server on an address off loopback, and name every host name and address that members and workers reach it by. Give `--name` once for each name, or as a comma separated list. A container gives the list in `ROPESHIFT_SERVER_NAMES`.
@@ -172,6 +173,8 @@ The server counts every wrong guess at a secret by the address the connection ca
 
 - `--signin-max-failures` and `--signin-lockout` set the two numbers, one for how many wrong guesses and one for how long they count and how long a refusal lasts. Both must be above zero.
 - The address is the one the TCP connection came from. Clients that reach the server through one machine, such as a NAT or a proxy, share that machine's address and count together, and no header a client sends changes the address.
+- An IPv6 address counts with the rest of its /64, because one host holds a whole /64 and could take a new address from it for every guess. An IPv4 address, and an IPv4 address in its IPv6 form, counts as itself.
+- A guess that fails for any reason after the check counts as wrong, such as a store that is down or a client that leaves once its passphrase was checked. Only a request that proves nothing is not counted: no passphrase is set, the session a change needs was gone, the new passphrase is outside its bounds, or another change won.
 - Guesses sent at once count as wrong until each is judged, so a client cannot get more guesses than the limit by sending them together.
 - The counts live in the server's memory and a restart clears them. The server tracks at most 10,000 addresses at a time, and lets go of the longest idle one that is not refused when it needs room.
 - The control socket is no client address and is never limited.
