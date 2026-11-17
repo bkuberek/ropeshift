@@ -1792,8 +1792,14 @@ func checkMergedWorkspaceOnRealRepositories(r *Rig) error {
 	if err != nil {
 		return err
 	}
-	if shared.Outcome != ledger.RegistrationRefused || shared.Reason != sharedRefusal(legacyRoot, legacy.Name, oldDesign.Dir) {
-		return Violatedf("a workspace that merged a kept legacy repository's history reads %+v, want the refusal %q", shared, sharedRefusal(legacyRoot, legacy.Name, oldDesign.Dir))
+	// The refusal names the directory the kept path leads to, which is not how a temporary directory is spelled
+	// on a machine whose /var is a link to /private/var.
+	keptAt, err := filepath.EvalSymlinks(oldDesign.Dir)
+	if err != nil {
+		return err
+	}
+	if want := sharedRefusal(legacyRoot, legacy.Name, keptAt); shared.Outcome != ledger.RegistrationRefused || shared.Reason != want {
+		return Violatedf("a workspace that merged a kept legacy repository's history reads %+v, want the refusal %q", shared, want)
 	}
 	return r.CheckProjection(s)
 }

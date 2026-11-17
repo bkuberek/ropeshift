@@ -36,11 +36,12 @@ func TestIsolateKeepsWorktreesUnderTheTestsOwnState(t *testing.T) {
 
 // isolate points the CLI at a state and run directory of the test's own, so no command a test
 // routes can reach this machine's installation, and gives the process an empty stdin, so a command
-// that reads one ends instead of waiting.
+// that reads one ends instead of waiting. The run directory is short, because the control socket in it
+// must stay under the unix socket path limit.
 func isolate(t *testing.T) {
 	t.Helper()
 	t.Setenv(api.EnvStateDir, t.TempDir())
-	t.Setenv(api.EnvRunDir, t.TempDir())
+	t.Setenv(api.EnvRunDir, apitest.ShortDir(t))
 	t.Setenv(api.EnvWorktreeDir, "")
 	empty, err := os.Open(os.DevNull)
 	if err != nil {
