@@ -27,6 +27,10 @@ func SchemaName(id ledger.WorkspaceID) (string, error) { return schemaName(id) }
 // a test that looks at what the failed write leaves for the next Open.
 func (s *State) WithoutRepairAfterFailedWrite() { s.afterFailedWrite = nil }
 
+// SetRollbackWait changes how long the rollback of a transaction that did not commit may take, for a test
+// that cannot wait for the default.
+func (s *State) SetRollbackWait(d time.Duration) { s.rollbackWait = d }
+
 // SetRepairWait changes how long the repair after a failed write may take, for a test that cannot wait for
 // the default.
 func (s *State) SetRepairWait(d time.Duration) { s.repairWait = d }

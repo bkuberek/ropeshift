@@ -213,7 +213,7 @@ func (s *State) rebuildProjectIndex(ctx context.Context, p ledger.Project) error
 	if err != nil {
 		return err
 	}
-	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+	defer s.rollback(ctx, tx)
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`SET LOCAL lock_timeout = %d`, revisionWait.Milliseconds())); err != nil {
 		return err
 	}

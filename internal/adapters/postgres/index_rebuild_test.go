@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -339,6 +340,74 @@ func TestAStalledRepairGivesUpAfterItsBound(t *testing.T) {
 	slices.SortFunc(want, func(a, b ledger.IndexedRepository) int { return strings.Compare(a.Identity, b.Identity) })
 	if got := repositoryIndex(t, next); !slices.Equal(got, want) {
 		t.Errorf("the next Open left the index at %+v, want %+v", got, want)
+	}
+}
+
+// TestARollbackThatCannotFinishGivesUp holds that the rollback of the repair's transaction on the project,
+// which runs when the repair fails, has a bound of its own. The repair stalls at its replacement of the
+// index, as in the test above, and the server process that holds the project's transaction is stopped, so
+// the rollback is never answered, as it is not when a connection is lost. The write that failed returns
+// when the repair's bound and the rollback's have passed.
+func TestARollbackThatCannotFinishGivesUp(t *testing.T) {
+	url := freshDatabase(t)
+	state := openState(t, url, postgres.Options{})
+	state.SetRepairWait(2 * time.Second)
+	state.SetRollbackWait(500 * time.Millisecond)
+	db := state.SQLDB()
+	defer db.Close()
+	alpha, alphaStore := createProject(t, state, "pa", "alpha")
+	const other = "https://example.com/acme/other"
+	if err := insertRepository(t.Context(), alphaStore, alpha.ID, "r1", "invoices", invoices); err != nil {
+		t.Fatal(err)
+	}
+	if err := insertRepository(t.Context(), alphaStore, alpha.ID, "r2", "other", other); err != nil {
+		t.Fatal(err)
+	}
+	_, session := otherSession(t, url)
+	for _, statement := range []string{`BEGIN`, `SELECT 1 FROM installation.repository_index WHERE identity = 'example.com/acme/other' FOR UPDATE`} {
+		if _, err := session.ExecContext(t.Context(), statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	lift := deferRepositoryTrigger(t, db, "project_pa", "UPDATE", `RAISE EXCEPTION 'the commit is refused';`)
+
+	start := time.Now()
+	written := make(chan error, 1)
+	go func() { written <- moveRemote(t.Context(), alphaStore, alpha.ID, "r1", billing) }()
+
+	// The server process that holds the repair's transaction on the project has read the project's records
+	// and sits in the transaction, waiting for the repair's next statement.
+	var pid int
+	for deadline := time.Now().Add(15 * time.Second); pid == 0; time.Sleep(5 * time.Millisecond) {
+		err := db.QueryRowContext(t.Context(), `SELECT pid FROM pg_stat_activity
+ WHERE datname = current_database() AND state = 'idle in transaction' AND query LIKE '%.repositories WHERE workspace_id%'`).Scan(&pid)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			t.Fatal(err)
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the repair never held a transaction on the project")
+		}
+	}
+	// An unbounded rollback ends when the process is let go. The test lets it go late, so that it fails and
+	// does not hang, and never leaves a stopped server process behind.
+	if err := syscall.Kill(pid, syscall.SIGSTOP); err != nil {
+		t.Fatal(err)
+	}
+	resume := func() { _ = syscall.Kill(pid, syscall.SIGCONT) }
+	t.Cleanup(resume)
+	late := time.AfterFunc(8*time.Second, resume)
+	defer late.Stop()
+
+	if err := <-written; err == nil {
+		t.Fatal("the project's commit was not refused")
+	}
+	if took := time.Since(start); took > 6*time.Second {
+		t.Errorf("the write returned after %s, with a repair bound of 2s and a rollback bound of 500ms", took)
+	}
+	resume()
+	lift()
+	if _, err := session.ExecContext(t.Context(), `ROLLBACK`); err != nil {
+		t.Fatal(err)
 	}
 }
 

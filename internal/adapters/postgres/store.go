@@ -93,6 +93,8 @@ type State struct {
 	// repairWait bounds the repair of the repository index after a failed write, from its first wait to its
 	// last statement.
 	repairWait time.Duration
+	// rollbackWait bounds the rollback of a transaction that did not commit.
+	rollbackWait time.Duration
 	// reported is the set of conflicts of the repository index the state last warned about, by project, so
 	// that a conflict that stays is reported once. reportedMu guards it.
 	reportedMu sync.Mutex
@@ -139,6 +141,7 @@ func Open(ctx context.Context, url string, opts Options) (*State, error) {
 	s.opts.Installation, s.opts.Schema, s.opts.AfterFailedWrite = nil, "", nil
 	s.afterFailedWrite = s.repairAfterFailedWrite
 	s.repairWait = repairBound(s.lockTimeout)
+	s.rollbackWait = unlockLimit
 	s.Installation = sqlstore.NewInstallation(stdlib.OpenDBFromPool(installationPool), dialect, sqlstore.Options{Schema: InstallationSchema, Trace: s.opts.Trace})
 	err = s.locked(ctx, func(ctx context.Context) error {
 		if err := s.createSchema(ctx, InstallationSchema); err != nil {
@@ -275,7 +278,7 @@ func (s *State) dropSchema(ctx context.Context, name string) error {
 	if err != nil {
 		return fmt.Errorf("postgres: drop schema %s: %w", name, err)
 	}
-	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+	defer s.rollback(ctx, tx)
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`SET LOCAL lock_timeout = %d`, s.dropWait.Milliseconds())); err != nil {
 		return fmt.Errorf("postgres: drop schema %s: %w", name, err)
 	}
@@ -289,6 +292,15 @@ func (s *State) dropSchema(ctx context.Context, name string) error {
 		return fmt.Errorf("postgres: drop schema %s: %w", name, err)
 	}
 	return nil
+}
+
+// rollback ends a transaction that did not commit, although the caller's context ended, and for rollbackWait
+// at most. A connection that cannot answer the rollback is closed when the bound passes, which ends the
+// transaction on the server too, and never goes back to the pool with the transaction open.
+func (s *State) rollback(ctx context.Context, tx pgx.Tx) {
+	ctx, stop := context.WithTimeout(context.WithoutCancel(ctx), s.rollbackWait)
+	defer stop()
+	_ = tx.Rollback(ctx)
 }
 
 // quote renders an identifier.
