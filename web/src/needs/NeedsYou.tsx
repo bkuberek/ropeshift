@@ -16,7 +16,7 @@ import type { Decided } from "./decided";
 import { EffectCard } from "./EffectCard";
 import type { Frame } from "./frame";
 import type { NeedFilter } from "./kinds";
-import { contextOf, filterOf, filters, headingOf, keyOf, kindOf, preparerOf } from "./kinds";
+import { contextOf, filterOf, filters, fullHeadingOf, headingOf, keyOf, kindOf, preparerOf } from "./kinds";
 import { PlanApprovalCard, RegisteredRepositories } from "./PlanApprovalCard";
 import { QuestionBatch } from "./QuestionBatch";
 import type { Answered } from "./QuestionBatch";
@@ -331,7 +331,7 @@ export function NeedsYou({ view, readAt, after, active = true }: Props) {
                         }}
                       >
                         <Icon name={kindOf(item).icon} />
-                        <span className="item-title">
+                        <span className="item-title" title={fullHeadingOf(item) === headingOf(item) ? undefined : fullHeadingOf(item)}>
                           {headingOf(item)}
                           {done ? <span className="visually-hidden"> (resolved)</span> : null}
                         </span>

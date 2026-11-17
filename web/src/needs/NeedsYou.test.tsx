@@ -188,6 +188,65 @@ describe("waits", () => {
   });
 });
 
+describe("the title of a single question", () => {
+  const longText =
+    "Should the importer keep the original column names when the source file has duplicates, or rename each duplicate with a numeric suffix?";
+
+  // oneQuestion is the golden view with its batch cut to one question holding the given text.
+  const oneQuestion = (text: string) => {
+    const view = goldenNeedsYou();
+    const item = itemOf(view, "questions");
+    const [first] = item.batch.items;
+    if (!first) {
+      throw new Error("empty batch");
+    }
+    first.text = text;
+    item.batch.items = [first];
+    return view;
+  };
+
+  const titleOfQuestion = () => {
+    const link = screen.getAllByRole("link").find((element) => element.id.startsWith("need-questions:"));
+    const title = link?.querySelector(".item-title");
+    if (!title) {
+      throw new Error("no question in the list");
+    }
+    return title;
+  };
+
+  it("is the question's own text in the list, not A question", () => {
+    show(oneQuestion("Which store holds the index?"));
+    expect(titleOfQuestion().textContent).toBe("Which store holds the index?");
+    expect(screen.queryByText("A question")).toBeNull();
+  });
+
+  it("is cut at a word boundary when long, with the whole question in the title attribute and in the card", async () => {
+    show(oneQuestion(longText), undefined, "questions");
+    const title = titleOfQuestion();
+    expect(title.textContent?.endsWith("…")).toBe(true);
+    expect(title.textContent?.length).toBeLessThan(longText.length);
+    expect(longText.startsWith(title.textContent?.slice(0, -1) ?? "?")).toBe(true);
+    expect(title.getAttribute("title")).toBe(longText);
+    expect(screen.getByRole("group", { name: longText })).toBeTruthy();
+    expect(screen.getByRole("article", { name: title.textContent ?? "" })).toBeTruthy();
+  });
+
+  it("has no title attribute when nothing was cut", () => {
+    show(oneQuestion("Which store holds the index?"));
+    expect(titleOfQuestion().getAttribute("title")).toBeNull();
+  });
+
+  it("is A question when the text is empty", () => {
+    show(oneQuestion("   "));
+    expect(titleOfQuestion().textContent).toBe("A question");
+  });
+
+  it("is a count for several questions", () => {
+    show(goldenNeedsYou());
+    expect(titleOfQuestion().textContent).toBe("2 questions");
+  });
+});
+
 describe("a batch of questions", () => {
   const batchView = () => {
     const view = goldenNeedsYou();
