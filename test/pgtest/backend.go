@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"ropeshift.com/ropeshift/internal/adapters/postgres"
 	"ropeshift.com/ropeshift/internal/adapters/sqlstore"
 	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/test/contract"
@@ -40,7 +41,8 @@ func StopShared() error {
 	return shared.Stop()
 }
 
-// Backend runs the contract suite on the shared server.
+// Backend runs the contract suite on the shared server, on a ledger in a database's default schema that
+// keeps the records every project shares in itself.
 var Backend = contract.Backend{Name: "postgres", Fresh: func(t testing.TB) contract.Database {
 	server, err := Shared()
 	if err != nil {
@@ -55,12 +57,13 @@ var Backend = contract.Backend{Name: "postgres", Fresh: func(t testing.TB) contr
 		Restartable: true,
 		ShiftClock:  func(delta int64) { offset.Add(delta) },
 		Open: func(t testing.TB, opts sqlstore.Options) ports.Store {
-			db, err := sql.Open("pgx", server.DSN(name))
+			store, err := postgres.OpenStore(server.DSN(name), postgres.Options{
+				Dialect: contract.ShiftedDialect{Dialect: postgres.Dialect{}, Offset: offset},
+				Store:   opts,
+			})
 			if err != nil {
 				t.Fatal(err)
 			}
-			db.SetMaxOpenConns(16)
-			store := sqlstore.New(db, contract.ShiftedDialect{Dialect: Dialect{}, Offset: offset}, opts)
 			t.Cleanup(func() { _ = store.Close() })
 			return store
 		},
@@ -79,7 +82,7 @@ var Backend = contract.Backend{Name: "postgres", Fresh: func(t testing.TB) contr
 // The schemas of an installation on one Postgres database (ADR-0021): the installation's own, and
 // one per project.
 const (
-	InstallationSchema = "installation"
+	InstallationSchema = postgres.InstallationSchema
 	ProjectSchema      = "project"
 )
 
@@ -95,8 +98,8 @@ func CreateSchemas(ctx context.Context, db *sql.DB, names ...string) error {
 }
 
 // ProjectBackend runs the contract suite on a project of an installation: the project's schema and the
-// installation's in one database, each Store setting its schema on every transaction, with the records
-// every project shares in the installation's schema.
+// installation's in one database and on one pool, each Store setting its schema on every transaction, with
+// the records every project shares in the installation's schema.
 var ProjectBackend = contract.Backend{Name: "postgres-project", Fresh: func(t testing.TB) contract.Database {
 	server, err := Shared()
 	if err != nil {
@@ -106,36 +109,23 @@ var ProjectBackend = contract.Backend{Name: "postgres-project", Fresh: func(t te
 	if err != nil {
 		t.Fatal(err)
 	}
-	admin, err := sql.Open("pgx", server.DSN(name))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer admin.Close()
-	if err := CreateSchemas(t.Context(), admin, InstallationSchema, ProjectSchema); err != nil {
-		t.Fatal(err)
-	}
 	offset := &atomic.Int64{}
 	return contract.Database{
 		Restartable: true,
 		ShiftClock:  func(delta int64) { offset.Add(delta) },
 		Open: func(t testing.TB, opts sqlstore.Options) ports.Store {
-			installationDB, err := sql.Open("pgx", server.DSN(name))
-			if err != nil {
-				t.Fatal(err)
-			}
 			// The installation reads the same shifted clock, because a run window it holds ends by that time.
-			installation := sqlstore.NewInstallation(installationDB, contract.ShiftedDialect{Dialect: Dialect{}, Offset: offset}, sqlstore.Options{Schema: InstallationSchema})
-			t.Cleanup(func() { _ = installation.Close() })
-			if err := installation.Migrate(t.Context()); err != nil {
-				t.Fatal(err)
-			}
-			db, err := sql.Open("pgx", server.DSN(name))
+			state, err := postgres.Open(t.Context(), server.DSN(name), postgres.Options{
+				Dialect: contract.ShiftedDialect{Dialect: postgres.Dialect{}, Offset: offset},
+			})
 			if err != nil {
 				t.Fatal(err)
 			}
-			db.SetMaxOpenConns(16)
-			opts.Installation, opts.Schema = installation, ProjectSchema
-			store := sqlstore.New(db, contract.ShiftedDialect{Dialect: Dialect{}, Offset: offset}, opts)
+			t.Cleanup(func() { _ = state.Close() })
+			store, err := state.Ledger(t.Context(), ProjectSchema, opts)
+			if err != nil {
+				t.Fatal(err)
+			}
 			t.Cleanup(func() { _ = store.Close() })
 			return store
 		},
@@ -145,16 +135,19 @@ var ProjectBackend = contract.Backend{Name: "postgres-project", Fresh: func(t te
 				return err
 			}
 			defer db.Close()
-			conn, err := db.Conn(context.Background())
+			// The statement runs in the project's schema, which SET LOCAL scopes to this transaction.
+			tx, err := db.BeginTx(context.Background(), nil)
 			if err != nil {
 				return err
 			}
-			defer conn.Close()
-			if _, err := conn.ExecContext(context.Background(), `SET search_path TO "`+ProjectSchema+`"`); err != nil {
+			defer func() { _ = tx.Rollback() }()
+			if _, err := tx.Exec(postgres.Dialect{}.SchemaSQL(ProjectSchema)); err != nil {
 				return err
 			}
-			_, err = conn.ExecContext(context.Background(), statement)
-			return err
+			if _, err := tx.Exec(statement); err != nil {
+				return err
+			}
+			return tx.Commit()
 		},
 	}
 }}

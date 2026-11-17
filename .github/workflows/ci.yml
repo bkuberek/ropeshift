@@ -150,6 +150,54 @@ jobs:
           path: ${{ runner.temp }}/chaos.log
           retention-days: 14
 
+  # The store contract suite on a private Postgres, and the Postgres adapter's own tests (NFR-TEST-2). A
+  # failure here is a dialect defect in the pull request that caused it. The ubuntu-latest image ships
+  # PostgreSQL's binaries without starting a server, and the suite starts its own on a unix socket, so the
+  # job takes initdb and postgres from the image and installs the distribution's package only when the
+  # image has none.
+  postgres:
+    name: make check-postgres
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+      - name: Find the PostgreSQL binaries
+        run: |
+          find_bin() {
+            local found=
+            for dir in $(ls -d /usr/lib/postgresql/*/bin 2>/dev/null | sort -V); do
+              if [ -x "$dir/initdb" ] && [ -x "$dir/postgres" ]; then found=$dir; fi
+            done
+            echo "$found"
+          }
+          bin=$(find_bin)
+          source="the runner image"
+          if [ -z "$bin" ]; then
+            sudo apt-get update --quiet
+            sudo apt-get install --yes --quiet --no-install-recommends postgresql
+            bin=$(find_bin)
+            source="the distribution's package"
+          fi
+          if [ -z "$bin" ]; then
+            echo "::error::No PostgreSQL binaries on the runner"
+            exit 1
+          fi
+          echo "ROPESHIFT_TEST_PG_BIN=$bin" >>"$GITHUB_ENV"
+          echo "PostgreSQL from $source: $("$bin/postgres" --version)" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: make check-postgres
+        run: make check-postgres 2>&1 | tee "$RUNNER_TEMP/postgres.log"
+      - if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: postgres-log
+          path: ${{ runner.temp }}/postgres.log
+          retention-days: 14
+
   # The snapshot the install and exit jobs test, built once. The archive keeps the file modes that an
   # artifact alone would drop.
   snapshot:
@@ -338,7 +386,7 @@ jobs:
   result:
     name: CI result
     if: always()
-    needs: [changes, check, cross, chaos, snapshot, install-test, exit-container, service, chaos-long]
+    needs: [changes, check, cross, chaos, postgres, snapshot, install-test, exit-container, service, chaos-long]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

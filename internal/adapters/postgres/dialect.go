@@ -1,6 +1,4 @@
-//go:build postgres
-
-package pgtest
+package postgres
 
 import (
 	"embed"
@@ -11,11 +9,14 @@ import (
 	"ropeshift.com/ropeshift/internal/adapters/sqlstore"
 )
 
-// Dialect is Postgres's side of the Store's statements. Phase 1 ships no Postgres
-// adapter (D7), so this lives with the tests and stays out of every binary. It runs the
-// neutral schema and its own search index.
+// Dialect is Postgres's side of the Store's statements. It runs the neutral schema and its own search
+// index, which sit beside SQLite's counterpart at the same version.
 type Dialect struct{}
 
+// migrationFiles are Postgres's counterparts of the changes only one database can express. Each sits at
+// the version of SQLite's file in internal/adapters/sqlite/dialect_migrations, and no neutral file
+// holds that version.
+//
 //go:embed migrations/*.sql
 var migrationFiles embed.FS
 
@@ -70,3 +71,5 @@ func (Dialect) MatchQuery(terms []string) string {
 	}
 	return strings.Join(quoted, " | ")
 }
+
+var _ sqlstore.Dialect = Dialect{}

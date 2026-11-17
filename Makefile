@@ -117,10 +117,11 @@ linux-bundle:
 	cp test/bundle/run.sh "$(BUNDLE)/run.sh"
 
 # The contract suite on a private Postgres, which also prepares every statement
-# on a real server, and the two defects only Postgres shows (D7). It needs initdb
-# and postgres on PATH or in ROPESHIFT_TEST_PG_BIN.
+# on a real server, the Postgres adapter's own tests, and the two defects only Postgres
+# shows (D7). It needs initdb and postgres on PATH or in ROPESHIFT_TEST_PG_BIN.
 check-postgres:
 	$(GO) test -tags postgres -race -count=1 -timeout 40m ./test/contract/...
+	$(GO) test -tags postgres -race -count=1 -timeout 20m ./internal/adapters/postgres/...
 	$(GO) test -tags 'chaos postgres' -count=1 -run TestRevisionLastFailsOnPostgres ./test/chaos/...
 
 # Crash injection on real processes. KILLS sets the random kills per run, and
