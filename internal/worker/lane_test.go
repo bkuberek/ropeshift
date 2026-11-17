@@ -344,7 +344,12 @@ func TestARootInsideAnUnkeptSourceCloneIsRefused(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			p, source, worktrees := provisioner(nil)
-			p.Checkouts = fake.NewCheckouts()
+			// The clones are on the machine, and kept in no project.
+			machine := fake.NewCheckouts()
+			for _, clone := range append([]string{tt.repository}, tt.sources...) {
+				machine.Place(ports.Clone{Path: clone, ID: clone})
+			}
+			p.Checkouts = machine
 			p.Sources = tt.sources
 			source.Put(tt.repository, tt.layer)
 			_, err := p.Prepare(t.Context(), worker.LaneRequest{Lane: "l1", Repository: tt.repository, Project: "prj-1"})
