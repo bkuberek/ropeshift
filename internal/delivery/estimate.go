@@ -230,7 +230,6 @@ func EstimateOf(in EstimateInput) Estimate {
 		}
 	}
 	times := make([]int64, 0, len(records))
-	costs := make([]float64, 0, len(records))
 	for _, r := range records {
 		if r.WorkOrder == "" {
 			out.PoolSamples++
@@ -238,11 +237,10 @@ func EstimateOf(in EstimateInput) Estimate {
 			out.SampleIDs = append(out.SampleIDs, r.WorkOrder)
 		}
 		times = append(times, r.DeliveryMs)
-		costs = append(costs, r.Usage.CostUSD)
-		out.CostAtLeast = out.CostAtLeast || r.Usage.CostLowerBound
+		out.CostAtLeast = out.CostAtLeast || r.Usage.LowerBound()
 	}
+	costs := costsWithLimitedAtTheTop(records)
 	slices.Sort(times)
-	slices.Sort(costs)
 	out.DeliveryMinMs, out.DeliveryMaxMs = times[0], times[len(times)-1]
 	out.CostMinUSD, out.CostMaxUSD = costs[0], costs[len(costs)-1]
 	p50, p85 := rank(len(times), 0.5), rank(len(times), 0.85)
@@ -258,6 +256,31 @@ func EstimateOf(in EstimateInput) Estimate {
 	}
 	out.Explanation = explain(out, in.Keys, in.Policy, in.NoPool, opened)
 	return out
+}
+
+// costsWithLimitedAtTheTop is the costs of records, lowest first, with each record a hard spend limit stopped at the
+// top. Its recorded cost is only a floor, so it counts as at least the highest cost any record shows, and a band
+// that draws on it is never lower than the band without it (FR-SPEND-9).
+func costsWithLimitedAtTheTop(records []Record) []float64 {
+	costs := make([]float64, 0, len(records))
+	limited := 0
+	highest := 0.0
+	for _, r := range records {
+		if r.Usage.SpendLimited {
+			limited++
+			highest = max(highest, r.Usage.CostUSD)
+			continue
+		}
+		costs = append(costs, r.Usage.CostUSD)
+	}
+	slices.Sort(costs)
+	if len(costs) > 0 {
+		highest = max(highest, costs[len(costs)-1])
+	}
+	for range limited {
+		costs = append(costs, highest)
+	}
+	return costs
 }
 
 // poolOpening says which p85s of a tier 6 band read as open above their p50 because each would otherwise show
@@ -370,7 +393,7 @@ func comparable(records []Record, want Keys, keys []string, recent int64) []Reco
 	slices.SortFunc(out, func(a, b Record) int {
 		return cmp.Or(cmp.Compare(b.Ended, a.Ended), cmp.Compare(a.WorkOrder, b.WorkOrder), cmp.Compare(a.DeliveryMs, b.DeliveryMs),
 			cmp.Compare(a.Usage.CostUSD, b.Usage.CostUSD), compareBool(a.Usage.CostLowerBound, b.Usage.CostLowerBound),
-			cmp.Compare(a.CapabilityClass, b.CapabilityClass), cmp.Compare(a.Repository, b.Repository), cmp.Compare(a.MergeAuthority, b.MergeAuthority),
+			compareBool(a.Usage.SpendLimited, b.Usage.SpendLimited), cmp.Compare(a.CapabilityClass, b.CapabilityClass), cmp.Compare(a.Repository, b.Repository), cmp.Compare(a.MergeAuthority, b.MergeAuthority),
 			cmp.Compare(a.Criteria, b.Criteria), cmp.Compare(a.ElapsedMs, b.ElapsedMs), cmp.Compare(a.LaneMs, b.LaneMs), cmp.Compare(a.PersonMs, b.PersonMs),
 			cmp.Compare(a.Source, b.Source))
 	})

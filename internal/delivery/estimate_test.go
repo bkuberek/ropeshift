@@ -175,6 +175,59 @@ func TestACostBandHoldingALowerBoundReadsAtLeast(t *testing.T) {
 	}
 }
 
+// A record whose work a hard limit stopped holds a cost that is a lower bound, so a band that draws on it reads at
+// least, and the stop itself is a mark of the record (FR-SPEND-9).
+func TestASpendLimitedRecordMakesTheBandReadAtLeast(t *testing.T) {
+	limited := finished("l", 2, hour, 7, nil)
+	limited.Usage.SpendLimited = true
+	if !limited.Usage.LowerBound() || !(delivery.Usage{CostLowerBound: true}).LowerBound() || (delivery.Usage{CostUSD: 3}).LowerBound() {
+		t.Error("a spend limited record, or one with a lower bound, is the only one that reads as a lower bound")
+	}
+	if e := estimateOf([]delivery.Record{finished("a", 1, hour, 1, nil), limited}, delivery.DefaultEstimatePolicy()); !e.CostAtLeast {
+		t.Errorf("a band with a spend limited record reads %+v", e)
+	}
+}
+
+// A spend limited record widens the cost band and never narrows it: the cost it recorded is only a floor, so it
+// counts as at least the highest cost known, whatever it recorded, and a band that draws on it is never lower than
+// the band without it.
+func TestASpendLimitedRecordWidensTheBandAndNeverNarrowsIt(t *testing.T) {
+	rng := rand.New(rand.NewPCG(3, 5))
+	for range 200 {
+		var known []delivery.Record
+		for i := range 5 + rng.IntN(20) {
+			known = append(known, finished(fmt.Sprintf("k%02d", i), int64(100+i), hour, float64(1+rng.IntN(40)), nil))
+		}
+		without := estimateOf(known, delivery.DefaultEstimatePolicy())
+		limited := finished("limited", 1000, hour, float64(rng.IntN(60)), nil)
+		limited.Usage.SpendLimited = true
+		with := estimateOf(append(slices.Clone(known), limited), delivery.DefaultEstimatePolicy())
+		if with.CostP50USD < without.CostP50USD || with.CostP85USD < without.CostP85USD || with.CostMaxUSD < without.CostMaxUSD {
+			t.Fatalf("a spend limited record at %v narrowed the band from %+v to %+v", limited.Usage.CostUSD, without, with)
+		}
+		if with.CostMinUSD != without.CostMinUSD && with.CostMinUSD > without.CostMinUSD {
+			t.Fatalf("a spend limited record raised the cheapest cost from %v to %v", without.CostMinUSD, with.CostMinUSD)
+		}
+		if !with.CostAtLeast {
+			t.Fatalf("a band with a spend limited record reads %+v", with)
+		}
+	}
+}
+
+// The highest cost known is where a spend limited record sits, even when it recorded more than any other.
+func TestASpendLimitedRecordCountsAtItsOwnCostWhenThatIsHighest(t *testing.T) {
+	var records []delivery.Record
+	for i := range 5 {
+		records = append(records, finished(fmt.Sprintf("k%d", i), int64(100+i), hour, float64(i+1), nil))
+	}
+	limited := finished("limited", 200, hour, 50, nil)
+	limited.Usage.SpendLimited = true
+	e := estimateOf(append(records, limited), delivery.DefaultEstimatePolicy())
+	if e.CostMaxUSD != 50 {
+		t.Errorf("the highest cost reads %v, want 50", e.CostMaxUSD)
+	}
+}
+
 // TestTheEstimatePolicyHoldsItsFloor never lets a confident estimate rest on fewer than 5 records.
 func TestTheEstimatePolicyHoldsItsFloor(t *testing.T) {
 	p := delivery.DefaultEstimatePolicy()
