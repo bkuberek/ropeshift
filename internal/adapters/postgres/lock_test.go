@@ -6,6 +6,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -184,6 +185,77 @@ func TestAFailedMigrationReleasesTheLock(t *testing.T) {
 		t.Fatal("a project was created with a migration that fails")
 	}
 	free("Create of a project")
+}
+
+// hookedDialect is the Postgres dialect with a function that runs when a project's migrations are read,
+// which a Create does under the migration lock.
+type hookedDialect struct {
+	postgres.Dialect
+	onMigrations func()
+}
+
+func (d *hookedDialect) Migrations() ([]sqlstore.Migration, error) {
+	if hook := d.onMigrations; hook != nil {
+		d.onMigrations = nil
+		hook()
+	}
+	return d.Dialect.Migrations()
+}
+
+// endLockHolder ends the server session that holds the migration lock in the test's database, and returns
+// once the server has dropped it, as a lost connection does.
+func endLockHolder(t testing.TB, admin *sql.DB) {
+	t.Helper()
+	var pid int
+	err := admin.QueryRowContext(t.Context(), `SELECT pid FROM pg_locks
+ WHERE locktype = 'advisory' AND granted AND (classid::bigint << 32 | objid::bigint) = $1
+   AND database = (SELECT oid FROM pg_database WHERE datname = current_database())`, postgres.MigrationLock).Scan(&pid)
+	if err != nil {
+		t.Fatalf("no session holds the migration lock: %v", err)
+	}
+	if _, err := admin.ExecContext(t.Context(), `SELECT pg_terminate_backend($1)`, pid); err != nil {
+		t.Fatal(err)
+	}
+	for deadline := time.Now().Add(15 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+		var alive int
+		if err := admin.QueryRowContext(t.Context(), `SELECT count(*) FROM pg_stat_activity WHERE pid = $1`, pid).Scan(&alive); err != nil {
+			t.Fatal(err)
+		}
+		if alive == 0 {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the session that held the migration lock is still there")
+		}
+	}
+}
+
+// TestAFailedUnlockLeavesNoClosedStoreInTheCache holds that a Create whose lock cannot be released, because
+// its session is gone, caches no Store: it closes the one it made, and the Open that follows opens a
+// working one.
+func TestAFailedUnlockLeavesNoClosedStoreInTheCache(t *testing.T) {
+	url := freshDatabase(t)
+	dialect := &hookedDialect{}
+	state := openState(t, url, postgres.Options{Dialect: dialect})
+	admin, _ := otherSession(t, url)
+	dialect.onMigrations = func() { endLockHolder(t, admin) }
+
+	if _, err := state.Create(t.Context(), ledger.Project{ID: "pa", Name: "alpha"}, member); err == nil {
+		t.Fatal("Create reported no failure although its session was gone")
+	}
+	// The registry row was committed under the lock, so the project exists.
+	alpha, err := state.Named(t.Context(), "alpha")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, err := state.Open(t.Context(), alpha)
+	if err != nil {
+		t.Fatal(err)
+	}
+	newWorkOrder(t, store, alpha.ID, "wo-1", "Add the retry budget")
+	if got := workOrderIDs(t, store, alpha.ID); !slices.Equal(got, []string{"wo-1"}) {
+		t.Errorf("work orders %v", got)
+	}
 }
 
 // TestAWaitForTheMigrationLockHasADeadline holds that a session that never lets go of the lock fails

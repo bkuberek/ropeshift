@@ -183,11 +183,7 @@ func (s *State) Create(ctx context.Context, p ledger.Project, actor ledger.Actor
 		if err := c.refuseTaken(ctx); err != nil {
 			return err
 		}
-		if err := run(ctx, c.steps()); err != nil {
-			return err
-		}
-		s.keep(c.registered.ID, c.store)
-		return nil
+		return run(ctx, c.steps())
 	})
 	if err != nil {
 		if c.store != nil {
@@ -195,6 +191,9 @@ func (s *State) Create(ctx context.Context, p ledger.Project, actor ledger.Actor
 		}
 		return ledger.Project{}, err
 	}
+	// The Store is kept only once the lock is released, because a failed release is an error of Create,
+	// which closes the Store it made.
+	s.keep(c.registered.ID, c.store)
 	return c.registered, nil
 }
 
