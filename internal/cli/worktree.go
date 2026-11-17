@@ -16,5 +16,28 @@ func worktreeText(report lanes.WorktreeReport) string {
 		fmt.Fprintf(&out, "  %s %s: the root resolves to %s, inside the clone %s. A lane there fails with worktree_inside_clone: %s\n",
 			inside.Project, inside.Checkout, inside.Root, inside.Clone, lanes.RootFix(report.Source))
 	}
+	for _, workspace := range report.Workspaces {
+		out.WriteString(workspaceText(workspace))
+	}
+	return out.String()
+}
+
+// workspaceText states one project's workspace: where it is and how it was found, whether its folder for lane
+// worktrees is ignored, with the line to add when it is not, and the root each checkout gets.
+func workspaceText(workspace lanes.WorkspaceReport) string {
+	var out strings.Builder
+	fmt.Fprintf(&out, "Workspace %s: %s (%s)", workspace.Project, workspace.Path, workspace.Found)
+	switch {
+	case !workspace.Clone:
+		out.WriteString(", a plain folder that needs no ignore line")
+	case workspace.Ignored:
+		out.WriteString(", which ignores .ropeshift/worktrees/")
+	default:
+		fmt.Fprintf(&out, ", which does not ignore .ropeshift/worktrees/: add %s to its .gitignore so lanes of its clones run inside it", workspace.Line)
+	}
+	out.WriteString("\n")
+	for _, root := range workspace.Roots {
+		fmt.Fprintf(&out, "  %s: lane worktrees go in %s\n", root.Checkout, root.Root)
+	}
 	return out.String()
 }

@@ -10,6 +10,31 @@ type WorktreeReport struct {
 	// Inside lists, for each checkout this worker keeps in any project, the clone the root resolves inside for
 	// that checkout's project and folder. It is empty when no root falls inside a clone.
 	Inside []RootInsideClone `json:"inside_clone,omitempty"`
+	// Workspaces names, for each project that has a workspace on this worker, where it is and the root each of
+	// the project's checkouts gets. A project with none is not listed.
+	Workspaces []WorkspaceReport `json:"workspaces,omitempty"`
+}
+
+// WorkspaceReport is one project's workspace as the doctor says it: where it is, how the worker found it, whether
+// lane worktrees may go in its .ropeshift/worktrees/ folder, and the root each checkout of the project gets.
+type WorkspaceReport struct {
+	Project string `json:"project"`
+	// Path, Found, Clone, and Ignored are the Workspace the worker found.
+	Path    string `json:"path"`
+	Found   string `json:"found"`
+	Clone   bool   `json:"clone"`
+	Ignored bool   `json:"ignored"`
+	// Line is the line the workspace's .gitignore lacks, when it is a clone that does not ignore the folder for
+	// worktrees. Empty otherwise.
+	Line string `json:"line,omitempty"`
+	// Roots is the worktree root of each of the project's checkouts, as a new worktree would be placed.
+	Roots []CheckoutRoot `json:"roots"`
+}
+
+// CheckoutRoot is the root a project's checkout gets for a new lane worktree.
+type CheckoutRoot struct {
+	Checkout string `json:"checkout"`
+	Root     string `json:"root"`
 }
 
 // RootInsideClone is one checkout whose root lies inside a clone, so a lane there would fail with the reason

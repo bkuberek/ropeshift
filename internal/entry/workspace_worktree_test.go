@@ -201,6 +201,39 @@ func TestTheUsersProfileDecidesWhichFolderIsTheWorkspace(t *testing.T) {
 	}
 }
 
+// The doctor, which reads no ledger, names the workspace the user's profile gives with whether git says it ignores
+// the folder for worktrees, and the root each of its checkouts gets, and says which line the workspace lacks.
+func TestTheDoctorNamesTheProfilesWorkspaceAndItsIgnoreState(t *testing.T) {
+	w := newWorktreeWorkspace(t)
+	w.userLayer(t, "[projects.prj-1]\nworkspace = \""+w.workspace.Dir+"\"\n")
+	report, err := worktreeReport(t.Context(), w.paths)
+	if err != nil || len(report.Workspaces) != 1 {
+		t.Fatalf("the report names %+v (%v)", report.Workspaces, err)
+	}
+	held := report.Workspaces[0]
+	if held.Project != "prj-1" || held.Found != lanes.WorkspaceFromProfile || !held.Clone || held.Ignored || held.Line != planning.WorktreesLine {
+		t.Errorf("an unignored workspace is reported as %+v", held)
+	}
+	w.ignoreWorktrees()
+	if report, err = worktreeReport(t.Context(), w.paths); err != nil {
+		t.Fatal(err)
+	}
+	held = report.Workspaces[0]
+	if !held.Ignored || held.Line != "" || len(report.Inside) != 0 {
+		t.Errorf("an ignoring workspace is reported as %+v, with %+v inside clones", held, report.Inside)
+	}
+	roots := map[string]string{}
+	for _, root := range held.Roots {
+		roots[root.Checkout] = root.Root
+	}
+	if want := filepath.Join(w.workspace.Dir, ".ropeshift", "worktrees", "api"); roots[w.clones["api"]] != want {
+		t.Errorf("the api checkout gets %q, want %q", roots[w.clones["api"]], want)
+	}
+	if want := filepath.Join(w.paths.WorktreeDir, "prj-1", filepath.Base(w.workspace.Dir)); roots[w.workspace.Dir] != want {
+		t.Errorf("the workspace's own checkout gets %q, want %q", roots[w.workspace.Dir], want)
+	}
+}
+
 // A lane whose worktree stands under the worktree directory before the workspace ignored the folder goes on in it,
 // on real git, makes no second worktree, and its start names where a new one would go. A lane with no worktree takes
 // the workspace's folder.
