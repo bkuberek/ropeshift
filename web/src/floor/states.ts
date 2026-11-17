@@ -207,10 +207,12 @@ export function laneLabel(state: string): string {
   return laneStates[state]?.label ?? state;
 }
 
-// What holds an orchestrator's run before its session starts, as the control plane reads it. Its worker holds the run in
-// provisioning until there is something to judge, and an attended worker with no run window open judges no new work.
+// What holds an orchestrator's run before its session starts, as the control plane reads it. Its worker holds the run
+// until there is something to judge, and an attended worker with no run window open judges no new work, so its run waits
+// for a window. Any other worker's run waits for work.
 export const waitingStates: Record<string, string> = {
   run_window: "Waiting for a run window",
+  work: "Waiting for work",
 };
 
 // waitingLabel says what holds an orchestrator's run, or nothing when nothing does. A value this build has no words for

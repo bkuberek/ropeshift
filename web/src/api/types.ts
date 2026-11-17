@@ -734,7 +734,8 @@ export type Orchestrator = {
   conditions?: string[];
   reported_at?: number;
   // waiting_for is what holds a run a member wants before its session starts, as the control plane reads it:
-  // run_window is an attended worker's orchestrator with no run window open.
+  // run_window is an attended worker's orchestrator with no run window open, and work any other that waits for
+  // something to judge.
   waiting_for?: string;
 };
 

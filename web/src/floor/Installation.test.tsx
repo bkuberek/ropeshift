@@ -237,6 +237,55 @@ describe("a worker's orchestrator", () => {
     }
   });
 
+  // A run held until there is something to judge, on a worker a window does not hold, waits for work: the machine, its
+  // session, and its details say so in place of Provisioning, and nothing leads to a run window.
+  it("says it waits for work, with no way to a run window", async () => {
+    const waiting = { ...row, actual_state: "provisioning", conditions: ["awaiting_wake"], waiting_for: "work" };
+    serveViews((call) => {
+      if (call.path === "/v1/workers/worker-a/orchestrator") {
+        return { status: 200, body: waiting };
+      }
+      if (!call.path.startsWith("/v1/views/shop-floor")) {
+        return undefined;
+      }
+      const view = golden<ShopFloor>("shop-floor");
+      const orchestrator = view.workers.find((line) => line.worker.id === "worker-a")?.orchestrator;
+      if (orchestrator) {
+        orchestrator.actual_state = "provisioning";
+        orchestrator.waiting_for = "work";
+      }
+      return { status: 200, body: view };
+    });
+    openPage("/workers");
+    const rowNaming = async (panel: string, ...words: string[]) => {
+      const region = await table(panel);
+      return waitFor(() => {
+        const found = within(region)
+          .getAllByRole("row")
+          .find((tr) => words.every((word) => tr.textContent?.includes(word)));
+        if (!found) {
+          throw new Error(`no ${panel} row names ${words.join(", ")}`);
+        }
+        return found;
+      });
+    };
+    for (const place of [cell(await rowNaming("Machines", "solo"), "Orchestrator"), cell(await rowNaming("Sessions", "Every project it serves", "solo"), "State")]) {
+      if (!place) {
+        throw new Error("no orchestrator cell");
+      }
+      await waitFor(() => expect(within(place).getByText("Waiting for work")).toBeTruthy());
+      expect(within(place).queryByText("Provisioning")).toBeNull();
+      expect(within(place).queryByRole("link", { name: /Open run window/ })).toBeNull();
+    }
+    await userEvent.click(await screen.findByRole("button", { name: "Details of the orchestrator on solo" }));
+    const box = await screen.findByRole("dialog", { name: "Orchestrator on solo" });
+    await waitFor(() => expect(within(box).getByText("Breaker resets")).toBeTruthy());
+    expect(within(box).getByText("State").closest("div")?.textContent).toContain("Waiting for work");
+    const conditions = within(box).getByText("Conditions").closest("div")?.textContent ?? "";
+    expect(conditions).toContain("Waiting for work");
+    expect(conditions.toLowerCase()).not.toContain("awaiting");
+  });
+
   // A worker reports its orchestrator to the installation's log, which no project's stream carries. The Floor
   // and this page read the floor again on their own, so both follow the orchestrator to idle and never disagree.
   describe("as its worker reports it, with nothing on the project's stream", () => {

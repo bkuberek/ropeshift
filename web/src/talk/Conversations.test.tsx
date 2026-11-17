@@ -66,6 +66,15 @@ describe("the Conversations view", () => {
     expect(within(sessions).getAllByRole("button")[0]?.textContent).not.toContain("provisioning");
   });
 
+  it("says an orchestrator waits for work in place of its provisioning", async () => {
+    state.targets.orchestrators = [{ ...(state.targets.orchestrators[0] as object), state: "provisioning", desired_state: "running", waiting_for: "work" } as never];
+    serveTalk(state);
+    openPage(here("/conversations"));
+    const sessions = await screen.findByRole("list", { name: "Sessions you can talk to" });
+    await waitFor(() => expect(within(sessions).getAllByRole("button")[0]?.textContent).toContain("atlas · serves default · waiting for work"));
+    expect(within(sessions).getAllByRole("button")[0]?.textContent).not.toContain("provisioning");
+  });
+
   it("is in the sidebar's Talk group, and G then C goes there", async () => {
     serveTalk(state);
     openPage(here("/roadmap"));
