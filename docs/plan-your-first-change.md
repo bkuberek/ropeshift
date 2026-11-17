@@ -106,10 +106,10 @@ To decline instead, select Decline…, and give the reason. The session reads it
 
 ### 10. See the plan on the Roadmap
 
-In the sidebar, select Roadmap. It shows the goal with its plan and approved version, then each milestone in priority order with its exit criteria, its progress, and its state, and below them the work of each milestone in layers by what it depends on, with the critical path. Work with nothing to wait for is Ready, and work that waits for other work shows Contract review until that work is done.
+In the sidebar, select Roadmap. It shows the goal with its plan and approved version, then each milestone in priority order with its exit criteria, its progress, and its state, and below them the work of each milestone in layers by what it depends on, with the critical path. Work with nothing to wait for is Ready, and work that waits for other work shows Contract review until that work is done. Each milestone also carries a forecast of when it ends. On a first plan it says no history, because none of its work has finished yet, and it gives dates once work has finished.
 
-![The Roadmap, with the plan's two milestones in priority order and their work by dependency layer](assets/screenshots/plan-09-light.png#gh-light-mode-only)
-![The Roadmap, with the plan's two milestones in priority order and their work by dependency layer](assets/screenshots/plan-09-dark.png#gh-dark-mode-only)
+![The Roadmap's two milestones in priority order, each with its progress, its forecast, and its state](assets/screenshots/plan-09-light.png#gh-light-mode-only)
+![The Roadmap's two milestones in priority order, each with its progress, its forecast, and its state](assets/screenshots/plan-09-dark.png#gh-dark-mode-only)
 
 ## The planning branch
 
