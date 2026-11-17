@@ -65,9 +65,26 @@ export function planningRefusal(plan: AdoptionPlan): string {
   return row?.outcome === "refused" ? (row.reason ?? "no reason given") : "";
 }
 
-// restructureOf is what the adopt work carries of the plan a member chose to restructure by.
-export function restructureOf(plan: AdoptionPlan): Restructure {
-  const chosen: Restructure = { shape: plan.shape, digest: plan.digest };
+// restructureOf is what the adopt work carries of the plan a member chose to restructure by, as `ropeshift adopt
+// --restructure` sends it (internal/cli/adopt.go): the shape and the digest, the request the plan was read with so the
+// worker reads the layout again the way the plan did, and the digest of each part of the plan, which the route answered.
+export function restructureOf(plan: AdoptionPlan, request: AdoptionPlanRequest): Restructure {
+  const chosen: Restructure = { shape: plan.shape, digest: plan.digest, root: request.root };
+  if (request.paths && request.paths.length > 0) {
+    chosen.paths = request.paths;
+  }
+  if (request.depth) {
+    chosen.depth = request.depth;
+  }
+  if (request.planning) {
+    chosen.planning = request.planning;
+  }
+  if (request.design) {
+    chosen.design = request.design;
+  }
+  if (plan.parts && Object.keys(plan.parts).length > 0) {
+    chosen.parts = plan.parts;
+  }
   if (plan.shape !== "consolidate" || !plan.design) {
     return chosen;
   }

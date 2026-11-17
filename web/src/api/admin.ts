@@ -74,14 +74,33 @@ export type AdoptionPlan = {
   moves: PlannedMove[] | null;
   notes?: string[];
   digest: string;
+  // parts are the digest of each part of the plan, by part name, which the route answers beside the plan. They are no
+  // part of the plan, and its digest does not hold them: a restructuring sends them back so a worker that reads another
+  // layout names the parts that differ.
+  parts?: Record<string, string>;
 };
 
 // AdoptionPlanRequest asks for the plan of adopting the clone at root, which is the clone `ropeshift adopt` runs in,
 // with the clones the paths name beside it.
 export type AdoptionPlanRequest = { root: string; paths?: string[]; depth?: number; planning?: string; design?: string; leave_out?: string[]; new_project?: boolean };
 
-// The restructuring a member chose from a plan, as an adopt work order keeps it.
-export type Restructure = { shape: LayoutShape; digest: string; design_path?: string; design_root?: string; leave_out?: string[] };
+// The restructuring a member chose from a plan, as an adopt work order keeps it: the shape and the plan's digest, for a
+// consolidation the design repository and the trees to leave out, and the request the plan was read with (root, paths,
+// depth, and the names planning and design) with the digest of each of the plan's parts, so a worker reads the layout
+// again the way the plan did and names what differs.
+export type Restructure = {
+  shape: LayoutShape;
+  digest: string;
+  design_path?: string;
+  design_root?: string;
+  leave_out?: string[];
+  root?: string;
+  paths?: string[];
+  depth?: number;
+  planning?: string;
+  design?: string;
+  parts?: Record<string, string>;
+};
 
 export type Fleet = { fleet_mode: "run" | "pause" | "drain"; wip_limit: number; lanes_per_repository: number; lanes_per_worker: number };
 
