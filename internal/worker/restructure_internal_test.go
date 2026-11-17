@@ -39,6 +39,20 @@ type restructureRig struct {
 	worker    *Worker
 	run       *laneRun
 	request   adoption.Request
+	// bare leaves the repository and the reads out of the lease, as the plane of a crash run gives a lane.
+	bare bool
+}
+
+// refusing is what the project's records say of each clone when its lease names no repository and no read: it holds
+// a repository of none of them.
+func refusing(_ context.Context, clones []adoption.Found) ([]planning.PlannedRepository, error) {
+	var out []planning.PlannedRepository
+	for _, one := range clones {
+		out = append(out, planning.PlannedRepository{
+			Name: one.Name, Path: one.Path, ID: one.Identity, Outcome: string(ledger.RegistrationRefused), Reason: "the project holds no repository of it",
+		})
+	}
+	return out, nil
 }
 
 // known is what the project's records say of each clone, by identity, as the plan was read when the clones were
@@ -100,6 +114,9 @@ func (r *restructureRig) start(restructure any) {
 		Reads: []ledger.RepositoryRead{
 			{Repository: "root-api", Name: "api", Ref: "origin/main", Commit: "c1"}, {Repository: "root-web", Name: "web", Ref: "origin/main", Commit: "c2"},
 		},
+	}
+	if r.bare {
+		lease.Repository, lease.RepositoryName, lease.Reads = "", "", nil
 	}
 	if restructure != nil {
 		raw, err := json.Marshal(restructure)
@@ -200,6 +217,30 @@ func TestAnAdoptLaneThatReadsTheSameLayoutGetsTheWorkspaceFilesInOneCommit(t *te
 	}
 	if !slices.Equal(commands, want) {
 		t.Errorf("the moves are %v, want %v", commands, want)
+	}
+}
+
+// A lease that names no repository and no read, as the plane of a crash run gives a lane, makes the worker read every
+// clone as one the project holds no repository of. The plan read with that answer is the plan the worker reads
+// again, and it lists the files to commit, which the crash matrix's rows need to reach the effect.
+func TestALeaseThatNamesNoRepositoryReadsEveryCloneAsRefusedAndStillCommits(t *testing.T) {
+	t.Parallel()
+	r := newRestructureRig(t)
+	r.bare = true
+	plan, err := adoption.Plan(t.Context(), r.request, r.checkouts, r.layouts, refusing)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.start(planning.Restructure{
+		Shape: plan.Shape, Digest: plan.Digest, Root: r.request.Root, Paths: r.request.Paths, Depth: r.request.Depth,
+		Planning: r.request.Planning, Parts: plan.Parts(),
+	})
+	if report, failed := r.restructure(); failed {
+		t.Fatalf("the restructuring failed: %+v", report)
+	}
+	commits := r.commits()
+	if len(commits) != 1 || commits[0].Subject != planning.WorkspaceCommitSubject || len(commits[0].Files) == 0 {
+		t.Fatalf("the branch holds %+v", commits)
 	}
 }
 
