@@ -116,6 +116,15 @@ func (s *State) Index(ctx context.Context) ([]ledger.IndexedRepository, error) {
 
 // Open returns a project's Store, opening its ledger on first use and keeping it open after.
 func (s *State) Open(ctx context.Context, p ledger.Project) (ports.Store, error) {
+	store, err := s.ledgerOf(ctx, p)
+	if err != nil {
+		return nil, err
+	}
+	return store, nil
+}
+
+// ledgerOf is Open, with the Store the state keeps.
+func (s *State) ledgerOf(ctx context.Context, p ledger.Project) (*sqlstore.Store, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if store, ok := s.stores[p.ID]; ok {
@@ -208,11 +217,7 @@ func (s *State) CreateProject(ctx context.Context, p ledger.Project, actor ledge
 	if err != nil {
 		return ledger.Project{}, nil, err
 	}
-	name := p.DisplayName
-	if name == "" {
-		name = p.Name
-	}
-	if _, err := store.CreateWorkspace(ctx, ledger.Workspace{ID: p.ID, Name: name}, actor); err != nil {
+	if _, err := store.CreateWorkspace(ctx, ledger.Workspace{ID: p.ID, Name: sqlstore.WorkspaceName(p)}, actor); err != nil {
 		_ = store.Close()
 		return ledger.Project{}, nil, err
 	}

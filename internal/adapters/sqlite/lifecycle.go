@@ -29,9 +29,22 @@ func (s *State) Create(ctx context.Context, p ledger.Project, actor ledger.Actor
 }
 
 // Rename gives a project a new name, and the display name it is given or the one it has. The ID, the database,
-// and every record keep their identity.
+// and every record keep their identity. The registry renames the project first, because it refuses a name another
+// project holds, and the project's ledger then keeps the name the project is shown by, which a backup carries. A
+// crash between the two leaves the ledger's name as it was, and a repeat of the rename brings it up to date.
 func (s *State) Rename(ctx context.Context, id ledger.WorkspaceID, name, displayName string, actor ledger.Actor) (ledger.Project, error) {
-	return s.Installation.RenameProject(ctx, id, name, displayName, actor)
+	renamed, err := s.Installation.RenameProject(ctx, id, name, displayName, actor)
+	if err != nil {
+		return ledger.Project{}, err
+	}
+	store, err := s.ledgerOf(ctx, renamed)
+	if err != nil {
+		return ledger.Project{}, err
+	}
+	if err := store.RenameWorkspace(ctx, renamed.ID, sqlstore.WorkspaceName(renamed), actor); err != nil {
+		return ledger.Project{}, fmt.Errorf("project %s is renamed, and its ledger keeps the name it had: %w", renamed.ID, err)
+	}
+	return renamed, nil
 }
 
 // SetState archives or restores a project.
@@ -77,8 +90,9 @@ func removeLedgerFile(file string) error {
 }
 
 // Import registers a project from its backup, keeping the ID the backup holds. The name is the one
-// given, or the backup's own when it is a slug. The copy lands in the projects folder at this build's
-// schema before the registry names it, and a refusal or a failure removes it again.
+// given, or the backup's own when it is a slug, and the backup's own name is the display name when it differs
+// and a display name may take it. The copy lands in the projects folder at this build's schema before the
+// registry names it, and a refusal or a failure removes it again.
 func (s *State) Import(ctx context.Context, backup string, name string, actor ledger.Actor) (ledger.Project, error) {
 	workspace, err := backedUpWorkspace(backup)
 	if err != nil {
@@ -91,7 +105,7 @@ func (s *State) Import(ctx context.Context, backup string, name string, actor le
 		}
 		p.Name = workspace.Name
 	}
-	if workspace.Name != p.Name {
+	if workspace.Name != p.Name && ledger.ValidateDisplayName(workspace.Name) == nil {
 		p.DisplayName = workspace.Name
 	}
 	if p.Database, err = projectDatabase(p.ID); err != nil {

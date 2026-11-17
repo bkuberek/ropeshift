@@ -161,6 +161,9 @@ func (f *Projects) Create(_ context.Context, p ledger.Project, _ ledger.Actor) (
 	if err := f.named(p.Name, p.ID); err != nil {
 		return ledger.Project{}, err
 	}
+	if err := ledger.ValidateDisplayName(p.DisplayName); err != nil {
+		return ledger.Project{}, err
+	}
 	p.State, p.Database = ledger.ProjectActive, "projects/"+string(p.ID)
 	if f.NewStore != nil {
 		store, err := f.NewStore(p)
@@ -182,6 +185,9 @@ func (f *Projects) Rename(_ context.Context, id ledger.WorkspaceID, name, displa
 		return ledger.Project{}, err
 	}
 	if err := f.named(name, id); err != nil {
+		return ledger.Project{}, err
+	}
+	if err := ledger.ValidateDisplayName(displayName); err != nil {
 		return ledger.Project{}, err
 	}
 	displayName = cmp.Or(displayName, f.projects[at].DisplayName)

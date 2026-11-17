@@ -110,6 +110,30 @@ func TestARenameSetsTheDisplayNameItIsGiven(t *testing.T) {
 	}
 }
 
+// A display name loses the space at either end, on a create and on a rename. One too long to show whole, or one
+// that holds a control character, is refused, and the project keeps the display name it had.
+func TestADisplayNameIsTrimmedAndRefusedWhenItCannotBeShown(t *testing.T) {
+	t.Parallel()
+	in := apitest.StartInstallation(t)
+	created, err := in.Client.CreateProject(t.Context(), api.CreateProject{Name: "beta", DisplayName: "  Beta docs\n"})
+	if err != nil || created.DisplayName != "Beta docs" {
+		t.Fatalf("created %+v: %v", created, err)
+	}
+	renamed, err := in.Client.RenameProject(t.Context(), "beta", api.RenameProject{Name: "beta", DisplayName: "\tHarbor "})
+	if err != nil || renamed.DisplayName != "Harbor" {
+		t.Fatalf("renamed %+v: %v", renamed, err)
+	}
+	for name, displayName := range map[string]string{"too long": strings.Repeat("a", 101), "a control character": "Harbor\x1b[2J"} {
+		_, err := in.Client.CreateProject(t.Context(), api.CreateProject{Name: "gamma", DisplayName: displayName})
+		refusedWith(t, err, http.StatusBadRequest, api.CodeInvalid)
+		_, err = in.Client.RenameProject(t.Context(), "beta", api.RenameProject{Name: "beta", DisplayName: displayName})
+		refusedWith(t, err, http.StatusBadRequest, api.CodeInvalid)
+		if listed, err := in.Client.Projects(t.Context()); err != nil || slices.ContainsFunc(listed, func(p api.Project) bool { return p.Name == "gamma" || p.DisplayName != "Harbor" && p.Name == "beta" }) {
+			t.Errorf("after a display name %s, the projects are %+v: %v", name, listed, err)
+		}
+	}
+}
+
 // TestEveryLifecycleStepNeedsAMember holds that no step of a project's lifecycle runs with no session.
 func TestEveryLifecycleStepNeedsAMember(t *testing.T) {
 	t.Parallel()

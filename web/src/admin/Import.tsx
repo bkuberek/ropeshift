@@ -7,6 +7,7 @@ import { claimAndStart, newRunIDs } from "../api/runWork";
 import type { Project } from "../api/types";
 import { projectName } from "../app/Shell";
 import { go, Link } from "../app/route";
+import { startedEntry } from "../lanes/starting";
 import { Page } from "../parts/parts";
 import { Button } from "../ui/controls";
 import { Refusal } from "../ui/display";
@@ -126,7 +127,7 @@ export function ImportPage({ projects, chosen, reload }: { projects: Project[]; 
     });
     if (lane) {
       await reload();
-      go(`/projects/${encodeURIComponent(project)}/planning?lane=${encodeURIComponent(lane)}`);
+      go(`/projects/${encodeURIComponent(project)}/planning?lane=${encodeURIComponent(lane)}`, { state: startedEntry(lane) });
     }
   };
 

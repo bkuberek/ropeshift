@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -298,6 +299,21 @@ func splitStatements(text string) []string {
 	return out
 }
 
+// EventWorkspaceRenamed records a new name in a workspace's own record, which a project's rename keeps the
+// same as the name the installation shows the project by.
+const EventWorkspaceRenamed = "workspace.renamed"
+
+const opRenameWorkspace = "workspace.rename"
+
+// WorkspaceName is the name a project's own ledger keeps of it: the display name it is shown by, or else its
+// name. A backup carries it, and an import reads the project's names from it.
+func WorkspaceName(p ledger.Project) string {
+	if p.DisplayName != "" {
+		return p.DisplayName
+	}
+	return p.Name
+}
+
 // CreateWorkspace records a workspace in one transaction whose first statement
 // creates the row or increments its revision. A workspace that already exists
 // rolls back, so a retry leaves no gap.
@@ -342,6 +358,29 @@ func (s *Store) CreateWorkspace(ctx context.Context, w ledger.Workspace, actor l
 		return false, err
 	}
 	return true, tx.Commit()
+}
+
+// RenameWorkspace sets the name a workspace's own record holds, with the event that records it. A record that
+// holds the name already changes nothing and records nothing, so a repeat is safe.
+func (s *Store) RenameWorkspace(ctx context.Context, id ledger.WorkspaceID, name string, actor ledger.Actor) error {
+	return s.Write(ctx, id, opRenameWorkspace, func(tx ports.WriteTx) error {
+		t, ok := tx.(*writeTx)
+		if !ok {
+			return fmt.Errorf("%s: a write of another store", opRenameWorkspace)
+		}
+		n, err := t.exec(stmtRenameWorkspace, params{"workspace_id": string(id), "name": name})
+		if err != nil || n == 0 {
+			return err
+		}
+		data, err := json.Marshal(struct {
+			Name string `json:"name"`
+		}{name})
+		if err != nil {
+			return err
+		}
+		_, err = t.Append(ledger.EventDraft{Type: EventWorkspaceRenamed, Actor: actor, Data: data, Subject: ledger.Subject{Kind: "workspace", ID: string(id)}})
+		return err
+	})
 }
 
 // Read runs fn on one read transaction, so every read in fn sees one view.

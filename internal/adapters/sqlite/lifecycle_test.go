@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"ropeshift.com/ropeshift/internal/adapters/sqlite"
+	"ropeshift.com/ropeshift/internal/adapters/sqlstore"
 	"ropeshift.com/ropeshift/internal/control"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/ports"
@@ -103,6 +104,107 @@ func TestARenameSetsTheDisplayNameItIsGiven(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []string{ledger.EventProjectCreated + " by member-1", ledger.EventProjectRenamed + " by member-1"}
+	if got := installationEvents(t, state, alpha.ID); !slices.Equal(got, want) {
+		t.Errorf("events %v", got)
+	}
+}
+
+// ownName reads the name a project's ledger keeps of it, and the types of the events about its workspace.
+func ownName(t *testing.T, store ports.Store, id ledger.WorkspaceID) (string, []string) {
+	t.Helper()
+	var name string
+	var types []string
+	err := store.Read(t.Context(), id, func(tx ports.ReadTx) error {
+		workspace, err := tx.Workspace()
+		if err != nil {
+			return err
+		}
+		name = workspace.Name
+		events, err := tx.EventsAbout(ledger.Subject{Kind: "workspace", ID: string(id)})
+		for _, e := range events {
+			types = append(types, e.Type)
+		}
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return name, types
+}
+
+// A rename keeps the name the project's own ledger holds the same as the one it is shown by, which a backup
+// carries and the assistant reads: the display name, or else the name. A rename that changes neither writes
+// nothing to the ledger.
+func TestARenameKeepsTheLedgersOwnNameCurrent(t *testing.T) {
+	state := openState(t, t.TempDir())
+	alpha, store := createProject(t, state, "pa", "alpha")
+	for _, step := range []struct{ name, displayName, want string }{
+		{"gamma", "", "gamma"},
+		{"gamma", "Gamma docs", "Gamma docs"},
+		{"delta", "", "Gamma docs"},
+		{"delta", "Gamma docs", "Gamma docs"},
+	} {
+		if _, err := state.Rename(t.Context(), alpha.ID, step.name, step.displayName, member); err != nil {
+			t.Fatal(err)
+		}
+		if got, _ := ownName(t, store, alpha.ID); got != step.want {
+			t.Errorf("after a rename to %q, %q, the ledger names the project %q, want %q", step.name, step.displayName, got, step.want)
+		}
+	}
+	want := []string{"workspace.created", sqlstore.EventWorkspaceRenamed, sqlstore.EventWorkspaceRenamed}
+	if _, got := ownName(t, store, alpha.ID); !slices.Equal(got, want) {
+		t.Errorf("the ledger's events about the project %v, want %v", got, want)
+	}
+}
+
+// A backup made after a rename restores the project by the name and the display name it had when it was backed
+// up, and not by the ones it was created with.
+func TestABackupMadeAfterARenameRestoresTheNewNames(t *testing.T) {
+	from := openState(t, t.TempDir())
+	acme, _ := createProject(t, from, "acme-id", "acme")
+	backUp := func(p ledger.Project) string {
+		t.Helper()
+		path := filepath.Join(t.TempDir(), "acme.db")
+		if _, err := from.Backup(t.Context(), p, path); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	renamed, err := from.Rename(t.Context(), acme.ID, "harbor", "", member)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restored, err := openState(t, t.TempDir()).Import(t.Context(), backUp(renamed), "", member)
+	if err != nil || restored.Name != "harbor" || restored.DisplayName != "" {
+		t.Errorf("restored after a rename %+v: %v", restored, err)
+	}
+	shown, err := from.Rename(t.Context(), acme.ID, "harbor", "Harbor docs", member)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restored, err = openState(t, t.TempDir()).Import(t.Context(), backUp(shown), "harbor", member)
+	if err != nil || restored.Name != "harbor" || restored.DisplayName != "Harbor docs" {
+		t.Errorf("restored after a new display name %+v: %v", restored, err)
+	}
+}
+
+// A display name no list could show whole, or one with a control character, is refused on a create and on a
+// rename, and the refused rename changes nothing.
+func TestTheRegistryRefusesADisplayNameItCannotShow(t *testing.T) {
+	state := openState(t, t.TempDir())
+	alpha, _ := createProject(t, state, "pa", "alpha")
+	for _, displayName := range []string{strings.Repeat("a", 101), "Alpha\x1b[2J", " Alpha"} {
+		if _, err := state.Create(t.Context(), ledger.Project{Name: "beta", DisplayName: displayName}, member); !errors.Is(err, ledger.ErrInvalidProject) {
+			t.Errorf("created with display name %q: %v", displayName, err)
+		}
+		if _, err := state.Rename(t.Context(), alpha.ID, "alpha", displayName, member); !errors.Is(err, ledger.ErrInvalidProject) {
+			t.Errorf("renamed to display name %q: %v", displayName, err)
+		}
+	}
+	if named, err := state.Named(t.Context(), "alpha"); err != nil || named.DisplayName != alpha.DisplayName {
+		t.Errorf("the registry holds %+v: %v", named, err)
+	}
+	want := []string{ledger.EventProjectCreated + " by member-1"}
 	if got := installationEvents(t, state, alpha.ID); !slices.Equal(got, want) {
 		t.Errorf("events %v", got)
 	}
@@ -245,6 +347,31 @@ func TestAnImportIsRefusedWhereAnotherProjectStands(t *testing.T) {
 	}
 	if _, err := to.Import(t.Context(), filepath.Join(t.TempDir(), "absent.db"), "x", member); err == nil {
 		t.Error("a file that is not there imported")
+	}
+}
+
+// A backup an earlier build made may name its project in a way no display name may take now. It still imports,
+// by the name it is given, with no display name.
+func TestABackupWhoseNameNoListCanShowImportsWithNoDisplayName(t *testing.T) {
+	from := openState(t, t.TempDir())
+	acme, _ := createProject(t, from, "acme-id", "acme")
+	backup := filepath.Join(t.TempDir(), "acme.db")
+	if _, err := from.Backup(t.Context(), acme, backup); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sqlite.OpenDB(backup)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE workspaces SET name = ?`, strings.Repeat("Acme ", 30)); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	imported, err := openState(t, t.TempDir()).Import(t.Context(), backup, "acme", member)
+	if err != nil || imported.Name != "acme" || imported.DisplayName != "" {
+		t.Errorf("imported %+v: %v", imported, err)
 	}
 }
 

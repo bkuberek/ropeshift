@@ -81,6 +81,21 @@ Storage.
 // documents to its branch: a requirements file changed, a milestone and a contract new.
 func aPlanningSession(t *testing.T) (*apitest.Daemon, *apitest.World, string) {
 	t.Helper()
+	d, w, _, tip := aPlanningSessionIn(t, &checkout{})
+	return d, w, tip
+}
+
+// checkout is what the machine's clone of the planning repository holds: the commit the lane's branch points
+// at, or none once the branch is deleted, and whether the commit the lane ended on is still there.
+type checkout struct {
+	branchAt string
+	tipGone  bool
+}
+
+// aPlanningSessionIn is aPlanningSession on a clone a test changes, with the session's lane. The branch points
+// at the tip it committed until the test moves or deletes it.
+func aPlanningSessionIn(t *testing.T, held *checkout) (*apitest.Daemon, *apitest.World, *apitest.Lane, string) {
+	t.Helper()
 	git := fake.NewWorktrees()
 	base := git.Touch("/repo", "main", "docs/requirements.md")
 	source := fake.NewWorkSource()
@@ -89,16 +104,21 @@ func aPlanningSession(t *testing.T) (*apitest.Daemon, *apitest.World, string) {
 	git.Touch("/repo", laneBranch, "plans/m4.md")
 	git.Touch("/repo", laneBranch, "plans/storage.md")
 	tip := git.Touch("/repo", laneBranch, "plans/saved.md")
+	held.branchAt = tip
 	source.Write("docs/requirements.md", []byte("+++\nkind = \"requirements\"\nid = \"search\"\ntitle = \"Search\"\n+++\n\n"))
 	source.Write("plans/m4.md", []byte(outlineMilestone))
 	source.Write("plans/storage.md", []byte(outlineContract))
 	source.Write("plans/saved.md", []byte(outlinePlanFile))
 	source.Write("notes/unrelated.md", []byte("Not a planning document.\n"))
 	opened := func(_ context.Context, _ ledger.WorkspaceID, repository, ref string) (ports.WorkSource, error) {
-		if repository != "repository-1" || ref != laneBranch {
-			return nil, errors.New("no such branch " + ref)
+		switch {
+		case repository != "repository-1":
+		case ref == laneBranch && held.branchAt != "":
+			return atCommit{WorkSource: source, commit: held.branchAt}, nil
+		case ref == tip && !held.tipGone:
+			return atCommit{WorkSource: source, commit: tip}, nil
 		}
-		return atCommit{WorkSource: source, commit: tip}, nil
+		return nil, errors.New("no such revision: " + ref)
 	}
 	starts := &control.Starts{Bases: git, Checkout: func(context.Context, ledger.WorkspaceID, string) (string, error) { return "/repo", nil }}
 	d := apitest.StartWith(t, apitest.Options{Starts: starts, Branches: opened, LaneBranchPrefix: "lane/"})
@@ -112,8 +132,57 @@ func aPlanningSession(t *testing.T) (*apitest.Daemon, *apitest.World, string) {
 	if _, err := d.Client.Review(t.Context(), outlinePlan); err != nil {
 		t.Fatal(err)
 	}
-	w.Run(outlinePlan)
-	return d, w, tip
+	lane := w.Run(outlinePlan)
+	return d, w, lane, tip
+}
+
+// anAcceptedPlanningSession is a planning session whose lane ended on its tip, which a member accepted.
+func anAcceptedPlanningSession(t *testing.T, held *checkout) (*apitest.Daemon, string) {
+	t.Helper()
+	d, _, lane, tip := aPlanningSessionIn(t, held)
+	lane.Finish(workorders.LaneResult{
+		Report: workorders.Report{Outcome: workorders.OutcomeCompleted, Checks: []workorders.CheckResult{{Name: "plan", Criterion: "c1", Passed: true}}},
+		Branch: laneBranch, Head: tip,
+	})
+	if accepted, err := d.Client.Accept(t.Context(), outlinePlan); err != nil || accepted.State != workorders.Done {
+		t.Fatalf("accepted %+v: %v", accepted, err)
+	}
+	return d, tip
+}
+
+// A session a member accepted is read at the commit they accepted, which a later commit on its branch does not
+// move, and which stays readable once the branch is deleted after its merge.
+func TestTheOutlineOfAnAcceptedSessionIsTheCommitItWasAcceptedAt(t *testing.T) {
+	held := &checkout{}
+	d, tip := anAcceptedPlanningSession(t, held)
+	for name, change := range map[string]func(){
+		"a branch that moved on": func() { held.branchAt = "a-later-commit" },
+		"a deleted branch":       func() { held.branchAt = "" },
+	} {
+		change()
+		outline, err := d.Client.Outline(t.Context(), outlineLane)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if outline.Unread != "" || outline.Commit != tip || len(outline.Contracts) != 1 {
+			t.Errorf("with %s, the outline is %+v", name, outline)
+		}
+	}
+}
+
+// An accepted session whose commit the clone no longer holds says so, as an outline it cannot read.
+func TestTheOutlineOfAnAcceptedSessionWhoseCommitIsGoneSaysSo(t *testing.T) {
+	held := &checkout{}
+	d, tip := anAcceptedPlanningSession(t, held)
+	held.branchAt, held.tipGone = "", true
+	outline, err := d.Client.Outline(t.Context(), outlineLane)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "commit " + tip + ", which a member accepted, could not be read: no such revision: " + tip
+	if outline.Unread != want || outline.Commit != "" || len(outline.Documents) != 0 {
+		t.Errorf("unread %q, want %q, in %+v", outline.Unread, want, outline)
+	}
 }
 
 // askedBy records a question the planning session's lane raised, which belongs to its work order.

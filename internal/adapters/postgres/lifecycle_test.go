@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"ropeshift.com/ropeshift/internal/adapters/postgres"
+	"ropeshift.com/ropeshift/internal/adapters/sqlstore"
 	"ropeshift.com/ropeshift/internal/control"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/ports"
@@ -200,6 +201,50 @@ func TestARenameKeepsEverythingButTheName(t *testing.T) {
 	want := []string{ledger.EventProjectCreated + " by member-1", ledger.EventProjectRenamed + " by member-1"}
 	if got := installationEvents(t, state, alpha.ID); !slices.Equal(got, want) {
 		t.Errorf("events %v", got)
+	}
+}
+
+// A rename keeps the name the project's own schema holds the same as the one it is shown by, which the
+// assistant reads: the display name, or else the name. A rename that changes neither writes nothing there.
+func TestARenameKeepsTheLedgersOwnNameCurrent(t *testing.T) {
+	state := openState(t, freshDatabase(t), postgres.Options{})
+	alpha, store := createProject(t, state, "pa", "alpha")
+	ledgerName := func() (string, []string) {
+		t.Helper()
+		var name string
+		var types []string
+		err := store.Read(t.Context(), alpha.ID, func(tx ports.ReadTx) error {
+			workspace, err := tx.Workspace()
+			if err != nil {
+				return err
+			}
+			name = workspace.Name
+			events, err := tx.EventsAbout(ledger.Subject{Kind: "workspace", ID: string(alpha.ID)})
+			for _, e := range events {
+				types = append(types, e.Type)
+			}
+			return err
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return name, types
+	}
+	for _, step := range []struct{ name, displayName, want string }{
+		{"gamma", "", "gamma"},
+		{"gamma", "Gamma docs", "Gamma docs"},
+		{"delta", "", "Gamma docs"},
+	} {
+		if _, err := state.Rename(t.Context(), alpha.ID, step.name, step.displayName, member); err != nil {
+			t.Fatal(err)
+		}
+		if got, _ := ledgerName(); got != step.want {
+			t.Errorf("after a rename to %q, %q, the ledger names the project %q, want %q", step.name, step.displayName, got, step.want)
+		}
+	}
+	want := []string{"workspace.created", sqlstore.EventWorkspaceRenamed, sqlstore.EventWorkspaceRenamed}
+	if _, got := ledgerName(); !slices.Equal(got, want) {
+		t.Errorf("the ledger's events about the project %v, want %v", got, want)
 	}
 }
 

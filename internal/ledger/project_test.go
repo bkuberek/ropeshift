@@ -52,12 +52,47 @@ func TestAProjectNeedsAnIDANameAKnownStateAndADatabase(t *testing.T) {
 		{"a state nobody knows", func(p *Project) { p.State = "paused" }},
 		{"no database", func(p *Project) { p.Database = "" }},
 		{"the installation's own scope", func(p *Project) { p.ID = InstallationScope }},
+		{"a display name too long to show", func(p *Project) { p.DisplayName = strings.Repeat("a", 101) }},
+		{"a display name with a control character", func(p *Project) { p.DisplayName = "Acme\x1b[2J" }},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			p := valid
 			tt.change(&p)
 			if err := p.Validate(); err == nil {
 				t.Errorf("%+v was accepted", p)
+			}
+		})
+	}
+}
+
+// A display name is what a list or a heading shows whole: at most 100 characters, counted as characters and not
+// bytes, with no control character and no space at either end. An empty one is valid, because a project may have
+// none and a rename given none keeps the one it has.
+func TestADisplayNameIsShortTrimmedTextWithNoControlCharacter(t *testing.T) {
+	for _, tt := range []struct {
+		name        string
+		displayName string
+		ok          bool
+	}{
+		{"empty", "", true},
+		{"words with capitals", "Harbor docs, 2026", true},
+		{"100 characters of two bytes each", strings.Repeat("é", 100), true},
+		{"101 characters", strings.Repeat("a", 101), false},
+		{"a tab", "Harbor\tdocs", false},
+		{"a line break", "Harbor\ndocs", false},
+		{"an escape sequence", "Harbor\x1b[31m", false},
+		{"a delete", "Harbor\x7f", false},
+		{"space before", " Harbor", false},
+		{"space after", "Harbor ", false},
+		{"bytes that are no UTF-8", "Harbor\xff", false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateDisplayName(tt.displayName)
+			if tt.ok && err != nil {
+				t.Errorf("%q refused: %v", tt.displayName, err)
+			}
+			if !tt.ok && !errors.Is(err, ErrInvalidProject) {
+				t.Errorf("%q: %v", tt.displayName, err)
 			}
 		})
 	}

@@ -9,6 +9,7 @@ import (
 
 	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/authority"
+	"ropeshift.com/ropeshift/internal/control"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/planning"
 	"ropeshift.com/ropeshift/internal/ports"
@@ -20,11 +21,13 @@ import (
 type BranchSource func(ctx context.Context, project ledger.WorkspaceID, repository, ref string) (ports.WorkSource, error)
 
 // sessionRecords is what the ledger says of a planning session: its work order, the questions nobody has
-// answered, and the requests to approve a plan it raised.
+// answered, the requests to approve a plan it raised, and the commit a member accepted once its work order is
+// done.
 type sessionRecords struct {
 	order     workorders.WorkOrder
 	questions []api.OutlineQuestion
 	approvals []authority.Approval
+	accepted  string
 }
 
 func (h *handler) readSession(ctx context.Context, lane ledger.LaneView) (sessionRecords, error) {
@@ -33,6 +36,11 @@ func (h *handler) readSession(ctx context.Context, lane ledger.LaneView) (sessio
 		var err error
 		if out.order, err = tx.WorkOrders().Get(lane.WorkOrder); err != nil {
 			return err
+		}
+		if out.order.State == workorders.Done {
+			if out.accepted, err = control.AttemptCommit(tx.Evidence(), out.order); err != nil {
+				return err
+			}
 		}
 		open, err := unresolved(tx, ports.RecordFilter{})
 		if err != nil {
@@ -50,8 +58,8 @@ func (h *handler) readSession(ctx context.Context, lane ledger.LaneView) (sessio
 }
 
 // laneOutline reads the plan a planning lane has committed to its branch, at the branch's tip now, the way
-// intake reads a proposed plan, and compares it with the commit the lane's branch began at. What cannot be
-// read is said, and nothing else is.
+// intake reads a proposed plan, and compares it with the commit the lane's branch began at. A session whose
+// work order is done is read at the commit a member accepted. What cannot be read is said, and nothing else is.
 func (h *handler) laneOutline(w http.ResponseWriter, r *http.Request) {
 	lane, err := h.workers.Lane(r.Context(), r.PathValue("id"))
 	if err != nil {
@@ -103,8 +111,9 @@ func standingRequest(approvals []authority.Approval, commit string) *api.Outline
 }
 
 // readBranch reads the lane's branch. The branch is the one the work order keeps, or else the one the lane
-// was given, which a lane's profile names by a prefix and the lane's ID. A second answer says why the
-// branch could not be read.
+// was given, which a lane's profile names by a prefix and the lane's ID. A session a member accepted is read
+// at the commit they accepted instead, which a later commit on the branch does not move and which stays in
+// the repository once the branch is merged and deleted. A second answer says why the branch could not be read.
 func (h *handler) readBranch(ctx context.Context, lane ledger.LaneView, session sessionRecords) (api.PlanOutline, string) {
 	order := session.order
 	switch {
@@ -116,13 +125,20 @@ func (h *handler) readBranch(ctx context.Context, lane ledger.LaneView, session 
 		return api.PlanOutline{}, "the lane recorded no commit its branch began at"
 	}
 	branch := cmp.Or(order.Branch, h.LaneBranchPrefix+lane.ID)
-	source, err := h.Branches(ctx, h.Scope, order.RepositoryID, branch)
-	if err != nil {
+	ref, read := branch, "branch "+branch
+	if session.accepted != "" {
+		ref, read = session.accepted, "commit "+session.accepted+", which a member accepted,"
+	}
+	source, err := h.Branches(ctx, h.Scope, order.RepositoryID, ref)
+	if err != nil && session.accepted == "" {
 		return api.PlanOutline{}, err.Error()
 	}
-	batch, err := source.Poll(ctx, "")
+	var batch ports.ChangeBatch
+	if err == nil {
+		batch, err = source.Poll(ctx, "")
+	}
 	if err != nil {
-		return api.PlanOutline{}, fmt.Sprintf("branch %s could not be read: %v", branch, err)
+		return api.PlanOutline{}, fmt.Sprintf("%s could not be read: %v", read, err)
 	}
 	tip := string(batch.Cursor)
 	path, err := h.Starts.Checkout(ctx, h.Scope, order.RepositoryID)

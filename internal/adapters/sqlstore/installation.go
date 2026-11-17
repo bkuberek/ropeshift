@@ -346,6 +346,9 @@ func (in *Installation) RenameProject(ctx context.Context, id ledger.WorkspaceID
 	if err := ledger.ValidateProjectName(name); err != nil {
 		return ledger.Project{}, err
 	}
+	if err := ledger.ValidateDisplayName(displayName); err != nil {
+		return ledger.Project{}, err
+	}
 	return in.changeProject(ctx, opRenameProject, id, ledger.EventProjectRenamed, func(t *installationTx, before ledger.Project) (int64, error) {
 		if holder, err := readProject(t.session, stmtProjectNamed, params{"name": name}); err == nil && holder.ID != id {
 			return 0, fmt.Errorf("%w: project %s is named %q", ledger.ErrProjectExists, holder.ID, name)

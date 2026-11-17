@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { PlanForecast } from "../api/measures";
 import type { Completed, InProgress, OnHold, PlanOutline } from "../api/types";
+import { startedEntry } from "../lanes/starting";
 import { openPage } from "../opening";
 import type { Sent } from "../testing";
 import { FakeEvents, golden, here, openLedgerStream, refusal, serveViews } from "../testing";
@@ -139,6 +140,64 @@ describe("the planning pane with no session", () => {
     expect(within(last).queryByRole("region", { name: /^Pane of lane/ })).toBeNull();
   });
 
+  // servedEnded answers completed work in which wo-failed, which ended last, and wo-done were planning sessions.
+  function servedEnded(outline?: PlanOutline) {
+    const completed = golden<Completed>("completed");
+    for (const item of completed.items) {
+      item.work_order.kind = ["wo-failed", "wo-done"].includes(item.work_order.id) ? "plan" : "change";
+    }
+    return serve((call) => {
+      if (call.path === "/v1/views/in-progress" || call.path === "/v1/views/on-hold") {
+        return { status: 200, body: { as_of: 1, revision: 1, items: [] } };
+      }
+      if (outline && /^\/v1\/lanes\/[^/]+\/outline$/.test(call.path)) {
+        return { status: 200, body: outline };
+      }
+      return call.path === "/v1/views/completed" ? { status: 200, body: completed } : undefined;
+    });
+  }
+
+  it("shows the last session a member accepted, and none that failed or was canceled after it", async () => {
+    const sent = servedEnded();
+    openPage(here("/planning"));
+    const last = await screen.findByRole("region", { name: "The last planning session" });
+    expect(within(last).getByRole("link", { name: "Ship the first cut" }).getAttribute("href")).toBe("/projects/default/work-order?id=wo-done");
+    expect(last.textContent).toContain("lane lane-wo-done");
+    await within(last).findByRole("heading", { name: "Documents" });
+    expect(sent.some((call) => call.path === "/v1/lanes/lane-wo-failed/outline")).toBe(false);
+  });
+
+  it("reads the accepted plan once, however much the ledger says, because it does not change", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const sent = servedEnded();
+      openPage(here("/planning"));
+      const last = await screen.findByRole("region", { name: "The last planning session" });
+      await within(last).findByRole("heading", { name: "Documents" });
+      const reads = () => sent.filter((call) => call.path === "/v1/lanes/lane-wo-done/outline").length;
+      expect(reads()).toBe(1);
+      const events = await openLedgerStream();
+      for (let i = 0; i < 3; i++) {
+        act(() => events.emit());
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(2_000);
+        });
+      }
+      expect(reads()).toBe(1);
+      expect(within(last).queryByRole("heading", { name: "Documents" })).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("says why the accepted plan cannot be read, as a note and not as a failure", async () => {
+    servedEnded({ unread: "commit abc123, which a member accepted, could not be read: no such revision: abc123" } as PlanOutline);
+    openPage(here("/planning"));
+    const last = await screen.findByRole("region", { name: "The last planning session" });
+    expect(await within(last).findByText(/commit abc123, which a member accepted, could not be read/)).toBeTruthy();
+    expect(within(last).queryByRole("alert")).toBeNull();
+  });
+
   it("shows no last session when no planning session has ended", async () => {
     const completed = golden<Completed>("completed");
     for (const item of completed.items) {
@@ -266,7 +325,7 @@ describe("a planning session that just started", () => {
     try {
       let missing = true;
       serveStarting(() => missing);
-      openPage(here(`/planning?lane=${fresh}`));
+      openPage(here(`/planning?lane=${fresh}`), startedEntry(fresh));
       await screen.findByRole("heading", { level: 1, name: "Planning session" });
       const pane = screen.getByRole("region", { name: `Pane of lane ${fresh}` });
       for (let count = 1; count <= 3; count++) {
@@ -291,7 +350,7 @@ describe("a planning session that just started", () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     try {
       serveStarting(() => true);
-      openPage(here(`/planning?lane=${fresh}`));
+      openPage(here(`/planning?lane=${fresh}`), startedEntry(fresh));
       await screen.findByRole("heading", { level: 1, name: "Planning session" });
       const pane = screen.getByRole("region", { name: `Pane of lane ${fresh}` });
       let count = 0;
@@ -311,6 +370,83 @@ describe("a planning session that just started", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("waits for a lane the start dialog started, because the move to its page says so", async () => {
+    serve((call) => {
+      if (call.method === "POST" && call.path.endsWith("/review")) {
+        return { status: 200, body: { state: "ready" } };
+      }
+      if (call.method === "POST") {
+        return { status: 200, body: { id: "wo", title: "Saved searches" } };
+      }
+      if (call.path === "/v1/views/in-progress" || call.path === "/v1/views/on-hold") {
+        return { status: 200, body: { as_of: 1, revision: 1, items: [] } };
+      }
+      return call.method === "GET" && call.path.startsWith("/v1/panes/") ? refusal(404, "not_found", "lane not found") : undefined;
+    });
+    openPage(here("/planning"));
+    const user = userEvent.setup();
+    await user.click((await screen.findAllByRole("button", { name: "Start planning session" }))[0] as HTMLElement);
+    const dialog = await screen.findByRole("dialog", { name: "Start planning session" });
+    await user.type(within(dialog).getByLabelText("Goal"), "Saved searches v2");
+    await waitFor(() => expect((within(dialog).getByLabelText("Worker") as HTMLSelectElement).value).toBe("worker-a"));
+    await user.click(within(dialog).getByRole("button", { name: "Start planning session" }));
+    await waitFor(() => expect(window.location.search).toMatch(/^\?lane=[0-9A-Z]{26}$/));
+    const started = new URLSearchParams(window.location.search).get("lane") ?? "";
+    const pane = await screen.findByRole("region", { name: `Pane of lane ${started}` });
+    await waitFor(() => expect(FakeEvents.opened.some((stream) => stream.path === `/v1/panes/${started}`)).toBe(true));
+    act(() => FakeEvents.opened.find((stream) => stream.path === `/v1/panes/${started}`)?.drop());
+    await waitFor(() => expect(within(pane).getByRole("status").textContent).toMatch(/starting/i));
+    expect(within(pane).queryByRole("alert")).toBeNull();
+  });
+});
+
+// A lane the address names that was not just started, such as one that ended or a misspelled one, is one the
+// ledger holds already or never will, so its pane says why it cannot open at once.
+describe("a lane the address names that was not just started", () => {
+  it("is refused at once in the API's words, and the page stops asking", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const gone = "lane-misspelled";
+      serve((call) => (call.method === "GET" && call.path === `/v1/panes/${gone}` ? refusal(404, "not_found", `lane ${gone}: not found`) : undefined));
+      openPage(here(`/planning?lane=${gone}`));
+      await screen.findByRole("heading", { level: 1, name: "Planning session" });
+      const pane = screen.getByRole("region", { name: `Pane of lane ${gone}` });
+      const streams = () => FakeEvents.opened.filter((stream) => stream.path === `/v1/panes/${gone}`);
+      await waitFor(() => expect(streams()).toHaveLength(1));
+      act(() => streams()[0]?.drop());
+      expect((await within(pane).findByRole("alert")).textContent).toBe(`lane ${gone}: not found`);
+      expect(within(pane).getByRole("status").textContent).not.toMatch(/starting/i);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10_000);
+      });
+      expect(streams()).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("is refused at once when the page is reached again long after the lane's start", async () => {
+    const gone = "lane-long-ago";
+    serve((call) => (call.method === "GET" && call.path === `/v1/panes/${gone}` ? refusal(404, "not_found", `lane ${gone}: not found`) : undefined));
+    openPage(here(`/planning?lane=${gone}`), { ...startedEntry(gone), startedAt: Date.now() - 3 * 60_000 });
+    await screen.findByRole("heading", { level: 1, name: "Planning session" });
+    const pane = screen.getByRole("region", { name: `Pane of lane ${gone}` });
+    await waitFor(() => expect(FakeEvents.opened.some((stream) => stream.path === `/v1/panes/${gone}`)).toBe(true));
+    act(() => FakeEvents.opened.find((stream) => stream.path === `/v1/panes/${gone}`)?.drop());
+    expect((await within(pane).findByRole("alert")).textContent).toBe(`lane ${gone}: not found`);
+  });
+
+  it("is refused at once when the start the history entry names is another lane's", async () => {
+    const gone = "lane-ended";
+    serve((call) => (call.method === "GET" && call.path === `/v1/panes/${gone}` ? refusal(404, "not_found", `lane ${gone}: not found`) : undefined));
+    openPage(here(`/planning?lane=${gone}`), startedEntry("lane-other"));
+    await screen.findByRole("heading", { level: 1, name: "Planning session" });
+    const pane = screen.getByRole("region", { name: `Pane of lane ${gone}` });
+    await waitFor(() => expect(FakeEvents.opened.some((stream) => stream.path === `/v1/panes/${gone}`)).toBe(true));
+    act(() => FakeEvents.opened.find((stream) => stream.path === `/v1/panes/${gone}`)?.drop());
+    expect((await within(pane).findByRole("alert")).textContent).toBe(`lane ${gone}: not found`);
   });
 });
 
