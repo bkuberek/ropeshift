@@ -737,13 +737,15 @@ describe("Workers", () => {
     expect(sentTo(sent, "POST", "/v1/workers/tokens")).toHaveLength(1);
   });
 
-  it("shows the join string a group server makes, once, and says it is the member's own", async () => {
+  it("shows the join string a group server makes, once, with when it expires and which token it is", async () => {
     const joinString = "ropeshift-join-1.eyJ3b3JrZXJfdXJsIjoiaHR0cHM6Ly9yb3Blc2hpZnQubGFuOjc0MDAiLCJ0b2tlbiI6ImpvaW4tc2VjcmV0In0";
     const sent = serveAdmin((call) => {
       if (call.method === "GET" && call.path === "/v1/health") {
         return { status: 200, body: groupHealth };
       }
-      return call.method === "POST" && call.path === "/v1/workers/tokens" ? { status: 201, body: { token: "join-secret", join_string: joinString } } : undefined;
+      return call.method === "POST" && call.path === "/v1/workers/tokens"
+        ? { status: 201, body: { id: "01TOKENID", token: "join-secret", expires_at: 1790086400000, join_string: joinString } }
+        : undefined;
     });
     openPage("/workers?dialog=token");
     const dialog = await screen.findByRole("dialog", { name: "Create join token" });
@@ -752,9 +754,56 @@ describe("Workers", () => {
     // The join string holds the token, and the dialog shows the string a worker is given and not the token beside it.
     expect(within(dialog).queryByText("join-secret")).toBeNull();
     expect(within(dialog).getByText(/only time the join string is shown/)).toBeTruthy();
-    expect(within(dialog).getByText(/yours/)).toBeTruthy();
     expect(within(dialog).getByText(/ROPESHIFT_JOIN/)).toBeTruthy();
+    // A used string is no harmless string, and the dialog does not say it is.
+    expect(within(dialog).getByText(/credential/)).toBeTruthy();
+    expect(within(dialog).getByText(/not harmless once a worker has used it/)).toBeTruthy();
+    expect(within(dialog).queryByText(/works once/i)).toBeNull();
+    expect(within(dialog).getByText(/It expires/)).toBeTruthy();
+    expect(within(dialog).getByText("01TOKENID")).toBeTruthy();
     expect(sentTo(sent, "POST", "/v1/workers/tokens")).toHaveLength(1);
+  });
+
+  it("revokes a join token by its ID, and says so", async () => {
+    const sent = serveAdmin((call) => {
+      if (call.method === "GET" && call.path === "/v1/health") {
+        return { status: 200, body: groupHealth };
+      }
+      return call.method === "POST" && call.path === "/v1/workers/tokens/01TOKENID/revoke" ? { status: 200, body: { id: "01TOKENID" } } : undefined;
+    });
+    openPage("/workers?dialog=revoke-token");
+    const dialog = await screen.findByRole("dialog", { name: "Revoke join token" });
+    const revoke = within(dialog).getByRole("button", { name: "Revoke token" });
+    expect((revoke as HTMLButtonElement).disabled).toBe(true);
+    await userEvent.type(within(dialog).getByRole("textbox", { name: "Token ID" }), "01TOKENID");
+    await userEvent.click(revoke);
+    expect(await within(dialog).findByText(/Revoked the join token/)).toBeTruthy();
+    expect(sentTo(sent, "POST", "/v1/workers/tokens/01TOKENID/revoke")).toHaveLength(1);
+  });
+
+  it("says why a join token was not revoked", async () => {
+    serveAdmin((call) => {
+      if (call.method === "GET" && call.path === "/v1/health") {
+        return { status: 200, body: groupHealth };
+      }
+      return call.method === "POST" && call.path === "/v1/workers/tokens/01USED/revoke"
+        ? { status: 409, body: { error: { code: "join_token_used", message: "join token already used" } } }
+        : undefined;
+    });
+    openPage("/workers?dialog=revoke-token");
+    const dialog = await screen.findByRole("dialog", { name: "Revoke join token" });
+    await userEvent.type(within(dialog).getByRole("textbox", { name: "Token ID" }), "01USED");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Revoke token" }));
+    expect(await within(dialog).findByText(/already used/)).toBeTruthy();
+    expect(within(dialog).queryByText(/Revoked the join token/)).toBeNull();
+  });
+
+  it("offers no revocation on a solo installation", async () => {
+    serveAdmin();
+    openPage("/workers?dialog=revoke-token");
+    await screen.findByRole("heading", { level: 1, name: "Workers and resources" });
+    expect(screen.queryByRole("dialog", { name: "Revoke join token" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Revoke join token" })).toBeNull();
   });
 
   it("says what to set when a group server has no worker URL", async () => {
