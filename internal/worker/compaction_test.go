@@ -83,9 +83,9 @@ func TestAWaitOnAnAnswerSitsOutACompaction(t *testing.T) {
 		t.Fatal(err)
 	}
 	r.eventually("a lane at rest", func(view ledger.LaneView) bool { return view.ActualState == string(lanes.Idle) })
+	r.awaitAskWait()
 	r.hook(t, lanes.HookEvent{Event: "PreCompact", Subject: "s", Detail: "auto", AtMs: 1})
 	r.eventually("a compaction", func(view ledger.LaneView) bool { return view.ActualState == string(lanes.Compacting) })
-	time.Sleep(5 * superviseStep)
 	r.clock.Advance(6 * time.Minute)
 	time.Sleep(5 * superviseStep)
 	if view := r.read(); view.ActualState != string(lanes.Compacting) {

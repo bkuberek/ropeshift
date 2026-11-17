@@ -398,6 +398,7 @@ func TestAnIdleLaneWithABlockingQuestionParksAfterItsWait(t *testing.T) {
 		t.Fatal(err)
 	}
 	r.eventually("a lane at rest", func(view ledger.LaneView) bool { return view.ActualState == string(lanes.Idle) })
+	r.awaitAskWait()
 	r.clock.Advance(4*time.Minute + 59*time.Second)
 	time.Sleep(5 * superviseStep)
 	if view := r.read(); view.ActualState != string(lanes.Idle) {
