@@ -1,0 +1,112 @@
+{{ if .Example -}}
+# The components of this repository, in Backstage's descriptor format. Copy this file to catalog-info.yaml
+# at the repository's root, or one per package folder, and commit it with the code it describes.
+{{ else -}}
+# The components of this repository, in Backstage's descriptor format. Keep this file at the repository's
+# root, or one per package folder, and commit it with the code it describes.
+{{ end -}}
+#
+# ADR-0028 is accepted, and ropeshift reads this file from step C0 of the roadmap. Until then ropeshift
+# ignores it. Backstage reads it as it stands, and the file must stay valid for Backstage, so every
+# ropeshift field is an annotation under ropeshift.com/.
+#
+# Ropeshift will read every committed catalog-info.yaml on the repository's base branch, never the working
+# tree, so an edit counts once it is merged. Each entity below is one component, and documents are
+# separated by ---. A repository with no component here is one component named after the repository.
+#
+# Work orders name a component by its metadata.name: component = "{{ .Project }}-checkout".
+---
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+{{ if .Example }}  # The purpose, first and required: one or two plain sentences on what the component is for and what it
+  # owns. The planner, every lane and review of its work, the web UI, and the CLI read it, and work
+  # naming a component with no description is not ready.
+  description: >-
+    Takes an order from cart to paid. Owns the checkout HTTP endpoints, the retry budget, and the
+    idempotency keys sent to the payment provider.
+  # The component's ID in the project, unique across every repository, and never changed: plan files,
+  # decisions, and tracker mappings follow it. Letters, digits, and - _ . only, at most 63 characters.
+  name: acme-checkout
+  # The display name. Defaults to the name.
+  title: Checkout
+  # Plain labels. Ropeshift filters work and measures by them, and shows them to agents as text.
+  tags:
+    - payments
+    - customer-facing
+  # Key-value labels, such as the language or the service tier. Values follow the same rules as the
+  # name, so quote numbers. Text for people and agents, never a rule.
+  labels:
+    language: go
+    tier: "1"
+  annotations:
+    # Where the component lives, as path prefixes from the repository's root. Without it, a component
+    # is the folder that holds this file, or the whole repository when the file is at the root. Paths
+    # guide agents and review; they never limit what a lane may write.
+    ropeshift.com/paths: services/checkout/, api/checkout/
+    # What belongs here and what does not, one short item per line. The planner uses them to place
+    # work, and the review reports a change that puts code where the component does not own it.
+    ropeshift.com/owns: |
+      Checkout endpoints and their request validation
+      Retries and idempotency toward the payment provider
+    ropeshift.com/does-not-own: |
+      Prices and tax, which belong to acme-pricing
+      The payment provider client, which belongs to acme-payments-client
+    # Tracker identifiers. Jira uses the Jira plugin's keys; the adapter resolves the component name to
+    # its Jira ID at the first sync, then maps by ID.
+    jira/project-key: ACME
+    jira/component: Checkout
+    # The GitHub label exported issues carry for this component.
+    ropeshift.com/github-component: "service:checkout"
+    # When the component's code is in other repositories of the project, name them, comma-separated,
+    # and write each path as <repository>:<prefix>. Without it, the repository is the one holding this
+    # file, or the one backstage.io/source-location points to.
+    # ropeshift.com/repositories: acme-api, acme-web
+spec:
+  # The kind: the word the team uses, such as service, website, library, app, package, or module. Free
+  # text; ropeshift gives no kind any behavior.
+  type: service
+  # Required by Backstage. Shown to people and agents.
+  lifecycle: production
+  owner: group:acme-payments
+  # Components this one builds on, by name. Ropeshift refuses a cycle across every repository's files,
+  # lets a lane of this component read the repositories they live in, and shows what a change can affect.
+  # They never order work orders; a contract's uses and depends_on do that.
+  dependsOn:
+    - component:acme-payments-client
+---
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  description: >-
+    The client the checkout service uses to call the payment provider. Owns the provider's request
+    signing and its error mapping.
+  name: acme-payments-client
+  title: Payments client
+  tags:
+    - payments
+  labels:
+    language: go
+  annotations:
+    ropeshift.com/paths: libs/payments-client/
+    ropeshift.com/github-component: "library:payments-client"
+spec:
+  type: library
+  lifecycle: production
+  owner: group:acme-payments
+{{ else }}  # The purpose, first and required: one or two plain sentences on what the component is for and what it
+  # owns. The planner, every lane and review of its work, the web UI, and the CLI read it, and work
+  # naming a component with no description is not ready.
+  description: State what this component is for and what it owns, in one or two sentences.
+  # The component's ID in the project, unique across every repository, and never changed: plan files,
+  # decisions, and tracker mappings follow it. Letters, digits, and - _ . only, at most 63 characters.
+  name: {{ .Project }}
+spec:
+  # The kind: the word the team uses, such as service, website, library, app, package, or module. Free
+  # text; ropeshift gives no kind any behavior.
+  type: service
+  # Required by Backstage. Shown to people and agents.
+  lifecycle: experimental
+  # Required by Backstage: the team that owns the component. Replace the placeholder.
+  owner: group:default/replace-with-the-owning-team
+{{ end -}}

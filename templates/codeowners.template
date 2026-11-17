@@ -1,0 +1,9 @@
+# The code owners of {{ .Project }}, in the root of the repository. The forge asks the owners of each file a
+# change touches to review it, and the last rule that matches a file decides. Name the owners below, as
+# @user or @organization/team, and delete this line. Until then no file has an owner.
+#
+{{ if .Example -}}
+# * @acme/maintainers
+{{ else -}}
+# * @owner
+{{ end -}}

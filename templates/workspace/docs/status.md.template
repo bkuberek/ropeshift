@@ -1,0 +1,17 @@
+# Status
+
+> Template: the project's current focus, in one place. Copy it to `docs/status.md` and delete every line that starts with `>`. This file states intent. Ropeshift holds the state of the work: `ropeshift needs` lists what waits for a person, and `ropeshift view roadmap` shows each milestone's progress, so never copy a work order's state here.
+
+## Current focus
+
+Plan `{{ .Project }}-v1`, milestone `m1-accounts`: customers manage their own accounts. It comes first because every later milestone builds on the account endpoints.
+
+## Being decided
+
+> Questions a person is still deciding outside ropeshift, each with who raised it. A question a lane asked is in Needs you, not here.
+
+- Whether account deletion belongs in `{{ .Project }}-v1` or in a later plan.
+
+## Next
+
+- Plan `m2-billing` once `m1-accounts` has merged in every repository.

@@ -1,0 +1,7 @@
+# The repository's .gitignore.{{ if .Example }} Copy it to .gitignore at the root of the repository.{{ end }}
+
+# Environment files, which hold values for one machine and may hold secrets. Commit an example with no
+# values as .env.example.
+.env
+.env.*
+!.env.example

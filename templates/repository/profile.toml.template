@@ -1,0 +1,38 @@
+# This repository's layer of the lane profile. Copy it to .ropeshift/profile.toml at the root of the
+# repository, and commit it with the code it configures.
+#
+# The worker reads it from this repository's clone on each machine, over the built-in layer and the
+# person's own layer, profile.toml in the installation's state directory. It can narrow what a lane does
+# and never widen it: it adds gates, lowers the lane caps and the permission mode, and cannot change
+# push_on_stop, [agent.classes], or how the machine is measured. A key ropeshift does not know refuses
+# the whole profile, and no lane of this repository starts, so keep to the keys below.
+#
+# The worktree root is a machine's choice, not a repository's: set it in each machine's own layer.
+
+[agent]
+# A gate makes one kind of action ask a person, in every permission mode. The gates of every layer join,
+# so these add to the person's own. A lane already asks before every command except file edits, mkdir,
+# rm, rmdir, mv, and git add, rm, mv, and commit in its worktree, so a gate matters for those actions.
+#
+# Gate every commit when this repository's commit hooks run files a lane can change, and you want a
+# person to see each commit before its hooks run. Unattended lanes then wait at every commit.
+# gates = ["Bash(git commit *)"]
+#
+# A gate on files, such as "Edit(.ropeshift/**)", asks only for those paths in a lane that runs in a
+# terminal pane. Under such a gate a headless lane parks on every edit, whatever its path, so use one only
+# where lanes run in panes. Write the path relative to the worktree, with no leading slash.
+
+[review]
+# How many times the review judges one work order before work it still fails waits for a person.
+# The built-in bound is 3.
+# max_review_rounds = 2
+
+[admission]
+# Fewer lanes of this repository at once, such as for a heavy build. It can only lower the person's cap.
+# max_lanes = 2
+
+[hooks]
+# A command that runs once in a lane's new worktree, such as installing its dependencies. Each word is
+# one argument, {lane.name} becomes the lane's name, and no shell reads it. It runs for at most ten
+# minutes, and a failure stops the lane from starting.
+# on_lane_created = ["make", "deps"]

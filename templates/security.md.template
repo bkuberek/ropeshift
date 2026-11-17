@@ -1,0 +1,21 @@
+# Security policy
+
+{{ if .Example -}}
+> Template: how to report a vulnerability, for `SECURITY.md` at the root of a repository, where the forge shows it. Copy it to `SECURITY.md`, replace `acme` and every example value, and delete every line that starts with `>`.
+{{ else -}}
+> Started by `ropeshift new`: how to report a vulnerability, where the forge shows it. Replace each placeholder, and delete every line that starts with `>`.
+{{ end }}
+## Reporting a vulnerability
+
+{{ if .Example -}}
+Report a vulnerability in acme privately to security@acme.example, and do not open a public issue or pull request for it. Say which version is affected, how to reproduce the problem, and what an attacker gains.
+{{ else -}}
+Replace this line with where to send a report of a vulnerability in {{ .Project }}, such as an address or the forge's private vulnerability reporting. Ask for a private report, and say that nobody should open a public issue or pull request for it. Ask which version is affected, how to reproduce the problem, and what an attacker gains.
+{{ end }}
+## Supported versions
+
+{{ if .Example -}}
+Only the latest release of acme receives security fixes.
+{{ else -}}
+Replace this line with the versions of {{ .Project }} that receive security fixes.
+{{ end -}}

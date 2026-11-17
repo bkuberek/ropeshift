@@ -1,0 +1,52 @@
++++
+{{ if .Example -}}
+# Product requirements, each in a [[requirement]] table, so the prose below stays free. Copy this file
+# to plan/requirements.md, or to plan/requirements/<id>.md for one file per area.
+{{ else -}}
+# Product requirements, each in a [[requirement]] table, so the prose below stays free. Use
+# plan/requirements/<id>.md for one file per area.
+{{ end -}}
+kind = "requirements"
+{{ if .Example -}}
+id = "acme-accounts"
+title = "Account requirements"
+{{ else -}}
+id = "{{ .Project }}-requirements"
+title = "{{ .Project }} requirements"
+{{ end -}}
+plan = "{{ .Project }}-v1"
+
+# A requirement's id is the key a contract criterion names: an area code and a number, never reused.
+# While the plan holds a requirements document, every criterion must name at least one of these IDs.
+{{ if .Example -}}
+[[requirement]]
+id = "ACC-1"
+text = "A signed-in customer sees their display name and email address"
+
+[[requirement]]
+id = "ACC-2"
+text = "A signed-in customer changes their email address, which takes effect once they confirm it"
+
+[[requirement]]
+id = "ACC-3"
+text = "A signed-in customer changes their display name on the settings page"
+{{ else -}}
+[[requirement]]
+id = "AREA-1"
+text = "State the first requirement as one statement a reviewer can check"
+{{ end }}
+# A quality requirement that every contract's verify criterion names.
+[[requirement]]
+id = "QA-1"
+text = "Every change passes the full verify of the repository it changes"
+
+# A requirement the code already meets says status = "met" and cites its evidence as repository:path,
+# the files and tests that show it. It needs no criterion. Every other requirement is open, the default.
+# [[requirement]]
+# id = "ACC-0"
+# text = "A customer signs in with an email address and a password"
+# status = "met"
+# evidence = ["{{ .Project }}-api:internal/auth/signin.go", "{{ .Project }}-api:internal/auth/signin_test.go"]
++++
+
+Context for these requirements, in prose: where they came from, and what they leave out.

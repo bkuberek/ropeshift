@@ -1,0 +1,13 @@
++++
+# A technical spec: the interfaces and behavior that contracts build against. Copy this file to
+# plan/specs/<id>.md. A contract cites it in `documents` as spec:<id>, and each lane receives the
+# version of the spec at the contract's commit.
+kind = "spec"
+id = "accounts-endpoints"
+title = "Account endpoints"
+plan = "{{ .Project }}-v1"
+# The requirement IDs this spec addresses.
+requirements = ["ACC-1", "ACC-2", "ACC-3"]
++++
+
+The calls the API accepts, their inputs and outputs, and how each one fails, in prose.

@@ -1,0 +1,58 @@
++++
+# A contract states what one piece of work must deliver, as criteria a reviewer can check, and the work
+# orders that carry it out. Copy this file to plan/contracts/<id>.md. One file with no `plan` key is
+# enough for a first work order: it gets a plan of its own.
+kind = "contract"
+id = "accounts-web"
+title = "Account settings page"
+plan = "{{ .Project }}-v1"
+# Every contract of a plan that has milestones belongs to one milestone.
+milestone = "m1-accounts"
+# Shared contracts this one builds on, by id. Each work order here waits for their work orders.
+uses = ["accounts-api"]
+# The documents this work depends on, as kind:id. Each lane receives them at the version of this commit.
+documents = ["spec:accounts-endpoints", "experience-design:account-settings"]
+# Other repositories of the project the lanes read, read-only, by their names in the project, beside
+# those the dependencies target. Name the planning repository when a lane needs its prose, such as an ADR.
+reads = ["{{ .Workspace }}"]
+# Decisions recorded in ropeshift that this work rests on, by their ledger IDs. Each reaches the lane,
+# and overturning one sends this contract's finished work back for rework.
+decisions = []
+# true records a contract the code already delivers: it has no work orders, and nothing waits for it.
+# existing = true
+
+[[criteria]]
+id = "c1"
+text = "A signed-in customer changes their display name on the settings page, and the page shows the new name"
+requirements = ["ACC-3"]
+
+[[criteria]]
+id = "c2"
+text = "The full verify of {{ .Project }}-web, ./scripts/verify, passes at the reviewed commit"
+requirements = ["QA-1"]
+
+[[work_orders]]
+id = "settings-page"
+title = "Build the account settings page"
+# The repository this work changes, by its name in the project. In a workspace, always name it: an
+# absent repo, like ".", is the repository that holds this file, the workspace itself.
+repo = "{{ .Project }}-web"
+# Among ready work orders, the higher priority is offered first.
+priority = 1
+# small, medium, or large. With no `agent`, it chooses the roster agent, and an absent size counts as medium.
+size = "medium"
+# Work orders of this plan that must finish first, by id.
+depends_on = []
+# What a worker must offer to run this work, such as the agent CLI.
+needs = { driver = "claude-code" }
+# The roster agent the lane runs as. With none, the roster's default mapping chooses by kind and size.
+# agent = "implementation"
+# A branch to start from instead of the repository's base branch. It is also where the work merges.
+# base = "release/1.2"
+# An in-flight branch this work finishes. The lane starts from its tip on a branch of its own, and its
+# review reads the whole change since the branch left the base. Ropeshift never moves the branch.
+# continues = "feature/account-settings"
++++
+
+What this work must deliver, in prose: the behavior, its boundaries, and what is out of scope. The lane
+reads this statement with the criteria, and the review judges the work against both.

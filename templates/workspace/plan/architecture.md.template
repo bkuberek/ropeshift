@@ -1,0 +1,12 @@
++++
+# An architecture document: the parts of the system, who owns each, and how they talk. Copy this file
+# to plan/architecture/<id>.md. A contract cites it as architecture:<id>.
+kind = "architecture"
+id = "{{ .Project }}-accounts"
+title = "Accounts architecture"
+plan = "{{ .Project }}-v1"
+# The requirement IDs this document addresses.
+requirements = ["ACC-1", "ACC-2"]
++++
+
+The components that take part, the repository that owns each, and the data each one keeps, in prose.

@@ -1,0 +1,15 @@
+# The delegate policy: what the assistant and an outside delegate run with no confirmation card, and
+# whether a delegate's lane start may raise the lane's model and effort. Publish it as a member:
+# ropeshift policy publish --file delegate-policy.toml
+#
+# `version` and `exempt` must be stated. The built-in version 1 exempts nothing and allows a raise. The
+# web UI's Settings shows the versions; `ropeshift policy list` does not take this kind.
+[delegate_policy]
+version = 2
+# Consent operations a delegate runs with no card. Only four may be listed: work_order.accept,
+# work_order.rework, work_order.create, and plan.start_review. A team lists none, so every one waits for
+# a member's click.
+exempt = []
+# false holds a delegate's lane start to the model and effort its roster agent runs, so no agent raises
+# the cost of shared work without a member.
+raise_model_and_effort = false
