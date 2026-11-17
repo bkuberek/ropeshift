@@ -156,7 +156,7 @@ func newToken(size int) (string, error) {
 func (w *Worker) Start(ctx context.Context) error {
 	identity, err := w.journal.Identity(ctx)
 	if errors.Is(err, ports.ErrNotFound) {
-		if identity.WorkerID, err = newToken(16); err != nil {
+		if identity.WorkerID, err = newWorkerID(); err != nil {
 			return err
 		}
 		if err := w.journal.SaveIdentity(ctx, identity); err != nil {

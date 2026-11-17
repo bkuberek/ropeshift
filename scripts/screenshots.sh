@@ -11,9 +11,10 @@
 #   -g GUIDE like -G, but capture only the guide with this prefix, after walking the guides before it
 #   -c       run the product gap checks of the guide walk (PG6 and PG9) in place of a capture
 #
-# It builds the web UI and the binary, then runs test/screenshots with the screenshots tag, which makes an
-# isolated installation, starts the daemon on a loopback port the kernel chooses, lays out the sample with
-# the fake agent CLI, and captures with Playwright's Chromium from web/. The run stops what it started.
+# It builds the web UI and the binary with the screenshots tag, which reports a fixed machine and worker ID,
+# then runs test/screenshots with the same tag, which makes an isolated installation, starts the daemon on a
+# loopback port the kernel chooses, lays out the sample with the fake agent CLI, and captures with
+# Playwright's Chromium from web/. The run stops what it started.
 # A guide walk makes one installation for each theme and world, and the guides' neutral clone folder, which
 # it removes at its end (docs/development/screenshots.md).
 
@@ -75,7 +76,9 @@ fi
 date=$(git show -s --format=%cI "$commit")
 
 stamp="ropeshift.com/ropeshift/internal/version"
-(cd "$source" && CGO_ENABLED=0 go build -trimpath \
+# The screenshots tag reports a fixed machine and worker ID, so the images show nothing of this machine. A
+# ref from before the tag reports the machine it runs on.
+(cd "$source" && CGO_ENABLED=0 go build -trimpath -tags screenshots \
 	-ldflags "-X $stamp.version=$version -X $stamp.commit=$commit -X $stamp.date=$date" \
 	-o "$build/ropeshift" ./cmd/ropeshift)
 
