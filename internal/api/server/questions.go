@@ -154,7 +154,7 @@ func (h *handler) answerQuestion(w http.ResponseWriter, r *http.Request, actor l
 		return
 	}
 	record, err := h.questions.AnswerFrom(r.Context(), h.Scope, r.PathValue("id"), questions.Answer{
-		DecisionID: in.ID, Statement: in.Answer, Rationale: in.Rationale, Citations: in.Citations,
+		DecisionID: in.ID, Statement: in.Answer, Rationale: in.Rationale, Citations: in.Citations, Supersedes: in.Supersedes, NoConflict: in.NoConflict,
 	}, actor, channel)
 	if err != nil {
 		fail(w, err)

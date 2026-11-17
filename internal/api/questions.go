@@ -133,12 +133,16 @@ type PublishedPolicy struct {
 const NoticeTakeOutPending = "The policy is in force, and the project's delivery records are still in the installation's pool: the next delivery tick takes them out."
 
 // AnswerQuestion is a member's answer. ID names the decision it becomes, and the client
-// generates it, so a retry finds what the first attempt wrote.
+// generates it, so a retry finds what the first attempt wrote. Supersedes names the decision
+// in force the answer replaces, in the transaction that records it, and NoConflict the decisions
+// the answer's scope overlaps that it does not conflict with.
 type AnswerQuestion struct {
-	ID        string   `json:"id"`
-	Answer    string   `json:"answer"`
-	Rationale string   `json:"rationale,omitempty"`
-	Citations []string `json:"citations,omitempty"`
+	ID         string   `json:"id"`
+	Answer     string   `json:"answer"`
+	Rationale  string   `json:"rationale,omitempty"`
+	Citations  []string `json:"citations,omitempty"`
+	Supersedes string   `json:"supersedes,omitempty"`
+	NoConflict []string `json:"no_conflict,omitempty"`
 	// Place is where the member answered: in Needs you, or inline in a conversation.
 	Place string `json:"place,omitempty"`
 }

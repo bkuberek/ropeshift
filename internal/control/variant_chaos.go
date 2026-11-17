@@ -154,6 +154,10 @@ type Sabotage struct {
 	ReleasesBoundWork bool
 	// BriefsNoDecisions starts a revising session with a brief that lists no decision.
 	BriefsNoDecisions bool
+	// AnswersReplaceNothing leaves the decision an answer names in force.
+	AnswersReplaceNothing bool
+	// BindsAnswersTwice applies what an answer binds a second time, after the answer is recorded.
+	BindsAnswersTwice bool
 	// LeavesParkedLanes cancels work and leaves its parked lane reading parked for good.
 	LeavesParkedLanes bool
 	// EndsAnyCanceledLane takes any worker's word that a canceled lane ended.
@@ -315,6 +319,10 @@ func showsByTime() bool { return current().ShowsByTime }
 func releasesBoundWork() bool { return current().ReleasesBoundWork }
 
 func briefsNoDecisions() bool { return current().BriefsNoDecisions }
+
+func answersReplaceNothing() bool { return current().AnswersReplaceNothing }
+
+func bindsAnswersTwice() bool { return current().BindsAnswersTwice }
 
 func leavesParkedLanes() bool { return current().LeavesParkedLanes }
 

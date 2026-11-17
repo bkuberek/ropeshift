@@ -1131,6 +1131,29 @@ func TestQuestionAnswer(t *testing.T) {
 	}
 }
 
+// TestQuestionAnswerSupersedes holds that an answer names the decision it replaces with --supersedes, and the
+// decisions it judged compatible with --no-conflict, and that the decision it replaced ends in the same command.
+func TestQuestionAnswerSupersedes(t *testing.T) {
+	s := newSession(t)
+	s.daemon.HoldRepository(t, "checkout")
+	s.must("decision", "record", "--id", "d1", "--statement", "Retries log at info.", "--assumed", "--scope", "repo:checkout")
+	s.must("question", "record", "--id", "q1", "--text", "At what level do retries log?")
+	text := s.must("question", "answer", "q1", "--answer", "Retries log at warn.", "--id", "d2", "--supersedes", "d1", "--no-conflict", "d9", "--json")
+	if !strings.Contains(text, `"supersedes":"d1"`) || !strings.Contains(text, `"no_conflict":["d9"]`) {
+		t.Fatalf("question answer %q", text)
+	}
+	if text := s.must("decision", "show", "d1"); !strings.Contains(text, "replaced") {
+		t.Errorf("the decision the answer replaced reads %q", text)
+	}
+	s.must("question", "record", "--id", "q2", "--text", "Again?")
+	if code, _, _ := s.run("question", "answer", "q2", "--answer", "Retries log at error.", "--supersedes", "d1"); code != cli.ExitConflict {
+		t.Errorf("exit %d for an answer that replaces a decision that no longer stands", code)
+	}
+	if code, _, _ := s.run("question", "answer", "q2", "--answer", "Retries log at error.", "--supersedes", "missing"); code != cli.ExitNotFound {
+		t.Errorf("exit %d for an answer that replaces a decision nobody recorded", code)
+	}
+}
+
 // plannedWithADraft holds a plan that drafts one answer, a spec, and a contract, so a plan version has
 // something to approve.
 func (s *session) plannedWithADraft() (plan string, source *fake.WorkSource) {

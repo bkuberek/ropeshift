@@ -94,6 +94,9 @@ func packVariants() []variant {
 		{name: "a revising session that returns work of another kind", control: control.Sabotage{ReusesAnyWorkOrder: true}, check: "PRV9"},
 		{name: "a revising session whose brief lists no decision", control: control.Sabotage{BriefsNoDecisions: true}, check: "PRV9"},
 		{name: "a rework for each decision a member names", control: control.Sabotage{ReworksEachDecision: true}, check: "PRV10"},
+		{name: "an answer that names a decision and leaves it in force", control: control.Sabotage{AnswersReplaceNothing: true}, check: "SA1"},
+		{name: "an answer that names a draft decision and leaves it in force", control: control.Sabotage{AnswersReplaceNothing: true}, check: "MP6"},
+		{name: "an answer that applies what it binds twice", control: control.Sabotage{BindsAnswersTwice: true}, check: "SA3"},
 		{
 			name:     "a plan whose closed revision still reads as open",
 			sabotage: sqlstore.Sabotage{Rewrite: replace("plan_revision.open", " AND closed_at IS NULL", "")},

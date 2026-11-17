@@ -118,12 +118,16 @@ func citationsOf(row Question) []string {
 }
 
 // Answer is a member's answer to one question. DecisionID comes from the client, which
-// makes a retry idempotent.
+// makes a retry idempotent. Supersedes names the decision in force the answer replaces, and
+// NoConflict the decisions its scope overlaps that the answer does not conflict with: the decision
+// the answer becomes records both, as a decision recorded by itself does (FR-QD-9).
 type Answer struct {
 	DecisionID string
 	Statement  string
 	Rationale  string
 	Citations  []string
+	Supersedes string
+	NoConflict []string
 }
 
 var errNoAnswer = errors.New("an answer states nothing")

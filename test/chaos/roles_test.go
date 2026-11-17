@@ -57,6 +57,7 @@ var childRoles = map[string]func(*child) error{
 	"sign-in":           roleSignIn,
 	"deliver":           roleDeliver,
 	"answer":            roleAnswer,
+	"answer-replacing":  roleAnswerReplacing,
 	"add-category":      roleAddCategory,
 	"ask":               roleAsk,
 	"take":              roleTake,
@@ -243,6 +244,14 @@ func roleDeliver(c *child) error {
 
 func roleAnswer(c *child) error {
 	_, err := c.ops.Answer(c.ctx, c.scope, c.spec.Key, questions.Answer{DecisionID: c.spec.ClaimID, Statement: "The retry budget is two calls."}, c.member())
+	return err
+}
+
+// roleAnswerReplacing answers a question with an answer that names the decision it replaces.
+func roleAnswerReplacing(c *child) error {
+	_, err := c.ops.Answer(c.ctx, c.scope, c.spec.Key, questions.Answer{
+		DecisionID: c.spec.ClaimID, Statement: "The retry budget is two calls.", Supersedes: c.spec.Replaces,
+	}, c.member())
 	return err
 }
 

@@ -140,11 +140,13 @@ func (c *invocation) questionDismiss(args []string) int {
 func (c *invocation) questionAnswer(args []string) int {
 	set := c.flags()
 	var request api.AnswerQuestion
-	var citations repeated
+	var citations, noConflict repeated
 	set.StringVar(&request.ID, "id", "", "a client-generated ID for the decision it becomes")
 	set.StringVar(&request.Answer, "answer", "", "the answer")
 	set.StringVar(&request.Rationale, "rationale", "", "why")
 	set.Var(&citations, "citation", "what it rests on, repeatable")
+	set.StringVar(&request.Supersedes, "supersedes", "", "the decision in force it replaces, with no rework")
+	set.Var(&noConflict, "no-conflict", "a decision its scope overlaps and it does not conflict with, repeatable")
 	positional, ok := c.parse(set, args)
 	if !ok {
 		return ExitUsage
@@ -162,7 +164,7 @@ func (c *invocation) questionAnswer(args []string) int {
 		}
 		request.ID = id
 	}
-	request.Citations = citations
+	request.Citations, request.NoConflict = citations, noConflict
 	client, exit := c.projectClient()
 	if client == nil {
 		return exit

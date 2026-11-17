@@ -68,7 +68,7 @@ func (q *Questions) Rule(ctx context.Context, scope ledger.WorkspaceID, id strin
 		if err := admit(tx, &record, policy, actor); err != nil {
 			return err
 		}
-		if err := q.recordAdmitted(tx, record, boundAnswered, actor); err != nil {
+		if err := q.recordAdmitted(tx, record, boundAnswered, actor, ""); err != nil {
 			return err
 		}
 		crashpoint.Hit("question.rule", "decided")
@@ -268,9 +268,10 @@ func (q *Questions) AnswerStanding(ctx context.Context, scope ledger.WorkspaceID
 }
 
 // recordAdmitted writes a decision, applies what it binds, and ends the one it replaces. Replacing a decision
-// implies no rework of the work it bound: the new decision binds that work as any decision does.
-func (q *Questions) recordAdmitted(tx ports.WriteTx, record questions.Decision, how string, actor ledger.Actor) error {
-	if err := insertDecision(tx, record, actor); err != nil {
+// implies no rework of the work it bound: the new decision binds that work as any decision does. channel is where
+// a member's word came from, which the decision's event keeps; empty records none.
+func (q *Questions) recordAdmitted(tx ports.WriteTx, record questions.Decision, how string, actor ledger.Actor, channel string) error {
+	if err := insertDecisionFrom(tx, record, actor, channel); err != nil {
 		return err
 	}
 	if err := q.applyBinding(tx, record, how, actor); err != nil {

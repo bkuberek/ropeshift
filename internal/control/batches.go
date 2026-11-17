@@ -184,7 +184,9 @@ func (q *Questions) Answer(ctx context.Context, scope ledger.WorkspaceID, id str
 }
 
 // AnswerFrom is Answer with where the member's word came from, which the decision's event keeps: the web
-// listener, the command line, or the conversation the question showed in. Empty records none.
+// listener, the command line, or the conversation the question showed in. Empty records none. An answer that names
+// a decision it supersedes ends that decision in the same transaction, and what the answer binds is applied once,
+// as for any decision recorded (recordAdmitted).
 func (q *Questions) AnswerFrom(ctx context.Context, scope ledger.WorkspaceID, id string, answer questions.Answer, actor ledger.Actor, channel string) (questions.Decision, error) {
 	if !authority.Allowed(actor, authority.ActionAnswerQuestion) {
 		return questions.Decision{}, workorders.ErrForbidden
@@ -192,9 +194,12 @@ func (q *Questions) AnswerFrom(ctx context.Context, scope ledger.WorkspaceID, id
 	if err := answer.Check(); err != nil {
 		return questions.Decision{}, err
 	}
+	if answersReplaceNothing() {
+		answer.Supersedes = ""
+	}
 	record, err := questions.NewDecision(questions.Decision{
 		ID: answer.DecisionID, Status: questions.DecisionDecided, Statement: answer.Statement, Rationale: answer.Rationale,
-		Citations: answer.Citations, QuestionID: id, DecidedBy: actor.ID,
+		Citations: answer.Citations, QuestionID: id, DecidedBy: actor.ID, Supersedes: answer.Supersedes, NoConflict: answer.NoConflict,
 	})
 	if err != nil {
 		return questions.Decision{}, err
@@ -222,11 +227,13 @@ func (q *Questions) AnswerFrom(ctx context.Context, scope ledger.WorkspaceID, id
 		if err := admit(tx, &record, policy, actor); err != nil {
 			return err
 		}
-		if err := insertDecisionFrom(tx, record, actor, channel); err != nil {
+		if err := q.recordAdmitted(tx, record, boundAnswered, actor, channel); err != nil {
 			return err
 		}
-		if err := q.applyBinding(tx, record, boundAnswered, actor); err != nil {
-			return err
+		if bindsAnswersTwice() {
+			if err := q.applyBinding(tx, record, boundAnswered, actor); err != nil {
+				return err
+			}
 		}
 		crashpoint.Hit("question.answer", "decided")
 		question.Status, question.DecisionID, question.ClaimedBy, question.ClaimUntil = questions.StatusAnswered, record.ID, "", 0

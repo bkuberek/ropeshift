@@ -268,7 +268,8 @@ func (m *midPlan) recommended(id string) (string, error) {
 	return "", Violatedf("question %s is not in the batch", id)
 }
 
-// answerAll accepts every recommendation, as a member does with Accept all: no rationale, no citations.
+// answerAll accepts every recommendation, as a member does with Accept all: no rationale, no citations. The
+// logo answer contradicts the draft decision the plan approved, and its author says it replaces that decision.
 func (m *midPlan) answerAll() error {
 	r := m.r
 	for _, id := range append(slices.Clone(m.asked), m.logo) {
@@ -276,7 +277,11 @@ func (m *midPlan) answerAll() error {
 		if err != nil {
 			return err
 		}
-		decision, err := r.NewOps(m.s).Answer(r.Ctx, r.Scope, id, questions.Answer{DecisionID: r.ID("d"), Statement: statement}, r.Actor)
+		answer := questions.Answer{DecisionID: r.ID("d"), Statement: statement}
+		if id == m.logo {
+			answer.Supersedes = m.p17
+		}
+		decision, err := r.NewOps(m.s).Answer(r.Ctx, r.Scope, id, answer, r.Actor)
 		if err != nil {
 			return err
 		}
@@ -436,8 +441,8 @@ func checkMidPlanRationale(r *Rig) error {
 	return knownGap(r, "GAP-MP-G7", gap)
 }
 
-// checkMidPlanAnswerSupersedes holds G1: the logo answer contradicts the draft decision the plan approved, and
-// answering cannot say so.
+// checkMidPlanAnswerSupersedes holds that the logo answer, which contradicts the draft decision the plan
+// approved and names it, replaces it.
 func checkMidPlanAnswerSupersedes(r *Rig) error {
 	m, err := midPlanAnswered(r)
 	if err != nil {
@@ -447,13 +452,10 @@ func checkMidPlanAnswerSupersedes(r *Rig) error {
 	if err != nil {
 		return err
 	}
-	var gap error
 	if draft.Status != questions.DecisionReplaced {
-		gap = Violatedf("after the answer %q, the draft decision is %s", m.answers[m.logo].Statement, draft.Status)
-	} else if err := m.replacedBy(m.p17, m.answers[m.logo].ID); err != nil {
-		gap = err
+		return Violatedf("after the answer %q, the draft decision is %s", m.answers[m.logo].Statement, draft.Status)
 	}
-	return knownGap(r, "GAP-MP-G1", gap)
+	return m.replacedBy(m.p17, m.answers[m.logo].ID)
 }
 
 // replacedBy holds a decision to the one that ended it.
