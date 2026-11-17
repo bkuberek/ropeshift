@@ -41,7 +41,7 @@ When two documents disagree, an accepted decision wins over a requirement, a req
 
 ## Writing plan files
 
-- Plan files go under `plan/`: one file per document, milestone, or contract, named after its `id`, in lowercase with hyphens, ending in `.md`, starting with `+++` front matter that holds a known `kind`, a stable `id`, and a `title`.
+- Plan files go under `plan/`: one file per document, milestone, or contract, named after its `id`, in lowercase with hyphens, ending in `.md`, starting with `+++` front matter that holds a known `kind`, a stable `id`, and a `title`. The `id` of a plan or a contract is a plain ID: 1 to 64 ASCII letters, digits, `-`, and `_`.
 - This repository is the whole project, so it needs no manifest, and every work order changes it: leave `repo` out, or write `repo = "."`.
 - Every contract belongs to a milestone, cites the documents it depends on, maps each criterion to requirement IDs, and has a criterion that `./scripts/verify` passes, mapped to `QA-1`.
 - Say in a contract's statement which package its work changes, and cite code and evidence as `{{ .Project }}:apps/api/handler.go`.
