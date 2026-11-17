@@ -132,6 +132,9 @@ type laneRun struct {
 	// sessionOver says this generation's session has ended, which a handoff waits on from
 	// beside the goroutine that reads the stream.
 	sessionOver atomic.Bool
+	// departed says the worker stopped reading a session that goes on, because the worker is on its way
+	// out. The lane is not over: the worker after this one adopts the session.
+	departed atomic.Bool
 	// resumeFrom is the session a restarted generation continues. Empty starts fresh.
 	resumeFrom string
 	// startedMode is the run mode of the session this lane last started.
@@ -491,10 +494,15 @@ func (r *laneRun) proceed(ctx context.Context) error {
 	return r.conclude(ctx, r.session(ctx))
 }
 
-// conclude supervises what a session left, and ends the lane once it has an outcome.
+// conclude supervises what a session left, and ends the lane once it has an outcome. A lane that is
+// not over stays in the journal for whoever goes on with it. What the run started beside its session,
+// a sequence or a stop, writes the journal until it ends, with the worker's context or with its stop,
+// so the run waits for it, and nothing of the lane outlives the worker's wait.
 func (r *laneRun) conclude(ctx context.Context, report workorders.Report) error {
 	report, over := r.supervised(ctx, report)
 	if !over {
+		r.sequence.Wait()
+		r.stopped.Wait()
 		return nil
 	}
 	return r.finish(ctx, report)
@@ -928,9 +936,28 @@ func readyTimeout(profile lanes.Profile) time.Duration {
 
 // watch follows the session to its end. Lane state derives from driver events, and
 // no person marks anything (FR-LANE-5).
+//
+// A worker on its way out stops reading and leaves the session running, because a stop keeps lanes and
+// the stream ends only with the session. The session is not over then, and the worker after this one
+// adopts it from the cursor the journal holds.
 func (r *laneRun) watch(ctx context.Context, events <-chan ports.DriverEvent) workorders.Report {
-	defer r.sessionOver.Store(true)
-	for event := range events {
+	defer func() {
+		if !r.departed.Load() {
+			r.sessionOver.Store(true)
+		}
+	}()
+	for {
+		var event ports.DriverEvent
+		select {
+		case <-ctx.Done():
+			r.departed.Store(true)
+			return failed(workorders.ReasonWorkerRestarted)
+		case next, open := <-events:
+			if !open {
+				return failed(workorders.ReasonCrashed)
+			}
+			event = next
+		}
 		if event.Seq != 0 && event.Seq <= r.cursor {
 			continue
 		}
@@ -976,7 +1003,6 @@ func (r *laneRun) watch(ctx context.Context, events <-chan ports.DriverEvent) wo
 			return r.verdict(ctx, event.End)
 		}
 	}
-	return failed(workorders.ReasonCrashed)
 }
 
 // expireToken ends a token with its process, so nothing left behind can act for the lane while it

@@ -3,6 +3,7 @@ package worker_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -102,5 +103,67 @@ func TestABurstOfLaneMovesPublishesOnce(t *testing.T) {
 	r.awaitWorking(t, 2*worker.PublishSettle+5*time.Second)
 	if published := statuses.count.Load(); published != 1 {
 		t.Errorf("one burst of moves published %d statuses", published)
+	}
+}
+
+// keepMoving moves the lane into `compacting` and back out each round until span runs out, each move far
+// inside one window, and asks seen between moves. The lane reads `compacting` for nearly all of each round,
+// so a publish at any moment almost always finds it there, and the last move leaves it `working`. It returns
+// how long after the first move seen said yes, and whether it did before span ran out.
+func (r *laneRig) keepMoving(t *testing.T, span time.Duration, seen func() bool) (time.Duration, bool) {
+	t.Helper()
+	const compacting, working = 290 * time.Millisecond, 10 * time.Millisecond
+	began := time.Now()
+	for time.Since(began) < span {
+		r.hook(t, lanes.HookEvent{Event: "PreCompact", Subject: "s", Detail: "auto"})
+		for held := time.Now(); time.Since(held) < compacting; time.Sleep(10 * time.Millisecond) {
+			if seen() {
+				return time.Since(began), true
+			}
+		}
+		r.hook(t, lanes.HookEvent{Event: "PostCompact", Subject: "s", Detail: "auto"})
+		time.Sleep(working)
+	}
+	return time.Since(began), false
+}
+
+// TestALaneThatKeepsMovingStillPublishes holds a publish to one window from a lane's first move: a later move
+// does not put the window off, so a lane that moves more often than once a window is seen while it moves, and
+// not only once it stops. A window that closes in the moment the lane is between moves finds nothing new, and
+// a loaded machine runs late, so the lane moves for three windows.
+func TestALaneThatKeepsMovingStillPublishes(t *testing.T) {
+	r, _ := runBeatingRarely(t)
+	r.awaitWorking(t, 2*worker.PublishSettle+5*time.Second)
+	compacting := func() bool {
+		view, err := r.plane.Lane(t.Context(), "lane-1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return view.ActualState == string(lanes.Compacting)
+	}
+	if moved, seen := r.keepMoving(t, 3*worker.PublishSettle, compacting); !seen {
+		t.Fatalf("a lane that moved for %s was never published while it moved", moved)
+	}
+}
+
+// TestAnAwayPlaneHearsOneFailedPublishPerCycle keeps a worker whose control plane is away from reporting a
+// failure every window while a lane keeps moving: the first publish that fails leaves the rest to the next
+// cycle, which tries again after its own retry wait. The heartbeat is an hour off, so the lane's moves for
+// four windows, and the window its last move opens, report one failure.
+func TestAnAwayPlaneHearsOneFailedPublishPerCycle(t *testing.T) {
+	r, _ := runBeatingRarely(t)
+	r.awaitWorking(t, 2*worker.PublishSettle+5*time.Second)
+	r.link.FailUpload.Store(true)
+	before := len(r.problems())
+	r.keepMoving(t, 4*worker.PublishSettle, func() bool { return false })
+	time.Sleep(worker.PublishSettle + 500*time.Millisecond)
+	var failed []error
+	for _, problem := range r.problems()[before:] {
+		if strings.Contains(problem.Error(), "the control plane is away") {
+			failed = append(failed, problem)
+		}
+	}
+	if len(failed) != 1 {
+		t.Errorf("a lane that moved for four windows while the plane was away reported %d failed publishes: %v", len(failed), failed)
 	}
 }

@@ -207,7 +207,7 @@ func (r *laneRun) briefOrchestrator() string {
 // towards, so a rest is where it belongs, and a turn that failed costs one wake.
 func (r *laneRun) orchestratorRests(ctx context.Context, turn *ports.TurnResult) {
 	if !r.assisting() {
-		r.w.wakeLanded(r.pendingWake())
+		r.w.wakeLanded(ctx, r.pendingWake())
 		r.setWake(nil)
 		r.letGo(ctx)
 	}
@@ -242,15 +242,17 @@ func (w *Worker) wakeDue() ([]ledger.WakeItem, bool) {
 	return w.wakes.Batch(), true
 }
 
-// wakeLanded keeps that a wake reached a session, after it did.
-func (w *Worker) wakeLanded(items []ledger.WakeItem) {
+// wakeLanded keeps that a wake reached a session, after it did. What it records and uploads of the
+// messages the wake held ends with the worker, and a worker that ends first leaves a wake the next
+// one tells again.
+func (w *Worker) wakeLanded(ctx context.Context, items []ledger.WakeItem) {
 	if len(items) == 0 {
 		return
 	}
 	w.wakeLock.Lock()
 	w.wakes.Sent(items, w.clock.Now())
 	w.wakeLock.Unlock()
-	w.orchestratorMessagesLanded(context.Background(), items)
+	w.orchestratorMessagesLanded(ctx, items)
 }
 
 // orchestratorRun finds the run of the orchestrator this worker holds, if any.
@@ -335,7 +337,7 @@ func (r *laneRun) deliverWake(ctx context.Context) {
 		return
 	}
 	if r.adopted.Load() && dropsWake() {
-		r.w.wakeLanded(items)
+		r.w.wakeLanded(ctx, items)
 		return
 	}
 	crashpoint.Hit("worker.wake", "handing")
@@ -346,7 +348,7 @@ func (r *laneRun) deliverWake(ctx context.Context) {
 		return
 	}
 	crashpoint.Hit("worker.wake", "handed")
-	r.w.wakeLanded(items)
+	r.w.wakeLanded(ctx, items)
 	r.signal(ctx, lanes.OnInputHanded)
 }
 

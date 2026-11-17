@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -370,6 +372,33 @@ func (w *Worker) Wait() {
 	w.probes.Wait()
 }
 
+// Unfinished names what Wait still waits on: each lane whose goroutine runs, each forge step, and the
+// probe. A process that gives up waiting says what it left running.
+func (w *Worker) Unfinished() []string {
+	var names []string
+	w.mu.Lock()
+	for lane := range w.running {
+		names = append(names, "lane "+lane)
+	}
+	w.mu.Unlock()
+	w.performingLock.Lock()
+	for key := range w.performing {
+		if step, ok := strings.CutPrefix(key, forgeStep); ok {
+			kind, scoped, _ := strings.Cut(step, "/")
+			_, id, _ := strings.Cut(scoped, "\x00")
+			names = append(names, "forge "+kind+" "+id)
+		}
+	}
+	w.performingLock.Unlock()
+	w.qualLock.Lock()
+	if w.probe != nil {
+		names = append(names, "probe of "+w.probe.version)
+	}
+	w.qualLock.Unlock()
+	slices.Sort(names)
+	return names
+}
+
 // leaseKey names a lease by its project and work order, because two projects can hold a work order with
 // the same ID.
 func leaseKey(project, workOrder string) string { return project + "\x00" + workOrder }
@@ -509,6 +538,10 @@ func (w *Worker) await(ctx context.Context, hints <-chan int64) error {
 	// settled is nil until a move arms the window, which runs from the first move, so a lane that keeps
 	// moving still publishes once per window.
 	var settled <-chan time.Time
+	// failed says a settled publish failed. Later moves then wait for the next cycle, which retries after
+	// retryEvery as it does any failure, so a control plane that is away hears one failure a cycle and not
+	// one a window.
+	failed := false
 	for {
 		select {
 		case <-ctx.Done():
@@ -522,13 +555,13 @@ func (w *Worker) await(ctx context.Context, hints <-chan int64) error {
 		case <-beat.C:
 			return nil
 		case <-w.moved:
-			if settled == nil {
+			if settled == nil && !failed {
 				settle.Reset(publishSettle)
 				settled = settle.C
 			}
 		case <-settled:
 			settled = nil
-			w.publishMoved(ctx)
+			failed = !w.publishMoved(ctx)
 		}
 	}
 }
@@ -564,7 +597,10 @@ func (w *Worker) cycle(ctx context.Context) {
 	}
 }
 
-// laneMoved wakes the loop to publish a lane's move. A wake that waits already covers this one.
+// laneMoved wakes the loop to publish a lane's move. It never blocks, because the loop moves lanes too: its
+// Publish reads each lane's status, and that read moves a lane whose brief is past its grace (status, then
+// settleBrief, then signal), so a send that waited for the loop to take it would wait on itself. moved holds
+// one wake and drops the rest, because a wake that waits already covers them: one publish reads every lane.
 func (w *Worker) laneMoved() {
 	select {
 	case w.moved <- struct{}{}:
@@ -573,8 +609,9 @@ func (w *Worker) laneMoved() {
 }
 
 // publishMoved sends the lanes' settled moves as a cycle sends them after its heartbeat: Publish, then
-// Upload, which takes its turn with every other upload. A failure waits for the next cycle.
-func (w *Worker) publishMoved(ctx context.Context) {
+// Upload, which takes its turn with every other upload. It says whether they went, and a failure waits for
+// the next cycle.
+func (w *Worker) publishMoved(ctx context.Context) bool {
 	err := w.Publish(ctx)
 	if err == nil {
 		err = w.Upload(ctx)
@@ -582,6 +619,7 @@ func (w *Worker) publishMoved(ctx context.Context) {
 	if err != nil && ctx.Err() == nil {
 		w.config.Report(err)
 	}
+	return err == nil
 }
 
 // watch holds the hint stream open and reopens it after a break. A stream that

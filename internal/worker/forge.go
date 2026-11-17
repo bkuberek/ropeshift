@@ -162,15 +162,18 @@ func sameRead(a, b ledger.PullRequest) bool {
 		a.MergedAt == b.MergedAt && a.Base == b.Base && slices.Equal(a.Checks, b.Checks)
 }
 
+// forgeStep marks the effect a forge step's goroutine holds while it runs.
+const forgeStep = "run/"
+
 // goForge runs one forge step on a goroutine the lanes' wait covers, and none while another runs the same.
 func (w *Worker) goForge(ctx context.Context, key string, step func(context.Context)) {
-	if !w.takeEffect("run/" + key) {
+	if !w.takeEffect(forgeStep + key) {
 		return
 	}
 	w.laneGroup.Add(1)
 	go func() {
 		defer w.laneGroup.Done()
-		defer w.leaveEffect("run/" + key)
+		defer w.leaveEffect(forgeStep + key)
 		step(ctx)
 	}()
 }
