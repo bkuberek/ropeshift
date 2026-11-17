@@ -499,6 +499,17 @@ func (in *Installation) Project(ctx context.Context, name string) (ledger.Projec
 	return p, err
 }
 
+// ProjectByID returns the registered project with an ID, or ErrNotFound.
+func (in *Installation) ProjectByID(ctx context.Context, id ledger.WorkspaceID) (ledger.Project, error) {
+	var p ledger.Project
+	err := in.read(ctx, "project.read", func(se *session) error {
+		var err error
+		p, err = readProject(se, stmtReadProject, params{"id": string(id)})
+		return err
+	})
+	return p, err
+}
+
 // Projects lists every project, oldest first.
 func (in *Installation) Projects(ctx context.Context) ([]ledger.Project, error) {
 	var out []ledger.Project

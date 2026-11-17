@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"ropeshift.com/ropeshift/internal/adapters/sqlstore"
@@ -21,8 +22,10 @@ const schemaPrefix = "project_"
 // schemaLimit is the longest identifier Postgres keeps.
 const schemaLimit = 63
 
-// schemaName names the schema of a project. The ID becomes part of an identifier, so it holds only
-// letters, digits, hyphens, and underscores, as it does in a SQLite file's name.
+// schemaName names the schema of a project: the prefix and the ID in lowercase, so a generated ID, which
+// is in capitals, gives a name psql reads without quotes. The ID becomes part of an identifier, so it holds
+// only letters, digits, hyphens, and underscores, as it does in a SQLite file's name. Two IDs that differ
+// only in case give one name, and Create refuses the second.
 func schemaName(id ledger.WorkspaceID) (string, error) {
 	if err := id.Validate(); err != nil {
 		return "", fmt.Errorf("%w: %v", ledger.ErrInvalidProject, err)
@@ -35,24 +38,31 @@ func schemaName(id ledger.WorkspaceID) (string, error) {
 	if len(schemaPrefix)+len(id) > schemaLimit {
 		return "", fmt.Errorf("%w: project ID %q is longer than the %d characters a schema name allows", ledger.ErrInvalidProject, id, schemaLimit-len(schemaPrefix))
 	}
-	return schemaPrefix + string(id), nil
+	return schemaPrefix + strings.ToLower(string(id)), nil
 }
 
 func identifierRune(c rune) bool {
 	return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '-' || c == '_'
 }
 
-// schemaOf is the schema a project's record may name: the one its ID gives, and no other, so a record
-// can never point a step of the lifecycle at a schema that is not the project's.
+// schemaOf is the schema a project's record may name: the one its ID gives, or the one an earlier build
+// gave it, which kept the ID's own case, and no other, so a record can never point a step of the lifecycle
+// at a schema that is not the project's.
 func schemaOf(p ledger.Project) (string, error) {
 	schema, err := schemaName(p.ID)
 	if err != nil {
 		return "", err
 	}
-	if p.Database != schema {
+	if p.Database != schema && p.Database != schemaPrefix+string(p.ID) {
 		return "", fmt.Errorf("%w: project %s keeps its records in schema %q, not %q", ledger.ErrInvalidProject, p.ID, schema, p.Database)
 	}
-	return schema, nil
+	return p.Database, nil
+}
+
+// projectSchema reports whether a schema's name is one a project's ID could give, in either case.
+func projectSchema(name string) bool {
+	id, ok := strings.CutPrefix(name, schemaPrefix)
+	return ok && id != "" && len(name) <= schemaLimit && !strings.ContainsFunc(id, func(c rune) bool { return !identifierRune(c) })
 }
 
 // step is one move of a project's lifecycle. Each is safe to repeat, so a crash after any of them leaves
@@ -70,7 +80,9 @@ func run(ctx context.Context, steps []step) error {
 
 // creation is the creation of one project. The schema exists and is migrated before the registry names
 // the project, as a SQLite ledger file does, so a crash between the two leaves a schema the registry does
-// not know, and a retry registers it.
+// not know. A retry with the same ID registers it, and the sweep that opens a State drops one that no retry
+// claims, such as the schema of a project that gave itself an ID. Every step runs under the migration lock,
+// so no other process sees a schema that is made but not yet registered.
 type creation struct {
 	s          *State
 	p          ledger.Project
@@ -83,7 +95,7 @@ type creation struct {
 const createSteps = 4
 
 // newCreation checks a project and settles its ID, its schema, and its state, before any step runs.
-func (s *State) newCreation(ctx context.Context, p ledger.Project, actor ledger.Actor) (*creation, error) {
+func (s *State) newCreation(p ledger.Project, actor ledger.Actor) (*creation, error) {
 	if p.ID == "" {
 		var entropy [ledger.ULIDEntropy]byte
 		if _, err := rand.Read(entropy[:]); err != nil {
@@ -102,22 +114,41 @@ func (s *State) newCreation(ctx context.Context, p ledger.Project, actor ledger.
 	if err := p.Validate(); err != nil {
 		return nil, err
 	}
-	if existing, err := s.Installation.Project(ctx, p.Name); err == nil && existing.ID != p.ID {
-		return nil, fmt.Errorf("%w: project %s is named %q", ledger.ErrProjectExists, existing.ID, p.Name)
-	}
 	return &creation{s: s, p: p, actor: actor, schema: schema}, nil
 }
 
+// refuseTaken refuses a project whose name or schema another project holds, and one whose ID the registry
+// keeps on another schema, before any step makes a schema. It runs under the lock, so what it reads is
+// what the registry step finds.
+func (c *creation) refuseTaken(ctx context.Context) error {
+	held, err := c.s.Installation.Projects(ctx)
+	if err != nil {
+		return err
+	}
+	for _, other := range held {
+		switch {
+		case other.ID == c.p.ID:
+			if other.Database != c.schema {
+				return fmt.Errorf("%w: project %s keeps its records in schema %q", ledger.ErrProjectExists, other.ID, other.Database)
+			}
+		case other.Name == c.p.Name:
+			return fmt.Errorf("%w: project %s is named %q", ledger.ErrProjectExists, other.ID, c.p.Name)
+		case other.Database == c.schema:
+			return fmt.Errorf("%w: project %s keeps its records in schema %q", ledger.ErrProjectExists, other.ID, c.schema)
+		}
+	}
+	return nil
+}
+
+// steps are the steps of a creation. The caller holds the migration lock.
 func (c *creation) steps() []step {
 	return []step{
 		// The schema.
-		func(ctx context.Context) error {
-			return c.s.locked(ctx, func(ctx context.Context) error { return c.s.createSchema(ctx, c.schema) })
-		},
+		func(ctx context.Context) error { return c.s.createSchema(ctx, c.schema) },
 		// Its tables, at this build's version.
 		func(ctx context.Context) error {
 			c.store = c.s.ledger(c.schema, c.s.opts)
-			return c.s.locked(ctx, c.store.Migrate)
+			return c.store.Migrate(ctx)
 		},
 		// The project's workspace, which a retry finds and leaves as it is.
 		func(ctx context.Context) error {
@@ -140,17 +171,26 @@ func (c *creation) steps() []step {
 // Create makes a project's schema at the current version and registers it, giving a project with no ID
 // one that no other installation gives.
 func (s *State) Create(ctx context.Context, p ledger.Project, actor ledger.Actor) (ledger.Project, error) {
-	c, err := s.newCreation(ctx, p, actor)
+	c, err := s.newCreation(p, actor)
 	if err != nil {
 		return ledger.Project{}, err
 	}
-	if err := run(ctx, c.steps()); err != nil {
+	err = s.locked(ctx, func(ctx context.Context) error {
+		if err := c.refuseTaken(ctx); err != nil {
+			return err
+		}
+		if err := run(ctx, c.steps()); err != nil {
+			return err
+		}
+		s.keep(c.registered.ID, c.store)
+		return nil
+	})
+	if err != nil {
 		if c.store != nil {
 			_ = c.store.Close()
 		}
 		return ledger.Project{}, err
 	}
-	s.keep(c.registered.ID, c.store)
 	return c.registered, nil
 }
 
@@ -219,13 +259,17 @@ func (r *removal) steps() []step {
 			r.s.forget(r.p.ID)
 			return nil
 		},
-		// The schema, with every table of the project's ledger.
+		// The schema, with every table of the project's ledger. It goes under the lock every change to a
+		// schema takes, so an Open or a Create in another process cannot make the schema again or migrate it
+		// while it drops. An Open that runs after the registry forgot the project is refused.
 		func(ctx context.Context) error {
-			r.s.forget(r.p.ID)
-			if _, err := r.s.pool.Exec(ctx, `DROP SCHEMA IF EXISTS `+quote(r.schema)+` CASCADE`); err != nil {
-				return fmt.Errorf("postgres: drop schema %s: %w", r.schema, err)
-			}
-			return nil
+			return r.s.locked(ctx, func(ctx context.Context) error {
+				r.s.forget(r.p.ID)
+				if _, err := r.s.pool.Exec(ctx, `DROP SCHEMA IF EXISTS `+quote(r.schema)+` CASCADE`); err != nil {
+					return fmt.Errorf("postgres: drop schema %s: %w", r.schema, err)
+				}
+				return nil
+			})
 		},
 	}
 }

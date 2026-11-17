@@ -378,6 +378,61 @@ func TestRemoveRepeatsAfterACrashAtAnyStep(t *testing.T) {
 	}
 }
 
+// TestOpenRefusesAProjectTheRegistryDoesNotHold holds that a record nobody registered, or that a removal has
+// forgotten, opens no Store and makes no schema.
+func TestOpenRefusesAProjectTheRegistryDoesNotHold(t *testing.T) {
+	state := openState(t, freshDatabase(t), postgres.Options{})
+	db := state.SQLDB()
+	defer db.Close()
+	ghost := ledger.Project{ID: "pz", Name: "zeta", Database: "project_pz", State: ledger.ProjectActive}
+	if _, err := state.Open(t.Context(), ghost); !errors.Is(err, ports.ErrNotFound) {
+		t.Errorf("Open of a project no registry holds: %v", err)
+	}
+	if schemaExists(t, db, ghost.Database) {
+		t.Error("Open made the schema of a project no registry holds")
+	}
+}
+
+// TestRemoveAndOpenNeverLeaveASchemaBehind holds the interleaving of a removal with an Open of the same
+// project: the drop waits for the migration lock, as every other change to a schema does, and an Open
+// that runs after the registry forgot the project is refused, so it never makes the schema again.
+func TestRemoveAndOpenNeverLeaveASchemaBehind(t *testing.T) {
+	url := freshDatabase(t)
+	state := openState(t, url, postgres.Options{})
+	db := state.SQLDB()
+	defer db.Close()
+	alpha, _ := createProject(t, state, "pa", "alpha")
+	release := holdMigrationLock(t, url)
+
+	removed := make(chan error, 1)
+	go func() { removed <- state.Remove(t.Context(), alpha, member) }()
+	// The registry forgets the project first, and the drop waits.
+	for deadline := time.Now().Add(15 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+		if _, err := state.Named(t.Context(), "alpha"); errors.Is(err, ports.ErrNotFound) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the registry still names the project")
+		}
+	}
+	opened := opening(t.Context(), state, alpha)
+	select {
+	case err := <-removed:
+		t.Fatalf("Remove finished while another session held the migration lock: %v", err)
+	case <-time.After(500 * time.Millisecond):
+	}
+	release()
+	if err := <-removed; err != nil {
+		t.Fatal(err)
+	}
+	if err := <-opened; !errors.Is(err, ports.ErrNotFound) {
+		t.Errorf("Open of a project that was removed: %v", err)
+	}
+	if schemaExists(t, db, alpha.Database) {
+		t.Error("the schema is there after the removal")
+	}
+}
+
 func TestImportAndBackupAreNotThereYet(t *testing.T) {
 	state := openState(t, freshDatabase(t), postgres.Options{})
 	alpha, _ := createProject(t, state, "pa", "alpha")

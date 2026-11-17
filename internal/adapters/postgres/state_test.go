@@ -178,7 +178,8 @@ func TestTwoProcessesMigrateOneEmptyDatabase(t *testing.T) {
 				return
 			}
 			states[i] = state
-			_, errs[i] = state.Open(context.Background(), project)
+			// Creating a project that exists is a retry that changes nothing, and opens its Store.
+			_, errs[i] = state.Create(context.Background(), project, member)
 		}()
 	}
 	wg.Wait()

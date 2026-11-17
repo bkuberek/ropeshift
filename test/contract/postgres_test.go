@@ -191,7 +191,7 @@ func TestProjectsAreSchemasOfOneDatabase(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer admin.Close()
-	// One state serves the installation and both projects on one pool of four connections.
+	// One state serves both projects on one pool of four connections, and the installation on a pool of its own.
 	state, err := postgres.Open(ctx, server.DSN(name), postgres.Options{MaxConns: 4})
 	if err != nil {
 		t.Fatal(err)

@@ -50,6 +50,10 @@ type Options struct {
 	// pool is never smaller than 2, because a migration holds one connection for its lock and runs on
 	// another.
 	MaxConns int
+	// LockTimeout bounds how long a caller waits for the migration lock, which another process holds
+	// while it makes a schema or migrates one. Zero is DefaultLockTimeout, and a negative value waits for
+	// as long as the caller's context lasts.
+	LockTimeout time.Duration
 	// Dialect replaces Dialect{}, so a test can wrap it to move database time.
 	Dialect sqlstore.Dialect
 	// Store is what every Store the state opens takes, such as a trace. The state sets Installation and
@@ -68,17 +72,21 @@ type State struct {
 	dialect          sqlstore.Dialect
 	opts             sqlstore.Options
 
-	// migrating orders the callers of locked within this process.
-	migrating sync.Mutex
+	// migrating orders the callers of locked within this process. A caller takes its turn by sending on it,
+	// which a caller whose context ends stops waiting for.
+	migrating   chan struct{}
+	lockTimeout time.Duration
 
 	// mu guards the Stores the state keeps open, one per project, so every call to a project shares them.
+	// No caller waits for the migration lock while it holds mu.
 	mu     sync.Mutex
 	stores map[ledger.WorkspaceID]*sqlstore.Store
 }
 
 // Open connects to the database a URL names, makes the installation's schema, and brings it to this
-// build's version. The URL is a postgres:// URL or a key/value connection string. A project's Store
-// opened through the state reaches the shared records there.
+// build's version. It drops the schemas that carry a project's prefix and that no registered project names,
+// which only a crash in the middle of a Create or a Remove leaves. The URL is a postgres:// URL or a
+// key/value connection string. A project's Store opened through the state reaches the shared records there.
 func Open(ctx context.Context, url string, opts Options) (*State, error) {
 	pool, err := newPool(ctx, url, opts)
 	if err != nil {
@@ -97,14 +105,21 @@ func Open(ctx context.Context, url string, opts Options) (*State, error) {
 	if dialect == nil {
 		dialect = Dialect{}
 	}
-	s := &State{pool: pool, installationPool: installationPool, dialect: dialect, opts: opts.Store, stores: map[ledger.WorkspaceID]*sqlstore.Store{}}
+	s := &State{
+		pool: pool, installationPool: installationPool, dialect: dialect, opts: opts.Store,
+		migrating: make(chan struct{}, 1), lockTimeout: lockTimeout(opts.LockTimeout),
+		stores: map[ledger.WorkspaceID]*sqlstore.Store{},
+	}
 	s.opts.Installation, s.opts.Schema = nil, ""
 	s.Installation = sqlstore.NewInstallation(stdlib.OpenDBFromPool(installationPool), dialect, sqlstore.Options{Schema: InstallationSchema, Trace: s.opts.Trace})
 	err = s.locked(ctx, func(ctx context.Context) error {
 		if err := s.createSchema(ctx, InstallationSchema); err != nil {
 			return err
 		}
-		return s.Installation.Migrate(ctx)
+		if err := s.Installation.Migrate(ctx); err != nil {
+			return err
+		}
+		return s.sweep(ctx)
 	})
 	if err != nil {
 		_ = s.Close()
@@ -132,6 +147,17 @@ func newPool(ctx context.Context, url string, opts Options) (*pgxpool.Pool, erro
 	return pool, nil
 }
 
+// lockTimeout resolves Options.LockTimeout: zero is the default, and a negative value is no limit.
+func lockTimeout(d time.Duration) time.Duration {
+	switch {
+	case d == 0:
+		return DefaultLockTimeout
+	case d < 0:
+		return 0
+	}
+	return d
+}
+
 func cmpOr(value, fallback int) int {
 	if value == 0 {
 		return fallback
@@ -156,7 +182,8 @@ func (s *State) Close() error {
 
 // Ledger returns a Store on the pool, in a schema it makes if the database has none, and reaching the
 // installation's records. The Store is not migrated, and the caller closes it, which leaves the pool and
-// every other Store open.
+// every other Store open. A schema it makes under a project's prefix is a schema no project names, which
+// the next Open of a State drops.
 func (s *State) Ledger(ctx context.Context, schema string, opts sqlstore.Options) (*sqlstore.Store, error) {
 	err := s.locked(ctx, func(ctx context.Context) error { return s.createSchema(ctx, schema) })
 	if err != nil {
