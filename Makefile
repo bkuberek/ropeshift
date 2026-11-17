@@ -12,9 +12,16 @@ REAL_PATH := $(PATH)
 CANARY := $(CURDIR)/test/doubles/canary
 export PATH := $(CANARY):$(PATH)
 
-.PHONY: check format vet lint test web-test web-build licenses cross bench sizing check-postgres chaos canary real qualify service-test service-container linux-bundle release-check snapshot install-test exit-container screenshots guide-shots screenshots-publish
+.PHONY: check check-go format vet lint test web-test web-build licenses cross bench sizing check-postgres chaos canary real qualify service-test service-container linux-bundle release-check snapshot install-test exit-container screenshots guide-shots screenshots-publish
 
-check: format vet lint test web-test licenses release-check canary
+# `check` runs the Go checks and the web tests in one order. `check-go` is the same list without the web
+# tests, for CI, which runs them in their own job (`web-test` needs no Go).
+CHECK_BEFORE_WEB := format vet lint test
+CHECK_AFTER_WEB := licenses release-check canary
+
+check: $(CHECK_BEFORE_WEB) web-test $(CHECK_AFTER_WEB)
+
+check-go: $(CHECK_BEFORE_WEB) $(CHECK_AFTER_WEB)
 
 # The list goes through a variable, because gofmt exits 0 when it finds a file to change.
 format:
