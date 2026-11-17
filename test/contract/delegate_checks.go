@@ -553,7 +553,7 @@ func checkDelegateOneWayBounds(r *Rig) error {
 	questionsOps := control.NewQuestions(s, questions.BatchPolicy{})
 	bound := func(statement, category string) questions.Decision {
 		return questions.Decision{
-			ID: r.ID("d"), Status: questions.DecisionDecided, Statement: statement, Rationale: "The plan says so.", Scope: "retries",
+			ID: r.ID("d"), Status: questions.DecisionDecided, Statement: statement, Rationale: "The plan says so.", Scope: "repo:retries",
 			Reversibility: questions.Reversible, Citations: []string{"docs/plan.md"}, Categories: []string{category},
 		}
 	}

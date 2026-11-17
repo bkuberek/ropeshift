@@ -174,7 +174,7 @@ func TestRungOneAnswersFromTheRecord(t *testing.T) {
 	t.Parallel()
 	r := aToolRig(t)
 	decision, err := control.NewQuestions(r.store, questions.BatchPolicy{}).RecordDecision(t.Context(), scope, questions.Decision{
-		ID: "d1", Status: questions.DecisionDecided, Statement: "Twice.", Rationale: "It follows.", Scope: "retries", Reversibility: "reversible", DecidedBy: "member-1",
+		ID: "d1", Status: questions.DecisionDecided, Statement: "Twice.", Rationale: "It follows.", Scope: "repo:retries", Reversibility: "reversible", DecidedBy: "member-1",
 	}, member)
 	if err != nil {
 		t.Fatal(err)
@@ -387,7 +387,7 @@ func TestTheNextQuestionStatesWhatTheRecordSays(t *testing.T) {
 	}
 	ops := control.NewQuestions(r.store, questions.BatchPolicy{})
 	earlier, err := ops.RecordDecision(t.Context(), scope, questions.Decision{
-		ID: "an-earlier-call", Status: questions.DecisionDecided, Statement: "Retries use one log level for every path.", Rationale: "One rule.", Scope: "logging",
+		ID: "an-earlier-call", Status: questions.DecisionDecided, Statement: "Retries use one log level for every path.", Rationale: "One rule.", Scope: "repo:logging",
 		Reversibility: "reversible", DecidedBy: "member-1",
 	}, member)
 	if err != nil {

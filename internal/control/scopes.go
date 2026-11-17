@@ -90,7 +90,7 @@ func (f *scopeFacts) overlaps(a, b string) (bool, error) {
 	case first == second:
 		return true, nil
 	}
-	if rank(first.Kind) > rank(second.Kind) {
+	if rank(first.Kind) > rank(second.Kind) && !overlapsOneSide() {
 		first, second = second, first
 	}
 	return f.within(first, second)
@@ -194,7 +194,7 @@ func legacyOverlap(a, b string) bool {
 	if a == "" || b == "" {
 		return false
 	}
-	return a == b || strings.HasPrefix(a, b+legacySeparator) || (!overlapsOneSide() && strings.HasPrefix(b, a+legacySeparator))
+	return a == b || strings.HasPrefix(a, b+legacySeparator) || strings.HasPrefix(b, a+legacySeparator)
 }
 
 // decisionsInForce lists every decision that stands, by ID. It stops at no page, because a recording

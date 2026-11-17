@@ -112,7 +112,7 @@ func checkDecisionSettings(r *Rig) error {
 	}
 	decided, err := r.NewOps(s).RecordDecision(r.Ctx, r.Scope, questions.Decision{
 		ID: r.ID("d"), Status: questions.DecisionAssumed, Statement: "Retry twice", Rationale: "It follows.", Citations: []string{"PAY-12"},
-		Scope: "retries", Reversibility: questions.Reversible, Categories: []string{questions.CategoryProduct},
+		Scope: "repo:retries", Reversibility: questions.Reversible, Categories: []string{questions.CategoryProduct},
 	}, ledger.Actor{Kind: ledger.ActorOrchestrator, ID: worker})
 	if err != nil {
 		return err

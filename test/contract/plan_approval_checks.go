@@ -954,7 +954,7 @@ func (r *Rig) plantDecision(s ports.Store, plan string, version int64) (question
 func (r *Rig) plantDraft(s ports.Store, plan string, version int64, draft string) (questions.Decision, error) {
 	decision := questions.Decision{
 		ID: derivedDecisionID(plan, version, draft), Status: questions.DecisionDecided, Statement: "Q: Which provider first? A: Adyen",
-		Rationale: "It is cheaper.", Scope: "payments", Reversibility: questions.Reversible, Citations: []string{"docs/payments.md"},
+		Rationale: "It is cheaper.", Scope: "repo:payments", Reversibility: questions.Reversible, Citations: []string{"docs/payments.md"},
 		Categories: []string{questions.CategoryProduct}, DecidedBy: "dlg_1",
 	}
 	return decision, r.plantAs(s, decision, authority.DelegateActor(theMember.ID, "dlg_1"))
@@ -1294,7 +1294,7 @@ func checkOnlyPlanApprovalNamesItsDecisions(r *Rig) error {
 	earlier, later := derivedDecisionID(plan, 1, "d1"), derivedDecisionID(plan, 2, "d1")
 	spoof := questions.Decision{
 		ID: earlier, Status: questions.DecisionDecided, Statement: "Q: Which provider first? A: Adyen", Rationale: "It is the one with an account.",
-		Scope: "payments", Reversibility: questions.Reversible, Citations: []string{"docs/payments.md"}, Categories: []string{questions.CategoryProduct},
+		Scope: "repo:payments", Reversibility: questions.Reversible, Citations: []string{"docs/payments.md"}, Categories: []string{questions.CategoryProduct},
 	}
 	if _, err := ops.RecordDecision(r.Ctx, r.Scope, spoof, theMember); !errors.Is(err, questions.ErrInvalid) {
 		return Violatedf("a member recorded a decision under a draft's derived ID: %v", err)
@@ -1314,7 +1314,7 @@ func checkOnlyPlanApprovalNamesItsDecisions(r *Rig) error {
 		return Violatedf("an overturn named its new decision under a draft's derived ID: %v", err)
 	}
 	if _, err := control.NewQuestions(s, questions.BatchPolicy{}).Rule(r.Ctx, r.Scope, asked.QuestionID, questions.Ruling{
-		ID: earlier, Status: questions.DecisionAssumed, Statement: "Adyen.", Rationale: "It is cheaper.", Scope: "payments",
+		ID: earlier, Status: questions.DecisionAssumed, Statement: "Adyen.", Rationale: "It is cheaper.", Scope: "repo:payments",
 		Reversibility: questions.Reversible, Citations: []string{"docs/payments.md"}, Categories: []string{questions.CategoryProduct},
 	}, ledger.Actor{Kind: ledger.ActorOrchestrator, ID: "orchestrator-1"}); !errors.Is(err, questions.ErrInvalid) {
 		return Violatedf("a ruling named its decision under a draft's derived ID: %v", err)

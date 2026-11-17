@@ -445,7 +445,7 @@ func TestAnOrchestratorCannotCiteAnotherProjectsRecord(t *testing.T) {
 	}
 	if _, err := control.NewQuestions(r.stores["pb"], questions.BatchPolicy{}).RecordDecision(ctx, "pb", questions.Decision{
 		ID: "d-b", Status: questions.DecisionDecided, Statement: "The retry budget is two retries.", Rationale: "It follows.",
-		Scope: "retries", Reversibility: questions.Reversible, DecidedBy: member.ID, Citations: []string{"PAY-12"},
+		Scope: "repo:retries", Reversibility: questions.Reversible, DecidedBy: member.ID, Citations: []string{"PAY-12"},
 	}, member); err != nil {
 		t.Fatal(err)
 	}

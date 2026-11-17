@@ -76,7 +76,7 @@ func packedLaneWith(r *Rig, prepare func(*packRig) error, cited ...string) (*sta
 // addedDecision decides something in a scope nothing about a lane touches, and adds it to the pack,
 // so only the pack's own items connect the two.
 func addedDecision(p *packRig, statement string) (questions.Decision, error) {
-	decided, err := p.r.decision(p.s, statement, func(d *questions.Decision) { d.Scope = "elsewhere" })
+	decided, err := p.r.decision(p.s, statement, func(d *questions.Decision) { d.Scope = "repo:elsewhere" })
 	if err != nil {
 		return questions.Decision{}, err
 	}
@@ -337,7 +337,7 @@ func checkNoticeOneWayParks(r *Rig) error {
 		return err
 	}
 	if _, err := r.decision(status.store, "Keep audit data in region", func(d *questions.Decision) {
-		d.Scope, d.Reversibility = p.order.RepositoryID, questions.OneWay
+		d.Scope, d.Reversibility = "repo:"+p.order.RepositoryID, questions.OneWay
 	}); err != nil {
 		return err
 	}
@@ -509,7 +509,7 @@ func checkNoticeParkedLane(r *Rig) error {
 		return err
 	}
 	if _, err := r.decision(s.store, "A one-way decision", func(d *questions.Decision) {
-		d.Scope, d.Reversibility = s.grant.WorkOrder, questions.OneWay
+		d.Scope, d.Reversibility = "wo:"+s.grant.WorkOrder, questions.OneWay
 	}); err != nil {
 		return err
 	}
@@ -684,7 +684,7 @@ func checkNoticeWokenLane(r *Rig) error {
 
 func checkNoticeDroppedRecord(r *Rig) error {
 	status, p, err := packedLaneWith(r, func(p *packRig) error {
-		_, err := r.decision(p.s, "A decision in scope", func(d *questions.Decision) { d.Scope = p.order.RepositoryID })
+		_, err := r.decision(p.s, "A decision in scope", func(d *questions.Decision) { d.Scope = "repo:" + p.order.RepositoryID })
 		return err
 	})
 	if err != nil {
@@ -703,7 +703,7 @@ func checkNoticeDroppedRecord(r *Rig) error {
 	if old == "" {
 		return Violatedf("no decision in %v", itemRefs(first))
 	}
-	if _, err := r.decision(p.s, "A replacement elsewhere", func(d *questions.Decision) { d.Scope, d.Supersedes = "elsewhere", old }); err != nil {
+	if _, err := r.decision(p.s, "A replacement elsewhere", func(d *questions.Decision) { d.Scope, d.Supersedes = "repo:elsewhere", old }); err != nil {
 		return err
 	}
 	return status.store.Read(r.Ctx, r.Scope, func(tx ports.ReadTx) error {

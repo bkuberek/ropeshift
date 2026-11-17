@@ -136,7 +136,7 @@ func (r *Rig) question(s ports.Store, text string, change func(*questions.Questi
 func (r *Rig) decision(s ports.Store, statement string, change func(*questions.Decision)) (questions.Decision, error) {
 	draft := questions.Decision{
 		ID: r.ID("d"), Status: questions.DecisionDecided, Statement: statement, Rationale: "It follows.",
-		Citations: []string{"PAY-12"}, Scope: "checkout", Reversibility: questions.Reversible,
+		Citations: []string{"PAY-12"}, Scope: "repo:checkout", Reversibility: questions.Reversible,
 		Categories: []string{questions.CategoryProduct},
 	}
 	if change != nil {
@@ -395,7 +395,7 @@ func checkQuestionRecords(r *Rig) error {
 			return err
 		}
 		if read.Rationale != "It follows." || read.DecidedBy != r.Actor.ID || read.Reversibility != questions.Reversible ||
-			!slices.Equal(read.Citations, []string{"PAY-12"}) || read.QuestionID != asked.ID || read.Scope != "checkout" {
+			!slices.Equal(read.Citations, []string{"PAY-12"}) || read.QuestionID != asked.ID || read.Scope != "repo:checkout" {
 			return Violatedf("decision read back as %+v", read)
 		}
 		if _, err := tx.Questions().Question("absent"); !errors.Is(err, ports.ErrNotFound) {
@@ -1333,7 +1333,7 @@ func checkDecisionFilters(r *Rig) error {
 		return err
 	}
 	second, err := r.decision(s, "Audit data stays in one region.", func(d *questions.Decision) {
-		d.Status, d.Categories, d.Scope = questions.DecisionAssumed, []string{questions.CategoryData}, "storage"
+		d.Status, d.Categories, d.Scope = questions.DecisionAssumed, []string{questions.CategoryData}, "repo:storage"
 	})
 	if err != nil {
 		return err
@@ -1345,9 +1345,9 @@ func checkDecisionFilters(r *Rig) error {
 		{ports.RecordFilter{}, []string{first.ID, second.ID}},
 		{ports.RecordFilter{Category: questions.CategoryData}, []string{second.ID}},
 		{ports.RecordFilter{Status: string(questions.DecisionAssumed)}, []string{second.ID}},
-		{ports.RecordFilter{Scope: "checkout"}, []string{first.ID}},
+		{ports.RecordFilter{Scope: "repo:checkout"}, []string{first.ID}},
 		{ports.RecordFilter{Text: "retry"}, []string{first.ID}},
-		{ports.RecordFilter{Text: "retry", Scope: "storage"}, nil},
+		{ports.RecordFilter{Text: "retry", Scope: "repo:storage"}, nil},
 	}
 	for _, tt := range tests {
 		var got []string
@@ -1453,7 +1453,7 @@ func checkDecisionActors(r *Rig) error {
 	for _, kind := range []ledger.ActorKind{ledger.ActorMember, ledger.ActorOrchestrator} {
 		draft := questions.Decision{
 			ID: r.ID("d"), Status: questions.DecisionDecided, Statement: "Three.", Rationale: "It follows.",
-			Citations: []string{"PAY-12"}, Scope: string(kind), Reversibility: questions.Reversible,
+			Citations: []string{"PAY-12"}, Scope: "repo:" + string(kind), Reversibility: questions.Reversible,
 		}
 		if _, err := ops.RecordDecision(r.Ctx, r.Scope, draft, ledger.Actor{Kind: kind, ID: "someone"}); err != nil {
 			return Violatedf("a %s could not decide: %v", kind, err)

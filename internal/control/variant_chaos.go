@@ -70,7 +70,9 @@ type Sabotage struct {
 	BindsNoPlan bool
 	// StopsAtOnePage reads the decisions in force one page, and no further.
 	StopsAtOnePage bool
-	// OverlapsOneSide lets a scope written before the grammar overlap a narrower scope and miss a wider one.
+	// AcceptsAnyScope records a decision whatever its scope says.
+	AcceptsAnyScope bool
+	// OverlapsOneSide lets a scope overlap a scope of a narrower kind and miss one of a wider kind.
 	OverlapsOneSide bool
 	// BindsEveryContract lets a contract scope bind the work of every contract.
 	BindsEveryContract bool
@@ -182,6 +184,8 @@ func bindsNoPlan() bool { return current().BindsNoPlan }
 func stopsAtOnePage() bool { return current().StopsAtOnePage }
 
 func overlapsOneSide() bool { return current().OverlapsOneSide }
+
+func acceptsAnyScope() bool { return current().AcceptsAnyScope }
 
 func bindsEveryContract() bool { return current().BindsEveryContract }
 

@@ -22,7 +22,7 @@ func e10Decision(t *testing.T, w *apitest.World, id, statement string) questions
 	t.Helper()
 	decision, err := w.Questions.RecordDecision(t.Context(), apitest.Scope, questions.Decision{
 		ID: id, Status: questions.DecisionDecided, Statement: statement, Rationale: "It follows.", Citations: []string{"PAY-12"},
-		Scope: "retries-" + id, Reversibility: questions.Reversible, Categories: []string{questions.CategoryProduct},
+		Scope: "repo:retries-" + id, Reversibility: questions.Reversible, Categories: []string{questions.CategoryProduct},
 	}, ledger.Actor{Kind: ledger.ActorOrchestrator, ID: apitest.WorldWorker})
 	if err != nil {
 		t.Fatal(err)

@@ -2,6 +2,7 @@ package contract
 
 import (
 	"encoding/json"
+	"errors"
 	"slices"
 	"strings"
 
@@ -28,6 +29,37 @@ var BindingChecks = []Check{
 	{"BD8", "a batch of decisions that bind a plan reworks each finished work order once", checkBindingBatchReworksOnce},
 	{"BD9", "a decision tells the lane of a contract review and never moves or reworks the review", checkBindingReadersAreOnlyTold},
 	{"BD10", "an overturn tells a lane that the decision had told", checkBindingOverturnTellsAgain},
+	{"BD11", "the control plane records no scope outside the grammar, however a decision reaches it", checkBindingRefusesBadScopes},
+}
+
+// checkBindingRefusesBadScopes holds the grammar at the control plane, so a worker of an older build that sends a
+// bare ID or free text cannot store one after the migration that rewrote the scopes stored before.
+func checkBindingRefusesBadScopes(r *Rig) error {
+	s := r.Store()
+	ops := r.NewOps(s)
+	for _, scope := range []string{"billing", "payments/refunds", "team:billing", "plan:", "repo:a b"} {
+		_, err := ops.RecordDecision(r.Ctx, r.Scope, questions.Decision{
+			ID: r.ID("d"), Status: questions.DecisionDecided, Statement: "Charge in euros.", Rationale: "It follows.", Citations: []string{"PAY-12"},
+			Scope: scope, Reversibility: questions.Reversible, Categories: []string{questions.CategoryProduct},
+		}, r.member())
+		if !errors.Is(err, questions.ErrBadScope) || !errors.Is(err, questions.ErrInvalid) {
+			return Violatedf("a decision scoped %q was recorded or refused as %v", scope, err)
+		}
+	}
+	id, holder, err := r.OnRung(s, "How many refund retries?", questions.RungDecide, nil)
+	if err != nil {
+		return err
+	}
+	draft := ruling(r.ID("d"), questions.DecisionDecided)
+	draft.Scope = "refunds"
+	if _, err := ops.Rule(r.Ctx, r.Scope, id, draft, holder); !errors.Is(err, questions.ErrBadScope) {
+		return Violatedf("an orchestrator's ruling scoped %q was recorded or refused as %v", draft.Scope, err)
+	}
+	draft.Scope = "repo:refunds"
+	if _, err := ops.Rule(r.Ctx, r.Scope, id, draft, holder); err != nil {
+		return Violatedf("a ruling in the grammar was refused: %v", err)
+	}
+	return r.CheckQuestions(s)
 }
 
 // decide records a decision of the scenario's plan, with the other decisions it overlaps stated as no conflict.

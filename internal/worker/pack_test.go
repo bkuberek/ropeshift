@@ -108,7 +108,7 @@ func TestALaneReadsPastItsPack(t *testing.T) {
 	r := inASession(t)
 	ops := control.NewQuestions(r.store, questions.BatchPolicy{})
 	decided, err := ops.RecordDecision(t.Context(), scope, questions.Decision{
-		ID: "d-1", Status: questions.DecisionDecided, Statement: "Use two retries.", Scope: "pay",
+		ID: "d-1", Status: questions.DecisionDecided, Statement: "Use two retries.", Scope: "repo:pay",
 	}, member)
 	if err != nil {
 		t.Fatal(err)
@@ -219,7 +219,7 @@ func (r *laneRig) oneWayOn(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := ops.RecordDecision(t.Context(), scope, questions.Decision{
-		ID: "d-one-way", Status: questions.DecisionDecided, Statement: "Keep audit data in region.", Scope: r.id, Reversibility: questions.OneWay,
+		ID: "d-one-way", Status: questions.DecisionDecided, Statement: "Keep audit data in region.", Scope: "wo:" + r.id, Reversibility: questions.OneWay,
 	}, member); err != nil {
 		t.Fatal(err)
 	}
@@ -255,7 +255,7 @@ func TestALaneNoPolicyAskedKeepsWorking(t *testing.T) {
 	r.letGoOnFailure(t)
 	ops := control.NewQuestions(r.store, questions.BatchPolicy{})
 	if _, err := ops.RecordDecision(t.Context(), scope, questions.Decision{
-		ID: "d-one-way", Status: questions.DecisionDecided, Statement: "Keep audit data in region.", Scope: r.id, Reversibility: questions.OneWay,
+		ID: "d-one-way", Status: questions.DecisionDecided, Statement: "Keep audit data in region.", Scope: "wo:" + r.id, Reversibility: questions.OneWay,
 	}, member); err != nil {
 		t.Fatal(err)
 	}
@@ -281,7 +281,7 @@ func TestANextGenerationReadsTheNewestPack(t *testing.T) {
 	r.letGoOnFailure(t)
 	ops := control.NewQuestions(r.store, questions.BatchPolicy{})
 	first := r.pinned(t)
-	if _, err := ops.RecordDecision(t.Context(), scope, questions.Decision{ID: "d-old", Status: questions.DecisionDecided, Statement: "Use two retries.", Scope: "elsewhere"}, member); err != nil {
+	if _, err := ops.RecordDecision(t.Context(), scope, questions.Decision{ID: "d-old", Status: questions.DecisionDecided, Statement: "Use two retries.", Scope: "repo:elsewhere"}, member); err != nil {
 		t.Fatal(err)
 	}
 	addition := contextpacks.Addition{WorkOrder: r.id, Kind: contextpacks.KindKnowledge, Ref: "wiki:1", Text: "A page."}

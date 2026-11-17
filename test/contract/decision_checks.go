@@ -50,7 +50,7 @@ var DecisionChecks = []Check{
 const RungHolder = "holder"
 
 const (
-	checkoutScope = "checkout"
+	checkoutScope = "repo:checkout"
 	policyBody    = `[decision_policy]
 version = %d
 reversible_default = "assume"
@@ -124,7 +124,7 @@ func (r *Rig) Assumed(s ports.Store, text, workOrder string) (questions.Decision
 		return questions.Decision{}, err
 	}
 	draft := ruling(r.ID("d"), questions.DecisionAssumed)
-	draft.Scope = "assumption/" + draft.ID
+	draft.Scope = "repo:assumption-" + draft.ID
 	return r.NewOps(s).Rule(r.Ctx, r.Scope, id, draft, holder)
 }
 
@@ -189,7 +189,7 @@ func checkOneWayNoBypass(r *Rig) error {
 	record := func(change func(*questions.Decision)) (string, error) {
 		draft := questions.Decision{
 			ID: r.ID("d"), Status: questions.DecisionDecided, Statement: "Allow it.", Rationale: "It follows.",
-			Citations: []string{"PAY-12"}, Scope: r.ID("scope"), Reversibility: questions.Reversible,
+			Citations: []string{"PAY-12"}, Scope: "repo:" + r.ID("scope"), Reversibility: questions.Reversible,
 			Categories: []string{questions.CategoryProduct},
 		}
 		change(&draft)
@@ -201,7 +201,7 @@ func checkOneWayNoBypass(r *Rig) error {
 		return err
 	}
 	human, err := r.decision(s, "Audit data stays in the region.", func(d *questions.Decision) {
-		d.Categories, d.Scope = []string{questions.CategorySecurity}, "audit"
+		d.Categories, d.Scope = []string{questions.CategorySecurity}, "repo:audit"
 	})
 	if err != nil {
 		return err
@@ -434,18 +434,25 @@ func checkAssumptionLimit(r *Rig) error {
 	return nil
 }
 
+// checkOverlapStated holds that a decision names the decisions in force whose scope covers some of the same work
+// as its own: a contract and the work order under it overlap, and a repository apart from both does not.
 func checkOverlapStated(r *Rig) error {
-	s := r.Store()
+	p, err := newPackRig(r)
+	if err != nil {
+		return err
+	}
+	s := p.s
 	ops := r.NewOps(s)
-	broad, err := r.decision(s, "Payments retry.", func(d *questions.Decision) { d.Scope = "payments" })
+	contract, work := "contract:"+p.order.ContractID, "wo:"+p.order.ID
+	broad, err := r.decision(s, "Payments retry.", func(d *questions.Decision) { d.Scope = contract })
 	if err != nil {
 		return err
 	}
-	narrow, err := r.decision(s, "Refunds retry once.", func(d *questions.Decision) { d.Scope = "payments/refunds" })
+	narrow, err := r.decision(s, "Refunds retry once.", func(d *questions.Decision) { d.Scope = work })
 	if err != nil {
 		return err
 	}
-	if _, err := r.decision(s, "Paymentsplus is apart.", func(d *questions.Decision) { d.Scope = "paymentsplus" }); err != nil {
+	if _, err := r.decision(s, "Another repository is apart.", func(d *questions.Decision) { d.Scope = "repo:apart" }); err != nil {
 		return err
 	}
 	id, holder, err := r.OnRung(s, "How many refund retries?", questions.RungDecide, nil)
@@ -453,7 +460,7 @@ func checkOverlapStated(r *Rig) error {
 		return err
 	}
 	draft := ruling(r.ID("d"), questions.DecisionDecided)
-	draft.Scope = "payments/refunds/partial"
+	draft.Scope = contract
 	_, err = ops.Rule(r.Ctx, r.Scope, id, draft, holder)
 	var overlap *questions.OverlapError
 	if !errors.As(err, &overlap) || !slices.Equal(overlap.Overlapping, sorted(broad.ID, narrow.ID)) {
@@ -546,7 +553,7 @@ func checkMemberOverlap(r *Rig) error {
 func checkPolicyPublished(r *Rig) error {
 	s := r.Store()
 	ops := r.NewOps(s)
-	before, err := r.decision(s, "Retry twice.", func(d *questions.Decision) { d.Scope = "first" })
+	before, err := r.decision(s, "Retry twice.", func(d *questions.Decision) { d.Scope = "repo:first" })
 	if err != nil {
 		return err
 	}
@@ -566,7 +573,7 @@ func checkPolicyPublished(r *Rig) error {
 	if published.Version != 7 || published.AuthoredBy != r.Actor.ID || published.Kind != authority.PolicyDecision {
 		return Violatedf("published %+v", published)
 	}
-	after, err := r.decision(s, "Retry on timeouts.", func(d *questions.Decision) { d.Scope = "second" })
+	after, err := r.decision(s, "Retry on timeouts.", func(d *questions.Decision) { d.Scope = "repo:second" })
 	if err != nil {
 		return err
 	}
@@ -1014,10 +1021,28 @@ func checkOverturnInFlight(r *Rig) error {
 // reads mean nothing, and a scope of the grammar never overlaps one written before it.
 func checkOverlapAgrees(r *Rig) error {
 	s := r.Store()
-	for _, scope := range []string{"pay", "pay/refunds", "pay%", "p_y", "payments", "wo:pay"} {
-		if _, err := r.decision(s, "Scope "+scope, func(d *questions.Decision) { d.Scope = scope }); err != nil {
-			return err
+	// The control plane records no scope outside the grammar, so the ledger of an earlier build is written as it
+	// left it: each decision goes in through the store, with its event.
+	err := s.Write(r.Ctx, r.Scope, "note", func(tx ports.WriteTx) error {
+		for i, scope := range []string{"pay", "pay/refunds", "pay%", "p_y", "payments", "wo:pay"} {
+			record := questions.Decision{
+				ID: fmt.Sprintf("legacy-%d", i), Status: questions.DecisionDecided, Statement: "Scope " + scope, Rationale: "It follows.", Scope: scope,
+			}
+			if err := tx.Questions().InsertDecision(record); err != nil {
+				return err
+			}
+			event, err := questions.RecordEvent(questions.EventDecisionRecorded, questions.SubjectDecision, record.ID, record, r.Actor)
+			if err != nil {
+				return err
+			}
+			if _, err := tx.Append(event); err != nil {
+				return err
+			}
 		}
+		return nil
+	})
+	if err != nil {
+		return err
 	}
 	want := map[string][]string{
 		"pay":                 {"pay", "pay/refunds"},

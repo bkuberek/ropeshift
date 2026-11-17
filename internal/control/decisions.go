@@ -113,6 +113,11 @@ func checkRung(tx ports.WriteTx, question questions.Question, record questions.D
 // orchestrator replaces only what is recorded as reversible (FR-QD-8). A delegate's decision runs
 // outside those bounds only when the delegate policy exempted it, and never in a one-way category.
 func admit(tx ports.WriteTx, record *questions.Decision, policy questions.Policy, actor ledger.Actor) error {
+	// A scope is in the grammar whoever records it, so a worker of an older build cannot store one outside it
+	// after the migration that rewrote the scopes stored before (ADR-0030).
+	if _, err := questions.ParseScope(record.Scope); err != nil && !acceptsAnyScope() {
+		return err
+	}
 	return bound(tx.Questions(), newScopeFacts(tx.Planning(), tx.WorkOrders()), record, policy, actor)
 }
 
