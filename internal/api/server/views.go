@@ -1169,6 +1169,10 @@ func (h *handler) readDecisions(tx ports.ReadTx, r *http.Request, stamp api.Stam
 	for _, worker := range workers {
 		names[worker.ID] = worker.Name
 	}
+	titles, err := decisionScopeTitles(tx, rows)
+	if err != nil {
+		return nil, err
+	}
 	view := api.Decisions{Stamp: stamp, Decisions: make([]api.DecisionLine, 0, len(rows))}
 	for _, row := range rows {
 		root := row.ID
@@ -1179,7 +1183,9 @@ func (h *handler) readDecisions(tx ports.ReadTx, r *http.Request, stamp api.Stam
 		for at := root; replacedBy[at] != "" && !slices.Contains(lineage, replacedBy[at]); at = replacedBy[at] {
 			lineage = append(lineage, replacedBy[at])
 		}
-		view.Decisions = append(view.Decisions, api.DecisionLine{Decision: row, Lineage: lineage, SupersededBy: replacedBy[row.ID], DecidedByName: names[row.DecidedBy]})
+		view.Decisions = append(view.Decisions, api.DecisionLine{
+			Decision: row, Lineage: lineage, SupersededBy: replacedBy[row.ID], DecidedByName: names[row.DecidedBy], ScopeTitle: titles[row.Scope],
+		})
 	}
 	return view, nil
 }

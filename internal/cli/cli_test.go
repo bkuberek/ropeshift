@@ -697,6 +697,30 @@ func TestQuestionCommands(t *testing.T) {
 	}
 }
 
+// TestADecisionNamesTheRecordItsScopeNames holds that list and show name a scope with the title of the record it
+// names, and a scope whose record says nothing more than its ID by the ID alone.
+func TestADecisionNamesTheRecordItsScopeNames(t *testing.T) {
+	s := newSession(t)
+	s.daemon.HoldClone(t, "checkout", "payments")
+	s.daemon.HoldRepository(t, "billing")
+	s.must("decision", "record", "--id", "d1", "--statement", "Retry three times.", "--scope", "repo:checkout")
+	s.must("decision", "record", "--id", "d2", "--statement", "Bill monthly.", "--scope", "repo:billing")
+	titled, alone := "d1\tdecided\trepo:checkout · payments\tRetry three times.\n", "d2\tdecided\trepo:billing\tBill monthly.\n"
+	if text := s.must("decision", "list"); text != titled+alone {
+		t.Errorf("list %q", text)
+	}
+	if text := s.must("decision", "show", "d1"); text != titled {
+		t.Errorf("show %q", text)
+	}
+	if text := s.must("decision", "show", "d2"); text != alone {
+		t.Errorf("show %q", text)
+	}
+	var read api.DecisionView
+	if err := json.Unmarshal([]byte(s.must("decision", "show", "d1", "--json")), &read); err != nil || read.ScopeTitle != "payments" {
+		t.Errorf("show --json %+v: %v", read, err)
+	}
+}
+
 func TestDecisionAndSearchCommands(t *testing.T) {
 	s := newSession(t)
 	if code, _, stderr := s.run("decision", "record", "--statement", "S", "--scope", "wo:ghost"); code != cli.ExitUsage || !strings.Contains(stderr, `"wo:ghost" names no work order`) {

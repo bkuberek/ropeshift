@@ -441,9 +441,17 @@ func (d *Daemon) Completed(t *testing.T, id string, result workorders.LaneResult
 }
 
 // HoldRepository registers a repository under an ID, as intake detects one, so a decision's scope can name it.
+// Its remote names it by its ID.
 func (d *Daemon) HoldRepository(t testing.TB, id string) {
 	t.Helper()
-	found := control.DetectedRepository{ID: id, Remote: "https://example.invalid/acme/" + id + ".git", DefaultBranch: "main"}
+	d.HoldClone(t, id, "")
+}
+
+// HoldClone registers a repository under an ID, as intake detects one in a clone, so a decision's scope can name
+// it. The clone's directory names it, and an empty directory leaves its remote to name it by its ID.
+func (d *Daemon) HoldClone(t testing.TB, id, directory string) {
+	t.Helper()
+	found := control.DetectedRepository{ID: id, Remote: "https://example.invalid/acme/" + id + ".git", DefaultBranch: "main", Directory: directory}
 	if _, err := control.NewRepositories(d.Store).Detect(t.Context(), Scope, found, ledger.Actor{Kind: ledger.ActorSystem, ID: "intake"}); err != nil {
 		t.Fatal(err)
 	}

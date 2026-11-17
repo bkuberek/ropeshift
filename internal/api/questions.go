@@ -39,7 +39,25 @@ type QuestionList struct {
 
 // DecisionList is the answer to a list of decisions.
 type DecisionList struct {
-	Decisions []questions.Decision `json:"decisions"`
+	Decisions []DecisionView `json:"decisions"`
+}
+
+// DecisionView is a decision as a read answers it. ScopeTitle is the title of the record its scope names, read in
+// the same read: a plan's, a contract's newest version's, or a work order's title, or a repository's name. It is
+// empty when the ledger holds no such record, for a scope written before the grammar, and for a title that only
+// repeats the scope's ID, so a display shows the scope alone.
+type DecisionView struct {
+	questions.Decision
+	ScopeTitle string `json:"scope_title,omitempty"`
+}
+
+// ScopeLabel is how a client names a scope: the scope, and beside it the title of the record it names when the
+// read gave one.
+func ScopeLabel(scope, title string) string {
+	if scope == "" || title == "" {
+		return scope
+	}
+	return scope + " · " + title
 }
 
 // RecordQuestion asks for a question to be recorded. The client generates ID, so a retry
@@ -181,15 +199,15 @@ func (c *ProjectClient) Batches(ctx context.Context, category string) ([]questio
 }
 
 // Decisions lists the decisions a filter selects.
-func (c *ProjectClient) Decisions(ctx context.Context, filter RecordFilter) ([]questions.Decision, error) {
+func (c *ProjectClient) Decisions(ctx context.Context, filter RecordFilter) ([]DecisionView, error) {
 	var out DecisionList
 	err := c.do(ctx, http.MethodGet, "/v1/decisions"+filter.query(), nil, &out)
 	return out.Decisions, err
 }
 
 // Decision reads one decision.
-func (c *ProjectClient) Decision(ctx context.Context, id string) (questions.Decision, error) {
-	var out questions.Decision
+func (c *ProjectClient) Decision(ctx context.Context, id string) (DecisionView, error) {
+	var out DecisionView
 	err := c.do(ctx, http.MethodGet, "/v1/decisions/"+url.PathEscape(id), nil, &out)
 	return out, err
 }

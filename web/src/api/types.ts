@@ -399,7 +399,7 @@ export type OverturnDecision = { id: string; statement: string; rationale?: stri
 
 // RecordedDecision is a decision as the API answers it after it is recorded, with the decisions whose scope
 // it overlaps.
-export type RecordedDecision = Omit<Decision, "lineage" | "superseded_by" | "decided_by_name">;
+export type RecordedDecision = Omit<Decision, "lineage" | "superseded_by" | "decided_by_name" | "scope_title">;
 
 export type PlanReview = { work_order: WorkOrder; open_questions: Question[] };
 
@@ -512,6 +512,9 @@ export type Decision = {
   rationale?: string;
   citations?: string[];
   scope?: string;
+  // scope_title is the title of the record the scope names, absent when the ledger holds no such record or its
+  // title only repeats the ID, so the scope shows alone.
+  scope_title?: string;
   reversibility?: string;
   categories?: string[];
   decided_by?: string;

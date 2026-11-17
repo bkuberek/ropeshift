@@ -16,6 +16,7 @@
       "rationale": "It covers the outage.",
       "reversibility": "reversible",
       "scope": "repo:retries",
+      "scope_title": "retry-budget",
       "statement": "Retry twice.",
       "status": "replaced",
       "superseded_by": "decision-2"
@@ -38,6 +39,7 @@
       "rationale": "The outage ran longer.",
       "reversibility": "reversible",
       "scope": "repo:retries",
+      "scope_title": "retry-budget",
       "statement": "Retry three times.",
       "status": "replaced",
       "superseded_by": "decision-3",
@@ -65,6 +67,7 @@
       "rationale": "A count cannot know the outage: <img src=x onerror=alert(1)><script>alert(2)</script>",
       "reversibility": "reversible",
       "scope": "repo:retries",
+      "scope_title": "retry-budget",
       "statement": "Retry until the budget runs out.",
       "status": "assumed",
       "supersedes": "decision-2"

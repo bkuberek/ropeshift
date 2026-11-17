@@ -221,20 +221,124 @@ func checkHeld(tx ports.WriteTx, text string) error {
 	if err != nil || scope.Zero() {
 		return nil
 	}
-	switch scope.Kind {
-	case questions.ScopePlan:
-		_, err = tx.Planning().Plan(scope.ID)
-	case questions.ScopeContract:
-		_, err = tx.Planning().LatestContract(scope.ID)
-	case questions.ScopeWorkOrder:
-		_, err = tx.WorkOrders().Get(scope.ID)
-	case questions.ScopeRepository:
-		_, err = tx.Repositories().Repository(scope.ID)
-	}
+	_, err = scopeRecords{tx.Planning(), tx.WorkOrders(), tx.Repositories()}.titleOf(scope)
 	if errors.Is(err, ports.ErrNotFound) {
 		return scope.Unheld()
 	}
 	return err
+}
+
+// ScopeTitles names the record each scope names by its title, which a list or a read of decisions and
+// questions shows beside the scope: a plan, a contract's newest version, and a work order by their titles, and
+// a repository by its name. It reads once for each kind of scope the scopes hold, whatever their number: the
+// one record a kind's only ID names, or every record of a kind that several IDs name. A scope outside the
+// grammar, one whose record the ledger does not hold, and one whose title only repeats its ID have no title, so
+// a display shows the ID alone.
+func ScopeTitles(tx ports.ReadTx, scopes []string) (map[string]string, error) {
+	return scopeRecords{tx.Planning(), tx.WorkOrders(), tx.Repositories()}.titles(scopes)
+}
+
+// scopeRecords reads the records a scope can name, by the same reads in a read and in a write.
+type scopeRecords struct {
+	planned      ports.PlanningReader
+	orders       ports.WorkOrderReader
+	repositories ports.RepositoryReader
+}
+
+// titleOf reads the one record a scope names, and says its title, or ErrNotFound when the ledger holds no
+// record of that kind by that ID.
+func (r scopeRecords) titleOf(scope questions.Scope) (string, error) {
+	switch scope.Kind {
+	case questions.ScopePlan:
+		plan, err := r.planned.Plan(scope.ID)
+		return plan.Title, err
+	case questions.ScopeContract:
+		contract, err := r.planned.LatestContract(scope.ID)
+		return contract.Title, err
+	case questions.ScopeWorkOrder:
+		order, err := r.orders.Get(scope.ID)
+		return order.Title, err
+	case questions.ScopeRepository:
+		repository, err := r.repositories.Repository(scope.ID)
+		return repository.Name, err
+	}
+	return "", nil
+}
+
+// titlesOf reads every record of one kind, and says each one's title by its ID. A contract is titled by its
+// newest version.
+func (r scopeRecords) titlesOf(kind questions.ScopeKind) (map[string]string, error) {
+	titles := map[string]string{}
+	switch kind {
+	case questions.ScopePlan:
+		plans, err := r.planned.Plans()
+		for _, plan := range plans {
+			titles[plan.ID] = plan.Title
+		}
+		return titles, err
+	case questions.ScopeContract:
+		contracts, err := r.planned.Contracts()
+		newest := map[string]int64{}
+		for _, contract := range contracts {
+			if contract.Version >= newest[contract.ID] {
+				newest[contract.ID], titles[contract.ID] = contract.Version, contract.Title
+			}
+		}
+		return titles, err
+	case questions.ScopeWorkOrder:
+		orders, err := r.orders.List()
+		for _, order := range orders {
+			titles[order.ID] = order.Title
+		}
+		return titles, err
+	case questions.ScopeRepository:
+		repositories, err := r.repositories.Repositories()
+		for _, repository := range repositories {
+			titles[repository.ID] = repository.Name
+		}
+		return titles, err
+	}
+	return titles, nil
+}
+
+// titles names each typed scope by the title of the record it names, as ScopeTitles says.
+func (r scopeRecords) titles(scopes []string) (map[string]string, error) {
+	named := map[questions.ScopeKind][]string{}
+	seen := map[questions.Scope]bool{}
+	for _, text := range scopes {
+		scope, err := questions.ParseScope(text)
+		if err != nil || scope.Zero() || seen[scope] {
+			continue
+		}
+		seen[scope] = true
+		named[scope.Kind] = append(named[scope.Kind], scope.ID)
+	}
+	out := map[string]string{}
+	for kind, ids := range named {
+		held, err := r.heldTitles(kind, ids)
+		if err != nil {
+			return nil, err
+		}
+		for _, id := range ids {
+			if title := held[id]; title != "" && title != id {
+				out[questions.Scope{Kind: kind, ID: id}.String()] = title
+			}
+		}
+	}
+	return out, nil
+}
+
+// heldTitles reads the titles of the records of one kind some IDs name, in one read: the one record an only
+// ID names, or every record of the kind.
+func (r scopeRecords) heldTitles(kind questions.ScopeKind, ids []string) (map[string]string, error) {
+	if len(ids) != 1 {
+		return r.titlesOf(kind)
+	}
+	title, err := r.titleOf(questions.Scope{Kind: kind, ID: ids[0]})
+	if errors.Is(err, ports.ErrNotFound) {
+		return nil, nil
+	}
+	return map[string]string{ids[0]: title}, err
 }
 
 // legacyOverlap is the rule of a scope written before the grammar: the same scope, or one inside the

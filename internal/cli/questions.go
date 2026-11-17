@@ -24,8 +24,9 @@ func questionLine(q questions.Question) string {
 	return fmt.Sprintf("%s\t%s\t%s\t%s\n", q.ID, q.Status, strings.Join(q.Categories, ","), q.Text)
 }
 
-func decisionLine(d questions.Decision) string {
-	return fmt.Sprintf("%s\t%s\t%s\t%s\n", d.ID, d.Status, d.Scope, d.Statement)
+// decisionLine names a decision's scope with the title of the record it names, when the read gave one.
+func decisionLine(d api.DecisionView) string {
+	return fmt.Sprintf("%s\t%s\t%s\t%s\n", d.ID, d.Status, api.ScopeLabel(d.Scope, d.ScopeTitle), d.Statement)
 }
 
 func (c *invocation) questionList(args []string) int {
@@ -164,7 +165,7 @@ func (c *invocation) questionAnswer(args []string) int {
 	}
 	defer client.Close()
 	row, err := client.AnswerQuestion(c.ctx, positional[0], request)
-	return c.finish(err, row, func() string { return decisionLine(row) })
+	return c.finish(err, row, func() string { return decisionLine(api.DecisionView{Decision: row}) })
 }
 
 func (c *invocation) questionBatches(args []string) int {
@@ -231,7 +232,7 @@ func (c *invocation) decisionList(args []string) int {
 	defer client.Close()
 	rows, err := client.Decisions(c.ctx, filter)
 	if rows == nil {
-		rows = []questions.Decision{}
+		rows = []api.DecisionView{}
 	}
 	return c.finish(err, api.DecisionList{Decisions: rows}, func() string {
 		var out strings.Builder
@@ -306,7 +307,7 @@ func (c *invocation) decisionRecord(args []string) int {
 	}
 	defer client.Close()
 	row, err := client.RecordDecision(c.ctx, request)
-	return c.finish(err, row, func() string { return decisionLine(row) })
+	return c.finish(err, row, func() string { return decisionLine(api.DecisionView{Decision: row}) })
 }
 
 func (c *invocation) decisionOverturn(args []string) int {
@@ -343,8 +344,8 @@ func (c *invocation) decisionOverturn(args []string) int {
 	row, err := client.OverturnDecision(c.ctx, positional[0], request)
 	return c.finish(err, row, func() string {
 		var out strings.Builder
-		out.WriteString(decisionLine(row.Old))
-		out.WriteString(decisionLine(row.New))
+		out.WriteString(decisionLine(api.DecisionView{Decision: row.Old}))
+		out.WriteString(decisionLine(api.DecisionView{Decision: row.New}))
 		for _, id := range row.Rework {
 			out.WriteString("rework\t" + id + "\n")
 		}

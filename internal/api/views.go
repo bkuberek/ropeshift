@@ -378,12 +378,14 @@ type Documents struct {
 }
 
 // DecisionLine is a decision and its lineage: the chain it belongs to, oldest first, and what took its
-// place. DecidedByName is the name of the worker whose orchestrator decided it, which its ID does not say.
+// place. DecidedByName is the name of the worker whose orchestrator decided it, which its ID does not say, and
+// ScopeTitle the title of the record its scope names, as DecisionView says.
 type DecisionLine struct {
 	questions.Decision
 	Lineage       []string `json:"lineage"`
 	SupersededBy  string   `json:"superseded_by,omitempty"`
 	DecidedByName string   `json:"decided_by_name,omitempty"`
+	ScopeTitle    string   `json:"scope_title,omitempty"`
 }
 
 // Decisions is every decision, its status, rationale, and lineage.

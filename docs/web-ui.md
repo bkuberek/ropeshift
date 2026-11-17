@@ -148,7 +148,7 @@ Both tabs are for reading. `ropeshift document` and `ropeshift requirement` read
 
 ## Decisions and Open questions
 
-Decisions lists the project's decisions with their status, rationale, lineage, and what each replaced or was replaced by. Open questions lists the questions that still wait, with where each stands on the ladder, how it got there, and its options and recommendation. Both narrow to one category from the row of links above the list, and the link keeps the choice in the address.
+Decisions lists the project's decisions with their status, rationale, lineage, and what each replaced or was replaced by. A decision's scope is named with the title of the record it names, such as `plan:01JB… · Checkout retries`: a plan's, a contract's, or a work order's title, or a repository's name. A scope whose record the ledger no longer holds, or whose record has no title beyond its ID, shows its ID alone. Open questions lists the questions that still wait, with where each stands on the ladder, how it got there, and its options and recommendation. Both narrow to one category from the row of links above the list, and the link keeps the choice in the address.
 
 Add category, at the end of that row, adds a category to the project, as `ropeshift category add` does. A name is lowercase words joined by hyphens, such as `release-planning`, and the dialog says so before it sends anything else. A category stays once added, and the built-in ones are always there. The command palette lists Add category too, and opens the same dialog.
 
