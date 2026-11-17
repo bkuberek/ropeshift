@@ -283,7 +283,9 @@ function ChecksTab({ id, live }: { id: string; live: Live }) {
     return failure ? <Banner tone="danger">{failure}</Banner> : <SkeletonRows rows={4} />;
   }
   const merging = standing.state === "integrating";
-  const empty = !standing.pull_request && !standing.checks.length && !standing.integrations?.length && !standing.artifacts.length && !(merging && standing.why);
+  // An artifact with no value says nothing, so it is left out.
+  const artifacts = standing.artifacts.filter((artifact) => artifact.uri);
+  const empty = !standing.pull_request && !standing.checks.length && !standing.integrations?.length && !artifacts.length && !(merging && standing.why);
   if (empty) {
     return (
       <EmptyState icon="pr" title="No checks yet">
@@ -301,12 +303,12 @@ function ChecksTab({ id, live }: { id: string; live: Live }) {
       <Panel title="Merge" level={3}>
         <Merges standing={standing} merging={merging} />
       </Panel>
-      {standing.artifacts.length ? (
+      {artifacts.length ? (
         <Panel title="Artifacts" level={3}>
           <ul className="criteria" aria-label="Artifacts">
-            {standing.artifacts.map((artifact) => (
+            {artifacts.map((artifact) => (
               <li key={artifact.id}>
-                {words(artifact.kind)} <span className="mono">{artifact.uri}</span>
+                {words(artifact.kind)}: <span className="mono">{artifact.uri}</span>
               </li>
             ))}
           </ul>

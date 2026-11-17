@@ -370,6 +370,21 @@ describe("a work order", () => {
     }
   });
 
+  // An artifact's kind and its value read apart, so a report the lane named `branch` never reads as a label, and
+  // an artifact with no value is left out.
+  it("names each artifact's kind apart from its value, and leaves out one with no value", async () => {
+    servingStanding("wo-reported", "Report the berths", "done", (standing) => {
+      standing.artifacts = [
+        { id: "a1", lane_id: "lane-1", kind: "branch", uri: "lane/serve-sailings", digest: "f895e466", fence: 1, created_at: 1 },
+        { id: "a2", lane_id: "lane-1", kind: "report", uri: "branch", fence: 1, created_at: 1 },
+        { id: "a3", lane_id: "lane-1", kind: "report", uri: "", fence: 1, created_at: 1 },
+      ];
+    });
+    openPage("/work-order?id=wo-reported&tab=checks");
+    const artifacts = await screen.findByRole("list", { name: "Artifacts" });
+    expect(within(artifacts).getAllByRole("listitem").map((item) => item.textContent)).toEqual(["Branch: lane/serve-sailings", "Report: branch"]);
+  });
+
   it("states its artifacts as text, whatever an address says", async () => {
     serveViews();
     openPage("/work-order?id=wo-done&tab=checks");
