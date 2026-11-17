@@ -436,6 +436,24 @@ func TestAdoptionSearchesAnIgnoredFolderToTheDepth(t *testing.T) {
 	}
 }
 
+// A workspace that holds lane worktrees in its ignored .ropeshift/worktrees/ folder shows none of them as a clone
+// to adopt, whatever the depth: the detection skips every .ropeshift folder (FR-PROF-6).
+func TestAdoptionFindsNoLaneWorktreeInTheWorkspacesWorktreeFolder(t *testing.T) {
+	t.Parallel()
+	m := newAdoptionMachine(t)
+	m.clone("/work/ws", fake.CloneLayout{Ignored: []string{"repos", ".ropeshift/worktrees"}, Tracked: []string{".gitignore", "README.md"}})
+	m.clone("/work/ws/repos/api", fake.CloneLayout{Tracked: []string{"go.mod"}})
+	m.clone("/work/ws/.ropeshift/worktrees/api/lane-1", fake.CloneLayout{Tracked: []string{"go.mod"}})
+	plan := m.mustPlan(control.AdoptionRequest{Root: "/work/ws", Depth: 4})
+	if want := []string{"ws", "api"}; !reflect.DeepEqual(clonesOf(plan), want) {
+		t.Errorf("the plan finds %v, want %v", clonesOf(plan), want)
+	}
+	named := m.mustPlan(control.AdoptionRequest{Root: "/work/ws", Depth: 4, Paths: []string{"/work/ws/.ropeshift/worktrees"}})
+	if slices.Contains(clonesOf(named), "lane-1") {
+		t.Errorf("a path naming the worktree folder finds a lane worktree: %v", clonesOf(named))
+	}
+}
+
 // The folder around the clone is never scanned: a clone beside it is seen only when a path names it.
 func TestAdoptionNeverScansTheFolderAroundTheClone(t *testing.T) {
 	t.Parallel()

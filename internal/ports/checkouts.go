@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"path"
+	"slices"
 	"strings"
 
 	"ropeshift.com/ropeshift/internal/ledger"
@@ -81,6 +82,16 @@ type Checkouts interface {
 	// All lists every checkout this worker keeps with its project and repository, by project and then
 	// repository.
 	All(ctx context.Context) ([]Checkout, error)
+}
+
+// RopeshiftFolder is the name of the folder a repository keeps ropeshift's own files in, its profile layer and,
+// in a workspace, the lane worktrees under it (FR-PROF-6).
+const RopeshiftFolder = ".ropeshift"
+
+// InRopeshiftFolder says a path is or lies inside a .ropeshift folder. No lane worktree there is a clone to find
+// or to register, in a scan or by name.
+func InRopeshiftFolder(at string) bool {
+	return slices.Contains(strings.Split(path.Clean(at), "/"), RopeshiftFolder)
 }
 
 // SamePath says two paths name one directory on this worker's machine, however each is spelled: a checkout kept

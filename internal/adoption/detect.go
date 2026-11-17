@@ -42,7 +42,10 @@ func detect(ctx context.Context, in Request, kept ports.Checkouts, layouts ports
 	}
 	var searched []string
 	for _, dir := range ignored {
-		searched = append(searched, path.Join(top.Path, dir))
+		// A .ropeshift folder holds lane worktrees, which are no clone to adopt (FR-PROF-6).
+		if !ports.InRopeshiftFolder(dir) {
+			searched = append(searched, path.Join(top.Path, dir))
+		}
 	}
 	var clones []ports.Clone
 	if len(searched) != 0 {

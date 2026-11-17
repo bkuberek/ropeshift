@@ -190,6 +190,10 @@ func (f *File) Find(ctx context.Context, paths []string, depth int) ([]ports.Clo
 		if err != nil {
 			return nil, nil, err
 		}
+		if ports.InRopeshiftFolder(dir) {
+			unread = append(unread, ports.UnreadPath{Path: dir, Reason: "is inside a .ropeshift folder, which holds lane worktrees and no clone to register"})
+			continue
+		}
 		info, err := os.Stat(dir)
 		switch {
 		case errors.Is(err, os.ErrNotExist):
@@ -299,7 +303,8 @@ func (f *File) cloneAt(ctx context.Context, dir string) (ports.Clone, string, bo
 }
 
 // Resolve follows every symbolic link in a path, and says whether the path it comes to is inside a
-// directory the installation keeps for itself. A path nothing is at is ErrNotFound.
+// directory the installation keeps for itself, or inside a .ropeshift folder, where a workspace keeps lane
+// worktrees. A path nothing is at is ErrNotFound.
 func (f *File) Resolve(_ context.Context, path string) (string, bool, error) {
 	real, err := filepath.EvalSymlinks(path)
 	if errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ENOTDIR) {
@@ -310,6 +315,10 @@ func (f *File) Resolve(_ context.Context, path string) (string, bool, error) {
 	}
 	if real, err = filepath.Abs(real); err != nil {
 		return "", false, err
+	}
+	// A workspace keeps its lane worktrees under its .ropeshift folder, which no registration takes for a clone.
+	if ports.InRopeshiftFolder(real) {
+		return real, true, nil
 	}
 	for _, dir := range f.Reserved {
 		if held, err := filepath.EvalSymlinks(dir); err == nil {

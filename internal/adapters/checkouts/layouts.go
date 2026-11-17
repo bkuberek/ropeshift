@@ -22,7 +22,8 @@ func (f *File) source(clone string) *repofiles.Source {
 }
 
 // IgnoredDirectories lists the directories a clone's ignore rules leave out of its working tree. Git collapses a
-// directory that is ignored whole into one entry, so a directory inside one is not listed.
+// directory that is ignored whole into one entry, so a directory inside one is not listed. A .ropeshift folder or
+// one inside it is left out too, because a workspace's lane worktrees go there (FR-PROF-6).
 func (f *File) IgnoredDirectories(ctx context.Context, clone string) ([]string, error) {
 	out, err := f.git(clone).Output(ctx, "ls-files", "--others", "--ignored", "--exclude-standard", "--directory", "-z")
 	if err != nil {
@@ -30,7 +31,7 @@ func (f *File) IgnoredDirectories(ctx context.Context, clone string) ([]string, 
 	}
 	var dirs []string
 	for entry := range strings.SplitSeq(string(out), "\x00") {
-		if dir, isDir := strings.CutSuffix(entry, "/"); isDir && dir != "" {
+		if dir, isDir := strings.CutSuffix(entry, "/"); isDir && dir != "" && !ports.InRopeshiftFolder(dir) {
 			dirs = append(dirs, dir)
 		}
 	}
