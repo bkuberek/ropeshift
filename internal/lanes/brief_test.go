@@ -185,6 +185,14 @@ func TestAnAdoptBriefCarriesTheRulesAndAnExampleOfEachRecord(t *testing.T) {
 	if !strings.Contains(brief, planning.OnboardedExample.Before) || !strings.Contains(brief, planning.OnboardedExample.After) {
 		t.Error("the brief leaves out the document before and after onboarding")
 	}
+	if !strings.Contains(brief, planning.OnboardedDecisionExample.Before) || !strings.Contains(brief, planning.OnboardedDecisionExample.After) {
+		t.Error("the brief leaves out the decision record before and after onboarding")
+	}
+	for _, want := range []string{"status line", "proposed when it states none"} {
+		if !strings.Contains(brief, want) {
+			t.Errorf("the adopt brief says nothing of %q", want)
+		}
+	}
 	for _, want := range []string{
 		InventoryFile, "Onboard, do not rewrite", "keep its prose", "existing IDs", "git mv",
 		"belongs to another tool", "contradict", "draft decision",
@@ -218,7 +226,7 @@ func TestAnAdoptBriefShowsTheInventoryAsTheWorkerWritesIt(t *testing.T) {
 // Planning work that does not adopt is told nothing of adoption.
 func TestAPlanningBriefThatDoesNotAdoptSaysNothingOfIt(t *testing.T) {
 	brief := Brief(BriefSpec{WorkOrder: "wo", Title: "Plan it", Kind: workorders.KindPlan})
-	for _, unwanted := range []string{InventoryFile, "Onboard, do not rewrite", planning.OnboardedExample.After} {
+	for _, unwanted := range []string{InventoryFile, "Onboard, do not rewrite", planning.OnboardedExample.After, planning.OnboardedDecisionExample.After} {
 		if strings.Contains(brief, unwanted) {
 			t.Errorf("a planning brief that does not adopt holds %q", unwanted)
 		}

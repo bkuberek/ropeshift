@@ -78,10 +78,14 @@ const (
 	KindDecision    = "decision"
 	KindRequirement = "requirement"
 	KindContract    = "contract"
+	// KindDecisionDocument is a decision record file, indexed at its newest version while it is accepted.
+	KindDecisionDocument = "decision_document"
 )
 
 // LookupKinds are what rung 1 reads, and OpenKinds what rung 2 reads.
-func LookupKinds() []string { return []string{KindDecision, KindRequirement, KindContract} }
+func LookupKinds() []string {
+	return []string{KindDecision, KindRequirement, KindContract, KindDecisionDocument}
+}
 
 // OpenKinds are what rung 2 reads.
 func OpenKinds() []string { return []string{KindQuestion} }

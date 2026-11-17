@@ -488,7 +488,7 @@ func (c *invocation) categoryAdd(args []string) int {
 func (c *invocation) search(args []string) int {
 	set := c.flags()
 	var kinds repeated
-	set.Var(&kinds, "kind", "decision, requirement, contract, or question, repeatable")
+	set.Var(&kinds, "kind", "decision, requirement, contract, decision_document, or question, repeatable")
 	limit := set.Int("limit", 0, "the most candidates to show")
 	positional, ok := c.parse(set, args)
 	if !ok {
