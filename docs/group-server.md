@@ -179,10 +179,12 @@ Use this when a proxy you run already terminates TLS for a public name, as the p
 3. Start the server with TLS off.
 
    ```sh
-   ropeshiftd server --listen 0.0.0.0:7400 --tls off --trusted-proxies 10.0.0.0/8 --public-url https://ropeshift.example
+   ropeshiftd server --listen 10.0.0.9:7400 --tls off --trusted-proxies 10.0.0.5/32 --public-url https://ropeshift.example
    ```
 
-   The server prints `ropeshiftd: server http://0.0.0.0:7400` and the public URL it was given. It refuses to start with TLS off off loopback unless both settings are given, and it refuses a public URL that is not an `https://` origin, or has a path, a user, or a query. The address `--listen` binds is the one the proxy reaches, so on a shared host bind the proxy's network and no wider.
+   The server here is at `10.0.0.9` and its proxy is at `10.0.0.5`. The server prints `ropeshiftd: server http://10.0.0.9:7400` and the public URL it was given. It refuses to start with TLS off off loopback unless both settings are given, and it refuses a public URL that is not an `https://` origin, or has a path, a user, or a query. The address `--listen` binds is the one the proxy reaches, so on a shared host bind the proxy's network and no wider.
+
+   List only the proxy. Every address in `--trusted-proxies` may connect in plaintext and say who a client is, so a range such as `10.0.0.0/8` trusts every host in it, and any of them can send a request with an `X-Forwarded-For` of its choice. Name the proxy's own address, as `10.0.0.5/32` does, and name a range only when the proxy's address changes within it.
 
 4. Set the proxy to terminate TLS, keep the `Host` header the browser sent, add the client's address to `X-Forwarded-For`, say `https` in `X-Forwarded-Proto`, and pass streams on as they are written. A page of the web UI holds a stream open for its live updates, so a proxy that buffers a response, or closes a connection that is silent for a minute, breaks it. The nginx and Caddy examples below do each.
 
@@ -209,9 +211,9 @@ server {
     # ssl_certificate and ssl_certificate_key name your certificate.
 
     location / {
-        proxy_pass http://10.0.0.5:7400;
+        proxy_pass http://10.0.0.9:7400;
         proxy_http_version 1.1;
-        proxy_set_header Host $host;
+        proxy_set_header Host $http_host;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_buffering off;
@@ -220,13 +222,13 @@ server {
 }
 ```
 
-`proxy_set_header Host $host` keeps the host the browser sent, where nginx sends the upstream's own by default. `$proxy_add_x_forwarded_for` is the client's own `X-Forwarded-For` with `$remote_addr` added at the end. `proxy_buffering off` and a long `proxy_read_timeout` keep streams open, where nginx buffers a response by default and closes a connection that is silent for 60 seconds. List nginx's address in `--trusted-proxies`. Sources: [`ngx_http_proxy_module`](https://nginx.org/en/docs/http/ngx_http_proxy_module.html).
+`proxy_set_header Host $http_host` keeps the `Host` header exactly as the browser sent it, port included, where nginx sends the upstream's own by default. `$host` is a host name, and nginx documents the port as a variable of its own, so a public URL with a port, such as `https://ropeshift.example:8443`, would be refused with `foreign_host` behind it. `$proxy_add_x_forwarded_for` is the client's own `X-Forwarded-For` with `$remote_addr` added at the end. `proxy_buffering off` and a long `proxy_read_timeout` keep streams open, where nginx buffers a response by default and closes a connection that is silent for 60 seconds. List nginx's address in `--trusted-proxies`. Sources: [`ngx_http_proxy_module`](https://nginx.org/en/docs/http/ngx_http_proxy_module.html).
 
 ### A Caddy example
 
 ```caddyfile
 ropeshift.example {
-    reverse_proxy 10.0.0.5:7400 {
+    reverse_proxy 10.0.0.9:7400 {
         flush_interval -1
     }
 }
@@ -245,7 +247,7 @@ The server counts every wrong guess at a secret by the address the connection ca
 - Guesses sent at once count as wrong until each is judged, so a client cannot get more guesses than the limit by sending them together.
 - The counts live in the server's memory and a restart clears them. The server tracks at most 10,000 addresses at a time, and lets go of the longest idle one that is not refused when it needs room.
 - The control socket is no client address and is never limited.
-- A passphrase check is a password hash, which costs on purpose, so the server runs one at a time and lets no more than 16 wait their turn. A check that finds the line full is refused with 503 and `Retry-After: 1`, and is counted against nobody. The limit per address bounds what one address costs, and the line bounds what every address costs together, so a crowd of addresses cannot hold the server to its checks for as long as it likes. It does not stop many addresses from guessing at once: each gets its own count, and the line turns away what it cannot take.
+- A passphrase check is a password hash, which costs on purpose, so the server runs one at a time and lets no more than 16 wait their turn. An address has two checks in the line at most, whatever its limit on wrong guesses is, and a third is refused at once with 429 and `Retry-After: 1`. So a few addresses cannot fill the line and leave a member with nothing but a refusal: it takes eight addresses to fill it. A check that finds the line full is refused with 503 and `Retry-After: 1`. Neither refusal is counted against anybody. The limit per address bounds what one address costs, and the line bounds what every address costs together. It does not stop many addresses from guessing at once: each gets its own count, and the line turns away what it cannot take.
 
 ## Settings
 
