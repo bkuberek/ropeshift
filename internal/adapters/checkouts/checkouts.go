@@ -183,6 +183,9 @@ func (f *File) Find(ctx context.Context, paths []string, depth int) ([]ports.Clo
 		}
 	}
 	for _, given := range paths {
+		if err := ctx.Err(); err != nil {
+			return nil, nil, err
+		}
 		dir, err := filepath.Abs(given)
 		if err != nil {
 			return nil, nil, err
@@ -214,6 +217,10 @@ func (f *File) Find(ctx context.Context, paths []string, depth int) ([]ports.Clo
 		}
 		add(clones)
 	}
+	// A walk that stopped for its context found only part of the tree.
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
+	}
 	return found, unread, nil
 }
 
@@ -234,6 +241,9 @@ func (f *File) below(ctx context.Context, dir string, depth int) ([]ports.Clone,
 	var found []ports.Clone
 	var unread []ports.UnreadPath
 	for _, entry := range entries {
+		if ctx.Err() != nil {
+			break
+		}
 		if !entry.IsDir() || strings.HasPrefix(entry.Name(), ".") {
 			continue
 		}
