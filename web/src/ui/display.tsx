@@ -130,7 +130,11 @@ export function Panel({ title, level = 2, actions, foot, flush = false, classNam
         </div>
       ) : null}
       {flush ? children : <div className="panel-body">{children}</div>}
-      {foot ? <div className="panel-foot">{foot}</div> : null}
+      {foot ? (
+        <div className="panel-foot">
+          <p>{foot}</p>
+        </div>
+      ) : null}
     </section>
   );
 }

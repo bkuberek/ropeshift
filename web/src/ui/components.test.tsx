@@ -5,11 +5,37 @@ import { describe, expect, it, vi } from "vitest";
 
 import { laneStates, workStates } from "../floor/states";
 import { Button, FilterChip, IconButton, Segmented, TabPanel, Tabs } from "./controls";
-import { Absent, Actor, Badge, EmptyState, Freshness, LaneBadge, SkeletonRows, StateBadge, TargetChip, WorkBadge } from "./display";
+import { Absent, Actor, Badge, EmptyState, Freshness, LaneBadge, Panel, SkeletonRows, StateBadge, TargetChip, WorkBadge } from "./display";
 import { Field, Select } from "./forms";
 import { Icon } from "./Icon";
 import { iconNames } from "./iconPaths";
 import { Dialog, Menu, ToastProvider, useToast } from "./overlays";
+
+describe("a panel's note", () => {
+  it("is one paragraph, so inline code in it does not become a column of its own", () => {
+    const { container } = render(
+      <Panel
+        title="Drivers"
+        foot={
+          <>
+            The doctor runs when a worker starts. <span className="mono">ropeshift worker doctor</span> reports the same for a machine with no daemon.
+          </>
+        }
+      >
+        body
+      </Panel>,
+    );
+    const foot = container.querySelector(".panel-foot");
+    expect(foot?.children).toHaveLength(1);
+    expect(foot?.firstElementChild?.tagName).toBe("P");
+    expect(foot?.firstElementChild?.textContent).toBe("The doctor runs when a worker starts. ropeshift worker doctor reports the same for a machine with no daemon.");
+  });
+
+  it("holds a plain sentence in the same paragraph", () => {
+    const { container } = render(<Panel foot="Only lanes count toward a machine's caps.">body</Panel>);
+    expect(container.querySelector(".panel-foot > p")?.textContent).toBe("Only lanes count toward a machine's caps.");
+  });
+});
 
 describe("a button", () => {
   it("keeps its label and its width while it loads, and says it is busy", () => {
