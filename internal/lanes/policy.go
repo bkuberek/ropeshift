@@ -134,6 +134,8 @@ type PolicySpec struct {
 	Tools []string
 	// RefusedFlags are flags no command of Program may take, by name.
 	RefusedFlags []string
+	// Waits, when set, is the wait rule set the hook reads a shell command against.
+	Waits *WaitRules
 }
 
 // ReasonHandOff is what a held lane reads at its next tool call.
@@ -161,7 +163,13 @@ func CompilePolicy(spec PolicySpec) DenyPolicy {
 	if spec.ReadOnly {
 		deny = readOnlyRules()
 	}
+	var waits *WaitRules
+	if spec.Waits != nil {
+		clone := spec.Waits.clone()
+		waits = &clone
+	}
 	return DenyPolicy{
+		Waits:    waits,
 		OwnTools: spec.OwnTools, Roots: roots, Home: spec.Home, DefaultBranches: spec.DefaultBranches, Kept: spec.Kept, ReadOnlyRoots: spec.ReadOnlyRoots, Deny: deny, Ground: spec.Ground, QuestionTool: spec.QuestionTool,
 		AttachedMarker: spec.AttachedMarker,
 		ApprovalWaitMs: spec.ApprovalWaitMs, Gates: spec.Gates, ReadRoots: slices.Clone(spec.ReadRoots),
@@ -233,6 +241,9 @@ func (p DenyPolicy) Decide(call ToolCall) (string, bool) {
 		}
 		if seen.pushes && seen.commits {
 			return ReasonPushApart, true
+		}
+		if wait, waits := p.WaitDenial(call); waits {
+			return wait.Reason, true
 		}
 	case toolWrite, toolEdit, toolMultiEdit, toolNotebookEdit:
 		if len(p.Roots) != 0 && !p.inside(shellWord{text: call.Path}, call.Cwd) {

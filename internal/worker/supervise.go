@@ -483,6 +483,66 @@ func (r *laneRun) kept() []string {
 	return []string{r.lease.Continues}
 }
 
+// asksToPark says a wait is longer than this lane may hold a session for, and keeps the park it asks for until a
+// pass parks the lane (FR-SPEND-1). The wake is the end of the wait or a person, and the pass starts the sequence
+// that stores it, so the call that declared the wait returns at once. A lane that waits again before the pass
+// runs asks for the later end, so no wait is cut short.
+func (r *laneRun) asksToPark(wait lanes.WaitDeclaration) bool {
+	if !lanes.ParksOnWait(wait.Minutes, lanes.MaxLiveWait(r.lease.Spend)) {
+		return false
+	}
+	end := r.w.clock.Now().Add(time.Duration(wait.Minutes) * time.Minute).UnixMilli()
+	r.handleLock.Lock()
+	defer r.handleLock.Unlock()
+	r.waitParkAt = max(r.waitParkAt, end)
+	return true
+}
+
+// waitParkOf reads the park a long wait asked for, and the end it waits to.
+func (r *laneRun) waitParkOf() (lanes.ParkRequest, int64, bool) {
+	r.handleLock.Lock()
+	defer r.handleLock.Unlock()
+	if r.waitParkAt == 0 {
+		return lanes.ParkRequest{}, 0, false
+	}
+	return lanes.ParkRequest{Trigger: lanes.ParkWait, Expr: lanes.WaitWake(r.waitParkAt), PastCompaction: true}, r.waitParkAt, true
+}
+
+// settleWaitPark drops the park a pass started, unless the lane waited longer since.
+func (r *laneRun) settleWaitPark(at int64) {
+	r.handleLock.Lock()
+	defer r.handleLock.Unlock()
+	if r.waitParkAt == at {
+		r.waitParkAt = 0
+	}
+}
+
+// parkForWait starts the park a long wait asked for, and says a wait asked for one. A lane that cannot park
+// yet, such as one with a handoff under way, keeps its request for the next pass.
+func (r *laneRun) parkForWait(ctx context.Context) bool {
+	request, at, asked := r.waitParkOf()
+	if !asked {
+		return false
+	}
+	err := r.beginParking(ctx, request)
+	if errors.Is(err, ErrNoParking) {
+		return true
+	}
+	if err != nil {
+		r.w.config.Report(fmt.Errorf("lane %s: %w", r.lease.Lane, err))
+	}
+	r.settleWaitPark(at)
+	return true
+}
+
+// parkOnWaits parks each lane that declared a wait past the live bound (FR-SPEND-1), from wherever its turn
+// stands, and each lane decides alone.
+func (w *Worker) parkOnWaits(ctx context.Context) {
+	for _, run := range w.runs() {
+		run.parkForWait(ctx)
+	}
+}
+
 // declareWait keeps a lane's own word that it waits on something outside, for a time it
 // names. A quiet lane past that is a stalled one again.
 func (r *laneRun) declareWait(wait lanes.WaitDeclaration) {

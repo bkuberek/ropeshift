@@ -57,6 +57,30 @@ Work becomes `ready` only when it passes a definition of ready: its contract is 
 
 **A deterministic daemon** keeps each session healthy, starts a lane again after a crash, and fences out a lane that lost its claim, so two writers never write the same work.
 
+## Waiting costs no credits
+
+A session that waits spends its credits on nothing: every turn it takes while it polls or sleeps reads its whole context again. Ropeshift never keeps a session alive to wait. Plain code waits instead, and a lane waits live for at most `max_live_wait`, five minutes by default.
+
+| A lane waits on | What happens |
+|-----------------|--------------|
+| CI, a review, or a merge | Nothing: the lane reports its work and ends, and ropeshift starts the next step once the result is in |
+| A person | The lane asks, ends its turn, and parks after `ask_wait` |
+| A timer or an outside process, up to `max_live_wait` | The lane calls `lane_wait` and stays live |
+| A timer or an outside process, longer | `lane_wait` answers `parking`, the lane ends its turn, and the worker parks it within one pass. The lane wakes when the wait ends, or when you resume it |
+
+A parked lane has no process and makes no model call until it wakes.
+
+Each lane's hook also refuses a shell command that waits by construction, and tells the lane what to do instead. It reads what a command does and never how long it runs, so a long build or test run is never refused:
+
+| Rule | What it refuses |
+|------|-----------------|
+| W1 | A `sleep` of `max_tool_sleep` or longer, 60 seconds by default, alone or inside a compound command |
+| W2 | A `while`, `until`, or `for` loop whose body runs `sleep`, whatever its length |
+| W3 | `watch`, `gh run watch`, and `gh pr checks --watch` |
+| W4 | A read of CI status: `gh pr checks`, `gh pr view`, `gh run view`, `gh run list`, and `gh api` on a check, status, or run path |
+
+The hook applies the rules from the generation's policy file, so it refuses with the worker stopped and inside the lane's subagents. Each refusal is a `wait_denied` event on the work order with the rule's ID, the lane, and the generation, and never the command. A rule inside a script the lane runs is not seen. The settings are in [spend settings](set-up-projects.md#spend-settings).
+
 ## Review
 
 An agent never approves its own work. When a lane finishes with a commit, ropeshift opens a review of that commit, and a second, read-only lane judges every criterion of the contract: `pass`, `fail`, or `cannot_judge`, each with reasons and citations to files and lines. A failed criterion sends the work back for another attempt, with the findings in its first prompt. After three failed reviews, the work waits for you ([who reviews a lane's work](onboarding.md#who-reviews-a-lanes-work)).

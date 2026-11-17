@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"ropeshift.com/ropeshift/internal/lanes"
+	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/internal/questions"
 	"ropeshift.com/ropeshift/internal/workorders"
@@ -132,6 +133,7 @@ func (w *Worker) AnswerLane(ctx context.Context, line []byte) lanes.Reply {
 		}
 		w.deliverHook(ctx, event)
 		w.takeAdmission(ctx, event)
+		w.recordWaitDenied(ctx, lane, event)
 		reply := lanes.Reply{OK: true, Generation: lane.Generation}
 		if run := w.runOf(lane.ID); run != nil {
 			reply.Generation = run.currentGeneration()
@@ -156,8 +158,11 @@ func (w *Worker) AnswerLane(ctx context.Context, line []byte) lanes.Reply {
 			return refused(lanes.CodeInvalid, "a wait needs a number of minutes")
 		}
 		if run := w.runOf(lane.ID); run != nil {
-			run.declareWait(*request.Wait)
 			run.noteLedger(lanes.Reachable)
+			if run.asksToPark(*request.Wait) {
+				return lanes.Reply{OK: true, Parking: true}
+			}
+			run.declareWait(*request.Wait)
 		}
 		return lanes.Reply{OK: true}
 	}
@@ -176,6 +181,23 @@ func (w *Worker) deliverHook(ctx context.Context, event lanes.HookEvent) {
 			record, asked, categories := run.record(), event.Asked, run.askCategories()
 			w.goTracked(trackedConversion, func() { w.convertAsked(ctx, record, asked, categories) })
 		}
+	}
+}
+
+// recordWaitDenied keeps a hook's denial under a wait rule as an event of the lane's work order, with the rule's
+// ID, the lane, and the generation, and never the command (FR-SPEND-2, FR-OBS-5). A spool is read at least once,
+// so a crash in the middle of a drain can repeat one.
+func (w *Worker) recordWaitDenied(ctx context.Context, record lanes.Record, event lanes.HookEvent) {
+	if event.Detail != lanes.DetailDenied || !lanes.KnownWaitRule(event.WaitRule) {
+		return
+	}
+	record.Generation = event.Generation
+	payload, err := json.Marshal(map[string]string{"rule": event.WaitRule})
+	if err == nil {
+		_, err = w.Record(ctx, w.event(ledger.UploadWaitDenied, record, payload))
+	}
+	if err != nil {
+		w.config.Report(fmt.Errorf("lane %s: a wait denial stayed unrecorded: %w", record.ID, err))
 	}
 }
 
@@ -367,6 +389,11 @@ func (w *Worker) drainFile(ctx context.Context, path string) error {
 		}
 		w.deliverHook(ctx, event)
 		w.takeAdmission(ctx, event)
+		if event.WaitRule != "" {
+			if record, err := w.journal.Lane(ctx, event.Lane); err == nil {
+				w.recordWaitDenied(ctx, record, event)
+			}
+		}
 	}
 	if dropped != 0 {
 		w.config.Report(fmt.Errorf("the spool held %d lines that prove no lane, and they count for nothing", dropped))

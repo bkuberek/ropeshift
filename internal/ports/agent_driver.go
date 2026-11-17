@@ -195,6 +195,10 @@ type SessionSpec struct {
 	// Deny are the tool categories the lane's own agent denies, which narrow its rules and never widen
 	// them.
 	Deny []string
+	// Waits is the wait rule set the generation's hook reads (FR-SPEND-2), from the project's spend policy in
+	// force when the lane started. A zero Version means the session has none: an orchestrator's and an
+	// assistant's shells are not a lane's.
+	Waits lanes.WaitRules
 }
 
 // SessionTelemetry points a session's telemetry at the worker's receiver, tagged with what produced it

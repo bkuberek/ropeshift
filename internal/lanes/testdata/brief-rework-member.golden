@@ -13,3 +13,5 @@ Why this came back. Your last attempt was sent back for another try. The reason 
 Your system prompt holds this lane's context pack, which is also at .ropeshift/context/pack.md. It is where you start and not a limit: the context_get, decision_search, requirement_get, and question_search tools read the rest of what this workspace holds.
 
 When the work is done, or cannot go on, call the lane_report tool once with its outcome, then end your turn.
+
+Never wait for CI, a review, or a merge: after you push, ropeshift reads the checks and starts the review and the merge, so call lane_report and end your turn. Do not sleep, poll, or watch for them, and do not read their status: a command that does is denied.

@@ -199,6 +199,9 @@ type Reply struct {
 	Owner string `json:"owner,omitempty"`
 	// Work is what an orchestrator's tool found, set when OK.
 	Work json.RawMessage `json:"work,omitempty"`
+	// Parking answers a wait longer than the lane may hold a session for: the worker parks the lane, and the
+	// lane ends its turn (FR-SPEND-1).
+	Parking bool `json:"parking,omitempty"`
 }
 
 // What a look at a call can answer.

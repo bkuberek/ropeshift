@@ -168,6 +168,9 @@ type laneRun struct {
 	drainingSince time.Time
 	// waiting says a goroutine holds this lane for `ask_wait`.
 	waiting atomic.Bool
+	// waitParkAt is the end, in milliseconds, of the longest `lane_wait` past the live bound this lane declared
+	// that no pass has parked it for yet, and zero when none waits. The handle's lock guards it.
+	waitParkAt int64
 	// process is the generation whose process runs now, which a clear does not move. The handle's
 	// lock guards it.
 	process int64
@@ -908,6 +911,9 @@ func (r *laneRun) spec(ctx context.Context, prepared PreparedLane, repository, p
 		Telemetry: r.sessionTelemetry(prepared, repository),
 		Agents:    r.sessionAgents(prepared.Profile, capabilities.Support()), Effort: effort, Deny: deny,
 	}
+	if !r.orchestrating() && !r.assisting() {
+		spec.Waits = lanes.WaitRulesFrom(r.lease.Spend)
+	}
 	r.assistantShell(&spec)
 	if spec.TempDir != "" {
 		if err := os.MkdirAll(spec.TempDir, 0o700); err != nil {
@@ -1159,6 +1165,11 @@ func (r *laneRun) afterTurn(ctx context.Context, turn *ports.TurnResult, clears 
 	}
 	if len(r.blockingQuestions()) != 0 {
 		r.awaitAnswer(ctx)
+		return
+	}
+	// A lane that declared a wait past the live bound ended its turn as it was told, so it parks now and is not
+	// nudged: a nudge is a model call for a lane that is waiting on a timer.
+	if r.parkForWait(ctx) {
 		return
 	}
 	if r.draining(ctx) {

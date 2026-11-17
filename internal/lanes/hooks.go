@@ -44,7 +44,10 @@ type HookEvent struct {
 	Digest string `json:"digest,omitempty"`
 	// Message names the message a prompt opened with, which is the admission signal. It is the
 	// one thing a hook takes from a prompt.
-	Message   string `json:"message,omitempty"`
+	Message string `json:"message,omitempty"`
+	// WaitRule is the ID of the wait rule that denied the call, on a denial. It is the only part of a denied
+	// command a hook forwards, and the worker records it as a `wait_denied` event (FR-SPEND-2).
+	WaitRule  string `json:"wait_rule,omitempty"`
 	AtMs      int64  `json:"at_ms"`
 	Malformed bool   `json:"malformed,omitempty"`
 }
@@ -294,6 +297,9 @@ type DenyPolicy struct {
 	OwnTools string `json:"own_tools,omitempty"`
 	// Ground is what a session that lost its place is told of its work.
 	Ground Grounding `json:"ground,omitzero"`
+	// Waits is the versioned wait rule set a shell command is read against (FR-SPEND-2). A hook applies it from
+	// this file, so a denial needs no worker.
+	Waits *WaitRules `json:"waits,omitempty"`
 	// links reads the disk for a file program's links (WithLinks). It is the reader's, not the file's.
 	links LinkReader
 	// real reads where a path leads on the disk (WithRealPaths). It is the reader's, not the file's.
