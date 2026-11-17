@@ -276,8 +276,9 @@ func (w *Worker) recheckHealth(project, repository string) {
 	}
 }
 
-// runForge runs one attempt at a forge request and journals its report. A failure is a report too, which
-// the ledger keeps with the request before it offers the next attempt.
+// runForge runs one attempt at a forge request, journals its report, and uploads it at once, so a merge
+// reaches the ledger without waiting for the next heartbeat, whose upload sends it when this one fails. A
+// failure is a report too, which the ledger keeps with the request before it offers the next attempt.
 func (w *Worker) runForge(ctx context.Context, request ledger.DesiredForge) {
 	report, err := w.performForge(ctx, request)
 	report.Request, report.Attempt = request.ID, request.Attempt
@@ -303,11 +304,12 @@ func (w *Worker) runForge(ctx context.Context, request ledger.DesiredForge) {
 		return
 	}
 	w.forgeLock.Lock()
-	defer w.forgeLock.Unlock()
 	if w.forgeReported == nil {
 		w.forgeReported = map[string]bool{}
 	}
 	w.forgeReported[forgeAttemptKey(request)] = true
+	w.forgeLock.Unlock()
+	w.uploadSoon(ctx)
 }
 
 // performForge runs one forge request and returns what its report carries beyond the request it answers.

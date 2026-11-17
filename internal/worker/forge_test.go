@@ -1,8 +1,10 @@
 package worker_test
 
 import (
+	"context"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -288,20 +290,8 @@ func TestAWorkerMergesAtTheReviewedHeadOnce(t *testing.T) {
 // forge, as one recorded effect, and the merge it reports ends the work.
 func TestAWorkerMergesAReviewedBranchWithGit(t *testing.T) {
 	t.Parallel()
-	base := newRig(t)
-	repositories := control.NewRepositories(base.store)
-	if _, err := repositories.Detect(t.Context(), scope, control.DetectedRepository{ID: "repo-1", DefaultBranch: "main"}, member); err != nil {
-		t.Fatal(err)
-	}
-	level := ledger.ReviewApproves
-	if _, err := repositories.Change(t.Context(), scope, "repo-1", control.RepositoryChange{MergeAuthority: &level}, member); err != nil {
-		t.Fatal(err)
-	}
-	worktrees := fake.NewWorktrees()
-	base.worktrees, base.repository = worktrees, "repo-1"
-	r := newLaneRigFor(t, base)
-	r.driver.Play(script([]fake.DriverStep{{Bound: true}, r.reports(workorders.OutcomeCompleted), completed(0.01)}))
-	f := &forgeRig{laneRig: r, worktrees: worktrees}
+	f := newBranchMergeRig(t, newRig(t))
+	worktrees := f.worktrees
 	f.converge(2)
 	f.passReview()
 	if f.row().State != workorders.Integrating {
@@ -320,6 +310,123 @@ func TestAWorkerMergesAReviewedBranchWithGit(t *testing.T) {
 	if again := worktrees.Merges(); len(again) != 1 {
 		t.Errorf("the worker merged %d times", len(again))
 	}
+}
+
+// newBranchMergeRig is a worker whose lane completes a change in a repository with review target `branch` at
+// review_approves, so a passed review asks that worker to merge the branch with git.
+func newBranchMergeRig(t *testing.T, base *rig) *forgeRig {
+	t.Helper()
+	repositories := control.NewRepositories(base.store)
+	if _, err := repositories.Detect(t.Context(), scope, control.DetectedRepository{ID: "repo-1", DefaultBranch: "main"}, member); err != nil {
+		t.Fatal(err)
+	}
+	level := ledger.ReviewApproves
+	if _, err := repositories.Change(t.Context(), scope, "repo-1", control.RepositoryChange{MergeAuthority: &level}, member); err != nil {
+		t.Fatal(err)
+	}
+	worktrees := fake.NewWorktrees()
+	base.worktrees, base.repository = worktrees, "repo-1"
+	r := newLaneRigFor(t, base)
+	r.driver.Play(script([]fake.DriverStep{{Bound: true}, r.reports(workorders.OutcomeCompleted), completed(0.01)}))
+	return &forgeRig{laneRig: r, worktrees: worktrees}
+}
+
+// TestAWorkerUploadsAMergeAsItRecordsIt is a merge no lane waits on: the worker uploads its report as soon as
+// it journals it, so the work ends at once and not at the worker's next heartbeat. The pass here runs no
+// heartbeat and no upload of its own, and the report reaches the ledger after what the worker journaled
+// before it.
+func TestAWorkerUploadsAMergeAsItRecordsIt(t *testing.T) {
+	t.Parallel()
+	base := newRig(t)
+	journal := &cursorJournal{Journal: base.journal}
+	base.workerJournal = journal
+	f := newBranchMergeRig(t, base)
+	f.converge(2)
+	f.passReview()
+	ctx := t.Context()
+	earlier, err := f.subject.Record(ctx, ledger.UploadEvent{Type: "note"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.subject.Sync(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.subject.Reconcile(ctx); err != nil {
+		t.Fatal(err)
+	}
+	f.subject.Wait()
+	if merges := f.worktrees.Merges(); len(merges) != 1 {
+		t.Fatalf("the worker merged %+v", merges)
+	}
+	var requests []ledger.ForgeRequest
+	err = f.store.Read(ctx, scope, func(tx ports.ReadTx) error {
+		var err error
+		requests, err = tx.Forge().RequestsOf(f.id)
+		return err
+	})
+	if err != nil || len(requests) != 1 || requests[0].Kind != ledger.ForgeMerge || requests[0].State != ledger.ForgeDone {
+		t.Fatalf("with no heartbeat since the merge, the ledger holds the requests %+v: %v", requests, err)
+	}
+	if f.row().State != workorders.Done {
+		t.Fatalf("with no heartbeat since the merge, the work reads %s", f.row().State)
+	}
+	report, marks := journal.seen()
+	if report <= earlier.Seq {
+		t.Fatalf("the report is journaled at %d, after the event at %d", report, earlier.Seq)
+	}
+	if len(marks) == 0 || marks[len(marks)-1] < report {
+		t.Fatalf("the upload cursor moved %v, short of the report at %d", marks, report)
+	}
+	for i := 1; i < len(marks); i++ {
+		if marks[i] < marks[i-1] {
+			t.Fatalf("the upload cursor moved back: %v", marks)
+		}
+	}
+	if pending, err := f.journal.Pending(ctx, 10); err != nil || len(pending) != 0 {
+		t.Fatalf("%d events wait for an upload: %v", len(pending), err)
+	}
+	id := ledger.UploadedEventID(f.subject.Auth().WorkerID, earlier.Epoch, earlier.Seq)
+	found := false
+	err = f.store.Read(ctx, scope, func(tx ports.ReadTx) error {
+		events, err := tx.Events(0, 10_000)
+		found = slices.ContainsFunc(events, func(event ledger.Event) bool { return event.ID == id })
+		return err
+	})
+	if err != nil || !found {
+		t.Fatalf("the event journaled before the report is not in the ledger: %v", err)
+	}
+}
+
+// cursorJournal keeps the sequence of the forge report the worker journals, and each high-water mark of the
+// upload cursor in the order the worker moved it.
+type cursorJournal struct {
+	*fake.Journal
+	lock   sync.Mutex
+	report int64
+	marks  []int64
+}
+
+func (j *cursorJournal) Append(ctx context.Context, event ledger.UploadEvent) (ledger.UploadEvent, error) {
+	kept, err := j.Journal.Append(ctx, event)
+	if err == nil && event.Type == ledger.UploadForgeReported {
+		j.lock.Lock()
+		j.report = kept.Seq
+		j.lock.Unlock()
+	}
+	return kept, err
+}
+
+func (j *cursorJournal) Acknowledge(ctx context.Context, through int64, rejected []ports.JournalResult) error {
+	j.lock.Lock()
+	j.marks = append(j.marks, through)
+	j.lock.Unlock()
+	return j.Journal.Acknowledge(ctx, through, rejected)
+}
+
+func (j *cursorJournal) seen() (int64, []int64) {
+	j.lock.Lock()
+	defer j.lock.Unlock()
+	return j.report, slices.Clone(j.marks)
 }
 
 // TestAWorkersFirstReadReportsChecksTheLedgerLacks reads a watched pull request for the first time after CI

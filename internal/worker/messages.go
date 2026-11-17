@@ -263,7 +263,8 @@ func (w *Worker) moveMessage(ctx context.Context, held messages.Held, to message
 	return moved
 }
 
-// uploadSoon sends what a hook left, apart from the hook, which has milliseconds to answer.
+// uploadSoon sends what the journal holds now rather than at the next heartbeat: what a hook left, apart
+// from the hook, which has milliseconds to answer, or a forge report.
 func (w *Worker) uploadSoon(ctx context.Context) {
 	if err := w.Upload(ctx); err != nil && ctx.Err() == nil {
 		w.config.Report(err)
