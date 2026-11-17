@@ -90,6 +90,9 @@ func PlaneRoutes() []PlaneRoute {
 	}
 }
 
+// registerWindow is how long a registration has to arrive, from the moment its headers did.
+var registerWindow = 10 * time.Second
+
 // network is the handler of the network listener.
 type network struct {
 	api http.Handler
@@ -199,9 +202,17 @@ func (n *network) register(w http.ResponseWriter, r *http.Request, kinds []crede
 		refuse(w, http.StatusForbidden, api.ErrorDetail{Code: api.CodeForbidden, Message: "a registration carries a join token and no other credential"})
 		return
 	}
+	// The join token is in the body, which is read before anyone has proved anything, so it is read within a
+	// window and up to a limit, and a client that sends it slowly or without end holds nothing past them.
+	_ = http.NewResponseController(w).SetReadDeadline(time.Now().Add(registerWindow))
 	raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxBody))
-	if err != nil {
+	var tooBig *http.MaxBytesError
+	switch {
+	case errors.As(err, &tooBig):
 		refuse(w, http.StatusRequestEntityTooLarge, api.ErrorDetail{Code: api.CodeInvalid, Message: "a registration is small"})
+		return
+	case err != nil:
+		refuse(w, http.StatusRequestTimeout, api.ErrorDetail{Code: api.CodeInvalid, Message: "a registration arrives whole and at once"})
 		return
 	}
 	var in struct {

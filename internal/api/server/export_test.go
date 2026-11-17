@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"time"
 
 	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/authority"
@@ -22,6 +23,13 @@ func RouteOperations() map[string]RouteOperation {
 		out[pattern] = RouteOperation{IDs: route.ids, Resolved: route.resolve != nil}
 	}
 	return out
+}
+
+// SetRegisterWindow changes how long a registration may take to arrive, until the returned function puts it back.
+func SetRegisterWindow(window time.Duration) func() {
+	was := registerWindow
+	registerWindow = window
+	return func() { registerWindow = was }
 }
 
 // WhenConfirmed runs f with a confirming request's context once its card is approved and before its call

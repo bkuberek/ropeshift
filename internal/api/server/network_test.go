@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"net"
 	"net/http"
 	"regexp"
 	"slices"
@@ -180,13 +181,13 @@ func TestAMembersSessionReachesTheAPIAsABearerToken(t *testing.T) {
 func TestASessionThatEndedOpensNothingOverTheNetwork(t *testing.T) {
 	t.Parallel()
 	r := networkOn(t)
-	session, err := r.d.Client.Client.SignIn(t.Context(), api.SignIn{Passphrase: apitest.Passphrase})
+	session, err := r.d.Client.SignIn(t.Context(), api.SignIn{Passphrase: apitest.Passphrase})
 	if err != nil {
 		t.Fatal(err)
 	}
 	response, raw := r.send(t, call{path: "/v1/health", headers: map[string]string{api.HeaderSession: session.Token}})
 	wantStatus(t, response, raw, http.StatusOK, "")
-	ending := r.d.Client.Client.WithCredential("")
+	ending := r.d.Client.WithCredential("")
 	ending.UseSession(session.Token)
 	if err := ending.SignOut(t.Context()); err != nil {
 		t.Fatal(err)
@@ -354,12 +355,39 @@ func TestRegistrationNeedsAJoinToken(t *testing.T) {
 	wantStatus(t, response, raw, http.StatusUnauthorized, api.CodeBadJoinToken)
 }
 
+// A registration is read before its join token can be checked, so a client that sends it a byte at a time
+// holds nothing past the window the listener gives it.
+func TestASlowRegistrationIsCutOff(t *testing.T) {
+	defer server.SetRegisterWindow(300 * time.Millisecond)()
+	r := networkOn(t)
+	conn, err := net.Dial("tcp", r.web.Host)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	_, err = io.WriteString(conn, "POST /v1/workers/register HTTP/1.1\r\nHost: "+r.web.Host+"\r\nContent-Type: application/json\r\nContent-Length: 1000\r\n\r\n{\"join_token\":")
+	if err != nil {
+		t.Fatal(err)
+	}
+	started := time.Now()
+	if err := conn.SetReadDeadline(started.Add(10 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	answer, _ := io.ReadAll(conn)
+	if waited := time.Since(started); waited > 5*time.Second {
+		t.Errorf("the listener held a half-sent registration for %s", waited)
+	}
+	if !strings.HasPrefix(string(answer), "HTTP/1.1 4") {
+		t.Errorf("a half-sent registration is answered %q", answer)
+	}
+}
+
 // A stream a bearer token opened ends with its session, as the web UI's does, so a session that ended
 // leaves nothing listening.
 func TestAStreamOpenedWithABearerTokenEndsWithItsSession(t *testing.T) {
 	t.Parallel()
 	r := networkOn(t)
-	session, err := r.d.Client.Client.SignIn(t.Context(), api.SignIn{Passphrase: apitest.Passphrase})
+	session, err := r.d.Client.SignIn(t.Context(), api.SignIn{Passphrase: apitest.Passphrase})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -383,7 +411,7 @@ func TestAStreamOpenedWithABearerTokenEndsWithItsSession(t *testing.T) {
 		defer close(ended)
 		_, _ = io.Copy(io.Discard, response.Body)
 	}()
-	ending := r.d.Client.Client.WithCredential("")
+	ending := r.d.Client.WithCredential("")
 	ending.UseSession(session.Token)
 	if err := ending.SignOut(t.Context()); err != nil {
 		t.Fatal(err)

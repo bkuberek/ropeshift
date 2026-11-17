@@ -19,7 +19,7 @@ var ErrServerOffLoopback = errors.New("a server off loopback needs TLS, which th
 // loopback. A name that is not `localhost`, a private address, and an https:// URL are refused before any
 // connection opens, and the refusal never repeats what the URL held.
 func NewTCPClient(server string) (*Client, error) {
-	base, err := loopbackBase(server)
+	base, err := ServerAddress(server)
 	if err != nil {
 		return nil, err
 	}
@@ -28,9 +28,10 @@ func NewTCPClient(server string) (*Client, error) {
 	return &Client{http: &http.Client{Transport: transport}, base: base}, nil
 }
 
-// loopbackBase checks a server address and returns the base URL a client calls: the address with the
-// loopback name `localhost` spelled as the address it stands for.
-func loopbackBase(server string) (string, error) {
+// ServerAddress checks a server address and returns the base URL a client calls: the address with the
+// loopback name `localhost` spelled as the address it stands for, and a trailing slash taken off. A worker
+// keeps this form, so two spellings of one server are one.
+func ServerAddress(server string) (string, error) {
 	u, err := url.Parse(server)
 	if err != nil {
 		return "", errors.New("the server address is not a URL")

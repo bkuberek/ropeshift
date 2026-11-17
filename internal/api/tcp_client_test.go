@@ -59,6 +59,21 @@ func TestATCPClientReadsTheServersRefusal(t *testing.T) {
 	}
 }
 
+// Two spellings of one server are one address.
+func TestAServerAddressHasOneSpelling(t *testing.T) {
+	t.Parallel()
+	for spelling, want := range map[string]string{
+		"http://localhost:7400":  "http://127.0.0.1:7400",
+		"http://127.0.0.1:7400/": "http://127.0.0.1:7400",
+		"http://127.0.0.1":       "http://127.0.0.1:80",
+		"http://[::1]:7400":      "http://[::1]:7400",
+	} {
+		if got, err := api.ServerAddress(spelling); err != nil || got != want {
+			t.Errorf("%s is %q, %v, want %q", spelling, got, err, want)
+		}
+	}
+}
+
 // Nothing answering is a server that cannot be reached, which a caller tells from a refusal.
 func TestATCPClientToNothingIsUnreachable(t *testing.T) {
 	t.Parallel()
