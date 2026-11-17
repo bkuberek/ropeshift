@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 
+	"ropeshift.com/ropeshift/internal/adapters/fake"
 	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/control"
 	"ropeshift.com/ropeshift/internal/ledger"
@@ -33,6 +34,67 @@ var BindingChecks = []Check{
 	{"BD10", "an overturn tells a lane that the decision had told", checkBindingOverturnTellsAgain},
 	{"BD11", "the control plane records no scope outside the grammar, however a decision reaches it", checkBindingRefusesBadScopes},
 	{"BD12", "a lane's wake on a decision names a scope in the grammar", checkBindingWakeNamesAScope},
+	{"BD13", "a plan whose file names it with an id that is not plain is approved and its questions are answered", checkBindingUnplainPlanID},
+}
+
+// dottedPlanFile is a plan whose file names it with an id that is no plain ID, as an author may write one. The
+// ledger gives the plan an ID of its own, which is what a scope names, so the file's id never reaches a scope.
+const dottedPlanFile = `+++
+kind = "plan"
+id = "2026.q4"
+title = "Dotted"
+
+[[decision]]
+id = "currency"
+question = "Which currency do invoices use?"
+answer = "Euro"
+rationale = "The brand guide says so."
++++
+
+How.
+`
+
+// checkBindingUnplainPlanID holds that the scopes the control plane builds itself never fail the grammar: a plan
+// the author named "2026.q4" in its file is approved, its review's questions are answered, and the answer is
+// scoped by the ID the ledger gave the plan.
+func checkBindingUnplainPlanID(r *Rig) error {
+	s := r.Store()
+	source := fake.NewWorkSource()
+	source.Write("plan.md", []byte(dottedPlanFile))
+	source.Write("alpha.md", []byte(placedContract{ID: "alpha", Plan: "2026.q4"}.text()))
+	if _, err := r.intake(s, source); err != nil {
+		return err
+	}
+	plan, err := r.planID(s, "Dotted")
+	if err != nil {
+		return err
+	}
+	pending, err := r.theOpenPlanApproval(s)
+	if err != nil {
+		return err
+	}
+	if _, err := r.approve(s, pending, true, theMember); err != nil {
+		return Violatedf("a plan whose id is not plain was not approved: %v", err)
+	}
+	review, err := newStatusRigOn(r, s, func(store ports.Store) (string, error) {
+		order, err := r.reviewOf(store, plan)
+		return order.ID, err
+	})
+	if err != nil {
+		return err
+	}
+	asked, err := review.askAs("Which currency do invoices use?", false)
+	if err != nil {
+		return err
+	}
+	answer, err := r.NewOps(s).Answer(r.Ctx, r.Scope, asked.QuestionID, questions.Answer{DecisionID: r.ID("d"), Statement: "Euro."}, r.member())
+	if err != nil {
+		return Violatedf("a question about a plan whose id is not plain was not answered: %v", err)
+	}
+	if want := "plan:" + plan; answer.Scope != want {
+		return Violatedf("the answer is scoped %q, want %q", answer.Scope, want)
+	}
+	return r.CheckQuestions(s)
 }
 
 // checkBindingWakeNamesAScope holds the grammar at the other place a scope is written, a lane's wake on a

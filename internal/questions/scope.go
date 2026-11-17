@@ -69,9 +69,11 @@ func (s Scope) Zero() bool { return s.Kind == "" }
 
 // ScopeOf is the scope of a question about a record: what an answer to it binds. A contract review lane's
 // question is about its plan, any other lane's about its work order, and a question about nothing binds
-// nothing.
+// nothing. So does a record whose ID is no plain ID, such as a plan an author named "2026.q4": no scope can name
+// it, and the control plane builds this scope itself, so an answer to a question about it records a decision that
+// binds nothing, and is never refused.
 func ScopeOf(subjectKind, subjectID string) string {
-	if subjectID == "" {
+	if subjectID == "" || !ledger.PlainID(subjectID) {
 		return ""
 	}
 	switch subjectKind {

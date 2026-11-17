@@ -64,6 +64,10 @@ func TestScopeOfASubject(t *testing.T) {
 		{workorders.SubjectKind, "", ""},
 		{"", "", ""},
 		{"teleport", "x", ""},
+		// A record no scope can name binds nothing, so the scope the control plane builds from it is never refused.
+		{planning.SubjectPlan, "2026.q4", ""},
+		{planning.SubjectContract, "has space", ""},
+		{workorders.SubjectKind, "wo:1", ""},
 	}
 	for _, tt := range tests {
 		if got := ScopeOf(tt.kind, tt.id); got != tt.want {
