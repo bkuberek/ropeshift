@@ -456,7 +456,8 @@ func (w *Worker) perform(ctx context.Context, action lanes.Action, seen observed
 }
 
 // endUnattended accounts for a lane with no session left to read. A report it made
-// before the crash stands. A lane whose lease went stops through the same guard.
+// before the crash stands. A lane whose lease went stops through the same guard. A turn the
+// session may have ended inside reported no cost, so it counts as unreported.
 func (w *Worker) endUnattended(ctx context.Context, record lanes.Record) error {
 	result := workorders.LaneResult{
 		Report:  workorders.Report{Outcome: workorders.OutcomeFailed, Reason: workorders.ReasonWorkerRestarted},
@@ -464,10 +465,51 @@ func (w *Worker) endUnattended(ctx context.Context, record lanes.Record) error {
 		UnknownCostTurns: record.Progress.PriorUnknown + record.Progress.Cost.UnknownTurns,
 		InputTokens:      record.Progress.Usage.Context(), OutputTokens: record.Progress.Usage.OutputTokens,
 	}
+	if w.endedInATurn(ctx, record) {
+		result.UnknownCostTurns++
+		// A worker that read the session's end expired its token as it did, and counted the turn in its telemetry
+		// then: only the journal lost it.
+		if record.TokenDigest != "" {
+			w.measureUnattended(record)
+		}
+	}
 	if report, ok := decodeReport(record.Report); ok {
 		result.Report = report
 	}
 	return w.endLane(ctx, record, w.baseOf(ctx, record), result, w.leaseGone(ctx, record))
+}
+
+// endedInATurn says whether a lane's session, which no worker can read now, may have ended inside a turn. A
+// generation whose session never started ran none. The rest is what the worker last recorded of the lane: idle
+// means it read the last turn's end and handed the session nothing since, unless a crash left an input unknown
+// that reached it all the same. Any other state is a turn under way, a session end a worker read and counted only
+// in memory, which it never leaves at idle, or a state it cannot place, and each counts. A read that fails counts
+// too, because a lower bound read as the whole cost is the worse mistake.
+func (w *Worker) endedInATurn(ctx context.Context, record lanes.Record) bool {
+	spawn, err := w.journal.Effect(ctx, lanes.NewEffect(lanes.EffectSession, record.ID, record.ProcessGeneration(), "", "").Key)
+	switch {
+	case errors.Is(err, ports.ErrNotFound):
+		return false
+	case err != nil:
+		w.config.Report(fmt.Errorf("lane %s: %w", record.ID, err))
+		return true
+	case spawn.State != lanes.EffectCompleted && spawn.State != lanes.EffectUnknown:
+		return false
+	case record.Actual != lanes.Idle:
+		return true
+	}
+	effects, err := w.journal.Effects(ctx)
+	if err != nil {
+		w.config.Report(fmt.Errorf("lane %s: %w", record.ID, err))
+		return true
+	}
+	for _, effect := range effects {
+		if effect.Lane == record.ID && effect.Generation == record.Generation && effect.Kind == lanes.EffectInput &&
+			(effect.State == lanes.EffectStarted || effect.State == lanes.EffectUnknown) {
+			return true
+		}
+	}
+	return false
 }
 
 func (rt *LaneRuntime) configDir(lane string) string {

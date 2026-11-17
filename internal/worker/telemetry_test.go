@@ -455,3 +455,110 @@ func TestATurnAStopKilledIsCountedUnreported(t *testing.T) {
 		t.Errorf("the ledger counts %d turns of unknown cost, and the lane table 1", got)
 	}
 }
+
+// A worker that finds a lane's session gone, with no end it can read, cannot see whether the session ended inside a
+// turn, which then reported no cost. What it last recorded of the lane decides: a lane at rest ran no turn, unless an
+// input a crash left unknown reached the session, a session that never started ran none, and a lane at work counts
+// its turn, in its telemetry and in the ledger's record of its end alike.
+func TestATurnASessionNobodySawEndMayHaveEndedInIsCounted(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name   string
+		actual lanes.ActualState
+		spawn  lanes.EffectState
+		input  bool
+		want   int
+	}{
+		{"a lane at work", lanes.Working, lanes.EffectCompleted, false, 1},
+		{"a lane at rest", lanes.Idle, lanes.EffectCompleted, false, 0},
+		{"a lane at rest with an input a crash left unknown", lanes.Idle, lanes.EffectCompleted, true, 1},
+		{"a lane whose session never started", lanes.Starting, lanes.EffectFailed, false, 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			r := newLaneRig(t)
+			ctx := t.Context()
+			record := lanes.Record{
+				ID: "lane-1", WorkOrder: r.id, ClaimID: r.grant.ClaimID, Fence: r.grant.Fence, Generation: 1, State: lanes.StateRunning,
+				TokenDigest: lanes.TokenDigest("token"), Process: 1,
+			}
+			begun := ledger.UploadEvent{
+				Epoch: r.subject.Session().Epoch, Type: ledger.UploadLaneStarted, WorkOrder: r.id, ClaimID: record.ClaimID,
+				Fence: record.Fence, Lane: "lane-1", Generation: 1, OccurredAt: 1,
+			}
+			if _, err := r.journal.BeginLane(ctx, record, begun); err != nil {
+				t.Fatal(err)
+			}
+			if err := r.journal.SaveActual(ctx, "lane-1", tt.actual, ""); err != nil {
+				t.Fatal(err)
+			}
+			spawn := lanes.NewEffect(lanes.EffectSession, "lane-1", 1, "", "")
+			if _, err := r.journal.BeginEffect(ctx, spawn); err != nil {
+				t.Fatal(err)
+			}
+			if err := r.journal.FinishEffect(ctx, spawn.Key, tt.spawn, ""); err != nil {
+				t.Fatal(err)
+			}
+			if tt.input {
+				if _, err := r.journal.BeginEffect(ctx, lanes.NewEffect(lanes.EffectInput, "lane-1", 1, "", "nudge")); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := r.subject.Converge(ctx); err != nil {
+				t.Fatal(err)
+			}
+			if change := r.outcome(); change.Reason != workorders.ReasonWorkerRestarted {
+				t.Fatalf("outcome %+v", change)
+			}
+			unreported := r.telemetry.Measurements(ledger.MetricCostUnreported)
+			if len(unreported) != tt.want {
+				t.Fatalf("%d turns counted unreported, want %d: %+v", len(unreported), tt.want, unreported)
+			}
+			for _, m := range unreported {
+				if m.Kind != ports.MetricCounter || m.Unit != "{turn}" || m.Value != 1 || attribute(m.Attributes, lanes.AttrLane) != "lane-1" ||
+					attribute(m.Attributes, lanes.AttrWorkOrder) != r.id || attribute(m.Attributes, lanes.AttrGeneration) != int64(1) {
+					t.Errorf("an unreported turn is measured as %+v", m)
+				}
+			}
+			if got := r.laneResult().UnknownCostTurns; got != int64(tt.want) {
+				t.Errorf("the ledger counts %d turns of unknown cost, want %d", got, tt.want)
+			}
+		})
+	}
+}
+
+// A worker that read a session's end counted the turn it crashed in, and held that count only in memory until the
+// lane's next generation or its end. When that worker dies first, and the next one finds the session gone with no end
+// it can read, the lane's end still counts the turn: once in the ledger, and not again in the telemetry, which the
+// first worker wrote as it read the end.
+func TestATurnACrashLeftUnreportedOutlivesTheWorkerThatReadIt(t *testing.T) {
+	t.Parallel()
+	r := laneRigWith(t, restarts)
+	r.driver.Play(script(crashed()))
+	r.start()
+	r.laneState(lanes.Backoff)
+	r.awaitCharge(t)
+	r.stopWorker()
+	r.subject.Wait()
+	driver := fake.NewAgentDriver()
+	driver.Leave("lane-1", 1, sessionDead)
+	config := *r.config
+	config.Driver = driver
+	next := worker.New(r.link, r.journal, r.clock, worker.Config{Name: "test", Lanes: &config, Telemetry: r.telemetry})
+	if err := next.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if err := next.Converge(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if change := r.outcome(); change.Reason != workorders.ReasonWorkerRestarted {
+		t.Fatalf("outcome %+v", change)
+	}
+	if unreported := r.telemetry.Measurements(ledger.MetricCostUnreported); len(unreported) != 1 {
+		t.Errorf("%d turns counted unreported, want the one the crash left: %+v", len(unreported), unreported)
+	}
+	if got := r.laneResult().UnknownCostTurns; got != 1 {
+		t.Errorf("the ledger counts %d turns of unknown cost, want the one the crash left", got)
+	}
+}

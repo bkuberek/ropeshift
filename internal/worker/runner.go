@@ -1002,7 +1002,8 @@ func (r *laneRun) watch(ctx context.Context, events <-chan ports.DriverEvent) wo
 			// A session that ended with an input unanswered never reported the cost of the turn it ended in, though
 			// a kill the worker asked for crashes nothing. Crashed counts too: a turn a message started through the
 			// session's socket is no input a driver counts, so a crash with every counted input answered may still
-			// have died in one.
+			// have died in one. Known limitation: a crash at rest counts a turn too, since the stream shows no documented
+			// start for a turn a socket message begins.
 			if event.End != nil && (event.End.Crashed || event.End.InputUnanswered) {
 				r.unreportedEnd()
 			}
