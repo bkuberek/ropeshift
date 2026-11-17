@@ -415,7 +415,7 @@ type failing struct {
 	err error
 }
 
-func (f failing) Authenticate(context.Context, ledger.WorkspaceID, ports.Proof) (string, error) {
+func (f failing) Authenticate(context.Context, ledger.WorkspaceID, ports.Proof, func(ports.SharedTx, string) error) (string, error) {
 	return "", f.err
 }
 
