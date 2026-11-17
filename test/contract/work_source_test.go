@@ -219,15 +219,12 @@ func TestRepositoryWithNoRemote(t *testing.T) {
 // TestIntakeOnARealRepository walks the unit's intake path on real git.
 func TestIntakeOnARealRepository(t *testing.T) {
 	t.Parallel()
-	store, err := fake.NewStore()
+	store, err := fake.NewMigratedStore()
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer store.Close()
 	ctx := t.Context()
-	if err := store.Migrate(ctx); err != nil {
-		t.Fatal(err)
-	}
 	actor := ledger.Actor{Kind: ledger.ActorMember, ID: "member-1"}
 	scope := ledger.WorkspaceID("w")
 	if _, err := store.CreateWorkspace(ctx, ledger.Workspace{ID: scope}, actor); err != nil {
@@ -308,15 +305,12 @@ func TestIntakeOnARealRepository(t *testing.T) {
 // and the blob it was read from, and a contract pins the version at its own commit (FR-DOC-2, FR-DOC-4).
 func TestDocumentsOnARealRepository(t *testing.T) {
 	t.Parallel()
-	store, err := fake.NewStore()
+	store, err := fake.NewMigratedStore()
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer store.Close()
 	ctx := t.Context()
-	if err := store.Migrate(ctx); err != nil {
-		t.Fatal(err)
-	}
 	scope := ledger.WorkspaceID("w")
 	if _, err := store.CreateWorkspace(ctx, ledger.Workspace{ID: scope}, ledger.Actor{Kind: ledger.ActorMember, ID: "member-1"}); err != nil {
 		t.Fatal(err)

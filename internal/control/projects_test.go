@@ -15,17 +15,15 @@ import (
 
 var projectMember = ledger.Actor{Kind: ledger.ActorMember, ID: "member-1"}
 
-// ledgerOf is an empty ledger with one workspace, as a project's database holds.
+// ledgerOf is an empty ledger with one workspace, as a project's database holds. It starts as a copy of
+// a migrated ledger.
 func ledgerOf(t *testing.T, id ledger.WorkspaceID) ports.Store {
 	t.Helper()
-	store, err := fake.NewStore()
+	store, err := fake.NewMigratedStore()
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = store.Close() })
-	if err := store.Migrate(t.Context()); err != nil {
-		t.Fatal(err)
-	}
 	if _, err := store.CreateWorkspace(t.Context(), ledger.Workspace{ID: id, Name: string(id)}, projectMember); err != nil {
 		t.Fatal(err)
 	}
