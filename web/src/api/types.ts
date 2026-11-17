@@ -255,6 +255,46 @@ export type PlanApprovalNeed = {
 
 export type ContractReviewNeed = { work_order: WorkOrder; contract: string; version: number; plan: string };
 
+// A decision a plan's revision lists: what it says, what it binds, and whether it can be taken back.
+export type RevisionDecision = {
+  id: string;
+  statement: string;
+  scope?: string;
+  reversibility: "reversible" | "one_way";
+  status: string;
+  decided_by?: string;
+};
+
+// Finished work that reversible decisions reached, with the decisions that did and the rework a member made of it.
+export type RevisionFinishedWork = { work_order: string; title: string; state: string; decisions: string[]; rework?: string };
+
+// Work of the plan that waits in contract review until the revision closes.
+export type RevisionWaitingWork = { work_order: string; title: string };
+
+// A plan's revision: the plan needs revision once a member decides something inside its approved version, and its
+// unstarted work waits until a member confirms that version or approves a later one. Absent `revision` says none is open.
+export type PlanRevision = {
+  id: string;
+  plan_id: string;
+  approved_version: number;
+  decision_ids: string[];
+  finished: { work_order: string; decisions: string[]; rework?: string }[];
+  opened_at: number;
+  closed_at?: number;
+  closed_by?: string;
+  outcome?: "confirmed" | "approved";
+  approval?: string;
+};
+
+export type PlanRevisionView = {
+  plan: string;
+  title: string;
+  revision?: PlanRevision;
+  decisions: RevisionDecision[];
+  finished: RevisionFinishedWork[];
+  waiting: RevisionWaitingWork[];
+};
+
 // ProjectLabel names the project an item of the combined Needs you belongs to.
 export type ProjectLabel = { id: string; name: string; display_name?: string };
 
@@ -270,6 +310,7 @@ export type NeedItem = {
   | { kind: "plan_approval"; plan_approval: PlanApprovalNeed }
   | { kind: "contract_review"; contract_review: ContractReviewNeed }
   | { kind: "confirm"; card: CardNeed }
+  | { kind: "plan_revision"; plan_revision: PlanRevisionView }
 );
 
 // NeedsProject is one project's part of the combined Needs you: where its ledger stood, and how much waits.
@@ -930,6 +971,9 @@ export type PlanApprovalView = {
   registration?: ManifestRegistration;
   // The version's latest forecasts and the estimate set they were made from, or the state that says why it has none.
   forecast?: PlanForecast;
+  // The revision this approval answers, shown beside the difference: the plan's open revision while the request waits,
+  // and the one the approval closed once it is approved.
+  revision?: PlanRevisionView;
 };
 
 // One version of a plan, and where the request to approve it stands: none when nobody asked.
@@ -944,6 +988,8 @@ export type PlanView = {
   work_orders: WorkOrder[];
   approval?: PlanApprovalView;
   versions: PlanVersionLine[];
+  // The plan's open revision, which keeps its unstarted work in contract review.
+  revision?: PlanRevisionView;
 };
 
 // A request as the approvals list and show routes answer, with who decided it and when once it is decided.

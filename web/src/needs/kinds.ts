@@ -21,6 +21,7 @@ export function filterOf(item: NeedItem): Exclude<NeedFilter, "all"> {
       return "cards";
     case "questions":
     case "plan_approval":
+    case "plan_revision":
     case "contract_review":
     case "effect":
       return "decisions";
@@ -60,7 +61,7 @@ const workIcons: Record<string, IconName> = {
   worker_behind: "warning",
 };
 
-const fixedCards = ["questions", "recovery", "merge", "held-merge", "tool-call", "effect", "orchestrator", "plan-approval", "contract-review", "confirm"] as const;
+const fixedCards = ["questions", "recovery", "merge", "held-merge", "tool-call", "effect", "orchestrator", "plan-approval", "plan-revision", "contract-review", "confirm"] as const;
 
 // CardKind names a kind of card by what its overline says: one for each kind of item, a request by what it asks, and
 // work by why it waits.
@@ -82,6 +83,8 @@ export function cardKindOf(item: NeedItem): CardKind {
       return item.work.orchestrator ? "orchestrator" : `work-${item.work.reason}`;
     case "plan_approval":
       return "plan-approval";
+    case "plan_revision":
+      return "plan-revision";
     case "contract_review":
       return "contract-review";
     case "confirm":
@@ -128,6 +131,8 @@ export function kindOf(item: NeedItem): { icon: IconName; name: string } {
         : { icon: workIcons[item.work.reason] ?? "warning", name: workLabels[item.work.reason] ?? item.work.reason };
     case "plan_approval":
       return { icon: "plan", name: "Plan approval" };
+    case "plan_revision":
+      return { icon: "plan", name: "Plan revision" };
     case "contract_review":
       return { icon: "review", name: "Contract review" };
     case "confirm":
@@ -182,6 +187,8 @@ export function headingOf(item: NeedItem): string {
       return item.work.work_order?.title || item.work.lane?.id || (item.work.orchestrator ? `Orchestrator on ${item.work.orchestrator.worker_id}` : item.id);
     case "plan_approval":
       return `Approve ${item.plan_approval.title}, version ${item.plan_approval.version}?`;
+    case "plan_revision":
+      return `${item.plan_revision.title} needs revision`;
     case "contract_review":
       return item.contract_review.work_order.title || item.id;
     case "confirm":
@@ -211,6 +218,13 @@ export function contextOf(item: NeedItem): string {
         .join(" · ");
     case "plan_approval":
       return [`Requested by ${item.plan_approval.requested_by}`, plural(item.plan_approval.drafts.length, "draft decision")].join(" · ");
+    case "plan_revision":
+      return [
+        `${plural(item.plan_revision.decisions.length, "decision")} since version ${item.plan_revision.revision?.approved_version ?? ""}`,
+        item.plan_revision.finished.length ? `${plural(item.plan_revision.finished.length, "finished work order")} reached` : "",
+      ]
+        .filter(Boolean)
+        .join(" · ");
     case "contract_review":
       return [item.contract_review.work_order.id, `${item.contract_review.contract} v${item.contract_review.version}`].join(" · ");
     case "confirm":

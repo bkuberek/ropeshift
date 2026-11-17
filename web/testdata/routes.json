@@ -450,6 +450,21 @@
     "command": "plan review"
   },
   {
+    "method": "POST",
+    "pattern": "/v1/projects/{project}/plans/{id}/revision/confirm",
+    "command": "plan confirm"
+  },
+  {
+    "method": "POST",
+    "pattern": "/v1/projects/{project}/plans/{id}/revision/sessions",
+    "command": "plan revise"
+  },
+  {
+    "method": "POST",
+    "pattern": "/v1/projects/{project}/work-orders/{id}/decision-rework",
+    "command": "work decision-rework"
+  },
+  {
     "method": "GET",
     "pattern": "/v1/projects/{project}/approvals/{id}",
     "command": "approval show"

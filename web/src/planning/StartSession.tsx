@@ -10,7 +10,7 @@ import { Button } from "../ui/controls";
 import { Banner, Refusal } from "../ui/display";
 import { Field, Select } from "../ui/forms";
 import { Dialog } from "../ui/overlays";
-import { startPlanningSession } from "./session";
+import { startPlanningSession, startRevisionSession } from "./session";
 
 // A goal is a few pages. The request that carries it holds a megabyte, so a file much larger than any goal
 // is refused here, in words, and not by a failed call.
@@ -28,8 +28,10 @@ function readText(file: Blob): Promise<string> {
 }
 
 // StartSessionDialog starts a planning session as `ropeshift plan start` does: the goal as text or a file read
-// in the browser, the repository to plan in, and the worker that runs the session.
-export function StartSessionDialog({ project, onClose }: { project: string; onClose: () => void }) {
+// in the browser, the repository to plan in, and the worker that runs the session. Given a plan to revise, it starts
+// the session `ropeshift plan revise` does instead: the goal is the brief the control plane writes from the plan's
+// open revision, so the dialog asks for the repository and the worker alone.
+export function StartSessionDialog({ project, revise, onClose }: { project: string; revise?: { plan: string; title: string }; onClose: () => void }) {
   const [goal, setGoal] = useState("");
   const [fileName, setFileName] = useState("");
   const [fileFailure, setFileFailure] = useState("");
@@ -87,7 +89,7 @@ export function StartSessionDialog({ project, onClose }: { project: string; onCl
       setChosen(true);
       return;
     }
-    const started = await change.run(() => startPlanningSession(project, { goal, repository, worker }));
+    const started = await change.run(() => (revise ? startRevisionSession(project, revise.plan, { repository, worker }) : startPlanningSession(project, { goal, repository, worker })));
     if (started) {
       onClose();
       go(inProject(project, addressOf("/planning", { lane: started.lane })), { state: startedEntry(started.lane) });
@@ -98,15 +100,15 @@ export function StartSessionDialog({ project, onClose }: { project: string; onCl
   return (
     <Dialog
       open
-      title="Start planning session"
+      title={revise ? `Revise ${revise.title}` : "Start planning session"}
       onClose={onClose}
-      initialFocus={field}
+      initialFocus={revise ? undefined : field}
       footer={
         <>
           <span className="spacer" />
           <Button onClick={onClose}>Cancel</Button>
           <Button variant="primary" loading={change.busy} disabled={nothing} onClick={() => void start()}>
-            Start planning session
+            {revise ? "Start revision session" : "Start planning session"}
           </Button>
         </>
       }
@@ -122,12 +124,18 @@ export function StartSessionDialog({ project, onClose }: { project: string; onCl
         <p className="small muted">
           The session writes the plan and its draft decisions to a branch of its own. Nothing reaches a default branch until you approve the plan.
         </p>
-        <Field label="Goal" help="What the plan is for. Leave it empty, and the session asks.">
-          <textarea ref={field} className="textarea" rows={5} autoComplete="off" placeholder="Saved searches, with alerts…" value={goal} onChange={(event) => setGoal(event.target.value)} />
-        </Field>
-        <Field label="Or read the goal from a file" help={fileName ? `Read from ${fileName}. Edit it above before you start.` : "The file is read in your browser and fills the goal."} error={fileFailure || undefined}>
-          <input className="input" type="file" accept=".md,.txt,text/plain,text/markdown" onChange={(event) => void choose(event.target.files?.[0])} />
-        </Field>
+        {revise ? (
+          <p className="small">Its brief lists the decisions made since the approved version of {revise.title}, with their statements and scopes.</p>
+        ) : (
+          <>
+            <Field label="Goal" help="What the plan is for. Leave it empty, and the session asks.">
+              <textarea ref={field} className="textarea" rows={5} autoComplete="off" placeholder="Saved searches, with alerts…" value={goal} onChange={(event) => setGoal(event.target.value)} />
+            </Field>
+            <Field label="Or read the goal from a file" help={fileName ? `Read from ${fileName}. Edit it above before you start.` : "The file is read in your browser and fills the goal."} error={fileFailure || undefined}>
+              <input className="input" type="file" accept=".md,.txt,text/plain,text/markdown" onChange={(event) => void choose(event.target.files?.[0])} />
+            </Field>
+          </>
+        )}
         {nothing ? (
           <Banner tone="warning">This project has no repository to plan in. Register one in Repositories first.</Banner>
         ) : (

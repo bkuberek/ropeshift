@@ -4,7 +4,7 @@ import { useChange, useRead } from "../admin/parts";
 import { ApiError, decideApproval, readApproval, readPlan } from "../api/client";
 import type { PlanForecast } from "../api/measures";
 import { PlanEstimates } from "../measures/PlanEstimates";
-import type { ApprovalRecord, ManifestRegistration, PlanApprovalDetail, PlanApprovalView, PlanEntry, PlanVersionLine, DraftDecision, Plan } from "../api/types";
+import type { ApprovalRecord, ManifestRegistration, PlanApprovalDetail, PlanApprovalView, PlanEntry, PlanRevisionView, PlanVersionLine, DraftDecision, Plan } from "../api/types";
 import type { Live } from "../api/useView";
 import { addressOf, Link, useArrivalFocus } from "../app/route";
 import { approvalStates } from "../floor/states";
@@ -16,6 +16,7 @@ import { Field } from "../ui/forms";
 import { Dialog } from "../ui/overlays";
 import { AdoptionGroups, ChangedContracts, CoveredDocuments, DifferenceBlock, DraftDecisions, registrationTitle, RegistrationRows } from "./PlanParts";
 import { versionLinks } from "./planChanges";
+import { RevisionSince } from "./RevisionSince";
 
 // Subject is what the page decides on: one version of a plan and the request to approve it. A plan the ledger
 // does not hold yet, which a branch's first version is, has no plan, and its request is read by its own ID.
@@ -36,6 +37,9 @@ export type Subject = {
   // forecast is the version's latest forecasts with the estimates they were made from, which approving records as
   // the baseline.
   forecast?: PlanForecast;
+  // revision is the revision the request answers, read beside the difference: the decisions made since the approved
+  // version, which approving a later version settles.
+  revision?: PlanRevisionView;
 };
 
 const noDetail: PlanApprovalDetail = { title: "" };
@@ -65,6 +69,7 @@ export async function readSubject(id: string, version: string): Promise<Subject>
       version: held?.approval.plan_version ?? Number(version || view.versions[0]?.version || 0),
       registration: held?.registration,
       forecast: held?.forecast,
+      revision: held?.revision,
     };
   } catch (error) {
     if (!(error instanceof ApiError) || error.code !== "not_found") {
@@ -281,6 +286,11 @@ export function PlanApprovalBody({ subject, live, after, reload }: { subject: Su
           <Panel title={subject.detail.difference?.base ? `Difference from version ${subject.detail.difference.base}` : "Difference from the approved version"}>
             <DifferenceBlock difference={subject.detail.difference ?? {}} live={live} />
           </Panel>
+          {subject.revision?.revision ? (
+            <Panel title={`Decisions since version ${subject.revision.revision.approved_version}`}>
+              <RevisionSince revision={subject.revision} />
+            </Panel>
+          ) : null}
           {subject.detail.adoption ? (
             <Panel title="What the adoption does">
               <AdoptionGroups adoption={subject.detail.adoption} />

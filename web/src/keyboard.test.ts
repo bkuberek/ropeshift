@@ -647,6 +647,25 @@ const paths: Record<string, KeyPath> = {
     sent: post(/\/work-orders\/wo-review\/send-back$/),
     run: decide("Document the retry budget", "Send back to planning", "The contract is unclear."),
   },
+  "POST /v1/projects/{project}/plans/{id}/revision/confirm": {
+    sent: post(/\/plans\/plan-revise\/revision\/confirm$/),
+    run: decide("Retry budget needs revision", "Confirm version 2"),
+  },
+  "POST /v1/projects/{project}/plans/{id}/revision/sessions": {
+    sent: post(/\/plans\/plan-revise\/revision\/sessions$/, expect.objectContaining({ id: expect.any(String) })),
+    run: async (k, page) => {
+      await k.palette("Decide: Retry budget needs revision");
+      const open = page.getByRole("button", { name: "Revise the plan", exact: true });
+      await open.waitFor();
+      await k.activate(open);
+      await page.waitForFunction(() => document.querySelectorAll("[role=dialog] select option").length > 1);
+      await k.activate(inDialog(page).getByRole("button", { name: "Start revision session", exact: true }));
+    },
+  },
+  "POST /v1/projects/{project}/work-orders/{id}/decision-rework": {
+    sent: post(/\/work-orders\/wo-built\/decision-rework$/, expect.objectContaining({ decisions: ["d-logo"] })),
+    run: decide("Retry budget needs revision", "Create rework for Add the budget"),
+  },
 };
 
 const missing = changing.filter((name) => !(name in paths));
