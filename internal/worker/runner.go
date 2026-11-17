@@ -437,6 +437,9 @@ func (w *Worker) endLane(ctx context.Context, record lanes.Record, base string, 
 		return err
 	}
 	crashpoint.Hit("worker.lane", "ended")
+	if w.config.Lanes != nil {
+		w.config.Lanes.PaneInputs.Forget(record.ID)
+	}
 	if err := w.release(ctx, record.ID); err != nil {
 		w.config.Report(fmt.Errorf("lane %s: %w", record.ID, err))
 	}
