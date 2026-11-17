@@ -55,9 +55,9 @@ describe("the stated risk", () => {
   });
 
   it("keeps an item that is not a web address as text", () => {
-    render(<RiskStatement text={"Read these:\n\n- the plan's terms\n- javascript:alert(1)\n"} />);
+    render(<RiskStatement text={"Read these:\n\n- the plan's terms\n- javascript:alert(1)\n- http://example.com/plain\n"} />);
     expect(screen.queryByRole("link")).toBeNull();
-    expect(screen.getAllByRole("listitem").map((one) => one.textContent)).toEqual(["the plan's terms", "javascript:alert(1)"]);
+    expect(screen.getAllByRole("listitem").map((one) => one.textContent)).toEqual(["the plan's terms", "javascript:alert(1)", "http://example.com/plain"]);
   });
 
   it("labels a page by its host, without a leading www", () => {

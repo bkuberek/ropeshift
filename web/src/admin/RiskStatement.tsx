@@ -47,11 +47,12 @@ export function sourceLabel(address: string): string {
   return new URL(address).host.replace(/^www\./, "");
 }
 
-// webAddress is the address an item names, or null for an item that is anything else, so only a web page becomes a link.
+// webAddress is the address an item names, or null for an item that is anything else, so only a secure web page
+// becomes a link, and no other scheme can.
 function webAddress(item: string): string | null {
   try {
     const url = new URL(item);
-    return url.protocol === "https:" || url.protocol === "http:" ? url.href : null;
+    return url.protocol === "https:" ? url.href : null;
   } catch {
     return null;
   }
@@ -63,7 +64,7 @@ function Item({ item }: { item: string }): ReactNode {
     return item;
   }
   return (
-    <a href={item} target="_blank" rel="noreferrer noopener">
+    <a href={address} target="_blank" rel="noreferrer noopener">
       {sourceLabel(address)}
       <span className="visually-hidden"> (opens in a new tab)</span>
       <Icon name="external" size="sm" />
