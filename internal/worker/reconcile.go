@@ -398,6 +398,7 @@ func (w *Worker) Reconcile(ctx context.Context) ([]lanes.Action, error) {
 	w.tendSignIn(ctx)
 	w.deliverMessages(ctx)
 	w.parkOnPolicy(ctx)
+	w.parkOnWaits(ctx)
 	w.tendOrchestrator(ctx)
 	w.tendAssistants(ctx)
 	w.forgetAssistants(ctx)

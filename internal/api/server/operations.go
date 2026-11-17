@@ -1149,7 +1149,7 @@ func policyKindOfBody(body string) authority.PolicyKind {
 	}{
 		{delegatePolicyTable, authority.PolicyDelegate}, {notifyTable, authority.PolicyNotify}, {autonomyTable, authority.PolicyAutonomy},
 		{delegationTable, authority.PolicyDelegation}, {recoveryPolicyTable, authority.PolicyRecovery}, {lanePolicyTable, authority.PolicyLane},
-		{assistantTable, authority.PolicyAssistant}, {estimatePolicyTable, delivery.PolicyEstimate},
+		{assistantTable, authority.PolicyAssistant}, {estimatePolicyTable, delivery.PolicyEstimate}, {spendPolicyTable, authority.PolicySpend},
 	} {
 		if holdsTable(body, kind.table) {
 			return kind.kind
@@ -1301,6 +1301,8 @@ func (h *handler) versionsOf(ctx context.Context, kind authority.PolicyKind) ([]
 		return h.questions.LanePolicyVersions(ctx, h.Scope)
 	case authority.PolicyRecovery:
 		return h.recoveries.RecoveryPolicyVersions(ctx, h.Scope)
+	case authority.PolicySpend:
+		return h.spend.SpendPolicyVersions(ctx, h.Scope)
 	case delivery.PolicyEstimate:
 		return h.estimates.EstimatePolicyVersions(ctx, h.Scope)
 	case authority.PolicyDelegate:

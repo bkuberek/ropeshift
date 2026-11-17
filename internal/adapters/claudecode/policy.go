@@ -63,7 +63,12 @@ func compilePolicy(spec ports.SessionSpec) lanes.DenyPolicy {
 	if spec.Assistant {
 		readRoots, program = readRootsOf(spec), spec.Binary
 	}
+	var waits *lanes.WaitRules
+	if spec.Waits.Version != 0 {
+		waits = &spec.Waits
+	}
 	policy := lanes.CompilePolicy(lanes.PolicySpec{
+		Waits:    waits,
 		Worktree: worktree, WorktreeReal: real, Home: homeOf(spec), DefaultBranches: defaultBranches(spec), Kept: spec.Kept, Writable: writable,
 		ReadOnlyRoots: readOnly,
 		QuestionTool:  questionTool(spec), AttachedMarker: attachedMarker(spec), OwnTools: toolRule(""), ReadOnly: spec.ReadOnly || spec.Assistant,

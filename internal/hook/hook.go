@@ -182,12 +182,13 @@ func run(cfg config, event lanes.HookEvent, input []byte, stdout io.Writer) {
 	}
 	switch cfg.event {
 	case eventPreToolUse:
-		verdict, answer := decide(cfg, input)
+		var rule string
+		verdict, answer := decideRule(cfg, input, &rule)
 		if verdict != questionDeferred {
 			event.Asked = nil
 		}
 		if verdict == callDenied {
-			event.Detail = lanes.DetailDenied
+			event.Detail, event.WaitRule = lanes.DetailDenied, rule
 		}
 		cfg.out.answerWith(stdout, answer, event)
 	case eventSessionStart:
@@ -352,6 +353,11 @@ func deferGated(cfg config, input []byte) (verdict, []byte) {
 // that says it, which is empty for a pass. Only a deferred question tool forwards tool input, and a
 // denied call is one no later hook reports.
 func decide(cfg config, input []byte) (verdict, []byte) {
+	return decideRule(cfg, input, nil)
+}
+
+// decideRule is decide, and it says which wait rule denied the call, by ID, when one did and rule is not nil.
+func decideRule(cfg config, input []byte, rule *string) (verdict, []byte) {
 	if cfg.policy == "" {
 		return callPassed, nil
 	}
@@ -406,8 +412,11 @@ func decide(cfg config, input []byte) (verdict, []byte) {
 		target = call.Input.Path
 	}
 	tool := lanes.ToolCall{Tool: call.Tool, Command: call.Input.Command, Path: target, Pattern: call.Input.Pattern, Cwd: call.Cwd}
-	reason, denied := policy.WithLinks(diskLink).WithRealPaths(filepath.EvalSymlinks).Decide(tool)
+	reason, waitRule, denied := policy.WithLinks(diskLink).WithRealPaths(filepath.EvalSymlinks).DecideRule(tool)
 	if denied {
+		if rule != nil {
+			*rule = waitRule
+		}
 		return callDenied, denial(reason)
 	}
 	if policy.Gated(tool) {

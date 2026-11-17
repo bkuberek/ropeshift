@@ -201,7 +201,7 @@ func planLane(lane Actual) (Action, bool) {
 	switch {
 	case lane.Session.Readable:
 		return Action{Kind: ActionAdopt, Lane: id}, true
-	case gone && lane.Record.Parking.Open():
+	case gone && (lane.Record.Parking.Open() || lane.Record.WaitParkAt != 0):
 		return Action{Kind: ActionPark, Lane: id}, true
 	case gone && lane.Record.Handoff.Open():
 		return Action{Kind: ActionHandoff, Lane: id}, true

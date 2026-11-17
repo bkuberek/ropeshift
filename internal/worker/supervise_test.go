@@ -141,6 +141,8 @@ func TestAToolInFlightSuppressesStalled(t *testing.T) {
 func TestLaneWaitDeclaresAWaitThatEnds(t *testing.T) {
 	t.Parallel()
 	r := laneRigWith(t, restarts)
+	// A wait stays live only up to the project's bound, which a policy that allows an hour lets a 30 minute wait use.
+	r.publishSpend(t, authority.SpendPolicy{Version: 2, MaxLiveWait: "1h", MaxToolSleep: "60s"})
 	g := newGate()
 	r.finishLater(g)
 	r.driver.Play(script([]fake.DriverStep{{Bound: true}, g.step()}))
@@ -163,21 +165,22 @@ func TestLaneWaitDeclaresAWaitThatEnds(t *testing.T) {
 func TestAWaitDoesNotSuppressOverdue(t *testing.T) {
 	t.Parallel()
 	base := newRig(t)
-	base.deadline = base.clock.Now().Add(time.Hour).UnixMilli()
+	base.deadline = base.clock.Now().Add(30 * time.Minute).UnixMilli()
 	r := newLaneRigFor(t, base)
 	r.config.Provisioner.Profiles.(*fake.ProfileSource).Put("/repository", restarts)
 	r.dispatched()
+	r.publishSpend(t, authority.SpendPolicy{Version: 2, MaxLiveWait: "1h", MaxToolSleep: "60s"})
 	g := newGate()
 	r.finishLater(g)
 	r.driver.Play(script([]fake.DriverStep{{Bound: true}, g.step()}))
 	r.atGate(g)
-	if reply := r.wait(t, 600); !reply.OK {
+	if reply := r.wait(t, 60); !reply.OK {
 		t.Fatalf("reply %+v", reply)
 	}
 	if view := r.read(); slices.Contains(view.Conditions, string(lanes.Overdue)) {
 		t.Errorf("before the deadline: %v", view.Conditions)
 	}
-	r.clock.Advance(2 * time.Hour)
+	r.clock.Advance(40 * time.Minute)
 	view := r.read()
 	if !slices.Contains(view.Conditions, string(lanes.Overdue)) || !slices.Contains(view.Conditions, string(lanes.WaitingExternal)) {
 		t.Errorf("past the deadline: %v", view.Conditions)

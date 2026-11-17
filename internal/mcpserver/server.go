@@ -211,8 +211,11 @@ var laneReportTool = map[string]any{
 
 var laneWaitTool = map[string]any{
 	"name": lanes.ToolLaneWait,
-	"description": "Say that this lane is waiting on something outside it, such as a CI run, so that a quiet lane " +
-		"is not taken for a stuck one. A deadline still counts while it waits.",
+	"description": "Say that this lane is waiting on a timer or an outside process, so that a quiet lane is not taken for a stuck one. " +
+		"A deadline still counts while it waits. A lane must never wait for CI, a review, or a merge: ropeshift waits on those with no " +
+		"session, so call " + lanes.ToolLaneReport + " when the work is pushed and end your turn. A wait up to the project's live bound, " +
+		"five minutes by default, stays live. A longer one returns parking: end your turn, and ropeshift parks this lane and wakes " +
+		"it at the end of the wait.",
 	"inputSchema": map[string]any{
 		"type": "object",
 		"properties": map[string]any{
@@ -703,6 +706,10 @@ func callWait(arguments json.RawMessage, call Caller) map[string]any {
 	}
 	if !answer.OK {
 		return toolText("the worker refused this wait: "+answer.Message, true)
+	}
+	if answer.Parking {
+		return toolText("parking: this wait is longer than a lane waits live, so end your turn now. ropeshift parks this lane and "+
+			"wakes it when the wait ends. Make no more calls.", false)
 	}
 	return toolText("The wait is recorded.", false)
 }

@@ -102,6 +102,26 @@ func readRecoveryPolicy(body string) (authority.RecoveryPolicyDraft, error) {
 	return authority.RecoveryPolicyDraft{Body: body, Policy: file.RecoveryPolicy}, nil
 }
 
+// spendPolicyTable is the table a spend policy's body holds.
+const spendPolicyTable = "spend_policy"
+
+// readSpendPolicy reads a body whose table is `spend_policy`. Its version is stated, and a key left out takes its
+// default, because every value of this policy is a named key whose stated value is its default (ADR-0037).
+func readSpendPolicy(body string) (authority.SpendPolicyDraft, error) {
+	file := authority.SpendPolicyFile{SpendPolicy: authority.DefaultSpendPolicy()}
+	meta, err := toml.Decode(body, &file)
+	if err != nil {
+		return authority.SpendPolicyDraft{}, fmt.Errorf("%w: %v", authority.ErrBadSpendPolicy, err)
+	}
+	if unknown := meta.Undecoded(); len(unknown) > 0 {
+		return authority.SpendPolicyDraft{}, fmt.Errorf("%w: unknown setting %s", authority.ErrBadSpendPolicy, unknown[0])
+	}
+	if !meta.IsDefined(spendPolicyTable, "version") {
+		return authority.SpendPolicyDraft{}, fmt.Errorf("%w: a spend policy states version", authority.ErrBadSpendPolicy)
+	}
+	return authority.SpendPolicyDraft{Body: body, Policy: file.SpendPolicy}, nil
+}
+
 // estimatePolicyTable is the table an estimate policy's body holds.
 const estimatePolicyTable = "estimate_policy"
 
@@ -303,6 +323,19 @@ func (h *handler) publishPolicy(w http.ResponseWriter, r *http.Request, actor le
 		reply(w, http.StatusCreated, record)
 		return
 	}
+	if holdsTable(in.Body, spendPolicyTable) {
+		draft, err := readSpendPolicy(in.Body)
+		if err != nil {
+			fail(w, err)
+			return
+		}
+		if record, err = h.spend.PublishSpendPolicy(r.Context(), h.Scope, draft, actor); err != nil {
+			fail(w, err)
+			return
+		}
+		reply(w, http.StatusCreated, record)
+		return
+	}
 	if holdsLanePolicy(in.Body) {
 		draft, err := readLanePolicy(in.Body)
 		if err != nil {
@@ -352,6 +385,9 @@ func (h *handler) policyVersions(r *http.Request) ([]authority.PolicyVersion, er
 	}
 	if r.URL.Query().Get("kind") == string(authority.PolicyRecovery) {
 		return h.recoveries.RecoveryPolicyVersions(r.Context(), h.Scope)
+	}
+	if r.URL.Query().Get("kind") == string(authority.PolicySpend) {
+		return h.spend.SpendPolicyVersions(r.Context(), h.Scope)
 	}
 	if r.URL.Query().Get("kind") == string(delivery.PolicyEstimate) {
 		return h.estimates.EstimatePolicyVersions(r.Context(), h.Scope)

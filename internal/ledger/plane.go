@@ -304,6 +304,20 @@ type DesiredLease struct {
 	// pinned none.
 	Agent  string           `json:"agent,omitempty"`
 	Roster *roster.Resolved `json:"roster,omitempty"`
+	// Spend is the project's spend policy in force when the lease was read, which a lane starts under and a worker
+	// keeps for its life (ADR-0037). A control plane that sends none leaves the defaults.
+	Spend *DesiredSpend `json:"spend,omitempty"`
+}
+
+// DesiredSpend is the part of a project's spend policy a worker acts on: the live wait bound and the wait rules
+// the hook reads. Durations are milliseconds, so a worker parses nothing.
+type DesiredSpend struct {
+	// Version is the version of the spend policy these values came from.
+	Version          int64               `json:"version"`
+	MaxLiveWaitMs    int64               `json:"max_live_wait_ms"`
+	MaxToolSleepMs   int64               `json:"max_tool_sleep_ms"`
+	WaitRulesOff     []string            `json:"wait_rules_off,omitempty"`
+	WaitRulePatterns map[string][]string `json:"wait_rule_patterns,omitempty"`
 }
 
 // RepositoryRead is another repository of a lane's project that the lane reads, read-only, at a commit
@@ -529,6 +543,9 @@ const (
 	UploadLaneStatus    = "lane_status"
 	// UploadAdmissionHeld says a worker held a lane back. It is a fenced note.
 	UploadAdmissionHeld = "admission_held"
+	// UploadWaitDenied says a lane's hook denied a command under a wait rule (FR-SPEND-2). It carries the
+	// rule's ID and never the command, and it is a fenced note.
+	UploadWaitDenied = "wait_denied"
 	// UploadLaneGuarded says how a stop left a worktree, and passes no fence.
 	UploadLaneGuarded = "lane_guarded"
 	// UploadLaneArchived says a worktree went.

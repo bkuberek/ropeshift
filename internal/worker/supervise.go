@@ -72,6 +72,12 @@ func (r *laneRun) supervised(ctx context.Context, report workorders.Report) (wor
 		if r.departed.Load() {
 			return report, false
 		}
+		// A session that ended while a long `lane_wait` waits for its park does not end the lane: the lane parks,
+		// as it was told it would, with the wake it asked for (FR-SPEND-1).
+		if r.waitPending() && !r.parkingOf().Open() {
+			r.sessionOver.Store(true)
+			r.parkForWait(ctx)
+		}
 		if r.parks(ctx) {
 			r.commitParked(ctx)
 			return report, false
@@ -87,7 +93,7 @@ func (r *laneRun) supervised(ctx context.Context, report workorders.Report) (wor
 		case r.mayRestart(ctx):
 			moved = r.backOff(ctx)
 		default:
-			if ctx.Err() != nil && (r.crashed || r.currentFlight() != nil || r.orchestrating()) {
+			if ctx.Err() != nil && (r.crashed || r.currentFlight() != nil || r.orchestrating() || r.waitPending()) {
 				return report, false
 			}
 			return report, true
@@ -481,6 +487,82 @@ func (r *laneRun) kept() []string {
 		return nil
 	}
 	return []string{r.lease.Continues}
+}
+
+// asksToPark says a wait is longer than this lane may hold a session for, and keeps the park it asks for until a
+// pass parks the lane (FR-SPEND-1). The wake is the end of the wait or a person, and the pass starts the sequence
+// that stores it, so the call that declared the wait returns at once. A lane that waits again before the pass
+// runs asks for the later end, so no wait is cut short. The request is in the journal before the lane is told
+// to park, and the park's own write clears it, so a worker that dies in between leaves a request the next one
+// finishes. A request that cannot be kept is an error, and the lane is not told it parks.
+func (r *laneRun) asksToPark(ctx context.Context, wait lanes.WaitDeclaration) (parks bool, err error) {
+	if !lanes.ParksOnWait(wait.Minutes, lanes.MaxLiveWait(r.lease.Spend)) {
+		return false, nil
+	}
+	end := r.w.clock.Now().Add(time.Duration(wait.Minutes) * time.Minute).UnixMilli()
+	r.handleLock.Lock()
+	defer r.handleLock.Unlock()
+	end = max(r.waitParkAt, end)
+	if err := r.w.journal.SaveWaitPark(ctx, r.lease.Lane, end); err != nil {
+		return false, err
+	}
+	r.waitParkAt = end
+	return true, nil
+}
+
+// waitParkOf reads the park a long wait asked for, and the end it waits to.
+func (r *laneRun) waitParkOf() (lanes.ParkRequest, int64, bool) {
+	r.handleLock.Lock()
+	defer r.handleLock.Unlock()
+	if r.waitParkAt == 0 {
+		return lanes.ParkRequest{}, 0, false
+	}
+	return lanes.ParkRequest{Trigger: lanes.ParkWait, Expr: lanes.WaitWake(r.waitParkAt), PastCompaction: true}, r.waitParkAt, true
+}
+
+// waitPending says a long `lane_wait` asked for a park that has not begun.
+func (r *laneRun) waitPending() bool {
+	_, _, asked := r.waitParkOf()
+	return asked
+}
+
+// settleWaitPark drops the park a pass started, unless the lane waited longer since.
+func (r *laneRun) settleWaitPark(at int64) {
+	r.handleLock.Lock()
+	defer r.handleLock.Unlock()
+	if r.waitParkAt == at {
+		r.waitParkAt = 0
+	}
+}
+
+// parkForWait starts the park a long wait asked for, and says a wait asked for one. A lane that cannot park
+// yet, such as one with a handoff under way, keeps its request for the next pass.
+func (r *laneRun) parkForWait(ctx context.Context) bool {
+	request, at, asked := r.waitParkOf()
+	if !asked {
+		return false
+	}
+	err := r.beginParking(ctx, request)
+	switch {
+	case err == nil:
+		r.settleWaitPark(at)
+	case errors.Is(err, ErrNoParking):
+	default:
+		// A park that failed to begin, as one does while the worker shuts down, keeps its request, so no later
+		// turn end reads the lane as one with nothing to wait on and nudges it.
+		if ctx.Err() == nil {
+			r.w.config.Report(fmt.Errorf("lane %s: %w", r.lease.Lane, err))
+		}
+	}
+	return true
+}
+
+// parkOnWaits parks each lane that declared a wait past the live bound (FR-SPEND-1), from wherever its turn
+// stands, and each lane decides alone.
+func (w *Worker) parkOnWaits(ctx context.Context) {
+	for _, run := range w.runs() {
+		run.parkForWait(ctx)
+	}
 }
 
 // declareWait keeps a lane's own word that it waits on something outside, for a time it

@@ -139,6 +139,11 @@ func (r *laneRun) resumeParking(ctx context.Context) {
 func (r *laneRun) finishParking(ctx context.Context) error {
 	r.loadProfile(ctx)
 	r.sessionOver.Store(true)
+	// A long `lane_wait` the journal kept and no park began for parks now, from what the journal holds, because
+	// the session that asked is gone and nothing else would wake the lane.
+	if !r.parkingOf().Open() {
+		r.parkForWait(ctx)
+	}
 	r.resumeParking(ctx)
 	return r.conclude(ctx, r.unattended(ctx))
 }

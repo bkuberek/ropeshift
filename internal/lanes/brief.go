@@ -263,6 +263,12 @@ func indented(text, prefix string) string {
 	return strings.Join(lines, "\n")
 }
 
+// neverWaitNotice ends every lane's brief (FR-SPEND-1). CI, a review, and a merge are waited on by ropeshift's
+// control plane in code, with no session, so a session that waits on one spends its tokens for nothing.
+const neverWaitNotice = "\nNever wait for CI, a review, or a merge: after you push, ropeshift reads the checks and starts the review and " +
+	"the merge, so call " + ToolLaneReport + " and end your turn. Do not sleep, poll, or watch for them, and do not read their status: a " +
+	"command that does is denied.\n"
+
 // Brief is a lane's first prompt: the contract, where its context pack is, and how the lane ends.
 func Brief(spec BriefSpec) string {
 	var out strings.Builder
@@ -314,6 +320,7 @@ func Brief(spec BriefSpec) string {
 	writeFacts(&out, spec.Facts)
 	out.WriteString("\nWhen the work is done, or cannot go on, call the " + ToolLaneReport +
 		" tool once with its outcome, then end your turn.\n")
+	out.WriteString(neverWaitNotice)
 	return out.String()
 }
 
