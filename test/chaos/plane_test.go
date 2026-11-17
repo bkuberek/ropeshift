@@ -639,15 +639,18 @@ func retrySoloSleep(attempts int, logf func(string, ...any), round func(attempt 
 //     lease never drops below the first read's before the stop. The ledger's clock is
 //     this host's wall clock, so no sweep can hold an expired candidate at the stop.
 //   - The first lapse comes at or after the wake and before soloSleepWindow has passed,
-//     which is [0, soloSleepWindow) from the wake. The stop outlasts
-//     the lease, so the lease has expired at the wake. Before the sweep lapses an
-//     expired lease, it waits up to soloSleepAwait for a renewal that begins after its
-//     wait began, and a renewal holds the database's write lock from its start. A lapse
-//     before the bound was released by that renewal, which commits or is refused before
-//     the lapse: it is the renewal after the wake that the deadline must refuse. A
-//     renewal after the wake that revived the lease set it a whole lease past the wake,
-//     so a lapse within the lease of the wake cannot follow one. A lapse before the wake
-//     can only come before the first read.
+//     which is [0, soloSleepWindow) from the wake. The stop outlasts the lease, so the
+//     lease has expired at the wake. Before the sweep lapses an expired lease, it waits
+//     up to soloSleepAwait for a renewal that began after its wait began to hit
+//     renewDecided, which a renewal does once its statement has run, won or refused. A
+//     renewal holds the database's write lock from its start until it commits or ends,
+//     so a lapse before the bound was released by a renewal that commits or is refused
+//     before the lapse: it is the renewal after the wake that the deadline must refuse.
+//     A renewal that ends before its statement, on a failed clock read or a cancelled
+//     context, hits no such step and releases nothing. A renewal after the wake that
+//     revived the lease set it a whole lease past the wake, so a lapse within the lease
+//     of the wake cannot follow one. A lapse before the wake can only come before the
+//     first read.
 //
 // The workspace holds one work order with one claim, so every renewal is of that
 // lease. A late beat on a loaded machine can add a later lapse and its return, and
@@ -663,7 +666,7 @@ func soloSleepRound(w *world, binary, dir string, sabotage []string) (string, er
 		"HOME=" + dir, "PATH=" + doubles.InstallFakeClaude(w.t, "no-session"),
 		api.EnvStateDir + "=" + paths.StateDir, api.EnvRunDir + "=" + paths.RunDir, api.EnvWeb + "=" + api.WebOff,
 		api.EnvTelemetry + "=127.0.0.1:0",
-		crashpoint.EnvAwait + "=sweep/before-lapse=" + sqlstore.OpRenew + "/begun," + soloSleepAwait.String(),
+		crashpoint.EnvAwait + "=sweep/before-lapse=" + sqlstore.OpRenew + "/" + renewDecided + "," + soloSleepAwait.String(),
 	}, sabotage...)
 	if err := procs.Start(w.t, daemon); err != nil {
 		return "", err
