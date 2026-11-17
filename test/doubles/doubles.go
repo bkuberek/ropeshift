@@ -94,8 +94,11 @@ const (
 	PrebuiltDaemon     = "ropeshiftd"
 	PrebuiltFakeClaude = "fakeclaude"
 	// PrebuiltChaos is ropeshift built with the chaos tag.
-	PrebuiltChaos  = "ropeshift-chaos"
-	PrebuiltCanary = "canary"
+	PrebuiltChaos = "ropeshift-chaos"
+	// PrebuiltHookDeadline is ropeshift built with the hookdeadline tag, whose hook takes a raised
+	// deadline from its environment.
+	PrebuiltHookDeadline = "ropeshift-hookdeadline"
+	PrebuiltCanary       = "canary"
 )
 
 // Binary returns one binary of this module: the prebuilt one called name when EnvPrebuilt is set,

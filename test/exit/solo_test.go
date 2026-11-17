@@ -32,10 +32,13 @@ import (
 var binaries struct {
 	cli, daemon string
 	err         error
+	// dir holds the binaries, and those a test builds later, until the run ends.
+	dir string
 }
 
 func TestMain(m *testing.M) {
 	dir, err := os.MkdirTemp("", "rsbin")
+	binaries.dir = dir
 	if err == nil {
 		binaries.daemon = filepath.Join(dir, "ropeshiftd")
 		binaries.cli, err = doubles.Binary(dir, doubles.PrebuiltRopeshift, "ropeshift.com/ropeshift/cmd/ropeshift")

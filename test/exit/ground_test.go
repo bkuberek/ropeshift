@@ -38,9 +38,11 @@ func withGround(t *testing.T, env hookEnv, ground lanes.Grounding) hookEnv {
 	return env
 }
 
-// A session that lost its place reads who it is from a file, so this needs no worker.
+// A session that lost its place reads who it is from a file, so this needs no worker. The hook's
+// deadline is raised, so it reads that file however loaded the machine is.
 func TestReGroundingNamesTheContractAndThePack(t *testing.T) {
 	env := withGround(t, newHookEnv(t), lanes.Grounding{Contract: "checkout", ContractVersion: 4, Pack: "/work/pack.md"})
+	env.deadline = verdictDeadline
 	context := groundingOf(t, runHook(t, env, "SessionStart", `{"session_id":"s1","source":"compact"}`).stdout)
 	for _, part := range []string{"lane-1", "generation 3", "wo", "checkout", "version 4", "/work/pack.md"} {
 		if !strings.Contains(context, part) {
@@ -49,9 +51,11 @@ func TestReGroundingNamesTheContractAndThePack(t *testing.T) {
 	}
 }
 
-// A process's tags cannot change, so a cleared session hears its generation from the worker.
+// A process's tags cannot change, so a cleared session hears its generation from the worker. The
+// hook's deadline is raised, so the worker's answer reaches it however loaded the machine is.
 func TestReGroundingAfterAClearNamesTheCurrentGeneration(t *testing.T) {
 	env := withGround(t, newHookEnv(t), lanes.Grounding{})
+	env.deadline = verdictDeadline
 	w := newLaneWorker(t, env)
 	stored, err := w.journal.Lane(t.Context(), "lane-1")
 	if err != nil {
