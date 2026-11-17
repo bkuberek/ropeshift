@@ -75,6 +75,24 @@ ON CONFLICT (id) DO UPDATE SET worker_id = ?1, credential = ?2, epoch = ?3`,
 	return err
 }
 
+// ServerURL returns the address of the server this worker joined, or ErrNotFound for a worker that joined
+// none, as a solo worker does. It is no part of the Journal port: only the group worker's entry point asks.
+func (j *Journal) ServerURL(ctx context.Context) (string, error) {
+	var url string
+	err := j.db.QueryRowContext(ctx, `SELECT server_url FROM server_link WHERE id = 1`).Scan(&url)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", fmt.Errorf("server link: %w", ports.ErrNotFound)
+	}
+	return url, err
+}
+
+// SaveServerURL replaces the address of the server this worker joined.
+func (j *Journal) SaveServerURL(ctx context.Context, url string) error {
+	_, err := j.db.ExecContext(ctx, `INSERT INTO server_link (id, server_url) VALUES (1, ?1)
+ON CONFLICT (id) DO UPDATE SET server_url = ?1`, url)
+	return err
+}
+
 // Append stores one event. The primary key assigns the sequence number, and a
 // rolled-back insert leaves no gap, because the counter rolls back with it.
 func (j *Journal) Append(ctx context.Context, event ledger.UploadEvent) (ledger.UploadEvent, error) {
