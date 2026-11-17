@@ -465,6 +465,7 @@ func startSoloWorker(
 		Manifest:  soloManifest(),
 		Spool:     paths.Spool(),
 		Lanes:     runtime,
+		Templates: soloTemplates(paths.StateDir, runtime.Provisioner.Checkouts),
 		Telemetry: telemetry.emitter,
 		Report: func(err error) {
 			fmt.Fprintf(stderr, "ropeshiftd: worker: %v\n", err)

@@ -364,6 +364,7 @@ func (w *Worker) find(ctx context.Context, effect lanes.Effect, session ports.Lo
 // Reconcile makes one pass and returns what it did. Lanes it starts run on, so a second
 // pass with nothing changed finds them held and does nothing (NFR-REL-3).
 func (w *Worker) Reconcile(ctx context.Context) ([]lanes.Action, error) {
+	w.tendTemplateWrites(ctx)
 	if w.config.Lanes == nil {
 		return nil, nil
 	}
