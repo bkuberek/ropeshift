@@ -203,9 +203,14 @@ func migrationVersion(name string) (int64, bool) {
 	return v, err == nil
 }
 
-// CheckSoloWithoutPostgres holds that no binary reaches the Postgres adapter, through any chain of
-// imports, build tags ignored. Solo mode runs on SQLite alone, and group mode is wired in
-// internal/entry by the slice that adds its entry points, which changes this rule on purpose.
+// pgxModule is the Postgres driver's module path. Its packages are under it.
+const pgxModule = "github.com/jackc/pgx"
+
+// CheckSoloWithoutPostgres holds that no binary reaches the Postgres adapter, a package under it, or the
+// pgx driver, through any chain of imports, build tags ignored. Solo mode runs on SQLite alone, and group
+// mode is wired in internal/entry by the slice that adds its entry points, which changes this rule on
+// purpose. The driver is refused wherever a package that a binary reaches imports it, so a second adapter
+// or a shared package cannot bring it in around the adapter.
 func CheckSoloWithoutPostgres(module string, pkgs []Package) []Violation {
 	imports := map[string][]string{}
 	for _, pkg := range pkgs {
@@ -216,15 +221,28 @@ func CheckSoloWithoutPostgres(module string, pkgs []Package) []Violation {
 		if Classify(pkg.Rel) != LayerMain {
 			continue
 		}
-		if chain := importChain(module, imports, pkg.Rel, postgresAdapter); chain != nil {
+		if chain := importChain(module, imports, pkg.Rel, soloRefuses); chain != nil {
 			found = append(found, Violation{"solo-without-postgres", pkg.Rel, "reaches " + strings.Join(chain, " -> ")})
 		}
 	}
 	return found
 }
 
-// importChain finds one path of imports inside the module from a package to a target, or nil.
-func importChain(module string, imports map[string][]string, from, target string) []string {
+// soloRefuses names what a solo binary may not import: the Postgres adapter and every package under it,
+// and every package of the pgx driver.
+func soloRefuses(module, imported string) (string, bool) {
+	if imported == pgxModule || strings.HasPrefix(imported, pgxModule+"/") {
+		return imported, true
+	}
+	if kind, rel := kindOf(module, imported); kind == importModule && underDir(rel, postgresAdapter) {
+		return rel, true
+	}
+	return "", false
+}
+
+// importChain finds one path of imports inside the module from a package to an import that refuses names,
+// or nil. The chain ends with the name refuses gives that import.
+func importChain(module string, imports map[string][]string, from string, refuses func(module, imported string) (string, bool)) []string {
 	seen := map[string]bool{}
 	var walk func(rel string, via []string) []string
 	walk = func(rel string, via []string) []string {
@@ -233,15 +251,14 @@ func importChain(module string, imports map[string][]string, from, target string
 		}
 		seen[rel] = true
 		for _, imported := range imports[rel] {
+			if name, refused := refuses(module, imported); refused {
+				return append(slices.Clone(via), name)
+			}
 			kind, next := kindOf(module, imported)
 			if kind != importModule {
 				continue
 			}
-			chain := append(slices.Clone(via), next)
-			if next == target {
-				return chain
-			}
-			if found := walk(next, chain); found != nil {
+			if found := walk(next, append(slices.Clone(via), next)); found != nil {
 				return found
 			}
 		}

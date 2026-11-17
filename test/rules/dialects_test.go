@@ -97,8 +97,8 @@ func TestDialectMigrationsPairUpFixtures(t *testing.T) {
 }
 
 // TestSoloNeverReachesThePostgresAdapter holds the preview gate's first rule: no binary imports the
-// Postgres adapter, so solo mode cannot run on it. The slice that wires group mode changes this test on
-// purpose.
+// Postgres adapter, a package under it, or the pgx driver, so solo mode cannot run on Postgres. The slice
+// that wires group mode changes this test on purpose.
 func TestSoloNeverReachesThePostgresAdapter(t *testing.T) {
 	pkgs, err := LoadPackages(repoRoot(t))
 	if err != nil {
@@ -125,10 +125,14 @@ func TestSoloNeverReachesThePostgresAdapterFixtures(t *testing.T) {
 	tests := []struct {
 		name    string
 		fixture string
+		reaches string
 	}{
-		{"a main imports the adapter", "main-imports-postgres"},
-		{"the entry wires the adapter", "entry-imports-postgres"},
-		{"the adapter arrives through another adapter", "transitive-postgres"},
+		{"a main imports the adapter", "main-imports-postgres", "internal/adapters/postgres"},
+		{"the entry wires the adapter", "entry-imports-postgres", "internal/adapters/postgres"},
+		{"the adapter arrives through another adapter", "transitive-postgres", "internal/adapters/postgres"},
+		{"the entry wires a package under the adapter", "subpackage-of-postgres", "internal/adapters/postgres/schemas"},
+		{"a main imports the driver", "main-imports-pgx", "github.com/jackc/pgx/v5"},
+		{"the driver arrives through another adapter", "transitive-pgx", "github.com/jackc/pgx/v5/pgxpool"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -137,10 +141,24 @@ func TestSoloNeverReachesThePostgresAdapterFixtures(t *testing.T) {
 				t.Fatal(err)
 			}
 			found := CheckSoloWithoutPostgres(module, pkgs)
-			if !slices.ContainsFunc(found, func(v Violation) bool { return v.Rule == "solo-without-postgres" }) {
-				t.Errorf("not reported: %v", found)
+			if !slices.ContainsFunc(found, func(v Violation) bool {
+				return v.Rule == "solo-without-postgres" && strings.HasSuffix(v.Detail, tt.reaches)
+			}) {
+				t.Errorf("a chain that ends at %s is not reported: %v", tt.reaches, found)
 			}
 		})
+	}
+}
+
+// TestSoloMayHoldPostgresCodeNoBinaryReaches holds that the rule follows the imports of a binary, and does
+// not refuse a tree for holding the adapter, or code that imports the driver, where no binary reaches it.
+func TestSoloMayHoldPostgresCodeNoBinaryReaches(t *testing.T) {
+	pkgs, err := LoadPackages(filepath.Join("testdata", "solo", "unreachable-pgx"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if found := CheckSoloWithoutPostgres(module, pkgs); len(found) != 0 {
+		t.Errorf("reported: %v", found)
 	}
 }
 
