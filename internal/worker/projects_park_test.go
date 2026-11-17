@@ -231,6 +231,20 @@ func (r *installationRig) leftByAnEarlierBuild(lane string, uploaded bool) ledge
 // lane woke under.
 func (r *installationRig) leftWithAParkItRefused(lane string) ledger.DesiredLease {
 	r.t.Helper()
+	return r.leftWithAPark(lane, parkLeft{})
+}
+
+// parkLeft says what an earlier build wrote in the lane's park. A commit that names a wake the lane never
+// began, or an end whose payload is no lane result, is a write the ledger refuses on its own account, so
+// it refuses it again when it is sent again. The zero value is a park and an end the ledger would take.
+type parkLeft struct {
+	commitWake string
+	endPayload any
+}
+
+// leftWithAPark is leftWithAParkItRefused with the writes of the park as given.
+func (r *installationRig) leftWithAPark(lane string, left parkLeft) ledger.DesiredLease {
+	r.t.Helper()
 	ctx := r.t.Context()
 	lease, at := r.resumeRefused(lane)
 	next := lease.Resume.Generation + 1
@@ -241,14 +255,22 @@ func (r *installationRig) leftWithAParkItRefused(lane string) ledger.DesiredLeas
 	if _, err := r.journal.BeginParking(ctx, lane, parking, lanes.HandoffProgress{}, start); err != nil {
 		r.t.Fatal(err)
 	}
-	commit := at(ledger.UploadLaneParked, lease.Project, ledger.ParkedCommit{Wake: parking.Wake, Checkpoint: ledger.Checkpoint{Lane: lane, Generation: next}})
+	wake := left.commitWake
+	if wake == "" {
+		wake = parking.Wake
+	}
+	commit := at(ledger.UploadLaneParked, lease.Project, ledger.ParkedCommit{Wake: wake, Checkpoint: ledger.Checkpoint{Lane: lane, Generation: next}})
 	if _, err := r.journal.CommitParked(ctx, lane, parking, commit); err != nil {
 		r.t.Fatal(err)
 	}
 	if err := r.subject.Upload(ctx); err != nil {
 		r.t.Fatal(err)
 	}
-	ended := workorders.LaneResult{Report: workorders.Report{Outcome: workorders.OutcomeCompleted}}
+	var ended any = workorders.LaneResult{Report: workorders.Report{Outcome: workorders.OutcomeCompleted}}
+	endStatus := ledger.UploadFenced
+	if left.endPayload != nil {
+		ended, endStatus = left.endPayload, ledger.UploadInvalid
+	}
 	if _, err := r.journal.EndLane(ctx, lane, at(ledger.UploadLaneEnded, lease.Project, ended)); err != nil {
 		r.t.Fatal(err)
 	}
@@ -263,7 +285,7 @@ func (r *installationRig) leftWithAParkItRefused(lane string) ledger.DesiredLeas
 	for _, result := range rejected {
 		statuses = append(statuses, result.Status)
 	}
-	want := []string{ledger.UploadInvalid, ledger.UploadFenced, ledger.UploadFenced, ledger.UploadFenced}
+	want := []string{ledger.UploadInvalid, ledger.UploadFenced, ledger.UploadFenced, endStatus}
 	if !slices.Equal(statuses, want) {
 		r.t.Fatalf("the earlier build's writes were refused as %+v", rejected)
 	}
@@ -287,6 +309,61 @@ func TestAWorkerLeavesNoRefusalAfterSendingAgainAParkTheLedgerRefused(t *testing
 	r.noRefusals()
 	if row := r.row("pb"); row.ClaimID == lease.ClaimID {
 		t.Errorf("the work order keeps the claim: %+v", row)
+	}
+}
+
+// refusedTypes lists the types of the events the ledger refused, in order.
+func (r *installationRig) refusedTypes() []string {
+	r.t.Helper()
+	refused, err := r.journal.Refused(r.t.Context())
+	if err != nil {
+		r.t.Fatal(err)
+	}
+	out := make([]string, 0, len(refused))
+	for _, event := range refused {
+		out = append(out, event.Type)
+	}
+	return out
+}
+
+// TestAWorkerKeepsAParkRefusedAgainAndEndsTheClaim is the same journal, but the ledger refuses the park
+// copy too, since the wake it names was never begun. No lane is parked there, so the refusal of the park
+// stays, and the end the worker wrote because the park was refused is the one write of the lane the ledger
+// takes: it ends the claim, and no end stays refused.
+func TestAWorkerKeepsAParkRefusedAgainAndEndsTheClaim(t *testing.T) {
+	t.Parallel()
+	r := newInstallationRig(t)
+	r.parkedInProject("pb", "lane-b")
+	lease := r.leftWithAPark("lane-b", parkLeft{commitWake: "no-such-wake"})
+	r.restart()
+	r.pass()
+	if err := r.subject.Upload(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if got := r.refusedTypes(); !slices.Equal(got, []string{ledger.UploadLaneParked}) {
+		t.Errorf("the worker holds refusals of %v, want only the park", got)
+	}
+	if row := r.row("pb"); row.State != workorders.Acceptance || row.ClaimID == lease.ClaimID {
+		t.Errorf("the work order %+v", row)
+	}
+}
+
+// TestAWorkerKeepsARefusedEndBesideAParkRefusedAgain is that journal with an end the ledger refuses on its
+// own account as well. An end is forgotten only for a park the ledger took, and this park is refused
+// again, so the end stays refused with it: what still matters is never dropped.
+func TestAWorkerKeepsARefusedEndBesideAParkRefusedAgain(t *testing.T) {
+	t.Parallel()
+	r := newInstallationRig(t)
+	r.parkedInProject("pb", "lane-b")
+	r.leftWithAPark("lane-b", parkLeft{commitWake: "no-such-wake", endPayload: map[string]string{"report": "malformed"}})
+	r.restart()
+	r.pass()
+	if err := r.subject.Upload(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{ledger.UploadLaneParked, ledger.UploadLaneEnded}
+	if got := r.refusedTypes(); !slices.Equal(got, want) {
+		t.Errorf("the worker holds refusals of %v, want %v", got, want)
 	}
 }
 
