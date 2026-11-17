@@ -124,6 +124,10 @@ func (j *Journal) Pending(ctx context.Context, limit int) ([]ledger.UploadEvent,
 	if err != nil {
 		return nil, err
 	}
+	return scanEvents(rows)
+}
+
+func scanEvents(rows *sql.Rows) ([]ledger.UploadEvent, error) {
 	defer rows.Close()
 	var out []ledger.UploadEvent
 	for rows.Next() {
@@ -176,6 +180,85 @@ func (j *Journal) Rejected(ctx context.Context) ([]ports.JournalResult, error) {
 		out = append(out, r)
 	}
 	return out, rows.Err()
+}
+
+// Refused returns the events the ledger refused, in order.
+func (j *Journal) Refused(ctx context.Context) ([]ledger.UploadEvent, error) {
+	rows, err := j.db.QueryContext(ctx, `SELECT e.seq, e.epoch, e.type, e.work_order, e.claim_id, e.fence, e.lane, e.generation, e.payload, e.occurred_at, e.project
+  FROM events e JOIN rejections r ON r.seq = e.seq ORDER BY e.seq`)
+	if err != nil {
+		return nil, err
+	}
+	return scanEvents(rows)
+}
+
+// Reissue stores copies of refused events of one lane in place of them, together with what follows from
+// it: each refusal goes, a parked commit moves to its copy, so a refusal of the copy is what reads as the
+// commit's, and the lane's record takes the project it lacks. Removing each refusal first makes a second
+// call for the same events store nothing.
+func (j *Journal) Reissue(ctx context.Context, reissue ports.Reissue) (bool, error) {
+	tx, err := j.db.BeginTx(ctx, nil)
+	if err != nil {
+		return false, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	var unanswered int
+	err = tx.QueryRowContext(ctx, `SELECT count(*) FROM events
+WHERE lane = ?1 AND seq > coalesce((SELECT value FROM cursors WHERE name = ?2), 0)`, reissue.Lane, cursorThrough).Scan(&unanswered)
+	if err != nil || unanswered != 0 {
+		return false, err
+	}
+	moved := map[int64]int64{}
+	for _, event := range reissue.Copies {
+		result, err := tx.ExecContext(ctx, `DELETE FROM rejections WHERE seq = ?1`, event.Seq)
+		if err != nil {
+			return false, err
+		}
+		if removed, err := result.RowsAffected(); err != nil || removed != 1 {
+			return false, err
+		}
+		stored, err := insertEvent(ctx, tx, event)
+		if err != nil {
+			return false, err
+		}
+		moved[event.Seq] = stored.Seq
+	}
+	if reissue.Project != "" {
+		_, err := tx.ExecContext(ctx, `UPDATE lanes SET project = ?2 WHERE id = ?1 AND project = ''`, reissue.Lane, reissue.Project)
+		if err != nil {
+			return false, err
+		}
+	}
+	if err := moveParkedCommit(ctx, tx, reissue.Lane, moved); err != nil {
+		return false, err
+	}
+	return true, tx.Commit()
+}
+
+// moveParkedCommit points a lane's parked commit at the copy that replaced it.
+func moveParkedCommit(ctx context.Context, tx *sql.Tx, lane string, moved map[int64]int64) error {
+	var raw []byte
+	err := tx.QueryRowContext(ctx, `SELECT parking FROM lanes WHERE id = ?1`, lane).Scan(&raw)
+	if errors.Is(err, sql.ErrNoRows) || (err == nil && len(raw) == 0) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	var parking *lanes.ParkProgress
+	if err := json.Unmarshal(raw, &parking); err != nil {
+		return err
+	}
+	if parking == nil || moved[parking.Seq] == 0 {
+		return nil
+	}
+	parking.Seq = moved[parking.Seq]
+	progress, err := json.Marshal(parking)
+	if err != nil {
+		return err
+	}
+	_, err = tx.ExecContext(ctx, `UPDATE lanes SET parking = ?2 WHERE id = ?1`, lane, progress)
+	return err
 }
 
 // Leases lists what this worker holds.

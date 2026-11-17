@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"maps"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"ropeshift.com/ropeshift/internal/crashpoint"
@@ -88,6 +89,8 @@ type Worker struct {
 	polledAt  time.Time
 	laneGroup sync.WaitGroup
 	marked    sync.Once
+	// reissued says this process sent again what an earlier build's resumes left refused, or found nothing to.
+	reissued atomic.Bool
 	// performingLock guards performing, the effects a goroutine of this process is performing now.
 	performingLock sync.Mutex
 	performing     map[string]bool

@@ -347,6 +347,9 @@ func (w *Worker) Reconcile(ctx context.Context) ([]lanes.Action, error) {
 	if w.config.Lanes == nil {
 		return nil, nil
 	}
+	if err := w.reissueResumes(ctx); err != nil {
+		w.config.Report(fmt.Errorf("sending again what the ledger refused after a resume: %w", err))
+	}
 	world, seen, err := w.observe(ctx)
 	if err != nil {
 		return nil, err
