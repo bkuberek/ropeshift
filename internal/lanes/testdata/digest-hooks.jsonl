@@ -1,0 +1,12 @@
+{"event":"UserPromptSubmit","at_ms":1000,"input":{"session_id":"s-1","prompt":"Start on the retry budget."}}
+{"event":"PreToolUse","at_ms":1100,"input":{"session_id":"s-1","tool_name":"Read","tool_use_id":"t-1","tool_input":{"file_path":"/work/lane/internal/retry/budget.go"}}}
+{"event":"PreToolUse","at_ms":1200,"input":{"session_id":"s-1","tool_name":"Edit","tool_use_id":"t-2","tool_input":{"file_path":"/work/lane/internal/retry/budget.go","old_string":"a","new_string":"api_key=sk-live-0123456789abcdef"}}}
+{"event":"PreToolUse","at_ms":1300,"input":{"session_id":"s-1","tool_name":"Bash","tool_use_id":"t-3","tool_input":{"command":"curl -H 'Authorization: Bearer sk-live-0123456789abcdef' https://example.com"}}}
+{"event":"PreToolUse","at_ms":1400,"input":{"session_id":"s-1","tool_name":"Write","tool_use_id":"t-4","tool_input":{"file_path":"/work/lane/docs/retry.md","content":"body"}}}
+{"event":"PreToolUse","at_ms":1500,"input":{"session_id":"s-1","tool_name":"NotebookEdit","tool_use_id":"t-5","tool_input":{"notebook_path":"/work/lane/notes/retry.ipynb","new_source":"x"}}}
+{"event":"PreToolUse","at_ms":1550,"input":{"session_id":"s-1","tool_name":"Edit","tool_use_id":"t-6","tool_input":{"file_path":"/work/lane/internal/retry/budget.go","old_string":"b","new_string":"c"}}}
+{"event":"PreToolUse","at_ms":1600,"input":{"session_id":"s-1","tool_name":"Edit","tool_use_id":"t-7","tool_input":{"file_path":"/home/someone/.profile","old_string":"b","new_string":"c"}}}
+{"event":"Stop","at_ms":2000,"input":{"session_id":"s-1"}}
+{"event":"UserPromptSubmit","at_ms":3000,"input":{"session_id":"s-1","prompt":"Now the tests."}}
+{"event":"PreToolUse","at_ms":3100,"input":{"session_id":"s-1","tool_name":"Write","tool_use_id":"t-8","tool_input":{"file_path":"internal/retry/budget_test.go","content":"body"}}}
+{"event":"Stop","at_ms":3600,"input":{"session_id":"s-1"}}

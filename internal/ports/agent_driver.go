@@ -323,6 +323,9 @@ const (
 	// EventReply carries the text of one message an assistant's session wrote, with the vendor's ID of
 	// that message. A message that holds only tool calls or thinking is none.
 	EventReply EventKind = "reply"
+	// EventToolUse carries the calls one message made, which a generation's digest counts. Any event can carry
+	// the calls of its message in Tools, and this is the event of a message that has nothing else to say.
+	EventToolUse EventKind = "tool_use"
 	// EventSessionEnded is the last event of a session.
 	EventSessionEnded EventKind = "session_ended"
 )
@@ -352,6 +355,10 @@ type TurnResult struct {
 	// Compaction says this turn held only a compaction, which ends no work of the lane's unless the
 	// lane asked for it. A person can run one at a pane, and its last hook is all a driver reads.
 	Compaction bool
+	// DurationMs is how long the turn took and APIMs the session's running total of API time, where the
+	// stream says so. A driver that reads neither leaves them nil.
+	DurationMs *int64
+	APIMs      *int64
 }
 
 // SessionEnd says how a session ended.
@@ -387,6 +394,9 @@ type DriverEvent struct {
 	// Text and MessageID are an EventReply's.
 	Text      string
 	MessageID string
+	// Tools are the calls the event's message made, with the path a file-writing call named and no other
+	// input.
+	Tools []lanes.ToolUse
 	// Seq is this event's position in a session's stream. Zero means the driver keeps
 	// no stream that outlives its process.
 	Seq int64

@@ -1,0 +1,22 @@
+{
+  "source": "stream",
+  "turns": 2,
+  "tool_calls": {
+    "Agent": 1,
+    "Bash": 2,
+    "Edit": 1,
+    "Grep": 1,
+    "NotebookEdit": 1,
+    "Write": 1
+  },
+  "files_written": [
+    "internal/retry/budget.go",
+    "docs/retry.md",
+    "notes/retry.ipynb"
+  ],
+  "started_at": 100,
+  "ended_at": 5000,
+  "turn_ms": 2000,
+  "api_ms": 1500,
+  "complete": true
+}

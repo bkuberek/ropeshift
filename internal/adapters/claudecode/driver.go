@@ -919,7 +919,7 @@ func (s *session) take(line []byte, seq int64) {
 		return
 	}
 	if event, ok := s.agentUsage(p); ok {
-		event.Seq = seq
+		event.Seq, event.Tools = seq, p.tools
 		s.events <- event
 		return
 	}

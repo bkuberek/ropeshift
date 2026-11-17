@@ -26,6 +26,10 @@ type DriverTurn struct {
 	Deferred bool
 	// Compaction says this turn held only a compaction.
 	Compaction bool
+	// DurationMs is how long the turn took and APIMs the session's running total of API time, as the stream
+	// reports them. Nil leaves one out.
+	DurationMs *int64
+	APIMs      *int64
 }
 
 // DriverStep is one thing a scripted session does. Exactly one field is set.
@@ -61,6 +65,8 @@ type DriverStep struct {
 	// Reply reports a message an assistant's session wrote, under ReplyID.
 	Reply   string
 	ReplyID string
+	// Tools reports the calls one message made.
+	Tools []lanes.ToolUse
 }
 
 // DriverScript is one session. Each turn answers one input, and the brief is the
@@ -636,8 +642,13 @@ func (s *driverSession) playTurn(steps []DriverStep) (*ports.SessionEnd, bool) {
 			s.events <- ports.DriverEvent{Kind: ports.EventCompaction, Detail: "manual"}
 		case step.Reply != "":
 			s.events <- ports.DriverEvent{Kind: ports.EventReply, Text: step.Reply, MessageID: step.ReplyID}
+		case step.Tools != nil:
+			s.events <- ports.DriverEvent{Kind: ports.EventToolUse, Tools: step.Tools}
 		case step.Turn != nil:
-			result := ports.TurnResult{Status: step.Turn.Status, Reason: step.Turn.Reason, Usage: step.Turn.Usage, Compaction: step.Turn.Compaction, Deferred: step.Turn.Deferred}
+			result := ports.TurnResult{
+				Status: step.Turn.Status, Reason: step.Turn.Reason, Usage: step.Turn.Usage, Compaction: step.Turn.Compaction,
+				Deferred: step.Turn.Deferred, DurationMs: step.Turn.DurationMs, APIMs: step.Turn.APIMs,
+			}
 			// A stopped turn reports no cost, as a driver's meter counts it.
 			if step.Turn.Status == ports.TurnStopped {
 				s.meter.ObserveStopped()
