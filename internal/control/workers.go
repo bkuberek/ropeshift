@@ -1002,6 +1002,8 @@ func applyUpload(tx ports.WriteTx, worker, id string, e ledger.UploadEvent) erro
 		return recordBaseline(tx, worker, id, e)
 	case ledger.UploadGenerationDigest:
 		return digestUpload(tx, worker, id, e)
+	case ledger.UploadGenerationUsage:
+		return usageReported(tx, worker, id, e)
 	case ledger.UploadMessage:
 		return messageUpload(tx, worker, id, e)
 	case ledger.UploadApprovalRaised:

@@ -64,6 +64,9 @@ func DeliveryOf(tx ports.ReadTx, id string, opts DeliveryOptions) (delivery.Time
 		if err != nil {
 			return delivery.Timeline{}, nil, err
 		}
+		if usage.SpendLimited, err = spendLimited(tx, review.ID); err != nil {
+			return delivery.Timeline{}, nil, err
+		}
 		facts.Usage = addUsage(facts.Usage, usage)
 	}
 	timeline, err := delivery.Derive(in)
@@ -79,6 +82,9 @@ func DeliveryOf(tx ports.ReadTx, id string, opts DeliveryOptions) (delivery.Time
 	}
 	usage, err := usageOf(tx, events)
 	if err != nil {
+		return delivery.Timeline{}, nil, err
+	}
+	if usage.SpendLimited, err = spendLimited(tx, id); err != nil {
 		return delivery.Timeline{}, nil, err
 	}
 	facts.Usage = addUsage(facts.Usage, usage)
@@ -242,10 +248,20 @@ func usageOf(tx ports.ReadTx, events []ledger.Event) (delivery.Usage, error) {
 	return out, nil
 }
 
+// spendLimited says a hard spend limit stopped a work order, from the events about its spend. Its delivery record is
+// then marked, and what it cost is read as at least what it says (ADR-0037).
+func spendLimited(tx ports.ReadTx, workOrder string) (bool, error) {
+	events, err := tx.EventsAbout(ledger.Subject{Kind: ledger.SubjectSpend, ID: workOrder})
+	if err != nil {
+		return false, err
+	}
+	return slices.ContainsFunc(events, func(e ledger.Event) bool { return e.Type == ledger.EventSpendLimited }), nil
+}
+
 func addUsage(a, b delivery.Usage) delivery.Usage {
 	return delivery.Usage{
 		InputTokens: a.InputTokens + b.InputTokens, OutputTokens: a.OutputTokens + b.OutputTokens, CostUSD: a.CostUSD + b.CostUSD,
-		CostLowerBound: a.CostLowerBound || b.CostLowerBound,
+		CostLowerBound: a.CostLowerBound || b.CostLowerBound, SpendLimited: a.SpendLimited || b.SpendLimited,
 	}
 }
 

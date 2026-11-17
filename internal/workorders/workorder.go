@@ -293,6 +293,9 @@ const EventGenerationResponded = "work_order.generation_responded"
 // EventGenerationBaseline records what a generation held at its first call, which changes no state.
 const EventGenerationBaseline = "work_order.generation_baseline"
 
+// EventGenerationUsage records what a generation has spent, which changes no state (ADR-0037).
+const EventGenerationUsage = "work_order.generation_usage"
+
 // GenerationBinding is the payload of EventGenerationBound. It records the resolved
 // model and not only the alias, because aliases drift (FR-DRV-10).
 type GenerationBinding struct {
