@@ -8,7 +8,9 @@ import (
 	"encoding/pem"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -111,11 +113,44 @@ func certificateOf(t *testing.T, pemBytes []byte) *x509.Certificate {
 	return cert
 }
 
-func TestAKeyFileWiderThanItsUserIsTightenedAtStart(t *testing.T) {
+// heard collects what an authority warns of, for a test that expects a warning.
+type heard struct {
+	mu   sync.Mutex
+	list []string
+}
+
+func (h *heard) warn(err error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.list = append(h.list, err.Error())
+}
+
+func (h *heard) all() []string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return slices.Clone(h.list)
+}
+
+func openHearing(t *testing.T, dir string, clock *fake.Clock, h *heard, names ...string) *servertls.Authority {
+	t.Helper()
+	authority, err := servertls.OpenAuthority(dir, servertls.Options{Names: names, Clock: clock, Warn: h.warn})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return authority
+}
+
+// A key a person or an earlier version left readable by more than its user is tightened, and the server says it
+// was, because anyone who could read it may have.
+func TestAKeyFileWiderThanItsUserIsTightenedAtStartAndSaysSo(t *testing.T) {
 	t.Parallel()
 	dir := filepath.Join(t.TempDir(), "tls")
 	clock := fake.NewClock(start)
-	open(t, dir, clock, "ropeshift.lan")
+	var none heard
+	openHearing(t, dir, clock, &none, "ropeshift.lan")
+	if got := none.all(); len(got) != 0 {
+		t.Fatalf("a new authority warned: %v", got)
+	}
 	for _, name := range []string{servertls.CAKeyFile, servertls.KeyFile} {
 		if err := os.Chmod(filepath.Join(dir, name), 0o644); err != nil {
 			t.Fatal(err)
@@ -124,14 +159,24 @@ func TestAKeyFileWiderThanItsUserIsTightenedAtStart(t *testing.T) {
 	if err := os.Chmod(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	open(t, dir, clock, "ropeshift.lan")
+	var wide heard
+	openHearing(t, dir, clock, &wide, "ropeshift.lan")
 	for _, name := range []string{servertls.CAKeyFile, servertls.KeyFile} {
 		if got := mode(t, filepath.Join(dir, name)); got != 0o600 {
 			t.Errorf("%s is %o", name, got)
 		}
+		if !slices.ContainsFunc(wide.all(), func(said string) bool { return strings.Contains(said, name) && strings.Contains(said, "644") }) {
+			t.Errorf("nothing says %s was readable by more than its user: %v", name, wide.all())
+		}
 	}
 	if got := mode(t, dir); got != 0o700 {
 		t.Errorf("the directory is %o", got)
+	}
+	// Keys that were already private are left without a word.
+	var private heard
+	openHearing(t, dir, clock, &private, "ropeshift.lan")
+	if got := private.all(); len(got) != 0 {
+		t.Errorf("keys that were private were warned of: %v", got)
 	}
 }
 

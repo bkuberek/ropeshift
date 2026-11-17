@@ -30,6 +30,16 @@ type fileStamp struct {
 	size     int64
 }
 
+// same says no file changed. A modification time is an instant, so it is compared as one, and not by the
+// location or the clock reading a time value carries.
+func (s stamp) same(other stamp) bool {
+	return s.cert.same(other.cert) && s.key.same(other.key)
+}
+
+func (s fileStamp) same(other fileStamp) bool {
+	return s.size == other.size && s.modified.Equal(other.modified)
+}
+
 // OpenPair reads a certificate and key, and refuses a pair that does not load. warn hears a replacement that
 // does not load, which leaves the pair in use served.
 func OpenPair(certFile, keyFile string, warn func(error)) (*Pair, error) {
@@ -62,7 +72,7 @@ func (p *Pair) certificate(*tls.ClientHelloInfo) (*tls.Certificate, error) {
 		return p.current, nil
 	}
 	p.report.clear()
-	if seen == p.seen {
+	if seen.same(p.seen) {
 		return p.current, nil
 	}
 	// A pair that does not load is not tried again until a file changes again, which is how a certificate

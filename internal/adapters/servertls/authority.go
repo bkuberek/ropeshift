@@ -44,6 +44,8 @@ const (
 
 	// skew is how long before it is issued a certificate begins, so a machine whose clock runs behind accepts it.
 	skew = 5 * time.Minute
+	// renewRetry is how long a renewal that failed waits before it is tried again.
+	renewRetry = time.Minute
 
 	privateDir  = 0o700
 	privateFile = 0o600
@@ -72,6 +74,8 @@ type Authority struct {
 	mu      sync.RWMutex
 	leaf    *tls.Certificate
 	renewAt time.Time
+	// failure is why the last renewal failed, which a connection gets once the certificate has ended.
+	failure error
 }
 
 // OpenAuthority returns the authority kept in a directory, and makes it, with a server certificate, when the
@@ -102,7 +106,7 @@ func OpenAuthority(dir string, options Options) (*Authority, error) {
 			return nil, err
 		}
 	}
-	a.setLeaf(leaf)
+	a.setLeaf(leaf, now)
 	return a, nil
 }
 
@@ -121,39 +125,90 @@ func (a *Authority) CertificatePEM() []byte {
 
 func (a *Authority) path(name string) string { return filepath.Join(a.dir, name) }
 
-func (a *Authority) setLeaf(leaf *tls.Certificate) {
+// setLeaf keeps a certificate as the one in use. The next renewal is RenewBefore ahead of its end, and no sooner
+// than renewRetry from now, so a certificate that is the last its authority can sign is not issued again by
+// every handshake.
+func (a *Authority) setLeaf(leaf *tls.Certificate, now time.Time) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	a.leaf, a.renewAt = leaf, leaf.Leaf.NotAfter.Add(-RenewBefore)
+	a.leaf, a.failure = leaf, nil
+	a.renewAt = later(leaf.Leaf.NotAfter.Add(-RenewBefore), now.Add(renewRetry))
+}
+
+func later(a, b time.Time) time.Time {
+	if a.After(b) {
+		return a
+	}
+	return b
+}
+
+func earlier(a, b time.Time) time.Time {
+	if a.Before(b) {
+		return a
+	}
+	return b
 }
 
 // certificate answers a connection with the current server certificate, issuing the next first when the
 // current one has RenewBefore left or less. A renewal that cannot be kept leaves the certificate in use, which
-// serves until its end.
+// serves until its end, and is tried again no sooner than renewRetry later, because each try makes a key. Once the
+// certificate has ended, the connection gets the error of the renewal that failed.
 func (a *Authority) certificate(*tls.ClientHelloInfo) (*tls.Certificate, error) {
 	now := a.clock.Now()
 	a.mu.RLock()
 	leaf, renewAt := a.leaf, a.renewAt
 	a.mu.RUnlock()
-	if now.Before(renewAt) {
+	if now.Before(renewAt) && now.Before(leaf.Leaf.NotAfter) {
 		return leaf, nil
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if now.Before(a.renewAt) {
+	live := now.Before(a.leaf.Leaf.NotAfter)
+	switch {
+	case now.Before(a.renewAt) && live:
 		return a.leaf, nil
+	case now.Before(a.renewAt):
+		return nil, a.failure
 	}
-	renewed, err := a.issue(now)
+	renewed, err := a.renew(now)
 	if err != nil {
-		if now.Before(a.leaf.Leaf.NotAfter) {
-			a.report.say(fmt.Errorf("the server certificate could not be renewed: %w", err))
+		a.failure = fmt.Errorf("the server certificate could not be renewed: %w", err)
+		a.renewAt = now.Add(renewRetry)
+		if live {
+			a.report.say(a.failure)
 			return a.leaf, nil
 		}
-		return nil, err
+		return nil, a.failure
 	}
 	a.report.clear()
-	a.leaf, a.renewAt = renewed, renewed.Leaf.NotAfter.Add(-RenewBefore)
+	a.leaf, a.failure = renewed, nil
+	a.renewAt = later(renewed.Leaf.NotAfter.Add(-RenewBefore), now.Add(renewRetry))
 	return a.leaf, nil
+}
+
+// renew issues the next server certificate, from an authority that has not ended.
+func (a *Authority) renew(now time.Time) (*tls.Certificate, error) {
+	if !now.Before(a.ca.NotAfter) {
+		return nil, a.expired()
+	}
+	return a.issue(now)
+}
+
+func (a *Authority) expired() error {
+	return fmt.Errorf("the certificate authority %s expired on %s: remove %s and %s to make a new authority, and every client pins the new one", a.path(CAFile), a.ca.NotAfter.UTC().Format(time.DateOnly), CAFile, CAKeyFile)
+}
+
+// tighten makes a key readable by its user alone, and says so when it was readable by more, because whoever
+// could read it may have.
+func (a *Authority) tighten(name string) error {
+	info, err := os.Stat(a.path(name))
+	if err != nil {
+		return err
+	}
+	if info.Mode().Perm()&0o077 != 0 {
+		a.report.say(fmt.Errorf("the key %s was readable by more than its user (mode %o), and is now readable by its user alone: whoever could read it may have", a.path(name), info.Mode().Perm()))
+	}
+	return os.Chmod(a.path(name), privateFile)
 }
 
 // openCA reads the authority, and makes it when no certificate is kept. The certificate is the last file of a
@@ -179,19 +234,22 @@ func (a *Authority) openCA(now time.Time) error {
 	if err != nil {
 		return fmt.Errorf("the certificate authority's key %s: %w", a.path(CAKeyFile), err)
 	}
+	a.ca, a.caDER, a.caKey = ca, ca.Raw, key
+	a.finger = fingerprint(ca.Raw)
 	switch {
 	case !ca.IsCA:
 		return fmt.Errorf("the certificate authority %s is not an authority", a.path(CAFile))
 	case !key.PublicKey.Equal(ca.PublicKey):
 		return fmt.Errorf("the key %s does not belong to the certificate authority %s", a.path(CAKeyFile), a.path(CAFile))
 	case !now.Before(ca.NotAfter):
-		return fmt.Errorf("the certificate authority %s expired on %s: remove %s and %s to make a new authority, and every worker joins again", a.path(CAFile), ca.NotAfter.UTC().Format(time.DateOnly), CAFile, CAKeyFile)
+		return a.expired()
 	}
-	if err := os.Chmod(a.path(CAKeyFile), privateFile); err != nil {
+	if err := a.tighten(CAKeyFile); err != nil {
 		return err
 	}
-	a.ca, a.caDER, a.caKey = ca, ca.Raw, key
-	a.finger = fingerprint(ca.Raw)
+	if ca.NotAfter.Sub(now) < RenewBefore {
+		a.report.say(fmt.Errorf("the certificate authority %s ends on %s: before then, remove %s and %s to make a new authority, and every client pins the new one", a.path(CAFile), ca.NotAfter.UTC().Format(time.DateOnly), CAFile, CAKeyFile))
+	}
 	return nil
 }
 
@@ -233,7 +291,7 @@ func (a *Authority) makeCA(now time.Time) error {
 // the names, and it has more than RenewBefore left. It is nil otherwise, and the caller issues one, because
 // nothing here is worth keeping that cannot be made again. Its key is tightened either way.
 func (a *Authority) keptLeaf(now time.Time) *tls.Certificate {
-	if err := os.Chmod(a.path(KeyFile), privateFile); err != nil {
+	if err := a.tighten(KeyFile); err != nil {
 		return nil
 	}
 	cert, err := tls.LoadX509KeyPair(a.path(CertFile), a.path(KeyFile))
@@ -260,7 +318,8 @@ func (a *Authority) issue(now time.Time) (*tls.Certificate, error) {
 	}
 	template := &x509.Certificate{
 		SerialNumber: serial, Subject: pkix.Name{CommonName: a.names[0]},
-		NotBefore: now.Add(-skew), NotAfter: now.Add(CertValidity),
+		// A certificate never outlives the authority that signed it.
+		NotBefore: now.Add(-skew), NotAfter: earlier(now.Add(CertValidity), a.ca.NotAfter),
 		BasicConstraintsValid: true, KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 	}
 	for _, name := range a.names {
