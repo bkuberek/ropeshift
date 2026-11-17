@@ -9,6 +9,7 @@ import { ConfirmCard, voidAsk } from "../needs/ConfirmCard";
 import type { Frame } from "../needs/frame";
 import { approvalHeading, kindOf } from "../needs/kinds";
 import { QuestionBatch } from "../needs/QuestionBatch";
+import { QuestionHeading } from "../needs/QuestionHeading";
 import { DecisionCard } from "../ui/DecisionCard";
 import { Resolved } from "../ui/resolution";
 import { useTalk } from "./state";
@@ -121,7 +122,7 @@ function QuestionItem({ entry, after }: ItemProps) {
   if (!held) {
     return null;
   }
-  const frame: Frame = { title: "A question", provenance: held.question.asked_by };
+  const frame: Frame = { title: <QuestionHeading text={held.question.text} />, provenance: held.question.asked_by };
   if (held.question.status === "needs_human") {
     return <QuestionBatch compact place="conversation" batch={batchOf(held)} after={after} frame={frame} />;
   }
