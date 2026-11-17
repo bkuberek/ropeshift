@@ -177,6 +177,34 @@ func TestAMembersSessionReachesTheAPIAsABearerToken(t *testing.T) {
 	}
 }
 
+// The passphrase is set on the server's own machine, over its control socket, and changed from the web UI with
+// the passphrase in force, which also ends the member's other sessions. A session as a bearer token holds
+// neither proof, so it changes nothing of the passphrase: the route the socket sets it by is closed to it.
+func TestAMembersBearerSessionNeverChangesThePassphrase(t *testing.T) {
+	t.Parallel()
+	r := networkOn(t)
+	header := map[string]string{api.HeaderSession: r.d.Session}
+	for _, method := range []string{http.MethodPut, http.MethodPost, http.MethodPatch, http.MethodDelete} {
+		response, raw := r.send(t, call{method: method, path: api.PassphrasePath, body: api.SetPassphrase{Passphrase: "taken over"}, headers: header})
+		wantStatus(t, response, raw, http.StatusForbidden, api.CodeForbidden)
+	}
+	// What a session may still read of it is whether one is set, which says nothing of the passphrase.
+	response, raw := r.send(t, call{path: api.PassphrasePath, headers: header})
+	wantStatus(t, response, raw, http.StatusOK, "")
+	if !strings.Contains(string(raw), `"set":true`) {
+		t.Errorf("the passphrase's state reads %s", raw)
+	}
+	if _, err := r.d.Client.SignIn(t.Context(), api.SignIn{Passphrase: "taken over"}); err == nil {
+		t.Error("a bearer session set the passphrase")
+	}
+	if _, err := r.d.Client.SignIn(t.Context(), api.SignIn{Passphrase: apitest.Passphrase}); err != nil {
+		t.Errorf("the passphrase in force no longer signs in: %v", err)
+	}
+	// A session that is none gets the refusal of a session, not a hint of this route's.
+	response, raw = r.send(t, call{method: http.MethodPut, path: api.PassphrasePath, body: api.SetPassphrase{Passphrase: "x"}, headers: map[string]string{api.HeaderSession: "nothing"}})
+	wantStatus(t, response, raw, http.StatusUnauthorized, api.CodeSessionRequired)
+}
+
 // A session that ended opens nothing, whichever way it reached the listener.
 func TestASessionThatEndedOpensNothingOverTheNetwork(t *testing.T) {
 	t.Parallel()

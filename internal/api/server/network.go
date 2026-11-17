@@ -247,6 +247,13 @@ func (n *network) member(w http.ResponseWriter, r *http.Request) {
 		fail(w, err)
 		return
 	}
+	// The socket sets the passphrase on the strength of its file permissions, and the web UI changes it with
+	// the passphrase in force, ending the member's other sessions. A bearer token proves neither, and a
+	// session token that leaked would otherwise replace the passphrase for good.
+	if r.URL.Path == api.PassphrasePath && r.Method != http.MethodGet && r.Method != http.MethodHead {
+		refuse(w, http.StatusForbidden, api.ErrorDetail{Code: api.CodeForbidden, Message: "the passphrase is set on the server's own machine, and changed in the web UI with the passphrase in force"})
+		return
+	}
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
 	go n.keep(ctx, cancel, token)
