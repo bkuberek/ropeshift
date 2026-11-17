@@ -327,7 +327,8 @@ func (r *laneRun) callRefused(ctx context.Context, lane lanes.Record, digest str
 	}
 }
 
-// signal moves the lane and keeps where it stands, so an adopted run goes on from there.
+// signal moves the lane, keeps where it stands, so an adopted run goes on from there, and wakes the worker to
+// publish the move.
 func (r *laneRun) signal(ctx context.Context, signals ...lanes.Signal) {
 	r.signalAt(ctx, 0, signals...)
 }
@@ -351,6 +352,7 @@ func (r *laneRun) signalAt(ctx context.Context, atMs int64, signals ...lanes.Sig
 	if err := r.w.journal.SaveActual(context.WithoutCancel(ctx), r.lease.Lane, state, from); err != nil {
 		r.w.config.Report(fmt.Errorf("lane %s: %w", r.lease.Lane, err))
 	}
+	r.w.laneMoved()
 }
 
 func (r *laneRun) progressed() {
