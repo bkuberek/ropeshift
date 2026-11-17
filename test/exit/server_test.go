@@ -5,6 +5,8 @@ package exit
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -18,6 +20,8 @@ import (
 	"testing"
 	"time"
 
+	"ropeshift.com/ropeshift/internal/adapters/clock"
+	"ropeshift.com/ropeshift/internal/adapters/servertls"
 	"ropeshift.com/ropeshift/internal/adapters/sqlite"
 	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/ledger"
@@ -373,6 +377,90 @@ func TestServerHoldsItsInstallation(t *testing.T) {
 	}
 	if _, err := s.client.Health(t.Context()); err != nil {
 		t.Errorf("the first server stopped answering: %v", err)
+	}
+}
+
+// healthOver reads the server's health as a member over TLS, through a client with the config.
+func (s *aServer) healthOver(t *testing.T, config *tls.Config) (api.Health, error) {
+	t.Helper()
+	transport := &http.Transport{TLSClientConfig: config, DisableKeepAlives: true}
+	defer transport.CloseIdleConnections()
+	request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, s.address+"/v1/health", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set(api.HeaderSession, s.session)
+	response, err := (&http.Client{Transport: transport}).Do(request)
+	if err != nil {
+		return api.Health{}, err
+	}
+	defer response.Body.Close()
+	var health api.Health
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("health answered %d", response.StatusCode)
+	}
+	return health, json.NewDecoder(response.Body).Decode(&health)
+}
+
+// A server given a name serves TLS in a certificate its own authority issued, keeps the authority's keys to its
+// user, and prints the fingerprint a client pins. A client that pins that fingerprint reaches it, and one that
+// pins another does not.
+func TestServerServesTLSWithItsOwnAuthority(t *testing.T) {
+	s := startServer(t, aDatabase(t), "--name", "127.0.0.1")
+	if !strings.HasPrefix(s.address, "https://127.0.0.1:") {
+		t.Fatalf("the server says it serves %q", s.address)
+	}
+	fingerprint := s.d.said(t, "ropeshiftd: certificate authority sha256 ")
+	for _, name := range []string{"ca.key", "server.key"} {
+		info, err := os.Stat(filepath.Join(s.paths().StateDir, "tls", name))
+		if err != nil || info.Mode().Perm() != 0o600 {
+			t.Errorf("%s: %v, %v", name, info, err)
+		}
+	}
+	health, err := s.healthOver(t, apitest.PinnedTLS(fingerprint, "127.0.0.1"))
+	if err != nil || health.Mode != api.ModeGroup {
+		t.Fatalf("a client that pins the fingerprint reads %+v: %v", health, err)
+	}
+	if _, err := s.healthOver(t, apitest.PinnedTLS(strings.Repeat("0", 64), "127.0.0.1")); err == nil {
+		t.Error("a client that pins another fingerprint reached the server")
+	}
+	if said := s.d.stdout.String(); strings.Contains(said, "server http://") {
+		t.Errorf("a server that serves TLS says it serves http: %s", said)
+	}
+}
+
+// A server given a certificate and key serves them, and a client that verifies through roots that hold the
+// authority which made them reaches it.
+func TestServerServesASuppliedCertificate(t *testing.T) {
+	dir := t.TempDir()
+	made, err := servertls.OpenAuthority(filepath.Join(dir, "made"), servertls.Options{Names: []string{"127.0.0.1"}, Clock: clock.System{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for from, to := range map[string]string{servertls.CertFile: "tls.crt", servertls.KeyFile: "tls.key"} {
+		raw, err := os.ReadFile(filepath.Join(dir, "made", from))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, to), raw, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s := startServer(t, aDatabase(t), "--tls-cert", filepath.Join(dir, "tls.crt"), "--tls-key", filepath.Join(dir, "tls.key"))
+	if !strings.HasPrefix(s.address, "https://127.0.0.1:") {
+		t.Fatalf("the server says it serves %q", s.address)
+	}
+	roots := x509.NewCertPool()
+	roots.AppendCertsFromPEM(made.CertificatePEM())
+	health, err := s.healthOver(t, &tls.Config{RootCAs: roots, MinVersion: tls.VersionTLS12})
+	if err != nil || health.Mode != api.ModeGroup {
+		t.Fatalf("a client that trusts the authority reads %+v: %v", health, err)
+	}
+	if _, err := s.healthOver(t, &tls.Config{MinVersion: tls.VersionTLS12}); err == nil {
+		t.Error("a client on the system roots reached a certificate no public authority made")
+	}
+	if _, err := os.Stat(filepath.Join(s.paths().StateDir, "tls")); err == nil {
+		t.Error("a server that was given a certificate made an authority of its own")
 	}
 }
 

@@ -659,11 +659,12 @@ func TestAStreamEndsWithItsSession(t *testing.T) {
 	}
 }
 
-// TestTheTCPListenersBindLoopbackOnly holds the TCP listeners the design names, the web UI's, the group
-// server's, and the OTLP receiver's, to loopback addresses.
+// TestTheTCPListenersBindLoopbackOnly holds the TCP listeners of solo mode, the web UI's and the OTLP
+// receiver's, to loopback addresses. A group server's listener binds the address it is given, and its own
+// test holds what it may serve there.
 func TestTheTCPListenersBindLoopbackOnly(t *testing.T) {
 	t.Parallel()
-	listeners := map[string]func(string) (net.Listener, error){"web": server.ListenWeb, "server": server.ListenServer, "telemetry": server.ListenTelemetry}
+	listeners := map[string]func(string) (net.Listener, error){"web": server.ListenWeb, "telemetry": server.ListenTelemetry}
 	for name, listen := range listeners {
 		for _, address := range []string{"127.0.0.1:0", "localhost:0", "[::1]:0"} {
 			t.Run(name+"/"+address, func(t *testing.T) {

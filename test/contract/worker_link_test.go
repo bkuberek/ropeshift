@@ -2,6 +2,7 @@ package contract
 
 import (
 	"bytes"
+	"crypto/tls"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -129,17 +130,29 @@ func httpLink(t *testing.T, protocol int) *LinkRig {
 // credential, reached by the client a group worker uses over a loopback address.
 func tcpLink(t *testing.T, protocol int) *LinkRig {
 	t.Helper()
+	return networkLink(t, protocol, nil, func(network *apitest.Web) (*api.Client, error) {
+		return api.NewTCPClient("http://" + network.Host)
+	})
+}
+
+// networkLink is the rig of every link on the network listener. serving is what the listener serves, nil for
+// plaintext, and dial makes the client a worker would use on the address the listener bound.
+func networkLink(t *testing.T, protocol int, serving *tls.Config, dial func(*apitest.Web) (*api.Client, error)) *LinkRig {
+	t.Helper()
 	wire := &faultyWire{}
 	offset := &atomic.Int64{}
 	daemon := apitest.StartWith(t, apitest.Options{
 		Protocol: protocol,
 		Clock:    func(d sqlstore.Dialect) sqlstore.Dialect { return ShiftedDialect{d, offset} },
 	})
-	network := daemon.ServeNetwork(t, fstest.MapFS{"placeholder.html": {Data: []byte("not built")}}, 0, func(next http.Handler) http.Handler {
-		wire.next = next
-		return wire
+	network := daemon.ServeNetworkWith(t, apitest.NetworkOptions{
+		Assets: fstest.MapFS{"placeholder.html": {Data: []byte("not built")}}, TLS: serving,
+		Wrap: func(next http.Handler) http.Handler {
+			wire.next = next
+			return wire
+		},
 	})
-	client, err := api.NewTCPClient("http://" + network.Host)
+	client, err := dial(network)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -167,6 +180,12 @@ func TestWorkerLinkContract(t *testing.T) {
 	})
 	t.Run("tcp", func(t *testing.T) {
 		RunWorkerLink(t, LinkBackend{Name: "tcp", Fresh: tcpLink})
+	})
+	t.Run("https with the server's own authority", func(t *testing.T) {
+		RunWorkerLink(t, LinkBackend{Name: "https-own-authority", Fresh: secureLink(ownAuthority)})
+	})
+	t.Run("https with a supplied certificate", func(t *testing.T) {
+		RunWorkerLink(t, LinkBackend{Name: "https-supplied-certificate", Fresh: secureLink(suppliedCertificate)})
 	})
 }
 
