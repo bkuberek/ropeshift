@@ -77,9 +77,14 @@ var webGaps = map[string]string{
 	"new workspace":  "P4i",
 	"new monorepo":   "P4i",
 	"new repository": "P4i",
+	// The plan revision's commands: the revision card sends the three routes, and the plan page shows the read.
+	"plan revision":        "P8c", // planning.go reads the open revision of a plan, which the plan's page and the approval's page show from GET /v1/plans/{id}
+	"plan confirm":         "P8c", // planning.go confirms the approved version against the decisions since; the revision card sends POST /v1/plans/{id}/revision/confirm
+	"plan revise":          "P8c", // planstart.go starts a planning session whose brief lists those decisions; the revision card sends POST /v1/plans/{id}/revision/sessions
+	"work decision-rework": "P8c", // work.go makes the rework of finished work a revision lists; the revision card sends POST /v1/work-orders/{id}/decision-rework
 }
 
-var gapSlice = regexp.MustCompile(`^(U2[a-k]|P[34][a-j])[12]?$`)
+var gapSlice = regexp.MustCompile(`^(U2[a-k]|P[34][a-j]|P8c)[12]?$`)
 
 // TestEveryCommandHasAWebRoute holds the CLI to the web listener: each command is named by a row of
 // WebRoutes, or is in exactly one of equivalents, cliOnly, and webGaps. An entry whose command a row now

@@ -140,9 +140,11 @@ type handler struct {
 	workOrders *control.WorkOrders
 	leases     *control.Leases
 	reviews    *control.Reviews
-	accepting  *control.Acceptances
-	questions  *control.Questions
-	workers    *control.Workers
+	// planRevisions confirms a plan's revision and starts the session that revises it.
+	planRevisions *control.PlanRevisions
+	accepting     *control.Acceptances
+	questions     *control.Questions
+	workers       *control.Workers
 	// plane serves the plane protocol across every project. The first project's handler serves its routes,
 	// and every project's handler reads the workers and orchestrators every project shares through it.
 	plane        *control.Plane
@@ -226,6 +228,7 @@ func (h *handler) installationRoutes(mux *http.ServeMux) {
 func (h *handler) projectRoutes(mux *http.ServeMux) {
 	h.laneRoutes(mux)
 	h.planningRoutes(mux)
+	h.revisionRoutes(mux)
 	h.questionRoutes(mux)
 	h.messageRoutes(mux)
 	h.approvalRoutes(mux)
@@ -280,6 +283,7 @@ func newHandler(config Config) *handler {
 		workOrders:    control.NewWorkOrders(config.Store),
 		leases:        control.NewLeases(config.Store).Budgeted(config.PackTokens).Starting(config.Starts),
 		reviews:       control.NewReviews(config.Store),
+		planRevisions: control.NewPlanRevisions(config.Store),
 		recoveries:    control.NewRecoveries(config.Store),
 		estimates:     control.NewEstimatePolicies(config.Store),
 		accepting:     control.NewAcceptances(config.Store),

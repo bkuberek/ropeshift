@@ -95,6 +95,9 @@ const (
 	OpFleetCaps                           = "fleet.caps"
 	OpPlanStartReview                     = "plan.start_review"
 	OpPlanStartReviewByAssistant          = "plan.start_review_by_assistant"
+	OpPlanConfirmRevision                 = "plan.confirm_revision"
+	OpPlanRevise                          = "plan.revise"
+	OpWorkOrderDecisionRework             = "work_order.decision_rework"
 	OpQuestionRecord                      = "question.record"
 	OpQuestionDismiss                     = "question.dismiss"
 	OpQuestionAnswer                      = "question.answer"
@@ -247,6 +250,12 @@ var operations = append(onInstallation(
 	// A contract review is a work order, which the same rule holds.
 	exemptable(OpPlanStartReview, "Start a contract review", ActionStartReview),
 	operational(OpPlanStartReviewByAssistant, "Start a contract review", ActionStartReview),
+	// A plan sets scope, and scope stays with a person: confirming that a plan's approved version stands against the
+	// decisions made since, and starting the session that revises it, are a member's alone (FR-PLAN-12).
+	memberOnly(OpPlanConfirmRevision, "Confirm a plan revision", ActionApprovePlan),
+	memberOnly(OpPlanRevise, "Revise a plan", ActionApprovePlan),
+	// Rework for the decisions a plan's revision lists costs a lane and a review apiece, so a member chooses it.
+	memberOnly(OpWorkOrderDecisionRework, "Rework work for a decision", ActionRework),
 	consent(OpQuestionRecord, "Record a question"),
 	consent(OpQuestionDismiss, "Dismiss a question", ActionDismissQuestion),
 	oneWay(consent(OpQuestionAnswer, "Answer a question", ActionAnswerQuestion)),

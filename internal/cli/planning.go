@@ -56,11 +56,86 @@ func (c *invocation) planShow(args []string) int {
 		for _, order := range view.WorkOrders {
 			out.WriteString("work\t" + orderLine(order))
 		}
+		if view.Revision != nil {
+			writeRevision(&out, *view.Revision)
+		}
 		if view.Approval != nil {
 			writePlanApproval(&out, *view.Approval)
 		}
 		return out.String()
 	})
+}
+
+// planRevision prints the open revision of a plan: the decisions a member made since its approved version, the
+// finished work they reached, and the work that waits in contract review until a member settles it.
+func (c *invocation) planRevision(args []string) int {
+	set := c.flags()
+	positional, ok := c.parse(set, args)
+	if !ok {
+		return ExitUsage
+	}
+	if len(positional) != 1 {
+		return c.usageError("takes one plan ID")
+	}
+	client, exit := c.projectClient()
+	if client == nil {
+		return exit
+	}
+	defer client.Close()
+	view, err := client.PlanRevision(c.ctx, positional[0])
+	return c.finish(err, view, func() string {
+		var out strings.Builder
+		writeRevision(&out, view)
+		return out.String()
+	})
+}
+
+// planConfirm records that the approved version of a plan stands with the decisions made since, as a member who
+// read them. It closes the revision and releases the work that waited for it.
+func (c *invocation) planConfirm(args []string) int {
+	set := c.flags()
+	positional, ok := c.parse(set, args)
+	if !ok {
+		return ExitUsage
+	}
+	if len(positional) != 1 {
+		return c.usageError("takes one plan ID")
+	}
+	client, exit := c.projectClient()
+	if client == nil {
+		return exit
+	}
+	defer client.Close()
+	closed, err := client.ConfirmRevision(c.ctx, positional[0])
+	return c.finish(err, closed, func() string {
+		return fmt.Sprintf("confirmed version %d of plan %s with %s since\n", closed.ApprovedVersion, positional[0], plural(len(closed.DecisionIDs), "decision", "decisions"))
+	})
+}
+
+// writeRevision prints a plan's revision, or says the plan has none open.
+func writeRevision(out *strings.Builder, view api.PlanRevisionView) {
+	if view.Revision == nil {
+		fmt.Fprintf(out, "no revision is open for plan %s\n", view.Plan)
+		return
+	}
+	fmt.Fprintf(out, "revision\t%s\t%s\tversion %d approved\t%s since\n", view.Plan, view.Title, view.Revision.ApprovedVersion, plural(len(view.Decisions), "decision", "decisions"))
+	for _, decision := range view.Decisions {
+		fmt.Fprintf(out, "  %s\n", revisionDecisionLine(decision))
+	}
+	for _, work := range view.Finished {
+		line := fmt.Sprintf("  finished\t%s\t%s\tdecisions %s", work.WorkOrder, work.Title, strings.Join(work.Decisions, ", "))
+		if work.Rework != "" {
+			line += "\treworked as " + work.Rework
+		}
+		out.WriteString(line + "\n")
+	}
+	for _, work := range view.Waiting {
+		fmt.Fprintf(out, "  waiting\t%s\t%s\n", work.WorkOrder, work.Title)
+	}
+}
+
+func revisionDecisionLine(decision api.RevisionDecision) string {
+	return fmt.Sprintf("decision %s (%s, %s): %s", decision.ID, decision.Reversibility, decision.Scope, decision.Statement)
 }
 
 // writePlanApproval prints what a member reads before approving a plan version: who asked, how it
@@ -83,6 +158,12 @@ func writePlanApproval(out *strings.Builder, view api.PlanApprovalView) {
 	}
 	for _, draft := range view.Drafts {
 		fmt.Fprintf(out, "  draft decision %s: %s -> %s\n", draft.ID, draft.Question, draft.Answer)
+	}
+	if view.Revision != nil && view.Revision.Revision != nil {
+		fmt.Fprintf(out, "  decisions since version %d, which this version is read beside:\n", view.Revision.Revision.ApprovedVersion)
+		for _, decision := range view.Revision.Decisions {
+			fmt.Fprintf(out, "    %s\n", revisionDecisionLine(decision))
+		}
 	}
 	if view.Detail.Adoption != nil {
 		writeAdoption(out, *view.Detail.Adoption, "  ")

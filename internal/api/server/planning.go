@@ -102,6 +102,11 @@ func (h *handler) showPlan(w http.ResponseWriter, r *http.Request) {
 		if view.Versions, err = planVersions(tx, plan.ID); err != nil {
 			return err
 		}
+		if open, err := openRevisionView(tx, plan); err != nil {
+			return err
+		} else if open.Revision != nil {
+			view.Revision = &open
+		}
 		if wanted != 0 && !slices.ContainsFunc(view.Versions, func(line api.PlanVersionLine) bool { return line.Version == wanted }) {
 			return fmt.Errorf("plan %s has no version %d: %w", plan.ID, wanted, ports.ErrNotFound)
 		}
@@ -207,6 +212,13 @@ func planApprovalView(tx ports.ReadTx, plan string, wanted int64) (*api.PlanAppr
 		return nil, err
 	}
 	view.Forecast = &forecast
+	record, err := tx.Planning().Plan(plan)
+	if err != nil {
+		return nil, err
+	}
+	if view.Revision, err = revisionOfApproval(tx, record, *view); err != nil {
+		return nil, err
+	}
 	return view, nil
 }
 
