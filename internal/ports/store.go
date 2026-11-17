@@ -889,6 +889,10 @@ type PlanningReader interface {
 	PlanVersion(plan string, version int64) (planning.PlanVersion, error)
 	// PlanVersions returns every version of every plan, by plan and then by version.
 	PlanVersions() ([]planning.PlanVersion, error)
+	// OpenRevision returns the revision of a plan that still waits for a member, or ErrNotFound.
+	OpenRevision(plan string) (planning.Revision, error)
+	// Revisions returns every revision of every plan, open or closed, by plan and then by when it opened.
+	Revisions() ([]planning.Revision, error)
 	// Link returns the record of one external key, or ErrNotFound.
 	Link(recordKind string, key ledger.ExternalKey) (ledger.ExternalLink, error)
 	// Links returns every link.
@@ -920,6 +924,9 @@ type PlanningWriter interface {
 	InsertDocumentVersion(planning.DocumentVersion) error
 	// InsertPlanVersion adds one plan version.
 	InsertPlanVersion(planning.PlanVersion) error
+	// SaveRevision adds a plan's revision, or replaces what a stored one holds. The store refuses a second open
+	// revision of a plan.
+	SaveRevision(planning.Revision) error
 	// InsertContract adds one contract version, with the document versions it cites.
 	InsertContract(planning.Contract) error
 	// InsertLink adds one external key.
