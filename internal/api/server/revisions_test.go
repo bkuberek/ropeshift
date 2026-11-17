@@ -164,6 +164,22 @@ func TestAPlanApprovalShowsTheDecisionsSinceBesideTheDifferenceBeforeAndAfterItI
 	if revisionNeeds(t, d) != nil {
 		t.Error("an approved version leaves the plan needing revision")
 	}
+	// A decision made after the approval opens a revision of its own, and the approval's page goes on showing the
+	// decisions it settled, and not the later one.
+	if _, err := d.Client.RecordDecision(t.Context(), api.RecordDecision{
+		ID: "d-later", Status: questions.DecisionDecided, Statement: "Use two colors.", Rationale: "It prints.", Citations: []string{"brand-guide"},
+		Scope: "plan:" + plan, Reversibility: questions.Reversible, Categories: []string{questions.CategoryProduct}, NoConflict: []string{"d-logo"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	settled, err := d.Client.PlanVersion(t.Context(), plan, 2)
+	if err != nil || settled.Approval == nil || settled.Approval.Revision == nil || len(settled.Approval.Revision.Decisions) != 1 || settled.Approval.Revision.Decisions[0].ID != "d-logo" {
+		t.Errorf("the approved request shows %+v after a later decision: %v", settled.Approval, err)
+	}
+	current, err := d.Client.PlanRevision(t.Context(), plan)
+	if err != nil || current.Revision == nil || !current.Revision.Open() || len(current.Decisions) != 1 || current.Decisions[0].ID != "d-later" || current.Revision.ApprovedVersion != 2 {
+		t.Errorf("the plan's revision is %+v after a later decision: %v", current, err)
+	}
 }
 
 func TestNeedsYouShowsTheDecisionsSinceOnTheRequestForALaterVersion(t *testing.T) {
