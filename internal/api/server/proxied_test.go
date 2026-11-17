@@ -171,6 +171,13 @@ func TestCookiesAreSecureUnderAnHTTPSPublicURL(t *testing.T) {
 // A listed proxy that says its own client came over plain http has put a passphrase on the wire in the clear, and the
 // server answers none of what that request carries. A peer that is not listed says nothing, so its header is no
 // reason to refuse.
+//
+// X-Forwarded-Proto is not required: a request from a listed peer that carries none is served, as the last loop below
+// holds. A server that required it would refuse every client that shares a listed proxy's address, which is what a
+// worker or an operator on the server's own machine is once 127.0.0.1 is listed for a proxy there. What the header
+// guards is a proxy that also accepts plain http, and one set up as the guide says sends the scheme it was reached
+// by, which the server refuses when it is http. A proxy that sends no header at all is one the server could refuse
+// only by refusing those clients with it.
 func TestARequestThatReachedItsProxyOverPlainHTTPIsRefused(t *testing.T) {
 	t.Parallel()
 	listed := behindAProxy(t, publicOrigin, "127.0.0.1/32")

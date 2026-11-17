@@ -130,25 +130,39 @@ func startServer(t *testing.T, dsn string, extra ...string) *aServer {
 	return &aServer{install: in, d: d, address: d.said(t, "ropeshiftd: server "), dsn: dsn, client: client}
 }
 
-// join makes a worker of another state directory join the server with a join token a member made, and starts
-// it.
+// joinString makes a join string as a member does, with `ropeshift worker token` on the server's machine.
+func (s *aServer) joinString(t *testing.T) api.JoinString {
+	t.Helper()
+	printed := strings.TrimSpace(s.must("worker", "token"))
+	joined, err := api.ParseJoinString(printed)
+	if err != nil {
+		t.Fatalf("worker token printed %q: %v", printed, err)
+	}
+	return joined
+}
+
+// join makes a worker of another state directory join the server with a join string a member made, and starts it.
+// Neither the join string nor the token or the fingerprint in it is what the worker prints.
 func (s *aServer) join(t *testing.T) (*install, *daemon) {
 	t.Helper()
-	token, err := s.client.CreateJoinToken(t.Context())
+	joined := s.joinString(t)
+	text, err := joined.Encode()
 	if err != nil {
 		t.Fatal(err)
 	}
 	machine := newInstall(t)
-	// The token is a secret until it is spent, so it reaches the worker through the environment.
-	cmd := exec.Command(binaries.daemon, "worker", "join", "--server", s.address, "--name", "the-worker")
-	cmd.Env = append(machine.env(), groupGate, "ROPESHIFT_JOIN="+token)
+	// The join string holds a secret until its token is spent, so it reaches the worker through the environment.
+	cmd := exec.Command(binaries.daemon, "worker", "join", "--name", "the-worker")
+	cmd.Env = append(machine.env(), groupGate, "ROPESHIFT_JOIN="+text)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("join: %v\n%s%s", err, stdout.String(), stderr.String())
 	}
-	if strings.Contains(stdout.String()+stderr.String(), token) {
-		t.Errorf("join printed its token")
+	for _, secret := range []string{text, joined.Token, joined.CASHA256} {
+		if secret != "" && strings.Contains(stdout.String()+stderr.String(), secret) {
+			t.Errorf("join printed a secret of its join string")
+		}
 	}
 	return machine, machine.startGroup("worker")
 }
@@ -212,6 +226,80 @@ func TestServerAndWorkerOnLoopback(t *testing.T) {
 	time.Sleep(aFewServerTicks)
 	if now := lastBeat(t, s.dsn); now != stopped {
 		t.Errorf("a stopped worker's heartbeats went on: %d, then %d", stopped, now)
+	}
+}
+
+// TestServerAndWorkerOverTLS is the group server of mode (a) with a worker in a state directory of its own, across
+// HTTPS: the server serves a certificate its own authority issued, a member makes a join string with `ropeshift
+// worker token`, and the worker joins with it, pinning the authority the string names. The server lists the worker,
+// its heartbeats renew over the pinned link, and the fingerprint is in the worker's journal and in nothing either
+// process printed. A worker that pins another authority is refused and says so.
+func TestServerAndWorkerOverTLS(t *testing.T) {
+	s := startServer(t, aDatabase(t), "--name", "127.0.0.1")
+	joined := s.joinString(t)
+	if !strings.HasPrefix(joined.WorkerURL, "https://127.0.0.1:") || len(joined.CASHA256) != 64 {
+		t.Fatalf("the join string names %q pinned to %q", joined.WorkerURL, joined.CASHA256)
+	}
+	machine, worker := s.join(t)
+	var line api.WorkerLine
+	s.waitFor("the worker in the server's list, with its drivers", func() bool {
+		for _, found := range s.floor(t).Workers {
+			if found.Worker.Name == "the-worker" && len(found.Drivers) > 0 {
+				line = found
+				return true
+			}
+		}
+		return false
+	})
+	if line.Worker.Protocol != ledger.ProtocolVersion {
+		t.Errorf("the worker is listed as %+v", line)
+	}
+	first := lastBeat(t, s.dsn)
+	s.waitFor("the worker's heartbeats to renew over the pinned link", func() bool { return lastBeat(t, s.dsn) > first })
+
+	journal, err := sqlite.OpenJournal(filepath.Join(machine.paths().StateDir, api.JournalFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer journal.Close()
+	url, urlErr := journal.ServerURL(t.Context())
+	pinned, pinErr := journal.ServerCA(t.Context())
+	if urlErr != nil || pinErr != nil || url != joined.WorkerURL || pinned != joined.CASHA256 {
+		t.Errorf("the worker's journal holds %q pinned to %q: %v, %v", url, pinned, urlErr, pinErr)
+	}
+	for name, said := range map[string]string{
+		"the server": s.d.stdout.String() + s.d.stderr.String(),
+		"the worker": worker.stdout.String() + worker.stderr.String(),
+	} {
+		if strings.Contains(said, joined.CASHA256) {
+			t.Errorf("%s printed the fingerprint of the authority", name)
+		}
+	}
+
+	// A worker given the join string of another authority does not trust this server, and the token stays unspent.
+	other := s.joinString(t)
+	other.CASHA256 = strings.Repeat("ab", 32)
+	text, err := other.Encode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	elsewhere := newInstall(t)
+	cmd := exec.Command(binaries.daemon, "worker", "join", "--name", "wrong-pin")
+	cmd.Env = append(elsewhere.env(), groupGate, "ROPESHIFT_JOIN="+text)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	if err := cmd.Run(); err == nil || !strings.Contains(stderr.String(), "pinned") {
+		t.Errorf("a worker that pins another authority joined, or did not say why: %v\n%s%s", err, stdout.String(), stderr.String())
+	}
+	for _, secret := range []string{text, other.Token, other.CASHA256, joined.CASHA256} {
+		if strings.Contains(stdout.String()+stderr.String(), secret) {
+			t.Errorf("the refusal shows a secret of a join string")
+		}
+	}
+	for _, found := range s.floor(t).Workers {
+		if found.Worker.Name == "wrong-pin" {
+			t.Errorf("the server lists the worker that pinned another authority: %+v", found)
+		}
 	}
 }
 
@@ -403,14 +491,25 @@ func (s *aServer) healthOver(t *testing.T, config *tls.Config) (api.Health, erro
 }
 
 // A server given a name serves TLS in a certificate its own authority issued, keeps the authority's keys to its
-// user, and prints the fingerprint a client pins. A client that pins that fingerprint reaches it, and one that
-// pins another does not.
+// user, and puts the fingerprint a client pins in the join strings it makes and nowhere else: its own output says
+// where workers reach it and where the authority's file is, and not the fingerprint. A client that pins that
+// fingerprint reaches it, and one that pins another does not.
 func TestServerServesTLSWithItsOwnAuthority(t *testing.T) {
 	s := startServer(t, aDatabase(t), "--name", "127.0.0.1")
 	if !strings.HasPrefix(s.address, "https://127.0.0.1:") {
 		t.Fatalf("the server says it serves %q", s.address)
 	}
-	fingerprint := s.d.said(t, "ropeshiftd: certificate authority sha256 ")
+	joined := s.joinString(t)
+	fingerprint := joined.CASHA256
+	if len(fingerprint) != 64 || joined.WorkerURL != s.address {
+		t.Fatalf("the join string names %q pinned to %q, and the server serves %q", joined.WorkerURL, fingerprint, s.address)
+	}
+	if said := s.d.said(t, "ropeshiftd: worker url "); said != joined.WorkerURL {
+		t.Errorf("the server says its workers reach it at %q, and its join strings say %q", said, joined.WorkerURL)
+	}
+	if said := s.d.stdout.String() + s.d.stderr.String(); strings.Contains(said, fingerprint) || strings.Contains(said, joined.Token) {
+		t.Errorf("the server's output shows a secret of a join string: %s", said)
+	}
 	for _, name := range []string{"ca.key", "server.key"} {
 		info, err := os.Stat(filepath.Join(s.paths().StateDir, "tls", name))
 		if err != nil || info.Mode().Perm() != 0o600 {
