@@ -293,6 +293,14 @@ func checkMemberApprovesTheMerge(r *Rig) error {
 	if detail.Repository != forgeRepositoryName {
 		return Violatedf("the merge request names repository %q, not %q", detail.Repository, forgeRepositoryName)
 	}
+	// The request is named by the work order's title, and still names the work order by its ID.
+	order, err := r.WorkOrder(f.store, f.grant.WorkOrder)
+	if err != nil {
+		return err
+	}
+	if order.Title == "" || detail.Title != order.Title || detail.WorkOrder != order.ID || request.WorkOrder != order.ID || !strings.Contains(request.Summary, order.ID) {
+		return Violatedf("the merge request of %s (%q) is titled %q, names %q, and says %q", order.ID, order.Title, detail.Title, detail.WorkOrder, request.Summary)
+	}
 	// The tick raises nothing more.
 	if _, err := f.integrate(); err != nil {
 		return err

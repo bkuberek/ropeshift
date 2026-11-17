@@ -55,6 +55,8 @@ A change to a record every project shares, such as a member's sign-in, a worker'
 
 `GET /v1/needs-you` lists what waits on a member in every active project, the longest wait first. Each item is the item a project's `needs-you` view holds, with a `project` that names its project's ID, name, and display name. `projects` lists each active project with the revision its ledger stood at and how many of its items wait. A member acts on an item through its own project's routes.
 
+A merge request is an approval of kind `merge`. Its `detail` is JSON that names the work order by `work_order_id` and by its `title`, the repository, the reviewed `commit`, the `branch` and its `base`, the `pull_request` number and its `url` when the work lands through one, the merge `method`, and the `merge_authority`, and for a held merge the `reason` it stopped and the `request` it answers. A request raised before `title` existed has none.
+
 ## Delegates and confirmation cards
 
 A delegate is an agent outside ropeshift acting with a member's delegate credential ([authorization](authorization.md#delegation)). It sends the credential in the header `Ropeshift-Delegate`, on the local socket only. Its actor is `delegate`, with the ID `<member ID>/<credential ID>`, so every event it causes names the member it acts for.

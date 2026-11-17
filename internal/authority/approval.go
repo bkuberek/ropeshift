@@ -694,6 +694,9 @@ func ReadDelegation(version PolicyVersion) (DelegationPolicy, error) {
 // the merge request it answers.
 type MergeDetail struct {
 	WorkOrder string `json:"work_order_id"`
+	// Title is the work order's title, which names the request. A request raised before the field existed has
+	// none, and is named by the work order's ID.
+	Title string `json:"title,omitempty"`
 	// Repository is the name of the repository the work lands in, or its ID when it has no name. A request
 	// raised before the field existed has none.
 	Repository  string                `json:"repository,omitempty"`

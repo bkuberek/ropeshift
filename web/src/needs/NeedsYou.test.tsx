@@ -610,6 +610,21 @@ describe("a merge request", () => {
     expect(row.textContent).toContain("wo-merge · harbor-web");
   });
 
+  // A request names the work by its title, and its ID stays in the line under it and in the card's facts.
+  it("is named by the work order's title, and still names the work order's ID", async () => {
+    show(mergeView("approve", { title: "Add the retry budget" }));
+    const card = await cardNamed(/^Approve the merge of Add the retry budget\?/);
+    expect(within(card).getByRole("link", { name: "wo-merge" }).getAttribute("href")).toBe(here("/work-order?id=wo-merge"));
+    const row = within(screen.getByRole("list", { name: "Waiting items" })).getByRole("link");
+    expect(row.textContent).toContain("Approve the merge of Add the retry budget?");
+    expect(row.textContent).toContain("wo-merge · harbor-web");
+  });
+
+  it("names a held merge by the work order's title too", async () => {
+    show(mergeView("held", { title: "Add the retry budget" }));
+    expect(await cardNamed(/^Retry the held merge of Add the retry budget\?/)).toBeTruthy();
+  });
+
   it("names the repository, the branch it lands on, and the reviewed commit the approval is bound to", async () => {
     show(mergeView());
     const card = await approveCard();

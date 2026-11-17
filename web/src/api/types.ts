@@ -90,6 +90,8 @@ export type RecoveryDetail = {
 // raised before the repository was recorded has none.
 export type MergeDetail = {
   work_order_id: string;
+  // The work order's title, which names the request. A request raised before the field existed has none.
+  title?: string;
   repository?: string;
   commit: string;
   branch?: string;
