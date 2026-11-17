@@ -5,31 +5,22 @@ import (
 	"fmt"
 	"strings"
 
+	"ropeshift.com/ropeshift/internal/projectfiles"
 	"ropeshift.com/ropeshift/templates"
 )
 
-// writesTo is where each template a new project starts from is written: a path in the project's folder, and
-// for the user profile, in the installation's state directory. A template no project starts from has no entry,
-// and lists an empty path. The shapes of a project share a file name where they share a purpose, such as
-// AGENTS.md, so one path names the template whichever shape writes it.
-var writesTo = map[string]string{
-	"workspace/agents.md":            "AGENTS.md",
-	"monorepo/agents.md":             "AGENTS.md",
-	"repository/agents.md":           "AGENTS.md",
-	"claude.md":                      "CLAUDE.md",
-	"workspace/makefile":             "Makefile",
-	"workspace/gitignore":            ".gitignore",
-	"monorepo/gitignore":             ".gitignore",
-	"repository/gitignore":           ".gitignore",
-	"workspace/plan/goal.md":         "plan/goal.md",
-	"workspace/plan/plan.md":         "plan/plan.md",
-	"workspace/plan/requirements.md": "plan/requirements.md",
-	"workspace/plan/repositories.md": "plan/repositories.md",
-	"repository/catalog-info.yaml":   "catalog-info.yaml",
-	"security.md":                    "SECURITY.md",
-	"codeowners":                     "CODEOWNERS",
-	"pre-commit-config.yaml":         ".pre-commit-config.yaml",
-	"user/profile.toml":              "profile.toml",
+// userProfile is the template `init` writes, to profile.toml in the installation's state directory.
+const userProfile = "user/profile.toml"
+
+// writesTo is where the template named name is written: for a template a new project starts from, its path in
+// the project's folder, as `new` writes it, and for the user profile, its path in the installation's state
+// directory. It is empty for a template neither writes. The shapes of a project share a file name where they
+// share a purpose, such as AGENTS.md, so one path names the template whichever shape writes it.
+func writesTo(name string) string {
+	if name == userProfile {
+		return "profile.toml"
+	}
+	return projectfiles.Path(name)
 }
 
 // templateListing is one template in the list `template show --json` prints.
@@ -75,7 +66,7 @@ func (c *invocation) listTemplates() int {
 	names := templates.Names()
 	listing := make([]templateListing, len(names))
 	for i, name := range names {
-		listing[i] = templateListing{Name: name, WritesTo: writesTo[name]}
+		listing[i] = templateListing{Name: name, WritesTo: writesTo(name)}
 	}
 	return c.finish(nil, listing, func() string { return strings.Join(names, "\n") + "\n" })
 }
