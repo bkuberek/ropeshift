@@ -2,6 +2,7 @@ import { useId, useState } from "react";
 
 import { actOnWork, inProjectOf, readView, workActions } from "../api/client";
 import type { FloorLane, Project, ResourceReport, ShopFloor, Stuck, StuckItem, WorkAction, WorkerLine } from "../api/types";
+import { useHealth } from "../api/useHealth";
 import type { Live } from "../api/useView";
 import { useView } from "../api/useView";
 import { addressOf, go, Link } from "../app/route";
@@ -277,7 +278,21 @@ function ReadyToStart({ index, after }: { index: WorkIndex | null; after: () => 
 type FloorRead = { project: string; view: ShopFloor };
 
 // FloorBody is one panel per machine that serves the project, and a panel for lanes no machine holds.
-function FloorBody({ reads, stuck, project, index, after }: { reads: FloorRead[]; stuck: Stuck | null; project: string; index: WorkIndex | null; after: () => Promise<void> }) {
+function FloorBody({
+  reads,
+  stuck,
+  project,
+  index,
+  group,
+  after,
+}: {
+  reads: FloorRead[];
+  stuck: Stuck | null;
+  project: string;
+  index: WorkIndex | null;
+  group: boolean;
+  after: () => Promise<void>;
+}) {
   const own = reads.find((read) => read.project === project)?.view;
   const workers = new Map<string, WorkerLine>();
   for (const read of reads) {
@@ -303,7 +318,9 @@ function FloorBody({ reads, stuck, project, index, after }: { reads: FloorRead[]
         {own ? <ReadyToStart index={index} after={after} /> : null}
         <div className="panel">
           <EmptyState icon="server" title="No worker has joined">
-            Lanes appear here, one panel per machine, once a worker joins. A worker starts from a terminal on its machine, with its join token.
+            {group
+              ? "Lanes appear here, one panel per machine, once a worker joins. A worker starts from a terminal on its machine, with its join token."
+              : "Lanes appear here, one panel per machine, once a worker joins."}
           </EmptyState>
         </div>
       </div>
@@ -343,6 +360,8 @@ export function FloorPage({ live, project, projects, show, after }: { live: Live
   // What each work order allows, which the lanes' actions and the list of work ready to start read.
   const { index } = useWorkIndex(live);
   const talkable = useTalkable(live, project);
+  // A join token is for a worker on another machine, which only an installation in group mode takes in.
+  const group = useHealth(live, true).view?.mode === "group";
   const now = useClock();
   const label = projects.find((row) => row.name === project)?.display_name || project;
   const reads: FloorRead[] = own.view ? [{ project, view: own.view }, ...(scope === "all" ? (rest.view ?? []) : [])] : [];
@@ -370,7 +389,7 @@ export function FloorPage({ live, project, projects, show, after }: { live: Live
         <ViewTime.Provider value={{ asOf: own.view.as_of, elapsed: Math.max(0, now - own.readAt) }}>
           <div aria-busy={own.busy}>
             <Talkable.Provider value={talkable}>
-              <FloorBody reads={reads} stuck={stuck.view} project={project} index={index} after={after} />
+              <FloorBody reads={reads} stuck={stuck.view} project={project} index={index} group={group} after={after} />
             </Talkable.Provider>
           </div>
           <StampLine stamp={own.view} />

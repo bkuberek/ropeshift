@@ -78,7 +78,7 @@ export const paneKeys = ["Enter", "Escape", "Tab", "Backspace", "Up", "Down", "L
 export type PaneKey = (typeof paneKeys)[number];
 
 // The kinds of record `ropeshift search` reads when it is given none: what a question may match.
-const candidateKinds = ["decision", "requirement", "contract", "question"];
+const candidateKinds = ["decision", "requirement", "contract", "decision_document", "question"];
 
 // What each action of a work item calls, and whether it asks a person why.
 export const workActions: Record<WorkAction, { verb: string; needsReason: boolean }> = {

@@ -2,7 +2,7 @@ import { useEffect, useId, useRef, useState } from "react";
 
 import { newID } from "../admin/logic";
 import { useChange } from "../admin/parts";
-import { readAutonomy, readWorkers } from "../api/admin";
+import { readAutonomy, readHealth, readWorkers } from "../api/admin";
 import { readView } from "../api/client";
 import { claimAndStart, startClaimed } from "../api/runWork";
 import type { Allowance, ShopFloor, WorkOrder } from "../api/types";
@@ -56,7 +56,8 @@ function labelOf(choice: Choice): string {
   return parts.join(" · ");
 }
 
-type Choices = { choices: Choice[] } | { failure: string } | null;
+// group says whether the installation is in group mode, which is the only one a join token serves.
+type Choices = { choices: Choice[]; group: boolean } | { failure: string } | null;
 
 // useChoices reads the workers the installation holds, with what the floor and each worker's autonomy say
 // of it, once the dialog opens. A worker the floor or its autonomy cannot be read for is still offered,
@@ -67,7 +68,7 @@ function useChoices(): Choices {
     let current = true;
     void (async () => {
       try {
-        const [list, floor] = await Promise.all([readWorkers(), readView<ShopFloor>("shop-floor").catch(() => null)]);
+        const [list, floor, health] = await Promise.all([readWorkers(), readView<ShopFloor>("shop-floor").catch(() => null), readHealth().catch(() => null)]);
         const levels = await Promise.all(list.workers.map((worker) => readAutonomy(worker.id).catch(() => null)));
         const choices = list.workers.map<Choice>((worker, at) => {
           const line = floor?.workers.find((found) => found.worker.id === worker.id);
@@ -83,7 +84,7 @@ function useChoices(): Choices {
         // The workers the daemon sees now come first, and each group keeps the order the list gave.
         const seen = (choice: Choice) => (choice.connected ? 0 : 1);
         if (current) {
-          setRead({ choices: choices.map((choice, at) => ({ choice, at })).sort((a, b) => seen(a.choice) - seen(b.choice) || a.at - b.at).map((row) => row.choice) });
+          setRead({ choices: choices.map((choice, at) => ({ choice, at })).sort((a, b) => seen(a.choice) - seen(b.choice) || a.at - b.at).map((row) => row.choice), group: health?.mode === "group" });
         }
       } catch (error) {
         if (current) {
@@ -138,7 +139,9 @@ function StartDialog({ order, kind, onClose, after }: { order: WorkOrder; kind: 
       return `The workers could not be read. ${found.failure}`;
     }
     if (choices.length === 0) {
-      return "No worker has joined. A worker joins from a terminal on its machine, with its join token.";
+      return found && "group" in found && found.group
+        ? "No worker has joined. A worker joins from a terminal on its machine, with its join token."
+        : "No worker has joined.";
     }
     return worker === "" ? "Choose the worker that runs it." : "";
   })();

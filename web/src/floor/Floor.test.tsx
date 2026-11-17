@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import type { Completed, InProgress, Operations, ResourceReport, ShopFloor, Stuck } from "../api/types";
 import { openPage } from "../opening";
-import { golden, here, mergeRequest, openLedgerStream, refusal, reviewedCommit, serveViews } from "../testing";
+import { golden, groupHealth, here, mergeRequest, openLedgerStream, refusal, reviewedCommit, serveViews } from "../testing";
 
 function serving<T>(name: string, change: (view: T) => void) {
   const view = golden<T>(name);
@@ -661,6 +661,22 @@ describe("the floor", () => {
     });
     openPage("/floor");
     expect(await screen.findByText("No worker has joined")).toBeTruthy();
+    // A solo installation runs its own worker, so it names no join token.
+    expect(screen.queryByText(/join token/)).toBeNull();
+  });
+
+  it("names the join token when no worker has joined a group installation", async () => {
+    const view = golden<ShopFloor>("shop-floor");
+    view.workers = [];
+    view.lanes = [];
+    serveViews((call) => {
+      if (call.path.startsWith("/v1/views/shop-floor")) {
+        return { status: 200, body: view };
+      }
+      return call.method === "GET" && call.path === "/v1/health" ? { status: 200, body: groupHealth } : undefined;
+    });
+    openPage("/floor");
+    expect(await screen.findByText(/with its join token\./)).toBeTruthy();
   });
 });
 
