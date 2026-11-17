@@ -40,7 +40,7 @@ In Type into the session, type what the session should know, such as "Put the sa
 
 An answer you give in the session becomes a draft decision in the plan, which your approval decides. Here the Outline gains the plan's file and its draft decision, and the session asks a second question that your line leaves open.
 
-Say what you want while the session's questions wait. Once you answer the last one, the session writes the plan and submits it, because a session whose turn ends with no question open is asked to report, and then ends.
+Say what you want while the session's questions wait. Once you answer the last one, the session writes the plan and submits it, and its lane ends.
 
 With the field empty, Enter, Escape, and the up and down arrows go straight to the session, as do the keys under the field. Detach stops what you type from reaching the session, which keeps running, and Attach joins it again.
 
