@@ -14,7 +14,7 @@ Each browser suite launches the first of these that starts:
 1. The executable named by `ROPESHIFT_TEST_CHROME`.
 2. Google Chrome, through Playwright's `chrome` channel. Continuous integration's runners carry it.
 3. `chromium` or `chromium-browser` on the `PATH`.
-4. The Chromium Playwright installed for its own use.
+4. The Chromium Playwright installed for its own use. `make web-test` looks for it in `.scratch/playwright` in the checkout, which git ignores, and not in the cache every project on the machine shares, unless `PLAYWRIGHT_BROWSERS_PATH` already names another directory. [Screenshots](screenshots.md#run-it) keeps its browsers there too.
 
 With none of them, a suite fails when `CI` is set and skips with a message that names `ROPESHIFT_TEST_CHROME` otherwise. To run them on a machine with no Chrome, point the variable at any Chrome or Chromium build:
 

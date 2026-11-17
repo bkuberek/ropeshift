@@ -40,11 +40,12 @@ lint:
 test:
 	$(GO) test -race -count=1 -timeout 45m ./...
 
-# The web application's types and tests, on the packages its lockfile pins.
+# The web application's types and tests, on the packages its lockfile pins. Playwright's browsers
+# stay in this checkout, as scripts/screenshots.sh keeps them, unless the caller names a directory.
 web-test:
 	@test -d web/node_modules || npm --prefix web ci
 	npm --prefix web run typecheck
-	npm --prefix web test
+	PLAYWRIGHT_BROWSERS_PATH="$${PLAYWRIGHT_BROWSERS_PATH:-$(CURDIR)/.scratch/playwright}" npm --prefix web test
 
 # Writes the application where the binary embeds it, so a build after this one serves it. A plain
 # checkout serves the placeholder page, and every GoReleaser build writes this output first

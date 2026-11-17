@@ -12,7 +12,7 @@ A test holds the user docs to their images: `go test ./test/rules` fails for a m
 
 ## Run it
 
-You need what `make check` needs, plus tmux, because the sample's planning session runs in a pane. The first run installs the web packages and Playwright's Chromium when they are missing. The kit keeps Playwright's browsers in `.scratch/playwright` in the checkout, which git ignores, and never in the cache every project on the machine shares, unless `PLAYWRIGHT_BROWSERS_PATH` already names another directory. To use a Chrome or Chromium you have in place of Playwright's, set `ROPESHIFT_TEST_CHROME` to its executable, as [web tests](web-tests.md#the-browser) say.
+You need what `make check` needs, plus tmux, because the sample's planning session runs in a pane. The first run installs the web packages and Playwright's Chromium when they are missing. The kit keeps Playwright's browsers in `.scratch/playwright` in the checkout, which git ignores, and never in the cache every project on the machine shares, unless `PLAYWRIGHT_BROWSERS_PATH` already names another directory, and `make web-test`, which runs the walk's own test, does the same. To use a Chrome or Chromium you have in place of Playwright's, set `ROPESHIFT_TEST_CHROME` to its executable, as [web tests](web-tests.md#the-browser) say.
 
 ```sh
 make screenshots
