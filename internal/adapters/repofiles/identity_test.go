@@ -2,6 +2,7 @@ package repofiles
 
 import (
 	"context"
+	"errors"
 	"slices"
 	"testing"
 
@@ -124,23 +125,97 @@ func TestARecordWithAnotherRemoteIsNotNamedByTheLowestRoot(t *testing.T) {
 			return held, id == imported, nil
 		}
 	}
-	elsewhere := func(kept bool) func(context.Context, string) (bool, error) {
-		return func(context.Context, string) (bool, error) { return kept, nil }
-	}
 	for name, tt := range map[string]struct {
 		remote string
-		kept   func(context.Context, string) (bool, error)
+		kept   func(context.Context, string) (Kept, bool, error)
 		want   string
 	}{
 		"another remote and no clone kept":              {"git@example.invalid:acme/design.git", nil, own},
-		"another remote and a clone not kept elsewhere": {"git@example.invalid:acme/design.git", elsewhere(false), own},
-		"another remote and a clone kept elsewhere":     {"git@example.invalid:acme/design.git", elsewhere(true), imported},
+		"another remote and a clone not kept elsewhere": {"git@example.invalid:acme/design.git", keptAt("", ""), own},
 		"the same remote in another spelling":           {"https://example.invalid/acme/workspace", nil, imported},
 		"a record with no remote":                       {"", nil, imported},
 	} {
 		t.Run(name, func(t *testing.T) {
 			source := New(Config{Repository: workspace.Dir, Env: workspace.Env(), Records: record(tt.remote), KeptElsewhere: tt.kept})
 			if got, err := source.Instance(t.Context()); err != nil || got != tt.want {
+				t.Errorf("the instance is %s (%v), want %s", got, err, tt.want)
+			}
+		})
+	}
+}
+
+// keptAt is the clone this worker keeps of a record at a path with a remote, or none when the path is empty.
+func keptAt(path, remote string) func(context.Context, string) (Kept, bool, error) {
+	return func(context.Context, string) (Kept, bool, error) {
+		return Kept{Path: path, Remote: remote}, path != "", nil
+	}
+}
+
+// A repository that shares its first commit with a clone this worker keeps at another path, with another remote
+// or none, is not read: registration refuses it for that reason, and reading it under the record's ID would put
+// two repositories under one ID. Two clones of one remote are one repository.
+func TestARepositoryThatSharesAFirstCommitWithAKeptCloneIsNotRead(t *testing.T) {
+	workspace, _, imported := mergedWorkspace(t)
+	records := func(remote string) func(context.Context, string) (ledger.Repository, bool, error) {
+		held := ledger.NewRepository(imported)
+		held.Name, held.Remote = "design", remote
+		return func(_ context.Context, id string) (ledger.Repository, bool, error) { return held, id == imported, nil }
+	}
+	const design, workspaceRemote = "git@example.invalid:acme/design.git", "git@example.invalid:acme/workspace.git"
+	for name, tt := range map[string]struct {
+		own, record, kept string
+		refused           bool
+	}{
+		"another remote, kept elsewhere":          {workspaceRemote, design, design, true},
+		"the same remote in another spelling":     {workspaceRemote, workspaceRemote, "https://example.invalid/acme/workspace", false},
+		"no remote on either, kept elsewhere":     {"", "", "", true},
+		"a remote here and none on the kept one":  {workspaceRemote, workspaceRemote, "", true},
+		"a record with no remote, a kept remote":  {workspaceRemote, "", design, true},
+		"a remote on both and the kept one's own": {workspaceRemote, workspaceRemote, workspaceRemote, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if tt.own != "" {
+				workspace.Git("remote", "add", "origin", tt.own)
+				defer workspace.Git("remote", "remove", "origin")
+			}
+			source := New(Config{Repository: workspace.Dir, Env: workspace.Env(), Records: records(tt.record), KeptElsewhere: keptAt("/work/design", tt.kept)})
+			got, err := source.Instance(t.Context())
+			var shared *SharedFirstCommitError
+			switch {
+			case tt.refused && (!errors.As(err, &shared) || shared.Root != imported || shared.Name != "design" || shared.Path != "/work/design"):
+				t.Errorf("the instance is %s (%v), want a refusal naming the design repository", got, err)
+			case !tt.refused && (err != nil || got != imported):
+				t.Errorf("the instance is %s (%v), want %s", got, err, imported)
+			}
+		})
+	}
+}
+
+// A lower root merged in after a record was registered under the lowest root it had leaves the lowest root with
+// no record, and the repository is still that record's.
+func TestARepositoryIsNamedByAnyRootThatNamesItsRecord(t *testing.T) {
+	workspace, design := gittest.NewUnrelatedPair(t)
+	own, legacy := workspace.Roots("HEAD")[0], design.Roots("HEAD")[0]
+	lower := gittest.NewWithRootBelow(t, own, legacy)
+	workspace.MergeUnrelated(design)
+	workspace.MergeUnrelated(lower)
+	workspace.Git("remote", "add", "origin", "git@example.invalid:acme/app.git")
+	record := func(id, remote string) func(context.Context, string) (ledger.Repository, bool, error) {
+		held := ledger.NewRepository(id)
+		held.Remote = remote
+		return func(_ context.Context, asked string) (ledger.Repository, bool, error) { return held, asked == id, nil }
+	}
+	for name, tt := range map[string]struct {
+		records func(context.Context, string) (ledger.Repository, bool, error)
+		want    string
+	}{
+		"a record under a middle root":            {record(legacy, "git@example.invalid:acme/app.git"), legacy},
+		"a record under a middle root of another": {record(legacy, "git@example.invalid:acme/other.git"), own},
+		"no record": {record("unrelated", ""), own},
+	} {
+		t.Run(name, func(t *testing.T) {
+			got, err := New(Config{Repository: workspace.Dir, Env: workspace.Env(), Records: tt.records}).Instance(t.Context())
+			if err != nil || got != tt.want {
 				t.Errorf("the instance is %s (%v), want %s", got, err, tt.want)
 			}
 		})

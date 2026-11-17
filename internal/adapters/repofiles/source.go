@@ -1,6 +1,7 @@
 package repofiles
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -32,16 +33,38 @@ type Config struct {
 	// it is one of the repository's roots, the repository keeps that ID, so a record stored under the
 	// lowest-root rule keeps its ID and every external key intake made under it.
 	Identity string
+	// IdentityOf, when set, names the identity again at every read, for a repository whose checkout a worker
+	// may keep after the source is made. What it names, when it names one, replaces Identity.
+	IdentityOf func(ctx context.Context) string
 	// Records reads a record of the repository's project by ID. A repository with no Identity that one of
 	// its roots names is the record registration would match it to, in the order registration matches a
 	// clone, so a repository read from a path no checkout is kept for keeps the ID of its record.
 	Records func(ctx context.Context, id string) (ledger.Repository, bool, error)
-	// KeptElsewhere says this worker keeps a clone of a record at another path than this repository's, that
-	// still exists and still holds the record's first commit. Nil says it keeps none. A record with another
-	// remote than this repository's names it only then.
-	KeptElsewhere func(ctx context.Context, id string) (bool, error)
+	// KeptElsewhere reads the clone this worker keeps of a record at another path than this repository's,
+	// that still exists and still holds the record's first commit, and says whether it keeps one. Nil says it
+	// keeps none. A record with another remote than this repository's names it only then, and a repository
+	// that shares its first commit with such a clone is refused as registration refuses it.
+	KeptElsewhere func(ctx context.Context, id string) (Kept, bool, error)
 	// Env replaces the environment of git commands.
 	Env []string
+}
+
+// Kept is a clone this worker keeps of a record.
+type Kept struct {
+	// Path is where the worker keeps it, and Remote is the remote it has.
+	Path, Remote string
+}
+
+// SharedFirstCommitError says a repository is not read because it shares its first commit with a clone this
+// worker keeps at another path, with another remote or none: ropeshift identifies a repository by that
+// commit, and registration refuses the repository for the same reason.
+type SharedFirstCommitError struct {
+	// Root is the shared first commit, Name the repository it names, and Path the clone this worker keeps.
+	Root, Name, Path string
+}
+
+func (e *SharedFirstCommitError) Error() string {
+	return ledger.SharedFirstCommit(e.Root, e.Name, e.Path)
 }
 
 // Source reads contract files at a committed ref. An uncommitted edit is not intake,
@@ -88,13 +111,17 @@ func (s *Source) Roots(ctx context.Context) ([]string, error) {
 // identity that is one of the repository's roots wins, so a record stored under the lowest-root rule keeps
 // its ID.
 func (s *Source) Instance(ctx context.Context) (string, error) {
-	if s.config.Identity != "" {
+	identity := s.config.Identity
+	if s.config.IdentityOf != nil {
+		identity = cmp.Or(s.config.IdentityOf(ctx), identity)
+	}
+	if identity != "" {
 		roots, err := s.Roots(ctx)
 		if err != nil {
 			return "", err
 		}
-		if slices.Contains(roots, s.config.Identity) {
-			return s.config.Identity, nil
+		if slices.Contains(roots, identity) {
+			return identity, nil
 		}
 	}
 	ref, err := s.ref(ctx)
@@ -126,7 +153,7 @@ func (s *Source) Instance(ctx context.Context) (string, error) {
 		if s.config.KeptElsewhere == nil {
 			return true
 		}
-		kept, err := s.config.KeptElsewhere(ctx, record.ID)
+		_, kept, err := s.config.KeptElsewhere(ctx, record.ID)
 		keptErr = errors.Join(keptErr, err)
 		return !kept
 	}
@@ -135,6 +162,17 @@ func (s *Source) Instance(ctx context.Context) (string, error) {
 	})
 	if err = errors.Join(err, keptErr); err != nil || !found {
 		return root, err
+	}
+	// Registration refuses a clone that shares its first commit with one this worker keeps at another path, so
+	// such a repository is not read under the record's ID either, which would put two under one ID.
+	if s.config.KeptElsewhere != nil {
+		kept, held, err := s.config.KeptElsewhere(ctx, record.ID)
+		if err != nil {
+			return "", err
+		}
+		if held && ledger.SharesFirstCommit(kept.Remote, remote) {
+			return "", &SharedFirstCommitError{Root: record.ID, Name: cmp.Or(record.Name, record.ID), Path: kept.Path}
+		}
 	}
 	return record.ID, nil
 }

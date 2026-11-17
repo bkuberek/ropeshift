@@ -662,6 +662,11 @@ func checkoutOf(opts soloOptions, kept ports.Checkouts) func(context.Context, le
 				instance, err := repofiles.New(repofiles.Config{
 					Repository: path, Ref: opts.ref, Directory: opts.directory, Records: opts.records, KeptElsewhere: keptElsewhere(kept, project, path),
 				}).Instance(ctx)
+				var shared *repofiles.SharedFirstCommitError
+				if errors.As(err, &shared) {
+					// Intake reports a source registration would refuse. It is no checkout of any record.
+					continue
+				}
 				if err != nil {
 					return "", err
 				}
@@ -674,30 +679,55 @@ func checkoutOf(opts soloOptions, kept ports.Checkouts) func(context.Context, le
 	}
 }
 
-// keptElsewhere says this worker keeps, in a project, a clone of a record at another path than a repository's
-// own, which still exists and still holds the record's first commit: the clone registration refuses a
-// repository for sharing its first commit with.
-func keptElsewhere(kept ports.Checkouts, project ledger.WorkspaceID, path string) func(context.Context, string) (bool, error) {
-	return func(ctx context.Context, id string) (bool, error) {
+// checkoutIdentity names, at each read, the record this worker keeps a path as the checkout of in a project,
+// or nothing when it keeps it as none.
+func checkoutIdentity(kept ports.Checkouts, project ledger.WorkspaceID, path string) func(context.Context) string {
+	return func(ctx context.Context) string {
 		own, err := filepath.Abs(path)
 		if err != nil {
-			return false, err
+			return ""
 		}
 		held, err := kept.Of(ctx, project)
 		if err != nil {
-			return false, err
+			return ""
+		}
+		for _, id := range slices.Sorted(maps.Keys(held)) {
+			if held[id] == own {
+				return id
+			}
+		}
+		return ""
+	}
+}
+
+// keptElsewhere reads, in a project, the clone this worker keeps of a record at another path than a
+// repository's own, which still exists and still holds the record's first commit: the clone registration
+// refuses a repository for sharing its first commit with. A path another clone replaced holds none.
+func keptElsewhere(kept ports.Checkouts, project ledger.WorkspaceID, path string) func(context.Context, string) (repofiles.Kept, bool, error) {
+	return func(ctx context.Context, id string) (repofiles.Kept, bool, error) {
+		own, err := filepath.Abs(path)
+		if err != nil {
+			return repofiles.Kept{}, false, err
+		}
+		held, err := kept.Of(ctx, project)
+		if err != nil {
+			return repofiles.Kept{}, false, err
 		}
 		other, ok := held[id]
 		if !ok || other == own {
-			return false, nil
+			return repofiles.Kept{}, false, nil
 		}
 		found, _, err := kept.Find(ctx, []string{other}, 1)
 		if err != nil {
-			return false, err
+			return repofiles.Kept{}, false, err
 		}
-		return slices.ContainsFunc(found, func(c ports.Clone) bool {
+		at := slices.IndexFunc(found, func(c ports.Clone) bool {
 			return c.Path == other && (c.ID == id || slices.Contains(c.Roots, id))
-		}), nil
+		})
+		if at < 0 {
+			return repofiles.Kept{}, false, nil
+		}
+		return repofiles.Kept{Path: other, Remote: found[at].Remote}, true, nil
 	}
 }
 
@@ -816,6 +846,7 @@ func soloKnowledge(opts soloOptions, kept ports.Checkouts) []ports.KnowledgeSour
 	for _, path := range opts.sources {
 		sources = append(sources, repodocs.New(repofiles.Config{
 			Repository: path, Ref: opts.ref, Directory: opts.directory, Records: opts.records, KeptElsewhere: keptElsewhere(kept, soloScope, path),
+			IdentityOf: checkoutIdentity(kept, soloScope, path),
 		}))
 	}
 	return sources

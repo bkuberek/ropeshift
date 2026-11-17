@@ -13,6 +13,7 @@ import (
 
 	"ropeshift.com/ropeshift/internal/adapters/checkouts"
 	"ropeshift.com/ropeshift/internal/adapters/fake"
+	"ropeshift.com/ropeshift/internal/adapters/repofiles"
 	"ropeshift.com/ropeshift/internal/adapters/sqlite"
 	"ropeshift.com/ropeshift/internal/control"
 	"ropeshift.com/ropeshift/internal/ledger"
@@ -238,9 +239,9 @@ func TestARecordStoredUnderTheLowestRootKeepsItsIDAndItsExternalKeys(t *testing.
 // workspace that merged an unrelated history whose first commit sorts lower than its own, with a contract
 // committed before the merge.
 type mergedSource struct {
-	state     ports.Projects
-	store     ports.Store
-	workspace *gittest.Repo
+	state             ports.Projects
+	store             ports.Store
+	workspace, design *gittest.Repo
 	// own is the workspace's first-parent root, and lowest the root of the history it merged.
 	own, lowest string
 }
@@ -261,7 +262,7 @@ func newMergedSource(t *testing.T) mergedSource {
 	own, lowest := workspace.Roots("HEAD")[0], design.Roots("HEAD")[0]
 	workspace.Commit("contract.md", contract.ContractText("source-work", "Source work", "Ship it."))
 	workspace.MergeUnrelated(design)
-	return mergedSource{state: state, store: store, workspace: workspace, own: own, lowest: lowest}
+	return mergedSource{state: state, store: store, workspace: workspace, design: design, own: own, lowest: lowest}
 }
 
 // record makes the first project's record for a repository, as an earlier read of it did.
@@ -314,6 +315,25 @@ func TestASourceWithNoCheckoutKeepsTheIDOfItsRecord(t *testing.T) {
 	}
 }
 
+// A history merged in after the record was registered under the lowest root it had leaves the lowest root with no
+// record, and a daemon source with no checkout is still that record's repository.
+func TestASourceWhoseLowestRootNamesNoRecordKeepsTheIDOfItsRecord(t *testing.T) {
+	m := newMergedSource(t)
+	m.record(t, m.lowest)
+	m.workspace.MergeUnrelated(gittest.NewWithRootBelow(t, m.own, m.lowest))
+	opts := soloOptions{intakeTick: time.Second, sources: repeatedFlag{m.workspace.Dir}}
+	kept := &checkouts.File{Path: filepath.Join(t.TempDir(), checkouts.FileName)}
+	ticks := soloTicks(m.state, soloScope, opts, kept, questions.BatchPolicy{}, nil)
+	at := slices.IndexFunc(ticks, func(tick control.Tick) bool { return tick.Name == "intake" })
+	if err := ticks[at].Run(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	ids, instances := m.records(t)
+	if !slices.Equal(ids, []string{m.lowest}) || !slices.Equal(instances, []string{m.lowest}) {
+		t.Errorf("intake left records %v and external keys under %v, want the one record %s", ids, instances, m.lowest)
+	}
+}
+
 // The documents of a --source repository are keyed under the same ID.
 func TestAKnowledgeSourceWithNoCheckoutKeepsTheIDOfItsRecord(t *testing.T) {
 	m := newMergedSource(t)
@@ -348,19 +368,74 @@ func TestAClonePathCountsAsKeptElsewhereOnlyWhileItHoldsTheRecordsFirstCommit(t 
 		"the record's own path": {design.Dir, false},
 		"a path nothing is at":  {filepath.Join(t.TempDir(), "absent"), true},
 	} {
-		got, err := keptElsewhere(kept, soloScope, tt.path)(t.Context(), id)
-		if err != nil || got != tt.want {
-			t.Errorf("%s: kept elsewhere %v (%v), want %v", name, got, err, tt.want)
+		got, held, err := keptElsewhere(kept, soloScope, tt.path)(t.Context(), id)
+		if err != nil || held != tt.want || (held && got.Path != design.Dir) {
+			t.Errorf("%s: kept elsewhere %+v, %v (%v), want %v at %s", name, got, held, err, tt.want, design.Dir)
 		}
+	}
+	// Another repository now stands at the path this worker kept for the record, so the path holds none of it.
+	replacement := gittest.New(t)
+	replacement.Commit("OTHER.md", "another repository\n")
+	if err := kept.Keep(t.Context(), soloScope, "replaced", replacement.Dir); err != nil {
+		t.Fatal(err)
+	}
+	if got, held, err := keptElsewhere(kept, soloScope, m.workspace.Dir)(t.Context(), "replaced"); err != nil || held {
+		t.Errorf("a kept path another clone replaced counts as kept elsewhere: %+v, %v (%v)", got, held, err)
 	}
 	if err := os.RemoveAll(design.Dir); err != nil {
 		t.Fatal(err)
 	}
-	if got, err := keptElsewhere(kept, soloScope, m.workspace.Dir)(t.Context(), id); err != nil || got {
-		t.Errorf("a kept path that is gone counts as kept elsewhere: %v (%v)", got, err)
+	if got, held, err := keptElsewhere(kept, soloScope, m.workspace.Dir)(t.Context(), id); err != nil || held {
+		t.Errorf("a kept path that is gone counts as kept elsewhere: %+v, %v (%v)", got, held, err)
 	}
-	if got, err := keptElsewhere(kept, soloScope, m.workspace.Dir)(t.Context(), "no-such-record"); err != nil || got {
-		t.Errorf("a record this worker keeps no clone of counts as kept elsewhere: %v (%v)", got, err)
+	if got, held, err := keptElsewhere(kept, soloScope, m.workspace.Dir)(t.Context(), "no-such-record"); err != nil || held {
+		t.Errorf("a record this worker keeps no clone of counts as kept elsewhere: %+v, %v (%v)", got, held, err)
+	}
+}
+
+// A daemon source that shares its first commit with a clone this worker keeps at another path, with another
+// remote or none, is not read under the record's ID: intake reports it as it reports a repository the project
+// removed, makes no record or key for it, and no lane resolves to it.
+func TestASourceThatSharesAFirstCommitWithAKeptCloneIsReportedAndNotRead(t *testing.T) {
+	m := newMergedSource(t)
+	m.record(t, m.lowest)
+	kept := &checkouts.File{Path: filepath.Join(t.TempDir(), checkouts.FileName), Env: m.workspace.Env()}
+	if err := kept.Keep(t.Context(), soloScope, m.lowest, m.design.Dir); err != nil {
+		t.Fatal(err)
+	}
+	opts := soloOptions{intakeTick: time.Second, sources: repeatedFlag{m.workspace.Dir}, records: recordsIn(m.store, soloScope)}
+	ticks := soloTicks(m.state, soloScope, opts, kept, questions.BatchPolicy{}, nil)
+	at := slices.IndexFunc(ticks, func(tick control.Tick) bool { return tick.Name == "intake" })
+	err := ticks[at].Run(t.Context())
+	var shared *repofiles.SharedFirstCommitError
+	if !errors.As(err, &shared) || shared.Root != m.lowest || shared.Path != m.design.Dir {
+		t.Errorf("intake reports %v, want a refusal naming the first commit and the kept clone", err)
+	}
+	ids, instances := m.records(t)
+	if !slices.Equal(ids, []string{m.lowest}) || len(instances) != 0 {
+		t.Errorf("intake left records %v and external keys under %v, want the one record and no keys", ids, instances)
+	}
+	find := checkoutOf(opts, kept)
+	if path, err := find(t.Context(), soloScope, m.lowest); err != nil || path != m.design.Dir {
+		t.Errorf("the kept clone's record resolves to %q: %v", path, err)
+	}
+	if path, err := find(t.Context(), soloScope, m.own); !errors.Is(err, ports.ErrNotFound) || errors.As(err, &shared) {
+		t.Errorf("the refused source resolves to %q (%v), and its refusal must not stop the lookup", path, err)
+	}
+}
+
+// The documents of a daemon source that is also a kept checkout are keyed by the ID of its record, as intake
+// keys its work, though the checkout is kept after the source is made.
+func TestAKnowledgeSourceThatIsAKeptCheckoutUsesTheID(t *testing.T) {
+	m := newMergedSource(t)
+	kept := &checkouts.File{Path: filepath.Join(t.TempDir(), checkouts.FileName), Env: m.workspace.Env()}
+	sources := soloKnowledge(soloOptions{sources: repeatedFlag{m.workspace.Dir}}, kept)
+	if err := kept.Keep(t.Context(), soloScope, m.lowest, m.workspace.Dir); err != nil {
+		t.Fatal(err)
+	}
+	description, err := sources[0].Describe(t.Context())
+	if err != nil || description.Instance != m.lowest {
+		t.Errorf("the knowledge source names %q (%v), want the kept checkout's record %s", description.Instance, err, m.lowest)
 	}
 }
 
