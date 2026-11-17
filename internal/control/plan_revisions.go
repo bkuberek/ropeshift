@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	"ropeshift.com/ropeshift/internal/authority"
-	"ropeshift.com/ropeshift/internal/crashpoint"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/planning"
 	"ropeshift.com/ropeshift/internal/ports"
@@ -196,7 +195,6 @@ func (p *PlanRevisions) ConfirmRevision(ctx context.Context, scope ledger.Worksp
 		if err := saveRevision(tx, closed, planning.EventRevisionClosed, actor); err != nil {
 			return err
 		}
-		crashpoint.Hit("plan.confirm_revision", "closed")
 		return settlePlanWork(tx, plan, actor)
 	})
 	if err != nil {
@@ -224,7 +222,6 @@ func closeApprovedRevision(tx ports.WriteTx, plan string, approval authority.App
 	if err := saveRevision(tx, closed, planning.EventRevisionClosed, member); err != nil {
 		return err
 	}
-	crashpoint.Hit("plan.approve", "revision_closed")
 	return settlePlanWork(tx, plan, member)
 }
 
@@ -352,7 +349,6 @@ func (q *Questions) DecisionRework(ctx context.Context, scope ledger.WorkspaceID
 			return fmt.Errorf("%w: work order %s got no rework", workorders.ErrInvalid, order.ID)
 		}
 		rework = made[0]
-		crashpoint.Hit("work_order.decision_rework", "reworked")
 		return recordRework(tx, order, rework, actor)
 	})
 	return rework, err
