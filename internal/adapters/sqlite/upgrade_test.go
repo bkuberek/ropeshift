@@ -641,6 +641,9 @@ func endState(t *testing.T, dir string) map[string][]string {
 		default:
 			out["installation "+table] = rows
 		}
+		// dump sorts each row whole, with the times a run makes for itself leading some of them, so keeping
+		// some of a row's cells leaves rows in an order two runs do not share. Rows are a set, so sort them again.
+		slices.Sort(out["installation "+table])
 	}
 	return out
 }

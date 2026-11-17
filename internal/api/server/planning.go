@@ -186,11 +186,17 @@ func planApprovalView(tx ports.ReadTx, plan string, wanted int64) (*api.PlanAppr
 	}
 	view := &api.PlanApprovalView{Approval: *chosen, Detail: api.PlanDetailOf(*chosen)}
 	version, err := tx.Planning().PlanVersion(plan, chosen.PlanVersion)
-	if err != nil {
-		return nil, err
-	}
-	view.Records, view.Drafts = version.Records, version.Decisions
-	if view.Milestones, err = milestoneTitles(tx.Planning(), version.Records); err != nil {
+	switch {
+	case err == nil:
+		view.Records, view.Drafts = version.Records, version.Decisions
+		if view.Milestones, err = milestoneTitles(tx.Planning(), version.Records); err != nil {
+			return nil, err
+		}
+	case errors.Is(err, ports.ErrNotFound):
+		// A branch's version is one the ledger holds no record of until a member approves it, so its request
+		// carries the drafts it makes, and the records and milestones it holds are not read from the ledger.
+		view.Drafts = nonNil(view.Detail.Drafts)
+	default:
 		return nil, err
 	}
 	if view.Registration, err = registrationView(tx, chosen.ID); err != nil {

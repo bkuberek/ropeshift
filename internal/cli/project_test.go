@@ -210,6 +210,36 @@ func TestMeasuresDeliveryByProjectReadsEveryActiveProject(t *testing.T) {
 	}
 }
 
+// TestProjectRenameSetsTheDisplayNameAndKeepsItOtherwise holds that --display-name gives a project the name it is
+// shown by, with a new name or with the name it has, and that a rename without it keeps the display name.
+func TestProjectRenameSetsTheDisplayNameAndKeepsItOtherwise(t *testing.T) {
+	p := newProjects(t)
+	none := cli.Options{}
+	p.must(none, "project", "create", "beta", "--display-name", "Beta")
+	shown := func(name string) string {
+		t.Helper()
+		for _, line := range strings.Split(p.must(none, "project", "show", name), "\n") {
+			if shown, found := strings.CutPrefix(line, "display name\t"); found {
+				return shown
+			}
+		}
+		t.Fatalf("project show %s prints no display name", name)
+		return ""
+	}
+	p.must(none, "project", "rename", "beta", "beta", "--display-name", "Beta Product")
+	if got := shown("beta"); got != "Beta Product" {
+		t.Errorf("a rename that keeps the name shows %q, want Beta Product", got)
+	}
+	p.must(none, "project", "rename", "beta", "gamma", "--display-name", "Gamma Product")
+	if got := shown("gamma"); got != "Gamma Product" {
+		t.Errorf("a rename that changes both shows %q, want Gamma Product", got)
+	}
+	p.must(none, "project", "rename", "gamma", "delta")
+	if got := shown("delta"); got != "Gamma Product" {
+		t.Errorf("a rename without the flag shows %q, want the display name it had", got)
+	}
+}
+
 // TestTheProjectCommandsWalkTheLifecycle holds the lifecycle from the command line: create, rename,
 // archive, which makes the project read-only, restore, and remove with its guards.
 func TestTheProjectCommandsWalkTheLifecycle(t *testing.T) {

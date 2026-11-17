@@ -1322,3 +1322,87 @@ describe("the combined view", () => {
     expect(sent[0]).toMatchObject({ method: "POST", project, path: `/v1/approvals/${approval.id}/decide` });
   });
 });
+
+// A request a person decides from this page says so once it no longer waits, as questions they answered do, and a
+// request settled somewhere else says it was settled in another place.
+describe("a request decided from this page", () => {
+  type Kind = { name: string; view: () => View; pick: Pick; approve: string; decline: string; reasoned: boolean };
+  const recovery = (): View => {
+    const view = goldenNeedsYou();
+    const { approval, ...rest } = itemOf(view, "approval");
+    const request = { ...approval, id: "recovery-1", kind: "recovery", subject_digest: "sha256:subject", detail: JSON.stringify({ act: "work_retry", work_order_id: "wo-failed" }) };
+    return { ...view, items: [{ ...rest, id: request.id, approval: request }] };
+  };
+  const merge = (): View => {
+    const view = goldenNeedsYou();
+    const request = mergeRequest("approve");
+    return { ...view, items: [{ ...itemOf(view, "approval"), id: request.id, approval: request }] };
+  };
+  const kinds: Kind[] = [
+    { name: "an approval", view: goldenNeedsYou, pick: plainApproval, approve: "Allow this one call", decline: "Deny", reasoned: true },
+    { name: "a recovery request", view: recovery, pick: "approval", approve: "Approve", decline: "Decline", reasoned: false },
+    { name: "a merge request", view: merge, pick: "approval", approve: "Approve merge", decline: "Deny", reasoned: true },
+    { name: "a plan approval", view: goldenNeedsYou, pick: "plan_approval", approve: "Approve this plan", decline: "Deny", reasoned: true },
+  ];
+
+  // settle renders Needs you on a view, and answers the next read of it with the view minus the picked item.
+  function settle(kind: Kind) {
+    const view = kind.view();
+    const item = view.items.find(typeof kind.pick === "function" ? kind.pick : (row) => row.kind === kind.pick) as NeedItem;
+    const without = (
+      <CurrentProject.Provider value={testProject}>
+        <NeedsYou view={{ ...view, items: view.items.filter((row) => row !== item) }} readAt={Date.now()} after={async () => {}} />
+      </CurrentProject.Provider>
+    );
+    let rerender: ReturnType<typeof show>["rerender"] = () => {};
+    ({ rerender } = show(view, async () => rerender(without), kind.pick));
+    return { item, rerender: () => rerender(without) };
+  }
+
+  const resolvedRow = () => screen.getAllByRole("link").find((link) => link.getAttribute("aria-current") === "true");
+
+  for (const kind of kinds) {
+    describe(kind.name, () => {
+      it("says the person approved it, as the member the ledger recorded", async () => {
+        const { item } = settle(kind);
+        const sent = serveApi((call) => (call.method === "POST" ? { status: 200, body: { id: item.id, state: "approved", decided_by: "member-ada" } } : undefined));
+        await userEvent.click(await screen.findByRole("button", { name: kind.approve }));
+        await waitFor(() => expect(sent.some((call) => call.method === "POST")).toBe(true));
+        const note = await screen.findByText(/no longer waits/);
+        expect(note.textContent).toContain("you decided it, as member-ada");
+        expect(note.textContent).not.toContain("another place");
+        expect(within(screen.getByRole("list", { name: "Your decision" })).getByText("Approved")).toBeTruthy();
+        expect(resolvedRow()?.textContent).toContain("Decided by you");
+        expect(resolvedRow()?.textContent).not.toContain("Resolved elsewhere");
+      });
+
+      it("says the person declined it, with the reason they gave", async () => {
+        const { item } = settle(kind);
+        const reason = "Split it first.";
+        const sent = serveApi((call) => (call.method === "POST" ? { status: 200, body: { id: item.id, state: "denied", decided_by: "member-ada", ...(kind.reasoned ? { reason } : {}) } } : undefined));
+        if (kind.reasoned) {
+          await userEvent.type(await screen.findByRole("textbox", { name: /Reason/ }), reason);
+        }
+        await userEvent.click(await screen.findByRole("button", { name: kind.decline }));
+        await waitFor(() => expect(sent.some((call) => call.method === "POST")).toBe(true));
+        const note = await screen.findByText(/no longer waits/);
+        expect(note.textContent).toContain("you decided it, as member-ada");
+        const decision = within(screen.getByRole("list", { name: "Your decision" }));
+        expect(decision.getByText("Declined")).toBeTruthy();
+        if (kind.reasoned) {
+          expect(decision.getByText(reason, { exact: false })).toBeTruthy();
+        }
+      });
+
+      it("still says another place decided it when nobody decided it here", async () => {
+        const { rerender } = settle(kind);
+        rerender();
+        const note = await screen.findByText(/no longer waits/);
+        expect(note.textContent).toContain("it was decided or resolved in another place");
+        expect(note.textContent).not.toContain("you decided it");
+        expect(screen.queryByRole("list", { name: "Your decision" })).toBeNull();
+        expect(resolvedRow()?.textContent).toContain("Resolved elsewhere");
+      });
+    });
+  }
+});

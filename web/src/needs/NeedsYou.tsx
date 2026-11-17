@@ -12,6 +12,7 @@ import { Select } from "../ui/forms";
 import { ApprovalDecision } from "./ApprovalDecision";
 import { ConfirmCard, ResolvedCard, voidAsk } from "./ConfirmCard";
 import { ContractReviewCard } from "./ContractReviewCard";
+import type { Decided } from "./decided";
 import { EffectCard } from "./EffectCard";
 import type { Frame } from "./frame";
 import type { NeedFilter } from "./kinds";
@@ -41,19 +42,21 @@ function useAssistantCard(item: NeedItem | undefined) {
 
 type Registered = { registration?: ManifestRegistration; onRegistered: (registration: ManifestRegistration) => void };
 
-function Card({ item, after, frame, registered, onAnswered }: { item: NeedItem; after: () => Promise<void>; frame: Frame; registered: Registered; onAnswered: (answered: Answered) => void }) {
+type Settled = { onAnswered: (answered: Answered) => void; onDecided: (decided: Decided) => void };
+
+function Card({ item, after, frame, registered, settled }: { item: NeedItem; after: () => Promise<void>; frame: Frame; registered: Registered; settled: Settled }) {
   const assistant = useAssistantCard(item);
   switch (item.kind) {
     case "questions":
-      return <QuestionBatch batch={item.batch} after={after} frame={frame} onAnswered={onAnswered} />;
+      return <QuestionBatch batch={item.batch} after={after} frame={frame} onAnswered={settled.onAnswered} />;
     case "approval":
-      return <ApprovalDecision approval={item.approval} after={after} frame={frame} />;
+      return <ApprovalDecision approval={item.approval} after={after} frame={frame} onDecided={settled.onDecided} />;
     case "effect":
       return <EffectCard effect={item.effect} after={after} frame={frame} />;
     case "work":
       return <WorkCard id={item.id} work={item.work} after={after} frame={frame} />;
     case "plan_approval":
-      return <PlanApprovalCard id={item.id} need={item.plan_approval} after={after} frame={frame} registered={registered.registration} onRegistered={registered.onRegistered} />;
+      return <PlanApprovalCard id={item.id} need={item.plan_approval} after={after} frame={frame} registered={registered.registration} onRegistered={registered.onRegistered} onDecided={settled.onDecided} />;
     case "contract_review":
       return <ContractReviewCard review={item.contract_review} after={after} frame={frame} />;
     case "confirm":
@@ -83,17 +86,27 @@ function useNarrow(): boolean {
   return narrow;
 }
 
-// ResolvedNote says why the selected item no longer waits: the person answered it on this page, with who the
-// ledger recorded the answers for and what they were, or else it was settled somewhere else.
-function ResolvedNote({ heading, answered, noteRef }: { heading: string; answered?: Answered; noteRef: Ref<HTMLParagraphElement> }) {
+// ResolvedNote says why the selected item no longer waits: the person answered or decided it on this page,
+// with who the ledger recorded it for and what it was, or else it was settled somewhere else.
+function ResolvedNote({ heading, answered, decided, noteRef }: { heading: string; answered?: Answered; decided?: Decided; noteRef: Ref<HTMLParagraphElement> }) {
+  const by = (answered ?? decided)?.by;
+  const done = answered ? "answered" : decided ? "decided" : "";
   return (
     <>
       <p className="resolved-note" ref={noteRef} tabIndex={-1}>
         <Icon name="check" />
-        {answered
-          ? `${heading} no longer waits: you answered it${answered.by ? `, as ${answered.by}` : ""}. Press J for the next item.`
+        {done
+          ? `${heading} no longer waits: you ${done} it${by ? `, as ${by}` : ""}. Press J for the next item.`
           : `${heading} no longer waits: it was decided or resolved in another place. Press J for the next item.`}
       </p>
+      {decided ? (
+        <ul className="links" aria-label="Your decision">
+          <li>
+            <p className="question-text">{decided.approved ? "Approved" : "Declined"}</p>
+            {decided.reason ? <p>Reason: {decided.reason}</p> : null}
+          </li>
+        </ul>
+      ) : null}
       {answered ? (
         <ul className="links" aria-label="Your answers">
           {answered.answers.map((row) => (
@@ -134,6 +147,8 @@ export function NeedsYou({ view, readAt, after, active = true }: Props) {
   // answered holds what the person answered on this page, by item, so an item that stops waiting because of it
   // says so, and not that another place settled it.
   const [answered, setAnswered] = useState<Record<string, Answered>>({});
+  // decided holds the same for a request the person approved or declined on this page.
+  const [decided, setDecided] = useState<Record<string, Decided>>({});
 
   // gone holds the selected item after the server stopped listing it, at the place it stood.
   const [gone, setGone] = useState<{ item: NeedItem; at: number } | null>(null);
@@ -328,7 +343,7 @@ export function NeedsYou({ view, readAt, after, active = true }: Props) {
                               <Icon name="key" size="sm" /> {preparerOf(item.card)}
                             </span>
                           ) : (
-                            <span className="truncate">{done ? (answered[key] ? "Answered by you" : "Resolved elsewhere") : contextOf(item)}</span>
+                            <span className="truncate">{done ? (answered[key] ? "Answered by you" : decided[key] ? "Decided by you" : "Resolved elsewhere") : contextOf(item)}</span>
                           )}
                         </span>
                       </Link>
@@ -348,7 +363,7 @@ export function NeedsYou({ view, readAt, after, active = true }: Props) {
           {selected && tab === "open" && isGone(selected) && selected.kind !== "confirm" ? (
             <div className="decision is-resolved">
               <div className="decision-body">
-                <ResolvedNote heading={headingOf(selected)} answered={answered[keyOf(selected)]} noteRef={resolvedNote} />
+                <ResolvedNote heading={headingOf(selected)} answered={answered[keyOf(selected)]} decided={decided[keyOf(selected)]} noteRef={resolvedNote} />
                 {selected.kind === "plan_approval" && registered[keyOf(selected)] ? <RegisteredRepositories registration={registered[keyOf(selected)] as ManifestRegistration} /> : null}
               </div>
             </div>
@@ -365,7 +380,10 @@ export function NeedsYou({ view, readAt, after, active = true }: Props) {
                   after={after}
                   frame={frameOf(item)}
                   registered={{ registration: registered[keyOf(item)], onRegistered: (registration) => setRegistered((was) => ({ ...was, [keyOf(item)]: registration })) }}
-                  onAnswered={(done) => setAnswered((was) => ({ ...was, [keyOf(item)]: done }))}
+                  settled={{
+                    onAnswered: (done) => setAnswered((was) => ({ ...was, [keyOf(item)]: done })),
+                    onDecided: (done) => setDecided((was) => ({ ...was, [keyOf(item)]: done })),
+                  }}
                 />
               </ItemProject.Provider>
             </div>
