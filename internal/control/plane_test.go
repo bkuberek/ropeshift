@@ -472,6 +472,48 @@ func TestOneOrchestratorServesEveryProject(t *testing.T) {
 	}
 }
 
+// TestALeaseNamesTheProjectsPlanningRepository holds what a worker needs to find a project's workspace: the lease
+// of a lane names the repository its project plans in, from the project's own records, and names none for a
+// project that has not named one or one whose planning repository was removed (FR-PROF-6).
+func TestALeaseNamesTheProjectsPlanningRepository(t *testing.T) {
+	r := newPlaneRig(t, ledger.ProtocolVersion)
+	ctx := t.Context()
+	actor := ledger.Actor{Kind: ledger.ActorSystem, ID: "intake"}
+	repositories := control.NewRepositories(r.stores["pa"])
+	for _, id := range []string{"plan-repo", "code-repo"} {
+		if _, err := repositories.Detect(ctx, "pa", control.DetectedRepository{ID: id, DefaultBranch: "main"}, actor); err != nil {
+			t.Fatal(err)
+		}
+	}
+	r.ready("pa", "wo")
+	r.ready("pb", "wo")
+	for _, project := range []string{"pa", "pb"} {
+		if err := r.claim(project, "wo"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := control.NewLeases(r.stores[ledger.WorkspaceID(project)]).DispatchWith(ctx, ledger.WorkspaceID(project), "wo", "lane-wo", "", projectMember); err != nil {
+			t.Fatal(err)
+		}
+	}
+	planningOf := func() map[string]string {
+		held := map[string]string{}
+		for _, lease := range r.desired().Leases {
+			held[lease.Project] = lease.PlanningRepository
+		}
+		return held
+	}
+	if held := planningOf(); held["pa"] != "" || held["pb"] != "" {
+		t.Errorf("no repository is named the planning repository, and the leases say %v", held)
+	}
+	yes := true
+	if _, err := repositories.Change(ctx, "pa", "plan-repo", control.RepositoryChange{Planning: &yes}, projectMember); err != nil {
+		t.Fatal(err)
+	}
+	if held := planningOf(); held["pa"] != "plan-repo" || held["pb"] != "" {
+		t.Errorf("a lease names %v, want plan-repo for alpha and none for beta", held)
+	}
+}
+
 // TestAnOrchestratorCannotCiteAnotherProjectsRecord holds ADR-0021's citation rule: a question of one
 // project is answered from that project's records only. Its ladder lookup finds no decision of another
 // project, a decision of another project neither answers it nor reads, and the same decision answers in
