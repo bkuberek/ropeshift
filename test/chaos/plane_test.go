@@ -53,7 +53,7 @@ func (w *world) servePlane(heartbeat, ttl time.Duration) string {
 	httpServer := &http.Server{
 		Handler: server.New(server.Config{
 			Scope: w.rig.Scope, Store: w.store, LeaseTTL: ttl.Milliseconds(), HeartbeatMs: heartbeat.Milliseconds(),
-			Identity: fake.NewIdentityProvider(),
+			Identity: fake.NewIdentityProvider().Within(w.store),
 		}),
 		ReadHeaderTimeout: 10 * time.Second,
 		ConnState: func(_ net.Conn, state http.ConnState) {
@@ -285,7 +285,7 @@ func rolePlaneServer(c *child) error {
 		return err
 	}
 	handler := server.New(server.Config{
-		Scope: c.scope, Store: c.store, LeaseTTL: longTTL, HeartbeatMs: 15_000, Identity: fake.NewIdentityProvider(),
+		Scope: c.scope, Store: c.store, LeaseTTL: longTTL, HeartbeatMs: 15_000, Identity: fake.NewIdentityProvider().Within(c.store),
 	})
 	fmt.Println("AT ready")
 	httpServer := &http.Server{Handler: handler, ReadHeaderTimeout: 10 * time.Second}

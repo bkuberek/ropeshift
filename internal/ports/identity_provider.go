@@ -32,6 +32,9 @@ type IdentityProvider interface {
 	// the change, so what it writes stands or falls with the proof.
 	Change(ctx context.Context, scope ledger.WorkspaceID, current, next Proof, actor ledger.Actor, alongside func(tx SharedTx, member string) error) error
 	// Authenticate names the member a proof belongs to, or returns authority.ErrBadProof
-	// or authority.ErrNotEnrolled.
-	Authenticate(ctx context.Context, scope ledger.WorkspaceID, proof Proof) (string, error)
+	// or authority.ErrNotEnrolled. alongside, when not nil, then runs in a write that finds the proof it checked still
+	// in force, told the member's ID, so what it writes, such as a session, cannot outlive a change that landed after
+	// the check: a proof that moved since refuses with authority.ErrPassphraseChanged, which is no wrong guess, and
+	// alongside does not run. Its error undoes the write.
+	Authenticate(ctx context.Context, scope ledger.WorkspaceID, proof Proof, alongside func(tx SharedTx, member string) error) (string, error)
 }

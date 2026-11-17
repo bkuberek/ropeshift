@@ -79,13 +79,22 @@ func (c *invocation) passphraseSet(args []string) int {
 	}
 	client := c.client()
 	defer client.Close()
+	// A passphrase set before this one makes it a later set. The first needs no session and ends none, so an exported
+	// token that opens nothing, which the first set passes over, does not make it one.
+	before, err := client.Passphrase(c.ctx)
+	if err != nil {
+		return c.failure(err)
+	}
 	changed, err := client.SetPassphrase(c.ctx, api.SetPassphrase{Passphrase: passphrase})
+	// A set the daemon refused for want of a session, which the command then opened, is a later one whatever was
+	// read before it.
+	later := c.asked || (before.Set && c.session != "")
 	return c.finish(err, struct {
 		Set           bool  `json:"set"`
 		SessionsEnded int64 `json:"sessions_ended"`
 		Delegates     int64 `json:"delegates"`
 	}{true, changed.SessionsEnded, changed.Delegates}, func() string {
-		return passphraseSetText(changed, c.session != "" || c.asked, c.session != "")
+		return passphraseSetText(changed, later, c.session != "")
 	})
 }
 

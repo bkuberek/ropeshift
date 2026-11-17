@@ -1,7 +1,6 @@
 package contract
 
 import (
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -360,34 +359,13 @@ func TestTwoChangesFromOnePassphraseCannotBothStand(t *testing.T) {
 	}
 }
 
-// interposed runs before each write to the installation's records, which is how a test lets another change land
-// between a change's check of the current passphrase and its write, with nothing compiled into the adapter.
-type interposed struct {
-	ports.Store
-	before func(op string)
-}
-
-func (s interposed) Installation(scope ledger.WorkspaceID) ports.Installation {
-	return interposedInstallation{Installation: s.Store.Installation(scope), before: s.before}
-}
-
-type interposedInstallation struct {
-	ports.Installation
-	before func(op string)
-}
-
-func (i interposedInstallation) Write(ctx context.Context, op string, fn func(ports.SharedTx) error) error {
-	i.before(op)
-	return i.Installation.Write(ctx, op, fn)
-}
-
 // A change whose current passphrase was right, and which another change then moved, is told so, and leaves no
 // refused sign-in on record: the guess was not wrong, and a refusal on record would read as an attack.
 func TestAChangeThatLostARaceIsToldSoAndLeavesNoRefusalOnRecord(t *testing.T) {
 	t.Parallel()
 	rig, winner, browser, _ := twoSessions(t)
 	armed := true
-	store := interposed{Store: rig.Store(), before: func(op string) {
+	store := &Interposed{Store: rig.Store(), Before: func(op string) {
 		if op != "member.change_proof" || !armed {
 			return
 		}
@@ -413,6 +391,164 @@ func TestAChangeThatLostARaceIsToldSoAndLeavesNoRefusalOnRecord(t *testing.T) {
 	}
 	if _, err := winner.SignIn(rig.Ctx, rig.Scope, ports.Proof{Passphrase: otherPassphrase}, 0); !errors.Is(err, authority.ErrBadProof) {
 		t.Errorf("the passphrase that lost: %v", err)
+	}
+}
+
+// failingAppend is a transaction whose append of one type of event fails, which is how a check fails the last step of a
+// companion, after the new hash and the end of the sessions are written in the same transaction.
+type failingAppend struct {
+	ports.SharedTx
+	eventType string
+}
+
+var errAppendFailed = errors.New("the append failed")
+
+func (tx failingAppend) Append(draft ledger.EventDraft) (ledger.Event, error) {
+	if draft.Type == tx.eventType {
+		return ledger.Event{}, errAppendFailed
+	}
+	return tx.SharedTx.Append(draft)
+}
+
+// newPassphraseFrom is a later set or a change of the passphrase, made from the caller's session, to otherPassphrase.
+type newPassphraseFrom struct {
+	name string
+	// op is the write that stores the new hash.
+	op  string
+	run func(sessions *control.Sessions, rig *Rig, caller control.SessionGrant) error
+}
+
+var newPassphrases = []newPassphraseFrom{
+	{"a later set", "member.enroll", func(sessions *control.Sessions, rig *Rig, caller control.SessionGrant) error {
+		_, err := sessions.Enroll(rig.Ctx, rig.Scope, ports.Proof{Passphrase: otherPassphrase}, caller.Token)
+		return err
+	}},
+	{"a change", "member.change_proof", func(sessions *control.Sessions, rig *Rig, caller control.SessionGrant) error {
+		_, err := sessions.ChangePassphrase(rig.Ctx, rig.Scope, ports.Proof{Passphrase: goodPassphrase}, ports.Proof{Passphrase: otherPassphrase}, caller.Token)
+		return err
+	}},
+}
+
+// onlyTheOldPassphraseSignsIn holds that the passphrase in force is still goodPassphrase.
+func onlyTheOldPassphraseSignsIn(t *testing.T, rig *Rig, sessions *control.Sessions) {
+	t.Helper()
+	if _, err := sessions.SignIn(rig.Ctx, rig.Scope, ports.Proof{Passphrase: otherPassphrase}, 0); !errors.Is(err, authority.ErrBadProof) {
+		t.Errorf("the new passphrase stands after its set was undone: %v", err)
+	}
+	if _, err := sessions.SignIn(rig.Ctx, rig.Scope, ports.Proof{Passphrase: goodPassphrase}, 0); err != nil {
+		t.Errorf("the old passphrase no longer signs in: %v", err)
+	}
+}
+
+// A set or a change of the passphrase ends the member's sessions in the transaction that stores the new hash. A failure
+// at the last step of ending them, after the hash and the dropped sessions are written, undoes the whole: the old
+// passphrase stays in force, every session stands, and nothing is on record. Were the sessions ended in a write of
+// their own after the hash committed, the new passphrase would stand beside sessions it did not end.
+func TestASetOrChangeWhoseSessionEndingFailsChangesNothing(t *testing.T) {
+	t.Parallel()
+	for _, set := range newPassphrases {
+		t.Run(set.name, func(t *testing.T) {
+			t.Parallel()
+			rig, plain, browser, terminal := twoSessions(t)
+			store := &Interposed{Store: rig.Store(), Within: func(tx ports.SharedTx) ports.SharedTx {
+				return failingAppend{SharedTx: tx, eventType: control.EventSessionsEnded}
+			}}
+			failing := control.NewSessions(store, localauth.New(store, cheapHash))
+			before := len(installationEvents(t, rig))
+			if err := set.run(failing, rig, terminal); !errors.Is(err, errAppendFailed) {
+				t.Fatalf("got %v, want the failed append", err)
+			}
+			for who, token := range map[string]string{"the caller's": terminal.Token, "the other": browser.Token} {
+				if _, err := plain.Member(rig.Ctx, rig.Scope, token); err != nil {
+					t.Errorf("%s session ended though the set was undone: %v", who, err)
+				}
+			}
+			for _, event := range installationEvents(t, rig)[before:] {
+				t.Errorf("the undone set left %s on record", event.Type)
+			}
+			onlyTheOldPassphraseSignsIn(t, rig, plain)
+		})
+	}
+}
+
+// A set or a change of the passphrase reads the session it came from again in the transaction that stores the new
+// hash, so a sign-out that lands between the first check of the session and that transaction undoes it: a session that
+// ended cannot set the passphrase, and the new hash, the sessions it would end, and its record fall with it.
+func TestASignOutThatLandsBeforeASetOrChangeWritesUndoesIt(t *testing.T) {
+	t.Parallel()
+	for _, set := range newPassphrases {
+		t.Run(set.name, func(t *testing.T) {
+			t.Parallel()
+			rig, plain, browser, terminal := twoSessions(t)
+			armed := true
+			store := &Interposed{Store: rig.Store(), Before: func(op string) {
+				if op != set.op || !armed {
+					return
+				}
+				armed = false
+				if err := plain.End(rig.Ctx, rig.Scope, terminal.Token, ledger.Actor{Kind: ledger.ActorMember, ID: terminal.Member}); err != nil {
+					t.Errorf("the sign-out that lands first: %v", err)
+				}
+			}}
+			racing := control.NewSessions(store, localauth.New(store, cheapHash))
+			before := len(installationEvents(t, rig))
+			err := set.run(racing, rig, terminal)
+			if armed {
+				t.Fatal("the set made no write for the sign-out to land before")
+			}
+			if !errors.Is(err, authority.ErrNoSession) {
+				t.Fatalf("got %v, want ErrNoSession", err)
+			}
+			if _, err := plain.Member(rig.Ctx, rig.Scope, browser.Token); err != nil {
+				t.Errorf("the other session ended though the set was undone: %v", err)
+			}
+			for _, event := range installationEvents(t, rig)[before:] {
+				if event.Type != "member.signed_out" {
+					t.Errorf("the undone set left %s on record", event.Type)
+				}
+			}
+			onlyTheOldPassphraseSignsIn(t, rig, plain)
+		})
+	}
+}
+
+// A sign-in checks the passphrase outside any transaction, so a change can land between that check and the write that
+// issues the session. The passphrase the sign-in proved is then no longer in force, and a session issued on it would
+// outlive a change that ended every other one, so the sign-in issues none. The passphrase was right when it was
+// checked, so the refusal says the passphrase changed, and no refused sign-in is on record.
+func TestASignInThatAChangeOvertookIssuesNoSession(t *testing.T) {
+	t.Parallel()
+	rig, winner, browser, _ := twoSessions(t)
+	armed := true
+	store := &Interposed{Store: rig.Store(), Before: func(op string) {
+		if op != "member.sign_in" || !armed {
+			return
+		}
+		armed = false
+		if _, err := winner.ChangePassphrase(rig.Ctx, rig.Scope, ports.Proof{Passphrase: goodPassphrase}, ports.Proof{Passphrase: otherPassphrase}, browser.Token); err != nil {
+			t.Errorf("the change that lands first: %v", err)
+		}
+	}}
+	late := control.NewSessions(store, localauth.New(store, cheapHash))
+	before := len(installationEvents(t, rig))
+	grant, err := late.SignIn(rig.Ctx, rig.Scope, ports.Proof{Passphrase: goodPassphrase}, 0)
+	if armed {
+		t.Fatal("the sign-in made no write for the change to land before")
+	}
+	if !errors.Is(err, authority.ErrPassphraseChanged) || grant.Token != "" {
+		t.Fatalf("got %+v, %v; want ErrPassphraseChanged and no session", grant, err)
+	}
+	// The change left the session it came from, under its new token, and the sign-in added none.
+	if left := sessionDigests(t, rig); len(left) != 1 {
+		t.Errorf("%d sessions stand after the change, want the changer's alone", len(left))
+	}
+	for _, event := range installationEvents(t, rig)[before:] {
+		if event.Type == control.EventSignedIn || event.Type == "member.sign_in_refused" {
+			t.Errorf("the overtaken sign-in left %s on record", event.Type)
+		}
+	}
+	if _, err := winner.SignIn(rig.Ctx, rig.Scope, ports.Proof{Passphrase: otherPassphrase}, 0); err != nil {
+		t.Errorf("the new passphrase: %v", err)
 	}
 }
 

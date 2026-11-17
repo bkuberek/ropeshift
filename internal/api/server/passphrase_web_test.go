@@ -461,9 +461,9 @@ func (h *hashing) enter() func() {
 	return func() { h.running.Add(-1) }
 }
 
-func (h *hashing) Authenticate(ctx context.Context, scope ledger.WorkspaceID, proof ports.Proof) (string, error) {
+func (h *hashing) Authenticate(ctx context.Context, scope ledger.WorkspaceID, proof ports.Proof, alongside func(ports.SharedTx, string) error) (string, error) {
 	defer h.enter()()
-	return h.IdentityProvider.Authenticate(ctx, scope, proof)
+	return h.IdentityProvider.Authenticate(ctx, scope, proof, alongside)
 }
 
 func (h *hashing) Change(ctx context.Context, scope ledger.WorkspaceID, current, next ports.Proof, actor ledger.Actor, alongside func(ports.SharedTx, string) error) error {

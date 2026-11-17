@@ -20,8 +20,8 @@ type abandoning struct {
 	cancel context.CancelFunc
 }
 
-func (a abandoning) Authenticate(ctx context.Context, scope ledger.WorkspaceID, proof ports.Proof) (string, error) {
-	member, err := a.IdentityProvider.Authenticate(ctx, scope, proof)
+func (a abandoning) Authenticate(ctx context.Context, scope ledger.WorkspaceID, proof ports.Proof, alongside func(ports.SharedTx, string) error) (string, error) {
+	member, err := a.IdentityProvider.Authenticate(ctx, scope, proof, alongside)
 	a.cancel()
 	return member, err
 }

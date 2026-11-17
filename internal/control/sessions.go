@@ -50,10 +50,30 @@ func NewSessions(store ports.Store, identity ports.IdentityProvider) *Sessions {
 	return &Sessions{store: store, identity: identity}
 }
 
-// SignIn checks a proof and issues a session. The provider runs outside any transaction,
-// because a hash is slow on purpose. The ledger keeps only the token's digest.
+// SignIn checks a proof and issues a session. The provider checks outside any transaction, because a hash is slow on
+// purpose, and issues the session in a write that finds the passphrase it checked still in force, so a change of the
+// passphrase that landed after the check leaves no session it did not end: the sign-in is refused with
+// authority.ErrPassphraseChanged, which is no wrong guess and is not on record as a refusal. The ledger keeps only the
+// token's digest.
 func (s *Sessions) SignIn(ctx context.Context, scope ledger.WorkspaceID, proof ports.Proof, ttlMs int64) (SessionGrant, error) {
-	member, err := s.identity.Authenticate(ctx, scope, proof)
+	var grant SessionGrant
+	member, err := s.identity.Authenticate(ctx, scope, proof, func(tx ports.SharedTx, member string) error {
+		token, err := newSecret()
+		if err != nil {
+			return err
+		}
+		now := tx.Now()
+		grant = SessionGrant{Token: token, Member: member, ExpiresAt: now + authority.BoundTTL(ttlMs)}
+		if err := tx.Members().DropSessions(now); err != nil {
+			return err
+		}
+		err = tx.Members().InsertSession(authority.Session{Digest: digestOf(token), Member: member, CreatedAt: now, ExpiresAt: grant.ExpiresAt})
+		if err != nil {
+			return err
+		}
+		crashpoint.Hit("member.sign_in", "issued")
+		return appendSignIn(tx, EventSignedIn, ledger.Actor{Kind: ledger.ActorMember, ID: member}, grant.ExpiresAt)
+	})
 	if errors.Is(err, authority.ErrBadProof) {
 		// The guess was wrong whether or not its client is still there, so the record is made as though it were: a
 		// client that leaves after the check must not turn a refusal into a failure to write one. A record that
@@ -65,26 +85,8 @@ func (s *Sessions) SignIn(ctx context.Context, scope ledger.WorkspaceID, proof p
 	if err != nil {
 		return SessionGrant{}, err
 	}
-	token, err := newSecret()
-	if err != nil {
-		return SessionGrant{}, err
-	}
-	grant := SessionGrant{Token: token, Member: member}
-	err = s.store.Installation(scope).Write(ctx, "member.sign_in", func(tx ports.SharedTx) error {
-		now := tx.Now()
-		grant.ExpiresAt = now + authority.BoundTTL(ttlMs)
-		if err := tx.Members().DropSessions(now); err != nil {
-			return err
-		}
-		err := tx.Members().InsertSession(authority.Session{Digest: digestOf(token), Member: member, CreatedAt: now, ExpiresAt: grant.ExpiresAt})
-		if err != nil {
-			return err
-		}
-		crashpoint.Hit("member.sign_in", "issued")
-		return appendSignIn(tx, EventSignedIn, ledger.Actor{Kind: ledger.ActorMember, ID: member}, grant.ExpiresAt)
-	})
-	if err != nil {
-		return SessionGrant{}, err
+	if grant.Token == "" || grant.Member != member {
+		return SessionGrant{}, fmt.Errorf("the identity provider proved member %q and issued no session for it", member)
 	}
 	return grant, nil
 }

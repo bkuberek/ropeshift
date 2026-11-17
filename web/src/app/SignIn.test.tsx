@@ -125,6 +125,26 @@ describe("the Sign in page", () => {
     }
   });
 
+  it("holds a Retry-After to a wait between a second and a day, and says a minute for one that is no number of seconds", async () => {
+    const limited = (wait: string) => () => ({ ...refusal(429, "too_many_attempts", "too many failed attempts from this address"), headers: { "Retry-After": wait } });
+    const cases: [string, string][] = [
+      ["0", "1 second"],
+      ["3600", "an hour"],
+      ["5400", "2 hours"],
+      ["86400", "24 hours"],
+      ["86401", "24 hours"],
+      ["9".repeat(400), "24 hours"],
+      ["-30", "a minute"],
+      ["soon", "a minute"],
+    ];
+    for (const [wait, said] of cases) {
+      signedOut(limited(wait));
+      await attempt();
+      expect(await screen.findByText(`Too many sign-in attempts. Wait ${said}, then try again.`), `Retry-After ${wait.slice(0, 12)}`).toBeTruthy();
+      cleanup();
+    }
+  });
+
   it("says when the daemon did not answer, as an alert, and leaves nothing checked", async () => {
     signedOut();
     render(<App />);

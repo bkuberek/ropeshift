@@ -177,11 +177,20 @@ const (
 // provenMember signs anyone in, so a run tests a session's write and not a slow hash.
 type provenMember struct {
 	ports.IdentityProvider
+	store ports.Store
 }
 
-// Authenticate names the same member for any proof.
-func (provenMember) Authenticate(context.Context, ledger.WorkspaceID, ports.Proof) (string, error) {
-	return "member-1", nil
+// Authenticate names the same member for any proof, and runs a companion in the write a real provider makes for a
+// sign-in, under the operation it names.
+func (p provenMember) Authenticate(ctx context.Context, scope ledger.WorkspaceID, _ ports.Proof, alongside func(ports.SharedTx, string) error) (string, error) {
+	const member = "member-1"
+	if alongside == nil {
+		return member, nil
+	}
+	if err := p.store.Installation(scope).Write(ctx, "member.sign_in", func(tx ports.SharedTx) error { return alongside(tx, member) }); err != nil {
+		return "", err
+	}
+	return member, nil
 }
 
 // NewMessageOps are the production message use cases under windows of their own.
@@ -192,7 +201,7 @@ func NewMessageOps(store ports.Store, windows messages.Windows) *control.Message
 // RealOps are the production use cases.
 func RealOps(store ports.Store) Ops {
 	return realOps{
-		control.NewSessions(store, provenMember{}), control.NewWorkOrders(store), control.NewLeases(store), control.NewIntake(store), control.NewReviews(store),
+		control.NewSessions(store, provenMember{store: store}), control.NewWorkOrders(store), control.NewLeases(store), control.NewIntake(store), control.NewReviews(store),
 		control.NewQuestions(store, questions.BatchPolicy{WindowMs: BatchWindowMs, MaxWaitMs: BatchMaxWaitMs}),
 		control.NewAcceptances(store), control.NewWakes(store), control.NewMessages(store, nil), control.NewPacks(store),
 	}

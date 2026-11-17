@@ -117,6 +117,37 @@ describe("Change passphrase", () => {
     expect(screen.queryByText(/not your current passphrase/)).toBeNull();
   });
 
+  it("says how long to wait when a group server limits wrong guesses, as the Sign in page does, and marks nothing wrong", async () => {
+    const limited = (headers?: Record<string, string>) => () => ({ ...refusal(429, "too_many_attempts", "too many failed attempts from this address: try again in 900 seconds"), headers });
+    serve(limited({ "Retry-After": "900" }));
+    await open();
+    fill("tin-roof-anvil-1", "copper-kettle-moss-2");
+    await userEvent.click(submit());
+    const notice = await screen.findByText("Too many sign-in attempts. Wait 15 minutes, then try again.");
+    expect(notice.closest("[role=status]")).toBeTruthy();
+    expect(screen.queryByText(/too many failed attempts from this address/)).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+    // Nothing was checked, so the current passphrase is not marked wrong, and it is not kept.
+    expect(current().getAttribute("aria-invalid")).toBeNull();
+    expect(current().value).toBe("");
+    expect(document.activeElement).toBe(current());
+    cleanup();
+
+    // The wait is held to the same bounds, and a header with no number of seconds says a minute.
+    for (const [headers, said] of [
+      [{ "Retry-After": "0" }, "1 second"],
+      [{ "Retry-After": "9".repeat(400) }, "24 hours"],
+      [undefined, "a minute"],
+    ] as const) {
+      serve(limited(headers));
+      await open();
+      fill("tin-roof-anvil-1", "copper-kettle-moss-2");
+      await userEvent.click(submit());
+      expect(await screen.findByText(`Too many sign-in attempts. Wait ${said}, then try again.`)).toBeTruthy();
+      cleanup();
+    }
+  });
+
   it("holds a new passphrase to the upper bound in bytes, and says why before anything is typed", async () => {
     const sent = serve();
     await open();
