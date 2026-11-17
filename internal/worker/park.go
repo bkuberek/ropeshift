@@ -28,6 +28,10 @@ const (
 	// attached. A driver reads a pane's clients about once a second, and this is as long as a hook trusts
 	// what the last read said, so one read that failed is followed by one that did not.
 	attachedRecheck = lanes.AttachedStale
+	// attachedWaits is how many `ask_wait`s in a row a terminal attached to a planning lane's pane keeps the
+	// lane while its person sends nothing. A terminal left attached says nothing of whether anyone is at it,
+	// and no process waits on a person without end.
+	attachedWaits = 12
 )
 
 // ErrNoParking means a lane is not at a point where it can park.
@@ -359,8 +363,10 @@ func (r *laneRun) awaitAnswer(ctx context.Context) {
 // keeps the session for another wait: a terminal attached to it, or input a member typed into it through
 // the web pane during that wait. With nobody there it parks on a wake only a person ends, because no
 // process waits on a person. Nobody is there only when two reads `attachedRecheck` apart both say so,
-// because one read that failed says the same. A line the person types starts a turn, which ends the wait,
-// and the next rest starts it again.
+// because one read that failed says the same. An attached terminal alone keeps the lane for
+// `attachedWaits` waits in a row, and then it parks as with nobody there, because a terminal left attached
+// says nothing of whether anyone is at it. A line the person types starts a turn, which ends the wait, and
+// the next rest starts it again, and input in the web pane starts the count again.
 func (r *laneRun) awaitPerson(ctx context.Context) {
 	if !r.waiting.CompareAndSwap(false, true) {
 		return
@@ -369,18 +375,25 @@ func (r *laneRun) awaitPerson(ctx context.Context) {
 	r.sequence.Go(func() {
 		defer r.waiting.Store(false)
 		defer r.state.waitForPerson(false)
+		quiet := 0
 		for {
 			from := r.w.clock.Now()
 			if !r.restUntil(ctx, from.Add(r.state.askWait())) {
 				return
 			}
-			if r.attended(ctx, from) {
-				continue
-			}
-			if !r.restUntil(ctx, r.w.clock.Now().Add(attachedRecheck)) {
-				return
-			}
 			if !r.attended(ctx, from) {
+				if !r.restUntil(ctx, r.w.clock.Now().Add(attachedRecheck)) {
+					return
+				}
+				if !r.attended(ctx, from) {
+					break
+				}
+			}
+			quiet++
+			if r.typedInPane(from) {
+				quiet = 0
+			}
+			if quiet >= attachedWaits {
 				break
 			}
 		}
