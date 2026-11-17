@@ -218,7 +218,9 @@ func (s *State) forget(id ledger.WorkspaceID) {
 
 // removal is the removal of one project. The registry forgets the project first, in one transaction with
 // the event that records who removed it, and the schema goes after, so a crash between the two leaves a
-// schema no project names, and never a project whose ledger is gone.
+// schema no project names, and never a project whose ledger is gone. Both steps run under the migration
+// lock, so an Open or a Create in another process cannot register or make the project's schema between
+// them.
 type removal struct {
 	s      *State
 	p      ledger.Project
@@ -236,6 +238,7 @@ func (s *State) newRemoval(p ledger.Project, actor ledger.Actor) (*removal, erro
 	return &removal{s: s, p: p, actor: actor, schema: schema}, nil
 }
 
+// steps are the steps of a removal. The caller holds the migration lock.
 func (r *removal) steps() []step {
 	return []step{
 		// The registry's row, the project's repositories in the index, and the event.
@@ -259,28 +262,26 @@ func (r *removal) steps() []step {
 			r.s.forget(r.p.ID)
 			return nil
 		},
-		// The schema, with every table of the project's ledger. It goes under the lock every change to a
-		// schema takes, so an Open or a Create in another process cannot make the schema again or migrate it
-		// while it drops. An Open that runs after the registry forgot the project is refused.
+		// The schema, with every table of the project's ledger. An Open that runs after the registry forgot
+		// the project is refused.
 		func(ctx context.Context) error {
-			return r.s.locked(ctx, func(ctx context.Context) error {
-				r.s.forget(r.p.ID)
-				if _, err := r.s.pool.Exec(ctx, `DROP SCHEMA IF EXISTS `+quote(r.schema)+` CASCADE`); err != nil {
-					return fmt.Errorf("postgres: drop schema %s: %w", r.schema, err)
-				}
-				return nil
-			})
+			r.s.forget(r.p.ID)
+			if _, err := r.s.pool.Exec(ctx, `DROP SCHEMA IF EXISTS `+quote(r.schema)+` CASCADE`); err != nil {
+				return fmt.Errorf("postgres: drop schema %s: %w", r.schema, err)
+			}
+			return nil
 		},
 	}
 }
 
-// Remove forgets a project and drops its schema, which a repeat of Remove finishes after a crash.
+// Remove forgets a project and drops its schema, which a repeat of Remove finishes after a crash. Every
+// step runs under the migration lock.
 func (s *State) Remove(ctx context.Context, p ledger.Project, actor ledger.Actor) error {
 	r, err := s.newRemoval(p, actor)
 	if err != nil {
 		return err
 	}
-	return run(ctx, r.steps())
+	return s.locked(ctx, func(ctx context.Context) error { return run(ctx, r.steps()) })
 }
 
 func (s *State) schemaExists(ctx context.Context, name string) (bool, error) {

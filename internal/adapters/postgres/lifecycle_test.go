@@ -394,42 +394,47 @@ func TestOpenRefusesAProjectTheRegistryDoesNotHold(t *testing.T) {
 }
 
 // TestRemoveAndOpenNeverLeaveASchemaBehind holds the interleaving of a removal with an Open of the same
-// project: the drop waits for the migration lock, as every other change to a schema does, and an Open
-// that runs after the registry forgot the project is refused, so it never makes the schema again.
+// project: the whole removal, the registry's step and the drop, waits for the migration lock, as every
+// other change to a schema does, so nothing sees a project the registry forgot whose schema still stands,
+// and an Open that runs after the removal is refused, so it never makes the schema again.
 func TestRemoveAndOpenNeverLeaveASchemaBehind(t *testing.T) {
 	url := freshDatabase(t)
 	state := openState(t, url, postgres.Options{})
 	db := state.SQLDB()
 	defer db.Close()
 	alpha, _ := createProject(t, state, "pa", "alpha")
+	// A second state is a second process, whose cache starts empty.
+	other := openState(t, url, postgres.Options{})
 	release := holdMigrationLock(t, url)
 
 	removed := make(chan error, 1)
 	go func() { removed <- state.Remove(t.Context(), alpha, member) }()
-	// The registry forgets the project first, and the drop waits.
-	for deadline := time.Now().Add(15 * time.Second); ; time.Sleep(10 * time.Millisecond) {
-		if _, err := state.Named(t.Context(), "alpha"); errors.Is(err, ports.ErrNotFound) {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("the registry still names the project")
-		}
-	}
-	opened := opening(t.Context(), state, alpha)
+	waitForLockWaiter(t, state)
+	opened := opening(t.Context(), other, alpha)
 	select {
 	case err := <-removed:
 		t.Fatalf("Remove finished while another session held the migration lock: %v", err)
 	case <-time.After(500 * time.Millisecond):
 	}
+	if _, err := state.Named(t.Context(), "alpha"); err != nil {
+		t.Errorf("the registry forgot the project before the removal held the migration lock: %v", err)
+	}
+	if !schemaExists(t, db, alpha.Database) {
+		t.Error("the schema went before the removal held the migration lock")
+	}
 	release()
 	if err := <-removed; err != nil {
 		t.Fatal(err)
 	}
-	if err := <-opened; !errors.Is(err, ports.ErrNotFound) {
-		t.Errorf("Open of a project that was removed: %v", err)
+	// Whichever of the two takes the lock first, the removal ends with no schema and no project.
+	if err := <-opened; err != nil && !errors.Is(err, ports.ErrNotFound) {
+		t.Errorf("Open that raced the removal: %v", err)
 	}
 	if schemaExists(t, db, alpha.Database) {
 		t.Error("the schema is there after the removal")
+	}
+	if _, err := state.Open(t.Context(), alpha); !errors.Is(err, ports.ErrNotFound) {
+		t.Errorf("Open of a project that was removed: %v", err)
 	}
 }
 

@@ -43,5 +43,5 @@ func (s *State) RemoveUpTo(ctx context.Context, p ledger.Project, actor ledger.A
 	if err != nil {
 		return err
 	}
-	return run(ctx, r.steps()[:steps])
+	return s.locked(ctx, func(ctx context.Context) error { return run(ctx, r.steps()[:steps]) })
 }
