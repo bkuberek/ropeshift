@@ -212,7 +212,10 @@ func (t repositoryTx) heldElsewhere(identity string) error {
 }
 
 // Remove keeps a record as history, out of its project, and gives up its identity in the repository index
-// (ADR-0021), so another project may register the repository.
+// (ADR-0021), so another project may register the repository. Records of one project that share an identity
+// share one entry, and the record that took it may be the one removed, so the identity passes to another
+// record of the project that is not removed, in the same write. Only the last such record to leave gives
+// the repository up.
 func (t repositoryTx) Remove(id string) error {
 	record, err := t.Repository(id)
 	if err != nil {
@@ -221,8 +224,21 @@ func (t repositoryTx) Remove(id string) error {
 	if _, err := t.exec(stmtRepositoryState, t.scoped(params{"id": id, "state": string(ledger.RepositoryRemoved)})); err != nil || t.index == nil {
 		return err
 	}
-	_, err = t.index.exec(stmtReleaseRepository, params{"identity": ledger.RepositoryIdentity(record.Remote, id), "project_id": string(t.scope), "repository_id": id})
-	return err
+	identity := ledger.RepositoryIdentity(record.Remote, id)
+	if _, err = t.index.exec(stmtReleaseRepository, params{"identity": identity, "project_id": string(t.scope), "repository_id": id}); err != nil {
+		return err
+	}
+	records, err := t.Repositories()
+	if err != nil {
+		return err
+	}
+	for _, other := range records {
+		if other.ID != id && !other.Removed() && ledger.RepositoryIdentity(other.Remote, other.ID) == identity {
+			_, err = t.index.exec(stmtIndexRepository, params{"identity": identity, "project_id": string(t.scope), "repository_id": other.ID})
+			return err
+		}
+	}
+	return nil
 }
 
 // Restore brings a removed record back into its project, and holds its identity in the repository index

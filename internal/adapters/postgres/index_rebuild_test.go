@@ -484,10 +484,10 @@ func TestAnEntryThatNeverCommittedDoesNotTakeTheIdentityFromALaterRecord(t *test
 	}
 }
 
-// TestAnEntryTheRemovalOfARecordTookIsPutBack holds the other direction: a record of a project loses its
-// entry when another record of the same repository, which took the entry first, is removed, and when the
-// removal's project commit fails after the index side committed. The next Open holds the identity again for
-// the record that is still in the project.
+// TestAnEntryTheRemovalOfARecordTookIsPutBack holds the other direction: a record of a project is left
+// without its entry when its removal's project commit fails after the index side committed, which the next
+// Open puts back. A removal that commits does not leave the entry of another record of the same repository
+// behind: the repository stays held, in the same write.
 func TestAnEntryTheRemovalOfARecordTookIsPutBack(t *testing.T) {
 	remove := func(id string) func(ports.RepositoryWriter) error {
 		return func(w ports.RepositoryWriter) error { return w.Remove(id) }
@@ -523,11 +523,11 @@ func TestAnEntryTheRemovalOfARecordTookIsPutBack(t *testing.T) {
 			t.Errorf("another project registering the repository of a record that is in its project: %v", err)
 		}
 	})
-	t.Run("a removal of a record whose repository another record holds", func(t *testing.T) {
+	t.Run("a removal of the record that took the repository, which another record shares", func(t *testing.T) {
 		url := freshDatabase(t)
 		state := openState(t, url, postgres.Options{})
 		alpha, store := createProject(t, state, "pa", "alpha")
-		beta, _ := createProject(t, state, "pb", "beta")
+		beta, betaStore := createProject(t, state, "pb", "beta")
 		if err := insertRepository(t.Context(), store, alpha.ID, "r-x", "x", invoices); err != nil {
 			t.Fatal(err)
 		}
@@ -537,20 +537,21 @@ func TestAnEntryTheRemovalOfARecordTookIsPutBack(t *testing.T) {
 		if err := changeRepository(t.Context(), store, alpha.ID, "r-x", remove("r-x")); err != nil {
 			t.Fatal(err)
 		}
-		if got := repositoryIndex(t, state); len(got) != 0 {
-			t.Fatalf("the removal left the index at %+v, with a record of the repository in the project", got)
+		// The write that removed the record passed the repository to the other one, with no Open between.
+		if got, want := repositoryIndex(t, state), []ledger.IndexedRepository{held(alpha.ID, "r-y", invoices)}; !slices.Equal(got, want) {
+			t.Fatalf("the removal left the index at %+v, want %+v", got, want)
 		}
-
-		next := openState(t, url, postgres.Options{})
-		if got, want := repositoryIndex(t, next), []ledger.IndexedRepository{held(alpha.ID, "r-y", invoices)}; !slices.Equal(got, want) {
-			t.Errorf("the next Open left the index at %+v, want %+v", got, want)
+		if err := registerRepository(t.Context(), betaStore, beta.ID, invoices, nil); !errors.Is(err, ledger.ErrRepositoryHeld) {
+			t.Errorf("another project registering the repository of a record that is in its project: %v", err)
 		}
-		opened, err := next.Open(t.Context(), beta)
-		if err != nil {
+		if err := changeRepository(t.Context(), store, alpha.ID, "r-y", remove("r-y")); err != nil {
 			t.Fatal(err)
 		}
-		if err := registerRepository(t.Context(), opened, beta.ID, invoices, nil); !errors.Is(err, ledger.ErrRepositoryHeld) {
-			t.Errorf("another project registering the repository of a record that is in its project: %v", err)
+		if got := repositoryIndex(t, state); len(got) != 0 {
+			t.Errorf("removing the last record of the repository left the index at %+v", got)
+		}
+		if err := registerRepository(t.Context(), betaStore, beta.ID, invoices, nil); err != nil {
+			t.Errorf("another project registering a repository whose last record left its project: %v", err)
 		}
 	})
 }
