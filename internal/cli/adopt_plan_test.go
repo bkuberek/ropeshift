@@ -75,20 +75,23 @@ func TestAdoptDryRunListsTheLayoutAndRecordsNothing(t *testing.T) {
 // registered or not, and it reads the project's records when it has them.
 func TestAdoptDryRunIsTheSameBeforeAndAfterTheCloneRegisters(t *testing.T) {
 	a := newAdoption(t)
-	before := a.plan(shopClone, "/work/libs")
+	before := a.plan(shopClone, "/work/libs", "--planning", "Shop_App")
 	if before.Shape != planning.ShapeWorkspaceFiles || before.Planning.Name != "Shop_App" || len(before.Moves) != 2 || before.Digest == "" {
 		t.Fatalf("the plan reads shape %s, planning %+v, moves %+v", before.Shape, before.Planning, before.Moves)
 	}
-	if again := a.plan(shopClone, "/work/libs"); again.Digest != before.Digest {
+	if undecided := a.plan(shopClone, "/work/libs"); !undecided.Planning.Undecided {
+		t.Errorf("a layout that settles no planning repository reads %+v", undecided.Planning)
+	}
+	if again := a.plan(shopClone, "/work/libs", "--planning", "Shop_App"); again.Digest != before.Digest {
 		t.Errorf("two dry runs have digests %s and %s", before.Digest, again.Digest)
 	}
 	if !slices.ContainsFunc(before.Notes, func(note string) bool { return strings.Contains(note, "does not exist yet") }) {
 		t.Errorf("a plan of a project not created yet says nothing of it: %v", before.Notes)
 	}
-	if code, _, stderr := a.runIn(shopClone, "", "adopt", "/work/libs", "--worker", "worker-a", "--no-attach"); code != cli.ExitOK {
+	if code, _, stderr := a.runIn(shopClone, "", "adopt", "/work/libs", "--planning", "Shop_App", "--worker", "worker-a", "--no-attach"); code != cli.ExitOK {
 		t.Fatalf("adopt: exit %d: %s", code, stderr)
 	}
-	after := a.plan(shopClone, "/work/libs")
+	after := a.plan(shopClone, "/work/libs", "--planning", "Shop_App")
 	if after.Digest != before.Digest {
 		t.Errorf("registering the clones changed the digest from %s to %s", before.Digest, after.Digest)
 	}

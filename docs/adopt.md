@@ -167,7 +167,7 @@ Approving the plan creates its work orders. [Watch work run](watch-work-run.md),
 | `--dry-run` | Prints the plan and records nothing: no project, no record, no checkout, and no file. With `--json` it prints the plan as JSON |
 | `--restructure` | Sends the plan's digest and choices with the adopt work. Without it adopt never restructures, and with it a layout of the `single` shape is a usage error |
 | `--depth N` | How many levels below a folder to look for clones |
-| `--planning NAME` | The repository that holds the plan, by its clone's folder name. By default the clone the command runs in |
+| `--planning NAME` | The repository that holds the plan, by its clone's folder name. By default the shape says, and when it says none, adopt asks on the terminal, and with no terminal stops with exit 2 and the names to choose from |
 | `--design NAME` | The design repository, by its clone's folder name |
 | `--leave-out PATH` | A code tree of the design repository that a consolidation removes, relative to its top. Repeatable |
 
@@ -182,7 +182,7 @@ A code tree is the topmost directory below a repository's top that holds a build
 | `single` | No clone found other than the one adopt runs in | It | Nothing |
 | `planned` | It holds plan content, and clones were found | It | The manifest, when no `repositories` file exists |
 | `consolidate` | It holds no plan content, clones sit in a folder it ignores, and one of them is the design repository | It | Importing the design repository's history |
-| `workspace_files` | Any other layout with clones | It | The manifest, the ignore line, and a Makefile |
+| `workspace_files` | Any other layout with clones | It when a folder it ignores holds clones; else the design repository when one was chosen and is another clone; else none is settled, and `--planning NAME` names it | The manifest, the ignore line, and a Makefile |
 
 ### The dry run
 

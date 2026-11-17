@@ -80,7 +80,8 @@ type WorkOrder struct {
 	Adopt bool `json:"adopt,omitempty"`
 	// Restructure is the restructuring a member chose when they adopted, from the plan of the layout they read:
 	// its shape, the plan's digest, and for a consolidation the design repository and the code trees to leave
-	// out. Only adopting work carries one.
+	// out. Only adopting work carries one. What it names is a member's request and no proof: whatever acts on it
+	// recomputes the plan and compares the digest, and never trusts DesignPath.
 	Restructure *planning.Restructure `json:"restructure,omitempty"`
 	// Agent names the roster agent this work's lane runs as (ADR-0025). Empty leaves the choice to the
 	// roster's default mapping.

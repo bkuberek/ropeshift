@@ -40,7 +40,11 @@ func adoptionPlanText(plan planning.AdoptionPlan) string {
 		fmt.Fprintf(&out, "Clone\t%s\t%s\t%s\t%s\n", clone.Name, clone.Path, foundWhere(clone.Where), strings.Join(held, ", "))
 	}
 	fmt.Fprintf(&out, "Shape\t%s\t%s\n", plan.Shape, shapeSummary(plan.Shape))
-	fmt.Fprintf(&out, "Planning repository\t%s\t%s\n", plan.Planning.Name, plan.Planning.Why)
+	if plan.Planning.Undecided {
+		fmt.Fprintf(&out, "Planning repository\tundecided\t%s\n", plan.Planning.Why)
+	} else {
+		fmt.Fprintf(&out, "Planning repository\t%s\t%s\n", plan.Planning.Name, plan.Planning.Why)
+	}
 	if plan.Design != nil {
 		fmt.Fprintf(&out, "Design repository\t%s\t%s\n", plan.Design.Name, plan.Design.Why)
 	}

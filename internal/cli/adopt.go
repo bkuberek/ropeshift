@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bufio"
 	"cmp"
 	"fmt"
 	"path/filepath"
@@ -72,6 +73,9 @@ func (c *invocation) adopt(args []string) int {
 	}
 	if *restructure && !plan.Shape.Restructures() {
 		return c.usageError("--restructure has nothing to do in the %s shape: %s", plan.Shape, shapeSummary(plan.Shape))
+	}
+	if *restructure && plan.Planning.Undecided {
+		return c.usageError("--restructure needs the repository that holds the plan, and this layout settles none; name it with --planning NAME")
 	}
 	if *dryRun {
 		return c.finish(nil, plan, func() string { return adoptionPlanText(plan) })
@@ -298,8 +302,8 @@ func (c *invocation) register(client *api.ProjectClient, root string, paths []st
 }
 
 // adoptedPlanningRepository settles where the plan lives (ADR-0022): the repository --planning names, or the
-// one the project already plans in, or its only repository, or else the one the detection chose, which is the
-// clone adopt ran in unless the plan says another.
+// one the project already plans in, or its only repository, or else the one the layout settled. When the layout
+// settles none, a project of several asks the person on the terminal, and with nobody to ask says how to name one.
 func (c *invocation) adoptedPlanningRepository(client *api.ProjectClient, named, detected string) (string, int) {
 	if named != "" {
 		view, err := client.Repository(c.ctx, named)
@@ -313,7 +317,7 @@ func (c *invocation) adoptedPlanningRepository(client *api.ProjectClient, named,
 		return "", c.failure(err)
 	}
 	var names []string
-	byID := map[string]api.RepositoryView{}
+	byID, byName := map[string]api.RepositoryView{}, map[string]api.RepositoryView{}
 	for _, view := range list.Repositories {
 		if view.Removed() {
 			continue
@@ -322,13 +326,26 @@ func (c *invocation) adoptedPlanningRepository(client *api.ProjectClient, named,
 			return view.ID, ExitOK
 		}
 		names = append(names, view.Name)
-		byID[view.ID] = view
+		byID[view.ID], byName[view.Name] = view, view
 	}
 	if view, held := byID[detected]; held {
 		return c.planIn(client, view)
 	}
 	slices.SortFunc(names, func(a, b string) int { return cmp.Compare(strings.ToLower(a), strings.ToLower(b)) })
-	return "", c.usageError("the project holds %d repositories and none holds the plan; pass --planning with one of: %s", len(names), strings.Join(names, ", "))
+	listed := strings.Join(names, ", ")
+	if c.terminal == nil || c.asJSON {
+		return "", c.usageError("the project holds %d repositories and names none to plan in; pass --planning with one of: %s", len(names), listed)
+	}
+	fmt.Fprintf(c.stdout, "This project holds several repositories. Which repository holds the plan? (%s): ", listed)
+	answer, err := bufio.NewReader(c.terminal).ReadString('\n')
+	if err != nil && answer == "" {
+		return "", c.usageError("no repository was named to plan in; pass --planning with one of: %s", listed)
+	}
+	view, held := byName[strings.TrimSpace(answer)]
+	if !held {
+		return "", c.usageError("%q is not a repository of the project; pass --planning with one of: %s", strings.TrimSpace(answer), listed)
+	}
+	return c.planIn(client, view)
 }
 
 // planIn makes a repository the project's planning repository, unless it is already.
