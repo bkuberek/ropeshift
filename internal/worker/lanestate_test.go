@@ -90,6 +90,20 @@ func (r *laneRig) eventually(what string, done func(ledger.LaneView) bool) ledge
 	return view
 }
 
+// awaitAskWait reads until the lane's wait on an answer has its deadline. The lane reads `idle` first,
+// so a clock moved on seeing `idle` could land before the deadline is read, and the wait would end that
+// much later than the test means.
+func (r *laneRig) awaitAskWait() {
+	r.t.Helper()
+	deadline := time.Now().Add(20 * time.Second)
+	for !r.subject.HoldingForAnswer("lane-1") {
+		if time.Now().After(deadline) {
+			r.t.Fatal("the lane never began its wait on an answer")
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
 func (r *laneRig) dispatched() *laneRig {
 	r.t.Helper()
 	if err := r.subject.Sync(r.t.Context()); err != nil {

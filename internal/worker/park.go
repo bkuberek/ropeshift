@@ -333,10 +333,11 @@ func (r *laneRun) blockingQuestions() []string {
 // out while it may still end, and once it reads `stalled` nothing will end it, so the lane parks from
 // where it stands.
 func (r *laneRun) awaitAnswer(ctx context.Context) {
+	// The deadline is read before the flag is taken, so a lane that reads as waiting has its deadline.
+	deadline := r.w.clock.Now().Add(r.state.askWait())
 	if !r.waiting.CompareAndSwap(false, true) {
 		return
 	}
-	deadline := r.w.clock.Now().Add(r.state.askWait())
 	r.sequence.Go(func() {
 		defer r.waiting.Store(false)
 		for r.w.clock.Now().Before(deadline) || r.state.compactionHolds(r.w.clock.Now()) {

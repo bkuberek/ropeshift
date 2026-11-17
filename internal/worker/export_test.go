@@ -24,6 +24,13 @@ func (w *Worker) WakeWaiting() int {
 	return len(w.wakes.Batch())
 }
 
+// HoldingForAnswer says a lane's wait on an answer has read its deadline from the worker's clock. The lane reads
+// `idle` before that happens, so a test that moves its clock on seeing `idle` can move the deadline with it.
+func (w *Worker) HoldingForAnswer(lane string) bool {
+	run := w.runOf(lane)
+	return run != nil && run.waiting.Load()
+}
+
 // Respawn is a pass that read a request for a lane's next generation, with the count it read. A pass reads
 // the journal and then acts, so a count can arrive after the run has acted on it.
 func (w *Worker) Respawn(ctx context.Context, lane string, asked int64) {

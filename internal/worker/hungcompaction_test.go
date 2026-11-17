@@ -30,6 +30,7 @@ func aLaneAsking(t *testing.T) *laneRig {
 		t.Fatal(err)
 	}
 	r.eventually("a lane at rest", func(view ledger.LaneView) bool { return view.ActualState == string(lanes.Idle) })
+	r.awaitAskWait()
 	r.compacting(t)
 	return r
 }
@@ -39,6 +40,7 @@ func aLaneAsking(t *testing.T) *laneRig {
 func TestAWaitOnAnAnswerEndsWhenACompactionStalls(t *testing.T) {
 	r := aLaneAsking(t)
 	r.clock.Advance(19 * time.Minute)
+	// A park that must not come has no event to wait for, so the wait gets five of its ticks to take it.
 	time.Sleep(5 * superviseStep)
 	if view := r.read(); view.ActualState != string(lanes.Compacting) {
 		t.Fatalf("a compaction inside its limit reads %s", view.ActualState)
@@ -66,6 +68,7 @@ func TestWithNoLimitAWaitSitsOutACompaction(t *testing.T) {
 		t.Fatal(err)
 	}
 	r.eventually("a lane at rest", func(view ledger.LaneView) bool { return view.ActualState == string(lanes.Idle) })
+	r.awaitAskWait()
 	r.compacting(t)
 	r.clock.Advance(24 * time.Hour)
 	time.Sleep(5 * superviseStep)
