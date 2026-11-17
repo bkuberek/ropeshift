@@ -27,7 +27,7 @@ var NoticeChecks = []Check{
 	{"N5", "a lane's running generation keeps the version it read", checkNoticeKeepsARunningLane},
 	{"N6", "a one-way decision in a lane's scope tells it, and the default policy leaves it running", checkNoticeOneWay},
 	{"N7", "a one-way decision parks a lane the policy says to", checkNoticeOneWayParks},
-	{"N8", "a reversible decision in a lane's scope asks nothing of it", checkNoticeReversibleAsksNothing},
+	{"N8", "a reversible decision tells the lanes it binds and parks none under notify", checkNoticeReversibleTellsAndParksNothing},
 	{"N9", "a new contract version tells a running lane and leaves its pin", checkNoticeContract},
 	{"N10", "a new contract version parks a lane the policy says to", checkNoticeContractParks},
 	{"N11", "unstarted work takes a new version with nobody to tell", checkNoticeUnstarted},
@@ -351,7 +351,9 @@ func checkNoticeOneWayParks(r *Rig) error {
 	return r.CheckPacks(status.store)
 }
 
-func checkNoticeReversibleAsksNothing(r *Rig) error {
+// checkNoticeReversibleTellsAndParksNothing holds that a decision anyone can take back tells the lane it binds,
+// and parks none while the policy says notify, whatever it says of a one-way decision.
+func checkNoticeReversibleTellsAndParksNothing(r *Rig) error {
 	status, p, err := packedLane(r)
 	if err != nil {
 		return err
@@ -359,21 +361,21 @@ func checkNoticeReversibleAsksNothing(r *Rig) error {
 	if err := publishLanePolicy(status, 2, authority.LaneNotify, authority.LanePark); err != nil {
 		return err
 	}
-	if _, err := r.decision(status.store, "A decision anyone can take back", func(d *questions.Decision) { d.Scope = p.order.RepositoryID }); err != nil {
+	decided, err := r.decision(status.store, "A decision anyone can take back", func(d *questions.Decision) { d.Scope = "repo:" + p.order.RepositoryID })
+	if err != nil {
 		return err
 	}
-	notices, err := noticesOf(status, messages.KindDecisionNotice)
-	if err != nil {
+	if err := expectNotice(status, messages.KindDecisionNotice, decided.ID); err != nil {
 		return err
 	}
 	wanted, err := status.wanted()
 	if err != nil {
 		return err
 	}
-	if len(notices) != 0 || wanted != "" {
-		return Violatedf("notices %+v, wanted %q", notices, wanted)
+	if wanted != "" {
+		return Violatedf("a reversible decision asked %q of a lane whose policy parks on one-way decisions alone", wanted)
 	}
-	return nil
+	return r.CheckPacks(status.store)
 }
 
 // changeContract records a new version of the rig's contract.
@@ -799,8 +801,15 @@ func checkLanePolicyRefused(r *Rig) error {
 	if err := publishLanePolicy(s, 2, "ignore", authority.LaneNotify); !errors.Is(err, authority.ErrBadLanePolicy) {
 		return Violatedf("an action nobody named read %v", err)
 	}
-	if err := publishLanePolicy(s, 2, authority.LaneNotify, ""); !errors.Is(err, authority.ErrBadLanePolicy) {
-		return Violatedf("no action read %v", err)
+	if err := publishLanePolicy(s, 2, "", authority.LaneNotify); !errors.Is(err, authority.ErrBadLanePolicy) {
+		return Violatedf("no action for a contract change read %v", err)
+	}
+	if err := publishLanePolicy(s, 2, authority.LaneNotify, "ignore"); !errors.Is(err, authority.ErrBadLanePolicy) {
+		return Violatedf("an action nobody named for a one-way decision read %v", err)
+	}
+	// What a decision does to a lane is optional, and unset follows on_binding_decision.
+	if err := publishLanePolicy(s, 2, authority.LaneNotify, ""); err != nil {
+		return Violatedf("a policy that sets no action for a one-way decision read %v", err)
 	}
 	return nil
 }

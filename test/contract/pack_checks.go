@@ -268,7 +268,7 @@ func checkPackAtClaim(r *Rig) error {
 	if err != nil {
 		return err
 	}
-	scoped, err := r.decision(p.s, "A decision on this repository", func(d *questions.Decision) { d.Scope = "repo:" + p.order.RepositoryID })
+	scoped, err := r.decision(p.s, "A decision on this repository", func(d *questions.Decision) { d.Scope = p.order.RepositoryID })
 	if err != nil {
 		return err
 	}

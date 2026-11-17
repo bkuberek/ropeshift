@@ -56,6 +56,10 @@ func (r *Reviews) Pass(ctx context.Context, scope ledger.WorkspaceID, id string,
 			}
 		}
 		crashpoint.Hit("review.pass", "recorded")
+		// A member passing the review reads the decisions that held it.
+		if current, err = releaseDecisionHold(tx, current, actor); err != nil {
+			return err
+		}
 		result, err = settleReview(tx, current, actor)
 		return err
 	})
@@ -89,6 +93,9 @@ func (r *Reviews) SendBack(ctx context.Context, scope ledger.WorkspaceID, id, re
 		}
 		crashpoint.Hit("review.send_back", "moved")
 		if err := tx.WorkOrders().Reviewed(id, ""); err != nil {
+			return err
+		}
+		if _, err := releaseDecisionHold(tx, current, actor); err != nil {
 			return err
 		}
 		event, err := workorders.ChangeEvent(workorders.EventType(edge.Trigger), id, workorders.Change{
@@ -237,6 +244,9 @@ func readyFailures(planned ports.PlanningReader, orders ports.WorkOrderReader, a
 	}
 	facts.OpenBlockingQuestions = int(open)
 	facts.UnknownRepository = w.UnknownRepository
+	if w.StartHeld != nil && w.StartHeld.Reason == workorders.HoldDecision {
+		facts.HeldByDecision = w.StartHeld.Detail
+	}
 	if facts.AgentProblem, err = agentProblem(crew, w); err != nil {
 		return nil, err
 	}

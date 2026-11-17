@@ -172,7 +172,9 @@ VALUES
 	stmtInsertNotice = define("decision_notice.insert",
 		`INSERT INTO decision_notices (workspace_id, decision_id, lane_id, generation, replaced_by, noticed_at)
 VALUES (:workspace_id, :decision_id, :lane_id, :generation, :replaced_by, :noticed_at)
-ON CONFLICT (workspace_id, decision_id, lane_id) DO NOTHING`)
+ON CONFLICT (workspace_id, decision_id, lane_id) DO UPDATE
+   SET generation = excluded.generation, replaced_by = excluded.replaced_by, noticed_at = excluded.noticed_at
+ WHERE decision_notices.replaced_by = '' AND excluded.replaced_by <> ''`)
 
 	stmtListNotices = define("decision_notice.list",
 		`SELECT decision_id, lane_id, generation, replaced_by, noticed_at FROM decision_notices

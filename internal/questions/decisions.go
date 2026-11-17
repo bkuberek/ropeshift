@@ -17,6 +17,21 @@ func NoticeText(ended string, replacement Decision) string {
 	return fmt.Sprintf("Decision %s no longer stands, and decision %s replaces it.\n%s", ended, replacement.ID, decisionLines(replacement))
 }
 
+// BindingNoticeText is what a lane reads when a decision that can be taken back now covers its work.
+func BindingNoticeText(decision Decision) string {
+	return fmt.Sprintf("Decision %s now covers this lane's work.\n%s", decision.ID, decisionLines(decision))
+}
+
+// Reached is the finished work a decision bound, how the decision came to bind it, and the rework that
+// followed: started for the finished work, or already waiting and gaining the decision. A reversible decision
+// has none, because a member reworks what it listed in one action.
+type Reached struct {
+	DecisionID string   `json:"decision_id"`
+	WorkOrders []string `json:"work_orders"`
+	Rework     []string `json:"rework,omitempty"`
+	How        string   `json:"how"`
+}
+
 // OneWayNoticeText is what a lane reads when a decision nobody can take back now covers its work.
 func OneWayNoticeText(decision Decision) string {
 	return fmt.Sprintf("One-way decision %s now covers this lane's work.\n%s", decision.ID, decisionLines(decision))

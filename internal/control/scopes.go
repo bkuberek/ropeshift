@@ -62,7 +62,7 @@ func (f *scopeFacts) binds(scope questions.Scope, order workorders.WorkOrder) (b
 		plan, err := f.planOf(order.ContractID)
 		return plan == scope.ID, err
 	case questions.ScopeContract:
-		return order.ContractID == scope.ID, nil
+		return order.ContractID == scope.ID || bindsEveryContract(), nil
 	case questions.ScopeWorkOrder:
 		return order.ID == scope.ID || order.ReworkOf == scope.ID, nil
 	case questions.ScopeRepository:

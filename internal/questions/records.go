@@ -106,8 +106,11 @@ const (
 	EventDecisionRecorded = "decision.recorded"
 	EventDecisionEnded    = "decision.ended"
 	EventDecisionNoticed  = "decision.noticed"
-	EventCategoryAdded    = "category.added"
-	EventPolicyPublished  = "policy.published"
+	// EventDecisionReached records the finished work a reversible decision bound, which a member may
+	// rework in one action. It holds a fact and projects nothing.
+	EventDecisionReached = "decision.reached"
+	EventCategoryAdded   = "category.added"
+	EventPolicyPublished = "policy.published"
 )
 
 // EventExperienceRecorded holds a whole experience record, of a lane or a decision, and

@@ -72,6 +72,31 @@ type Sabotage struct {
 	StopsAtOnePage bool
 	// OverlapsOneSide lets a scope written before the grammar overlap a narrower scope and miss a wider one.
 	OverlapsOneSide bool
+	// BindsEveryContract lets a contract scope bind the work of every contract.
+	BindsEveryContract bool
+	// KeepsReadyWork leaves ready work ready under a decision that binds it.
+	KeepsReadyWork bool
+	// HoldsNothing returns the work to review and leaves it to the next tick.
+	HoldsNothing bool
+	// HoldsReversible holds work in review for a decision that can be taken back.
+	HoldsReversible bool
+	// TellsNobody binds work and tells none of its lanes.
+	TellsNobody bool
+	// RenewsNoPack leaves the pack of a lane as it was.
+	RenewsNoPack bool
+	// ParksNothing never asks a lane to park, whatever the lane policy says.
+	ParksNothing bool
+	// ParksAnyDecision asks a lane to park for a decision the policy only tells it of, by reading every
+	// decision as a one-way one.
+	ParksAnyDecision bool
+	// ReworksNothing starts no rework of finished work a one-way decision binds.
+	ReworksNothing bool
+	// ReworksReversible reworks finished work a reversible decision binds, which a member does in one action.
+	ReworksReversible bool
+	// ReworksEachDecision starts a rework for every decision, and merges none.
+	ReworksEachDecision bool
+	// ReworksAnyKind lets a decision move and rework a contract review and a review.
+	ReworksAnyKind bool
 	// LeavesParkedLanes cancels work and leaves its parked lane reading parked for good.
 	LeavesParkedLanes bool
 	// EndsAnyCanceledLane takes any worker's word that a canceled lane ended.
@@ -157,6 +182,30 @@ func bindsNoPlan() bool { return current().BindsNoPlan }
 func stopsAtOnePage() bool { return current().StopsAtOnePage }
 
 func overlapsOneSide() bool { return current().OverlapsOneSide }
+
+func bindsEveryContract() bool { return current().BindsEveryContract }
+
+func keepsReadyWork() bool { return current().KeepsReadyWork }
+
+func holdsNothing() bool { return current().HoldsNothing }
+
+func holdsReversible() bool { return current().HoldsReversible }
+
+func tellsNobody() bool { return current().TellsNobody }
+
+func renewsNoPack() bool { return current().RenewsNoPack }
+
+func parksNothing() bool { return current().ParksNothing }
+
+func parksAnyDecision() bool { return current().ParksAnyDecision }
+
+func reworksNothing() bool { return current().ReworksNothing }
+
+func reworksReversible() bool { return current().ReworksReversible }
+
+func reworksEachDecision() bool { return current().ReworksEachDecision }
+
+func reworksAnyKind() bool { return current().ReworksAnyKind }
 
 func leavesParkedLanes() bool { return current().LeavesParkedLanes }
 
