@@ -168,3 +168,13 @@ func catalogFiles() map[string]string {
 		"go.mod":                  "module example.com/catalog-service\n\ngo 1.24\n",
 	}
 }
+
+// promotionsFiles is the repository of a project whose seasonal sale has ended, which the guide that runs
+// several projects at once archives.
+func promotionsFiles() map[string]string {
+	return map[string]string{
+		".ropeshift/profile.toml": repositoryProfile,
+		"README.md":               lines("# promotions-service", "", "The discount codes of the storefront's seasonal sales."),
+		"go.mod":                  "module example.com/promotions-service\n\ngo 1.24\n",
+	}
+}

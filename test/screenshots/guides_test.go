@@ -60,7 +60,9 @@ func walkWorld(t *testing.T, binary, out, theme, world string, w walk) {
 		vars = h.vars()
 		maps.Copy(vars, h.sessions())
 	case worldSample:
-		newWorld(in).populate()
+		w := newWorld(in)
+		w.populate()
+		w.severalProjects()
 	}
 	plan := map[string]any{
 		"base":       in.web,

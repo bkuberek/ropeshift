@@ -2,9 +2,9 @@
 
 package screenshots
 
-// The lanes of guides 5 and 6, which run the approved plans of Harbor and Moorings. A person starts each from the
-// web UI and names it in the Start dialog's Lane ID, the berths work's review included, so each plays a script of
-// its own under that name. The orchestrator a guide starts plays its own script under the first run's lane, and
+// The lanes of guides 5 to 7, which run the approved plans of Harbor and Moorings. A person starts each from the
+// web UI and names it in the Start dialog's Lane ID, the reviews included, so each plays a script of its own under
+// that name. The orchestrator a guide starts plays its own script under the first run's lane, and
 // claims and takes nothing: an orchestrator's own lanes get names it cannot choose, and a lane's question an ID it
 // cannot know, so no script could play them.
 //
@@ -13,12 +13,18 @@ package screenshots
 // reads the change and passes the contract's one criterion. The lane on Moorings' cancelling work asks a question
 // it cannot go on without and parks once moorings-api's `ask_wait` runs out, so Needs you has a parked lane to
 // resume. Resumed, its next generation finishes the work.
+//
+// Guide 7's lane on the sailings work runs once harbor-api reviews through pull requests: it commits, tests its
+// change, and reports its work done, and the worker pushes its branch and opens its pull request on the fake
+// forge. Its review reads the pull request's head and passes the contract's one criterion.
 
 // The names a guide types into Lane ID.
 const (
-	laneServeBerths   = "serve-berths"
-	reviewServeBerths = "review-serve-berths"
-	laneFinishCancel  = "finish-cancel"
+	laneServeBerths     = "serve-berths"
+	reviewServeBerths   = "review-serve-berths"
+	laneFinishCancel    = "finish-cancel"
+	laneServeSailings   = "serve-sailings"
+	reviewServeSailings = "review-serve-sailings"
 )
 
 // questionBerthOrder is the product question the berths lane asks, which waits for a person in Open questions.
@@ -70,6 +76,25 @@ func harborLanes() map[string]any {
 					"internal/berths/list.go:1", "HAR-1"),
 			}}),
 			result(0.19, 2400),
+		}),
+		laneServeSailings: script([]step{
+			context(24100),
+			bash("git log --oneline -3"),
+			commit("internal/berths/sailings.go", "List the sailings of the next 7 days from a berth",
+				"package berths", "", "// Sailing is one departure from a berth.", "type Sailing struct {", "\tBerth  int", "\tLeaves string", "}"),
+			commit("internal/berths/sailings_test.go", "Test that a berth lists the sailings of the next 7 days",
+				"package berths", "", "import \"testing\"", "", "func TestSailingsCoverSevenDays(t *testing.T) {}"),
+			report("completed", map[string]any{"artifacts": []string{"branch"}, "checks": []any{check("go test ./internal/berths", "c1")}}),
+			result(0.33, 4100),
+		}),
+		reviewServeSailings: script([]step{
+			context(18200),
+			bash("git log --oneline -5"),
+			report("completed", map[string]any{"verdicts": []any{
+				verdict("c1", "pass", "GET /berths/{id}/sailings lists the sailings of the next 7 days, and sailings_test.go covers the window.",
+					"internal/berths/sailings.go:1", "HAR-2"),
+			}}),
+			result(0.17, 2200),
 		}),
 		// The first turn asks and comes to rest on the question, and the second gives the handoff parking asks for.
 		// The resumed session, which a person's Resume starts, finishes the work without the answer.

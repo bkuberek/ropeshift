@@ -197,6 +197,14 @@ func lanes() map[string]any {
 			bash("grep -rn 'bucket' internal"),
 			step{"hold": true},
 		)),
+		// The lane in Catalog, which only the guide that runs several projects at once starts, stays at work.
+		laneCatalogFind: script(turn(
+			context(16800),
+			bash("git log --oneline -3"),
+			commit("internal/search/search.go", "Match products by the words of their names",
+				"package search", "", "// Find returns the products whose names hold every word of the query.", "func Find(query string) []string { return nil }"),
+			step{"hold": true},
+		)),
 		laneRequestIDs: script(turn(
 			context(22300),
 			commit("internal/orders/requestid.go", "Assign a request ID in the router",
@@ -221,17 +229,22 @@ func lanes() map[string]any {
 			}}),
 			result(0.21, 2600),
 		)),
+		// An orchestrator's decision names what it binds, and states how it stands to each decision in force whose
+		// scope overlaps its own: the retry key decision binds the retries contract, which the member's decision on
+		// idempotency keys binds too, and the log level decision binds the rate limit contract, as the member's
+		// assumption on the limiter's store does.
 		orchestrator: script(turn(
 			step{"mcp": "question_next", "arguments": map[string]any{"project": sampleProject}},
 			step{"mcp": "decision_record", "arguments": map[string]any{
 				"project": sampleProject, "question": qRetryKey, "status": "decided", "statement": "A retry reuses the original request's idempotency key.",
-				"rationale": "A new key would let fulfillment apply the order twice.", "scope": "retries", "reversibility": "reversible",
-				"citations": []string{"requirement:ORD-3"}, "lookup": []string{}, "open": []string{},
+				"rationale": "A new key would let fulfillment apply the order twice.", "scope": "contract:retries", "reversibility": "reversible",
+				"no_conflict": []string{"d-key-ttl"}, "citations": []string{"requirement:ORD-3"}, "lookup": []string{}, "open": []string{},
 			}},
 			step{"mcp": "decision_record", "arguments": map[string]any{
 				"project": sampleProject, "question": qLogLevel, "status": "assumed", "statement": "Log a rate limit rejection at info level for now.",
-				"rationale": "A rejection is expected traffic, and a warning would page the on-call engineer.", "scope": "logging",
-				"reversibility": "reversible", "citations": []string{"docs/runbook.md"}, "lookup": []string{}, "open": []string{},
+				"rationale": "A rejection is expected traffic, and a warning would page the on-call engineer.", "scope": "contract:rate-limit",
+				"reversibility": "reversible", "no_conflict": []string{"d-limiter-store"}, "citations": []string{"docs/runbook.md"},
+				"lookup": []string{}, "open": []string{},
 			}},
 			step{"mcp": "question_escalate", "arguments": map[string]any{
 				"project": sampleProject, "question": qSigningKeys, "reason": "one_way", "options": []string{"Keep the old key valid for 24 hours", "Sign everyone out at the rotation"},

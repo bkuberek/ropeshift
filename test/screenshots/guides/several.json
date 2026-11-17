@@ -1,0 +1,92 @@
+{
+  "guide": "several",
+  "title": "Run several projects at once",
+  "world": "sample",
+  "order": 1,
+  "steps": [
+    {
+      "step": "open the project switcher",
+      "route": "/projects/default",
+      "actions": [
+        { "press": "p" },
+        { "waitFor": { "text": "1 waiting", "in": { "role": "dialog", "name": "Switch project" } } },
+        { "waitFor": { "text": "Promotions", "in": { "role": "dialog", "name": "Switch project" } } }
+      ],
+      "capture": { "name": "several-01", "clip": { "role": "dialog", "name": "Switch project" } }
+    },
+    {
+      "step": "close the project switcher",
+      "actions": [{ "press": "Escape" }]
+    },
+    {
+      "step": "read Needs you across projects",
+      "route": "/needs-you",
+      "actions": [
+        { "waitFor": { "text": "waiting in 2 projects", "exact": false } },
+        { "waitFor": { "text": "Index products by category", "exact": false } }
+      ],
+      "capture": { "name": "several-02", "clip": "window" }
+    },
+    {
+      "step": "narrow Needs you to one project",
+      "route": "/needs-you?project=catalog",
+      "actions": [{ "waitFor": { "text": "Index products by category", "exact": false } }]
+    },
+    {
+      "step": "show every project's lanes on the Floor",
+      "route": "/projects/default/floor",
+      "actions": [
+        { "click": { "role": "button", "name": "All projects", "in": { "role": "group", "name": "Show" } } },
+        { "waitFor": { "text": "lane-catalog-search", "exact": false } }
+      ],
+      "capture": { "name": "several-03", "clip": { "selector": "main" }, "height": 1300 }
+    },
+    {
+      "step": "read the machine's lane caps",
+      "route": "/settings?section=admission",
+      "actions": [{ "waitFor": { "text": "In force:", "exact": false } }],
+      "capture": { "name": "several-04", "clip": { "selector": "main" } }
+    },
+    {
+      "step": "read the project's fleet",
+      "route": "/projects/default/settings?section=fleet",
+      "actions": [{ "waitFor": { "text": "Running", "exact": true } }],
+      "capture": { "name": "several-05", "clip": { "selector": "main" } }
+    },
+    {
+      "step": "pause the fleet and run it again",
+      "actions": [
+        { "click": { "role": "button", "name": "Pause fleet" } },
+        { "waitFor": { "text": "Default's fleet is now paused." } },
+        { "click": { "role": "button", "name": "Dismiss" } },
+        { "click": { "role": "button", "name": "Run fleet" } },
+        { "waitFor": { "text": "Default's fleet is now running." } },
+        { "click": { "role": "button", "name": "Dismiss" } }
+      ]
+    },
+    {
+      "step": "back up a project",
+      "route": "/projects",
+      "actions": [
+        { "click": { "role": "button", "name": "Back up", "in": { "role": "row", "name": "Promotions", "exact": false } } },
+        { "waitFor": { "text": "Backup downloaded: ", "exact": false } },
+        { "click": { "role": "button", "name": "Dismiss" } }
+      ]
+    },
+    {
+      "step": "archive a project",
+      "actions": [
+        { "click": { "role": "button", "name": "Archive…", "in": { "role": "row", "name": "Promotions", "exact": false } } },
+        { "waitFor": { "text": "Promotions becomes read-only", "exact": false, "in": { "role": "dialog", "name": "Archive Promotions" } } },
+        { "click": { "role": "button", "name": "Archive", "in": { "role": "dialog", "name": "Archive Promotions" } } },
+        { "waitFor": { "text": "Promotions is archived and read-only." } }
+      ]
+    },
+    {
+      "step": "read the projects",
+      "route": "/projects",
+      "actions": [{ "waitFor": { "text": "Restore" } }],
+      "capture": { "name": "several-06", "clip": "window" }
+    }
+  ]
+}

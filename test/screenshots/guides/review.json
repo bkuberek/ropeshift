@@ -83,7 +83,7 @@
     },
     {
       "step": "fill in Archive the worktree",
-      "route": "/projects/harbor/work?group=review",
+      "route": "/projects/harbor/work?group=all",
       "actions": [
         { "click": { "role": "link", "name": "Serve the list of berths" } },
         { "click": { "role": "button", "name": "More actions" } },
