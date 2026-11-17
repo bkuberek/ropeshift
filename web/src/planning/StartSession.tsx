@@ -5,6 +5,7 @@ import type { WorkerRecord } from "../api/admin";
 import { inProjectOf } from "../api/client";
 import { addressOf, go, inProject } from "../app/route";
 import { useChange } from "../admin/parts";
+import { startedEntry } from "../lanes/starting";
 import { Button } from "../ui/controls";
 import { Banner, Refusal } from "../ui/display";
 import { Field, Select } from "../ui/forms";
@@ -89,7 +90,7 @@ export function StartSessionDialog({ project, onClose }: { project: string; onCl
     const started = await change.run(() => startPlanningSession(project, { goal, repository, worker }));
     if (started) {
       onClose();
-      go(inProject(project, addressOf("/planning", { lane: started.lane })));
+      go(inProject(project, addressOf("/planning", { lane: started.lane })), { state: startedEntry(started.lane) });
     }
   };
 

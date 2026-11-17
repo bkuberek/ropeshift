@@ -7,6 +7,7 @@ import { useView } from "../api/useView";
 import { useChange } from "../admin/parts";
 import { addressOf, Link, useArrivalFocus } from "../app/route";
 import { LanePane } from "../lanes/LanePane";
+import { startedAt } from "../lanes/starting";
 import { useTalk } from "../talk/state";
 import { Button } from "../ui/controls";
 import { EmptyState, LaneBadge, Refusal, TargetChip } from "../ui/display";
@@ -183,7 +184,7 @@ export function PlanningPage({ live, project, label, lane, after }: { live: Live
             ) : null}
           </div>
           {resume.failure ? <Refusal>{resume.failure}</Refusal> : null}
-          <LanePane lane={laneId} live={live} attached={attached && !parked} state={found?.actual_state} starting={!found} />
+          <LanePane lane={laneId} live={live} attached={attached && !parked} state={found?.actual_state} startedAt={found ? 0 : startedAt(laneId)} />
         </div>
         <Outline lane={laneId} live={live} />
       </div>

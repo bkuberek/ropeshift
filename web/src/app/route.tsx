@@ -75,13 +75,14 @@ function subscribe(listener: () => void): () => void {
 }
 
 // go moves to a view of the project the page shows, or to an address that names a project. replace takes
-// the place of the address the page is at, for a move no person asked for.
-export function go(to: string, { stay = false, replace = false, project = "", installation = false } = {}): void {
+// the place of the address the page is at, for a move no person asked for. state is what the new history entry
+// carries beside its address, such as the start of the lane the page shows.
+export function go(to: string, { stay = false, replace = false, project = "", installation = false, state = null as unknown } = {}): void {
   const address = placed(to, splitProject(window.location.pathname).project || project, installation);
   if (replace) {
-    window.history.replaceState(null, "", address);
+    window.history.replaceState(state, "", address);
   } else {
-    window.history.pushState(null, "", address);
+    window.history.pushState(state, "", address);
   }
   if (!stay) {
     document.getElementById("main")?.scrollTo?.(0, 0);
