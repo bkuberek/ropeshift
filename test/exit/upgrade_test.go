@@ -38,7 +38,7 @@ func writeLegacyLedger(t *testing.T, file string) {
 	if _, err := store.CreateWorkspace(ctx, ledger.Workspace{ID: scope, Name: "Solo"}, system); err != nil {
 		t.Fatal(err)
 	}
-	if err := localauth.New(store, localauth.DefaultParams).Enroll(ctx, scope, ports.Proof{Passphrase: legacyPassphrase}, system); err != nil {
+	if err := localauth.New(store, localauth.DefaultParams).Enroll(ctx, scope, ports.Proof{Passphrase: legacyPassphrase}, system, nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := control.NewWorkOrders(store).Create(ctx, scope, workorders.WorkOrder{
@@ -72,7 +72,7 @@ func TestAnInstallationWithOneLedgerUpgradesAtItsFirstStart(t *testing.T) {
 	defer client.Close()
 	ctx := t.Context()
 	var refused *api.Error
-	if err := client.SetPassphrase(ctx, api.SetPassphrase{Passphrase: "a passphrase nobody chose"}); !errors.As(err, &refused) || refused.Detail.Code != api.CodeSessionRequired {
+	if _, err := client.SetPassphrase(ctx, api.SetPassphrase{Passphrase: "a passphrase nobody chose"}); !errors.As(err, &refused) || refused.Detail.Code != api.CodeSessionRequired {
 		t.Fatalf("setting a passphrase with no session on an upgraded installation: %v", err)
 	}
 	session, err := client.SignIn(ctx, api.SignIn{Passphrase: legacyPassphrase})

@@ -121,7 +121,7 @@ export const views = [
 // The states of the Sign in page, which no address reaches: it stands in the place of a view when a session is gone.
 // The browser suite reaches each by what it makes the daemon answer, and the coverage test holds the list to the
 // states the page can show.
-export const signInStates: SignInStateId[] = ["default", "ended", "empty", "wrong", "unreachable", "not-set"];
+export const signInStates: SignInStateId[] = ["default", "ended", "empty", "wrong", "locked", "unreachable", "not-set"];
 
 // A dialog the application opens, by the file that holds its Dialog and the name it shows, which the browser suite
 // must read on an open dialog while it audits.

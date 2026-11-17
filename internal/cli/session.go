@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/authority"
@@ -54,7 +55,8 @@ func (c *invocation) login(args []string) int {
 }
 
 // passphraseSet sets the passphrase. The first needs no session, and a later one asks for
-// the current passphrase through the path every change takes.
+// the current passphrase through the path every change takes. A later one ends every session
+// of the member, the one it came from included, and says so.
 func (c *invocation) passphraseSet(args []string) int {
 	set := c.flags()
 	positional, ok := c.parse(set, args)
@@ -77,8 +79,32 @@ func (c *invocation) passphraseSet(args []string) int {
 	}
 	client := c.client()
 	defer client.Close()
-	err = client.SetPassphrase(c.ctx, api.SetPassphrase{Passphrase: passphrase})
+	changed, err := client.SetPassphrase(c.ctx, api.SetPassphrase{Passphrase: passphrase})
 	return c.finish(err, struct {
-		Set bool `json:"set"`
-	}{true}, func() string { return "passphrase set\n" })
+		Set           bool  `json:"set"`
+		SessionsEnded int64 `json:"sessions_ended"`
+		Delegates     int64 `json:"delegates"`
+	}{true, changed.SessionsEnded, changed.Delegates}, func() string {
+		return passphraseSetText(changed, c.session != "" || c.asked, c.session != "")
+	})
+}
+
+// passphraseSetText says what a set did. later says it came from a session, and exported that the session was the
+// one this shell exported, which no longer opens anything.
+func passphraseSetText(changed api.PassphraseChanged, later, exported bool) string {
+	if !later {
+		return "passphrase set\n"
+	}
+	var text strings.Builder
+	fmt.Fprintf(&text, "passphrase set\nEnded %s.\n", plural(int(changed.SessionsEnded), "other session", "other sessions"))
+	switch {
+	case changed.Delegates == 1:
+		text.WriteString("1 delegate credential still acts: ropeshift delegate revoke ends it.\n")
+	case changed.Delegates > 1:
+		fmt.Fprintf(&text, "%d delegate credentials still act: ropeshift delegate revoke ends each.\n", changed.Delegates)
+	}
+	if exported {
+		text.WriteString("This shell's session ended too: run eval \"$(ropeshift login)\" to sign in again.\n")
+	}
+	return text.String()
 }

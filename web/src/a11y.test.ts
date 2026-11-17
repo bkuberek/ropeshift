@@ -245,6 +245,20 @@ suite.each(Object.entries(sizes))("at %s width", (size, viewport) => {
             await page.getByRole("button", { name: "Sign in", exact: true }).click();
             await page.getByText("That passphrase does not match. Check it and try again.").waitFor();
           },
+          locked: async (page, context) => {
+            await reach.default(page, context);
+            await context.route(/\/v1\/sessions$/, (route) =>
+              route.fulfill({
+                status: 429,
+                contentType: "application/json",
+                headers: { "Retry-After": "900" },
+                body: JSON.stringify({ error: { code: "too_many_attempts", message: "too_many_attempts" } }),
+              }),
+            );
+            await page.getByLabel("Passphrase", { exact: true }).fill("a guess at it");
+            await page.getByRole("button", { name: "Sign in", exact: true }).click();
+            await page.getByText("Too many sign-in attempts. Wait 15 minutes, then try again.").waitFor();
+          },
           unreachable: async (page, context) => {
             await reach.default(page, context);
             await context.route(/\/v1\/sessions$/, (route) => route.abort());

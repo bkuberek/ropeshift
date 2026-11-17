@@ -23,7 +23,7 @@ func TestSharedRecordEventsLandInTheInstallationLog(t *testing.T) {
 	ctx := r.Ctx
 	identity := localauth.New(store, localauth.Params{Time: 1, MemoryKiB: 64, Threads: 1})
 	sessions := control.NewSessions(store, identity)
-	if err := sessions.Enroll(ctx, r.Scope, ports.Proof{Passphrase: "a passphrase only a person knows"}, ""); err != nil {
+	if _, err := sessions.Enroll(ctx, r.Scope, ports.Proof{Passphrase: "a passphrase only a person knows"}, ""); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := sessions.SignIn(ctx, r.Scope, ports.Proof{Passphrase: "a passphrase only a person knows"}, 0); err != nil {

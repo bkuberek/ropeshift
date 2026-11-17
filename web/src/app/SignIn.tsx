@@ -12,15 +12,19 @@ import { Icon } from "../ui/Icon";
 export const passphraseHelp = "https://github.com/bkuberek/ropeshift/blob/main/docs/onboarding.md#run-ropeshift-init";
 
 // Every state the page can show, which the accessibility checks open one by one: a page nobody has asked anything
-// of, one whose session ended, an empty try, a passphrase that does not match, a daemon that did not answer, and a
-// daemon with no passphrase set.
-export const signInStateIds = ["default", "ended", "empty", "wrong", "unreachable", "not-set"] as const;
+// of, one whose session ended, an empty try, a passphrase that does not match, an address a group server limits, a
+// daemon that did not answer, and a daemon with no passphrase set.
+export const signInStateIds = ["default", "ended", "empty", "wrong", "locked", "unreachable", "not-set"] as const;
 
 export type SignInStateId = (typeof signInStateIds)[number];
 
-type Outcome = { kind: "wrong" | "empty" | "unreachable" | "not-set" } | { kind: "other"; message: string } | null;
+type Outcome =
+  | { kind: "wrong" | "empty" | "unreachable" | "not-set" }
+  | { kind: "locked"; seconds: number | undefined }
+  | { kind: "other"; message: string }
+  | null;
 
-// outcomeOf reads a refusal by its code, which is what the page decides on.
+// outcomeOf reads a refusal by its code, which is what the page decides on, and by the status for a limit.
 function outcomeOf(error: unknown): Outcome {
   if (error instanceof ApiError) {
     if (error.code === "bad_passphrase") {
@@ -29,11 +33,24 @@ function outcomeOf(error: unknown): Outcome {
     if (error.code === "not_enrolled") {
       return { kind: "not-set" };
     }
+    if (error.code === "too_many_attempts" || error.status === 429) {
+      return { kind: "locked", seconds: error.retryAfter };
+    }
     if (error.code === "unreachable") {
       return { kind: "unreachable" };
     }
   }
   return { kind: "other", message: error instanceof Error ? error.message : String(error) };
+}
+
+// waitOf says how long a limited address waits: the seconds a server gave, in whole minutes from one minute up, and a
+// minute when it gave none.
+function waitOf(seconds: number | undefined): string {
+  if (seconds !== undefined && seconds < 60) {
+    return seconds === 1 ? "1 second" : `${seconds} seconds`;
+  }
+  const minutes = Math.ceil((seconds ?? 60) / 60);
+  return minutes === 1 ? "a minute" : `${minutes} minutes`;
 }
 
 // SignIn asks for the passphrase, which goes to the daemon and nowhere else. The session comes back in a cookie this
@@ -89,7 +106,8 @@ export function SignIn({ onSignedIn, ended = false }: { onSignedIn: () => Promis
         </h1>
         <p className="lead">Agents run as you on this machine, so a person proves they are one before deciding anything.</p>
         <div role="status">
-          {ended ? <Banner icon="clock">Your session ended. Sign in again to carry on where you were.</Banner> : null}
+          {outcome?.kind === "locked" ? <Banner tone="warning">{`Too many sign-in attempts. Wait ${waitOf(outcome.seconds)}, then try again.`}</Banner> : null}
+          {ended && outcome?.kind !== "locked" ? <Banner icon="clock">Your session ended. Sign in again to carry on where you were.</Banner> : null}
         </div>
         {outcome?.kind === "unreachable" ? (
           <Banner tone="danger">The daemon did not answer, so nothing was checked. Check that it is running with ropeshift health, then try again.</Banner>

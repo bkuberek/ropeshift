@@ -40,8 +40,9 @@ type ChangePassphrase struct {
 }
 
 // PassphraseChanged says how many other sessions of the member the change ended, and how many delegate credentials
-// of the member still act, which a change leaves alone and signing out of every session ends. The session the change
-// came from goes on under a new token, which the answer sets as cookies and never states.
+// of the member still act, which a change leaves alone and signing out of every session ends. On the web listener the
+// session the change came from goes on under a new token, which the answer sets as cookies and never states. On the
+// socket a later set ends that session too, and the first set ends none.
 type PassphraseChanged struct {
 	SessionsEnded int64 `json:"sessions_ended"`
 	Delegates     int64 `json:"delegates"`
@@ -66,9 +67,11 @@ func (c *Client) SignIn(ctx context.Context, in SignIn) (Session, error) {
 	return out, err
 }
 
-// SetPassphrase sets the passphrase.
-func (c *Client) SetPassphrase(ctx context.Context, in SetPassphrase) error {
-	return c.Do(ctx, http.MethodPut, PassphrasePath, in, nil)
+// SetPassphrase sets the passphrase, and says what a later set ended.
+func (c *Client) SetPassphrase(ctx context.Context, in SetPassphrase) (PassphraseChanged, error) {
+	var out PassphraseChanged
+	err := c.Do(ctx, http.MethodPut, PassphrasePath, in, &out)
+	return out, err
 }
 
 // SignInPath opens a session, and SignOutPath ends the one a call presents.

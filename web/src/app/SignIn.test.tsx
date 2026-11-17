@@ -10,8 +10,8 @@ import { App } from "./App";
 import { passphraseHelp, signInStateIds } from "./SignIn";
 
 // The Sign in page: the product's mark and name, the passphrase field and its errors, and one state for each way
-// the page can find itself: a wrong passphrase, a session that ended, a daemon that does not
-// answer, and a daemon with no passphrase set.
+// the page can find itself: a wrong passphrase, one a group server limits, a session that ended, a daemon that does
+// not answer, and a daemon with no passphrase set.
 
 beforeEach(() => {
   window.history.replaceState(null, "", "/needs-you");
@@ -98,6 +98,31 @@ describe("the Sign in page", () => {
     // Typing again takes the message back, since it no longer describes what is typed.
     await userEvent.type(field(), "x");
     expect(screen.queryByText(/does not match/)).toBeNull();
+  });
+
+  it("says how long to wait when a group server limits wrong guesses, by its Retry-After, and a minute when it says no number of seconds", async () => {
+    const limited = (headers?: Record<string, string>) => () => ({ ...refusal(429, "too_many_attempts", "too many failed attempts from this address"), headers });
+    signedOut(limited({ "Retry-After": "900" }));
+    await attempt();
+    const notice = await screen.findByText("Too many sign-in attempts. Wait 15 minutes, then try again.");
+    expect(notice.closest("[role=status]")).toBeTruthy();
+    expect(field().value).toBe("");
+    expect(field().getAttribute("aria-invalid")).toBeNull();
+    expect(document.activeElement).toBe(field());
+    cleanup();
+
+    signedOut(limited({ "Retry-After": "45" }));
+    await attempt();
+    expect(await screen.findByText("Too many sign-in attempts. Wait 45 seconds, then try again.")).toBeTruthy();
+    cleanup();
+
+    // The server sends a number of seconds. With none, or with any other form, the page says a minute.
+    for (const headers of [undefined, { "Retry-After": "Wed, 21 Oct 2026 07:28:00 GMT" }]) {
+      signedOut(limited(headers));
+      await attempt();
+      expect(await screen.findByText("Too many sign-in attempts. Wait a minute, then try again.")).toBeTruthy();
+      cleanup();
+    }
   });
 
   it("says when the daemon did not answer, as an alert, and leaves nothing checked", async () => {
@@ -202,6 +227,6 @@ describe("the Sign in page", () => {
   });
 
   it("names the states it can show, one for each the accessibility checks open", () => {
-    expect([...signInStateIds]).toEqual(["default", "ended", "empty", "wrong", "unreachable", "not-set"]);
+    expect([...signInStateIds]).toEqual(["default", "ended", "empty", "wrong", "locked", "unreachable", "not-set"]);
   });
 });

@@ -41,8 +41,8 @@ func (p *IdentityProvider) Enrolled(_ context.Context, scope ledger.WorkspaceID)
 	return ok, nil
 }
 
-// Enroll sets the passphrase.
-func (p *IdentityProvider) Enroll(_ context.Context, scope ledger.WorkspaceID, proof ports.Proof, actor ledger.Actor) error {
+// Enroll sets the passphrase. The companion's transaction commits before the swap, as a change's does.
+func (p *IdentityProvider) Enroll(ctx context.Context, scope ledger.WorkspaceID, proof ports.Proof, actor ledger.Actor, alongside func(ports.SharedTx, string) error) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if err := authority.CheckPassphrase(proof.Passphrase); err != nil {
@@ -51,8 +51,23 @@ func (p *IdentityProvider) Enroll(_ context.Context, scope ledger.WorkspaceID, p
 	if _, ok := p.passphrases[scope]; ok && !authority.Allowed(actor, authority.ActionSetPassphrase) {
 		return authority.ErrNoSession
 	}
+	if err := p.accompany(ctx, scope, "member.enroll", alongside); err != nil {
+		return err
+	}
 	p.passphrases[scope] = proof.Passphrase
 	return nil
+}
+
+// accompany runs a companion write in a transaction of the store's installation records, which a real provider's
+// proof shares, under the operation a real provider names.
+func (p *IdentityProvider) accompany(ctx context.Context, scope ledger.WorkspaceID, op string, alongside func(ports.SharedTx, string) error) error {
+	if alongside == nil {
+		return nil
+	}
+	if p.store == nil {
+		return errors.New("the fake identity provider has no store for a companion write: give it one with Within")
+	}
+	return p.store.Installation(scope).Write(ctx, op, func(tx ports.SharedTx) error { return alongside(tx, Member) })
 }
 
 // Change replaces the passphrase when the current one is right. The lock is held from the check to the swap, so
@@ -73,14 +88,8 @@ func (p *IdentityProvider) Change(ctx context.Context, scope ledger.WorkspaceID,
 	if err := authority.CheckPassphrase(next.Passphrase); err != nil {
 		return err
 	}
-	if alongside != nil {
-		if p.store == nil {
-			return errors.New("the fake identity provider has no store for a change's companion write: give it one with Within")
-		}
-		err := p.store.Installation(scope).Write(ctx, "member.change_proof", func(tx ports.SharedTx) error { return alongside(tx, Member) })
-		if err != nil {
-			return err
-		}
+	if err := p.accompany(ctx, scope, "member.change_proof", alongside); err != nil {
+		return err
 	}
 	p.passphrases[scope] = next.Passphrase
 	return nil

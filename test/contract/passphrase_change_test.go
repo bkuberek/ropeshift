@@ -28,7 +28,7 @@ func twoSessions(t *testing.T) (*Rig, *control.Sessions, control.SessionGrant, c
 	t.Helper()
 	rig := NewRig(t, SQLiteFile)
 	sessions := control.NewSessions(rig.Store(), localauth.New(rig.Store(), cheapHash))
-	if err := sessions.Enroll(rig.Ctx, rig.Scope, ports.Proof{Passphrase: goodPassphrase}, ""); err != nil {
+	if _, err := sessions.Enroll(rig.Ctx, rig.Scope, ports.Proof{Passphrase: goodPassphrase}, ""); err != nil {
 		t.Fatal(err)
 	}
 	browser, err := sessions.SignIn(rig.Ctx, rig.Scope, ports.Proof{Passphrase: goodPassphrase}, 0)
@@ -139,6 +139,22 @@ func TestAPassphraseChangeEndsTheMembersOtherSessionsAndRotatesTheOneItCameFrom(
 func TestAPassphraseChangeCountsOnlyTheSessionsThatHadNotExpired(t *testing.T) {
 	t.Parallel()
 	rig, sessions, browser, _ := twoSessions(t)
+	expiredSession(t, rig)
+	changed, err := sessions.ChangePassphrase(rig.Ctx, rig.Scope, ports.Proof{Passphrase: goodPassphrase}, ports.Proof{Passphrase: otherPassphrase}, browser.Token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if changed.SessionsEnded != 1 {
+		t.Errorf("the change ended %d other sessions, want the terminal's alone", changed.SessionsEnded)
+	}
+	if left := sessionDigests(t, rig); len(left) != 1 || left[0] != digestOfToken(changed.Token) {
+		t.Errorf("the sessions left are %v, want the new one alone", left)
+	}
+}
+
+// expiredSession leaves a session of the member that expired and that no sweep has removed yet.
+func expiredSession(t *testing.T, rig *Rig) {
+	t.Helper()
 	err := rig.Store().Installation(rig.Scope).Write(rig.Ctx, "test.expired_session", func(tx ports.SharedTx) error {
 		members, err := tx.Members().Sessions()
 		if err != nil {
@@ -153,15 +169,57 @@ func TestAPassphraseChangeCountsOnlyTheSessionsThatHadNotExpired(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	changed, err := sessions.ChangePassphrase(rig.Ctx, rig.Scope, ports.Proof{Passphrase: goodPassphrase}, ports.Proof{Passphrase: otherPassphrase}, browser.Token)
+}
+
+// A later set of the passphrase from a member's session, as `ropeshift passphrase set` makes one on the socket, ends
+// every session of the member in the transaction that stores it. A terminal holds no cookie a new token could reach,
+// so the session the set came from ends with the others. The count holds the others that had not expired, as a
+// change's does, and the log records it.
+func TestALaterSetEndsEverySessionOfTheMember(t *testing.T) {
+	t.Parallel()
+	rig, sessions, browser, terminal := twoSessions(t)
+	expiredSession(t, rig)
+	changed, err := sessions.Enroll(rig.Ctx, rig.Scope, ports.Proof{Passphrase: otherPassphrase}, terminal.Token)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if changed.SessionsEnded != 1 {
-		t.Errorf("the change ended %d other sessions, want the terminal's alone", changed.SessionsEnded)
+	if changed.SessionsEnded != 1 || changed.Delegates != 0 || changed.Token != "" {
+		t.Errorf("the set says %+v, want the browser's session ended, no credential acting, and no token", changed)
 	}
-	if left := sessionDigests(t, rig); len(left) != 1 || left[0] != digestOfToken(changed.Token) {
-		t.Errorf("the sessions left are %v, want the new one alone", left)
+	for name, token := range map[string]string{"the terminal's": terminal.Token, "the browser's": browser.Token} {
+		if _, err := sessions.Member(rig.Ctx, rig.Scope, token); !errors.Is(err, authority.ErrNoSession) {
+			t.Errorf("%s session outlived the set: %v", name, err)
+		}
+	}
+	if left := sessionDigests(t, rig); len(left) != 0 {
+		t.Errorf("the sessions left are %v, want none", left)
+	}
+	if _, err := sessions.SignIn(rig.Ctx, rig.Scope, ports.Proof{Passphrase: otherPassphrase}, 0); err != nil {
+		t.Errorf("the new passphrase: %v", err)
+	}
+	var ended []string
+	for _, event := range installationEvents(t, rig) {
+		if event.Type == control.EventSessionsEnded {
+			ended = append(ended, string(event.Data))
+		}
+	}
+	if len(ended) != 1 || !strings.Contains(ended[0], `"sessions":1`) {
+		t.Errorf("the log records %v, want one %s that counts the browser's session", ended, control.EventSessionsEnded)
+	}
+}
+
+// A later set needs its session to stand when it commits, as a change does, so a sign-out that beat it undoes it.
+func TestALaterSetFromASessionThatEndedSetsNothing(t *testing.T) {
+	t.Parallel()
+	rig, sessions, _, terminal := twoSessions(t)
+	if err := sessions.End(rig.Ctx, rig.Scope, terminal.Token, ledger.Actor{Kind: ledger.ActorMember, ID: terminal.Member}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sessions.Enroll(rig.Ctx, rig.Scope, ports.Proof{Passphrase: otherPassphrase}, terminal.Token); !errors.Is(err, authority.ErrNoSession) {
+		t.Fatalf("got %v, want ErrNoSession", err)
+	}
+	if _, err := sessions.SignIn(rig.Ctx, rig.Scope, ports.Proof{Passphrase: goodPassphrase}, 0); err != nil {
+		t.Errorf("a refused set moved the passphrase: %v", err)
 	}
 }
 
@@ -367,13 +425,13 @@ func TestAPassphraseOverTheUpperBoundIsRefusedAtTheFirstSetAndAtAChange(t *testi
 	sessions := control.NewSessions(rig.Store(), localauth.New(rig.Store(), cheapHash))
 	tooLong := strings.Repeat("a", authority.MaxPassphrase+1)
 	longest := strings.Repeat("b", authority.MaxPassphrase)
-	if err := sessions.Enroll(rig.Ctx, rig.Scope, ports.Proof{Passphrase: tooLong}, ""); !errors.Is(err, authority.ErrInvalid) || !strings.Contains(err.Error(), "1024") {
+	if _, err := sessions.Enroll(rig.Ctx, rig.Scope, ports.Proof{Passphrase: tooLong}, ""); !errors.Is(err, authority.ErrInvalid) || !strings.Contains(err.Error(), "1024") {
 		t.Fatalf("the first set of %d bytes: %v", len(tooLong), err)
 	}
 	if enrolled, err := sessions.Enrolled(rig.Ctx, rig.Scope); err != nil || enrolled {
 		t.Fatalf("a refused first set set one: %v, %v", enrolled, err)
 	}
-	if err := sessions.Enroll(rig.Ctx, rig.Scope, ports.Proof{Passphrase: goodPassphrase}, ""); err != nil {
+	if _, err := sessions.Enroll(rig.Ctx, rig.Scope, ports.Proof{Passphrase: goodPassphrase}, ""); err != nil {
 		t.Fatal(err)
 	}
 	grant, err := sessions.SignIn(rig.Ctx, rig.Scope, ports.Proof{Passphrase: goodPassphrase}, 0)
@@ -381,7 +439,7 @@ func TestAPassphraseOverTheUpperBoundIsRefusedAtTheFirstSetAndAtAChange(t *testi
 		t.Fatal(err)
 	}
 	// A later set from a session is held to it too, and a wrong current passphrase is still the first thing said.
-	if err := sessions.Enroll(rig.Ctx, rig.Scope, ports.Proof{Passphrase: tooLong}, grant.Token); !errors.Is(err, authority.ErrInvalid) {
+	if _, err := sessions.Enroll(rig.Ctx, rig.Scope, ports.Proof{Passphrase: tooLong}, grant.Token); !errors.Is(err, authority.ErrInvalid) {
 		t.Fatalf("a later set of %d bytes: %v", len(tooLong), err)
 	}
 	if _, err := sessions.ChangePassphrase(rig.Ctx, rig.Scope, ports.Proof{Passphrase: "a guess at the passphrase"}, ports.Proof{Passphrase: tooLong}, grant.Token); !errors.Is(err, authority.ErrBadProof) {
