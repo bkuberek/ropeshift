@@ -74,6 +74,10 @@ type PlanningRepository struct {
 	Name string `json:"name"`
 	Path string `json:"path,omitempty"`
 	Why  string `json:"why"`
+	// Undecided says nothing in the layout settles where the plan lives, so a member names it with --planning:
+	// the clone adopt runs in holds no plan content and has no folder of clones, and no design repository was
+	// found, or two tied for it.
+	Undecided bool `json:"undecided,omitempty"`
 }
 
 // DesignRepository is the repository that holds the project's design, and why it is the one.

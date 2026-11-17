@@ -24,6 +24,10 @@ const (
 	adoptionProgram = "ropeshift"
 )
 
+// MaxAdoptionDepth is the most levels below a folder a plan searches for clones. A folder the clone ignores may
+// hold a dependency tree or a build output, so a request cannot ask for a walk as deep as it likes.
+const MaxAdoptionDepth = 4
+
 // Adoptions plans the adoption of a repository and the clones around it (FR-ADOPT-12).
 type Adoptions struct {
 	repositories *Repositories
@@ -40,7 +44,8 @@ type AdoptionRequest struct {
 	Root string
 	// Paths are the paths named beside it, absolute, each a clone or a folder that holds clones.
 	Paths []string
-	// Depth is how many levels below a folder are searched for clones. Below 1 searches one.
+	// Depth is how many levels below a folder are searched for clones, at most MaxAdoptionDepth. Below 1
+	// searches one.
 	Depth int
 	// Planning names the repository that holds the plan, by its clone's folder name.
 	Planning string
@@ -95,6 +100,18 @@ func (a *Adoptions) Plan(ctx context.Context, scope ledger.WorkspaceID, in Adopt
 		plan.Planning = planning.PlanningRepository{Name: in.Planning, Why: "named with --planning, a repository the project already holds"}
 	}
 	plan.Shape = shapeOf(found, design)
+	if in.Planning == "" && plan.Shape == planning.ShapeWorkspaceFiles && len(folders) == 0 {
+		// The clone adopt runs in has no plan content and no folder of clones, so it is no workspace: the plan
+		// lives in the design repository when one is chosen, and nothing settles it otherwise.
+		switch {
+		case design != nil && design.Path != root.Path:
+			planned = design.foundClone
+			plan.Planning = planning.PlanningRepository{Name: planned.Name, Path: planned.Path, Why: "the design repository, because no folder the clone adopt runs in ignores holds clones"}
+		case design == nil:
+			plan.Planning = planning.PlanningRepository{Why: "nothing settles it: the clone adopt runs in has no plan content or folder of clones, and no design repository was chosen", Undecided: true}
+			plan.Notes = append(plan.Notes, "No repository is known to hold the plan; name it with --planning NAME.")
+		}
+	}
 	if len(found) > 1 && design != nil {
 		plan.Design = &planning.DesignRepository{Name: design.Name, Path: design.Path, Root: design.Identity, Why: design.why}
 	}
@@ -131,6 +148,9 @@ func (a *Adoptions) Plan(ctx context.Context, scope ledger.WorkspaceID, in Adopt
 
 // validate refuses a request that names no clone to run in, or a path that is not absolute.
 func (in AdoptionRequest) validate() error {
+	if in.Depth > MaxAdoptionDepth {
+		return fmt.Errorf("%w: --depth is at most %d, and %d was asked", ledger.ErrInvalidRepository, MaxAdoptionDepth, in.Depth)
+	}
 	if !filepath.IsAbs(in.Root) {
 		return fmt.Errorf("%w: the clone adopt runs in is not an absolute path: %q", ledger.ErrInvalidRepository, in.Root)
 	}
@@ -151,7 +171,7 @@ func detect(ctx context.Context, in AdoptionRequest, kept ports.Checkouts, layou
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	if len(roots) != 1 {
+	if len(roots) != 1 || !samePath(ctx, kept, roots[0].Path, in.Root) {
 		return nil, nil, nil, fmt.Errorf("%w: run adopt in the top of a git clone with a commit; %s is none", ledger.ErrInvalidRepository, in.Root)
 	}
 	top := roots[0]
@@ -208,6 +228,9 @@ func detect(ctx context.Context, in AdoptionRequest, kept ports.Checkouts, layou
 	found[0].Where = planning.WhereHere
 	slices.Sort(folders)
 	for i := range found {
+		if err := ctx.Err(); err != nil {
+			return nil, nil, nil, err
+		}
 		if err := found[i].read(ctx, layouts); err != nil {
 			return nil, nil, nil, err
 		}
@@ -436,11 +459,20 @@ func movesOf(home foundClone, registers []foundClone) []planning.Move {
 		to := filepath.Join(home.Path, codeFolder, one.Name)
 		moves = append(moves, planning.Move{
 			Name: one.Name, From: one.Path, To: to,
-			Commands: []string{fmt.Sprintf("mv %s %s", one.Path, to), fmt.Sprintf("%s repository add %s", adoptionProgram, to)},
+			Commands: []string{fmt.Sprintf("mv %s %s", shellQuote(one.Path), shellQuote(to)), fmt.Sprintf("%s repository add %s", adoptionProgram, shellQuote(to))},
 		})
 	}
 	slices.SortFunc(moves, func(a, b planning.Move) int { return cmp.Compare(a.Name, b.Name) })
 	return moves
+}
+
+// shellQuote spells an argument so a POSIX shell reads it as one word: as it is when it holds only characters a
+// shell leaves alone, and else in single quotes, a quote inside it closing and reopening them.
+func shellQuote(argument string) string {
+	if argument != "" && strings.Trim(argument, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_@%+=:,./-") == "" {
+		return argument
+	}
+	return "'" + strings.ReplaceAll(argument, "'", `'\''`) + "'"
 }
 
 // consolidation lists what importing the design repository into the planning repository does: the code trees it

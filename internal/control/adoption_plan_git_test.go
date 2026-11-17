@@ -169,8 +169,11 @@ func TestGitLayoutOfClonesBesideAWorkspaceIsTheWorkspaceFiles(t *testing.T) {
 	l.clone("api", map[string]string{"go.mod": "module api\n", "README.md": "api\n"})
 	l.clone("web", map[string]string{"package.json": "{}\n", "README.md": "web\n"})
 	plan := l.mustPlan(control.AdoptionRequest{Root: l.path("ws"), Paths: []string{l.path("api"), l.path("web")}})
-	if plan.Shape != planning.ShapeWorkspaceFiles || plan.Planning.Path != l.path("ws") {
+	if plan.Shape != planning.ShapeWorkspaceFiles || !plan.Planning.Undecided {
 		t.Fatalf("clones beside a workspace read %s, planning in %+v", plan.Shape, plan.Planning)
+	}
+	if named := l.mustPlan(control.AdoptionRequest{Root: l.path("ws"), Paths: []string{l.path("api"), l.path("web")}, Planning: "ws"}); named.Planning.Path != l.path("ws") {
+		t.Fatalf("--planning ws reads %+v", named.Planning)
 	}
 	if want := []string{"add plan/repositories.md", "append .gitignore", "add Makefile"}; !reflect.DeepEqual(filesOf(plan), want) {
 		t.Errorf("the plan adds %v, want %v", filesOf(plan), want)

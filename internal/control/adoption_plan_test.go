@@ -413,10 +413,114 @@ func TestOnlyAMemberPlansAnAdoption(t *testing.T) {
 	if !errors.Is(err, workorders.ErrForbidden) {
 		t.Errorf("a delegate's plan: %v", err)
 	}
+	// A project not created yet reads no record, so the member check is the one that refuses a delegate.
+	_, err = control.NewAdoptions(control.NewRepositories(nil)).Plan(t.Context(), "", control.AdoptionRequest{Root: "/work/ws", NewProject: true}, m.checkouts, m.layouts, delegate)
+	if !errors.Is(err, workorders.ErrForbidden) {
+		t.Errorf("a delegate's plan of a project not created yet: %v", err)
+	}
 	if _, err := m.plan(control.AdoptionRequest{Root: "relative"}); !errors.Is(err, ledger.ErrInvalidRepository) {
 		t.Errorf("a relative root: %v", err)
 	}
 	if _, err := m.plan(control.AdoptionRequest{Root: "/work/nowhere"}); !errors.Is(err, ledger.ErrInvalidRepository) {
 		t.Errorf("a root that is no clone: %v", err)
+	}
+}
+
+// A root that is not itself the top of a clone is refused, even when exactly one clone sits below it.
+func TestAnAdoptionRootThatHoldsOneCloneIsNotThatClone(t *testing.T) {
+	m := newAdoptionMachine(t)
+	m.clone("/work/ws/repos/api", fake.CloneLayout{Tracked: []string{"go.mod"}})
+	if _, err := m.plan(control.AdoptionRequest{Root: "/work/ws/repos"}); !errors.Is(err, ledger.ErrInvalidRepository) {
+		t.Errorf("a folder holding one clone: %v", err)
+	}
+	if plan := m.mustPlan(control.AdoptionRequest{Root: "/work/ws/repos/api"}); plan.Layout.Root != "/work/ws/repos/api" {
+		t.Errorf("the clone itself reads root %s", plan.Layout.Root)
+	}
+}
+
+// The depth is bounded, so a request cannot walk a tree as deep as it likes.
+func TestAnAdoptionDepthIsBounded(t *testing.T) {
+	m := newAdoptionMachine(t)
+	workspaceOf(m)
+	if _, err := m.plan(control.AdoptionRequest{Root: "/work/ws", Depth: control.MaxAdoptionDepth}); err != nil {
+		t.Errorf("the deepest depth: %v", err)
+	}
+	if _, err := m.plan(control.AdoptionRequest{Root: "/work/ws", Depth: control.MaxAdoptionDepth + 1}); !errors.Is(err, ledger.ErrInvalidRepository) {
+		t.Errorf("a depth above the bound: %v", err)
+	}
+}
+
+// A path with a space or a quote in it is quoted in the commands the plan lists, so they run as printed.
+func TestTheMovesAreQuotedForAShell(t *testing.T) {
+	m := newAdoptionMachine(t)
+	m.clone("/work/ws", fake.CloneLayout{Tracked: []string{"README.md", "Makefile"}})
+	m.clone("/work/my api", fake.CloneLayout{Tracked: []string{"go.mod"}})
+	m.clone("/work/it's", fake.CloneLayout{Tracked: []string{"go.mod"}})
+	plan := m.mustPlan(control.AdoptionRequest{Root: "/work/ws", Paths: []string{"/work/my api", "/work/it's"}})
+	var commands []string
+	for _, move := range plan.Moves {
+		commands = append(commands, move.Commands...)
+	}
+	want := []string{
+		`mv '/work/it'\''s' '/work/ws/repos/it'\''s'`, `ropeshift repository add '/work/ws/repos/it'\''s'`,
+		`mv '/work/my api' '/work/ws/repos/my api'`, `ropeshift repository add '/work/ws/repos/my api'`,
+	}
+	if !slices.Equal(commands, want) {
+		t.Errorf("the commands read %q, want %q", commands, want)
+	}
+}
+
+// Run from a code clone with a design repository beside it, the plan lives in the design repository, and moves
+// the code clone into it. --planning still decides.
+func TestAdoptionFromACodeCloneWithTheDesignRepositoryBesidePlansThere(t *testing.T) {
+	m := newAdoptionMachine(t)
+	m.clone("/work/api", fake.CloneLayout{Tracked: []string{"go.mod", "main.go"}})
+	m.clone("/work/design", fake.CloneLayout{Plan: ports.PlanContent{Files: 1}, Tracked: []string{"docs/a.md", "docs/b.md", "plan/goal.md"}})
+	plan := m.mustPlan(control.AdoptionRequest{Root: "/work/api", Paths: []string{"/work/design"}})
+	if plan.Shape != planning.ShapeWorkspaceFiles || plan.Planning.Name != "design" || plan.Planning.Path != "/work/design" || plan.Planning.Undecided {
+		t.Fatalf("the shape is %s, planning in %+v", plan.Shape, plan.Planning)
+	}
+	if plan.Design == nil || plan.Design.Name != "design" {
+		t.Errorf("the design repository reads %+v", plan.Design)
+	}
+	if len(plan.Moves) != 1 || plan.Moves[0].Name != "api" || plan.Moves[0].To != "/work/design/repos/api" {
+		t.Errorf("the code clone moves into the design repository: %+v", plan.Moves)
+	}
+	named := m.mustPlan(control.AdoptionRequest{Root: "/work/api", Paths: []string{"/work/design"}, Planning: "api"})
+	if named.Planning.Name != "api" || named.Planning.Path != "/work/api" || !strings.Contains(named.Planning.Why, "--planning") {
+		t.Errorf("--planning api reads %+v", named.Planning)
+	}
+}
+
+// With no design repository beside the clone, or a tie between candidates, nothing settles where the plan lives,
+// and the plan says so rather than choosing the clone adopt runs in. A folder the clone ignores that holds
+// clones makes it a workspace, which plans in itself.
+func TestAdoptionWithNoDesignRepositoryLeavesThePlanningRepositoryUndecided(t *testing.T) {
+	m := newAdoptionMachine(t)
+	m.clone("/work/api", fake.CloneLayout{Tracked: []string{"go.mod"}})
+	m.clone("/work/web", fake.CloneLayout{Tracked: []string{"package.json"}})
+	plan := m.mustPlan(control.AdoptionRequest{Root: "/work/api", Paths: []string{"/work/web"}})
+	if !plan.Planning.Undecided || plan.Planning.Name != "" || plan.Planning.Path != "" ||
+		!slices.ContainsFunc(plan.Notes, func(note string) bool { return strings.Contains(note, "--planning NAME") }) {
+		t.Errorf("no design repository reads planning %+v, notes %v", plan.Planning, plan.Notes)
+	}
+
+	tied := newAdoptionMachine(t)
+	tied.clone("/work/api", fake.CloneLayout{Tracked: []string{"go.mod"}})
+	tied.clone("/work/a", fake.CloneLayout{Tracked: []string{"x.md", "y.md"}})
+	tied.clone("/work/b", fake.CloneLayout{Tracked: []string{"x.md", "y.md"}})
+	if plan := tied.mustPlan(control.AdoptionRequest{Root: "/work/api", Paths: []string{"/work/a", "/work/b"}}); !plan.Planning.Undecided || plan.Design != nil {
+		t.Errorf("a tie reads planning %+v, design %+v", plan.Planning, plan.Design)
+	}
+	if plan := tied.mustPlan(control.AdoptionRequest{Root: "/work/api", Paths: []string{"/work/a", "/work/b"}, Planning: "a"}); plan.Planning.Undecided || plan.Planning.Name != "a" {
+		t.Errorf("--planning a reads %+v", plan.Planning)
+	}
+
+	workspace := newAdoptionMachine(t)
+	workspaceOf(workspace)
+	workspace.clone("/work/ws/repos/api", fake.CloneLayout{Tracked: []string{"go.mod"}})
+	workspace.clone("/work/web", fake.CloneLayout{Tracked: []string{"package.json"}})
+	if plan := workspace.mustPlan(control.AdoptionRequest{Root: "/work/ws", Paths: []string{"/work/web"}}); plan.Planning.Undecided || plan.Planning.Path != "/work/ws" {
+		t.Errorf("a workspace reads planning %+v", plan.Planning)
 	}
 }
