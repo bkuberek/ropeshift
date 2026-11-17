@@ -8,13 +8,18 @@ import (
 	"strings"
 	"unicode"
 	"unicode/utf8"
+
+	"ropeshift.com/ropeshift/internal/version"
 )
 
 // program is the name this package's commands run under.
 const program = "ropeshift"
 
-// reference names the full command reference, which every list of commands points to.
-const reference = "docs/cli.md describes every command and the exit codes: https://github.com/bkuberek/ropeshift/blob/main/docs/cli.md"
+// reference names the full command reference, which every list of commands points to, at the tag of the
+// release that prints it.
+func reference() string {
+	return "docs/cli.md describes every command and the exit codes: " + version.DocsURL("docs/cli.md")
+}
 
 // widest is the widest left column a list aligns to. A longer usage puts its summary on the next line.
 const widest = 50
@@ -80,7 +85,7 @@ func WriteList(w io.Writer, name string, groups []Group) {
 		fmt.Fprintf(w, "\n%s:\n", group.Title)
 		writeRows(w, sections[i], width)
 	}
-	fmt.Fprintf(w, "\nRun '%s help <command>' or '%s <command> --help' for one command's usage and flags.\n%s\n", name, name, reference)
+	fmt.Fprintf(w, "\nRun '%s help <command>' or '%s <command> --help' for one command's usage and flags.\n%s\n", name, name, reference())
 }
 
 // WriteUsage prints one command's help: its usage line, what it does, and its flags when set holds any.
