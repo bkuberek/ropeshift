@@ -128,31 +128,52 @@ func checkWorkerURL(given string, plan serverTransport) (string, error) {
 // list the loopback address is listing no proxy that connects from this machine, and the server then believes none
 // of what a proxy on this machine forwards: every client is one address, which the limit on wrong guesses counts as
 // one. A proxy on another machine is right to leave loopback out, so this is a warning.
+//
+// Which loopback addresses reach the listener depends on its address: every address of both families, which `::` and
+// an empty host are, is reached at 127.0.0.1 and at ::1, and a proxy on this machine uses either, so both must be
+// listed. Every IPv4 address, and localhost, are reached at 127.0.0.1, and the IPv6 loopback address at itself.
 func loopbackWarnings(listen string, plan serverTransport) []string {
 	if plan.mode != transportProxy {
 		return nil
 	}
+	reached := loopbackReached(listen)
+	var missing []string
+	for _, addr := range reached {
+		if !plan.proxies.Contains(addr) {
+			missing = append(missing, addr.String())
+		}
+	}
+	if len(missing) == 0 {
+		return nil
+	}
+	names := strings.Join(missing, " and ")
+	return []string{fmt.Sprintf("this listener is reachable from this machine, and --trusted-proxies (%s) does not list %s: a reverse proxy on this machine connects from there, so the server would read nothing it forwards, and every member would sign in from one address and share one limit on wrong guesses; list %s if the proxy is on this machine, and leave it out if it is on another", envTrustedProxies, names, names)}
+}
+
+// loopbackReached lists the loopback addresses a connection from this machine arrives at on a listen address, and
+// none for an address that only the network reaches.
+func loopbackReached(listen string) []netip.Addr {
+	v4, v6 := netip.MustParseAddr("127.0.0.1"), netip.MustParseAddr("::1")
 	host, _, err := net.SplitHostPort(listen)
 	if err != nil {
 		return nil
 	}
-	reaches := netip.MustParseAddr("127.0.0.1")
 	switch ip, err := netip.ParseAddr(host); {
-	case host == "" || host == "localhost":
+	case host == "":
+		return []netip.Addr{v4, v6}
+	case host == "localhost":
+		return []netip.Addr{v4}
 	case err != nil:
 		// A host name of the network is no address loopback reaches.
 		return nil
-	case ip.IsUnspecified() || ip.IsLoopback():
-		if ip.Is6() && !ip.IsUnspecified() {
-			reaches = ip
-		}
-	default:
-		return nil
+	case ip.IsUnspecified() && ip.Is4():
+		return []netip.Addr{v4}
+	case ip.IsUnspecified():
+		return []netip.Addr{v4, v6}
+	case ip.IsLoopback():
+		return []netip.Addr{ip.Unmap()}
 	}
-	if plan.proxies.Contains(reaches) {
-		return nil
-	}
-	return []string{fmt.Sprintf("this listener is reachable from this machine, and --trusted-proxies (%s) does not list %s: a reverse proxy on this machine connects from %s, so the server would read nothing it forwards, and every member would sign in from one address and share one limit on wrong guesses; list %s if the proxy is on this machine, and leave it out if it is on another", envTrustedProxies, reaches, reaches, reaches)}
+	return nil
 }
 
 // planListener is the plan of the listener's own security.
@@ -283,10 +304,10 @@ func (l *serverListener) workerURL() string {
 	return ""
 }
 
-// announce says what the server serves and where its workers reach it. It never says the fingerprint of the
-// server's authority: that is the trust anchor of a join string, which a member's `worker token` makes, and a
-// server's output is a log. The authority's file is named, which is what a person trusts on a device. A server that
-// knows no URL for its workers warns on its error stream, and says what to set.
+// announce says what the server serves and where its workers reach it. It names the server's own authority by its file,
+// which a person trusts on a device, and by its fingerprint, which a worker pins from a join string: both are public,
+// as the authority's certificate is, and an operator compares the fingerprint with the one in a join string out of
+// band. A server that knows no URL for its workers warns on its error stream, and says what to set.
 func announce(stdout, stderr io.Writer, socket string, l *serverListener) {
 	fmt.Fprintf(stdout, "ropeshiftd: serving %s\n", socket)
 	if l.Listener != nil {
@@ -297,6 +318,7 @@ func announce(stdout, stderr io.Writer, socket string, l *serverListener) {
 	}
 	if l.authorityFile != "" {
 		fmt.Fprintf(stdout, "ropeshiftd: certificate authority %s\n", l.authorityFile)
+		fmt.Fprintf(stdout, "ropeshiftd: certificate authority sha256 %s\n", l.fingerprint)
 	}
 	if workers := l.workerURL(); workers != "" {
 		fmt.Fprintf(stdout, "ropeshiftd: worker url %s\n", workers)

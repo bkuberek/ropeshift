@@ -271,8 +271,8 @@ func TestServerAndWorkerOverTLS(t *testing.T) {
 		"the server": s.d.stdout.String() + s.d.stderr.String(),
 		"the worker": worker.stdout.String() + worker.stderr.String(),
 	} {
-		if strings.Contains(said, joined.CASHA256) {
-			t.Errorf("%s printed the fingerprint of the authority", name)
+		if strings.Contains(said, joined.Token) {
+			t.Errorf("%s printed the token of a join string", name)
 		}
 	}
 
@@ -300,6 +300,31 @@ func TestServerAndWorkerOverTLS(t *testing.T) {
 		if found.Worker.Name == "wrong-pin" {
 			t.Errorf("the server lists the worker that pinned another authority: %+v", found)
 		}
+	}
+
+	// A member revokes a token no worker used, with the real command, and a worker that joins with its string is
+	// refused, saying the token was revoked. A token that was used is refused to the revocation.
+	var made api.JoinTokenResponse
+	if err := json.Unmarshal([]byte(s.must("worker", "token", "--expires-in", "2h", "--json")), &made); err != nil {
+		t.Fatal(err)
+	}
+	if lives := time.UnixMilli(made.ExpiresAt).Sub(time.Now()); made.ID == "" || lives < time.Hour || lives > 2*time.Hour+time.Minute {
+		t.Errorf("a token made for two hours lives %s: %+v", lives, made)
+	}
+	if out := s.must("worker", "token-revoke", made.ID); !strings.Contains(out, made.ID) {
+		t.Errorf("worker token-revoke prints %q", out)
+	}
+	revokedHere := newInstall(t)
+	cmd = exec.Command(binaries.daemon, "worker", "join", "--name", "revoked")
+	cmd.Env = append(revokedHere.env(), groupGate, "ROPESHIFT_JOIN="+made.JoinString)
+	stdout.Reset()
+	stderr.Reset()
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	if err := cmd.Run(); err == nil || !strings.Contains(stderr.String(), "revoked") || strings.Contains(stdout.String()+stderr.String(), made.Token) {
+		t.Errorf("a worker joined with a revoked token, or did not say why: %v\n%s%s", err, stdout.String(), stderr.String())
+	}
+	if code, _, stderr := s.run("worker", "token-revoke", joined.Token[:strings.Index(joined.Token, ".")]); code == 0 {
+		t.Errorf("a token a worker used was revoked: %s", stderr)
 	}
 }
 
@@ -491,9 +516,9 @@ func (s *aServer) healthOver(t *testing.T, config *tls.Config) (api.Health, erro
 }
 
 // A server given a name serves TLS in a certificate its own authority issued, keeps the authority's keys to its
-// user, and puts the fingerprint a client pins in the join strings it makes and nowhere else: its own output says
-// where workers reach it and where the authority's file is, and not the fingerprint. A client that pins that
-// fingerprint reaches it, and one that pins another does not.
+// user, and prints the fingerprint a client pins, which is the one in the join strings it makes. A client that pins
+// that fingerprint reaches it, and one that pins another does not. The join token in a string is no part of what the
+// server prints.
 func TestServerServesTLSWithItsOwnAuthority(t *testing.T) {
 	s := startServer(t, aDatabase(t), "--name", "127.0.0.1")
 	if !strings.HasPrefix(s.address, "https://127.0.0.1:") {
@@ -507,8 +532,11 @@ func TestServerServesTLSWithItsOwnAuthority(t *testing.T) {
 	if said := s.d.said(t, "ropeshiftd: worker url "); said != joined.WorkerURL {
 		t.Errorf("the server says its workers reach it at %q, and its join strings say %q", said, joined.WorkerURL)
 	}
-	if said := s.d.stdout.String() + s.d.stderr.String(); strings.Contains(said, fingerprint) || strings.Contains(said, joined.Token) {
-		t.Errorf("the server's output shows a secret of a join string: %s", said)
+	if printed := s.d.said(t, "ropeshiftd: certificate authority sha256 "); printed != fingerprint {
+		t.Errorf("the server prints the fingerprint %q, and its join strings pin %q", printed, fingerprint)
+	}
+	if said := s.d.stdout.String() + s.d.stderr.String(); strings.Contains(said, joined.Token) {
+		t.Errorf("the server's output shows the token of a join string: %s", said)
 	}
 	for _, name := range []string{"ca.key", "server.key"} {
 		info, err := os.Stat(filepath.Join(s.paths().StateDir, "tls", name))

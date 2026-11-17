@@ -3,6 +3,7 @@ package entry
 import (
 	"bytes"
 	"net"
+	"slices"
 	"strings"
 	"testing"
 
@@ -149,10 +150,11 @@ func TestAServerSaysWhereItsWorkersReachItWhenNoneWasGiven(t *testing.T) {
 	}
 }
 
-// The server tells its operator where its workers reach it, and never what a worker pins: the fingerprint of an
-// authority is the trust anchor of a join string, so it reaches a member in one and the server's own output does not
-// repeat it. The line that names the authority's file stays, which is what a person trusts on a device.
-func TestTheServerSaysWhereItsWorkersReachItAndPrintsNoFingerprint(t *testing.T) {
+// The server tells its operator where its workers reach it, and the fingerprint of its own authority beside the file
+// that holds it. The fingerprint is public, as the authority's certificate is, and it is what a worker pins from a join
+// string, so an operator compares the one against the other out of band, which is how a join string that came by a
+// route that might be tampered with is checked.
+func TestTheServerSaysWhereItsWorkersReachItAndTheFingerprintOfItsAuthority(t *testing.T) {
 	t.Parallel()
 	plan, err := planTransport(serverOptions{listen: "127.0.0.1:0", names: []string{"127.0.0.1"}})
 	if err != nil {
@@ -168,11 +170,10 @@ func TestTheServerSaysWhereItsWorkersReachItAndPrintsNoFingerprint(t *testing.T)
 	}
 	var stdout, stderr bytes.Buffer
 	announce(&stdout, &stderr, "/run/control.sock", listener)
-	said := stdout.String() + stderr.String()
-	if strings.Contains(said, listener.fingerprint) || strings.Contains(strings.ToLower(said), "sha256") {
-		t.Errorf("the server printed the fingerprint of its authority: %s", said)
-	}
-	for _, want := range []string{"worker url " + listener.workerURL(), "certificate authority " + listener.authorityFile, "server https://" + listener.Addr().String()} {
+	for _, want := range []string{
+		"worker url " + listener.workerURL(), "certificate authority " + listener.authorityFile, "server https://" + listener.Addr().String(),
+		"certificate authority sha256 " + listener.fingerprint,
+	} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Errorf("the server did not say %q: %s", want, stdout.String())
 		}
@@ -200,25 +201,34 @@ func TestAProxyListenerThatLoopbackCanReachWarnsWhenLoopbackIsNotListed(t *testi
 	proxied := func(listen string, proxies ...string) serverOptions {
 		return serverOptions{listen: listen, tls: "off", trustedProxies: proxies, publicURL: "https://ropeshift.example"}
 	}
+	// A listener on every address of both families, which `::` and an empty host are, is reached from this machine at
+	// 127.0.0.1 and at ::1, and a proxy on this machine uses either, so each must be listed. A listener on every IPv4
+	// address is reached at 127.0.0.1 alone, and a loopback address is reached at itself.
+	both := []string{"127.0.0.1", "::1"}
 	tests := []struct {
 		name    string
 		opts    serverOptions
-		warning string
+		missing []string
 	}{
-		{"every address, loopback not listed", proxied("0.0.0.0:7400", "10.0.0.0/8"), "127.0.0.1"},
-		{"no host, loopback not listed", proxied(":7400", "10.0.0.5"), "127.0.0.1"},
-		{"every IPv6 address, loopback not listed", proxied("[::]:7400", "10.0.0.0/8"), "127.0.0.1"},
-		{"the IPv4 loopback address, not listed", proxied("127.0.0.1:7400", "10.0.0.5"), "127.0.0.1"},
-		{"localhost, not listed", proxied("localhost:7400", "10.0.0.5"), "127.0.0.1"},
-		{"the IPv6 loopback address, not listed", proxied("[::1]:7400", "10.0.0.5"), "::1"},
-		{"the IPv6 loopback address, with only the IPv4 one listed", proxied("[::1]:7400", "127.0.0.1"), "::1"},
-		{"every address, with loopback listed", proxied("0.0.0.0:7400", "10.0.0.0/8", "127.0.0.1"), ""},
-		{"every address, with a range of loopback listed", proxied("0.0.0.0:7400", "127.0.0.0/8"), ""},
-		{"the IPv6 loopback address, listed", proxied("[::1]:7400", "::1"), ""},
-		{"an address of this machine's network", proxied("10.0.0.5:7400", "10.0.0.0/8"), ""},
-		{"a host name of the network", proxied("proxy-side.lan:7400", "10.0.0.0/8"), ""},
-		{"a server that serves TLS", serverOptions{listen: "0.0.0.0:7400", names: []string{"ropeshift.lan"}}, ""},
-		{"a server on loopback with no proxy", serverOptions{listen: "127.0.0.1:7400"}, ""},
+		{"every IPv4 address, loopback not listed", proxied("0.0.0.0:7400", "10.0.0.0/8"), []string{"127.0.0.1"}},
+		{"no host, loopback not listed", proxied(":7400", "10.0.0.5"), both},
+		{"every address, loopback not listed", proxied("[::]:7400", "10.0.0.0/8"), both},
+		{"every address, with only IPv4 loopback listed", proxied("[::]:7400", "127.0.0.1"), []string{"::1"}},
+		{"every address, with only IPv6 loopback listed", proxied("[::]:7400", "::1"), []string{"127.0.0.1"}},
+		{"no host, with only IPv4 loopback listed", proxied(":7400", "127.0.0.0/8"), []string{"::1"}},
+		{"the IPv4 loopback address, not listed", proxied("127.0.0.1:7400", "10.0.0.5"), []string{"127.0.0.1"}},
+		{"localhost, not listed", proxied("localhost:7400", "10.0.0.5"), []string{"127.0.0.1"}},
+		{"the IPv6 loopback address, not listed", proxied("[::1]:7400", "10.0.0.5"), []string{"::1"}},
+		{"the IPv6 loopback address, with only the IPv4 one listed", proxied("[::1]:7400", "127.0.0.1"), []string{"::1"}},
+		{"every IPv4 address, with loopback listed", proxied("0.0.0.0:7400", "10.0.0.0/8", "127.0.0.1"), nil},
+		{"every IPv4 address, with a range of loopback listed", proxied("0.0.0.0:7400", "127.0.0.0/8"), nil},
+		{"every address, with both loopback addresses listed", proxied("[::]:7400", "127.0.0.0/8", "::1"), nil},
+		{"no host, with both loopback addresses listed", proxied(":7400", "127.0.0.1", "::1"), nil},
+		{"the IPv6 loopback address, listed", proxied("[::1]:7400", "::1"), nil},
+		{"an address of this machine's network", proxied("10.0.0.5:7400", "10.0.0.0/8"), nil},
+		{"a host name of the network", proxied("proxy-side.lan:7400", "10.0.0.0/8"), nil},
+		{"a server that serves TLS", serverOptions{listen: "0.0.0.0:7400", names: []string{"ropeshift.lan"}}, nil},
+		{"a server on loopback with no proxy", serverOptions{listen: "127.0.0.1:7400"}, nil},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -226,7 +236,7 @@ func TestAProxyListenerThatLoopbackCanReachWarnsWhenLoopbackIsNotListed(t *testi
 			if err != nil {
 				t.Fatal(err)
 			}
-			if tt.warning == "" {
+			if len(tt.missing) == 0 {
 				if len(plan.warnings) != 0 {
 					t.Errorf("the plan warns: %q", plan.warnings)
 				}
@@ -235,9 +245,16 @@ func TestAProxyListenerThatLoopbackCanReachWarnsWhenLoopbackIsNotListed(t *testi
 			if len(plan.warnings) != 1 {
 				t.Fatalf("the plan warns %q", plan.warnings)
 			}
-			for _, want := range []string{tt.warning, "--trusted-proxies", "ROPESHIFT_TRUSTED_PROXIES"} {
-				if !strings.Contains(plan.warnings[0], want) {
-					t.Errorf("the warning does not say %q: %s", want, plan.warnings[0])
+			warning := plan.warnings[0]
+			for _, want := range append([]string{"--trusted-proxies", "ROPESHIFT_TRUSTED_PROXIES"}, tt.missing...) {
+				if !strings.Contains(warning, want) {
+					t.Errorf("the warning does not say %q: %s", want, warning)
+				}
+			}
+			// What is listed is no part of what the warning asks for.
+			for _, listed := range both {
+				if !slices.Contains(tt.missing, listed) && strings.Contains(warning, listed) {
+					t.Errorf("the warning names %s, which the list holds: %s", listed, warning)
 				}
 			}
 		})
