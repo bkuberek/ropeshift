@@ -419,6 +419,10 @@ func fail(w http.ResponseWriter, err error) {
 		refuse(w, http.StatusConflict, api.ErrorDetail{Code: api.CodeUnpushedWork, Message: err.Error()})
 	case errors.Is(err, authority.ErrRecoveryMoved):
 		refuse(w, http.StatusConflict, api.ErrorDetail{Code: api.CodeMoved, Message: err.Error()})
+	case errors.Is(err, ports.ErrRepositoryReadsUnavailable):
+		refuse(w, http.StatusNotImplemented, api.ErrorDetail{Code: api.CodeRepositoryReadsUnavailable, Message: err.Error()})
+	case errors.Is(err, ports.ErrPaneRelayUnavailable):
+		refuse(w, http.StatusNotImplemented, api.ErrorDetail{Code: api.CodePaneRelayUnavailable, Message: err.Error()})
 	case errors.Is(err, workorders.ErrIllegalMove), errors.Is(err, workorders.ErrLeasedEdge):
 		refuse(w, http.StatusConflict, api.ErrorDetail{Code: api.CodeIllegalMove, Message: err.Error()})
 	default:
