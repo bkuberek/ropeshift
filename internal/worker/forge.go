@@ -75,13 +75,30 @@ func (w *Worker) tendForge(ctx context.Context) {
 			w.runForge(ctx, request)
 		})
 	}
+	// The pull requests of one repository that are due are read together: one query for two or more, which costs
+	// one call where a read of each costs two apiece, and a conditional probe for one (FR-SPEND-20).
+	due := map[string][]ledger.DesiredPullRequest{}
+	var repositories []string
 	for _, watched := range state.PullRequests {
 		if rt.Forge == nil || !w.readDue(watched) {
 			continue
 		}
-		w.goForge(ctx, "read/"+forgeKey(watched.Project, watched.WorkOrder), func(ctx context.Context) {
-			w.readPullRequest(ctx, watched)
-		})
+		key := forgeKey(watched.Project, watched.Repository)
+		if _, listed := due[key]; !listed {
+			repositories = append(repositories, key)
+		}
+		due[key] = append(due[key], watched)
+	}
+	for _, key := range repositories {
+		group := due[key]
+		if len(group) == 1 {
+			watched := group[0]
+			w.goForge(ctx, "read/"+forgeKey(watched.Project, watched.WorkOrder), func(ctx context.Context) {
+				w.readPullRequest(ctx, watched)
+			})
+			continue
+		}
+		w.goForge(ctx, "batch/"+key, func(ctx context.Context) { w.readPullRequests(ctx, group) })
 	}
 }
 
@@ -122,8 +139,9 @@ func (w *Worker) takeHint(watched ledger.DesiredPullRequest) bool {
 }
 
 // readDue paces the reads of one watched pull request by the repository's CI schedule, and holds them while the
-// repository's sign-in this worker found cannot run. A hint reads at once. A pull request no read has been made
-// of is read at once too.
+// repository's sign-in this worker found cannot run, and while the forge is rate limiting it. A hint reads at once,
+// through a poll interval's floor and not through a rate limit. A pull request no read has been made of is read at
+// once too.
 func (w *Worker) readDue(watched ledger.DesiredPullRequest) bool {
 	w.forgeLock.Lock()
 	defer w.forgeLock.Unlock()
@@ -131,51 +149,173 @@ func (w *Worker) readDue(watched ledger.DesiredPullRequest) bool {
 	if !ok || seen.found.State != ledger.ForgeHealthy {
 		return false
 	}
+	now := w.clock.Now()
+	limits := w.ciRate[forgeKey(watched.Project, watched.Repository)]
+	if now.Before(limits.until) {
+		return false
+	}
 	last, read := w.forgeRead[forgeKey(watched.Project, watched.WorkOrder)]
 	if w.takeHint(watched) {
 		return true
 	}
-	return !read || !w.clock.Now().Before(last.next)
+	if now.Before(limits.floor) {
+		return false
+	}
+	return !read || !now.Before(last.next)
 }
 
 // forgeReadSeen is when a worker last read a watched pull request, when the CI schedule reads it next, the head
-// that read found, and what the worker last told the ledger of it.
+// that read found, and what the worker last told the ledger of it. Last is the pull request that read found, and
+// tag is what a probe made just before it gave, which the next probe compares with.
 type forgeReadSeen struct {
 	next time.Time
 	head string
 	told *ledger.PullRequest
+	last *ledger.PullRequest
+	tag  string
 }
 
-// readPullRequest reads one pull request this worker watches for the ledger, and reports it when it differs
-// from what the ledger last heard: a merge, a close, a head the forge now shows, or new checks.
-func (w *Worker) readPullRequest(ctx context.Context, watched ledger.DesiredPullRequest) {
-	rt := w.config.Lanes
-	key := forgeKey(watched.Project, watched.WorkOrder)
+// holdRead sets when a watched pull request is next due to a failed read's retry, and returns what was there. A
+// read that fails is tried again after the forge interval, as every forge step is.
+func (w *Worker) holdRead(watched ledger.DesiredPullRequest) forgeReadSeen {
 	w.forgeLock.Lock()
+	defer w.forgeLock.Unlock()
 	if w.forgeRead == nil {
 		w.forgeRead = map[string]forgeReadSeen{}
 	}
+	key := forgeKey(watched.Project, watched.WorkOrder)
 	seen := w.forgeRead[key]
-	// A read that fails is tried again after the forge interval, as every forge step is.
-	seen.next = w.clock.Now().Add(rt.forgeEvery())
+	held := seen
+	seen.next = w.clock.Now().Add(w.config.Lanes.forgeEvery())
 	w.forgeRead[key] = seen
-	w.forgeLock.Unlock()
-	dir, err := rt.Repository(ctx, watched.Project, watched.Repository)
-	if err != nil {
+	return held
+}
+
+// readFailed says what a failed read came to. A refusal for a rate limit holds the repository's reads and is no
+// failure of the pull request or of the sign-in, and any other failure is reported and has the sign-in read again.
+func (w *Worker) readFailed(watched ledger.DesiredPullRequest, err error) {
+	if errors.Is(err, ports.ErrForgeRateLimited) {
+		w.rateLimited(watched.Project, watched.Repository, err)
 		return
+	}
+	w.config.Report(fmt.Errorf("pull request %d of %s: %w", watched.Number, watched.WorkOrder, err))
+	w.recheckHealth(watched.Project, watched.Repository)
+}
+
+// forgeTarget is the checkout and the binding a watched pull request is read through.
+func (w *Worker) forgeTarget(ctx context.Context, watched ledger.DesiredPullRequest) (ports.ForgeRepo, bool) {
+	dir, err := w.config.Lanes.Repository(ctx, watched.Project, watched.Repository)
+	if err != nil {
+		return ports.ForgeRepo{}, false
 	}
 	binding, err := ledger.ParseForgeBinding(watched.Binding)
 	if err != nil {
+		return ports.ForgeRepo{}, false
+	}
+	return ports.ForgeRepo{Dir: dir, Binding: binding}, true
+}
+
+// readPullRequests reads the due pull requests of one repository in one query, and settles each as a read of it
+// on its own is. A pull request the query could not answer is read on its own, which a head that moved in the
+// moment of the query is, and which a pull request the forge does not hold is too.
+func (w *Worker) readPullRequests(ctx context.Context, group []ledger.DesiredPullRequest) {
+	for _, watched := range group {
+		w.holdRead(watched)
+	}
+	repo, ok := w.forgeTarget(ctx, group[0])
+	if !ok {
 		return
 	}
-	read, err := rt.Forge.PullRequest(ctx, ports.PullRequestRef{Repo: ports.ForgeRepo{Dir: dir, Binding: binding}, Number: watched.Number})
+	numbers := make([]int64, 0, len(group))
+	for _, watched := range group {
+		numbers = append(numbers, watched.Number)
+	}
+	read, err := w.config.Lanes.Forge.ReadPullRequests(ctx, repo, numbers)
 	if err != nil {
-		w.config.Report(fmt.Errorf("pull request %d of %s: %w", watched.Number, watched.WorkOrder, err))
-		w.recheckHealth(watched.Project, watched.Repository)
+		w.readFailed(group[0], err)
 		return
 	}
-	seen.next, seen.head = w.nextRead(watched, seen.head, read)
+	w.rateKept(group[0].Project, group[0].Repository, read.Rate)
+	for _, watched := range group {
+		if pr, answered := read.Pulls[watched.Number]; answered {
+			w.settle(ctx, watched, pr, "")
+			continue
+		}
+		w.readPullRequest(ctx, watched)
+	}
+}
+
+// readPullRequest reads one pull request this worker watches for the ledger, and reports it when it differs
+// from what the ledger last heard: a merge, a close, a head the forge now shows, or new checks. While a required
+// check is still to finish, it asks first with conditional requests whether anything changed, which costs no
+// read when nothing did.
+func (w *Worker) readPullRequest(ctx context.Context, watched ledger.DesiredPullRequest) {
+	seen := w.holdRead(watched)
+	repo, ok := w.forgeTarget(ctx, watched)
+	if !ok {
+		return
+	}
+	ref := ports.PullRequestRef{Repo: repo, Number: watched.Number}
+	tag := ""
+	if seen.last != nil && seen.head != "" && pendingRequired(seen.last.Checks) {
+		probe, err := w.config.Lanes.Forge.ProbeChecks(ctx, ref, seen.head, seen.tag)
+		switch {
+		case errors.Is(err, ports.ErrForgeRateLimited):
+			w.readFailed(watched, err)
+			return
+		case err == nil:
+			w.rateKept(watched.Project, watched.Repository, probe.Rate)
+			if probe.Unchanged && seen.tag != "" {
+				w.reschedule(watched, *seen.last)
+				return
+			}
+			if w.rateHeld(watched.Project, watched.Repository) {
+				return
+			}
+			tag = probe.Tag
+		}
+		// A probe the forge failed otherwise says nothing, and the read that follows finds out what is wrong.
+	}
+	read, err := w.config.Lanes.Forge.PullRequest(ctx, ref)
+	if err != nil {
+		w.readFailed(watched, err)
+		return
+	}
+	w.rateKept(watched.Project, watched.Repository, ports.ForgeRate{})
+	w.settle(ctx, watched, read, tag)
+}
+
+// pendingRequired says a required check has not finished, which is what makes the CI schedule apply.
+func pendingRequired(checks []ledger.PullRequestCheck) bool {
+	return slices.ContainsFunc(checks, func(check ledger.PullRequestCheck) bool { return check.Required && check.State == ledger.CheckPending })
+}
+
+// reschedule sets when a pull request is next read after a probe found nothing changed, from what the last read
+// found.
+func (w *Worker) reschedule(watched ledger.DesiredPullRequest, last ledger.PullRequest) {
 	w.forgeLock.Lock()
+	seen := w.forgeRead[forgeKey(watched.Project, watched.WorkOrder)]
+	head := seen.head
+	w.forgeLock.Unlock()
+	next, head := w.nextRead(watched, head, last)
+	w.forgeLock.Lock()
+	defer w.forgeLock.Unlock()
+	seen = w.forgeRead[forgeKey(watched.Project, watched.WorkOrder)]
+	seen.next, seen.head = next, head
+	w.forgeRead[forgeKey(watched.Project, watched.WorkOrder)] = seen
+}
+
+// settle keeps what a read of a pull request found, sets when the CI schedule reads it next, and reports it to
+// the ledger when it differs from what the ledger last heard.
+func (w *Worker) settle(ctx context.Context, watched ledger.DesiredPullRequest, read ledger.PullRequest, tag string) {
+	key := forgeKey(watched.Project, watched.WorkOrder)
+	w.forgeLock.Lock()
+	seen := w.forgeRead[key]
+	w.forgeLock.Unlock()
+	next, head := w.nextRead(watched, seen.head, read)
+	w.forgeLock.Lock()
+	seen = w.forgeRead[key]
+	seen.next, seen.head, seen.last, seen.tag = next, head, &read, tag
 	w.forgeRead[key] = seen
 	w.forgeLock.Unlock()
 	if seen.told != nil && sameRead(*seen.told, read) {

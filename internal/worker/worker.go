@@ -129,6 +129,8 @@ type Worker struct {
 	// ciHints are the forge's hints that checks changed, by binding and head, each with when it came. A tick
 	// reads the pull request a hint names at once, and drops the hint.
 	ciHints map[string]time.Time
+	// ciRate is where each repository stands with the forge's rate limits: the wait a refusal or a header set.
+	ciRate map[string]ciRateSeen
 
 	// toOrchestrator is what this worker knows of the members' messages to its orchestrator, and mu guards
 	// its making.

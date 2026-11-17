@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/ports"
@@ -45,6 +46,8 @@ type Forge struct {
 	calls   []string
 	// limit is the rate limit every read is refused for, while it is set.
 	limit *ports.ForgeRate
+	// poll is the poll interval a query or a probe reports.
+	poll time.Duration
 	// Fail is what every read and operation returns while it is set.
 	Fail error
 }
@@ -298,6 +301,14 @@ func (f *Forge) Limit(rate ports.ForgeRate) {
 	}
 }
 
+// PollEvery makes every query and probe say the endpoint asks for this much time between two reads, as an
+// x-poll-interval header does. Zero says nothing.
+func (f *Forge) PollEvery(d time.Duration) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.poll = d
+}
+
 // readable is what a read needs before it answers: a forge that can be reached and signed in to, and a rate limit
 // that has not refused it.
 func (f *Forge) readable(host string) error {
@@ -319,7 +330,7 @@ func (f *Forge) ReadPullRequests(_ context.Context, repo ports.ForgeRepo, number
 	if err := f.readable(repo.Binding.Host); err != nil {
 		return ports.PullRequestsRead{}, err
 	}
-	read := ports.PullRequestsRead{Pulls: map[int64]ledger.PullRequest{}}
+	read := ports.PullRequestsRead{Pulls: map[int64]ledger.PullRequest{}, Rate: ports.ForgeRate{PollInterval: f.poll}}
 	for _, number := range numbers {
 		if held := f.find(number); held != nil && held.binding == repo.Binding.String() {
 			read.Pulls[number] = f.current(held)
@@ -342,7 +353,7 @@ func (f *Forge) ProbeChecks(_ context.Context, ref ports.PullRequestRef, _, tag 
 		return ports.ChecksProbe{}, fmt.Errorf("pull request %d: %w", ref.Number, ports.ErrNotFound)
 	}
 	now := fmt.Sprintf("%d:%s", held.rev, f.current(held).HeadCommit)
-	return ports.ChecksProbe{Unchanged: tag == now, Tag: now}, nil
+	return ports.ChecksProbe{Unchanged: tag == now, Tag: now, Rate: ports.ForgeRate{PollInterval: f.poll}}, nil
 }
 
 // Comment posts once per key.
