@@ -130,13 +130,13 @@ type holding struct {
 	once    sync.Once
 }
 
-func (h *holding) Authenticate(ctx context.Context, scope ledger.WorkspaceID, proof ports.Proof) (string, error) {
+func (h *holding) Authenticate(ctx context.Context, scope ledger.WorkspaceID, proof ports.Proof, alongside func(ports.SharedTx, string) error) (string, error) {
 	h.once.Do(func() { close(h.started) })
 	select {
 	case <-h.release:
 	case <-ctx.Done():
 	}
-	return h.IdentityProvider.Authenticate(ctx, scope, proof)
+	return h.IdentityProvider.Authenticate(ctx, scope, proof, alongside)
 }
 
 // One address holds two places of the line at most, so a few addresses cannot fill it and leave a member the
