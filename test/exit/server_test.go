@@ -145,7 +145,12 @@ func (s *aServer) joinString(t *testing.T) api.JoinString {
 // Neither the join string nor the token or the fingerprint in it is what the worker prints.
 func (s *aServer) join(t *testing.T) (*install, *daemon) {
 	t.Helper()
-	joined := s.joinString(t)
+	return s.joinWith(t, s.joinString(t))
+}
+
+// joinWith is join with the join string of a token the caller made, so the caller knows which token the worker used.
+func (s *aServer) joinWith(t *testing.T, joined api.JoinString) (*install, *daemon) {
+	t.Helper()
 	text, err := joined.Encode()
 	if err != nil {
 		t.Fatal(err)
@@ -240,7 +245,8 @@ func TestServerAndWorkerOverTLS(t *testing.T) {
 	if !strings.HasPrefix(joined.WorkerURL, "https://127.0.0.1:") || len(joined.CASHA256) != 64 {
 		t.Fatalf("the join string names %q pinned to %q", joined.WorkerURL, joined.CASHA256)
 	}
-	machine, worker := s.join(t)
+	// The worker joins with this very string, so its token is the one a worker used.
+	machine, worker := s.joinWith(t, joined)
 	var line api.WorkerLine
 	s.waitFor("the worker in the server's list, with its drivers", func() bool {
 		for _, found := range s.floor(t).Workers {
