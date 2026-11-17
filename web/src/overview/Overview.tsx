@@ -10,7 +10,7 @@ import { useView } from "../api/useView";
 import { useRead } from "../admin/parts";
 import { addressOf, Link } from "../app/route";
 import { milestoneStates } from "../floor/states";
-import { headingOf, keyOf, kindOf } from "../needs/kinds";
+import { fullHeadingOf, headingOf, keyOf, kindOf } from "../needs/kinds";
 import { Ago, Bar, Lasted, Page, StampLine, useClock, ViewTime } from "../parts/parts";
 import { StartSession } from "../planning/StartSession";
 import { agreementOf } from "../reviews/inReview";
@@ -143,7 +143,7 @@ function Waiting({ needs, project }: { needs: NeedsYou; project: string }) {
     <ul className="list-rows">
       {top.map((item) => (
         <li key={keyOf(item)} className="list-row">
-          <Link to={addressOf("/needs-you", { project, item: keyOf(item) })} className="list-row-title">
+          <Link to={addressOf("/needs-you", { project, item: keyOf(item) })} className="list-row-title" title={fullHeadingOf(item) === headingOf(item) ? undefined : fullHeadingOf(item)}>
             {headingOf(item)}
           </Link>
           <p className="small muted row-tight">

@@ -135,12 +135,39 @@ export function kindOf(item: NeedItem): { icon: IconName; name: string } {
   }
 }
 
-// headingOf says what is asked, as a person reads it.
+// titleLimit is the most characters of a question's text its title holds before it is cut.
+export const titleLimit = 90;
+
+const oneLine = (text: string) => text.replace(/\s+/g, " ").trim();
+
+// questionTitle is a question's own text as a title: on one line, and cut at a word boundary with an ellipsis
+// when it is long. A question with no text is "A question".
+export function questionTitle(text: string): string {
+  const line = oneLine(text);
+  if (!line) {
+    return "A question";
+  }
+  if (line.length <= titleLimit) {
+    return line;
+  }
+  const boundary = line.lastIndexOf(" ", titleLimit);
+  const kept = boundary >= titleLimit / 2 ? line.slice(0, boundary) : line.slice(0, titleLimit);
+  return `${kept.replace(/[\s,;:.\-–—]+$/, "")}…`;
+}
+
+// fullHeadingOf is headingOf with nothing cut: what a title attribute holds, so the whole question stays one
+// hover away.
+export function fullHeadingOf(item: NeedItem): string {
+  const [only] = item.kind === "questions" && item.batch.items.length === 1 ? item.batch.items : [];
+  return only ? oneLine(only.text) || headingOf(item) : headingOf(item);
+}
+
+// headingOf says what is asked, as a person reads it. A batch of one question is titled by the question.
 export function headingOf(item: NeedItem): string {
   switch (item.kind) {
     case "questions": {
-      const count = item.batch.items.length;
-      return count === 1 ? "A question" : `${count} questions`;
+      const [only] = item.batch.items;
+      return item.batch.items.length === 1 && only ? questionTitle(only.text) : `${item.batch.items.length} questions`;
     }
     case "approval":
       return approvalHeading(item.approval);
