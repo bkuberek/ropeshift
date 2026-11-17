@@ -146,6 +146,9 @@ type Sabotage struct {
 	// NarrowsRevisionInPlace rewrites a revision with the decisions recorded after an approval, which leaves the
 	// approval no revision to show.
 	NarrowsRevisionInPlace bool
+	// ShowsByTime splits a revision at an approval by the moments its decisions were recorded at, which the
+	// decisions the approval recorded as shown do not decide.
+	ShowsByTime bool
 	// ReleasesBoundWork lets a revision that stays open release the work its decisions bind when a member settles
 	// the plan.
 	ReleasesBoundWork bool
@@ -306,6 +309,8 @@ func reworksUnlistedWork() bool { return current().ReworksUnlistedWork }
 func closesLaterDecisions() bool { return current().ClosesLaterDecisions }
 
 func narrowsRevisionInPlace() bool { return current().NarrowsRevisionInPlace }
+
+func showsByTime() bool { return current().ShowsByTime }
 
 func releasesBoundWork() bool { return current().ReleasesBoundWork }
 

@@ -44,8 +44,11 @@ type Database struct {
 	// Open returns a handle on this database. A restart closes one handle and
 	// opens another.
 	Open func(t testing.TB, opts sqlstore.Options) ports.Store
-	// ShiftClock moves database time for every handle.
+	// ShiftClock moves database time for every handle, back when the delta is negative.
 	ShiftClock func(deltaMs int64)
+	// FreezeClock stops database time for every handle at a millisecond, which every read gives until it is
+	// called with zero.
+	FreezeClock func(atMs int64)
 	// Damage runs one statement around the Store, to corrupt a projection.
 	Damage func(t testing.TB, statement string) error
 	// Restartable is false for a database that lives inside its only handle.

@@ -29,7 +29,7 @@ func memoryLink(t *testing.T, protocol int) *LinkRig {
 	if err != nil {
 		t.Fatal(err)
 	}
-	store := sqlstore.New(db, ShiftedDialect{sqlite.Dialect{}, offset}, sqlstore.Options{})
+	store := sqlstore.New(db, ShiftedDialect{Dialect: sqlite.Dialect{}, Offset: offset}, sqlstore.Options{})
 	t.Cleanup(func() { _ = store.Close() })
 	if err := restoreMigrated(db); err != nil {
 		t.Fatal(err)
@@ -111,7 +111,7 @@ func httpLink(t *testing.T, protocol int) *LinkRig {
 	offset := &atomic.Int64{}
 	daemon := apitest.StartWith(t, apitest.Options{
 		Protocol: protocol,
-		Clock:    func(d sqlstore.Dialect) sqlstore.Dialect { return ShiftedDialect{d, offset} },
+		Clock:    func(d sqlstore.Dialect) sqlstore.Dialect { return ShiftedDialect{Dialect: d, Offset: offset} },
 		Wrap: func(next http.Handler) http.Handler {
 			wire.next = next
 			return wire
@@ -144,7 +144,7 @@ func networkLink(t *testing.T, protocol int, serving *tls.Config, dial func(*api
 	offset := &atomic.Int64{}
 	daemon := apitest.StartWith(t, apitest.Options{
 		Protocol: protocol,
-		Clock:    func(d sqlstore.Dialect) sqlstore.Dialect { return ShiftedDialect{d, offset} },
+		Clock:    func(d sqlstore.Dialect) sqlstore.Dialect { return ShiftedDialect{Dialect: d, Offset: offset} },
 	})
 	options := apitest.NetworkOptions{
 		Assets: fstest.MapFS{"placeholder.html": {Data: []byte("not built")}}, TLS: serving,

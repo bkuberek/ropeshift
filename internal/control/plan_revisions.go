@@ -2,6 +2,7 @@ package control
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
@@ -253,9 +254,47 @@ func (p *PlanRevisions) ConfirmRevision(ctx context.Context, scope ledger.Worksp
 	return closed, nil
 }
 
+// showDecisions records on a plan approval the decisions its plan's open revision lists at the moment a member
+// approves it, which are the ones the request showed beside the difference. It records an empty list when the plan
+// has no open revision, so that an approval which showed none is never read as one that recorded nothing. The
+// approval is the record of what the member saw, because the moments the decisions were recorded at say nothing
+// reliable about it: two writes can share a millisecond, and a clock can be set back.
+func showDecisions(tx ports.WriteTx, approval authority.Approval) (authority.Approval, error) {
+	shown := []string{}
+	if approval.Plan != "" {
+		open, err := tx.Planning().OpenRevision(approval.Plan)
+		switch {
+		case err == nil:
+			shown = slices.Clone(open.DecisionIDs)
+		case !errors.Is(err, ports.ErrNotFound):
+			return approval, err
+		}
+	}
+	detail := planDetailOf(approval)
+	detail.Shown = &planning.ShownDecisions{IDs: shown}
+	data, err := json.Marshal(detail)
+	if err != nil {
+		return approval, err
+	}
+	approval.Detail = string(data)
+	return approval, nil
+}
+
+// decisionsShown splits a revision at an approval into the decisions the approval showed and the ones recorded
+// after it. An approval says which it showed. Only an approval recorded before approvals kept that list has none,
+// and the moments the decisions were recorded at decide for it, as they did before: it is a branch a member
+// approved before intake read it, and the decisions it finds are read as they were.
+func decisionsShown(open planning.Revision, approval authority.Approval) (shown, later []string) {
+	saw := planDetailOf(approval).Shown
+	if saw == nil || showsByTime() {
+		return open.Through(approval.DecidedAt), open.After(approval.DecidedAt)
+	}
+	return open.Within(saw.IDs), open.Outside(saw.IDs)
+}
+
 // closeApprovedRevision ends the revision of a plan whose later version a member approved, naming the approval, and
 // releases the work that waited for it. Approving the version is the member's word on the decisions the request
-// showed beside the difference, which are the ones recorded at or before the moment the member approved it. A
+// showed beside the difference, which the approval recorded when the member approved it (decisionsShown). A
 // decision recorded after that no approval showed, so the revision splits there: the one the approval closed lists
 // the decisions it showed, and a new one, since the version the member approved, lists the later decisions and
 // keeps waiting for the work they bind. When the approval showed none of them, the revision goes on as it is, since
@@ -272,7 +311,7 @@ func closeApprovedRevision(tx ports.WriteTx, plan string, approval authority.App
 	if err != nil {
 		return err
 	}
-	shown, later := open.Through(approval.DecidedAt), open.After(approval.DecidedAt)
+	shown, later := decisionsShown(open, approval)
 	if closesLaterDecisions() {
 		shown, later = open.DecisionIDs, nil
 	}
@@ -441,7 +480,7 @@ func (q *Questions) DecisionRework(ctx context.Context, scope ledger.WorkspaceID
 			return fmt.Errorf("%w: work order %s got no rework", workorders.ErrInvalid, order.ID)
 		}
 		rework = made[0]
-		return recordRework(tx, order, rework, actor)
+		return recordRework(tx, order, rework, decisions, actor)
 	})
 	return rework, err
 }
@@ -516,9 +555,9 @@ func decisionReasons(tx ports.WriteTx, listed planning.RevisionWork, order worko
 	return why, nil
 }
 
-// recordRework puts the rework a member made of a finished work order on the revision of its plan that lists the
-// work.
-func recordRework(tx ports.WriteTx, order workorders.WorkOrder, rework string, actor ledger.Actor) error {
+// recordRework puts the rework a member made of a finished work order, for the decisions given, on the revision of
+// its plan that lists the work.
+func recordRework(tx ports.WriteTx, order workorders.WorkOrder, rework string, decisions []string, actor ledger.Actor) error {
 	plan, err := newScopeFacts(tx.Planning(), tx.WorkOrders()).planOf(order.ContractID, order.ContractVersion)
 	if err != nil || plan == "" {
 		return err
@@ -530,7 +569,7 @@ func recordRework(tx ports.WriteTx, order workorders.WorkOrder, rework string, a
 	if err != nil {
 		return err
 	}
-	if next := open.Reworked(order.ID, rework); !reflect.DeepEqual(next, open) {
+	if next := open.Reworked(order.ID, rework, decisions); !reflect.DeepEqual(next, open) {
 		return saveRevision(tx, next, planning.EventRevisionExtended, actor)
 	}
 	return nil

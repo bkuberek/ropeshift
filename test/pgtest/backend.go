@@ -52,13 +52,14 @@ var Backend = contract.Backend{Name: "postgres", Fresh: func(t testing.TB) contr
 	if err != nil {
 		t.Fatal(err)
 	}
-	offset := &atomic.Int64{}
+	offset, frozen := &atomic.Int64{}, &atomic.Int64{}
 	return contract.Database{
 		Restartable: true,
 		ShiftClock:  func(delta int64) { offset.Add(delta) },
+		FreezeClock: frozen.Store,
 		Open: func(t testing.TB, opts sqlstore.Options) ports.Store {
 			store, err := postgres.OpenStore(server.DSN(name), postgres.Options{
-				Dialect: contract.ShiftedDialect{Dialect: postgres.Dialect{}, Offset: offset},
+				Dialect: contract.ShiftedDialect{Dialect: postgres.Dialect{}, Offset: offset, Frozen: frozen},
 				Store:   opts,
 			})
 			if err != nil {
@@ -132,15 +133,16 @@ var ProjectBackend = contract.Backend{Name: "postgres-project", Fresh: func(t te
 	if err != nil {
 		t.Fatal(err)
 	}
-	offset := &atomic.Int64{}
+	offset, frozen := &atomic.Int64{}, &atomic.Int64{}
 	return contract.Database{
 		Restartable:  true,
 		Installation: true,
 		ShiftClock:   func(delta int64) { offset.Add(delta) },
+		FreezeClock:  frozen.Store,
 		Open: func(t testing.TB, opts sqlstore.Options) ports.Store {
 			// The installation reads the same shifted clock, because a run window it holds ends by that time.
 			state, err := postgres.Open(t.Context(), server.DSN(name), postgres.Options{
-				Dialect: contract.ShiftedDialect{Dialect: postgres.Dialect{}, Offset: offset},
+				Dialect: contract.ShiftedDialect{Dialect: postgres.Dialect{}, Offset: offset, Frozen: frozen},
 			})
 			if err != nil {
 				t.Fatal(err)
