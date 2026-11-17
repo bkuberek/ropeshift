@@ -92,6 +92,26 @@ describe("a plan revision card", () => {
     expect(call?.body).toEqual({ decisions: ["d-logo"] });
   });
 
+  it("sends only the decisions still in force, and not one overturned since", async () => {
+    const sent = serveApi(() => ({ status: 200, body: {} }));
+    const need = revision();
+    need.decisions.push({ id: "d-old", statement: "Use the monogram.", scope: "plan:plan-1", reversibility: "reversible", status: "overturned", decided_by: "member-1" });
+    need.finished = [{ work_order: "wo-built", title: "Add the budget", state: "done", decisions: ["d-old", "d-logo"] }];
+    show(itemOf(need));
+    await userEvent.click(within(theCard()).getByRole("button", { name: "Create rework for Add the budget" }));
+    await waitFor(() => expect(sent.some((call) => call.method === "POST")).toBe(true));
+    expect(sent.find((call) => call.method === "POST")?.body).toEqual({ decisions: ["d-logo"] });
+  });
+
+  it("offers no rework of work that only overturned decisions reached", () => {
+    const need = revision();
+    need.decisions = need.decisions.map((decision) => (decision.id === "d-logo" ? { ...decision, status: "overturned" } : decision));
+    show(itemOf(need));
+    const card = theCard();
+    expect(within(card).queryByRole("button", { name: /Create rework/ })).toBeNull();
+    expect(within(card).getByRole("list", { name: "Finished work these decisions reached" }).textContent).toContain("no decision in force reached it");
+  });
+
   it("says a work order was reworked, and offers no second rework of it", () => {
     const need = revision();
     need.finished = [{ work_order: "wo-built", title: "Add the budget", state: "done", decisions: ["d-logo"], rework: "wo-redo" }];

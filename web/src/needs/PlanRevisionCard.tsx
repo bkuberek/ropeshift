@@ -30,27 +30,46 @@ function Decisions({ decisions }: { decisions: RevisionDecision[] }) {
   );
 }
 
+const inForce = (decision: RevisionDecision) => decision.status === "decided" || decision.status === "assumed";
+
 // Finished is the work a reversible decision reached, which is not reworked until a member says so: one rework for
-// each work order, naming the decisions that reached it.
-function Finished({ work, busy, rework }: { work: RevisionFinishedWork[]; busy: boolean; rework: (work: RevisionFinishedWork) => void }) {
+// each work order, naming the decisions of it that are still in force. A decision overturned since asks nothing of
+// the work, and work that only such decisions reached has nothing to rework for.
+function Finished({
+  work,
+  decisions,
+  busy,
+  rework,
+}: {
+  work: RevisionFinishedWork[];
+  decisions: RevisionDecision[];
+  busy: boolean;
+  rework: (work: RevisionFinishedWork, inForce: string[]) => void;
+}) {
+  const current = new Set(decisions.filter(inForce).map((decision) => decision.id));
   return (
     <ul className="links" aria-label="Finished work these decisions reached">
-      {work.map((row) => (
-        <li key={row.work_order} className="row-tight">
-          <span>
-            {row.title || row.work_order} <span className="muted">(decisions {row.decisions.join(", ")})</span>
-          </span>
-          {row.rework ? (
-            <span className="muted">
-              Reworked as <Id value={row.rework} />
+      {work.map((row) => {
+        const live = row.decisions.filter((id) => current.has(id));
+        return (
+          <li key={row.work_order} className="row-tight">
+            <span>
+              {row.title || row.work_order} <span className="muted">(decisions {row.decisions.join(", ")})</span>
             </span>
-          ) : (
-            <Button disabled={busy} aria-label={`Create rework for ${row.title || row.work_order}`} onClick={() => rework(row)}>
-              Create rework
-            </Button>
-          )}
-        </li>
-      ))}
+            {row.rework ? (
+              <span className="muted">
+                Reworked as <Id value={row.rework} />
+              </span>
+            ) : live.length ? (
+              <Button disabled={busy} aria-label={`Create rework for ${row.title || row.work_order}`} onClick={() => rework(row, live)}>
+                Create rework
+              </Button>
+            ) : (
+              <span className="muted">no decision in force reached it</span>
+            )}
+          </li>
+        );
+      })}
     </ul>
   );
 }
@@ -98,7 +117,12 @@ export function PlanRevisionCard({ need, after, frame }: { need: PlanRevisionVie
       </DecisionSection>
       {need.finished.length ? (
         <DecisionSection title="Finished work they reached">
-          <Finished work={need.finished} busy={busy} rework={(row) => void act(() => reworkForDecisions(row.work_order, row.decisions))} />
+          <Finished
+            work={need.finished}
+            decisions={need.decisions}
+            busy={busy}
+            rework={(row, live) => void act(() => reworkForDecisions(row.work_order, live))}
+          />
         </DecisionSection>
       ) : null}
       <p>
