@@ -4,8 +4,25 @@ import (
 	"context"
 	"sync"
 
+	"ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/internal/ports"
 )
+
+// DigestSoFar is the digest a lane's run holds open for its generation, and false while the run has folded
+// nothing. A scripted session runs ahead of the worker that follows it, so a test that ends a generation
+// reads this first to know the worker has taken the events the generation is meant to hold.
+func (w *Worker) DigestSoFar(lane string) (lanes.Digest, bool) {
+	run := w.runOf(lane)
+	if run == nil {
+		return lanes.Digest{}, false
+	}
+	run.digestLock.Lock()
+	defer run.digestLock.Unlock()
+	if run.digest == nil {
+		return lanes.Digest{}, false
+	}
+	return run.digest.Digest(), true
+}
 
 // MessageLabel starts the effect key of a message's one write.
 const MessageLabel = messageLabel

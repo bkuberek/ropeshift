@@ -131,6 +131,13 @@ func TestAClearEndsOneGenerationsDigestAndBeginsTheNext(t *testing.T) {
 		t.Fatal("the session never reached its gate")
 	}
 	r.eventually("a turn in progress", func(view ledger.LaneView) bool { return view.ActualState == string(lanes.Working) })
+	// The scripted session is at its gate, and the worker may not have read the Edit before it yet. The clear
+	// comes from a hook, which no stream orders against, so the generation ends at whatever the worker has read
+	// when the clear arrives. The test clears once the worker has read what the first generation did.
+	r.eventually("the first generation's Edit read", func(ledger.LaneView) bool {
+		digest, ok := r.subject.DigestSoFar("lane-1")
+		return ok && digest.ToolCalls["Edit"] == 1
+	})
 	r.cleared(t, clearedSession)
 	r.read()
 	first, err := r.digestOf(t, 1)
