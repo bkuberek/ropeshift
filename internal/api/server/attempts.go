@@ -38,6 +38,24 @@ const (
 	inFlightWait = time.Second
 )
 
+// The webhook route of CI events has a limit of its own. A delivery is no guess at a passphrase: it costs an in-memory
+// lookup and one HMAC over at most a mebibyte, and GitHub sends several at once from the same few addresses and does
+// not retry a refusal. So the route allows far more deliveries in flight, and far more refusals before it refuses an
+// address, than the sign-in limit does. Every refusal still counts, whatever its reason, so which repositories are
+// registered stays unknowable.
+const (
+	// WebhookInFlight is how many deliveries one address may have in flight at once.
+	WebhookInFlight = 256
+	// WebhookMaxFailures is how many refused deliveries one address may make within the lockout before it is refused.
+	WebhookMaxFailures = 1000
+)
+
+// NewWebhookAttempts returns the limit of the webhook route of CI events, which refuses an address for lockout once
+// it has had WebhookMaxFailures deliveries refused within it. A zero lockout takes the default.
+func NewWebhookAttempts(lockout time.Duration) *Attempts {
+	return NewAttempts(AttemptLimits{MaxFailures: WebhookMaxFailures, Lockout: lockout, InFlight: WebhookInFlight})
+}
+
 // AttemptLimits say how many wrong guesses a client address may make, how long they count and how long a
 // refusal lasts, how many addresses are tracked at once, and what time it is. A zero value takes the default.
 type AttemptLimits struct {

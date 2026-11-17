@@ -16,14 +16,14 @@ const ciWebhookBodyMax = 1 << 20
 
 // githubWebhook takes a GitHub webhook delivery of a CI event: a check_suite, a check_run, or a workflow_run. It is
 // the one route that takes no session and no credential, and its signature, made with the key of the repository it
-// names, is its authority. The request is let through the limit on the address it came from first, and every
-// refusal counts against that address as a wrong passphrase does, so an address that floods the route is refused
-// early. The signature's form is checked before the body is read, and the body, whose size is bounded, is read and
+// names, is its authority. The request is let through the route's own limit on the address it came from first, which
+// is not the sign-in limit, and every refusal counts against that address, so an address that floods the route is
+// refused early. The signature's form is checked before the body is read, and the body, whose size is bounded, is read and
 // then verified by the use case before it trusts a word of it. Every delivery it cannot verify is answered the same,
 // and counted. A delivery that holds is a hint, which carries no state: the read decides what changed (FR-SPEND-20).
 // It is reachable only where a person exposes a listener to GitHub, and polling works alone where none is.
 func (h *handler) githubWebhook(w http.ResponseWriter, r *http.Request) {
-	attempt, ok := beginAttempt(h.Attempts, w, r)
+	attempt, ok := beginAttempt(h.WebhookAttempts, w, r)
 	if !ok {
 		return
 	}
@@ -70,6 +70,9 @@ func (h *handler) githubWebhook(w http.ResponseWriter, r *http.Request) {
 		attempt.Fail()
 		refuse(w, http.StatusForbidden, api.ErrorDetail{Code: api.CodeBadSignature, Message: "this delivery's signature is not accepted"})
 	case err != nil:
+		// A delivery the server could not look up counts as a refusal, so a caller cannot make the server read its
+		// stores for nothing, again and again, for free.
+		attempt.Fail()
 		fail(w, err)
 	case outcome == control.CIAccepted:
 		reply(w, http.StatusAccepted, map[string]string{"status": string(outcome)})

@@ -268,6 +268,9 @@ func (c *CIWebhooks) Receive(ctx context.Context, d CIDelivery) (CIOutcome, erro
 func (c *CIWebhooks) verified(registered []CIRegistration, d CIDelivery) ([]CIRegistration, bool) {
 	var held []CIRegistration
 	keyed := false
+	// A digest is made once for each distinct key, whatever number of projects hold the repository, so the time a
+	// delivery takes does not tell how many do.
+	holds := map[string]bool{}
 	for _, registration := range registered {
 		if registration.SecretEnv == "" {
 			continue
@@ -277,7 +280,12 @@ func (c *CIWebhooks) verified(registered []CIRegistration, d CIDelivery) ([]CIRe
 			continue
 		}
 		keyed = true
-		if c.signatureHolds(key, d.Body, d.Signature) && !slices.Contains(held, registration) {
+		verified, tried := holds[key]
+		if !tried {
+			verified = c.signatureHolds(key, d.Body, d.Signature)
+			holds[key] = verified
+		}
+		if verified && !slices.Contains(held, registration) {
 			held = append(held, registration)
 		}
 	}

@@ -124,6 +124,11 @@ type Config struct {
 	// network listener, which records the address of every request it serves. Nil limits none. A request on the
 	// control socket records no address and is never limited: its file permissions are its credential.
 	Attempts *Attempts
+	// WebhookAttempts limits the deliveries each client address makes to the webhook route of CI events, apart from
+	// Attempts, because a delivery is no guess at a passphrase: GitHub sends several at once from the same few
+	// addresses, and does not retry one that is refused. Every refusal counts against the address, as a wrong guess
+	// does, only past a much higher threshold (NewWebhookAttempts). Nil limits none.
+	WebhookAttempts *Attempts
 	// Templates are the project templates this daemon's binary embeds, rendered with the example data, which
 	// the templates route serves. Nil has none, and the route refuses.
 	Templates []api.Template

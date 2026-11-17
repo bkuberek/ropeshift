@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -298,8 +299,8 @@ func TestAMalformedSignedDeliveryIsToldSo(t *testing.T) {
 // route with deliveries it cannot sign is refused early, with 429, whatever it sends next, and another address is not.
 func TestAnAddressThatFloodsTheRouteWithRefusalsIsLimited(t *testing.T) {
 	t.Parallel()
-	limits := server.NewAttempts(server.AttemptLimits{MaxFailures: 3, Lockout: 15 * time.Minute, InFlight: 100})
-	h := hookStart(t, func(name string) (string, bool) { return hookSecret, name == hookEnv }, apitest.Options{Attempts: limits})
+	limits := server.NewAttempts(server.AttemptLimits{MaxFailures: 3, Lockout: 15 * time.Minute, InFlight: server.WebhookInFlight})
+	h := hookStart(t, func(name string) (string, bool) { return hookSecret, name == hookEnv }, apitest.Options{WebhookAttempts: limits})
 	body := suiteBody("acme/widgets", hookHead)
 	refusals := []map[string]string{
 		{"X-GitHub-Event": "check_suite", "X-GitHub-Delivery": "f-1"},
@@ -327,13 +328,85 @@ func TestAnAddressThatFloodsTheRouteWithRefusalsIsLimited(t *testing.T) {
 // A delivery that holds is no failure, so an address that sends many of them is never limited.
 func TestDeliveriesThatHoldDoNotCountAgainstTheAddress(t *testing.T) {
 	t.Parallel()
-	limits := server.NewAttempts(server.AttemptLimits{MaxFailures: 3, Lockout: 15 * time.Minute, InFlight: 100})
-	h := hookStart(t, func(name string) (string, bool) { return hookSecret, name == hookEnv }, apitest.Options{Attempts: limits})
+	limits := server.NewAttempts(server.AttemptLimits{MaxFailures: 3, Lockout: 15 * time.Minute, InFlight: server.WebhookInFlight})
+	h := hookStart(t, func(name string) (string, bool) { return hookSecret, name == hookEnv }, apitest.Options{WebhookAttempts: limits})
 	for i := range 10 {
 		body := suiteBody("acme/widgets", fmt.Sprintf("%040x", i+1))
 		response, raw := h.deliver(t, body, good(fmt.Sprint("ok-", i), body))
 		wantStatus(t, response, raw, http.StatusAccepted, "")
 	}
+}
+
+// GitHub sends several deliveries at once from the same few addresses and does not retry a refusal, so valid deliveries
+// in flight together from one address must all be taken. The key is looked up once per delivery, and each lookup waits
+// until every delivery has arrived, so all of them are in flight at once or the test says so.
+func TestWebhookDeliveriesFromOneAddressAllSucceedConcurrently(t *testing.T) {
+	t.Parallel()
+	const deliveries = 8
+	var arrived atomic.Int64
+	all := make(chan struct{})
+	env := func(name string) (string, bool) {
+		if name != hookEnv {
+			return "", false
+		}
+		if arrived.Add(1) == deliveries {
+			close(all)
+		}
+		select {
+		case <-all:
+			return hookSecret, true
+		case <-time.After(5 * time.Second):
+			return "", false
+		}
+	}
+	h := hookStart(t, env, apitest.Options{WebhookAttempts: server.NewWebhookAttempts(15 * time.Minute)})
+	statuses, raws := make([]int, deliveries), make([][]byte, deliveries)
+	var wg sync.WaitGroup
+	for i := range deliveries {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			body := suiteBody("acme/widgets", fmt.Sprintf("%040x", i+1))
+			response, raw := h.deliver(t, body, good(fmt.Sprint("c-", i), body))
+			statuses[i], raws[i] = response.StatusCode, raw
+		}()
+	}
+	wg.Wait()
+	for i := range deliveries {
+		if statuses[i] != http.StatusAccepted {
+			t.Errorf("delivery %d of %d at once was answered %d: %s", i+1, deliveries, statuses[i], raws[i])
+		}
+	}
+}
+
+// The route's threshold for refusals is far above a sign-in's, so an org-wide hook whose repositories are mostly not
+// registered does not lock its own address out after ten of them.
+func TestAWebhookAddressMayHaveManyMoreRefusalsThanASignInGuessBeforeItIsLimited(t *testing.T) {
+	t.Parallel()
+	h := hookStart(t, func(name string) (string, bool) { return hookSecret, name == hookEnv }, apitest.Options{WebhookAttempts: server.NewWebhookAttempts(15 * time.Minute)})
+	for i := range 3 * server.DefaultMaxFailures {
+		body := suiteBody("acme/not-registered", hookHead)
+		response, raw := h.deliver(t, body, map[string]string{"X-GitHub-Event": "check_suite", "X-GitHub-Delivery": fmt.Sprint("u-", i), "X-Hub-Signature-256": signed(hookSecret, body)})
+		wantStatus(t, response, raw, http.StatusForbidden, api.CodeBadSignature)
+	}
+	body := suiteBody("acme/widgets", hookHead)
+	response, raw := h.deliver(t, body, good("after-refusals", body))
+	wantStatus(t, response, raw, http.StatusAccepted, "")
+}
+
+// A delivery for a repository nobody registered counts against the address like every other refusal. Were it free, an
+// address could tell which repositories are registered by which of its deliveries are never limited.
+func TestAWebhookForAnUnregisteredRepositoryCountsAgainstTheAddress(t *testing.T) {
+	t.Parallel()
+	limits := server.NewAttempts(server.AttemptLimits{MaxFailures: 2, Lockout: 15 * time.Minute, InFlight: server.WebhookInFlight})
+	h := hookStart(t, func(name string) (string, bool) { return hookSecret, name == hookEnv }, apitest.Options{WebhookAttempts: limits})
+	body := suiteBody("acme/not-registered", hookHead)
+	for i := range 2 {
+		response, raw := h.deliver(t, body, map[string]string{"X-GitHub-Event": "check_suite", "X-GitHub-Delivery": fmt.Sprint("n-", i), "X-Hub-Signature-256": signed(hookSecret, body)})
+		wantStatus(t, response, raw, http.StatusForbidden, api.CodeBadSignature)
+	}
+	response, raw := h.deliver(t, body, good("n-3", body))
+	wantStatus(t, response, raw, http.StatusTooManyRequests, api.CodeTooManyAttempts)
 }
 
 // A signature that is not the form GitHub writes is refused before the body is read: a body that would run past the

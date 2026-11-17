@@ -14,6 +14,9 @@ import (
 // beat, so this only bounds what a change nobody saw can cost.
 const ciRegistryLife = time.Minute
 
+// ciRegistryBackoff is how long after a read that failed the registry answers with that failure and reads nothing.
+const ciRegistryBackoff = 5 * time.Second
+
 // CIKey is the name a repository is found by: its host, owner, and name, without regard to case, as GitHub names
 // them.
 func CIKey(host, owner, repo string) string {
@@ -34,10 +37,15 @@ type CIRegistry struct {
 	load func(context.Context) (CIRegistrations, error)
 	now  func() time.Time
 
-	mu     sync.Mutex
-	held   *CIRegistrations
-	readAt time.Time
-	stale  bool
+	// reading lets one read run at a time, and is taken before mu, which is never held across a read.
+	reading sync.Mutex
+
+	mu       sync.Mutex
+	held     *CIRegistrations
+	readAt   time.Time
+	stale    bool
+	failure  error
+	failedAt time.Time
 }
 
 var _ CIRepositories = (*CIRegistry)(nil)
@@ -49,16 +57,54 @@ func NewCIRegistry(load func(context.Context) (CIRegistrations, error), now func
 
 // CIRepository finds the registrations of a repository, from memory unless the registry is stale.
 func (c *CIRegistry) CIRepository(ctx context.Context, host, owner, repo string) ([]CIRegistration, error) {
+	held, err := c.current(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return held.Repositories[CIKey(host, owner, repo)], nil
+}
+
+// fresh returns what is held when it can be used as it is, and the error of a read that failed a moment ago when the
+// registry is still backing off from it. It holds mu.
+func (c *CIRegistry) fresh() (*CIRegistrations, bool, error) {
+	now := c.now()
+	if c.held != nil && !c.stale && now.Sub(c.readAt) < ciRegistryLife {
+		return c.held, true, nil
+	}
+	if c.failure != nil && now.Sub(c.failedAt) < ciRegistryBackoff {
+		return nil, true, c.failure
+	}
+	return nil, false, nil
+}
+
+// current returns what the registry holds, read again when it must be. The read runs outside mu, which a heartbeat's
+// Observe takes, and one read runs at a time: a delivery that waits for it takes its result, or the failure of it.
+// A failed read holds nothing and is not tried again for ciRegistryBackoff, so a flood of deliveries cannot make the
+// server read its stores at every one.
+func (c *CIRegistry) current(ctx context.Context) (*CIRegistrations, error) {
+	c.mu.Lock()
+	held, ok, err := c.fresh()
+	c.mu.Unlock()
+	if ok {
+		return held, err
+	}
+	c.reading.Lock()
+	defer c.reading.Unlock()
+	c.mu.Lock()
+	held, ok, err = c.fresh()
+	c.mu.Unlock()
+	if ok {
+		return held, err
+	}
+	read, err := c.load(ctx)
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.held == nil || c.stale || c.now().Sub(c.readAt) >= ciRegistryLife {
-		read, err := c.load(ctx)
-		if err != nil {
-			return nil, err
-		}
-		c.held, c.readAt, c.stale = &read, c.now(), false
+	if err != nil {
+		c.failure, c.failedAt = err, c.now()
+		return nil, err
 	}
-	return c.held.Repositories[CIKey(host, owner, repo)], nil
+	c.held, c.readAt, c.stale, c.failure = &read, c.now(), false, nil
+	return c.held, nil
 }
 
 // Observe takes the revisions a heartbeat read of every project, and the installation's, and makes the registry stale

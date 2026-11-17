@@ -2,6 +2,8 @@ package control_test
 
 import (
 	"context"
+	"errors"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -63,6 +65,82 @@ func TestTheRegistryIsReadOnceForAnyNumberOfDeliveries(t *testing.T) {
 	}
 	if loads := r.loads.Load(); loads != 1 {
 		t.Errorf("150 lookups read the stores %d times, want 1", loads)
+	}
+}
+
+// The read of every project's records can be slow, so it runs outside the lock: a heartbeat that reports the revisions
+// is never made to wait for it.
+func TestTheRegistryIsNotLockedWhileItIsRead(t *testing.T) {
+	t.Parallel()
+	entered, release := make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	t.Cleanup(func() { once.Do(func() { close(release) }) })
+	registry := control.NewCIRegistry(func(context.Context) (control.CIRegistrations, error) {
+		close(entered)
+		<-release
+		return control.CIRegistrations{}, nil
+	}, time.Now)
+	looked := make(chan struct{})
+	go func() {
+		defer close(looked)
+		_, _ = registry.CIRepository(t.Context(), "github.com", "acme", "widgets")
+	}()
+	<-entered
+	observed := make(chan struct{})
+	go func() {
+		defer close(observed)
+		registry.Observe(map[string]int64{"pa": 1})
+	}()
+	select {
+	case <-observed:
+	case <-time.After(3 * time.Second):
+		t.Fatal("a heartbeat's revisions waited for the registry's read")
+	}
+	once.Do(func() { close(release) })
+	<-looked
+}
+
+// A read that failed is not held, so the registry reads again once the store is back, and it does not read again at
+// every delivery meanwhile, which would let a flood make the server read its stores for nothing.
+func TestTheRegistryHoldsNoFailedReadAndDoesNotRepeatOneAtOnce(t *testing.T) {
+	t.Parallel()
+	r := newRegistryRig(t)
+	var down atomic.Bool
+	down.Store(true)
+	r.registry = control.NewCIRegistry(func(context.Context) (control.CIRegistrations, error) {
+		r.loads.Add(1)
+		if down.Load() {
+			return control.CIRegistrations{}, errors.New("the stores are down")
+		}
+		return r.held, nil
+	}, func() time.Time { return r.now })
+	lookup := func() error {
+		_, err := r.registry.CIRepository(t.Context(), "github.com", "acme", "widgets")
+		return err
+	}
+	for range 20 {
+		if lookup() == nil {
+			t.Fatal("a lookup over stores that are down found an answer")
+		}
+	}
+	if loads := r.loads.Load(); loads != 1 {
+		t.Fatalf("20 lookups right after a failed read read the stores %d times, want 1", loads)
+	}
+	r.now = r.now.Add(time.Second)
+	if lookup() == nil || r.loads.Load() != 1 {
+		t.Fatalf("a lookup a second after a failed read read the stores again: %d reads", r.loads.Load())
+	}
+	r.now = r.now.Add(30 * time.Second)
+	if lookup() == nil || r.loads.Load() != 2 {
+		t.Fatalf("a lookup well after a failed read did not read the stores again: %d reads", r.loads.Load())
+	}
+	down.Store(false)
+	r.now = r.now.Add(30 * time.Second)
+	if err := lookup(); err != nil {
+		t.Fatalf("a lookup after the stores came back failed: %v", err)
+	}
+	if found := r.lookup(t, "github.com", "acme", "widgets"); len(found) != 1 {
+		t.Errorf("the registry does not hold what it read once the stores came back: %+v", found)
 	}
 }
 
