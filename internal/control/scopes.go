@@ -234,7 +234,8 @@ func checkHeld(tx ports.WriteTx, text string) error {
 // ScopeTitles names the record each scope names by its title, which a list or a read of decisions and
 // questions shows beside the scope: a plan, a contract's newest version, and a work order by their titles, and
 // a repository by its name. It reads once for each kind of scope the scopes hold, whatever their number: the
-// one record a kind's only ID names, or every record of a kind that several IDs name. A scope outside the
+// one record a kind's only ID names, or the records of a kind several IDs name, by their IDs, and never every
+// plan, contract, or work order. A scope outside the
 // grammar, one whose record the ledger does not hold, and one whose title only repeats its ID have no title, so
 // a display shows the ID alone.
 func ScopeTitles(tx ports.ReadTx, scopes []string) (map[string]string, error) {
@@ -355,28 +356,25 @@ func (r scopeRecords) titleOf(scope questions.Scope) (string, error) {
 	return "", nil
 }
 
-// titlesOf reads every record of one kind, and says each one's title by its ID. A contract is titled by its
-// newest version.
-func (r scopeRecords) titlesOf(kind questions.ScopeKind) (map[string]string, error) {
+// titlesOf reads the records of one kind some IDs name, by their IDs, and says each one's title by its ID. A
+// contract is titled by its newest version. A project holds few repositories, so a read of them reads them all.
+func (r scopeRecords) titlesOf(kind questions.ScopeKind, ids []string) (map[string]string, error) {
 	titles := map[string]string{}
 	switch kind {
 	case questions.ScopePlan:
-		plans, err := r.planned.Plans()
+		plans, err := r.planned.PlansByIDs(ids)
 		for _, plan := range plans {
 			titles[plan.ID] = plan.Title
 		}
 		return titles, err
 	case questions.ScopeContract:
-		contracts, err := r.planned.Contracts()
-		newest := map[string]int64{}
+		contracts, err := r.planned.LatestContracts(ids)
 		for _, contract := range contracts {
-			if contract.Version >= newest[contract.ID] {
-				newest[contract.ID], titles[contract.ID] = contract.Version, contract.Title
-			}
+			titles[contract.ID] = contract.Title
 		}
 		return titles, err
 	case questions.ScopeWorkOrder:
-		orders, err := r.orders.List()
+		orders, err := r.orders.ByIDs(ids)
 		for _, order := range orders {
 			titles[order.ID] = order.Title
 		}
@@ -419,10 +417,10 @@ func (r scopeRecords) titles(scopes []string) (map[string]string, error) {
 }
 
 // heldTitles reads the titles of the records of one kind some IDs name, in one read: the one record an only
-// ID names, or every record of the kind.
+// ID names, or the records several IDs name, by their IDs.
 func (r scopeRecords) heldTitles(kind questions.ScopeKind, ids []string) (map[string]string, error) {
 	if len(ids) != 1 {
-		return r.titlesOf(kind)
+		return r.titlesOf(kind, ids)
 	}
 	title, err := r.titleOf(questions.Scope{Kind: kind, ID: ids[0]})
 	if errors.Is(err, ports.ErrNotFound) {

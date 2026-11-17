@@ -386,6 +386,9 @@ type WorkOrderReader interface {
 	Get(id string) (workorders.WorkOrder, error)
 	// List returns every work order in the workspace, ordered by ID.
 	List() ([]workorders.WorkOrder, error)
+	// ByIDs returns the work orders some IDs name, once each and ordered by ID, and reads no other. An ID the
+	// ledger does not hold names none.
+	ByIDs(ids []string) ([]workorders.WorkOrder, error)
 	// HeldBy returns the work orders a worker holds a lease on.
 	HeldBy(worker string) ([]workorders.WorkOrder, error)
 	// Woken returns the work orders a wake made ready, each with a lane to resume.
@@ -847,10 +850,16 @@ type PlanningReader interface {
 	Contract(id string, version int64) (planning.Contract, error)
 	// LatestContract returns a contract's newest version, or ErrNotFound.
 	LatestContract(id string) (planning.Contract, error)
+	// LatestContracts returns the newest version of each contract some IDs name, once each and ordered by ID, and
+	// reads no other. An ID the ledger does not hold names none.
+	LatestContracts(ids []string) ([]planning.Contract, error)
 	// Contracts returns every version, by contract and then by version.
 	Contracts() ([]planning.Contract, error)
 	// Plans returns every plan.
 	Plans() ([]planning.Plan, error)
+	// PlansByIDs returns the plans some IDs name, once each and ordered by ID, and reads no other. An ID the
+	// ledger does not hold names none.
+	PlansByIDs(ids []string) ([]planning.Plan, error)
 	// Plan returns one plan, or ErrNotFound.
 	Plan(id string) (planning.Plan, error)
 	// Goals returns every goal.

@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
+	"strings"
 
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/planning"
@@ -29,6 +31,12 @@ var (
   FROM work_orders
  WHERE workspace_id = :workspace_id
  ORDER BY id`)
+
+	// stmtWorkOrdersByID reads the work orders one slice of IDs names (idSlots).
+	stmtWorkOrdersByID = define("work_order.by_ids",
+		`SELECT `+workOrderColumns+`
+  FROM work_orders
+ WHERE workspace_id = :workspace_id AND id IN `+idList)
 
 	// stmtWoken reads work a wake made ready, the highest priority first.
 	stmtWoken = define("work_order.woken",
@@ -157,6 +165,19 @@ func (t workOrderTx) list(st *statement, p params) ([]workorders.WorkOrder, erro
 
 func (t workOrderTx) List() ([]workorders.WorkOrder, error) {
 	return t.list(stmtListWorkOrders, params{})
+}
+
+func (t workOrderTx) ByIDs(ids []string) ([]workorders.WorkOrder, error) {
+	var out []workorders.WorkOrder
+	for _, slice := range idSlices(ids) {
+		found, err := t.list(stmtWorkOrdersByID, slice)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, found...)
+	}
+	slices.SortFunc(out, func(a, b workorders.WorkOrder) int { return strings.Compare(a.ID, b.ID) })
+	return out, nil
 }
 
 func (t workOrderTx) HeldBy(worker string) ([]workorders.WorkOrder, error) {
