@@ -185,6 +185,14 @@ func (t repositoryTx) hold(identity, id string) error {
 	return t.heldElsewhere(identity)
 }
 
+// RefuseHeld refuses an identity another project holds. A store with no repository index holds none.
+func (t repositoryTx) RefuseHeld(identity string) error {
+	if t.index == nil {
+		return nil
+	}
+	return t.heldElsewhere(identity)
+}
+
 // heldElsewhere refuses an identity another project holds.
 func (t repositoryTx) heldElsewhere(identity string) error {
 	row, err := t.index.row(stmtRepositoryHolder, params{"identity": identity})
@@ -198,7 +206,7 @@ func (t repositoryTx) heldElsewhere(identity string) error {
 	case err != nil:
 		return err
 	case ledger.WorkspaceID(project) != t.scope:
-		return fmt.Errorf("%w: project %s holds %s", ledger.ErrRepositoryHeld, name, identity)
+		return &ledger.HeldError{Project: name, Identity: identity}
 	}
 	return nil
 }

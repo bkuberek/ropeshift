@@ -28,6 +28,18 @@ type Config struct {
 	Ref string
 	// Directory limits intake to one tree. Empty means the whole repository.
 	Directory string
+	// Identity is the record ID a worker's checkout map holds for this repository, when it holds one. When
+	// it is one of the repository's roots, the repository keeps that ID, so a record stored under the
+	// lowest-root rule keeps its ID and every external key intake made under it.
+	Identity string
+	// Records reads a record of the repository's project by ID. A repository with no Identity that one of
+	// its roots names is the record registration would match it to, in the order registration matches a
+	// clone, so a repository read from a path no checkout is kept for keeps the ID of its record.
+	Records func(ctx context.Context, id string) (ledger.Repository, bool, error)
+	// KeptElsewhere says this worker keeps a clone of a record at another path than this repository's, that
+	// still exists and still holds the record's first commit. Nil says it keeps none. A record with another
+	// remote than this repository's names it only then.
+	KeptElsewhere func(ctx context.Context, id string) (bool, error)
 	// Env replaces the environment of git commands.
 	Env []string
 }
@@ -51,23 +63,80 @@ func New(config Config) *Source {
 	}
 }
 
-// Instance names the repository by its first commit, because a path changes with the machine, a
-// remote may not exist, and neither identifies the history.
+// Roots lists every first commit the ref reaches, sorted. A repository that merged an unrelated history has
+// more than one.
+func (s *Source) Roots(ctx context.Context) ([]string, error) {
+	ref, err := s.ref(ctx)
+	if err != nil {
+		return nil, err
+	}
+	roots, err := s.git.Text(ctx, "rev-list", "--max-parents=0", ref)
+	if err != nil {
+		return nil, err
+	}
+	all := strings.Fields(roots)
+	if len(all) == 0 {
+		return nil, fmt.Errorf("%s has no commits", ref)
+	}
+	slices.Sort(all)
+	return all, nil
+}
+
+// Instance names the repository by its first commit, because a path changes with the machine, a remote may
+// not exist, and neither identifies the history. That is the root reached by following first parents from
+// the ref, so merging an unrelated history into the repository never changes it (FR-REPO-14). A configured
+// identity that is one of the repository's roots wins, so a record stored under the lowest-root rule keeps
+// its ID.
 func (s *Source) Instance(ctx context.Context) (string, error) {
+	if s.config.Identity != "" {
+		roots, err := s.Roots(ctx)
+		if err != nil {
+			return "", err
+		}
+		if slices.Contains(roots, s.config.Identity) {
+			return s.config.Identity, nil
+		}
+	}
 	ref, err := s.ref(ctx)
 	if err != nil {
 		return "", err
 	}
-	roots, err := s.git.Text(ctx, "rev-list", "--max-parents=0", ref)
+	root, err := s.git.Text(ctx, "rev-list", "--first-parent", "--max-parents=0", ref)
 	if err != nil {
 		return "", err
 	}
-	all := strings.Fields(roots)
-	if len(all) == 0 {
+	if root == "" {
 		return "", fmt.Errorf("%s has no commits", ref)
 	}
-	slices.Sort(all)
-	return all[0], nil
+	if s.config.Records == nil {
+		return root, nil
+	}
+	roots, err := s.Roots(ctx)
+	if err != nil {
+		return "", err
+	}
+	// A record with another remote than this repository's is another repository, unless this worker keeps a
+	// clone of it elsewhere, which registration refuses as sharing its first commit.
+	remote, _ := s.repositoryFacts(ctx)
+	var keptErr error
+	apart := func(record ledger.Repository) bool {
+		if !ledger.RemotesDiffer(record.Remote, remote) {
+			return false
+		}
+		if s.config.KeptElsewhere == nil {
+			return true
+		}
+		kept, err := s.config.KeptElsewhere(ctx, record.ID)
+		keptErr = errors.Join(keptErr, err)
+		return !kept
+	}
+	record, found, _, err := ledger.MatchRepository(root, roots, nil, apart, func(id string) (ledger.Repository, bool, error) {
+		return s.config.Records(ctx, id)
+	})
+	if err = errors.Join(err, keptErr); err != nil || !found {
+		return root, err
+	}
+	return record.ID, nil
 }
 
 // Describe names the repository by its identity, and says what git knows of it.

@@ -92,6 +92,25 @@ type soloOptions struct {
 	forecastTick time.Duration
 	leaseTTL     time.Duration
 	heartbeat    time.Duration
+	// records reads the first project's records, which name the repositories of the daemon's sources: a
+	// source with no checkout kept for it keeps the ID of the record registration would match it to.
+	records func(ctx context.Context, id string) (ledger.Repository, bool, error)
+}
+
+// recordsIn reads a project's records by ID from its store.
+func recordsIn(store ports.Store, scope ledger.WorkspaceID) func(context.Context, string) (ledger.Repository, bool, error) {
+	return func(ctx context.Context, id string) (ledger.Repository, bool, error) {
+		var record ledger.Repository
+		err := store.Read(ctx, scope, func(tx ports.ReadTx) error {
+			var err error
+			record, err = tx.Repositories().Repository(id)
+			return err
+		})
+		if errors.Is(err, ports.ErrNotFound) {
+			return ledger.Repository{}, false, nil
+		}
+		return record, err == nil, err
+	}
 }
 
 type repeatedFlag []string
@@ -239,6 +258,7 @@ func serveSolo(ctx context.Context, paths api.Paths, opts soloOptions, stdout, s
 	}
 	defer state.Close()
 	defer store.Close()
+	opts.records = recordsIn(store, soloScope)
 	listener, err := server.Listen(paths.ControlSocket())
 	if err != nil {
 		return err
@@ -265,7 +285,7 @@ func serveSolo(ctx context.Context, paths api.Paths, opts soloOptions, stdout, s
 	config := server.Config{
 		Installed: installed.Installed,
 		Scope:     soloScope, Store: store, Projects: state, Installation: state.Installation, LeaseTTL: opts.leaseTTL.Milliseconds(), HeartbeatMs: opts.heartbeat.Milliseconds(),
-		Knowledge: soloKnowledge(opts), Matcher: lexical.Matcher{Store: store},
+		Knowledge: soloKnowledge(opts, kept), Matcher: lexical.Matcher{Store: store},
 		Matching: func(store ports.Store) ports.Matcher { return lexical.Matcher{Store: store} },
 		Identity: localauth.New(store, localauth.DefaultParams), Batches: batches, Windows: windows, PackTokens: soloPackTokens(paths),
 		Telemetry: telemetry.store,
@@ -626,7 +646,11 @@ func checkoutOf(opts soloOptions, kept ports.Checkouts) func(context.Context, le
 		}
 		if project == soloScope {
 			for _, path := range opts.sources {
-				instance, err := repofiles.New(repofiles.Config{Repository: path, Ref: opts.ref, Directory: opts.directory}).Instance(ctx)
+				// A source is the checkout of the record registration would match it to, and no other record's
+				// merely because it holds one of that repository's first commits.
+				instance, err := repofiles.New(repofiles.Config{
+					Repository: path, Ref: opts.ref, Directory: opts.directory, Records: opts.records, KeptElsewhere: keptElsewhere(kept, project, path),
+				}).Instance(ctx)
 				if err != nil {
 					return "", err
 				}
@@ -636,6 +660,33 @@ func checkoutOf(opts soloOptions, kept ports.Checkouts) func(context.Context, le
 			}
 		}
 		return "", fmt.Errorf("%w: this worker keeps no checkout of repository %q in project %s", ports.ErrNotFound, id, project)
+	}
+}
+
+// keptElsewhere says this worker keeps, in a project, a clone of a record at another path than a repository's
+// own, which still exists and still holds the record's first commit: the clone registration refuses a
+// repository for sharing its first commit with.
+func keptElsewhere(kept ports.Checkouts, project ledger.WorkspaceID, path string) func(context.Context, string) (bool, error) {
+	return func(ctx context.Context, id string) (bool, error) {
+		own, err := filepath.Abs(path)
+		if err != nil {
+			return false, err
+		}
+		held, err := kept.Of(ctx, project)
+		if err != nil {
+			return false, err
+		}
+		other, ok := held[id]
+		if !ok || other == own {
+			return false, nil
+		}
+		found, _, err := kept.Find(ctx, []string{other}, 1)
+		if err != nil {
+			return false, err
+		}
+		return slices.ContainsFunc(found, func(c ports.Clone) bool {
+			return c.Path == other && (c.ID == id || slices.Contains(c.Roots, id))
+		}), nil
 	}
 }
 
@@ -649,7 +700,7 @@ func laneCheckout(find func(context.Context, ledger.WorkspaceID, string) (string
 // projectSources are the repositories intake reads in a project: the daemon's sources in the first
 // project, and every repository of the project this worker keeps a checkout of. A path both name is read
 // once.
-func projectSources(ctx context.Context, opts soloOptions, kept ports.Checkouts, home, project ledger.WorkspaceID) ([]ports.WorkSource, error) {
+func projectSources(ctx context.Context, opts soloOptions, kept ports.Checkouts, home, project ledger.WorkspaceID, records func(context.Context, string) (ledger.Repository, bool, error)) ([]ports.WorkSource, error) {
 	var paths []string
 	if project == home {
 		for _, path := range opts.sources {
@@ -664,6 +715,13 @@ func projectSources(ctx context.Context, opts soloOptions, kept ports.Checkouts,
 	if err != nil {
 		return nil, err
 	}
+	// A checkout the worker keeps names the record it is the checkout of, and a repository keeps that ID when it
+	// is one of its roots, so a record registered under the lowest-root rule keeps its external keys. A source
+	// with no checkout kept is named by the record the project holds for it.
+	identities := map[string]string{}
+	for _, id := range slices.Sorted(maps.Keys(held)) {
+		identities[held[id]] = id
+	}
 	for _, path := range slices.Sorted(maps.Values(held)) {
 		if !slices.Contains(paths, path) {
 			paths = append(paths, path)
@@ -671,7 +729,9 @@ func projectSources(ctx context.Context, opts soloOptions, kept ports.Checkouts,
 	}
 	sources := make([]ports.WorkSource, 0, len(paths))
 	for _, path := range paths {
-		sources = append(sources, repofiles.New(repofiles.Config{Repository: path, Ref: opts.ref, Directory: opts.directory}))
+		sources = append(sources, repofiles.New(repofiles.Config{
+			Repository: path, Ref: opts.ref, Directory: opts.directory, Identity: identities[path], Records: records, KeptElsewhere: keptElsewhere(kept, project, path),
+		}))
 	}
 	return sources, nil
 }
@@ -691,7 +751,7 @@ func branchSource(opts soloOptions, kept ports.Checkouts) server.BranchSource {
 		if err != nil {
 			return nil, err
 		}
-		return repofiles.New(repofiles.Config{Repository: path, Ref: ref, Directory: opts.directory}), nil
+		return repofiles.New(repofiles.Config{Repository: path, Ref: ref, Directory: opts.directory, Identity: id}), nil
 	}
 }
 
@@ -740,10 +800,12 @@ func keepStableBinary(ctx context.Context, paths api.Paths, runner ports.Process
 
 // soloKnowledge reads documents from the repositories this daemon reads work from, at the
 // ref intake reads.
-func soloKnowledge(opts soloOptions) []ports.KnowledgeSource {
+func soloKnowledge(opts soloOptions, kept ports.Checkouts) []ports.KnowledgeSource {
 	sources := make([]ports.KnowledgeSource, 0, len(opts.sources))
 	for _, path := range opts.sources {
-		sources = append(sources, repodocs.New(repofiles.Config{Repository: path, Ref: opts.ref, Directory: opts.directory}))
+		sources = append(sources, repodocs.New(repofiles.Config{
+			Repository: path, Ref: opts.ref, Directory: opts.directory, Records: opts.records, KeptElsewhere: keptElsewhere(kept, soloScope, path),
+		}))
 	}
 	return sources
 }
@@ -895,7 +957,7 @@ func soloTicks(projects ports.Projects, home ledger.WorkspaceID, opts soloOption
 		tick("intake", opts.intakeTick, func(ctx context.Context, p ledger.Project, store ports.Store) error {
 			var failed []error
 			intake := control.NewIntake(store).Telling(windows).Checking(soloStarts(opts, kept))
-			sources, err := projectSources(ctx, opts, kept, home, p.ID)
+			sources, err := projectSources(ctx, opts, kept, home, p.ID, recordsIn(store, p.ID))
 			if err != nil {
 				failed = append(failed, err)
 			}

@@ -242,7 +242,7 @@ func (f *Projects) Import(_ context.Context, backup, name string, _ ledger.Actor
 	for _, entry := range copied.index {
 		for _, held := range f.index {
 			if held.Identity == entry.Identity {
-				return ledger.Project{}, fmt.Errorf("%w: project %s holds %s", ledger.ErrRepositoryHeld, held.Project, entry.Identity)
+				return ledger.Project{}, &ledger.HeldError{Project: string(held.Project), Identity: entry.Identity}
 			}
 		}
 	}

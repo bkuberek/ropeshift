@@ -262,7 +262,7 @@ func (r *Repositories) registerEntries(ctx context.Context, scope ledger.Workspa
 		checkouts = map[string]string{}
 	}
 	out := make([]Added, 0, len(entries))
-	claimed := map[string]bool{}
+	claimed, seen := map[string]bool{}, seenRun{}
 	// The project's one repository plans in it until a member names one, so the first registration that
 	// adds a second one names it, or the next registration would find no planning repository.
 	var naming string
@@ -270,7 +270,7 @@ func (r *Repositories) registerEntries(ctx context.Context, scope ledger.Workspa
 		naming = dir.planner.ID
 	}
 	for i, entry := range entries {
-		added, err := r.registerEntry(ctx, scope, entry, kept, entryRun{manifestRun: run, dir: dir, why: why, held: held, removed: removed, removedRemotes: removedRemotes, checkouts: checkouts, claimed: claimed, planning: naming}, actor)
+		added, err := r.registerEntry(ctx, scope, entry, kept, entryRun{manifestRun: run, dir: dir, why: why, held: held, removed: removed, removedRemotes: removedRemotes, checkouts: checkouts, claimed: claimed, planning: naming, seen: seen}, actor)
 		// Each outcome names what the manifest wrote for it, so a member reads what they consent to.
 		added.Name, added.Manifest, added.Remote = entry.Name, entry.Path, entry.Remote
 		out = append(out, added)
@@ -315,6 +315,8 @@ type entryRun struct {
 	checkouts      map[string]string
 	claimed        map[string]bool
 	planning       string
+	// seen are the clones the run registered so far, by the record each came to.
+	seen seenRun
 }
 
 // removedAt finds the repository the project removed whose remote is the one given. A remote names the
@@ -368,7 +370,13 @@ func (r *Repositories) registerEntry(ctx context.Context, scope ledger.Workspace
 	if record, ok := run.removedAt(clone.Remote); ok && !run.restore {
 		return refused(real, staysRemoved(record)), nil
 	}
-	added, err := r.register(ctx, scope, clone, registration{claimed: run.claimed, dryRun: run.dryRun, restore: run.restore, planning: run.planning, cause: run.cause}, actor)
+	if again, ok := run.seen.again(clone); ok {
+		again.Path = real
+		return again, nil
+	}
+	added, err := r.register(ctx, scope, clone, registration{
+		claimed: run.claimed, dryRun: run.dryRun, restore: run.restore, planning: run.planning, cause: run.cause, kept: kept, held: run.checkouts,
+	}, actor)
 	if err != nil {
 		return refused(real, err.Error()), err
 	}
@@ -377,10 +385,14 @@ func (r *Repositories) registerEntry(ctx context.Context, scope ledger.Workspace
 		return added, nil
 	}
 	run.claimed[added.Repository.Name] = true
-	if added.Checkout, err = keepCheckout(ctx, kept, scope, run.checkouts, clone, run.dryRun); err != nil {
+	if added.Checkout, err = keepCheckout(ctx, kept, scope, run.checkouts, clone, added.Repository.ID, run.dryRun); err != nil {
 		return added, err
 	}
-	return r.withRootNote(ctx, scope, kept, added, added.Checkout)
+	if added, err = r.withRootNote(ctx, scope, kept, added, added.Checkout); err != nil {
+		return added, err
+	}
+	run.seen.note(clone, added)
+	return added, nil
 }
 
 // manifestRun is how a run registers what a manifest lists.
@@ -501,7 +513,7 @@ func heldAs(ctx context.Context, kept ports.Checkouts, dir planningDirectory, en
 	if err != nil {
 		return path, ""
 	}
-	if top := slices.IndexFunc(found, func(clone ports.Clone) bool { return filepath.Clean(clone.Path) == path }); top >= 0 && found[top].ID != record.ID {
+	if top := slices.IndexFunc(found, func(clone ports.Clone) bool { return filepath.Clean(clone.Path) == path }); top >= 0 && !holdsRoot(found[top], record.ID) {
 		return path, ledger.RepositoryIdentity(found[top].Remote, found[top].ID)
 	}
 	return path, ""

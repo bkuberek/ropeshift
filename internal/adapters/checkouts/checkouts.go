@@ -250,12 +250,17 @@ func (f *File) cloneAt(ctx context.Context, dir string) (ports.Clone, string, bo
 	if resolved, err := filepath.EvalSymlinks(top); err != nil || resolved != real {
 		return ports.Clone{}, "", false
 	}
-	description, err := repofiles.New(repofiles.Config{Repository: real, Env: f.Env}).Describe(ctx)
+	source := repofiles.New(repofiles.Config{Repository: real, Env: f.Env})
+	description, err := source.Describe(ctx)
+	if err != nil {
+		return ports.Clone{}, fmt.Sprintf("is a git clone git cannot describe: %v", err), false
+	}
+	roots, err := source.Roots(ctx)
 	if err != nil {
 		return ports.Clone{}, fmt.Sprintf("is a git clone git cannot describe: %v", err), false
 	}
 	return ports.Clone{
-		Path: real, ID: description.Instance, Remote: description.Remote, DefaultBranch: description.DefaultBranch,
+		Path: real, ID: description.Instance, Roots: roots, Remote: description.Remote, DefaultBranch: description.DefaultBranch,
 		Directory: filepath.Base(real),
 	}, "", true
 }

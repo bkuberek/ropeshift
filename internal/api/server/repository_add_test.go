@@ -153,6 +153,98 @@ func TestOnlyAMemberAddsRepositories(t *testing.T) {
 	}
 }
 
+// FR-REPO-14, DG2: a repository with no remote is identified by its first commit, so a clone with no remote
+// that shares its first commit with a repository another project holds is refused, and the reason names that
+// commit and that project, not only an identity.
+func TestACloneWithNoRemoteThatSharesAFirstCommitWithAnotherProjectIsRefusedNamingBoth(t *testing.T) {
+	t.Parallel()
+	in := apitest.StartInstallation(t, "beta")
+	root := "5ca1ab1e" + strings.Repeat("0", 32)
+	in.Checkouts.Place(ports.Clone{Path: "/held/template", ID: root, DefaultBranch: "main"})
+	in.Checkouts.Place(ports.Clone{Path: "/work/template", ID: root, DefaultBranch: "main"})
+	_, _, betaClient := in.In(t, "beta")
+	if _, err := betaClient.AddRepositories(t.Context(), api.RepositoryAdd{Paths: []string{"/held/template"}}); err != nil {
+		t.Fatal(err)
+	}
+	_, _, client := in.In(t, apitest.ProjectName)
+	for _, dryRun := range []bool{true, false} {
+		report, err := client.AddRepositories(t.Context(), api.RepositoryAdd{Paths: []string{"/work/template"}, DryRun: dryRun})
+		if err != nil || report.Refused() != 1 {
+			t.Fatalf("a clone sharing a first commit with another project's, dry run %v: %+v, %v", dryRun, report, err)
+		}
+		for _, want := range []string{"shares its first commit `5ca1ab1e`", "project beta", "give this clone a remote of its own or a history of its own"} {
+			if reason := report.Repositories[0].Reason; !strings.Contains(reason, want) {
+				t.Errorf("dry run %v: the refusal %q does not say %q", dryRun, reason, want)
+			}
+		}
+	}
+	if len(repositoriesOf(t, client)) != 0 {
+		t.Error("a refused clone was registered")
+	}
+}
+
+// A repository with no remote that another project holds under its lowest root is still that repository when
+// its clone has since merged an unrelated history, so the first-parent root it is read under now does not
+// let a second project register it.
+func TestAMergedCloneWithNoRemoteThatAnotherProjectHoldsUnderItsLowestRootIsRefused(t *testing.T) {
+	t.Parallel()
+	in := apitest.StartInstallation(t, "beta")
+	lowest, own := "1a"+strings.Repeat("0", 38), "2b"+strings.Repeat("0", 38)
+	in.Checkouts.Place(ports.Clone{Path: "/held/old", ID: lowest, DefaultBranch: "main"})
+	in.Checkouts.Place(ports.Clone{Path: "/work/merged", ID: own, Roots: []string{lowest, own}, DefaultBranch: "main"})
+	_, _, betaClient := in.In(t, "beta")
+	if _, err := betaClient.AddRepositories(t.Context(), api.RepositoryAdd{Paths: []string{"/held/old"}}); err != nil {
+		t.Fatal(err)
+	}
+	_, _, client := in.In(t, apitest.ProjectName)
+	for _, dryRun := range []bool{true, false} {
+		report, err := client.AddRepositories(t.Context(), api.RepositoryAdd{Paths: []string{"/work/merged"}, DryRun: dryRun})
+		if err != nil || report.Refused() != 1 {
+			t.Fatalf("a merged clone of a repository another project holds, dry run %v: %+v, %v", dryRun, report, err)
+		}
+		for _, want := range []string{"shares its first commit `1a000000`", "project beta"} {
+			if reason := report.Repositories[0].Reason; !strings.Contains(reason, want) {
+				t.Errorf("dry run %v: the refusal %q does not say %q", dryRun, reason, want)
+			}
+		}
+	}
+	if len(repositoriesOf(t, client)) != 0 {
+		t.Error("a refused clone was registered")
+	}
+}
+
+// A workspace with a remote of its own that merged the history of a repository with another remote is a
+// repository of its own: the other repository's record keeps its remote, and so its place in the
+// repository index, when this worker keeps no clone of it.
+func TestAWorkspaceWithItsOwnRemoteLeavesTheRecordOfTheHistoryItMergedAlone(t *testing.T) {
+	t.Parallel()
+	in := apitest.StartInstallation(t, "beta")
+	design, workspace := "1a"+strings.Repeat("0", 38), "2b"+strings.Repeat("0", 38)
+	designRemote, workspaceRemote := "git@example.invalid:acme/design.git", "git@example.invalid:acme/workspace.git"
+	in.Checkouts.Place(ports.Clone{Path: "/work/design", ID: design, Remote: designRemote, DefaultBranch: "main"})
+	in.Checkouts.Place(ports.Clone{Path: "/work/workspace", ID: workspace, Roots: []string{design, workspace}, Remote: workspaceRemote, DefaultBranch: "main"})
+	in.Checkouts.Place(ports.Clone{Path: "/beta/design", ID: "id-copy", Remote: designRemote, DefaultBranch: "main"})
+	_, _, client := in.In(t, apitest.ProjectName)
+	if _, err := client.AddRepositories(t.Context(), api.RepositoryAdd{Paths: []string{"/work/design"}}); err != nil {
+		t.Fatal(err)
+	}
+	in.Checkouts.Remove("/work/design")
+	report, err := client.AddRepositories(t.Context(), api.RepositoryAdd{Paths: []string{"/work/workspace"}})
+	if err != nil || report.Refused() != 0 || outcomes(report)["/work/workspace"] != ledger.Registered {
+		t.Fatalf("registering the workspace: %+v, %v", report, err)
+	}
+	named := repositoriesOf(t, client)
+	if len(named) != 2 || named["design"].ID != design || named["design"].Remote != designRemote || named["workspace"].ID != workspace || named["workspace"].Remote != workspaceRemote {
+		t.Errorf("the project holds %+v, want the design record untouched and the workspace under its own root", named)
+	}
+	// The design repository still holds its place in the repository index, so another project cannot register it.
+	_, _, betaClient := in.In(t, "beta")
+	refused, err := betaClient.AddRepositories(t.Context(), api.RepositoryAdd{Paths: []string{"/beta/design"}})
+	if err != nil || refused.Refused() != 1 || !strings.Contains(refused.Repositories[0].Reason, apitest.ProjectName) {
+		t.Errorf("another project registering the design repository's remote: %+v, %v", refused, err)
+	}
+}
+
 // ADR-0021: a removed repository stays in its project as history, leaves the repository index and this
 // worker's checkouts, and another project may then register it. The first project registering it again
 // is then refused, naming the project that holds it.

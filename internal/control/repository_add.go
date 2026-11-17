@@ -1,6 +1,7 @@
 package control
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -77,28 +78,25 @@ func (r *Repositories) Add(ctx context.Context, scope ledger.WorkspaceID, in Rep
 	}
 	var out []Added
 	claimed := map[string]bool{}
-	first := map[string]Added{}
+	seen := seenRun{}
 	for _, clone := range clones {
-		if earlier, ok := first[clone.ID]; ok {
-			out = append(out, Added{
-				Path: clone.Path, Outcome: ledger.AlreadyRegistered, Repository: earlier.Repository, Checkout: earlier.Checkout,
-				Reason: "a second clone of " + earlier.Repository.Name,
-			})
+		if again, ok := seen.again(clone); ok {
+			out = append(out, again)
 			continue
 		}
-		added, err := r.register(ctx, scope, clone, registration{claimed: claimed, dryRun: in.DryRun, restore: true}, actor)
+		added, err := r.register(ctx, scope, clone, registration{claimed: claimed, dryRun: in.DryRun, restore: true, kept: kept, held: held}, actor)
 		if err != nil {
 			return out, err
 		}
 		if added.Outcome != ledger.RegistrationRefused {
-			if added.Checkout, err = keepCheckout(ctx, kept, scope, held, clone, in.DryRun); err != nil {
+			if added.Checkout, err = keepCheckout(ctx, kept, scope, held, clone, added.Repository.ID, in.DryRun); err != nil {
 				return out, err
 			}
 			if added, err = r.withRootNote(ctx, scope, kept, added, added.Checkout); err != nil {
 				return out, err
 			}
 			claimed[added.Repository.Name] = true
-			first[clone.ID] = added
+			seen.note(clone, added)
 		}
 		out = append(out, added)
 	}
@@ -121,15 +119,43 @@ type registration struct {
 	planning string
 	// cause is what the registration's event names it came from.
 	cause registrationCause
+	// kept and held are this worker's machine and its checkouts in the project, by record ID, which tell a
+	// clone that shares its first commit with another repository's from a second clone of one.
+	kept ports.Checkouts
+	held map[string]string
 }
 
 // register makes or refreshes one clone's record in its own transaction, so a refusal undoes only that
 // clone's.
 func (r *Repositories) register(ctx context.Context, scope ledger.WorkspaceID, clone ports.Clone, how registration, actor ledger.Actor) (Added, error) {
 	added := Added{Path: clone.Path}
-	found := DetectedRepository{ID: clone.ID, Remote: clone.Remote, DefaultBranch: clone.DefaultBranch, Directory: clone.Directory}
+	holders, err := how.holdersOf(ctx, clone)
+	if err != nil {
+		return added, err
+	}
+	// The record the clone registers as is read in the transaction, and these say what it found.
+	id, sharedWith, keptHere := clone.ID, "", how.keptAt(clone)
 	var gone ledger.Repository
-	err := r.store.Write(ctx, scope, "repository.register", func(tx ports.WriteTx) error {
+	err = r.store.Write(ctx, scope, "repository.register", func(tx ports.WriteTx) error {
+		if err := refuseHeldRoots(tx.Repositories(), clone); err != nil {
+			return err
+		}
+		record, matched, earlier, err := matchIn(tx.Repositories(), clone, keptHere, holders)
+		if err != nil {
+			return err
+		}
+		id, sharedWith, added.Reason = clone.ID, "", ""
+		if matched {
+			id = record.ID
+			if kept, ok := holders[id]; ok && !record.Removed() && sharesFirstCommit(kept, clone) {
+				sharedWith = sharedFirstCommit(id, cmp.Or(record.Name, id), kept.path)
+				return errSharesFirstCommit
+			}
+		}
+		if earlier {
+			added.Reason = earlierIdentity
+		}
+		found := DetectedRepository{ID: id, Remote: clone.Remote, DefaultBranch: clone.DefaultBranch, Directory: clone.Directory}
 		look, err := detectIn(tx.Repositories(), found, how.claimed)
 		switch {
 		case look.record.Removed() && !how.restore:
@@ -161,7 +187,7 @@ func (r *Repositories) register(ctx context.Context, scope ledger.WorkspaceID, c
 			if look.made {
 				kind = ledger.EventRepositoryRegistered
 			}
-			event, err := repositoryEvent(kind, clone.ID, detectedEvent{Name: look.named, Remote: clone.Remote, DefaultBranch: clone.DefaultBranch, registrationCause: how.cause}, actor)
+			event, err := repositoryEvent(kind, id, detectedEvent{Name: look.named, Remote: clone.Remote, DefaultBranch: clone.DefaultBranch, registrationCause: how.cause}, actor)
 			if err != nil {
 				return err
 			}
@@ -179,11 +205,19 @@ func (r *Repositories) register(ctx context.Context, scope ledger.WorkspaceID, c
 		return added, nil
 	case errors.Is(err, errStaysRemoved):
 		return Added{
-			Path: clone.Path, Outcome: ledger.RegistrationRefused, Repository: ledger.Repository{ID: clone.ID, Remote: clone.Remote}, Reason: staysRemoved(gone),
+			Path: clone.Path, Outcome: ledger.RegistrationRefused, Repository: ledger.Repository{ID: id, Remote: clone.Remote}, Reason: staysRemoved(gone),
+		}, nil
+	case errors.Is(err, errSharesFirstCommit):
+		return Added{
+			Path: clone.Path, Outcome: ledger.RegistrationRefused, Repository: ledger.Repository{ID: id, Remote: clone.Remote}, Reason: sharedWith,
 		}, nil
 	case errors.Is(err, ledger.ErrRepositoryHeld):
+		reason := err.Error()
+		if held := (*ledger.HeldError)(nil); clone.Remote == "" && errors.As(err, &held) {
+			reason = heldCommit(held)
+		}
 		return Added{
-			Path: clone.Path, Outcome: ledger.RegistrationRefused, Repository: ledger.Repository{ID: clone.ID, Remote: clone.Remote}, Reason: err.Error(),
+			Path: clone.Path, Outcome: ledger.RegistrationRefused, Repository: ledger.Repository{ID: id, Remote: clone.Remote}, Reason: reason,
 		}, nil
 	}
 	return added, err
@@ -221,21 +255,21 @@ func restoreIn(repositories ports.RepositoryWriter, found DetectedRepository) (d
 // keepCheckout records a clone as this worker's checkout of its repository, unless the worker keeps
 // another that still holds that repository, because a worker keeps one checkout of each (ADR-0021). It
 // says the path kept, and a dry run the path it would keep.
-func keepCheckout(ctx context.Context, kept ports.Checkouts, scope ledger.WorkspaceID, held map[string]string, clone ports.Clone, dryRun bool) (string, error) {
-	if path, ok := held[clone.ID]; ok && path != clone.Path {
+func keepCheckout(ctx context.Context, kept ports.Checkouts, scope ledger.WorkspaceID, held map[string]string, clone ports.Clone, id string, dryRun bool) (string, error) {
+	if path, ok := held[id]; ok && path != clone.Path {
 		found, _, err := kept.Find(ctx, []string{path}, 1)
 		if err != nil {
 			return "", err
 		}
-		if slices.ContainsFunc(found, func(c ports.Clone) bool { return c.Path == path && c.ID == clone.ID }) {
+		if slices.ContainsFunc(found, func(c ports.Clone) bool { return c.Path == path && holdsRoot(c, id) }) {
 			return path, nil
 		}
 	}
 	if !dryRun {
-		if err := kept.Keep(ctx, scope, clone.ID, clone.Path); err != nil {
+		if err := kept.Keep(ctx, scope, id, clone.Path); err != nil {
 			return "", err
 		}
-		held[clone.ID] = clone.Path
+		held[id] = clone.Path
 	}
 	return clone.Path, nil
 }
