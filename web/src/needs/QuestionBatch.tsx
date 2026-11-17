@@ -118,9 +118,9 @@ export function AnswerField({ item, draft, onChange, disabled, quiet = false }: 
   );
 }
 
-// Answered is what a person sent from a batch and the ledger recorded: each question with its answer, and the
-// member the ledger recorded the answers for.
-export type Answered = { by: string; answers: { question: string; answer: string }[] };
+// Answered is what a person sent from a batch and the ledger recorded: each question, by its ID and its text,
+// with its answer, and the member the ledger recorded the answers for.
+export type Answered = { by: string; answers: { id: string; question: string; answer: string }[] };
 
 export function QuestionBatch({ batch, after, frame, compact = false, place, onAnswered }: {
   batch: Batch;
@@ -149,7 +149,7 @@ export function QuestionBatch({ batch, after, frame, compact = false, place, onA
         try {
           const recorded = await answerQuestion(item.id, answer, place);
           answered.by ||= recorded?.decided_by ?? "";
-          answered.answers.push({ question: item.text, answer });
+          answered.answers.push({ id: item.id, question: item.text, answer });
         } catch (error) {
           if (!(error instanceof ApiError) || error.code !== "resolved") {
             refused.push(error instanceof Error ? error.message : String(error));

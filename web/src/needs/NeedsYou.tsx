@@ -110,7 +110,7 @@ function ResolvedNote({ heading, answered, decided, noteRef }: { heading: string
       {answered ? (
         <ul className="links" aria-label="Your answers">
           {answered.answers.map((row) => (
-            <li key={row.question}>
+            <li key={row.id}>
               <p className="question-text">{row.question}</p>
               <p>{row.answer}</p>
             </li>

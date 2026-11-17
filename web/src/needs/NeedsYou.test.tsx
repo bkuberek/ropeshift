@@ -264,6 +264,32 @@ describe("a batch of questions", () => {
     expect(row?.textContent).not.toContain("Resolved elsewhere");
   });
 
+  it("lists each answer by its question, so two questions with the same text keep an answer each", async () => {
+    const { view, item } = batchView();
+    const text = item.batch.items[0]?.text ?? "";
+    for (const question of item.batch.items) {
+      question.text = text;
+    }
+    const keys = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      serveApi((call) => (call.method === "POST" ? { status: 201, body: { id: (call.body as { id: string }).id, status: "active", statement: (call.body as { answer: string }).answer, decided_by: "member-ada" } } : undefined));
+      const after = vi.fn(async () => {});
+      const { rerender } = show(view, after, "questions");
+      await userEvent.click(screen.getByRole("button", { name: "Send 2 answers" }));
+      await waitFor(() => expect(after).toHaveBeenCalledOnce());
+      rerender(
+        <CurrentProject.Provider value={testProject}>
+          <NeedsYou view={{ ...view, items: view.items.filter((row) => row.kind !== "questions") }} readAt={Date.now()} after={async () => {}} />
+        </CurrentProject.Provider>,
+      );
+      const answers = await screen.findByRole("list", { name: "Your answers" });
+      expect(within(answers).getAllByRole("listitem")).toHaveLength(2);
+      expect(keys.mock.calls.filter((call) => call.some((part) => String(part).includes("same key")))).toEqual([]);
+    } finally {
+      keys.mockRestore();
+    }
+  });
+
   it("says a batch nobody answered here was decided or resolved in another place", async () => {
     const { view } = batchView();
     const { rerender } = show(view, undefined, "questions");
