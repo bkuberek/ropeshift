@@ -501,6 +501,65 @@ func TestAStartWarnsOfMigrationsALaterBuildApplied(t *testing.T) {
 	}
 }
 
+// TestAStartWarnsOncePerLedgerAndNamesIt holds that two ledgers a later build migrated give two warnings
+// that tell apart by the database each names, and that a ledger the upgrade's index step opens and the
+// state opens again warns once in the start.
+func TestAStartWarnsOncePerLedgerAndNamesIt(t *testing.T) {
+	dir := t.TempDir()
+	state, store, err := sqlite.Upgrade(t.Context(), dir, ledgerName, firstProject, upgradeActor, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, _, err := state.CreateProject(t.Context(), ledger.Project{ID: "second", Name: "second"}, upgradeActor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = store.Close()
+	_ = state.Close()
+	databases := []string{ledgerName, second.Database}
+	for _, database := range databases {
+		db, err := sqlite.OpenDB(filepath.Join(dir, filepath.FromSlash(database)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = db.Exec(`INSERT INTO schema_migrations (version, name, applied_at, checksum) VALUES (9001, '9001_later', 0, 'recorded-by-a-later-build')`)
+		if closeErr := db.Close(); err == nil {
+			err = closeErr
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	var warnings []string
+	state, store, err = sqlite.Upgrade(t.Context(), dir, ledgerName, firstProject, upgradeActor, func(warning string) {
+		warnings = append(warnings, warning)
+	})
+	if err != nil {
+		t.Fatalf("the start returned %v, want it to start", err)
+	}
+	defer func() {
+		_ = store.Close()
+		_ = state.Close()
+	}()
+	if _, err := state.Open(t.Context(), second); err != nil {
+		t.Fatal(err)
+	}
+	if len(warnings) != len(databases) {
+		t.Fatalf("the start warned %q, want one warning for each of %d ledgers", warnings, len(databases))
+	}
+	for _, database := range databases {
+		named := 0
+		for _, warning := range warnings {
+			if strings.HasPrefix(warning, database+": ") && strings.Contains(warning, "9001 (9001_later.sql)") {
+				named++
+			}
+		}
+		if named != 1 {
+			t.Errorf("%d warnings start with %q, want one: %q", named, database+": ", warnings)
+		}
+	}
+}
+
 func TestAFreshInstallationStartsWithItsDefaultProjectInTheLedgerFile(t *testing.T) {
 	dir := t.TempDir()
 	state, store := upgrade(t, dir)

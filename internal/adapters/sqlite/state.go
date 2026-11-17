@@ -38,8 +38,10 @@ type State struct {
 
 // OpenState opens the installation database of a state directory, creating it when it is missing, and
 // brings its schema to this build's version. A project's Store opened through the state reaches the
-// shared records there.
+// shared records there. A warning the state's databases give reaches opts.Warn once, however many times
+// the state opens the database it is about.
 func OpenState(ctx context.Context, dir string, opts sqlstore.Options) (*State, error) {
+	opts.Warn = warnOnce(opts.Warn)
 	installation, err := OpenInstallation(filepath.Join(dir, InstallationFileName), opts)
 	if err != nil {
 		return nil, err
@@ -53,6 +55,26 @@ func OpenState(ctx context.Context, dir string, opts sqlstore.Options) (*State, 
 		Dir: dir, Installation: installation, opts: opts,
 		stores: map[ledger.WorkspaceID]*sqlstore.Store{}, owned: map[ledger.WorkspaceID]bool{},
 	}, nil
+}
+
+// warnOnce wraps warn so each distinct warning goes through once. The upgrade's index step opens a
+// project's ledger to read its repositories, and the state opens it again to serve it, and each open gives
+// the same warning. A nil warn stays nil.
+func warnOnce(warn func(string)) func(string) {
+	if warn == nil {
+		return nil
+	}
+	var mu sync.Mutex
+	given := map[string]bool{}
+	return func(warning string) {
+		mu.Lock()
+		repeated := given[warning]
+		given[warning] = true
+		mu.Unlock()
+		if !repeated {
+			warn(warning)
+		}
+	}
 }
 
 // Close closes every ledger the state opened, and then the installation database. A Store the caller
@@ -116,13 +138,16 @@ func (s *State) file(database string) (string, error) {
 	return filepath.Join(s.Dir, local), nil
 }
 
-// openLedger opens a ledger file, routed to the installation, at this build's schema.
+// openLedger opens a ledger file, routed to the installation, at this build's schema. Its warnings name
+// the database, so those of one project's ledger and another's tell apart.
 func (s *State) openLedger(ctx context.Context, database string) (*sqlstore.Store, error) {
 	file, err := s.file(database)
 	if err != nil {
 		return nil, err
 	}
-	store, err := Open(file, s.opts)
+	opts := s.opts
+	opts.Warn = sqlstore.WarnFor(opts.Warn, database)
+	store, err := Open(file, opts)
 	if err != nil {
 		return nil, err
 	}

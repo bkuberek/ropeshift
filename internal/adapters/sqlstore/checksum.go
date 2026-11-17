@@ -79,6 +79,16 @@ func UnshippedWarning(set string, unshipped []Unshipped) string {
 		set, strings.Join(named, ", "))
 }
 
+// WarnFor wraps warn so each warning it receives names the database it is about, as "database: warning".
+// A start that opens several ledgers gives each one's warning the same text, and the name tells them
+// apart. A nil warn stays nil.
+func WarnFor(warn func(string), database string) func(string) {
+	if warn == nil {
+		return nil
+	}
+	return func(warning string) { warn(database + ": " + warning) }
+}
+
 // statementReadColumns names the dialect's statement that lists a table's columns.
 const statementReadColumns = "migration.columns"
 
