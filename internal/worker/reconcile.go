@@ -63,7 +63,7 @@ func (w *Worker) bracket(ctx context.Context, effect lanes.Effect, perform func(
 		return false, nil
 	}
 	defer w.leaveEffect(effect.Key)
-	begun, err := w.journal.BeginEffect(ctx, effect)
+	begun, err := w.journal.BeginEffect(ctx, w.inLanesProject(ctx, effect))
 	if err != nil {
 		return false, err
 	}
@@ -97,6 +97,25 @@ func (w *Worker) bracket(ctx context.Context, effect lanes.Effect, perform func(
 	}
 	steps.finished()
 	return true, failure
+}
+
+// inLanesProject gives an effect the project of its lane: the run that holds the lane names it in its lease,
+// and a lane no run holds names it in its record. An effect of a lane neither knows keeps no project.
+func (w *Worker) inLanesProject(ctx context.Context, effect lanes.Effect) lanes.Effect {
+	if effect.Project != "" || effect.Lane == "" {
+		return effect
+	}
+	w.mu.Lock()
+	run := w.running[effect.Lane]
+	w.mu.Unlock()
+	if run != nil {
+		effect.Project = run.lease.Project
+		return effect
+	}
+	if record, err := w.journal.Lane(ctx, effect.Lane); err == nil {
+		effect.Project = record.Project
+	}
+	return effect
 }
 
 // takeEffect holds an effect for one goroutine, and says no while another holds it.

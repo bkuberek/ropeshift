@@ -128,6 +128,7 @@ func (r *laneRun) deliver(ctx context.Context, held messages.Held) (bool, error)
 		return false, nil
 	}
 	effect := lanes.NewEffect(lanes.EffectInput, r.lease.Lane, generation, "", messageKey(held.ID))
+	effect.Project = r.lease.Project
 	begun, err := r.w.journal.BeginEffect(ctx, effect)
 	if err != nil {
 		return false, err

@@ -101,6 +101,10 @@ type Effect struct {
 	Kind       EffectKind
 	Lane       string
 	Generation int64
+	// Project is the project of the lane that produced the effect, so what the ledger is told of it reaches
+	// that project even when the lane has no record. It is empty for an effect of no lane, and for one a
+	// journal written before projects holds.
+	Project string
 	// Target is what an observation looks at, such as a worktree's path.
 	Target   string
 	State    EffectState

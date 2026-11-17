@@ -209,6 +209,7 @@ func checkVerdictOnAnOldAttempt(t *testing.T, ctx context.Context, j ports.Journ
 
 func checkEffectOnce(t *testing.T, ctx context.Context, j ports.Journal) {
 	effect := newEffect("")
+	effect.Project = "pb"
 	first, err := j.BeginEffect(ctx, effect)
 	if err != nil || !first {
 		t.Fatalf("first begin: %v, %v", first, err)
@@ -221,7 +222,7 @@ func checkEffectOnce(t *testing.T, ctx context.Context, j ports.Journal) {
 	if err != nil || len(all) != 1 {
 		t.Fatalf("effects %+v: %v", all, err)
 	}
-	if got := all[0]; got.Key != effect.Key || got.Target != "the-target" || got.State != lanes.EffectStarted || got.Attempts != 1 {
+	if got := all[0]; got.Key != effect.Key || got.Project != "pb" || got.Target != "the-target" || got.State != lanes.EffectStarted || got.Attempts != 1 {
 		t.Errorf("effect %+v", got)
 	}
 	if _, err := j.Effect(ctx, "no such key"); !errors.Is(err, ports.ErrNotFound) {
