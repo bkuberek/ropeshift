@@ -1,9 +1,11 @@
 package repofiles
 
 import (
+	"context"
 	"slices"
 	"testing"
 
+	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/test/gittest"
 )
 
@@ -71,6 +73,41 @@ func TestAnIdentityThatIsNoRootOfTheRepositoryIsIgnored(t *testing.T) {
 	workspace, own, _ := mergedWorkspace(t)
 	if got := instanceOf(t, workspace, "0123456789abcdef0123456789abcdef01234567"); got != own {
 		t.Errorf("the instance is %s, want the first-parent root %s", got, own)
+	}
+}
+
+// A repository read from a path no checkout is kept for is named by the record the project holds for it, in the
+// order registration matches a clone.
+func TestARepositoryWithNoIdentityIsNamedByTheRecordTheProjectHolds(t *testing.T) {
+	workspace, own, imported := mergedWorkspace(t)
+	records := func(held ...ledger.Repository) func(context.Context, string) (ledger.Repository, bool, error) {
+		return func(_ context.Context, id string) (ledger.Repository, bool, error) {
+			for _, record := range held {
+				if record.ID == id {
+					return record, true, nil
+				}
+			}
+			return ledger.Repository{}, false, nil
+		}
+	}
+	removed := ledger.NewRepository(imported)
+	removed.State = ledger.RepositoryRemoved
+	for name, tt := range map[string]struct {
+		held []ledger.Repository
+		want string
+	}{
+		"a record under the lowest root":           {[]ledger.Repository{ledger.NewRepository(imported)}, imported},
+		"a record under each root names the first": {[]ledger.Repository{ledger.NewRepository(imported), ledger.NewRepository(own)}, own},
+		"no record":                                   {nil, own},
+		"a removed record under the lowest root":      {[]ledger.Repository{removed}, own},
+		"a removed record is not matched by its root": {[]ledger.Repository{removed, ledger.NewRepository(own)}, own},
+	} {
+		t.Run(name, func(t *testing.T) {
+			source := New(Config{Repository: workspace.Dir, Env: workspace.Env(), Records: records(tt.held...)})
+			if got, err := source.Instance(t.Context()); err != nil || got != tt.want {
+				t.Errorf("the instance is %s (%v), want %s", got, err, tt.want)
+			}
+		})
 	}
 }
 

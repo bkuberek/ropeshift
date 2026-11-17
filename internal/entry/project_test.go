@@ -234,6 +234,116 @@ func TestARecordStoredUnderTheLowestRootKeepsItsIDAndItsExternalKeys(t *testing.
 	}
 }
 
+// mergedSource is a first project that holds a record for each of its repositories by the ID given, and a
+// workspace that merged an unrelated history whose first commit sorts lower than its own, with a contract
+// committed before the merge.
+type mergedSource struct {
+	state     ports.Projects
+	store     ports.Store
+	workspace *gittest.Repo
+	// own is the workspace's first-parent root, and lowest the root of the history it merged.
+	own, lowest string
+}
+
+func newMergedSource(t *testing.T) mergedSource {
+	t.Helper()
+	member := ledger.Actor{Kind: ledger.ActorMember, ID: "member-1"}
+	state, store, err := sqlite.Upgrade(t.Context(), t.TempDir(), "ledger.db", ledger.Workspace{ID: soloScope, Name: "Solo"}, member, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = state.Close(); _ = store.Close() })
+	workspace, design := gittest.NewUnrelatedPair(t)
+	for _, entry := range workspace.Env() {
+		name, value, _ := strings.Cut(entry, "=")
+		t.Setenv(name, value)
+	}
+	own, lowest := workspace.Roots("HEAD")[0], design.Roots("HEAD")[0]
+	workspace.Commit("contract.md", contract.ContractText("source-work", "Source work", "Ship it."))
+	workspace.MergeUnrelated(design)
+	return mergedSource{state: state, store: store, workspace: workspace, own: own, lowest: lowest}
+}
+
+// record makes the first project's record for a repository, as an earlier read of it did.
+func (m mergedSource) record(t *testing.T, id string) {
+	t.Helper()
+	_, err := control.NewRepositories(m.store).Detect(t.Context(), soloScope, control.DetectedRepository{ID: id, DefaultBranch: "main"}, ledger.Actor{Kind: ledger.ActorSystem, ID: "intake"})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func (m mergedSource) records(t *testing.T) (ids, instances []string) {
+	t.Helper()
+	if err := m.store.Read(t.Context(), soloScope, func(tx ports.ReadTx) error {
+		all, err := tx.Repositories().Repositories()
+		for _, record := range all {
+			ids = append(ids, record.ID)
+		}
+		links, err2 := tx.Planning().Links()
+		for _, link := range links {
+			instances = append(instances, link.Key.Instance)
+		}
+		return errors.Join(err, err2)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	slices.Sort(ids)
+	slices.Sort(instances)
+	return ids, slices.Compact(instances)
+}
+
+// A repository the daemon reads from --source, with no checkout kept, keeps the ID of the record registration
+// would match it to, so an upgrade does not make a second record, with its own binding, cursor, and external
+// keys, under the first-parent root.
+func TestASourceWithNoCheckoutKeepsTheIDOfItsRecord(t *testing.T) {
+	m := newMergedSource(t)
+	m.record(t, m.lowest)
+	opts := soloOptions{intakeTick: time.Second, sources: repeatedFlag{m.workspace.Dir}}
+	kept := &checkouts.File{Path: filepath.Join(t.TempDir(), checkouts.FileName)}
+	ticks := soloTicks(m.state, soloScope, opts, kept, questions.BatchPolicy{}, nil)
+	at := slices.IndexFunc(ticks, func(tick control.Tick) bool { return tick.Name == "intake" })
+	for range 2 {
+		if err := ticks[at].Run(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ids, instances := m.records(t)
+	if !slices.Equal(ids, []string{m.lowest}) || !slices.Equal(instances, []string{m.lowest}) {
+		t.Errorf("intake left records %v and external keys under %v, want the one record %s and its keys", ids, instances, m.lowest)
+	}
+}
+
+// The documents of a --source repository are keyed under the same ID.
+func TestAKnowledgeSourceWithNoCheckoutKeepsTheIDOfItsRecord(t *testing.T) {
+	m := newMergedSource(t)
+	m.record(t, m.lowest)
+	opts := soloOptions{sources: repeatedFlag{m.workspace.Dir}, records: recordsIn(m.store, soloScope)}
+	sources := soloKnowledge(opts)
+	if len(sources) != 1 {
+		t.Fatalf("the daemon reads %d knowledge sources", len(sources))
+	}
+	description, err := sources[0].Describe(t.Context())
+	if err != nil || description.Instance != m.lowest {
+		t.Errorf("the knowledge source names %q (%v), want its record's ID %s", description.Instance, err, m.lowest)
+	}
+}
+
+// A lane for a repository resolves to a daemon source whose own record is that repository's, and not to
+// another source that merely holds its first commit.
+func TestALaneResolvesOnlyToACheckoutWhoseIdentityIsTheRecordsID(t *testing.T) {
+	m := newMergedSource(t)
+	m.record(t, m.lowest)
+	m.record(t, m.own)
+	find := checkoutOf(soloOptions{sources: repeatedFlag{m.workspace.Dir}, records: recordsIn(m.store, soloScope)}, &checkouts.File{Path: filepath.Join(t.TempDir(), checkouts.FileName)})
+	if path, err := find(t.Context(), soloScope, m.own); err != nil || path != m.workspace.Dir {
+		t.Errorf("the workspace's own record resolves to %q: %v", path, err)
+	}
+	if path, err := find(t.Context(), soloScope, m.lowest); !errors.Is(err, ports.ErrNotFound) {
+		t.Errorf("the merged history's record resolves to %q (%v), though the workspace has a record of its own", path, err)
+	}
+}
+
 // A checkout the worker keeps whose directory a person deleted or moved is no checkout: the lookup says the
 // worker keeps none, which holds the work as no_checkout and not as base_unavailable.
 func TestACheckoutWhoseDirectoryIsGoneIsNone(t *testing.T) {

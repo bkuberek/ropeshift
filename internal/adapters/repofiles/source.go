@@ -32,6 +32,10 @@ type Config struct {
 	// it is one of the repository's roots, the repository keeps that ID, so a record stored under the
 	// lowest-root rule keeps its ID and every external key intake made under it.
 	Identity string
+	// Records reads a record of the repository's project by ID. A repository with no Identity that one of
+	// its roots names is the record registration would match it to, in the order registration matches a
+	// clone, so a repository read from a path no checkout is kept for keeps the ID of its record.
+	Records func(ctx context.Context, id string) (ledger.Repository, bool, error)
 	// Env replaces the environment of git commands.
 	Env []string
 }
@@ -100,7 +104,20 @@ func (s *Source) Instance(ctx context.Context) (string, error) {
 	if root == "" {
 		return "", fmt.Errorf("%s has no commits", ref)
 	}
-	return root, nil
+	if s.config.Records == nil {
+		return root, nil
+	}
+	roots, err := s.Roots(ctx)
+	if err != nil {
+		return "", err
+	}
+	record, found, _, err := ledger.MatchRepository(root, roots, nil, func(id string) (ledger.Repository, bool, error) {
+		return s.config.Records(ctx, id)
+	})
+	if err != nil || !found {
+		return root, err
+	}
+	return record.ID, nil
 }
 
 // Describe names the repository by its identity, and says what git knows of it.
