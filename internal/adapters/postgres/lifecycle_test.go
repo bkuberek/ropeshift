@@ -554,6 +554,53 @@ func TestRemoveAndOpenNeverLeaveASchemaBehind(t *testing.T) {
 	}
 }
 
+// TestADropThatCannotTakeItsLocksGivesUp holds that the drop of a schema waits for the locks of its tables
+// for a bounded time. A session with a transaction open on a table of the project keeps the drop from
+// taking its lock, and the drop runs under the migration lock, so without a bound every other caller waits
+// behind it. The registry has forgotten the project by then, as after a crash, and a repeat of Remove
+// finishes the drop once the session is gone.
+func TestADropThatCannotTakeItsLocksGivesUp(t *testing.T) {
+	url := freshDatabase(t)
+	state := openState(t, url, postgres.Options{})
+	state.SetDropWait(300 * time.Millisecond)
+	db := state.SQLDB()
+	defer db.Close()
+	alpha, _ := createProject(t, state, "pa", "alpha")
+	_, session := otherSession(t, url)
+	for _, statement := range []string{`BEGIN`, `LOCK TABLE project_pa.work_orders IN ACCESS SHARE MODE`} {
+		if _, err := session.ExecContext(t.Context(), statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	start := time.Now()
+	err := state.Remove(ctx, alpha, member)
+	if err == nil || ctx.Err() != nil {
+		t.Fatalf("Remove with a table of the project in use ended with %v, want the failure of the drop", err)
+	}
+	if took := time.Since(start); took > 5*time.Second {
+		t.Errorf("the drop waited %s for a lock", took)
+	}
+	if !schemaExists(t, db, alpha.Database) {
+		t.Error("the schema went although a session held a lock on its table")
+	}
+	if _, err := state.Named(t.Context(), "alpha"); !errors.Is(err, ports.ErrNotFound) {
+		t.Errorf("the registry still names the project: %v", err)
+	}
+
+	if _, err := session.ExecContext(t.Context(), `ROLLBACK`); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.Remove(t.Context(), alpha, member); err != nil {
+		t.Fatalf("the repeat of Remove: %v", err)
+	}
+	if schemaExists(t, db, alpha.Database) {
+		t.Error("the schema is still there after the repeat")
+	}
+}
+
 func TestImportAndBackupAreNotThereYet(t *testing.T) {
 	state := openState(t, freshDatabase(t), postgres.Options{})
 	alpha, _ := createProject(t, state, "pa", "alpha")

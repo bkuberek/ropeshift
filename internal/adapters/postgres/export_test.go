@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"database/sql"
+	"time"
 
 	"github.com/jackc/pgx/v5/stdlib"
 
@@ -21,6 +22,10 @@ func (s *State) AcquiredConns() int { return int(s.pool.Stat().AcquiredConns()) 
 func GeneratedSchema(name string) bool { return generatedSchema(name) }
 
 func SchemaName(id ledger.WorkspaceID) (string, error) { return schemaName(id) }
+
+// SetDropWait changes how long the drop of a schema waits for a lock, for a test that cannot wait for the
+// default.
+func (s *State) SetDropWait(d time.Duration) { s.dropWait = d }
 
 // RepairProjectIndex rebuilds a project's part of the repository index, as a caller that saw a write of the
 // project fail would.

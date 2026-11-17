@@ -27,6 +27,11 @@ const DefaultIdleInTransaction = 30 * time.Second
 
 const defaultMaxConns = 16
 
+// defaultDropWait is how long the drop of a schema waits for a lock on one of its tables, such as the one a
+// session with a transaction open on a table of the project holds. The drop runs under the migration lock,
+// so every other caller waits for as long as it does.
+const defaultDropWait = 30 * time.Second
+
 // idleSetting is the server setting that ends a session left inside a transaction.
 const idleSetting = "idle_in_transaction_session_timeout"
 
@@ -77,6 +82,8 @@ type State struct {
 	// which a caller whose context ends stops waiting for.
 	migrating   chan struct{}
 	lockTimeout time.Duration
+	// dropWait bounds how long the drop of a schema waits for a lock on one of its tables.
+	dropWait time.Duration
 
 	// mu guards the Stores the state keeps open, one per project, so every call to a project shares them.
 	// No caller waits for the migration lock while it holds mu.
@@ -110,7 +117,7 @@ func Open(ctx context.Context, url string, opts Options) (*State, error) {
 	}
 	s := &State{
 		pool: pool, installationPool: installationPool, dialect: dialect, opts: opts.Store,
-		migrating: make(chan struct{}, 1), lockTimeout: lockTimeout(opts.LockTimeout),
+		migrating: make(chan struct{}, 1), lockTimeout: lockTimeout(opts.LockTimeout), dropWait: defaultDropWait,
 		stores: map[ledger.WorkspaceID]*sqlstore.Store{},
 	}
 	s.opts.Installation, s.opts.Schema = nil, ""
@@ -227,6 +234,28 @@ func (s *State) createSchema(ctx context.Context, name string) error {
 	_, err := s.pool.Exec(ctx, `CREATE SCHEMA IF NOT EXISTS `+quote(name))
 	if err != nil {
 		return fmt.Errorf("postgres: create schema %s: %w", name, err)
+	}
+	return nil
+}
+
+// dropSchema drops a schema with every table in it, when the database has it. The drop waits for the locks
+// of the schema's tables for at most dropWait and then fails, so a session with a transaction open on one of
+// them cannot hold up every caller of the migration lock, which the callers of dropSchema hold. A failed drop
+// leaves the schema as it was, and the same call finishes it once the session is gone.
+func (s *State) dropSchema(ctx context.Context, name string) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("postgres: drop schema %s: %w", name, err)
+	}
+	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`SET LOCAL lock_timeout = %d`, s.dropWait.Milliseconds())); err != nil {
+		return fmt.Errorf("postgres: drop schema %s: %w", name, err)
+	}
+	if _, err := tx.Exec(ctx, `DROP SCHEMA IF EXISTS `+quote(name)+` CASCADE`); err != nil {
+		return fmt.Errorf("postgres: drop schema %s: %w", name, err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("postgres: drop schema %s: %w", name, err)
 	}
 	return nil
 }
