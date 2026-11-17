@@ -247,6 +247,35 @@ root = "/path/to/lanes/{project}/{repo}"
 
 To check a root before a lane does, run `ropeshift worker doctor`, or `ropeshift init` again. Its `Worktree root:` section names the root in force and the layer that set it, the built-in root or your profile. For each checkout this worker keeps, in every project, whose root resolves inside a clone, it adds a line with the project, the checkout, the root, the clone, and the fix. A built-in root outside every clone adds no line.
 
+## Spend settings
+
+A project's `[spend_policy]` holds the values that stop a lane from spending credits on waiting ([waiting costs no credits](how-it-works.md#waiting-costs-no-credits)). It is a versioned policy of kind `spend`, which only a member publishes, with `ropeshift policy publish --file F`, and which `ropeshift policy list --kind spend` and `ropeshift policy show --kind spend N` read. No plan, repository file, or agent can change it, and a lane's profile layer that names one of its keys is refused as an unknown setting. A version states `version` and any key it changes, each version is newer than the one in force, and a key it leaves out keeps its default. A lane reads the version in force when it starts, so a new version reaches the next lane. The built-in version is this one:
+
+```toml
+[spend_policy]
+version = 1
+max_live_wait = "5m"
+max_tool_sleep = "60s"
+wait_rules_off = []
+wait_rule_patterns = { W1 = [], W2 = [], W3 = [], W4 = [] }
+```
+
+| Key | What it sets | Range |
+|-----|--------------|-------|
+| `max_live_wait` | The longest a lane waits live with `lane_wait`. A longer wait parks the lane | 1 minute to 1 hour |
+| `max_tool_sleep` | The sleep inside one command that rule W1 refuses, and any longer one | 1 second to 1 hour |
+| `wait_rules_off` | The wait rules to turn off, by ID: `W1`, `W2`, `W3`, or `W4` | Those four IDs |
+| `wait_rule_patterns` | Command prefixes a rule also matches, by rule ID | At most 64 per rule, each at most 200 bytes |
+
+A value outside its range is refused, and the refusal names the key. This policy turns W4 off, so a lane may run `gh pr view`, and makes W3 refuse `kubectl rollout status` too:
+
+```toml
+[spend_policy]
+version = 2
+wait_rules_off = ["W4"]
+wait_rule_patterns = { W3 = ["kubectl rollout status"] }
+```
+
 ## Next
 
 [Plan your first change](plan-your-first-change.md) is the next guide. For a project that already has code, documents, and branches, [adopt an existing project](adopt.md) brings it in as a plan instead.
