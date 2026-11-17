@@ -30,6 +30,197 @@ var RevisionChecks = []Check{
 	{"PRV10", "a member makes the rework of finished work a reversible decision reached and its revision lists, once, naming the decisions", checkRevisionDecisionRework},
 	{"PRV11", "a decision answered in a batch of the plan review opens one revision for the batch", checkRevisionOneForABatch},
 	{"PRV12", "only work a decision of the revision binds waits for it, and work of the plan that none binds passes its review", checkRevisionWaitsForBoundWorkOnly},
+	{"PRV13", "a revising session's branch closes the revision once intake records the version a member approved, and approving the branch closes nothing before", checkRevisionClosesOnBranchApproval},
+	{"PRV14", "a branch's approval closes the revision only for the decisions recorded before it, and the later ones keep holding their work", checkRevisionBranchKeepsLaterDecisions},
+	{"PRV15", "a member's own assumption inside an approved plan opens a revision, as a decision does", checkRevisionOpensOnAssumption},
+	{"PRV16", "rework for a decision is refused for finished work the revision does not list", checkRevisionReworkOfUnlistedWork},
+}
+
+func checkRevisionReworkOfUnlistedWork(r *Rig) error {
+	m, err := midPlanWorld(r)
+	if err != nil {
+		return err
+	}
+	if err := m.finish("load"); err != nil {
+		return err
+	}
+	decided, err := m.decide(r.member(), "contract:"+m.contractOf("done"), questions.Reversible)
+	if err != nil {
+		return err
+	}
+	revision, err := m.demandOpen("a member decided about finished work")
+	if err != nil {
+		return err
+	}
+	if len(revision.Finished) != 1 || revision.Finished[0].WorkOrder != m.orders["done"] {
+		return Violatedf("the revision lists %+v, want only the finished work the decision reached", revision.Finished)
+	}
+	ops := r.NewOps(m.s)
+	if _, err := ops.DecisionRework(r.Ctx, r.Scope, m.orders["load"], []string{decided.ID}, r.member()); !errors.Is(err, workorders.ErrInvalid) {
+		return Violatedf("rework of finished work the revision does not list was %v, want invalid", err)
+	}
+	if rework, err := m.reworkIDs(m.orders["load"]); err != nil || len(rework) != 0 {
+		return Violatedf("a refused request left rework %v of the work: %v", rework, err)
+	}
+	if _, err := ops.DecisionRework(r.Ctx, r.Scope, m.orders["done"], []string{decided.ID}, r.member()); err != nil {
+		return Violatedf("rework of the work the revision lists was refused: %v", err)
+	}
+	return r.CheckQuestions(m.s)
+}
+
+// delegate is a member's delegate, an agent outside ropeshift that holds no authority over a plan.
+func (r *Rig) delegate() ledger.Actor {
+	return ledger.Actor{Kind: ledger.ActorDelegate, ID: "member-1/dlg_1"}
+}
+
+func checkRevisionOpensOnAssumption(r *Rig) error {
+	m, err := midPlanWorld(r)
+	if err != nil {
+		return err
+	}
+	assumed, err := m.record(r.member(), "plan:"+m.plan, questions.Reversible, questions.DecisionAssumed)
+	if err != nil {
+		return err
+	}
+	revision, err := m.demandOpen("a member assumed something inside the approved plan")
+	if err != nil {
+		return err
+	}
+	if !slices.Equal(revision.DecisionIDs, []string{assumed.ID}) {
+		return Violatedf("the member's assumption %s opened %+v, want a revision that lists it", assumed.ID, revision)
+	}
+	return r.CheckQuestions(m.s)
+}
+
+// branchAsksForApproval has a member start the session that revises the plan, the session's lane end on a branch,
+// and intake read it, which asks a member to approve it. It returns the session's work order and the request.
+func (m *midPlan) branchAsksForApproval() (string, authority.Approval, error) {
+	r := m.r
+	ops := r.NewOps(m.s)
+	session, err := ops.ReviseSession(r.Ctx, r.Scope, m.plan, control.ReviseSession{ID: r.ID("revise"), Repository: AcceptanceRepository}, r.member())
+	if err != nil {
+		return "", authority.Approval{}, err
+	}
+	if _, err := ops.Pass(r.Ctx, r.Scope, session.ID, r.member()); err != nil {
+		return "", authority.Approval{}, err
+	}
+	if err := r.anotherAttempt(m.s, session.ID, LaneFinished(acceptedHead, LaneCheck(criterionOne, true))); err != nil {
+		return "", authority.Approval{}, err
+	}
+	m.source.Write("spec.md", []byte(DocumentText("spec", "api", "The API", midPlanID, "The second draft.")))
+	var asked []string
+	taken, err := control.NewIntake(m.s).TakeInPlans(r.Ctx, r.Scope, openFrom(m.source, &asked))
+	if err != nil || len(taken) != 0 {
+		return "", authority.Approval{}, Violatedf("intake took %v of a branch nobody accepted: %v", taken, err)
+	}
+	pending, err := r.theOpenPlanApproval(m.s)
+	return session.ID, pending, err
+}
+
+// intakeTakesTheBranch has intake read the branch a member accepted, and record the version it holds.
+func (m *midPlan) intakeTakesTheBranch(session string) error {
+	var asked []string
+	taken, err := control.NewIntake(m.s).TakeInPlans(m.r.Ctx, m.r.Scope, openFrom(m.source, &asked))
+	if err != nil || !slices.Equal(taken, []string{session}) {
+		return Violatedf("intake took %v, want the revising session %s: %v", taken, session, err)
+	}
+	return nil
+}
+
+func checkRevisionClosesOnBranchApproval(r *Rig) error {
+	m, err := midPlanWorld(r)
+	if err != nil {
+		return err
+	}
+	decided, err := m.decide(r.member(), "contract:"+m.contractOf("load"), questions.Reversible)
+	if err != nil {
+		return err
+	}
+	session, pending, err := m.branchAsksForApproval()
+	if err != nil {
+		return err
+	}
+	approved, err := r.approve(m.s, pending, true, theMember)
+	if err != nil {
+		return err
+	}
+	// The branch is accepted, and the ledger holds none of its version yet: nothing a member approved is a version to settle.
+	if revision, err := m.demandOpen("a member approved a branch intake has not read"); err != nil || !slices.Equal(revision.DecisionIDs, []string{decided.ID}) {
+		return Violatedf("approving a branch intake has not read left the revision %+v: %v", revision, err)
+	}
+	if err := m.waitsOnRevision("load"); err != nil {
+		return err
+	}
+	if err := m.intakeTakesTheBranch(session); err != nil {
+		return err
+	}
+	all, err := m.revisions()
+	if err != nil || len(all) != 1 {
+		return Violatedf("the plan has the revisions %+v after intake recorded the approved branch: %v", all, err)
+	}
+	revision := all[0]
+	if revision.Open() || revision.Outcome != planning.RevisionApproved || revision.Approval != approved.ID || revision.ClosedBy != authority.Principal(theMember) ||
+		!slices.Equal(revision.DecisionIDs, []string{decided.ID}) {
+		return Violatedf("intake recording the approved branch left the revision %+v, want it closed as approved by %s, still listing %s", revision, approved.ID, decided.ID)
+	}
+	if load, err := m.order("load"); err != nil || load.State != workorders.Ready || load.StartHeld != nil {
+		return Violatedf("the approved branch left the waiting work %s, held by %+v: %v", load.State, load.StartHeld, err)
+	}
+	return r.CheckQuestions(m.s)
+}
+
+func checkRevisionBranchKeepsLaterDecisions(r *Rig) error {
+	m, err := midPlanWorld(r)
+	if err != nil {
+		return err
+	}
+	shown, err := m.decide(r.member(), "contract:"+m.contractOf("web"), questions.Reversible)
+	if err != nil {
+		return err
+	}
+	session, pending, err := m.branchAsksForApproval()
+	if err != nil {
+		return err
+	}
+	if _, err := r.approve(m.s, pending, true, theMember); err != nil {
+		return err
+	}
+	// A decision recorded after the member approved the branch is one no approval showed.
+	r.DB.ShiftClock(1_000)
+	later, err := m.decide(r.member(), "contract:"+m.contractOf("load"), questions.Reversible)
+	if err != nil {
+		return err
+	}
+	if err := m.intakeTakesTheBranch(session); err != nil {
+		return err
+	}
+	revision, err := m.demandOpen("intake recorded a branch approved before a member's last decision")
+	if err != nil {
+		return err
+	}
+	if !slices.Equal(revision.DecisionIDs, []string{later.ID}) || revision.Names(shown.ID) || revision.ApprovedVersion != 2 {
+		return Violatedf("the revision is %+v, want it open for %s alone, since version 2: the approval showed %s", revision, later.ID, shown.ID)
+	}
+	if err := m.waitsOnRevision("load"); err != nil {
+		return err
+	}
+	if all, err := m.revisions(); err != nil || len(all) != 1 {
+		return Violatedf("the plan has the revisions %+v, want the one that stays open: %v", all, err)
+	}
+	counts, err := m.revisionEvents()
+	if err != nil {
+		return err
+	}
+	if counts[planning.EventRevisionClosed] != 0 || counts[planning.EventRevisionNarrowed] != 1 {
+		return Violatedf("the log holds %v, want one narrowing and no closing", counts)
+	}
+	if _, err := r.NewOps(m.s).ConfirmRevision(r.Ctx, r.Scope, m.plan, r.member()); err != nil {
+		return err
+	}
+	if load, err := m.order("load"); err != nil || load.State != workorders.Ready {
+		return Violatedf("Confirm left the work of the later decision %s: %v", load.State, err)
+	}
+	return r.CheckQuestions(m.s)
 }
 
 // revisions lists every revision of a plan, by when it opened.
@@ -427,8 +618,13 @@ func checkRevisionStartsASession(r *Rig) error {
 	if err != nil {
 		return err
 	}
-	if _, err := ops.ReviseSession(r.Ctx, r.Scope, m.plan, session, m.holder); !errors.Is(err, workorders.ErrForbidden) {
-		return Violatedf("an orchestrator revising a plan was %v, want forbidden", err)
+	for name, actor := range map[string]ledger.Actor{"an orchestrator": m.holder, "a delegate": r.delegate()} {
+		if _, err := ops.ReviseSession(r.Ctx, r.Scope, m.plan, session, actor); !errors.Is(err, workorders.ErrForbidden) {
+			return Violatedf("%s revising a plan was %v, want forbidden", name, err)
+		}
+	}
+	if _, err := r.WorkOrder(m.s, session.ID); !errors.Is(err, ports.ErrNotFound) {
+		return Violatedf("a refused request started the work order %s: %v", session.ID, err)
 	}
 	order, err := ops.ReviseSession(r.Ctx, r.Scope, m.plan, session, r.member())
 	if err != nil {
@@ -454,6 +650,11 @@ func checkRevisionStartsASession(r *Rig) error {
 	if err != nil || again.ID != order.ID {
 		return Violatedf("a retry of the same session started %+v: %v", again, err)
 	}
+	// An ID that names work which is not a planning session is not a session to return.
+	taken := control.ReviseSession{ID: m.orders["web"]}
+	if got, err := ops.ReviseSession(r.Ctx, r.Scope, m.plan, taken, r.member()); !errors.Is(err, workorders.ErrInvalid) {
+		return Violatedf("revising with the ID of the work order %s returned %+v with %v, want the ID refused", taken.ID, got, err)
+	}
 	return r.CheckQuestions(m.s)
 }
 
@@ -472,8 +673,13 @@ func checkRevisionDecisionRework(r *Rig) error {
 		return err
 	}
 	done := m.orders["done"]
-	if _, err := ops.DecisionRework(r.Ctx, r.Scope, done, []string{first.ID}, m.holder); !errors.Is(err, workorders.ErrForbidden) {
-		return Violatedf("an orchestrator creating rework for a decision was %v, want forbidden", err)
+	for name, actor := range map[string]ledger.Actor{"an orchestrator": m.holder, "a delegate": r.delegate()} {
+		if _, err := ops.DecisionRework(r.Ctx, r.Scope, done, []string{first.ID}, actor); !errors.Is(err, workorders.ErrForbidden) {
+			return Violatedf("%s creating rework for a decision was %v, want forbidden", name, err)
+		}
+	}
+	if rework, err := m.reworkIDs(done); err != nil || len(rework) != 0 {
+		return Violatedf("a refused request left rework %v: %v", rework, err)
 	}
 	if _, err := ops.DecisionRework(r.Ctx, r.Scope, m.orders["ids"], []string{first.ID}, r.member()); !errors.Is(err, workorders.ErrInvalid) {
 		return Violatedf("rework of work that has not finished was %v, want invalid", err)

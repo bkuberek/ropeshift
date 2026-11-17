@@ -10,14 +10,15 @@ import (
 	"ropeshift.com/ropeshift/internal/ports"
 )
 
-const revisionColumns = `id, plan_id, approved_version, decision_ids, finished, opened_at, closed_at, closed_by, outcome, approval_id`
+const revisionColumns = `id, plan_id, approved_version, decision_ids, listed_at, finished, opened_at, closed_at, closed_by, outcome, approval_id`
 
 var (
 	stmtSaveRevision = define("plan_revision.save",
-		`INSERT INTO plan_revisions (workspace_id, id, plan_id, approved_version, decision_ids, finished, opened_at, closed_at, closed_by, outcome, approval_id)
-VALUES (:workspace_id, :id, :plan_id, :approved_version, :decision_ids, :finished, :opened_at, :closed_at, :closed_by, :outcome, :approval_id)
+		`INSERT INTO plan_revisions (workspace_id, id, plan_id, approved_version, decision_ids, listed_at, finished, opened_at, closed_at, closed_by, outcome, approval_id)
+VALUES (:workspace_id, :id, :plan_id, :approved_version, :decision_ids, :listed_at, :finished, :opened_at, :closed_at, :closed_by, :outcome, :approval_id)
 ON CONFLICT (workspace_id, id) DO UPDATE SET
-  decision_ids = :decision_ids, finished = :finished, closed_at = :closed_at, closed_by = :closed_by, outcome = :outcome, approval_id = :approval_id`)
+  approved_version = :approved_version, decision_ids = :decision_ids, listed_at = :listed_at, finished = :finished, closed_at = :closed_at,
+  closed_by = :closed_by, outcome = :outcome, approval_id = :approval_id`)
 
 	stmtOpenRevision = define("plan_revision.open",
 		`SELECT `+revisionColumns+` FROM plan_revisions
@@ -34,13 +35,21 @@ func (t planningTx) SaveRevision(revision planning.Revision) error {
 	if err != nil {
 		return err
 	}
+	listed := revision.ListedAt
+	if listed == nil {
+		listed = map[string]int64{}
+	}
+	listedAt, err := json.Marshal(listed)
+	if err != nil {
+		return err
+	}
 	finished, err := json.Marshal(nonNil(revision.Finished))
 	if err != nil {
 		return err
 	}
 	_, err = t.exec(stmtSaveRevision, t.scoped(params{
 		"id": revision.ID, "plan_id": revision.PlanID, "approved_version": revision.ApprovedVersion,
-		"decision_ids": string(decisions), "finished": string(finished), "opened_at": revision.OpenedAt,
+		"decision_ids": string(decisions), "listed_at": string(listedAt), "finished": string(finished), "opened_at": revision.OpenedAt,
 		"closed_at": nullInt(revision.ClosedAt), "closed_by": revision.ClosedBy, "outcome": string(revision.Outcome),
 		"approval_id": revision.Approval,
 	}))
@@ -49,16 +58,16 @@ func (t planningTx) SaveRevision(revision planning.Revision) error {
 
 func scanRevision(row scanner) (planning.Revision, error) {
 	var revision planning.Revision
-	var decisions, finished, outcome string
+	var decisions, listedAt, finished, outcome string
 	var closedAt sql.NullInt64
-	if err := row.Scan(&revision.ID, &revision.PlanID, &revision.ApprovedVersion, &decisions, &finished, &revision.OpenedAt, &closedAt, &revision.ClosedBy, &outcome, &revision.Approval); err != nil {
+	if err := row.Scan(&revision.ID, &revision.PlanID, &revision.ApprovedVersion, &decisions, &listedAt, &finished, &revision.OpenedAt, &closedAt, &revision.ClosedBy, &outcome, &revision.Approval); err != nil {
 		return planning.Revision{}, err
 	}
 	revision.ClosedAt, revision.Outcome = closedAt.Int64, planning.RevisionOutcome(outcome)
 	for _, field := range []struct {
 		raw  string
 		into any
-	}{{decisions, &revision.DecisionIDs}, {finished, &revision.Finished}} {
+	}{{decisions, &revision.DecisionIDs}, {listedAt, &revision.ListedAt}, {finished, &revision.Finished}} {
 		if err := json.Unmarshal([]byte(field.raw), field.into); err != nil {
 			return planning.Revision{}, fmt.Errorf("plan %s revision %s: %w", revision.PlanID, revision.ID, err)
 		}

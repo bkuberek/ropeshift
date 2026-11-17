@@ -134,6 +134,15 @@ type Sabotage struct {
 	KeepsDecisionHolds bool
 	// KeepsRevisionOnApproval leaves a revision open when a member approves a later version.
 	KeepsRevisionOnApproval bool
+	// MarksNoAssumption opens no revision for a member's assumption.
+	MarksNoAssumption bool
+	// ReusesAnyWorkOrder returns the work order that has the ID of a revising session, whatever its kind.
+	ReusesAnyWorkOrder bool
+	// ReworksUnlistedWork makes rework for a decision of finished work its revision does not list.
+	ReworksUnlistedWork bool
+	// ClosesLaterDecisions closes a revision for every decision it lists when a member approves a later version, the
+	// ones recorded after the approval included.
+	ClosesLaterDecisions bool
 	// BriefsNoDecisions starts a revising session with a brief that lists no decision.
 	BriefsNoDecisions bool
 	// LeavesParkedLanes cancels work and leaves its parked lane reading parked for good.
@@ -281,6 +290,14 @@ func keepsWaitingWork() bool { return current().KeepsWaitingWork }
 func keepsDecisionHolds() bool { return current().KeepsDecisionHolds }
 
 func keepsRevisionOnApproval() bool { return current().KeepsRevisionOnApproval }
+
+func marksNoAssumption() bool { return current().MarksNoAssumption }
+
+func reusesAnyWorkOrder() bool { return current().ReusesAnyWorkOrder }
+
+func reworksUnlistedWork() bool { return current().ReworksUnlistedWork }
+
+func closesLaterDecisions() bool { return current().ClosesLaterDecisions }
 
 func briefsNoDecisions() bool { return current().BriefsNoDecisions }
 

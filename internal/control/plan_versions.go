@@ -1,6 +1,7 @@
 package control
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -256,24 +257,29 @@ func planFileRef(entries []planning.Entry) string {
 	return ""
 }
 
-// lastApproved reads the newest version of a plan a member approved, which a new version is compared
-// with. It is false for a plan no member has approved.
+// lastApproved reads the newest version of a plan a member approved that the ledger holds, which a new version is
+// compared with. It is false for a plan no member has approved.
 func lastApproved(tx ports.WriteTx, plan string) (planning.PlanVersion, bool, error) {
 	rows, err := tx.Approvals().All()
 	if err != nil {
 		return planning.PlanVersion{}, false, err
 	}
-	var base int64
+	var approved []int64
 	for _, row := range rows {
-		if row.Kind == authority.KindPlan && row.Plan == plan && row.State == authority.ApprovalApproved && row.PlanVersion > base {
-			base = row.PlanVersion
+		if row.Kind == authority.KindPlan && row.Plan == plan && row.State == authority.ApprovalApproved {
+			approved = append(approved, row.PlanVersion)
 		}
 	}
-	if base == 0 {
-		return planning.PlanVersion{}, false, nil
+	slices.SortFunc(approved, func(a, b int64) int { return cmp.Compare(b, a) })
+	for _, number := range approved {
+		version, err := tx.Planning().PlanVersion(plan, number)
+		if errors.Is(err, ports.ErrNotFound) {
+			// A branch a member approved before intake read it names a version the ledger does not hold yet.
+			continue
+		}
+		return version, err == nil, err
 	}
-	version, err := tx.Planning().PlanVersion(plan, base)
-	return version, err == nil, err
+	return planning.PlanVersion{}, false, nil
 }
 
 // planRequester is the principal that asks for a plan to be approved: the lane whose branch held the

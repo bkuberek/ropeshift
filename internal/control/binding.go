@@ -129,8 +129,9 @@ func (q *Questions) applyBinding(tx ports.WriteTx, record questions.Decision, ho
 // returnUnstarted sends ready work back to contract review, where work in `intake`, `planning`, or contract review
 // already stands, and holds work in review when a person's one-way decision binds it, so the pass of its review
 // reads a choice nobody can take back. Any other decision holds nothing: covered work passes its review again at
-// the next tick, with the decision in what it reads. Plan revision (FR-PLAN-13) holds work for every decision a
-// member makes, and replaces this hold.
+// the next tick, with the decision in what it reads. The hold is per work order, and a member's pass of its review,
+// a Confirm of the plan's revision, or the approval of a later version of the plan ends it. A plan revision waits
+// separately, for the work its decisions bind (FR-PLAN-11).
 func returnUnstarted(tx ports.WriteTx, orders []workorders.WorkOrder, decision string, oneWay bool, actor ledger.Actor) error {
 	if keepsReadyWork() {
 		return nil

@@ -2,15 +2,19 @@ package planning
 
 import (
 	"encoding/json"
+	"maps"
 	"slices"
 
 	"ropeshift.com/ropeshift/internal/ledger"
 )
 
 // The events of a plan revision. Each holds the whole revision as it stands, so a replay needs nothing else.
+// A revision is narrowed when a member approves a version that came before some of its decisions: it goes on for
+// the decisions recorded after the approval.
 const (
 	EventRevisionOpened   = "plan.revision_opened"
 	EventRevisionExtended = "plan.revision_extended"
+	EventRevisionNarrowed = "plan.revision_narrowed"
 	EventRevisionClosed   = "plan.revision_closed"
 )
 
@@ -41,9 +45,11 @@ type Revision struct {
 	PlanID          string `json:"plan_id"`
 	ApprovedVersion int64  `json:"approved_version"`
 	// DecisionIDs are the decisions since the approved version, in the order they were recorded.
-	DecisionIDs []string       `json:"decision_ids"`
-	Finished    []RevisionWork `json:"finished"`
-	OpenedAt    int64          `json:"opened_at"`
+	DecisionIDs []string `json:"decision_ids"`
+	// ListedAt is when the revision first listed each decision, which is when it was recorded.
+	ListedAt map[string]int64 `json:"listed_at"`
+	Finished []RevisionWork   `json:"finished"`
+	OpenedAt int64            `json:"opened_at"`
 	// ClosedAt is zero while the revision is open.
 	ClosedAt int64           `json:"closed_at,omitempty"`
 	ClosedBy string          `json:"closed_by,omitempty"`
@@ -58,13 +64,31 @@ func (r Revision) Open() bool { return r.ClosedAt == 0 }
 // Names says a decision is one the revision lists.
 func (r Revision) Names(decision string) bool { return slices.Contains(r.DecisionIDs, decision) }
 
-// Extend returns the revision with one more decision, and with the finished work orders that decision reached
-// under each of them. A decision or a work order it lists already stays listed once.
-func (r Revision) Extend(decision string, finished []string) Revision {
+// After lists the decisions the revision listed after a moment, in the order it lists them. A decision with no
+// time on record is not one of them.
+func (r Revision) After(at int64) []string {
+	var later []string
+	for _, id := range r.DecisionIDs {
+		if r.ListedAt[id] > at {
+			later = append(later, id)
+		}
+	}
+	return later
+}
+
+// Extend returns the revision with one more decision, recorded at a moment, and with the finished work orders that
+// decision reached under each of them. A decision or a work order it lists already stays listed once, with the
+// moment it was first listed.
+func (r Revision) Extend(decision string, at int64, finished []string) Revision {
 	next := r
 	next.DecisionIDs = slices.Clone(r.DecisionIDs)
+	next.ListedAt = maps.Clone(r.ListedAt)
+	if next.ListedAt == nil {
+		next.ListedAt = map[string]int64{}
+	}
 	if !slices.Contains(next.DecisionIDs, decision) {
 		next.DecisionIDs = append(next.DecisionIDs, decision)
+		next.ListedAt[decision] = at
 	}
 	next.Finished = make([]RevisionWork, len(r.Finished))
 	for i, work := range r.Finished {
@@ -77,6 +101,33 @@ func (r Revision) Extend(decision string, finished []string) Revision {
 			next.Finished = append(next.Finished, RevisionWork{WorkOrder: id, Decisions: []string{decision}})
 		case !slices.Contains(next.Finished[at].Decisions, decision):
 			next.Finished[at].Decisions = append(next.Finished[at].Decisions, decision)
+		}
+	}
+	return next
+}
+
+// Restrict returns the revision with only the decisions given, in the order the revision lists them, and with the
+// finished work only those decisions reached. A finished work order none of them reached is left out.
+func (r Revision) Restrict(keep []string) Revision {
+	next := r
+	next.DecisionIDs = nil
+	next.ListedAt = map[string]int64{}
+	for _, id := range r.DecisionIDs {
+		if slices.Contains(keep, id) {
+			next.DecisionIDs = append(next.DecisionIDs, id)
+			next.ListedAt[id] = r.ListedAt[id]
+		}
+	}
+	next.Finished = []RevisionWork{}
+	for _, work := range r.Finished {
+		var decisions []string
+		for _, id := range work.Decisions {
+			if slices.Contains(keep, id) {
+				decisions = append(decisions, id)
+			}
+		}
+		if len(decisions) != 0 {
+			next.Finished = append(next.Finished, RevisionWork{WorkOrder: work.WorkOrder, Decisions: decisions, Rework: work.Rework})
 		}
 	}
 	return next

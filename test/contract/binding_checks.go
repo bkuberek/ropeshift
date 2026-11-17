@@ -495,6 +495,11 @@ func checkBindingRefusesUnheldScopes(r *Rig) error {
 
 // decide records a decision of the scenario's plan, with the other decisions it overlaps stated as no conflict.
 func (m *midPlan) decide(by ledger.Actor, scope, reversibility string) (questions.Decision, error) {
+	return m.record(by, scope, reversibility, questions.DecisionDecided)
+}
+
+// record records a decision of the scenario's plan with a status, with the other decisions it overlaps stated as no conflict.
+func (m *midPlan) record(by ledger.Actor, scope, reversibility string, status questions.DecisionStatus) (questions.Decision, error) {
 	var overlapping []questions.Decision
 	err := m.s.Read(m.r.Ctx, m.r.Scope, func(tx ports.ReadTx) error {
 		var err error
@@ -509,7 +514,7 @@ func (m *midPlan) decide(by ledger.Actor, scope, reversibility string) (question
 		noConflict = append(noConflict, decision.ID)
 	}
 	return m.r.NewOps(m.s).RecordDecision(m.r.Ctx, m.r.Scope, questions.Decision{
-		ID: m.r.ID("d"), Status: questions.DecisionDecided, Statement: "Binding decision " + m.r.ID("s"), Rationale: "The brand guide says so.",
+		ID: m.r.ID("d"), Status: status, Statement: "Binding decision " + m.r.ID("s"), Rationale: "The brand guide says so.",
 		Citations: []string{"brand-guide"}, Scope: scope, Reversibility: reversibility, Categories: []string{questions.CategoryProduct}, NoConflict: noConflict,
 	}, by)
 }
@@ -584,10 +589,11 @@ func checkBindingHoldsReadyWork(r *Rig) error {
 	if _, err := r.NewOps(m.s).Promote(r.Ctx, r.Scope, tickActor); err != nil {
 		return err
 	}
-	if load, err = m.order("load"); err != nil || load.State != workorders.ContractReview {
-		return Violatedf("the tick returned held work to %s: %v", load.State, err)
+	if load, err = m.order("load"); err != nil || load.State != workorders.ContractReview || load.StartHeld == nil || load.StartHeld.Reason != workorders.HoldDecision {
+		return Violatedf("the tick left held work %s, held by %+v: %v", load.State, load.StartHeld, err)
 	}
-	// A member's pass reads the decision, which ends the hold. The plan needs revision, so the work waits for it.
+	// A member's pass reads the decision, which ends the hold. The plan needs revision, so the work waits for it:
+	// the hold and the wait are two reasons, and only the wait is still there.
 	result, err := r.NewOps(m.s).Pass(r.Ctx, r.Scope, load.ID, r.member())
 	if err != nil {
 		return err
@@ -597,6 +603,10 @@ func checkBindingHoldsReadyWork(r *Rig) error {
 	}
 	if result.State != workorders.ContractReview || load.State != workorders.ContractReview || load.StartHeld != nil {
 		return Violatedf("a member passing the review left the work %s, held by %+v: %+v", load.State, load.StartHeld, result)
+	}
+	if slices.ContainsFunc(result.Failures, func(f workorders.ReadyFailure) bool { return f.Check == workorders.CheckDecisions }) ||
+		!slices.ContainsFunc(result.Failures, func(f workorders.ReadyFailure) bool { return f.Check == workorders.CheckPlanRevision }) {
+		return Violatedf("after a member's pass the work fails %+v, want the plan's revision and no hold by a decision", result.Failures)
 	}
 	if _, err := r.NewOps(m.s).ConfirmRevision(r.Ctx, r.Scope, m.plan, r.member()); err != nil {
 		return err

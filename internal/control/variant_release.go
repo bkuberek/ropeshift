@@ -135,6 +135,10 @@ func confirmsAnyActor() bool        { return false }
 func keepsWaitingWork() bool        { return false }
 func keepsDecisionHolds() bool      { return false }
 func keepsRevisionOnApproval() bool { return false }
+func marksNoAssumption() bool       { return false }
+func reusesAnyWorkOrder() bool      { return false }
+func reworksUnlistedWork() bool     { return false }
+func closesLaterDecisions() bool    { return false }
 func briefsNoDecisions() bool       { return false }
 
 // leavesParkedLanes is false: a cancel ends a lane with no process, which no worker will report.

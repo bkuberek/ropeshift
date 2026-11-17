@@ -81,6 +81,11 @@ func packVariants() []variant {
 		{name: "work a one-way decision held, which Confirm leaves held", control: control.Sabotage{KeepsDecisionHolds: true}, check: "PRV5"},
 		{name: "a revision any actor confirms", control: control.Sabotage{ConfirmsAnyActor: true}, check: "PRV6"},
 		{name: "a revision that stays open when a later version is approved", control: control.Sabotage{KeepsRevisionOnApproval: true}, check: "PRV7"},
+		{name: "a revision that stays open when a branch is approved", control: control.Sabotage{KeepsRevisionOnApproval: true}, check: "PRV13"},
+		{name: "a revision that an approval closes for decisions recorded after it", control: control.Sabotage{ClosesLaterDecisions: true}, check: "PRV14"},
+		{name: "a member's assumption that opens no revision", control: control.Sabotage{MarksNoAssumption: true}, check: "PRV15"},
+		{name: "rework for a decision of finished work its revision does not list", control: control.Sabotage{ReworksUnlistedWork: true}, check: "PRV16"},
+		{name: "a revising session that returns work of another kind", control: control.Sabotage{ReusesAnyWorkOrder: true}, check: "PRV9"},
 		{name: "a revising session whose brief lists no decision", control: control.Sabotage{BriefsNoDecisions: true}, check: "PRV9"},
 		{name: "a rework for each decision a member names", control: control.Sabotage{ReworksEachDecision: true}, check: "PRV10"},
 		{

@@ -24,13 +24,12 @@ const reviseCriterion = "The plan is revised in the repository as files, and the
 // PlanRevisions holds what a member does about a plan that decisions have moved past: confirm the approved
 // version against them, or start a session that revises the plan (ADR-0030).
 type PlanRevisions struct {
-	store  ports.Store
-	orders *WorkOrders
+	store ports.Store
 }
 
 // NewPlanRevisions returns the use cases over a Store.
 func NewPlanRevisions(store ports.Store) *PlanRevisions {
-	return &PlanRevisions{store: store, orders: NewWorkOrders(store)}
+	return &PlanRevisions{store: store}
 }
 
 // reviseApprovedPlans marks each plan whose approved version a member's decision binds work of as needing revision
@@ -40,6 +39,9 @@ func NewPlanRevisions(store ports.Store) *PlanRevisions {
 // proceeds under policy (FR-PLAN-10), and neither does a decision that binds work no approved plan covers.
 func reviseApprovedPlans(tx ports.WriteTx, decision questions.Decision, touched reach, finished []workorders.WorkOrder, oneWay bool, actor ledger.Actor) error {
 	if marksNoRevision() || (authority.PartyOf(actor) != authority.PartyPerson && !marksAnyActor()) {
+		return nil
+	}
+	if decision.Status == questions.DecisionAssumed && marksNoAssumption() {
 		return nil
 	}
 	facts := newScopeFacts(tx.Planning(), tx.WorkOrders())
@@ -99,7 +101,7 @@ func extendRevision(tx ports.WriteTx, plan string, approved int64, decision stri
 		if err != nil {
 			return err
 		}
-		next = planning.Revision{ID: id, PlanID: plan, ApprovedVersion: approved, OpenedAt: tx.Now()}.Extend(decision, finished)
+		next = planning.Revision{ID: id, PlanID: plan, ApprovedVersion: approved, OpenedAt: tx.Now()}.Extend(decision, tx.Now(), finished)
 		kind = planning.EventRevisionOpened
 	case err != nil:
 		return err
@@ -107,7 +109,7 @@ func extendRevision(tx ports.WriteTx, plan string, approved int64, decision stri
 		if extendsNothing() {
 			return nil
 		}
-		if next = open.Extend(decision, finished); reflect.DeepEqual(next, open) {
+		if next = open.Extend(decision, tx.Now(), finished); reflect.DeepEqual(next, open) {
 			return nil
 		}
 	}
@@ -179,12 +181,18 @@ func revisionWait(planned ports.PlanningReader, orders ports.WorkOrderReader, as
 // settlePlanWork runs the pass of contract review again for the work of a plan that waits in it, once what held it
 // is settled: a member who confirmed a plan's version, or approved a later one, has read the decisions since, so a
 // hold a person's one-way decision put on the work ends, and the definition of ready runs on each work order whose
-// review is on record.
+// review is on record. A revision that is still open, for decisions recorded after that approval, goes on holding
+// the work those decisions bind.
 func settlePlanWork(tx ports.WriteTx, plan string, actor ledger.Actor) error {
 	contracts, err := newestContracts(tx.Planning(), plan)
 	if err != nil {
 		return err
 	}
+	standing, err := tx.Planning().OpenRevision(plan)
+	if err != nil && !errors.Is(err, ports.ErrNotFound) {
+		return err
+	}
+	stands := err == nil
 	for _, contract := range contracts {
 		orders, err := tx.WorkOrders().ByContract(contract.ID)
 		if err != nil {
@@ -193,6 +201,15 @@ func settlePlanWork(tx ports.WriteTx, plan string, actor ledger.Actor) error {
 		for _, order := range orders {
 			if order.State != workorders.ContractReview {
 				continue
+			}
+			if stands {
+				bound, err := RevisionBinds(tx.Planning(), tx.WorkOrders(), tx.Questions(), standing, order)
+				if err != nil {
+					return err
+				}
+				if bound > 0 {
+					continue
+				}
 			}
 			if !keepsDecisionHolds() {
 				if order, err = releaseDecisionHold(tx, order, actor); err != nil {
@@ -237,9 +254,11 @@ func (p *PlanRevisions) ConfirmRevision(ctx context.Context, scope ledger.Worksp
 }
 
 // closeApprovedRevision ends the revision of a plan whose later version a member approved, naming the approval, and
-// releases the work that waited for it. Approving the version is the member's word on the decisions since, which
-// the request showed beside the difference. The version's approval never inherits the earlier one, so this closes a
-// revision and passes nothing the earlier approval did not cover.
+// releases the work that waited for it. Approving the version is the member's word on the decisions the request
+// showed beside the difference, which are the ones recorded when the member approved it. A decision recorded after
+// that no approval showed, so the revision goes on for those decisions alone, since the version the member
+// approved, and the work they bind keeps waiting. The version's approval never inherits the earlier one, so this
+// passes nothing the earlier approval did not cover.
 func closeApprovedRevision(tx ports.WriteTx, plan string, approval authority.Approval, member ledger.Actor) error {
 	if keepsRevisionOnApproval() {
 		return nil
@@ -251,8 +270,12 @@ func closeApprovedRevision(tx ports.WriteTx, plan string, approval authority.App
 	if err != nil {
 		return err
 	}
-	closed := open.Close(authority.Principal(member), tx.Now(), planning.RevisionApproved, approval.ID)
-	if err := saveRevision(tx, closed, planning.EventRevisionClosed, member); err != nil {
+	next, kind := open.Close(authority.Principal(member), tx.Now(), planning.RevisionApproved, approval.ID), planning.EventRevisionClosed
+	if later := open.After(approval.DecidedAt); len(later) != 0 && !closesLaterDecisions() {
+		next, kind = open.Restrict(later), planning.EventRevisionNarrowed
+		next.ApprovedVersion = max(open.ApprovedVersion, approval.PlanVersion)
+	}
+	if err := saveRevision(tx, next, kind, member); err != nil {
 		return err
 	}
 	return settlePlanWork(tx, plan, member)
@@ -267,31 +290,34 @@ func (p *PlanRevisions) ReviseSession(ctx context.Context, scope ledger.Workspac
 	if !authority.Allowed(actor, authority.ActionApprovePlan) {
 		return workorders.WorkOrder{}, workorders.ErrForbidden
 	}
-	var title, brief string
-	var found workorders.WorkOrder
-	err := p.store.Read(ctx, scope, func(tx ports.ReadTx) error {
+	var order workorders.WorkOrder
+	err := p.store.Write(ctx, scope, "plan.revise_session", func(tx ports.WriteTx) error {
 		existing, err := tx.WorkOrders().Get(session.ID)
 		if err == nil {
-			found = existing
+			if existing.Kind != workorders.KindPlan && !reusesAnyWorkOrder() {
+				return fmt.Errorf("%w: %s is the ID of a %s work order, and a revising session is a plan work order", workorders.ErrInvalid, existing.ID, existing.Kind)
+			}
+			order = existing
 			return nil
 		}
 		if !errors.Is(err, ports.ErrNotFound) {
 			return err
 		}
-		title, brief, err = reviseBrief(tx, plan)
+		title, brief, err := reviseBrief(tx.Planning(), tx.Questions(), plan)
+		if err != nil {
+			return err
+		}
+		record, err := checkLedgerOrder(workorders.WorkOrder{ID: session.ID, Kind: workorders.KindPlan, Title: title, RepositoryID: session.Repository})
+		if err != nil {
+			return err
+		}
+		order, err = recordLedgerWork(tx, record, LedgerWork{
+			Statement: brief,
+			Criteria:  []planning.Criterion{{ID: "c1", Text: reviseCriterion}},
+		}, actor)
 		return err
 	})
-	if err != nil {
-		return workorders.WorkOrder{}, err
-	}
-	if found.ID != "" {
-		return found, nil
-	}
-	return p.orders.Record(ctx, scope, LedgerWork{
-		Order:     workorders.WorkOrder{ID: session.ID, Kind: workorders.KindPlan, Title: title, RepositoryID: session.Repository},
-		Statement: brief,
-		Criteria:  []planning.Criterion{{ID: "c1", Text: reviseCriterion}},
-	}, actor)
+	return order, err
 }
 
 // ReviseSession is the planning session a revision starts: the work order's ID, which the client generates, and the
@@ -303,18 +329,18 @@ type ReviseSession struct {
 
 // reviseBrief is the title and the brief of a session that revises a plan: what the plan is, the decisions since its
 // approved version with their statements and scopes, and the finished work they reached.
-func reviseBrief(tx ports.ReadTx, plan string) (string, string, error) {
-	revision, err := tx.Planning().OpenRevision(plan)
+func reviseBrief(planned ports.PlanningReader, asked ports.QuestionReader, plan string) (string, string, error) {
+	revision, err := planned.OpenRevision(plan)
 	if err != nil {
 		return "", "", err
 	}
-	record, err := tx.Planning().Plan(plan)
+	record, err := planned.Plan(plan)
 	if err != nil {
 		return "", "", err
 	}
 	var text strings.Builder
 	fmt.Fprintf(&text, "Revise the plan %q, which a member approved at version %d.\n", record.Title, revision.ApprovedVersion)
-	if latest, err := tx.Planning().LatestPlanVersion(plan); err == nil {
+	if latest, err := planned.LatestPlanVersion(plan); err == nil {
 		if ref := planFileRef(latest.Records); ref != "" {
 			fmt.Fprintf(&text, "The plan's file names it %q.\n", ref)
 		}
@@ -322,7 +348,7 @@ func reviseBrief(tx ports.ReadTx, plan string) (string, string, error) {
 	text.WriteString("\nThese decisions were made since that version. The plan must reflect each one, or say why it does not:\n\n")
 	if !briefsNoDecisions() {
 		for _, id := range revision.DecisionIDs {
-			decision, err := tx.Questions().Decision(id)
+			decision, err := asked.Decision(id)
 			if err != nil {
 				return "", "", err
 			}
@@ -420,6 +446,9 @@ func revisionListing(tx ports.WriteTx, order workorders.WorkOrder) (planning.Rev
 		return planning.RevisionWork{}, err
 	}
 	at := slices.IndexFunc(open.Finished, func(work planning.RevisionWork) bool { return work.WorkOrder == order.ID })
+	if at < 0 && reworksUnlistedWork() {
+		return planning.RevisionWork{WorkOrder: order.ID, Decisions: open.DecisionIDs}, nil
+	}
 	if at < 0 {
 		return planning.RevisionWork{}, fmt.Errorf("%w: the revision of plan %s does not list work order %s", workorders.ErrInvalid, plan, order.ID)
 	}

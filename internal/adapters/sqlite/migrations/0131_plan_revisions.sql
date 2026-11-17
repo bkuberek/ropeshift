@@ -1,16 +1,18 @@
 -- A plan needs revision once a member decides something inside the plan's approved version (ADR-0030). One
 -- row holds what a member is asked to settle, from the first such decision to the Confirm or the approval that
 -- ends it. decision_ids lists the decisions since the approved version in the order they were recorded, and
--- finished lists the finished work orders the reversible ones reached, each with the decisions that reached it
--- and the rework a member made of it. A plan has at most one open revision. outcome is `confirmed` when a
--- member confirmed the approved version, and `approved` when a member approved a later version, whose request
--- approval_id names.
+-- listed_at holds when each was recorded. finished lists the finished work orders the reversible ones reached,
+-- each with the decisions that reached it and the rework a member made of it. A plan has at most one open
+-- revision. outcome is `confirmed` when a member confirmed the approved version, and `approved` when a member
+-- approved a later version, whose request approval_id names. The approval closes the row for the decisions recorded
+-- at or before it, and a new open row, since the approved version, holds the decisions recorded after it.
 CREATE TABLE plan_revisions (
   workspace_id     TEXT   NOT NULL,
   id               TEXT   NOT NULL,
   plan_id          TEXT   NOT NULL,
   approved_version BIGINT NOT NULL,
   decision_ids     TEXT   NOT NULL,
+  listed_at        TEXT   NOT NULL,
   finished         TEXT   NOT NULL,
   opened_at        BIGINT NOT NULL,
   closed_at        BIGINT,
