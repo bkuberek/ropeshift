@@ -101,7 +101,7 @@ func newLaneRigWith(t *testing.T, base *rig, setup func(*fake.AgentDriver)) *lan
 		Secrets:    fake.SecretResolver{},
 		Repository: func(context.Context, string, string) (string, error) { return "/repository", nil },
 		Socket:     "/run/worker.sock", Spool: "/state/hooks.spool", Binary: "/state/bin/ropeshift",
-		StateDir: dir, RunDir: dir,
+		StateDir: dir, RunDir: dir, PaneInputs: &worker.PaneInputs{},
 	}
 	r := &laneRig{rig: base, driver: driver, config: config, dir: dir, telemetry: fake.NewTelemetry()}
 	var journal ports.Journal = base.journal

@@ -28,6 +28,10 @@ const (
 	// attached. A driver reads a pane's clients about once a second, and this is as long as a hook trusts
 	// what the last read said, so one read that failed is followed by one that did not.
 	attachedRecheck = lanes.AttachedStale
+	// attachedWaits is how many `ask_wait`s in a row a terminal attached to a planning lane's pane keeps the
+	// lane while its person sends nothing. A terminal left attached says nothing of whether anyone is at it,
+	// and no process waits on a person without end.
+	attachedWaits = 12
 )
 
 // ErrNoParking means a lane is not at a point where it can park.
@@ -355,11 +359,14 @@ func (r *laneRun) awaitAnswer(ctx context.Context) {
 }
 
 // awaitPerson holds a planning lane at rest for the person it talks to, because a turn that ends in the
-// conversation asks for the person's next line (ADR-0018). A person attached to its pane when `ask_wait`
-// runs out keeps the session for another wait. With nobody attached it parks on a wake only a person
-// ends, because no process waits on a person. Nobody is attached only when two reads `attachedRecheck`
-// apart both say so, because one read that failed says the same. A line the person types starts a turn,
-// which ends the wait, and the next rest starts it again.
+// conversation asks for the person's next line (ADR-0018). A person at its pane when `ask_wait` runs out
+// keeps the session for another wait: a terminal attached to it, or input a member typed into it through
+// the web pane during that wait. With nobody there it parks on a wake only a person ends, because no
+// process waits on a person. Nobody is there only when two reads `attachedRecheck` apart both say so,
+// because one read that failed says the same. An attached terminal alone keeps the lane for
+// `attachedWaits` waits in a row, and then it parks as with nobody there, because a terminal left attached
+// says nothing of whether anyone is at it. A line the person types starts a turn, which ends the wait, and
+// the next rest starts it again, and input in the web pane starts the count again.
 func (r *laneRun) awaitPerson(ctx context.Context) {
 	if !r.waiting.CompareAndSwap(false, true) {
 		return
@@ -368,17 +375,25 @@ func (r *laneRun) awaitPerson(ctx context.Context) {
 	r.sequence.Go(func() {
 		defer r.waiting.Store(false)
 		defer r.state.waitForPerson(false)
+		quiet := 0
 		for {
-			if !r.restUntil(ctx, r.w.clock.Now().Add(r.state.askWait())) {
+			from := r.w.clock.Now()
+			if !r.restUntil(ctx, from.Add(r.state.askWait())) {
 				return
 			}
-			if r.personAttached(ctx) {
-				continue
+			if !r.attended(ctx, from) {
+				if !r.restUntil(ctx, r.w.clock.Now().Add(attachedRecheck)) {
+					return
+				}
+				if !r.attended(ctx, from) {
+					break
+				}
 			}
-			if !r.restUntil(ctx, r.w.clock.Now().Add(attachedRecheck)) {
-				return
+			quiet++
+			if r.typedInPane(from) {
+				quiet = 0
 			}
-			if !r.personAttached(ctx) {
+			if quiet >= attachedWaits {
 				break
 			}
 		}
@@ -386,8 +401,20 @@ func (r *laneRun) awaitPerson(ctx context.Context) {
 	})
 }
 
-// personAttached reads whether a person is attached to the lane's pane. A read that fails says nobody
-// is, as the hook reads a marker it cannot (ADR-0018).
+// attended says a person is at the lane's pane: a member typed into it through the web pane since a time,
+// or a terminal is attached to it.
+func (r *laneRun) attended(ctx context.Context, since time.Time) bool {
+	return r.typedInPane(since) || r.personAttached(ctx)
+}
+
+// typedInPane says a member typed into the pane of the lane's current generation through the web pane
+// since a time. The web pane attaches no client, so no read of the pane's clients sees them.
+func (r *laneRun) typedInPane(since time.Time) bool {
+	return r.rt.PaneInputs.TypedSince(r.lease.Lane, r.currentGeneration(), since)
+}
+
+// personAttached reads whether a person's terminal is attached to the lane's pane. A read that fails says
+// nobody is, as the hook reads a marker it cannot (ADR-0018).
 func (r *laneRun) personAttached(ctx context.Context) bool {
 	observation, err := r.rt.Driver.Observe(ctx, r.sessionHandle())
 	return err == nil && observation.Attached

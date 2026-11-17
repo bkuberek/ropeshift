@@ -293,7 +293,7 @@ func serveSolo(ctx context.Context, paths api.Paths, opts soloOptions, stdout, s
 		Matching: func(store ports.Store) ports.Matcher { return lexical.Matcher{Store: store} },
 		Identity: localauth.New(store, localauth.DefaultParams), Batches: batches, Windows: windows, PackTokens: soloPackTokens(paths),
 		Telemetry: telemetry.store,
-		Panes:     soloPanes(terminal), Starts: soloStarts(opts, kept), WebAddress: webAddressOf(webListener), Mode: api.ModeSolo,
+		Panes:     soloPanes(terminal, laneRuntime.PaneInputs), Starts: soloStarts(opts, kept), WebAddress: webAddressOf(webListener), Mode: api.ModeSolo,
 		Branches: branchSource(opts, kept), LaneBranchPrefix: soloLaneBranchPrefix(paths),
 		Checkouts: kept, ParseManifest: repofiles.ParseManifest, ModelClasses: soloModelClasses(paths),
 		Profile: soloProfiles(paths), Profiles: soloProfiles(paths), LocalWorker: local.id,
@@ -609,6 +609,8 @@ func soloLanes(paths api.Paths, opts soloOptions, kept ports.Checkouts, stderr i
 		AssistantCommands: commands, Routes: named, ControlEnv: controlEnv(paths),
 		// What a planning brief tells a lane of the manifest and of where intake reads (FR-TPL-3).
 		ManifestTemplate: manifest, IntakeDirectory: opts.directory,
+		// What a member types into a pane through the web pane, which shares the terminal (ADR-0018).
+		PaneInputs: &worker.PaneInputs{},
 	}, terminal, nil
 }
 
@@ -617,11 +619,28 @@ const manifestTemplate = "workspace/plan/repositories.md"
 
 // soloPanes is the worker's terminal server as the web pane reaches it, by the name the driver gives
 // each generation's pane (ADR-0018). A machine with no tmux holds no pane, and the web pane says so.
-func soloPanes(terminal ports.Terminal) server.Panes {
+// What a member types into a pane is recorded in the worker's inputs, because the web pane attaches no
+// client a read of the pane would see.
+func soloPanes(terminal ports.Terminal, inputs *worker.PaneInputs) server.Panes {
 	if terminal == nil {
 		return nil
 	}
-	return server.TerminalPanes{Terminal: terminal, Name: claudecode.PaneName}
+	return typedPanes{Panes: server.TerminalPanes{Terminal: terminal, Name: claudecode.PaneName}, inputs: inputs}
+}
+
+// typedPanes records each input that reached a pane, and when it did.
+type typedPanes struct {
+	server.Panes
+	inputs *worker.PaneInputs
+}
+
+// Send types into a generation's pane, and records the input once the pane took it.
+func (p typedPanes) Send(ctx context.Context, lane string, generation int64, input server.PaneInput) error {
+	if err := p.Panes.Send(ctx, lane, generation, input); err != nil {
+		return err
+	}
+	p.inputs.Typed(lane, generation, time.Now())
+	return nil
 }
 
 // soloTerminal is the worker's private server. A machine with no tmux runs headless lanes

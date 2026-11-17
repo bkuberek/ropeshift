@@ -73,6 +73,9 @@ type LaneRuntime struct {
 	// the manifest and passes the daemon's --dir, because this package never imports the templates.
 	ManifestTemplate string
 	IntakeDirectory  string
+	// PaneInputs is where the web pane records what a member types into a lane's pane, which a planning
+	// lane waiting for its person reads as a person at the pane. Nil records none.
+	PaneInputs *PaneInputs
 }
 
 // laneRun is one lane this process is running.

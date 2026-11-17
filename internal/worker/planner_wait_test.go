@@ -10,6 +10,7 @@ import (
 	"ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/worker"
 	"ropeshift.com/ropeshift/internal/workorders"
 )
 
@@ -71,8 +72,8 @@ func (r *laneRig) nudged() bool {
 }
 
 // A planning lane is a conversation with the person attached to its pane, so a turn that ends with no
-// report and no question waits for the person's next line, however long they take: the worker sends no
-// nudge and records no outcome, and the lane stays at rest with its session (ADR-0018). A line the person
+// report and no question waits for the person's next line: the worker sends no nudge and records no
+// outcome, and the lane stays at rest with its session (ADR-0018). A line the person
 // types starts the next turn, and the rest after it waits again.
 func TestAPlanningLaneWaitsForThePersonAttachedToItsPane(t *testing.T) {
 	t.Parallel()
@@ -138,6 +139,117 @@ func TestAPlanningLaneParksWhenNobodyIsAttachedAsItsWaitRunsOut(t *testing.T) {
 	if r.nudged() {
 		t.Errorf("a planning lane waiting for its person was nudged: %+v", r.driver.Sent())
 	}
+}
+
+// holdsFor moves the worker's clock a second at a time for a span, and fails as soon as the lane begins to
+// park.
+func (r *laneRig) holdsFor(t *testing.T, span time.Duration) {
+	t.Helper()
+	for moved := time.Duration(0); moved < span; moved += time.Second {
+		r.clock.Advance(time.Second)
+		time.Sleep(5 * time.Millisecond)
+		if parking := r.parkingOf(t); parking != nil {
+			t.Fatalf("the lane began to park %v after its wait ran out: %+v", moved+time.Second, parking)
+		}
+	}
+}
+
+// The web pane reaches a lane's pane with no terminal attached to it, so what a member types there is what
+// says they are at the pane. A planning lane whose person typed into the web pane while it waited keeps its
+// session for another `ask_wait`, as one with a terminal attached does.
+func TestTypingInTheWebPaneKeepsAPlanningLaneWaiting(t *testing.T) {
+	t.Parallel()
+	r := planningRigWith(t, profileAt+"[lifecycle]\nask_wait = \"5m\"\nhandoff_timeout = \"30ms\"\n", func(*fake.AgentDriver) {})
+	r.driver.Play(script([]fake.DriverStep{{Bound: true}, completed(0.01)}))
+	if _, err := r.subject.Reconcile(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	r.waitsForItsPerson(t)
+	r.config.PaneInputs.Typed("lane-1", 1, r.clock.Now())
+	r.clock.Advance(5*time.Minute + time.Second)
+	r.holdsFor(t, time.Minute)
+	r.waitsForItsPerson(t)
+	if row := r.row(); row.State != workorders.Running {
+		t.Fatalf("a planning lane its person typed to left its work %s", row.State)
+	}
+}
+
+// Input in the web pane keeps a planning lane only for the wait it came in. Once a whole `ask_wait` passes
+// with nothing typed and nobody attached, the lane parks on a wake only a person ends.
+func TestAPlanningLaneParksOnceAWaitPassesWithNothingTypedInTheWebPane(t *testing.T) {
+	t.Parallel()
+	r := planningRigWith(t, profileAt+"[lifecycle]\nask_wait = \"5m\"\nhandoff_timeout = \"30ms\"\n", func(*fake.AgentDriver) {})
+	r.driver.Play(script([]fake.DriverStep{{Bound: true}, completed(0.01)}))
+	if _, err := r.subject.Reconcile(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	r.waitsForItsPerson(t)
+	r.config.PaneInputs.Typed("lane-1", 1, r.clock.Now())
+	r.clock.Advance(5*time.Minute + time.Second)
+	r.holdsFor(t, 30*time.Second)
+
+	r.awaitParked(t)
+	r.subject.Wait()
+	if wake := r.wakeOf(t, 1); wake.Expr != lanes.HumanWake() {
+		t.Errorf("wake %+v, want one only a person ends", wake)
+	}
+	if _, doc := r.storedHandoff(t, 1); doc.Reason != string(lanes.ParkWaitingForPerson) {
+		t.Errorf("the handoff says the lane parked for %q", doc.Reason)
+	}
+}
+
+// A terminal left attached to a planning lane's pane says nothing of whether anyone is at it. It keeps the
+// lane for `ask_wait` at a time only so many times in a row with no input from its person; after that the
+// lane parks on a wake only a person ends, as one nobody is attached to does.
+func TestAPlanningLaneParksWhenATerminalStaysAttachedWithNoInput(t *testing.T) {
+	t.Parallel()
+	r := planningRigWith(t, profileAt+"[lifecycle]\nask_wait = \"1m\"\nhandoff_timeout = \"30ms\"\n", func(driver *fake.AgentDriver) {
+		driver.SetAttached(true)
+	})
+	r.driver.Play(script([]fake.DriverStep{{Bound: true}, completed(0.01)}))
+	if _, err := r.subject.Reconcile(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	r.waitsForItsPerson(t)
+	for wait := 1; wait < worker.AttachedWaits; wait++ {
+		r.clock.Advance(time.Minute + time.Second)
+		time.Sleep(10 * superviseStep)
+		if parking := r.parkingOf(t); parking != nil {
+			t.Fatalf("an attached terminal kept the lane for only %d waits: %+v", wait, parking)
+		}
+	}
+	r.waitsForItsPerson(t)
+
+	r.awaitParked(t)
+	r.subject.Wait()
+	if wake := r.wakeOf(t, 1); wake.Expr != lanes.HumanWake() {
+		t.Errorf("wake %+v, want one only a person ends", wake)
+	}
+	if _, doc := r.storedHandoff(t, 1); doc.Reason != string(lanes.ParkWaitingForPerson) {
+		t.Errorf("the handoff says the lane parked for %q", doc.Reason)
+	}
+}
+
+// Input in the web pane says a person is at the pane, so it starts the count of waits an attached terminal
+// keeps the lane for again.
+func TestTypingInTheWebPaneKeepsAPlanningLaneWithATerminalAttached(t *testing.T) {
+	t.Parallel()
+	r := planningRigWith(t, profileAt+"[lifecycle]\nask_wait = \"1m\"\nhandoff_timeout = \"30ms\"\n", func(driver *fake.AgentDriver) {
+		driver.SetAttached(true)
+	})
+	r.driver.Play(script([]fake.DriverStep{{Bound: true}, completed(0.01)}))
+	if _, err := r.subject.Reconcile(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	r.waitsForItsPerson(t)
+	for wait := 1; wait < worker.AttachedWaits; wait++ {
+		r.clock.Advance(time.Minute + time.Second)
+		time.Sleep(10 * superviseStep)
+	}
+	r.config.PaneInputs.Typed("lane-1", 1, r.clock.Now())
+	r.clock.Advance(time.Minute + time.Second)
+	r.holdsFor(t, 30*time.Second)
+	r.waitsForItsPerson(t)
 }
 
 // A worker that restarts while a planning lane waits for its person takes the wait up again from the
