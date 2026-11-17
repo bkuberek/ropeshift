@@ -9,7 +9,9 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net"
 	"net/http"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -315,6 +317,45 @@ func TestServerRunsWithNothingOfAWorkersMachine(t *testing.T) {
 	if bad := tickErrors(d.stderr.String()); bad != "" {
 		t.Errorf("a tick failed with no git, tmux, or agent CLI:\n%s", bad)
 	}
+}
+
+// A control socket something answers on is another daemon's, and a server on a working database, which has
+// opened it and found its project, still leaves that socket as it is and stops.
+func TestServerLeavesTheSocketOfALiveDaemonAlone(t *testing.T) {
+	in := newInstall(t)
+	in.daemonEnv = append(in.daemonEnv, "ROPESHIFT_DATABASE="+aDatabase(t))
+	socket := in.paths().ControlSocket()
+	if err := os.MkdirAll(filepath.Dir(socket), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	live, err := net.Listen("unix", socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = live.Close() })
+	before, err := os.Stat(socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := in.startGroup("server", "--listen", "127.0.0.1:0")
+	select {
+	case err := <-server.exited:
+		var exit *exec.ExitError
+		if !errors.As(err, &exit) || exit.ExitCode() != 1 || !strings.Contains(server.stderr.String(), "answers") {
+			t.Fatalf("the server ended with %v\n%s", err, server.stderr.String())
+		}
+	case <-time.After(60 * time.Second):
+		t.Fatal("a server that finds a live socket is still running")
+	}
+	after, err := os.Stat(socket)
+	if err != nil || !os.SameFile(before, after) {
+		t.Errorf("the live daemon's socket was replaced: %v", err)
+	}
+	conn, err := net.Dial("unix", socket)
+	if err != nil {
+		t.Fatalf("the live daemon's socket does not answer: %v", err)
+	}
+	_ = conn.Close()
 }
 
 // One server holds one installation: a second on the same state directory is refused as busy.

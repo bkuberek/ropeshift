@@ -40,7 +40,9 @@ You need the `ropeshift` and `ropeshiftd` commands ([getting started](getting-st
    export ROPESHIFT_DATABASE='postgres://ropeshift_group:<password>@localhost/ropeshift_group'
    ```
 
-   A server that moves its state directory names its run directory too, because its control socket lives there. Without `ROPESHIFT_RUN_DIR` beside `ROPESHIFT_STATE_DIR`, the server exits with status 2 before it makes anything, so it can never bind the socket of an installation that is the machine's own. It also refuses to start when something already answers on its control socket.
+   The connection string goes in the variable or in `--database`, not both, and the server never prints it: a string that does not parse is refused with a fixed message.
+
+   A server that moves its state directory names its run directory too, because its control socket lives there. Without `ROPESHIFT_RUN_DIR` beside `ROPESHIFT_STATE_DIR`, the server exits with status 2 before it makes anything. That catches the usual mistake of moving only the state, and it is not a guarantee: a server whose `XDG_STATE_HOME` differs from a solo daemon's, with the same run directory, takes a different lock and the same control socket. What the server does guarantee is that it never binds over a socket something answers on. It checks just before it binds, so a daemon that starts in that instant is not covered. Run a preview server and a solo installation as separate users, or give each its own `ROPESHIFT_RUN_DIR`.
 
 2. Start the server on its default address.
 

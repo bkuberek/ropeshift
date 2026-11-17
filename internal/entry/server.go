@@ -15,6 +15,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"ropeshift.com/ropeshift/internal/adapters/lexical"
 	"ropeshift.com/ropeshift/internal/adapters/localauth"
 	"ropeshift.com/ropeshift/internal/adapters/postgres"
@@ -93,6 +95,11 @@ func parseServer(args []string, getenv func(string) string, stderr io.Writer) (s
 		fmt.Fprintf(stderr, "ropeshiftd server: unexpected argument %q\n", flags.Arg(0))
 		return opts, false
 	}
+	// Two ways to give one connection string leave no way to say which is meant, so neither quietly wins.
+	if opts.database != "" && getenv(envDatabase) != "" {
+		fmt.Fprintf(stderr, "ropeshiftd server: give the database in --database or in %s, not both\n", envDatabase)
+		return opts, false
+	}
 	opts.database = cmp.Or(opts.database, getenv(envDatabase))
 	return opts, true
 }
@@ -156,6 +163,17 @@ func socketAnswers(path string) bool {
 	return true
 }
 
+// listenControl binds the control socket, unless something answers on it. Binding removes the path first, on the
+// strength of the lock this server holds, and a socket something answers on is another daemon's, however it came to
+// be at this path. The check comes right before the bind and nothing else runs between them, so a daemon that
+// starts while this server opens its database is not a daemon whose socket this server removes.
+func listenControl(path string) (net.Listener, error) {
+	if socketAnswers(path) {
+		return nil, fmt.Errorf("another daemon answers on %s, so this server binds nothing there", path)
+	}
+	return server.Listen(path)
+}
+
 func runServer(args []string, stdout, stderr io.Writer) int {
 	opts, ok := parseServer(args, os.Getenv, stderr)
 	if !ok {
@@ -167,6 +185,13 @@ func runServer(args []string, stdout, stderr io.Writer) int {
 	}
 	if err := checkListen(opts.listen); err != nil {
 		fmt.Fprintf(stderr, "ropeshiftd server: %v\n", err)
+		return exitUsage
+	}
+	// The driver's error for a string that does not parse repeats part of it, and hides a password only by a
+	// pattern that a password with a space or a quote in it escapes. So the string is parsed here, and a
+	// failure says that it did not parse and nothing of what the server read.
+	if _, err := pgxpool.ParseConfig(opts.database); err != nil {
+		fmt.Fprintln(stderr, "ropeshiftd server: the database connection string does not parse as a Postgres connection string, and it is not shown here because it holds a password")
 		return exitUsage
 	}
 	home, err := os.UserHomeDir()
@@ -256,11 +281,6 @@ func serveServer(ctx context.Context, paths api.Paths, opts serverOptions, stdou
 		return err
 	}
 	defer lock.Close()
-	// Binding removes the path first, on the strength of the lock this server holds. A socket something
-	// answers on is another daemon's, however it came to be at this path, so the server leaves it alone.
-	if socketAnswers(paths.ControlSocket()) {
-		return fmt.Errorf("another daemon answers on %s, so this server binds nothing there", paths.ControlSocket())
-	}
 	state, err := postgres.Open(ctx, opts.database, serverDatabase(stderr))
 	if err != nil {
 		return err
@@ -274,7 +294,7 @@ func serveServer(ctx context.Context, paths api.Paths, opts serverOptions, stdou
 	if err != nil {
 		return err
 	}
-	controlListener, err := server.Listen(paths.ControlSocket())
+	controlListener, err := listenControl(paths.ControlSocket())
 	if err != nil {
 		return err
 	}

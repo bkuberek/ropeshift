@@ -39,7 +39,8 @@ func TestAServerTakesItsSettingsFromFlagsAndTheEnvironment(t *testing.T) {
 	}{
 		{"the defaults", []string{"--database", "postgres://db/x"}, nil, "postgres://db/x", "127.0.0.1:7400"},
 		{"the environment", nil, map[string]string{"ROPESHIFT_DATABASE": "postgres://env/x", "ROPESHIFT_LISTEN": "127.0.0.1:9000"}, "postgres://env/x", "127.0.0.1:9000"},
-		{"flags over the environment", []string{"--database", "postgres://flag/x", "--listen", "[::1]:9100"}, map[string]string{"ROPESHIFT_DATABASE": "postgres://env/x", "ROPESHIFT_LISTEN": "127.0.0.1:9000"}, "postgres://flag/x", "[::1]:9100"},
+		{"a flag over the environment's address", []string{"--listen", "[::1]:9100"}, map[string]string{"ROPESHIFT_DATABASE": "postgres://env/x", "ROPESHIFT_LISTEN": "127.0.0.1:9000"}, "postgres://env/x", "[::1]:9100"},
+		{"the database by a flag", []string{"--database", "postgres://flag/x"}, map[string]string{"ROPESHIFT_LISTEN": "127.0.0.1:9000"}, "postgres://flag/x", "127.0.0.1:9000"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -141,8 +142,68 @@ func TestAServerThatMovesItsStateTouchesNothingOfTheDefaultInstallation(t *testi
 }
 
 // A control socket something answers on is another daemon's, whoever's directory it is in, and the server leaves it
-// as it is: it never takes the path of a live socket, which binding would do by removing it first.
-func TestAServerNeverTakesTheSocketOfALiveDaemon(t *testing.T) {
+// as it is: it never takes the path of a live socket, which binding would do by removing it first. The check and
+// the bind are one step, so no daemon that starts between them has its socket removed.
+func TestTheControlSocketOfALiveDaemonIsNeverTaken(t *testing.T) {
+	t.Parallel()
+	socket := filepath.Join(apitest.ShortDir(t), "run", "control.sock")
+	if err := os.MkdirAll(filepath.Dir(socket), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	live, err := net.Listen("unix", socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = live.Close() })
+	before, err := os.Stat(socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	taken, err := listenControl(socket)
+	if err == nil {
+		_ = taken.Close()
+		t.Fatal("a live daemon's socket was bound over")
+	}
+	if !strings.Contains(err.Error(), "answers") {
+		t.Errorf("the refusal says %q", err)
+	}
+	after, err := os.Stat(socket)
+	if err != nil || !os.SameFile(before, after) {
+		t.Errorf("the live daemon's socket was replaced: %v", err)
+	}
+	conn, err := net.Dial("unix", socket)
+	if err != nil {
+		t.Fatalf("the live daemon's socket does not answer: %v", err)
+	}
+	_ = conn.Close()
+}
+
+// A path nothing answers on is free: a file a daemon left when it died is replaced, and a path with nothing at it is
+// bound, in a socket only its user reaches.
+func TestTheControlSocketOfNoLiveDaemonIsBound(t *testing.T) {
+	t.Parallel()
+	dir := filepath.Join(apitest.ShortDir(t), "run")
+	socket := filepath.Join(dir, "control.sock")
+	fresh, err := listenControl(socket)
+	if err != nil {
+		t.Fatalf("a path with nothing at it: %v", err)
+	}
+	if info, err := os.Stat(socket); err != nil || info.Mode().Perm() != 0o600 {
+		t.Errorf("the socket is %v, %v", info, err)
+	}
+	fresh.(*net.UnixListener).SetUnlinkOnClose(false)
+	_ = fresh.Close()
+	again, err := listenControl(socket)
+	if err != nil {
+		t.Fatalf("a socket file nothing listens on: %v", err)
+	}
+	_ = again.Close()
+}
+
+// The check is the last step before the bind, after the server has opened its database, which is the longest
+// thing it does between taking its lock and binding. A server that cannot reach its database reports that, and
+// has looked at no socket.
+func TestTheLiveSocketCheckComesAfterTheDatabaseIsOpen(t *testing.T) {
 	isolate(t)
 	t.Setenv("ROPESHIFT_GROUP_MODE", "preview")
 	paths, err := installationPaths()
@@ -157,23 +218,10 @@ func TestAServerNeverTakesTheSocketOfALiveDaemon(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = live.Close() })
-	before, err := os.Stat(paths.ControlSocket())
-	if err != nil {
-		t.Fatal(err)
-	}
 	code, _, stderr := runMain(commandDaemon, "server", "--database", "host=/nowhere dbname=none")
-	if code != exitError || !strings.Contains(stderr, "answers") {
-		t.Fatalf("exit %d, stderr %q", code, stderr)
+	if code != exitError || strings.Contains(stderr, "answers") || !strings.Contains(stderr, "postgres") {
+		t.Errorf("exit %d, stderr %q", code, stderr)
 	}
-	after, err := os.Stat(paths.ControlSocket())
-	if err != nil || !os.SameFile(before, after) {
-		t.Errorf("the live daemon's socket was replaced: %v", err)
-	}
-	conn, err := net.Dial("unix", paths.ControlSocket())
-	if err != nil {
-		t.Fatalf("the live daemon's socket does not answer: %v", err)
-	}
-	_ = conn.Close()
 }
 
 // Only a socket something answers on is live: a file a daemon that died left, and no file at all, are free.
@@ -237,9 +285,61 @@ func TestAServersHelpAndUsageErrorsNeverShowTheDatabaseURL(t *testing.T) {
 	if !ok || opts.database != url {
 		t.Errorf("the environment gives the server %q, %t", opts.database, ok)
 	}
-	opts, ok = parseServer([]string{"--database", "host=flag"}, env(map[string]string{"ROPESHIFT_DATABASE": url}), io.Discard)
+	opts, ok = parseServer([]string{"--database", "host=flag"}, env(nil), io.Discard)
 	if !ok || opts.database != "host=flag" {
 		t.Errorf("a flag gives the server %q, %t", opts.database, ok)
+	}
+}
+
+// Two ways to give one connection string leave no way to say which is meant, so a flag does not quietly win
+// over the environment: the server refuses both, as a worker does for its join token, and names neither value.
+func TestTheDatabaseGivenTwiceIsRefused(t *testing.T) {
+	var stderr bytes.Buffer
+	if _, ok := parseServer([]string{"--database", "host=flag password=from-the-flag"}, env(map[string]string{"ROPESHIFT_DATABASE": "host=env password=from-the-environment"}), &stderr); ok {
+		t.Fatal("a flag and the environment together are taken")
+	}
+	if !strings.Contains(stderr.String(), "ROPESHIFT_DATABASE") || !strings.Contains(stderr.String(), "--database") {
+		t.Errorf("the refusal does not name both ways: %q", &stderr)
+	}
+	if strings.Contains(stderr.String(), "from-the") || strings.Contains(stderr.String(), "host=") {
+		t.Errorf("the refusal repeats a connection string: %q", &stderr)
+	}
+	isolate(t)
+	t.Setenv("ROPESHIFT_GROUP_MODE", "preview")
+	t.Setenv("ROPESHIFT_DATABASE", "host=env password=from-the-environment")
+	code, stdout, shown := runMain(commandDaemon, "server", "--database", "host=flag password=from-the-flag")
+	if code != exitUsage || stdout != "" || strings.Contains(shown, "from-the") {
+		t.Errorf("exit %d, stdout %q, stderr %q", code, stdout, shown)
+	}
+}
+
+// pgx hides a password in the error for a connection string that does not parse only by matching a pattern, and a
+// pattern misses a password with a space or a quote in it. So the server parses the string first, and says only
+// that it does not parse, never what it read.
+func TestAConnectionStringThatDoesNotParseIsRefusedWithAFixedMessage(t *testing.T) {
+	isolate(t)
+	t.Setenv("ROPESHIFT_GROUP_MODE", "preview")
+	for _, bad := range []string{
+		"host=h port=notaport password='correct horse battery staple'",
+		"host=h password='a b c d' port=99999999",
+		`host=h password="open sesame" sslmode=nonsense`,
+		"postgres://user:p%40ss%20word-and-more@host:notaport/db",
+		"postgres://user:the-secret@host/db?sslmode=nonsense",
+		"host=h password=the-secret unknownoption=1 port=x",
+	} {
+		t.Setenv("ROPESHIFT_DATABASE", bad)
+		code, stdout, stderr := runMain(commandDaemon, "server")
+		if code != exitUsage || stdout != "" {
+			t.Errorf("%q: exit %d, stdout %q, stderr %q", bad, code, stdout, stderr)
+		}
+		for _, secret := range []string{"correct", "horse", "battery", "staple", "sesame", "open", "word-and-more", "p%40ss", "the-secret", "a b c d", "notaport", "nonsense"} {
+			if strings.Contains(stderr, secret) {
+				t.Errorf("%q: the refusal shows %q: %s", bad, secret, stderr)
+			}
+		}
+		if !strings.Contains(stderr, "does not parse") {
+			t.Errorf("%q: the refusal says %q", bad, stderr)
+		}
 	}
 }
 
