@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"runtime"
 	"syscall"
 	"time"
 
@@ -112,6 +113,49 @@ func checkListen(address string) error {
 	return nil
 }
 
+// checkServerDirectories refuses a server whose state directory is not the machine's own while its run directory
+// is. The control socket lives in the run directory, and a server that is not the machine's own installation
+// holds the lock of another state directory, so it would bind where the installation that is the machine's own
+// has its socket, and removing a socket before it binds is how a daemon takes a path it holds the lock for. A
+// server that moves its state names its run directory too.
+func checkServerDirectories(goos string, getenv func(string) string, home string) error {
+	paths, err := api.ResolvePaths(goos, getenv, home)
+	if err != nil {
+		return err
+	}
+	if getenv(api.EnvRunDir) != "" {
+		return nil
+	}
+	unmoved := func(name string) string {
+		switch name {
+		case api.EnvStateDir, api.EnvRunDir, api.EnvWorktreeDir:
+			return ""
+		}
+		return getenv(name)
+	}
+	machine, err := api.ResolvePaths(goos, unmoved, home)
+	if err != nil {
+		return err
+	}
+	if paths.StateDir != machine.StateDir {
+		return fmt.Errorf("this server keeps its state apart from the machine's own, so its control socket needs a run directory of its own: set %s beside %s", api.EnvRunDir, api.EnvStateDir)
+	}
+	return nil
+}
+
+// socketAnswers says something answers on a unix socket's path. A file a daemon left when it died answers
+// nothing, and a path with nothing at it neither.
+func socketAnswers(path string) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	conn, err := (&net.Dialer{}).DialContext(ctx, "unix", path)
+	if err != nil {
+		return false
+	}
+	_ = conn.Close()
+	return true
+}
+
 func runServer(args []string, stdout, stderr io.Writer) int {
 	opts, ok := parseServer(args, os.Getenv, stderr)
 	if !ok {
@@ -122,6 +166,15 @@ func runServer(args []string, stdout, stderr io.Writer) int {
 		return exitUsage
 	}
 	if err := checkListen(opts.listen); err != nil {
+		fmt.Fprintf(stderr, "ropeshiftd server: %v\n", err)
+		return exitUsage
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		fmt.Fprintf(stderr, "ropeshiftd server: %v\n", err)
+		return exitError
+	}
+	if err := checkServerDirectories(runtime.GOOS, os.Getenv, home); err != nil {
 		fmt.Fprintf(stderr, "ropeshiftd server: %v\n", err)
 		return exitUsage
 	}
@@ -203,6 +256,11 @@ func serveServer(ctx context.Context, paths api.Paths, opts serverOptions, stdou
 		return err
 	}
 	defer lock.Close()
+	// Binding removes the path first, on the strength of the lock this server holds. A socket something
+	// answers on is another daemon's, however it came to be at this path, so the server leaves it alone.
+	if socketAnswers(paths.ControlSocket()) {
+		return fmt.Errorf("another daemon answers on %s, so this server binds nothing there", paths.ControlSocket())
+	}
 	state, err := postgres.Open(ctx, opts.database, serverDatabase(stderr))
 	if err != nil {
 		return err

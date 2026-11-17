@@ -7,6 +7,8 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -17,6 +19,7 @@ import (
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/internal/questions"
+	"ropeshift.com/ropeshift/test/apitest"
 )
 
 func env(values map[string]string) func(string) string {
@@ -78,6 +81,124 @@ func TestAServerListensOnLoopbackOnly(t *testing.T) {
 	}
 	if err := checkListen("no port"); err == nil {
 		t.Error("an address with no port is taken")
+	}
+}
+
+// A server whose state directory is not the machine's own, and whose run directory is, would bind its control
+// socket where another installation's lives, and the lock it holds is the lock of its own state. So a server
+// that moves its state names its run directory too, and one that names it, or moves nothing, is left alone.
+func TestAServerThatMovesItsStateNamesItsRunDirectory(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		env     map[string]string
+		refused bool
+	}{
+		{"nothing moved", map[string]string{}, false},
+		{"both moved", map[string]string{"ROPESHIFT_STATE_DIR": "/srv/state", "ROPESHIFT_RUN_DIR": "/srv/run"}, false},
+		{"only the run directory moved", map[string]string{"ROPESHIFT_RUN_DIR": "/srv/run"}, false},
+		{"only the state moved", map[string]string{"ROPESHIFT_STATE_DIR": "/srv/state"}, true},
+		// The XDG directories are the machine's own, and every daemon of the user reads them alike, so the state
+		// they move is the one a solo daemon holds the lock of.
+		{"the machine's own directories moved by XDG", map[string]string{"XDG_STATE_HOME": "/srv/xdg-state", "XDG_RUNTIME_DIR": "/srv/xdg-run"}, false},
+		{"only the worktrees moved", map[string]string{"ROPESHIFT_WORKTREE_DIR": "/srv/trees"}, false},
+	}
+	for _, goos := range []string{"linux", "darwin"} {
+		for _, tt := range tests {
+			t.Run(goos+" "+tt.name, func(t *testing.T) {
+				err := checkServerDirectories(goos, env(tt.env), "/home/person")
+				if (err != nil) != tt.refused {
+					t.Fatalf("refused is %v: %v", err != nil, err)
+				}
+				if err != nil && !strings.Contains(err.Error(), "ROPESHIFT_RUN_DIR") {
+					t.Errorf("the refusal does not say what to set: %v", err)
+				}
+			})
+		}
+	}
+}
+
+// The refusal comes before the server makes a directory, takes a lock, or opens a socket, so a mistaken
+// environment costs the machine's own installation nothing.
+func TestAServerThatMovesItsStateTouchesNothingOfTheDefaultInstallation(t *testing.T) {
+	home := apitest.ShortDir(t)
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_RUNTIME_DIR", filepath.Join(home, "xdg-run"))
+	t.Setenv("XDG_STATE_HOME", filepath.Join(home, "xdg-state"))
+	t.Setenv("XDG_DATA_HOME", filepath.Join(home, "xdg-data"))
+	t.Setenv("ROPESHIFT_STATE_DIR", filepath.Join(home, "moved-state"))
+	t.Setenv("ROPESHIFT_RUN_DIR", "")
+	t.Setenv("ROPESHIFT_GROUP_MODE", "preview")
+	code, _, stderr := runMain(commandDaemon, "server", "--database", "host=/nowhere dbname=none")
+	if code != exitUsage || !strings.Contains(stderr, "ROPESHIFT_RUN_DIR") {
+		t.Fatalf("exit %d, stderr %q", code, stderr)
+	}
+	for _, path := range []string{filepath.Join(home, "xdg-run"), filepath.Join(home, ".ropeshift"), filepath.Join(home, "moved-state"), filepath.Join(home, "xdg-state")} {
+		if _, err := os.Stat(path); err == nil {
+			t.Errorf("a refused server made %s", path)
+		}
+	}
+}
+
+// A control socket something answers on is another daemon's, whoever's directory it is in, and the server leaves it
+// as it is: it never takes the path of a live socket, which binding would do by removing it first.
+func TestAServerNeverTakesTheSocketOfALiveDaemon(t *testing.T) {
+	isolate(t)
+	t.Setenv("ROPESHIFT_GROUP_MODE", "preview")
+	paths, err := installationPaths()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(paths.RunDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	live, err := net.Listen("unix", paths.ControlSocket())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = live.Close() })
+	before, err := os.Stat(paths.ControlSocket())
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, _, stderr := runMain(commandDaemon, "server", "--database", "host=/nowhere dbname=none")
+	if code != exitError || !strings.Contains(stderr, "answers") {
+		t.Fatalf("exit %d, stderr %q", code, stderr)
+	}
+	after, err := os.Stat(paths.ControlSocket())
+	if err != nil || !os.SameFile(before, after) {
+		t.Errorf("the live daemon's socket was replaced: %v", err)
+	}
+	conn, err := net.Dial("unix", paths.ControlSocket())
+	if err != nil {
+		t.Fatalf("the live daemon's socket does not answer: %v", err)
+	}
+	_ = conn.Close()
+}
+
+// Only a socket something answers on is live: a file a daemon that died left, and no file at all, are free.
+func TestOnlyASocketSomethingAnswersOnIsLive(t *testing.T) {
+	t.Parallel()
+	dir := apitest.ShortDir(t)
+	path := filepath.Join(dir, "control.sock")
+	if socketAnswers(path) {
+		t.Error("a path with nothing at it answers")
+	}
+	listener, err := net.Listen("unix", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !socketAnswers(path) {
+		t.Error("a socket with a daemon behind it does not answer")
+	}
+	// A listener that closes through its Go value removes the file, so a leftover is made by keeping the file.
+	listener.(*net.UnixListener).SetUnlinkOnClose(false)
+	_ = listener.Close()
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("no leftover: %v", err)
+	}
+	if socketAnswers(path) {
+		t.Error("a socket nothing listens on answers")
 	}
 }
 
