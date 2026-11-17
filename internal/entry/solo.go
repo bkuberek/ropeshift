@@ -486,6 +486,9 @@ func startSoloWorker(
 		if err := subject.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
 			fmt.Fprintf(stderr, "ropeshiftd: worker: %v\n", err)
 		}
+		// Run returns before the goroutines it started for lanes, forge requests, and probes, and they write
+		// the journal and upload over the link until they end, so both close after them.
+		subject.Wait()
 		<-socketDone
 	}()
 	return done, nil
