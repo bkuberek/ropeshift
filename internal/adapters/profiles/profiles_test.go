@@ -232,6 +232,71 @@ func TestPushOnStopIsTheUsersAlone(t *testing.T) {
 	}
 }
 
+// The [projects.<id>] table is the user's alone: it names a folder on this machine, so a repository or a lane
+// cannot set it, and a relative path is a profile error that names the key (FR-PROF-6).
+func TestAProjectsWorkspaceIsTheUsersAloneAndAbsolute(t *testing.T) {
+	const (
+		set  = "[projects.prj-1]\nworkspace = \"/work/ws\"\n"
+		none = "[projects.prj-1]\nworkspace = \"\"\n"
+	)
+	tests := []struct {
+		name, user, repository, lane string
+		refused                      bool
+		workspace                    *string
+	}{
+		{name: "no table names no workspace"},
+		{name: "a user names a workspace", user: set, workspace: ptr("/work/ws")},
+		{name: "an empty workspace says there is none", user: none, workspace: ptr("")},
+		{name: "a relative path is refused", user: "[projects.prj-1]\nworkspace = \"ws\"\n", refused: true},
+		{name: "a repository cannot name one", repository: set, refused: true},
+		{name: "a lane cannot name one", lane: set, refused: true},
+		{name: "a repository cannot change the user's", user: set, repository: "[projects.prj-1]\nworkspace = \"/elsewhere\"\n", refused: true},
+		{name: "a repository cannot drop the user's", user: set, repository: none, refused: true},
+		{name: "a repository may restate it", user: set, repository: set, workspace: ptr("/work/ws")},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			profile, err := ResolveLayers(tt.user, tt.repository, tt.lane)
+			if refused := errors.Is(err, lanes.ErrBadProfile); refused != tt.refused {
+				t.Fatalf("error %v, want refused=%v", err, tt.refused)
+			}
+			if err != nil {
+				return
+			}
+			got, named := profile.Projects["prj-1"]
+			switch {
+			case tt.workspace == nil && named && got.Workspace != nil:
+				t.Errorf("workspace %q, want none named", *got.Workspace)
+			case tt.workspace != nil && (!named || got.Workspace == nil || *got.Workspace != *tt.workspace):
+				t.Errorf("workspace %+v, want %q", got, *tt.workspace)
+			}
+		})
+	}
+	_, err := ResolveLayers("[projects.prj-1]\nworkspace = \"ws\"\n", "", "")
+	if err == nil || !strings.Contains(err.Error(), "projects.prj-1.workspace") {
+		t.Errorf("a relative workspace is reported as %v, want it to name projects.prj-1.workspace", err)
+	}
+}
+
+// A workspace is a machine's setting and no part of a lane's digest, so naming one moves no recorded profile.
+func TestAProjectsWorkspaceIsNotInTheDigest(t *testing.T) {
+	plain, err := ResolveLayers("", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	named, err := ResolveLayers("[projects.prj-1]\nworkspace = \"/work/ws\"\n", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, _ := plain.Digest()
+	b, _ := named.Digest()
+	if a != b {
+		t.Errorf("the digest moved with the workspace: %s, then %s", a, b)
+	}
+}
+
+func ptr(s string) *string { return &s }
+
 // TestAnEmptyRepositoryReadsTheUsersLayerAlone is how a worker reads a choice only the user's
 // layer makes. A layer where the process happens to run is no repository's.
 func TestAnEmptyRepositoryReadsTheUsersLayerAlone(t *testing.T) {

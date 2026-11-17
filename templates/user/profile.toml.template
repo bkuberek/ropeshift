@@ -21,6 +21,13 @@
 # server ignores this key and always pushes.
 push_on_stop = false
 
+# The folder that holds a project's clones on this machine, by the project's ID. Ropeshift finds it by itself when the project's planning repository holds the other clones
+# in a folder it ignores. Set it to name a folder that is not that clone, as an absolute path, or to ""
+# to say the project has no workspace here. A lane worktree of a clone inside the workspace goes in the
+# workspace's .ropeshift/worktrees/ folder, when the workspace's .gitignore ignores /.ropeshift/worktrees/.
+# [projects.my-project-id]
+# workspace = "/path/to/workspace"
+
 [admission]
 # The most lanes at once on one agent sign-in. Every lane on one subscription draws on its usage limits.
 # 0 caps nothing.
