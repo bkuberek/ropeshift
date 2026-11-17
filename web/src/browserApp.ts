@@ -97,6 +97,29 @@ function otherCards(): NeedItem[] {
     policy_version: 3,
   };
   return [
+    {
+      id: "plan-revise",
+      kind: "plan_revision",
+      since: 1790000650000,
+      plan_revision: {
+        plan: "plan-revise",
+        title: "Retry budget",
+        revision: {
+          id: "revision-1",
+          plan_id: "plan-revise",
+          approved_version: 2,
+          decision_ids: ["d-logo", "d-ids"],
+          finished: [{ work_order: "wo-built", decisions: ["d-logo"] }],
+          opened_at: 1790000650000,
+        },
+        decisions: [
+          { id: "d-logo", statement: "Use the wordmark.", scope: "plan:plan-revise", reversibility: "reversible", status: "decided", decided_by: "member-1" },
+          { id: "d-ids", statement: "Number work orders with ULIDs.", scope: "plan:plan-revise", reversibility: "one_way", status: "decided", decided_by: "member-1" },
+        ],
+        finished: [{ work_order: "wo-built", title: "Add the budget", state: "done", decisions: ["d-logo"] }],
+        waiting: [{ work_order: "wo-waiting", title: "Document the budget" }],
+      },
+    },
     as(parked, "wo-long-parked", "long_parked"),
     as(lapsed, "wo-behind", "worker_behind", "The worker runs 0.1.0 and the lane needs 0.2.0."),
     {

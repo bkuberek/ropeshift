@@ -58,6 +58,35 @@ describe("the plan approval page", () => {
     expect(screen.getByText(/If the plan changes, this approval is void\./)).toBeTruthy();
   });
 
+  it("shows the decisions made since the approved version beside the difference, and the work that waits for them", async () => {
+    serve((view) => {
+      if (view.approval) {
+        view.approval.revision = {
+          plan: planId,
+          title: view.plan.title,
+          revision: { id: "r1", plan_id: planId, approved_version: 5, decision_ids: ["d-logo"], finished: [], opened_at: 1 },
+          decisions: [{ id: "d-logo", statement: "Use the wordmark.", scope: `plan:${planId}`, reversibility: "reversible", status: "decided" }],
+          finished: [{ work_order: "wo-built", title: "Add the budget", state: "done", decisions: ["d-logo"] }],
+          waiting: [{ work_order: "wo-wait", title: "Document the budget" }],
+        };
+      }
+    });
+    openPage(page());
+    await heading();
+    const panel = screen.getByRole("region", { name: "Decisions since version 5" });
+    expect(within(panel).getByText("Use the wordmark.")).toBeTruthy();
+    expect(within(panel).getByText(/Reversible, binds plan:/)).toBeTruthy();
+    expect(within(panel).getByText("1 work order waits in contract review until a member confirms version 5 or approves a later one.")).toBeTruthy();
+    expect(within(panel).getByRole("list", { name: "Finished work the decisions reached" }).textContent).toContain("Add the budget");
+  });
+
+  it("shows no decisions panel for a version no decision moved past", async () => {
+    serve();
+    openPage(page());
+    await heading();
+    expect(screen.queryByRole("region", { name: /^Decisions since version/ })).toBeNull();
+  });
+
   it("says a planning session wrote a version that a planning lane's branch held, on its work order", async () => {
     serve((view) => {
       if (view.approval) {

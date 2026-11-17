@@ -6,6 +6,7 @@ import (
 	"slices"
 
 	"ropeshift.com/ropeshift/internal/api"
+	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/control"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/planning"
@@ -77,6 +78,31 @@ func (h *handler) decisionRework(w http.ResponseWriter, r *http.Request, actor l
 		return
 	}
 	reply(w, http.StatusOK, api.DecisionReworked{WorkOrder: id, Rework: rework})
+}
+
+// planRevisionNeeds lists the plans a member is asked to settle, one item for each plan with an open revision
+// (FR-PLAN-11): the decisions since its approved version and the finished work they reached.
+func planRevisionNeeds(tx ports.ReadTx) ([]api.NeedItem, error) {
+	revisions, err := tx.Planning().Revisions()
+	if err != nil {
+		return nil, err
+	}
+	var items []api.NeedItem
+	for _, revision := range revisions {
+		if !revision.Open() {
+			continue
+		}
+		plan, err := tx.Planning().Plan(revision.PlanID)
+		if err != nil {
+			return nil, err
+		}
+		view, err := revisionView(tx, plan, revision)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, api.NeedItem{Kind: api.NeedPlanRevision, ID: plan.ID, Since: revision.OpenedAt, PlanRevision: &view})
+	}
+	return items, nil
 }
 
 // openRevisionView reads a plan's open revision as a member reads it, or a view with none.
@@ -157,9 +183,9 @@ func revisionView(tx ports.ReadTx, plan planning.Plan, revision planning.Revisio
 
 // revisionOfApproval is the revision a plan approval answers: the plan's open revision while the request waits, and
 // the one the approval closed once it is approved. It is nil when none applies.
-func revisionOfApproval(tx ports.ReadTx, plan planning.Plan, approval api.PlanApprovalView) (*api.PlanRevisionView, error) {
+func revisionOfApproval(tx ports.ReadTx, plan planning.Plan, approval authority.Approval) (*api.PlanRevisionView, error) {
 	var revision planning.Revision
-	if approval.Approval.Open() {
+	if approval.Open() {
 		open, err := tx.Planning().OpenRevision(plan.ID)
 		if errors.Is(err, ports.ErrNotFound) {
 			return nil, nil
@@ -173,7 +199,7 @@ func revisionOfApproval(tx ports.ReadTx, plan planning.Plan, approval api.PlanAp
 		if err != nil {
 			return nil, err
 		}
-		at := slices.IndexFunc(all, func(row planning.Revision) bool { return row.PlanID == plan.ID && row.Approval == approval.Approval.ID })
+		at := slices.IndexFunc(all, func(row planning.Revision) bool { return row.PlanID == plan.ID && row.Approval == approval.ID })
 		if at < 0 {
 			return nil, nil
 		}

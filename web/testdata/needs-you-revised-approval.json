@@ -1,0 +1,80 @@
+{
+  "kind": "plan_approval",
+  "id": "generated-1",
+  "since": 1790000000000,
+  "plan_approval": {
+    "approval": {
+      "id": "generated-1",
+      "lane_id": "",
+      "work_order_id": "",
+      "generation": 0,
+      "kind": "plan",
+      "subject": "generated-2@2",
+      "subject_digest": "sha256:3a83dbd3232754fcf166c30d8a9e54ef9e7efa916c187141c288762107a8ba42",
+      "summary": "Plan Retry budget, version 2: 1 contract, 1 spec, 1 draft decisions",
+      "requested_by": "system:intake",
+      "state": "pending",
+      "raised_at": 1790000000000,
+      "plan_id": "generated-2",
+      "plan_version": 2,
+      "detail": "{\"title\":\"Retry budget\",\"ref\":\"retry\",\"counts\":{\"contract\":1,\"spec\":1},\"decisions\":1,\"difference\":{\"base\":1,\"changed\":[\"spec:api\"]},\"source\":\"plan.md@3\"}"
+    },
+    "title": "Retry budget",
+    "version": 2,
+    "requested_by": "system:intake",
+    "counts": {
+      "contract": 1,
+      "spec": 1
+    },
+    "decisions": 1,
+    "drafts": [
+      {
+        "id": "d1",
+        "question": "Which provider first?",
+        "answer": "Stripe",
+        "rationale": "It is the one with an account."
+      }
+    ],
+    "difference": {
+      "base": 1,
+      "changed": [
+        "spec:api"
+      ]
+    },
+    "summary": "0 added, 1 changed, 0 removed since version 1",
+    "revision": {
+      "plan": "generated-2",
+      "title": "Retry budget",
+      "revision": {
+        "id": "generated-3",
+        "plan_id": "generated-2",
+        "approved_version": 1,
+        "decision_ids": [
+          "d-logo"
+        ],
+        "listed_at": {
+          "d-logo": 1790000000000
+        },
+        "finished": [],
+        "opened_at": 1790000000000
+      },
+      "decisions": [
+        {
+          "id": "d-logo",
+          "statement": "Use the wordmark.",
+          "scope": "plan:generated-2",
+          "reversibility": "reversible",
+          "status": "decided",
+          "decided_by": "member-1"
+        }
+      ],
+      "finished": [],
+      "waiting": [
+        {
+          "work_order": "generated-4",
+          "title": "Add the budget"
+        }
+      ]
+    }
+  }
+}

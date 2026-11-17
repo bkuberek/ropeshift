@@ -5,6 +5,7 @@ import { decideApproval, inProjectOf, readPlan } from "../api/client";
 import type { Adoption, ContractDifference, Difference, FileChange, ManifestRegistration, PartDifference, PlanApprovalNeed } from "../api/types";
 import { addressOf, ItemProject, Link } from "../app/route";
 import { registrationOf, registrationTitle, RegistrationRows } from "../planning/PlanParts";
+import { RevisionSince } from "../planning/RevisionSince";
 import { words } from "../parts/parts";
 import { Button } from "../ui/controls";
 import { DecisionCard, DecisionSection } from "../ui/DecisionCard";
@@ -321,6 +322,11 @@ export function PlanApprovalCard({ id, need, after, frame, registered, onRegiste
       ) : null}
       {!registered && preview.state === "read" && preview.registration ? <RegisteredRepositories registration={preview.registration} /> : null}
       <Changes difference={need.difference} />
+      {need.revision?.revision ? (
+        <Part title={`Decisions since version ${need.revision.revision.approved_version}`}>
+          <RevisionSince revision={need.revision} />
+        </Part>
+      ) : null}
       <Part title="Draft decisions">
         {need.drafts.length ? (
           <ol className="drafts" aria-label="Draft decisions">

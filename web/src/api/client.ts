@@ -1,5 +1,5 @@
 import { splitProject } from "../app/route";
-import type { ApprovalDecided, ApprovalRecord, CandidateList, DocumentRef, DocumentRow, DocumentVersions, EffectOutcome, NeedsYou, Overturned, OverturnDecision, PlanOutline, PlanView, ProjectList, Question, RecordDecision, RecordedDecision, RecordedRead, RecordQuestion, Search, WorkAction } from "./types";
+import type { ApprovalDecided, ApprovalRecord, CandidateList, DocumentRef, DocumentRow, DocumentVersions, EffectOutcome, NeedsYou, Overturned, OverturnDecision, PlanOutline, PlanRevision, PlanView, ProjectList, Question, RecordDecision, RecordedDecision, RecordedRead, RecordQuestion, Search, WorkAction, WorkOrder } from "./types";
 
 function documentQuery({ path, instance, version }: DocumentRef): URLSearchParams {
   const query = new URLSearchParams({ path });
@@ -56,6 +56,7 @@ export const paths = {
   documentVersions: (ref: DocumentRef) => project(`/documents/versions?${documentQuery(ref)}`),
   documentRecorded: (id: string, version = "") => project(`/documents/recorded?${new URLSearchParams(version ? { id, version } : { id })}`),
   plan: (id: string, version = "") => project(`/plans/${encodeURIComponent(id)}${version ? `?${new URLSearchParams({ version })}` : ""}`),
+  revision: (plan: string, rest = "") => project(`/plans/${encodeURIComponent(plan)}/revision${rest ? `/${rest}` : ""}`),
   approval: (id: string) => project(`/approvals/${encodeURIComponent(id)}`),
   outline: (lane: string) => project(`/lanes/${encodeURIComponent(lane)}/outline`),
   questions: () => project("/questions"),
@@ -218,6 +219,23 @@ export function readRecorded(id: string, version = ""): Promise<RecordedRead> {
 // version asked for by number.
 export function readPlan(id: string, version = ""): Promise<PlanView> {
   return call("GET", paths.plan(id, version));
+}
+
+// confirmRevision records that the plan's approved version stands with the decisions made since, which releases the
+// work that waited for it.
+export function confirmRevision(plan: string): Promise<PlanRevision> {
+  return call("POST", paths.revision(plan, "confirm"), {});
+}
+
+// reviseSession records the planning work order of a session that revises the plan, whose brief lists the revision's
+// decisions. The caller goes on as any planning session does.
+export function reviseSession(plan: string, request: { id: string; repository?: string }): Promise<WorkOrder> {
+  return call("POST", paths.revision(plan, "sessions"), request);
+}
+
+// reworkForDecisions makes the rework of one finished work order for the decisions a plan's revision lists for it.
+export function reworkForDecisions(id: string, decisions: string[]): Promise<{ work_order: string; rework: string }> {
+  return call("POST", paths.work(id, "decision-rework"), { decisions });
 }
 
 // readApproval reads one request, which is how a plan version the ledger holds no plan for yet is read.

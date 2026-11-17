@@ -19,6 +19,7 @@ import type { Frame } from "./frame";
 import type { NeedFilter } from "./kinds";
 import { contextOf, filterOf, filters, fullHeadingOf, headingOf, keyOf, kindOf, preparerOf } from "./kinds";
 import { PlanApprovalCard, RegisteredRepositories } from "./PlanApprovalCard";
+import { PlanRevisionCard } from "./PlanRevisionCard";
 import { QuestionBatch } from "./QuestionBatch";
 import type { Answered } from "./QuestionBatch";
 import { waitLabel, waitWords } from "./wait";
@@ -58,6 +59,8 @@ function Card({ item, after, frame, registered, settled }: { item: NeedItem; aft
       return <WorkCard id={item.id} work={item.work} after={after} frame={frame} />;
     case "plan_approval":
       return <PlanApprovalCard id={item.id} need={item.plan_approval} after={after} frame={frame} registered={registered.registration} onRegistered={registered.onRegistered} onDecided={settled.onDecided} />;
+    case "plan_revision":
+      return <PlanRevisionCard need={item.plan_revision} after={after} frame={frame} />;
     case "contract_review":
       return <ContractReviewCard review={item.contract_review} after={after} frame={frame} />;
     case "confirm":

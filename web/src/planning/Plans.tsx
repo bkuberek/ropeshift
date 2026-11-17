@@ -13,6 +13,7 @@ import { PlanForecastView } from "../measures/Forecast";
 import { Bar, Fact, Id, LongFact, plural, Section, words } from "../parts/parts";
 import { Banner, EmptyState, ScopeName, SkeletonRows, StateBadge } from "../ui/display";
 import { DifferenceBlock, DraftDecisions } from "./PlanParts";
+import { RevisionSince } from "./RevisionSince";
 import { StateCounts } from "./Roadmap";
 import { StartSession } from "./StartSession";
 
@@ -312,9 +313,16 @@ function PlanVersions({ detail, live }: { detail: PlanDetail; live: Live }) {
   const read = useView(() => readPlan(detail.plan.id), `plan:${detail.plan.id}`, live);
   const view = read.view;
   const approval = view?.approval;
+  const revision = approval?.revision ?? view?.revision;
   return (
     <>
       {read.failure ? <Banner tone="danger">{read.failure}</Banner> : null}
+      {view?.revision?.revision ? (
+        <Banner tone="warning">
+          <strong>This plan needs revision.</strong> Decisions made inside version {view.revision.revision.approved_version} keep the work they bind in contract review until a
+          member confirms that version or approves a later one. Both wait in <Link to="/needs-you?kind=decisions">Needs you</Link>.
+        </Banner>
+      ) : null}
       {view && view.versions.length ? (
         <Section title="Versions">
           <ol className="list-rows" aria-label="Versions of the plan">
@@ -332,6 +340,11 @@ function PlanVersions({ detail, live }: { detail: PlanDetail; live: Live }) {
           <Section title={`Version ${approval.approval.plan_version}: difference from ${approval.detail.difference?.base ? `version ${approval.detail.difference.base}` : "the approved version"}`}>
             <DifferenceBlock difference={approval.detail.difference ?? {}} live={live} />
           </Section>
+          {revision?.revision ? (
+            <Section title={`Decisions since version ${revision.revision.approved_version}`}>
+              <RevisionSince revision={revision} />
+            </Section>
+          ) : null}
           <Section title="Draft decisions">
             <DraftDecisions drafts={approval.drafts ?? []} proposedBy={approval.approval.requested_by} />
           </Section>
