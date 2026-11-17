@@ -29,10 +29,16 @@ func TestSpendPolicyCommands(t *testing.T) {
 		}
 		return path
 	}
-	if code, _, _ := s.run("policy", "publish", "--file", write("low.toml", "[spend_policy]\nversion = 2\nmax_live_wait = \"30s\"\n")); code != cli.ExitUsage {
-		t.Errorf("a live wait under a minute: exit %d", code)
+	versionTwo := authority.DefaultSpendPolicy()
+	versionTwo.Version = 2
+	low := strings.Replace(versionTwo.Body(), `max_live_wait = "5m"`, `max_live_wait = "30s"`, 1)
+	if code, _, stderr := s.run("policy", "publish", "--file", write("low.toml", low)); code != cli.ExitUsage || !strings.Contains(stderr, "max_live_wait") {
+		t.Errorf("a live wait under a minute: exit %d, %q", code, stderr)
 	}
-	body := "[spend_policy]\nversion = 2\nmax_live_wait = \"10m\"\n"
+	if code, _, stderr := s.run("policy", "publish", "--file", write("partial.toml", "[spend_policy]\nversion = 2\nmax_live_wait = \"10m\"\n")); code != cli.ExitUsage || !strings.Contains(stderr, "states max_tool_sleep") {
+		t.Errorf("a policy that leaves keys out: exit %d, %q", code, stderr)
+	}
+	body := strings.Replace(versionTwo.Body(), `max_live_wait = "5m"`, `max_live_wait = "10m"`, 1)
 	if text := s.must("policy", "publish", "--file", write("ok.toml", body)); !strings.HasPrefix(text, "2\tmember") {
 		t.Fatalf("policy publish %q", text)
 	}

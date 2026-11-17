@@ -15,6 +15,50 @@ import (
 var SpendChecks = []Check{
 	{"SP1", "the spend policy is published like any other, only by a member, and a value outside its range is refused", checkSpendPolicyPublished},
 	{"SP2", "a lane's lease carries the spend policy in force, and a new version reaches the next read", checkLeaseCarriesTheSpendPolicy},
+	{"SP3", "the installation's spend policy is published only by a member, refused outside its ranges, and read by every project", checkInstallationSpendPolicy},
+}
+
+func checkInstallationSpendPolicy(r *Rig) error {
+	spend := control.NewSpend(r.Store())
+	versions, err := spend.InstallationSpendPolicyVersions(r.Ctx, r.Scope)
+	if err != nil {
+		return err
+	}
+	if len(versions) != 1 || versions[0].Kind != authority.PolicyInstallationSpend || versions[0].Body != authority.BuiltInInstallationSpendPolicyBody {
+		return Violatedf("an installation starts on %+v", versions)
+	}
+	policy := authority.DefaultInstallationSpendPolicy()
+	policy.Version, policy.OrchestratorDailyWarn = 2, 40
+	draft := authority.InstallationSpendPolicyDraft{Body: policy.Body(), Policy: policy}
+	for _, actor := range []ledger.Actor{{Kind: ledger.ActorOrchestrator, ID: "o"}, {Kind: ledger.ActorLane, ID: "l"}, {Kind: ledger.ActorWorker, ID: "w"}} {
+		if _, err := spend.PublishInstallationSpendPolicy(r.Ctx, r.Scope, draft, actor); !errors.Is(err, workorders.ErrForbidden) {
+			return Violatedf("%s moved the installation's spend policy: %v", actor.Kind, err)
+		}
+	}
+	if _, err := spend.PublishInstallationSpendPolicy(r.Ctx, r.Scope, draft, theMember); err != nil {
+		return err
+	}
+	if _, err := spend.PublishInstallationSpendPolicy(r.Ctx, r.Scope, draft, theMember); err != nil {
+		return Violatedf("a retry failed: %v", err)
+	}
+	outside := authority.DefaultInstallationSpendPolicy()
+	outside.Version, outside.OrchestratorClass = 3, "huge"
+	if _, err := spend.PublishInstallationSpendPolicy(r.Ctx, r.Scope, authority.InstallationSpendPolicyDraft{Body: outside.Body(), Policy: outside}, theMember); !errors.Is(err, authority.ErrBadSpendPolicy) {
+		return Violatedf("a class that does not exist read %v", err)
+	}
+	stale := authority.InstallationSpendPolicyDraft{Body: policy.Body() + "# again\n", Policy: policy}
+	if _, err := spend.PublishInstallationSpendPolicy(r.Ctx, r.Scope, stale, theMember); !errors.Is(err, authority.ErrBadSpendPolicy) {
+		return Violatedf("a version that is not newer read %v", err)
+	}
+	versions, err = spend.InstallationSpendPolicyVersions(r.Ctx, r.Scope)
+	if err != nil || len(versions) != 2 || versions[0].Version != 2 {
+		return Violatedf("versions %+v: %v", versions, err)
+	}
+	in, err := spend.InstallationSpendPolicyInForce(r.Ctx, r.Scope)
+	if err != nil || in.OrchestratorDailyWarn != 40 || in.Version != 2 {
+		return Violatedf("the policy in force reads %+v: %v", in, err)
+	}
+	return nil
 }
 
 func checkSpendPolicyPublished(r *Rig) error {

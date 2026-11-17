@@ -3,7 +3,6 @@ package worker_test
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -19,10 +18,17 @@ import (
 
 const waitProfile = profileAt + "[lifecycle]\nhandoff_timeout = \"30ms\"\n"
 
+// anHourOfLiveWait is the built-in policy at version 2 with a live wait of an hour, so a 30 minute wait stays live.
+func anHourOfLiveWait() authority.SpendPolicy {
+	policy := authority.DefaultSpendPolicy()
+	policy.Version, policy.MaxLiveWait = 2, "1h"
+	return policy
+}
+
 // publishSpend puts a spend policy in force, as a member's `policy publish` does.
 func (r *laneRig) publishSpend(t *testing.T, policy authority.SpendPolicy) {
 	t.Helper()
-	draft := authority.SpendPolicyDraft{Body: fmt.Sprintf("%+v", policy), Policy: policy}
+	draft := authority.SpendPolicyDraft{Body: policy.Body(), Policy: policy}
 	if _, err := control.NewSpend(r.store).PublishSpendPolicy(t.Context(), scope, draft, member); err != nil {
 		t.Fatal(err)
 	}
