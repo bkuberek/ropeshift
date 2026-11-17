@@ -48,6 +48,35 @@ func (r *Rig) theRepository(s ports.Store, id string) (ledger.Repository, error)
 	return record, err
 }
 
+// legacy makes the record of a repository from before its identity was the root reached by following first
+// parents, named by the lowest root it had then, which a clone of it matches by any of its roots.
+func (r *Rig) legacy(s ports.Store, id, remote string) error {
+	return s.Write(r.Ctx, r.Scope, "test.legacy", func(tx ports.WriteTx) error {
+		all, err := tx.Repositories().Repositories()
+		if err != nil {
+			return err
+		}
+		taken := map[string]bool{}
+		for _, record := range all {
+			taken[record.Name] = true
+		}
+		record := ledger.NewRepository(id)
+		record.IdentityLegacy, record.Remote, record.DefaultBranch = true, remote, "main"
+		record.Name = ledger.NameRepository("", remote, id, func(name string) bool { return taken[name] })
+		if _, err = tx.Repositories().Insert(record); err != nil {
+			return err
+		}
+		data, err := json.Marshal(map[string]string{"name": record.Name, "remote": remote, "default_branch": record.DefaultBranch})
+		if err != nil {
+			return err
+		}
+		_, err = tx.Append(ledger.EventDraft{
+			Type: ledger.EventRepositoryRegistered, Actor: r.member(), Subject: ledger.Subject{Kind: ledger.SubjectRepository, ID: id}, Data: data,
+		})
+		return err
+	})
+}
+
 func (r *Rig) detect(s ports.Store, id, remote, branch string) (ledger.Repository, error) {
 	return r.repositories(s).Detect(r.Ctx, r.Scope, control.DetectedRepository{ID: id, Remote: remote, DefaultBranch: branch}, ledger.Actor{Kind: ledger.ActorSystem, ID: "intake"})
 }

@@ -274,6 +274,28 @@ func (m mergedSource) record(t *testing.T, id string) {
 	}
 }
 
+// legacyRecord makes the first project's record for a repository from before its identity was its first-parent
+// root, which a daemon source matches by any of its roots.
+func (m mergedSource) legacyRecord(t *testing.T, id string) {
+	t.Helper()
+	err := m.store.Write(t.Context(), soloScope, "test.legacy", func(tx ports.WriteTx) error {
+		record := ledger.NewRepository(id)
+		record.IdentityLegacy, record.DefaultBranch = true, "main"
+		record.Name = ledger.NameRepository("", "", id, func(string) bool { return false })
+		if _, err := tx.Repositories().Insert(record); err != nil {
+			return err
+		}
+		_, err := tx.Append(ledger.EventDraft{
+			Type: ledger.EventRepositoryRegistered, Actor: ledger.Actor{Kind: ledger.ActorSystem, ID: "intake"},
+			Subject: ledger.Subject{Kind: ledger.SubjectRepository, ID: id}, Data: []byte(`{}`),
+		})
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
 func (m mergedSource) records(t *testing.T) (ids, instances []string) {
 	t.Helper()
 	if err := m.store.Read(t.Context(), soloScope, func(tx ports.ReadTx) error {
@@ -299,7 +321,7 @@ func (m mergedSource) records(t *testing.T) (ids, instances []string) {
 // keys, under the first-parent root.
 func TestASourceWithNoCheckoutKeepsTheIDOfItsRecord(t *testing.T) {
 	m := newMergedSource(t)
-	m.record(t, m.lowest)
+	m.legacyRecord(t, m.lowest)
 	opts := soloOptions{intakeTick: time.Second, sources: repeatedFlag{m.workspace.Dir}}
 	kept := &checkouts.File{Path: filepath.Join(t.TempDir(), checkouts.FileName)}
 	ticks := soloTicks(m.state, soloScope, opts, kept, questions.BatchPolicy{}, nil)
@@ -319,7 +341,7 @@ func TestASourceWithNoCheckoutKeepsTheIDOfItsRecord(t *testing.T) {
 // record, and a daemon source with no checkout is still that record's repository.
 func TestASourceWhoseLowestRootNamesNoRecordKeepsTheIDOfItsRecord(t *testing.T) {
 	m := newMergedSource(t)
-	m.record(t, m.lowest)
+	m.legacyRecord(t, m.lowest)
 	m.workspace.MergeUnrelated(gittest.NewWithRootBelow(t, m.own, m.lowest))
 	opts := soloOptions{intakeTick: time.Second, sources: repeatedFlag{m.workspace.Dir}}
 	kept := &checkouts.File{Path: filepath.Join(t.TempDir(), checkouts.FileName)}
@@ -337,7 +359,7 @@ func TestASourceWhoseLowestRootNamesNoRecordKeepsTheIDOfItsRecord(t *testing.T) 
 // The documents of a --source repository are keyed under the same ID.
 func TestAKnowledgeSourceWithNoCheckoutKeepsTheIDOfItsRecord(t *testing.T) {
 	m := newMergedSource(t)
-	m.record(t, m.lowest)
+	m.legacyRecord(t, m.lowest)
 	opts := soloOptions{sources: repeatedFlag{m.workspace.Dir}, records: recordsIn(m.store, soloScope)}
 	sources := soloKnowledge(opts, &checkouts.File{Path: filepath.Join(t.TempDir(), checkouts.FileName)})
 	if len(sources) != 1 {
@@ -466,7 +488,7 @@ func TestKeptPathsAreComparedByTheDirectoryTheyNameAndNotHowTheyAreSpelled(t *te
 // removed, makes no record or key for it, and no lane resolves to it.
 func TestASourceThatSharesAFirstCommitWithAKeptCloneIsReportedAndNotRead(t *testing.T) {
 	m := newMergedSource(t)
-	m.record(t, m.lowest)
+	m.legacyRecord(t, m.lowest)
 	kept := &checkouts.File{Path: filepath.Join(t.TempDir(), checkouts.FileName), Env: m.workspace.Env()}
 	if err := kept.Keep(t.Context(), soloScope, m.lowest, m.design.Dir); err != nil {
 		t.Fatal(err)

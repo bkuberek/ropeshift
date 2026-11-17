@@ -120,6 +120,27 @@ var migrationChecks = []struct {
 	name string
 	run  func(r migrationRun)
 }{
+	{"a ledger from before the identity marker marks each repository it holds as legacy, and a repository made after is not", func(r migrationRun) {
+		if r.set.name != "ledger" {
+			return
+		}
+		r.migrate(shippedDialect{r.db.Dialect, func(migrations []sqlstore.Migration) []sqlstore.Migration {
+			return slices.DeleteFunc(migrations, func(m sqlstore.Migration) bool { return m.Name == identityMarkerMigration })
+		}})
+		table := r.set.qualify(r.db, "repositories")
+		r.exec("INSERT INTO " + table + " (workspace_id, id) VALUES ('w', 'old')")
+		r.migrate(r.db.Dialect)
+		r.exec("INSERT INTO " + table + " (workspace_id, id) VALUES ('w', 'new')")
+		for id, want := range map[string]int64{"old": 1, "new": 0} {
+			var got int64
+			if err := r.db.DB.QueryRowContext(r.t.Context(), "SELECT identity_legacy FROM "+table+" WHERE id = '"+id+"'").Scan(&got); err != nil {
+				r.t.Fatal(err)
+			}
+			if got != want {
+				r.t.Errorf("repository %s has identity_legacy %d, want %d", id, got, want)
+			}
+		}
+	}},
 	{"a fresh database records the checksum of each migration", func(r migrationRun) {
 		r.migrate(r.db.Dialect)
 		r.wantApplied(r.shipped(r.db.Dialect))
@@ -238,6 +259,18 @@ func (r migrationRun) shipped(dialect sqlstore.Dialect) []sqlstore.Migration {
 	}
 	slices.SortFunc(migrations, func(a, b sqlstore.Migration) int { return int(a.Version - b.Version) })
 	return migrations
+}
+
+// identityMarkerMigration is the ledger migration that marks the records made before a repository's identity
+// was its first-parent root.
+const identityMarkerMigration = "0110_repository_identity_legacy"
+
+// qualify names a table in the database's schema.
+func (s migrationSet) qualify(db MigrationDatabase, table string) string {
+	if db.Schema == "" {
+		return table
+	}
+	return `"` + strings.ReplaceAll(db.Schema, `"`, `""`) + `".` + table
 }
 
 // table names schema_migrations in the database's schema.

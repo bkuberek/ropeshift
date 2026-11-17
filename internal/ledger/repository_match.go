@@ -24,8 +24,10 @@ func RemotesDiffer(a, b string) bool {
 //  1. a record the caller already ties to the clone, named in preferred, whose ID is a root of the clone and
 //     that is not removed, such as the record this worker keeps at the clone's path;
 //  2. the record whose ID is the first-parent root, removed or not;
-//  3. the first record, over the clone's other roots in ascending order, that is not removed and that apart
-//     does not say is another repository than the clone, as one with a different remote is. Earlier says it.
+//  3. the first legacy record, over the clone's other roots in ascending order, that is not removed and that
+//     apart does not say is another repository than the clone, as one with a different remote is. Earlier
+//     says it. A record made since is named by its first-parent root, and no other root of a clone matches
+//     it, so two repositories that merged one history are each their own record.
 //
 // A removed record is never matched by one of the other roots. A nil apart never says so. No record means
 // the clone is a new record under its first-parent root.
@@ -54,7 +56,7 @@ func MatchRepository(first string, roots, preferred []string, apart func(Reposit
 		if err != nil {
 			return Repository{}, false, false, err
 		}
-		if found && !record.Removed() && (apart == nil || !apart(record)) {
+		if found && record.IdentityLegacy && !record.Removed() && (apart == nil || !apart(record)) {
 			return record, true, true, nil
 		}
 	}

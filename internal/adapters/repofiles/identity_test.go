@@ -22,6 +22,14 @@ func mergedWorkspace(t *testing.T) (workspace *gittest.Repo, own, imported strin
 	return workspace, own, imported
 }
 
+// legacy is a record made before a repository's identity was its first-parent root, which a clone matches by any
+// of its roots.
+func legacyRecord(id string) ledger.Repository {
+	record := ledger.NewRepository(id)
+	record.IdentityLegacy = true
+	return record
+}
+
 func instanceOf(t *testing.T, repo *gittest.Repo, identity string) string {
 	t.Helper()
 	instance, err := New(Config{Repository: repo.Dir, Env: repo.Env(), Identity: identity}).Instance(t.Context())
@@ -91,14 +99,15 @@ func TestARepositoryWithNoIdentityIsNamedByTheRecordTheProjectHolds(t *testing.T
 			return ledger.Repository{}, false, nil
 		}
 	}
-	removed := ledger.NewRepository(imported)
+	removed := legacyRecord(imported)
 	removed.State = ledger.RepositoryRemoved
 	for name, tt := range map[string]struct {
 		held []ledger.Repository
 		want string
 	}{
-		"a record under the lowest root":           {[]ledger.Repository{ledger.NewRepository(imported)}, imported},
-		"a record under each root names the first": {[]ledger.Repository{ledger.NewRepository(imported), ledger.NewRepository(own)}, own},
+		"a legacy record under the lowest root":     {[]ledger.Repository{legacyRecord(imported)}, imported},
+		"a record made since under the lowest root": {[]ledger.Repository{ledger.NewRepository(imported)}, own},
+		"a record under each root names the first":  {[]ledger.Repository{legacyRecord(imported), ledger.NewRepository(own)}, own},
 		"no record":                                   {nil, own},
 		"a removed record under the lowest root":      {[]ledger.Repository{removed}, own},
 		"a removed record is not matched by its root": {[]ledger.Repository{removed, ledger.NewRepository(own)}, own},
@@ -119,7 +128,7 @@ func TestARecordWithAnotherRemoteIsNotNamedByTheLowestRoot(t *testing.T) {
 	workspace, own, imported := mergedWorkspace(t)
 	workspace.Git("remote", "add", "origin", "git@example.invalid:acme/workspace.git")
 	record := func(remote string) func(context.Context, string) (ledger.Repository, bool, error) {
-		held := ledger.NewRepository(imported)
+		held := legacyRecord(imported)
 		held.Remote = remote
 		return func(_ context.Context, id string) (ledger.Repository, bool, error) {
 			return held, id == imported, nil
@@ -157,7 +166,7 @@ func keptAt(path, remote string) func(context.Context, string) (Kept, bool, erro
 func TestARepositoryThatSharesAFirstCommitWithAKeptCloneIsNotRead(t *testing.T) {
 	workspace, _, imported := mergedWorkspace(t)
 	records := func(remote string) func(context.Context, string) (ledger.Repository, bool, error) {
-		held := ledger.NewRepository(imported)
+		held := legacyRecord(imported)
 		held.Name, held.Remote = "design", remote
 		return func(_ context.Context, id string) (ledger.Repository, bool, error) { return held, id == imported, nil }
 	}
@@ -201,7 +210,7 @@ func TestARepositoryIsNamedByAnyRootThatNamesItsRecord(t *testing.T) {
 	workspace.MergeUnrelated(lower)
 	workspace.Git("remote", "add", "origin", "git@example.invalid:acme/app.git")
 	record := func(id, remote string) func(context.Context, string) (ledger.Repository, bool, error) {
-		held := ledger.NewRepository(id)
+		held := legacyRecord(id)
 		held.Remote = remote
 		return func(_ context.Context, asked string) (ledger.Repository, bool, error) { return held, asked == id, nil }
 	}

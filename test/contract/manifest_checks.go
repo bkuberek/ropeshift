@@ -45,7 +45,8 @@ var ManifestChecks = []Check{
 	{"RM21", "a clone is matched by any root it holds, lowest first, to a record that is not removed and not another repository's, so a lower root merged in later neither splits the record at a second path nor hides a clone that shares its first commit", checkAnyRootMatchesTheRecordAtASecondPath},
 	{"RM22", "a path this worker keeps for a record holds nothing of it once another clone replaced the clone there, so a clone of the record's first commit at another path is not refused for sharing it", checkAReplacedCloneHoldsNothing},
 	{"RM23", "a path this worker keeps for a record, spelled through a symbolic link, is the clone it leads to: a clone of the record's first commit at another path is refused or is a second clone as for the real path, the same clone registered again keeps the checkout as it was, and a record kept through a link still matches its clone's other roots", checkAKeptPathSpelledThroughALinkIsTheSameClone},
-	{"RM18", "on real git repositories, a workspace that merged an unrelated history registers under its first-parent root once the repository that history came from is removed, and is refused for sharing that history's first commit while it is kept", checkMergedWorkspaceOnRealRepositories},
+	{"RM18", "on real git repositories, a workspace that merged an unrelated history is its own record whether or not the repository that history came from is kept or removed, unless that repository's record is from before the first-parent rule and kept, which refuses the workspace for sharing its first commit", checkMergedWorkspaceOnRealRepositories},
+	{"RM24", "two repositories that merged one history are each their own record, whichever registers first, and neither is matched to the record that history made", checkTwoRepositoriesThatMergedOneHistoryAreEachTheirOwn},
 	{"RM6", "a manifest registers only a clone inside the directory that holds the planning repository's clone, symbolic links followed: a path or a link that leads out of it, the planning clone itself, and the installation's own directories register nothing, each refused naming where it leads", checkManifestPathsStayBesideThePlanningClone},
 }
 
@@ -1175,7 +1176,7 @@ func checkRegistrationMatchesARecordByItsRoots(r *Rig) error {
 
 	// A record stored under the lowest-root rule: its ID is a root the clone holds, and not its first-parent root.
 	lowest, own := firstCommit("0a"), firstCommit("0b")
-	if _, err := r.detect(s, lowest, "", "main"); err != nil {
+	if err := r.legacy(s, lowest, ""); err != nil {
 		return err
 	}
 	if err := kept.Keep(r.Ctx, r.Scope, lowest, "/work/ws"); err != nil {
@@ -1412,11 +1413,9 @@ func checkALowestRootDoesNotAttachAnotherRepositoryToARecord(r *Rig) error {
 	// A design repository with a remote, whose clone this worker no longer has, and a workspace with a remote
 	// of its own that merged its history: the workspace is a repository of its own, and the record stays as it was.
 	design, workspace := firstCommit("90"), firstCommit("91")
-	kept.Place(rootClone("design", design, remote("design")))
-	if _, err := r.addAt(repositories, kept, false, "/work/design"); err != nil {
+	if err := r.legacy(s, design, remote("design")); err != nil {
 		return err
 	}
-	kept.Remove("/work/design")
 	kept.Place(rootClone("workspace", workspace, remote("workspace"), design, workspace))
 	got, err := r.addAt(repositories, kept, false, "/work/workspace")
 	if err != nil {
@@ -1431,8 +1430,11 @@ func checkALowestRootDoesNotAttachAnotherRepositoryToARecord(r *Rig) error {
 
 	// While this worker keeps the design repository's clone, the workspace shares its first commit and is refused.
 	other, merged := firstCommit("92"), firstCommit("93")
+	if err := r.legacy(s, other, remote("other")); err != nil {
+		return err
+	}
 	kept.Place(rootClone("other", other, remote("other")))
-	if _, err := r.addAt(repositories, kept, false, "/work/other"); err != nil {
+	if err := kept.Keep(r.Ctx, r.Scope, other, "/work/other"); err != nil {
 		return err
 	}
 	kept.Place(rootClone("merged", merged, remote("merged"), other, merged))
@@ -1463,11 +1465,9 @@ func checkALowestRootDoesNotAttachAnotherRepositoryToARecord(r *Rig) error {
 	// A clone with no remote, or a record with none, is matched by its lowest root as before.
 	for i, shape := range []struct{ record, clone string }{{remote("bare-record"), ""}, {"", remote("bare-clone")}} {
 		old, merged := firstCommit(fmt.Sprintf("96%d", i)), firstCommit(fmt.Sprintf("97%d", i))
-		kept.Place(rootClone(fmt.Sprintf("old-%d", i), old, shape.record))
-		if _, err := r.addAt(repositories, kept, false, fmt.Sprintf("/work/old-%d", i)); err != nil {
+		if err := r.legacy(s, old, shape.record); err != nil {
 			return err
 		}
-		kept.Remove(fmt.Sprintf("/work/old-%d", i))
 		kept.Place(rootClone(fmt.Sprintf("new-%d", i), merged, shape.clone, old, merged))
 		if got, err = r.addAt(repositories, kept, false, fmt.Sprintf("/work/new-%d", i)); err != nil {
 			return err
@@ -1487,7 +1487,7 @@ func checkAnyRootMatchesTheRecordAtASecondPath(r *Rig) error {
 	// A record registered under the lowest root its clone had then, with a remote. Its clone has since merged a
 	// history whose first commit sorts lower still, so the lowest root of a clone of it names no record.
 	lowest, legacy, own := firstCommit("a0"), firstCommit("a1"), firstCommit("a2")
-	if _, err := r.detect(s, legacy, remote("app"), "main"); err != nil {
+	if err := r.legacy(s, legacy, remote("app")); err != nil {
 		return err
 	}
 	if err := kept.Keep(r.Ctx, r.Scope, legacy, "/work/a"); err != nil {
@@ -1519,10 +1519,10 @@ func checkAnyRootMatchesTheRecordAtASecondPath(r *Rig) error {
 	}
 	// A root that names a record which is another repository's is passed over for the next one.
 	other, second := firstCommit("a3"), firstCommit("a4")
-	if _, err := r.detect(s, other, remote("other"), "main"); err != nil {
+	if err := r.legacy(s, other, remote("other")); err != nil {
 		return err
 	}
-	if _, err := r.detect(s, second, remote("app-two"), "main"); err != nil {
+	if err := r.legacy(s, second, remote("app-two")); err != nil {
 		return err
 	}
 	kept.Place(rootClone("d", firstCommit("a5"), remote("app-two"), other, second, firstCommit("a5")))
@@ -1531,6 +1531,35 @@ func checkAnyRootMatchesTheRecordAtASecondPath(r *Rig) error {
 	}
 	if d := got["/work/d"]; d.Outcome != ledger.AlreadyRegistered || d.Repository.ID != second || !strings.Contains(d.Reason, "matched by its earlier identity") {
 		return Violatedf("a clone whose lowest root names another repository's record reads %+v, want the record of its remote", d)
+	}
+	return r.CheckProjection(s)
+}
+
+func checkTwoRepositoriesThatMergedOneHistoryAreEachTheirOwn(r *Rig) error {
+	s := r.Store()
+	repositories := r.repositories(s)
+	kept := fake.NewCheckouts()
+	// C's history has a record, with no remote and no clone this worker keeps. A and B each merged it, with
+	// remotes of their own or none, and C's root sorts below both of theirs.
+	c, a, b := firstCommit("d0"), firstCommit("d1"), firstCommit("d2")
+	if _, err := r.detect(s, c, "", "main"); err != nil {
+		return err
+	}
+	kept.Place(rootClone("a", a, "", c, a))
+	kept.Place(rootClone("b", b, "git@github.com:acme/b.git", c, b))
+	for _, dryRun := range []bool{true, false} {
+		got, err := r.addAt(repositories, kept, dryRun, "/work/a", "/work/b")
+		if err != nil {
+			return err
+		}
+		for path, root := range map[string]string{"/work/a": a, "/work/b": b} {
+			if added := got[path]; added.Outcome != ledger.Registered || added.Repository.ID != root {
+				return Violatedf("%s, which merged C's history, reads %+v, dry run %v, want its own record %s", path, added, dryRun, root)
+			}
+		}
+	}
+	if record, err := r.theRepository(s, c); err != nil || record.Removed() || record.Remote != "" {
+		return Violatedf("C's record reads %+v: %v", record, err)
 	}
 	return r.CheckProjection(s)
 }
@@ -1642,31 +1671,58 @@ func checkMergedWorkspaceOnRealRepositories(r *Rig) error {
 	}
 	workspace.MergeUnrelated(design)
 
-	// The design repository's record is kept, so the workspace shares its first commit and is refused.
-	shared, err := add(workspace.Dir)
-	if err != nil {
-		return err
-	}
-	if shared.Outcome != ledger.RegistrationRefused || shared.Reason != sharedRefusal(imported, registered.Repository.Name, registered.Checkout) {
-		return Violatedf("a workspace that merged a kept repository's history reads %+v", shared)
-	}
-	if _, err := r.theRepository(s, own); !errors.Is(err, ports.ErrNotFound) {
-		return Violatedf("a refused workspace made a record: %v", err)
-	}
-
-	// Once the design repository is removed, the workspace is its own record, and the removed one stays removed.
-	if _, err := repositories.Remove(r.Ctx, r.Scope, imported, machine, r.member()); err != nil {
-		return err
-	}
+	// The design repository's record was made under the first-parent rule, so the workspace that merged its
+	// history is a repository of its own, and the design repository's record and checkout stay as they were.
 	made, err := add(workspace.Dir)
 	if err != nil {
 		return err
 	}
 	if made.Outcome != ledger.Registered || made.Repository.ID != own {
-		return Violatedf("a workspace that merged a removed repository's history reads %+v, want a record under its first-parent root %s", made, own)
+		return Violatedf("a workspace that merged a kept repository's history reads %+v, want a record under its first-parent root %s", made, own)
+	}
+	if record, err := r.theRepository(s, imported); err != nil || record.Removed() || record.Name != registered.Repository.Name {
+		return Violatedf("the design repository's record reads %+v: %v", record, err)
+	}
+	if held, err := machine.Of(r.Ctx, r.Scope); err != nil || held[imported] != registered.Checkout || held[own] != made.Checkout {
+		return Violatedf("the worker keeps %v", held)
+	}
+
+	// Once the design repository is removed, the workspace is still its own record, and the removed one stays removed.
+	if _, err := repositories.Remove(r.Ctx, r.Scope, imported, machine, r.member()); err != nil {
+		return err
+	}
+	again, err := add(workspace.Dir)
+	if err != nil {
+		return err
+	}
+	if again.Outcome != ledger.AlreadyRegistered || again.Repository.ID != own {
+		return Violatedf("a workspace that merged a removed repository's history reads %+v, want its record under %s", again, own)
 	}
 	if record, err := r.theRepository(s, imported); err != nil || !record.Removed() {
 		return Violatedf("the design repository's record reads %+v: %v", record, err)
+	}
+
+	// A design repository whose record is from before the first-parent rule, and is kept, is the repository a
+	// workspace that merged its history shares a first commit with, and the workspace is refused.
+	older, oldDesign := gittest.NewUnrelatedPair(r.T)
+	oldWorkspace, legacyRoot := older, oldDesign.Roots("HEAD")[0]
+	if err := r.legacy(s, legacyRoot, ""); err != nil {
+		return err
+	}
+	if err := machine.Keep(r.Ctx, r.Scope, legacyRoot, oldDesign.Dir); err != nil {
+		return err
+	}
+	oldWorkspace.MergeUnrelated(oldDesign)
+	shared, err := add(oldWorkspace.Dir)
+	if err != nil {
+		return err
+	}
+	legacy, err := r.theRepository(s, legacyRoot)
+	if err != nil {
+		return err
+	}
+	if shared.Outcome != ledger.RegistrationRefused || shared.Reason != sharedRefusal(legacyRoot, legacy.Name, oldDesign.Dir) {
+		return Violatedf("a workspace that merged a kept legacy repository's history reads %+v", shared)
 	}
 	return r.CheckProjection(s)
 }
