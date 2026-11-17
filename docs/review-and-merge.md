@@ -69,7 +69,7 @@ At `person_approves`, work that passed its review waits for you as a merge reque
 
 ### 7. Approve the merge
 
-In Needs you, select the merge request, `Approve the merge of <work order>?`. Its card names the repository, the branch and its base, the reviewed commit, the merge method, and the merge authority, and says what each choice does.
+In Needs you, select the merge request, `Approve the merge of <work order's title>?`. Its card names the repository, the branch and its base, the reviewed commit, the merge method, and the merge authority, and says what each choice does.
 
 ![The merge approval card, with the repository, the branch, the reviewed commit, Approve merge, and Deny](assets/screenshots/review-06-light.png#gh-light-mode-only)
 ![The merge approval card, with the repository, the branch, the reviewed commit, Approve merge, and Deny](assets/screenshots/review-06-dark.png#gh-dark-mode-only)
