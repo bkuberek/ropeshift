@@ -399,6 +399,62 @@ func TestCreateRepeatsAfterACrashAtAnyStep(t *testing.T) {
 	}
 }
 
+// refuseRegistrations makes the registry refuse every project, as a failed registry step does, and returns
+// what lifts the refusal.
+func refuseRegistrations(t *testing.T, db *sql.DB) (lift func()) {
+	t.Helper()
+	for _, statement := range []string{
+		`CREATE FUNCTION installation.refuse_project() RETURNS trigger LANGUAGE plpgsql
+  AS $$ BEGIN RAISE EXCEPTION 'the registry refuses the project'; END $$`,
+		`CREATE TRIGGER refuse_project BEFORE INSERT ON installation.projects
+  FOR EACH ROW EXECUTE FUNCTION installation.refuse_project()`,
+	} {
+		if _, err := db.ExecContext(t.Context(), statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return func() {
+		if _, err := db.ExecContext(t.Context(), `DROP TRIGGER refuse_project ON installation.projects`); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// TestACreateThatFailsLeavesNoSchemaItMade holds that a Create that fails after it made the schema, at the
+// registry's step, drops that schema before it returns, so the failure leaves nothing behind. A schema it
+// did not make, one a crashed Create left for a retry, stays.
+func TestACreateThatFailsLeavesNoSchemaItMade(t *testing.T) {
+	state := openState(t, freshDatabase(t), postgres.Options{})
+	db := state.SQLDB()
+	defer db.Close()
+	lift := refuseRegistrations(t, db)
+
+	if _, err := state.Create(t.Context(), ledger.Project{ID: "pa", Name: "alpha"}, member); err == nil {
+		t.Fatal("a project was registered although the registry refused it")
+	}
+	if schemaExists(t, db, "project_pa") {
+		t.Error("the failed Create left its schema")
+	}
+
+	// A crashed Create left this schema for a retry, and a failure of the retry does not take it away.
+	if err := state.CreateUpTo(t.Context(), ledger.Project{ID: "pb", Name: "beta"}, member, 3); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := state.Create(t.Context(), ledger.Project{ID: "pb", Name: "beta"}, member); err == nil {
+		t.Fatal("a project was registered although the registry refused it")
+	}
+	if !schemaExists(t, db, "project_pb") {
+		t.Error("a Create dropped a schema an earlier one made")
+	}
+
+	lift()
+	for _, id := range []ledger.WorkspaceID{"pa", "pb"} {
+		if _, err := state.Create(t.Context(), ledger.Project{ID: id, Name: "project-" + string(id)}, member); err != nil {
+			t.Errorf("Create of %s after the refusal ended: %v", id, err)
+		}
+	}
+}
+
 // TestRemoveRepeatsAfterACrashAtAnyStep holds the other direction: the registry decides, so a crash after
 // the registry forgot a project leaves a schema no project names, and a second remove drops it.
 func TestRemoveRepeatsAfterACrashAtAnyStep(t *testing.T) {

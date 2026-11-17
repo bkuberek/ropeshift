@@ -81,13 +81,17 @@ func run(ctx context.Context, steps []step) error {
 // creation is the creation of one project. The schema exists and is migrated before the registry names
 // the project, as a SQLite ledger file does, so a crash between the two leaves a schema the registry does
 // not know. A retry with the same ID registers it, and the sweep that opens a State drops one that no retry
-// claims, such as the schema of a project that gave itself an ID. Every step runs under the migration lock,
-// so no other process sees a schema that is made but not yet registered.
+// claims, such as the schema of a project that gave itself an ID. A step that fails without a crash drops
+// the schema the creation made. Every step runs under the migration lock, so no other process sees a schema
+// that is made but not yet registered.
 type creation struct {
-	s          *State
-	p          ledger.Project
-	actor      ledger.Actor
-	schema     string
+	s      *State
+	p      ledger.Project
+	actor  ledger.Actor
+	schema string
+	// made is whether this creation made the schema, which it drops if a later step fails. A schema a
+	// crashed creation left, or one a person made, is not its to drop.
+	made       bool
 	store      *sqlstore.Store
 	registered ledger.Project
 }
@@ -148,7 +152,17 @@ func (c *creation) refuseTaken(ctx context.Context) error {
 func (c *creation) steps() []step {
 	return []step{
 		// The schema.
-		func(ctx context.Context) error { return c.s.createSchema(ctx, c.schema) },
+		func(ctx context.Context) error {
+			existed, err := c.s.schemaExists(ctx, c.schema)
+			if err != nil {
+				return err
+			}
+			if err := c.s.createSchema(ctx, c.schema); err != nil {
+				return err
+			}
+			c.made = !existed
+			return nil
+		},
 		// Its tables, at this build's version.
 		func(ctx context.Context) error {
 			c.store = c.s.ledger(c.schema, c.s.opts)
@@ -183,7 +197,10 @@ func (s *State) Create(ctx context.Context, p ledger.Project, actor ledger.Actor
 		if err := c.refuseTaken(ctx); err != nil {
 			return err
 		}
-		return run(ctx, c.steps())
+		if err := run(ctx, c.steps()); err != nil {
+			return c.abandon(ctx, err)
+		}
+		return nil
 	})
 	if err != nil {
 		if c.store != nil {
@@ -195,6 +212,30 @@ func (s *State) Create(ctx context.Context, p ledger.Project, actor ledger.Actor
 	// which closes the Store it made.
 	s.keep(c.registered.ID, c.store)
 	return c.registered, nil
+}
+
+// abandon drops the schema a creation made, after a later step failed with cause, so a failure leaves no
+// schema behind for the sweep. The caller holds the migration lock, so the schema is not one another
+// process is about to register. A schema the registry names stays: the step that failed may have
+// committed. The drop runs although the caller's context ended, as the release of the lock does. It returns
+// cause, joined with the failure of the drop.
+func (c *creation) abandon(ctx context.Context, cause error) error {
+	if c.store != nil {
+		_ = c.store.Close()
+		c.store = nil
+	}
+	if !c.made {
+		return cause
+	}
+	ctx, stop := context.WithTimeout(context.WithoutCancel(ctx), unlockLimit)
+	defer stop()
+	if _, err := c.s.Installation.ProjectByID(ctx, c.p.ID); !errors.Is(err, ports.ErrNotFound) {
+		return cause
+	}
+	if _, err := c.s.pool.Exec(ctx, `DROP SCHEMA IF EXISTS `+quote(c.schema)+` CASCADE`); err != nil {
+		return errors.Join(cause, fmt.Errorf("postgres: drop schema %s: %w", c.schema, err))
+	}
+	return cause
 }
 
 // keep holds a Store the state opened as the one Open returns for its project. A Store it already holds
