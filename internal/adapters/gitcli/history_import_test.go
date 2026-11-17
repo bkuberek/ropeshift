@@ -258,6 +258,36 @@ func TestCommitsListsAMergeAsOneCommitWithItsParents(t *testing.T) {
 	}
 }
 
+// A path that is a file in one history and a folder in the other cannot be kept apart by keeping a version, so the
+// import fails naming the path, and the worktree is as it was.
+func TestImportHistoryRefusesAPathThatIsAFileInOneHistoryAndAFolderInTheOther(t *testing.T) {
+	t.Parallel()
+	workspace := gittest.New(t)
+	workspace.Commit("docs", "a file\n")
+	design := gittest.New(t)
+	design.Commit("docs/vision.md", "# Vision\n")
+	worktrees := gitcli.Worktrees{Env: workspace.Env()}
+	at := filepath.Join(filepath.Dir(workspace.Dir), "lane")
+	made, err := worktrees.Create(t.Context(), ports.WorktreeSpec{Repository: workspace.Dir, Path: at, Branch: "lane/adopt"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = worktrees.ImportHistory(t.Context(), at, ports.HistoryImport{
+		Source: design.Dir, Commit: design.Git("rev-parse", "HEAD"), Root: design.Roots("HEAD")[0], Subject: importSubject,
+	})
+	if err == nil || !strings.Contains(err.Error(), "docs") {
+		t.Fatalf("a file against a folder gave %v", err)
+	}
+	cmd := exec.Command("git", "status", "--porcelain")
+	cmd.Dir, cmd.Env = at, workspace.Env()
+	if out, statusErr := cmd.CombinedOutput(); statusErr != nil || len(out) != 0 {
+		t.Errorf("the worktree is dirty after the refusal: %v\n%s", statusErr, out)
+	}
+	if head := workspace.Git("-C", at, "rev-parse", "HEAD"); head != made.Head {
+		t.Errorf("the branch moved to %s", head)
+	}
+}
+
 // A retry finds the branch holding the design tip and makes no second merge.
 func TestImportHistoryRepeatedMakesNoSecondMerge(t *testing.T) {
 	r := newImportRig(t)
