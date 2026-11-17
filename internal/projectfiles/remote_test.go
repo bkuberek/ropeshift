@@ -64,6 +64,13 @@ func TestRefusedRemotes(t *testing.T) {
 		{"a URL with nothing after the scheme", "https://"},
 		{"a scp-like remote with no path", "git@example.invalid:"},
 		{"a scp-like remote with no host", "git@:a.git"},
+		{"a remote helper that runs a command", "ext::foo"},
+		{"a remote helper on a file descriptor", "fd::0"},
+	}
+	for _, remote := range []string{"ext::foo", "fd::0"} {
+		if err := checkRemote(remote); err == nil || !strings.Contains(err.Error(), "remote helper") {
+			t.Errorf("remote %q: %v, want the rule that a remote names no remote helper", remote, err)
+		}
 	}
 	for _, remote := range []string{"/srv/git/orchid-api.git", "../orchid-api", "orchid-api"} {
 		if err := checkRemote(remote); err == nil || !strings.Contains(err.Error(), "for a local repository use a file:// URL") {

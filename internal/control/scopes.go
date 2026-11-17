@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 
+	"ropeshift.com/ropeshift/internal/planning"
 	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/internal/questions"
 	"ropeshift.com/ropeshift/internal/workorders"
@@ -13,32 +14,48 @@ import (
 // legacySeparator divides a scope written before the grammar into the parts a narrower scope extends.
 const legacySeparator = "/"
 
-// scopeFacts resolves a scope through the ledger: from a work order to its contract, and from a contract
-// to its plan, never from the text of an ID (ADR-0030). It reads a plan of a contract once.
+// scopeFacts resolves a scope through the ledger: from a work order to the contract version it is pinned to,
+// and from a contract version to its plan, never from the text of an ID (ADR-0030). It reads the plan of a
+// contract version once.
 type scopeFacts struct {
 	planned ports.PlanningReader
 	orders  ports.WorkOrderReader
-	plans   map[string]string
+	plans   map[contractVersion]string
+}
+
+// contractVersion names one version of a contract, and version 0 its latest.
+type contractVersion struct {
+	id      string
+	version int64
 }
 
 func newScopeFacts(planned ports.PlanningReader, orders ports.WorkOrderReader) *scopeFacts {
-	return &scopeFacts{planned: planned, orders: orders, plans: map[string]string{}}
+	return &scopeFacts{planned: planned, orders: orders, plans: map[contractVersion]string{}}
 }
 
-// planOf is the plan a contract belongs to, or none for a contract the ledger does not hold.
-func (f *scopeFacts) planOf(contract string) (string, error) {
+// planOf is the plan a version of a contract belongs to, or its latest version's for version 0, or none for a
+// version the ledger does not hold. A contract can move to another plan, so the work pinned to an earlier
+// version stays under the plan that version names.
+func (f *scopeFacts) planOf(contract string, version int64) (string, error) {
 	if contract == "" {
 		return "", nil
 	}
-	if plan, read := f.plans[contract]; read {
+	key := contractVersion{contract, version}
+	if plan, read := f.plans[key]; read {
 		return plan, nil
 	}
-	latest, err := f.planned.LatestContract(contract)
+	var held planning.Contract
+	var err error
+	if version == 0 {
+		held, err = f.planned.LatestContract(contract)
+	} else {
+		held, err = f.planned.Contract(contract, version)
+	}
 	if err != nil && !errors.Is(err, ports.ErrNotFound) {
 		return "", err
 	}
-	f.plans[contract] = latest.PlanID
-	return latest.PlanID, nil
+	f.plans[key] = held.PlanID
+	return held.PlanID, nil
 }
 
 // order reads a work order, and says whether the ledger holds it.
@@ -50,8 +67,8 @@ func (f *scopeFacts) order(id string) (workorders.WorkOrder, bool, error) {
 	return order, err == nil, err
 }
 
-// binds says whether a scope covers a work order: a plan covers the work of its contracts, a contract the
-// work that pins it, a work order itself and its rework, and a repository the work that runs in it. A scope
+// binds says whether a scope covers a work order: a plan covers the work pinned to versions of contracts it
+// holds, a contract the work that pins it, a work order itself and its rework, and a repository the work that runs in it. A scope
 // written before the grammar is not one it reads: `covers` reads that scope by the rule it had.
 func (f *scopeFacts) binds(scope questions.Scope, order workorders.WorkOrder) (bool, error) {
 	switch scope.Kind {
@@ -59,7 +76,7 @@ func (f *scopeFacts) binds(scope questions.Scope, order workorders.WorkOrder) (b
 		if bindsNoPlan() {
 			return false, nil
 		}
-		plan, err := f.planOf(order.ContractID)
+		plan, err := f.planOf(order.ContractID, order.ContractVersion)
 		return plan == scope.ID, err
 	case questions.ScopeContract:
 		return order.ContractID == scope.ID || bindsEveryContract(), nil
@@ -109,7 +126,7 @@ func (f *scopeFacts) within(a, b questions.Scope) (bool, error) {
 	}
 	switch {
 	case a.Kind == questions.ScopePlan && b.Kind == questions.ScopeContract:
-		plan, err := f.planOf(b.ID)
+		plan, err := f.planOf(b.ID, 0)
 		return plan == a.ID, err
 	case a.Kind == questions.ScopePlan && b.Kind == questions.ScopeWorkOrder:
 		order, held, err := f.order(b.ID)
@@ -140,14 +157,20 @@ func (f *scopeFacts) reworks(a, b string) (bool, error) {
 	return false, nil
 }
 
-// runsIn says whether the work a scope covers runs in a repository.
+// runsIn says whether the work a scope covers runs in a repository. A work order covers its rework, which is
+// under the same contract, so the work of that contract holds both.
 func (f *scopeFacts) runsIn(scope questions.Scope, repository string) (bool, error) {
 	var orders []workorders.WorkOrder
 	switch scope.Kind {
 	case questions.ScopeWorkOrder:
 		order, held, err := f.order(scope.ID)
-		if held {
-			orders = []workorders.WorkOrder{order}
+		if err != nil || !held {
+			return false, err
+		}
+		if order.ContractID == "" {
+			orders, err = f.orders.List()
+		} else {
+			orders, err = f.orders.ByContract(order.ContractID)
 		}
 		if err != nil {
 			return false, err
