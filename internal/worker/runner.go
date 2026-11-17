@@ -953,7 +953,10 @@ func (r *laneRun) watch(ctx context.Context, events <-chan ports.DriverEvent) wo
 			r.departed.Store(true)
 			return failed(workorders.ReasonWorkerRestarted)
 		case next, open := <-events:
+			// A stream that closed before its session ended says nothing of how it ended, so the lane settles as
+			// crashed, and the turn it may have died in counts as unreported, as a crash's does.
 			if !open {
+				r.unreportedEnd()
 				return failed(workorders.ReasonCrashed)
 			}
 			event = next

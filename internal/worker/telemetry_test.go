@@ -378,6 +378,9 @@ func TestATurnWhoseCostWentUnreportedIsCounted(t *testing.T) {
 		{"a session that crashed at rest", noRestarts, func(*laneRig) []fake.DriverStep {
 			return []fake.DriverStep{{Bound: true}, completed(0.25), {Crash: true}}
 		}, 1},
+		{"a stream that closed with no end to its session", noRestarts, func(*laneRig) []fake.DriverStep {
+			return []fake.DriverStep{{Bound: true}, {Vanish: true}}
+		}, 1},
 		{"turns that reported their cost", "", func(r *laneRig) []fake.DriverStep {
 			return []fake.DriverStep{{Bound: true}, completed(0.25), r.reports(workorders.OutcomeCompleted), completed(0.4)}
 		}, 0},

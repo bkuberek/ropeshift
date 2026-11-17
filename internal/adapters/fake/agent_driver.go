@@ -54,6 +54,8 @@ type DriverStep struct {
 	Stuck bool
 	// Crash ends the process with no end to its turn.
 	Crash bool
+	// Vanish closes the stream with no end to the session, so a reader hears nothing of how it ended.
+	Vanish bool
 	// Compaction reports the boundary of a compaction that ran.
 	Compaction bool
 	// Reply reports a message an assistant's session wrote, under ReplyID.
@@ -592,7 +594,9 @@ func (s *driverSession) run() {
 			end, stopped := s.playTurn(s.script.Turns[turn])
 			turn++
 			if stopped {
-				s.events <- ports.DriverEvent{Kind: ports.EventSessionEnded, End: &end}
+				if end != nil {
+					s.events <- ports.DriverEvent{Kind: ports.EventSessionEnded, End: end}
+				}
 				return
 			}
 		case <-s.stops:
@@ -602,9 +606,9 @@ func (s *driverSession) run() {
 	}
 }
 
-// playTurn reports whether the session ended inside the turn. A session that ends before its turn did leaves the
-// turn's input unanswered.
-func (s *driverSession) playTurn(steps []DriverStep) (ports.SessionEnd, bool) {
+// playTurn reports whether the session ended inside the turn, and how, where a stream that closed says nothing of it.
+// A session that ends before its turn did leaves the turn's input unanswered.
+func (s *driverSession) playTurn(steps []DriverStep) (*ports.SessionEnd, bool) {
 	answered := false
 	for _, step := range steps {
 		switch {
@@ -649,17 +653,19 @@ func (s *driverSession) playTurn(steps []DriverStep) (ports.SessionEnd, bool) {
 				s.events <- ports.DriverEvent{Kind: ports.EventTurnEnded, Turn: &ports.TurnResult{
 					Status: ports.TurnStopped, Reason: "aborted_streaming", Cost: s.meter,
 				}}
-				return ports.SessionEnd{}, true
+				return &ports.SessionEnd{}, true
 			}
-			return ports.SessionEnd{InputUnanswered: !answered}, true
+			return &ports.SessionEnd{InputUnanswered: !answered}, true
 		case step.Stuck:
 			<-s.stops
-			return ports.SessionEnd{InputUnanswered: !answered}, true
+			return &ports.SessionEnd{InputUnanswered: !answered}, true
 		case step.Crash:
-			return ports.SessionEnd{Crashed: true, InputUnanswered: !answered, Exit: ports.ExitStatus{Code: 1}}, true
+			return &ports.SessionEnd{Crashed: true, InputUnanswered: !answered, Exit: ports.ExitStatus{Code: 1}}, true
+		case step.Vanish:
+			return nil, true
 		}
 	}
-	return ports.SessionEnd{}, false
+	return nil, false
 }
 
 // Observe reads the session.
