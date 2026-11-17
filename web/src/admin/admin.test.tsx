@@ -622,6 +622,20 @@ describe("Settings", () => {
     expect(within(tree).getByRole("link", { name: "Recovery policy" }).getAttribute("href")).toBe(here("/settings?section=recovery"));
     expect(within(tree).getByRole("link", { name: "Backup" }).getAttribute("href")).toBe("/settings?section=backup");
   });
+
+  // A project's sections live at the project's address, so the installation's address lists none of them, and
+  // no group heading stands over nothing.
+  it("shows no project group at the installation's address", async () => {
+    serveAdmin();
+    openPage("/settings");
+    const tree = await screen.findByRole("navigation", { name: "Settings sections" });
+    expect(within(tree).getByText("Installation")).toBeTruthy();
+    expect(within(tree).queryByText(/^Project/)).toBeNull();
+    expect(within(tree).queryByRole("link", { name: "Recovery policy" })).toBeNull();
+    for (const group of tree.querySelectorAll(".tree-group")) {
+      expect(group.parentElement?.querySelector("a"), group.textContent ?? "").not.toBeNull();
+    }
+  });
 });
 
 describe("Agents", () => {

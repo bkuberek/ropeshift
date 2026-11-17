@@ -540,7 +540,7 @@
     },
     {
       "approval": {
-        "detail": "{\"work_order_id\":\"wo-ruled\",\"repository\":\"app\",\"commit\":\"cab321\",\"branch\":\"lane/lane-wo-ruled\",\"base\":\"main\",\"pull_request\":11,\"url\":\"https://forge.example/acme/app/pull/wo-ruled\",\"method\":\"merge\",\"merge_authority\":\"person_approves\"}",
+        "detail": "{\"work_order_id\":\"wo-ruled\",\"title\":\"Trim the retry log\",\"repository\":\"app\",\"commit\":\"cab321\",\"branch\":\"lane/lane-wo-ruled\",\"base\":\"main\",\"pull_request\":11,\"url\":\"https://forge.example/acme/app/pull/wo-ruled\",\"method\":\"merge\",\"merge_authority\":\"person_approves\"}",
         "generation": 0,
         "id": "generated-13",
         "kind": "merge",

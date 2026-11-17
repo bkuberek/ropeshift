@@ -72,18 +72,18 @@ A failed criterion sends the work to rework on the same branch. The next attempt
 
 ### 4. Read the open pull requests
 
-In the sidebar, under Work, select Reviews, then Pull requests. It lists each open pull request ropeshift opened for work that waits for acceptance or a merge: its number, its address, and its branch into its base, the work order, its head commit, whether a review read that commit, its checks on GitHub, whether GitHub says it merges cleanly, and how long it has been in review. Read an open pull request here: the work order's Pull request and checks tab names no pull request until the merge.
+In the sidebar, under Work, select Reviews, then Pull requests. It lists each open pull request ropeshift opened for work that waits for acceptance or a merge: its number, its address, and its branch into its base, the work order, its head commit, whether a review read that commit, its checks on GitHub, whether GitHub says it merges cleanly, and how long it has been in review. The work order's Pull request and checks tab shows the same pull request and its checks as soon as the worker reports it.
 
 ![Reviews, Pull requests, with the sailings pull request read by the review, its two checks passed, and merging cleanly](assets/screenshots/github-02-light.png#gh-light-mode-only)
 ![Reviews, Pull requests, with the sailings pull request read by the review, its two checks passed, and merging cleanly](assets/screenshots/github-02-dark.png#gh-dark-mode-only)
 
 ### 5. Approve the merge
 
-Once the review passes, the work moves on at the repository's merge authority. At `person_approves`, `harbor-api`'s level, it waits in Needs you as a merge request, `Approve the merge of <work order>?`, whose card names the pull request and its address beside the reviewed commit. Select Approve merge, as in [approve the merge](review-and-merge.md#7-approve-the-merge). The worker that opened the pull request merges it on GitHub at the reviewed commit, and once ropeshift reads the merge, the work reads `done`.
+Once the review passes, the work moves on at the repository's merge authority. At `person_approves`, `harbor-api`'s level, it waits in Needs you as a merge request, `Approve the merge of <work order's title>?`, whose card names the pull request and its address beside the reviewed commit. Select Approve merge, as in [approve the merge](review-and-merge.md#7-approve-the-merge). The worker that opened the pull request merges it on GitHub at the reviewed commit, and once ropeshift reads the merge, the work reads `done`.
 
 ### 6. Read the work order's pull request and merge
 
-In the sidebar, select Work orders, then Completed, and open the work order. Select the Pull request and checks tab. Checks lists the checks on record for the work's commit, here the lane's own test; GitHub's checks show in Reviews, Pull requests. Merge gives each approval of its merge: the commit approved, who approved it, at which merge authority, the commit the merge made, and the pull request it went through. Artifacts names the branch.
+In the sidebar, select Work orders, then Completed, and open the work order. Select the Pull request and checks tab. The pull request gives its number, its state, its address, its branch into its base, its head commit, and the commit its merge made. Checks lists the checks on record for the work's commit, here the lane's own test, beside the pull request's checks on GitHub, each marked required where the base branch requires it. Merge gives each approval of its merge: the commit approved, who approved it, at which merge authority, the commit the merge made, and the pull request it went through. Artifacts names the branch.
 
 ![The Pull request and checks tab of the merged work, with the lane's check and the merge through pull request #1](assets/screenshots/github-03-light.png#gh-light-mode-only)
 ![The Pull request and checks tab of the merged work, with the lane's check and the merge through pull request #1](assets/screenshots/github-03-dark.png#gh-dark-mode-only)

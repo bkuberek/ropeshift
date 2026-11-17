@@ -1,5 +1,6 @@
 import { useId, useState } from "react";
 
+import { readAcceptance } from "../api/admin";
 import { readView } from "../api/client";
 import type { Allowance, FloorLane, NeedItem, NeedsYou, ShopFloor, Standing, WorkOrder } from "../api/types";
 import type { Live } from "../api/useView";
@@ -20,6 +21,7 @@ import { Checks } from "./Checks";
 import { standingWords, waitingStandingWords } from "./evidence";
 import { ActivityTab, ChangesTab } from "./EvidenceTabs";
 import { NewWorkOrder } from "./NewWorkOrder";
+import { PullRequestPanel } from "./PullRequest";
 import { ReviewOf } from "./ReviewOf";
 import { StartWork } from "./StartWork";
 import { WakeWords } from "./WakeWords";
@@ -247,10 +249,22 @@ function Merges({ standing, merging }: { standing: Standing; merging: boolean })
       {records.map((record) => (
         <li key={record.id}>
           <Digest value={record.approved_commit} length={8} /> approved by {words(record.approved_by_kind)}
-          {record.approved_by_id ? <span className="mono"> {record.approved_by_id}</span> : null} at {words(record.merge_authority)}
+          {record.approved_by_id ? (
+            <>
+              {" "}
+              <span className="mono">{record.approved_by_id}</span>
+            </>
+          ) : null}{" "}
+          at {words(record.merge_authority)}
           {record.merged_at ? (
             <span>
-              , merged{record.merged_commit ? <span className="mono"> {record.merged_commit.slice(0, 8)}</span> : null}
+              , merged
+              {record.merged_commit ? (
+                <>
+                  {" "}
+                  <span className="mono">{record.merged_commit.slice(0, 8)}</span>
+                </>
+              ) : null}
             </span>
           ) : null}
           {record.pull_request ? <span>, pull request #{record.pull_request}</span> : null}
@@ -258,6 +272,49 @@ function Merges({ standing, merging }: { standing: Standing; merging: boolean })
       ))}
       {merging && standing.why ? <li>The merge waits: {standing.why}.</li> : null}
     </ul>
+  );
+}
+
+// ChecksTab reads where the work stands now, whatever its state, so the pull request shows from the moment the
+// forge reports it: the pull request, the checks on record, each merge approval, and the artifacts the work left.
+function ChecksTab({ id, live }: { id: string; live: Live }) {
+  const { view: standing, failure } = useView<Standing>(() => readAcceptance(id), `work-order:${id}:acceptance`, live);
+  if (!standing) {
+    return failure ? <Banner tone="danger">{failure}</Banner> : <SkeletonRows rows={4} />;
+  }
+  const merging = standing.state === "integrating";
+  // An artifact with no value says nothing, so it is left out.
+  const artifacts = standing.artifacts.filter((artifact) => artifact.uri);
+  const empty = !standing.pull_request && !standing.checks.length && !standing.integrations?.length && !artifacts.length && !(merging && standing.why);
+  if (empty) {
+    return (
+      <EmptyState icon="pr" title="No checks yet">
+        The pull request and the checks show here once the work has a commit.
+      </EmptyState>
+    );
+  }
+  return (
+    <div className="stack-8">
+      {failure ? <Banner tone="danger">{`This tab is not current. ${failure}`}</Banner> : null}
+      {standing.pull_request ? <PullRequestPanel pr={standing.pull_request} /> : null}
+      <Panel title="Checks" level={3}>
+        <Checks standing={standing} />
+      </Panel>
+      <Panel title="Merge" level={3}>
+        <Merges standing={standing} merging={merging} />
+      </Panel>
+      {artifacts.length ? (
+        <Panel title="Artifacts" level={3}>
+          <ul className="criteria" aria-label="Artifacts">
+            {artifacts.map((artifact) => (
+              <li key={artifact.id}>
+                {words(artifact.kind)}: <span className="mono">{artifact.uri}</span>
+              </li>
+            ))}
+          </ul>
+        </Panel>
+      ) : null}
+    </div>
   );
 }
 
@@ -445,33 +502,7 @@ export function WorkOrderPage({ live, id, tab, dialog, needs, after }: { live: L
                 )
               ) : null}
               {chosen === "changes" ? <ChangesTab id={order.id} live={live} /> : null}
-              {chosen === "checks" ? (
-                standing ? (
-                  <div className="stack-8">
-                    <Panel title="Checks" level={3}>
-                      <Checks standing={standing} />
-                    </Panel>
-                    <Panel title="Merge" level={3}>
-                      <Merges standing={standing} merging={order.state === "integrating"} />
-                    </Panel>
-                    {standing.artifacts.length ? (
-                      <Panel title="Artifacts" level={3}>
-                        <ul className="criteria" aria-label="Artifacts">
-                          {standing.artifacts.map((artifact) => (
-                            <li key={artifact.id}>
-                              {words(artifact.kind)} <span className="mono">{artifact.uri}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </Panel>
-                    ) : null}
-                  </div>
-                ) : (
-                  <EmptyState icon="pr" title="No checks yet">
-                    Checks and the pull request show here once the work has a reviewed commit.
-                  </EmptyState>
-                )
-              ) : null}
+              {chosen === "checks" ? <ChecksTab id={order.id} live={live} /> : null}
               {chosen === "lanes" ? (
                 shown ? (
                   <Panel title={<>Lane {shown.id}</>} level={3} actions={<Link to={addressOf("/lane", { id: shown.id })}>Open lane</Link>}>

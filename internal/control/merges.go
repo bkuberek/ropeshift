@@ -403,7 +403,7 @@ func requestMerge(tx ports.WriteTx, f integrationFacts) error {
 // at person_approves, or a merge that cannot go on, with why and the merge request it answers.
 func raiseMerge(tx ports.WriteTx, f integrationFacts, subject, reason, request string) error {
 	detail := authority.MergeDetail{
-		WorkOrder: f.order.ID, Repository: cmp.Or(f.record.Name, f.record.ID), Commit: f.commit(), Branch: f.branch.URI, Base: f.base, Method: f.method(),
+		WorkOrder: f.order.ID, Title: f.order.Title, Repository: cmp.Or(f.record.Name, f.record.ID), Commit: f.commit(), Branch: f.branch.URI, Base: f.base, Method: f.method(),
 		Authority: f.record.Level(), Reason: reason, Request: request,
 	}
 	if f.pr != nil {

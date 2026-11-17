@@ -2,7 +2,7 @@ import { cleanup, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
-import type { Completed, InProgress, Operations, ResourceReport, ShopFloor, Stuck } from "../api/types";
+import type { Completed, InProgress, Operations, ResourceReport, ShopFloor, Standing, Stuck } from "../api/types";
 import { openPage } from "../opening";
 import { golden, groupHealth, here, mergeRequest, openLedgerStream, refusal, reviewedCommit, serveViews } from "../testing";
 
@@ -10,6 +10,27 @@ function serving<T>(name: string, change: (view: T) => void) {
   const view = golden<T>(name);
   change(view);
   return serveViews((call) => (call.path.startsWith(`/v1/views/${name}`) ? { status: 200, body: view } : undefined));
+}
+
+// servingStanding lists one work order among the completed, in a state, and answers where it stands with the
+// first completed work's standing as the change leaves it.
+function servingStanding(id: string, title: string, state: string, change: (standing: Standing) => void) {
+  const view = golden<Completed>("completed");
+  const first = view.items[0];
+  if (!first) {
+    throw new Error("the golden view lists no completed work");
+  }
+  const item = structuredClone(first);
+  item.work_order = { ...item.work_order, id, title, state };
+  item.standing = { ...item.standing, work_order_id: id, state };
+  change(item.standing);
+  view.items = [item];
+  return serveViews((call) => {
+    if (call.path.startsWith("/v1/views/completed")) {
+      return { status: 200, body: view };
+    }
+    return call.method === "GET" && call.path === `/v1/work-orders/${id}/acceptance` ? { status: 200, body: item.standing } : undefined;
+  });
 }
 
 // row finds the table row that names a record, by its title or its ID.
@@ -317,6 +338,53 @@ describe("a work order", () => {
     expect(checks.textContent).toContain("Lane");
   });
 
+  // Where a check came from and the criterion it speaks for read as one phrase, so no gap stands between them,
+  // and a check for no criterion says only where it came from.
+  it("says where a check came from and what it is for in one phrase", async () => {
+    servingStanding("wo-checked", "Check the berths", "done", (standing) => {
+      standing.checks = [
+        { id: "k1", name: "go test", status: "passed", source: "lane", criterion_id: "c1" },
+        { id: "k2", name: "go vet", status: "passed", source: "lane" },
+      ];
+    });
+    openPage("/work-order?id=wo-checked&tab=checks");
+    const checks = await screen.findByRole("list", { name: "Checks" });
+    const [forCriterion, forNone] = within(checks).getAllByRole("listitem");
+    expect(forCriterion?.lastElementChild?.textContent).toBe("Lane for c1");
+    expect(forNone?.lastElementChild?.textContent).toBe("Lane");
+  });
+
+  // A record's approver and the commit a merge made sit in a fixed-width face, and the space before each stays
+  // outside it, so each reads one ordinary space from the words before it.
+  it("keeps the space before an approver or a merged commit out of the fixed-width face", async () => {
+    servingStanding("wo-merged", "Merged by a member", "done", (standing) => {
+      standing.integrations = [
+        { id: "i3", work_order_id: "wo-merged", approved_commit: "f895e4661111", merge_authority: "person_approves", approved_by_kind: "member", approved_by_id: "local", approved_at: 1, merged_commit: "c2bfd2112222", merged_at: 2, pull_request: 1 },
+      ];
+    });
+    openPage("/work-order?id=wo-merged&tab=checks");
+    const merged = await screen.findByRole("list", { name: "Merge" });
+    expect(merged.textContent).toBe("f895e466 approved by Member local at Person approves, merged c2bfd211, pull request #1");
+    for (const mono of merged.querySelectorAll(".mono")) {
+      expect(mono.textContent).toBe(mono.textContent?.trim());
+    }
+  });
+
+  // An artifact's kind and its value read apart, so a report the lane named `branch` never reads as a label, and
+  // an artifact with no value is left out.
+  it("names each artifact's kind apart from its value, and leaves out one with no value", async () => {
+    servingStanding("wo-reported", "Report the berths", "done", (standing) => {
+      standing.artifacts = [
+        { id: "a1", lane_id: "lane-1", kind: "branch", uri: "lane/serve-sailings", digest: "f895e466", fence: 1, created_at: 1 },
+        { id: "a2", lane_id: "lane-1", kind: "report", uri: "branch", fence: 1, created_at: 1 },
+        { id: "a3", lane_id: "lane-1", kind: "report", uri: "", fence: 1, created_at: 1 },
+      ];
+    });
+    openPage("/work-order?id=wo-reported&tab=checks");
+    const artifacts = await screen.findByRole("list", { name: "Artifacts" });
+    expect(within(artifacts).getAllByRole("listitem").map((item) => item.textContent)).toEqual(["Branch: lane/serve-sailings", "Report: branch"]);
+  });
+
   it("states its artifacts as text, whatever an address says", async () => {
     serveViews();
     openPage("/work-order?id=wo-done&tab=checks");
@@ -327,22 +395,11 @@ describe("a work order", () => {
   });
 
   it("states who approved each merge, at which level, what landed, and what a merge still waits on", async () => {
-    serving<Completed>("completed", (view) => {
-      const first = view.items[0];
-      if (!first) {
-        throw new Error("the golden view lists no completed work");
-      }
-      const waiting = structuredClone(first);
-      waiting.work_order = { ...waiting.work_order, id: "wo-merging", title: "Merge the retry budget", state: "integrating" };
-      waiting.standing = {
-        ...waiting.standing,
-        state: "integrating",
-        why: "required checks are still running on 1111aaaa: CI result",
-        integrations: [
-          { id: "i1", work_order_id: "wo-merging", approved_commit: "1111aaaa2222", merge_authority: "review_approves", approved_by_kind: "review", approved_by_id: "lane-r/1", approved_at: 1 },
-        ],
-      };
-      view.items = [waiting];
+    servingStanding("wo-merging", "Merge the retry budget", "integrating", (standing) => {
+      standing.why = "required checks are still running on 1111aaaa: CI result";
+      standing.integrations = [
+        { id: "i1", work_order_id: "wo-merging", approved_commit: "1111aaaa2222", merge_authority: "review_approves", approved_by_kind: "review", approved_by_id: "lane-r/1", approved_at: 1 },
+      ];
     });
     openPage("/work-order?id=wo-merging&tab=checks");
     const waiting = await screen.findByRole("list", { name: "Merge" });
@@ -353,26 +410,92 @@ describe("a work order", () => {
   });
 
   it("states what a merge landed, and who approved it", async () => {
-    serving<Completed>("completed", (view) => {
-      const first = view.items[0];
-      if (!first) {
-        throw new Error("the golden view lists no completed work");
-      }
-      const merged = structuredClone(first);
-      merged.work_order = { ...merged.work_order, id: "wo-merged", title: "Merged by a member", state: "done" };
-      merged.standing = {
-        ...merged.standing,
-        integrations: [
-          { id: "i2", work_order_id: "wo-merged", approved_commit: "3333bbbb4444", merge_authority: "person_approves", approved_by_kind: "member", approved_by_id: "dana", approved_at: 1, merged_commit: "5555cccc6666", merged_at: 2 },
-        ],
-      };
-      view.items = [merged];
+    servingStanding("wo-merged", "Merged by a member", "done", (standing) => {
+      standing.integrations = [
+        { id: "i2", work_order_id: "wo-merged", approved_commit: "3333bbbb4444", merge_authority: "person_approves", approved_by_kind: "member", approved_by_id: "dana", approved_at: 1, merged_commit: "5555cccc6666", merged_at: 2 },
+      ];
     });
     openPage("/work-order?id=wo-merged&tab=checks");
     const merged = await screen.findByRole("list", { name: "Merge" });
     expect(merged.textContent).toContain("dana");
     expect(merged.textContent).toContain("merged 5555cccc");
     expect(merged.textContent).not.toContain("The merge waits");
+  });
+
+  // The pull request is on record once the forge reports it, which is before the review ends and before any
+  // merge, so the tab reads where the work stands now rather than waiting for the work to finish.
+  it("names the pull request the work lands through before the merge", async () => {
+    const standing = golden<Standing>("acceptance-reviewed");
+    standing.work_order_id = "wo-running";
+    standing.pull_request = {
+      number: 12,
+      url: "https://github.com/acme/harbor-web/pull/12",
+      state: "open",
+      base: "main",
+      branch: "lane/wo-running",
+      head_commit: "9f8e7d6c5b4a39281706",
+      checks: [{ name: "CI result", state: "passed", required: true }],
+    };
+    serveViews((call) => (call.method === "GET" && call.path === "/v1/work-orders/wo-running/acceptance" ? { status: 200, body: standing } : undefined));
+    openPage("/work-order?id=wo-running&tab=checks");
+    const pr = await screen.findByRole("region", { name: "Pull request #12" });
+    expect(pr.textContent).toContain("Open");
+    expect(pr.textContent).toContain("https://github.com/acme/harbor-web/pull/12");
+    expect(pr.textContent).toContain("9f8e7d6c");
+    expect(pr.textContent).toContain("lane/wo-running into main");
+    expect(pr.querySelector("a[href^='https:']")).toBeNull();
+  });
+
+  // The merge gate reads the checks on the pull request, and they show whatever the review's state: while a review
+  // is open the tick records no forge check, and the review's end moves the work on in the same step. A forge
+  // check on record that the pull request lists too shows once, as the pull request was last read.
+  it("lists the checks on the pull request beside the checks on record, while the review is still open", async () => {
+    const standing = golden<Standing>("acceptance-reviewed");
+    standing.work_order_id = "wo-running";
+    standing.reviews = [{ id: "wo-running-review", state: "running", attempt: 1 }];
+    standing.checks = [
+      { id: "k1", name: "go test", status: "passed", source: "lane" },
+      { id: "forge:wo-running:1:CI result", name: "CI result", status: "passed", source: "forge" },
+    ];
+    standing.pull_request = {
+      number: 12,
+      url: "https://github.com/acme/harbor-web/pull/12",
+      state: "open",
+      base: "main",
+      branch: "lane/wo-running",
+      head_commit: "9f8e7d6c5b4a39281706",
+      checks: [
+        { name: "CI result", state: "passed", required: true },
+        { name: "e2e", state: "pending", required: true },
+        { name: "lint", state: "failed" },
+      ],
+    };
+    serveViews((call) => (call.method === "GET" && call.path === "/v1/work-orders/wo-running/acceptance" ? { status: 200, body: standing } : undefined));
+    openPage("/work-order?id=wo-running&tab=checks");
+    const checks = await screen.findByRole("list", { name: "Checks" });
+    const rows = within(checks).getAllByRole("listitem");
+    expect(rows.map((row) => row.querySelector(".mono")?.textContent)).toEqual(["go test", "CI result", "e2e", "lint"]);
+    expect(rows.map((row) => row.lastElementChild?.textContent)).toEqual(["Lane", "Pull request #12, required", "Pull request #12, required", "Pull request #12"]);
+    expect(rows[2]?.textContent).toContain("Pending");
+  });
+
+  it("says the pull request merged, and the commit the merge made", async () => {
+    const standing = golden<Standing>("acceptance-ended");
+    standing.work_order_id = "wo-done";
+    standing.pull_request = {
+      number: 3,
+      url: "https://github.com/acme/harbor-web/pull/3",
+      state: "merged",
+      base: "main",
+      branch: "lane/wo-done",
+      head_commit: "1111aaaa2222",
+      merge_commit: "c2bfd2113333",
+    };
+    serveViews((call) => (call.method === "GET" && call.path === "/v1/work-orders/wo-done/acceptance" ? { status: 200, body: standing } : undefined));
+    openPage("/work-order?id=wo-done&tab=checks");
+    const pr = await screen.findByRole("region", { name: "Pull request #3" });
+    expect(pr.textContent).toContain("Merged");
+    expect(pr.textContent).toContain("c2bfd211");
   });
 
   it("moves between its tabs with the arrow keys", async () => {

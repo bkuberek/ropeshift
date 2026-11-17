@@ -18,9 +18,11 @@ export function mergeDetailOf(approval: Approval): Partial<MergeDetail> {
   }
 }
 
-// mergeHeading says what the request asks.
+// mergeHeading says what the request asks, of the work order by its title. A request raised before it named the
+// title names the work order by its ID, which mergeContext gives under the heading either way.
 export function mergeHeading(approval: Approval): string {
-  return isHeld(approval) ? `Retry the held merge of ${approval.work_order_id}?` : `Approve the merge of ${approval.work_order_id}?`;
+  const work = mergeDetailOf(approval).title || approval.work_order_id;
+  return isHeld(approval) ? `Retry the held merge of ${work}?` : `Approve the merge of ${work}?`;
 }
 
 // mergeContext is the line under the request in the list: the work, and the repository it lands in.

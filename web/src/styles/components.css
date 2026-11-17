@@ -1577,7 +1577,7 @@ details.disclosure > :not(summary) {
 /* Checks */
 .checks li {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   gap: var(--s-8);
   align-items: center;
   min-height: 34px;

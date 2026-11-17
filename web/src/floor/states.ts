@@ -91,6 +91,13 @@ export const checkStates: Record<string, StateLook> = {
   skipped: { label: "Skipped", tone: "neutral", glyph: "slash" },
 };
 
+// A pull request as its worker last read it from the forge.
+export const pullRequestStates: Record<string, StateLook> = {
+  open: { label: "Open", tone: "active", glyph: "dot" },
+  merged: { label: "Merged", tone: "success", glyph: "check" },
+  closed: { label: "Closed", tone: "neutral", glyph: "slash" },
+};
+
 export const milestoneStates: Record<string, StateLook> = {
   not_started: { label: "Not started", tone: "neutral", glyph: "ring" },
   waiting: { label: "Waiting", tone: "warning", glyph: "pause" },
