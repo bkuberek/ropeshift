@@ -39,7 +39,9 @@ type install struct {
 	// cli is the binary under capture, and daemonBin the link to it that starts as the daemon.
 	cli, daemonBin string
 	// path is the PATH of every process: the fake CLI, then the canary, then the system's directories.
-	path    string
+	path string
+	// signIn is the word the fake CLI's `claude auth status` reports, an API key when it is empty.
+	signIn  string
 	session string
 	daemon  *process
 	web     string

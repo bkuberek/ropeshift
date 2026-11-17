@@ -277,14 +277,19 @@ func planningTurns() [][]step {
 	}}
 }
 
-// fixtureText is the whole script, with turns for every session no lane script names.
-func fixtureText(t *testing.T, turns [][]step) []byte {
+// fixtureText is the whole script, with turns for every session no lane script names, and the sign-in the fake
+// CLI reports, an API key when signIn is empty.
+func fixtureText(t *testing.T, turns [][]step, signIn string) []byte {
 	t.Helper()
-	raw, err := json.MarshalIndent(map[string]any{
+	script := map[string]any{
 		"source": "the screenshot kit's sample project",
 		"turns":  turns,
 		"lanes":  lanes(),
-	}, "", "  ")
+	}
+	if signIn != "" {
+		script["auth_method"] = signIn
+	}
+	raw, err := json.MarshalIndent(script, "", "  ")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -298,7 +303,7 @@ func (in *install) writeFixture(turns [][]step) {
 	file := filepath.Join(doubles.BinDir(in.path), doubles.FixtureFile)
 	// A rename, so a session that starts while it changes reads one whole script.
 	next := file + ".next"
-	if err := os.WriteFile(next, fixtureText(in.t, turns), 0o600); err != nil {
+	if err := os.WriteFile(next, fixtureText(in.t, turns, in.signIn), 0o600); err != nil {
 		in.t.Fatal(err)
 	}
 	if err := os.Rename(next, file); err != nil {
