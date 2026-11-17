@@ -78,7 +78,7 @@ type State struct {
 	lockTimeout time.Duration
 
 	// mu guards the Stores the state keeps open, one per project, so every call to a project shares them.
-	// Nothing waits for the database while it holds mu.
+	// No caller waits for the migration lock while it holds mu.
 	mu     sync.Mutex
 	stores map[ledger.WorkspaceID]*sqlstore.Store
 }
