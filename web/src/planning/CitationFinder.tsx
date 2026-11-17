@@ -53,7 +53,7 @@ export function CitationFinder({ cited, onCite }: { cited: string[]; onCite: (ci
         </Button>
       </div>
       <p className="help" id={`${id}-help`}>
-        Words from a decision, requirement, contract, or question. The best matches come first.
+        Words from a decision, decision record, requirement, contract, or question. The best matches come first.
       </p>
       {read.failure ? <Refusal>{read.failure}</Refusal> : null}
       {found && found.length === 0 ? <p className="small muted">Nothing matches those words.</p> : null}
@@ -65,6 +65,7 @@ export function CitationFinder({ cited, onCite }: { cited: string[]; onCite: (ci
             return (
               <li key={citation} className="list-row row-tight">
                 <span className="mono">{citation}</span>
+                {candidate.kind === "decision_document" ? <span className="small muted">Decision record</span> : null}
                 <span className="spacer" />
                 <Button small disabled={done} aria-label={`${done ? "Cited" : "Cite"} ${citation}`} onClick={() => onCite(citation)}>
                   {done ? "Cited" : "Cite"}

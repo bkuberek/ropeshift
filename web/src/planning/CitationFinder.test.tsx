@@ -42,7 +42,7 @@ describe("finding a record to cite", () => {
     expect(searches(sent)[0]).toMatchObject({ method: "GET", project: "default" });
     const query = new URLSearchParams(searches(sent)[0]?.path.split("?")[1]);
     expect(query.get("text")).toBe("retry budget");
-    expect(query.get("kinds")).toBe("decision,requirement,contract,question");
+    expect(query.get("kinds")).toBe("decision,requirement,contract,decision_document,question");
     expect(query.get("limit")).toBe("8");
     await userEvent.click(within(box).getByRole("button", { name: "Cite requirement:FR-RETRY-1" }));
     await userEvent.click(within(box).getByRole("button", { name: "Cite decision:decision-3" }));
@@ -53,6 +53,16 @@ describe("finding a record to cite", () => {
     await userEvent.click(await within(box).findByRole("button", { name: "Record decision" }));
     await waitFor(() => expect(changes(sent)).toHaveLength(1));
     expect(changes(sent)[0]?.body).toMatchObject({ citations: ["requirement:FR-RETRY-1", "decision:decision-3"] });
+  });
+
+  it("finds an accepted decision record, labels it, and cites it", async () => {
+    serving(() => ({ status: 200, body: { candidates: [{ kind: "decision_document", record_id: "doc-retry", score: 0.8 }] } }));
+    const box = await openRecord();
+    await userEvent.type(within(box).getByRole("textbox", { name: "Find a record to cite" }), "retry{Enter}");
+    expect(await within(box).findByText("decision_document:doc-retry")).toBeTruthy();
+    expect(within(box).getByText("Decision record")).toBeTruthy();
+    await userEvent.click(within(box).getByRole("button", { name: "Cite decision_document:doc-retry" }));
+    expect((within(box).getByRole("textbox", { name: "Citations" }) as HTMLTextAreaElement).value).toBe("decision_document:doc-retry");
   });
 
   it("searches on Enter, and Enter does not go on to the review", async () => {
