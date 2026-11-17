@@ -31,6 +31,9 @@ func (w *Worker) raiseUnknown(ctx context.Context, unknown []lanes.ObservedEffec
 		if !known {
 			record = lanes.Record{ID: effect.Lane}
 		}
+		if record.Project == "" {
+			record.Project = effect.Project
+		}
 		record.Generation = effect.Generation
 		event := w.event(ledger.UploadEffectUnknown, record, payload)
 		first, err := w.journal.ReportEffect(ctx, effect.Key, effect.Attempts, heldEvent(event))

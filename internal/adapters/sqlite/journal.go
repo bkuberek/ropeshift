@@ -258,6 +258,21 @@ WHERE lane = ?1 AND seq > coalesce((SELECT value FROM cursors WHERE name = ?2), 
 	return true, tx.Commit()
 }
 
+// Forget drops the refusals of the events it names, in one transaction.
+func (j *Journal) Forget(ctx context.Context, seqs []int64) error {
+	tx, err := j.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	for _, seq := range seqs {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM rejections WHERE seq = ?1`, seq); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
 // moveParkedCommit points a lane's parked commit at the copy that replaced it.
 func moveParkedCommit(ctx context.Context, tx *sql.Tx, lane string, moved map[int64]int64) error {
 	var raw []byte
@@ -930,11 +945,11 @@ func (j *Journal) HookEvents(ctx context.Context, lane string) ([]lanes.HookReco
 	return out, rows.Err()
 }
 
-const effectColumns = `key, kind, lane, generation, target, state, attempts, detail`
+const effectColumns = `key, kind, lane, generation, project, target, state, attempts, detail`
 
 func scanEffect(row interface{ Scan(...any) error }) (lanes.Effect, error) {
 	var effect lanes.Effect
-	err := row.Scan(&effect.Key, &effect.Kind, &effect.Lane, &effect.Generation, &effect.Target,
+	err := row.Scan(&effect.Key, &effect.Kind, &effect.Lane, &effect.Generation, &effect.Project, &effect.Target,
 		&effect.State, &effect.Attempts, &effect.Detail)
 	return effect, err
 }
@@ -942,9 +957,9 @@ func scanEffect(row interface{ Scan(...any) error }) (lanes.Effect, error) {
 // BeginEffect records an effect before it happens. The primary key is what makes a
 // second attempt at one effect impossible to miss.
 func (j *Journal) BeginEffect(ctx context.Context, effect lanes.Effect) (bool, error) {
-	result, err := j.db.ExecContext(ctx, `INSERT INTO effects (key, kind, lane, generation, target, state)
-VALUES (?1, ?2, ?3, ?4, ?5, ?6) ON CONFLICT (key) DO NOTHING`,
-		effect.Key, effect.Kind, effect.Lane, effect.Generation, effect.Target, lanes.EffectStarted)
+	result, err := j.db.ExecContext(ctx, `INSERT INTO effects (key, kind, lane, generation, project, target, state)
+VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7) ON CONFLICT (key) DO NOTHING`,
+		effect.Key, effect.Kind, effect.Lane, effect.Generation, effect.Project, effect.Target, lanes.EffectStarted)
 	if err != nil {
 		return false, err
 	}

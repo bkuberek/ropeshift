@@ -55,6 +55,7 @@ func TestJournalContract(t *testing.T) {
 		{"a reissue replaces refused events once", checkJournalReissue},
 		{"a reissue waits for an unanswered event of its lane", checkJournalReissueWaits},
 		{"a reissue refuses a copy of another lane", checkJournalReissueOneLane},
+		{"a refusal that stands for nothing is forgotten", checkJournalForget},
 		{"leases are replaced whole", checkJournalLeases},
 		{"desired state round trips", checkJournalDesired},
 		{"a migration repeats as a no-op", checkJournalMigrate},
@@ -209,6 +210,7 @@ func checkVerdictOnAnOldAttempt(t *testing.T, ctx context.Context, j ports.Journ
 
 func checkEffectOnce(t *testing.T, ctx context.Context, j ports.Journal) {
 	effect := newEffect("")
+	effect.Project = "pb"
 	first, err := j.BeginEffect(ctx, effect)
 	if err != nil || !first {
 		t.Fatalf("first begin: %v, %v", first, err)
@@ -221,7 +223,7 @@ func checkEffectOnce(t *testing.T, ctx context.Context, j ports.Journal) {
 	if err != nil || len(all) != 1 {
 		t.Fatalf("effects %+v: %v", all, err)
 	}
-	if got := all[0]; got.Key != effect.Key || got.Target != "the-target" || got.State != lanes.EffectStarted || got.Attempts != 1 {
+	if got := all[0]; got.Key != effect.Key || got.Project != "pb" || got.Target != "the-target" || got.State != lanes.EffectStarted || got.Attempts != 1 {
 		t.Errorf("effect %+v", got)
 	}
 	if _, err := j.Effect(ctx, "no such key"); !errors.Is(err, ports.ErrNotFound) {
@@ -535,6 +537,33 @@ func checkJournalReissue(t *testing.T, ctx context.Context, j ports.Journal) {
 	}
 	if pending, err := j.Pending(ctx, 10); err != nil || len(pending) != 0 {
 		t.Errorf("pending after a second reissue %+v: %v", pending, err)
+	}
+}
+
+func checkJournalForget(t *testing.T, ctx context.Context, j ports.Journal) {
+	first, err := j.Append(ctx, laneEvent(ledger.UploadLaneEnded, "lane-1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := j.Append(ctx, laneEvent(ledger.UploadLaneStatus, "lane-1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	refusals := []ports.JournalResult{{Seq: first.Seq, Status: ledger.UploadFenced}, {Seq: second.Seq, Status: ledger.UploadFenced}}
+	if err := j.Acknowledge(ctx, second.Seq, refusals); err != nil {
+		t.Fatal(err)
+	}
+	if err := j.Forget(ctx, []int64{first.Seq, second.Seq + 7}); err != nil {
+		t.Fatal(err)
+	}
+	if refused, err := j.Refused(ctx); err != nil || len(refused) != 1 || refused[0].Seq != second.Seq {
+		t.Errorf("refused %+v: %v", refused, err)
+	}
+	if rejected, err := j.Rejected(ctx); err != nil || len(rejected) != 1 || rejected[0].Seq != second.Seq {
+		t.Errorf("rejected %+v: %v", rejected, err)
+	}
+	if err := j.Forget(ctx, []int64{first.Seq}); err != nil {
+		t.Errorf("a second forget: %v", err)
 	}
 }
 

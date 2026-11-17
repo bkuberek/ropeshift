@@ -51,6 +51,9 @@ type Journal interface {
 	// or when an event a copy names holds no refusal, because another call sent it again already. A copy
 	// of another lane than the reissue's is an error, and stores nothing.
 	Reissue(ctx context.Context, reissue Reissue) (bool, error)
+	// Forget drops the refusal of each event named by its sequence number, for a refusal that no longer
+	// stands for anything. The events stay, and a number with no refusal is skipped.
+	Forget(ctx context.Context, seqs []int64) error
 	// Leases lists the leases this worker holds.
 	Leases(ctx context.Context) ([]ledger.HeldLease, error)
 	// SaveLeases replaces them.

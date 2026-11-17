@@ -4,9 +4,39 @@ import (
 	"reflect"
 	"testing"
 
+	"ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/ports"
 )
+
+// An end is forgotten only for the park of its own generation that the ledger answered and took. An end
+// whose park is refused too, was never answered, is of another generation, or has no park stays refused.
+func TestWhichRefusedEndsAParkMadeMoot(t *testing.T) {
+	t.Parallel()
+	end := func(seq int64, lane string, generation int64) ledger.UploadEvent {
+		return ledger.UploadEvent{Seq: seq, Type: ledger.UploadLaneEnded, Lane: lane, Generation: generation}
+	}
+	park := func(seq, generation int64) *lanes.ParkProgress {
+		return &lanes.ParkProgress{Seq: seq, Generation: generation}
+	}
+	refused := []ledger.UploadEvent{
+		{Seq: 3, Type: ledger.UploadLaneParked, Lane: "again", Generation: 2},
+		end(4, "again", 2),
+		end(8, "taken", 2),
+		end(9, "unanswered", 2),
+		end(10, "elsewhere", 3),
+		end(11, "none", 2),
+		end(12, "before", 2),
+		{Seq: 13, Type: ledger.UploadLaneStatus, Lane: "taken", Generation: 2},
+	}
+	parks := map[string]*lanes.ParkProgress{
+		"again": park(3, 2), "taken": park(6, 2), "unanswered": park(10, 2), "elsewhere": park(6, 2), "before": park(12, 2),
+	}
+	got := mootEnds(refused, parks, 9)
+	if len(got) != 1 || got[0].Seq != 8 {
+		t.Errorf("forgot %+v, want the end of the lane whose park the ledger took", got)
+	}
+}
 
 // Only a resume that named no project goes again, and only while a lease still awaits the generation it
 // began under the same claim on the same lane, for the same work order at the same fence. The writes of

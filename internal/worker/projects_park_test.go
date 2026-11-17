@@ -138,11 +138,13 @@ func (r *installationRig) noRefusals() {
 	}
 }
 
-// leftByAnEarlierBuild claims a woken lane, and journals what a build that named no project in a resume
-// left of the generation it began there: the resume, which the ledger refused, and the generation's end,
-// which the ledger fenced, or which that build never uploaded when uploaded is false. It returns the claim
-// the lane woke under.
-func (r *installationRig) leftByAnEarlierBuild(lane string, uploaded bool) ledger.DesiredLease {
+// writer builds the events a lane's next generation journals under its claim.
+type writer func(eventType, project string, payload any) ledger.UploadEvent
+
+// resumeRefused claims a woken lane, and journals what a build that named no project in a resume left of
+// the generation it began there: the resume, which the ledger refused. It returns the claim the lane woke
+// under, and a writer of that generation's other events.
+func (r *installationRig) resumeRefused(lane string) (ledger.DesiredLease, writer) {
 	r.t.Helper()
 	ctx := r.t.Context()
 	if err := r.subject.Sync(ctx); err != nil {
@@ -189,6 +191,15 @@ func (r *installationRig) leftByAnEarlierBuild(lane string, uploaded bool) ledge
 	if err := r.subject.Upload(ctx); err != nil {
 		r.t.Fatal(err)
 	}
+	return lease, at
+}
+
+// leftByAnEarlierBuild is a woken lane that build left with its resume refused and the generation's end,
+// which the ledger fenced, or which that build never uploaded when uploaded is false.
+func (r *installationRig) leftByAnEarlierBuild(lane string, uploaded bool) ledger.DesiredLease {
+	r.t.Helper()
+	ctx := r.t.Context()
+	lease, at := r.resumeRefused(lane)
 	ended := workorders.LaneResult{Report: workorders.Report{Outcome: workorders.OutcomeCompleted}}
 	if _, err := r.journal.EndLane(ctx, lane, at(ledger.UploadLaneEnded, lease.Project, ended)); err != nil {
 		r.t.Fatal(err)
@@ -212,6 +223,71 @@ func (r *installationRig) leftByAnEarlierBuild(lane string, uploaded bool) ledge
 		r.t.Fatalf("the earlier build's writes were refused as %+v", rejected)
 	}
 	return lease
+}
+
+// leftWithAParkItRefused is a woken lane that build left with its resume refused, and with the lane's own
+// writes after it: it began to park and committed the park, which the ledger fenced, and the worker
+// ended the lane because its park commit was refused, which the ledger fenced too. It returns the claim the
+// lane woke under.
+func (r *installationRig) leftWithAParkItRefused(lane string) ledger.DesiredLease {
+	r.t.Helper()
+	ctx := r.t.Context()
+	lease, at := r.resumeRefused(lane)
+	next := lease.Resume.Generation + 1
+	parking := lanes.ParkProgress{
+		Wake: lanes.WakeID(lane, next), Expr: lanes.HumanWake(), Trigger: lanes.ParkFleetDrain, Generation: next,
+	}
+	start := at(ledger.UploadLaneParking, lease.Project, ledger.ParkingStart{Wake: parking.Wake, Expr: parking.Expr})
+	if _, err := r.journal.BeginParking(ctx, lane, parking, lanes.HandoffProgress{}, start); err != nil {
+		r.t.Fatal(err)
+	}
+	commit := at(ledger.UploadLaneParked, lease.Project, ledger.ParkedCommit{Wake: parking.Wake, Checkpoint: ledger.Checkpoint{Lane: lane, Generation: next}})
+	if _, err := r.journal.CommitParked(ctx, lane, parking, commit); err != nil {
+		r.t.Fatal(err)
+	}
+	if err := r.subject.Upload(ctx); err != nil {
+		r.t.Fatal(err)
+	}
+	ended := workorders.LaneResult{Report: workorders.Report{Outcome: workorders.OutcomeCompleted}}
+	if _, err := r.journal.EndLane(ctx, lane, at(ledger.UploadLaneEnded, lease.Project, ended)); err != nil {
+		r.t.Fatal(err)
+	}
+	if err := r.subject.Upload(ctx); err != nil {
+		r.t.Fatal(err)
+	}
+	rejected, err := r.journal.Rejected(ctx)
+	if err != nil {
+		r.t.Fatal(err)
+	}
+	statuses := make([]string, 0, len(rejected))
+	for _, result := range rejected {
+		statuses = append(statuses, result.Status)
+	}
+	want := []string{ledger.UploadInvalid, ledger.UploadFenced, ledger.UploadFenced, ledger.UploadFenced}
+	if !slices.Equal(statuses, want) {
+		r.t.Fatalf("the earlier build's writes were refused as %+v", rejected)
+	}
+	return lease
+}
+
+// TestAWorkerLeavesNoRefusalAfterSendingAgainAParkTheLedgerRefused starts a worker on that journal. The
+// resume goes again with the park the lane made, so the ledger records the generation parked, and the end
+// the worker wrote only because the park was refused is no write the ledger should hear: nothing stays
+// refused, and the claim goes the way the park ended it.
+func TestAWorkerLeavesNoRefusalAfterSendingAgainAParkTheLedgerRefused(t *testing.T) {
+	t.Parallel()
+	r := newInstallationRig(t)
+	r.parkedInProject("pb", "lane-b")
+	lease := r.leftWithAParkItRefused("lane-b")
+	r.restart()
+	r.pass()
+	if err := r.subject.Upload(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	r.noRefusals()
+	if row := r.row("pb"); row.ClaimID == lease.ClaimID {
+		t.Errorf("the work order keeps the claim: %+v", row)
+	}
 }
 
 // TestAWorkerSendsAgainAResumeTheLedgerRefusedForItsProject starts a worker on a journal an earlier build
