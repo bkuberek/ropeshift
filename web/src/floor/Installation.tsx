@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { createJoinToken, readOrchestrator, stopOrchestrator } from "../api/admin";
+import type { JoinTokenMade } from "../api/admin";
+import { createJoinToken, readOrchestrator, revokeJoinToken, stopOrchestrator } from "../api/admin";
 import { inProjectOf, readView, startOrchestrator } from "../api/client";
 import type { Operations, Orchestrator, Project, ResourceReport, SessionResources, ShopFloor, WorkerLine } from "../api/types";
 import type { Live } from "../api/useView";
@@ -10,6 +11,7 @@ import { addressOf, Link } from "../app/route";
 import { useAct } from "../needs/useAct";
 import { Ago, Page, StampLine, useClock, ViewTime, words } from "../parts/parts";
 import { Button, LinkTabs } from "../ui/controls";
+import { Field } from "../ui/forms";
 import { Absent, Banner, EmptyState, Fact, Facts, Freshness, freshnessOf, Id, LaneBadge, Panel, ProjectTag, Refusal, SkeletonRows, StateBadge, TableRegion, TargetChip } from "../ui/display";
 import { Dialog, useToast } from "../ui/overlays";
 import { Icon } from "../ui/Icon";
@@ -209,13 +211,17 @@ function OrchestratorDetails({ line }: { line: WorkerLine }) {
   );
 }
 
-// JoinToken makes a join token and shows it once: the ledger keeps only its digest.
+// JoinToken makes a join token and shows it once: the ledger keeps only its digest. A group server answers a join
+// string with it, which is what a worker is given. The token lives a day, and the dialog says when it ends and which
+// token it is, which Revoke join token asks for.
 function JoinToken({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const [token, setToken] = useState("");
+  const [made, setMade] = useState<JoinTokenMade | null>(null);
+  const joinString = made?.join_string ?? "";
+  const shown = joinString || made?.token || "";
   const { act, busy, failure } = useAct(async () => {});
   const toast = useToast();
   const close = () => {
-    setToken("");
+    setMade(null);
     onClose();
   };
   return (
@@ -226,14 +232,14 @@ function JoinToken({ open, onClose }: { open: boolean; onClose: () => void }) {
       footer={
         <>
           <span className="spacer" />
-          {token ? (
+          {shown ? (
             <Button variant="primary" onClick={close}>
               Done
             </Button>
           ) : (
             <>
               <Button onClick={close}>Cancel</Button>
-              <Button variant="primary" loading={busy} onClick={() => void act(() => createJoinToken().then((made) => setToken(made.token)))}>
+              <Button variant="primary" loading={busy} onClick={() => void act(() => createJoinToken().then(setMade))}>
                 Create token
               </Button>
             </>
@@ -241,18 +247,31 @@ function JoinToken({ open, onClose }: { open: boolean; onClose: () => void }) {
         </>
       }
     >
-      {token ? (
+      {shown ? (
         <div className="field-stack">
-          <p className="small">This is the only time the token is shown. A worker on another machine registers with it once, from a terminal on that machine.</p>
+          {joinString ? (
+            <p className="small">
+              This is the only time the join string is shown. It is a credential: whoever holds it can join a worker to this server, and the token in it is recorded as made by you. On the worker&apos;s machine, run{" "}
+              <code className="mono">ropeshiftd worker join</code> with it as the argument, or set it in <code className="mono">ROPESHIFT_JOIN</code> to keep it out of the process list. It joins one worker. It is not harmless once a worker has used it: until that worker opens
+              its first session, whoever holds the string and the worker&apos;s ID can take the worker&apos;s credential, so give it to the one machine only.
+            </p>
+          ) : (
+            <p className="small">This is the only time the token is shown. A worker on another machine registers with it once, from a terminal on that machine.</p>
+          )}
+          {made?.expires_at ? (
+            <p className="small">
+              It expires {new Date(made.expires_at).toLocaleString()}. Until a worker uses it, Revoke join token ends it{made.id ? <>, with the ID <code className="mono">{made.id}</code></> : null}.
+            </p>
+          ) : null}
           <div className="row-tight token-row">
-            <code className="mono token">{token}</code>
+            <code className="mono token">{shown}</code>
             <Button
               small
               icon="copy"
               onClick={() =>
-                void navigator.clipboard?.writeText(token).then(
-                  () => toast("success", "Copied the join token."),
-                  () => toast("warning", "The browser did not let this page copy. Select the token and copy it."),
+                void navigator.clipboard?.writeText(shown).then(
+                  () => toast("success", joinString ? "Copied the join string." : "Copied the join token."),
+                  () => toast("warning", joinString ? "The browser did not let this page copy. Select the join string and copy it." : "The browser did not let this page copy. Select the token and copy it."),
                 )
               }
             >
@@ -268,6 +287,58 @@ function JoinToken({ open, onClose }: { open: boolean; onClose: () => void }) {
   );
 }
 
+// RevokeJoinToken ends a join token no worker used, by the ID Create join token showed when it made it. A token that
+// is revoked already is revoked, and one a worker used is refused, because that worker holds a credential from it.
+function RevokeJoinToken({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const [id, setId] = useState("");
+  const [revoked, setRevoked] = useState("");
+  const { act, busy, failure } = useAct(async () => {});
+  const close = () => {
+    setId("");
+    setRevoked("");
+    onClose();
+  };
+  const ready = id.trim() !== "";
+  return (
+    <Dialog
+      open={open}
+      title="Revoke join token"
+      onClose={close}
+      footer={
+        <>
+          <span className="spacer" />
+          {revoked ? (
+            <Button variant="primary" onClick={close}>
+              Done
+            </Button>
+          ) : (
+            <>
+              <Button onClick={close}>Cancel</Button>
+              <Button variant="primary" loading={busy} disabled={!ready} onClick={() => void act(() => revokeJoinToken(id.trim()).then((done) => setRevoked(done.id)))}>
+                Revoke token
+              </Button>
+            </>
+          )}
+        </>
+      }
+    >
+      {revoked ? (
+        <p className="small">
+          Revoked the join token <code className="mono">{revoked}</code>. The server refuses it from now on.
+        </p>
+      ) : (
+        <div className="field-stack">
+          <p className="small">A join token that no worker used can be revoked. The server then refuses it, and the join string that holds it. A token a worker used cannot be, because that worker holds a credential from it.</p>
+          <Field label="Token ID" help="The ID Create join token showed with the token, or that ropeshift worker token printed.">
+            <input className="input" type="text" autoComplete="off" value={id} onChange={(event) => setId(event.target.value)} />
+          </Field>
+        </div>
+      )}
+      {failure ? <Refusal>{failure}</Refusal> : null}
+    </Dialog>
+  );
+}
+
 // WorkersPage lists each machine with what its worker last measured, and every session on it. A worker
 // that has not reported says so, a measure its machine cannot provide says it is unavailable, and neither is
 // ever drawn as zero. A value past a threshold warns, and stops no work.
@@ -275,9 +346,13 @@ export function WorkersPage({ live, projects, selected, after, dialog = "" }: { 
   // The palette opens Create join token with `?dialog=token`. The dialog opens after the page has taken its
   // arrival focus, so that focus does not leave it outside.
   const [joining, setJoining] = useState(false);
+  const [revoking, setRevoking] = useState(false);
   useEffect(() => {
     if (dialog === "token") {
       setJoining(true);
+    }
+    if (dialog === "revoke-token") {
+      setRevoking(true);
     }
   }, [dialog]);
   // A join token is for a worker on another machine, which only an installation in group mode takes in.
@@ -299,13 +374,17 @@ export function WorkersPage({ live, projects, selected, after, dialog = "" }: { 
       note="Machines that serve this installation, what each reports, and the sessions on each."
       actions={
         group ? (
-          <Button icon="key" onClick={() => setJoining(true)}>
-            Create join token
-          </Button>
+          <>
+            <Button icon="key" onClick={() => setJoining(true)}>
+              Create join token
+            </Button>
+            <Button onClick={() => setRevoking(true)}>Revoke join token</Button>
+          </>
         ) : undefined
       }
     >
       <JoinToken open={joining && group} onClose={() => setJoining(false)} />
+      <RevokeJoinToken open={revoking && group} onClose={() => setRevoking(false)} />
       <LinkTabs
         label="Usage and resources"
         tabs={[
@@ -333,7 +412,7 @@ export function WorkersPage({ live, projects, selected, after, dialog = "" }: { 
                 ) : undefined
               }
             >
-              {group ? "A worker joins with a join token, from a terminal on its own machine." : "The worker that runs with this installation has not reported yet."}
+              {group ? "A worker joins with a join string, from a terminal on its own machine." : "The worker that runs with this installation has not reported yet."}
             </EmptyState>
           </div>
         ) : null}

@@ -34,6 +34,7 @@ export const paletteActions: Record<string, PaletteAction> = {
   "POST /v1/installation/backup/download": { title: "Back up the installation", at: home },
   "POST /v1/projects/{project}/backup/download": { title: "Back up project: ", at: home },
   "POST /v1/workers/tokens": { title: "Create join token", at: home, group: true },
+  "POST /v1/workers/tokens/{id}/revoke": { title: "Revoke join token", at: home, group: true },
   "PUT /v1/workers/{id}/autonomy": autonomy,
   "POST /v1/workers/{id}/autonomy/acknowledgement": autonomy,
   "POST /v1/workers/{id}/windows": autonomy,

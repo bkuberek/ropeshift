@@ -70,6 +70,9 @@ type serverOptions struct {
 	tls            string
 	trustedProxies []string
 	publicURL      string
+	// workerURL is where the server's workers reach it, which its join strings carry. Empty takes the address the
+	// listener's mode implies (ADR-0031).
+	workerURL string
 	// signinMax is how many wrong guesses at a passphrase or a join token a client address may make within
 	// signinLockout, which is also how long it is refused after (ADR-0031).
 	signinMax     int
@@ -124,6 +127,7 @@ func serverFlags(opts *serverOptions, getenv func(string) string) *flag.FlagSet 
 		return nil
 	})
 	flags.StringVar(&opts.publicURL, "public-url", getenv(envPublicURL), "the https origin members' browsers use behind a reverse proxy, such as https://ropeshift.example, with --tls off ("+envPublicURL+")")
+	flags.StringVar(&opts.workerURL, "worker-url", getenv(envWorkerURL), "the URL workers on other machines reach this server at, which its join strings carry, such as https://ropeshift.lan:7400; its default is the first --name, the --public-url, or the loopback address ("+envWorkerURL+")")
 	flags.DurationVar(&opts.leaseTick, "lease-tick", 5*time.Second, "how often expired leases lapse")
 	flags.DurationVar(&opts.intakeTick, "intake-tick", 30*time.Second, "how often sources are polled")
 	flags.DurationVar(&opts.batchTick, "batch-tick", 5*time.Second, "how often closed batches reach members")
@@ -393,7 +397,7 @@ func serveServer(ctx context.Context, paths api.Paths, opts serverOptions, trans
 		return err
 	}
 	config := server.Config{
-		Mode: api.ModeGroup, Templates: templateList,
+		Mode: api.ModeGroup, Templates: templateList, WorkerURL: listener.workerURL(), CAFingerprint: listener.fingerprint,
 		Scope: home.ID, Store: store, Projects: state, Installation: state.Installation,
 		LeaseTTL: opts.leaseTTL.Milliseconds(), HeartbeatMs: opts.heartbeat.Milliseconds(),
 		Installed: installed.Installed, WebAddress: listener.webAddress(),
@@ -416,14 +420,9 @@ func serveServer(ctx context.Context, paths api.Paths, opts serverOptions, trans
 	serveErr := make(chan error, 2)
 	go func() { serveErr <- controlServer.Serve(controlListener) }()
 	go func() { serveErr <- networkServer.Serve(listener) }()
-	fmt.Fprintf(stdout, "ropeshiftd: serving %s\n", paths.ControlSocket())
-	fmt.Fprintf(stdout, "ropeshiftd: server %s://%s\n", listener.scheme(), bound)
-	if listener.publicURL != "" {
-		fmt.Fprintf(stdout, "ropeshiftd: public url %s\n", listener.publicURL)
-	}
-	if listener.fingerprint != "" {
-		fmt.Fprintf(stdout, "ropeshiftd: certificate authority %s\n", listener.authorityFile)
-		fmt.Fprintf(stdout, "ropeshiftd: certificate authority sha256 %s\n", listener.fingerprint)
+	announce(stdout, stderr, paths.ControlSocket(), listener)
+	for _, warning := range transport.warnings {
+		warnTo(stderr)(warning)
 	}
 
 	ticks := append(serverTicks(state, opts, reads, batches, windows), installed.tick())

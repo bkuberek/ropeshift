@@ -181,6 +181,20 @@ const paths: Record<string, KeyPath> = {
       await k.activate(inDialog(page).getByRole("button", { name: "Create token" }));
     },
   },
+  "POST /v1/workers/tokens/{id}/revoke": {
+    sent: post(/^\/v1\/workers\/tokens\/01TOKENID\/revoke$/),
+    // Only an installation in group mode offers it, as it offers a join token.
+    answers: reply(
+      [/\/v1\/health$/, { status: "ok", revision: 1, mode: "group", version: "v0.1.0-alpha.16" }],
+      [/\/v1\/workers\/tokens\/01TOKENID\/revoke$/, { id: "01TOKENID" }, "POST"],
+    ),
+    run: async (k, page) => {
+      await k.palette("Revoke join token");
+      await k.typeInto(inDialog(page).getByLabel("Token ID", { exact: true }), "01TOKENID");
+      await k.activate(inDialog(page).getByRole("button", { name: "Revoke token" }));
+      await page.getByText(/Revoked the join token/).waitFor();
+    },
+  },
   "PUT /v1/passphrase": {
     sent: { method: "PUT", path: /^\/v1\/passphrase$/, body: { current: "tin-roof-anvil-1", passphrase: "copper-kettle-moss-2" } },
     answers: reply([/\/v1\/passphrase$/, { sessions_ended: 1, delegates: 0 }, "PUT"]),

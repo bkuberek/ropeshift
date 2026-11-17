@@ -30,6 +30,7 @@ const (
 	subjectJoinGrant = "join_grant"
 
 	eventJoinTokenCreated = "worker.join_token_created"
+	eventJoinTokenRevoked = "worker.join_token_revoked"
 	eventWorkerRegistered = "worker.registered"
 	eventSessionOpened    = "worker.session_opened"
 	eventWorkerReported   = "worker.reported"
@@ -128,28 +129,78 @@ func workerEvent(eventType, id string, actor ledger.Actor) ledger.EventDraft {
 	return ledger.EventDraft{Type: eventType, Actor: actor, Subject: ledger.Subject{Kind: subjectWorker, ID: id}}
 }
 
-// CreateJoinToken makes a single-use token for one worker. The ledger keeps only its
-// digest, so the answer is the one time anyone sees it.
+// The lifetime of a join token a member makes: a day unless the member names another, and at most thirty days, so a
+// copy of a join string is useful for a bounded time (ADR-0031).
+const (
+	DefaultJoinTokenLifetime = 24 * time.Hour
+	MaxJoinTokenLifetime     = 30 * 24 * time.Hour
+)
+
+// JoinToken is a join token as it is made: the token itself, which is shown once because the ledger keeps only its
+// digest, the ID its record and its revocation go by, and when it expires in milliseconds of the ledger's clock, or
+// zero for a token that never does.
+type JoinToken struct {
+	ID        string
+	Token     string
+	ExpiresAt int64
+}
+
+// CreateJoinToken makes a single-use token for one worker that never expires, which is what the solo daemon's own
+// worker needs: it uses the token at once. The ledger keeps only its digest, so the answer is the one time anyone sees
+// it. A member's token comes from MakeJoinToken.
 func (w *Workers) CreateJoinToken(ctx context.Context, actor ledger.Actor) (string, error) {
 	return createJoinToken(ctx, w.store.Installation(w.scope), actor)
 }
 
+// MakeJoinToken makes a single-use token that expires after a lifetime: DefaultJoinTokenLifetime for a lifetime of
+// zero, and no more than MaxJoinTokenLifetime.
+func (w *Workers) MakeJoinToken(ctx context.Context, actor ledger.Actor, lifetime time.Duration) (JoinToken, error) {
+	return makeJoinToken(ctx, w.store.Installation(w.scope), actor, lifetime)
+}
+
+// RevokeJoinToken ends a token no worker used, so it is refused with ErrJoinTokenRevoked from then on. Revoking one
+// that is revoked already is no error. A token a worker used is ErrJoinTokenUsed, because that worker holds a
+// credential, and an ID that names no token is ErrNotFound.
+func (w *Workers) RevokeJoinToken(ctx context.Context, actor ledger.Actor, id string) error {
+	return revokeJoinToken(ctx, w.store.Installation(w.scope), actor, id)
+}
+
 func createJoinToken(ctx context.Context, installation ports.Installation, actor ledger.Actor) (string, error) {
+	made, err := issueJoinToken(ctx, installation, actor, 0)
+	return made.Token, err
+}
+
+func makeJoinToken(ctx context.Context, installation ports.Installation, actor ledger.Actor, lifetime time.Duration) (JoinToken, error) {
+	switch {
+	case lifetime == 0:
+		lifetime = DefaultJoinTokenLifetime
+	case lifetime < 0 || lifetime > MaxJoinTokenLifetime:
+		return JoinToken{}, fmt.Errorf("%w: a join token lives for more than nothing and at most %s", workorders.ErrInvalid, MaxJoinTokenLifetime)
+	}
+	return issueJoinToken(ctx, installation, actor, lifetime)
+}
+
+// issueJoinToken records a token that lives for a lifetime, or for ever when the lifetime is zero.
+func issueJoinToken(ctx context.Context, installation ports.Installation, actor ledger.Actor, lifetime time.Duration) (JoinToken, error) {
 	if !authority.Allowed(actor, authority.ActionCreateJoinToken) {
-		return "", workorders.ErrForbidden
+		return JoinToken{}, workorders.ErrForbidden
 	}
 	secret, err := newSecret()
 	if err != nil {
-		return "", err
+		return JoinToken{}, err
 	}
-	var token string
+	var made JoinToken
 	err = installation.Write(ctx, "worker.join_token", func(tx ports.SharedTx) error {
-		id, err := newID(tx.Now())
+		now := tx.Now()
+		id, err := newID(now)
 		if err != nil {
 			return err
 		}
-		token = id + "." + secret
-		err = tx.Workers().InsertJoinGrant(ledger.JoinGrant{ID: id, Digest: digestOf(secret), CreatedBy: actor.ID})
+		made = JoinToken{ID: id, Token: id + "." + secret}
+		if lifetime > 0 {
+			made.ExpiresAt = now + lifetime.Milliseconds()
+		}
+		err = tx.Workers().InsertJoinGrant(ledger.JoinGrant{ID: id, Digest: digestOf(secret), CreatedBy: actor.ID, ExpiresAt: made.ExpiresAt})
 		if err != nil {
 			return err
 		}
@@ -159,14 +210,46 @@ func createJoinToken(ctx context.Context, installation ports.Installation, actor
 		return err
 	})
 	if err != nil {
-		return "", err
+		return JoinToken{}, err
 	}
-	return token, nil
+	return made, nil
 }
 
-// Register exchanges a join token for a credential. The worker generated its ID, so
-// a retry by that worker is the same registration, and it issues a new credential
-// because the first answer may never have arrived.
+func revokeJoinToken(ctx context.Context, installation ports.Installation, actor ledger.Actor, id string) error {
+	if !authority.Allowed(actor, authority.ActionCreateJoinToken) {
+		return workorders.ErrForbidden
+	}
+	return installation.Write(ctx, "worker.join_token_revoke", func(tx ports.SharedTx) error {
+		grant, err := tx.Workers().JoinGrant(id)
+		if err != nil {
+			return err
+		}
+		switch {
+		case grant.UsedBy != "":
+			return ledger.ErrJoinTokenUsed
+		case grant.RevokedAt != 0:
+			return nil
+		}
+		revoked, err := tx.Workers().RevokeJoinGrant(id)
+		if err != nil {
+			return err
+		}
+		if !revoked {
+			// A worker used the token between the read and the revocation, or another revocation won.
+			return ledger.ErrJoinTokenUsed
+		}
+		_, err = tx.Append(ledger.EventDraft{
+			Type: eventJoinTokenRevoked, Actor: actor, Subject: ledger.Subject{Kind: subjectJoinGrant, ID: id},
+		})
+		return err
+	})
+}
+
+// Register exchanges a join token for a credential. The worker generated its ID, so a retry by that worker is the
+// same registration, and it issues a new credential because the first answer may never have arrived. A retry has
+// that reason only until the worker opens its first session, which proves the answer arrived, and until the token
+// expires. After either, a token that was used is refused as any spent token is, so a copy of a used join string
+// and the worker's ID take no credential from the worker.
 func (w *Workers) Register(ctx context.Context, registration ledger.Registration) (ledger.WorkerCredential, error) {
 	return registerWorker(ctx, w.store.Installation(w.scope), registration)
 }
@@ -188,20 +271,41 @@ func registerWorker(ctx context.Context, installation ports.Installation, regist
 		if err != nil {
 			return err
 		}
+		// Only the holder of the secret is told more than that the token is bad.
 		if !sameDigest(secret, grant.Digest) || (grant.UsedBy != "" && grant.UsedBy != registration.WorkerID) {
 			return ledger.ErrBadJoinToken
 		}
+		ended := grant.ExpiresAt != 0 && tx.Now() >= grant.ExpiresAt
 		if grant.UsedBy == "" {
-			if err := tx.Workers().SpendJoinGrant(id, registration.WorkerID); err != nil {
+			switch {
+			case grant.RevokedAt != 0:
+				return ledger.ErrJoinTokenRevoked
+			case ended:
+				return ledger.ErrJoinTokenExpired
+			}
+			if spent, err := tx.Workers().SpendJoinGrant(id, registration.WorkerID); err != nil {
 				return err
+			} else if !spent {
+				// Another registration spent it first.
+				return ledger.ErrBadJoinToken
 			}
 			record := ledger.WorkerRecord{ProofDigest: digestOf(credential)}
 			record.ID, record.Name = registration.WorkerID, registration.Name
 			if err := tx.Workers().Insert(record); err != nil {
 				return err
 			}
-		} else if err := tx.Workers().ReplaceProof(registration.WorkerID, digestOf(credential)); err != nil {
-			return err
+		} else {
+			held, err := tx.Workers().Find(registration.WorkerID)
+			if err != nil && !errors.Is(err, ports.ErrNotFound) {
+				return err
+			}
+			// A worker that opened a session holds its credential, and a token that ended reissues nothing.
+			if err != nil || held.Epoch > 0 || ended {
+				return ledger.ErrBadJoinToken
+			}
+			if err := tx.Workers().ReplaceProof(registration.WorkerID, digestOf(credential)); err != nil {
+				return err
+			}
 		}
 		_, err = tx.Append(workerEvent(eventWorkerRegistered, registration.WorkerID, ledger.Actor{Kind: ledger.ActorWorker, ID: registration.WorkerID}))
 		return err

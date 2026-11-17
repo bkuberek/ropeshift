@@ -42,6 +42,10 @@ func domainError(err error) error {
 		return ledger.ErrBadCredential
 	case api.CodeBadJoinToken:
 		return ledger.ErrBadJoinToken
+	case api.CodeJoinTokenExpired:
+		return ledger.ErrJoinTokenExpired
+	case api.CodeJoinTokenRevoked:
+		return ledger.ErrJoinTokenRevoked
 	case api.CodeStaleEpoch:
 		return ledger.ErrStaleEpoch
 	case api.CodeProtocol:

@@ -286,6 +286,7 @@ export const adminPaths = {
   templates: () => "/v1/templates",
   workers: () => "/v1/workers",
   joinToken: () => "/v1/workers/tokens",
+  joinTokenRevoke: (id: string) => `/v1/workers/tokens/${encodeURIComponent(id)}/revoke`,
   autonomy: (worker: string) => `/v1/workers/${encodeURIComponent(worker)}/autonomy`,
   caps: (worker: string) => `/v1/workers/${encodeURIComponent(worker)}/caps`,
   acknowledge: (worker: string) => `/v1/workers/${encodeURIComponent(worker)}/autonomy/acknowledgement`,
@@ -370,7 +371,13 @@ export const listTemplates = () => call<TemplateList>("GET", adminPaths.template
 // Workers
 
 export const readWorkers = () => call<WorkerList>("GET", adminPaths.workers());
-export const createJoinToken = () => call<{ token: string }>("POST", adminPaths.joinToken(), {});
+// A join token lives a day. The answer carries the token's ID, which a revocation names, and when it expires in
+// milliseconds. A group server answers a join string too, which holds the token with the URL its workers reach it at
+// and the fingerprint of its authority, and which is what a worker is given in place of the token.
+export type JoinTokenMade = { id?: string; token: string; expires_at?: number; join_string?: string };
+export const createJoinToken = () => call<JoinTokenMade>("POST", adminPaths.joinToken(), {});
+// A token no worker used is revoked, and revoking one again is no error.
+export const revokeJoinToken = (id: string) => call<{ id: string }>("POST", adminPaths.joinTokenRevoke(id), {});
 export const readAutonomy = (worker: string) => call<Autonomy>("GET", adminPaths.autonomy(worker));
 export const setLevel = (worker: string, level: Level) => call<Autonomy>("PUT", adminPaths.autonomy(worker), { level });
 // A worker's caps live in the user's profile on its own machine, so a worker on another machine is refused in the

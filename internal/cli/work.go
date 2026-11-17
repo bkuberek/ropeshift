@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"cmp"
 	"context"
 	"crypto/rand"
 	"fmt"
@@ -824,10 +825,15 @@ func (c *invocation) workerList(args []string) int {
 	})
 }
 
-// workerToken prints a join token. This is the one time anyone sees it, because the
-// ledger keeps only its digest.
+// workerToken makes a join token and prints it. On a group server it prints the join string the token is inside, which
+// is what a worker is handed: one line holding the server's URL, the fingerprint of its authority, and the token. This
+// is the one time anyone sees it, because the ledger keeps only the token's digest. The token lives a day unless
+// --expires-in names another lifetime, up to thirty days. When it ends and which token it is go to the error stream, so
+// what is piped on is the string alone, and --json carries all of it. The record of the token names the member who made
+// it.
 func (c *invocation) workerToken(args []string) int {
 	set := c.flags()
+	lifetime := set.Duration("expires-in", 0, "how long the token lives, such as 48h, up to 720h (30 days); a day by default")
 	positional, ok := c.parse(set, args)
 	if !ok {
 		return ExitUsage
@@ -837,8 +843,30 @@ func (c *invocation) workerToken(args []string) int {
 	}
 	client := c.client()
 	defer client.Close()
-	token, err := client.CreateJoinToken(c.ctx)
-	return c.finish(err, api.JoinTokenResponse{Token: token}, func() string { return token + "\n" })
+	made, err := client.NewJoinTokenFor(c.ctx, *lifetime)
+	if err == nil && !c.asJSON && made.ExpiresAt != 0 {
+		fmt.Fprintf(c.stderr, "ropeshift %s: the token expires at %s; revoke it before then with '%s worker token-revoke %s' if no worker used it\n",
+			c.name, time.UnixMilli(made.ExpiresAt).UTC().Format(time.RFC3339), program, made.ID)
+	}
+	return c.finish(err, made, func() string { return cmp.Or(made.JoinString, made.Token) + "\n" })
+}
+
+// workerTokenRevoke ends a join token no worker used, by the ID `worker token` says, so it is refused from then on.
+// Revoking a token again is no error, and a token a worker used is refused, because that worker holds a credential.
+func (c *invocation) workerTokenRevoke(args []string) int {
+	set := c.flags()
+	positional, ok := c.parse(set, args)
+	if !ok {
+		return ExitUsage
+	}
+	id, ok := c.oneID(positional)
+	if !ok {
+		return ExitUsage
+	}
+	client := c.client()
+	defer client.Close()
+	err := client.RevokeJoinToken(c.ctx, id)
+	return c.finish(err, api.JoinTokenRevoked{ID: id}, func() string { return "revoked join token " + api.Printable(id) + "\n" })
 }
 
 func (c *invocation) laneReset(args []string) int {

@@ -4,7 +4,7 @@
 
 A group server is the control plane on its own, on Postgres: the API, the worker plane, and the web UI on one listener. Each machine that runs work runs a worker of its own, which dials the server, so no machine opens a port for it. Solo mode, where one daemon runs both, is unchanged and ignores the variable.
 
-The listener serves plaintext on a loopback address, and TLS on any other, or plaintext to a reverse proxy that terminates TLS: [choose a TLS mode](#choose-a-tls-mode) says which, and where a certificate comes from. A worker joins over a loopback `http://` address in this version, so a worker and its server run on one machine.
+The listener serves plaintext on a loopback address, and TLS on any other, or plaintext to a reverse proxy that terminates TLS: [choose a TLS mode](#choose-a-tls-mode) says which, and where a certificate comes from. A worker joins with a join string, which carries the URL it reaches the server at and what it trusts there, so a worker runs on any machine that reaches the server: [join a worker](#join-a-worker) says how.
 
 ## What a server does and does not do
 
@@ -12,7 +12,7 @@ The listener serves plaintext on a loopback address, and TLS on any other, or pl
 - **It reads no repository and shows no pane.** The server keeps no clone and has no terminal. A read that solo mode makes from a clone, such as a document, a lane's base, or a repository's registration, is refused with the code `repository_reads_unavailable`, and a view of a lane's terminal with `pane_relay_unavailable`. Each refusal names the read. Work that needs a repository therefore does not run on a preview server yet.
 - **It holds no agent.** It never runs an agent CLI and holds no agent credential. Lanes run on workers.
 - **Every request carries a credential.** A worker's credential opens the worker plane and nothing else, a join token opens the registration of one worker, a member's session as a bearer token in the `Ropeshift-Session` header opens the API, and the web UI's session cookie with its CSRF token opens the routes the web UI uses. Only the web UI's own files and the route that signs a member in need none. A bearer session never sets or changes the passphrase: the control socket sets it, and the web UI changes it with the passphrase in force. Wrong guesses at a passphrase or a join token are [limited per address](#limit-wrong-guesses).
-- **It keeps secrets out of the process list.** The database's connection string and a worker's join token reach the commands through `ROPESHIFT_DATABASE` and `ROPESHIFT_JOIN`. An argument is visible to every process on the machine, so the help never shows a value the environment holds.
+- **It keeps secrets out of the process list and its output.** The database's connection string and a worker's join string reach the commands through `ROPESHIFT_DATABASE` and `ROPESHIFT_JOIN`. An argument is visible to every process on the machine, so the help never shows a value the environment holds. A join token is a credential, and no log, error, or help shows one or the join string that holds it. The fingerprint of an authority is public, as the authority's certificate is.
 
 ## Before you start
 
@@ -82,29 +82,52 @@ The first passphrase is set on the server's own machine, over its control socket
 
 ## Join a worker
 
-A worker joins with a join token, which a member makes and which works once.
+A worker joins with a join string, which a member makes, which expires, and which joins one worker. A join string is one line that holds a format version, the URL the worker reaches the server at, the fingerprint of the server's certificate authority when the server is its own, and a join token. It is the only thing a worker needs, from any machine that reaches the server.
 
-1. In the second terminal, make a join token.
+1. In the second terminal, make a join string. The command prints it once, and the server keeps only a digest of the token in it.
 
    ```sh
    ropeshift worker token
    ```
 
-2. In a third terminal, give the worker directories of its own, and join with the token. The token is a secret until the join spends it, so it goes in the environment and not in an argument. The worker keeps the server's address and its credential in its journal, which only its user can read. Joining prints the worker's ID and never the credential.
+   Workers and resources in the web UI makes one too, with Create join token. Solo mode makes none: its one worker is the daemon's own, and a solo installation shows no join string.
+
+   A join string expires 24 hours after it is made. `--expires-in` names another lifetime, up to 30 days, as a duration such as `72h`, and 30 days is `720h`.
+
+   ```sh
+   ropeshift worker token --expires-in 72h
+   ```
+
+   The command prints the string alone on its output, so a pipe carries nothing else, and says on its error stream when the token expires and its ID. With `--json` it prints all of that, and the token and the string with it. A member revokes a token that no worker used with `ropeshift worker token-revoke <id>`, or with Revoke join token in Workers and resources, which asks for the ID. A token that expired or was revoked is refused with `join_token_expired` or `join_token_revoked`, and a wrong secret for the same token is a bad token, so only whoever holds a token learns that it ended. Each counts as a wrong guess for the address that sent it, like any wrong token ([limit wrong guesses](#limit-wrong-guesses)). A token a worker used cannot be revoked, because that worker holds a credential from it.
+
+   The record of a join token names the member who made it. The worker that registers with it has no owner of its own yet: nothing records one on the worker.
+
+   A join string is a credential, and it is not spent when a worker joins with it. Until a worker joins, whoever holds the string can join a worker with it. After a worker joined, whoever holds the string and that worker's ID can ask for the worker's credential again, and the server then issues a new one and ends the old, until the worker opens its first session or the token expires, whichever is first. That window is there so a worker whose first answer was lost can join again, and it is short, because a worker opens its first session as it starts. After it the server refuses the used token as it refuses any spent token. Give a string only to the machine that is to join, and make another for the next machine.
+
+2. In a third terminal, give the worker directories of its own, and join with the string. The string is a secret until the join spends its token, so it goes in the environment and not in an argument. The worker keeps the server's address, the authority it pinned, and its own credential in its journal, which only its user can read. Joining prints the worker's ID and the server's URL, and never the credential, the join string, or the token in it.
 
    ```sh
    export ROPESHIFT_GROUP_MODE=preview
    export ROPESHIFT_STATE_DIR="$HOME/ropeshift-group/worker/state"
    export ROPESHIFT_RUN_DIR="$HOME/ropeshift-group/worker/run"
    export ROPESHIFT_TELEMETRY=127.0.0.1:0
-   export ROPESHIFT_JOIN='<join token>'
-   ropeshiftd worker join --server http://127.0.0.1:7400 --name first-worker
+   export ROPESHIFT_JOIN='<join string>'
+   ropeshiftd worker join --name first-worker
    unset ROPESHIFT_JOIN
    ```
 
-   The address is a plain `http://` URL of a loopback address in this version, with no user, path, or query, and the client follows no redirect from it. A worker registers once and joins one server: joining again exits with an error that names the server it joined, spends no token, and changes nothing, and a worker that must join another removes its state directory first. A token the server refuses leaves no credential and no server address behind.
+   A join string given as the one argument works too, and giving it both ways is refused. A string that is not a join string, or is of another version, is refused with a sentence that says which and never repeats the string.
 
-3. Start the worker. It runs this machine's lanes, terminal, checkouts, drivers, hooks, and MCP on its own worker socket, and talks to the server over HTTP.
+   The worker trusts the server in one of two ways, and refuses a server that fails the one its string asks for, before the join token leaves the machine:
+
+   - **A string with a fingerprint pins the server's own authority.** The worker trusts the authority whose certificate has that fingerprint, among those the server sends, and no root of the system's, and checks that this authority signed the server's certificate, for the host name in the URL and for the time. A server that does not hold that authority is refused with "does not chain to the certificate authority this worker pinned", whatever name it presents.
+   - **A string with no fingerprint verifies through the system's roots**, as a browser does, for a server behind a proxy or with a certificate you supplied. A server whose certificate no root vouches for is refused with "not trusted by this machine's system roots".
+
+   An `http://` URL is a loopback address on the worker's own machine, which a server on loopback with no TLS makes. The client follows no redirect and reads no proxy from the environment.
+
+   A worker registers once and joins one server: joining again exits with an error that names the server it joined, spends no token, and changes nothing, and a worker that must join another removes its state directory first. A token the server refuses leaves no credential and no server address behind. A join refused because the server was not trusted never sent its token, so the string is still good once the trust is right.
+
+3. Start the worker. It runs this machine's lanes, terminal, checkouts, drivers, hooks, and MCP on its own worker socket, and talks to the server over the link it joined with, pinning the same authority at every start.
 
    ```sh
    ropeshiftd worker
@@ -117,6 +140,42 @@ A worker joins with a join token, which a member makes and which works once.
    ```
 
    Stop the worker with Ctrl C, and the server shows it as last reported once its heartbeats stop.
+
+### Join from another machine
+
+The join string carries everything the worker needs, so a worker on another machine joins a server that serves TLS the same way. Start the server on an address the worker reaches, with a name for the certificate it makes, and make the string on the server:
+
+```sh
+ropeshiftd server --listen 0.0.0.0:7400 --name ropeshift.lan
+ropeshift worker token
+```
+
+On the worker's machine, give the string to the join:
+
+```sh
+export ROPESHIFT_GROUP_MODE=preview
+export ROPESHIFT_JOIN='<join string>'
+ropeshiftd worker join --name build-box
+```
+
+The string pins the server's authority, so the worker trusts that server and no other, and the machine's own roots decide nothing. The member's browser still needs [the authority's certificate trusted on its device](#use-the-servers-own-authority) to open the web UI, and the worker does not.
+
+### Choose the worker URL
+
+The URL in a join string is where the server's workers reach it, and the server says it in `ropeshiftd: worker url`. `--worker-url` (`ROPESHIFT_WORKER_URL`) sets it. Without it, the server uses what it knows:
+
+| Mode | The worker URL without `--worker-url` |
+|------|----------------------------------------|
+| A loopback listener with no TLS | `http://` and the address it bound |
+| The server's own authority | `https://`, the first `--name`, and the port it bound |
+| A reverse proxy | The `--public-url` |
+| A supplied certificate | None: the server cannot know the names its certificate holds |
+
+A server that has none makes no join token. `ropeshift worker token` and Create join token refuse with the code `no_worker_url` and say to set `--worker-url`, and the server warns at its start. `--worker-url` is an `https://` URL with a host and a port and no user, path, or query, or an `http://` URL of a loopback address. The server checks it against its transport before it opens the database:
+
+- With its own authority, the URL's host is one of the `--name` values, because the worker verifies the certificate the server makes for those names and no others.
+- With its own authority or a supplied certificate, the URL is `https://`, because the server serves TLS. On loopback with no TLS it is `http://`.
+- Behind a reverse proxy it is any `https://` URL the proxy serves, the public URL or another name for workers, and the worker verifies it through the system's roots.
 
 ## Choose a TLS mode
 
@@ -140,19 +199,22 @@ The listener speaks HTTP/1.1 in every mode, over TLS 1.2 or later when it serves
 
    A server off loopback with no name is refused before it opens the database. A name is a host name or an address, with no port and no scheme.
 
-2. At its first start the server makes a certificate authority, valid for ten years, and its key in the `tls` directory of its state directory. It then prints where the authority's certificate is and the SHA-256 of that certificate, which a client that verifies the server pins:
+2. At its first start the server makes a certificate authority, valid for ten years, and its key in the `tls` directory of its state directory. It then prints where it serves, where the authority's certificate is, the SHA-256 of that certificate, and where its workers reach it:
 
    ```text
    ropeshiftd: server https://0.0.0.0:7400
    ropeshiftd: certificate authority /home/you/ropeshift-group/server/state/tls/ca.crt
    ropeshiftd: certificate authority sha256 <64 hexadecimal digits>
+   ropeshiftd: worker url https://ropeshift.lan:7400
    ```
+
+   The fingerprint is public, as the authority's certificate is. A worker pins it from the join string, so a person who is handed a join string by a route that might be tampered with compares the fingerprint in it with this one, which is the line a server prints at every start. `openssl x509 -noout -fingerprint -sha256 -in ca.crt` prints the same value, in capital letters with colons.
 
 3. The server issues its own certificate from that authority for the names. The certificate lasts 90 days, and the server issues the next one when 30 days are left, with no restart. The authority, the certificate, and the keys stay where they are across a restart, and the keys are readable only by the server's user. A change of `--name` issues a new certificate from the same authority.
 
 4. A browser warns about the certificate until you trust `ca.crt` on the device. The authority's key stays on the server and signs only the server's own certificate, but a device that trusts the authority accepts anything that key signs, so trust it on devices you own and no others.
 
-The authority never replaces itself. A server whose authority has expired, or whose `ca.key` is missing, exits with an error that names the file. To replace the authority, stop the server, remove `ca.crt` and `ca.key` from the `tls` directory, and start it again. Every client that pinned the old fingerprint must pin the new one.
+The authority never replaces itself. A server whose authority has expired, or whose `ca.key` is missing, exits with an error that names the file. To replace the authority, stop the server, remove `ca.crt` and `ca.key` from the `tls` directory, and start it again. Every worker that pinned the old authority refuses the server until it joins again, from a state directory with nothing in it and a join string made after the replacement.
 
 ### Supply a certificate
 
@@ -172,7 +234,7 @@ The authority never replaces itself. A server whose authority has expired, or wh
 
 Use this when a proxy you run already terminates TLS for a public name, as the proxy of a container platform or an nginx or a Caddy does, and the server sits behind it on a network only the proxy reaches. The server serves plaintext to the proxy and serves the web UI at the proxy's name.
 
-1. List the proxies. `--trusted-proxies` names the addresses and CIDR ranges of every proxy that connects to the server, repeated or comma separated, and `ROPESHIFT_TRUSTED_PROXIES` gives the same in a container. List the hop that records the client's address in `X-Forwarded-For`, and every hop between it and the server. Otherwise one proxy's address stands for every client behind it, and the limit on wrong guesses counts them as one. When the proxy and the server share a container network whose addresses change across restarts, name that network's range.
+1. List the proxies. `--trusted-proxies` names the addresses and CIDR ranges of every proxy that connects to the server, repeated or comma separated, and `ROPESHIFT_TRUSTED_PROXIES` gives the same in a container. List the hop that records the client's address in `X-Forwarded-For`, and every hop between it and the server. Otherwise one proxy's address stands for every client behind it, and the limit on wrong guesses counts them as one. When the proxy and the server share a container network whose addresses change across restarts, name that network's range. A proxy on the server's own machine connects from `127.0.0.1` or from `::1`, so list the one it uses. A listener on every address, which `0.0.0.0`, `[::]`, and an empty host all are, is reached at both, because Go listens on an unspecified address with a socket of both families where the system has one, and a proxy on the machine may use either, so list both. A listener on `localhost` is reached at `127.0.0.1`, and one on `[::1]` at `::1`. A server whose listener loopback can reach, and that lists none of the loopback addresses it is reached at, starts with a warning that names the ones missing, because it would read nothing a proxy on its machine forwards: every member would sign in from one address and share one limit on wrong guesses. A proxy on another machine is right to leave loopback out, and the warning is then about a proxy you do not run.
 
 2. Say where members reach the proxy. `--public-url` (`ROPESHIFT_PUBLIC_URL`) is the https origin of the proxy's public name, such as `https://ropeshift.example`, with a port only when it is not 443.
 
@@ -184,7 +246,7 @@ Use this when a proxy you run already terminates TLS for a public name, as the p
 
    The server here is at `10.0.0.9` and its proxy is at `10.0.0.5`. The server prints `ropeshiftd: server http://10.0.0.9:7400` and the public URL it was given. It refuses to start with TLS off off loopback unless both settings are given, and it refuses a public URL that is not an `https://` origin, or has a path, a user, or a query. The address `--listen` binds is the one the proxy reaches, so on a shared host bind the proxy's network and no wider.
 
-   List only the proxy. Every address in `--trusted-proxies` may connect in plaintext and say who a client is, so a range such as `10.0.0.0/8` trusts every host in it, and any of them can send a request with an `X-Forwarded-For` of its choice. Name the proxy's own address, as `10.0.0.5/32` does, and name a range only when the proxy's address changes within it.
+   List only the proxy. Every address in `--trusted-proxies` may connect in plaintext and say who a client is, so a range such as `10.0.0.0/8` trusts every host in it, and any of them can send a request with an `X-Forwarded-For` of its choice. Name the proxy's own address, as `10.0.0.5/32` does, and name a range only when the proxy's address changes within it. A range is no wider than a `/8` of IPv4 addresses or a `/16` of IPv6 addresses, and a wider one is refused with the limit, because every address in it may say who a client is. A site's own block of IPv6 addresses is a `/48` or narrower, and the private `fd00::/8` is wider than the limit, so write the `/48` the network holds.
 
 4. Set the proxy to terminate TLS, keep the `Host` header the browser sent, add the client's address to `X-Forwarded-For`, say `https` in `X-Forwarded-Proto`, and pass streams on as they are written. A page of the web UI holds a stream open for its live updates, so a proxy that buffers a response, or closes a connection that is silent for a minute, breaks it. The nginx and Caddy examples below do each.
 
@@ -193,8 +255,12 @@ Use this when a proxy you run already terminates TLS for a public name, as the p
 - **Plaintext only from loopback and listed addresses.** A connection from any other address is closed as it is accepted, before the server reads a byte from it, so it never sees a credential or a body. The plaintext hop belongs on a network that only the proxy reaches.
 - **Headers only from a listed peer.** The server reads `X-Forwarded-For` and `X-Forwarded-Proto` from a connection whose address is listed, and ignores them from every other. A connection from loopback that is not listed is served, and its headers are ignored: list `127.0.0.1` when the proxy runs on the server's own machine. `Forwarded` and `X-Real-IP` are never read.
 - **The client is the rightmost address in `X-Forwarded-For` that is not listed.** A proxy adds the address it was reached from at the end of the list, so a client can write what it likes at the start and no further. The server reads every `X-Forwarded-For` line, splits them on commas, and takes an address with a port or in brackets as the address. It stops at an entry that is no address, such as a name or an empty entry, and takes the last listed hop it passed as the client. The limit on wrong guesses counts by this client.
-- **A proxy that says its client used plain http is refused.** A request whose nearest proxy sent `X-Forwarded-Proto: http` is answered with 403 and the code `insecure_transport`, whatever route it is for, because a passphrase in it crossed a network in the clear. A request with no `X-Forwarded-Proto` is served, because the proxy is the one that terminates TLS.
-- **Strict entries.** Each entry of `--trusted-proxies` is an address or a CIDR range, and nothing else: no name, no port, no zone. A range with bits set past its prefix, such as `10.0.0.5/24`, is refused with the range it means, and so are `0.0.0.0/0` and `::/0`, which would trust every client to say who it is.
+- **A proxy that says its client used plain http is refused.** A request whose nearest proxy sent `X-Forwarded-Proto: http` is answered with 403 and the code `insecure_transport`, whatever route it is for, because a passphrase in it crossed a network in the clear. A request with no `X-Forwarded-Proto` is served: the header is not required. A listed address is also the address of whoever else connects from it, such as a worker or an operator on the server's own machine when `127.0.0.1` is listed for a proxy there, and none of them sends the header, so a server that required it would refuse them. What the header guards is a proxy that also accepts plain http, and a proxy set up as the examples below say sends the scheme it was reached by, which the server refuses when it is `http`. Set `X-Forwarded-Proto` in the proxy, and a proxy that sends it wrongly is the proxy's to fix.
+- **Strict entries.** Each entry of `--trusted-proxies` is an address or a CIDR range, and nothing else: no name, no port, no zone. A range with bits set past its prefix, such as `10.0.0.5/24`, is refused with the range it means, and so is a range wider than a `/8` of IPv4 addresses or a `/16` of IPv6 addresses, among them `0.0.0.0/0` and `::/0`, which would trust every client to say who it is.
+
+### What workers do behind a proxy
+
+A worker reaches the server through the proxy at the worker URL, which is the public URL unless `--worker-url` names another name the proxy serves. A join string from a server behind a proxy carries no fingerprint, because the server holds no authority of its own, so the worker verifies the proxy's certificate through the system's roots, and the certificate has to chain to roots the worker's machine trusts. A worker is a client of the proxy like a browser is, and the limit on wrong guesses counts its address like a browser's.
 
 ### What the server does with the public URL
 
@@ -238,7 +304,7 @@ Caddy terminates TLS for the name, passes the `Host` header on unchanged, sets `
 
 ## Limit wrong guesses
 
-The server counts every wrong guess at a secret by the address the connection came from: a wrong passphrase at the sign-in page, in a change of the passphrase, or in a call that signs in with a session, and a wrong join token at a worker's registration. After 10 wrong guesses within 15 minutes, the address is refused for 15 minutes. A refusal is HTTP 429 with the code `too_many_attempts` and a `Retry-After` header that says how many seconds remain, and it covers the right passphrase too. A right passphrase clears the address's count. A join token that works clears nothing, and a worker that holds its credential is not refused, because a credential is no guess.
+The server counts every wrong guess at a secret by the address the connection came from: a wrong passphrase at the sign-in page, in a change of the passphrase, or in a call that signs in with a session, and a wrong join token at a worker's registration, which an expired or a revoked join token is too. After 10 wrong guesses within 15 minutes, the address is refused for 15 minutes. A refusal is HTTP 429 with the code `too_many_attempts` and a `Retry-After` header that says how many seconds remain, and it covers the right passphrase too. A right passphrase clears the address's count. A join token that works clears nothing, and a worker that holds its credential is not refused, because a credential is no guess.
 
 - `--signin-max-failures` and `--signin-lockout` set the two numbers, one for how many wrong guesses and one for how long they count and how long a refusal lasts. Both must be above zero.
 - The address is the one the TCP connection came from, and behind a reverse proxy it is the client the proxy names, as [run behind a reverse proxy](#run-behind-a-reverse-proxy) says. A header changes the address only when a listed proxy sends it. Clients that reach the server through one machine that is not a listed proxy, such as a NAT, share that machine's address and count together.
@@ -261,6 +327,9 @@ The server counts every wrong guess at a secret by the address the connection ca
 | `off` serves plaintext to the reverse proxies listed, which terminate TLS | `--tls` | `ROPESHIFT_TLS` | `on` |
 | The addresses and CIDR ranges of the reverse proxies, repeated or comma separated | `--trusted-proxies` | `ROPESHIFT_TRUSTED_PROXIES` | None: required with `--tls off` off loopback |
 | The https origin members' browsers use behind a reverse proxy | `--public-url` | `ROPESHIFT_PUBLIC_URL` | None: required with `--trusted-proxies` |
+| The URL workers reach the server at, which join strings carry | `--worker-url` | `ROPESHIFT_WORKER_URL` | [By mode](#choose-the-worker-url) |
+| A worker's join string, given to `ropeshiftd worker join` | The one argument | `ROPESHIFT_JOIN` | None: required to join |
+| How long a join token lives, given to `ropeshift worker token` | `--expires-in` | None | `24h`, and at most `720h` |
 | Wrong guesses one client address may make within the lockout | `--signin-max-failures` | `ROPESHIFT_SIGNIN_MAX_FAILURES` | `10` |
 | How long wrong guesses count, and how long a refused address stays refused | `--signin-lockout` | `ROPESHIFT_SIGNIN_LOCKOUT` | `15m` |
 | The server's state directory | None | `ROPESHIFT_STATE_DIR` | [By platform](cli.md#the-daemon) |

@@ -253,6 +253,8 @@ type Options struct {
 	Templates []api.Template
 	// Hashes is the gate the passphrase checks of the network listener pass. Nil gives the listener its own.
 	Hashes *server.HashGate
+	// WorkerURL and CAFingerprint are what a group server makes a join string of, with the token.
+	WorkerURL, CAFingerprint string
 }
 
 // Start serves the API until the test ends.
@@ -287,6 +289,7 @@ func StartWith(t testing.TB, options Options) *Daemon {
 		Build: options.Build, Installed: options.Installed, Mode: options.Mode,
 		Checkouts: options.Checkouts, Profiles: options.Profiles, ParseManifest: repofiles.ParseManifest, Starts: options.Starts, Branches: options.Branches, LaneBranchPrefix: options.LaneBranchPrefix,
 		Attempts: options.Attempts, Templates: options.Templates, Hashes: options.Hashes,
+		WorkerURL: options.WorkerURL, CAFingerprint: options.CAFingerprint,
 	}
 	daemon := serve(t, config, options.Wrap)
 	daemon.Store = store

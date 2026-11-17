@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -61,6 +63,11 @@ func RunWorkerLink(t *testing.T, backend LinkBackend) {
 		{"a worker reads what the ledger holds about its lane", checkLaneFactsLink},
 		{"a worker reads what a lane may reach, under its fence", checkLaneContextLink},
 		{"a retried registration replaces the credential", checkRegistrationRetry},
+		{"a retry reissues a credential only until the worker opens a session", checkReissueEndsWithTheFirstSession},
+		{"a retry reissues a credential only until the token expires", checkReissueEndsWithTheToken},
+		{"a join token expires, and a wrong secret learns nothing of that", checkJoinTokenExpires},
+		{"an unused join token is revoked, and a used one is not", checkJoinTokenRevoked},
+		{"two registrations of one token give one worker", checkOneTokenGivesOneWorker},
 		{"a wrong credential is refused", checkWrongCredential},
 		{"a session opens a new epoch and a stale epoch is refused", checkEpochs},
 		{"a heartbeat returns its nonce and renews", checkHeartbeat},
@@ -231,6 +238,196 @@ func checkRegistrationRetry(t *testing.T, ctx context.Context, b LinkBackend) {
 		t.Errorf("the replaced credential: %v", err)
 	}
 	r.session(t, ctx, ledger.WorkerAuth{WorkerID: "a", Credential: second.Credential})
+}
+
+var linkMember = ledger.Actor{Kind: ledger.ActorMember, ID: "member-1"}
+
+// makeToken makes a join token that lives for a lifetime, as a group server's member does.
+func (r *LinkRig) makeToken(t *testing.T, ctx context.Context, lifetime time.Duration) control.JoinToken {
+	t.Helper()
+	made, err := r.Plane.MakeJoinToken(ctx, linkMember, lifetime)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return made
+}
+
+func milliseconds(d time.Duration) int64 { return d.Milliseconds() }
+
+// checkReissueEndsWithTheFirstSession holds a retry to what it is for: a worker whose first answer never arrived asks
+// again, and gets a new credential. Once the worker has opened a session it holds its credential, so whoever holds the
+// spent token and the worker's ID gets the refusal a spent token gets, and the worker's credential stands.
+func checkReissueEndsWithTheFirstSession(t *testing.T, ctx context.Context, b LinkBackend) {
+	r := b.Fresh(t, 0)
+	token := r.makeToken(t, ctx, 0)
+	registration := ledger.Registration{JoinToken: token.Token, WorkerID: "a", Name: "a"}
+	first, err := r.Link.Register(ctx, registration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := r.Link.Register(ctx, registration)
+	if err != nil {
+		t.Fatalf("a retry before any session: %v", err)
+	}
+	auth := ledger.WorkerAuth{WorkerID: "a", Credential: second.Credential}
+	r.session(t, ctx, auth)
+	_, err = r.Link.Register(ctx, registration)
+	if !errors.Is(err, ledger.ErrBadJoinToken) || errors.Is(err, ledger.ErrJoinTokenExpired) || errors.Is(err, ledger.ErrJoinTokenRevoked) {
+		t.Fatalf("a retry after the first session answers %v, and a spent token's answer is a bad token", err)
+	}
+	if _, err := r.Link.OpenSession(ctx, ledger.SessionRequest{Auth: auth, Protocol: ledger.ProtocolVersion, Manifest: UsableManifest}); err != nil {
+		t.Errorf("the worker's own credential no longer opens a session: %v", err)
+	}
+	if _, err := r.Link.OpenSession(ctx, ledger.SessionRequest{
+		Auth: ledger.WorkerAuth{WorkerID: "a", Credential: first.Credential}, Protocol: ledger.ProtocolVersion,
+	}); !errors.Is(err, ledger.ErrBadCredential) {
+		t.Errorf("the credential a retry replaced works again: %v", err)
+	}
+}
+
+// checkReissueEndsWithTheToken ends a retry when its token expires, though the worker has opened no session.
+func checkReissueEndsWithTheToken(t *testing.T, ctx context.Context, b LinkBackend) {
+	r := b.Fresh(t, 0)
+	token := r.makeToken(t, ctx, time.Hour)
+	registration := ledger.Registration{JoinToken: token.Token, WorkerID: "a", Name: "a"}
+	first, err := r.Link.Register(ctx, registration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.ShiftClock(milliseconds(30 * time.Minute))
+	second, err := r.Link.Register(ctx, registration)
+	if err != nil {
+		t.Fatalf("a retry inside the token's life: %v", err)
+	}
+	r.ShiftClock(milliseconds(31 * time.Minute))
+	_, err = r.Link.Register(ctx, registration)
+	if !errors.Is(err, ledger.ErrBadJoinToken) || errors.Is(err, ledger.ErrJoinTokenExpired) {
+		t.Fatalf("a retry after the token expired answers %v, and a spent token's answer is a bad token", err)
+	}
+	if first.Credential == second.Credential {
+		t.Error("the retry kept the credential")
+	}
+	r.session(t, ctx, ledger.WorkerAuth{WorkerID: "a", Credential: second.Credential})
+}
+
+// checkJoinTokenExpires holds a token to its lifetime: 24 hours unless a lifetime is named, up to 30 days, and refused
+// with its own code once it ends. A wrong secret for the same token is refused as any wrong token is, so no one who
+// does not hold a token learns that it expired.
+func checkJoinTokenExpires(t *testing.T, ctx context.Context, b LinkBackend) {
+	r := b.Fresh(t, 0)
+	short := r.makeToken(t, ctx, time.Hour)
+	nearly := r.makeToken(t, ctx, time.Hour)
+	long := r.makeToken(t, ctx, 48*time.Hour)
+	byDefault := r.makeToken(t, ctx, 0)
+	if within := func(got, want int64) bool { return got > want-60_000 && got < want+60_000 }; !within(byDefault.ExpiresAt-short.ExpiresAt, milliseconds(23*time.Hour)) ||
+		!within(long.ExpiresAt-short.ExpiresAt, milliseconds(47*time.Hour)) {
+		t.Errorf("expiries %d (an hour), %d (48 hours), %d (the default)", short.ExpiresAt, long.ExpiresAt, byDefault.ExpiresAt)
+	}
+	if _, err := r.Plane.MakeJoinToken(ctx, linkMember, control.MaxJoinTokenLifetime); err != nil {
+		t.Errorf("a token of the longest life: %v", err)
+	}
+	for _, lifetime := range []time.Duration{control.MaxJoinTokenLifetime + time.Second, 365 * 24 * time.Hour, -time.Hour} {
+		if _, err := r.Plane.MakeJoinToken(ctx, linkMember, lifetime); !errors.Is(err, workorders.ErrInvalid) {
+			t.Errorf("a token of %s: %v", lifetime, err)
+		}
+	}
+	if _, err := r.Plane.MakeJoinToken(ctx, ledger.Actor{Kind: ledger.ActorLane, ID: "lane"}, time.Hour); !errors.Is(err, workorders.ErrForbidden) {
+		t.Errorf("a lane made a token: %v", err)
+	}
+
+	r.ShiftClock(milliseconds(59 * time.Minute))
+	if _, err := r.Link.Register(ctx, ledger.Registration{JoinToken: nearly.Token, WorkerID: "a", Name: "a"}); err != nil {
+		t.Fatalf("a token a minute before it expires: %v", err)
+	}
+	r.ShiftClock(milliseconds(2 * time.Minute))
+	_, err := r.Link.Register(ctx, ledger.Registration{JoinToken: short.Token, WorkerID: "b", Name: "b"})
+	if !errors.Is(err, ledger.ErrJoinTokenExpired) || !errors.Is(err, ledger.ErrBadJoinToken) {
+		t.Errorf("an expired token: %v", err)
+	}
+	if _, err := r.Link.Register(ctx, ledger.Registration{JoinToken: short.Token + "x", WorkerID: "b", Name: "b"}); !errors.Is(err, ledger.ErrBadJoinToken) || errors.Is(err, ledger.ErrJoinTokenExpired) {
+		t.Errorf("a wrong secret for an expired token: %v", err)
+	}
+	if _, err := r.Link.Register(ctx, ledger.Registration{JoinToken: long.Token, WorkerID: "c", Name: "c"}); err != nil {
+		t.Errorf("a token with a day to run: %v", err)
+	}
+}
+
+// checkJoinTokenRevoked revokes a token nobody used, which is then refused with its own code, and refuses to revoke one
+// a worker used, because that worker holds a credential from it.
+func checkJoinTokenRevoked(t *testing.T, ctx context.Context, b LinkBackend) {
+	r := b.Fresh(t, 0)
+	revoked := r.makeToken(t, ctx, 0)
+	if err := r.Plane.RevokeJoinToken(ctx, linkMember, revoked.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Plane.RevokeJoinToken(ctx, linkMember, revoked.ID); err != nil {
+		t.Errorf("revoking a token again: %v", err)
+	}
+	_, err := r.Link.Register(ctx, ledger.Registration{JoinToken: revoked.Token, WorkerID: "a", Name: "a"})
+	if !errors.Is(err, ledger.ErrJoinTokenRevoked) || !errors.Is(err, ledger.ErrBadJoinToken) {
+		t.Errorf("a revoked token: %v", err)
+	}
+	if _, err := r.Link.Register(ctx, ledger.Registration{JoinToken: revoked.Token + "x", WorkerID: "a", Name: "a"}); errors.Is(err, ledger.ErrJoinTokenRevoked) {
+		t.Errorf("a wrong secret for a revoked token learns that it was revoked: %v", err)
+	}
+
+	used := r.makeToken(t, ctx, 0)
+	if _, err := r.Link.Register(ctx, ledger.Registration{JoinToken: used.Token, WorkerID: "b", Name: "b"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Plane.RevokeJoinToken(ctx, linkMember, used.ID); !errors.Is(err, ledger.ErrJoinTokenUsed) {
+		t.Errorf("revoking a used token: %v", err)
+	}
+	if err := r.Plane.RevokeJoinToken(ctx, linkMember, "no-such-token"); !errors.Is(err, ports.ErrNotFound) {
+		t.Errorf("revoking a token that is not there: %v", err)
+	}
+	if err := r.Plane.RevokeJoinToken(ctx, ledger.Actor{Kind: ledger.ActorLane, ID: "lane"}, revoked.ID); !errors.Is(err, workorders.ErrForbidden) {
+		t.Errorf("a lane revoked a token: %v", err)
+	}
+}
+
+// checkOneTokenGivesOneWorker registers two workers at once with one token, many times over. Exactly one of each pair
+// gets a credential, the other gets the refusal of a spent token, and the plane lists one worker for each token.
+func checkOneTokenGivesOneWorker(t *testing.T, ctx context.Context, b LinkBackend) {
+	r := b.Fresh(t, 0)
+	const rounds = 8
+	for round := range rounds {
+		token := r.makeToken(t, ctx, 0)
+		ids := [2]string{fmt.Sprintf("worker-%d-a", round), fmt.Sprintf("worker-%d-b", round)}
+		var errs [2]error
+		var group sync.WaitGroup
+		for i := range ids {
+			group.Add(1)
+			go func() {
+				defer group.Done()
+				_, errs[i] = r.Link.Register(ctx, ledger.Registration{JoinToken: token.Token, WorkerID: ids[i], Name: ids[i]})
+			}()
+		}
+		group.Wait()
+		if won := count(errs[:], func(err error) bool { return err == nil }); won != 1 {
+			t.Fatalf("round %d: %d of two registrations of one token succeeded: %v", round, won, errs)
+		}
+		if refused := count(errs[:], func(err error) bool { return errors.Is(err, ledger.ErrBadJoinToken) }); refused != 1 {
+			t.Fatalf("round %d: the other answered %v", round, errs)
+		}
+	}
+	workers, err := r.Plane.List(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(workers) != rounds {
+		t.Errorf("%d workers registered with %d tokens", len(workers), rounds)
+	}
+}
+
+func count[T any](items []T, keep func(T) bool) int {
+	n := 0
+	for _, item := range items {
+		if keep(item) {
+			n++
+		}
+	}
+	return n
 }
 
 func checkWrongCredential(t *testing.T, ctx context.Context, b LinkBackend) {

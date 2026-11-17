@@ -16,7 +16,7 @@ import (
 
 	"ropeshift.com/ropeshift/internal/adapters/clock"
 	"ropeshift.com/ropeshift/internal/adapters/servertls"
-	"ropeshift.com/ropeshift/test/apitest"
+	"ropeshift.com/ropeshift/internal/api"
 )
 
 // A server's certificate settings come from its flags and from the environment a container gives it, and a flag
@@ -66,7 +66,7 @@ func TestAServerTakesItsProxySettingsFromFlagsAndTheEnvironment(t *testing.T) {
 	}{
 		{"the defaults", nil, nil, "", nil, ""},
 		{"the environment", nil, given, "off", []string{"10.0.0.0/8", "172.16.0.0/12"}, "https://env.example"},
-		{"flags over the environment", []string{"--tls", "on", "--trusted-proxies", "192.168.0.0/16", "--trusted-proxies", "fd00::/8,::1", "--public-url", "https://flag.example"}, given, "on", []string{"192.168.0.0/16", "fd00::/8", "::1"}, "https://flag.example"},
+		{"flags over the environment", []string{"--tls", "on", "--trusted-proxies", "192.168.0.0/16", "--trusted-proxies", "fd00::/16,::1", "--public-url", "https://flag.example"}, given, "on", []string{"192.168.0.0/16", "fd00::/16", "::1"}, "https://flag.example"},
 		{"one flag", []string{"--public-url", "https://flag.example"}, given, "off", []string{"10.0.0.0/8", "172.16.0.0/12"}, "https://flag.example"},
 	}
 	for _, tt := range tests {
@@ -97,7 +97,7 @@ func TestAServerBehindAProxyNeedsItsProxiesAndItsPublicURL(t *testing.T) {
 		refuses []string
 	}{
 		{name: "the proxy's network", opts: serverOptions{listen: "0.0.0.0:7400", tls: "off", trustedProxies: []string{"10.0.0.0/8"}, publicURL: "https://ropeshift.example"}, mode: transportProxy, proxies: 1, public: "https://ropeshift.example"},
-		{name: "a public URL in capitals, with its default port", opts: serverOptions{listen: "0.0.0.0:7400", tls: "off", trustedProxies: []string{"10.0.0.0/8", "fd00::/8"}, publicURL: "HTTPS://Ropeshift.Example:443/"}, mode: transportProxy, proxies: 2, public: "https://ropeshift.example"},
+		{name: "a public URL in capitals, with its default port", opts: serverOptions{listen: "0.0.0.0:7400", tls: "off", trustedProxies: []string{"10.0.0.0/8", "fd00::/16"}, publicURL: "HTTPS://Ropeshift.Example:443/"}, mode: transportProxy, proxies: 2, public: "https://ropeshift.example"},
 		{name: "a public URL with a port", opts: serverOptions{listen: ":7400", tls: "off", trustedProxies: []string{"10.0.0.2"}, publicURL: "https://ropeshift.example:8443"}, mode: transportProxy, proxies: 1, public: "https://ropeshift.example:8443"},
 		{name: "a proxy on this machine", opts: serverOptions{listen: "127.0.0.1:7400", tls: "off", trustedProxies: []string{"127.0.0.1"}, publicURL: "https://ropeshift.example"}, mode: transportProxy, proxies: 1, public: "https://ropeshift.example"},
 		{name: "TLS off on loopback with nothing else", opts: serverOptions{listen: "127.0.0.1:7400", tls: "off"}, mode: transportLoopback},
@@ -367,7 +367,7 @@ func TestTheServerServesItsOwnAuthorityAndKeepsItsKeysPrivate(t *testing.T) {
 	if len(listener.fingerprint) != 64 || !strings.HasSuffix(listener.authorityFile, filepath.Join("tls", "ca.crt")) {
 		t.Fatalf("the listener names the fingerprint %q and the authority %q", listener.fingerprint, listener.authorityFile)
 	}
-	response := get(t, apitest.PinnedTLS(listener.fingerprint, "127.0.0.1"), "https://"+listener.Addr().String()+"/")
+	response := get(t, api.PinnedTLS(listener.fingerprint, "127.0.0.1"), "https://"+listener.Addr().String()+"/")
 	if response.StatusCode != http.StatusOK || response.TLS == nil {
 		t.Fatalf("status %d, TLS %v", response.StatusCode, response.TLS)
 	}
@@ -378,7 +378,7 @@ func TestTheServerServesItsOwnAuthorityAndKeepsItsKeysPrivate(t *testing.T) {
 		}
 	}
 	// A client that pins a fingerprint that is not the authority's reaches nothing.
-	transport := &http.Transport{TLSClientConfig: apitest.PinnedTLS(strings.Repeat("0", 64), "127.0.0.1"), DisableKeepAlives: true}
+	transport := &http.Transport{TLSClientConfig: api.PinnedTLS(strings.Repeat("0", 64), "127.0.0.1"), DisableKeepAlives: true}
 	t.Cleanup(transport.CloseIdleConnections)
 	if _, err := (&http.Client{Transport: transport}).Get("https://" + listener.Addr().String() + "/"); err == nil {
 		t.Error("a client with the wrong pin was served")

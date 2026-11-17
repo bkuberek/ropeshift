@@ -15,8 +15,8 @@ import (
 func TestTrustedProxiesTakeAddressesAndRangesAndNothingElse(t *testing.T) {
 	t.Parallel()
 	for _, entry := range []string{
-		"10.0.0.1", "10.0.0.0/8", "172.16.0.0/12", "192.168.1.0/24", "127.0.0.1", "127.0.0.1/32", "::1", "fd00::/8", "2001:db8::1",
-		"2001:db8:1:2::/64", "10.0.0.1/32", "::ffff:10.0.0.1", "::ffff:10.0.0.0/104", "0.0.0.0/1", "::/1",
+		"10.0.0.1", "10.0.0.0/8", "172.16.0.0/12", "192.168.1.0/24", "127.0.0.1", "127.0.0.1/32", "::1", "fd00::/16", "2001:db8::1",
+		"2001:db8:1:2::/64", "10.0.0.1/32", "::ffff:10.0.0.1", "::ffff:10.0.0.0/104", "fd12:3456:789a::/48", "2001:db8::/32", "100.64.0.0/10",
 	} {
 		if _, err := server.ParseProxies([]string{entry}); err != nil {
 			t.Errorf("%q is refused: %v", entry, err)
@@ -26,6 +26,8 @@ func TestTrustedProxiesTakeAddressesAndRangesAndNothingElse(t *testing.T) {
 		"", " ", "0.0.0.0/0", "::/0", "::ffff:0.0.0.0/96", "::ffff:0:0/96", "0.0.0.0", "::", "10.0.0.5/24", "2001:db8::1/64",
 		"10.0.0.1/33", "10.0.0.0/-1", "10.0.0.0/abc", "10.0.0.1/24/8", "example.com", "localhost", "10.0.0.1:80", "[::1]:80", "http://10.0.0.1",
 		"fe80::1%eth0", "10.0.0.1 10.0.0.2", "10.0.0.1,10.0.0.2", "*", "10.0.0", "10.0.0.256", "any", "all", "::ffff:10.0.0.0/64",
+		// A range wider than an organization's network lets whoever holds an address in it forge the client's address.
+		"0.0.0.0/1", "::/1", "128.0.0.0/1", "10.0.0.0/7", "0.0.0.0/4", "fd00::/8", "fc00::/7", "2000::/3", "2001::/15", "::ffff:10.0.0.0/103",
 	} {
 		if proxies, err := server.ParseProxies([]string{entry}); err == nil {
 			t.Errorf("%q is taken: %+v", entry, proxies)
@@ -44,9 +46,35 @@ func TestTrustedProxiesTakeAddressesAndRangesAndNothingElse(t *testing.T) {
 	}
 }
 
+// The widest range a list takes is a /8 of IPv4 addresses, which holds the whole of a private network, and a /16 of
+// IPv6 addresses, which holds the largest block a site is given. Anything wider names hosts that are no proxy of this
+// server, so it is refused rather than warned about: a warning on the setting that says whose word to believe is a
+// line that scrolls past, and a list of the proxies, or of the one narrower range that holds them, costs a line
+// more. The refusal says the limit and what to write.
+func TestATrustedRangeWiderThanTheLimitIsRefusedAndTheRefusalSaysWhatToWrite(t *testing.T) {
+	t.Parallel()
+	for _, entry := range []string{"10.0.0.0/7", "0.0.0.0/1", "fd00::/8", "::/1", "::ffff:10.0.0.0/103"} {
+		_, err := server.ParseProxies([]string{entry})
+		if err == nil {
+			t.Errorf("%q is taken", entry)
+			continue
+		}
+		for _, want := range []string{entry, "/8", "/16", "narrower"} {
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("the refusal of %q does not say %q: %v", entry, want, err)
+			}
+		}
+	}
+	for _, entry := range []string{"10.0.0.0/8", "fd00::/16", "::ffff:10.0.0.0/104"} {
+		if _, err := server.ParseProxies([]string{entry}); err != nil {
+			t.Errorf("%q, the widest range allowed, is refused: %v", entry, err)
+		}
+	}
+}
+
 func TestAProxyIsContainedByItsAddressOrItsRange(t *testing.T) {
 	t.Parallel()
-	proxies, err := server.ParseProxies([]string{"10.0.0.0/24", "192.168.1.9", "fd00::/8", "::ffff:172.16.0.5"})
+	proxies, err := server.ParseProxies([]string{"10.0.0.0/24", "192.168.1.9", "fd00::/16", "::ffff:172.16.0.5"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,8 +82,8 @@ func TestAProxyIsContainedByItsAddressOrItsRange(t *testing.T) {
 		t.Errorf("the list holds %d entries", proxies.Len())
 	}
 	for in, want := range map[string]bool{
-		"10.0.0.1": true, "10.0.0.255": true, "10.0.1.0": false, "192.168.1.9": true, "192.168.1.10": false, "fd12::1": true, "fe80::1": false,
-		"::ffff:10.0.0.7": true, "::ffff:192.168.1.9": true, "172.16.0.5": true, "172.16.0.6": false, "fe80::1%eth0": false, "fd12::1%eth0": true,
+		"10.0.0.1": true, "10.0.0.255": true, "10.0.1.0": false, "192.168.1.9": true, "192.168.1.10": false, "fd00::1": true, "fd12::1": false, "fe80::1": false,
+		"::ffff:10.0.0.7": true, "::ffff:192.168.1.9": true, "172.16.0.5": true, "172.16.0.6": false, "fe80::1%eth0": false, "fd00::1%eth0": true,
 		"203.0.113.7": false, "127.0.0.1": false,
 	} {
 		if got := proxies.Contains(netip.MustParseAddr(in)); got != want {
@@ -92,7 +120,7 @@ func forwardedFrom(t *testing.T, proxies []string, remote string, headers map[st
 // address the client wrote is left of what the first proxy added, and a proxy adds the address it was reached from.
 func TestTheClientIsTheRightmostAddressThatIsNotListed(t *testing.T) {
 	t.Parallel()
-	listed := []string{"10.0.0.0/8", "fd00::/8"}
+	listed := []string{"10.0.0.0/8", "fd00::/16"}
 	tests := []struct {
 		name    string
 		remote  string

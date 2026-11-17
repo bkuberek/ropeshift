@@ -130,6 +130,11 @@ type Config struct {
 	// guessers cannot hold it for as long as they like. The network listener makes one when none is given. Nil
 	// checks without one, as the control socket does.
 	Hashes *HashGate
+	// WorkerURL is the URL a group server's workers reach it at, and CAFingerprint the SHA-256 of its own
+	// certificate authority in lowercase hexadecimal, which is empty when it has none. A group server makes a join
+	// string of them and the join token. A solo daemon has neither.
+	WorkerURL     string
+	CAFingerprint string
 	// Warn hears what a refusal leaves out of its answer, which is what broke in the server and no business of the
 	// client that was refused. Nil hears nothing.
 	Warn func(string)
@@ -344,8 +349,14 @@ func fail(w http.ResponseWriter, err error) {
 		})
 	case errors.Is(err, ledger.ErrBadCredential):
 		refuse(w, http.StatusUnauthorized, api.ErrorDetail{Code: api.CodeBadCredential, Message: err.Error()})
+	case errors.Is(err, ledger.ErrJoinTokenExpired):
+		refuse(w, http.StatusUnauthorized, api.ErrorDetail{Code: api.CodeJoinTokenExpired, Message: err.Error()})
+	case errors.Is(err, ledger.ErrJoinTokenRevoked):
+		refuse(w, http.StatusUnauthorized, api.ErrorDetail{Code: api.CodeJoinTokenRevoked, Message: err.Error()})
 	case errors.Is(err, ledger.ErrBadJoinToken):
 		refuse(w, http.StatusUnauthorized, api.ErrorDetail{Code: api.CodeBadJoinToken, Message: err.Error()})
+	case errors.Is(err, ledger.ErrJoinTokenUsed):
+		refuse(w, http.StatusConflict, api.ErrorDetail{Code: api.CodeJoinTokenUsed, Message: err.Error()})
 	case errors.Is(err, authority.ErrNoSession):
 		refuse(w, http.StatusUnauthorized, api.ErrorDetail{Code: api.CodeSessionRequired, Message: err.Error()})
 	case errors.Is(err, authority.ErrBadProof):

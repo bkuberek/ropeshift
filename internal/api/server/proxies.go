@@ -21,8 +21,9 @@ type Proxies struct {
 }
 
 // ParseProxies reads a list of proxies, each an address or a CIDR range and nothing else, so a list never means
-// more than its writer wrote. It refuses an entry that matches every address, one that is not a range's first
-// address, a name, a port, a zone, and an empty entry. An IPv4 address in its IPv6 form is the IPv4 address.
+// more than its writer wrote. It refuses an entry that matches every address, one wider than a /8 of IPv4
+// addresses or a /16 of IPv6 addresses, one that is not a range's first address, a name, a port, a zone, and an
+// empty entry. An IPv4 address in its IPv6 form is the IPv4 address.
 func ParseProxies(entries []string) (*Proxies, error) {
 	list := &Proxies{}
 	for _, entry := range entries {
@@ -35,6 +36,22 @@ func ParseProxies(entries []string) (*Proxies, error) {
 		}
 	}
 	return list, nil
+}
+
+// The widest range a list takes: a /8 of IPv4 addresses holds the whole of a private network, and a /16 of IPv6
+// addresses holds more than the block a site is given, which is a /48. A range wider than that names hosts that are
+// no proxy of this server, and each of them could say who a client is, so a wider range is refused rather than
+// warned of.
+const (
+	minIPv4ProxyBits = 8
+	minIPv6ProxyBits = 16
+)
+
+func minProxyBits(addr netip.Addr) int {
+	if addr.Is4() {
+		return minIPv4ProxyBits
+	}
+	return minIPv6ProxyBits
 }
 
 func parseProxy(entry string) (netip.Prefix, error) {
@@ -73,6 +90,8 @@ func parseProxy(entry string) (netip.Prefix, error) {
 		return netip.Prefix{}, refuse("matches every address, which trusts every client to say who it is")
 	case prefix.Bits() == prefix.Addr().BitLen() && prefix.Addr().IsUnspecified():
 		return netip.Prefix{}, refuse("is the unspecified address, which no proxy has")
+	case prefix.Bits() < minProxyBits(prefix.Addr()):
+		return netip.Prefix{}, refuse("is wider than a range of trusted proxies may be, a /%d of IPv4 addresses or a /%d of IPv6 addresses: list the proxies, or the narrower range that holds them, because every address in a listed range may say who a client is", minIPv4ProxyBits, minIPv6ProxyBits)
 	case prefix != prefix.Masked():
 		return netip.Prefix{}, refuse("has bits set past its prefix: write %s", prefix.Masked())
 	}

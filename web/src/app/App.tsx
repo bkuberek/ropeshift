@@ -316,7 +316,12 @@ export function App() {
             { key: "action:add-category", group: "Actions" as const, title: "Add category", icon: "plus" as const, to: inProject(project, `/${view === "decisions" ? "decisions" : "questions"}?dialog=category`), keywords: "question decision filter" },
           ]
         : []),
-      ...(group ? [{ key: "action:join-token", group: "Actions" as const, title: "Create join token", icon: "key" as const, to: "/workers?dialog=token" }] : []),
+      ...(group
+        ? [
+            { key: "action:join-token", group: "Actions" as const, title: "Create join token", icon: "key" as const, to: "/workers?dialog=token" },
+            { key: "action:revoke-join-token", group: "Actions" as const, title: "Revoke join token", icon: "key" as const, to: "/workers?dialog=revoke-token", keywords: "join string undo cancel" },
+          ]
+        : []),
       { key: "action:backup-installation", group: "Actions", title: "Back up the installation", icon: "download", to: inProject(project, "/settings?section=backup") },
       { key: "action:dock", group: "Actions", title: dockOpen ? "Close the conversation panel" : "Open the conversation panel", icon: "chat", meta: ".", run: toggleDock },
       ...(project

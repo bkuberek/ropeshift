@@ -53,6 +53,7 @@ const (
 	OpProjectRemove                       = "project.remove"
 	OpInstallationBackup                  = "installation.backup"
 	OpWorkerJoinToken                     = "worker.join_token"
+	OpWorkerJoinTokenRevoke               = "worker.join_token_revoke"
 	OpAutonomySet                         = "autonomy.set"
 	OpAutonomyAcknowledge                 = "autonomy.acknowledge"
 	OpAutonomyWindow                      = "autonomy.window"
@@ -195,6 +196,7 @@ var operations = append(onInstallation(
 	consent(OpProjectRemove, "Remove a project", ActionManageProject),
 	memberOnly(OpInstallationBackup, "Back up the installation", ActionBackupInstallation),
 	never(OpWorkerJoinToken, "Make a worker join token", neverManagement, ActionCreateJoinToken),
+	never(OpWorkerJoinTokenRevoke, "Revoke a worker join token", neverManagement, ActionCreateJoinToken),
 	never(OpAutonomySet, "Set a worker's level", neverAutonomy, ActionSetAutonomy),
 	never(OpAutonomyAcknowledge, "Acknowledge the stated risk", neverAutonomy, ActionAcknowledgeRisk),
 	never(OpAutonomyWindow, "Open or close a run window", neverAutonomy, ActionOpenWindow),

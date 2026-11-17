@@ -397,6 +397,68 @@ func TestTheUpgradeKeepsTheWorkspaceTheFileAndEveryRecord(t *testing.T) {
 	}
 }
 
+// A join token a ledger holds keeps its expiry and its revocation when the upgrade moves it to the installation: a
+// token that was to end at a time still ends then, and a revoked one is still refused, as the moved record says.
+func TestTheUpgradeMovesAJoinTokensExpiryAndRevocation(t *testing.T) {
+	dir, _ := legacyDir(t)
+	const expires, revoked = int64(1_790_086_400_000), int64(1_790_000_000_000)
+	db, err := sqlite.OpenDB(filepath.Join(dir, ledgerName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows, err := db.QueryContext(t.Context(), `SELECT id, used_by FROM join_grants WHERE workspace_id = ? ORDER BY id`, string(legacyScope))
+	if err != nil {
+		t.Fatal(err)
+	}
+	used := map[string]bool{}
+	var ids []string
+	for rows.Next() {
+		var id string
+		var by *string
+		if err := rows.Scan(&id, &by); err != nil {
+			t.Fatal(err)
+		}
+		ids, used[id] = append(ids, id), by != nil
+	}
+	if err := rows.Close(); err != nil || len(ids) != 2 {
+		t.Fatalf("the legacy ledger holds the join grants %v: %v", ids, err)
+	}
+	for _, id := range ids {
+		if _, err := db.ExecContext(t.Context(), `UPDATE join_grants SET expires_at = ? WHERE id = ?`, expires, id); err != nil {
+			t.Fatal(err)
+		}
+		if !used[id] {
+			if _, err := db.ExecContext(t.Context(), `UPDATE join_grants SET revoked_at = ? WHERE id = ?`, revoked, id); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	state, _ := upgrade(t, dir)
+	err = state.Installation.Read(t.Context(), func(tx ports.SharedReadTx) error {
+		for _, id := range ids {
+			grant, err := tx.Workers().JoinGrant(id)
+			if err != nil {
+				return err
+			}
+			wantRevoked := int64(0)
+			if !used[id] {
+				wantRevoked = revoked
+			}
+			if grant.ExpiresAt != expires || grant.RevokedAt != wantRevoked || (grant.UsedBy != "") != used[id] {
+				t.Errorf("the moved grant %s holds %+v, want expiry %d and revocation %d", id, grant, expires, wantRevoked)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestAnUpgradedInstallationStartsAgainWithNoChange(t *testing.T) {
 	dir, _ := legacyDir(t)
 	state, store, err := sqlite.Upgrade(t.Context(), dir, ledgerName, firstProject, upgradeActor, nil)

@@ -54,6 +54,13 @@
       "never_reason": "Member and worker management stays with a member."
     },
     {
+      "id": "worker.join_token_revoke",
+      "label": "Revoke a worker join token",
+      "class": "consent",
+      "exemptable": false,
+      "never_reason": "Member and worker management stays with a member."
+    },
+    {
       "id": "autonomy.set",
       "label": "Set a worker's level",
       "class": "consent",

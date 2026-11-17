@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/questions"
@@ -20,14 +21,38 @@ import (
 const (
 	CodeBadCredential = "bad_credential"
 	CodeBadJoinToken  = "bad_join_token"
+	// CodeJoinTokenExpired and CodeJoinTokenRevoked say a join token is right and unspent and has ended, because
+	// its lifetime ran out or a member revoked it. Only the holder of the token's secret is told which: any other
+	// wrong token is a bad one. Each counts as a wrong guess, as a bad one does.
+	CodeJoinTokenExpired = "join_token_expired"
+	CodeJoinTokenRevoked = "join_token_revoked"
+	// CodeJoinTokenUsed refuses the revocation of a token a worker used.
+	CodeJoinTokenUsed = "join_token_used"
 	CodeStaleEpoch    = "stale_epoch"
 	CodeProtocol      = "protocol"
 )
 
+// CreateJoinToken asks for a join token. ExpiresInMs is how long it lives in milliseconds, a day when it is zero,
+// and at most thirty days.
+type CreateJoinToken struct {
+	ExpiresInMs int64 `json:"expires_in_ms,omitempty"`
+}
+
 // JoinTokenResponse carries a new join token. It is shown once, and the ledger keeps
-// only its digest.
+// only its digest. ID is what the token's record and its revocation go by, and ExpiresAt is when it ends, in
+// milliseconds of the control plane's clock, or zero for a token that never does. A group server also answers a join
+// string, which holds the token with the URL its workers reach the server at and the fingerprint of its certificate
+// authority, and which a worker is handed in place of the token. A solo daemon answers none.
 type JoinTokenResponse struct {
-	Token string `json:"token"`
+	ID         string `json:"id,omitempty"`
+	Token      string `json:"token"`
+	ExpiresAt  int64  `json:"expires_at,omitempty"`
+	JoinString string `json:"join_string,omitempty"`
+}
+
+// JoinTokenRevoked says which token a member revoked.
+type JoinTokenRevoked struct {
+	ID string `json:"id"`
 }
 
 // WorkerList is the answer to a list of workers.
@@ -54,9 +79,25 @@ func workerPath(id string, rest ...string) string {
 
 // CreateJoinToken makes a join token.
 func (c *Client) CreateJoinToken(ctx context.Context) (string, error) {
-	var out JoinTokenResponse
-	err := c.Do(ctx, http.MethodPost, "/v1/workers/tokens", struct{}{}, &out)
+	out, err := c.NewJoinToken(ctx)
 	return out.Token, err
+}
+
+// NewJoinToken makes a join token that lives a day, and a join string with it when the server is a group server.
+func (c *Client) NewJoinToken(ctx context.Context) (JoinTokenResponse, error) {
+	return c.NewJoinTokenFor(ctx, 0)
+}
+
+// NewJoinTokenFor makes a join token that lives for a lifetime, a day when it is zero and at most thirty days.
+func (c *Client) NewJoinTokenFor(ctx context.Context, lifetime time.Duration) (JoinTokenResponse, error) {
+	var out JoinTokenResponse
+	err := c.Do(ctx, http.MethodPost, "/v1/workers/tokens", CreateJoinToken{ExpiresInMs: lifetime.Milliseconds()}, &out)
+	return out, err
+}
+
+// RevokeJoinToken ends a join token no worker used.
+func (c *Client) RevokeJoinToken(ctx context.Context, id string) error {
+	return c.Do(ctx, http.MethodPost, "/v1/workers/tokens/"+url.PathEscape(id)+"/revoke", struct{}{}, nil)
 }
 
 // Workers lists the registered workers.

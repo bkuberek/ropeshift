@@ -4,11 +4,16 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"io"
 	"net"
+	"net/netip"
+	"net/url"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"ropeshift.com/ropeshift/internal/adapters/servertls"
+	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/api/server"
 	"ropeshift.com/ropeshift/internal/ports"
 )
@@ -28,6 +33,8 @@ const (
 	envServerNames    = "ROPESHIFT_SERVER_NAMES"
 	envTrustedProxies = "ROPESHIFT_TRUSTED_PROXIES"
 	envPublicURL      = "ROPESHIFT_PUBLIC_URL"
+	// envWorkerURL gives the URL the server's workers reach it at, which its join strings carry.
+	envWorkerURL = "ROPESHIFT_WORKER_URL"
 	// tlsDirectory holds the server's authority and its certificate, inside its state directory.
 	tlsDirectory = "tls"
 )
@@ -57,12 +64,119 @@ type serverTransport struct {
 	names []string
 	// certFile and keyFile are the supplied certificate and its key.
 	certFile, keyFile string
+	// workerURL is the URL --worker-url gave, checked and in the one form a worker keeps. It is empty when none was
+	// given, and the listener then says where workers reach it by what it knows.
+	workerURL string
+	// warnings are what the plan allows and a person should read, which the server prints once it is listening.
+	warnings []string
 }
 
 // planTransport decides how the listener is secured from its address and the certificate settings, and
 // refuses a combination that leaves the transport unclear or plaintext off loopback. It touches nothing, so a
 // refusal costs the machine nothing.
 func planTransport(opts serverOptions) (serverTransport, error) {
+	plan, err := planListener(opts)
+	if err != nil {
+		return serverTransport{}, err
+	}
+	if plan.workerURL, err = checkWorkerURL(opts.workerURL, plan); err != nil {
+		return serverTransport{}, err
+	}
+	plan.warnings = loopbackWarnings(opts.listen, plan)
+	return plan, nil
+}
+
+// checkWorkerURL checks the URL workers are to reach the server at against how the server is secured, so that no
+// join string is made that fails at the worker's end: an address that is not the one the server's own certificate
+// covers, or a scheme the listener does not speak. Empty is no URL given.
+func checkWorkerURL(given string, plan serverTransport) (string, error) {
+	if given == "" {
+		return "", nil
+	}
+	checked, err := api.CheckWorkerURL(given)
+	if err != nil {
+		return "", fmt.Errorf("--worker-url (%s): %w", envWorkerURL, err)
+	}
+	parsed, err := url.Parse(checked)
+	if err != nil {
+		return "", fmt.Errorf("--worker-url (%s) is no URL", envWorkerURL)
+	}
+	secure := parsed.Scheme == "https"
+	switch plan.mode {
+	case transportOwnAuthority, transportCertificate:
+		if !secure {
+			return "", fmt.Errorf("--worker-url (%s) is an https:// URL, because this server serves TLS", envWorkerURL)
+		}
+	case transportLoopback:
+		if secure {
+			return "", fmt.Errorf("--worker-url (%s) is an http:// URL, because this server serves plaintext on its own machine: workers reach a server over https:// behind a reverse proxy that terminates TLS, which is --tls off with --trusted-proxies and --public-url", envWorkerURL)
+		}
+	}
+	if plan.mode == transportOwnAuthority {
+		host := parsed.Hostname()
+		if ip, err := netip.ParseAddr(host); err == nil {
+			host = ip.String()
+		}
+		if !slices.Contains(plan.names, host) {
+			return "", fmt.Errorf("--worker-url (%s) reaches the server at the host %q, which the certificate this server makes does not cover, so no worker could verify it: use one of the names --name gives (%s), or add the host to --name", envWorkerURL, host, strings.Join(plan.names, ", "))
+		}
+	}
+	return checked, nil
+}
+
+// loopbackWarnings says what a proxy on this machine would meet. A listener that loopback reaches and that does not
+// list the loopback address is listing no proxy that connects from this machine, and the server then believes none
+// of what a proxy on this machine forwards: every client is one address, which the limit on wrong guesses counts as
+// one. A proxy on another machine is right to leave loopback out, so this is a warning.
+//
+// Which loopback addresses reach the listener depends on its address: every address, which `::`, `0.0.0.0`, and an
+// empty host all are, is reached at 127.0.0.1 and at ::1, because Go listens on an unspecified address with a socket of
+// both families where the system has one, and a proxy on this machine uses either, so both must be listed. localhost is
+// reached at 127.0.0.1, and a loopback address at itself.
+func loopbackWarnings(listen string, plan serverTransport) []string {
+	if plan.mode != transportProxy {
+		return nil
+	}
+	reached := loopbackReached(listen)
+	var missing []string
+	for _, addr := range reached {
+		if !plan.proxies.Contains(addr) {
+			missing = append(missing, addr.String())
+		}
+	}
+	if len(missing) == 0 {
+		return nil
+	}
+	names := strings.Join(missing, " and ")
+	return []string{fmt.Sprintf("this listener is reachable from this machine, and --trusted-proxies (%s) does not list %s: a reverse proxy on this machine connects from there, so the server would read nothing it forwards, and every member would sign in from one address and share one limit on wrong guesses; list %s if the proxy is on this machine, and leave it out if it is on another", envTrustedProxies, names, names)}
+}
+
+// loopbackReached lists the loopback addresses a connection from this machine arrives at on a listen address, and
+// none for an address that only the network reaches.
+func loopbackReached(listen string) []netip.Addr {
+	v4, v6 := netip.MustParseAddr("127.0.0.1"), netip.MustParseAddr("::1")
+	host, _, err := net.SplitHostPort(listen)
+	if err != nil {
+		return nil
+	}
+	switch ip, err := netip.ParseAddr(host); {
+	case host == "":
+		return []netip.Addr{v4, v6}
+	case host == "localhost":
+		return []netip.Addr{v4}
+	case err != nil:
+		// A host name of the network is no address loopback reaches.
+		return nil
+	case ip.IsUnspecified():
+		return []netip.Addr{v4, v6}
+	case ip.IsLoopback():
+		return []netip.Addr{ip.Unmap()}
+	}
+	return nil
+}
+
+// planListener is the plan of the listener's own security.
+func planListener(opts serverOptions) (serverTransport, error) {
 	if _, _, err := net.SplitHostPort(opts.listen); err != nil {
 		return serverTransport{}, fmt.Errorf("--listen %q: %w", opts.listen, err)
 	}
@@ -150,6 +264,66 @@ type serverListener struct {
 	authorityFile string
 	// publicURL is the origin members reach a server behind a proxy at. It is empty otherwise.
 	publicURL string
+	// names are what the server's own certificate covers, and given is the worker URL --worker-url gave.
+	names []string
+	given string
+}
+
+// workerURL is where the server's workers reach it, which its join strings carry. A URL that was given is that URL.
+// Otherwise it is what the listener implies: a server of its own authority is reached by its first name at the port
+// it bound, a server behind a proxy by its public URL, and a server on loopback by the address it bound. A server
+// serving a supplied certificate knows none of its certificate's names, so it has no URL until it is told one, and
+// the empty string says so.
+func (l *serverListener) workerURL() string {
+	if l.given != "" {
+		return l.given
+	}
+	switch l.mode {
+	case transportOwnAuthority:
+		if len(l.names) == 0 || l.Listener == nil {
+			return ""
+		}
+		_, port, err := net.SplitHostPort(l.Addr().String())
+		if err != nil {
+			return ""
+		}
+		return "https://" + net.JoinHostPort(l.names[0], port)
+	case transportProxy:
+		reached, err := api.CheckWorkerURL(l.publicURL)
+		if err != nil {
+			return ""
+		}
+		return reached
+	case transportLoopback:
+		if l.Listener == nil {
+			return ""
+		}
+		return "http://" + l.Addr().String()
+	}
+	return ""
+}
+
+// announce says what the server serves and where its workers reach it. It names the server's own authority by its file,
+// which a person trusts on a device, and by its fingerprint, which a worker pins from a join string: both are public,
+// as the authority's certificate is, and an operator compares the fingerprint with the one in a join string out of
+// band. A server that knows no URL for its workers warns on its error stream, and says what to set.
+func announce(stdout, stderr io.Writer, socket string, l *serverListener) {
+	fmt.Fprintf(stdout, "ropeshiftd: serving %s\n", socket)
+	if l.Listener != nil {
+		fmt.Fprintf(stdout, "ropeshiftd: server %s://%s\n", l.scheme(), l.Addr())
+	}
+	if l.publicURL != "" {
+		fmt.Fprintf(stdout, "ropeshiftd: public url %s\n", l.publicURL)
+	}
+	if l.authorityFile != "" {
+		fmt.Fprintf(stdout, "ropeshiftd: certificate authority %s\n", l.authorityFile)
+		fmt.Fprintf(stdout, "ropeshiftd: certificate authority sha256 %s\n", l.fingerprint)
+	}
+	if workers := l.workerURL(); workers != "" {
+		fmt.Fprintf(stdout, "ropeshiftd: worker url %s\n", workers)
+		return
+	}
+	fmt.Fprintf(stderr, "ropeshiftd: warning: this server does not know the URL its workers reach it at, so it makes no join strings: set --worker-url (%s)\n", envWorkerURL)
 }
 
 // listen opens the listener the plan describes. A plan for plaintext binds loopback and nothing else, whatever
@@ -177,7 +351,7 @@ func (t serverTransport) listen(address, stateDir string, clock ports.Clock, war
 	if err != nil {
 		return nil, err
 	}
-	opened.Listener, opened.publicURL = listener, t.publicURL
+	opened.Listener, opened.publicURL, opened.names, opened.given = listener, t.publicURL, t.names, t.workerURL
 	return opened, nil
 }
 

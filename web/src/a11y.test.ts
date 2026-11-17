@@ -1344,6 +1344,8 @@ suite.each(Object.entries(sizes))("at %s width", (size, viewport) => {
         await page.route(/\/v1\/health$/, served({ status: "ok", revision: 1, mode: "group", version: "v0.1.0-alpha.16" }));
         await page.goto(`${base}/workers?dialog=token`);
         await check("join token dialog", page.getByRole("dialog", { name: "Create join token" }));
+        await page.goto(`${base}/workers?dialog=revoke-token`);
+        await check("revoke join token dialog", page.getByRole("dialog", { name: "Revoke join token" }));
         await page.unroute(/\/v1\/health$/);
         await page.goto(`${base}/members?dialog=delegate`);
         const create = page.getByRole("dialog", { name: "Create delegate" });
