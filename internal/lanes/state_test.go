@@ -268,6 +268,16 @@ func TestConditions(t *testing.T) {
 				lanes.DegradedMode, lanes.UnpushedWork, lanes.Drifted,
 			},
 		},
+		{
+			name:  "an orchestrator held for something to judge",
+			facts: lanes.Facts{State: lanes.Provisioning, AwaitingWake: true},
+			want:  []lanes.Condition{lanes.AwaitingWake},
+		},
+		{
+			name:  "a later generation held for something to judge",
+			facts: lanes.Facts{State: lanes.Starting, AwaitingWake: true},
+			want:  []lanes.Condition{lanes.AwaitingWake},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -204,7 +204,7 @@ describe("a worker's orchestrator", () => {
     expect(fact("Starts")).toContain("4");
     expect(fact("Breaker resets")).toContain("2");
     expect(fact("Generation")).toContain("3");
-    expect(fact("Conditions")).toContain("Day capped");
+    expect(fact("Conditions")).toContain("Day's generations used");
     expect(sent.some((call) => call.method === "GET" && call.path === "/v1/workers/worker-a/orchestrator")).toBe(true);
     await userEvent.keyboard("{Escape}");
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Orchestrator on solo" })).toBeNull());

@@ -1,6 +1,7 @@
 package apitest
 
 import (
+	"slices"
 	"time"
 
 	"ropeshift.com/ropeshift/internal/control"
@@ -99,6 +100,12 @@ func (w *World) integrating(id string) {
 	}
 }
 
+// workConditions are the conditions a lane of work reports, one to each lane in turn. Only an orchestrator's
+// generation awaits a wake, so a lane of its own carries that one.
+var workConditions = slices.DeleteFunc(slices.Clone(lanes.EveryCondition), func(condition lanes.Condition) bool {
+	return condition == lanes.AwaitingWake
+})
+
 // laneIn lays out one lane in a state. A worker reports a state, except the two the ledger records for
 // itself, and each lane reports another of the values that stand beside its state.
 func (w *World) laneIn(state lanes.ActualState, turn int) {
@@ -111,7 +118,7 @@ func (w *World) laneIn(state lanes.ActualState, turn int) {
 		lane.Park(lanes.HumanWake())
 	default:
 		reach := string(EveryReach[turn%len(EveryReach)])
-		conditions := []string{string(lanes.EveryCondition[turn%len(lanes.EveryCondition)])}
+		conditions := []string{string(workConditions[turn%len(workConditions)])}
 		// Only a tripped lane says its day stopped it.
 		if state == lanes.Tripped {
 			conditions = append(conditions, string(lanes.DayCapped))
@@ -125,7 +132,8 @@ func (w *World) laneIn(state lanes.ActualState, turn int) {
 
 // EveryState lays out one work order in each state of the table and one lane in each state of its own,
 // with half of the lanes gone quiet, so both kinds of freshness stand beside each other. A sweep ends
-// every lease past its deadline, so the one state a sweep makes comes first.
+// every lease past its deadline, so the one state a sweep makes comes first. The worker's orchestrator
+// carries the one condition no lane of work reports: its run awaits a wake.
 func EveryState(w *World, clock *Clock) {
 	w.t.Helper()
 	WorkWalks[workorders.Lapsed](w, WorkIn(workorders.Lapsed))
@@ -144,4 +152,9 @@ func EveryState(w *World, clock *Clock) {
 			clock.Advance(time.Duration(4*HeartbeatMs) * time.Millisecond)
 		}
 	}
+	w.Orchestrator(ledger.LaneStatus{
+		ActualState: string(lanes.Provisioning), Liveness: string(lanes.LivenessUnknown),
+		ModelReach: string(lanes.ReachUnknown), LedgerReach: string(lanes.ReachUnknown),
+		Conditions: []string{string(lanes.AwaitingWake)},
+	})
 }

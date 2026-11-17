@@ -70,6 +70,7 @@ export const conditions: Record<string, ConditionLook> = {
   drifted: { label: "Drifted", tone: "warning" },
   day_capped: { label: "Day's generations used", tone: "danger" },
   waiting_for_person: { label: "Waiting for you", tone: "neutral" },
+  awaiting_wake: { label: "Waiting for work", tone: "neutral" },
 };
 
 export const conditionWords: Record<string, string> = Object.fromEntries(Object.entries(conditions).map(([name, look]) => [name, look.label]));

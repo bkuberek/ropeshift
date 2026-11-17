@@ -44,7 +44,8 @@
     "unpushed_work",
     "drifted",
     "day_capped",
-    "waiting_for_person"
+    "waiting_for_person",
+    "awaiting_wake"
   ],
   "liveness": [
     "alive",
@@ -385,19 +386,19 @@
           }
         }
       ],
-      "revision": 363
+      "revision": 365
     },
     "decisions": {
       "as_of": 1790000133001,
       "decisions": [],
-      "revision": 363
+      "revision": 365
     },
     "documents": {
       "as_of": 1790000133001,
       "documents": [],
       "plans": [],
       "requirements": [],
-      "revision": 363
+      "revision": 365
     },
     "in-progress": {
       "as_of": 1790000133001,
@@ -1036,7 +1037,7 @@
           }
         }
       ],
-      "revision": 363
+      "revision": 365
     },
     "needs-you": {
       "as_of": 1790000133001,
@@ -1691,7 +1692,7 @@
           }
         }
       ],
-      "revision": 363
+      "revision": 365
     },
     "on-hold": {
       "as_of": 1790000133001,
@@ -1789,7 +1790,7 @@
           }
         }
       ],
-      "revision": 363
+      "revision": 365
     },
     "operations": {
       "as_of": 1790000133001,
@@ -1938,7 +1939,7 @@
         },
         "work_in_progress": 17
       },
-      "revision": 363,
+      "revision": 365,
       "sources": [],
       "waiting_for_a_person": 11,
       "work_orders": {
@@ -3345,7 +3346,7 @@
           "title": "Review: A lane in ended"
         }
       ],
-      "revision": 363,
+      "revision": 365,
       "unplanned": [
         {
           "id": "wo-intake",
@@ -3546,7 +3547,7 @@
         "security"
       ],
       "questions": [],
-      "revision": 363
+      "revision": 365
     },
     "roadmap": {
       "as_of": 1790000133001,
@@ -4448,7 +4449,7 @@
           ]
         }
       ],
-      "revision": 363
+      "revision": 365
     },
     "search": {
       "as_of": 1790000133001,
@@ -5208,7 +5209,7 @@
           "title": "app"
         }
       ],
-      "revision": 363
+      "revision": 365
     },
     "shop-floor": {
       "as_of": 1790000133001,
@@ -5848,11 +5849,25 @@
           "worker_id": "worker-a"
         }
       ],
-      "revision": 363,
+      "revision": 365,
       "workers": [
         {
           "drivers": [],
           "freshness": "observed",
+          "orchestrator": {
+            "actual_state": "provisioning",
+            "conditions": [
+              "awaiting_wake"
+            ],
+            "current_generation": 1,
+            "desired_state": "running",
+            "id": "orchestrator-worker-a",
+            "reported_at": 1790000133001,
+            "resets": 0,
+            "run": 1,
+            "waiting_for": "run_window",
+            "worker_id": "worker-a"
+          },
           "worker": {
             "epoch": 1,
             "id": "worker-a",
@@ -6189,7 +6204,7 @@
           }
         }
       ],
-      "revision": 363
+      "revision": 365
     }
   }
 }

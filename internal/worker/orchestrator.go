@@ -151,8 +151,10 @@ func (r *laneRun) orchestratorLost(ctx context.Context) bool {
 
 // awaitWake holds a generation until there is something to judge, because a session's first prompt
 // reads a whole context, and an idle fleet spends nothing. It reports false when nobody wants this
-// run any more, or this process is going away, and what it was given stays on record either way.
+// run any more, or this process is going away, and what it was given stays on record either way. While it
+// holds, the lane reads `awaiting_wake`, and that ends the moment the wait does.
 func (r *laneRun) awaitWake(ctx context.Context) bool {
+	defer r.awaitingWake(false)
 	for {
 		if r.fenced.Load() || ctx.Err() != nil {
 			return false
@@ -161,11 +163,20 @@ func (r *laneRun) awaitWake(ctx context.Context) bool {
 			r.setWake(items)
 			return true
 		}
+		r.awaitingWake(true)
 		select {
 		case <-ctx.Done():
 			return false
 		case <-time.After(superviseEvery):
 		}
+	}
+}
+
+// awaitingWake marks the start and the end of the wait. No state moves at either, so each wakes the worker to
+// publish it as a move would.
+func (r *laneRun) awaitingWake(on bool) {
+	if r.state.waitForWake(on) {
+		r.w.laneMoved()
 	}
 }
 

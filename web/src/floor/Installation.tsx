@@ -17,7 +17,7 @@ import { DriversPanel } from "./Drivers";
 import { LaneCosts } from "./LaneCosts";
 import { bytes, sessionOf } from "./resources";
 import { OpenRunWindow } from "./RunWindow";
-import { orchestratorLabel, workerStates } from "./states";
+import { conditionWords, orchestratorLabel, workerStates } from "./states";
 
 type FloorRead = { project: string; view: ShopFloor };
 
@@ -200,7 +200,7 @@ function OrchestratorDetails({ line }: { line: WorkerLine }) {
             <Fact name="Generation">{read.row.current_generation ?? <Absent>none yet</Absent>}</Fact>
             <Fact name="Starts">{read.row.run}</Fact>
             <Fact name="Breaker resets">{read.row.resets}</Fact>
-            <Fact name="Conditions">{read.row.conditions?.length ? read.row.conditions.map((condition) => words(condition)).join(", ") : <Absent>none</Absent>}</Fact>
+            <Fact name="Conditions">{read.row.conditions?.length ? read.row.conditions.map((condition) => conditionWords[condition] ?? words(condition)).join(", ") : <Absent>none</Absent>}</Fact>
             <Fact name="Reported">{read.row.reported_at ? <Ago at={read.row.reported_at} /> : <Absent>never</Absent>}</Fact>
           </Facts>
         )}

@@ -1,4 +1,5 @@
 import { screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
 import type { Lane, ShopFloor, Stuck } from "./api/types";
@@ -133,8 +134,12 @@ describe("every lane state", () => {
   });
 });
 
+// Only an orchestrator's run awaits a wake, so no lane of work holds that condition, and the orchestrator that does
+// shows it in its details.
+const orchestratorHolding = (condition: string) => floor.workers.find((line) => line.orchestrator?.conditions?.includes(condition));
+
 describe("what stands beside a lane's state", () => {
-  it.each(fixture.conditions)("%s has words and shows on its lane", async (condition) => {
+  it.each(fixture.conditions.filter((condition) => !orchestratorHolding(condition)))("%s has words and shows on its lane", async (condition) => {
     const said = conditionWords[condition];
     expect(said, `no words for ${condition}`).toBeDefined();
     serveFixture();
@@ -142,6 +147,29 @@ describe("what stands beside a lane's state", () => {
     const lane = floor.lanes.find((row) => row.conditions?.includes(condition));
     expect(lane, `no lane holds ${condition}`).toBeDefined();
     expect(within(await rowOf(lane?.id ?? "")).getByText(said ?? "")).toBeTruthy();
+  });
+
+  it.each(fixture.conditions.filter((condition) => orchestratorHolding(condition)))("%s has words and shows on its orchestrator", async (condition) => {
+    const said = conditionWords[condition];
+    expect(said, `no words for ${condition}`).toBeDefined();
+    const line = orchestratorHolding(condition);
+    serveViews((call) => {
+      if (call.path === `/v1/workers/${line?.worker.id}/orchestrator`) {
+        return { status: 200, body: line?.orchestrator };
+      }
+      const name = /^\/v1\/views\/([a-z-]+)/.exec(call.path)?.[1];
+      return name ? { status: 200, body: fixture.views[name] } : undefined;
+    });
+    openPage("/workers");
+    const name = line?.worker.name || line?.worker.id;
+    await userEvent.click(await screen.findByRole("button", { name: `Details of the orchestrator on ${name}` }));
+    const box = await screen.findByRole("dialog", { name: `Orchestrator on ${name}` });
+    await waitFor(() => expect(within(box).getByText("Conditions").closest("div")?.textContent).toContain(said));
+  });
+
+  it("holds every condition on a lane or an orchestrator", () => {
+    const held = fixture.conditions.filter((condition) => orchestratorHolding(condition) || floor.lanes.some((row) => row.conditions?.includes(condition)));
+    expect(held).toEqual(fixture.conditions);
   });
 
   it.each(fixture.liveness)("liveness %s shows on a lane", async (liveness) => {
