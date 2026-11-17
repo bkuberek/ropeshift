@@ -92,6 +92,36 @@ func TestTheInstallationRegistersEachProjectOnce(t *testing.T) {
 	}
 }
 
+func TestReleasingRepositoriesRemovesOnlyTheEntriesItNames(t *testing.T) {
+	installation := openInstallation(t, t.TempDir())
+	ctx := t.Context()
+	entries := []ledger.IndexedRepository{
+		{Identity: "github.com/acme/app", Project: "default", Repository: "app"},
+		{Identity: "github.com/acme/site", Project: "p2", Repository: "site"},
+		{Identity: "github.com/acme/docs", Project: "p2", Repository: "docs"},
+	}
+	if _, err := installation.IndexRepositories(ctx, entries); err != nil {
+		t.Fatal(err)
+	}
+	// The second names an entry the index holds under another repository, and the third one it does not hold.
+	release := []ledger.IndexedRepository{
+		entries[0],
+		{Identity: entries[1].Identity, Project: "p2", Repository: "site-copy"},
+		{Identity: "github.com/acme/none", Project: "p2", Repository: "none"},
+	}
+	if err := installation.ReleaseRepositories(ctx, release); err != nil {
+		t.Fatal(err)
+	}
+	index, err := installation.RepositoryIndex(ctx)
+	if err != nil || !slices.Equal(index, []ledger.IndexedRepository{entries[2], entries[1]}) {
+		t.Errorf("the index holds %+v: %v", index, err)
+	}
+	events, err := installation.Events(ctx, 0, 100)
+	if err != nil || len(events) != 0 {
+		t.Errorf("a release of routing data logged %+v: %v", events, err)
+	}
+}
+
 func TestTheRepositoryIndexKeepsTheFirstProjectThatHoldsARepository(t *testing.T) {
 	installation := openInstallation(t, t.TempDir())
 	ctx := t.Context()

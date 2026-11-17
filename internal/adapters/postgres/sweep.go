@@ -47,7 +47,7 @@ func (s *State) sweep(ctx context.Context) error {
 	}
 	found, err := s.prefixed(ctx)
 	if err != nil {
-		return s.skipped(ctx, "list the schemas", err)
+		return s.skipped(ctx, "sweep: list the schemas", err)
 	}
 	for _, name := range found {
 		if named[name] || !generatedSchema(name) {
@@ -73,13 +73,13 @@ func (s *State) prefixed(ctx context.Context) ([]string, error) {
 	return pgx.CollectRows(rows, pgx.RowTo[string])
 }
 
-// skipped leaves a step of the sweep for the next Open, with a warning. A caller whose own context ended
-// gets that error, because it is not the database's.
+// skipped leaves a step of the repair of the database for the next Open, with a warning. A caller whose own
+// context ended gets that error, because it is not the database's.
 func (s *State) skipped(ctx context.Context, what string, err error) error {
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return ctxErr
 	}
-	s.warn("postgres: sweep: %s: %v", what, err)
+	s.warn("postgres: %s: %v", what, err)
 	return nil
 }
 

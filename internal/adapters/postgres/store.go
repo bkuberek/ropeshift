@@ -84,9 +84,11 @@ type State struct {
 }
 
 // Open connects to the database a URL names, makes the installation's schema, and brings it to this
-// build's version. It drops the schemas that carry a project's prefix and that no registered project names,
-// which only a crash in the middle of a Create or a Remove leaves. The URL is a postgres:// URL or a
-// key/value connection string. A project's Store opened through the state reaches the shared records there.
+// build's version. It drops the schemas that a generated project ID names and that no registered project
+// names, which only a crash in the middle of a Create or a Remove leaves, and it releases the entries of the
+// repository index that no record backs, which only a crash or a failed commit in the middle of a project's
+// write leaves. The URL is a postgres:// URL or a key/value connection string. A project's Store opened
+// through the state reaches the shared records there.
 func Open(ctx context.Context, url string, opts Options) (*State, error) {
 	pool, err := newPool(ctx, url, opts)
 	if err != nil {
@@ -119,7 +121,10 @@ func Open(ctx context.Context, url string, opts Options) (*State, error) {
 		if err := s.Installation.Migrate(ctx); err != nil {
 			return err
 		}
-		return s.sweep(ctx)
+		if err := s.sweep(ctx); err != nil {
+			return err
+		}
+		return s.reconcileIndex(ctx)
 	})
 	if err != nil {
 		_ = s.Close()

@@ -21,8 +21,9 @@ import (
 // repository, so the refusal of a repository another project holds is decided under the index's lock. The
 // first statement that writes the index ends a read-only side, which has changed nothing, and begins a
 // writing one in its place, and every read after it runs there. The side commits just before the
-// project's: a crash between the two leaves an entry whose record is missing, which a retry in the same
-// project completes and the daemon's next start drops when it rebuilds the index from the records. A crash
+// project's: a crash between the two, or a commit of the project's that fails, leaves an entry whose record
+// is missing, which a retry in the same project completes. The next start drops it: SQLite's rebuilds the
+// index from the records, and Postgres's releases each entry that no record of its project backs. A crash
 // never leaves a record that holds no entry.
 //
 // The project's transaction and the side are idle in turn: each waits while the other runs a statement. A

@@ -40,6 +40,7 @@ const (
 	opDropProject   = "project.drop"
 	opImportProject = "project.import"
 	opIndex         = "repository_index.rebuild"
+	opIndexRelease  = "repository_index.release_entries"
 )
 
 const projectColumns = `id, name, display_name, state, database, created_at`
@@ -571,6 +572,29 @@ func (in *Installation) IndexRepositories(ctx context.Context, entries []ledger.
 		return nil, fmt.Errorf("%s: commit: %w", opIndex, err)
 	}
 	return conflicts, nil
+}
+
+// ReleaseRepositories removes entries from the repository index, each matched by its identity, project, and
+// repository, so an entry that has since changed stays. The caller decides which to release, such as the
+// entries that no record of their project backs. The index is routing data, so it appends no event.
+func (in *Installation) ReleaseRepositories(ctx context.Context, entries []ledger.IndexedRepository) error {
+	tx, err := in.core.begin(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	se := in.core.session(ctx, tx, ModeWrite, opIndexRelease)
+	for _, entry := range entries {
+		if _, err := se.exec(stmtReleaseRepository, params{
+			"identity": entry.Identity, "project_id": string(entry.Project), "repository_id": entry.Repository,
+		}); err != nil {
+			return err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("%s: commit: %w", opIndexRelease, err)
+	}
+	return nil
 }
 
 // RepositoryIndex lists which project holds each repository, by identity.
