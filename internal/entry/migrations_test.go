@@ -51,6 +51,23 @@ func TestTheDaemonWarnsOfMigrationsALaterBuildApplied(t *testing.T) {
 		telemetry.close()
 		wantLaterWarning(t, r.stderr.String(), "telemetry")
 	})
+	t.Run("journal", func(t *testing.T) {
+		dir := t.TempDir()
+		journal, err := openJournal(t.Context(), dir, io.Discard)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = journal.Close()
+		recordLaterMigration(t, filepath.Join(dir, api.JournalFileName),
+			`INSERT INTO journal_migrations (name, checksum) VALUES ('journal_migrations/9001_later.sql', 'later')`)
+		var stderr bytes.Buffer
+		journal, err = openJournal(t.Context(), dir, &stderr)
+		if err != nil {
+			t.Fatalf("the daemon returned %v, want it to start", err)
+		}
+		_ = journal.Close()
+		wantLaterWarning(t, stderr.String(), "journal")
+	})
 }
 
 // recordLaterMigration records a migration in a database file as a later build would have.
