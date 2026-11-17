@@ -55,8 +55,11 @@ func NewSessions(store ports.Store, identity ports.IdentityProvider) *Sessions {
 func (s *Sessions) SignIn(ctx context.Context, scope ledger.WorkspaceID, proof ports.Proof, ttlMs int64) (SessionGrant, error) {
 	member, err := s.identity.Authenticate(ctx, scope, proof)
 	if errors.Is(err, authority.ErrBadProof) {
-		if recorded := s.recordRefusal(ctx, scope); recorded != nil {
-			return SessionGrant{}, recorded
+		// The guess was wrong whether or not its client is still there, so the record is made as though it were: a
+		// client that leaves after the check must not turn a refusal into a failure to write one. A record that
+		// fails to be written comes back beside the wrong passphrase, which stays the answer.
+		if recorded := s.recordRefusal(context.WithoutCancel(ctx), scope); recorded != nil {
+			return SessionGrant{}, errors.Join(err, recorded)
 		}
 	}
 	if err != nil {
@@ -223,8 +226,9 @@ func (s *Sessions) ChangePassphrase(ctx context.Context, scope ledger.WorkspaceI
 		return err
 	})
 	if errors.Is(err, authority.ErrBadProof) {
-		if recorded := s.recordChangeRefusal(ctx, scope, actor); recorded != nil {
-			return PassphraseChange{}, recorded
+		// As a refused sign-in is, whether or not the client is still there.
+		if recorded := s.recordChangeRefusal(context.WithoutCancel(ctx), scope, actor); recorded != nil {
+			return PassphraseChange{}, errors.Join(err, recorded)
 		}
 	}
 	if err != nil {

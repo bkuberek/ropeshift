@@ -167,7 +167,10 @@ func (a *Authority) certificate(*tls.ClientHelloInfo) (*tls.Certificate, error) 
 	switch {
 	case now.Before(a.renewAt) && live:
 		return a.leaf, nil
-	case now.Before(a.renewAt):
+	case now.Before(a.renewAt) && a.failure != nil:
+		// The certificate ended, and the renewal that was tried since failed: its error is the answer until the
+		// next try. A certificate that ended with no renewal tried is renewed now, and answers with that error if
+		// it cannot be.
 		return nil, a.failure
 	}
 	renewed, err := a.renew(now)

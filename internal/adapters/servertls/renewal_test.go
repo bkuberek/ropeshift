@@ -122,6 +122,25 @@ func TestNoCertificateIsIssuedFromAnAuthorityThatExpiredWhileTheServerRan(t *tes
 	}
 }
 
+// A certificate that ended before its renewal was due, because its authority was about to end, is answered with
+// the error of that, and never with nothing: a connection that gets no certificate and no error is left to guess.
+func TestACertificateThatEndedBeforeItsRenewalWasDueAnswersWithAnError(t *testing.T) {
+	t.Parallel()
+	dir := filepath.Join(t.TempDir(), "tls")
+	clock := fake.NewClock(start)
+	var said heard
+	ca := certificateOf(t, openHearing(t, dir, clock, &said, "ropeshift.lan").CertificatePEM())
+
+	clock.Advance(ca.NotAfter.Add(-30 * time.Second).Sub(start))
+	restarted := openHearing(t, dir, clock, &said, "ropeshift.lan")
+	served(t, restarted.TLSConfig())
+	clock.Advance(45 * time.Second)
+	cert, err := handshake(t, restarted.TLSConfig())
+	if cert != nil || err == nil || !strings.Contains(err.Error(), "expired") {
+		t.Fatalf("a certificate that ended with its authority is answered with %v, %v", cert, err)
+	}
+}
+
 // A certificate never outlives the authority that issued it, and a server whose authority ends within the month
 // says so, with what to do.
 func TestAServerCertificateNeverOutlivesItsAuthorityAndTheServerWarnsOfItsEnd(t *testing.T) {
