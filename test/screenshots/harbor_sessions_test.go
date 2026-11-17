@@ -14,11 +14,11 @@ import (
 //
 // Guide 3's session asks a product question at its start, and a second one when it takes the line the person
 // types into it, so each reaches Needs you as an item of its own whatever the batch tick does. It writes the
-// whole plan with the second answer, and submits it when the worker reminds it to report, after a pause that
-// leaves the plan on the Planning page for the guide to show. A lane whose turn
-// ends with no outcome and no blocking question open is reminded once and then stopped, so the session
-// cannot wait for more input once the questions are answered. Guide 4's session asks which branches in
-// flight to keep, and writes and submits the adoption plan once it has the answer.
+// whole plan with the second answer, and submits it in the same turn, after a pause that leaves the plan on
+// the Planning page for the guide to show. A planning lane whose turn ends with no outcome and no blocking
+// question open waits for its person, so the session submits in the turn that finishes the plan and never
+// leaves the lane waiting. Guide 4's session asks which branches in flight to keep, and writes and submits
+// the adoption plan once it has the answer.
 
 // The in-flight branches of the project guide 4 adopts.
 const (
@@ -113,7 +113,6 @@ func planningSessionTurns() [][]step {
 		shared("planning-session-1", planNoted(), adoptWritten()),
 		planTold(),
 		planWritten(),
-		planSubmitted(),
 	}
 }
 
@@ -194,7 +193,7 @@ func planTold() []step {
 }
 
 // planWritten is the turn of the second answer: the session writes the whole plan, with what the person
-// typed as a draft decision, commits it, and ends its turn.
+// typed as a draft decision, commits it, reads it back, and submits it.
 func planWritten() []step {
 	plan := append([]string{"+++", "kind = \"plan\"", "id = \"harbor-v1\"", "title = \"Berths and sailings on the public pages\"",
 		"goal = \"berths-on-the-web\"", "documents = [\"requirements:harbor\", \"milestone:berths-api\", \"milestone:berths-pages\"]", ""},
@@ -242,12 +241,10 @@ func planWritten() []step {
 			"priority = 2", "size = \"small\"", "depends_on = [\"build-berths-page\"]", "+++", "",
 			"One public page lists the berths, each with its sailings under it."),
 		commitAll("Plan the berths and their sailings"),
+		bash("git log --oneline -1"),
+		{"sleep_ms": planShown},
+		submitted(),
 	}
-}
-
-// planSubmitted is the turn of the worker's reminder to report: the session reads its plan back, and submits it.
-func planSubmitted() []step {
-	return []step{bash("git log --oneline -1"), {"sleep_ms": planShown}, submitted()}
 }
 
 // adoptOpening is guide 4's first turn: it reads the planning repository and asks which branches in flight

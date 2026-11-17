@@ -22,7 +22,8 @@
         { "waitFor": { "text": "plan/goal.md", "in": { "role": "complementary", "name": "Plan in progress" } } },
         { "waitFor": { "text": "Open questions", "in": { "role": "complementary", "name": "Plan in progress" } } },
         { "waitFor": { "text": "closed for maintenance?", "in": { "role": "complementary", "name": "Plan in progress" } } },
-        { "waitFor": { "text": "A blocking question is open", "in": { "role": "complementary", "name": "Plan in progress" } } }
+        { "waitFor": { "text": "A blocking question is open", "in": { "role": "complementary", "name": "Plan in progress" } } },
+        { "waitFor": { "text": "Live, generation 1." } }
       ],
       "capture": { "name": "plan-02", "clip": "window" }
     },
