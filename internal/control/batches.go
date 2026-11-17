@@ -225,7 +225,7 @@ func (q *Questions) AnswerFrom(ctx context.Context, scope ledger.WorkspaceID, id
 		if err := insertDecisionFrom(tx, record, actor, channel); err != nil {
 			return err
 		}
-		if err := q.noticeOneWay(tx, record, actor); err != nil {
+		if err := q.applyBinding(tx, record, boundAnswered, actor); err != nil {
 			return err
 		}
 		crashpoint.Hit("question.answer", "decided")

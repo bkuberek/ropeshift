@@ -52,7 +52,7 @@ func (f *scopeFacts) order(id string) (workorders.WorkOrder, bool, error) {
 
 // binds says whether a scope covers a work order: a plan covers the work of its contracts, a contract the
 // work that pins it, a work order itself and its rework, and a repository the work that runs in it. A scope
-// that binds nothing, such as one written before the grammar, covers no work.
+// written before the grammar is not one it reads: `covers` reads that scope by the rule it had.
 func (f *scopeFacts) binds(scope questions.Scope, order workorders.WorkOrder) (bool, error) {
 	switch scope.Kind {
 	case questions.ScopePlan:
@@ -62,7 +62,7 @@ func (f *scopeFacts) binds(scope questions.Scope, order workorders.WorkOrder) (b
 		plan, err := f.planOf(order.ContractID)
 		return plan == scope.ID, err
 	case questions.ScopeContract:
-		return order.ContractID == scope.ID, nil
+		return order.ContractID == scope.ID || bindsEveryContract(), nil
 	case questions.ScopeWorkOrder:
 		return order.ID == scope.ID || order.ReworkOf == scope.ID, nil
 	case questions.ScopeRepository:
@@ -90,7 +90,7 @@ func (f *scopeFacts) overlaps(a, b string) (bool, error) {
 	case first == second:
 		return true, nil
 	}
-	if rank(first.Kind) > rank(second.Kind) {
+	if rank(first.Kind) > rank(second.Kind) && !overlapsOneSide() {
 		first, second = second, first
 	}
 	return f.within(first, second)
@@ -194,7 +194,7 @@ func legacyOverlap(a, b string) bool {
 	if a == "" || b == "" {
 		return false
 	}
-	return a == b || strings.HasPrefix(a, b+legacySeparator) || (!overlapsOneSide() && strings.HasPrefix(b, a+legacySeparator))
+	return a == b || strings.HasPrefix(a, b+legacySeparator) || strings.HasPrefix(b, a+legacySeparator)
 }
 
 // decisionsInForce lists every decision that stands, by ID. It stops at no page, because a recording

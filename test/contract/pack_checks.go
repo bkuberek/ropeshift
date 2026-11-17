@@ -260,7 +260,7 @@ func (r *Rig) CheckPacks(s ports.Store) error {
 
 func checkPackAtClaim(r *Rig) error {
 	s := r.Store()
-	cited, err := r.decision(s, "A cited decision", func(d *questions.Decision) { d.Scope = "elsewhere" })
+	cited, err := r.decision(s, "A cited decision", func(d *questions.Decision) { d.Scope = "repo:elsewhere" })
 	if err != nil {
 		return err
 	}
@@ -272,7 +272,11 @@ func checkPackAtClaim(r *Rig) error {
 	if err != nil {
 		return err
 	}
-	if _, err := r.decision(p.s, "A decision on something else", func(d *questions.Decision) { d.Scope = "other" }); err != nil {
+	if _, err := r.decision(p.s, "A decision on something else", func(d *questions.Decision) { d.Scope = "repo:other" }); err != nil {
+		return err
+	}
+	// A decision that binds ready work returns it to contract review, and the tick passes the review again.
+	if _, err := r.NewOps(p.s).Promote(r.Ctx, r.Scope, tickActor); err != nil {
 		return err
 	}
 	grant, err := p.claim()
@@ -442,7 +446,7 @@ func checkPackReadsEveryPage(r *Rig) error {
 		for i := range made - 1 {
 			record := questions.Decision{
 				ID: r.ID("d"), Status: questions.DecisionDecided, Statement: fmt.Sprintf("Decision %d", i), Rationale: "It follows.",
-				Citations: []string{"PAY-12"}, Scope: p.order.RepositoryID + "/" + fmt.Sprint(i), Reversibility: questions.Reversible,
+				Citations: []string{"PAY-12"}, Scope: "repo:" + p.order.RepositoryID, Reversibility: questions.Reversible,
 				Categories: []string{questions.CategoryProduct}, DecidedBy: r.Actor.ID,
 			}
 			if err := tx.Questions().InsertDecision(record); err != nil {
@@ -461,7 +465,7 @@ func checkPackReadsEveryPage(r *Rig) error {
 		return err
 	}
 	decided, err := r.decision(p.s, fmt.Sprintf("Decision %d", made-1), func(d *questions.Decision) {
-		d.Scope = p.order.RepositoryID + "/" + fmt.Sprint(made-1)
+		d.Scope = "repo:" + p.order.RepositoryID
 		d.Reversibility, d.NoConflict = questions.Reversible, nil
 	})
 	if err != nil {
@@ -471,7 +475,7 @@ func checkPackReadsEveryPage(r *Rig) error {
 	var overlapping []questions.Decision
 	err = p.s.Read(r.Ctx, r.Scope, func(tx ports.ReadTx) error {
 		var err error
-		overlapping, err = control.DecisionsOverlapping(tx, p.order.RepositoryID)
+		overlapping, err = control.DecisionsOverlapping(tx, "repo:"+p.order.RepositoryID)
 		return err
 	})
 	if err != nil {
@@ -479,6 +483,10 @@ func checkPackReadsEveryPage(r *Rig) error {
 	}
 	if len(overlapping) != made {
 		return Violatedf("%d decisions overlap, and %d were made", len(overlapping), made)
+	}
+	// The decision binds the ready work, which returns to contract review until the tick passes it again.
+	if _, err := r.NewOps(p.s).Promote(r.Ctx, r.Scope, tickActor); err != nil {
+		return err
 	}
 	grant, err := p.claim()
 	if err != nil {
@@ -496,7 +504,7 @@ func checkPackReadsEveryPage(r *Rig) error {
 
 func checkPackCitedDecisions(r *Rig) error {
 	s := r.Store()
-	ended, err := r.decision(s, "A decision that will end", func(d *questions.Decision) { d.Scope = "elsewhere" })
+	ended, err := r.decision(s, "A decision that will end", func(d *questions.Decision) { d.Scope = "repo:elsewhere" })
 	if err != nil {
 		return err
 	}
@@ -529,7 +537,7 @@ func checkPackAdditions(r *Rig) error {
 	if err != nil {
 		return err
 	}
-	added, err := r.decision(p.s, "A decision somebody added", func(d *questions.Decision) { d.Scope = "other" })
+	added, err := r.decision(p.s, "A decision somebody added", func(d *questions.Decision) { d.Scope = "repo:other" })
 	if err != nil {
 		return err
 	}
@@ -759,7 +767,7 @@ func checkContextSearches(r *Rig) error {
 	if err != nil {
 		return err
 	}
-	if _, err := r.decision(s.store, "Sessions expire after an hour", func(d *questions.Decision) { d.Scope = "auth" }); err != nil {
+	if _, err := r.decision(s.store, "Sessions expire after an hour", func(d *questions.Decision) { d.Scope = "repo:auth" }); err != nil {
 		return err
 	}
 	asked, err := r.ask(s.store, "Which currency do refunds use?", "lane-a", nil)

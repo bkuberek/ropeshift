@@ -576,10 +576,11 @@ func checkMidPlanTellsLanes(r *Rig) error {
 	return nil
 }
 
-// checkMidPlanWorkStates holds G4: nothing changes the state of work a decision binds. The tick runs first.
-// A blocking question already returns unstarted work to review while it waits, and the tick returns the work
-// when the question closes, so the state before the tick is the question's doing and the state after it is
-// what the decisions left.
+// checkMidPlanWorkStates holds ADR-0030's response per work state: four one-way decisions that bind the plan
+// return its unstarted work to contract review and rework its finished work. The tick runs first. A blocking
+// question already returns unstarted work to review while it waits, and the tick returns the work when the
+// question closes, so the state before the tick is the question's doing and the state after it is what the
+// decisions left: a person's decision holds the work in review until a member passes its review again.
 func checkMidPlanWorkStates(r *Rig) error {
 	m, err := midPlanAnswered(r)
 	if err != nil {
@@ -601,11 +602,10 @@ func checkMidPlanWorkStates(r *Rig) error {
 	if len(reworked) == 0 {
 		missing = append(missing, "finished work has no rework")
 	}
-	var gap error
 	if len(missing) != 0 {
-		gap = Violatedf("after four one-way decisions that bind the plan: %s", strings.Join(missing, ", "))
+		return Violatedf("after four one-way decisions that bind the plan: %s", strings.Join(missing, ", "))
 	}
-	return knownGap(r, "GAP-MP-G4", gap)
+	return nil
 }
 
 // reworkOf lists the rework work orders of one work order.
@@ -701,8 +701,9 @@ func checkMidPlanItemNamesConflict(r *Rig) error {
 	return knownGap(r, "GAP-MP-G10", gap)
 }
 
-// checkMidPlanOverturnReworksNoReview holds the finding recorded with G3: the review lane's decisions are
-// attached to the review's own work order, which finished when the review ended.
+// checkMidPlanOverturnReworksNoReview holds the rule that a decision never reworks a work order that reads or
+// judges: the review lane's decisions are attached to the review's own work order, which finished when the
+// review ended, and overturning one once reworked it.
 func checkMidPlanOverturnReworksNoReview(r *Rig) error {
 	m, err := midPlanAnswered(r)
 	if err != nil {
@@ -712,15 +713,14 @@ func checkMidPlanOverturnReworksNoReview(r *Rig) error {
 	if err != nil {
 		return err
 	}
-	var gap error
 	reworked, err := m.reworkedFrom(overturned.Rework, m.review.grant.WorkOrder)
 	if err != nil {
 		return err
 	}
 	if reworked {
-		gap = Violatedf("overturning a decision of the review reworked the review's work order %s", m.review.grant.WorkOrder)
+		return Violatedf("overturning a decision of the review reworked the review's work order %s", m.review.grant.WorkOrder)
 	}
-	return knownGap(r, "GAP-MP-G3", gap)
+	return nil
 }
 
 // checkMidPlanNoOrchestrator holds G9: with no orchestrator, nothing takes a lane's question up the ladder,

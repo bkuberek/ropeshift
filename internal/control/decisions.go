@@ -66,7 +66,7 @@ func (q *Questions) Rule(ctx context.Context, scope ledger.WorkspaceID, id strin
 		if err := admit(tx, &record, policy, actor); err != nil {
 			return err
 		}
-		if err := q.recordAdmitted(tx, record, actor); err != nil {
+		if err := q.recordAdmitted(tx, record, boundAnswered, actor); err != nil {
 			return err
 		}
 		crashpoint.Hit("question.rule", "decided")
@@ -113,6 +113,11 @@ func checkRung(tx ports.WriteTx, question questions.Question, record questions.D
 // orchestrator replaces only what is recorded as reversible (FR-QD-8). A delegate's decision runs
 // outside those bounds only when the delegate policy exempted it, and never in a one-way category.
 func admit(tx ports.WriteTx, record *questions.Decision, policy questions.Policy, actor ledger.Actor) error {
+	// A scope is in the grammar whoever records it, so a worker of an older build cannot store one outside it
+	// after the migration that rewrote the scopes stored before (ADR-0030).
+	if _, err := questions.ParseScope(record.Scope); err != nil && !acceptsAnyScope() {
+		return err
+	}
 	return bound(tx.Questions(), newScopeFacts(tx.Planning(), tx.WorkOrders()), record, policy, actor)
 }
 
@@ -260,12 +265,13 @@ func (q *Questions) AnswerStanding(ctx context.Context, scope ledger.WorkspaceID
 	return oneWay, err
 }
 
-// recordAdmitted writes a decision and ends the one it replaces, with no rework implied.
-func (q *Questions) recordAdmitted(tx ports.WriteTx, record questions.Decision, actor ledger.Actor) error {
+// recordAdmitted writes a decision, applies what it binds, and ends the one it replaces. Replacing a decision
+// implies no rework of the work it bound: the new decision binds that work as any decision does.
+func (q *Questions) recordAdmitted(tx ports.WriteTx, record questions.Decision, how string, actor ledger.Actor) error {
 	if err := insertDecision(tx, record, actor); err != nil {
 		return err
 	}
-	if err := q.noticeOneWay(tx, record, actor); err != nil {
+	if err := q.applyBinding(tx, record, how, actor); err != nil {
 		return err
 	}
 	if record.Supersedes == "" {
@@ -311,18 +317,37 @@ func endDecision(tx ports.WriteTx, decision questions.Decision, status questions
 	return decision, err
 }
 
-// reach is the work and the lanes a decision touched, and the packs that hold it.
+// reach is the work and the lanes a decision touched, and the packs that hold it. The work orders in
+// `orders` are the ones a decision acts on, and `told` are the contract reviews and reviews whose lanes read
+// or judge work it binds: their lanes are told, and the work orders themselves are never moved or reworked.
 type reach struct {
 	orders []workorders.WorkOrder
+	told   []workorders.WorkOrder
 	lanes  map[string]int64
-	packs  []string
+	// asked are the lanes attached to a question the decision answered, which read the answer itself.
+	asked map[string]bool
+	packs []string
+}
+
+// readsWhatIsBound says a work order that only reads or judges stands over work a decision binds: a contract
+// review of the plan a plan scope names, or a review of work the decision reached.
+func readsWhatIsBound(order workorders.WorkOrder, scope questions.Scope, bound []workorders.WorkOrder) bool {
+	switch order.Kind {
+	case workorders.KindContractReview:
+		return scope.Kind == questions.ScopePlan && order.ReviewsPlan == scope.ID
+	case workorders.KindReview:
+		return slices.ContainsFunc(bound, func(b workorders.WorkOrder) bool { return b.ID == order.Reviews })
+	}
+	return false
 }
 
 // reachOf finds what rested on a decision: the subject of each question it answered, the
 // work of each lane attached to one, work under a contract that cites it, work its scope binds
-// (resolved through the ledger), and every lane whose pack holds it, which the item index finds.
+// (resolved through the ledger), and every lane whose pack holds it, which the item index finds. A decision
+// acts on `change` and `rework` work alone: the lanes of a plan, a contract review, or a review it reached
+// are told, and those work orders are in none of the lists.
 func reachOf(tx ports.WriteTx, decision questions.Decision) (reach, error) {
-	touched := reach{lanes: map[string]int64{}}
+	touched := reach{lanes: map[string]int64{}, asked: map[string]bool{}}
 	subjects := map[string]bool{}
 	asked, err := questionsOf(tx, decision)
 	if err != nil {
@@ -336,6 +361,7 @@ func reachOf(tx ports.WriteTx, decision questions.Decision) (reach, error) {
 		}
 		for _, attachment := range attached {
 			touched.lanes[attachment.Lane] = attachment.Generation
+			touched.asked[attachment.Lane] = true
 			row, err := tx.Lanes().Row(attachment.Lane)
 			if err == nil {
 				subjects[row.WorkOrder] = true
@@ -359,6 +385,9 @@ func reachOf(tx ports.WriteTx, decision questions.Decision) (reach, error) {
 	}
 	facts := newScopeFacts(tx.Planning(), tx.WorkOrders())
 	for _, order := range orders {
+		if responseOf(order) == workorders.Untouched {
+			continue
+		}
 		covered := subjects[order.ID] || subjects[order.ContractID]
 		if !covered {
 			if covered, err = facts.covers(decision.Scope, order); err != nil {
@@ -367,6 +396,12 @@ func reachOf(tx ports.WriteTx, decision questions.Decision) (reach, error) {
 		}
 		if covered {
 			touched.orders = append(touched.orders, order)
+		}
+	}
+	plan, _ := questions.ParseScope(decision.Scope)
+	for _, order := range orders {
+		if readsWhatIsBound(order, plan, touched.orders) {
+			touched.told = append(touched.told, order)
 		}
 	}
 	if err := addPinnedLanes(tx, &touched, contextpacks.KindDecision, decision.ID); err != nil {
@@ -403,7 +438,7 @@ func addRunningLanes(tx ports.WriteTx, touched *reach) error {
 		return err
 	}
 	onWork := map[string]bool{}
-	for _, order := range touched.orders {
+	for _, order := range slices.Concat(touched.orders, touched.told) {
 		onWork[order.ID] = true
 	}
 	for _, row := range rows {
@@ -428,7 +463,8 @@ func (q *Questions) noticeLanes(tx ports.WriteTx, decision, replacedBy string, t
 	return lanes, q.tellDecision(tx, decision, replacedBy, messages.Clip(questions.NoticeText(decision, replacement)), touched, actor)
 }
 
-// tellDecision leaves one notice per lane, and repeats nothing a lane was told.
+// tellDecision leaves one notice per lane, and repeats nothing a lane was told. A lane told that a decision
+// binds its work is told again when the decision ends, because that is another fact.
 func (q *Questions) tellDecision(tx ports.WriteTx, decision, replacedBy, body string, touched reach, actor ledger.Actor) error {
 	for _, lane := range slices.Sorted(maps.Keys(touched.lanes)) {
 		notice := questions.Notice{
@@ -449,7 +485,7 @@ func (q *Questions) tellDecision(tx ports.WriteTx, decision, replacedBy, body st
 			return err
 		}
 		draft := messages.Draft{
-			ID: messages.DerivedID(string(messages.KindDecisionNotice), decision, lane), To: messages.Target{Lane: lane},
+			ID: messages.DerivedID(string(messages.KindDecisionNotice), decision, lane, replacedBy), To: messages.Target{Lane: lane},
 			Kind: messages.KindDecisionNotice, Body: body,
 		}
 		if err := q.tell(tx, draft, actor); err != nil {
@@ -459,39 +495,11 @@ func (q *Questions) tellDecision(tx ports.WriteTx, decision, replacedBy, body st
 	return nil
 }
 
-// noticeOneWay tells each lane a one-way decision now covers, and parks the ones its policy says
-// to, because work that goes on past a choice nobody can take back may have to be thrown away.
-func (q *Questions) noticeOneWay(tx ports.WriteTx, record questions.Decision, actor ledger.Actor) error {
-	if record.Reversibility != questions.OneWay {
-		return nil
-	}
-	touched, err := reachOf(tx, record)
-	if err != nil {
-		return err
-	}
-	crashpoint.Hit("decision.record", "noticed")
-	if len(touched.lanes) == 0 {
-		return nil
-	}
-	if err := q.tellDecision(tx, record.ID, "", messages.Clip(questions.OneWayNoticeText(record)), touched, actor); err != nil {
-		return err
-	}
-	policy, err := lanePolicyInForce(tx)
-	if err != nil || policy.OnOneWayDecision != authority.LanePark {
-		return err
-	}
-	for _, lane := range slices.Sorted(maps.Keys(touched.lanes)) {
-		if err := askToPark(tx, lane, touched.lanes[lane], "one-way decision "+record.ID, actor); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 // Overturn is a member reversing a decision, in one transaction: the old decision becomes
-// `overturned`, a new one supersedes it, each completed work order that rested on it gets
-// rework, each lane is told, and the old decision's experience record gains its outcome. A
-// kill leaves all of that or none of it. The client's ID lets a retry find the first attempt.
+// `overturned`, a new one supersedes it, each finished work order it bound gets rework, unstarted work
+// returns to review, each lane is told and parks as the lane policy says, and the old decision's experience
+// record gains its outcome. A kill leaves all of that or none of it. The client's ID lets a retry find the
+// first attempt.
 func (q *Questions) Overturn(ctx context.Context, scope ledger.WorkspaceID, id string, overturn questions.Overturn, actor ledger.Actor) (questions.Overturned, error) {
 	if !authority.Allowed(actor, authority.ActionOverturn) {
 		return questions.Overturned{}, workorders.ErrForbidden
@@ -550,7 +558,9 @@ func overturnFound(tx ports.WriteTx, id string, overturn questions.Overturn) (qu
 		result.Rework = experience.Outcome.ReworkWorkOrders
 	}
 	for _, notice := range notices {
-		result.Noticed = append(result.Noticed, notice.Lane)
+		if notice.ReplacedBy != "" {
+			result.Noticed = append(result.Noticed, notice.Lane)
+		}
 	}
 	return result, true, nil
 }
@@ -578,15 +588,30 @@ func (q *Questions) overturnIn(tx ports.WriteTx, id string, overturn questions.O
 		return questions.Overturned{}, err
 	}
 	crashpoint.Hit("decision.overturn", "succeeded")
-	if result.Rework, err = createRework(tx, result.Old, touched, actor); err != nil {
+	if err := returnUnstarted(tx, touched.in(workorders.Unstarted), result.New.ID, result.New.Reversibility == questions.OneWay, actor); err != nil {
+		return questions.Overturned{}, err
+	}
+	why := []because{{result.Old.ID, boundOverturned}}
+	finished := chainTips(touched.in(workorders.Finished))
+	if result.Rework, err = reworkFinished(tx, finished, why, actor); err != nil {
+		return questions.Overturned{}, err
+	}
+	if err := recordReached(tx, result.Old.ID, finished, result.Rework, boundOverturned, actor); err != nil {
 		return questions.Overturned{}, err
 	}
 	crashpoint.Hit("decision.overturn", "reworked")
 	if result.Noticed, err = q.noticeLanes(tx, id, result.New.ID, touched, actor); err != nil {
 		return questions.Overturned{}, err
 	}
+	if err := parkAsPolicySays(tx, touched, boundOverturned, result.New.Reversibility == questions.OneWay, result.New.ID, actor); err != nil {
+		return questions.Overturned{}, err
+	}
 	crashpoint.Hit("decision.overturn", "noticed")
-	if err := q.renewPacks(tx, touched.packs, actor); err != nil {
+	packs, err := packsOfWork(tx, touched.in(workorders.Live))
+	if err != nil {
+		return questions.Overturned{}, err
+	}
+	if err := q.renewPacks(tx, slices.Compact(slices.Sorted(slices.Values(append(packs, touched.packs...)))), actor); err != nil {
 		return questions.Overturned{}, err
 	}
 	crashpoint.Hit("decision.overturn", "repacked")
@@ -632,35 +657,13 @@ func succeed(tx ports.WriteTx, old questions.Decision, overturn questions.Overtu
 	return record, nil
 }
 
-// createRework starts one `rework` work order per completed one, in contract review, where a
-// person reviews it as they would any work. Work still in progress learns from its notice.
-func createRework(tx ports.WriteTx, old questions.Decision, touched reach, actor ledger.Actor) ([]string, error) {
-	var created []string
-	for _, order := range touched.orders {
-		if !order.State.Completed() {
-			continue
-		}
-		id, err := newID(tx.Now())
-		if err != nil {
-			return nil, err
-		}
-		if err := insertRework(tx, id, order, old, actor); err != nil {
-			return nil, err
-		}
-		if err := calibrateLaterDefect(tx, order, fmt.Sprintf("decision %s was overturned", old.ID), actor); err != nil {
-			return nil, err
-		}
-		created = append(created, id)
-	}
-	return created, nil
-}
-
-func insertRework(tx ports.WriteTx, id string, order workorders.WorkOrder, old questions.Decision, actor ledger.Actor) error {
+// insertRework starts the rework of a finished work order, with the reasons decisions gave for it in its title.
+func insertRework(tx ports.WriteTx, id string, order workorders.WorkOrder, reason string, actor ledger.Actor) error {
 	version, err := pinnedVersion(tx.Planning(), order)
 	if err != nil {
 		return err
 	}
-	title := fmt.Sprintf("Rework %s: decision %s was overturned", order.Title, old.ID)
+	title := fmt.Sprintf("Rework %s: %s", order.Title, reason)
 	record, err := workorders.NewRework(id, order, title, version)
 	if err != nil {
 		return err

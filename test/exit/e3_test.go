@@ -49,7 +49,7 @@ func TestExitE3LadderAndAttach(t *testing.T) {
 	member := ledger.Actor{Kind: ledger.ActorMember, ID: "member-1"}
 	ctx := t.Context()
 	_, err := use.RecordDecision(ctx, soloScope, questions.Decision{
-		ID: "d-budget", Status: questions.DecisionDecided, Statement: "Retry twice.", Rationale: "It follows.", Scope: "retries",
+		ID: "d-budget", Status: questions.DecisionDecided, Statement: "Retry twice.", Rationale: "It follows.", Scope: "repo:retries",
 		Reversibility: "reversible", DecidedBy: member.ID, Citations: []string{"PAY-12"},
 	}, member)
 	if err != nil {

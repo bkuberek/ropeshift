@@ -173,7 +173,7 @@ func (q *Questions) decideInTx(tx ports.WriteTx, record questions.Decision, acto
 	if err := admit(tx, &record, policy, actor); err != nil {
 		return questions.Decision{}, err
 	}
-	return record, q.recordAdmitted(tx, record, actor)
+	return record, q.recordAdmitted(tx, record, boundRecorded, actor)
 }
 
 func insertDecision(tx ports.WriteTx, record questions.Decision, actor ledger.Actor) error {

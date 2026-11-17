@@ -101,6 +101,23 @@ A decision record kept as a file, such as an architecture decision record, takes
 
 Questions reach you in batches, each with its options and a recommendation. Every answer is recorded as a decision with its rationale, so the next lane that asks finds it on the first rung. One-way decisions about security, compliance, and data always come to you. A planning session's questions come straight to you too, because the plan is yours ([decisions in the web UI](web-ui.md#needs-you)).
 
+### What a decision does to work
+
+A decision names what it binds in its scope: `plan:<id>` for a plan, its contracts, and the work under them, `contract:<id>` for a contract and the work that pins it, `wo:<id>` for a work order and its rework, and `repo:<id>` for the work that runs in a repository. An answer takes the scope of its question, so the answers of a plan review bind the plan. Ropeshift finds the work through the ledger, never from the text of an ID, and a decision with no scope binds nothing.
+
+A decision that is in force and binds work acts on it in the transaction that records it, whether it is reversible or not and whoever recorded it:
+
+| Where the work stands | What happens |
+|-----------------------|--------------|
+| Not started, and `ready` | It returns to contract review. When a person recorded a one-way decision, the work waits there until a member passes its review again, which reads a choice nobody can take back. Any other decision holds nothing, and the next tick passes the review again with the decision in what it reads |
+| Claimed, running, parked, lapsed, or blocked | Its lane is told, and its next context pack holds the decision. A lane that asked the question the decision answers reads the answer in place of a notice, and goes on. Any other lane goes on or parks as the [lane policy](cli.md) says |
+| Finished: waiting for acceptance, integrating, or done | A one-way decision, and an overturn, start one rework of it. A reversible decision lists it on record, and a member reworks what it touches |
+| Failed or canceled | Nothing. A retry starts from a pack that holds the decision |
+
+A plan, a contract review, and a review are never moved or reworked by a decision. Their lanes are told. A batch of decisions starts at most one rework of a finished work order. A rework that has not finished is the end of its chain, so it takes the later decisions instead of a second rework beside it: one that has not started reads them from its pack, and one with a lane is told and has its pack renewed. Work that was already reworked and finished is reworked once more at the end of its chain of rework, never at each link.
+
+The lane policy's `on_binding_decision` is `notify`, the default, or `park`, and it answers for every decision that binds a lane's work. A policy that sets `on_one_way_decision` answers for one-way decisions instead, so a team can park on what cannot be undone and tell on the rest.
+
 ## The ledger and Needs you
 
 **The ledger** is ropeshift's record of execution: a local database for each project that holds claims, lanes, outcomes, reviews, questions, decisions, approvals, and merges, each with who did it. The plan stays in your repository, and the ledger records what happened to it.

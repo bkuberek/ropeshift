@@ -98,6 +98,29 @@ func stopsAtOnePage() bool { return false }
 // overlapsOneSide is false: a scope overlaps one that is inside it and one that holds it.
 func overlapsOneSide() bool { return false }
 
+// acceptsAnyScope is false: a decision's scope is in the grammar, whoever records it.
+func acceptsAnyScope() bool { return false }
+
+// A decision that binds work acts on exactly what its scope names, once, as the lane policy says: none of these
+// breaks it in a normal build.
+func bindsEveryContract() bool     { return false }
+func keepsReadyWork() bool         { return false }
+func holdsNothing() bool           { return false }
+func keepsStandingHold() bool      { return false }
+func holdsReversible() bool        { return false }
+func tellsNobody() bool            { return false }
+func renewsNoPack() bool           { return false }
+func parksNothing() bool           { return false }
+func parksAnyDecision() bool       { return false }
+func parksAskingLanes() bool       { return false }
+func reworksNothing() bool         { return false }
+func reworksReversible() bool      { return false }
+func reworksEachDecision() bool    { return false }
+func reworksWholeChain() bool      { return false }
+func sparesAskersOnOverturn() bool { return false }
+func branchesTheChain() bool       { return false }
+func reworksAnyKind() bool         { return false }
+
 // leavesParkedLanes is false: a cancel ends a lane with no process, which no worker will report.
 func leavesParkedLanes() bool { return false }
 

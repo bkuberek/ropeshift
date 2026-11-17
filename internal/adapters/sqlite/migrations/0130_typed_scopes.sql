@@ -1,9 +1,10 @@
 -- A decision's scope names what it binds in one grammar: plan:<id>, contract:<id>, wo:<id>, or repo:<id>
 -- (ADR-0030). A scope stored before the grammar is a bare ID. One that is exactly the ID of one plan,
 -- one contract, one work order, or one repository takes that kind as its prefix. One that is the ID of
--- records of two kinds names no one record, and one that names none is free text. Both stay as written,
--- bind no work, and overlap another such scope by the rule they had. The four statements read only
--- what is stored, and a scope they rewrite holds a colon no ID holds, so no statement meets another's work.
+-- records of two kinds names no one record, and one that names none is free text. Both stay as written, and
+-- keep the reach they had: such a scope covers work, and overlaps another such scope, by the rule it had before
+-- the grammar, equal or one inside the other by a slash. The four statements read only what is stored, and a
+-- scope they rewrite holds a colon no ID holds, so no statement meets another's work.
 
 UPDATE decisions SET scope = 'plan:' || scope
  WHERE EXISTS (SELECT 1 FROM plans p WHERE p.workspace_id = decisions.workspace_id AND p.id = decisions.scope)

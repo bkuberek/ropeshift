@@ -234,7 +234,7 @@ func TestALanePolicyIsPublishedAndReviewedThroughTheAPI(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := (authority.LanePolicy{Version: 2, OnContractVersion: authority.LanePark, OnOneWayDecision: authority.LaneNotify}); inForce != want {
+	if want := (authority.LanePolicy{Version: 2, OnContractVersion: authority.LanePark, OnBindingDecision: authority.LaneNotify}); inForce != want {
 		t.Errorf("in force %+v, want %+v", inForce, want)
 	}
 }
@@ -324,7 +324,9 @@ func TestALanePolicyBodyMustBeComplete(t *testing.T) {
 	tests := []struct{ name, body string }{
 		{"a misspelled key", strings.Replace(base, "on_contract_version", "on_contract", 1)},
 		{"no setting for a contract", strings.Replace(base, "on_contract_version = \"notify\"\n", "", 1)},
-		{"no setting for a one-way decision", strings.Replace(base, "on_one_way_decision = \"notify\"\n", "", 1)},
+		{"no setting for a decision", strings.Replace(base, "on_binding_decision = \"notify\"\n", "", 1)},
+		{"an action nobody named for a binding decision", strings.Replace(base, "on_binding_decision = \"notify\"", "on_binding_decision = \"ignore\"", 1)},
+		{"an action nobody named for a one-way decision", base + "on_one_way_decision = \"ignore\"\n"},
 		{"no version", strings.Replace(base, "version = 2\n", "", 1)},
 		{"an action nobody named", strings.Replace(base, `"notify"`, `"ignore"`, 1)},
 	}

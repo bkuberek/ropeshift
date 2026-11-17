@@ -79,7 +79,7 @@ func draftDecision(version planning.PlanVersion, draft planning.DraftDecision, m
 		ID: planDecisionID(version.PlanID, version.Version, draft.ID), Status: questions.DecisionDecided,
 		Statement: "Q: " + strings.TrimSpace(draft.Question) + " A: " + strings.TrimSpace(draft.Answer),
 		Rationale: draft.Rationale, Citations: []string{planVersionCitation(version.PlanID, version.Version)},
-		Scope: "plan:" + version.PlanID, Reversibility: questions.Reversible, Categories: []string{questions.CategoryProduct},
+		Scope: questions.ScopeOf(planning.SubjectPlan, version.PlanID), Reversibility: questions.Reversible, Categories: []string{questions.CategoryProduct},
 		DecidedBy: member.ID,
 	}
 	if decision.Rationale == "" {

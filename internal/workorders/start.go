@@ -48,6 +48,9 @@ const (
 	// HoldForgeUnavailable says a review waits on a worker whose forge sign-in cannot run: `gh` is missing
 	// there, or `gh auth status` reports a problem.
 	HoldForgeUnavailable HoldReason = "forge_unavailable"
+	// HoldDecision says a decision a person made binds work that stands in contract review, and a member's
+	// review has not read it. A member passing the review again ends the hold (ADR-0030).
+	HoldDecision HoldReason = "decision"
 )
 
 // StartHold is a reason a ready work order is not claimed, and what it waits for.

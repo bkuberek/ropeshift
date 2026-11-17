@@ -1034,7 +1034,7 @@ func checkEachEventFires(r *Rig) error {
 	if err := r.ExpectWoken(s, onDone); err != nil {
 		return err
 	}
-	const scope = "payments"
+	const scope = "repo:payments"
 	onDecision, err := r.Parked(s, fmt.Sprintf(`{%q:%q}`, parking.DecisionRecorded, scope))
 	if err != nil {
 		return err
@@ -1347,7 +1347,7 @@ func (r *Rig) endedDecisions(s ports.Store, scope string) error {
 // one in force is not on the first page, which the setup proves before it asks for the wake.
 func checkDecisionPastAPage(r *Rig) error {
 	s := r.Store()
-	const scope = "payments"
+	const scope = "repo:payments"
 	if err := r.endedDecisions(s, scope); err != nil {
 		return err
 	}

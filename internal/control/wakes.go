@@ -48,7 +48,11 @@ func NewWakes(store ports.Store) *Wakes { return &Wakes{store: store} }
 // process is gone. A wake already stored decides what a restarted worker does, so a retry is
 // done whatever has happened since.
 func (w *Wakes) BeginParking(ctx context.Context, scope ledger.WorkspaceID, holder workorders.Holder, draft parking.Draft, actor ledger.Actor) error {
-	if _, err := parking.Parse(draft.Expr, holder.Lane); err != nil {
+	expr, err := parking.Parse(draft.Expr, holder.Lane)
+	if err != nil {
+		return err
+	}
+	if err := checkDecisionKeys(expr); err != nil {
 		return err
 	}
 	return w.store.Write(ctx, scope, opLaneParking, func(tx ports.WriteTx) error {
@@ -428,8 +432,28 @@ func questionAnswered(reader ports.QuestionReader, id string) (bool, error) {
 	return false, nil
 }
 
+// checkDecisionKeys holds each decision a wake names to a scope in the grammar, which is the key a decision
+// recorded now is found by. A wake stored before the grammar is read by decisionRecorded as it was.
+func checkDecisionKeys(expr parking.Expr) error {
+	for _, fact := range expr.Facts() {
+		if fact.Kind != parking.DecisionRecorded || acceptsAnyScope() {
+			continue
+		}
+		scope, err := questions.ParseScope(fact.Key)
+		if err == nil && scope.Zero() {
+			err = fmt.Errorf("%w: a wake on a decision names its scope", questions.ErrInvalid)
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // decisionRecorded is true when a decision in force names exactly this scope. A scope can hold
-// more ended decisions than one read returns, so it reads on until it has seen them all.
+// more ended decisions than one read returns, so it reads on until it has seen them all. A wake stored before
+// the grammar names a bare ID, and migration 0130 gave the decisions of that ID their prefix, so such a key
+// is also held by a decision in force of the kind that ID names.
 func decisionRecorded(reader ports.QuestionReader, scope string) (bool, error) {
 	after := ""
 	for {
@@ -441,10 +465,24 @@ func decisionRecorded(reader ports.QuestionReader, scope string) (bool, error) {
 			return decision.Scope == scope && decision.Status.InForce()
 		})
 		if found || len(page) < ports.MaxRecords || readsOnePage() {
-			return found, nil
+			if found {
+				return true, nil
+			}
+			break
 		}
 		after = page[len(page)-1].ID
 	}
+	if _, err := questions.ParseScope(scope); err == nil {
+		return false, nil
+	}
+	standing, err := decisionsInForce(reader)
+	if err != nil {
+		return false, err
+	}
+	return slices.ContainsFunc(standing, func(decision questions.Decision) bool {
+		typed, err := questions.ParseScope(decision.Scope)
+		return err == nil && !typed.Zero() && typed.ID == scope
+	}), nil
 }
 
 // DueWakes lists the open wakes whose time has come. It takes no lock, so a stale list is

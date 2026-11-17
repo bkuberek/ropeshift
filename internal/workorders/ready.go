@@ -21,6 +21,9 @@ const (
 	// CheckAgent fails while the roster agent the work names, or the one the default mapping gives it, is
 	// unknown or disabled in the resolved roster (FR-AGENT-13).
 	CheckAgent ReadyCheck = "agent"
+	// CheckDecisions fails while a decision a person made binds the work, and no member has passed its review
+	// again to read the decision (ADR-0030).
+	CheckDecisions ReadyCheck = "decisions"
 )
 
 // DependencyFact is what the definition of ready knows about one dependency.
@@ -46,6 +49,9 @@ type ReadyFacts struct {
 	UnknownRepository string
 	// AgentProblem says why the resolved roster cannot give the work its agent, naming the agent.
 	AgentProblem string
+	// HeldByDecision says a decision a person made binds the work and its review has not read it, with the
+	// words that name the decision.
+	HeldByDecision string
 }
 
 // ReadyFailure is one check that did not pass.
@@ -78,6 +84,9 @@ func DefinitionOfReady(f ReadyFacts) []ReadyFailure {
 	}
 	if f.AgentProblem != "" {
 		failed = append(failed, ReadyFailure{CheckAgent, f.AgentProblem})
+	}
+	if f.HeldByDecision != "" {
+		failed = append(failed, ReadyFailure{CheckDecisions, f.HeldByDecision})
 	}
 	return failed
 }
