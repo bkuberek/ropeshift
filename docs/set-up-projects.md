@@ -45,7 +45,7 @@ Repositories says No repositories in Harbor yet, with Register repositories and 
 
 ### 4. Choose the folder of clones
 
-Select Register repositories. The dialog registers clones on the disk of the machine the daemon runs on, whose worker its Worker line names. Under What to register, choose A folder of clones. In Folder, enter the absolute path of the folder that holds the clones. Depth says how many folder levels below it to look for clones, and 1 looks at the folder's children.
+Select Register repositories. The dialog registers clones on the disk of the machine the daemon runs on, as its Worker line says. Under What to register, choose A folder of clones. In Folder, enter the absolute path of the folder that holds the clones. Depth says how many folder levels below it to look for clones, and 1 looks at the folder's children.
 
 ![Register repositories in Harbor, step 1, with A folder of clones, the folder, and a depth of 1](assets/screenshots/projects-04-light.png#gh-light-mode-only)
 ![Register repositories in Harbor, step 1, with A folder of clones, the folder, and a depth of 1](assets/screenshots/projects-04-dark.png#gh-dark-mode-only)
@@ -54,7 +54,7 @@ A folder that is itself a clone registers that one clone, and nothing inside a c
 
 ### 5. Run the dry run
 
-Select Run dry run. Step 2, Dry run, lists each clone it found, with its path, its identity, and what registering would do with it. Nothing is recorded until you register.
+Select Run dry run. Step 2, Dry run, lists each clone it found, with its path as you entered it, its identity, and what registering would do with it. Nothing is recorded until you register.
 
 ![The dry run, listing harbor-api and harbor-web with their remotes, each marked Will register](assets/screenshots/projects-05-light.png#gh-light-mode-only)
 ![The dry run, listing harbor-api and harbor-web with their remotes, each marked Will register](assets/screenshots/projects-05-dark.png#gh-dark-mode-only)
@@ -197,4 +197,4 @@ root = "/path/to/lanes/{project}/{repo}"
 
 ## Next
 
-Plan your first change, the next guide in [the README's documentation](../README.md#documentation). For a project that already has code, documents, and branches, [adopt an existing project](adopt.md) brings it in as a plan instead.
+Plan your first change, the next guide in [Learn ropeshift](../README.md#learn-ropeshift). For a project that already has code, documents, and branches, [adopt an existing project](adopt.md) brings it in as a plan instead.
