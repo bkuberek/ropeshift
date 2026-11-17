@@ -1,7 +1,9 @@
 package worker_test
 
 import (
+	"context"
 	"encoding/json"
+	"sync"
 	"testing"
 	"time"
 
@@ -138,5 +140,75 @@ func TestAQuestionToolCallBecomesALedgerQuestion(t *testing.T) {
 	}
 	if len(rows) != 1 || rows[0].Text != "Which retry budget?" || !rows[0].Blocking || len(rows[0].Options) != 2 {
 		t.Fatalf("questions %+v", rows)
+	}
+}
+
+// heldAsks is a control plane that answers an ask only once the test lets it, past any deadline.
+type heldAsks struct {
+	*fake.WorkerLink
+	reached chan struct{}
+	once    sync.Once
+	release chan struct{}
+}
+
+func (l *heldAsks) Ask(ctx context.Context, ask questions.LaneAsk) (questions.AskResult, error) {
+	l.once.Do(func() { close(l.reached) })
+	<-l.release
+	return l.WorkerLink.Ask(ctx, ask)
+}
+
+// free lets every held ask go on. It is safe to call twice.
+func (l *heldAsks) free() {
+	select {
+	case <-l.release:
+	default:
+		close(l.release)
+	}
+}
+
+// TestWaitOutlastsAQuestionsConversion stops a worker while it carries a question tool's question to the
+// control plane. The conversion goes on after its lane has ended, so the worker's wait covers it.
+func TestWaitOutlastsAQuestionsConversion(t *testing.T) {
+	t.Parallel()
+	base := newRig(t)
+	link := &heldAsks{WorkerLink: base.link, reached: make(chan struct{}), release: make(chan struct{})}
+	base.workerLink = link
+	r := newLaneRigFor(t, base).dispatched()
+	g := newGate()
+	r.finishLater(g)
+	t.Cleanup(link.free)
+	r.driver.Play(script([]fake.DriverStep{{Bound: true}, g.step()}))
+	r.atGate(g)
+	r.hook(t, lanes.HookEvent{
+		Event: "PreToolUse", Tool: lanes.ToolQuestion, Subject: "toolu_1",
+		Asked: []lanes.AskedQuestion{{Text: "Which retry budget?", Options: []string{"Three", "Five"}}},
+	})
+	select {
+	case <-link.reached:
+	case <-time.After(20 * time.Second):
+		t.Fatal("the question never reached the control plane")
+	}
+	g.free()
+	r.driver.StopEverySession()
+	for deadline := time.Now().Add(20 * time.Second); r.subject.Running("lane-1"); time.Sleep(time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the lane never ended")
+		}
+	}
+	waited := make(chan struct{})
+	go func() {
+		defer close(waited)
+		r.subject.Wait()
+	}()
+	select {
+	case <-waited:
+		t.Fatal("Wait returned while a question's conversion was on its way")
+	case <-time.After(100 * time.Millisecond):
+	}
+	link.free()
+	select {
+	case <-waited:
+	case <-time.After(20 * time.Second):
+		t.Fatal("Wait never returned once the conversion ended")
 	}
 }

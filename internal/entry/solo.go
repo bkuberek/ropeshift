@@ -488,10 +488,17 @@ func startSoloWorker(
 		}
 		// Run returns before the goroutines it started for lanes, forge requests, and probes, and they write
 		// the journal and upload over the link until they end, so both close after them.
-		awaitWorker(subject, workerStopGrace, stderr)
-		<-socketDone
+		stopWorker(subject, socketDone, workerStopGrace, stderr)
 	}()
 	return done, nil
+}
+
+// stopWorker waits for the socket to take no more connections, and then for what the worker started, for at
+// most grace. The socket's connections start goroutines the worker's wait covers, so that wait begins once
+// none can start.
+func stopWorker(subject stoppingWorker, socketDone <-chan struct{}, grace time.Duration, stderr io.Writer) {
+	<-socketDone
+	awaitWorker(subject, grace, stderr)
 }
 
 // workerStopGrace bounds how long a stopping daemon waits for the goroutines its worker started before it

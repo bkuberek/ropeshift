@@ -229,7 +229,7 @@ func (w *Worker) admit(ctx context.Context, held messages.Held) {
 		return
 	}
 	if w.moveMessage(ctx, held, messages.Admitted) {
-		go w.uploadSoon(ctx)
+		w.goTracked(trackedUpload, func() { w.uploadSoon(ctx) })
 	}
 	run := w.runOf(held.To.Lane)
 	if run == nil || run.currentGeneration() != held.To.Generation {
@@ -334,7 +334,7 @@ func (w *Worker) takeReply(ctx context.Context, lane lanes.Record, request lanes
 	if _, err := w.Record(ctx, event); err != nil {
 		return refused(lanes.CodeUnavailable, err.Error())
 	}
-	go w.uploadSoon(ctx)
+	w.goTracked(trackedUpload, func() { w.uploadSoon(ctx) })
 	return lanes.Reply{OK: true}
 }
 

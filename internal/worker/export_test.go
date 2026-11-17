@@ -37,6 +37,9 @@ func (w *Worker) HoldingForAnswer(lane string) bool {
 	return run != nil && run.waiting.Load()
 }
 
+// Running says a lane's run is still in this worker's hands. The run leaves them as its goroutine ends.
+func (w *Worker) Running(lane string) bool { return w.runOf(lane) != nil }
+
 // Respawn is a pass that read a request for a lane's next generation, with the count it read. A pass reads
 // the journal and then acts, so a count can arrive after the run has acted on it.
 func (w *Worker) Respawn(ctx context.Context, lane string, asked int64) {
