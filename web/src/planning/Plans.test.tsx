@@ -173,6 +173,17 @@ describe("one plan", () => {
     expect(within(review).getByRole("link", { name: "Does the plan cover a restart?" }).getAttribute("href")).toBe(here("/questions?id=question-review"));
   });
 
+  it("names what each question a review left open binds, with the title of the record its scope names", async () => {
+    const left = planned().reviews[0]?.open_questions[0];
+    expect(left?.scope).toMatch(/^plan:/);
+    expect(left?.scope_title).toBeTruthy();
+    serveViews();
+    await openPlan();
+    const review = screen.getByRole("article", { name: "Review Write the docs" });
+    const item = within(review).getByRole("link", { name: "Does the plan cover a restart?" }).closest("li");
+    expect(item?.querySelector("p")?.textContent).toBe(`Scope: ${left?.scope} · ${left?.scope_title}`);
+  });
+
   it("says when a review left nothing open", async () => {
     const plan = planned();
     serve((view) => {

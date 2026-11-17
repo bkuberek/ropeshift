@@ -76,7 +76,9 @@ export type TalkQuestionRecord = {
   asked_by?: string;
 };
 
-export type TalkQuestion = { question: TalkQuestionRecord; batch?: string; channel?: string };
+// scope is what an answer binds: the record the question is about. scope_title is that record's title, absent when
+// the ledger holds no such record or its title only repeats the ID, so the scope shows alone.
+export type TalkQuestion = { question: TalkQuestionRecord; batch?: string; channel?: string; scope?: string; scope_title?: string };
 
 export type EntryKind = "member" | "reply" | "event" | "action" | "card" | "request" | "question" | "marker";
 

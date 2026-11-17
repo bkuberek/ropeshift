@@ -183,7 +183,13 @@ func requirementSource(requirement planning.Requirement) contextpacks.Source {
 }
 
 func decisionSource(decision questions.Decision) contextpacks.Source {
-	text := questions.DecisionText(decision)
+	return titledDecisionSource(decision, "")
+}
+
+// titledDecisionSource is a decision with its scope named beside the title of the record the scope names, as a
+// search reads it.
+func titledDecisionSource(decision questions.Decision, title string) contextpacks.Source {
+	text := questions.TitledDecisionText(decision, title)
 	return contextpacks.Source{
 		Kind: contextpacks.KindDecision, Ref: decision.ID, Digest: contextpacks.TextDigest(text), Trust: contextpacks.TrustWorkspace, Text: text,
 	}
@@ -639,7 +645,7 @@ func (w *Workers) LaneContext(ctx context.Context, request ledger.LaneContextReq
 		if err != nil {
 			return err
 		}
-		sources, err := readRecords(tx).reach(request)
+		sources, err := readRecords(tx).reach(request, scopeTitler{tx: tx, orchestrator: orchestrator})
 		if err != nil {
 			return err
 		}
@@ -710,17 +716,17 @@ func readsAsHolder(tx ports.ReadTx, request ledger.LaneContextRequest) (bool, er
 // defaultSearch is how many records one search reads when a lane names no limit.
 const defaultSearch = 20
 
-// reach answers one read.
-func (r packRecords) reach(request ledger.LaneContextRequest) ([]contextpacks.Source, error) {
+// reach answers one read. A search names each record's scope beside the title of the record it names.
+func (r packRecords) reach(request ledger.LaneContextRequest, titler scopeTitler) ([]contextpacks.Source, error) {
 	switch request.Tool {
 	case lanes.ToolContextGet:
 		return r.lookup(contextpacks.Kind(request.Kind), request.Ref, request.WorkOrder)
 	case lanes.ToolRequirementGet:
 		return r.lookup(contextpacks.KindRequirement, request.Ref, request.WorkOrder)
 	case lanes.ToolDecisionSearch:
-		return r.searchDecisions(request.Query, request.Limit)
+		return r.searchDecisions(request.Query, request.Limit, titler)
 	case lanes.ToolQuestionSearch:
-		return r.searchQuestions(request.Query, request.Limit)
+		return r.searchQuestions(request.Query, request.Limit, titler)
 	}
 	return nil, fmt.Errorf("%w: no tool %q", workorders.ErrInvalid, request.Tool)
 }
@@ -834,28 +840,49 @@ func searchLimit(limit int) int {
 	return limit
 }
 
-func (r packRecords) searchDecisions(query string, limit int) ([]contextpacks.Source, error) {
+func (r packRecords) searchDecisions(query string, limit int, titler scopeTitler) ([]contextpacks.Source, error) {
 	rows, err := r.questions.Decisions(ports.RecordFilter{Text: query, Limit: searchLimit(limit)})
 	if err != nil {
 		return nil, err
 	}
-	out := make([]contextpacks.Source, 0, len(rows))
-	for _, row := range rows {
-		out = append(out, decisionSource(row))
+	found := make([]scopedRecord, len(rows))
+	for i, row := range rows {
+		found[i] = scopedRecord{whole: questions.KindDecision, id: row.ID, scope: row.Scope}
 	}
-	return out, nil
-}
-
-func (r packRecords) searchQuestions(query string, limit int) ([]contextpacks.Source, error) {
-	rows, err := r.questions.Questions(ports.RecordFilter{Text: query, Limit: searchLimit(limit)})
+	titles, err := titler.titles(found)
 	if err != nil {
 		return nil, err
 	}
 	out := make([]contextpacks.Source, 0, len(rows))
-	for _, row := range rows {
+	for i, row := range rows {
+		out = append(out, titledDecisionSource(row, titles[i]))
+	}
+	return out, nil
+}
+
+// searchQuestions says of each question found how it stands, the decision that answered it, and the scope an
+// answer to it takes (questions.ScopeOf), beside the title of the record that scope names.
+func (r packRecords) searchQuestions(query string, limit int, titler scopeTitler) ([]contextpacks.Source, error) {
+	rows, err := r.questions.Questions(ports.RecordFilter{Text: query, Limit: searchLimit(limit)})
+	if err != nil {
+		return nil, err
+	}
+	found := make([]scopedRecord, len(rows))
+	for i, row := range rows {
+		found[i] = scopedRecord{whole: questions.KindQuestion, id: row.ID, scope: questions.ScopeOf(row.SubjectKind, row.SubjectID)}
+	}
+	titles, err := titler.titles(found)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]contextpacks.Source, 0, len(rows))
+	for i, row := range rows {
 		text := "Status: " + string(row.Status) + "\nQuestion: " + row.Text + "\n"
 		if row.DecisionID != "" {
 			text += "Decision: " + row.DecisionID + "\n"
+		}
+		if scope := found[i].scope; scope != "" {
+			text += "Scope: " + questions.ScopeLabel(scope, titles[i]) + "\n"
 		}
 		out = append(out, contextpacks.Source{Kind: contextpacks.KindQuestion, Ref: row.ID, Trust: contextpacks.TrustWorkspace, Text: text})
 	}

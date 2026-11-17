@@ -406,6 +406,28 @@ describe("switching the target", () => {
     expect(changes(sent)[0]).toMatchObject({ path: "/v1/approvals/ap-1/decide", body: { allow: true, digest: "sha256:abc", place: "conversation" } });
   });
 
+  it("shows a lane's question inline with what its answer binds, as Needs you does", async () => {
+    withLanes();
+    state.lane.entries.push({
+      id: "question-q-1",
+      at: Date.now(),
+      kind: "question",
+      question: {
+        question: { id: "q-1", text: "Should the budget hold across restarts?", status: "needs_human", categories: ["product"], options: ["Yes", "No"], recommendation: "Yes" },
+        batch: "batch-1",
+        scope: "wo:WO-219",
+        scope_title: "Add the retry budget",
+      },
+    });
+    const { dock } = await open(state);
+    await userEvent.click(await within(dock).findByRole("button", { name: "Switch target" }));
+    await userEvent.click(await screen.findByRole("menuitemradio", { name: /Lane.*L-88/ }));
+    const log = await within(dock).findByRole("log", { name: "Event stream of lane L-88" });
+    const asked = await within(log).findByRole("group", { name: "Should the budget hold across restarts?" });
+    const scope = [...asked.querySelectorAll("p")].find((line) => line.textContent?.startsWith("Scope"));
+    expect(scope?.textContent).toBe("Scope: wo:WO-219 · Add the retry budget");
+  });
+
   it("replaces the composer of a stopped orchestrator with why", async () => {
     const { dock } = await open(state);
     await userEvent.click(await within(dock).findByRole("button", { name: "Switch target" }));

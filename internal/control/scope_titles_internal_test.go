@@ -41,6 +41,22 @@ func (p titlePlanned) Plans() ([]planning.Plan, error) {
 	return p.l.plans, nil
 }
 
+func (p titlePlanned) PlansByIDs(ids []string) ([]planning.Plan, error) {
+	p.l.reads["PlansByIDs"]++
+	return slices.DeleteFunc(slices.Clone(p.l.plans), func(plan planning.Plan) bool { return !slices.Contains(ids, plan.ID) }), nil
+}
+
+func (p titlePlanned) LatestContracts(ids []string) ([]planning.Contract, error) {
+	p.l.reads["LatestContracts"]++
+	newest := map[string]planning.Contract{}
+	for _, contract := range p.l.contracts {
+		if slices.Contains(ids, contract.ID) && contract.Version > newest[contract.ID].Version {
+			newest[contract.ID] = contract
+		}
+	}
+	return slices.Collect(maps.Values(newest)), nil
+}
+
 func (p titlePlanned) LatestContract(id string) (planning.Contract, error) {
 	p.l.reads["LatestContract"]++
 	var newest planning.Contract
@@ -78,6 +94,11 @@ func (o titleOrders) Get(id string) (workorders.WorkOrder, error) {
 func (o titleOrders) List() ([]workorders.WorkOrder, error) {
 	o.l.reads["List"]++
 	return o.l.orders, nil
+}
+
+func (o titleOrders) ByIDs(ids []string) ([]workorders.WorkOrder, error) {
+	o.l.reads["ByIDs"]++
+	return slices.DeleteFunc(slices.Clone(o.l.orders), func(order workorders.WorkOrder) bool { return !slices.Contains(ids, order.ID) }), nil
 }
 
 type titleRepositories struct {
@@ -152,7 +173,8 @@ func TestAScopeIsTitledByTheRecordItNames(t *testing.T) {
 }
 
 // TestTitlesAreReadOnceForEachKindOfScope holds that a list of any length reads once for each kind of scope it
-// holds: every record of a kind its several IDs name, or the one record a kind's only ID names.
+// holds: the records of a kind its several IDs name, by their IDs, and never every record of a plan, a contract,
+// or a work order; every repository, which a project holds few of; or the one record a kind's only ID names.
 func TestTitlesAreReadOnceForEachKindOfScope(t *testing.T) {
 	var many []string
 	for range 20 {
@@ -166,8 +188,16 @@ func TestTitlesAreReadOnceForEachKindOfScope(t *testing.T) {
 	if len(titles) != 7 {
 		t.Errorf("titles %v", titles)
 	}
-	if want := map[string]int{"Plans": 1, "Contracts": 1, "List": 1, "Repositories": 1}; !maps.Equal(l.reads, want) {
+	if want := map[string]int{"PlansByIDs": 1, "LatestContracts": 1, "ByIDs": 1, "Repositories": 1}; !maps.Equal(l.reads, want) {
 		t.Errorf("%d scopes of four kinds read %v, want %v", len(many), l.reads, want)
+	}
+
+	l, records = newTitleLedger()
+	if _, err := records.titles([]string{"wo:w1", "wo:w2", "wo:gone", "wo:w1"}); err != nil {
+		t.Fatal(err)
+	}
+	if want := map[string]int{"ByIDs": 1}; !maps.Equal(l.reads, want) {
+		t.Errorf("several work orders read %v, want one read by their IDs and no list", l.reads)
 	}
 
 	l, records = newTitleLedger()

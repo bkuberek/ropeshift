@@ -128,7 +128,8 @@ func (w *Workers) orchestrate(ctx context.Context, verb string, call ledger.Orch
 		}
 		return w.questions.Escalate(ctx, w.scope, call.Question, escalation, actor)
 	case ledger.VerbResolve:
-		return w.questions.Resolve(ctx, w.scope, call.Question, call.Target, actor)
+		answered, err := w.questions.Resolve(ctx, w.scope, call.Question, call.Target, actor)
+		return AnsweredQuestion{Question: answered}, err
 	case ledger.VerbMerge:
 		return nil, w.questions.Merge(ctx, w.scope, call.Question, call.Target, actor)
 	case ledger.VerbRule:
@@ -136,7 +137,8 @@ func (w *Workers) orchestrate(ctx context.Context, verb string, call ledger.Orch
 		if err := readBody(call, &ruling); err != nil {
 			return nil, err
 		}
-		return w.questions.Rule(ctx, w.scope, call.Question, ruling, actor)
+		ruled, err := w.questions.Rule(ctx, w.scope, call.Question, ruling, actor)
+		return RecordedDecision{Decision: ruled}, err
 	case ledger.VerbRestart, ledger.VerbReset, ledger.VerbRetry, ledger.VerbReplan:
 		return w.recover(ctx, recoveryActs[verb], call, actor)
 	}
@@ -188,8 +190,44 @@ func markedReply(tx ports.ReadTx, result any) (any, error) {
 		return &read, nil
 	case questions.Question:
 		return markedQuestion(tx, reply)
+	case AnsweredQuestion:
+		question, err := markedQuestion(tx, reply.Question)
+		if err != nil {
+			return nil, err
+		}
+		reply.Question, reply.Scope = question, questions.ScopeOf(question.SubjectKind, question.SubjectID)
+		reply.ScopeTitle, err = replyTitle(tx, reply.Scope)
+		return reply, err
+	case RecordedDecision:
+		var err error
+		reply.ScopeTitle, err = replyTitle(tx, reply.Scope)
+		return reply, err
 	}
 	return result, nil
+}
+
+// AnsweredQuestion is the question decision_record answers with a decision the record holds, with the scope an
+// answer to it takes (questions.ScopeOf) and the title of the record that scope names.
+type AnsweredQuestion struct {
+	questions.Question
+	Scope      string `json:"scope,omitempty"`
+	ScopeTitle string `json:"scope_title,omitempty"`
+}
+
+// RecordedDecision is the decision decision_record records, with the title of the record its scope names.
+type RecordedDecision struct {
+	questions.Decision
+	ScopeTitle string `json:"scope_title,omitempty"`
+}
+
+// replyTitle is the title of the record a scope names, as a reply to an orchestrator states it field by field: a
+// title a delegate wrote between the tags a wake puts around it.
+func replyTitle(tx ports.ReadTx, scope string) (string, error) {
+	titles, err := scopeTitler{tx: tx, orchestrator: true}.titles([]scopedRecord{{scope: scope}})
+	if err != nil {
+		return "", err
+	}
+	return titles[0], nil
 }
 
 func markedQuestion(tx ports.ReadTx, question questions.Question) (questions.Question, error) {

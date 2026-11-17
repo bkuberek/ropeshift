@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
+	"strings"
 
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/planning"
@@ -30,6 +32,11 @@ VALUES (:workspace_id, :id, :goal_id, :title, :status, :source)`)
 	stmtReadPlan = define("plan.read",
 		`SELECT id, goal_id, title, status, source FROM plans
  WHERE workspace_id = :workspace_id AND id = :id`)
+
+	// stmtPlansByID reads the plans one slice of IDs names (idSlots).
+	stmtPlansByID = define("plan.by_ids",
+		`SELECT id, goal_id, title, status, source FROM plans
+ WHERE workspace_id = :workspace_id AND id IN `+idList)
 
 	stmtUpdatePlan = define("plan.update",
 		`UPDATE plans SET goal_id = :goal_id, title = :title, status = :status, source = :source
@@ -82,6 +89,12 @@ VALUES
 		`SELECT `+contractColumns+` FROM contracts
  WHERE workspace_id = :workspace_id
  ORDER BY id, version`)
+
+	// stmtLatestContractsByID reads the newest version of each contract one slice of IDs names (idSlots).
+	stmtLatestContractsByID = define("contract.latest_by_ids",
+		`SELECT `+contractColumns+` FROM contracts c
+ WHERE c.workspace_id = :workspace_id AND c.id IN `+idList+`
+   AND c.version = (SELECT MAX(v.version) FROM contracts v WHERE v.workspace_id = c.workspace_id AND v.id = c.id)`)
 
 	stmtInsertLink = define("link.insert",
 		`INSERT INTO external_links (workspace_id, record_kind, adapter, instance, native_id, record_id, display_key)
@@ -164,7 +177,25 @@ func scanPlan(row scanner) (planning.Plan, error) {
 }
 
 func (t planningTx) Plans() ([]planning.Plan, error) {
-	rows, err := t.rows(stmtListPlans, t.scoped(nil))
+	return t.plans(stmtListPlans, nil)
+}
+
+func (t planningTx) PlansByIDs(ids []string) ([]planning.Plan, error) {
+	var out []planning.Plan
+	for _, slice := range idSlices(ids) {
+		found, err := t.plans(stmtPlansByID, slice)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, found...)
+	}
+	slices.SortFunc(out, func(a, b planning.Plan) int { return strings.Compare(a.ID, b.ID) })
+	return out, nil
+}
+
+// plans reads the plans a statement selects.
+func (t planningTx) plans(st *statement, p params) ([]planning.Plan, error) {
+	rows, err := t.rows(st, t.scoped(p))
 	if err != nil {
 		return nil, err
 	}
@@ -406,6 +437,41 @@ func (t planningTx) Contract(id string, version int64) (planning.Contract, error
 
 func (t planningTx) LatestContract(id string) (planning.Contract, error) {
 	return t.oneContract(stmtLatestContract, params{"id": id})
+}
+
+// LatestContracts reads the newest version of each contract a slice of IDs names, then the documents each one
+// pins, as LatestContract reads them.
+func (t planningTx) LatestContracts(ids []string) ([]planning.Contract, error) {
+	var out []planning.Contract
+	for _, slice := range idSlices(ids) {
+		rows, err := t.rows(stmtLatestContractsByID, t.scoped(slice))
+		if err != nil {
+			return nil, err
+		}
+		for rows.Next() {
+			c, err := scanContract(rows)
+			if err != nil {
+				_ = rows.Close()
+				return nil, err
+			}
+			out = append(out, c)
+		}
+		if err := rows.Err(); err != nil {
+			_ = rows.Close()
+			return nil, err
+		}
+		if err := rows.Close(); err != nil {
+			return nil, err
+		}
+	}
+	for i, c := range out {
+		var err error
+		if out[i].Documents, err = t.pinsOf(c.ID, c.Version); err != nil {
+			return nil, err
+		}
+	}
+	slices.SortFunc(out, func(a, b planning.Contract) int { return strings.Compare(a.ID, b.ID) })
+	return out, nil
 }
 
 func (t planningTx) Contracts() ([]planning.Contract, error) {
