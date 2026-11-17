@@ -34,6 +34,9 @@ const (
 	CodeSessionRequired = "session_required"
 	// CodeBadPassphrase means a sign-in's passphrase does not match.
 	CodeBadPassphrase = "bad_passphrase"
+	// CodeTooManyAttempts means a client address made too many wrong guesses at a passphrase or a join token. It
+	// comes as HTTP 429 with a Retry-After header, and refuses every guess from the address until it ends.
+	CodeTooManyAttempts = "too_many_attempts"
 	// CodePassphraseChanged means a change of the passphrase lost to another that landed first, though the
 	// current passphrase it sent was right when it checked.
 	CodePassphraseChanged = "passphrase_changed"

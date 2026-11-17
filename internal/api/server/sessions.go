@@ -39,7 +39,13 @@ func (h *handler) signIn(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &in) {
 		return
 	}
+	attempt, ok := beginAttempt(h.Attempts, w, r)
+	if !ok {
+		return
+	}
+	defer attempt.Release()
 	grant, err := h.sessions.SignIn(r.Context(), h.Scope, ports.Proof{Passphrase: in.Passphrase}, in.TTLMs)
+	attempt.Judge(err, true)
 	if err != nil {
 		fail(w, err)
 		return

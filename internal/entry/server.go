@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/signal"
 	"runtime"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -42,6 +43,9 @@ const (
 	// envDatabase and envListen are a container's way to give the server what its flags give.
 	envDatabase = "ROPESHIFT_DATABASE"
 	envListen   = "ROPESHIFT_LISTEN"
+	// envSigninMaxFailures and envSigninLockout give the limit on wrong guesses.
+	envSigninMaxFailures = "ROPESHIFT_SIGNIN_MAX_FAILURES"
+	envSigninLockout     = "ROPESHIFT_SIGNIN_LOCKOUT"
 	// defaultListen is a loopback address that no installation of solo mode holds.
 	defaultListen = "127.0.0.1:7400"
 	// firstProjectDisplayName is what the first project of a new server shows, as solo's first one does.
@@ -60,6 +64,12 @@ type serverOptions struct {
 	// addresses the certificate the server makes covers (ADR-0031).
 	tlsCert, tlsKey string
 	names           []string
+	// signinMax is how many wrong guesses at a passphrase or a join token a client address may make within
+	// signinLockout, which is also how long it is refused after (ADR-0031).
+	signinMax     int
+	signinLockout time.Duration
+	// problems are what the environment gave that is no setting, which parseServer reports with the flags'.
+	problems []string
 
 	leaseTick    time.Duration
 	intakeTick   time.Duration
@@ -81,6 +91,23 @@ func serverFlags(opts *serverOptions, getenv func(string) string) *flag.FlagSet 
 	flags.StringVar(&opts.listen, "listen", cmp.Or(getenv(envListen), defaultListen), "the address of the one listener, which serves TLS on any address but a loopback one ("+envListen+")")
 	flags.StringVar(&opts.tlsCert, "tls-cert", getenv(envTLSCert), "the file of a certificate to serve in place of the server's own, with --tls-key ("+envTLSCert+")")
 	flags.StringVar(&opts.tlsKey, "tls-key", getenv(envTLSKey), "the file of that certificate's key ("+envTLSKey+")")
+	maxFailures, lockout := server.DefaultMaxFailures, server.DefaultLockout
+	if value := getenv(envSigninMaxFailures); value != "" {
+		if number, err := strconv.Atoi(value); err != nil {
+			opts.problems = append(opts.problems, fmt.Sprintf("%s is %q, which is no whole number", envSigninMaxFailures, value))
+		} else {
+			maxFailures = number
+		}
+	}
+	if value := getenv(envSigninLockout); value != "" {
+		if duration, err := time.ParseDuration(value); err != nil {
+			opts.problems = append(opts.problems, fmt.Sprintf("%s is %q, which is no duration such as 15m", envSigninLockout, value))
+		} else {
+			lockout = duration
+		}
+	}
+	flags.IntVar(&opts.signinMax, "signin-max-failures", maxFailures, "how many wrong passphrases or join tokens one client address may try within --signin-lockout ("+envSigninMaxFailures+")")
+	flags.DurationVar(&opts.signinLockout, "signin-lockout", lockout, "how long wrong guesses count, and how long a client address is refused once it has made too many ("+envSigninLockout+")")
 	flags.Func("name", "a host name or address the server's own certificate covers, repeated or comma separated, which makes a loopback listener serve TLS too ("+envServerNames+")", func(value string) error {
 		opts.names = append(opts.names, splitList(value)...)
 		return nil
@@ -113,6 +140,22 @@ func parseServer(args []string, getenv func(string) string, stderr io.Writer) (s
 		return opts, false
 	}
 	opts.database = cmp.Or(opts.database, getenv(envDatabase))
+	for _, problem := range opts.problems {
+		fmt.Fprintf(stderr, "ropeshiftd server: %s\n", problem)
+	}
+	if len(opts.problems) > 0 {
+		return opts, false
+	}
+	// A limit that allows no failure, or that lasts no time, limits nothing a person could use: it would refuse
+	// every sign-in, or none.
+	if opts.signinMax < 1 {
+		fmt.Fprintf(stderr, "ropeshiftd server: --signin-max-failures (%s) is at least 1, and is %d\n", envSigninMaxFailures, opts.signinMax)
+		return opts, false
+	}
+	if opts.signinLockout <= 0 {
+		fmt.Fprintf(stderr, "ropeshiftd server: --signin-lockout (%s) is a duration above zero, and is %s\n", envSigninLockout, opts.signinLockout)
+		return opts, false
+	}
 	// A flag wins over the environment, as it does for every other setting.
 	named := false
 	flags.Visit(func(f *flag.Flag) { named = named || f.Name == "name" })
@@ -335,7 +378,8 @@ func serveServer(ctx context.Context, paths api.Paths, opts serverOptions, trans
 		Scope: home.ID, Store: store, Projects: state, Installation: state.Installation,
 		LeaseTTL: opts.leaseTTL.Milliseconds(), HeartbeatMs: opts.heartbeat.Milliseconds(),
 		Installed: installed.Installed, WebAddress: listener.webAddress(),
-		Matcher: lexical.Matcher{Store: store}, Matching: func(store ports.Store) ports.Matcher { return lexical.Matcher{Store: store} },
+		Attempts: server.NewAttempts(server.AttemptLimits{MaxFailures: opts.signinMax, Lockout: opts.signinLockout}),
+		Matcher:  lexical.Matcher{Store: store}, Matching: func(store ports.Store) ports.Matcher { return lexical.Matcher{Store: store} },
 		Identity: localauth.New(store, localauth.DefaultParams), Batches: batches, Windows: windows, PackTokens: soloPackTokens(paths),
 		LaneBranchPrefix: soloLaneBranchPrefix(paths),
 		Knowledge:        reads.knowledge, Starts: reads.starts, Branches: reads.branches, Checkouts: reads.checkouts,

@@ -51,6 +51,66 @@ func TestAServerTakesItsCertificateSettingsFromFlagsAndTheEnvironment(t *testing
 	}
 }
 
+// The limit on wrong guesses is 10 within 15 minutes unless a setting says otherwise, from a flag or from the
+// environment a container gives, and a flag wins.
+func TestAServerTakesItsSignInLimitFromFlagsAndTheEnvironment(t *testing.T) {
+	t.Parallel()
+	given := map[string]string{"ROPESHIFT_SIGNIN_MAX_FAILURES": "5", "ROPESHIFT_SIGNIN_LOCKOUT": "30m"}
+	tests := []struct {
+		name    string
+		args    []string
+		env     map[string]string
+		max     int
+		lockout time.Duration
+	}{
+		{"the defaults", nil, nil, 10, 15 * time.Minute},
+		{"the environment", nil, given, 5, 30 * time.Minute},
+		{"flags over the environment", []string{"--signin-max-failures", "3", "--signin-lockout", "1h"}, given, 3, time.Hour},
+		{"one flag", []string{"--signin-lockout", "90s"}, given, 5, 90 * time.Second},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var stderr bytes.Buffer
+			opts, ok := parseServer(append([]string{"--database", "postgres://db/x"}, tt.args...), env(tt.env), &stderr)
+			if !ok {
+				t.Fatalf("refused: %s", &stderr)
+			}
+			if opts.signinMax != tt.max || opts.signinLockout != tt.lockout {
+				t.Errorf("max %d, lockout %s", opts.signinMax, opts.signinLockout)
+			}
+		})
+	}
+}
+
+func TestAServerRefusesALimitThatLimitsNothing(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		args []string
+		env  map[string]string
+		says string
+	}{
+		{"no failures allowed at all", []string{"--signin-max-failures", "0"}, nil, "--signin-max-failures"},
+		{"a negative count", []string{"--signin-max-failures", "-3"}, nil, "--signin-max-failures"},
+		{"no lockout", []string{"--signin-lockout", "0s"}, nil, "--signin-lockout"},
+		{"a negative lockout", []string{"--signin-lockout", "-5m"}, nil, "--signin-lockout"},
+		{"a count in the environment that is no number", nil, map[string]string{"ROPESHIFT_SIGNIN_MAX_FAILURES": "ten"}, "ROPESHIFT_SIGNIN_MAX_FAILURES"},
+		{"a lockout in the environment that is no duration", nil, map[string]string{"ROPESHIFT_SIGNIN_LOCKOUT": "soon"}, "ROPESHIFT_SIGNIN_LOCKOUT"},
+		{"a count of zero in the environment", nil, map[string]string{"ROPESHIFT_SIGNIN_MAX_FAILURES": "0"}, "--signin-max-failures"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var stderr bytes.Buffer
+			if _, ok := parseServer(append([]string{"--database", "postgres://db/x"}, tt.args...), env(tt.env), &stderr); ok {
+				t.Fatal("the limit is taken")
+			}
+			if !strings.Contains(stderr.String(), tt.says) {
+				t.Errorf("stderr does not name %s: %s", tt.says, &stderr)
+			}
+		})
+	}
+}
+
 // The listener's address decides what it must serve: plaintext reaches only the machine it is on, so any
 // other address serves TLS, in the certificate the server makes or in one a person supplies.
 func TestAServerPlansItsTransportFromItsAddressAndItsCertificateSettings(t *testing.T) {

@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"testing"
@@ -111,6 +112,8 @@ type NetworkOptions struct {
 	Wrap func(http.Handler) http.Handler
 	// TLS is what the listener serves. Nil serves plaintext, as a server on loopback does.
 	TLS *tls.Config
+	// Client says which address a request came from, for the limits that count by it. Nil is the TCP peer.
+	Client func(*http.Request) netip.Addr
 }
 
 // ServeNetworkWith serves a daemon's network listener on a real loopback port until the test ends. The
@@ -122,7 +125,7 @@ func (d *Daemon) ServeNetworkWith(t testing.TB, options NetworkOptions) *Web {
 		t.Fatal(err)
 	}
 	port := listener.Addr().(*net.TCPAddr).Port
-	handler := server.NewNetwork(d.Config, server.WebOptions{Port: port, Assets: options.Assets, Recheck: options.Recheck})
+	handler := server.NewNetwork(d.Config, server.WebOptions{Port: port, Assets: options.Assets, Recheck: options.Recheck, Client: options.Client})
 	if options.Wrap != nil {
 		handler = options.Wrap(handler)
 	}
@@ -239,6 +242,8 @@ type Options struct {
 	Starts           *control.Starts
 	Branches         server.BranchSource
 	LaneBranchPrefix string
+	// Attempts limits the wrong guesses of an address on the network listener. Nil limits none.
+	Attempts *server.Attempts
 }
 
 // Start serves the API until the test ends.
@@ -272,6 +277,7 @@ func StartWith(t testing.TB, options Options) *Daemon {
 		Telemetry: options.Telemetry, Backup: options.Backup, Panes: options.Panes, WebAddress: options.WebAddress,
 		Build: options.Build, Installed: options.Installed, Mode: options.Mode,
 		Checkouts: options.Checkouts, Profiles: options.Profiles, ParseManifest: repofiles.ParseManifest, Starts: options.Starts, Branches: options.Branches, LaneBranchPrefix: options.LaneBranchPrefix,
+		Attempts: options.Attempts,
 	}
 	daemon := serve(t, config, options.Wrap)
 	daemon.Store = store
