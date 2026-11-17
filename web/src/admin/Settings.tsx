@@ -104,18 +104,20 @@ export function SettingsPage({ live, project, label, archived, section, worker, 
     <div className="screen">
       <div className="grid grid-settings">
         <nav className="tree hide-phone" aria-label="Settings sections">
-          {(["installation", "worker", "project", "you"] as const).map((scope) => (
-            <div key={scope}>
-              <p className="overline tree-group">{scope === "project" && label ? `Project · ${label}` : groupWords[scope]}</p>
-              {sections
-                .filter((row) => row.scope === scope && (scope !== "project" || project))
-                .map((row) => (
+          {(["installation", "worker", "project", "you"] as const).map((scope) => {
+            const listed = sections.filter((row) => row.scope === scope && (scope !== "project" || project));
+            // The installation's address lists no project's section, and a group with nothing listed has no heading.
+            return listed.length ? (
+              <div key={scope}>
+                <p className="overline tree-group">{scope === "project" && label ? `Project · ${label}` : groupWords[scope]}</p>
+                {listed.map((row) => (
                   <Link key={row.id} to={addressFor(row)} installation aria-current={row.id === shown.id ? "page" : undefined}>
                     {row.title}
                   </Link>
                 ))}
-            </div>
-          ))}
+              </div>
+            ) : null;
+          })}
         </nav>
         <div className="settings-body">
           <SectionPicker sections={sections.filter((row) => row.scope !== "project" || project)} shown={shown} addressFor={addressFor} />
