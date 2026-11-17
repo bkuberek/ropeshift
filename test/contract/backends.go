@@ -109,8 +109,9 @@ var SQLiteProject = Backend{Name: "project", Fresh: func(t testing.TB) Database 
 	}
 	offset := &atomic.Int64{}
 	return Database{
-		Restartable: true,
-		ShiftClock:  func(delta int64) { offset.Add(delta) },
+		Restartable:  true,
+		Installation: true,
+		ShiftClock:   func(delta int64) { offset.Add(delta) },
 		Open: func(t testing.TB, opts sqlstore.Options) ports.Store {
 			// The installation reads the same shifted clock, because a run window it holds ends by that time.
 			installationDB, err := sqlite.OpenDB(filepath.Join(dir, sqlite.InstallationFileName))

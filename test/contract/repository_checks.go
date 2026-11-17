@@ -600,6 +600,26 @@ func checkRepositoryRemoval(r *Rig) error {
 	return nil
 }
 
+// indexRefuses runs the registration of a repository that another workspace holds, and reports whether the
+// repository index refused it. A database whose Store keeps no index accepts it and has nothing more to
+// check, and one whose Store keeps an index must refuse it, so a hold that never reached the index fails the
+// check, where it would otherwise pass as a store with no index.
+func (r *Rig) indexRefuses(register func() error) (refused bool, err error) {
+	err = register()
+	switch {
+	case errors.Is(err, ledger.ErrRepositoryHeld):
+		if !r.DB.Installation {
+			return false, Violatedf("a database with no installation refused a repository another workspace holds: %v", err)
+		}
+		return true, nil
+	case err != nil:
+		return false, err
+	case r.DB.Installation:
+		return false, Violatedf("a database with an installation let a second workspace register a repository the first holds")
+	}
+	return false, nil
+}
+
 // checkRemovingAClonePassesTheRepositoryToItsSibling holds that a project's clones of one repository hold
 // it between them: the first took the repository in the installation's index, and removing that clone
 // leaves it held for the other, in the same write, so another project cannot register it while the
@@ -621,9 +641,7 @@ func checkRemovingAClonePassesTheRepositoryToItsSibling(r *Rig) error {
 			return err
 		}
 	}
-	if err := register(other, "repo-b", "b"); err == nil {
-		return nil
-	} else if !errors.Is(err, ledger.ErrRepositoryHeld) {
+	if held, err := r.indexRefuses(func() error { return register(other, "repo-b", "b") }); err != nil || !held {
 		return err
 	}
 	remove := func(id string) error {
@@ -671,9 +689,7 @@ func checkMovingAClonePassesTheRepositoryToItsSibling(r *Rig) error {
 			return err
 		}
 	}
-	if err := register(other, "repo-b", "b", remote); err == nil {
-		return nil
-	} else if !errors.Is(err, ledger.ErrRepositoryHeld) {
+	if held, err := r.indexRefuses(func() error { return register(other, "repo-b", "b", remote) }); err != nil || !held {
 		return err
 	}
 	// The first clone took the repository, so moving it is what could give the repository up.
