@@ -102,8 +102,8 @@ func (c *invocation) repositoryRunIn() (root, identity string, code int) {
 
 // adoptingProject is the project that adopts the repository: the one that holds it, or else the one --project
 // or ROPESHIFT_PROJECT names, or else a project named after the repository's directory. A project it names
-// that does not exist yet is created. A project that already has an approved plan is refused, because it plans
-// its next work with a planning session.
+// that does not exist yet is created, shown by the repository's directory's name until a rename gives it another.
+// A project that already has an approved plan is refused, because it plans its next work with a planning session.
 func (c *invocation) adoptingProject(client *api.Client, root, identity string) (string, int) {
 	projects, err := client.Projects(c.ctx)
 	if err != nil {
@@ -128,7 +128,7 @@ func (c *invocation) adoptingProject(client *api.Client, root, identity string) 
 	if slices.ContainsFunc(projects, func(p api.Project) bool { return p.Name == named }) {
 		return named, c.refusePlanned(client.Project(named), named)
 	}
-	created, err := client.CreateProject(c.ctx, api.CreateProject{Name: named})
+	created, err := client.CreateProject(c.ctx, api.CreateProject{Name: named, DisplayName: filepath.Base(root)})
 	if err != nil {
 		return "", c.failure(err)
 	}

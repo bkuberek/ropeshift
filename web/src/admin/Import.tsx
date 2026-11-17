@@ -11,7 +11,7 @@ import { Page } from "../parts/parts";
 import { Button } from "../ui/controls";
 import { Refusal } from "../ui/display";
 import { Field, Select } from "../ui/forms";
-import { newID, projectNameOf } from "./logic";
+import { folderNameOf, newID, projectNameOf } from "./logic";
 import { useChange } from "./parts";
 import { DryRun } from "./Repositories";
 
@@ -86,7 +86,7 @@ export function ImportPage({ projects, chosen, reload }: { projects: Project[]; 
         }
         return target;
       }
-      const made = await createProject(newName.trim(), "");
+      const made = await createProject(newName.trim(), folderNameOf(folder));
       await reload();
       return made.name;
     });
@@ -197,7 +197,7 @@ export function ImportPage({ projects, chosen, reload }: { projects: Project[]; 
                   </Select>
                 </Field>
                 {target === "new" ? (
-                  <Field label="New project's name" help="Named after the folder until you change it.">
+                  <Field label="New project's name" help="Named after the folder until you change it. The project is shown by the folder's name, which Rename on Projects changes.">
                     <input
                       className="input mono field-narrow"
                       autoComplete="off"

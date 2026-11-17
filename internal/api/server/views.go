@@ -454,6 +454,9 @@ func (h *handler) needs(tx ports.ReadTx, stamp api.Stamp) ([]api.NeedItem, error
 	if err != nil {
 		return nil, err
 	}
+	// planned holds each work order a waiting plan approval names: the planning lane's, whose branch holds the
+	// plan. Approving the plan accepts that work order (ADR-0018), so the approval is the one thing asked.
+	planned := map[string]bool{}
 	for i := range approvals {
 		switch {
 		case !approvals[i].Open():
@@ -461,6 +464,9 @@ func (h *handler) needs(tx ports.ReadTx, stamp api.Stamp) ([]api.NeedItem, error
 			need, err := planApprovalNeed(tx.Planning(), approvals[i])
 			if err != nil {
 				return nil, err
+			}
+			if approvals[i].WorkOrder != "" {
+				planned[approvals[i].WorkOrder] = true
 			}
 			items = append(items, api.NeedItem{Kind: api.NeedPlanApproval, ID: approvals[i].ID, Since: approvals[i].RaisedAt, PlanApproval: need})
 		case approvals[i].Kind == authority.KindConfirm:
@@ -498,7 +504,7 @@ func (h *handler) needs(tx ports.ReadTx, stamp api.Stamp) ([]api.NeedItem, error
 		order := &f.orders[i]
 		need := api.WorkNeed{WorkOrder: order, Lane: f.ofWork[order.ID]}
 		switch {
-		case order.State == workorders.Acceptance:
+		case order.State == workorders.Acceptance && !planned[order.ID]:
 			need.Reason, need.Actions = api.ReasonAcceptance, []string{api.ActAccept, api.ActRework}
 			standing, err := control.StandingIn(tx, order.ID)
 			if err != nil {
@@ -521,14 +527,15 @@ func (h *handler) needs(tx ports.ReadTx, stamp api.Stamp) ([]api.NeedItem, error
 }
 
 // planApprovalNeed is what a member reads of a plan version they are asked to approve, with the answers
-// the version drafts. A version the ledger no longer holds drafts nothing a member could read.
+// the version drafts: those its record holds, or for a branch's version, which the ledger holds no record of
+// until it is approved, those its request carries.
 func planApprovalNeed(planned ports.PlanningReader, a authority.Approval) (*api.PlanApprovalNeed, error) {
 	detail := api.PlanDetailOf(a)
 	counts := detail.Counts
 	if counts == nil {
 		counts = map[string]int{}
 	}
-	drafts := []planning.DraftDecision{}
+	drafts := nonNil(detail.Drafts)
 	version, err := planned.PlanVersion(a.Plan, a.PlanVersion)
 	switch {
 	case err == nil:

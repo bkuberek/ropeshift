@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 
 import { actOnWork, readView } from "../api/client";
-import type { InProgress, Lane, OnHold, ShopFloor, WorkOrder } from "../api/types";
+import type { Completed, InProgress, Lane, OnHold, ShopFloor, WorkOrder } from "../api/types";
 import type { Live } from "../api/useView";
 import { useView } from "../api/useView";
 import { useChange } from "../admin/parts";
@@ -22,6 +22,35 @@ export type Session = { order: WorkOrder; lane: Lane | undefined };
 export function sessionsOf(running: InProgress | null, held: OnHold | null): Session[] {
   const lines = [...(running?.items ?? []), ...(held?.items ?? [])];
   return lines.filter((line) => line.work_order.kind === "plan").map((line) => ({ order: line.work_order, lane: line.lane }));
+}
+
+// An ended session is its work order and the lane that ran it last.
+export type EndedSession = { order: WorkOrder; lane: string };
+
+// lastSessionOf finds the planning session that ended last, from completed work, which lists the newest end
+// first, with the lane of its latest artifact. A session that left no artifact names no lane to read.
+export function lastSessionOf(completed: Completed | null): EndedSession | undefined {
+  for (const item of completed?.items ?? []) {
+    const lane = item.standing.artifacts.findLast((artifact) => artifact.lane_id)?.lane_id;
+    if (item.work_order.kind === "plan" && lane) {
+      return { order: item.work_order, lane };
+    }
+  }
+  return undefined;
+}
+
+// LastSession shows the plan of the session that ended last, as its branch holds it, so the outline it submitted
+// stays in reach once its lane has ended.
+function LastSession({ session, live }: { session: EndedSession; live: Live }) {
+  return (
+    <section className="stack" aria-label="The last planning session">
+      <p className="muted">
+        The last session, <Link to={addressOf("/work-order", { id: session.order.id })}>{session.order.title || session.order.id}</Link>, on lane{" "}
+        <span className="mono">{session.lane}</span>, has ended. Its plan, as its branch holds it:
+      </p>
+      <Outline lane={session.lane} live={live} title="Plan of the last session" />
+    </section>
+  );
 }
 
 const planningWords = "Writes the plan and its draft decisions on its own branch. Approving the plan stays yours.";
@@ -45,6 +74,10 @@ export function PlanningPage({ live, project, label, lane, after }: { live: Live
   // shown by its address, because a session that just started may not have reported its lane.
   const chosen = sessions.find((session) => session.lane?.id === lane) ?? (lane ? undefined : sessions.find((session) => session.lane));
   const laneId = lane || chosen?.lane?.id || "";
+  // Completed work is read only while no session is shown, for the session that ended last.
+  const idle = ready && !laneId;
+  const completed = useView<Completed | null>(() => (idle ? readView<Completed>("completed") : Promise.resolve(null)), `planning:completed:${idle}`, live);
+  const last = idle ? lastSessionOf(completed.view) : undefined;
 
   if (!laneId) {
     return (
@@ -68,6 +101,7 @@ export function PlanningPage({ live, project, label, lane, after }: { live: Live
             </EmptyState>
           </div>
         ) : null}
+        {last ? <LastSession session={last} live={live} /> : null}
       </div>
     );
   }
@@ -145,7 +179,7 @@ export function PlanningPage({ live, project, label, lane, after }: { live: Live
             ) : null}
           </div>
           {resume.failure ? <Refusal>{resume.failure}</Refusal> : null}
-          <LanePane lane={laneId} live={live} attached={attached && !parked} state={found?.actual_state} />
+          <LanePane lane={laneId} live={live} attached={attached && !parked} state={found?.actual_state} starting={!found} />
         </div>
         <Outline lane={laneId} live={live} />
       </div>

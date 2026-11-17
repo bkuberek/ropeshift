@@ -118,7 +118,18 @@ export function AnswerField({ item, draft, onChange, disabled, quiet = false }: 
   );
 }
 
-export function QuestionBatch({ batch, after, frame, compact = false, place }: { batch: Batch; after: () => Promise<void>; frame: Frame; compact?: boolean; place?: Place }) {
+// Answered is what a person sent from a batch and the ledger recorded: each question with its answer, and the
+// member the ledger recorded the answers for.
+export type Answered = { by: string; answers: { question: string; answer: string }[] };
+
+export function QuestionBatch({ batch, after, frame, compact = false, place, onAnswered }: {
+  batch: Batch;
+  after: () => Promise<void>;
+  frame: Frame;
+  compact?: boolean;
+  place?: Place;
+  onAnswered?: (answered: Answered) => void;
+}) {
   const form = useId();
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
   const [leftover, setLeftover] = useState("");
@@ -128,13 +139,17 @@ export function QuestionBatch({ batch, after, frame, compact = false, place }: {
   const count = batch.items.length;
 
   // One question that someone else answered first leaves the others to send, so one refusal does not
-  // stop the rest, and each send is safe to repeat.
+  // stop the rest, and each send is safe to repeat. Only an answer the ledger recorded counts as the person's.
   const send = () =>
     act(async () => {
       const refused: string[] = [];
+      const answered: Answered = { by: "", answers: [] };
       for (const item of ready) {
+        const answer = answerOf(draftOf(item));
         try {
-          await answerQuestion(item.id, answerOf(draftOf(item)), place);
+          const recorded = await answerQuestion(item.id, answer, place);
+          answered.by ||= recorded?.decided_by ?? "";
+          answered.answers.push({ question: item.text, answer });
         } catch (error) {
           if (!(error instanceof ApiError) || error.code !== "resolved") {
             refused.push(error instanceof Error ? error.message : String(error));
@@ -142,6 +157,9 @@ export function QuestionBatch({ batch, after, frame, compact = false, place }: {
         }
       }
       setLeftover(refused.join(" "));
+      if (answered.answers.length > 0) {
+        onAnswered?.(answered);
+      }
     });
 
   const label = ready.length === count ? (count === 1 ? "Send this answer" : `Send ${count} answers`) : `Send ${ready.length} of ${count} answer${count === 1 ? "" : "s"}`;

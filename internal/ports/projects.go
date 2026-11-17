@@ -28,8 +28,9 @@ type Projects interface {
 	// Create creates a project's database at the current schema and registers it, giving a project with
 	// no ID one that no other installation gives.
 	Create(ctx context.Context, p ledger.Project, actor ledger.Actor) (ledger.Project, error)
-	// Rename gives a project a new name, which no other project holds.
-	Rename(ctx context.Context, id ledger.WorkspaceID, name string, actor ledger.Actor) (ledger.Project, error)
+	// Rename gives a project a new name, which no other project holds, and the display name it is given. An
+	// empty display name keeps the one the project has.
+	Rename(ctx context.Context, id ledger.WorkspaceID, name, displayName string, actor ledger.Actor) (ledger.Project, error)
 	// SetState archives or restores a project.
 	SetState(ctx context.Context, id ledger.WorkspaceID, state ledger.ProjectState, actor ledger.Actor) (ledger.Project, error)
 	// Remove deletes a project's database and drops it from the registry and the repository index.

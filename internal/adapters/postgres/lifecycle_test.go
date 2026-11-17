@@ -177,7 +177,7 @@ func TestARenameKeepsEverythingButTheName(t *testing.T) {
 	createProject(t, state, "pb", "beta")
 	newWorkOrder(t, store, alpha.ID, "wo-1", "Add the retry budget")
 
-	renamed, err := state.Rename(t.Context(), alpha.ID, "gamma", member)
+	renamed, err := state.Rename(t.Context(), alpha.ID, "gamma", "", member)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -194,7 +194,7 @@ func TestARenameKeepsEverythingButTheName(t *testing.T) {
 	if got := workOrderIDs(t, opened, renamed.ID); !slices.Equal(got, []string{"wo-1"}) {
 		t.Errorf("work orders after a rename: %v", got)
 	}
-	if _, err := state.Rename(t.Context(), alpha.ID, "beta", member); !errors.Is(err, ledger.ErrProjectExists) {
+	if _, err := state.Rename(t.Context(), alpha.ID, "beta", "", member); !errors.Is(err, ledger.ErrProjectExists) {
 		t.Errorf("a name another project holds: %v", err)
 	}
 	want := []string{ledger.EventProjectCreated + " by member-1", ledger.EventProjectRenamed + " by member-1"}

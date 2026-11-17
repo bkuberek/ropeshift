@@ -333,11 +333,22 @@ func TestAPlanApprovalNeedCarriesWhatAnAdoptionGroups(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	askAboutABranch(t, d, "adopt-approval", "plan-1", detail)
+	need := planApprovalNeed(t, readView[api.NeedsYou](t, d, api.ViewNeedsYou, ""))
+	if need.Adoption == nil || !reflect.DeepEqual(*need.Adoption, adoption) {
+		t.Errorf("the need groups %+v, want %+v", need.Adoption, adoption)
+	}
+}
+
+// askAboutABranch raises the request a planning lane's branch raises for its plan's first version, which the
+// ledger holds no record of until a member approves it, for the work order the lane ran.
+func askAboutABranch(t *testing.T, d *apitest.Daemon, id, workOrder string, detail []byte) {
+	t.Helper()
 	request := authority.Approval{
-		ID: "adopt-approval", Kind: authority.KindPlan, WorkOrder: "adopt-1", Subject: "shop@1", SubjectDigest: "sha256:abc", Summary: "Plan Adopt shop, version 1",
+		ID: id, Kind: authority.KindPlan, WorkOrder: workOrder, Subject: "shop@1", SubjectDigest: "sha256:abc", Summary: "Plan shop, version 1",
 		RequestedBy: "lane:lane-1", State: authority.ApprovalPending, RaisedAt: 1, PlanVersion: 1, Detail: string(detail),
 	}
-	err = d.Store.Write(t.Context(), apitest.Scope, "test.approval", func(tx ports.WriteTx) error {
+	err := d.Store.Write(t.Context(), apitest.Scope, "test.approval", func(tx ports.WriteTx) error {
 		if _, err := tx.Approvals().Insert(request); err != nil {
 			return err
 		}
@@ -351,9 +362,78 @@ func TestAPlanApprovalNeedCarriesWhatAnAdoptionGroups(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+}
+
+// A first version from a planning lane's branch drafts the answers its request carries, because the ledger
+// holds no version of the plan yet, so Needs you lists the same drafts that approving decides.
+func TestAPlanApprovalNeedOfABranchCarriesTheDraftsItsRequestHolds(t *testing.T) {
+	t.Parallel()
+	d, _, _ := aWorld(t)
+	drafts := []planning.DraftDecision{{ID: "sailings", Question: "Do the sailings get a page of their own?", Answer: "No.", Rationale: "The person said so."}}
+	detail, err := json.Marshal(planning.PlanDetail{Title: "Berths", Ref: "harbor-v1", Decisions: len(drafts), Drafts: drafts})
+	if err != nil {
+		t.Fatal(err)
+	}
+	askAboutABranch(t, d, "branch-approval", "plan-1", detail)
 	need := planApprovalNeed(t, readView[api.NeedsYou](t, d, api.ViewNeedsYou, ""))
-	if need.Adoption == nil || !reflect.DeepEqual(*need.Adoption, adoption) {
-		t.Errorf("the need groups %+v, want %+v", need.Adoption, adoption)
+	if !reflect.DeepEqual(need.Drafts, drafts) || need.Decisions != len(drafts) {
+		t.Errorf("the need drafts %+v (%d decisions), want %+v", need.Drafts, need.Decisions, drafts)
+	}
+}
+
+// branchWaitingForAcceptance is a planning lane's work order that waits for acceptance, with the request its
+// branch raised, read from the commit the lane ended on.
+func branchWaitingForAcceptance(t *testing.T) (*apitest.Daemon, string) {
+	t.Helper()
+	d := apitest.Start(t)
+	d.Completed(t, "wo-plan", laneEnd(workorders.CheckResult{Name: "unit", Criterion: "c1", Passed: true}))
+	detail, err := json.Marshal(planning.PlanDetail{Title: "Berths", Ref: "harbor-v1", Source: "abc123"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	askAboutABranch(t, d, "branch-approval", "wo-plan", detail)
+	return d, "branch-approval"
+}
+
+// waitsForAcceptance says whether Needs you asks a member to accept a work order.
+func waitsForAcceptance(view api.NeedsYou, id string) bool {
+	return slices.ContainsFunc(view.Items, func(item api.NeedItem) bool {
+		return item.Work != nil && item.Work.Reason == api.ReasonAcceptance && item.Work.WorkOrder.ID == id
+	})
+}
+
+// ADR-0018: approving the plan a planning lane's branch holds accepts the lane's work order, so Needs you asks
+// for that one approval, and approving it leaves nothing of either.
+func TestNeedsYouAsksOnlyForThePlanApprovalOfABranchWaitingForAcceptance(t *testing.T) {
+	t.Parallel()
+	d, id := branchWaitingForAcceptance(t)
+	view := readView[api.NeedsYou](t, d, api.ViewNeedsYou, "")
+	need := planApprovalNeed(t, view)
+	if waitsForAcceptance(view, "wo-plan") {
+		t.Error("Needs you asks to accept the work order beside the plan approval that accepts it")
+	}
+	if _, err := d.Client.DecideApproval(t.Context(), id, api.DecideApproval{Digest: need.Approval.SubjectDigest, Allow: true}); err != nil {
+		t.Fatal(err)
+	}
+	view = readView[api.NeedsYou](t, d, api.ViewNeedsYou, "")
+	if waitsForAcceptance(view, "wo-plan") || slices.ContainsFunc(view.Items, func(item api.NeedItem) bool { return item.ID == id }) {
+		t.Errorf("approving left %+v", view.Items)
+	}
+	if row, err := d.Client.WorkOrder(t.Context(), "wo-plan"); err != nil || row.State == workorders.Acceptance {
+		t.Errorf("the work order reads %+v: %v", row, err)
+	}
+}
+
+// A declined plan leaves the lane's work order waiting, so Needs you asks for its acceptance again.
+func TestNeedsYouAsksForTheAcceptanceOfABranchWhosePlanWasDeclined(t *testing.T) {
+	t.Parallel()
+	d, id := branchWaitingForAcceptance(t)
+	need := planApprovalNeed(t, readView[api.NeedsYou](t, d, api.ViewNeedsYou, ""))
+	if _, err := d.Client.DecideApproval(t.Context(), id, api.DecideApproval{Digest: need.Approval.SubjectDigest, Allow: false, Reason: "Per key."}); err != nil {
+		t.Fatal(err)
+	}
+	if !waitsForAcceptance(readView[api.NeedsYou](t, d, api.ViewNeedsYou, ""), "wo-plan") {
+		t.Error("the declined plan's work order no longer waits in Needs you")
 	}
 }
 

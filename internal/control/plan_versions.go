@@ -306,6 +306,9 @@ type planAsk struct {
 	digest    string
 	entries   []planning.Entry
 	decisions int
+	// drafts are the answers a branch's version drafts, which its request carries because the ledger holds no
+	// record of the version until a member approves it.
+	drafts    []planning.DraftDecision
 	source    string
 	workOrder string
 	// adoption groups a plan that adopts a project, for a branch of an adopt lane.
@@ -355,8 +358,8 @@ func askForPlanApproval(tx ports.WriteTx, ask planAsk) error {
 		}
 	}
 	detail, err := json.Marshal(planning.PlanDetail{
-		Title: ask.title, Ref: ask.ref, Counts: planning.CountEntries(ask.entries), Decisions: ask.decisions, Difference: difference, Source: ask.source,
-		Adoption: ask.adoption,
+		Title: ask.title, Ref: ask.ref, Counts: planning.CountEntries(ask.entries), Decisions: ask.decisions, Drafts: ask.drafts, Difference: difference,
+		Source: ask.source, Adoption: ask.adoption,
 	})
 	if err != nil {
 		return err

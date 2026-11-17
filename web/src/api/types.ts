@@ -866,6 +866,9 @@ export type PlanApprovalDetail = {
   ref?: string;
   counts?: Record<string, number>;
   decisions?: number;
+  // drafts are the answers a branch's version drafts, which its request carries because the ledger holds no
+  // record of the version until a member approves it.
+  drafts?: DraftDecision[];
   difference?: Difference;
   // source is the commit of the planning branch the version was read from.
   source?: string;

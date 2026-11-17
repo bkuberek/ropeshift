@@ -100,9 +100,11 @@ type CreateProject struct {
 	DisplayName string `json:"display_name,omitempty"`
 }
 
-// RenameProject gives a project a new name.
+// RenameProject gives a project a new name, and the display name it gives, or else keeps the display name the
+// project has. A rename that keeps the name changes only the display name.
 type RenameProject struct {
-	Name string `json:"name"`
+	Name        string `json:"name"`
+	DisplayName string `json:"display_name,omitempty"`
 }
 
 // RemoveProject confirms a removal with the project's name, and names a file for its backup or chooses

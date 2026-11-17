@@ -321,7 +321,7 @@ func (oneProject) Create(context.Context, ledger.Project, ledger.Actor) (ledger.
 	return ledger.Project{}, errOneLedger
 }
 
-func (oneProject) Rename(context.Context, ledger.WorkspaceID, string, ledger.Actor) (ledger.Project, error) {
+func (oneProject) Rename(context.Context, ledger.WorkspaceID, string, string, ledger.Actor) (ledger.Project, error) {
 	return ledger.Project{}, errOneLedger
 }
 

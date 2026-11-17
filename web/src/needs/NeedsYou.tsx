@@ -1,4 +1,5 @@
 import { useContext, useEffect, useId, useRef, useState } from "react";
+import type { Ref } from "react";
 
 import type { ManifestRegistration, NeedItem, NeedsYou as View } from "../api/types";
 import { addressOf, CurrentProject, go, ItemProject, Link, useArrivalFocus, useRoute } from "../app/route";
@@ -17,6 +18,7 @@ import type { NeedFilter } from "./kinds";
 import { contextOf, filterOf, filters, headingOf, keyOf, kindOf, preparerOf } from "./kinds";
 import { PlanApprovalCard, RegisteredRepositories } from "./PlanApprovalCard";
 import { QuestionBatch } from "./QuestionBatch";
+import type { Answered } from "./QuestionBatch";
 import { waitLabel, waitWords } from "./wait";
 import { WorkCard } from "./WorkCard";
 
@@ -39,11 +41,11 @@ function useAssistantCard(item: NeedItem | undefined) {
 
 type Registered = { registration?: ManifestRegistration; onRegistered: (registration: ManifestRegistration) => void };
 
-function Card({ item, after, frame, registered }: { item: NeedItem; after: () => Promise<void>; frame: Frame; registered: Registered }) {
+function Card({ item, after, frame, registered, onAnswered }: { item: NeedItem; after: () => Promise<void>; frame: Frame; registered: Registered; onAnswered: (answered: Answered) => void }) {
   const assistant = useAssistantCard(item);
   switch (item.kind) {
     case "questions":
-      return <QuestionBatch batch={item.batch} after={after} frame={frame} />;
+      return <QuestionBatch batch={item.batch} after={after} frame={frame} onAnswered={onAnswered} />;
     case "approval":
       return <ApprovalDecision approval={item.approval} after={after} frame={frame} />;
     case "effect":
@@ -81,6 +83,31 @@ function useNarrow(): boolean {
   return narrow;
 }
 
+// ResolvedNote says why the selected item no longer waits: the person answered it on this page, with who the
+// ledger recorded the answers for and what they were, or else it was settled somewhere else.
+function ResolvedNote({ heading, answered, noteRef }: { heading: string; answered?: Answered; noteRef: Ref<HTMLParagraphElement> }) {
+  return (
+    <>
+      <p className="resolved-note" ref={noteRef} tabIndex={-1}>
+        <Icon name="check" />
+        {answered
+          ? `${heading} no longer waits: you answered it${answered.by ? `, as ${answered.by}` : ""}. Press J for the next item.`
+          : `${heading} no longer waits: it was decided or resolved in another place. Press J for the next item.`}
+      </p>
+      {answered ? (
+        <ul className="links" aria-label="Your answers">
+          {answered.answers.map((row) => (
+            <li key={row.question}>
+              <p className="question-text">{row.question}</p>
+              <p>{row.answer}</p>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </>
+  );
+}
+
 type Props = { view: View; readAt: number; after: () => Promise<void>; active?: boolean };
 
 // NeedsYou lists what waits on a member in every active project, the longest wait first (FR-UI-2,
@@ -104,6 +131,9 @@ export function NeedsYou({ view, readAt, after, active = true }: Props) {
   // registered holds what approving a plan registered of its manifest's repositories, by item, so a member reads
   // it after the plan stops waiting and its card goes.
   const [registered, setRegistered] = useState<Record<string, ManifestRegistration>>({});
+  // answered holds what the person answered on this page, by item, so an item that stops waiting because of it
+  // says so, and not that another place settled it.
+  const [answered, setAnswered] = useState<Record<string, Answered>>({});
 
   // gone holds the selected item after the server stopped listing it, at the place it stood.
   const [gone, setGone] = useState<{ item: NeedItem; at: number } | null>(null);
@@ -298,7 +328,7 @@ export function NeedsYou({ view, readAt, after, active = true }: Props) {
                               <Icon name="key" size="sm" /> {preparerOf(item.card)}
                             </span>
                           ) : (
-                            <span className="truncate">{done ? "Resolved elsewhere" : contextOf(item)}</span>
+                            <span className="truncate">{done ? (answered[key] ? "Answered by you" : "Resolved elsewhere") : contextOf(item)}</span>
                           )}
                         </span>
                       </Link>
@@ -318,10 +348,7 @@ export function NeedsYou({ view, readAt, after, active = true }: Props) {
           {selected && tab === "open" && isGone(selected) && selected.kind !== "confirm" ? (
             <div className="decision is-resolved">
               <div className="decision-body">
-                <p className="resolved-note" ref={resolvedNote} tabIndex={-1}>
-                  <Icon name="check" />
-                  {headingOf(selected)} no longer waits: it was decided or resolved in another place. Press J for the next item.
-                </p>
+                <ResolvedNote heading={headingOf(selected)} answered={answered[keyOf(selected)]} noteRef={resolvedNote} />
                 {selected.kind === "plan_approval" && registered[keyOf(selected)] ? <RegisteredRepositories registration={registered[keyOf(selected)] as ManifestRegistration} /> : null}
               </div>
             </div>
@@ -338,6 +365,7 @@ export function NeedsYou({ view, readAt, after, active = true }: Props) {
                   after={after}
                   frame={frameOf(item)}
                   registered={{ registration: registered[keyOf(item)], onRegistered: (registration) => setRegistered((was) => ({ ...was, [keyOf(item)]: registration })) }}
+                  onAnswered={(done) => setAnswered((was) => ({ ...was, [keyOf(item)]: done }))}
                 />
               </ItemProject.Provider>
             </div>

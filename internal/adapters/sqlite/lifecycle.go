@@ -28,9 +28,10 @@ func (s *State) Create(ctx context.Context, p ledger.Project, actor ledger.Actor
 	return created, err
 }
 
-// Rename gives a project a new name. The ID, the database, and every record keep their identity.
-func (s *State) Rename(ctx context.Context, id ledger.WorkspaceID, name string, actor ledger.Actor) (ledger.Project, error) {
-	return s.Installation.RenameProject(ctx, id, name, actor)
+// Rename gives a project a new name, and the display name it is given or the one it has. The ID, the database,
+// and every record keep their identity.
+func (s *State) Rename(ctx context.Context, id ledger.WorkspaceID, name, displayName string, actor ledger.Actor) (ledger.Project, error) {
+	return s.Installation.RenameProject(ctx, id, name, displayName, actor)
 }
 
 // SetState archives or restores a project.

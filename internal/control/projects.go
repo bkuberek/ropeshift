@@ -47,8 +47,9 @@ func (p *Projects) Create(ctx context.Context, name, displayName string, actor l
 	return p.registry.Create(ctx, ledger.Project{Name: name, DisplayName: displayName}, actor)
 }
 
-// Rename changes a project's name. Its ID, its database, and every record keep their identity.
-func (p *Projects) Rename(ctx context.Context, name, newName string, actor ledger.Actor) (ledger.Project, error) {
+// Rename changes a project's name, and its display name when one is given. Its ID, its database, and every record
+// keep their identity. A rename to the name it has changes only the display name.
+func (p *Projects) Rename(ctx context.Context, name, newName, displayName string, actor ledger.Actor) (ledger.Project, error) {
 	if err := p.allowed(actor); err != nil {
 		return ledger.Project{}, err
 	}
@@ -56,7 +57,7 @@ func (p *Projects) Rename(ctx context.Context, name, newName string, actor ledge
 	if err != nil {
 		return ledger.Project{}, err
 	}
-	return p.registry.Rename(ctx, project.ID, newName, actor)
+	return p.registry.Rename(ctx, project.ID, newName, displayName, actor)
 }
 
 // Archive makes a project read-only, once every lane of it ended: a person drains a project first, with

@@ -1,6 +1,7 @@
 package sqlstore
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -76,7 +77,7 @@ ON CONFLICT DO NOTHING`)
 		`SELECT `+projectColumns+` FROM projects ORDER BY created_at, id`)
 
 	stmtRenameProject = defineInstallation("project.rename",
-		`UPDATE projects SET name = :name WHERE id = :id AND name <> :name`)
+		`UPDATE projects SET name = :name, display_name = :display_name WHERE id = :id AND (name <> :name OR display_name <> :display_name)`)
 
 	stmtSetProjectState = defineInstallation("project.set_state",
 		`UPDATE projects SET state = :state WHERE id = :id AND state <> :state`)
@@ -338,18 +339,19 @@ func (in *Installation) changeProject(ctx context.Context, op string, id ledger.
 	return after, err
 }
 
-// RenameProject gives a project a new name, which no other project may hold. The ID and the database stay.
-func (in *Installation) RenameProject(ctx context.Context, id ledger.WorkspaceID, name string, actor ledger.Actor) (ledger.Project, error) {
+// RenameProject gives a project a new name, which no other project may hold, and the display name it is given,
+// or else keeps the one it has. The ID and the database stay.
+func (in *Installation) RenameProject(ctx context.Context, id ledger.WorkspaceID, name, displayName string, actor ledger.Actor) (ledger.Project, error) {
 	if err := ledger.ValidateProjectName(name); err != nil {
 		return ledger.Project{}, err
 	}
-	return in.changeProject(ctx, opRenameProject, id, ledger.EventProjectRenamed, func(t *installationTx, _ ledger.Project) (int64, error) {
+	return in.changeProject(ctx, opRenameProject, id, ledger.EventProjectRenamed, func(t *installationTx, before ledger.Project) (int64, error) {
 		if holder, err := readProject(t.session, stmtProjectNamed, params{"name": name}); err == nil && holder.ID != id {
 			return 0, fmt.Errorf("%w: project %s is named %q", ledger.ErrProjectExists, holder.ID, name)
 		} else if err != nil && !errors.Is(err, ports.ErrNotFound) {
 			return 0, err
 		}
-		return t.exec(stmtRenameProject, params{"id": string(id), "name": name})
+		return t.exec(stmtRenameProject, params{"id": string(id), "name": name, "display_name": cmp.Or(displayName, before.DisplayName)})
 	}, actor)
 }
 

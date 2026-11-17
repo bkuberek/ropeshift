@@ -78,6 +78,38 @@ func TestTheProjectLifecycle(t *testing.T) {
 	}
 }
 
+// A rename sets the display name it is given, and keeps the one the project has when it is given none, so a
+// project renamed from Default is no longer shown as Default. A rename that keeps the name changes only the
+// display name.
+func TestARenameSetsTheDisplayNameItIsGiven(t *testing.T) {
+	t.Parallel()
+	in := apitest.StartInstallation(t)
+	created, err := in.Client.CreateProject(t.Context(), api.CreateProject{Name: "beta", DisplayName: "Beta"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	renamed, err := in.Client.RenameProject(t.Context(), "beta", api.RenameProject{Name: "harbor", DisplayName: "Harbor"})
+	if err != nil || renamed.Name != "harbor" || renamed.DisplayName != "Harbor" {
+		t.Fatalf("renamed %+v: %v", renamed, err)
+	}
+	kept, err := in.Client.RenameProject(t.Context(), "harbor", api.RenameProject{Name: "port"})
+	if err != nil || kept.Name != "port" || kept.DisplayName != "Harbor" {
+		t.Fatalf("renamed with no display name %+v: %v", kept, err)
+	}
+	shown, err := in.Client.RenameProject(t.Context(), "port", api.RenameProject{Name: "port", DisplayName: "The port"})
+	if err != nil || shown.Name != "port" || shown.DisplayName != "The port" {
+		t.Fatalf("a new display name alone %+v: %v", shown, err)
+	}
+	listed, err := in.Client.Projects(t.Context())
+	if err != nil || !slices.ContainsFunc(listed, func(p api.Project) bool { return p.Name == "port" && p.DisplayName == "The port" }) {
+		t.Errorf("the projects list %+v: %v", listed, err)
+	}
+	want := []string{ledger.EventProjectCreated + " by member", ledger.EventProjectRenamed + " by member", ledger.EventProjectRenamed + " by member", ledger.EventProjectRenamed + " by member"}
+	if got := lifecycleEvents(t, in, created.ID); !slices.Equal(got, want) {
+		t.Errorf("events %v", got)
+	}
+}
+
 // TestEveryLifecycleStepNeedsAMember holds that no step of a project's lifecycle runs with no session.
 func TestEveryLifecycleStepNeedsAMember(t *testing.T) {
 	t.Parallel()

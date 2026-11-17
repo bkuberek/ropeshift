@@ -371,8 +371,8 @@ func (s *State) Index(ctx context.Context) ([]ledger.IndexedRepository, error) {
 }
 
 // Rename gives a project a new name. The ID, the schema, and every record keep their identity.
-func (s *State) Rename(ctx context.Context, id ledger.WorkspaceID, name string, actor ledger.Actor) (ledger.Project, error) {
-	return s.Installation.RenameProject(ctx, id, name, actor)
+func (s *State) Rename(ctx context.Context, id ledger.WorkspaceID, name, displayName string, actor ledger.Actor) (ledger.Project, error) {
+	return s.Installation.RenameProject(ctx, id, name, displayName, actor)
 }
 
 // SetState archives or restores a project. Archiving keeps the schema, and the registry's state is what

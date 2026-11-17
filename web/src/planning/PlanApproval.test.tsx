@@ -376,6 +376,46 @@ describe("an adopted plan", () => {
   });
 });
 
+// A first version from a planning branch is read by its request, which carries the drafts, so the draft
+// decisions and the sentence on Your decision count the same ones.
+describe("a first version from a planning branch", () => {
+  const request = golden<ApprovalRecord>("approval-adopted");
+  const requestPage = here(`/plan?id=${request.id}&version=1`);
+  const draft = { id: "sailings-under-berths", question: "Do the sailings get a page of their own?", answer: "No. Each berth shows its sailings under it." };
+
+  function serveBranch(drafts: unknown[]) {
+    const approval = structuredClone(request);
+    const detail = JSON.parse(approval.detail ?? "{}") as Record<string, unknown>;
+    delete detail.adoption;
+    detail.decisions = drafts.length;
+    detail.drafts = drafts;
+    approval.detail = JSON.stringify(detail);
+    serveViews((call) => {
+      if (call.method === "GET" && call.path.startsWith("/v1/plans/")) {
+        return refusal(404, "not_found", "plan: not found");
+      }
+      return call.method === "GET" && call.path === `/v1/approvals/${request.id}` ? { status: 200, body: approval } : undefined;
+    });
+  }
+
+  it("lists the drafts its request carries, and Your decision counts them", async () => {
+    serveBranch([draft]);
+    openPage(requestPage);
+    const panel = await screen.findByRole("region", { name: "Draft decisions" });
+    expect(within(panel).getByRole("list", { name: "Draft decisions" }).textContent).toContain(draft.answer);
+    const decision = screen.getByRole("complementary", { name: "Your decision" });
+    expect(decision.textContent).toContain("Approving decides 1 draft decision as yours");
+  });
+
+  it("says it drafts none in both places when its request carries none", async () => {
+    serveBranch([]);
+    openPage(requestPage);
+    const panel = await screen.findByRole("region", { name: "Draft decisions" });
+    expect(within(panel).getByText("The version drafts no decision.")).toBeTruthy();
+    expect(screen.getByRole("complementary", { name: "Your decision" }).textContent).toContain("Approving decides 0 draft decisions as yours");
+  });
+});
+
 describe("the repositories a version's manifest lists", () => {
   it("lists each one, where its path leads, and whether approving registers it", async () => {
     serve((view) => {

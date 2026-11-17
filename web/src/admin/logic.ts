@@ -380,6 +380,18 @@ export function outcomeOf(added: RepositoryAdded, dryRun: boolean): StateLook {
 
 // projectNameOf names a project after a folder, as `ropeshift adopt` does: the folder's last part in
 // lowercase letters and digits, with a hyphen for each run of anything else, at most 63 characters.
+// folderNameOf is the last part of a folder's path as the person wrote it, which a project imported from the
+// folder is shown by until a rename gives it another display name.
+export function folderNameOf(path: string): string {
+  return (
+    path
+      .trim()
+      .replace(/\/+$/, "")
+      .split("/")
+      .pop() ?? ""
+  );
+}
+
 export function projectNameOf(path: string): string {
   const folder = path.replace(/\/+$/, "").split("/").pop() ?? "";
   const words = folder.toLowerCase().match(/[a-z0-9]+/g) ?? [];

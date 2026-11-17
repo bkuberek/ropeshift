@@ -241,6 +241,41 @@ describe("a batch of questions", () => {
     expect(sent.filter((call) => (call.body as { id: string }).id === first.id).length).toBe(2);
   });
 
+  it("says a batch the person answered here was answered, by whom, and with what, once it no longer waits", async () => {
+    const { view, item } = batchView();
+    serveApi((call) => (call.method === "POST" ? { status: 201, body: { id: (call.body as { id: string }).id, status: "active", statement: (call.body as { answer: string }).answer, decided_by: "member-ada" } } : undefined));
+    const after = vi.fn(async () => {});
+    const { rerender } = show(view, after, "questions");
+    await userEvent.click(screen.getByRole("button", { name: "Send 2 answers" }));
+    await waitFor(() => expect(after).toHaveBeenCalledOnce());
+    rerender(
+      <CurrentProject.Provider value={testProject}>
+        <NeedsYou view={{ ...view, items: view.items.filter((row) => row.kind !== "questions") }} readAt={Date.now()} after={async () => {}} />
+      </CurrentProject.Provider>,
+    );
+    const note = await screen.findByText(/no longer waits/);
+    expect(note.textContent).toContain("you answered it, as member-ada");
+    expect(note.textContent).not.toContain("another place");
+    for (const question of item.batch.items) {
+      expect(note.parentElement?.textContent).toContain(`${question.text}${question.recommendation}`);
+    }
+    const row = screen.getAllByRole("link").find((link) => link.getAttribute("aria-current") === "true");
+    expect(row?.textContent).toContain("Answered by you");
+    expect(row?.textContent).not.toContain("Resolved elsewhere");
+  });
+
+  it("says a batch nobody answered here was decided or resolved in another place", async () => {
+    const { view } = batchView();
+    const { rerender } = show(view, undefined, "questions");
+    rerender(
+      <CurrentProject.Provider value={testProject}>
+        <NeedsYou view={{ ...view, items: view.items.filter((row) => row.kind !== "questions") }} readAt={Date.now()} after={async () => {}} />
+      </CurrentProject.Provider>,
+    );
+    expect((await screen.findByText(/no longer waits/)).textContent).toContain("it was decided or resolved in another place");
+    expect(screen.queryByText(/you answered it/i)).toBeNull();
+  });
+
   it("takes a question someone else answered first as answered", async () => {
     const { view } = batchView();
     serveApi(() => refusal(409, "resolved", "This question already has its answer."));

@@ -255,7 +255,9 @@ export const adminPaths = {
 // Projects
 
 export const createProject = (name: string, displayName: string) => call<Project>("POST", adminPaths.createProject(), { name, display_name: displayName || undefined });
-export const renameProject = (name: string, next: string) => call<Project>("POST", adminPaths.projectStep(name, "rename"), { name: next });
+// renameProject gives a project a new name, and the display name it is given or else the one it has.
+export const renameProject = (name: string, next: string, displayName = "") =>
+  call<Project>("POST", adminPaths.projectStep(name, "rename"), { name: next, display_name: displayName || undefined });
 export const archiveProject = (name: string) => call<Project>("POST", adminPaths.projectStep(name, "archive"), {});
 export const restoreProject = (name: string) => call<Project>("POST", adminPaths.projectStep(name, "restore"), {});
 // A removal confirms with the project's name. The page downloads a backup first when a member asks for one,
