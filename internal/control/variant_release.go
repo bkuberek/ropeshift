@@ -106,6 +106,7 @@ func acceptsAnyScope() bool { return false }
 func bindsEveryContract() bool  { return false }
 func keepsReadyWork() bool      { return false }
 func holdsNothing() bool        { return false }
+func keepsStandingHold() bool   { return false }
 func holdsReversible() bool     { return false }
 func tellsNobody() bool         { return false }
 func renewsNoPack() bool        { return false }

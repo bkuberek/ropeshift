@@ -42,6 +42,7 @@ func packVariants() []variant {
 		{name: "ready work that stays ready under a decision", control: control.Sabotage{KeepsReadyWork: true}, check: "MP11"},
 		{name: "ready work that stays ready under a person's decision", control: control.Sabotage{KeepsReadyWork: true}, check: "BD1"},
 		{name: "work returned to review that nobody holds there", control: control.Sabotage{HoldsNothing: true}, check: "BD1"},
+		{name: "work held for another reason that no decision holds", control: control.Sabotage{KeepsStandingHold: true}, check: "BD16"},
 		{name: "work returned to review that nobody holds, for the plan's scenario", control: control.Sabotage{HoldsNothing: true}, check: "MP11"},
 		{name: "work held in review for a decision that can be taken back", control: control.Sabotage{HoldsReversible: true}, check: "BD2"},
 		{name: "a contract scope that binds every contract", control: control.Sabotage{BindsEveryContract: true}, check: "BD3"},

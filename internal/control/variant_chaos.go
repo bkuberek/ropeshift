@@ -80,6 +80,8 @@ type Sabotage struct {
 	KeepsReadyWork bool
 	// HoldsNothing returns the work to review and leaves it to the next tick.
 	HoldsNothing bool
+	// KeepsStandingHold leaves a hold that stands as it is, and holds the work for the decision under no hold of its own.
+	KeepsStandingHold bool
 	// HoldsReversible holds work in review for a decision that can be taken back.
 	HoldsReversible bool
 	// TellsNobody binds work and tells none of its lanes.
@@ -196,6 +198,8 @@ func bindsEveryContract() bool { return current().BindsEveryContract }
 func keepsReadyWork() bool { return current().KeepsReadyWork }
 
 func holdsNothing() bool { return current().HoldsNothing }
+
+func keepsStandingHold() bool { return current().KeepsStandingHold }
 
 func holdsReversible() bool { return current().HoldsReversible }
 

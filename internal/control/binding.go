@@ -147,10 +147,30 @@ func returnUnstarted(tx ports.WriteTx, orders []workorders.WorkOrder, decision s
 	return nil
 }
 
-// holdForDecision keeps work in contract review until a member passes its review again. A hold that stands
-// already names a decision, and holding for another leaves it as it is.
+// derivedHold says a start hold is a reading of facts that a claim and the tick read again, and not a word a member
+// or a policy gave. The work a decision returns to review can stand held for any of these, and the hold for the
+// decision takes its place: a member's pass ends it, and the next claim or tick reads the facts again and holds the
+// work for the same reason if it still stands. No hold is set by a member or a policy today; a reason that is not
+// listed is kept as it stands, so a hold of that kind is never replaced.
+//
+//   - waiting_for_merge, dependencies_diverge, base_unavailable, no_checkout, and continued_branch_missing are read
+//     from the repository and the work it waits on, at the claim and on each pass of `RefreshStarts`.
+//   - pull_request_pending and forge_unavailable hold a review of a commit, which a decision never moves.
+func derivedHold(hold *workorders.StartHold) bool {
+	switch hold.Reason {
+	case workorders.HoldWaitingForMerge, workorders.HoldDependenciesDiverge, workorders.HoldBaseUnavailable,
+		workorders.HoldNoCheckout, workorders.HoldContinuedBranchMissing,
+		workorders.HoldPullRequestPending, workorders.HoldForgeUnavailable:
+		return true
+	}
+	return false
+}
+
+// holdForDecision keeps work in contract review until a member passes its review again. A hold that already names
+// a decision stands, and holding for another leaves it as it is. A hold that is a reading of facts is replaced,
+// because a start hold is one reason, and the work must not return to `ready` on the tick with no member's pass.
 func holdForDecision(tx ports.WriteTx, order workorders.WorkOrder, decision string, actor ledger.Actor) error {
-	if order.StartHeld != nil || holdsNothing() {
+	if holdsNothing() || order.StartHeld != nil && (!derivedHold(order.StartHeld) || keepsStandingHold()) {
 		return nil
 	}
 	hold := &workorders.StartHold{

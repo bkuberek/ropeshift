@@ -37,6 +37,69 @@ var BindingChecks = []Check{
 	{"BD13", "a plan whose file names it with an id that is not plain is approved and its questions are answered", checkBindingUnplainPlanID},
 	{"BD14", "a decision that reaches finished work and its finished rework reworks the rework alone", checkBindingReworksTheTipOfAChain},
 	{"BD15", "a lane that asked a question is not parked by the decision that answers it", checkBindingAskerIsNotParked},
+	{"BD16", "work held for another reason waits for a member's pass under a person's one-way decision, and the reason returns after it", checkBindingHoldsHeldWork},
+}
+
+// checkBindingHoldsHeldWork holds that a start hold that is a reading of facts does not keep work out of the hold a
+// person's one-way decision puts on it: work that continues a branch nobody holds stands `ready` under
+// `continued_branch_missing`, the decision returns it to contract review under its own hold, the tick leaves it
+// there, a member's pass ends the hold, and the next tick holds the work for the branch again.
+func checkBindingHoldsHeldWork(r *Rig) error {
+	s := r.Store()
+	w := r.startWorld(s)
+	path := w.path(startRepository)
+	main := w.git.Grow(path, "main")
+	id, err := w.continuing(startRepository, "feature/gone")
+	if err != nil {
+		return err
+	}
+	if _, err := w.refused(id, workorders.HoldContinuedBranchMissing); err != nil {
+		return err
+	}
+	ops := r.NewOps(s)
+	if _, err := ops.RecordDecision(r.Ctx, r.Scope, questions.Decision{
+		ID: r.ID("d"), Status: questions.DecisionDecided, Statement: "Binding decision " + r.ID("s"), Rationale: "The brand guide says so.",
+		Citations: []string{"brand-guide"}, Scope: "wo:" + id, Reversibility: questions.OneWay, Categories: []string{questions.CategoryProduct},
+	}, r.member()); err != nil {
+		return err
+	}
+	held, err := r.WorkOrder(s, id)
+	if err != nil {
+		return err
+	}
+	if held.State != workorders.ContractReview || held.StartHeld == nil || held.StartHeld.Reason != workorders.HoldDecision {
+		return Violatedf("work held for a missing branch that a person's one-way decision binds is %s, held by %+v, want contract review held by the decision", held.State, held.StartHeld)
+	}
+	if _, err := ops.Promote(r.Ctx, r.Scope, tickActor); err != nil {
+		return err
+	}
+	if _, err := w.leases.RefreshStarts(r.Ctx, r.Scope, r.Actor); err != nil {
+		return err
+	}
+	if held, err = r.WorkOrder(s, id); err != nil || held.State != workorders.ContractReview || held.StartHeld == nil || held.StartHeld.Reason != workorders.HoldDecision {
+		return Violatedf("the tick left the work %s, held by %+v: %v", held.State, held.StartHeld, err)
+	}
+	if _, err := ops.Pass(r.Ctx, r.Scope, id, r.member()); err != nil {
+		return err
+	}
+	if held, err = r.WorkOrder(s, id); err != nil || held.State != workorders.Ready || held.StartHeld != nil {
+		return Violatedf("a member's pass left the work %s, held by %+v: %v", held.State, held.StartHeld, err)
+	}
+	if _, err := w.leases.RefreshStarts(r.Ctx, r.Scope, r.Actor); err != nil {
+		return err
+	}
+	if held, err = r.WorkOrder(s, id); err != nil || held.StartHeld == nil || held.StartHeld.Reason != workorders.HoldContinuedBranchMissing {
+		return Violatedf("the tick after the pass left the work held by %+v, want continued_branch_missing: %v", held.StartHeld, err)
+	}
+	w.git.Point(path, "feature/gone", main)
+	w.git.Grow(path, "feature/gone")
+	if _, err := w.leases.RefreshStarts(r.Ctx, r.Scope, r.Actor); err != nil {
+		return err
+	}
+	if held, err = r.WorkOrder(s, id); err != nil || held.StartHeld != nil {
+		return Violatedf("once the branch is there the work reads %+v: %v", held.StartHeld, err)
+	}
+	return r.CheckQuestions(s)
 }
 
 // checkBindingAskerIsNotParked holds that under `on_binding_decision = park`, the answer to a lane's question
