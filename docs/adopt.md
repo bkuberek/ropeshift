@@ -76,7 +76,7 @@ The session asks in Needs you, as [plan your first change](plan-your-first-chang
 
 ### 6. Read the grouped plan approval
 
-When the session has finished, Needs you lists its plan approval. Select it, then Open the full plan approval. Beside the difference from the approved version, What the adoption does groups the plan:
+When the session has finished, Needs you lists its plan approval. Select it, then Open the full plan approval. Below the difference from the approved version, What the adoption does groups the plan:
 
 | Group | What it holds |
 |-------|---------------|
@@ -156,4 +156,4 @@ Adopting does not move files between repositories. To use the layout in [project
 
 ## Next
 
-Watch work run, the next guide in [the README's documentation](../README.md#documentation), starts the plan's work. [Your first plan, end to end](first-plan.md#4-let-the-work-run) covers the same steps.
+Approving the plan creates its work orders. [Your first plan, end to end](first-plan.md#4-let-the-work-run) shows them run, and [Learn ropeshift](../README.md#learn-ropeshift) lists the guides.

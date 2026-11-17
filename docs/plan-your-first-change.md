@@ -40,7 +40,7 @@ In Type into the session, type what the session should know, such as "Put the sa
 
 An answer you give in the session becomes a draft decision in the plan, which your approval decides. Here the Outline gains the plan's file and its draft decision, and the session asks a second question that your line leaves open.
 
-Say what you want while the session's questions wait. Once you answer the last one, the session writes the plan and submits it, and its lane ends.
+Say what you want while the session's questions wait. When the session has what it needs, it writes the plan and submits it. A turn that ends without a submission waits for your next line, and the Planning page shows Waiting for you beside the session's state. When `ask_wait`, five minutes unless the profile says otherwise, runs out with no terminal attached, the session parks, and Needs you offers Resume.
 
 With the field empty, Enter, Escape, and the up and down arrows go straight to the session, as do the keys under the field. Detach stops what you type from reaching the session, which keeps running, and Attach joins it again.
 
@@ -71,7 +71,7 @@ Only committed files show, so a file the session is still writing appears at its
 
 ### 6. Let the session submit the version
 
-When the plan is finished, the session submits it as a version for your approval, and its lane ends. The Planning page then says No planning session is running, and shows the plan of the last session below it, as its branch holds it. The session never submits while a blocking question is open.
+When the plan is finished, the session submits it as a version for your approval, and its lane ends. The Planning page then says No planning session is running. Once you approve the version, it shows that session's plan below, at the approved commit. The session never submits while a blocking question is open.
 
 Needs you then lists the version as a plan approval, and only that: approving the plan accepts the session's work order, so the work order does not wait there as well.
 
@@ -84,7 +84,7 @@ In Needs you, select the plan approval, `Approve Berths and sailings on the publ
 
 ### 8. Open the full plan approval
 
-Select Open the full plan approval to read the version in full: who wrote it and when, the difference from the version in force, the draft decisions with the question each answers, the contracts it adds or changes with their criteria and work orders, and the documents it covers. For a first version from a planning session, the ledger holds the contracts and the documents once you approve it, so the page lists every record the version adds. When the plan's manifest lists a repository the project lacks, the page lists what approving would register.
+Select Open the full plan approval to read the version in full: who wrote it and when, the difference from the version in force, the draft decisions with the question each answers, the contracts it adds or changes with their criteria and work orders, and the documents it covers. For a first version from a planning session, the ledger holds the contracts and the documents once you approve it, so the page lists every record the version adds. Until then, the documents section can say The version covers no document, though the card counts the plan's files under Holds: it lists only documents the ledger already holds. When the plan's manifest lists a repository the project lacks, the page lists what approving would register.
 
 ![Plan approval of version 1, with the records it adds and the card Your decision](assets/screenshots/plan-07-light.png#gh-light-mode-only)
 ![Plan approval of version 1, with the records it adds and the card Your decision](assets/screenshots/plan-07-dark.png#gh-dark-mode-only)
@@ -117,4 +117,4 @@ The session's branch holds the plan, and merges like any change, at the planning
 
 ## Next
 
-Watch work run, the next guide in [the README's documentation](../README.md#documentation), starts the plan's work. [Your first plan, end to end](first-plan.md#4-let-the-work-run) covers the same steps.
+Approving the plan creates its work orders. [Your first plan, end to end](first-plan.md#4-let-the-work-run) shows them run, and [Learn ropeshift](../README.md#learn-ropeshift) lists the guides.
