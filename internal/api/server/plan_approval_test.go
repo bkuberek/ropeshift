@@ -465,6 +465,24 @@ func TestNeedsYouAsksOnlyForThePlanApprovalOfABranchWaitingForAcceptance(t *test
 	}
 }
 
+// A plan approval raised for an earlier commit of the branch cannot accept the work order, which approving it
+// refuses, so Needs you asks for the work order's acceptance beside it.
+func TestNeedsYouAsksForTheAcceptanceOfABranchThatMovedPastItsPlanApproval(t *testing.T) {
+	t.Parallel()
+	d := apitest.Start(t)
+	d.Completed(t, "wo-plan", laneEnd(workorders.CheckResult{Name: "unit", Criterion: "c1", Passed: true}))
+	detail, err := json.Marshal(planning.PlanDetail{Title: "Berths", Ref: "harbor-v1", Source: "an-earlier-commit"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	askAboutABranch(t, d, "stale-approval", "wo-plan", detail)
+	view := readView[api.NeedsYou](t, d, api.ViewNeedsYou, "")
+	planApprovalNeed(t, view)
+	if !waitsForAcceptance(view, "wo-plan") {
+		t.Error("a plan approval of an earlier commit hides the work order's acceptance")
+	}
+}
+
 // A declined plan leaves the lane's work order waiting, so Needs you asks for its acceptance again.
 func TestNeedsYouAsksForTheAcceptanceOfABranchWhosePlanWasDeclined(t *testing.T) {
 	t.Parallel()

@@ -454,9 +454,9 @@ func (h *handler) needs(tx ports.ReadTx, stamp api.Stamp) ([]api.NeedItem, error
 	if err != nil {
 		return nil, err
 	}
-	// planned holds each work order a waiting plan approval names: the planning lane's, whose branch holds the
-	// plan. Approving the plan accepts that work order (ADR-0018), so the approval is the one thing asked.
-	planned := map[string]bool{}
+	// planned holds the waiting plan approvals of each work order they name: the planning lane's, whose branch
+	// holds the plan. Approving the plan accepts that work order (ADR-0018), so the approval is the one thing asked.
+	planned := map[string][]authority.Approval{}
 	for i := range approvals {
 		switch {
 		case !approvals[i].Open():
@@ -466,7 +466,7 @@ func (h *handler) needs(tx ports.ReadTx, stamp api.Stamp) ([]api.NeedItem, error
 				return nil, err
 			}
 			if approvals[i].WorkOrder != "" {
-				planned[approvals[i].WorkOrder] = true
+				planned[approvals[i].WorkOrder] = append(planned[approvals[i].WorkOrder], approvals[i])
 			}
 			items = append(items, api.NeedItem{Kind: api.NeedPlanApproval, ID: approvals[i].ID, Since: approvals[i].RaisedAt, PlanApproval: need})
 		case approvals[i].Kind == authority.KindConfirm:
@@ -503,8 +503,12 @@ func (h *handler) needs(tx ports.ReadTx, stamp api.Stamp) ([]api.NeedItem, error
 	for i := range f.orders {
 		order := &f.orders[i]
 		need := api.WorkNeed{WorkOrder: order, Lane: f.ofWork[order.ID]}
+		accepting, err := acceptedByApproving(tx.Evidence(), *order, planned[order.ID])
+		if err != nil {
+			return nil, err
+		}
 		switch {
-		case order.State == workorders.Acceptance && !planned[order.ID]:
+		case order.State == workorders.Acceptance && !accepting:
 			need.Reason, need.Actions = api.ReasonAcceptance, []string{api.ActAccept, api.ActRework}
 			standing, err := control.StandingIn(tx, order.ID)
 			if err != nil {
@@ -524,6 +528,22 @@ func (h *handler) needs(tx ports.ReadTx, stamp api.Stamp) ([]api.NeedItem, error
 	}
 	slices.SortStableFunc(items, func(a, b api.NeedItem) int { return cmp.Or(cmp.Compare(a.Since, b.Since), cmp.Compare(a.ID, b.ID)) })
 	return items, nil
+}
+
+// acceptedByApproving reports whether approving one of a work order's waiting plan approvals would accept it:
+// the work order waits for acceptance, and the approval was raised for the commit its branch holds now. An
+// approval of an earlier commit accepts nothing, so the work order's acceptance is still asked.
+func acceptedByApproving(evidence ports.EvidenceReader, order workorders.WorkOrder, approvals []authority.Approval) (bool, error) {
+	if order.State != workorders.Acceptance {
+		return false, nil
+	}
+	for _, approval := range approvals {
+		current, err := control.PlanApprovalIsCurrent(evidence, order, approval)
+		if err != nil || current {
+			return current, err
+		}
+	}
+	return false, nil
 }
 
 // planApprovalNeed is what a member reads of a plan version they are asked to approve, with the answers

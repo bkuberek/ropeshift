@@ -479,11 +479,11 @@ func acceptLanesPlan(tx ports.WriteTx, approval authority.Approval, member ledge
 	if order.State != workorders.Acceptance {
 		return nil
 	}
-	artifacts, err := tx.Evidence().Artifacts(order.ID)
+	current, err := PlanApprovalIsCurrent(tx.Evidence(), order, approval)
 	if err != nil {
 		return err
 	}
-	if branch := attemptBranch(artifacts, order.Fence); branch.Digest == "" || branch.Digest != planDetailOf(approval).Source {
+	if !current {
 		return fmt.Errorf("%w: the lane's branch is no longer the one the member was shown", authority.ErrStaleDigest)
 	}
 	assessment, err := assessAttempt(tx.Planning(), tx.Evidence(), order)
@@ -494,6 +494,17 @@ func acceptLanesPlan(tx ports.WriteTx, approval authority.Approval, member ledge
 		return fmt.Errorf("%w: %s", workorders.ErrNotAcceptable, strings.Join(assessment.Failed, ", "))
 	}
 	return accept(tx, order.ID, assessment, member, func() {})
+}
+
+// PlanApprovalIsCurrent reports whether a request to approve a plan was raised for the commit a work order's
+// branch holds in its current attempt, which approving it needs to accept the work order.
+func PlanApprovalIsCurrent(evidence ports.EvidenceReader, order workorders.WorkOrder, approval authority.Approval) (bool, error) {
+	artifacts, err := evidence.Artifacts(order.ID)
+	if err != nil {
+		return false, err
+	}
+	branch := attemptBranch(artifacts, order.Fence)
+	return branch.Digest != "" && branch.Digest == planDetailOf(approval).Source, nil
 }
 
 // approvedBeforeRecorded finds the approval a member gave to the branch that this version came from, if
