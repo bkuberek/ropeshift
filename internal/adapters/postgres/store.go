@@ -87,6 +87,10 @@ type State struct {
 	// repairWait bounds the repair of the repository index after a failed write, from its first wait to its
 	// last statement.
 	repairWait time.Duration
+	// reported is the set of conflicts of the repository index the state last warned about, by project, so
+	// that a conflict that stays is reported once. reportedMu guards it.
+	reportedMu sync.Mutex
+	reported   map[ledger.WorkspaceID]string
 	// afterFailedWrite repairs the repository index after a write that failed once the index had committed.
 	// Nil does nothing, which a test uses to look at what the failed write left.
 	afterFailedWrite func(context.Context, ledger.WorkspaceID)
@@ -124,7 +128,7 @@ func Open(ctx context.Context, url string, opts Options) (*State, error) {
 	s := &State{
 		pool: pool, installationPool: installationPool, dialect: dialect, opts: opts.Store,
 		migrating: make(chan struct{}, 1), lockTimeout: lockTimeout(opts.LockTimeout), dropWait: defaultDropWait,
-		stores: map[ledger.WorkspaceID]*sqlstore.Store{},
+		stores: map[ledger.WorkspaceID]*sqlstore.Store{}, reported: map[ledger.WorkspaceID]string{},
 	}
 	s.opts.Installation, s.opts.Schema, s.opts.AfterFailedWrite = nil, "", nil
 	s.afterFailedWrite = s.repairAfterFailedWrite

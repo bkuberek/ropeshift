@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -233,15 +235,56 @@ func (s *State) rebuildProjectIndex(ctx context.Context, p ledger.Project) error
 			entries = append(entries, entry)
 		}
 	}
-	if !indexAgrees(entries, records, p.ID) {
+	if indexAgrees(entries, records, p.ID) {
+		s.reportConflicts(ctx, p, nil, index)
+	} else {
 		_, wanted := indexedIdentities(records, p.ID)
 		conflicts, err := s.Installation.ReplaceProjectRepositories(ctx, p.ID, wanted)
 		if err != nil {
 			return err
 		}
-		for _, c := range conflicts {
-			s.warn("postgres: repository index: project %s keeps a record of %s, which another project holds in the index", p.Name, c.Identity)
-		}
+		s.reportConflicts(ctx, p, conflicts, index)
 	}
 	return tx.Commit(ctx)
+}
+
+// reportConflicts warns about the records of a project whose repository another project holds in the
+// index, which no rebuild can settle: each warning names the record, the project that keeps it, and the
+// project that holds the repository, and says what to do. A conflict is reported once. The same set of
+// conflicts that a later rebuild of the project finds again is not reported again, and a set that changed is
+// reported in full. A project with no conflicts is forgotten, so one that comes back is reported. The index
+// is the entries as the rebuild read them, which name the holder of each conflicting identity.
+func (s *State) reportConflicts(ctx context.Context, p ledger.Project, conflicts, index []ledger.IndexedRepository) {
+	var lines []string
+	for _, c := range conflicts {
+		var holder ledger.WorkspaceID
+		for _, entry := range index {
+			if entry.Identity == c.Identity {
+				holder = entry.Project
+				break
+			}
+		}
+		name := string(holder)
+		if held, err := s.Installation.ProjectByID(ctx, holder); err == nil {
+			name = held.Name
+		}
+		lines = append(lines, fmt.Sprintf("postgres: repository index: record %s of project %s names %s, which project %s holds; remove one of the two records, and the next Open holds the repository for the other",
+			c.Repository, p.Name, c.Identity, name))
+	}
+	slices.Sort(lines)
+	key := strings.Join(lines, "\n")
+	s.reportedMu.Lock()
+	again := s.reported[p.ID] == key
+	if key == "" {
+		delete(s.reported, p.ID)
+	} else {
+		s.reported[p.ID] = key
+	}
+	s.reportedMu.Unlock()
+	if again {
+		return
+	}
+	for _, line := range lines {
+		s.warn("%s", line)
+	}
 }

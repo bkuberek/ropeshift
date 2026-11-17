@@ -342,6 +342,73 @@ func TestAStalledRepairGivesUpAfterItsBound(t *testing.T) {
 	}
 }
 
+// insertRecordWithoutEntry puts a repository record in a project's schema as a write that never reached the
+// repository index would, so the record's repository can be one that another project holds.
+func insertRecordWithoutEntry(t *testing.T, db *sql.DB, schema string, scope ledger.WorkspaceID, id, name, remote string) {
+	t.Helper()
+	_, err := db.ExecContext(t.Context(),
+		fmt.Sprintf(`INSERT INTO %s.repositories (workspace_id, id, name, remote, default_branch) VALUES ($1, $2, $3, $4, 'main')`, schema),
+		string(scope), id, name, remote)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestAConflictIsReportedWithWhatToDoAndOnlyWhenItChanges holds the warning for a record whose repository
+// another project holds in the index, which no rebuild can settle: it names the record, the project that
+// keeps it, and the project that holds the repository, and says what to do. It is given once for a
+// conflict that stays, however many times the project's entries are rebuilt, and again when the conflict
+// changes.
+func TestAConflictIsReportedWithWhatToDoAndOnlyWhenItChanges(t *testing.T) {
+	url := freshDatabase(t)
+	first := openState(t, url, postgres.Options{})
+	db := first.SQLDB()
+	defer db.Close()
+	alpha, alphaStore := createProject(t, first, "pa", "alpha")
+	beta, _ := createProject(t, first, "pb", "beta")
+	const other = "https://example.com/acme/other"
+	if err := insertRepository(t.Context(), alphaStore, alpha.ID, "r1", "invoices", invoices); err != nil {
+		t.Fatal(err)
+	}
+	if err := insertRepository(t.Context(), alphaStore, alpha.ID, "r2", "other", other); err != nil {
+		t.Fatal(err)
+	}
+	insertRecordWithoutEntry(t, db, "project_pb", beta.ID, "r-b1", "b1", invoices)
+
+	var warned warnings
+	state, err := postgres.Open(t.Context(), url, postgres.Options{Store: sqlstore.Options{Warn: warned.add}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = state.Close() })
+	got := warned.all()
+	if len(got) != 1 {
+		t.Fatalf("warnings %q, want one for the conflict", got)
+	}
+	for _, want := range []string{"r-b1", "beta", "alpha", "example.com/acme/invoices", "remove"} {
+		if !strings.Contains(got[0], want) {
+			t.Errorf("the warning %q does not say %q", got[0], want)
+		}
+	}
+
+	// The same conflict, rebuilt again, is not reported again.
+	if err := state.RepairProjectIndex(t.Context(), beta); err != nil {
+		t.Fatal(err)
+	}
+	if got := warned.all(); len(got) != 1 {
+		t.Errorf("warnings %q, want the one already given", got)
+	}
+
+	// A conflict that changed is reported again.
+	insertRecordWithoutEntry(t, db, "project_pb", beta.ID, "r-b2", "b2", other)
+	if err := state.RepairProjectIndex(t.Context(), beta); err != nil {
+		t.Fatal(err)
+	}
+	if got := warned.all(); len(got) < 2 || !strings.Contains(strings.Join(got[1:], "\n"), "r-b2") {
+		t.Errorf("warnings %q, want a new one that names r-b2", got)
+	}
+}
+
 // TestTheRepairOfAProjectRunsInAnOpenState holds the repair a caller can run when a write of a project
 // fails, without opening a state again: it takes the migration lock, and it brings the project's part of
 // the index into agreement with its records. A project whose index is in agreement is left alone.
