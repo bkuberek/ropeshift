@@ -141,6 +141,30 @@ func waitForLockWait(t *testing.T, db *sql.DB, second <-chan error, statementLik
 	}
 }
 
+// TestScopeMigrationPostgres runs the migration of ADR-0030's scope grammar on a real server.
+func TestScopeMigrationPostgres(t *testing.T) {
+	server, err := pgtest.Shared()
+	if err != nil {
+		t.Fatal(err)
+	}
+	name, err := server.NewDatabase(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("pgx", server.DSN(name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	migrations, err := postgres.Dialect{}.Migrations()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := contract.ScopeRewriteCheck(t.Context(), db, scopeMigration(t, migrations)); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // TestEveryStatementPrepares sends every statement to a real server, which is
 // what finds a statement Postgres refuses to type (D7).
 func TestEveryStatementPrepares(t *testing.T) {

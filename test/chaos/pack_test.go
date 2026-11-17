@@ -35,6 +35,8 @@ func packVariants() []variant {
 	return []variant{
 		{name: "a parked lane that stays asked to park", control: control.Sabotage{KeepsParkWanted: true}, check: "N15"},
 		{name: "a notice that does not read the index", control: control.Sabotage{IgnoresPins: true}, check: "N3"},
+		{name: "a plan scope that binds no work", control: control.Sabotage{BindsNoPlan: true}, check: "MP10"},
+		{name: "a plan scope that binds no work to overturn", control: control.Sabotage{BindsNoPlan: true}, check: "MP13"},
 		{
 			name:     "a record that pins a pack past the version that held it",
 			sabotage: sqlstore.Sabotage{Rewrite: replace("pack.pinning", " AND i.version = (SELECT max(p.version) FROM context_packs p WHERE p.workspace_id = i.workspace_id AND p.id = i.pack_id)", "")}, check: "N19",
@@ -46,8 +48,8 @@ func packVariants() []variant {
 		{name: "a pack the log does not hold", control: control.Sabotage{DropsPackEvent: true}, check: "PK3"},
 		{name: "a woken lane that takes a new pack", control: control.Sabotage{RebuildsPack: true}, check: "PK4"},
 		{
-			name:     "a scope read that stops at a page",
-			sabotage: sqlstore.Sabotage{Rewrite: replace("decision.overlapping", "ORDER BY d.id", "ORDER BY d.id LIMIT 500")}, check: "PK7",
+			name:    "a scope read that stops at a page",
+			control: control.Sabotage{StopsAtOnePage: true}, check: "PK7",
 		},
 		{
 			name:     "a generation that resumed, read as a fresh baseline",

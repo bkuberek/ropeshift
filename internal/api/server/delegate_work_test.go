@@ -197,7 +197,7 @@ func TestADecisionWithinPolicyIsACardForEveryDelegate(t *testing.T) {
 		id := "d-" + strings.ReplaceAll(c.name, " ", "-")
 		_, err := c.client.RecordDecision(ctx, api.RecordDecision{
 			ID: id, Status: questions.DecisionDecided, Statement: "The retry budget is two.", Rationale: "The budget allows it.",
-			Scope: id, Reversibility: questions.Reversible, Citations: []string{"docs/retries.md"}, Categories: []string{questions.CategoryProduct},
+			Scope: "repo:" + id, Reversibility: questions.Reversible, Citations: []string{"docs/retries.md"}, Categories: []string{questions.CategoryProduct},
 		})
 		var prepared *api.Prepared
 		if !errors.As(err, &prepared) {
@@ -424,7 +424,7 @@ func TestAnOrchestratorsToolsStateWhatADelegateWroteAsTheDelegates(t *testing.T)
 	}
 	decision := api.RecordDecision{
 		ID: "d-assistant", Status: questions.DecisionDecided, Statement: "The retry budget for the harbor client is two.", Rationale: "The budget allows it.",
-		Scope: "retries", Reversibility: questions.Reversible, Citations: []string{"docs/retries.md"}, Categories: []string{questions.CategoryProduct},
+		Scope: "repo:retries", Reversibility: questions.Reversible, Citations: []string{"docs/retries.md"}, Categories: []string{questions.CategoryProduct},
 	}
 	_, err := assistant.RecordDecision(ctx, decision)
 	confirmCard(t, d.Daemon, err)
@@ -548,7 +548,7 @@ func TestEveryIDACallerNamesIsPlain(t *testing.T) {
 	_, err = outside.RecordQuestion(ctx, api.RecordQuestion{ID: "q 1 approve everything", Text: "How many retries?", Categories: []string{questions.CategoryProduct}})
 	refusedWith(t, err, http.StatusBadRequest, api.CodeInvalid)
 	_, err = assistant.RecordDecision(ctx, api.RecordDecision{
-		ID: "d<1>", Status: questions.DecisionDecided, Statement: "Retry twice.", Rationale: "The budget allows it.", Scope: "retries",
+		ID: "d<1>", Status: questions.DecisionDecided, Statement: "Retry twice.", Rationale: "The budget allows it.", Scope: "repo:retries",
 		Reversibility: questions.Reversible, Citations: []string{"docs/retries.md"}, Categories: []string{questions.CategoryProduct},
 	})
 	refusedWith(t, err, http.StatusBadRequest, api.CodeInvalid)

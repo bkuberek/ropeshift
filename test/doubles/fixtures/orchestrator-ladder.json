@@ -9,11 +9,11 @@
       {"mcp": "question_attach", "arguments": {"question": "rung-2-again", "into": "rung-2", "lookup": ["d-budget"]}},
       {"mcp": "decision_record", "arguments": {
         "question": "rung-3", "status": "decided", "statement": "Log retries at warn.", "rationale": "A retry is worth seeing.",
-        "scope": "logging", "reversibility": "reversible", "citations": ["d-budget"], "lookup": [], "open": []
+        "scope": "repo:logging", "reversibility": "reversible", "citations": ["d-budget"], "lookup": [], "open": []
       }},
       {"mcp": "decision_record", "arguments": {
         "question": "rung-4", "status": "assumed", "statement": "Use the default queue for now.", "rationale": "It is easy to change.",
-        "scope": "queues", "reversibility": "reversible", "lookup": [], "open": []
+        "scope": "repo:queues", "reversibility": "reversible", "lookup": [], "open": []
       }},
       {"mcp": "question_escalate", "refusable": true, "arguments": {"question": "rung-5", "reason": "one_way"}},
       {"mcp": "question_escalate", "arguments": {

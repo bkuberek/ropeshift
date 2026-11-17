@@ -556,22 +556,24 @@ func checkMidPlanAnswerWakes(r *Rig) error {
 	return r.ExpectWoken(m.s, m.webPark())
 }
 
-// checkMidPlanTellsLanes holds G3: the review's questions are about the plan, which names no work order,
-// so a decision that answers one reaches the lane that asked and no other.
+// checkMidPlanTellsLanes holds ADR-0030's scope: the review's questions are about the plan, so the scope of
+// the decision that answers one is `plan:<id>`, which binds every work order under the plan, and the lanes
+// that build under it are told.
 func checkMidPlanTellsLanes(r *Rig) error {
 	m, err := midPlanAnswered(r)
 	if err != nil {
 		return err
 	}
 	first := m.answers[m.asked[0]]
-	var gap error
+	if want := "plan:" + m.plan; first.Scope != want {
+		return Violatedf("the decision that answers a question of the plan review has scope %q, want %q", first.Scope, want)
+	}
 	for _, lane := range []*statusRig{m.ids, m.schema} {
 		if err := m.noticeNames(lane, first.ID); err != nil {
-			gap = Violatedf("a lane that builds under the plan: %v", err)
-			break
+			return Violatedf("a lane that builds under the plan: %v", err)
 		}
 	}
-	return knownGap(r, "GAP-MP-G3", gap)
+	return nil
 }
 
 // checkMidPlanWorkStates holds G4: nothing changes the state of work a decision binds. The tick runs first.
@@ -651,16 +653,15 @@ func checkMidPlanOverturn(r *Rig) error {
 	if err != nil {
 		return err
 	}
-	var gap error
 	switch reworked, err := m.reworkedFrom(overturned.Rework, m.orders["done"]); {
 	case err != nil:
 		return err
 	case !reworked:
-		gap = Violatedf("overturning a decision that binds the plan reworked %v, and not the finished work", overturned.Rework)
+		return Violatedf("overturning a decision that binds the plan reworked %v, and not the finished work", overturned.Rework)
 	case !slices.Contains(overturned.Noticed, m.ids.lane):
-		gap = Violatedf("overturning a decision that binds the plan told %v, and not the lane that builds under it", overturned.Noticed)
+		return Violatedf("overturning a decision that binds the plan told %v, and not the lane that builds under it", overturned.Noticed)
 	}
-	return knownGap(r, "GAP-MP-G3", gap)
+	return nil
 }
 
 // reworkedFrom says whether any of the work orders is a rework of one work order.

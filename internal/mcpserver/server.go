@@ -454,7 +454,7 @@ var decisionRecordTool = objectTool(lanes.ToolDecisionRecord, "Answer a question
 		"question": questionField, "decision": textField("A decision the record holds that answers this."),
 		"status":    map[string]any{"type": "string", "enum": []string{string(questions.DecisionDecided), string(questions.DecisionAssumed)}},
 		"statement": textField("What is decided."), "rationale": textField("Why."), "citations": listField("What it rests on."),
-		"scope": textField("What it covers."), "reversibility": textField("reversible or one_way."), "categories": listField("Its categories."),
+		"scope": textField("What it binds: plan:<id>, contract:<id>, wo:<id>, or repo:<id>. Defaults to the question's own."), "reversibility": textField("reversible or one_way."), "categories": listField("Its categories."),
 		"supersedes": textField("The decision this replaces."), "no_conflict": listField("The overlapping decisions this does not conflict with."),
 		"lookup": considered, "open": matched,
 	}, "question")

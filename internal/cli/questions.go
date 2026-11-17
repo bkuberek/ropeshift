@@ -268,7 +268,7 @@ func (c *invocation) decisionRecord(args []string) int {
 	set.StringVar(&request.ID, "id", "", "a client-generated ID")
 	set.StringVar(&request.Statement, "statement", "", "what was decided")
 	set.StringVar(&request.Rationale, "rationale", "", "why")
-	set.StringVar(&request.Scope, "scope", "", "what it applies to")
+	set.StringVar(&request.Scope, "scope", "", "what it binds: plan:<id>, contract:<id>, wo:<id>, or repo:<id>")
 	set.StringVar(&request.Reversibility, "reversibility", "", "reversible or one_way")
 	set.StringVar(&request.QuestionID, "question", "", "the question it answers")
 	set.StringVar(&request.Supersedes, "supersedes", "", "the decision it replaces, with no rework")
@@ -284,6 +284,9 @@ func (c *invocation) decisionRecord(args []string) int {
 	}
 	if request.Statement == "" {
 		return c.usageError("--statement is required")
+	}
+	if _, err := questions.ParseScope(request.Scope); err != nil {
+		return c.usageError("--scope: %v", err)
 	}
 	if request.ID == "" {
 		id, err := newID()

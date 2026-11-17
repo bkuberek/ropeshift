@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
 	"strconv"
 	"strings"
 
@@ -267,26 +266,23 @@ func (r packRecords) added(addition contextpacks.Addition) (contextpacks.Source,
 	}, nil
 }
 
-// inScope reads every decision in force that overlaps what a work order touches, each once, by ID.
+// inScope reads every decision in force whose scope binds what a work order is: the plan of its contract, the
+// contract, the work order and its rework, and the repository it runs in. Each is read once, by ID.
 func (r packRecords) inScope(order workorders.WorkOrder) ([]contextpacks.Source, error) {
-	found := map[string]questions.Decision{}
-	for _, scope := range []string{order.ID, order.ContractID, order.RepositoryID} {
-		overlapping, err := r.questions.Overlapping(scope)
+	standing, err := decisionsInForce(r.questions)
+	if err != nil {
+		return nil, err
+	}
+	facts := newScopeFacts(r.planning, r.orders)
+	out := make([]contextpacks.Source, 0, len(standing))
+	for _, decision := range standing {
+		covered, err := facts.covers(decision.Scope, order)
 		if err != nil {
 			return nil, err
 		}
-		for _, decision := range overlapping {
-			found[decision.ID] = decision
+		if covered {
+			out = append(out, decisionSource(decision))
 		}
-	}
-	ids := make([]string, 0, len(found))
-	for id := range found {
-		ids = append(ids, id)
-	}
-	slices.Sort(ids)
-	out := make([]contextpacks.Source, 0, len(ids))
-	for _, id := range ids {
-		out = append(out, decisionSource(found[id]))
 	}
 	return out, nil
 }

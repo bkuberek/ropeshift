@@ -53,7 +53,7 @@ func (q *Questions) Rule(ctx context.Context, scope ledger.WorkspaceID, id strin
 			return err
 		}
 		if record.Scope == "" {
-			record.Scope = question.SubjectID
+			record.Scope = questions.ScopeOf(question.SubjectKind, question.SubjectID)
 		}
 		for _, category := range question.Categories {
 			if !slices.Contains(record.Categories, category) {
@@ -113,11 +113,11 @@ func checkRung(tx ports.WriteTx, question questions.Question, record questions.D
 // orchestrator replaces only what is recorded as reversible (FR-QD-8). A delegate's decision runs
 // outside those bounds only when the delegate policy exempted it, and never in a one-way category.
 func admit(tx ports.WriteTx, record *questions.Decision, policy questions.Policy, actor ledger.Actor) error {
-	return bound(tx.Questions(), record, policy, actor)
+	return bound(tx.Questions(), newScopeFacts(tx.Planning(), tx.WorkOrders()), record, policy, actor)
 }
 
-func bound(reader ports.QuestionReader, record *questions.Decision, policy questions.Policy, actor ledger.Actor) error {
-	if err := stamp(reader, record, policy); err != nil {
+func bound(reader ports.QuestionReader, facts *scopeFacts, record *questions.Decision, policy questions.Policy, actor ledger.Actor) error {
+	if err := stamp(reader, facts, record, policy); err != nil {
 		return err
 	}
 	var old questions.Decision
@@ -173,9 +173,9 @@ func categoriesOf(reader ports.QuestionReader, record, old questions.Decision) (
 }
 
 // stamp fills in what a decision records about the moment it was made.
-func stamp(reader ports.QuestionReader, record *questions.Decision, policy questions.Policy) error {
+func stamp(reader ports.QuestionReader, facts *scopeFacts, record *questions.Decision, policy questions.Policy) error {
 	record.PolicyVersion = policy.Version
-	overlapping, err := reader.Overlapping(record.Scope)
+	overlapping, err := overlappingDecisions(reader, facts, record.Scope)
 	if err != nil {
 		return err
 	}
@@ -235,7 +235,7 @@ func (q *Questions) Weigh(ctx context.Context, scope ledger.WorkspaceID, draft q
 		standing.OneWay = !policy.Open(categories) || record.Reversibility == questions.OneWay ||
 			(record.Supersedes != "" && old.Reversibility != questions.Reversible)
 		probe := record
-		standing.WithinPolicy = !standing.OneWay && bound(tx.Questions(), &probe, policy, policyProbe) == nil
+		standing.WithinPolicy = !standing.OneWay && bound(tx.Questions(), newScopeFacts(tx.Planning(), tx.WorkOrders()), &probe, policy, policyProbe) == nil
 		return nil
 	})
 	return standing, err
@@ -319,8 +319,8 @@ type reach struct {
 }
 
 // reachOf finds what rested on a decision: the subject of each question it answered, the
-// work of each lane attached to one, work under a contract that cites it, work inside its
-// scope, and every lane whose pack holds it, which the item index finds.
+// work of each lane attached to one, work under a contract that cites it, work its scope binds
+// (resolved through the ledger), and every lane whose pack holds it, which the item index finds.
 func reachOf(tx ports.WriteTx, decision questions.Decision) (reach, error) {
 	touched := reach{lanes: map[string]int64{}}
 	subjects := map[string]bool{}
@@ -357,8 +357,15 @@ func reachOf(tx ports.WriteTx, decision questions.Decision) (reach, error) {
 	if err != nil {
 		return reach{}, err
 	}
+	facts := newScopeFacts(tx.Planning(), tx.WorkOrders())
 	for _, order := range orders {
-		if rests(order, decision.Scope, subjects) {
+		covered := subjects[order.ID] || subjects[order.ContractID]
+		if !covered {
+			if covered, err = facts.covers(decision.Scope, order); err != nil {
+				return reach{}, err
+			}
+		}
+		if covered {
 			touched.orders = append(touched.orders, order)
 		}
 	}
@@ -387,11 +394,6 @@ func questionsOf(tx ports.WriteTx, decision questions.Decision) ([]questions.Que
 		return nil, err
 	}
 	return append(asked, question), nil
-}
-
-func rests(order workorders.WorkOrder, scope string, subjects map[string]bool) bool {
-	return subjects[order.ID] || subjects[order.ContractID] || questions.ScopesOverlap(scope, order.ID) ||
-		questions.ScopesOverlap(scope, order.ContractID) || questions.ScopesOverlap(scope, order.RepositoryID)
 }
 
 // addRunningLanes adds the live lanes on affected work, and drops any lane that ended.
@@ -611,7 +613,7 @@ func succeed(tx ports.WriteTx, old questions.Decision, overturn questions.Overtu
 	if err != nil {
 		return questions.Decision{}, err
 	}
-	if err := stamp(tx.Questions(), &record, policy); err != nil {
+	if err := stamp(tx.Questions(), newScopeFacts(tx.Planning(), tx.WorkOrders()), &record, policy); err != nil {
 		return questions.Decision{}, err
 	}
 	if err := insertDecision(tx, record, actor); err != nil {

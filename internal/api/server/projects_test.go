@@ -67,7 +67,7 @@ func TestTwoProjectsKeepTheirRecordsApart(t *testing.T) {
 
 	_, err = home.RecordDecision(t.Context(), api.RecordDecision{
 		ID: "decision-retry", Status: questions.DecisionDecided, Statement: "Retry the invoice upload twice.",
-		Rationale: "It covers the outage.", Scope: "retries", Categories: []string{questions.CategoryProduct}, Reversibility: questions.Reversible,
+		Rationale: "It covers the outage.", Scope: "repo:retries", Categories: []string{questions.CategoryProduct}, Reversibility: questions.Reversible,
 	})
 	if err != nil {
 		t.Fatal(err)

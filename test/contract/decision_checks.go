@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"ropeshift.com/ropeshift/internal/authority"
+	"ropeshift.com/ropeshift/internal/control"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/measures"
 	"ropeshift.com/ropeshift/internal/ports"
@@ -1008,33 +1009,39 @@ func checkOverturnInFlight(r *Rig) error {
 	return r.CheckQuestions(s)
 }
 
-// checkOverlapAgrees holds the statement to the pure rule, because a lane's work is matched
-// by one and a decision's overlaps by the other. The marks a LIKE pattern reads mean nothing.
+// checkOverlapAgrees holds the lookup of overlapping decisions to the rule of a scope written before the
+// grammar, which a ledger may still hold: equal, or one inside the other by `/`. The marks a LIKE pattern
+// reads mean nothing, and a scope of the grammar never overlaps one written before it.
 func checkOverlapAgrees(r *Rig) error {
 	s := r.Store()
-	recorded := []string{"pay", "pay/refunds", "pay%", "p_y", "payments"}
-	ids := map[string]string{}
-	for _, scope := range recorded {
-		decided, err := r.decision(s, "Scope "+scope, func(d *questions.Decision) { d.Scope = scope })
-		if err != nil {
+	for _, scope := range []string{"pay", "pay/refunds", "pay%", "p_y", "payments", "wo:pay"} {
+		if _, err := r.decision(s, "Scope "+scope, func(d *questions.Decision) { d.Scope = scope }); err != nil {
 			return err
 		}
-		ids[decided.ID] = scope
+	}
+	want := map[string][]string{
+		"pay":                 {"pay", "pay/refunds"},
+		"pay/refunds/partial": {"pay", "pay/refunds"},
+		"pay%":                {"pay%"},
+		"p_y/x":               {"p_y"},
+		"pa":                  nil,
+		"payments/x":          {"payments"},
+		"":                    nil,
+		"other":               nil,
+		"wo:pay":              {"wo:pay"},
 	}
 	return s.Read(r.Ctx, r.Scope, func(tx ports.ReadTx) error {
-		for _, probe := range []string{"pay", "pay/refunds/partial", "pay%", "p_y/x", "pa", "payments/x", "", "other"} {
-			rows, err := tx.Questions().Overlapping(probe)
+		for probe, expected := range want {
+			rows, err := control.DecisionsOverlapping(tx, probe)
 			if err != nil {
 				return err
 			}
-			found := map[string]bool{}
+			var found []string
 			for _, row := range rows {
-				found[row.Scope] = true
+				found = append(found, row.Scope)
 			}
-			for _, scope := range recorded {
-				if found[scope] != questions.ScopesOverlap(scope, probe) {
-					return Violatedf("scope %q against %q: the ledger says %v", scope, probe, found[scope])
-				}
+			if !slices.Equal(slices.Sorted(slices.Values(found)), expected) {
+				return Violatedf("scope %q overlaps the scopes %v, want %v", probe, found, expected)
 			}
 		}
 		return nil

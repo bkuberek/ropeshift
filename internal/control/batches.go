@@ -215,7 +215,7 @@ func (q *Questions) AnswerFrom(ctx context.Context, scope ledger.WorkspaceID, id
 		if err != nil {
 			return err
 		}
-		record.Categories, record.Scope = question.Categories, question.SubjectID
+		record.Categories, record.Scope = question.Categories, questions.ScopeOf(question.SubjectKind, question.SubjectID)
 		if question.EscalationReason == questions.ReasonOneWay || !policy.MayDecide(question) {
 			record.Reversibility = questions.OneWay
 		}

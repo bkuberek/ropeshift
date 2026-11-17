@@ -72,7 +72,7 @@ func TestDecisionsAndCandidates(t *testing.T) {
 	ctx := t.Context()
 	decided, err := daemon.Client.RecordDecision(ctx, api.RecordDecision{
 		ID: "d1", Status: questions.DecisionDecided, Statement: "The retry budget is three calls.", Rationale: "It follows.",
-		Citations: []string{"PAY-12"}, Scope: "checkout", Reversibility: questions.Reversible, Categories: []string{questions.CategoryProduct},
+		Citations: []string{"PAY-12"}, Scope: "repo:checkout", Reversibility: questions.Reversible, Categories: []string{questions.CategoryProduct},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -80,7 +80,7 @@ func TestDecisionsAndCandidates(t *testing.T) {
 	if decided.DecidedBy == "" {
 		t.Errorf("decision %+v", decided)
 	}
-	rows, err := daemon.Client.Decisions(ctx, api.RecordFilter{Scope: "checkout", Text: "retry"})
+	rows, err := daemon.Client.Decisions(ctx, api.RecordFilter{Scope: "repo:checkout", Text: "retry"})
 	if err != nil || len(rows) != 1 {
 		t.Fatalf("decisions %+v: %v", rows, err)
 	}

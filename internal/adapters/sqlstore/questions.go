@@ -154,18 +154,6 @@ VALUES
  WHERE workspace_id = :workspace_id AND id = :id
    AND status IN ('assumed', 'decided')`)
 
-	// stmtOverlapping repeats questions.ScopesOverlap. It compares prefixes with substr,
-	// because a scope may hold the marks a LIKE pattern reads.
-	stmtOverlapping = define("decision.overlapping",
-		`SELECT `+decisionColumns+`
-  FROM decisions d
- WHERE d.workspace_id = :workspace_id
-   AND d.status IN ('assumed', 'decided')
-   AND (d.scope = CAST(:scope AS TEXT)
-     OR substr(d.scope, 1, length(CAST(:scope AS TEXT)) + 1) = CAST(:scope AS TEXT) || '/'
-     OR substr(CAST(:scope AS TEXT), 1, length(d.scope) + 1) = d.scope || '/')
- ORDER BY d.id`)
-
 	stmtAssumptions = define("decision.assumptions",
 		`SELECT count(*)
   FROM decisions d
@@ -544,13 +532,6 @@ func (t questionTx) Decisions(filter ports.RecordFilter) ([]questions.Decision, 
 func (t questionTx) EndDecision(id string, status questions.DecisionStatus) (bool, error) {
 	n, err := t.exec(stmtEndDecision, t.scoped(params{"id": id, "status": string(status)}))
 	return n > 0, err
-}
-
-func (t questionTx) Overlapping(scope string) ([]questions.Decision, error) {
-	if scope == "" {
-		return nil, nil
-	}
-	return t.listDecisions(stmtOverlapping, params{"scope": scope})
 }
 
 func (t questionTx) Assumptions(workOrder string) (int64, error) {

@@ -6,29 +6,6 @@ import (
 	"testing"
 )
 
-func TestScopesOverlap(t *testing.T) {
-	tests := []struct {
-		name string
-		a, b string
-		want bool
-	}{
-		{"the same scope", "checkout", "checkout", true},
-		{"one inside the other", "checkout", "checkout/retry", true},
-		{"either way round", "checkout/retry", "checkout", true},
-		{"a shared prefix is not a shared part", "checkout", "checkouts", false},
-		{"two siblings", "checkout/retry", "checkout/refund", false},
-		{"an empty scope covers nothing", "", "checkout", false},
-		{"nor do two", "", "", false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := ScopesOverlap(tt.a, tt.b); got != tt.want {
-				t.Errorf("ScopesOverlap(%q, %q) = %v", tt.a, tt.b, got)
-			}
-		})
-	}
-}
-
 func TestUnstatedNamesWhatADraftIsSilentOn(t *testing.T) {
 	draft := Decision{Supersedes: "d1", NoConflict: []string{"d2"}}
 	if got := draft.Unstated([]string{"d1", "d2", "d3"}); !slices.Equal(got, []string{"d3"}) {

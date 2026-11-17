@@ -223,6 +223,9 @@ func (w *Worker) record(ctx context.Context, call ledger.OrchestratorCall, args 
 		reply, err := w.link.Orchestrate(ctx, ledger.VerbResolve, call)
 		return reply.Result, err
 	}
+	if _, err := questions.ParseScope(args.text("scope")); err != nil {
+		return nil, err
+	}
 	status := questions.DecisionStatus(args.text("status"))
 	rung := questions.RungDecide
 	if status == questions.DecisionAssumed {

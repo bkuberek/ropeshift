@@ -122,7 +122,7 @@ func TestAMemberRecordsDecisionsFromTheBrowser(t *testing.T) {
 		return row
 	}
 	raw := b.send(t, http.MethodPost, "/v1/decisions", api.RecordDecision{
-		ID: "d-web-1", Status: questions.DecisionDecided, Statement: "Charge in euros.", Rationale: "Every customer is in the union.", Scope: "billing",
+		ID: "d-web-1", Status: questions.DecisionDecided, Statement: "Charge in euros.", Rationale: "Every customer is in the union.", Scope: "repo:billing",
 		Reversibility: questions.OneWay, Categories: []string{questions.CategoryProduct}, Citations: []string{"requirement:FR-BILL-1"},
 	}, http.StatusCreated)
 	var recorded questions.Decision
@@ -133,12 +133,12 @@ func TestAMemberRecordsDecisionsFromTheBrowser(t *testing.T) {
 		t.Fatalf("the decision reads %+v", got)
 	}
 	// An assumption is a decision of the other status, and a member's own word runs past the policy a lane is held to.
-	b.send(t, http.MethodPost, "/v1/decisions", api.RecordDecision{ID: "d-web-2", Status: questions.DecisionAssumed, Statement: "Prices are in euros.", Scope: "billing", Reversibility: questions.Reversible}, http.StatusCreated)
+	b.send(t, http.MethodPost, "/v1/decisions", api.RecordDecision{ID: "d-web-2", Status: questions.DecisionAssumed, Statement: "Prices are in euros.", Scope: "repo:billing", Reversibility: questions.Reversible}, http.StatusCreated)
 	if got := read("d-web-2"); got.Status != questions.DecisionAssumed || !slices.Contains(got.Overlaps, "d-web-1") {
 		t.Fatalf("the assumption reads %+v, and it should name the decision it overlaps", got)
 	}
 	// A repeat under one ID is the record the first made, so a page may send it again after a lost reply.
-	b.send(t, http.MethodPost, "/v1/decisions", api.RecordDecision{ID: "d-web-2", Status: questions.DecisionAssumed, Statement: "Prices are in euros.", Scope: "billing", Reversibility: questions.Reversible}, http.StatusCreated)
+	b.send(t, http.MethodPost, "/v1/decisions", api.RecordDecision{ID: "d-web-2", Status: questions.DecisionAssumed, Statement: "Prices are in euros.", Scope: "repo:billing", Reversibility: questions.Reversible}, http.StatusCreated)
 	// A decision replaces one in force with no rework, and one that ended cannot be replaced again.
 	b.send(t, http.MethodPost, "/v1/decisions", api.RecordDecision{ID: "d-web-3", Status: questions.DecisionDecided, Statement: "Prices are in dollars.", Supersedes: "d-web-2", Reversibility: questions.Reversible}, http.StatusCreated)
 	if got := read("d-web-2"); got.Status != questions.DecisionReplaced {
@@ -151,6 +151,9 @@ func TestAMemberRecordsDecisionsFromTheBrowser(t *testing.T) {
 		"a status it never opens":  {ID: "d-web-6", Status: questions.DecisionOverturned, Statement: "x"},
 		"a reversibility it lacks": {ID: "d-web-7", Status: questions.DecisionDecided, Statement: "x", Reversibility: "sometimes"},
 		"an unknown category":      {ID: "d-web-8", Status: questions.DecisionDecided, Statement: "x", Categories: []string{"no-such-category"}},
+		"a bare ID as scope":       {ID: "d-web-9", Status: questions.DecisionDecided, Statement: "x", Scope: "billing"},
+		"a scope of no kind":       {ID: "d-web-10", Status: questions.DecisionDecided, Statement: "x", Scope: "team:billing"},
+		"a scope with a path":      {ID: "d-web-11", Status: questions.DecisionDecided, Statement: "x", Scope: "repo:billing/eu"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			wantCode(t, b.send(t, http.MethodPost, "/v1/decisions", request, http.StatusBadRequest), api.CodeInvalid)
