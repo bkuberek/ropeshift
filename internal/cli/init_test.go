@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"ropeshift.com/ropeshift/internal/cli"
+	domain "ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/test/apitest"
 )
@@ -23,6 +24,8 @@ type initRun struct {
 	daemon   *apitest.Daemon
 	stateDir string
 	started  int
+	// worktree is the doctor's worktree section, or nil for a build that gives none.
+	worktree func(context.Context) (domain.WorktreeReport, error)
 }
 
 func newInitRun(t *testing.T, options apitest.Options) *initRun {
@@ -37,7 +40,7 @@ func (r *initRun) run(manifest ledger.Manifest, terminal func(string) (string, e
 	var stdout, stderr bytes.Buffer
 	code := cli.Run(append([]string{"init"}, args...), &stdout, &stderr, cli.Options{
 		Socket: r.daemon.Socket, ReadPassphrase: terminal, StateDir: r.stateDir,
-		Doctor: func(context.Context) (ledger.Manifest, error) { return manifest, nil },
+		Doctor: func(context.Context) (ledger.Manifest, error) { return manifest, nil }, Worktree: r.worktree,
 		StartDaemon: func(context.Context) (func() error, error) {
 			r.started++
 			return nil, errors.New("a daemon already answers, so none starts")
@@ -191,6 +194,9 @@ func TestInitPrintsOneDocumentWithJSON(t *testing.T) {
 		Usable     bool                    `json:"usable"`
 		Sample     string                  `json:"sample"`
 		Written    bool                    `json:"sample_written"`
+		Profile    string                  `json:"profile"`
+		ProfileNew bool                    `json:"profile_written"`
+		Root       string                  `json:"worktree_root"`
 	}
 	decoder := json.NewDecoder(strings.NewReader(stdout))
 	decoder.DisallowUnknownFields()
@@ -202,10 +208,12 @@ func TestInitPrintsOneDocumentWithJSON(t *testing.T) {
 	}
 	want := filepath.Join(r.stateDir, cli.SampleContractName)
 	if result.Daemon != "running" || result.Passphrase != "kept" || result.Worker.ID != apitest.WorldWorker || result.Usable ||
-		len(result.Drivers) != 1 || result.Sample != want || !result.Written {
+		len(result.Drivers) != 1 || result.Sample != want || !result.Written ||
+		result.Profile != filepath.Join(r.stateDir, "profile.toml") || !result.ProfileNew || result.Root != "" {
 		t.Errorf("result %+v", result)
 	}
-	if code, stdout, _ := r.run(absent, nil, "--json"); code != cli.ExitError || !strings.Contains(stdout, `"sample_written":false`) {
+	if code, stdout, _ := r.run(absent, nil, "--json"); code != cli.ExitError || !strings.Contains(stdout, `"sample_written":false`) ||
+		!strings.Contains(stdout, `"profile_written":false`) {
 		t.Errorf("a second run: exit %d, %q", code, stdout)
 	}
 }

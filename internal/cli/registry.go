@@ -183,7 +183,7 @@ func registry() []section {
 		{"Workers and orchestrators", installation(
 			command("worker list", "", "list registered workers", (*invocation).workerList),
 			command("worker token", "", "make a join token", (*invocation).workerToken),
-			command("worker doctor", "", "report which agent CLIs are usable here", (*invocation).workerDoctor),
+			command("worker doctor", "", "report which agent CLIs are usable here, and where lane worktrees go", (*invocation).workerDoctor),
 			command("worker autonomy", "<id>", "show a worker's level and run window", (*invocation).workerAutonomy),
 			command("worker level", "<id> manual|attended|unattended", "choose a worker's level", (*invocation).workerLevel),
 			command("worker caps", "<id> [--max-lanes N|none|recommended] [--per-sign-in N|none]", "show or set a worker's lane caps, beside its recommendation", (*invocation).workerCaps),
@@ -207,7 +207,7 @@ func registry() []section {
 			command("operation list", "", "list each operation, its class, and whether the delegate policy may exempt it", (*invocation).operationList),
 		)},
 		{"This machine", []registered{
-			installation(command("init", "", "set up this machine: passphrase, worker, doctor, sample", (*invocation).initMachine))[0],
+			installation(command("init", "[--worktree-root <path>]", "set up this machine: passphrase, worker, profile, doctor, sample", (*invocation).initMachine))[0],
 			command("backup", "<file> [--installation]", "copy the project's ledger, or the installation's records, to a new file while the daemon runs", (*invocation).backup),
 			installation(command("service install", "[--name N] [-- daemon flags]", "run the daemon as this machine's service, from now on", (*invocation).serviceInstall))[0],
 			installation(command("service uninstall", "[--name N]", "stop the daemon's service and remove it, which stops no lane", (*invocation).serviceUninstall))[0],

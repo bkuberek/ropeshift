@@ -61,7 +61,7 @@ var equivalents = map[string]string{
 
 // cliOnly are the commands FR-UI-7 leaves to the command line, each with the clause that does.
 var cliOnly = map[string]string{
-	"init":              "FR-UI-7: init sets up this machine, with its passphrase, worker, doctor, and sample",
+	"init":              "FR-UI-7: init sets up this machine, with its passphrase, worker, user profile, doctor, and sample",
 	"service install":   "FR-UI-7: service install and service uninstall act on the machine's service manager",
 	"service uninstall": "FR-UI-7: service install and service uninstall act on the machine's service manager",
 	"telemetry query":   "FR-UI-7: members do not run telemetry query, which gives an orchestrator agent the worker's raw store with --json; Usage shows each lane's context, tokens, and cost from telemetry lanes",

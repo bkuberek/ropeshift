@@ -23,6 +23,7 @@ import (
 	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/cli"
+	"ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/ports"
 )
@@ -115,6 +116,7 @@ func cliOptions() cli.Options {
 		opts.Panes = terminalPanes(paths)
 	}
 	opts.Doctor = func(ctx context.Context) (ledger.Manifest, error) { return runDoctor(ctx) }
+	opts.Worktree = func(ctx context.Context) (lanes.WorktreeReport, error) { return worktreeReport(ctx, paths) }
 	opts.StartDaemon = startDaemonForInit(paths)
 	opts.StateDir = paths.StateDir
 	return opts

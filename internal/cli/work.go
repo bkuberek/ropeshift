@@ -9,6 +9,7 @@ import (
 
 	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/delivery"
+	"ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/planning"
 	"ropeshift.com/ropeshift/internal/workorders"
@@ -992,6 +993,25 @@ func qualification(driver ledger.DriverManifest) string {
 	return "unqualified"
 }
 
+// doctorReport is what `worker doctor --json` prints: the worker's manifest, which names each agent CLI, and the
+// worktree section, which a build with no check leaves out.
+type doctorReport struct {
+	ledger.Manifest
+	Worktree *lanes.WorktreeReport `json:"worktree,omitempty"`
+}
+
+// worktreeSection asks the machine where lane worktrees go. A build with no check has no section.
+func (c *invocation) worktreeSection() (*lanes.WorktreeReport, error) {
+	if c.worktree == nil {
+		return nil, nil
+	}
+	report, err := c.worktree(c.ctx)
+	if err != nil {
+		return nil, fmt.Errorf("the worktree root: %w", err)
+	}
+	return &report, nil
+}
+
 // workerDoctor reports this machine. Only what could leave it is printed, which is a kind
 // and a status, and never who is signed in.
 func (c *invocation) workerDoctor(args []string) int {
@@ -1007,10 +1027,17 @@ func (c *invocation) workerDoctor(args []string) int {
 		return c.usageError("this build has no doctor")
 	}
 	manifest, err := c.doctor(c.ctx)
-	code := c.finish(err, manifest, func() string {
+	var section *lanes.WorktreeReport
+	if err == nil {
+		section, err = c.worktreeSection()
+	}
+	code := c.finish(err, doctorReport{Manifest: manifest, Worktree: section}, func() string {
 		var out strings.Builder
 		for _, driver := range manifest.Drivers {
 			out.WriteString(doctorLine(driver))
+		}
+		if section != nil {
+			out.WriteString(worktreeText(*section))
 		}
 		return out.String()
 	})

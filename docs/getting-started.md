@@ -81,9 +81,12 @@ New passphrase:
 Again:
 Passphrase: set. A change asks for it on the terminal, and eval "$(ropeshift login)" holds a session in one shell.
 Worker: registered as <worker-id>.
+Profile: wrote <installation directory>/profile.toml.
+  Its worktree root is commented out, so the built-in root holds. Set [worktree] root in it to change that.
 Agent CLIs:
   claude-code <version>: signed in with a subscription. This worker starts at attended, so an orchestrator claims work only inside a run window you open. Anthropic's Consumer Terms restrict automated use of a subscription, and no vendor has approved this use. Read docs/onboarding.md, and ropeshift worker risk prints what a member acknowledges before this worker runs unattended.
 Ropeshift never reads, stores, relays, or proxies an agent CLI's credentials. Each CLI keeps its own sign-in.
+Worktree root: <worktree directory>/{project}/{repo} (the built-in root)
 Sample contract: wrote <installation directory>/sample-contract.md.
   Copy it into a repository, change it to your own work, and commit it, and intake reads it.
 Before the first lane:
@@ -97,6 +100,8 @@ Next: run the daemon with ropeshift service install (brew services start ropeshi
 ```
 
 - `Worker: registered as <worker-id>` names this machine's worker.
+- `Profile:` names `profile.toml` in the installation's directory, your own layer of the lane profile. `ropeshift init` writes it when none exists, and never changes one that does. To put lane worktrees in a folder of your choice from the first run, run `ropeshift init --worktree-root <absolute path>`: the profile then sets `[worktree] root` to the path, and a path that names neither `{project}` nor `{repo}` gets `/{project}/{repo}` appended, which `init` says. A relative path exits 2. With a profile already there, `init` says it kept it, and with the flag says to set `[worktree] root` in it by hand.
+- `Worktree root:` is the doctor's worktree section: the root in force and the layer that set it, the built-in root or your profile. When the root falls inside a clone of any project, a line for each such checkout names the root, the clone, and the fix, because a lane there fails with the reason `worktree_inside_clone`. `ropeshift worker doctor` prints the same section.
 - Under `Agent CLIs:`, a line that says `not installed` or `not signed in` says what to do. Do it, and run `ropeshift init` again. A machine signed in with an API key starts at `unattended` instead. A Claude Code version ropeshift has not qualified adds a sentence saying the worker checks it before its first lane.
 - It exits 0 once an agent CLI is usable.
 

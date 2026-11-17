@@ -4,14 +4,18 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/templates"
 )
 
 // SampleContractName is the file ropeshift init writes in the installation's state directory.
@@ -69,20 +73,65 @@ type initResult struct {
 	Usable     bool                    `json:"usable"`
 	Sample     string                  `json:"sample"`
 	Written    bool                    `json:"sample_written"`
+	// Profile is the user profile's path, and ProfileWritten says this run wrote it. WorktreeRoot is the root
+	// this run wrote into it, which a run with no --worktree-root, or one that kept a profile, does not.
+	Profile        string `json:"profile"`
+	ProfileWritten bool   `json:"profile_written"`
+	WorktreeRoot   string `json:"worktree_root,omitempty"`
+	// Worktree is the doctor's worktree section.
+	Worktree *lanes.WorktreeReport `json:"worktree,omitempty"`
 }
 
-// initMachine sets up this machine for solo mode: the passphrase, the worker's registration, the
-// doctor, and a sample contract. A step already done stays as it is, so a second run only says
-// what is left. With no daemon running, it runs one for its own length, because a first start is
+// profileRoot is what --worktree-root asks of the user profile: Root is the root to write, which is the path
+// given with the built-in root's tail appended when the path names neither token, and Given says the flag was
+// used.
+type profileRoot struct {
+	Root     string
+	Given    bool
+	Appended bool
+}
+
+// worktreeRootOf reads --worktree-root. A path that is not absolute is a usage problem, because a relative root is
+// read from each repository and a profile written by init names one place. A path that names neither {project}
+// nor {repo} gets the built-in root's tail, so lanes of different projects and repositories never share a folder.
+func worktreeRootOf(given string) (profileRoot, error) {
+	if !path.IsAbs(given) {
+		return profileRoot{}, usageProblem(fmt.Sprintf("--worktree-root %q: give an absolute path, because a relative root is read from each repository", given))
+	}
+	root := profileRoot{Root: given, Given: true}
+	if !strings.Contains(given, lanes.ProjectToken) && !strings.Contains(given, lanes.RepositoryToken) {
+		root.Root = strings.TrimRight(given, "/") + "/" + lanes.ProjectToken + "/" + lanes.RepositoryToken
+		root.Appended = true
+	}
+	return root, nil
+}
+
+// initMachine sets up this machine for solo mode: the passphrase, the worker's registration, the user
+// profile, the doctor, and a sample contract. A step already done stays as it is, so a second run only
+// says what is left. With no daemon running, it runs one for its own length, because a first start is
 // what registers the worker.
 func (c *invocation) initMachine(args []string) int {
 	set := c.flags()
+	var given string
+	set.StringVar(&given, "worktree-root", "", "the absolute path to set as the worktree root of the user profile, when init writes it")
 	positional, ok := c.parse(set, args)
 	if !ok {
 		return ExitUsage
 	}
 	if len(positional) != 0 {
 		return c.usageError("unexpected argument %q", positional[0])
+	}
+	var request profileRoot
+	set.Visit(func(f *flag.Flag) {
+		if f.Name == "worktree-root" {
+			request.Given = true
+		}
+	})
+	if request.Given {
+		var err error
+		if request, err = worktreeRootOf(given); err != nil {
+			return c.usageError("%s", err)
+		}
 	}
 	if c.doctor == nil || c.startDaemon == nil || c.stateDir == "" {
 		return c.usageError("this build cannot set up a machine")
@@ -94,7 +143,7 @@ func (c *invocation) initMachine(args []string) int {
 	if err != nil {
 		return c.failure(err)
 	}
-	code, done := c.setUp(client, &result)
+	code, done := c.setUp(client, &result, request)
 	if stop != nil {
 		if err := stop(); err != nil && done {
 			return c.failure(fmt.Errorf("stopping the daemon this run started: %w", err))
@@ -136,8 +185,9 @@ func (c *invocation) reachDaemon(client *api.Client, result *initResult) (func()
 
 // setUp runs each step in order, and says whether every one was done. A step that fails ends the
 // run with its exit code, and a missing agent CLI is said and does not stop the steps after it.
-func (c *invocation) setUp(client *api.Client, result *initResult) (int, bool) {
-	for _, step := range []func(*api.Client, *initResult) error{c.initPassphrase, c.initWorker, c.initDoctor, c.initSample} {
+func (c *invocation) setUp(client *api.Client, result *initResult, request profileRoot) (int, bool) {
+	profile := func(_ *api.Client, result *initResult) error { return c.initProfile(result, request) }
+	for _, step := range []func(*api.Client, *initResult) error{c.initPassphrase, c.initWorker, profile, c.initDoctor, c.initSample} {
 		if err := step(client, result); err != nil {
 			var usage usageProblem
 			if errors.As(err, &usage) {
@@ -221,6 +271,14 @@ func (c *invocation) initDoctor(_ *api.Client, result *initResult) error {
 		c.say("  %s\n", initDriverLine(driver))
 	}
 	c.say("%s\n", credentialsStatement)
+	section, err := c.worktreeSection()
+	if err != nil {
+		return err
+	}
+	if section != nil {
+		result.Worktree = section
+		c.say("%s", worktreeText(*section))
+	}
 	return nil
 }
 
@@ -255,6 +313,49 @@ func initDriverLine(driver ledger.DriverManifest) string {
 		line += " This version is not in the qualification matrix, so the worker probes it before its first lane, and a lane on it runs degraded if the probe fails."
 	}
 	return line
+}
+
+// initProfile writes the user profile in the state directory from its template, with the root the flag gave or
+// with the root commented out, and never replaces one that exists, whatever it holds: the file is opened only to
+// be created, so a run that races another writes nothing over it. A profile that exists is kept, and when the flag
+// was given, the root is the person's to set in it.
+func (c *invocation) initProfile(result *initResult, request profileRoot) error {
+	file := filepath.Join(c.stateDir, writesTo(userProfile))
+	result.Profile = file
+	text, err := templates.Render(userProfile, templates.Data{WorktreeRoot: request.Root})
+	if err != nil {
+		return err
+	}
+	out, err := os.OpenFile(file, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if errors.Is(err, os.ErrExist) {
+		c.say("Profile: kept %s.\n", file)
+		if request.Given {
+			c.say("  --worktree-root changes no profile that exists: set [worktree] root in it by hand.\n")
+		}
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	_, err = out.WriteString(text)
+	if closed := out.Close(); err == nil {
+		err = closed
+	}
+	if err != nil {
+		_ = os.Remove(file)
+		return fmt.Errorf("write %s: %w", file, err)
+	}
+	result.ProfileWritten = true
+	if !request.Given {
+		c.say("Profile: wrote %s.\n  Its worktree root is commented out, so the built-in root holds. Set [worktree] root in it to change that.\n", file)
+		return nil
+	}
+	result.WorktreeRoot = request.Root
+	c.say("Profile: wrote %s with [worktree] root = %s.\n", file, request.Root)
+	if request.Appended {
+		c.say("  The path names neither {project} nor {repo}, so /{project}/{repo} is appended, and lanes of different projects and repositories never share a folder. Edit the file for one folder.\n")
+	}
+	return nil
 }
 
 // initSample writes the sample contract, and keeps one already there, which a person may have changed.
