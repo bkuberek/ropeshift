@@ -33,24 +33,28 @@ moorings/
 
 ### 1. Find the clones
 
-In the sidebar, under Installation, select Projects, then Import an existing project. Repositories, the project switcher, and the command palette open the same page. Its four steps are Worker and folder, Dry run, Planning repository, and Adopt session.
+In the sidebar, under Installation, select Projects, then Import an existing project. Repositories, the project switcher, and the command palette, where it is Adopt a project, open the same page. Its four steps are Worker and folders, Dry run, Planning repository, and Adopt session.
 
-Under Worker and folder:
+Under Worker and folders:
 
 - Worker is the machine whose disk holds the clones.
-- Folder is an absolute path on that machine: one repository, or a folder of clones.
-- Depth says how many folder levels below it to look for clones, and 1 looks at the folder's children.
-- Project is A new project, named after the folder in New project's name until you change it, or a project you already have.
+- Folders are absolute paths on that machine, one to a line. The first is the clone you adopt from, the top of a git clone with a commit, as the repository `ropeshift adopt` runs in is. Each other line is a clone, or a folder of clones. Here the first is `moorings-docs`, and the second is the folder `moorings`, which holds all three.
+- Depth says how many folder levels below each folder after the first to look for clones, and 1 looks at the folder's children. It also covers the folders the first clone ignores.
+- Project is A new project, named after the first folder in New project's name until you change it, or a project you already have.
 
-![Import an existing project, on Worker and folder, with the folder moorings, a depth of 1, and a new project named moorings](assets/screenshots/adopt-01-light.png#gh-light-mode-only)
-![Import an existing project, on Worker and folder, with the folder moorings, a depth of 1, and a new project named moorings](assets/screenshots/adopt-01-dark.png#gh-dark-mode-only)
+![Import an existing project, on Worker and folders, with the folders moorings-docs and moorings, a depth of 1, and a new project named moorings-docs](assets/screenshots/adopt-01-light.png#gh-light-mode-only)
+![Import an existing project, on Worker and folders, with the folders moorings-docs and moorings, a depth of 1, and a new project named moorings-docs](assets/screenshots/adopt-01-dark.png#gh-dark-mode-only)
 
 ### 2. Read the dry run
 
-Select Run dry run. A new project is created at this step, with nothing in it, because a dry run reads a project. The Dry run lists each clone under the folder with its identity, and records nothing else. Next, beside it, says how many repositories registering would add. Change returns to the first step.
+Select Run dry run. It reads the plan, which [the dry run of the command line](#the-dry-run) prints, and records nothing: no project is created yet. The Dry run lists the layout, the shape, where the plan lives, and each clone with what it holds and what registering would do with it. Next, beside it, says how many repositories registering would add. Change returns to the first step.
 
 ![The dry run, listing moorings-api, moorings-docs, and moorings-web with their remotes](assets/screenshots/adopt-02-light.png#gh-light-mode-only)
 ![The dry run, listing moorings-api, moorings-docs, and moorings-web with their remotes](assets/screenshots/adopt-02-dark.png#gh-dark-mode-only)
+
+When the shape offers a restructuring, which every shape but `single` does, the Restructure choice below the list names everything it would do on the adoption branch: each file added, each path taken from the design repository, each collision with the version kept, each move as the commands you run yourself, and a check box for each code tree of the design repository. Checking a tree leaves it out of a consolidation and reads the plan again, so its digest changes. Nothing restructures unless you check Restructure the planning repository as listed.
+
+The page leaves two choices to the command line: `--design` names the design repository when the layout leaves it open, and `--planning` names the repository that holds the plan, which a restructuring needs settled. When the layout settles no repository for the plan, Restructure is off, and the next step chooses the repository for an adoption without one.
 
 Select Continue.
 
@@ -65,7 +69,7 @@ Select Continue.
 
 ### 4. Start the adopt session
 
-Select Start adopt session. It registers the repositories in the project with the safe settings, names the planning repository, writes the inventory, and starts the session's lane. The session's Planning page opens, as for any planning session, and its first questions appear in the Outline.
+Select Start adopt session. It reads the plan again: a plan that differs from the one you read, because a clone appeared or went away in between, starts nothing, and the page shows the refusal and the new plan, with Restructure unchecked, to read again. Otherwise it creates the project when it is new, registers the repositories in the project with the safe settings, names the planning repository, writes the inventory, and starts the session's lane. With Restructure checked, the adopt work carries the plan's digest and your choices, as `--restructure` sends them. The session's Planning page opens, as for any planning session, and its first questions appear in the Outline.
 
 ![The Planning page of the adopt session, with its question about the branches in flight in the outline](assets/screenshots/adopt-04-light.png#gh-light-mode-only)
 ![The Planning page of the adopt session, with its question about the branches in flight in the outline](assets/screenshots/adopt-04-dark.png#gh-dark-mode-only)
@@ -139,7 +143,7 @@ For each branch the base does not hold, the session asks you whether to keep it:
 
 ## A workspace with an inner folder of clones
 
-Import takes one folder, and a folder that is itself a clone registers that clone and does not look inside it. For a workspace whose code repositories are clones in a folder inside it, as [project structure](project-structure.md) recommends, register the inner folder first: create the project, and in its Repositories, select Register repositories and choose A folder of clones. Then import the workspace into that project.
+Import reads the layout as `ropeshift adopt` does. For a workspace whose code repositories are clones in a folder it ignores, as [project structure](project-structure.md) recommends, write the workspace's own path as the first folder: the plan finds the clones in every folder the workspace ignores, down to the depth. A clone beside the workspace is found only when a later line names it, or names the folder that holds it.
 
 ## What changes, and what does not
 
