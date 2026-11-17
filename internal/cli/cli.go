@@ -99,7 +99,9 @@ type invocation struct {
 	name           string
 	socket         string
 	session        string
-	delegate       string
+	// asked says the command opened a session of its own with a passphrase from the terminal.
+	asked    bool
+	delegate string
 	// why is the reason a delegate gives, which a card it prepares keeps.
 	why    string
 	asJSON bool
@@ -248,6 +250,7 @@ func (c *invocation) client() *api.Client {
 			return "", err
 		}
 		session, err := client.SignIn(ctx, api.SignIn{Passphrase: passphrase, TTLMs: authority.CommandTTLMs})
+		c.asked = c.asked || err == nil
 		return session.Token, err
 	})
 	return client

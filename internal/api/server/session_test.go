@@ -138,16 +138,16 @@ func TestNobodySignsInBeforeAPassphraseIsSet(t *testing.T) {
 	d := apitest.StartWith(t, apitest.Options{NoMember: true})
 	_, err := d.Client.SignIn(t.Context(), api.SignIn{Passphrase: apitest.Passphrase})
 	refusedWith(t, err, http.StatusUnauthorized, api.CodeNotEnrolled)
-	if err := d.Client.SetPassphrase(t.Context(), api.SetPassphrase{Passphrase: "short"}); err == nil {
+	if _, err := d.Client.SetPassphrase(t.Context(), api.SetPassphrase{Passphrase: "short"}); err == nil {
 		t.Fatal("a short passphrase was taken")
 	}
-	if err := d.Client.SetPassphrase(t.Context(), api.SetPassphrase{Passphrase: apitest.Passphrase}); err != nil {
+	if _, err := d.Client.SetPassphrase(t.Context(), api.SetPassphrase{Passphrase: apitest.Passphrase}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := d.Client.SignIn(t.Context(), api.SignIn{Passphrase: apitest.Passphrase}); err != nil {
 		t.Fatal(err)
 	}
-	err = d.Client.SetPassphrase(t.Context(), api.SetPassphrase{Passphrase: "another passphrase altogether"})
+	_, err = d.Client.SetPassphrase(t.Context(), api.SetPassphrase{Passphrase: "another passphrase altogether"})
 	refusedWith(t, err, http.StatusUnauthorized, api.CodeSessionRequired)
 }
 

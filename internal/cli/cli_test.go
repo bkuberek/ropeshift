@@ -801,11 +801,62 @@ func TestPassphraseSetNeedsTwoThatMatch(t *testing.T) {
 		t.Fatalf("exit %d, %s", code, stderr)
 	}
 	same := &asked{passphrase: apitest.Passphrase}
-	if code, stdout, stderr := s.runAs("", same.read, "passphrase", "set"); code != cli.ExitOK || !strings.Contains(stdout, "set") {
-		t.Fatalf("exit %d, %s", code, stderr)
+	// The first passphrase comes from no session, so no session ends and the command says nothing of any.
+	if code, stdout, stderr := s.runAs("", same.read, "passphrase", "set"); code != cli.ExitOK || stdout != "passphrase set\n" {
+		t.Fatalf("exit %d, stdout %q, %s", code, stdout, stderr)
 	}
 	if code, _, stderr := s.runAs("", same.read, "login"); code != cli.ExitOK {
 		t.Fatalf("exit %d, %s", code, stderr)
+	}
+}
+
+// A later passphrase set from the terminal ends the member's sessions as a change from the web UI does, and says how
+// many others it ended. A terminal holds no cookie a new token could reach, so the session the command came from ends
+// too, and a shell that exported one is told how to sign in again.
+func TestPassphraseSetFromATerminalEndsTheMembersSessions(t *testing.T) {
+	s := newSession(t)
+	other, err := s.daemon.Client.SignIn(t.Context(), api.SignIn{Passphrase: apitest.Passphrase})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A change ends no delegate credential, so the command says one still acts.
+	s.must("delegate", "create", "--project", "default", "--label", "planning assistant", "--expires", "1d")
+	const next = "a new passphrase from the terminal"
+	code, stdout, stderr := s.runAs(s.daemon.Session, (&asked{passphrase: next}).read, "passphrase", "set")
+	if code != cli.ExitOK {
+		t.Fatalf("exit %d, %s", code, stderr)
+	}
+	want := "passphrase set\nEnded 1 other session.\n1 delegate credential still acts: ropeshift delegate revoke ends it.\n" +
+		"This shell's session ended too: run eval \"$(ropeshift login)\" to sign in again.\n"
+	if stdout != want {
+		t.Errorf("stdout %q, want %q", stdout, want)
+	}
+	for name, token := range map[string]string{"the shell's": s.daemon.Session, "another": other.Token} {
+		if code, _, _ := s.runAs(token, nil, "category", "add", "pricing"); code != cli.ExitForbidden {
+			t.Errorf("%s session still acts after the passphrase changed: exit %d", name, code)
+		}
+	}
+	// With no session exported, the command opens one with the current passphrase, and that one ends with the rest.
+	code, stdout, stderr = s.runAs("", (&asked{passphrase: next}).read, "passphrase", "set", "--json")
+	if code != cli.ExitOK {
+		t.Fatalf("exit %d, %s", code, stderr)
+	}
+	var result struct {
+		Set           bool  `json:"set"`
+		SessionsEnded int64 `json:"sessions_ended"`
+		Delegates     int64 `json:"delegates"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &result); err != nil || !result.Set || result.SessionsEnded != 0 || result.Delegates != 1 {
+		t.Errorf("stdout %q: %+v, %v", stdout, result, err)
+	}
+	var left int
+	err = s.daemon.Store.Read(t.Context(), apitest.Scope, func(tx ports.ReadTx) error {
+		sessions, err := tx.Members().Sessions()
+		left = len(sessions)
+		return err
+	})
+	if err != nil || left != 0 {
+		t.Errorf("%d sessions are left after the passphrase changed, want none: %v", left, err)
 	}
 }
 

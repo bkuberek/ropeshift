@@ -265,12 +265,12 @@ func TestAPassphraseOverTheUpperBoundIsRefused(t *testing.T) {
 	wantStatus(t, response, raw, http.StatusOK, "")
 
 	first := apitest.StartWith(t, apitest.Options{NoMember: true})
-	err := first.Client.SetPassphrase(t.Context(), api.SetPassphrase{Passphrase: tooLong})
+	_, err := first.Client.SetPassphrase(t.Context(), api.SetPassphrase{Passphrase: tooLong})
 	refusedWith(t, err, http.StatusBadRequest, api.CodeInvalid)
 	if state, err := first.Client.Passphrase(t.Context()); err != nil || state.Set {
 		t.Fatalf("a refused first set set one: %+v, %v", state, err)
 	}
-	if err := first.Client.SetPassphrase(t.Context(), api.SetPassphrase{Passphrase: strings.Repeat("b", authority.MaxPassphrase)}); err != nil {
+	if _, err := first.Client.SetPassphrase(t.Context(), api.SetPassphrase{Passphrase: strings.Repeat("b", authority.MaxPassphrase)}); err != nil {
 		t.Fatalf("the longest first set: %v", err)
 	}
 }

@@ -180,16 +180,10 @@ func (s *Sessions) ChangePassphrase(ctx context.Context, scope ledger.WorkspaceI
 	var changed PassphraseChange
 	err = s.identity.Change(ctx, scope, current, next, actor, func(tx ports.SharedTx, member string) error {
 		changed = PassphraseChange{}
-		session, err := tx.Members().Session(digestOf(token))
-		if errors.Is(err, ports.ErrNotFound) {
-			return fmt.Errorf("%w: this session ended", authority.ErrNoSession)
-		}
+		now := tx.Now()
+		session, err := standingSession(tx, token, member, now)
 		if err != nil {
 			return err
-		}
-		now := tx.Now()
-		if !session.Live(now) || session.Member != member {
-			return fmt.Errorf("%w: this session is not the member's", authority.ErrNoSession)
 		}
 		fresh, err := newSecret()
 		if err != nil {
@@ -206,24 +200,10 @@ func (s *Sessions) ChangePassphrase(ctx context.Context, scope ledger.WorkspaceI
 			return err
 		}
 		changed = PassphraseChange{Token: fresh, ExpiresAt: session.ExpiresAt, LifeMs: session.ExpiresAt - now, SessionsEnded: dropped - 1}
-		credentials, err := tx.Members().Delegates(member)
-		if err != nil {
+		if changed.Delegates, err = actingDelegates(tx, member, now); err != nil {
 			return err
 		}
-		for _, credential := range credentials {
-			if credential.State(now) == authority.DelegateActive {
-				changed.Delegates++
-			}
-		}
-		data, err := json.Marshal(struct {
-			Sessions int64  `json:"sessions"`
-			Reason   string `json:"reason"`
-		}{changed.SessionsEnded, "passphrase_changed"})
-		if err != nil {
-			return err
-		}
-		_, err = tx.Append(ledger.EventDraft{Type: EventSessionsEnded, Actor: actor, Subject: ledger.Subject{Kind: subjectMember, ID: member}, Data: data})
-		return err
+		return recordSessionsEnded(tx, actor, member, changed.SessionsEnded)
 	})
 	if errors.Is(err, authority.ErrBadProof) {
 		// As a refused sign-in is, whether or not the client is still there.
@@ -243,6 +223,50 @@ func (s *Sessions) recordChangeRefusal(ctx context.Context, scope ledger.Workspa
 	})
 }
 
+// standingSession reads the session a change of the passphrase came from, in the transaction that stores the new one.
+// It must still be live and the member's when the change commits, so a sign-out that beat the change undoes it.
+func standingSession(tx ports.SharedTx, token, member string, now int64) (authority.Session, error) {
+	session, err := tx.Members().Session(digestOf(token))
+	if errors.Is(err, ports.ErrNotFound) {
+		return authority.Session{}, fmt.Errorf("%w: this session ended", authority.ErrNoSession)
+	}
+	if err != nil {
+		return authority.Session{}, err
+	}
+	if !session.Live(now) || session.Member != member {
+		return authority.Session{}, fmt.Errorf("%w: this session is not the member's", authority.ErrNoSession)
+	}
+	return session, nil
+}
+
+// actingDelegates counts the member's delegate credentials that still act, which a change of the passphrase leaves alone.
+func actingDelegates(tx ports.SharedTx, member string, now int64) (int64, error) {
+	credentials, err := tx.Members().Delegates(member)
+	if err != nil {
+		return 0, err
+	}
+	var acting int64
+	for _, credential := range credentials {
+		if credential.State(now) == authority.DelegateActive {
+			acting++
+		}
+	}
+	return acting, nil
+}
+
+// recordSessionsEnded records how many of the member's other sessions a change of the passphrase ended.
+func recordSessionsEnded(tx ports.SharedTx, actor ledger.Actor, member string, sessions int64) error {
+	data, err := json.Marshal(struct {
+		Sessions int64  `json:"sessions"`
+		Reason   string `json:"reason"`
+	}{sessions, "passphrase_changed"})
+	if err != nil {
+		return err
+	}
+	_, err = tx.Append(ledger.EventDraft{Type: EventSessionsEnded, Actor: actor, Subject: ledger.Subject{Kind: subjectMember, ID: member}, Data: data})
+	return err
+}
+
 // Enrolled says whether a passphrase is set, so a first run knows whether to ask for one.
 func (s *Sessions) Enrolled(ctx context.Context, scope ledger.WorkspaceID) (bool, error) {
 	return s.identity.Enrolled(ctx, scope)
@@ -250,13 +274,41 @@ func (s *Sessions) Enrolled(ctx context.Context, scope ledger.WorkspaceID) (bool
 
 // Enroll sets a passphrase. A caller with no session counts as the first enrollment, and
 // the provider refuses that once a passphrase is set.
-func (s *Sessions) Enroll(ctx context.Context, scope ledger.WorkspaceID, proof ports.Proof, token string) error {
+//
+// A later one comes from a member's session on the socket, which a terminal holds and no cookie carries, so that
+// session cannot go on under a new token as it does after a change from the web UI. In the transaction that stores the
+// new passphrase, a later set ends every session of the member, the one it came from included, so no copy of an old
+// token opens anything once the passphrase changes, and it records the sessions it ended as a change does. The result
+// counts the member's other sessions that ended and the delegate credentials that still act, and holds no token.
+func (s *Sessions) Enroll(ctx context.Context, scope ledger.WorkspaceID, proof ports.Proof, token string) (PassphraseChange, error) {
 	actor, err := s.Member(ctx, scope, token)
 	if errors.Is(err, authority.ErrNoSession) {
-		actor, err = firstEnrollment, nil
+		return PassphraseChange{}, s.identity.Enroll(ctx, scope, proof, firstEnrollment, nil)
 	}
 	if err != nil {
-		return err
+		return PassphraseChange{}, err
 	}
-	return s.identity.Enroll(ctx, scope, proof, actor)
+	var changed PassphraseChange
+	err = s.identity.Enroll(ctx, scope, proof, actor, func(tx ports.SharedTx, member string) error {
+		changed = PassphraseChange{}
+		now := tx.Now()
+		if _, err := standingSession(tx, token, member, now); err != nil {
+			return err
+		}
+		// Every session of the member goes, this one with the others. The count holds the sessions that had not
+		// expired, and this one is one of them.
+		dropped, err := tx.Members().DropMemberSessions(member, now)
+		if err != nil {
+			return err
+		}
+		changed.SessionsEnded = dropped - 1
+		if changed.Delegates, err = actingDelegates(tx, member, now); err != nil {
+			return err
+		}
+		return recordSessionsEnded(tx, actor, member, changed.SessionsEnded)
+	})
+	if err != nil {
+		return PassphraseChange{}, err
+	}
+	return changed, nil
 }

@@ -229,7 +229,7 @@ func (c *invocation) initPassphrase(client *api.Client, result *initResult) erro
 	if passphrase != again {
 		return usageProblem("the two passphrases differ")
 	}
-	if err := client.SetPassphrase(c.ctx, api.SetPassphrase{Passphrase: passphrase}); err != nil {
+	if _, err := client.SetPassphrase(c.ctx, api.SetPassphrase{Passphrase: passphrase}); err != nil {
 		return err
 	}
 	result.Passphrase = "set"

@@ -18,8 +18,9 @@ type IdentityProvider interface {
 	// Enrolled reports whether anyone can sign in yet.
 	Enrolled(ctx context.Context, scope ledger.WorkspaceID) (bool, error)
 	// Enroll sets the proof of a workspace's member. The first needs no session, because
-	// nothing yet can prove one, and each later one needs a member.
-	Enroll(ctx context.Context, scope ledger.WorkspaceID, proof Proof, actor ledger.Actor) error
+	// nothing yet can prove one, and each later one needs a member. alongside, when not nil, runs in the
+	// transaction that stores the proof, told the member's ID, and its error undoes the set, as Change's does.
+	Enroll(ctx context.Context, scope ledger.WorkspaceID, proof Proof, actor ledger.Actor, alongside func(tx SharedTx, member string) error) error
 	// Change replaces the proof of the member that current proves with next. It is for a member who is
 	// signed in, so an actor that holds no session is refused with authority.ErrNoSession, before anything
 	// is checked. It then refuses authority.ErrNotEnrolled while no proof is set, authority.ErrBadProof

@@ -65,8 +65,9 @@ func (p *Provider) Enrolled(ctx context.Context, scope ledger.WorkspaceID) (bool
 }
 
 // Enroll sets the passphrase. The hash is made outside the transaction, which decides
-// whether this caller may replace what is there.
-func (p *Provider) Enroll(ctx context.Context, scope ledger.WorkspaceID, proof ports.Proof, actor ledger.Actor) error {
+// whether this caller may replace what is there, and then runs alongside, so what it writes stands or falls with
+// the new hash.
+func (p *Provider) Enroll(ctx context.Context, scope ledger.WorkspaceID, proof ports.Proof, actor ledger.Actor, alongside func(ports.SharedTx, string) error) error {
 	if err := authority.CheckPassphrase(proof.Passphrase); err != nil {
 		return err
 	}
@@ -89,8 +90,13 @@ func (p *Provider) Enroll(ctx context.Context, scope ledger.WorkspaceID, proof p
 		if err != nil {
 			return err
 		}
-		_, err = tx.Append(ledger.EventDraft{Type: eventProofSet, Actor: actor, Subject: ledger.Subject{Kind: "member", ID: Member}})
-		return err
+		if _, err := tx.Append(ledger.EventDraft{Type: eventProofSet, Actor: actor, Subject: ledger.Subject{Kind: "member", ID: Member}}); err != nil {
+			return err
+		}
+		if alongside == nil {
+			return nil
+		}
+		return alongside(tx, Member)
 	})
 }
 

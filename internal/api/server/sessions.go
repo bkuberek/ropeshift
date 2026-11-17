@@ -61,14 +61,17 @@ func (h *handler) signOut(w http.ResponseWriter, r *http.Request, actor ledger.A
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// setPassphrase sets the passphrase. A later one ends every session of the member, the caller's included, and the
+// answer counts the others it ended and the member's delegate credentials that still act.
 func (h *handler) setPassphrase(w http.ResponseWriter, r *http.Request) {
 	var in api.SetPassphrase
 	if !decode(w, r, &in) {
 		return
 	}
-	if err := h.sessions.Enroll(r.Context(), h.Scope, ports.Proof{Passphrase: in.Passphrase}, sessionOf(r)); err != nil {
+	changed, err := h.sessions.Enroll(r.Context(), h.Scope, ports.Proof{Passphrase: in.Passphrase}, sessionOf(r))
+	if err != nil {
 		fail(w, err)
 		return
 	}
-	w.WriteHeader(http.StatusNoContent)
+	reply(w, http.StatusOK, api.PassphraseChanged{SessionsEnded: changed.SessionsEnded, Delegates: changed.Delegates})
 }

@@ -44,7 +44,8 @@ func RunIdentityProvider(t *testing.T, fresh func(*testing.T) IdentityRig) {
 		{"the passphrase names its member", checkIdentityAuthenticates},
 		{"a wrong passphrase proves nothing", checkIdentityRefusesAWrongProof},
 		{"a short passphrase is refused", checkIdentityRefusesAShortProof},
-		{"a second passphrase needs a member", checkIdentitySecondEnrollment},
+		{"a second passphrase needs a member, and its companion write lands in the same transaction", checkIdentitySecondEnrollment},
+		{"a second passphrase whose companion fails changes nothing", checkIdentitySecondEnrollmentIsAtomic},
 		{"a change needs the current passphrase, and a wrong or missing one changes nothing", checkIdentityChangeNeedsTheCurrent},
 		{"a change before a passphrase is set is refused", checkIdentityChangeUnenrolled},
 		{"a change needs a member", checkIdentityChangeNeedsAMember},
@@ -70,7 +71,7 @@ func checkIdentityUnenrolled(t *testing.T, ctx context.Context, rig IdentityRig)
 
 func enroll(t *testing.T, ctx context.Context, rig IdentityRig) {
 	t.Helper()
-	if err := rig.Provider.Enroll(ctx, rig.Scope, ports.Proof{Passphrase: goodPassphrase}, rig.Anyone); err != nil {
+	if err := rig.Provider.Enroll(ctx, rig.Scope, ports.Proof{Passphrase: goodPassphrase}, rig.Anyone, nil); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -97,7 +98,7 @@ func checkIdentityRefusesAWrongProof(t *testing.T, ctx context.Context, rig Iden
 }
 
 func checkIdentityRefusesAShortProof(t *testing.T, ctx context.Context, rig IdentityRig) {
-	err := rig.Provider.Enroll(ctx, rig.Scope, ports.Proof{Passphrase: "short"}, rig.Anyone)
+	err := rig.Provider.Enroll(ctx, rig.Scope, ports.Proof{Passphrase: "short"}, rig.Anyone, nil)
 	if !errors.Is(err, authority.ErrInvalid) {
 		t.Fatalf("got %v, want ErrInvalid", err)
 	}
@@ -108,18 +109,34 @@ func checkIdentityRefusesAShortProof(t *testing.T, ctx context.Context, rig Iden
 
 func checkIdentitySecondEnrollment(t *testing.T, ctx context.Context, rig IdentityRig) {
 	enroll(t, ctx, rig)
-	err := rig.Provider.Enroll(ctx, rig.Scope, ports.Proof{Passphrase: otherPassphrase}, rig.Anyone)
+	runs := 0
+	err := rig.Provider.Enroll(ctx, rig.Scope, ports.Proof{Passphrase: otherPassphrase}, rig.Anyone, accompany(rig, &runs))
 	if !errors.Is(err, authority.ErrNoSession) {
 		t.Fatalf("got %v, want ErrNoSession", err)
+	}
+	if runs != 0 || companionWritten(t, ctx, rig) {
+		t.Errorf("a refused set ran its companion %d times", runs)
 	}
 	if _, err := rig.Provider.Authenticate(ctx, rig.Scope, ports.Proof{Passphrase: goodPassphrase}); err != nil {
 		t.Fatalf("the refused change moved the passphrase: %v", err)
 	}
-	if err := rig.Provider.Enroll(ctx, rig.Scope, ports.Proof{Passphrase: otherPassphrase}, rig.Member); err != nil {
+	var told string
+	companion := func(tx ports.SharedTx, member string) error {
+		told = member
+		return accompany(rig, &runs)(tx, member)
+	}
+	if err := rig.Provider.Enroll(ctx, rig.Scope, ports.Proof{Passphrase: otherPassphrase}, rig.Member, companion); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := rig.Provider.Authenticate(ctx, rig.Scope, ports.Proof{Passphrase: otherPassphrase}); err != nil {
+	if runs != 1 || !companionWritten(t, ctx, rig) {
+		t.Fatalf("the companion ran %d times, and its event is written: %v", runs, companionWritten(t, ctx, rig))
+	}
+	member, err := rig.Provider.Authenticate(ctx, rig.Scope, ports.Proof{Passphrase: otherPassphrase})
+	if err != nil {
 		t.Fatalf("the new passphrase: %v", err)
+	}
+	if told != member {
+		t.Errorf("the companion was told member %q, and the passphrase names %q", told, member)
 	}
 	if _, err := rig.Provider.Authenticate(ctx, rig.Scope, ports.Proof{Passphrase: goodPassphrase}); !errors.Is(err, authority.ErrBadProof) {
 		t.Fatalf("the old passphrase: got %v, want ErrBadProof", err)
@@ -262,14 +279,14 @@ func checkIdentityChangeCompanion(t *testing.T, ctx context.Context, rig Identit
 func checkIdentityRefusesATooLongProof(t *testing.T, ctx context.Context, rig IdentityRig) {
 	tooLong := strings.Repeat("a", authority.MaxPassphrase+1)
 	longest := strings.Repeat("b", authority.MaxPassphrase)
-	if err := rig.Provider.Enroll(ctx, rig.Scope, ports.Proof{Passphrase: tooLong}, rig.Anyone); !errors.Is(err, authority.ErrInvalid) {
+	if err := rig.Provider.Enroll(ctx, rig.Scope, ports.Proof{Passphrase: tooLong}, rig.Anyone, nil); !errors.Is(err, authority.ErrInvalid) {
 		t.Fatalf("the first set of %d bytes: got %v, want ErrInvalid", len(tooLong), err)
 	}
 	if enrolled, err := rig.Provider.Enrolled(ctx, rig.Scope); err != nil || enrolled {
 		t.Fatalf("a refused first set set a passphrase: %v, %v", enrolled, err)
 	}
 	enroll(t, ctx, rig)
-	if err := rig.Provider.Enroll(ctx, rig.Scope, ports.Proof{Passphrase: tooLong}, rig.Member); !errors.Is(err, authority.ErrInvalid) {
+	if err := rig.Provider.Enroll(ctx, rig.Scope, ports.Proof{Passphrase: tooLong}, rig.Member, nil); !errors.Is(err, authority.ErrInvalid) {
 		t.Fatalf("a later set of %d bytes: got %v, want ErrInvalid", len(tooLong), err)
 	}
 	if err := rig.Provider.Change(ctx, rig.Scope, ports.Proof{Passphrase: goodPassphrase}, ports.Proof{Passphrase: tooLong}, rig.Member, nil); !errors.Is(err, authority.ErrInvalid) {
@@ -282,6 +299,28 @@ func checkIdentityRefusesATooLongProof(t *testing.T, ctx context.Context, rig Id
 	if _, err := rig.Provider.Authenticate(ctx, rig.Scope, ports.Proof{Passphrase: longest}); err != nil {
 		t.Fatalf("the longest passphrase: %v", err)
 	}
+}
+
+func checkIdentitySecondEnrollmentIsAtomic(t *testing.T, ctx context.Context, rig IdentityRig) {
+	enroll(t, ctx, rig)
+	broken := errors.New("the companion failed")
+	runs := 0
+	err := rig.Provider.Enroll(ctx, rig.Scope, ports.Proof{Passphrase: otherPassphrase}, rig.Member, func(tx ports.SharedTx, member string) error {
+		if err := accompany(rig, &runs)(tx, member); err != nil {
+			return err
+		}
+		return broken
+	})
+	if !errors.Is(err, broken) {
+		t.Fatalf("got %v, want the companion's error", err)
+	}
+	if runs != 1 {
+		t.Fatalf("the companion ran %d times", runs)
+	}
+	if companionWritten(t, ctx, rig) {
+		t.Error("the companion's write stood after its set failed")
+	}
+	onlyTheOldStands(t, ctx, rig)
 }
 
 func checkIdentityChangeIsAtomic(t *testing.T, ctx context.Context, rig IdentityRig) {

@@ -43,7 +43,7 @@ func TestTheLedgerHoldsOnlyAHash(t *testing.T) {
 	t.Parallel()
 	rig := NewRig(t, SQLiteFile)
 	provider := localauth.New(rig.Store(), cheapHash)
-	if err := provider.Enroll(rig.Ctx, rig.Scope, ports.Proof{Passphrase: goodPassphrase}, anyCaller); err != nil {
+	if err := provider.Enroll(rig.Ctx, rig.Scope, ports.Proof{Passphrase: goodPassphrase}, anyCaller, nil); err != nil {
 		t.Fatal(err)
 	}
 	err := rig.Store().Read(rig.Ctx, rig.Scope, func(tx ports.ReadTx) error {

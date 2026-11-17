@@ -173,7 +173,7 @@ func ShortDir(t testing.TB) string {
 // which is the path a person's own client takes. It sets the harness's passphrase if nobody
 // has, and it returns the token for a process the client cannot hand it to.
 func SignIn(ctx context.Context, client signingIn) (string, error) {
-	err := client.SetPassphrase(ctx, api.SetPassphrase{Passphrase: Passphrase})
+	_, err := client.SetPassphrase(ctx, api.SetPassphrase{Passphrase: Passphrase})
 	var refused *api.Error
 	if err != nil && (!errors.As(err, &refused) || refused.Detail.Code != api.CodeSessionRequired) {
 		return "", err
@@ -188,7 +188,7 @@ func SignIn(ctx context.Context, client signingIn) (string, error) {
 
 // signingIn is the part of a client that signs in, which a project's client carries too.
 type signingIn interface {
-	SetPassphrase(context.Context, api.SetPassphrase) error
+	SetPassphrase(context.Context, api.SetPassphrase) (api.PassphraseChanged, error)
 	SignIn(context.Context, api.SignIn) (api.Session, error)
 	UseSession(string)
 }
@@ -385,7 +385,7 @@ func (d *Daemon) signIn(t testing.TB, identity ports.IdentityProvider) {
 	t.Helper()
 	sessions := control.NewSessions(d.Store, identity)
 	ctx := context.Background()
-	if err := sessions.Enroll(ctx, Scope, ports.Proof{Passphrase: Passphrase}, ""); err != nil {
+	if _, err := sessions.Enroll(ctx, Scope, ports.Proof{Passphrase: Passphrase}, ""); err != nil {
 		t.Fatal(err)
 	}
 	grant, err := sessions.SignIn(ctx, Scope, ports.Proof{Passphrase: Passphrase}, 0)
