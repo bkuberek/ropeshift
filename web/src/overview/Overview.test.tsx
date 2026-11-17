@@ -92,7 +92,7 @@ describe("the Overview", () => {
       "Lanes running",
       "In review or merging",
       "Done in 7 days",
-      "Interruptions per completed",
+      "Interruptions per completed work order",
       "Estimated cost this week",
     ]);
   });

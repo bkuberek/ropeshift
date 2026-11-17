@@ -57,9 +57,14 @@ function Periods({ label, title, periods, level }: { label: string; title: strin
 
 // Agreement shows how often the member agreed with the review agent after it judged work, for the project and for
 // each repository, beside the merge authority level in force there (FR-CAL-2). It is the record a member reads to
-// decide when to raise a level, and it raises none (FR-CAL-3).
+// decide when to raise a level, and it raises none (FR-CAL-3). The repositories go by the name it shows, then by
+// ID, because the ledger orders them by ID, which a new installation draws at random.
 export function Agreement({ report, repositories }: { report: MeasureReport; repositories: Map<string, string> }) {
-  const { workspace, repositories: each } = report.review_agreement;
+  const { workspace } = report.review_agreement;
+  const nameOf = (id: string) => repositories.get(id) ?? id;
+  const each = [...report.review_agreement.repositories].sort(
+    (a, b) => nameOf(a.repository_id).localeCompare(nameOf(b.repository_id)) || (a.repository_id < b.repository_id ? -1 : a.repository_id > b.repository_id ? 1 : 0),
+  );
   return (
     <div className="stack">
       <p className="muted">
@@ -70,8 +75,8 @@ export function Agreement({ report, repositories }: { report: MeasureReport; rep
       {each.map((row) => (
         <Periods
           key={row.repository_id}
-          label={`Review agreement of ${repositories.get(row.repository_id) ?? row.repository_id}`}
-          title={repositories.get(row.repository_id) ?? row.repository_id}
+          label={`Review agreement of ${nameOf(row.repository_id)}`}
+          title={nameOf(row.repository_id)}
           periods={row}
           level={row.merge_authority}
         />

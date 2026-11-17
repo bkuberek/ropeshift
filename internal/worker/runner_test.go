@@ -251,6 +251,28 @@ func TestReportedLaneStopsAtTheEndOfItsTurn(t *testing.T) {
 	}
 }
 
+// What a member typed into a lane's web pane says only that they were at that lane's pane, so the worker
+// forgets it once the lane ends, and keeps no input for every lane it ever ran.
+func TestALanesEndForgetsWhatWasTypedIntoItsPane(t *testing.T) {
+	t.Parallel()
+	r := newLaneRig(t)
+	at := r.clock.Now()
+	r.config.PaneInputs.Typed("lane-1", 1, at)
+	if !r.config.PaneInputs.TypedSince("lane-1", 1, at) {
+		t.Fatal("the input was not kept while the lane had not ended")
+	}
+	r.driver.Play(script([]fake.DriverStep{{Bound: true}, r.reports(workorders.OutcomeCompleted), completed(0.25)}))
+	if err := r.subject.Converge(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if record, err := r.journal.Lane(t.Context(), "lane-1"); err != nil || record.State != lanes.StateEnded {
+		t.Fatalf("the lane did not end: %+v, %v", record, err)
+	}
+	if r.config.PaneInputs.TypedSince("lane-1", 1, at) {
+		t.Error("the worker still holds the input of a lane that ended")
+	}
+}
+
 // TestALanesEndCarriesTheBranchItsWorkerRead keeps the final artifact out of a session's hands
 // (D17): the worker reads the worktree, and a report that names a branch changes nothing.
 func TestALanesEndCarriesTheBranchItsWorkerRead(t *testing.T) {

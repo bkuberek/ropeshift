@@ -69,7 +69,7 @@ A row of six figures comes first, and each links to the view that holds what it 
 - **Lanes running**: the lanes that count against the caps, which Floor lists.
 - **In review or merging**: the work orders in acceptance or integrating, which Reviews lists.
 - **Done in 7 days**: the work orders completed in the last seven days, which Work orders lists under Completed.
-- **Interruptions per completed**: the north star of [product measures](measures.md), over the same days. A rate that counted nothing reads No data yet, never zero.
+- **Interruptions per completed work order**: the north star of [product measures](measures.md), the interruptions over the work orders completed in the same days. A rate that counted nothing reads No data yet, never zero.
 - **Estimated cost this week**: the cost agents reported over the last seven days, which Usage breaks down. It reads at least a figure when part of it is a lower bound, and None reported when no lane reported a cost.
 
 The main column holds the current plan's milestones, each with its progress and state, and the lanes that have not ended, each with its state and the machine it runs on. The side column holds the top five items of Needs you for this project, the longest wait first, each opening its card; the review agreement of the last 30 days; and the project's recent events with who acted. Each part reads on its own, so a read that fails shows its failure in that part and leaves the rest of the page standing.

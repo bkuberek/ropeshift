@@ -16,7 +16,7 @@ import { Field } from "../ui/forms";
 import { Dialog, Menu } from "../ui/overlays";
 import { Talkable, TalkToLane, useTalkable } from "../talk/controls";
 import { useTalk } from "../talk/state";
-import { SessionUse } from "./Installation";
+import { SessionUse, useFloorLive } from "./Installation";
 import { machineMeasures, sessionOf } from "./resources";
 import { ReviewOf } from "./ReviewOf";
 import { StartWork, startOf } from "./StartWork";
@@ -352,11 +352,16 @@ function FloorBody({
 export function FloorPage({ live, project, projects, show, after }: { live: Live; project: string; projects: Project[]; show: string; after: () => Promise<void> }) {
   const scope: Scope = show === "all" ? "all" : "project";
   const others = projects.filter((row) => row.state === "active" && row.name !== project).map((row) => row.name);
-  const own = useView<ShopFloor>(() => readView<ShopFloor>("shop-floor"), "floor:own", live);
+  const floor = useFloorLive(live);
+  const own = useView<ShopFloor>(
+    floor.track(() => readView<ShopFloor>("shop-floor")),
+    "floor:own",
+    floor.live,
+  );
   const rest = useView<FloorRead[]>(
-    () => (scope === "all" ? Promise.all(others.map((name) => inProjectOf(name, () => readView<ShopFloor>("shop-floor")).then((view) => ({ project: name, view })))) : Promise.resolve([])),
+    floor.track(() => (scope === "all" ? Promise.all(others.map((name) => inProjectOf(name, () => readView<ShopFloor>("shop-floor")).then((view) => ({ project: name, view })))) : Promise.resolve([]))),
     `floor:rest:${scope}:${others.join(",")}`,
-    live,
+    floor.live,
   );
   const stuck = useView<Stuck>(() => readView<Stuck>("stuck"), "floor:stuck", live);
   // What each work order allows, which the lanes' actions and the list of work ready to start read.

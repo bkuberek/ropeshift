@@ -17,7 +17,7 @@ describe("the key figures", () => {
       ["Lanes running", "/floor"],
       ["In review or merging", "/reviews"],
       ["Done in 7 days", "/work?group=completed"],
-      ["Interruptions per completed", "/measures"],
+      ["Interruptions per completed work order", "/measures"],
       ["Estimated cost this week", "/usage"],
     ]);
   });
@@ -44,6 +44,11 @@ describe("the key figures", () => {
     const measured = operations();
     measured.measures.interruptions_per_completed = { numerator: 3, denominator: 2, value: 1.5 };
     expect(tile("interruptions", { operations: measured })?.value).toBe("1.5");
+  });
+
+  // The figure is interruptions over the work orders completed in the window, and its note says so in the same words.
+  it("notes the interruptions as a ratio over the work orders completed in the window", () => {
+    expect(tile("interruptions")?.note).toBe("interruptions over completed work orders, last 7d");
   });
 
   it("says no data where a rate counted nothing, and never zero", () => {
