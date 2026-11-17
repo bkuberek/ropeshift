@@ -124,8 +124,25 @@ func (c *invocation) adopt(args []string) int {
 	if code != ExitOK {
 		return code
 	}
+	if *restructure {
+		c.sayMoves(plan.Moves)
+	}
 	started.Project = name
 	return c.joinSession(project, started, *noAttach)
+}
+
+// sayMoves prints each move the plan lists as the commands that make it, for the person to run when they are
+// ready: ropeshift moves no clone, and the adopt session tells the person of them too.
+func (c *invocation) sayMoves(moves []planning.Move) {
+	if len(moves) == 0 {
+		return
+	}
+	c.say("The plan lists %d clones to move into its folder of clones. %s never runs these commands; run them yourself when you are ready:\n", len(moves), program)
+	for _, move := range moves {
+		for _, command := range move.Commands {
+			c.say("  %s\n", command)
+		}
+	}
 }
 
 // adoptionPlan reads the plan of the adoption from the daemon's worker. A project that does not exist yet has no

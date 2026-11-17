@@ -112,6 +112,34 @@ Before the session's lane starts, the worker writes an inventory of every reposi
 
 Open pull requests and issues are not read yet, and the inventory says so.
 
+## The workspace files
+
+With `--restructure`, in the `planned` and `workspace_files` shapes, the worker adds files to the planning repository on the adoption branch before the adopt session starts, so the session's branch holds them from its first prompt. It acts after the lane's worktree exists and before the inventory is written, in two steps.
+
+1. **It reads the layout again, as the plan did.** The adopt work kept the request the plan was read with (the clone adopt ran in, the paths, the depth, and the names `--planning` and `--design` gave) and the digest of the plan. The worker plans from that request again and compares digests. When they differ, the work fails with the reason `layout_changed`, and its outcome names the parts of the plan that differ, from `layout`, `shape`, `planning`, `design`, `repositories`, `files`, `takes`, `collisions`, `code_trees`, and `moves`, with both digests. Nothing is written. Run `ropeshift adopt --restructure` again to plan from the layout as it is. A restructuring that was kept without its request and its parts also fails with `layout_changed`, naming what it lacks, because the layout cannot be read again without them.
+2. **It commits the files the plan lists.** One commit on the adoption branch, `chore: add the workspace files`, holds the files below. Each is added only when the repository lacks it: an existing file is never changed, and a line is never added twice.
+
+| File | What the commit adds |
+|------|----------------------|
+| `plan/repositories.md` | The manifest: a file of kind `repositories` whose `id` is the project's name and which names no plan, with a table for each repository holding its name, remote, and path relative to the planning clone, and an empty description. Each path is where the clone sits once the moves below are made |
+| `.gitignore` | The line `repos/`, when clones sit beside the planning repository, because `repos/` is the folder the moves lead into. The line `/.ropeshift/worktrees/`, when git does not ignore that folder in the planning clone. Ropeshift asks git, so a rule in a global ignore file or in the clone's own exclude file counts, and a line that only names the folder does not |
+| `Makefile` | The targets `setup`, `fetch`, and `status` over the manifest's repositories as a literal list, `name=path=remote`. `make setup` clones each repository that has no clone yet, and the other two read each clone. Ropeshift never runs it |
+
+A crash between the commit and its record is safe: a restart looks for the commit by its subject on the branch, and finds it or finds nothing, and the files are never committed twice. Once the commit is there the layout is not compared again, because you may have made the moves since.
+
+The manifest reads back with the rest of the format. The adopt session is told the commit and the files it holds, and that the plan lists the manifest in its `documents` as `repositories:<project>`, so the plan holds it and approving the plan registers each repository it names that the project lacks.
+
+### The moves
+
+For each repository registered beside the planning repository's clone, the plan lists two commands, which `--dry-run` prints and `--restructure` prints again when the session starts:
+
+```text
+mv <clone> <planning clone>/repos/<name>
+ropeshift repository add <planning clone>/repos/<name>
+```
+
+They are yours to run. Ropeshift never moves, deletes, or writes to a clone other than through a lane worktree of the planning repository, so the worker lists the moves and runs none of them, and the session tells you about them and runs none either.
+
 ## The adopt session
 
 The session is a planning session, so it runs in a pane, its questions are yours, and it survives a detach, a park, and a restart of the daemon. Its brief asks the agent to:
@@ -150,11 +178,12 @@ Import reads the layout as `ropeshift adopt` does. For a workspace whose code re
 | Changes | Does not change |
 |---------|-----------------|
 | The planning repository gains one branch with the onboarded documents and the plan | Your default branch, until that branch merges |
+| With `--restructure`, that branch also holds one commit of the workspace files | Any clone: the moves are commands you run |
 | The project and its repositories are registered, with the safe settings | Any other repository: the session only reads them |
 | Kept branches get work orders that continue them | The branches themselves, which ropeshift never moves |
 | Your documents gain front matter | Their prose, their IDs, and their history |
 
-Adopting does not move files between repositories. To use the layout in [project structure](project-structure.md), set up the workspace and its clones first, then adopt.
+Adopting does not move files between repositories or clones between folders. To use the layout in [project structure](project-structure.md), run the moves a restructuring lists, or set up the workspace and its clones first, then adopt.
 
 `ropeshift adopt` does the same from a terminal, as [the command line](cli.md) describes.
 
@@ -169,7 +198,7 @@ Approving the plan creates its work orders. [Watch work run](watch-work-run.md),
 | Flag | What it does |
 |------|--------------|
 | `--dry-run` | Prints the plan and records nothing: no project, no record, no checkout, and no file. With `--json` it prints the plan as JSON |
-| `--restructure` | Sends the plan's digest and choices with the adopt work. Without it adopt never restructures, and with it a layout of the `single` shape is a usage error |
+| `--restructure` | Sends the plan's digest, its choices, the request it was read with, and the digest of each of its parts with the adopt work, and prints the moves as commands for you to run. Without it adopt never restructures, and with it a layout of the `single` shape is a usage error. [The workspace files](#the-workspace-files) says what the worker does with it |
 | `--depth N` | How many levels below a folder to look for clones |
 | `--planning NAME` | The repository that holds the plan, by its clone's folder name. By default the shape says, and when it says none, adopt asks on the terminal, and with no terminal stops with exit 2 and the names to choose from |
 | `--design NAME` | The design repository, by its clone's folder name |
@@ -184,9 +213,9 @@ A code tree is the topmost directory below a repository's top that holds a build
 | Shape | When | Planning repository | `--restructure` offers |
 |-------|------|---------------------|------------------------|
 | `single` | No clone found other than the one adopt runs in | It | Nothing |
-| `planned` | It holds plan content, and clones were found | It | The manifest, when no `repositories` file exists |
+| `planned` | It holds plan content, and clones were found | It | The manifest, when no `repositories` file exists, and the ignore line for the folder lane worktrees go in |
 | `consolidate` | It holds no plan content, clones sit in a folder it ignores, and one of them is the design repository | It | Importing the design repository's history |
-| `workspace_files` | Any other layout with clones | It when a folder it ignores holds clones; else the design repository when one was chosen and is another clone; else none is settled, and `--planning NAME` names it | The manifest, the ignore line, and a Makefile |
+| `workspace_files` | Any other layout with clones | It when a folder it ignores holds clones; else the design repository when one was chosen and is another clone; else none is settled, and `--planning NAME` names it | The manifest, the ignore lines, and a Makefile |
 
 ### The dry run
 
@@ -197,10 +226,10 @@ The dry run prints one fact to a line:
 | `Layout`, `Clone` | The clone adopt runs in, and each clone found with where it was found and what it holds |
 | `Shape`, `Planning repository`, `Design repository` | The shape, where the plan lives, and the design repository with why it is the one |
 | `would register`, `already registered`, `refused`, `not registered` | Each repository, with the outcome a registration gives it. A `consolidate` layout lists the design repository as `not registered` |
-| `add`, `append` | A file the restructuring would add to the planning repository, or a line it would append |
+| `add`, `append` | A file the restructuring would add to the planning repository, or the lines it would append, each only when the repository lacks it |
 | `take`, `collision` | A path a consolidation takes from the design repository, and a path both repositories hold with the version kept: `workspace`, or `union` for `.gitignore` |
 | `code tree` | A code tree of the design repository with its build file, and whether it is left out |
 | `move`, `run` | A clone to move into the planning repository's folder of clones, and the commands that do it, which ropeshift never runs |
-| `Digest` | The SHA-256 of the plan, which `--restructure` sends back so a layout that changed in between is found |
+| `Digest` | The SHA-256 of the plan, which `--restructure` sends back, with the request the plan was read with and the digest of each of its parts, so the worker finds a layout that changed in between and names the parts that differ |
 
 Ropeshift never moves, deletes, or writes to a clone other than through a lane worktree of the planning repository, and never changes a remote.

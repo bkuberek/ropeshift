@@ -281,6 +281,28 @@ func TestAdoptRestructureNeedsTheRepositoryThatHoldsThePlanNamed(t *testing.T) {
 	}
 }
 
+// Adopting with --restructure prints each move the plan lists as the commands for the person to run, and says
+// ropeshift never runs them. Without --restructure the plan restructures nothing, so no move is listed.
+func TestAdoptRestructureListsTheMovesAsCommandsForThePerson(t *testing.T) {
+	a := newAdoption(t)
+	code, stdout, stderr := a.runIn(shopClone, "", "adopt", "--restructure", "--planning", "Shop_App", "/work/libs", "--worker", "worker-a", "--no-attach")
+	if code != cli.ExitOK {
+		t.Fatalf("exit %d: %s", code, stderr)
+	}
+	for _, want := range []string{
+		"never runs", "mv /work/libs/api /work/Shop_App/repos/api", "ropeshift repository add /work/Shop_App/repos/api",
+		"mv /work/libs/web /work/Shop_App/repos/web", "ropeshift repository add /work/Shop_App/repos/web",
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Errorf("adopt printed no %q:\n%s", want, stdout)
+		}
+	}
+	plain := newAdoption(t)
+	if code, stdout, stderr := plain.runIn(shopClone, "", "adopt", "--planning", "Shop_App", "/work/libs", "--worker", "worker-a", "--no-attach"); code != cli.ExitOK || strings.Contains(stdout, "mv /work/libs") {
+		t.Errorf("adopt without --restructure: exit %d, stdout:\n%s\n%s", code, stdout, stderr)
+	}
+}
+
 // A repository another project holds is adopted in that project, and naming a different one is refused.
 func TestAdoptStaysInTheProjectThatHoldsTheRepository(t *testing.T) {
 	a := newAdoption(t)
