@@ -91,7 +91,7 @@ func Plan(ctx context.Context, in Request, kept ports.Checkouts, layouts ports.L
 	if in.NewProject {
 		plan.Notes = append(plan.Notes, "The project does not exist yet, so no record was read: each repository reads as one that would register, and a repository another project holds is refused when you adopt.")
 	}
-	if err := restructuring(ctx, &plan, in, found, registers, design, planned, layouts); err != nil {
+	if err := restructuring(ctx, &plan, in, found, registers, design, planned, kept, layouts); err != nil {
 		return plan, err
 	}
 	return plan.WithDigest(), nil

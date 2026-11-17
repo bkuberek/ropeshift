@@ -120,6 +120,8 @@ type PlannedFile struct {
 	Path   string `json:"path"`
 	Action string `json:"action"`
 	Detail string `json:"detail,omitempty"`
+	// Lines are the lines an append adds to the file, each only when the file holds no line like it.
+	Lines []string `json:"lines,omitempty"`
 }
 
 // What a collision keeps.

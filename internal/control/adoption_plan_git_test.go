@@ -101,9 +101,10 @@ const (
 	manifestDocument = "+++\nkind = \"repositories\"\nid = \"platform\"\n\n[[repository]]\nname = \"api\"\npath = \"repos/api\"\n+++\n"
 )
 
-// workspaceFiles are what a workspace commits: a README and an ignore file for the folder of clones.
+// workspaceFiles are what a workspace commits: a README and an ignore file for the folder of clones and the
+// folder a lane's worktree goes in.
 func workspaceFiles(extra map[string]string) map[string]string {
-	files := map[string]string{"README.md": "a workspace\n", ".gitignore": "repos/\n"}
+	files := map[string]string{"README.md": "a workspace\n", ".gitignore": "repos/\n/.ropeshift/worktrees/\n"}
 	for name, content := range extra {
 		files[name] = content
 	}
@@ -206,6 +207,47 @@ func TestGitLayoutOfClonesBesideAWorkspaceIsTheWorkspaceFiles(t *testing.T) {
 	}
 	if plan.Design != nil || !slices.ContainsFunc(plan.Notes, func(note string) bool { return strings.Contains(note, "--design NAME") }) {
 		t.Errorf("a tie between design candidates reads design %+v and notes %v", plan.Design, plan.Notes)
+	}
+}
+
+// The line that ignores the folder a lane's worktree goes in is listed when git does not ignore that folder, and
+// git is asked, so a rule in the clone's own exclude file counts as much as one in its ignore file, and a rule
+// that merely mentions the folder does not.
+func TestGitLayoutAsksGitWhetherTheWorktreeFolderIsIgnored(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		ignore  string
+		exclude string
+		want    []string
+	}{
+		{name: "nothing ignores it", ignore: "repos/\n", want: []string{planning.WorktreesLine}},
+		{name: "the ignore file does", ignore: "repos/\n/.ropeshift/worktrees/\n"},
+		{name: "a folder above it is ignored", ignore: "repos/\n/.ropeshift/\n"},
+		{name: "the exclude file does", ignore: "repos/\n", exclude: "/.ropeshift/worktrees/\n"},
+		{name: "a comment names it and nothing ignores it", ignore: "repos/\n# /.ropeshift/worktrees/\n", want: []string{planning.WorktreesLine}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			l := newLayout(t)
+			ws := l.clone("ws", workspaceFiles(map[string]string{
+				"plan/goal.md": goalDocument, "plan/repositories.md": manifestDocument, ".gitignore": tt.ignore,
+			}))
+			l.clone("ws/repos/api", map[string]string{"go.mod": "module api\n"})
+			if tt.exclude != "" {
+				if err := os.WriteFile(filepath.Join(ws, ".git", "info", "exclude"), []byte(tt.exclude), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			plan := l.mustPlan(control.AdoptionRequest{Root: ws})
+			if plan.Shape != planning.ShapePlanned {
+				t.Fatalf("the layout reads %s", plan.Shape)
+			}
+			if got := ignoreLinesOf(plan); !slices.Equal(got, tt.want) {
+				t.Errorf("the plan appends %v to the ignore file, want %v", got, tt.want)
+			}
+		})
 	}
 }
 
