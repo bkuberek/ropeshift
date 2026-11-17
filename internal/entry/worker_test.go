@@ -103,25 +103,37 @@ func TestAWorkerJoinsWithAJoinTokenAndKeepsWhatItNeedsToReturn(t *testing.T) {
 	}
 }
 
-// Joining twice with the same address is no new registration, and it keeps what the first left.
-func TestJoiningAgainWithTheSameServerChangesNothing(t *testing.T) {
+// A worker that holds a credential has joined, and a second join does not pretend to register again: it
+// refuses, says which server the worker joined, and leaves what the first left, the join token unspent.
+func TestJoiningAgainWithTheSameServerIsRefused(t *testing.T) {
 	r := joinOn(t)
 	if code, _, stderr := runMain(commandDaemon, "worker", "join", "--server", r.server, r.token()); code != exitOK {
 		t.Fatalf("exit %d: %s", code, stderr)
 	}
-	first, _, err := r.kept()
+	first, url, err := r.kept()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if code, _, stderr := runMain(commandDaemon, "worker", "join", "--server", r.server, r.token()); code != exitOK {
-		t.Fatalf("a second join: exit %d: %s", code, stderr)
+	second := r.token()
+	code, stdout, stderr := runMain(commandDaemon, "worker", "join", "--server", r.server, second)
+	if code != exitError || stdout != "" || !strings.Contains(stderr, "already joined") || !strings.Contains(stderr, url) {
+		t.Fatalf("a second join: exit %d, stdout %q, stderr %q", code, stdout, stderr)
 	}
-	second, _, err := r.kept()
-	if err != nil || second != first {
-		t.Errorf("a second join left %+v after %+v: %v", second, first, err)
+	if strings.Contains(stderr, second) {
+		t.Errorf("the refusal repeats the token: %q", stderr)
+	}
+	kept, again, err := r.kept()
+	if err != nil || kept != first || again != url {
+		t.Errorf("a second join left %+v at %q after %+v at %q: %v", kept, again, first, url, err)
 	}
 	if workers, err := r.d.Client.Workers(t.Context()); err != nil || len(workers) != 1 {
 		t.Errorf("the server lists %d workers: %v", len(workers), err)
+	}
+	// The token it did not spend still joins a worker that has not joined.
+	t.Setenv(api.EnvStateDir, t.TempDir())
+	t.Setenv(api.EnvRunDir, t.TempDir())
+	if code, _, stderr := runMain(commandDaemon, "worker", "join", "--server", r.server, second); code != exitOK {
+		t.Errorf("the unspent token joined no other worker: exit %d: %s", code, stderr)
 	}
 }
 

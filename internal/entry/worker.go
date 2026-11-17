@@ -179,28 +179,29 @@ func joinServer(ctx context.Context, paths api.Paths, address string, opts joinO
 		return err
 	}
 	if identity.Credential != "" {
+		// A worker that holds a credential has joined. Joining registers, and a worker registers once, so this
+		// registers nothing and says so, and leaves the join token unspent.
 		joined, err := journal.ServerURL(ctx)
-		if err == nil && joined != address {
-			return fmt.Errorf("this worker joined %s, and a worker joins one server: remove its state directory to join another", joined)
-		}
 		if err != nil && !errors.Is(err, ports.ErrNotFound) {
 			return err
 		}
-	} else {
-		client, err := api.NewTCPClient(address)
-		if err != nil {
-			return err
+		if joined == "" {
+			return errors.New("this worker already joined a server and its journal does not say which: remove its state directory to join again")
 		}
-		defer client.Close()
-		name := cmp.Or(opts.name, hostName())
-		credential, err := workerlink.New(client).Register(ctx, ledger.Registration{JoinToken: opts.token, WorkerID: identity.WorkerID, Name: name})
-		if err != nil {
-			return fmt.Errorf("the server refused the join: %w", err)
-		}
-		identity.Credential = credential.Credential
-		if err := journal.SaveIdentity(ctx, identity); err != nil {
-			return err
-		}
+		return fmt.Errorf("this worker already joined %s: remove its state directory to join again", joined)
+	}
+	client, err := api.NewTCPClient(address)
+	if err != nil {
+		return err
+	}
+	defer client.Close()
+	credential, err := workerlink.New(client).Register(ctx, ledger.Registration{JoinToken: opts.token, WorkerID: identity.WorkerID, Name: cmp.Or(opts.name, hostName())})
+	if err != nil {
+		return fmt.Errorf("the server refused the join: %w", err)
+	}
+	identity.Credential = credential.Credential
+	if err := journal.SaveIdentity(ctx, identity); err != nil {
+		return err
 	}
 	if err := journal.SaveServerURL(ctx, address); err != nil {
 		return err
