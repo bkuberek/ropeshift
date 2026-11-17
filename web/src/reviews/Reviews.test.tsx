@@ -290,6 +290,32 @@ describe("the agreement tab", () => {
     expect(fact("Later defects")).toBe("1");
   });
 
+  // The ledger lists the repositories by ID, which a fresh installation draws at random, so the tab orders them
+  // by the name it shows, and by ID among repositories of one name.
+  it("lists the repositories by name, then by ID, whatever their IDs", async () => {
+    const measured = golden<Operations>("operations");
+    const [first] = measured.measures.review_agreement.repositories;
+    if (!first) {
+      throw new Error("the golden has no repository's agreement");
+    }
+    const row = (id: string, level: string) => ({ ...first, repository_id: id, merge_authority: level });
+    measured.measures.review_agreement.repositories = [row("id-a", "person_merges"), row("id-b", "person_approves"), row("id-c", "person_merges"), row("id-d", "review_approves")];
+    const named = (id: string, name: string) => ({ id, name, path: `/src/${id}`, state: "active" });
+    serveViews((call) => {
+      if (call.path.startsWith("/v1/views/operations")) {
+        return { status: 200, body: measured };
+      }
+      if (call.method === "GET" && call.path === "/v1/repositories") {
+        return { status: 200, body: { repositories: [named("id-a", "web"), named("id-b", "harbor"), named("id-c", "api"), named("id-d", "api")] } };
+      }
+      return undefined;
+    });
+    openPage(here("/reviews?tab=agreement"));
+    await screen.findByRole("group", { name: "Review agreement of web" });
+    const shown = screen.getAllByRole("group", { name: /^Review agreement of (?!this project)/ }).map((group) => `${group.getAttribute("aria-label")} ${group.querySelector(".mono")?.textContent}`);
+    expect(shown).toEqual(["Review agreement of api person_merges", "Review agreement of api review_approves", "Review agreement of harbor person_approves", "Review agreement of web person_merges"]);
+  });
+
   it("states that the merge authority level never rises by itself", async () => {
     serving();
     openPage(here("/reviews?tab=agreement"));
