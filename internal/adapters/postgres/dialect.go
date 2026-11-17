@@ -2,8 +2,11 @@ package postgres
 
 import (
 	"embed"
+	"errors"
 	"strconv"
 	"strings"
+
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"ropeshift.com/ropeshift/internal/adapters/sqlite"
 	"ropeshift.com/ropeshift/internal/adapters/sqlstore"
@@ -39,6 +42,17 @@ func (Dialect) ColumnsSQL() string {
 // first committed waits on the first's lock, and then finds the column there.
 func (Dialect) AddColumnSQL(table, column string) string {
 	return `ALTER TABLE ` + table + ` ADD COLUMN IF NOT EXISTS ` + column
+}
+
+// uniqueViolation is the SQLSTATE of a unique index that already holds a key.
+const uniqueViolation = "23505"
+
+// LostCreateRace reports a unique violation. Two transactions that make the same table at once each insert
+// the table's type into the catalog, and the one that waits on the other's uncommitted row gets the violation
+// when the other commits, though CREATE TABLE IF NOT EXISTS would now find the table there.
+func (Dialect) LostCreateRace(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == uniqueViolation
 }
 
 // Migrations reads the neutral schema and this dialect's own.

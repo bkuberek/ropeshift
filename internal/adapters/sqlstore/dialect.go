@@ -39,6 +39,10 @@ type Dialect interface {
 	// so, the statement adds nothing when the column is there, and one that cannot must serialize the two
 	// starts' transactions.
 	AddColumnSQL(table, column string) string
+	// LostCreateRace reports whether err is what a start gets when it makes a table at the same moment as
+	// another start, which has committed it since: the table is there, and making it again succeeds. A
+	// database whose writers take turns never returns one.
+	LostCreateRace(err error) bool
 }
 
 // Migration is one schema change.

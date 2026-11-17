@@ -81,6 +81,35 @@ func TestTwoFirstStartsAddTheChecksumColumnPostgres(t *testing.T) {
 	}
 }
 
+// TestTwoFirstStartsMakeTheMigrationsTablePostgres holds two starts at once on a database with no table of
+// applied migrations: the second begins to make the table while the first's transaction, which has not
+// committed, is making it, and waits on it. When the first commits, the second finds the table there and
+// still starts, where Postgres first answers it with a unique violation (SQLSTATE 23505).
+func TestTwoFirstStartsMakeTheMigrationsTablePostgres(t *testing.T) {
+	db := pgtest.MigrationBackend.Fresh(t)
+	ctx := t.Context()
+	first, err := db.DB.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = first.Rollback() }()
+	// This is the table the first start makes, as the neutral schema's runner makes it.
+	if _, err := first.ExecContext(ctx, "CREATE TABLE "+db.Schema+".schema_migrations ("+
+		"version BIGINT NOT NULL PRIMARY KEY, name TEXT NOT NULL, applied_at BIGINT NOT NULL, checksum TEXT)"); err != nil {
+		t.Fatal(err)
+	}
+	store := sqlstore.New(db.DB, db.Dialect, sqlstore.Options{Schema: db.Schema})
+	second := make(chan error, 1)
+	go func() { second <- store.Migrate(ctx) }()
+	waitForLockWait(t, db.DB, second, "CREATE TABLE%")
+	if err := first.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-second; err != nil {
+		t.Fatalf("the second start returned %v, want it to start", err)
+	}
+}
+
 // waitForLockWait waits until a session of the database waits on a lock while it runs a statement that
 // matches one of the LIKE patterns. The patterns name statements of the start under test, so a lock wait of
 // another session, such as an autovacuum's, never counts. It fails when the start returns on second first,

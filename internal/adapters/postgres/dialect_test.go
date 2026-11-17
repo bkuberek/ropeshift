@@ -1,9 +1,13 @@
 package postgres_test
 
 import (
+	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"ropeshift.com/ropeshift/internal/adapters/postgres"
 	"ropeshift.com/ropeshift/internal/adapters/sqlite"
@@ -28,6 +32,27 @@ func TestASchemaNameIsQuoted(t *testing.T) {
 	got := (postgres.Dialect{}).SchemaSQL(`pro"ject`)
 	if want := `SET LOCAL search_path TO "pro""ject"`; got != want {
 		t.Errorf("schema SQL is %q, want %q", got, want)
+	}
+}
+
+// TestAUniqueViolationIsALostCreateRace holds that a start retries only the unique violation that two
+// starts making one table at once give, and not any other error.
+func TestAUniqueViolationIsALostCreateRace(t *testing.T) {
+	for name, tc := range map[string]struct {
+		err  error
+		want bool
+	}{
+		"a unique violation":         {&pgconn.PgError{Code: "23505"}, true},
+		"one a layer above it":       {fmt.Errorf("migrate: %w", &pgconn.PgError{Code: "23505"}), true},
+		"a foreign key violation":    {&pgconn.PgError{Code: "23503"}, false},
+		"an error of no server code": {errors.New("connection reset"), false},
+		"no error":                   {nil, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := (postgres.Dialect{}).LostCreateRace(tc.err); got != tc.want {
+				t.Errorf("LostCreateRace(%v) is %v, want %v", tc.err, got, tc.want)
+			}
+		})
 	}
 }
 
