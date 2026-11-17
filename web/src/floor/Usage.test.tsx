@@ -6,8 +6,8 @@ import { openPage } from "../opening";
 import { golden, refusal, serveViews } from "../testing";
 
 // Usage's breakdown gains the cost of each lane, from the route `ropeshift telemetry lanes` reads: each lane's context
-// at its last call, its tokens by type, the roster agents that spent some, and the cost its agent reported, which is a
-// lower bound and never a bill.
+// at its last call, its tokens by type, the roster agents that spent some, and the cost its agent reported, which reads
+// "at least" when some of it was never reported, and is never a bill.
 
 function serveLanes(read: () => { status: number; body?: unknown } = () => ({ status: 200, body: golden<LaneTelemetryList>("telemetry-lanes") })) {
   return serveViews((call) => (call.method === "GET" && call.path === "/v1/telemetry/lanes" ? read() : undefined));
@@ -49,7 +49,7 @@ describe("the cost of each lane on the Usage page", () => {
     expect(calls.filter((call) => call.path === "/v1/telemetry/lanes").map((call) => call.method)).toEqual(["GET"]);
   });
 
-  it("says each lane's context, its tokens by type, and its cost as at least what its agent reported", async () => {
+  it("says each lane's context, its tokens by type, and its cost, as at least what its agent reported only when some went unreported", async () => {
     serveLanes();
     openPage("/usage");
     const rows = await table();
@@ -58,8 +58,9 @@ describe("the cost of each lane on the Usage page", () => {
       expect(flat(cell(row, "Context")), lane.lane).toBe(`${lane.context_tokens.toLocaleString("en-US")} tokens`);
       expect(flat(cell(row, "Tokens")), lane.lane).toContain(said(lane.tokens));
     });
+    expect(read.lanes.map((lane) => lane.lower_bound)).toEqual([true, false]);
     expect(flat(cell(rows[0] as HTMLElement, "Est. cost"))).toBe("at least $1.23");
-    expect(flat(cell(rows[1] as HTMLElement, "Est. cost"))).toBe("at least under $0.01");
+    expect(flat(cell(rows[1] as HTMLElement, "Est. cost"))).toBe("under $0.01");
   });
 
   it("lists the tokens each roster agent spent inside a lane, which are part of the lane's tokens and not added to them", async () => {
@@ -80,6 +81,7 @@ describe("the cost of each lane on the Usage page", () => {
     await table();
     expect(screen.getAllByText(/estimated at list price/).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/not a bill/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/reads at least a figure when some of it was never reported/).length).toBeGreaterThan(0);
   });
 
   it("says no lane has reported when the store holds nothing, and never draws it as a cost of zero", async () => {
