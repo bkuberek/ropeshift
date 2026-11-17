@@ -114,7 +114,40 @@ A check the base branch does not require counts for nothing, and a base branch t
 
 The worker reads a pull request's checks on a schedule that follows how long the repository's CI takes, and no longer every minute. It reads once when the pull request opens, once at the expected p50 of a run, at half the remaining time to the p85 each time after that, and every `ci_steady_interval`, 5 minutes by default, once a run is past its p85, for as long as it runs. Time a run spends queued does not advance the schedule, because a run counts only once GitHub says it started. A new push to the branch reads again at once. With no required check left to finish, ropeshift reads every minute, to learn of a merge or a close you make yourself. The keys are set per repository, with `ropeshift repository set <repository> ci.<key>=<value>` ([how ropeshift reads CI](set-up-projects.md#how-ropeshift-reads-ci)). Each read is a `gh` call and starts no agent session, so a run of three hours costs the same in credits as a run of three minutes: nothing.
 
-The worker can also be told that GitHub reported a change, which reads the pull request at once instead of waiting for the schedule: a hint for a head, or for a whole repository. A hint carries no state, and the read decides what changed. Nothing in ropeshift receives GitHub's `check_suite`, `check_run`, or `workflow_run` webhook deliveries yet, so the schedule works alone.
+### How a read is kept cheap
+
+Each read goes through `gh` and starts no agent session, and each is made to cost as little of GitHub's rate limit as it can:
+
+- **One query for several pull requests.** When two or more pull requests of a repository are due, the worker reads all of them, with the checks on each head and whether the base branch requires each check, in one GraphQL query, where a read of each is two calls apiece. GraphQL's rate limit counts points, the nodes a query could reach divided by 100 and at least 1 ([rate limits and node limits](https://docs.github.com/en/graphql/overview/rate-limits-and-node-limits-for-the-graphql-api)).
+- **A conditional probe for one.** When one pull request is due and a required check is still to finish, the worker first asks the pull request, and the check runs and the commit statuses of its head, each with the `ETag` of its last answer in `If-None-Match`. When all three answer `304 Not Modified`, nothing a read would report has changed, no read is made, and a `304` does not count against the primary rate limit ([use conditional requests](https://docs.github.com/en/rest/using-the-rest-api/best-practices-for-using-the-rest-api#use-conditional-requests)). The first probe of a pull request has no `ETag` to send and gives the one to use next. A push, a merge, or a close changes the pull request's answer, so the next read finds it.
+- **Rate limits are honoured.** A read GitHub refuses for a rate limit holds that repository's reads for the longest of `retry-after`, the time `x-ratelimit-reset` gives when `x-ratelimit-remaining` is 0, and a back-off that starts at one minute and doubles with each refusal in a row, to an hour, and the daemon says so once for each stretch of refusals. A response whose `x-poll-interval` names a time sets the least gap before the next scheduled read. A hint reads through that gap, and through nothing else ([handle rate limit errors appropriately](https://docs.github.com/en/rest/using-the-rest-api/best-practices-for-using-the-rest-api), [rate limits for the REST API](https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api)).
+
+GitHub does not document conditional requests for GraphQL, so the query is never conditional.
+
+### Webhooks make a read come sooner
+
+GitHub can tell ropeshift that a check changed, which reads the pull requests at that head at once instead of waiting for the schedule. A delivery is a hint: it carries no state, and the read decides what changed. Polling works alone, so a delivery that never comes costs only the delay, and there is nothing to set up for ropeshift to read CI.
+
+A solo daemon on a laptop has no address GitHub can reach, and its route is on its control socket, which nothing exposes, so it takes no delivery unless you forward that socket to GitHub yourself. A [group server](group-server.md) takes them on its listener, at `/v1/webhooks/github`. That route is the one route of the listener that takes no session and no credential: the signature of each delivery is its credential.
+
+To point a webhook at a repository on a group server:
+
+1. Choose a variable name for the repository's key, such as `ROPESHIFT_HOOK_WIDGETS`, and put a long random value in that variable in the server's environment. The ledger never holds the key: it holds the variable's name, and a value that is not a name is refused.
+2. Name the variable on the repository with `ropeshift repository set <repository> ci.ci_webhook_secret_env=ROPESHIFT_HOOK_WIDGETS`. The repository must have a forge binding, and a restart of the server picks up a changed environment.
+3. In the repository's settings on GitHub, under Webhooks, add a webhook ([creating webhooks](https://docs.github.com/en/webhooks/using-webhooks/creating-webhooks)). Set the payload URL to `https://<your server>/v1/webhooks/github`, the content type to `application/json`, and the secret to the same value as the variable. Select individual events, and choose Check runs, Check suites, and Workflow runs. Leave SSL verification on.
+4. GitHub sends a ping when it saves the webhook, which the server answers.
+
+A GitHub Enterprise Server names its own host in `X-GitHub-Enterprise-Host`, and the repository on that host is the one the delivery is for. The server verifies the `X-Hub-Signature-256` header, the HMAC-SHA256 of the body under the repository's key, before it reads anything else of the body, and compares it in constant time ([validating webhook deliveries](https://docs.github.com/en/webhooks/using-webhooks/validating-webhook-deliveries)). Then:
+
+| Delivery | What the server does |
+|----------|----------------------|
+| A `check_suite` or a `check_run` with the action `completed`, or a `workflow_run` with `requested`, `in_progress`, or `completed` | Makes a hint for the head it names, which each worker takes on its next heartbeat |
+| Any other event or action, and a `ping` | Answers, and makes no hint |
+| A delivery ID the server has seen in the last hour | Answers `200` and makes no second hint, so a redelivery repeats nothing |
+| A missing or wrong signature, a repository ropeshift does not hold, or a repository with no key | Answers `403 bad_signature` alike for every one, makes no hint, and counts it |
+| A body of more than a megabyte, or a content type other than `application/json` | Refuses it unread, as `413` or `415`, and counts it |
+
+The server counts each refusal by its reason and warns of the first of each and of every hundredth after it, in words that name no repository, no key, and no variable. Hints live in the server's memory for ten minutes, and a restart loses them, which the schedule makes good.
 
 ### review_approves
 
