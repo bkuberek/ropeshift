@@ -146,6 +146,9 @@ type DesiredPullRequest struct {
 	// either, which a required check needs to reach the merge.
 	Mergeable string             `json:"mergeable,omitempty"`
 	Checks    []PullRequestCheck `json:"checks,omitempty"`
+	// CI is the repository's `[ci]` keys in force, which the worker reads the pull request's checks by
+	// (FR-SPEND-20). A control plane that sends none leaves the defaults.
+	CI CISettings `json:"ci,omitzero"`
 }
 
 // DesiredForgeRepository is a repository whose review target needs the forge. A worker that keeps a
@@ -183,6 +186,11 @@ type PullRequestCheck struct {
 	State      ForgeCheckState `json:"state"`
 	DetailsURI string          `json:"details_uri,omitempty"`
 	Required   bool            `json:"required,omitempty"`
+	// Status is where the run stands, which the CI read schedule runs its clock by: only a run in progress
+	// advances it. A commit status is no run and has none. StartedAt is when the run began, as RFC 3339, and is
+	// empty for a run that has not.
+	Status    CIRunStatus `json:"status,omitempty"`
+	StartedAt string      `json:"started_at,omitempty"`
 }
 
 // PullRequest is what a forge says of one pull request. Checks are those on HeadCommit, and count for no

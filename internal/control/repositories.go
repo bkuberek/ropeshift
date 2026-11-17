@@ -61,6 +61,9 @@ type RepositoryChange struct {
 	// Planning names this repository the project's planning repository, and takes that from any other, or
 	// with false takes it from this one (ADR-0022).
 	Planning *bool
+	// CI is the repository's `[ci]` keys as they are to read, every key stated (ADR-0037). It is the settings an
+	// edit of single keys came to, which must check.
+	CI *ledger.CISettings
 }
 
 // detectedEvent is the data of EventRepositoryDetected, and of EventRepositoryRegistered. Name is there when
@@ -488,6 +491,9 @@ func apply(record ledger.Repository, change RepositoryChange) ledger.Repository 
 	}
 	if change.Planning != nil {
 		record.Planning = *change.Planning
+	}
+	if change.CI != nil {
+		record.CI = *change.CI
 	}
 	return record
 }
