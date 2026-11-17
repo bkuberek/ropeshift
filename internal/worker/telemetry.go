@@ -172,6 +172,18 @@ func (r *laneRun) measureUnreported() {
 	r.measure(ledger.MetricCostUnreported, ports.MetricCounter, "{turn}", 1)
 }
 
+// measureUnattended counts the turn a lane no run holds may have ended its session inside, under the lane, its work
+// order, and its generation, as a run counts one of its own.
+func (w *Worker) measureUnattended(record lanes.Record) {
+	w.telemetry().Measure(ports.Measurement{
+		Name: ledger.MetricCostUnreported, Kind: ports.MetricCounter, Unit: "{turn}", Value: 1, At: w.nowMs(),
+		Attributes: []ports.Attribute{
+			{Key: lanes.AttrLane, Value: record.ID}, {Key: lanes.AttrWorkOrder, Value: record.WorkOrder},
+			{Key: lanes.AttrGeneration, Value: record.Generation},
+		},
+	})
+}
+
 // unreportedEnd counts the turn a session ended in with no result for it, or may have, where its stream closed
 // before it said how it ended. The driver's meter counts a turn that stopped, and this counts the generation's
 // last turn, so the cost the ledger records at the lane's end, which the measures and the delivery record read,
