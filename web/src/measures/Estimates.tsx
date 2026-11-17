@@ -330,6 +330,22 @@ function Milestones({ calibration, windowName }: { calibration: MilestoneCalibra
 
 const openBands = "An outcome whose baseline p85 was open counts in the p50 rate and the ratio, and is left out of the p85 rate. A tick on a meter marks the value a calibrated estimator's rate comes near: 50% for p50, and 85% for p85. A ratio is the median of actual over p50, near 1 when calibrated.";
 
+// rateNeeds is how many outcomes stand behind a rate before the API gives it.
+const rateNeeds = 10;
+
+// rateWords says whether the scope's work has a rate yet. While none shows, it says the most outcomes behind any
+// rate of the confident or low-confidence work, over the window or all time, against the number a rate needs.
+function rateWords(scope: CalibrationScope): string {
+  const rates = periods
+    .flatMap(({ key }) => [scope[key].confident.total, scope[key].low.total])
+    .flatMap((standing) => [standing.time.p50, standing.time.p85, standing.cost.p50, standing.cost.p85]);
+  if (rates.some((rate) => rate.rate !== undefined)) {
+    return `A rate shows when at least ${rateNeeds} outcomes stand behind it, and below that only its counts stand.`;
+  }
+  const most = Math.max(0, ...rates.map((rate) => rate.n));
+  return `Not enough finished estimated work for a rate yet: a rate needs ${rateNeeds} outcomes behind it, and the most any group has is ${most}. Below that only its counts stand.`;
+}
+
 // nothingEnded says no work ended in any period and no milestone has: there is no outcome to calibrate against.
 const nothingEnded = (report: Calibration) => report.scopes.every((scope) => scope.all_time.share.ended === 0) && report.milestones.results.length === 0;
 
@@ -348,8 +364,7 @@ export function EstimatesBody({ report, scope, windowName }: { report: Calibrati
   return (
     <>
       <p className="muted">
-        Last {windowName}, from {utcDay(report.from)} to {utcDay(report.to)} UTC. All time reads every outcome the project has. Not enough finished estimated work for a rate yet: a rate shows when at
-        least 10 outcomes stand behind it, and below that only its counts stand.
+        Last {windowName}, from {utcDay(report.from)} to {utcDay(report.to)} UTC. All time reads every outcome the project has. {rateWords(scope)}
       </p>
       <Shares report={scope} windowName={windowName} />
       <Confidence title="Confident estimates" regionName="Confident estimates" words="a confident" pick={(period) => period.confident} report={scope} windowName={windowName} foot={openBands} />
