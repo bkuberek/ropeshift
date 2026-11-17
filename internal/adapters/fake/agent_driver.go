@@ -120,6 +120,9 @@ type AgentDriver struct {
 	noHeadless bool
 	// attached stands for a person's terminal attached to every session's pane.
 	attached bool
+	// observeErr is what the next Observe says, and observeFailed that one Observe said it.
+	observeErr    error
+	observeFailed bool
 }
 
 // compactInput is what a compaction reads as, in a list of inputs.
@@ -651,8 +654,14 @@ func (d *AgentDriver) Observe(_ context.Context, h ports.SessionHandle) (ports.O
 		return ports.Observation{Liveness: ports.LivenessUnknown}, err
 	}
 	d.mu.Lock()
-	unknown, attached := d.unknown, d.attached
+	unknown, attached, failure := d.unknown, d.attached, d.observeErr
+	if failure != nil {
+		d.observeErr, d.observeFailed = nil, true
+	}
 	d.mu.Unlock()
+	if failure != nil {
+		return ports.Observation{Liveness: ports.LivenessUnknown}, failure
+	}
 	if unknown {
 		return ports.Observation{Liveness: ports.LivenessUnknown}, nil
 	}
@@ -719,6 +728,20 @@ func (d *AgentDriver) SetAttached(on bool) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.attached = on
+}
+
+// FailObserve makes the next Observe say this, as a read of a pane that failed once.
+func (d *AgentDriver) FailObserve(err error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.observeErr, d.observeFailed = err, false
+}
+
+// ObserveFailed says an Observe returned what FailObserve set.
+func (d *AgentDriver) ObserveFailed() bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.observeFailed
 }
 
 // Type is a person typing a line into a lane's session, which starts the session's next turn as an

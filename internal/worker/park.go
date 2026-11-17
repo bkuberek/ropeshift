@@ -24,6 +24,10 @@ const (
 	defaultDrainDeadline = 10 * time.Minute
 	// goneAttempts is how many reads a process gets to be gone before it takes SIGKILL.
 	goneAttempts = 100
+	// attachedRecheck is how long a planning lane waits to read its pane again after a read said nobody is
+	// attached. A driver reads a pane's clients about once a second, and this is as long as a hook trusts
+	// what the last read said, so one read that failed is followed by one that did not.
+	attachedRecheck = lanes.AttachedStale
 )
 
 // ErrNoParking means a lane is not at a point where it can park.
@@ -352,8 +356,9 @@ func (r *laneRun) awaitAnswer(ctx context.Context) {
 // awaitPerson holds a planning lane at rest for the person it talks to, because a turn that ends in the
 // conversation asks for the person's next line (ADR-0018). A person attached to its pane when `ask_wait`
 // runs out keeps the session for another wait. With nobody attached it parks on a wake only a person
-// ends, because no process waits on a person. A line the person types starts a turn, which ends the wait,
-// and the next rest starts it again.
+// ends, because no process waits on a person. Nobody is attached only when two reads `attachedRecheck`
+// apart both say so, because one read that failed says the same. A line the person types starts a turn,
+// which ends the wait, and the next rest starts it again.
 func (r *laneRun) awaitPerson(ctx context.Context) {
 	if !r.waiting.CompareAndSwap(false, true) {
 		return
@@ -364,6 +369,12 @@ func (r *laneRun) awaitPerson(ctx context.Context) {
 		defer r.state.waitForPerson(false)
 		for {
 			if !r.restUntil(ctx, r.w.clock.Now().Add(r.state.askWait())) {
+				return
+			}
+			if r.personAttached(ctx) {
+				continue
+			}
+			if !r.restUntil(ctx, r.w.clock.Now().Add(attachedRecheck)) {
 				return
 			}
 			if !r.personAttached(ctx) {

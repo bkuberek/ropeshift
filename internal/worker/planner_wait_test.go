@@ -1,6 +1,7 @@
 package worker_test
 
 import (
+	"errors"
 	"slices"
 	"testing"
 	"time"
@@ -52,6 +53,16 @@ func (r *laneRig) awaitParked(t *testing.T) {
 		time.Sleep(5 * time.Millisecond)
 	}
 	t.Fatalf("work order %s, want parked", r.row().State)
+}
+
+// parkingOf is the lane's parking as the worker's journal holds it, nil when it never began.
+func (r *laneRig) parkingOf(t *testing.T) *lanes.ParkProgress {
+	t.Helper()
+	record, err := r.journal.Lane(t.Context(), "lane-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return record.Parking
 }
 
 // nudged says the worker sent the lane its nudge.
@@ -119,7 +130,7 @@ func TestAPlanningLaneParksWhenNobodyIsAttachedAsItsWaitRunsOut(t *testing.T) {
 	time.Sleep(10 * superviseStep)
 	r.waitsForItsPerson(t)
 	r.clock.Advance(20 * time.Second)
-	r.awaitOrder(t, workorders.Parked)
+	r.awaitParked(t)
 	r.subject.Wait()
 	if wake := r.wakeOf(t, 1); wake.Expr != lanes.HumanWake() {
 		t.Errorf("wake %+v, want one only a person ends", wake)
@@ -146,6 +157,41 @@ func TestAPlanningLaneWaitsOnForItsPersonAfterAWorkerRestart(t *testing.T) {
 	if wake := r.wakeOf(t, 1); wake.Expr != lanes.HumanWake() {
 		t.Errorf("wake %+v, want one only a person ends", wake)
 	}
+}
+
+// One read of the pane that fails as the wait runs out reads as nobody attached, as a pane a person left
+// does. The lane reads the pane again a moment later before it parks, so a person still attached keeps
+// the session.
+func TestOneFailedReadOfThePaneDoesNotParkAPlanningLane(t *testing.T) {
+	t.Parallel()
+	r := planningRigWith(t, profileAt+"[lifecycle]\nask_wait = \"5m\"\nhandoff_timeout = \"30ms\"\n", func(driver *fake.AgentDriver) {
+		driver.SetAttached(true)
+	})
+	r.driver.Play(script([]fake.DriverStep{{Bound: true}, completed(0.01)}))
+	if _, err := r.subject.Reconcile(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	r.waitsForItsPerson(t)
+
+	r.driver.FailObserve(errors.New("tmux: the read of the pane's clients timed out"))
+	r.clock.Advance(5*time.Minute + time.Second)
+	deadline := time.Now().Add(20 * time.Second)
+	for !r.driver.ObserveFailed() {
+		if time.Now().After(deadline) {
+			t.Fatal("the wait never read the pane")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	r.clock.Advance(time.Minute)
+	time.Sleep(10 * superviseStep)
+	if parking := r.parkingOf(t); parking != nil {
+		t.Fatalf("one failed read parked a lane with its person attached: %+v", parking)
+	}
+	r.waitsForItsPerson(t)
+
+	r.driver.SetAttached(false)
+	r.awaitParked(t)
+	r.subject.Wait()
 }
 
 // Every lane that is no plan keeps the nudge and then the outcome `no_outcome`, whoever is attached to its
