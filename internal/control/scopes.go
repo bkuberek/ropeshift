@@ -140,14 +140,20 @@ func (f *scopeFacts) reworks(a, b string) (bool, error) {
 	return false, nil
 }
 
-// runsIn says whether the work a scope covers runs in a repository.
+// runsIn says whether the work a scope covers runs in a repository. A work order covers its rework, which is
+// under the same contract, so the work of that contract holds both.
 func (f *scopeFacts) runsIn(scope questions.Scope, repository string) (bool, error) {
 	var orders []workorders.WorkOrder
 	switch scope.Kind {
 	case questions.ScopeWorkOrder:
 		order, held, err := f.order(scope.ID)
-		if held {
-			orders = []workorders.WorkOrder{order}
+		if err != nil || !held {
+			return false, err
+		}
+		if order.ContractID == "" {
+			orders, err = f.orders.List()
+		} else {
+			orders, err = f.orders.ByContract(order.ContractID)
 		}
 		if err != nil {
 			return false, err
