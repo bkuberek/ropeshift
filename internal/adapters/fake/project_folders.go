@@ -215,11 +215,15 @@ func (f *ProjectFolders) Files(_ context.Context, folder string) ([]string, erro
 	return f.under(path.Clean(folder)), nil
 }
 
-// FirstCommit makes the folder a clone, and commits unless CommitError says it fails.
-func (f *ProjectFolders) FirstCommit(_ context.Context, folder, message string) (string, error) {
+// FirstCommit makes the folder a clone, and commits unless CommitError says it fails. A folder that is a clone already
+// is the worker's own only on a resume.
+func (f *ProjectFolders) FirstCommit(_ context.Context, folder, message string, resumed bool) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	folder = path.Clean(folder)
+	if f.tops[folder] && !resumed {
+		return "", errors.New("the folder holds a repository this worker did not make")
+	}
 	if id, ok := f.commits[folder]; ok {
 		return id, nil
 	}

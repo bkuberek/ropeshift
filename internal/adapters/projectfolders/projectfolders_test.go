@@ -154,7 +154,7 @@ func TestFilesListsTheFolderWithoutItsGitDirectory(t *testing.T) {
 	if err := f.Write(t.Context(), folder, []ports.FolderFile{{Path: "b.md", Text: "b"}, {Path: "a/c.md", Text: "c"}}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := f.FirstCommit(t.Context(), folder, "chore: start harbor"); err != nil {
+	if _, err := f.FirstCommit(t.Context(), folder, "chore: start harbor", false); err != nil {
 		t.Fatal(err)
 	}
 	got, err := f.Files(t.Context(), folder)
@@ -174,11 +174,12 @@ func TestFirstCommitIsMadeOnceAndAnswersWithTheCommitAfterward(t *testing.T) {
 	if err := f.Write(t.Context(), folder, []ports.FolderFile{{Path: "AGENTS.md", Text: "agents\n"}}); err != nil {
 		t.Fatal(err)
 	}
-	first, err := f.FirstCommit(t.Context(), folder, "chore: start harbor")
+	first, err := f.FirstCommit(t.Context(), folder, "chore: start harbor", false)
 	if err != nil || len(first) < 7 {
 		t.Fatalf("the first commit is %q (%v)", first, err)
 	}
-	again, err := f.FirstCommit(t.Context(), folder, "chore: start harbor")
+	// A worker that journaled its git init is resuming, and finds its own commit.
+	again, err := f.FirstCommit(t.Context(), folder, "chore: start harbor", true)
 	if err != nil || again != first {
 		t.Errorf("a second first commit is %q (%v), want %q", again, err, first)
 	}
@@ -191,16 +192,12 @@ func TestFirstCommitIsMadeOnceAndAnswersWithTheCommitAfterward(t *testing.T) {
 // A commit git refuses says what git said, with no command line in front, and leaves the repository git init made.
 func TestFirstCommitSaysWhatGitSaidWhenItRefuses(t *testing.T) {
 	gittest.Require(t)
-	home := t.TempDir()
-	f := projectfolders.Folders{Env: []string{
-		"HOME=" + home, "PATH=" + os.Getenv("PATH"), "GIT_CONFIG_GLOBAL=" + filepath.Join(home, "none"), "GIT_CONFIG_NOSYSTEM=1",
-		"GIT_CONFIG_COUNT=1", "GIT_CONFIG_KEY_0=user.useConfigOnly", "GIT_CONFIG_VALUE_0=true",
-	}}
+	f := projectfolders.Folders{Env: gitEnv(t, "[user]\n\tuseConfigOnly = true\n", nil)}
 	folder := filepath.Join(t.TempDir(), "harbor")
 	if err := f.Write(t.Context(), folder, []ports.FolderFile{{Path: "AGENTS.md", Text: "agents\n"}}); err != nil {
 		t.Fatal(err)
 	}
-	_, err := f.FirstCommit(t.Context(), folder, "chore: start harbor")
+	_, err := f.FirstCommit(t.Context(), folder, "chore: start harbor", false)
 	if err == nil {
 		t.Fatal("a commit with no identity was made")
 	}

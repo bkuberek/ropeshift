@@ -39,9 +39,12 @@ type templateJournal struct {
 	State string `json:"state"`
 	// Commit says the folder's first commit is to be made, and NeedsRepository that the folder needs a repository
 	// of its own, which were decided before the first write and stand across a restart.
-	Commit          bool                        `json:"commit"`
-	NeedsRepository bool                        `json:"needs_repository"`
-	Report          *ledger.TemplateWriteReport `json:"report,omitempty"`
+	Commit          bool `json:"commit"`
+	NeedsRepository bool `json:"needs_repository"`
+	// Initialized says the worker was about to run git init in the folder, so a .git it finds on a resume is its own.
+	// A .git with no such record is somebody else's repository, which the worker commits nothing in.
+	Initialized bool                        `json:"initialized,omitempty"`
+	Report      *ledger.TemplateWriteReport `json:"report,omitempty"`
 }
 
 func (rt *TemplateRuntime) journalPath(request string) string {
@@ -185,6 +188,8 @@ func (w *Worker) performTemplateWrite(ctx context.Context, rt *TemplateRuntime, 
 		return refused(ledger.TemplateRefusedNotAbsolute, "the folder is not an absolute path")
 	case ledger.HasParentElement(request.Path):
 		return refused(ledger.TemplateRefusedParentElement, "the folder holds a .. element")
+	case request.Path != path.Clean(request.Path):
+		return refused(ledger.TemplateRefusedNotClean, "the folder is not written in its clean form, with no trailing slash, //, or /./")
 	}
 	found, err := rt.Folders.Inspect(ctx, request.Path)
 	if err != nil {
@@ -197,6 +202,11 @@ func (w *Worker) performTemplateWrite(ctx context.Context, rt *TemplateRuntime, 
 		return refused(ledger.TemplateRefusedLink, "the folder is a symbolic link")
 	case found.Exists && !found.Directory:
 		return refused(ledger.TemplateRefusedNotDirectory, "something that is not a folder is there")
+	}
+	if reserved, err := w.insideReserved(ctx, rt, found.Real); err != nil {
+		return ledger.TemplateWriteReport{}, journal, err
+	} else if reserved {
+		return refused(ledger.TemplateRefusedReserved, "the folder is at or inside a folder ropeshift keeps for itself")
 	}
 	if found.Exists && !found.Empty {
 		ours, err := w.holdsOnly(ctx, rt, request.Path, files)

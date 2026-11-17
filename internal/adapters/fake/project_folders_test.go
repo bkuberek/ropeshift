@@ -57,11 +57,14 @@ func TestProjectFoldersWriteAndCommit(t *testing.T) {
 	if err := machine.Write(t.Context(), "/srv/none/harbor", files); !errors.Is(err, ports.ErrNotFound) {
 		t.Errorf("a write made the parents of a folder: %v", err)
 	}
-	first, err := machine.FirstCommit(t.Context(), "/srv/code/harbor", "chore: start harbor")
+	first, err := machine.FirstCommit(t.Context(), "/srv/code/harbor", "chore: start harbor", false)
 	if err != nil || first == "" {
 		t.Fatalf("the first commit is %q (%v)", first, err)
 	}
-	if again, err := machine.FirstCommit(t.Context(), "/srv/code/harbor", "chore: start harbor"); err != nil || again != first {
+	if _, err := machine.FirstCommit(t.Context(), "/srv/code/harbor", "chore: start harbor", false); err == nil {
+		t.Error("a repository the worker did not journal was taken as its own")
+	}
+	if again, err := machine.FirstCommit(t.Context(), "/srv/code/harbor", "chore: start harbor", true); err != nil || again != first {
 		t.Errorf("a second first commit is %q (%v), want %q", again, err, first)
 	}
 	if got := machine.Inspected("/srv/code/harbor"); got.CloneTop != "/srv/code/harbor" {
@@ -80,7 +83,7 @@ func TestProjectFoldersFailACommitAsGitDoes(t *testing.T) {
 	if err := machine.Write(t.Context(), "/srv/code/harbor", []ports.FolderFile{{Path: "AGENTS.md", Text: "agents"}}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := machine.FirstCommit(t.Context(), "/srv/code/harbor", "chore: start harbor"); err == nil {
+	if _, err := machine.FirstCommit(t.Context(), "/srv/code/harbor", "chore: start harbor", false); err == nil {
 		t.Fatal("a commit with no identity was made")
 	}
 	if machine.Commit("/srv/code/harbor") != "" {

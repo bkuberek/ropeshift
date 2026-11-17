@@ -42,7 +42,10 @@ type ProjectFolders interface {
 	// out the git directory at its top. A path with nothing at it holds none.
 	Files(ctx context.Context, path string) ([]string, error)
 	// FirstCommit makes the folder a repository, adds every file, and commits them with the message, and
-	// returns the commit's ID. A step that fails leaves what the earlier steps made, and a folder that is
-	// already a repository with a commit answers with that commit's ID and runs nothing.
-	FirstCommit(ctx context.Context, path, message string) (string, error)
+	// returns the commit's ID. It runs under no hook, template, or signing the user's git configuration names.
+	// A step that fails leaves what the earlier steps made. A folder that already holds a .git is taken as the
+	// worker's own only when resumed says the worker journaled its git init: a resume answers with the commit
+	// the repository holds and runs nothing, or goes on from an init with no commit, and a .git the worker did
+	// not make is an error.
+	FirstCommit(ctx context.Context, path, message string, resumed bool) (string, error)
 }

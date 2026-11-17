@@ -46,6 +46,9 @@ export function folderProblem(folder: string): string {
   if (path.split("/").includes("..")) {
     return "That path holds a .. element. Name the folder itself.";
   }
+  if ((path.length > 1 && path.endsWith("/")) || path.includes("//") || path.split("/").includes(".")) {
+    return "Write the path with no trailing slash, //, or /./ in it.";
+  }
   return "";
 }
 

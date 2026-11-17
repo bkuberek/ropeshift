@@ -118,6 +118,9 @@ describe("the names and folders the dialog checks before it sends", () => {
     expect(folderProblem("")).toMatch(/absolute/);
     expect(folderProblem("code/harbor")).toMatch(/relative/);
     expect(folderProblem("/srv/../harbor")).toMatch(/\.\./);
+    for (const unclean of ["/srv/harbor/", "/srv//harbor", "//srv/harbor", "/srv/./harbor"]) {
+      expect(folderProblem(unclean), unclean).toMatch(/no trailing slash/);
+    }
     expect(folderProblem("/srv/code/harbor")).toBe("");
   });
 });

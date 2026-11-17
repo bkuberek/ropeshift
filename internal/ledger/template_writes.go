@@ -32,11 +32,16 @@ const (
 const (
 	TemplateRefusedNotAbsolute   = "path_not_absolute"
 	TemplateRefusedParentElement = "path_has_parent_element"
-	TemplateRefusedNoParent      = "parent_missing"
-	TemplateRefusedLink          = "path_is_link"
-	TemplateRefusedNotDirectory  = "path_not_a_directory"
-	TemplateRefusedNotEmpty      = "path_not_empty"
-	TemplateRefusedInsideClone   = "path_inside_clone"
+	// TemplateRefusedNotClean is a path that is not its own clean form: a trailing slash, `//`, or `/./` reaches a
+	// symbolic link through a spelling that a check of the link does not see.
+	TemplateRefusedNotClean = "path_not_clean"
+	// TemplateRefusedReserved is a folder at or inside one ropeshift keeps for itself: its state, run, or worktree folder.
+	TemplateRefusedReserved     = "path_reserved"
+	TemplateRefusedNoParent     = "parent_missing"
+	TemplateRefusedLink         = "path_is_link"
+	TemplateRefusedNotDirectory = "path_not_a_directory"
+	TemplateRefusedNotEmpty     = "path_not_empty"
+	TemplateRefusedInsideClone  = "path_inside_clone"
 	// TemplateRefusedInvalid is a request the control plane should have refused: a shape or repositories no
 	// folder can be written for.
 	TemplateRefusedInvalid = "request_invalid"

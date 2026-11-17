@@ -1,7 +1,10 @@
 package entry
 
 import (
+	"path/filepath"
+
 	"ropeshift.com/ropeshift/internal/adapters/projectfolders"
+	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/internal/projectfiles"
 	"ropeshift.com/ropeshift/internal/worker"
@@ -17,6 +20,22 @@ func renderProjectTemplate(name string, data projectfiles.Data) (string, error) 
 		converted.Repositories = append(converted.Repositories, templates.Repository{Name: r.Name, Remote: r.Remote})
 	}
 	return templates.Render(name, converted)
+}
+
+// reservedFolders are the folders the daemon keeps for itself, which no template write may be at or inside: the same ones
+// its checkouts name as reserved, each as spelled and, when a link is in the way, as it resolves.
+func reservedFolders(paths api.Paths) []string {
+	var folders []string
+	for _, dir := range []string{paths.StateDir, paths.RunDir, paths.WorktreeDir} {
+		if dir == "" {
+			continue
+		}
+		folders = append(folders, dir)
+		if real, err := filepath.EvalSymlinks(dir); err == nil && real != dir {
+			folders = append(folders, real)
+		}
+	}
+	return folders
 }
 
 // soloTemplates is what a worker writes a member's new project folder with: this machine's folders and git, the

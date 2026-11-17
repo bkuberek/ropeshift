@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path"
 	"slices"
 	"strings"
 
@@ -30,6 +31,38 @@ type TemplateWrites struct {
 	installation ports.Installation
 	heartbeatMs  int64
 	local        func(context.Context) (string, error)
+	// reserved are the folders ropeshift keeps for itself on the daemon's own machine, which no template write may be at or inside.
+	reserved []string
+}
+
+// Reserving returns the use case refusing a folder at or inside any of these, for the daemon's own worker, whose machine
+// they are on. Another worker's machine has folders of its own, so they mean nothing to it. A path is judged as written,
+// so the caller names each folder as it is spelled and as it resolves.
+func (t *TemplateWrites) Reserving(folders ...string) *TemplateWrites {
+	copied := *t
+	for _, folder := range folders {
+		if folder != "" {
+			copied.reserved = append(copied.reserved, path.Clean(folder))
+		}
+	}
+	return &copied
+}
+
+// checkReserved refuses a folder at or inside one ropeshift keeps for itself, when the worker is the daemon's own.
+func (t *TemplateWrites) checkReserved(ctx context.Context, worker, folder string) error {
+	if len(t.reserved) == 0 || t.local == nil {
+		return nil
+	}
+	local, err := t.local(ctx)
+	if err != nil || local != worker {
+		return nil
+	}
+	for _, kept := range t.reserved {
+		if folder == kept || strings.HasPrefix(folder, kept+"/") {
+			return invalidTemplateWrite("the folder %q is at or inside %q, which ropeshift keeps for itself", folder, kept)
+		}
+	}
+	return nil
 }
 
 // NewTemplateWrites returns the use case. heartbeatMs is how often a worker beats, which tells a connected worker
@@ -60,6 +93,9 @@ func (t *TemplateWrites) Check(in ledger.TemplateWriteRequest) error {
 	}
 	if ledger.HasParentElement(in.Path) {
 		return invalidTemplateWrite("the folder %q holds a .. element", in.Path)
+	}
+	if in.Path != path.Clean(in.Path) {
+		return invalidTemplateWrite("the folder %q is not written in its clean form, with no trailing slash, //, or /./", in.Path)
 	}
 	repositories := make([]projectfiles.CodeRepository, 0, len(in.Repositories))
 	for _, repository := range in.Repositories {
@@ -102,6 +138,9 @@ func (t *TemplateWrites) Request(ctx context.Context, worker string, in ledger.T
 			return err
 		}
 		if err := t.Check(in); err != nil {
+			return err
+		}
+		if err := t.checkReserved(ctx, worker, in.Path); err != nil {
 			return err
 		}
 		now := tx.Now()

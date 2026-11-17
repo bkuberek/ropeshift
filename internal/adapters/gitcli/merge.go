@@ -22,6 +22,10 @@ var _ ports.BranchMerger = Worktrees{}
 // effect, and runs no code from the repository it merges.
 var noHooks = []string{"GIT_CONFIG_COUNT=1", "GIT_CONFIG_KEY_0=core.hooksPath", "GIT_CONFIG_VALUE_0=" + os.DevNull}
 
+// NoHooks is the environment that keeps a git command from running a hook, for a caller outside a merge that runs git
+// on a folder it does not trust.
+func NoHooks() []string { return append([]string(nil), noHooks...) }
+
 // The trailers a commit a merge makes carries, which is how a repeat finds it.
 const (
 	trailerWorkOrder = "Ropeshift-Work-Order: "

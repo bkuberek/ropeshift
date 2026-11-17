@@ -97,27 +97,41 @@ func (f Folders) cloneTop(ctx context.Context, path string, found ports.FolderIn
 // Write makes the folder when it is absent, never its parents, and each file under it with the folders the file
 // needs. A file opens only to be created, so one that exists stays as it is.
 func (f Folders) Write(_ context.Context, path string, files []ports.FolderFile) error {
-	if err := os.Mkdir(path, 0o755); err != nil && !errors.Is(err, fs.ErrExist) {
+	parent, err := os.OpenRoot(filepath.Dir(path))
+	if err != nil {
+		return err
+	}
+	defer func() { _ = parent.Close() }()
+	name := filepath.Base(path)
+	if err := parent.Mkdir(name, 0o755); err != nil && !errors.Is(err, fs.ErrExist) {
 		return err
 	}
 	// A folder that became a link between the inspection and now is not written through.
-	info, err := os.Lstat(path)
+	info, err := parent.Lstat(name)
 	if err != nil {
 		return err
 	}
 	if !info.IsDir() {
 		return fmt.Errorf("%s is no longer a folder", path)
 	}
+	// Every folder and file is made through the folder's root, which refuses a link that leads out of it, so a link
+	// planted at a nested folder, or swapped in after the checks, is not followed.
+	folder, err := parent.OpenRoot(name)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = folder.Close() }()
 	for _, file := range files {
 		local := filepath.FromSlash(file.Path)
 		if !filepath.IsLocal(local) {
 			return fmt.Errorf("%s names a path outside the folder", file.Path)
 		}
-		target := filepath.Join(path, local)
-		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-			return err
+		if dir := filepath.Dir(local); dir != "." {
+			if err := folder.MkdirAll(dir, 0o755); err != nil {
+				return err
+			}
 		}
-		out, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+		out, err := folder.OpenFile(local, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 		if errors.Is(err, fs.ErrExist) {
 			continue
 		}
@@ -161,17 +175,21 @@ func (f Folders) Files(_ context.Context, path string) ([]string, error) {
 	return out, err
 }
 
-// FirstCommit makes the folder a repository, adds its files, and commits them. A folder that already holds a
-// repository of its own with a commit answers with that commit, so a commit made before a crash is not made
-// twice.
-func (f Folders) FirstCommit(ctx context.Context, path, message string) (string, error) {
-	git := gitcli.Git{Dir: path, Env: f.Env}
+// FirstCommit makes the folder a repository, adds its files, and commits them. It runs under no hook and no signing,
+// whatever the user's git configuration names, and `git init` copies no template, because the folder's hooks are code
+// the commit would run. A .git is the worker's own only when the caller says its journal records the git init: then a
+// commit made before a crash is answered, not made twice, and an init with no commit is gone on from.
+func (f Folders) FirstCommit(ctx context.Context, path, message string, resumed bool) (string, error) {
+	git := gitcli.Git{Dir: path, Env: f.Env, Extra: gitcli.NoHooks()}
 	if _, err := os.Lstat(filepath.Join(path, ".git")); err == nil {
+		if !resumed {
+			return "", errors.New("the folder holds a repository this worker did not make")
+		}
 		if id, err := git.Text(ctx, "rev-parse", "--verify", "HEAD"); err == nil {
 			return id, nil
 		}
 	}
-	for _, args := range [][]string{{"init", "--quiet"}, {"add", "-A"}, {"commit", "--quiet", "-m", message}} {
+	for _, args := range [][]string{{"init", "--quiet", "--template="}, {"add", "-A"}, {"-c", "commit.gpgsign=false", "commit", "--quiet", "-m", message}} {
 		if _, err := git.Output(ctx, args...); err != nil {
 			return "", describe(err)
 		}

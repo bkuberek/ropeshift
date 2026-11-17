@@ -58,7 +58,7 @@ func newTemplateRig(t *testing.T, env []string) *templateRig {
 		t.Fatal(err)
 	}
 	r := &templateRig{rig: base, root: root, state: state, env: env}
-	r.kept = &checkouts.File{Path: filepath.Join(state, checkouts.FileName), Env: env}
+	r.kept = &checkouts.File{Path: filepath.Join(state, checkouts.FileName), Env: env, Reserved: []string{state}}
 	// A worker that opened its session a moment ago is connected, whatever the rig's own heartbeat is.
 	r.writes = control.NewTemplateWrites(base.store.Installation(scope), 60_000, nil)
 	r.subject = r.workerOn(base.link, func(err error) { t.Errorf("the worker reported %v", err) })
@@ -262,10 +262,11 @@ func TestAFailedFirstCommitKeepsTheFilesAndSaysWhy(t *testing.T) {
 	t.Parallel()
 	gittest.Require(t)
 	home := t.TempDir()
-	env := []string{
-		"HOME=" + home, "PATH=" + os.Getenv("PATH"), "GIT_CONFIG_GLOBAL=" + filepath.Join(home, "none"), "GIT_CONFIG_NOSYSTEM=1",
-		"GIT_CONFIG_COUNT=1", "GIT_CONFIG_KEY_0=user.useConfigOnly", "GIT_CONFIG_VALUE_0=true",
+	config := filepath.Join(home, "gitconfig")
+	if err := os.WriteFile(config, []byte("[user]\n\tuseConfigOnly = true\n"), 0o600); err != nil {
+		t.Fatal(err)
 	}
+	env := []string{"HOME=" + home, "PATH=" + os.Getenv("PATH"), "GIT_CONFIG_GLOBAL=" + config, "GIT_CONFIG_NOSYSTEM=1"}
 	r := newTemplateRig(t, env)
 	folder := r.folder("harbor")
 	view := r.settle(r.ask(ledger.TemplateWriteRequest{Shape: "repository", Path: folder, FirstCommit: true}))
@@ -355,8 +356,15 @@ func TestAWorkerRefusesAFolderItCannotWrite(t *testing.T) {
 	}{
 		{"a relative path", "relative/harbor", ledger.TemplateRefusedNotAbsolute},
 		{"a parent element", r.root + "/present/../harbor", ledger.TemplateRefusedParentElement},
+		// A path that is not its own clean form reaches a link through a spelling Lstat follows, so none is taken.
+		{"a trailing slash", r.folder("harbor") + "/", ledger.TemplateRefusedNotClean},
+		{"a double slash", r.root + "//harbor", ledger.TemplateRefusedNotClean},
+		{"a dot element", r.root + "/./harbor", ledger.TemplateRefusedNotClean},
+		{"a link with a trailing slash", link + "/", ledger.TemplateRefusedNotClean},
 		{"no parent", r.folder("missing", "harbor"), ledger.TemplateRefusedNoParent},
 		{"a link", link, ledger.TemplateRefusedLink},
+		{"a folder of ropeshift's own state", filepath.Join(r.state, "new"), ledger.TemplateRefusedReserved},
+		{"ropeshift's state itself", r.state, ledger.TemplateRefusedReserved},
 		{"a file", aFile, ledger.TemplateRefusedNotDirectory},
 		{"a folder with files", full, ledger.TemplateRefusedNotEmpty},
 	}
@@ -521,6 +529,48 @@ func TestACrashBetweenTheWriteAndTheReportWritesNothingTwiceAndReportsOnce(t *te
 	})
 	if err != nil || reported != 1 {
 		t.Errorf("the log holds %d reports (%v), want one", reported, err)
+	}
+}
+
+// A restart that finds a .git with no commit takes it as its own only when the journal says the worker ran git init. With
+// no such record, the repository is somebody else's, so the worker commits nothing in it, keeps the files, and says why.
+func TestAResumeWithARepositoryItNeverJournaledMakesNoCommit(t *testing.T) {
+	t.Parallel()
+	gittest.Require(t)
+	r := newTemplateRig(t, nil)
+	folder := r.folder("harbor")
+	// The folder holds the files of its shape and a repository that no journal of this worker's made.
+	if err := os.MkdirAll(folder, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	files, err := projectfiles.Files(projectfiles.Monorepo, projectfiles.Data{Project: "harbor"}, render)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, file := range files {
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(folder, file.Path)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(folder, file.Path), []byte(file.Text), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	r.git(folder, "init", "--quiet")
+	journal := `{"state":"started","commit":true,"needs_repository":true}`
+	if err := os.MkdirAll(filepath.Join(r.state, "template-writes"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(r.state, "template-writes", "request-resume.json"), []byte(journal), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	captured := &capturedReports{WorkerLink: r.link}
+	r.offer(t, captured, ledger.DesiredTemplateWrite{ID: "request-resume", Shape: "monorepo", Path: folder, FirstCommit: true, ExpiresAt: 1 << 60})
+	report := captured.only(t)
+	if report.Outcome != ledger.TemplateOutcomeWritten || report.Commit != "" || !strings.Contains(report.CommitError, "did not make") || report.Clone {
+		t.Errorf("the report is %+v, want the files written and a refused commit", report)
+	}
+	if out, err := exec.Command("git", "-C", folder, "rev-parse", "--verify", "HEAD").CombinedOutput(); err == nil {
+		t.Errorf("a commit was made in a repository the worker never journaled: %s", out)
 	}
 }
 

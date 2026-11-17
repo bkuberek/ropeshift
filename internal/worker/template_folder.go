@@ -2,6 +2,7 @@ package worker
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"slices"
@@ -25,6 +26,26 @@ func (w *Worker) holdsOnly(ctx context.Context, rt *TemplateRuntime, folder stri
 		}
 	}
 	return true, nil
+}
+
+// insideReserved says the folder is at or inside a folder ropeshift keeps for itself: the state, run, or worktree
+// folder the worker's checkouts name as reserved. A folder that is not there yet is judged by the nearest folder above
+// it that is.
+func (w *Worker) insideReserved(ctx context.Context, rt *TemplateRuntime, real string) (bool, error) {
+	if rt.Checkouts == nil {
+		return false, nil
+	}
+	for at := real; ; at = filepath.Dir(at) {
+		_, reserved, err := rt.Checkouts.Resolve(ctx, at)
+		switch {
+		case err == nil:
+			return reserved, nil
+		case !errors.Is(err, ports.ErrNotFound):
+			return false, err
+		case filepath.Dir(at) == at:
+			return false, nil
+		}
+	}
 }
 
 // insideKeptClone says the folder is a checkout this worker keeps, in any project, or lies inside one, unless
@@ -109,7 +130,15 @@ func (w *Worker) writeTemplate(ctx context.Context, rt *TemplateRuntime, request
 	}
 	report := ledger.TemplateWriteReport{Outcome: ledger.TemplateOutcomeWritten, Project: data.Project, Files: paths}
 	if journal.Commit {
-		commit, err := rt.Folders.FirstCommit(ctx, request.Path, "chore: start "+name)
+		// The journal says the worker is about to run git init before it does, so a crash after it finds its own repository.
+		resumed := journal.Initialized
+		if !resumed {
+			journal.Initialized = true
+			if err := rt.save(request.ID, journal); err != nil {
+				return ledger.TemplateWriteReport{}, journal, err
+			}
+		}
+		commit, err := rt.Folders.FirstCommit(ctx, request.Path, "chore: start "+name, resumed)
 		if err != nil {
 			report.CommitError = err.Error()
 		} else {

@@ -274,6 +274,10 @@ func TestARequestNoWorkerCouldCarryOutIsRefusedBeforeItIsRecorded(t *testing.T) 
 		"another shape":          {Shape: "service", Path: "/srv/harbor"},
 		"a relative path":        {Shape: "monorepo", Path: "srv/harbor"},
 		"a parent element":       {Shape: "monorepo", Path: "/srv/../harbor"},
+		"a trailing slash":       {Shape: "monorepo", Path: "/srv/harbor/"},
+		"a double slash":         {Shape: "monorepo", Path: "/srv//harbor"},
+		"a leading double slash": {Shape: "monorepo", Path: "//srv/harbor"},
+		"a dot element":          {Shape: "monorepo", Path: "/srv/./harbor"},
 		"repositories on a repo": {Shape: "repository", Path: "/srv/harbor", Repositories: []ledger.TemplateWriteRepository{{Name: "api", Remote: "git@example.com:a/b.git"}}},
 		"a name refused":         {Shape: "workspace", Path: "/srv/harbor", Repositories: []ledger.TemplateWriteRepository{{Name: "a/b", Remote: "git@example.com:a/b.git"}}},
 		"a name twice": {Shape: "workspace", Path: "/srv/harbor", Repositories: []ledger.TemplateWriteRepository{
@@ -296,6 +300,29 @@ func TestARequestNoWorkerCouldCarryOutIsRefusedBeforeItIsRecorded(t *testing.T) 
 	}
 	if offered := r.desired().TemplateWrites; len(offered) != 0 {
 		t.Errorf("a refused request is offered: %+v", offered)
+	}
+}
+
+// A folder at or inside a folder ropeshift keeps for itself on the daemon's own machine is refused before it is recorded.
+// Another worker's machine has folders of its own, so the daemon's paths mean nothing to it.
+func TestAFolderInsideRopeshiftsOwnFoldersIsRefusedForTheDaemonsOwnWorker(t *testing.T) {
+	r := newTemplateRig(t, ledger.ProtocolVersion)
+	other := r.secondWorker(ledger.ProtocolVersion)
+	reserving := control.NewTemplateWrites(r.state.Installation, 0, func(context.Context) (string, error) { return "worker-1", nil }).
+		Reserving("/home/u/.local/state/ropeshift", "/home/u/.ropeshift/run")
+	for _, path := range []string{"/home/u/.local/state/ropeshift", "/home/u/.local/state/ropeshift/harbor", "/home/u/.ropeshift/run/a/b"} {
+		_, err := reserving.Request(t.Context(), "worker-1", ledger.TemplateWriteRequest{Shape: "monorepo", Path: path}, projectMember)
+		if !errors.Is(err, workorders.ErrInvalid) || !strings.Contains(err.Error(), "keeps for itself") {
+			t.Errorf("%s: %v, want a refusal that the folder is ropeshift's own", path, err)
+		}
+	}
+	for _, path := range []string{"/home/u/.local/state/ropeshift-notes", "/home/u/.local/state"} {
+		if _, err := reserving.Request(t.Context(), "worker-1", ledger.TemplateWriteRequest{Shape: "monorepo", Path: path}, projectMember); err != nil {
+			t.Errorf("%s is no folder of ropeshift's, and is refused: %v", path, err)
+		}
+	}
+	if _, err := reserving.Request(t.Context(), other.WorkerID, ledger.TemplateWriteRequest{Shape: "monorepo", Path: "/home/u/.local/state/ropeshift/harbor"}, projectMember); err != nil {
+		t.Errorf("another machine's folder is refused for the daemon's paths: %v", err)
 	}
 }
 
