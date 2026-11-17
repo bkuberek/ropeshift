@@ -10,45 +10,31 @@ import (
 	"strings"
 	"testing"
 
+	"ropeshift.com/ropeshift/internal/projectfiles"
 	"ropeshift.com/ropeshift/templates"
 	"ropeshift.com/ropeshift/test/gittest"
 )
 
-// shapeFiles is what each shape of a new project writes: the path in the folder, and the template it comes
-// from. The manifest joins a workspace that names a repository.
-var shapeFiles = map[string]map[string]string{
-	"workspace": {
-		"AGENTS.md":            "workspace/agents.md",
-		"CLAUDE.md":            "claude.md",
-		"Makefile":             "workspace/makefile",
-		".gitignore":           "workspace/gitignore",
-		"plan/goal.md":         "workspace/plan/goal.md",
-		"plan/plan.md":         "workspace/plan/plan.md",
-		"plan/requirements.md": "workspace/plan/requirements.md",
-		"SECURITY.md":          "security.md",
-		"CODEOWNERS":           "codeowners",
-	},
-	"monorepo": {
-		"AGENTS.md":               "monorepo/agents.md",
-		"CLAUDE.md":               "claude.md",
-		".gitignore":              "monorepo/gitignore",
-		"plan/goal.md":            "workspace/plan/goal.md",
-		"plan/plan.md":            "workspace/plan/plan.md",
-		"plan/requirements.md":    "workspace/plan/requirements.md",
-		"catalog-info.yaml":       "repository/catalog-info.yaml",
-		"SECURITY.md":             "security.md",
-		"CODEOWNERS":              "codeowners",
-		".pre-commit-config.yaml": "pre-commit-config.yaml",
-	},
-	"repository": {
-		"AGENTS.md":               "repository/agents.md",
-		"CLAUDE.md":               "claude.md",
-		".gitignore":              "repository/gitignore",
-		"catalog-info.yaml":       "repository/catalog-info.yaml",
-		"SECURITY.md":             "security.md",
-		"CODEOWNERS":              "codeowners",
-		".pre-commit-config.yaml": "pre-commit-config.yaml",
-	},
+// shapeFiles is what a shape of a new project writes for the starting data given, as `ropeshift new` writes
+// it: each file's path in the folder, and its text. The manifest joins a workspace that names a repository.
+func shapeFiles(t *testing.T, shape projectfiles.Shape, data templates.Data) map[string]string {
+	t.Helper()
+	starting := projectfiles.Data{Project: data.Project}
+	for _, r := range data.Repositories {
+		starting.Repositories = append(starting.Repositories, projectfiles.CodeRepository{Name: r.Name, Remote: r.Remote})
+	}
+	// Files renders over the data it is given, which is data in the projectfiles form.
+	files, err := projectfiles.Files(shape, starting, func(name string, _ projectfiles.Data) (string, error) {
+		return templates.Render(name, data)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	written := map[string]string{}
+	for _, file := range files {
+		written[file.Path] = file.Text
+	}
+	return written
 }
 
 // isIgnored asks git, as the practices check does, whether the repository's own .gitignore files ignore a path.
@@ -75,23 +61,23 @@ func isIgnored(t *testing.T, repo *gittest.Repo, path string) bool {
 // the root. Once the practices check exists, this test runs it on the commit with no forge binding and
 // expects no finding (FR-PRAC-7).
 func TestEachShapesFilesCommitWithTheirPractices(t *testing.T) {
-	for shape, files := range shapeFiles {
+	for _, shape := range projectfiles.Shapes() {
 		for _, set := range datasets[1:] {
-			if len(set.data.Repositories) > 0 && shape != "workspace" {
+			if len(set.data.Repositories) > 0 && shape != projectfiles.Workspace {
 				continue
 			}
-			t.Run(shape+" with "+set.name, func(t *testing.T) {
-				written := maps.Clone(files)
-				if len(set.data.Repositories) > 0 {
-					written["plan/repositories.md"] = "workspace/plan/repositories.md"
+			t.Run(string(shape)+" with "+set.name, func(t *testing.T) {
+				written := shapeFiles(t, shape, set.data)
+				if _, ok := written["plan/repositories.md"]; ok != (len(set.data.Repositories) > 0) {
+					t.Errorf("the manifest is written %v for %d repositories", ok, len(set.data.Repositories))
 				}
 				repo := gittest.New(t)
-				for path, name := range written {
+				for path, text := range written {
 					full := filepath.Join(repo.Dir, filepath.FromSlash(path))
 					if err := os.MkdirAll(filepath.Dir(full), 0o700); err != nil {
 						t.Fatal(err)
 					}
-					if err := os.WriteFile(full, []byte(render(t, name, set.data)), 0o600); err != nil {
+					if err := os.WriteFile(full, []byte(text), 0o600); err != nil {
 						t.Fatal(err)
 					}
 				}
