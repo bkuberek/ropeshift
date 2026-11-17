@@ -49,6 +49,7 @@ import (
 	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/internal/questions"
 	"ropeshift.com/ropeshift/internal/worker"
+	"ropeshift.com/ropeshift/templates"
 	"ropeshift.com/ropeshift/web"
 )
 
@@ -548,6 +549,11 @@ func soloLanes(paths api.Paths, opts soloOptions, kept ports.Checkouts, stderr i
 		return nil, nil, err
 	}
 	commands, named := assistantShell()
+	// The worker never imports the templates, so the manifest a planning brief shows is rendered here (FR-TPL-3).
+	manifest, err := templates.Render(manifestTemplate, templates.Data{Example: true})
+	if err != nil {
+		return nil, nil, err
+	}
 	return &worker.LaneRuntime{
 		Driver: soloDriver(runner, terminal, env),
 		Provisioner: worker.Provisioner{
@@ -572,8 +578,13 @@ func soloLanes(paths api.Paths, opts soloOptions, kept ports.Checkouts, stderr i
 		ForgeEvery: opts.forgeTick,
 		// What an assistant's shell may run of this binary, and what its rules deny by name (ADR-0024).
 		AssistantCommands: commands, Routes: named, ControlEnv: controlEnv(paths),
+		// What a planning brief tells a lane of the manifest and of where intake reads (FR-TPL-3).
+		ManifestTemplate: manifest, IntakeDirectory: opts.directory,
 	}, terminal, nil
 }
+
+// manifestTemplate is the template of the manifest of a project's code repositories, which planning briefs show.
+const manifestTemplate = "workspace/plan/repositories.md"
 
 // soloPanes is the worker's terminal server as the web pane reaches it, by the name the driver gives
 // each generation's pane (ADR-0018). A machine with no tmux holds no pane, and the web pane says so.

@@ -98,14 +98,14 @@ func TestAReportIsHeldToTheKindOfWorkItEnds(t *testing.T) {
 // The first prompt of a lane that takes reworked work up tells it why the work came back.
 func TestTheBriefOfReworkedWorkSaysWhyItCameBack(t *testing.T) {
 	lease := ledger.DesiredLease{WorkOrder: "wo", Lane: "lane-2", Kind: "change", Title: "T", Criteria: []string{"c1: It logs."}}
-	if brief := (&laneRun{lease: lease}).briefText(); strings.Contains(brief, "came back") || strings.Contains(brief, "review found") {
+	if brief := (&laneRun{lease: lease, rt: &LaneRuntime{}}).briefText(); strings.Contains(brief, "came back") || strings.Contains(brief, "review found") {
 		t.Errorf("a first attempt is told of a rework:\n%s", brief)
 	}
 	lease.Rework = &ledger.DesiredRework{
 		Review: "rv-1", Reason: "review rv-1 failed criteria c1",
 		Findings: []ledger.DesiredFinding{{Criterion: "c1", Text: "It logs.", Reasons: "nothing is logged", Citations: []string{"log.go:3"}}},
 	}
-	brief := (&laneRun{lease: lease}).briefText()
+	brief := (&laneRun{lease: lease, rt: &LaneRuntime{}}).briefText()
 	for _, want := range []string{"What the review found", "rv-1", "nothing is logged", "log.go:3"} {
 		if !strings.Contains(brief, want) {
 			t.Errorf("the brief leaves out %q:\n%s", want, brief)

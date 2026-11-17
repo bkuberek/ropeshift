@@ -139,7 +139,7 @@ A repository registered by an earlier release was named by the lowest root it ha
 
 ## Keep a manifest in the planning repository
 
-A manifest lists the project's repositories in the plan itself, so the set of repositories is reviewed like any other part of the plan, and a new machine can register them from it. It is a file of kind `repositories` in the planning repository, which you write and commit with git. The web UI has no editor for it, and planning sessions are not shown its format, so write it yourself, or give the session this example:
+A manifest lists the project's repositories in the plan itself, so the set of repositories is reviewed like any other part of the plan, and a new machine can register them from it. It is a file of kind `repositories` in the planning repository, which you write and commit with git. The web UI has no editor for it. A planning session's first prompt shows it the format and the rule for `path`, so it can write one for you, and `ropeshift template show workspace/plan/repositories.md` prints the format with a comment on each field. This is one for the harbor project:
 
 ```markdown
 +++
