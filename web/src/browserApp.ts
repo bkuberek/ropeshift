@@ -308,6 +308,9 @@ export async function answer(route: Route): Promise<void> {
   if (/^\/v1\/lanes\/[^/]+\/messages$/.test(path) && goldens["lane-messages"]) {
     return json(goldens["lane-messages"]);
   }
+  if (path === "/v1/templates" && goldens.templates) {
+    return json(goldens.templates);
+  }
   if (path === "/v1/telemetry/lanes" && goldens["telemetry-lanes"]) {
     return json(goldens["telemetry-lanes"]);
   }

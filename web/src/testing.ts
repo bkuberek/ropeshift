@@ -154,6 +154,10 @@ export function serveViews(answer?: (sent: Sent) => Answer | undefined, options:
     if (call.method === "GET" && call.path === "/v1/health") {
       return { status: 200, body: runningHealth };
     }
+    // The templates the daemon's binary embeds, which the Templates view lists.
+    if (call.method === "GET" && call.path === "/v1/templates") {
+      return { status: 200, body: golden("templates") };
+    }
     // The page reads the combined Needs you, of every active project, which the golden view stands for.
     if (call.path === "/v1/needs-you") {
       return { status: 200, body: golden("needs-you") };

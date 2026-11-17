@@ -169,6 +169,7 @@ const MembersPage = lazy(() => import("../admin/Members").then((page) => ({ defa
 const ProjectsPage = lazy(() => import("../admin/Projects").then((page) => ({ default: page.ProjectsPage })));
 const RepositoriesPage = lazy(() => import("../admin/Repositories").then((page) => ({ default: page.RepositoriesPage })));
 const SettingsPage = lazy(() => import("../admin/Settings").then((page) => ({ default: page.SettingsPage })));
+const TemplatesPage = lazy(() => import("../admin/Templates").then((page) => ({ default: page.TemplatesPage })));
 
 // Loading stands while a page's code loads: its title at once, and skeleton rows where its body will be.
 function Loading({ view }: { view: View }) {
@@ -273,6 +274,8 @@ function ViewFor({ view, project, scoped, params, live, after, needs, projects, 
       return <WorkersPage live={live} projects={projects} selected={param("worker")} after={after} dialog={param("dialog")} />;
     case "projects":
       return <ProjectsPage live={live} projects={projects} reload={reloadProjects} dialog={param("dialog")} target={param("project")} />;
+    case "templates":
+      return <TemplatesPage live={live} selected={param("name")} />;
     case "import":
       return <ImportPage projects={projects} chosen={param("project")} reload={reloadProjects} />;
     case "members":

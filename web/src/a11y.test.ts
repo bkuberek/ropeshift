@@ -1358,11 +1358,11 @@ suite.each(Object.entries(sizes))("at %s width", (size, viewport) => {
       240_000,
     );
 
-    // The Notices tab, a lane's messages, Usage's cost by lane, and the Workers page's drivers, in the states their
-    // full goldens do not reach: nothing to list, a store the control plane lacks, a read refused, and workers that
-    // reported each kind of doctor result.
+    // The Notices tab, a lane's messages, Usage's cost by lane, the Workers page's drivers, and the Templates view, in
+    // the states their full goldens do not reach: nothing to list, a store the control plane lacks, a read refused, and
+    // workers that reported each kind of doctor result.
     it(
-      "the notices, lane messages, lane costs, and drivers, empty, refused, and with every doctor result, meet WCAG 2.2 A and AA",
+      "the notices, lane messages, lane costs, drivers, and templates, empty, refused, and with every doctor result, meet WCAG 2.2 A and AA",
       async () => {
         const context = await browser.newContext({ viewport, colorScheme: theme, reducedMotion: "reduce" });
         await context.route(/\/v1\//, answer);
@@ -1397,6 +1397,8 @@ suite.each(Object.entries(sizes))("at %s width", (size, viewport) => {
         // its version check, a signed-out CLI, and none reported.
         await serve(/\/views\/shop-floor$/, goldens["shop-floor-drivers"] ?? "{}");
         await check("drivers of every doctor result", "/workers");
+        await serve(/\/v1\/templates$/, refused, 500);
+        await check("templates refused", "/templates");
         await context.close();
         expect(found.map((line) => `${size} ${theme} ${line}`)).toEqual([]);
       },

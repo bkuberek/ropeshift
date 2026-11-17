@@ -23,6 +23,7 @@ import (
 	"ropeshift.com/ropeshift/internal/planning"
 	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/internal/roster"
+	"ropeshift.com/ropeshift/internal/version"
 	"ropeshift.com/ropeshift/internal/workorders"
 	"ropeshift.com/ropeshift/test/apitest"
 )
@@ -368,6 +369,22 @@ func TestGoldenOutline(t *testing.T) {
 func TestGoldenWebRoutes(t *testing.T) {
 	t.Parallel()
 	holdsGolden(t, "routes", pretty(t, api.WebRoutes()))
+}
+
+// TestGoldenTemplates writes the templates route's list as the Templates view reads it, from a daemon whose build
+// version is steady, so the view's tests run on every template the binary embeds.
+func TestGoldenTemplates(t *testing.T) {
+	t.Parallel()
+	list, err := apitest.ExampleTemplates()
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := apitest.StartWith(t, apitest.Options{Templates: list, Build: version.Info{Version: "v0.1.0-alpha.16"}})
+	got, err := api.NewUnixClient(d.Socket).Templates(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	holdsGolden(t, "templates", pretty(t, got))
 }
 
 // TestGoldenPaneKeys writes the closed list of keys a member may press in a lane's pane, so a web test

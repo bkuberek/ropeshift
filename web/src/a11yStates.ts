@@ -88,6 +88,8 @@ export const views = [
   "/usage",
   "/workers",
   "/projects",
+  "/templates",
+  "/templates?name=policies%2Fteam%2Flane-policy.toml",
   "/import",
   "/members",
   "/settings?section=admission",

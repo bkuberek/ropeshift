@@ -247,3 +247,48 @@
 .table.dry-run td.result {
   white-space: nowrap;
 }
+
+/* The Templates view: a row names a template in mono, with the shapes that write it and the path it is written to,
+   and the selected template's text sits in a block that scrolls on its own. */
+.template-item {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.template-item .item-meta {
+  grid-column: 1;
+  flex-wrap: wrap;
+}
+
+.template-name {
+  font-family: var(--font-mono);
+  font-size: var(--fs-12);
+  overflow-wrap: anywhere;
+}
+
+.template-head {
+  align-items: flex-start;
+}
+
+.template-heading {
+  margin: 0;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: var(--fs-14);
+  overflow-wrap: anywhere;
+}
+
+.template-text {
+  overflow: auto;
+  max-width: 100%;
+  border: 1px solid var(--border);
+  border-radius: var(--r-6);
+  background: var(--surface-2);
+}
+
+.template-text pre {
+  margin: 0;
+  padding: var(--s-12);
+  font-size: var(--fs-12);
+  line-height: var(--lh-13);
+  white-space: pre;
+}

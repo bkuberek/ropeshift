@@ -201,6 +201,12 @@ A member opens a lane's page with Open. Message talks to a lane that runs headle
 
 A lane's page shows its screen or its event stream, its facts, and under them Messages, which lists what was sent to the lane, oldest first, as `ropeshift message list` does. A row gives the message, its kind, the generation it was written for, its state, when it was sent, its body, and the lane's reply. A state claims only what its signal proves: a write to a session shows that bytes were handed over, and only a reply says the lane read the message. A message that ended without being injected says why, such as that it timed out or that its generation ended, and a body and a reply keep their line breaks and are never cut. A lane nobody wrote to says so. The [command reference](cli.md) lists each state `ropeshift message show` names.
 
+## Templates
+
+Templates lists every template the daemon's binary embeds, as `ropeshift template show` lists them, grouped by the first segment of its name: `workspace`, `monorepo`, `repository`, `user`, and `policies`, then Shared for the top-level files. A row gives the template's name, a badge for each shape of `ropeshift new` that writes it, and the path it is written to. A template no command writes says so.
+
+Choosing a row selects the template, and the address names it, as in `/templates?name=workspace/agents.md`. With no name in the address, the first template shown is selected. The selected template's text sits in a read-only block, under the line `ropeshift template show <name>`, which prints the same text, and Copy puts the text on the clipboard. The text is the template rendered for the example project `acme`, and `ropeshift new` renders the same template for the project it starts. On a phone the list fills the screen, and choosing a template shows its text as a page of its own, with All templates to go back. Templates has no `G` key, and the palette lists it among the views. A failed read says why and offers Try again.
+
 ## Workers
 
 Workers lists each machine that serves the installation, with the CPU, memory, free disk, and lanes against the cap its worker last measured, its orchestrator, and its freshness, then every session on it. A measure the machine cannot provide says unavailable and never reads as zero.

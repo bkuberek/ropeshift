@@ -106,6 +106,31 @@ func Path(name string) string {
 	return ""
 }
 
+// ShapesOf lists the shapes that write the template named name, in the order of Shapes. It is empty, and not
+// nil, for a template no shape writes.
+func ShapesOf(name string) []Shape {
+	shapes := []Shape{}
+	for _, shape := range Shapes() {
+		if slices.ContainsFunc(table, func(r row) bool { return r.template == name && slices.Contains(r.shapes, shape) }) {
+			shapes = append(shapes, shape)
+		}
+	}
+	return shapes
+}
+
+// UserProfile is the template `init` writes to the installation's state directory, which no shape writes.
+const UserProfile = "user/profile.toml"
+
+// WritesTo is where the template named name is written: its path in a new project's folder for a template a
+// shape writes, and profile.toml, in the state directory, for the user profile. It is empty for a template
+// nothing writes.
+func WritesTo(name string) string {
+	if name == UserProfile {
+		return "profile.toml"
+	}
+	return Path(name)
+}
+
 // Check refuses a folder no shape writes: an unknown shape, code repositories on a shape other than a
 // workspace, a name the ledger refuses as a repository's, a name given twice, and a repository whose remote is
 // empty or is not a single-line git remote.

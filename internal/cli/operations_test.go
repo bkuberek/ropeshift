@@ -169,7 +169,7 @@ var operations = map[string]string{
 var namedRoutes = map[string]string{
 	"api.EventsPath": "events", "api.RiskPath": "worker risk", "api.NeedsYouPath": "needs", "api.PanePath": "lane attach", "api.PaneInputPath": "lane attach",
 	"api.AuditPath": "audit", "api.MembersPath": "member list", "api.OperationsPath": "operation list", "api.ImportUploadPath": "project import", "api.BackupDownloadPath": "backup", "api.InstallationBackupDownloadPath": "backup",
-	"api.ConversationTargetsPath": "chat targets",
+	"api.ConversationTargetsPath": "chat targets", "api.TemplatesPath": "template show",
 }
 
 var (

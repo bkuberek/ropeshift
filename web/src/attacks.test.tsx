@@ -18,7 +18,7 @@ const pages = [
   "/needs-you", "/roadmap", "/plans", "/documents?kind=requirements", "/documents?kind=spec", "/documents?kind=design", "/documents?kind=other",
   "/decisions", "/questions", "/work?group=open", "/work?group=in-progress", "/work?group=on-hold", "/work?group=stuck", "/work?group=review",
   "/work?group=completed", "/work?group=all", "/work-order?id=wo-running", "/floor", "/lane?id=lane-wo-running", "/measures", "/usage", "/workers",
-  "/projects/default", "/reviews", "/reviews?tab=pull-requests", "/reviews?tab=agreement",
+  "/projects/default", "/reviews", "/reviews?tab=pull-requests", "/reviews?tab=agreement", "/templates", "/templates?name=policies%2Fteam%2Flane-policy.toml",
 ];
 
 // Every SVG in a page is one of the application's own icons or glyphs: hidden from assistive technology,
@@ -54,7 +54,7 @@ describe.each(pages)("the view at %s", (path) => {
     expect(screen.getByRole("main").querySelectorAll(built)).toHaveLength(0);
     ownDrawings(screen.getByRole("main"));
     for (const href of links()) {
-      expect(href, href).toMatch(/^(\/projects\/[a-z0-9-]+(\/[a-z-]*)?(\?[^#]*)?|\/(needs-you|workers|usage|projects|import|members|settings|agents|audit)(\?[^#]*)?|#main)$/);
+      expect(href, href).toMatch(/^(\/projects\/[a-z0-9-]+(\/[a-z-]*)?(\?[^#]*)?|\/(needs-you|workers|usage|projects|templates|import|members|settings|agents|audit)(\?[^#]*)?|#main)$/);
     }
   });
 });

@@ -120,6 +120,9 @@ type Config struct {
 	// network listener, which records the address of every request it serves. Nil limits none. A request on the
 	// control socket records no address and is never limited: its file permissions are its credential.
 	Attempts *Attempts
+	// Templates are the project templates this daemon's binary embeds, rendered with the example data, which
+	// the templates route serves. Nil has none, and the route refuses.
+	Templates []api.Template
 }
 
 type handler struct {
@@ -199,6 +202,7 @@ func (h *handler) installationRoutes(mux *http.ServeMux) {
 	h.capsRoutes(mux)
 	h.telemetryRoutes(mux)
 	h.installationRosterRoutes(mux)
+	h.templateRoutes(mux)
 	mux.HandleFunc("GET /v1/health", h.health)
 	mux.HandleFunc("GET "+api.AuditPath, h.installationAudit)
 	mux.HandleFunc("GET "+api.MembersPath, h.listMembers)

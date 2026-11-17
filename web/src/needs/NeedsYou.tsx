@@ -9,6 +9,7 @@ import { Icon } from "../ui/Icon";
 import { Button, FilterChip, Tabs, TabPanel } from "../ui/controls";
 import { EmptyState, ProjectTag } from "../ui/display";
 import { Select } from "../ui/forms";
+import { useNarrow } from "../ui/narrow";
 import { ApprovalDecision } from "./ApprovalDecision";
 import { ConfirmCard, ResolvedCard, voidAsk } from "./ConfirmCard";
 import { ContractReviewCard } from "./ContractReviewCard";
@@ -71,19 +72,6 @@ function Wait({ ms }: { ms: number }) {
       <span className="visually-hidden">{waitWords(ms)}</span>
     </span>
   );
-}
-
-// useNarrow says the page is as narrow as a phone, where a list and its detail take turns.
-function useNarrow(): boolean {
-  const query = "(max-width: 639px)";
-  const [narrow, setNarrow] = useState(() => window.matchMedia?.(query).matches ?? false);
-  useEffect(() => {
-    const media = window.matchMedia?.(query);
-    const change = () => setNarrow(media?.matches ?? false);
-    media?.addEventListener?.("change", change);
-    return () => media?.removeEventListener?.("change", change);
-  }, []);
-  return narrow;
 }
 
 // ResolvedNote says why the selected item no longer waits: the person answered or decided it on this page,

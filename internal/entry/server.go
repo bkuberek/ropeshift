@@ -373,8 +373,12 @@ func serveServer(ctx context.Context, paths api.Paths, opts serverOptions, trans
 	installed := liveInstalledBuild(stderr)
 	reads := unavailableServerReads()
 	batches, windows := soloBatches(paths), soloWindows(paths)
+	templateList, err := renderedTemplates()
+	if err != nil {
+		return err
+	}
 	config := server.Config{
-		Mode:  api.ModeGroup,
+		Mode: api.ModeGroup, Templates: templateList,
 		Scope: home.ID, Store: store, Projects: state, Installation: state.Installation,
 		LeaseTTL: opts.leaseTTL.Milliseconds(), HeartbeatMs: opts.heartbeat.Milliseconds(),
 		Installed: installed.Installed, WebAddress: listener.webAddress(),

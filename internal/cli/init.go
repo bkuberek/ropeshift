@@ -15,6 +15,7 @@ import (
 	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/projectfiles"
 	"ropeshift.com/ropeshift/templates"
 )
 
@@ -320,7 +321,7 @@ func initDriverLine(driver ledger.DriverManifest) string {
 // be created, so a run that races another writes nothing over it. A profile that exists is kept, and when the flag
 // was given, the root is the person's to set in it.
 func (c *invocation) initProfile(result *initResult, request profileRoot) error {
-	file := filepath.Join(c.stateDir, writesTo(userProfile))
+	file := filepath.Join(c.stateDir, projectfiles.WritesTo(userProfile))
 	result.Profile = file
 	text, err := templates.Render(userProfile, templates.Data{WorktreeRoot: request.Root})
 	if err != nil {

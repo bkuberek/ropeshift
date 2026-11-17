@@ -218,6 +218,51 @@ func TestPathNamesWhereAShapeWritesATemplate(t *testing.T) {
 	}
 }
 
+// ShapesOf lists the shapes that write a template, in the order of Shapes, for every file of every column, and
+// none for a template no shape writes, the manifest included only through a workspace.
+func TestShapesOfListsTheShapesThatWriteATemplateInOrder(t *testing.T) {
+	want := map[string][]projectfiles.Shape{}
+	for _, shape := range projectfiles.Shapes() {
+		for _, name := range columns[shape] {
+			want[name] = append(want[name], shape)
+		}
+	}
+	want["workspace/plan/repositories.md"] = []projectfiles.Shape{projectfiles.Workspace}
+	for name, shapes := range want {
+		if got := projectfiles.ShapesOf(name); !slices.Equal(got, shapes) {
+			t.Errorf("%s is written by %v, and ShapesOf says %v", name, shapes, got)
+		}
+	}
+	if got := projectfiles.ShapesOf("claude.md"); !slices.Equal(got, projectfiles.Shapes()) {
+		t.Errorf("claude.md is written by %v, want every shape in order", got)
+	}
+	for _, name := range []string{"dependabot.yml", "workspace/plan/contract.md", "user/profile.toml", "no/such"} {
+		if got := projectfiles.ShapesOf(name); got == nil || len(got) != 0 {
+			t.Errorf("%s is written by %#v, want an empty list that is not nil", name, got)
+		}
+	}
+}
+
+// WritesTo is Path for a template a shape writes, and profile.toml for the user profile, which `init` writes to
+// the state directory.
+func TestWritesToNamesThePathOfATemplateAndOfTheUserProfile(t *testing.T) {
+	for _, column := range columns {
+		for path, name := range column {
+			if got := projectfiles.WritesTo(name); got != path {
+				t.Errorf("%s is written to %q, want %q", name, got, path)
+			}
+		}
+	}
+	if got := projectfiles.WritesTo(projectfiles.UserProfile); got != "profile.toml" {
+		t.Errorf("the user profile is written to %q", got)
+	}
+	for _, name := range []string{"dependabot.yml", "workspace/plan/contract.md", "no/such"} {
+		if got := projectfiles.WritesTo(name); got != "" {
+			t.Errorf("%s is written to %q, and nothing writes it", name, got)
+		}
+	}
+}
+
 // FR-TPL-2: the commands that register what a shape wrote, for a member's session, with the git commands
 // first when the folder still needs its first commit.
 func TestTheCommandsRegisterWhatEachShapeWrote(t *testing.T) {
