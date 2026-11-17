@@ -525,3 +525,25 @@ func TestTheOnboardedExampleKeepsTheDocument(t *testing.T) {
 		t.Errorf("onboarding changed the document's prose:\n%s", doc.Statement)
 	}
 }
+
+// The decision record an adopt brief shows onboarded is a decision file intake reads. It takes its status
+// from the record's own status line and keeps every line of the record below the front matter.
+func TestTheOnboardedDecisionExampleKeepsTheRecord(t *testing.T) {
+	example := planning.OnboardedDecisionExample
+	if _, err := ParseFile([]byte(example.Before)); !errors.Is(err, planning.ErrNotOurs) {
+		t.Errorf("the record before onboarding reads as ours: %v", err)
+	}
+	doc, err := ParseFile([]byte(example.After))
+	if err != nil || doc.Decision == nil {
+		t.Fatalf("the onboarded record: %+v: %v", doc, err)
+	}
+	if doc.Kind != planning.FileDecision || doc.Decision.ID != "adr-0007" || doc.Decision.Plan != "" {
+		t.Errorf("the onboarded record reads as %+v", doc.Decision)
+	}
+	if !strings.Contains(example.Before, "Status: Accepted\n") || doc.Decision.Status != planning.DecisionAccepted {
+		t.Errorf("the record states its status as %q in the front matter, and the record says:\n%s", doc.Decision.Status, example.Before)
+	}
+	if !strings.HasSuffix(example.After, "+++\n\n"+example.Before) || strings.TrimSpace(doc.Statement) != strings.TrimSpace(example.Before) {
+		t.Errorf("onboarding changed the record's prose:\n%s", doc.Statement)
+	}
+}

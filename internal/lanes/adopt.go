@@ -55,7 +55,10 @@ and the code it points to. This repository is the one you write in; the others a
 2. Onboard, do not rewrite. An existing requirements document, spec, architecture note, or decision record becomes a document of
 the format by gaining front matter: add the +++ block at the top of the file, and keep its prose exactly as it was below it, every
 heading and line. Give it a kind, an id, a title, and plan. In a requirements document, add one [[requirement]] table for each
-requirement the document states, under the ID the document already gives it, such as PAY-11, and with its text in one line. Keep
+requirement the document states, under the ID the document already gives it, such as PAY-11, and with its text in one line. A
+decision record gets kind = "decision", an id such as adr-0007, a title, and a status of proposed, accepted, superseded, or
+rejected, taken from the record's own status line, and proposed when it states none; it needs no plan, and only an accepted
+record answers a question. Keep
 existing IDs: never renumber, reword, merge, or split a requirement, and never write a document again in your own words. Move a
 file only when the format needs it in another place, and then only with git mv, so its history follows it; never copy a file and
 delete the old one. A document the plan holds is listed in the plan's documents.
@@ -102,6 +105,9 @@ func adoptNotice() string {
 	out.WriteString("\nThis is a requirements document as the team wrote it:\n\n```markdown\n" + planning.OnboardedExample.Before + "```\n" +
 		"\nand the same document onboarded: front matter on top, a table for each requirement under the ID it already had, one of " +
 		"them met with its evidence, and the prose below exactly as it was:\n\n```markdown\n" + planning.OnboardedExample.After + "```\n")
+	out.WriteString("\nThis is a decision record as the team wrote it:\n\n```markdown\n" + planning.OnboardedDecisionExample.Before + "```\n" +
+		"\nand the same record onboarded: front matter of kind decision on top, the status its own line gives, and the prose below " +
+		"exactly as it was:\n\n```markdown\n" + planning.OnboardedDecisionExample.After + "```\n")
 	if raw, err := planning.RenderInventory(inventoryExample); err == nil {
 		out.WriteString("\nThe inventory is JSON in this shape, here for one repository:\n\n```json\n" + string(raw) + "```\n")
 	}

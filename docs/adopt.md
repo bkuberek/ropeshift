@@ -71,7 +71,7 @@ Open pull requests and issues are not read yet, and the inventory says so.
 
 The session is a planning session, so it runs in a pane, its questions are yours, your answers become draft decisions in the plan, and it survives a detach, a park, and a restart of the daemon. Its brief asks the agent to:
 
-- **Onboard, not rewrite.** Add front matter to your existing requirements, specs, architecture notes, and decision records, keeping their prose and their IDs. Move a file only when the format needs it elsewhere, with `git mv`, so its history follows it.
+- **Onboard, not rewrite.** Add front matter to your existing requirements, specs, architecture notes, and decision records, keeping their prose and their IDs. Move a file only when the format needs it elsewhere, with `git mv`, so its history follows it. A decision record gets front matter of kind `decision` and a `status` of `proposed`, `accepted`, `superseded`, or `rejected`, which the session takes from the record's own status line, or `proposed` when the record states none. It needs no plan. Once its status is `accepted`, the record answers a lane's question like any decision you have recorded: the orchestrator finds it on the first rung of the question ladder, so check the status the session chose for each record before you merge the branch.
 - **Ask about what belongs to someone else.** A file whose front matter belongs to another tool, a document whose meaning is unclear, and two documents that contradict each other are questions for you, not guesses.
 - **Mark what is done**, with evidence.
 - **Plan what remains**, with shared contracts first, as any plan does.

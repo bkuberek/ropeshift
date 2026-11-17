@@ -128,7 +128,7 @@ The adopt session is a planning session, so everything above holds for it: it ru
 
 The session's brief asks the agent to:
 
-- Onboard, do not rewrite: add front matter to your existing requirements, specs, architecture notes, and decision records, keep their prose and their IDs, add a `[[requirement]]` table for each requirement a document states under the ID it already has, and move a file only when the format needs it elsewhere, with `git mv`.
+- Onboard, do not rewrite: add front matter to your existing requirements, specs, architecture notes, and decision records, keep their prose and their IDs, add a `[[requirement]]` table for each requirement a document states under the ID it already has, and move a file only when the format needs it elsewhere, with `git mv`. A decision record gets kind `decision` and the status its own status line gives, or `proposed` when it states none, and only an accepted one answers a lane's question.
 - Ask you about anything that belongs to someone else: a file whose front matter belongs to another tool, a document whose meaning is unclear, and two documents that contradict each other.
 - Mark what is done: a requirement the code already meets gets `status = "met"` with `evidence` citing files and tests, and a milestone or contract the code already delivers gets `existing = true` and no work orders.
 - Plan what remains, with shared contracts first, as any plan does.

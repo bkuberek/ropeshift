@@ -372,6 +372,39 @@ Every payment call goes through one client, so retries and logging live in one p
 A failed call retries with the same idempotency key.
 `
 
+// onboardedDecisionProse is an existing decision record's own text, which onboarding leaves as it is.
+const onboardedDecisionProse = `# ADR-0007: Bound every call with a retry budget
+
+Status: Accepted
+
+## Context
+
+A failed payment call retried without limit and kept a checkout open.
+
+## Decision
+
+Every call has a retry budget of two attempts.
+
+## Consequences
+
+A call that spends its budget fails at once, and the caller decides what happens next.
+`
+
+// OnboardedDecisionExample is a decision record the team already keeps, before and after onboarding: the
+// front matter goes on top with kind decision, a status taken from the record's own status line, and no
+// plan, because a record often predates any plan. Tests parse the after and hold its prose to the before.
+var OnboardedDecisionExample = Onboarding{
+	Before: onboardedDecisionProse,
+	After: `+++
+kind = "decision"
+id = "adr-0007"
+title = "Bound every call with a retry budget"
+status = "accepted"
++++
+
+` + onboardedDecisionProse,
+}
+
 // OnboardedExample is a requirements document the code partly meets, before and after onboarding. Tests
 // parse the after and hold its prose to the before.
 var OnboardedExample = Onboarding{
