@@ -40,11 +40,26 @@ func OneWayNoticeText(decision Decision) string {
 // DecisionText is what a pack or a read says of a decision, with how it stands, because a contract
 // can cite one that no longer does.
 func DecisionText(decision Decision) string {
+	return TitledDecisionText(decision, "")
+}
+
+// TitledDecisionText is DecisionText with its scope named beside the title of the record the scope names, as a
+// search reads it. An empty title leaves the scope alone.
+func TitledDecisionText(decision Decision, title string) string {
 	text := "Status: " + string(decision.Status) + "\n" + decisionLines(decision)
 	if decision.Scope != "" {
-		text += "Scope: " + decision.Scope + "\n"
+		text += "Scope: " + ScopeLabel(decision.Scope, title) + "\n"
 	}
 	return text
+}
+
+// ScopeLabel names a scope as a reader sees it: the scope, and beside it the title of the record it names
+// when the read gave one.
+func ScopeLabel(scope, title string) string {
+	if scope == "" || title == "" {
+		return scope
+	}
+	return scope + " · " + title
 }
 
 func decisionLines(decision Decision) string {

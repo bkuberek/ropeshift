@@ -38,7 +38,7 @@ var PackChecks = []Check{
 	{"PK12", "a goal that is not active stays out", checkPackGoals},
 	{"PK13", "a new claim on the same work order pins a pack of its own", checkPackNewClaim},
 	{"PK14", "a lane reads any kind of record by name", checkContextLookups},
-	{"PK15", "a search reads decisions and questions, as a pack would say them", checkContextSearches},
+	{"PK15", "a search reads decisions and questions, as a pack would say them, each scope with the title of the record it names", checkContextSearches},
 	{"PK16", "a read that finds nothing says so, and a tool nobody named is refused", checkContextMisses},
 	{"PK17", "a lane reads only what its own worker holds, and knowledge of its own work order", checkContextReach},
 	{"PK18", "a read past a lane's lease reads nothing", checkContextFence},
@@ -763,17 +763,20 @@ func checkContextSearches(r *Rig) error {
 	if err != nil {
 		return err
 	}
-	decided, err := r.decision(s.store, "Refunds use the original currency", nil)
+	work := s.grant.WorkOrder
+	decided, err := r.decision(s.store, "Refunds use the original currency", func(d *questions.Decision) { d.Scope = "wo:" + work })
 	if err != nil {
 		return err
 	}
 	if _, err := r.decision(s.store, "Sessions expire after an hour", func(d *questions.Decision) { d.Scope = "repo:auth" }); err != nil {
 		return err
 	}
-	asked, err := r.ask(s.store, "Which currency do refunds use?", "lane-a", nil)
+	asked, err := r.ask(s.store, "Which currency do refunds use?", "lane-a", func(a *questions.Ask) { a.SubjectKind, a.SubjectID = workorders.SubjectKind, work })
 	if err != nil {
 		return err
 	}
+	// Each names its scope with the title of the work order it names, read in the same read.
+	titled := "Scope: wo:" + work + " · Add the retry budget\n"
 	search := func(tool, query string) (ledger.LaneContext, error) {
 		return s.laneRead(func(request *ledger.LaneContextRequest) { request.Tool, request.Query = tool, query })
 	}
@@ -784,11 +787,17 @@ func checkContextSearches(r *Rig) error {
 	if err := oneRecord(found, contextpacks.KindDecision, decided.ID, "Refunds use the original currency"); err != nil {
 		return err
 	}
+	if err := oneRecord(found, contextpacks.KindDecision, decided.ID, titled); err != nil {
+		return err
+	}
 	found, err = search(lanes.ToolQuestionSearch, "currency")
 	if err != nil {
 		return err
 	}
 	if err := oneRecord(found, contextpacks.KindQuestion, asked.QuestionID, "Which currency do refunds use?"); err != nil {
+		return err
+	}
+	if err := oneRecord(found, contextpacks.KindQuestion, asked.QuestionID, titled); err != nil {
 		return err
 	}
 	limited, err := s.laneRead(func(request *ledger.LaneContextRequest) { request.Tool, request.Limit = lanes.ToolDecisionSearch, 1 })

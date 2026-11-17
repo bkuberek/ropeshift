@@ -72,12 +72,9 @@ type DecisionView struct {
 }
 
 // ScopeLabel is how a client names a scope: the scope, and beside it the title of the record it names when the
-// read gave one.
+// read gave one, as questions.ScopeLabel says.
 func ScopeLabel(scope, title string) string {
-	if scope == "" || title == "" {
-		return scope
-	}
-	return scope + " · " + title
+	return questions.ScopeLabel(scope, title)
 }
 
 // RecordQuestion asks for a question to be recorded. The client generates ID, so a retry

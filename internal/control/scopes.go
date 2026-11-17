@@ -5,6 +5,9 @@ import (
 	"slices"
 	"strings"
 
+	"ropeshift.com/ropeshift/internal/authority"
+	"ropeshift.com/ropeshift/internal/lanes"
+	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/planning"
 	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/internal/questions"
@@ -236,6 +239,93 @@ func checkHeld(tx ports.WriteTx, text string) error {
 // a display shows the ID alone.
 func ScopeTitles(tx ports.ReadTx, scopes []string) (map[string]string, error) {
 	return scopeRecords{tx.Planning(), tx.WorkOrders(), tx.Repositories()}.titles(scopes)
+}
+
+// scopeTitler names scopes for one reader by the title of the record each names, read once for each kind of scope
+// (ScopeTitles). An orchestrator reads a title a delegate wrote as the delegate's text, as a wake states such a
+// title, except inside a record a delegate made, whose whole text it reads as the delegate's (orchestratorText).
+type scopeTitler struct {
+	tx           ports.ReadTx
+	orchestrator bool
+}
+
+// scopedRecord is a record a read found and the scope it names. Whole is the kind of a record an orchestrator
+// reads as one text, which reads whole as a delegate's when a delegate made it. A reply that states a record field
+// by field leaves it empty, so a title a delegate wrote is marked in it whoever made the record.
+type scopedRecord struct {
+	whole, id, scope string
+}
+
+// titles says the title each record's scope reads with, in order, and an empty title for a scope with none.
+func (s scopeTitler) titles(found []scopedRecord) ([]string, error) {
+	scopes := make([]string, len(found))
+	for i, record := range found {
+		scopes[i] = record.scope
+	}
+	titles, err := ScopeTitles(s.tx, scopes)
+	if err != nil {
+		return nil, err
+	}
+	byDelegate := map[string]bool{}
+	out := make([]string, len(found))
+	for i, record := range found {
+		out[i] = titles[record.scope]
+		if out[i] == "" || !s.orchestrator {
+			continue
+		}
+		marked, read := byDelegate[record.scope]
+		if !read {
+			if marked, err = scopeTitleByDelegate(s.tx, record.scope); err != nil {
+				return nil, err
+			}
+			byDelegate[record.scope] = marked
+		}
+		whole := false
+		if marked && record.whole != "" {
+			if whole, err = recordByDelegate(s.tx, record.whole, record.id); err != nil {
+				return nil, err
+			}
+		}
+		if marked && !whole {
+			out[i] = lanes.DelegateText(out[i])
+		}
+	}
+	return out, nil
+}
+
+// scopeTitleByDelegate says a delegate wrote the title of the record a scope names: a work order's title as a wake
+// reads it (titleByDelegate), a contract or a plan a delegate made, or a repository's name a delegate gave when it
+// registered the repository or changed its settings.
+func scopeTitleByDelegate(tx ports.ReadTx, text string) (bool, error) {
+	scope, err := questions.ParseScope(text)
+	if err != nil {
+		return false, nil
+	}
+	switch scope.Kind {
+	case questions.ScopeWorkOrder:
+		order, err := tx.WorkOrders().Get(scope.ID)
+		if errors.Is(err, ports.ErrNotFound) {
+			return false, nil
+		}
+		if err != nil {
+			return false, err
+		}
+		return titleByDelegate(tx, order)
+	case questions.ScopeContract:
+		return recordByDelegate(tx, questions.KindContract, scope.ID)
+	case questions.ScopePlan:
+		return madeByDelegate(tx, ledger.Subject{Kind: planning.SubjectPlan, ID: scope.ID}, planning.EventPlanRecorded)
+	case questions.ScopeRepository:
+		events, err := tx.EventsAbout(ledger.Subject{Kind: ledger.SubjectRepository, ID: scope.ID})
+		for _, event := range events {
+			named := event.Type == ledger.EventRepositoryRegistered || event.Type == ledger.EventRepositoryChanged
+			if named && (authority.PartyOf(event.Actor) == authority.PartyDelegate || authority.PartyOf(event.Proposer) == authority.PartyDelegate) {
+				return true, nil
+			}
+		}
+		return false, err
+	}
+	return false, nil
 }
 
 // scopeRecords reads the records a scope can name, by the same reads in a read and in a write.
