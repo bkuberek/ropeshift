@@ -84,6 +84,9 @@ type State struct {
 	lockTimeout time.Duration
 	// dropWait bounds how long the drop of a schema waits for a lock on one of its tables.
 	dropWait time.Duration
+	// repairWait bounds the repair of the repository index after a failed write, from its first wait to its
+	// last statement.
+	repairWait time.Duration
 	// afterFailedWrite repairs the repository index after a write that failed once the index had committed.
 	// Nil does nothing, which a test uses to look at what the failed write left.
 	afterFailedWrite func(context.Context, ledger.WorkspaceID)
@@ -125,6 +128,7 @@ func Open(ctx context.Context, url string, opts Options) (*State, error) {
 	}
 	s.opts.Installation, s.opts.Schema, s.opts.AfterFailedWrite = nil, "", nil
 	s.afterFailedWrite = s.repairAfterFailedWrite
+	s.repairWait = repairBound(s.lockTimeout)
 	s.Installation = sqlstore.NewInstallation(stdlib.OpenDBFromPool(installationPool), dialect, sqlstore.Options{Schema: InstallationSchema, Trace: s.opts.Trace})
 	err = s.locked(ctx, func(ctx context.Context) error {
 		if err := s.createSchema(ctx, InstallationSchema); err != nil {

@@ -16,6 +16,21 @@ import (
 // write holds until its transaction ends. A project whose revision stays busy is left for the next Open.
 const revisionWait = 5 * time.Second
 
+// repairMargin is the time the repair after a failed write has beyond the waits it knows, for the
+// statements it runs once it has the lock and the revision.
+const repairMargin = 10 * time.Second
+
+// repairBound is how long the repair of the repository index after a failed write may take in all: its
+// wait for the migration lock, its wait for the project's revision, and a margin for its statements. A
+// state with no limit on the lock wait is bounded as if it had the default one, because the writer that
+// failed waits for the repair.
+func repairBound(lockWait time.Duration) time.Duration {
+	if lockWait <= 0 {
+		lockWait = DefaultLockTimeout
+	}
+	return lockWait + revisionWait + repairMargin
+}
+
 // querier is what a pool and a transaction both run a query on.
 type querier interface {
 	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
@@ -148,10 +163,14 @@ func (s *State) reconcileProject(ctx context.Context, p ledger.Project, entries 
 // repairAfterFailedWrite brings a project's part of the repository index back into agreement with its
 // records after a write of the project failed once the index had committed its part, so a server that stays
 // up does not refuse or admit other projects until its next start. The Store calls it before the write
-// returns its error. It waits for the migration lock for Options.LockTimeout at most. A repair that cannot
-// run is left to the next Open, with a warning. A project the registry does not hold has nothing to
-// repair, and Open releases its entries.
+// returns its error. It waits for the migration lock for Options.LockTimeout at most, and the whole repair
+// ends at repairBound, whatever it waits for, so a connection that is lost in the middle of it cannot keep
+// the failed write, the migration lock, or the project's revision for minutes. A repair that cannot run is
+// left to the next Open, with a warning. A project the registry does not hold has nothing to repair, and Open
+// releases its entries.
 func (s *State) repairAfterFailedWrite(ctx context.Context, id ledger.WorkspaceID) {
+	ctx, stop := context.WithTimeout(context.WithoutCancel(ctx), s.repairWait)
+	defer stop()
 	p, err := s.Installation.ProjectByID(ctx, id)
 	if errors.Is(err, ports.ErrNotFound) {
 		return

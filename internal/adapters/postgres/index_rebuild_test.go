@@ -282,6 +282,66 @@ func TestARepairThatFailsIsLeftToTheNextOpen(t *testing.T) {
 	}
 }
 
+// TestAStalledRepairGivesUpAfterItsBound holds that the repair after a failed write has a bound of its own,
+// whatever it waits for: a session that holds a row of the index the repair replaces keeps the repair at its
+// statement, as a lost connection does, and the write that failed returns its own error when the bound
+// passes, with a warning, with the migration lock released. The next Open repairs the index.
+func TestAStalledRepairGivesUpAfterItsBound(t *testing.T) {
+	url := freshDatabase(t)
+	var warned warnings
+	state := openState(t, url, postgres.Options{Store: sqlstore.Options{Warn: warned.add}})
+	state.SetRepairWait(500 * time.Millisecond)
+	db := state.SQLDB()
+	defer db.Close()
+	alpha, alphaStore := createProject(t, state, "pa", "alpha")
+	const other = "https://example.com/acme/other"
+	if err := insertRepository(t.Context(), alphaStore, alpha.ID, "r1", "invoices", invoices); err != nil {
+		t.Fatal(err)
+	}
+	if err := insertRepository(t.Context(), alphaStore, alpha.ID, "r2", "other", other); err != nil {
+		t.Fatal(err)
+	}
+
+	// The write moves r1 and never touches r2's entry, which this session holds. The repair replaces all of
+	// the project's entries, and waits for it.
+	_, session := otherSession(t, url)
+	for _, statement := range []string{`BEGIN`, `SELECT 1 FROM installation.repository_index WHERE identity = 'example.com/acme/other' FOR UPDATE`} {
+		if _, err := session.ExecContext(t.Context(), statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// A repair with no bound ends when the session lets go. The test lets go late, so that it fails and does
+	// not hang.
+	let := time.AfterFunc(8*time.Second, func() { _, _ = session.ExecContext(context.WithoutCancel(t.Context()), `ROLLBACK`) })
+	defer let.Stop()
+	lift := deferRepositoryTrigger(t, db, "project_pa", "UPDATE", `RAISE EXCEPTION 'the commit is refused';`)
+
+	start := time.Now()
+	err := moveRemote(t.Context(), alphaStore, alpha.ID, "r1", billing)
+	took := time.Since(start)
+	lift()
+	if err == nil {
+		t.Fatal("the project's commit was not refused")
+	}
+	if took > 4*time.Second {
+		t.Errorf("the write returned after %s, with a repair bound of 500ms", took)
+	}
+	got := warned.all()
+	if len(got) != 1 || !strings.Contains(got[0], "alpha") || !strings.Contains(got[0], "next Open") {
+		t.Errorf("warnings %q, want one that names the project and says the next Open repairs it", got)
+	}
+
+	if _, err := session.ExecContext(t.Context(), `ROLLBACK`); err != nil {
+		t.Fatal(err)
+	}
+	next := openState(t, url, postgres.Options{})
+	want := []ledger.IndexedRepository{held(alpha.ID, "r1", invoices), held(alpha.ID, "r2", other)}
+	slices.SortFunc(want, func(a, b ledger.IndexedRepository) int { return strings.Compare(a.Identity, b.Identity) })
+	if got := repositoryIndex(t, next); !slices.Equal(got, want) {
+		t.Errorf("the next Open left the index at %+v, want %+v", got, want)
+	}
+}
+
 // TestTheRepairOfAProjectRunsInAnOpenState holds the repair a caller can run when a write of a project
 // fails, without opening a state again: it takes the migration lock, and it brings the project's part of
 // the index into agreement with its records. A project whose index is in agreement is left alone.
