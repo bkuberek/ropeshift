@@ -479,13 +479,17 @@ func (w *Worker) endUnattended(ctx context.Context, record lanes.Record) error {
 	return w.endLane(ctx, record, w.baseOf(ctx, record), result, w.leaseGone(ctx, record))
 }
 
-// endedInATurn says whether a lane's session, which no worker can read now, may have ended inside a turn. A
-// generation whose session never started ran none. The rest is what the worker last recorded of the lane: idle
-// means it read the last turn's end and handed the session nothing since, unless a crash left an input unknown
-// that reached it all the same. Any other state is a turn under way, a session end a worker read and counted only
-// in memory, which it never leaves at idle, or a state it cannot place, and each counts. A read that fails counts
-// too, because a lower bound read as the whole cost is the worse mistake.
+// endedInATurn says whether a lane's session, which no worker can read now, may have ended inside a turn its meter
+// does not count yet. A turn a worker counted as the session ended is in the meter already, and a generation whose
+// session never started ran none. The rest is what the worker last recorded of the lane: idle means it read the last
+// turn's end and handed the session nothing since, unless a crash left an input unknown that reached it all the same.
+// Any other state is a turn under way, a session end a worker read and could not keep in the journal, which it never
+// leaves at idle, or a state it cannot place, and each counts. A read that fails counts too, because a lower bound
+// read as the whole cost is the worse mistake.
 func (w *Worker) endedInATurn(ctx context.Context, record lanes.Record) bool {
+	if record.Progress.EndCounted {
+		return false
+	}
 	spawn, err := w.journal.Effect(ctx, lanes.NewEffect(lanes.EffectSession, record.ID, record.ProcessGeneration(), "", "").Key)
 	switch {
 	case errors.Is(err, ports.ErrNotFound):

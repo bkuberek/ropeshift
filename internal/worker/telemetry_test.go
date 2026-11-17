@@ -563,6 +563,41 @@ func TestATurnACrashLeftUnreportedOutlivesTheWorkerThatReadIt(t *testing.T) {
 	}
 }
 
+// A park whose stop ends in a kill leaves the turn it killed with no cost. The run ends at the park, and the wake
+// builds the lane again from the journal, so the lane's end still counts that turn once: in its telemetry and in the
+// ledger's record of its end alike.
+func TestATurnAParksKillLeftUnreportedOutlivesTheWake(t *testing.T) {
+	t.Parallel()
+	r := laneRigWith(t, handoffProfile)
+	t.Cleanup(func() {
+		r.driver.StopEverySession()
+		r.subject.Wait()
+	})
+	reached := make(chan struct{})
+	r.driver.Play(script([]fake.DriverStep{{Bound: true}, {Do: func(ports.SessionSpec) { close(reached) }}, {Stuck: true}}))
+	r.driver.PlayAfter(r.toldToGoOn())
+	r.start()
+	<-reached
+	r.laneState(lanes.Working)
+	request := lanes.ParkRequest{Trigger: lanes.ParkFleetDrain, Expr: lanes.HumanWake(), SkipNarrative: true}
+	if err := r.subject.Park(t.Context(), "lane-1", request); err != nil {
+		t.Fatal(err)
+	}
+	r.awaitOrder(t, workorders.Parked)
+	r.subject.Wait()
+	r.wake(t)
+	r.resumed(t)
+	if specs := r.driver.Specs(); len(specs) != 2 {
+		t.Fatalf("%d sessions, want the parked one and the one its wake started", len(specs))
+	}
+	if unreported := r.telemetry.Measurements(ledger.MetricCostUnreported); len(unreported) != 1 {
+		t.Errorf("%d turns counted unreported, want the one the park killed: %+v", len(unreported), unreported)
+	}
+	if got := r.laneResult().UnknownCostTurns; got != 1 {
+		t.Errorf("the ledger counts %d turns of unknown cost, want the one the park killed", got)
+	}
+}
+
 // A worker that read a session's end counted the turn it crashed in, and died before the lane's next generation. The
 // next worker adopts the same session and reads that end again, and the lane counts the turn once: in its telemetry
 // and in the ledger's record of its end alike.

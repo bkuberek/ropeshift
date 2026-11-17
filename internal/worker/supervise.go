@@ -397,7 +397,7 @@ func (r *laneRun) enterGeneration(next int64, resume string, progress lanes.Prog
 	r.reached.Store(false)
 	r.sessionOver.Store(false)
 	r.resumeFrom = resume
-	r.bound, r.crashed, r.cursor, r.endTold = false, false, 0, false
+	r.bound, r.crashed, r.cursor, r.endTold, r.endKept = false, false, 0, false, progress.EndCounted
 	r.nudged.Store(false)
 	r.owesBrief.Store(false)
 	r.cost = progress.Cost

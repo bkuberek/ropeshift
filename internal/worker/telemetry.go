@@ -1,6 +1,7 @@
 package worker
 
 import (
+	"context"
 	"path/filepath"
 	"time"
 
@@ -188,10 +189,19 @@ func (w *Worker) measureUnattended(record lanes.Record) {
 // before it said how it ended. The driver's meter counts a turn that stopped, and this counts the generation's
 // last turn, so the cost the ledger records at the lane's end, which the measures and the delivery record read,
 // is a lower bound wherever the lane's telemetry says it is. An end an earlier worker read and told the telemetry of
-// counts in the meter alone.
-func (r *laneRun) unreportedEnd() {
+// counts in the meter alone, and one the journal's meter holds counts nowhere.
+//
+// The journal keeps the count at once, because a park ends the run and its wake reads the lane from the journal,
+// and a worker that dies before the lane's next generation or its end leaves only what the journal holds. The
+// telemetry hears first, so a crash between the two can count the turn there twice but never leaves it out.
+func (r *laneRun) unreportedEnd(ctx context.Context) {
+	if r.endKept {
+		return
+	}
 	r.cost.ObserveStopped()
 	if !r.endTold {
 		r.measureUnreported()
 	}
+	r.endKept = true
+	r.saveProgress(context.WithoutCancel(ctx), r.cursor)
 }

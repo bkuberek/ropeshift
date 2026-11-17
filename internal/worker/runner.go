@@ -193,8 +193,10 @@ type laneRun struct {
 	// adopted says this run took over a session an earlier process left.
 	adopted atomic.Bool
 	// endTold says an earlier worker read the end of this generation's session, and told the telemetry of a turn
-	// it ended in then, so a run that reads that end again counts the turn in its meter alone.
+	// it ended in then, so a run that reads that end again counts the turn in its meter alone. endKept says the
+	// journal's meter counts that turn too, so the run counts it nowhere.
 	endTold bool
+	endKept bool
 	// assisted is what an assistant's run holds beside the lane code's state, and the handle's lock guards
 	// its making.
 	assisted *assistantState
@@ -215,7 +217,7 @@ func newRun(w *Worker, lease ledger.DesiredLease) *laneRun {
 func (w *Worker) resumedRun(lease ledger.DesiredLease, record lanes.Record) *laneRun {
 	run := newRun(w, lease)
 	run.generation, run.resumeFrom, run.startedMode = record.Generation, record.ResumeSession, record.RunMode
-	run.cost, run.usage = record.Progress.Cost, record.Progress.Usage
+	run.cost, run.usage, run.endKept = record.Progress.Cost, record.Progress.Usage, record.Progress.EndCounted
 	run.priorUSD, run.priorUnknown = record.Progress.PriorUSD, record.Progress.PriorUnknown
 	if record.Actual != "" {
 		run.state = laneStateOf(record, w.clock.Now())
@@ -961,7 +963,7 @@ func (r *laneRun) watch(ctx context.Context, events <-chan ports.DriverEvent) wo
 			// A stream that closed before its session ended says nothing of how it ended, so the lane settles as
 			// crashed, and the turn it may have died in counts as unreported, as a crash's does.
 			if !open {
-				r.unreportedEnd()
+				r.unreportedEnd(ctx)
 				return failed(workorders.ReasonCrashed)
 			}
 			event = next
@@ -1010,7 +1012,7 @@ func (r *laneRun) watch(ctx context.Context, events <-chan ports.DriverEvent) wo
 			// start for a turn a socket message begins. The turn counts before the token ends, so a token that ended
 			// says its telemetry has the turn.
 			if event.End != nil && (event.End.Crashed || event.End.InputUnanswered) {
-				r.unreportedEnd()
+				r.unreportedEnd(ctx)
 			}
 			r.expireToken(ctx)
 			if event.End != nil && (event.End.Crashed || r.orchestratorLost(ctx)) {
@@ -1046,6 +1048,7 @@ func (r *laneRun) saveProgress(ctx context.Context, cursor int64) {
 	progress := lanes.Progress{
 		Cursor: cursor, Cost: r.cost, Usage: r.usage, PriorUSD: r.priorUSD, PriorUnknown: r.priorUnknown,
 		Instruction: r.instructionInProgress(), Carried: r.carriedIDs(), Pack: r.readPack(), OwesBrief: r.owesBrief.Load(),
+		EndCounted: r.endKept,
 	}
 	r.state.journalContext(&progress)
 	if _, err := r.w.journal.SaveProgress(ctx, r.lease.Lane, generation, progress); err != nil {
