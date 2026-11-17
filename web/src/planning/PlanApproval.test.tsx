@@ -494,7 +494,10 @@ describe("the Estimates group and the decision card", () => {
     openPage(page());
     const group = await screen.findByRole("region", { name: "Estimates" });
     expect(within(group).getByText("4 estimates: 0 confident, 0 low confidence, 4 with no history.")).toBeTruthy();
-    expect(within(group).getByText("The estimates read ledger revision 333.")).toBeTruthy();
+    // The revision is the golden's own, so a sample project that gains an event does not break the test.
+    const revision = waiting.approval?.forecast?.estimate_set?.ledger_rev;
+    expect(revision).toBeGreaterThan(0);
+    expect(within(group).getByText(`The estimates read ledger revision ${revision}.`)).toBeTruthy();
     expect(within(group).getByText(/Forecast pending: the daemon's forecast tick has not forecast version 6 yet/)).toBeTruthy();
     expect(group.querySelectorAll("[data-estimate]")).toHaveLength(4);
     expect(group.textContent).toContain("No estimate: no medium change has finished in this project yet");
