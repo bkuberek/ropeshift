@@ -50,6 +50,10 @@ type Options struct {
 	// pool is never smaller than 2, because a migration holds one connection for its lock and runs on
 	// another.
 	MaxConns int
+	// LockTimeout bounds how long a caller waits for the migration lock, which another process holds
+	// while it makes a schema or migrates one. Zero is DefaultLockTimeout, and a negative value waits for
+	// as long as the caller's context lasts.
+	LockTimeout time.Duration
 	// Dialect replaces Dialect{}, so a test can wrap it to move database time.
 	Dialect sqlstore.Dialect
 	// Store is what every Store the state opens takes, such as a trace. The state sets Installation and
@@ -68,10 +72,13 @@ type State struct {
 	dialect          sqlstore.Dialect
 	opts             sqlstore.Options
 
-	// migrating orders the callers of locked within this process.
-	migrating sync.Mutex
+	// migrating orders the callers of locked within this process. A caller takes its turn by sending on it,
+	// which a caller whose context ends stops waiting for.
+	migrating   chan struct{}
+	lockTimeout time.Duration
 
 	// mu guards the Stores the state keeps open, one per project, so every call to a project shares them.
+	// Nothing waits for the database while it holds mu.
 	mu     sync.Mutex
 	stores map[ledger.WorkspaceID]*sqlstore.Store
 }
@@ -97,7 +104,11 @@ func Open(ctx context.Context, url string, opts Options) (*State, error) {
 	if dialect == nil {
 		dialect = Dialect{}
 	}
-	s := &State{pool: pool, installationPool: installationPool, dialect: dialect, opts: opts.Store, stores: map[ledger.WorkspaceID]*sqlstore.Store{}}
+	s := &State{
+		pool: pool, installationPool: installationPool, dialect: dialect, opts: opts.Store,
+		migrating: make(chan struct{}, 1), lockTimeout: lockTimeout(opts.LockTimeout),
+		stores: map[ledger.WorkspaceID]*sqlstore.Store{},
+	}
 	s.opts.Installation, s.opts.Schema = nil, ""
 	s.Installation = sqlstore.NewInstallation(stdlib.OpenDBFromPool(installationPool), dialect, sqlstore.Options{Schema: InstallationSchema, Trace: s.opts.Trace})
 	err = s.locked(ctx, func(ctx context.Context) error {
@@ -130,6 +141,17 @@ func newPool(ctx context.Context, url string, opts Options) (*pgxpool.Pool, erro
 		return nil, fmt.Errorf("postgres: %w", err)
 	}
 	return pool, nil
+}
+
+// lockTimeout resolves Options.LockTimeout: zero is the default, and a negative value is no limit.
+func lockTimeout(d time.Duration) time.Duration {
+	switch {
+	case d == 0:
+		return DefaultLockTimeout
+	case d < 0:
+		return 0
+	}
+	return d
 }
 
 func cmpOr(value, fallback int) int {

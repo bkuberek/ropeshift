@@ -13,6 +13,10 @@ import (
 // Stores. The caller closes it, which leaves the pool open.
 func (s *State) SQLDB() *sql.DB { return stdlib.OpenDBFromPool(s.pool) }
 
+// AcquiredConns is how many connections of the state's pool are in use. A caller that waits for the migration
+// lock holds one.
+func (s *State) AcquiredConns() int { return int(s.pool.Stat().AcquiredConns()) }
+
 // The number of steps in creating and in removing a project.
 const (
 	CreateSteps = createSteps

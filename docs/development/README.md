@@ -7,4 +7,4 @@ These pages are for the people who build, test, and release ropeshift. [AGENTS.m
 - [Schema migrations](schema-migrations.md): how each database reaches a build's schema, the checksum rule that refuses a changed migration, and the warning for one a build does not ship.
 - [Web tests](web-tests.md): the accessibility and keyboard suites, and which browser they run in.
 - [Screenshots](screenshots.md): how the images of the web UI and `ropeshift top` are captured on a sample project.
-- [The Postgres adapter](postgres.md): how it uses connections, and the timeouts a write is bound by.
+- [The Postgres adapter](postgres.md): how it uses connections, the migration lock, and the timeouts a write is bound by.
