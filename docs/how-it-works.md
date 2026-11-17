@@ -109,7 +109,7 @@ A decision that is in force and binds work acts on it in the transaction that re
 
 | Where the work stands | What happens |
 |-----------------------|--------------|
-| Not started, and `ready` | It returns to contract review. When a person recorded a one-way decision, the work waits there until a member passes its review again, which reads a choice nobody can take back. Any other decision holds nothing, and the next tick passes the review again with the decision in what it reads |
+| Not started, and `ready` | It returns to contract review. When a person recorded a one-way decision, the work waits there until a member passes its review again, which reads a choice nobody can take back. Any other decision holds nothing, and the next tick passes the review again with the decision in what it reads. When a member's decision binds work of an approved plan, the plan [needs revision](#a-plan-that-needs-revision), and the plan's work waits in contract review until a member settles it |
 | Claimed, running, parked, lapsed, or blocked | Its lane is told, and its next context pack holds the decision. A lane that asked the question the decision answers reads the answer in place of a notice, and goes on. Any other lane goes on or parks as the [lane policy](cli.md) says |
 | Finished: waiting for acceptance, integrating, or done | A one-way decision, and an overturn, start one rework of it. A reversible decision lists it on record, and a member reworks what it touches |
 | Failed or canceled | Nothing. A retry starts from a pack that holds the decision |
@@ -117,6 +117,17 @@ A decision that is in force and binds work acts on it in the transaction that re
 A plan, a contract review, and a review are never moved or reworked by a decision. Their lanes are told. A batch of decisions starts at most one rework of a finished work order. A rework that has not finished is the end of its chain, so it takes the later decisions instead of a second rework beside it: one that has not started reads them from its pack, and one with a lane is told and has its pack renewed. Work that was already reworked and finished is reworked once more at the end of its chain of rework, never at each link.
 
 The lane policy's `on_binding_decision` is `notify`, the default, or `park`, and it answers for every decision that binds a lane's work. A policy that sets `on_one_way_decision` answers for one-way decisions instead, so a team can park on what cannot be undone and tell on the rest.
+
+### A plan that needs revision
+
+A decision a member records, answers, or overturns, whose scope contains work of an approved plan version, marks that plan as needing revision. The plan keeps one open revision at a time. It lists the decisions made since the approved version, in the order they were made, and the finished work the reversible ones reached. A decision an orchestrator records within policy marks nothing, because covered work already proceeds under policy, and neither does a decision that binds no work of an approved plan.
+
+While a revision is open, work of the plan that waits in contract review stays there, and the plan shows once in Needs you with its decisions, the finished work they reached, and two choices:
+
+- **Confirm** records that the approved version stands with those decisions. It closes the revision and runs the definition of ready again for the work that waited.
+- **Revise** starts a planning session whose brief lists the decisions with their statements and scopes. The version it writes needs its own approval, which never inherits the earlier one and shows those decisions beside the difference from the approved version. Approving it closes the revision.
+
+A reversible decision does not rework finished work by itself, because that would rework every finished work order of a plan for each decision. The revision lists the work it reached, and the card offers Create rework for each finished work order, which starts one rework naming the decisions that reached it. The same is `ropeshift work decision-rework`. A one-way decision, and an overturn, rework the finished work they reach at once, so the revision lists none for them. Only a member with a session confirms or revises a plan or makes that rework: no delegate, orchestrator, or planning lane can ([the command line](cli.md) names each command).
 
 ## The ledger and Needs you
 
