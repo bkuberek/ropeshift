@@ -197,6 +197,24 @@ func installationSpendInForce(policies ports.PolicyReader) (authority.Installati
 	return authority.ReadInstallationSpendPolicy(version)
 }
 
+// policiesInForce reads the versions of the policies a lane that starts now starts under. A policy nobody
+// published is the built-in version, which is version 1.
+func policiesInForce(policies ports.PolicyReader) (ledger.LanePolicies, error) {
+	var out ledger.LanePolicies
+	for kind, into := range map[authority.PolicyKind]*int64{authority.PolicySpend: &out.Spend, authority.PolicyInstallationSpend: &out.InstallationSpend} {
+		version, err := policies.InForce(kind)
+		switch {
+		case errors.Is(err, ports.ErrNotFound):
+			*into = 1
+		case err != nil:
+			return out, err
+		default:
+			*into = version.Version
+		}
+	}
+	return out, nil
+}
+
 // desiredSpend reads the spend policy in force into what a lease carries. A project with none published reads
 // the built-in version, so a lease always names the values it starts under.
 func desiredSpend(tx ports.ReadTx) (*ledger.DesiredSpend, error) {

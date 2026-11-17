@@ -499,6 +499,8 @@ type LaneReader interface {
 	Generation(lane string) (int64, error)
 	// StartedUnder reports whether a lane started under this fence.
 	StartedUnder(workOrder string, fence int64) (bool, error)
+	// Policies returns the policy versions a lane started under, or ErrNotFound.
+	Policies(lane string) (ledger.LanePolicies, error)
 	// Row returns one lane's status, or ErrNotFound.
 	Row(lane string) (ledger.LaneRow, error)
 	// Rows returns every lane's status, by ID.
@@ -529,8 +531,8 @@ type LaneReader interface {
 // LaneWriter writes lanes.
 type LaneWriter interface {
 	LaneReader
-	// Start records a lane's first generation under a fence.
-	Start(lane, workOrder string, fence int64) error
+	// Start records a lane's first generation under a fence, with the policy versions in force.
+	Start(lane, workOrder string, fence int64, policies ledger.LanePolicies) error
 	// NextGeneration moves a lane to its next generation and returns it.
 	NextGeneration(lane string) (int64, error)
 	// Report stores what a worker says about a lane. An ended lane stays ended.

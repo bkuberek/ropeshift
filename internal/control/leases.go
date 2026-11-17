@@ -663,7 +663,11 @@ func startLane(tx ports.WriteTx, lease workorders.Lease, lane string, actor ledg
 		return 0, workorders.Reject(current, lease)
 	}
 	crashpoint.Hit("lane.start", "started")
-	if err := tx.Lanes().Start(lane, lease.WorkOrder, lease.Fence); err != nil {
+	policies, err := policiesInForce(tx.Policies())
+	if err != nil {
+		return 0, err
+	}
+	if err := tx.Lanes().Start(lane, lease.WorkOrder, lease.Fence, policies); err != nil {
 		return 0, err
 	}
 	first := ledger.Generation{Lane: lane, Number: 1, StartReason: ledger.StartInitial}
