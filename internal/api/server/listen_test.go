@@ -2,17 +2,19 @@ package server_test
 
 import (
 	"crypto/tls"
+	"errors"
 	"net"
-	"strings"
+	"syscall"
 	"testing"
 
 	"ropeshift.com/ropeshift/internal/api/server"
 )
 
-// skipWithoutAddress skips a test on a machine that has no such address, such as one with no IPv6.
+// skipWithoutAddress skips a test on a machine that has no such address, such as one with no IPv6, or
+// macOS, which assigns only 127.0.0.1 of the loopback range.
 func skipWithoutAddress(t *testing.T, err error) {
 	t.Helper()
-	if strings.Contains(err.Error(), "cannot assign") || strings.Contains(err.Error(), "address family not supported") {
+	if errors.Is(err, syscall.EADDRNOTAVAIL) || errors.Is(err, syscall.EAFNOSUPPORT) {
 		t.Skip("this machine has no such address")
 	}
 }
