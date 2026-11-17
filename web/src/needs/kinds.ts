@@ -155,6 +155,11 @@ export function questionTitle(text: string): string {
   return `${kept.replace(/[\s,;:.\-–—]+$/, "")}…`;
 }
 
+// fullQuestionTitle is questionTitle with nothing cut: what a title attribute holds.
+export function fullQuestionTitle(text: string): string {
+  return oneLine(text) || "A question";
+}
+
 // fullHeadingOf is headingOf with nothing cut: what a title attribute holds, so the whole question stays one
 // hover away.
 export function fullHeadingOf(item: NeedItem): string {
