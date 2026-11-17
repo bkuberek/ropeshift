@@ -8,6 +8,7 @@ import (
 	"ropeshift.com/ropeshift/internal/adapters/fake"
 	"ropeshift.com/ropeshift/internal/planning"
 	"ropeshift.com/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/questions"
 )
 
 // decisionOf renders a decision record. An empty plan or status leaves the key out.
@@ -186,4 +187,41 @@ func checkPackHoldsCitedDecision(r *Rig) error {
 		return Violatedf("the pack moved with the record: %s", pack.Text)
 	}
 	return r.CheckPacks(status.store)
+}
+
+// checkDecisionDocumentSearch follows one decision record through its statuses: search finds it, under the
+// record's reference, only while its newest version is accepted, and the record's title and body are what it
+// reads.
+func checkDecisionDocumentSearch(r *Rig) error {
+	s := r.Store()
+	source := fake.NewWorkSource()
+	const decisionFile = "docs/decisions/0007-retry-budget.md"
+	found := func(stage string, want bool) error {
+		hits, err := r.search(s, "retry budget attempts", questions.LookupKinds()...)
+		if err != nil {
+			return err
+		}
+		record := len(hits) == 1 && hits[0].Kind == questions.KindDecisionDocument && hits[0].RecordID == "decision:adr-0007"
+		if (want && !record) || (!want && len(hits) != 0) {
+			return Violatedf("%s: search found %+v, want the decision record: %v", stage, hits, want)
+		}
+		return nil
+	}
+	for _, step := range []struct {
+		status string
+		found  bool
+	}{{"", false}, {"proposed", false}, {"accepted", true}, {"superseded", false}, {"accepted", true}, {"rejected", false}} {
+		source.Write(decisionFile, []byte(decisionOf("adr-0007", "Retry budget", "", step.status, "Every call has two attempts.")))
+		report, err := r.intake(s, source)
+		if err != nil {
+			return err
+		}
+		if len(report.Problems) != 0 {
+			return Violatedf("status %q: %+v", step.status, report)
+		}
+		if err := found("status "+step.status, step.found); err != nil {
+			return err
+		}
+	}
+	return r.CheckPlanning(s)
 }

@@ -28,6 +28,7 @@ var DocumentChecks = []Check{
 	{"DC11", "the files a planning lane is shown are a valid set: intake reads them with no problem, and their work reaches ready", checkFormatExamplesAreASet},
 	{"DC12", "a decision record with no plan is a document, a status that changes is a new version, and one that states none is proposed", checkDecisionStatusVersions},
 	{"DC13", "a contract pins a cited decision record to the version at its commit, and the record's later versions move nothing", checkContractPinsDecision},
+	{"DC14", "search finds a decision record at its newest version while it is accepted, and no other", checkDecisionDocumentSearch},
 }
 
 const (

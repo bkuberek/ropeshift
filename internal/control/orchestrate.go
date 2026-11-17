@@ -368,7 +368,7 @@ func (w *Workers) withCandidates(ctx context.Context, question questions.Questio
 		return read, nil
 	}
 	lookup, err := w.options.Matcher.Candidates(ctx, w.scope, ports.MatchRequest{
-		Text: question.Text, Kinds: []string{questions.KindDecision, questions.KindRequirement, questions.KindContract}, Limit: candidateLimit,
+		Text: question.Text, Kinds: questions.LookupKinds(), Limit: candidateLimit,
 	})
 	if err != nil {
 		return nil, err
@@ -424,6 +424,12 @@ func readCandidate(tx ports.ReadTx, candidate ports.Candidate) (LadderCandidate,
 			return read, err
 		}
 		read.Text = contractSource(row).Text
+	case questions.KindDecisionDocument:
+		row, err := tx.Planning().LatestDocumentVersion(candidate.RecordID)
+		if err != nil {
+			return read, err
+		}
+		read.Text = row.Title + "\n\n" + row.Body
 	case questions.KindQuestion:
 		row, err := tx.Questions().Question(candidate.RecordID)
 		if err != nil {

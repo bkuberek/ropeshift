@@ -77,11 +77,13 @@ Ropeshift merges only the exact commit the review read, never through an agent, 
 
 When a lane has a question, the question climbs a ladder, and a person is the last rung:
 
-1. Look it up in existing decisions, requirements, and contracts. A match answers it.
+1. Look it up in existing decisions, requirements, contracts, and accepted decision records. A match answers it.
 2. Match it against open questions, so the same question is never asked twice.
 3. The orchestrator decides it within the decision policy, and records why.
 4. If the choice can be undone, the orchestrator records an assumption and goes on. You can overturn it later.
 5. Only then does it reach you: a one-way decision, a conflict between requirements, or a change of scope.
+
+A decision record kept as a file, such as an architecture decision record, takes part in the first rung while its newest version has the status `accepted`. The orchestrator reads its title and body and cites it as `decision:<id>`, the ID its front matter gives. A record that is proposed, rejected, or superseded answers nothing, and one whose newest version leaves `accepted` leaves the lookup with it.
 
 Questions reach you in batches, each with its options and a recommendation. Every answer is recorded as a decision with its rationale, so the next lane that asks finds it on the first rung. One-way decisions about security, compliance, and data always come to you. A planning session's questions come straight to you too, because the plan is yours ([decisions in the web UI](web-ui.md#needs-you)).
 

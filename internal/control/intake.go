@@ -855,7 +855,27 @@ func (w planningWriter) document(record planning.DocumentRecord, version plannin
 	if err := w.tx.Planning().InsertDocumentVersion(version); err != nil {
 		return err
 	}
+	if record.Kind == planning.FileDecision {
+		if err := w.indexDecisionDocument(record, version); err != nil {
+			return err
+		}
+	}
 	return w.append(planning.EventDocumentVersion, planning.SubjectDocument, record.ID, planning.DocumentRecorded{Document: record, Version: version})
+}
+
+// indexDecisionDocument keeps a decision record's newest version for search: its title and body while it
+// is accepted, and no text otherwise, which no query matches, so a record that leaves `accepted` leaves
+// the ladder's lookup.
+func (w planningWriter) indexDecisionDocument(record planning.DocumentRecord, version planning.DocumentVersion) error {
+	var file planning.DecisionFile
+	if err := version.Decode(&file); err != nil {
+		return err
+	}
+	text := ""
+	if file.Status == planning.DecisionAccepted {
+		text = version.Title + " " + version.Body
+	}
+	return w.tx.Index(questions.KindDecisionDocument, record.ID, text)
 }
 
 func (w planningWriter) goal(goal planning.Goal) error {
