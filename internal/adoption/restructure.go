@@ -60,6 +60,11 @@ func restructuring(ctx context.Context, plan *planning.AdoptionPlan, in Request,
 		if !held.tracks("Makefile") {
 			plan.Files = append(plan.Files, makefile)
 		}
+		// The merged ignore file leaves the folder a lane's worktree goes in out of the workspace, as the other
+		// shapes do, and the folder of clones it already ignores, or it would not be this shape.
+		if err := ignoring(ctx, plan, home, nil, kept); err != nil {
+			return err
+		}
 		return consolidation(ctx, plan, in, design, held.tracked, layouts)
 	}
 	return nil
@@ -169,20 +174,35 @@ func consolidation(ctx context.Context, plan *planning.AdoptionPlan, in Request,
 	if err != nil {
 		return err
 	}
-	for _, tracked := range held {
-		if slices.ContainsFunc(left, func(tree string) bool { return strings.HasPrefix(tracked, tree+"/") }) {
+	plan.Takes, plan.Collisions = Arrivals(homeTracked, held, left)
+	// A manifest or a Makefile the design repository commits arrives in the merge at its own path, so the
+	// workspace has one once it is merged, and the worker adds none.
+	plan.Files = slices.DeleteFunc(plan.Files, func(file planning.PlannedFile) bool {
+		return file.Action == planning.ActionAdd && (file.Path == ManifestPath || file.Path == planning.MakefilePath) && slices.Contains(plan.Takes, file.Path)
+	})
+	return nil
+}
+
+// Arrivals sorts what a design repository's tip holds, given what the workspace holds and the code trees left
+// out, as a consolidation merges it: the paths the merge takes from the design repository, and the paths both
+// hold, each with the version kept, the workspace's, or for the ignore file at the top the union of both files'
+// lines. A path inside a tree left out arrives in neither list. The plan and the brief of the session that
+// onboards the merge both read it, so they say the same.
+func Arrivals(ours, theirs, leftOut []string) (takes []string, collisions []planning.Collision) {
+	for _, tracked := range theirs {
+		if slices.ContainsFunc(leftOut, func(tree string) bool { return strings.HasPrefix(tracked, tree+"/") }) {
 			continue
 		}
 		switch {
-		case tracked == ".gitignore" && slices.Contains(homeTracked, tracked):
-			plan.Collisions = append(plan.Collisions, planning.Collision{Path: tracked, Kept: planning.KeptUnion})
-		case slices.Contains(homeTracked, tracked):
-			plan.Collisions = append(plan.Collisions, planning.Collision{Path: tracked, Kept: planning.KeptWorkspace})
+		case tracked == planning.GitignorePath && slices.Contains(ours, tracked):
+			collisions = append(collisions, planning.Collision{Path: tracked, Kept: planning.KeptUnion})
+		case slices.Contains(ours, tracked):
+			collisions = append(collisions, planning.Collision{Path: tracked, Kept: planning.KeptWorkspace})
 		default:
-			plan.Takes = append(plan.Takes, tracked)
+			takes = append(takes, tracked)
 		}
 	}
-	return nil
+	return takes, collisions
 }
 
 // treeNames lists the code trees of a repository for a message.
