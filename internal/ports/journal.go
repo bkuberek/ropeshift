@@ -157,6 +157,10 @@ type Journal interface {
 	BeginResume(ctx context.Context, lane lanes.Record, event ledger.UploadEvent) (ledger.UploadEvent, error)
 	// SaveBlocking replaces the questions a lane cannot go on without.
 	SaveBlocking(ctx context.Context, lane string, questions []string) error
+	// SaveWaitPark keeps the end, in milliseconds, of a `lane_wait` longer than the live bound that no park has
+	// begun for, and zero takes it back. BeginParking clears it in its own write, so a restart between the two
+	// still parks the lane.
+	SaveWaitPark(ctx context.Context, lane string, atMs int64) error
 	// ChargeRestart keeps one charge and reports whether this was the first of its key.
 	ChargeRestart(ctx context.Context, lane string, charge lanes.Restart) (bool, error)
 	// Restarts lists a lane's charges, oldest first.

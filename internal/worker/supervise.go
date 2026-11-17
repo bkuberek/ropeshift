@@ -486,16 +486,22 @@ func (r *laneRun) kept() []string {
 // asksToPark says a wait is longer than this lane may hold a session for, and keeps the park it asks for until a
 // pass parks the lane (FR-SPEND-1). The wake is the end of the wait or a person, and the pass starts the sequence
 // that stores it, so the call that declared the wait returns at once. A lane that waits again before the pass
-// runs asks for the later end, so no wait is cut short.
-func (r *laneRun) asksToPark(wait lanes.WaitDeclaration) bool {
+// runs asks for the later end, so no wait is cut short. The request is in the journal before the lane is told
+// to park, and the park's own write clears it, so a worker that dies in between leaves a request the next one
+// finishes. A request that cannot be kept is an error, and the lane is not told it parks.
+func (r *laneRun) asksToPark(ctx context.Context, wait lanes.WaitDeclaration) (parks bool, err error) {
 	if !lanes.ParksOnWait(wait.Minutes, lanes.MaxLiveWait(r.lease.Spend)) {
-		return false
+		return false, nil
 	}
 	end := r.w.clock.Now().Add(time.Duration(wait.Minutes) * time.Minute).UnixMilli()
 	r.handleLock.Lock()
 	defer r.handleLock.Unlock()
-	r.waitParkAt = max(r.waitParkAt, end)
-	return true
+	end = max(r.waitParkAt, end)
+	if err := r.w.journal.SaveWaitPark(ctx, r.lease.Lane, end); err != nil {
+		return false, err
+	}
+	r.waitParkAt = end
+	return true, nil
 }
 
 // waitParkOf reads the park a long wait asked for, and the end it waits to.

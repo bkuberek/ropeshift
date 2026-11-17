@@ -57,6 +57,10 @@ type Record struct {
 	Parking *ParkProgress
 	// Blocking names the questions this lane cannot go on without.
 	Blocking []string
+	// WaitParkAt is the end, in milliseconds, of a `lane_wait` past the live bound that no park has begun for
+	// yet, and zero when none waits. It is kept before the lane is told to park, so a restart in between still
+	// parks the lane, with its timer (FR-SPEND-1).
+	WaitParkAt int64
 	// RunMode is the mode the lane's session started in, which a resume stays in.
 	RunMode string
 	// Process is the generation whose process runs now. A clear moves Generation and not this,

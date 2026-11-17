@@ -381,7 +381,7 @@ ON CONFLICT (id) DO UPDATE SET body = ?1`, string(body))
 	return err
 }
 
-const laneColumns = `id, work_order, claim, fence, generation, state, token_digest, worktree, branch, report, session_id, progress, actual, resume_session, resets_seen, guard, handoff, parking, blocking, run_mode, compact_from, process_generation, respawns_seen, owner, project, window_resets_seen`
+const laneColumns = `id, work_order, claim, fence, generation, state, token_digest, worktree, branch, report, session_id, progress, actual, resume_session, resets_seen, guard, handoff, parking, blocking, run_mode, compact_from, process_generation, respawns_seen, owner, project, window_resets_seen, wait_park_at`
 
 func scanLane(row interface{ Scan(...any) error }) (lanes.Record, error) {
 	var lane lanes.Record
@@ -389,7 +389,7 @@ func scanLane(row interface{ Scan(...any) error }) (lanes.Record, error) {
 	var progress, guard, handoff, parking, blocking []byte
 	err := row.Scan(&lane.ID, &lane.WorkOrder, &lane.ClaimID, &lane.Fence, &lane.Generation, &lane.State,
 		&digest, &lane.Worktree, &lane.Branch, &lane.Report, &lane.SessionID, &progress, &lane.Actual,
-		&lane.ResumeSession, &lane.ResetsSeen, &guard, &handoff, &parking, &blocking, &lane.RunMode, &lane.CompactFrom, &lane.Process, &lane.RespawnsSeen, &lane.Owner, &lane.Project, &lane.WindowResetsSeen)
+		&lane.ResumeSession, &lane.ResetsSeen, &guard, &handoff, &parking, &blocking, &lane.RunMode, &lane.CompactFrom, &lane.Process, &lane.RespawnsSeen, &lane.Owner, &lane.Project, &lane.WindowResetsSeen, &lane.WaitParkAt)
 	if err != nil {
 		return lane, err
 	}
@@ -561,7 +561,7 @@ func (j *Journal) BeginParking(ctx context.Context, lane string, parking lanes.P
 		return ledger.UploadEvent{}, err
 	}
 	defer func() { _ = tx.Rollback() }()
-	if _, err := tx.ExecContext(ctx, `UPDATE lanes SET parking = ?2, handoff = ?3 WHERE id = ?1`, lane, progress, document); err != nil {
+	if _, err := tx.ExecContext(ctx, `UPDATE lanes SET parking = ?2, handoff = ?3, wait_park_at = 0 WHERE id = ?1`, lane, progress, document); err != nil {
 		return ledger.UploadEvent{}, err
 	}
 	stored, err := insertEvent(ctx, tx, event)
@@ -621,7 +621,7 @@ func (j *Journal) BeginResume(ctx context.Context, lane lanes.Record, event ledg
   (id, work_order, claim, fence, generation, state, worktree, branch, resume_session, progress, handoff, parking, actual, project)
 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
 ON CONFLICT (id) DO UPDATE SET work_order = ?2, claim = ?3, fence = ?4, generation = ?5, state = ?6, token_digest = NULL,
-  session_id = '', resume_session = ?9, progress = ?10, handoff = ?11, parking = ?12, blocking = NULL, actual = ?13,
+  session_id = '', resume_session = ?9, progress = ?10, handoff = ?11, parking = ?12, blocking = NULL, wait_park_at = 0, actual = ?13,
   process_generation = 0, project = coalesce(nullif(?14, ''), lanes.project)`,
 		lane.ID, lane.WorkOrder, lane.ClaimID, lane.Fence, lane.Generation, lane.State, lane.Worktree, lane.Branch,
 		lane.ResumeSession, progress, handoff, parking, lane.Actual, lane.Project)
@@ -642,6 +642,12 @@ func (j *Journal) SaveBlocking(ctx context.Context, lane string, questions []str
 		return err
 	}
 	_, err = j.db.ExecContext(ctx, `UPDATE lanes SET blocking = ?2 WHERE id = ?1`, lane, raw)
+	return err
+}
+
+// SaveWaitPark keeps the end of a long `lane_wait` a park has not begun for yet, and zero takes it back.
+func (j *Journal) SaveWaitPark(ctx context.Context, lane string, atMs int64) error {
+	_, err := j.db.ExecContext(ctx, `UPDATE lanes SET wait_park_at = ?2 WHERE id = ?1`, lane, atMs)
 	return err
 }
 

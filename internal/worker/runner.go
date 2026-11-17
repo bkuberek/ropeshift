@@ -237,6 +237,7 @@ func (w *Worker) resumedRun(lease ledger.DesiredLease, record lanes.Record) *lan
 	run.instruction, run.blocking, run.carried = record.Progress.Instruction, record.Blocking, record.Progress.Carried
 	run.packRead, run.process = record.Progress.Pack, record.Process
 	run.handled = record.RespawnsSeen
+	run.waitParkAt = record.WaitParkAt
 	run.owesBrief.Store(record.Progress.OwesBrief)
 	run.state.keepContext(record.Progress)
 	run.inheritedFrom(record.Handoff)
@@ -616,7 +617,7 @@ func (r *laneRun) adopt(ctx context.Context) error {
 // lane's end, its next generation, or its wake carries it.
 func (r *laneRun) unread(ctx context.Context) error {
 	r.unreadEnd(ctx)
-	if r.parkingOf().Open() {
+	if _, _, asked := r.waitParkOf(); asked || r.parkingOf().Open() {
 		return r.finishParking(ctx)
 	}
 	if r.left.Open() {

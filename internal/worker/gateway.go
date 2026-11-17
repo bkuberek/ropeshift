@@ -159,7 +159,11 @@ func (w *Worker) AnswerLane(ctx context.Context, line []byte) lanes.Reply {
 		}
 		if run := w.runOf(lane.ID); run != nil {
 			run.noteLedger(lanes.Reachable)
-			if run.asksToPark(*request.Wait) {
+			parks, err := run.asksToPark(ctx, *request.Wait)
+			if err != nil {
+				return refused(lanes.CodeUnavailable, err.Error())
+			}
+			if parks {
 				return lanes.Reply{OK: true, Parking: true}
 			}
 			run.declareWait(*request.Wait)

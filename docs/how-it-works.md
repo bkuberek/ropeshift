@@ -66,7 +66,7 @@ A session that waits spends its credits on nothing: every turn it takes while it
 | CI, a review, or a merge | Nothing: the lane reports its work and ends, and ropeshift starts the next step once the result is in |
 | A person | The lane asks, ends its turn, and parks after `ask_wait` |
 | A timer or an outside process, up to `max_live_wait` | The lane calls `lane_wait` and stays live |
-| A timer or an outside process, longer | `lane_wait` answers `parking`, the lane ends its turn, and the worker parks it within one pass. The lane wakes when the wait ends, or when you resume it |
+| A timer or an outside process, longer | `lane_wait` answers `parking`, the lane ends its turn, and the worker parks it within one pass, and a restart of the worker in between still parks it. The lane wakes when the wait ends, or when you resume it |
 
 A parked lane has no process and makes no model call until it wakes.
 
