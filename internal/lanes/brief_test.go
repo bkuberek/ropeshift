@@ -268,6 +268,57 @@ func TestAnAdoptBriefWithNoCommitSaysTheWorkerMadeNoneAndNamesNoManifest(t *test
 	}
 }
 
+func aConsolidated() *Restructured {
+	return &Restructured{
+		Commit: "5d3c0e8a9f1b2c4d6e7f8091a2b3c4d5e6f70812", Subject: planning.ImportCommitSubject("design"), Manifest: "repositories:shop",
+		Consolidated: &Consolidated{
+			Design: "design", SecondParent: "c0ffee1234567890abcdef1234567890abcdef12",
+			Collisions: []planning.Collision{
+				{Path: ".gitignore", Kept: planning.KeptUnion}, {Path: "AGENTS.md", Kept: planning.KeptWorkspace}, {Path: "README.md", Kept: planning.KeptWorkspace},
+			},
+			LeftOut: []string{"tools"}, Instructions: []string{"AGENTS.md", "CLAUDE.md"},
+		},
+	}
+}
+
+// An adopt lane whose repository the worker consolidated is told the merge commit and its second parent, every
+// colliding path with the version kept, every tree left out, and the design repository's instruction files at the
+// second parent, and is told to merge those instructions into the workspace's own as one commit, keeping both sets of
+// rules and asking the person about each contradiction.
+func TestAnAdoptBriefTellsTheMergeItsSecondParentTheCollisionsAndTheInstructionsToMerge(t *testing.T) {
+	brief := Brief(BriefSpec{WorkOrder: "wo", Title: "Adopt the project", Kind: workorders.KindPlan, Adopt: true, Restructured: aConsolidated()})
+	for _, want := range []string{
+		"5d3c0e8a9f1b2c4d6e7f8091a2b3c4d5e6f70812", planning.ImportCommitSubject("design"), "second parent", "c0ffee1234567890abcdef1234567890abcdef12",
+		"- .gitignore, the lines of both files", "- AGENTS.md, this repository's version", "- README.md, this repository's version",
+		"- tools", "git show c0ffee1234567890abcdef1234567890abcdef12:AGENTS.md", "git show c0ffee1234567890abcdef1234567890abcdef12:CLAUDE.md",
+		"one commit", "keeping both sets of rules", "ask the person about each contradiction", "`repositories:shop`",
+	} {
+		if !strings.Contains(brief, want) {
+			t.Errorf("the brief leaves out %q:\n%s", want, brief)
+		}
+	}
+	if strings.Contains(brief, "holds these files") {
+		t.Errorf("a consolidation's brief lists the files of a merge:\n%s", brief)
+	}
+}
+
+// A consolidation that left no tree out, collided nowhere, and found no instruction file in the design repository says
+// none of those, and asks for no merge of instructions there are none of.
+func TestAnAdoptBriefOfAConsolidationWithNothingToSettleSaysNoneOfIt(t *testing.T) {
+	bare := aConsolidated()
+	bare.Manifest = ""
+	bare.Consolidated.Collisions, bare.Consolidated.LeftOut, bare.Consolidated.Instructions = nil, nil, nil
+	brief := Brief(BriefSpec{WorkOrder: "wo", Title: "Adopt the project", Kind: workorders.KindPlan, Adopt: true, Restructured: bare})
+	if !strings.Contains(brief, "c0ffee1234567890abcdef1234567890abcdef12") {
+		t.Errorf("the brief names no second parent:\n%s", brief)
+	}
+	for _, unwanted := range []string{"Both repositories held these paths", "left out of the merge", "keeping both sets of rules", "repositories:shop"} {
+		if strings.Contains(brief, unwanted) {
+			t.Errorf("a consolidation with nothing to settle holds %q:\n%s", unwanted, brief)
+		}
+	}
+}
+
 // An adopt lane that was not restructured is told nothing of it.
 func TestAnAdoptBriefThatWasNotRestructuredSaysNothingOfIt(t *testing.T) {
 	brief := Brief(BriefSpec{WorkOrder: "wo", Title: "Adopt the project", Kind: workorders.KindPlan, Adopt: true})

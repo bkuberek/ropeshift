@@ -129,6 +129,9 @@ type Consolidated struct {
 // restructuredNotice tells an adopt lane what the worker restructured, so it neither writes those files again nor
 // plans without them, and what stays the person's: the moves, which ropeshift never runs.
 func restructuredNotice(done Restructured) string {
+	if done.Consolidated != nil {
+		return consolidatedNotice(done)
+	}
 	var out strings.Builder
 	out.WriteString("\nBefore you started, the worker restructured this repository.")
 	if done.Commit == "" {
@@ -140,10 +143,7 @@ func restructuredNotice(done Restructured) string {
 		}
 		out.WriteString("They are part of your branch as they are: do not write them again, and do not undo them.\n")
 	}
-	if done.Manifest != "" {
-		out.WriteString("The manifest, " + planning.ManifestPath + ", is a document of kind repositories. List it in the plan's documents as `" +
-			done.Manifest + "`, so the plan holds it and approving the plan registers the repositories it names.\n")
-	}
+	out.WriteString(manifestSentence(done.Manifest))
 	if len(done.Moves) != 0 {
 		out.WriteString("The plan also lists moves, each a command for the person to run, because ropeshift never moves a clone. Tell the person " +
 			"about them in the conversation, and never run them yourself:\n")
@@ -152,6 +152,58 @@ func restructuredNotice(done Restructured) string {
 				out.WriteString("- " + command + "\n")
 			}
 		}
+	}
+	return out.String()
+}
+
+// manifestSentence tells the lane how the plan lists the manifest the worker wrote, by the reference given, or says
+// nothing when the worker wrote none.
+func manifestSentence(manifest string) string {
+	if manifest == "" {
+		return ""
+	}
+	return "The manifest, " + planning.ManifestPath + ", is a document of kind repositories. List it in the plan's documents as `" +
+		manifest + "`, so the plan holds it and approving the plan registers the repositories it names.\n"
+}
+
+// consolidatedNotice tells an adopt lane what the worker imported when it consolidated the design repository: the
+// merge commit and its second parent, so the session reads the design repository's own version of any file, the
+// paths both repositories held and the trees left out, and the design repository's instruction files, which the
+// session merges into the workspace's own (FR-ADOPT-13).
+func consolidatedNotice(done Restructured) string {
+	c := done.Consolidated
+	var out strings.Builder
+	out.WriteString("\nBefore you started, the worker consolidated the design repository, " + c.Design + ", into this repository. Commit " + done.Commit +
+		" on your branch, \"" + done.Subject + "\", is a merge commit, and its second parent, " + c.SecondParent + ", is the design repository's tip. " +
+		"Every design commit keeps its ID, and git log and git blame read through the merge. The merge is part of your branch as it is: " +
+		"do not undo it, rebase it, or squash it, because that would drop the design history.\n")
+	if len(c.Collisions) != 0 {
+		out.WriteString("Both repositories held these paths. The merge kept this repository's version of each, and the design repository's version is at the " +
+			"second parent, which `git show " + c.SecondParent + ":<path>` reads:\n")
+		for _, collision := range c.Collisions {
+			if collision.Kept == planning.KeptUnion {
+				out.WriteString("- " + collision.Path + ", the lines of both files, this repository's first\n")
+				continue
+			}
+			out.WriteString("- " + collision.Path + ", this repository's version\n")
+		}
+	}
+	if len(c.LeftOut) != 0 {
+		out.WriteString("These code trees were left out of the merge: the merge commit removed them, and they stay readable at the second parent and in the " +
+			"old repository. Moving one into a repository of its own is the person's step, so leave it to them.\n")
+		for _, tree := range c.LeftOut {
+			out.WriteString("- " + tree + "\n")
+		}
+	}
+	out.WriteString(manifestSentence(done.Manifest))
+	if len(c.Instructions) != 0 {
+		out.WriteString("The design repository's agent instructions are at the second parent:\n")
+		for _, file := range c.Instructions {
+			out.WriteString("- " + file + ", which `git show " + c.SecondParent + ":" + file + "` reads\n")
+		}
+		out.WriteString("Merge them into this repository's own instruction files as one commit on your branch, keeping both sets of rules: " +
+			"write each rule of the design repository that this repository's files lack, and leave every rule they hold. " +
+			"Where two rules contradict each other, ask the person about each contradiction, and never choose between them yourself.\n")
 	}
 	return out.String()
 }
