@@ -406,7 +406,7 @@ func TestAPrintedFrameClipsNoLaneOrWorker(t *testing.T) {
 	}}}
 	snapshot.Telemetry = api.LaneTelemetryList{Available: true, Lanes: []api.LaneTelemetry{{Lane: lane, ContextTokens: 159100, Tokens: map[string]int64{"input": 1000000}, CostUSD: 12.57}}}
 	worker := &snapshot.Floor.Workers[0]
-	worker.Orchestrator = &ledger.Orchestrator{Desired: "running", Actual: "idle"}
+	worker.Orchestrator = &api.Orchestrator{Orchestrator: ledger.Orchestrator{Desired: "running", Actual: "idle"}}
 	worker.Worker.Report = &ledger.ResourceReport{
 		Machine: ledger.MachineResources{
 			Cores: 8, CPUPercent: &cpu, Load1: &load, Load5: &load, Load15: &load, MemoryTotalBytes: &total, MemoryUsedBytes: &used, MemoryAvailableBytes: &available, MemoryPressureSome: &pressure,
@@ -430,6 +430,11 @@ func TestAPrintedFrameClipsNoLaneOrWorker(t *testing.T) {
 	}
 	if !strings.Contains(frame, "orchestrator idle, wanted running, cpu 0.25 cores  rss 300.0 MiB") {
 		t.Errorf("the worker's line does not hold its orchestrator's process tree:\n%s", frame)
+	}
+	// A run an attended worker holds until a member opens a run window says so, in the words the web UI uses.
+	worker.Orchestrator = &api.Orchestrator{Orchestrator: ledger.Orchestrator{Desired: "running", Actual: "provisioning"}, WaitingFor: api.WaitingForRunWindow}
+	if frame := top.Frame(snapshot, time.UnixMilli(snapshot.Needs.AsOf), 200); !strings.Contains(frame, "orchestrator waiting for a run window, wanted running") {
+		t.Errorf("a run that waits for a window reads otherwise:\n%s", frame)
 	}
 	// A process tree the worker reported before the floor read its orchestrator still says whose it is.
 	worker.Orchestrator = nil

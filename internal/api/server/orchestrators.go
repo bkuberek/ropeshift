@@ -31,12 +31,20 @@ func (h *handler) workerOrchestrate(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *handler) showOrchestrator(w http.ResponseWriter, r *http.Request) {
-	row, err := h.plane.Orchestrator(r.Context(), r.PathValue("id"))
+	row, waits, err := h.plane.OrchestratorStanding(r.Context(), r.PathValue("id"))
 	if err != nil {
 		fail(w, err)
 		return
 	}
-	reply(w, http.StatusOK, row)
+	reply(w, http.StatusOK, api.Orchestrator{Orchestrator: row, WaitingFor: waitingFor(waits)})
+}
+
+// waitingFor names what holds an orchestrator's run, which is a run window or nothing.
+func waitingFor(awaitsWindow bool) string {
+	if awaitsWindow {
+		return api.WaitingForRunWindow
+	}
+	return ""
 }
 
 func (h *handler) setOrchestrator(w http.ResponseWriter, r *http.Request, actor ledger.Actor) {

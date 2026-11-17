@@ -628,6 +628,37 @@ describe("the floor", () => {
     expect(within(machine).getByText(/^Orchestrator/).textContent).toBe("Orchestrator · working · gen 5");
   });
 
+  // An attended worker holds its orchestrator's run until a member opens a run window, so the chip says so in place
+  // of Provisioning, beside the way to open one.
+  it("says an orchestrator waits for a run window, and leads to opening one", async () => {
+    serving<ShopFloor>("shop-floor", (view) => {
+      const orchestrator = view.workers.find((line) => line.worker.name === "solo")?.orchestrator;
+      if (orchestrator) {
+        orchestrator.actual_state = "provisioning";
+        orchestrator.waiting_for = "run_window";
+      }
+    });
+    openPage("/floor");
+    const machine = await screen.findByRole("region", { name: "solo" });
+    expect(within(machine).getByText(/^Orchestrator/).textContent).toBe("Orchestrator · waiting for a run window");
+    const open = within(machine).getByRole("link", { name: "Open run window on solo" });
+    expect(open.textContent).toBe("Open run window");
+    expect(open.getAttribute("href")).toBe("/settings?section=autonomy&worker=worker-a");
+  });
+
+  it("offers no run window to an orchestrator that waits for none", async () => {
+    serving<ShopFloor>("shop-floor", (view) => {
+      const orchestrator = view.workers.find((line) => line.worker.name === "solo")?.orchestrator;
+      if (orchestrator) {
+        orchestrator.actual_state = "provisioning";
+      }
+    });
+    openPage("/floor");
+    const machine = await screen.findByRole("region", { name: "solo" });
+    expect(within(machine).getByText(/^Orchestrator/).textContent).toBe("Orchestrator · provisioning");
+    expect(within(machine).queryByRole("link", { name: /Open run window/ })).toBeNull();
+  });
+
   it("says when a worker runs no orchestrator", async () => {
     serving<ShopFloor>("shop-floor", (view) => {
       const line = view.workers.find((one) => one.worker.name === "solo");

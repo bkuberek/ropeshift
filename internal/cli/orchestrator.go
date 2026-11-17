@@ -4,11 +4,10 @@ import (
 	"fmt"
 
 	"ropeshift.com/ropeshift/internal/api"
-	"ropeshift.com/ropeshift/internal/ledger"
 )
 
-func orchestratorLine(row ledger.Orchestrator) string {
-	actual := row.Actual
+func orchestratorLine(row api.Orchestrator) string {
+	actual := api.OrchestratorState(row)
 	if actual == "" {
 		actual = "no status yet"
 	}
@@ -51,6 +50,6 @@ func setsOrchestrator(desired string) func(*invocation, []string) int {
 		client := c.client()
 		defer client.Close()
 		row, err := client.SetOrchestrator(c.ctx, worker, api.SetOrchestrator{Desired: desired})
-		return c.finish(err, row, func() string { return orchestratorLine(row) })
+		return c.finish(err, row, func() string { return orchestratorLine(api.Orchestrator{Orchestrator: row}) })
 	}
 }

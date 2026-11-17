@@ -98,7 +98,7 @@ export type TalkEntry = {
 
 export type TalkPage = { entries: TalkEntry[]; next?: string; as_of: number };
 
-export type OrchestratorTarget = { worker: string; name: string; state: string; desired_state: string; generation: number; projects: string[] };
+export type OrchestratorTarget = { worker: string; name: string; state: string; waiting_for?: string; desired_state: string; generation: number; projects: string[] };
 
 export type SessionTarget = {
   lane: string;

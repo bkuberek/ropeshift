@@ -408,7 +408,7 @@ func (m Model) workerLines() []string {
 		report := line.Worker.Report
 		text := fmt.Sprintf("  %s  %s  epoch %d  %s", clean(line.Worker.ID), clean(line.Worker.Name), line.Worker.Epoch, m.freshness(line.Freshness, 0))
 		if line.Orchestrator != nil {
-			actual := clean(line.Orchestrator.Actual)
+			actual := clean(api.OrchestratorState(*line.Orchestrator))
 			if actual == "" {
 				actual = "not reported"
 			}

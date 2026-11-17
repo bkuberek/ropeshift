@@ -192,11 +192,13 @@ type AssistantTarget struct {
 	WarmIdleStopMs int64 `json:"warm_idle_stop_ms"`
 }
 
-// OrchestratorTarget is the orchestrator of a worker that serves the project.
+// OrchestratorTarget is the orchestrator of a worker that serves the project. WaitingFor is what holds its
+// run before its session starts, as Orchestrator's is.
 type OrchestratorTarget struct {
 	Worker     string   `json:"worker"`
 	Name       string   `json:"name"`
 	State      string   `json:"state"`
+	WaitingFor string   `json:"waiting_for,omitempty"`
 	Desired    string   `json:"desired_state"`
 	Generation int64    `json:"generation"`
 	Projects   []string `json:"projects"`

@@ -210,6 +210,33 @@ describe("a worker's orchestrator", () => {
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Orchestrator on solo" })).toBeNull());
   });
 
+  // An attended worker holds its orchestrator's run until a member opens a run window, so both the machine and its
+  // session say so in place of Provisioning, beside the way to open one.
+  it("says it waits for a run window, and leads to opening one", async () => {
+    serveViews((call) => {
+      if (!call.path.startsWith("/v1/views/shop-floor")) {
+        return undefined;
+      }
+      const view = golden<ShopFloor>("shop-floor");
+      for (const line of view.workers) {
+        if (line.orchestrator) {
+          line.orchestrator.actual_state = "provisioning";
+          line.orchestrator.waiting_for = "run_window";
+        }
+      }
+      return { status: 200, body: view };
+    });
+    openPage("/workers");
+    for (const place of [cell(await machineRow(), "Orchestrator"), cell(await sessionRow("Every project it serves"), "State")]) {
+      if (!place) {
+        throw new Error("no orchestrator cell");
+      }
+      await waitFor(() => expect(within(place).getByText("Waiting for a run window")).toBeTruthy());
+      expect(within(place).queryByText("Provisioning")).toBeNull();
+      expect(within(place).getByRole("link", { name: "Open run window on solo" }).getAttribute("href")).toBe("/settings?section=autonomy&worker=worker-a");
+    }
+  });
+
   // A worker reports its orchestrator to the installation's log, which no project's stream carries. The Floor
   // and this page read the floor again on their own, so both follow the orchestrator to idle and never disagree.
   describe("as its worker reports it, with nothing on the project's stream", () => {

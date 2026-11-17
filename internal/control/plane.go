@@ -708,6 +708,26 @@ func (p *Plane) Orchestrator(ctx context.Context, worker string) (ledger.Orchest
 	return orchestratorOf(ctx, p.installation, worker)
 }
 
+// OrchestratorStanding reads a worker's orchestrator, and whether its run waits for a run window, in one
+// read.
+func (p *Plane) OrchestratorStanding(ctx context.Context, worker string) (ledger.Orchestrator, bool, error) {
+	var row ledger.Orchestrator
+	var waits bool
+	err := p.installation.Read(ctx, func(tx ports.SharedReadTx) error {
+		var err error
+		if row, err = tx.Workers().Orchestrator(worker); err != nil {
+			return err
+		}
+		now, err := tx.Now()
+		if err != nil {
+			return err
+		}
+		waits, err = awaitsWindow(tx.Policies(), tx.Workers(), row, now)
+		return err
+	})
+	return row, waits, err
+}
+
 // SetOrchestrator records what a member asks of a worker's orchestrator.
 func (p *Plane) SetOrchestrator(ctx context.Context, worker, desired string, actor ledger.Actor) (ledger.Orchestrator, error) {
 	return setOrchestrator(ctx, p.installation, worker, desired, actor)
