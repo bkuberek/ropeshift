@@ -19,6 +19,7 @@
     },
     {
       "path": "/work/web",
+      "entered": "/srv/code/web",
       "outcome": "registered",
       "repository": {
         "id": "id-web",

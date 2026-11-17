@@ -405,7 +405,7 @@ func TestGoldenSettingsReads(t *testing.T) {
 	t.Parallel()
 	in := apitest.StartInstallation(t, "beta")
 	in.Checkouts.Place(ports.Clone{Path: "/work/api", ID: "id-api", Remote: "git@example.invalid:acme/api.git", DefaultBranch: "main"})
-	in.Checkouts.Place(ports.Clone{Path: "/work/web", ID: "id-web", Remote: "https://example.invalid/acme/web.git", DefaultBranch: "trunk"})
+	in.Checkouts.Place(ports.Clone{Path: "/work/web", Entered: "/srv/code/web", ID: "id-web", Remote: "https://example.invalid/acme/web.git", DefaultBranch: "trunk"})
 	project := in.Client.Project(apitest.ProjectName)
 	if _, err := project.AddRepositories(t.Context(), api.RepositoryAdd{Paths: []string{"/work/api"}}); err != nil {
 		t.Fatal(err)

@@ -38,6 +38,36 @@ func repositoriesOf(t *testing.T, client *api.ProjectClient) map[string]api.Repo
 	return out
 }
 
+// A clone the worker reads through a symbolic link is registered by the path the link leads to, and the report
+// gives the path the member named beside it, for a clone that registers, one that is already registered, and
+// one that is refused.
+func TestTheReportGivesTheSpellingAMemberNamedBesideTheClonesPath(t *testing.T) {
+	t.Parallel()
+	in := apitest.StartInstallation(t, "beta")
+	in.Checkouts.Place(ports.Clone{Path: "/private/work/api", Entered: "/work/api", ID: "id-api", Remote: "git@example.invalid:acme/api.git", DefaultBranch: "main"})
+	in.Checkouts.Place(ports.Clone{Path: "/private/work/copy", Entered: "/work/copy", ID: "id-api", Remote: "git@example.invalid:acme/api.git", DefaultBranch: "main"})
+	in.Checkouts.Place(ports.Clone{Path: "/private/work/nothing", Entered: "/work/nothing", ID: "id-nothing", DefaultBranch: "main"})
+	_, _, client := in.In(t, apitest.ProjectName)
+
+	report, err := client.AddRepositories(t.Context(), api.RepositoryAdd{Paths: []string{"/private/work/api", "/private/work/copy", "/nowhere"}, DryRun: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	entered := map[string]string{}
+	for _, added := range report.Repositories {
+		entered[added.Path] = added.Entered
+	}
+	want := map[string]string{"/private/work/api": "/work/api", "/private/work/copy": "/work/copy", "/nowhere": ""}
+	if len(entered) != len(want) {
+		t.Fatalf("the report holds %+v", report.Repositories)
+	}
+	for path, spelled := range want {
+		if entered[path] != spelled {
+			t.Errorf("%s was named %q, want %q", path, entered[path], spelled)
+		}
+	}
+}
+
 // ADR-0022: `repository add` registers each clone at or below the paths it names, in the project it
 // resolves, with the safe defaults; a repository another project holds is refused, naming that project,
 // and the others are still registered; a dry run says the same and records nothing.

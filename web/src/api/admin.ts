@@ -50,7 +50,7 @@ export type RepositoryChange = Partial<{
   planning: boolean;
 }>;
 
-export type RepositoryAdded = { path: string; outcome: "registered" | "known" | "refused"; repository?: Repository; checkout?: string; reason?: string };
+export type RepositoryAdded = { path: string; entered?: string; outcome: "registered" | "known" | "refused"; repository?: Repository; checkout?: string; reason?: string };
 export type RepositoryAddReport = { dry_run: boolean; repositories: RepositoryAdded[] };
 
 export type Fleet = { fleet_mode: "run" | "pause" | "drain"; wip_limit: number; lanes_per_repository: number; lanes_per_worker: number };

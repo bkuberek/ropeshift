@@ -80,6 +80,37 @@ func TestFindReadsAClonesTopOrTheClonesBelowAFolder(t *testing.T) {
 	}
 }
 
+// A clone is matched and kept by the path its symbolic links lead to, and a member who named it through a link
+// sees the path they named, and the path they named it under for a clone found below a folder.
+func TestFindKeepsTheSpellingAMemberNamedBesideTheResolvedPath(t *testing.T) {
+	root := real(t, t.TempDir())
+	origin := cloneInto(t, filepath.Join(root, "target", "api"))
+	cloneInto(t, filepath.Join(root, "target", "web"))
+	link := filepath.Join(root, "link")
+	if err := os.Symlink(filepath.Join(root, "target"), link); err != nil {
+		t.Fatal(err)
+	}
+	f := &File{Path: filepath.Join(t.TempDir(), FileName), Env: origin.Env()}
+
+	clones, _, err := f.Find(t.Context(), []string{filepath.Join(link, "api")}, 1)
+	if err != nil || len(clones) != 1 {
+		t.Fatalf("the clone through a link: %+v: %v", clones, err)
+	}
+	if clones[0].Path != filepath.Join(root, "target", "api") || clones[0].Entered != filepath.Join(link, "api") {
+		t.Errorf("the clone's path is %q and the path named is %q", clones[0].Path, clones[0].Entered)
+	}
+
+	clones, _, err = f.Find(t.Context(), []string{link}, 1)
+	if err != nil || len(clones) != 2 {
+		t.Fatalf("the clones below a link: %+v: %v", clones, err)
+	}
+	for _, clone := range clones {
+		if clone.Path != filepath.Join(root, "target", clone.Directory) || clone.Entered != filepath.Join(link, clone.Directory) {
+			t.Errorf("a clone below the link reads path %q and entered %q", clone.Path, clone.Entered)
+		}
+	}
+}
+
 // FR-REPO-14: a clone's ID is its first-parent root, and Roots lists every first commit it holds, so a
 // registration can match a record stored under the lowest-root rule.
 func TestFindNamesAClonesFirstParentRootAndEveryRoot(t *testing.T) {

@@ -545,7 +545,7 @@ export function DryRun({ report }: { report: RepositoryAddReport }) {
   return (
     <div className="panel">
       <TableRegion label="Clones found">
-        <table className="table stack-on-phone">
+        <table className="table stack-on-phone dry-run">
           <thead>
             <tr>
               <th scope="col">Clone</th>
@@ -556,11 +556,13 @@ export function DryRun({ report }: { report: RepositoryAddReport }) {
           <tbody>
             {report.repositories.map((row) => (
               <tr key={row.path}>
-                <td data-label="Clone">
-                  <code>{row.path}</code>
+                <td data-label="Clone" className="wrap">
+                  <code title={row.entered ? `Leads to ${row.path}` : undefined}>{row.entered || row.path}</code>
                 </td>
-                <td data-label="Identity">{row.repository ? <span className="mono small">{row.repository.remote || row.repository.id}</span> : <span className="subtle">none</span>}</td>
-                <td data-label="Result">
+                <td data-label="Identity" className="wrap">
+                  {row.repository ? <span className="mono small">{row.repository.remote || row.repository.id}</span> : <span className="subtle">none</span>}
+                </td>
+                <td data-label="Result" className="result">
                   <LookBadge look={outcomeOf(row, report.dry_run)} />
                 </td>
               </tr>

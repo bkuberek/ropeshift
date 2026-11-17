@@ -12,6 +12,10 @@ import (
 type Clone struct {
 	// Path is the top of the clone's working tree, as an absolute path.
 	Path string
+	// Entered is the path the clone was reached by, as the member named it or as found below a path they
+	// named, before symbolic links were followed. It is for display only: records and checkouts name the clone
+	// by Path. Empty reads as Path.
+	Entered string
 	// ID is the repository's identity in its project's records: the root commit reached by following first
 	// parents from its default branch tip, as a source names it (FR-REPO-14).
 	ID string

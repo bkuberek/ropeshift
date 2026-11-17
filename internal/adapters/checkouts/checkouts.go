@@ -260,7 +260,7 @@ func (f *File) cloneAt(ctx context.Context, dir string) (ports.Clone, string, bo
 		return ports.Clone{}, fmt.Sprintf("is a git clone git cannot describe: %v", err), false
 	}
 	return ports.Clone{
-		Path: real, ID: description.Instance, Roots: roots, Remote: description.Remote, DefaultBranch: description.DefaultBranch,
+		Path: real, Entered: dir, ID: description.Instance, Roots: roots, Remote: description.Remote, DefaultBranch: description.DefaultBranch,
 		Directory: filepath.Base(real),
 	}, "", true
 }

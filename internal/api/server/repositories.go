@@ -111,7 +111,7 @@ func addedViews(added []control.Added) []api.RepositoryAdded {
 	out := make([]api.RepositoryAdded, 0, len(added))
 	for _, one := range added {
 		view := api.RepositoryAdded{
-			Name: one.Name, ManifestPath: one.Manifest, Remote: one.Remote, Path: one.Path, Outcome: one.Outcome, Checkout: one.Checkout, Reason: one.Reason,
+			Name: one.Name, ManifestPath: one.Manifest, Remote: one.Remote, Path: one.Path, Entered: one.Entered, Outcome: one.Outcome, Checkout: one.Checkout, Reason: one.Reason,
 		}
 		if one.Repository.ID != "" {
 			record := one.Repository

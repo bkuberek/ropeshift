@@ -235,3 +235,15 @@
 .check-item .help {
   margin: 2px 0 0 24px;
 }
+
+/* The dry run of a registration lists a clone's path and remote, which a disk lets run as long as it likes.
+   They wrap, at any character when they must, so the result keeps its own column and is read whole at every
+   width, in the dialog and on a phone. */
+.table.dry-run td.wrap {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.table.dry-run td.result {
+  white-space: nowrap;
+}
