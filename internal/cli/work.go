@@ -429,14 +429,60 @@ func (c *invocation) workAcceptance(args []string) int {
 		}
 		out.WriteString(reviewLines(view.Reviews))
 		out.WriteString(verdictLines(view.Verdicts))
+		out.WriteString(pullRequestLine(view.PullRequest))
 		for _, artifact := range view.Artifacts {
 			fmt.Fprintf(&out, "artifact\t%s\t%s\t%s%s\n", artifact.Kind, artifact.URI, artifact.Digest, changeColumns(artifact.Change))
 		}
-		for _, check := range view.Checks {
-			fmt.Fprintf(&out, "check\t%s\t%s\t%s\t%s\n", check.Name, check.Status, check.Source, check.Criterion)
-		}
+		out.WriteString(checkLines(view.Checks, view.PullRequest))
 		return out.String()
 	})
+}
+
+// pullRequestLine names the pull request a work order lands through, as its worker last read it from the forge:
+// its number, its state, the branch it merges into its base, its head commit, the commit a merge made once there
+// is one, and its address. What the forge said is made safe for a terminal. Work with no pull request prints
+// nothing.
+func pullRequestLine(pr *ledger.PullRequest) string {
+	if pr == nil {
+		return ""
+	}
+	merged := ""
+	if pr.MergeCommit != "" {
+		merged = "\tmerged as " + shortCommit(pr.MergeCommit)
+	}
+	return fmt.Sprintf("pull request\t#%d\t%s\t%s into %s\thead %s%s\t%s\n", pr.Number, pr.State, api.Printable(pr.Branch),
+		api.Printable(pr.Base), shortCommit(pr.HeadCommit), merged, api.Printable(pr.URL))
+}
+
+// checkLines lists the checks on a work order's commit as the web tab does: the results on record, each with who
+// stands behind it and the criterion it speaks for, then the checks the forge runs on the pull request, marked
+// required where the base branch requires them, which are what the merge gate reads. A forge check on record that
+// the pull request lists too shows once, as the pull request was last read.
+func checkLines(recorded []workorders.Evidence, pr *ledger.PullRequest) string {
+	var out strings.Builder
+	listed := map[string]bool{}
+	if pr != nil {
+		for _, check := range pr.Checks {
+			listed[check.Name] = true
+		}
+	}
+	for _, check := range recorded {
+		if check.Source == workorders.SourceForge && listed[check.Name] {
+			continue
+		}
+		fmt.Fprintf(&out, "check\t%s\t%s\t%s\t%s\n", check.Name, check.Status, check.Source, check.Criterion)
+	}
+	if pr == nil {
+		return out.String()
+	}
+	for _, check := range pr.Checks {
+		from := fmt.Sprintf("pull request #%d", pr.Number)
+		if check.Required {
+			from += ", required"
+		}
+		fmt.Fprintf(&out, "check\t%s\t%s\t%s\n", api.Printable(check.Name), check.State, from)
+	}
+	return out.String()
 }
 
 func (c *invocation) workAccept(args []string) int {

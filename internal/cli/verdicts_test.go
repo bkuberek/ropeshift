@@ -2,12 +2,14 @@ package cli_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
 	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/cli"
 	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/internal/workorders"
 	"ropeshift.com/ropeshift/test/apitest"
 )
@@ -116,6 +118,79 @@ func TestWorkAcceptancePrintsWhatTheBranchChanged(t *testing.T) {
 	}
 	if len(view.Artifacts) != 1 || view.Artifacts[0].Change == nil || *view.Artifacts[0].Change != (ledger.ChangeSize{Files: 3, Added: 40, Removed: 12}) {
 		t.Errorf("the artifacts read %+v", view.Artifacts)
+	}
+}
+
+// pullRequestOn keeps a pull request for a work order as its worker would read it from the forge, and a forge
+// check on record for the work's attempt that the pull request lists too.
+func pullRequestOn(t *testing.T, s *session, id string, pr ledger.PullRequest) {
+	t.Helper()
+	err := s.daemon.Store.Write(t.Context(), apitest.Scope, "test.pull_request", func(tx ports.WriteTx) error {
+		row, err := tx.WorkOrders().Get(id)
+		if err != nil {
+			return err
+		}
+		held, err := tx.Evidence().Attempt(id, row.Fence)
+		if err != nil || len(held) == 0 {
+			return fmt.Errorf("no evidence on record for %s: %v", id, err)
+		}
+		err = tx.Evidence().Record(workorders.Evidence{
+			ID: "forge:" + id + ":CI result", WorkOrder: id, Lane: held[0].Lane, Fence: row.Fence, ArtifactID: held[0].ArtifactID,
+			Name: "CI result", Status: workorders.CheckPassed, Source: workorders.SourceForge,
+		})
+		if err != nil {
+			return err
+		}
+		if err := tx.Forge().SavePullRequest(ledger.WorkPullRequest{PullRequest: pr, WorkOrder: id, Worker: "worker-a"}); err != nil {
+			return err
+		}
+		_, err = tx.Append(ledger.EventDraft{Type: "test.pull_request", Actor: ledger.Actor{Kind: ledger.ActorSystem, ID: "test"}, Subject: ledger.Subject{Kind: workorders.SubjectKind, ID: id}})
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// work acceptance names the pull request the work lands through and lists its checks beside the work's own, as the
+// web tab does: a required check is marked so, and a forge check on record the pull request lists shows once.
+func TestWorkAcceptanceNamesThePullRequestAndItsChecks(t *testing.T) {
+	s := newSession(t)
+	s.completed("wo", workorders.CheckResult{Name: "unit", Passed: true, Criterion: "c1"})
+	pr := ledger.PullRequest{
+		Number: 7, URL: "https://forge.example/acme/app/pull/7", State: ledger.PullRequestOpen, Base: "main", Branch: "lane/wo",
+		HeadCommit: "abc123", Checks: []ledger.PullRequestCheck{
+			{Name: "CI result", State: ledger.CheckPassed, Required: true},
+			{Name: "lint", State: ledger.CheckFailed},
+		},
+	}
+	pullRequestOn(t, s, "wo", pr)
+	text := s.must("work", "acceptance", "wo")
+	for _, want := range []string{
+		"pull request\t#7\topen\tlane/wo into main\thead abc123\thttps://forge.example/acme/app/pull/7\n",
+		"check\tunit\tpassed\tlane\tc1\n",
+		"check\tCI result\tpassed\tpull request #7, required\n",
+		"check\tlint\tfailed\tpull request #7\n",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("acceptance lacks %q:\n%s", want, text)
+		}
+	}
+	if strings.Count(text, "check\tCI result\t") != 1 {
+		t.Errorf("a forge check the pull request lists shows more than once:\n%s", text)
+	}
+	var view workorders.AcceptanceView
+	if err := json.Unmarshal([]byte(s.must("work", "acceptance", "wo", "--json")), &view); err != nil {
+		t.Fatal(err)
+	}
+	if view.PullRequest == nil || view.PullRequest.Number != 7 || len(view.PullRequest.Checks) != 2 || !view.PullRequest.Checks[0].Required {
+		t.Errorf("--json reads the pull request %+v", view.PullRequest)
+	}
+
+	pr.State, pr.MergeCommit = ledger.PullRequestMerged, "0123456789abcdef0123"
+	pullRequestOn(t, s, "wo", pr)
+	if text := s.must("work", "acceptance", "wo"); !strings.Contains(text, "pull request\t#7\tmerged\tlane/wo into main\thead abc123\tmerged as 0123456789ab\thttps://forge.example/acme/app/pull/7\n") {
+		t.Errorf("a merged pull request does not name its merge commit:\n%s", text)
 	}
 }
 
