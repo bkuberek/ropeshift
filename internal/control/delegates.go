@@ -252,7 +252,7 @@ func (s *Sessions) EndAll(ctx context.Context, scope ledger.WorkspaceID, actor l
 	err := s.store.Installation(scope).Write(ctx, "member.sign_out_everywhere", func(tx ports.SharedTx) error {
 		ended = SignedOut{Delegates: []string{}}
 		var err error
-		if ended.Sessions, err = tx.Members().DropMemberSessions(actor.ID); err != nil {
+		if ended.Sessions, err = tx.Members().DropMemberSessions(actor.ID, tx.Now()); err != nil {
 			return err
 		}
 		credentials, err := tx.Members().Delegates(actor.ID)
