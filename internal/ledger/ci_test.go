@@ -2,6 +2,7 @@ package ledger
 
 import (
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -65,6 +66,12 @@ func TestACIKeyIsSetByNameAndRefusedOutsideItsRange(t *testing.T) {
 		{"ci_log_excerpt_bytes", "4096", true, func(s CISettings) bool { return s.LogExcerptBytes == 4096 }},
 		{"ci_log_excerpt_bytes", "10", false, nil},
 		{"ci_made_up", "1", false, nil},
+		// The webhook's secret is never a value of a key: the key names the environment variable that holds it.
+		{"ci_webhook_secret_env", "ROPESHIFT_HOOK_WIDGETS", true, func(s CISettings) bool { return s.WebhookSecretEnv == "ROPESHIFT_HOOK_WIDGETS" && s.Custom }},
+		{"ci_webhook_secret_env", "", true, func(s CISettings) bool { return s.WebhookSecretEnv == "" && s.Custom }},
+		{"ci_webhook_secret_env", "whsec_9fA3kLq0Zx7TnV2b", false, nil},
+		{"ci_webhook_secret_env", "has space", false, nil},
+		{"ci_webhook_secret_env", "1STARTS_WITH_A_DIGIT", false, nil},
 	}
 	for _, tt := range tests {
 		t.Run(tt.key+"="+tt.value, func(t *testing.T) {
@@ -79,6 +86,28 @@ func TestACIKeyIsSetByNameAndRefusedOutsideItsRange(t *testing.T) {
 				t.Errorf("set %s=%s: %v", tt.key, tt.value, err)
 			}
 		})
+	}
+}
+
+// The webhook's key reads back as the name it holds, shows beside the others, and never says a secret: a record
+// that holds a key in its place is refused, so a ledger holds the variable's name and nothing else.
+func TestTheWebhookKeyHoldsAVariablesNameAndNeverTheKey(t *testing.T) {
+	s, err := CISettings{}.Set("ci_webhook_secret_env", "ROPESHIFT_HOOK_WIDGETS")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := s.Text("ci_webhook_secret_env"); got != "ROPESHIFT_HOOK_WIDGETS" {
+		t.Errorf("the key reads %q", got)
+	}
+	if !slices.Contains(CIKeys, "ci_webhook_secret_env") {
+		t.Errorf("a surface that lists the keys leaves out the webhook's: %v", CIKeys)
+	}
+	if got := (CISettings{}).Text("ci_webhook_secret_env"); got != "" {
+		t.Errorf("a record nobody edited names the variable %q", got)
+	}
+	s.WebhookSecretEnv = "a-key-pasted-in-its-place"
+	if err := s.Check(); !errors.Is(err, ErrInvalidRepository) || !strings.Contains(err.Error(), "ci_webhook_secret_env") {
+		t.Errorf("a record that holds a key in the variable's place checks: %v", err)
 	}
 }
 

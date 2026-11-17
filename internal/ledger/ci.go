@@ -2,6 +2,7 @@ package ledger
 
 import (
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -38,6 +39,10 @@ type CISettings struct {
 	AutoRerun              int64   `json:"ci_auto_rerun,omitempty"`
 	LogExcerptLines        int64   `json:"ci_log_excerpt_lines,omitempty"`
 	LogExcerptBytes        int64   `json:"ci_log_excerpt_bytes,omitempty"`
+	// WebhookSecretEnv names the environment variable of the server's process that holds the key a GitHub webhook
+	// delivery for this repository is signed with. The ledger keeps the name and never the key, as every secret of
+	// ropeshift is kept (FR-SPEND-20), and an empty name takes no delivery for the repository.
+	WebhookSecretEnv string `json:"ci_webhook_secret_env,omitempty"`
 }
 
 // DefaultCISettings are the values the design states.
@@ -154,8 +159,18 @@ func (s CISettings) Check() error {
 	if err := ciInt("ci_log_excerpt_lines", s.LogExcerptLines, ciLinesLow, ciLinesHigh); err != nil {
 		return err
 	}
-	return ciInt("ci_log_excerpt_bytes", s.LogExcerptBytes, ciBytesLow, ciBytesHigh)
+	if err := ciInt("ci_log_excerpt_bytes", s.LogExcerptBytes, ciBytesLow, ciBytesHigh); err != nil {
+		return err
+	}
+	if s.WebhookSecretEnv != "" && !secretEnvName.MatchString(s.WebhookSecretEnv) {
+		return ciRefusal("ci_webhook_secret_env names a variable of the server's environment, such as ROPESHIFT_HOOK_WIDGETS, and never holds the key")
+	}
+	return nil
 }
+
+// secretEnvName is what the name of a variable looks like, so a key pasted in its place is refused and never
+// reaches the ledger, as a notify policy's is.
+var secretEnvName = regexp.MustCompile(`^[A-Z][A-Z0-9_]{0,63}$`)
 
 // Set edits one key by its name and its text, over the settings in force, and returns settings that check. A key
 // nobody offers is refused.
@@ -206,6 +221,8 @@ func (s CISettings) Set(key, value string) (CISettings, error) {
 		err = integer(&out.LogExcerptLines)
 	case "ci_log_excerpt_bytes":
 		err = integer(&out.LogExcerptBytes)
+	case "ci_webhook_secret_env":
+		out.WebhookSecretEnv = value
 	default:
 		return s, ciRefusal("%s is no CI key", key)
 	}
@@ -222,7 +239,7 @@ func (s CISettings) Set(key, value string) (CISettings, error) {
 var CIKeys = []string{
 	"ci_history_window", "ci_history_min_records", "ci_no_history_p50", "ci_no_history_p85", "ci_min_interval", "ci_steady_interval",
 	"ci_timeout_multiplier", "ci_timeout_no_history", "ci_queue_timeout_multiplier", "ci_queue_timeout_no_history", "ci_auto_rerun",
-	"ci_log_excerpt_lines", "ci_log_excerpt_bytes",
+	"ci_log_excerpt_lines", "ci_log_excerpt_bytes", "ci_webhook_secret_env",
 }
 
 // Text is the value in force of a key, as `Set` reads it.
@@ -255,6 +272,8 @@ func (s CISettings) Text(key string) string {
 		return strconv.FormatInt(e.LogExcerptLines, 10)
 	case "ci_log_excerpt_bytes":
 		return strconv.FormatInt(e.LogExcerptBytes, 10)
+	case "ci_webhook_secret_env":
+		return e.WebhookSecretEnv
 	}
 	return ""
 }
