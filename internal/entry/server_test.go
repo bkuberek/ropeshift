@@ -91,6 +91,34 @@ func TestAServerOffLoopbackIsRefusedBeforeItConnects(t *testing.T) {
 	}
 }
 
+// The connection string holds the database's password, so neither the help nor an error about the command line
+// shows what the environment gives it, and the environment still reaches the server after the flags are read.
+func TestAServersHelpAndUsageErrorsNeverShowTheDatabaseURL(t *testing.T) {
+	isolate(t)
+	t.Setenv("ROPESHIFT_GROUP_MODE", "preview")
+	const url = "postgres://ropeshift:hunter2-the-password@db.internal/ropeshift"
+	t.Setenv("ROPESHIFT_DATABASE", url)
+	for _, args := range [][]string{
+		{"server", "--help"}, {"server", "-h"}, {"help", "server"}, {"server", "--no-such-flag"},
+		{"server", "stray"}, {"server", "--listen"}, {"server", "--lease-tick", "soon"},
+	} {
+		_, stdout, stderr := runMain(append([]string{commandDaemon}, args...)...)
+		for _, shown := range []string{stdout, stderr} {
+			if strings.Contains(shown, "hunter2") || strings.Contains(shown, url) {
+				t.Errorf("%v shows the database's password:\n%s", args, shown)
+			}
+		}
+	}
+	opts, ok := parseServer(nil, env(map[string]string{"ROPESHIFT_DATABASE": url}), io.Discard)
+	if !ok || opts.database != url {
+		t.Errorf("the environment gives the server %q, %t", opts.database, ok)
+	}
+	opts, ok = parseServer([]string{"--database", "host=flag"}, env(map[string]string{"ROPESHIFT_DATABASE": url}), io.Discard)
+	if !ok || opts.database != "host=flag" {
+		t.Errorf("a flag gives the server %q, %t", opts.database, ok)
+	}
+}
+
 func TestAServerNeedsADatabase(t *testing.T) {
 	isolate(t)
 	t.Setenv("ROPESHIFT_GROUP_MODE", "preview")

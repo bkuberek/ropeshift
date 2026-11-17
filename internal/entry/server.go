@@ -62,11 +62,13 @@ type serverOptions struct {
 	heartbeat    time.Duration
 }
 
-// serverFlags is the server's flag set, which its help prints too. getenv gives the defaults a container's
+// serverFlags is the server's flag set, which its help prints too, defaults and all. The connection string
+// holds the database's password, so its flag has no default: the environment gives it after the flags are
+// read, and nothing the help or a usage error prints can show it. getenv gives the address a container's
 // environment sets.
 func serverFlags(opts *serverOptions, getenv func(string) string) *flag.FlagSet {
 	flags := flag.NewFlagSet("ropeshiftd server", flag.ContinueOnError)
-	flags.StringVar(&opts.database, "database", getenv(envDatabase), "the Postgres connection string ("+envDatabase+")")
+	flags.StringVar(&opts.database, "database", "", "the Postgres connection string, which holds a password, so "+envDatabase+" is the way to give it")
 	flags.StringVar(&opts.listen, "listen", cmp.Or(getenv(envListen), defaultListen), "the loopback address of the one listener ("+envListen+")")
 	flags.DurationVar(&opts.leaseTick, "lease-tick", 5*time.Second, "how often expired leases lapse")
 	flags.DurationVar(&opts.intakeTick, "intake-tick", 30*time.Second, "how often sources are polled")
@@ -90,6 +92,7 @@ func parseServer(args []string, getenv func(string) string, stderr io.Writer) (s
 		fmt.Fprintf(stderr, "ropeshiftd server: unexpected argument %q\n", flags.Arg(0))
 		return opts, false
 	}
+	opts.database = cmp.Or(opts.database, getenv(envDatabase))
 	return opts, true
 }
 
