@@ -129,6 +129,40 @@ func TestEveryRouteOfTheNetworkListenerRefusesARequestWithNoCredential(t *testin
 	}
 }
 
+// A path that only reads like the API's, or that an unclean spelling brings to it, reaches no route of it: it is
+// the application's own file, or the API's route behind the same credential check, and never the API with none.
+func TestAnOddSpellingOfAPathReachesNoAPIRouteWithNoCredential(t *testing.T) {
+	t.Parallel()
+	r := networkOn(t)
+	credential := r.registered(t, "odd")
+	apiBody := func(raw []byte) bool {
+		return strings.Contains(string(raw), `"status":"ok"`) || strings.Contains(string(raw), `"members"`) || strings.Contains(string(raw), `"workers"`)
+	}
+	notTheAPI := []string{
+		"//v1/health", "//v1/members", "//v1//workers", "/x/../v1/health", "/x/../v1/members", "/./v1/health", "/%2e/v1/health",
+		"/v1x/health", "//v1/workers/tokens", "///v1/health", "/V1/health", "/%76%31x/health",
+	}
+	for _, path := range notTheAPI {
+		for name, headers := range map[string]map[string]string{
+			"no credential": nil, "a session": {api.HeaderSession: r.d.Session}, "a worker": {"Authorization": "Bearer " + credential},
+		} {
+			response, raw := r.send(t, call{path: path, headers: headers})
+			if apiBody(raw) || strings.HasPrefix(response.Header.Get("Content-Type"), "application/json") && response.StatusCode == http.StatusOK {
+				t.Errorf("GET %s with %s answered the API's own data: %d %.100s", path, name, response.StatusCode, raw)
+			}
+		}
+	}
+	// A path that does start in the API's keeps its check, whatever its spelling.
+	for _, path := range []string{"/v1/../v1/health", "/v1/./health", "/v1/x/../health", "/v1//health"} {
+		response, raw := r.send(t, call{path: path})
+		wantStatus(t, response, raw, http.StatusUnauthorized, api.CodeSessionRequired)
+		response, raw = r.send(t, call{path: path, headers: map[string]string{api.HeaderSession: "nothing"}})
+		wantStatus(t, response, raw, http.StatusUnauthorized, api.CodeSessionRequired)
+		response, raw = r.send(t, call{path: path, headers: map[string]string{"Authorization": "Bearer " + credential}})
+		wantStatus(t, response, raw, http.StatusForbidden, api.CodeForbidden)
+	}
+}
+
 // A path that is not the API's takes no credential, because it is the application's own file, and only a
 // file: nothing else of the listener answers outside /v1.
 func TestOnlyTheApplicationsFilesAreOpenOutsideTheAPI(t *testing.T) {

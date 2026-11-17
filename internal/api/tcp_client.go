@@ -23,9 +23,15 @@ func NewTCPClient(server string) (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	// No proxy from the environment: the credential goes to the address and nowhere else.
+	// No proxy from the environment, and no redirect: the credential goes to the address and nowhere else.
 	transport := &http.Transport{Proxy: nil, MaxIdleConnsPerHost: 4, IdleConnTimeout: 90 * time.Second}
-	return &Client{http: &http.Client{Transport: transport}, base: base}, nil
+	return &Client{http: &http.Client{Transport: transport, CheckRedirect: refuseRedirect}, base: base}, nil
+}
+
+// refuseRedirect stops a call at the first redirect. The session and the credential travel in headers that a
+// followed redirect carries to its target, and the API never redirects a call it answers.
+func refuseRedirect(*http.Request, []*http.Request) error {
+	return errors.New("the server redirected a call, and a call of this client follows none")
 }
 
 // ServerAddress checks a server address and returns the base URL a client calls: the address with the

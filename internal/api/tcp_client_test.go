@@ -59,6 +59,41 @@ func TestATCPClientReadsTheServersRefusal(t *testing.T) {
 	}
 }
 
+// A client sends a credential to the address it was given and to no other. A server that answers a call with a
+// redirect would have the client send the call, session and credential in its headers, to wherever the redirect
+// points, so no redirect is followed.
+func TestATCPClientFollowsNoRedirect(t *testing.T) {
+	t.Parallel()
+	for _, status := range []int{http.StatusMovedPermanently, http.StatusFound, http.StatusSeeOther, http.StatusTemporaryRedirect, http.StatusPermanentRedirect} {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			var reached []http.Header
+			elsewhere := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				reached = append(reached, r.Header.Clone())
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"status":"ok"}`))
+			}))
+			t.Cleanup(elsewhere.Close)
+			redirecting := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				http.Redirect(w, r, elsewhere.URL+r.URL.Path, status)
+			}))
+			t.Cleanup(redirecting.Close)
+			client, err := api.NewTCPClient(redirecting.URL)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(client.Close)
+			client = client.WithCredential("a-worker-credential")
+			client.UseSession("a-member-session")
+			if _, err := client.Health(context.Background()); err == nil {
+				t.Error("a redirected call succeeded")
+			}
+			if len(reached) != 0 {
+				t.Errorf("a redirect was followed, with headers %v", reached[0])
+			}
+		})
+	}
+}
+
 // Two spellings of one server are one address.
 func TestAServerAddressHasOneSpelling(t *testing.T) {
 	t.Parallel()
