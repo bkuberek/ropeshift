@@ -249,10 +249,22 @@ function Merges({ standing, merging }: { standing: Standing; merging: boolean })
       {records.map((record) => (
         <li key={record.id}>
           <Digest value={record.approved_commit} length={8} /> approved by {words(record.approved_by_kind)}
-          {record.approved_by_id ? <span className="mono"> {record.approved_by_id}</span> : null} at {words(record.merge_authority)}
+          {record.approved_by_id ? (
+            <>
+              {" "}
+              <span className="mono">{record.approved_by_id}</span>
+            </>
+          ) : null}{" "}
+          at {words(record.merge_authority)}
           {record.merged_at ? (
             <span>
-              , merged{record.merged_commit ? <span className="mono"> {record.merged_commit.slice(0, 8)}</span> : null}
+              , merged
+              {record.merged_commit ? (
+                <>
+                  {" "}
+                  <span className="mono">{record.merged_commit.slice(0, 8)}</span>
+                </>
+              ) : null}
             </span>
           ) : null}
           {record.pull_request ? <span>, pull request #{record.pull_request}</span> : null}

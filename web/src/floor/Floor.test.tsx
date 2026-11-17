@@ -338,6 +338,38 @@ describe("a work order", () => {
     expect(checks.textContent).toContain("Lane");
   });
 
+  // Where a check came from and the criterion it speaks for read as one phrase, so no gap stands between them,
+  // and a check for no criterion says only where it came from.
+  it("says where a check came from and what it is for in one phrase", async () => {
+    servingStanding("wo-checked", "Check the berths", "done", (standing) => {
+      standing.checks = [
+        { id: "k1", name: "go test", status: "passed", source: "lane", criterion_id: "c1" },
+        { id: "k2", name: "go vet", status: "passed", source: "lane" },
+      ];
+    });
+    openPage("/work-order?id=wo-checked&tab=checks");
+    const checks = await screen.findByRole("list", { name: "Checks" });
+    const [forCriterion, forNone] = within(checks).getAllByRole("listitem");
+    expect(forCriterion?.lastElementChild?.textContent).toBe("Lane for c1");
+    expect(forNone?.lastElementChild?.textContent).toBe("Lane");
+  });
+
+  // A record's approver and the commit a merge made sit in a fixed-width face, and the space before each stays
+  // outside it, so each reads one ordinary space from the words before it.
+  it("keeps the space before an approver or a merged commit out of the fixed-width face", async () => {
+    servingStanding("wo-merged", "Merged by a member", "done", (standing) => {
+      standing.integrations = [
+        { id: "i3", work_order_id: "wo-merged", approved_commit: "f895e4661111", merge_authority: "person_approves", approved_by_kind: "member", approved_by_id: "local", approved_at: 1, merged_commit: "c2bfd2112222", merged_at: 2, pull_request: 1 },
+      ];
+    });
+    openPage("/work-order?id=wo-merged&tab=checks");
+    const merged = await screen.findByRole("list", { name: "Merge" });
+    expect(merged.textContent).toBe("f895e466 approved by Member local at Person approves, merged c2bfd211, pull request #1");
+    for (const mono of merged.querySelectorAll(".mono")) {
+      expect(mono.textContent).toBe(mono.textContent?.trim());
+    }
+  });
+
   it("states its artifacts as text, whatever an address says", async () => {
     serveViews();
     openPage("/work-order?id=wo-done&tab=checks");
