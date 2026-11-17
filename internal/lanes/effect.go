@@ -32,6 +32,10 @@ const (
 	EffectRemoval EffectKind = "removal"
 	// EffectHook runs a profile's hook.
 	EffectHook EffectKind = "hook"
+	// EffectRestructure commits the workspace files of an adoption to the lane's branch before the lane starts
+	// (FR-ADOPT-14). It is observable: a restart looks for the commit, and finds it or finds nothing, and the
+	// commit it makes is the one thing in the effect that is not safe to make twice.
+	EffectRestructure EffectKind = "restructure"
 	// EffectPush pushes a lane's branch to its repository's remote for a pull request, which belongs to
 	// no lane: the worker runs it after the lane ended (ADR-0020).
 	EffectPush EffectKind = "push"

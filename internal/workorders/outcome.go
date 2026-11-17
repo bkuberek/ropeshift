@@ -46,6 +46,11 @@ const (
 	// or lies inside one (FR-PROF-3). The report's detail names the root, the clone, and the layer that set the
 	// root, and says how to fix it.
 	ReasonWorktreeInsideClone = "worktree_inside_clone"
+	// ReasonLayoutChanged says an adopt lane did not start because the layout around the repository is not the one
+	// its plan was read from (FR-ADOPT-14): the clones, their remotes, or the files the plan lists differ, or the
+	// restructuring the work kept cannot be read against the layout again. The report's detail names what differs,
+	// and the fix is to run `ropeshift adopt --restructure` again.
+	ReasonLayoutChanged = "layout_changed"
 )
 
 // CheckResult is one check a lane reports. Criterion names what it speaks for, and a check

@@ -62,6 +62,10 @@ type LaneRuntime struct {
 	// Inventory reads what each repository holds for a lane whose lease asks for an inventory before it
 	// starts (ADR-0023). Nil takes none, and such a lane does not start.
 	Inventory ports.Inventory
+	// Layouts reads how the clones on this machine are laid out, for a lane whose lease carries a restructuring: the
+	// worker reads the layout again as its plan did, and restructures only when it reads the same one
+	// (FR-ADOPT-14). Nil restructures nothing, and such a lane does not start.
+	Layouts ports.Layouts
 	// Forge runs what the control plane asks of a forge: pushes, pull requests, comments, and reads of the
 	// sign-in's health (ADR-0020). Nil runs none, and a repository that reviews through pull requests waits.
 	Forge ports.Forge
@@ -197,6 +201,9 @@ type laneRun struct {
 	// journal's meter counts that turn too, so the run counts it nowhere.
 	endTold bool
 	endKept bool
+	// restructured is what the worker did to this lane's repository before the lane started, which its brief
+	// tells it, and the handle's lock guards it (FR-ADOPT-14).
+	restructured *lanes.Restructured
 	// assisted is what an assistant's run holds beside the lane code's state, and the handle's lock guards
 	// its making.
 	assisted *assistantState
@@ -734,6 +741,9 @@ func (r *laneRun) session(ctx context.Context) workorders.Report {
 		grant := r.assistant().grantNow()
 		prepared.Environment = assistantEnvironment(prepared.Environment, grant, r.w.projectName(ctx, r.lease.Project, grant), r.rt.ControlEnv)
 		r.setReads(r.assistantReads(ctx, prepared.Worktree.Path, grant.Context.Repositories))
+	}
+	if report, failed := r.restructure(ctx, repository, prepared.Worktree.Path); failed {
+		return report
 	}
 	if err := r.writeInventory(ctx, repository, prepared.Worktree.Path); err != nil {
 		return r.failStart(workorders.ReasonSpawnFailed, err)
