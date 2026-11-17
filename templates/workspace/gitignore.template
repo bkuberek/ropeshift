@@ -5,6 +5,11 @@
 # CODE_DIR in the Makefile.
 /repos/
 
+# Lane worktrees of the code repositories, which ropeshift makes here so each lane's agent finds the
+# workspace's instructions above its own repository. The folder is local to this machine. The workspace's own
+# profile layer, .ropeshift/profile.toml, stays tracked.
+/.ropeshift/worktrees/
+
 # Personal instructions and settings for Claude Code on this machine.
 CLAUDE.local.md
 /.claude/settings.local.json
