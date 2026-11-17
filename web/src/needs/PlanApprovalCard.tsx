@@ -21,6 +21,7 @@ const kinds: [string, string, string][] = [
   ["architecture", "architecture document", "architecture documents"],
   ["experience-design", "experience design", "experience designs"],
   ["milestone", "milestone", "milestones"],
+  ["decision", "decision record", "decision records"],
   ["contract", "contract", "contracts"],
   ["repositories", "repository manifest", "repository manifests"],
 ];

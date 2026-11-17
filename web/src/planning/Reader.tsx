@@ -6,7 +6,7 @@ import type { Live } from "../api/useView";
 import { useView } from "../api/useView";
 import { addressOf, go, Link } from "../app/route";
 import { requirementStates } from "../floor/states";
-import { Ago, useClock, ViewTime } from "../parts/parts";
+import { Ago, useClock, ViewTime, words } from "../parts/parts";
 import { IconButton } from "../ui/controls";
 import { Diff } from "../ui/Diff";
 import { lineDiff } from "../ui/lineDiff";
@@ -138,6 +138,12 @@ export function RecordedReader({ item, view, live, params }: { item: TreeItem; v
                 <dt>Kind</dt>
                 <dd>{kindWord(shown.document.kind)}</dd>
               </div>
+              {shown.version.status ? (
+                <div className="kv-row">
+                  <dt>Status</dt>
+                  <dd>{words(shown.version.status)}</dd>
+                </div>
+              ) : null}
               <div className="kv-row">
                 <dt>Review</dt>
                 <dd>{reviewWords(shown.version)}</dd>
