@@ -498,6 +498,7 @@ func watched(tx ports.ReadTx, worker string, bindings map[string]string, state *
 	if err != nil {
 		return err
 	}
+	histories := map[string]*ledger.CIHistory{}
 	for _, pr := range prs {
 		if pr.Worker != worker || pr.State != ledger.PullRequestOpen || bindings[pr.Repository] == "" {
 			continue
@@ -513,9 +514,20 @@ func watched(tx ports.ReadTx, worker string, bindings map[string]string, state *
 		if err != nil {
 			return err
 		}
+		settings := repository.CI.Effective()
+		history, kept := histories[pr.Repository]
+		if !kept {
+			records, err := tx.Forge().CIRecords(pr.Repository, int(settings.HistoryWindow))
+			if err != nil {
+				return err
+			}
+			history = settings.Stats(records).History()
+			histories[pr.Repository] = history
+		}
 		state.PullRequests = append(state.PullRequests, ledger.DesiredPullRequest{
 			WorkOrder: pr.WorkOrder, Repository: pr.Repository, Binding: bindings[pr.Repository], Number: pr.Number, State: pr.State,
-			HeadCommit: pr.HeadCommit, MergeCommit: pr.MergeCommit, Mergeable: pr.Mergeable, Checks: pr.Checks, CI: repository.CI.Effective(),
+			HeadCommit: pr.HeadCommit, MergeCommit: pr.MergeCommit, Mergeable: pr.Mergeable, Checks: pr.Checks, CI: settings,
+			History: history,
 		})
 	}
 	return nil
@@ -640,6 +652,9 @@ func pullRequestRead(tx ports.WriteTx, worker, id string, e ledger.UploadEvent) 
 	}); err != nil {
 		return err
 	}
+	if err := recordCI(tx, held, read); err != nil {
+		return err
+	}
 	eventType := ledger.EventPullRequestUpdated
 	switch {
 	case read.State == ledger.PullRequestMerged && held.State != ledger.PullRequestMerged:
@@ -656,6 +671,32 @@ func pullRequestRead(tx ports.WriteTx, worker, id string, e ledger.UploadEvent) 
 	// A required check that turned green, a head that moved, or a merge on the forge is what the integration
 	// rule reads, so the step runs at once rather than at the next tick.
 	return integrate(tx, held.WorkOrder)
+}
+
+// recordCI keeps a CI record when a read finds every required check of a head final that the read before it did not:
+// a head that just finished, or a rerun that did. A read of checks already final adds none, so a repository's
+// history counts each completion once (FR-SPEND-21).
+func recordCI(tx ports.WriteTx, held ledger.WorkPullRequest, read ledger.PullRequest) error {
+	if held.HeadCommit == read.HeadCommit {
+		if _, final := ledger.CIRecordOf(held.Repository, held.HeadCommit, 0, held.Checks, 0); final {
+			return nil
+		}
+	}
+	saved, err := tx.Forge().PullRequest(held.WorkOrder)
+	if err != nil {
+		return err
+	}
+	record, final := ledger.CIRecordOf(held.Repository, read.HeadCommit, saved.HeadSince, read.Checks, tx.Now())
+	if !final {
+		return nil
+	}
+	attempts, err := tx.Forge().CIAttempts(held.Repository, read.HeadCommit)
+	if err != nil {
+		return err
+	}
+	record.Attempt = attempts + 1
+	_, err = tx.Forge().InsertCIRecord(record)
+	return err
 }
 
 // samePullRequest compares what a read can change.
