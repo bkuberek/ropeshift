@@ -109,10 +109,15 @@ type aServer struct {
 func startServer(t *testing.T, dsn string, extra ...string) *aServer {
 	t.Helper()
 	in := newInstall(t)
-	args := append([]string{"server", "--database", dsn, "--listen", "127.0.0.1:0",
+	// The connection string holds a password, so it reaches the server through the environment, never an argument.
+	in.daemonEnv = append(in.daemonEnv, "ROPESHIFT_DATABASE="+dsn)
+	args := append([]string{"server", "--listen", "127.0.0.1:0",
 		"--heartbeat", "300ms", "--lease-ttl", "3s", "--lease-tick", "300ms", "--wake-tick", "300ms", "--intake-tick", "300ms", "--batch-tick", "300ms"}, extra...)
 	d := in.startGroup(args...)
 	in.waitReady(d)
+	if command, err := procs.Command(d.cmd.Process.Pid); err != nil || strings.Contains(command, dsn) {
+		t.Fatalf("the server's command line shows its connection string, or cannot be read: %q: %v", command, err)
+	}
 	client := api.NewUnixClient(in.paths().ControlSocket())
 	client.UseSession(in.session)
 	t.Cleanup(client.Close)
@@ -128,8 +133,9 @@ func (s *aServer) join(t *testing.T) (*install, *daemon) {
 		t.Fatal(err)
 	}
 	machine := newInstall(t)
-	cmd := exec.Command(binaries.daemon, "worker", "join", "--server", s.address, "--name", "the-worker", token)
-	cmd.Env = append(machine.env(), groupGate)
+	// The token is a secret until it is spent, so it reaches the worker through the environment.
+	cmd := exec.Command(binaries.daemon, "worker", "join", "--server", s.address, "--name", "the-worker")
+	cmd.Env = append(machine.env(), groupGate, "ROPESHIFT_JOIN="+token)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	if err := cmd.Run(); err != nil {
@@ -291,8 +297,8 @@ func tickErrors(stderr string) string {
 func TestServerRunsWithNothingOfAWorkersMachine(t *testing.T) {
 	dsn := aDatabase(t)
 	in := newInstall(t)
-	in.daemonEnv = []string{"PATH=" + t.TempDir()}
-	d := in.startGroup("server", "--database", dsn, "--listen", "127.0.0.1:0", "--wake-tick", "300ms", "--lease-tick", "300ms", "--intake-tick", "300ms")
+	in.daemonEnv = []string{"PATH=" + t.TempDir(), "ROPESHIFT_DATABASE=" + dsn}
+	d := in.startGroup("server", "--listen", "127.0.0.1:0", "--wake-tick", "300ms", "--lease-tick", "300ms", "--intake-tick", "300ms")
 	in.waitReady(d)
 	client := api.NewUnixClient(in.paths().ControlSocket())
 	client.UseSession(in.session)
@@ -314,7 +320,7 @@ func TestServerRunsWithNothingOfAWorkersMachine(t *testing.T) {
 // One server holds one installation: a second on the same state directory is refused as busy.
 func TestServerHoldsItsInstallation(t *testing.T) {
 	s := startServer(t, aDatabase(t))
-	second := s.startGroup("server", "--database", s.dsn, "--listen", "127.0.0.1:0")
+	second := s.startGroup("server", "--listen", "127.0.0.1:0")
 	select {
 	case err := <-second.exited:
 		var exit *exec.ExitError

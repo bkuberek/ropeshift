@@ -29,6 +29,10 @@ import (
 // server once, with a join token a member made, and keeps the server's address and its credential in its
 // journal.
 
+// envJoin is how a container, or a person who keeps a secret out of the process list, gives a worker the join
+// token it registers with.
+const envJoin = "ROPESHIFT_JOIN"
+
 // workerOptions is the command line of `ropeshiftd worker`.
 type workerOptions struct {
 	telemetry string
@@ -121,11 +125,19 @@ func runJoin(args []string, stdout, stderr io.Writer) int {
 	if err := flags.Parse(args); err != nil {
 		return exitUsage
 	}
-	if opts.server == "" || flags.NArg() != 1 {
-		fmt.Fprintln(stderr, "usage: ropeshiftd worker join --server <url> [--name <name>] <join token>")
+	// A join token is secret until it is spent, and an argument is visible to every process on the machine, so
+	// the environment is the documented way to give it. An argument is taken too, and the two together are
+	// refused, because neither says which is meant.
+	fromEnvironment := os.Getenv(envJoin)
+	switch {
+	case opts.server == "" || flags.NArg() > 1 || flags.NArg() == 0 && fromEnvironment == "":
+		fmt.Fprintf(stderr, "usage: ropeshiftd worker join --server <url> [--name <name>] [<join token>]\nGive the join token in %s, or as the one argument.\n", envJoin)
+		return exitUsage
+	case flags.NArg() == 1 && fromEnvironment != "":
+		fmt.Fprintf(stderr, "ropeshiftd worker join: give the join token in %s or as an argument, not both\n", envJoin)
 		return exitUsage
 	}
-	opts.token = flags.Arg(0)
+	opts.token = cmp.Or(fromEnvironment, flags.Arg(0))
 	address, err := api.ServerAddress(opts.server)
 	if err != nil {
 		fmt.Fprintf(stderr, "ropeshiftd worker join: %v\n", err)

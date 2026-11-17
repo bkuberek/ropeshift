@@ -28,6 +28,7 @@ func joinOn(t *testing.T) *joinRig {
 	t.Helper()
 	isolate(t)
 	t.Setenv("ROPESHIFT_GROUP_MODE", "preview")
+	t.Setenv("ROPESHIFT_JOIN", "")
 	d := apitest.Start(t)
 	network := d.ServeNetwork(t, nil, 0, nil)
 	paths, err := installationPaths()
@@ -200,6 +201,56 @@ func TestAJoinTokenJoinsOneWorker(t *testing.T) {
 	}
 }
 
+// A join token is a secret for as long as it is unspent, and an argument is visible to every process on the
+// machine, so a container's way to give it, the environment, is the documented one, and an argument still works.
+func TestAJoinTokenComesFromTheEnvironmentToo(t *testing.T) {
+	r := joinOn(t)
+	token := r.token()
+	t.Setenv("ROPESHIFT_JOIN", token)
+	code, stdout, stderr := runMain(commandDaemon, "worker", "join", "--server", r.server)
+	if code != exitOK || strings.Contains(stdout+stderr, token) {
+		t.Fatalf("exit %d, stdout %q, stderr %q", code, stdout, stderr)
+	}
+	identity, url, err := r.kept()
+	if err != nil || identity.Credential == "" || url != r.server {
+		t.Errorf("the journal holds %+v at %q: %v", identity, url, err)
+	}
+}
+
+// Two ways to give one token leave no way to say which is meant, so the join stops before it asks the server.
+func TestAJoinTokenGivenTwiceIsRefused(t *testing.T) {
+	r := joinOn(t)
+	token := r.token()
+	t.Setenv("ROPESHIFT_JOIN", token)
+	code, stdout, stderr := runMain(commandDaemon, "worker", "join", "--server", r.server, token)
+	if code != exitUsage || stdout != "" || strings.Contains(stderr, token) || !strings.Contains(stderr, "ROPESHIFT_JOIN") {
+		t.Fatalf("exit %d, stdout %q, stderr %q", code, stdout, stderr)
+	}
+	if workers, err := r.d.Client.Workers(t.Context()); err != nil || len(workers) != 0 {
+		t.Errorf("the server lists %d workers: %v", len(workers), err)
+	}
+}
+
+// The help says to give the token in the environment, and no help shows one that is there.
+func TestTheWorkerHelpNamesTheJoinVariableAndNeverItsValue(t *testing.T) {
+	isolate(t)
+	t.Setenv("ROPESHIFT_GROUP_MODE", "preview")
+	t.Setenv("ROPESHIFT_JOIN", "a-join-token-nobody-may-see")
+	code, stdout, stderr := runMain(commandDaemon, "worker", "--help")
+	if code != exitOK || !strings.Contains(stdout, "ROPESHIFT_JOIN") {
+		t.Fatalf("exit %d, stdout %q", code, stdout)
+	}
+	for _, shown := range []string{stdout, stderr} {
+		if strings.Contains(shown, "nobody-may-see") {
+			t.Errorf("the help shows the token:\n%s", shown)
+		}
+	}
+	_, _, stderr = runMain(commandDaemon, "worker", "join", "--no-such-flag")
+	if strings.Contains(stderr, "nobody-may-see") {
+		t.Errorf("a usage error shows the token:\n%s", stderr)
+	}
+}
+
 func TestJoinTakesOnlyALoopbackHTTPServerInThisVersion(t *testing.T) {
 	isolate(t)
 	t.Setenv("ROPESHIFT_GROUP_MODE", "preview")
@@ -214,6 +265,7 @@ func TestJoinTakesOnlyALoopbackHTTPServerInThisVersion(t *testing.T) {
 func TestJoinNeedsAServerAndOneToken(t *testing.T) {
 	isolate(t)
 	t.Setenv("ROPESHIFT_GROUP_MODE", "preview")
+	t.Setenv("ROPESHIFT_JOIN", "")
 	for _, args := range [][]string{
 		{"join"},
 		{"join", "a-token"},
