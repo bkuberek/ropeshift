@@ -105,7 +105,14 @@ func (h *handler) register(w http.ResponseWriter, r *http.Request) {
 		invalid(w, "a registration needs a worker_id")
 		return
 	}
+	attempt, ok := beginAttempt(h.Attempts, w, r)
+	if !ok {
+		return
+	}
+	defer attempt.Release()
 	credential, err := h.plane.Register(r.Context(), in)
+	// A join that worked proves no passphrase, so it clears nothing of what its address has failed at.
+	attempt.Judge(err, false)
 	if err != nil {
 		fail(w, err)
 		return

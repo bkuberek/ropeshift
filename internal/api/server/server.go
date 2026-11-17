@@ -116,6 +116,10 @@ type Config struct {
 	// Profiles reads the profile in force for a clone on this machine, so a registration can say when the
 	// worktree root would lie inside the clone (FR-PROF-3). Nil says nothing of it.
 	Profiles ports.ProfileSource
+	// Attempts limits the wrong guesses at a passphrase or a join token that each client address makes on the
+	// network listener, which records the address of every request it serves. Nil limits none. A request on the
+	// control socket records no address and is never limited: its file permissions are its credential.
+	Attempts *Attempts
 }
 
 type handler struct {

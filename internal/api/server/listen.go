@@ -1,6 +1,7 @@
 package server
 
 import (
+	"crypto/tls"
 	"fmt"
 	"net"
 	"os"
@@ -19,10 +20,32 @@ const (
 // public listener.
 func ListenWeb(address string) (net.Listener, error) { return listenLoopback("web listener", address) }
 
-// ListenServer binds a group server's one listener, on a loopback address and nothing else until the
-// server serves TLS (ADR-0031).
-func ListenServer(address string) (net.Listener, error) {
-	return listenLoopback("server listener", address)
+// ListenNetwork binds a group server's one listener (ADR-0031). With a TLS config it binds any address, and
+// everything it accepts is encrypted. With none it serves plaintext, which only loopback may carry (NFR-SEC-2),
+// so it binds a loopback address and nothing else.
+func ListenNetwork(address string, config *tls.Config) (net.Listener, error) {
+	if config == nil {
+		return listenLoopback("server listener without TLS", address)
+	}
+	listener, err := listenTCP(address)
+	if err != nil {
+		return nil, err
+	}
+	return tls.NewListener(listener, config), nil
+}
+
+// Loopback says an address names this machine alone. A name other than `localhost` could resolve anywhere, so
+// only literal addresses count.
+func Loopback(address string) bool {
+	host, _, err := net.SplitHostPort(address)
+	if err != nil {
+		return false
+	}
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 // ListenTelemetry binds the worker's OTLP receiver, on a loopback address and nothing else. An agent's
@@ -32,18 +55,21 @@ func ListenTelemetry(address string) (net.Listener, error) {
 	return listenLoopback("telemetry receiver", address)
 }
 
-// listenLoopback is the one TCP bind in the module. A name other than `localhost` could resolve
-// anywhere, so only literal addresses count.
 func listenLoopback(what, address string) (net.Listener, error) {
+	if !Loopback(address) {
+		return nil, fmt.Errorf("the %s binds a loopback address, and %q is none", what, address)
+	}
+	return listenTCP(address)
+}
+
+// listenTCP is the one TCP bind in the module.
+func listenTCP(address string) (net.Listener, error) {
 	host, port, err := net.SplitHostPort(address)
 	if err != nil {
 		return nil, err
 	}
 	if host == "localhost" {
 		host = "127.0.0.1"
-	}
-	if ip := net.ParseIP(host); ip == nil || !ip.IsLoopback() {
-		return nil, fmt.Errorf("the %s binds a loopback address, and %q is none", what, address)
 	}
 	return net.Listen("tcp", net.JoinHostPort(host, port))
 }

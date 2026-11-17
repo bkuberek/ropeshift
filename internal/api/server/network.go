@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"net/netip"
 	"strings"
 	"time"
 
@@ -129,6 +130,9 @@ type network struct {
 	workerRoutes *http.ServeMux
 	joinRoutes   *http.ServeMux
 	recheck      time.Duration
+	// client says which address a request came from, which the limits on guessing a passphrase or a join token
+	// count by.
+	client func(*http.Request) netip.Addr
 }
 
 // NewNetwork returns the handler of a group server's TCP listener over the same use cases as the socket.
@@ -136,9 +140,13 @@ func NewNetwork(config Config, options WebOptions) http.Handler {
 	n := &network{
 		api: New(config), web: NewWeb(config, options), sessions: control.NewSessions(config.Store, config.Identity),
 		scope: config.Scope, workerRoutes: http.NewServeMux(), joinRoutes: http.NewServeMux(), recheck: options.Recheck,
+		client: options.Client,
 	}
 	if n.recheck <= 0 {
 		n.recheck = defaultRecheck
+	}
+	if n.client == nil {
+		n.client = PeerAddress
 	}
 	for _, route := range PlaneRoutes() {
 		mux := n.workerRoutes
@@ -173,6 +181,7 @@ func presented(r *http.Request) []credentialKind {
 }
 
 func (n *network) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	r = r.WithContext(withClient(r.Context(), n.client(r)))
 	if r.Header.Get(api.HeaderDelegate) != "" {
 		refuse(w, http.StatusForbidden, api.ErrorDetail{Code: api.CodeForbidden, Message: "A delegate uses the local socket, never the network listener."})
 		return

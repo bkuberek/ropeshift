@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"mime"
 	"net/http"
+	"net/netip"
 	"path"
 	"strconv"
 	"strings"
@@ -55,6 +56,9 @@ type WebOptions struct {
 	// Recheck is how often an open stream asks whether its session still stands. Zero takes the
 	// default.
 	Recheck time.Duration
+	// Client says which address a request came from, for the limits that count by it. Nil is the address of
+	// its TCP connection, which is the right answer until a listener sits behind a proxy.
+	Client func(*http.Request) netip.Addr
 }
 
 // web is the API as a browser reaches it: a closed list of routes, behind checks the local socket
@@ -69,6 +73,8 @@ type web struct {
 	recheck  time.Duration
 	// signIn lets one hash run at a time, so a flood of guesses costs its sender the wait.
 	signIn chan struct{}
+	// attempts limits the wrong guesses of a client address. Nil limits none.
+	attempts *Attempts
 }
 
 // NewWeb returns the web listener's handler over the same use cases as the API.
@@ -76,7 +82,7 @@ func NewWeb(config Config, options WebOptions) http.Handler {
 	port := strconv.Itoa(options.Port)
 	site := &web{
 		api: New(config), routes: http.NewServeMux(), sessions: control.NewSessions(config.Store, config.Identity), scope: config.Scope,
-		assets: options.Assets, recheck: options.Recheck, signIn: make(chan struct{}, 1),
+		assets: options.Assets, recheck: options.Recheck, signIn: make(chan struct{}, 1), attempts: config.Attempts,
 		hosts: map[string]bool{"127.0.0.1:" + port: true, "localhost:" + port: true, "[::1]:" + port: true},
 	}
 	if site.recheck <= 0 {
@@ -223,6 +229,11 @@ func (s *web) openSession(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &in) {
 		return
 	}
+	attempt, ok := beginAttempt(s.attempts, w, r)
+	if !ok {
+		return
+	}
+	defer attempt.Release()
 	select {
 	case s.signIn <- struct{}{}:
 		defer func() { <-s.signIn }()
@@ -230,6 +241,7 @@ func (s *web) openSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	grant, err := s.sessions.SignIn(r.Context(), s.scope, ports.Proof{Passphrase: in.Passphrase}, in.TTLMs)
+	attempt.Judge(err, true)
 	if err != nil {
 		fail(w, err)
 		return
@@ -251,6 +263,11 @@ func (s *web) changePassphrase(w http.ResponseWriter, r *http.Request, token str
 	if !decode(w, r, &in) {
 		return
 	}
+	attempt, ok := beginAttempt(s.attempts, w, r)
+	if !ok {
+		return
+	}
+	defer attempt.Release()
 	select {
 	case s.signIn <- struct{}{}:
 		defer func() { <-s.signIn }()
@@ -258,6 +275,7 @@ func (s *web) changePassphrase(w http.ResponseWriter, r *http.Request, token str
 		return
 	}
 	changed, err := s.sessions.ChangePassphrase(r.Context(), s.scope, ports.Proof{Passphrase: in.Current}, ports.Proof{Passphrase: in.Passphrase}, token)
+	attempt.Judge(err, true)
 	if err != nil {
 		fail(w, err)
 		return

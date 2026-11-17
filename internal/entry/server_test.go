@@ -66,25 +66,6 @@ func TestAServerRefusesWhatItDoesNotTake(t *testing.T) {
 	}
 }
 
-// This version binds loopback only, because nothing yet encrypts what a worker or a member sends.
-func TestAServerListensOnLoopbackOnly(t *testing.T) {
-	t.Parallel()
-	for _, address := range []string{"127.0.0.1:7400", "127.0.0.1:0", "localhost:7400", "[::1]:7400", "127.1.2.3:80"} {
-		if err := checkListen(address); err != nil {
-			t.Errorf("%s is refused: %v", address, err)
-		}
-	}
-	for _, address := range []string{"0.0.0.0:7400", "[::]:7400", ":7400", "192.168.1.5:7400", "10.0.0.1:7400", "server.example:7400", "127.0.0.1.example:7400"} {
-		err := checkListen(address)
-		if err == nil || err.Error() != "a server off loopback needs TLS, which this version does not have" {
-			t.Errorf("%s answers %v", address, err)
-		}
-	}
-	if err := checkListen("no port"); err == nil {
-		t.Error("an address with no port is taken")
-	}
-}
-
 // A server whose state directory is not the machine's own, and whose run directory is, would bind its control
 // socket where another installation's lives, and the lock it holds is the lock of its own state. So a server
 // that moves its state names its run directory too, and one that names it, or moves nothing, is left alone.
@@ -247,19 +228,6 @@ func TestOnlyASocketSomethingAnswersOnIsLive(t *testing.T) {
 	}
 	if socketAnswers(path) {
 		t.Error("a socket nothing listens on answers")
-	}
-}
-
-// The refusal comes before the server touches a database, a lock, or a socket, so a mistaken address costs nothing.
-func TestAServerOffLoopbackIsRefusedBeforeItConnects(t *testing.T) {
-	isolate(t)
-	t.Setenv("ROPESHIFT_GROUP_MODE", "preview")
-	code, stdout, stderr := runMain(commandDaemon, "server", "--database", "host=/nowhere dbname=none", "--listen", "0.0.0.0:7400")
-	if code != exitUsage || stdout != "" {
-		t.Fatalf("exit %d, stdout %q", code, stdout)
-	}
-	if !strings.Contains(stderr, "a server off loopback needs TLS, which this version does not have") {
-		t.Errorf("stderr %q", stderr)
 	}
 }
 

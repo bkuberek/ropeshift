@@ -10,8 +10,9 @@ import (
 )
 
 // ErrServerOffLoopback refuses an address a worker or a client would send a credential to over a network no
-// one encrypts: this version reaches a server over plain HTTP on its own machine only.
-var ErrServerOffLoopback = errors.New("a server off loopback needs TLS, which this version does not have")
+// one encrypts: this client reaches a server over plain HTTP on its own machine only, and a server off
+// loopback serves TLS, which NewTLSClient speaks.
+var ErrServerOffLoopback = errors.New("a server off loopback is reached over TLS, which a worker does not speak in this version")
 
 // NewTCPClient returns a client on a server's address, which speaks the same API as the unix client. In
 // this version the address is a plain http:// URL of a loopback address and a port, with no credentials,

@@ -12,11 +12,14 @@ import (
 	"os"
 	"os/signal"
 	"runtime"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"ropeshift.com/ropeshift/internal/adapters/clock"
 	"ropeshift.com/ropeshift/internal/adapters/lexical"
 	"ropeshift.com/ropeshift/internal/adapters/localauth"
 	"ropeshift.com/ropeshift/internal/adapters/postgres"
@@ -40,6 +43,9 @@ const (
 	// envDatabase and envListen are a container's way to give the server what its flags give.
 	envDatabase = "ROPESHIFT_DATABASE"
 	envListen   = "ROPESHIFT_LISTEN"
+	// envSigninMaxFailures and envSigninLockout give the limit on wrong guesses.
+	envSigninMaxFailures = "ROPESHIFT_SIGNIN_MAX_FAILURES"
+	envSigninLockout     = "ROPESHIFT_SIGNIN_LOCKOUT"
 	// defaultListen is a loopback address that no installation of solo mode holds.
 	defaultListen = "127.0.0.1:7400"
 	// firstProjectDisplayName is what the first project of a new server shows, as solo's first one does.
@@ -54,6 +60,16 @@ var workerMachineTicks = []string{"notices", "telemetry", "measures"}
 type serverOptions struct {
 	database string
 	listen   string
+	// tlsCert and tlsKey name the files of a certificate a person supplies, and names the host names and
+	// addresses the certificate the server makes covers (ADR-0031).
+	tlsCert, tlsKey string
+	names           []string
+	// signinMax is how many wrong guesses at a passphrase or a join token a client address may make within
+	// signinLockout, which is also how long it is refused after (ADR-0031).
+	signinMax     int
+	signinLockout time.Duration
+	// problems are what the environment gave that is no setting, which parseServer reports with the flags'.
+	problems []string
 
 	leaseTick    time.Duration
 	intakeTick   time.Duration
@@ -72,7 +88,30 @@ type serverOptions struct {
 func serverFlags(opts *serverOptions, getenv func(string) string) *flag.FlagSet {
 	flags := flag.NewFlagSet("ropeshiftd server", flag.ContinueOnError)
 	flags.StringVar(&opts.database, "database", "", "the Postgres connection string, which holds a password, so "+envDatabase+" is the way to give it")
-	flags.StringVar(&opts.listen, "listen", cmp.Or(getenv(envListen), defaultListen), "the loopback address of the one listener ("+envListen+")")
+	flags.StringVar(&opts.listen, "listen", cmp.Or(getenv(envListen), defaultListen), "the address of the one listener, which serves TLS on any address but a loopback one ("+envListen+")")
+	flags.StringVar(&opts.tlsCert, "tls-cert", getenv(envTLSCert), "the file of a certificate to serve in place of the server's own, with --tls-key ("+envTLSCert+")")
+	flags.StringVar(&opts.tlsKey, "tls-key", getenv(envTLSKey), "the file of that certificate's key ("+envTLSKey+")")
+	maxFailures, lockout := server.DefaultMaxFailures, server.DefaultLockout
+	if value := getenv(envSigninMaxFailures); value != "" {
+		if number, err := strconv.Atoi(value); err != nil {
+			opts.problems = append(opts.problems, fmt.Sprintf("%s is %q, which is no whole number", envSigninMaxFailures, value))
+		} else {
+			maxFailures = number
+		}
+	}
+	if value := getenv(envSigninLockout); value != "" {
+		if duration, err := time.ParseDuration(value); err != nil {
+			opts.problems = append(opts.problems, fmt.Sprintf("%s is %q, which is no duration such as 15m", envSigninLockout, value))
+		} else {
+			lockout = duration
+		}
+	}
+	flags.IntVar(&opts.signinMax, "signin-max-failures", maxFailures, "how many wrong passphrases or join tokens one client address may try within --signin-lockout ("+envSigninMaxFailures+")")
+	flags.DurationVar(&opts.signinLockout, "signin-lockout", lockout, "how long wrong guesses count, and how long a client address is refused once it has made too many ("+envSigninLockout+")")
+	flags.Func("name", "a host name or address the server's own certificate covers, repeated or comma separated, which makes a loopback listener serve TLS too ("+envServerNames+")", func(value string) error {
+		opts.names = append(opts.names, splitList(value)...)
+		return nil
+	})
 	flags.DurationVar(&opts.leaseTick, "lease-tick", 5*time.Second, "how often expired leases lapse")
 	flags.DurationVar(&opts.intakeTick, "intake-tick", 30*time.Second, "how often sources are polled")
 	flags.DurationVar(&opts.batchTick, "batch-tick", 5*time.Second, "how often closed batches reach members")
@@ -101,23 +140,40 @@ func parseServer(args []string, getenv func(string) string, stderr io.Writer) (s
 		return opts, false
 	}
 	opts.database = cmp.Or(opts.database, getenv(envDatabase))
+	for _, problem := range opts.problems {
+		fmt.Fprintf(stderr, "ropeshiftd server: %s\n", problem)
+	}
+	if len(opts.problems) > 0 {
+		return opts, false
+	}
+	// A limit that allows no failure, or that lasts no time, limits nothing a person could use: it would refuse
+	// every sign-in, or none.
+	if opts.signinMax < 1 {
+		fmt.Fprintf(stderr, "ropeshiftd server: --signin-max-failures (%s) is at least 1, and is %d\n", envSigninMaxFailures, opts.signinMax)
+		return opts, false
+	}
+	if opts.signinLockout <= 0 {
+		fmt.Fprintf(stderr, "ropeshiftd server: --signin-lockout (%s) is a duration above zero, and is %s\n", envSigninLockout, opts.signinLockout)
+		return opts, false
+	}
+	// A flag wins over the environment, as it does for every other setting.
+	named := false
+	flags.Visit(func(f *flag.Flag) { named = named || f.Name == "name" })
+	if !named {
+		opts.names = splitList(getenv(envServerNames))
+	}
 	return opts, true
 }
 
-// checkListen holds the listener to a loopback address: nothing in this version encrypts what a worker or a
-// member sends, so a server reachable from another machine is a mistake it stops on.
-func checkListen(address string) error {
-	host, _, err := net.SplitHostPort(address)
-	if err != nil {
-		return fmt.Errorf("--listen %q: %w", address, err)
+// splitList reads a comma separated list, as a variable gives one, and leaves out what is empty.
+func splitList(value string) []string {
+	var list []string
+	for _, item := range strings.Split(value, ",") {
+		if item = strings.TrimSpace(item); item != "" {
+			list = append(list, item)
+		}
 	}
-	if host == "localhost" {
-		return nil
-	}
-	if ip := net.ParseIP(host); ip == nil || !ip.IsLoopback() {
-		return api.ErrServerOffLoopback
-	}
-	return nil
+	return list
 }
 
 // checkServerDirectories refuses a server whose state directory is not the machine's own while its run directory
@@ -183,7 +239,8 @@ func runServer(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "ropeshiftd server: a server needs a database: set --database or %s\n", envDatabase)
 		return exitUsage
 	}
-	if err := checkListen(opts.listen); err != nil {
+	transport, err := planTransport(opts)
+	if err != nil {
 		fmt.Fprintf(stderr, "ropeshiftd server: %v\n", err)
 		return exitUsage
 	}
@@ -210,7 +267,7 @@ func runServer(args []string, stdout, stderr io.Writer) int {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	if err := serveServer(ctx, paths, opts, stdout, stderr); err != nil {
+	if err := serveServer(ctx, paths, opts, transport, stdout, stderr); err != nil {
 		fmt.Fprintf(stderr, "ropeshiftd server: %v\n", err)
 		if errors.Is(err, errBusy) {
 			return exitBusy
@@ -264,15 +321,19 @@ const maxHeaderBytes = 32 << 10
 
 // networkHTTPServer is the server of the listener, with every read bounded.
 func networkHTTPServer(handler http.Handler) *http.Server {
+	// HTTP/1.1 serves plaintext and TLS alike, with the limits above: the listener's TLS config offers no other
+	// protocol, and this says so for any listener handed to the server.
+	protocols := new(http.Protocols)
+	protocols.SetHTTP1(true)
 	return &http.Server{
 		Handler: handler, ReadHeaderTimeout: networkLimits.readHeader, ReadTimeout: networkLimits.read,
-		IdleTimeout: networkLimits.idle, MaxHeaderBytes: maxHeaderBytes,
+		IdleTimeout: networkLimits.idle, MaxHeaderBytes: maxHeaderBytes, Protocols: protocols,
 	}
 }
 
 // serveServer runs until the context ends. Like solo's daemon it has no shutdown step that correctness
 // needs, because the control plane is crash-only.
-func serveServer(ctx context.Context, paths api.Paths, opts serverOptions, stdout, stderr io.Writer) error {
+func serveServer(ctx context.Context, paths api.Paths, opts serverOptions, transport serverTransport, stdout, stderr io.Writer) error {
 	if err := server.PrivateDir(paths.StateDir); err != nil {
 		return err
 	}
@@ -299,7 +360,7 @@ func serveServer(ctx context.Context, paths api.Paths, opts serverOptions, stdou
 		return err
 	}
 	defer controlListener.Close()
-	listener, err := server.ListenServer(opts.listen)
+	listener, err := transport.listen(opts.listen, paths.StateDir, clock.System{}, func(err error) { warnTo(stderr)(err.Error()) })
 	if err != nil {
 		return err
 	}
@@ -316,8 +377,9 @@ func serveServer(ctx context.Context, paths api.Paths, opts serverOptions, stdou
 		Mode:  api.ModeGroup,
 		Scope: home.ID, Store: store, Projects: state, Installation: state.Installation,
 		LeaseTTL: opts.leaseTTL.Milliseconds(), HeartbeatMs: opts.heartbeat.Milliseconds(),
-		Installed: installed.Installed, WebAddress: bound.String(),
-		Matcher: lexical.Matcher{Store: store}, Matching: func(store ports.Store) ports.Matcher { return lexical.Matcher{Store: store} },
+		Installed: installed.Installed, WebAddress: listener.webAddress(),
+		Attempts: server.NewAttempts(server.AttemptLimits{MaxFailures: opts.signinMax, Lockout: opts.signinLockout}),
+		Matcher:  lexical.Matcher{Store: store}, Matching: func(store ports.Store) ports.Matcher { return lexical.Matcher{Store: store} },
 		Identity: localauth.New(store, localauth.DefaultParams), Batches: batches, Windows: windows, PackTokens: soloPackTokens(paths),
 		LaneBranchPrefix: soloLaneBranchPrefix(paths),
 		Knowledge:        reads.knowledge, Starts: reads.starts, Branches: reads.branches, Checkouts: reads.checkouts,
@@ -331,7 +393,11 @@ func serveServer(ctx context.Context, paths api.Paths, opts serverOptions, stdou
 	go func() { serveErr <- controlServer.Serve(controlListener) }()
 	go func() { serveErr <- networkServer.Serve(listener) }()
 	fmt.Fprintf(stdout, "ropeshiftd: serving %s\n", paths.ControlSocket())
-	fmt.Fprintf(stdout, "ropeshiftd: server http://%s\n", bound)
+	fmt.Fprintf(stdout, "ropeshiftd: server %s://%s\n", listener.scheme(), bound)
+	if listener.fingerprint != "" {
+		fmt.Fprintf(stdout, "ropeshiftd: certificate authority %s\n", listener.authorityFile)
+		fmt.Fprintf(stdout, "ropeshiftd: certificate authority sha256 %s\n", listener.fingerprint)
+	}
 
 	ticks := append(serverTicks(state, opts, reads, batches, windows), installed.tick())
 	ticksDone := make(chan struct{})
