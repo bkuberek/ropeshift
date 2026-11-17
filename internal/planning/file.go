@@ -25,6 +25,8 @@ const (
 	FileArchitecture     FileKind = "architecture"
 	FileExperienceDesign FileKind = "experience-design"
 	FileMilestone        FileKind = "milestone"
+	// FileDecision is a decision record, such as an architecture decision record (FR-DOC-8).
+	FileDecision FileKind = "decision"
 	// FileRepositories is the manifest of a project's repositories, which lives in its planning repository
 	// (ADR-0022).
 	FileRepositories FileKind = "repositories"
@@ -32,7 +34,7 @@ const (
 
 // documentKinds are the kinds of file that are documents: each has a stable ID, a version the ledger
 // numbers for every committed change, and a reference a contract or a plan can cite (ADR-0013).
-var documentKinds = []FileKind{FileRequirements, FileSpec, FileArchitecture, FileExperienceDesign, FileMilestone, FileRepositories}
+var documentKinds = []FileKind{FileRequirements, FileSpec, FileArchitecture, FileExperienceDesign, FileMilestone, FileDecision, FileRepositories}
 
 // IsDocumentKind says a file of this kind is a document.
 func IsDocumentKind(kind FileKind) bool { return slices.Contains(documentKinds, kind) }
@@ -277,6 +279,29 @@ type MilestoneFile struct {
 	ExitCriteria []ExitCriterion `toml:"exit_criteria" json:"exit_criteria,omitempty"`
 }
 
+// DecisionStatus is where a decision record stands.
+type DecisionStatus string
+
+// The statuses of a decision record. A record that states none is proposed, and only an accepted one
+// answers a question.
+const (
+	DecisionProposed   DecisionStatus = "proposed"
+	DecisionAccepted   DecisionStatus = "accepted"
+	DecisionSuperseded DecisionStatus = "superseded"
+	DecisionRejected   DecisionStatus = "rejected"
+)
+
+// DecisionFile is the front matter of a decision record. Plan is optional, because a record often
+// predates any plan. Requirements lists the requirement IDs it addresses.
+type DecisionFile struct {
+	Kind         FileKind       `toml:"kind" json:"kind"`
+	ID           string         `toml:"id" json:"id"`
+	Title        string         `toml:"title" json:"title"`
+	Status       DecisionStatus `toml:"status" json:"status"`
+	Plan         string         `toml:"plan" json:"plan,omitempty"`
+	Requirements []string       `toml:"requirements" json:"requirements,omitempty"`
+}
+
 // RepositoriesFile is the front matter of a repository manifest: each repository of the project, by its
 // name, with its remote, the path of its clone relative to the planning repository's clone, and what it
 // is for (ADR-0022). A manifest names repositories and sets nothing else: Ignored lists every key it holds
@@ -309,6 +334,7 @@ type Document struct {
 	Architecture *ArchitectureFile
 	Experience   *ExperienceDesignFile
 	Milestone    *MilestoneFile
+	Decision     *DecisionFile
 	Repositories *RepositoriesFile
 	Statement    string
 }
@@ -356,6 +382,9 @@ func (d Document) Head() (DocumentHead, bool) {
 	case d.Milestone != nil:
 		f := d.Milestone
 		head, file = DocumentHead{Kind: FileMilestone, ID: f.ID, Title: f.Title, Plan: f.Plan}, f
+	case d.Decision != nil:
+		f := d.Decision
+		head, file = DocumentHead{Kind: FileDecision, ID: f.ID, Title: f.Title, Plan: f.Plan}, f
 	case d.Repositories != nil:
 		f := d.Repositories
 		head, file = DocumentHead{Kind: FileRepositories, ID: f.ID, Title: f.Title, Plan: f.Plan}, f
@@ -396,7 +425,7 @@ func SplitFrontMatter(raw []byte) (header, body []byte, err error) {
 // CheckKind accepts the kinds of the format.
 func CheckKind(kind FileKind) error {
 	switch kind {
-	case FileGoal, FilePlan, FileContract, FileRequirements, FileSpec, FileArchitecture, FileExperienceDesign, FileMilestone, FileRepositories:
+	case FileGoal, FilePlan, FileContract, FileRequirements, FileSpec, FileArchitecture, FileExperienceDesign, FileMilestone, FileDecision, FileRepositories:
 		return nil
 	}
 	return fmt.Errorf("%w: %q", ErrUnknownKind, kind)
@@ -458,6 +487,24 @@ func (f ArchitectureFile) Normalize() (ArchitectureFile, error) {
 	requirements, err := documentIdentity(f.ID, f.Title, f.Requirements)
 	f.Requirements = requirements
 	return f, err
+}
+
+// Normalize refuses a decision record that cannot become a document. A record that states no status is
+// proposed, and one that states any other than the four is a bad file.
+func (f DecisionFile) Normalize() (DecisionFile, error) {
+	requirements, err := documentIdentity(f.ID, f.Title, f.Requirements)
+	f.Requirements = requirements
+	if err != nil {
+		return f, err
+	}
+	switch f.Status {
+	case "":
+		f.Status = DecisionProposed
+	case DecisionProposed, DecisionAccepted, DecisionSuperseded, DecisionRejected:
+	default:
+		return f, fmt.Errorf("%w: %s: status %q is none of proposed, accepted, superseded, or rejected", ErrBadFile, f.ID, f.Status)
+	}
+	return f, nil
 }
 
 // Normalize refuses an experience design that cannot become a document. An asset is a path inside the

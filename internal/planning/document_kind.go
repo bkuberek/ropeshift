@@ -11,7 +11,7 @@ import (
 type DocumentKind string
 
 // The kinds a person looks for, and the rest. A file of the repository file format says which of the
-// first five it is, and a file that is not one reads its kind from its path, where the words design
+// first six it is, and a file that is not one reads its kind from its path, where the words design
 // and architecture both mean design.
 const (
 	DocumentRequirements     DocumentKind = "requirements"
@@ -19,6 +19,7 @@ const (
 	DocumentArchitecture     DocumentKind = "architecture"
 	DocumentExperienceDesign DocumentKind = "experience-design"
 	DocumentMilestone        DocumentKind = "milestone"
+	DocumentDecision         DocumentKind = "decision"
 	DocumentDesign           DocumentKind = "design"
 	DocumentOther            DocumentKind = "other"
 )

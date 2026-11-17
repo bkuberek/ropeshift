@@ -42,6 +42,7 @@ documents = [
   "architecture:payments",
   "experience-design:checkout-flow",
   "milestone:m1-reliable-checkout",
+  "decision:adr-0007",
 ]
 
 [[decision]]
@@ -141,6 +142,23 @@ What this milestone delivers and why it comes first, in prose.
 `,
 	},
 	{
+		Kind: FileDecision,
+		Intro: "A decision record, kept as docs/decisions/0007-retry-budget.md, has a status of proposed, accepted, superseded, or " +
+			"rejected, and proposed when it states none. Only an accepted record answers a question. plan is optional: a record " +
+			"written before any plan names none. A contract cites it as decision:adr-0007.",
+		Text: `+++
+kind = "decision"
+id = "adr-0007"
+title = "Bound every call with a retry budget"
+status = "accepted"
+plan = "payments-v2"
+requirements = ["PAY-13"]
++++
+
+The context, the decision, and its consequences, in prose.
+`,
+	},
+	{
 		Kind: FileContract,
 		Intro: "A shared contract is one that other contracts build on. It is marked shared = true, and every contract that builds " +
 			"on it lists its id in uses. The work of a shared contract is built first.",
@@ -186,7 +204,7 @@ plan = "payments-v2"
 milestone = "m1-reliable-checkout"
 shared = false
 uses = ["payments-client"]
-documents = ["spec:checkout-api", "architecture:payments"]
+documents = ["spec:checkout-api", "architecture:payments", "decision:adr-0007"]
 reads = []
 decisions = []
 

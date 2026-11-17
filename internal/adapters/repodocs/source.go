@@ -84,6 +84,8 @@ func kindOf(path string, raw []byte) planning.DocumentKind {
 		return planning.DocumentExperienceDesign
 	case doc.Milestone != nil:
 		return planning.DocumentMilestone
+	case doc.Decision != nil:
+		return planning.DocumentDecision
 	}
 	return planning.DocumentOther
 }

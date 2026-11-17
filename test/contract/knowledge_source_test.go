@@ -84,6 +84,7 @@ func TestAFileSaysWhatItIsBeforeItsPathDoes(t *testing.T) {
 	repo.Commit("docs/c.md", DocumentText("experience-design", "c", "An experience design", "", "Prose."))
 	repo.Commit("docs/d.md", DocumentText("milestone", "d", "A milestone", "", "Prose."))
 	repo.Commit("docs/design/e.md", "# An unparsed design\n")
+	repo.Commit("docs/decisions/0007-retry-budget.md", DocumentText("decision", "adr-0007", "A decision record", "", "Prose."))
 	source := repodocs.New(repofiles.Config{Repository: repo.Dir, Env: repo.Env()})
 	list, err := source.List(t.Context())
 	if err != nil {
@@ -95,6 +96,8 @@ func TestAFileSaysWhatItIsBeforeItsPathDoes(t *testing.T) {
 		"docs/c.md": planning.DocumentExperienceDesign, "docs/d.md": planning.DocumentMilestone,
 		// A file that is not one of ours keeps the kind its path gives it.
 		"docs/design/e.md": planning.DocumentDesign,
+		// A decision record says so itself, wherever it is filed.
+		"docs/decisions/0007-retry-budget.md": planning.DocumentDecision,
 	}
 	if len(list) != len(want) {
 		t.Fatalf("list %+v", list)

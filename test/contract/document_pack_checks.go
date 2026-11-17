@@ -20,6 +20,7 @@ var DocumentPackChecks = []Check{
 	{"DP3", "a new version of a cited document tells the lanes whose packs hold it, and moves no pin", checkNoticeDocument},
 	{"DP4", "a new version of a cited document parks a lane the policy says to", checkNoticeDocumentParks},
 	{"DP5", "a document no pack holds tells no lane", checkNoticeDocumentNotHeld},
+	{"DP6", "a pack holds a cited decision record at its pinned version, with the status it had then", checkPackHoldsCitedDecision},
 }
 
 // citedAlpha is a contract that cites a spec and an architecture document, and names requirements at
