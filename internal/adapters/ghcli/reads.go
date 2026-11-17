@@ -51,7 +51,8 @@ func parseResponse(out []byte) (apiResponse, error) {
 
 // rateOf reads what a response's headers say of the rate limits: `retry-after` of a secondary limit,
 // `x-ratelimit-remaining` and `x-ratelimit-reset` of the primary one, and the least time `x-poll-interval` asks
-// between two reads (https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api).
+// between two reads (https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api,
+// https://docs.github.com/en/rest/using-the-rest-api/best-practices-for-using-the-rest-api).
 func rateOf(header map[string]string, secondary bool) ports.ForgeRate {
 	rate := ports.ForgeRate{Secondary: secondary}
 	if seconds, err := strconv.ParseInt(header["retry-after"], 10, 64); err == nil && seconds > 0 {
@@ -118,7 +119,7 @@ var commitID = regexp.MustCompile(`^[0-9a-fA-F]{7,64}$`)
 // ProbeChecks asks GET /repos/{owner}/{repo}/pulls/{number}, and GET /repos/{owner}/{repo}/commits/{head}/check-runs
 // and /status, each with the ETag its last response gave in If-None-Match. A 304 does not count against the
 // primary rate limit for an authorized request
-// (https://docs.github.com/en/rest/using-the-rest-api/best-practices-for-using-the-rest-api#use-conditional-requests-if-appropriate).
+// (https://docs.github.com/en/rest/using-the-rest-api/best-practices-for-using-the-rest-api#use-conditional-requests).
 // The pull request's response changes with a push, a merge, and a close, the check runs' with every run, and the
 // statuses' with every commit status, so all three 304 means a read would find what the last one did.
 func (f Forge) ProbeChecks(ctx context.Context, ref ports.PullRequestRef, head, tag string) (ports.ChecksProbe, error) {
@@ -258,10 +259,9 @@ func (b batched) pullRequest() (ledger.PullRequest, bool) {
 }
 
 // ReadPullRequests reads every pull request named in one `gh api graphql` query of the repository, which counts
-// as one request against the GraphQL rate limit, which is points and not requests
-// (https://docs.github.com/en/graphql/overview/rate-limits-and-node-limits-for-the-graphql-api). A conditional
-// request cannot carry the query, because GitHub documents ETags for its REST API only, so the single-head probe is
-// the conditional read.
+// as points of the GraphQL rate limit, the nodes the query could reach divided by 100 and at least 1
+// (https://docs.github.com/en/graphql/overview/rate-limits-and-node-limits-for-the-graphql-api). GitHub documents
+// no conditional request for GraphQL **(unverified)**, so the single-head probe is the conditional read.
 func (f Forge) ReadPullRequests(ctx context.Context, repo ports.ForgeRepo, numbers []int64) (ports.PullRequestsRead, error) {
 	read := ports.PullRequestsRead{Pulls: map[int64]ledger.PullRequest{}}
 	numbers = slices.DeleteFunc(slices.Clone(numbers), func(n int64) bool { return n <= 0 })

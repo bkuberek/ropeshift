@@ -10,7 +10,8 @@ import (
 
 // The forge's rate limits (FR-SPEND-20): a read the forge refuses for one holds the repository's reads for the wait
 // the response names, and for longer each time it is refused again, from a minute, as GitHub's guidance asks
-// (https://docs.github.com/en/rest/using-the-rest-api/best-practices-for-using-the-rest-api#handle-rate-limit-errors-appropriately).
+// (https://docs.github.com/en/rest/using-the-rest-api/best-practices-for-using-the-rest-api, "Handle rate limit
+// errors appropriately" and "Avoid polling").
 
 const (
 	// ciBackoffFirst is the wait after a first refusal, and it doubles with each refusal after.

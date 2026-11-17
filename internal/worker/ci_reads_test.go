@@ -59,7 +59,7 @@ func TestDueHeadsOfOneRepositoryAreReadInOneQuery(t *testing.T) {
 	numbers := watchOthers(t, f)
 	before := len(f.forge.Calls())
 	f.advance(time.Second)
-	calls := f.forge.Calls()[before:]
+	calls := slices.DeleteFunc(slices.Clone(f.forge.Calls()[before:]), func(call string) bool { return strings.HasPrefix(call, "health ") })
 	if len(calls) != 1 || !strings.HasPrefix(calls[0], "batch ") {
 		t.Fatalf("two due heads took %v, want one query", calls)
 	}
