@@ -1,6 +1,7 @@
 package entry
 
 import (
+	"io"
 	"strings"
 	"sync"
 	"testing"
@@ -13,13 +14,20 @@ type heldWorker struct {
 	release chan struct{}
 	once    sync.Once
 	running []string
+	// began closes when a wait begins.
+	began     chan struct{}
+	beganOnce sync.Once
 }
 
 func newHeldWorker(running ...string) *heldWorker {
-	return &heldWorker{release: make(chan struct{}), running: running}
+	return &heldWorker{release: make(chan struct{}), running: running, began: make(chan struct{})}
 }
 
-func (w *heldWorker) Wait()                { <-w.release }
+func (w *heldWorker) Wait() {
+	w.beganOnce.Do(func() { close(w.began) })
+	<-w.release
+}
+
 func (w *heldWorker) Unfinished() []string { return w.running }
 func (w *heldWorker) free()                { w.once.Do(func() { close(w.release) }) }
 
@@ -71,5 +79,36 @@ func TestAStoppingDaemonClosesItsWorkerOnceItsWorkEnds(t *testing.T) {
 	}
 	if got := log.String(); got != "" {
 		t.Errorf("a stop that went as it should said %q", got)
+	}
+}
+
+// TestAStoppingDaemonWaitsOnItsWorkerOnceTheSocketStops begins the worker's wait only after the socket takes
+// no more connections. A connection starts a goroutine that wait covers, and one started after the wait
+// began would go on past it, onto a closed journal.
+func TestAStoppingDaemonWaitsOnItsWorkerOnceTheSocketStops(t *testing.T) {
+	t.Parallel()
+	held := newHeldWorker()
+	held.free()
+	socketDone := make(chan struct{})
+	returned := make(chan struct{})
+	go func() {
+		defer close(returned)
+		stopWorker(held, socketDone, time.Hour, io.Discard)
+	}()
+	select {
+	case <-held.began:
+		t.Fatal("the worker's wait began while the socket could still take connections")
+	case <-time.After(100 * time.Millisecond):
+	}
+	close(socketDone)
+	select {
+	case <-returned:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the stop never ended once the socket stopped")
+	}
+	select {
+	case <-held.began:
+	default:
+		t.Error("the stop never waited on the worker")
 	}
 }
