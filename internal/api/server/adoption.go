@@ -49,5 +49,5 @@ func (h *handler) plan(w http.ResponseWriter, r *http.Request, actor ledger.Acto
 		fail(w, err)
 		return
 	}
-	reply(w, http.StatusOK, plan)
+	reply(w, http.StatusOK, api.AdoptionPlanReply{AdoptionPlan: plan, Parts: plan.Parts()})
 }
