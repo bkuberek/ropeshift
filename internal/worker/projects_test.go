@@ -31,6 +31,7 @@ type installationRig struct {
 	driver  *fake.AgentDriver
 	subject *worker.Worker
 	profile *fake.ProfileSource
+	clock   *fake.Clock
 }
 
 func newInstallationRig(t *testing.T) *installationRig {
@@ -72,7 +73,8 @@ func newInstallationRig(t *testing.T) *installationRig {
 		StateDir: dir, RunDir: dir,
 		Telemetry: worker.LaneTelemetry{Endpoint: "http://127.0.0.1:7318", Header: "x-ropeshift-telemetry=t", Workspace: "pa"},
 	}
-	r.subject = worker.New(&fake.WorkerLink{Plane: r.plane}, r.journal, fake.NewClock(time.UnixMilli(1_000_000)), worker.Config{
+	r.clock = fake.NewClock(time.UnixMilli(1_000_000))
+	r.subject = worker.New(&fake.WorkerLink{Plane: r.plane}, r.journal, r.clock, worker.Config{
 		Name:      "test",
 		JoinToken: func(ctx context.Context) (string, error) { return r.plane.CreateJoinToken(ctx, member) },
 		Lanes:     config,
