@@ -8,16 +8,23 @@ import { DecisionCard, DecisionSection } from "../ui/DecisionCard";
 import { approvalStates } from "../floor/states";
 import { Digest, Fact, Facts, Id, Refusal, StateBadge } from "../ui/display";
 import { Field } from "../ui/forms";
+import type { Decided } from "./decided";
+import { decidedOf } from "./decided";
 import type { Frame } from "./frame";
 import { kindOf } from "./kinds";
 import { useAct } from "./useAct";
 
 // The digest sent is the one on this page, so a call that changed since this read is refused, and a
 // person never approves something they did not read.
-export function ApprovalCard({ approval, after, frame, compact = false, place }: { approval: Approval; after: () => Promise<void>; frame: Frame; compact?: boolean; place?: Place }) {
+export function ApprovalCard({ approval, after, frame, compact = false, place, onDecided }: { approval: Approval; after: () => Promise<void>; frame: Frame; compact?: boolean; place?: Place; onDecided?: (decided: Decided) => void }) {
   const [reason, setReason] = useState("");
   const { act, busy, failure } = useAct(after);
-  const decide = (allow: boolean) => act(() => decideApproval(approval.id, approval.subject_digest, allow, reason.trim(), place));
+  const decide = (allow: boolean) =>
+    act(async () => {
+      const sent = { allow, reason: reason.trim() };
+      const recorded = await decideApproval(approval.id, approval.subject_digest, allow, sent.reason, place);
+      onDecided?.(decidedOf(recorded, sent));
+    });
   return (
     <DecisionCard
       compact={compact}

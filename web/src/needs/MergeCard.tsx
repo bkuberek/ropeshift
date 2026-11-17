@@ -9,6 +9,8 @@ import { DecisionCard, DecisionSection } from "../ui/DecisionCard";
 import { approvalStates } from "../floor/states";
 import { Digest, Fact, Facts, Refusal, StateBadge } from "../ui/display";
 import { Field } from "../ui/forms";
+import type { Decided } from "./decided";
+import { decidedOf } from "./decided";
 import type { Frame } from "./frame";
 import { kindOf } from "./kinds";
 import { authorityWords, isHeld, mergeDetailOf } from "./merge";
@@ -21,14 +23,19 @@ const shortOf = (commit: string) => commit.slice(0, 12);
 // worker to merge it, and denying sends the work back to rework. For a merge that cannot go on, approving
 // tries it again and denying sends the work back. The commit sent is the one on this page, so a request
 // whose work moved to another commit is refused, and a person never approves a commit they did not read.
-export function MergeCard({ approval, after, frame, compact = false, place }: { approval: Approval; after: () => Promise<void>; frame: Frame; compact?: boolean; place?: Place }) {
+export function MergeCard({ approval, after, frame, compact = false, place, onDecided }: { approval: Approval; after: () => Promise<void>; frame: Frame; compact?: boolean; place?: Place; onDecided?: (decided: Decided) => void }) {
   const detail = mergeDetailOf(approval);
   const held = isHeld(approval);
   const commit = approval.subject_digest;
   const short = shortOf(commit);
   const [reason, setReason] = useState("");
   const { act, busy, failure } = useAct(after);
-  const decide = (allow: boolean) => act(() => decideApproval(approval.id, commit, allow, reason.trim(), place));
+  const decide = (allow: boolean) =>
+    act(async () => {
+      const sent = { allow, reason: reason.trim() };
+      const recorded = await decideApproval(approval.id, commit, allow, sent.reason, place);
+      onDecided?.(decidedOf(recorded, sent));
+    });
   const base = detail.base || "its base branch";
   const method = detail.method ? `the ${detail.method} method` : "the repository's merge method";
   const target = detail.pull_request ? `pull request #${detail.pull_request}` : `${detail.branch || "its branch"} into ${base}`;

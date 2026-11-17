@@ -11,6 +11,8 @@ import { DecisionCard, DecisionSection } from "../ui/DecisionCard";
 import { approvalStates } from "../floor/states";
 import { Digest, Fact, Facts, Refusal, StateBadge } from "../ui/display";
 import { Field } from "../ui/forms";
+import type { Decided } from "./decided";
+import { decidedOf } from "./decided";
 import type { Frame } from "./frame";
 import { useAct } from "./useAct";
 
@@ -241,9 +243,11 @@ type CardProps = {
   // card goes when the item no longer waits, and a member still reads what became of each entry.
   registered?: ManifestRegistration;
   onRegistered?: (registration: ManifestRegistration) => void;
+  // onDecided hands up what the person decided, as the ledger recorded it, for the same reason.
+  onDecided?: (decided: Decided) => void;
 };
 
-export function PlanApprovalCard({ id, need, after, frame, registered, onRegistered }: CardProps) {
+export function PlanApprovalCard({ id, need, after, frame, registered, onRegistered, onDecided }: CardProps) {
   const [reason, setReason] = useState("");
   const { act, busy, failure } = useAct(after);
   const approval = need.approval;
@@ -251,7 +255,9 @@ export function PlanApprovalCard({ id, need, after, frame, registered, onRegiste
   const unseen = preview.state === "reading" || preview.state === "failed";
   const decide = (allow: boolean) =>
     act(async () => {
-      const decided = await decideApproval(id, approval.subject_digest, allow, reason.trim());
+      const sent = { allow, reason: reason.trim() };
+      const decided = await decideApproval(id, approval.subject_digest, allow, sent.reason);
+      onDecided?.(decidedOf(decided, sent));
       const registration = allow ? registrationOf(decided) : undefined;
       if (registration) {
         onRegistered?.(registration);
