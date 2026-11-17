@@ -163,14 +163,18 @@ func (s CISettings) Check() error {
 		return err
 	}
 	if s.WebhookSecretEnv != "" && !secretEnvName.MatchString(s.WebhookSecretEnv) {
-		return ciRefusal("ci_webhook_secret_env names a variable of the server's environment, such as ROPESHIFT_HOOK_WIDGETS, and never holds the key")
+		return ciRefusal("ci_webhook_secret_env names a variable of the server's environment that starts with %s, such as %sWIDGETS, and never holds the key", WebhookSecretEnvPrefix, WebhookSecretEnvPrefix)
 	}
 	return nil
 }
 
+// WebhookSecretEnvPrefix starts the name of every variable that may hold a webhook key. Any other variable of the
+// server's environment, such as a database URL or a cloud credential, is never read as a key, whoever names it.
+const WebhookSecretEnvPrefix = "ROPESHIFT_HOOK_"
+
 // secretEnvName is what the name of a variable looks like, so a key pasted in its place is refused and never
-// reaches the ledger, as a notify policy's is.
-var secretEnvName = regexp.MustCompile(`^[A-Z][A-Z0-9_]{0,63}$`)
+// reaches the ledger, as a notify policy's is, and a variable not set aside for webhook keys is refused too.
+var secretEnvName = regexp.MustCompile(`^` + WebhookSecretEnvPrefix + `[A-Z0-9_]{1,48}$`)
 
 // Set edits one key by its name and its text, over the settings in force, and returns settings that check. A key
 // nobody offers is refused.

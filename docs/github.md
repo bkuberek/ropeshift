@@ -132,22 +132,22 @@ A solo daemon on a laptop has no address GitHub can reach, and its route is on i
 
 To point a webhook at a repository on a group server:
 
-1. Choose a variable name for the repository's key, such as `ROPESHIFT_HOOK_WIDGETS`, and put a long random value in that variable in the server's environment. The ledger never holds the key: it holds the variable's name, and a value that is not a name is refused.
+1. Choose a variable name for the repository's key that starts with `ROPESHIFT_HOOK_`, such as `ROPESHIFT_HOOK_WIDGETS`, and put a long random value in that variable in the server's environment. The ledger never holds the key: it holds the variable's name. A value that is not a name is refused, and so is a name that does not start with `ROPESHIFT_HOOK_`, so no other variable of the server's environment, such as a database URL or a cloud credential, can be named as a key.
 2. Name the variable on the repository with `ropeshift repository set <repository> ci.ci_webhook_secret_env=ROPESHIFT_HOOK_WIDGETS`. The repository must have a forge binding, and a restart of the server picks up a changed environment.
 3. In the repository's settings on GitHub, under Webhooks, add a webhook ([creating webhooks](https://docs.github.com/en/webhooks/using-webhooks/creating-webhooks)). Set the payload URL to `https://<your server>/v1/webhooks/github`, the content type to `application/json`, and the secret to the same value as the variable. Select individual events, and choose Check runs, Check suites, and Workflow runs. Leave SSL verification on.
 4. GitHub sends a ping when it saves the webhook, which the server answers.
 
-A GitHub Enterprise Server names its own host in `X-GitHub-Enterprise-Host`, and the repository on that host is the one the delivery is for. The server verifies the `X-Hub-Signature-256` header, the HMAC-SHA256 of the body under the repository's key, before it reads anything else of the body, and compares it in constant time ([validating webhook deliveries](https://docs.github.com/en/webhooks/using-webhooks/validating-webhook-deliveries)). Then:
+A GitHub Enterprise Server names its own host in `X-GitHub-Enterprise-Host`, and the repository on that host is the one the delivery is for. The server first checks that the `X-Hub-Signature-256` header is `sha256=` and 64 hexadecimal characters, and refuses a delivery whose header is anything else before it reads the body. It bounds the body's size, then verifies the header, the HMAC-SHA256 of the body under the repository's key, before anyone acts on the body, and compares it in constant time ([validating webhook deliveries](https://docs.github.com/en/webhooks/using-webhooks/validating-webhook-deliveries)). It computes one digest over the body whether or not the repository is registered, so the time a refusal takes says nothing of which repositories there are. Then:
 
 | Delivery | What the server does |
 |----------|----------------------|
-| A `check_suite` or a `check_run` with the action `completed`, or a `workflow_run` with `requested`, `in_progress`, or `completed` | Makes a hint for the head it names, which each worker takes on its next heartbeat |
+| A `check_suite` or a `check_run` with the action `completed`, or a `workflow_run` with `requested`, `in_progress`, or `completed` | Makes a hint for the head it names, which each worker that serves the repository's project takes on its next heartbeat, and no other worker does |
 | Any other event or action, and a `ping` | Answers, and makes no hint |
-| A delivery ID the server has seen in the last hour | Answers `200` and makes no second hint, so a redelivery repeats nothing |
+| A delivery ID or a body the server has seen in the last hour | Answers `200` and makes no second hint, so a redelivery, or a captured delivery sent again under a new ID, repeats nothing |
 | A missing or wrong signature, a repository ropeshift does not hold, or a repository with no key | Answers `403 bad_signature` alike for every one, makes no hint, and counts it |
-| A body of more than a megabyte, or a content type other than `application/json` | Refuses it unread, as `413` or `415`, and counts it |
+| A body of more than a megabyte, or a content type other than `application/json` | Refuses it, as `413` or `415`, and counts it |
 
-The server counts each refusal by its reason and warns of the first of each and of every hundredth after it, in words that name no repository, no key, and no variable. Hints live in the server's memory for ten minutes, and a restart loses them, which the schedule makes good.
+The server counts each refusal by its reason and warns of the first of each and of every hundredth after it, in words that name no repository, no key, and no variable. Each refusal also counts against the address it came from, as a wrong passphrase does ([the listener's limit on failures](group-server.md)), so an address that sends many deliveries it cannot sign is refused with `429` for a while. A delivery that holds counts for nothing. The server keeps in memory which variable holds each repository's key, and reads the projects' records again when a repository record changes, so a delivery reads no project's store. Hints live in the server's memory for ten minutes, and a restart loses them, which the schedule makes good.
 
 ### review_approves
 

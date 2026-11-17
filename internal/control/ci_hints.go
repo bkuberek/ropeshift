@@ -19,8 +19,9 @@ const (
 )
 
 type boardHint struct {
-	hint ledger.CIHint
-	at   time.Time
+	hint    ledger.CIHint
+	project ledger.WorkspaceID
+	at      time.Time
 }
 
 // CIHints is the board of CI hints.
@@ -39,12 +40,14 @@ func NewCIHints(now func() time.Time) *CIHints {
 	return &CIHints{now: now, seq: now().UnixMilli()}
 }
 
-// Note puts a hint on the board for a head of a repository. An empty head names every pull request of it.
-func (h *CIHints) Note(binding ledger.ForgeBinding, head string) {
+// Note puts a hint on the board for a head of a repository that a project holds. An empty head names every pull
+// request of it. The project is kept with the hint, and never sent with it, so a heartbeat hands a worker only the
+// hints of the projects it serves (FR-PROJ-1).
+func (h *CIHints) Note(project ledger.WorkspaceID, binding ledger.ForgeBinding, head string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.seq++
-	h.items = append(h.items, boardHint{hint: ledger.CIHint{Seq: h.seq, Binding: binding.String(), Head: head}, at: h.now()})
+	h.items = append(h.items, boardHint{hint: ledger.CIHint{Seq: h.seq, Binding: binding.String(), Head: head}, project: project, at: h.now()})
 	if extra := len(h.items) - CIHintsHeld; extra > 0 {
 		h.items = append([]boardHint(nil), h.items[extra:]...)
 	}
@@ -53,12 +56,18 @@ func (h *CIHints) Note(binding ledger.ForgeBinding, head string) {
 // Since lists the hints after a mark that are still alive, oldest first, and the board's own mark, which a worker
 // sends back with its next heartbeat.
 func (h *CIHints) Since(after int64) ([]ledger.CIHint, int64) {
+	return h.SinceIn(after, nil)
+}
+
+// SinceIn is Since for the hints of the projects that serves says are served. A nil serves says every project is.
+// The mark still moves past the hints it leaves out, which a worker has no use for.
+func (h *CIHints) SinceIn(after int64, serves func(ledger.WorkspaceID) bool) ([]ledger.CIHint, int64) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	now := h.now()
 	var out []ledger.CIHint
 	for _, item := range h.items {
-		if item.hint.Seq > after && now.Sub(item.at) < ciHintLife {
+		if item.hint.Seq > after && now.Sub(item.at) < ciHintLife && (serves == nil || serves(item.project)) {
 			out = append(out, item.hint)
 		}
 	}

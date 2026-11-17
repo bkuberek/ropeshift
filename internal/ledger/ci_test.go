@@ -72,6 +72,14 @@ func TestACIKeyIsSetByNameAndRefusedOutsideItsRange(t *testing.T) {
 		{"ci_webhook_secret_env", "whsec_9fA3kLq0Zx7TnV2b", false, nil},
 		{"ci_webhook_secret_env", "has space", false, nil},
 		{"ci_webhook_secret_env", "1STARTS_WITH_A_DIGIT", false, nil},
+		// Only a variable set aside for webhook keys can be named, so no other variable of the server's environment,
+		// such as a database URL or a cloud credential, is ever read as a key.
+		{"ci_webhook_secret_env", "HOME", false, nil},
+		{"ci_webhook_secret_env", "DATABASE_URL", false, nil},
+		{"ci_webhook_secret_env", "ROPESHIFT_WEBHOOK_KEY", false, nil},
+		{"ci_webhook_secret_env", "ROPESHIFT_HOOK_", false, nil},
+		{"ci_webhook_secret_env", "ropeshift_hook_widgets", false, nil},
+		{"ci_webhook_secret_env", "ROPESHIFT_HOOK_W", true, func(s CISettings) bool { return s.WebhookSecretEnv == "ROPESHIFT_HOOK_W" }},
 	}
 	for _, tt := range tests {
 		t.Run(tt.key+"="+tt.value, func(t *testing.T) {
@@ -108,6 +116,10 @@ func TestTheWebhookKeyHoldsAVariablesNameAndNeverTheKey(t *testing.T) {
 	s.WebhookSecretEnv = "a-key-pasted-in-its-place"
 	if err := s.Check(); !errors.Is(err, ErrInvalidRepository) || !strings.Contains(err.Error(), "ci_webhook_secret_env") {
 		t.Errorf("a record that holds a key in the variable's place checks: %v", err)
+	}
+	s.WebhookSecretEnv = "AWS_SECRET_ACCESS_KEY"
+	if err := s.Check(); !errors.Is(err, ErrInvalidRepository) || !strings.Contains(err.Error(), "starts with ROPESHIFT_HOOK_") {
+		t.Errorf("a variable that is not set aside for webhook keys checks, or the refusal does not say which are: %v", err)
 	}
 }
 

@@ -142,12 +142,12 @@ func TestAHintInAHeartbeatReadsThePullRequestAtOnce(t *testing.T) {
 	if reads() != first {
 		t.Fatalf("a heartbeat with no hint read the pull request: %d reads, %d before", reads(), first)
 	}
-	board.Note(ledger.ForgeBinding{Host: "github.com", Owner: "acme", Repo: "other"}, "")
+	board.Note("project-1", ledger.ForgeBinding{Host: "github.com", Owner: "acme", Repo: "other"}, "")
 	beat()
 	if reads() != first {
 		t.Fatalf("a hint for another repository read this one: %d reads", reads())
 	}
-	board.Note(widgets, "fake-head")
+	board.Note("project-1", widgets, "fake-head")
 	beat()
 	if reads() != first+1 {
 		t.Fatalf("a hint in a heartbeat did not read the pull request: %d reads, %d before", reads(), first)

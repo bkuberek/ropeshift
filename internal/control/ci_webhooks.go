@@ -17,9 +17,10 @@ import (
 	"ropeshift.com/ropeshift/internal/ledger"
 )
 
-// The signed webhook deliveries of CI events (FR-SPEND-20) are hints, as intake treats a tracker's: a delivery is
-// verified against the secret of the repository it names, before anything of it is trusted; dropped when its ID has
-// come before; and turned into a hint for the head it names, which carries no state, because the read decides what
+// The signed webhook deliveries of CI events (FR-SPEND-20) are hints, as intake treats a tracker's: a delivery whose
+// signature is not the form GitHub writes is refused before its body is parsed; the rest are verified against the
+// secret of the repository they name, before anything of them is trusted; dropped when their ID or their body has
+// come before; and turned into a hint for the head they name, which carries no state, because the read decides what
 // changed. Polling works alone, so a delivery that is refused, lost, or late costs only the delay
 // (https://docs.github.com/en/webhooks/using-webhooks/validating-webhook-deliveries).
 
@@ -36,10 +37,15 @@ const (
 )
 
 const (
-	// CIDeliveriesHeld is how many delivery IDs are remembered, the oldest forgotten first.
+	// CIDeliveriesHeld is how many deliveries are remembered, each by its ID and by the digest of its body, the oldest
+	// forgotten first.
 	CIDeliveriesHeld = 4096
-	// ciDeliveryLife is how long an ID is remembered. A redelivery later than this is read again, which costs a read.
+	// ciDeliveryLife is how long a delivery is remembered. A redelivery later than this is read again, which costs a
+	// read.
 	ciDeliveryLife = time.Hour
+	// ciDummyKey is the key a digest is made under when a delivery has no key of a repository's to be verified
+	// with, so a request costs the same whether or not the repository it names is registered. It verifies nothing.
+	ciDummyKey = "ropeshift: no webhook key is set for this repository"
 	// refusalWarnEvery is how many refusals of one reason pass between two warnings, after the first.
 	refusalWarnEvery = 100
 )
@@ -61,6 +67,8 @@ const (
 // CIRegistration is one repository a project holds that a delivery may name, and the variable of the server's
 // environment that holds the key its deliveries are signed with.
 type CIRegistration struct {
+	// Project is the project whose record this is, which a hint made from it is kept for.
+	Project   ledger.WorkspaceID
 	Binding   ledger.ForgeBinding
 	SecretEnv string
 }
@@ -95,6 +103,8 @@ type CIWebhooks struct {
 	env   func(string) (string, bool)
 	now   func() time.Time
 	warn  func(string)
+	// digest is the HMAC-SHA256 of a body under a key. It is a field so a test can count the digests a delivery costs.
+	digest func(key string, body []byte) []byte
 
 	mu     sync.Mutex
 	counts map[string]int64
@@ -112,7 +122,36 @@ func NewCIWebhooks(repos CIRepositories, hints *CIHints, env func(string) (strin
 	if warn == nil {
 		warn = func(string) {}
 	}
-	return &CIWebhooks{repos: repos, hints: hints, env: env, now: now, warn: warn, counts: map[string]int64{}, seen: map[string]time.Time{}}
+	return &CIWebhooks{repos: repos, hints: hints, env: env, now: now, warn: warn, digest: hmacSHA256, counts: map[string]int64{}, seen: map[string]time.Time{}}
+}
+
+func hmacSHA256(key string, body []byte) []byte {
+	mac := hmac.New(sha256.New, []byte(key))
+	mac.Write(body)
+	return mac.Sum(nil)
+}
+
+// signaturePrefix starts X-Hub-Signature-256, and a digest of SHA-256 is 64 hexadecimal characters.
+const (
+	signaturePrefix = "sha256="
+	signatureHex    = 2 * sha256.Size
+)
+
+// WellFormedSignature says a signature is "sha256=" and 64 hexadecimal characters, which is all GitHub writes in
+// X-Hub-Signature-256. It reads nothing of the body or of any store, so a listener asks it before it reads a body at
+// all, and a flood of deliveries that carry anything else costs a comparison each.
+func WellFormedSignature(signature string) bool {
+	digest, found := strings.CutPrefix(signature, signaturePrefix)
+	if !found || len(digest) != signatureHex {
+		return false
+	}
+	for i := range len(digest) {
+		c := digest[i]
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') && (c < 'A' || c > 'F') {
+			return false
+		}
+	}
+	return true
 }
 
 // Counts lists how many deliveries each reason refused or dropped.
@@ -155,11 +194,15 @@ type payload struct {
 
 var commitID = regexp.MustCompile(`^[0-9a-fA-F]{7,64}$`)
 
-// Receive takes one delivery. It reads the body only to find the repository it names, which says whose key to
+// Receive takes one delivery. It refuses a signature that is not the form GitHub writes before it parses a byte of
+// the body or reads any store, then reads the body only to find the repository it names, which says whose key to
 // verify it with, and trusts nothing it reads until the signature has held for that repository.
 func (c *CIWebhooks) Receive(ctx context.Context, d CIDelivery) (CIOutcome, error) {
 	if d.Signature == "" {
 		return "", c.refuse(RefusedMissingSignature, false)
+	}
+	if !WellFormedSignature(d.Signature) {
+		return "", c.refuse(RefusedBadSignature, false)
 	}
 	var body payload
 	if json.Unmarshal(d.Body, &body) != nil {
@@ -177,20 +220,21 @@ func (c *CIWebhooks) Receive(ctx context.Context, d CIDelivery) (CIOutcome, erro
 	if err != nil {
 		return "", err
 	}
-	if len(registered) == 0 {
+	// One digest is computed over the body whatever the repository is, so the time a refusal takes tells a caller
+	// nothing of which repositories are registered or which have a key.
+	registrations, keyed := c.verified(registered, d)
+	switch {
+	case len(registered) == 0:
 		return "", c.refuse(RefusedUnknownRepository, false)
-	}
-	bindings, keyed := c.verified(registered, d)
-	if !keyed {
+	case !keyed:
 		return "", c.refuse(RefusedNoSecret, false)
-	}
-	if len(bindings) == 0 {
+	case len(registrations) == 0:
 		return "", c.refuse(RefusedBadSignature, false)
 	}
 	if d.Event == "" || d.ID == "" {
 		return "", c.refuse(RefusedMalformed, true)
 	}
-	if !c.firstSight(d.ID) {
+	if !c.firstSight(d.ID, d.Body) {
 		c.mu.Lock()
 		c.counts[DroppedReplay]++
 		c.mu.Unlock()
@@ -212,16 +256,17 @@ func (c *CIWebhooks) Receive(ctx context.Context, d CIDelivery) (CIOutcome, erro
 	if !commitID.MatchString(head) {
 		head = ""
 	}
-	for _, binding := range bindings {
-		c.hints.Note(binding, head)
+	for _, registration := range registrations {
+		c.hints.Note(registration.Project, registration.Binding, head)
 	}
 	return outcome, nil
 }
 
-// verified lists the bindings whose own key verifies the delivery's signature, each once, and says whether any of
-// the registrations had a key to verify with.
-func (c *CIWebhooks) verified(registered []CIRegistration, d CIDelivery) ([]ledger.ForgeBinding, bool) {
-	var bindings []ledger.ForgeBinding
+// verified lists the registrations whose own key verifies the delivery's signature, one for each binding of each
+// project, and says whether any of them had a key to verify with. When none had, one digest is made under a dummy key
+// all the same, and it verifies nothing.
+func (c *CIWebhooks) verified(registered []CIRegistration, d CIDelivery) ([]CIRegistration, bool) {
+	var held []CIRegistration
 	keyed := false
 	for _, registration := range registered {
 		if registration.SecretEnv == "" {
@@ -232,17 +277,20 @@ func (c *CIWebhooks) verified(registered []CIRegistration, d CIDelivery) ([]ledg
 			continue
 		}
 		keyed = true
-		if signatureHolds(key, d.Body, d.Signature) && !slices.Contains(bindings, registration.Binding) {
-			bindings = append(bindings, registration.Binding)
+		if c.signatureHolds(key, d.Body, d.Signature) && !slices.Contains(held, registration) {
+			held = append(held, registration)
 		}
 	}
-	return bindings, keyed
+	if !keyed {
+		c.signatureHolds(ciDummyKey, d.Body, d.Signature)
+	}
+	return held, keyed
 }
 
 // signatureHolds says the signature is the HMAC-SHA256 of the body under the key, as GitHub writes it in
 // X-Hub-Signature-256: "sha256=" and the digest in hex. The digests are compared in constant time.
-func signatureHolds(key string, body []byte, signature string) bool {
-	digest, found := strings.CutPrefix(signature, "sha256=")
+func (c *CIWebhooks) signatureHolds(key string, body []byte, signature string) bool {
+	digest, found := strings.CutPrefix(signature, signaturePrefix)
 	if !found {
 		return false
 	}
@@ -250,30 +298,37 @@ func signatureHolds(key string, body []byte, signature string) bool {
 	if err != nil {
 		return false
 	}
-	mac := hmac.New(sha256.New, []byte(key))
-	mac.Write(body)
-	return hmac.Equal(mac.Sum(nil), given)
+	return hmac.Equal(c.digest(key, body), given)
 }
 
-// firstSight remembers a delivery ID and says whether it is new, within the life of an ID and the number of IDs held.
-func (c *CIWebhooks) firstSight(id string) bool {
+// firstSight remembers a delivery and says whether it is new, within the life of a delivery and the number held. A
+// delivery is known by its ID and by the digest of its body, so a signed body that was captured and is sent again
+// under fresh IDs is no new delivery, and nothing of it is remembered, which keeps a flood of replays from pushing the
+// real deliveries out of the memory.
+func (c *CIWebhooks) firstSight(id string, body []byte) bool {
 	now := c.now()
+	sum := sha256.Sum256(body)
+	keys := [2]string{"id:" + id, "body:" + string(sum[:])}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	for len(c.order) > 0 {
 		at, held := c.seen[c.order[0]]
-		if held && now.Sub(at) < ciDeliveryLife && len(c.order) < CIDeliveriesHeld {
+		if held && now.Sub(at) < ciDeliveryLife && len(c.order) < 2*CIDeliveriesHeld {
 			break
 		}
 		delete(c.seen, c.order[0])
 		c.order = c.order[1:]
 	}
-	if at, held := c.seen[id]; held && now.Sub(at) < ciDeliveryLife {
-		return false
+	for _, key := range keys {
+		if at, held := c.seen[key]; held && now.Sub(at) < ciDeliveryLife {
+			return false
+		}
 	}
-	if _, held := c.seen[id]; !held {
-		c.order = append(c.order, id)
+	for _, key := range keys {
+		if _, held := c.seen[key]; !held {
+			c.order = append(c.order, key)
+		}
+		c.seen[key] = now
 	}
-	c.seen[id] = now
 	return true
 }

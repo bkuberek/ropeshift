@@ -223,8 +223,9 @@ func (n *network) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			n.web.ServeHTTP(w, r)
 			return
 		}
-		// A delivery of GitHub's carries no credential of ours: its signature is the credential, which the handler
-		// verifies before it reads a word of the body, and the body has a limit and a window like the other two.
+		// A delivery of GitHub's carries no credential of ours: its signature is the credential. The body has a limit
+		// and a window like the other two, the handler checks the signature's form before it reads the body, and
+		// the use case verifies the body before anyone acts on it.
 		if r.Method == http.MethodPost && r.URL.Path == api.GitHubWebhookPath {
 			bounded(w, r, unauthenticatedWindow, ciWebhookBodyMax)
 			n.api.ServeHTTP(w, r)

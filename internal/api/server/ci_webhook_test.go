@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"ropeshift.com/ropeshift/internal/api"
+	"ropeshift.com/ropeshift/internal/api/server"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/test/apitest"
 )
@@ -59,7 +60,13 @@ func hookOn(t *testing.T) *hookRig {
 // hookWith is hookOn over a server whose environment is the one given.
 func hookWith(t *testing.T, env func(string) (string, bool)) *hookRig {
 	t.Helper()
-	d := apitest.Start(t)
+	return hookStart(t, env, apitest.Options{})
+}
+
+// hookStart is hookWith over a daemon started with the options given, such as a limit on the failures of an address.
+func hookStart(t *testing.T, env func(string) (string, bool), options apitest.Options) *hookRig {
+	t.Helper()
+	d := apitest.StartWith(t, options)
 	detected(t, d, aRepository, "main")
 	binding := "github.com/acme/widgets"
 	if _, err := d.Client.SetRepository(t.Context(), aRepository, api.RepositoryChange{ForgeBinding: &binding, CI: map[string]string{"ci_webhook_secret_env": hookEnv}}); err != nil {
@@ -284,6 +291,61 @@ func TestAMalformedSignedDeliveryIsToldSo(t *testing.T) {
 		if response.StatusCode != http.StatusBadRequest {
 			t.Errorf("%s answered %d: %s", name, response.StatusCode, raw)
 		}
+	}
+}
+
+// Every refusal counts against the address it came from, as a wrong passphrase does, so an address that floods the
+// route with deliveries it cannot sign is refused early, with 429, whatever it sends next, and another address is not.
+func TestAnAddressThatFloodsTheRouteWithRefusalsIsLimited(t *testing.T) {
+	t.Parallel()
+	limits := server.NewAttempts(server.AttemptLimits{MaxFailures: 3, Lockout: 15 * time.Minute, InFlight: 100})
+	h := hookStart(t, func(name string) (string, bool) { return hookSecret, name == hookEnv }, apitest.Options{Attempts: limits})
+	body := suiteBody("acme/widgets", hookHead)
+	refusals := []map[string]string{
+		{"X-GitHub-Event": "check_suite", "X-GitHub-Delivery": "f-1"},
+		{"X-GitHub-Event": "check_suite", "X-GitHub-Delivery": "f-2", "X-Hub-Signature-256": "sha256=not-a-digest"},
+		{"X-GitHub-Event": "check_suite", "X-GitHub-Delivery": "f-3", "X-Hub-Signature-256": signed("a guess", body)},
+	}
+	for i, headers := range refusals {
+		response, raw := h.deliver(t, body, headers)
+		wantStatus(t, response, raw, http.StatusForbidden, api.CodeBadSignature)
+		if i < len(refusals)-1 && response.Header.Get("Retry-After") != "" {
+			t.Fatalf("refusal %d was limited already", i+1)
+		}
+	}
+	// The address has used its failures: a delivery that would have held is refused too, and told when to try again.
+	response, raw := h.deliver(t, body, good("f-4", body))
+	wantStatus(t, response, raw, http.StatusTooManyRequests, api.CodeTooManyAttempts)
+	if response.Header.Get("Retry-After") == "" {
+		t.Errorf("the refusal for a limit does not say when to try again")
+	}
+	if reply := h.beat(t, 0); len(reply.Hints) != 0 {
+		t.Errorf("a limited address made hints: %+v", reply.Hints)
+	}
+}
+
+// A delivery that holds is no failure, so an address that sends many of them is never limited.
+func TestDeliveriesThatHoldDoNotCountAgainstTheAddress(t *testing.T) {
+	t.Parallel()
+	limits := server.NewAttempts(server.AttemptLimits{MaxFailures: 3, Lockout: 15 * time.Minute, InFlight: 100})
+	h := hookStart(t, func(name string) (string, bool) { return hookSecret, name == hookEnv }, apitest.Options{Attempts: limits})
+	for i := range 10 {
+		body := suiteBody("acme/widgets", fmt.Sprintf("%040x", i+1))
+		response, raw := h.deliver(t, body, good(fmt.Sprint("ok-", i), body))
+		wantStatus(t, response, raw, http.StatusAccepted, "")
+	}
+}
+
+// A signature that is not the form GitHub writes is refused before the body is read: a body that would run past the
+// bound is refused for its signature, not its size, which is what the listener never got to.
+func TestASignatureOfTheWrongFormIsRefusedBeforeTheBodyIsRead(t *testing.T) {
+	t.Parallel()
+	h := hookOn(t)
+	body := bytes.Repeat([]byte("x"), 1<<20+1)
+	response, raw := h.deliver(t, body, map[string]string{"X-GitHub-Event": "check_suite", "X-GitHub-Delivery": "w-1", "X-Hub-Signature-256": "sha256=short"})
+	wantStatus(t, response, raw, http.StatusForbidden, api.CodeBadSignature)
+	if warned := h.warnings(); strings.Contains(warned, "oversized") || !strings.Contains(warned, "bad_signature") {
+		t.Errorf("an operator heard %q", warned)
 	}
 }
 

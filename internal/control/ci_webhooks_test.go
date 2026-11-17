@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -34,7 +35,7 @@ type hookRig struct {
 
 const hookKey = "the secret of acme widgets"
 
-func newHookRig(t *testing.T, repos hookRepos, env map[string]string) *hookRig {
+func newHookRig(t *testing.T, repos control.CIRepositories, env map[string]string) *hookRig {
 	t.Helper()
 	r := &hookRig{now: time.UnixMilli(1_700_000_000_000)}
 	clock := func() time.Time { return r.now }
@@ -250,21 +251,55 @@ func TestAReplayedDeliveryIsDroppedAndAForgeryCannotSpendItsID(t *testing.T) {
 	}
 }
 
-// The memory of delivery IDs is bounded, and the oldest ID goes first.
+// distinct is the body of the i-th delivery of a run, each of them its own: no two share a head.
+func distinct(i int) []byte { return suite("completed", fmt.Sprintf("%040x", i+1)) }
+
+// The memory of deliveries is bounded, and the oldest goes first.
 func TestTheMemoryOfDeliveryIDsIsBounded(t *testing.T) {
 	t.Parallel()
 	r := newHookRig(t, widgetsRepos(), map[string]string{"HOOK_WIDGETS": hookKey})
-	body := suite("completed", sha)
 	for i := range control.CIDeliveriesHeld + 10 {
-		if _, err := r.hooks.Receive(t.Context(), delivery("check_suite", fmt.Sprint("d-", i), body)); err != nil {
+		if _, err := r.hooks.Receive(t.Context(), delivery("check_suite", fmt.Sprint("d-", i), distinct(i))); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if outcome, _ := r.hooks.Receive(t.Context(), delivery("check_suite", "d-0", body)); outcome != control.CIAccepted {
-		t.Errorf("the oldest ID is still remembered after %d more: %q", control.CIDeliveriesHeld+9, outcome)
+	if outcome, _ := r.hooks.Receive(t.Context(), delivery("check_suite", "d-0", distinct(0))); outcome != control.CIAccepted {
+		t.Errorf("the oldest delivery is still remembered after %d more: %q", control.CIDeliveriesHeld+9, outcome)
 	}
-	if outcome, _ := r.hooks.Receive(t.Context(), delivery("check_suite", fmt.Sprint("d-", control.CIDeliveriesHeld+9), body)); outcome != control.CIDuplicate {
-		t.Errorf("the newest ID is forgotten: %q", outcome)
+	last := control.CIDeliveriesHeld + 9
+	if outcome, _ := r.hooks.Receive(t.Context(), delivery("check_suite", fmt.Sprint("d-", last), distinct(last))); outcome != control.CIDuplicate {
+		t.Errorf("the newest delivery is forgotten: %q", outcome)
+	}
+}
+
+// A signed body that was captured and is sent again under fresh IDs is a replay: it makes no second hint, and the
+// IDs it brings are not remembered, so a flood of them pushes no real ID out of the memory.
+func TestAReplayedBodyUnderFreshIDsMakesNoHintAndPushesNoRealIDOut(t *testing.T) {
+	t.Parallel()
+	r := newHookRig(t, widgetsRepos(), map[string]string{"HOOK_WIDGETS": hookKey})
+	real := delivery("check_suite", "real-1", distinct(0))
+	if outcome, err := r.hooks.Receive(t.Context(), real); err != nil || outcome != control.CIAccepted {
+		t.Fatalf("the real delivery came to %q: %v", outcome, err)
+	}
+	captured := distinct(1)
+	if outcome, err := r.hooks.Receive(t.Context(), delivery("check_suite", "captured-0", captured)); err != nil || outcome != control.CIAccepted {
+		t.Fatalf("the delivery that was captured came to %q: %v", outcome, err)
+	}
+	flood := control.CIDeliveriesHeld + 10
+	for i := range flood {
+		if outcome, err := r.hooks.Receive(t.Context(), delivery("check_suite", fmt.Sprint("fresh-", i), captured)); err != nil || outcome != control.CIDuplicate {
+			t.Fatalf("the captured body under the fresh ID %d came to %q: %v", i, outcome, err)
+		}
+	}
+	if hints := r.hinted(); len(hints) != 2 {
+		t.Errorf("the replays made hints: %+v", hints)
+	}
+	if got := r.hooks.Counts()[control.DroppedReplay]; got != int64(flood) {
+		t.Errorf("%d replays were counted %d times", flood, got)
+	}
+	// The real ID is still remembered: sent again with another signed body, it is dropped.
+	if outcome, err := r.hooks.Receive(t.Context(), delivery("check_suite", "real-1", distinct(2))); err != nil || outcome != control.CIDuplicate {
+		t.Errorf("the real ID after the flood came to %q: %v, so the flood pushed it out", outcome, err)
 	}
 }
 
@@ -335,5 +370,73 @@ func TestAFloodOfRefusalsWarnsOnlyNowAndThen(t *testing.T) {
 	}
 	if len(r.warned) != 3 || r.hooks.Counts()[control.RefusedBadSignature] != 250 {
 		t.Errorf("250 refusals warned %d times and were counted %d", len(r.warned), r.hooks.Counts()[control.RefusedBadSignature])
+	}
+}
+
+// countingRepos counts the times the ledger is asked which repositories a delivery names.
+type countingRepos struct {
+	hookRepos
+	reads atomic.Int64
+}
+
+func (c *countingRepos) CIRepository(ctx context.Context, host, owner, repo string) ([]control.CIRegistration, error) {
+	c.reads.Add(1)
+	return c.hookRepos.CIRepository(ctx, host, owner, repo)
+}
+
+// A signature that is not "sha256=" and 64 hex characters is refused before the body is parsed and before any
+// store is read, so a flood of unsigned bodies costs the server a comparison each and no more.
+func TestASignatureOfTheWrongFormIsRefusedBeforeTheBodyIsParsedOrAStoreRead(t *testing.T) {
+	t.Parallel()
+	repos := &countingRepos{hookRepos: widgetsRepos()}
+	r := newHookRig(t, repos, map[string]string{"HOOK_WIDGETS": hookKey})
+	body := suite("completed", sha)
+	digest := strings.TrimPrefix(sign(hookKey, body), "sha256=")
+	for name, tt := range map[string]struct{ signature, reason string }{
+		"missing":           {"", control.RefusedMissingSignature},
+		"prefix only":       {"sha256=", control.RefusedBadSignature},
+		"no prefix":         {digest, control.RefusedBadSignature},
+		"one short":         {"sha256=" + digest[:63], control.RefusedBadSignature},
+		"one long":          {"sha256=" + digest + "0", control.RefusedBadSignature},
+		"not hex":           {"sha256=" + strings.Repeat("g", 64), control.RefusedBadSignature},
+		"the legacy digest": {"sha1=" + digest, control.RefusedBadSignature},
+		"upper-case prefix": {"SHA256=" + digest, control.RefusedBadSignature},
+		"padded":            {" sha256=" + digest, control.RefusedBadSignature},
+		"a trailing line":   {"sha256=" + digest + "\n", control.RefusedBadSignature},
+	} {
+		d := control.CIDelivery{Event: "check_suite", ID: "d-" + name, Signature: tt.signature, Body: body}
+		if _, err := r.hooks.Receive(t.Context(), d); refusal(t, err).Reason != tt.reason {
+			t.Errorf("a %s signature was refused as %v, want %s", name, err, tt.reason)
+		}
+	}
+	// A body that is not JSON names no repository, so it is refused as unknown when its signature is of the right
+	// form and as a bad signature when it is not: the signature came first, and the body was never parsed.
+	notJSON := control.CIDelivery{Event: "check_suite", ID: "d-nope", Signature: "sha256=zz", Body: []byte("nope")}
+	if _, err := r.hooks.Receive(t.Context(), notJSON); refusal(t, err).Reason != control.RefusedBadSignature {
+		t.Errorf("a body that is not JSON under a signature of the wrong form was refused as %v", err)
+	}
+	if reads := repos.reads.Load(); reads != 0 {
+		t.Errorf("the ledger was read %d times for deliveries whose signatures were of the wrong form", reads)
+	}
+	// A signature of the right form is read as before: the ledger is asked once.
+	_, _ = r.hooks.Receive(t.Context(), control.CIDelivery{Event: "check_suite", ID: "d-form", Signature: sign("a guess", body), Body: body})
+	if reads := repos.reads.Load(); reads != 1 {
+		t.Errorf("a delivery whose signature is of the right form read the ledger %d times, want 1", reads)
+	}
+}
+
+// WellFormedSignature is what the listener asks before it reads a body at all.
+func TestTheFormOfASignatureIsExactlySha256AndSixtyFourHexCharacters(t *testing.T) {
+	t.Parallel()
+	digest := strings.Repeat("aB09", 16)
+	for signature, want := range map[string]bool{
+		"sha256=" + digest:     true,
+		"sha256=" + digest[1:]: false,
+		"sha256 =" + digest:    false,
+		"":                     false,
+	} {
+		if got := control.WellFormedSignature(signature); got != want {
+			t.Errorf("WellFormedSignature(%q) = %v, want %v", signature, got, want)
+		}
 	}
 }
