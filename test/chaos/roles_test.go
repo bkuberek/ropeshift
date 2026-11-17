@@ -171,7 +171,7 @@ func roleRecordDecision(c *child) error {
 func roleSupersede(c *child) error {
 	draft := questions.Decision{
 		ID: c.spec.Key, Status: questions.DecisionDecided, Statement: "The retry budget is four calls.",
-		Scope: c.spec.Key, Supersedes: c.spec.ClaimID,
+		Scope: "repo:" + c.spec.Key, Supersedes: c.spec.ClaimID,
 	}
 	_, err := c.ops.RecordDecision(c.ctx, c.scope, draft, c.member())
 	return err
@@ -180,7 +180,7 @@ func roleSupersede(c *child) error {
 // roleOneWay records a decision nobody can take back.
 func roleOneWay(c *child) error {
 	draft := questions.Decision{
-		ID: c.spec.Key, Status: questions.DecisionDecided, Statement: "Audit data stays in region.", Scope: c.spec.Key, Reversibility: questions.OneWay,
+		ID: c.spec.Key, Status: questions.DecisionDecided, Statement: "Audit data stays in region.", Scope: "repo:" + c.spec.Key, Reversibility: questions.OneWay,
 	}
 	_, err := c.ops.RecordDecision(c.ctx, c.scope, draft, c.member())
 	return err
@@ -188,7 +188,7 @@ func roleOneWay(c *child) error {
 
 func roleRule(c *child) error {
 	ruling := contract.RulingOf(c.spec.ClaimID, questions.DecisionDecided)
-	ruling.Scope = c.spec.ClaimID
+	ruling.Scope = "repo:" + c.spec.ClaimID
 	_, err := c.ops.Rule(c.ctx, c.scope, c.spec.Key, ruling, ledger.Actor{Kind: ledger.ActorOrchestrator, ID: contract.RungHolder})
 	return err
 }
