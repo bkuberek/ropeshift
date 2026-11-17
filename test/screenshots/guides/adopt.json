@@ -1,0 +1,74 @@
+{
+  "guide": "adopt",
+  "title": "Adopt an existing project",
+  "world": "harbor",
+  "order": 4,
+  "steps": [
+    {
+      "step": "fill in Import an existing project",
+      "route": "/projects",
+      "actions": [
+        { "click": { "role": "link", "name": "Import an existing project" } },
+        { "waitFor": { "text": "Worker and folder" } },
+        { "fill": { "label": "Folder", "value": "{{moorings}}" } },
+        { "fill": { "label": "Depth", "value": "1" } }
+      ],
+      "capture": { "name": "adopt-01", "clip": "window" }
+    },
+    {
+      "step": "run the dry run",
+      "actions": [
+        { "click": { "role": "button", "name": "Run dry run" } },
+        { "waitFor": { "text": "nothing recorded yet" } },
+        { "waitFor": { "text": "moorings-docs" } }
+      ],
+      "capture": { "name": "adopt-02", "clip": "window" }
+    },
+    {
+      "step": "choose the planning repository",
+      "actions": [
+        { "click": { "role": "button", "name": "Continue" } },
+        { "click": { "role": "radio", "name": "moorings-docs", "exact": false } }
+      ],
+      "capture": { "name": "adopt-03", "clip": "window" }
+    },
+    {
+      "step": "start the adopt session",
+      "actions": [
+        { "click": { "role": "button", "name": "Continue" } },
+        { "click": { "role": "button", "name": "Start adopt session" } },
+        { "waitFor": { "text": "Plan in progress" } },
+        { "waitFor": { "text": "Open questions", "in": { "role": "complementary", "name": "Plan in progress" } } },
+        { "waitFor": { "text": "Which branches in flight should the plan keep?", "in": { "role": "complementary", "name": "Plan in progress" } } }
+      ],
+      "capture": { "name": "adopt-04", "clip": "window" }
+    },
+    {
+      "step": "answer in Needs you",
+      "route": "/needs-you",
+      "actions": [
+        { "click": { "role": "link", "name": "A question", "exact": false } },
+        { "click": { "role": "radio", "name": "Keep feature/cancel-booking, and leave out spike/map-view" } },
+        { "click": { "role": "button", "name": "Send this answer" } },
+        { "waitFor": { "text": "A question no longer waits", "in": { "role": "region", "name": "The selected item" } } }
+      ]
+    },
+    {
+      "step": "open the grouped plan approval",
+      "actions": [
+        { "click": { "role": "link", "name": "Approve Moorings as it is, and what remains, version 1?", "exact": false } },
+        { "click": { "role": "link", "name": "Open the full plan approval" } },
+        { "waitFor": { "text": "What exists", "in": { "role": "region", "name": "What the adoption does" } } },
+        { "waitFor": { "text": "What continues", "in": { "role": "region", "name": "What the adoption does" } } }
+      ],
+      "capture": { "name": "adopt-05", "clip": "window" }
+    },
+    {
+      "step": "approve version 1",
+      "actions": [
+        { "click": { "role": "button", "name": "Approve version 1" } },
+        { "waitFor": { "text": "Approved by" } }
+      ]
+    }
+  ]
+}

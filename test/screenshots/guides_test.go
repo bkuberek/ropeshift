@@ -5,6 +5,7 @@ package screenshots
 import (
 	"encoding/json"
 	"flag"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -55,7 +56,9 @@ func walkWorld(t *testing.T, binary, out, theme, world string, w walk) {
 	var vars map[string]string
 	switch world {
 	case worldHarbor:
-		vars = newHarbor(in).vars()
+		h := newHarbor(in)
+		vars = h.vars()
+		maps.Copy(vars, h.sessions())
 	case worldSample:
 		newWorld(in).populate()
 	}
