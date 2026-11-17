@@ -119,14 +119,29 @@
       "actions": [
         { "click": { "role": "link", "name": "Roadmap", "in": { "role": "navigation", "name": "Views" } } },
         { "waitFor": { "text": "Berths in the API" } },
+        { "waitFor": { "text": "Serve the list of berths" } }
+      ]
+    },
+    {
+      "step": "give the forecast time, on the Floor",
+      "route": "/floor"
+    },
+    {
+      "step": "give the forecast time, in Work orders",
+      "route": "/work-orders"
+    },
+    {
+      "step": "give the forecast time, in Measures",
+      "route": "/measures"
+    },
+    {
+      "step": "read the forecast on the Roadmap",
+      "route": "/roadmap",
+      "actions": [
         { "waitFor": { "text": "Serve the list of berths" } },
-        { "click": { "role": "link", "name": "Work orders", "in": { "role": "navigation", "name": "Views" } } },
-        { "waitFor": { "text": "Build the berths page" } },
-        { "click": { "role": "link", "name": "Roadmap", "in": { "role": "navigation", "name": "Views" } } },
-        { "waitFor": { "text": "Serve the list of berths" } },
-        { "waitFor": { "text": "p50" } }
+        { "waitFor": { "text": "No forecast: none of the 4 unfinished work orders of this plan has finished history." } }
       ],
-      "capture": { "name": "plan-09", "clip": "window" }
+      "capture": { "name": "plan-09", "clip": { "role": "list", "name": "Milestones" } }
     }
   ]
 }
