@@ -190,6 +190,36 @@ describe("the planning pane with no session", () => {
     }
   });
 
+  it("reads completed work at most once every 5 seconds, however fast the ledger changes", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const sent = servedEnded();
+      openPage(here("/planning"));
+      await screen.findByRole("region", { name: "The last planning session" });
+      const reads = () => sent.filter((call) => call.method === "GET" && call.path === "/v1/views/completed").length;
+      await waitFor(() => expect(reads()).toBe(1));
+      const events = await openLedgerStream();
+      for (let i = 0; i < 4; i++) {
+        act(() => events.emit());
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(800);
+        });
+      }
+      expect(reads(), "a burst inside the gap reads nothing more").toBe(1);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2_500);
+      });
+      await waitFor(() => expect(reads()).toBe(2));
+      act(() => events.emit());
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1_000);
+      });
+      expect(reads(), "the next change waits out a gap of its own").toBe(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("says why the accepted plan cannot be read, as a note and not as a failure", async () => {
     servedEnded({ unread: "commit abc123, which a member accepted, could not be read: no such revision: abc123" } as PlanOutline);
     openPage(here("/planning"));

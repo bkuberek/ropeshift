@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
 import { go } from "../app/route";
+import { startedAt } from "../lanes/starting";
 import { openPage } from "../opening";
 import type { Sent } from "../testing";
 import { golden, groupHealth, here, refusal, serveViews } from "../testing";
@@ -395,6 +396,9 @@ describe("Import an existing project", () => {
     await userEvent.click(screen.getByRole("button", { name: "Start adopt session" }));
     await waitFor(() => expect(window.location.pathname).toBe("/projects/tidewater/planning"));
     expect(window.location.search).toMatch(/^\?lane=[0-9A-Z]{26}$/);
+    const lane = new URLSearchParams(window.location.search).get("lane") ?? "";
+    expect(startedAt(lane), "the entry says this lane was just started, so its pane waits for the lane").toBeGreaterThan(0);
+    expect(window.history.state).toMatchObject({ startedLane: lane, startedAt: expect.any(Number) });
     const steps = sent.filter((call) => call.method !== "GET").map((call) => `${call.method} ${call.project || "-"} ${call.path.replace(/\/[0-9A-Z]{26}(\/|$)/, "/ID$1")}`);
     expect(steps).toEqual([
       "POST - /v1/projects",

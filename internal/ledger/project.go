@@ -147,8 +147,9 @@ func ValidateProjectName(name string) error {
 }
 
 // ValidateDisplayName refuses a display name a list or a heading cannot show whole: one longer than
-// displayNameLimit characters, one with a control character or bytes that are no UTF-8, and one with space at
-// either end, which a caller trims first. An empty display name is valid: a project may have none, and a rename
+// displayNameLimit characters, one with a control character, a Unicode format character, a line or paragraph
+// separator, or bytes that are no UTF-8, and one with space at either end, which a caller trims first. It runs on
+// a write only: a name stored before it refused these still loads and lists. An empty display name is valid: a project may have none, and a rename
 // given none keeps the one it has.
 func ValidateDisplayName(name string) error {
 	if !utf8.ValidString(name) {
@@ -163,7 +164,18 @@ func ValidateDisplayName(name string) error {
 	if strings.ContainsFunc(name, unicode.IsControl) {
 		return fmt.Errorf("%w: display name %q holds a control character", ErrInvalidProject, name)
 	}
+	if strings.ContainsFunc(name, isInvisibleFormat) {
+		return fmt.Errorf("%w: display name %q holds a format or separator character, which shows as nothing or reorders the text around it", ErrInvalidProject, name)
+	}
 	return nil
+}
+
+// isInvisibleFormat is whether a character is a Unicode format character (category Cf, such as the bidirectional
+// overrides and isolates, the zero-width characters, and the byte order mark) or the line or paragraph separator,
+// which let a name look like another or show as nothing.
+func isInvisibleFormat(r rune) bool {
+	const lineSeparator, paragraphSeparator = 0x2028, 0x2029
+	return unicode.Is(unicode.Cf, r) || r == lineSeparator || r == paragraphSeparator
 }
 
 // IndexedRepository is one entry of the installation's repository index: which project holds the

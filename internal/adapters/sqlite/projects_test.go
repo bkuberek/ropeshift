@@ -67,6 +67,44 @@ func countRows(t *testing.T, file, table string) int64 {
 	return n
 }
 
+// TestAStoredDisplayNameWithAFormatCharacterStillLoads holds that a display name is checked on a write only: a
+// name an earlier build stored with a character the check now refuses is listed, found, and kept by a rename that
+// gives no display name, and a rename that gives such a name is refused.
+func TestAStoredDisplayNameWithAFormatCharacterStillLoads(t *testing.T) {
+	dir := t.TempDir()
+	first := openState(t, dir)
+	project, _ := createProject(t, first, "acme-id", "acme")
+	if err := first.Close(); err != nil {
+		t.Fatal(err)
+	}
+	stored := "Acme" + string(rune(0x202e)) + " Docs" + string(rune(0x200b))
+	db, err := sqlite.OpenDB(filepath.Join(dir, sqlite.InstallationFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec("UPDATE projects SET display_name = ? WHERE id = ?", stored, string(project.ID)); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	state := openState(t, dir)
+	listed, err := state.List(t.Context())
+	if err != nil || len(listed) != 1 || listed[0].DisplayName != stored {
+		t.Fatalf("listed %+v: %v", listed, err)
+	}
+	if named, err := state.Named(t.Context(), "acme"); err != nil || named.DisplayName != stored {
+		t.Fatalf("named %+v: %v", named, err)
+	}
+	if renamed, err := state.Rename(t.Context(), project.ID, "beta", "", member); err != nil || renamed.DisplayName != stored {
+		t.Errorf("a rename that gives no display name: %+v: %v", renamed, err)
+	}
+	if _, err := state.Rename(t.Context(), project.ID, "beta", "Other"+string(rune(0x202e)), member); !errors.Is(err, ledger.ErrInvalidProject) {
+		t.Errorf("a rename to a display name with a format character: %v", err)
+	}
+}
+
 func TestEachProjectKeepsItsLedgerInAFileOfItsOwn(t *testing.T) {
 	dir := t.TempDir()
 	state := openState(t, dir)

@@ -128,12 +128,23 @@ func (c *invocation) adoptingProject(client *api.Client, root, identity string) 
 	if slices.ContainsFunc(projects, func(p api.Project) bool { return p.Name == named }) {
 		return named, c.refusePlanned(client.Project(named), named)
 	}
-	created, err := client.CreateProject(c.ctx, api.CreateProject{Name: named, DisplayName: filepath.Base(root)})
+	created, err := client.CreateProject(c.ctx, api.CreateProject{Name: named, DisplayName: displayNameOf(filepath.Base(root))})
 	if err != nil {
 		return "", c.failure(err)
 	}
 	c.say("Created project %s.\n", created.Name)
 	return created.Name, ExitOK
+}
+
+// displayNameOf is a directory's name as a project's display name, or none when the directory's name is no display
+// name, such as one too long to show or one with a character that shows as nothing. The project is then shown by
+// its name, and a rename gives it a display name.
+func displayNameOf(directory string) string {
+	directory = strings.TrimSpace(directory)
+	if ledger.ValidateDisplayName(directory) != nil {
+		return ""
+	}
+	return directory
 }
 
 // refusePlanned refuses a project with an approved plan before anything is registered (FR-ADOPT-10). The

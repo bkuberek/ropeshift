@@ -3,6 +3,7 @@ package control_test
 import (
 	"errors"
 	"slices"
+	"strings"
 	"testing"
 
 	"ropeshift.com/ropeshift/internal/adapters/fake"
@@ -54,6 +55,20 @@ func TestOnlyAMemberTakesAProjectThroughItsLifecycle(t *testing.T) {
 	}
 	if events := registry.Events(); len(events) != 0 {
 		t.Errorf("events %v", events)
+	}
+}
+
+// TestARenameOfAnUnknownNameHintsAtFinishingAHalfDoneRename holds that a project whose rename stopped after the
+// registry changed it no longer answers to its old name, and that the refusal says how to finish the rename.
+func TestARenameOfAnUnknownNameHintsAtFinishingAHalfDoneRename(t *testing.T) {
+	registry := fake.NewProjects()
+	registry.Add(ledger.Project{ID: "acme-id", Name: "beta", Database: "projects/acme-id"}, nil)
+	_, err := control.NewProjects(registry).Rename(t.Context(), "acme", "beta", "", projectMember)
+	if !errors.Is(err, ports.ErrNotFound) {
+		t.Fatalf("an old name: %v", err)
+	}
+	if want := "ropeshift project rename <new-name> <new-name>"; !strings.Contains(err.Error(), want) {
+		t.Errorf("the refusal %q does not hint %q", err, want)
 	}
 }
 

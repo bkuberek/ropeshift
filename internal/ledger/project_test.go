@@ -85,6 +85,15 @@ func TestADisplayNameIsShortTrimmedTextWithNoControlCharacter(t *testing.T) {
 		{"space before", " Harbor", false},
 		{"space after", "Harbor ", false},
 		{"bytes that are no UTF-8", "Harbor\xff", false},
+		{"a right-to-left override", "Harbor" + string(rune(0x202e)) + "docs", false},
+		{"a left-to-right embedding", "Harbor" + string(rune(0x202a)) + "docs", false},
+		{"a bidi isolate", "Harbor" + string(rune(0x2066)) + "docs", false},
+		{"a pop directional isolate", "Harbor" + string(rune(0x2069)) + "docs", false},
+		{"a zero-width space", "Harbor" + string(rune(0x200b)) + "docs", false},
+		{"a byte order mark", string(rune(0xFEFF)) + "Harbor", false},
+		{"a line separator", "Harbor" + string(rune(0x2028)) + "docs", false},
+		{"a paragraph separator", "Harbor" + string(rune(0x2029)) + "docs", false},
+		{"letters from other scripts", "Ünïcödé 日本語 العربية", true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			err := ValidateDisplayName(tt.displayName)
