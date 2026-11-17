@@ -1,0 +1,74 @@
+{
+  "guide": "measures",
+  "title": "Usage and measures",
+  "world": "sample",
+  "order": 3,
+  "steps": [
+    {
+      "step": "read the overview's figures",
+      "route": "/projects/default",
+      "actions": [
+        { "waitFor": { "text": "from what agents reported", "exact": false, "in": { "role": "group", "name": "Key figures" } } },
+        { "waitFor": { "text": "work orders done", "exact": false } }
+      ],
+      "capture": { "name": "measures-01", "clip": { "role": "group", "name": "Key figures" } }
+    },
+    {
+      "step": "read the factory measures",
+      "route": "/projects/default/measures",
+      "actions": [{ "waitFor": { "text": "Autonomous decision rate", "in": { "role": "region", "name": "Product measures" } } }],
+      "capture": { "name": "measures-02", "clip": { "role": "region", "name": "Product measures" } }
+    },
+    {
+      "step": "read the delivery measures",
+      "route": "/projects/default/measures?tab=delivery",
+      "actions": [
+        { "click": { "role": "button", "name": "30 days", "in": { "role": "group", "name": "Window" } } },
+        { "waitFor": { "text": "Where the time went", "exact": true } }
+      ],
+      "capture": { "name": "measures-03", "clip": "window", "height": 1220 }
+    },
+    {
+      "step": "read the estimate calibration",
+      "route": "/projects/default/measures?tab=estimates",
+      "actions": [{ "waitFor": { "text": "How the work that ended was estimated" } }],
+      "capture": { "name": "measures-04", "clip": "window", "height": 1360 }
+    },
+    {
+      "step": "read a plan's forecast",
+      "route": "/projects/default/plans",
+      "actions": [
+        { "click": { "role": "link", "name": "Reliable order intake" } },
+        { "waitFor": { "text": "trials", "exact": false, "in": { "role": "region", "name": "Forecast" }, "timeout": 60000 } }
+      ],
+      "capture": { "name": "measures-05", "clip": { "role": "region", "name": "Forecast" } }
+    },
+    {
+      "step": "read a work order's estimate",
+      "route": "/projects/default/work?group=all",
+      "actions": [
+        { "click": { "role": "link", "name": "Retry idempotent requests with backoff" } },
+        { "waitFor": { "text": "Estimate", "exact": true, "in": { "role": "region", "name": "Estimate" } } }
+      ]
+    },
+    {
+      "step": "read the usage",
+      "route": "/usage",
+      "actions": [{ "waitFor": { "text": "Estimated cost by lane" } }],
+      "capture": { "name": "measures-06", "clip": "window", "height": 1400 }
+    },
+    {
+      "step": "read the project's audit log",
+      "route": "/projects/default/audit",
+      "actions": [{ "waitFor": { "text": "Revision", "exact": false } }],
+      "capture": { "name": "measures-07", "clip": "window", "height": 960 }
+    },
+    {
+      "step": "read what each channel was told",
+      "actions": [
+        { "click": { "role": "tab", "name": "Notices" } },
+        { "waitFor": { "text": "Delivered", "exact": true, "in": { "role": "tabpanel", "name": "Notices" } } }
+      ]
+    }
+  ]
+}

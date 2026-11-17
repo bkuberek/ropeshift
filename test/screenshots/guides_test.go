@@ -61,6 +61,7 @@ func walkWorld(t *testing.T, binary, out, theme, world string, w walk) {
 		maps.Copy(vars, h.sessions())
 	case worldSample:
 		w := newWorld(in)
+		w.guided = true
 		w.populate()
 		w.severalProjects()
 	}

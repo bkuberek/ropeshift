@@ -33,6 +33,9 @@ type world struct {
 	cardItem, planItem         string
 	planningLane, conversation string
 	repository, agent          string
+	// guided is a sample the guide walk reads, whose daemon folds delivery and forecasts every second, so a plan's
+	// page shows the forecast the daemon made and not a pending line. The view captures keep the defaults.
+	guided bool
 }
 
 func newWorld(in *install) *world {
@@ -58,8 +61,12 @@ func (w *world) populate() {
 
 	// The assistant runs only on a worker whose session opened within three heartbeats, and a page says so
 	// for a running conversation too, so the beat outlasts the whole run, and the lease outlasts the beat.
-	in.start("--intake-tick", "200ms", "--lease-tick", "200ms", "--wake-tick", "200ms", "--batch-tick", "500ms",
-		"--heartbeat", "3m", "--lease-ttl", "15m")
+	flags := []string{"--intake-tick", "200ms", "--lease-tick", "200ms", "--wake-tick", "200ms", "--batch-tick", "500ms",
+		"--heartbeat", "3m", "--lease-ttl", "15m"}
+	if w.guided {
+		flags = append(flags, "--delivery-tick", "1s", "--forecast-tick", "1s")
+	}
+	in.start(flags...)
 	in.waitFor("the worker's session", func() bool {
 		list := in.workers()
 		return len(list) == 1 && list[0].Epoch >= 1
