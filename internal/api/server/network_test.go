@@ -426,6 +426,7 @@ func TestASlowBodyIsCutOffOnEveryRouteThatReadsOneBeforeACredentialIsChecked(t *
 	for _, route := range []struct{ name, head string }{
 		{"registration", "POST /v1/workers/register HTTP/1.1\r\n"},
 		{"sign-in", "POST /v1/sessions HTTP/1.1\r\n"},
+		{"sign-in with a cookie that expired", "POST /v1/sessions HTTP/1.1\r\nCookie: ropeshift_session=expired\r\n"},
 		{"a worker's heartbeat", "POST /v1/workers/worker-a/heartbeat HTTP/1.1\r\nAuthorization: Bearer a-credential\r\n"},
 		{"a worker's upload", "POST /v1/workers/worker-a/events HTTP/1.1\r\nAuthorization: Bearer a-credential\r\n"},
 	} {

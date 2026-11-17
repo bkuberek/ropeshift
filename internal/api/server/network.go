@@ -187,12 +187,15 @@ func (n *network) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		invalid(w, "a request carries one credential, and this one carries %s and %s", kinds[0], kinds[1])
 		return
 	}
+	// A sign-in carries its passphrase in its body, whatever else it carries, such as a cookie that has expired.
+	if r.Method == http.MethodPost && r.URL.Path == api.SignInPath {
+		bounded(w, r, unauthenticatedWindow, signInBodyMax)
+	}
 	switch {
 	case matches(n.joinRoutes, r):
 		n.register(w, r, kinds)
 	case len(kinds) == 0:
 		if r.Method == http.MethodPost && r.URL.Path == api.SignInPath {
-			bounded(w, r, unauthenticatedWindow, signInBodyMax)
 			n.web.ServeHTTP(w, r)
 			return
 		}
