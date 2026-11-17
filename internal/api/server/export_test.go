@@ -25,11 +25,12 @@ func RouteOperations() map[string]RouteOperation {
 	return out
 }
 
-// SetRegisterWindow changes how long a registration may take to arrive, until the returned function puts it back.
-func SetRegisterWindow(window time.Duration) func() {
-	was := registerWindow
-	registerWindow = window
-	return func() { registerWindow = was }
+// SetBodyWindows changes how long a request body may take to arrive on the routes that read one before any
+// credential is checked, and on the worker plane, until the returned function puts them back.
+func SetBodyWindows(unauthenticated, plane time.Duration) func() {
+	wasUnauthenticated, wasPlane := unauthenticatedWindow, planeWindow
+	unauthenticatedWindow, planeWindow = unauthenticated, plane
+	return func() { unauthenticatedWindow, planeWindow = wasUnauthenticated, wasPlane }
 }
 
 // WhenConfirmed runs f with a confirming request's context once its card is approved and before its call

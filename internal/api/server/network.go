@@ -90,8 +90,33 @@ func PlaneRoutes() []PlaneRoute {
 	}
 }
 
-// registerWindow is how long a registration has to arrive, from the moment its headers did.
-var registerWindow = 10 * time.Second
+// A body is read before the credential it comes with is checked: a registration's join token, a sign-in's
+// passphrase, and a worker's call, which its use case checks after it decodes it. So each class of route gives
+// its body a limit and a window, and a client that sends one slowly or without end holds nothing past them.
+const (
+	// registerBodyMax and signInBodyMax are the most of a body the two routes with no credential in a header
+	// read. Each is a few lines.
+	registerBodyMax = 16 << 10
+	signInBodyMax   = 16 << 10
+)
+
+var (
+	// unauthenticatedWindow is how long a registration or a sign-in has to arrive, from the moment its headers
+	// did, and planeWindow how long a worker's call has, which an upload of events may take more of.
+	unauthenticatedWindow = 10 * time.Second
+	planeWindow           = time.Minute
+)
+
+// bounded makes a request's body arrive within a window and up to a limit. A request with no body has no
+// window: the server already reads its connection for the client to go away, and a deadline on that read would
+// end the stream a worker holds open.
+func bounded(w http.ResponseWriter, r *http.Request, window time.Duration, limit int64) {
+	if r.Body == nil || r.Body == http.NoBody {
+		return
+	}
+	_ = http.NewResponseController(w).SetReadDeadline(time.Now().Add(window))
+	r.Body = http.MaxBytesReader(w, r.Body, limit)
+}
 
 // network is the handler of the network listener.
 type network struct {
@@ -167,6 +192,7 @@ func (n *network) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		n.register(w, r, kinds)
 	case len(kinds) == 0:
 		if r.Method == http.MethodPost && r.URL.Path == api.SignInPath {
+			bounded(w, r, unauthenticatedWindow, signInBodyMax)
 			n.web.ServeHTTP(w, r)
 			return
 		}
@@ -202,10 +228,8 @@ func (n *network) register(w http.ResponseWriter, r *http.Request, kinds []crede
 		refuse(w, http.StatusForbidden, api.ErrorDetail{Code: api.CodeForbidden, Message: "a registration carries a join token and no other credential"})
 		return
 	}
-	// The join token is in the body, which is read before anyone has proved anything, so it is read within a
-	// window and up to a limit, and a client that sends it slowly or without end holds nothing past them.
-	_ = http.NewResponseController(w).SetReadDeadline(time.Now().Add(registerWindow))
-	raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxBody))
+	bounded(w, r, unauthenticatedWindow, registerBodyMax)
+	raw, err := io.ReadAll(r.Body)
 	var tooBig *http.MaxBytesError
 	switch {
 	case errors.As(err, &tooBig):
@@ -236,6 +260,7 @@ func (n *network) worker(w http.ResponseWriter, r *http.Request) {
 		refuse(w, http.StatusUnauthorized, api.ErrorDetail{Code: api.CodeBadCredential, Message: "a worker's credential is a bearer token"})
 		return
 	}
+	bounded(w, r, planeWindow, maxBody)
 	n.api.ServeHTTP(w, r)
 }
 

@@ -169,6 +169,29 @@ func firstProject(ctx context.Context, state *postgres.State) (ledger.Project, e
 	}, tickActor("server"))
 }
 
+// serverLimits bound how long the listener's server waits on a client: for the headers of a request, for the
+// whole of it, and for the next one on a connection that has none.
+type serverLimits struct {
+	readHeader, read, idle time.Duration
+}
+
+// networkLimits are generous, because a worker uploads a batch of events and a member's browser holds streams
+// open, and bounded, because the listener answers anyone who can reach its address. A request's read time
+// does not limit a stream's answer, so the ReadTimeout ends nothing a member watches.
+var networkLimits = serverLimits{readHeader: 10 * time.Second, read: 2 * time.Minute, idle: 2 * time.Minute}
+
+// maxHeaderBytes is the most of a request's headers the listener reads, which a session or a credential never
+// comes near.
+const maxHeaderBytes = 32 << 10
+
+// networkHTTPServer is the server of the listener, with every read bounded.
+func networkHTTPServer(handler http.Handler) *http.Server {
+	return &http.Server{
+		Handler: handler, ReadHeaderTimeout: networkLimits.readHeader, ReadTimeout: networkLimits.read,
+		IdleTimeout: networkLimits.idle, MaxHeaderBytes: maxHeaderBytes,
+	}
+}
+
 // serveServer runs until the context ends. Like solo's daemon it has no shutdown step that correctness
 // needs, because the control plane is crash-only.
 func serveServer(ctx context.Context, paths api.Paths, opts serverOptions, stdout, stderr io.Writer) error {
@@ -223,10 +246,7 @@ func serveServer(ctx context.Context, paths api.Paths, opts serverOptions, stdou
 		ParseManifest: reads.parseManifest, Panes: reads.panes,
 	}
 	controlServer := &http.Server{Handler: server.New(config), ReadHeaderTimeout: 10 * time.Second}
-	networkServer := &http.Server{
-		Handler:           server.NewNetwork(config, server.WebOptions{Port: bound.Port, Assets: assets}),
-		ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 2 * time.Minute,
-	}
+	networkServer := networkHTTPServer(server.NewNetwork(config, server.WebOptions{Port: bound.Port, Assets: assets}))
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	serveErr := make(chan error, 2)

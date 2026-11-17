@@ -383,30 +383,108 @@ func TestRegistrationNeedsAJoinToken(t *testing.T) {
 	wantStatus(t, response, raw, http.StatusUnauthorized, api.CodeBadJoinToken)
 }
 
-// A registration is read before its join token can be checked, so a client that sends it a byte at a time
-// holds nothing past the window the listener gives it.
-func TestASlowRegistrationIsCutOff(t *testing.T) {
-	defer server.SetRegisterWindow(300 * time.Millisecond)()
+// A body is read before the credential it comes with can be checked: the join token of a registration, the
+// passphrase of a sign-in, and the call of a worker whose credential a use case checks. A client that sends
+// one a byte at a time holds nothing past the window the listener gives it.
+func TestASlowBodyIsCutOffOnEveryRouteThatReadsOneBeforeACredentialIsChecked(t *testing.T) {
+	defer server.SetBodyWindows(300*time.Millisecond, 300*time.Millisecond)()
 	r := networkOn(t)
-	conn, err := net.Dial("tcp", r.web.Host)
+	for _, route := range []struct{ name, head string }{
+		{"registration", "POST /v1/workers/register HTTP/1.1\r\n"},
+		{"sign-in", "POST /v1/sessions HTTP/1.1\r\n"},
+		{"a worker's heartbeat", "POST /v1/workers/worker-a/heartbeat HTTP/1.1\r\nAuthorization: Bearer a-credential\r\n"},
+		{"a worker's upload", "POST /v1/workers/worker-a/events HTTP/1.1\r\nAuthorization: Bearer a-credential\r\n"},
+	} {
+		t.Run(route.name, func(t *testing.T) {
+			conn, err := net.Dial("tcp", r.web.Host)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer conn.Close()
+			_, err = io.WriteString(conn, route.head+"Host: "+r.web.Host+"\r\nContent-Type: application/json\r\nContent-Length: 1000\r\n\r\n{\"join_token\":")
+			if err != nil {
+				t.Fatal(err)
+			}
+			started := time.Now()
+			if err := conn.SetReadDeadline(started.Add(10 * time.Second)); err != nil {
+				t.Fatal(err)
+			}
+			answer, _ := io.ReadAll(conn)
+			if waited := time.Since(started); waited > 5*time.Second {
+				t.Errorf("the listener held a half-sent body for %s", waited)
+			}
+			if !strings.HasPrefix(string(answer), "HTTP/1.1 4") {
+				t.Errorf("a half-sent body is answered %q", answer)
+			}
+		})
+	}
+}
+
+// Each class of route has the most it reads of a body before a credential is checked: a registration and a
+// sign-in are a few lines, and a worker's call is what its use case takes.
+func TestABodyPastItsRoutesLimitIsRefusedBeforeItIsRead(t *testing.T) {
+	t.Parallel()
+	r := networkOn(t)
+	padded := func(size int) map[string]string {
+		return map[string]string{"join_token": "x", "passphrase": strings.Repeat("y", size)}
+	}
+	for _, test := range []struct {
+		name    string
+		path    string
+		headers map[string]string
+		size    int
+	}{
+		{"a registration", "/v1/workers/register", nil, 32 << 10},
+		{"a sign-in", api.SignInPath, nil, 32 << 10},
+		{"a worker's call", "/v1/workers/worker-a/events", map[string]string{"Authorization": "Bearer a-credential"}, 2 << 20},
+	} {
+		response, raw := r.send(t, call{method: http.MethodPost, path: test.path, body: padded(test.size), headers: test.headers})
+		if response.StatusCode != http.StatusRequestEntityTooLarge && response.StatusCode != http.StatusBadRequest {
+			t.Errorf("%s of %d bytes answered %d: %.100s", test.name, test.size, response.StatusCode, raw)
+		}
+		if strings.Contains(string(raw), "a-credential") {
+			t.Errorf("%s: the refusal repeats the credential: %s", test.name, raw)
+		}
+	}
+}
+
+// The stream a worker holds open for hints has no body to wait for, so the window a body has to arrive in never
+// ends it.
+func TestAWorkersWatchOutlivesTheBodyWindow(t *testing.T) {
+	defer server.SetBodyWindows(300*time.Millisecond, 300*time.Millisecond)()
+	r := networkOn(t)
+	credential := r.registered(t, "watcher")
+	response, raw := r.send(t, call{
+		method: http.MethodPost, path: "/v1/workers/watcher/sessions", body: ledger.SessionRequest{Protocol: ledger.ProtocolVersion},
+		headers: map[string]string{"Authorization": "Bearer " + credential},
+	})
+	wantStatus(t, response, raw, http.StatusOK, "")
+	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
+	defer cancel()
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, r.web.URL("/v1/workers/watcher/watch"), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer conn.Close()
-	_, err = io.WriteString(conn, "POST /v1/workers/register HTTP/1.1\r\nHost: "+r.web.Host+"\r\nContent-Type: application/json\r\nContent-Length: 1000\r\n\r\n{\"join_token\":")
+	request.Header.Set("Authorization", "Bearer "+credential)
+	stream, err := r.web.HTTP.Do(request)
 	if err != nil {
 		t.Fatal(err)
 	}
-	started := time.Now()
-	if err := conn.SetReadDeadline(started.Add(10 * time.Second)); err != nil {
-		t.Fatal(err)
+	defer stream.Body.Close()
+	if stream.StatusCode != http.StatusOK {
+		t.Fatalf("the watch answered %d", stream.StatusCode)
 	}
-	answer, _ := io.ReadAll(conn)
-	if waited := time.Since(started); waited > 5*time.Second {
-		t.Errorf("the listener held a half-sent registration for %s", waited)
-	}
-	if !strings.HasPrefix(string(answer), "HTTP/1.1 4") {
-		t.Errorf("a half-sent registration is answered %q", answer)
+	ended := make(chan struct{})
+	go func() {
+		defer close(ended)
+		_, _ = io.Copy(io.Discard, stream.Body)
+	}()
+	select {
+	case <-ended:
+		if ctx.Err() == nil {
+			t.Error("the stream ended before its worker's window to read anything of it, and nobody ended it")
+		}
+	case <-time.After(1500 * time.Millisecond):
 	}
 }
 

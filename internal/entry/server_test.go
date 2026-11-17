@@ -4,6 +4,9 @@ import (
 	"bytes"
 	"context"
 	"io"
+	"net"
+	"net/http"
+	"net/http/httptest"
 	"slices"
 	"strings"
 	"testing"
@@ -141,6 +144,101 @@ func TestWhatTheDatabaseWarnsOfReachesTheServersLog(t *testing.T) {
 	options.Store.Warn("dropped the schema project_gone")
 	if got, want := stderr.String(), "ropeshiftd: warning: dropped the schema project_gone\n"; got != want {
 		t.Errorf("the log holds %q, want %q", got, want)
+	}
+}
+
+// The listener's server bounds every read: the headers, the whole request, and the time a connection sits idle,
+// so a client that sends a request a byte at a time, or none, holds nothing for long.
+func TestTheNetworkServerBoundsEveryRead(t *testing.T) {
+	s := networkHTTPServer(http.NotFoundHandler())
+	if s.ReadHeaderTimeout <= 0 || s.ReadTimeout <= 0 || s.IdleTimeout <= 0 || s.MaxHeaderBytes <= 0 {
+		t.Fatalf("the server's bounds are header %s, read %s, idle %s, header bytes %d", s.ReadHeaderTimeout, s.ReadTimeout, s.IdleTimeout, s.MaxHeaderBytes)
+	}
+	if s.ReadHeaderTimeout > s.ReadTimeout || s.ReadTimeout > 10*time.Minute || s.IdleTimeout > 10*time.Minute {
+		t.Errorf("the bounds are not generous but bounded: header %s, read %s, idle %s", s.ReadHeaderTimeout, s.ReadTimeout, s.IdleTimeout)
+	}
+}
+
+// With the bounds short, a request whose headers or body trickle in is cut off, and a request that arrives whole
+// is answered.
+func TestASlowRequestToTheNetworkServerIsCutOff(t *testing.T) {
+	was := networkLimits
+	networkLimits = serverLimits{readHeader: 300 * time.Millisecond, read: 600 * time.Millisecond, idle: time.Second}
+	t.Cleanup(func() { networkLimits = was })
+	listener := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, err := io.Copy(io.Discard, r.Body)
+		if err != nil {
+			http.Error(w, "cut off", http.StatusRequestTimeout)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	listener.Config = networkHTTPServer(listener.Config.Handler)
+	listener.Start()
+	t.Cleanup(listener.Close)
+	address := listener.Listener.Addr().String()
+	for _, test := range []struct{ name, sent string }{
+		{"headers", "POST /x HTTP/1.1\r\nHost: " + address + "\r\nX-Slow: "},
+		{"a body", "POST /x HTTP/1.1\r\nHost: " + address + "\r\nContent-Length: 1000\r\n\r\n{\"a\":"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			conn, err := net.Dial("tcp", address)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer conn.Close()
+			if _, err := io.WriteString(conn, test.sent); err != nil {
+				t.Fatal(err)
+			}
+			started := time.Now()
+			if err := conn.SetReadDeadline(started.Add(10 * time.Second)); err != nil {
+				t.Fatal(err)
+			}
+			_, _ = io.ReadAll(conn)
+			if waited := time.Since(started); waited > 5*time.Second {
+				t.Errorf("the server held a half-sent request for %s", waited)
+			}
+		})
+	}
+	response, err := http.Post(listener.URL+"/x", "application/json", strings.NewReader(`{"a":1}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	if response.StatusCode != http.StatusNoContent {
+		t.Errorf("a request that arrives whole is answered %d", response.StatusCode)
+	}
+}
+
+// The time a request has to arrive in is no limit on a stream the server answers it with: a worker's watch and
+// a member's event stream go on past it.
+func TestTheReadTimeoutEndsNoStream(t *testing.T) {
+	was := networkLimits
+	networkLimits = serverLimits{readHeader: 200 * time.Millisecond, read: 300 * time.Millisecond, idle: time.Second}
+	t.Cleanup(func() { networkLimits = was })
+	streaming := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		flusher := w.(http.Flusher)
+		flusher.Flush()
+		select {
+		case <-time.After(1200 * time.Millisecond):
+			_, _ = io.WriteString(w, "data: late\n\n")
+			flusher.Flush()
+		case <-r.Context().Done():
+		}
+	}))
+	streaming.Config = networkHTTPServer(streaming.Config.Handler)
+	streaming.Start()
+	t.Cleanup(streaming.Close)
+	response, err := http.Get(streaming.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	body, _ := io.ReadAll(response.Body)
+	if !strings.Contains(string(body), "late") {
+		t.Errorf("the stream was cut at the read timeout: %q", body)
 	}
 }
 
