@@ -194,13 +194,14 @@ describe("Import an existing project, starting the session", () => {
     expect(work).toMatchObject({
       adopt: true,
       repository_id: "ws",
-      restructure: { shape: "consolidate", digest: left.digest, design_path: "/work/ws/repos/design", design_root: "design", leave_out: ["tools"] },
+      restructure: { shape: "consolidate", digest: left.digest, design_path: "/work/ws/repos/design", design_root: "design", leave_out: ["tools"], root: "/work/ws", depth: 1 },
     });
   });
 
-  it("sends the shape and digest alone for a restructuring that is not a consolidation", async () => {
+  it("sends the shape, the digest, the request the plan was read with, and the plan's parts for a restructuring that is not a consolidation", async () => {
+    const parts = { layout: "sha256:" + "a".repeat(64), files: "sha256:" + "b".repeat(64) };
     const sent = serveImport(
-      () => plan("planned"),
+      () => ({ ...plan("planned"), parts }),
       (call) => (call.method === "POST" && call.path === "/v1/repositories" ? { status: 200, body: registered(["/work/ws", "/work/ws/repos/api", "/work/ws/repos/web"]) } : undefined),
     );
     openPage("/import");
@@ -212,7 +213,7 @@ describe("Import an existing project, starting the session", () => {
     await userEvent.click(screen.getByRole("button", { name: "Start adopt session" }));
     await waitFor(() => expect(window.location.pathname).toBe("/projects/ws/planning"));
     const work = sent.find((call) => call.method === "POST" && call.path === "/v1/work-orders")?.body as { restructure: unknown };
-    expect(work.restructure).toEqual({ shape: "planned", digest: plan("planned").digest });
+    expect(work.restructure).toEqual({ shape: "planned", digest: plan("planned").digest, root: "/work/ws", depth: 1, parts });
   });
 
   it("shows the refusal and the new plan when the layout changed since the dry run, and starts nothing", async () => {

@@ -27,6 +27,25 @@ func aWorkspaceOfClones(in *apitest.Installation) {
 	clone("/work/ws/repos/api", "api", fake.CloneLayout{Tracked: []string{"go.mod"}})
 }
 
+// The route answers the digest of each part of the plan beside it, as `parts`, so a client that cannot compute
+// them sends them back with the restructuring it chooses. A client of this module reads the plan and ignores them.
+func TestTheAdoptionPlanRouteAnswersTheDigestOfEachPart(t *testing.T) {
+	t.Parallel()
+	in := apitest.StartInstallation(t, "beta")
+	aWorkspaceOfClones(in)
+	var reply api.AdoptionPlanReply
+	if err := in.Client.Do(t.Context(), http.MethodPost, api.AdoptionPlanPath, api.AdoptionPlanRequest{Root: "/work/ws", NewProject: true}, &reply); err != nil {
+		t.Fatal(err)
+	}
+	if reply.Digest == "" || len(reply.Parts) != len(planning.PlanParts) || !reflect.DeepEqual(reply.Parts, reply.AdoptionPlan.Parts()) {
+		t.Errorf("the plan with digest %q answers the parts %v, want %v", reply.Digest, reply.Parts, reply.AdoptionPlan.Parts())
+	}
+	// The plan's own digest does not hold them: it is what it was.
+	if reply.Digest != reply.ComputeDigest() {
+		t.Errorf("the digest %s is not the plan's, %s", reply.Digest, reply.ComputeDigest())
+	}
+}
+
 // The route reads the layout around a clone on the worker's machine and answers the plan, and a plan records
 // nothing: the project holds no repository afterwards.
 func TestTheAdoptionPlanRouteReadsTheLayoutAndRecordsNothing(t *testing.T) {
@@ -107,6 +126,25 @@ func TestAdoptWorkKeepsItsRestructuringAndOnlyAMemberChoosesOne(t *testing.T) {
 	}
 	if _, err := create(client, "adopt-2", &planning.Restructure{Shape: planning.ShapeSingle, Digest: chosen.Digest}); err == nil {
 		t.Error("the single shape was kept")
+	} else {
+		refusedWith(t, err, http.StatusBadRequest, api.CodeInvalid)
+	}
+	// The request the plan was read with and the digests of its parts are kept as they were sent, and a request
+	// that cannot be kept is refused.
+	whole := &planning.Restructure{
+		Shape: planning.ShapeWorkspaceFiles, Digest: chosen.Digest, Root: "/work/ws", Paths: []string{"/work/libs"}, Depth: 2,
+		Planning: "ws", Design: "docs", Parts: map[string]string{planning.PartFiles: chosen.Digest, planning.PartLayout: chosen.Digest},
+	}
+	if kept, err := create(client, "adopt-5", whole); err != nil || !reflect.DeepEqual(kept.Restructure, whole) {
+		t.Errorf("a restructuring with its request reads %+v: %v", kept.Restructure, err)
+	}
+	if read, err := client.WorkOrder(t.Context(), "adopt-5"); err != nil || !reflect.DeepEqual(read.Restructure, whole) {
+		t.Errorf("the work order reads %+v: %v", read.Restructure, err)
+	}
+	relative := *whole
+	relative.Root = "ws"
+	if _, err := create(client, "adopt-6", &relative); err == nil {
+		t.Error("a request with a relative root was kept")
 	} else {
 		refusedWith(t, err, http.StatusBadRequest, api.CodeInvalid)
 	}

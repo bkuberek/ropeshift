@@ -30,16 +30,39 @@ describe("what a plan registers and restructures by", () => {
     expect(registrablePaths(plan("workspace-files"))).toEqual(["/work/api", "/work/design", "/work/web"]);
   });
 
-  it("carries the design repository and the trees left out of a consolidation, with the digest", () => {
+  it("carries the design repository and the trees left out of a consolidation, with the digest and the request", () => {
     const left = plan("consolidate-left-out");
-    expect(restructureOf(left)).toEqual({ shape: "consolidate", digest: left.digest, design_path: "/work/ws/repos/design", design_root: "design", leave_out: ["tools"] });
+    expect(restructureOf(left, planRequest(["/work/ws"], 1, ["tools"]))).toEqual({
+      shape: "consolidate", digest: left.digest, design_path: "/work/ws/repos/design", design_root: "design", leave_out: ["tools"], root: "/work/ws", depth: 1,
+    });
     const kept = plan("consolidate");
-    expect(restructureOf(kept)).toEqual({ shape: "consolidate", digest: kept.digest, design_path: "/work/ws/repos/design", design_root: "design" });
+    expect(restructureOf(kept, planRequest(["/work/ws"], 1))).toEqual({
+      shape: "consolidate", digest: kept.digest, design_path: "/work/ws/repos/design", design_root: "design", root: "/work/ws", depth: 1,
+    });
   });
 
-  it("carries the shape and the digest alone for any other shape", () => {
+  it("carries the request the plan was read with, so a worker reads the layout again the way the plan did", () => {
+    const planned = plan("workspace-files");
+    const request = { ...planRequest(["/work/design", "/work/api", "/work/web"], 2), planning: "design", design: "docs" };
+    expect(restructureOf(planned, request)).toEqual({
+      shape: "workspace_files", digest: planned.digest, root: "/work/design", paths: ["/work/api", "/work/web"], depth: 2, planning: "design", design: "docs",
+    });
+  });
+
+  it("carries the digest of each part of the plan the route answered, and none when the route answered none", () => {
     const planned = plan("planned");
-    expect(restructureOf(planned)).toEqual({ shape: "planned", digest: planned.digest });
+    const parts = { layout: "sha256:" + "a".repeat(64), files: "sha256:" + "b".repeat(64) };
+    expect(restructureOf({ ...planned, parts }, planRequest(["/work/ws"], 1))).toEqual({
+      shape: "planned", digest: planned.digest, root: "/work/ws", depth: 1, parts,
+    });
+    expect(restructureOf(planned, planRequest(["/work/ws"], 1))).not.toHaveProperty("parts");
+  });
+
+  it("leaves out what the request does not name: no paths, no names", () => {
+    const chosen = restructureOf(plan("planned"), planRequest(["/work/ws"], 1));
+    for (const key of ["paths", "planning", "design"]) {
+      expect(chosen).not.toHaveProperty(key);
+    }
   });
 
   it("lists as candidates for the plan the repositories a registration adds or already holds", () => {

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"path"
+	"slices"
 	"strings"
 )
 
@@ -176,9 +177,14 @@ type AdoptionPlan struct {
 	Digest string `json:"digest,omitempty"`
 }
 
+// MaxLayoutDepth is the most levels below a folder a plan searches for clones. A folder the clone ignores may
+// hold a dependency tree or a build output, so a request cannot ask for a walk as deep as it likes.
+const MaxLayoutDepth = 4
+
 // Restructure is the restructuring a member chose from an adoption plan, as an adopt work order keeps it: the
-// shape, the digest of the plan it was chosen from, and for a consolidation the design repository and the code
-// trees to leave out.
+// shape, the digest of the plan it was chosen from, for a consolidation the design repository and the code
+// trees to leave out, and the request the plan was read with, so a worker reads the layout again the way the
+// plan did and names what differs when it reads another.
 type Restructure struct {
 	Shape  LayoutShape `json:"shape"`
 	Digest string      `json:"digest"`
@@ -188,19 +194,86 @@ type Restructure struct {
 	DesignRoot string `json:"design_root,omitempty"`
 	// LeaveOut names the design repository's code trees a consolidation removes, relative to its top.
 	LeaveOut []string `json:"leave_out,omitempty"`
+	// Root, Paths, Depth, Planning, and Design are the request the plan was read with: the clone adopt ran in
+	// as an absolute path, the paths named beside it, how many levels were searched for clones, and the clone
+	// folder names --planning and --design named. A restructuring kept before they existed has none of them, and
+	// Missing says what that leaves a worker without.
+	Root     string   `json:"root,omitempty"`
+	Paths    []string `json:"paths,omitempty"`
+	Depth    int      `json:"depth,omitempty"`
+	Planning string   `json:"planning,omitempty"`
+	Design   string   `json:"design,omitempty"`
+	// Parts are the digests of the plan's parts, by part name, which say what differs when the digest does.
+	Parts map[string]string `json:"parts,omitempty"`
 }
 
 // ErrBadRestructure marks a restructuring that cannot be kept.
 var ErrBadRestructure = errors.New("invalid restructuring")
 
+// Missing names what a restructuring lacks for a worker to read the layout again as the plan did: the root the
+// plan was read from, and the digests of its parts. The other fields of the request may be empty.
+func (r Restructure) Missing() []string {
+	var missing []string
+	if r.Root == "" {
+		missing = append(missing, "root")
+	}
+	if len(r.Parts) == 0 {
+		missing = append(missing, "parts")
+	}
+	return missing
+}
+
+// isDigest says a string is the SHA-256 digest of something, as DigestSHA256 spells one.
+func isDigest(value string) bool {
+	hash, ok := strings.CutPrefix(value, DigestSHA256)
+	return ok && len(hash) == sha256.Size*2 && strings.Trim(hash, "0123456789abcdef") == ""
+}
+
+// validateRequest refuses a request with no clean absolute root, a path that is not absolute, a depth beyond what a
+// plan searches, a clone name that holds a slash, or the digest of a part nothing digests.
+func (r Restructure) validateRequest() error {
+	if r.Root == "" {
+		if len(r.Paths) != 0 || r.Depth != 0 || r.Planning != "" || r.Design != "" {
+			return fmt.Errorf("%w: the request the plan was read with needs the root it was read from", ErrBadRestructure)
+		}
+	} else if !path.IsAbs(r.Root) || path.Clean(r.Root) != r.Root {
+		return fmt.Errorf("%w: the root %q is no clean absolute path", ErrBadRestructure, r.Root)
+	}
+	for _, named := range r.Paths {
+		if !path.IsAbs(named) {
+			return fmt.Errorf("%w: the path %q is not absolute", ErrBadRestructure, named)
+		}
+	}
+	if r.Depth < 0 || r.Depth > MaxLayoutDepth {
+		return fmt.Errorf("%w: the depth %d is not between 0 and %d", ErrBadRestructure, r.Depth, MaxLayoutDepth)
+	}
+	for flag, name := range map[string]string{"planning": r.Planning, "design": r.Design} {
+		if strings.Contains(name, "/") {
+			return fmt.Errorf("%w: the %s name %q is a clone's folder name, which holds no slash", ErrBadRestructure, flag, name)
+		}
+	}
+	for part, digest := range r.Parts {
+		if !slices.Contains(PlanParts, part) {
+			return fmt.Errorf("%w: %q is no part of a plan", ErrBadRestructure, part)
+		}
+		if !isDigest(digest) {
+			return fmt.Errorf("%w: the digest %q of part %s is no SHA-256 digest", ErrBadRestructure, digest, part)
+		}
+	}
+	return nil
+}
+
 // Validate refuses a restructuring that names a shape with nothing to restructure, carries no digest, or holds
-// a design repository or code trees outside a consolidation.
+// a design repository or code trees outside a consolidation, or a request that cannot be kept.
 func (r Restructure) Validate() error {
 	if !r.Shape.Restructures() {
 		return fmt.Errorf("%w: the shape %q offers nothing to restructure", ErrBadRestructure, r.Shape)
 	}
-	if hash, ok := strings.CutPrefix(r.Digest, DigestSHA256); !ok || len(hash) != sha256.Size*2 || strings.Trim(hash, "0123456789abcdef") != "" {
+	if !isDigest(r.Digest) {
 		return fmt.Errorf("%w: the digest %q is no SHA-256 digest of a plan", ErrBadRestructure, r.Digest)
+	}
+	if err := r.validateRequest(); err != nil {
+		return err
 	}
 	if r.Shape != ShapeConsolidate {
 		if r.DesignPath != "" || r.DesignRoot != "" || len(r.LeaveOut) != 0 {
@@ -244,4 +317,82 @@ func (p AdoptionPlan) ComputeDigest() string {
 func (p AdoptionPlan) WithDigest() AdoptionPlan {
 	p.Digest = p.ComputeDigest()
 	return p
+}
+
+// The parts of a plan that Parts digests, in the order a refusal names them.
+const (
+	PartLayout       = "layout"
+	PartShape        = "shape"
+	PartPlanning     = "planning"
+	PartDesign       = "design"
+	PartRepositories = "repositories"
+	PartFiles        = "files"
+	PartTakes        = "takes"
+	PartCollisions   = "collisions"
+	PartCodeTrees    = "code_trees"
+	PartMoves        = "moves"
+)
+
+// PlanParts lists the parts Parts digests, in order.
+var PlanParts = []string{
+	PartLayout, PartShape, PartPlanning, PartDesign, PartRepositories, PartFiles, PartTakes, PartCollisions, PartCodeTrees, PartMoves,
+}
+
+// orEmpty spells a list with nothing in it one way, whether it is nil or empty, so a plan that crossed the
+// wire digests as the plan it was.
+func orEmpty[T any](list []T) []T {
+	if list == nil {
+		return []T{}
+	}
+	return list
+}
+
+// Parts digests each part of the plan alone, with what ComputeDigest leaves out left out of each: no notes, and
+// of each repository its name and path and whether it is left unregistered, and no more. They exist so a
+// refusal can name what differs, and they never stand for the plan: its Digest does, as it always did.
+func (p AdoptionPlan) Parts() map[string]string {
+	layout := p.Layout
+	layout.Folders, layout.Clones = orEmpty(layout.Folders), orEmpty(layout.Clones)
+	repositories := make([]PlannedRepository, 0, len(p.Repositories))
+	for _, repository := range p.Repositories {
+		kept := PlannedRepository{Name: repository.Name, Path: repository.Path}
+		if repository.Outcome == OutcomeNotRegistered {
+			kept.Outcome = OutcomeNotRegistered
+		}
+		repositories = append(repositories, kept)
+	}
+	moves := make([]Move, 0, len(p.Moves))
+	for _, move := range p.Moves {
+		move.Commands = orEmpty(move.Commands)
+		moves = append(moves, move)
+	}
+	byPart := map[string]any{
+		PartLayout: layout, PartShape: p.Shape, PartPlanning: p.Planning, PartDesign: p.Design, PartRepositories: repositories,
+		PartFiles: orEmpty(p.Files), PartTakes: orEmpty(p.Takes), PartCollisions: orEmpty(p.Collisions),
+		PartCodeTrees: orEmpty(p.CodeTrees), PartMoves: moves,
+	}
+	parts := make(map[string]string, len(byPart))
+	for name, part := range byPart {
+		raw, err := json.Marshal(part)
+		if err != nil {
+			// A plan holds only strings, numbers, and lists, which always encode.
+			panic(err)
+		}
+		sum := sha256.Sum256(raw)
+		parts[name] = DigestSHA256 + hex.EncodeToString(sum[:])
+	}
+	return parts
+}
+
+// DiffersIn names the parts of the plan whose digest is not the one stored, in the order of PlanParts. A part the
+// stored digests do not hold differs.
+func (p AdoptionPlan) DiffersIn(stored map[string]string) []string {
+	var differs []string
+	for name, now := range p.Parts() {
+		if stored[name] != now {
+			differs = append(differs, name)
+		}
+	}
+	slices.SortFunc(differs, func(a, b string) int { return slices.Index(PlanParts, a) - slices.Index(PlanParts, b) })
+	return differs
 }

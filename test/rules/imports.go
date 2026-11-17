@@ -210,6 +210,8 @@ func checkImport(module, rel string, layer Layer, path string) []Violation {
 		}
 	case LayerApplication:
 		return checkApplicationImport(rel, kind, to, target, fail)
+	case LayerShared:
+		return checkSharedImport(path, kind, to, fail)
 	case LayerAdapter:
 		if kind == importModule && !adapterMayImport(to) {
 			return fail("adapters-outward")
@@ -246,7 +248,23 @@ func adapterMayImport(to Layer) bool {
 // are on this side, because they hold the application, and the wire types and
 // client are not.
 func behindTheAPI(layer Layer) bool {
-	return layer == LayerPorts || layer == LayerApplication || layer == LayerAdapter || layer == LayerAPIServer
+	return layer == LayerPorts || layer == LayerApplication || layer == LayerShared || layer == LayerAdapter || layer == LayerAPIServer
+}
+
+// checkSharedImport holds the logic both planes share to logic: the domain, the ports, the support packages, and
+// the standard packages that reach no process, file, network, clock, or entropy source. It imports no adapter,
+// starts no process, and opens no file, so every read of git or of the disk goes through a port it is given, and
+// neither plane is imported through it.
+func checkSharedImport(path string, kind importKind, to Layer, fail func(string) []Violation) []Violation {
+	switch {
+	case kind == importStandard && !pureStandardLibrary[path]:
+		return fail("shared-pure")
+	case kind == importThirdParty:
+		return fail("shared-pure")
+	case kind == importModule && to != LayerDomain && to != LayerPorts && to != LayerSupport && to != LayerShared:
+		return fail("shared-inward")
+	}
+	return nil
 }
 
 func checkApplicationImport(rel string, kind importKind, to Layer, target string, fail func(string) []Violation) []Violation {
@@ -257,7 +275,7 @@ func checkApplicationImport(rel string, kind importKind, to Layer, target string
 		return nil
 	}
 	switch to {
-	case LayerDomain, LayerPorts, LayerSupport:
+	case LayerDomain, LayerPorts, LayerSupport, LayerShared:
 		return nil
 	case LayerAdapter:
 		return fail("only-entry-wires")

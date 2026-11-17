@@ -286,14 +286,14 @@ func restoreIn(repositories ports.RepositoryWriter, found DetectedRepository) (d
 // says the path kept, and a dry run the path it would keep.
 func keepCheckout(ctx context.Context, kept ports.Checkouts, scope ledger.WorkspaceID, held map[string]string, clone ports.Clone, id string, dryRun bool) (string, error) {
 	if path, ok := held[id]; ok && path != clone.Path {
-		if samePath(ctx, kept, path, clone.Path) {
+		if ports.SamePath(ctx, kept, path, clone.Path) {
 			return path, nil
 		}
 		found, _, err := kept.Find(ctx, []string{path}, 1)
 		if err != nil {
 			return "", err
 		}
-		if slices.ContainsFunc(found, func(c ports.Clone) bool { return samePath(ctx, kept, c.Path, path) && holdsRoot(c, id) }) {
+		if slices.ContainsFunc(found, func(c ports.Clone) bool { return ports.SamePath(ctx, kept, c.Path, path) && holdsRoot(c, id) }) {
 			return path, nil
 		}
 	}

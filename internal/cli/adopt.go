@@ -118,7 +118,7 @@ func (c *invocation) adopt(args []string) int {
 		repository: repository, worker: chosenWorker,
 	}
 	if *restructure {
-		draft.restructure = restructureOf(plan)
+		draft.restructure = restructureOf(plan, request)
 	}
 	started, code := c.openSession(project, draft)
 	if code != ExitOK {
@@ -186,9 +186,14 @@ func registeredAt(report api.RepositoryAddReport, path string) string {
 	return ""
 }
 
-// restructureOf is what the adopt work carries of the plan a member chose to restructure by.
-func restructureOf(plan planning.AdoptionPlan) *planning.Restructure {
-	chosen := &planning.Restructure{Shape: plan.Shape, Digest: plan.Digest}
+// restructureOf is what the adopt work carries of the plan a member chose to restructure by: its shape and
+// digest, the request the plan was read with, and the digests of its parts, so a worker reads the layout again
+// the way the plan did and names what differs when it reads another.
+func restructureOf(plan planning.AdoptionPlan, request api.AdoptionPlanRequest) *planning.Restructure {
+	chosen := &planning.Restructure{
+		Shape: plan.Shape, Digest: plan.Digest, Root: request.Root, Paths: request.Paths, Depth: request.Depth,
+		Planning: request.Planning, Design: request.Design, Parts: plan.Parts(),
+	}
 	if plan.Shape != planning.ShapeConsolidate || plan.Design == nil {
 		return chosen
 	}

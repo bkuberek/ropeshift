@@ -11,11 +11,14 @@ type Layer string
 
 // The layers of the module layout.
 const (
-	LayerMain         Layer = "main"
-	LayerEntry        Layer = "entry"
-	LayerDomain       Layer = "domain"
-	LayerPorts        Layer = "ports"
-	LayerApplication  Layer = "application"
+	LayerMain        Layer = "main"
+	LayerEntry       Layer = "entry"
+	LayerDomain      Layer = "domain"
+	LayerPorts       Layer = "ports"
+	LayerApplication Layer = "application"
+	// LayerShared is application logic that both planes use, so neither imports the other for it. It is logic
+	// only: it reaches git and the disk through the ports it is given.
+	LayerShared       Layer = "shared"
 	LayerAdapter      Layer = "adapter"
 	LayerAPI          Layer = "api"
 	LayerAPIServer    Layer = "api-server"
@@ -51,6 +54,11 @@ var clientPackages = map[string]bool{
 	"top":       true,
 }
 
+// sharedPackages are the top-level names of the application logic that the control plane and the worker share.
+var sharedPackages = map[string]bool{
+	"adoption": true,
+}
+
 // Classify names the layer of a package from its path inside the module.
 func Classify(rel string) Layer {
 	parts := strings.Split(rel, "/")
@@ -66,6 +74,8 @@ func Classify(rel string) Layer {
 		return LayerDomain
 	case clientPackages[name]:
 		return LayerClient
+	case sharedPackages[name]:
+		return LayerShared
 	}
 	switch name {
 	case "entry":

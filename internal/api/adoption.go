@@ -30,6 +30,15 @@ type AdoptionPlanRequest struct {
 	NewProject bool `json:"new_project,omitempty"`
 }
 
+// AdoptionPlanReply is what the plan route answers: the plan, flat as it always was, and the digest of each of its
+// parts. A client that cannot compute the parts, as the web UI cannot, sends them back with the restructuring it
+// chooses, so the worker that reads the layout again can name what differs. They are no part of the plan, and its
+// digest does not hold them. A client of this module reads the plan alone.
+type AdoptionPlanReply struct {
+	planning.AdoptionPlan
+	Parts map[string]string `json:"parts"`
+}
+
 // AdoptionPlan reads the plan of an adoption into the project, which only a member can do.
 func (c *ProjectClient) AdoptionPlan(ctx context.Context, in AdoptionPlanRequest) (planning.AdoptionPlan, error) {
 	var out planning.AdoptionPlan

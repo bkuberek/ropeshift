@@ -189,7 +189,7 @@ export function ImportPage({ projects, chosen, reload }: { projects: Project[]; 
         await here(() => changeRepository(repository, { planning: true }));
       }
       const id = newID();
-      await here(() => createAdoptWork({ id, title: `Adopt ${name}`, statement: statementOf(name), criterion, repository, restructure: restructure ? restructureOf(plan) : undefined }));
+      await here(() => createAdoptWork({ id, title: `Adopt ${name}`, statement: statementOf(name), criterion, repository, restructure: restructure ? restructureOf(plan, planRequest(listed, levels, leftOutOf(plan))) : undefined }));
       const review = await here(() => reviewWork(id));
       if (review.failures && review.failures.length > 0) {
         throw new Error(`Work order ${id} was recorded and is not ready: ${review.failures.map((failure) => `${failure.check}: ${failure.detail}`).join("; ")}`);
