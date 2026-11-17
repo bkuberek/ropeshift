@@ -126,6 +126,9 @@ type Worker struct {
 	forgeReported map[string]bool
 	forgeFailed   map[string]time.Time
 	forgeRead     map[string]forgeReadSeen
+	// ciHints are the forge's hints that checks changed, by binding and head, each with when it came. A tick
+	// reads the pull request a hint names at once, and drops the hint.
+	ciHints map[string]time.Time
 
 	// toOrchestrator is what this worker knows of the members' messages to its orchestrator, and mu guards
 	// its making.

@@ -139,9 +139,15 @@ func checkPRChecks(t *testing.T, ctx context.Context, rig ForgeRig) {
 	}
 	rig.SetChecks(t, pr.Number, want...)
 	got := readPR(t, ctx, rig, pr.Number).Checks
-	if len(got) != 3 || got[0] != want[2] || got[1] != want[0] || got[2] != want[1] {
+	if len(got) != 3 || !sameCheck(got[0], want[2]) || !sameCheck(got[1], want[0]) || !sameCheck(got[2], want[1]) {
 		t.Errorf("checks %+v", got)
 	}
+}
+
+// sameCheck compares what every forge reports of a check: its name, its state, its link, and whether the base
+// requires it. A forge may say more, such as how far a run has come, which a schedule reads and no contract holds.
+func sameCheck(a, b ledger.PullRequestCheck) bool {
+	return a.Name == b.Name && a.State == b.State && a.DetailsURI == b.DetailsURI && a.Required == b.Required
 }
 
 func checkPRCommentOnce(t *testing.T, ctx context.Context, rig ForgeRig) {
@@ -198,7 +204,7 @@ func checkPRRequiredChecks(t *testing.T, ctx context.Context, rig ForgeRig) {
 		{Name: "unit", State: ledger.CheckFailed, DetailsURI: "https://ci.example/unit", Required: true},
 	}
 	rig.SetChecks(t, pr.Number, want...)
-	if got := readPR(t, ctx, rig, pr.Number).Checks; len(got) != 2 || got[0] != want[0] || got[1] != want[1] {
+	if got := readPR(t, ctx, rig, pr.Number).Checks; len(got) != 2 || !sameCheck(got[0], want[0]) || !sameCheck(got[1], want[1]) {
 		t.Errorf("checks %+v", got)
 	}
 }

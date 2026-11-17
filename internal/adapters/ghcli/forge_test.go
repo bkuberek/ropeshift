@@ -264,8 +264,8 @@ func TestARequiredCheckIsMarked(t *testing.T) {
 	doubles.EditFakeGH(t, gh, func(s *ghstate.State) { s.Find(1).Required = []string{"unit"} })
 	read, err = forge.PullRequest(t.Context(), ref)
 	want := []ledger.PullRequestCheck{
-		{Name: "lint", State: ledger.CheckPassed},
-		{Name: "unit", State: ledger.CheckFailed, DetailsURI: "https://ci.example/unit", Required: true},
+		{Name: "lint", State: ledger.CheckPassed, Status: ledger.CIRunCompleted},
+		{Name: "unit", State: ledger.CheckFailed, DetailsURI: "https://ci.example/unit", Required: true, Status: ledger.CIRunCompleted},
 	}
 	if err != nil || !slices.Equal(read.Checks, want) {
 		t.Fatalf("read %+v: %v", read.Checks, err)

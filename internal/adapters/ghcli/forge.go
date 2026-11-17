@@ -408,6 +408,7 @@ type rollup struct {
 	Context    string `json:"context"`
 	State      string `json:"state"`
 	TargetURL  string `json:"targetUrl"`
+	StartedAt  string `json:"startedAt"`
 }
 
 func (v viewed) pullRequest() ledger.PullRequest {
@@ -446,7 +447,15 @@ func (r rollup) check() ledger.PullRequestCheck {
 		}
 		return check
 	}
-	check := ledger.PullRequestCheck{Name: r.Name, DetailsURI: r.DetailsURL, State: ledger.CheckFailed}
+	check := ledger.PullRequestCheck{Name: r.Name, DetailsURI: r.DetailsURL, State: ledger.CheckFailed, Status: ledger.CIRunQueued}
+	// Only a run in progress or done has started: one queued, waiting, requested, or pending has not, whatever
+	// start the forge gives it.
+	switch r.Status {
+	case "IN_PROGRESS":
+		check.Status, check.StartedAt = ledger.CIRunInProgress, r.StartedAt
+	case "COMPLETED":
+		check.Status, check.StartedAt = ledger.CIRunCompleted, r.StartedAt
+	}
 	switch {
 	case r.Status != "COMPLETED":
 		check.State = ledger.CheckPending

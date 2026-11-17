@@ -85,8 +85,45 @@ func (w *Worker) tendForge(ctx context.Context) {
 	}
 }
 
-// readDue paces the reads of one watched pull request, and holds them while the repository's sign-in this
-// worker found cannot run.
+// hintTTL is how long a hint for a pull request nobody watches is kept, which a hint for one a worker does not
+// watch yet needs, and no longer.
+const hintTTL = 10 * time.Minute
+
+// NoteCIHint says the forge reported a change to the checks of a head in a repository, from a signed delivery of
+// a `check_suite`, `check_run`, or `workflow_run` event. The next tick reads each pull request it names at once,
+// ahead of the schedule, and a hint with no head names every pull request of the repository. A hint carries no
+// state: the read decides what changed (FR-SPEND-20).
+func (w *Worker) NoteCIHint(binding ledger.ForgeBinding, head string) {
+	w.forgeLock.Lock()
+	defer w.forgeLock.Unlock()
+	if w.ciHints == nil {
+		w.ciHints = map[string]time.Time{}
+	}
+	w.ciHints[hintKey(binding.String(), head)] = w.clock.Now()
+}
+
+func hintKey(binding, head string) string { return binding + "\x00" + head }
+
+// takeHint says a hint names this pull request, and drops it. Its caller holds forgeLock.
+func (w *Worker) takeHint(watched ledger.DesiredPullRequest) bool {
+	now, hinted := w.clock.Now(), false
+	for _, key := range []string{hintKey(watched.Binding, ""), hintKey(watched.Binding, watched.HeadCommit)} {
+		if at, ok := w.ciHints[key]; ok {
+			hinted = hinted || now.Sub(at) < hintTTL
+			delete(w.ciHints, key)
+		}
+	}
+	for key, at := range w.ciHints {
+		if now.Sub(at) >= hintTTL {
+			delete(w.ciHints, key)
+		}
+	}
+	return hinted
+}
+
+// readDue paces the reads of one watched pull request by the repository's CI schedule, and holds them while the
+// repository's sign-in this worker found cannot run. A hint reads at once. A pull request no read has been made
+// of is read at once too.
 func (w *Worker) readDue(watched ledger.DesiredPullRequest) bool {
 	w.forgeLock.Lock()
 	defer w.forgeLock.Unlock()
@@ -95,12 +132,17 @@ func (w *Worker) readDue(watched ledger.DesiredPullRequest) bool {
 		return false
 	}
 	last, read := w.forgeRead[forgeKey(watched.Project, watched.WorkOrder)]
-	return !read || w.clock.Now().Sub(last.at) >= w.config.Lanes.forgeEvery()
+	if w.takeHint(watched) {
+		return true
+	}
+	return !read || !w.clock.Now().Before(last.next)
 }
 
-// forgeReadSeen is when a worker last read a watched pull request, and what it last told the ledger of it.
+// forgeReadSeen is when a worker last read a watched pull request, when the CI schedule reads it next, the head
+// that read found, and what the worker last told the ledger of it.
 type forgeReadSeen struct {
-	at   time.Time
+	next time.Time
+	head string
 	told *ledger.PullRequest
 }
 
@@ -114,7 +156,8 @@ func (w *Worker) readPullRequest(ctx context.Context, watched ledger.DesiredPull
 		w.forgeRead = map[string]forgeReadSeen{}
 	}
 	seen := w.forgeRead[key]
-	seen.at = w.clock.Now()
+	// A read that fails is tried again after the forge interval, as every forge step is.
+	seen.next = w.clock.Now().Add(rt.forgeEvery())
 	w.forgeRead[key] = seen
 	w.forgeLock.Unlock()
 	dir, err := rt.Repository(ctx, watched.Project, watched.Repository)
@@ -131,6 +174,10 @@ func (w *Worker) readPullRequest(ctx context.Context, watched ledger.DesiredPull
 		w.recheckHealth(watched.Project, watched.Repository)
 		return
 	}
+	seen.next, seen.head = w.nextRead(watched, seen.head, read)
+	w.forgeLock.Lock()
+	w.forgeRead[key] = seen
+	w.forgeLock.Unlock()
 	if seen.told != nil && sameRead(*seen.told, read) {
 		return
 	}
@@ -154,6 +201,25 @@ func (w *Worker) readPullRequest(ctx context.Context, watched ledger.DesiredPull
 	defer w.forgeLock.Unlock()
 	seen.told = &read
 	w.forgeRead[key] = seen
+}
+
+// nextRead is when to read a pull request again, from what a read just found and the repository's CI keys
+// (FR-SPEND-20), and the head that read found. A head that is not the one the last read found is a new push, which
+// restarts the schedule: it is read again at once, because its runs begin about now. A required check not yet
+// final is what makes the schedule apply. Until SP2 keeps CI records
+// no repository has a history, so the no-history keys give the expected duration.
+func (w *Worker) nextRead(watched ledger.DesiredPullRequest, lastHead string, read ledger.PullRequest) (time.Time, string) {
+	now := w.clock.Now()
+	if lastHead != "" && lastHead != read.HeadCommit {
+		return now, read.HeadCommit
+	}
+	// With no required check still to finish there is no CI to wait on, and what is left to learn is what a person
+	// does with the pull request, a merge or a close, which is read as often as any forge step is.
+	if !slices.ContainsFunc(read.Checks, func(check ledger.PullRequestCheck) bool { return check.Required && check.State == ledger.CheckPending }) {
+		return now.Add(w.config.Lanes.forgeEvery()), read.HeadCommit
+	}
+	settings := watched.CI.Effective()
+	return settings.NextRead(settings.Expectation(nil), ledger.CIRunsOf(read.Checks), now), read.HeadCommit
 }
 
 // sameRead compares what a read of a pull request can change.
