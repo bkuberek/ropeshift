@@ -17,6 +17,7 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -95,6 +96,8 @@ type soloOptions struct {
 	// records reads the first project's records, which name the repositories of the daemon's sources: a
 	// source with no checkout kept for it keeps the ID of the record registration would match it to.
 	records func(ctx context.Context, id string) (ledger.Repository, bool, error)
+	// report says a line of what the daemon found and will not do, as a source it refuses, and nothing more.
+	report func(line string)
 }
 
 // recordsIn reads a project's records by ID from its store.
@@ -982,12 +985,39 @@ func eachProject(projects ports.Projects, work func(context.Context, ledger.Proj
 	}
 }
 
+// refusalLog remembers, for each project, which refusals of a source held at its last intake poll, so a poll
+// that finds the same refusals says nothing, and one that finds a refusal that began since says it once.
+type refusalLog struct {
+	mu   sync.Mutex
+	held map[ledger.WorkspaceID]map[string]bool
+}
+
+// began records the refusals a poll of a project found and returns the ones its last poll did not.
+func (l *refusalLog) began(project ledger.WorkspaceID, now map[string]bool) []string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	var began []string
+	for line := range now {
+		if !l.held[project][line] {
+			began = append(began, line)
+		}
+	}
+	slices.Sort(began)
+	l.held[project] = now
+	return began
+}
+
 // soloTicks are the control plane's ticks, each run in every active project. Intake reads the repositories
 // of each project this worker keeps a checkout of, and the daemon's sources in the first project.
 func soloTicks(projects ports.Projects, home ledger.WorkspaceID, opts soloOptions, kept ports.Checkouts, batches questions.BatchPolicy, windows messages.Windows) []control.Tick {
 	tick := func(name string, every time.Duration, work func(context.Context, ledger.Project, ports.Store) error) control.Tick {
 		return control.Tick{Name: name, Every: every, Run: eachProject(projects, work)}
 	}
+	report := opts.report
+	if report == nil {
+		report = func(line string) { fmt.Fprintf(os.Stderr, "ropeshiftd: %s\n", line) }
+	}
+	refusals := &refusalLog{held: map[ledger.WorkspaceID]map[string]bool{}}
 	return []control.Tick{
 		tick("batches", opts.batchTick, func(ctx context.Context, p ledger.Project, store ports.Store) error {
 			_, err := control.NewQuestions(store, batches).DeliverBatches(ctx, p.ID, tickActor("batch-tick"))
@@ -1050,10 +1080,20 @@ func soloTicks(projects ports.Projects, home ledger.WorkspaceID, opts soloOption
 			if err != nil {
 				failed = append(failed, err)
 			}
+			refused := map[string]bool{}
 			for _, source := range sources {
-				if _, err := intake.Poll(ctx, p.ID, source); err != nil {
+				_, err := intake.Poll(ctx, p.ID, source)
+				var shared *repofiles.SharedFirstCommitError
+				switch {
+				case errors.As(err, &shared):
+					// A source registration would refuse is left alone, and said so once while that holds.
+					refused[shared.Error()] = true
+				case err != nil:
 					failed = append(failed, err)
 				}
+			}
+			for _, line := range refusals.began(p.ID, refused) {
+				report(fmt.Sprintf("intake: project %s does not read a source: %s", p.ID, line))
 			}
 			if _, err := intake.TakeInPlans(ctx, p.ID, acceptedCommits(opts, kept, p.ID)); err != nil {
 				failed = append(failed, err)

@@ -530,17 +530,44 @@ func TestASourceThatSharesAFirstCommitWithAKeptCloneIsReportedAndNotRead(t *test
 	if err := kept.Keep(t.Context(), soloScope, m.lowest, m.design.Dir); err != nil {
 		t.Fatal(err)
 	}
-	opts := soloOptions{intakeTick: time.Second, sources: repeatedFlag{m.workspace.Dir}, records: recordsIn(m.store, soloScope)}
+	var reported []string
+	opts := soloOptions{
+		intakeTick: time.Second, sources: repeatedFlag{m.workspace.Dir}, records: recordsIn(m.store, soloScope),
+		report: func(line string) { reported = append(reported, line) },
+	}
 	ticks := soloTicks(m.state, soloScope, opts, kept, questions.BatchPolicy{}, nil)
 	at := slices.IndexFunc(ticks, func(tick control.Tick) bool { return tick.Name == "intake" })
-	err := ticks[at].Run(t.Context())
-	var shared *repofiles.SharedFirstCommitError
-	if !errors.As(err, &shared) || shared.Root != m.lowest || shared.Path != m.design.Dir {
-		t.Errorf("intake reports %v, want a refusal naming the first commit and the kept clone", err)
+	// The refusal is reported when it begins, once, and not at each poll.
+	for range 3 {
+		if err := ticks[at].Run(t.Context()); err != nil {
+			t.Errorf("a refused source fails the intake tick with %v", err)
+		}
 	}
-	ids, instances := m.records(t)
-	if !slices.Equal(ids, []string{m.lowest}) || len(instances) != 0 {
-		t.Errorf("intake left records %v and external keys under %v, want the one record and no keys", ids, instances)
+	if len(reported) != 1 || !strings.Contains(reported[0], "shares its first commit `"+ledger.ShortCommit(m.lowest)+"`") || !strings.Contains(reported[0], m.design.Dir) {
+		t.Errorf("intake reported %q, want one line naming the first commit and the kept clone", reported)
+	}
+	// Once the clone is no longer kept the source reads, and a refusal that begins again is reported again.
+	if err := kept.Forget(t.Context(), soloScope, m.lowest); err != nil {
+		t.Fatal(err)
+	}
+	if err := ticks[at].Run(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if err := kept.Keep(t.Context(), soloScope, m.lowest, m.design.Dir); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		if err := ticks[at].Run(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(reported) != 2 {
+		t.Errorf("intake reported %d lines after the refusal ended and began again, want 2: %q", len(reported), reported)
+	}
+	// The refusal made no record of its own under the source's first-parent root.
+	var shared *repofiles.SharedFirstCommitError
+	if ids, _ := m.records(t); !slices.Equal(ids, []string{m.lowest}) {
+		t.Errorf("intake left records %v, want the one record %s", ids, m.lowest)
 	}
 	find := checkoutOf(opts, kept)
 	if path, err := find(t.Context(), soloScope, m.lowest); err != nil || path != m.design.Dir {
