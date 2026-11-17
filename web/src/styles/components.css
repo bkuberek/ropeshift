@@ -409,9 +409,10 @@ a.chip:hover {
   border-top: 1px solid var(--border);
   font-size: var(--fs-12);
   color: var(--text-3);
-  display: flex;
-  gap: var(--s-8);
-  align-items: center;
+}
+
+.panel-foot p {
+  margin: 0;
 }
 
 .grid {

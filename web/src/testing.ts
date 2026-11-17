@@ -11,11 +11,15 @@ import needsYou from "../testdata/needs-you.json";
 export const runningHealth: Health = {
   status: "ok",
   revision: 1,
+  mode: "solo",
   version: "v0.1.0-alpha.16",
   commit: "0123456789abcdef0123456789abcdef01234567",
   date: "2026-11-08T10:00:00Z",
   installed: "v0.1.0-alpha.16",
 };
+
+// What the daemon of an installation in group mode says of itself, which a test of what only a group offers serves.
+export const groupHealth: Health = { ...runningHealth, mode: "group" };
 
 // The view a Go test wrote from a real ledger, so these tests run on what the API serves.
 export function goldenNeedsYou(): NeedsYou {

@@ -175,11 +175,16 @@ describe("the source", () => {
   });
 
   // The one address that leaves the application is the Sign in page's passphrase help, a constant in SignIn.tsx that
-  // names a guide of this repository, and no address built from data.
+  // names a guide of this repository, and the pages the stated risk asks a member to read, which the dialog links only
+  // when the statement names an https address (admin/RiskStatement.test.tsx). No other address is built from data.
   it("makes no link but its own, and the one constant that names the passphrase help", () => {
+    const own: Record<string, RegExp> = {
+      [join("src", "app", "SignIn.tsx")]: /: ("#main">?|\{to\}|\{passphraseHelp\})$/,
+      [join("src", "admin", "RiskStatement.tsx")]: /: ("#main">?|\{to\}|\{address\})$/,
+    };
     for (const path of source("src")) {
       const text = readFileSync(path, "utf8");
-      const allowed = path === join("src", "app", "SignIn.tsx") ? /: ("#main">?|\{to\}|\{passphraseHelp\})$/ : /: ("#main">?|\{to\})$/;
+      const allowed = own[path] ?? /: ("#main">?|\{to\})$/;
       for (const [, href] of text.matchAll(/<a\s[^>]*href=(\S+)/g)) {
         expect(`${path}: ${href}`).toMatch(allowed);
       }

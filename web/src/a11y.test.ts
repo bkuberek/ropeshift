@@ -1280,8 +1280,11 @@ suite.each(Object.entries(sizes))("at %s width", (size, viewport) => {
         await check("import backup dialog", page.getByRole("dialog", { name: "Import backup" }));
         await page.unroute(/\/v1\/projects$/);
         // The join token, the delegate dialogs, and the sign-out of every session.
+        // Only an installation in group mode offers it.
+        await page.route(/\/v1\/health$/, served({ status: "ok", revision: 1, mode: "group", version: "v0.1.0-alpha.16" }));
         await page.goto(`${base}/workers?dialog=token`);
         await check("join token dialog", page.getByRole("dialog", { name: "Create join token" }));
+        await page.unroute(/\/v1\/health$/);
         await page.goto(`${base}/members?dialog=delegate`);
         const create = page.getByRole("dialog", { name: "Create delegate" });
         await check("create delegate dialog", create);

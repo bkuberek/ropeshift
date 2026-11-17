@@ -177,6 +177,8 @@ export type Risk = { statement: string; digest: string };
 export type Health = {
   status: string;
   revision: number;
+  // How the installation runs: "solo" for one person's, with its worker in the daemon, or "group".
+  mode: string;
   web?: string;
   version: string;
   commit?: string;

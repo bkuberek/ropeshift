@@ -4,6 +4,7 @@ import { createJoinToken, readOrchestrator, stopOrchestrator } from "../api/admi
 import { inProjectOf, readView, startOrchestrator } from "../api/client";
 import type { Operations, Orchestrator, Project, ResourceReport, SessionResources, ShopFloor, WorkerLine } from "../api/types";
 import type { Live } from "../api/useView";
+import { useHealth } from "../api/useHealth";
 import { useView } from "../api/useView";
 import { addressOf, Link } from "../app/route";
 import { useAct } from "../needs/useAct";
@@ -226,6 +227,8 @@ export function WorkersPage({ live, projects, selected, after, dialog = "" }: { 
       setJoining(true);
     }
   }, [dialog]);
+  // A join token is for a worker on another machine, which only an installation in group mode takes in.
+  const group = useHealth(live, true).view?.mode === "group";
   const floors = useEveryFloor(live, projects);
   const now = useClock();
   const reads = floors.view ?? [];
@@ -242,12 +245,14 @@ export function WorkersPage({ live, projects, selected, after, dialog = "" }: { 
       title="Workers and resources"
       note="Machines that serve this installation, what each reports, and the sessions on each."
       actions={
-        <Button icon="key" onClick={() => setJoining(true)}>
-          Create join token
-        </Button>
+        group ? (
+          <Button icon="key" onClick={() => setJoining(true)}>
+            Create join token
+          </Button>
+        ) : undefined
       }
     >
-      <JoinToken open={joining} onClose={() => setJoining(false)} />
+      <JoinToken open={joining && group} onClose={() => setJoining(false)} />
       <LinkTabs
         label="Usage and resources"
         tabs={[
@@ -268,12 +273,14 @@ export function WorkersPage({ live, projects, selected, after, dialog = "" }: { 
               icon="server"
               title="No worker has connected"
               action={
-                <Button variant="primary" icon="key" onClick={() => setJoining(true)}>
-                  Create join token
-                </Button>
+                group ? (
+                  <Button variant="primary" icon="key" onClick={() => setJoining(true)}>
+                    Create join token
+                  </Button>
+                ) : undefined
               }
             >
-              A worker joins with a join token, from a terminal on its own machine.
+              {group ? "A worker joins with a join token, from a terminal on its own machine." : "The worker that runs with this installation has not reported yet."}
             </EmptyState>
           </div>
         ) : null}

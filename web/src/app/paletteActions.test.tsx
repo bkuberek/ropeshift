@@ -6,7 +6,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
 import { aConversation, serveTalk, talking } from "../talk/serve";
-import { golden, serveViews } from "../testing";
+import { golden, groupHealth, serveViews } from "../testing";
 import { openPage } from "../opening";
 import type { PaletteAction } from "./paletteActions";
 import { paletteActions } from "./paletteActions";
@@ -46,7 +46,7 @@ describe("the command palette", () => {
   // where its surface does, with a session running, or stopped for Resume.
   const grouped = new Map<string, PaletteAction[]>();
   for (const action of wanted) {
-    const visit = `${action.at}${action.title.startsWith("Resume") ? " with the session stopped" : ""}`;
+    const visit = `${action.at}${action.title.startsWith("Resume") ? " with the session stopped" : ""}${action.group ? " in group mode" : ""}`;
     grouped.set(visit, [...(grouped.get(visit) ?? []), action]);
   }
   const visits = [...grouped];
@@ -60,7 +60,15 @@ describe("the command palette", () => {
       }
       serveTalk(state);
     } else {
-      serveViews((call) => (call.path.startsWith("/v1/views/search") ? { status: 200, body: search() } : undefined), { projects });
+      serveViews(
+        (call) => {
+          if (call.path.startsWith("/v1/views/search")) {
+            return { status: 200, body: search() };
+          }
+          return first?.group && call.method === "GET" && call.path === "/v1/health" ? { status: 200, body: groupHealth } : undefined;
+        },
+        { projects },
+      );
     }
     openPage(first?.at ?? "/needs-you");
     await screen.findByRole("heading", { level: 1 });

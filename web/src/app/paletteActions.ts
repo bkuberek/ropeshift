@@ -12,6 +12,8 @@ export type PaletteAction = {
   // elsewhere names the test, beside the source, that opens the palette where the action stands, when that needs a
   // stream or a terminal this table's test does not serve.
   elsewhere?: string;
+  // group says the action stands only in an installation in group mode, so a test serves one.
+  group?: boolean;
 };
 
 const home = "/needs-you";
@@ -31,7 +33,7 @@ export const paletteActions: Record<string, PaletteAction> = {
   "POST /v1/projects/import/upload": { title: "Import a project from a backup", at: home },
   "POST /v1/installation/backup/download": { title: "Back up the installation", at: home },
   "POST /v1/projects/{project}/backup/download": { title: "Back up project: ", at: home },
-  "POST /v1/workers/tokens": { title: "Create join token", at: home },
+  "POST /v1/workers/tokens": { title: "Create join token", at: home, group: true },
   "PUT /v1/workers/{id}/autonomy": autonomy,
   "POST /v1/workers/{id}/autonomy/acknowledgement": autonomy,
   "POST /v1/workers/{id}/windows": autonomy,
