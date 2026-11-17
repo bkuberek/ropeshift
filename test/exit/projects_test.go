@@ -64,8 +64,14 @@ func TestTwoProjectsShareOneNeedsYouOnTheBinary(t *testing.T) {
 // dir under its name, as a person's folder of clones holds it.
 func cloneWithContract(t *testing.T, dir, name, title string) string {
 	t.Helper()
+	return cloneWithProfile(t, dir, name, title, "[lifecycle]\nmax_restarts = 0\n")
+}
+
+// cloneWithProfile is cloneWithContract with the profile a test names.
+func cloneWithProfile(t *testing.T, dir, name, title, profile string) string {
+	t.Helper()
 	origin := gittest.New(t)
-	origin.Commit(".ropeshift/profile.toml", "[lifecycle]\nmax_restarts = 0\n")
+	origin.Commit(".ropeshift/profile.toml", profile)
 	origin.Commit("contract.md", contract.ContractText(name, title, "Change "+name+"."))
 	path := filepath.Join(dir, name)
 	origin.Git("clone", "--quiet", origin.Dir, path)
@@ -164,5 +170,48 @@ func TestOneWorkerRunsLanesInTwoProjects(t *testing.T) {
 	}
 	if code, _, _ := in.run("work", "show", runs["beta"].order, "--project", home); code != cli.ExitNotFound {
 		t.Errorf("the first project sees beta's work: exit %d", code)
+	}
+}
+
+// TestALaneOfASecondProjectParksAndResumes is FR-PARK-1 and ADR-0021 on the real binary: a lane of the
+// installation's second project asks, parks, and wakes on a member's word, and the generation it resumes
+// as is that project's, so its ledger records the generation and the work order reaches acceptance with no
+// claim left behind.
+func TestALaneOfASecondProjectParksAndResumes(t *testing.T) {
+	in := newInstall(t)
+	in.path = doubles.InstallFakeClaude(t, "lane-parks")
+	clones, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	clone := cloneWithProfile(t, clones, "beta", "Beta", parkProfile)
+	d := in.start("--intake-tick", "20ms", "--heartbeat", "30ms", "--lease-tick", "20ms", "--wake-tick", "20ms")
+	t.Cleanup(d.stop)
+	in.waitReady(d)
+	in.waitFor("the worker's session", func() bool { return len(in.workers()) == 1 })
+	in.must("project", "create", "beta")
+	in.must("repository", "add", clone, "--project", "beta")
+	order := in.orderIn("beta").ID
+	in.must("work", "review", order, "--project", "beta")
+	in.must("work", "claim", order, "--worker", in.workers()[0].ID, "--claim-id", "c1", "--project", "beta")
+	in.must("lane", "start", order, "--lane", "lane-1", "--project", "beta")
+	doubles.ReapShims(t, filepath.Join(in.paths().StateDir, "lanes", "lane-1"))
+	in.waitFor("the lane to park", func() bool { return in.stateIn("beta", order) == workorders.Parked })
+
+	in.must("lane", "resume", order, "--project", "beta")
+	in.waitFor("the lane's outcome", func() bool { return in.stateIn("beta", order) == workorders.Acceptance })
+	var view ledger.LaneView
+	if err := json.Unmarshal([]byte(in.must("lane", "show", "lane-1", "--json", "--project", "beta")), &view); err != nil {
+		t.Fatal(err)
+	}
+	if len(view.Generations) != 2 || view.Generations[1].StartReason != ledger.StartResume {
+		t.Errorf("generations %+v", view.Generations)
+	}
+	var row workorders.WorkOrder
+	if err := json.Unmarshal([]byte(in.must("work", "show", order, "--json", "--project", "beta")), &row); err != nil {
+		t.Fatal(err)
+	}
+	if row.ClaimID != "" || row.LeaseWorker != "" {
+		t.Errorf("the work order keeps a claim: %+v", row)
 	}
 }
