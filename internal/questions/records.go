@@ -129,24 +129,27 @@ var (
 // Question is one question of a workspace. It has categories and no assignee, so members
 // find what they can answer (ADR-0007).
 type Question struct {
-	ID               string   `json:"id"`
-	Text             string   `json:"text"`
-	NormalizedHash   string   `json:"normalized_hash"`
-	Categories       []string `json:"categories,omitempty"`
-	Status           Status   `json:"status"`
-	Rung             int64    `json:"rung"`
-	Blocking         bool     `json:"blocking,omitempty"`
-	SubjectKind      string   `json:"subject_kind,omitempty"`
-	SubjectID        string   `json:"subject_id,omitempty"`
-	BatchID          string   `json:"batch_id,omitempty"`
-	AskedBy          string   `json:"asked_by,omitempty"`
-	Options          []string `json:"options,omitempty"`
-	Recommendation   string   `json:"recommendation,omitempty"`
-	EscalationReason string   `json:"escalation_reason,omitempty"`
-	LadderTrace      []Step   `json:"ladder_trace,omitempty"`
-	ClaimedBy        string   `json:"claimed_by,omitempty"`
-	ClaimUntil       int64    `json:"claim_until,omitempty"`
-	DecisionID       string   `json:"decision_id,omitempty"`
+	ID             string   `json:"id"`
+	Text           string   `json:"text"`
+	NormalizedHash string   `json:"normalized_hash"`
+	Categories     []string `json:"categories,omitempty"`
+	Status         Status   `json:"status"`
+	Rung           int64    `json:"rung"`
+	Blocking       bool     `json:"blocking,omitempty"`
+	SubjectKind    string   `json:"subject_kind,omitempty"`
+	SubjectID      string   `json:"subject_id,omitempty"`
+	BatchID        string   `json:"batch_id,omitempty"`
+	AskedBy        string   `json:"asked_by,omitempty"`
+	Options        []string `json:"options,omitempty"`
+	Recommendation string   `json:"recommendation,omitempty"`
+	// RecommendationRationale is why the recommendation is what it is. Accepting the recommendation records it as the
+	// decision's rationale (FR-QD-9).
+	RecommendationRationale string `json:"recommendation_rationale,omitempty"`
+	EscalationReason        string `json:"escalation_reason,omitempty"`
+	LadderTrace             []Step `json:"ladder_trace,omitempty"`
+	ClaimedBy               string `json:"claimed_by,omitempty"`
+	ClaimUntil              int64  `json:"claim_until,omitempty"`
+	DecisionID              string `json:"decision_id,omitempty"`
 }
 
 // Step is one rung a question passed, with what it considered there.

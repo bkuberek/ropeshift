@@ -151,7 +151,7 @@ func escalateAbout(t *testing.T, w *apitest.World, ask questions.Ask) {
 			t.Fatal(err)
 		}
 	}
-	escalation := questions.Escalation{Reason: questions.ReasonScopeChange, Options: []string{"Yes", "No"}, Recommendation: "Yes"}
+	escalation := questions.Escalation{Reason: questions.ReasonScopeChange, Options: []string{"Yes", "No"}, Recommendation: "Yes", RecommendationRationale: "It is the common case."}
 	if _, err := w.Questions.Escalate(t.Context(), apitest.Scope, asked.QuestionID, escalation, holder); err != nil {
 		t.Fatal(err)
 	}

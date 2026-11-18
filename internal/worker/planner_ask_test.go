@@ -142,7 +142,7 @@ func TestAPlannersQuestionIsNoOrchestratorsToWork(t *testing.T) {
 			"citations": []string{"PAY-12"},
 		}},
 		"resolve":  {lanes.ToolDecisionRecord, map[string]any{"question": "planner-q", "decision": "d0"}},
-		"escalate": {lanes.ToolQuestionEscalate, map[string]any{"question": "planner-q", "reason": "scope_change", "options": []string{"a", "b"}, "recommendation": "a"}},
+		"escalate": {lanes.ToolQuestionEscalate, map[string]any{"question": "planner-q", "reason": "scope_change", "options": []string{"a", "b"}, "recommendation": "a", "recommendation_rationale": "a is simpler"}},
 		"attach":   {lanes.ToolQuestionAttach, map[string]any{"question": "planner-q", "into": "q1"}},
 	}
 	for name, call := range calls {

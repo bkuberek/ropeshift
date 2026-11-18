@@ -295,6 +295,8 @@
               "Drop it"
             ],
             "recommendation": "Keep the budget",
+            "recommendation_rationale": "The budget is already approved.",
+            "reversibility": "reversible",
             "text": "Should the budget hold across restarts?"
           },
           {
@@ -311,6 +313,8 @@
               "Drop it"
             ],
             "recommendation": "Keep the budget",
+            "recommendation_rationale": "The budget is already approved.",
+            "reversibility": "reversible",
             "text": "May the <img src=x onerror=alert(1)><script>alert(2)</script> stay?"
           }
         ]

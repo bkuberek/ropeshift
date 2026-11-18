@@ -277,7 +277,7 @@ func roleClimb(c *child) error {
 // roleEscalate counts a retry that finds the question already with a human.
 func roleEscalate(c *child) error {
 	_, err := c.ops.Escalate(c.ctx, c.scope, c.spec.Key, questions.Escalation{
-		Reason: questions.ReasonOneWay, Options: []string{"Keep", "Allow"}, Recommendation: "Keep",
+		Reason: questions.ReasonOneWay, Options: []string{"Keep", "Allow"}, Recommendation: "Keep", RecommendationRationale: "It keeps the data in the region.",
 	}, c.orchestrator())
 	if errors.Is(err, questions.ErrNotHeld) {
 		return nil

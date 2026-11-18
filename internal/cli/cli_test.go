@@ -926,7 +926,7 @@ func (s *session) deliveredBatch(id, category string, record ...string) {
 			s.t.Fatal(err)
 		}
 	}
-	escalation := questions.Escalation{Reason: questions.ReasonScopeChange, Options: []string{"Keep", "Change"}, Recommendation: "Keep"}
+	escalation := questions.Escalation{Reason: questions.ReasonScopeChange, Options: []string{"Keep", "Change"}, Recommendation: "Keep", RecommendationRationale: "Keep follows the current design."}
 	if _, err := use.Escalate(ctx, apitest.Scope, id, escalation, orchestrator); err != nil {
 		s.t.Fatal(err)
 	}

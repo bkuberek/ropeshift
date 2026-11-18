@@ -17,7 +17,7 @@
       }},
       {"mcp": "question_escalate", "refusable": true, "arguments": {"question": "rung-5", "reason": "one_way"}},
       {"mcp": "question_escalate", "arguments": {
-        "question": "rung-5", "reason": "one_way", "options": ["Rotate the key", "Keep the key"], "recommendation": "Rotate it, because it left the machine.",
+        "question": "rung-5", "reason": "one_way", "options": ["Rotate the key", "Keep the key"], "recommendation": "Rotate it", "recommendation_rationale": "The key left the machine.",
         "lookup": ["d-budget"], "open": []
       }},
       {"emit": {"type": "result", "subtype": "success", "is_error": false, "total_cost_usd": 0.02, "usage": {"input_tokens": 3, "output_tokens": 5}}}

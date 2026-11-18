@@ -913,7 +913,7 @@ func checkGateOnLedger(r *Rig) error {
 	if _, err := ops.Take(r.Ctx, r.Scope, asked.QuestionID, TTLMs, holder); err != nil {
 		return err
 	}
-	full := questions.Escalation{Reason: questions.ReasonOneWay, Options: []string{"Keep", "Allow"}, Recommendation: "Keep"}
+	full := questions.Escalation{Reason: questions.ReasonOneWay, Options: []string{"Keep", "Allow"}, Recommendation: "Keep", RecommendationRationale: "It keeps the data in the region."}
 	_, err = ops.Escalate(r.Ctx, r.Scope, asked.QuestionID, full, holder)
 	var gate *questions.GateError
 	if !errors.As(err, &gate) || len(gate.Failures) != 1 || gate.Failures[0].Check != questions.GateTrace {
@@ -1515,12 +1515,16 @@ func (r *Rig) waitingItems(s ports.Store) ([]questions.Item, error) {
 		if err != nil {
 			return err
 		}
+		policy, err := control.DecisionPolicy(tx)
+		if err != nil {
+			return err
+		}
 		for _, batch := range batches {
 			rows, err := tx.Questions().BatchQuestions(batch.ID)
 			if err != nil {
 				return err
 			}
-			items = append(items, questions.Present(batch, rows, "").Items...)
+			items = append(items, questions.Present(batch, rows, "", policy).Items...)
 		}
 		return nil
 	})
@@ -1616,7 +1620,7 @@ func checkDirectRefusesTheLadder(r *Rig) error {
 		}},
 		{"escalate", func() error {
 			_, err := ops.Escalate(r.Ctx, r.Scope, id, questions.Escalation{
-				Reason: questions.ReasonScopeChange, Options: []string{"Keep", "Change"}, Recommendation: "Keep",
+				Reason: questions.ReasonScopeChange, Options: []string{"Keep", "Change"}, Recommendation: "Keep", RecommendationRationale: "Keep follows the current design.",
 			}, holder)
 			return err
 		}},

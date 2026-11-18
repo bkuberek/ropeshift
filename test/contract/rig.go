@@ -100,6 +100,7 @@ const defaultMaxAttempts = 3
 type Ops interface {
 	SignIn(ctx context.Context, scope ledger.WorkspaceID, proof ports.Proof, ttlMs int64) (control.SessionGrant, error)
 	Answer(ctx context.Context, scope ledger.WorkspaceID, id string, answer questions.Answer, actor ledger.Actor) (questions.Decision, error)
+	AnswerBatch(ctx context.Context, scope ledger.WorkspaceID, batch string, answers []questions.BatchAnswer, actor ledger.Actor) ([]questions.Decision, error)
 	DeliverBatches(ctx context.Context, scope ledger.WorkspaceID, actor ledger.Actor) ([]string, error)
 	Create(ctx context.Context, scope ledger.WorkspaceID, draft workorders.WorkOrder, actor ledger.Actor) (workorders.WorkOrder, error)
 	Move(ctx context.Context, scope ledger.WorkspaceID, id string, trigger workorders.Trigger, actor ledger.Actor) error

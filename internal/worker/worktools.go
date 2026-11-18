@@ -257,7 +257,8 @@ func (w *Worker) escalate(ctx context.Context, call ledger.OrchestratorCall, arg
 		return nil, err
 	}
 	body, err := json.Marshal(questions.Escalation{
-		Reason: args.text("reason"), Categories: args.texts("categories"), Options: args.texts("options"), Recommendation: args.text("recommendation"),
+		Reason: args.text("reason"), Categories: args.texts("categories"), Options: args.texts("options"),
+		Recommendation: args.text("recommendation"), RecommendationRationale: args.text("recommendation_rationale"),
 	})
 	if err != nil {
 		return nil, err

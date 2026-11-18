@@ -316,9 +316,19 @@ func TestRungFiveGoesThroughTheGate(t *testing.T) {
 	if got := r.question(t, "q2"); got.Status == questions.StatusNeedsHuman {
 		t.Fatalf("a refusal moved it: %+v", got)
 	}
-	r.done(t, lanes.ToolQuestionEscalate, map[string]any{
+	unexplained := r.tool(t, lanes.ToolQuestionEscalate, map[string]any{
 		"question": "q2", "reason": "one_way", "options": []string{"rotate", "keep"}, "recommendation": "rotate", "lookup": []string{"d0"}, "open": []string{"q0"},
 	})
+	if unexplained.OK || !strings.Contains(unexplained.Message, "why") {
+		t.Fatalf("a recommendation with no rationale: %+v", unexplained)
+	}
+	r.done(t, lanes.ToolQuestionEscalate, map[string]any{
+		"question": "q2", "reason": "one_way", "options": []string{"rotate", "keep"}, "recommendation": "rotate", "recommendation_rationale": "The key left the machine.",
+		"lookup": []string{"d0"}, "open": []string{"q0"},
+	})
+	if got := r.question(t, "q2"); got.RecommendationRationale != "The key left the machine." {
+		t.Errorf("the escalation kept rationale %q", got.RecommendationRationale)
+	}
 	if got := r.question(t, "q2"); got.Status != questions.StatusNeedsHuman {
 		t.Errorf("question %+v", got)
 	}

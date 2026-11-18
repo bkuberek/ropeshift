@@ -337,6 +337,7 @@ func (q *Questions) Escalate(ctx context.Context, scope ledger.WorkspaceID, id s
 			return err
 		}
 		record.EscalationReason, record.Recommendation = escalation.Reason, escalation.Recommendation
+		record.RecommendationRationale = escalation.RecommendationRationale
 		if len(escalation.Options) != 0 {
 			record.Options = escalation.Options
 		}

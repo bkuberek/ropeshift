@@ -173,13 +173,17 @@ func (h *handler) listBatches(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return err
 		}
+		policy, err := control.DecisionPolicy(tx)
+		if err != nil {
+			return err
+		}
 		var waiting []questions.Presented
 		for _, batch := range batches {
 			rows, err := tx.Questions().BatchQuestions(batch.ID)
 			if err != nil {
 				return err
 			}
-			if presented := questions.Present(batch, rows, category); len(presented.Items) != 0 {
+			if presented := questions.Present(batch, rows, category, policy); len(presented.Items) != 0 {
 				waiting = append(waiting, presented)
 			}
 		}

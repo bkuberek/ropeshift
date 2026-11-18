@@ -260,11 +260,13 @@ func orchestratorScript(retries, rateLimit sampleRuling) map[string]any {
 		}},
 		step{"mcp": "question_escalate", "arguments": map[string]any{
 			"project": sampleProject, "question": qSigningKeys, "reason": "one_way", "options": []string{"Keep the old key valid for 24 hours", "Sign everyone out at the rotation"},
-			"recommendation": "Keep the old key valid for 24 hours", "lookup": []string{}, "open": []string{},
+			"recommendation": "Keep the old key valid for 24 hours", "recommendation_rationale": "Clients that have not refreshed keep working until their tokens expire.",
+			"lookup": []string{}, "open": []string{},
 		}},
 		step{"mcp": "question_escalate", "arguments": map[string]any{
 			"project": sampleProject, "question": qPartnerTier, "reason": "scope_change", "options": []string{"One limit for every client", "A higher tier for partners"},
-			"recommendation": "A higher tier for partners", "lookup": []string{}, "open": []string{},
+			"recommendation": "A higher tier for partners", "recommendation_rationale": "Partners send most of the traffic and ask for it.",
+			"lookup": []string{}, "open": []string{},
 		}},
 		result(0.09, 1800),
 	)}}

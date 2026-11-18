@@ -14,7 +14,7 @@ import (
 
 const (
 	questionColumns = `id, text, normalized_hash, categories, status, rung, blocking, subject_kind, subject_id,
-       batch_id, asked_by, options, recommendation, escalation_reason, ladder_trace,
+       batch_id, asked_by, options, recommendation, recommendation_rationale, escalation_reason, ladder_trace,
        claimed_by, claim_until, decision_id`
 	batchColumns    = `b.id, b.status, b.opened_at, b.closes_at, b.delivered_at`
 	decisionColumns = `id, status, statement, rationale, citations, scope, reversibility, categories,
@@ -38,18 +38,18 @@ var (
 	stmtInsertQuestion = define("question.insert",
 		`INSERT INTO questions
   (workspace_id, id, text, normalized_hash, categories, status, rung, blocking, subject_kind, subject_id,
-   batch_id, asked_by, options, recommendation, escalation_reason, ladder_trace,
+   batch_id, asked_by, options, recommendation, recommendation_rationale, escalation_reason, ladder_trace,
    claimed_by, claim_until, decision_id)
 VALUES
   (:workspace_id, :id, :text, :normalized_hash, :categories, :status, :rung, :blocking, :subject_kind, :subject_id,
-   :batch_id, :asked_by, :options, :recommendation, :escalation_reason, :ladder_trace,
+   :batch_id, :asked_by, :options, :recommendation, :recommendation_rationale, :escalation_reason, :ladder_trace,
    :claimed_by, :claim_until, :decision_id)`)
 
 	stmtSaveQuestion = define("question.save",
 		`UPDATE questions
    SET categories = :categories, status = :status, rung = :rung, blocking = :blocking,
        batch_id = :batch_id, options = :options, recommendation = :recommendation,
-       escalation_reason = :escalation_reason, ladder_trace = :ladder_trace,
+       recommendation_rationale = :recommendation_rationale, escalation_reason = :escalation_reason, ladder_trace = :ladder_trace,
        claimed_by = :claimed_by, claim_until = :claim_until, decision_id = :decision_id
  WHERE workspace_id = :workspace_id AND id = :id`)
 
@@ -275,8 +275,8 @@ func questionParams(q questions.Question) (params, error) {
 		"id": q.ID, "text": q.Text, "normalized_hash": q.NormalizedHash, "categories": string(categories),
 		"status": string(q.Status), "rung": q.Rung, "blocking": flag(q.Blocking), "subject_kind": nullText(q.SubjectKind),
 		"subject_id": nullText(q.SubjectID), "batch_id": nullText(q.BatchID), "asked_by": nullText(q.AskedBy),
-		"options": string(options), "recommendation": nullText(q.Recommendation), "escalation_reason": nullText(q.EscalationReason),
-		"ladder_trace": string(trace), "claimed_by": nullText(q.ClaimedBy), "claim_until": nullInt(q.ClaimUntil),
+		"options": string(options), "recommendation": nullText(q.Recommendation), "recommendation_rationale": nullText(q.RecommendationRationale),
+		"escalation_reason": nullText(q.EscalationReason), "ladder_trace": string(trace), "claimed_by": nullText(q.ClaimedBy), "claim_until": nullInt(q.ClaimUntil),
 		"decision_id": nullText(q.DecisionID),
 	}, nil
 }
@@ -310,16 +310,16 @@ func scanQuestion(row scanner) (questions.Question, error) {
 	var q questions.Question
 	var status, categories, options, trace string
 	var blocking int64
-	var subjectKind, subjectID, batch, askedBy, recommendation, reason, claimedBy, decision sql.NullString
+	var subjectKind, subjectID, batch, askedBy, recommendation, rationale, reason, claimedBy, decision sql.NullString
 	var claimUntil sql.NullInt64
 	err := row.Scan(&q.ID, &q.Text, &q.NormalizedHash, &categories, &status, &q.Rung, &blocking, &subjectKind, &subjectID,
-		&batch, &askedBy, &options, &recommendation, &reason, &trace, &claimedBy, &claimUntil, &decision)
+		&batch, &askedBy, &options, &recommendation, &rationale, &reason, &trace, &claimedBy, &claimUntil, &decision)
 	if err != nil {
 		return questions.Question{}, err
 	}
 	q.Status, q.Blocking = questions.Status(status), blocking != 0
 	q.SubjectKind, q.SubjectID, q.BatchID, q.AskedBy = subjectKind.String, subjectID.String, batch.String, askedBy.String
-	q.Recommendation, q.EscalationReason = recommendation.String, reason.String
+	q.Recommendation, q.RecommendationRationale, q.EscalationReason = recommendation.String, rationale.String, reason.String
 	q.ClaimedBy, q.ClaimUntil, q.DecisionID = claimedBy.String, claimUntil.Int64, decision.String
 	for _, field := range []struct {
 		raw  string
