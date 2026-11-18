@@ -346,13 +346,19 @@ func (w *Workers) ReportPracticesCheck(ctx context.Context, report ledger.Practi
 
 // keepResult makes a reported result the repository's latest, and returns the result as it is kept. A result of a
 // request made before the request of the one kept is not kept, and comes back as it was reported.
+//
+// A result of an incremental secret scan holds the secrets of the commits it read and of the tree, and the secrets the
+// result it continued from held carry into it. That holds only when the scan continued from where the last completed
+// scan ended, with the credential rules in force: otherwise the commits between were read by no scan, and the result
+// cannot say its history holds no secret. Its secrets then read unknown, unless it found one, and the scan tip is
+// cleared, so the next check reads the whole history.
 func keepResult(tx ports.WriteTx, request ledger.PracticesRequest, result practices.Result) (practices.Result, error) {
 	previous, err := tx.Practices().Result(request.Repository)
-	switch {
-	case errors.Is(err, ports.ErrNotFound):
-	case err != nil:
+	have := err == nil
+	if err != nil && !errors.Is(err, ports.ErrNotFound) {
 		return result, err
-	default:
+	}
+	if have {
 		kept, err := tx.Practices().Request(previous.Request)
 		if err == nil && (kept.RequestedAt > request.RequestedAt || (kept.RequestedAt == request.RequestedAt && kept.ID > request.ID)) {
 			return result, nil
@@ -360,7 +366,24 @@ func keepResult(tx ports.WriteTx, request ledger.PracticesRequest, result practi
 		if err != nil && !errors.Is(err, ports.ErrNotFound) {
 			return result, err
 		}
-		result = practices.CarryForward(previous.Result, result)
+	}
+	unverified := ""
+	if result.ScannedFrom != "" {
+		scan, err := tx.Practices().Scan(request.Repository)
+		if err != nil {
+			return result, err
+		}
+		switch {
+		case !have || scan.Tip != result.ScannedFrom || previous.Commit != result.ScannedFrom:
+			unverified = fmt.Sprintf("the secret scan continued from commit %s, which is not where the last completed scan ended, so the commits between them were read by no scan", shortCommit(result.ScannedFrom))
+		case scan.RulesVersion != ledger.CredentialRulesVersion || scan.RulesVersion != result.RulesVersion:
+			unverified = "the secret scan continued from a scan that matched with another version of the credential rules than the one in force, so the commits it read were not matched with them"
+		default:
+			result = practices.CarryForward(previous.Result, result)
+		}
+	}
+	if unverified != "" {
+		result = practices.SecretsUnverified(result, unverified)
 	}
 	if err := tx.Practices().SaveResult(ledger.PracticesRecord{
 		Repository: request.Repository, Request: request.ID, Commit: result.Commit, Result: result, CheckedAt: result.CheckedAt.UnixMilli(),
@@ -368,10 +391,18 @@ func keepResult(tx ports.WriteTx, request ledger.PracticesRequest, result practi
 		return result, err
 	}
 	scan := ledger.PracticesScan{Tip: result.Commit, RulesVersion: result.RulesVersion}
-	if secretsUnknown(result) {
+	if unverified != "" || secretsUnknown(result) {
 		scan = ledger.PracticesScan{}
 	}
 	return result, tx.Practices().SaveScan(request.Repository, scan)
+}
+
+// shortCommit is the first 12 characters of a commit ID.
+func shortCommit(commit string) string {
+	if len(commit) > 12 {
+		return commit[:12]
+	}
+	return commit
 }
 
 // secretsUnknown says the result's secret scan could not run, so it holds no completed scan to continue from.

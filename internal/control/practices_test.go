@@ -669,6 +669,95 @@ func TestAFailedPracticesRequestLeavesTheRegistrationAndIsLogged(t *testing.T) {
 	}
 }
 
+const tipThree = "3333333333333333333333333333333333333333"
+
+func secretsStatus(t *testing.T, result practices.Result) practices.PracticeStatus {
+	t.Helper()
+	for _, status := range result.Practices {
+		if status.ID == practices.Secrets {
+			return status
+		}
+	}
+	t.Fatal("the result has no status for secrets")
+	return practices.PracticeStatus{}
+}
+
+// A result of a scan that continued from a commit other than the one the kept result read cannot carry the kept result's
+// secrets, and must not read as met: the history between the two was read by no scan. A late report of an expired
+// request that was kept in between is how it happens. The secrets of the history read unknown, the scan tip is cleared,
+// and the next check reads the whole history.
+func TestAnIncrementalScanThatCannotContinueFromTheKeptResultReadsSecretsUnknown(t *testing.T) {
+	r := newPracticesRig(t, ledger.ProtocolVersion)
+	r.register("repo-a", "widgets", "worker-1")
+	first := r.requested(r.request(ledger.PracticesMember, "repo-a"))
+	r.mustReport(first.ID, ledger.PracticesOutcomeChecked, aResult("repo-a", tipOne, "", "1a2b3c4d5e6f"))
+	// Request A was made after the first, offered a scan from tipOne, and expired with no report.
+	r.inserted(ledger.PracticesRequest{
+		ID: "req-a", Repository: "repo-a", Worker: "worker-1", Cause: ledger.PracticesMember, RequestedBy: "m",
+		RequestedAt: first.RequestedAt + 1, ExpiresAt: first.RequestedAt + 2, State: ledger.PracticesOffered,
+	})
+	// B is offered a scan from tipOne too, while A's report is still to come.
+	b := r.requested(r.request(ledger.PracticesMember, "repo-a"))
+	if offered := r.offered(r.auth); len(offered) != 1 || offered[0].ID != b.ID || offered[0].ScannedFrom != tipOne {
+		t.Fatalf("the check is offered %+v, want B, scanning from %s", offered, tipOne)
+	}
+	// A's late report, from tipOne to tipTwo, is kept, with the secret it continued from.
+	r.mustReport("req-a", ledger.PracticesOutcomeChecked, aResult("repo-a", tipTwo, tipOne))
+	if record, err := r.record("repo-a"); err != nil || record.Commit != tipTwo || len(secretsFindings(record.Result)) != 1 {
+		t.Fatalf("the result is %+v (%v), want A's, with the secret kept", record, err)
+	}
+	// B's report, from tipOne to tipThree, continues from a commit the kept result did not read.
+	r.mustReport(b.ID, ledger.PracticesOutcomeChecked, aResult("repo-a", tipThree, tipOne))
+	record, err := r.record("repo-a")
+	if err != nil || record.Commit != tipThree || record.Request != b.ID {
+		t.Fatalf("the result is %+v (%v), want B's", record, err)
+	}
+	if status := secretsStatus(t, record.Result); status.Status != practices.StatusUnknown || status.Reason == "" {
+		t.Errorf("secrets are %+v, want unknown with a reason: the history between the two scans was read by none", status)
+	}
+	if tip := r.tip("repo-a"); tip != "" {
+		t.Errorf("the scan tip is %q, want it cleared", tip)
+	}
+	next := r.requested(r.request(ledger.PracticesMember, "repo-a"))
+	if offered := r.offered(r.auth); len(offered) != 1 || offered[0].ID != next.ID || offered[0].ScannedFrom != "" {
+		t.Errorf("the next check is offered %+v, want a scan of the whole history", offered)
+	}
+}
+
+// The same holds when the scan the kept result ended with matched with another version of the credential rules than
+// this build's: the secrets are not carried, read unknown, and the next check reads the whole history. A secret the
+// new scan found stays a finding.
+func TestAnIncrementalScanOverAnotherRuleSetReadsSecretsUnknown(t *testing.T) {
+	r := newPracticesRig(t, ledger.ProtocolVersion)
+	r.register("repo-a", "widgets", "worker-1")
+	first := r.requested(r.request(ledger.PracticesMember, "repo-a"))
+	older := aResult("repo-a", tipOne, "", "1a2b3c4d5e6f")
+	older.RulesVersion = ledger.CredentialRulesVersion + 1
+	r.mustReport(first.ID, ledger.PracticesOutcomeChecked, older)
+	second := r.requested(r.request(ledger.PracticesMember, "repo-a"))
+	// A worker whose desired state was read before the first report continues from tipOne all the same.
+	continued := aResult("repo-a", tipTwo, tipOne)
+	continued.RulesVersion = older.RulesVersion
+	r.mustReport(second.ID, ledger.PracticesOutcomeChecked, continued)
+	record, err := r.record("repo-a")
+	if err != nil || record.Commit != tipTwo {
+		t.Fatalf("the result is %+v (%v)", record, err)
+	}
+	if status := secretsStatus(t, record.Result); status.Status != practices.StatusUnknown || status.Reason == "" {
+		t.Errorf("secrets are %+v, want unknown with a reason", status)
+	}
+	if tip := r.tip("repo-a"); tip != "" {
+		t.Errorf("the scan tip is %q, want it cleared", tip)
+	}
+	third := r.requested(r.request(ledger.PracticesMember, "repo-a"))
+	found := aResult("repo-a", tipThree, tipTwo, "ffeeddccbbaa")
+	found.RulesVersion = older.RulesVersion
+	r.mustReport(third.ID, ledger.PracticesOutcomeChecked, found)
+	if record, err := r.record("repo-a"); err != nil || secretsStatus(t, record.Result).Status != practices.StatusFinding || len(secretsFindings(record.Result)) != 1 {
+		t.Errorf("a secret the new scan found reads %+v (%v), want it kept as a finding", record, err)
+	}
+}
+
 func unmarshalResult(t *testing.T, raw []byte) practices.Result {
 	t.Helper()
 	var result practices.Result

@@ -34,3 +34,17 @@ func CarryForward(previous, next Result) Result {
 	sortFindings(next.Findings)
 	return next
 }
+
+// SecretsUnverified says why the secrets of a result's history cannot be read from it: the scan did not read every
+// commit it should have, so a result that found nothing cannot say there is nothing. A `secrets` practice that is met
+// becomes unknown with the reason. One with findings stays a finding, because a secret that was found is no less found,
+// and one that is unknown or not applicable stays as it is. It returns a copy and changes nothing it was given.
+func SecretsUnverified(result Result, reason string) Result {
+	at := slices.IndexFunc(result.Practices, func(p PracticeStatus) bool { return p.ID == Secrets })
+	if at < 0 || result.Practices[at].Status != StatusMet {
+		return result
+	}
+	result.Practices = slices.Clone(result.Practices)
+	result.Practices[at] = PracticeStatus{ID: Secrets, Status: StatusUnknown, Reason: reason}
+	return result
+}

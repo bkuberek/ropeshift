@@ -108,3 +108,24 @@ func TestCarryForwardCarriesOnlySecretsOfTheResultTheScanContinuedFrom(t *testin
 		t.Errorf("secrets are %+v, want unknown with its reason", got)
 	}
 }
+
+// A result whose scan did not read every commit cannot say its history holds no secret: a met practice reads unknown
+// with the reason, a finding stays a finding, and nothing else changes.
+func TestSecretsUnverifiedReadsAMetPracticeUnknownAndKeepsAFinding(t *testing.T) {
+	met := checked(secondCommit, firstCommit, "")
+	got := practices.SecretsUnverified(met, "the commits between were read by no scan")
+	if status := secretsOf(t, got); status.Status != practices.StatusUnknown || status.Reason != "the commits between were read by no scan" {
+		t.Errorf("secrets are %+v, want unknown with the reason", status)
+	}
+	if status := secretsOf(t, met); status.Status != practices.StatusMet {
+		t.Errorf("the result it was given reads %+v", status)
+	}
+	found := checked(secondCommit, firstCommit, "", leaked)
+	if status := secretsOf(t, practices.SecretsUnverified(found, "why")); status.Status != practices.StatusFinding || status.Reason != "" {
+		t.Errorf("a finding reads %+v, want it kept", status)
+	}
+	unknown := checked(secondCommit, firstCommit, "the scan failed")
+	if status := secretsOf(t, practices.SecretsUnverified(unknown, "why")); status.Status != practices.StatusUnknown || status.Reason != "the scan failed" {
+		t.Errorf("an unknown practice reads %+v, want it as it was", status)
+	}
+}
