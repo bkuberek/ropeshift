@@ -216,6 +216,8 @@ type SpendState struct {
 	Installation        authority.InstallationSpendPolicy
 	InstallationVersion authority.PolicyVersion
 	WorkOrders          []ledger.WorkOrderSpend
+	// ProjectSpend is what the project's lanes were charged today and this week, against its limits.
+	ProjectSpend ledger.ProjectSpend
 }
 
 // State reads the spend state of a project (FR-SPEND-18).
@@ -243,6 +245,9 @@ func (s *Spend) State(ctx context.Context, scope ledger.WorkspaceID) (SpendState
 			return err
 		}
 		reads := spendReadsOf(tx)
+		if out.ProjectSpend, err = reads.projectSpendUnder(out.Project, true); err != nil {
+			return err
+		}
 		for _, order := range orders {
 			if workorders.Terminal(order.State) {
 				continue

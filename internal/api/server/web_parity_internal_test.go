@@ -33,8 +33,9 @@ var opExempt = map[string]string{
 var opGaps = map[string]string{
 	// A spend stop in Needs you offers Raise and Resume once, and the work order page shows the limit; SP4 builds them
 	// (ADR-0037).
-	authority.OpSpendRaise:  "SP4",
-	authority.OpSpendResume: "SP4",
+	authority.OpSpendRaise:        "SP4",
+	authority.OpSpendRaiseProject: "SP4",
+	authority.OpSpendResume:       "SP4",
 }
 
 var (

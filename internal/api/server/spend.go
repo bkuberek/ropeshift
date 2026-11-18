@@ -20,6 +20,65 @@ func (h *handler) spendRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/work-orders/{id}/spend", h.readWorkOrderSpend)
 	mux.HandleFunc("POST /v1/work-orders/{id}/spend/raise", h.member(h.raiseSpend))
 	mux.HandleFunc("POST /v1/work-orders/{id}/spend/resume", h.member(h.resumeSpend))
+	mux.HandleFunc("POST /v1/spend/project/raise", h.member(h.raiseProjectSpend))
+}
+
+// raiseProjectSpend lifts the project's daily or weekly limit for the window it is made in, by a percentage or to an
+// amount, and answers the limit before and after (FR-SPEND-6, FR-SPEND-8). It is a member's act, held by the use case.
+func (h *handler) raiseProjectSpend(w http.ResponseWriter, r *http.Request, actor ledger.Actor) {
+	var in api.RaiseProjectSpend
+	if !decode(w, r, &in) {
+		return
+	}
+	change, err := h.spend.RaiseProject(r.Context(), h.Scope, control.ProjectRaise{Window: in.Window, ByPercent: in.ByPercent, ToUSD: in.ToUSD}, actor)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	reply(w, http.StatusOK, change)
+}
+
+// spendRaiseProjectAsAnAmount names a delegate's raise by a percentage as the amount it comes to now, for the reason a work
+// order's raise does: a card is confirmed later, and a percentage read then would be of whatever limit is in force by then.
+func spendRaiseProjectAsAnAmount(h *handler, r *http.Request, body []byte) ([]byte, error) {
+	var in api.RaiseProjectSpend
+	if err := json.Unmarshal(body, &in); err != nil || in.ByPercent <= 0 || in.ToUSD != 0 || !ledger.ValidWindow(in.Window) {
+		return body, nil
+	}
+	spend, err := h.spend.ProjectSpend(r.Context(), h.Scope)
+	if err != nil {
+		return nil, err
+	}
+	limit := spend.Day.HardLimit
+	if in.Window == ledger.WindowWeek {
+		limit = spend.Week.HardLimit
+	}
+	if limit <= 0 {
+		return body, nil
+	}
+	to := math.Round(control.SpendRaise{ByPercent: in.ByPercent}.LimitFrom(limit)*100) / 100
+	return json.Marshal(api.RaiseProjectSpend{Window: in.Window, ToUSD: to})
+}
+
+// spendRaiseProjectChanges is what a card for a delegate's raise of a project's limit shows a member: the limit in force and
+// the one the raise asks for.
+func spendRaiseProjectChanges(h *handler, r *http.Request, body []byte) (any, error) {
+	var in api.RaiseProjectSpend
+	if err := json.Unmarshal(body, &in); err != nil {
+		return nil, fmt.Errorf("%w: %v", authority.ErrInvalid, err)
+	}
+	if !ledger.ValidWindow(in.Window) {
+		return nil, fmt.Errorf("%w: a raise names the day or the week", authority.ErrInvalid)
+	}
+	spend, err := h.spend.ProjectSpend(r.Context(), h.Scope)
+	if err != nil {
+		return nil, err
+	}
+	field, limit := "daily_limit_usd", spend.Day.HardLimit
+	if in.Window == ledger.WindowWeek {
+		field, limit = "weekly_limit_usd", spend.Week.HardLimit
+	}
+	return []authority.FieldChange{{Field: field, From: limit, To: control.SpendRaise{ByPercent: in.ByPercent, ToUSD: in.ToUSD}.LimitFrom(limit)}}, nil
 }
 
 // raiseSpend lifts a work order's hard limit, by a percentage or to an amount, and answers the limit before and after
@@ -119,6 +178,7 @@ func (h *handler) readSpend(w http.ResponseWriter, r *http.Request) {
 		Project:      policyView(state.ProjectVersion, spendKeys(state.Project, authority.SpendPolicyKeys)),
 		Installation: policyView(state.InstallationVersion, spendKeys(state.Installation, authority.InstallationSpendPolicyKeys)),
 		WorkOrders:   state.WorkOrders,
+		ProjectSpend: state.ProjectSpend,
 	}
 	if out.WorkOrders == nil {
 		out.WorkOrders = []ledger.WorkOrderSpend{}

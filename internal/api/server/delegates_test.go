@@ -294,6 +294,8 @@ func TestEveryRouteTakesItsClassForADelegate(t *testing.T) {
 		"POST /v1/questions": api.RecordQuestion{ID: "q-1", Text: "How many retries?"},
 		// An overturn names the decision it makes by its ID, which the route checks before it makes a card.
 		"POST /v1/decisions/{id}/overturn": api.OverturnDecision{ID: "d-2", Statement: "Retry three times."},
+		// A raise of the project's limit names the window it lifts before a card can say what it would change.
+		"POST /v1/spend/project/raise": api.RaiseProjectSpend{Window: ledger.WindowDay, ToUSD: 20},
 	}
 	checked := 0
 	for pattern, route := range server.RouteOperations() {
