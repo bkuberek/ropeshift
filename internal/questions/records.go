@@ -215,15 +215,30 @@ func CheckCategories(names, added []string) error {
 	return nil
 }
 
-// checkRecommendation trims a draft's recommendation and its rationale, and refuses a rationale with no
-// recommendation, and a recommendation that is not one of the options the draft names.
+// offers reports whether a choice is one of the options, with the spacing around each ignored.
+func offers(options []string, choice string) bool {
+	choice = strings.TrimSpace(choice)
+	return slices.ContainsFunc(options, func(option string) bool { return strings.TrimSpace(option) == choice })
+}
+
+// checkRecommendation trims a draft's options, its recommendation, and its rationale, drops an empty option, and
+// refuses a rationale with no recommendation, and a recommendation that is not one of the options the draft names.
 func checkRecommendation(draft *Question) error {
+	if draft.Options != nil {
+		var options []string
+		for _, option := range draft.Options {
+			if option = strings.TrimSpace(option); option != "" {
+				options = append(options, option)
+			}
+		}
+		draft.Options = options
+	}
 	draft.Recommendation = strings.TrimSpace(draft.Recommendation)
 	draft.RecommendationRationale = strings.TrimSpace(draft.RecommendationRationale)
 	switch {
 	case draft.Recommendation == "" && draft.RecommendationRationale != "":
 		return fmt.Errorf("%w: a rationale needs the recommendation it explains", ErrInvalid)
-	case draft.Recommendation != "" && len(draft.Options) != 0 && !slices.Contains(draft.Options, draft.Recommendation):
+	case draft.Recommendation != "" && len(draft.Options) != 0 && !offers(draft.Options, draft.Recommendation):
 		return fmt.Errorf("%w: the recommendation %q is not one of the options", ErrInvalid, draft.Recommendation)
 	}
 	return nil

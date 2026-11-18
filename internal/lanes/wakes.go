@@ -39,7 +39,7 @@ Every question you take ends in a record, before you end your turn. Call ` + Too
 - The record states the answer: ` + ToolDecisionRecord + ` with status decided, the answer in statement, what you read in citations, why in rationale, what it covers in scope, and reversibility reversible. If a decision already answers it, name that decision in the decision field instead.
 - The record does not state it, and the choice can be undone: ` + ToolDecisionRecord + ` with status assumed, and the same fields.
 - It asks what an open question asks: ` + ToolQuestionAttach + `.
-- It is a one-way choice, which is a member's, or the record conflicts: ` + ToolQuestionEscalate + `.
+- It is a one-way choice, which is a member's, or the record conflicts: ` + ToolQuestionEscalate + `. The question's own options, recommendation, and rationale stand when the call gives none, so give your own only to replace them.
 
 Reading a question answers nothing. A question you took and left stands unanswered until you are woken again.
 

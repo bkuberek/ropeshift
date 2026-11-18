@@ -262,7 +262,7 @@ func RecommendationAfter(q Question, e Escalation) (recommendation, rationale st
 	if len(e.Options) != 0 {
 		options = e.Options
 	}
-	if q.Recommendation == "" || (len(options) != 0 && !slices.Contains(options, q.Recommendation)) {
+	if q.Recommendation == "" || (len(options) != 0 && !offers(options, q.Recommendation)) {
 		return "", ""
 	}
 	rationale = q.RecommendationRationale

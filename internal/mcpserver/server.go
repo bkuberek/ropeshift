@@ -472,7 +472,9 @@ var decisionRecordTool = objectTool(lanes.ToolDecisionRecord, "Answer a question
 	}, "question")
 
 var questionEscalateTool = objectTool(lanes.ToolQuestionEscalate, "Take a question to a member, through a gate that refuses one with no record of rungs 1 and 2, "+
-	"no reason, no category, fewer than two options, no recommendation, or a recommendation with no rationale. A refusal names what is missing.",
+	"no reason, no category, fewer than two options, no recommendation, or a recommendation with no rationale. The gate checks the question as it "+
+	"will reach the member: the options, the recommendation, and the rationale the lane gave it stand when this call gives none, and a recommendation "+
+	"given here replaces the lane's. A refusal names what is missing.",
 	map[string]any{
 		"question":   questionField,
 		"reason":     map[string]any{"type": "string", "enum": []string{questions.ReasonOneWay, questions.ReasonRequirementConflict, questions.ReasonScopeChange}},
@@ -480,7 +482,7 @@ var questionEscalateTool = objectTool(lanes.ToolQuestionEscalate, "Take a questi
 		"recommendation":           textField("The option you would choose."),
 		"recommendation_rationale": textField("Why that option is the one to choose. A member who accepts the recommendation records this as the reason."),
 		"lookup":                   considered, "open": matched,
-	}, "question", "reason", "options", "recommendation", "recommendation_rationale")
+	}, "question", "reason")
 
 func searchTool(name, description string) map[string]any {
 	return map[string]any{
