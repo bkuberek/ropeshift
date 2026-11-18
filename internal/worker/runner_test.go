@@ -105,6 +105,8 @@ func newLaneRigWith(t *testing.T, base *rig, setup func(*fake.AgentDriver)) *lan
 		StateDir: dir, RunDir: dir, PaneInputs: &worker.PaneInputs{},
 	}
 	r := &laneRig{rig: base, driver: driver, config: config, dir: dir, telemetry: fake.NewTelemetry()}
+	// It runs after the cleanups of the test, and before the one that closes the journal a step writes.
+	t.Cleanup(func() { endSessions(t, driver) })
 	var journal ports.Journal = base.journal
 	if base.workerJournal != nil {
 		journal = base.workerJournal

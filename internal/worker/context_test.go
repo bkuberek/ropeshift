@@ -1,6 +1,7 @@
 package worker_test
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"runtime"
@@ -96,6 +97,22 @@ func (r *laneRig) waitForTheLane(t *testing.T) {
 		stacks := make([]byte, 1<<20)
 		stacks = stacks[:runtime.Stack(stacks, true)]
 		t.Errorf("the lane never ended; goroutines:\n%s", stacks)
+	}
+}
+
+// endSessions ends every session of a driver and waits for the steps they run. A session plays its script on a
+// goroutine of its own, which a test's last statement does not wait for, so a step that writes the journal can run
+// after the journal is closed unless a cleanup that runs before the close waits for it. A step that never returns
+// fails the test with every goroutine's stack, as a lane that never ends does.
+func endSessions(t *testing.T, driver *fake.AgentDriver) {
+	t.Helper()
+	driver.StopEverySession()
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	if err := driver.WaitForSessions(ctx); err != nil {
+		stacks := make([]byte, 1<<20)
+		stacks = stacks[:runtime.Stack(stacks, true)]
+		t.Errorf("%v; goroutines:\n%s", err, stacks)
 	}
 }
 
@@ -430,6 +447,7 @@ func (r *laneRig) takeOver(t *testing.T, plays fake.DriverScript) *fake.AgentDri
 	t.Cleanup(func() {
 		driver.StopEverySession()
 		r.subject.Wait()
+		endSessions(t, driver)
 	})
 	if err := r.subject.Start(t.Context()); err != nil {
 		t.Fatal(err)

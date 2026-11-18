@@ -353,6 +353,7 @@ func TestAWorkerThatDiesWhileAStopParksLeavesOneWake(t *testing.T) {
 			t.Parallel()
 			r := &handoffRig{laneRig: laneRigWith(t, "run_mode = \"headless\"\n"+handoffProfile), release: make(chan struct{}), reached: make(chan struct{})}
 			t.Cleanup(func() {
+				close(r.release)
 				r.driver.StopEverySession()
 				r.subject.Wait()
 			})
