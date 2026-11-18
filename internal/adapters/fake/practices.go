@@ -18,6 +18,8 @@ type Practices struct {
 	factsErrs map[string]error
 	// Fail is what every read returns while it is set.
 	Fail error
+	// SnapshotCalls lists the arguments of each snapshot read: the directory and the commit it was asked for.
+	SnapshotCalls [][2]string
 	// ScanCalls lists the arguments of each scan: the directory, the tip, and the commit it started from.
 	ScanCalls [][3]string
 	// SettingsCalls lists the arguments of each settings read: the repository's binding and the branch.
@@ -76,6 +78,7 @@ func (p *Practices) SetSettingsError(binding string, err error) {
 func (p *Practices) Snapshot(_ context.Context, dir, commit string) (practices.Snapshot, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	p.SnapshotCalls = append(p.SnapshotCalls, [2]string{dir, commit})
 	if p.Fail != nil {
 		return practices.Snapshot{}, p.Fail
 	}

@@ -9,7 +9,12 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
+	"ropeshift.com/ropeshift/internal/adapters/fake"
+	"ropeshift.com/ropeshift/internal/adapters/practicegit"
+	"ropeshift.com/ropeshift/internal/practicerun"
+	"ropeshift.com/ropeshift/internal/practices"
 	"ropeshift.com/ropeshift/internal/projectfiles"
 	"ropeshift.com/ropeshift/templates"
 	"ropeshift.com/ropeshift/test/gittest"
@@ -58,8 +63,8 @@ func isIgnored(t *testing.T, repo *gittest.Repo, path string) bool {
 // Each shape's files, committed to a repository, hold the practices that FR-PRAC-3 reads from files: the
 // repository's own .gitignore ignores a lane environment's files and keeps .env.example, none is tracked, and
 // a SECURITY.md, a CODEOWNERS file, and, for a repository that holds code, a pre-commit configuration are in
-// the root. Once the practices check exists, this test runs it on the commit with no forge binding and
-// expects no finding (FR-PRAC-7).
+// the root. The practices check run on the commit with no forge binding and the default merge authority gives
+// every practice met or not applicable and no finding (FR-PRAC-7).
 func TestEachShapesFilesCommitWithTheirPractices(t *testing.T) {
 	for _, shape := range projectfiles.Shapes() {
 		for _, set := range datasets[1:] {
@@ -101,8 +106,36 @@ func TestEachShapesFilesCommitWithTheirPractices(t *testing.T) {
 						t.Errorf("%s is not in the commit", path)
 					}
 				}
+				requireNoFinding(t, repo, set.data.Project)
 			})
 		}
+	}
+}
+
+// requireNoFinding runs the practices check on the repository's committed base branch, with real adapters, no
+// forge binding, and the default merge authority, and fails for any practice that is not met or not applicable.
+func requireNoFinding(t *testing.T, repo *gittest.Repo, name string) {
+	t.Helper()
+	var forge fake.Practices
+	result, err := practicerun.Run(t.Context(), practicerun.Sources{
+		Snapshots: practicegit.Snapshots{Env: repo.Env()},
+		Secrets:   practicegit.SecretScanner{Env: repo.Env()},
+		Forge:     &forge,
+		Clock:     fake.NewClock(time.Date(2026, 11, 18, 9, 30, 0, 0, time.UTC)),
+	}, practicerun.Request{Repository: name, Dir: repo.Dir, BaseBranch: "main"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range result.Findings {
+		t.Errorf("finding %s: %s", f.ID, f.Detail)
+	}
+	for _, p := range result.Practices {
+		if p.Status != practices.StatusMet && p.Status != practices.StatusNotApplicable {
+			t.Errorf("practice %s is %s %q", p.ID, p.Status, p.Reason)
+		}
+	}
+	if len(result.Practices) != len(practices.Table()) {
+		t.Errorf("the result holds %d practices, want %d", len(result.Practices), len(practices.Table()))
 	}
 }
 
