@@ -210,6 +210,8 @@ type evaluator struct {
 	paths    map[string]bool
 	scoped   []string
 	projects []project
+	// truncated says the secret findings were cut at MaxSecretFindings.
+	truncated bool
 }
 
 func (e *evaluator) read(path string) (string, bool) {
@@ -270,6 +272,7 @@ func Evaluate(in Input) Result {
 		result.Findings = append(result.Findings, o.findings...)
 	}
 	sortFindings(result.Findings)
+	result.Truncated = e.truncated
 	return result
 }
 
@@ -340,6 +343,9 @@ func (e *evaluator) secrets() outcome {
 		seen[f.ID] = true
 		f.Rule, f.Path, f.Line, f.Commit, f.Digest = m.Rule, m.Path, m.Line, m.Commit, m.Digest
 		findings = append(findings, f)
+	}
+	if len(findings) > MaxSecretFindings {
+		findings, e.truncated = findings[:MaxSecretFindings], true
 	}
 	switch {
 	case len(findings) > 0:

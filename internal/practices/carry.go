@@ -15,6 +15,8 @@ func CarryForward(previous, next Result) Result {
 	if at < 0 || (next.Practices[at].Status != StatusMet && next.Practices[at].Status != StatusFinding) {
 		return next
 	}
+	// A result that left findings out leaves them out of every result that continues from it.
+	next.Truncated = next.Truncated || previous.Truncated
 	known := map[string]bool{}
 	for _, f := range next.Findings {
 		known[f.ID] = true
@@ -32,6 +34,10 @@ func CarryForward(previous, next Result) Result {
 	next.Practices[at] = PracticeStatus{ID: Secrets, Status: StatusFinding}
 	next.Findings = append(slices.Clone(next.Findings), carried...)
 	sortFindings(next.Findings)
+	var cut bool
+	if next.Findings, cut = capSecrets(next.Findings); cut {
+		next.Truncated = true
+	}
 	return next
 }
 
