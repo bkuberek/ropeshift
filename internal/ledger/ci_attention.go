@@ -8,10 +8,16 @@ const (
 	EventCIRerunRequested = "ci.rerun_requested"
 	// EventCIFindingRaised records a classification of a finished head that no agent can act on.
 	EventCIFindingRaised = "ci.finding_raised"
+	// EventCIRerunDone records what the forge did with a rerun a worker made: the runs it started again, or why it
+	// refused.
+	EventCIRerunDone = "ci.rerun_done"
+	// EventCILogRead records that a worker read the logs of a head's failing checks. It holds no log.
+	EventCILogRead = "ci.log_read"
 )
 
-// CIWaitRecord is what members did about one head's wait. Reruns counts every rerun of the head, so the automatic
-// reruns up to `ci_auto_rerun` and a member's own are held to one count, and each is also an event.
+// CIWaitRecord is what members did about one head's wait. Reruns counts every rerun of the head, and AutoReruns the
+// automatic ones among them, which `ci_auto_rerun` bounds. A member's own reruns are never held to that bound, so the
+// automatic cap reads AutoReruns and nothing else. Each rerun is also an event.
 type CIWaitRecord struct {
 	WorkOrder string `json:"work_order"`
 	Head      string `json:"head"`

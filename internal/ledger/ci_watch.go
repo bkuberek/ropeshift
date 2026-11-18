@@ -25,10 +25,12 @@ var CIItemKinds = []string{CIItemNotFinished, CIItemQueueStalled, CIItemInfrastr
 
 // CIWaiting is what members did about one head's wait: the time Wait longer added to its timeout, and the reruns
 // asked for, which is every rerun of the head, a member's and the automatic ones, with when the last was asked for.
-// A rerun starts the head's CI clock again from then.
+// A rerun starts the head's CI clock again from then. AutoReruns counts the automatic reruns among them, and only
+// those are bound by `ci_auto_rerun` (ADR-0037 allows that many plus each member's explicit rerun).
 type CIWaiting struct {
 	ExtendedMs int64 `json:"extended_ms,omitempty"`
 	Reruns     int64 `json:"reruns,omitempty"`
+	AutoReruns int64 `json:"auto_reruns,omitempty"`
 	RerunAt    int64 `json:"rerun_at,omitempty"`
 }
 
