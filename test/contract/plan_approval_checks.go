@@ -46,6 +46,8 @@ var PlanApprovalChecks = []Check{
 	{"PA19", "a decision another writer recorded under a draft's derived ID is a clash even when it says what the draft says", checkApprovalRefusesAPlantedSameDecision},
 	{"PA20", "a decision in force under an earlier version's derived ID carries forward only when a member recorded it citing that version, and another writer's is a clash until a member overturns it", checkOnlyApprovalsOwnDecisionCarriesForward},
 	{"PA21", "a decision whose content names the member but whose recording event is a delegate's is another writer's, so approval refuses it", checkApprovalRefusesADelegateRecordedMemberDecision},
+	{"PA22", "a draft whose earlier decision a decision outside the plan replaced or overturned is not decided again while its text is unchanged, and the approval lists it as replaced", checkReplacedDraftIsNotDecidedAgain},
+	{"PA23", "a draft whose text changed after its earlier decision was replaced or overturned is decided under the new version's ID, superseding the decision in force", checkChangedDraftSupersedesTheDecisionInForce},
 }
 
 const approvalPlan = "retry"
@@ -1250,9 +1252,161 @@ func checkOnlyApprovalsOwnDecisionCarriesForward(r *Rig) error {
 	if kept, err := r.decisionOf(s, own.ID); err != nil || kept.Status != questions.DecisionDecided {
 		return Violatedf("the member's decision of version 1 is %+v: %v", kept, err)
 	}
-	decided, err := r.decisionOf(s, derivedDecisionID(plan, 2, "d2"))
-	if err != nil || decided.DecidedBy != theMember.ID || decided.Statement != planted.Statement || decided.Supersedes != "" {
-		return Violatedf("version 2 decided draft d2 as %+v: %v", decided, err)
+	return r.CheckProjection(s)
+}
+
+// plantedReplacements is what approving version 1 of a plan with two drafts, then ending the decision of each
+// outside the plan, leaves: a member's decisions replaced the first, and a member's overturn took the second's
+// place. draftOne and draftTwo are the decisions version 1 derived for the drafts, and replacing and overturning
+// the decisions in force for them now.
+type plantedReplacements struct {
+	plan                   string
+	replacing, overturning questions.Decision
+	draftOne, draftTwo     string
+}
+
+func (r *Rig) approveThenReplaceDrafts(s ports.Store, files approvalSource) (plantedReplacements, error) {
+	var out plantedReplacements
+	files.source.Write("plan.md", []byte(twoDrafts))
+	if _, err := r.intake(s, files.source); err != nil {
+		return out, err
+	}
+	var err error
+	if out.plan, err = r.planID(s, "Retry budget"); err != nil {
+		return out, err
+	}
+	first, err := r.theOpenPlanApproval(s)
+	if err != nil {
+		return out, err
+	}
+	if _, err := r.approve(s, first, true, theMember); err != nil {
+		return out, err
+	}
+	out.draftOne, out.draftTwo = derivedDecisionID(out.plan, 1, "d1"), derivedDecisionID(out.plan, 1, "d2")
+	// The first draft's decision is replaced twice, so the decision in force is two decisions away from it.
+	replace := func(provider, replaces string) (questions.Decision, error) {
+		return r.NewOps(s).RecordDecision(r.Ctx, r.Scope, questions.Decision{
+			ID: r.ID("d"), Status: questions.DecisionDecided, Statement: "Q: Which provider first? A: " + provider, Rationale: "The finance lead chose it.",
+			Citations: []string{"PAY-12"}, Scope: "plan:" + out.plan, Reversibility: questions.Reversible, Categories: []string{questions.CategoryProduct},
+			Supersedes: replaces,
+		}, r.member())
+	}
+	middle, err := replace("Adyen", out.draftOne)
+	if err != nil {
+		return out, err
+	}
+	if out.replacing, err = replace("Paddle", middle.ID); err != nil {
+		return out, err
+	}
+	overturned, err := r.overturn(s, out.draftTwo)
+	out.overturning = overturned.New
+	return out, err
+}
+
+// draftsOfVersion reads the draft decisions a version of a plan holds.
+func (r *Rig) draftsOfVersion(s ports.Store, plan string, version int64) ([]planning.DraftDecision, error) {
+	versions, err := r.planVersionsOf(s, plan)
+	if err != nil {
+		return nil, err
+	}
+	for _, one := range versions {
+		if one.Version == version {
+			return one.Decisions, nil
+		}
+	}
+	return nil, Violatedf("the ledger holds no version %d of plan %s", version, plan)
+}
+
+func (r *Rig) replacedDraftsOf(s ports.Store, plan string, version int64) ([]questions.ReplacedDraft, error) {
+	drafts, err := r.draftsOfVersion(s, plan, version)
+	if err != nil {
+		return nil, err
+	}
+	var listed []questions.ReplacedDraft
+	err = s.Read(r.Ctx, r.Scope, func(tx ports.ReadTx) error {
+		var err error
+		listed, err = control.ReplacedDrafts(tx.Questions(), plan, version, drafts)
+		return err
+	})
+	return listed, err
+}
+
+func checkReplacedDraftIsNotDecidedAgain(r *Rig) error {
+	s := r.Store()
+	files := newApprovalSource()
+	before, err := r.approveThenReplaceDrafts(s, files)
+	if err != nil {
+		return err
+	}
+	// Version 2 changes the spec and neither draft.
+	files.source.Write("spec.md", []byte(DocumentText("spec", "api", "The API", approvalPlan, "The second draft.")))
+	if _, err := r.intake(s, files.source); err != nil {
+		return err
+	}
+	pending, err := r.theOpenPlanApproval(s)
+	if err != nil || pending.PlanVersion != 2 {
+		return Violatedf("the open request is %+v: %v", pending, err)
+	}
+	listed, err := r.replacedDraftsOf(s, before.plan, 2)
+	if err != nil {
+		return err
+	}
+	want := []questions.ReplacedDraft{
+		{Draft: "d1", Decision: before.draftOne, Status: questions.DecisionReplaced, InForce: before.replacing.ID, Statement: before.replacing.Statement},
+		{Draft: "d2", Decision: before.draftTwo, Status: questions.DecisionOverturned, InForce: before.overturning.ID, Statement: before.overturning.Statement},
+	}
+	if !slices.Equal(listed, want) {
+		return Violatedf("the approval of version 2 lists %+v as replaced, want %+v", listed, want)
+	}
+	if _, err := r.approve(s, pending, true, theMember); err != nil {
+		return err
+	}
+	for _, draft := range []string{"d1", "d2"} {
+		if again, err := r.decisionOf(s, derivedDecisionID(before.plan, 2, draft)); !errors.Is(err, ports.ErrNotFound) {
+			return Violatedf("version 2 decided the replaced draft %s again as %+v: %v", draft, again, err)
+		}
+	}
+	for _, standing := range []string{before.replacing.ID, before.overturning.ID} {
+		if held, err := r.decisionOf(s, standing); err != nil || !held.Status.InForce() {
+			return Violatedf("decision %s, which a member recorded in place of a draft, is %s after version 2 was approved: %v", standing, held.Status, err)
+		}
+	}
+	return r.CheckProjection(s)
+}
+
+func checkChangedDraftSupersedesTheDecisionInForce(r *Rig) error {
+	s := r.Store()
+	files := newApprovalSource()
+	before, err := r.approveThenReplaceDrafts(s, files)
+	if err != nil {
+		return err
+	}
+	changed := strings.Replace(strings.Replace(twoDrafts, `answer = "Stripe"`, `answer = "Adyen"`, 1), `answer = "Three"`, `answer = "Five"`, 1)
+	files.source.Write("plan.md", []byte(changed))
+	if _, err := r.intake(s, files.source); err != nil {
+		return err
+	}
+	pending, err := r.theOpenPlanApproval(s)
+	if err != nil || pending.PlanVersion != 2 {
+		return Violatedf("the open request is %+v: %v", pending, err)
+	}
+	if listed, err := r.replacedDraftsOf(s, before.plan, 2); err != nil || len(listed) != 0 {
+		return Violatedf("the approval of version 2 lists %+v as replaced though both drafts changed: %v", listed, err)
+	}
+	if _, err := r.approve(s, pending, true, theMember); err != nil {
+		return err
+	}
+	for draft, ended := range map[string]questions.Decision{"d1": before.replacing, "d2": before.overturning} {
+		decided, err := r.decisionOf(s, derivedDecisionID(before.plan, 2, draft))
+		if err != nil {
+			return Violatedf("version 2 did not decide the changed draft %s: %v", draft, err)
+		}
+		if decided.Supersedes != ended.ID || decided.DecidedBy != theMember.ID || !decided.Status.InForce() {
+			return Violatedf("version 2 decided draft %s as %+v, want a decision of the member that supersedes %s", draft, decided, ended.ID)
+		}
+		if replaced, err := r.decisionOf(s, ended.ID); err != nil || replaced.Status != questions.DecisionReplaced {
+			return Violatedf("the decision in force for draft %s is %s after version 2 superseded it: %v", draft, replaced.Status, err)
+		}
 	}
 	return r.CheckProjection(s)
 }

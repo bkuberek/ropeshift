@@ -147,8 +147,12 @@ type PlanApprovalNeed struct {
 	Counts      map[string]int           `json:"counts"`
 	Decisions   int                      `json:"decisions"`
 	Drafts      []planning.DraftDecision `json:"drafts"`
-	Difference  planning.Difference      `json:"difference"`
-	Summary     string                   `json:"summary"`
+	// Replaced lists the drafts approval will not decide again, because a decision outside the plan replaced or
+	// overturned what an earlier version decided for them and their text has not changed. Each names the decision in
+	// force. It is absent when there are none.
+	Replaced   []questions.ReplacedDraft `json:"replaced,omitempty"`
+	Difference planning.Difference       `json:"difference"`
+	Summary    string                    `json:"summary"`
 	// Adoption groups a plan that adopts an existing project, with every file its branch changed (ADR-0023).
 	Adoption *planning.Adoption `json:"adoption,omitempty"`
 	// Revision is the plan's open revision when this version is a later one, which the member reads beside the

@@ -4,7 +4,7 @@ import { useChange, useRead } from "../admin/parts";
 import { ApiError, decideApproval, readApproval, readPlan } from "../api/client";
 import type { PlanForecast } from "../api/measures";
 import { PlanEstimates } from "../measures/PlanEstimates";
-import type { ApprovalRecord, ManifestRegistration, PlanApprovalDetail, PlanApprovalView, PlanEntry, PlanRevisionView, PlanVersionLine, DraftDecision, Plan } from "../api/types";
+import type { ApprovalRecord, ManifestRegistration, PlanApprovalDetail, PlanApprovalView, PlanEntry, PlanRevisionView, PlanVersionLine, DraftDecision, Plan, ReplacedDraft } from "../api/types";
 import type { Live } from "../api/useView";
 import { addressOf, Link, useArrivalFocus } from "../app/route";
 import { approvalStates } from "../floor/states";
@@ -29,6 +29,8 @@ export type Subject = {
   detail: PlanApprovalDetail;
   records: PlanEntry[];
   drafts: DraftDecision[];
+  // replaced are the drafts approving does not decide again, each with the decision in force.
+  replaced?: ReplacedDraft[];
   // milestones are the titles of the version's milestones, by the ID its forecasts name them by.
   milestones?: { id: string; title: string }[];
   version: number;
@@ -65,6 +67,7 @@ export async function readSubject(id: string, version: string): Promise<Subject>
       detail: held?.detail ?? noDetail,
       records: held?.records ?? [],
       drafts: held?.drafts ?? [],
+      replaced: held?.replaced,
       milestones: held?.milestones,
       version: held?.approval.plan_version ?? Number(version || view.versions[0]?.version || 0),
       registration: held?.registration,
@@ -297,7 +300,7 @@ export function PlanApprovalBody({ subject, live, after, reload }: { subject: Su
             </Panel>
           ) : null}
           <Panel title="Draft decisions">
-            <DraftDecisions drafts={subject.drafts} proposedBy={approval.requested_by} />
+            <DraftDecisions drafts={subject.drafts} proposedBy={approval.requested_by} replaced={subject.replaced} />
           </Panel>
           <Panel title="New and changed contracts">
             <ChangedContracts plan={subject.plan?.id ?? ""} difference={subject.detail.difference ?? {}} live={live} />

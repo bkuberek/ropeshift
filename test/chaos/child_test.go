@@ -52,6 +52,7 @@ type childSpec struct {
 
 	WorkOrder  string `json:"work_order,omitempty"`
 	ClaimID    string `json:"claim_id,omitempty"`
+	Replaces   string `json:"replaces,omitempty"`
 	Worker     string `json:"worker,omitempty"`
 	Lane       string `json:"lane,omitempty"`
 	Fence      int64  `json:"fence,omitempty"`

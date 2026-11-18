@@ -167,6 +167,8 @@ func crashMatrix() []crashCase {
 		escalateCase(),
 		deliverCase(),
 		answerCase(),
+		answerReplacingCase("question.answer", withSteps("decided")),
+		answerReplacingCase("decision.record", []string{"replaced", "repacked"}),
 		resolveCase(),
 		mergeCase(),
 		dismissCase(),
@@ -1142,6 +1144,40 @@ func answerCase() crashCase {
 				return err
 			}
 			return findable(w, questions.KindDecision, spec.ClaimID)
+		},
+	}
+}
+
+// answerReplacingCase kills an answer that names a decision it replaces, at the steps of the answer and at the
+// steps of the end of the decision. The answer, the end of the decision, and the closing of the question are one
+// transaction: the retry must find the question open and the decision in force, or both done once.
+func answerReplacingCase(op string, steps []string) crashCase {
+	return crashCase{
+		name:  "answer a question and replace a decision, killed at " + op,
+		op:    op,
+		steps: steps,
+		prepare: func(w *world) (childSpec, error) {
+			old, err := w.rig.Assumed(w.store, w.rig.ID("Which log level do retries use"), "")
+			if err != nil {
+				return childSpec{}, err
+			}
+			draft := questions.Question{ID: w.rig.ID("q"), Text: "What is the retry budget?"}
+			if _, err := w.rig.NewOps(w.store).RecordQuestion(w.rig.Ctx, w.rig.Scope, draft, w.rig.Actor); err != nil {
+				return childSpec{}, err
+			}
+			return childSpec{Role: "answer-replacing", Key: draft.ID, ClaimID: w.rig.ID("d"), Replaces: old.ID}, nil
+		},
+		settled: func(w *world, spec childSpec) error {
+			if err := w.questionIs(spec.Key, questions.StatusAnswered, ""); err != nil {
+				return err
+			}
+			if err := countEvents(w, questions.EventDecisionRecorded, spec.ClaimID, 1); err != nil {
+				return err
+			}
+			if err := countEvents(w, questions.EventDecisionEnded, spec.Replaces, 1); err != nil {
+				return err
+			}
+			return decisionIs(w, spec.Replaces, questions.DecisionReplaced)
 		},
 	}
 }

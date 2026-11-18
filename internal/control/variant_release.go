@@ -144,6 +144,12 @@ func showsByTime() bool             { return false }
 func releasesBoundWork() bool       { return false }
 func briefsNoDecisions() bool       { return false }
 
+// A replaced draft stays replaced, and an answer that names a decision replaces it, once: none of these breaks it in
+// a normal build.
+func decidesReplacedDrafts() bool { return false }
+func answersReplaceNothing() bool { return false }
+func bindsAnswersTwice() bool     { return false }
+
 // leavesParkedLanes is false: a cancel ends a lane with no process, which no worker will report.
 func leavesParkedLanes() bool { return false }
 

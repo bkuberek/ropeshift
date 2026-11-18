@@ -140,6 +140,7 @@ A decision that is in force and binds work acts on it in the transaction that re
 
 A plan, a contract review, and a review are never moved or reworked by a decision. Their lanes are told. A batch of decisions starts at most one rework of a finished work order. A rework that has not finished is the end of its chain, so it takes the later decisions instead of a second rework beside it: one that has not started reads them from its pack, and one with a lane is told and has its pack renewed. Work that was already reworked and finished is reworked once more at the end of its chain of rework, never at each link.
 
+An answer can name the decision in force it replaces. Answering and replacing are one transaction: the old decision ends `replaced`, naming the answer, and what the answer binds is applied once. A draft decision that a member's decision replaced or overturned outside the plan is not decided again by a later version of the plan while its text is unchanged, and that version's approval lists it as replaced and names the decision in force.
 The lane policy's `on_binding_decision` is `notify`, the default, or `park`, and it answers for every decision that binds a lane's work. A policy that sets `on_one_way_decision` answers for one-way decisions instead, so a team can park on what cannot be undone and tell on the rest.
 
 ### A plan that needs revision

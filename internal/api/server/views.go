@@ -582,6 +582,9 @@ func planApprovalNeed(tx ports.ReadTx, a authority.Approval) (*api.PlanApprovalN
 	if err != nil {
 		return nil, err
 	}
+	if need.Replaced, err = control.ReplacedDrafts(tx.Questions(), a.Plan, a.PlanVersion, drafts); err != nil {
+		return nil, err
+	}
 	need.Revision, err = revisionOfApproval(tx, plan, a)
 	return need, err
 }

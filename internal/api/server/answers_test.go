@@ -1,6 +1,9 @@
 package server_test
 
 import (
+	"errors"
+	"net/http"
+	"slices"
 	"testing"
 	"time"
 
@@ -51,6 +54,52 @@ func TestAMembersAnswerTakesTheDaemonsWindow(t *testing.T) {
 		t.Fatal(err)
 	}
 	checkAnswerWindow(t, d, lane)
+}
+
+// TestAnAnswerThatNamesADecisionReplacesIt holds the answer route to the transaction ADR-0030 describes: the
+// decision the answer names ends `replaced`, naming the answer, and the answer records what it replaced and
+// what it judged compatible.
+func TestAnAnswerThatNamesADecisionReplacesIt(t *testing.T) {
+	t.Parallel()
+	d := apitest.Start(t)
+	ctx := t.Context()
+	record := func(id, statement string) {
+		t.Helper()
+		if _, err := d.Client.RecordDecision(ctx, api.RecordDecision{
+			ID: id, Status: questions.DecisionDecided, Statement: statement, Rationale: "It follows.", Citations: []string{"PAY-12"},
+			Reversibility: questions.Reversible, Categories: []string{questions.CategoryProduct},
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	record("d1", "Retries log at info.")
+	record("d2", "Retries emit a metric.")
+	if _, err := d.Client.RecordQuestion(ctx, api.RecordQuestion{ID: "q1", Text: "At what level do retries log?"}); err != nil {
+		t.Fatal(err)
+	}
+	answer := api.AnswerQuestion{ID: "d3", Answer: "Retries log at warn.", Supersedes: "d1", NoConflict: []string{"d2"}}
+	got, err := d.Client.AnswerQuestion(ctx, "q1", answer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Supersedes != "d1" || !slices.Equal(got.NoConflict, []string{"d2"}) {
+		t.Fatalf("the answer became %+v", got)
+	}
+	read, err := d.Client.Decision(ctx, "d1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if read.Status != questions.DecisionReplaced {
+		t.Errorf("the decision the answer named reads %s", read.Status)
+	}
+	if _, err := d.Client.RecordQuestion(ctx, api.RecordQuestion{ID: "q2", Text: "Again?"}); err != nil {
+		t.Fatal(err)
+	}
+	_, err = d.Client.AnswerQuestion(ctx, "q2", api.AnswerQuestion{ID: "d4", Answer: "Retries log at error.", Supersedes: "d1"})
+	var refused *api.Error
+	if !errors.As(err, &refused) || refused.Status != http.StatusConflict || refused.Detail.Code != api.CodeDecisionEnded {
+		t.Errorf("an answer that names a replaced decision was refused as %v, want 409 %s", err, api.CodeDecisionEnded)
+	}
 }
 
 // TestARulingTakesTheDaemonsWindow is the same on the worker plane, which holds use cases of its own.

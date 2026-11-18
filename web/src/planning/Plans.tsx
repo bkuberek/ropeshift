@@ -346,7 +346,7 @@ function PlanVersions({ detail, live }: { detail: PlanDetail; live: Live }) {
             </Section>
           ) : null}
           <Section title="Draft decisions">
-            <DraftDecisions drafts={approval.drafts ?? []} proposedBy={approval.approval.requested_by} />
+            <DraftDecisions drafts={approval.drafts ?? []} proposedBy={approval.approval.requested_by} replaced={approval.replaced} />
           </Section>
         </>
       ) : null}

@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -22,6 +23,7 @@ import (
 	"ropeshift.com/ropeshift/internal/messages"
 	"ropeshift.com/ropeshift/internal/planning"
 	"ropeshift.com/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/questions"
 	"ropeshift.com/ropeshift/internal/roster"
 	"ropeshift.com/ropeshift/internal/version"
 	"ropeshift.com/ropeshift/internal/workorders"
@@ -368,6 +370,51 @@ func TestGoldenRevisedApproval(t *testing.T) {
 			holdsGolden(t, "needs-you-revised-approval", steady(pretty(t, item)))
 			return
 		}
+	}
+	t.Fatal("no request waits for the later version")
+}
+
+// TestGoldenReplacedDraftApproval writes the request to approve a later version of a plan whose draft decision a
+// member replaced outside the plan, as Needs you holds it: the comparison lists the draft as replaced, and names
+// the decision in force.
+func TestGoldenReplacedDraftApproval(t *testing.T) {
+	t.Parallel()
+	clock := apitest.NewClock()
+	d := apitest.StartWith(t, apitest.Options{Clock: clock.Dialect})
+	w := apitest.NewWorld(t, d)
+	source := retrySource("The first draft.")
+	plan := approvedPlanWithADecisionOn(t, d, w, source)
+	earlier := derivedDecisionID(plan, 1, "d1")
+	if _, err := d.Client.RecordDecision(t.Context(), api.RecordDecision{
+		ID: "d-adyen", Status: questions.DecisionDecided, Statement: "Q: Which provider first? A: Adyen", Rationale: "The finance lead chose it.",
+		Citations: []string{"PAY-12"}, Scope: "plan:" + plan, Reversibility: questions.Reversible, Categories: []string{questions.CategoryProduct},
+		Supersedes: earlier,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	source.Write("spec.md", []byte("+++\nkind = \"spec\"\nid = \"api\"\ntitle = \"The API\"\nplan = \"retry\"\n+++\n\nThe second draft.\n"))
+	w.Planned(source)
+	want := []questions.ReplacedDraft{{
+		Draft: "d1", Decision: earlier, Status: questions.DecisionReplaced, InForce: "d-adyen", Statement: "Q: Which provider first? A: Adyen",
+	}}
+	// The page of the version reads the same comparison.
+	shown, err := d.Client.PlanVersion(t.Context(), plan, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if shown.Approval == nil || !slices.Equal(shown.Approval.Replaced, want) {
+		t.Fatalf("the plan approval page lists %+v as replaced, want %+v", shown.Approval, want)
+	}
+	for _, item := range readView[api.NeedsYou](t, d, api.ViewNeedsYou, "").Items {
+		if item.Kind != api.NeedPlanApproval {
+			continue
+		}
+		if !slices.Equal(item.PlanApproval.Replaced, want) {
+			t.Fatalf("the approval lists %+v as replaced, want %+v", item.PlanApproval.Replaced, want)
+		}
+		// The decision a draft derives is named by a digest of the plan's generated ID, so a fixed name stands for it.
+		holdsGolden(t, "needs-you-replaced-draft-approval", bytes.ReplaceAll(steady(pretty(t, item)), []byte(earlier), []byte("pd-derived")))
+		return
 	}
 	t.Fatal("no request waits for the later version")
 }

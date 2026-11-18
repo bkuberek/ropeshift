@@ -9,6 +9,7 @@ import (
 
 	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/planning"
+	"ropeshift.com/ropeshift/internal/questions"
 	"ropeshift.com/ropeshift/internal/workorders"
 )
 
@@ -50,6 +51,10 @@ type PlanApprovalView struct {
 	Detail   planning.PlanDetail      `json:"detail"`
 	Records  []planning.Entry         `json:"records,omitempty"`
 	Drafts   []planning.DraftDecision `json:"drafts,omitempty"`
+	// Replaced lists the drafts approval does not decide again, because a decision outside the plan replaced or
+	// overturned what an earlier version decided for them and their text has not changed, each with the decision in
+	// force. It is absent when there are none.
+	Replaced []questions.ReplacedDraft `json:"replaced,omitempty"`
 	// Milestones names each milestone the version holds by the ID its forecasts carry, with its title.
 	Milestones []MilestoneTitle `json:"milestones,omitempty"`
 	// Registration is what approving the version registers of the repositories its manifest lists, when it

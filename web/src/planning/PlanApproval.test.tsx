@@ -171,6 +171,30 @@ describe("the plan approval page", () => {
     expect(within(screen.getByRole("list", { name: "Draft decisions" })).getByText("Blocking")).toBeTruthy();
   });
 
+  it("lists a draft a decision outside the plan replaced as replaced, with the decision in force, and none when there is none", async () => {
+    serve((view) => {
+      if (view.approval) {
+        view.approval.replaced = [{ draft: "d1", decision: "pd-1", status: "replaced", in_force: "d-wordmark", statement: "Q: Which logo set? A: Wordmark" }];
+      }
+    });
+    openPage(page());
+    await heading();
+    const replaced = screen.getByRole("list", { name: "Replaced draft decisions" });
+    const row = within(replaced).getByRole("listitem");
+    expect(row.textContent).toContain("d1");
+    expect(row.textContent).toContain("replaced");
+    expect(row.textContent).toContain("d-wordmark");
+    expect(row.textContent).toContain("Q: Which logo set? A: Wordmark");
+    expect(screen.getByText(/Approving does not decide .* again/)).toBeTruthy();
+  });
+
+  it("lists no replaced drafts when none was", async () => {
+    serve();
+    openPage(page());
+    await heading();
+    expect(screen.queryByRole("list", { name: "Replaced draft decisions" })).toBeNull();
+  });
+
   it("lists the contracts the version adds or changes, with criteria, requirement chips, and work orders", async () => {
     serve();
     openPage(page());
