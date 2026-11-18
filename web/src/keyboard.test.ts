@@ -722,6 +722,22 @@ const paths: Record<string, KeyPath> = {
     sent: post(/\/work-orders\/wo-ci\/ci-rerun$/),
     run: decide("Add the retry budget (ci_not_finished)", "Rerun"),
   },
+  "POST /v1/projects/{project}/work-orders/{id}/spend/raise": {
+    sent: post(/\/work-orders\/wo-stop\/spend\/raise$/, { by_percent: 50 }),
+    run: decide("Add the retry budget (spend stop)", "Raise by 50 percent"),
+  },
+  "POST /v1/projects/{project}/work-orders/{id}/spend/resume": {
+    sent: post(/\/work-orders\/wo-stop\/spend\/resume$/, {}),
+    run: decide("Add the retry budget (spend stop)", "Resume once"),
+  },
+  "POST /v1/projects/{project}/work-orders/{id}/spend/block": {
+    sent: post(/\/work-orders\/wo-stop\/spend\/block$/, {}),
+    run: decide("Add the retry budget (spend stop)", "Block"),
+  },
+  "POST /v1/projects/{project}/work-orders/{id}/spend/replan": {
+    sent: post(/\/work-orders\/wo-stop\/spend\/replan$/, {}),
+    run: decide("Add the retry budget (spend stop)", "Send to replanning"),
+  },
 };
 
 const missing = changing.filter((name) => !(name in paths));

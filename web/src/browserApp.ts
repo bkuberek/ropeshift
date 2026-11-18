@@ -162,12 +162,20 @@ function ciCards(): NeedItem[] {
   return written.items.map((item) => (item.kind === "ci" ? { ...item, ci: { ...item.ci, work_order: { ...item.ci.work_order, title: `${item.ci.work_order.title} (${item.ci.kind})` } } } : item));
 }
 
+// The work order a hard spend limit parked, as a Go test wrote it from a real ledger. It is titled by its kind, so a
+// palette that lists items by title finds it.
+function spendCards(): NeedItem[] {
+  const written = JSON.parse(goldens["spend-needs-you"] ?? "{}") as { items: NeedItem[] };
+  return written.items.map((item) => (item.kind === "spend" ? { ...item, spend: { ...item.spend, work_order: { ...item.spend.work_order, title: `${item.spend.work_order.title} (spend stop)` } } } : item));
+}
+
 // needsYouItems is what the checks' Needs you holds: the ledger's own items, the confirmation cards a delegate
-// prepared, two merge requests, a card of each kind the ledger's items do not reach, and the CI that asks a person.
+// prepared, two merge requests, a card of each kind the ledger's items do not reach, the CI that asks a person, and a
+// work order a spend limit parked.
 export function needsYouItems(): NeedItem[] {
   const needs = JSON.parse(goldens["needs-you"] ?? "{}") as { items: NeedItem[] };
   const cards = JSON.parse(goldens["needs-you-cards"] ?? "{}") as { items: NeedItem[] };
-  return [...needs.items, ...cards.items, mergeRequest("approve", "wo-running"), mergeRequest("held", "wo-held"), ...otherCards(), ...ciCards()] as NeedItem[];
+  return [...needs.items, ...cards.items, mergeRequest("approve", "wo-running"), mergeRequest("held", "wo-held"), ...otherCards(), ...ciCards(), ...spendCards()] as NeedItem[];
 }
 
 const projects = JSON.stringify({ projects: [{ id: "default", name: "default", display_name: "Default", state: "active", created_at: 1, repositories: [] }] });
@@ -319,6 +327,9 @@ export async function answer(route: Route): Promise<void> {
   }
   if (path === "/v1/measures/ci") {
     return json(goldens["ci-durations"] ?? JSON.stringify({ repositories: [] }));
+  }
+  if (/^\/v1\/work-orders\/[^/]+\/spend$/.test(path) && goldens["work-order-spend"]) {
+    return json(goldens["work-order-spend"]);
   }
   if (path.startsWith("/v1/plans/adopt-approval")) {
     return json(JSON.stringify({ error: { code: "not_found", message: "no such plan" } }), 404);

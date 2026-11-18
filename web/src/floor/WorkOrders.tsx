@@ -9,6 +9,7 @@ import { addressOf, go, ItemProject, Link } from "../app/route";
 import { ApprovalDecision } from "../needs/ApprovalDecision";
 import { ContractReviewCard } from "../needs/ContractReviewCard";
 import { headingOf } from "../needs/kinds";
+import { SpendCard } from "../needs/SpendCard";
 import { WorkCard } from "../needs/WorkCard";
 import { Lasted, Page, StampLine, useClock, ViewTime, words } from "../parts/parts";
 import { Verdicts } from "../parts/Verdicts";
@@ -25,6 +26,7 @@ import { PullRequestPanel } from "./PullRequest";
 import { ReviewOf } from "./ReviewOf";
 import { StartWork } from "./StartWork";
 import { WakeWords } from "./WakeWords";
+import { SpendPanel } from "./SpendPanel";
 import { WorkEstimatePanel } from "./WorkEstimatePanel";
 import { WorkActionDialog, WorkActions } from "./WorkActions";
 import type { WorkRow } from "./workIndex";
@@ -358,6 +360,12 @@ function needFor(needs: NeedsYou, id: string): NeedItem | undefined {
   );
 }
 
+// stopFor finds the spend stop of a work order, which is what it waits on whatever else its own read says of it: a
+// hard limit parked it, and the ways out of that are the card's.
+function stopFor(needs: NeedsYou, id: string): NeedItem | undefined {
+  return needs.items.find((item) => item.kind === "spend" && item.spend.work_order.id === id);
+}
+
 function Decision({ item, after }: { item: NeedItem; after: () => Promise<void> }) {
   const frame = { project: item.project, title: headingOf(item) };
   return (
@@ -368,6 +376,8 @@ function Decision({ item, after }: { item: NeedItem; after: () => Promise<void> 
         <ContractReviewCard review={item.contract_review} after={after} frame={frame} />
       ) : item.kind === "approval" ? (
         <ApprovalDecision approval={item.approval} after={after} frame={frame} />
+      ) : item.kind === "spend" ? (
+        <SpendCard need={item.spend} after={after} frame={frame} />
       ) : null}
     </ItemProject.Provider>
   );
@@ -437,7 +447,7 @@ export function WorkOrderPage({ live, id, tab, dialog, needs, after }: { live: L
   const { order } = row;
   const standing = row.completed?.standing ?? row.stuck?.standing;
   // Stuck work's own read says what can be done about it now; anything else it waits on is in Needs you.
-  const need = row.stuck ? ({ kind: "work", id: row.stuck.id, since: row.stuck.since, work: row.stuck } as NeedItem) : needFor(needs, order.id);
+  const need = stopFor(needs, order.id) ?? (row.stuck ? ({ kind: "work", id: row.stuck.id, since: row.stuck.since, work: row.stuck } as NeedItem) : needFor(needs, order.id));
   const contract = row.plan?.contracts.find((history) => history.id === order.contract_id);
   const lanes = (floor.view?.lanes ?? []).filter((lane) => lane.work_order === order.id);
   // The lane the Lanes tab describes: the one the work order runs, or else the last lane the floor holds of it.
@@ -555,6 +565,7 @@ export function WorkOrderPage({ live, id, tab, dialog, needs, after }: { live: L
                 <Fact name="Merge authority">{standing?.authority ? <span className="mono">{standing.authority}</span> : <Absent>not set</Absent>}</Fact>
               </Facts>
             </Panel>
+            <SpendPanel id={order.id} live={live} />
             <WorkEstimatePanel id={order.id} live={live} />
           </aside>
         </div>

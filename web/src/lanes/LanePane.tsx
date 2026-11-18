@@ -9,6 +9,7 @@ import type { Live } from "../api/useView";
 import { useView } from "../api/useView";
 import { usePageActions } from "../app/pageActions";
 import { addressOf, Link } from "../app/route";
+import { SpendPanel } from "../floor/SpendPanel";
 import { laneLabel } from "../floor/states";
 import { Ago, Page, useClock, ViewTime, words } from "../parts/parts";
 import { Absent, Badge, ConditionChip, EmptyState, Fact, Facts, Freshness, freshnessOf, Id, LaneBadge, Panel, TableRegion, TargetChip } from "../ui/display";
@@ -360,6 +361,7 @@ export function LanePage({ id, live }: { id: string; live: Live }) {
             <LaneMessages lane={id} live={live} />
           </div>
           <aside className="stack" aria-label="Lane facts">
+            {lane ? <SpendPanel id={lane.work_order} live={live} /> : null}
             <Panel title="Facts">
               {lane ? (
                 <Facts>

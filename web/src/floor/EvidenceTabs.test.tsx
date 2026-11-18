@@ -272,6 +272,35 @@ describe("the tabs of a work order's page", () => {
     expect(sent.some((call) => call.method === "GET" && call.path === "/v1/work-orders/wo-running/estimate" && call.project === "default")).toBe(true);
   });
 
+  it("reads the spend route for the side of the page, as the command does, and shows what the work order is charged against its limits", async () => {
+    const sent = serving();
+    openPage(`/work-order?id=wo-running`);
+    const side = await screen.findByRole("complementary", { name: "Decision and facts" });
+    const panel = await within(side).findByRole("region", { name: "Spend" });
+    expect(await within(panel).findByText("Hard limit")).toBeTruthy();
+    expect(factOf(panel, "Charged")).toContain("$30.00");
+    expect(factOf(panel, "Hard limit")).toBe("$25.00");
+    expect(sent.some((call) => call.method === "GET" && call.path === "/v1/work-orders/wo-running/spend" && call.project === "default")).toBe(true);
+  });
+
+  it("shows the spend of a lane's work order on the lane's page", async () => {
+    const sent = serving();
+    openPage(`/lane?id=lane-wo-running`);
+    const side = await screen.findByRole("complementary", { name: "Lane facts" });
+    const panel = await within(side).findByRole("region", { name: "Spend" });
+    expect(await within(panel).findByText("Soft limit")).toBeTruthy();
+    expect(factOf(panel, "Soft limit")).toBe("$12.50");
+    expect(sent.some((call) => call.method === "GET" && call.path === "/v1/work-orders/wo-running/spend")).toBe(true);
+  });
+
+  it("keeps the page when the spend cannot be read", async () => {
+    serving((call) => (call.path.endsWith("/spend") ? refusal(500, "unavailable", "The spend could not be read.") : undefined));
+    openPage(`/work-order?id=wo-running`);
+    const side = await screen.findByRole("complementary", { name: "Decision and facts" });
+    expect(await within(side).findByText("The spend could not be read.")).toBeTruthy();
+    expect(screen.getByRole("heading", { level: 1 })).toBeTruthy();
+  });
+
   it("says a work order with no estimate and no baseline so on its page", async () => {
     serving((call) => (call.path.endsWith("/estimate") ? { status: 200, body: golden<WorkEstimate>("work-estimate-absent") } : undefined));
     openPage(`/work-order?id=wo-running`);

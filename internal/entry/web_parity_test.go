@@ -75,18 +75,11 @@ var cliOnly = map[string]string{
 // of P4 that adds it. A command whose row is added leaves this list, and the test fails until it does. The
 // first run of this test wrote it, and a command the audit did not name went by its area.
 var webGaps = map[string]string{
-	// The Spend section of project Settings, the work order and lane pages, and the installation's Spend section
-	// read and publish through the same routes (ADR-0037); SP4 builds them.
-	"spend":        "SP4",
+	// The Spend section of project Settings and the installation's Spend section read and publish through the same
+	// routes (ADR-0037); SP4 builds them.
 	"spend show":   "SP4",
 	"spend set":    "SP4",
 	"spend revert": "SP4",
-	// A spend stop in Needs you offers Raise, Resume once, Block, and Send to replanning with the same result (ADR-0037);
-	// SP4 builds them.
-	"spend raise":  "SP4",
-	"spend resume": "SP4",
-	"spend block":  "SP4",
-	"spend replan": "SP4",
 }
 
 var gapSlice = regexp.MustCompile(`^(U2[a-k]|P[34][a-j]|SP[1-9])[12]?$`)

@@ -3,6 +3,7 @@ import type { IconName } from "../ui/Icon";
 import { ciKinds } from "./ciWords";
 import { isHeld, mergeContext, mergeHeading } from "./merge";
 import { recoveryHeading } from "./recovery";
+import { money, spendKind } from "./spendWords";
 
 // The filters of Needs you, each a family of kinds.
 export type NeedFilter = "all" | "decisions" | "approvals" | "cards" | "stuck";
@@ -31,6 +32,7 @@ export function filterOf(item: NeedItem): Exclude<NeedFilter, "all"> {
     case "work":
       return item.work.reason === "acceptance" ? "approvals" : "stuck";
     case "ci":
+    case "spend":
       return "stuck";
   }
 }
@@ -64,7 +66,7 @@ const workIcons: Record<string, IconName> = {
   worker_behind: "warning",
 };
 
-const fixedCards = ["questions", "recovery", "merge", "held-merge", "tool-call", "effect", "orchestrator", "plan-approval", "plan-revision", "contract-review", "confirm"] as const;
+const fixedCards = ["questions", "recovery", "merge", "held-merge", "tool-call", "effect", "orchestrator", "plan-approval", "plan-revision", "contract-review", "confirm", "spend"] as const;
 
 // CardKind names a kind of card by what its overline says: one for each kind of item, a request by what it asks, and
 // work by why it waits.
@@ -101,6 +103,8 @@ export function cardKindOf(item: NeedItem): CardKind {
       return "confirm";
     case "ci":
       return `ci-${item.ci.kind}`;
+    case "spend":
+      return "spend";
   }
 }
 
@@ -151,6 +155,8 @@ export function kindOf(item: NeedItem): { icon: IconName; name: string } {
       return { icon: "card", name: "Confirmation card" };
     case "ci":
       return { icon: ciKinds[item.ci.kind].icon, name: ciKinds[item.ci.kind].name };
+    case "spend":
+      return spendKind;
   }
 }
 
@@ -209,6 +215,8 @@ export function headingOf(item: NeedItem): string {
       return item.card.approval.summary;
     case "ci":
       return item.ci.work_order.title || item.ci.work_order.id;
+    case "spend":
+      return item.spend.work_order.title || item.spend.work_order.id;
   }
 }
 
@@ -247,6 +255,8 @@ export function contextOf(item: NeedItem): string {
       return preparerOf(item.card);
     case "ci":
       return [item.ci.work_order.id, `pull request #${item.ci.number}`].join(" · ");
+    case "spend":
+      return [item.spend.work_order.id, `${money(item.spend.spend.charged.charged_usd)} of ${money(item.spend.spend.hard_limit)}`].join(" · ");
   }
 }
 
