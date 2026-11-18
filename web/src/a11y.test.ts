@@ -17,6 +17,11 @@ import { answer, audit, dialogsSeen, goldens, ready, serveApp } from "./browserA
 const sizes = { desktop: { width: 1440, height: 900 }, phone: { width: 390, height: 844 } } as const;
 const themes = ["light", "dark"] as const;
 
+// ROPESHIFT_A11Y_VIEWS is a pattern of the addresses to check, so a change to one view runs only its own states. It is
+// unset in continuous integration, which checks every view.
+const only = process.env.ROPESHIFT_A11Y_VIEWS;
+const checked = only ? views.filter((view) => new RegExp(only).test(view)) : views;
+
 const opened = await openBrowser();
 const suite = suiteFor(opened);
 
@@ -55,7 +60,7 @@ suite.each(Object.entries(sizes))("at %s width", (size, viewport) => {
         await context.route(/\/v1\//, answer);
         const page = await context.newPage();
         const found: string[] = [];
-        for (const view of views) {
+        for (const view of checked) {
           // A view that never finishes reading is named, with why, rather than failing the whole run unnamed.
           const opened = await page
             .goto(`${base}${view}`)

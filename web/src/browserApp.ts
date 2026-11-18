@@ -154,12 +154,20 @@ function otherCards(): NeedItem[] {
   ];
 }
 
+// The CI that asks a person, as a Go test wrote it from a real ledger: a head past its CI timeout, a run no runner
+// picked up, and each finding of the classification. Each is titled by its kind, so a palette that lists them by title
+// finds one.
+function ciCards(): NeedItem[] {
+  const written = JSON.parse(goldens["ci-needs-you"] ?? "{}") as { items: NeedItem[] };
+  return written.items.map((item) => (item.kind === "ci" ? { ...item, ci: { ...item.ci, work_order: { ...item.ci.work_order, title: `${item.ci.work_order.title} (${item.ci.kind})` } } } : item));
+}
+
 // needsYouItems is what the checks' Needs you holds: the ledger's own items, the confirmation cards a delegate
-// prepared, two merge requests, and a card of each kind the ledger's items do not reach.
+// prepared, two merge requests, a card of each kind the ledger's items do not reach, and the CI that asks a person.
 export function needsYouItems(): NeedItem[] {
   const needs = JSON.parse(goldens["needs-you"] ?? "{}") as { items: NeedItem[] };
   const cards = JSON.parse(goldens["needs-you-cards"] ?? "{}") as { items: NeedItem[] };
-  return [...needs.items, ...cards.items, mergeRequest("approve", "wo-running"), mergeRequest("held", "wo-held"), ...otherCards()] as NeedItem[];
+  return [...needs.items, ...cards.items, mergeRequest("approve", "wo-running"), mergeRequest("held", "wo-held"), ...otherCards(), ...ciCards()] as NeedItem[];
 }
 
 const projects = JSON.stringify({ projects: [{ id: "default", name: "default", display_name: "Default", state: "active", created_at: 1, repositories: [] }] });
@@ -308,6 +316,9 @@ export async function answer(route: Route): Promise<void> {
   }
   if (path === "/v1/measures/history") {
     return json(goldens.history ?? "{}");
+  }
+  if (path === "/v1/measures/ci") {
+    return json(goldens["ci-durations"] ?? JSON.stringify({ repositories: [] }));
   }
   if (path.startsWith("/v1/plans/adopt-approval")) {
     return json(JSON.stringify({ error: { code: "not_found", message: "no such plan" } }), 404);

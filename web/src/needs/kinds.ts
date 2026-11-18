@@ -1,5 +1,6 @@
-import type { Approval, NeedItem } from "../api/types";
+import type { Approval, CIKind, NeedItem } from "../api/types";
 import type { IconName } from "../ui/Icon";
+import { ciKinds } from "./ciWords";
 import { isHeld, mergeContext, mergeHeading } from "./merge";
 import { recoveryHeading } from "./recovery";
 
@@ -29,6 +30,8 @@ export function filterOf(item: NeedItem): Exclude<NeedFilter, "all"> {
       return "approvals";
     case "work":
       return item.work.reason === "acceptance" ? "approvals" : "stuck";
+    case "ci":
+      return "stuck";
   }
 }
 
@@ -65,10 +68,17 @@ const fixedCards = ["questions", "recovery", "merge", "held-merge", "tool-call",
 
 // CardKind names a kind of card by what its overline says: one for each kind of item, a request by what it asks, and
 // work by why it waits.
-export type CardKind = (typeof fixedCards)[number] | `work-${string}`;
+export type CardKind = (typeof fixedCards)[number] | `work-${string}` | `ci-${CIKind}`;
+
+// ciKindNames is every kind of thing CI asks a person about, in the order a surface shows them.
+export const ciKindNames: CIKind[] = ["ci_not_finished", "ci_queue_stalled", "ci_infrastructure_failure", "ci_base_red", "ci_action_required"];
 
 // cardKinds is every kind of card Needs you draws. The accessibility checks hold each to a state.
-export const cardKinds: CardKind[] = [...fixedCards, ...Object.keys(workLabels).map((reason): CardKind => `work-${reason}`)];
+export const cardKinds: CardKind[] = [
+  ...fixedCards,
+  ...Object.keys(workLabels).map((reason): CardKind => `work-${reason}`),
+  ...ciKindNames.map((kind): CardKind => `ci-${kind}`),
+];
 
 // cardKindOf is the kind of card an item draws.
 export function cardKindOf(item: NeedItem): CardKind {
@@ -89,6 +99,8 @@ export function cardKindOf(item: NeedItem): CardKind {
       return "contract-review";
     case "confirm":
       return "confirm";
+    case "ci":
+      return `ci-${item.ci.kind}`;
   }
 }
 
@@ -137,6 +149,8 @@ export function kindOf(item: NeedItem): { icon: IconName; name: string } {
       return { icon: "review", name: "Contract review" };
     case "confirm":
       return { icon: "card", name: "Confirmation card" };
+    case "ci":
+      return { icon: ciKinds[item.ci.kind].icon, name: ciKinds[item.ci.kind].name };
   }
 }
 
@@ -193,6 +207,8 @@ export function headingOf(item: NeedItem): string {
       return item.contract_review.work_order.title || item.id;
     case "confirm":
       return item.card.approval.summary;
+    case "ci":
+      return item.ci.work_order.title || item.ci.work_order.id;
   }
 }
 
@@ -229,6 +245,8 @@ export function contextOf(item: NeedItem): string {
       return [item.contract_review.work_order.id, `${item.contract_review.contract} v${item.contract_review.version}`].join(" · ");
     case "confirm":
       return preparerOf(item.card);
+    case "ci":
+      return [item.ci.work_order.id, `pull request #${item.ci.number}`].join(" · ");
   }
 }
 

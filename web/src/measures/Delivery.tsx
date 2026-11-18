@@ -8,6 +8,7 @@ import { Page } from "../parts/parts";
 import { Segmented, LinkTabs } from "../ui/controls";
 import { Absent, Banner, EmptyState, Panel, SkeletonRows, TableRegion } from "../ui/display";
 import { Field, Select } from "../ui/forms";
+import { CIDurationPanel } from "./CIDurations";
 import { defaultWindow, finished, groupName, labelOf, pick, sharesOf, weekDate, windows } from "./lookBack";
 import type { Scope, Share } from "./lookBack";
 import { fixed, span, usd, utcDate } from "./format";
@@ -281,6 +282,11 @@ export function DeliveryPage({ live, projects, params }: { live: Live; projects:
           )}
         </div>
         <DeliveryRead key={`${spec.scope}:${spec.window}:${spec.by}:${names.join(",")}`} live={live} projects={projects} spec={spec} />
+        {spec.scope === "project" ? (
+          <div className="view-body stack">
+            <CIDurationPanel live={live} />
+          </div>
+        ) : null}
       </div>
     </Page>
   );

@@ -88,6 +88,8 @@ export const paletteActions: Record<string, PaletteAction> = {
   "POST /v1/projects/{project}/plans/{id}/revision/confirm": decide,
   "POST /v1/projects/{project}/plans/{id}/revision/sessions": decide,
   "POST /v1/projects/{project}/work-orders/{id}/decision-rework": decide,
+  "POST /v1/projects/{project}/work-orders/{id}/ci-wait": decide,
+  "POST /v1/projects/{project}/work-orders/{id}/ci-rerun": decide,
   "POST /v1/projects/{project}/messages": { title: "Switch conversation target", at: home },
   "POST /v1/projects/{project}/conversations": { title: "New assistant conversation", at: home },
   "POST /v1/projects/{project}/conversations/{id}/open": { title: "Resume the assistant session", at: `${project}/conversations` },

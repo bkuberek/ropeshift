@@ -188,7 +188,12 @@ describe("the Delivery tab", () => {
   });
 
   it("says why it could not read, in the API's words, and keeps the controls", async () => {
-    serveViews((call) => (call.path.startsWith("/v1/measures/delivery") ? refusal(500, "unavailable", "the ledger could not be read") : undefined));
+    serveViews((call) => {
+      if (call.path === "/v1/measures/ci") {
+        return { status: 200, body: golden("ci-durations") };
+      }
+      return call.path.startsWith("/v1/measures/delivery") ? refusal(500, "unavailable", "the ledger could not be read") : undefined;
+    });
     open();
     expect((await screen.findByRole("alert")).textContent).toContain("the ledger could not be read");
     expect(screen.getByRole("group", { name: "Window" })).toBeTruthy();

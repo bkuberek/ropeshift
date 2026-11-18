@@ -11,6 +11,7 @@ import { EmptyState, ProjectTag } from "../ui/display";
 import { Select } from "../ui/forms";
 import { useNarrow } from "../ui/narrow";
 import { ApprovalDecision } from "./ApprovalDecision";
+import { CICard } from "./CICard";
 import { ConfirmCard, ResolvedCard, voidAsk } from "./ConfirmCard";
 import { ContractReviewCard } from "./ContractReviewCard";
 import type { Decided } from "./decided";
@@ -63,6 +64,8 @@ function Card({ item, after, frame, registered, settled }: { item: NeedItem; aft
       return <PlanRevisionCard need={item.plan_revision} after={after} frame={frame} />;
     case "contract_review":
       return <ContractReviewCard review={item.contract_review} after={after} frame={frame} />;
+    case "ci":
+      return <CICard need={item.ci} after={after} frame={frame} />;
     case "confirm":
       return <ConfirmCard need={item.card} after={after} frame={frame} {...assistant} />;
   }

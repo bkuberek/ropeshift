@@ -1,5 +1,5 @@
 import { ApiError, call, inProjectOf, project } from "./client";
-import type { Project } from "./types";
+import type { CIDurations, Project } from "./types";
 
 // What the delivery measures and the forecasts read, as the API serves them. Durations are milliseconds, and
 // dates epoch milliseconds. A duration or a cost with no work done is absent, never zero.
@@ -298,6 +298,11 @@ export type DeliveryHistory = {
 // readDeliveryHistory reads the delivery history a planning session sees, as `ropeshift measures history` prints it.
 export function readDeliveryHistory(): Promise<DeliveryHistory> {
   return call("GET", project("/measures/history"));
+}
+
+// readCIDurations reads what each repository's CI takes, as `ropeshift measures ci` prints it.
+export function readCIDurations(): Promise<CIDurations> {
+  return call("GET", project("/measures/ci"));
 }
 
 // readCalibration reads how often finished work landed inside its baseline estimates over a window and over
