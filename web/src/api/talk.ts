@@ -72,13 +72,22 @@ export type TalkQuestionRecord = {
   blocking?: boolean;
   options?: string[];
   recommendation?: string;
+  recommendation_rationale?: string;
   escalation_reason?: string;
   asked_by?: string;
 };
 
 // scope is what an answer binds: the record the question is about. scope_title is that record's title, absent when
-// the ledger holds no such record or its title only repeats the ID, so the scope shows alone.
-export type TalkQuestion = { question: TalkQuestionRecord; batch?: string; channel?: string; scope?: string; scope_title?: string };
+// the ledger holds no such record or its title only repeats the ID, so the scope shows alone. reversibility is
+// what the answer will be, as a batch's item states it.
+export type TalkQuestion = {
+  question: TalkQuestionRecord;
+  batch?: string;
+  channel?: string;
+  scope?: string;
+  scope_title?: string;
+  reversibility?: "reversible" | "one_way";
+};
 
 export type EntryKind = "member" | "reply" | "event" | "action" | "card" | "request" | "question" | "marker";
 

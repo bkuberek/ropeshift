@@ -85,6 +85,29 @@ describe("answering from the open questions", () => {
     await waitFor(() => expect(screen.queryByRole("group", { name: budget })).toBeNull());
   });
 
+  it("leaves a question whose answer is one-way with nothing chosen, whatever its reason, until the member chooses", async () => {
+    const sent = serving({
+      view: (view) => {
+        const first = view.questions[0];
+        if (first) {
+          first.reversibility = "one_way";
+          first.escalation_reason = "scope_change";
+        }
+      },
+    });
+    openPage("/questions");
+    await userEvent.click(await answerButton(budget));
+    const group = await screen.findByRole("group", { name: budget });
+    for (const radio of within(group).getAllByRole("radio")) {
+      expect((radio as HTMLInputElement).checked).toBe(false);
+    }
+    expect((screen.getByRole("button", { name: "Send this answer" }) as HTMLButtonElement).disabled).toBe(true);
+    await userEvent.click(within(group).getByRole("radio", { name: /^Keep the budget/ }));
+    await userEvent.click(screen.getByRole("button", { name: "Send this answer" }));
+    await waitFor(() => expect(changes(sent)).toHaveLength(1));
+    expect(changes(sent)[0]?.body).toEqual({ id: "answer-question-1", answer: "Keep the budget" });
+  });
+
   it("sends another option when a member chooses it", async () => {
     const sent = serving();
     openPage("/questions");
@@ -128,6 +151,7 @@ describe("answering from the open questions", () => {
         const first = view.questions[0];
         if (first) {
           first.escalation_reason = "one_way";
+          first.reversibility = "one_way";
         }
       },
     });

@@ -247,10 +247,24 @@ describe("the title of a single question", () => {
   });
 });
 
+type Posted = { answers: { question: string; id: string; accepted?: boolean; answer?: string; rationale?: string }[] };
+
+// decided answers a batch request with the decisions it would record, as the daemon does.
+const decided = (call: { body?: unknown }) => ({
+  status: 201,
+  body: { decisions: (call.body as Posted).answers.map((answer) => ({ id: answer.id, status: "decided", statement: answer.answer ?? "", decided_by: "member-ada" })) },
+});
+
 describe("a batch of questions", () => {
+  // A batch that needs only agreement: both of the golden's questions have answers that can be taken back, which
+  // the tests of the send read, and the one-way item the golden holds is the subject of the tests below them.
   const batchView = () => {
     const view = goldenNeedsYou();
-    return { view, item: itemOf(view, "questions") };
+    const item = itemOf(view, "questions");
+    for (const question of item.batch.items) {
+      question.reversibility = "reversible";
+    }
+    return { view, item };
   };
 
   it("needs one press when a member agrees with every recommendation", async () => {
@@ -259,11 +273,9 @@ describe("a batch of questions", () => {
     const after = vi.fn(async () => {});
     show(view, after, "questions");
     await userEvent.click(screen.getByRole("button", { name: "Send 2 answers" }));
-    await waitFor(() => expect(sent).toHaveLength(2));
-    expect(sent.map((call) => call.path)).toEqual(item.batch.items.map((question) => `/v1/questions/${question.id}/answer`));
-    for (const [index, question] of item.batch.items.entries()) {
-      expect(sent[index]?.body).toMatchObject({ id: `answer-${question.id}`, answer: question.recommendation });
-    }
+    await waitFor(() => expect(sent).toHaveLength(1));
+    expect(sent[0]).toMatchObject({ method: "POST", path: `/v1/batches/${item.batch.batch.id}/answers` });
+    expect((sent[0]?.body as Posted).answers).toEqual(item.batch.items.map((question) => ({ question: question.id, id: `answer-${question.id}`, accepted: true, expect_reversibility: "reversible" })));
     await waitFor(() => expect(after).toHaveBeenCalledOnce());
   });
 
@@ -279,9 +291,9 @@ describe("a batch of questions", () => {
     const button = screen.getByRole("button", { name: "Send 2 answers" });
     await userEvent.dblClick(button);
     await userEvent.click(button);
-    await waitFor(() => expect(sent).toHaveLength(2));
+    await waitFor(() => expect(sent).toHaveLength(1));
     release();
-    expect(sent).toHaveLength(2);
+    expect(sent).toHaveLength(1);
   });
 
   it("repeats an answer under one ID, so a retry after a lost reply is one decision", async () => {
@@ -295,14 +307,13 @@ describe("a batch of questions", () => {
     await userEvent.click(screen.getByRole("button", { name: "Send 2 answers" }));
     expect(await screen.findByRole("alert")).toBeTruthy();
     await userEvent.click(screen.getByRole("button", { name: "Send 2 answers" }));
-    await waitFor(() => expect(sent.length).toBeGreaterThanOrEqual(3));
-    const first = sent[0]?.body as { id: string };
-    expect(sent.filter((call) => (call.body as { id: string }).id === first.id).length).toBe(2);
+    await waitFor(() => expect(sent.length).toBeGreaterThanOrEqual(2));
+    expect((sent[0]?.body as Posted).answers.map((answer) => answer.id)).toEqual((sent[1]?.body as Posted).answers.map((answer) => answer.id));
   });
 
   it("says a batch the person answered here was answered, by whom, and with what, once it no longer waits", async () => {
     const { view, item } = batchView();
-    serveApi((call) => (call.method === "POST" ? { status: 201, body: { id: (call.body as { id: string }).id, status: "active", statement: (call.body as { answer: string }).answer, decided_by: "member-ada" } } : undefined));
+    serveApi((call) => (call.method === "POST" ? decided(call) : undefined));
     const after = vi.fn(async () => {});
     const { rerender } = show(view, after, "questions");
     await userEvent.click(screen.getByRole("button", { name: "Send 2 answers" }));
@@ -331,7 +342,7 @@ describe("a batch of questions", () => {
     }
     const keys = vi.spyOn(console, "error").mockImplementation(() => {});
     try {
-      serveApi((call) => (call.method === "POST" ? { status: 201, body: { id: (call.body as { id: string }).id, status: "active", statement: (call.body as { answer: string }).answer, decided_by: "member-ada" } } : undefined));
+      serveApi((call) => (call.method === "POST" ? decided(call) : undefined));
       const after = vi.fn(async () => {});
       const { rerender } = show(view, after, "questions");
       await userEvent.click(screen.getByRole("button", { name: "Send 2 answers" }));
@@ -361,15 +372,18 @@ describe("a batch of questions", () => {
     expect(screen.queryByText(/you answered it/i)).toBeNull();
   });
 
-  it("takes a question someone else answered first as answered", async () => {
+  it("refuses the whole batch when someone else answered a question first, and says which", async () => {
     const { view } = batchView();
-    serveApi(() => refusal(409, "resolved", "This question already has its answer."));
-    show(view, undefined, "questions");
+    const after = vi.fn(async () => {});
+    const sent = serveApi(() => refusal(409, "resolved", "answer 2, for question question-2: this question already has its answer"));
+    show(view, after, "questions");
     await userEvent.click(screen.getByRole("button", { name: "Send 2 answers" }));
-    await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+    expect((await screen.findByRole("alert")).textContent).toContain("answer 2, for question question-2");
+    expect(sent).toHaveLength(1);
+    expect(after).toHaveBeenCalled();
   });
 
-  it("lets a member answer in their own words", async () => {
+  it("lets a member answer in their own words, with the reason for it", async () => {
     const { view, item } = batchView();
     const sent = serveApi(() => ({ status: 201 }));
     show(view, undefined, "questions");
@@ -380,27 +394,47 @@ describe("a batch of questions", () => {
     const group = screen.getByRole("group", { name: first.text });
     await userEvent.click(within(group).getByRole("radio", { name: "Something else" }));
     await userEvent.type(within(group).getByRole("textbox", { name: "Your answer" }), "Hold it for a day.");
+    expect(screen.getByRole("button", { name: "Send 1 of 2 answers" })).toBeTruthy();
+    await userEvent.type(within(group).getByRole("textbox", { name: "Why" }), "A day covers the longest outage.");
     await userEvent.click(screen.getByRole("button", { name: "Send 2 answers" }));
-    await waitFor(() => expect(sent).toHaveLength(2));
-    expect(sent[0]?.body).toMatchObject({ answer: "Hold it for a day." });
+    await waitFor(() => expect(sent).toHaveLength(1));
+    expect((sent[0]?.body as Posted).answers[0]).toMatchObject({ question: first.id, answer: "Hold it for a day.", rationale: "A day covers the longest outage." });
+    expect((sent[0]?.body as Posted).answers[0]).not.toHaveProperty("accepted");
   });
 
-  it("leaves a one-way choice for a person to make", async () => {
+  it("leaves a one-way choice for a person to make, and says how many wait", async () => {
     const { view, item } = batchView();
     const first = item.batch.items[0];
     if (!first) {
       throw new Error("empty batch");
     }
-    first.escalation_reason = "one_way";
+    first.reversibility = "one_way";
     const sent = serveApi(() => ({ status: 201 }));
     show(view, undefined, "questions");
     const group = screen.getByRole("group", { name: first.text });
     for (const radio of within(group).getAllByRole("radio")) {
       expect((radio as HTMLInputElement).checked).toBe(false);
     }
+    expect(screen.getByRole("status").textContent).toBe("1 one-way question waits for your own choice, and is not sent until you choose.");
     await userEvent.click(screen.getByRole("button", { name: "Send 1 of 2 answers" }));
     await waitFor(() => expect(sent).toHaveLength(1));
-    expect(sent[0]?.path).not.toContain(first.id);
+    expect((sent[0]?.body as Posted).answers.map((answer) => answer.question)).not.toContain(first.id);
+  });
+
+  // The golden's batch holds a question whose category the decision policy keeps from an orchestrator, so its
+  // answer is one-way though its reason says nothing of it.
+  it("holds the golden's one-way question back until a person chooses it", async () => {
+    const view = goldenNeedsYou();
+    const { batch } = itemOf(view, "questions");
+    const oneWay = batch.items.find((question) => question.reversibility === "one_way");
+    expect(oneWay?.escalation_reason).not.toBe("one_way");
+    const sent = serveApi(() => ({ status: 201 }));
+    show(view, undefined, "questions");
+    expect(screen.getByRole("button", { name: "Send 1 of 2 answers" })).toBeTruthy();
+    await userEvent.click(within(screen.getByRole("group", { name: oneWay?.text })).getByRole("radio", { name: /^Keep the budget/ }));
+    await userEvent.click(screen.getByRole("button", { name: "Send 2 answers" }));
+    await waitFor(() => expect(sent).toHaveLength(1));
+    expect((sent[0]?.body as Posted).answers.find((answer) => answer.question === oneWay?.id)).toMatchObject({ accepted: true });
   });
 
   // A send counts what it sends, so each question it counts must show what it will send.
@@ -447,8 +481,8 @@ describe("a batch of questions", () => {
     expect(own.closest("label")?.textContent).toContain("Recommended");
     expect((within(group).getByRole("textbox", { name: "Your answer" }) as HTMLTextAreaElement).value).toBe("Keep the budget, capped at three");
     await userEvent.click(screen.getByRole("button", { name: "Send 2 answers" }));
-    await waitFor(() => expect(sent).toHaveLength(2));
-    expect(sent[0]?.body).toMatchObject({ answer: "Keep the budget, capped at three" });
+    await waitFor(() => expect(sent).toHaveLength(1));
+    expect((sent[0]?.body as Posted).answers[0]).toMatchObject({ question: first.id, accepted: true });
   });
 
   it("keeps a one-way choice unchosen, with a recommendation that is no option ready in the box", async () => {
@@ -457,7 +491,7 @@ describe("a batch of questions", () => {
     if (!first) {
       throw new Error("empty batch");
     }
-    first.escalation_reason = "one_way";
+    first.reversibility = "one_way";
     first.recommendation = "Keep the budget, capped at three";
     show(view, undefined, "questions");
     const group = screen.getByRole("group", { name: first.text });
@@ -476,7 +510,7 @@ describe("a batch of questions", () => {
     if (!first) {
       throw new Error("empty batch");
     }
-    first.escalation_reason = "one_way";
+    first.reversibility = "one_way";
     item.batch.items = [first];
     show(view, undefined, "questions");
     expect(screen.getByRole("button", { name: "Send 0 of 1 answer" })).toBeTruthy();

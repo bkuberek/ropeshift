@@ -96,6 +96,7 @@ func WebRoutes() []WebRoute {
 		{http.MethodPost, "/v1/questions", "question record"},
 		{http.MethodPost, "/v1/questions/{id}/dismiss", "question dismiss"},
 		{http.MethodPost, "/v1/questions/{id}/answer", "question answer"},
+		{http.MethodPost, "/v1/batches/{id}/answers", "question answer-batch"},
 		{http.MethodPost, "/v1/decisions", "decision record"},
 		{http.MethodPost, "/v1/decisions/{id}/overturn", "decision overturn"},
 		{http.MethodPost, "/v1/approvals/{id}/decide", "approval approve"},

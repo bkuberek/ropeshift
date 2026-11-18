@@ -64,6 +64,7 @@ import {
 } from "./admin";
 import {
   actOnWork,
+  answerBatch,
   answerQuestion,
   changePassphrase,
   confirmRevision,
@@ -179,6 +180,7 @@ const callers: Record<string, Caller> = {
   "POST /v1/projects/{project}/questions": step("recordQuestion", () => recordQuestion({ id: "q-1", text: "Which currency?" })),
   "POST /v1/projects/{project}/questions/{id}/dismiss": step("dismissQuestion", () => dismissQuestion("q-1")),
   "POST /v1/projects/{project}/questions/{id}/answer": step("answerQuestion", () => answerQuestion("q-1", "Two retries.")),
+  "POST /v1/projects/{project}/batches/{id}/answers": step("answerBatch", () => answerBatch("batch-1", [{ question: "q-1", accepted: true }])),
   "POST /v1/projects/{project}/decisions": step("recordDecision", () => recordDecision({ id: "d-1", status: "decided", statement: "Retry twice." })),
   "POST /v1/projects/{project}/decisions/{id}/overturn": step("overturnDecision", () => overturnDecision("d-1", { id: "d-2", statement: "Retry three times." })),
   "POST /v1/projects/{project}/approvals/{id}/decide": step("decideApproval", () => decideApproval("a-1", "digest", true, "")),

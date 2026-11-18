@@ -11,7 +11,14 @@ export type QuestionItem = {
   blocking?: boolean;
   options?: string[];
   recommendation?: string;
+  // recommendation_rationale is why the recommendation is the one to choose. Accepting the recommendation records
+  // it as the decision's rationale.
+  recommendation_rationale?: string;
   escalation_reason?: string;
+  // reversibility is what the answer will be: `one_way` when the question reached a member for a one-way choice or
+  // its category is one the decision policy keeps from an orchestrator, and `reversible` otherwise. A one-way answer
+  // is never chosen for a member.
+  reversibility?: "reversible" | "one_way";
   citations?: string[];
   // scope is what an answer binds: the record the question is about. scope_title is that record's title, absent
   // when the ledger holds no such record or its title only repeats the ID, so the scope shows alone.
@@ -415,9 +422,12 @@ export type Question = {
   asked_by?: string;
   options?: string[];
   recommendation?: string;
+  recommendation_rationale?: string;
   escalation_reason?: string;
   ladder_trace?: LadderStep[];
   claimed_by?: string;
+  // reversibility is what an answer to the question will be, as a batch's item states it.
+  reversibility?: "reversible" | "one_way";
   // scope is what an answer binds: the record the question is about. scope_title is that record's title, absent
   // when the ledger holds no such record or its title only repeats the ID, so the scope shows alone.
   scope?: string;

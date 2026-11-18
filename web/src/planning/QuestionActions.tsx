@@ -18,7 +18,9 @@ const itemOf = (question: Question): QuestionItem => ({
   blocking: question.blocking,
   options: question.options,
   recommendation: question.recommendation,
+  recommendation_rationale: question.recommendation_rationale,
   escalation_reason: question.escalation_reason,
+  reversibility: question.reversibility,
 });
 
 // AnswerForm answers one question in place, through the control Needs you answers through, and so with the

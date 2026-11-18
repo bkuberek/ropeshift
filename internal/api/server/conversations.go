@@ -470,7 +470,7 @@ func questionEntry(tx ports.ReadTx, view api.QuestionView) (api.TalkEntry, error
 	if len(events) != 0 {
 		at = events[0].RecordedAt
 	}
-	held := api.TalkQuestion{Question: question, Batch: question.BatchID, Scope: view.Scope, ScopeTitle: view.ScopeTitle}
+	held := api.TalkQuestion{Question: question, Batch: question.BatchID, Scope: view.Scope, ScopeTitle: view.ScopeTitle, Reversibility: view.Reversibility}
 	if question.DecisionID != "" {
 		decided, err := tx.EventsAbout(ledger.Subject{Kind: questions.SubjectDecision, ID: question.DecisionID})
 		if err != nil {

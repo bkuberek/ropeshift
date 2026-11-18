@@ -96,11 +96,15 @@ func (h *handler) showQuestion(w http.ResponseWriter, r *http.Request) {
 // questionViews answers questions with the scope an answer to each takes, from the record it is about, and the
 // title of that record, read in the read that read them, once for each kind of scope they hold.
 func questionViews(tx ports.ReadTx, rows []questions.Question) ([]api.QuestionView, error) {
+	policy, err := control.DecisionPolicy(tx)
+	if err != nil {
+		return nil, err
+	}
 	views := make([]api.QuestionView, 0, len(rows))
 	scopes := make([]string, 0, len(rows))
 	for _, row := range rows {
 		scope := questions.ScopeOf(row.SubjectKind, row.SubjectID)
-		views = append(views, api.QuestionView{Question: row, Scope: scope})
+		views = append(views, api.QuestionView{Question: row, Scope: scope, Reversibility: policy.AnswerReversibility(row)})
 		scopes = append(scopes, scope)
 	}
 	titles, err := control.ScopeTitles(tx, scopes)

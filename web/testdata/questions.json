@@ -43,6 +43,7 @@
       ],
       "recommendation": "Keep the budget",
       "recommendation_rationale": "The budget is already approved.",
+      "reversibility": "reversible",
       "rung": 5,
       "status": "needs_human",
       "text": "Should the budget hold across restarts?"
@@ -51,7 +52,8 @@
       "asked_by": "lane-asking",
       "batch_id": "generated-1",
       "categories": [
-        "product"
+        "product",
+        "security"
       ],
       "escalation_reason": "scope_change",
       "id": "question-2",
@@ -78,6 +80,7 @@
       ],
       "recommendation": "Keep the budget",
       "recommendation_rationale": "The budget is already approved.",
+      "reversibility": "one_way",
       "rung": 5,
       "status": "needs_human",
       "text": "May the <img src=x onerror=alert(1)><script>alert(2)</script> stay?"
@@ -89,6 +92,7 @@
       ],
       "id": "question-review",
       "normalized_hash": "sha256:9fb7f63c4e67e74a3e575ee434beec99577e65a4175964afefcddfd4940f4643",
+      "reversibility": "one_way",
       "rung": 1,
       "scope": "plan:generated-2",
       "scope_title": "Write the docs",

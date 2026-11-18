@@ -1005,6 +1005,7 @@
               ],
               "id": "question-review",
               "normalized_hash": "sha256:9fb7f63c4e67e74a3e575ee434beec99577e65a4175964afefcddfd4940f4643",
+              "reversibility": "one_way",
               "rung": 1,
               "scope": "plan:generated-37",
               "scope_title": "Write the docs",

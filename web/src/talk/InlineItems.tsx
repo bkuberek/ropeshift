@@ -101,7 +101,7 @@ function RequestItem({ entry, after }: ItemProps) {
 
 // batchOf makes the batch a question reaches a person in, which the question form reads, with what its answer
 // binds as Needs you names it.
-function batchOf({ question, batch, scope, scope_title }: TalkQuestion): Batch {
+function batchOf({ question, batch, scope, scope_title, reversibility }: TalkQuestion): Batch {
   return {
     batch: { id: batch || question.id, status: question.status, opened_at: 0, closes_at: 0 },
     items: [
@@ -112,7 +112,9 @@ function batchOf({ question, batch, scope, scope_title }: TalkQuestion): Batch {
         blocking: question.blocking,
         options: question.options,
         recommendation: question.recommendation,
+        recommendation_rationale: question.recommendation_rationale,
         escalation_reason: question.escalation_reason,
+        reversibility,
         scope,
         scope_title,
       },

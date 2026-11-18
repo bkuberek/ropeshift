@@ -38,11 +38,14 @@ type QuestionList struct {
 }
 
 // QuestionView is a question as a read answers it. Scope is the scope an answer to it takes, from the record it is
-// about (questions.ScopeOf), and ScopeTitle the title of that record, as DecisionView says.
+// about (questions.ScopeOf), and ScopeTitle the title of that record, as DecisionView says. Reversibility is what an
+// answer to it will be, by the rule an item of a batch states it by (questions.Policy.AnswerReversibility), so no
+// surface that answers a question chooses a one-way answer for a member.
 type QuestionView struct {
 	questions.Question
-	Scope      string `json:"scope,omitempty"`
-	ScopeTitle string `json:"scope_title,omitempty"`
+	Scope         string `json:"scope,omitempty"`
+	ScopeTitle    string `json:"scope_title,omitempty"`
+	Reversibility string `json:"reversibility,omitempty"`
 }
 
 // QuestionBatch is a delivered batch as a read answers it: what still waits for a member in it.

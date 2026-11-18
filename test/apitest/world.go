@@ -531,7 +531,9 @@ func Populate(w *World, clock *Clock) {
 	clock.Advance(time.Minute)
 
 	blocking := w.Escalated("Should the budget hold across restarts?", []string{questions.CategoryProduct}, true)
-	w.Escalated("May the "+WorldHostileBit+" stay?", []string{questions.CategoryProduct}, false)
+	// The decision policy keeps security from an orchestrator, so the answer to this one is one-way, and the batch
+	// shows it waiting for its own choice beside the recommendation of the question above.
+	w.Escalated("May the "+WorldHostileBit+" stay?", []string{questions.CategoryProduct, questions.CategorySecurity}, false)
 	clock.Advance(time.Minute)
 	w.Deliver()
 	clock.Advance(time.Minute)

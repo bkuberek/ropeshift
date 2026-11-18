@@ -61,6 +61,7 @@ export const paths = {
   outline: (lane: string) => project(`/lanes/${encodeURIComponent(lane)}/outline`),
   questions: () => project("/questions"),
   answer: (id: string) => project(`/questions/${encodeURIComponent(id)}/answer`),
+  batchAnswers: (id: string) => project(`/batches/${encodeURIComponent(id)}/answers`),
   dismiss: (id: string) => project(`/questions/${encodeURIComponent(id)}/dismiss`),
   decisions: () => project("/decisions"),
   overturn: (id: string) => project(`/decisions/${encodeURIComponent(id)}/overturn`),
@@ -296,6 +297,23 @@ export async function answerQuestion(id: string, answer: string, place?: Place, 
     ...(place ? { place } : {}),
     ...(supersedes ? { supersedes } : {}),
   });
+}
+
+// BatchAnswer is one answer of a batch request. An accepted one records the question's recommendation, with its
+// rationale and the item's citations, and states nothing else of its own. Any other is the member's own answer,
+// and it says why. An accepted one names the reversibility its item stated when it was read, and the daemon refuses
+// the whole request when a policy published since says otherwise, so a one-way decision nobody chose is never recorded.
+export type BatchAnswer =
+  | { question: string; accepted: true; expect_reversibility?: "reversible" | "one_way"; supersedes?: string }
+  | { question: string; accepted?: false; answer: string; rationale: string; supersedes?: string };
+
+// answerBatch answers the questions of one batch in one request, as `ropeshift question answer-batch` does. Every
+// answer is recorded or none is, and a refusal names the first one it met. The decision of each answer takes its
+// name from its question, so a second send of the same answers finds the first.
+export async function answerBatch(batch: string, answers: BatchAnswer[], place?: Place): Promise<RecordedDecision[]> {
+  const items = await Promise.all(answers.map(async (answer) => ({ ...answer, id: await decisionIDOf(answer.question) })));
+  const recorded = await call<{ decisions: RecordedDecision[] } | undefined>("POST", paths.batchAnswers(batch), { answers: items, ...(place ? { place } : {}) });
+  return recorded?.decisions ?? [];
 }
 
 // recordQuestion records a question as it is, as `ropeshift question record` does. The ID is the client's, so a

@@ -2,6 +2,7 @@ package server_test
 
 import (
 	"errors"
+	"maps"
 	"net/http"
 	"strings"
 	"testing"
@@ -29,6 +30,42 @@ func aDeliveredBatch(t *testing.T, ids ...string) (*apitest.Daemon, api.Question
 		t.Fatalf("batches %+v: %v", batches, err)
 	}
 	return d, batches[0]
+}
+
+// Every read of a question states what an answer to it will be, by the rule a batch's item states it by: a category
+// the decision policy keeps from an orchestrator makes the answer one-way, whatever the question's reason, so no
+// surface chooses it for a member.
+func TestEveryReadOfAQuestionStatesWhatItsAnswerWillBe(t *testing.T) {
+	t.Parallel()
+	d, _, _ := aWorld(t)
+	want := map[string]string{"question-1": questions.Reversible, "question-2": questions.OneWay}
+	listed := map[string]string{}
+	rows, err := d.Client.Questions(t.Context(), api.RecordFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range rows {
+		listed[row.ID] = row.Reversibility
+	}
+	if !maps.Equal(listed, want) {
+		t.Errorf("the list states %v, want %v", listed, want)
+	}
+	for id, reversibility := range want {
+		if row, err := d.Client.Question(t.Context(), id); err != nil || row.Reversibility != reversibility {
+			t.Errorf("%s reads %q, want %q: %v", id, row.Reversibility, reversibility, err)
+		}
+	}
+	batched := map[string]string{}
+	for _, item := range readView[api.NeedsYou](t, d, api.ViewNeedsYou, "").Items {
+		if item.Batch != nil {
+			for _, question := range item.Batch.Items {
+				batched[question.ID] = question.Reversibility
+			}
+		}
+	}
+	if !maps.Equal(batched, want) {
+		t.Errorf("the batch states %v, want %v", batched, want)
+	}
 }
 
 func TestABatchIsAnsweredOnceThroughItsRoute(t *testing.T) {
