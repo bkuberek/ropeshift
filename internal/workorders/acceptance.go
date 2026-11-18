@@ -212,6 +212,9 @@ type AcceptanceView struct {
 	// PullRequest is the pull request the work lands through, as a worker last read it, when its repository
 	// reviews through pull requests (ADR-0020).
 	PullRequest *ledger.PullRequest `json:"pull_request,omitempty"`
+	// CI is where that pull request's head stands against its repository's CI limits: the expected time or none, the
+	// time elapsed, and the time a run has waited for a runner (ADR-0037).
+	CI *ledger.CIWatch `json:"ci,omitempty"`
 	// Integrations are the approvals of this work's reviewed commits for merge, and the merges that followed
 	// them, oldest first. While the work is `integrating`, Why says what its merge waits on.
 	Integrations []ledger.IntegrationRecord `json:"integrations,omitempty"`

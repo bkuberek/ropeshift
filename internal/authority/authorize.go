@@ -134,6 +134,10 @@ const (
 	// (FR-TPL-5). It writes files at a path a caller chooses, on a machine that is a person's, so no agent
 	// has this, and no row below may ever grant it.
 	ActionWriteTemplates Action = "template.write"
+	// ActionAnswerCI is a member's word on CI that has not finished: waiting longer for a head, or rerunning its
+	// checks. It starts no agent, and it spends a forge's minutes and a person's patience, so no agent has this, and no
+	// row below may ever grant it.
+	ActionAnswerCI Action = "ci.answer"
 	// ActionRaiseMergeAuthority gives a repository a merge authority that leaves more to ropeshift, and
 	// ActionReviewPullRequest moves its review target to a pull request. Each is a consent operation no
 	// delegate policy may exempt (ADR-0024), so only a member has them.
@@ -184,7 +188,7 @@ func Actions() []Action {
 		ActionSetRepository, ActionRegisterRepository, ActionRegisterManifest, ActionManageProject, ActionRecordMerge, ActionMerge, ActionDecideMerge, ActionChangeRoster,
 		ActionRaiseMergeAuthority, ActionReviewPullRequest, ActionDecideOneWay, ActionManageSessions, ActionBackupInstallation, ActionConfirmCard,
 		ActionConverse, ActionBackupProject, ActionSetLaneCaps, ActionMessageOrchestrator, ActionStartReview, ActionPlanAdoption, ActionRestructure,
-		ActionWriteTemplates, ActionPublishInstallationPolicy,
+		ActionWriteTemplates, ActionPublishInstallationPolicy, ActionAnswerCI,
 	}
 }
 

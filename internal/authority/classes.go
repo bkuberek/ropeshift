@@ -101,6 +101,8 @@ const (
 	OpPlanConfirmRevision                 = "plan.confirm_revision"
 	OpPlanRevise                          = "plan.revise"
 	OpWorkOrderDecisionRework             = "work_order.decision_rework"
+	OpWorkOrderCIWait                     = "work_order.ci_wait"
+	OpWorkOrderCIRerun                    = "work_order.ci_rerun"
 	OpQuestionRecord                      = "question.record"
 	OpQuestionDismiss                     = "question.dismiss"
 	OpQuestionAnswer                      = "question.answer"
@@ -268,6 +270,10 @@ var operations = append(onInstallation(
 	memberOnly(OpPlanRevise, "Revise a plan", ActionApprovePlan),
 	// Rework for the decisions a plan's revision lists costs a lane and a review apiece, so a member chooses it.
 	memberOnly(OpWorkOrderDecisionRework, "Rework work for a decision", ActionApprovePlan),
+	// Waiting longer for CI and rerunning it answer an item that asks a person, and start no agent, so a delegate's
+	// call is refused, as the item is the member's.
+	memberOnly(OpWorkOrderCIWait, "Wait longer for CI", ActionAnswerCI),
+	memberOnly(OpWorkOrderCIRerun, "Rerun CI", ActionAnswerCI),
 	consent(OpQuestionRecord, "Record a question"),
 	consent(OpQuestionDismiss, "Dismiss a question", ActionDismissQuestion),
 	oneWay(consent(OpQuestionAnswer, "Answer a question", ActionAnswerQuestion)),

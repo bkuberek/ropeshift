@@ -90,6 +90,11 @@ func StandingIn(tx ports.ReadTx, id string) (workorders.AcceptanceView, error) {
 	case !errors.Is(err, ports.ErrNotFound):
 		return workorders.AcceptanceView{}, err
 	}
+	if view.PullRequest != nil {
+		if view.CI, err = CIWatchOf(tx, id); err != nil {
+			return workorders.AcceptanceView{}, err
+		}
+	}
 	return view, nil
 }
 
