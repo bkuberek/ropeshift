@@ -708,6 +708,42 @@ suite.each(Object.entries(sizes))("at %s width", (size, viewport) => {
     );
 
     it(
+      "the batch of questions in Needs you, with a one-way question waiting, with an answer of a member's own that asks why, and with a refusal, meets WCAG 2.2 A and AA",
+      async () => {
+        const context = await browser.newContext({ viewport, colorScheme: theme, reducedMotion: "reduce" });
+        await context.route(/\/v1\//, answer);
+        const page = await context.newPage();
+        const found: string[] = [];
+        const settle = async () => {
+          await page.mouse.move(0, 0);
+          await page.waitForTimeout(600);
+        };
+        await page.goto(`${base}/needs-you?item=questions%3Agenerated-7`);
+        await ready(page);
+        const group = page.getByRole("group", { name: "Should the budget hold across restarts?" });
+        await group.waitFor();
+        await page.getByRole("status").filter({ hasText: "one-way" }).waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `batch with a one-way question waiting ${violation}`));
+        await group.getByRole("radio", { name: "Drop it" }).check();
+        await group.getByRole("textbox", { name: "Why" }).waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `batch with an answer that asks why ${violation}`));
+        await group.getByRole("textbox", { name: "Why" }).fill("It costs a restart to keep.");
+        await page.route(/\/v1\/projects\/default\/batches\/[^/]+\/answers$/, (route) =>
+          route.fulfill({ status: 409, contentType: "application/json", body: JSON.stringify({ error: { code: "resolved", message: "answer 1, for question question-1: this question already has its answer" } }) }),
+        );
+        await page.getByRole("button", { name: "Send 1 of 2 answers" }).click();
+        await page.getByRole("alert").waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `batch with a refusal ${violation}`));
+        await context.close();
+        expect(found.map((line) => `${size} ${theme} ${line}`)).toEqual([]);
+      },
+      120_000,
+    );
+
+    it(
       "the record decision dialog, empty, with its errors, in its review, and with a refusal, meets WCAG 2.2 A and AA",
       async () => {
         const context = await browser.newContext({ viewport, colorScheme: theme, reducedMotion: "reduce" });

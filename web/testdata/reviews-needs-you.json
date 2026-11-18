@@ -301,7 +301,8 @@
           },
           {
             "categories": [
-              "product"
+              "product",
+              "security"
             ],
             "citations": [
               "decision:decision-1"
@@ -314,7 +315,7 @@
             ],
             "recommendation": "Keep the budget",
             "recommendation_rationale": "The budget is already approved.",
-            "reversibility": "reversible",
+            "reversibility": "one_way",
             "text": "May the <img src=x onerror=alert(1)><script>alert(2)</script> stay?"
           }
         ]

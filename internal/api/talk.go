@@ -122,6 +122,8 @@ type TalkQuestion struct {
 	// ScopeTitle the title of that record, as QuestionView says.
 	Scope      string `json:"scope,omitempty"`
 	ScopeTitle string `json:"scope_title,omitempty"`
+	// Reversibility is what an answer to the question will be, as QuestionView says.
+	Reversibility string `json:"reversibility,omitempty"`
 }
 
 // TalkFromAssistant is the kind of sender the assistant is in a conversation.

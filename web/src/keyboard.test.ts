@@ -319,6 +319,12 @@ const paths: Record<string, KeyPath> = {
       await k.activate(page.getByRole("button", { name: "Send this answer" }));
     },
   },
+  // The batch holds one question whose answer can be taken back, which starts chosen, and one that is one-way, which
+  // waits for its own choice, so the one press sends the first in one request.
+  "POST /v1/projects/{project}/batches/{id}/answers": {
+    sent: post(/\/batches\/[^/]+\/answers$/, expect.objectContaining({ answers: [expect.objectContaining({ question: "question-1", accepted: true })] })),
+    run: decide("2 questions", "Send 1 of 2 answers"),
+  },
   "POST /v1/projects/{project}/questions/{id}/dismiss": {
     sent: post(/^\/v1\/projects\/default\/questions\/question-1\/dismiss$/),
     run: async (k, page) => {
