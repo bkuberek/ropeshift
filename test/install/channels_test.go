@@ -170,10 +170,14 @@ exit $code`, true)
 	})
 }
 
-// packageScript installs a package, asks both commands their version, and removes it again. No
+// packageScript runs after a package is installed. It reads the git dependency from the package's own
+// metadata, because the containers have no network to install git from: the package is installed with
+// its dependencies not checked, and git's presence is the runtime check's to enforce. It asks both
+// commands their version, and removes the package again. No
 // package installs a service: `ropeshift service install` does that on these channels. The license is
 // read from the package's own file list, because Debian's slim image skips /usr/share/doc on install.
 const packageScript = `
+$REQUIRES | grep -qF "$GIT_DEPENDENCY" && echo 'GIT DEPENDENCY ok'
 BIN=/usr/bin
 ` + versionScript + `
 ` + uiScript + `
@@ -187,7 +191,7 @@ func assertPackage(t *testing.T, out, want string) {
 	t.Helper()
 	assertVersions(t, out, want, true)
 	assertUILine(t, out)
-	for _, line := range []string{"LINK ok", "LICENSE ok", "UNIT none", "REMOVED ok"} {
+	for _, line := range []string{"GIT DEPENDENCY ok", "LINK ok", "LICENSE ok", "UNIT none", "REMOVED ok"} {
 		if !strings.Contains(out, line) {
 			t.Errorf("missing %q:\n%s", line, out)
 		}
@@ -197,8 +201,11 @@ func assertPackage(t *testing.T, out, want string) {
 func TestTheDebianPackage(t *testing.T) {
 	snap := loadSnapshot(t)
 	deb := filepath.Base(snap.only(t, "*_"+containerArch(t)+".deb"))
-	c := container{image: "debian:bookworm-slim", mounts: []mount{{snap.dir, "/dist"}}, env: []string{"LIST=dpkg -L", "REMOVE=dpkg -r", "CONTENTS=dpkg-deb -c /dist/" + deb}}
-	out, _ := c.run(t, "set -e\ndpkg -i /dist/"+deb+packageScript, false)
+	c := container{image: "debian:bookworm-slim", mounts: []mount{{snap.dir, "/dist"}}, env: []string{
+		"LIST=dpkg -L", "REMOVE=dpkg -r", "CONTENTS=dpkg-deb -c /dist/" + deb,
+		"REQUIRES=dpkg-deb -f /dist/" + deb + " Depends", "GIT_DEPENDENCY=git (>= 1:2.31.0)",
+	}}
+	out, _ := c.run(t, "set -e\ndpkg -i --force-depends /dist/"+deb+packageScript, false)
 	assertPackage(t, out, snap.version)
 }
 
@@ -206,8 +213,11 @@ func TestTheRPMPackage(t *testing.T) {
 	snap := loadSnapshot(t)
 	rpmArch := map[string]string{"arm64": "aarch64", "amd64": "x86_64"}[containerArch(t)]
 	rpm := filepath.Base(snap.only(t, "*."+rpmArch+".rpm"))
-	c := container{image: "fedora:42", mounts: []mount{{snap.dir, "/dist"}}, env: []string{"LIST=rpm -ql", "REMOVE=rpm -e", "CONTENTS=rpm -qlp /dist/" + rpm}}
-	out, _ := c.run(t, "set -e\nrpm -i /dist/"+rpm+packageScript, false)
+	c := container{image: "fedora:42", mounts: []mount{{snap.dir, "/dist"}}, env: []string{
+		"LIST=rpm -ql", "REMOVE=rpm -e", "CONTENTS=rpm -qlp /dist/" + rpm,
+		"REQUIRES=rpm -qp --requires /dist/" + rpm, "GIT_DEPENDENCY=git >= 2.31.0",
+	}}
+	out, _ := c.run(t, "set -e\nrpm -i --nodeps /dist/"+rpm+packageScript, false)
 	assertPackage(t, out, snap.version)
 }
 
