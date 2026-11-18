@@ -5,7 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
+
+	"ropeshift.com/ropeshift/internal/ledger"
 )
 
 // PolicyNotify says which channels a workspace tells a member through, beyond the web UI, which sends
@@ -19,6 +22,13 @@ var ErrBadNotifyPolicy = errors.New("invalid notify policy")
 // never reaches the ledger.
 var secretEnvName = regexp.MustCompile(`^[A-Z][A-Z0-9_]{0,63}$`)
 
+// The channels a notice reaches, as the ledger's record of a delivery names them.
+const (
+	NoticeChannelWeb     = "web"
+	NoticeChannelDesktop = "desktop"
+	NoticeChannelWebhook = "webhook"
+)
+
 // NotifyPolicy is the body of a notify policy version. It holds where a notice goes and never a secret:
 // the key that signs a delivery stays in the daemon's environment, and this names the variable.
 type NotifyPolicy struct {
@@ -26,6 +36,52 @@ type NotifyPolicy struct {
 	Desktop          bool   `toml:"desktop" json:"desktop"`
 	WebhookURL       string `toml:"webhook_url" json:"webhook_url,omitempty"`
 	WebhookSecretEnv string `toml:"webhook_secret_env" json:"webhook_secret_env,omitempty"`
+	// SpendChannels chooses, for each kind of spend notice, the channels beyond the web UI that carry it (FR-SPEND-19). The
+	// web UI shows every notice whatever is chosen, and a kind with no entry reaches the web UI only. A channel is chosen
+	// for a kind and turned on above, so naming the desktop here and leaving `desktop` off is a mistake the policy refuses.
+	SpendChannels map[string][]string `toml:"spend_channels" json:"spend_channels,omitempty"`
+}
+
+// Sends says a channel carries a notice of this kind. A spend notice goes to the web UI, and to the channels the policy
+// chose for its kind and no others, so a webhook a member turned on for the questions that wait for them hears no spend
+// alert they did not ask for. A notice of any other kind goes to every channel the policy turns on, as it always has.
+func (p NotifyPolicy) Sends(kind, channel string) bool {
+	if !ledger.IsSpendNotice(kind) || channel == NoticeChannelWeb {
+		return true
+	}
+	return slices.Contains(p.SpendChannels[kind], channel)
+}
+
+// checkSpendChannels refuses a choice that cannot be kept: a kind that is no spend kind, a channel this build does not
+// have, the email no mailer sends, and a channel the policy leaves off.
+func (p NotifyPolicy) checkSpendChannels() error {
+	kinds := make([]string, 0, len(p.SpendChannels))
+	for kind := range p.SpendChannels {
+		kinds = append(kinds, kind)
+	}
+	slices.Sort(kinds)
+	for _, kind := range kinds {
+		if !ledger.IsSpendNotice(kind) {
+			return fmt.Errorf("%w: spend_channels names %q, and the spend kinds are %s", ErrBadNotifyPolicy, kind, strings.Join(ledger.SpendNoticeKinds, ", "))
+		}
+		for _, channel := range p.SpendChannels[kind] {
+			switch {
+			case channel == NoticeChannelWeb:
+			case channel == NoticeChannelDesktop && !p.Desktop:
+				return fmt.Errorf("%w: spend_channels sends %s to the desktop, and desktop is not turned on", ErrBadNotifyPolicy, kind)
+			case channel == NoticeChannelDesktop:
+			case channel == NoticeChannelWebhook && p.WebhookURL == "":
+				return fmt.Errorf("%w: spend_channels sends %s to the webhook, and webhook_url is not set", ErrBadNotifyPolicy, kind)
+			case channel == NoticeChannelWebhook:
+			case channel == "email":
+				return fmt.Errorf("%w: spend_channels sends %s by email, which needs a mailer this build does not have", ErrBadNotifyPolicy, kind)
+			default:
+				return fmt.Errorf("%w: spend_channels sends %s to %q, and the channels are %s, %s, and %s", ErrBadNotifyPolicy, kind, channel,
+					NoticeChannelWeb, NoticeChannelDesktop, NoticeChannelWebhook)
+			}
+		}
+	}
+	return nil
 }
 
 // NotifyPolicyFile is the table a member publishes.
@@ -85,9 +141,11 @@ func (p NotifyPolicy) Check() error {
 		}
 	}
 	if p.WebhookURL != "" {
-		return checkWebhookURL(p.WebhookURL)
+		if err := checkWebhookURL(p.WebhookURL); err != nil {
+			return err
+		}
 	}
-	return nil
+	return p.checkSpendChannels()
 }
 
 // NewNotifyPolicyVersion stores a draft under a generated ID.

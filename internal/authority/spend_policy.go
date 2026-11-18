@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"ropeshift.com/ropeshift/internal/ledger"
 )
 
 // PolicySpend holds the values that stop agent sessions from spending on waste (ADR-0037). Every value is a
@@ -416,6 +418,23 @@ func (p SpendPolicy) Set(key, value string) (SpendPolicy, error) {
 		return p, err
 	}
 	return out, nil
+}
+
+// ChangesTo names the keys a later version changed, with each value before and after, in the order the keys are listed. A
+// notice that says a setting changed names these and the member who changed them (FR-SPEND-19).
+func (p SpendPolicy) ChangesTo(next SpendPolicy) []ledger.SpendKeyChange {
+	return keyChanges(SpendPolicyKeys, p.Text, next.Text)
+}
+
+// keyChanges lists the keys whose text differs between two readings of a policy.
+func keyChanges(keys []string, before, after func(string) string) []ledger.SpendKeyChange {
+	var out []ledger.SpendKeyChange
+	for _, key := range keys {
+		if was, now := before(key), after(key); was != now {
+			out = append(out, ledger.SpendKeyChange{Key: key, Before: was, After: now})
+		}
+	}
+	return out
 }
 
 // Text is the value of a key as Set reads it, and empty for a key nobody offers.
