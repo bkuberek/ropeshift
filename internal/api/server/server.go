@@ -197,6 +197,8 @@ type handler struct {
 	// templateWrites records a member's requests that a worker write a shape's starting files, which only the
 	// first project's handler holds.
 	templateWrites *control.TemplateWrites
+	// forgeAccountReads records a member's requests that a worker read its forge account, held where templateWrites is.
+	forgeAccountReads *control.ForgeAccountReads
 }
 
 // New returns the versioned API. The installation's routes sit at the top, and each project's routes
@@ -223,6 +225,7 @@ func New(config Config) http.Handler {
 	home.lifecycle, home.router = control.NewProjects(config.Projects), projects
 	home.caps = control.NewLaneCaps(config.Installation, config.Profile, config.LocalWorker)
 	home.templateWrites = control.NewTemplateWrites(config.Installation, config.HeartbeatMs, config.LocalWorker).Reserving(config.Reserved...)
+	home.forgeAccountReads = control.NewForgeAccountReads(config.Installation, config.HeartbeatMs)
 	mux := http.NewServeMux()
 	home.installationRoutes(mux)
 	projects.registryRoutes(mux)

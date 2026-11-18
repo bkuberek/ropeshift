@@ -546,7 +546,10 @@ func (w *Workers) Desired(ctx context.Context, request ledger.DesiredRequest) (l
 	}
 	err = w.store.Installation(w.scope).Read(ctx, func(tx ports.SharedReadTx) error {
 		var err error
-		state.TemplateWrites, err = desiredTemplateWrites(tx, asked)
+		if state.TemplateWrites, err = desiredTemplateWrites(tx, asked); err != nil {
+			return err
+		}
+		state.ForgeAccountReads, err = desiredForgeAccountReads(tx, asked)
 		return err
 	})
 	if err != nil {

@@ -57,7 +57,8 @@ var clientPackages = map[string]bool{
 
 // sharedPackages are the top-level names of the application logic that the control plane and the worker share.
 var sharedPackages = map[string]bool{
-	"adoption": true,
+	"adoption":      true,
+	"projectremote": true,
 }
 
 // Classify names the layer of a package from its path inside the module.

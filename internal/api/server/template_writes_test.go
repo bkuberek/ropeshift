@@ -216,9 +216,8 @@ func TestARequestToWriteFilesIsRefusedBeforeItIsRecorded(t *testing.T) {
 	}
 }
 
-// A worker on protocol 4 is accepted, as NFR-COMPAT-2 says, and is offered no template write: the request for it
-// is refused with the upgrade it needs.
-func TestAWorkerOnProtocol4IsAcceptedAndTheRequestForItIsRefused(t *testing.T) {
+// A worker on protocol 4, which this build no longer serves, is refused its session and told to upgrade.
+func TestAWorkerOnProtocol4IsNoLongerServed(t *testing.T) {
 	d := apitest.Start(t)
 	token, err := d.Client.CreateJoinToken(t.Context())
 	if err != nil {
@@ -229,17 +228,8 @@ func TestAWorkerOnProtocol4IsAcceptedAndTheRequestForItIsRefused(t *testing.T) {
 		t.Fatal(err)
 	}
 	older := workerOf(t, d, credential.Credential)
-	session, err := older.OpenSession(t.Context(), "older", ledger.SessionRequest{Protocol: ledger.ProtocolTemplateWrites - 1})
-	if err != nil || session.Protocol != ledger.ProtocolTemplateWrites-1 {
-		t.Fatalf("a worker on protocol 4 is answered %+v (%v)", session, err)
-	}
-	_, err = d.Client.RequestTemplateWrite(t.Context(), "older", api.TemplateWrite{Shape: "monorepo", Path: "/srv/harbor"})
-	refusedWith(t, err, http.StatusBadRequest, api.CodeInvalid)
-	if want := "worker older speaks protocol 4; upgrade it to write files from the web UI"; !strings.Contains(err.Error(), want) {
-		t.Errorf("the refusal says %v, want %q", err, want)
-	}
-	if desired, err := older.Desired(t.Context(), "older", 0, nil); err != nil || len(desired.TemplateWrites) != 0 {
-		t.Errorf("a worker on protocol 4 is offered %+v (%v)", desired.TemplateWrites, err)
+	if _, err := older.OpenSession(t.Context(), "older", ledger.SessionRequest{Protocol: ledger.ProtocolTemplateWrites - 1}); err == nil || !strings.Contains(err.Error(), "upgrade the worker") {
+		t.Errorf("a worker on protocol 4 is answered %v", err)
 	}
 }
 

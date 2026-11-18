@@ -2,6 +2,7 @@ package ledger
 
 import (
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 )
@@ -52,11 +53,48 @@ const (
 // ErrInvalidTemplateWrite is the error of a template write no worker could be asked for.
 var ErrInvalidTemplateWrite = errors.New("invalid template write")
 
-// TemplateWriteRepository is a code repository a workspace names: its name, and the remote its clone at
-// repos/<name> comes from.
+// TemplateWriteRepository is a code repository a workspace names: its name, and either the remote its clone at
+// repos/<name> comes from, for an existing repository, or, for a new one, the files and first commit the worker
+// writes at repos/<name> and the optional remote it gives them: a URL to add as origin, or a repository to create.
 type TemplateWriteRepository struct {
-	Name   string `json:"name"`
-	Remote string `json:"remote"`
+	Name string `json:"name"`
+	// Remote is an existing repository's remote, which `make setup` clones from. A new repository has none.
+	Remote string `json:"remote,omitempty"`
+	// New says the worker writes the repository's files at repos/<name>, and gives it its own first commit when
+	// the request asks for one.
+	New bool `json:"new,omitempty"`
+	// URL and Create are a new repository's remote, at most one of them.
+	URL    string        `json:"url,omitempty"`
+	Create *RemoteCreate `json:"create,omitempty"`
+}
+
+// ProjectRemote is the remote a new repository asks for, absent when it asks for none.
+func (r TemplateWriteRepository) ProjectRemote() *ProjectRemote {
+	if r.URL == "" && r.Create == nil {
+		return nil
+	}
+	return &ProjectRemote{URL: r.URL, Create: r.Create}
+}
+
+// CheckRemote refuses the remote fields of a repository: a remote on an existing repository, which keeps only its
+// required remote, both a URL and a repository to create, and a remote CheckURL, CheckOwner, or the forge refuses.
+func (r TemplateWriteRepository) CheckRemote() error {
+	if !r.New {
+		if r.URL != "" || r.Create != nil {
+			return fmt.Errorf("%w: repository %s is existing, so it names its remote in remote and creates nothing", ErrInvalidProjectRemote, r.Name)
+		}
+		return nil
+	}
+	if r.Remote != "" {
+		return fmt.Errorf("%w: repository %s is new, so it names a url or a repository to create and no remote", ErrInvalidProjectRemote, r.Name)
+	}
+	if r.URL != "" && r.Create != nil {
+		return fmt.Errorf("%w: repository %s names a url or a repository to create, not both", ErrInvalidProjectRemote, r.Name)
+	}
+	if remote := r.ProjectRemote(); remote != nil {
+		return remote.Check()
+	}
+	return nil
 }
 
 // TemplateWriteRequest is what a member asks a worker to write: a shape's starting files into a folder on the
@@ -69,6 +107,59 @@ type TemplateWriteRequest struct {
 	Repositories []TemplateWriteRepository `json:"repositories,omitempty"`
 	Project      string                    `json:"project,omitempty"`
 	FirstCommit  bool                      `json:"first_commit,omitempty"`
+	// Remote is the remote of the folder's own repository: the monorepo, the repository, or the workspace's
+	// planning repository. It needs FirstCommit, because a remote needs a commit to push.
+	Remote *ProjectRemote `json:"remote,omitempty"`
+}
+
+// CheckRemotes refuses the remote fields of a request: a remote of the folder or a repository the first commit
+// does not back, `new` on a shape other than a workspace, and a remote CheckURL, CheckOwner, or the forge refuses.
+func (r TemplateWriteRequest) CheckRemotes() error {
+	if r.Remote != nil {
+		if err := r.Remote.Check(); err != nil {
+			return err
+		}
+	}
+	asked := r.Remote != nil
+	for _, repository := range r.Repositories {
+		if repository.New && r.Shape != "workspace" {
+			return fmt.Errorf("%w: a %s names no new code repositories; a workspace does", ErrInvalidProjectRemote, r.Shape)
+		}
+		if err := repository.CheckRemote(); err != nil {
+			return err
+		}
+		asked = asked || repository.ProjectRemote() != nil
+	}
+	if asked && !r.FirstCommit {
+		return fmt.Errorf("%w: a remote needs the first commit, which ropeshift pushes", ErrInvalidProjectRemote)
+	}
+	return nil
+}
+
+// HasRemotes says the request holds a field only a worker on ProtocolProjectRemotes reads.
+func (r TemplateWriteRequest) HasRemotes() bool {
+	if r.Remote != nil {
+		return true
+	}
+	for _, repository := range r.Repositories {
+		if repository.New || repository.URL != "" || repository.Create != nil {
+			return true
+		}
+	}
+	return false
+}
+
+// Creates says some repository of the request is created on a forge.
+func (r TemplateWriteRequest) Creates() bool {
+	if r.Remote != nil && r.Remote.Create != nil {
+		return true
+	}
+	for _, repository := range r.Repositories {
+		if repository.Create != nil {
+			return true
+		}
+	}
+	return false
 }
 
 // HasParentElement says a path, as it was sent and before any cleaning, holds a `..` element.
@@ -85,6 +176,7 @@ type DesiredTemplateWrite struct {
 	Project      string                    `json:"project,omitempty"`
 	Repositories []TemplateWriteRepository `json:"repositories,omitempty"`
 	FirstCommit  bool                      `json:"first_commit,omitempty"`
+	Remote       *ProjectRemote            `json:"remote,omitempty"`
 	ExpiresAt    int64                     `json:"expires_at"`
 }
 
@@ -107,6 +199,13 @@ type TemplateWriteReport struct {
 	// Clone says the folder is the top of a clone after the write.
 	Clone    bool     `json:"clone,omitempty"`
 	Commands []string `json:"commands,omitempty"`
+	// Remedy is the command a person runs on the worker to fix what a refusal names, when one does.
+	Remedy string `json:"remedy,omitempty"`
+	// Repositories are the repositories the worker made: the folder's own, at path ".", and each new code
+	// repository, at repos/<name>, with its commit, its remote, and the outcome of each step.
+	Repositories []RepositoryReport `json:"repositories,omitempty"`
+	// Remaining are the commands that finish what did not run: a repository to create, an origin to add, a push.
+	Remaining []string `json:"remaining,omitempty"`
 }
 
 // TemplateWriteRecord is a template write request as the installation holds it.
@@ -136,7 +235,7 @@ func (r TemplateWriteRecord) StateAt(now int64) TemplateWriteState {
 func (r TemplateWriteRecord) Desired() DesiredTemplateWrite {
 	return DesiredTemplateWrite{
 		ID: r.ID, Shape: r.Request.Shape, Path: r.Request.Path, Project: r.Request.Project,
-		Repositories: r.Request.Repositories, FirstCommit: r.Request.FirstCommit, ExpiresAt: r.ExpiresAt,
+		Repositories: r.Request.Repositories, FirstCommit: r.Request.FirstCommit, Remote: r.Request.Remote, ExpiresAt: r.ExpiresAt,
 	}
 }
 
@@ -153,6 +252,7 @@ type TemplateWriteView struct {
 	Project      string                    `json:"project,omitempty"`
 	Repositories []TemplateWriteRepository `json:"repositories,omitempty"`
 	FirstCommit  bool                      `json:"first_commit,omitempty"`
+	Remote       *ProjectRemote            `json:"remote,omitempty"`
 	State        TemplateWriteState        `json:"state"`
 	Report       *TemplateWriteReport      `json:"report,omitempty"`
 	ReportedAt   int64                     `json:"reported_at,omitempty"`
@@ -167,7 +267,7 @@ func (r TemplateWriteRecord) ViewAt(now int64, registrable bool) TemplateWriteVi
 	return TemplateWriteView{
 		ID: r.ID, Worker: r.Worker, RequestedBy: r.RequestedBy, RequestedAt: r.RequestedAt, ExpiresAt: r.ExpiresAt,
 		Shape: r.Request.Shape, Path: r.Request.Path, Project: r.Request.Project, Repositories: r.Request.Repositories,
-		FirstCommit: r.Request.FirstCommit, State: r.StateAt(now), Report: r.Report, ReportedAt: r.ReportedAt,
+		FirstCommit: r.Request.FirstCommit, Remote: r.Request.Remote, State: r.StateAt(now), Report: r.Report, ReportedAt: r.ReportedAt,
 		Registrable: registrable && r.Report != nil && r.Report.Clone,
 	}
 }

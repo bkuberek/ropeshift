@@ -13,8 +13,11 @@ import (
 // make a generation's credential and record a reply, and uploads from an assistant's run (ADR-0024). Version 4
 // adds the delegate that sent a lane's own layer: a desired lease's delegated layer, which the worker holds the
 // layer to (FR-AUTH-16). Version 5 adds template writes: desired state's template_writes, which ask a worker to
-// write a shape's starting files into a folder, and the worker route that reports one (FR-TPL-5).
-const ProtocolVersion = 5
+// write a shape's starting files into a folder, and the worker route that reports one (FR-TPL-5). Version 6 adds
+// a new project's remotes: a template write's remote fields, which ask a worker to add a URL as origin or to create
+// the repository on GitHub and push, the report's repositories, and desired state's forge_account_reads with the
+// worker route that reports one (FR-TPL-6).
+const ProtocolVersion = 6
 
 // ProtocolAssistants is the oldest protocol a worker runs the assistant on.
 const ProtocolAssistants = 3
@@ -532,6 +535,9 @@ type DesiredState struct {
 	// TemplateWrites are the requests to write a shape's starting files that name this worker and that it has
 	// not reported, until each expires. A worker on a protocol older than ProtocolTemplateWrites is offered none.
 	TemplateWrites []DesiredTemplateWrite `json:"template_writes,omitempty"`
+	// ForgeAccountReads are the requests to read a forge account that name this worker and that it has not
+	// reported, until each expires. A worker on a protocol older than ProtocolProjectRemotes is offered none.
+	ForgeAccountReads []DesiredForgeAccountRead `json:"forge_account_reads,omitempty"`
 }
 
 // WatchRequest opens the stream of revision hints.

@@ -22,6 +22,8 @@ const (
 
 	eventTemplateWriteRequested = "template_write.requested"
 	eventTemplateWriteReported  = "template_write.reported"
+	// eventRemoteCreated is appended once for each repository a template write created on a forge.
+	eventRemoteCreated = "repository.remote_created"
 )
 
 // TemplateWrites is a member's request that a worker write a shape's starting files into a folder on its
@@ -97,9 +99,21 @@ func (t *TemplateWrites) Check(in ledger.TemplateWriteRequest) error {
 	if in.Path != path.Clean(in.Path) {
 		return invalidTemplateWrite("the folder %q is not written in its clean form, with no trailing slash, //, or /./", in.Path)
 	}
+	if err := in.CheckRemotes(); err != nil {
+		return fmt.Errorf("%w: %w", workorders.ErrInvalid, err)
+	}
+	if in.Remote != nil && in.Remote.URL != "" {
+		if err := projectfiles.CheckRemote(in.Remote.URL); err != nil {
+			return fmt.Errorf("%w: %w", workorders.ErrInvalid, err)
+		}
+	}
 	repositories := make([]projectfiles.CodeRepository, 0, len(in.Repositories))
 	for _, repository := range in.Repositories {
-		repositories = append(repositories, projectfiles.CodeRepository{Name: repository.Name, Remote: repository.Remote})
+		remote := repository.Remote
+		if repository.New {
+			remote = repository.URL
+		}
+		repositories = append(repositories, projectfiles.CodeRepository{Name: repository.Name, Remote: remote, New: repository.New})
 	}
 	if err := projectfiles.Check(projectfiles.Shape(in.Shape), repositories); err != nil {
 		return fmt.Errorf("%w: %w", workorders.ErrInvalid, err)
@@ -128,7 +142,7 @@ func baseOf(path string) string {
 // invalid, a worker that is not connected, and a worker whose session speaks a protocol older than
 // ProtocolTemplateWrites, which would never report it.
 func (t *TemplateWrites) Request(ctx context.Context, worker string, in ledger.TemplateWriteRequest, actor ledger.Actor) (ledger.TemplateWriteView, error) {
-	if !authority.Allowed(actor, authority.ActionWriteTemplates) {
+	if !authority.Allowed(actor, authority.ActionWriteTemplates) || (in.Creates() && !authority.Allowed(actor, authority.ActionCreateRemotes)) {
 		return ledger.TemplateWriteView{}, fmt.Errorf("%w: %w", workorders.ErrForbidden, authority.ErrMemberOnly)
 	}
 	var view ledger.TemplateWriteView
@@ -149,6 +163,9 @@ func (t *TemplateWrites) Request(ctx context.Context, worker string, in ledger.T
 		}
 		if record.Protocol < ledger.ProtocolTemplateWrites {
 			return invalidTemplateWrite("worker %s speaks protocol %d; upgrade it to write files from the web UI", record.Name, record.Protocol)
+		}
+		if in.HasRemotes() && record.Protocol < ledger.ProtocolProjectRemotes {
+			return invalidTemplateWrite("worker %s speaks protocol %d; upgrade it to create a project's remote", record.Name, record.Protocol)
 		}
 		id, err := newID(now)
 		if err != nil {
@@ -224,6 +241,10 @@ func desiredTemplateWrites(tx ports.SharedReadTx, worker ledger.WorkerRecord) ([
 	}
 	var out []ledger.DesiredTemplateWrite
 	for _, record := range offered {
+		// A worker on an older protocol drops the remote fields and would write the files with no remote.
+		if record.Request.HasRemotes() && worker.Protocol < ledger.ProtocolProjectRemotes {
+			continue
+		}
 		if record.StateAt(now) == ledger.TemplateWriteOffered {
 			out = append(out, record.Desired())
 		}
@@ -267,12 +288,64 @@ func reportTemplateWrite(ctx context.Context, installation ports.Installation, r
 		if err != nil {
 			return err
 		}
-		_, err = tx.Append(ledger.EventDraft{
+		if _, err = tx.Append(ledger.EventDraft{
 			Type: eventTemplateWriteReported, Actor: ledger.Actor{Kind: ledger.ActorWorker, ID: record.Worker},
 			Subject: ledger.Subject{Kind: subjectTemplateWrite, ID: record.ID}, Data: data,
-		})
-		return err
+		}); err != nil {
+			return err
+		}
+		return appendRemoteCreated(tx, record, report)
 	})
+}
+
+// appendRemoteCreated appends one audit event for each repository the report says the worker created: the member, the
+// worker, the forge, the owner and name, and the visibility. The report is recorded once, so each event is too.
+func appendRemoteCreated(tx ports.SharedTx, record ledger.TemplateWriteRecord, report ledger.TemplateWriteReport) error {
+	for _, repository := range report.Repositories {
+		if !slices.ContainsFunc(repository.Steps, func(s ledger.RemoteStep) bool {
+			return s.Step == ledger.RemoteStepCreate && s.Outcome == ledger.RemoteStepDone
+		}) {
+			continue
+		}
+		create, name := createdBy(record.Request, repository)
+		if create == nil {
+			continue
+		}
+		visibility := ledger.VisibilityPrivate
+		if create.Public() {
+			visibility = ledger.VisibilityPublic
+		}
+		data, err := json.Marshal(map[string]string{
+			"member": record.RequestedBy, "worker": record.Worker, "forge": create.Forge, "repository": create.Owner + "/" + name, "visibility": visibility,
+		})
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Append(ledger.EventDraft{
+			Type: eventRemoteCreated, Actor: ledger.Actor{Kind: ledger.ActorWorker, ID: record.Worker},
+			Subject: ledger.Subject{Kind: subjectTemplateWrite, ID: record.ID}, Data: data,
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// createdBy finds what the request asked for the repository a report names, and the repository's name on the forge:
+// the folder's base name for the folder's own repository, and the entry's name for a code repository.
+func createdBy(request ledger.TemplateWriteRequest, repository ledger.RepositoryReport) (*ledger.RemoteCreate, string) {
+	if repository.Path == "." {
+		if request.Remote == nil {
+			return nil, ""
+		}
+		return request.Remote.Create, baseOf(request.Path)
+	}
+	for _, entry := range request.Repositories {
+		if entry.New && projectfiles.CodePath(entry.Name) == repository.Path {
+			return entry.Create, entry.Name
+		}
+	}
+	return nil, ""
 }
 
 // ReportTemplateWrite records what a worker did with a request, on the plane of one project.

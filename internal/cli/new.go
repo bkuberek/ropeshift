@@ -24,12 +24,13 @@ const newDetail = "It writes each file the folder lacks, from the templates embe
 // newCommands are the `new` commands, one for each shape of project.
 func newCommands() []registered {
 	commands := []registered{
-		command("new workspace", "<path> [--repository name=remote]...", "write a workspace's starting files: the planning repository of a project of several repositories", (*invocation).newWorkspace),
-		command("new monorepo", "<path>", "write a monorepo's starting files: one repository that holds the plan and the code", (*invocation).newMonorepo),
-		command("new repository", "<path> [--project P]", "write a code repository's starting files, for a project that plans in another repository", (*invocation).newRepository),
+		command("new", "[<path>]", "ask whether a project lives in one repository or several, then write its starting files, make its first commits, and add or create its remotes", (*invocation).newInteractive),
+		command("new workspace", "<path> [--repository name=remote]... [--new-repository <name>[=<url>|github:<owner>|none]]... [--first-commit] [--remote <url>] [--create-remote github:<owner>] [--public]", "write a workspace's starting files: the planning repository of a project of several repositories", (*invocation).newWorkspace),
+		command("new monorepo", "<path> [--first-commit] [--remote <url> | --create-remote github:<owner>] [--public]", "write a monorepo's starting files: one repository that holds the plan and the code", (*invocation).newMonorepo),
+		command("new repository", "<path> [--project P] [--first-commit] [--remote <url> | --create-remote github:<owner>] [--public]", "write a code repository's starting files, for a project that plans in another repository", (*invocation).newRepository),
 	}
 	for i := range commands {
-		commands[i].Detail = newDetail
+		commands[i].Detail = newDetail + newRemoteDetail
 	}
 	return commands
 }
@@ -54,6 +55,12 @@ type newResult struct {
 	Written  []string `json:"written"`
 	Left     []string `json:"left"`
 	Commands []string `json:"commands"`
+	// Commit, CommitError, Repositories, and Remaining are what the first commit and the remote did, when the command
+	// line asked for them: the same fields a worker reports for the web UI.
+	Commit       string                    `json:"commit,omitempty"`
+	CommitError  string                    `json:"commit_error,omitempty"`
+	Repositories []ledger.RepositoryReport `json:"repositories,omitempty"`
+	Remaining    []string                  `json:"remaining,omitempty"`
 }
 
 func (r newResult) text() string {
@@ -64,6 +71,7 @@ func (r newResult) text() string {
 	for _, path := range r.Left {
 		fmt.Fprintf(&out, "left\t%s\talready exists\n", path)
 	}
+	r.repositoriesText(&out)
 	out.WriteString("\nTo register it, run these with a member's session:\n")
 	for _, command := range r.Commands {
 		fmt.Fprintf(&out, "  %s\n", command)
@@ -78,9 +86,11 @@ func (c *invocation) newFolder(shape projectfiles.Shape, args []string) int {
 	set := c.flags()
 	var repositories repeated
 	var project string
+	var remote newFlags
+	remote.register(set, shape)
 	switch shape {
 	case projectfiles.Workspace:
-		set.Var(&repositories, "repository", "a code repository as name=remote, cloned into repos/<name>, repeatable")
+		set.Var(&repositories, "repository", "an existing code repository as name=remote, cloned into repos/<name>, repeatable")
 	case projectfiles.Repository:
 		set.StringVar(&project, "project", "", "the project the printed commands register the repository in; the folder's name when absent")
 	}
@@ -113,6 +123,21 @@ func (c *invocation) newFolder(shape projectfiles.Shape, args []string) int {
 		project = data.Project
 	} else if err := ledger.ValidateProjectName(project); err != nil {
 		return c.usageError("--project: %v", err)
+	}
+	if remote.asked() {
+		request, err := remote.request(shape, folder, data.Repositories, project)
+		if err != nil {
+			return c.usageError("%v", err)
+		}
+		for _, repository := range request.Repositories {
+			if repository.New {
+				data.Repositories = append(data.Repositories, projectfiles.CodeRepository{Name: repository.Name, Remote: repository.URL, New: true})
+			}
+		}
+		if err := projectfiles.Check(shape, data.Repositories); err != nil {
+			return c.usageError("%v", err)
+		}
+		return c.newProject(request, data)
 	}
 	files, err := projectfiles.Files(shape, data, renderTemplate)
 	if errors.Is(err, projectfiles.ErrInvalid) {

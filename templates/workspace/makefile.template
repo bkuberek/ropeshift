@@ -10,7 +10,7 @@ PROJECT := {{ .Project }}
 # The folder the code repositories are cloned into. The workspace's .gitignore ignores it.
 CODE_DIR := repos
 
-# Each code repository as name=remote. Its clone goes to $(CODE_DIR)/name.
+# Each code repository as name=remote, or name= when it has no remote. Its clone goes to $(CODE_DIR)/name.
 REPOSITORIES :={{ range $i, $r := .Repositories }} \
   {{ $r.Name }}={{ $r.Remote }}{{ end }}
 
@@ -35,6 +35,7 @@ setup:
 	@for entry in $(REPOSITORIES); do \
 	  name=$${entry%%=*}; remote=$${entry#*=}; \
 	  if [ -e "$(CODE_DIR)/$$name/.git" ]; then echo "$$name: present"; \
+	  elif [ -z "$$remote" ]; then echo "$$name: no remote and no clone"; exit 1; \
 	  else git clone "$$remote" "$(CODE_DIR)/$$name" || exit 1; fi; \
 	done
 	@git check-ignore -q "$(CODE_DIR)/x" || echo "warning: .gitignore does not ignore $(CODE_DIR)/"

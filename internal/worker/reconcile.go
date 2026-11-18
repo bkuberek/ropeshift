@@ -375,6 +375,7 @@ func (w *Worker) find(ctx context.Context, effect lanes.Effect, session ports.Lo
 // pass with nothing changed finds them held and does nothing (NFR-REL-3).
 func (w *Worker) Reconcile(ctx context.Context) ([]lanes.Action, error) {
 	w.tendTemplateWrites(ctx)
+	w.tendForgeAccountReads(ctx)
 	if w.config.Lanes == nil {
 		return nil, nil
 	}

@@ -36,11 +36,16 @@ func (s Shape) Valid() bool { return slices.Contains(Shapes(), s) }
 var ErrInvalid = errors.New("invalid project files")
 
 // CodeRepository is one code repository a workspace names: its name in the project, and the remote its clone
-// at repos/<name> comes from.
+// at repos/<name> comes from. A new code repository is written at repos/<name> with the files of the repository
+// shape, and its remote is empty when it has none.
 type CodeRepository struct {
 	Name   string
 	Remote string
+	New    bool
 }
+
+// CodePath is where a workspace keeps the code repository named name, relative to the workspace.
+func CodePath(name string) string { return "repos/" + name }
 
 // Data is what every file of a folder renders over: the project's name, and a workspace's code repositories.
 type Data struct {
@@ -133,7 +138,7 @@ func WritesTo(name string) string {
 
 // Check refuses a folder no shape writes: an unknown shape, code repositories on a shape other than a
 // workspace, a name the ledger refuses as a repository's, a name given twice, and a repository whose remote is
-// empty or is not a single-line git remote.
+// empty or is not a single-line git remote. A new repository may have no remote.
 func Check(shape Shape, repositories []CodeRepository) error {
 	if !shape.Valid() {
 		return fmt.Errorf("%w: no shape %q; the shapes are workspace, monorepo, and repository", ErrInvalid, shape)
@@ -150,6 +155,9 @@ func Check(shape Shape, repositories []CodeRepository) error {
 			return fmt.Errorf("%w: repository %s is named twice", ErrInvalid, repository.Name)
 		}
 		seen[repository.Name] = true
+		if repository.Remote == "" && repository.New {
+			continue
+		}
 		if repository.Remote == "" {
 			return fmt.Errorf("%w: repository %s has no remote", ErrInvalid, repository.Name)
 		}
@@ -178,6 +186,19 @@ func Files(shape Shape, data Data, render Render) ([]File, error) {
 		}
 		files = append(files, File{Path: r.path, Template: r.template, Text: text})
 	}
+	for _, repository := range data.Repositories {
+		if !repository.New {
+			continue
+		}
+		own, err := Files(Repository, Data{Project: repository.Name}, render)
+		if err != nil {
+			return nil, fmt.Errorf("repository %s: %w", repository.Name, err)
+		}
+		for _, file := range own {
+			file.Path = CodePath(repository.Name) + "/" + file.Path
+			files = append(files, file)
+		}
+	}
 	slices.SortFunc(files, func(a, b File) int { return strings.Compare(a.Path, b.Path) })
 	return files, nil
 }
@@ -191,17 +212,18 @@ func Commands(shape Shape, path, name string, repositories []CodeRepository, fir
 	folder := quote(path)
 	var commands []string
 	if firstCommit {
-		commands = append(commands,
-			"git -C "+folder+" init",
-			"git -C "+folder+" add -A",
-			"git -C "+folder+` commit -m "chore: start `+name+`"`,
-		)
+		for _, repository := range repositories {
+			if repository.New {
+				commands = append(commands, FirstCommitCommands(path+"/"+CodePath(repository.Name), repository.Name)...)
+			}
+		}
+		commands = append(commands, FirstCommitCommands(path, name)...)
 	}
 	create := "ropeshift project create " + name
 	add := "ropeshift repository add " + folder + " --project " + name
 	switch shape {
 	case Workspace:
-		if len(repositories) > 0 {
+		if slices.ContainsFunc(repositories, func(r CodeRepository) bool { return !r.New }) {
 			commands = append(commands, "make -C "+folder+" setup")
 		}
 		commands = append(commands, create, "make -C "+folder+" register")
@@ -212,6 +234,25 @@ func Commands(shape Shape, path, name string, repositories []CodeRepository, fir
 	}
 	return commands
 }
+
+// FirstCommitCommands are the three git commands that make a folder a repository and commit its files as the start
+// of the project named name.
+func FirstCommitCommands(path, name string) []string {
+	folder := quote(path)
+	return []string{
+		"git -C " + folder + " init",
+		"git -C " + folder + " add -A",
+		"git -C " + folder + ` commit -m "chore: start ` + name + `"`,
+	}
+}
+
+// Quote returns a path a POSIX shell reads as one word.
+func Quote(path string) string { return quote(path) }
+
+// CheckRemote refuses a remote that is not one line git clones from: a URL with an https, ssh, git, or file scheme,
+// or scp-like [user@]host:path, in a short allowlist of characters, never a host that starts with a dash and never a
+// transport::address that git reads as a remote helper, which can run a command.
+func CheckRemote(remote string) error { return checkRemote(remote) }
 
 // quote returns a path a POSIX shell reads as one word: as it is when every character is one no shell
 // treats specially, and otherwise in single quotes, with each single quote closed, escaped, and reopened.

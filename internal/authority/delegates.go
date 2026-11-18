@@ -30,7 +30,7 @@ const (
 // none of them (ADR-0024).
 var MachineLocalCommands = []string{
 	"service install", "service uninstall", "init", "worker doctor", "login", "passphrase set", "lane attach", "plan start", "adopt",
-	"backup", "repository add", "new workspace", "new monorepo", "new repository",
+	"backup", "repository add", "new", "new workspace", "new monorepo", "new repository",
 }
 
 // RedirectingFlags are the flags no delegate's command takes, by name: each points the command at another

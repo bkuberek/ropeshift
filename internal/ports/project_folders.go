@@ -45,7 +45,7 @@ type ProjectFolders interface {
 	// written.
 	Write(ctx context.Context, path string, files []FolderFile, want FolderID) (FolderID, error)
 	// Files lists every file under the folder, as paths relative to it, slash separated and sorted, leaving
-	// out the git directory at its top. A path with nothing at it holds none.
+	// out each git directory, the one at its top and those of the repositories inside it. A path with nothing at it holds none.
 	Files(ctx context.Context, path string) ([]string, error)
 	// FirstCommit makes the folder a repository, adds every file, and commits them with the message, and
 	// returns the commit's ID. It runs under no hook, template, or signing the user's git configuration names.
@@ -55,6 +55,35 @@ type ProjectFolders interface {
 	// not make is an error. Just before it runs git, which finds the folder by its path, it reads the path again,
 	// and a path that is not the folder Write named is ErrFolderChanged and runs nothing.
 	FirstCommit(ctx context.Context, path, message string, resumed bool, folder FolderID) (string, error)
+	// AddRemote runs `git remote add origin <url>` in the repository at path, and answers with git's message
+	// when it fails.
+	AddRemote(ctx context.Context, path, url string) error
+	// Push runs `git push --set-upstream origin <branch>` in the repository at path, with no prompt. A push
+	// that names a credential helper runs it for that one command, as the helper of github.com.
+	Push(ctx context.Context, path string, push PushSpec) error
+	// Remote reads what a restart needs to tell whether a step already ran: the URL of origin, the branch HEAD
+	// names, the commit it holds, and the commit origin holds for that branch.
+	Remote(ctx context.Context, path string) (RemoteState, error)
+}
+
+// PushSpec is one push of a new repository's first commit.
+type PushSpec struct {
+	// Branch is the branch HEAD names, which the push sets the upstream of.
+	Branch string
+	// CredentialHelper is the absolute path of a `gh` that serves git's credentials for github.com over https
+	// for this one push, or empty to push with the person's own git credentials.
+	CredentialHelper string
+}
+
+// RemoteState is what a repository says of its origin.
+type RemoteState struct {
+	// Origin is the URL of the remote named origin, or empty when there is none.
+	Origin string
+	// Branch is the branch HEAD names, and Head the commit it holds, or empty when there is none.
+	Branch string
+	Head   string
+	// RemoteHead is the commit origin holds for Branch, or empty when origin holds none or cannot be asked.
+	RemoteHead string
 }
 
 // FolderID names a folder by what the disk says of it, so a later step can tell it from another folder at the same

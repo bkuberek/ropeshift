@@ -202,6 +202,25 @@ func (c *Client) ReportTemplateWrite(ctx context.Context, worker string, in ledg
 	return c.Do(ctx, http.MethodPost, workerPath(worker, "template-reports"), in, nil)
 }
 
+// ReportForgeAccount says what this worker's forge CLI can do for a member, in answer to a forge account read.
+func (c *Client) ReportForgeAccount(ctx context.Context, worker string, in ledger.ForgeAccountReport) error {
+	return c.Do(ctx, http.MethodPost, workerPath(worker, "forge-account-reports"), in, nil)
+}
+
+// RequestForgeAccountRead asks a worker to read its forge account, as a member.
+func (c *Client) RequestForgeAccountRead(ctx context.Context, worker string, in ledger.ForgeAccountRequest) (ledger.ForgeAccountReadView, error) {
+	var out ledger.ForgeAccountReadView
+	err := c.Do(ctx, http.MethodPost, workerPath(worker, "forge-account-reads"), in, &out)
+	return out, err
+}
+
+// ForgeAccountReadView reads a forge account read, with its state and what the worker reported.
+func (c *Client) ForgeAccountReadView(ctx context.Context, worker, request string) (ledger.ForgeAccountReadView, error) {
+	var out ledger.ForgeAccountReadView
+	err := c.Do(ctx, http.MethodGet, workerPath(worker, "forge-account-reads", url.PathEscape(request)), nil, &out)
+	return out, err
+}
+
 // RequestTemplateWrite asks a worker to write a shape's starting files into a folder on its machine, as a
 // member.
 func (c *Client) RequestTemplateWrite(ctx context.Context, worker string, in TemplateWrite) (ledger.TemplateWriteView, error) {

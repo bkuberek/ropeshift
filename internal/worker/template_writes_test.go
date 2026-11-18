@@ -28,6 +28,10 @@ func render(name string, data projectfiles.Data) (string, error) {
 	for _, repository := range data.Repositories {
 		lines = append(lines, "repository "+repository.Name+"="+repository.Remote)
 	}
+	if name == "workspace/gitignore" {
+		// The workspace's own .gitignore ignores the folder its code repositories sit in.
+		lines = append(lines, "/repos/")
+	}
 	return strings.Join(lines, "\n") + "\n", nil
 }
 
@@ -43,6 +47,8 @@ type templateRig struct {
 	subject *worker.Worker
 	// folders stands in front of the machine's folders when a test must act between two of the worker's steps.
 	folders ports.ProjectFolders
+	// forge is the forge account the worker reaches, and nil has no gh.
+	forge ports.ForgeAccounts
 }
 
 func newTemplateRig(t *testing.T, env []string) *templateRig {
@@ -59,7 +65,7 @@ func newTemplateRig(t *testing.T, env []string) *templateRig {
 	if err := os.MkdirAll(state, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	r := &templateRig{rig: base, root: root, state: state, env: env}
+	r := &templateRig{rig: base, root: root, state: state, env: env, forge: &lateForge{}}
 	r.kept = &checkouts.File{Path: filepath.Join(state, checkouts.FileName), Env: env, Reserved: []string{state}}
 	// A worker that opened its session a moment ago is connected, whatever the rig's own heartbeat is.
 	r.writes = control.NewTemplateWrites(base.store.Installation(scope), 60_000, nil)
@@ -80,7 +86,7 @@ func (r *templateRig) workerOn(link ports.WorkerLink, report func(error)) *worke
 		},
 		Report: report,
 		Templates: &worker.TemplateRuntime{
-			Folders: r.foldersOrDefault(), Checkouts: r.kept, Render: render, StateDir: r.state,
+			Folders: r.foldersOrDefault(), Checkouts: r.kept, Forge: r.forge, Render: render, StateDir: r.state,
 		},
 	})
 }

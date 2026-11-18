@@ -8,7 +8,6 @@ import (
 	"slices"
 	"strings"
 
-	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/internal/projectfiles"
 )
@@ -110,68 +109,4 @@ func (w *Worker) needsRepository(ctx context.Context, rt *TemplateRuntime, found
 		return false, err
 	}
 	return rt.Checkouts.Ignored(ctx, found.CloneTop, filepath.ToSlash(rel))
-}
-
-// writeTemplate writes the files the folder lacks, makes the first commit when the journal says to, and builds
-// the report. A commit that fails keeps the files and says why.
-func (w *Worker) writeTemplate(ctx context.Context, rt *TemplateRuntime, request ledger.DesiredTemplateWrite, journal templateJournal, data projectfiles.Data, files []projectfiles.File) (ledger.TemplateWriteReport, templateJournal, error) {
-	folderFiles := make([]ports.FolderFile, 0, len(files))
-	paths := make([]string, 0, len(files))
-	for _, file := range files {
-		folderFiles = append(folderFiles, ports.FolderFile{Path: file.Path, Text: file.Text})
-		paths = append(paths, file.Path)
-	}
-	changed := func() (ledger.TemplateWriteReport, templateJournal, error) {
-		return ledger.TemplateWriteReport{
-			Outcome: ledger.TemplateOutcomeRefused, Reason: ledger.TemplateRefusedChanged,
-			Detail: "the folder is no longer the one this worker wrote: it was swapped for a link or for another folder",
-		}, journal, nil
-	}
-	folder, err := rt.Folders.Write(ctx, request.Path, folderFiles, ports.FolderID(journal.Folder))
-	if errors.Is(err, ports.ErrFolderChanged) {
-		return changed()
-	}
-	if err != nil {
-		return ledger.TemplateWriteReport{}, journal, fmt.Errorf("writing the files: %w", err)
-	}
-	// The folder written is kept, so a resume and the first commit are held to that folder and no other at the path.
-	if journal.Folder == "" {
-		journal.Folder = string(folder)
-		if err := rt.save(request.ID, journal); err != nil {
-			return ledger.TemplateWriteReport{}, journal, err
-		}
-	}
-	name := data.Project
-	if request.Project != "" {
-		name = request.Project
-	}
-	report := ledger.TemplateWriteReport{Outcome: ledger.TemplateOutcomeWritten, Project: data.Project, Files: paths}
-	if journal.Commit {
-		// The journal says the worker is about to run git init before it does, so a crash after it finds its own repository.
-		resumed := journal.Initialized
-		if !resumed {
-			journal.Initialized = true
-			if err := rt.save(request.ID, journal); err != nil {
-				return ledger.TemplateWriteReport{}, journal, err
-			}
-		}
-		commit, err := rt.Folders.FirstCommit(ctx, request.Path, "chore: start "+name, resumed, ports.FolderID(journal.Folder))
-		if errors.Is(err, ports.ErrFolderChanged) {
-			return changed()
-		}
-		if err != nil {
-			report.CommitError = err.Error()
-		} else {
-			report.Commit = commit
-		}
-	}
-	after, err := rt.Folders.Inspect(ctx, request.Path)
-	if err != nil {
-		return ledger.TemplateWriteReport{}, journal, err
-	}
-	report.Clone = report.Commit != "" && after.CloneTop != "" && after.CloneTop == after.Real
-	var repositories []projectfiles.CodeRepository
-	repositories = append(repositories, data.Repositories...)
-	report.Commands = projectfiles.Commands(projectfiles.Shape(request.Shape), request.Path, name, repositories, journal.NeedsRepository && report.Commit == "")
-	return report, journal, nil
 }

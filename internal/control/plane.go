@@ -346,7 +346,10 @@ func (p *Plane) Desired(ctx context.Context, request ledger.DesiredRequest) (led
 		if err != nil {
 			return err
 		}
-		state.TemplateWrites, err = desiredTemplateWrites(tx, record)
+		if state.TemplateWrites, err = desiredTemplateWrites(tx, record); err != nil {
+			return err
+		}
+		state.ForgeAccountReads, err = desiredForgeAccountReads(tx, record)
 		return err
 	})
 	if err != nil {

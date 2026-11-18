@@ -66,6 +66,12 @@ type Options struct {
 	// CloneIgnores says whether the clone whose top is top ignores path, as `git -C <top> check-ignore -q --
 	// <path>` answers. Nil ignores nothing.
 	CloneIgnores func(ctx context.Context, top, path string) (bool, error)
+	// NewProject runs a request for a new project's folder through this machine's folders, git, and `gh`: the
+	// checks, the files, each first commit, and each remote, as a worker runs a template write for the web UI
+	// (FR-TPL-6). needsRepository says the folder needs a repository of its own. Nil makes no first commit and no remote.
+	NewProject func(ctx context.Context, request ledger.TemplateWriteRequest, needsRepository bool) (ledger.TemplateWriteReport, error)
+	// ReadForgeAccount reads whether this machine's `gh` can create repositories and under which owners. Nil reads none.
+	ReadForgeAccount func(ctx context.Context) (ledger.ForgeAccountReport, error)
 	// ReadPassphrase asks a person on their terminal. Nil means there is no terminal.
 	ReadPassphrase func(prompt string) (string, error)
 	// Terminal is the keyboard, when both ends of this process are a terminal. A live view needs one.
@@ -118,6 +124,9 @@ type invocation struct {
 	repositoryRoot func(context.Context) (string, error)
 	cloneTop       func(context.Context, string) (string, error)
 	cloneIgnores   func(context.Context, string, string) (bool, error)
+	newProjectRun  func(context.Context, ledger.TemplateWriteRequest, bool) (ledger.TemplateWriteReport, error)
+	// readForgeAccount reads this machine's forge account.
+	readForgeAccount func(context.Context) (ledger.ForgeAccountReport, error)
 	// command is what help says about the running command.
 	command Command
 	// helped says the command printed its help instead of running.
@@ -132,7 +141,7 @@ func Run(args []string, stdout, stderr io.Writer, opts Options) int {
 		session: opts.Session, delegate: opts.Delegate, readPassphrase: opts.ReadPassphrase, terminal: opts.Terminal,
 		panes: opts.Panes, startDaemon: opts.StartDaemon, stateDir: opts.StateDir, install: opts.InstallService, uninstall: opts.UninstallService,
 		envProject: opts.Project, repositoryHere: opts.RepositoryHere, repositoryRoot: opts.RepositoryRoot,
-		cloneTop: opts.CloneTop, cloneIgnores: opts.CloneIgnores,
+		cloneTop: opts.CloneTop, cloneIgnores: opts.CloneIgnores, newProjectRun: opts.NewProject, readForgeAccount: opts.ReadForgeAccount,
 	}
 	found, rest, ok := find(args)
 	if !ok {

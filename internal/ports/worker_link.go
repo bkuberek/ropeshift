@@ -51,4 +51,7 @@ type WorkerLink interface {
 	// ReportTemplateWrite says what this worker did with a request to write a shape's starting files. The
 	// first report of a request is recorded, and a later one is accepted and changes nothing.
 	ReportTemplateWrite(ctx context.Context, report ledger.TemplateWriteReport) error
+	// ReportForgeAccount says what this worker's forge CLI can do for a member, in answer to a forge account
+	// read. The first report of a read is recorded, and a later one is accepted and changes nothing.
+	ReportForgeAccount(ctx context.Context, report ledger.ForgeAccountReport) error
 }
