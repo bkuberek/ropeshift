@@ -416,7 +416,8 @@ func (r *Repositories) Remove(ctx context.Context, scope ledger.WorkspaceID, id 
 // intake tick runs this before it reads any source: from then on a removed repository's checkout is offered to no
 // lane, read by no intake, and listed in no report. Each record is read again just before its checkout is dropped,
 // and the drop compares the path it read, so a repository registered again from another clone in the meantime
-// keeps that checkout.
+// keeps that checkout. A repository registered again from the same clone while its checkout is dropped has the
+// checkout kept again, from a read of its record after the drop.
 func (r *Repositories) ForgetRemoved(ctx context.Context, scope ledger.WorkspaceID, kept ports.Checkouts) ([]string, error) {
 	held, err := kept.Of(ctx, scope)
 	if err != nil || len(held) == 0 {
@@ -447,9 +448,20 @@ func (r *Repositories) ForgetRemoved(ctx context.Context, scope ledger.Workspace
 		if err != nil {
 			return forgot, err
 		}
-		if dropped {
-			forgot = append(forgot, id)
+		if !dropped {
+			continue
 		}
+		// A repository registered again from this clone between the read and the drop keeps the checkout.
+		if gone, err = removed(id); err != nil {
+			return forgot, err
+		}
+		if !gone {
+			if err := kept.Keep(ctx, scope, id, held[id]); err != nil {
+				return forgot, err
+			}
+			continue
+		}
+		forgot = append(forgot, id)
 	}
 	return forgot, nil
 }
