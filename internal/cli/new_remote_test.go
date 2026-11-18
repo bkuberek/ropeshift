@@ -341,3 +341,39 @@ func TestNewRefusesAnAnswerThatIsNotThere(t *testing.T) {
 		t.Errorf("exit %d: %s", code, stderr)
 	}
 }
+
+// What git and gh said is clipped stderr that may hold terminal escapes, so the command line prints it with every
+// escape sequence and control character removed, newline and tab kept.
+func TestNewPrintsWhatGitAndGHSaidWithNoControlCharacters(t *testing.T) {
+	folder := filepath.Join(t.TempDir(), "orchid")
+	hostile := "\x1b[31mremote: denied\x1b[0m\x1b]0;title\x07\r\nfatal:\tno\x00 \u009b2Jaccess\x08\x7f"
+	p := &project{report: ledger.TemplateWriteReport{
+		Outcome: ledger.TemplateOutcomeWritten, Files: []string{"AGENTS.md"}, Commit: "abc123",
+		Repositories: []ledger.RepositoryReport{{Name: "orchid", Path: ".", Commit: "abc123", CommitError: hostile,
+			Steps: []ledger.RemoteStep{{Step: "push", Outcome: "failed", Detail: hostile}}}},
+	}}
+	code, stdout, stderr := runNew(p.options(""), "new", "monorepo", folder, "--create-remote", "github:acme")
+	if code != cli.ExitError {
+		t.Errorf("exit %d, want an error for the failed push", code)
+	}
+	for name, text := range map[string]string{"stdout": stdout, "stderr": stderr} {
+		for _, r := range text {
+			if r != '\n' && r != '\t' && (r < 0x20 || (r >= 0x7f && r <= 0x9f)) {
+				t.Errorf("%s holds the control character %U:\n%q", name, r, text)
+				break
+			}
+		}
+		if strings.Contains(text, "[31m") || strings.Contains(text, "title") {
+			t.Errorf("%s holds an escape sequence's text:\n%q", name, text)
+		}
+	}
+	if !strings.Contains(stdout, "push\tfailed\tremote: denied\nfatal:\tno access") {
+		t.Errorf("the plain text of the detail is gone:\n%q", stdout)
+	}
+
+	refused := &project{report: ledger.TemplateWriteReport{Outcome: ledger.TemplateOutcomeRefused, Reason: ledger.TemplateRefusedGHSignedOut, Detail: "\x1b[1mnot signed in\x1b[0m\x07"}}
+	_, _, stderr = runNew(refused.options(""), "new", "monorepo", folder, "--create-remote", "github:acme")
+	if strings.ContainsAny(stderr, "\x1b\x07") || !strings.Contains(stderr, "gh_signed_out: not signed in") {
+		t.Errorf("a refusal's detail: %q", stderr)
+	}
+}

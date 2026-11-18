@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -209,6 +210,7 @@ func (c *invocation) newProject(request ledger.TemplateWriteRequest, data projec
 	if err != nil {
 		return c.finish(err, nil, nil)
 	}
+	report = plainReport(report)
 	if report.Outcome == ledger.TemplateOutcomeRefused {
 		return c.refusedNew(report)
 	}
@@ -228,6 +230,42 @@ func (c *invocation) newProject(request ledger.TemplateWriteRequest, data projec
 		return ExitError
 	}
 	return code
+}
+
+// ansiSequence matches the terminal escape sequences a tool's stderr can carry: a CSI sequence, an OSC string ended
+// by BEL or ST, and any other two-character escape. The C1 forms of CSI and OSC are matched as well.
+var ansiSequence = regexp.MustCompile(`(?:\x1b\[|\x{9b})[0-?]*[ -/]*[@-~]|(?:\x1b\]|\x{9d})[^\x07\x1b\x{9c}]*(?:\x07|\x1b\\|\x{9c})?|\x1b[ -~]`)
+
+// plainText makes text a tool printed safe to show on a terminal: it drops escape sequences and every control
+// character except newline and tab, the C0 set, DEL, and the C1 set. A step's detail is clipped git or gh stderr, so
+// it is untrusted.
+func plainText(text string) string {
+	text = ansiSequence.ReplaceAllString(text, "")
+	return strings.Map(func(r rune) rune {
+		if r == '\n' || r == '\t' {
+			return r
+		}
+		if r < 0x20 || (r >= 0x7f && r <= 0x9f) {
+			return -1
+		}
+		return r
+	}, text)
+}
+
+// plainReport returns a report whose free text from git and gh holds no control character.
+func plainReport(report ledger.TemplateWriteReport) ledger.TemplateWriteReport {
+	report.Detail = plainText(report.Detail)
+	report.CommitError = plainText(report.CommitError)
+	report.Repositories = slices.Clone(report.Repositories)
+	for at, repository := range report.Repositories {
+		repository.CommitError = plainText(repository.CommitError)
+		repository.Steps = slices.Clone(repository.Steps)
+		for index := range repository.Steps {
+			repository.Steps[index].Detail = plainText(repository.Steps[index].Detail)
+		}
+		report.Repositories[at] = repository
+	}
+	return report
 }
 
 // failed says a commit or a step did not complete.
@@ -462,7 +500,7 @@ func (c *invocation) askGitHub(in *answers, request *ledger.TemplateWriteRequest
 		return 0, err
 	}
 	if account.State != ledger.ForgeAccountOK {
-		fmt.Fprintf(c.stderr, "ropeshift %s: %s: %s\n", c.name, account.State, account.Detail)
+		fmt.Fprintf(c.stderr, "ropeshift %s: %s: %s\n", c.name, account.State, plainText(account.Detail))
 		if account.Remedy != "" {
 			fmt.Fprintf(c.stderr, "Run: %s\n", account.Remedy)
 		}
