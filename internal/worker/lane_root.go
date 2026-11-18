@@ -128,28 +128,8 @@ func (p Provisioner) workspaceRoot(ctx context.Context, request LaneRequest, pro
 	if err != nil || !found {
 		return profile.Worktree, lanes.Workspace{}, "", err
 	}
-	settings, unignored, err := workspaceSettings(ctx, p.Checkouts, profile.Worktree, workspace, request.Repository)
+	settings, unignored, err := ports.WorkspaceSettings(ctx, p.Checkouts, profile.Worktree, workspace, request.Repository)
 	return settings, workspace, unignored, err
-}
-
-// workspaceSettings gives the worktree settings a new worktree of a clone is placed by, when the clone's project
-// has a workspace: the settings as they are, or, for a built-in root of a clone inside the workspace, with the
-// workspace's folder for worktrees as the root. The workspace's own clone, a clone outside it, and a root a person
-// set keep the settings. It names the workspace as unignored when the built-in root stays outside every clone
-// because the workspace does not ignore that folder.
-func workspaceSettings(ctx context.Context, kept ports.Checkouts, settings lanes.WorktreeSettings, workspace lanes.Workspace, repository string) (lanes.WorktreeSettings, string, error) {
-	if settings.RootSource != lanes.RootFromDefault {
-		return settings, "", nil
-	}
-	inside, err := insideWorkspace(ctx, kept, workspace.Path, repository)
-	switch {
-	case err != nil || !inside:
-		return settings, "", err
-	case workspace.Ignored:
-		settings.Root = lanes.WorkspaceRoot(workspace.Path)
-		return settings, "", nil
-	}
-	return settings, workspace.Path, nil
 }
 
 // unignoredFolder names the workspace when a refused path lies under its folder for worktrees, which the workspace

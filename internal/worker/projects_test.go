@@ -207,6 +207,74 @@ func TestOneWorkerRunsLanesOfTwoProjectsAtOnce(t *testing.T) {
 	}
 }
 
+// TestALaneFindsItsWorkspaceFromTheProjectsPlanningRepositoryInDesiredState runs a lane through the plane, the
+// journal, and the runner: the project names its planning repository, which desired state carries to the worker's
+// journal, and the lane's worktree goes in the workspace that planning clone makes, with no lease naming it. The
+// other project, which names none, keeps the root outside every clone (FR-PROF-6).
+func TestALaneFindsItsWorkspaceFromTheProjectsPlanningRepositoryInDesiredState(t *testing.T) {
+	t.Parallel()
+	r := newInstallationRig(t)
+	ctx := t.Context()
+	machine := fake.NewCheckouts()
+	for project, held := range map[ledger.WorkspaceID]map[string]string{
+		"pa": {"plan": "/work/ws", "api": "/work/ws/repos/api"}, "pb": {"plan": "/work/other", "api": "/work/other/repos/api"},
+	} {
+		for repository, at := range held {
+			keeping(t, machine, project, repository, at)
+		}
+	}
+	machine.Ignore("/work/ws", "repos", ".ropeshift/worktrees")
+	machine.Ignore("/work/other", "repos", ".ropeshift/worktrees")
+	r.profile.SetDefaultRoot("/data/worktrees/{project}/{repo}")
+	r.lanes.Provisioner.Checkouts = machine
+	r.lanes.Repository = func(_ context.Context, project, _ string) (string, error) {
+		return map[string]string{"pa": "/work/ws/repos/api", "pb": "/work/other/repos/api"}[project], nil
+	}
+	actor := ledger.Actor{Kind: ledger.ActorSystem, ID: "intake"}
+	repositories := control.NewRepositories(r.stores["pa"])
+	for _, id := range []string{"plan", "api"} {
+		if _, err := repositories.Detect(ctx, "pa", control.DetectedRepository{ID: id, DefaultBranch: "main"}, actor); err != nil {
+			t.Fatal(err)
+		}
+	}
+	yes := true
+	if _, err := repositories.Change(ctx, "pa", "plan", control.RepositoryChange{Planning: &yes}, member); err != nil {
+		t.Fatal(err)
+	}
+	r.dispatch("pa", "lane-a")
+	r.dispatch("pb", "lane-b")
+	ended := func() fake.DriverScript {
+		return script([]fake.DriverStep{
+			{Bound: true},
+			{Do: func(spec ports.SessionSpec) {
+				raw, err := json.Marshal(workorders.Report{Outcome: workorders.OutcomeCompleted})
+				if err == nil {
+					_, err = r.journal.SaveReport(context.Background(), spec.Lane, raw)
+				}
+				if err != nil {
+					r.t.Error(err)
+				}
+			}},
+			completed(0.1),
+		})
+	}
+	r.driver.Play(ended())
+	r.driver.PlayAfter(ended())
+	if err := r.subject.Converge(ctx); err != nil {
+		t.Fatal(err)
+	}
+	dirs := map[string]string{}
+	for _, spec := range r.driver.Specs() {
+		dirs[spec.Lane] = spec.Dir
+	}
+	want := map[string]string{"lane-a": "/work/ws/.ropeshift/worktrees/api/lane-a", "lane-b": "/data/worktrees/pb/api/lane-b"}
+	for lane, dir := range want {
+		if dirs[lane] != dir {
+			t.Errorf("%s runs in %q, want %q", lane, dirs[lane], dir)
+		}
+	}
+}
+
 // TestTheSignInCapHoldsAcrossProjects sets `max_lanes_per_sign_in = 1` and dispatches a lane in each of
 // two projects on one worker: one runs, and the other waits with a note in its own project until the
 // first ends, because the cap counts the lanes of every project on the machine (ADR-0021). A repository
