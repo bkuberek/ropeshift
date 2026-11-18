@@ -24,6 +24,7 @@ import { ActivityTab, ChangesTab } from "./EvidenceTabs";
 import { NewWorkOrder } from "./NewWorkOrder";
 import { PullRequestPanel } from "./PullRequest";
 import { ReviewOf } from "./ReviewOf";
+import { HeldFact, HeldTag } from "./StartHeld";
 import { StartWork } from "./StartWork";
 import { WakeWords } from "./WakeWords";
 import { SpendPanel } from "./SpendPanel";
@@ -135,6 +136,7 @@ function WorkTable({ rows, label, repositories }: { rows: WorkRow[]; label: stri
                 <span className="row-tight">
                   <WorkBadge state={row.order.state} />
                   {row.stuck && row.stuck.reason !== row.order.state ? <span className="cond warn">{words(row.stuck.reason)}</span> : null}
+                  <HeldTag hold={row.order.start_held} />
                 </span>
               </td>
               <td data-label="Repository">{row.order.repository_id ? <Repository id={row.order.repository_id} names={repositories} /> : <Absent>none</Absent>}</td>
@@ -560,6 +562,11 @@ export function WorkOrderPage({ live, id, tab, dialog, needs, after }: { live: L
                 <Fact name="Milestone">{row.milestone ? row.milestone.title : <Absent>none</Absent>}</Fact>
                 <Fact name="Plan">{row.plan ? <Link to={addressOf("/plans", { plan: row.plan.plan.id })}>{row.plan.plan.title}</Link> : <Absent>none</Absent>}</Fact>
                 <Fact name="Attempt">{attempts(row)}</Fact>
+                {order.start_held ? (
+                  <Fact name="Start held">
+                    <HeldFact hold={order.start_held} />
+                  </Fact>
+                ) : null}
                 <Fact name="Held by">{order.lease_worker ? <Id value={order.lease_worker} /> : <Absent>nobody</Absent>}</Fact>
                 <Fact name="In state">{row.since ? <Lasted at={row.since} ended={groupOf(row) === "completed"} /> : <Absent>not read</Absent>}</Fact>
                 <Fact name="Merge authority">{standing?.authority ? <span className="mono">{standing.authority}</span> : <Absent>not set</Absent>}</Fact>
