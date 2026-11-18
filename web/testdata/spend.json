@@ -1,0 +1,186 @@
+{
+  "project": {
+    "version": 2,
+    "authored_by": "member-1",
+    "created_at": 1794051180000,
+    "keys": [
+      {
+        "key": "max_live_wait",
+        "value": "5m"
+      },
+      {
+        "key": "max_tool_sleep",
+        "value": "60s"
+      },
+      {
+        "key": "wait_rules_off",
+        "value": ""
+      },
+      {
+        "key": "wait_rule_patterns.W1",
+        "value": ""
+      },
+      {
+        "key": "wait_rule_patterns.W2",
+        "value": ""
+      },
+      {
+        "key": "wait_rule_patterns.W3",
+        "value": ""
+      },
+      {
+        "key": "wait_rule_patterns.W4",
+        "value": ""
+      },
+      {
+        "key": "soft_quantile",
+        "value": "p85"
+      },
+      {
+        "key": "hard_multiplier",
+        "value": "2"
+      },
+      {
+        "key": "low_confidence_outcomes",
+        "value": "6"
+      },
+      {
+        "key": "low_confidence_soft_share",
+        "value": "0.5"
+      },
+      {
+        "key": "no_history_limit.small",
+        "value": "10"
+      },
+      {
+        "key": "no_history_limit.medium",
+        "value": "25"
+      },
+      {
+        "key": "no_history_limit.large",
+        "value": "60"
+      },
+      {
+        "key": "review_share",
+        "value": "0.5"
+      },
+      {
+        "key": "review_soft_share",
+        "value": "0.5"
+      },
+      {
+        "key": "plan_hard_multiplier",
+        "value": "2"
+      },
+      {
+        "key": "project_daily_limit",
+        "value": "10"
+      },
+      {
+        "key": "project_weekly_limit",
+        "value": "50"
+      },
+      {
+        "key": "project_warn_share",
+        "value": "0.8"
+      },
+      {
+        "key": "assistant_daily_warn",
+        "value": "0"
+      },
+      {
+        "key": "budget_flag_headroom_share",
+        "value": "0.1"
+      },
+      {
+        "key": "repeat_limit",
+        "value": "3"
+      },
+      {
+        "key": "repeat_denials_to_park",
+        "value": "2"
+      },
+      {
+        "key": "no_progress_share",
+        "value": "0.5"
+      },
+      {
+        "key": "no_progress_park_multiplier",
+        "value": "2"
+      },
+      {
+        "key": "no_history_no_progress",
+        "value": "5"
+      },
+      {
+        "key": "waiting_alert_share",
+        "value": "0.5"
+      },
+      {
+        "key": "waiting_alert_window",
+        "value": "30m"
+      },
+      {
+        "key": "waiting_alert_min_calls",
+        "value": "5"
+      },
+      {
+        "key": "assistant_class",
+        "value": "standard"
+      }
+    ]
+  },
+  "installation": {
+    "version": 2,
+    "authored_by": "member-1",
+    "created_at": 1794051180000,
+    "keys": [
+      {
+        "key": "orchestrator_class",
+        "value": "large"
+      },
+      {
+        "key": "orchestrator_daily_warn",
+        "value": "20"
+      }
+    ]
+  },
+  "work_orders": [
+    {
+      "work_order": "wo-spend",
+      "kind": "change",
+      "charged": {
+        "recorded_usd": 0,
+        "estimated_usd": 0,
+        "estimated_turns": 0,
+        "charged_usd": 0
+      },
+      "label": "estimated, at list price, with 0 turns estimated by average",
+      "soft_limit": 12.5,
+      "hard_limit": 25,
+      "basis": "no_history",
+      "remaining": 25,
+      "policy_version": 2
+    }
+  ],
+  "project_spend": {
+    "day": {
+      "window": "day",
+      "spent_usd": 12,
+      "soft_limit": 8,
+      "hard_limit": 10,
+      "remaining": 0,
+      "starts_at": 1794000000000,
+      "ends_at": 1794086400000
+    },
+    "week": {
+      "window": "week",
+      "spent_usd": 12,
+      "soft_limit": 40,
+      "hard_limit": 50,
+      "remaining": 38,
+      "starts_at": 1794000000000,
+      "ends_at": 1794604800000
+    }
+  }
+}

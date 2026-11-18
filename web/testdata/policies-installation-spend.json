@@ -1,0 +1,24 @@
+{
+  "versions": [
+    {
+      "id": "generated-1",
+      "kind": "installation_spend",
+      "version": 2,
+      "digest": "sha256:e9291927334e3c2f78bc6bc6cd34323a77c6c3f3bba3e96bc88f32357b89e49b",
+      "body": "[installation_spend_policy]\nversion = 2\norchestrator_class = \"large\"\norchestrator_daily_warn = 20.0\n",
+      "settings": "{\"version\":2,\"orchestrator_class\":\"large\",\"orchestrator_daily_warn\":20}",
+      "authored_by": "member-1",
+      "created_at": 1794000000000
+    },
+    {
+      "id": "generated-2",
+      "kind": "installation_spend",
+      "version": 1,
+      "digest": "sha256:8057a345202b334de530e07f818c32078d76bba778018163c081bb8d44884036",
+      "body": "[installation_spend_policy]\nversion = 1\norchestrator_class = \"standard\"\norchestrator_daily_warn = 0.0\n",
+      "settings": "{\"version\":1,\"orchestrator_class\":\"standard\",\"orchestrator_daily_warn\":0}",
+      "authored_by": "built-in",
+      "created_at": 1794000000000
+    }
+  ]
+}

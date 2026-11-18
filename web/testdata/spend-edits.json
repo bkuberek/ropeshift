@@ -1,0 +1,14 @@
+{
+  "spend": {
+    "body": "[spend_policy]\nversion = 3\n# Waits\nmax_live_wait = \"5m\"\nmax_tool_sleep = \"60s\"\nwait_rules_off = []\nwait_rule_patterns = { W1 = [], W2 = [], W3 = [], W4 = [] }\n# Limits\nsoft_quantile = \"p85\"\nhard_multiplier = 2.0\nlow_confidence_outcomes = 6\nlow_confidence_soft_share = 0.5\nno_history_limit = { small = 10.0, medium = 25.0, large = 60.0 }\nreview_share = 0.5\nreview_soft_share = 0.5\nplan_hard_multiplier = 2.0\nproject_daily_limit = 30.0\nproject_weekly_limit = 50.0\nproject_warn_share = 0.8\nassistant_daily_warn = 0.0\nbudget_flag_headroom_share = 0.1\n# No progress\nrepeat_limit = 3\nrepeat_denials_to_park = 2\nno_progress_share = 0.5\nno_progress_park_multiplier = 2.0\nno_history_no_progress = 5.0\n# Waiting alert\nwaiting_alert_share = 0.4\nwaiting_alert_window = \"30m\"\nwaiting_alert_min_calls = 5\n# Session classes\nassistant_class = \"standard\"\n",
+    "shows": { "project_daily_limit": "30", "project_weekly_limit": "50", "waiting_alert_share": "0.4" }
+  },
+  "installation": {
+    "body": "[installation_spend_policy]\nversion = 3\norchestrator_class = \"small\"\norchestrator_daily_warn = 40.0\n",
+    "shows": { "orchestrator_class": "small", "orchestrator_daily_warn": "40" }
+  },
+  "notify": {
+    "body": "[notify_policy]\nversion = 3\ndesktop = true\nwebhook_url = \"https://hooks.example.com/ropeshift\"\n\n[notify_policy.spend_channels]\nspend_hard_limit = [\"desktop\", \"webhook\"]\nspend_policy_changed = [\"webhook\"]\n",
+    "channels": { "spend_hard_limit": ["desktop", "webhook"], "spend_policy_changed": ["webhook"] }
+  }
+}
