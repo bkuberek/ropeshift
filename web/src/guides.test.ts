@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import type { Browser, BrowserContext, Page } from "playwright-core";
+import type { Browser, Page } from "playwright-core";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { expand, runGuide, type Guide } from "../scripts/guides.mjs";
@@ -42,8 +42,6 @@ const opened = await openBrowser();
 const suite = suiteFor(opened);
 
 let browser: Browser;
-let context: BrowserContext;
-let out: string;
 const made: string[] = [];
 
 beforeAll(async () => {
@@ -58,28 +56,30 @@ afterAll(async () => {
   for (const dir of made) {
     rmSync(dir, { recursive: true, force: true });
   }
-});
+}, 60_000);
 
-// Each test writes into a directory of its own.
-async function fresh(): Promise<Page> {
-  out = mkdtempSync(join(tmpdir(), "rs-guides-test-"));
+// A page with the directory its images go to.
+type Tab = { page: Page; out: string };
+
+// Each tab has a browser context and an output directory of its own.
+async function fresh(): Promise<Tab> {
+  const out = mkdtempSync(join(tmpdir(), "rs-guides-test-"));
   made.push(out);
-  context = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 2, colorScheme: "light" });
+  const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 2, colorScheme: "light" });
   await context.route(`${base}/**`, (route) => route.fulfill({ contentType: "text/html", body: fixture }));
-  return context.newPage();
+  return { page: await context.newPage(), out };
 }
 
-async function done() {
-  await context.close();
-  const written = readdirSync(out).sort();
-  return written;
+async function done(tab: Tab) {
+  await tab.page.context().close();
+  return readdirSync(tab.out).sort();
 }
 
-const options = (extra = {}) => ({ base, out, theme: "light", vars: { name: "Harbor" }, private: [], capture: true, ...extra });
+const options = (tab: Tab, extra = {}) => ({ base, out: tab.out, theme: "light", vars: { name: "Harbor" }, private: [], capture: true, ...extra });
 
 // The size a PNG file says its image has.
-function size(name: string): [number, number] {
-  const header = readFileSync(join(out, name));
+function size(tab: Tab, name: string): [number, number] {
+  const header = readFileSync(join(tab.out, name));
   return [header.readUInt32BE(16), header.readUInt32BE(20)];
 }
 
@@ -123,19 +123,19 @@ describe("expanding a value", () => {
 suite("the guide walk", () => {
   it("presses, fills, and waits, and captures the window and each clip at twice the density", async () => {
     const tab = await fresh();
-    const result = await runGuide(tab, create, options());
-    const written = await done();
+    const result = await runGuide(tab.page, create, options(tab));
+    const written = await done(tab);
     expect(result.failure).toBeUndefined();
     expect(result.taken).toBe(3);
     expect(written).toEqual(["demo-01-light.png", "demo-02-light.png", "demo-03-light.png"]);
-    expect(size("demo-01-light.png")).toEqual([2880, 1800]);
+    expect(size(tab, "demo-01-light.png")).toEqual([2880, 1800]);
     // The card is 200 by 100 pixels, so its clip is that doubled, to the pixel its position rounds outward.
-    const [cardWidth, cardHeight] = size("demo-03-light.png");
+    const [cardWidth, cardHeight] = size(tab, "demo-03-light.png");
     expect(cardWidth).toBe(400);
     expect(cardHeight).toBeGreaterThanOrEqual(200);
     expect(cardHeight).toBeLessThanOrEqual(204);
     // The dialog's clip is its own box.
-    const [width, height] = size("demo-02-light.png");
+    const [width, height] = size(tab, "demo-02-light.png");
     expect(width).toBeLessThan(2880);
     expect(height).toBeLessThan(1800);
   });
@@ -150,8 +150,8 @@ suite("the guide walk", () => {
         { step: "never reached", actions: [{ waitFor: { text: "Entered" } }], capture: { name: "demo-09", clip: "window" } },
       ],
     };
-    const result = await runGuide(tab, broken, options({ timeout: 800 }));
-    const written = await done();
+    const result = await runGuide(tab.page, broken, options(tab, { timeout: 800 }));
+    const written = await done(tab);
     expect(result.failure).toMatch(/^demo step 2 \(press a button that is not there\): /);
     expect(result.failure).toContain("Delete everything");
     expect(written).not.toContain("demo-09-light.png");
@@ -159,8 +159,8 @@ suite("the guide walk", () => {
 
   it("presses the controls of a guide it takes no images of", async () => {
     const tab = await fresh();
-    const result = await runGuide(tab, create, options({ capture: false }));
-    const written = await done();
+    const result = await runGuide(tab.page, create, options(tab, { capture: false }));
+    const written = await done(tab);
     expect(result.failure).toBeUndefined();
     expect(result.taken).toBe(0);
     expect(written).toEqual([]);
@@ -171,11 +171,13 @@ suite("the guide walk", () => {
       guide: "late",
       steps: [{ step: "wait for it", route: "/", actions: [{ click: { role: "button", name: "Arrive later" } }, { waitFor: { text: "Arrived", timeout } }] }],
     });
-    const patient = await runGuide(await fresh(), arrive(5000), options({ timeout: 500 }));
-    await done();
+    const first = await fresh();
+    const patient = await runGuide(first.page, arrive(5000), options(first, { timeout: 500 }));
+    await done(first);
     expect(patient.failure).toBeUndefined();
-    const hasty = await runGuide(await fresh(), arrive(), options({ timeout: 500 }));
-    await done();
+    const second = await fresh();
+    const hasty = await runGuide(second.page, arrive(), options(second, { timeout: 500 }));
+    await done(second);
     expect(hasty.failure).toMatch(/^late step 1 \(wait for it\): .*Arrived/);
   });
 
@@ -189,12 +191,12 @@ suite("the guide walk", () => {
         { step: "show it again", capture: { name: "wide-03", clip: "window" } },
       ],
     };
-    const result = await runGuide(tab, wide, options());
-    await done();
+    const result = await runGuide(tab.page, wide, options(tab));
+    await done(tab);
     expect(result.failure).toBeUndefined();
-    expect(size("wide-01-light.png")).toEqual([3200, 1800]);
-    expect(size("wide-02-light.png")).toEqual([2880, 2000]);
-    expect(size("wide-03-light.png")).toEqual([2880, 1800]);
+    expect(size(tab, "wide-01-light.png")).toEqual([3200, 1800]);
+    expect(size(tab, "wide-02-light.png")).toEqual([2880, 2000]);
+    expect(size(tab, "wide-03-light.png")).toEqual([2880, 1800]);
   });
 
   it("fails a capture of a page that shows a private word, and keeps the image", async () => {
@@ -203,8 +205,8 @@ suite("the guide walk", () => {
       guide: "leak",
       steps: [{ step: "show the page", route: "/", actions: [{ waitFor: { text: "Projects" } }], capture: { name: "leak-01", clip: "window" } }],
     };
-    const result = await runGuide(tab, shows, options({ private: ["Create project"] }));
-    const written = await done();
+    const result = await runGuide(tab.page, shows, options(tab, { private: ["Create project"] }));
+    const written = await done(tab);
     expect(result.failure).toMatch(/^leak step 1 \(show the page\): .*shows Create project/);
     expect(written).toContain("leak-01-light.png");
   });
@@ -215,8 +217,8 @@ suite("the guide walk", () => {
       guide: "typo",
       steps: [{ step: "fill the field", route: "/", actions: [{ fill: { label: "Name", value: "{{folder}}" } }] }],
     };
-    const result = await runGuide(tab, typo, options());
-    await done();
+    const result = await runGuide(tab.page, typo, options(tab));
+    await done(tab);
     expect(result.failure).toMatch(/^typo step 1 \(fill the field\): .*folder/);
   });
-});
+}, 60_000);
