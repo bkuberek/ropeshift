@@ -11,7 +11,8 @@
         "unified_windows": "passed",
         "command_lifecycle": "passed",
         "print_keeps_login": "passed",
-        "start_screens": "passed"
+        "start_screens": "passed",
+        "max_budget_usd": "unobserved"
       }
     },
     {
@@ -24,7 +25,8 @@
         "unified_windows": "passed",
         "command_lifecycle": "passed",
         "print_keeps_login": "passed",
-        "start_screens": "passed"
+        "start_screens": "passed",
+        "max_budget_usd": "unobserved"
       }
     },
     {
@@ -37,7 +39,8 @@
         "unified_windows": "passed",
         "command_lifecycle": "passed",
         "print_keeps_login": "passed",
-        "start_screens": "passed"
+        "start_screens": "passed",
+        "max_budget_usd": "unobserved"
       }
     }
   ]

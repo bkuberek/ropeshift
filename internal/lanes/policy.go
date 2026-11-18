@@ -142,6 +142,16 @@ type PolicySpec struct {
 const ReasonHandOff = "ropeshift policy: this lane must hand off now, and no other tool runs until it does. Call " +
 	ToolLaneHandoff + " with what you alone know, and then end your turn."
 
+// ReasonSpendLimit is what a lane held at its work order's hard spend limit reads at its next tool call. It says a
+// limit was reached, and it names none: a lane learns of a limit only from this denial (FR-SPEND-9).
+const ReasonSpendLimit = "ropeshift policy: this work order reached its spend limit, so this lane must hand off now, and no other tool runs until it does. Call " +
+	ToolLaneHandoff + " with what you alone know, and then end your turn."
+
+// ReasonSpendUnreadable is what a lane held because its work order's spend limit could not be read reads at its next
+// tool call. The worker cannot say whether the lane is under its limit, and it does not run a lane it cannot hold to one.
+const ReasonSpendUnreadable = "ropeshift policy: this lane's spend limit cannot be read, so this lane must hand off now, and no other tool runs until it does. Call " +
+	ToolLaneHandoff + " with what you alone know, and then end your turn."
+
 // HoldsTool says a hold stops this tool, and why.
 func (p DenyPolicy) HoldsTool(tool string) (string, bool) {
 	if p.Hold == "" || (p.OwnTools != "" && strings.HasPrefix(tool, p.OwnTools)) {

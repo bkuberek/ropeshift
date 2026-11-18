@@ -714,7 +714,12 @@ func (s *paneSession) takeStatus(event lanes.HookEvent) {
 	if event.Status == nil {
 		return
 	}
-	s.totalUSD = max(s.totalUSD, event.Status.CostUSD)
+	// A running total that grew is a usage report a hard spend limit is held to during the turn (FR-SPEND-5). A pane's
+	// status line is the one place an interactive session says what it has spent before its turn ends.
+	if grew := event.Status.CostUSD > s.totalUSD; grew {
+		s.totalUSD = event.Status.CostUSD
+		s.push(ports.DriverEvent{Kind: ports.EventCost, RunningUSD: s.totalUSD})
+	}
 	if event.Status.ContextKnown {
 		s.seen.ContextTokens = event.Status.ContextTokens
 		s.push(ports.DriverEvent{Kind: ports.EventUsage, ContextTokens: event.Status.ContextTokens})

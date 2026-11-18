@@ -400,8 +400,25 @@ func factHolds(tx ports.WriteTx, wake parking.Wake, fact parking.Fact) (bool, er
 			return false, err
 		}
 		return row.Decided(), nil
+	case parking.LimitRaised:
+		return limitRaised(tx, fact.Key)
 	}
 	return tx.Wakes().Signaled(fact.Kind, fact.Key, wake.StoredRev)
+}
+
+// limitRaised is true when a work order's hard spend limit exceeds what it has been charged, which is the one fact
+// that frees a lane parked by `spend_limit` (FR-SPEND-5). It reads the work order's spend as this transaction sees it,
+// so the raise or the new policy version that lifted the limit and the wake it fires commit together. A work order
+// with no hard limit is under one, and a work order nobody made is not.
+func limitRaised(tx ports.WriteTx, workOrder string) (bool, error) {
+	spend, err := spendWritesOf(tx).spendOf(workOrder)
+	if errors.Is(err, ports.ErrNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return !slices.Contains(spend.Conditions, ledger.ConditionSpendLimit), nil
 }
 
 // questionAnswered is true when a question has an accepted decision. An overturned one answers
@@ -613,14 +630,50 @@ func (w *Wakes) ResumeLane(ctx context.Context, scope ledger.WorkspaceID, lane s
 	}
 	var fired []string
 	err := w.store.Write(ctx, scope, opWakeSignal, func(tx ports.WriteTx) error {
-		if _, err := tx.Lanes().Row(lane); err != nil {
+		row, err := tx.Lanes().Row(lane)
+		if err != nil {
 			return err
 		}
-		var err error
+		if err := onlyAMemberEndsASpendStop(tx, row.WorkOrder, lane, actor); err != nil {
+			return err
+		}
 		fired, err = signalIn(tx, parking.Signal{Kind: parking.HumanResume, Key: lane}, actor, noStamp)
 		return err
 	})
 	return fired, err
+}
+
+// onlyAMemberEndsASpendStop refuses a resume of a lane that waits on a hard spend limit, from anyone who may resume a
+// lane and may not raise a limit. The wake of a spend stop waits on the limit rising or on a person, and a delegate holds
+// the action that resumes a lane, so without this it would end a stop with no card and no member, which is the one thing a
+// limit exists to prevent (FR-SPEND-8). A lane parked for any other reason, or one whose work order is back under its
+// limit, is resumed as before.
+func onlyAMemberEndsASpendStop(tx ports.WriteTx, workOrder, lane string, actor ledger.Actor) error {
+	if workOrder == "" || authority.Allowed(actor, authority.ActionRaiseSpendLimit) {
+		return nil
+	}
+	open, err := tx.Wakes().Open()
+	if err != nil {
+		return err
+	}
+	waits := false
+	for _, wake := range open {
+		if wake.Lane != lane {
+			continue
+		}
+		if expr, err := parking.Parse(wake.Expr, wake.Lane); err == nil && expr.Names(parking.LimitRaised) {
+			waits = true
+		}
+	}
+	if !waits {
+		return nil
+	}
+	spend, err := spendWritesOf(tx).spendOf(workOrder)
+	if err != nil || !slices.Contains(spend.Conditions, ledger.ConditionSpendLimit) {
+		return err
+	}
+	return fmt.Errorf("%w: work order %s is at its hard spend limit, so only a member wakes it, by raising the limit with ropeshift spend raise or resuming it with ropeshift spend resume",
+		workorders.ErrForbidden, workOrder)
 }
 
 // ResumeWork is a member waking a work order's parked lane. It goes through the work order, as a
@@ -648,6 +701,9 @@ func (w *Wakes) ResumeWork(ctx context.Context, scope ledger.WorkspaceID, workOr
 				return err
 			}
 			if row.WorkOrder == workOrder {
+				if err := onlyAMemberEndsASpendStop(tx, workOrder, wake.Lane, actor); err != nil {
+					return err
+				}
 				fired, err = signalIn(tx, parking.Signal{Kind: parking.HumanResume, Key: wake.Lane}, actor, noStamp)
 				return err
 			}

@@ -38,6 +38,10 @@ type DriverStep struct {
 	Bound bool
 	// Context reports one API call's usage.
 	Context *lanes.Usage
+	// Running reports the session's running cost total in the middle of a turn, as a status line does.
+	Running float64
+	// Call is a tool call a hold denies: it runs only while no hold stands, and a denied call is counted.
+	Call func(spec ports.SessionSpec)
 	// Turn ends the turn.
 	Turn *DriverTurn
 	// Malformed reports a line that did not parse.
@@ -119,6 +123,8 @@ type AgentDriver struct {
 	sendErr      error
 	noCompact    bool
 	holds        []string
+	// calls counts the tool calls that ran, and denied those a hold stopped.
+	calls, denied int
 	// midTurnRefused stands for a socket that takes nothing, on a version that says it can.
 	midTurnRefused bool
 	// qualified is what Qualify was handed, probes what each probe was asked, and probeHold and
@@ -152,6 +158,8 @@ type driverSession struct {
 	bad     int
 	// ignoresPeers is its driver's, so a test can say this of a session already running.
 	ignoresPeers *atomic.Bool
+	// driver is who runs the session, whose hold a tool call asks.
+	driver *AgentDriver
 }
 
 // NewAgentDriver returns a driver with an empty script.
@@ -533,7 +541,7 @@ func (d *AgentDriver) open(spec ports.SessionSpec, from ports.ResumeRef) (ports.
 func (d *AgentDriver) newSession(spec ports.SessionSpec, meter lanes.CostMeter) *driverSession {
 	return &driverSession{
 		spec: spec, script: d.next, events: make(chan ports.DriverEvent, 256), inputs: make(chan ports.Input, 16),
-		stops: make(chan ports.StopMode, 1), done: make(chan struct{}), meter: meter, ignoresPeers: &d.ignoresPeers,
+		stops: make(chan ports.StopMode, 1), done: make(chan struct{}), meter: meter, ignoresPeers: &d.ignoresPeers, driver: d,
 	}
 }
 
@@ -625,6 +633,12 @@ func (s *driverSession) playTurn(steps []DriverStep) (*ports.SessionEnd, bool) {
 			s.context = step.Context.Context()
 			s.mu.Unlock()
 			s.events <- ports.DriverEvent{Kind: ports.EventUsage, ContextTokens: step.Context.Context()}
+		case step.Running > 0:
+			s.events <- ports.DriverEvent{Kind: ports.EventCost, RunningUSD: step.Running}
+		case step.Call != nil:
+			if s.driver.callRuns() {
+				step.Call(s.spec)
+			}
 		case step.Malformed:
 			s.mu.Lock()
 			s.bad++
@@ -865,6 +879,33 @@ func (d *AgentDriver) HoldTools(_ context.Context, h ports.SessionHandle, reason
 	defer d.mu.Unlock()
 	d.holds = append(d.holds, reason)
 	return nil
+}
+
+// callRuns is a session's hook asking whether a tool call may start: not while a hold stands, which the last word of
+// HoldTools sets and an empty one lifts.
+func (d *AgentDriver) callRuns() bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if len(d.holds) != 0 && d.holds[len(d.holds)-1] != "" {
+		d.denied++
+		return false
+	}
+	d.calls++
+	return true
+}
+
+// Calls counts the tool calls that ran, and Denied those a hold stopped before they started.
+func (d *AgentDriver) Calls() int {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.calls
+}
+
+// Denied counts the tool calls a hold stopped before they started.
+func (d *AgentDriver) Denied() int {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.denied
 }
 
 // Holds lists what HoldTools took, in order.

@@ -148,6 +148,18 @@ type laneRun struct {
 	// priorUSD and priorUnknown are what earlier generations cost.
 	priorUSD     float64
 	priorUnknown int64
+	// allowance is what the ledger said this lane's work order allows it to spend, when this generation began, and
+	// running is the session's last running cost total. The handle's lock guards both. spendStop says the lane began
+	// its stop at the hard limit, which it does once.
+	allowance *ledger.SpendAllowance
+	running   float64
+	spendStop atomic.Bool
+	// allowanceKnown says the ledger answered what the allowance is, nil for none included, and allowanceFailedAt is
+	// when a read of it first failed with nothing known, and allowanceTriedAt when one last ran. A lane whose allowance
+	// stays unknown is held (FR-SPEND-5). The handle's lock guards all three.
+	allowanceKnown    bool
+	allowanceFailedAt time.Time
+	allowanceTriedAt  time.Time
 	// resolved is the model the session said it runs, and handleLock guards it.
 	resolved string
 	// life is the context the run lives under, which outlasts whoever asked for a handoff.
@@ -590,6 +602,9 @@ func (r *laneRun) adopt(ctx context.Context) error {
 	}
 	r.replayHooks(ctx, hooks)
 	r.resumeApprovals(ctx)
+	// The allowance is not in the journal, so a worker that takes a session over reads it again, and holds the lane
+	// to its limit from here.
+	r.readAllowance(ctx)
 	err = r.rt.Driver.Adopt(ctx, r.sessionHandle(), ports.AdoptFrom{
 		Spec: r.w.sessionSpec(r.record()), Cursor: r.cursor, Cost: r.cost, Hooks: hooks,
 	})
@@ -767,6 +782,10 @@ func (r *laneRun) session(ctx context.Context) workorders.Report {
 	}
 	r.state.thresholds(prepared.Profile, r.role())
 	r.readFacts(ctx)
+	// A generation that begins with nothing left to spend parks before its first turn (FR-SPEND-5).
+	if report, parked := r.parkAtLimitBeforeStart(ctx); parked {
+		return report
+	}
 	capabilities, err := r.rt.Driver.Capabilities(ctx)
 	if err != nil {
 		return r.failStart(workorders.ReasonSpawnFailed, err)
@@ -928,6 +947,12 @@ func (r *laneRun) spec(ctx context.Context, prepared PreparedLane, repository, p
 	if !r.orchestrating() && !r.assisting() {
 		spec.Waits = lanes.WaitRulesFrom(r.lease.Spend)
 	}
+	// A headless generation's client holds a cap of its own, as a backstop for a worker slow to stop it. It is what
+	// remains of the work order's hard limit and a share of the limit beyond it, and a driver passes it only where its
+	// qualification observed the flag (FR-SPEND-5).
+	if allowance := r.allowanceNow(); mode == ports.RunModeHeadless && r.holdsToLimit() && allowance != nil {
+		spec.MaxBudgetUSD = allowance.BudgetUSD(r.chargedUSD())
+	}
 	r.assistantShell(&spec)
 	if spec.TempDir != "" {
 		if err := os.MkdirAll(spec.TempDir, 0o700); err != nil {
@@ -1022,6 +1047,7 @@ func (r *laneRun) watch(ctx context.Context, events <-chan ports.DriverEvent) wo
 		}
 		if r.anotherCompaction(ctx, event) {
 			r.cost, r.usage = event.Turn.Cost, r.usage.Add(event.Turn.Usage)
+			r.settleTurnCost(event.Turn)
 			r.measureTurn(event.Turn)
 			r.progressed()
 			r.saveProgress(ctx, event.Seq)
@@ -1048,6 +1074,7 @@ func (r *laneRun) watch(ctx context.Context, events <-chan ports.DriverEvent) wo
 				r.assistant().noteTurn()
 			}
 			r.cost, r.usage = event.Turn.Cost, r.usage.Add(event.Turn.Usage)
+			r.settleTurnCost(event.Turn)
 			r.measureTurn(event.Turn)
 			r.finishTurn(event.Turn)
 			r.noteResponse(ctx, event.Turn)
@@ -1165,6 +1192,15 @@ func (r *laneRun) afterTurn(ctx context.Context, turn *ports.TurnResult, clears 
 		return
 	}
 	if turn.Deferred && r.parkDeferred(ctx) {
+		return
+	}
+	// A client that ended its turn at the cap it was given reached the limit and a little more, and a lane whose
+	// charged spend a turn's end shows is at its limit: each parks as at the hard limit (FR-SPEND-5).
+	if reachedBudget(turn) {
+		r.stopOnBudget(ctx)
+		return
+	}
+	if r.evaluateSpend(ctx) {
 		return
 	}
 	if r.currentFlight() != nil {

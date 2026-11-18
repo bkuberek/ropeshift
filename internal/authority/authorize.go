@@ -173,6 +173,11 @@ const (
 	// admin. Until then the one member resolves as admin, so Allowed lets a member through as it does for
 	// every action, and no delegate, orchestrator, lane, worker, or tick holds it.
 	ActionPublishInstallationPolicy Action = "installation_policy.publish"
+	// ActionRaiseSpendLimit raises a work order's hard spend limit and resumes a lane the limit parked. It is a
+	// person's decision to spend more than twice the expected cost (ADR-0037), the maintainer's action under
+	// ADR-0033: group mode's accounts (G3a) map it to maintainer. Until then the one member holds it, as it holds
+	// every action, and no delegate, orchestrator, lane, worker, or tick does.
+	ActionRaiseSpendLimit Action = "spend.raise"
 )
 
 // Actions lists every action, so a test can hold each one to the function.
@@ -188,7 +193,7 @@ func Actions() []Action {
 		ActionSetRepository, ActionRegisterRepository, ActionRegisterManifest, ActionManageProject, ActionRecordMerge, ActionMerge, ActionDecideMerge, ActionChangeRoster,
 		ActionRaiseMergeAuthority, ActionReviewPullRequest, ActionDecideOneWay, ActionManageSessions, ActionBackupInstallation, ActionConfirmCard,
 		ActionConverse, ActionBackupProject, ActionSetLaneCaps, ActionMessageOrchestrator, ActionStartReview, ActionPlanAdoption, ActionRestructure,
-		ActionWriteTemplates, ActionPublishInstallationPolicy, ActionAnswerCI,
+		ActionWriteTemplates, ActionPublishInstallationPolicy, ActionAnswerCI, ActionRaiseSpendLimit,
 	}
 }
 

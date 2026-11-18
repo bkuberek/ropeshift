@@ -4,10 +4,12 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -107,9 +109,19 @@ func TestAParkedLaneHoldsNoProcessAndResumes(t *testing.T) {
 		t.Fatalf("a resume dropped a flag:\nfirst  %v\nsecond %v", first, second)
 	}
 	for i := range flags {
-		if flags[i] != first[i] && !strings.HasSuffix(first[i], ".json") {
-			t.Errorf("flag %d: %q and %q", i, first[i], flags[i])
+		if flags[i] == first[i] || strings.HasSuffix(first[i], ".json") {
+			continue
 		}
+		// The client's budget cap is what remains of the work order's limit and a headroom beyond it, so the resumed
+		// generation's cap is the first one's less what the first generation was charged: the $0.02 its turns reported.
+		if i > 0 && first[i-1] == "--max-budget-usd" && flags[i-1] == "--max-budget-usd" {
+			before, errBefore := strconv.ParseFloat(first[i], 64)
+			after, errAfter := strconv.ParseFloat(flags[i], 64)
+			if errBefore == nil && errAfter == nil && math.Abs((before-after)-0.02) < 1e-6 {
+				continue
+			}
+		}
+		t.Errorf("flag %d: %q and %q", i, first[i], flags[i])
 	}
 }
 

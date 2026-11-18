@@ -165,7 +165,7 @@ func (r *laneRun) runHandoff(ctx context.Context) {
 func (r *laneRun) requestNarrative(ctx context.Context, flight *handoffFlight) {
 	progress := flight.read()
 	if progress.MidTurn {
-		r.holdTools(ctx)
+		r.holdTools(ctx, progress.Reason)
 	}
 	effect := lanes.NewEffect(lanes.EffectInput, r.lease.Lane, r.currentGeneration(), "", instructionLabel())
 	_, err := r.w.bracket(ctx, effect, func() error { return r.sendInstruction(ctx, progress.MidTurn) })

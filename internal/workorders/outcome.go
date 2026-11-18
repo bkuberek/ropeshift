@@ -31,6 +31,9 @@ const (
 	// ReasonUnknownScreen says a checked start stopped on a screen the driver does not
 	// know. It stands for the human_resume wake until lanes can park.
 	ReasonUnknownScreen = "unknown_screen"
+	// ReasonSpendLimit says a generation found its work order at its hard spend limit as it was about to start, so it parked
+	// with no process and no model call, which stands for the park until the lane's end is read.
+	ReasonSpendLimit = "spend_limit"
 	// ReasonHookFailed says a profile's hook did not finish, so no session started.
 	ReasonHookFailed = "hook_failed"
 	// ReasonHookUnknown says a crash left a hook's end unknown, and a person has to look.

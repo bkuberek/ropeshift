@@ -34,10 +34,16 @@ func probeScript(script fixture) fixture {
 	if !dropped("command_lifecycle") {
 		turn = append(turn, step{Emit: map[string]any{"type": "system", "subtype": "command_lifecycle", "state": "started", "command_uuid": "c"}})
 	}
-	turn = append(turn, step{Emit: map[string]any{
+	result := map[string]any{
 		"type": "result", "subtype": "success", "is_error": false, "terminal_reason": "completed", "num_turns": 1,
 		"total_cost_usd": 0.001, "usage": map[string]any{"input_tokens": 10, "output_tokens": 1},
-	}})
+	}
+	// A client that was given a cap its turn costs more than ends the turn at it, as the flag documents. A stand-in
+	// that drops `max_budget_usd` takes the flag and ends no turn on it.
+	if flagValue(os.Args[1:], "--max-budget-usd") != "" && !dropped("max_budget_usd") {
+		result["subtype"], result["is_error"] = "error_max_budget_usd", true
+	}
+	turn = append(turn, step{Emit: result})
 	script.Turns = [][]step{turn, turn, turn, turn}
 	script.ResumeTurns, script.Lanes, script.Inbound, script.StopText = nil, nil, "", ""
 	script.Pane = paneScript{Trust: true}

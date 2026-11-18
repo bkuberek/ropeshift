@@ -208,16 +208,29 @@ func (r *laneRun) sendInstruction(ctx context.Context, midTurn bool) error {
 	return err
 }
 
-// holdTools arms the denial before the instruction leaves, so no tool call can pass between them.
-func (r *laneRun) holdTools(ctx context.Context) {
+// holdTools arms the denial before the instruction leaves, so no tool call can pass between them. A lane whose work
+// order reached its hard spend limit reads that it did, and every other reads only that it must hand off. A lane already
+// held stays held, so a hold armed when a stop began is not armed again when its instruction is sent.
+func (r *laneRun) holdTools(ctx context.Context, handoffReason string) {
 	if holdsNoTools() {
 		return
 	}
 	s := r.state
 	s.mu.Lock()
+	if s.held {
+		s.mu.Unlock()
+		return
+	}
 	s.held = true
 	s.mu.Unlock()
-	if err := r.rt.Driver.HoldTools(ctx, r.sessionHandle(), lanes.ReasonHandOff); err != nil {
+	reason := lanes.ReasonHandOff
+	switch handoffReason {
+	case string(lanes.ParkSpendLimit):
+		reason = lanes.ReasonSpendLimit
+	case string(lanes.ParkSpendUnreadable):
+		reason = lanes.ReasonSpendUnreadable
+	}
+	if err := r.rt.Driver.HoldTools(ctx, r.sessionHandle(), reason); err != nil {
 		r.w.config.Report(fmt.Errorf("lane %s: holding its tools: %w", r.lease.Lane, err))
 	}
 	crashpoint.Hit("worker.context", "held")

@@ -29,6 +29,11 @@ var wakeWords = []struct {
 	{"a sign-in", `{"signin_restored":"worker-a:claude-code"}`, "When the sign-in on worker-a:claude-code is restored", "a sign-in on worker-a:claude-code"},
 	{"a work order", `{"work_order_done":"wo-1"}`, "When work order wo-1 is done", "work order wo-1"},
 	{"a check", `{"external_check":"ci"}`, "When check ci reports back", "check ci"},
+	{"a raised spend limit", `{"limit_raised":"wo-1"}`, "When the spend limit of work order wo-1 is raised", "a raised limit on wo-1"},
+	{
+		"a spend stop", `{"any_of":[{"limit_raised":"wo-1"},{"human_resume":true}]}`,
+		"When the spend limit of work order wo-1 is raised, or when a person resumes it", "a raised limit on wo-1 or a person",
+	},
 	{"a person", `{"human_resume":true}`, "When a person resumes it", "a person"},
 	{"a time", `{"at":1790000000000}`, "When the time reaches 2026-09-21 14:13 UTC", "2026-09-21 14:13 UTC"},
 	{

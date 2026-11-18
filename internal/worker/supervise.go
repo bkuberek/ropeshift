@@ -408,6 +408,11 @@ func (r *laneRun) enterGeneration(next int64, resume string, progress lanes.Prog
 	r.nudged.Store(false)
 	r.owesBrief.Store(false)
 	r.cost = progress.Cost
+	// A session that goes on has its running total to go on from, and a new one starts at none, so a generation
+	// is charged only for what its own session shows.
+	r.handleLock.Lock()
+	r.running = progress.Cost.SessionTotalUSD
+	r.handleLock.Unlock()
 	r.state.newGeneration(r.w.clock.Now(), progress.BaselineTokens)
 	r.digestBegins(r.w.clock.Now().UnixMilli())
 }

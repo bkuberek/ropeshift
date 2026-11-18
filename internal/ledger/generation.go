@@ -115,6 +115,9 @@ type LaneFactsRequest struct {
 	WorkOrder string     `json:"work_order"`
 	Fence     int64      `json:"fence"`
 	Lane      string     `json:"lane"`
+	// Generation is the generation the worker is about to run, which the lane's spend allowance leaves out and counts
+	// every one before. A worker that sends none leaves the ledger to say which runs.
+	Generation int64 `json:"generation,omitempty"`
 }
 
 // CheckState is one check's name and how it stands.
@@ -133,6 +136,9 @@ type LaneFacts struct {
 	Facts []MessageFact `json:"facts,omitempty"`
 	// Pack is the newest version of the pack this claim pinned, for the generation about to start.
 	Pack *DesiredPack `json:"pack,omitempty"`
+	// Spend is what the lane's work order allows it to spend, for the worker that holds the lane to its hard limit.
+	// Nil says the work order has no hard limit.
+	Spend *SpendAllowance `json:"spend,omitempty"`
 }
 
 // LaneContextRequest is one read of what a workspace holds, for a lane a worker holds. A search

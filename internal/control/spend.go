@@ -7,6 +7,7 @@ import (
 
 	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/parking"
 	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/internal/workorders"
 )
@@ -72,7 +73,13 @@ func (s *Spend) PublishSpendPolicy(ctx context.Context, scope ledger.WorkspaceID
 		if record, err = authority.NewSpendPolicyVersion(id, actor.ID, draft, tx.Now()); err != nil {
 			return err
 		}
-		return insertPolicy(tx, record, actor)
+		if err := insertPolicy(tx, record, actor); err != nil {
+			return err
+		}
+		// A new version can lift a limit, as a revert can, so the lanes a hard limit parked read it in this
+		// transaction (FR-PARK-2).
+		_, err = fireWakes(tx, "spend-policy:"+record.ID, actor, parking.LimitRaised)
+		return err
 	})
 	if err != nil {
 		return authority.PolicyVersion{}, err

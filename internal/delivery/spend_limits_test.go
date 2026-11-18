@@ -102,6 +102,35 @@ func TestZeroIsNoLimitAndOtherKindsHaveNone(t *testing.T) {
 	}
 }
 
+// A share of 0 turns the limit it sets off, as an amount of 0 does: ADR-0037 states 0 only for amounts, and a share
+// that gave a limit of 0 dollars would stop every work order before it began.
+func TestAShareOfZeroTurnsItsLimitOff(t *testing.T) {
+	band := bandOf(4, 10, 8, true)
+	tests := []struct {
+		name   string
+		policy map[string]string
+		in     SpendInput
+		soft   bool
+		hard   bool
+	}{
+		{"a review share of 0 leaves a review no hard limit", map[string]string{"review_share": "0"}, SpendInput{Kind: "review", ReviewedHard: 20}, false, false},
+		{"a review soft share of 0 leaves a review no soft limit", map[string]string{"review_soft_share": "0"}, SpendInput{Kind: "review", ReviewedHard: 20}, false, true},
+		{"a low confidence soft share of 0 leaves no soft limit", map[string]string{"low_confidence_soft_share": "0"}, SpendInput{Kind: "change", Size: "medium"}, false, true},
+		{"a trusted band is unmoved by the share it does not read", map[string]string{"low_confidence_soft_share": "0", "review_share": "0"}, SpendInput{Kind: "change", Size: "medium", Band: band}, true, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := SpendLimitsOf(policyWith(t, tt.policy), tt.in)
+			if (got.Soft > 0) != tt.soft || (got.Hard > 0) != tt.hard {
+				t.Fatalf("limits %+v, want a soft limit %v and a hard limit %v", got, tt.soft, tt.hard)
+			}
+			if !tt.soft && got.PastSoft(1e9) || !tt.hard && got.PastHard(1e9) {
+				t.Errorf("limits %+v were passed with no limit set", got)
+			}
+		})
+	}
+}
+
 // The soft and the hard limit tell over an estimate from a stop.
 func TestSpendIsPastItsLimits(t *testing.T) {
 	limits := SpendLimits{Soft: 5, Hard: 10}

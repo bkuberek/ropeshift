@@ -34,31 +34,33 @@ type spendReads struct {
 	orders    ports.WorkOrderReader
 	estimates ports.EstimateReader
 	policies  ports.PolicyReader
+	// events reads what the ledger says about one subject, which is where a member's raises of a limit are kept.
+	events func(ledger.Subject) ([]ledger.Event, error)
 }
 
 func spendReadsOf(tx ports.ReadTx) spendReads {
-	return spendReads{lanes: tx.Lanes(), orders: tx.WorkOrders(), estimates: tx.Estimates(), policies: tx.Policies()}
+	return spendReads{lanes: tx.Lanes(), orders: tx.WorkOrders(), estimates: tx.Estimates(), policies: tx.Policies(), events: tx.EventsAbout}
 }
 
 func spendWritesOf(tx ports.WriteTx) spendReads {
-	return spendReads{lanes: tx.Lanes(), orders: tx.WorkOrders(), estimates: tx.Estimates(), policies: tx.Policies()}
+	return spendReads{lanes: tx.Lanes(), orders: tx.WorkOrders(), estimates: tx.Estimates(), policies: tx.Policies(), events: tx.EventsAbout}
 }
 
-// charged folds the generations of every lane that served a work order (FR-SPEND-3). A retried work order is one
-// work order, so its earlier lanes' spend stays.
-func (r spendReads) charged(workOrder string) (ledger.Charged, error) {
+// usageOf reads the generations of every lane that served a work order, a lane at a time, in order. A lane that
+// is named is left out, for a worker that holds that lane's own spend and asks only what the others cost.
+func (r spendReads) usageOf(workOrder, except string) ([][]ledger.GenerationUsage, error) {
 	rows, err := r.lanes.Rows()
 	if err != nil {
-		return ledger.Charged{}, err
+		return nil, err
 	}
 	var lanes [][]ledger.GenerationUsage
 	for _, row := range rows {
-		if row.WorkOrder != workOrder {
+		if row.WorkOrder != workOrder || row.ID == except {
 			continue
 		}
 		generations, err := r.lanes.Generations(row.ID)
 		if err != nil {
-			return ledger.Charged{}, err
+			return nil, err
 		}
 		usage := make([]ledger.GenerationUsage, 0, len(generations))
 		for _, g := range generations {
@@ -66,7 +68,26 @@ func (r spendReads) charged(workOrder string) (ledger.Charged, error) {
 		}
 		lanes = append(lanes, usage)
 	}
+	return lanes, nil
+}
+
+// charged folds the generations of every lane that served a work order (FR-SPEND-3). A retried work order is one
+// work order, so its earlier lanes' spend stays.
+func (r spendReads) charged(workOrder string) (ledger.Charged, error) {
+	lanes, err := r.usageOf(workOrder, "")
+	if err != nil {
+		return ledger.Charged{}, err
+	}
 	return ledger.Charge(lanes), nil
+}
+
+// raisedTo is the hard limit a member's raises and resumes set on a work order, or 0 when none did.
+func (r spendReads) raisedTo(workOrder string) (float64, error) {
+	events, err := r.events(ledger.Subject{Kind: ledger.SubjectSpend, ID: workOrder})
+	if err != nil {
+		return 0, err
+	}
+	return ledger.RaisedLimit(events), nil
 }
 
 // bandOf is the cost band a work order's limit reads: the band recorded at plan approval, or its current band when it
@@ -116,7 +137,17 @@ func (r spendReads) limitsOf(policy authority.SpendPolicy, order workorders.Work
 		}
 		input.ReviewedHard = limits.Hard
 	}
-	return delivery.SpendLimitsOf(policy, input), nil
+	limits := delivery.SpendLimitsOf(policy, input)
+	// A raise lifts the limit the band derives and never lowers it, and it lifts a limit there is: a work order the
+	// policy leaves with no hard limit has none to raise.
+	raised, err := r.raisedTo(order.ID)
+	if err != nil {
+		return delivery.SpendLimits{}, err
+	}
+	if limits.Hard > 0 && raised > limits.Hard {
+		limits.Hard = raised
+	}
+	return limits, nil
 }
 
 // spendOf is a work order's charged spend beside its limits.
@@ -143,6 +174,13 @@ func (r spendReads) spendOf(id string) (ledger.WorkOrderSpend, error) {
 	}
 	if limits.Hard > 0 {
 		out.Remaining = max(limits.Hard-charged.ChargedUSD, 0)
+		raised, err := r.raisedTo(id)
+		if err != nil {
+			return ledger.WorkOrderSpend{}, err
+		}
+		if raised == limits.Hard {
+			out.RaisedTo = raised
+		}
 	}
 	if limits.PastSoft(charged.ChargedUSD) {
 		out.Conditions = append(out.Conditions, ledger.ConditionOverEstimate)
@@ -217,8 +255,9 @@ func (s *Spend) State(ctx context.Context, scope ledger.WorkspaceID) (SpendState
 	return out, err
 }
 
-// softLimitNotice is the data of EventSpendSoftLimit: which work order, and how far it had come.
-type softLimitNotice struct {
+// limitNotice is the data of EventSpendSoftLimit and EventSpendLimited: which work order, the limit it reached, and how
+// far it had come.
+type limitNotice struct {
 	WorkOrder     string  `json:"work_order"`
 	Limit         float64 `json:"limit"`
 	ChargedUSD    float64 `json:"charged_usd"`
@@ -226,8 +265,10 @@ type softLimitNotice struct {
 	PolicyVersion int64   `json:"policy_version"`
 }
 
-// usageReported keeps what a generation has spent, in place of what it last reported, and tells members once when
-// the work order it belongs to reaches its soft limit (FR-SPEND-4). The soft limit stops nothing.
+// usageReported keeps what a generation has spent, in place of what it last reported, and records once when the work
+// order it belongs to reaches its soft limit (FR-SPEND-4) and once when it reaches its hard one (FR-SPEND-5). The soft
+// limit stops nothing. The hard limit is the worker's to hold a lane to, in the lane's own session, and this is the
+// ledger's word that it was reached.
 func usageReported(tx ports.WriteTx, worker, id string, e ledger.UploadEvent) error {
 	var usage ledger.GenerationUsage
 	if err := json.Unmarshal(e.Payload, &usage); err != nil {
@@ -247,42 +288,88 @@ func usageReported(tx ports.WriteTx, worker, id string, e ledger.UploadEvent) er
 	if _, err := tx.Append(draft); err != nil {
 		return err
 	}
-	return noteSoftLimit(tx, e.WorkOrder)
-}
-
-// noteSoftLimit records, once per work order and limit, that charged spend reached the soft limit. The notice is a
-// ledger event that names its scope, so a member sees it and a later delivery channel can send it.
-func noteSoftLimit(tx ports.WriteTx, workOrder string) error {
-	spend, err := spendWritesOf(tx).spendOf(workOrder)
+	spend, err := spendWritesOf(tx).spendOf(e.WorkOrder)
 	if err != nil {
 		return err
 	}
-	if !slices.Contains(spend.Conditions, ledger.ConditionOverEstimate) {
+	if err := noteLimit(tx, spend, ledger.ConditionOverEstimate, ledger.EventSpendSoftLimit, spend.SoftLimit); err != nil {
+		return err
+	}
+	return noteLimit(tx, spend, ledger.ConditionSpendLimit, ledger.EventSpendLimited, spend.HardLimit)
+}
+
+// noteLimit records, once per work order and limit, that charged spend reached a limit. The notice is a ledger event
+// that names its scope, so a member sees it and a later delivery channel can send it. A raised limit is a new limit,
+// so passing it is noted again.
+func noteLimit(tx ports.WriteTx, spend ledger.WorkOrderSpend, condition, eventType string, limit float64) error {
+	if !slices.Contains(spend.Conditions, condition) {
 		return nil
 	}
-	subject := ledger.Subject{Kind: ledger.SubjectSpend, ID: workOrder}
+	subject := ledger.Subject{Kind: ledger.SubjectSpend, ID: spend.WorkOrder}
 	events, err := tx.EventsAbout(subject)
 	if err != nil {
 		return err
 	}
 	for _, event := range events {
-		if event.Type != ledger.EventSpendSoftLimit {
+		if event.Type != eventType {
 			continue
 		}
-		var earlier softLimitNotice
-		if json.Unmarshal(event.Data, &earlier) == nil && earlier.Limit == spend.SoftLimit {
+		var earlier limitNotice
+		if json.Unmarshal(event.Data, &earlier) == nil && earlier.Limit == limit {
 			return nil
 		}
 	}
-	data, err := json.Marshal(softLimitNotice{
-		WorkOrder: workOrder, Limit: spend.SoftLimit, ChargedUSD: spend.Charged.ChargedUSD, EstimatedTurn: spend.Charged.EstimatedTurns,
+	data, err := json.Marshal(limitNotice{
+		WorkOrder: spend.WorkOrder, Limit: limit, ChargedUSD: spend.Charged.ChargedUSD, EstimatedTurn: spend.Charged.EstimatedTurns,
 		PolicyVersion: spend.PolicyVersion,
 	})
 	if err != nil {
 		return err
 	}
 	_, err = tx.Append(ledger.EventDraft{
-		Type: ledger.EventSpendSoftLimit, Actor: ledger.Actor{Kind: ledger.ActorSystem, ID: "spend"}, Subject: subject, Data: data,
+		Type: eventType, Actor: ledger.Actor{Kind: ledger.ActorSystem, ID: "spend"}, Subject: subject, Data: data,
 	})
 	return err
+}
+
+// spendAllowance reads what a work order allows a lane to spend, for the worker that holds the lane to its hard limit:
+// the limit in force, and what every other lane of the work order is charged. It is nil for work with no hard limit.
+//
+// The lane's own earlier generations are in it too, apart from the generation the worker says it is starting and any
+// after it: a worker that resumes a lane it never ran has no journal of what they spent.
+func spendAllowance(tx ports.ReadTx, order workorders.WorkOrder, lane string, generation int64) (*ledger.SpendAllowance, error) {
+	reads := spendReadsOf(tx)
+	policy, err := spendPolicyInForce(reads.policies)
+	if err != nil {
+		return nil, err
+	}
+	limits, err := reads.limitsOf(policy, order)
+	if err != nil || limits.Hard <= 0 {
+		return nil, err
+	}
+	others, err := reads.usageOf(order.ID, lane)
+	if err != nil {
+		return nil, err
+	}
+	var earlier []ledger.GenerationUsage
+	generations, err := tx.Lanes().Generations(lane)
+	if err != nil {
+		return nil, err
+	}
+	if generation == 0 {
+		// A worker that names no generation is one from before the allowance held the lane's own, and the one the ledger
+		// has running is the one it means.
+		if generation, err = tx.Lanes().Generation(lane); err != nil && !errors.Is(err, ports.ErrNotFound) {
+			return nil, err
+		}
+	}
+	for _, g := range generations {
+		if g.Number < generation {
+			earlier = append(earlier, g.Usage)
+		}
+	}
+	return &ledger.SpendAllowance{
+		HardUSD: limits.Hard, OthersUSD: ledger.Charge(others).ChargedUSD, LaneUSD: ledger.Charge([][]ledger.GenerationUsage{earlier}).ChargedUSD,
+		HeadroomShare: policy.BudgetFlagHeadroomShare,
+	}, nil
 }

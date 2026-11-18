@@ -32,7 +32,11 @@ const (
 	SigninRestored   Kind = "signin_restored"
 	WorkOrderDone    Kind = "work_order_done"
 	ExternalCheck    Kind = "external_check"
-	HumanResume      Kind = "human_resume"
+	// LimitRaised names a work order, and is true when its hard spend limit exceeds what it has been charged. The
+	// control plane reads it from the work order's spend, so a raise, a new version of the spend policy, and a
+	// revert each settle it in the transaction that changed the limit (ADR-0037).
+	LimitRaised Kind = "limit_raised"
+	HumanResume Kind = "human_resume"
 )
 
 // The terms that hold no fact.
@@ -45,7 +49,7 @@ const (
 // namedFacts are the terms that name a record by a string.
 var namedFacts = map[Kind]bool{
 	QuestionAnswered: true, ApprovalDecided: true, DecisionRecorded: true, UsageReset: true,
-	SigninRestored: true, WorkOrderDone: true, ExternalCheck: true,
+	SigninRestored: true, WorkOrderDone: true, ExternalCheck: true, LimitRaised: true,
 }
 
 // Fact is one thing the ledger can say.

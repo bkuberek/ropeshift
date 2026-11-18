@@ -32,17 +32,22 @@ const (
 	SurfacePrintKeepsLogin lanes.Surface = "print_keeps_login"
 	// SurfaceStartScreens is the known start screens the interactive start check matches.
 	SurfaceStartScreens lanes.Surface = "start_screens"
+	// SurfaceMaxBudget is `--max-budget-usd` on a headless session: a client that reaches the cap ends its turn with
+	// a result of subtype `error_max_budget_usd`. The driver passes the flag only where the check passed, because the
+	// flag was never reached in the spikes, and then only as a backstop for a worker that is slow to stop a lane.
+	SurfaceMaxBudget lanes.Surface = "max_budget_usd"
 )
 
 // Surfaces lists every surface the matrix holds a result for, in the matrix's order.
 var Surfaces = []lanes.Surface{
 	SurfaceSocketLine, SurfaceReceipts, SurfacePeerMessageHold, SurfaceSocketDir,
-	SurfaceUnifiedWindows, SurfaceCommandLifecycle, SurfacePrintKeepsLogin, SurfaceStartScreens,
+	SurfaceUnifiedWindows, SurfaceCommandLifecycle, SurfacePrintKeepsLogin, SurfaceStartScreens, SurfaceMaxBudget,
 }
 
-// noted are surfaces a check reports and the driver does not use, so their result degrades
-// nothing: the design does not need `command_lifecycle`, and no state follows from seeing a hold.
-var noted = []lanes.Surface{SurfaceCommandLifecycle, SurfacePeerMessageHold}
+// noted are surfaces a check reports and the driver does not use to run, so their result degrades
+// nothing: the design does not need `command_lifecycle`, no state follows from seeing a hold, and the budget flag is a
+// backstop, so a version without it runs as well, held to its limit by the worker alone.
+var noted = []lanes.Surface{SurfaceCommandLifecycle, SurfacePeerMessageHold, SurfaceMaxBudget}
 
 //go:embed matrix.json
 var shippedMatrix []byte
@@ -199,6 +204,8 @@ type Use struct {
 	WindowFigures bool
 	// HeadlessOnSubscription is a headless lane on a subscription's login.
 	HeadlessOnSubscription bool
+	// BudgetFlag is `--max-budget-usd` on a headless generation, as the client's own cap (FR-SPEND-5).
+	BudgetFlag bool
 }
 
 // UseOf reads a qualification as uses. A surface is used only when its own check passed, so a
@@ -209,7 +216,7 @@ func UseOf(q lanes.Qualification) Use {
 	return Use{
 		PeerInjection: q.Passed(SurfaceSocketLine), Receipts: q.Passed(SurfaceReceipts),
 		PrivateSockets: q.Passed(SurfaceSocketDir), WindowFigures: q.Passed(SurfaceUnifiedWindows),
-		HeadlessOnSubscription: q.Passed(SurfacePrintKeepsLogin),
+		HeadlessOnSubscription: q.Passed(SurfacePrintKeepsLogin), BudgetFlag: q.Passed(SurfaceMaxBudget),
 	}
 }
 

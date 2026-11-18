@@ -16,6 +16,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -420,6 +421,22 @@ func assistantArgs() []string {
 	}
 }
 
+// flagMaxBudget is the client's own cap on a print-mode run's estimated spend ([CLI reference]); it counts one process,
+// can pass its cap, and ends the turn with a result of subtype `error_max_budget_usd`.
+//
+// [CLI reference]: https://code.claude.com/docs/en/cli-reference
+const flagMaxBudget = "--max-budget-usd"
+
+// budgetArgs is the cap a headless generation starts with, where the version's qualification observed the flag and
+// the worker gave the generation one (FR-SPEND-5). It is a backstop and not the limit, so a version that did not pass
+// the check starts with none, and the worker alone holds the lane.
+func budgetArgs(use Use, spec ports.SessionSpec) []string {
+	if !use.BudgetFlag || spec.MaxBudgetUSD <= 0 || spec.RunMode == ports.RunModeInteractive {
+		return nil
+	}
+	return []string{flagMaxBudget, strconv.FormatFloat(spec.MaxBudgetUSD, 'f', 4, 64)}
+}
+
 // StartArgs is the command of a new session.
 func StartArgs(spec ports.SessionSpec) []string { return args(spec) }
 
@@ -464,6 +481,7 @@ func (d *Driver) launch(ctx context.Context, spec ports.SessionSpec, arguments [
 	// What qualifies the version read here, at the launch, is what this session uses for its life:
 	// a version that changed since the worker last looked runs on documented surfaces.
 	q := d.qualificationFor(version)
+	arguments = append(arguments, budgetArgs(UseOf(q), spec)...)
 	if err := writeGenerated(spec); err != nil {
 		return ports.SessionHandle{}, err
 	}
@@ -822,6 +840,8 @@ type session struct {
 	receipts *receiver
 	// agents maps each Agent call of this stream to the agent it started.
 	agents map[string]string
+	// turn is what the turn in progress is estimated to have spent, from the usage of its API calls.
+	turn turnCost
 }
 
 // read is the one reader of a session's stream. It ends at the child's exit, which is
@@ -923,6 +943,12 @@ func (s *session) take(line []byte, seq int64) {
 		s.events <- event
 		return
 	}
+	if p.call != nil {
+		// The running total comes before the line's own event, so a lane told its context is told its spend first.
+		if running, ok := s.noteCall(*p.call); ok {
+			s.events <- ports.DriverEvent{Kind: ports.EventCost, RunningUSD: running, Seq: seq}
+		}
+	}
 	if !p.useful {
 		return
 	}
@@ -938,6 +964,7 @@ func (s *session) take(line []byte, seq int64) {
 	}
 	if p.turnEnded {
 		s.inFlight = max(s.inFlight-1, 0)
+		s.turn.reset()
 		if p.stopped {
 			s.meter.ObserveStopped()
 		} else {
@@ -948,6 +975,15 @@ func (s *session) take(line []byte, seq int64) {
 	s.mu.Unlock()
 	p.event.Seq = seq
 	s.events <- p.event
+}
+
+// noteCall takes one API call's usage into the turn's estimate, and returns the session's running total if it is
+// higher than any it gave: what the session had spent when the turn began, and what this turn's calls cost at list price.
+func (s *session) noteCall(call streamCall) (float64, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	running := s.meter.SessionTotalUSD + s.turn.note(call, s.seen.ModelResolved)
+	return running, s.turn.fresh(running)
 }
 
 // agentUsage keeps which agent each Agent call started, and turns a subagent's message into the usage of

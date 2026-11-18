@@ -113,8 +113,11 @@ func (i rateLimitInfo) reading(windows bool) lanes.UsageReading {
 type streamEvent struct {
 	Type    string `json:"type"`
 	Message struct {
+		Model string      `json:"model"`
 		Usage lanes.Usage `json:"usage"`
 	} `json:"message"`
+	// Usage is a `message_delta`'s: the call's output so far.
+	Usage lanes.Usage `json:"usage"`
 }
 
 // parsed is what one line means. A line can mean nothing.
@@ -135,6 +138,8 @@ type parsed struct {
 	usage   lanes.Usage
 	// tools are the calls an assistant message made, a subagent's included.
 	tools []lanes.ToolUse
+	// call is one API call's usage, which the turn's running cost is estimated from.
+	call *streamCall
 }
 
 func parseLine(raw []byte, windows bool) (parsed, error) {
@@ -284,14 +289,29 @@ func parseReply(line streamLine) (parsed, bool) {
 }
 
 // parseStreamEvent reads context from message_start, the one figure that is per API
-// call. A child session's calls name their parent and are not this lane's context.
+// call. A child session's calls name their parent and are not this lane's context. Both kinds of line also say what
+// their API call has cost so far, which a subagent's calls add to the turn's, because the exact total counts them.
 func parseStreamEvent(line streamLine) parsed {
-	if line.Event == nil || line.Event.Type != "message_start" || line.ParentToolUseID != nil {
+	if line.Event == nil {
 		return parsed{}
 	}
-	return parsed{useful: true, event: ports.DriverEvent{
-		Kind: ports.EventUsage, ContextTokens: line.Event.Message.Usage.Context(),
-	}}
+	parent := ""
+	if line.ParentToolUseID != nil {
+		parent = *line.ParentToolUseID
+	}
+	switch line.Event.Type {
+	case "message_start":
+		call := &streamCall{start: true, parent: parent, model: line.Event.Message.Model, usage: line.Event.Message.Usage}
+		if line.ParentToolUseID != nil {
+			return parsed{call: call}
+		}
+		return parsed{call: call, useful: true, event: ports.DriverEvent{
+			Kind: ports.EventUsage, ContextTokens: line.Event.Message.Usage.Context(),
+		}}
+	case "message_delta":
+		return parsed{call: &streamCall{parent: parent, usage: line.Event.Usage}}
+	}
+	return parsed{}
 }
 
 // parseResult ends a turn. The driver reads this line and not the exit code, because

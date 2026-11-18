@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/parking"
 )
 
@@ -27,6 +28,13 @@ const (
 	// ParkWaitingForPerson is a planning lane at rest that waited out `ask_wait` for its person with
 	// nobody attached to its pane.
 	ParkWaitingForPerson ParkTrigger = "waiting_for_person"
+	// ParkSpendLimit is a lane whose work order reached its hard spend limit (ADR-0037). It waits on a raise of the
+	// limit, or on a person.
+	ParkSpendLimit ParkTrigger = "spend_limit"
+	// ParkSpendUnreadable is a lane whose work order's limit its worker could not read for longer than it will run
+	// unheld. It waits on the same wake: the limit above what was spent, which holds as soon as the ledger can say, or a
+	// person.
+	ParkSpendUnreadable ParkTrigger = "spend_unreadable"
 )
 
 // ParkRequest asks a lane to park.
@@ -39,6 +47,9 @@ type ParkRequest struct {
 	// PastCompaction lets a lane park from a compaction, for a hold with a bound of its own. It
 	// leaves through the compaction's failure edge, and a session inside one writes nothing.
 	PastCompaction bool
+	// MidTurn says the lane parks while a turn runs, so its instruction goes to the turn on the path a session reads
+	// between tool calls, and every tool call but the lane's own is denied until the session takes it (FR-SPEND-5).
+	MidTurn bool
 }
 
 // ParkProgress is how far a lane's parking got, in the worker's journal. A stored wake decides
@@ -65,6 +76,10 @@ type ParkProgress struct {
 	Begun bool `json:"begun,omitempty"`
 	// Fetch names what a worker that never ran this lane must bring from a remote.
 	Fetch []string `json:"fetch,omitempty"`
+	// Usage is what the generation had spent when a hard spend limit stopped it, which a worker that takes over
+	// reports as the least the generation spent. The turn in progress is in no journaled meter, and a park that
+	// reported less than the figure that stopped it would read to the ledger as a limit raised (FR-SPEND-5).
+	Usage *ledger.GenerationUsage `json:"usage,omitempty"`
 }
 
 // Open says a lane has parking left to finish.
@@ -91,6 +106,20 @@ func QuestionWake(questions []string) string {
 	}
 	raw, err := json.Marshal(map[string]any{"any_of": []any{
 		map[string]any{"all_of": terms},
+		map[parking.Kind]bool{parking.HumanResume: true},
+	}})
+	if err != nil {
+		panic(err)
+	}
+	return string(raw)
+}
+
+// SpendLimitWake is what a lane waits on at its work order's hard spend limit: the limit rising above what the work
+// order has been charged, or a person (FR-SPEND-5). The first is stored as data and the control plane reads it from the
+// work order's spend, so a raise settles it in the transaction that changed the limit.
+func SpendLimitWake(workOrder string) string {
+	raw, err := json.Marshal(map[string]any{"any_of": []any{
+		map[parking.Kind]string{parking.LimitRaised: workOrder},
 		map[parking.Kind]bool{parking.HumanResume: true},
 	}})
 	if err != nil {

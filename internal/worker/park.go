@@ -83,6 +83,13 @@ func (r *laneRun) beginParking(ctx context.Context, request lanes.ParkRequest) e
 	}
 	handoff := lanes.HandoffProgress{
 		Reason: string(request.Trigger), DeadlineMs: r.w.clock.Now().Add(r.state.handoffTimeout()).UnixMilli(),
+		MidTurn: request.MidTurn && state == lanes.Working,
+	}
+	// What a lane had spent when its limit stopped it is kept with the wake, so a worker that takes the park over
+	// reports at least that, and the parked commit never reads as a limit that was raised.
+	if request.Trigger == lanes.ParkSpendLimit || request.Trigger == lanes.ParkSpendUnreadable {
+		usage := r.generationUsage()
+		parking.Usage = &usage
 	}
 	payload, err := json.Marshal(ledger.ParkingStart{Wake: parking.Wake, Expr: parking.Expr})
 	if err != nil {
@@ -94,6 +101,11 @@ func (r *laneRun) beginParking(ctx context.Context, request lanes.ParkRequest) e
 	crashpoint.Hit("worker.park", "begun")
 	r.parking = &parking
 	r.signal(ctx, parkPath...)
+	// A turn in progress has its next tool call denied from here, before the sequence's first step: that step uploads,
+	// which can take as long as its bound, and a call must not start in the meantime (NFR-COST-2).
+	if handoff.MidTurn {
+		r.holdTools(ctx, handoff.Reason)
+	}
 	r.startParking(handoff)
 	return nil
 }

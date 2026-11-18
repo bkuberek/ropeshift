@@ -26,8 +26,13 @@ VALUES (:workspace_id, :lane_id, :generation, :start_reason, :handoff_in, :now)`
 		`UPDATE generations SET baseline_size = :baseline_size
  WHERE workspace_id = :workspace_id AND lane_id = :lane_id AND generation = :generation`)
 
+	// A usage report raises each figure and never lowers one: what a generation spent only grows, and a smaller figure
+	// would take its work order under a limit, which reads as the limit raised and wakes the lane it parked.
 	stmtGenerationUsage = define("generation.usage",
-		`UPDATE generations SET cost_usd = :cost_usd, known_turns = :known_turns, unknown_turns = :unknown_turns
+		`UPDATE generations SET
+       cost_usd = CASE WHEN :cost_usd > cost_usd THEN :cost_usd ELSE cost_usd END,
+       known_turns = CASE WHEN :known_turns > known_turns THEN :known_turns ELSE known_turns END,
+       unknown_turns = CASE WHEN :unknown_turns > unknown_turns THEN :unknown_turns ELSE unknown_turns END
  WHERE workspace_id = :workspace_id AND lane_id = :lane_id AND generation = :generation`)
 
 	stmtEndGeneration = define("generation.end",
