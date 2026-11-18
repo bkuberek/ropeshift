@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/ports"
@@ -155,12 +156,17 @@ func (f Forge) runKeeping(ctx context.Context, dir string, args ...string) ([]by
 	return stdout.Bytes(), nil
 }
 
+// clip trims text and cuts it to maxDetail bytes, on a rune boundary.
 func clip(text string) string {
 	text = strings.TrimSpace(text)
-	if len(text) > maxDetail {
-		text = text[:maxDetail]
+	if len(text) <= maxDetail {
+		return text
 	}
-	return text
+	cut := maxDetail
+	for cut > 0 && !utf8.RuneStart(text[cut]) {
+		cut--
+	}
+	return text[:cut]
 }
 
 // withBody writes a body to a file of its own outside every worktree, runs a command that names it, and
