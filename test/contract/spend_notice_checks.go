@@ -27,6 +27,7 @@ var SpendNoticeChecks = []Check{
 	{"SN9", "editing project_warn_share moves the soft notice at once, and a new limit is told again", checkEditingTheWarnShareMovesTheNotice},
 	{"SN10", "editing spend_channels adds or takes away a channel for the next notice of a kind, with no restart", checkEditingTheChannelsMovesDelivery},
 	{"SN11", "an assistant's spend is tallied apart from the work's, and tells one soft notice a day at assistant_daily_warn", checkTheAssistantsDailyWarning},
+	{"SN12", "an orchestrator's spend is tallied for its machine and the day, and tells one soft notice a day at orchestrator_daily_warn", checkTheOrchestratorsDailyWarning},
 }
 
 func checkTheAssistantsDailyWarning(r *Rig) error {

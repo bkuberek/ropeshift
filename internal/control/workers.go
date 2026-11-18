@@ -923,6 +923,9 @@ func (w *Workers) storeEvent(ctx context.Context, worker string, e ledger.Upload
 		}
 	}
 	err := write(ctx)
+	if err == nil && orchestratorReport(e) && e.Type == ledger.UploadGenerationUsage {
+		err = w.warnOrchestrator(ctx, worker)
+	}
 	if err == nil {
 		w.afterAssistantUpload(ctx, worker, e)
 	}

@@ -187,6 +187,11 @@ func orchestratorUpload(tx ports.SharedTx, worker, id string, e ledger.UploadEve
 	if e.Type == ledger.UploadGenerationDigest {
 		return orchestratorDigest(tx, worker, id, row, e)
 	}
+	if e.Type == ledger.UploadGenerationUsage {
+		if err := orchestratorSpent(tx, worker, e); err != nil {
+			return err
+		}
+	}
 	report := ledger.OrchestratorReport{Lane: e.Lane, Generation: e.Generation, Kind: e.Type, At: tx.Now()}
 	switch e.Type {
 	case ledger.UploadLaneStatus:

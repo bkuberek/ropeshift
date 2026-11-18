@@ -152,20 +152,34 @@ func (t laneTx) ReportUsage(lane string, number int64, usage ledger.GenerationUs
 }
 
 func (t laneTx) AddSpend(scope string, usd float64) error {
-	if !(usd > 0) {
-		return nil
-	}
-	now, err := t.readClock()
-	if err != nil {
-		return err
-	}
-	_, err = t.exec(stmtAddSpend, params{"workspace_id": string(t.scope), "scope": scope, "day": ledger.WindowStart(ledger.WindowDay, now), "usd": usd})
-	return err
+	return addSpend(t.session, t.scope, t.readClock, scope, usd)
 }
 
 func (t laneTx) NoteSpend(scope, owner string, generation int64, chargedUSD float64) error {
-	p := params{"workspace_id": string(t.scope), "scope": scope, "owner": owner, "generation": generation}
-	row, err := t.row(stmtSpendMark, p)
+	return noteSpend(t.session, t.scope, t.readClock, scope, owner, generation, chargedUSD)
+}
+
+func (t laneTx) SpendSince(scope string, from int64) (float64, error) {
+	return spendSince(t.session, t.scope, scope, from)
+}
+
+// addSpend adds an amount to the UTC day a clock is in, in a workspace's tally of a scope.
+func addSpend(se *session, workspace ledger.WorkspaceID, clock func() (int64, error), scope string, usd float64) error {
+	if !(usd > 0) {
+		return nil
+	}
+	now, err := clock()
+	if err != nil {
+		return err
+	}
+	_, err = se.exec(stmtAddSpend, params{"workspace_id": string(workspace), "scope": scope, "day": ledger.WindowStart(ledger.WindowDay, now), "usd": usd})
+	return err
+}
+
+// noteSpend raises an owner's mark in a scope to a reported figure and adds the difference to the scope's day.
+func noteSpend(se *session, workspace ledger.WorkspaceID, clock func() (int64, error), scope, owner string, generation int64, chargedUSD float64) error {
+	p := params{"workspace_id": string(workspace), "scope": scope, "owner": owner, "generation": generation}
+	row, err := se.row(stmtSpendMark, p)
 	if err != nil {
 		return err
 	}
@@ -177,14 +191,15 @@ func (t laneTx) NoteSpend(scope, owner string, generation int64, chargedUSD floa
 		return nil
 	}
 	p["usd"] = chargedUSD
-	if _, err := t.exec(stmtSpendMarkRaise, p); err != nil {
+	if _, err := se.exec(stmtSpendMarkRaise, p); err != nil {
 		return err
 	}
-	return t.AddSpend(scope, chargedUSD-prior)
+	return addSpend(se, workspace, clock, scope, chargedUSD-prior)
 }
 
-func (t laneTx) SpendSince(scope string, from int64) (float64, error) {
-	row, err := t.row(stmtSpendSince, params{"workspace_id": string(t.scope), "scope": scope, "from": from})
+// spendSince sums what a scope was charged on the UTC days that begin at or after a moment.
+func spendSince(se *session, workspace ledger.WorkspaceID, scope string, from int64) (float64, error) {
+	row, err := se.row(stmtSpendSince, params{"workspace_id": string(workspace), "scope": scope, "from": from})
 	if err != nil {
 		return 0, err
 	}

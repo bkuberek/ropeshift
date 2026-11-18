@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"time"
 
+	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/internal/workorders"
@@ -120,6 +121,88 @@ func assistantSpent(tx ports.WriteTx, worker, id string, e ledger.UploadEvent) e
 		Kind: ledger.NoticeSpendSoftLimit, Scope: ledger.NoticeScopeAssistant, WindowStart: start, LimitUSD: policy.AssistantDailyWarn,
 		ChargedUSD: day, PolicyVersion: policy.Version,
 	}, spendActor)
+}
+
+// orchestratorSpent keeps what an orchestrator's generation says it has spent, in the tally of its machine's day, which
+// `orchestrator_daily_warn` reads (FR-SPEND-6). The orchestrator has a soft daily limit and no hard one: stopping it would
+// stop recovery and the question ladder, so nothing here holds it back.
+func orchestratorSpent(tx ports.SharedTx, worker string, e ledger.UploadEvent) error {
+	var usage ledger.GenerationUsage
+	if err := json.Unmarshal(e.Payload, &usage); err != nil {
+		return fmt.Errorf("%w: %v", workorders.ErrInvalid, err)
+	}
+	if usage.CostUSD < 0 || usage.KnownTurns < 0 || usage.UnknownTurns < 0 {
+		return fmt.Errorf("%w: a generation's usage is negative", workorders.ErrInvalid)
+	}
+	charged := ledger.Charge([][]ledger.GenerationUsage{{usage}}).ChargedUSD
+	return tx.Spend().NoteSpend(ledger.OrchestratorSpendScope(worker), e.Lane, e.Generation, charged)
+}
+
+// warnOrchestrator tells every project the worker serves, once for the UTC day, that its machine's orchestrator reached
+// `orchestrator_daily_warn`, so each project's `[notify_policy]` picks the channels. A day is a machine's: two machines have
+// two tallies and two notices. It reads the tally and not the report that was stored, so a report sent again after a
+// failure tells what the first one did not, and a notice already told says nothing again.
+func (p *Plane) warnOrchestrator(ctx context.Context, worker string) error {
+	notice, err := orchestratorWarning(ctx, p.installation, worker)
+	if err != nil || notice == nil {
+		return err
+	}
+	projects, err := p.serving(ctx)
+	if err != nil {
+		return err
+	}
+	for _, project := range projects {
+		w, err := p.workers(ctx, project)
+		if err != nil {
+			return err
+		}
+		if err := w.noteOrchestratorWarning(ctx, *notice); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// orchestratorWarning reads a machine's orchestrator's day against `orchestrator_daily_warn`, and returns the notice the day
+// owes, or nil when no warning is set or the day is under it.
+func orchestratorWarning(ctx context.Context, installation ports.Installation, worker string) (*ledger.SpendNotice, error) {
+	var policy authority.InstallationSpendPolicy
+	var day float64
+	var start int64
+	err := installation.Read(ctx, func(tx ports.SharedReadTx) error {
+		var err error
+		if policy, err = installationSpendInForce(tx.Policies()); err != nil || policy.OrchestratorDailyWarn <= 0 {
+			return err
+		}
+		now, err := tx.Now()
+		if err != nil {
+			return err
+		}
+		start = ledger.WindowStart(ledger.WindowDay, now)
+		day, err = tx.Spend().SpendSince(ledger.OrchestratorSpendScope(worker), start)
+		return err
+	})
+	if err != nil || policy.OrchestratorDailyWarn <= 0 || day < policy.OrchestratorDailyWarn {
+		return nil, err
+	}
+	return &ledger.SpendNotice{
+		Kind: ledger.NoticeSpendSoftLimit, Scope: ledger.NoticeScopeOrchestrator, Subject: worker, WindowStart: start,
+		LimitUSD: policy.OrchestratorDailyWarn, ChargedUSD: day, PolicyVersion: policy.Version,
+	}, nil
+}
+
+// warnOrchestrator tells this project alone, for a plane of one project, as Plane.warnOrchestrator tells each of its own.
+func (w *Workers) warnOrchestrator(ctx context.Context, worker string) error {
+	notice, err := orchestratorWarning(ctx, w.store.Installation(w.scope), worker)
+	if err != nil || notice == nil {
+		return err
+	}
+	return w.noteOrchestratorWarning(ctx, *notice)
+}
+
+// noteOrchestratorWarning records an orchestrator's warning in this project's ledger, where it is told once for the day.
+func (w *Workers) noteOrchestratorWarning(ctx context.Context, n ledger.SpendNotice) error {
+	return w.store.Write(ctx, w.scope, "spend.notice", func(tx ports.WriteTx) error { return recordSpendNotice(tx, n, spendActor) })
 }
 
 // dollarsText says an amount the way a notice records a limit before and after.
