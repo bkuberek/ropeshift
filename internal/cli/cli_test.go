@@ -1191,6 +1191,9 @@ func TestQuestionMerge(t *testing.T) {
 func TestQuestionAnswerAssumed(t *testing.T) {
 	s := newSession(t)
 	s.must("question", "record", "--id", "q1", "--text", "How many retries?", "--category", "product")
+	if code, _, _ := s.run("question", "answer", "q1", "--answer", "Two retries.", "--assumed"); code != cli.ExitUsage {
+		t.Fatalf("an assumption with no --rationale: exit %d", code)
+	}
 	text := s.must("question", "answer", "q1", "--answer", "Two retries.", "--rationale", "It is the usual budget.", "--id", "d1", "--assumed", "--json")
 	if !strings.Contains(text, `"status":"assumed"`) {
 		t.Fatalf("question answer --assumed printed %q", text)
