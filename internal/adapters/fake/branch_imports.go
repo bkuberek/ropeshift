@@ -67,14 +67,33 @@ func (w *Worktrees) BranchCommits(_ context.Context, _, base, head string) ([]po
 	return commits, nil
 }
 
-// CommitPaths reads the paths Hold gave a commit. A commit the history does not hold is ErrNotFound.
-func (w *Worktrees) CommitPaths(_ context.Context, _, commit string) ([]string, error) {
+// CommitPaths reads the paths Hold gave a commit, at most limit of them. A commit the history does not hold is
+// ErrNotFound.
+func (w *Worktrees) CommitPaths(_ context.Context, _, commit string, limit int) ([]string, bool, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if _, ok := w.history[commit]; !ok {
-		return nil, fmt.Errorf("%w: %s", ports.ErrNotFound, commit)
+		return nil, false, fmt.Errorf("%w: %s", ports.ErrNotFound, commit)
 	}
-	return slices.Clone(w.trees[commit]), nil
+	paths := w.trees[commit]
+	if len(paths) > limit {
+		return slices.Clone(paths[:limit]), true, nil
+	}
+	return slices.Clone(paths), false, nil
+}
+
+// FirstParentRoot walks a commit's first parents to the one with none.
+func (w *Worktrees) FirstParentRoot(_ context.Context, _, commit string) (string, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if _, ok := w.history[commit]; !ok {
+		return "", fmt.Errorf("%w: %s", ports.ErrNotFound, commit)
+	}
+	at := commit
+	for len(w.history[at]) != 0 {
+		at = w.history[at][0]
+	}
+	return at, nil
 }
 
 var _ ports.BranchImports = (*Worktrees)(nil)

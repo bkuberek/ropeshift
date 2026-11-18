@@ -33,6 +33,13 @@ var AdoptChecks = []Check{
 	{"AS14", "an adoption that imports no history merges with the repository's merge method", checkAnAdoptionThatImportsNoHistoryMergesAsTheRepositorySays},
 	{"AS15", "a squash merge of a consolidation made outside ropeshift leaves a gap naming the branch and the missing design tip, which a later check clears once the base holds the tip", checkASquashMergeOutsideRopeshiftRaisesTheNotice},
 	{"AS16", "restructuring is refused, with adoption, for a project that already has an approved plan, and not before", checkRestructuringIsRefusedOnceAPlanIsApproved},
+	{"AS17", "a repository that shares the design repository's first commit and has another remote is not removed, and the request says why", checkARepositoryThatSharesTheDesignFirstCommitIsNotRemoved},
+	{"AS18", "the design repository's record kept at another clone with the design clone's remote is the one approving removes", checkTheDesignRepositoryKeptElsewhereWithItsRemoteIsRemoved},
+	{"AS19", "a lane's merge that mimics the import's subject changes neither the design repository nor its tip", checkALaneCannotForgeTheImport},
+	{"AS20", "a merge with the import's subject whose history begins at another first commit is no import, and the request says why", checkAnImportOfAnotherHistoryIsUnread},
+	{"AS21", "a design repository removed before the consolidation's approval is left as it is, and the approval goes on", checkADesignRepositoryRemovedBeforeApprovalIsLeftAsItIs},
+	{"AS22", "when the removed design repository was the planning repository, the workspace becomes the planning repository", checkTheWorkspacePlansWhenTheRemovedDesignRepositoryDid},
+	{"AS25", "a consolidation lists at most a bounded number of colliding paths, and says the list is cut short", checkTheCollisionsAreCutShort},
 }
 
 // adoptOrder records ready planning work that adopts the project, in a repository, with the restructuring a

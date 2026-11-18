@@ -8,7 +8,7 @@ import { addressOf, Link } from "../app/route";
 import type { StateLook } from "../floor/states";
 import { Badge, Banner, Refusal, StateBadge } from "../ui/display";
 import { Icon } from "../ui/Icon";
-import { importedText, keptText, personMergesText, removalText } from "./consolidation";
+import { importedText, keptText, noRemovalText, personMergesText, removalText, truncatedText } from "./consolidation";
 import { kindWord } from "./documentTree";
 import { changeLines, refKind, refName } from "./planChanges";
 import type { Change } from "./planChanges";
@@ -397,6 +397,7 @@ function ConsolidationGroups({ consolidation }: { consolidation: Consolidation }
           </ul>
         </Group>
       )}
+      {!consolidation.unread && consolidation.collisions_truncated ? <p className="small muted">{truncatedText}</p> : null}
       <Group title="Code trees left out" empty={consolidation.left_out.length === 0}>
         <ul className="stack-8 small" aria-label="Code trees left out">
           {consolidation.left_out.map((tree) => (
@@ -407,6 +408,7 @@ function ConsolidationGroups({ consolidation }: { consolidation: Consolidation }
         </ul>
       </Group>
       {consolidation.removes ? <p className="small">{removalText(consolidation.removes)}</p> : null}
+      {consolidation.removal_unread ? <Banner tone="neutral">{noRemovalText(consolidation.removal_unread)}</Banner> : null}
       {consolidation.person_merges ? <Banner tone="neutral">{personMergesText}</Banner> : null}
     </section>
   );

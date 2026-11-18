@@ -283,8 +283,10 @@ export type Consolidation = {
   merge?: string;
   design_tip?: string;
   collisions: Collision[];
+  collisions_truncated?: boolean;
   left_out: string[];
   removes?: { id: string; name?: string };
+  removal_unread?: string;
   person_merges?: boolean;
   unread?: string;
 };

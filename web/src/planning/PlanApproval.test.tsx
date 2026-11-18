@@ -432,6 +432,25 @@ describe("an adopted plan", () => {
     expect(imported.textContent).toContain("Only a merge commit keeps the design history");
   });
 
+  it("says why a consolidation removes no repository, and that its list of colliding paths is cut short", async () => {
+    serveAdopted((_, detail) => {
+      const adoption = detail.adoption as Record<string, unknown>;
+      adoption.consolidation = {
+        design: "design",
+        merge: "1111111",
+        design_tip: "2222222",
+        collisions: [{ path: "README.md", kept: "workspace" }],
+        collisions_truncated: true,
+        left_out: [],
+        removal_unread: "nothing shows repository starter is the clone the adoption imported",
+      };
+    });
+    openPage(adoptedPage);
+    const imported = await screen.findByRole("region", { name: "What the consolidation imports" });
+    expect(imported.textContent).toContain("The list is cut short: more paths were held by both.");
+    expect(imported.textContent).toContain("Approving removes no repository: nothing shows repository starter is the clone the adoption imported");
+  });
+
   it("shows no consolidation for an adoption that imported no history", async () => {
     serveAdopted();
     openPage(adoptedPage);

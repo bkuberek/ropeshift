@@ -21,12 +21,18 @@ type Consolidation struct {
 	// Merge is the merge commit on the adoption branch, and DesignTip its second parent.
 	Merge     string `json:"merge,omitempty"`
 	DesignTip string `json:"design_tip,omitempty"`
-	// Collisions are the paths both repositories held, each with the version the merge kept.
-	Collisions []Collision `json:"collisions"`
+	// Collisions are the paths both repositories held, each with the version the merge kept, at most MaxCollisions
+	// of them. CollisionsTruncated says the list is cut short: there were more, or the trees were too large to read
+	// whole.
+	Collisions          []Collision `json:"collisions"`
+	CollisionsTruncated bool        `json:"collisions_truncated,omitempty"`
 	// LeftOut are the design repository's code trees the merge commit removed.
 	LeftOut []string `json:"left_out"`
-	// Removes is the old design repository's record, when the project holds it: approving removes it.
-	Removes *RemovedRepository `json:"removes,omitempty"`
+	// Removes is the old design repository's record, when the project holds it and it is the clone the adoption
+	// imported: approving removes it. RemovalUnread says why a record the project holds under the design
+	// repository's first commit is not removed, because nothing shows it is that clone.
+	Removes       *RemovedRepository `json:"removes,omitempty"`
+	RemovalUnread string             `json:"removal_unread,omitempty"`
 	// PersonMerges says the person merges the adoption branch, at person_merges, so the approval tells them
 	// that only a merge commit keeps the design history.
 	PersonMerges bool `json:"person_merges,omitempty"`
@@ -34,6 +40,9 @@ type Consolidation struct {
 	// collisions and the design tip are then unknown.
 	Unread string `json:"unread,omitempty"`
 }
+
+// MaxCollisions is the most colliding paths a consolidation's approval lists.
+const MaxCollisions = 200
 
 // RemovedRepository is a repository an approval removes from the project.
 type RemovedRepository struct {

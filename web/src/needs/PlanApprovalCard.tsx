@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import { decideApproval, inProjectOf, readPlan } from "../api/client";
 import type { Adoption, Consolidation, ContractDifference, Difference, FileChange, ManifestRegistration, PartDifference, PlanApprovalNeed } from "../api/types";
 import { addressOf, ItemProject, Link } from "../app/route";
-import { importedText, keptText, personMergesText, removalText } from "../planning/consolidation";
+import { importedText, keptText, noRemovalText, personMergesText, removalText, truncatedText } from "../planning/consolidation";
 import { registrationOf, registrationTitle, RegistrationRows, ReplacedDrafts } from "../planning/PlanParts";
 import { RevisionSince } from "../planning/RevisionSince";
 import { words } from "../parts/parts";
@@ -212,6 +212,7 @@ function ConsolidationPart({ consolidation }: { consolidation: Consolidation }) 
       ) : (
         <p className="muted">No path was held by both repositories.</p>
       )}
+      {!consolidation.unread && consolidation.collisions_truncated ? <p className="muted">{truncatedText}</p> : null}
       {consolidation.left_out.length ? (
         <ul className="links" aria-label="Code trees left out">
           {consolidation.left_out.map((tree) => (
@@ -224,6 +225,7 @@ function ConsolidationPart({ consolidation }: { consolidation: Consolidation }) 
         <p className="muted">No code tree is left out.</p>
       )}
       {consolidation.removes ? <p>{removalText(consolidation.removes)}</p> : null}
+      {consolidation.removal_unread ? <p>{noRemovalText(consolidation.removal_unread)}</p> : null}
       {consolidation.person_merges ? <p>{personMergesText}</p> : null}
     </Part>
   );

@@ -23,6 +23,14 @@ export function importedText(consolidation: Consolidation): string {
   return `The adoption imports the history of ${consolidation.design} in merge commit ${consolidation.merge ?? ""}, whose second parent ${consolidation.design_tip ?? ""} is the design repository's tip.`;
 }
 
+// truncatedText says a list of colliding paths was cut short.
+export const truncatedText = "The list is cut short: more paths were held by both.";
+
+// noRemovalText says why approving removes no repository.
+export function noRemovalText(why: string): string {
+  return `Approving removes no repository: ${why}`;
+}
+
 // removalText says which repository approving removes from the project.
 export function removalText(removes: NonNullable<Consolidation["removes"]>): string {
   return `Approving removes repository ${removes.name || removes.id} from the project, and keeps its record as history.`;

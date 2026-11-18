@@ -1438,6 +1438,31 @@ describe("a plan approval", () => {
     expect(imported.textContent).not.toContain("Approving removes");
   });
 
+  it("says why a consolidation removes no repository, and that its list of colliding paths is cut short", async () => {
+    const { view, item: need } = planView();
+    need.plan_approval.adoption = {
+      exists: [],
+      continues: [],
+      new: [],
+      left_out: [],
+      changes: [],
+      consolidation: {
+        design: "design",
+        merge: "1111111",
+        design_tip: "2222222",
+        collisions: [{ path: "README.md", kept: "workspace" }],
+        collisions_truncated: true,
+        left_out: [],
+        removal_unread: "nothing shows repository starter is the clone the adoption imported",
+      },
+    };
+    show(view, undefined, "plan_approval");
+    const imported = within(await card()).getByRole("region", { name: "What the consolidation imports" });
+    expect(imported.textContent).toContain("The list is cut short: more paths were held by both.");
+    expect(imported.textContent).toContain("Approving removes no repository: nothing shows repository starter is the clone the adoption imported");
+    expect(imported.textContent).not.toContain("Approving removes repository");
+  });
+
   it("shows no groups for a plan that adopts nothing", async () => {
     show(undefined, undefined, "plan_approval");
     expect(within((await card())).queryByRole("region", { name: "What exists" })).toBeNull();

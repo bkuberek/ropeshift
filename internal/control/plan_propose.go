@@ -110,8 +110,8 @@ func (i *Intake) ProposePlans(ctx context.Context, scope ledger.WorkspaceID, ope
 type branchChanges struct {
 	files  []planning.FileChange
 	unread string
-	// consolidation is what a consolidating adoption merged on its branch, and nil for any other adoption.
-	consolidation *planning.Consolidation
+	// consolidation is what a consolidating adoption merged on its branch, and holds no view for any other adoption.
+	consolidation consolidationReading
 }
 
 // adoptionChanges reads every file an adopt lane's branch added, changed, moved, or deleted since the commit

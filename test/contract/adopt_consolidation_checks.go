@@ -37,7 +37,8 @@ func (w *startWorld) consolidatedBranch() (merge, tip, head string) {
 	path := w.path(startRepository)
 	base := w.git.Touch(path, "main", "README.md")
 	w.git.Hold(base, ".gitignore", "README.md", "workspace.md")
-	tip = w.git.Add()
+	w.git.At(designRoot)
+	tip = w.git.Add(designRoot)
 	w.git.Hold(tip, ".gitignore", "README.md", "docs/vision.md", "poc/go.mod", "poc/main.go")
 	merge = w.git.Add(base, tip)
 	w.git.Name(merge, planning.ImportCommitSubject("design"))
@@ -48,7 +49,7 @@ func (w *startWorld) consolidatedBranch() (merge, tip, head string) {
 
 // consolidationAsked runs a consolidating adoption's lane to the end of its branch and reads what its request says
 // of the consolidation.
-func (w *startWorld) consolidationAsked(head string) (*planning.Consolidation, error) {
+func (w *startWorld) consolidationAsked(head string, kept ports.Checkouts) (*planning.Consolidation, error) {
 	id, err := w.adoptOrder(startRepository, consolidating())
 	if err != nil {
 		return nil, err
@@ -56,7 +57,7 @@ func (w *startWorld) consolidationAsked(head string) (*planning.Consolidation, e
 	if err := w.adoptLaneEnds(id, head); err != nil {
 		return nil, err
 	}
-	_, adoption, err := w.pendingAdoption(control.NewIntake(w.s).Checking(w.starts))
+	_, adoption, err := w.pendingAdoption(control.NewIntake(w.s).Checking(w.starts).Placing(kept))
 	if err != nil {
 		return nil, err
 	}
@@ -66,10 +67,15 @@ func (w *startWorld) consolidationAsked(head string) (*planning.Consolidation, e
 	return adoption.Consolidation, nil
 }
 
-// heldDesign registers the old design repository in the project, under the ID a consolidation names it by.
-func (w *startWorld) heldDesign() (ledger.Repository, error) {
-	return w.r.repositories(w.s).Detect(w.r.Ctx, w.r.Scope, control.DetectedRepository{ID: designRoot, DefaultBranch: "main", Directory: "design"},
+// heldDesign registers the old design repository in the project, under the ID a consolidation names it by, and
+// keeps its checkout at the clone the plan read it from.
+func (w *startWorld) heldDesign(kept *fake.Checkouts) (ledger.Repository, error) {
+	record, err := w.r.repositories(w.s).Detect(w.r.Ctx, w.r.Scope, control.DetectedRepository{ID: designRoot, DefaultBranch: "main", Directory: "design"},
 		ledger.Actor{Kind: ledger.ActorSystem, ID: "intake"})
+	if err != nil {
+		return record, err
+	}
+	return record, kept.Keep(w.r.Ctx, w.r.Scope, designRoot, consolidating().DesignPath)
 }
 
 func checkAConsolidationListsWhatItImported(r *Rig) error {
@@ -78,12 +84,13 @@ func checkAConsolidationListsWhatItImported(r *Rig) error {
 	if err := w.repository(func(*control.RepositoryChange) {}); err != nil {
 		return err
 	}
-	design, err := w.heldDesign()
+	kept := fake.NewCheckouts()
+	design, err := w.heldDesign(kept)
 	if err != nil {
 		return err
 	}
 	merge, tip, head := w.consolidatedBranch()
-	consolidation, err := w.consolidationAsked(head)
+	consolidation, err := w.consolidationAsked(head, kept)
 	if err != nil {
 		return err
 	}
@@ -111,11 +118,11 @@ func checkAConsolidationTheProjectDoesNotHoldRemovesNothing(r *Rig) error {
 		return err
 	}
 	_, _, head := w.consolidatedBranch()
-	consolidation, err := w.consolidationAsked(head)
+	consolidation, err := w.consolidationAsked(head, fake.NewCheckouts())
 	if err != nil {
 		return err
 	}
-	if consolidation == nil || consolidation.Removes != nil || consolidation.PersonMerges || len(consolidation.Collisions) != 2 {
+	if consolidation == nil || consolidation.Removes != nil || consolidation.RemovalUnread != "" || consolidation.PersonMerges || len(consolidation.Collisions) != 2 {
 		return Violatedf("a consolidation of a design repository the project does not hold reads %+v", consolidation)
 	}
 	return nil
@@ -127,7 +134,8 @@ func checkAConsolidationWhoseMergeIsUnreadSaysWhy(r *Rig) error {
 	if err := w.repository(func(*control.RepositoryChange) {}); err != nil {
 		return err
 	}
-	if _, err := w.heldDesign(); err != nil {
+	kept := fake.NewCheckouts()
+	if _, err := w.heldDesign(kept); err != nil {
 		return err
 	}
 	// The branch holds no merge that imports a history.
@@ -135,7 +143,7 @@ func checkAConsolidationWhoseMergeIsUnreadSaysWhy(r *Rig) error {
 	base := w.git.Touch(path, "main", "README.md")
 	w.git.Point(path, "lane/adopt", base)
 	head := w.git.Touch(path, "lane/adopt", "plan.md")
-	consolidation, err := w.consolidationAsked(head)
+	consolidation, err := w.consolidationAsked(head, kept)
 	if err != nil {
 		return err
 	}
@@ -152,7 +160,8 @@ func (w *startWorld) consolidationPending() (authority.Approval, ledger.Reposito
 	if err := w.repository(func(*control.RepositoryChange) {}); err != nil {
 		return authority.Approval{}, ledger.Repository{}, err
 	}
-	design, err := w.heldDesign()
+	kept := fake.NewCheckouts()
+	design, err := w.heldDesign(kept)
 	if err != nil {
 		return authority.Approval{}, ledger.Repository{}, err
 	}
@@ -164,7 +173,7 @@ func (w *startWorld) consolidationPending() (authority.Approval, ledger.Reposito
 	if err := w.adoptLaneEnds(id, head); err != nil {
 		return authority.Approval{}, ledger.Repository{}, err
 	}
-	pending, adoption, err := w.pendingAdoption(control.NewIntake(w.s).Checking(w.starts))
+	pending, adoption, err := w.pendingAdoption(control.NewIntake(w.s).Checking(w.starts).Placing(kept))
 	if err != nil {
 		return authority.Approval{}, ledger.Repository{}, err
 	}
@@ -385,7 +394,8 @@ func checkASquashMergeOutsideRopeshiftRaisesTheNotice(r *Rig) error {
 	git := fake.NewWorktrees()
 	base := git.Grow(path, "main")
 	git.Hold(base, "README.md")
-	tip := git.Add()
+	git.At(designRoot)
+	tip := git.Add(designRoot)
 	git.Hold(tip, "README.md", "docs/vision.md")
 	merge := git.Add(base, tip)
 	git.Name(merge, planning.ImportCommitSubject("design"))
@@ -501,4 +511,232 @@ func checkRestructuringIsRefusedOnceAPlanIsApproved(r *Rig) error {
 		return Violatedf("a restructuring of a project with an approved plan: %v", err)
 	}
 	return nil
+}
+
+// starterRemote and designRemote are the remotes of two repositories cut from one starter, which share their first
+// commit and are two repositories, because their remotes differ.
+const (
+	starterRemote = "git@example.invalid:acme/starter.git"
+	designRemote  = "git@example.invalid:acme/design.git"
+)
+
+// sharedFirstCommit registers a repository the project holds under the design repository's first commit, kept by this
+// worker at a path of its own with a remote of its own, and places the design clone the plan read beside it with its
+// remote.
+func (w *startWorld) sharedFirstCommit(keptRemote string) (*fake.Checkouts, ledger.Repository, error) {
+	kept := fake.NewCheckouts()
+	record, err := w.r.repositories(w.s).Detect(w.r.Ctx, w.r.Scope, control.DetectedRepository{ID: designRoot, Remote: keptRemote, DefaultBranch: "main", Directory: "starter"},
+		ledger.Actor{Kind: ledger.ActorSystem, ID: "intake"})
+	if err != nil {
+		return nil, record, err
+	}
+	if err := kept.Keep(w.r.Ctx, w.r.Scope, designRoot, "/work/starter"); err != nil {
+		return nil, record, err
+	}
+	kept.Place(ports.Clone{Path: "/work/starter", ID: designRoot, Remote: keptRemote, DefaultBranch: "main"})
+	kept.Place(ports.Clone{Path: consolidating().DesignPath, ID: designRoot, Remote: designRemote, DefaultBranch: "main"})
+	return kept, record, nil
+}
+
+func checkARepositoryThatSharesTheDesignFirstCommitIsNotRemoved(r *Rig) error {
+	s := r.Store()
+	w := r.startWorld(s)
+	if err := w.repository(func(*control.RepositoryChange) {}); err != nil {
+		return err
+	}
+	kept, starter, err := w.sharedFirstCommit(starterRemote)
+	if err != nil {
+		return err
+	}
+	_, _, head := w.consolidatedBranch()
+	id, err := w.adoptOrder(startRepository, consolidating())
+	if err != nil {
+		return err
+	}
+	if err := w.adoptLaneEnds(id, head); err != nil {
+		return err
+	}
+	pending, adoption, err := w.pendingAdoption(control.NewIntake(s).Checking(w.starts).Placing(kept))
+	if err != nil {
+		return err
+	}
+	if adoption == nil || adoption.Consolidation == nil {
+		return Violatedf("the consolidation's request groups nothing: %+v", adoption)
+	}
+	if c := adoption.Consolidation; c.Removes != nil || !strings.Contains(c.RemovalUnread, starter.Name) || !strings.Contains(c.RemovalUnread, "remote") {
+		return Violatedf("a repository that shares the design repository's first commit is listed as %+v", c)
+	}
+	if _, err := r.approve(s, pending, true, theMember); err != nil {
+		return Violatedf("approving the consolidation: %v", err)
+	}
+	if held, err := r.theRepository(s, designRoot); err != nil || held.Removed() {
+		return Violatedf("approving removed the repository that shares the first commit: %+v, %v", held, err)
+	}
+	return nil
+}
+
+func checkTheDesignRepositoryKeptElsewhereWithItsRemoteIsRemoved(r *Rig) error {
+	s := r.Store()
+	w := r.startWorld(s)
+	if err := w.repository(func(*control.RepositoryChange) {}); err != nil {
+		return err
+	}
+	// The worker keeps the record at another clone, whose remote is the design clone's.
+	kept, design, err := w.sharedFirstCommit(designRemote)
+	if err != nil {
+		return err
+	}
+	_, _, head := w.consolidatedBranch()
+	consolidation, err := w.consolidationAsked(head, kept)
+	if err != nil {
+		return err
+	}
+	if consolidation == nil || consolidation.Removes == nil || consolidation.Removes.ID != design.ID || consolidation.RemovalUnread != "" {
+		return Violatedf("the design repository with the design clone's remote is listed as %+v", consolidation)
+	}
+	return nil
+}
+
+func checkALaneCannotForgeTheImport(r *Rig) error {
+	s := r.Store()
+	w := r.startWorld(s)
+	if err := w.repository(func(*control.RepositoryChange) {}); err != nil {
+		return err
+	}
+	merge, tip, head := w.consolidatedBranch()
+	// The lane makes a merge of its own with the import's subject, of a history that is not the design repository's.
+	path := w.path(startRepository)
+	forgedTip := w.git.Add()
+	w.git.Hold(forgedTip, "README.md")
+	forged := w.git.Add(head, forgedTip)
+	w.git.Name(forged, planning.ImportCommitSubject("forged"))
+	w.git.Point(path, "lane/adopt", forged)
+	after := w.git.Touch(path, "lane/adopt", "plan.md")
+	consolidation, err := w.consolidationAsked(after, fake.NewCheckouts())
+	if err != nil {
+		return err
+	}
+	if consolidation == nil || consolidation.Merge != merge || consolidation.DesignTip != tip || consolidation.Design != "design" || consolidation.Unread != "" {
+		return Violatedf("with a lane's merge that mimics the import, the consolidation reads %+v, want merge %s and tip %s", consolidation, merge, tip)
+	}
+	return nil
+}
+
+func checkAnImportOfAnotherHistoryIsUnread(r *Rig) error {
+	s := r.Store()
+	w := r.startWorld(s)
+	if err := w.repository(func(*control.RepositoryChange) {}); err != nil {
+		return err
+	}
+	// The only merge with the import's subject brings a history whose first commit is not the design repository's.
+	path := w.path(startRepository)
+	base := w.git.Touch(path, "main", "README.md")
+	other := w.git.Add()
+	merge := w.git.Add(base, other)
+	w.git.Name(merge, planning.ImportCommitSubject("design"))
+	w.git.Point(path, "lane/adopt", merge)
+	head := w.git.Touch(path, "lane/adopt", "plan.md")
+	consolidation, err := w.consolidationAsked(head, fake.NewCheckouts())
+	if err != nil {
+		return err
+	}
+	if consolidation == nil || consolidation.Unread == "" || !strings.Contains(consolidation.Unread, "first commit") || consolidation.DesignTip != "" || consolidation.Merge != "" {
+		return Violatedf("an import of another history reads %+v", consolidation)
+	}
+	return nil
+}
+
+func checkADesignRepositoryRemovedBeforeApprovalIsLeftAsItIs(r *Rig) error {
+	s := r.Store()
+	w := r.startWorld(s)
+	pending, _, err := w.consolidationPending()
+	if err != nil {
+		return err
+	}
+	if _, err := r.repositories(s).Remove(r.Ctx, r.Scope, designRoot, nil, theMember); err != nil {
+		return err
+	}
+	if _, err := r.approve(s, pending, true, theMember); err != nil {
+		return Violatedf("approving a consolidation whose design repository was removed before: %v", err)
+	}
+	events, err := r.repositoryEvents(s, designRoot)
+	if err != nil {
+		return err
+	}
+	removals := 0
+	for _, event := range events {
+		if event.Type == ledger.EventRepositoryRemoved {
+			removals++
+		}
+	}
+	if held, err := r.theRepository(s, designRoot); err != nil || !held.Removed() || removals != 1 {
+		return Violatedf("the design repository reads %+v after %d removals: %v", held, removals, err)
+	}
+	return nil
+}
+
+func checkTheWorkspacePlansWhenTheRemovedDesignRepositoryDid(r *Rig) error {
+	s := r.Store()
+	w := r.startWorld(s)
+	pending, _, err := w.consolidationPending()
+	if err != nil {
+		return err
+	}
+	on := true
+	if _, err := r.change(s, designRoot, control.RepositoryChange{Planning: &on}, r.Actor); err != nil {
+		return err
+	}
+	if _, err := r.approve(s, pending, true, theMember); err != nil {
+		return Violatedf("approving the consolidation: %v", err)
+	}
+	workspace, err := r.theRepository(s, startRepository)
+	if err != nil || !workspace.Planning {
+		return Violatedf("after the planning design repository was removed, the workspace reads %+v: %v", workspace, err)
+	}
+	if design, err := r.theRepository(s, designRoot); err != nil || !design.Removed() || design.Planning {
+		return Violatedf("the design repository reads %+v: %v", design, err)
+	}
+	return nil
+}
+
+func checkTheCollisionsAreCutShort(r *Rig) error {
+	s := r.Store()
+	w := r.startWorld(s)
+	if err := w.repository(func(*control.RepositoryChange) {}); err != nil {
+		return err
+	}
+	path := w.path(startRepository)
+	shared := make([]string, 0, planning.MaxCollisions+5)
+	for i := range planning.MaxCollisions + 5 {
+		shared = append(shared, "docs/page-"+strings.Repeat("0", 4-len(itoa(i)))+itoa(i)+".md")
+	}
+	base := w.git.Touch(path, "main", "README.md")
+	w.git.Hold(base, shared...)
+	w.git.At(designRoot)
+	tip := w.git.Add(designRoot)
+	w.git.Hold(tip, shared...)
+	merge := w.git.Add(base, tip)
+	w.git.Name(merge, planning.ImportCommitSubject("design"))
+	w.git.Point(path, "lane/adopt", merge)
+	head := w.git.Touch(path, "lane/adopt", "plan.md")
+	consolidation, err := w.consolidationAsked(head, fake.NewCheckouts())
+	if err != nil {
+		return err
+	}
+	if consolidation == nil || len(consolidation.Collisions) != planning.MaxCollisions || !consolidation.CollisionsTruncated {
+		return Violatedf("a consolidation of %d colliding paths lists %d, cut short %v", len(shared), len(consolidation.Collisions), consolidation.CollisionsTruncated)
+	}
+	return nil
+}
+
+// itoa spells a small number.
+func itoa(n int) string {
+	digits := ""
+	for {
+		digits = string(rune('0'+n%10)) + digits
+		n /= 10
+		if n == 0 {
+			return digits
+		}
+	}
 }

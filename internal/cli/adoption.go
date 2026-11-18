@@ -92,11 +92,17 @@ func writeConsolidation(out *strings.Builder, c planning.Consolidation, indent s
 		for _, collision := range c.Collisions {
 			lines = append(lines, collision.Path+"\t"+keptWords[collision.Kept])
 		}
+		if c.CollisionsTruncated {
+			lines = append(lines, "and more, which this list leaves out")
+		}
 		group("the paths both repositories held, with the version kept", lines)
 	}
 	group("the design repository's code trees left out", c.LeftOut)
 	if c.Removes != nil {
 		fmt.Fprintf(out, "%sapproving removes repository %s from the project, and keeps its record as history\n", indent, cmp.Or(c.Removes.Name, c.Removes.ID))
+	}
+	if c.RemovalUnread != "" {
+		fmt.Fprintf(out, "%sapproving removes no repository: %s\n", indent, c.RemovalUnread)
 	}
 	if c.PersonMerges {
 		fmt.Fprintf(out, "%sat person_merges you merge this branch yourself: merge it with a merge commit. %s\n", indent, planning.MergeCommitKeepsHistory)

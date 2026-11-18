@@ -177,3 +177,39 @@ func TestPlanShowListsAConsolidation(t *testing.T) {
 		t.Errorf("an unread consolidation at another level reads:\n%s", stdout.String())
 	}
 }
+
+// A consolidation whose record under the design repository's first commit nothing shows is the imported clone says
+// approving removes nothing and why, and a list of colliding paths that was cut short says so.
+func TestPlanShowSaysWhyAConsolidationRemovesNothing(t *testing.T) {
+	p := newPlane(t)
+	approval := adoptedApproval(t)
+	consolidated := anAdoption
+	consolidated.Consolidation = &planning.Consolidation{
+		Design: "design", Merge: "1111111111111111111111111111111111111111", DesignTip: "2222222222222222222222222222222222222222",
+		Collisions: []planning.Collision{{Path: "README.md", Kept: planning.KeptWorkspace}}, CollisionsTruncated: true, LeftOut: []string{},
+		RemovalUnread: "nothing shows repository starter is the clone the adoption imported",
+	}
+	detail, err := json.Marshal(planning.PlanDetail{Title: "Adopt shop", Adoption: &consolidated})
+	if err != nil {
+		t.Fatal(err)
+	}
+	approval.Detail = string(detail)
+	p.on("GET /v1/plans/{id}", func(*http.Request, []byte) (any, *api.Error) {
+		return api.PlanView{
+			Plan:     planning.Plan{ID: "p1", Title: "Adopt shop", Status: "active"},
+			Approval: &api.PlanApprovalView{Approval: approval, Detail: api.PlanDetailOf(approval)},
+		}, nil
+	})
+	var stdout, stderr bytes.Buffer
+	if code := cli.Run([]string{"plan", "show", "p1"}, &stdout, &stderr, cli.Options{Socket: p.Socket}); code != cli.ExitOK {
+		t.Fatalf("exit %d: %s", code, stderr.String())
+	}
+	for _, want := range []string{
+		"    README.md\tthe workspace's version\n    and more, which this list leaves out\n",
+		"  approving removes no repository: nothing shows repository starter is the clone the adoption imported\n",
+	} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Errorf("plan show lacks %q:\n%s", want, stdout.String())
+		}
+	}
+}
