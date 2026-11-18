@@ -12,16 +12,21 @@ REAL_PATH := $(PATH)
 CANARY := $(CURDIR)/test/doubles/canary
 export PATH := $(CANARY):$(PATH)
 
-.PHONY: check check-go format vet lint test web-test web-build licenses cross bench sizing check-postgres chaos canary real qualify service-test service-container linux-bundle release-check snapshot install-test exit-container screenshots guide-shots screenshots-publish
+.PHONY: check check-go check-rest format vet lint test web-test web-build licenses cross bench sizing check-postgres chaos canary real qualify service-test service-container linux-bundle release-check snapshot install-test exit-container screenshots guide-shots screenshots-publish
 
 # `check` runs the Go checks and the web tests in one order. `check-go` is the same list without the web
-# tests, for CI, which runs them in their own job (`web-test` needs no Go).
-CHECK_BEFORE_WEB := format vet lint test
+# tests, for CI, which runs them in their own job (`web-test` needs no Go). `check-rest` is `check` without
+# `test`, for the macOS CI job that runs everything but the Go tests while two other jobs run them in parts
+# (`GO_TEST_PKGS` below).
+CHECK_BEFORE_TEST := format vet lint
+CHECK_BEFORE_WEB := $(CHECK_BEFORE_TEST) test
 CHECK_AFTER_WEB := licenses release-check canary
 
 check: $(CHECK_BEFORE_WEB) web-test $(CHECK_AFTER_WEB)
 
 check-go: $(CHECK_BEFORE_WEB) $(CHECK_AFTER_WEB)
+
+check-rest: $(CHECK_BEFORE_TEST) web-test $(CHECK_AFTER_WEB)
 
 # The list goes through a variable, because gofmt exits 0 when it finds a file to change.
 format:
@@ -46,9 +51,14 @@ lint:
 # a change to it and would repeat an old pass. The timeout sits past go test's default of
 # 10 minutes, which the worker's package reaches on a busy machine with every test passing.
 # The slowest packages, the daemon-backed exit tests and the API server tests, take close to
-# 25 minutes on slower runners, so the timeout is 45 minutes.
+# 25 minutes on slower runners, so the default timeout is 45 minutes. `go test` applies it to each package's
+# test binary, not to the run. `GO_TEST_PKGS` and `TEST_TIMEOUT` let CI split the packages across jobs
+# and give each part its own timeout: `make test GO_TEST_PKGS=./test/contract/... TEST_TIMEOUT=60m`.
+GO_TEST_PKGS ?= ./...
+TEST_TIMEOUT ?= 45m
+
 test:
-	$(GO) test -race -count=1 -timeout 45m ./...
+	$(GO) test -race -count=1 -timeout $(TEST_TIMEOUT) $(GO_TEST_PKGS)
 
 # The web application's types and tests, on the packages its lockfile pins. Playwright's browsers
 # stay in this checkout, as scripts/screenshots.sh keeps them, unless the caller names a directory.

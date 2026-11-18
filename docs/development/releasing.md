@@ -63,7 +63,7 @@ The workflow `.github/workflows/ci.yml` runs on every pull request to `main`, on
 
 | Job | What it runs | When |
 |-----|--------------|------|
-| `make check` | Formatting, vet, lint, the license check, the release configuration check, the race-enabled tests, and the web tests and typecheck, on Linux, and on macOS | Linux on every run. macOS on a push to `main`, the nightly run, and a manual run, not on a pull request |
+| `make check` | On Linux, `make check-go`: formatting, vet, lint, the license check, the release configuration check, and the race-enabled tests. On macOS, the same checks and the web tests and typecheck, in three jobs that run side by side: the contract suite (`make test GO_TEST_PKGS=./test/contract/...`), every other Go package, and `make check-rest`, which is `make check` without `make test` | Linux on every run. The three macOS jobs on a push to `main`, the nightly run, and a manual run, not on a pull request |
 | `make cross` | The build for every release platform | Every run |
 | `make chaos` | The crash tests at their default size | Every run |
 | `make check-postgres` | The store contract suite, the Postgres adapter's tests, and the exit tests of a group server and its workers on a private Postgres, which the job takes from the runner image and installs from the distribution only if the image has none | Every run |
@@ -75,7 +75,7 @@ The workflow `.github/workflows/ci.yml` runs on every pull request to `main`, on
 | `make bench` | The bench, whose timings on shared runners are informational. It never fails the run, and its numbers are in the job's summary | A push to `main`, or by hand with `bench` |
 | CI result | Passes when every job above but the bench passed or was skipped | Every run |
 
-The macOS `make check` takes about 55 minutes, the slowest part of a run, so a pull request runs it on Linux alone. A macOS failure shows on the push to `main` or the nightly run, where CI result fails. The release workflow does not wait for CI, and a release pull request is merged after CI result passes on Linux, so the macOS run of the merge commit on `main` is the macOS check for a tag.
+The macOS checks are the slowest part of a run, so a pull request runs Linux alone and the three macOS jobs are skipped, which CI result counts as passed. `GO_TEST_PKGS` and `TEST_TIMEOUT` set the packages and the per-package timeout of `make test`, and their defaults, every package and 45 minutes, are what `make check` and `make check-go` use. A failure of any macOS job shows on the push to `main` or the nightly run, where CI result fails. The release workflow does not wait for CI, and a release pull request is merged after CI result passes on Linux, so the macOS run of the merge commit on `main` is the macOS check for a tag.
 
 A run that changes only Markdown and images runs no checks: the first job finds that, every check is skipped, and CI result still reports. Branch protection on `main` therefore requires CI result alone. A newer commit on a pull request cancels the run for the older one, while runs on `main` finish. A failed job uploads its log, and the service job also its results and the container's journal, as artifacts.
 
