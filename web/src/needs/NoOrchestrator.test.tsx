@@ -138,3 +138,49 @@ describe("the open questions with no orchestrator running", () => {
     expect(screen.queryByText(/No orchestrator is judging/)).toBeNull();
   });
 });
+
+describe("the starts the notice offers", () => {
+  it("move the keyboard to the button from the palette, and start nothing until it is pressed", async () => {
+    const sent = serveViews((call) => (call.method === "PUT" && /\/orchestrator$/.test(call.path) ? { status: 200, body: {} } : undefined));
+    openPage("/questions");
+    const start = await screen.findByRole("button", { name: "Start orchestrator on solo" });
+    await userEvent.keyboard("{Control>}k{/Control}");
+    await userEvent.type(await screen.findByRole("combobox"), ">Start orchestrator: solo");
+    await userEvent.keyboard("{Enter}");
+    await waitFor(() => expect(document.activeElement).toBe(start));
+    expect(sent.some((call) => call.method === "PUT")).toBe(false);
+    await userEvent.keyboard("{Enter}");
+    await waitFor(() => expect(sent.some((call) => call.method === "PUT" && call.path === "/v1/workers/worker-a/orchestrator")).toBe(true));
+  });
+
+  it("keep each worker's state on its own, so a refusal shows beside its own button", async () => {
+    serveViews((call) => (call.method === "PUT" && call.path === "/v1/workers/worker-a/orchestrator" ? refusal(404, "not_found", "worker worker-a: not found") : undefined));
+    openPage("/questions");
+    const solo = await screen.findByRole("button", { name: "Start orchestrator on solo" });
+    await userEvent.click(solo);
+    const refused = await screen.findAllByText("worker worker-a: not found");
+    expect(refused).toHaveLength(1);
+    expect(solo.parentElement?.contains(refused[0] ?? null)).toBe(true);
+    expect(screen.getByRole("button", { name: "Start orchestrator on build-host-07" }).hasAttribute("disabled")).toBe(false);
+  });
+
+  it("count a worker that went quiet, or a run in backoff, as judging nothing", async () => {
+    for (const [freshness, state] of [["last_reported", "idle"], ["observed", "backoff"]] as const) {
+      const floor = floorWith(state);
+      for (const line of floor.workers) {
+        line.freshness = freshness;
+      }
+      serveViews((call) => (call.path.startsWith("/v1/views/shop-floor") ? { status: 200, body: floor } : undefined));
+      const page = openPage("/questions");
+      expect(await screen.findByText(/No orchestrator is judging the questions that wait/)).toBeTruthy();
+      page.unmount();
+    }
+  });
+
+  it("say there is no worker to start one on when none is registered", async () => {
+    serveViews((call) => (call.path.startsWith("/v1/views/shop-floor") ? { status: 200, body: { ...golden<ShopFloor>("shop-floor"), workers: [] } } : undefined));
+    openPage("/questions");
+    expect(await screen.findByText(/no worker is registered to start one on/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^Start orchestrator/ })).toBeNull();
+  });
+});
