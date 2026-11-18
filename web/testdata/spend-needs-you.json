@@ -1,0 +1,96 @@
+{
+  "as_of": 1794000000000,
+  "items": [
+    {
+      "id": "wo-stop:spend_limit",
+      "kind": "spend",
+      "since": 1794000000000,
+      "spend": {
+        "actions": [
+          "spend_raise",
+          "spend_resume",
+          "spend_block",
+          "spend_replan"
+        ],
+        "lanes": [
+          {
+            "digest": {
+              "complete": true,
+              "ended_at": 9,
+              "files_written": [
+                "retry.go"
+              ],
+              "source": "stream",
+              "started_at": 1,
+              "tool_calls": {
+                "Bash": 2,
+                "Edit": 4
+              },
+              "turns": 9
+            },
+            "generation": 1,
+            "handoff": {
+              "generation": 1,
+              "narrative": {
+                "carries_next_step": true,
+                "done": [
+                  "the budget type"
+                ],
+                "in_progress": [
+                  "the retry loop"
+                ],
+                "next_steps": [
+                  "wire the loop to the budget"
+                ],
+                "risks": [
+                  "a flaky test"
+                ]
+              },
+              "reason": "spend_limit"
+            },
+            "lane": "lane-wo-stop"
+          }
+        ],
+        "resume": {
+          "allowance_usd": 30,
+          "basis": "mean_generation",
+          "limit_usd": 60
+        },
+        "spend": {
+          "basis": "no_history",
+          "charged": {
+            "charged_usd": 30,
+            "estimated_turns": 0,
+            "estimated_usd": 0,
+            "recorded_usd": 30
+          },
+          "conditions": [
+            "over_estimate",
+            "spend_limit"
+          ],
+          "hard_limit": 25,
+          "kind": "change",
+          "label": "estimated, at list price, with 0 turns estimated by average",
+          "policy_version": 1,
+          "remaining": 0,
+          "soft_limit": 12.5,
+          "work_order": "wo-stop"
+        },
+        "work_order": {
+          "contract_id": "generated-1",
+          "contract_version": 1,
+          "fence": 2,
+          "id": "wo-stop",
+          "kind": "change",
+          "repository_id": "repo-harbor",
+          "rev": 1,
+          "reviewed_by": "member-1",
+          "size": "unknown",
+          "state": "parked",
+          "title": "Add the retry budget"
+        }
+      }
+    }
+  ],
+  "revision": 20
+}

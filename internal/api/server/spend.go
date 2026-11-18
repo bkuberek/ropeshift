@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -11,6 +12,7 @@ import (
 	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/control"
 	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/workorders"
 )
 
 // spendRoutes serve what a member reads of spend (ADR-0037): each key of the spend policies in force with its version,
@@ -22,6 +24,8 @@ func (h *handler) spendRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/work-orders/{id}/spend/raise", h.member(h.raiseSpend))
 	mux.HandleFunc("POST /v1/work-orders/{id}/spend/resume", h.member(h.resumeSpend))
 	mux.HandleFunc("POST /v1/spend/project/raise", h.member(h.raiseProjectSpend))
+	mux.HandleFunc("POST /v1/work-orders/{id}/spend/block", h.member(h.blockSpend))
+	mux.HandleFunc("POST /v1/work-orders/{id}/spend/replan", h.member(h.replanSpend))
 }
 
 // raiseProjectSpend lifts the project's daily or weekly limit for the window it is made in, by a percentage or to an
@@ -92,6 +96,42 @@ func spendRaiseProjectChanges(h *handler, r *http.Request, body []byte) (any, er
 		authority.FieldChange{Field: field, From: window.HardLimit, To: control.SpendRaise{ByPercent: in.ByPercent, ToUSD: in.ToUSD}.LimitFrom(window.HardLimit)},
 		authority.ArgumentChange{Field: "window", To: in.Window + " starting " + time.UnixMilli(start).UTC().Format("2006-01-02 15:04 MST")},
 	}, nil
+}
+
+// blockSpend blocks the work order a hard limit parked, with the reason `spend_limit` (FR-SPEND-7). It is a member's
+// act, held by the use case as a raise is.
+func (h *handler) blockSpend(w http.ResponseWriter, r *http.Request, actor ledger.Actor) {
+	h.endSpendStop(w, r, actor, h.spend.Block)
+}
+
+// replanSpend sends the work order a hard limit parked to replanning.
+func (h *handler) replanSpend(w http.ResponseWriter, r *http.Request, actor ledger.Actor) {
+	h.endSpendStop(w, r, actor, h.spend.Replan)
+}
+
+func (h *handler) endSpendStop(w http.ResponseWriter, r *http.Request, actor ledger.Actor,
+	end func(context.Context, ledger.WorkspaceID, string, ledger.Actor) (workorders.State, error)) {
+	var in struct{}
+	if !decode(w, r, &in) {
+		return
+	}
+	id := r.PathValue("id")
+	state, err := end(r.Context(), h.Scope, id, actor)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	reply(w, http.StatusOK, api.SpendStopEnded{WorkOrder: id, State: string(state), Reason: workorders.ReasonSpendLimit})
+}
+
+// spendBlockChanges is what a card for a delegate's block shows a member: the work order leaves `parked` for `blocked`.
+func spendBlockChanges(_ *handler, _ *http.Request, _ []byte) (any, error) {
+	return []authority.FieldChange{{Field: "state", From: workorders.Parked, To: workorders.Blocked}}, nil
+}
+
+// spendReplanChanges is the same for a delegate's replan, which sends the work order to `planning`.
+func spendReplanChanges(_ *handler, _ *http.Request, _ []byte) (any, error) {
+	return []authority.FieldChange{{Field: "state", From: workorders.Parked, To: workorders.Planning}}, nil
 }
 
 // raiseSpend lifts a work order's hard limit, by a percentage or to an amount, and answers the limit before and after

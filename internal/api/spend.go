@@ -84,6 +84,28 @@ func (c *ProjectClient) ResumeSpend(ctx context.Context, id string) (ledger.Spen
 	return out, err
 }
 
+// SpendStopEnded is what blocking a spend stop or sending it to replanning left: the work order, the state it is in,
+// and the reason it records.
+type SpendStopEnded struct {
+	WorkOrder string `json:"work_order"`
+	State     string `json:"state"`
+	Reason    string `json:"reason"`
+}
+
+// BlockSpend ends a spend stop by blocking its work order with the reason `spend_limit`.
+func (c *ProjectClient) BlockSpend(ctx context.Context, id string) (SpendStopEnded, error) {
+	var out SpendStopEnded
+	err := c.do(ctx, http.MethodPost, "/v1/work-orders/"+url.PathEscape(id)+"/spend/block", struct{}{}, &out)
+	return out, err
+}
+
+// ReplanSpend ends a spend stop by sending its work order to planning.
+func (c *ProjectClient) ReplanSpend(ctx context.Context, id string) (SpendStopEnded, error) {
+	var out SpendStopEnded
+	err := c.do(ctx, http.MethodPost, "/v1/work-orders/"+url.PathEscape(id)+"/spend/replan", struct{}{}, &out)
+	return out, err
+}
+
 // WorkOrderSpend reads one work order's charged spend against its limits.
 func (c *ProjectClient) WorkOrderSpend(ctx context.Context, id string) (ledger.WorkOrderSpend, error) {
 	var out ledger.WorkOrderSpend

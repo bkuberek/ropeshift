@@ -215,6 +215,34 @@ func TestAConfirmationCardSaysWhatItAsks(t *testing.T) {
 	}
 }
 
+// A spend stop says what the work order is charged against its limit and names the commands that raise the limit, resume
+// the lane, block the work, and send it to replanning. Resume once is named only when the stop offers it.
+func TestASpendStopSaysWhatItIsChargedAndNamesItsCommands(t *testing.T) {
+	order := workorders.WorkOrder{ID: "wo-1", Title: "Add the retry budget"}
+	stop := func(id string, actions ...string) api.NeedItem {
+		return api.NeedItem{Kind: api.NeedSpend, ID: id, Spend: &api.SpendNeed{
+			WorkOrder: order, Spend: ledger.WorkOrderSpend{WorkOrder: "wo-1", HardLimit: 25, Charged: ledger.Charged{ChargedUSD: 30.5}}, Actions: actions,
+		}}
+	}
+	snapshot := top.Snapshot{}
+	snapshot.Needs.Items = []api.NeedItem{stop("wo-1:spend_limit", api.SpendActions...), stop("wo-2:spend_limit", api.ActSpendRaise, api.ActSpendBlock, api.ActSpendReplan)}
+	snapshot.Needs.Items[1].Spend.WorkOrder.ID = "wo-2"
+	frame := loaded(t, snapshot).View()
+	for _, want := range []string{
+		"at its hard spend limit of $25.00, with $30.50 charged  Add the retry budget",
+		"    ropeshift spend raise wo-1 --by 50", "    ropeshift spend raise wo-1 --by 100", "    ropeshift spend resume wo-1",
+		"    ropeshift spend block wo-1", "    ropeshift spend replan wo-1",
+	} {
+		if !strings.Contains(frame, want) {
+			t.Errorf("no %q in:\n%s", want, frame)
+		}
+	}
+	moved := keyed(t, loaded(t, snapshot), "j").View()
+	if !strings.Contains(moved, "    ropeshift spend raise wo-2 --by 50") || strings.Contains(moved, "ropeshift spend resume wo-2") {
+		t.Errorf("a stop that offers no resume names one:\n%s", moved)
+	}
+}
+
 // Titles and lane reasons come from agents and repositories, and a terminal obeys what it is sent.
 func TestNothingAReaderHoldsCanWriteToTheTerminal(t *testing.T) {
 	hostile := "ok\x1b]52;c;c3RvbGVu\x07\x1b[2J\u009b31m\u202egone\r\nforged"

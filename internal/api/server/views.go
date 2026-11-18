@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"slices"
 	"strings"
@@ -500,12 +501,22 @@ func (h *handler) needs(tx ports.ReadTx, stamp api.Stamp) ([]api.NeedItem, error
 	for i := range effects {
 		items = append(items, api.NeedItem{Kind: api.NeedEffect, ID: effects[i].ID, Since: effects[i].RaisedAt, Effect: &effects[i]})
 	}
+	// A work order a hard spend limit parked is one spend item, which answers the long park and the resume a parked lane
+	// would raise, so the stop is asked once (FR-SPEND-7).
+	stops, stopped, err := h.spendNeeds(tx)
+	if err != nil {
+		return nil, err
+	}
+	items = append(items, stops...)
 	stuck, err := h.stuck(tx, f, wakes, stamp.AsOf)
 	if err != nil {
 		return nil, err
 	}
-	seen := map[string]bool{}
+	seen := maps.Clone(stopped)
 	for i := range stuck {
+		if stopped[stuck[i].ID] {
+			continue
+		}
 		seen[stuck[i].ID] = true
 		items = append(items, api.NeedItem{Kind: api.NeedWork, ID: stuck[i].ID, Since: stuck[i].Since, Work: &stuck[i].WorkNeed})
 	}

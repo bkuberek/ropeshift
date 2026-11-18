@@ -131,6 +131,25 @@ func commandsFor(item api.NeedItem) []string {
 		return []string{"ropeshift plan revision " + plan, "ropeshift plan confirm " + plan, "ropeshift plan revise " + plan}
 	case api.NeedConfirm:
 		return []string{"ropeshift confirm " + clean(item.ID), "ropeshift decline " + clean(item.ID)}
+	case api.NeedSpend:
+		if item.Spend == nil {
+			return nil
+		}
+		order := clean(item.Spend.WorkOrder.ID)
+		var commands []string
+		for _, action := range item.Spend.Actions {
+			switch action {
+			case api.ActSpendRaise:
+				commands = append(commands, "ropeshift spend raise "+order+" --by 50", "ropeshift spend raise "+order+" --by 100")
+			case api.ActSpendResume:
+				commands = append(commands, "ropeshift spend resume "+order)
+			case api.ActSpendBlock:
+				commands = append(commands, "ropeshift spend block "+order)
+			case api.ActSpendReplan:
+				commands = append(commands, "ropeshift spend replan "+order)
+			}
+		}
+		return commands
 	case api.NeedCI:
 		if item.CI == nil {
 			return nil
@@ -214,6 +233,9 @@ func what(item api.NeedItem) string {
 		return fmt.Sprintf("contract review: %s version %d, work %s", clean(need.Contract), need.Version, clean(need.WorkOrder.Title))
 	case item.Card != nil:
 		return clean(item.Card.Approval.Summary) + "  prepared by " + preparer(*item.Card)
+	case item.Spend != nil:
+		need := item.Spend
+		return fmt.Sprintf("at its hard spend limit of $%.2f, with $%.2f charged  %s", need.Spend.HardLimit, need.Spend.Charged.ChargedUSD, clean(need.WorkOrder.Title))
 	case item.Work == nil:
 		return ""
 	}

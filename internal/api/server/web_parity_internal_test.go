@@ -31,11 +31,13 @@ var opExempt = map[string]string{
 // it. An entry stays only while the operation has no route the web listener serves, so it leaves the list
 // when its gap closes, and the first run of this test wrote it.
 var opGaps = map[string]string{
-	// A spend stop in Needs you offers Raise and Resume once, and the work order page shows the limit; SP4 builds them
-	// (ADR-0037).
+	// A spend stop in Needs you offers Raise, Resume once, Block, and Send to replanning, and the work order page shows the
+	// limit; SP4 builds them (ADR-0037).
 	authority.OpSpendRaise:        "SP4",
 	authority.OpSpendRaiseProject: "SP4",
 	authority.OpSpendResume:       "SP4",
+	authority.OpSpendBlock:        "SP4",
+	authority.OpSpendReplan:       "SP4",
 }
 
 var (

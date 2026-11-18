@@ -56,6 +56,8 @@ const (
 	OpSpendRaise                          = "spend.raise"
 	OpSpendRaiseProject                   = "spend.raise_project"
 	OpSpendResume                         = "spend.resume"
+	OpSpendBlock                          = "spend.block"
+	OpSpendReplan                         = "spend.replan"
 	OpWorkerJoinToken                     = "worker.join_token"
 	OpWorkerJoinTokenRevoke               = "worker.join_token_revoke"
 	OpAutonomySet                         = "autonomy.set"
@@ -297,6 +299,10 @@ var operations = append(onInstallation(
 	never(OpSpendRaise, "Raise a work order's spend limit", neverSpend, ActionRaiseSpendLimit),
 	never(OpSpendRaiseProject, "Raise the project's daily or weekly spend limit", neverSpend, ActionRaiseSpendLimit),
 	never(OpSpendResume, "Resume a lane a spend limit parked", neverSpend, ActionRaiseSpendLimit),
+	// Blocking a spend stop and sending it to replanning are the other two ways a member ends one, and they are held
+	// to the same action, so whoever may lift a limit decides what becomes of the work it stopped.
+	never(OpSpendBlock, "Block work a spend limit parked", neverSpend, ActionRaiseSpendLimit),
+	never(OpSpendReplan, "Send work a spend limit parked to replanning", neverSpend, ActionRaiseSpendLimit),
 	memberOnly(OpDelegatePolicyPublish, "Publish the delegate policy", ActionPublishPolicy),
 	never(OpCategoryAdd, "Add a category", neverPolicy, ActionAddCategory),
 	consent(OpRepositoryRegister, "Register a repository", ActionRegisterRepository),

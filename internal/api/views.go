@@ -7,6 +7,7 @@ import (
 
 	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/delivery"
+	"ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/measures"
 	"ropeshift.com/ropeshift/internal/planning"
@@ -69,7 +70,22 @@ const (
 	// NeedCI is CI that asks a person about a work order's pull request: a head that has not finished, a run no
 	// runner picked up, or a result no agent can act on (ADR-0037). It starts no agent.
 	NeedCI = "ci"
+	// NeedSpend is a work order a hard spend limit parked: one item for the work order however many lanes served it,
+	// which counts as one interruption (ADR-0037, FR-SPEND-7).
+	NeedSpend = "spend"
 )
+
+// What a member can do about a spend stop. Raising, resuming, blocking, and sending to replanning are operations of this
+// API, and each names the command that does the same: `spend raise`, `spend resume`, `spend block`, and `spend replan`.
+const (
+	ActSpendRaise  = "spend_raise"
+	ActSpendResume = "spend_resume"
+	ActSpendBlock  = "spend_block"
+	ActSpendReplan = "spend_replan"
+)
+
+// SpendActions lists what a read model can offer about a spend stop, so every surface can be held to knowing each one.
+var SpendActions = []string{ActSpendRaise, ActSpendResume, ActSpendBlock, ActSpendReplan}
 
 // What a member can do about CI that asks for them. Wait longer and rerun are operations of this API, and opening the
 // run is the forge's own page, which an item offers when the forge gave an address a link can hold.
@@ -200,6 +216,50 @@ type NeedItem struct {
 	Card           *CardNeed           `json:"card,omitempty"`
 	PlanRevision   *PlanRevisionView   `json:"plan_revision,omitempty"`
 	CI             *CINeed             `json:"ci,omitempty"`
+	Spend          *SpendNeed          `json:"spend,omitempty"`
+}
+
+// SpendNeed is a work order a hard spend limit parked, with what a member reads before deciding: what it is charged
+// against its soft and hard limits and what remains, the band its limits came from and how far that can be trusted,
+// what Resume once would grant, and what each lane that served it left. Actions says what the member can do. The lanes
+// and the work order's brief never receive any of it (FR-SPEND-9).
+type SpendNeed struct {
+	WorkOrder workorders.WorkOrder  `json:"work_order"`
+	Spend     ledger.WorkOrderSpend `json:"spend"`
+	// Band is the work order's cost band, absent when it has no estimate.
+	Band *delivery.SpendBand `json:"band,omitempty"`
+	// Resume is what Resume once grants, absent when nothing sizes one more generation, which leaves a raise.
+	Resume *SpendResume `json:"resume,omitempty"`
+	Lanes  []SpendLane  `json:"lanes"`
+	// WaitingShare is the share of the work order's spend that was waiting. It is absent while no model call has been
+	// attributed as waiting or working.
+	WaitingShare *float64 `json:"waiting_share,omitempty"`
+	Actions      []string `json:"actions"`
+}
+
+// SpendResume is what Resume once would do now: the allowance of one more generation, where the figure comes from, and
+// the hard limit it sets.
+type SpendResume struct {
+	AllowanceUSD float64 `json:"allowance_usd"`
+	Basis        string  `json:"basis"`
+	LimitUSD     float64 `json:"limit_usd"`
+}
+
+// SpendLane is what one lane of a stopped work order left: the digest of its last generation that sent one, and its
+// last handoff, which is the agent's narrative or the note that it degraded to the deterministic part.
+type SpendLane struct {
+	Lane       string        `json:"lane"`
+	Generation int64         `json:"generation,omitempty"`
+	Digest     *lanes.Digest `json:"digest,omitempty"`
+	Handoff    *SpendHandoff `json:"handoff,omitempty"`
+}
+
+// SpendHandoff is a lane's last handoff. Narrative is absent when the handoff degraded.
+type SpendHandoff struct {
+	Generation int64            `json:"generation"`
+	Reason     string           `json:"reason,omitempty"`
+	Degraded   bool             `json:"degraded,omitempty"`
+	Narrative  *lanes.Narrative `json:"narrative,omitempty"`
 }
 
 // CINeed is what CI asks of a person about a work order's pull request. Kind is the item and the notice, one of
