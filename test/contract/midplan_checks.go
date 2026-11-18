@@ -783,9 +783,8 @@ func (m *midPlan) reworkedFrom(ids []string, of string) (bool, error) {
 	return false, nil
 }
 
-// checkMidPlanItemNamesConflict holds G10: the item of the logo question shows the draft decision as a
-// candidate of the ladder's first rung, which says it was found and not that the answer contradicts it. The item
-// has to say the second.
+// checkMidPlanItemNamesConflict holds that the item of the logo question names the draft decision it contradicts
+// among its overlaps, which the ladder's first rung found as a candidate and could not say contradicts it.
 func checkMidPlanItemNamesConflict(r *Rig) error {
 	m, err := midPlanAnswered(r)
 	if err != nil {
@@ -799,11 +798,10 @@ func checkMidPlanItemNamesConflict(r *Rig) error {
 	if err != nil {
 		return err
 	}
-	var gap error
 	if list, _ := named.([]any); !slices.Contains(list, any(m.p17)) {
-		gap = Violatedf("the item of a question that contradicts decision %s names the overlaps %v", m.p17, named)
+		return Violatedf("the item of a question that contradicts decision %s names the overlaps %v", m.p17, named)
 	}
-	return knownGap(r, "GAP-MP-G10", gap)
+	return nil
 }
 
 // checkMidPlanOverturnReworksNoReview holds the rule that a decision never reworks a work order that reads or

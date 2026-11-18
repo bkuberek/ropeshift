@@ -15,7 +15,7 @@ import (
 const (
 	questionColumns = `id, text, normalized_hash, categories, status, rung, blocking, subject_kind, subject_id,
        batch_id, asked_by, options, recommendation, recommendation_rationale, escalation_reason, ladder_trace,
-       claimed_by, claim_until, decision_id`
+       claimed_by, claim_until, decision_id, overlapping`
 	batchColumns    = `b.id, b.status, b.opened_at, b.closes_at, b.delivered_at`
 	decisionColumns = `id, status, statement, rationale, citations, scope, reversibility, categories,
        decided_by, supersedes, question_id, policy_version, overlapping, no_conflict`
@@ -39,18 +39,19 @@ var (
 		`INSERT INTO questions
   (workspace_id, id, text, normalized_hash, categories, status, rung, blocking, subject_kind, subject_id,
    batch_id, asked_by, options, recommendation, recommendation_rationale, escalation_reason, ladder_trace,
-   claimed_by, claim_until, decision_id)
+   claimed_by, claim_until, decision_id, overlapping)
 VALUES
   (:workspace_id, :id, :text, :normalized_hash, :categories, :status, :rung, :blocking, :subject_kind, :subject_id,
    :batch_id, :asked_by, :options, :recommendation, :recommendation_rationale, :escalation_reason, :ladder_trace,
-   :claimed_by, :claim_until, :decision_id)`)
+   :claimed_by, :claim_until, :decision_id, :overlapping)`)
 
 	stmtSaveQuestion = define("question.save",
 		`UPDATE questions
    SET categories = :categories, status = :status, rung = :rung, blocking = :blocking,
        batch_id = :batch_id, options = :options, recommendation = :recommendation,
        recommendation_rationale = :recommendation_rationale, escalation_reason = :escalation_reason, ladder_trace = :ladder_trace,
-       claimed_by = :claimed_by, claim_until = :claim_until, decision_id = :decision_id
+       claimed_by = :claimed_by, claim_until = :claim_until, decision_id = :decision_id,
+       overlapping = :overlapping
  WHERE workspace_id = :workspace_id AND id = :id`)
 
 	stmtReadQuestion = define("question.read",
@@ -271,13 +272,17 @@ func questionParams(q questions.Question) (params, error) {
 	if err != nil {
 		return nil, err
 	}
+	overlapping, err := json.Marshal(nonNil(q.Overlaps))
+	if err != nil {
+		return nil, err
+	}
 	return params{
 		"id": q.ID, "text": q.Text, "normalized_hash": q.NormalizedHash, "categories": string(categories),
 		"status": string(q.Status), "rung": q.Rung, "blocking": flag(q.Blocking), "subject_kind": nullText(q.SubjectKind),
 		"subject_id": nullText(q.SubjectID), "batch_id": nullText(q.BatchID), "asked_by": nullText(q.AskedBy),
 		"options": string(options), "recommendation": nullText(q.Recommendation), "recommendation_rationale": nullText(q.RecommendationRationale),
 		"escalation_reason": nullText(q.EscalationReason), "ladder_trace": string(trace), "claimed_by": nullText(q.ClaimedBy), "claim_until": nullInt(q.ClaimUntil),
-		"decision_id": nullText(q.DecisionID),
+		"decision_id": nullText(q.DecisionID), "overlapping": string(overlapping),
 	}, nil
 }
 
@@ -310,10 +315,10 @@ func scanQuestion(row scanner) (questions.Question, error) {
 	var q questions.Question
 	var status, categories, options, trace string
 	var blocking int64
-	var subjectKind, subjectID, batch, askedBy, recommendation, rationale, reason, claimedBy, decision sql.NullString
+	var subjectKind, subjectID, batch, askedBy, recommendation, rationale, reason, claimedBy, decision, overlapping sql.NullString
 	var claimUntil sql.NullInt64
 	err := row.Scan(&q.ID, &q.Text, &q.NormalizedHash, &categories, &status, &q.Rung, &blocking, &subjectKind, &subjectID,
-		&batch, &askedBy, &options, &recommendation, &rationale, &reason, &trace, &claimedBy, &claimUntil, &decision)
+		&batch, &askedBy, &options, &recommendation, &rationale, &reason, &trace, &claimedBy, &claimUntil, &decision, &overlapping)
 	if err != nil {
 		return questions.Question{}, err
 	}
@@ -326,6 +331,11 @@ func scanQuestion(row scanner) (questions.Question, error) {
 		into any
 	}{{categories, &q.Categories}, {options, &q.Options}, {trace, &q.LadderTrace}} {
 		if err := json.Unmarshal([]byte(field.raw), field.into); err != nil {
+			return questions.Question{}, fmt.Errorf("question %s: %w", q.ID, err)
+		}
+	}
+	if overlapping.String != "" {
+		if err := json.Unmarshal([]byte(overlapping.String), &q.Overlaps); err != nil {
 			return questions.Question{}, fmt.Errorf("question %s: %w", q.ID, err)
 		}
 	}

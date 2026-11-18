@@ -81,6 +81,22 @@ func TestAnItemSaysWhatItsAnswerBinds(t *testing.T) {
 	}
 }
 
+// TestAnItemNamesTheDecisionsItsScopeOverlapped holds that the item of a question escalated with overlapping
+// decisions in force carries them in order, and that the item of one with none carries none.
+func TestAnItemNamesTheDecisionsItsScopeOverlapped(t *testing.T) {
+	rows := []questions.Question{
+		{ID: "q1", Text: "Which logo set?", Status: questions.StatusNeedsHuman, Overlaps: []string{"pd-a", "pd-b"}},
+		{ID: "q2", Text: "Trim the log?", Status: questions.StatusNeedsHuman},
+	}
+	items := questions.Present(questions.Batch{ID: "b1"}, rows, "", questions.DefaultPolicy()).Items
+	if want := []string{"pd-a", "pd-b"}; !slices.Equal(items[0].Overlaps, want) {
+		t.Errorf("the first item names the overlaps %q, want %q", items[0].Overlaps, want)
+	}
+	if len(items[1].Overlaps) != 0 {
+		t.Errorf("an item with no overlap names %q", items[1].Overlaps)
+	}
+}
+
 // TestAnAnswerIsOneWayByReasonOrByCategory is the rule the server applies to an answer and an item states: the
 // escalation reason says one-way, or the policy keeps one of the question's categories from an orchestrator.
 func TestAnAnswerIsOneWayByReasonOrByCategory(t *testing.T) {

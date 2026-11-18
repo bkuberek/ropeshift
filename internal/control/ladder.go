@@ -360,6 +360,9 @@ func (q *Questions) Escalate(ctx context.Context, scope ledger.WorkspaceID, id s
 		}
 		crashpoint.Hit("question.escalate", "passed")
 		record.Status, record.Rung, record.ClaimedBy, record.ClaimUntil = questions.StatusNeedsHuman, questions.RungEscalate, "", 0
+		if record.Overlaps, err = overlapsOf(tx, record); err != nil {
+			return err
+		}
 		if err := q.gather(tx, &record, actor); err != nil {
 			return err
 		}

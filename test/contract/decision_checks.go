@@ -11,6 +11,7 @@ import (
 	"ropeshift.com/ropeshift/internal/control"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/measures"
+	"ropeshift.com/ropeshift/internal/planning"
 	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/internal/questions"
 	"ropeshift.com/ropeshift/internal/workorders"
@@ -44,6 +45,7 @@ var DecisionChecks = []Check{
 	{"D23", "work not yet completed is told and not reworked", checkOverturnInFlight},
 	{"D24", "the ledger and the domain agree on what overlaps", checkOverlapAgrees},
 	{"D25", "a person's answer to a one-way question is one-way", checkAnswerOneWay},
+	{"D26", "an escalated question names the decisions in force its scope overlaps", checkEscalationNamesOverlaps},
 }
 
 // RungHolder is who OnRung climbs for.
@@ -1094,6 +1096,66 @@ func checkAnswerOneWay(r *Rig) error {
 	}
 	if answer.Reversibility != questions.OneWay {
 		return Violatedf("a person's one-way answer is %q", answer.Reversibility)
+	}
+	return nil
+}
+
+// checkEscalationNamesOverlaps holds that an escalated question keeps the decisions in force whose scope overlaps
+// its own, and that its item shows them: a decision of another plan, and one that ended, are not among them, and a
+// question about a plan no decision covers names none.
+func checkEscalationNamesOverlaps(r *Rig) error {
+	s := r.Store()
+	plan, other, bare := r.ID("plan"), r.ID("plan"), r.ID("plan")
+	standing, ended, elsewhere := r.ID("d"), r.ID("d"), r.ID("d")
+	err := s.Write(r.Ctx, r.Scope, "test.decisions", func(tx ports.WriteTx) error {
+		for _, record := range []questions.Decision{
+			{ID: standing, Status: questions.DecisionDecided, Statement: "The site uses the monogram.", Scope: "plan:" + plan},
+			{ID: ended, Status: questions.DecisionReplaced, Statement: "The site uses the wordmark.", Scope: "plan:" + plan},
+			{ID: elsewhere, Status: questions.DecisionDecided, Statement: "The docs use the wordmark.", Scope: "plan:" + other},
+		} {
+			if err := tx.Questions().InsertDecision(record); err != nil {
+				return err
+			}
+			event, err := questions.RecordEvent(questions.EventDecisionRecorded, questions.SubjectDecision, record.ID, record, r.Actor)
+			if err != nil {
+				return err
+			}
+			if _, err := tx.Append(event); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	aboutPlan := func(id string) func(*questions.Ask) {
+		return func(a *questions.Ask) { a.SubjectKind, a.SubjectID = planning.SubjectPlan, id }
+	}
+	covered, err := r.escalated(s, "Which logo set should the site use?", aboutPlan(plan))
+	if err != nil {
+		return err
+	}
+	uncovered, err := r.escalated(s, "Which icon set should the site use?", aboutPlan(bare))
+	if err != nil {
+		return err
+	}
+	r.DB.ShiftClock(BatchWindowMs + 1)
+	if err := r.deliveredOnce(s, covered, uncovered); err != nil {
+		return err
+	}
+	items, err := r.waitingItems(s)
+	if err != nil {
+		return err
+	}
+	for id, want := range map[string][]string{covered: {standing}, uncovered: nil} {
+		index := slices.IndexFunc(items, func(item questions.Item) bool { return item.ID == id })
+		if index < 0 {
+			return Violatedf("question %s is not waiting for a person", id)
+		}
+		if got := items[index].Overlaps; !slices.Equal(got, want) {
+			return Violatedf("the item of question %s names the overlaps %v, want %v", id, got, want)
+		}
 	}
 	return nil
 }

@@ -208,6 +208,33 @@ describe("answering from the open questions", () => {
     expect(screen.getByRole("group", { name: restart })).toBeTruthy();
   });
 
+  it("offers to replace each decision the question overlaps, as Needs you does, and sends the one replaced", async () => {
+    document.cookie = "ropeshift_csrf=token-from-cookie";
+    const questions = golden<Questions>("questions");
+    const first = questions.questions[0];
+    if (first) {
+      first.overlaps = ["pd-p17"];
+    }
+    const sent = serveViews((call) => {
+      if (call.method === "POST") {
+        return { status: 201, body: {} };
+      }
+      if (call.path.startsWith("/v1/views/decisions")) {
+        return { status: 200, body: { decisions: [{ id: "pd-p17", status: "decided", statement: "Q: Which logo set? A: Monogram", lineage: [] }] } };
+      }
+      return call.path.startsWith("/v1/views/questions") ? { status: 200, body: questions } : undefined;
+    });
+    openPage("/questions");
+    await userEvent.click(await answerButton(first?.text ?? budget));
+    const group = await screen.findByRole("group", { name: first?.text ?? budget });
+    expect(await within(group).findByText("Q: Which logo set? A: Monogram")).toBeTruthy();
+    expect(within(group).queryByRole("combobox")).toBeNull();
+    await userEvent.click(within(group).getByRole("button", { name: "Replace it" }));
+    await userEvent.click(screen.getByRole("button", { name: "Send this answer" }));
+    await waitFor(() => expect(changes(sent)).toHaveLength(1));
+    expect(changes(sent)[0]).toMatchObject({ body: { supersedes: "pd-p17" } });
+  });
+
   it("is on the page of one question too, and offers no answer in Needs you any more", async () => {
     serving();
     openPage("/questions?id=question-review");
