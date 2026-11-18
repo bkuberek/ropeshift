@@ -15,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	"ropeshift.com/ropeshift/internal/adapters/gitcli"
 	"ropeshift.com/ropeshift/internal/adapters/sqlite"
 	"ropeshift.com/ropeshift/internal/adapters/workerlink"
 	"ropeshift.com/ropeshift/internal/api"
@@ -80,6 +81,10 @@ func runWorker(args []string, stdout, stderr io.Writer) int {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	if err := requireGit(ctx, gitcli.Probe{}); err != nil {
+		fmt.Fprintf(stderr, "ropeshiftd worker: %v\n", err)
+		return exitError
+	}
 	if err := serveWorker(ctx, paths, opts, stdout, stderr); err != nil {
 		fmt.Fprintf(stderr, "ropeshiftd worker: %v\n", err)
 		if errors.Is(err, errBusy) {

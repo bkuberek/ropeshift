@@ -642,8 +642,17 @@ func BrokenClaudeRuns(t testing.TB, path string) []string {
 }
 
 // CanaryPathWithout is a PATH with no agent CLI on it at all, not even the canary, for a
-// machine that has none.
+// machine that has none. It holds git and nothing else, because a daemon refuses to start without git
+// and the machine this stands for has it.
 func CanaryPathWithout(t testing.TB) string {
 	t.Helper()
-	return t.TempDir()
+	git, err := exec.LookPath("git")
+	if err != nil {
+		t.Skip("git is not on PATH")
+	}
+	dir := t.TempDir()
+	if err := os.Symlink(git, filepath.Join(dir, "git")); err != nil {
+		t.Fatal(err)
+	}
+	return dir
 }

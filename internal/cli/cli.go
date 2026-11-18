@@ -43,6 +43,9 @@ type Options struct {
 	// Worktree asks this machine where lane worktrees go, and which checkouts the root puts inside a clone. It
 	// reaches no daemon. Nil leaves the section out of the doctor's report.
 	Worktree func(context.Context) (lanes.WorktreeReport, error)
+	// Git asks this machine which git it runs, held to the minimum ropeshift runs on. It reaches no daemon. Nil
+	// leaves the section out of the doctor's report.
+	Git func(context.Context) lanes.GitReport
 	// Session is the member's session this shell holds, if any.
 	Session string
 	// Delegate is the delegate credential this shell holds, if any, which a command presents in place of a
@@ -86,6 +89,7 @@ type Options struct {
 type invocation struct {
 	doctor         func(context.Context) (ledger.Manifest, error)
 	worktree       func(context.Context) (lanes.WorktreeReport, error)
+	git            func(context.Context) lanes.GitReport
 	readPassphrase func(prompt string) (string, error)
 	terminal       io.Reader
 	panes          Panes
@@ -124,7 +128,7 @@ type invocation struct {
 // name.
 func Run(args []string, stdout, stderr io.Writer, opts Options) int {
 	base := &invocation{
-		ctx: context.Background(), stdout: stdout, stderr: stderr, socket: opts.Socket, doctor: opts.Doctor, worktree: opts.Worktree,
+		ctx: context.Background(), stdout: stdout, stderr: stderr, socket: opts.Socket, doctor: opts.Doctor, worktree: opts.Worktree, git: opts.Git,
 		session: opts.Session, delegate: opts.Delegate, readPassphrase: opts.ReadPassphrase, terminal: opts.Terminal,
 		panes: opts.Panes, startDaemon: opts.StartDaemon, stateDir: opts.StateDir, install: opts.InstallService, uninstall: opts.UninstallService,
 		envProject: opts.Project, repositoryHere: opts.RepositoryHere, repositoryRoot: opts.RepositoryRoot,

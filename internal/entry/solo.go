@@ -183,6 +183,10 @@ func runSolo(args []string, stdout, stderr io.Writer) int {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	if err := requireGit(ctx, gitcli.Probe{}); err != nil {
+		fmt.Fprintf(stderr, "ropeshiftd solo: %v\n", err)
+		return exitError
+	}
 	if err := serveSolo(ctx, paths, opts, stdout, stderr); err != nil {
 		fmt.Fprintf(stderr, "ropeshiftd solo: %v\n", err)
 		if errors.Is(err, errBusy) {

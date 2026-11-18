@@ -117,6 +117,7 @@ func cliOptions() cli.Options {
 	}
 	opts.Doctor = func(ctx context.Context) (ledger.Manifest, error) { return runDoctor(ctx) }
 	opts.Worktree = func(ctx context.Context) (lanes.WorktreeReport, error) { return worktreeReport(ctx, paths) }
+	opts.Git = func(ctx context.Context) lanes.GitReport { return checkGit(ctx, gitcli.Probe{}) }
 	opts.StartDaemon = startDaemonForInit(paths)
 	opts.StateDir = paths.StateDir
 	return opts

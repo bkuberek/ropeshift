@@ -1094,9 +1094,10 @@ func qualification(driver ledger.DriverManifest) string {
 }
 
 // doctorReport is what `worker doctor --json` prints: the worker's manifest, which names each agent CLI, and the
-// worktree section, which a build with no check leaves out.
+// git and worktree sections, which a build with no check leaves out.
 type doctorReport struct {
 	ledger.Manifest
+	Git      *lanes.GitReport      `json:"git,omitempty"`
 	Worktree *lanes.WorktreeReport `json:"worktree,omitempty"`
 }
 
@@ -1128,20 +1129,25 @@ func (c *invocation) workerDoctor(args []string) int {
 	}
 	manifest, err := c.doctor(c.ctx)
 	var section *lanes.WorktreeReport
+	var git *lanes.GitReport
 	if err == nil {
+		git = c.gitSection()
 		section, err = c.worktreeSection()
 	}
-	code := c.finish(err, doctorReport{Manifest: manifest, Worktree: section}, func() string {
+	code := c.finish(err, doctorReport{Manifest: manifest, Git: git, Worktree: section}, func() string {
 		var out strings.Builder
 		for _, driver := range manifest.Drivers {
 			out.WriteString(doctorLine(driver))
+		}
+		if git != nil {
+			out.WriteString(gitText(*git))
 		}
 		if section != nil {
 			out.WriteString(worktreeText(*section))
 		}
 		return out.String()
 	})
-	if code == ExitOK && !anyUsable(manifest) {
+	if code == ExitOK && (!anyUsable(manifest) || git != nil && !git.Usable()) {
 		return ExitError
 	}
 	return code
