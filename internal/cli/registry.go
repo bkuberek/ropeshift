@@ -163,11 +163,11 @@ func registry() []section {
 			command("chat targets", "", "list what you can talk to in this project", (*invocation).chatTargets),
 		}},
 		{"Repositories", []registered{
-			command("repository add", "<path>... [--depth N] [--dry-run]", "register the git clones at or below paths on this machine in the project", (*invocation).repositoryAdd),
+			command("repository add", "(<path>... [--depth N] | --manifest <file>) [--dry-run]", "register the git clones at or below paths on this machine in the project", (*invocation).repositoryAdd),
 			command("repository list", "", "list each repository, the branch its lanes start from, and how it merges", (*invocation).repositoryList),
 			command("repository show", "<name>", "show a repository's record: remote, default branch, base, merge method, and start", (*invocation).repositoryShow),
 			command("repository remove", "<name>", "take a repository out of the project once no open work targets it", (*invocation).repositoryRemove),
-			command("repository set", "<name>... [--name N] [--base B] [--merge-method M] [--start-from S] [--review-target T] [--merge-authority A] [--planning] [ci.<key>=<value>...]", "change a repository's settings, which only a member can do", (*invocation).repositorySet),
+			command("repository set", "<name>... [--name N] [--base B] [--merge-method M] [--start-from S] [--review-target T] [--forge-binding HOST/OWNER/REPO] [--merge-authority A] [--planning] [ci.<key>=<value>...]", "change a repository's settings, which only a member can do", (*invocation).repositorySet),
 		}},
 		{"Approvals, effects, and notices", []registered{
 			command("approval list", "[--state S]", "list what lanes have asked to do", (*invocation).approvalList),
@@ -186,7 +186,7 @@ func registry() []section {
 			command("telemetry lanes", "", "print each lane's context, tokens, and cost", (*invocation).telemetryLanes),
 		),
 			command("measures", "[--window D]", "print the product measures, the north star first", (*invocation).measuresCommand),
-			command("measures delivery", "[--window D] [--by kind|size|agent|repository]", "print cycle time, throughput, and where the time went", (*invocation).measuresDelivery),
+			command("measures delivery", "[--window D] [--by kind|size|agent|repository|project]", "print cycle time, throughput, and where the time went", (*invocation).measuresDelivery),
 			command("measures estimates", "[--window D]", "print how often finished work landed inside its estimates", (*invocation).measuresEstimates),
 			command("measures history", "", "print the delivery history a planning session sees", (*invocation).measuresHistory),
 			command("measures ci", "", "print how long each repository's CI takes, from the heads it has finished", (*invocation).measuresCI),
