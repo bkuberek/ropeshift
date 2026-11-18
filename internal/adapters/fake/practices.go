@@ -15,10 +15,13 @@ type Practices struct {
 	snapshots map[string]practices.Snapshot
 	scans     map[string]ports.SecretScan
 	facts     map[string]practices.ForgeFacts
+	factsErrs map[string]error
 	// Fail is what every read returns while it is set.
 	Fail error
 	// ScanCalls lists the arguments of each scan: the directory, the tip, and the commit it started from.
 	ScanCalls [][3]string
+	// SettingsCalls lists the arguments of each settings read: the repository's binding and the branch.
+	SettingsCalls [][2]string
 }
 
 var (
@@ -58,6 +61,17 @@ func (p *Practices) SetSettings(binding string, facts practices.ForgeFacts) {
 	p.facts[binding] = facts
 }
 
+// SetSettingsError makes the settings read of a repository, by its binding's text, return an error with the facts set
+// for it, as the read does for a rate limit. An error of nil clears it.
+func (p *Practices) SetSettingsError(binding string, err error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.factsErrs == nil {
+		p.factsErrs = map[string]error{}
+	}
+	p.factsErrs[binding] = err
+}
+
 // Snapshot returns what the directory holds, and an empty snapshot of the commit for a directory with none set.
 func (p *Practices) Snapshot(_ context.Context, dir, commit string) (practices.Snapshot, error) {
 	p.mu.Lock()
@@ -82,12 +96,15 @@ func (p *Practices) Scan(_ context.Context, dir, tip, from string) (ports.Secret
 	return p.scans[dir], nil
 }
 
-// Settings returns what the forge says of the repository, and zero facts for a repository with none set.
-func (p *Practices) Settings(_ context.Context, repo ports.ForgeRepo, _ string) (practices.ForgeFacts, error) {
+// Settings returns what the forge says of the repository, and zero facts for a repository with none set, with the
+// error set for the repository.
+func (p *Practices) Settings(_ context.Context, repo ports.ForgeRepo, branch string) (practices.ForgeFacts, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	binding := repo.Binding.String()
+	p.SettingsCalls = append(p.SettingsCalls, [2]string{binding, branch})
 	if p.Fail != nil {
 		return practices.ForgeFacts{}, p.Fail
 	}
-	return p.facts[repo.Binding.String()], nil
+	return p.facts[binding], p.factsErrs[binding]
 }

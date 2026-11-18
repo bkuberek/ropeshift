@@ -33,7 +33,9 @@ type SecretScans interface {
 }
 
 // ForgeSettings reads a repository's settings on its forge for the practices check, under the person's existing
-// sign-in. A setting it cannot read is left unknown in the facts with its reason, and is no error.
+// sign-in. A setting it cannot read is left unknown in the facts with its reason, and is no error. A read the forge
+// refused for a rate limit leaves the facts it did not settle unknown with the reason, and returns the facts with an
+// error that wraps a *RateLimitedError, so a caller keeps the facts and holds its reads of the repository.
 type ForgeSettings interface {
 	Settings(ctx context.Context, repo ForgeRepo, branch string) (practices.ForgeFacts, error)
 }
