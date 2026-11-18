@@ -85,8 +85,9 @@ type Item struct {
 	Citations               []string `json:"citations,omitempty"`
 	Scope                   string   `json:"scope,omitempty"`
 	Overlaps                []string `json:"overlaps,omitempty"`
-	// NoOrchestrator says no orchestrator judged the question, so its citations are what the core found by text, and
-	// LadderTrace is every rung it passed.
+	// NoOrchestrator says the core took the question to a person because no live orchestrator finished its ladder.
+	// LadderTrace is every rung it passed: a rung an orchestrator ran before it stopped keeps what it judged, and a rung
+	// the core ran lists what it found by text, judged by nobody, so the trace says which citation is which.
 	NoOrchestrator bool   `json:"no_orchestrator,omitempty"`
 	LadderTrace    []Step `json:"ladder_trace,omitempty"`
 }

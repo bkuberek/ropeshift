@@ -35,7 +35,8 @@ func Unjudged(q Question, p Policy, lookup, open []string) Question {
 	return q
 }
 
-// NoOrchestrator says no orchestrator judged the question: the core took it to a person.
+// NoOrchestrator says the core took the question to a person because no live orchestrator finished its ladder. Rungs
+// an orchestrator ran before it stopped keep what it recorded, so an orchestrator may have judged some of them.
 func (q Question) NoOrchestrator() bool {
 	return slices.ContainsFunc(q.LadderTrace, func(step Step) bool { return step.Outcome == OutcomeNoOrchestrator })
 }
