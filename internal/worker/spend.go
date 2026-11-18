@@ -173,9 +173,13 @@ func (r *laneRun) chargedUSD() float64 {
 	return earlier + ledger.Charge([][]ledger.GenerationUsage{{r.generationUsage()}}).ChargedUSD
 }
 
-// evaluateSpend holds the lane to its work order's hard limit, on a usage report that shows the session's cost and at
-// a turn's end (FR-SPEND-5). A lane over its limit is parked, and it says whether it was. A lane whose allowance is
-// unknown asks for it again, and is held when it stays unknown.
+// evaluateSpend holds the lane to its work order's hard limit and its project's limits, on a report that shows the
+// session's cost, on each model call's usage, when a tool call starts, and at a turn's end (FR-SPEND-5). The last three
+// come whether or not the session's cost moved, because a call that cannot be priced and a pane whose cost line does not
+// change report none, and a limit a member lowered or another lane's spend took the lane past shows in the ledger and not
+// in the session. A lane over its limit is parked, and it says whether it was. A lane whose allowance is unknown asks for
+// it again, and is held when it stays unknown. The ledger is read no oftener than the cadences below allow, however many
+// of these come.
 func (r *laneRun) evaluateSpend(ctx context.Context) bool {
 	if !r.holdsToLimit() || r.spendStop.Load() || r.currentFlight() != nil {
 		return false
@@ -268,6 +272,18 @@ func (r *laneRun) reportProjectSpend(ctx context.Context) bool {
 	r.recordUsage(ctx)
 	r.uploadBounded(ctx)
 	return true
+}
+
+// askToCheckSpend tells the goroutine that reads this run's stream that a tool call is starting, so it holds the lane to
+// its limits as it does at a usage report. A hook cannot hold them itself: it reaches the worker's socket while the call is
+// already decided, and what the check may do, read the ledger and park the lane, must not wait on a hook's answer or run
+// under the lock a spool is drained with. The check is the one a report makes, so a read of the allowance keeps its cadence,
+// and a burst of calls costs one check and no more. A run whose stream is not read has no check to make.
+func (r *laneRun) askToCheckSpend() {
+	select {
+	case r.spendCheck <- struct{}{}:
+	default:
+	}
 }
 
 func (r *laneRun) allowanceState() (*ledger.SpendAllowance, bool) {

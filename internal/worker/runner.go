@@ -167,6 +167,9 @@ type laneRun struct {
 	// is held to: one the ledger has not answered for longer than the grace is unknown again (FR-SPEND-6). The handle's lock
 	// guards it.
 	allowanceReadAt time.Time
+	// spendCheck carries a hook's word that a tool call is starting to the goroutine that reads this run's stream, which
+	// then holds the lane to its limits as a usage report does. It holds one word, so a burst of calls is one check.
+	spendCheck chan struct{}
 	// projectReportedAt and projectReportedUSD are when this lane last told the ledger what it spent for its project's
 	// limits, and what it was charged then, which the handle's lock guards (FR-SPEND-6).
 	projectReportedAt  time.Time
@@ -249,7 +252,7 @@ func newOnce() *sync.Once { return &sync.Once{} }
 // newRun is a lane's run at its first generation.
 func newRun(w *Worker, lease ledger.DesiredLease) *laneRun {
 	return &laneRun{
-		w: w, rt: w.config.Lanes, lease: lease, generation: firstGeneration, stopOnce: newOnce(),
+		w: w, rt: w.config.Lanes, lease: lease, generation: firstGeneration, stopOnce: newOnce(), spendCheck: make(chan struct{}, 1),
 		state: newLaneState(lanes.Pending, w.clock.Now()), pack: lease.Pack, digestStartMs: w.clock.Now().UnixMilli(),
 	}
 }
@@ -1052,6 +1055,11 @@ func (r *laneRun) watch(ctx context.Context, events <-chan ports.DriverEvent) wo
 				return failed(workorders.ReasonCrashed)
 			}
 			event = next
+		case <-r.spendCheck:
+			// A tool call is starting, and no cost report may come to show the limit passed: a call that cannot be
+			// priced, or a pane whose cost does not move, reports none.
+			r.evaluateSpend(ctx)
+			continue
 		}
 		if event.Seq != 0 && event.Seq <= r.cursor {
 			continue

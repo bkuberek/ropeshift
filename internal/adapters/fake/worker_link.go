@@ -30,6 +30,8 @@ type WorkerLink struct {
 	HangAsk atomic.Bool
 	// FailLaneFacts fails every read of a lane's facts, as a control plane that is away would.
 	FailLaneFacts atomic.Bool
+	// LaneFactsReads counts the reads of a lane's facts, the failed ones too, so a test can show how often a worker asks.
+	LaneFactsReads atomic.Int64
 	// StripPacks takes the pack off every lease, as a claim from before packs reads.
 	StripPacks atomic.Bool
 	// FailUpload refuses every upload, as a control plane that is away would.
@@ -181,6 +183,7 @@ func (l *WorkerLink) LaneContext(ctx context.Context, request ledger.LaneContext
 
 // LaneFacts calls the plane, unless it is away.
 func (l *WorkerLink) LaneFacts(ctx context.Context, request ledger.LaneFactsRequest) (ledger.LaneFacts, error) {
+	l.LaneFactsReads.Add(1)
 	if l.FailLaneFacts.Load() {
 		return ledger.LaneFacts{}, errPlaneAway
 	}
