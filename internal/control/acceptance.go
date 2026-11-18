@@ -898,7 +898,7 @@ func recordNotes(tx ports.WriteTx, review workorders.WorkOrder, holder workorder
 	for seq, n := range result.Notes {
 		err := tx.Evidence().RecordNote(workorders.Note{
 			ReviewNote: n, Review: review.ID, WorkOrder: review.Reviews, Attempt: review.ReviewsFence, Commit: commit, Seq: int64(seq),
-			RedactionRules: ledger.CIRedactionRulesVersion,
+			RedactionRules: ledger.CredentialRulesVersion,
 		}, holder.Lane)
 		if err != nil {
 			return err

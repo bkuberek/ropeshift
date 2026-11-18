@@ -97,8 +97,8 @@ func TestAPrivateKeyCutByAWindowIsRedactedFromTheStart(t *testing.T) {
 
 func TestTheRuleSetIsVersionedAndNamed(t *testing.T) {
 	t.Parallel()
-	if CIRedactionRulesVersion < 1 {
-		t.Errorf("the rule set has version %d", CIRedactionRulesVersion)
+	if CredentialRulesVersion < 1 {
+		t.Errorf("the rule set has version %d", CredentialRulesVersion)
 	}
 	names := RedactionRuleNames()
 	for _, want := range []string{"private_key", "aws_secret_key", "stripe_key", "google_api_key", "gitlab_token", "npm_token", "secret_assignment"} {
