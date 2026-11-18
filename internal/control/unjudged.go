@@ -3,6 +3,7 @@ package control
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 
 	"ropeshift.com/ropeshift/internal/crashpoint"
@@ -55,13 +56,18 @@ func (q *Questions) escalateUnjudged(ctx context.Context, scope ledger.Workspace
 }
 
 // escalateOne runs the lookup rungs by text, records that no orchestrator worked the rest, and gathers the question
-// into the open batch, which closes now: the question waited its window already.
+// into the open batch, which closes now: the question waited its window already. A search that fails lists nothing,
+// and the question still reaches a person, so a search that stays down never holds a lane's question back; the failure
+// is said once, by the tick that took the question.
 func (q *Questions) escalateOne(ctx context.Context, scope ledger.WorkspaceID, row questions.Question, actor ledger.Actor) error {
-	lookup, open, err := q.lexical(ctx, scope, row)
-	if err != nil {
-		return err
+	lookup, open, searched := q.lexical(ctx, scope, row)
+	if searched != nil {
+		lookup, open = nil, nil
+		searched = fmt.Errorf("question %s reached a person with no candidates: %w", row.ID, searched)
 	}
-	return q.store.Write(ctx, scope, "question.unjudged", func(tx ports.WriteTx) error {
+	escalated := false
+	err := q.store.Write(ctx, scope, "question.unjudged", func(tx ports.WriteTx) error {
+		escalated = false
 		won, err := tx.Questions().Take(row.ID, actor.ID, unjudgedHoldMs)
 		if err != nil || !won {
 			return err
@@ -86,8 +92,13 @@ func (q *Questions) escalateOne(ctx context.Context, scope ledger.WorkspaceID, r
 		if err := hastenTo(tx, batch, tx.Now(), actor); err != nil {
 			return err
 		}
+		escalated = true
 		return saveQuestion(tx, record, actor)
 	})
+	if err != nil || !escalated {
+		return err
+	}
+	return searched
 }
 
 // lexical is what the core finds by text for rungs 1 and 2, under the names an orchestrator's ladder read gives them.

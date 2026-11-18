@@ -1,10 +1,12 @@
 package contract
 
 import (
+	"context"
 	"errors"
 	"slices"
 
 	"ropeshift.com/ropeshift/internal/control"
+	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/internal/questions"
 	"ropeshift.com/ropeshift/internal/workorders"
@@ -21,6 +23,7 @@ var UnjudgedChecks = []Check{
 	{"UJ6", "only a member merges a question with no hold, never into itself or into a closed question, and a planning lane's question only into one a person answers", checkUnjudgedMergeRules},
 	{"UJ7", "a member's assumption of a one-way question is refused, and the question waits", checkUnjudgedOneWayAssumption},
 	{"UJ8", "a member claims, dispatches, and recovers work with no orchestrator", checkUnjudgedMemberRunsWork},
+	{"UJ9", "a question whose text search fails still reaches a person, with no candidates, and the tick says so once", checkUnjudgedMatcherFails},
 }
 
 const unjudgedText = "Which ID scheme do the work orders take?"
@@ -384,6 +387,44 @@ func checkUnjudgedMemberRunsWork(r *Rig) error {
 	}
 	if order.State != workorders.Ready {
 		return Violatedf("recovered work is %s, want ready", order.State)
+	}
+	return nil
+}
+
+// failingMatcher is a text search that always fails.
+type failingMatcher struct{}
+
+var errSearchDown = errors.New("the search is down")
+
+func (failingMatcher) Candidates(context.Context, ledger.WorkspaceID, ports.MatchRequest) ([]ports.Candidate, error) {
+	return nil, errSearchDown
+}
+
+func checkUnjudgedMatcherFails(r *Rig) error {
+	s := r.Store()
+	core := control.NewQuestions(s, questions.BatchPolicy{WindowMs: BatchWindowMs, MaxWaitMs: BatchMaxWaitMs}).Matching(failingMatcher{})
+	asked, err := r.ask(s, unjudgedText, "lane-a", blocking)
+	if err != nil {
+		return err
+	}
+	r.DB.ShiftClock(BatchWindowMs + 1)
+	if _, err := core.DeliverBatches(r.Ctx, r.Scope, tickActor); !errors.Is(err, errSearchDown) {
+		return Violatedf("a tick whose search failed says %v", err)
+	}
+	row, err := r.readQuestion(s, asked.QuestionID)
+	if err != nil {
+		return err
+	}
+	if row.Status != questions.StatusNeedsHuman || !row.NoOrchestrator() {
+		return Violatedf("a question whose search failed reads %+v", row)
+	}
+	for _, step := range row.LadderTrace {
+		if len(step.Candidates) != 0 {
+			return Violatedf("a question whose search failed lists candidates on rung %d: %v", step.Rung, step.Candidates)
+		}
+	}
+	if _, err := core.DeliverBatches(r.Ctx, r.Scope, tickActor); err != nil {
+		return Violatedf("the next tick says %v, though nothing waits on the search", err)
 	}
 	return nil
 }
