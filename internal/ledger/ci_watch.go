@@ -77,14 +77,11 @@ func (s CISettings) WaitStep(watch CIWatch) time.Duration {
 	return max(s.NoHistory().P85, time.Minute)
 }
 
-// linkable keeps an address a page may link: a forge's word, so only an http or https address with a host.
+// linkable keeps an address a page may link: a forge's word, so only an https address with a host and no user.
 func linkable(address string) string {
 	rest, secure := strings.CutPrefix(address, "https://")
 	if !secure {
-		var plain bool
-		if rest, plain = strings.CutPrefix(address, "http://"); !plain {
-			return ""
-		}
+		return ""
 	}
 	host, _, _ := strings.Cut(rest, "/")
 	if host == "" || strings.ContainsFunc(address, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) || r == '\\' }) || strings.Contains(host, "@") {

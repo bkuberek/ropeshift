@@ -79,7 +79,7 @@ func TestGoldenCI(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	holdsGolden(t, "ci-acceptance", steady(pretty(t, view)))
+	holdsGolden(t, "acceptance-ci", steady(pretty(t, view)))
 }
 
 func ciItems(t *testing.T, d *apitest.Daemon) []api.NeedItem {

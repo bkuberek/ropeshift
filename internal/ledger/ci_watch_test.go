@@ -112,12 +112,12 @@ func TestWaitingLongerExtendsTheTimeout(t *testing.T) {
 	}
 }
 
-// The run's address is the forge's word, so only an http or https address with a host and nothing a page could be
-// tricked by is offered as a link.
+// The run's address is the forge's word, so only an https address with a host and nothing a page could be tricked by
+// is offered as a link.
 func TestOnlyASafeAddressOfARunIsALink(t *testing.T) {
 	for address, want := range map[string]string{
 		"https://github.com/acme/widgets/actions/runs/9": "https://github.com/acme/widgets/actions/runs/9",
-		"http://forge.example/runs/9":                    "http://forge.example/runs/9",
+		"http://forge.example/runs/9":                    "",
 		"javascript:alert(1)":                            "",
 		"ftp://forge.example/runs/9":                     "",
 		"https://":                                       "",
