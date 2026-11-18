@@ -372,7 +372,12 @@ func (r *laneRun) awaitAnswer(ctx context.Context) {
 // `attachedWaits` waits in a row, and then it parks as with nobody there, because a terminal left attached
 // says nothing of whether anyone is at it. A line the person types starts a turn, which ends the wait, and
 // the next rest starts it again, and input in the web pane starts the count again.
+//
+// The first wait's start is read before the lane reads as waiting, as awaitAnswer reads its deadline, so a
+// lane that reads as waiting has its start: a clock moved on seeing it cannot move that wait's deadline, and
+// input typed into the web pane from then on counts as typed during the wait.
 func (r *laneRun) awaitPerson(ctx context.Context) {
+	from := r.w.clock.Now()
 	if !r.waiting.CompareAndSwap(false, true) {
 		return
 	}
@@ -382,7 +387,6 @@ func (r *laneRun) awaitPerson(ctx context.Context) {
 		defer r.state.waitForPerson(false)
 		quiet := 0
 		for {
-			from := r.w.clock.Now()
 			if !r.restUntil(ctx, from.Add(r.state.askWait())) {
 				return
 			}
@@ -401,6 +405,7 @@ func (r *laneRun) awaitPerson(ctx context.Context) {
 			if quiet >= attachedWaits {
 				break
 			}
+			from = r.w.clock.Now()
 		}
 		r.parkReported(ctx, lanes.ParkRequest{Trigger: lanes.ParkWaitingForPerson, Expr: lanes.HumanWake(), PastCompaction: true})
 	})

@@ -23,7 +23,8 @@ func planningRigWith(t *testing.T, profile string, setup func(*fake.AgentDriver)
 }
 
 // waitsForItsPerson reads until the lane waits at rest for its person, and fails at once on a lane that
-// stopped instead.
+// stopped instead. A lane that reads as waiting has read its wait's start from the worker's clock, so a clock
+// moved on seeing it moves that wait's deadline by what the test means and no more.
 func (r *laneRig) waitsForItsPerson(t *testing.T) {
 	t.Helper()
 	stopped := func() bool {
