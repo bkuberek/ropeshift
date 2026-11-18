@@ -331,16 +331,15 @@ describe("Repositories", () => {
     };
     const signedIn = { worker: "worker-1", worker_name: "atlas", repository: "id-api", state: "ok", checked_at: 1 };
 
-    it("names the workspace and the line to add on the repository a worker reported it for, in the words a lane's start uses", async () => {
+    it("says on the repository a worker reported it for that the workspace does not ignore the folder, with the line to add", async () => {
       serveAdmin(reported({ ...signedIn, unignored_workspace: "/work/ws" }));
       openPage(here("/repositories"));
       const table = await screen.findByRole("table");
       const row = within(table).getByRole("row", { name: /api/ });
       expect(within(row).getByText("gh signed in")).toBeTruthy();
       const note = within(row).getByText(/does not ignore/);
-      expect(note.textContent).toBe(
-        "atlas: the workspace /work/ws does not ignore .ropeshift/worktrees/; add /.ropeshift/worktrees/ to its .gitignore so this repository's lanes run inside the workspace",
-      );
+      expect(note.textContent).toBe("atlas: This workspace does not ignore .ropeshift/worktrees/; add this line to its .gitignore: /.ropeshift/worktrees/");
+      expect(note.getAttribute("title")).toBe("/work/ws");
       expect(within(note).getByText("/.ropeshift/worktrees/").tagName).toBe("CODE");
     });
 

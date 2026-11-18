@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 
 import { addRepositories, changeRepository, readRepositories, removeRepository } from "../api/admin";
-import type { ForgeHealth, MergeAuthority, MergeMethod, RepositoryAddReport, RepositoryChange, RepositoryList, RepositoryView, ReviewTarget, StartFrom } from "../api/admin";
+import type { MergeAuthority, MergeMethod, RepositoryAddReport, RepositoryChange, RepositoryList, RepositoryView, ReviewTarget, StartFrom } from "../api/admin";
 import type { Live } from "../api/useView";
 import { usePageActions } from "../app/pageActions";
 import type { Entry } from "../app/ranking";
@@ -130,19 +130,14 @@ function shownValue(value: string | boolean): string {
 
 const label = (view: RepositoryView) => view.name || view.id;
 
-// A worker's forge report, which also names the workspace on that worker when this repository's checkout is it and it
-// does not ignore .ropeshift/worktrees/.
-type ForgeReport = ForgeHealth & { unignored_workspace?: string };
-
 function Forge({ view }: { view: RepositoryView }) {
-  const unignored = ((view.forge ?? []) as ForgeReport[]).filter((report) => report.unignored_workspace);
+  const unignored = (view.forge ?? []).filter((report) => report.unignored_workspace);
   return (
     <>
       <SignIn view={view} />
       {unignored.map((report) => (
-        <span className="cell-note" key={report.worker}>
-          {report.worker_name || report.worker}: the workspace {report.unignored_workspace} does not ignore <code>.ropeshift/worktrees/</code>; add <code>/.ropeshift/worktrees/</code> to its .gitignore so this
-          repository's lanes run inside the workspace
+        <span className="cell-note" key={report.worker} title={report.unignored_workspace}>
+          {report.worker_name || report.worker}: This workspace does not ignore <code>.ropeshift/worktrees/</code>; add this line to its .gitignore: <code>/.ropeshift/worktrees/</code>
         </span>
       ))}
     </>

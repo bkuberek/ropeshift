@@ -60,6 +60,8 @@ The worker that keeps the repository's clone runs `gh auth status --hostname git
 
 While `gh` is signed out or missing, the review of each change waits, as `forge_unavailable`, until it is fixed.
 
+When the repository's checkout is the project's [workspace](project-structure.md#the-workspace-on-a-machine), a git clone, and it does not ignore `.ropeshift/worktrees/`, the cell also says "This workspace does not ignore .ropeshift/worktrees/; add this line to its .gitignore: /.ropeshift/worktrees/", under the worker's name, and `ropeshift repository show` prints it on a `workspace` line. Add the line and commit it; the next report, within a minute, clears the note. Until then the lanes of the project's other repositories run outside the workspace. Only a repository that reviews through pull requests is reported on, so a workspace that reviews through branches shows the note nowhere, and `ropeshift worker doctor` is where to look.
+
 ### 3. Run a change through its pull request
 
 Start the next work order of the repository, as in [watch work run](watch-work-run.md#3-start-a-work-order-yourself), here Serve the sailings of each berth with the Lane ID `serve-sailings`. Inside a run window, the orchestrator claims it for you.

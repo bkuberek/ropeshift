@@ -578,3 +578,38 @@ func TestPlanApproveRegistersWhatItsManifestAdds(t *testing.T) {
 		t.Errorf("the repositories after approval:\n%s", list)
 	}
 }
+
+// repository show prints, beside the forge line of each worker that reported the repository's checkout as a workspace
+// that does not ignore its folder for lane worktrees, the workspace and the line to add. A worker whose report names
+// none gets no such line.
+func TestRepositoryShowSaysWhichWorkspaceDoesNotIgnoreItsWorktrees(t *testing.T) {
+	s := newSession(t)
+	s.detect(aRepositoryID, "main")
+	err := s.daemon.Store.Write(t.Context(), apitest.Scope, "test.forge_health", func(tx ports.WriteTx) error {
+		for _, health := range []ledger.ForgeHealth{
+			{Worker: "worker-a", Repository: aRepositoryID, State: ledger.ForgeHealthy, UnignoredWorkspace: "/work/ws", CheckedAt: 1},
+			{Worker: "worker-b", Repository: aRepositoryID, State: ledger.ForgeHealthy, CheckedAt: 1},
+		} {
+			if _, err := tx.Forge().SaveHealth(health); err != nil {
+				return err
+			}
+			_, err := tx.Append(ledger.EventDraft{
+				Type: ledger.EventForgeHealth, Actor: ledger.Actor{Kind: ledger.ActorWorker, ID: health.Worker}, Subject: ledger.Subject{Kind: ledger.SubjectRepository, ID: aRepositoryID},
+			})
+			if err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := s.must("repository", "show", aRepositoryID)
+	if want := "workspace\tworker-a\t/work/ws\t" + ledger.UnignoredWorkspaceNote + "\n"; !strings.Contains(text, want) {
+		t.Errorf("repository show printed no %q:\n%s", want, text)
+	}
+	if strings.Count(text, ledger.UnignoredWorkspaceNote) != 1 {
+		t.Errorf("repository show names the workspace for a worker whose report names none:\n%s", text)
+	}
+}

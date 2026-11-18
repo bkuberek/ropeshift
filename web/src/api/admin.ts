@@ -29,7 +29,16 @@ export type Repository = {
 export type Rate = { numerator: number; denominator: number; value: number | null };
 export type AgreementPeriod = { decisions: number; agreed: number; disagreed: number; unknown: number; agreement_rate: Rate };
 
-export type ForgeHealth = { worker: string; worker_name?: string; repository: string; state: string; detail?: string; checked_at: number };
+export type ForgeHealth = {
+  worker: string;
+  worker_name?: string;
+  repository: string;
+  state: string;
+  detail?: string;
+  // The workspace on that worker, when this repository's checkout is it and it does not ignore .ropeshift/worktrees/.
+  unignored_workspace?: string;
+  checked_at: number;
+};
 
 export type RepositoryView = Repository & {
   base?: string;

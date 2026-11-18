@@ -275,6 +275,10 @@ const (
 	ForgeMissing ForgeHealthState = "missing"
 )
 
+// UnignoredWorkspaceNote is what a client says beside a repository whose checkout is a workspace that does not ignore
+// its folder for lane worktrees.
+const UnignoredWorkspaceNote = "This workspace does not ignore .ropeshift/worktrees/; add this line to its .gitignore: /.ropeshift/worktrees/"
+
 // ForgeHealth is what a worker said of its forge sign-in for one repository, and when the ledger heard it.
 type ForgeHealth struct {
 	Worker     string           `json:"worker"`
