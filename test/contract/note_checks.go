@@ -14,7 +14,7 @@ func (a aReview) noteOf(seq int64, point workorders.NotePoint) workorders.Note {
 	return workorders.Note{
 		ReviewNote: workorders.ReviewNote{Point: point, Reasons: "because " + string(point), Citations: []string{"main.go:12"}},
 		Review:     a.Review.ID, WorkOrder: a.Work.ID, Attempt: a.Review.ReviewsFence, Commit: a.Head, Seq: seq,
-		RedactionRules: ledger.CIRedactionRulesVersion,
+		RedactionRules: ledger.CredentialRulesVersion,
 	}
 }
 
@@ -69,7 +69,7 @@ func checkNoteRoundTrips(r *Rig) error {
 		row.CreatedAt = 0
 		if row.Point != want.Point || row.Reasons != want.Reasons || !slices.Equal(row.Citations, want.Citations) || row.Review != want.Review ||
 			row.WorkOrder != want.WorkOrder || row.Attempt != want.Attempt || row.Commit != want.Commit || row.Seq != want.Seq ||
-			row.RedactionRules != ledger.CIRedactionRulesVersion {
+			row.RedactionRules != ledger.CredentialRulesVersion {
 			return Violatedf("the note read back as %+v, not %+v", row, want)
 		}
 	}

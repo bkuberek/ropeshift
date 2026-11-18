@@ -5,21 +5,24 @@ import (
 	"strings"
 )
 
-// CIRedactionRulesVersion is the version of the rule set below. It changes with any rule that is added, removed, or
-// changed, so a record of what was scanned can say by which rules. The rule set sits here, and nowhere else, so the
-// scan of a repository's files for secrets (FR-PRAC-4) can adopt it.
-const CIRedactionRulesVersion = 1
+// CredentialRulesVersion is the version of the rule set below. It changes with any rule that is added, removed, or
+// changed, so a record of what was scanned can say by which rules. The rule set sits here, and nowhere else: CI log
+// redaction applies every rule, and the scan of a repository's files for secrets (FR-PRAC-4) applies the secret rules.
+const CredentialRulesVersion = 1
 
 // redactionRule scans for one kind of credential. A rule with no group replaces the whole of a match with With, which
 // is a template of regexp.ReplaceAllString. A rule with a group replaces only that group with the rule's marker and
 // keeps the words around it, so a line still says which variable held the value. Skip says a value is no credential: one
-// the forge already masked as ***, or one too short to be one.
+// the forge already masked as ***, or one too short to be one. A secret rule matches a long, fixed-format credential,
+// so a match of it is a secret in a file as well as in a log. The rules that are not secret rules match shapes that
+// placeholders and short values also take, and only redaction applies them.
 type redactionRule struct {
 	name    string
 	pattern *regexp.Regexp
 	with    string
 	group   int
 	skip    func(value string) bool
+	secret  bool
 }
 
 func (r redactionRule) marker() string { return "[redacted: " + r.name + "]" }
@@ -54,28 +57,35 @@ func whole(name, pattern string) redactionRule {
 	return redactionRule{name: name, pattern: regexp.MustCompile(pattern), with: "[redacted: " + name + "]"}
 }
 
+// secretRule marks a rule as one the scan for secrets applies.
+func secretRule(r redactionRule) redactionRule {
+	r.secret = true
+	return r
+}
+
 // credentialRules is the rule set, in the order it is applied: a private key goes first, because it holds lines that
 // other rules would match inside it. A value the forge already masked as *** matches none of them and stays masked.
 var credentialRules = []redactionRule{
-	whole("private_key", `(?s)-----BEGIN [A-Z ]*PRIVATE KEY-----.*?(?:-----END [A-Z ]*PRIVATE KEY-----|\z)`),
+	secretRule(whole("private_key", `(?s)-----BEGIN [A-Z ]*PRIVATE KEY-----.*?(?:-----END [A-Z ]*PRIVATE KEY-----|\z)`)),
 	// The end of a key whose start was cut off by the window a log was read through: everything from the start of the
 	// text to its END line goes, because nothing says where the body began.
 	whole("private_key", `(?s)\A.*?-----END [A-Z ]*PRIVATE KEY-----`),
-	whole("github_pat", `\bgithub_pat_[A-Za-z0-9_]{20,}`),
-	whole("github_token", `\bgh[pousr]_[A-Za-z0-9]{20,}`),
-	whole("gitlab_token", `\bglpat-[A-Za-z0-9_-]{20,}`),
-	whole("npm_token", `\bnpm_[A-Za-z0-9]{36}\b`),
-	whole("aws_access_key", `\b(?:AKIA|ASIA|AGPA|AIDA|AROA|ANPA|ANVA)[A-Z0-9]{16}\b`),
+	secretRule(whole("github_pat", `\bgithub_pat_[A-Za-z0-9_]{20,}`)),
+	secretRule(whole("github_token", `\bgh[pousr]_[A-Za-z0-9]{20,}`)),
+	secretRule(whole("gitlab_token", `\bglpat-[A-Za-z0-9_-]{20,}`)),
+	secretRule(whole("npm_token", `\bnpm_[A-Za-z0-9]{36}\b`)),
+	secretRule(whole("aws_access_key", `\b(?:AKIA|ASIA|AGPA|AIDA|AROA|ANPA|ANVA)[A-Z0-9]{16}\b`)),
 	{
 		name:    "aws_secret_key",
 		pattern: regexp.MustCompile(`(?i)(aws[_-]?secret[_-]?(?:access[_-]?)?key["']?\s*[:=]\s*["']?)([A-Za-z0-9/+=]{40})\b`),
 		group:   2,
+		secret:  true,
 	},
-	whole("stripe_key", `\b[sr]k_live_[A-Za-z0-9]{10,}`),
-	whole("google_api_key", `\bAIza[0-9A-Za-z_-]{35}`),
-	whole("slack_token", `\bxox[abprs]-[A-Za-z0-9-]{10,}`),
-	whole("api_key", `\bsk-(?:ant-)?[A-Za-z0-9_-]{20,}`),
-	whole("jwt", `\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}`),
+	secretRule(whole("stripe_key", `\b[sr]k_live_[A-Za-z0-9]{10,}`)),
+	secretRule(whole("google_api_key", `\bAIza[0-9A-Za-z_-]{35}`)),
+	secretRule(whole("slack_token", `\bxox[abprs]-[A-Za-z0-9-]{10,}`)),
+	secretRule(whole("api_key", `\bsk-(?:ant-)?[A-Za-z0-9_-]{20,}`)),
+	secretRule(whole("jwt", `\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}`)),
 	whole("bearer_token", `(?i)\bbearer\s+[A-Za-z0-9._~+/=-]{8,}`),
 	{name: "url_credentials", pattern: regexp.MustCompile(`(?i)\b([a-z][a-z0-9+.-]*://)[^\s/@:]+:[^\s/@]+@`), with: "${1}[redacted: url_credentials]@"},
 	{

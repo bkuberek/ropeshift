@@ -144,7 +144,7 @@ func TestRedactedNotesAreCleanedAndHeldToTheirBounds(t *testing.T) {
 			t.Errorf("note %d after redaction: %v", i+1, err)
 		}
 	}
-	if ledger.CIRedactionRulesVersion < 1 {
-		t.Errorf("the rule set has version %d", ledger.CIRedactionRulesVersion)
+	if ledger.CredentialRulesVersion < 1 {
+		t.Errorf("the rule set has version %d", ledger.CredentialRulesVersion)
 	}
 }
