@@ -51,6 +51,7 @@ var noticeTexts = map[string]string{
 	CIItemQueueStalled:   "No runner picked up a CI run.",
 	CIItemInfrastructure: "CI failed for a reason an agent cannot fix.",
 	CIItemBaseRed:        "A check fails on the base branch too.",
+	CIItemBaseUnread:     "The base branch's checks cannot be read.",
 	CIItemActionRequired: "A check waits for a person on the forge.",
 	// Spend alerts (ADR-0037) say what kind of thing reached a limit, and each kind says its own sentence when a scope is
 	// not named. None of them says an amount, a work order, a lane, or a setting: the event in the ledger does.

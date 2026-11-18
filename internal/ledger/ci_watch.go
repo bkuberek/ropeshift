@@ -16,12 +16,15 @@ const (
 	CIItemInfrastructure = "ci_infrastructure_failure"
 	// CIItemBaseRed is a failed check that also fails on the base branch's tip.
 	CIItemBaseRed = "ci_base_red"
+	// CIItemBaseUnread is a failed check whose base branch's tip the forge refused to let a worker read, on CIBaseUnreadReads
+	// reads of the pull request in a row, so nobody can tell whether the base shares the failure.
+	CIItemBaseUnread = "ci_base_unread"
 	// CIItemActionRequired is a required check that concluded `action_required`: a person on the forge acts.
 	CIItemActionRequired = "ci_action_required"
 )
 
 // CIItemKinds lists the kinds in the order a surface shows them.
-var CIItemKinds = []string{CIItemNotFinished, CIItemQueueStalled, CIItemInfrastructure, CIItemBaseRed, CIItemActionRequired}
+var CIItemKinds = []string{CIItemNotFinished, CIItemQueueStalled, CIItemInfrastructure, CIItemBaseRed, CIItemBaseUnread, CIItemActionRequired}
 
 // CIWaiting is what members did about one head's wait: the time Wait longer added to its timeout, and the reruns
 // asked for, which is every rerun of the head, a member's and the automatic ones, with when the last was asked for.

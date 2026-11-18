@@ -24,6 +24,11 @@ export const ciKinds: Record<CIKind, { icon: IconName; name: string; lead: strin
     name: "The base branch is red",
     lead: "A required check that failed also fails on the base branch's tip, so a rework cannot mend it. No agent was started.",
   },
+  ci_base_unread: {
+    icon: "warning",
+    name: "The base branch cannot be read",
+    lead: "The base branch's checks cannot be read, so whether a failed required check is the base's own is not known. The forge refused the read on several reads in a row. The check is held: nothing is sent back and nothing is rerun until a read can tell. No agent was started. Look at the worker's forge sign-in for this repository.",
+  },
   ci_action_required: {
     icon: "review",
     name: "A check needs a person",

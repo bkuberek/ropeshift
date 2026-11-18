@@ -176,6 +176,53 @@
     {
       "ci": {
         "actions": [
+          "ci_open_run"
+        ],
+        "finding": {
+          "check": "CI",
+          "conclusion": "timed_out",
+          "head": "abc123-wo-ci",
+          "kind": "ci_base_unread",
+          "raised_at": 1790000000000,
+          "url": "https://github.com/acme/app/actions/runs/9",
+          "work_order": "wo-ci"
+        },
+        "kind": "ci_base_unread",
+        "number": 14,
+        "pull_request_url": "https://github.com/acme/app/pull/wo-ci",
+        "run_url": "https://github.com/acme/app/actions/runs/9",
+        "watch": {
+          "elapsed_ms": 14400000,
+          "final": false,
+          "head": "abc123-wo-ci",
+          "history": false,
+          "kind": "ci_not_finished",
+          "queue_ms": 0,
+          "queue_timeout_at": 1789987400000,
+          "queue_timeout_ms": 1800000,
+          "queued": false,
+          "run_url": "https://github.com/acme/app/actions/runs/9",
+          "since": 1789996400000,
+          "timeout_at": 1789996400000,
+          "timeout_ms": 10800000,
+          "watching": true
+        },
+        "work_order": {
+          "id": "wo-ci",
+          "kind": "change",
+          "max_attempts": 1,
+          "repository_id": "repository-1",
+          "state": "intake",
+          "title": "Add the retry budget"
+        }
+      },
+      "id": "wo-ci:ci_base_unread",
+      "kind": "ci",
+      "since": 1790000000000
+    },
+    {
+      "ci": {
+        "actions": [
           "ci_rerun",
           "ci_open_run"
         ],
@@ -222,5 +269,5 @@
       "since": 1790000000000
     }
   ],
-  "revision": 14
+  "revision": 15
 }

@@ -64,6 +64,7 @@ func failedByConclusion(check ledger.PullRequestCheck) bool {
 // can mend, and a later read that can tell decides. The repository is told once for each stretch of refusals.
 func (w *Worker) markBase(ctx context.Context, watched ledger.DesiredPullRequest, read *ledger.PullRequest) error {
 	if read.State != ledger.PullRequestOpen || !slices.ContainsFunc(read.Checks, failedByConclusion) {
+		w.refusalsEnd(watched)
 		return nil
 	}
 	repo, ok := w.forgeTarget(ctx, watched)
@@ -76,10 +77,10 @@ func (w *Worker) markBase(ctx context.Context, watched ledger.DesiredPullRequest
 	}
 	read.Checks = slices.Clone(read.Checks)
 	if err != nil {
-		w.baseUnread(watched, err)
+		reads := w.baseUnread(watched, err)
 		for i, check := range read.Checks {
 			if failedByConclusion(check) {
-				read.Checks[i].BaseUnread = true
+				read.Checks[i].BaseUnread, read.Checks[i].BaseUnreadReads = true, reads
 			}
 		}
 		return nil
@@ -94,8 +95,11 @@ func (w *Worker) markBase(ctx context.Context, watched ledger.DesiredPullRequest
 }
 
 // baseUnread holds a repository's reads for a rate limit as any refused read does, and says once, in a notice that
-// holds nothing the forge wrote, that failed checks are held for want of a read of the base.
-func (w *Worker) baseUnread(watched ledger.DesiredPullRequest, err error) {
+// holds nothing the forge wrote, that failed checks are held for want of a read of the base. It counts the refusal
+// among the reads of this pull request in a row, to ledger.CIBaseUnreadReads and no further, and returns the count: the
+// control plane raises a finding to a person when it reaches it, and a count that stopped is a read that changes
+// nothing in the ledger.
+func (w *Worker) baseUnread(watched ledger.DesiredPullRequest, err error) int64 {
 	if errors.Is(err, ports.ErrForgeRateLimited) {
 		w.rateLimited(watched.Project, watched.Repository, err)
 	}
@@ -106,17 +110,32 @@ func (w *Worker) baseUnread(watched ledger.DesiredPullRequest, err error) {
 		w.baseNoticed = map[string]bool{}
 	}
 	w.baseNoticed[key] = true
+	if w.baseRefused == nil {
+		w.baseRefused = map[string]int64{}
+	}
+	counted := forgeKey(key, watched.WorkOrder)
+	w.baseRefused[counted] = min(w.baseRefused[counted]+1, ledger.CIBaseUnreadReads)
+	reads := w.baseRefused[counted]
 	w.forgeLock.Unlock()
 	if first {
 		w.config.Notice(fmt.Sprintf("repository %s: the base branch's checks cannot be read, so a failed required check is held and nothing is sent back for it until they can", watched.Repository))
 	}
+	return reads
 }
 
-// baseReadable ends a stretch of refusals, so the next one is told again.
+// baseReadable ends a stretch of refusals, so the next one is told again and counted from the first.
 func (w *Worker) baseReadable(watched ledger.DesiredPullRequest) {
 	w.forgeLock.Lock()
 	defer w.forgeLock.Unlock()
 	delete(w.baseNoticed, forgeKey(watched.Project, watched.Repository))
+	delete(w.baseRefused, forgeKey(forgeKey(watched.Project, watched.Repository), watched.WorkOrder))
+}
+
+// refusalsEnd forgets the refusals counted for a pull request that has no failed check left to place.
+func (w *Worker) refusalsEnd(watched ledger.DesiredPullRequest) {
+	w.forgeLock.Lock()
+	defer w.forgeLock.Unlock()
+	delete(w.baseRefused, forgeKey(forgeKey(watched.Project, watched.Repository), watched.WorkOrder))
 }
 
 // rerunRequest runs a rerun the control plane asked for, as a recorded effect. A rerun it names runs for stays on

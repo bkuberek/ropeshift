@@ -318,7 +318,7 @@ export type PlanRevisionView = {
 export type ProjectLabel = { id: string; name: string; display_name?: string };
 
 // The kinds of thing CI asks a person about (ADR-0037). Each is a Needs you item and a notice of the same kind.
-export type CIKind = "ci_not_finished" | "ci_queue_stalled" | "ci_infrastructure_failure" | "ci_base_red" | "ci_action_required";
+export type CIKind = "ci_not_finished" | "ci_queue_stalled" | "ci_infrastructure_failure" | "ci_base_red" | "ci_base_unread" | "ci_action_required";
 
 // CIWatch is where one head's required checks stand against the repository's CI limits. Times are database
 // milliseconds. With no history the expected fields are absent, and the limits are the no-history keys.

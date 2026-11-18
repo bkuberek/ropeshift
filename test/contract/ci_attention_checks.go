@@ -2,6 +2,7 @@ package contract
 
 import (
 	"errors"
+	"slices"
 	"strings"
 	"time"
 
@@ -336,8 +337,8 @@ func checkCIFindings(r *Rig) error {
 		}
 	}
 	items, err := f.ciItems()
-	if err != nil || len(items) != 3 {
-		return Violatedf("three findings raise %v: %v", kinds(items), err)
+	if err != nil || len(items) != len(ledger.CIItemKinds[2:]) {
+		return Violatedf("each finding kind raises one item, and %v did: %v", kinds(items), err)
 	}
 	for _, item := range items {
 		if item.Finding == nil || item.Finding.Check != "unit" || item.Since == 0 || item.Since != item.Finding.RaisedAt {
@@ -359,6 +360,24 @@ func checkCIFindings(r *Rig) error {
 	}
 	if _, err := attention.Wait(r.Ctx, r.Scope, order, 0, r.Actor); !errors.Is(err, workorders.ErrInvalid) {
 		return Violatedf("Wait longer with no timeout to extend answered %v", err)
+	}
+	// A finding that stands for a condition a later read can end leaves alone: the one kind goes, and the others stay.
+	var cleared, again int64
+	if err := f.store.Write(r.Ctx, r.Scope, "ci.finding_clear", func(tx ports.WriteTx) error {
+		var err error
+		if cleared, err = tx.CI().ClearCIFinding(order, f.head, ledger.CIItemBaseUnread); err != nil {
+			return err
+		}
+		if again, err = tx.CI().ClearCIFinding(order, f.head, ledger.CIItemBaseUnread); err != nil {
+			return err
+		}
+		_, err = tx.Append(ledger.EventDraft{Type: "note.added", Actor: r.Actor, Subject: ledger.Subject{Kind: "note", ID: "note"}})
+		return err
+	}); err != nil || cleared != 1 || again != 0 {
+		return Violatedf("clearing one kind of finding removed %d and then %d: %v", cleared, again, err)
+	}
+	if left, err := f.ciItems(); err != nil || len(left) != len(items)-1 || slices.Contains(kinds(left), ledger.CIItemBaseUnread) {
+		return Violatedf("after clearing one kind the items are %v: %v", kinds(left), err)
 	}
 	// An infrastructure failure offers a rerun, which counts, is recorded, and clears the head's findings.
 	waiting, err := attention.Rerun(r.Ctx, r.Scope, order, r.Actor)

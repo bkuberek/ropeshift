@@ -138,6 +138,9 @@ type Worker struct {
 	baseTips map[string]baseTipSeen
 	// baseNoticed says a stretch of refused reads of a repository's base was told, until a read answers.
 	baseNoticed map[string]bool
+	// baseRefused counts the reads of one pull request in a row whose base the forge refused to be read, until a read
+	// answers or the pull request has no failed check to place, so a refusal that stands is told to a person once.
+	baseRefused map[string]int64
 
 	// toOrchestrator is what this worker knows of the members' messages to its orchestrator, and mu guards
 	// its making.

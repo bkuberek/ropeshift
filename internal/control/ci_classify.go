@@ -92,6 +92,13 @@ func classifyCI(tx ports.WriteTx, workOrder string) error {
 		_, err := tx.CI().ClearCIFindings(workOrder, pr.HeadCommit)
 		return err
 	}
+	// A refusal of the base's read ends with a read that can tell, or with the failure it held: the finding for it leaves,
+	// and no other kind does.
+	if len(byClass[ledger.CIClassBaseUnread]) == 0 {
+		if _, err := tx.CI().ClearCIFinding(workOrder, pr.HeadCommit, ledger.CIItemBaseUnread); err != nil {
+			return err
+		}
+	}
 	if len(byClass[ledger.CIClassTestFailure]) != 0 {
 		return nil
 	}
@@ -110,6 +117,13 @@ func classifyCI(tx ports.WriteTx, workOrder string) error {
 			if _, err := keepCIFinding(tx, findingOf(pr, raised.kind, checks[0])); err != nil {
 				return err
 			}
+		}
+	}
+	// A base the forge refused to be read holds its failures where no lane starts and nothing is rerun. Once the refusal has
+	// stood for ledger.CIBaseUnreadReads reads in a row it is raised to a person, once for the head.
+	if at := slices.IndexFunc(byClass[ledger.CIClassBaseUnread], ledger.PullRequestCheck.BaseUnreadPersists); at >= 0 {
+		if _, err := keepCIFinding(tx, findingOf(pr, ledger.CIItemBaseUnread, byClass[ledger.CIClassBaseUnread][at])); err != nil {
+			return err
 		}
 	}
 	if checks := byClass[ledger.CIClassInfrastructure]; len(checks) != 0 {

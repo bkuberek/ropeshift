@@ -73,7 +73,7 @@ const fixedCards = ["questions", "recovery", "merge", "held-merge", "tool-call",
 export type CardKind = (typeof fixedCards)[number] | `work-${string}` | `ci-${CIKind}`;
 
 // ciKindNames is every kind of thing CI asks a person about, in the order a surface shows them.
-export const ciKindNames: CIKind[] = ["ci_not_finished", "ci_queue_stalled", "ci_infrastructure_failure", "ci_base_red", "ci_action_required"];
+export const ciKindNames: CIKind[] = ["ci_not_finished", "ci_queue_stalled", "ci_infrastructure_failure", "ci_base_red", "ci_base_unread", "ci_action_required"];
 
 // cardKinds is every kind of card Needs you draws. The accessibility checks hold each to a state.
 export const cardKinds: CardKind[] = [

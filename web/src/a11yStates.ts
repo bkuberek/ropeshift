@@ -33,6 +33,7 @@ export const views = [
   "/needs-you?item=ci%3Awo-queued%3Aci_queue_stalled",
   "/needs-you?item=ci%3Awo-ci%3Aci_infrastructure_failure",
   "/needs-you?item=ci%3Awo-ci%3Aci_base_red",
+  "/needs-you?item=ci%3Awo-ci%3Aci_base_unread",
   "/needs-you?item=ci%3Awo-ci%3Aci_action_required",
   "/needs-you?item=spend%3Awo-stop%3Aspend_limit",
   "/projects/default",

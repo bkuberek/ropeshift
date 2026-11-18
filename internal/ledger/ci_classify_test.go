@@ -1,6 +1,9 @@
 package ledger
 
-import "testing"
+import (
+	"slices"
+	"testing"
+)
 
 // failedRun is a required run that finished and did not pass, with the conclusion the forge gave it.
 func failedRun(conclusion string) PullRequestCheck {
@@ -63,6 +66,32 @@ func TestAFailureTheBaseSharesIsARedBaseAndNothingElseIs(t *testing.T) {
 	lost.RedOnBase = "abc123"
 	if got := lost.Class(); got != CIClassInfrastructure {
 		t.Errorf("a timed out run on a red base is %s", got)
+	}
+}
+
+// A refusal of the base's read is held, and says nothing to a person, until it has stood for CIBaseUnreadReads reads of
+// the pull request in a row: one that the next read answers is a refusal that passed. A read that could read the base
+// carries no count at all.
+func TestARefusedBaseReadPersistsAfterEnoughReadsInARow(t *testing.T) {
+	t.Parallel()
+	check := failedRun("failure")
+	check.BaseUnread = true
+	for reads, want := range map[int64]bool{0: false, 1: false, CIBaseUnreadReads - 1: false, CIBaseUnreadReads: true, CIBaseUnreadReads + 5: true} {
+		check.BaseUnreadReads = reads
+		if got := check.BaseUnreadPersists(); got != want {
+			t.Errorf("%d refused reads in a row persist: %v, want %v", reads, got, want)
+		}
+		if got := check.Class(); got != CIClassBaseUnread {
+			t.Errorf("a failure whose base could not be read is %s however long it stands", got)
+		}
+	}
+	read := failedRun("failure")
+	read.BaseUnreadReads = CIBaseUnreadReads
+	if read.BaseUnreadPersists() {
+		t.Errorf("a check whose base was read persists as unread")
+	}
+	if !FindingKind(CIItemBaseUnread) || !slices.Contains(CIItemKinds, CIItemBaseUnread) {
+		t.Errorf("a persistent refusal is no finding kind of CI")
 	}
 }
 

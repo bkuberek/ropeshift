@@ -210,6 +210,10 @@ type PullRequestCheck struct {
 	// BaseUnread says the base branch's tip could not be read when a worker read this failure, so whether the base
 	// shares it is not known.
 	BaseUnread bool `json:"base_unread,omitempty"`
+	// BaseUnreadReads counts the reads of this pull request in a row that could not read the base branch's tip, up to
+	// CIBaseUnreadReads, where the refusal is raised to a person and the count stops. A read that can read the base
+	// carries none.
+	BaseUnreadReads int64 `json:"base_unread_reads,omitempty"`
 }
 
 // PullRequest is what a forge says of one pull request. Checks are those on HeadCommit, and count for no
