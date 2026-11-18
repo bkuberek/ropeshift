@@ -102,6 +102,7 @@ export const views = [
   "/settings?section=admission",
   "/settings?section=autonomy-policy",
   "/settings?section=assistant",
+  "/settings?section=installation-spend",
   "/settings?section=backup",
   "/settings?section=about",
   "/settings?section=autonomy",
@@ -117,6 +118,12 @@ export const views = [
   "/projects/default/settings?section=delegate-policy",
   "/projects/default/settings?section=notify",
   "/projects/default/settings?section=estimate",
+  // The Spend section with the day past its hard limit, then a project with no limit set, one under its soft limits, and
+  // one past a soft limit.
+  "/projects/default/settings?section=spend",
+  "/projects/spend-unset/settings?section=spend",
+  "/projects/spend-under/settings?section=spend",
+  "/projects/spend-soft/settings?section=spend",
   "/agents",
   "/projects/default/agents?agent=heavy-implementation",
   "/projects/default/agents?tab=history",

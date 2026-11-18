@@ -59,6 +59,8 @@ var equivalents = map[string]string{
 	"plan revision":     "plan show",          // planning.go planRevision prints the open revision of a plan, which plan show prints too; the plan page shows it, and the approval page shows the one an approval answers, from the plan's own read
 	"policy show":       "policy list",        // questions.go policyShow finds one version in the rows policyList prints and prints its body; the list route returns every version with its settings, and Settings shows the newest and each earlier one in its History tab
 	"repository show":   "repository list",    // repository.go repositoryShow prints the RepositoryView of one repository; the list route returns the same view for each, with its forge health and review agreement, and Repositories opens a row's record from it
+	"spend revert":      "policy publish",     // spend.go spendRevert reads an earlier version and publishes it as the newest through the policy route; the History tab's Revert sends the same body to the same route
+	"spend set":         "policy publish",     // spend.go spendSet publishes a version with the keys named changed through the policy route; the Spend section, the installation's Spend section, and the Notifications channel choice send each version to the same route
 }
 
 // cliOnly are the commands FR-UI-7 leaves to the command line, each with the clause that does.
@@ -74,13 +76,7 @@ var cliOnly = map[string]string{
 // webGaps are the commands the web UI should have a row for and does not yet, each with the slice of U2 or
 // of P4 that adds it. A command whose row is added leaves this list, and the test fails until it does. The
 // first run of this test wrote it, and a command the audit did not name went by its area.
-var webGaps = map[string]string{
-	// The Spend section of project Settings and the installation's Spend section read and publish through the same
-	// routes (ADR-0037); SP4 builds them.
-	"spend show":   "SP4",
-	"spend set":    "SP4",
-	"spend revert": "SP4",
-}
+var webGaps = map[string]string{}
 
 var gapSlice = regexp.MustCompile(`^(U2[a-k]|P[34][a-j]|SP[1-9])[12]?$`)
 

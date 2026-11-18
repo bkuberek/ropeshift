@@ -132,6 +132,7 @@ func WebRoutes() []WebRoute {
 		{http.MethodPut, "/v1/fleet/caps", "fleet caps"},
 		{http.MethodGet, "/v1/policies", "policy list"},
 		{http.MethodPost, "/v1/policies", "policy publish"},
+		{http.MethodGet, "/v1/spend", "spend show"},
 		{http.MethodGet, "/v1/categories", "category list"},
 		{http.MethodPost, "/v1/categories", "category add"},
 		{http.MethodGet, "/v1/candidates", "search"},

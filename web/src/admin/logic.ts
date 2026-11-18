@@ -1,5 +1,6 @@
 import type { AgentFields, LaneCapSettings, LaneRecommendation, RepositoryAdded, WorkerCaps } from "../api/admin";
 import type { StateLook } from "../floor/states";
+import { channelsProblem, installationSpendFields, spendFields, spendPolicyBody, spendProblem, spendSettings, tomlFloat } from "./spend";
 
 // The settings pages' own reckoning: what a difference shows, the body a policy version records, and the
 // fields a roster change sends. None of it decides anything the API decides; the API refuses what it
@@ -22,7 +23,7 @@ export function forgeBindingProblem(text: string): string {
   return "";
 }
 
-export type PolicyKind = "decision" | "lane" | "recovery" | "notify" | "autonomy" | "assistant" | "delegation" | "delegate" | "estimate";
+export type PolicyKind = "decision" | "lane" | "recovery" | "notify" | "autonomy" | "assistant" | "delegation" | "delegate" | "estimate" | "spend" | "installation_spend";
 
 export type DelegationClass = { tool: string; command_prefix: string; path: string; agent: string };
 export type PolicyValue = boolean | number | string | string[] | DelegationClass[];
@@ -31,9 +32,15 @@ export type PolicyValues = Record<string, PolicyValue>;
 export type FieldSpec = {
   key: string;
   label: string;
-  type: "bool" | "int" | "minutes" | "text" | "choice" | "list" | "classes" | "operations";
+  type: "bool" | "int" | "minutes" | "text" | "choice" | "list" | "classes" | "operations" | "decimal" | "duration" | "rules" | "patterns" | "channels";
   choices?: string[];
   help?: string;
+  // A form with sections names the one a field sits in.
+  group?: string;
+  // A decimal is an amount in dollars, a share from 0 to 1, or a number of times, and the range says which.
+  unit?: "usd" | "share" | "times";
+  // A duration's example, such as 5m, which its refusal gives.
+  example?: string;
   // optional text is left out of the body when empty, because the policy reads its absence.
   optional?: boolean;
   // The bounds of a whole number, which the API holds too, and a setting it may not fall below.
@@ -76,8 +83,16 @@ export const policies: Record<PolicyKind, { table: string; fields: FieldSpec[] }
       { key: "desktop", label: "Desktop notifications", type: "bool" },
       { key: "webhook_url", label: "Webhook address", type: "text", optional: true, help: "Each item that starts to wait on a member is posted here." },
       { key: "webhook_secret_env", label: "Webhook secret variable", type: "text", optional: true, help: "The name of the daemon's environment variable that holds the signing secret, never the secret." },
+      {
+        key: "spend_channels",
+        label: "Spend alerts",
+        type: "channels",
+        help: "The web UI shows every spend alert. Choose what else carries each kind. A channel can be chosen only while it is turned on above.",
+      },
     ],
   },
+  spend: { table: "spend_policy", fields: spendFields },
+  installation_spend: { table: "installation_spend_policy", fields: installationSpendFields },
   autonomy: {
     table: "autonomy_policy",
     fields: [
@@ -148,6 +163,13 @@ export const policies: Record<PolicyKind, { table: string; fields: FieldSpec[] }
 // A whole number a version leaves out is no problem, because the policy reads its absence.
 export function problemOf(field: FieldSpec, values: PolicyValues): string {
   const value = values[field.key];
+  if (field.type === "channels") {
+    return channelsProblem(values);
+  }
+  const spend = spendProblem(field, value);
+  if (spend !== null) {
+    return spend;
+  }
   if (field.type === "minutes") {
     return isMinutes(value) ? "" : `Enter a whole number of minutes, ${minutesBounds.min} to ${minutesBounds.max.toLocaleString("en-US")}.`;
   }
@@ -222,12 +244,19 @@ function spendChannelTable(table: string, values: PolicyValues): string[] {
 // policyBody writes a policy version as the TOML its route reads: the kind's table, the version, then
 // each setting.
 export function policyBody(kind: PolicyKind, version: number, values: PolicyValues): string {
+  if (kind === "spend") {
+    return spendPolicyBody(version, values);
+  }
   const { table, fields } = policies[kind];
   const lines = [`[${table}]`, `version = ${version}`];
   const tables: string[] = [];
   for (const field of fields) {
     const value = values[field.key];
-    if (value === undefined || (field.optional && value === "")) {
+    if (value === undefined || (field.optional && value === "") || field.type === "channels") {
+      continue;
+    }
+    if (field.type === "decimal") {
+      lines.push(`${field.key} = ${tomlFloat(Number(value))}`);
       continue;
     }
     if (field.type === "classes") {
@@ -267,6 +296,9 @@ export function settingsOf(settings: string): PolicyValues {
 // is whole minutes.
 export function policySettings(kind: PolicyKind, settings: string): PolicyValues {
   const values = settingsOf(settings);
+  if (kind === "spend") {
+    return spendSettings(values);
+  }
   for (const field of policies[kind].fields) {
     const held = values[field.key];
     if (field.type === "minutes" && typeof held === "string") {
