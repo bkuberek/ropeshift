@@ -1,0 +1,20 @@
+{
+  "work_order": "wo-stop",
+  "kind": "change",
+  "charged": {
+    "recorded_usd": 30,
+    "estimated_usd": 0,
+    "estimated_turns": 0,
+    "charged_usd": 30
+  },
+  "label": "estimated, at list price, with 0 turns estimated by average",
+  "soft_limit": 12.5,
+  "hard_limit": 25,
+  "basis": "no_history",
+  "remaining": 0,
+  "conditions": [
+    "over_estimate",
+    "spend_limit"
+  ],
+  "policy_version": 1
+}

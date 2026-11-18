@@ -11,6 +11,8 @@ claimed lane_started running
 claimed lease_expired lapsed
 running lane_parked parked
 parked wake_fired ready
+parked spend_blocked blocked
+parked spend_replan planning
 running lease_expired lapsed
 lapsed worker_returned_started running
 lapsed worker_returned_unstarted claimed

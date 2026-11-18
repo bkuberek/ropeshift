@@ -164,6 +164,8 @@ var operations = map[string]string{
 	"POST /v1/work-orders/{id}/spend/raise":            "spend raise",
 	"POST /v1/spend/project/raise":                     "spend raise",
 	"POST /v1/work-orders/{id}/spend/resume":           "spend resume",
+	"POST /v1/work-orders/{id}/spend/block":            "spend block",
+	"POST /v1/work-orders/{id}/spend/replan":           "spend replan",
 	"GET /v1/roster":                                   "agent list",
 	"GET /v1/roster/history":                           "agent history",
 	"POST /v1/roster/changes":                          "agent set",

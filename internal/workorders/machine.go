@@ -43,7 +43,18 @@ const (
 	TriggerAttemptsExhausted Trigger = "attempts_exhausted"
 	TriggerRetried           Trigger = "retried"
 	TriggerCanceled          Trigger = "canceled"
+	// TriggerSpendBlocked ends a spend stop by blocking the parked work, and TriggerSpendReplan by sending it to
+	// replanning. Only a member takes either, through the spend use case that ends the parked lane with them
+	// (ADR-0037).
+	TriggerSpendBlocked Trigger = "spend_blocked"
+	TriggerSpendReplan  Trigger = "spend_replan"
 )
+
+// EndsSpendStop reports the edges that end a spend stop. The spend use case takes them, so the plain move of a work
+// order never does.
+func EndsSpendStop(trigger Trigger) bool {
+	return trigger == TriggerSpendBlocked || trigger == TriggerSpendReplan
+}
 
 // TriggerLaneFailedRetry is a failed lane returning its work to `ready` on its own, which a build before
 // retries were judged recorded (ADR-0014). Nothing takes it now, and a replay still reads it.
@@ -72,6 +83,8 @@ var edges = []Transition{
 	{Claimed, TriggerLeaseExpired, Lapsed, true},
 	{Running, TriggerLaneParked, Parked, true},
 	{Parked, TriggerWakeFired, Ready, false},
+	{Parked, TriggerSpendBlocked, Blocked, false},
+	{Parked, TriggerSpendReplan, Planning, false},
 	{Running, TriggerLeaseExpired, Lapsed, true},
 	{Lapsed, TriggerReturnedStarted, Running, true},
 	{Lapsed, TriggerReturnedUnstarted, Claimed, true},

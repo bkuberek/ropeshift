@@ -114,6 +114,7 @@ func (r spendReads) bandOf(id string) (*delivery.SpendBand, error) {
 	}
 	return &delivery.SpendBand{
 		P50: estimate.CostP50USD, P85: estimate.CostP85USD, Outcomes: estimate.SampleCount, Open: estimate.P85Open, Baselined: baselined,
+		Confidence: estimate.Confidence,
 	}, nil
 }
 

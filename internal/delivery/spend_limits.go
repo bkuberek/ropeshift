@@ -9,13 +9,17 @@ import (
 // not move while the work runs, or the work order's current band when it has no baseline. It is the one place a
 // claim-time estimate reaches a decision, and only through the limit's own derivation.
 type SpendBand struct {
-	P50, P85 float64
+	P50 float64 `json:"p50"`
+	P85 float64 `json:"p85"`
 	// Outcomes is how many finished work orders the band was drawn from.
-	Outcomes int
+	Outcomes int `json:"outcomes"`
 	// Open says the band's p85 is not a measurement, because it lay past the longest record.
-	Open bool
+	Open bool `json:"open,omitempty"`
 	// Baselined says the band is the one recorded at plan approval.
-	Baselined bool
+	Baselined bool `json:"baselined,omitempty"`
+	// Confidence is how far the band can be trusted from what it rests on. It informs the person who reads the band and
+	// takes no part in a limit.
+	Confidence Confidence `json:"confidence,omitempty"`
 }
 
 // LimitBasis says where a work order's limits came from.

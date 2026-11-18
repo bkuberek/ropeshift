@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 
 	"ropeshift.com/ropeshift/internal/api"
@@ -85,6 +86,41 @@ func (c *invocation) spendRaiseProject(window string, by, to float64, positional
 	defer client.Close()
 	change, err := client.RaiseProjectSpend(c.ctx, api.RaiseProjectSpend{Window: window, ByPercent: by, ToUSD: to})
 	return c.finish(err, change, func() string { return projectLimitChangeText(change) })
+}
+
+// spendStopEndedText says what blocking a spend stop or sending it to replanning did.
+func spendStopEndedText(ended api.SpendStopEnded) string {
+	return fmt.Sprintf("work order %s\n%s\treason %s\n", ended.WorkOrder, ended.State, ended.Reason)
+}
+
+// spendBlock ends a spend stop by blocking its work order with the reason `spend_limit`, so it waits for a member to
+// resolve or replan it. Only a member does: a delegate's call is a card.
+func (c *invocation) spendBlock(args []string) int {
+	return c.endSpendStop(args, (*api.ProjectClient).BlockSpend)
+}
+
+// spendReplan ends a spend stop by sending its work order to planning, where its contract is reviewed again.
+func (c *invocation) spendReplan(args []string) int {
+	return c.endSpendStop(args, (*api.ProjectClient).ReplanSpend)
+}
+
+func (c *invocation) endSpendStop(args []string, end func(*api.ProjectClient, context.Context, string) (api.SpendStopEnded, error)) int {
+	set := c.flags()
+	positional, ok := c.parse(set, args)
+	if !ok {
+		return ExitUsage
+	}
+	id, ok := c.oneID(positional)
+	if !ok {
+		return ExitUsage
+	}
+	client, exit := c.projectClient()
+	if client == nil {
+		return exit
+	}
+	defer client.Close()
+	ended, err := end(client, c.ctx, id)
+	return c.finish(err, ended, func() string { return spendStopEndedText(ended) })
 }
 
 // spendResume grants a work order one more generation's allowance, which lets the lane its hard limit parked go on.

@@ -122,6 +122,8 @@ func registry() []section {
 			command("spend revert", "<version> [--installation]", "record an earlier version of the spend policy as the newest", (*invocation).spendRevert),
 			command("spend raise", "(<work-order> | --window day|week) (--by PERCENT | --to AMOUNT)", "raise a work order's hard spend limit, or the project's daily or weekly limit for the window it is made in, by a percentage of it or to an amount, which wakes the lanes the limit parked", (*invocation).spendRaise),
 			command("spend resume", "<work-order>", "grant a work order one more generation's allowance, which wakes the lane its hard spend limit parked", (*invocation).spendResume),
+			command("spend block", "<work-order>", "block a work order its hard spend limit parked, with the reason spend_limit", (*invocation).spendBlock),
+			command("spend replan", "<work-order>", "send a work order its hard spend limit parked to planning", (*invocation).spendReplan),
 		}},
 		{"Agents", agentCommands()},
 		{"Documents and sources", []registered{
