@@ -287,7 +287,7 @@ waiting_alert_min_calls = 5
 assistant_class = "standard"
 ```
 
-Amounts are US dollars at list price, and 0 means no limit or no warning. A share runs from 0 to 1. The defaults are starting values to tune, not measurements. The wait keys and the keys that set a work order's limits act now. The keys for plan and project ceilings, no progress, the waiting alert, the budget flag, and session classes are held and shown now, and act when the mechanism each one names ships.
+Amounts are US dollars at list price, and 0 means no limit or no warning. A share runs from 0 to 1, and a share of 0 turns off the limit or the check it sets, as an amount of 0 does: `review_share` of 0 leaves a review with no hard limit, `review_soft_share` and `low_confidence_soft_share` of 0 leave no soft limit, and `no_progress_share` of 0 turns off the spend-since-progress check. A share of 0 never gives a limit of zero dollars. The defaults are starting values to tune, not measurements. The wait keys and the keys that set a work order's limits act now. The keys for plan and project ceilings, no progress, the waiting alert, the budget flag, and session classes are held and shown now, and act when the mechanism each one names ships.
 
 | Key | What it sets | Default | Range |
 |-----|--------------|---------|-------|
