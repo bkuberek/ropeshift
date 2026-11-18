@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -1091,6 +1092,25 @@ func TestAQuestionNamesWhatItsAnswerBinds(t *testing.T) {
 	}
 	if text := s.must("question", "batches"); !strings.Contains(text, "\n    scope: wo:wo-trim · Trim the log\n") {
 		t.Errorf("batches %q", text)
+	}
+}
+
+// TestQuestionBatchesNameTheDecisionsAQuestionOverlaps holds that an item names the decisions in force its question's
+// scope overlapped when it was escalated, as text and as the `overlaps` field of the JSON.
+func TestQuestionBatchesNameTheDecisionsAQuestionOverlaps(t *testing.T) {
+	s := newSession(t)
+	apitest.NewWorld(t, s.daemon).Recorded("wo-trim", "Trim the log")
+	s.must("decision", "record", "--id", "d-trim", "--statement", "The log keeps a week.", "--scope", "wo:wo-trim")
+	s.deliveredBatch("q1", "security", "--subject-kind", "work_order", "--subject", "wo-trim")
+	if text := s.must("question", "batches"); !strings.Contains(text, "\n    overlaps: d-trim\n") {
+		t.Errorf("batches %q", text)
+	}
+	var list api.BatchList
+	if err := json.Unmarshal([]byte(s.must("question", "batches", "--json")), &list); err != nil {
+		t.Fatal(err)
+	}
+	if got := list.Batches[0].Items[0].Overlaps; !slices.Equal(got, []string{"d-trim"}) {
+		t.Errorf("the item names the overlaps %v", got)
 	}
 }
 

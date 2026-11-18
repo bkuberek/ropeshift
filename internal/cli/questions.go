@@ -368,6 +368,9 @@ func itemLines(item api.QuestionItem) string {
 	if item.Scope != "" {
 		fmt.Fprintf(&out, "    scope: %s\n", api.ScopeLabel(item.Scope, item.ScopeTitle))
 	}
+	if len(item.Overlaps) != 0 {
+		fmt.Fprintf(&out, "    overlaps: %s\n", strings.Join(item.Overlaps, ", "))
+	}
 	if len(item.Citations) != 0 {
 		fmt.Fprintf(&out, "    citations: %s\n", strings.Join(item.Citations, ", "))
 	}

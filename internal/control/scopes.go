@@ -482,6 +482,20 @@ func overlappingDecisions(reader ports.QuestionReader, facts *scopeFacts, scope 
 	return found, nil
 }
 
+// overlapsOf lists, by ID, the decisions in force whose scope overlaps the scope an answer to the question takes,
+// which are the decisions an answer to it may contradict.
+func overlapsOf(tx ports.WriteTx, record questions.Question) ([]string, error) {
+	found, err := overlappingDecisions(tx.Questions(), newScopeFacts(tx.Planning(), tx.WorkOrders()), questions.ScopeOf(record.SubjectKind, record.SubjectID))
+	if err != nil {
+		return nil, err
+	}
+	var ids []string
+	for _, decision := range found {
+		ids = append(ids, decision.ID)
+	}
+	return ids, nil
+}
+
 // DecisionsOverlapping lists the decisions in force whose scope overlaps one, by ID, resolved through the
 // ledger the read holds.
 func DecisionsOverlapping(tx ports.ReadTx, scope string) ([]questions.Decision, error) {

@@ -150,6 +150,8 @@ type Question struct {
 	ClaimedBy               string `json:"claimed_by,omitempty"`
 	ClaimUntil              int64  `json:"claim_until,omitempty"`
 	DecisionID              string `json:"decision_id,omitempty"`
+	// Overlaps names the decisions in force whose scope overlapped the question's when it was escalated, by ID.
+	Overlaps []string `json:"overlaps,omitempty"`
 }
 
 // Step is one rung a question passed, with what it considered there.

@@ -1342,6 +1342,21 @@ func allVariants() []variant {
 			check:   "D10",
 		},
 		{
+			name:     "an escalated question whose overlaps the store does not keep",
+			sabotage: sqlstore.Sabotage{Rewrite: replace("question.save", "overlapping = :overlapping", "overlapping = overlapping")},
+			check:    "D26",
+		},
+		{
+			name:     "an escalated question whose overlaps the store does not keep, for the plan's scenario",
+			sabotage: sqlstore.Sabotage{Rewrite: replace("question.save", "overlapping = :overlapping", "overlapping = overlapping")},
+			check:    "MP14",
+		},
+		{
+			name:    "a plan scope that overlaps no work order, for the item of the logo question",
+			control: control.Sabotage{BindsNoPlan: true},
+			check:   "MP14",
+		},
+		{
 			name: "a delivery and its interruption in two transactions",
 			ops: func(s ports.Store) contract.Ops {
 				return splitDelivery{Ops: contract.RealOps(s), store: s}

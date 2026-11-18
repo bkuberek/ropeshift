@@ -69,8 +69,9 @@ func (p BatchPolicy) Filled() BatchPolicy {
 }
 
 // Item is what a member needs to answer one question once: its options, the recommendation,
-// what the ladder considered, the scope an answer to it takes (ScopeOf), and the reversibility the answer will have
-// (Policy.AnswerReversibility). Nothing is assigned to anyone.
+// what the ladder considered, the scope an answer to it takes (ScopeOf), the reversibility the answer will have
+// (Policy.AnswerReversibility), and the decisions in force its scope overlapped when it was escalated, which an
+// answer may replace. Nothing is assigned to anyone.
 type Item struct {
 	ID                      string   `json:"id"`
 	Text                    string   `json:"text"`
@@ -83,6 +84,7 @@ type Item struct {
 	Reversibility           string   `json:"reversibility"`
 	Citations               []string `json:"citations,omitempty"`
 	Scope                   string   `json:"scope,omitempty"`
+	Overlaps                []string `json:"overlaps,omitempty"`
 }
 
 // Presented is a delivered batch as members see it.
@@ -103,7 +105,7 @@ func Present(batch Batch, rows []Question, category string, policy Policy) Prese
 			ID: row.ID, Text: row.Text, Categories: row.Categories, Blocking: row.Blocking, Options: row.Options,
 			Recommendation: row.Recommendation, RecommendationRationale: row.RecommendationRationale,
 			EscalationReason: row.EscalationReason, Reversibility: policy.AnswerReversibility(row), Citations: citationsOf(row),
-			Scope: ScopeOf(row.SubjectKind, row.SubjectID),
+			Scope: ScopeOf(row.SubjectKind, row.SubjectID), Overlaps: row.Overlaps,
 		})
 	}
 	return presented
