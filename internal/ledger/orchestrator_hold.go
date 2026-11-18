@@ -19,6 +19,10 @@ const (
 	UsageWindowWeekly  = "seven_day"
 )
 
+// maxUsageReadAgeMs bounds how long before its report a worker says it heard of its limit: the longest window, past
+// which any reset it heard is stale whatever its age.
+const maxUsageReadAgeMs = 7 * 24 * 60 * 60 * 1000
+
 // usageWindowMs is how long a window lasts, which is how long a reset read in it can be trusted. A window nobody named
 // is taken as the session's, the shorter.
 func usageWindowMs(window string) int64 {
@@ -76,8 +80,9 @@ const (
 )
 
 // Step says what a scheduled start does now, and what it becomes, from the worker's last word on its sign-in and when
-// the control plane heard it. It does nothing for an orchestrator that already runs, and starts the orchestrator once
-// the limit is gone. While its reset is ahead it waits, or moves to a reset reported since; once its reset came it waits
+// the control plane heard it. It does nothing for an orchestrator already asked to run, and starts the orchestrator
+// once the limit is gone, before its reset or after. A report that says nothing of the sign-in, as a worker of an
+// earlier build sends, says nothing of the limit either, so the start waits. While its reset is ahead it waits, or moves to a reset reported since; once its reset came it waits
 // for the worker's first word since, and when that word says the limit still holds, the reset was stale: it moves to
 // the reset reported since, or waits for the next one reported, and Missed counts it.
 func (s ScheduledStart) Step(usage *SignInUsage, reportedAt int64, runs bool, now int64) (StartStep, ScheduledStart) {
@@ -86,7 +91,7 @@ func (s ScheduledStart) Step(usage *SignInUsage, reportedAt int64, runs bool, no
 	case runs:
 		return StartEnds, s
 	case usage == nil:
-		return StartFires, s
+		return StartWaits, s
 	case came && reportedAt < s.StartsAt:
 		return StartWaits, s
 	case !usage.Limited:

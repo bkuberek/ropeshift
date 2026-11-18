@@ -1,6 +1,7 @@
 package contract
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -20,6 +21,10 @@ var ScheduledStartChecks = []Check{
 	{"SS7", "a start for an orchestrator that already runs does nothing", checkScheduledStartAlreadyRuns},
 	{"SS8", "a scheduled start fires after a restart", checkScheduledStartFiresAfterRestart},
 	{"SS9", "only a member schedules a start, and only while the sign-in is at its limit", checkScheduledStartRules},
+	{"SS10", "a stop recorded after a start was scheduled ends it, so the reset starts nothing", checkScheduledStartStopped},
+	{"SS11", "a start whose orchestrator tripped since leaves the breaker tripped", checkScheduledStartLeavesTrip},
+	{"SS12", "a start is not scheduled for an orchestrator already asked to run", checkScheduledStartRefusesRunning},
+	{"SS13", "a report that says nothing of the sign-in leaves a start waiting", checkScheduledStartWaitsForWord},
 }
 
 const limitHour = int64(60 * 60 * 1000)
@@ -345,6 +350,129 @@ func checkScheduledStartRules(r *Rig) error {
 	}
 	if _, err := w.plane.ScheduleOrchestrator(r.Ctx, "worker-nobody", w.member); !errors.Is(err, ports.ErrNotFound) {
 		return Violatedf("a start for a worker nobody registered: %v", err)
+	}
+	return nil
+}
+
+// scheduledAndDue schedules a start at a limit, and moves past its reset.
+func (w *limitWorld) scheduledAndDue() error {
+	if _, err := w.limitedFor(limitHour); err != nil {
+		return err
+	}
+	if _, err := w.plane.ScheduleOrchestrator(w.r.Ctx, w.auth.WorkerID, w.member); err != nil {
+		return err
+	}
+	w.r.DB.ShiftClock(limitHour + 1)
+	return nil
+}
+
+func checkScheduledStartStopped(r *Rig) error {
+	w, err := newLimitWorld(r, r.Store())
+	if err != nil {
+		return err
+	}
+	if _, err := w.limitedFor(limitHour); err != nil {
+		return err
+	}
+	if _, err := w.plane.ScheduleOrchestrator(r.Ctx, w.auth.WorkerID, w.member); err != nil {
+		return err
+	}
+	if _, err := w.plane.SetOrchestrator(r.Ctx, w.auth.WorkerID, ledger.OrchestratorStopped, w.member); err != nil {
+		return err
+	}
+	if _, err := w.scheduled(); !errors.Is(err, ports.ErrNotFound) {
+		return Violatedf("a stop left the scheduled start: %v", err)
+	}
+	r.DB.ShiftClock(limitHour + 1)
+	if err := w.free(); err != nil {
+		return err
+	}
+	if started, err := w.step(); err != nil || len(started) != 0 {
+		return Violatedf("the reset started %v after a stop: %v", started, err)
+	}
+	if row, err := w.orchestrator(); err == nil && row.Desired == ledger.OrchestratorRunning {
+		return Violatedf("the orchestrator a member stopped runs: %+v", row)
+	}
+	return nil
+}
+
+func checkScheduledStartLeavesTrip(r *Rig) error {
+	w, err := newLimitWorld(r, r.Store())
+	if err != nil {
+		return err
+	}
+	if err := w.scheduledAndDue(); err != nil {
+		return err
+	}
+	tripped := ledger.Orchestrator{ID: ledger.OrchestratorOf(w.auth.WorkerID), WorkerID: w.auth.WorkerID, Desired: ledger.OrchestratorRunning, Run: 1, Actual: "tripped"}
+	err = w.store.Installation(r.Scope).Write(r.Ctx, "test.trip", func(tx ports.SharedTx) error {
+		if err := tx.Workers().SaveOrchestrator(tripped); err != nil {
+			return err
+		}
+		data, err := json.Marshal(tripped)
+		if err != nil {
+			return err
+		}
+		_, err = tx.Append(ledger.EventDraft{Type: ledger.EventOrchestratorReported, Actor: r.Actor, Data: data, Subject: ledger.Subject{Kind: ledger.SubjectOrchestrator, ID: tripped.ID}})
+		return err
+	})
+	if err != nil {
+		return err
+	}
+	if err := w.free(); err != nil {
+		return err
+	}
+	if started, err := w.step(); err != nil || len(started) != 0 {
+		return Violatedf("a start for a tripped orchestrator started %v: %v", started, err)
+	}
+	row, err := w.orchestrator()
+	if err != nil {
+		return err
+	}
+	if !row.Tripped() || row.Resets != 0 {
+		return Violatedf("the start reset a breaker that tripped after it was scheduled: %+v", row)
+	}
+	return nil
+}
+
+func checkScheduledStartRefusesRunning(r *Rig) error {
+	w, err := newLimitWorld(r, r.Store())
+	if err != nil {
+		return err
+	}
+	if _, err := w.limitedFor(limitHour); err != nil {
+		return err
+	}
+	if _, err := w.plane.SetOrchestrator(r.Ctx, w.auth.WorkerID, ledger.OrchestratorRunning, w.member); err != nil {
+		return err
+	}
+	if _, err := w.plane.ScheduleOrchestrator(r.Ctx, w.auth.WorkerID, w.member); !errors.Is(err, workorders.ErrInvalid) {
+		return Violatedf("a start scheduled for an orchestrator asked to run: %v", err)
+	}
+	if _, err := w.scheduled(); !errors.Is(err, ports.ErrNotFound) {
+		return Violatedf("a refused schedule left a start: %v", err)
+	}
+	return nil
+}
+
+func checkScheduledStartWaitsForWord(r *Rig) error {
+	w, err := newLimitWorld(r, r.Store())
+	if err != nil {
+		return err
+	}
+	if err := w.scheduledAndDue(); err != nil {
+		return err
+	}
+	w.beats++
+	report := ledger.ResourceReport{IntervalMs: ledger.MinReportIntervalMs, Sessions: []ledger.SessionResources{}}
+	if _, err := w.plane.Heartbeat(r.Ctx, ledger.Heartbeat{Auth: w.auth, Epoch: w.epoch, Protocol: ledger.ProtocolVersion, Nonce: fmt.Sprintf("n%d", w.beats), Report: &report}); err != nil {
+		return err
+	}
+	if started, err := w.step(); err != nil || len(started) != 0 {
+		return Violatedf("a report with no word of the sign-in started %v: %v", started, err)
+	}
+	if _, err := w.scheduled(); err != nil {
+		return Violatedf("the start that waits for word of the sign-in is gone: %v", err)
 	}
 	return nil
 }

@@ -120,10 +120,16 @@ func setOrchestrator(ctx context.Context, installation ports.Installation, worke
 	return row, err
 }
 
-// setOrchestratorIn records what a member asks of a worker's orchestrator in the transaction it is given.
+// setOrchestratorIn records what a member asks of a worker's orchestrator in the transaction it is given. A stop ends
+// any start scheduled for the reset, so a member's later word stands over an earlier one.
 func setOrchestratorIn(tx ports.SharedTx, worker, desired string, actor ledger.Actor) (ledger.Orchestrator, error) {
 	if _, err := tx.Workers().Find(worker); err != nil {
 		return ledger.Orchestrator{}, err
+	}
+	if desired == ledger.OrchestratorStopped {
+		if err := endScheduledStart(tx, worker, actor); err != nil {
+			return ledger.Orchestrator{}, err
+		}
 	}
 	current, err := tx.Workers().Orchestrator(worker)
 	if errors.Is(err, ports.ErrNotFound) {

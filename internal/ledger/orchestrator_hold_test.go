@@ -27,7 +27,7 @@ func TestAScheduledStartsStep(t *testing.T) {
 		{"the worker said nothing since its reset", limited(10 * hour), 9 * hour, false, 10*hour + 1, StartWaits, start},
 		{"the limit is gone at its reset", free, 10*hour + 1, false, 10*hour + 2, StartFires, start},
 		{"the limit ended before its reset", free, 9 * hour, false, 9*hour + 1, StartFires, start},
-		{"the worker reports no usage", nil, 0, false, 10 * hour, StartFires, start},
+		{"the worker says nothing of its sign-in", nil, 10*hour + 1, false, 10*hour + 2, StartWaits, start},
 		{"the orchestrator already runs", free, 10*hour + 1, true, 10*hour + 2, StartEnds, start},
 		{"the limit holds past its reset, with no reset reported", limited(0), 10*hour + 1, false, 10*hour + 2, StartMoves, ScheduledStart{Worker: "w", Missed: 1}},
 		{"the limit holds past its reset, with a later reset reported", limited(15 * hour), 10*hour + 1, false, 10*hour + 2, StartMoves, ScheduledStart{Worker: "w", StartsAt: 15 * hour, Missed: 1}},
@@ -74,5 +74,28 @@ func TestWhatHoldsAnOrchestrator(t *testing.T) {
 	}
 	if hold := OrchestratorHoldOf(true, &Orchestrator{Desired: OrchestratorRunning, Actual: "working"}, &SignInUsage{}, 0, 9*hour); hold != nil {
 		t.Errorf("nothing holds a running orchestrator: %+v", hold)
+	}
+}
+
+// A report's word on its sign-in is the worker's, so the control plane bounds it: a reset before the epoch is refused,
+// how long ago it heard runs from none to a week, the share used from 0 to 100, and a window it does not know is no
+// window.
+func TestABoundReportHoldsTheSignInsWord(t *testing.T) {
+	bound := func(sign SignInUsage) (*SignInUsage, error) {
+		out, err := BoundReport(ResourceReport{IntervalMs: MinReportIntervalMs, Sessions: []SessionResources{}, SignIn: &sign})
+		return out.SignIn, err
+	}
+	if _, err := bound(SignInUsage{Limited: true, ResetsAtMs: -1}); err == nil {
+		t.Error("a reset before the epoch was kept")
+	}
+	got, err := bound(SignInUsage{Window: "monthly", Used: 140, UsedKnown: true, ReadAgeMs: 30 * 24 * hour})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Window != "" || got.Used != 100 || got.ReadAgeMs != maxUsageReadAgeMs {
+		t.Errorf("the bound word reads %+v", got)
+	}
+	if got, _ := bound(SignInUsage{Window: UsageWindowWeekly, Used: -5, ReadAgeMs: -10}); got.Window != UsageWindowWeekly || got.Used != 0 || got.ReadAgeMs != 0 {
+		t.Errorf("the bound word reads %+v", got)
 	}
 }

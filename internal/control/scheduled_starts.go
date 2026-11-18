@@ -80,6 +80,16 @@ func scheduleStart(ctx context.Context, installation ports.Installation, worker 
 		if err != nil {
 			return err
 		}
+		row, err := tx.Workers().Orchestrator(worker)
+		if err != nil && !errors.Is(err, ports.ErrNotFound) {
+			return err
+		}
+		switch {
+		case err == nil && row.Desired == ledger.OrchestratorRunning && row.Tripped():
+			return fmt.Errorf("%w: the breaker of worker %s's orchestrator tripped, so reset it with orchestrator start", workorders.ErrInvalid, worker)
+		case err == nil && row.Desired == ledger.OrchestratorRunning:
+			return fmt.Errorf("%w: worker %s's orchestrator is already asked to run, and it runs once the limit resets", workorders.ErrInvalid, worker)
+		}
 		usage := signInUsageOf(record.Worker)
 		if usage == nil || !usage.Limited {
 			return fmt.Errorf("%w: the sign-in of worker %s is not at its usage limit, so start its orchestrator now", workorders.ErrInvalid, worker)
@@ -161,7 +171,9 @@ func stepStart(ctx context.Context, installation ports.Installation, worker stri
 		if err != nil && !errors.Is(err, ports.ErrNotFound) {
 			return err
 		}
-		runs := err == nil && row.Desired == ledger.OrchestratorRunning && !row.Tripped()
+		// An orchestrator already asked to run ends the start with nothing done, a tripped one included: a breaker that
+		// tripped after the start was scheduled waits for a person, and the start never resets it unattended.
+		runs := err == nil && row.Desired == ledger.OrchestratorRunning
 		step, next := start.Step(signInUsageOf(record.Worker), record.ReportedAt, runs, tx.Now())
 		switch step {
 		case ledger.StartWaits:
@@ -223,4 +235,13 @@ func (p *Plane) OrchestratorFacts(ctx context.Context, worker string) (*ledger.O
 		return err
 	})
 	return hold, start, err
+}
+
+// endScheduledStart ends a worker's scheduled start, if it has one, in the transaction it is given.
+func endScheduledStart(tx ports.SharedTx, worker string, actor ledger.Actor) error {
+	gone, err := tx.Workers().DeleteScheduledStart(worker)
+	if err != nil || !gone {
+		return err
+	}
+	return appendStart(tx, ledger.EventOrchestratorStartEnded, ledger.ScheduledStart{Worker: worker}, actor)
 }
