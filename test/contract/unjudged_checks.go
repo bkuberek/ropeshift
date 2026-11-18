@@ -18,7 +18,7 @@ var UnjudgedChecks = []Check{
 	{"UJ3", "a question whose orchestrator stops mid-window reaches a person once its hold ends", checkUnjudgedOrchestratorStops},
 	{"UJ4", "a member answers, assumes, or merges a question with no orchestrator, and only the one left reaches a batch", checkUnjudgedMemberWorks},
 	{"UJ5", "an orchestrator that returns takes only the questions still open", checkUnjudgedOrchestratorReturns},
-	{"UJ6", "only a member merges a question with no hold, never into itself or into a closed question", checkUnjudgedMergeRules},
+	{"UJ6", "only a member merges a question with no hold, never into itself or into a closed question, and a planning lane's question only into one a person answers", checkUnjudgedMergeRules},
 	{"UJ7", "a member's assumption of a one-way question is refused, and the question waits", checkUnjudgedOneWayAssumption},
 	{"UJ8", "a member claims, dispatches, and recovers work with no orchestrator", checkUnjudgedMemberRunsWork},
 }
@@ -291,6 +291,47 @@ func checkUnjudgedMergeRules(r *Rig) error {
 	}
 	if err := ops.MergeQuestion(r.Ctx, r.Scope, one.QuestionID, other.QuestionID, r.Actor); !errors.Is(err, questions.ErrResolved) {
 		return Violatedf("a question merged into a dismissed one: %v", err)
+	}
+	return checkPlannersQuestionMerges(r, s)
+}
+
+// checkPlannersQuestionMerges holds the rule an ask holds for a planning lane's question: it goes to the person, so a
+// merge never moves its lane onto a question an orchestrator could take, decide, or assume, open or in triage.
+func checkPlannersQuestionMerges(r *Rig, s ports.Store) error {
+	ops := r.NewOps(s)
+	planner, err := r.ask(s, "Who signs in to the admin console?", "lane-planner", direct)
+	if err != nil {
+		return err
+	}
+	open, err := r.ask(s, "Which accounts reach the admin console?", "lane-a", nil)
+	if err != nil {
+		return err
+	}
+	triage, err := r.ask(s, "Who may sign in as an administrator?", "lane-b", nil)
+	if err != nil {
+		return err
+	}
+	if _, err := ops.Take(r.Ctx, r.Scope, triage.QuestionID, TTLMs, r.orchestrator("holder")); err != nil {
+		return err
+	}
+	for _, target := range []string{open.QuestionID, triage.QuestionID} {
+		if err := ops.MergeQuestion(r.Ctx, r.Scope, planner.QuestionID, target, r.Actor); !errors.Is(err, questions.ErrInvalid) {
+			return Violatedf("a planning lane's question merged into %s, which an orchestrator could answer: %v", target, err)
+		}
+		attached, err := r.attachments(s, target)
+		if err != nil {
+			return err
+		}
+		if slices.ContainsFunc(attached, func(a questions.Attachment) bool { return a.Lane == "lane-planner" }) {
+			return Violatedf("a refused merge moved the planning lane onto %s", target)
+		}
+	}
+	waiting, err := r.escalated(s, "Who administers the console?", nil)
+	if err != nil {
+		return err
+	}
+	if err := ops.MergeQuestion(r.Ctx, r.Scope, planner.QuestionID, waiting, r.Actor); err != nil {
+		return Violatedf("a planning lane's question did not merge into one that waits for a person: %v", err)
 	}
 	return nil
 }
