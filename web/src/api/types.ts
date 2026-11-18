@@ -580,14 +580,13 @@ export type ContractHistory = { id: string; key?: string; versions: Contract[] }
 export type LadderStep = { rung: number; candidates?: string[]; outcome?: string };
 
 // OrchestratorHold is what keeps a worker's orchestrator from starting or running now. At a usage limit, window names it,
-// resets_at is its reset, absent when nobody reported one, source where that came from, read_at when the worker heard
+// resets_at is its reset, absent when nobody reported one, read_at when the worker heard
 // it, and stale says the reset is too old to trust: it passed with the limit holding, or was read longer ago than the
 // window lasts.
 export type OrchestratorHold = {
   reason: "offline" | "tripped" | "usage_limit";
   window?: string;
   resets_at?: number;
-  source?: string;
   read_at?: number;
   stale?: boolean;
 };

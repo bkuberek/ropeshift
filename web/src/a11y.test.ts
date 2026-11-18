@@ -765,7 +765,7 @@ suite.each(Object.entries(sizes))("at %s width", (size, viewport) => {
           const floor = JSON.parse(goldens["shop-floor"] ?? "{}") as { workers: { worker: { id: string }; orchestrator_hold?: object; scheduled_start?: object }[] };
           for (const line of floor.workers) {
             if (line.worker.id === "worker-a") {
-              line.orchestrator_hold = { reason: "usage_limit", window: "five_hour", resets_at: resets, source: "session" };
+              line.orchestrator_hold = { reason: "usage_limit", window: "five_hour", resets_at: resets };
               line.scheduled_start = scheduled;
             }
           }

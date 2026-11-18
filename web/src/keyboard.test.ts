@@ -47,7 +47,7 @@ function limitedFloor(scheduled = false): unknown {
   const resets = Date.now() + 2 * 60 * 60 * 1000;
   for (const line of floor.workers) {
     if (line.worker.id === "worker-a") {
-      line.orchestrator_hold = { reason: "usage_limit", window: "five_hour", resets_at: resets, source: "session" };
+      line.orchestrator_hold = { reason: "usage_limit", window: "five_hour", resets_at: resets };
       line.scheduled_start = scheduled ? { worker_id: "worker-a", starts_at: resets, scheduled_by: "member-1", scheduled_at: Date.now() } : undefined;
     }
   }

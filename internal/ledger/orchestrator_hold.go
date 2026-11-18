@@ -10,7 +10,6 @@ type SignInUsage struct {
 	ResetsAtMs int64   `json:"resets_at_ms,omitempty"`
 	Used       float64 `json:"used_percentage,omitempty"`
 	UsedKnown  bool    `json:"used_known,omitempty"`
-	Source     string  `json:"source,omitempty"`
 	ReadAgeMs  int64   `json:"read_age_ms,omitempty"`
 }
 
@@ -18,12 +17,6 @@ type SignInUsage struct {
 const (
 	UsageWindowSession = "five_hour"
 	UsageWindowWeekly  = "seven_day"
-)
-
-// Where a reset time came from: a session's own report, or a `/usage` read, which can be out of date.
-const (
-	UsageFromSession = "session"
-	UsageFromHint    = "usage_hint"
 )
 
 // usageWindowMs is how long a window lasts, which is how long a reset read in it can be trusted. A window nobody named
@@ -43,14 +36,13 @@ const (
 )
 
 // OrchestratorHold is why a worker's orchestrator cannot start or run now. For a usage limit, Window names it, ResetsAt
-// is when it resets, zero when nobody said, Source where that came from, ReadAt when the worker heard it, by the control
+// is when it resets, zero when nobody said, ReadAt when the worker heard it, by the control
 // plane's clock, and Stale says the reset is too old to trust: it passed with the limit still holding, or it was read
 // longer ago than its window lasts.
 type OrchestratorHold struct {
 	Reason   string `json:"reason"`
 	Window   string `json:"window,omitempty"`
 	ResetsAt int64  `json:"resets_at,omitempty"`
-	Source   string `json:"source,omitempty"`
 	ReadAt   int64  `json:"read_at,omitempty"`
 	Stale    bool   `json:"stale,omitempty"`
 }
@@ -67,7 +59,7 @@ func OrchestratorHoldOf(connected bool, row *Orchestrator, usage *SignInUsage, r
 	case usage == nil || !usage.Limited:
 		return nil
 	}
-	hold := &OrchestratorHold{Reason: HoldUsageLimit, Window: usage.Window, ResetsAt: usage.ResetsAtMs, Source: usage.Source, ReadAt: readAt}
+	hold := &OrchestratorHold{Reason: HoldUsageLimit, Window: usage.Window, ResetsAt: usage.ResetsAtMs, ReadAt: readAt}
 	hold.Stale = hold.ResetsAt != 0 && (now >= hold.ResetsAt || now-readAt > usageWindowMs(usage.Window))
 	return hold
 }

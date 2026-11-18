@@ -232,7 +232,7 @@ func BoundReport(report ResourceReport) (ResourceReport, error) {
 	}
 	if report.SignIn != nil {
 		sign := *report.SignIn
-		sign.Window, sign.Source = clip(sign.Window), clip(sign.Source)
+		sign.Window = clip(sign.Window)
 		out.SignIn = &sign
 	}
 	return out, nil

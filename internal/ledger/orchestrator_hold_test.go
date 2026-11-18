@@ -5,7 +5,7 @@ import "testing"
 const hour = int64(60 * 60 * 1000)
 
 func limited(resetsAt int64) *SignInUsage {
-	return &SignInUsage{Limited: true, Window: UsageWindowSession, ResetsAtMs: resetsAt, Source: UsageFromSession}
+	return &SignInUsage{Limited: true, Window: UsageWindowSession, ResetsAtMs: resetsAt}
 }
 
 // A scheduled start waits while its reset is ahead, and once it came, waits for the worker's first word since. It
@@ -65,7 +65,7 @@ func TestWhatHoldsAnOrchestrator(t *testing.T) {
 	if hold := OrchestratorHoldOf(true, nil, limited(10*hour), 8*hour, 10*hour+1); hold == nil || !hold.Stale {
 		t.Errorf("a reset that passed with the limit holding: %+v", hold)
 	}
-	weekly := &SignInUsage{Limited: true, Window: UsageWindowWeekly, ResetsAtMs: 200 * hour, Source: UsageFromSession}
+	weekly := &SignInUsage{Limited: true, Window: UsageWindowWeekly, ResetsAtMs: 200 * hour}
 	if hold := OrchestratorHoldOf(true, nil, weekly, 0, 170*hour); hold == nil || !hold.Stale {
 		t.Errorf("a weekly reset read longer ago than a week: %+v", hold)
 	}

@@ -18,7 +18,7 @@ func TestAnOrchestratorAtAUsageLimitStartsAtTheReset(t *testing.T) {
 	d := apitest.Start(t)
 	w := apitest.NewWorld(t, d)
 	reset := time.Now().Add(2 * time.Hour).UnixMilli()
-	w.ReportSignIn(ledger.SignInUsage{Limited: true, Window: ledger.UsageWindowSession, ResetsAtMs: reset, Source: ledger.UsageFromSession})
+	w.ReportSignIn(ledger.SignInUsage{Limited: true, Window: ledger.UsageWindowSession, ResetsAtMs: reset})
 	line := workerLine(t, d, apitest.WorldWorker)
 	if line.OrchestratorHold == nil || line.OrchestratorHold.Reason != ledger.HoldUsageLimit || line.OrchestratorHold.ResetsAt != reset || line.OrchestratorHold.Window != ledger.UsageWindowSession {
 		t.Fatalf("the floor says %+v of the worker's orchestrator", line.OrchestratorHold)

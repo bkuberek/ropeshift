@@ -68,7 +68,7 @@ func LimitedWorker(r *Rig, store ports.Store) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return w.auth.WorkerID, w.report(ledger.SignInUsage{Limited: true, Window: ledger.UsageWindowSession, ResetsAtMs: now + limitHour, Source: ledger.UsageFromSession})
+	return w.auth.WorkerID, w.report(ledger.SignInUsage{Limited: true, Window: ledger.UsageWindowSession, ResetsAtMs: now + limitHour})
 }
 
 func (w *limitWorld) now() (int64, error) {
@@ -98,7 +98,7 @@ func (w *limitWorld) limitedFor(ms int64) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	return now + ms, w.report(ledger.SignInUsage{Limited: true, Window: ledger.UsageWindowSession, ResetsAtMs: now + ms, Source: ledger.UsageFromSession})
+	return now + ms, w.report(ledger.SignInUsage{Limited: true, Window: ledger.UsageWindowSession, ResetsAtMs: now + ms})
 }
 
 func (w *limitWorld) free() error {

@@ -37,8 +37,6 @@ func holdWords(hold ledger.OrchestratorHold) string {
 		return words + ", and no reset time was reported"
 	case hold.Stale:
 		return words + ", reset reported for " + clock(hold.ResetsAt) + ", which may be out of date"
-	case hold.Source == ledger.UsageFromHint:
-		return words + ", resets at " + clock(hold.ResetsAt) + " by a /usage hint"
 	}
 	return words + ", resets at " + clock(hold.ResetsAt)
 }

@@ -35,7 +35,7 @@ function resetAt(at: number, weekly: boolean): string {
 }
 
 // UsageLimit says which window of a sign-in reached its limit and when it resets, with a live countdown, and says
-// when the reset came from a `/usage` hint, when it is too old to trust, and when nobody reported one.
+// when the reset is too old to trust, and when nobody reported one.
 export function UsageLimit({ hold, now }: { hold: OrchestratorHold; now: number }) {
   const weekly = hold.window === "seven_day";
   const window = windowWords[hold.window ?? ""] ?? "sign-in";
@@ -47,7 +47,6 @@ export function UsageLimit({ hold, now }: { hold: OrchestratorHold; now: number 
     <p>
       The usage limit of the {window} is reached. It resets at {resetAt(hold.resets_at, weekly)}
       {left > 0 && !hold.stale ? ` (in ${countdownWords(left, weekly)})` : ""}.
-      {hold.source === "usage_hint" ? " This reset time came from a /usage hint, which can be out of date." : ""}
       {hold.stale ? " This reset time may be out of date: it passed with the limit still holding, or was read longer ago than its window lasts." : ""}
     </p>
   );

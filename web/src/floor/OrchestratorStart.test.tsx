@@ -26,7 +26,7 @@ function lineWith(hold?: OrchestratorHold, start?: ScheduledStart): WorkerLine {
   return line;
 }
 
-const limitedAt = (resets: number, more: Partial<OrchestratorHold> = {}): OrchestratorHold => ({ reason: "usage_limit", window: "five_hour", resets_at: resets, source: "session", ...more });
+const limitedAt = (resets: number, more: Partial<OrchestratorHold> = {}): OrchestratorHold => ({ reason: "usage_limit", window: "five_hour", resets_at: resets, ...more });
 
 describe("the countdown to a reset", () => {
   it("counts in hours and minutes", () => {
@@ -51,11 +51,6 @@ describe("the usage limit", () => {
   it("counts a weekly window down in days", () => {
     render(<UsageLimit hold={limitedAt(fixedNow + 3 * 24 * hour + hour, { window: "seven_day" })} now={fixedNow} />);
     expect(screen.getByText(/weekly window is reached\. It resets at .* \(in 3 days\)\./)).toBeTruthy();
-  });
-
-  it("says a reset time came from a /usage hint", () => {
-    render(<UsageLimit hold={limitedAt(fixedNow + hour, { source: "usage_hint" })} now={fixedNow} />);
-    expect(screen.getByText(/This reset time came from a \/usage hint, which can be out of date\./)).toBeTruthy();
   });
 
   it("says an old reset time may be out of date, and counts down to nothing", () => {

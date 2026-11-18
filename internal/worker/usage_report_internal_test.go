@@ -15,7 +15,7 @@ func TestAReportSaysTheSignInsLimit(t *testing.T) {
 		Limited: true, ResetAtMs: 8_000,
 	}
 	got := signInUsage(state, 5_000)
-	want := ledger.SignInUsage{Limited: true, Window: ledger.UsageWindowSession, ResetsAtMs: 8_000, Used: 100, UsedKnown: true, Source: ledger.UsageFromSession, ReadAgeMs: 1_000}
+	want := ledger.SignInUsage{Limited: true, Window: ledger.UsageWindowSession, ResetsAtMs: 8_000, Used: 100, UsedKnown: true, ReadAgeMs: 1_000}
 	if got == nil || *got != want {
 		t.Errorf("the report says %+v, want %+v", got, want)
 	}
@@ -23,7 +23,7 @@ func TestAReportSaysTheSignInsLimit(t *testing.T) {
 		t.Errorf("a limit whose reset came reads %+v", passed)
 	}
 	quiet := signInUsage(lanes.SignInState{Limited: true}, 5_000)
-	if quiet == nil || !quiet.Limited || quiet.ResetsAtMs != 0 || quiet.Source != "" || quiet.ReadAgeMs != 0 {
+	if quiet == nil || !quiet.Limited || quiet.ResetsAtMs != 0 || quiet.ReadAgeMs != 0 {
 		t.Errorf("a limit nobody gave a reset for reads %+v", quiet)
 	}
 }
