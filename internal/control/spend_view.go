@@ -34,31 +34,33 @@ type spendReads struct {
 	orders    ports.WorkOrderReader
 	estimates ports.EstimateReader
 	policies  ports.PolicyReader
+	// events reads what the ledger says about one subject, which is where a member's raises of a limit are kept.
+	events func(ledger.Subject) ([]ledger.Event, error)
 }
 
 func spendReadsOf(tx ports.ReadTx) spendReads {
-	return spendReads{lanes: tx.Lanes(), orders: tx.WorkOrders(), estimates: tx.Estimates(), policies: tx.Policies()}
+	return spendReads{lanes: tx.Lanes(), orders: tx.WorkOrders(), estimates: tx.Estimates(), policies: tx.Policies(), events: tx.EventsAbout}
 }
 
 func spendWritesOf(tx ports.WriteTx) spendReads {
-	return spendReads{lanes: tx.Lanes(), orders: tx.WorkOrders(), estimates: tx.Estimates(), policies: tx.Policies()}
+	return spendReads{lanes: tx.Lanes(), orders: tx.WorkOrders(), estimates: tx.Estimates(), policies: tx.Policies(), events: tx.EventsAbout}
 }
 
-// charged folds the generations of every lane that served a work order (FR-SPEND-3). A retried work order is one
-// work order, so its earlier lanes' spend stays.
-func (r spendReads) charged(workOrder string) (ledger.Charged, error) {
+// usageOf reads the generations of every lane that served a work order, a lane at a time, in order. A lane that
+// is named is left out, for a worker that holds that lane's own spend and asks only what the others cost.
+func (r spendReads) usageOf(workOrder, except string) ([][]ledger.GenerationUsage, error) {
 	rows, err := r.lanes.Rows()
 	if err != nil {
-		return ledger.Charged{}, err
+		return nil, err
 	}
 	var lanes [][]ledger.GenerationUsage
 	for _, row := range rows {
-		if row.WorkOrder != workOrder {
+		if row.WorkOrder != workOrder || row.ID == except {
 			continue
 		}
 		generations, err := r.lanes.Generations(row.ID)
 		if err != nil {
-			return ledger.Charged{}, err
+			return nil, err
 		}
 		usage := make([]ledger.GenerationUsage, 0, len(generations))
 		for _, g := range generations {
@@ -66,7 +68,26 @@ func (r spendReads) charged(workOrder string) (ledger.Charged, error) {
 		}
 		lanes = append(lanes, usage)
 	}
+	return lanes, nil
+}
+
+// charged folds the generations of every lane that served a work order (FR-SPEND-3). A retried work order is one
+// work order, so its earlier lanes' spend stays.
+func (r spendReads) charged(workOrder string) (ledger.Charged, error) {
+	lanes, err := r.usageOf(workOrder, "")
+	if err != nil {
+		return ledger.Charged{}, err
+	}
 	return ledger.Charge(lanes), nil
+}
+
+// raisedTo is the hard limit a member's raises and resumes set on a work order, or 0 when none did.
+func (r spendReads) raisedTo(workOrder string) (float64, error) {
+	events, err := r.events(ledger.Subject{Kind: ledger.SubjectSpend, ID: workOrder})
+	if err != nil {
+		return 0, err
+	}
+	return ledger.RaisedLimit(events), nil
 }
 
 // bandOf is the cost band a work order's limit reads: the band recorded at plan approval, or its current band when it
@@ -116,7 +137,17 @@ func (r spendReads) limitsOf(policy authority.SpendPolicy, order workorders.Work
 		}
 		input.ReviewedHard = limits.Hard
 	}
-	return delivery.SpendLimitsOf(policy, input), nil
+	limits := delivery.SpendLimitsOf(policy, input)
+	// A raise lifts the limit the band derives and never lowers it, and it lifts a limit there is: a work order the
+	// policy leaves with no hard limit has none to raise.
+	raised, err := r.raisedTo(order.ID)
+	if err != nil {
+		return delivery.SpendLimits{}, err
+	}
+	if limits.Hard > 0 && raised > limits.Hard {
+		limits.Hard = raised
+	}
+	return limits, nil
 }
 
 // spendOf is a work order's charged spend beside its limits.
@@ -143,6 +174,13 @@ func (r spendReads) spendOf(id string) (ledger.WorkOrderSpend, error) {
 	}
 	if limits.Hard > 0 {
 		out.Remaining = max(limits.Hard-charged.ChargedUSD, 0)
+		raised, err := r.raisedTo(id)
+		if err != nil {
+			return ledger.WorkOrderSpend{}, err
+		}
+		if raised == limits.Hard {
+			out.RaisedTo = raised
+		}
 	}
 	if limits.PastSoft(charged.ChargedUSD) {
 		out.Conditions = append(out.Conditions, ledger.ConditionOverEstimate)

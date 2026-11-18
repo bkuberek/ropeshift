@@ -100,6 +100,8 @@ func (n node) clause() string {
 		return "work order " + key + " is done"
 	case string(ExternalCheck):
 		return "check " + key + " reports back"
+	case string(LimitRaised):
+		return "the spend limit of work order " + key + " is raised"
 	case string(HumanResume):
 		return "a person resumes it"
 	}
@@ -146,6 +148,8 @@ func (n node) shortClause() string {
 		return "work order " + key
 	case string(ExternalCheck):
 		return "check " + key
+	case string(LimitRaised):
+		return "a raised limit on " + key
 	case string(HumanResume):
 		return "a person"
 	}

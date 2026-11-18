@@ -42,6 +42,18 @@
     "short": "check ci"
   },
   {
+    "name": "a raised spend limit",
+    "expression": "{\"limit_raised\":\"wo-1\"}",
+    "words": "When the spend limit of work order wo-1 is raised",
+    "short": "a raised limit on wo-1"
+  },
+  {
+    "name": "a spend stop",
+    "expression": "{\"any_of\":[{\"limit_raised\":\"wo-1\"},{\"human_resume\":true}]}",
+    "words": "When the spend limit of work order wo-1 is raised, or when a person resumes it",
+    "short": "a raised limit on wo-1 or a person"
+  },
+  {
     "name": "a person",
     "expression": "{\"human_resume\":true}",
     "words": "When a person resumes it",

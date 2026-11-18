@@ -35,6 +35,7 @@ func TestEachTermIsTrueWhenItsFactHolds(t *testing.T) {
 		{"a sign-in", `{"signin_restored":"worker:driver"}`, fact(parking.SigninRestored, "worker:driver")},
 		{"a work order", `{"work_order_done":"wo-1"}`, fact(parking.WorkOrderDone, "wo-1")},
 		{"a check", `{"external_check":"ci"}`, fact(parking.ExternalCheck, "ci")},
+		{"a raised spend limit", `{"limit_raised":"wo-1"}`, fact(parking.LimitRaised, "wo-1")},
 		{"a person", `{"human_resume":true}`, fact(parking.HumanResume, lane)},
 	}
 	for _, tt := range tests {

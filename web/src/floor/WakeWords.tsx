@@ -8,7 +8,15 @@ import { addressOf, Link } from "../app/route";
 // match internal/parking's, which `web/testdata/wake-words.json` holds them to, so `ropeshift top` and
 // this page say a wake the same way.
 
-type Named = "question_answered" | "approval_decided" | "decision_recorded" | "usage_reset" | "signin_restored" | "work_order_done" | "external_check";
+type Named =
+  | "question_answered"
+  | "approval_decided"
+  | "decision_recorded"
+  | "usage_reset"
+  | "signin_restored"
+  | "work_order_done"
+  | "external_check"
+  | "limit_raised";
 
 export type WakeTerm =
   | { kind: "any_of" | "all_of"; terms: WakeTerm[] }
@@ -24,6 +32,7 @@ const named = new Set<string>([
   "signin_restored",
   "work_order_done",
   "external_check",
+  "limit_raised",
 ]);
 
 const maxBytes = 4 << 10;
@@ -123,6 +132,8 @@ function clause(term: WakeTerm): ReactNode {
       return <>work order {id(term.key)} is done</>;
     case "external_check":
       return <>check {id(term.key)} reports back</>;
+    case "limit_raised":
+      return <>the spend limit of work order {id(term.key)} is raised</>;
     default:
       return null;
   }
