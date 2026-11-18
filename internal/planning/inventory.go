@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"slices"
 	"strings"
+
+	"ropeshift.com/ropeshift/internal/ledger"
 )
 
 // InventoryVersion is the version of the inventory's shape, which a reader checks before it reads one.
@@ -19,8 +21,8 @@ const (
 
 // Inventory is what an adopt lane is given of each repository of its project before it starts (ADR-0023):
 // what each one is, the Markdown it holds, the files already in the repository file format, and the work in
-// progress on its branches. No model writes it, so two inventories taken at the same commits are the same
-// bytes. Omitted says what it does not read yet, and why.
+// progress on its branches and its open pull requests. No model writes it, so two inventories taken at the same
+// commits and the same pull requests are the same bytes. Omitted says what it does not read yet, and why.
 type Inventory struct {
 	Version      int                   `json:"version"`
 	Repositories []RepositoryInventory `json:"repositories"`
@@ -46,7 +48,13 @@ type RepositoryInventory struct {
 	Files []InventoryFile `json:"ropeshift_files"`
 	// Branches are the branches whose tip the base does not hold: work that has not merged.
 	Branches []InventoryBranch `json:"branches"`
-	Detail   string            `json:"detail,omitempty"`
+	// PullRequests are the repository's open pull requests, by number, at most 200. More
+	// says the forge holds more than are listed.
+	PullRequests     []ledger.PullRequestSummary `json:"pull_requests"`
+	MorePullRequests bool                        `json:"more_pull_requests,omitempty"`
+	// Omitted are the parts of this repository's inventory that were not read, each with the reason.
+	Omitted []InventoryOmission `json:"omitted,omitempty"`
+	Detail  string              `json:"detail,omitempty"`
 }
 
 // InventoryDocument is one Markdown file at the base commit, with the digest of its content as written.
@@ -92,15 +100,17 @@ type InventoryOmission struct {
 	Reason string `json:"reason"`
 }
 
-// inventoryOmitted are the parts no adapter reads yet: pull requests need a forge, and issues a tracker.
+// PartPullRequests names the open pull requests of a repository where an omission says they were not read.
+const PartPullRequests = "pull_requests"
+
+// inventoryOmitted are the parts no adapter reads yet: issues need a tracker.
 var inventoryOmitted = []InventoryOmission{
-	{Part: "pull_requests", Reason: "no forge adapter is built yet, so open pull requests are not read; the branches they come from are listed"},
 	{Part: "issues", Reason: "no tracker adapter is built yet, so open issues are not read"},
 }
 
 // RenderInventory writes an inventory as indented JSON in one order: repositories by name, then documents and
-// files by path, and branches by ref. Every list is present, even empty, so the same facts always give the
-// same bytes.
+// files by path, branches by ref, and pull requests by number. Every list but a repository's omissions is
+// present, even empty, so the same facts always give the same bytes.
 func RenderInventory(inventory Inventory) ([]byte, error) {
 	out := Inventory{Version: InventoryVersion, Omitted: slices.Clone(inventoryOmitted), Repositories: []RepositoryInventory{}}
 	for _, repository := range inventory.Repositories {
@@ -112,6 +122,15 @@ func RenderInventory(inventory Inventory) ([]byte, error) {
 		}
 		repository.Files = sortedBy(repository.Files, func(f InventoryFile) string { return f.Path })
 		repository.Branches = sortedBy(repository.Branches, func(b InventoryBranch) string { return b.Ref })
+		repository.PullRequests = slices.Clone(repository.PullRequests)
+		if repository.PullRequests == nil {
+			repository.PullRequests = []ledger.PullRequestSummary{}
+		}
+		slices.SortStableFunc(repository.PullRequests, func(a, b ledger.PullRequestSummary) int { return cmp.Compare(a.Number, b.Number) })
+		repository.Omitted = sortedBy(repository.Omitted, func(o InventoryOmission) string { return o.Part })
+		if len(repository.Omitted) == 0 {
+			repository.Omitted = nil
+		}
 		out.Repositories = append(out.Repositories, repository)
 	}
 	slices.SortStableFunc(out.Repositories, func(a, b RepositoryInventory) int {

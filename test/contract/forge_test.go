@@ -64,6 +64,7 @@ func TestForgeContractOnTheFake(t *testing.T) {
 			Comments:   func(_ *testing.T, number int64) []string { return forge.Comments(number) },
 			SignOut:    func(_ *testing.T, detail string) { forge.SignOut(contractBinding.Host, detail) },
 			Limit:      func(_ *testing.T, rate ports.ForgeRate) { forge.Limit(rate) },
+			HoldOpen:   func(_ *testing.T, pulls ...ledger.PullRequestSummary) { forge.HoldOpen(contractBinding, pulls...) },
 			Missing: func(*testing.T) ports.Forge {
 				forge.Remove()
 				return forge
@@ -151,6 +152,16 @@ func TestForgeContractOnGH(t *testing.T) {
 					s.RateLimit = nil
 					if rate != (ports.ForgeRate{}) {
 						s.RateLimit = &ghstate.RateLimit{Secondary: rate.Secondary, RetryAfter: int64(rate.RetryAfter / time.Second), Exhausted: rate.Exhausted, Reset: rate.Reset.Unix()}
+					}
+				})
+			},
+			HoldOpen: func(t *testing.T, pulls ...ledger.PullRequestSummary) {
+				doubles.EditFakeGH(t, gh, func(s *ghstate.State) {
+					for _, pull := range pulls {
+						s.PullRequests = append(s.PullRequests, ghstate.PullRequest{
+							Number: pull.Number, Repo: contractBinding.String(), Branch: pull.Branch, Base: pull.Base, Title: pull.Title,
+							State: "OPEN", Draft: pull.Draft, CrossRepository: pull.CrossRepository, UpdatedAt: pull.UpdatedAt,
+						})
 					}
 				})
 			},

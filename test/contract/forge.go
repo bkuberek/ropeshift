@@ -36,6 +36,9 @@ type ForgeRig struct {
 	Limit func(t *testing.T, rate ports.ForgeRate)
 	// Missing returns the forge as a machine with no CLI runs it.
 	Missing func(t *testing.T) ports.Forge
+	// HoldOpen puts open pull requests on the forge that nobody opened through it, as they stand in a
+	// listing. Its URL is https://HOST/OWNER/REPO/pull/NUMBER, whatever the pull request says.
+	HoldOpen func(t *testing.T, pulls ...ledger.PullRequestSummary)
 }
 
 // RunForge runs one contract on one forge: the fake, and the GitHub adapter on a fake `gh`, both pass it.
@@ -62,6 +65,7 @@ func RunForge(t *testing.T, fresh func(*testing.T) ForgeRig) {
 		{"no CLI reads as missing, and an operation is unavailable", checkForgeMissing},
 	}
 	checks = append(checks, forgeReadChecks...)
+	checks = append(checks, forgeListChecks...)
 	for _, check := range checks {
 		t.Run(check.name, func(t *testing.T) {
 			check.run(t, t.Context(), fresh(t))

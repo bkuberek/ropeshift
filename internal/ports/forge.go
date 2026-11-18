@@ -34,6 +34,9 @@ type PullRequestRef struct {
 	Number int64
 }
 
+// MaxOpenPullRequests is the most pull requests OpenPullRequests lists.
+const MaxOpenPullRequests = 200
+
 // ErrRunNotOfHead means a workflow run a check's address names is not a run of the head under review, or is no run of
 // the repository at all. Nothing is rerun or read of it.
 var ErrRunNotOfHead = errors.New("the run is not a run of the head under review")
@@ -103,6 +106,9 @@ type Forge interface {
 	// which costs one call where one read each costs two apiece (FR-SPEND-20). A pull request the query cannot
 	// answer completely is left out of the answer.
 	ReadPullRequests(ctx context.Context, repo ForgeRepo, numbers []int64) (PullRequestsRead, error)
+	// OpenPullRequests lists the repository's open pull requests, newest first, at most MaxOpenPullRequests of
+	// them. The boolean says the forge holds more than the list.
+	OpenPullRequests(ctx context.Context, repo ForgeRepo) ([]ledger.PullRequestSummary, bool, error)
 	// ProbeChecks asks whether the pull request or the checks on its head changed since the probe that gave tag,
 	// with conditional requests that carry each response's ETag. An empty tag is a probe that has nothing to
 	// compare, which answers changed and gives the tag to use next.

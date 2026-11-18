@@ -20,10 +20,15 @@ type forgeKey struct {
 
 // forgePR is one pull request the fake forge holds.
 type forgePR struct {
-	binding  string
-	pr       ledger.PullRequest
-	comments []string
-	keys     map[string]bool
+	binding string
+	pr      ledger.PullRequest
+	// title, draft, and updatedAt are what a listing shows beside the pull request.
+	title     string
+	draft     bool
+	crossRepo bool
+	updatedAt string
+	comments  []string
+	keys      map[string]bool
 	// refusal is what a merge of it comes to while it is set, and method is how it was merged.
 	refusal *ledger.MergeResult
 	method  ledger.MergeMethod
@@ -287,12 +292,49 @@ func (f *Forge) OpenPullRequest(_ context.Context, spec ports.PullRequestSpec) (
 		return ledger.PullRequest{}, fmt.Errorf("the forge holds no branch %s to open a pull request from", spec.Branch)
 	}
 	number++
-	held := &forgePR{binding: binding, keys: map[string]bool{}, pr: ledger.PullRequest{
+	held := &forgePR{binding: binding, title: spec.Title, keys: map[string]bool{}, pr: ledger.PullRequest{
 		Number: number, URL: fmt.Sprintf("https://%s/pull/%d", binding, number), State: ledger.PullRequestOpen,
 		Base: spec.Base, Branch: spec.Branch, Mergeable: "MERGEABLE",
 	}}
 	f.prs = append(f.prs, held)
 	return f.current(held), nil
+}
+
+// HoldOpen says the forge holds open pull requests of a repository that nobody opened through it, as they
+// stand in a listing.
+func (f *Forge) HoldOpen(binding ledger.ForgeBinding, pulls ...ledger.PullRequestSummary) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, pull := range pulls {
+		f.prs = append(f.prs, &forgePR{
+			binding: binding.String(), title: pull.Title, draft: pull.Draft, crossRepo: pull.CrossRepository, updatedAt: pull.UpdatedAt, keys: map[string]bool{},
+			pr: ledger.PullRequest{Number: pull.Number, URL: pull.URL, State: ledger.PullRequestOpen, Base: pull.Base, Branch: pull.Branch, Mergeable: "MERGEABLE"},
+		})
+	}
+}
+
+// OpenPullRequests lists the repository's open pull requests, newest first, at most MaxOpenPullRequests.
+func (f *Forge) OpenPullRequests(_ context.Context, repo ports.ForgeRepo) ([]ledger.PullRequestSummary, bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = append(f.calls, "list "+repo.Binding.String())
+	if err := f.readable(repo.Binding.Host); err != nil {
+		return nil, false, err
+	}
+	pulls := []ledger.PullRequestSummary{}
+	for _, held := range f.prs {
+		if held.binding == repo.Binding.String() && held.pr.State == ledger.PullRequestOpen {
+			pulls = append(pulls, ledger.PullRequestSummary{
+				Number: held.pr.Number, Title: held.title, Branch: held.pr.Branch, Base: held.pr.Base, URL: held.pr.URL, Draft: held.draft, CrossRepository: held.crossRepo, UpdatedAt: held.updatedAt,
+			})
+		}
+	}
+	slices.SortFunc(pulls, func(a, b ledger.PullRequestSummary) int { return cmp.Compare(b.Number, a.Number) })
+	more := len(pulls) > ports.MaxOpenPullRequests
+	if more {
+		pulls = pulls[:ports.MaxOpenPullRequests]
+	}
+	return pulls, more, nil
 }
 
 // PullRequest reads one pull request. A number the forge does not hold is ErrNotFound.

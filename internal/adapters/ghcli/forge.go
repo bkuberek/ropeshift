@@ -16,6 +16,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
+	"unicode"
 
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/ports"
@@ -27,6 +29,30 @@ const Binary = "gh"
 // pullRequestFields are what a read asks `gh pr view --json` and `gh pr list --json` for
 // (https://cli.github.com/manual/gh_pr_view).
 const pullRequestFields = "number,url,state,baseRefName,headRefName,headRefOid,mergeable,mergedAt,mergeCommit,statusCheckRollup"
+
+// summaryFields are what a listing of open pull requests asks `gh pr list --json` for.
+const summaryFields = "number,title,headRefName,baseRefName,url,isDraft,isCrossRepository,updatedAt"
+
+// maxTitleRunes is the most a listed pull request's title keeps.
+const maxTitleRunes = 256
+
+// cleanTitle clips a title that a person outside the project wrote to maxTitleRunes, and drops its control
+// characters, its bidirectional overrides and isolates, and its zero-width characters.
+func cleanTitle(title string) string {
+	var out strings.Builder
+	kept := 0
+	for _, r := range title {
+		if unicode.IsControl(r) || (r >= 0x202A && r <= 0x202E) || (r >= 0x2066 && r <= 0x2069) || (r >= 0x200B && r <= 0x200D) || r == 0x2060 || r == 0xFEFF {
+			continue
+		}
+		if kept == maxTitleRunes {
+			break
+		}
+		out.WriteRune(r)
+		kept++
+	}
+	return out.String()
+}
 
 // mergeFields are what a merge reads of a pull request before it merges and after, to say what the merge
 // came to: mergeStateStatus is DIRTY for a conflict and BEHIND for a branch an up-to-date base refuses.
@@ -199,6 +225,44 @@ func (f Forge) OpenPullRequest(ctx context.Context, spec ports.PullRequestSpec) 
 		return ledger.PullRequest{}, err
 	}
 	return f.PullRequest(ctx, ports.PullRequestRef{Repo: spec.Repo, Number: number})
+}
+
+// OpenPullRequests lists the open pull requests with `gh pr list --state open --limit 201 --json`, one more
+// than it returns, so a repository with more says so (https://cli.github.com/manual/gh_pr_list).
+func (f Forge) OpenPullRequests(ctx context.Context, repo ports.ForgeRepo) ([]ledger.PullRequestSummary, bool, error) {
+	out, err := f.run(ctx, repo.Dir, "pr", "list", "--repo", repo.Binding.String(), "--state", "open", "--limit", strconv.Itoa(ports.MaxOpenPullRequests+1), "--json", summaryFields)
+	if err != nil {
+		return nil, false, err
+	}
+	var listed []struct {
+		Number      int64  `json:"number"`
+		Title       string `json:"title"`
+		HeadRefName string `json:"headRefName"`
+		BaseRefName string `json:"baseRefName"`
+		URL         string `json:"url"`
+		IsDraft     bool   `json:"isDraft"`
+		IsCrossRepo bool   `json:"isCrossRepository"`
+		UpdatedAt   string `json:"updatedAt"`
+	}
+	if err := json.Unmarshal(out, &listed); err != nil {
+		return nil, false, fmt.Errorf("reading gh pr list: %w", err)
+	}
+	more := len(listed) > ports.MaxOpenPullRequests
+	if more {
+		listed = listed[:ports.MaxOpenPullRequests]
+	}
+	pulls := make([]ledger.PullRequestSummary, 0, len(listed))
+	for _, pr := range listed {
+		updated := pr.UpdatedAt
+		if at, err := time.Parse(time.RFC3339, updated); err == nil {
+			updated = at.UTC().Format(time.RFC3339)
+		}
+		pulls = append(pulls, ledger.PullRequestSummary{
+			Number: pr.Number, Title: cleanTitle(pr.Title), Branch: pr.HeadRefName, Base: pr.BaseRefName, URL: pr.URL, Draft: pr.IsDraft,
+			CrossRepository: pr.IsCrossRepo, UpdatedAt: updated,
+		})
+	}
+	return pulls, more, nil
 }
 
 func (f Forge) openFor(ctx context.Context, repo ports.ForgeRepo, branch string) (*ledger.PullRequest, error) {

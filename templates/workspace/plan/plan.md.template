@@ -37,7 +37,8 @@ rationale = "An unconfirmed address could lock the customer out of account recov
 # true holds the plan's approval while the question behind it is still open.
 blocking = false
 
-# An adoption records each branch or issue the plan does not carry, with the reason, so approval shows it.
+# An adoption records each branch, pull request, or issue the plan does not carry, as branch:<name>,
+# pull:<number>, or issue:<id>, with the reason, so approval shows it.
 # [[left_out]]
 # ref = "branch:spike/old-settings"
 # reason = "An experiment the team abandoned"

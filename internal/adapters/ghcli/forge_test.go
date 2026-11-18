@@ -119,6 +119,85 @@ func TestTheAdapterRunsTheManualsCommands(t *testing.T) {
 	}
 }
 
+// TestTheListOfOpenPullRequestsAsksOneMoreThanItReturns holds the listing to the command the manual gives, with
+// the limit one above the most it returns, and reads a full answer as more pull requests than were returned.
+func TestTheListOfOpenPullRequestsAsksOneMoreThanItReturns(t *testing.T) {
+	forge, repo, gh, _ := fixture(t)
+	doubles.EditFakeGH(t, gh, func(s *ghstate.State) {
+		for number := int64(1); number <= ports.MaxOpenPullRequests+1; number++ {
+			s.PullRequests = append(s.PullRequests, ghstate.PullRequest{
+				Number: number, Repo: repoArg, Branch: "b", Base: "main", Title: "Change", State: "OPEN", UpdatedAt: "2026-10-02T16:05:00+02:00", Draft: number == 5,
+			})
+		}
+		s.PullRequests = append(s.PullRequests, ghstate.PullRequest{Number: 500, Repo: repoArg, Branch: "m", Base: "main", State: "MERGED"})
+	})
+	pulls, more, err := forge.OpenPullRequests(t.Context(), repo)
+	if err != nil || !more || len(pulls) != ports.MaxOpenPullRequests {
+		t.Fatalf("listed %d, more %v: %v", len(pulls), more, err)
+	}
+	want := []string{"pr", "list", "--repo", repoArg, "--state", "open", "--limit", "201", "--json", "number,title,headRefName,baseRefName,url,isDraft,isCrossRepository,updatedAt"}
+	if calls := argsOf(doubles.FakeGHCalls(t, gh)); len(calls) != 1 || !slices.Equal(calls[0], want) {
+		t.Errorf("gh ran %q, want %q", calls, want)
+	}
+	newest, oldest := pulls[0], pulls[len(pulls)-1]
+	if newest.Number != 201 || oldest.Number != 2 || newest.UpdatedAt != "2026-10-02T14:05:00Z" || newest.URL != "https://"+repoArg+"/pull/201" || newest.Base != "main" || newest.Branch != "b" {
+		t.Errorf("the newest lists as %+v and the oldest as %+v", newest, oldest)
+	}
+	if draft := pulls[len(pulls)-1-3]; draft.Number != 5 || !draft.Draft {
+		t.Errorf("pull request 5 lists as %+v", draft)
+	}
+}
+
+// between writes the letters with the code point at the same position after each one, and the last letter with none.
+func between(letters string, codes ...rune) string {
+	var out strings.Builder
+	for i, letter := range []rune(letters) {
+		out.WriteRune(letter)
+		if i < len(codes) {
+			out.WriteRune(codes[i])
+		}
+	}
+	return out.String()
+}
+
+// TestAListedTitleIsTextOfAPersonOutsideTheProject keeps what a title says and drops what could hide or reorder
+// it: control characters, bidirectional overrides and isolates, and zero-width characters, and it clips a long one
+// to 256 runes.
+func TestAListedTitleIsTextOfAPersonOutsideTheProject(t *testing.T) {
+	tests := []struct {
+		name, title, want string
+	}{
+		{"plain text", "Retry a failed charge", "Retry a failed charge"},
+		{"non-Latin text stays", "Réessayer le paiement — 日本語", "Réessayer le paiement — 日本語"},
+		{"control characters", "Fix\x00 the\x1b[31m bug\n\tnow\x7f", "Fix the[31m bugnow"},
+		{"bidi overrides and isolates", between("abcdefghij", 0x202A, 0x202B, 0x202C, 0x202D, 0x202E, 0x2066, 0x2067, 0x2068, 0x2069), "abcdefghij"},
+		{"zero-width characters", between("abcdef", 0x200B, 0x200C, 0x200D, 0x2060, 0xFEFF), "abcdef"},
+		{"clipped to 256 runes", strings.Repeat("é", 300), strings.Repeat("é", 256)},
+		{"clipped after what is dropped", strings.Repeat("a"+string(rune(0x200B)), 300), strings.Repeat("a", 256)},
+	}
+	forge, repo, gh, _ := fixture(t)
+	doubles.EditFakeGH(t, gh, func(s *ghstate.State) {
+		for i, tt := range tests {
+			s.PullRequests = append(s.PullRequests, ghstate.PullRequest{
+				Number: int64(i + 1), Repo: repoArg, Branch: "b", Base: "main", Title: tt.title, State: "OPEN", CrossRepository: i == 0,
+			})
+		}
+	})
+	pulls, more, err := forge.OpenPullRequests(t.Context(), repo)
+	if err != nil || more || len(pulls) != len(tests) {
+		t.Fatalf("listed %d, more %v: %v", len(pulls), more, err)
+	}
+	for i, tt := range tests {
+		got := pulls[len(pulls)-1-i]
+		if got.Title != tt.want {
+			t.Errorf("%s: the title lists as %q, want %q", tt.name, got.Title, tt.want)
+		}
+		if got.CrossRepository != (i == 0) {
+			t.Errorf("%s: cross-repository reads %v", tt.name, got.CrossRepository)
+		}
+	}
+}
+
 // TestASignedOutCLIIsAHealthState reads `gh auth status` exiting with 1 as a sign-in problem with what it
 // said, and a missing `gh` as missing, neither as an error.
 func TestASignedOutCLIIsAHealthState(t *testing.T) {

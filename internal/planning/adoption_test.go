@@ -3,6 +3,7 @@ package planning_test
 import (
 	"errors"
 	"slices"
+	"strings"
 	"testing"
 
 	"ropeshift.com/ropeshift/internal/planning"
@@ -117,14 +118,45 @@ func TestAPlanRecordsWhatItLeftOut(t *testing.T) {
 	if got, err := plan.Normalize(); err != nil || len(got.LeftOut) != 2 {
 		t.Fatalf("a plan with what it left out: %+v, %v", got, err)
 	}
+	plan.LeftOut = []planning.LeftOut{
+		{Ref: "branch:spike/old-ui", Reason: "An abandoned experiment"},
+		{Ref: "pull:41", Reason: "The author closed it"},
+	}
+	if got, err := plan.Normalize(); err != nil || len(got.LeftOut) != 2 || got.LeftOut[1].Ref != "pull:41" {
+		t.Fatalf("a plan that leaves out a pull request: %+v, %v", got.LeftOut, err)
+	}
 	for name, left := range map[string][]planning.LeftOut{
-		"no reason": {{Ref: "branch:spike/old-ui"}},
-		"no ref":    {{Reason: "Old"}},
-		"twice":     {{Ref: "branch:a", Reason: "Old"}, {Ref: "branch:a", Reason: "Older"}},
+		"no reason":            {{Ref: "branch:spike/old-ui"}},
+		"a pull request twice": {{Ref: "pull:41", Reason: "Old"}, {Ref: "pull:41", Reason: "Older"}},
+		"no ref":               {{Reason: "Old"}},
+		"twice":                {{Ref: "branch:a", Reason: "Old"}, {Ref: "branch:a", Reason: "Older"}},
 	} {
 		plan.LeftOut = left
 		if _, err := plan.Normalize(); !errors.Is(err, planning.ErrBadFile) {
 			t.Errorf("%s: %v", name, err)
+		}
+	}
+}
+
+// A left-out ref is branch: and a name git takes, pull: and a positive decimal number with no leading zero, or
+// issue: and an ID of at most 128 bytes with no whitespace, no control character, and no leading dash.
+func TestAPlansLeftOutRefsAreBranchesPullRequestsOrIssues(t *testing.T) {
+	for _, ref := range []string{
+		"branch:main", "branch:feature/checkout-retry", "branch:origin/spike/old-ui", "pull:1", "pull:41", "pull:1234567",
+		"issue:42", "issue:PROJ-123", "issue:acme/widgets#7", "issue:" + strings.Repeat("a", 128),
+	} {
+		plan := planning.PlanFile{ID: "p", Title: "P", LeftOut: []planning.LeftOut{{Ref: ref, Reason: "Old"}}}
+		if _, err := plan.Normalize(); err != nil {
+			t.Errorf("%s: %v", ref, err)
+		}
+	}
+	for _, ref := range []string{
+		"pull:abc", "pull:", "pull:-1", "pull:+1", "pull:0", "pull:041", "pull:4 1", "pull:1.5", "pull:99999999999999999999",
+		"foo", "issue:", "issue: x", "issue:x y", "issue:PROJ\t1", "issue:PROJ\x011", "issue:PROJ\n1", "issue:-1", "issue:--force", "issue:" + strings.Repeat("a", 129), "branch:", "branch:-x", "branch:a..b", "branch:a b", "branch:a//b", "branch:x.lock", "branch", "pull", ":41",
+	} {
+		plan := planning.PlanFile{ID: "p", Title: "P", LeftOut: []planning.LeftOut{{Ref: ref, Reason: "Old"}}}
+		if _, err := plan.Normalize(); !errors.Is(err, planning.ErrBadFile) {
+			t.Errorf("%q: %v, want a refusal", ref, err)
 		}
 	}
 }

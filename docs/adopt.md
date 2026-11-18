@@ -109,8 +109,9 @@ Before the session's lane starts, the worker writes an inventory of every reposi
 - Every Markdown file, with its front matter format and headings.
 - The files already in ropeshift's format, and whether intake reads them cleanly.
 - Every branch the base does not hold: where it left the base, and how far ahead and behind it is.
+- Every open pull request, by number, at most 200 of the newest: its number, title, head and base branch, address, whether it is a draft, whether its branch lives in a fork, and when it last changed. A title is clipped to 256 characters, without control, direction-changing, or zero-width characters, because people outside the project write it. When the forge holds more, the inventory says so.
 
-Open pull requests and issues are not read yet, and the inventory says so.
+Open pull requests are read for a repository whose remote names a repository on a forge, when this worker's `gh` sign-in for that forge is healthy. For any other repository the inventory records them as omitted with the reason: its remote names no forge repository, this worker has no forge adapter, the sign-in is signed out or missing, or the forge refused the listing. The pull requests are what the forge showed when the inventory was written, so the same commits give the same file only while the open pull requests are the same. Open issues are not read yet, and the inventory says so.
 
 ## The workspace files
 
@@ -209,7 +210,8 @@ These are claims, and approving the plan is you saying they hold. The approval l
 For each branch the base does not hold, the session asks you whether to keep it:
 
 - A kept branch becomes a work order with `continues = "<branch>"`. Its lane starts from the branch's tip, on a branch of its own, and its review reads the whole change from where the branch left the base. Ropeshift never moves, rewrites, or deletes the branch it continues.
-- A branch you leave out is recorded in the plan's `[[left_out]]` tables with your reason, so the approval shows it.
+- A kept open pull request is its head branch: that branch becomes a work order with `continues`, as a kept branch does. A pull request whose branch lives in a fork cannot be continued by branch name, so it goes in `[[left_out]]`.
+- A branch you leave out is recorded in the plan's `[[left_out]]` tables with `ref = "branch:<name>"` and your reason, and a pull request you leave out with `ref = "pull:<number>"`. A ref for an issue is `issue:<id>`, such as `issue:PROJ-123`. The approval shows each one.
 
 ## A workspace with an inner folder of clones
 

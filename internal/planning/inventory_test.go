@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/planning"
 )
 
@@ -104,7 +105,40 @@ func TestAnInventoryRendersTheSameBytesForTheSameFacts(t *testing.T) {
 	for _, omitted := range read.Omitted {
 		parts[omitted.Part] = omitted.Reason != ""
 	}
-	if !parts["pull_requests"] || !parts["issues"] {
+	if len(parts) != 1 || !parts["issues"] {
 		t.Errorf("the inventory does not say what it leaves out: %+v", read.Omitted)
+	}
+}
+
+// FR-ADOPT-2: a repository's open pull requests are listed by number, whatever order the forge gave them in, with
+// an empty list when there are none, and a repository whose pull requests were not read says why.
+func TestAnInventoryListsOpenPullRequestsByNumberOrSaysWhyNot(t *testing.T) {
+	pull := func(number int64) ledger.PullRequestSummary {
+		return ledger.PullRequestSummary{Number: number, Title: "Change", Branch: "feature/b", Base: "main", URL: "https://example.com/pull/1", UpdatedAt: "2026-10-02T14:05:00Z"}
+	}
+	raw, err := planning.RenderInventory(planning.Inventory{Repositories: []planning.RepositoryInventory{
+		{Name: "api", Repository: "id-api", PullRequests: []ledger.PullRequestSummary{pull(12), pull(3)}, MorePullRequests: true},
+		{Name: "docs", Repository: "id-docs"},
+		{Name: "web", Repository: "id-web", Omitted: []planning.InventoryOmission{{Part: planning.PartPullRequests, Reason: "no forge binding"}}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var read planning.Inventory
+	if err := json.Unmarshal(raw, &read); err != nil {
+		t.Fatal(err)
+	}
+	api, docs, web := read.Repositories[0], read.Repositories[1], read.Repositories[2]
+	if len(api.PullRequests) != 2 || api.PullRequests[0].Number != 3 || api.PullRequests[1].Number != 12 || !api.MorePullRequests || len(api.Omitted) != 0 {
+		t.Errorf("api lists %+v, more %v, omitted %+v", api.PullRequests, api.MorePullRequests, api.Omitted)
+	}
+	if !strings.Contains(string(raw), `"pull_requests": []`) || docs.PullRequests == nil || len(docs.PullRequests) != 0 || docs.MorePullRequests || len(docs.Omitted) != 0 {
+		t.Errorf("a repository with none open lists %+v, more %v, omitted %+v\n%s", docs.PullRequests, docs.MorePullRequests, docs.Omitted, raw)
+	}
+	if len(web.PullRequests) != 0 || len(web.Omitted) != 1 || web.Omitted[0] != (planning.InventoryOmission{Part: "pull_requests", Reason: "no forge binding"}) {
+		t.Errorf("web lists %+v and omits %+v", web.PullRequests, web.Omitted)
+	}
+	if strings.Contains(string(raw), "no forge adapter is built yet") {
+		t.Errorf("the inventory still carries the stale omission:\n%s", raw)
 	}
 }
