@@ -32,6 +32,7 @@ var AdoptChecks = []Check{
 	{"AS13", "a consolidating adoption's pull request says that only a merge commit keeps the design history, and at person_merges that the person merges it with one", checkAConsolidationsPullRequestSaysHowToMergeIt},
 	{"AS14", "an adoption that imports no history merges with the repository's merge method", checkAnAdoptionThatImportsNoHistoryMergesAsTheRepositorySays},
 	{"AS15", "a squash merge of a consolidation made outside ropeshift leaves a gap naming the branch and the missing design tip, which a later check clears once the base holds the tip", checkASquashMergeOutsideRopeshiftRaisesTheNotice},
+	{"AS16", "restructuring is refused, with adoption, for a project that already has an approved plan, and not before", checkRestructuringIsRefusedOnceAPlanIsApproved},
 }
 
 // adoptOrder records ready planning work that adopts the project, in a repository, with the restructuring a

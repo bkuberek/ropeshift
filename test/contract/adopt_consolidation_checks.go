@@ -475,3 +475,30 @@ func checkASquashMergeOutsideRopeshiftRaisesTheNotice(r *Rig) error {
 	}
 	return nil
 }
+
+func checkRestructuringIsRefusedOnceAPlanIsApproved(r *Rig) error {
+	s := r.Store()
+	restructure := func(id string) error {
+		_, err := r.NewOps(s).Record(r.Ctx, r.Scope, control.LedgerWork{
+			Order: workorders.WorkOrder{
+				ID: r.ID(id), Kind: workorders.KindPlan, Title: "Adopt the project", Adopt: true, Restructure: consolidating(), MaxAttempts: 1,
+			},
+			Criteria: criteriaOf(criterionOne),
+		}, r.member())
+		return err
+	}
+	_, pending, err := r.aLanePlanAsksForApproval(s, laneFiles("The first draft."))
+	if err != nil {
+		return err
+	}
+	if err := restructure("before"); err != nil {
+		return Violatedf("a restructuring with a plan that only waits was refused: %v", err)
+	}
+	if _, err := r.approve(s, pending, true, theMember); err != nil {
+		return err
+	}
+	if err := restructure("after"); !errors.Is(err, workorders.ErrAlreadyPlanned) {
+		return Violatedf("a restructuring of a project with an approved plan: %v", err)
+	}
+	return nil
+}
