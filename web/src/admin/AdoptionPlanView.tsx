@@ -1,7 +1,7 @@
-import type { AdoptionPlan, LayoutClone, PlannedRepository } from "../api/admin";
+import type { AdoptionPlan, LayoutClone, PlannedFile, PlannedRepository } from "../api/admin";
 import type { StateLook } from "../floor/states";
 import { Digest, LookBadge, TableRegion } from "../ui/display";
-import { restructures, shapeSummary } from "./adoption";
+import { offersRestructure, shapeSummary } from "./adoption";
 
 // How a clone was found, and what it holds, as `ropeshift adopt --dry-run` says them.
 const foundWhere = { here: "where adopt runs", ignored: "in a folder the clone ignores", path: "named by a path" } as const;
@@ -95,6 +95,36 @@ export function PlanSummary({ plan }: { plan: AdoptionPlan }) {
   );
 }
 
+// FileTable lists files a restructuring adds, each with what it does to the file and what it holds.
+function FileTable({ label, files }: { label: string; files: PlannedFile[] }) {
+  return (
+    <TableRegion label={label}>
+      <table className="table stack-on-phone dry-run">
+        <thead>
+          <tr>
+            <th scope="col">Change</th>
+            <th scope="col">Path</th>
+            <th scope="col">What it holds</th>
+          </tr>
+        </thead>
+        <tbody>
+          {files.map((file) => (
+            <tr key={`${file.action}:${file.path}`}>
+              <td data-label="Change">{file.action === "add" ? "Add" : (file.lines?.length ?? 1) > 1 ? "Append lines to" : "Append a line to"}</td>
+              <td data-label="Path" className="wrap">
+                <code>{file.path}</code>
+              </td>
+              <td data-label="What it holds" className="wrap">
+                {file.detail}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </TableRegion>
+  );
+}
+
 type ChoiceProps = {
   plan: AdoptionPlan;
   chosen: boolean;
@@ -108,15 +138,17 @@ type ChoiceProps = {
 // RestructureChoice lists everything restructuring would do in the plan's shape, and takes the member's choice to do
 // it. A restructuring happens only when it is chosen (FR-ADOPT-12), and a code tree left out recomputes the plan.
 export function RestructureChoice({ plan, chosen, busy, refusal, onChoose, onLeaveOut }: ChoiceProps) {
-  if (!restructures(plan.shape)) {
+  if (!offersRestructure(plan)) {
     return null;
   }
-  const files = plan.files ?? [];
+  const added = (plan.files ?? []).filter((file) => !file.template);
+  const lacking = (plan.files ?? []).filter((file) => file.template);
   const takes = plan.takes ?? [];
   const collisions = plan.collisions ?? [];
   const trees = plan.code_trees ?? [];
   const moves = plan.moves ?? [];
-  const nothing = files.length + takes.length + collisions.length + moves.length === 0;
+  const steps = plan.steps ?? [];
+  const nothing = added.length + lacking.length + takes.length + collisions.length + moves.length + steps.length === 0;
   return (
     <fieldset className="field plan-choice" aria-describedby="restructure-help">
       <legend className="label">Restructure</legend>
@@ -129,32 +161,8 @@ export function RestructureChoice({ plan, chosen, busy, refusal, onChoose, onLea
       </label>
       {refusal ? <p className="small muted">{refusal}</p> : null}
       {nothing ? <p className="small muted">The planning repository already holds everything a restructuring adds, so there is nothing to list.</p> : null}
-      {files.length > 0 ? (
-        <TableRegion label="Files added">
-          <table className="table stack-on-phone dry-run">
-            <thead>
-              <tr>
-                <th scope="col">Change</th>
-                <th scope="col">Path</th>
-                <th scope="col">What it holds</th>
-              </tr>
-            </thead>
-            <tbody>
-              {files.map((file) => (
-                <tr key={`${file.action}:${file.path}`}>
-                  <td data-label="Change">{file.action === "add" ? "Add" : (file.lines?.length ?? 1) > 1 ? "Append lines to" : "Append a line to"}</td>
-                  <td data-label="Path" className="wrap">
-                    <code>{file.path}</code>
-                  </td>
-                  <td data-label="What it holds" className="wrap">
-                    {file.detail}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </TableRegion>
-      ) : null}
+      {added.length > 0 ? <FileTable label="Files added" files={added} /> : null}
+      {lacking.length > 0 ? <FileTable label="Files the layout lacks" files={lacking} /> : null}
       {takes.length > 0 ? (
         <TableRegion label={`Paths taken from ${plan.design?.name ?? "the design repository"}`} className="plan-scroll">
           <table className="table dry-run">
@@ -222,6 +230,21 @@ export function RestructureChoice({ plan, chosen, busy, refusal, onChoose, onLea
               </span>
               <pre className="code-block" role="region" aria-label={`Commands that move ${move.name}`} tabIndex={0}>
                 <code>{move.commands.join("\n")}</code>
+              </pre>
+            </div>
+          ))}
+        </div>
+      ) : null}
+      {steps.length > 0 ? (
+        <div className="stack plan-moves">
+          <p className="help">Ropeshift writes to no clone but the planning repository's. Run these yourself in each code repository that holds no instruction file.</p>
+          {steps.map((step) => (
+            <div key={step.path} className="field">
+              <span className="label">
+                Instructions for {step.name}: <code>{step.path}</code>
+              </span>
+              <pre className="code-block" role="region" aria-label={`Commands that write the instructions of ${step.name}`} tabIndex={0}>
+                <code>{step.commands.join("\n")}</code>
               </pre>
             </div>
           ))}

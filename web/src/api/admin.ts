@@ -62,10 +62,14 @@ export type RepositoryAddReport = { dry_run: boolean; repositories: RepositoryAd
 export type LayoutShape = "single" | "planned" | "consolidate" | "workspace_files";
 export type LayoutClone = { name: string; path: string; identity: string; where: "here" | "ignored" | "path"; plan?: boolean; documents: number; instructions?: boolean };
 export type PlannedRepository = { name?: string; path: string; id?: string; outcome: "registered" | "known" | "refused" | "not_registered"; reason?: string };
-// lines are the lines an append adds to the file, each only when the file holds none like it.
-export type PlannedFile = { path: string; action: "add" | "append"; detail?: string; lines?: string[] };
+// lines are the lines an append adds to the file, each only when the file holds none like it. template names the
+// template a file the layout lacks is written from.
+export type PlannedFile = { path: string; action: "add" | "append"; detail?: string; lines?: string[]; template?: string };
 export type PlannedCodeTree = { path: string; build_file: string; whole?: boolean; left_out?: boolean };
 export type PlannedMove = { name: string; from: string; to: string; commands: string[] };
+// A step is what the person does in a code repository that holds no instruction file, because adoption writes to no clone
+// but the planning repository's.
+export type PlannedStep = { name: string; path: string; commands: string[] };
 export type AdoptionPlan = {
   layout: { root: string; folders: string[] | null; clones: LayoutClone[] };
   shape: LayoutShape;
@@ -77,6 +81,7 @@ export type AdoptionPlan = {
   collisions: { path: string; kept: "workspace" | "union" }[] | null;
   code_trees: PlannedCodeTree[] | null;
   moves: PlannedMove[] | null;
+  steps?: PlannedStep[] | null;
   notes?: string[];
   digest: string;
   // parts are the digest of each part of the plan, by part name, which the route answers beside the plan. They are no
