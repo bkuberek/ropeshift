@@ -406,6 +406,16 @@ func (r *Recoveries) Recover(ctx context.Context, scope ledger.WorkspaceID, call
 			ID: id, Act: call.Act, WorkOrder: call.WorkOrder, Lane: lane, Actor: authority.Principal(actor), Generation: generation,
 			Reason: call.Reason, Result: authority.RecoveryDone, At: tx.Now(),
 		}
+		// Work at its hard spend limit is not restarted, reset, or retried by anyone who asks through a recovery tool:
+		// the lane would spend again, and past a limit only a member decides that. The refusal raises no request,
+		// because a member's grant would be the very spending the limit stopped, and a member raises the limit instead.
+		if limit, stopped, err := atHardSpendLimit(tx, call.Act, call.WorkOrder); err != nil {
+			return err
+		} else if stopped {
+			result.Result, result.Check, result.Limit = authority.RecoveryRefused, authority.CheckSpendLimit, limit
+			record.Result, record.Check, record.Limit = authority.RecoveryRefused, authority.CheckSpendLimit, limit
+			return keepRecovery(tx, record, actor)
+		}
 		if !authority.Allowed(actor, authority.ActionPassRecovery) {
 			result.PolicyVersion, record.PolicyVersion = version.Version, version.Version
 			facts, err := recoveryFacts(tx, call.Act, subject, actor)
@@ -431,6 +441,20 @@ func (r *Recoveries) Recover(ctx context.Context, scope ledger.WorkspaceID, call
 		return RecoveryResult{}, err
 	}
 	return result, nil
+}
+
+// atHardSpendLimit says an act that starts more spending is asked of work at its hard limit, and words the limit for
+// the refusal. A replan starts none: it only sends blocked work back to planning.
+func atHardSpendLimit(tx ports.WriteTx, act authority.RecoveryAct, workOrder string) (string, bool, error) {
+	if act == authority.RecoverReplan {
+		return "", false, nil
+	}
+	spend, err := spendWritesOf(tx).spendOf(workOrder)
+	if err != nil || !slices.Contains(spend.Conditions, ledger.ConditionSpendLimit) {
+		return "", false, err
+	}
+	return fmt.Sprintf("work order %s is at its hard spend limit of %s, with %s charged, and only a member raises a limit",
+		workOrder, usd(spend.HardLimit), usd(spend.Charged.ChargedUSD)), true, nil
 }
 
 // performRecovery runs an act on its subject. A lane act asks the worker that holds the lane, so the lane's

@@ -26,6 +26,7 @@ var RecoveryChecks = []Check{
 	{"RV9", "a recovery act needs a reason, an orchestrator, and an act the design names", checkRecoveryRefusesTheRest},
 	{"RV10", "the recovery policy is published like any other, and only by a member", checkRecoveryPolicyPublished},
 	{"RV11", "work that names no bound of its own has the policy's attempts, and a retry past them reaches a member", checkRecoveryPolicyAttempts},
+	{"RV12", "lane_restart, lane_reset, and work_retry are refused for work at its hard spend limit, naming it, with no request, and run once a member raises it", checkRecoveryAtTheHardLimit},
 }
 
 // recoveryRig is a running lane, with its worker's orchestrator started and in its third generation.

@@ -52,7 +52,8 @@ func (s *Spend) Raise(ctx context.Context, scope ledger.WorkspaceID, in SpendRai
 		if err != nil {
 			return err
 		}
-		if workorders.Terminal(order.State) {
+		// Failed work can be retried, so its limit is still one that stops it. Finished and canceled work spends no more.
+		if order.State == workorders.Done || order.State == workorders.Canceled {
 			return fmt.Errorf("%w: work order %s is %s, so no limit stops it", workorders.ErrInvalid, in.WorkOrder, order.State)
 		}
 		if spend.HardLimit <= 0 {

@@ -139,6 +139,9 @@ const (
 	CheckRetryFailed    = "retry_failed"
 	CheckAttempts       = "max_attempts"
 	CheckReplanBlocked  = "replan_blocked"
+	// CheckSpendLimit refuses a restart, a reset, or a retry of work at its hard spend limit. It is no policy's
+	// to turn off, because only a member raises a limit (FR-SPEND-8).
+	CheckSpendLimit = "spend_limit"
 )
 
 // RecoveryFacts is what a check reads of an act's subject, once the subject is in the state the act
