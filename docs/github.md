@@ -178,6 +178,8 @@ ropeshift new monorepo ~/code/harbor --remote git@example.com:acme/harbor.git
 
 A remote URL holds no password: `new` refuses `https://user:secret@host/...` before it writes anything, because the URL is stored in the installation, printed in reports, and written to the manifest. Let git's credential helper or an SSH key supply the credential.
 
+A repository created on GitHub is named after its folder or its `--new-repository` name, which has 1 to 100 letters, digits, dots, underscores, and hyphens and is not `.` or `..`; `new` refuses any other name before it writes anything.
+
 Before it writes anything, `new` checks `gh` on the machine that writes the folder, and the first failing check stops it with the command to run, with nothing written and nothing created:
 
 | Check | Refusal | What to run |
