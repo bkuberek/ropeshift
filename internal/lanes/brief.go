@@ -154,7 +154,7 @@ func planningNotice(spec BriefSpec) string {
 		"- A contract needs at least one criterion and at least one work order, and each work order's id is unique. Use repo = \".\" " +
 		"for this repository, and size small, medium, or large.\n" +
 		"- Write a draft decision only for an answer the person gave you in conversation. For anything they have not answered, ask " +
-		"with the " + ToolAsk + " tool.\n" +
+		"with the " + ToolAsk + " tool. " + askAdvice + "\n" +
 		"- A TOML string needs its quotes, and a file that does not parse reaches nobody.\n\n" +
 		"Commit the files on this branch, because intake reads a commit and never your working tree. Report the outcome after the commit. " +
 		"The person then approves the plan in one step: approving it records your draft decisions as their decisions, passes the " +
@@ -173,10 +173,13 @@ func intakeNotice(directory string) string {
 	return "Keep plan files in `plan/`; intake reads every committed `.md` file whose first line is `+++`."
 }
 
+// askAdvice is what a brief says to put in a question so that a person can answer it once.
+const askAdvice = "Give the options you would choose between, and recommend one of them with the reason in recommendation_rationale."
+
 // reviewNotice tells a review lane what a review is for. It finds, and it decides nothing.
 const reviewNotice = "This is a contract review. Read the plan and each contract below as the lane that will do the work would, and " +
 	"find everything that lane would have to stop and ask: what the contract leaves open, what two contracts disagree on, what a " +
-	"criterion cannot show. Ask each one with the " + ToolAsk + " tool, as a person would read it. Set blocking to true when work cannot " +
+	"criterion cannot show. Ask each one with the " + ToolAsk + " tool, as a person would read it. " + askAdvice + " Set blocking to true when work cannot " +
 	"start without the answer. Ask everything you find in this one pass, and answer none of it yourself: nothing reaches a person until " +
 	"you report, so that they read it together. Do not change any file.\n"
 

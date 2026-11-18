@@ -230,6 +230,7 @@ var askTool = map[string]any{
 	"name": lanes.ToolAsk,
 	"description": "Ask a question this lane cannot answer from its contract. It records the question and returns at once: " +
 		"answered, with the answer and what it rests on; attached, because the same question is already open; or pending. " +
+		"Give the options you would choose between and the one you recommend with why, whenever you can. " +
 		"Do not wait on it. Go on with any other useful work, and end your turn if nothing is left without the answer.",
 	"inputSchema": map[string]any{
 		"type": "object",
@@ -242,6 +243,14 @@ var askTool = map[string]any{
 			},
 			"blocking": map[string]any{"type": "boolean", "description": "True when this lane cannot finish without the answer."},
 			"options":  map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "What you would choose between, when you know."},
+			"recommendation": map[string]any{
+				"type":        "string",
+				"description": "The option you would choose. When you give options, it must be one of them, written the same way.",
+			},
+			"recommendation_rationale": map[string]any{
+				"type":        "string",
+				"description": "Why that option is the one to choose. A person who accepts the recommendation records this as the reason.",
+			},
 		},
 		"required": []string{"text"},
 	},

@@ -161,6 +161,11 @@ type Sabotage struct {
 	AnswersReplaceNothing bool
 	// BindsAnswersTwice applies what an answer binds a second time, after the answer is recorded.
 	BindsAnswersTwice bool
+	// DropsAskedRecommendation records a lane's question without the recommendation the lane gave it.
+	DropsAskedRecommendation bool
+	// RewritesRecommendation has escalation replace a question's recommendation with the escalation's own, even
+	// when it states none.
+	RewritesRecommendation bool
 	// LeavesParkedLanes cancels work and leaves its parked lane reading parked for good.
 	LeavesParkedLanes bool
 	// EndsAnyCanceledLane takes any worker's word that a canceled lane ended.
@@ -328,6 +333,10 @@ func decidesReplacedDrafts() bool { return current().DecidesReplacedDrafts }
 func answersReplaceNothing() bool { return current().AnswersReplaceNothing }
 
 func bindsAnswersTwice() bool { return current().BindsAnswersTwice }
+
+func dropsAskedRecommendation() bool { return current().DropsAskedRecommendation }
+
+func rewritesRecommendation() bool { return current().RewritesRecommendation }
 
 func leavesParkedLanes() bool { return current().LeavesParkedLanes }
 

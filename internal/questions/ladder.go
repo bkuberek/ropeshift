@@ -190,8 +190,12 @@ type Ask struct {
 	SubjectKind string   `json:"subject_kind,omitempty"`
 	SubjectID   string   `json:"subject_id,omitempty"`
 	Options     []string `json:"options,omitempty"`
-	Lane        string   `json:"lane,omitempty"`
-	Generation  int64    `json:"generation,omitempty"`
+	// Recommendation is the option the lane would choose, and RecommendationRationale why. Escalation keeps
+	// both unless the orchestrator states its own.
+	Recommendation          string `json:"recommendation,omitempty"`
+	RecommendationRationale string `json:"recommendation_rationale,omitempty"`
+	Lane                    string `json:"lane,omitempty"`
+	Generation              int64  `json:"generation,omitempty"`
 	// Direct says the question goes straight to the person. The control plane sets it from the
 	// ledger's work order when the asking lane runs a plan, so it never travels from a lane.
 	Direct bool `json:"-"`
@@ -243,6 +247,29 @@ type Escalation struct {
 	// RecommendationRationale is why the recommendation is the one to choose. The gate requires it with a
 	// recommendation, and accepting the recommendation records it.
 	RecommendationRationale string `json:"recommendation_rationale,omitempty"`
+}
+
+// RecommendationAfter is the recommendation and the rationale a question holds once it takes an escalation. An
+// escalation that states a recommendation replaces the question's, with its own rationale. One that states none
+// keeps the question's recommendation, with a rationale of its own when it gives one, as long as the recommendation
+// is one of the options the question will then have: a recommendation of an option that escalation replaced is
+// dropped, and the gate names its absence.
+func RecommendationAfter(q Question, e Escalation) (recommendation, rationale string) {
+	if e.Recommendation != "" {
+		return e.Recommendation, e.RecommendationRationale
+	}
+	options := q.Options
+	if len(e.Options) != 0 {
+		options = e.Options
+	}
+	if q.Recommendation == "" || (len(options) != 0 && !slices.Contains(options, q.Recommendation)) {
+		return "", ""
+	}
+	rationale = q.RecommendationRationale
+	if e.RecommendationRationale != "" {
+		rationale = e.RecommendationRationale
+	}
+	return q.Recommendation, rationale
 }
 
 // LaneAsk is an ask a worker carries for one of its lanes. The control plane checks that

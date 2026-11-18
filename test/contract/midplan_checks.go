@@ -39,6 +39,7 @@ var MidPlanChecks = []Check{
 	{"MP15", "overturning a review's decision reworks no review", checkMidPlanOverturnReworksNoReview},
 	{"MP16", "a blocking question reaches a member when no orchestrator serves the project", checkMidPlanNoOrchestrator},
 	{"MP17", "a batch answered in one request records all 18 answers, and a request with one refused item records none", checkMidPlanBatchOnce},
+	{"MP18", "a lane's options and recommendation stay on its item when the orchestrator escalates it with none of its own", checkMidPlanLaneRecommendation},
 }
 
 const (
@@ -49,7 +50,12 @@ const (
 	midPlanOneWay    = 3
 	logoQuestion     = "Which logo set should the site use?"
 	logoDraft        = "Which logo set?"
+	// logoRecommendation and logoRationale are what L-web gives its question, beside logoOptions.
+	logoRecommendation = "Wordmark"
+	logoRationale      = "A wordmark reads at every size the site uses."
 )
+
+func logoOptions() []string { return []string{"Monogram (P17)", "Wordmark"} }
 
 // midPlan is the world of the scenario: an approved plan with five contracts, lanes in flight on three of
 // their work orders, one finished and one waiting, and a review lane, and then what the batch did.
@@ -219,7 +225,9 @@ func (m *midPlan) raise() error {
 			return err
 		}
 	}
-	asked, err := m.web.askAs(logoQuestion, true)
+	asked, err := m.web.askWith(logoQuestion, true, func(a *questions.Ask) {
+		a.Options, a.Recommendation, a.RecommendationRationale = logoOptions(), logoRecommendation, logoRationale
+	})
 	if err != nil {
 		return err
 	}
@@ -234,12 +242,11 @@ func (m *midPlan) raise() error {
 			return err
 		}
 	}
+	// The orchestrator states no options and no recommendation: the lane's reach the person.
 	if _, err := ops.Escalate(r.Ctx, r.Scope, m.logo, questions.Escalation{
 		Reason: questions.ReasonRequirementConflict, Categories: []string{questions.CategoryDesign},
-		Options: []string{"Monogram (P17)", "Wordmark"}, Recommendation: "Wordmark",
-		RecommendationRationale: "A wordmark reads at every size the site uses.",
 	}, m.holder); err != nil {
-		return err
+		return Violatedf("the logo question does not escalate with the options and recommendation its lane gave it: %v", err)
 	}
 	m.webWake = r.ID("wake")
 	if err := accepted(m.web.parkingUpload(m.webWake, lanes.QuestionWake([]string{m.logo}))); err != nil {
@@ -459,6 +466,31 @@ func checkMidPlanRationale(r *Rig) error {
 		if decision.Rationale == "" || decision.Rationale != item.RecommendationRationale || len(decision.Citations) == 0 || !slices.Equal(decision.Citations, item.Citations) {
 			return Violatedf("the decision for question %s records rationale %q and citations %v, and its item holds %q and %v", id, decision.Rationale, decision.Citations, item.RecommendationRationale, item.Citations)
 		}
+	}
+	return nil
+}
+
+// checkMidPlanLaneRecommendation holds G8: L-web asked its question with options, a recommendation, and its
+// rationale, and the orchestrator escalated it with none of its own, so its item keeps what the lane gave. The
+// review's questions, which the orchestrator escalated with its own, keep the orchestrator's.
+func checkMidPlanLaneRecommendation(r *Rig) error {
+	m, err := midPlanDelivered(r)
+	if err != nil {
+		return err
+	}
+	item, err := m.itemOf(m.logo)
+	if err != nil {
+		return err
+	}
+	if !slices.Equal(item.Options, logoOptions()) || item.Recommendation != logoRecommendation || item.RecommendationRationale != logoRationale {
+		return Violatedf("the logo item offers %v, and recommends %q because %q", item.Options, item.Recommendation, item.RecommendationRationale)
+	}
+	own, err := m.itemOf(m.asked[0])
+	if err != nil {
+		return err
+	}
+	if own.Recommendation != "A" || own.RecommendationRationale != "A keeps the plan's direction." {
+		return Violatedf("a review item the orchestrator escalated with its own recommends %q because %q", own.Recommendation, own.RecommendationRationale)
 	}
 	return nil
 }

@@ -159,7 +159,7 @@ When a lane has a question, the question climbs a ladder, and a person is the la
 
 A decision record kept as a file, such as an architecture decision record, takes part in the first rung while its newest version has the status `accepted`. The orchestrator reads its title and body and cites it as `decision:<id>`, the ID its front matter gives. A record that is proposed, rejected, or superseded answers nothing, and one whose newest version leaves `accepted` leaves the lookup with it.
 
-Questions reach you in batches, each with its options and a recommendation. Every answer is recorded as a decision with its rationale, so the next lane that asks finds it on the first rung. One-way decisions about security, compliance, and data always come to you. A planning session's questions come straight to you too, because the plan is yours ([decisions in the web UI](web-ui.md#needs-you)).
+Questions reach you in batches, each with its options and a recommendation. A lane may give its question options, the one it recommends, and why, and its question keeps them when the orchestrator brings it to you without options or a recommendation of its own; one the orchestrator states replaces the lane's. A recommendation the lane gives must be one of its options. Every answer is recorded as a decision with its rationale, so the next lane that asks finds it on the first rung. One-way decisions about security, compliance, and data always come to you. A planning session's questions come straight to you too, because the plan is yours ([decisions in the web UI](web-ui.md#needs-you)).
 
 ### What a decision does to work
 

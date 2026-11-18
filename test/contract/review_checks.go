@@ -110,9 +110,17 @@ func (r *Rig) reviewRunning() (*statusRig, string, error) {
 }
 
 func (s *statusRig) askAs(text string, blocking bool) (questions.AskResult, error) {
+	return s.askWith(text, blocking, nil)
+}
+
+// askWith is askAs for a question that carries more than its text, which change adds to it.
+func (s *statusRig) askWith(text string, blocking bool, change func(*questions.Ask)) (questions.AskResult, error) {
+	ask := questions.Ask{ID: s.r.ID("q"), Text: text, Blocking: blocking, Lane: s.lane, Generation: 1}
+	if change != nil {
+		change(&ask)
+	}
 	return s.plane.Ask(s.r.Ctx, questions.LaneAsk{
-		Auth: s.auth, Epoch: s.epoch, WorkOrder: s.grant.WorkOrder, Fence: s.grant.Fence,
-		Ask: questions.Ask{ID: s.r.ID("q"), Text: text, Blocking: blocking, Lane: s.lane, Generation: 1},
+		Auth: s.auth, Epoch: s.epoch, WorkOrder: s.grant.WorkOrder, Fence: s.grant.Fence, Ask: ask,
 	})
 }
 
