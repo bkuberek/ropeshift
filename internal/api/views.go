@@ -66,7 +66,21 @@ const (
 	// decisions since and the finished work they reached, which waits for a member to confirm the version or
 	// revise it (FR-PLAN-11).
 	NeedPlanRevision = "plan_revision"
+	// NeedCI is CI that asks a person about a work order's pull request: a head that has not finished, a run no
+	// runner picked up, or a result no agent can act on (ADR-0037). It starts no agent.
+	NeedCI = "ci"
 )
+
+// What a member can do about CI that asks for them. Wait longer and rerun are operations of this API, and opening the
+// run is the forge's own page, which an item offers when the forge gave an address a link can hold.
+const (
+	ActCIWait  = "ci_wait"
+	ActCIRerun = "ci_rerun"
+	ActCIOpen  = "ci_open_run"
+)
+
+// CIActions lists what a read model can offer about CI, so every surface can be held to knowing each one.
+var CIActions = []string{ActCIWait, ActCIRerun, ActCIOpen}
 
 // Why work waits for a person. The first five are the design's stuck list.
 const (
@@ -185,6 +199,40 @@ type NeedItem struct {
 	ContractReview *ContractReviewNeed `json:"contract_review,omitempty"`
 	Card           *CardNeed           `json:"card,omitempty"`
 	PlanRevision   *PlanRevisionView   `json:"plan_revision,omitempty"`
+	CI             *CINeed             `json:"ci,omitempty"`
+}
+
+// CINeed is what CI asks of a person about a work order's pull request. Kind is the item and the notice, one of
+// ledger.CIItemKinds. Watch says where the head stands against the repository's limits, and Finding what the
+// classification found, for the kinds it raises. Actions says what the person can do, and RunURL is the run's page on
+// the forge when it gave an address a link can hold.
+type CINeed struct {
+	Kind        string               `json:"kind"`
+	WorkOrder   workorders.WorkOrder `json:"work_order"`
+	Number      int64                `json:"number"`
+	PullRequest string               `json:"pull_request_url,omitempty"`
+	Watch       ledger.CIWatch       `json:"watch"`
+	Finding     *ledger.CIFinding    `json:"finding,omitempty"`
+	RunURL      string               `json:"run_url,omitempty"`
+	Actions     []string             `json:"actions"`
+}
+
+// CIWait is a member's Wait longer: the time to add to the CI timeout, or none for one more p85.
+type CIWait struct {
+	// By is a Go duration such as "45m", and empty for one more p85 of the repository's CI.
+	By string `json:"by,omitempty"`
+}
+
+// CIWaited is where the head stands after Wait longer.
+type CIWaited struct {
+	WorkOrder string         `json:"work_order"`
+	Watch     ledger.CIWatch `json:"watch"`
+}
+
+// CIRerun is what a rerun left: the reruns of the head, a member's and the automatic ones.
+type CIRerun struct {
+	WorkOrder string `json:"work_order"`
+	Reruns    int64  `json:"reruns"`
 }
 
 // CardNeed is a confirmation card that waits for a member: the request, the operation it runs, and the

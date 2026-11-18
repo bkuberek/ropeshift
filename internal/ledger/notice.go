@@ -46,6 +46,12 @@ var noticeTexts = map[string]string{
 	NoticeWork + "/failed":        "Work failed, and it waits for a retry.",
 	NoticeWork + "/acceptance":    "Finished work waits for your word.",
 	NoticeWork + "/human_resume":  "A parked lane waits for you to resume it.",
+	// CI asks a person (ADR-0037). Each kind is its own notice kind, and none of them names a check, a run, or a branch.
+	CIItemNotFinished:    "CI has not finished.",
+	CIItemQueueStalled:   "No runner picked up a CI run.",
+	CIItemInfrastructure: "CI failed for a reason an agent cannot fix.",
+	CIItemBaseRed:        "A check fails on the base branch too.",
+	CIItemActionRequired: "A check waits for a person on the forge.",
 }
 
 const noticeFallback = "Something needs you."

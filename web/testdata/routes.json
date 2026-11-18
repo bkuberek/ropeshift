@@ -485,6 +485,16 @@
     "command": "work decision-rework"
   },
   {
+    "method": "POST",
+    "pattern": "/v1/projects/{project}/work-orders/{id}/ci-wait",
+    "command": "work ci-wait"
+  },
+  {
+    "method": "POST",
+    "pattern": "/v1/projects/{project}/work-orders/{id}/ci-rerun",
+    "command": "work ci-rerun"
+  },
+  {
     "method": "GET",
     "pattern": "/v1/projects/{project}/approvals/{id}",
     "command": "approval show"

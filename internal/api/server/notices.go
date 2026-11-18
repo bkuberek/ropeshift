@@ -67,11 +67,14 @@ func Waiting(config Config, project string) func(context.Context) ([]ledger.Noti
 				return err
 			}
 			for _, item := range items {
-				reason := ""
+				reason, kind := "", item.Kind
 				if item.Work != nil {
 					reason = item.Work.Reason
 				}
-				notices = append(notices, ledger.NewNotice(h.Scope, item.Kind, reason, item.ID, item.Since).In(project))
+				if item.CI != nil {
+					kind = item.CI.Kind
+				}
+				notices = append(notices, ledger.NewNotice(h.Scope, kind, reason, item.ID, item.Since).In(project))
 			}
 			return nil
 		})

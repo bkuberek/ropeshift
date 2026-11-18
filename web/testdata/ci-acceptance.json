@@ -1,0 +1,44 @@
+{
+  "work_order_id": "wo-ci",
+  "state": "intake",
+  "assessment": {
+    "criteria": [],
+    "needs": "member"
+  },
+  "artifacts": [],
+  "checks": [],
+  "authority": "person_approves",
+  "pull_request": {
+    "number": 14,
+    "url": "https://github.com/acme/app/pull/wo-ci",
+    "state": "open",
+    "base": "main",
+    "branch": "lane/wo-ci",
+    "head_commit": "abc123-wo-ci",
+    "checks": [
+      {
+        "name": "CI",
+        "state": "pending",
+        "details_uri": "https://github.com/acme/app/actions/runs/9",
+        "required": true,
+        "status": "in_progress"
+      }
+    ]
+  },
+  "ci": {
+    "head": "abc123-wo-ci",
+    "watching": true,
+    "final": false,
+    "queued": false,
+    "history": false,
+    "elapsed_ms": 14400000,
+    "queue_ms": 0,
+    "timeout_ms": 10800000,
+    "timeout_at": 1789996400000,
+    "queue_timeout_ms": 1800000,
+    "queue_timeout_at": 1789987400000,
+    "kind": "ci_not_finished",
+    "since": 1789996400000,
+    "run_url": "https://github.com/acme/app/actions/runs/9"
+  }
+}

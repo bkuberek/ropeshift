@@ -361,6 +361,18 @@
       "exemptable": false
     },
     {
+      "id": "work_order.ci_wait",
+      "label": "Wait longer for CI",
+      "class": "member_only",
+      "exemptable": false
+    },
+    {
+      "id": "work_order.ci_rerun",
+      "label": "Rerun CI",
+      "class": "member_only",
+      "exemptable": false
+    },
+    {
       "id": "question.record",
       "label": "Record a question",
       "class": "consent",

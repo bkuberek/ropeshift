@@ -131,6 +131,21 @@ func commandsFor(item api.NeedItem) []string {
 		return []string{"ropeshift plan revision " + plan, "ropeshift plan confirm " + plan, "ropeshift plan revise " + plan}
 	case api.NeedConfirm:
 		return []string{"ropeshift confirm " + clean(item.ID), "ropeshift decline " + clean(item.ID)}
+	case api.NeedCI:
+		if item.CI == nil {
+			return nil
+		}
+		order := clean(item.CI.WorkOrder.ID)
+		var commands []string
+		for _, action := range item.CI.Actions {
+			switch action {
+			case api.ActCIWait:
+				commands = append(commands, "ropeshift work ci-wait "+order)
+			case api.ActCIRerun:
+				commands = append(commands, "ropeshift work ci-rerun "+order)
+			}
+		}
+		return commands
 	}
 	if item.Work == nil {
 		return nil

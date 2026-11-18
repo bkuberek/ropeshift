@@ -143,6 +143,8 @@ func WebRoutes() []WebRoute {
 		{http.MethodPost, "/v1/plans/{id}/revision/confirm", "plan confirm"},
 		{http.MethodPost, "/v1/plans/{id}/revision/sessions", "plan revise"},
 		{http.MethodPost, "/v1/work-orders/{id}/decision-rework", "work decision-rework"},
+		{http.MethodPost, "/v1/work-orders/{id}/ci-wait", "work ci-wait"},
+		{http.MethodPost, "/v1/work-orders/{id}/ci-rerun", "work ci-rerun"},
 		{http.MethodGet, "/v1/approvals/{id}", "approval show"},
 		{http.MethodGet, DeliveryPath, "measures delivery"},
 		{http.MethodGet, CalibrationPath, "measures estimates"},
