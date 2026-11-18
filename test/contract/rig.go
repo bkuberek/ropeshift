@@ -134,6 +134,7 @@ type Ops interface {
 	Escalate(ctx context.Context, scope ledger.WorkspaceID, id string, escalation questions.Escalation, actor ledger.Actor) (questions.Question, error)
 	Resolve(ctx context.Context, scope ledger.WorkspaceID, id, decision string, actor ledger.Actor) (questions.Question, error)
 	Merge(ctx context.Context, scope ledger.WorkspaceID, id, into string, actor ledger.Actor) error
+	MergeQuestion(ctx context.Context, scope ledger.WorkspaceID, id, into string, actor ledger.Actor) error
 	Rule(ctx context.Context, scope ledger.WorkspaceID, id string, ruling questions.Ruling, actor ledger.Actor) (questions.Decision, error)
 	Overturn(ctx context.Context, scope ledger.WorkspaceID, id string, overturn questions.Overturn, actor ledger.Actor) (questions.Overturned, error)
 	PublishPolicy(ctx context.Context, scope ledger.WorkspaceID, draft questions.PolicyDraft, actor ledger.Actor) (authority.PolicyVersion, error)

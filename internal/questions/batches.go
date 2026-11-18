@@ -141,6 +141,9 @@ type Answer struct {
 	Citations  []string
 	Supersedes string
 	NoConflict []string
+	// Assumed records the answer as an assumption, which a member records in an orchestrator's place on rung 4, and
+	// only for a question whose answer is reversible.
+	Assumed bool
 }
 
 var errNoAnswer = errors.New("an answer states nothing")

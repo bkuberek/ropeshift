@@ -216,8 +216,12 @@ func draftAnswer(question string, answer questions.Answer, actor ledger.Actor) (
 	if answersReplaceNothing() {
 		answer.Supersedes = ""
 	}
+	status := questions.DecisionDecided
+	if answer.Assumed {
+		status = questions.DecisionAssumed
+	}
 	return questions.NewDecision(questions.Decision{
-		ID: answer.DecisionID, Status: questions.DecisionDecided, Statement: answer.Statement, Rationale: answer.Rationale,
+		ID: answer.DecisionID, Status: status, Statement: answer.Statement, Rationale: answer.Rationale,
 		Citations: answer.Citations, QuestionID: question, DecidedBy: actor.ID, Supersedes: answer.Supersedes, NoConflict: answer.NoConflict,
 	})
 }
@@ -241,6 +245,9 @@ func (q *Questions) decide(tx ports.WriteTx, id string, record questions.Decisio
 	}
 	record.Categories, record.Scope = question.Categories, questions.ScopeOf(question.SubjectKind, question.SubjectID)
 	if policy.AnswerReversibility(question) == questions.OneWay {
+		if record.Status == questions.DecisionAssumed {
+			return questions.Decision{}, fmt.Errorf("%w: a one-way question is answered, never assumed", questions.ErrOneWay)
+		}
 		record.Reversibility = questions.OneWay
 	}
 	if err := admit(tx, &record, policy, actor); err != nil {

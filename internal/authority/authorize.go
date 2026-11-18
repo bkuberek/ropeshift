@@ -64,6 +64,9 @@ const (
 	ActionSendMessage   Action = "message.send"
 	ActionSetPassphrase Action = "member.set_passphrase"
 	ActionTakeQuestion  Action = "question.take"
+	// ActionMergeQuestion closes a question in favor of one that stays with no hold on it, which a member does in an
+	// orchestrator's place. An orchestrator merges only a question it holds, so no row below grants this.
+	ActionMergeQuestion Action = "question.merge"
 	// ActionUnblock takes work out of `blocked`, where a lane left it because no answer would help.
 	ActionUnblock Action = "work_order.unblock"
 	// ActionRetryWork returns failed work to `ready` with no recovery policy to hold it, and adds an attempt
@@ -197,7 +200,7 @@ func Actions() []Action {
 		ActionSetRepository, ActionRegisterRepository, ActionRegisterManifest, ActionManageProject, ActionRecordMerge, ActionMerge, ActionDecideMerge, ActionChangeRoster,
 		ActionRaiseMergeAuthority, ActionReviewPullRequest, ActionDecideOneWay, ActionManageSessions, ActionBackupInstallation, ActionConfirmCard,
 		ActionConverse, ActionBackupProject, ActionSetLaneCaps, ActionMessageOrchestrator, ActionStartReview, ActionPlanAdoption, ActionRestructure,
-		ActionWriteTemplates, ActionCreateRemotes, ActionPublishInstallationPolicy, ActionAnswerCI, ActionRaiseSpendLimit,
+		ActionWriteTemplates, ActionCreateRemotes, ActionPublishInstallationPolicy, ActionAnswerCI, ActionRaiseSpendLimit, ActionMergeQuestion,
 	}
 }
 
