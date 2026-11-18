@@ -14,7 +14,7 @@ Use solo mode. Install ropeshift on the machine that runs your work and follow [
 
 ## Solo
 
-Solo mode is one binary on one machine. The daemon, the web UI at `http://127.0.0.1:7317`, the worker that runs lanes, and the SQLite ledgers all live on that machine. Ropeshift opens no network connection of its own: the agent CLI it drives reaches its provider, and a GitHub repository is reached through your own `gh` sign-in. A member signs in to the web UI with one passphrase.
+Solo mode is one binary on one machine. The daemon, the web UI at `http://127.0.0.1:7317`, the worker that runs lanes, and the SQLite ledgers all live on that machine. By default, ropeshift opens no network connection of its own: the agent CLI it drives reaches its provider, and a GitHub repository is reached through your own `gh` sign-in. The exceptions are the webhook notices you configure and an OTLP exporter you turn on. A member signs in to the web UI with one passphrase.
 
 ## Group
 
