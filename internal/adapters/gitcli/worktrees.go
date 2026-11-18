@@ -419,3 +419,12 @@ func (w Worktrees) fetchMissing(ctx context.Context, repository Git, commit stri
 	}
 	return repository.Fetch(ctx, "--quiet", "--no-tags", remote)
 }
+
+// FetchCommit brings a commit this repository does not hold from its remote, as a detached worktree's creation
+// does.
+func (w Worktrees) FetchCommit(ctx context.Context, repository, commit string) error {
+	if strings.HasPrefix(commit, "-") {
+		return fmt.Errorf("%w: %s", ports.ErrNotFound, commit)
+	}
+	return w.fetchMissing(ctx, w.git(repository), commit)
+}

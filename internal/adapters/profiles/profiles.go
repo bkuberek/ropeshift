@@ -10,10 +10,12 @@ import (
 	"fmt"
 	"maps"
 	"os"
-	"path/filepath"
+	"strconv"
+	"strings"
 
 	"github.com/BurntSushi/toml"
 
+	"ropeshift.com/ropeshift/internal/adapters/gitcli"
 	"ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/internal/ports"
 )
@@ -148,7 +150,7 @@ func ResolveLayers(user, repository, overrides string) (lanes.Profile, error) {
 	return profile, nil
 }
 
-// Filesystem reads a user's layer and a repository's layer from its working tree.
+// Filesystem reads the user's layer from a file and a repository's layer from the repository's commits.
 type Filesystem struct {
 	// User is the user's layer. An empty path or an absent file has none.
 	User string
@@ -156,6 +158,9 @@ type Filesystem struct {
 	// {project} and {repo}. The daemon sets it to its worktree directory's {project}/{repo}, so a lane lands
 	// outside every clone (FR-PROF-3). Empty leaves such a profile with no root.
 	DefaultRoot string
+	// Env replaces the process environment of the git commands that read a repository's layer, as it does for
+	// gitcli.Git. Nil inherits the process's.
+	Env []string
 }
 
 // ApplyDefaultRoot gives a profile that names no worktree root defaultRoot, and records which layer set the
@@ -191,29 +196,115 @@ func readLayer(path string) (string, error) {
 // Load resolves one lane's profile. A repository with no layer gets the defaults, an empty
 // repository names none, so a setting only the user's layer makes reads without one, and a
 // layer that cannot be read stops the lane.
-func (f Filesystem) Load(_ context.Context, repository, overrides string) (lanes.Profile, error) {
+//
+// The repository's layer is the file the repository holds at base, never the clone's working
+// tree (FR-PROF-5). An empty base is the tip of the repository's default branch.
+func (f Filesystem) Load(ctx context.Context, repository, base, overrides string) (lanes.Profile, error) {
 	user, err := readLayer(f.User)
 	if err != nil {
 		return lanes.Profile{}, err
 	}
-	layer, err := readLayer(repositoryLayer(repository))
+	layer, where, err := f.repositoryLayer(ctx, repository, base)
 	if err != nil {
 		return lanes.Profile{}, err
 	}
-	profile, err := ResolveLayers(user, layer, overrides)
+	profile, err := resolveRepositoryLayer(user, layer, overrides, where)
 	if err != nil {
 		return lanes.Profile{}, err
 	}
 	return ApplyDefaultRoot(profile, f.DefaultRoot, user, layer)
 }
 
-// repositoryLayer is where a repository keeps its layer. An empty repository is none, and not
-// the directory the process happens to run in.
-func repositoryLayer(repository string) string {
-	if repository == "" {
-		return ""
+// resolveRepositoryLayer is ResolveLayers, and names where the repository's layer was read when that layer is
+// what it refuses. A failure of the user's layer or of the lane's overrides is returned as it is.
+func resolveRepositoryLayer(user, layer, overrides, where string) (lanes.Profile, error) {
+	profile, err := ResolveLayers(user, layer, overrides)
+	if err == nil || layer == "" {
+		return profile, err
 	}
-	return filepath.Join(repository, RepositoryFile)
+	if _, userErr := Resolve(user); userErr != nil {
+		return lanes.Profile{}, err
+	}
+	if _, layerErr := ResolveLayers(user, layer, ""); layerErr != nil {
+		return lanes.Profile{}, fmt.Errorf("%s: %w", where, layerErr)
+	}
+	return lanes.Profile{}, err
+}
+
+// repositoryLayer reads a repository's layer from its git objects at base, and says where it read it, which
+// names the file and the commit. A file absent at that commit is no layer. A path that is not a regular file
+// there is a layer that cannot be read. An empty repository is none, and not the directory the process happens
+// to run in.
+func (f Filesystem) repositoryLayer(ctx context.Context, repository, base string) (text, where string, err error) {
+	if repository == "" {
+		return "", "", nil
+	}
+	git := gitcli.Git{Dir: repository, Env: f.Env}
+	commit, err := f.commitAt(ctx, git, repository, base)
+	if err != nil {
+		return "", "", err
+	}
+	where = fmt.Sprintf("%s at commit %s", RepositoryFile, commit)
+	listing, err := git.Text(ctx, "ls-tree", "--long", commit, "--", RepositoryFile)
+	if err != nil {
+		return "", "", fmt.Errorf("reading %s: %w", where, err)
+	}
+	if listing == "" {
+		return "", where, nil
+	}
+	entry, _, _ := strings.Cut(listing, "\t")
+	fields := strings.Fields(entry)
+	if len(fields) != 4 || fields[1] != "blob" || fields[0] == symlinkMode {
+		return "", "", fmt.Errorf("%w: %s is not a regular file", lanes.ErrBadProfile, where)
+	}
+	if size, err := strconv.ParseInt(fields[3], 10, 64); err != nil || size > MaxLayerBytes {
+		return "", "", fmt.Errorf("%w: %s is %s bytes, over the %d a layer may hold", lanes.ErrBadProfile, where, fields[3], MaxLayerBytes)
+	}
+	raw, err := git.Output(ctx, "cat-file", "blob", fields[2])
+	if err != nil {
+		return "", "", fmt.Errorf("reading %s: %w", where, err)
+	}
+	return string(raw), where, nil
+}
+
+// symlinkMode is the mode git records for a symbolic link.
+const symlinkMode = "120000"
+
+// MaxLayerBytes is the most a repository's layer may hold. A layer is a short file of settings, and the limit
+// keeps one that is not from being read into memory.
+const MaxLayerBytes = 1 << 20
+
+// ErrNotAHash means a base is not the full hash of a commit, which is the only form a lane's base takes.
+var ErrNotAHash = errors.New("a base is a full commit hash")
+
+// commitAt resolves base to a commit. A base is the full 40 or 64 character hash of a commit, so a name that git
+// would read as an option, a branch, or an abbreviation is refused, and a commit the repository does not hold is
+// ErrNotFound. An empty base is the tip of the default branch.
+func (f Filesystem) commitAt(ctx context.Context, git gitcli.Git, repository, base string) (string, error) {
+	if base == "" {
+		return gitcli.Worktrees{Env: f.Env}.DefaultTip(ctx, repository)
+	}
+	if !isFullHash(base) {
+		return "", fmt.Errorf("%w, not %q", ErrNotAHash, base)
+	}
+	commit, err := git.Commit(ctx, base)
+	if err != nil {
+		return "", fmt.Errorf("%w: the repository holds no commit %s", ports.ErrNotFound, base)
+	}
+	return commit, nil
+}
+
+// isFullHash says text is the lowercase hexadecimal hash git gives an object, of SHA-1 or SHA-256 length.
+func isFullHash(text string) bool {
+	if len(text) != 40 && len(text) != 64 {
+		return false
+	}
+	for _, c := range text {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
+		}
+	}
+	return true
 }
 
 var _ ports.ProfileSource = Filesystem{}

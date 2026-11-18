@@ -144,7 +144,7 @@ func (w *Worker) Measure(ctx context.Context) (ledger.ResourceReport, error) {
 	defer w.resources.measuring.Unlock()
 	var profile lanes.Profile
 	if rt.Provisioner.Profiles != nil {
-		loaded, err := rt.Provisioner.Profiles.Load(ctx, "", "")
+		loaded, err := rt.Provisioner.Profiles.Load(ctx, "", "", "")
 		if err != nil {
 			w.config.Report(fmt.Errorf("measuring the machine: %w", err))
 		} else {

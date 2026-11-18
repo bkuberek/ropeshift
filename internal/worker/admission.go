@@ -58,14 +58,14 @@ func (w *Worker) runningLanes(ctx context.Context) (int64, error) {
 // where a lane's other settings are read, and that failure names the lane.
 func (w *Worker) limits(ctx context.Context, lease ledger.DesiredLease) (user, layered lanes.Admission) {
 	rt := w.config.Lanes
-	if own, err := rt.Provisioner.Profiles.Load(ctx, "", ""); err == nil {
+	if own, err := rt.Provisioner.Profiles.Load(ctx, "", "", ""); err == nil {
 		user = own.Admission
 	}
 	repository, err := rt.Repository(ctx, lease.Project, lease.Repository)
 	if err != nil {
 		return user, user
 	}
-	profile, err := rt.Provisioner.Profiles.Load(ctx, repository, lease.Overrides)
+	profile, err := rt.Provisioner.Profiles.Load(ctx, repository, leaseBegins(lease), lease.Overrides)
 	if err != nil {
 		return user, user
 	}
@@ -120,7 +120,7 @@ func (w *Worker) workerCap(ctx context.Context) (int64, bool) {
 	if rt == nil || rt.Provisioner.Profiles == nil {
 		return 0, false
 	}
-	profile, err := rt.Provisioner.Profiles.Load(ctx, "", "")
+	profile, err := rt.Provisioner.Profiles.Load(ctx, "", "", "")
 	if err != nil {
 		return 0, false
 	}

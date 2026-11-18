@@ -2,6 +2,7 @@ package contract
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -118,28 +119,31 @@ func TestProfileSourceContract(t *testing.T) {
 	t.Parallel()
 	t.Run("filesystem", func(t *testing.T) {
 		RunProfileSource(t, func(t *testing.T) ProfileRig {
-			repository := t.TempDir()
+			repo := gittest.New(t)
+			initial := repo.Commit("README.md", "a repository\n")
 			return ProfileRig{
-				Source: profiles.Filesystem{DefaultRoot: "/data/worktrees/{project}/{repo}"}, Repository: repository,
-				Layer: func(text string) {
-					path := filepath.Join(repository, profiles.RepositoryFile)
-					if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-						t.Fatal(err)
-					}
-					if err := writeFile(path, text); err != nil {
-						t.Fatal(err)
-					}
-				},
+				Source:     profiles.Filesystem{DefaultRoot: "/data/worktrees/{project}/{repo}", Env: repo.Env()},
+				Repository: repo.Dir, Initial: initial,
+				Layer: func(text string) string { return repo.Commit(profiles.RepositoryFile, text) },
 			}
 		})
 	})
 	t.Run("in-memory", func(t *testing.T) {
 		RunProfileSource(t, func(*testing.T) ProfileRig {
+			const repository = "/work/repository"
 			source := fake.NewProfileSource()
 			source.SetDefaultRoot("/data/worktrees/{project}/{repo}")
+			source.PutAt(repository, "commit-0", "")
+			commits := 0
 			return ProfileRig{
-				Source: source, Repository: "/work/repository",
-				Layer: func(text string) { source.Put("/work/repository", text) },
+				Source: source, Repository: repository, Initial: "commit-0",
+				Layer: func(text string) string {
+					commits++
+					commit := fmt.Sprintf("commit-%d", commits)
+					source.PutAt(repository, commit, text)
+					source.Put(repository, text)
+					return commit
+				},
 			}
 		})
 	})

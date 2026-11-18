@@ -11,7 +11,13 @@ type ProfileSource interface {
 	// Load resolves the profile of one lane: built-in defaults, the user's layer, the
 	// repository's, and the lane's own overrides, later over earlier. A layer that is not
 	// there changes nothing.
-	Load(ctx context.Context, repository, overrides string) (lanes.Profile, error)
+	//
+	// The repository's layer is the file the repository holds at base, the commit the lane's
+	// worktree begins from, or the commit under review for a review lane. An empty base reads
+	// the tip of the repository's default branch. The clone's working tree is never read, so an
+	// uncommitted or unmerged edit applies to no lane (FR-PROF-5). A commit the repository does
+	// not hold is ErrNotFound. An empty repository names no layer, and base is then unused.
+	Load(ctx context.Context, repository, base, overrides string) (lanes.Profile, error)
 }
 
 // UserProfile is the user's own layer on the machine of the worker this daemon runs, which holds that

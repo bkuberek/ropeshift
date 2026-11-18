@@ -639,7 +639,7 @@ func runDoctor(ctx context.Context) (ledger.Manifest, error) {
 // the root puts inside a clone. It needs no daemon, so it reads no ledger: a project's planning repository comes
 // from the desired state the worker's journal last saved, as a lane's start reads it.
 func worktreeReport(ctx context.Context, paths api.Paths) (lanes.WorktreeReport, error) {
-	profile, err := soloProfiles(paths).Load(ctx, "", "")
+	profile, err := soloProfiles(paths).Load(ctx, "", "", "")
 	if err != nil {
 		return lanes.WorktreeReport{}, err
 	}

@@ -1,9 +1,12 @@
 package worker_test
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"ropeshift.com/ropeshift/internal/adapters/fake"
@@ -642,4 +645,135 @@ func TestPrepareRefusesADetachedWorktreeFromAStoreThatMakesOnlyBranches(t *testi
 	if _, err := p.Prepare(t.Context(), worker.LaneRequest{Lane: "l1", Repository: "/work/app"}); err != nil {
 		t.Errorf("a lane with a branch on the same store: %v", err)
 	}
+}
+
+// A lane reads its repository's layer at the commit its worktree begins from (FR-PROF-5), and a lane with a layer
+// of its own reads the layers below it at that commit too. A review lane's commit is the one under review.
+func TestPrepareReadsTheRepositoryLayerAtTheLanesBase(t *testing.T) {
+	t.Parallel()
+	p, source, _ := provisioner(nil)
+	source.PutAt("/work/app", "c1", "[agent]\nmodel = \"first\"\n")
+	source.PutAt("/work/app", "c2", "[agent]\nmodel = \"second\"\n")
+	for base, want := range map[string]string{"c1": "first", "c2": "second"} {
+		for name, request := range map[string]worker.LaneRequest{
+			"a lane":                 {Lane: "l-" + base, Repository: "/work/app", Base: base},
+			"a lane with its layer":  {Lane: "o-" + base, Repository: "/work/app", Base: base, Overrides: "[agent]\neffort = \"low\"\n"},
+			"a review at the commit": {Lane: "r-" + base, Repository: "/work/app", Base: base, Detached: true},
+		} {
+			lane, err := p.Prepare(t.Context(), request)
+			if err != nil || lane.Profile.Agent.Model != want {
+				t.Errorf("%s at %s runs %q (%v), want %q", name, base, lane.Profile.Agent.Model, err, want)
+			}
+		}
+	}
+	for _, load := range source.Loaded() {
+		if load.Repository != "/work/app" || (load.Base != "c1" && load.Base != "c2") {
+			t.Errorf("a layer was read with %+v", load)
+		}
+	}
+}
+
+// A lane with no work of its own has a directory and no repository, so it reads no layer of a repository.
+func TestAPrivateLaneReadsNoRepositoryLayer(t *testing.T) {
+	t.Parallel()
+	p, source, _ := provisioner(nil)
+	source.Put("/state/private/orchestrator", "[agent]\nmodel = \"theirs\"\n")
+	lane, err := p.Prepare(t.Context(), worker.LaneRequest{
+		Lane: "orchestrator", Repository: "/state/private/orchestrator", Base: "c1", Private: true, Overrides: "[agent]\neffort = \"low\"\n",
+	})
+	if err != nil || lane.Profile.Agent.Model == "theirs" {
+		t.Errorf("the lane runs %q (%v)", lane.Profile.Agent.Model, err)
+	}
+	if loaded := source.Loaded(); len(loaded) != 0 {
+		t.Errorf("a layer was read for %+v", loaded)
+	}
+}
+
+// arriving is a profile source whose repository lacks a commit until a fetch brings it, as a clone does for a lane
+// another machine ran, or for a head another clone pushed. It counts the reads of that commit.
+type arriving struct {
+	*fake.ProfileSource
+	commit string
+	// arrived says the fetch has brought the commit.
+	arrived func() bool
+	reads   *atomic.Int64
+}
+
+func (a arriving) Load(ctx context.Context, repository, base, overrides string) (lanes.Profile, error) {
+	if base == a.commit {
+		a.reads.Add(1)
+		if !a.arrived() {
+			return lanes.Profile{}, fmt.Errorf("%w: %s", ports.ErrNotFound, base)
+		}
+	}
+	return a.ProfileSource.Load(ctx, repository, base, overrides)
+}
+
+// A lane that another machine ran begins at a commit this machine fetches before its worktree exists, so a commit
+// the clone does not hold is fetched for and read again, and a lane with nothing to fetch fails with the commit
+// not found.
+func TestPrepareFetchesForABaseTheCloneLacks(t *testing.T) {
+	t.Parallel()
+	p, source, worktrees := provisioner(nil)
+	source.PutAt("/work/app", "c1", "[agent]\nmodel = \"first\"\n")
+	reads := &atomic.Int64{}
+	p.Profiles = arriving{ProfileSource: source, commit: "c1", reads: reads, arrived: func() bool { return len(worktrees.Fetched()) != 0 }}
+	if _, err := p.Prepare(t.Context(), worker.LaneRequest{Lane: "l1", Repository: "/work/app", Base: "c1"}); !errors.Is(err, ports.ErrNotFound) {
+		t.Fatalf("a base the clone lacks, with nothing to fetch, gave %v", err)
+	}
+	lane, err := p.Prepare(t.Context(), worker.LaneRequest{Lane: "l1", Repository: "/work/app", Base: "c1", Fetch: []string{"refs/heads/lane/l1"}})
+	if err != nil || lane.Profile.Agent.Model != "first" {
+		t.Errorf("the lane runs %q (%v), want the layer at the fetched commit", lane.Profile.Agent.Model, err)
+	}
+}
+
+// A review lane reads the layer at the commit under review before its worktree exists. A head another clone pushed
+// is not in this clone yet, so the commit is fetched for as the detached worktree's creation would, and the layer
+// is read once more. A commit that does not arrive fails the lane after that one more read, and a lane that is
+// not a review fetches nothing for it.
+func TestPrepareFetchesTheCommitUnderReviewTheCloneLacks(t *testing.T) {
+	t.Parallel()
+	const head = "c0ffee"
+	t.Run("the commit arrives", func(t *testing.T) {
+		t.Parallel()
+		p, source, worktrees := provisioner(nil)
+		source.PutAt("/work/app", head, "[agent]\nmodel = \"reviewed\"\n")
+		reads := &atomic.Int64{}
+		p.Profiles = arriving{ProfileSource: source, commit: head, reads: reads, arrived: func() bool { return len(worktrees.FetchedCommits()) != 0 }}
+		lane, err := p.Prepare(t.Context(), worker.LaneRequest{Lane: "review-1", Repository: "/work/app", Base: head, Detached: true})
+		if err != nil || lane.Profile.Agent.Model != "reviewed" {
+			t.Fatalf("the review runs %q (%v), want the layer at the fetched commit", lane.Profile.Agent.Model, err)
+		}
+		if got := worktrees.FetchedCommits(); !slices.Equal(got, []string{head}) {
+			t.Errorf("the worker fetched %v", got)
+		}
+		if reads.Load() != 2 {
+			t.Errorf("the layer was read %d times, want once before the fetch and once after", reads.Load())
+		}
+		if created := worktrees.Created(); len(created) != 1 || !created[0].Detached || created[0].Base != head {
+			t.Errorf("the worker asked for %+v", created)
+		}
+	})
+	t.Run("the commit never arrives", func(t *testing.T) {
+		t.Parallel()
+		p, source, worktrees := provisioner(nil)
+		reads := &atomic.Int64{}
+		p.Profiles = arriving{ProfileSource: source, commit: head, reads: reads, arrived: func() bool { return false }}
+		_, err := p.Prepare(t.Context(), worker.LaneRequest{Lane: "review-1", Repository: "/work/app", Base: head, Detached: true})
+		if !errors.Is(err, ports.ErrNotFound) || reads.Load() != 2 {
+			t.Errorf("a commit that never arrives gave %v after %d reads", err, reads.Load())
+		}
+		if created := worktrees.Created(); len(created) != 0 {
+			t.Errorf("the worker made %+v", created)
+		}
+	})
+	t.Run("a lane that is not a review", func(t *testing.T) {
+		t.Parallel()
+		p, source, worktrees := provisioner(nil)
+		p.Profiles = arriving{ProfileSource: source, commit: head, reads: &atomic.Int64{}, arrived: func() bool { return false }}
+		_, err := p.Prepare(t.Context(), worker.LaneRequest{Lane: "l1", Repository: "/work/app", Base: head})
+		if !errors.Is(err, ports.ErrNotFound) || len(worktrees.FetchedCommits()) != 0 {
+			t.Errorf("a lane with a branch gave %v and fetched %v", err, worktrees.FetchedCommits())
+		}
+	})
 }

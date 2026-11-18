@@ -140,7 +140,7 @@ func (w *Worker) pushesOnStop(ctx context.Context) bool {
 	if profiles == nil {
 		return false
 	}
-	profile, err := profiles.Load(ctx, "", "")
+	profile, err := profiles.Load(ctx, "", "", "")
 	if err != nil {
 		w.config.Report(fmt.Errorf("reading push_on_stop: %w", err))
 		return false

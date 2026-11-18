@@ -11,6 +11,7 @@ import (
 	"ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/test/apitest"
+	"ropeshift.com/ropeshift/test/gittest"
 )
 
 // With no root in any layer, the installation's profiles put a lane's worktree under its worktree directory,
@@ -21,7 +22,9 @@ func TestTheInstallationsProfilesDefaultToTheWorktreeDirectory(t *testing.T) {
 	if err := os.MkdirAll(paths.StateDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	profile, err := soloProfiles(paths).Load(t.Context(), filepath.Join(root, "work", "api"), "")
+	clone := gittest.New(t)
+	clone.Commit("README.md", "api\n")
+	profile, err := soloProfiles(paths).Load(t.Context(), clone.Dir, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -35,7 +38,7 @@ func TestTheInstallationsProfilesDefaultToTheWorktreeDirectory(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(paths.StateDir, profiles.UserFile), []byte("[worktree]\nroot = \"/mine/{repo}\"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if mine, err := soloProfiles(paths).Load(t.Context(), filepath.Join(root, "work", "api"), ""); err != nil || mine.Worktree.Root != "/mine/{repo}" {
+	if mine, err := soloProfiles(paths).Load(t.Context(), clone.Dir, "", ""); err != nil || mine.Worktree.Root != "/mine/{repo}" {
 		t.Errorf("a user's root reads %+v (%v)", mine.Worktree, err)
 	}
 }

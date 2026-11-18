@@ -490,8 +490,10 @@ type ProfileRig struct {
 	Source ports.ProfileSource
 	// Repository is a repository with no layer yet.
 	Repository string
-	// Layer gives the repository a layer.
-	Layer func(text string)
+	// Initial is the commit the repository holds, which has no layer.
+	Initial string
+	// Layer commits a layer to the repository's default branch, and returns the commit.
+	Layer func(text string) string
 }
 
 // RunProfileSource runs one contract on one source.
@@ -504,6 +506,8 @@ func RunProfileSource(t *testing.T, fresh func(*testing.T) ProfileRig) {
 		{"a repository with no layer gets the defaults", checkProfileDefaults},
 		{"a profile that names no worktree root gets one with the project and the repository in it, and a layer's root wins", checkProfileRoot},
 		{"a repository layer changes one key and keeps its neighbors", checkProfileLayer},
+		{"a repository's layer is the one it holds at the commit asked for", checkProfileAtCommit},
+		{"a commit the repository does not hold is not found", checkProfileUnknownCommit},
 		{"a misspelled key is refused", checkProfileUnknownKey},
 		{"bad TOML is refused", checkProfileBadTOML},
 		{"the digest follows the settings", checkProfileDigest},
@@ -516,7 +520,7 @@ func RunProfileSource(t *testing.T, fresh func(*testing.T) ProfileRig) {
 }
 
 func checkProfileDefaults(t *testing.T, ctx context.Context, r ProfileRig) {
-	profile, err := r.Source.Load(ctx, r.Repository, "")
+	profile, err := r.Source.Load(ctx, r.Repository, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -534,7 +538,7 @@ func checkProfileDefaults(t *testing.T, ctx context.Context, r ProfileRig) {
 // checkProfileRoot holds FR-PROF-3: the built-in layer names no root, the source gives such a profile a root
 // that holds the project and the repository, and a layer's own root wins and is said to be the layer's.
 func checkProfileRoot(t *testing.T, ctx context.Context, r ProfileRig) {
-	profile, err := r.Source.Load(ctx, r.Repository, "")
+	profile, err := r.Source.Load(ctx, r.Repository, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -543,7 +547,7 @@ func checkProfileRoot(t *testing.T, ctx context.Context, r ProfileRig) {
 		t.Errorf("the default root is %q from %q", profile.Worktree.Root, profile.Worktree.RootSource)
 	}
 	r.Layer("[worktree]\nroot = \"/mine/{repo}\"\n")
-	if profile, err = r.Source.Load(ctx, r.Repository, ""); err != nil {
+	if profile, err = r.Source.Load(ctx, r.Repository, "", ""); err != nil {
 		t.Fatal(err)
 	}
 	if profile.Worktree.Root != "/mine/{repo}" || profile.Worktree.RootSource != lanes.RootFromRepository {
@@ -553,7 +557,7 @@ func checkProfileRoot(t *testing.T, ctx context.Context, r ProfileRig) {
 
 func checkProfileLayer(t *testing.T, ctx context.Context, r ProfileRig) {
 	r.Layer("run_mode = \"headless\"\n\n[agent]\nmodel = \"haiku\"\n\n[context.roles.writer]\nwarn_tokens = 1000\n")
-	profile, err := r.Source.Load(ctx, r.Repository, "")
+	profile, err := r.Source.Load(ctx, r.Repository, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -572,22 +576,51 @@ func checkProfileLayer(t *testing.T, ctx context.Context, r ProfileRig) {
 	}
 }
 
+// checkProfileAtCommit holds FR-PROF-5: a repository's layer is the file at the commit a lane begins from, a
+// commit before the file has none, and an empty base reads the default branch's tip.
+func checkProfileAtCommit(t *testing.T, ctx context.Context, r ProfileRig) {
+	model := func(base string) string {
+		t.Helper()
+		profile, err := r.Source.Load(ctx, r.Repository, base, "")
+		if err != nil {
+			t.Fatalf("base %q: %v", base, err)
+		}
+		return profile.Agent.Model
+	}
+	none := model(r.Initial)
+	first := r.Layer("[agent]\nmodel = \"first\"\n")
+	second := r.Layer("[agent]\nmodel = \"second\"\n")
+	for _, tt := range []struct{ base, want string }{
+		{r.Initial, none}, {first, "first"}, {second, "second"}, {"", "second"},
+	} {
+		if got := model(tt.base); got != tt.want {
+			t.Errorf("the model at %q is %q, want %q", tt.base, got, tt.want)
+		}
+	}
+}
+
+func checkProfileUnknownCommit(t *testing.T, ctx context.Context, r ProfileRig) {
+	if _, err := r.Source.Load(ctx, r.Repository, "0123456789abcdef0123456789abcdef01234567", ""); !errors.Is(err, ports.ErrNotFound) {
+		t.Errorf("got %v", err)
+	}
+}
+
 func checkProfileUnknownKey(t *testing.T, ctx context.Context, r ProfileRig) {
 	r.Layer("[lifecycle]\nstall_aftr = \"1m\"\n")
-	if _, err := r.Source.Load(ctx, r.Repository, ""); !errors.Is(err, lanes.ErrBadProfile) {
+	if _, err := r.Source.Load(ctx, r.Repository, "", ""); !errors.Is(err, lanes.ErrBadProfile) {
 		t.Errorf("got %v", err)
 	}
 }
 
 func checkProfileBadTOML(t *testing.T, ctx context.Context, r ProfileRig) {
 	r.Layer("name = unquoted\n")
-	if _, err := r.Source.Load(ctx, r.Repository, ""); !errors.Is(err, lanes.ErrBadProfile) {
+	if _, err := r.Source.Load(ctx, r.Repository, "", ""); !errors.Is(err, lanes.ErrBadProfile) {
 		t.Errorf("got %v", err)
 	}
 }
 
 func checkProfileDigest(t *testing.T, ctx context.Context, r ProfileRig) {
-	first, err := r.Source.Load(ctx, r.Repository, "")
+	first, err := r.Source.Load(ctx, r.Repository, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -596,7 +629,7 @@ func checkProfileDigest(t *testing.T, ctx context.Context, r ProfileRig) {
 		t.Fatal(err)
 	}
 	r.Layer("[agent]\nmodel = \"haiku\"\n")
-	second, err := r.Source.Load(ctx, r.Repository, "")
+	second, err := r.Source.Load(ctx, r.Repository, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}

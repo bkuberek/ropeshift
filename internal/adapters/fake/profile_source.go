@@ -2,6 +2,7 @@ package fake
 
 import (
 	"context"
+	"fmt"
 	"sync"
 
 	"ropeshift.com/ropeshift/internal/adapters/profiles"
@@ -15,7 +16,18 @@ type ProfileSource struct {
 	mu          sync.Mutex
 	user        string
 	layers      map[string]string
+	at          map[layerAt]string
+	held        map[string]map[string]bool
+	loaded      []Load
 	defaultRoot string
+}
+
+// layerAt names the layer a repository holds at one commit.
+type layerAt struct{ repository, commit string }
+
+// Load is one read of a repository's layer: the repository and the commit the caller asked for.
+type Load struct {
+	Repository, Base string
 }
 
 // DefaultWorktreeRoot is the root a fake profile source gives a profile that names none: a folder beside the
@@ -25,7 +37,7 @@ const DefaultWorktreeRoot = "../{repo}-lanes"
 
 // NewProfileSource returns a source with no layers, whose profiles with no root get DefaultWorktreeRoot.
 func NewProfileSource() *ProfileSource {
-	return &ProfileSource{layers: map[string]string{}, defaultRoot: DefaultWorktreeRoot}
+	return &ProfileSource{layers: map[string]string{}, at: map[layerAt]string{}, held: map[string]map[string]bool{}, defaultRoot: DefaultWorktreeRoot}
 }
 
 // SetDefaultRoot sets the root a profile that names none gets, as the daemon's worktree directory does.
@@ -35,11 +47,38 @@ func (s *ProfileSource) SetDefaultRoot(root string) {
 	s.defaultRoot = root
 }
 
-// Put stands for a repository's layer.
+// Put stands for a repository's layer at every commit that has none of its own.
 func (s *ProfileSource) Put(repository, text string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.layers[repository] = text
+}
+
+// PutAt stands for the layer a repository holds at one commit, which wins over Put's at that commit. The
+// repository then holds the commit.
+func (s *ProfileSource) PutAt(repository, commit, text string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.at[layerAt{repository, commit}] = text
+	s.hold(repository, commit)
+}
+
+// Hold says a repository holds commits that carry no layer of their own. Once a repository holds any commit,
+// a read at another commit is ErrNotFound, as it is for a repository that does not have it. A repository with
+// none held answers every commit.
+func (s *ProfileSource) Hold(repository string, commits ...string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, commit := range commits {
+		s.hold(repository, commit)
+	}
+}
+
+func (s *ProfileSource) hold(repository, commit string) {
+	if s.held[repository] == nil {
+		s.held[repository] = map[string]bool{}
+	}
+	s.held[repository][commit] = true
 }
 
 // PutUser stands for the user's layer.
@@ -49,10 +88,29 @@ func (s *ProfileSource) PutUser(text string) {
 	s.user = text
 }
 
-// Load resolves one lane's profile.
-func (s *ProfileSource) Load(_ context.Context, repository, overrides string) (lanes.Profile, error) {
+// Loaded lists every read that named a repository, in order, so a test can say which commit a lane's layer
+// was read at.
+func (s *ProfileSource) Loaded() []Load {
 	s.mu.Lock()
-	text, user, defaultRoot := s.layers[repository], s.user, s.defaultRoot
+	defer s.mu.Unlock()
+	return append([]Load(nil), s.loaded...)
+}
+
+// Load resolves one lane's profile.
+func (s *ProfileSource) Load(_ context.Context, repository, base, overrides string) (lanes.Profile, error) {
+	s.mu.Lock()
+	if held := s.held[repository]; base != "" && len(held) != 0 && !held[base] {
+		s.mu.Unlock()
+		return lanes.Profile{}, fmt.Errorf("%w: %s", ports.ErrNotFound, base)
+	}
+	text, found := s.at[layerAt{repository, base}]
+	if !found {
+		text = s.layers[repository]
+	}
+	user, defaultRoot := s.user, s.defaultRoot
+	if repository != "" {
+		s.loaded = append(s.loaded, Load{Repository: repository, Base: base})
+	}
 	s.mu.Unlock()
 	profile, err := profiles.ResolveLayers(user, text, overrides)
 	if err != nil {
