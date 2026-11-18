@@ -120,7 +120,7 @@ func registry() []section {
 			command("spend show", "", "show each spend setting with its value and version, and the spend of each open work order against its limits", (*invocation).spendShow),
 			command("spend set", "[--installation] <key>=<value>...", "publish a new version of the spend policy with only the keys named changed", (*invocation).spendSet),
 			command("spend revert", "<version> [--installation]", "record an earlier version of the spend policy as the newest", (*invocation).spendRevert),
-			command("spend raise", "<work-order> --by PERCENT | --to AMOUNT", "raise a work order's hard spend limit by a percentage of it or to an amount, which wakes the lane the limit parked", (*invocation).spendRaise),
+			command("spend raise", "(<work-order> | --window day|week) (--by PERCENT | --to AMOUNT)", "raise a work order's hard spend limit, or the project's daily or weekly limit for the window it is made in, by a percentage of it or to an amount, which wakes the lanes the limit parked", (*invocation).spendRaise),
 			command("spend resume", "<work-order>", "grant a work order one more generation's allowance, which wakes the lane its hard spend limit parked", (*invocation).spendResume),
 		}},
 		{"Agents", agentCommands()},
