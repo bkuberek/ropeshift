@@ -30,6 +30,12 @@ func main() {
 	switch {
 	case len(args) >= 2 && args[0] == "auth" && args[1] == "status":
 		authStatus(dir, args[2:])
+	case len(args) >= 2 && args[0] == "auth" && args[1] == "git-credential":
+		gitCredential()
+	case len(args) >= 2 && args[0] == "repo" && args[1] == "create":
+		repoCreate(dir, args[2:])
+	case len(args) == 1 && args[0] == preReceive:
+		rejectPush(dir)
 	case len(args) >= 2 && args[0] == "pr" && args[1] == "list":
 		prList(dir, args[2:])
 	case len(args) >= 2 && args[0] == "pr" && args[1] == "create":
@@ -95,11 +101,18 @@ func parse(name string, args []string, set func(*flag.FlagSet)) (*flag.FlagSet, 
 }
 
 func authStatus(dir string, args []string) {
-	var host string
-	parse("auth status", args, func(fs *flag.FlagSet) { fs.StringVar(&host, "hostname", "", "") })
+	var host, fields string
+	parse("auth status", args, func(fs *flag.FlagSet) {
+		fs.StringVar(&host, "hostname", "", "")
+		fs.StringVar(&fields, "json", "", "")
+	})
 	state, err := ghstate.Read(dir)
 	if err != nil {
 		fail(2, "fakegh: %v", err)
+	}
+	if fields != "" {
+		authStatusJSON(state, host, fields)
+		return
 	}
 	if state.SignedOut {
 		fail(1, "%s\n  X Failed to log in to %s: %s", host, host, state.AuthError)

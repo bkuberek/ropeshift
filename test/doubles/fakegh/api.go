@@ -25,10 +25,13 @@ func (m *multi) Set(v string) error { *m = append(*m, v); return nil }
 // makes over several pull requests. With -i it prints the status line and the headers before the body, and a
 // status past 299 ends with `gh: HTTP <status>` on stderr and exit 1, which is what gh does.
 func api(dir string, args []string) {
-	var include bool
+	var include, paginate, silent bool
 	var headers, fields multi
-	var hostname, method string
+	var hostname, method, jq string
 	_, positional := parse("api", args, func(fs *flag.FlagSet) {
+		fs.BoolVar(&paginate, "paginate", false, "")
+		fs.BoolVar(&silent, "silent", false, "")
+		fs.StringVar(&jq, "jq", "", "")
 		fs.BoolVar(&include, "i", false, "")
 		fs.BoolVar(&include, "include", false, "")
 		fs.Var(&headers, "H", "")
@@ -48,6 +51,9 @@ func api(dir string, args []string) {
 		return
 	}
 	endpoint, query, _ := strings.Cut(positional[0], "?")
+	if account(state, endpoint, jq, silent, paginate) {
+		return
+	}
 	switch {
 	case endpoint == "graphql":
 		reply.graphql(hostname, fields)
