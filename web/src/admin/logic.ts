@@ -202,6 +202,23 @@ function tomlValue(value: PolicyValue): string {
   return `[${(value as string[]).map((item) => tomlString(item)).join(", ")}]`;
 }
 
+// spendChannelTable writes the channels a notify policy chose for each kind of spend notice, which the form has no field
+// for. A save keeps them, because a form that wrote only what it shows would take a member's choice away with the next
+// change of the webhook.
+function spendChannelTable(table: string, values: PolicyValues): string[] {
+  const held: unknown = (values as Record<string, unknown>).spend_channels;
+  if (!held || typeof held !== "object" || Array.isArray(held)) {
+    return [];
+  }
+  const lines: string[] = [];
+  for (const [kind, channels] of Object.entries(held as Record<string, unknown>)) {
+    if (Array.isArray(channels) && channels.every((channel) => typeof channel === "string")) {
+      lines.push(`${kind} = ${tomlValue(channels as string[])}`);
+    }
+  }
+  return lines.length === 0 ? [] : ["", `[${table}.spend_channels]`, ...lines];
+}
+
 // policyBody writes a policy version as the TOML its route reads: the kind's table, the version, then
 // each setting.
 export function policyBody(kind: PolicyKind, version: number, values: PolicyValues): string {
@@ -229,6 +246,9 @@ export function policyBody(kind: PolicyKind, version: number, values: PolicyValu
       continue;
     }
     lines.push(`${field.key} = ${field.type === "minutes" ? tomlString(`${value}m`) : tomlValue(value)}`);
+  }
+  if (kind === "notify") {
+    tables.push(...spendChannelTable(table, values));
   }
   return `${[...lines, ...tables].join("\n")}\n`;
 }

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { agentLines, capsAbove, capsDraftOf, capsProblems, capsSettings, capsWords, changedFields, forgeBindingProblem, minutesOf, newID, nextVersion, outcomeOf, policies, policyBody, policySettings, problemOf, projectNameOf, settingsOf, tomlString } from "./logic";
+import type { PolicyValues } from "./logic";
 
 
 describe("policy bodies", () => {
@@ -18,6 +19,15 @@ describe("policy bodies", () => {
 
   it("leaves out an optional text a member left empty", () => {
     expect(policyBody("notify", 2, { desktop: true, webhook_url: "", webhook_secret_env: "" })).toBe("[notify_policy]\nversion = 2\ndesktop = true\n");
+  });
+
+  it("keeps the channels a member chose for each spend notice kind when the notify policy is saved", () => {
+    const held = { desktop: true, webhook_url: "https://hooks.example.com/x", webhook_secret_env: "", spend_channels: { spend_hard_limit: ["desktop", "webhook"], spend_soft_limit: [] } };
+    const body = policyBody("notify", 3, held as unknown as PolicyValues);
+    expect(body).toBe(
+      '[notify_policy]\nversion = 3\ndesktop = true\nwebhook_url = "https://hooks.example.com/x"\n\n[notify_policy.spend_channels]\nspend_hard_limit = ["desktop", "webhook"]\nspend_soft_limit = []\n',
+    );
+    expect(policyBody("notify", 3, { desktop: true, webhook_url: "", webhook_secret_env: "", spend_channels: {} } as unknown as PolicyValues)).toBe("[notify_policy]\nversion = 3\ndesktop = true\n");
   });
 
   it("writes each delegation class as a table of its own", () => {
