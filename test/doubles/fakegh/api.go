@@ -165,7 +165,7 @@ func (r *response) rest(hostname, method, endpoint, query string, headers multi)
 		request[strings.TrimSpace(name)] = strings.TrimSpace(value)
 	}
 	parts := strings.Split(endpoint, "/")
-	if r.settings(endpoint, parts) {
+	if r.settings(endpoint, query, parts) {
 		return
 	}
 	// repos/{owner}/{repo}/pulls/{number}, repos/{owner}/{repo}/commits/{sha}/{check-runs|status}, and the workflow runs

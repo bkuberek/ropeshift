@@ -132,10 +132,14 @@ type State struct {
 	// Visibility is what `repos/{owner}/{repo}` says of the repository, and empty says private. Protected is what
 	// the branch read says, Rules are what the rules read gives for every branch, and ReviewCount is what the
 	// protection's pull request reviews read gives while Protected is set. SettingsStatus answers a settings read
-	// with another status, by the endpoint as `gh api` is given it, such as `repos/acme/widgets/branches/main`.
+	// with another status, by the endpoint as `gh api` is given it, such as `repos/acme/widgets/branches/main`, or
+	// by the endpoint, a `?`, and its query for one page of the rules. RulesPerPage is how many rules one page of the
+	// rules holds, whatever `per_page` asks, and a page with more after it carries a Link header for the next; zero
+	// holds them all in one page.
 	Visibility     string                    `json:"visibility,omitempty"`
 	Protected      bool                      `json:"protected,omitempty"`
 	Rules          []Rule                    `json:"rules,omitempty"`
+	RulesPerPage   int                       `json:"rules_per_page,omitempty"`
 	ReviewCount    int                       `json:"review_count,omitempty"`
 	SettingsStatus map[string]SettingsAnswer `json:"settings_status,omitempty"`
 	// Remote is the remote of the checkout `gh` runs in that holds each open pull request's branch.
@@ -187,10 +191,12 @@ type Rule struct {
 }
 
 // SettingsAnswer is the status a settings read answers with instead of its body, the message of the error body, and
-// the response headers, such as Retry-After or X-Ratelimit-Remaining.
+// the response headers, such as Retry-After or X-Ratelimit-Remaining. A Body is written as it is, as the body of a 2xx
+// status, and need not be JSON.
 type SettingsAnswer struct {
 	Status  int               `json:"status"`
 	Message string            `json:"message,omitempty"`
+	Body    string            `json:"body,omitempty"`
 	Headers map[string]string `json:"headers,omitempty"`
 }
 
