@@ -63,6 +63,8 @@ spend_policy_changed = ["webhook"]
 
 With that policy a hard stop reaches the web UI, the desktop, and the webhook, a soft notice reaches the web UI only, and a changed spend setting reaches the web UI and the webhook. A channel you choose must be turned on above it: `spend_channels` that names the desktop with `desktop` off, or the webhook with no `webhook_url`, is refused, and so is a kind that is not a spend kind, a channel that does not exist, and `email`, which this build has no mailer for. Questions, approvals, work, and CI notices keep going to every channel the policy turns on. A new version takes effect at the next tick, with no restart.
 
+Settings, Notifications chooses the same channels in the web UI: a table of the five kinds with a Desktop and a Webhook box for each, and the web UI marked Always. It publishes the same `[notify_policy.spend_channels]` as the file does, and a save of the webhook or the desktop setting keeps the choice. A box is offered only while the policy turns its channel on, and a choice of a channel that is turned off holds Review change back with the reason the API would give.
+
 ## Channels
 
 | Channel | How it reaches a member | Turned on by |
