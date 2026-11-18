@@ -211,6 +211,34 @@ func TestALinkWithNoFingerprintTrustsTheRootsAndRefusesAnAuthorityThatIsNotInThe
 	}
 }
 
+// The system's verifier on macOS refuses a chain it does not trust with an untyped error whose text is the
+// platform's, where the verifier of the other systems returns x509.UnknownAuthorityError. Both are a certificate the
+// worker's roots do not vouch for, and the refusal says so for either, and for a refusal of another class that
+// stays typed.
+func TestTheRefusalOfAChainNamesTheRootsWhateverVerifierRefusedIt(t *testing.T) {
+	t.Parallel()
+	refused := func(inner error) error {
+		return errors.Join(api.ErrUnreachable, &tls.CertificateVerificationError{Err: inner})
+	}
+	for name, test := range map[string]struct {
+		err  error
+		want string
+	}{
+		"the verifier of Go":            {refused(x509.UnknownAuthorityError{}), "system roots"},
+		"the platform verifier":         {refused(errors.New("x509: “127.0.0.1” certificate is not trusted")), "system roots"},
+		"a name the certificate misses": {refused(x509.HostnameError{Host: "example.test"}), "host name example.test"},
+		"a certificate that ended":      {refused(x509.CertificateInvalidError{Reason: x509.Expired}), "expired"},
+	} {
+		reason, ok := api.TrustFailure(test.err)
+		if !ok || !strings.Contains(reason, test.want) {
+			t.Errorf("%s: the refusal says %q, %v, and not %q", name, reason, ok, test.want)
+		}
+	}
+	if reason, ok := api.TrustFailure(errors.New("connection refused")); ok {
+		t.Errorf("a failure that is not of trust says %q", reason)
+	}
+}
+
 // A link is made only for a URL a worker may reach and a pin that fits it, and the refusal of one never repeats it.
 func TestALinkIsMadeOnlyForAURLAndAPinThatFit(t *testing.T) {
 	t.Parallel()
