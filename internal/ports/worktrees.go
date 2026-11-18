@@ -101,6 +101,10 @@ type ReviewTrees interface {
 	// WriteContextFile leaves one more named file beside the pack, in the same directory and with the
 	// same rules, and returns its path. The name is a bare file name.
 	WriteContextFile(ctx context.Context, path, name, text string) (string, error)
+	// FetchCommit brings a commit the repository does not hold from its remote, as a detached worktree's
+	// creation does for a head another clone pushed. A commit the repository holds, or a repository with no
+	// remote, needs nothing and is no error.
+	FetchCommit(ctx context.Context, repository, commit string) error
 }
 
 // TreeFile is one file a restructuring adds to a worktree (FR-ADOPT-14). It is added only when the worktree

@@ -52,6 +52,39 @@ func (w Worktrees) BaseTip(ctx context.Context, repository, branch string) (port
 	return ports.BaseTip{Ref: remote + "/" + branch, Commit: commit}, nil
 }
 
+// DefaultTip reads the commit at the tip of the repository's default branch, with no fetch. With a remote, the
+// default branch is the one the remote's HEAD names, and the tip is the remote-tracking copy: a clone whose remote
+// records no HEAD has no default branch to read, and the branch the checkout has out is never taken for it,
+// because it may hold work nobody merged. A repository with no remote has the branch its HEAD names.
+func (w Worktrees) DefaultTip(ctx context.Context, repository string) (string, error) {
+	git := w.git(repository)
+	remote, err := remoteOf(ctx, git, "")
+	if err != nil {
+		return "", fmt.Errorf("reading the remotes: %w", err)
+	}
+	if remote == "" {
+		branch, err := git.Text(ctx, "symbolic-ref", "--quiet", "--short", "HEAD")
+		if err != nil || branch == "" {
+			return "", errors.New("the repository has no default branch: HEAD names no branch")
+		}
+		commit, err := git.Commit(ctx, "refs/heads/"+branch)
+		if err != nil {
+			return "", fmt.Errorf("%w: the repository holds no branch %s", ports.ErrNotFound, branch)
+		}
+		return commit, nil
+	}
+	head, err := git.Text(ctx, "symbolic-ref", "--quiet", "--short", "refs/remotes/"+remote+"/HEAD")
+	branch, found := strings.CutPrefix(head, remote+"/")
+	if err != nil || !found || branch == "" {
+		return "", fmt.Errorf("the remote %s records no HEAD, so the repository has no default branch to read", remote)
+	}
+	commit, err := git.Commit(ctx, "refs/remotes/"+remote+"/"+branch)
+	if err != nil {
+		return "", fmt.Errorf("%w: the repository holds no %s/%s", ports.ErrNotFound, remote, branch)
+	}
+	return commit, nil
+}
+
 // Contains reports whether ancestor is reachable from commit. Git exits 1 for a commit that is not, and
 // otherwise for one it cannot read, which is a different answer.
 func (w Worktrees) Contains(ctx context.Context, repository, ancestor, commit string) (bool, error) {

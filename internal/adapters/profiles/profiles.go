@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"maps"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/BurntSushi/toml"
@@ -244,7 +245,7 @@ func (f Filesystem) repositoryLayer(ctx context.Context, repository, base string
 		return "", "", err
 	}
 	where = fmt.Sprintf("%s at commit %s", RepositoryFile, commit)
-	listing, err := git.Text(ctx, "ls-tree", commit, "--", RepositoryFile)
+	listing, err := git.Text(ctx, "ls-tree", "--long", commit, "--", RepositoryFile)
 	if err != nil {
 		return "", "", fmt.Errorf("reading %s: %w", where, err)
 	}
@@ -253,8 +254,11 @@ func (f Filesystem) repositoryLayer(ctx context.Context, repository, base string
 	}
 	entry, _, _ := strings.Cut(listing, "\t")
 	fields := strings.Fields(entry)
-	if len(fields) != 3 || fields[1] != "blob" || fields[0] == symlinkMode {
+	if len(fields) != 4 || fields[1] != "blob" || fields[0] == symlinkMode {
 		return "", "", fmt.Errorf("%w: %s is not a regular file", lanes.ErrBadProfile, where)
+	}
+	if size, err := strconv.ParseInt(fields[3], 10, 64); err != nil || size > MaxLayerBytes {
+		return "", "", fmt.Errorf("%w: %s is %s bytes, over the %d a layer may hold", lanes.ErrBadProfile, where, fields[3], MaxLayerBytes)
 	}
 	raw, err := git.Output(ctx, "cat-file", "blob", fields[2])
 	if err != nil {
@@ -266,29 +270,41 @@ func (f Filesystem) repositoryLayer(ctx context.Context, repository, base string
 // symlinkMode is the mode git records for a symbolic link.
 const symlinkMode = "120000"
 
-// commitAt resolves base to a commit. A commit the repository does not hold is ErrNotFound. An empty base is
-// the tip of the default branch, the remote's copy where the clone has one, as a lane's base is resolved.
+// MaxLayerBytes is the most a repository's layer may hold. A layer is a short file of settings, and the limit
+// keeps one that is not from being read into memory.
+const MaxLayerBytes = 1 << 20
+
+// ErrNotAHash means a base is not the full hash of a commit, which is the only form a lane's base takes.
+var ErrNotAHash = errors.New("a base is a full commit hash")
+
+// commitAt resolves base to a commit. A base is the full 40 or 64 character hash of a commit, so a name that git
+// would read as an option, a branch, or an abbreviation is refused, and a commit the repository does not hold is
+// ErrNotFound. An empty base is the tip of the default branch.
 func (f Filesystem) commitAt(ctx context.Context, git gitcli.Git, repository, base string) (string, error) {
-	if base != "" {
-		if strings.HasPrefix(base, "-") {
-			return "", fmt.Errorf("%w: %s is not a commit", ports.ErrNotFound, base)
-		}
-		commit, err := git.Commit(ctx, base)
-		if err != nil {
-			return "", fmt.Errorf("%w: the repository holds no commit %s", ports.ErrNotFound, base)
-		}
-		return commit, nil
+	if base == "" {
+		return gitcli.Worktrees{Env: f.Env}.DefaultTip(ctx, repository)
 	}
-	branch, err := gitcli.Worktrees{Env: f.Env}.DefaultBranch(ctx, repository)
+	if !isFullHash(base) {
+		return "", fmt.Errorf("%w, not %q", ErrNotAHash, base)
+	}
+	commit, err := git.Commit(ctx, base)
 	if err != nil {
-		return "", fmt.Errorf("reading the default branch of the repository: %w", err)
+		return "", fmt.Errorf("%w: the repository holds no commit %s", ports.ErrNotFound, base)
 	}
-	for _, ref := range []string{"refs/remotes/origin/" + branch, "refs/heads/" + branch} {
-		if commit, err := git.Commit(ctx, ref); err == nil {
-			return commit, nil
+	return commit, nil
+}
+
+// isFullHash says text is the lowercase hexadecimal hash git gives an object, of SHA-1 or SHA-256 length.
+func isFullHash(text string) bool {
+	if len(text) != 40 && len(text) != 64 {
+		return false
+	}
+	for _, c := range text {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
 		}
 	}
-	return "", fmt.Errorf("%w: the repository holds no default branch %s", ports.ErrNotFound, branch)
+	return true
 }
 
 var _ ports.ProfileSource = Filesystem{}

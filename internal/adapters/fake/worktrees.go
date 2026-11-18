@@ -33,6 +33,10 @@ type Worktrees struct {
 	files     map[string]map[string]string
 	touched   map[string][]string
 	context   error
+
+	// fetchedCommits is every commit FetchCommit asked for.
+	fetchedCommits []string
+
 	// history is the commits a repository holds, each with the commits it grew from. tips maps a
 	// repository and a branch to its commit. specs lists every worktree asked for, in order.
 	history   map[string][]string
@@ -157,6 +161,21 @@ func (w *Worktrees) Fetch(_ context.Context, _ string, refs []string) error {
 	defer w.mu.Unlock()
 	w.fetched = append(w.fetched, refs...)
 	return nil
+}
+
+// FetchCommit keeps which commits a repository asked a remote for.
+func (w *Worktrees) FetchCommit(_ context.Context, _, commit string) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.fetchedCommits = append(w.fetchedCommits, commit)
+	return nil
+}
+
+// FetchedCommits lists every commit a fetch asked for, in order.
+func (w *Worktrees) FetchedCommits() []string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return append([]string{}, w.fetchedCommits...)
 }
 
 // Fetched lists every ref a fetch asked for, in order.

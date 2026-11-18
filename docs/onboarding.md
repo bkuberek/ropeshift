@@ -286,9 +286,9 @@ A repository's layer is `.ropeshift/profile.toml` at its root. It applies once i
 - A layer committed to a branch the lane's commit does not contain applies to no lane.
 - A layer committed to the base branch applies to every lane that starts from that commit or a later one, and to no lane that began earlier.
 - A file absent at that commit is no layer.
-- A file at that commit that does not parse, or that sets a key the profile does not have, stops the lane before anything exists on disk. The failure names `.ropeshift/profile.toml` and the commit.
+- A file at that commit that does not parse, that sets a key the profile does not have, that is larger than 1 MiB, or that is a link, a directory, or a submodule instead of a file, stops the lane before anything exists on disk. The failure names `.ropeshift/profile.toml` and the commit.
 
-A lane that has no base commit reads the file at the tip of the repository's default branch.
+A lane that has no base commit reads the file at the tip of the repository's default branch: for a clone with a remote, the remote-tracking copy of the branch the remote's HEAD names, which `git remote set-head <remote> --auto` records, and never the branch the checkout has out. A clone whose remote records no HEAD has no default branch to read, and such a lane does not start.
 
 ### A lane's own profile layer
 

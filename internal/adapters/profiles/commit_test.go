@@ -215,12 +215,91 @@ func TestTheDefaultTipFollowsTheRemote(t *testing.T) {
 	}
 }
 
-// A base that is not a commit name is refused before git reads it.
-func TestABaseThatIsAnOptionIsRefused(t *testing.T) {
+// A clone whose remote records no HEAD has no default branch to read, and the branch the checkout has out is not
+// taken for it, because it may hold a layer nobody merged.
+func TestACloneWhoseRemoteRecordsNoHeadHasNoDefaultTip(t *testing.T) {
+	origin := gittest.New(t)
+	origin.Commit("README.md", "a repository\n")
+	clone := origin.Clone("clone")
+	clone.Git("checkout", "--quiet", "-b", "topic")
+	clone.Commit(RepositoryFile, haiku)
+	if got := readModel(t, clone, ""); got != baseModel(t) {
+		t.Errorf("the checked-out branch's layer set the default tip's model to %q", got)
+	}
+	clone.Git("remote", "set-head", "origin", "--delete")
+	_, err := Filesystem{Env: clone.Env()}.Load(t.Context(), clone.Dir, "", "")
+	if err == nil || !strings.Contains(err.Error(), "no HEAD") {
+		t.Errorf("a remote with no HEAD gave %v", err)
+	}
+}
+
+// The remote is the one git finds, whatever its name.
+func TestTheDefaultTipFollowsARemoteOfAnyName(t *testing.T) {
+	origin := gittest.New(t)
+	origin.Commit("README.md", "a repository\n")
+	clone := origin.Clone("clone")
+	clone.Git("remote", "rename", "origin", "upstream")
+	origin.Commit(RepositoryFile, haiku)
+	clone.Git("fetch", "--quiet", "upstream")
+	if got := readModel(t, clone, ""); got != "haiku" {
+		t.Errorf("the default tip runs %q, want the remote's layer", got)
+	}
+}
+
+// A base is the full hash of a commit. Anything else, an option, a branch, and an abbreviation included, is
+// refused before git reads it.
+func TestABaseThatIsNotAFullHashIsRefused(t *testing.T) {
+	repo := gittest.New(t)
+	full := repo.Commit("README.md", "a repository\n")
+	for _, base := range []string{"--output=x", "main", "HEAD", full[:12], strings.ToUpper(full), full + "0"} {
+		_, err := Filesystem{Env: repo.Env()}.Load(t.Context(), repo.Dir, base, "")
+		if !errors.Is(err, ErrNotAHash) || errors.Is(err, ports.ErrNotFound) {
+			t.Errorf("the base %q gave %v", base, err)
+		}
+	}
+	if got := readModel(t, repo, full); got != baseModel(t) {
+		t.Errorf("the full hash runs %q", got)
+	}
+}
+
+// What is at the layer's path must be a regular file: a directory and a submodule are layers that cannot be read.
+func TestAPathThatIsNotAFileIsRefused(t *testing.T) {
+	t.Run("a directory", func(t *testing.T) {
+		repo := gittest.New(t)
+		repo.Commit("README.md", "a repository\n")
+		bad := repo.Commit(RepositoryFile+"/inner.toml", haiku)
+		assertRefused(t, repo, bad)
+	})
+	t.Run("a submodule", func(t *testing.T) {
+		repo := gittest.New(t)
+		repo.Commit("README.md", "a repository\n")
+		repo.Git("update-index", "--add", "--cacheinfo", "160000,"+repo.Git("rev-parse", "HEAD")+","+RepositoryFile)
+		repo.Git("commit", "--quiet", "-m", "add a submodule at the layer's path")
+		assertRefused(t, repo, repo.Git("rev-parse", "HEAD"))
+	})
+}
+
+func assertRefused(t *testing.T, repo *gittest.Repo, base string) {
+	t.Helper()
+	_, err := Filesystem{Env: repo.Env()}.Load(t.Context(), repo.Dir, base, "")
+	if !errors.Is(err, lanes.ErrBadProfile) || !strings.Contains(err.Error(), RepositoryFile) || !strings.Contains(err.Error(), base) {
+		t.Errorf("a layer path that is not a file gave %v", err)
+	}
+}
+
+// A layer over the limit is refused before it is read, and one at the limit is read.
+func TestALayerOverTheSizeLimitIsRefused(t *testing.T) {
 	repo := gittest.New(t)
 	repo.Commit("README.md", "a repository\n")
-	if _, err := (Filesystem{Env: repo.Env()}).Load(t.Context(), repo.Dir, "--output=x", ""); !errors.Is(err, ports.ErrNotFound) {
-		t.Errorf("an option as a base gave %v", err)
+	padded := func(size int) string { return strings.Repeat("#", size-1) + "\n" }
+	atLimit := repo.Commit(RepositoryFile, padded(MaxLayerBytes))
+	if _, err := (Filesystem{Env: repo.Env()}).Load(t.Context(), repo.Dir, atLimit, ""); err != nil {
+		t.Errorf("a layer of %d bytes gave %v", MaxLayerBytes, err)
+	}
+	over := repo.Commit(RepositoryFile, padded(MaxLayerBytes+1))
+	_, err := Filesystem{Env: repo.Env()}.Load(t.Context(), repo.Dir, over, "")
+	if !errors.Is(err, lanes.ErrBadProfile) || !strings.Contains(err.Error(), RepositoryFile) || !strings.Contains(err.Error(), over) {
+		t.Errorf("a layer of %d bytes gave %v", MaxLayerBytes+1, err)
 	}
 }
 

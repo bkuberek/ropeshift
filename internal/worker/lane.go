@@ -151,21 +151,34 @@ func (p Provisioner) laneSets(ctx context.Context, request LaneRequest, profile 
 
 // load resolves the lane's profile, reading its repository's layer at the commit its worktree begins from
 // (FR-PROF-5). A lane with no work of its own has a directory and no repository, so it has no layer. A lane that
-// another machine ran may begin at a commit this machine has yet to fetch, so a commit it does not hold is read
-// again after the fetch the lane's worktree needs.
+// another machine ran, and a review of a head another clone pushed, begin at a commit this machine has yet to
+// fetch, so a commit it does not hold is fetched for as the lane's worktree would and read once more.
 func (p Provisioner) load(ctx context.Context, request LaneRequest, overrides string) (lanes.Profile, error) {
 	repository := request.Repository
 	if request.Private {
 		repository = ""
 	}
 	profile, err := p.Profiles.Load(ctx, repository, request.Base, overrides)
-	if errors.Is(err, ports.ErrNotFound) && len(request.Fetch) != 0 {
+	if !errors.Is(err, ports.ErrNotFound) || repository == "" {
+		return profile, err
+	}
+	fetched := false
+	if len(request.Fetch) != 0 {
 		if err := p.Worktrees.Fetch(ctx, repository, request.Fetch); err != nil {
 			return lanes.Profile{}, err
 		}
-		return p.Profiles.Load(ctx, repository, request.Base, overrides)
+		fetched = true
 	}
-	return profile, err
+	if trees, offered := p.Worktrees.(ports.ReviewTrees); request.Detached && offered && request.Base != "" {
+		if err := trees.FetchCommit(ctx, repository, request.Base); err != nil {
+			return lanes.Profile{}, err
+		}
+		fetched = true
+	}
+	if !fetched {
+		return profile, err
+	}
+	return p.Profiles.Load(ctx, repository, request.Base, overrides)
 }
 
 // Prepare resolves the profile first, because a bad profile should stop a lane
