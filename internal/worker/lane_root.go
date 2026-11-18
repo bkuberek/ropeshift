@@ -102,6 +102,16 @@ func (p Provisioner) place(ctx context.Context, request LaneRequest, profile lan
 	if err != nil {
 		return lanes.Placement{}, nil, none, err
 	}
+	if inside && workspace.Path == "" && profile.Worktree.RootSource != lanes.RootFromDefault {
+		if workspace, err = p.allowance(ctx, request, profile); err != nil {
+			return lanes.Placement{}, nil, none, err
+		}
+		if workspace.Clone {
+			if clone, inside, err = ports.InsideClone(ctx, p.Checkouts, clones, place.Path, workspace.Path); err != nil {
+				return lanes.Placement{}, nil, none, err
+			}
+		}
+	}
 	switch {
 	case inside && held != "":
 		if kept == nil {
@@ -123,15 +133,48 @@ func (p Provisioner) place(ctx context.Context, request LaneRequest, profile lan
 // workspace it found, and says why the built-in root fell back to the root outside every clone when it did.
 func (p Provisioner) workspaceRoot(ctx context.Context, request LaneRequest, profile lanes.Profile) (lanes.WorktreeSettings, lanes.Workspace, lanes.RootFallback, error) {
 	none := lanes.RootFallback{}
-	if p.Checkouts == nil {
+	// A root a person set is never moved into a workspace, so such a lane has no use for the workspace here, and a
+	// workspace that cannot be checked must not stop it. A root of the person's inside the workspace's clone asks
+	// for the workspace later, where it is refused or allowed.
+	if p.Checkouts == nil || profile.Worktree.RootSource != lanes.RootFromDefault {
 		return profile.Worktree, lanes.Workspace{}, none, nil
 	}
 	workspace, found, err := FindWorkspace(ctx, p.Checkouts, profile, request.Project, request.PlanningRepository)
-	if err != nil || !found {
-		return profile.Worktree, lanes.Workspace{}, none, err
+	if err != nil {
+		return p.unreadable(ctx, profile, err)
+	}
+	if !found {
+		return profile.Worktree, lanes.Workspace{}, none, nil
 	}
 	settings, fallback, err := ports.NewWorkspace(p.Checkouts).Settings(ctx, profile.Worktree, workspace, request.Repository)
-	return settings, workspace, fallback, err
+	if err != nil {
+		return p.unreadable(ctx, profile, err)
+	}
+	return settings, workspace, fallback, nil
+}
+
+// unreadable keeps the built-in root outside every clone for a lane whose workspace could not be checked, and says
+// what went wrong in the lane's start notice. A lane that git's answer for a workspace stops would otherwise never
+// start, for a root it does not use. A cancelled context is not a workspace's trouble, and stops the lane.
+func (p Provisioner) unreadable(ctx context.Context, profile lanes.Profile, err error) (lanes.WorktreeSettings, lanes.Workspace, lanes.RootFallback, error) {
+	if ctx.Err() != nil {
+		return lanes.WorktreeSettings{}, lanes.Workspace{}, lanes.RootFallback{}, ctx.Err()
+	}
+	return profile.Worktree, lanes.Workspace{}, lanes.RootFallback{Reason: lanes.FallbackUnreadable, Detail: err.Error()}, nil
+}
+
+// allowance finds the workspace of a lane whose root a person set and lies inside a clone, because that root is
+// allowed inside the workspace's clone under its ignored folder for worktrees. A workspace that cannot be found or
+// checked gives no allowance, so the root is refused as a root inside the clone.
+func (p Provisioner) allowance(ctx context.Context, request LaneRequest, profile lanes.Profile) (lanes.Workspace, error) {
+	workspace, found, err := FindWorkspace(ctx, p.Checkouts, profile, request.Project, request.PlanningRepository)
+	if ctx.Err() != nil {
+		return lanes.Workspace{}, ctx.Err()
+	}
+	if err != nil || !found {
+		return lanes.Workspace{}, nil
+	}
+	return workspace, nil
 }
 
 // unignoredFolder names the workspace when a refused path lies under its folder for worktrees, which the workspace

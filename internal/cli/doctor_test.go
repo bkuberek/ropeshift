@@ -142,6 +142,7 @@ func TestTheDoctorPrintsEachProjectsWorkspace(t *testing.T) {
 				Roots: []domain.CheckoutRoot{{Checkout: "/work/ws2/repos/web", Root: "/data/worktrees/prj-2/web"}},
 			},
 			{Project: "prj-3", Path: "/work/plain", Found: domain.WorkspaceFromProfile, Ignored: true, Roots: []domain.CheckoutRoot{}},
+			{Project: "prj-4", Roots: []domain.CheckoutRoot{}, Error: "git check-ignore: exit status 128"},
 		},
 	}
 	var stdout, stderr bytes.Buffer
@@ -158,7 +159,8 @@ func TestTheDoctorPrintsEachProjectsWorkspace(t *testing.T) {
 		"  /work/ws: lane worktrees go in /data/worktrees/prj-1/ws\n" +
 		"Workspace prj-2: /work/ws2 (" + domain.WorkspaceFromProfile + "), which does not ignore .ropeshift/worktrees/: add /.ropeshift/worktrees/ to its .gitignore so lanes of its clones run inside it\n" +
 		"  /work/ws2/repos/web: lane worktrees go in /data/worktrees/prj-2/web\n" +
-		"Workspace prj-3: /work/plain (" + domain.WorkspaceFromProfile + "), a plain folder that needs no ignore line\n"
+		"Workspace prj-3: /work/plain (" + domain.WorkspaceFromProfile + "), a plain folder that needs no ignore line\n" +
+		"Workspace prj-4: could not be checked: git check-ignore: exit status 128. Its lanes on the built-in root run outside every clone until it can be\n"
 	if code != cli.ExitOK || stdout.String() != want {
 		t.Errorf("exit %d, stdout %q, stderr %q, want %q", code, stdout.String(), stderr.String(), want)
 	}

@@ -26,6 +26,9 @@ func worktreeText(report lanes.WorktreeReport) string {
 // worktrees is ignored, with the line to add when it is not, and the root each checkout gets.
 func workspaceText(workspace lanes.WorkspaceReport) string {
 	var out strings.Builder
+	if workspace.Error != "" {
+		return fmt.Sprintf("Workspace %s: could not be checked: %s. Its lanes on the built-in root run outside every clone until it can be\n", workspace.Project, workspace.Error)
+	}
 	fmt.Fprintf(&out, "Workspace %s: %s (%s)", workspace.Project, workspace.Path, workspace.Found)
 	switch {
 	case !workspace.Clone:

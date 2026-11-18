@@ -78,6 +78,9 @@ const (
 	// FallbackEscapes says a symbolic link leads the workspace's folder for worktrees, or the repository's folder
 	// in it, out of the workspace, so a lane there would not be in the workspace.
 	FallbackEscapes = "escapes"
+	// FallbackUnreadable says the workspace could not be checked, as git cannot answer for one whose .ropeshift is
+	// a link.
+	FallbackUnreadable = "unreadable"
 )
 
 // RootFallback says why a lane's built-in root stayed the root outside every clone though the lane's clone lies in
@@ -87,6 +90,8 @@ type RootFallback struct {
 	Workspace string `json:"workspace,omitempty"`
 	// Reason is one of the Fallback constants.
 	Reason string `json:"reason,omitempty"`
+	// Detail is what went wrong, for FallbackUnreadable.
+	Detail string `json:"detail,omitempty"`
 }
 
 // Notice says, in a line, why the lane's root fell back and what to change. It is empty when nothing fell back.
@@ -97,6 +102,8 @@ func (f RootFallback) Notice() string {
 	case FallbackEscapes:
 		return fmt.Sprintf("a symbolic link leads `%s/` of the workspace %s out of it, so this repository's lanes run outside the workspace; remove the link so its lanes run inside the workspace",
 			planning.WorktreesFolder, f.Workspace)
+	case FallbackUnreadable:
+		return fmt.Sprintf("the project's workspace could not be checked (%s), so this repository's lanes run outside it until it can", f.Detail)
 	}
 	return ""
 }

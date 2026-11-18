@@ -226,6 +226,41 @@ func TestALinkInTheWorkspaceFolderLeadsNoLaneOutOfIt(t *testing.T) {
 	}
 }
 
+// A workspace git cannot answer for, here one whose .ropeshift is a link, as git refuses a path beyond a link with
+// exit status 128, stops no lane that never uses it: a lane with a root a person set starts, a lane on the built-in
+// root starts outside every clone with the reason, and the doctor reports the error as a finding of that workspace
+// and still reports the rest (FR-PROF-6).
+func TestAWorkspaceGitCannotAnswerForStopsNoLaneAndNotTheDoctor(t *testing.T) {
+	w := newWorktreeWorkspace(t)
+	w.ignoreWorktrees()
+	elsewhere := filepath.Join(w.home, "elsewhere")
+	if err := os.MkdirAll(elsewhere, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(elsewhere, filepath.Join(w.workspace.Dir, ".ropeshift")); err != nil {
+		t.Fatal(err)
+	}
+	named := "[projects.prj-1]\nworkspace = \"" + w.workspace.Dir + "\"\n"
+	w.userLayer(t, named)
+	lane, err := w.prov.Prepare(t.Context(), planned("lane-1", w.clones["api"]))
+	if want := filepath.Join(w.paths.WorktreeDir, "prj-1", "api", "lane-1"); err != nil || lane.Worktree.Path != want || lane.Fallback.Reason != lanes.FallbackUnreadable {
+		t.Errorf("a lane on the built-in root is at %q with %+v (%v), want %q and the reason", lane.Worktree.Path, lane.Fallback, err, want)
+	}
+	mine := filepath.Join(w.home, "mine")
+	w.userLayer(t, "[worktree]\nroot = \""+mine+"/{project}/{repo}\"\n"+named)
+	lane, err = w.prov.Prepare(t.Context(), planned("lane-2", w.clones["web"]))
+	if want := filepath.Join(mine, "prj-1", "web", "lane-2"); err != nil || at(t, lane.Worktree.Path) != at(t, want) || lane.Fallback.Reason != "" {
+		t.Errorf("a lane on a root a person set is at %q with %+v (%v), want %q", lane.Worktree.Path, lane.Fallback, err, want)
+	}
+	report, err := worktreeReport(t.Context(), w.paths)
+	if err != nil || len(report.Workspaces) != 1 {
+		t.Fatalf("the doctor fails or names %+v (%v)", report.Workspaces, err)
+	}
+	if held := report.Workspaces[0]; held.Project != "prj-1" || held.Error == "" || !strings.Contains(held.Error, "128") {
+		t.Errorf("the doctor reports the workspace as %+v", held)
+	}
+}
+
 // The user's profile names a project's workspace over what the planning clone says, and an empty one says there is
 // none: the same workspace then gives its clones the root outside every clone.
 func TestTheUsersProfileDecidesWhichFolderIsTheWorkspace(t *testing.T) {
