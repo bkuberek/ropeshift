@@ -18,6 +18,14 @@ const SpendScopeWork = "work"
 // SpendScopeAssistant is the tally of what the project's assistant was charged, which its soft daily warning reads.
 const SpendScopeAssistant = "assistant"
 
+// SpendScopeOrchestrator is the prefix of the tally of what one machine's orchestrator was charged, which the
+// installation's `orchestrator_daily_warn` reads per machine (FR-SPEND-6). The orchestrator serves every project of its
+// machine, so its tally is kept with the installation's records and no project's.
+const SpendScopeOrchestrator = "orchestrator"
+
+// OrchestratorSpendScope names the tally of the orchestrator of one worker's machine.
+func OrchestratorSpendScope(worker string) string { return SpendScopeOrchestrator + ":" + worker }
+
 // EventSpendProjectLimitRaised says a member raised a project's daily or weekly limit for the window it was made in.
 // It records the limit before and after (FR-SPEND-8), as a work order's raise does.
 const EventSpendProjectLimitRaised = "spend.project_limit_raised"

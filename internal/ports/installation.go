@@ -67,6 +67,26 @@ type SharedReadTx interface {
 	Roster() RosterReader
 	// TemplateWrites reads the requests to write a shape's starting files on a worker's machine.
 	TemplateWrites() TemplateWriteReader
+	// Spend reads what the machines' orchestrators were charged.
+	Spend() SpendReader
+}
+
+// SpendReader reads the installation's tallies of spend, which no project holds because the orchestrator serves every
+// project of its machine.
+type SpendReader interface {
+	// SpendSince reads what a scope of spend was charged from a moment on, in US dollars, as a project's lanes do
+	// (LaneReader.SpendSince).
+	SpendSince(scope string, from int64) (float64, error)
+	// SpendOn reads what a scope of spend was charged on the one UTC day that begins at a moment (ledger.WindowStart).
+	SpendOn(scope string, day int64) (float64, error)
+}
+
+// SpendWriter writes the installation's tallies of spend.
+type SpendWriter interface {
+	SpendReader
+	// NoteSpend raises what an owner's generation was charged in a scope to a figure its worker reported, and adds the
+	// difference to the scope's UTC day. A repeated or smaller figure adds nothing, because the ledger never lowers one.
+	NoteSpend(scope, owner string, generation int64, chargedUSD float64) error
 }
 
 // SharedTx is one write transaction of the shared records, which holds the installation's revision.
@@ -89,4 +109,6 @@ type SharedTx interface {
 	Roster() RosterWriter
 	// TemplateWrites reads and writes the requests to write a shape's starting files on a worker's machine.
 	TemplateWrites() TemplateWriteWriter
+	// Spend reads and writes what the machines' orchestrators were charged.
+	Spend() SpendWriter
 }

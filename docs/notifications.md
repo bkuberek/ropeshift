@@ -39,13 +39,15 @@ A spend limit that is reached, and a spend setting that changes, raise an alert 
 
 | Kind | Raised when | Reasons it names |
 |------|-------------|------------------|
-| `spend_soft_limit` | Charged spend reaches a soft limit, once for each limit and scope: a work order, a review, a project's day or week, or the assistant's daily warning, `assistant_daily_warn`. A project's day and week are told again for each new day or week, and a limit you raised is told again when its raised soft limit is reached | `work_order`, `review`, `project_day`, `project_week`, `assistant` |
+| `spend_soft_limit` | Charged spend reaches a soft limit, once for each limit and scope: a work order, a review, a project's day or week, the assistant's daily warning, `assistant_daily_warn`, or the orchestrator's daily warning, `orchestrator_daily_warn`. A project's day and week are told again for each new day or week, and a limit you raised is told again when its raised soft limit is reached | `work_order`, `review`, `project_day`, `project_week`, `assistant`, `orchestrator` |
 | `spend_hard_limit` | Charged spend reaches a hard limit and work parks or stops being claimed, once for each limit and scope | `work_order`, `review`, `project_day`, `project_week` |
 | `spend_no_progress` | A lane parks because it made no progress | `lane` |
 | `spend_waiting` | Most of a lane's recent spend was waiting | `lane` |
 | `spend_policy_changed` | A version of the spend policy or the installation's spend policy is published, or a limit is raised | `project`, `installation`, `limit_raised` |
 
-Nothing in this build raises `spend_no_progress` or `spend_waiting` yet: their kinds, their sentences, and their channels are in place, and they are delivered as every other spend alert is. The installation's `orchestrator_daily_warn` is kept and edited as a setting, and no alert reads it yet, because an alert for the orchestrator of a machine belongs to no one project whose policy would choose its channels.
+Nothing in this build raises `spend_no_progress` or `spend_waiting` yet: their kinds, their sentences, and their channels are in place, and they are delivered as every other spend alert is.
+
+The installation's `orchestrator_daily_warn` is a limit for each machine's orchestrator for the UTC day. A machine's orchestrator serves every project on it, so when its spend for the day reaches the limit, each project the machine serves is told once, and each project's `[notify_policy]` chooses the channels. Two machines have two tallies and tell separately, and a spend report counts in the day it reaches the control plane.
 
 A spend alert says what kind of thing reached a limit and nothing else. Its text is one fixed sentence, such as "The project reached its daily spend limit, and no work starts until the day ends or a member raises it.", with the project's name at its head. It holds no amount, no work order, no lane, no setting, and no name. The ledger's event holds those: the limit reached and what was charged, or for `spend_policy_changed` each key with its value before and after and the member who changed it, which you read in the project's log.
 
