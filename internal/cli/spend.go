@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/authority"
@@ -36,12 +37,27 @@ func spendShowText(view api.SpendView) string {
 	spendKeyLines(&out, view.Project.Keys)
 	out.WriteString(spendPolicyHeader("installation spend policy", view.Installation))
 	spendKeyLines(&out, view.Installation.Keys)
+	out.WriteString(projectWindowText(view.ProjectSpend.Day))
+	out.WriteString(projectWindowText(view.ProjectSpend.Week))
 	out.WriteString("open work orders\tcharged\tsoft limit\thard limit\tconditions\n")
 	for _, order := range view.WorkOrders {
 		fmt.Fprintf(&out, "%s\t%s\t%s\t%s\t%s\t%s\n", order.WorkOrder, order.Kind, dollars(order.Charged.ChargedUSD), limitText(order.SoftLimit),
 			limitText(order.HardLimit), strings.Join(order.Conditions, ","))
 	}
 	return out.String()
+}
+
+// projectWindowText says where a project stands in a day or a week: what its lanes were charged, and the limits it runs
+// under, which a member raised when they say so (FR-SPEND-6).
+func projectWindowText(w ledger.ProjectWindowSpend) string {
+	line := fmt.Sprintf("project %s\tspent %s\tsoft limit %s\thard limit %s", w.Window, dollars(w.SpentUSD), limitText(w.SoftLimit), limitText(w.HardLimit))
+	if w.RaisedTo > 0 {
+		line += "\traised by a member"
+	}
+	if w.Past() {
+		line += "\tpast its limit until " + time.UnixMilli(w.EndsAt).UTC().Format(time.RFC3339)
+	}
+	return line + "\n"
 }
 
 func workOrderSpendText(spend ledger.WorkOrderSpend) string {

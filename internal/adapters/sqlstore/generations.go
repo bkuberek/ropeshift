@@ -38,6 +38,16 @@ VALUES (:workspace_id, :lane_id, :generation, :start_reason, :handoff_in, :now)`
        charged_floor_usd = CASE WHEN :floor_usd > charged_floor_usd THEN :floor_usd ELSE charged_floor_usd END
  WHERE workspace_id = :workspace_id AND lane_id = :lane_id AND generation = :generation`)
 
+	// A tally keeps what a scope of spend was charged by UTC day, so a day and a week are each a sum of days and a limit
+	// that holds a project back reads the window it falls in (ADR-0037).
+	stmtAddSpend = define("spend.add",
+		`INSERT INTO spend_days (workspace_id, scope, day, charged_usd) VALUES (:workspace_id, :scope, :day, :usd)
+ON CONFLICT (workspace_id, scope, day) DO UPDATE SET charged_usd = spend_days.charged_usd + :usd`)
+
+	stmtSpendSince = define("spend.since",
+		`SELECT COALESCE(SUM(charged_usd), 0) FROM spend_days
+ WHERE workspace_id = :workspace_id AND scope = :scope AND day >= :from`)
+
 	stmtEndGeneration = define("generation.end",
 		`UPDATE generations SET end_reason = :end_reason, ended_at = :now
  WHERE workspace_id = :workspace_id AND lane_id = :lane_id AND generation = :generation AND ended_at IS NULL`)
@@ -130,6 +140,27 @@ func (t laneTx) ReportUsage(lane string, number int64, usage ledger.GenerationUs
 	p["floor_usd"] = ledger.Charge([][]ledger.GenerationUsage{{usage}}).ChargedUSD
 	n, err := t.exec(stmtGenerationUsage, p)
 	return n > 0, err
+}
+
+func (t laneTx) AddSpend(scope string, usd float64) error {
+	if !(usd > 0) {
+		return nil
+	}
+	now, err := t.readClock()
+	if err != nil {
+		return err
+	}
+	_, err = t.exec(stmtAddSpend, params{"workspace_id": string(t.scope), "scope": scope, "day": ledger.WindowStart(ledger.WindowDay, now), "usd": usd})
+	return err
+}
+
+func (t laneTx) SpendSince(scope string, from int64) (float64, error) {
+	row, err := t.row(stmtSpendSince, params{"workspace_id": string(t.scope), "scope": scope, "from": from})
+	if err != nil {
+		return 0, err
+	}
+	var total float64
+	return total, row.Scan(&total)
 }
 
 func (t laneTx) EndGeneration(lane string, number int64, reason string) error {

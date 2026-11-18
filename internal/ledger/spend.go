@@ -152,7 +152,16 @@ type SpendAllowance struct {
 	LaneUSD float64 `json:"lane_usd,omitempty"`
 	// HeadroomShare is `budget_flag_headroom_share`.
 	HeadroomShare float64 `json:"headroom_share,omitempty"`
+	// ProjectHold says the project is past a daily or weekly limit, which parks every lane of it (FR-SPEND-6). It is
+	// read as of the report, so a worker asks again to see a window end or a limit raised.
+	ProjectHold *ProjectHold `json:"project_hold,omitempty"`
+	// ProjectLimited says the project has a daily or weekly limit, so the worker keeps the ledger current with what its
+	// lane spends and asks again, because the project's spend is every lane's and not this one's alone.
+	ProjectLimited bool `json:"project_limited,omitempty"`
 }
+
+// Held says a project limit holds the lane, which is a reason to park that the work order's own limit does not give.
+func (a SpendAllowance) Held() bool { return a.ProjectHold != nil }
 
 // LaneBefore is what the lane's earlier generations were charged, from what a worker's own journal holds of them and what
 // the ledger holds: the larger, because each is a lower bound of the other and neither is ever above what the lane spent.

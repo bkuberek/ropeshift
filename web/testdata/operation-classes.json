@@ -435,6 +435,13 @@
       "never_reason": "Spending past a hard limit is a person's decision."
     },
     {
+      "id": "spend.raise_project",
+      "label": "Raise the project's daily or weekly spend limit",
+      "class": "consent",
+      "exemptable": false,
+      "never_reason": "Spending past a hard limit is a person's decision."
+    },
+    {
       "id": "spend.resume",
       "label": "Resume a lane a spend limit parked",
       "class": "consent",

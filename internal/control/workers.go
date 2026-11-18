@@ -1447,6 +1447,10 @@ func (w *Workers) Rule(ctx context.Context, ruling questions.WorkerRuling) (ques
 func (w *Workers) Offered(ctx context.Context, worker string) ([]workorders.WorkOrder, error) {
 	offered := []workorders.WorkOrder{}
 	err := w.store.Read(ctx, w.scope, func(tx ports.ReadTx) error {
+		// A project past its daily or weekly limit offers nothing: no work order of it may be claimed (FR-SPEND-6).
+		if held, _, err := projectReadsOf(tx).projectHold(); err != nil || held != nil {
+			return err
+		}
 		rows, err := tx.WorkOrders().List()
 		if err != nil {
 			return err

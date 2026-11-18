@@ -20,6 +20,11 @@ const (
 	// allowanceGrace is how long a lane runs with no allowance known before it is held. The lane is not held for a read
 	// that failed once, and it is not run for as long as a control plane stays away: a limit nobody can read is no limit.
 	allowanceGrace = 30 * time.Second
+	// projectReportEvery is how often a lane in a project with a daily or weekly limit tells the ledger what it has spent
+	// while a generation runs. The project's spend is every lane's, and the ledger knows a generation's only when its worker
+	// says, so a project's limit is as current as this span and the heartbeat, and a lane overshoots it by no more than
+	// what it spends in them (FR-SPEND-6). A project with no limit never asks a lane to report before a generation ends.
+	projectReportEvery = time.Minute
 )
 
 // holdsToLimit says this run is held to a work order's hard spend limit: a lane that works one. An orchestrator and an
@@ -30,9 +35,28 @@ func (r *laneRun) holdsToLimit() bool {
 
 // setAllowance keeps what the ledger said the lane's work order allows, which nil says is no limit.
 func (r *laneRun) setAllowance(allowance *ledger.SpendAllowance) {
+	now := r.w.clock.Now()
 	r.handleLock.Lock()
 	defer r.handleLock.Unlock()
-	r.allowance, r.allowanceKnown, r.allowanceFailedAt = allowance, true, time.Time{}
+	r.allowance, r.allowanceKnown, r.allowanceFailedAt, r.allowanceReadAt = allowance, true, time.Time{}, now
+}
+
+// staleProjectAllowance says the allowance the lane holds is one that names a project limit and that the ledger has not
+// answered a read of for longer than the grace, and makes it unknown again, from the moment of the last answer. A lane the
+// control plane cannot reach would otherwise keep, for as long as it ran, the word that its project had room, which a member
+// may have taken back: it asks again, and is held and parked as a lane that cannot read its limit is (FR-SPEND-5).
+func (r *laneRun) staleProjectAllowance(allowance *ledger.SpendAllowance) bool {
+	if allowance == nil || !allowance.ProjectLimited {
+		return false
+	}
+	now := r.w.clock.Now()
+	r.handleLock.Lock()
+	defer r.handleLock.Unlock()
+	if now.Sub(r.allowanceReadAt) <= allowanceGrace {
+		return false
+	}
+	r.allowanceKnown, r.allowanceFailedAt = false, r.allowanceReadAt
+	return true
 }
 
 func (r *laneRun) allowanceNow() *ledger.SpendAllowance {
@@ -160,13 +184,90 @@ func (r *laneRun) evaluateSpend(ctx context.Context) bool {
 	if !known {
 		return r.allowanceUnknown(ctx)
 	}
-	if allowance == nil || !allowance.Crossed(r.chargedUSD()) {
+	if r.staleProjectAllowance(allowance) {
+		return r.allowanceUnknown(ctx)
+	}
+	if allowance != nil && allowance.ProjectLimited {
+		allowance = r.followTheProject(ctx)
+	} else {
+		allowance = r.askAboutTheProject(ctx)
+	}
+	if allowance == nil {
+		return false
+	}
+	own := allowance.Crossed(r.chargedUSD())
+	if !own && !allowance.Held() {
 		return false
 	}
 	if _, reported := r.reported(ctx); reported {
 		return false
 	}
-	return r.stopLane(ctx, lanes.ParkSpendLimit, false)
+	return r.stopLane(ctx, lanes.ParkSpendLimit, false, r.limitWake(allowance, own))
+}
+
+// limitWake is what a lane parked by a spend limit waits on. The work order's own limit decides it when the lane is over
+// that limit, because a day that ends does not lift it. A lane that only its project's limit holds waits on the project's
+// limit and the end of the window that holds it (FR-SPEND-6).
+func (r *laneRun) limitWake(allowance *ledger.SpendAllowance, own bool) string {
+	if !own && allowance.Held() {
+		return lanes.ProjectLimitWake(allowance.ProjectHold.UntilMs)
+	}
+	return lanes.SpendLimitWake(r.lease.WorkOrder)
+}
+
+// followTheProject keeps the ledger current with what this lane spends and asks it again whether the project is held, for a
+// lane in a project that has a daily or weekly limit. A lane spends in its generation and the ledger knows it only when the
+// worker says, and the project's spend is every lane's, so the lane tells the ledger at most once a span and reads the
+// allowance again once the span of an unknown one has passed. The allowance it returns is the one read last.
+func (r *laneRun) followTheProject(ctx context.Context) *ledger.SpendAllowance {
+	reported := r.reportProjectSpend(ctx)
+	r.handleLock.Lock()
+	tried := r.allowanceTriedAt
+	r.handleLock.Unlock()
+	// A report changes what the project has spent, so the answer is read again at once and not a span from now: the report that
+	// takes the project past its limit is the one the lane should be held at.
+	if reported || r.w.clock.Now().Sub(tried) >= allowanceRetryEvery {
+		r.readAllowance(ctx)
+	}
+	allowance, _ := r.allowanceState()
+	return allowance
+}
+
+// askAboutTheProject reads the allowance again, about once a span, for a lane that holds none that names a project limit. A
+// member can set or lower a project's limit while a lane works, and nothing tells the lane: it asks. It is a read and no
+// report, because a project with no limit asks nothing of its lanes before a generation ends. Once the project has a limit
+// the lane is one that follows it, and reports at once.
+func (r *laneRun) askAboutTheProject(ctx context.Context) *ledger.SpendAllowance {
+	r.handleLock.Lock()
+	tried := r.allowanceTriedAt
+	r.handleLock.Unlock()
+	if r.w.clock.Now().Sub(tried) >= projectReportEvery {
+		r.readAllowance(ctx)
+	}
+	allowance, _ := r.allowanceState()
+	if allowance != nil && allowance.ProjectLimited {
+		return r.followTheProject(ctx)
+	}
+	return allowance
+}
+
+// reportProjectSpend tells the ledger what the generation has spent so far, once a span and only when it grew, and says
+// whether it did. The ledger raises what it holds of a generation to each figure and never lowers one, so a report is safe
+// to repeat.
+func (r *laneRun) reportProjectSpend(ctx context.Context) bool {
+	charged := r.chargedUSD()
+	now := r.w.clock.Now()
+	r.handleLock.Lock()
+	due := r.projectReportedAt.IsZero() || now.Sub(r.projectReportedAt) >= projectReportEvery
+	if !due || charged <= r.projectReportedUSD {
+		r.handleLock.Unlock()
+		return false
+	}
+	r.projectReportedAt, r.projectReportedUSD = now, charged
+	r.handleLock.Unlock()
+	r.recordUsage(ctx)
+	r.uploadBounded(ctx)
+	return true
 }
 
 func (r *laneRun) allowanceState() (*ledger.SpendAllowance, bool) {
@@ -198,18 +299,18 @@ func (r *laneRun) allowanceUnknown(ctx context.Context) bool {
 	if _, reported := r.reported(ctx); reported {
 		return false
 	}
-	return r.stopLane(ctx, lanes.ParkSpendUnreadable, false)
+	return r.stopLane(ctx, lanes.ParkSpendUnreadable, false, lanes.SpendLimitWake(r.lease.WorkOrder))
 }
 
 // stopLane parks a lane at its hard limit, or because its limit cannot be read. A lane in a turn has its next tool call
 // denied until it takes the instruction to hand off, and the handoff is the only model call that follows, bounded by
 // `handoff_timeout`. A lane whose client already ended its turn at its own cap has no session to ask, so nothing is
 // asked of it. It reports whether parking began, and a lane that cannot park now is read again at the next report.
-func (r *laneRun) stopLane(ctx context.Context, trigger lanes.ParkTrigger, skipNarrative bool) bool {
+func (r *laneRun) stopLane(ctx context.Context, trigger lanes.ParkTrigger, skipNarrative bool, wake string) bool {
 	if !r.spendStop.CompareAndSwap(false, true) {
 		return false
 	}
-	request := lanes.ParkRequest{Trigger: trigger, Expr: lanes.SpendLimitWake(r.lease.WorkOrder), SkipNarrative: skipNarrative, MidTurn: true}
+	request := lanes.ParkRequest{Trigger: trigger, Expr: wake, SkipNarrative: skipNarrative, MidTurn: true}
 	err := r.beginParking(ctx, request)
 	if err == nil {
 		return true
@@ -228,7 +329,7 @@ func (r *laneRun) stopOnBudget(ctx context.Context) {
 	if r.spendStop.Load() || r.currentFlight() != nil {
 		return
 	}
-	r.stopLane(ctx, lanes.ParkSpendLimit, true)
+	r.stopLane(ctx, lanes.ParkSpendLimit, true, lanes.SpendLimitWake(r.lease.WorkOrder))
 }
 
 // parkAtLimitBeforeStart holds a generation that begins with nothing left to spend. It is read when a generation starts,
@@ -237,14 +338,20 @@ func (r *laneRun) stopOnBudget(ctx context.Context) {
 // The generation parks before its first turn, with no process and no model call, and it says whether it did.
 func (r *laneRun) parkAtLimitBeforeStart(ctx context.Context) (workorders.Report, bool) {
 	allowance, _ := r.allowanceState()
-	if !r.holdsToLimit() || allowance == nil || r.spendStop.Load() || !allowance.Crossed(r.chargedUSD()) {
+	if !r.holdsToLimit() || allowance == nil || r.spendStop.Load() {
+		return workorders.Report{}, false
+	}
+	// A project past its daily or weekly limit has no room for a first turn either, and a generation that begins in one
+	// parks as at its own work order's limit, on the project's (FR-SPEND-6).
+	own := allowance.Crossed(r.chargedUSD())
+	if !own && !allowance.Held() {
 		return workorders.Report{}, false
 	}
 	if !r.spendStop.CompareAndSwap(false, true) {
 		return workorders.Report{}, false
 	}
 	r.sessionOver.Store(true)
-	request := lanes.ParkRequest{Trigger: lanes.ParkSpendLimit, Expr: lanes.SpendLimitWake(r.lease.WorkOrder), SkipNarrative: true}
+	request := lanes.ParkRequest{Trigger: lanes.ParkSpendLimit, Expr: r.limitWake(allowance, own), SkipNarrative: true}
 	if err := r.beginParking(ctx, request); err != nil {
 		r.spendStop.Store(false)
 		r.sessionOver.Store(false)

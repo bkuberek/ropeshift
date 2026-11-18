@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"net/http"
+	"time"
 
 	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/authority"
@@ -20,6 +21,77 @@ func (h *handler) spendRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/work-orders/{id}/spend", h.readWorkOrderSpend)
 	mux.HandleFunc("POST /v1/work-orders/{id}/spend/raise", h.member(h.raiseSpend))
 	mux.HandleFunc("POST /v1/work-orders/{id}/spend/resume", h.member(h.resumeSpend))
+	mux.HandleFunc("POST /v1/spend/project/raise", h.member(h.raiseProjectSpend))
+}
+
+// raiseProjectSpend lifts the project's daily or weekly limit for the window it is made in, by a percentage or to an
+// amount, and answers the limit before and after (FR-SPEND-6, FR-SPEND-8). It is a member's act, held by the use case.
+func (h *handler) raiseProjectSpend(w http.ResponseWriter, r *http.Request, actor ledger.Actor) {
+	var in api.RaiseProjectSpend
+	if !decode(w, r, &in) {
+		return
+	}
+	change, err := h.spend.RaiseProject(r.Context(), h.Scope,
+		control.ProjectRaise{Window: in.Window, ByPercent: in.ByPercent, ToUSD: in.ToUSD, WindowStart: in.WindowStart}, actor)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	reply(w, http.StatusOK, change)
+}
+
+// spendRaiseProjectAsAnAmount names a delegate's raise by a percentage as the amount it comes to now, for the reason a work
+// order's raise does: a card is confirmed later, and a percentage read then would be of whatever limit is in force by then.
+// It names the window's start too, for the same reason: a card confirmed in a later day or week must not lift that one with
+// an amount a member read in this one, and the raise refuses a window that is over. The start is the server's to name: a
+// delegate's own is overwritten, because a card bound to a window the delegate chose would show a member a window the call
+// was not made in.
+func spendRaiseProjectAsAnAmount(h *handler, r *http.Request, body []byte) ([]byte, error) {
+	var in api.RaiseProjectSpend
+	if err := json.Unmarshal(body, &in); err != nil || !ledger.ValidWindow(in.Window) {
+		return body, nil
+	}
+	spend, err := h.spend.ProjectSpend(r.Context(), h.Scope)
+	if err != nil {
+		return nil, err
+	}
+	window := spend.Day
+	if in.Window == ledger.WindowWeek {
+		window = spend.Week
+	}
+	in.WindowStart = window.StartsAt
+	if in.ByPercent > 0 && in.ToUSD == 0 && window.HardLimit > 0 {
+		in.ToUSD, in.ByPercent = math.Round(control.SpendRaise{ByPercent: in.ByPercent}.LimitFrom(window.HardLimit)*100)/100, 0
+	}
+	return json.Marshal(in)
+}
+
+// spendRaiseProjectChanges is what a card for a delegate's raise of a project's limit shows a member: the limit in force, the
+// one the raise asks for, and the window it lifts, such as "day starting 2026-11-18 00:00 UTC".
+func spendRaiseProjectChanges(h *handler, r *http.Request, body []byte) (any, error) {
+	var in api.RaiseProjectSpend
+	if err := json.Unmarshal(body, &in); err != nil {
+		return nil, fmt.Errorf("%w: %v", authority.ErrInvalid, err)
+	}
+	if !ledger.ValidWindow(in.Window) {
+		return nil, fmt.Errorf("%w: a raise names the day or the week", authority.ErrInvalid)
+	}
+	spend, err := h.spend.ProjectSpend(r.Context(), h.Scope)
+	if err != nil {
+		return nil, err
+	}
+	field, window := "daily_limit_usd", spend.Day
+	if in.Window == ledger.WindowWeek {
+		field, window = "weekly_limit_usd", spend.Week
+	}
+	start := in.WindowStart
+	if start == 0 {
+		start = window.StartsAt
+	}
+	return []any{
+		authority.FieldChange{Field: field, From: window.HardLimit, To: control.SpendRaise{ByPercent: in.ByPercent, ToUSD: in.ToUSD}.LimitFrom(window.HardLimit)},
+		authority.ArgumentChange{Field: "window", To: in.Window + " starting " + time.UnixMilli(start).UTC().Format("2006-01-02 15:04 MST")},
+	}, nil
 }
 
 // raiseSpend lifts a work order's hard limit, by a percentage or to an amount, and answers the limit before and after
@@ -119,6 +191,7 @@ func (h *handler) readSpend(w http.ResponseWriter, r *http.Request) {
 		Project:      policyView(state.ProjectVersion, spendKeys(state.Project, authority.SpendPolicyKeys)),
 		Installation: policyView(state.InstallationVersion, spendKeys(state.Installation, authority.InstallationSpendPolicyKeys)),
 		WorkOrders:   state.WorkOrders,
+		ProjectSpend: state.ProjectSpend,
 	}
 	if out.WorkOrders == nil {
 		out.WorkOrders = []ledger.WorkOrderSpend{}

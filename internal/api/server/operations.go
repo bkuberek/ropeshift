@@ -196,6 +196,7 @@ var routeOperations = map[string]routeOperation{
 	"POST /v1/work-orders/{id}/reassign":               fixed(authority.OpWorkOrderReassign).about(subjectWorkOrder),
 	"POST /v1/work-orders/{id}/spend/raise":            fixed(authority.OpSpendRaise).about(subjectWorkOrder).showing(spendRaiseChanges).rewriting(spendRaiseAsAnAmount),
 	"POST /v1/work-orders/{id}/spend/resume":           fixed(authority.OpSpendResume).about(subjectWorkOrder).showing(spendResumeChanges),
+	"POST /v1/spend/project/raise":                     fixed(authority.OpSpendRaiseProject).about(ledger.SubjectProjectSpend).named(bodyField("window")).showing(spendRaiseProjectChanges).rewriting(spendRaiseProjectAsAnAmount),
 	"POST /v1/work-orders/{id}/send-back":              fixed(authority.OpWorkOrderSendBack).about(subjectWorkOrder),
 	"POST /v1/work-orders/{id}/resolve":                fixed(authority.OpWorkOrderResolve).about(subjectWorkOrder),
 	"POST /v1/work-orders/{id}/writes":                 fixed(authority.OpWorkOrderWrite).about(subjectWorkOrder),

@@ -401,6 +401,9 @@ func factHolds(tx ports.WriteTx, wake parking.Wake, fact parking.Fact) (bool, er
 		}
 		return row.Decided(), nil
 	case parking.LimitRaised:
+		if fact.Key == parking.ProjectLimit {
+			return projectUnderItsLimits(tx)
+		}
 		return limitRaised(tx, fact.Key)
 	}
 	return tx.Wakes().Signaled(fact.Kind, fact.Key, wake.StoredRev)
@@ -419,6 +422,15 @@ func limitRaised(tx ports.WriteTx, workOrder string) (bool, error) {
 		return false, err
 	}
 	return !slices.Contains(spend.Conditions, ledger.ConditionSpendLimit), nil
+}
+
+// projectUnderItsLimits is true when the project is under its daily and weekly limits, which is the one fact that frees a
+// lane parked by them (FR-SPEND-6). A raise of a window's limit and a new version of the spend policy settle it in the
+// transaction that changed the limit, and the end of the window settles it by the time term beside it. A project with no
+// limit is under none.
+func projectUnderItsLimits(tx ports.WriteTx) (bool, error) {
+	hold, _, err := projectWritesOf(tx).projectHold()
+	return hold == nil, err
 }
 
 // questionAnswered is true when a question has an accepted decision. An overturned one answers

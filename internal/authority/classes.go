@@ -54,6 +54,7 @@ const (
 	OpInstallationBackup                  = "installation.backup"
 	OpInstallationSpendPolicyPublish      = "installation_spend_policy.publish"
 	OpSpendRaise                          = "spend.raise"
+	OpSpendRaiseProject                   = "spend.raise_project"
 	OpSpendResume                         = "spend.resume"
 	OpWorkerJoinToken                     = "worker.join_token"
 	OpWorkerJoinTokenRevoke               = "worker.join_token_revoke"
@@ -294,6 +295,7 @@ var operations = append(onInstallation(
 	// resuming a lane the limit parked, are a person's word whoever asks (ADR-0037, FR-SPEND-8): an orchestrator
 	// holds neither, and no delegate policy exempts them.
 	never(OpSpendRaise, "Raise a work order's spend limit", neverSpend, ActionRaiseSpendLimit),
+	never(OpSpendRaiseProject, "Raise the project's daily or weekly spend limit", neverSpend, ActionRaiseSpendLimit),
 	never(OpSpendResume, "Resume a lane a spend limit parked", neverSpend, ActionRaiseSpendLimit),
 	memberOnly(OpDelegatePolicyPublish, "Publish the delegate policy", ActionPublishPolicy),
 	never(OpCategoryAdd, "Add a category", neverPolicy, ActionAddCategory),

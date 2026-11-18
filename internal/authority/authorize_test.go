@@ -143,7 +143,7 @@ func TestOnlyAMemberRaisesASpendLimit(t *testing.T) {
 		t.Error("Actions() does not list the action, so the member test never holds it to the function")
 	}
 	// Both operations ask a delegate for a card that no delegate policy exempts, on the project's own records.
-	for _, id := range []string{authority.OpSpendRaise, authority.OpSpendResume} {
+	for _, id := range []string{authority.OpSpendRaise, authority.OpSpendRaiseProject, authority.OpSpendResume} {
 		op, ok := authority.OperationOf(id)
 		if !ok || op.Class != authority.ClassConsent || op.Exemptable || op.Installation || !slices.Equal(op.Actions, []authority.Action{authority.ActionRaiseSpendLimit}) {
 			t.Errorf("%s is %+v, %v", id, op, ok)

@@ -213,6 +213,56 @@ func TestSpendRaiseLiftsTheHardLimitAndSaysBeforeAndAfter(t *testing.T) {
 	}
 }
 
+// A project with a daily and a weekly limit that its lanes have spent $12 against: `spend show` says where the day and the
+// week stand, and `spend raise --window` lifts one window's limit and prints the limit before and after, as --json does.
+func TestSpendRaiseProjectLiftsADailyOrWeeklyLimit(t *testing.T) {
+	s := newSession(t)
+	s.must("spend", "set", "project_daily_limit=10", "project_weekly_limit=50")
+	err := s.daemon.Store.Write(s.t.Context(), apitest.Scope, "spend.fixture", func(tx ports.WriteTx) error {
+		if _, err := tx.Append(ledger.EventDraft{Type: "note.added", Actor: ledger.Actor{Kind: ledger.ActorMember, ID: "member"}, Subject: ledger.Subject{Kind: "note", ID: "n"}, Data: []byte(`{}`)}); err != nil {
+			return err
+		}
+		return tx.Lanes().AddSpend(ledger.SpendScopeWork, 12)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	shown := s.must("spend", "show")
+	for _, want := range []string{"project day\tspent $12.00\tsoft limit $8.00\thard limit $10.00", "project week\tspent $12.00\tsoft limit $40.00\thard limit $50.00"} {
+		if !strings.Contains(shown, want) {
+			t.Errorf("spend show leaves out %q:\n%s", want, shown)
+		}
+	}
+	text := s.must("spend", "raise", "--window", "day", "--by", "100")
+	for _, want := range []string{"project day", "raise\tdaily limit $10.00 -> $20.00, spent $12.00"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("spend raise --window leaves out %q:\n%s", want, text)
+		}
+	}
+	var change ledger.ProjectLimitChange
+	if err := json.Unmarshal([]byte(s.must("spend", "raise", "--window", "week", "--to", "90", "--json")), &change); err != nil ||
+		change.Window != ledger.WindowWeek || change.BeforeUSD != 50 || change.AfterUSD != 90 || change.ToUSD != 90 {
+		t.Errorf("spend raise --window --json reads %+v: %v", change, err)
+	}
+	if shown = s.must("spend", "show"); !strings.Contains(shown, "project day\tspent $12.00\tsoft limit $16.00\thard limit $20.00") {
+		t.Errorf("spend show after the raise:\n%s", shown)
+	}
+	for name, args := range map[string][]string{
+		"neither":                   {"spend", "raise", "--window", "day"},
+		"both":                      {"spend", "raise", "--window", "day", "--by", "10", "--to", "90"},
+		"no window":                 {"spend", "raise", "--window", "--by", "10"},
+		"a month":                   {"spend", "raise", "--window", "month", "--by", "10"},
+		"a work order and a window": {"spend", "raise", "wo", "--window", "day", "--by", "10"},
+		"a limit not above":         {"spend", "raise", "--window", "day", "--to", "20"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if code, _, stderr := s.run(args...); code != cli.ExitUsage || stderr == "" {
+				t.Errorf("%v: exit %d, %q, want %d", args, code, stderr, cli.ExitUsage)
+			}
+		})
+	}
+}
+
 // A raise that names neither a percentage nor an amount, or both, or one that does not raise the limit, and a work order
 // nobody made, are refused and change nothing.
 func TestSpendRaiseRefusesWhatItCannotDo(t *testing.T) {

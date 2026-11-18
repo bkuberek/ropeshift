@@ -36,14 +36,19 @@ type spendReads struct {
 	policies  ports.PolicyReader
 	// events reads what the ledger says about one subject, which is where a member's raises of a limit are kept.
 	events func(ledger.Subject) ([]ledger.Event, error)
+	// now reads the ledger's clock, which is the one clock a project's day and week are read by.
+	now func() (int64, error)
 }
 
 func spendReadsOf(tx ports.ReadTx) spendReads {
-	return spendReads{lanes: tx.Lanes(), orders: tx.WorkOrders(), estimates: tx.Estimates(), policies: tx.Policies(), events: tx.EventsAbout}
+	return spendReads{lanes: tx.Lanes(), orders: tx.WorkOrders(), estimates: tx.Estimates(), policies: tx.Policies(), events: tx.EventsAbout, now: tx.Now}
 }
 
 func spendWritesOf(tx ports.WriteTx) spendReads {
-	return spendReads{lanes: tx.Lanes(), orders: tx.WorkOrders(), estimates: tx.Estimates(), policies: tx.Policies(), events: tx.EventsAbout}
+	return spendReads{
+		lanes: tx.Lanes(), orders: tx.WorkOrders(), estimates: tx.Estimates(), policies: tx.Policies(), events: tx.EventsAbout,
+		now: func() (int64, error) { return tx.Now(), nil },
+	}
 }
 
 // usageOf reads the generations of every lane that served a work order, a lane at a time, in order. A lane that
@@ -211,6 +216,8 @@ type SpendState struct {
 	Installation        authority.InstallationSpendPolicy
 	InstallationVersion authority.PolicyVersion
 	WorkOrders          []ledger.WorkOrderSpend
+	// ProjectSpend is what the project's lanes were charged today and this week, against its limits.
+	ProjectSpend ledger.ProjectSpend
 }
 
 // State reads the spend state of a project (FR-SPEND-18).
@@ -238,6 +245,9 @@ func (s *Spend) State(ctx context.Context, scope ledger.WorkspaceID) (SpendState
 			return err
 		}
 		reads := spendReadsOf(tx)
+		if out.ProjectSpend, err = reads.projectSpendUnder(out.Project, true); err != nil {
+			return err
+		}
 		for _, order := range orders {
 			if workorders.Terminal(order.State) {
 				continue
@@ -282,14 +292,24 @@ func usageReported(tx ports.WriteTx, worker, id string, e ledger.UploadEvent) er
 	if err != nil {
 		return err
 	}
+	reads := spendWritesOf(tx)
+	before, err := reads.charged(e.WorkOrder)
+	if err != nil {
+		return err
+	}
 	if _, err := tx.Lanes().ReportUsage(e.Lane, e.Generation, usage); err != nil {
 		return err
 	}
 	if _, err := tx.Append(draft); err != nil {
 		return err
 	}
-	spend, err := spendWritesOf(tx).spendOf(e.WorkOrder)
+	spend, err := reads.spendOf(e.WorkOrder)
 	if err != nil {
+		return err
+	}
+	// What the work order was charged since its last report is what the project spent today: the tally only grows,
+	// because a charge never falls (the generation's floor), and the project's daily and weekly limits read it.
+	if err := tx.Lanes().AddSpend(ledger.SpendScopeWork, spend.Charged.ChargedUSD-before.ChargedUSD); err != nil {
 		return err
 	}
 	if err := noteLimit(tx, spend, ledger.ConditionOverEstimate, ledger.EventSpendSoftLimit, spend.SoftLimit); err != nil {
@@ -344,8 +364,20 @@ func spendAllowance(tx ports.ReadTx, order workorders.WorkOrder, lane string, ge
 		return nil, err
 	}
 	limits, err := reads.limitsOf(policy, order)
-	if err != nil || limits.Hard <= 0 {
+	if err != nil {
 		return nil, err
+	}
+	// A project with a daily or weekly limit holds every lane of it, with or without a limit of its own on the work order,
+	// so the worker reads whether the project is held, and keeps the ledger current with what the lane spends.
+	project, err := reads.projectSpendUnder(policy, false)
+	if err != nil {
+		return nil, err
+	}
+	if limits.Hard <= 0 {
+		if !project.Limited() {
+			return nil, nil
+		}
+		return &ledger.SpendAllowance{HeadroomShare: policy.BudgetFlagHeadroomShare, ProjectHold: project.Hold(), ProjectLimited: true}, nil
 	}
 	others, err := reads.usageOf(order.ID, lane)
 	if err != nil {
@@ -370,6 +402,6 @@ func spendAllowance(tx ports.ReadTx, order workorders.WorkOrder, lane string, ge
 	}
 	return &ledger.SpendAllowance{
 		HardUSD: limits.Hard, OthersUSD: ledger.Charge(others).ChargedUSD, LaneUSD: ledger.Charge([][]ledger.GenerationUsage{earlier}).ChargedUSD,
-		HeadroomShare: policy.BudgetFlagHeadroomShare,
+		HeadroomShare: policy.BudgetFlagHeadroomShare, ProjectHold: project.Hold(), ProjectLimited: project.Limited(),
 	}, nil
 }

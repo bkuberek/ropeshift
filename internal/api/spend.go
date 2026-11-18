@@ -29,6 +29,9 @@ type SpendView struct {
 	Project      SpendPolicyView         `json:"project"`
 	Installation SpendPolicyView         `json:"installation"`
 	WorkOrders   []ledger.WorkOrderSpend `json:"work_orders"`
+	// ProjectSpend is what the project's lanes were charged today and this week, against its daily and weekly limits
+	// (FR-SPEND-6). A limit of 0 is none.
+	ProjectSpend ledger.ProjectSpend `json:"project_spend"`
 }
 
 // Spend reads where this project's spend stands.
@@ -50,6 +53,26 @@ type RaiseSpend struct {
 func (c *ProjectClient) RaiseSpend(ctx context.Context, id string, in RaiseSpend) (ledger.SpendLimitChange, error) {
 	var out ledger.SpendLimitChange
 	err := c.do(ctx, http.MethodPost, "/v1/work-orders/"+url.PathEscape(id)+"/spend/raise", in, &out)
+	return out, err
+}
+
+// RaiseProjectSpend asks to raise the project's daily or weekly limit for the window it is made in, by a percentage of the
+// limit in force or to an amount in US dollars (FR-SPEND-6). It names the window, `day` or `week`, and one of the two.
+type RaiseProjectSpend struct {
+	Window    string  `json:"window"`
+	ByPercent float64 `json:"by_percent,omitempty"`
+	ToUSD     float64 `json:"to_usd,omitempty"`
+	// WindowStart is the start of the window the raise was asked for, in milliseconds since the epoch. A card for a delegate's
+	// raise carries it, and a raise for a window that is over is refused, so a confirmation never lifts a later window than
+	// the one a member read. Left out, the raise is for the window it is made in.
+	WindowStart int64 `json:"window_start,omitempty"`
+}
+
+// RaiseProjectSpend raises a project's daily or weekly limit and wakes the lanes the project's limits parked, and answers
+// the limit before and after.
+func (c *ProjectClient) RaiseProjectSpend(ctx context.Context, in RaiseProjectSpend) (ledger.ProjectLimitChange, error) {
+	var out ledger.ProjectLimitChange
+	err := c.do(ctx, http.MethodPost, "/v1/spend/project/raise", in, &out)
 	return out, err
 }
 

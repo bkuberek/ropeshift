@@ -28,22 +28,37 @@ func allowanceBasisText(basis string) string {
 	return basis
 }
 
+// projectLimitChangeText says what a raise of the project's limit did, with the limit before and after (FR-SPEND-8).
+func projectLimitChangeText(change ledger.ProjectLimitChange) string {
+	name := "daily"
+	if change.Window == ledger.WindowWeek {
+		name = "weekly"
+	}
+	return fmt.Sprintf("project %s\nraise\t%s limit %s -> %s, spent %s\n", change.Window, name, dollars(change.BeforeUSD), dollars(change.AfterUSD), dollars(change.SpentUSD))
+}
+
 // spendRaise lifts a work order's hard limit by a percentage of it, or to an amount, and wakes the lane the limit
-// parked. Only a member raises a limit: an orchestrator holds no such tool, and a delegate's call is a card.
+// parked. With --window it lifts the project's daily or weekly limit for the day or week it is made in instead, and wakes
+// the lanes the project's limits parked. Only a member raises a limit: an orchestrator holds no such tool, and a
+// delegate's call is a card.
 func (c *invocation) spendRaise(args []string) int {
 	set := c.flags()
 	by := set.Float64("by", 0, "raise the hard limit by this percentage of it, such as 50")
 	to := set.Float64("to", 0, "raise the hard limit to this amount in US dollars")
+	window := set.String("window", "", "raise the project's daily or weekly limit, `day` or `week`, in place of a work order's")
 	positional, ok := c.parse(set, args)
-	if !ok {
-		return ExitUsage
-	}
-	id, ok := c.oneID(positional)
 	if !ok {
 		return ExitUsage
 	}
 	if (*by > 0) == (*to > 0) || *by < 0 || *to < 0 {
 		return c.usageError("name one of --by, a percentage above 0, and --to, an amount above 0")
+	}
+	if *window != "" {
+		return c.spendRaiseProject(*window, *by, *to, positional)
+	}
+	id, ok := c.oneID(positional)
+	if !ok {
+		return ExitUsage
 	}
 	client, exit := c.projectClient()
 	if client == nil {
@@ -52,6 +67,24 @@ func (c *invocation) spendRaise(args []string) int {
 	defer client.Close()
 	change, err := client.RaiseSpend(c.ctx, id, api.RaiseSpend{ByPercent: *by, ToUSD: *to})
 	return c.finish(err, change, func() string { return limitChangeText(change) })
+}
+
+// spendRaiseProject lifts the project's daily or weekly limit. A work order beside it is a mistake, because the limit it
+// would lift is one or the other.
+func (c *invocation) spendRaiseProject(window string, by, to float64, positional []string) int {
+	if !ledger.ValidWindow(window) {
+		return c.usageError("--window names day or week, and not %q", window)
+	}
+	if len(positional) != 0 {
+		return c.usageError("--window raises the project's limit, so it takes no work order, and %q is one", positional[0])
+	}
+	client, exit := c.projectClient()
+	if client == nil {
+		return exit
+	}
+	defer client.Close()
+	change, err := client.RaiseProjectSpend(c.ctx, api.RaiseProjectSpend{Window: window, ByPercent: by, ToUSD: to})
+	return c.finish(err, change, func() string { return projectLimitChangeText(change) })
 }
 
 // spendResume grants a work order one more generation's allowance, which lets the lane its hard limit parked go on.

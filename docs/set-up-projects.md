@@ -303,8 +303,8 @@ Amounts are US dollars at list price, and 0 means no limit or no warning. A shar
 | `review_share` | A review's hard limit as a share of the reviewed work order's | 0.5 | 0 to 1 |
 | `review_soft_share` | A review's soft limit as a share of its own hard limit | 0.5 | 0 to 1 |
 | `plan_hard_multiplier` | The hard limit of a plan, as a multiple of its forecast's p85 | 2.0 | 1 to 10 |
-| `project_daily_limit` | The project's daily ceiling | 0.0 | 0 to 1,000,000 |
-| `project_weekly_limit` | The project's weekly ceiling | 0.0 | 0 to 1,000,000 |
+| `project_daily_limit` | The most the project's lanes may be charged in a day, past which no work is claimed and running lanes park until the day ends or you raise it. By default a day is the UTC calendar day, and spend counts toward the day in which its report reaches the control plane ([how it works](how-it-works.md#a-project-has-a-daily-and-a-weekly-limit)) | 0.0 | 0 to 1,000,000 |
+| `project_weekly_limit` | The same for a week. By default a week is the ISO week, which starts on Monday at midnight UTC | 0.0 | 0 to 1,000,000 |
 | `project_warn_share` | The share of each ceiling where a notice sits | 0.8 | 0 to 1 |
 | `assistant_daily_warn` | The assistant's daily warning, per project | 0.0 | 0 to 1,000,000 |
 | `budget_flag_headroom_share` | The room a headless session's budget flag has over a hard limit | 0.1 | 0 to 1 |

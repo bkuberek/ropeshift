@@ -128,6 +128,23 @@ func SpendLimitWake(workOrder string) string {
 	return string(raw)
 }
 
+// ProjectLimitWake is what a lane waits on when its project's daily or weekly limit parked it (FR-SPEND-6): the project's
+// limit rising, which is the fact a raise settles, the end of the window that held the project back, which the control
+// plane's tick reads as a timer, or a person. A raise of the project's limit and the day rolling over each fire the wake
+// once, because a wake fires once and the other term is then moot. The lane's own work order is not in it: a lane that
+// woke at the end of the day and found its work order over its limit parks again before its first turn, on that limit.
+func ProjectLimitWake(untilMs int64) string {
+	raw, err := json.Marshal(map[string]any{"any_of": []any{
+		map[parking.Kind]string{parking.LimitRaised: parking.ProjectLimit},
+		map[string]int64{"at": untilMs},
+		map[parking.Kind]bool{parking.HumanResume: true},
+	}})
+	if err != nil {
+		panic(err)
+	}
+	return string(raw)
+}
+
 // HumanWake is what only a person can end.
 func HumanWake() string {
 	raw, err := json.Marshal(map[parking.Kind]bool{parking.HumanResume: true})
