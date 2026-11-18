@@ -92,6 +92,7 @@ func (i *Intake) ProposePlans(ctx context.Context, scope ledger.WorkspaceID, ope
 		var changes branchChanges
 		if plan.order.Adopt {
 			changes = i.adoptionChanges(ctx, scope, plan)
+			changes.consolidation = i.consolidationRead(ctx, scope, plan)
 		}
 		err = i.store.Write(ctx, scope, "intake.propose", func(tx ports.WriteTx) error {
 			return askAboutBranch(tx, plan, batch, changes)
@@ -109,6 +110,8 @@ func (i *Intake) ProposePlans(ctx context.Context, scope ledger.WorkspaceID, ope
 type branchChanges struct {
 	files  []planning.FileChange
 	unread string
+	// consolidation is what a consolidating adoption merged on its branch, and nil for any other adoption.
+	consolidation *planning.Consolidation
 }
 
 // adoptionChanges reads every file an adopt lane's branch added, changed, moved, or deleted since the commit
@@ -187,6 +190,9 @@ func askAboutBranch(tx ports.WriteTx, branch acceptedPlan, batch ports.ChangeBat
 		}
 		if branch.order.Adopt {
 			ask.adoption = adoptionOf(batch, *item.Plan, changes)
+			if ask.adoption.Consolidation, err = consolidationEffects(tx, branch.order, changes.consolidation); err != nil {
+				return err
+			}
 		}
 		link, err := tx.Planning().Link(planning.SubjectPlan, item.Key)
 		switch {

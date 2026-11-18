@@ -23,6 +23,9 @@ var AdoptChecks = []Check{
 	{"AS4", "an adopt lane's branch asks for approval grouped into what exists, continues, is new, and is left out, with every file it changed", checkAnAdoptedPlanAsksGrouped},
 	{"AS5", "an adoption whose branch cannot be read asks all the same, and says why it shows no change", checkAnAdoptedPlanWithNoBaseSaysWhy},
 	{"AS6", "an adopt work order keeps the restructuring a member chose through a rebuild, and only adopting work restructures", checkAnAdoptOrderKeepsItsRestructuring},
+	{"AS7", "a consolidating adoption's request lists its merge, the design tip, every colliding path, the trees left out, and the old design repository approving removes", checkAConsolidationListsWhatItImported},
+	{"AS8", "a consolidation of a design repository the project does not hold removes nothing, and at a level where ropeshift merges says nothing of the person's merge", checkAConsolidationTheProjectDoesNotHoldRemovesNothing},
+	{"AS9", "a consolidation whose merge cannot be read from its branch says why, and still lists the trees left out and the removal", checkAConsolidationWhoseMergeIsUnreadSaysWhy},
 }
 
 // adoptOrder records ready planning work that adopts the project, in a repository, with the restructuring a

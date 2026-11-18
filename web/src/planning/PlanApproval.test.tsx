@@ -409,6 +409,36 @@ describe("an adopted plan", () => {
     expect(within(contracts).queryByRole("region")).toBeNull();
   });
 
+  it("lists what a consolidation imported, the old design repository approving removes, and how the person merges it", async () => {
+    serveAdopted((_, detail) => {
+      const adoption = detail.adoption as Record<string, unknown>;
+      adoption.consolidation = {
+        design: "design",
+        merge: "1111111",
+        design_tip: "2222222",
+        collisions: [{ path: "README.md", kept: "workspace" }],
+        left_out: ["poc"],
+        removes: { id: "design-root", name: "design" },
+        person_merges: true,
+      };
+    });
+    openPage(adoptedPage);
+    const imported = await screen.findByRole("region", { name: "What the consolidation imports" });
+    expect(imported.textContent).toContain("The adoption imports the history of design in merge commit 1111111, whose second parent 2222222 is the design repository's tip.");
+    expect(within(imported).getByRole("list", { name: "Paths both repositories held" }).textContent).toContain("README.md");
+    expect(within(imported).getByRole("list", { name: "Paths both repositories held" }).textContent).toContain("the workspace's version");
+    expect(within(imported).getByRole("list", { name: "Code trees left out" }).textContent).toBe("poc");
+    expect(imported.textContent).toContain("Approving removes repository design from the project, and keeps its record as history.");
+    expect(imported.textContent).toContain("Only a merge commit keeps the design history");
+  });
+
+  it("shows no consolidation for an adoption that imported no history", async () => {
+    serveAdopted();
+    openPage(adoptedPage);
+    await screen.findByRole("region", { name: "What the adoption does" });
+    expect(screen.queryByRole("region", { name: "What the consolidation imports" })).toBeNull();
+  });
+
   it("gives the reason when the branch's files could not be read", async () => {
     serveAdopted((_, detail) => {
       const adoption = detail.adoption as Record<string, unknown>;

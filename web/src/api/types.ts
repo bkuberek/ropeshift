@@ -267,6 +267,26 @@ export type Adoption = {
   left_out: LeftOutRecord[];
   changes: FileChange[];
   changes_unread?: string;
+  // What the adoption imported from a design repository, when it consolidated one.
+  consolidation?: Consolidation;
+};
+
+// A path both repositories held, and the version the consolidation's merge kept: the workspace's, or for the ignore
+// file the lines of both.
+export type Collision = { path: string; kept: "workspace" | "union" };
+
+// What approving a consolidating adoption does beyond the plan: the merge that imported the design repository's
+// history and its second parent, every path both held, the trees left out, the old design repository it removes,
+// and whether the person merges the branch. Unread says why the merge could not be read.
+export type Consolidation = {
+  design: string;
+  merge?: string;
+  design_tip?: string;
+  collisions: Collision[];
+  left_out: string[];
+  removes?: { id: string; name?: string };
+  person_merges?: boolean;
+  unread?: string;
 };
 
 export type PlanApprovalNeed = {

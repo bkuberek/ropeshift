@@ -115,3 +115,65 @@ func TestAnEmptyGroupSaysSo(t *testing.T) {
 		}
 	}
 }
+
+// A consolidation's request says what approving does beyond the plan (FR-ADOPT-13): the merge that imported the
+// history, every path both repositories held with the version kept, the trees left out, the old design repository
+// it removes, and at person_merges that only a merge commit keeps the history.
+func TestPlanShowListsAConsolidation(t *testing.T) {
+	p := newPlane(t)
+	approval := adoptedApproval(t)
+	consolidated := anAdoption
+	consolidated.Consolidation = &planning.Consolidation{
+		Design: "design", Merge: "1111111111111111111111111111111111111111", DesignTip: "2222222222222222222222222222222222222222",
+		Collisions: []planning.Collision{{Path: ".gitignore", Kept: planning.KeptUnion}, {Path: "README.md", Kept: planning.KeptWorkspace}},
+		LeftOut:    []string{"poc"}, Removes: &planning.RemovedRepository{ID: "design-root", Name: "design"}, PersonMerges: true,
+	}
+	detail, err := json.Marshal(planning.PlanDetail{Title: "Adopt shop", Ref: "shop", Adoption: &consolidated})
+	if err != nil {
+		t.Fatal(err)
+	}
+	approval.Detail = string(detail)
+	p.on("GET /v1/plans/{id}", func(*http.Request, []byte) (any, *api.Error) {
+		return api.PlanView{
+			Plan:     planning.Plan{ID: "p1", Title: "Adopt shop", Status: "active"},
+			Approval: &api.PlanApprovalView{Approval: approval, Detail: api.PlanDetailOf(approval)},
+		}, nil
+	})
+	var stdout, stderr bytes.Buffer
+	if code := cli.Run([]string{"plan", "show", "p1"}, &stdout, &stderr, cli.Options{Socket: p.Socket}); code != cli.ExitOK {
+		t.Fatalf("exit %d: %s", code, stderr.String())
+	}
+	for _, want := range []string{
+		"  the adoption imports the history of design in merge commit 1111111111111111111111111111111111111111, whose second parent 2222222222222222222222222222222222222222 is the design repository's tip\n",
+		"  the paths both repositories held, with the version kept:\n    .gitignore\tthe lines of both\n    README.md\tthe workspace's version\n",
+		"  the design repository's code trees left out:\n    poc\n",
+		"  approving removes repository design from the project, and keeps its record as history\n",
+		"  at person_merges you merge this branch yourself: merge it with a merge commit. " + planning.MergeCommitKeepsHistory + "\n",
+	} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Errorf("plan show lacks %q:\n%s", want, stdout.String())
+		}
+	}
+	// A consolidation whose merge could not be read says why, and what approving removes all the same.
+	consolidated.Consolidation = &planning.Consolidation{Design: "design", LeftOut: []string{}, Unread: "git could not read the adoption branch", Removes: &planning.RemovedRepository{ID: "design-root"}}
+	if detail, err = json.Marshal(planning.PlanDetail{Title: "Adopt shop", Adoption: &consolidated}); err != nil {
+		t.Fatal(err)
+	}
+	approval.Detail = string(detail)
+	stdout.Reset()
+	if code := cli.Run([]string{"plan", "show", "p1"}, &stdout, &stderr, cli.Options{Socket: p.Socket}); code != cli.ExitOK {
+		t.Fatalf("exit %d: %s", code, stderr.String())
+	}
+	for _, want := range []string{
+		"  the adoption imports the history of design, and its merge could not be read: git could not read the adoption branch\n",
+		"  the design repository's code trees left out:\n    nothing\n",
+		"  approving removes repository design-root from the project, and keeps its record as history\n",
+	} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Errorf("plan show lacks %q:\n%s", want, stdout.String())
+		}
+	}
+	if strings.Contains(stdout.String(), "person_merges") || strings.Contains(stdout.String(), "paths both repositories held") {
+		t.Errorf("an unread consolidation at another level reads:\n%s", stdout.String())
+	}
+}

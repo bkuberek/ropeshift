@@ -1,13 +1,14 @@
 import type { ReactNode } from "react";
 
 import { readRecorded, readView } from "../api/client";
-import type { Adoption, ApprovalDecided, ContractHistory, Difference, DraftDecision, ManifestRegistration, Plans, PlanEntry, ReplacedDraft, WorkOrder } from "../api/types";
+import type { Adoption, ApprovalDecided, Consolidation, ContractHistory, Difference, DraftDecision, ManifestRegistration, Plans, PlanEntry, ReplacedDraft, WorkOrder } from "../api/types";
 import type { Live } from "../api/useView";
 import { useView } from "../api/useView";
 import { addressOf, Link } from "../app/route";
 import type { StateLook } from "../floor/states";
 import { Badge, Banner, Refusal, StateBadge } from "../ui/display";
 import { Icon } from "../ui/Icon";
+import { importedText, keptText, personMergesText, removalText } from "./consolidation";
 import { kindWord } from "./documentTree";
 import { changeLines, refKind, refName } from "./planChanges";
 import type { Change } from "./planChanges";
@@ -372,7 +373,42 @@ export function AdoptionGroups({ adoption }: { adoption: Adoption }) {
           <p className="small muted">The branch changes no file.</p>
         )}
       </div>
+      {adoption.consolidation ? <ConsolidationGroups consolidation={adoption.consolidation} /> : null}
     </div>
+  );
+}
+
+// ConsolidationGroups says what approving a consolidating adoption does beyond the plan (FR-ADOPT-13): the merge
+// that imported the design repository's history, every path both repositories held with the version kept, the
+// trees left out, the old design repository approving removes, and at person_merges how the person merges it.
+function ConsolidationGroups({ consolidation }: { consolidation: Consolidation }) {
+  return (
+    <section className="stack-8" aria-label="What the consolidation imports">
+      <h3 className="overline diff-title">What the consolidation imports</h3>
+      {consolidation.unread ? <Banner tone="neutral">{importedText(consolidation)}</Banner> : <p className="small">{importedText(consolidation)}</p>}
+      {consolidation.unread ? null : (
+        <Group title="Paths both repositories held" empty={consolidation.collisions.length === 0}>
+          <ul className="stack-8 small" aria-label="Paths both repositories held">
+            {consolidation.collisions.map((collision) => (
+              <li key={collision.path}>
+                <span className="mono">{collision.path}</span> <span className="subtle">{keptText(collision)}</span>
+              </li>
+            ))}
+          </ul>
+        </Group>
+      )}
+      <Group title="Code trees left out" empty={consolidation.left_out.length === 0}>
+        <ul className="stack-8 small" aria-label="Code trees left out">
+          {consolidation.left_out.map((tree) => (
+            <li key={tree} className="mono">
+              {tree}
+            </li>
+          ))}
+        </ul>
+      </Group>
+      {consolidation.removes ? <p className="small">{removalText(consolidation.removes)}</p> : null}
+      {consolidation.person_merges ? <Banner tone="neutral">{personMergesText}</Banner> : null}
+    </section>
   );
 }
 

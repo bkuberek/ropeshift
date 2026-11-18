@@ -55,6 +55,10 @@ type Worktrees struct {
 	// imports are the history imports made, and importFail what makes ImportHistory fail.
 	imports    []ports.HistoryImport
 	importFail error
+	// subjects is the subject of each commit that has one, and trees the paths each commit holds, which
+	// BranchCommits and CommitPaths read.
+	subjects map[string]string
+	trees    map[string][]string
 }
 
 // NewWorktrees returns an empty store.

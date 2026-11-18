@@ -89,6 +89,7 @@ When the session has finished, Needs you lists its plan approval. Select it, the
 | What is new | The remaining work |
 | What is left out | Each branch you did not keep, with your reason |
 | The adoption branch, as one change | Every file the adoption branch added, changed, moved, or deleted |
+| What the consolidation imports | In a [consolidation](#consolidating-a-design-repository), what approving does beyond the plan |
 
 ![The plan approval of the adoption, with What exists, What continues, What is new, and What is left out](assets/screenshots/adopt-05-light.png#gh-light-mode-only)
 ![The plan approval of the adoption, with What exists, What continues, What is new, and What is left out](assets/screenshots/adopt-05-dark.png#gh-dark-mode-only)
@@ -199,6 +200,18 @@ A code tree of the design repository comes with the history and stays in the wor
 ### What the session is told
 
 The inventory of the planning repository is read at the merge commit, so the session onboards the documents the design repository brought. Its brief names the merge commit, its second parent, every colliding path with the version kept, every tree left out, and the design repository's instruction files, `AGENTS.md` and `CLAUDE.md`, at the second parent. It tells the session to merge those instructions into the workspace's own as one commit on its branch, keeping both sets of rules, and to ask you about each contradiction between them.
+
+### The plan approval
+
+The plan approval of a consolidation, in Needs you, on its full page, and in `ropeshift plan show`, lists under What the consolidation imports:
+
+- The merge commit that imported the history, and its second parent, the design repository's tip, read from the adoption branch.
+- Every path both repositories held, with the version the merge kept.
+- Every code tree left out.
+- When the project holds the old design repository as a registered repository, its removal, which is one of the approval's effects.
+- At `person_merges`, that you merge the branch yourself with a merge commit, because only a merge commit keeps the design history.
+
+A merge the control plane cannot read from the branch is said, with why, and the trees left out and the removal are listed all the same.
 
 ### A restart, and the clones
 
