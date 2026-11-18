@@ -344,6 +344,13 @@ func TestEveryRouteTakesItsClassForADelegate(t *testing.T) {
 		if op.Class != authority.ClassOperational && revisionOf(t, d) > before+1 {
 			t.Errorf("%s (%s) changed more than its card", pattern, op.ID)
 		}
+		// A delegate holds at most control.MaxOpenCards cards, and there are more consent routes than that, so the member
+		// decides each card before the next route is called.
+		if prepared != nil {
+			if _, err := d.Client.DecideApproval(t.Context(), prepared.Card.ID, api.DecideApproval{Digest: prepared.Card.SubjectDigest, Allow: false}); err != nil {
+				t.Fatalf("%s: the member could not decide its card: %v", pattern, err)
+			}
+		}
 	}
 	if checked < 50 {
 		t.Fatalf("checked %d routes", checked)
