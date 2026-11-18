@@ -582,39 +582,102 @@ func TestAWorkerThatKeepsNoCheckoutReportsAFailure(t *testing.T) {
 	}
 }
 
-// A check nobody started that is past its expiry is not run, a check whose run was journaled is reported however late,
-// and one whose journal says reported is neither run nor reported again.
-func TestAWorkerHonorsTheExpiryAndTheJournalOfAnOfferedCheck(t *testing.T) {
+// A result the worker journaled but could not send before its request expired is sent all the same, though the control
+// plane no longer offers the request: the worker sends every journaled result on each pass, whatever desired state
+// lists, and the control plane records a late report.
+func TestAWorkerSendsAJournaledResultAfterItsRequestExpired(t *testing.T) {
+	t.Parallel()
+	r := newPracticesRig(t)
+	request := r.ask("repo-widgets")[0]
+	// The worker runs the check, and the control plane is away for longer than the request is offered.
+	r.link.FailPracticesReport.Store(true)
+	r.converge(r.subject)
+	if journal := r.journalOf(request.ID); !strings.Contains(journal, `"ran"`) {
+		t.Fatalf("the journal says %q, want the run kept", journal)
+	}
+	r.offset.Store(31 * 60 * 1000)
+	if ids, err := r.practices.Expire(t.Context(), scope, member); err != nil || len(ids) != 1 {
+		t.Fatalf("the tick expired %v (%v), want the request", ids, err)
+	}
+	state, err := r.plane.Desired(t.Context(), ledger.DesiredRequest{Auth: r.subject.Auth()})
+	if err != nil || len(state.PracticesChecks) != 0 {
+		t.Fatalf("the control plane still offers %+v (%v)", state.PracticesChecks, err)
+	}
+	if got := r.request(request.ID); got.State != ledger.PracticesExpired {
+		t.Fatalf("the request is %s, want expired", got.State)
+	}
+	// The worker that starts after the control plane is back has nothing offered, and sends what the journal holds.
+	r.link.FailPracticesReport.Store(false)
+	broken := r.sources
+	broken.Snapshots, broken.Secrets, broken.Forge = refusingReads{}, refusingReads{}, refusingReads{}
+	r.reported = &errorLog{}
+	restarted := r.workerOn(r.link, broken)
+	if err := restarted.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	r.converge(restarted)
+	if got := r.request(request.ID); got.State != ledger.PracticesReported {
+		t.Errorf("the request is %s after the late report, want reported", got.State)
+	}
+	if record, err := r.result("repo-widgets"); err != nil || record.Commit != practicesTip || record.Request != request.ID {
+		t.Errorf("the result is %+v (%v), want the late report's", record, err)
+	}
+	if reports := r.eventsOf(ledger.EventPracticesChecked); len(reports) != 1 {
+		t.Errorf("the log holds %d reports, want one", len(reports))
+	}
+	if errs := r.reported.all(); len(errs) != 0 {
+		t.Errorf("the restarted worker reported %v", errs)
+	}
+}
+
+// A check nobody started that is past its expiry on the worker's clock is not run, though the state the worker last read
+// lists it, and a check whose journal says reported is neither run nor sent again while that state lists it.
+func TestAWorkerRunsNothingForACheckItsCachedStateListsPastItsExpiry(t *testing.T) {
 	t.Parallel()
 	r := newPracticesRig(t)
 	if err := os.MkdirAll(filepath.Join(r.state, "practices"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	for id, journal := range map[string]string{
-		"req-ran":      `{"state":"ran","report":{"request":"req-ran","outcome":"failed","detail":"the run failed"}}`,
-		"req-reported": `{"state":"reported","report":{"request":"req-reported","outcome":"failed","detail":"the run failed"}}`,
-	} {
-		if err := os.WriteFile(filepath.Join(r.state, "practices", id+".json"), []byte(journal), 0o600); err != nil {
-			t.Fatal(err)
-		}
+	journal := `{"state":"reported","report":{"request":"req-reported","outcome":"failed","detail":"the run failed"}}`
+	if err := os.WriteFile(filepath.Join(r.state, "practices", "req-reported.json"), []byte(journal), 0o600); err != nil {
+		t.Fatal(err)
 	}
 	captured := &capturedPractices{WorkerLink: r.link}
 	subject := r.workerOn(captured, r.sources)
 	if err := subject.Start(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	past := r.clock.Now().UnixMilli() - 1
 	r.offer(subject,
-		ledger.DesiredPracticesCheck{ID: "req-late", Repository: "repo-widgets", BaseBranch: "main", ExpiresAt: past},
-		ledger.DesiredPracticesCheck{ID: "req-ran", Repository: "repo-widgets", BaseBranch: "main", ExpiresAt: past},
+		ledger.DesiredPracticesCheck{ID: "req-late", Repository: "repo-widgets", BaseBranch: "main", ExpiresAt: r.clock.Now().UnixMilli() - 1},
 		ledger.DesiredPracticesCheck{ID: "req-reported", Repository: "repo-widgets", BaseBranch: "main", ExpiresAt: 1 << 60},
 	)
-	reports := captured.all()
-	if len(reports) != 1 || reports[0].Request != "req-ran" || reports[0].Detail != "the run failed" || reports[0].Outcome != ledger.PracticesOutcomeFailed {
-		t.Errorf("the worker reported %+v, want only the journaled run of req-ran", reports)
+	if reports := captured.all(); len(reports) != 0 {
+		t.Errorf("the worker reported %+v", reports)
 	}
 	if len(r.fakes.SnapshotCalls) != 0 {
 		t.Errorf("a check ran: %v", r.fakes.SnapshotCalls)
+	}
+}
+
+// A journal is deleted once its request is reported and the control plane no longer offers it. While the state the
+// worker last read still lists the request, the journal stays, so a request that state lists is not run again.
+func TestAJournalIsDeletedOnceItsRequestIsSettled(t *testing.T) {
+	t.Parallel()
+	r := newPracticesRig(t)
+	request := r.ask("repo-widgets")[0]
+	r.converge(r.subject)
+	if journal := r.journalOf(request.ID); !strings.Contains(journal, `"reported"`) {
+		t.Fatalf("the journal says %q, want reported while the state read before the report lists the request", journal)
+	}
+	r.converge(r.subject)
+	if _, err := os.Stat(filepath.Join(r.state, "practices", request.ID+".json")); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("the journal of a settled request is still there (%v)", err)
+	}
+	if entries, err := os.ReadDir(filepath.Join(r.state, "practices")); err != nil || len(entries) != 0 {
+		t.Errorf("the journal folder holds %v (%v), want it empty", entries, err)
+	}
+	if len(r.fakes.SnapshotCalls) != 1 {
+		t.Errorf("the check ran %d times, want once", len(r.fakes.SnapshotCalls))
 	}
 }
 

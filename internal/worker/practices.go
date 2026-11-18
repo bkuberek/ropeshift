@@ -104,9 +104,29 @@ func (rt *PracticesRuntime) save(path string, journal practicesJournal) error {
 	return os.Rename(temp.Name(), path)
 }
 
-// tendPracticesChecks runs the practices checks that desired state offers this worker and its journal has not
-// finished, one at a time, each on the checkout this worker keeps of its repository. The run reads a whole history, so
-// it holds no lane and no other check: a second pass finds the first still running and leaves it.
+// held lists the request IDs this worker keeps a journal of.
+func (rt *PracticesRuntime) held() ([]string, error) {
+	entries, err := os.ReadDir(filepath.Join(rt.StateDir, "practices"))
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var ids []string
+	for _, entry := range entries {
+		if id, ok := strings.CutSuffix(entry.Name(), ".json"); ok && !strings.HasPrefix(id, ".") && !entry.IsDir() {
+			ids = append(ids, id)
+		}
+	}
+	return ids, nil
+}
+
+// tendPracticesChecks does what this worker's journals and the practices checks desired state offers it leave to do,
+// one at a time: it sends each result it journaled and could not send, whatever desired state lists, because a request
+// the control plane no longer offers still takes a late report; it runs each offered check that has no journal; and it
+// deletes the journal of each request that was reported and that desired state no longer lists. The run reads a whole
+// history, so it holds no lane and no other check: a second pass finds the first still running and leaves it.
 func (w *Worker) tendPracticesChecks(ctx context.Context) {
 	rt := w.config.Practices
 	if rt == nil {
@@ -117,7 +137,12 @@ func (w *Worker) tendPracticesChecks(ctx context.Context) {
 		w.config.Report(fmt.Errorf("reading the practices checks this worker is asked to run: %w", err))
 		return
 	}
-	if len(state.PracticesChecks) == 0 {
+	held, err := rt.held()
+	if err != nil {
+		w.config.Report(fmt.Errorf("reading the journals of the practices checks: %w", err))
+		return
+	}
+	if len(state.PracticesChecks) == 0 && len(held) == 0 {
 		return
 	}
 	const key = "practices-checks"
@@ -127,21 +152,63 @@ func (w *Worker) tendPracticesChecks(ctx context.Context) {
 	checks := slices.Clone(state.PracticesChecks)
 	w.goTracked("practices check", func() {
 		defer w.leaveEffect(key)
+		listed := map[string]bool{}
+		for _, check := range checks {
+			listed[check.ID] = true
+		}
+		tried := map[string]bool{}
+		for _, id := range held {
+			tried[id] = true
+			if err := w.sendJournaledPractices(ctx, rt, id); err != nil && ctx.Err() == nil {
+				w.config.Report(fmt.Errorf("practices check %s: %w", id, err))
+			}
+		}
 		for _, check := range checks {
 			if ctx.Err() != nil {
 				return
+			}
+			if tried[check.ID] {
+				continue
 			}
 			if err := w.runPracticesCheck(ctx, rt, check); err != nil && ctx.Err() == nil {
 				w.config.Report(fmt.Errorf("practices check %s: %w", check.ID, err))
 			}
 		}
+		rt.prune(ctx, held, listed)
 	})
+}
+
+// prune deletes the journal of each of these requests that was reported and that desired state does not list. One
+// that desired state still lists stays, so a state read before the report does not make the worker run it again.
+func (rt *PracticesRuntime) prune(ctx context.Context, held []string, listed map[string]bool) {
+	for _, id := range held {
+		path, err := rt.journalPath(id)
+		if err != nil || listed[id] || ctx.Err() != nil {
+			continue
+		}
+		if journal, found, err := rt.read(path); err == nil && found && journal.State == practicesReported {
+			_ = os.Remove(path)
+		}
+	}
+}
+
+// sendJournaledPractices sends the result a request's journal holds when its report was not sent.
+func (w *Worker) sendJournaledPractices(ctx context.Context, rt *PracticesRuntime, id string) error {
+	path, err := rt.journalPath(id)
+	if err != nil {
+		return err
+	}
+	journal, found, err := rt.read(path)
+	if err != nil || !found || journal.State != practicesRan || journal.Report == nil {
+		return err
+	}
+	return w.sendPracticesReport(ctx, rt, path, id, journal)
 }
 
 // runPracticesCheck does what the journal says is left of one request: it runs the check when no run was journaled,
 // and sends the report the journal holds. A request whose journal says reported is done. A request that was never run
-// and is past its expiry is left, because nobody waits for it, and one whose run was journaled is reported however
-// late, because its result is true.
+// and is past its expiry is left, because nobody waits for it, and one whose run was journaled is reported however late,
+// because its result is true.
 func (w *Worker) runPracticesCheck(ctx context.Context, rt *PracticesRuntime, check ledger.DesiredPracticesCheck) error {
 	path, err := rt.journalPath(check.ID)
 	if err != nil {
@@ -167,15 +234,15 @@ func (w *Worker) runPracticesCheck(ctx context.Context, rt *PracticesRuntime, ch
 			return err
 		}
 	}
-	return w.sendPracticesReport(ctx, rt, path, check, journal)
+	return w.sendPracticesReport(ctx, rt, path, check.ID, journal)
 }
 
-// sendPracticesReport tells the control plane what the journal says the run decided, and journals that it did. A
-// report the control plane refuses for good, because it names no request it knows or no repository the result is of, is
+// sendPracticesReport tells the control plane what the journal says the run decided, and journals that it did. A report
+// the control plane refuses for good, because it names no request it knows or no repository the result is of, is
 // journaled as sent and said once, so it is not sent again every pass.
-func (w *Worker) sendPracticesReport(ctx context.Context, rt *PracticesRuntime, path string, check ledger.DesiredPracticesCheck, journal practicesJournal) error {
+func (w *Worker) sendPracticesReport(ctx context.Context, rt *PracticesRuntime, path, id string, journal practicesJournal) error {
 	report := *journal.Report
-	report.Request, report.Project, report.Auth = check.ID, check.Project, w.Auth()
+	report.Request, report.Auth = id, w.Auth()
 	err := w.link.ReportPracticesCheck(ctx, report)
 	refused := errors.Is(err, workorders.ErrInvalid) || errors.Is(err, ports.ErrNotFound)
 	if err != nil && !refused {
