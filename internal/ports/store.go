@@ -365,6 +365,9 @@ type ForgeWriter interface {
 	FailRequest(id string, attempt int64, detail string) (bool, error)
 	// FinishRequest marks a request done at an attempt, if it is still requested at that attempt.
 	FinishRequest(id string, attempt int64, at int64) (bool, error)
+	// FinishRequestWith marks a request done at an attempt with what it came to and what it read: the detail says
+	// what the worker did, and the body holds what it read, which replaces the body the request carried.
+	FinishRequestWith(id string, attempt, at int64, detail, body string) (bool, error)
 	// FinishMerge marks a merge request done at an attempt with what the merge came to and why, if it is
 	// still requested at that attempt.
 	FinishMerge(id string, attempt, at int64, outcome ledger.MergeOutcome, detail string) (bool, error)
@@ -397,9 +400,11 @@ type CIAttentionWriter interface {
 	CIAttentionReader
 	// ExtendCIWait adds time to a head's timeout, and returns what the head holds after it.
 	ExtendCIWait(workOrder, head string, ms int64) (ledger.CIWaiting, error)
-	// CountCIRerun counts one rerun of a head asked for at a time, and returns what the head holds after it. A rerun
-	// starts the head's CI clock again, so what Wait longer added before it is dropped.
-	CountCIRerun(workOrder, head string, at int64) (ledger.CIWaiting, error)
+	// CountCIRerun counts one rerun of a head asked for at a time, and returns what the head holds after it. An
+	// automatic rerun counts in AutoReruns as well as in Reruns, and a member's only in Reruns, so a member's reruns
+	// never use up the automatic ones. A rerun starts the head's CI clock again, so what Wait longer added before it
+	// is dropped.
+	CountCIRerun(workOrder, head string, at int64, auto bool) (ledger.CIWaiting, error)
 	// RaiseCIFinding keeps a finding, and reports false for the kind of a head that already holds one.
 	RaiseCIFinding(ledger.CIFinding) (bool, error)
 	// ClearCIFindings removes a head's findings, and reports how many it held.

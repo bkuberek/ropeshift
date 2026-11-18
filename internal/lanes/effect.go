@@ -46,14 +46,16 @@ const (
 	// EffectMerge merges accepted work at its reviewed commit: a pull request through the forge, or a branch
 	// into its base with git.
 	EffectMerge EffectKind = "merge"
+	// EffectRerun starts again the failed jobs of the runs of a head's checks.
+	EffectRerun EffectKind = "rerun"
 )
 
 // Forge says this effect is a forge request's. Each is safe to run again after a crash, because a push
 // never forces, an open finds the pull request already open, a comment carries a key the forge is read for
-// first, and a merge reads whether the reviewed commit already landed before it merges, so the worker that
-// runs them runs one again rather than asking a person.
+// first, a merge reads whether the reviewed commit already landed before it merges, and a rerun of runs the forge
+// already started again is refused, so the worker that runs them runs one again rather than asking a person.
 func (k EffectKind) Forge() bool {
-	return k == EffectPush || k == EffectPullRequest || k == EffectComment || k == EffectMerge
+	return k == EffectPush || k == EffectPullRequest || k == EffectComment || k == EffectMerge || k == EffectRerun
 }
 
 // Observable says a restart can look for this effect. Nothing shows whether a session

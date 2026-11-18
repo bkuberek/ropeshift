@@ -7,11 +7,11 @@ import (
 
 var (
 	stmtCIWaits = define("ci.waits",
-		`SELECT work_order_id, head_commit, extended_ms, reruns, rerun_at FROM ci_waits
+		`SELECT work_order_id, head_commit, extended_ms, reruns, auto_reruns, rerun_at FROM ci_waits
  WHERE workspace_id = :workspace_id ORDER BY work_order_id, head_commit`)
 
 	stmtCIWait = define("ci.wait_of",
-		`SELECT extended_ms, reruns, rerun_at FROM ci_waits
+		`SELECT extended_ms, reruns, auto_reruns, rerun_at FROM ci_waits
  WHERE workspace_id = :workspace_id AND work_order_id = :work_order_id AND head_commit = :head_commit`)
 
 	stmtCIExtend = define("ci.wait_extend",
@@ -19,10 +19,12 @@ var (
 VALUES (:workspace_id, :work_order_id, :head_commit, :extended_ms, 0)
 ON CONFLICT (workspace_id, work_order_id, head_commit) DO UPDATE SET extended_ms = ci_waits.extended_ms + :extended_ms`)
 
+	// An automatic rerun counts in both columns, and a member's in reruns alone.
 	stmtCIRerun = define("ci.rerun_count",
-		`INSERT INTO ci_waits (workspace_id, work_order_id, head_commit, extended_ms, reruns, rerun_at)
-VALUES (:workspace_id, :work_order_id, :head_commit, 0, 1, :rerun_at)
-ON CONFLICT (workspace_id, work_order_id, head_commit) DO UPDATE SET reruns = ci_waits.reruns + 1, extended_ms = 0, rerun_at = :rerun_at`)
+		`INSERT INTO ci_waits (workspace_id, work_order_id, head_commit, extended_ms, reruns, auto_reruns, rerun_at)
+VALUES (:workspace_id, :work_order_id, :head_commit, 0, 1, :auto, :rerun_at)
+ON CONFLICT (workspace_id, work_order_id, head_commit) DO UPDATE
+  SET reruns = ci_waits.reruns + 1, auto_reruns = ci_waits.auto_reruns + :auto, extended_ms = 0, rerun_at = :rerun_at`)
 
 	stmtCIFindings = define("ci.findings",
 		`SELECT work_order_id, head_commit, kind, check_name, conclusion, url, base_commit, raised_at FROM ci_findings
@@ -61,7 +63,7 @@ func (t ciTx) CIWaits() ([]ledger.CIWaitRecord, error) {
 	var out []ledger.CIWaitRecord
 	for rows.Next() {
 		var r ledger.CIWaitRecord
-		if err := rows.Scan(&r.WorkOrder, &r.Head, &r.ExtendedMs, &r.Reruns, &r.RerunAt); err != nil {
+		if err := rows.Scan(&r.WorkOrder, &r.Head, &r.ExtendedMs, &r.Reruns, &r.AutoReruns, &r.RerunAt); err != nil {
 			return nil, err
 		}
 		out = append(out, r)
@@ -93,7 +95,7 @@ func (t ciTx) waiting(workOrder, head string) (ledger.CIWaiting, error) {
 		return ledger.CIWaiting{}, err
 	}
 	var w ledger.CIWaiting
-	return w, row.Scan(&w.ExtendedMs, &w.Reruns, &w.RerunAt)
+	return w, row.Scan(&w.ExtendedMs, &w.Reruns, &w.AutoReruns, &w.RerunAt)
 }
 
 func (t ciTx) ExtendCIWait(workOrder, head string, ms int64) (ledger.CIWaiting, error) {
@@ -103,8 +105,12 @@ func (t ciTx) ExtendCIWait(workOrder, head string, ms int64) (ledger.CIWaiting, 
 	return t.waiting(workOrder, head)
 }
 
-func (t ciTx) CountCIRerun(workOrder, head string, at int64) (ledger.CIWaiting, error) {
-	if _, err := t.exec(stmtCIRerun, t.scoped(params{"work_order_id": workOrder, "head_commit": head, "rerun_at": at})); err != nil {
+func (t ciTx) CountCIRerun(workOrder, head string, at int64, auto bool) (ledger.CIWaiting, error) {
+	counted := int64(0)
+	if auto {
+		counted = 1
+	}
+	if _, err := t.exec(stmtCIRerun, t.scoped(params{"work_order_id": workOrder, "head_commit": head, "rerun_at": at, "auto": counted})); err != nil {
 		return ledger.CIWaiting{}, err
 	}
 	return t.waiting(workOrder, head)

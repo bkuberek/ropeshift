@@ -52,6 +52,10 @@ ON CONFLICT DO NOTHING`)
 		`UPDATE forge_requests SET state = 'done', detail = '', reported_at = :reported_at
  WHERE workspace_id = :workspace_id AND id = :id AND attempt = :attempt AND state = 'requested'`)
 
+	stmtFinishForgeRequestWith = define("forge.request_finish_with",
+		`UPDATE forge_requests SET state = 'done', detail = :detail, body = :body, reported_at = :reported_at
+ WHERE workspace_id = :workspace_id AND id = :id AND attempt = :attempt AND state = 'requested'`)
+
 	stmtFinishMerge = define("forge.request_finish_merge",
 		`UPDATE forge_requests SET state = 'done', outcome = :outcome, detail = :detail, reported_at = :reported_at
  WHERE workspace_id = :workspace_id AND id = :id AND attempt = :attempt AND state = 'requested'`)
@@ -207,6 +211,11 @@ func (t forgeTx) FailRequest(id string, attempt int64, detail string) (bool, err
 
 func (t forgeTx) FinishRequest(id string, attempt, at int64) (bool, error) {
 	n, err := t.exec(stmtFinishForgeRequest, t.scoped(params{"id": id, "attempt": attempt, "reported_at": at}))
+	return n > 0, err
+}
+
+func (t forgeTx) FinishRequestWith(id string, attempt, at int64, detail, body string) (bool, error) {
+	n, err := t.exec(stmtFinishForgeRequestWith, t.scoped(params{"id": id, "attempt": attempt, "reported_at": at, "detail": detail, "body": body}))
 	return n > 0, err
 }
 

@@ -404,6 +404,23 @@ For a repository that reviews through pull requests, ropeshift reads each pull r
 
 The read schedule runs on a clock that advances only while a required run is in progress, from the earliest start among the required runs. While every run is queued, ropeshift reads every `ci_steady_interval`. Once a run is in progress it reads once at the expected p50, then at half the remaining time to the p85 each time, never closer than `ci_min_interval`, and every `ci_steady_interval` after the p85 for as long as the run lasts, however many hours that is. A new push to the branch reads again at once.
 
+### Red results are classified first
+
+When every required check of a head has finished and one did not pass, ropeshift classifies it by the check's conclusion before any session starts. The classes are fixed, and no setting moves one:
+
+| Conclusion | Class | What happens |
+|------------|-------|--------------|
+| `failure` | A test failure | The work goes back to rework. Its brief carries the check's name and link and the end of the failing job's log, at most `ci_log_excerpt_lines` lines and `ci_log_excerpt_bytes` bytes. A commit status that failed is a test failure too, and has no log |
+| `failure`, with the same check failed on the base branch's tip | A red base | Nothing goes back and no lane starts. Needs you shows `ci_base_red` |
+| `cancelled`, `timed_out`, `startup_failure`, `stale`, and a conclusion ropeshift does not know | Infrastructure | No lane starts. The worker reruns the failed jobs of the run, up to `ci_auto_rerun` times for each head, and then Needs you shows `ci_infrastructure_failure`. A check that is not a run of the repository's own GitHub Actions has no rerun to make, so it is raised at once |
+| `action_required` | A person on the forge | Nothing starts. Needs you shows `ci_action_required` |
+
+A head with a test failure is sent back whatever else failed on it, because its next commit runs every check again. The base branch's tip is read once for each repository in a forge interval, and only when a required check concluded `failure`; a read the forge refuses waits like any other, and holds the pull request's report until it answers, so a red base is never sent back for want of a read. Only check runs are compared, so a commit status that failed on the base is not seen.
+
+Every rerun is a call the worker makes through the forge and an event with its class and its number, and a refusal by the forge, for a run that is still going, is recorded with its reason. `ci_auto_rerun` bounds only the reruns ropeshift makes by itself. A member's own rerun comes on top of them, is counted apart, and never uses one up.
+
+The log in a rework brief is text anyone who can change a workflow can write, so the brief holds it as data. The escape sequences and the control characters other than newline and tab are removed. What has the shape of a credential, such as a GitHub token, an AWS access key, a `Bearer` token, or a private key, is replaced with `[redacted: <rule>]`, and a value GitHub already masked stays `***`. The end of the log is cut to the bounds above. It sits in a fenced block that no line of it can close, under words that say it is output to read and not instructions to follow. The work waits until the worker has read the log, and a log the forge no longer holds is an answer: the brief says none was read.
+
 ### When CI asks a person
 
 CI that does not finish, or that no agent can mend, is one item in Needs you and one notice, and it starts no agent. The clock for both runs from the push, or from the last rerun, and a limit read from the repository's history stays within the range of its no-history key: never under the least it allows, and never over the most, 72 hours for the CI timeout and 24 hours for the queue.
@@ -416,8 +433,7 @@ The work order's page shows the expected CI time, or "no history", with the time
 
 ### CI duration history
 
-When every required check of a head finishes, ropeshift keeps a CI record: the repository, the head, when ropeshift first held the head, when the first required run started, when the last one completed, how long the push waited for a run to start, the attempt, and the class of the result: pass, failure, infrastructure, or a check that waits for a person. A failure beside runs the forge cancelled because of it is a failure. A rerun of the same head is another record, and a head with no required check has none. A repository's expected duration is the p50 and p85, by nearest rank, of the push-to-completed times of its `ci_history_window` most recent records that ended in a pass or a failure, so an infrastructure fault says nothing about how long CI takes. With fewer than `ci_history_min_records` of them the repository has no history, and the no-history keys give the expected duration until it has. The read schedule above runs by the repository's own p50 and p85 from the record that makes the minimum. The keys for timeouts, reruns, and log excerpts are held and shown now, and take effect when classification of red results ships.
-
+When every required check of a head finishes, ropeshift keeps a CI record: the repository, the head, when ropeshift first held the head, when the first required run started, when the last one completed, how long the push waited for a run to start, the attempt, and the class of the result: pass, failure, infrastructure, or a check that waits for a person. A failure beside runs the forge cancelled because of it is a failure. A rerun of the same head is another record, and a head with no required check has none. A repository's expected duration is the p50 and p85, by nearest rank, of the push-to-completed times of its `ci_history_window` most recent records that ended in a pass or a failure, so an infrastructure fault says nothing about how long CI takes. With fewer than `ci_history_min_records` of them the repository has no history, and the no-history keys give the expected duration until it has. The read schedule above runs by the repository's own p50 and p85 from the record that makes the minimum.
 ## Next
 
 [Plan your first change](plan-your-first-change.md) is the next guide. For a project that already has code, documents, and branches, [adopt an existing project](adopt.md) brings it in as a plan instead.

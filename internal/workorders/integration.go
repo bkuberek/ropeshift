@@ -141,14 +141,18 @@ func pullRequestGate(in GateInput) (Gate, bool) {
 	case pr.HeadCommit != in.Commit:
 		return Gate{Step: StepReview, Head: pr.HeadCommit, Why: fmt.Sprintf("pull request #%d's head moved from the reviewed commit %s to %s, which is reviewed again", pr.Number, short(in.Commit), short(pr.HeadCommit))}, true
 	}
-	var failed, pending []string
+	// Only a failure of the code sends work back. A check held for a rerun, a base that is red, or a person on the forge
+	// is no failure of this work (ADR-0037), so it waits as one still running does, and the control plane raises it.
+	var failed, pending, held []string
 	for _, check := range pr.Checks {
-		switch {
+		switch class := check.Class(); {
 		case !check.Required:
-		case check.State == ledger.CheckFailed:
+		case class == ledger.CIClassTestFailure:
 			failed = append(failed, check.Name)
-		case check.State == ledger.CheckPending:
+		case class == ledger.CIClassPending:
 			pending = append(pending, check.Name)
+		case class != ledger.CIClassPass:
+			held = append(held, check.Name)
 		}
 	}
 	switch {
@@ -156,6 +160,8 @@ func pullRequestGate(in GateInput) (Gate, bool) {
 		return Gate{Step: StepRework, Failed: failed, Why: fmt.Sprintf("required checks failed on %s: %s", short(in.Commit), strings.Join(failed, ", "))}, true
 	case len(pending) != 0:
 		return Gate{Step: StepWait, Why: fmt.Sprintf("required checks are still running on %s: %s", short(in.Commit), strings.Join(pending, ", "))}, true
+	case len(held) != 0:
+		return Gate{Step: StepWait, Why: fmt.Sprintf("required checks on %s ended in what no change of the work mends, which a rerun or a person on the forge answers: %s", short(in.Commit), strings.Join(held, ", "))}, true
 	case in.Authority == ledger.PersonMerges && len(in.Unmerged) != 0:
 		return Gate{Step: StepWait, Unmerged: in.Unmerged, Why: fmt.Sprintf("at person_merges you merge pull request #%d yourself, after the work it depends on, which has not merged: %s", pr.Number, unmergedText(in.Unmerged))}, true
 	case in.Authority == ledger.PersonMerges:

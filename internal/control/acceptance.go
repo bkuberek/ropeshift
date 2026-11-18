@@ -625,8 +625,12 @@ func (a *Acceptances) settle(ctx context.Context, scope ledger.WorkspaceID, item
 				})
 			}
 		case len(assessment.Failed) != 0:
+			reason, ready, err := acceptanceRework(tx, current, item.branch.Digest, assessment.Failed)
+			if err != nil || !ready {
+				return err
+			}
 			settled = true
-			_, err = rework(tx, current.ID, "failed: "+strings.Join(assessment.Failed, ", "), actor, moved)
+			_, err = rework(tx, current.ID, reason, actor, moved)
 			return err
 		case assessment.Needs == workorders.NeedNothing:
 			if !authority.Allowed(actor, acceptAction(assessment.Needs)) {
@@ -642,6 +646,21 @@ func (a *Acceptances) settle(ctx context.Context, scope ledger.WorkspaceID, item
 		return err
 	})
 	return settled, err
+}
+
+// acceptanceRework says why failed checks send work back from acceptance. Work that lands through a pull request whose
+// head is the attempt's commit goes back with the failing jobs' logs, which the worker reads first, so it waits for
+// them as work in integration does. Any other work goes back with the names of its failed checks.
+func acceptanceRework(tx ports.WriteTx, current workorders.WorkOrder, commit string, failed []string) (string, bool, error) {
+	reason := ledger.CILead("failed: " + strings.Join(failed, ", "))
+	pr, err := tx.Forge().PullRequest(current.ID)
+	if errors.Is(err, ports.ErrNotFound) || (err == nil && pr.HeadCommit != commit) {
+		return reason, true, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	return ciRework(tx, &pr, reason, failed)
 }
 
 // recordForgeChecks keeps what a forge said about one attempt, and reports whether that added

@@ -133,6 +133,9 @@ type Worker struct {
 	hintsThrough int64
 	// ciRate is where each repository stands with the forge's rate limits: the wait a refusal or a header set.
 	ciRate map[string]ciRateSeen
+	// baseTips is what a worker last read of the checks that failed on a base branch's tip, by repository and branch,
+	// so the pull requests of one repository that fail in the same pass cost one read of the base.
+	baseTips map[string]baseTipSeen
 
 	// toOrchestrator is what this worker knows of the members' messages to its orchestrator, and mu guards
 	// its making.
