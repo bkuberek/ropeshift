@@ -187,6 +187,21 @@ describe("a member in an orchestrator's place", () => {
     expect(within(dialog).queryByRole("radio", { name: "Should the budget hold across restarts?" })).toBeNull();
   });
 
+  it("offers a planning lane's question only targets a person answers", async () => {
+    const view = golden<Questions>("questions");
+    const planner = view.questions.find((question) => question.id === "question-1");
+    if (!planner) {
+      throw new Error("no question-1 in the golden");
+    }
+    planner.escalation_reason = "planner_asked";
+    serveViews((call) => (call.path.startsWith("/v1/views/questions") ? { status: 200, body: view } : undefined));
+    openPage("/questions");
+    await userEvent.click(await screen.findByRole("button", { name: "Merge Should the budget hold across restarts?" }));
+    const dialog = await screen.findByRole("dialog", { name: "Merge this question?" });
+    expect(within(dialog).getByRole("radio", { name: /^May the/ })).toBeTruthy();
+    expect(within(dialog).queryByRole("radio", { name: "Does the plan cover a restart?" })).toBeNull();
+  });
+
   it("records an assumption for a reversible question, with why", async () => {
     const sent = answering();
     openPage("/questions");
