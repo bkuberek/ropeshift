@@ -22,6 +22,7 @@ func (h *handler) measureRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/measures/delivery", h.readDelivery)
 	mux.HandleFunc("GET /v1/measures/estimates", h.readCalibration)
 	mux.HandleFunc("GET /v1/measures/history", h.readHistory)
+	mux.HandleFunc("GET /v1/measures/ci", h.readCIDurations)
 	mux.HandleFunc("GET /v1/work-orders/{id}/timeline", h.readTimeline)
 	mux.HandleFunc("GET /v1/work-orders/{id}/estimate", h.readEstimate)
 	mux.HandleFunc("GET /v1/plans/{id}/forecast", h.readForecast)

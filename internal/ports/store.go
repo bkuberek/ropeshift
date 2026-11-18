@@ -243,6 +243,8 @@ type ReadTx interface {
 	Forecasts() ForecastReader
 	// Pool reads what other projects share in the installation's delivery pool.
 	Pool() PoolReader
+	// CI reads what members did about CI that waits for them, and the findings of its classification.
+	CI() CIAttentionReader
 }
 
 // WriteTx is one write transaction, which holds the workspace revision.
@@ -322,6 +324,8 @@ type WriteTx interface {
 	Forecasts() ForecastReader
 	// Pool reads what other projects share in the installation's delivery pool, which an estimate draws on.
 	Pool() PoolReader
+	// CI keeps what members did about CI that waits for them, and the findings of its classification.
+	CI() CIAttentionWriter
 }
 
 // ForgeReader reads what the control plane asked workers to do on a forge, the pull request each work order
@@ -377,6 +381,29 @@ type ForgeWriter interface {
 	// SaveHealth keeps what a worker said of its sign-in for a repository when the state or its detail
 	// changed, and reports whether it did. The same word again writes nothing.
 	SaveHealth(ledger.ForgeHealth) (bool, error)
+}
+
+// CIAttentionReader reads what members did about CI that waits for them (ADR-0037): the time added to a head's
+// timeout, the reruns asked for, and the findings of a classification no agent can act on.
+type CIAttentionReader interface {
+	// CIWaits lists what members did about each head's wait, by work order and head.
+	CIWaits() ([]ledger.CIWaitRecord, error)
+	// CIFindings lists every finding, oldest first.
+	CIFindings() ([]ledger.CIFinding, error)
+}
+
+// CIAttentionWriter writes them.
+type CIAttentionWriter interface {
+	CIAttentionReader
+	// ExtendCIWait adds time to a head's timeout, and returns what the head holds after it.
+	ExtendCIWait(workOrder, head string, ms int64) (ledger.CIWaiting, error)
+	// CountCIRerun counts one rerun of a head asked for at a time, and returns what the head holds after it. A rerun
+	// starts the head's CI clock again, so what Wait longer added before it is dropped.
+	CountCIRerun(workOrder, head string, at int64) (ledger.CIWaiting, error)
+	// RaiseCIFinding keeps a finding, and reports false for the kind of a head that already holds one.
+	RaiseCIFinding(ledger.CIFinding) (bool, error)
+	// ClearCIFindings removes a head's findings, and reports how many it held.
+	ClearCIFindings(workOrder, head string) (int64, error)
 }
 
 // RecoveryWriter keeps every recovery act that ran or was refused (ADR-0014).

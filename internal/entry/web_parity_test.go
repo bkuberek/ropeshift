@@ -81,6 +81,10 @@ var webGaps = map[string]string{
 	"spend show":   "SP4",
 	"spend set":    "SP4",
 	"spend revert": "SP4",
+	// The CI card of Needs you, the work order's CI times, and Measures read and answer through these (ADR-0037).
+	"work ci-wait":  "SP4",
+	"work ci-rerun": "SP4",
+	"measures ci":   "SP4",
 }
 
 var gapSlice = regexp.MustCompile(`^(U2[a-k]|P[34][a-j]|SP[1-9])[12]?$`)

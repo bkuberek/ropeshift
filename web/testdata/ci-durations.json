@@ -1,0 +1,26 @@
+{
+  "repositories": [
+    {
+      "repository": "repository-1",
+      "name": "app",
+      "records": 6,
+      "min_records": 5,
+      "history": true,
+      "p50_ms": 480000,
+      "p85_ms": 660000,
+      "queue_p50_ms": 60000,
+      "queue_p85_ms": 60000,
+      "no_history_p50_ms": 600000,
+      "no_history_p85_ms": 1200000
+    },
+    {
+      "repository": "repository-2",
+      "name": "other",
+      "records": 0,
+      "min_records": 5,
+      "history": false,
+      "no_history_p50_ms": 600000,
+      "no_history_p85_ms": 1200000
+    }
+  ]
+}

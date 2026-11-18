@@ -160,9 +160,11 @@ type handler struct {
 	reviews    *control.Reviews
 	// planRevisions confirms a plan's revision and starts the session that revises it.
 	planRevisions *control.PlanRevisions
-	accepting     *control.Acceptances
-	questions     *control.Questions
-	workers       *control.Workers
+	// ci is a member's word on CI that asks for them: waiting longer, and rerunning.
+	ci        *control.CIAttention
+	accepting *control.Acceptances
+	questions *control.Questions
+	workers   *control.Workers
 	// plane serves the plane protocol across every project. The first project's handler serves its routes,
 	// and every project's handler reads the workers and orchestrators every project shares through it.
 	plane *control.Plane
@@ -257,6 +259,7 @@ func (h *handler) projectRoutes(mux *http.ServeMux) {
 	h.laneRoutes(mux)
 	h.planningRoutes(mux)
 	h.revisionRoutes(mux)
+	h.ciRoutes(mux)
 	h.questionRoutes(mux)
 	h.messageRoutes(mux)
 	h.approvalRoutes(mux)
@@ -313,6 +316,7 @@ func newHandler(config Config) *handler {
 		leases:        control.NewLeases(config.Store).Budgeted(config.PackTokens).Starting(config.Starts),
 		reviews:       control.NewReviews(config.Store),
 		planRevisions: control.NewPlanRevisions(config.Store),
+		ci:            control.NewCIAttention(config.Store),
 		recoveries:    control.NewRecoveries(config.Store),
 		spend:         control.NewSpend(config.Store),
 		estimates:     control.NewEstimatePolicies(config.Store),

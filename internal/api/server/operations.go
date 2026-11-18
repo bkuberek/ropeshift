@@ -193,6 +193,8 @@ var routeOperations = map[string]routeOperation{
 	"POST /v1/plans/{id}/revision/confirm":             fixed(authority.OpPlanConfirmRevision).about(subjectPlan),
 	"POST /v1/plans/{id}/revision/sessions":            fixed(authority.OpPlanRevise).about(subjectPlan),
 	"POST /v1/work-orders/{id}/decision-rework":        fixed(authority.OpWorkOrderDecisionRework).about(subjectWorkOrder),
+	"POST /v1/work-orders/{id}/ci-wait":                fixed(authority.OpWorkOrderCIWait).about(subjectWorkOrder),
+	"POST /v1/work-orders/{id}/ci-rerun":               fixed(authority.OpWorkOrderCIRerun).about(subjectWorkOrder),
 	"POST /v1/questions":                               fixed(authority.OpQuestionRecord).about(subjectQuestion).named(bodyField("id")).checked(plainID(questions.ErrInvalid)),
 	"POST /v1/questions/{id}/dismiss":                  fixed(authority.OpQuestionDismiss).about(subjectQuestion),
 	"POST /v1/questions/{id}/answer":                   resolved(answerOperation, authority.OpQuestionAnswer).about(subjectQuestion).checked(decisionID),
