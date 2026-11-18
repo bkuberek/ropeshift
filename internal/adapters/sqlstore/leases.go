@@ -494,8 +494,11 @@ var (
  WHERE workspace_id = :workspace_id AND work_order_id = :work_order_id AND started_fence = :fence`)
 
 	stmtStartLane = define("lane.start",
-		`INSERT INTO lanes (workspace_id, id, work_order_id, current_generation, started_fence)
-VALUES (:workspace_id, :id, :work_order_id, 1, :fence)`)
+		`INSERT INTO lanes (workspace_id, id, work_order_id, current_generation, started_fence, policies)
+VALUES (:workspace_id, :id, :work_order_id, 1, :fence, :policies)`)
+
+	stmtLanePolicies = define("lane.policies",
+		`SELECT policies FROM lanes WHERE workspace_id = :workspace_id AND id = :id`)
 
 	stmtLaneReport = define("lane.report",
 		`UPDATE lanes
@@ -860,11 +863,34 @@ func (t laneTx) StartedUnder(workOrder string, fence int64) (bool, error) {
 	return count > 0, nil
 }
 
-func (t laneTx) Start(lane, workOrder string, fence int64) error {
-	_, err := t.exec(stmtStartLane, params{
-		"workspace_id": string(t.scope), "id": lane, "work_order_id": workOrder, "fence": fence,
+func (t laneTx) Start(lane, workOrder string, fence int64, policies ledger.LanePolicies) error {
+	raw, err := json.Marshal(policies)
+	if err != nil {
+		return err
+	}
+	_, err = t.exec(stmtStartLane, params{
+		"workspace_id": string(t.scope), "id": lane, "work_order_id": workOrder, "fence": fence, "policies": string(raw),
 	})
 	return err
+}
+
+func (t laneTx) Policies(lane string) (ledger.LanePolicies, error) {
+	var policies ledger.LanePolicies
+	row, err := t.row(stmtLanePolicies, params{"workspace_id": string(t.scope), "id": lane})
+	if err != nil {
+		return policies, err
+	}
+	var raw string
+	if err := row.Scan(&raw); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return policies, fmt.Errorf("lane %s: %w", lane, ports.ErrNotFound)
+		}
+		return policies, err
+	}
+	if raw == "" {
+		return policies, nil
+	}
+	return policies, json.Unmarshal([]byte(raw), &policies)
 }
 
 func (t laneTx) Resets(lane string) (int64, error) {

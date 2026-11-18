@@ -142,7 +142,7 @@ func TestLaneWaitDeclaresAWaitThatEnds(t *testing.T) {
 	t.Parallel()
 	r := laneRigWith(t, restarts)
 	// A wait stays live only up to the project's bound, which a policy that allows an hour lets a 30 minute wait use.
-	r.publishSpend(t, authority.SpendPolicy{Version: 2, MaxLiveWait: "1h", MaxToolSleep: "60s"})
+	r.publishSpend(t, anHourOfLiveWait())
 	g := newGate()
 	r.finishLater(g)
 	r.driver.Play(script([]fake.DriverStep{{Bound: true}, g.step()}))
@@ -169,7 +169,7 @@ func TestAWaitDoesNotSuppressOverdue(t *testing.T) {
 	r := newLaneRigFor(t, base)
 	r.config.Provisioner.Profiles.(*fake.ProfileSource).Put("/repository", restarts)
 	r.dispatched()
-	r.publishSpend(t, authority.SpendPolicy{Version: 2, MaxLiveWait: "1h", MaxToolSleep: "60s"})
+	r.publishSpend(t, anHourOfLiveWait())
 	g := newGate()
 	r.finishLater(g)
 	r.driver.Play(script([]fake.DriverStep{{Bound: true}, g.step()}))

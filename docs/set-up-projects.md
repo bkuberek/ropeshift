@@ -249,31 +249,111 @@ To check a root before a lane does, run `ropeshift worker doctor`, or `ropeshift
 
 ## Spend settings
 
-A project's `[spend_policy]` holds the values that stop a lane from spending credits on waiting ([waiting costs no credits](how-it-works.md#waiting-costs-no-credits)). It is a versioned policy of kind `spend`, which only a member publishes, with `ropeshift policy publish --file F`, and which `ropeshift policy list --kind spend` and `ropeshift policy show --kind spend N` read. No plan, repository file, or agent can change it, and a lane's profile layer that names one of its keys is refused as an unknown setting. A version states `version` and any key it changes, each version is newer than the one in force, and a key it leaves out keeps its default. A lane reads the version in force when it starts, so a new version reaches the next lane. The built-in version is this one:
+A project's `[spend_policy]` holds the values that stop a lane from spending credits on waiting ([waiting costs no credits](how-it-works.md#waiting-costs-no-credits)). It is a versioned policy of kind `spend`, which only a member publishes, with `ropeshift policy publish --file F`, and which `ropeshift policy list --kind spend` and `ropeshift policy show --kind spend N` read. No plan, repository file, or agent can change it, and a lane's profile layer that names one of its keys is refused as an unknown setting. A version states every key, so a body that leaves one out is refused and the version always says what it runs on. Each version is newer than the one in force, a version that was stored with a value outside its key's range is refused when it is read, and a value outside its range is refused with the key and the range named. A lane reads the version in force when it starts, so a new version reaches the next lane. The built-in version is this one:
 
 ```toml
 [spend_policy]
 version = 1
+# Waits
 max_live_wait = "5m"
 max_tool_sleep = "60s"
 wait_rules_off = []
 wait_rule_patterns = { W1 = [], W2 = [], W3 = [], W4 = [] }
+# Limits
+soft_quantile = "p85"
+hard_multiplier = 2.0
+low_confidence_outcomes = 6
+low_confidence_soft_share = 0.5
+no_history_limit = { small = 10.0, medium = 25.0, large = 60.0 }
+review_share = 0.5
+review_soft_share = 0.5
+plan_hard_multiplier = 2.0
+project_daily_limit = 0.0
+project_weekly_limit = 0.0
+project_warn_share = 0.8
+assistant_daily_warn = 0.0
+budget_flag_headroom_share = 0.1
+# No progress
+repeat_limit = 3
+repeat_denials_to_park = 2
+no_progress_share = 0.5
+no_progress_park_multiplier = 2.0
+no_history_no_progress = 5.0
+# Waiting alert
+waiting_alert_share = 0.5
+waiting_alert_window = "30m"
+waiting_alert_min_calls = 5
+# Session classes
+assistant_class = "standard"
 ```
 
-| Key | What it sets | Range |
-|-----|--------------|-------|
-| `max_live_wait` | The longest a lane waits live with `lane_wait`. A longer wait parks the lane | 1 minute to 1 hour |
-| `max_tool_sleep` | The sleep inside one command that rule W1 refuses, and any longer one | 1 second to 1 hour |
-| `wait_rules_off` | The wait rules to turn off, by ID: `W1`, `W2`, `W3`, or `W4` | Those four IDs |
-| `wait_rule_patterns` | Command prefixes a rule also matches, by rule ID | At most 64 per rule, each at most 200 bytes |
+Amounts are US dollars at list price, and 0 means no limit or no warning. A share runs from 0 to 1. The defaults are starting values to tune, not measurements. The wait keys act now. The other keys are held and recorded with each version, and act when the mechanism each one names ships.
 
-A value outside its range is refused, and the refusal names the key. This policy turns W4 off, so a lane may run `gh pr view`, and makes W3 refuse `kubectl rollout status` too:
+| Key | What it sets | Default | Range |
+|-----|--------------|---------|-------|
+| `max_live_wait` | The longest a lane waits live with `lane_wait`. A longer wait parks the lane | `"5m"` | 1 minute to 1 hour |
+| `max_tool_sleep` | The sleep inside one command that rule W1 refuses, and any longer one | `"60s"` | 1 second to 1 hour |
+| `wait_rules_off` | The wait rules to turn off, by ID: `W1`, `W2`, `W3`, or `W4` | `[]` | Those four IDs |
+| `wait_rule_patterns` | Command prefixes a rule also matches, by rule ID | `[]` for each rule | At most 64 per rule, each at most 200 bytes |
+| `soft_quantile` | Where a work order's soft limit sits in its cost band | `"p85"` | `p50` or `p85` |
+| `hard_multiplier` | The hard limit of a work order, as a multiple of its band's p85 | 2.0 | 1 to 10 |
+| `low_confidence_outcomes` | The finished work orders a band needs to be trusted | 6 | 1 to 100 |
+| `low_confidence_soft_share` | The soft limit of a work order with no trusted band, as a share of its hard limit | 0.5 | 0 to 1 |
+| `no_history_limit` | The hard limit of a work order with no trusted band, by size: `small`, `medium`, `large` | 10.0, 25.0, 60.0 | 0 to 1,000,000 each |
+| `review_share` | A review's hard limit as a share of the reviewed work order's | 0.5 | 0 to 1 |
+| `review_soft_share` | A review's soft limit as a share of its own hard limit | 0.5 | 0 to 1 |
+| `plan_hard_multiplier` | The hard limit of a plan, as a multiple of its forecast's p85 | 2.0 | 1 to 10 |
+| `project_daily_limit` | The project's daily ceiling | 0.0 | 0 to 1,000,000 |
+| `project_weekly_limit` | The project's weekly ceiling | 0.0 | 0 to 1,000,000 |
+| `project_warn_share` | The share of each ceiling where a notice sits | 0.8 | 0 to 1 |
+| `assistant_daily_warn` | The assistant's daily warning, per project | 0.0 | 0 to 1,000,000 |
+| `budget_flag_headroom_share` | The room a headless session's budget flag has over a hard limit | 0.1 | 0 to 1 |
+| `repeat_limit` | How many identical calls a lane may repeat before the next is denied | 3 | 2 to 20 |
+| `repeat_denials_to_park` | How many denials park the lane | 2 | 1 to 10 |
+| `no_progress_share` | What a lane may spend with no progress before a message, as a share of its band's p50 | 0.5 | 0 to 1 |
+| `no_progress_park_multiplier` | That share times this is where the lane parks | 2.0 | 1 to 10 |
+| `no_history_no_progress` | What a lane with no trusted band may spend with no progress before a message | 5.0 | 0 to 1,000,000 |
+| `waiting_alert_share` | The share of recent spend that waiting may reach before a notice | 0.5 | 0 to 1 |
+| `waiting_alert_window` | The span that share is read over | `"30m"` | 1 minute to 24 hours |
+| `waiting_alert_min_calls` | The calls that span needs before it notifies | 5 | 1 to 1,000 |
+| `assistant_class` | The capability class the project's assistant runs on | `"standard"` | `small`, `standard`, `large`, `frontier` |
+
+This policy turns W4 off, so a lane may run `gh pr view`, and makes W3 refuse `kubectl rollout status` too, with every other key stated at its default:
 
 ```toml
 [spend_policy]
 version = 2
+# Waits
+max_live_wait = "5m"
+max_tool_sleep = "60s"
 wait_rules_off = ["W4"]
-wait_rule_patterns = { W3 = ["kubectl rollout status"] }
+wait_rule_patterns = { W1 = [], W2 = [], W3 = ["kubectl rollout status"], W4 = [] }
+# Limits
+soft_quantile = "p85"
+hard_multiplier = 2.0
+low_confidence_outcomes = 6
+low_confidence_soft_share = 0.5
+no_history_limit = { small = 10.0, medium = 25.0, large = 60.0 }
+review_share = 0.5
+review_soft_share = 0.5
+plan_hard_multiplier = 2.0
+project_daily_limit = 0.0
+project_weekly_limit = 0.0
+project_warn_share = 0.8
+assistant_daily_warn = 0.0
+budget_flag_headroom_share = 0.1
+# No progress
+repeat_limit = 3
+repeat_denials_to_park = 2
+no_progress_share = 0.5
+no_progress_park_multiplier = 2.0
+no_history_no_progress = 5.0
+# Waiting alert
+waiting_alert_share = 0.5
+waiting_alert_window = "30m"
+waiting_alert_min_calls = 5
+# Session classes
+assistant_class = "standard"
 ```
 
 ## How ropeshift reads CI

@@ -33,6 +33,8 @@ type Check struct {
 	State      string `json:"state,omitempty"`
 	TargetURL  string `json:"targetUrl,omitempty"`
 	StartedAt  string `json:"startedAt,omitempty"`
+	// CompletedAt is when a finished run completed.
+	CompletedAt string `json:"completedAt,omitempty"`
 }
 
 // PullRequest is one pull request on the fake forge. An open one's head is whatever the remote holds for

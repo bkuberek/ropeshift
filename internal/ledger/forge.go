@@ -149,6 +149,9 @@ type DesiredPullRequest struct {
 	// CI is the repository's `[ci]` keys in force, which the worker reads the pull request's checks by
 	// (FR-SPEND-20). A control plane that sends none leaves the defaults.
 	CI CISettings `json:"ci,omitzero"`
+	// History is what the repository's own CI records say its checks take, which the schedule reads by when there
+	// is one (FR-SPEND-21). A repository with too few records sends none, and the no-history keys apply.
+	History *CIHistory `json:"history,omitempty"`
 }
 
 // DesiredForgeRepository is a repository whose review target needs the forge. A worker that keeps a
@@ -191,6 +194,10 @@ type PullRequestCheck struct {
 	// empty for a run that has not.
 	Status    CIRunStatus `json:"status,omitempty"`
 	StartedAt string      `json:"started_at,omitempty"`
+	// CompletedAt is when a finished run completed, as RFC 3339, and Conclusion how it ended, in lower case, as
+	// the forge words it. A commit status has neither. They feed the CI history (FR-SPEND-21).
+	CompletedAt string `json:"completed_at,omitempty"`
+	Conclusion  string `json:"conclusion,omitempty"`
 }
 
 // PullRequest is what a forge says of one pull request. Checks are those on HeadCommit, and count for no
@@ -217,6 +224,9 @@ type WorkPullRequest struct {
 	Worker string `json:"worker"`
 	// ReadAt is when a worker last reported it, in database time.
 	ReadAt int64 `json:"read_at"`
+	// HeadSince is when the ledger first held this head, in database time, which a CI record dates a push by. A
+	// store sets it, and a record read from a ledger from before it kept it holds zero.
+	HeadSince int64 `json:"head_since,omitempty"`
 }
 
 // ForgeHealthState says whether a worker can reach a repository's forge with the person's sign-in.

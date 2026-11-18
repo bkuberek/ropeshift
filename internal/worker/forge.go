@@ -206,8 +206,8 @@ func (w *Worker) readPullRequest(ctx context.Context, watched ledger.DesiredPull
 // nextRead is when to read a pull request again, from what a read just found and the repository's CI keys
 // (FR-SPEND-20), and the head that read found. A head that is not the one the last read found is a new push, which
 // restarts the schedule: it is read again at once, because its runs begin about now. A required check not yet
-// final is what makes the schedule apply. Until SP2 keeps CI records
-// no repository has a history, so the no-history keys give the expected duration.
+// final is what makes the schedule apply. The expected duration is the repository's own history when the control
+// plane sent one, and the no-history keys give it before.
 func (w *Worker) nextRead(watched ledger.DesiredPullRequest, lastHead string, read ledger.PullRequest) (time.Time, string) {
 	now := w.clock.Now()
 	if lastHead != "" && lastHead != read.HeadCommit {
@@ -219,7 +219,7 @@ func (w *Worker) nextRead(watched ledger.DesiredPullRequest, lastHead string, re
 		return now.Add(w.config.Lanes.forgeEvery()), read.HeadCommit
 	}
 	settings := watched.CI.Effective()
-	return settings.NextRead(settings.Expectation(nil), ledger.CIRunsOf(read.Checks), now), read.HeadCommit
+	return settings.NextRead(settings.Expectation(watched.History), ledger.CIRunsOf(read.Checks), now), read.HeadCommit
 }
 
 // sameRead compares what a read of a pull request can change.

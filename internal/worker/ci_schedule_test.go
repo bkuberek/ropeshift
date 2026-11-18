@@ -7,6 +7,7 @@ import (
 
 	"ropeshift.com/ropeshift/internal/adapters/fake"
 	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/ports"
 )
 
 // ciRig is a pull request the worker watches, whose required check began at the worker's clock.
@@ -67,6 +68,56 @@ func TestAWatchedPullRequestIsReadOnTheCISchedule(t *testing.T) {
 	f.advance(5 * time.Minute)
 	if got := reads(); got != first+2 {
 		t.Fatalf("the read half way to the p85 did not come: %d reads", got)
+	}
+}
+
+// FR-SPEND-21: once the repository has history, the schedule reads by the repository's own p50 and not by the
+// no-history default. Five records of two minutes put the first read of a running check at two minutes.
+func TestAWatchedPullRequestIsReadByTheRepositorysOwnHistory(t *testing.T) {
+	t.Parallel()
+	f := newForgeRig(t, func(forge *fake.Forge, _ *fake.Worktrees) { forge.Push(widgets, "lane/lane-1", "fake-head") })
+	err := f.store.Write(t.Context(), scope, "note", func(tx ports.WriteTx) error {
+		for i := range 5 {
+			done := int64(i+1) * (time.Hour).Milliseconds()
+			record := ledger.CIRecord{
+				Repository: "repo-1", Head: "h" + string(rune('a'+i)), Attempt: 1, PushedAt: done - 120_000, FirstStart: done - 120_000,
+				LastCompleted: done, DurationMs: 120_000, Result: ledger.CIPass,
+			}
+			if _, err := tx.Forge().InsertCIRecord(record); err != nil {
+				return err
+			}
+		}
+		_, err := tx.Append(ledger.EventDraft{Type: "note.added", Actor: member, Subject: ledger.Subject{Kind: "note", ID: "ci"}, Data: []byte(`{}`)})
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for len(f.forge.PullRequests()) == 0 {
+		f.converge(1)
+	}
+	f.clockAtDatabaseTime()
+	f.forge.SetChecks(f.forge.PullRequests()[0].Number, ledger.PullRequestCheck{
+		Name: "CI", State: ledger.CheckPending, Status: ledger.CIRunInProgress, StartedAt: f.clock.Now().UTC().Format(time.RFC3339), Required: true,
+	})
+	reads := func() int {
+		count := 0
+		for _, call := range f.forge.Calls() {
+			if strings.HasPrefix(call, "read ") {
+				count++
+			}
+		}
+		return count
+	}
+	f.converge(2)
+	first := reads()
+	f.advance(time.Minute)
+	if got := reads(); got != first {
+		t.Fatalf("a run a minute in was read again before its own p50: %d reads, %d before", got, first)
+	}
+	f.advance(90 * time.Second)
+	if got := reads(); got != first+1 {
+		t.Fatalf("a run past its own p50 of two minutes was not read: %d reads, %d before", got, first)
 	}
 }
 

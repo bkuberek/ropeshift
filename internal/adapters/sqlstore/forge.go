@@ -17,7 +17,9 @@ const integrationColumns = `id, work_order_id, pull_request, approved_commit, me
        approved_at, merged_commit, merged_at, plan_id, plan_version`
 
 const pullRequestColumns = `work_order_id, repository_id, worker_id, number, url, state, base, branch, head_commit, mergeable,
-       merge_commit, merged_at, checks, read_at`
+       merge_commit, merged_at, checks, read_at, head_since`
+
+const ciRecordColumns = `repository_id, head_commit, attempt, pushed_at, first_start, last_completed, queue_ms, duration_ms, result`
 
 var (
 	stmtInsertForgeRequest = define("forge.request_insert",
@@ -80,14 +82,33 @@ ON CONFLICT DO NOTHING`)
 	stmtSavePullRequest = define("forge.pull_request_save",
 		`INSERT INTO pull_requests
   (workspace_id, work_order_id, repository_id, worker_id, number, url, state, base, branch, head_commit, mergeable, merge_commit,
-   merged_at, checks, read_at)
+   merged_at, checks, read_at, head_since)
 VALUES
   (:workspace_id, :work_order_id, :repository_id, :worker_id, :number, :url, :state, :base, :branch, :head_commit, :mergeable,
-   :merge_commit, :merged_at, :checks, :read_at)
+   :merge_commit, :merged_at, :checks, :read_at, :read_at)
 ON CONFLICT (workspace_id, work_order_id) DO UPDATE SET
   repository_id = :repository_id, worker_id = :worker_id, number = :number, url = :url, state = :state, base = :base,
-  branch = :branch, head_commit = :head_commit, mergeable = :mergeable, merge_commit = :merge_commit, merged_at = :merged_at,
+  branch = :branch, head_since = CASE WHEN pull_requests.head_commit = :head_commit AND pull_requests.head_since > 0
+                                      THEN pull_requests.head_since ELSE :read_at END,
+  head_commit = :head_commit, mergeable = :mergeable, merge_commit = :merge_commit, merged_at = :merged_at,
   checks = :checks, read_at = :read_at`)
+
+	stmtInsertCIRecord = define("forge.ci_record_insert",
+		`INSERT INTO ci_records
+  (workspace_id, repository_id, head_commit, attempt, pushed_at, first_start, last_completed, queue_ms, duration_ms, result)
+VALUES
+  (:workspace_id, :repository_id, :head_commit, :attempt, :pushed_at, :first_start, :last_completed, :queue_ms, :duration_ms, :result)
+ON CONFLICT DO NOTHING`)
+
+	stmtCIRecords = define("forge.ci_records",
+		`SELECT `+ciRecordColumns+` FROM ci_records
+ WHERE workspace_id = :workspace_id AND repository_id = :repository_id AND result IN ('pass', 'failure')
+ ORDER BY last_completed DESC, head_commit, attempt
+ LIMIT :limit`)
+
+	stmtCIAttempts = define("forge.ci_attempts",
+		`SELECT count(*) FROM ci_records
+ WHERE workspace_id = :workspace_id AND repository_id = :repository_id AND head_commit = :head_commit`)
 
 	stmtPullRequest = define("forge.pull_request_get",
 		`SELECT `+pullRequestColumns+` FROM pull_requests WHERE workspace_id = :workspace_id AND work_order_id = :work_order_id`)
@@ -241,6 +262,42 @@ func (t forgeTx) InsertIntegration(r ledger.IntegrationRecord) (bool, error) {
 	return n > 0, err
 }
 
+func (t forgeTx) InsertCIRecord(r ledger.CIRecord) (bool, error) {
+	n, err := t.exec(stmtInsertCIRecord, t.scoped(params{
+		"repository_id": r.Repository, "head_commit": r.Head, "attempt": r.Attempt, "pushed_at": r.PushedAt, "first_start": r.FirstStart,
+		"last_completed": r.LastCompleted, "queue_ms": r.QueueMs, "duration_ms": r.DurationMs, "result": string(r.Result),
+	}))
+	return n > 0, err
+}
+
+func (t forgeTx) CIRecords(repository string, limit int) ([]ledger.CIRecord, error) {
+	rows, err := t.rows(stmtCIRecords, t.scoped(params{"repository_id": repository, "limit": limit}))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []ledger.CIRecord
+	for rows.Next() {
+		var r ledger.CIRecord
+		var result string
+		if err := rows.Scan(&r.Repository, &r.Head, &r.Attempt, &r.PushedAt, &r.FirstStart, &r.LastCompleted, &r.QueueMs, &r.DurationMs, &result); err != nil {
+			return nil, err
+		}
+		r.Result = ledger.CIResult(result)
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+func (t forgeTx) CIAttempts(repository, head string) (int64, error) {
+	row, err := t.row(stmtCIAttempts, t.scoped(params{"repository_id": repository, "head_commit": head}))
+	if err != nil {
+		return 0, err
+	}
+	var count int64
+	return count, row.Scan(&count)
+}
+
 func (t forgeTx) RecordMerge(id string, pullRequest int64, commit string, at int64) (bool, error) {
 	n, err := t.exec(stmtRecordMerge, t.scoped(params{"id": id, "pull_request": pullRequest, "merged_commit": commit, "merged_at": at}))
 	return n > 0, err
@@ -250,7 +307,7 @@ func scanPullRequest(row scanner) (ledger.WorkPullRequest, error) {
 	var pr ledger.WorkPullRequest
 	var state, checks string
 	err := row.Scan(&pr.WorkOrder, &pr.Repository, &pr.Worker, &pr.Number, &pr.URL, &state, &pr.Base, &pr.Branch, &pr.HeadCommit,
-		&pr.Mergeable, &pr.MergeCommit, &pr.MergedAt, &checks, &pr.ReadAt)
+		&pr.Mergeable, &pr.MergeCommit, &pr.MergedAt, &checks, &pr.ReadAt, &pr.HeadSince)
 	if err != nil {
 		return pr, err
 	}

@@ -105,10 +105,10 @@ func readRecoveryPolicy(body string) (authority.RecoveryPolicyDraft, error) {
 // spendPolicyTable is the table a spend policy's body holds.
 const spendPolicyTable = "spend_policy"
 
-// readSpendPolicy reads a body whose table is `spend_policy`. Its version is stated, and a key left out takes its
-// default, because every value of this policy is a named key whose stated value is its default (ADR-0037).
+// readSpendPolicy reads a body whose table is `spend_policy`. A version states every key, as every policy does, so
+// a key left out is refused and no value is one nobody chose (ADR-0037, FR-SPEND-4).
 func readSpendPolicy(body string) (authority.SpendPolicyDraft, error) {
-	file := authority.SpendPolicyFile{SpendPolicy: authority.DefaultSpendPolicy()}
+	var file authority.SpendPolicyFile
 	meta, err := toml.Decode(body, &file)
 	if err != nil {
 		return authority.SpendPolicyDraft{}, fmt.Errorf("%w: %v", authority.ErrBadSpendPolicy, err)
@@ -116,10 +116,26 @@ func readSpendPolicy(body string) (authority.SpendPolicyDraft, error) {
 	if unknown := meta.Undecoded(); len(unknown) > 0 {
 		return authority.SpendPolicyDraft{}, fmt.Errorf("%w: unknown setting %s", authority.ErrBadSpendPolicy, unknown[0])
 	}
-	if !meta.IsDefined(spendPolicyTable, "version") {
-		return authority.SpendPolicyDraft{}, fmt.Errorf("%w: a spend policy states version", authority.ErrBadSpendPolicy)
+	for _, key := range authority.SpendPolicyFileKeys {
+		if !meta.IsDefined(spendPolicyTable, key) {
+			return authority.SpendPolicyDraft{}, fmt.Errorf("%w: a spend policy states %s", authority.ErrBadSpendPolicy, key)
+		}
 	}
-	return authority.SpendPolicyDraft{Body: body, Policy: file.SpendPolicy}, nil
+	for _, size := range []string{"small", "medium", "large"} {
+		if !meta.IsDefined(spendPolicyTable, "no_history_limit", size) {
+			return authority.SpendPolicyDraft{}, fmt.Errorf("%w: a spend policy states no_history_limit.%s", authority.ErrBadSpendPolicy, size)
+		}
+	}
+	policy := file.SpendPolicy
+	if policy.WaitRulesOff == nil {
+		policy.WaitRulesOff = []string{}
+	}
+	patterns := map[string][]string{"W1": {}, "W2": {}, "W3": {}, "W4": {}}
+	for rule, list := range policy.WaitRulePatterns {
+		patterns[rule] = list
+	}
+	policy.WaitRulePatterns = patterns
+	return authority.SpendPolicyDraft{Body: body, Policy: policy}, nil
 }
 
 // estimatePolicyTable is the table an estimate policy's body holds.

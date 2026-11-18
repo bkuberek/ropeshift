@@ -70,9 +70,9 @@ type policyTx struct {
 }
 
 // installationPolicy says a kind of policy governs what every project shares, so it lives where workers do:
-// autonomy, and the assistant's sessions.
+// autonomy, the assistant's sessions, and the orchestrator's spend.
 func installationPolicy(kind authority.PolicyKind) bool {
-	return kind == authority.PolicyAutonomy || kind == authority.PolicyAssistant
+	return kind == authority.PolicyAutonomy || kind == authority.PolicyAssistant || kind == authority.PolicyInstallationSpend
 }
 
 // on returns where a kind of policy lives, with its scope bound.

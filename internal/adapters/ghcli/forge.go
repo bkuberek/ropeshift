@@ -407,7 +407,12 @@ type rollup struct {
 	State      string `json:"state"`
 	TargetURL  string `json:"targetUrl"`
 	StartedAt  string `json:"startedAt"`
+	// CompletedAt is the zero time, "0001-01-01T00:00:00Z", for a run not finished.
+	CompletedAt string `json:"completedAt"`
 }
+
+// zeroTime is how GitHub writes a time that was never set.
+const zeroTime = "0001-01-01T00:00:00Z"
 
 func (v viewed) pullRequest() ledger.PullRequest {
 	pr := ledger.PullRequest{
@@ -453,6 +458,10 @@ func (r rollup) check() ledger.PullRequestCheck {
 		check.Status, check.StartedAt = ledger.CIRunInProgress, r.StartedAt
 	case "COMPLETED":
 		check.Status, check.StartedAt = ledger.CIRunCompleted, r.StartedAt
+		check.Conclusion = strings.ToLower(r.Conclusion)
+		if r.CompletedAt != zeroTime {
+			check.CompletedAt = r.CompletedAt
+		}
 	}
 	switch {
 	case r.Status != "COMPLETED":

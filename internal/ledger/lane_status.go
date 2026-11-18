@@ -122,6 +122,15 @@ type LaneRow struct {
 	ParkWanted string
 }
 
+// LanePolicies are the versions of the policies a lane started under, which it keeps for its life (ADR-0037): the
+// project's spend policy and the installation's. A version published after the lane started never changes what it
+// records, so a member reading a lane's history sees the values it ran on. A zero field says the lane started
+// before the policy's version was kept.
+type LanePolicies struct {
+	Spend             int64 `json:"spend,omitempty"`
+	InstallationSpend int64 `json:"installation_spend,omitempty"`
+}
+
 // The values of a lane's `resume_affinity`.
 const (
 	// AffinityRequired names work that exists only on one machine.

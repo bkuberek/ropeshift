@@ -343,6 +343,11 @@ type ForgeReader interface {
 	Integration(id string) (ledger.IntegrationRecord, error)
 	// Integrations lists a work order's approvals for merge, oldest first.
 	Integrations(workOrder string) ([]ledger.IntegrationRecord, error)
+	// CIRecords lists a repository's most recent CI records that have a test result, newest completion first, at
+	// most limit of them (FR-SPEND-21).
+	CIRecords(repository string, limit int) ([]ledger.CIRecord, error)
+	// CIAttempts counts the CI records a head already has, so the next one names its attempt.
+	CIAttempts(repository, head string) (int64, error)
 }
 
 // ForgeWriter writes them. Each write that answers a worker compares the attempt it answers, so a stale
@@ -364,8 +369,11 @@ type ForgeWriter interface {
 	// RecordMerge keeps the commit an approved merge made, once: a record already merged keeps its own. It
 	// also names the pull request the merge went through when the record names none yet.
 	RecordMerge(id string, pullRequest int64, commit string, at int64) (bool, error)
-	// SavePullRequest keeps what a worker read of a work order's pull request, replacing what it held.
+	// SavePullRequest keeps what a worker read of a work order's pull request, replacing what it held. The
+	// record's HeadSince is the save's own ReadAt when the head is new, and what it was while the head stays.
 	SavePullRequest(ledger.WorkPullRequest) error
+	// InsertCIRecord keeps a CI record, and reports false for the attempt of a head it already holds.
+	InsertCIRecord(ledger.CIRecord) (bool, error)
 	// SaveHealth keeps what a worker said of its sign-in for a repository when the state or its detail
 	// changed, and reports whether it did. The same word again writes nothing.
 	SaveHealth(ledger.ForgeHealth) (bool, error)
@@ -491,6 +499,8 @@ type LaneReader interface {
 	Generation(lane string) (int64, error)
 	// StartedUnder reports whether a lane started under this fence.
 	StartedUnder(workOrder string, fence int64) (bool, error)
+	// Policies returns the policy versions a lane started under, or ErrNotFound.
+	Policies(lane string) (ledger.LanePolicies, error)
 	// Row returns one lane's status, or ErrNotFound.
 	Row(lane string) (ledger.LaneRow, error)
 	// Rows returns every lane's status, by ID.
@@ -521,8 +531,8 @@ type LaneReader interface {
 // LaneWriter writes lanes.
 type LaneWriter interface {
 	LaneReader
-	// Start records a lane's first generation under a fence.
-	Start(lane, workOrder string, fence int64) error
+	// Start records a lane's first generation under a fence, with the policy versions in force.
+	Start(lane, workOrder string, fence int64, policies ledger.LanePolicies) error
 	// NextGeneration moves a lane to its next generation and returns it.
 	NextGeneration(lane string) (int64, error)
 	// Report stores what a worker says about a lane. An ended lane stays ended.
