@@ -192,6 +192,14 @@ func writeReview(out *strings.Builder, review ledger.DesiredReview) {
 	}
 }
 
+// reviewSecurityPoints is what a review judges in every diff besides its criteria (FR-PRAC-9). A concern it finds
+// is a note in the lane's report and decides no criterion.
+const reviewSecurityPoints = "Also judge these security points in the diff, whatever the criteria say: secrets and credentials added to files " +
+	"or logs; untrusted input reaching a shell, a query, a path, or a template; dependencies added or changed, and whether each is pinned " +
+	"and maintained; and changes to authority, such as permissions, CI workflows, `CODEOWNERS`, forge settings, and ropeshift's profiles " +
+	"and policies. Record each concern as a note in notes, with point (secrets, injection, dependencies, or authority), reasons, and " +
+	"citations. A note is not a verdict: it fails no criterion, and you judge every criterion as you would without it."
+
 // writeAttempt tells a review lane what it judges, that it may change nothing, and how it reports. The
 // lane judges against the criteria the brief states, and against the requirements and documents the
 // contract cites, which its pack holds. What the reviewed lane reported of itself is in the pack too, and
@@ -217,6 +225,7 @@ func writeAttempt(out *strings.Builder, attempt ledger.DesiredAttempt) {
 	out.WriteString("Judge each acceptance criterion above against what the change does and against the requirements and documents the " +
 		"contract cites, which your context pack holds. The pack also holds the checks the lane reported for itself. They are information and " +
 		"not evidence: they are what the lane says of its own work.\n\n" +
+		reviewSecurityPoints + "\n\n" +
 		"Report through the " + ToolLaneReport + " tool once, with a verdict for every acceptance criterion above in its verdicts list. " +
 		"A verdict names the criterion's ID in criterion, and says pass when the change meets the criterion, fail when it does not, and " +
 		"cannot_judge when what you can read and run does not let you tell. Give reasons for each verdict, and citations: the files and " +

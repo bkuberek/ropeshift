@@ -712,7 +712,9 @@ type WorkDetail struct {
 	// JudgedBy is named apart from the work order's own `reviews`, which a review sets to the work it judges.
 	JudgedBy []workorders.ReviewLine `json:"judged_by,omitempty"`
 	Verdicts []workorders.Verdict    `json:"verdicts,omitempty"`
-	Why      string                  `json:"why,omitempty"`
+	// Notes are the security notes the reviews left for the current attempt and its commit. They decide nothing.
+	Notes []workorders.Note `json:"notes,omitempty"`
+	Why   string            `json:"why,omitempty"`
 	// Reason and Detail are what the outcome of the lane that ended the work said of why: its reason, and what the
 	// worker said of it, such as the delegate policy version that refused the lane's start. Both are empty for work
 	// no lane's outcome ended, and a lane that ended with no reason leaves the first empty.

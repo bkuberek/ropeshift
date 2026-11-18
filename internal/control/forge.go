@@ -554,7 +554,7 @@ func commentID(review string) string { return "comment:" + review }
 // verdicts on it as a comment (FR-REVIEW-9), in the transaction that ends the review. The ledger keeps the
 // verdicts as it always does. A review of a commit that reached review on its branch asks for nothing.
 func requestVerdictComment(tx ports.WriteTx, review workorders.WorkOrder, result workorders.LaneResult, actor ledger.Actor) error {
-	if result.Outcome != workorders.OutcomeCompleted || len(result.Verdicts) == 0 {
+	if result.Outcome != workorders.OutcomeCompleted || (len(result.Verdicts) == 0 && len(result.Notes) == 0) {
 		return nil
 	}
 	artifacts, err := tx.Evidence().Artifacts(review.Reviews)
@@ -573,7 +573,7 @@ func requestVerdictComment(tx ports.WriteTx, review workorders.WorkOrder, result
 	if err != nil {
 		return err
 	}
-	body, err := verdictBody(tx, review, commit, result.Verdicts)
+	body, err := verdictBody(tx, review, commit, result.Verdicts, redactedNotes(result.Notes))
 	if err != nil {
 		return err
 	}
@@ -589,8 +589,10 @@ func requestVerdictComment(tx ports.WriteTx, review workorders.WorkOrder, result
 }
 
 // verdictBody writes a review's verdicts as a pull request comment: each criterion with its verdict, its
-// reasons, and its citations, the commit they bind to, and where the verdicts left the work.
-func verdictBody(tx ports.WriteTx, review workorders.WorkOrder, commit string, verdicts []workorders.CriterionVerdict) (string, error) {
+// reasons, and its citations, the commit they bind to, and where the verdicts left the work. A review that
+// left security notes has them in a section of their own after the verdicts, and the notes change nothing
+// the verdicts say of where the work goes.
+func verdictBody(tx ports.WriteTx, review workorders.WorkOrder, commit string, verdicts []workorders.CriterionVerdict, notes []workorders.ReviewNote) (string, error) {
 	texts := map[string]string{}
 	if review.ContractVersion != 0 {
 		contract, err := tx.Planning().Contract(review.ContractID, review.ContractVersion)
@@ -613,6 +615,16 @@ func verdictBody(tx ports.WriteTx, review workorders.WorkOrder, commit string, v
 			fmt.Fprintf(&out, " Cites %s.", "`"+strings.Join(v.Citations, "`, `")+"`")
 		}
 		out.WriteString("\n")
+	}
+	if len(notes) > 0 {
+		out.WriteString("\n**Security notes**\n\n")
+		for _, n := range notes {
+			fmt.Fprintf(&out, "- `%s`: %s", n.Point, strings.Join(strings.Fields(n.Reasons), " "))
+			if len(n.Citations) > 0 {
+				fmt.Fprintf(&out, " Cites %s.", "`"+strings.Join(n.Citations, "`, `")+"`")
+			}
+			out.WriteString("\n")
+		}
 	}
 	reviewed, err := tx.WorkOrders().Get(review.Reviews)
 	if err != nil {

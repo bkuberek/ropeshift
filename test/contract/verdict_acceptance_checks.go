@@ -31,6 +31,10 @@ var VerdictAcceptanceChecks = []Check{
 	{"VA10", "the tick sends passed work back when a forge check fails after the review", checkTickReworksAfterTheReview},
 	{"VA11", "a review that fails or is canceled leaves the work to its evidence", checkReviewWithoutVerdictsLeavesTheEvidence},
 	{"VA12", "a review is not a completed work order in the measures, and counts as a review done in the cost per outcome", checkReviewIsNotCompletedWork},
+	// A review's security notes (FR-PRAC-9) are kept with its verdicts and decide nothing.
+	{"VA13", "a completed review keeps its security notes in the transaction that ends it, redacted of credentials and bound to the commit it read", checkReviewKeepsItsNotes},
+	{"VA14", "a review's security notes change no settlement: work settles as it would with none, at every merge authority", checkNotesDecideNothing},
+	{"VA15", "a lane that is not a review cannot report notes, and a review whose notes are not whole is refused and changes nothing", checkOnlyAReviewReportsNotesAndWholeOnes},
 }
 
 func say(criterion string, kind workorders.VerdictKind) workorders.CriterionVerdict {

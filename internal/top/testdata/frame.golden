@@ -3,7 +3,7 @@ NEEDS YOU
 >   12m  work            wo-lapsed  lapsed  Rotate the keys
     11m  work            wo-blocked  blocked  Move the archive  no_outcome
     10m  effect          worker-a:1:11  a crash left input unknown
-     9m  work            wo-accept  acceptance  Trim the log  review: 1 cannot judge
+     9m  work            wo-accept  acceptance  Trim the log  review: 1 cannot judge, 2 security notes
      8m  approval        approval-1  lane lane-wo-approval asks about Bash
      6m  questions       generated-7  2 to answer
      5m  work            wo-parked  parked: waits for question question-1 or a person  Wait for the check

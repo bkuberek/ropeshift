@@ -384,19 +384,30 @@ var ForgeMergeChecks = []Check{
 	{"FG8", "the worker that opened a pull request watches it while its work is open, and a read that changes nothing writes nothing", checkForgeWatch},
 	{"FG9", "at person_merges accepted work waits in integrating, a merge the person made ends it, and a closed pull request ends nothing", checkForgeMergeEndsWork},
 	{"FG10", "rework publishes the same branch again, the same pull request moves to the new head, its review waits for it, and a publish's older view does not replace what the worker read", checkForgeReworkUpdatesThePullRequest},
+	{"FG11", "a review's security notes follow its verdicts in the comment, redacted of credentials, in the same one request", checkForgeCommentCarriesNotes},
 }
 
 // reviewed has the rig's worker report the pull request open at the commit under review, and runs the review
 // with these verdicts on another worker's lane.
 func (f *forgeRig) reviewed(verdicts ...workorders.CriterionVerdict) (workorders.WorkOrder, error) {
+	return f.reviewedNoting(nil, verdicts...)
+}
+
+// reviewedNoting is reviewed, with the security notes the review leaves.
+func (f *forgeRig) reviewedNoting(notes []workorders.ReviewNote, verdicts ...workorders.CriterionVerdict) (workorders.WorkOrder, error) {
 	if err := f.report(f.opened(1, f.head)); err != nil {
 		return workorders.WorkOrder{}, err
 	}
-	return f.judge(verdicts...)
+	return f.judgeNoting(notes, verdicts...)
 }
 
 // judge runs the open review with these verdicts on another worker's lane.
 func (f *forgeRig) judge(verdicts ...workorders.CriterionVerdict) (workorders.WorkOrder, error) {
+	return f.judgeNoting(nil, verdicts...)
+}
+
+// judgeNoting runs the open review with these verdicts and security notes on another worker's lane.
+func (f *forgeRig) judgeNoting(notes []workorders.ReviewNote, verdicts ...workorders.CriterionVerdict) (workorders.WorkOrder, error) {
 	reviews, err := f.r.reviewsOf(f.store, f.grant.WorkOrder)
 	if err != nil {
 		return workorders.WorkOrder{}, err
@@ -411,7 +422,7 @@ func (f *forgeRig) judge(verdicts ...workorders.CriterionVerdict) (workorders.Wo
 		return workorders.WorkOrder{}, err
 	}
 	result := laneResult(workorders.OutcomeCompleted, "")
-	result.Verdicts = verdicts
+	result.Verdicts, result.Notes = verdicts, notes
 	if err := f.r.NewOps(f.store).EndLane(f.r.Ctx, f.r.Scope, holder, result, f.r.worker("reviewer")); err != nil {
 		return workorders.WorkOrder{}, err
 	}
@@ -458,6 +469,9 @@ func checkForgeVerdictComment(r *Rig) error {
 		if !strings.Contains(comment.Body, want) {
 			return Violatedf("the comment leaves out %q:\n%s", want, comment.Body)
 		}
+	}
+	if strings.Contains(comment.Body, "Security notes") {
+		return Violatedf("a review that left no note posts a section of them:\n%s", comment.Body)
 	}
 	if err := f.report(ledger.ForgeReport{Request: comment.ID, Attempt: 1}); err != nil {
 		return err

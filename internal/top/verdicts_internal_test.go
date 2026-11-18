@@ -46,6 +46,26 @@ func TestAnAcceptanceLineSaysWhatTheReviewFound(t *testing.T) {
 	}
 }
 
+// The count of a review's security notes follows the count of its verdicts, as the web UI says it.
+func TestAnAcceptanceLineCountsTheSecurityNotes(t *testing.T) {
+	note := workorders.Note{ReviewNote: workorders.ReviewNote{Point: workorders.PointSecrets, Reasons: "x"}}
+	need := func(notes ...workorders.Note) api.NeedItem {
+		return api.NeedItem{Kind: api.NeedWork, ID: "wo", Work: &api.WorkNeed{
+			Reason: api.ReasonAcceptance, WorkOrder: &workorders.WorkOrder{ID: "wo", Title: "Trim the log"},
+			Standing: &workorders.AcceptanceView{Verdicts: []workorders.Verdict{verdict(workorders.VerdictPass)}, Notes: notes},
+		}}
+	}
+	for want, item := range map[string]api.NeedItem{
+		"review: 1 pass":                   need(),
+		"review: 1 pass, 1 security note":  need(note),
+		"review: 1 pass, 2 security notes": need(note, note),
+	} {
+		if line := what(item); !strings.Contains(line, want) || (want == "review: 1 pass" && strings.Contains(line, "security")) {
+			t.Errorf("%q, want %q", line, want)
+		}
+	}
+}
+
 // A merge request names its work by the work order's title, as the web UI does, and by the work order's ID when
 // it was raised before a merge request held the title.
 func TestAMergeLineNamesTheWorkByItsTitle(t *testing.T) {

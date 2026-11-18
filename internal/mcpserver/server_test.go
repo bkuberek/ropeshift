@@ -375,6 +375,82 @@ func TestLaneReportCarriesAVerdictPerCriterion(t *testing.T) {
 	}
 }
 
+// A review lane reports its security concerns as notes, each with a point, reasons, and citations, and the
+// tool's schema says so (FR-PRAC-9).
+func TestLaneReportCarriesSecurityNotes(t *testing.T) {
+	w := &worker{}
+	var schema map[string]any
+	for _, tool := range ask(t, w, "tools/list", map[string]any{}).Result.Tools {
+		if tool.Name == lanes.ToolLaneReport {
+			schema = tool.InputSchema
+		}
+	}
+	notes, ok := schema["properties"].(map[string]any)["notes"].(map[string]any)
+	if !ok {
+		t.Fatalf("lane_report offers no notes: %v", schema)
+	}
+	if notes["maxItems"] != float64(workorders.MaxNotes) {
+		t.Errorf("notes are bounded at %v", notes["maxItems"])
+	}
+	item := notes["items"].(map[string]any)
+	properties := item["properties"].(map[string]any)
+	for _, field := range []string{"point", "reasons", "citations"} {
+		if _, ok := properties[field]; !ok {
+			t.Errorf("a note has no %s", field)
+		}
+	}
+	var points []string
+	for _, point := range properties["point"].(map[string]any)["enum"].([]any) {
+		points = append(points, point.(string))
+	}
+	if !slices.Equal(points, []string{"secrets", "injection", "dependencies", "authority"}) {
+		t.Errorf("a note is about one of %v", points)
+	}
+	if required := item["required"].([]any); len(required) != 2 || required[0] != "point" || required[1] != "reasons" {
+		t.Errorf("a note requires %v", required)
+	}
+
+	got := ask(t, w, "tools/call", report(map[string]any{
+		"outcome":  "completed",
+		"verdicts": []map[string]any{{"criterion": "c1", "verdict": "pass", "reasons": "retry.go retries twice"}},
+		"notes": []map[string]any{
+			{"point": "dependencies", "reasons": "go.mod adds a module at a branch, not a version", "citations": []string{"go.mod:7"}},
+		},
+	}))
+	if got.Result.IsError {
+		t.Fatalf("a whole report was refused: %+v", got.Result.Content)
+	}
+	var sent *workorders.Report
+	for _, request := range w.requests {
+		if request.Report != nil {
+			sent = request.Report
+		}
+	}
+	if sent == nil || len(sent.Notes) != 1 || sent.Notes[0].Point != workorders.PointDependencies || !slices.Equal(sent.Notes[0].Citations, []string{"go.mod:7"}) {
+		t.Errorf("the worker was sent %+v", sent)
+	}
+}
+
+// A note that is not whole never reaches the worker, and the lane is told what to mend.
+func TestLaneReportRefusesANoteThatIsNotWhole(t *testing.T) {
+	for name, note := range map[string]map[string]any{
+		"a point nobody offers": {"point": "style", "reasons": "x"},
+		"no point":              {"reasons": "x"},
+		"no reasons":            {"point": "secrets"},
+	} {
+		w := &worker{}
+		got := ask(t, w, "tools/call", report(map[string]any{"outcome": "completed", "notes": []map[string]any{note}}))
+		if !got.Result.IsError || len(got.Result.Content) == 0 || got.Result.Content[0].Text == "" {
+			t.Errorf("%s: %+v", name, got.Result)
+		}
+		for _, request := range w.requests {
+			if request.Report != nil {
+				t.Errorf("%s reached the worker", name)
+			}
+		}
+	}
+}
+
 // A verdict that is not whole never reaches the worker, and the lane is told what to mend.
 func TestLaneReportRefusesAVerdictThatIsNotWhole(t *testing.T) {
 	for name, verdict := range map[string]map[string]any{

@@ -224,6 +224,12 @@ func (w *World) Run(id string) *Lane {
 // Reviewed runs the review a completed work order left, on a lane of its own, and ends it with these verdicts.
 func (w *World) Reviewed(id string, verdicts ...workorders.CriterionVerdict) {
 	w.t.Helper()
+	w.ReviewedWithNotes(id, nil, verdicts...)
+}
+
+// ReviewedWithNotes is Reviewed, with the security notes the review leaves besides its verdicts.
+func (w *World) ReviewedWithNotes(id string, notes []workorders.ReviewNote, verdicts ...workorders.CriterionVerdict) {
+	w.t.Helper()
 	var review workorders.WorkOrder
 	err := w.Daemon.Store.Read(w.ctx, Scope, func(tx ports.ReadTx) error {
 		reviews, err := tx.WorkOrders().ReviewsOf(id)
@@ -237,7 +243,7 @@ func (w *World) Reviewed(id string, verdicts ...workorders.CriterionVerdict) {
 		w.t.Fatal(err)
 	}
 	lane := w.Run(review.ID)
-	lane.Upload(ledger.UploadLaneEnded, workorders.LaneResult{Report: workorders.Report{Outcome: workorders.OutcomeCompleted, Verdicts: verdicts}})
+	lane.Upload(ledger.UploadLaneEnded, workorders.LaneResult{Report: workorders.Report{Outcome: workorders.OutcomeCompleted, Verdicts: verdicts, Notes: notes}})
 }
 
 // Orchestrator starts this world's worker's orchestrator through a member, and has its worker report
@@ -520,7 +526,10 @@ func Populate(w *World, clock *Clock) {
 	clock.Advance(time.Minute)
 
 	w.Running("wo-accept", "Trim the log").End(workorders.OutcomeCompleted, "")
-	w.Reviewed("wo-accept", workorders.CriterionVerdict{
+	w.ReviewedWithNotes("wo-accept", []workorders.ReviewNote{
+		{Point: workorders.PointInjection, Reasons: "trim.go passes the log name to a shell command.", Citations: []string{"trim.go:44"}},
+		{Point: workorders.PointDependencies, Reasons: "go.mod adds a module at a branch and not at a version."},
+	}, workorders.CriterionVerdict{
 		Criterion: "c1", Verdict: workorders.VerdictCannotJudge,
 		Reasons:   "The log is trimmed in trim.go, but nothing I can run shows it keeps the last day.",
 		Citations: []string{"trim.go:30", "FR-LOG-2"},

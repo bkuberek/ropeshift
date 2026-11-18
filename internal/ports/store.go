@@ -882,6 +882,10 @@ type EvidenceReader interface {
 	// verdict stays on record when its attempt or its commit is no longer the work's, and the caller
 	// chooses the ones that count.
 	Verdicts(workOrder string) ([]workorders.Verdict, error)
+	// Notes lists the security notes every review of a work order left, oldest first and a review's in the order
+	// it reported them. A note stays on record when its attempt or its commit is no longer the work's. No decision
+	// reads one: they are shown beside the verdicts and posted with them.
+	Notes(workOrder string) ([]workorders.Note, error)
 	// Reworked returns the newest note on why a work order went back for another attempt, or ErrNotFound.
 	Reworked(workOrder string) (workorders.ReworkNote, error)
 	// Calibrations lists every record of a member's decision on work a review judged, oldest first.
@@ -899,6 +903,10 @@ type EvidenceWriter interface {
 	// lane of the review work order that names the reviewed work: no lane judges its own work, in any
 	// generation (FR-REVIEW-5).
 	RecordVerdict(verdict workorders.Verdict) error
+	// RecordNote keeps one security note of a review, left by lane. The store refuses a note that is not whole, a
+	// second note in one place of one review, and a note that does not come from a lane of the review work order
+	// that names the reviewed work, by the rule that holds a verdict.
+	RecordNote(note workorders.Note, lane string) error
 	// RecordRework keeps why work went back. The same work order and attempt replace their note.
 	RecordRework(note workorders.ReworkNote) error
 	// RecordCalibration keeps one member's decision on reviewed work, and reports whether it was new. The
