@@ -99,6 +99,7 @@ import {
   startOrchestrator,
   waitLongerForCI,
 } from "./client";
+import { readForgeAccounts } from "./projectRemote";
 import { createDelegate, readDelegates, readOperations, removeDelegate, revokeDelegate, signOutAll } from "./delegates";
 import { readCalibration, readCIDurations, readDelivery, readDeliveryHistory, readEstimate, readPlanForecast } from "./measures";
 import { blockSpend, raiseSpendLimit, readWorkOrderSpend, replanSpend, resumeSpend } from "./spend";
@@ -152,6 +153,8 @@ const callers: Record<string, Caller> = {
   "GET /v1/templates": step("listTemplates", () => listTemplates()),
   "POST /v1/workers/{id}/template-writes": step("writeTemplates", () => writeTemplates("worker-1", { shape: "monorepo", path: "/srv/code/harbor" })),
   "GET /v1/workers/{id}/template-writes/{request}": step("readTemplateWrite", () => readTemplateWrite("worker-1", "request-1")),
+  "POST /v1/workers/{id}/forge-account-reads": step("readForgeAccounts", () => readForgeAccounts("worker-1")),
+  "GET /v1/workers/{id}/forge-account-reads/{request}": step("readForgeAccounts", () => readForgeAccounts("worker-1")),
   "GET /v1/workers": step("readWorkers", () => readWorkers()),
   "POST /v1/workers/tokens": step("createJoinToken", () => createJoinToken()),
   "POST /v1/workers/tokens/{id}/revoke": step("revokeJoinToken", () => revokeJoinToken("token-1")),
@@ -365,7 +368,7 @@ describe("each client function the table names", () => {
 
 // The modules that hold the client functions. A function a component, a hook, or a flow imports is one the
 // UI uses, and one only these import is a wrapper with no control.
-const modules = new Set(["client.ts", "admin.ts", "delegates.ts", "measures.ts", "talk.ts", "runWork.ts"]);
+const modules = new Set(["client.ts", "admin.ts", "delegates.ts", "measures.ts", "talk.ts", "runWork.ts", "projectRemote.ts"]);
 const skipped = new Set(["testing.ts", "test-setup.ts", "serve.ts"]);
 
 function sources(dir: string): string[] {

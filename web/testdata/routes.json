@@ -85,6 +85,16 @@
     "command": "new workspace"
   },
   {
+    "method": "POST",
+    "pattern": "/v1/workers/{id}/forge-account-reads",
+    "command": "new workspace"
+  },
+  {
+    "method": "GET",
+    "pattern": "/v1/workers/{id}/forge-account-reads/{request}",
+    "command": "new workspace"
+  },
+  {
     "method": "GET",
     "pattern": "/v1/workers",
     "command": "worker list"

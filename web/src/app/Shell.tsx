@@ -220,6 +220,7 @@ export function ProjectSwitcher({ project, projects, waiting, path, anchor, open
 // The switcher's last entries: what makes a project, and the list that manages them.
 const switcherLinks: { label: string; to: string; icon: IconName }[] = [
   { label: "Create project", to: "/projects?dialog=create", icon: "plus" },
+  { label: "Start with new files", to: "/projects?dialog=template", icon: "doc" },
   { label: "Import an existing project", to: "/import", icon: "import" },
   { label: "Manage projects", to: "/projects", icon: "projects" },
 ];

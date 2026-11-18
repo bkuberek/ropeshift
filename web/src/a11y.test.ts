@@ -1528,13 +1528,19 @@ suite.each(Object.entries(sizes))("at %s width", (size, viewport) => {
         // The repository dialogs.
         await page.goto(`${base}/projects/default/repositories?dialog=register`);
         await check("register repositories dialog", page.getByRole("dialog", { name: /^Register repositories in / }));
-        // Start a project from a template: the empty form, the wait for the worker, the worker's refusal brought back to the form,
-        // and what was written, with the hand-off to registration and without it.
+        // Start a project from a template: the first question unanswered, several repositories with rows, the wait for gh, gh
+        // signed out, the owners loaded, the wait for the worker, the worker's refusal brought back to the form, and what was
+        // written, with the hand-off to registration and without it, and with a failed push.
         const asked = { id: "request-1", worker: "worker-1", requested_by: "member", requested_at: Date.now(), expires_at: Date.now() + 120_000, shape: "workspace", path: "/srv/code/harbor", first_commit: true, state: "offered", registrable: false };
         let reading: Record<string, unknown> = asked;
-        await page.route(/\/v1\/workers$/, served({ workers: [{ id: "worker-1", name: "atlas", epoch: 1, protocol: 5 }, { id: "worker-2", name: "elder", epoch: 1, protocol: 4 }] }));
+        await page.route(/\/v1\/workers$/, served({ workers: [{ id: "worker-1", name: "atlas", epoch: 1, protocol: 6 }, { id: "worker-2", name: "elder", epoch: 1, protocol: 4 }] }));
         await page.route(/\/v1\/workers\/worker-1\/template-writes$/, (route) => served(asked, 202)(route));
         await page.route(/\/v1\/workers\/worker-1\/template-writes\/request-1$/, (route) => served(reading)(route));
+        // The forge account read: asked with a POST, and read until the worker reports what its gh can do.
+        const readOf = (state: string, report?: Record<string, unknown>) => ({ id: "read-1", worker: "worker-1", requested_by: "member", requested_at: Date.now(), expires_at: Date.now() + 120_000, forge: "github", state, report });
+        let account: Record<string, unknown> = readOf("offered");
+        await page.route(/\/v1\/workers\/worker-1\/forge-account-reads$/, (route) => served(readOf("offered"), 202)(route));
+        await page.route(/\/v1\/workers\/worker-1\/forge-account-reads\/read-1$/, (route) => served(account)(route));
         const report = {
           request: "request-1",
           outcome: "written",
@@ -1546,11 +1552,27 @@ suite.each(Object.entries(sizes))("at %s width", (size, viewport) => {
         };
         const start = page.getByRole("dialog", { name: "Start a project from a template" });
         const send = async () => {
+          await start.getByRole("radio", { name: /^One repository/ }).check();
           await start.getByRole("textbox", { name: "Folder" }).fill("/srv/code/harbor");
           await start.getByRole("button", { name: "Write files" }).click();
         };
         await page.goto(`${base}/projects?dialog=template`);
-        await check("start a project from a template dialog", start);
+        await check("start a project from a template dialog, the first question unanswered", start);
+        await start.getByRole("radio", { name: /^Several repositories/ }).check();
+        await start.getByRole("button", { name: "Add", exact: true }).click();
+        await start.getByRole("group", { name: "Code repository 1" }).getByRole("textbox", { name: "Name" }).fill("api");
+        await check("start a project from a template dialog, several repositories with rows", start);
+        await start.getByRole("radio", { name: "Create on GitHub" }).check();
+        await start.getByText("Checking gh on atlas").waitFor();
+        await check("start a project from a template dialog, checking gh", start);
+        account = readOf("reported", { request: "read-1", state: "gh_signed_out", detail: "Run `gh auth login --hostname github.com` on atlas", remedy: "gh auth login --hostname github.com" });
+        await start.getByRole("button", { name: "Check again" }).waitFor();
+        await check("start a project from a template dialog, gh signed out", start);
+        account = readOf("reported", { request: "read-1", state: "ok", login: "ana", git_protocol: "ssh", owners: ["ana", "acme"] });
+        await start.getByRole("button", { name: "Check again" }).click();
+        await start.getByRole("group", { name: "Remote" }).getByRole("combobox", { name: "Owner" }).waitFor();
+        await check("start a project from a template dialog, owners loaded", start);
+        await page.goto(`${base}/projects?dialog=template`);
         await send();
         await start.getByText("Waiting for atlas").waitFor();
         await check("start a project from a template dialog, waiting", start);
@@ -1566,6 +1588,19 @@ suite.each(Object.entries(sizes))("at %s width", (size, viewport) => {
         await send();
         await start.getByText(/atlas wrote 3 files/).waitFor();
         await check("start a project from a template dialog, written without Register", start);
+        const failedPush = {
+          ...report,
+          repositories: [
+            { name: "harbor", path: ".", commit: "3f9c2ab", remote: "git@github.com:acme/harbor.git", steps: [{ step: "create", outcome: "done" }, { step: "origin", outcome: "done" }, { step: "push", outcome: "failed", detail: "remote: Permission denied" }] },
+            { name: "api", path: "repos/api", commit: "9d1e4f0", steps: [{ step: "create", outcome: "skipped" }, { step: "origin", outcome: "skipped" }, { step: "push", outcome: "skipped" }] },
+          ],
+          remaining: ["git -C /srv/code/harbor push --set-upstream origin main", "gh auth setup-git"],
+        };
+        reading = { ...asked, state: "written", registrable: true, report: failedPush };
+        await page.goto(`${base}/projects?dialog=template`);
+        await send();
+        await start.getByText(/atlas wrote 3 files/).waitFor();
+        await check("start a project from a template dialog, written with a failed push", start);
         await page.unroute(/\/v1\/workers$/);
         await page.goto(`${base}/projects/default/repositories?repo=id-api`);
         await ready(page);

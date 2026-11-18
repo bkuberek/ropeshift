@@ -1,25 +1,34 @@
 import { useEffect, useRef, useState } from "react";
 
 import { createProject, protocolTemplateWrites, readTemplateWrite, readWorkers, writeTemplates } from "../api/admin";
-import type { TemplateRepository, TemplateShape, TemplateWriteRequest, TemplateWriteView } from "../api/admin";
+import type { TemplateWriteView } from "../api/admin";
 import { readView } from "../api/client";
+import { protocolProjectRemotes } from "../api/projectRemote";
+import type { Visibility } from "../api/projectRemote";
 import type { Project, ShopFloor } from "../api/types";
 import { go } from "../app/route";
-import { Button, Segmented } from "../ui/controls";
+import { Button } from "../ui/controls";
 import { Banner, Refusal, SkeletonRows } from "../ui/display";
 import { Field, Select } from "../ui/forms";
+import { Icon } from "../ui/Icon";
 import { Dialog, useToast } from "../ui/overlays";
+import { RemoteSection, RepositoriesWritten, RepositoryRows, useGitHubAccount } from "./NewProjectRemote";
 import { useChange } from "./parts";
+import type { Draft, Problem, Question, RemoteMode, Row } from "./projectRemoteRequest";
+import { buildRequest, creating, newRow, rememberedOwner, rememberOwner, remoteMode } from "./projectRemoteRequest";
+import { plainText } from "./untrustedText";
 
 // How often the dialog reads a request it waits on, and how long past its expiry it keeps reading, in milliseconds.
 export const pollMs = 1000;
 const graceMs = 5000;
 
-// What each shape is, in a line, as `ropeshift new --help` says it.
-const shapes: { value: TemplateShape; label: string; says: string }[] = [
-  { value: "workspace", label: "Workspace", says: "The planning repository of a project of several repositories, whose code repositories are cloned into its ignored repos/ folder." },
-  { value: "monorepo", label: "Monorepo", says: "One repository that holds the plan and the code." },
-  { value: "repository", label: "Repository", says: "A code repository of a project that plans in another repository." },
+// The page that describes how a project grows from one repository to several, by adopting and restructuring.
+const growthPath = "https://github.com/bkuberek/ropeshift/blob/main/docs/project-structure.md#growing-a-project";
+
+// The two answers to the first question, and the shape each writes.
+const answers: { value: "one" | "several"; label: string; says: string }[] = [
+  { value: "one", label: "One repository", says: "Writes the plan and the code in one repository." },
+  { value: "several", label: "Several repositories", says: "Writes a planning repository, with the code repositories you name cloned into its ignored repos/ folder." },
 ];
 
 // projectNameOf makes a project name of a folder's name, as `ropeshift new` does: lowercase letters and digits, with a hyphen for each
@@ -52,7 +61,7 @@ export function folderProblem(folder: string): string {
   return "";
 }
 
-type Choice = { id: string; name: string; connected: boolean | null; old: boolean };
+type Choice = { id: string; name: string; protocol: number; connected: boolean | null; old: boolean };
 
 // useWorkers reads the workers the installation holds, with whether the daemon sees each now and whether it speaks a protocol that reads
 // the request, once the dialog opens. Workers the daemon sees now come first.
@@ -70,6 +79,7 @@ function useWorkers(open: boolean): { choices: Choice[]; failure: string; ready:
         const choices = list.workers.map<Choice>((worker) => ({
           id: worker.id,
           name: worker.name || worker.id,
+          protocol: worker.protocol ?? 0,
           connected: floor ? floor.workers.find((line) => line.worker.id === worker.id)?.freshness === "observed" : null,
           old: (worker.protocol ?? 0) < protocolTemplateWrites,
         }));
@@ -95,7 +105,13 @@ function useWorkers(open: boolean): { choices: Choice[]; failure: string; ready:
 const optionLabel = (choice: Choice) =>
   choice.old
     ? `${choice.name} · Upgrade this worker to write files from the web UI`
-    : [choice.name, choice.connected === null ? "" : choice.connected ? "connected" : "last reported"].filter(Boolean).join(" · ");
+    : [
+        choice.name,
+        choice.connected === null ? "" : choice.connected ? "connected" : "last reported",
+        choice.protocol < protocolProjectRemotes ? "Upgrade it to create a project's remote" : "",
+      ]
+        .filter(Boolean)
+        .join(" · ");
 
 // copy puts text on the clipboard, and says when the browser did not let the page.
 function useCopy() {
@@ -109,31 +125,37 @@ function useCopy() {
 
 type Phase = { kind: "form" } | { kind: "sent"; view: TemplateWriteView };
 
-// StartFromTemplate is the dialog that writes a shape's starting files on a worker the member picks, as `ropeshift new` writes them on
-// this machine (FR-TPL-5, FR-UI-7): the worker, the shape, the folder, and the options. It waits for the worker's report and says
-// what became of the request. Registering what was written is a separate act it hands to the Repositories view (FR-UI-8).
+// StartFromTemplate is the dialog that writes a project's starting files on a worker the member picks, as `ropeshift new` writes them on
+// this machine (FR-TPL-5, FR-TPL-6, FR-TPL-7, FR-UI-7): whether the project lives in one repository or several, the worker, the folder, the
+// code repositories, the first commit, and the remote. It waits for the worker's report and says what became of the request. Registering what
+// was written is a separate act it hands to the Repositories view (FR-UI-8).
 export function StartFromTemplate({ open, onClose, projects, reload }: { open: boolean; onClose: () => void; projects: Project[]; reload: () => Promise<void> }) {
   const found = useWorkers(open);
   const change = useChange();
   const copy = useCopy();
   const [worker, setWorker] = useState("");
-  const [shape, setShape] = useState<TemplateShape>("workspace");
+  const [question, setQuestion] = useState<Question>("");
   const [folder, setFolder] = useState("");
-  const [rows, setRows] = useState<TemplateRepository[]>([]);
+  const [rows, setRows] = useState<Row[]>([newRow()]);
   const [project, setProject] = useState("");
   const [firstCommit, setFirstCommit] = useState(true);
+  const [mode, setMode] = useState<RemoteMode>("none");
+  const [remoteUrl, setRemoteUrl] = useState("");
+  const [owner, setOwner] = useState("");
+  const [visibility, setVisibility] = useState<Visibility>("private");
   const [problem, setProblem] = useState("");
-  const [rowProblem, setRowProblem] = useState("");
+  const [issue, setIssue] = useState<Problem | null>(null);
   const [phase, setPhase] = useState<Phase>({ kind: "form" });
   const [lapsed, setLapsed] = useState(false);
   const [readFailure, setReadFailure] = useState("");
   const folderField = useRef<HTMLInputElement>(null);
+  const firstAnswer = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (open) {
       setPhase({ kind: "form" });
       setProblem("");
-      setRowProblem("");
+      setIssue(null);
       setLapsed(false);
       setReadFailure("");
       change.setFailure("");
@@ -148,6 +170,25 @@ export function StartFromTemplate({ open, onClose, projects, reload }: { open: b
 
   const nameOf = (id: string) => found.choices.find((choice) => choice.id === id)?.name ?? id;
   const view = phase.kind === "sent" ? phase.view : null;
+
+  // What the worker takes decides what the form offers: a request that holds a remote needs plane protocol 6.
+  const chosen = found.choices.find((choice) => choice.id === worker);
+  const draft: Draft = { question, project, firstCommit, mode, url: remoteUrl, owner, visibility, rows, remotes: Boolean(chosen && chosen.protocol >= protocolProjectRemotes) };
+  const effective = remoteMode(draft);
+  const { account, check } = useGitHubAccount(open && phase.kind === "form" && effective === "create", worker);
+  const blocked = !firstCommit
+    ? "A remote needs the first commit, which ropeshift pushes. Check Make the first commit to add one."
+    : chosen && !draft.remotes
+      ? `Worker ${chosen.name} speaks protocol ${chosen.protocol}; upgrade it to create a project's remote.`
+      : "";
+  const owners = account.kind === "ready" ? account.owners : [];
+
+  // The owner stands at the one the member chose last on this worker when the account still offers it, and at the login otherwise.
+  useEffect(() => {
+    if (account.kind === "ready") {
+      setOwner((was) => (account.owners.includes(was) ? was : account.owners.includes(rememberedOwner(worker)) ? rememberedOwner(worker) : (account.owners[0] ?? "")));
+    }
+  }, [account, worker]);
 
   // While the request is offered the dialog reads it once a second, until the worker settles it or it expires.
   useEffect(() => {
@@ -188,29 +229,30 @@ export function StartFromTemplate({ open, onClose, projects, reload }: { open: b
     }
   }, [view]);
 
-  const name = shape === "repository" && project.trim() ? project.trim() : projectNameOf(folder);
+  const name = question === "elsewhere" && project.trim() ? project.trim() : projectNameOf(folder);
 
   const send = async () => {
     const wrong = folderProblem(folder);
     setProblem(wrong);
-    setRowProblem("");
+    setIssue(null);
+    if (!question) {
+      setIssue({ field: "question", message: "Choose whether the project lives in one repository or in several." });
+      firstAnswer.current?.focus();
+      return;
+    }
     if (wrong) {
       folderField.current?.focus();
       return;
     }
-    const kept = shape === "workspace" ? rows.map((row) => ({ name: row.name.trim(), remote: row.remote.trim() })).filter((row) => row.name || row.remote) : [];
-    if (kept.some((row) => !row.name || !row.remote)) {
-      setRowProblem("Give each code repository a name and a remote, or remove its row.");
+    const built = buildRequest(draft, folder.trim());
+    if (built.problem) {
+      setIssue(built.problem);
       return;
     }
-    const body: TemplateWriteRequest = { shape, path: folder.trim(), first_commit: firstCommit };
-    if (kept.length > 0) {
-      body.repositories = kept;
+    if (effective === "create") {
+      rememberOwner(worker, owner);
     }
-    if (shape === "repository" && project.trim()) {
-      body.project = project.trim();
-    }
-    const sent = await change.run(() => writeTemplates(worker, body));
+    const sent = await change.run(() => writeTemplates(worker, built.request));
     if (sent) {
       setLapsed(false);
       setPhase({ kind: "sent", view: sent });
@@ -236,7 +278,7 @@ export function StartFromTemplate({ open, onClose, projects, reload }: { open: b
   const waiting = view?.state === "offered" && !lapsed;
   const expired = view?.state === "expired" || (view?.state === "offered" && lapsed);
   const written = view?.state === "written" ? view : null;
-  const sendDisabled = !worker || !found.ready;
+  const sendDisabled = !worker || !found.ready || (effective === "create" && account.kind !== "ready");
 
   const footer = written ? (
     <>
@@ -298,6 +340,44 @@ export function StartFromTemplate({ open, onClose, projects, reload }: { open: b
             void send();
           }}
         >
+          <fieldset className="field plain-fieldset">
+            <legend className="label">Will this project live in one repository, or in several?</legend>
+            {answers.map((row, at) => (
+              <label className="check-row" key={row.value}>
+                <input ref={at === 0 ? firstAnswer : undefined} type="radio" name="project-question" checked={question === row.value} onChange={() => setQuestion(row.value)} />
+                <span>
+                  {row.label}
+                  <span className="help">{row.says}</span>
+                </span>
+              </label>
+            ))}
+            <p className="help">
+              A project of one repository can grow into several later, by adopting and restructuring.{" "}
+              <a href={growthPath} target="_blank" rel="noreferrer">
+                How a project grows<span className="visually-hidden"> (opens in a new tab)</span>
+              </a>
+            </p>
+            {question === "elsewhere" ? (
+              <p className="help">
+                You are adding a code repository to a project planned in another repository.{" "}
+                <Button small variant="ghost" onClick={() => setQuestion("")}>
+                  Start a project instead
+                </Button>
+              </p>
+            ) : (
+              <div>
+                <Button small variant="ghost" onClick={() => setQuestion("elsewhere")}>
+                  Add a code repository to a project planned elsewhere
+                </Button>
+              </div>
+            )}
+            {issue?.field === "question" ? (
+              <p className="msg msg-error" role="alert">
+                <Icon name="warning" size="sm" />
+                <span>{issue.message}</span>
+              </p>
+            ) : null}
+          </fieldset>
           <Field
             label="Worker"
             help="The machine that writes the files. Workers the daemon sees now come first."
@@ -312,19 +392,6 @@ export function StartFromTemplate({ open, onClose, projects, reload }: { open: b
               ))}
             </Select>
           </Field>
-          <div className="field">
-            <span className="label" id="template-shape-label">
-              Shape
-            </span>
-            <Segmented label="Shape" value={shape} choices={shapes.map(({ value, label }) => ({ value, label }))} onChange={setShape} />
-            <ul className="plain-list small">
-              {shapes.map((row) => (
-                <li key={row.value} className={row.value === shape ? undefined : "muted"}>
-                  <strong>{row.label}.</strong> {row.says}
-                </li>
-              ))}
-            </ul>
-          </div>
           <Field label="Folder" help="An absolute path on that worker's machine. The folder is made when it is absent, and must be empty when it exists." error={problem || undefined}>
             <input
               ref={folderField}
@@ -339,43 +406,10 @@ export function StartFromTemplate({ open, onClose, projects, reload }: { open: b
               }}
             />
           </Field>
-          {shape === "workspace" ? (
-            <fieldset className="field plain-fieldset">
-              <legend className="label">Code repositories</legend>
-              <p className="help">Each is cloned into repos/&lt;name&gt; by the workspace's Makefile, and listed in its manifest.</p>
-              {rows.map((row, at) => (
-                <div className="repo-row" key={at}>
-                  <Field label="Name">
-                    <input
-                      className="input mono"
-                      autoComplete="off"
-                      spellCheck={false}
-                      value={row.name}
-                      onChange={(event) => setRows(rows.map((other, index) => (index === at ? { ...other, name: event.target.value } : other)))}
-                    />
-                  </Field>
-                  <Field label="Remote">
-                    <input
-                      className="input mono"
-                      autoComplete="off"
-                      spellCheck={false}
-                      placeholder="git@github.com:acme/api.git…"
-                      value={row.remote}
-                      onChange={(event) => setRows(rows.map((other, index) => (index === at ? { ...other, remote: event.target.value } : other)))}
-                    />
-                  </Field>
-                  <Button small aria-label={`Remove repository ${at + 1}`} onClick={() => setRows(rows.filter((_, index) => index !== at))}>
-                    Remove
-                  </Button>
-                </div>
-              ))}
-              {rowProblem ? <Refusal>{rowProblem}</Refusal> : null}
-              <Button small icon="plus" onClick={() => setRows([...rows, { name: "", remote: "" }])}>
-                Add
-              </Button>
-            </fieldset>
+          {question === "several" ? (
+            <RepositoryRows rows={rows} setRows={setRows} mode={effective} remotes={draft.remotes} worker={chosen?.name ?? worker} owners={owners} problem={issue?.field === "rows" ? issue.message : ""} />
           ) : null}
-          {shape === "repository" ? (
+          {question === "elsewhere" ? (
             <Field label="Project" help="The project the printed commands register the repository in. Leave it empty to use the folder's name.">
               <input className="input mono" autoComplete="off" spellCheck={false} value={project} onChange={(event) => setProject(event.target.value)} />
             </Field>
@@ -389,6 +423,30 @@ export function StartFromTemplate({ open, onClose, projects, reload }: { open: b
               </span>
             </span>
           </label>
+          {question ? (
+            <RemoteSection
+              worker={chosen?.name ?? worker}
+              blocked={blocked}
+              mode={mode}
+              setMode={setMode}
+              url={remoteUrl}
+              setUrl={setRemoteUrl}
+              urlLabel={question === "several" ? "Remote URL of the planning repository" : "Remote URL"}
+              problem={issue?.field === "remote" ? issue.message : ""}
+              account={account}
+              check={check}
+              owner={owner}
+              setOwner={setOwner}
+              visibility={visibility}
+              setVisibility={setVisibility}
+              copy={copy}
+            />
+          ) : null}
+          {effective === "create" && account.kind === "ready" ? (
+            <p className="small" role="status">
+              {`Write files creates ${creating(draft)} ${visibility} ${creating(draft) === 1 ? "repository" : "repositories"} on GitHub.`}
+            </p>
+          ) : null}
           {change.failure ? <Refusal>{change.failure}</Refusal> : null}
           <button type="submit" hidden />
         </form>
@@ -416,12 +474,18 @@ function Written({ view, worker, copy }: { view: TemplateWriteView; worker: stri
           <li key={file}>{file}</li>
         ))}
       </ul>
-      {report.commit ? (
-        <p className="small">
-          First commit <code>{report.commit}</code>
-        </p>
-      ) : null}
-      {report.commit_error ? <Refusal>{`The first commit failed, and the files stay: ${report.commit_error}`}</Refusal> : null}
+      {(report.repositories ?? []).length > 0 ? (
+        <RepositoriesWritten report={report} copy={copy} />
+      ) : (
+        <>
+          {report.commit ? (
+            <p className="small">
+              First commit <code>{report.commit}</code>
+            </p>
+          ) : null}
+          {report.commit_error ? <Refusal>{`The first commit failed, and the files stay: ${plainText(report.commit_error)}`}</Refusal> : null}
+        </>
+      )}
       {commands.length > 0 ? (
         <div>
           <p className="small">{view.registrable ? "The commands that register it from a terminal are:" : "Run these on that machine:"}</p>
@@ -443,7 +507,7 @@ function Written({ view, worker, copy }: { view: TemplateWriteView; worker: stri
           <p className="small">
             Register opens the Register dialog on {target ? <code>{target}</code> : "the project"}'s Repositories view with this folder filled, at its dry run. Registering is a separate step you make there.
           </p>
-          {view.shape === "workspace" && (view.repositories ?? []).length > 0 ? (
+          {view.shape === "workspace" && (view.repositories ?? []).some((repository) => !repository.new) ? (
             <p className="small">
               Clone the code repositories with <code>make -C {folder} setup</code> on {worker}, then register the folder of clones.
             </p>
@@ -456,6 +520,7 @@ function Written({ view, worker, copy }: { view: TemplateWriteView; worker: stri
             : "The folder is not a clone yet, so it cannot be registered. Run the commands above on that machine."}
         </p>
       )}
+      {view.shape === "workspace" ? <p className="small">Approving the project's first plan registers the code repositories through the manifest.</p> : null}
     </div>
   );
 }

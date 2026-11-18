@@ -56,6 +56,9 @@ func WebRoutes() []WebRoute {
 		// One route takes every shape, so `new monorepo` and `new repository` are equivalents of this row.
 		{http.MethodPost, "/v1/workers/{id}/template-writes", "new workspace"},
 		{http.MethodGet, "/v1/workers/{id}/template-writes/{request}", "new workspace"},
+		// The dialog reads a worker's GitHub account before it offers an owner, as the command asks for the owner.
+		{http.MethodPost, "/v1/workers/{id}/forge-account-reads", "new workspace"},
+		{http.MethodGet, "/v1/workers/{id}/forge-account-reads/{request}", "new workspace"},
 		{http.MethodGet, "/v1/workers", "worker list"},
 		{http.MethodPost, "/v1/workers/tokens", "worker token"},
 		{http.MethodPost, "/v1/workers/tokens/{id}/revoke", "worker token-revoke"},

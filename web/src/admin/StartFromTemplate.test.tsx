@@ -19,7 +19,7 @@ const workers = {
   workers: [
     { id: older, name: "elder", epoch: 1, protocol: 4 },
     { id: quiet, name: "solo", epoch: 1, protocol: 5 },
-    { id: connected, name: "build-host-07", epoch: 1, protocol: 5 },
+    { id: connected, name: "build-host-07", epoch: 1, protocol: 6 },
   ],
 };
 
@@ -101,6 +101,16 @@ async function openDialog(): Promise<HTMLElement> {
   return dialog;
 }
 
+// answer picks an answer to the first question, which stands unanswered until then.
+const answer = (dialog: HTMLElement, label: "One repository" | "Several repositories") => userEvent.click(within(dialog).getByRole("radio", { name: new RegExp(`^${label}`) }));
+
+// openAnswered opens the dialog with the project in one repository.
+async function openAnswered(): Promise<HTMLElement> {
+  const dialog = await openDialog();
+  await answer(dialog, "One repository");
+  return dialog;
+}
+
 afterEach(() => {
   vi.useRealTimers();
   cleanup();
@@ -137,47 +147,74 @@ describe("Start a project from a template", () => {
     expect(options.find((option) => option.value === connected)?.disabled).toBe(false);
   });
 
-  it("describes each shape and the first commit, which is on by default", async () => {
+  it("asks first whether the project lives in one repository or in several, before any shape name, and links the growth path", async () => {
     serveStart({ posted: view(), reads: [view()], projects: one });
     const dialog = await openDialog();
-    const shape = within(dialog).getByRole("group", { name: "Shape" });
-    expect(within(shape).getAllByRole("button").map((button) => button.textContent)).toEqual(["Workspace", "Monorepo", "Repository"]);
-    for (const line of [/planning repository of a project of several repositories/, /One repository that holds the plan and the code/, /code repository of a project that plans in another repository/]) {
-      expect(within(dialog).getByText(line)).toBeTruthy();
-    }
+    const question = within(dialog).getByRole("group", { name: "Will this project live in one repository, or in several?" });
+    expect(within(question).getAllByRole("radio").map((radio) => (radio as HTMLInputElement).checked)).toEqual([false, false]);
+    expect(within(question).getAllByRole("radio").map((radio) => radio.parentElement?.textContent)).toEqual([
+      "One repositoryWrites the plan and the code in one repository.",
+      "Several repositoriesWrites a planning repository, with the code repositories you name cloned into its ignored repos/ folder.",
+    ]);
+    expect(within(dialog).queryByRole("group", { name: "Shape" })).toBeNull();
+    expect(within(dialog).queryByText("Monorepo")).toBeNull();
+    const growth = within(dialog).getByRole("link", { name: /How a project grows/ });
+    expect(growth.getAttribute("href")).toMatch(/docs\/project-structure\.md#growing-a-project$/);
+    expect(growth.getAttribute("rel")).toContain("noreferrer");
+    // The question comes before the worker and the folder.
+    const order = [...dialog.querySelectorAll("legend, label.label")].map((node) => node.textContent);
+    expect(order.indexOf("Will this project live in one repository, or in several?")).toBeLessThan(order.indexOf("Worker"));
     expect((within(dialog).getByRole("checkbox", { name: /Make the first commit/ }) as HTMLInputElement).checked).toBe(true);
     await userEvent.type(within(dialog).getByLabelText("Folder"), "/srv/code/My Project");
     expect(within(dialog).getByText("chore: start my-project")).toBeTruthy();
   });
 
-  it("sends a workspace with its code repositories and the first commit", async () => {
-    const sent = serveStart({ posted: view({ shape: "workspace" }), reads: [view({ shape: "workspace" })], projects: one });
+  it("sends nothing while the first question is unanswered, and says so at the question", async () => {
+    const sent = serveStart({ posted: view(), reads: [view()], projects: one });
     const dialog = await openDialog();
     await userEvent.type(within(dialog).getByLabelText("Folder"), folder);
+    await userEvent.click(within(dialog).getByRole("button", { name: "Write files" }));
+    expect(await within(dialog).findByText("Choose whether the project lives in one repository or in several.")).toBeTruthy();
+    expect(posts(sent, writesTo(connected))).toEqual([]);
+  });
+
+  it("lists a worker on protocol 5 as able to write files but not a remote", async () => {
+    serveStart({ posted: view(), reads: [view()], projects: one });
+    const dialog = await openDialog();
+    const solo = [...(within(dialog).getByLabelText("Worker") as HTMLSelectElement).options].find((option) => option.value === quiet) as HTMLOptionElement;
+    expect(solo.disabled).toBe(false);
+    expect(solo.textContent).toContain("Upgrade it to create a project's remote");
+  });
+
+  it("sends a workspace with a new code repository and an existing one, and the first commit", async () => {
+    const sent = serveStart({ posted: view({ shape: "workspace" }), reads: [view({ shape: "workspace" })], projects: one });
+    const dialog = await openDialog();
+    await answer(dialog, "Several repositories");
+    await userEvent.type(within(dialog).getByLabelText("Folder"), folder);
+    expect(within(dialog).getAllByRole("group", { name: /^Code repository \d$/ })).toHaveLength(1);
+    expect((within(dialog).getByRole("button", { name: "Remove code repository 1" }) as HTMLButtonElement).disabled).toBe(true);
     await userEvent.click(within(dialog).getByRole("button", { name: "Add" }));
     await userEvent.click(within(dialog).getByRole("button", { name: "Add" }));
-    const names = within(dialog).getAllByLabelText("Name");
-    const remotes = within(dialog).getAllByLabelText("Remote");
-    await userEvent.type(names[0] as HTMLElement, "api");
-    await userEvent.type(remotes[0] as HTMLElement, "git@example.com:acme/api.git");
-    await userEvent.type(names[1] as HTMLElement, "web");
-    await userEvent.type(remotes[1] as HTMLElement, "https://example.com/acme/web.git");
-    await userEvent.click(within(dialog).getAllByRole("button", { name: /^Remove repository/ })[1] as HTMLElement);
+    const rows = within(dialog).getAllByRole("group", { name: /^Code repository \d$/ });
+    await userEvent.type(within(rows[0] as HTMLElement).getByLabelText("Name"), "api");
+    await userEvent.type(within(rows[1] as HTMLElement).getByLabelText("Name"), "web");
+    await userEvent.click(within(rows[1] as HTMLElement).getByRole("button", { name: "Existing" }));
+    await userEvent.type(within(rows[1] as HTMLElement).getByLabelText("Remote URL"), "https://example.com/acme/web.git");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Remove code repository 3" }));
     await userEvent.click(within(dialog).getByRole("button", { name: "Write files" }));
     await waitFor(() => expect(posts(sent, writesTo(connected))).toHaveLength(1));
     expect(posts(sent, writesTo(connected))[0]?.body).toEqual({
       shape: "workspace",
       path: folder,
       first_commit: true,
-      repositories: [{ name: "api", remote: "git@example.com:acme/api.git" }],
+      repositories: [{ name: "api", new: true }, { name: "web", remote: "https://example.com/acme/web.git" }],
     });
     expect(posts(sent, writesTo(connected))[0]?.csrf).not.toBeNull();
   });
 
   it("sends a monorepo with no repositories and no first commit when it is unchecked", async () => {
     const sent = serveStart({ posted: view(), reads: [view()], projects: one });
-    const dialog = await openDialog();
-    await userEvent.click(within(dialog).getByRole("button", { name: "Monorepo" }));
+    const dialog = await openAnswered();
     expect(within(dialog).queryByRole("button", { name: "Add" })).toBeNull();
     expect(within(dialog).queryByLabelText("Project")).toBeNull();
     await userEvent.type(within(dialog).getByLabelText("Folder"), folder);
@@ -190,18 +227,28 @@ describe("Start a project from a template", () => {
   it("sends a repository with the project its commands name", async () => {
     const sent = serveStart({ posted: view({ shape: "repository" }), reads: [view({ shape: "repository" })], projects: one });
     const dialog = await openDialog();
-    await userEvent.click(within(dialog).getByRole("button", { name: "Repository" }));
+    await userEvent.click(within(dialog).getByRole("button", { name: "Add a code repository to a project planned elsewhere" }));
     expect(within(dialog).queryByRole("button", { name: "Add" })).toBeNull();
     await userEvent.type(within(dialog).getByLabelText("Folder"), folder);
     await userEvent.type(within(dialog).getByLabelText("Project"), "tidewater");
     await userEvent.click(within(dialog).getByRole("button", { name: "Write files" }));
     await waitFor(() => expect(posts(sent, writesTo(connected))).toHaveLength(1));
     expect(posts(sent, writesTo(connected))[0]?.body).toEqual({ shape: "repository", path: folder, first_commit: true, project: "tidewater" });
+    expect(within(dialog).queryByRole("button", { name: "Start a project instead" })).toBeNull();
+  });
+
+  it("goes back from a code repository of a project planned elsewhere to the first question", async () => {
+    serveStart({ posted: view(), reads: [view()], projects: one });
+    const dialog = await openDialog();
+    await userEvent.click(within(dialog).getByRole("button", { name: "Add a code repository to a project planned elsewhere" }));
+    await userEvent.click(within(dialog).getByRole("button", { name: "Start a project instead" }));
+    expect(within(dialog).queryByLabelText("Project")).toBeNull();
+    expect(within(dialog).getByRole("button", { name: "Add a code repository to a project planned elsewhere" })).toBeTruthy();
   });
 
   it("sends nothing for a relative folder or one with a .. element, and says why at the field", async () => {
     const sent = serveStart({ posted: view(), reads: [view()], projects: one });
-    const dialog = await openDialog();
+    const dialog = await openAnswered();
     await userEvent.click(within(dialog).getByRole("button", { name: "Write files" }));
     expect(await within(dialog).findByText(/Enter an absolute folder/)).toBeTruthy();
     await userEvent.type(within(dialog).getByLabelText("Folder"), "code/harbor");
@@ -214,21 +261,24 @@ describe("Start a project from a template", () => {
     expect(posts(sent, writesTo(connected))).toEqual([]);
   });
 
-  it("asks for a name and a remote of each code repository row, and sends nothing until it has them", async () => {
+  it("asks for a name of each code repository and a remote URL of an existing one, and sends nothing until it has them", async () => {
     const sent = serveStart({ posted: view(), reads: [view()], projects: one });
     const dialog = await openDialog();
+    await answer(dialog, "Several repositories");
     await userEvent.type(within(dialog).getByLabelText("Folder"), folder);
-    await userEvent.click(within(dialog).getByRole("button", { name: "Add" }));
-    await userEvent.type(within(dialog).getByLabelText("Name"), "api");
     await userEvent.click(within(dialog).getByRole("button", { name: "Write files" }));
-    expect(await within(dialog).findByText(/Give each code repository a name and a remote/)).toBeTruthy();
+    expect(await within(dialog).findByText(/Give each code repository a name/)).toBeTruthy();
+    await userEvent.type(within(dialog).getByLabelText("Name"), "api");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Existing" }));
+    await userEvent.click(within(dialog).getByRole("button", { name: "Write files" }));
+    expect(await within(dialog).findByText("Repository api: Enter the remote URL.")).toBeTruthy();
     expect(posts(sent, writesTo(connected))).toEqual([]);
   });
 
   it("waits for the worker, reading the request once a second, and lists what it wrote with the commands", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const sent = serveStart({ posted: view(), reads: [view(), view({ state: "written", report: written() })], projects: one });
-    const dialog = await openDialog();
+    const dialog = await openAnswered();
     await userEvent.type(within(dialog).getByLabelText("Folder"), folder);
     await userEvent.click(within(dialog).getByRole("button", { name: "Write files" }));
     expect(await within(dialog).findByText("Waiting for build-host-07")).toBeTruthy();
@@ -253,7 +303,7 @@ describe("Start a project from a template", () => {
   it("says the worker did not take the request when the daemon reads it as expired", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     serveStart({ posted: view(), reads: [view({ state: "expired" })], projects: one });
-    const dialog = await openDialog();
+    const dialog = await openAnswered();
     await userEvent.type(within(dialog).getByLabelText("Folder"), folder);
     await userEvent.click(within(dialog).getByRole("button", { name: "Write files" }));
     await within(dialog).findByText("Waiting for build-host-07");
@@ -268,7 +318,7 @@ describe("Start a project from a template", () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const offered = view({ expires_at: Date.now() + 1500 });
     const sent = serveStart({ posted: offered, reads: [offered], projects: one });
-    const dialog = await openDialog();
+    const dialog = await openAnswered();
     await userEvent.type(within(dialog).getByLabelText("Folder"), folder);
     await userEvent.click(within(dialog).getByRole("button", { name: "Write files" }));
     await within(dialog).findByText("Waiting for build-host-07");
@@ -286,10 +336,9 @@ describe("Start a project from a template", () => {
     const refused = view({ state: "refused", report: { request: "request-1", outcome: "refused", reason: "path_not_empty", detail: "the folder holds files" } });
     serveStart({ posted: view({ shape: "workspace" }), reads: [refused], projects: one });
     const dialog = await openDialog();
+    await answer(dialog, "Several repositories");
     await userEvent.type(within(dialog).getByLabelText("Folder"), folder);
-    await userEvent.click(within(dialog).getByRole("button", { name: "Add" }));
     await userEvent.type(within(dialog).getByLabelText("Name"), "api");
-    await userEvent.type(within(dialog).getByLabelText("Remote"), "git@example.com:acme/api.git");
     await userEvent.click(within(dialog).getByRole("button", { name: "Write files" }));
     await within(dialog).findByText("Waiting for build-host-07");
     await vi.advanceTimersByTimeAsync(1000);
@@ -304,7 +353,7 @@ describe("Start a project from a template", () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const failed = view({ state: "written", report: written({ commit: undefined, commit_error: "Author identity unknown", clone: false, commands: ["git -C /srv/code/harbor init"] }) });
     serveStart({ posted: view(), reads: [failed], projects: one });
-    const dialog = await openDialog();
+    const dialog = await openAnswered();
     await userEvent.type(within(dialog).getByLabelText("Folder"), folder);
     await userEvent.click(within(dialog).getByRole("button", { name: "Write files" }));
     await within(dialog).findByText("Waiting for build-host-07");
@@ -321,7 +370,7 @@ describe("registering what was written, which is a separate act", () => {
   async function reachWritten(served: Served, answer?: (sent: Sent) => { status: number; body?: unknown } | undefined) {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const sent = serveStart(served, answer);
-    const dialog = await openDialog();
+    const dialog = await openAnswered();
     await userEvent.type(within(dialog).getByLabelText("Folder"), folder);
     await userEvent.click(within(dialog).getByRole("button", { name: "Write files" }));
     await within(dialog).findByText("Waiting for build-host-07");
@@ -368,11 +417,12 @@ describe("registering what was written, which is a separate act", () => {
   });
 
   it("tells a workspace's person to clone its code repositories first", async () => {
-    const repositories = [{ name: "api", remote: "git@example.com:acme/api.git" }];
+    const repositories = [{ name: "api", remote: "git@example.com:acme/api.git" }, { name: "web", new: true }];
     const served: Served = { posted: view({ shape: "workspace", repositories }), reads: [registrable({ shape: "workspace", repositories })], projects: [...one] };
     const { dialog } = await reachWritten(served);
     expect(within(dialog).getByText(`make -C ${folder} setup`).tagName).toBe("CODE");
     expect(within(dialog).getByText(/Clone the code repositories with/).textContent).toContain("on build-host-07, then register the folder of clones");
+    expect(within(dialog).getByText("Approving the project's first plan registers the code repositories through the manifest.")).toBeTruthy();
   });
 
   it("says why it cannot register a clone on another machine, and shows the commands to run there", async () => {
@@ -436,7 +486,7 @@ describe("where the dialog starts", () => {
     serveStart({ posted: view(), reads: [view()], projects: one }, (call) =>
       call.method === "POST" && call.path === writesTo(connected) ? refusal(400, "invalid", "worker build-host-07 is not connected") : undefined,
     );
-    const dialog = await openDialog();
+    const dialog = await openAnswered();
     await userEvent.type(within(dialog).getByLabelText("Folder"), folder);
     await userEvent.click(within(dialog).getByRole("button", { name: "Write files" }));
     expect(await within(dialog).findByText("worker build-host-07 is not connected")).toBeTruthy();
