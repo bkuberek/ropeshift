@@ -23,6 +23,24 @@ describe("the diff", () => {
     expect(screen.queryByRole("table")).toBeNull();
   });
 
+  it("folds a long run of unchanged lines into one row that says how many, and keeps the lines around each change", () => {
+    const body = (middle: string) => Array.from({ length: 30 }, (_, at) => (at === 15 ? middle : `line ${at}`)).join("\n");
+    render(<Diff label="Policy change" lines={lineDiff(body("old"), body("new"))} context={2} />);
+    const table = screen.getByRole("table", { name: "Policy change" });
+    expect(within(table).getAllByRole("row")).toHaveLength(2 + 2 + 2 + 2);
+    expect(within(table).getByText("line 13")).toBeTruthy();
+    expect(within(table).getByText("line 17")).toBeTruthy();
+    expect(within(table).queryByText("line 12")).toBeNull();
+    expect(within(table).getByText("13 unchanged lines")).toBeTruthy();
+    expect(within(table).getByText("12 unchanged lines")).toBeTruthy();
+  });
+
+  it("shows every line when none is held back, and folds nothing a context covers", () => {
+    render(<Diff label="Policy change" lines={lineDiff("a\nb\nc\nd\ne", "a\nb\nX\nd\ne")} context={2} />);
+    expect(within(screen.getByRole("table", { name: "Policy change" })).getAllByRole("row")).toHaveLength(6);
+    expect(screen.queryByText(/unchanged lines?$/)).toBeNull();
+  });
+
   it("keeps a line of markup as text", () => {
     render(<Diff label="Change" lines={lineDiff("", '<img src=x onerror="alert(1)">')} />);
     expect(screen.getByText('<img src=x onerror="alert(1)">')).toBeTruthy();
