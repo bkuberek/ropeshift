@@ -100,6 +100,33 @@ type SpendLimitChange struct {
 	ByPercent     float64 `json:"by_percent,omitempty"`
 	ToUSD         float64 `json:"to_usd,omitempty"`
 	PolicyVersion int64   `json:"policy_version"`
+	// AllowanceUSD is what a resume granted: the one more generation the limit was lifted by, so the member sees what
+	// "once" bought. AllowanceBasis says where that figure came from, and a raise sets neither.
+	AllowanceUSD   float64 `json:"allowance_usd,omitempty"`
+	AllowanceBasis string  `json:"allowance_basis,omitempty"`
+}
+
+// Where a resume's allowance comes from, in the order it is tried (FR-SPEND-7).
+const (
+	// AllowanceMeanGeneration is the mean charge of the work order's generations that recorded spend.
+	AllowanceMeanGeneration = "mean_generation"
+	// AllowanceEstimate is the work order's estimate, its p50 cost, for a work order with no generation that
+	// recorded spend. No estimate divides a work order into generations, so the whole p50 stands for one: a generation
+	// is part of the work and never costs more than the estimate expects of all of it.
+	AllowanceEstimate = "estimate"
+)
+
+// SpendLimitError says an act that starts more spending was asked of work at its hard limit, and what the member can do.
+// It is a refusal, and it changes nothing.
+type SpendLimitError struct {
+	WorkOrder  string
+	HardUSD    float64
+	ChargedUSD float64
+}
+
+func (e *SpendLimitError) Error() string {
+	return fmt.Sprintf("work order %s is at its hard spend limit of $%.2f, with $%.2f charged: raise it with ropeshift spend raise",
+		e.WorkOrder, e.HardUSD, e.ChargedUSD)
 }
 
 // SpendAllowance is what a worker holds a lane's work order to, and it is the worker's own read: the work order's hard

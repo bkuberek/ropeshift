@@ -204,6 +204,9 @@ func (r *Recoveries) Retry(ctx context.Context, scope ledger.WorkspaceID, id, re
 		if err != nil {
 			return err
 		}
+		if err := refuseAtHardLimit(tx, id); err != nil {
+			return err
+		}
 		state, err = retryWork(tx, current, reason, actor)
 		return err
 	})
@@ -449,12 +452,24 @@ func atHardSpendLimit(tx ports.WriteTx, act authority.RecoveryAct, workOrder str
 	if act == authority.RecoverReplan {
 		return "", false, nil
 	}
+	err := refuseAtHardLimit(tx, workOrder)
+	var limited *ledger.SpendLimitError
+	if errors.As(err, &limited) {
+		return limited.Error(), true, nil
+	}
+	return "", false, err
+}
+
+// refuseAtHardLimit refuses an act that starts more spending on a work order at its hard limit, whoever asks and by
+// whichever way: a lane restarted, a breaker reset, failed work retried, or a request a member grants. Past a limit only a
+// member decides to spend more, and they do it by raising it, so no other act of theirs is a way round. The refusal
+// names the limit and says how to raise it, and it changes nothing.
+func refuseAtHardLimit(tx ports.WriteTx, workOrder string) error {
 	spend, err := spendWritesOf(tx).spendOf(workOrder)
 	if err != nil || !slices.Contains(spend.Conditions, ledger.ConditionSpendLimit) {
-		return "", false, err
+		return err
 	}
-	return fmt.Sprintf("work order %s is at its hard spend limit of %s, with %s charged, and only a member raises a limit",
-		workOrder, usd(spend.HardLimit), usd(spend.Charged.ChargedUSD)), true, nil
+	return &ledger.SpendLimitError{WorkOrder: workOrder, HardUSD: spend.HardLimit, ChargedUSD: spend.Charged.ChargedUSD}
 }
 
 // performRecovery runs an act on its subject. A lane act asks the worker that holds the lane, so the lane's
@@ -580,6 +595,12 @@ func grantRecovery(tx ports.WriteTx, request authority.Approval, actor ledger.Ac
 		return err
 	}
 	detail := authority.RecoveryDetailOf(request)
+	// A request raised before the limit was reached is still an act that spends more, and a grant is no way round it.
+	if act != authority.RecoverReplan {
+		if err := refuseAtHardLimit(tx, request.WorkOrder); err != nil {
+			return err
+		}
+	}
 	if err := performRecovery(tx, act, subject, detail.Reason, actor); err != nil {
 		return err
 	}

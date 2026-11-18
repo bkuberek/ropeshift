@@ -415,14 +415,23 @@ func checkResumeGrantsAGeneration(r *Rig) error {
 	if change.Act != ledger.SpendActResume || !near(change.BeforeUSD, 25) || !near(change.AfterUSD, 48) || !near(change.ChargedUSD, 32) {
 		return Violatedf("a resume of work charged 32 over two generations recorded %+v", change)
 	}
+	// The member sees what "once" bought: the limit before and after, and the one generation's allowance between them and
+	// where it came from, in the answer and in the event the ledger keeps.
+	if !near(change.AllowanceUSD, 16) || change.AllowanceBasis != ledger.AllowanceMeanGeneration || !near(change.AfterUSD-change.ChargedUSD, change.AllowanceUSD) {
+		return Violatedf("a resume of work charged 32 over two generations granted %+v, want an allowance of 16 by the mean of its generations", change)
+	}
 	if n, err := r.firings(s, request.Wake); err != nil || n != 1 {
 		return Violatedf("a resume woke the lane %d times, want once: %v", n, err)
 	}
 	if err := r.state(s, id, workorders.Ready); err != nil {
 		return err
 	}
-	if changes, err := r.spendLimitChanges(s, id); err != nil || len(changes) != 1 || changes[0] != change {
+	changes, err := r.spendLimitChanges(s, id)
+	if err != nil || len(changes) != 1 || changes[0] != change {
 		return Violatedf("the ledger holds %+v of the resume: %v", changes, err)
+	}
+	if recorded := changes[0]; !near(recorded.BeforeUSD, 25) || !near(recorded.AfterUSD, 48) || !near(recorded.AllowanceUSD, 16) || recorded.AllowanceBasis != ledger.AllowanceMeanGeneration {
+		return Violatedf("the spend.resumed event reads %+v, and a member reading it cannot see what the resume bought", recorded)
 	}
 	return nil
 }

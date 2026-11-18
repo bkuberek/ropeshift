@@ -7,6 +7,7 @@ import (
 	"slices"
 
 	"ropeshift.com/ropeshift/internal/authority"
+	"ropeshift.com/ropeshift/internal/delivery"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/parking"
 	"ropeshift.com/ropeshift/internal/ports"
@@ -101,28 +102,17 @@ func (s *Spend) Resume(ctx context.Context, scope ledger.WorkspaceID, workOrder 
 		if order.State != workorders.Parked || !slices.Contains(spend.Conditions, ledger.ConditionSpendLimit) {
 			return fmt.Errorf("%w: work order %s is %s, and a resume takes work a hard spend limit parked", workorders.ErrInvalid, workOrder, order.State)
 		}
-		lanes, err := reads.usageOf(workOrder, "")
+		allowance, basis, err := reads.resumeAllowance(order, spend.Charged.ChargedUSD)
 		if err != nil {
 			return err
 		}
-		generations := 0
-		for _, usage := range lanes {
-			for _, g := range usage {
-				if g != (ledger.GenerationUsage{}) {
-					generations++
-				}
-			}
-		}
-		if generations == 0 {
-			return fmt.Errorf("%w: work order %s has no generation to measure an allowance by", workorders.ErrInvalid, workOrder)
-		}
-		after := spend.Charged.ChargedUSD + spend.Charged.ChargedUSD/float64(generations)
+		after := spend.Charged.ChargedUSD + allowance
 		if after > maxSpendAmount {
 			return fmt.Errorf("%w: a hard limit cannot be raised past %s", workorders.ErrInvalid, usd(maxSpendAmount))
 		}
 		change = ledger.SpendLimitChange{
 			WorkOrder: workOrder, Act: ledger.SpendActResume, BeforeUSD: spend.HardLimit, AfterUSD: after,
-			ChargedUSD: spend.Charged.ChargedUSD, PolicyVersion: spend.PolicyVersion,
+			ChargedUSD: spend.Charged.ChargedUSD, PolicyVersion: spend.PolicyVersion, AllowanceUSD: allowance, AllowanceBasis: basis,
 		}
 		return recordLimitChange(tx, change, actor)
 	})
@@ -130,6 +120,52 @@ func (s *Spend) Resume(ctx context.Context, scope ledger.WorkspaceID, workOrder 
 		return ledger.SpendLimitChange{}, err
 	}
 	return change, nil
+}
+
+// resumeAllowance is what one more generation of a work order is allowed to spend, and where the figure came from. It
+// is never 0, and it is bounded by the work's own record or estimate: a work order the chain gives nothing for is refused,
+// and the member raises its limit instead.
+func (r spendReads) resumeAllowance(order workorders.WorkOrder, charged float64) (float64, string, error) {
+	lanes, err := r.usageOf(order.ID, "")
+	if err != nil {
+		return 0, "", err
+	}
+	generations := 0
+	for _, usage := range lanes {
+		for _, g := range usage {
+			if g != (ledger.GenerationUsage{}) {
+				generations++
+			}
+		}
+	}
+	band, err := r.bandOf(order.ID)
+	if err != nil {
+		return 0, "", err
+	}
+	allowance, basis, ok := chooseAllowance(charged, generations, band)
+	if !ok {
+		return 0, "", fmt.Errorf("%w: work order %s has no generation that recorded spend and no estimate to size one more generation by, so raise its limit with ropeshift spend raise",
+			workorders.ErrInvalid, order.ID)
+	}
+	return allowance, basis, nil
+}
+
+// chooseAllowance is the chain a resume's allowance follows, and it says when none applies:
+//
+//  1. the mean charge of the generations that recorded spend;
+//  2. the work order's estimate, its p50 cost, which stands for one generation because no estimate divides a work order
+//     into them;
+//  3. nothing, which the caller refuses and sends the member to `spend raise`.
+//
+// No class of lane has a per-generation default, so there is no step between the estimate and the refusal.
+func chooseAllowance(charged float64, generations int, band *delivery.SpendBand) (float64, string, bool) {
+	switch {
+	case generations > 0 && charged > 0:
+		return charged / float64(generations), ledger.AllowanceMeanGeneration, true
+	case band != nil && band.P50 > 0:
+		return band.P50, ledger.AllowanceEstimate, true
+	}
+	return 0, "", false
 }
 
 // recordLimitChange keeps what a member did to a limit, and settles every lane parked on `limit_raised` in the same

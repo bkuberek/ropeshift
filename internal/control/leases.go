@@ -1093,6 +1093,11 @@ func (l *Leases) ResetLane(ctx context.Context, scope ledger.WorkspaceID, workOr
 		if err != nil {
 			return err
 		}
+		// A lane that started again would spend again, which a work order at its hard limit does not do until a
+		// member raises it (FR-SPEND-8).
+		if err := refuseAtHardLimit(tx, workOrder); err != nil {
+			return err
+		}
 		claim, err := tx.Claims().Find(current.ClaimID)
 		if err != nil {
 			return err
@@ -1133,6 +1138,11 @@ func (l *Leases) RespawnLane(ctx context.Context, scope ledger.WorkspaceID, work
 	return l.store.Write(ctx, scope, "lane.respawn", func(tx ports.WriteTx) error {
 		current, err := tx.WorkOrders().Get(workOrder)
 		if err != nil {
+			return err
+		}
+		// The next generation would spend again, which a work order at its hard limit does not do until a member
+		// raises it, an orchestrator's stop included (FR-SPEND-8).
+		if err := refuseAtHardLimit(tx, workOrder); err != nil {
 			return err
 		}
 		if current.State != workorders.Running {
