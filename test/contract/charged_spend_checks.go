@@ -24,6 +24,52 @@ var ChargedSpendChecks = []Check{
 	{"SP9", "a soft limit raises over_estimate and one notice, stops nothing, and follows a changed policy at once", checkSoftLimit},
 	{"SP10", "a delivery record whose work a hard limit stopped is marked spend_limited", checkSpendLimitedRecord},
 	{"SP11", "no lane pack, lane read, lease, or orchestrator wake holds a band, a limit, or what remains to spend", checkNoBandOrLimitReachesALaneOrTheOrchestrator},
+	{"SP12", "the spend state holds the policies in force and the spend of each open work order against its limits", checkSpendState},
+}
+
+func checkSpendState(r *Rig) error {
+	s := r.Store()
+	spend := control.NewSpend(s)
+	spent, err := r.Ready(s)
+	if err != nil {
+		return err
+	}
+	idle, err := r.Ready(s)
+	if err != nil {
+		return err
+	}
+	if err := r.lanesWithUsage(s, spent, []ledger.GenerationUsage{{CostUSD: 3, KnownTurns: 2, UnknownTurns: 1}}); err != nil {
+		return err
+	}
+	state, err := spend.State(r.Ctx, r.Scope)
+	if err != nil {
+		return err
+	}
+	if state.ProjectVersion.Version != 1 || state.InstallationVersion.Version != 1 || state.Project.HardMultiplier != 2 || state.Installation.OrchestratorClass != "standard" {
+		return Violatedf("a workspace on the built-in policies reads %+v", state)
+	}
+	byID := map[string]ledger.WorkOrderSpend{}
+	for _, order := range state.WorkOrders {
+		byID[order.WorkOrder] = order
+	}
+	if got, ok := byID[spent]; !ok || !near(got.Charged.ChargedUSD, 4.5) || got.HardLimit == 0 {
+		return Violatedf("the work order that spent reads %+v among %+v", got, state.WorkOrders)
+	}
+	if got, ok := byID[idle]; !ok || got.Charged.ChargedUSD != 0 {
+		return Violatedf("the work order that spent nothing reads %+v", got)
+	}
+	policy, err := authority.DefaultSpendPolicy().Set("hard_multiplier", "3")
+	if err != nil {
+		return err
+	}
+	policy.Version = 2
+	if _, err := spend.PublishSpendPolicy(r.Ctx, r.Scope, authority.SpendPolicyDraft{Body: policy.Body(), Policy: policy}, theMember); err != nil {
+		return err
+	}
+	if state, err = spend.State(r.Ctx, r.Scope); err != nil || state.ProjectVersion.Version != 2 || state.Project.HardMultiplier != 3 || state.ProjectVersion.AuthoredBy != theMember.ID {
+		return Violatedf("after version 2 the state reads %+v: %v", state, err)
+	}
+	return nil
 }
 
 // forbiddenReads are the words and the figures a lane and an orchestrator never read about a work order's spend, and
@@ -286,6 +332,29 @@ func checkSpendLimitsByTier(r *Rig) error {
 		return err
 	}
 	if err := r.bandFor(s, baselined, 8, 4, 10, true); err != nil {
+		return err
+	}
+	if err := expect(baselined, 10, 20, string(delivery.BasisBaselinedBand)); err != nil {
+		return err
+	}
+	// A new version of the policy moves the limit at once, and a revert, which is the earlier values published as
+	// a newer version, puts it back.
+	publish := func(version int64, hardMultiplier string) error {
+		policy, err := authority.DefaultSpendPolicy().Set("hard_multiplier", hardMultiplier)
+		if err != nil {
+			return err
+		}
+		policy.Version = version
+		_, err = control.NewSpend(s).PublishSpendPolicy(r.Ctx, r.Scope, authority.SpendPolicyDraft{Body: policy.Body(), Policy: policy}, theMember)
+		return err
+	}
+	if err := publish(2, "3"); err != nil {
+		return err
+	}
+	if err := expect(baselined, 10, 30, string(delivery.BasisBaselinedBand)); err != nil {
+		return err
+	}
+	if err := publish(3, "2"); err != nil {
 		return err
 	}
 	if err := expect(baselined, 10, 20, string(delivery.BasisBaselinedBand)); err != nil {

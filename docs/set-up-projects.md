@@ -249,7 +249,7 @@ To check a root before a lane does, run `ropeshift worker doctor`, or `ropeshift
 
 ## Spend settings
 
-A project's `[spend_policy]` holds the values that stop a lane from spending credits on waiting ([waiting costs no credits](how-it-works.md#waiting-costs-no-credits)). It is a versioned policy of kind `spend`, which only a member publishes, with `ropeshift policy publish --file F`, and which `ropeshift policy list --kind spend` and `ropeshift policy show --kind spend N` read. No plan, repository file, or agent can change it, and a lane's profile layer that names one of its keys is refused as an unknown setting. A version states every key, so a body that leaves one out is refused and the version always says what it runs on. Each version is newer than the one in force, a version that was stored with a value outside its key's range is refused when it is read, and a value outside its range is refused with the key and the range named. A lane reads the version in force when it starts, so a new version reaches the next lane. The built-in version is this one:
+A project's `[spend_policy]` holds the values that stop a lane from spending credits on waiting ([waiting costs no credits](how-it-works.md#waiting-costs-no-credits)) and set the limits on what a work order may spend. Every value is a named key with a default, and the policy is versioned: only a member publishes a version, with `ropeshift spend set`, or with `ropeshift policy publish --file F`, and `ropeshift spend show` and `ropeshift policy list --kind spend` read it. No plan, repository file, or agent can change it, and a lane's profile layer that names one of its keys is refused as an unknown setting. A delegate's change is a confirmation card that only a member confirms, and no delegate policy exempts it. Every version states every key, so a file that leaves one out is refused and the version always says what it runs on, each version is newer than the one in force, and a value outside its key's range is refused with the key and the range named. A version stored with a value outside its key's range is refused when it is read. A lane reads the version in force when it starts, and records it, so a new version reaches the next lane and a lane's history shows what it ran on. The limits of a work order follow the version in force at once. The built-in version is this one:
 
 ```toml
 [spend_policy]
@@ -287,7 +287,7 @@ waiting_alert_min_calls = 5
 assistant_class = "standard"
 ```
 
-Amounts are US dollars at list price, and 0 means no limit or no warning. A share runs from 0 to 1. The defaults are starting values to tune, not measurements. The wait keys act now. The other keys are held and recorded with each version, and act when the mechanism each one names ships.
+Amounts are US dollars at list price, and 0 means no limit or no warning. A share runs from 0 to 1. The defaults are starting values to tune, not measurements. The wait keys and the keys that set a work order's limits act now. The keys for plan and project ceilings, no progress, the waiting alert, the budget flag, and session classes are held and shown now, and act when the mechanism each one names ships.
 
 | Key | What it sets | Default | Range |
 |-----|--------------|---------|-------|
@@ -318,7 +318,29 @@ Amounts are US dollars at list price, and 0 means no limit or no warning. A shar
 | `waiting_alert_min_calls` | The calls that span needs before it notifies | 5 | 1 to 1,000 |
 | `assistant_class` | The capability class the project's assistant runs on | `"standard"` | `small`, `standard`, `large`, `frontier` |
 
-This policy turns W4 off, so a lane may run `gh pr view`, and makes W3 refuse `kubectl rollout status` too, with every other key stated at its default:
+The installation keeps two more keys, because the orchestrator serves every project on its machine and no project holds them. They are `[installation_spend_policy]`, a versioned policy of kind `installation_spend` that `ropeshift spend set --installation` changes:
+
+```toml
+[installation_spend_policy]
+version = 1
+orchestrator_class = "standard"
+orchestrator_daily_warn = 0.0
+```
+
+`orchestrator_class` is one of the four classes above, and `orchestrator_daily_warn` runs from 0 to 1,000,000.
+
+### Change a setting
+
+`ropeshift spend set <key>=<value>...` publishes a new version from the one in force with only the keys named changed. A key of a table or a list is named by its part, and a list is comma separated:
+
+```sh
+ropeshift spend set hard_multiplier=3
+ropeshift spend set no_history_limit.medium=40 soft_quantile=p50
+ropeshift spend set wait_rules_off=W4 wait_rule_patterns.W3="kubectl rollout status"
+ropeshift spend set --installation orchestrator_daily_warn=40
+```
+
+`ropeshift spend show` prints each key with its value, the version in force and who published it, and each open work order's charged spend against its limits. `ropeshift policy list --kind spend` is the history, and `ropeshift spend revert <version>` records an earlier version as the newest, so its values are in force again. This policy turns W4 off, so a lane may run `gh pr view`, and makes W3 refuse `kubectl rollout status` too, with every other key stated at its default:
 
 ```toml
 [spend_policy]
@@ -356,13 +378,19 @@ waiting_alert_min_calls = 5
 assistant_class = "standard"
 ```
 
+### Charged spend and limits
+
+Every lane reports what each generation spent. A work order's charged spend is the cost its turns reported, across every lane that served it, a retried work order's earlier lanes included, plus each turn that reported nothing, because a stopped turn reports nothing, charged at the mean cost of the known turns of its generation, or of its lane when the generation has none. A surface that shows it says "estimated, at list price, with N turns estimated by average". On a subscription the figure is notional, and it is still a consistent measure of how much model work a session used.
+
+A `change` or `rework` work order has its soft limit at `soft_quantile` of the cost band recorded when its plan was approved, or of its current band when it has no baseline, and its hard limit at `hard_multiplier` times that band's p85. A band drawn from fewer than `low_confidence_outcomes` finished work orders, or no estimate at all, gives the work order the `no_history_limit` of its size as its hard limit, and `low_confidence_soft_share` of that as its soft limit. A `review` has `review_share` of the reviewed work order's hard limit. Reaching a soft limit raises the `over_estimate` condition and one notice event per limit, and stops nothing. `ropeshift spend --work-order <id>` prints a work order's charged spend against its limits, and the same figures reach the API ([spend](api.md#spend)). A lane never sees its band, its limits, or what remains: its pack, its brief, and what it can read hold none of them. Work that a hard limit stopped is marked `spend_limited` in its delivery record, and an estimate that draws on it reads its cost as at least what it recorded. Stopping a lane at its hard limit is not part of this release: ropeshift derives and shows the limit.
+
 ## How ropeshift reads CI
 
 For a repository that reviews through pull requests, ropeshift reads each pull request's required checks itself, in code, and no session waits on CI ([waiting costs no credits](how-it-works.md#waiting-costs-no-credits)). A repository's CI keys sit on its record beside its merge method and review target, each with a default, and a maintainer changes them with `ropeshift repository set <repository> ci.<key>=<value>`, in the repository's settings in the web UI, or through the repository's change in the API. A delegate's change is a card that only a member confirms. A value outside its key's range is refused with the key and the range named. `repository show` prints every key with its value in force.
 
 | Key | What it sets | Default | Range |
 |-----|--------------|---------|-------|
-| `ci_no_history_p50` | The expected duration of a run, until the repository's own history gives one | 10m | 10s to 6h |
+| `ci_no_history_p50` | The expected duration of a run, until the repository's own [history](#ci-duration-history) gives one | 10m | 10s to 6h |
 | `ci_no_history_p85` | The duration most runs finish within, until a history gives one | 20m | the p50 to 12h |
 | `ci_min_interval` | The closest two reads of one pull request may be | 30s | 5s to 1h |
 | `ci_steady_interval` | The gap between reads while every run is queued and once a run is past its p85 | 5m | the minimum gap to 1h |
@@ -373,7 +401,11 @@ For a repository that reviews through pull requests, ropeshift reads each pull r
 | `ci_auto_rerun` | How many times ropeshift reruns an infrastructure failure | 1 | 0 to 3 |
 | `ci_log_excerpt_lines`, `ci_log_excerpt_bytes` | The size of the failing job's log in a rework brief | 200, 8192 | 10 to 2000, 1 KiB to 64 KiB |
 
-The read schedule runs on a clock that advances only while a required run is in progress, from the earliest start among the required runs. While every run is queued, ropeshift reads every `ci_steady_interval`. Once a run is in progress it reads once at the expected p50, then at half the remaining time to the p85 each time, never closer than `ci_min_interval`, and every `ci_steady_interval` after the p85 for as long as the run lasts, however many hours that is. A new push to the branch reads again at once. Until ropeshift keeps CI records, no repository has a history, and the no-history keys give the expected duration. The keys for timeouts, reruns, and log excerpts are held and shown now, and take effect when classification of red results ships.
+The read schedule runs on a clock that advances only while a required run is in progress, from the earliest start among the required runs. While every run is queued, ropeshift reads every `ci_steady_interval`. Once a run is in progress it reads once at the expected p50, then at half the remaining time to the p85 each time, never closer than `ci_min_interval`, and every `ci_steady_interval` after the p85 for as long as the run lasts, however many hours that is. A new push to the branch reads again at once.
+
+### CI duration history
+
+When every required check of a head finishes, ropeshift keeps a CI record: the repository, the head, when ropeshift first held the head, when the first required run started, when the last one completed, how long the push waited for a run to start, the attempt, and the class of the result: pass, failure, infrastructure, or a check that waits for a person. A failure beside runs the forge cancelled because of it is a failure. A rerun of the same head is another record, and a head with no required check has none. A repository's expected duration is the p50 and p85, by nearest rank, of the push-to-completed times of its `ci_history_window` most recent records that ended in a pass or a failure, so an infrastructure fault says nothing about how long CI takes. With fewer than `ci_history_min_records` of them the repository has no history, and the no-history keys give the expected duration until it has. The read schedule above runs by the repository's own p50 and p85 from the record that makes the minimum. The keys for timeouts, reruns, and log excerpts are held and shown now, and take effect when classification of red results ships.
 
 ## Next
 

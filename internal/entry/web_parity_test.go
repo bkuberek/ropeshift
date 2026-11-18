@@ -74,9 +74,16 @@ var cliOnly = map[string]string{
 // webGaps are the commands the web UI should have a row for and does not yet, each with the slice of U2 or
 // of P4 that adds it. A command whose row is added leaves this list, and the test fails until it does. The
 // first run of this test wrote it, and a command the audit did not name went by its area.
-var webGaps = map[string]string{}
+var webGaps = map[string]string{
+	// The Spend section of project Settings, the work order and lane pages, and the installation's Spend section
+	// read and publish through the same routes (ADR-0037); SP4 builds them.
+	"spend":        "SP4",
+	"spend show":   "SP4",
+	"spend set":    "SP4",
+	"spend revert": "SP4",
+}
 
-var gapSlice = regexp.MustCompile(`^(U2[a-k]|P[34][a-j])[12]?$`)
+var gapSlice = regexp.MustCompile(`^(U2[a-k]|P[34][a-j]|SP[1-9])[12]?$`)
 
 // TestEveryCommandHasAWebRoute holds the CLI to the web listener: each command is named by a row of
 // WebRoutes, or is in exactly one of equivalents, cliOnly, and webGaps. An entry whose command a row now

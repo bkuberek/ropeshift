@@ -47,6 +47,13 @@
       "exemptable": false
     },
     {
+      "id": "installation_spend_policy.publish",
+      "label": "Publish the installation's spend policy",
+      "class": "consent",
+      "exemptable": false,
+      "never_reason": "Policy is changed only on a member's word."
+    },
+    {
       "id": "worker.join_token",
       "label": "Make a worker join token",
       "class": "consent",

@@ -163,6 +163,12 @@ const (
 	// approval_decide and lane_start, so only a member instructs one: no delegate, orchestrator, lane, or
 	// worker holds it.
 	ActionMessageOrchestrator Action = "message.orchestrator"
+	// ActionPublishInstallationPolicy publishes a version of a policy the installation keeps and no project
+	// holds, such as the installation's spend policy, because the orchestrator serves every project on its
+	// machine. It is the installation role's action under ADR-0033: group mode's accounts (G3a) map it to
+	// admin. Until then the one member resolves as admin, so Allowed lets a member through as it does for
+	// every action, and no delegate, orchestrator, lane, worker, or tick holds it.
+	ActionPublishInstallationPolicy Action = "installation_policy.publish"
 )
 
 // Actions lists every action, so a test can hold each one to the function.
@@ -178,7 +184,7 @@ func Actions() []Action {
 		ActionSetRepository, ActionRegisterRepository, ActionRegisterManifest, ActionManageProject, ActionRecordMerge, ActionMerge, ActionDecideMerge, ActionChangeRoster,
 		ActionRaiseMergeAuthority, ActionReviewPullRequest, ActionDecideOneWay, ActionManageSessions, ActionBackupInstallation, ActionConfirmCard,
 		ActionConverse, ActionBackupProject, ActionSetLaneCaps, ActionMessageOrchestrator, ActionStartReview, ActionPlanAdoption, ActionRestructure,
-		ActionWriteTemplates,
+		ActionWriteTemplates, ActionPublishInstallationPolicy,
 	}
 }
 

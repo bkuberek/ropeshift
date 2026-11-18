@@ -106,10 +106,13 @@ func builtInInstallationSpendPolicy(id string, createdAt int64) (authority.Polic
 
 // PublishInstallationSpendPolicy records a new version of the installation's spend policy, in the installation,
 // as the autonomy policy is, because the orchestrator serves every project on its machine. It has the terms of the
-// project's: only a member can, each version is newer than the last, the same body is a retry, and a value outside
-// its key's range is refused. Which member may is the surface's rule: no project role covers the installation.
+// project's: each version is newer than the last, the same body is a retry, and a value outside its key's range is
+// refused. It is held to the installation role's action, not the project's policy action (ADR-0033, ADR-0037), and
+// the check is here, in the use case, so no surface can leave it out. Until accounts map that action to admin, the
+// one member holds it and no delegate, orchestrator, lane, worker, or tick does. A revert is a publish of an earlier
+// body, so it takes this path.
 func (s *Spend) PublishInstallationSpendPolicy(ctx context.Context, scope ledger.WorkspaceID, draft authority.InstallationSpendPolicyDraft, actor ledger.Actor) (authority.PolicyVersion, error) {
-	if !authority.Allowed(actor, authority.ActionPublishPolicy) {
+	if !authority.Allowed(actor, authority.ActionPublishInstallationPolicy) {
 		return authority.PolicyVersion{}, workorders.ErrForbidden
 	}
 	var record authority.PolicyVersion

@@ -198,7 +198,7 @@ var routeOperations = map[string]routeOperation{
 	"POST /v1/questions/{id}/answer":                   resolved(answerOperation, authority.OpQuestionAnswer).about(subjectQuestion).checked(decisionID),
 	"POST /v1/decisions":                               resolved(decisionOperation, authority.OpDecisionAssume, authority.OpDecisionRecord).about(subjectDecision).named(bodyField("id")).checked(decisionID),
 	"POST /v1/decisions/{id}/overturn":                 fixed(authority.OpDecisionOverturn).about(subjectDecision).checked(decisionID),
-	"POST /v1/policies":                                resolved(policyOperation, authority.OpDelegatePolicyPublish, authority.OpPolicyPublish).about(subjectPolicy).named(policyKindOf).showing(policyChanges),
+	"POST /v1/policies":                                resolved(policyOperation, authority.OpDelegatePolicyPublish, authority.OpPolicyPublish, authority.OpInstallationSpendPolicyPublish).about(subjectPolicy).named(policyKindOf).showing(policyChanges),
 	"POST /v1/categories":                              fixed(authority.OpCategoryAdd).about(subjectCategory).named(bodyField("name")),
 	"POST /v1/repositories":                            resolved(repositoryAddOperation, authority.OpRepositoryRegister, authority.OpRepositoryRegisterManifest),
 	"PATCH /v1/repositories/{id}":                      resolved(repositoryOperation, repositoryOperations...).about(ledger.SubjectRepository).showing(repositoryChanges).resolving(repositoryID),
@@ -984,8 +984,14 @@ func decisionOperation(h *handler, r *http.Request, body []byte) ([]string, bool
 
 func policyOperation(_ *handler, _ *http.Request, body []byte) ([]string, bool, error) {
 	var in api.PublishPolicy
-	if err := json.Unmarshal(body, &in); err == nil && holdsTable(in.Body, delegatePolicyTable) {
+	if err := json.Unmarshal(body, &in); err != nil {
+		return []string{authority.OpPolicyPublish}, false, nil
+	}
+	if holdsTable(in.Body, delegatePolicyTable) {
 		return []string{authority.OpDelegatePolicyPublish}, false, nil
+	}
+	if holdsTable(in.Body, installationSpendPolicyTable) && !holdsTable(in.Body, spendPolicyTable) {
+		return []string{authority.OpInstallationSpendPolicyPublish}, false, nil
 	}
 	return []string{authority.OpPolicyPublish}, false, nil
 }
@@ -1153,6 +1159,7 @@ func policyKindOfBody(body string) authority.PolicyKind {
 		{delegatePolicyTable, authority.PolicyDelegate}, {notifyTable, authority.PolicyNotify}, {autonomyTable, authority.PolicyAutonomy},
 		{delegationTable, authority.PolicyDelegation}, {recoveryPolicyTable, authority.PolicyRecovery}, {lanePolicyTable, authority.PolicyLane},
 		{assistantTable, authority.PolicyAssistant}, {estimatePolicyTable, delivery.PolicyEstimate}, {spendPolicyTable, authority.PolicySpend},
+		{installationSpendPolicyTable, authority.PolicyInstallationSpend},
 	} {
 		if holdsTable(body, kind.table) {
 			return kind.kind
@@ -1309,6 +1316,8 @@ func (h *handler) versionsOf(ctx context.Context, kind authority.PolicyKind) ([]
 		return h.recoveries.RecoveryPolicyVersions(ctx, h.Scope)
 	case authority.PolicySpend:
 		return h.spend.SpendPolicyVersions(ctx, h.Scope)
+	case authority.PolicyInstallationSpend:
+		return h.spend.InstallationSpendPolicyVersions(ctx, h.Scope)
 	case delivery.PolicyEstimate:
 		return h.estimates.EstimatePolicyVersions(ctx, h.Scope)
 	case authority.PolicyDelegate:

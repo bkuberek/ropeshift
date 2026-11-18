@@ -164,6 +164,59 @@ func (s *Spend) WorkOrderSpend(ctx context.Context, scope ledger.WorkspaceID, id
 	return out, err
 }
 
+// SpendState is what a member reads to see where spend stands: the project's spend policy in force and the
+// installation's, each with the version record that holds it, and the spend of each open work order that a limit
+// covers, against its limits.
+type SpendState struct {
+	Project             authority.SpendPolicy
+	ProjectVersion      authority.PolicyVersion
+	Installation        authority.InstallationSpendPolicy
+	InstallationVersion authority.PolicyVersion
+	WorkOrders          []ledger.WorkOrderSpend
+}
+
+// State reads the spend state of a project (FR-SPEND-18).
+func (s *Spend) State(ctx context.Context, scope ledger.WorkspaceID) (SpendState, error) {
+	var out SpendState
+	versions, err := s.SpendPolicyVersions(ctx, scope)
+	if err != nil {
+		return out, err
+	}
+	out.ProjectVersion = versions[0]
+	if out.Project, err = authority.ReadSpendPolicy(out.ProjectVersion); err != nil {
+		return out, err
+	}
+	installed, err := s.InstallationSpendPolicyVersions(ctx, scope)
+	if err != nil {
+		return out, err
+	}
+	out.InstallationVersion = installed[0]
+	if out.Installation, err = authority.ReadInstallationSpendPolicy(out.InstallationVersion); err != nil {
+		return out, err
+	}
+	err = s.store.Read(ctx, scope, func(tx ports.ReadTx) error {
+		orders, err := tx.WorkOrders().List()
+		if err != nil {
+			return err
+		}
+		reads := spendReadsOf(tx)
+		for _, order := range orders {
+			if workorders.Terminal(order.State) {
+				continue
+			}
+			spend, err := reads.spendOf(order.ID)
+			if err != nil {
+				return err
+			}
+			if spend.HardLimit > 0 || spend.SoftLimit > 0 || spend.Charged.ChargedUSD > 0 {
+				out.WorkOrders = append(out.WorkOrders, spend)
+			}
+		}
+		return nil
+	})
+	return out, err
+}
+
 // softLimitNotice is the data of EventSpendSoftLimit: which work order, and how far it had come.
 type softLimitNotice struct {
 	WorkOrder     string  `json:"work_order"`
