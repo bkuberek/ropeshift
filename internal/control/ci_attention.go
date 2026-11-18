@@ -205,6 +205,8 @@ type ciEvent struct {
 	// continuation asks for.
 	Continues string   `json:"continues,omitempty"`
 	Pending   []string `json:"pending,omitempty"`
+	// Dropped are the runs a worker said a rerun did not reach that the rerun never named, which no continuation asks for.
+	Dropped []string `json:"dropped,omitempty"`
 }
 
 func appendCI(tx ports.WriteTx, eventType, workOrder string, data ciEvent, actor ledger.Actor) error {
