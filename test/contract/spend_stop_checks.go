@@ -26,6 +26,8 @@ var SpendStopChecks = []Check{
 	{"SS3", "a spend stop reads once for its work order however many lanes it parked, with its limits, allowance, and what each lane left", checkSpendStopRead},
 	{"SS4", "a hard limit a lane reaches and finishes past, or goes on running past, is no stop and counts no interruption", checkSpendStopInterrupts},
 	{"SS5", "each time a lane parks at a hard limit is one interruption, a park at a limit it parked at before counts again, and no act that ends the stop counts another", checkEachParkAtTheLimitInterrupts},
+	{"SS7", "a park on the limit wake that fires at its parked commit, because a raise came while the lane was parking, is no stop and counts no interruption", checkAParkTheLimitWakesAtOnceIsNoStop},
+	{"SS8", "repeated parks on the limit wake while the work order is under its limit each wake at their commit, and none counts an interruption", checkParksUnderTheLimitAreNoStops},
 	{"SS6", "a review's spend stop takes a block, which discards its lane, and refuses a replan, which would leave the review in planning", checkAReviewsStopTakesOnlyABlock},
 }
 
@@ -458,6 +460,52 @@ func checkEachParkAtTheLimitInterrupts(r *Rig) error {
 		return err
 	}
 	return r.interruptionsAre(s, "after a member sent the second stop to replanning,", 3)
+}
+
+func checkAParkTheLimitWakesAtOnceIsNoStop(r *Rig) error {
+	s := r.Store()
+	// A raise that comes while the lane is parking fires its wake at the parked commit, so the work goes back to ready
+	// and no stop ever stands: nothing is asked of a person.
+	id, request, err := r.stopped(s, []ledger.GenerationUsage{{CostUSD: 30, KnownTurns: 3}})
+	if err != nil {
+		return err
+	}
+	if _, err := control.NewSpend(s).Raise(r.Ctx, r.Scope, control.SpendRaise{WorkOrder: id, ToUSD: 40}, theMember); err != nil {
+		return err
+	}
+	fired, err := r.NewOps(s).CommitParked(r.Ctx, r.Scope, request.Holder, PushedCommit(request.Wake), r.worker("a"))
+	if err != nil || fired != request.Wake {
+		return Violatedf("a raise that came during parking was not read at the parked commit: fired %q, %v", fired, err)
+	}
+	if err := r.state(s, id, workorders.Ready); err != nil {
+		return err
+	}
+	if stops, err := r.stopRead(s); err != nil || len(stops) != 0 {
+		return Violatedf("a park that woke at its commit left %d spend stops: %v", len(stops), err)
+	}
+	return r.interruptionsAre(s, "after a park whose wake fired at the parked commit,", 0)
+}
+
+func checkParksUnderTheLimitAreNoStops(r *Rig) error {
+	s := r.Store()
+	// A lane that parks on the limit wake while its work order is under the limit, as one does when the limit cannot be
+	// read, wakes at its parked commit each time, and each park is no stop.
+	id, request, err := r.stopped(s, []ledger.GenerationUsage{{CostUSD: 10, KnownTurns: 3}})
+	if err != nil {
+		return err
+	}
+	for round := range 3 {
+		fired, err := r.NewOps(s).CommitParked(r.Ctx, r.Scope, request.Holder, PushedCommit(request.Wake), r.worker("a"))
+		if err != nil || fired != request.Wake {
+			return Violatedf("park %d under the limit fired %q at its commit, want its wake: %v", round+1, fired, err)
+		}
+		if round < 2 {
+			if request, err = r.parkingOn(s, id, limitWake(id)); err != nil {
+				return err
+			}
+		}
+	}
+	return r.interruptionsAre(s, "after three parks under the limit that each woke at their commit,", 0)
 }
 
 func checkAReviewsStopTakesOnlyABlock(r *Rig) error {

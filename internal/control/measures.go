@@ -75,6 +75,9 @@ type historian struct {
 	parking   map[string]int64
 	// limitParks are the work orders whose lane began to park on the wake a hard spend limit leaves, until the park commits.
 	limitParks map[string]bool
+	// stops are the parks on that wake that committed, by work order, until the work order's next change says whether the
+	// wake fired at the commit.
+	stops map[string]ledger.Event
 	// reviews are the work orders that judge other work, by where the history holds each. A review is no completed
 	// work order and no flow time, and the reviews that reached done are its kind's outcomes in the cost per outcome.
 	reviews   map[string]int
@@ -92,11 +95,12 @@ func HistoryIn(tx ports.ReadTx) (measures.History, error) {
 	h := &historian{
 		tx: tx, orders: map[string]int{}, questions: map[string]int{}, asked: map[string]questions.Question{},
 		decisions: map[string]int{}, recorded: map[string]int64{}, citations: map[string][]string{}, parking: map[string]int64{},
-		limitParks: map[string]bool{}, reviews: map[string]int{}, approvals: map[string]authority.ApprovalState{}, orchestrators: map[string]ledger.Orchestrator{},
+		limitParks: map[string]bool{}, stops: map[string]ledger.Event{}, reviews: map[string]int{}, approvals: map[string]authority.ApprovalState{}, orchestrators: map[string]ledger.Orchestrator{},
 	}
 	for _, e := range events {
 		h.read(e)
 	}
+	h.endStops()
 	// A person resetting an orchestrator interrupts every project it serves, and the installation's log
 	// holds that.
 	shared, err := ReadAllEvents(tx.InstallationEvents)
@@ -187,17 +191,35 @@ func (h *historian) read(e ledger.Event) {
 }
 
 // limitPark counts a spend stop. A hard spend limit is a person's to lift or to hold (ADR-0037), so each time a lane parks
-// on the wake it leaves is one interruption, which the work order's Needs you item stands for. It is the park that
-// counts, so a limit a lane reaches and finishes past is none, and neither is any act that ends the stop. A work order
+// on the wake it leaves is one interruption, which the work order's Needs you item stands for, unless the wake fires at the park's own commit. It is the
+// park that counts, so a limit a lane reaches and finishes past is none, and neither is any act that ends the stop. A work order
 // that parks again at a limit it parked at before is another stop, though the ledger notes that limit once.
 func (h *historian) limitPark(e ledger.Event, id string, change workorders.Change) {
+	// The park commit evaluates its wake in the same transaction, and a limit raised while the lane was parking fires it
+	// at once: the work goes back to ready and no stop stands. So a park counts when the work order's next change is
+	// not that firing.
+	if parked, pending := h.stops[id]; pending {
+		delete(h.stops, id)
+		if change.Trigger != workorders.TriggerWakeFired || change.Reason != parking.CauseParked {
+			h.interrupted(parked, measures.InterruptionForced, parked.ID)
+		}
+	}
 	switch {
 	case e.Type == workorders.EventLaneParking:
 		h.limitParks[id] = string(change.Payload) == lanes.SpendLimitWake(id)
 	case change.Trigger == workorders.TriggerLaneParked && h.limitParks[id]:
 		delete(h.limitParks, id)
-		h.interrupted(e, measures.InterruptionForced, e.ID)
+		h.stops[id] = e
 	}
+}
+
+// endStops counts the stops whose work order had no change after its park.
+func (h *historian) endStops() {
+	for _, id := range slices.Sorted(maps.Keys(h.stops)) {
+		parked := h.stops[id]
+		h.interrupted(parked, measures.InterruptionForced, parked.ID)
+	}
+	clear(h.stops)
 }
 
 // forcedTriggers are the moves that interrupt a person when a person makes them: ending a lapsed holder's
