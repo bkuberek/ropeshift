@@ -199,7 +199,7 @@ func (r *laneRun) tellConsolidation(ctx context.Context, worktree string, made p
 	}
 	// The design repository's instruction files are the ones at its top in any case, under the names it holds them by.
 	for _, name := range instructionFiles {
-		if at := slices.IndexFunc(theirs, func(tracked string) bool { return strings.EqualFold(tracked, name) }); at >= 0 {
+		if at := slices.IndexFunc(theirs, func(tracked string) bool { return planning.FoldPath(tracked) == planning.FoldPath(name) }); at >= 0 {
 			done.Consolidated.Instructions = append(done.Consolidated.Instructions, theirs[at])
 		}
 	}

@@ -222,11 +222,16 @@ func consolidatedNotice(done Restructured) string {
 		out.WriteString("Both repositories held these paths. The merge kept this repository's version of each, and the design repository's version is at the " +
 			"second parent, which `git show " + c.SecondParent + ":<path>` reads:\n")
 		for _, collision := range c.Collisions {
+			out.WriteString("- " + collision.Path)
 			if collision.Kept == planning.KeptUnion {
-				out.WriteString("- " + collision.Path + ", the lines of both files, this repository's first\n")
-				continue
+				out.WriteString(", the lines of both files, this repository's first")
+			} else {
+				out.WriteString(", this repository's version")
 			}
-			out.WriteString("- " + collision.Path + ", this repository's version\n")
+			if collision.DesignPath != "" {
+				out.WriteString(", which the design repository spells " + collision.DesignPath + ": `git show " + c.SecondParent + ":" + collision.DesignPath + "`")
+			}
+			out.WriteString("\n")
 		}
 	}
 	if len(c.LeftOut) != 0 {

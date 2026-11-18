@@ -134,10 +134,13 @@ const (
 	KeptUnion     = "union"
 )
 
-// Collision is a path both repositories hold, and the version a consolidation keeps.
+// Collision is a path both repositories hold, and the version a consolidation keeps. Path is the workspace's
+// spelling. Two repositories hold one path when their spellings differ only in case, and then DesignPath is the
+// design repository's spelling, the one its version is read under at the second parent.
 type Collision struct {
-	Path string `json:"path"`
-	Kept string `json:"kept"`
+	Path       string `json:"path"`
+	DesignPath string `json:"design_path,omitempty"`
+	Kept       string `json:"kept"`
 }
 
 // PlannedCodeTree is a code tree of the design repository, with the build file that makes it one.

@@ -21,33 +21,43 @@ func TestArrivalsReadsPathsThatDifferOnlyInCaseAsOnePath(t *testing.T) {
 		},
 		"instructions in another case": {
 			ours: []string{"AGENTS.md"}, theirs: []string{"agents.md"},
-			collisions: []planning.Collision{{Path: "AGENTS.md", Kept: planning.KeptWorkspace}},
+			collisions: []planning.Collision{{Path: "AGENTS.md", DesignPath: "agents.md", Kept: planning.KeptWorkspace}},
 		},
 		"a Makefile in another case": {
 			ours: []string{"Makefile"}, theirs: []string{"makefile"},
-			collisions: []planning.Collision{{Path: "Makefile", Kept: planning.KeptWorkspace}},
+			collisions: []planning.Collision{{Path: "Makefile", DesignPath: "makefile", Kept: planning.KeptWorkspace}},
 		},
 		"the ignore file in another case": {
 			ours: []string{".gitignore"}, theirs: []string{".GITIGNORE"},
-			collisions: []planning.Collision{{Path: ".gitignore", Kept: planning.KeptUnion}},
+			collisions: []planning.Collision{{Path: ".gitignore", DesignPath: ".GITIGNORE", Kept: planning.KeptUnion}},
 		},
 		"the workspace's ignore file in capitals": {
 			ours: []string{".GITIGNORE"}, theirs: []string{".gitignore"},
-			collisions: []planning.Collision{{Path: ".GITIGNORE", Kept: planning.KeptUnion}},
+			collisions: []planning.Collision{{Path: ".GITIGNORE", DesignPath: ".gitignore", Kept: planning.KeptUnion}},
 		},
 		"a folder in another case": {
 			ours: []string{"Docs/guide.md"}, theirs: []string{"docs/guide.md", "docs/other.md"},
 			takes:      []string{"docs/other.md"},
-			collisions: []planning.Collision{{Path: "Docs/guide.md", Kept: planning.KeptWorkspace}},
+			collisions: []planning.Collision{{Path: "Docs/guide.md", DesignPath: "docs/guide.md", Kept: planning.KeptWorkspace}},
 		},
 		"the manifest folder in another case": {
 			ours: []string{"Plan/repositories.md"}, theirs: []string{"plan/repositories.md"},
-			collisions: []planning.Collision{{Path: "Plan/repositories.md", Kept: planning.KeptWorkspace}},
+			collisions: []planning.Collision{{Path: "Plan/repositories.md", DesignPath: "plan/repositories.md", Kept: planning.KeptWorkspace}},
 		},
 		"a path the workspace lacks": {
 			ours: []string{"AGENTS.md"}, theirs: []string{"CLAUDE.md", "agents.md"},
 			takes:      []string{"CLAUDE.md"},
-			collisions: []planning.Collision{{Path: "AGENTS.md", Kept: planning.KeptWorkspace}},
+			collisions: []planning.Collision{{Path: "AGENTS.md", DesignPath: "agents.md", Kept: planning.KeptWorkspace}},
+		},
+		"the workspace holds both spellings": {
+			ours: []string{"AGENTS.md", "agents.md"}, theirs: []string{"agents.md", "Agents.md"},
+			collisions: []planning.Collision{
+				{Path: "agents.md", Kept: planning.KeptWorkspace}, {Path: "AGENTS.md", DesignPath: "Agents.md", Kept: planning.KeptWorkspace},
+			},
+		},
+		"the workspace holds both spellings of the ignore file": {
+			ours: []string{".GITIGNORE", ".gitignore"}, theirs: []string{".GITIGNORE"},
+			collisions: []planning.Collision{{Path: ".GITIGNORE", Kept: planning.KeptUnion}},
 		},
 		"a variant inside a tree left out": {
 			ours: []string{"Poc/NOTES.md"}, theirs: []string{"poc/NOTES.md"}, leftOut: []string{"poc"},

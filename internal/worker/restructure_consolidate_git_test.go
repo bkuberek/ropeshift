@@ -537,8 +537,8 @@ func TestAGitConsolidationReadsCaseVariantsAsCollisions(t *testing.T) {
 	got := slices.Clone(told.Consolidated.Collisions)
 	slices.SortFunc(got, func(a, b planning.Collision) int { return strings.Compare(a.Path, b.Path) })
 	want := []planning.Collision{
-		{Path: ".gitignore", Kept: planning.KeptUnion}, {Path: "AGENTS.md", Kept: planning.KeptWorkspace},
-		{Path: "Makefile", Kept: planning.KeptWorkspace}, {Path: "README.md", Kept: planning.KeptWorkspace},
+		{Path: ".gitignore", DesignPath: ".GITIGNORE", Kept: planning.KeptUnion}, {Path: "AGENTS.md", DesignPath: "agents.md", Kept: planning.KeptWorkspace},
+		{Path: "Makefile", DesignPath: "makefile", Kept: planning.KeptWorkspace}, {Path: "README.md", Kept: planning.KeptWorkspace},
 	}
 	if !slices.Equal(got, want) {
 		t.Errorf("the brief is told the collisions %+v, want %+v", got, want)
