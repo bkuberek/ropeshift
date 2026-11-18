@@ -76,7 +76,7 @@ func (w Worktrees) DefaultTip(ctx context.Context, repository string) (string, e
 	head, err := git.Text(ctx, "symbolic-ref", "--quiet", "--short", "refs/remotes/"+remote+"/HEAD")
 	branch, found := strings.CutPrefix(head, remote+"/")
 	if err != nil || !found || branch == "" {
-		return "", fmt.Errorf("the remote %s records no HEAD, so the repository has no default branch to read", remote)
+		return "", fmt.Errorf("the remote %s records no HEAD, so the repository has no default branch to read: run `git remote set-head %s --auto`", remote, remote)
 	}
 	commit, err := git.Commit(ctx, "refs/remotes/"+remote+"/"+branch)
 	if err != nil {

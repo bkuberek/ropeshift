@@ -236,7 +236,7 @@ func (w Worktrees) Fetch(ctx context.Context, repository string, refs []string) 
 		return err
 	}
 	for _, ref := range refs {
-		listed, err := git.Text(ctx, "ls-remote", remote, ref)
+		listed, err := git.Text(ctx, "ls-remote", "--", remote, ref)
 		if err != nil {
 			return err
 		}
