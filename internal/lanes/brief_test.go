@@ -270,6 +270,49 @@ func TestAnAdoptBriefWithNoCommitSaysTheWorkerMadeNoneAndNamesNoManifest(t *test
 	}
 }
 
+const startingAgents = "# AGENTS.md\n\n> Started for the shop project. Replace each placeholder, and delete every line that starts with `>`.\n\n## The project\n"
+
+// An adopt brief for a repository with no instruction file shows the starting AGENTS.md the template renders, and
+// says to write it from what the project holds, with a CLAUDE.md that imports it, whether or not the worker
+// restructured the repository.
+func TestAnAdoptBriefWithNoInstructionFileHoldsTheStartingTemplate(t *testing.T) {
+	brief := Brief(BriefSpec{WorkOrder: "wo", Title: "Adopt the project", Kind: workorders.KindPlan, Adopt: true, InstructionsTemplate: startingAgents})
+	for _, want := range []string{
+		"holds no instruction file", "AGENTS.md", "CLAUDE.md", "@AGENTS.md", "```markdown\n" + startingAgents + "```", "delete every line that starts with `>`",
+		"the only files you write besides the plan files",
+	} {
+		if !strings.Contains(brief, want) {
+			t.Errorf("the brief leaves out %q:\n%s", want, brief)
+		}
+	}
+	if strings.Contains(brief, "The worker wrote") {
+		t.Errorf("a brief for a repository nobody restructured says the worker wrote the file:\n%s", brief)
+	}
+
+	written := aRestructured()
+	written.Files = []string{".gitignore", "AGENTS.md", "CLAUDE.md", "Makefile", "plan/repositories.md"}
+	again := Brief(BriefSpec{WorkOrder: "wo", Title: "Adopt the project", Kind: workorders.KindPlan, Adopt: true, Restructured: written, InstructionsTemplate: startingAgents})
+	for _, want := range []string{"The worker wrote the starting file below as AGENTS.md", "```markdown\n" + startingAgents + "```"} {
+		if !strings.Contains(again, want) {
+			t.Errorf("the brief of a restructured repository leaves out %q:\n%s", want, again)
+		}
+	}
+}
+
+// With an instruction file in the repository, with no adopt work, or with no template, the brief holds none.
+func TestABriefHoldsTheStartingTemplateOnlyForAnAdoptLaneThatWasGivenOne(t *testing.T) {
+	for name, spec := range map[string]BriefSpec{
+		"no template":  {Kind: workorders.KindPlan, Adopt: true},
+		"not an adopt": {Kind: workorders.KindPlan, InstructionsTemplate: startingAgents},
+		"not planning": {Kind: workorders.KindChange, Adopt: true, InstructionsTemplate: startingAgents},
+	} {
+		spec.WorkOrder, spec.Title = "wo", "Adopt the project"
+		if brief := Brief(spec); strings.Contains(brief, "holds no instruction file") || strings.Contains(brief, startingAgents) {
+			t.Errorf("%s: the brief holds the starting template:\n%s", name, brief)
+		}
+	}
+}
+
 func aConsolidated() *Restructured {
 	return &Restructured{
 		Commit: "5d3c0e8a9f1b2c4d6e7f8091a2b3c4d5e6f70812", Subject: planning.ImportCommitSubject("design"), Manifest: "repositories:shop",

@@ -11,13 +11,26 @@ import (
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/planning"
 	"ropeshift.com/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/projectfiles"
+)
+
+// The templates of the files a layout lacks. Each is written to the path projectfiles gives it, which is where
+// `ropeshift new` writes it.
+const (
+	templateWorkspaceAgents  = "workspace/agents.md"
+	templateMonorepoAgents   = "monorepo/agents.md"
+	templateRepositoryAgents = "repository/agents.md"
+	templateClaude           = "claude.md"
+	templateMakefile         = "workspace/makefile"
+	templateGitignore        = "workspace/gitignore"
 )
 
 // restructuring fills in what `--restructure` would do in the shape: the files it adds to the planning
-// repository, the paths a consolidation takes and where the two repositories collide, the design repository's code
-// trees, and the moves it leaves to the person.
+// repository, against the tree the repository holds once any consolidation is imported, the paths a consolidation
+// takes and where the two repositories collide, the design repository's code trees, and the moves it leaves to
+// the person. A single repository is offered only the instruction files it lacks.
 func restructuring(ctx context.Context, plan *planning.AdoptionPlan, in Request, found []Found, registers []Found, design *designClone, planned *Found, kept ports.Checkouts, layouts ports.Layouts) error {
-	if !plan.Shape.Restructures() {
+	if !plan.Shape.Valid() {
 		return nil
 	}
 	home := found[0]
@@ -28,54 +41,98 @@ func restructuring(ctx context.Context, plan *planning.AdoptionPlan, in Request,
 	if err != nil {
 		return err
 	}
-	manifest := planning.PlannedFile{Path: ManifestPath, Action: planning.ActionAdd, Detail: "the manifest of the project's repositories"}
-	makefile := planning.PlannedFile{Path: planning.MakefilePath, Action: planning.ActionAdd, Detail: "setup, fetch, and status over the manifest"}
+	if plan.Shape == planning.ShapeSingle {
+		plan.Files = append(plan.Files, instructionFiles(plan.Shape, held.tracked)...)
+		return nil
+	}
+	var lines []string
 	switch plan.Shape {
-	case planning.ShapePlanned:
-		if held.lacksManifest() {
-			plan.Files = append(plan.Files, manifest)
-		}
-		if err := ignoring(ctx, plan, home, nil, kept); err != nil {
-			return err
-		}
 	case planning.ShapeWorkspaceFiles:
-		if held.lacksManifest() {
-			plan.Files = append(plan.Files, manifest)
-		}
 		plan.Moves = movesOf(home, registers)
-		var lines []string
 		if len(plan.Moves) != 0 && !held.ignores(CodeFolder) {
 			lines = append(lines, planning.CodeFolderLine)
 		}
-		if err := ignoring(ctx, plan, home, lines, kept); err != nil {
-			return err
-		}
-		if !held.tracks(planning.MakefilePath) {
-			plan.Files = append(plan.Files, makefile)
-		}
 	case planning.ShapeConsolidate:
-		if held.lacksManifest() {
-			plan.Files = append(plan.Files, manifest)
-		}
-		if !held.tracks("Makefile") {
-			plan.Files = append(plan.Files, makefile)
-		}
-		// The merged ignore file leaves the folder a lane's worktree goes in out of the workspace, as the other
-		// shapes do, and the folder of clones it already ignores, or it would not be this shape.
-		if err := ignoring(ctx, plan, home, nil, kept); err != nil {
+		// The files are listed against the tree the merge makes, so a manifest, a Makefile, an ignore file, or an
+		// instruction file the design repository brings is not added beside it.
+		if err := consolidation(ctx, plan, in, design, held.tracked, layouts); err != nil {
 			return err
 		}
-		return consolidation(ctx, plan, in, design, held.tracked, layouts)
+		held.tracked = append(slices.Clone(held.tracked), plan.Takes...)
 	}
+	if held.lacksManifest() {
+		plan.Files = append(plan.Files, planning.PlannedFile{Path: ManifestPath, Action: planning.ActionAdd, Detail: "the manifest of the project's repositories"})
+	}
+	if err := ignoring(ctx, plan, home, lines, held.tracked, kept); err != nil {
+		return err
+	}
+	if !held.tracks(planning.MakefilePath) {
+		plan.Files = append(plan.Files, planning.PlannedFile{
+			Path: projectfiles.Path(templateMakefile), Action: planning.ActionAdd, Detail: "setup, fetch, and status over the manifest", Template: templateMakefile,
+		})
+	}
+	plan.Files = append(plan.Files, instructionFiles(plan.Shape, held.tracked)...)
 	return nil
 }
 
-// ignoring lists the ignore file's append: the lines a restructuring needs already, and the line that leaves a
-// lane's worktree folder out of the planning repository, unless its clone ignores that folder. The clone says so
-// through the one query of what a repository ignores, and never by a look at its ignore file, because a rule
-// can sit in a global file or an exclude file. A path inside the folder is asked about, because a folder the
-// repository ignores ignores everything in it.
-func ignoring(ctx context.Context, plan *planning.AdoptionPlan, home Found, lines []string, kept ports.Checkouts) error {
+// instructionFiles lists the agent instructions a repository that holds none lacks: AGENTS.md, from the template of
+// the shape, and a CLAUDE.md that imports it. A repository that holds either file is left as it is, so no second
+// file is written beside instructions it already has.
+func instructionFiles(shape planning.LayoutShape, tracked []string) []planning.PlannedFile {
+	if ports.HoldsInstructions(tracked) {
+		return nil
+	}
+	agents := templateWorkspaceAgents
+	if shape == planning.ShapeSingle {
+		agents = templateMonorepoAgents
+	}
+	return []planning.PlannedFile{
+		{Path: projectfiles.Path(agents), Action: planning.ActionAdd, Detail: "the project's instructions for agents", Template: agents},
+		{Path: projectfiles.Path(templateClaude), Action: planning.ActionAdd, Detail: "imports AGENTS.md", Template: templateClaude},
+	}
+}
+
+// instructionSteps lists, as steps for the person, each code repository whose clone holds no instruction file, with the
+// command that writes the repository template to it. Adoption writes to no clone but the planning repository's
+// (FR-ADOPT-3), so the commands are the person's. The planning repository, the design repository a consolidation
+// imports, and a clone the registration refuses are no code repository of the project.
+func instructionSteps(plan planning.AdoptionPlan, found []Found, design *designClone) []planning.Step {
+	if plan.Planning.Undecided {
+		return nil
+	}
+	refused := map[string]bool{}
+	for _, repository := range plan.Repositories {
+		refused[repository.Path] = repository.Outcome == string(ledger.RegistrationRefused)
+	}
+	var steps []planning.Step
+	for _, one := range found {
+		switch {
+		case one.Instructions, one.Path == plan.Planning.Path, refused[one.Path]:
+			continue
+		case plan.Shape == planning.ShapeConsolidate && design != nil && one.Path == design.Path:
+			continue
+		}
+		steps = append(steps, planning.Step{
+			Name: one.Name, Path: one.Path,
+			Commands: []string{fmt.Sprintf("%s template show %s > %s", Program, templateRepositoryAgents, shellQuote(path.Join(one.Path, projectfiles.Path(templateRepositoryAgents))))},
+		})
+	}
+	slices.SortFunc(steps, func(a, b planning.Step) int { return cmp.Or(cmp.Compare(a.Name, b.Name), cmp.Compare(a.Path, b.Path)) })
+	return steps
+}
+
+// ignoring lists the ignore file's change: the whole file from the template when the tree lacks one, and else the
+// lines a restructuring needs already, and the line that leaves a lane's worktree folder out of the planning
+// repository, unless its clone ignores that folder. The clone says so through the one query of what a repository
+// ignores, and never by a look at its ignore file, because a rule can sit in a global file or an exclude file. A
+// path inside the folder is asked about, because a folder the repository ignores ignores everything in it.
+func ignoring(ctx context.Context, plan *planning.AdoptionPlan, home Found, lines []string, tree []string, kept ports.Checkouts) error {
+	if !slices.Contains(tree, planning.GitignorePath) {
+		plan.Files = append(plan.Files, planning.PlannedFile{
+			Path: projectfiles.Path(templateGitignore), Action: planning.ActionAdd, Detail: "ignores the folder of clones and the folder lane worktrees go in", Template: templateGitignore,
+		})
+		return nil
+	}
 	ignored, err := kept.Ignored(ctx, home.Path, path.Join(planning.WorktreesFolder, "lane"))
 	if err != nil {
 		return err
@@ -175,11 +232,6 @@ func consolidation(ctx context.Context, plan *planning.AdoptionPlan, in Request,
 		return err
 	}
 	plan.Takes, plan.Collisions = Arrivals(homeTracked, held, left)
-	// A manifest or a Makefile the design repository commits arrives in the merge at its own path, so the
-	// workspace has one once it is merged, and the worker adds none.
-	plan.Files = slices.DeleteFunc(plan.Files, func(file planning.PlannedFile) bool {
-		return file.Action == planning.ActionAdd && (file.Path == ManifestPath || file.Path == planning.MakefilePath) && slices.Contains(plan.Takes, file.Path)
-	})
 	return nil
 }
 

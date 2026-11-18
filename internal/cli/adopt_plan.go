@@ -12,13 +12,13 @@ import (
 func shapeSummary(shape planning.LayoutShape) string {
 	switch shape {
 	case planning.ShapeSingle:
-		return "one repository, so there is nothing to restructure"
+		return "one repository; --restructure adds the instruction files it lacks"
 	case planning.ShapePlanned:
-		return "the repository holds plan content and clones were found; --restructure adds the manifest of the clones when none exists"
+		return "the repository holds plan content and clones were found; --restructure adds the manifest of the clones when none exists, and the files the layout lacks"
 	case planning.ShapeConsolidate:
-		return "a workspace whose ignored folder holds the design repository; --restructure imports its history into the workspace"
+		return "a workspace whose ignored folder holds the design repository; --restructure imports its history into the workspace, and adds the files the merged tree lacks"
 	case planning.ShapeWorkspaceFiles:
-		return "clones with no design repository to import; --restructure adds the manifest, the ignore line, and a Makefile, and lists the moves"
+		return "clones with no design repository to import; --restructure adds the manifest, the ignore file, a Makefile, and the instruction files the layout lacks, and lists the moves"
 	}
 	return ""
 }
@@ -66,8 +66,19 @@ func adoptionPlanText(plan planning.AdoptionPlan) string {
 		}
 		out.WriteString("\n")
 	}
+	var lacking []planning.PlannedFile
 	for _, file := range plan.Files {
+		if file.Template != "" {
+			lacking = append(lacking, file)
+			continue
+		}
 		fmt.Fprintf(&out, "%s\t%s\t%s\n", file.Action, file.Path, file.Detail)
+	}
+	if len(lacking) != 0 {
+		out.WriteString("Files the layout lacks\n")
+		for _, file := range lacking {
+			fmt.Fprintf(&out, "%s\t%s\t%s\n", file.Action, file.Path, file.Detail)
+		}
 	}
 	for _, path := range plan.Takes {
 		fmt.Fprintf(&out, "take\t%s\n", path)
@@ -91,11 +102,20 @@ func adoptionPlanText(plan planning.AdoptionPlan) string {
 			fmt.Fprintf(&out, "run\t%s\n", command)
 		}
 	}
+	if len(plan.Steps) != 0 {
+		out.WriteString("Steps for you\n")
+		for _, step := range plan.Steps {
+			fmt.Fprintf(&out, "step\t%s\t%s\n", step.Name, step.Path)
+			for _, command := range step.Commands {
+				fmt.Fprintf(&out, "run\t%s\n", command)
+			}
+		}
+	}
 	for _, note := range plan.Notes {
 		fmt.Fprintf(&out, "note\t%s\n", note)
 	}
 	fmt.Fprintf(&out, "Digest\t%s\n", plan.Digest)
-	if plan.Shape.Restructures() {
+	if plan.Offers() {
 		fmt.Fprintf(&out, "Run '%s adopt --restructure' to restructure as listed, or '%s adopt' to adopt without restructuring. A dry run records nothing.\n", program, program)
 	} else {
 		fmt.Fprintf(&out, "A dry run records nothing.\n")

@@ -29,6 +29,13 @@ func TestGoldenAdoptionPlans(t *testing.T) {
 		{
 			name: "adoption-plan-single", shape: planning.ShapeSingle,
 			place: func(in *apitest.Installation) {
+				placeClone(in, "/work/solo", "solo", fake.CloneLayout{Tracked: []string{"README.md", "AGENTS.md", "docs/overview.md", "go.mod"}})
+			},
+			request: api.AdoptionPlanRequest{Root: "/work/solo"},
+		},
+		{
+			name: "adoption-plan-single-lacking", shape: planning.ShapeSingle,
+			place: func(in *apitest.Installation) {
 				placeClone(in, "/work/solo", "solo", fake.CloneLayout{Tracked: []string{"README.md", "docs/overview.md", "go.mod"}})
 			},
 			request: api.AdoptionPlanRequest{Root: "/work/solo"},

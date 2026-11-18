@@ -1,0 +1,48 @@
+{
+  "layout": {
+    "root": "/work/solo",
+    "folders": null,
+    "clones": [
+      {
+        "name": "solo",
+        "path": "/work/solo",
+        "identity": "solo",
+        "where": "here",
+        "documents": 2
+      }
+    ]
+  },
+  "shape": "single",
+  "planning": {
+    "name": "solo",
+    "path": "/work/solo",
+    "why": "the clone adopt runs in"
+  },
+  "repositories": [
+    {
+      "name": "solo",
+      "path": "/work/solo",
+      "id": "solo",
+      "outcome": "registered"
+    }
+  ],
+  "files": [
+    {
+      "path": "AGENTS.md",
+      "action": "add",
+      "detail": "the project's instructions for agents",
+      "template": "monorepo/agents.md"
+    },
+    {
+      "path": "CLAUDE.md",
+      "action": "add",
+      "detail": "imports AGENTS.md",
+      "template": "claude.md"
+    }
+  ],
+  "takes": null,
+  "collisions": null,
+  "code_trees": null,
+  "moves": null,
+  "digest": "sha256:b56843311c99dc9ee4a559afbb3edfdf3f9729f43411da1a57df7a9ca5fcf3c9"
+}

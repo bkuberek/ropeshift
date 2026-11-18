@@ -56,7 +56,7 @@ func TestAdoptDryRunListsTheLayoutAndRecordsNothing(t *testing.T) {
 	if code != cli.ExitOK {
 		t.Fatalf("exit %d: %s", code, stderr)
 	}
-	for _, want := range []string{"workspace_files", "would register\tShop_App", "would register\tapi", "would register\tweb", "mv /work/libs/api /work/Shop_App/repos/api", "append\t.gitignore\trepos/", "sha256:"} {
+	for _, want := range []string{"workspace_files", "would register\tShop_App", "would register\tapi", "would register\tweb", "mv /work/libs/api /work/Shop_App/repos/api", "add\t.gitignore\t", "sha256:"} {
 		if !strings.Contains(stdout, want) {
 			t.Errorf("the dry run printed no %q:\n%s", want, stdout)
 		}
@@ -131,8 +131,9 @@ func TestAdoptDryRunOfAWorkspaceListsTheConsolidation(t *testing.T) {
 
 // A ropeshift adopt names no restructuring by default, and one that asks for it in a layout with nothing to
 // restructure is a usage error naming the shape, before anything is made.
-func TestAdoptRestructureOfASingleRepositoryIsAUsageError(t *testing.T) {
+func TestAdoptRestructureOfASingleRepositoryWithItsInstructionsIsAUsageError(t *testing.T) {
 	a := newAdoption(t)
+	a.in.Layouts.Set(shopClone.Path, fake.CloneLayout{Tracked: []string{"README.md", "CLAUDE.md"}})
 	for _, args := range [][]string{{"adopt", "--restructure"}, {"adopt", "--dry-run", "--restructure"}} {
 		code, _, stderr := a.runIn(shopClone, "", append(args, "--worker", "worker-a", "--no-attach")...)
 		if code != cli.ExitUsage || !strings.Contains(stderr, "single") || !strings.Contains(stderr, "--restructure") {
@@ -232,5 +233,59 @@ func TestAdoptSearchesToTheDepthItIsGiven(t *testing.T) {
 	}
 	if plan := a.plan(workspaceClone, "--depth", "2"); !slices.ContainsFunc(plan.Layout.Clones, func(c planning.LayoutClone) bool { return c.Name == "deep" }) {
 		t.Errorf("--depth 2 found %+v", plan.Layout.Clones)
+	}
+}
+
+// A single repository that lacks an instruction file is offered --restructure for the two files, and the adopt work
+// carries the restructuring the plan chose.
+func TestAdoptRestructureOfASingleRepositoryThatLacksInstructionsSendsTheChoice(t *testing.T) {
+	a := newAdoption(t)
+	planned := a.plan(shopClone)
+	if planned.Shape != planning.ShapeSingle || !planned.Offers() {
+		t.Fatalf("a lone clone with no instruction file reads %s and offers a restructuring: %v", planned.Shape, planned.Offers())
+	}
+	code, stdout, stderr := a.runIn(shopClone, "", "adopt", "--dry-run")
+	if code != cli.ExitOK || !strings.Contains(stdout, "Files the layout lacks\nadd\tAGENTS.md\tthe project's instructions for agents\nadd\tCLAUDE.md\t") ||
+		!strings.Contains(stdout, "Run 'ropeshift adopt --restructure'") {
+		t.Fatalf("the dry run exits %d: %s\n%s", code, stderr, stdout)
+	}
+	if code, _, stderr := a.runIn(shopClone, "", "adopt", "--restructure", "--worker", "worker-a", "--no-attach"); code != cli.ExitOK {
+		t.Fatalf("adopt --restructure exit %d: %s", code, stderr)
+	}
+	orders := a.workOrders("shop-app")
+	if len(orders) != 1 || orders[0].Restructure == nil || orders[0].Restructure.Shape != planning.ShapeSingle || orders[0].Restructure.Digest != planned.Digest {
+		t.Errorf("the adopt work is %+v", orders)
+	}
+}
+
+// The dry run lists the files a layout lacks under a heading of their own, after the manifest and the ignore lines,
+// and the code repositories that hold no instruction file as steps for the person, with the command that writes
+// the repository template to each clone. --restructure prints the steps again, because ropeshift runs none.
+func TestAdoptDryRunListsTheFilesTheLayoutLacksAndTheStepsForCodeRepositories(t *testing.T) {
+	a := newAdoption(t)
+	a.in.Layouts.Set(webClone.Path, fake.CloneLayout{Tracked: []string{"package.json", "AGENTS.md"}})
+	code, stdout, stderr := a.runIn(shopClone, "", "adopt", "--dry-run", "/work/libs", "--planning", "Shop_App")
+	if code != cli.ExitOK {
+		t.Fatalf("exit %d: %s", code, stderr)
+	}
+	for _, want := range []string{
+		"\nadd\tplan/repositories.md\t", "\nFiles the layout lacks\nadd\t.gitignore\t", "\nadd\tMakefile\tsetup, fetch, and status over the manifest\n",
+		"\nadd\tAGENTS.md\t", "\nadd\tCLAUDE.md\timports AGENTS.md\n", "\nSteps for you\nstep\tapi\t/work/libs/api\n",
+		"\nrun\tropeshift template show repository/agents.md > /work/libs/api/AGENTS.md\n",
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Errorf("the dry run printed no %q:\n%s", want, stdout)
+		}
+	}
+	if strings.Contains(stdout, "step\tweb") || strings.Contains(stdout, "/work/Shop_App/AGENTS.md") {
+		t.Errorf("the dry run lists a step for a clone that holds instructions or for the planning repository:\n%s", stdout)
+	}
+	if strings.Index(stdout, "add\tplan/repositories.md") > strings.Index(stdout, "Files the layout lacks") {
+		t.Errorf("the manifest is listed under the heading of the files the layout lacks:\n%s", stdout)
+	}
+
+	code, stdout, stderr = a.runIn(shopClone, "", "adopt", "--restructure", "/work/libs", "--planning", "Shop_App", "--worker", "worker-a", "--no-attach")
+	if code != cli.ExitOK || !strings.Contains(stdout, "run these commands yourself:\n  ropeshift template show repository/agents.md > /work/libs/api/AGENTS.md\n") {
+		t.Errorf("adopt --restructure exits %d and prints no step for the person: %s\n%s", code, stderr, stdout)
 	}
 }

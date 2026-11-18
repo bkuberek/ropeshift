@@ -96,9 +96,11 @@ func TestARestructuringIsCheckedBeforeItIsKept(t *testing.T) {
 	if err := (Restructure{Shape: ShapeWorkspaceFiles, Digest: digest}).Validate(); err != nil {
 		t.Errorf("the workspace files with a digest: %v", err)
 	}
+	if err := (Restructure{Shape: ShapeSingle, Digest: digest}).Validate(); err != nil {
+		t.Errorf("the instruction files of the single shape with a digest: %v", err)
+	}
 	for name, bad := range map[string]Restructure{
 		"no shape":                         {Digest: digest},
-		"the single shape":                 {Shape: ShapeSingle, Digest: digest},
 		"an unknown shape":                 {Shape: "other", Digest: digest},
 		"no digest":                        {Shape: ShapePlanned},
 		"a digest that is no digest":       {Shape: ShapePlanned, Digest: "sha256:abc"},
@@ -107,6 +109,7 @@ func TestARestructuringIsCheckedBeforeItIsKept(t *testing.T) {
 		"a relative design path":           {Shape: ShapeConsolidate, Digest: digest, DesignPath: "design", DesignRoot: "abc"},
 		"a design outside a consolidation": {Shape: ShapePlanned, Digest: digest, DesignPath: "/work/design"},
 		"a tree left out of the files":     {Shape: ShapeWorkspaceFiles, Digest: digest, LeaveOut: []string{"tools"}},
+		"a design in the single shape":     {Shape: ShapeSingle, Digest: digest, DesignPath: "/work/design"},
 		"the whole repository left out":    {Shape: ShapeConsolidate, Digest: digest, DesignPath: "/work/design", DesignRoot: "abc", LeaveOut: []string{"."}},
 		"a path above the repository":      {Shape: ShapeConsolidate, Digest: digest, DesignPath: "/work/design", DesignRoot: "abc", LeaveOut: []string{"../x"}},
 		"an absolute tree":                 {Shape: ShapeConsolidate, Digest: digest, DesignPath: "/work/design", DesignRoot: "abc", LeaveOut: []string{"/tools"}},
@@ -226,9 +229,17 @@ func TestThePartsOfAPlanNameWhatDiffers(t *testing.T) {
 	if got := registered.DiffersIn(parts); len(got) != 0 {
 		t.Errorf("a plan whose clones registered differs in %v", got)
 	}
+	steps := aLayoutPlan()
+	steps.Steps = []Step{{Name: "api", Path: "/work/ws/repos/api", Commands: []string{"ropeshift template show repository/agents.md > /work/ws/repos/api/AGENTS.md"}}}
+	if got := steps.DiffersIn(parts); !reflect.DeepEqual(got, []string{PartSteps}) {
+		t.Errorf("a plan with a step for the person differs in %v", got)
+	}
+	if steps.WithDigest().Digest == plan.Digest {
+		t.Error("a plan with a step for the person has the digest of the one without")
+	}
 	// A part with nothing in it is the same whether the list is nil or empty.
 	empty := aLayoutPlan()
-	empty.Moves, empty.Takes = []Move{}, []string{}
+	empty.Moves, empty.Takes, empty.Steps = []Move{}, []string{}, []Step{}
 	if got := empty.DiffersIn(parts); len(got) != 0 {
 		t.Errorf("a plan with empty lists differs in %v", got)
 	}
@@ -239,6 +250,18 @@ func TestAShapeKnowsWhatItOffers(t *testing.T) {
 		if got := shape.Restructures(); got != offers {
 			t.Errorf("shape %s offers a restructuring: %v, want %v", shape, got, offers)
 		}
+	}
+	// A plan of the single shape offers one only for the files it lists, and every other shape always does.
+	single := AdoptionPlan{Shape: ShapeSingle}
+	if single.Offers() {
+		t.Error("a single repository that lacks no file offers a restructuring")
+	}
+	single.Files = []PlannedFile{{Path: "AGENTS.md", Action: ActionAdd, Template: "monorepo/agents.md"}}
+	if !single.Offers() {
+		t.Error("a single repository that lacks an instruction file offers no restructuring")
+	}
+	if !(AdoptionPlan{Shape: ShapePlanned}).Offers() || (AdoptionPlan{Shape: "other"}).Offers() {
+		t.Error("a plan offers a restructuring when its shape is one that always does")
 	}
 	if LayoutShape("other").Valid() || !ShapeConsolidate.Valid() {
 		t.Error("a shape is valid when the plan names it")

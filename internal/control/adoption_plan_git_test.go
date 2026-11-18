@@ -115,9 +115,9 @@ func workspaceFiles(extra map[string]string) map[string]string {
 func TestGitLayoutOfALoneCloneIsSingle(t *testing.T) {
 	t.Parallel()
 	l := newLayout(t)
-	l.clone("ws", workspaceFiles(nil))
+	l.clone("ws", workspaceFiles(map[string]string{"AGENTS.md": "rules\n"}))
 	plan := l.mustPlan(control.AdoptionRequest{Root: l.path("ws")})
-	if plan.Shape != planning.ShapeSingle || len(plan.Layout.Clones) != 1 || len(plan.Files) != 0 {
+	if plan.Shape != planning.ShapeSingle || plan.Offers() || len(plan.Layout.Clones) != 1 || len(plan.Files) != 0 {
 		t.Errorf("a lone clone reads %s with %+v", plan.Shape, plan.Layout.Clones)
 	}
 }
@@ -126,13 +126,13 @@ func TestGitLayoutOfALoneCloneIsSingle(t *testing.T) {
 func TestGitLayoutOfAPlannedCloneIsPlanned(t *testing.T) {
 	t.Parallel()
 	l := newLayout(t)
-	l.clone("ws", workspaceFiles(map[string]string{"plan/goal.md": goalDocument}))
+	l.clone("ws", workspaceFiles(map[string]string{"plan/goal.md": goalDocument, "AGENTS.md": "rules\n"}))
 	l.clone("ws/repos/api", map[string]string{"go.mod": "module api\n"})
 	plan := l.mustPlan(control.AdoptionRequest{Root: l.path("ws")})
 	if plan.Shape != planning.ShapePlanned || !plan.Layout.Clones[0].Plan {
 		t.Fatalf("a planned clone with a clone below it reads %s with %+v", plan.Shape, plan.Layout.Clones)
 	}
-	if got := filesOf(plan); !reflect.DeepEqual(got, []string{"add plan/repositories.md"}) {
+	if got := filesOf(plan); !reflect.DeepEqual(got, []string{"add plan/repositories.md", "add Makefile"}) {
 		t.Errorf("the planned shape adds %v", got)
 	}
 	if want := []string{l.path("ws/repos")}; !reflect.DeepEqual(plan.Layout.Folders, want) {
@@ -141,7 +141,7 @@ func TestGitLayoutOfAPlannedCloneIsPlanned(t *testing.T) {
 
 	// A manifest the clone commits leaves nothing to add.
 	l = l.fresh()
-	l.clone("ws", workspaceFiles(map[string]string{"plan/goal.md": goalDocument, "plan/repositories.md": manifestDocument}))
+	l.clone("ws", workspaceFiles(map[string]string{"plan/goal.md": goalDocument, "plan/repositories.md": manifestDocument, "Makefile": "all:\n", "AGENTS.md": "rules\n"}))
 	l.clone("ws/repos/api", map[string]string{"go.mod": "module api\n"})
 	if again := l.mustPlan(control.AdoptionRequest{Root: l.path("ws")}); again.Shape != planning.ShapePlanned || len(again.Files) != 0 {
 		t.Errorf("a planned clone with a manifest reads %s and adds %v", again.Shape, filesOf(again))
@@ -199,7 +199,7 @@ func TestGitLayoutOfClonesBesideAWorkspaceIsTheWorkspaceFiles(t *testing.T) {
 	if named := l.mustPlan(control.AdoptionRequest{Root: l.path("ws"), Paths: []string{l.path("api"), l.path("web")}, Planning: "ws"}); named.Planning.Path != l.path("ws") {
 		t.Fatalf("--planning ws reads %+v", named.Planning)
 	}
-	if want := []string{"add plan/repositories.md", "append .gitignore", "add Makefile"}; !reflect.DeepEqual(filesOf(plan), want) {
+	if want := []string{"add plan/repositories.md", "add .gitignore", "add Makefile", "add AGENTS.md", "add CLAUDE.md"}; !reflect.DeepEqual(filesOf(plan), want) {
 		t.Errorf("the plan adds %v, want %v", filesOf(plan), want)
 	}
 	if len(plan.Moves) != 2 || plan.Moves[0].To != l.path("ws/repos/api") || plan.Moves[0].Commands[0] != "mv "+l.path("api")+" "+l.path("ws/repos/api") {

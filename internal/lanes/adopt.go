@@ -1,6 +1,7 @@
 package lanes
 
 import (
+	"slices"
 	"strings"
 
 	"ropeshift.com/ropeshift/internal/ledger"
@@ -166,6 +167,24 @@ func restructuredNotice(done Restructured) string {
 			}
 		}
 	}
+	return out.String()
+}
+
+// instructionsNotice tells an adopt lane that the repository it plans in holds no instruction file, shows the
+// starting AGENTS.md for the project, and says how to turn it into the project's own. It is the one file the lane
+// writes besides the plan files. When the worker wrote the starting file in its commit, the lane edits that file.
+func instructionsNotice(template string, done *Restructured) string {
+	var out strings.Builder
+	out.WriteString("\nThis repository holds no instruction file, AGENTS.md or CLAUDE.md, and every agent that works in it reads one first. ")
+	if done != nil && slices.Contains(done.Files, "AGENTS.md") {
+		out.WriteString("The worker wrote the starting file below as AGENTS.md, with a CLAUDE.md that imports it, in the commit above. " +
+			"Replace each placeholder in AGENTS.md with what the project holds, from the documents and code you read, and delete every line that starts with `>`.")
+	} else {
+		out.WriteString("Write one as AGENTS.md at the top of this repository, and a CLAUDE.md that holds the line @AGENTS.md. " +
+			"Start from the file below: replace each placeholder with what the project holds, from the documents and code you read, and delete every line that starts with `>`.")
+	}
+	out.WriteString(" Ask the person about anything the repository does not answer. AGENTS.md and CLAUDE.md are the only files you write besides the plan files. " +
+		"This is the starting file:\n\n```markdown\n" + strings.TrimSuffix(template, "\n") + "\n```\n")
 	return out.String()
 }
 

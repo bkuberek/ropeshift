@@ -191,7 +191,7 @@ func checkAnAdoptOrderKeepsItsRestructuring(r *Rig) error {
 	}
 	for name, order := range map[string]workorders.WorkOrder{
 		"work that does not adopt":      {ID: r.ID("plan"), Restructure: chosen},
-		"a restructuring of one shape":  {ID: r.ID("single"), Adopt: true, Restructure: &planning.Restructure{Shape: planning.ShapeSingle, Digest: chosen.Digest}},
+		"a restructuring of no shape":   {ID: r.ID("other"), Adopt: true, Restructure: &planning.Restructure{Shape: "other", Digest: chosen.Digest}},
 		"a restructuring with no check": {ID: r.ID("nodigest"), Adopt: true, Restructure: &planning.Restructure{Shape: planning.ShapePlanned}},
 	} {
 		if _, err := record(order); !errors.Is(err, workorders.ErrInvalid) {

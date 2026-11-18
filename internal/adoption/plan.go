@@ -94,5 +94,6 @@ func Plan(ctx context.Context, in Request, kept ports.Checkouts, layouts ports.L
 	if err := restructuring(ctx, &plan, in, found, registers, design, planned, kept, layouts); err != nil {
 		return plan, err
 	}
+	plan.Steps = instructionSteps(plan, found, design)
 	return plan.WithDigest(), nil
 }

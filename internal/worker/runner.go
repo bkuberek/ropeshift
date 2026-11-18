@@ -17,6 +17,7 @@ import (
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/measures"
 	"ropeshift.com/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/projectfiles"
 	"ropeshift.com/ropeshift/internal/workorders"
 )
 
@@ -77,6 +78,10 @@ type LaneRuntime struct {
 	// the manifest and passes the daemon's --dir, because this package never imports the templates.
 	ManifestTemplate string
 	IntakeDirectory  string
+	// Render writes the files a restructuring adds from the project templates, and the starting instructions an
+	// adopt brief shows. The entry package passes it, because this package never imports the templates. Nil
+	// writes no such file, and a lane whose restructuring lists one does not start.
+	Render projectfiles.Render
 	// PaneInputs is where the web pane records what a member types into a lane's pane, which a planning
 	// lane waiting for its person reads as a person at the pane. Nil records none.
 	PaneInputs *PaneInputs
@@ -235,6 +240,9 @@ type laneRun struct {
 	// restructured is what the worker did to this lane's repository before the lane started, which its brief
 	// tells it, and the handle's lock guards it (FR-ADOPT-14).
 	restructured *lanes.Restructured
+	// instructions is the starting AGENTS.md an adopt brief shows when the repository holds no instruction file, and
+	// the handle's lock guards it.
+	instructions string
 	// assisted is what an assistant's run holds beside the lane code's state, and the handle's lock guards
 	// its making.
 	assisted *assistantState
@@ -791,6 +799,7 @@ func (r *laneRun) session(ctx context.Context) workorders.Report {
 	if report, failed := r.restructure(ctx, repository, prepared.Worktree.Path); failed {
 		return report
 	}
+	r.startingInstructions(ctx, repository)
 	if err := r.writeInventory(ctx, repository, prepared.Worktree.Path); err != nil {
 		return r.failStart(workorders.ReasonSpawnFailed, err)
 	}

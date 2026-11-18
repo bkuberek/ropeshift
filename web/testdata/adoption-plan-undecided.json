@@ -47,17 +47,27 @@
     },
     {
       "path": ".gitignore",
-      "action": "append",
-      "detail": "repos/, /.ropeshift/worktrees/",
-      "lines": [
-        "repos/",
-        "/.ropeshift/worktrees/"
-      ]
+      "action": "add",
+      "detail": "ignores the folder of clones and the folder lane worktrees go in",
+      "template": "workspace/gitignore"
     },
     {
       "path": "Makefile",
       "action": "add",
-      "detail": "setup, fetch, and status over the manifest"
+      "detail": "setup, fetch, and status over the manifest",
+      "template": "workspace/makefile"
+    },
+    {
+      "path": "AGENTS.md",
+      "action": "add",
+      "detail": "the project's instructions for agents",
+      "template": "workspace/agents.md"
+    },
+    {
+      "path": "CLAUDE.md",
+      "action": "add",
+      "detail": "imports AGENTS.md",
+      "template": "claude.md"
     }
   ],
   "takes": null,
@@ -77,5 +87,5 @@
   "notes": [
     "No repository is known to hold the plan; name it with --planning NAME."
   ],
-  "digest": "sha256:39077c17ba56e666ef578ed9f5f3094d00cecbc9b9f0d9c92a9235c24fbfb992"
+  "digest": "sha256:8c96cb0d8ab5c84d7e3eda470959fde8f0baf881b514280aed9595c234fe22c3"
 }

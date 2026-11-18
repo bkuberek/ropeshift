@@ -45,7 +45,7 @@ func (r *laneRun) consolidate(ctx context.Context, choice planning.Restructure, 
 	if err != nil {
 		return r.failStart(workorders.ReasonSpawnFailed, err), true
 	}
-	files, err := adoption.Files(ctx, plan, project, r.rt.Provisioner.Checkouts)
+	files, err := adoption.Files(ctx, plan, project, r.rt.Provisioner.Checkouts, r.rt.Render)
 	if err != nil {
 		return r.failStart(workorders.ReasonSpawnFailed, err), true
 	}

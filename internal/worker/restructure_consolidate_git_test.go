@@ -161,7 +161,7 @@ func TestAGitWorkspaceWithADesignRepositoryInItsCodeFolderEndsInOneMergeCommit(t
 	if err != nil || manifest.ID != "shop" || len(manifest.Repositories) != 1 || manifest.Repositories[0].Name != "api" || manifest.Repositories[0].Path != "repos/api" {
 		t.Fatalf("the manifest reads %+v with design repository left out: %v\n%s", manifest, err, raw)
 	}
-	if makefile := w.readLane("Makefile"); !strings.Contains(makefile, "'api=repos/api=") || strings.Contains(makefile, "design") {
+	if makefile := w.readLane("Makefile"); !strings.Contains(makefile, "\n  api=") || strings.Contains(makefile, "design") {
 		t.Errorf("the Makefile reads:\n%s", makefile)
 	}
 	if after := stateOf(t, w, design); after != before {

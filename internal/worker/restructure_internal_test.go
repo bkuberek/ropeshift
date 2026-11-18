@@ -16,6 +16,7 @@ import (
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/planning"
 	"ropeshift.com/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/projectfiles"
 	"ropeshift.com/ropeshift/internal/workorders"
 )
 
@@ -41,6 +42,16 @@ type restructureRig struct {
 	request   adoption.Request
 	// bare leaves the repository and the reads out of the lease, as the plane of a crash run gives a lane.
 	bare bool
+}
+
+// renderFile stands in for the templates, which this package never imports: it says which template was written, for
+// which project, over which repositories.
+func renderFile(name string, data projectfiles.Data) (string, error) {
+	var names []string
+	for _, repository := range data.Repositories {
+		names = append(names, repository.Name)
+	}
+	return name + " for " + data.Project + " over " + strings.Join(names, ",") + "\n", nil
 }
 
 // refusing is what the project's records say of each clone when its lease names no repository and no read: it holds
@@ -79,7 +90,9 @@ func newRestructureRig(t *testing.T) *restructureRig {
 		t: t, worktrees: fake.NewWorktrees(), checkouts: fake.NewCheckouts(), layouts: fake.NewLayouts(), journal: journal,
 		request: adoption.Request{Root: "/work/ws", Paths: []string{"/work/api", "/work/web"}, Depth: 1, Planning: "ws"},
 	}
-	r.clone("/work/ws", fake.CloneLayout{Tracked: []string{"README.md"}})
+	// The planning clone holds an ignore file and instructions, so its plan lists the manifest, the ignore lines, and a
+	// Makefile, and a test about the files a layout lacks takes them away.
+	r.clone("/work/ws", fake.CloneLayout{Tracked: []string{"README.md", ".gitignore", "AGENTS.md"}})
 	r.clone("/work/api", fake.CloneLayout{Tracked: []string{"go.mod"}})
 	r.clone("/work/web", fake.CloneLayout{Tracked: []string{"package.json"}})
 	return r
@@ -131,7 +144,7 @@ func (r *restructureRig) start(restructure any) {
 		r.t.Fatal(err)
 	}
 	runtime := &LaneRuntime{
-		Provisioner: Provisioner{Worktrees: r.worktrees, Checkouts: r.checkouts}, Layouts: r.layouts,
+		Provisioner: Provisioner{Worktrees: r.worktrees, Checkouts: r.checkouts}, Layouts: r.layouts, Render: renderFile,
 	}
 	r.worker = New(nil, r.journal, fake.NewClock(time.UnixMilli(1_000_000)), Config{Lanes: runtime})
 	r.run = &laneRun{w: r.worker, rt: runtime, lease: lease, generation: 1}
@@ -191,10 +204,7 @@ func TestAnAdoptLaneThatReadsTheSameLayoutGetsTheWorkspaceFilesInOneCommit(t *te
 	if want := []string{"api git@example.invalid:acme/api.git repos/api ", "web git@example.invalid:acme/web.git repos/web "}; !slices.Equal(listed, want) || parsed.ID != "shop" || parsed.Plan != "" {
 		t.Errorf("the manifest lists %v for project %q with plan %q, want %v", listed, parsed.ID, parsed.Plan, want)
 	}
-	makefile, _ := r.worktrees.FileText(restructuredWorktree, "Makefile")
-	if want := planning.RenderWorkspaceMakefile([]planning.WorkspaceRepository{
-		{Name: "api", Remote: "git@example.invalid:acme/api.git", Path: "repos/api"}, {Name: "web", Remote: "git@example.invalid:acme/web.git", Path: "repos/web"},
-	}); makefile != want {
+	if makefile, _ := r.worktrees.FileText(restructuredWorktree, "Makefile"); makefile != "workspace/makefile for shop over api,web\n" {
 		t.Errorf("the Makefile reads:\n%s", makefile)
 	}
 	if ignore, _ := r.worktrees.FileText(restructuredWorktree, ".gitignore"); ignore != "repos/\n/.ropeshift/worktrees/\n" {
@@ -354,7 +364,7 @@ func TestARetryAfterACrashBetweenTheCommitAndTheRecordMakesNoSecondCommit(t *tes
 	plan, choice := r.plan()
 	r.start(choice)
 	// The crashed process committed the files, and died before it recorded the effect as done.
-	files, err := adoption.Files(t.Context(), plan, "shop", r.checkouts)
+	files, err := adoption.Files(t.Context(), plan, "shop", r.checkouts, renderFile)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -491,5 +501,93 @@ func TestAWorkerThatCannotReadLayoutsFailsTheLaneThatNeedsThem(t *testing.T) {
 	}
 	if commits := r.commits(); len(commits) != 0 {
 		t.Errorf("a worker with no layouts committed %+v", commits)
+	}
+}
+
+// A lane whose restructuring lists a file written from a template, on a worker given no renderer, does not start:
+// nothing is written, and the work fails with the reason a worker that cannot restructure gives.
+func TestARestructuringThatListsATemplateFileOnAWorkerWithNoRendererDoesNotStart(t *testing.T) {
+	t.Parallel()
+	r := newRestructureRig(t)
+	r.clone("/work/ws", fake.CloneLayout{Tracked: []string{"README.md"}})
+	_, choice := r.plan()
+	r.start(choice)
+	r.run.rt.Render = nil
+	report, failed := r.restructure()
+	if !failed || report.Reason != workorders.ReasonSpawnFailed {
+		t.Fatalf("the restructuring reported %+v, failed %v", report, failed)
+	}
+	if commits := r.commits(); len(commits) != 0 {
+		t.Errorf("a restructuring with no renderer was committed: %+v", commits)
+	}
+}
+
+// The files a layout lacks are written in the one commit, each from the template its plan line names: the instruction
+// files of a workspace from the workspace template, and an AGENTS.md the repository holds is left as it is.
+func TestTheFilesALayoutLacksAreWrittenFromTheirTemplatesInTheOneCommit(t *testing.T) {
+	t.Parallel()
+	r := newRestructureRig(t)
+	r.clone("/work/ws", fake.CloneLayout{Tracked: []string{"README.md"}})
+	_, choice := r.plan()
+	r.start(choice)
+	if report, failed := r.restructure(); failed {
+		t.Fatalf("the restructuring failed: %+v", report)
+	}
+	commits := r.commits()
+	if want := []string{".gitignore", "AGENTS.md", "CLAUDE.md", "Makefile", "plan/repositories.md"}; len(commits) != 1 || !slices.Equal(commits[0].Files, want) {
+		t.Fatalf("the branch holds %+v, want one commit of %v", commits, want)
+	}
+	for file, want := range map[string]string{
+		"AGENTS.md": "workspace/agents.md for shop over api,web\n", "CLAUDE.md": "claude.md for shop over api,web\n",
+		"Makefile": "workspace/makefile for shop over api,web\n", ".gitignore": "workspace/gitignore for shop over api,web\n",
+	} {
+		if got, _ := r.worktrees.FileText(restructuredWorktree, file); got != want {
+			t.Errorf("%s reads %q, want %q", file, got, want)
+		}
+	}
+}
+
+// An adopt lane whose repository holds no instruction file is told the starting AGENTS.md rendered for its project,
+// whether or not it carries a restructuring, and one whose repository holds an instruction file, or whose design
+// repository brought one, is told none.
+func TestAnAdoptBriefHoldsTheStartingInstructionsOnlyForARepositoryWithNone(t *testing.T) {
+	t.Parallel()
+	brief := func(t *testing.T, tracked []string, restructure bool) (string, *restructureRig) {
+		t.Helper()
+		r := newRestructureRig(t)
+		r.clone("/work/ws", fake.CloneLayout{Tracked: tracked})
+		var choice any
+		if restructure {
+			_, choice = r.plan()
+		}
+		r.start(choice)
+		if restructure {
+			if report, failed := r.restructure(); failed {
+				t.Fatalf("the restructuring failed: %+v", report)
+			}
+		}
+		r.run.startingInstructions(t.Context(), "/work/ws")
+		return lanes.Brief(lanes.BriefSpec{
+			WorkOrder: "wo", Title: "Adopt", Kind: workorders.KindPlan, Adopt: true, Restructured: r.run.restructuredOf(), InstructionsTemplate: r.run.instructionsText(),
+		}), r
+	}
+	const starting = "workspace/agents.md for shop over api,web\n"
+	for name, tt := range map[string]struct {
+		tracked     []string
+		restructure bool
+		want        bool
+	}{
+		"none, no restructuring": {tracked: []string{"README.md", ".gitignore"}, want: true},
+		"none, restructuring":    {tracked: []string{"README.md", ".gitignore"}, restructure: true, want: true},
+		"an AGENTS.md":           {tracked: []string{"README.md", "AGENTS.md"}},
+		"a CLAUDE.md":            {tracked: []string{"README.md", "CLAUDE.md"}, restructure: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			text, _ := brief(t, tt.tracked, tt.restructure)
+			if got := strings.Contains(text, starting) && strings.Contains(text, "holds no instruction file"); got != tt.want {
+				t.Errorf("the brief holds the starting instructions: %v, want %v\n%s", got, tt.want, text)
+			}
+		})
 	}
 }
