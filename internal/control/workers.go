@@ -917,14 +917,16 @@ func (w *Workers) storeEvent(ctx context.Context, worker string, e ledger.Upload
 			return applyUpload(tx, worker, id, e)
 		})
 	}
+	var day int64
 	if orchestratorReport(e) {
-		write = func(ctx context.Context) error {
-			return storeOrchestratorEvent(ctx, w.store.Installation(w.scope), worker, id, e)
+		write = func(ctx context.Context) (err error) {
+			day, err = storeOrchestratorEvent(ctx, w.store.Installation(w.scope), worker, id, e)
+			return err
 		}
 	}
 	err := write(ctx)
 	if err == nil && orchestratorReport(e) && e.Type == ledger.UploadGenerationUsage {
-		err = w.warnOrchestrator(ctx, worker)
+		err = w.warnOrchestrator(ctx, worker, day)
 	}
 	if err == nil {
 		w.afterAssistantUpload(ctx, worker, e)
@@ -955,16 +957,21 @@ func orchestratorReport(e ledger.UploadEvent) bool {
 }
 
 // storeOrchestratorEvent stores what a worker says of its orchestrator once, in the installation's log,
-// because an orchestrator is every project's.
-func storeOrchestratorEvent(ctx context.Context, installation ports.Installation, worker, id string, e ledger.UploadEvent) error {
-	return installation.Write(ctx, opUpload, func(tx ports.SharedTx) error {
-		if _, err := tx.Event(id); err == nil {
+// because an orchestrator is every project's. It returns the UTC day the report counted in: the day of the transaction that
+// stored it, or of the one that stored it before.
+func storeOrchestratorEvent(ctx context.Context, installation ports.Installation, worker, id string, e ledger.UploadEvent) (int64, error) {
+	var day int64
+	err := installation.Write(ctx, opUpload, func(tx ports.SharedTx) error {
+		if stored, err := tx.Event(id); err == nil {
+			day = ledger.WindowStart(ledger.WindowDay, stored.RecordedAt)
 			return nil
 		} else if !errors.Is(err, ports.ErrNotFound) {
 			return err
 		}
+		day = ledger.WindowStart(ledger.WindowDay, tx.Now())
 		return orchestratorUpload(tx, worker, id, e)
 	})
+	return day, err
 }
 
 // applyUpload stores one event inside its transaction. A lane's start and end change

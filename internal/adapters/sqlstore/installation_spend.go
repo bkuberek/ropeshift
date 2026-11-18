@@ -23,6 +23,15 @@ func (t sharedSpend) SpendSince(scope string, from int64) (float64, error) {
 	return spendSince(t.session, t.scope, scope, from)
 }
 
+func (t sharedSpend) SpendOn(scope string, day int64) (float64, error) {
+	row, err := t.row(stmtSpendOn, params{"workspace_id": string(t.scope), "scope": scope, "day": day})
+	if err != nil {
+		return 0, err
+	}
+	var total float64
+	return total, row.Scan(&total)
+}
+
 func (t installationReadTx) Spend() ports.SpendReader {
 	return sharedSpend{session: t.session, scope: ledger.InstallationScope}
 }

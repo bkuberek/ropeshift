@@ -183,3 +183,47 @@ func checkTheOrchestratorsDailyWarning(r *Rig) error {
 	}
 	return nil
 }
+
+func checkTheOrchestratorsWarningKeepsItsDay(r *Rig) error {
+	if r.DB.FreezeClock == nil {
+		return nil
+	}
+	defer r.DB.FreezeClock(0)
+	s, err := newStatusRig(r)
+	if err != nil {
+		return err
+	}
+	started, err := orchestrating(s)
+	if err != nil {
+		return err
+	}
+	a := &orchestratorReport{r: r, s: s, auth: s.auth, epoch: s.epoch, lane: started.call.Lane, seq: s.seq, spend: control.NewSpend(s.store), version: 1}
+	lastSecond := at(2026, time.November, 18, 23, 59, 59, 0)
+	r.DB.FreezeClock(lastSecond)
+	// The report counts in the day it was stored, no warning is set yet, and the floor it names is no spend.
+	report := ledger.GenerationUsage{CostUSD: 6, KnownTurns: 2, FloorUSD: 100}
+	if reply, err := a.spent(1, report); accepted(reply, err) != nil {
+		return Violatedf("a report of 6 was refused: %+v, %v", reply.Rejected, err)
+	}
+	if got, err := a.day(0); err != nil || !near(got, 6) {
+		return Violatedf("a report that named a floor of 100 moved the machine's day to %v, want 6: %v", got, err)
+	}
+	if err := a.warn(5); err != nil {
+		return err
+	}
+	// The worker sends the report again on the next day, which is a retry of the same event and counts in the day it was stored.
+	r.DB.FreezeClock(at(2026, time.November, 19, 0, 0, 5, 0))
+	a.seq--
+	if reply, err := a.spent(1, report); accepted(reply, err) != nil {
+		return Violatedf("the report sent again was refused: %+v, %v", reply.Rejected, err)
+	}
+	notices, err := r.spendNotices(s.store, ledger.NoticeSpendSoftLimit)
+	if err != nil {
+		return err
+	}
+	got := ofScope(notices, ledger.NoticeScopeOrchestrator)
+	if len(got) != 1 || got[0].WindowStart != ledger.WindowStart(ledger.WindowDay, lastSecond) || !near(got[0].ChargedUSD, 6) {
+		return Violatedf("a report stored on one day and sent again on the next told %+v, want one warning for the first day at 6", got)
+	}
+	return nil
+}

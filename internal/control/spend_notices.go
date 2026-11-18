@@ -3,6 +3,7 @@ package control
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"time"
@@ -92,6 +93,7 @@ func assistantSpent(tx ports.WriteTx, worker, id string, e ledger.UploadEvent) e
 	if usage.CostUSD < 0 || usage.KnownTurns < 0 || usage.UnknownTurns < 0 {
 		return fmt.Errorf("%w: a generation's usage is negative", workorders.ErrInvalid)
 	}
+	usage.FloorUSD = 0
 	e.Payload = nil
 	draft, err := uploadedDraft(tx, worker, id, e)
 	if err != nil {
@@ -134,6 +136,7 @@ func orchestratorSpent(tx ports.SharedTx, worker string, e ledger.UploadEvent) e
 	if usage.CostUSD < 0 || usage.KnownTurns < 0 || usage.UnknownTurns < 0 {
 		return fmt.Errorf("%w: a generation's usage is negative", workorders.ErrInvalid)
 	}
+	usage.FloorUSD = 0
 	charged := ledger.Charge([][]ledger.GenerationUsage{{usage}}).ChargedUSD
 	return tx.Spend().NoteSpend(ledger.OrchestratorSpendScope(worker), e.Lane, e.Generation, charged)
 }
@@ -142,8 +145,12 @@ func orchestratorSpent(tx ports.SharedTx, worker string, e ledger.UploadEvent) e
 // `orchestrator_daily_warn`, so each project's `[notify_policy]` picks the channels. A day is a machine's: two machines have
 // two tallies and two notices. It reads the tally and not the report that was stored, so a report sent again after a
 // failure tells what the first one did not, and a notice already told says nothing again.
-func (p *Plane) warnOrchestrator(ctx context.Context, worker string) error {
-	notice, err := orchestratorWarning(ctx, p.installation, worker)
+//
+// start is the UTC day the report counted in, which the transaction that stored it chose, so a notice for a day that ended
+// before this check is still told for that day. A project that is archived or gone is skipped, and every other project is
+// tried before the first error that is worth sending the report again for is returned.
+func (p *Plane) warnOrchestrator(ctx context.Context, worker string, start int64) error {
+	notice, err := orchestratorWarning(ctx, p.installation, worker, start)
 	if err != nil || notice == nil {
 		return err
 	}
@@ -151,35 +158,33 @@ func (p *Plane) warnOrchestrator(ctx context.Context, worker string) error {
 	if err != nil {
 		return err
 	}
+	var first error
 	for _, project := range projects {
 		w, err := p.workers(ctx, project)
-		if err != nil {
-			return err
+		if err == nil {
+			err = w.noteOrchestratorWarning(ctx, *notice)
 		}
-		if err := w.noteOrchestratorWarning(ctx, *notice); err != nil {
-			return err
+		if errors.Is(err, ports.ErrNotFound) || errors.Is(err, ledger.ErrProjectArchived) {
+			continue
+		}
+		if err != nil && first == nil {
+			first = err
 		}
 	}
-	return nil
+	return first
 }
 
-// orchestratorWarning reads a machine's orchestrator's day against `orchestrator_daily_warn`, and returns the notice the day
-// owes, or nil when no warning is set or the day is under it.
-func orchestratorWarning(ctx context.Context, installation ports.Installation, worker string) (*ledger.SpendNotice, error) {
+// orchestratorWarning reads what a machine's orchestrator was charged on one UTC day against `orchestrator_daily_warn`, and
+// returns the notice the day owes, or nil when no warning is set or the day is under it.
+func orchestratorWarning(ctx context.Context, installation ports.Installation, worker string, start int64) (*ledger.SpendNotice, error) {
 	var policy authority.InstallationSpendPolicy
 	var day float64
-	var start int64
 	err := installation.Read(ctx, func(tx ports.SharedReadTx) error {
 		var err error
 		if policy, err = installationSpendInForce(tx.Policies()); err != nil || policy.OrchestratorDailyWarn <= 0 {
 			return err
 		}
-		now, err := tx.Now()
-		if err != nil {
-			return err
-		}
-		start = ledger.WindowStart(ledger.WindowDay, now)
-		day, err = tx.Spend().SpendSince(ledger.OrchestratorSpendScope(worker), start)
+		day, err = tx.Spend().SpendOn(ledger.OrchestratorSpendScope(worker), start)
 		return err
 	})
 	if err != nil || policy.OrchestratorDailyWarn <= 0 || day < policy.OrchestratorDailyWarn {
@@ -192,8 +197,8 @@ func orchestratorWarning(ctx context.Context, installation ports.Installation, w
 }
 
 // warnOrchestrator tells this project alone, for a plane of one project, as Plane.warnOrchestrator tells each of its own.
-func (w *Workers) warnOrchestrator(ctx context.Context, worker string) error {
-	notice, err := orchestratorWarning(ctx, w.store.Installation(w.scope), worker)
+func (w *Workers) warnOrchestrator(ctx context.Context, worker string, start int64) error {
+	notice, err := orchestratorWarning(ctx, w.store.Installation(w.scope), worker, start)
 	if err != nil || notice == nil {
 		return err
 	}

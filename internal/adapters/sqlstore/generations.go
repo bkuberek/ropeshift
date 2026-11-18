@@ -57,6 +57,10 @@ ON CONFLICT (workspace_id, scope, owner, generation) DO UPDATE SET charged_usd =
 		`SELECT COALESCE(SUM(charged_usd), 0) FROM spend_days
  WHERE workspace_id = :workspace_id AND scope = :scope AND day >= :from`)
 
+	stmtSpendOn = define("spend.on",
+		`SELECT COALESCE(SUM(charged_usd), 0) FROM spend_days
+ WHERE workspace_id = :workspace_id AND scope = :scope AND day = :day`)
+
 	stmtEndGeneration = define("generation.end",
 		`UPDATE generations SET end_reason = :end_reason, ended_at = :now
  WHERE workspace_id = :workspace_id AND lane_id = :lane_id AND generation = :generation AND ended_at IS NULL`)

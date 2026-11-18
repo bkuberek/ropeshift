@@ -28,6 +28,7 @@ var SpendNoticeChecks = []Check{
 	{"SN10", "editing spend_channels adds or takes away a channel for the next notice of a kind, with no restart", checkEditingTheChannelsMovesDelivery},
 	{"SN11", "an assistant's spend is tallied apart from the work's, and tells one soft notice a day at assistant_daily_warn", checkTheAssistantsDailyWarning},
 	{"SN12", "an orchestrator's spend is tallied for its machine and the day, and tells one soft notice a day at orchestrator_daily_warn", checkTheOrchestratorsDailyWarning},
+	{"SN13", "an orchestrator's warning is told for the day its report counted in, and a floor a report names is no spend", checkTheOrchestratorsWarningKeepsItsDay},
 }
 
 func checkTheAssistantsDailyWarning(r *Rig) error {
@@ -80,6 +81,13 @@ func checkTheAssistantsDailyWarning(r *Rig) error {
 	}
 	if work, err := tally(ledger.SpendScopeWork); err != nil || work != 0 {
 		return Violatedf("the assistant's spend reached the work's tally, which reads %v: %v", work, err)
+	}
+	// A floor a report names is no spend: the ledger keeps its own.
+	if err := t.runUpload(record, ledger.UploadGenerationUsage, 3, ledger.GenerationUsage{CostUSD: 1, KnownTurns: 1, FloorUSD: 100}); err != nil {
+		return err
+	}
+	if got, err := tally(ledger.SpendScopeAssistant); err != nil || !near(got, 8) {
+		return Violatedf("a report that named a floor of 100 moved the assistant's day to %v, want 8: %v", got, err)
 	}
 	// A warning of 0 is none.
 	if err := r.projectPolicy(t.store, 3); err != nil {

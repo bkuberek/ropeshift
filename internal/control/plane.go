@@ -485,9 +485,9 @@ func (p *Plane) storeEvent(ctx context.Context, record ledger.WorkerRecord, e le
 	id := ledger.UploadedEventID(worker, e.Epoch, e.Seq)
 	switch {
 	case orchestratorReport(e):
-		stored := storeOrchestratorEvent(ctx, p.installation, worker, id, e)
+		day, stored := storeOrchestratorEvent(ctx, p.installation, worker, id, e)
 		if stored == nil && e.Type == ledger.UploadGenerationUsage {
-			stored = p.warnOrchestrator(ctx, worker)
+			stored = p.warnOrchestrator(ctx, worker, day)
 		}
 		return uploadResult(e, stored)
 	case e.WorkOrder == "" && e.Lane == "" && e.Type == ledger.UploadDriverQualified:

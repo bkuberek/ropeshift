@@ -77,6 +77,8 @@ type SpendReader interface {
 	// SpendSince reads what a scope of spend was charged from a moment on, in US dollars, as a project's lanes do
 	// (LaneReader.SpendSince).
 	SpendSince(scope string, from int64) (float64, error)
+	// SpendOn reads what a scope of spend was charged on the one UTC day that begins at a moment (ledger.WindowStart).
+	SpendOn(scope string, day int64) (float64, error)
 }
 
 // SpendWriter writes the installation's tallies of spend.
