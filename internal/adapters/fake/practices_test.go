@@ -52,3 +52,21 @@ func TestPracticesFailFailsTheSettingsRead(t *testing.T) {
 		t.Fatalf("settings are %+v with %v", got, err)
 	}
 }
+
+// Each snapshot read is listed with the directory and the commit it was asked for, and a directory with none set
+// reads an empty snapshot of that commit.
+func TestPracticesSnapshotListsEachRead(t *testing.T) {
+	var fake Practices
+	fake.SetSnapshot("/a", practices.Snapshot{Commit: "abc", Paths: []string{"go.mod"}})
+	got, err := fake.Snapshot(t.Context(), "/a", "main")
+	if err != nil || got.Commit != "abc" {
+		t.Fatalf("the snapshot is %+v with %v", got, err)
+	}
+	if got, err := fake.Snapshot(t.Context(), "/b", "trunk"); err != nil || got.Commit != "trunk" || len(got.Paths) != 0 {
+		t.Errorf("a directory with none set reads %+v with %v", got, err)
+	}
+	want := [][2]string{{"/a", "main"}, {"/b", "trunk"}}
+	if len(fake.SnapshotCalls) != len(want) || fake.SnapshotCalls[0] != want[0] || fake.SnapshotCalls[1] != want[1] {
+		t.Errorf("snapshots were read as %v, want %v", fake.SnapshotCalls, want)
+	}
+}
