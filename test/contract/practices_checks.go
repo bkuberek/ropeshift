@@ -25,6 +25,7 @@ var PracticesChecks = []Check{
 	{"PRQ5", "a repository's scan tip and the version of the credential rules it read with are set, replaced, and cleared on their own", checkPracticesScanTip},
 	{"PRQ6", "registering clones requests one check of each repository registered, as a registration, and a repository no worker keeps, a known one, and a dry run request none", checkRegistrationRequestsACheckOfEachRepository},
 	{"PRQ7", "registering from a manifest requests one check of each repository it registers", checkManifestRegistrationRequestsACheckOfEachRepository},
+	{"PRQ8", "a request that fails at a registration from a manifest leaves the registration standing and is logged", checkAFailedRequestLeavesAManifestRegistration},
 }
 
 // practicesWrite runs one write transaction on the practices records, with the event any committed transaction needs.
@@ -474,6 +475,47 @@ func checkManifestRegistrationRequestsACheckOfEachRepository(r *Rig) error {
 	}
 	if n, err := r.requestedEvents(s); err != nil || n != 2 {
 		return Violatedf("the log holds %d requests, want two: %v", n, err)
+	}
+	return nil
+}
+
+func checkAFailedRequestLeavesAManifestRegistration(r *Rig) error {
+	s := r.Store()
+	files, err := r.manifestProject(s)
+	if err != nil {
+		return err
+	}
+	if err := r.readsAsPlanning(s, files); err != nil {
+		return err
+	}
+	kept, err := r.planningMachine()
+	if err != nil {
+		return err
+	}
+	kept.Place(cloneOf("billing", "billing"))
+	manifest := planning.RepositoriesFile{ID: "platform", Repositories: []planning.ManifestRepository{
+		{Name: "billing", Remote: "git@github.com:acme/billing.git", Path: "../billing"},
+	}}
+	hosts := func(context.Context, ledger.WorkspaceID) (map[string]control.AssistantHost, error) {
+		return nil, errors.New("the workers' checkouts cannot be read")
+	}
+	var logged []string
+	repositories := control.NewRepositories(s).Practicing(control.NewPractices(s).Placing(hosts, 0, nil)).Warning(func(line string) { logged = append(logged, line) })
+	added, err := repositories.RegisterManifest(r.Ctx, r.Scope, manifest, kept, false, r.member())
+	if err != nil {
+		return Violatedf("a request that failed failed the registration: %v", err)
+	}
+	if one, ok := outcomeOf(added, "/work/billing"); !ok || one.Outcome != ledger.Registered {
+		return Violatedf("the manifest's billing reads %+v", added)
+	}
+	if record, err := r.theRepository(s, "repo-billing"); err != nil || record.Removed() {
+		return Violatedf("the registration did not stand: %+v, %v", record, err)
+	}
+	if len(logged) != 1 {
+		return Violatedf("the log holds %q, want the failed request once", logged)
+	}
+	if n, err := r.requestedEvents(s); err != nil || n != 0 {
+		return Violatedf("a failed request left %d requests: %v", n, err)
 	}
 	return nil
 }

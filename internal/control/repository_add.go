@@ -261,15 +261,25 @@ func (r *Repositories) Practicing(practices *Practices) *Repositories {
 	return r
 }
 
+// Warning says where to write what failed and left a registration as it was: the request of a repository's practices
+// check that could not be made. Nil says nothing.
+func (r *Repositories) Warning(warn func(string)) *Repositories {
+	r.warn = warn
+	return r
+}
+
 // requestPractices asks for the check of a repository a registration made, once the registration is recorded and the
-// checkout is kept. A request that is refused, or that fails, changes nothing about the registration, which stands: the
-// check is a way to read a repository, never a condition of registering it. A dry run and a repository the project
+// checkout is kept. A request that is refused with a reason, as every request is when no worker keeps the checkout, and
+// one that fails, change nothing about the registration, which stands: the check is a way to read a repository, never a
+// condition of registering it. A failure is written to the registration's log. A dry run and a repository the project
 // already held ask for none.
 func (r *Repositories) requestPractices(ctx context.Context, scope ledger.WorkspaceID, added Added, dryRun bool, actor ledger.Actor) {
 	if r.practices == nil || dryRun || added.Outcome != ledger.Registered || added.Repository.ID == "" {
 		return
 	}
-	_, _ = r.practices.Request(ctx, scope, []string{added.Repository.ID}, ledger.PracticesRegistration, actor)
+	if _, err := r.practices.Request(ctx, scope, []string{added.Repository.ID}, ledger.PracticesRegistration, actor); err != nil && r.warn != nil {
+		r.warn(fmt.Sprintf("the practices check of repository %s was not requested after it was registered: %v", added.Repository.ID, err))
+	}
 }
 
 // namePlanning names a repository the project's planning repository, as a member's change to its record,

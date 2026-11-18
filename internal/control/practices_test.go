@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"ropeshift.com/ropeshift/internal/adapters/fake"
 	"ropeshift.com/ropeshift/internal/control"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/ports"
@@ -619,6 +620,52 @@ func TestAScanTipOfAnotherRuleSetIsNotHandedToTheNextCheck(t *testing.T) {
 	third := r.requested(r.request(ledger.PracticesMember, "repo-a"))
 	if offered := r.offered(r.auth); len(offered) != 1 || offered[0].ID != third.ID || offered[0].ScannedFrom != tipTwo {
 		t.Errorf("the check is offered %+v, want a scan from %s", offered, tipTwo)
+	}
+}
+
+// A request that fails leaves the registration it follows as it was, and says so on the registration path's log, once.
+// A request that is refused with a reason, as every request is when no worker keeps the checkout, is no failure.
+func TestAFailedPracticesRequestLeavesTheRegistrationAndIsLogged(t *testing.T) {
+	r := newPracticesRig(t, ledger.ProtocolVersion)
+	hosts := func(context.Context, ledger.WorkspaceID) (map[string]control.AssistantHost, error) {
+		return nil, errors.New("the workers' checkouts cannot be read")
+	}
+	var logged []string
+	repositories := control.NewRepositories(r.store).
+		Practicing(control.NewPractices(r.store).Placing(hosts, 0, nil)).
+		Warning(func(line string) { logged = append(logged, line) })
+	kept := fake.NewCheckouts()
+	kept.Place(ports.Clone{Path: "/work/widgets", ID: "repo-widgets", Remote: "git@github.com:acme/widgets.git", DefaultBranch: "main", Directory: "widgets"})
+	added, err := repositories.Add(t.Context(), "pa", control.RepositoryAdd{Paths: []string{"/work/widgets"}}, kept, projectMember)
+	if err != nil || len(added) != 1 || added[0].Outcome != ledger.Registered {
+		t.Fatalf("registering the clone read %+v (%v), want it registered", added, err)
+	}
+	var record ledger.Repository
+	err = r.store.Read(t.Context(), "pa", func(tx ports.ReadTx) (err error) {
+		record, err = tx.Repositories().Repository("repo-widgets")
+		return err
+	})
+	if err != nil || record.Removed() || record.Name != "widgets" {
+		t.Errorf("the registered repository reads %+v (%v)", record, err)
+	}
+	if len(logged) != 1 || !strings.Contains(logged[0], "repo-widgets") || !strings.Contains(logged[0], "the workers' checkouts cannot be read") {
+		t.Errorf("the log holds %q, want one line naming the repository and what failed", logged)
+	}
+	if events := r.events(ledger.EventPracticesRequested); len(events) != 0 {
+		t.Errorf("a failed request left %d requests", len(events))
+	}
+
+	// With no worker keeping the checkout the request is refused with a reason, which is no failure and logs nothing.
+	logged = nil
+	quiet := control.NewRepositories(r.store).
+		Practicing(control.NewPractices(r.store).Placing(func(context.Context, ledger.WorkspaceID) (map[string]control.AssistantHost, error) { return nil, nil }, 0, nil)).
+		Warning(func(line string) { logged = append(logged, line) })
+	kept.Place(ports.Clone{Path: "/work/gadgets", ID: "repo-gadgets", Remote: "git@github.com:acme/gadgets.git", DefaultBranch: "main", Directory: "gadgets"})
+	if added, err := quiet.Add(t.Context(), "pa", control.RepositoryAdd{Paths: []string{"/work/gadgets"}}, kept, projectMember); err != nil || len(added) != 1 || added[0].Outcome != ledger.Registered {
+		t.Fatalf("registering the second clone read %+v (%v)", added, err)
+	}
+	if len(logged) != 0 {
+		t.Errorf("a refusal with a reason logged %q", logged)
 	}
 }
 

@@ -30,6 +30,8 @@ type Repositories struct {
 	// practices asks the worker that keeps a repository's checkout for a check of each repository a registration
 	// makes. Nil asks none.
 	practices *Practices
+	// warn hears what failed and left a registration as it was. Nil hears nothing.
+	warn func(string)
 }
 
 // NewRepositories returns the use cases over a Store.

@@ -1,12 +1,20 @@
 package server_test
 
 import (
+	"context"
+	"errors"
+	"net"
+	"net/http"
+	"path/filepath"
 	"slices"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/api/server"
+	"ropeshift.com/ropeshift/internal/control"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/internal/practices"
@@ -88,5 +96,42 @@ func TestAPracticesReportNeedsAWorkersCredentialAndIsNotOnTheWebListener(t *test
 	}
 	if slices.ContainsFunc(api.WebRoutes(), func(r api.WebRoute) bool { return r.Pattern == "/v1/workers/{id}/practices-reports" }) {
 		t.Error("the web listener serves the practices report")
+	}
+}
+
+// A registration whose check cannot be requested still registers, and the server's log says what failed.
+func TestARegistrationWhoseCheckCannotBeRequestedStillRegistersAndIsLogged(t *testing.T) {
+	installation := apitest.StartInstallation(t)
+	var mu sync.Mutex
+	var logged []string
+	config := installation.Config
+	config.AssistantHosts = func(context.Context, ledger.WorkspaceID) (map[string]control.AssistantHost, error) {
+		return nil, errors.New("the workers' checkouts cannot be read")
+	}
+	config.Warn = func(line string) {
+		mu.Lock()
+		defer mu.Unlock()
+		logged = append(logged, line)
+	}
+	socket := filepath.Join(apitest.ShortDir(t), "register.sock")
+	listener, err := net.Listen("unix", socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	httpServer := &http.Server{Handler: server.New(config), ReadHeaderTimeout: 10 * time.Second}
+	go func() { _ = httpServer.Serve(listener) }()
+	t.Cleanup(func() { _ = httpServer.Close() })
+	member := api.NewUnixClient(socket)
+	t.Cleanup(member.Close)
+	member.UseSession(installation.Session)
+	installation.Checkouts.Place(ports.Clone{Path: "/work/widgets", ID: "repo-widgets", Remote: "git@github.com:acme/widgets.git", DefaultBranch: "main", Directory: "widgets"})
+	report, err := member.Project(apitest.ProjectName).AddRepositories(t.Context(), api.RepositoryAdd{Paths: []string{"/work/widgets"}})
+	if err != nil || len(report.Repositories) != 1 || report.Repositories[0].Outcome != ledger.Registered {
+		t.Fatalf("registering the clone reads %+v (%v)", report, err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(logged) != 1 || !strings.Contains(logged[0], "repo-widgets") || !strings.Contains(logged[0], "the workers' checkouts cannot be read") {
+		t.Errorf("the log holds %q, want one line naming the repository and what failed", logged)
 	}
 }
