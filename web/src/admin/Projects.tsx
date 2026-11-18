@@ -192,7 +192,7 @@ export function ProjectsPage({ live, projects, reload, dialog, target = "" }: { 
           </TableRegion>
         </Panel>
       )}
-      <CreateDialog open={open?.kind === "create"} onClose={() => setOpen(null)} onDone={(made) => void done(`Created project ${made.name}.`).then(() => go(`/projects/${encodeURIComponent(made.name)}/repositories`))} />
+      <CreateDialog open={open?.kind === "create"} onClose={() => setOpen(null)} onNewFiles={() => setOpen({ kind: "template" })} onDone={(made) => void done(`Created project ${made.name}.`).then(() => go(`/projects/${encodeURIComponent(made.name)}/repositories`))} />
       <StartFromTemplate open={open?.kind === "template"} onClose={() => setOpen(null)} projects={projects} reload={reload} />
       {open?.kind === "import" ? <ImportBackupDialog file={open.file} onClose={() => setOpen(null)} onDone={(made) => void done(`Imported project ${made.name}.`)} /> : null}
       {open?.kind === "rename" ? <RenameDialog project={open.project} onClose={() => setOpen(null)} onDone={(made) => void done(`Renamed to ${projectName(made, made.name)}.`)} /> : null}
@@ -202,7 +202,8 @@ export function ProjectsPage({ live, projects, reload, dialog, target = "" }: { 
   );
 }
 
-function CreateDialog({ open, onClose, onDone }: { open: boolean; onClose: () => void; onDone: (made: Project) => void }) {
+// CreateDialog makes an empty project, and leads to Start with new files, which writes a new project's folder and its remote first.
+function CreateDialog({ open, onClose, onNewFiles, onDone }: { open: boolean; onClose: () => void; onNewFiles: () => void; onDone: (made: Project) => void }) {
   const [display, setDisplay] = useState("");
   const [name, setName] = useState("");
   const [empty, setEmpty] = useState(false);
@@ -236,6 +237,9 @@ function CreateDialog({ open, onClose, onDone }: { open: boolean; onClose: () =>
       onClose={onClose}
       footer={
         <>
+          <Button icon="doc" onClick={onNewFiles}>
+            Start with new files
+          </Button>
           <span className="spacer" />
           <Button onClick={onClose}>Cancel</Button>
           <Button variant="primary" loading={change.busy} onClick={() => void submit()}>

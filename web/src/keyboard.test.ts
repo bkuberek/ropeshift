@@ -163,6 +163,50 @@ function decide(heading: string, press: string, reason?: string): KeyPath["run"]
   };
 }
 
+// startAnswers answers what Start a project from a template reads: a worker that takes a remote, the account its gh is signed in
+// as, with an organization beside the login, and the request the dialog sends.
+const startAnswers = () =>
+  reply(
+    [/\/v1\/workers$/, { workers: [{ id: "worker-1", name: "atlas", epoch: 1, protocol: 6 }] }],
+    [/\/v1\/workers\/worker-1\/forge-account-reads$/, { id: "read-1", worker: "worker-1", requested_by: "member", requested_at: 1, expires_at: 4102444800000, forge: "github", state: "offered" }, "POST"],
+    [
+      /\/v1\/workers\/worker-1\/forge-account-reads\/read-1$/,
+      {
+        id: "read-1",
+        worker: "worker-1",
+        requested_by: "member",
+        requested_at: 1,
+        expires_at: 4102444800000,
+        forge: "github",
+        state: "reported",
+        report: { request: "read-1", state: "ok", login: "ana", git_protocol: "ssh", owners: ["ana", "acme"] },
+      },
+    ],
+    [
+      /\/v1\/workers\/worker-1\/template-writes$/,
+      { id: "request-1", worker: "worker-1", requested_by: "member", requested_at: 1, expires_at: 4102444800000, shape: "workspace", path: "/srv/code/harbor", state: "offered", registrable: false },
+      "POST",
+    ],
+  );
+
+// chooseCreateOnGitHub is the path from the palette through Several repositories, two names, and Create on GitHub, to the
+// dialog with its owners read. A group of radios takes Tab to one and the arrows to the others.
+async function chooseCreateOnGitHub(k: Keys, page: Page) {
+  await k.palette("Start a project from a template");
+  const start = inDialog(page);
+  await page.waitForFunction(() => (document.querySelector("[role=dialog] select") as HTMLSelectElement | null)?.value === "worker-1");
+  await k.tabTo(start.getByRole("radio", { name: /^One repository/ }));
+  await k.press("ArrowDown");
+  await k.typeInto(start.getByLabel("Folder", { exact: true }), "/srv/code/harbor");
+  await k.typeInto(start.getByRole("group", { name: "Code repository 1" }).getByLabel("Name", { exact: true }), "api");
+  await k.activate(start.getByRole("button", { name: "Add", exact: true }));
+  await k.typeInto(start.getByRole("group", { name: "Code repository 2" }).getByLabel("Name", { exact: true }), "web");
+  await k.tabTo(start.getByRole("radio", { name: "None" }));
+  await k.press("ArrowDown", "ArrowDown");
+  await start.getByRole("group", { name: "Remote" }).getByLabel("Owner", { exact: true }).waitFor();
+  return start;
+}
+
 const paths: Record<string, KeyPath> = {
   "POST /v1/projects": {
     sent: post(/^\/v1\/projects$/, expect.objectContaining({ name: "harbor" })),
@@ -172,22 +216,29 @@ const paths: Record<string, KeyPath> = {
       await k.press("Enter");
     },
   },
-  "POST /v1/workers/{id}/template-writes": {
-    sent: post(/^\/v1\/workers\/worker-1\/template-writes$/, { shape: "monorepo", path: "/srv/code/harbor", first_commit: true }),
-    answers: reply(
-      [/\/v1\/workers$/, { workers: [{ id: "worker-1", name: "atlas", epoch: 1, protocol: 5 }] }],
-      [
-        /\/v1\/workers\/worker-1\/template-writes$/,
-        { id: "request-1", worker: "worker-1", requested_by: "member", requested_at: 1, expires_at: 4102444800000, shape: "monorepo", path: "/srv/code/harbor", state: "offered", registrable: false },
-        "POST",
-      ],
-    ),
+  "POST /v1/workers/{id}/forge-account-reads": {
+    sent: post(/^\/v1\/workers\/worker-1\/forge-account-reads$/, { forge: "github" }),
+    answers: startAnswers(),
     run: async (k, page) => {
-      await k.palette("Start a project from a template");
-      const start = inDialog(page);
-      await page.waitForFunction(() => (document.querySelector("[role=dialog] select") as HTMLSelectElement | null)?.value === "worker-1");
-      await k.activate(start.getByRole("button", { name: "Monorepo" }));
-      await k.typeInto(start.getByLabel("Folder"), "/srv/code/harbor");
+      await chooseCreateOnGitHub(k, page);
+    },
+  },
+  "POST /v1/workers/{id}/template-writes": {
+    sent: post(/^\/v1\/workers\/worker-1\/template-writes$/, {
+      shape: "workspace",
+      path: "/srv/code/harbor",
+      first_commit: true,
+      remote: { create: { forge: "github", owner: "acme", visibility: "private" } },
+      repositories: [
+        { name: "api", new: true, create: { forge: "github", owner: "acme", visibility: "private" } },
+        { name: "web", new: true, create: { forge: "github", owner: "acme", visibility: "private" } },
+      ],
+    }),
+    answers: startAnswers(),
+    run: async (k, page) => {
+      const start = await chooseCreateOnGitHub(k, page);
+      await k.tabTo(start.getByRole("group", { name: "Remote" }).getByLabel("Owner", { exact: true }));
+      await k.choose("acme");
       await k.activate(start.getByRole("button", { name: "Write files" }));
       await start.getByText("Waiting for atlas").waitFor();
     },

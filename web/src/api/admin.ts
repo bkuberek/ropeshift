@@ -1,4 +1,5 @@
 import { call, project, request } from "./client";
+import type { ProjectRemote, RemoteCreate, RepositoryReport } from "./projectRemote";
 import type { LaneTelemetryList, MessageList, NoticeList, Orchestrator, Plan, Project, SourceBinding, Standing, WorkOrder, WorkTimeline } from "./types";
 
 // The installation's and one project's records a member manages: projects, repositories, settings, the
@@ -237,8 +238,9 @@ export const protocolTemplateWrites = 5;
 // (FR-TPL-5): the shape, the absolute folder, the code repositories of a workspace, the project a repository's
 // commands name, and whether the worker makes the folder's first commit.
 export type TemplateShape = "workspace" | "monorepo" | "repository";
-export type TemplateRepository = { name: string; remote: string };
-export type TemplateWriteRequest = { shape: TemplateShape; path: string; repositories?: TemplateRepository[]; project?: string; first_commit?: boolean };
+// An existing code repository names its remote. A new one is written at repos/<name>, and takes a URL or a repository to create.
+export type TemplateRepository = { name: string; remote?: string; new?: boolean; url?: string; create?: RemoteCreate };
+export type TemplateWriteRequest = { shape: TemplateShape; path: string; repositories?: TemplateRepository[]; project?: string; first_commit?: boolean; remote?: ProjectRemote };
 
 // What the worker did with a request. A refusal has its reason and detail; a write has the files it made, the first
 // commit or why it failed, whether the folder is now a clone, and the commands that register it.
@@ -253,6 +255,10 @@ export type TemplateWriteReport = {
   commit_error?: string;
   clone?: boolean;
   commands?: string[];
+  // The command that fixes a refusal, and, for a request with a remote, what each repository got and the commands that finish what did not run.
+  remedy?: string;
+  repositories?: RepositoryReport[];
+  remaining?: string[];
 };
 
 // A request as the daemon reads it: offered to its worker for two minutes, then written, refused, or expired. A
@@ -268,6 +274,7 @@ export type TemplateWriteView = {
   project?: string;
   repositories?: TemplateRepository[];
   first_commit?: boolean;
+  remote?: ProjectRemote;
   state: "offered" | "written" | "refused" | "expired";
   report?: TemplateWriteReport;
   reported_at?: number;
