@@ -109,16 +109,19 @@ func authStatus(dir string, args []string) {
 
 func prList(dir string, args []string) {
 	var repo, head, stateName, fields string
+	limit := 30
 	parse("pr list", args, func(fs *flag.FlagSet) {
 		fs.StringVar(&repo, "repo", "", "")
 		fs.StringVar(&head, "head", "", "")
 		fs.StringVar(&stateName, "state", "open", "")
 		fs.StringVar(&fields, "json", "", "")
+		fs.IntVar(&limit, "limit", limit, "")
 	})
 	state := read(dir)
 	out := []map[string]any{}
-	for _, pr := range state.PullRequests {
-		if pr.Repo == repo && pr.Branch == head && (stateName == "all" || strings.EqualFold(pr.State, stateName)) {
+	newestFirst := slices.SortedFunc(slices.Values(state.PullRequests), func(a, b ghstate.PullRequest) int { return int(b.Number - a.Number) })
+	for _, pr := range newestFirst {
+		if pr.Repo == repo && (head == "" || pr.Branch == head) && (stateName == "all" || strings.EqualFold(pr.State, stateName)) && len(out) < limit {
 			out = append(out, render(pr, state, fields))
 		}
 	}
@@ -284,6 +287,12 @@ func render(pr ghstate.PullRequest, state ghstate.State, fields string) map[stri
 				checks = []ghstate.Check{}
 			}
 			out[field] = checks
+		case "title":
+			out[field] = pr.Title
+		case "isDraft":
+			out[field] = pr.Draft
+		case "updatedAt":
+			out[field] = pr.UpdatedAt
 		case "comments":
 			comments := []map[string]string{}
 			for _, body := range pr.Comments {

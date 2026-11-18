@@ -231,6 +231,20 @@ type PullRequest struct {
 	Checks      []PullRequestCheck `json:"checks,omitempty"`
 }
 
+// PullRequestSummary is one open pull request as a listing of a repository's pull requests shows it: what a
+// person reads to decide whether to keep its branch.
+type PullRequestSummary struct {
+	Number int64  `json:"number"`
+	Title  string `json:"title"`
+	// Branch is the head branch and Base the branch it targets.
+	Branch string `json:"branch"`
+	Base   string `json:"base"`
+	URL    string `json:"url"`
+	Draft  bool   `json:"draft"`
+	// UpdatedAt is when the forge last changed it, as an RFC 3339 time in UTC.
+	UpdatedAt string `json:"updated_at"`
+}
+
 // WorkPullRequest is the pull request a work order lands through, as the ledger last heard of it.
 type WorkPullRequest struct {
 	PullRequest

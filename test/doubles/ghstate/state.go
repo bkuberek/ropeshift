@@ -58,6 +58,9 @@ type PullRequest struct {
 	Mergeable   string   `json:"mergeable,omitempty"`
 	MergeState  string   `json:"merge_state,omitempty"`
 	Required    []string `json:"required,omitempty"`
+	// Draft is what `isDraft` says, and UpdatedAt what `updatedAt` says.
+	Draft     bool   `json:"draft,omitempty"`
+	UpdatedAt string `json:"updated_at,omitempty"`
 	// MergeMethod is the flag the merge that merged it named.
 	MergeMethod string `json:"merge_method,omitempty"`
 }
