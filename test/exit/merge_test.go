@@ -37,8 +37,15 @@ func mergeSource(t *testing.T) (*gittest.Repo, string) {
 	return repo, bare
 }
 
-// mergingInstall starts the daemon on the checkout, sets its one repository with these flags, and returns the
-// work order of its contract and the repository.
+// fastCI are the CI keys of a repository whose checks the fake forge changes by hand. The fake sends no webhook
+// hint and gives a running check no start, so the repository's CI schedule reads it every steady interval, 5 minutes
+// by default, which is longer than a test waits for the worker to see a check turn green or a head move. The
+// smallest interval the keys allow reads it within a wait. The schedule itself is held by the ledger and worker
+// tests, and these tests hold what a read leads to.
+var fastCI = []string{"ci.ci_min_interval=5s", "ci.ci_steady_interval=5s"}
+
+// mergingInstall starts the daemon on the checkout, sets its one repository with these flags and fastCI, and
+// returns the work order of its contract and the repository.
 func (in *install) mergingInstall(t *testing.T, repo *gittest.Repo, set ...string) (string, string) {
 	t.Helper()
 	d := in.start("--intake-tick", "20ms", "--heartbeat", "30ms", "--lease-tick", "20ms", "--forge-tick", "100ms", "--source", repo.Dir)
@@ -72,7 +79,7 @@ func (in *install) mergingInstall(t *testing.T, repo *gittest.Repo, set ...strin
 		t.Fatalf("repositories %+v: %v", list, err)
 	}
 	repository := list.Repositories[0].ID
-	in.must(append([]string{"repository", "set", repository[:8]}, set...)...)
+	in.must(slices.Concat([]string{"repository", "set", repository[:8]}, set, fastCI)...)
 	in.must("work", "review", first)
 	return first, repository
 }

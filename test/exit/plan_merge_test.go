@@ -100,7 +100,7 @@ func (in *install) planningInstall(t *testing.T, withGH bool, set ...string) (*g
 	})
 	repository := list.Repositories[0].ID
 	if len(set) != 0 {
-		in.must(append([]string{"repository", "set", repository[:8]}, set...)...)
+		in.must(slices.Concat([]string{"repository", "set", repository[:8]}, set, fastCI)...)
 	}
 	return repo, bare, repository, gh
 }
