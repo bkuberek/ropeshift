@@ -114,4 +114,23 @@ type Forge interface {
 	// Health reports whether the sign-in for the binding's host can run the operations above. A CLI that
 	// is missing, or a sign-in with a problem, is a health state and not an error.
 	Health(ctx context.Context, repo ForgeRepo) (ledger.ForgeHealthReport, error)
+	// RerunChecks starts again the failed jobs of runs of a head's checks (ADR-0037). The runs it is given are
+	// rerun, each if it finished without passing, and with none it reruns every run of the head that did. A run the
+	// forge cannot rerun, because it is still going or no longer exists, is a refusal in the result and not an error,
+	// and a rerun of a run that already went is a refusal too, so a repeat after a crash starts nothing twice.
+	RerunChecks(ctx context.Context, ref PullRequestRef, head string, runs []string) (ledger.CIRerun, error)
+	// FailedLog reads the log of what failed in one check, at most its last maxBytes. A check that has no log on the
+	// forge's own runs answers an empty log and no error.
+	FailedLog(ctx context.Context, repo ForgeRepo, check ledger.CICheckRef, maxBytes int) (string, error)
+	// BaseChecks reads the checks that concluded `failure` on a branch's tip, which says whether a failure of a pull
+	// request is the base's too.
+	BaseChecks(ctx context.Context, repo ForgeRepo, branch string) (BaseChecksRead, error)
+}
+
+// BaseChecksRead is what a read of a branch's tip found: the commit it read, and the names of the checks that
+// concluded `failure` on it.
+type BaseChecksRead struct {
+	Commit string
+	Failed []string
+	Rate   ForgeRate
 }

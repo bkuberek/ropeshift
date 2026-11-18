@@ -42,6 +42,8 @@ func main() {
 		prMerge(dir, args[2:])
 	case len(args) >= 2 && args[0] == "pr" && args[1] == "checks":
 		prChecks(dir, args[2:])
+	case len(args) >= 2 && args[0] == "run" && args[1] == "view":
+		runView(dir, args[2:])
 	case len(args) >= 1 && args[0] == "api":
 		api(dir, args[1:])
 	default:

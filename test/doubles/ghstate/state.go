@@ -62,6 +62,29 @@ type PullRequest struct {
 	MergeMethod string `json:"merge_method,omitempty"`
 }
 
+// Run is one workflow run on the fake forge: what its head's checks stand for when a worker reruns the failed jobs of
+// a run or reads the log of what failed in it. Status is as the REST API words it, in lower case, and Reruns counts
+// the reruns of failed jobs the fake took.
+type Run struct {
+	ID         int64  `json:"id"`
+	Repo       string `json:"repo"`
+	Head       string `json:"head"`
+	Status     string `json:"status"`
+	Conclusion string `json:"conclusion,omitempty"`
+	// Log is what `gh run view --log-failed` prints for the run.
+	Log    string `json:"log,omitempty"`
+	Reruns int64  `json:"reruns,omitempty"`
+}
+
+// BaseCheck is one check run on the tip of a branch, which says whether a base is red.
+type BaseCheck struct {
+	Repo       string `json:"repo"`
+	Branch     string `json:"branch"`
+	Commit     string `json:"commit"`
+	Name       string `json:"name"`
+	Conclusion string `json:"conclusion"`
+}
+
 // RateLimit makes the fake refuse every read that goes through the API or the pull request commands, as GitHub does
 // over a limit: a primary limit with no request left until Reset, or a secondary one that says how many seconds to
 // wait in Retry-After.
@@ -89,6 +112,18 @@ type State struct {
 	Remote       string        `json:"remote,omitempty"`
 	Calls        int64         `json:"calls"`
 	PullRequests []PullRequest `json:"pull_requests,omitempty"`
+	Runs         []Run         `json:"runs,omitempty"`
+	Bases        []BaseCheck   `json:"bases,omitempty"`
+}
+
+// FindRun returns the run with an ID, or nil.
+func (s *State) FindRun(id int64) *Run {
+	for i := range s.Runs {
+		if s.Runs[i].ID == id {
+			return &s.Runs[i]
+		}
+	}
+	return nil
 }
 
 // Find returns the pull request with a number, or nil.

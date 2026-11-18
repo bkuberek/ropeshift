@@ -92,7 +92,7 @@ func (f Forge) api(ctx context.Context, dir, host string, args ...string) (apiRe
 			return apiResponse{}, &ports.RateLimitedError{Rate: rate, Detail: clip(message)}
 		}
 	}
-	return apiResponse{}, fmt.Errorf("gh api %s: HTTP %d: %s", strings.Join(args, " "), response.Status, clip(apiMessage(response.Body)))
+	return apiResponse{}, &apiError{args: args, Status: response.Status, Message: clip(apiMessage(response.Body))}
 }
 
 // apiMessage reads the message of an error body.
@@ -186,7 +186,7 @@ func laterRate(a, b ports.ForgeRate) ports.ForgeRate {
 const batchSelection = `number url state baseRefName headRefName headRefOid mergeable mergedAt mergeCommit { oid }
 commits(last: 1) { nodes { commit { oid statusCheckRollup { contexts(first: 100) { pageInfo { hasNextPage } nodes {
 __typename
-... on CheckRun { name status conclusion detailsUrl startedAt isRequired(pullRequestNumber: %[1]d) }
+... on CheckRun { name status conclusion detailsUrl startedAt completedAt isRequired(pullRequestNumber: %[1]d) }
 ... on StatusContext { context state targetUrl isRequired(pullRequestNumber: %[1]d) }
 } } } } } }`
 
