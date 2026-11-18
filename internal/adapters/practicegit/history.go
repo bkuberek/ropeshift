@@ -25,8 +25,14 @@ const (
 	secretScanBatchBytes = 8 << 20
 )
 
-// secretScanPlainNames has git print a path as it is, and not in quotes with escapes.
-var secretScanPlainNames = []string{"GIT_CONFIG_COUNT=1", "GIT_CONFIG_KEY_0=core.quotePath", "GIT_CONFIG_VALUE_0=false"}
+// secretScanEnvironment is what every git command of the scan runs under, so the repository's own settings cannot
+// change what it reads: paths print as they are and not in quotes, no file system monitor runs, and a replacement
+// ref cannot stand in for an object.
+var secretScanEnvironment = []string{
+	"GIT_NO_REPLACE_OBJECTS=1", "GIT_CONFIG_COUNT=2",
+	"GIT_CONFIG_KEY_0=core.quotePath", "GIT_CONFIG_VALUE_0=false",
+	"GIT_CONFIG_KEY_1=core.fsmonitor", "GIT_CONFIG_VALUE_1=false",
+}
 
 var _ ports.SecretScans = SecretScanner{}
 
@@ -44,30 +50,42 @@ func (s SecretScanner) Scan(ctx context.Context, dir, tip, from string) (ports.S
 	if err := ctx.Err(); err != nil {
 		return ports.SecretScan{}, fmt.Errorf("scan for secrets: %w", err)
 	}
-	git := gitcli.Git{Dir: dir, Env: s.Env, Extra: secretScanPlainNames}
+	git := gitcli.Git{Dir: dir, Env: s.Env, Extra: secretScanEnvironment}
 	tipCommit, err := secretScanCommit(ctx, git, tip)
 	if err != nil {
 		return ports.SecretScan{}, fmt.Errorf("scan for secrets: %w", err)
 	}
-	args := []string{"log", "-p", "--no-color", "--no-ext-diff", "--no-textconv",
-		"--no-show-signature", "--unified=0", "--no-renames", "--src-prefix=a/", "--dst-prefix=b/", "--topo-order",
-		"--reverse", "--format=%H", tipCommit}
+	// The options fix what the patches hold whatever the repository's settings and attributes say: every commit with
+	// a patch, a merge by its diff against its first parent, every file as text, paths from the root of the
+	// repository, and no context lines between hunks.
+	args := []string{"log", "-p", "--no-color", "--no-ext-diff", "--no-textconv", "--no-show-signature", "--root",
+		"--diff-merges=first-parent", "--text", "--no-relative", "--unified=0", "--inter-hunk-context=0", "--no-renames",
+		"--src-prefix=a/", "--dst-prefix=b/", "--topo-order", "--reverse", "--format=%H", tipCommit}
 	scanned := ""
 	if base, ok := secretScanBase(ctx, git, from, tipCommit); ok {
 		scanned = from
 		args = append(args, "^"+base)
 	}
+	args = append(args, "--")
 	if err := ctx.Err(); err != nil {
 		return ports.SecretScan{}, fmt.Errorf("scan for secrets: %w", err)
 	}
 	found := newSecretFindings()
 	if err := git.Stream(ctx, func(r io.Reader) error { return found.readPatches(r) }, args...); err != nil {
-		return ports.SecretScan{}, fmt.Errorf("scan the history for secrets: %w", err)
+		return ports.SecretScan{}, secretScanFailure(ctx, "scan the history for secrets", err)
 	}
 	if err := found.scanTree(ctx, git, tipCommit); err != nil {
-		return ports.SecretScan{}, fmt.Errorf("scan the tree for secrets: %w", err)
+		return ports.SecretScan{}, secretScanFailure(ctx, "scan the tree for secrets", err)
 	}
 	return found.result(scanned), nil
+}
+
+// secretScanFailure reports a failed stage. A scan whose context ended reports that and not the signal that stopped git.
+func secretScanFailure(ctx context.Context, stage string, err error) error {
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		err = ctxErr
+	}
+	return fmt.Errorf("%s: %w", stage, err)
 }
 
 // secretScanCommit resolves a revision to its commit. A revision that is empty or starts with `-` is no revision,
@@ -195,25 +213,7 @@ func (f *secretFindings) scanBlobs(ctx context.Context, git gitcli.Git, commit s
 	if err != nil {
 		return err
 	}
-	reader := bufio.NewReader(bytes.NewReader(out))
-	for _, object := range objects {
-		header, err := reader.ReadString('\n')
-		if err != nil {
-			return fmt.Errorf("read blob %s: %w", object, err)
-		}
-		fields := strings.Fields(header)
-		if len(fields) != 3 || fields[1] != "blob" {
-			return fmt.Errorf("read blob %s: unexpected answer %q", object, strings.TrimSpace(header))
-		}
-		length, err := strconv.Atoi(fields[2])
-		if err != nil {
-			return fmt.Errorf("read blob %s: %w", object, err)
-		}
-		content := make([]byte, length+1)
-		if _, err := io.ReadFull(reader, content); err != nil {
-			return fmt.Errorf("read blob %s: %w", object, err)
-		}
-		content = content[:length]
+	return readBlobs(bytes.NewReader(out), objects, func(object string, content []byte) {
 		for _, path := range paths[object] {
 			if secretScanBinary(content) {
 				f.skipped[path] = true
@@ -221,6 +221,30 @@ func (f *secretFindings) scanBlobs(ctx context.Context, git gitcli.Git, commit s
 			}
 			f.addText(string(content), path, commit, 1)
 		}
+	})
+}
+
+// readBlobs reads the answers of `git cat-file --batch` for objects, in order, and hands each blob's content to visit.
+func readBlobs(r io.Reader, objects []string, visit func(object string, content []byte)) error {
+	reader := bufio.NewReader(r)
+	for _, object := range objects {
+		header, err := reader.ReadString('\n')
+		if err != nil {
+			return fmt.Errorf("read blob %s: %w", object, err)
+		}
+		fields := strings.Fields(header)
+		if len(fields) != 3 || fields[1] != "blob" {
+			return fmt.Errorf("read blob %s: unexpected answer", object)
+		}
+		length, err := strconv.Atoi(fields[2])
+		if err != nil || length < 0 {
+			return fmt.Errorf("read blob %s: unexpected size", object)
+		}
+		content := make([]byte, length+1)
+		if _, err := io.ReadFull(reader, content); err != nil {
+			return fmt.Errorf("read blob %s: %w", object, err)
+		}
+		visit(object, content[:length])
 	}
 	return nil
 }
@@ -252,9 +276,10 @@ type patchReader struct {
 	// skipFile says the file's added text is not scanned; added counts the bytes of it so far.
 	skipFile bool
 	added    int
-	// oldLeft and newLeft count the lines of the hunk not read yet; first is the new file's line of its first line.
-	oldLeft, newLeft, first int
-	text                    []string
+	// oldLeft and newLeft count the lines of the hunk not read yet. next is the new file's line number of the next line
+	// of the hunk, and first the new file's line number of the first line in text.
+	oldLeft, newLeft, next, first int
+	text                          []string
 }
 
 func (p *patchReader) line(line string, truncated bool) {
@@ -266,7 +291,7 @@ func (p *patchReader) line(line string, truncated bool) {
 		p.commit = line
 	case strings.HasPrefix(line, "diff --git "):
 		p.path, p.skipFile, p.added = patchPath(strings.TrimPrefix(line, "diff --git ")), false, 0
-	case strings.HasPrefix(line, "Binary files "):
+	case strings.HasPrefix(line, "Binary files ") && !strings.HasSuffix(line, " and /dev/null differ"):
 		p.found.skipped[p.path] = true
 	case strings.HasPrefix(line, "@@ "):
 		p.startHunk(line)
@@ -279,10 +304,20 @@ func (p *patchReader) hunkLine(line string, truncated bool) bool {
 	switch {
 	case strings.HasPrefix(line, "+"):
 		p.newLeft--
+		if len(p.text) == 0 {
+			p.first = p.next
+		}
+		p.next++
 		p.addLine(line[1:], truncated)
 	case strings.HasPrefix(line, "-"):
 		p.oldLeft--
 	case strings.HasPrefix(line, `\`):
+	case line == "" || strings.HasPrefix(line, " "):
+		// A context line, which ends the run of added lines before it, and is no line of the added text.
+		p.endHunk()
+		p.oldLeft--
+		p.newLeft--
+		p.next++
 	default:
 		p.oldLeft, p.newLeft = 0, 0
 		p.endHunk()
@@ -315,10 +350,10 @@ func (p *patchReader) startHunk(header string) {
 		return
 	}
 	_, p.oldLeft = hunkRange(fields[1])
-	p.first, p.newLeft = hunkRange(fields[2])
+	p.next, p.newLeft = hunkRange(fields[2])
 }
 
-// endHunk scans the lines the hunk added.
+// endHunk scans the lines added so far in the hunk.
 func (p *patchReader) endHunk() {
 	if len(p.text) > 0 && !p.skipFile {
 		text := strings.Join(p.text, "\n")

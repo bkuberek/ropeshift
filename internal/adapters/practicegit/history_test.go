@@ -5,8 +5,13 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"ropeshift.com/ropeshift/internal/adapters/practicegit"
 	"ropeshift.com/ropeshift/internal/ports"
@@ -245,4 +250,217 @@ func TestSecretScanReadsPathsGitQuotes(t *testing.T) {
 	repo := gittest.New(t)
 	tip := repo.Commit("café/\"key\"\t.txt", secretScanTokenA+"\n")
 	secretScanExpect(t, secretScan(t, repo, tip, ""), secretScanWant("github_token", "café/\"key\"\t.txt", 1, tip, secretScanTokenA))
+}
+
+// secretScanConfigure appends text to the git configuration the repository's commands read.
+func secretScanConfigure(t *testing.T, repo *gittest.Repo, text string) {
+	t.Helper()
+	file, err := os.OpenFile(filepath.Join(repo.Home, "gitconfig"), os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := file.WriteString(text); err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func secretScanWrite(t *testing.T, repo *gittest.Repo, name, content string) {
+	t.Helper()
+	path := filepath.Join(repo.Dir, name)
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSecretScanReadsHunksThatGitFusesAcrossContext(t *testing.T) {
+	t.Parallel()
+	repo := gittest.New(t)
+	secretScanConfigure(t, repo, "[diff]\n\tinterHunkContext = 10\n\tsuppressBlankEmpty = true\n")
+	repo.Commit("a.txt", "one\n\ntwo\nthree\nfour\n")
+	repo.Commit("a.txt", "first\n\ntwo\nthree\n"+secretScanTokenA+"\n")
+	added := repo.Git("rev-parse", "HEAD")
+	tip := repo.Commit("a.txt", "first\n\ntwo\nthree\nfour\n")
+	secretScanExpect(t, secretScan(t, repo, tip, ""), secretScanWant("github_token", "a.txt", 5, added, secretScanTokenA))
+}
+
+func TestSecretScanReadsTheRootCommitWhenLogHidesIt(t *testing.T) {
+	t.Parallel()
+	repo := gittest.New(t)
+	secretScanConfigure(t, repo, "[log]\n\tshowRoot = false\n")
+	root := repo.Commit("a.txt", secretScanTokenA+"\n")
+	tip := repo.Commit("a.txt", "clean\n")
+	secretScanExpect(t, secretScan(t, repo, tip, ""), secretScanWant("github_token", "a.txt", 1, root, secretScanTokenA))
+}
+
+func TestSecretScanReadsFilesThatAttributesCallBinary(t *testing.T) {
+	t.Parallel()
+	for name, setup := range map[string]func(t *testing.T, repo *gittest.Repo) string{
+		"a committed minus diff": func(t *testing.T, repo *gittest.Repo) string {
+			return repo.Commit(".gitattributes", "*.txt -diff\n")
+		},
+		"a committed binary": func(t *testing.T, repo *gittest.Repo) string {
+			return repo.Commit(".gitattributes", "*.txt binary\n")
+		},
+		"info attributes": func(t *testing.T, repo *gittest.Repo) string {
+			secretScanWrite(t, repo, ".git/info/attributes", "*.txt -diff\n")
+			return repo.Commit("other.md", "x\n")
+		},
+		"a global attributes file": func(t *testing.T, repo *gittest.Repo) string {
+			secretScanWrite(t, repo, "../attributes", "*.txt -diff\n")
+			secretScanConfigure(t, repo, "[core]\n\tattributesFile = "+filepath.Join(filepath.Dir(repo.Dir), "attributes")+"\n")
+			return repo.Commit("other.md", "x\n")
+		},
+		"a binary diff driver": func(t *testing.T, repo *gittest.Repo) string {
+			secretScanConfigure(t, repo, "[diff \"opaque\"]\n\tbinary = true\n")
+			return repo.Commit(".gitattributes", "*.txt diff=opaque\n")
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			repo := gittest.New(t)
+			setup(t, repo)
+			added := repo.Commit("a.txt", "one\n"+secretScanTokenA+"\n")
+			tip := repo.Commit("a.txt", "one\n")
+			got := secretScan(t, repo, tip, "")
+			secretScanExpect(t, got, secretScanWant("github_token", "a.txt", 2, added, secretScanTokenA))
+			if got.Skipped != 0 {
+				t.Errorf("skipped %d files", got.Skipped)
+			}
+		})
+	}
+}
+
+func TestSecretScanReadsWhatAMergeAdds(t *testing.T) {
+	t.Parallel()
+	repo := gittest.New(t)
+	repo.Commit("base.txt", "base\n")
+	repo.Git("checkout", "--quiet", "-b", "side")
+	repo.Commit("side.txt", "side\n")
+	repo.Git("checkout", "--quiet", "main")
+	repo.Commit("main.txt", "main\n")
+	repo.Git("merge", "--quiet", "--no-ff", "--no-commit", "side")
+	secretScanWrite(t, repo, "resolved.txt", "x\n"+secretScanTokenA+"\n")
+	repo.Git("add", "resolved.txt")
+	repo.Git("commit", "--quiet", "-m", "merge side")
+	merge := repo.Git("rev-parse", "HEAD")
+	tip := repo.Commit("resolved.txt", "x\n")
+	secretScanExpect(t, secretScan(t, repo, tip, ""), secretScanWant("github_token", "resolved.txt", 2, merge, secretScanTokenA))
+}
+
+// A secret a side branch added shows again in the diff of the merge against its first parent, and is one match at
+// the side branch's commit.
+func TestSecretScanKeepsTheSideCommitOfAMergedSecret(t *testing.T) {
+	t.Parallel()
+	repo := gittest.New(t)
+	repo.Commit("base.txt", "base\n")
+	repo.Git("checkout", "--quiet", "-b", "side")
+	added := repo.Commit("side.txt", secretScanTokenA+"\n")
+	repo.Git("checkout", "--quiet", "main")
+	repo.Commit("main.txt", "main\n")
+	repo.Merge("side")
+	tip := repo.Commit("side.txt", "clean\n")
+	secretScanExpect(t, secretScan(t, repo, tip, ""), secretScanWant("github_token", "side.txt", 1, added, secretScanTokenA))
+}
+
+func TestSecretScanReadsHistoryWhenAPathIsNamedLikeTheTip(t *testing.T) {
+	t.Parallel()
+	repo := gittest.New(t)
+	added := repo.Commit("a.txt", secretScanTokenA+"\n")
+	tip := repo.Commit("a.txt", "clean\n")
+	secretScanWrite(t, repo, tip, "x\n")
+	secretScanExpect(t, secretScan(t, repo, tip, ""), secretScanWant("github_token", "a.txt", 1, added, secretScanTokenA))
+}
+
+func TestSecretScanReadsPathsFromTheRootOfTheRepository(t *testing.T) {
+	t.Parallel()
+	repo := gittest.New(t)
+	secretScanConfigure(t, repo, "[diff]\n\trelative = true\n")
+	added := repo.Commit("top.txt", secretScanTokenA+"\n")
+	repo.Commit("sub/inner.txt", "x\n")
+	tip := repo.Commit("top.txt", "clean\n")
+	got, err := practicegit.SecretScanner{Env: repo.Env()}.Scan(context.Background(), filepath.Join(repo.Dir, "sub"), tip, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	secretScanExpect(t, got, secretScanWant("github_token", "top.txt", 1, added, secretScanTokenA))
+}
+
+func TestSecretScanIgnoresReplacementRefs(t *testing.T) {
+	t.Parallel()
+	repo := gittest.New(t)
+	repo.Commit("a.txt", "clean\n")
+	added := repo.Commit("a.txt", secretScanTokenA+"\n")
+	repo.Commit("b.txt", "b\n")
+	clean := repo.Git("rev-parse", "HEAD~2")
+	repo.Git("replace", added, clean)
+	tip := repo.Commit("a.txt", "clean\n")
+	secretScanExpect(t, secretScan(t, repo, tip, ""), secretScanWant("github_token", "a.txt", 1, added, secretScanTokenA))
+}
+
+func TestSecretScanDoesNotCountADeletedBinaryFile(t *testing.T) {
+	t.Parallel()
+	repo := gittest.New(t)
+	from := repo.Commit("blob.bin", "\x00\x01\x02\n")
+	repo.Git("rm", "--quiet", "blob.bin")
+	repo.Git("commit", "--quiet", "-m", "remove the binary")
+	tip := repo.Git("rev-parse", "HEAD")
+	got := secretScan(t, repo, tip, from)
+	if got.Skipped != 0 || len(got.Matches) != 0 {
+		t.Errorf("skipped %d, matches %+v", got.Skipped, got.Matches)
+	}
+}
+
+// A scan stopped while git is still writing reports the stop, and not the signal that ended git.
+func TestSecretScanStoppedInTheMiddleOfTheHistoryReportsTheContext(t *testing.T) {
+	repo := gittest.New(t)
+	tip := repo.Commit("a.txt", "one\n")
+	realGit, err := exec.LookPath("git")
+	if err != nil {
+		t.Skip("git is not on PATH")
+	}
+	bin := t.TempDir()
+	script := "#!/bin/sh\nif [ \"$1\" = log ]; then\n\techo " + tip + "\n\texec sleep 60\nfi\nexec " + realGit + " \"$@\"\n"
+	if err := os.WriteFile(filepath.Join(bin, "git"), []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	ctx, cancel := context.WithCancel(context.Background())
+	time.AfterFunc(300*time.Millisecond, cancel)
+	defer cancel()
+	start := time.Now()
+	_, err = practicegit.SecretScanner{Env: repo.Env()}.Scan(ctx, repo.Dir, tip, "")
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("the error is %v, want the context's", err)
+	}
+	if time.Since(start) > 30*time.Second {
+		t.Error("the scan did not stop")
+	}
+}
+
+func TestSecretScanOfAMissingObjectFailsWithNoText(t *testing.T) {
+	t.Parallel()
+	repo := gittest.New(t)
+	repo.Commit("a.txt", secretScanTokenA+"\n")
+	from := repo.Commit("b.txt", "b\n")
+	tip := repo.Commit("c.txt", "c\n")
+	blob := repo.Git("rev-parse", from+":a.txt")
+	if err := os.Chmod(filepath.Join(repo.Dir, ".git", "objects", blob[:2]), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(repo.Dir, ".git", "objects", blob[:2], blob[2:])); err != nil {
+		t.Fatal(err)
+	}
+	_, err := practicegit.SecretScanner{Env: repo.Env()}.Scan(context.Background(), repo.Dir, tip, from)
+	if err == nil {
+		t.Fatal("a scan of a tree with a missing blob succeeded")
+	}
+	if strings.Contains(err.Error(), secretScanTokenA) || strings.Contains(err.Error(), strings.Repeat("a", 36)) {
+		t.Errorf("the error holds a secret's text: %v", err)
+	}
 }
