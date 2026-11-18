@@ -312,6 +312,9 @@ func usageReported(tx ports.WriteTx, worker, id string, e ledger.UploadEvent) er
 	if err := tx.Lanes().AddSpend(ledger.SpendScopeWork, spend.Charged.ChargedUSD-before.ChargedUSD); err != nil {
 		return err
 	}
+	if err := noteProjectLimits(tx); err != nil {
+		return err
+	}
 	if err := noteLimit(tx, spend, ledger.ConditionOverEstimate, ledger.EventSpendSoftLimit, spend.SoftLimit); err != nil {
 		return err
 	}
@@ -346,10 +349,61 @@ func noteLimit(tx ports.WriteTx, spend ledger.WorkOrderSpend, condition, eventTy
 	if err != nil {
 		return err
 	}
-	_, err = tx.Append(ledger.EventDraft{
+	if _, err = tx.Append(ledger.EventDraft{
 		Type: eventType, Actor: ledger.Actor{Kind: ledger.ActorSystem, ID: "spend"}, Subject: subject, Data: data,
-	})
-	return err
+	}); err != nil {
+		return err
+	}
+	// The alert is a ledger event of its own that names its scope, for the channels a member chose to tell (FR-SPEND-19).
+	kind, scope := ledger.NoticeSpendSoftLimit, ledger.NoticeScopeWorkOrder
+	if eventType == ledger.EventSpendLimited {
+		kind = ledger.NoticeSpendHardLimit
+	}
+	if spend.Kind == string(workorders.KindReview) {
+		scope = ledger.NoticeScopeReview
+	}
+	return recordSpendNotice(tx, ledger.SpendNotice{
+		Kind: kind, Scope: scope, Subject: spend.WorkOrder, LimitUSD: limit, ChargedUSD: spend.Charged.ChargedUSD, PolicyVersion: spend.PolicyVersion,
+	}, spendActor)
+}
+
+// noteProjectLimits records the alert of each window of the project that its spend has reached the soft or the hard limit of,
+// once for the window and the limit (FR-SPEND-19): a day, or a week, is another notice, and so is a limit a member raised.
+func noteProjectLimits(tx ports.WriteTx) error {
+	reads := projectWritesOf(tx)
+	policy, err := spendPolicyInForce(reads.policies)
+	if err != nil {
+		return err
+	}
+	spend, err := reads.projectSpendUnder(policy, false)
+	if err != nil {
+		return err
+	}
+	for _, window := range []struct {
+		spend ledger.ProjectWindowSpend
+		scope string
+	}{{spend.Day, ledger.NoticeScopeProjectDay}, {spend.Week, ledger.NoticeScopeProjectWeek}} {
+		for _, reached := range []struct {
+			kind  string
+			past  bool
+			limit float64
+		}{
+			{ledger.NoticeSpendSoftLimit, window.spend.PastSoft(), window.spend.SoftLimit},
+			{ledger.NoticeSpendHardLimit, window.spend.Past(), window.spend.HardLimit},
+		} {
+			if !reached.past {
+				continue
+			}
+			err := recordSpendNotice(tx, ledger.SpendNotice{
+				Kind: reached.kind, Scope: window.scope, WindowStart: window.spend.StartsAt, LimitUSD: reached.limit,
+				ChargedUSD: window.spend.SpentUSD, PolicyVersion: policy.Version,
+			}, spendActor)
+			if err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // spendAllowance reads what a work order allows a lane to spend, for the worker that holds the lane to its hard limit:

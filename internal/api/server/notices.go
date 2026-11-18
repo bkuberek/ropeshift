@@ -78,6 +78,12 @@ func Waiting(config Config, project string) func(context.Context) ([]ledger.Noti
 			}
 			return nil
 		})
-		return notices, err
+		if err != nil {
+			return nil, err
+		}
+		// A spend alert is not a thing that waits: it was told once, by an event of its own, and it reaches the channels a
+		// member chose for its kind until each has heard it or the window ends (FR-SPEND-19).
+		alerts, err := h.notices.SpendWaiting(ctx, h.Scope, project)
+		return append(notices, alerts...), err
 	}
 }

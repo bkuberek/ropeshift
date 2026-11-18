@@ -180,6 +180,13 @@ func (s *Spend) RaiseProject(ctx context.Context, scope ledger.WorkspaceID, in P
 		}); err != nil {
 			return err
 		}
+		key := "project_daily_limit"
+		if in.Window == ledger.WindowWeek {
+			key = "project_weekly_limit"
+		}
+		if err := noteLimitRaised(tx, "", key, change.BeforeUSD, change.AfterUSD, policy.Version, actor); err != nil {
+			return err
+		}
 		_, err = fireWakes(tx, "limit:project:"+in.Window, actor, parking.LimitRaised)
 		return err
 	})

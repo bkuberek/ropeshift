@@ -74,6 +74,10 @@ func (n *Notices) Deliver(ctx context.Context, scope ledger.WorkspaceID, waiting
 	sent := 0
 	for _, notice := range waiting {
 		for _, channel := range channels {
+			// A spend notice goes to the web UI and to the channels the policy chose for its kind, and to no other (FR-SPEND-19).
+			if !policy.Sends(notice.Kind, channel.Channel()) {
+				continue
+			}
 			if sent == noticesPerTick {
 				return errors.Join(failures...)
 			}

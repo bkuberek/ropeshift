@@ -44,6 +44,15 @@ VALUES (:workspace_id, :lane_id, :generation, :start_reason, :handoff_in, :now)`
 		`INSERT INTO spend_days (workspace_id, scope, day, charged_usd) VALUES (:workspace_id, :scope, :day, :usd)
 ON CONFLICT (workspace_id, scope, day) DO UPDATE SET charged_usd = spend_days.charged_usd + :usd`)
 
+	stmtSpendMark = define("spend.mark",
+		`SELECT charged_usd FROM spend_marks
+ WHERE workspace_id = :workspace_id AND scope = :scope AND owner = :owner AND generation = :generation`)
+
+	stmtSpendMarkRaise = define("spend.mark_raise",
+		`INSERT INTO spend_marks (workspace_id, scope, owner, generation, charged_usd)
+VALUES (:workspace_id, :scope, :owner, :generation, :usd)
+ON CONFLICT (workspace_id, scope, owner, generation) DO UPDATE SET charged_usd = :usd`)
+
 	stmtSpendSince = define("spend.since",
 		`SELECT COALESCE(SUM(charged_usd), 0) FROM spend_days
  WHERE workspace_id = :workspace_id AND scope = :scope AND day >= :from`)
@@ -152,6 +161,26 @@ func (t laneTx) AddSpend(scope string, usd float64) error {
 	}
 	_, err = t.exec(stmtAddSpend, params{"workspace_id": string(t.scope), "scope": scope, "day": ledger.WindowStart(ledger.WindowDay, now), "usd": usd})
 	return err
+}
+
+func (t laneTx) NoteSpend(scope, owner string, generation int64, chargedUSD float64) error {
+	p := params{"workspace_id": string(t.scope), "scope": scope, "owner": owner, "generation": generation}
+	row, err := t.row(stmtSpendMark, p)
+	if err != nil {
+		return err
+	}
+	var prior float64
+	if err := row.Scan(&prior); err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	if !(chargedUSD > prior) {
+		return nil
+	}
+	p["usd"] = chargedUSD
+	if _, err := t.exec(stmtSpendMarkRaise, p); err != nil {
+		return err
+	}
+	return t.AddSpend(scope, chargedUSD-prior)
 }
 
 func (t laneTx) SpendSince(scope string, from int64) (float64, error) {

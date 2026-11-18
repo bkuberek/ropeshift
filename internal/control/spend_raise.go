@@ -197,6 +197,9 @@ func recordLimitChange(tx ports.WriteTx, change ledger.SpendLimitChange, actor l
 	}); err != nil {
 		return err
 	}
+	if err := noteLimitRaised(tx, change.WorkOrder, "hard_limit", change.BeforeUSD, change.AfterUSD, change.PolicyVersion, actor); err != nil {
+		return err
+	}
 	_, err = fireWakes(tx, "limit:"+change.WorkOrder, actor, parking.LimitRaised)
 	return err
 }
