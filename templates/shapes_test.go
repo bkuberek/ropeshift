@@ -221,3 +221,89 @@ func TestTheWorkspaceMakefileSetsUpFetchesAndShowsTheStatusOfANestedRepository(t
 		t.Errorf("make status reads a clone as missing:\n%s", status)
 	}
 }
+
+// fakeRopeshift puts a ropeshift on the PATH of a test that records its arguments, one command to a line, so a
+// Makefile's register target runs against no daemon and never reaches an installed binary. It returns the PATH to run
+// make with and the file the commands are recorded in.
+func fakeRopeshift(t *testing.T) (string, string) {
+	t.Helper()
+	dir := t.TempDir()
+	record := filepath.Join(dir, "calls")
+	script := "#!/bin/sh\nfor argument in \"$@\"; do printf '%s\\n' \"$argument\"; done >> " + record + "\nprintf -- '--\\n' >> " + record + "\n"
+	if err := os.WriteFile(filepath.Join(dir, "ropeshift"), []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	return dir + string(os.PathListSeparator) + os.Getenv("PATH"), record
+}
+
+// make register registers the workspace and the clone of every entry the Makefile lists, each by its own path, at any
+// depth, and a clone that is in the folder of clones and not in the list is not registered. An entry with no clone is
+// skipped, and make register-check passes the same paths with --dry-run.
+func TestMakeRegisterRegistersEachListedCloneByItsOwnPath(t *testing.T) {
+	gittest.Require(t)
+	if _, err := exec.LookPath("make"); err != nil {
+		t.Skip("make is not on PATH")
+	}
+	remote := gittest.New(t)
+	remote.Commit("README.md", "remote\n")
+	workspace := gittest.New(t)
+	text := render(t, "workspace/makefile", templates.Data{Project: "orchid", Repositories: []templates.Repository{
+		{Name: "api", Remote: "file://" + remote.Dir},
+		{Name: "deep", Remote: "file://" + remote.Dir, Path: "repos/group/deep"},
+		{Name: "elsewhere", Remote: "file://" + remote.Dir, Path: "services/a.b/elsewhere"},
+		{Name: "absent", Remote: "file://" + remote.Dir},
+	}})
+	if err := os.WriteFile(filepath.Join(workspace.Dir, "Makefile"), []byte(text), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	path, record := fakeRopeshift(t)
+	run := func(target string, skipping ...string) string {
+		t.Helper()
+		cmd := exec.Command("make", append([]string{"--no-print-directory", "-C", workspace.Dir, target}, skipping...)...)
+		cmd.Env = append(remote.Env(), "PATH="+path)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("make %s: %v\n%s", target, err, out)
+		}
+		return string(out)
+	}
+	// The clones exist except the entry named absent, and a stray clone sits in the folder of clones with no entry.
+	for _, clone := range []string{"repos/api", "repos/group/deep", "services/a.b/elsewhere", "repos/stray"} {
+		if err := os.MkdirAll(filepath.Join(workspace.Dir, filepath.FromSlash(clone), ".git"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	calls := func() [][]string {
+		t.Helper()
+		raw, err := os.ReadFile(record)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out [][]string
+		var current []string
+		for _, line := range strings.Split(strings.TrimSuffix(string(raw), "\n"), "\n") {
+			if line == "--" {
+				out = append(out, current)
+				current = nil
+				continue
+			}
+			current = append(current, line)
+		}
+		return out
+	}
+	if out := run("register"); !strings.Contains(out, "absent: no clone, skipped") {
+		t.Errorf("make register says nothing of the entry with no clone:\n%s", out)
+	}
+	want := []string{"repository", "add", ".", "repos/api", "repos/group/deep", "services/a.b/elsewhere", "--project", "orchid"}
+	got := calls()
+	if len(got) != 2 || !slices.Equal(got[0], want) || !slices.Equal(got[1], []string{"repository", "set", filepath.Base(workspace.Dir), "--planning", "--project", "orchid"}) {
+		t.Errorf("make register ran %q, want %q and then repository set", got, want)
+	}
+	if err := os.Remove(record); err != nil {
+		t.Fatal(err)
+	}
+	run("register-check")
+	if got := calls(); len(got) != 1 || !slices.Equal(got[0], append(slices.Clone(want), "--dry-run")) {
+		t.Errorf("make register-check ran %q, want %q", got, append(slices.Clone(want), "--dry-run"))
+	}
+}

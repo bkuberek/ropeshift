@@ -136,10 +136,11 @@ func TestTheMakefileAnAdoptionWritesSetsUpFetchesAndShowsTheStatusOfEachReposito
 			}
 		}
 	}
+	withFake, record := fakeRopeshift(t)
 	run := func(target string) string {
 		t.Helper()
 		cmd := exec.Command("make", "--no-print-directory", "-C", workspace.Dir, target)
-		cmd.Env = remote.Env()
+		cmd.Env = append(remote.Env(), "PATH="+withFake)
 		out, err := cmd.CombinedOutput()
 		if err != nil {
 			t.Fatalf("make %s: %v\n%s", target, err, out)
@@ -158,7 +159,30 @@ func TestTheMakefileAnAdoptionWritesSetsUpFetchesAndShowsTheStatusOfEachReposito
 	if fetch := run("fetch"); !strings.Contains(fetch, "api: fetched") || !strings.Contains(fetch, "deep: fetched") {
 		t.Errorf("make fetch printed no api: fetched and deep: fetched:\n%s", fetch)
 	}
+	// make register names each clone the Makefile lists by its own path, the nested one included, and no folder to search.
+	run("register")
+	calls, err := os.ReadFile(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "repository\nadd\n.\nrepos/api\nrepos/group/deep\n--project\nshop\n--\n"; !strings.HasPrefix(string(calls), want) {
+		t.Errorf("make register ran %q, want it to start with %q", calls, want)
+	}
 	if status := run("status"); !strings.Contains(status, "api: ## ") || !strings.Contains(status, "deep: ## ") || strings.Contains(status, "missing") {
 		t.Errorf("make status printed no api: ## and deep: ## , or reads a clone as missing:\n%s", status)
 	}
+}
+
+// fakeRopeshift puts a ropeshift on the PATH of a test that records its arguments, one per line and each command ended
+// by a line of two dashes, so a Makefile's register target runs against no daemon and never reaches an installed
+// binary. It returns the PATH to run make with and the file the commands are recorded in.
+func fakeRopeshift(t *testing.T) (string, string) {
+	t.Helper()
+	dir := t.TempDir()
+	record := filepath.Join(dir, "calls")
+	script := "#!/bin/sh\nfor argument in \"$@\"; do printf '%s\\n' \"$argument\"; done >> " + record + "\nprintf -- '--\\n' >> " + record + "\n"
+	if err := os.WriteFile(filepath.Join(dir, "ropeshift"), []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	return dir + string(os.PathListSeparator) + os.Getenv("PATH"), record
 }

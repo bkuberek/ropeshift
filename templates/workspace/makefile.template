@@ -22,6 +22,13 @@ define ENTRY
 name=$${entry%%=*}; rest=$${entry#*=}; remote=$${rest%%=*}; dir=$(CODE_DIR)/$$name; case "$$rest" in *=*) dir=$${rest#*=};; esac
 endef
 
+# CLONES sets the arguments of repository add: this workspace, then the clone of each entry of REPOSITORIES, each by
+# its own path at any depth. A folder of clones is never searched, so a clone that is in none of the entries is not
+# registered. An entry with no clone is skipped.
+define CLONES
+set -- .; for entry in $(REPOSITORIES); do $(ENTRY); if [ -e "$$dir/.git" ]; then set -- "$$@" "$$dir"; else echo "$$name: no clone, skipped"; fi; done
+endef
+
 .PHONY: help setup fetch status hooks register-check register lanes
 
 help:
@@ -82,10 +89,10 @@ hooks:
 # Registration needs a member's session, so ropeshift asks for the passphrase on the terminal. The
 # workspace needs at least one commit first, because a repository's identity is read from its history.
 register-check:
-	ropeshift repository add . $(CODE_DIR) --project $(PROJECT) --dry-run
+	@$(CLONES); echo "ropeshift repository add $$* --project $(PROJECT) --dry-run"; ropeshift repository add "$$@" --project $(PROJECT) --dry-run
 
 register:
-	ropeshift repository add . $(CODE_DIR) --project $(PROJECT)
+	@$(CLONES); echo "ropeshift repository add $$* --project $(PROJECT)"; ropeshift repository add "$$@" --project $(PROJECT)
 	ropeshift repository set $(WORKSPACE) --planning --project $(PROJECT)
 
 # Ropeshift never deletes a branch. After ropeshift lane archive <lane>, delete a merged branch with
