@@ -85,6 +85,7 @@ func (r *laneRig) restartWorker(t *testing.T, left fake.DriverScript, after fake
 	r.stopWorker()
 	r.subject.Wait()
 	driver := fake.NewAgentDriver()
+	t.Cleanup(func() { endSessions(t, driver) })
 	driver.Leave("lane-1", 1, lanes.Session{Found: true, Liveness: lanes.LivenessDead, Readable: true})
 	driver.Play(left)
 	driver.PlayAfter(after)
