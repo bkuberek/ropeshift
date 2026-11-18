@@ -28,6 +28,7 @@ CI that asks a person raises a Needs you item and a notice of its own kind. None
 | `ci_queue_stalled` | A required run is still queued past `ci_queue_timeout_multiplier` times the repository's p85 queue time, or `ci_queue_timeout_no_history` | "No runner picked up a CI run." |
 | `ci_infrastructure_failure` | An infrastructure conclusion remained after the automatic reruns | "CI failed for a reason an agent cannot fix." |
 | `ci_base_red` | A failed check also fails on the base branch's tip | "A check fails on the base branch too." |
+| `ci_base_unread` | A failed check's base branch could not be read on three reads of the pull request in a row, so nobody can tell whether the base shares the failure | "The base branch's checks cannot be read." |
 | `ci_action_required` | A required check concluded `action_required`, which a person on the forge answers | "A check waits for a person on the forge." |
 
 The same items are in Needs you with their actions, which [the web UI](web-ui.md) and the command line share.
