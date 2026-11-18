@@ -383,7 +383,7 @@ var ForgeMergeChecks = []Check{
 	{"FG7", "a review's verdicts are asked of the worker that opened the pull request, as one comment bound to the commit", checkForgeVerdictComment},
 	{"FG8", "the worker that opened a pull request watches it while its work is open, and a read that changes nothing writes nothing", checkForgeWatch},
 	{"FG9", "at person_merges accepted work waits in integrating, a merge the person made ends it, and a closed pull request ends nothing", checkForgeMergeEndsWork},
-	{"FG10", "rework publishes the same branch again, the same pull request moves to the new head, and its review waits for it", checkForgeReworkUpdatesThePullRequest},
+	{"FG10", "rework publishes the same branch again, the same pull request moves to the new head, its review waits for it, and a publish's older view does not replace what the worker read", checkForgeReworkUpdatesThePullRequest},
 }
 
 // reviewed has the rig's worker report the pull request open at the commit under review, and runs the review
@@ -653,8 +653,14 @@ func checkForgeReworkUpdatesThePullRequest(r *Rig) error {
 	if latest.StartHeld == nil || latest.StartHeld.Reason != workorders.HoldPullRequestPending || !strings.Contains(latest.StartHeld.Detail, "waiting for worker w to push "+branchName) {
 		return Violatedf("the new review waits on %+v", latest.StartHeld)
 	}
-	// The worker finds the same pull request, now at the new head.
+	// The worker's own read of the pull request at the new head reaches the ledger before the publish's report does,
+	// and the publish took its view before the checks began: its report does not take them back.
 	f.head = again
+	running := *f.opened(1, again).PullRequest
+	running.Checks = []ledger.PullRequestCheck{{Name: "unit", State: ledger.CheckPending, Required: true, Status: ledger.CIRunInProgress}}
+	if err := f.read(running); err != nil {
+		return err
+	}
 	if err := f.report(f.opened(1, again)); err != nil {
 		return err
 	}
@@ -670,6 +676,9 @@ func checkForgeReworkUpdatesThePullRequest(r *Rig) error {
 	})
 	if err != nil || pr.Number != 7 || pr.HeadCommit != again {
 		return Violatedf("the pull request on record is %+v: %v", pr, err)
+	}
+	if !slices.Equal(pr.Checks, running.Checks) {
+		return Violatedf("the publish's older view replaced the checks the worker read: %+v", pr.Checks)
 	}
 	return nil
 }
