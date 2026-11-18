@@ -38,6 +38,10 @@ func workspaceText(workspace lanes.WorkspaceReport) string {
 	out.WriteString("\n")
 	for _, root := range workspace.Roots {
 		fmt.Fprintf(&out, "  %s: lane worktrees go in %s\n", root.Checkout, root.Root)
+		// An unignored folder is already said for the whole workspace, with its line to add.
+		if root.Fallback != "" && root.Fallback != lanes.FallbackUnignored {
+			fmt.Fprintf(&out, "    %s\n", lanes.RootFallback{Workspace: workspace.Path, Reason: root.Fallback}.Notice())
+		}
 	}
 	return out.String()
 }

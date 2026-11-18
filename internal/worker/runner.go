@@ -122,7 +122,7 @@ type laneRun struct {
 	// keptReported says this run told the operator its lane kept a worktree the root in force would not have
 	// chosen, so the report comes once however many generations follow.
 	keptReported atomic.Bool
-	// unignoredReported says this run told the operator which line its workspace lacks, once.
+	// unignoredReported says this run told the operator why its lane's root stayed outside its workspace, once.
 	unignoredReported atomic.Bool
 	// reached says the driver holds this generation's session, so a stop can find it.
 	reached atomic.Bool
@@ -747,8 +747,8 @@ func (r *laneRun) session(ctx context.Context) workorders.Report {
 	if prepared.Kept != nil && r.keptReported.CompareAndSwap(false, true) {
 		r.w.config.Notice(fmt.Sprintf("lane %s: %s", r.lease.Lane, prepared.Kept.Notice()))
 	}
-	if prepared.Unignored != "" && r.unignoredReported.CompareAndSwap(false, true) {
-		r.w.config.Notice(fmt.Sprintf("lane %s: %s", r.lease.Lane, lanes.UnignoredNotice(prepared.Unignored)))
+	if prepared.Fallback.Reason != "" && r.unignoredReported.CompareAndSwap(false, true) {
+		r.w.config.Notice(fmt.Sprintf("lane %s: %s", r.lease.Lane, prepared.Fallback.Notice()))
 	}
 	r.signal(ctx, lanes.OnResourcesReady)
 	r.setWorktreePath(prepared.Worktree.Path)

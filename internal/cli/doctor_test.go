@@ -131,7 +131,11 @@ func TestTheDoctorPrintsEachProjectsWorkspace(t *testing.T) {
 		Workspaces: []domain.WorkspaceReport{
 			{
 				Project: "prj-1", Path: "/work/ws", Found: domain.WorkspaceFromProfile, Clone: true, Ignored: true,
-				Roots: []domain.CheckoutRoot{{Checkout: "/work/ws/repos/api", Root: "/work/ws/.ropeshift/worktrees/api"}, {Checkout: "/work/ws", Root: "/data/worktrees/prj-1/ws"}},
+				Roots: []domain.CheckoutRoot{
+					{Checkout: "/work/ws/repos/api", Root: "/work/ws/.ropeshift/worktrees/api"},
+					{Checkout: "/work/ws/repos/web", Root: "/data/worktrees/prj-1/web", Fallback: domain.FallbackEscapes},
+					{Checkout: "/work/ws", Root: "/data/worktrees/prj-1/ws"},
+				},
 			},
 			{
 				Project: "prj-2", Path: "/work/ws2", Found: domain.WorkspaceFromProfile, Clone: true, Line: "/.ropeshift/worktrees/",
@@ -149,6 +153,8 @@ func TestTheDoctorPrintsEachProjectsWorkspace(t *testing.T) {
 		"Worktree root: /data/worktrees/{project}/{repo} (" + domain.RootFromDefault + ")\n" +
 		"Workspace prj-1: /work/ws (" + domain.WorkspaceFromProfile + "), which ignores .ropeshift/worktrees/\n" +
 		"  /work/ws/repos/api: lane worktrees go in /work/ws/.ropeshift/worktrees/api\n" +
+		"  /work/ws/repos/web: lane worktrees go in /data/worktrees/prj-1/web\n" +
+		"    " + domain.RootFallback{Workspace: "/work/ws", Reason: domain.FallbackEscapes}.Notice() + "\n" +
 		"  /work/ws: lane worktrees go in /data/worktrees/prj-1/ws\n" +
 		"Workspace prj-2: /work/ws2 (" + domain.WorkspaceFromProfile + "), which does not ignore .ropeshift/worktrees/: add /.ropeshift/worktrees/ to its .gitignore so lanes of its clones run inside it\n" +
 		"  /work/ws2/repos/web: lane worktrees go in /data/worktrees/prj-2/web\n" +

@@ -71,6 +71,36 @@ type Workspace struct {
 	Ignored bool `json:"ignored"`
 }
 
+// The reasons a built-in root of a clone inside a workspace stays the root outside every clone.
+const (
+	// FallbackUnignored says the workspace does not ignore its folder for worktrees.
+	FallbackUnignored = "unignored"
+	// FallbackEscapes says a symbolic link leads the workspace's folder for worktrees, or the repository's folder
+	// in it, out of the workspace, so a lane there would not be in the workspace.
+	FallbackEscapes = "escapes"
+)
+
+// RootFallback says why a lane's built-in root stayed the root outside every clone though the lane's clone lies in
+// a workspace, for the lane's start notice and the doctor. The zero value says nothing fell back.
+type RootFallback struct {
+	// Workspace is the workspace's folder. Empty when it could not be found.
+	Workspace string `json:"workspace,omitempty"`
+	// Reason is one of the Fallback constants.
+	Reason string `json:"reason,omitempty"`
+}
+
+// Notice says, in a line, why the lane's root fell back and what to change. It is empty when nothing fell back.
+func (f RootFallback) Notice() string {
+	switch f.Reason {
+	case FallbackUnignored:
+		return UnignoredNotice(f.Workspace)
+	case FallbackEscapes:
+		return fmt.Sprintf("a symbolic link leads `%s/` of the workspace %s out of it, so this repository's lanes run outside the workspace; remove the link so its lanes run inside the workspace",
+			planning.WorktreesFolder, f.Workspace)
+	}
+	return ""
+}
+
 // UnignoredNotice is what a lane's start says when its built-in root fell back to the root outside every clone
 // because the workspace does not ignore the folder for worktrees.
 func UnignoredNotice(workspace string) string {

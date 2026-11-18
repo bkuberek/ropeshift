@@ -2,6 +2,7 @@ package worker_test
 
 import (
 	"errors"
+	"path"
 	"strings"
 	"testing"
 
@@ -124,11 +125,60 @@ func TestABuiltInRootInsideAWorkspaceNeedsTheWorkspaceToIgnoreIt(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if lane.Worktree.Path != tt.want || lane.Unignored != tt.unignored {
-				t.Errorf("the worktree is %q and the unignored workspace %q, want %q and %q", lane.Worktree.Path, lane.Unignored, tt.want, tt.unignored)
+			if lane.Worktree.Path != tt.want || lane.Fallback.Workspace != tt.unignored || (tt.unignored != "") != (lane.Fallback.Reason == lanes.FallbackUnignored) {
+				t.Errorf("the worktree is %q and the fallback %+v, want %q and the unignored workspace %q", lane.Worktree.Path, lane.Fallback, tt.want, tt.unignored)
 			}
-			if tt.unignored != "" && !strings.Contains(lanes.UnignoredNotice(tt.unignored), "/.ropeshift/worktrees/") {
+			if tt.unignored != "" && !strings.Contains(lane.Fallback.Notice(), "/.ropeshift/worktrees/") {
 				t.Error("the notice names no line to add")
+			}
+		})
+	}
+}
+
+// A workspace root is used only while the lane's folder, with every link followed, stays under the workspace's
+// .ropeshift/worktrees/ folder. A link planted in the folder, or a link for .ropeshift itself, that leads out of it
+// keeps the root outside every clone for a clone workspace and for a plain folder alike, and the fallback says why.
+func TestAWorkspaceRootThatLeadsOutOfTheWorkspaceIsNotUsed(t *testing.T) {
+	t.Parallel()
+	const outside = "/data/ropeshift/worktrees"
+	for _, tt := range []struct {
+		name      string
+		workspace *string
+		ignores   []string
+		links     map[string]string
+		repo      string
+	}{
+		{"a link for the repository's folder", nil, []string{"repos", ".ropeshift/worktrees"},
+			map[string]string{"/work/ws/.ropeshift/worktrees/api": "/elsewhere"}, "/work/ws/repos/api"},
+		{"a link for the folder of worktrees", nil, []string{"repos", ".ropeshift/worktrees"},
+			map[string]string{"/work/ws/.ropeshift/worktrees": "/elsewhere/worktrees"}, "/work/ws/repos/api"},
+		{"a link for .ropeshift in a plain folder", named("/work/plain"), nil,
+			map[string]string{"/work/plain/.ropeshift": "/elsewhere"}, "/work/plain/api"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			p, source, _ := provisioner(nil)
+			source.SetDefaultRoot(outside + "/{project}/{repo}")
+			machine := workspaceMachine(t)
+			keeping(t, machine, "prj-1", "plainapi", "/work/plain/api")
+			machine.Ignore("/work/ws", tt.ignores...)
+			for at, to := range tt.links {
+				machine.Link(at, to)
+			}
+			if tt.workspace != nil {
+				source.PutUser("[projects.prj-1]\nworkspace = \"" + *tt.workspace + "\"\n")
+			}
+			p.Checkouts = machine
+			request := worker.LaneRequest{Lane: "l1", Repository: tt.repo, Project: "prj-1", PlanningRepository: "plan"}
+			lane, err := p.Prepare(t.Context(), request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if want := outside + "/prj-1/" + path.Base(tt.repo) + "/l1"; lane.Worktree.Path != want {
+				t.Errorf("the worktree is at %q, want %q outside every clone", lane.Worktree.Path, want)
+			}
+			if lane.Fallback.Reason != lanes.FallbackEscapes || !strings.Contains(lane.Fallback.Notice(), "link") {
+				t.Errorf("the fallback is %+v: %q", lane.Fallback, lane.Fallback.Notice())
 			}
 		})
 	}

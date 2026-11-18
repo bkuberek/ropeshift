@@ -50,9 +50,9 @@ func WorktreeReport(ctx context.Context, profile lanes.Profile, kept ports.Check
 		if held := reports[project]; held != nil {
 			workspace = lanes.Workspace{Path: held.Path, Found: held.Found, Clone: held.Clone, Ignored: held.Ignored}
 		}
-		settings := profile.Worktree
+		settings, fallback := profile.Worktree, lanes.RootFallback{}
 		if workspace.Path != "" {
-			if settings, _, err = ports.NewWorkspace(kept).Settings(ctx, profile.Worktree, workspace, checkout.Path); err != nil {
+			if settings, fallback, err = ports.NewWorkspace(kept).Settings(ctx, profile.Worktree, workspace, checkout.Path); err != nil {
 				return report, err
 			}
 		}
@@ -73,7 +73,7 @@ func WorktreeReport(ctx context.Context, profile lanes.Profile, kept ports.Check
 			report.Inside = append(report.Inside, lanes.RootInsideClone{Project: project, Checkout: checkout.Path, Root: root, Clone: clone})
 		}
 		if held := reports[project]; held != nil {
-			held.Roots = append(held.Roots, lanes.CheckoutRoot{Checkout: checkout.Path, Root: root})
+			held.Roots = append(held.Roots, lanes.CheckoutRoot{Checkout: checkout.Path, Root: root, Fallback: fallback.Reason})
 		}
 	}
 	for _, project := range slices.Sorted(maps.Keys(reports)) {

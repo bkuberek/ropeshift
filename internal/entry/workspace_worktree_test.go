@@ -80,8 +80,8 @@ func TestLaneWorktreesOfCodeClonesGoInTheWorkspacesIgnoredFolder(t *testing.T) {
 		if want := filepath.Join(workspace, ".ropeshift", "worktrees", name, "lane-1"); at(t, lane.Worktree.Path) != want {
 			t.Errorf("%s: the worktree is at %q, want %q", name, lane.Worktree.Path, want)
 		}
-		if lane.Unignored != "" {
-			t.Errorf("%s: the workspace is named unignored: %q", name, lane.Unignored)
+		if lane.Fallback.Reason != "" {
+			t.Errorf("%s: the root fell back: %+v", name, lane.Fallback)
 		}
 		if _, err := os.Stat(filepath.Join(lane.Worktree.Path, "README.txt")); err != nil {
 			t.Errorf("%s: the worktree holds no checkout: %v", name, err)
@@ -114,8 +114,8 @@ func TestAWorkspaceThatDoesNotIgnoreTheFolderGetsNoWorktreesAndSaysWhichLine(t *
 		if want := filepath.Join(w.paths.WorktreeDir, "prj-1", name, "lane-1"); lane.Worktree.Path != want {
 			t.Errorf("%s: the worktree is at %q, want %q", name, lane.Worktree.Path, want)
 		}
-		if lane.Unignored != w.workspace.Dir {
-			t.Errorf("%s: the unignored workspace is %q, want %q", name, lane.Unignored, w.workspace.Dir)
+		if lane.Fallback.Workspace != w.workspace.Dir || lane.Fallback.Reason != lanes.FallbackUnignored {
+			t.Errorf("%s: the fallback is %+v, want the unignored workspace %q", name, lane.Fallback, w.workspace.Dir)
 		}
 	}
 	if notice := lanes.UnignoredNotice(w.workspace.Dir); !strings.Contains(notice, "add `/.ropeshift/worktrees/` to its .gitignore") {
@@ -174,6 +174,55 @@ func TestAUserRootInTheWorkspaceIsAllowedOnlyUnderItsIgnoredWorktreeFolder(t *te
 				}
 			}
 		})
+	}
+}
+
+// A link planted in the workspace's ignored folder passes git's ignore check as a path, and a lane there would be
+// made wherever the link leads. The lane's folder is judged by where it really is: it falls back to the root outside
+// every clone, nothing is made at the link's target, and the doctor says why for that checkout (FR-PROF-3).
+func TestALinkInTheWorkspaceFolderLeadsNoLaneOutOfIt(t *testing.T) {
+	w := newWorktreeWorkspace(t)
+	w.ignoreWorktrees()
+	elsewhere := filepath.Join(w.home, "elsewhere")
+	if err := os.MkdirAll(elsewhere, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	folder := filepath.Join(w.workspace.Dir, ".ropeshift", "worktrees")
+	if err := os.MkdirAll(folder, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(elsewhere, filepath.Join(folder, "api")); err != nil {
+		t.Fatal(err)
+	}
+	lane, err := w.prov.Prepare(t.Context(), planned("lane-1", w.clones["api"]))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(w.paths.WorktreeDir, "prj-1", "api", "lane-1"); lane.Worktree.Path != want {
+		t.Errorf("the worktree is at %q, want %q outside every clone", lane.Worktree.Path, want)
+	}
+	if lane.Fallback.Reason != lanes.FallbackEscapes || lane.Fallback.Workspace != w.workspace.Dir {
+		t.Errorf("the fallback is %+v", lane.Fallback)
+	}
+	if entries, err := os.ReadDir(elsewhere); err != nil || len(entries) != 0 {
+		t.Errorf("the link's target holds %v (%v)", entries, err)
+	}
+	// A repository whose folder is no link keeps the workspace root, and the doctor names the one that fell back.
+	other, err := w.prov.Prepare(t.Context(), planned("lane-1", w.clones["web"]))
+	if want := filepath.Join(w.realWorkspace(t), ".ropeshift", "worktrees", "web", "lane-1"); err != nil || at(t, other.Worktree.Path) != want {
+		t.Errorf("web is at %q (%v), want %q", other.Worktree.Path, err, want)
+	}
+	w.userLayer(t, "[projects.prj-1]\nworkspace = \""+w.workspace.Dir+"\"\n")
+	report, err := worktreeReport(t.Context(), w.paths)
+	if err != nil || len(report.Workspaces) != 1 {
+		t.Fatalf("the report names %+v (%v)", report.Workspaces, err)
+	}
+	reasons := map[string]string{}
+	for _, root := range report.Workspaces[0].Roots {
+		reasons[root.Checkout] = root.Fallback
+	}
+	if reasons[w.clones["api"]] != lanes.FallbackEscapes || reasons[w.clones["web"]] != "" {
+		t.Errorf("the doctor's fallbacks are %v", reasons)
 	}
 }
 

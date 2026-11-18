@@ -35,6 +35,9 @@ type WorkspaceReport struct {
 type CheckoutRoot struct {
 	Checkout string `json:"checkout"`
 	Root     string `json:"root"`
+	// Fallback is the reason, as RootFallback gives it, the checkout's built-in root stays outside every clone
+	// though it lies in the workspace. Empty otherwise.
+	Fallback string `json:"fallback,omitempty"`
 }
 
 // RootInsideClone is one checkout whose root lies inside a clone, so a lane there would fail with the reason
