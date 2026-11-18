@@ -16,7 +16,7 @@ func (r *laneRun) recordUsage(ctx context.Context) {
 	if r.fenced.Load() {
 		return
 	}
-	payload, err := json.Marshal(ledger.GenerationUsage{CostUSD: r.cost.CostUSD, KnownTurns: r.cost.KnownTurns, UnknownTurns: r.cost.UnknownTurns})
+	payload, err := json.Marshal(r.reportedUsage())
 	if err != nil {
 		r.w.config.Report(fmt.Errorf("lane %s: %w", r.lease.Lane, err))
 		return

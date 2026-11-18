@@ -408,6 +408,12 @@ func (r *laneRun) observeEvent(ctx context.Context, event ports.DriverEvent) {
 		r.signal(ctx, lanes.OnActivity)
 	case ports.EventAgentUsage:
 		r.measureAgent(event.Agent, event.Tokens)
+	case ports.EventCost:
+		// A usage report that shows what the session has spent so far, in the middle of a turn: the limit is held here,
+		// so no tool call starts once the report shows it passed (NFR-COST-2).
+		r.progressed()
+		r.noteRunning(event.RunningUSD)
+		r.evaluateSpend(ctx)
 	case ports.EventUsage:
 		r.progressed()
 		_, waiting, _ := s.compactionAsked()

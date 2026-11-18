@@ -355,24 +355,35 @@ func (w *Worker) repliesTo(ctx context.Context, lane lanes.Record, id string) (b
 // is away leaves what a resume was told at its claim.
 func (r *laneRun) readFacts(ctx context.Context) {
 	r.setFacts(nil)
-	if r.currentGeneration() == firstGeneration {
+	first := r.currentGeneration() == firstGeneration
+	if first && !r.holdsToLimit() {
 		return
 	}
-	bounded, cancel := context.WithTimeout(ctx, laneFactsDeadline)
-	defer cancel()
-	held, err := r.w.link.LaneFacts(bounded, ledger.LaneFactsRequest{
-		Auth: r.w.Auth(), Epoch: r.w.epoch(), Project: r.lease.Project, WorkOrder: r.lease.WorkOrder, Fence: r.lease.Fence, Lane: r.lease.Lane,
-	})
+	held, err := r.laneFacts(ctx)
 	switch {
 	case err == nil:
-		r.setFacts(held.Facts)
-		r.setPack(held.Pack)
+		r.setAllowance(held.Spend)
+		if !first {
+			r.setFacts(held.Facts)
+			r.setPack(held.Pack)
+		}
+	case first:
+		r.w.config.Report(fmt.Errorf("lane %s: what its work order allows it to spend: %w", r.lease.Lane, err))
 	case r.lease.Resume != nil:
 		r.w.config.Report(fmt.Errorf("lane %s: what its prompt owes: %w", r.lease.Lane, err))
 		r.setFacts(r.lease.Resume.Facts)
 	default:
 		r.w.config.Report(fmt.Errorf("lane %s: what its prompt owes: %w", r.lease.Lane, err))
 	}
+}
+
+// laneFacts reads what only the ledger knows of this lane, in the time a handoff can spare.
+func (r *laneRun) laneFacts(ctx context.Context) (ledger.LaneFacts, error) {
+	bounded, cancel := context.WithTimeout(ctx, laneFactsDeadline)
+	defer cancel()
+	return r.w.link.LaneFacts(bounded, ledger.LaneFactsRequest{
+		Auth: r.w.Auth(), Epoch: r.w.epoch(), Project: r.lease.Project, WorkOrder: r.lease.WorkOrder, Fence: r.lease.Fence, Lane: r.lease.Lane,
+	})
 }
 
 func (r *laneRun) setFacts(facts []ledger.MessageFact) {

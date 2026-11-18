@@ -199,7 +199,15 @@ type SessionSpec struct {
 	// force when the lane started. A zero Version means the session has none: an orchestrator's and an
 	// assistant's shells are not a lane's.
 	Waits lanes.WaitRules
+	// MaxBudgetUSD is the client's own cap on a headless generation's spend, which a driver passes where its
+	// qualification observed the flag (FR-SPEND-5): what remains of the work order's hard limit and the headroom
+	// beyond it. It is a backstop for a worker that is slow to stop the lane, and never the limit. Zero sets none.
+	MaxBudgetUSD float64
 }
+
+// ReasonMaxBudget is the reason of a turn a client ended at its own budget cap, `error_max_budget_usd` in its result.
+// The lane parks as at a hard limit, because the cap was the limit and a little more.
+const ReasonMaxBudget = "error_max_budget_usd"
 
 // SessionTelemetry points a session's telemetry at the worker's receiver, tagged with what produced it
 // (FR-OBS-2). Content stays out unless the profile's opt-in says otherwise (FR-OBS-5).
@@ -302,6 +310,10 @@ const (
 	EventSessionBound EventKind = "session_bound"
 	// EventUsage carries the context of one API call.
 	EventUsage EventKind = "usage"
+	// EventCost carries the session's running cost total at one moment of a turn, in RunningUSD, where the session
+	// reports one before its turn ends: a status line does, and a headless stream gives a total only at a turn's
+	// end. It is the usage report a hard spend limit is held to during a turn (FR-SPEND-5).
+	EventCost EventKind = "cost"
 	// EventAgentUsage carries the tokens of one message a roster agent spent, where the driver reports
 	// which agent spent them (FR-AGENT-12). They count toward the lane, under the agent's name.
 	EventAgentUsage EventKind = "agent_usage"
@@ -378,8 +390,10 @@ type DriverEvent struct {
 	SessionID     string
 	ModelResolved string
 	ContextTokens int64
-	Turn          *TurnResult
-	End           *SessionEnd
+	// RunningUSD is an EventCost's running total for the session, which only grows.
+	RunningUSD float64
+	Turn       *TurnResult
+	End        *SessionEnd
 	// InputID is the input an EventInputAdmitted names.
 	InputID string
 	// Detail is a short reason: a limit's status, a retry's error, or a compaction's trigger.

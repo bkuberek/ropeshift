@@ -83,6 +83,13 @@ func (r *laneRun) beginParking(ctx context.Context, request lanes.ParkRequest) e
 	}
 	handoff := lanes.HandoffProgress{
 		Reason: string(request.Trigger), DeadlineMs: r.w.clock.Now().Add(r.state.handoffTimeout()).UnixMilli(),
+		MidTurn: request.MidTurn && state == lanes.Working,
+	}
+	// What a lane had spent when its limit stopped it is kept with the wake, so a worker that takes the park over
+	// reports at least that, and the parked commit never reads as a limit that was raised.
+	if request.Trigger == lanes.ParkSpendLimit {
+		usage := r.generationUsage()
+		parking.Usage = &usage
 	}
 	payload, err := json.Marshal(ledger.ParkingStart{Wake: parking.Wake, Expr: parking.Expr})
 	if err != nil {

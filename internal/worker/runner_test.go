@@ -422,12 +422,12 @@ func TestALaneThatNeverReportsIsBlocked(t *testing.T) {
 func TestAFailedTurnIsAFailedLane(t *testing.T) {
 	t.Parallel()
 	r := newLaneRig(t)
-	r.driver.Play(script([]fake.DriverStep{{Bound: true}, {Turn: &fake.DriverTurn{Status: ports.TurnFailed, Reason: "error_max_budget_usd"}}}))
+	r.driver.Play(script([]fake.DriverStep{{Bound: true}, {Turn: &fake.DriverTurn{Status: ports.TurnFailed, Reason: "error_during_execution"}}}))
 	if err := r.subject.Converge(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 	change := r.outcome()
-	if change.Outcome != workorders.OutcomeFailed || change.Reason != "error_max_budget_usd" {
+	if change.Outcome != workorders.OutcomeFailed || change.Reason != "error_during_execution" {
 		t.Errorf("outcome %+v", change)
 	}
 }
