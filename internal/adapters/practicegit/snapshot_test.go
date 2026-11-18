@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -357,6 +358,25 @@ func scratchIn(t *testing.T) (parent, scratch string) {
 	return parent, scratch
 }
 
+// failCheckIgnore puts a git first on PATH that exits 128 for check-ignore, as git does for a path it cannot
+// answer for, and runs the real git for every other command.
+func failCheckIgnore(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("the stand-in git is a shell script")
+	}
+	real, err := exec.LookPath("git")
+	if err != nil {
+		t.Skip("git is not on PATH")
+	}
+	dir := t.TempDir()
+	script := "#!/bin/sh\nfor arg in \"$@\"; do\n\tif [ \"$arg\" = check-ignore ]; then exit 128; fi\ndone\nexec " + real + " \"$@\"\n"
+	if err := os.WriteFile(filepath.Join(dir, "git"), []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
 func entriesOf(t *testing.T, dir string) []string {
 	t.Helper()
 	entries, err := os.ReadDir(dir)
@@ -509,20 +529,18 @@ func TestSnapshotDoesNotFollowReplacedObjects(t *testing.T) {
 }
 
 func TestSnapshotRemovesItsTemporaryRepositoryOnAnError(t *testing.T) {
-	t.Run("a probe git cannot answer", func(t *testing.T) {
+	t.Run("check-ignore exits 128", func(t *testing.T) {
 		repo := gittest.New(t)
-		repo.Commit("README.md", "x\n")
-		ignore := hashObject(t, repo, "blob", []byte(".env\n"))
-		manifest := hashObject(t, repo, "blob", []byte("{}"))
-		outside := craftedTree(t, repo, treeEntry{"100644", "package.json", manifest})
-		root := craftedTree(t, repo,
-			treeEntry{"100644", ".gitignore", ignore},
-			treeEntry{"40000", "..", outside})
-		commit := craftedCommit(t, repo, root)
+		writeFile(t, filepath.Join(repo.Dir, ".gitignore"), ".env\n")
+		writeFile(t, filepath.Join(repo.Dir, "web", "package.json"), "{}")
+		repo.Git("add", "--", ".")
+		repo.Git("commit", "--quiet", "-m", "files")
+		env := repo.Env()
+		failCheckIgnore(t)
 		_, scratch := scratchIn(t)
-		snapshot, err := practicegit.Snapshots{Env: repo.Env()}.Snapshot(t.Context(), repo.Dir, commit)
+		snapshot, err := practicegit.Snapshots{Env: env}.Snapshot(t.Context(), repo.Dir, "main")
 		if err == nil {
-			t.Fatalf("a probe check-ignore exited 128 and the snapshot answered %v", snapshot.Ignored)
+			t.Fatalf("check-ignore exited 128 and the snapshot answered %v", snapshot.Ignored)
 		}
 		if !strings.Contains(err.Error(), "128") {
 			t.Fatalf("err = %v, want the exit status 128", err)
@@ -545,4 +563,46 @@ func TestSnapshotRemovesItsTemporaryRepositoryOnAnError(t *testing.T) {
 			t.Fatalf("the failed snapshot left %v in the temporary directory", got)
 		}
 	})
+}
+
+func TestSnapshotAnswersAnUnsafeProbeAsNotIgnored(t *testing.T) {
+	for _, folder := range []string{"..", "."} {
+		t.Run("a manifest in folder "+folder, func(t *testing.T) {
+			repo := gittest.New(t)
+			repo.Commit("README.md", "x\n")
+			ignore := hashObject(t, repo, "blob", []byte(".env\n"))
+			manifest := hashObject(t, repo, "blob", []byte("{}"))
+			outside := craftedTree(t, repo, treeEntry{"100644", "package.json", manifest})
+			root := craftedTree(t, repo,
+				treeEntry{"100644", ".gitignore", ignore},
+				treeEntry{"40000", folder, outside})
+			commit := craftedCommit(t, repo, root)
+			_, scratch := scratchIn(t)
+
+			snapshot := snapshotOf(t, repo, commit)
+
+			unsafe := 0
+			for _, probe := range practices.Probes(snapshot.Paths) {
+				got, ok := snapshot.Ignored[probe]
+				if !ok {
+					t.Errorf("no answer for probe %s", probe)
+				}
+				if strings.HasPrefix(probe, folder+"/") {
+					unsafe++
+					if got {
+						t.Errorf("Ignored[%s] = true, want false for an unsafe path", probe)
+					}
+				}
+			}
+			if unsafe == 0 {
+				t.Fatalf("no probe in folder %s: %v", folder, practices.Probes(snapshot.Paths))
+			}
+			if !snapshot.Ignored[".env"] {
+				t.Fatal("the root probe was not answered by the root .gitignore")
+			}
+			if got := entriesOf(t, scratch); len(got) != 0 {
+				t.Fatalf("the snapshot left %v in the temporary directory", got)
+			}
+		})
+	}
 }

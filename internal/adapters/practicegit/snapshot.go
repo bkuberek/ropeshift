@@ -162,19 +162,24 @@ func snapshotIsIgnoreFile(entry snapshotEntry) bool {
 	return (entry.mode == "100644" || entry.mode == "100755") && path.Base(entry.path) == snapshotIgnoreFile
 }
 
-// snapshotCopyTarget returns where a tracked path is copied below root, and false for a path that would leave
-// root or reach git's own directory. A tree can name an entry `..`, so a tracked path is not always local.
-func snapshotCopyTarget(root, name string) (string, bool) {
+// snapshotSafePath reports whether a tracked path stays inside a checkout and clear of git's own directory. A
+// tree can name an entry `..`, so a tracked path is not always local.
+func snapshotSafePath(name string) bool {
 	for part := range strings.SplitSeq(name, "/") {
 		if part == "" || part == "." || part == ".." || strings.EqualFold(part, ".git") {
-			return "", false
+			return false
 		}
 	}
-	local := filepath.FromSlash(name)
-	if !filepath.IsLocal(local) {
+	return filepath.IsLocal(filepath.FromSlash(name))
+}
+
+// snapshotCopyTarget returns where a tracked path is copied below root, and false for a path that is not safe
+// or would leave root.
+func snapshotCopyTarget(root, name string) (string, bool) {
+	if !snapshotSafePath(name) {
 		return "", false
 	}
-	target := filepath.Join(root, local)
+	target := filepath.Join(root, filepath.FromSlash(name))
 	rel, err := filepath.Rel(root, target)
 	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return "", false
@@ -184,8 +189,9 @@ func snapshotCopyTarget(root, name string) (string, bool) {
 
 // snapshotIgnored answers, for each path of practices.Probes, whether the `.gitignore` files committed at the
 // commit ignore it. It copies those files into a temporary repository of their own and asks git there, so
-// the working tree, the person's global excludes, and the checkout's `info/exclude` never count. The
-// temporary repository is gone when this returns.
+// the working tree, the person's global excludes, and the checkout's `info/exclude` never count. A probe
+// whose path is not safe is answered as not ignored, and git is never asked about it. The temporary
+// repository is gone when this returns.
 func snapshotIgnored(ctx context.Context, git gitcli.Git, commit string, entries []snapshotEntry, paths []string) (map[string]bool, error) {
 	probes := practices.Probes(paths)
 	ignored := make(map[string]bool, len(probes))
@@ -231,6 +237,10 @@ func snapshotIgnored(ctx context.Context, git gitcli.Git, commit string, entries
 		}
 	}
 	for _, probe := range probes {
+		if !snapshotSafePath(probe) {
+			ignored[probe] = false
+			continue
+		}
 		_, err := scratch.Output(ctx, "check-ignore", "--no-index", "-q", "--", snapshotLiteral(probe))
 		var exit *exec.ExitError
 		switch {
