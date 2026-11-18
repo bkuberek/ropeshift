@@ -113,11 +113,14 @@ func (r *laneRun) reviewBound() int64 {
 
 // holdsToItsWork refuses a report the control plane would refuse, while the lane can still say more. A
 // review reports a verdict for every criterion of the contract it read when it completes, and no other
-// lane reports one.
+// lane reports a verdict or a security note.
 func (r *laneRun) holdsToItsWork(report workorders.Report) error {
 	if !r.reviewing() {
 		if len(report.Verdicts) != 0 {
 			return fmt.Errorf("%w: only a review lane reports verdicts", workorders.ErrInvalid)
+		}
+		if len(report.Notes) != 0 {
+			return fmt.Errorf("%w: only a review lane reports notes", workorders.ErrInvalid)
 		}
 		return nil
 	}

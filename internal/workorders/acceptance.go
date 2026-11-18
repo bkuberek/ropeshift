@@ -209,6 +209,9 @@ type AcceptanceView struct {
 	Authority ledger.MergeAuthority `json:"authority,omitempty"`
 	// Why says what a work order that waits for a member waits on, when the verdicts hold it.
 	Why string `json:"why,omitempty"`
+	// Notes are the security notes the reviews left for that attempt and commit, oldest first. They are shown
+	// with the verdicts and decide nothing.
+	Notes []Note `json:"notes,omitempty"`
 	// PullRequest is the pull request the work lands through, as a worker last read it, when its repository
 	// reviews through pull requests (ADR-0020).
 	PullRequest *ledger.PullRequest `json:"pull_request,omitempty"`

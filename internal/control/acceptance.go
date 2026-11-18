@@ -69,6 +69,11 @@ func StandingIn(tx ports.ReadTx, id string) (workorders.AcceptanceView, error) {
 	if current.State == workorders.Acceptance {
 		view.Why = at.judgement.Why
 	}
+	notes, err := tx.Evidence().Notes(id)
+	if err != nil {
+		return workorders.AcceptanceView{}, err
+	}
+	view.Notes = workorders.CountedNotes(notes, current.Fence, at.commit)
 	if view.Integrations, err = tx.Forge().Integrations(id); err != nil {
 		return workorders.AcceptanceView{}, err
 	}
@@ -854,8 +859,8 @@ func endOpenReviews(tx ports.WriteTx, id string, actor ledger.Actor) error {
 // review pinned, and a verdict from any lane but a review's own.
 func recordVerdicts(tx ports.WriteTx, review workorders.WorkOrder, holder workorders.Holder, fence int64, result workorders.LaneResult) error {
 	if review.Kind != workorders.KindReview {
-		if len(result.Verdicts) != 0 {
-			return fmt.Errorf("%w: only a review reports verdicts, and %s is a %s", workorders.ErrInvalid, review.ID, review.Kind)
+		if len(result.Verdicts) != 0 || len(result.Notes) != 0 {
+			return fmt.Errorf("%w: only a review reports verdicts and notes, and %s is a %s", workorders.ErrInvalid, review.ID, review.Kind)
 		}
 		return nil
 	}
@@ -879,6 +884,22 @@ func recordVerdicts(tx ports.WriteTx, review workorders.WorkOrder, holder workor
 			CriterionVerdict: v, Review: review.ID, WorkOrder: review.Reviews, Attempt: review.ReviewsFence, Commit: commit,
 			Lane: holder.Lane, Generation: holder.Generation, Fence: fence, MaxRounds: result.MaxReviewRounds,
 		})
+		if err != nil {
+			return err
+		}
+	}
+	return recordNotes(tx, review, holder, commit, result)
+}
+
+// recordNotes keeps the security notes a completed review reported, in the transaction that keeps its verdicts,
+// bound to the same commit and attempt. A note is shown and posted, and nothing that settles or merges work
+// reads it. The result's notes are the redacted ones endLane left in it.
+func recordNotes(tx ports.WriteTx, review workorders.WorkOrder, holder workorders.Holder, commit string, result workorders.LaneResult) error {
+	for seq, n := range result.Notes {
+		err := tx.Evidence().RecordNote(workorders.Note{
+			ReviewNote: n, Review: review.ID, WorkOrder: review.Reviews, Attempt: review.ReviewsFence, Commit: commit, Seq: int64(seq),
+			RedactionRules: ledger.CIRedactionRulesVersion,
+		}, holder.Lane)
 		if err != nil {
 			return err
 		}

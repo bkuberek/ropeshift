@@ -6,6 +6,7 @@ import type { Live } from "../api/useView";
 import { useView } from "../api/useView";
 import { WorkEstimateView } from "../measures/Estimate";
 import { words } from "../parts/parts";
+import { SecurityNotes } from "../parts/Verdicts";
 import { Badge, Absent, Actor, Banner, Digest, EmptyState, Fact, Facts, Panel, RecordChip, SkeletonRows, StateBadge, TableRegion, WorkBadge } from "../ui/display";
 import { Checks } from "./Checks";
 import type { Round } from "./evidence";
@@ -99,6 +100,11 @@ export function ChangesView({ standing }: { standing: Standing }) {
       <Panel title="Criteria and verdicts" level={3}>
         <Criteria standing={standing} />
       </Panel>
+      {standing.notes?.length ? (
+        <Panel title="Security notes" level={3}>
+          <SecurityNotes notes={standing.notes} />
+        </Panel>
+      ) : null}
       <Panel title="Checks" level={3}>
         <Checks standing={standing} />
       </Panel>

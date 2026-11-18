@@ -161,7 +161,7 @@ var laneReportTool = map[string]any{
 	"description": "Report this lane's outcome. Call it once, when the work is done or cannot go on. " +
 		"Use completed when the contract is met, blocked when the lane cannot finish and no answer would change that, " +
 		"and failed when the work ended abnormally. A review lane completes with a verdict for every criterion it was given, " +
-		"and no other lane reports verdicts.",
+		"and a note for each security concern it found. No other lane reports verdicts or notes.",
 	"inputSchema": map[string]any{
 		"type": "object",
 		"properties": map[string]any{
@@ -202,6 +202,31 @@ var laneReportTool = map[string]any{
 						},
 					},
 					"required": []string{"criterion", "verdict", "reasons"},
+				},
+			},
+			"notes": map[string]any{
+				"type": "array", "maxItems": workorders.MaxNotes,
+				"description": "A review lane's security concerns, whatever its criteria say: one note for each concern it found, none when it found none. " +
+					"A note is not a verdict. It fails no criterion, and every criterion is judged as it would be without it. No other lane reports notes.",
+				"items": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"point": map[string]any{
+							"type": "string", "enum": []string{
+								string(workorders.PointSecrets), string(workorders.PointInjection),
+								string(workorders.PointDependencies), string(workorders.PointAuthority),
+							},
+							"description": "secrets for a credential added to a file or a log, injection for untrusted input that reaches a shell, a query, a path, or a template, " +
+								"dependencies for a dependency added or changed, authority for a change to permissions, CI workflows, CODEOWNERS, forge settings, or ropeshift's profiles and policies.",
+						},
+						"reasons": map[string]any{"type": "string", "description": "What the concern is and where, in words a person can act on. At most 4096 bytes. Never quote a credential."},
+						"citations": map[string]any{
+							"type": "array", "maxItems": workorders.MaxNoteCitations,
+							"items":       map[string]any{"type": "string", "maxLength": workorders.MaxNoteCitation, "pattern": `^[^\u0000-\u001f\u007f-\u009f  ]+$`},
+							"description": "What the note rests on: files and lines such as path:line, requirement IDs, and documents as kind:id. Each is one line of at most 256 bytes, with no control character, and a note has at most 20.",
+						},
+					},
+					"required": []string{"point", "reasons"},
 				},
 			},
 		},

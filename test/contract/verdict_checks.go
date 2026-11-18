@@ -17,6 +17,10 @@ var VerdictChecks = []Check{
 	{"V3", "the store refuses a verdict that does not come from the review that names the work", checkVerdictFromElsewhere},
 	{"V4", "the store refuses a verdict that is not whole, and a second verdict for one criterion of one review", checkVerdictMustBeWhole},
 	{"V5", "a note on why work went back keeps the newest, and none reads as not found", checkReworkNoteKeepsTheNewest},
+	// A review's security notes (FR-PRAC-9) are bound to the commit and the attempt it read, as its verdicts are,
+	// and none comes from a lane that did the work it judges.
+	{"V6", "a security note keeps what the review said of a point, bound to the commit and the attempt it read", checkNoteRoundTrips},
+	{"V7", "the store refuses a note from any lane but its review's, a note that is not whole, and a second note in one place of one review", checkNoteFromTheReviewOnly},
 }
 
 // aReview is a work order that waits for its review, with the review claimed and running.

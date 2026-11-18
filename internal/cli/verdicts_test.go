@@ -94,6 +94,57 @@ func TestWorkAcceptancePrintsTheVerdicts(t *testing.T) {
 	}
 }
 
+// notedWork is reviewedWork whose review also left two security notes, the second with a control sequence in it.
+func notedWork(t *testing.T, s *session) {
+	t.Helper()
+	w := apitest.NewWorld(t, s.daemon)
+	w.Running("wo", "Trim the log").End(workorders.OutcomeCompleted, "")
+	w.ReviewedWithNotes("wo", []workorders.ReviewNote{
+		{Point: workorders.PointInjection, Reasons: "trim.go passes the\nname to a shell.", Citations: []string{"trim.go:44", "FR-LOG-2"}},
+		{Point: workorders.PointAuthority, Reasons: "The workflow gains\x1b[31m write access."},
+	}, workorders.CriterionVerdict{Criterion: "c1", Verdict: workorders.VerdictPass, Reasons: "It trims the log."})
+}
+
+// A person reads a review's security notes after its verdicts, in work show and in work acceptance.
+func TestWorkShowAndAcceptancePrintTheSecurityNotesAfterTheVerdicts(t *testing.T) {
+	s := newSession(t)
+	notedWork(t, s)
+	for _, args := range [][]string{{"work", "show", "wo"}, {"work", "acceptance", "wo"}} {
+		text := s.must(args...)
+		verdict := strings.Index(text, "verdict\tc1\tpass\t")
+		header := strings.Index(text, "security notes\t2\n")
+		first := strings.Index(text, "note\tinjection\ttrim.go passes the name to a shell.\ttrim.go:44, FR-LOG-2\n")
+		second := strings.Index(text, "note\tauthority\t")
+		if verdict < 0 || header < verdict || first < header || second < first {
+			t.Errorf("%v prints the notes out of place:\n%s", args, text)
+		}
+		if strings.Contains(text, "\x1b") {
+			t.Errorf("%v prints a control sequence of a note:\n%s", args, text)
+		}
+	}
+}
+
+func TestWorkShowJSONCarriesTheSecurityNotes(t *testing.T) {
+	s := newSession(t)
+	notedWork(t, s)
+	var detail api.WorkDetail
+	if err := json.Unmarshal([]byte(s.must("work", "show", "wo", "--json")), &detail); err != nil {
+		t.Fatal(err)
+	}
+	if len(detail.Notes) != 2 || detail.Notes[0].Point != workorders.PointInjection || detail.Notes[1].Point != workorders.PointAuthority ||
+		len(detail.Notes[0].Citations) != 2 || detail.Notes[0].Commit == "" {
+		t.Errorf("notes %+v", detail.Notes)
+	}
+}
+
+func TestWorkShowOfAReviewWithNoNotesPrintsNone(t *testing.T) {
+	s := newSession(t)
+	reviewedWork(t, s)
+	if text := s.must("work", "show", "wo"); hasLine(text, "security notes") || hasLine(text, "note\t") {
+		t.Errorf("show of a review with no note:\n%s", text)
+	}
+}
+
 // A person reads how much a lane's branch changed beside the branch (FR-OBS-13).
 func TestWorkAcceptancePrintsWhatTheBranchChanged(t *testing.T) {
 	s := newSession(t)

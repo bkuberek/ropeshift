@@ -208,6 +208,33 @@
         },
         "authority": "person_approves",
         "checks": [],
+        "notes": [
+          {
+            "attempt": 2,
+            "citations": [
+              "trim.go:44"
+            ],
+            "commit": "abc123",
+            "created_at": 1790000424001,
+            "point": "injection",
+            "reasons": "trim.go passes the log name to a shell command.",
+            "redaction_rules_version": 1,
+            "review_id": "generated-11",
+            "seq": 0,
+            "work_order_id": "wo-accept"
+          },
+          {
+            "attempt": 2,
+            "commit": "abc123",
+            "created_at": 1790000424001,
+            "point": "dependencies",
+            "reasons": "go.mod adds a module at a branch and not at a version.",
+            "redaction_rules_version": 1,
+            "review_id": "generated-11",
+            "seq": 1,
+            "work_order_id": "wo-accept"
+          }
+        ],
         "reviews": [
           {
             "attempt": 2,

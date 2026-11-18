@@ -64,6 +64,10 @@ func TestAReportIsHeldToTheKindOfWorkItEnds(t *testing.T) {
 		}
 		return report
 	}
+	noted := func(report workorders.Report) workorders.Report {
+		report.Notes = []workorders.ReviewNote{{Point: workorders.PointSecrets, Reasons: "a key is added to config.yaml"}}
+		return report
+	}
 	review := ledger.DesiredLease{WorkOrder: "rv", Kind: "review", CriterionIDs: []string{"c1", "c2"}}
 	tests := []struct {
 		name    string
@@ -78,6 +82,9 @@ func TestAReportIsHeldToTheKindOfWorkItEnds(t *testing.T) {
 		{"a review that cannot judge reports no verdict", review, workorders.Report{Outcome: workorders.OutcomeBlocked, Reason: "no tests run here"}, ""},
 		{"a change that reports a verdict", ledger.DesiredLease{WorkOrder: "wo", Kind: "change"}, judged("c1"), "only a review"},
 		{"a change that reports none", ledger.DesiredLease{WorkOrder: "wo", Kind: "change"}, judged(), ""},
+		{"a change that reports a note", ledger.DesiredLease{WorkOrder: "wo", Kind: "change"}, noted(judged()), "only a review lane reports notes"},
+		{"a plan that reports a note", ledger.DesiredLease{WorkOrder: "pl", Kind: "plan"}, noted(judged()), "only a review lane reports notes"},
+		{"a review that judged every criterion and left a note", review, noted(judged("c1", "c2")), ""},
 		{"a review of a contract with no criteria", ledger.DesiredLease{WorkOrder: "rv", Kind: "review"}, judged(), ""},
 		// A control plane that sends criteria with no IDs is an older one, which still refuses what is not whole.
 		{"a review told its criteria without their IDs", ledger.DesiredLease{WorkOrder: "rv", Kind: "review", Criteria: []string{"c1: It works."}}, judged("c1"), ""},

@@ -44,6 +44,21 @@ ON CONFLICT (workspace_id, review_id, criterion_id) DO NOTHING`)
  WHERE workspace_id = :workspace_id AND work_order_id = :work_order_id
  ORDER BY created_at, review_id, criterion_id`)
 
+	// stmtNoteRecord leaves a second note in one place of one review alone, so the caller can tell it from a new
+	// one by the rows it changed.
+	stmtNoteRecord = define("note.record",
+		`INSERT INTO review_notes
+  (workspace_id, review_id, work_order_id, attempt, commit_digest, seq, point, reasons, citations, redaction_rules_version, created_at)
+VALUES
+  (:workspace_id, :review_id, :work_order_id, :attempt, :commit_digest, :seq, :point, :reasons, :citations, :redaction_rules_version, :now)
+ON CONFLICT (workspace_id, review_id, seq) DO NOTHING`)
+
+	stmtNoteList = define("note.list",
+		`SELECT review_id, work_order_id, attempt, commit_digest, seq, point, reasons, citations, redaction_rules_version, created_at
+  FROM review_notes
+ WHERE workspace_id = :workspace_id AND work_order_id = :work_order_id
+ ORDER BY created_at, review_id, seq`)
+
 	stmtVerdictReview = define("verdict.review",
 		`SELECT kind, reviews, reviews_fence FROM work_orders WHERE workspace_id = :workspace_id AND id = :id`)
 
@@ -151,7 +166,7 @@ func (t evidenceTx) RecordVerdict(v workorders.Verdict) error {
 	if v.Commit == "" || v.Review == "" || v.WorkOrder == "" || v.Lane == "" {
 		return fmt.Errorf("%w: a verdict names its review, its work, its lane, and the commit it judged", workorders.ErrInvalid)
 	}
-	if err := t.mayJudge(v); err != nil {
+	if err := t.mayJudge(v.Review, v.WorkOrder, v.Lane, v.Attempt); err != nil {
 		return err
 	}
 	citations, err := json.Marshal(append([]string{}, v.Citations...))
@@ -178,41 +193,101 @@ func (t evidenceTx) RecordVerdict(v workorders.Verdict) error {
 
 // mayJudge holds a verdict to its author: the lane belongs to the review work order, the review names the
 // work it judges and the attempt, and the lane is not one that did that work (FR-REVIEW-5).
-func (t evidenceTx) mayJudge(v workorders.Verdict) error {
+func (t evidenceTx) mayJudge(review, workOrder, lane string, reviewed int64) error {
 	var kind string
 	var reviews sql.NullString
 	var attempt sql.NullInt64
-	row, err := t.row(stmtVerdictReview, params{"workspace_id": string(t.scope), "id": v.Review})
+	row, err := t.row(stmtVerdictReview, params{"workspace_id": string(t.scope), "id": review})
 	if err != nil {
 		return err
 	}
 	switch err := row.Scan(&kind, &reviews, &attempt); {
 	case errors.Is(err, sql.ErrNoRows):
-		return fmt.Errorf("%w: %s is no review", workorders.ErrForbidden, v.Review)
+		return fmt.Errorf("%w: %s is no review", workorders.ErrForbidden, review)
 	case err != nil:
 		return err
 	}
-	if kind != string(workorders.KindReview) || reviews.String != v.WorkOrder || attempt.Int64 != v.Attempt {
-		return fmt.Errorf("%w: %s is not the review of %s at attempt %d", workorders.ErrForbidden, v.Review, v.WorkOrder, v.Attempt)
+	if kind != string(workorders.KindReview) || reviews.String != workOrder || attempt.Int64 != reviewed {
+		return fmt.Errorf("%w: %s is not the review of %s at attempt %d", workorders.ErrForbidden, review, workOrder, reviewed)
 	}
-	row, err = t.row(stmtVerdictLane, params{"workspace_id": string(t.scope), "id": v.Lane})
+	row, err = t.row(stmtVerdictLane, params{"workspace_id": string(t.scope), "id": lane})
 	if err != nil {
 		return err
 	}
 	var owner string
 	switch err := row.Scan(&owner); {
 	case errors.Is(err, sql.ErrNoRows):
-		return fmt.Errorf("%w: lane %s started nowhere", workorders.ErrForbidden, v.Lane)
+		return fmt.Errorf("%w: lane %s started nowhere", workorders.ErrForbidden, lane)
 	case err != nil:
 		return err
 	}
 	switch owner {
-	case v.WorkOrder:
-		return fmt.Errorf("%w: lane %s did the work it would judge", workorders.ErrForbidden, v.Lane)
-	case v.Review:
+	case workOrder:
+		return fmt.Errorf("%w: lane %s did the work it would judge", workorders.ErrForbidden, lane)
+	case review:
 		return nil
 	}
-	return fmt.Errorf("%w: lane %s belongs to %s, not to review %s", workorders.ErrForbidden, v.Lane, owner, v.Review)
+	return fmt.Errorf("%w: lane %s belongs to %s, not to review %s", workorders.ErrForbidden, lane, owner, review)
+}
+
+// RecordNote keeps a security note only from a lane of the review work order that names the reviewed work, by
+// the rule that holds a verdict. A note is not whole without its review, its work, the commit it read, and a
+// place in the report, which is not before the first.
+func (t evidenceTx) RecordNote(n workorders.Note, lane string) error {
+	if err := n.Validate(); err != nil {
+		return err
+	}
+	if n.Commit == "" || n.Review == "" || n.WorkOrder == "" || lane == "" || n.Seq < 0 || n.RedactionRules < 1 {
+		return fmt.Errorf("%w: a note names its review, its work, its lane, the commit it read, its place in the report, and the version of the rules that redacted it", workorders.ErrInvalid)
+	}
+	if err := t.mayJudge(n.Review, n.WorkOrder, lane, n.Attempt); err != nil {
+		return err
+	}
+	citations, err := json.Marshal(append([]string{}, n.Citations...))
+	if err != nil {
+		return err
+	}
+	now, err := t.readClock()
+	if err != nil {
+		return err
+	}
+	changed, err := t.exec(stmtNoteRecord, params{
+		"workspace_id": string(t.scope), "review_id": n.Review, "work_order_id": n.WorkOrder, "attempt": n.Attempt,
+		"commit_digest": n.Commit, "seq": n.Seq, "point": string(n.Point), "reasons": n.Reasons, "citations": string(citations),
+		"redaction_rules_version": n.RedactionRules, "now": now,
+	})
+	if err != nil {
+		return err
+	}
+	if changed == 0 {
+		return fmt.Errorf("%w: review %s already left a note in place %d", workorders.ErrInvalid, n.Review, n.Seq)
+	}
+	return nil
+}
+
+func (t evidenceTx) Notes(workOrder string) ([]workorders.Note, error) {
+	rows, err := t.rows(stmtNoteList, params{"workspace_id": string(t.scope), "work_order_id": workOrder})
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []workorders.Note
+	for rows.Next() {
+		var n workorders.Note
+		var point, citations string
+		if err := rows.Scan(&n.Review, &n.WorkOrder, &n.Attempt, &n.Commit, &n.Seq, &point, &n.Reasons, &citations, &n.RedactionRules, &n.CreatedAt); err != nil {
+			return nil, err
+		}
+		n.Point = workorders.NotePoint(point)
+		if err := json.Unmarshal([]byte(citations), &n.Citations); err != nil {
+			return nil, fmt.Errorf("note %d of %s: %w", n.Seq, n.Review, err)
+		}
+		if len(n.Citations) == 0 {
+			n.Citations = nil
+		}
+		out = append(out, n)
+	}
+	return out, rows.Err()
 }
 
 func (t evidenceTx) Verdicts(workOrder string) ([]workorders.Verdict, error) {

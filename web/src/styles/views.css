@@ -401,6 +401,18 @@ p + .kv {
   margin-bottom: var(--s-8);
 }
 
+.verdict-notes {
+  margin-top: var(--s-16);
+}
+
+.verdict-notes > .overline {
+  margin-bottom: var(--s-4);
+}
+
+.notes-lead {
+  margin-bottom: var(--s-8);
+}
+
 .verdict-cites {
   display: flex;
   flex-wrap: wrap;

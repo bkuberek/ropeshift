@@ -82,13 +82,19 @@ type Report struct {
 	// Verdicts are a review lane's judgment, one per criterion of the contract it read. Another lane
 	// reports none.
 	Verdicts []CriterionVerdict `json:"verdicts,omitempty"`
+	// Notes are the security concerns a review lane found in the diff, whatever its criteria say. Another lane
+	// reports none.
+	Notes []ReviewNote `json:"notes,omitempty"`
 }
 
-// Validate refuses a report that names no outcome the ledger holds, or whose verdicts are not whole.
+// Validate refuses a report that names no outcome the ledger holds, or whose verdicts or notes are not whole.
 func (r Report) Validate() error {
 	switch r.Outcome {
 	case OutcomeCompleted, OutcomeBlocked, OutcomeFailed:
-		return r.checkVerdicts()
+		if err := r.checkVerdicts(); err != nil {
+			return err
+		}
+		return r.checkNotes()
 	}
 	return fmt.Errorf("%w: outcome %q", ErrInvalid, r.Outcome)
 }

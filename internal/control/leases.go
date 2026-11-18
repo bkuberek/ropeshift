@@ -588,6 +588,20 @@ func closeLane(tx ports.WriteTx, row ledger.LaneRow, draft ledger.EventDraft, ou
 	return err
 }
 
+// withoutNotes drops the security notes from the report a canceled lane ended with. The lane's work was canceled, so
+// no review of it is kept, and the notes of its report are model text that no record needs.
+func withoutNotes(payload json.RawMessage) (json.RawMessage, error) {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(payload, &fields); err != nil {
+		return nil, fmt.Errorf("%w: %v", workorders.ErrInvalid, err)
+	}
+	if _, found := fields["notes"]; !found {
+		return payload, nil
+	}
+	delete(fields, "notes")
+	return json.Marshal(fields)
+}
+
 // endCanceled takes the end of a lane whose work a member canceled. It moves no work order, and the
 // fence would refuse it, so it answers to who ran the lane: this worker, under the claim the lane
 // started on, at its current generation. Anything else is a stranger's word, and the fence answers it.
@@ -614,8 +628,12 @@ func endCanceled(tx ports.WriteTx, worker string, e ledger.UploadEvent, stamp fu
 	if (!ran && !endsAnyCanceledLane()) || row.Generation != e.Generation || row.Status.ActualState == ledger.StateEnded {
 		return false, nil
 	}
+	data, err := withoutNotes(e.Payload)
+	if err != nil {
+		return false, err
+	}
 	draft := ledger.EventDraft{
-		Type: ledger.EventLaneEnded, Actor: ledger.Actor{Kind: ledger.ActorWorker, ID: worker}, Data: e.Payload,
+		Type: ledger.EventLaneEnded, Actor: ledger.Actor{Kind: ledger.ActorWorker, ID: worker}, Data: data,
 		Subject: ledger.Subject{Kind: ledger.SubjectLane, ID: e.Lane},
 	}
 	stamp(&draft)
@@ -803,6 +821,8 @@ func endLane(tx ports.WriteTx, holder workorders.Holder, result workorders.LaneR
 	if err := result.Validate(); err != nil {
 		return err
 	}
+	// A note is model text, so every place that keeps the result keeps it redacted: the notes, the event, and the comment.
+	result.Notes = redactedNotes(result.Notes)
 	current, err := tx.WorkOrders().Get(holder.WorkOrder)
 	if err != nil {
 		return err

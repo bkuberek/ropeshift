@@ -10,6 +10,21 @@ This guide takes finished work from its review to your default branch in the web
 
 When a lane ends with a commit, a review lane reads the change and gives each criterion of the contract a verdict, `pass`, `fail`, or `cannot_judge`, with its reasons and citations to files, lines, and requirements. A failed criterion sends the work back for another attempt on its own, until three reviews have failed it, after which it waits for you. When every criterion passes, the work waits for you.
 
+### Security points and notes
+
+Whatever its criteria say, a review also judges four security points in every diff:
+
+| Point | What the review looks for |
+|-------|---------------------------|
+| `secrets` | Secrets and credentials added to files or logs |
+| `injection` | Untrusted input reaching a shell, a query, a path, or a template |
+| `dependencies` | Dependencies added or changed, and whether each is pinned and maintained |
+| `authority` | Changes to authority: permissions, CI workflows, `CODEOWNERS`, forge settings, and ropeshift's profiles and policies |
+
+The review records each concern as a security note: its point, its reasons, and citations. A review reports at most 20 notes, each with at most 4 KiB of reasons and at most 20 citations of one line and 256 bytes each, and ropeshift removes the shapes of credentials from them before it keeps them anywhere, its event log included. A note is not a verdict. It fails no criterion, and it never changes a verdict, a rework, an acceptance, or a merge: the work settles as it would with no notes, and you read them before you decide.
+
+Notes appear after the verdicts wherever the verdicts do: under Security notes on the work order's Review and Changes tabs and on its card in Needs you, as a count in the Reviews queue, in `ropeshift work show` and `ropeshift work acceptance`, and, for a repository that reviews through pull requests, in the comment that carries the verdicts on the pull request. A note binds to the commit the review read, as its verdicts do.
+
 What happens once the review passes depends on the repository's merge authority:
 
 | Level | What you do | What ropeshift merges |

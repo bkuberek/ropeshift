@@ -554,7 +554,7 @@ func commentID(review string) string { return "comment:" + review }
 // verdicts on it as a comment (FR-REVIEW-9), in the transaction that ends the review. The ledger keeps the
 // verdicts as it always does. A review of a commit that reached review on its branch asks for nothing.
 func requestVerdictComment(tx ports.WriteTx, review workorders.WorkOrder, result workorders.LaneResult, actor ledger.Actor) error {
-	if result.Outcome != workorders.OutcomeCompleted || len(result.Verdicts) == 0 {
+	if result.Outcome != workorders.OutcomeCompleted || (len(result.Verdicts) == 0 && len(result.Notes) == 0) {
 		return nil
 	}
 	artifacts, err := tx.Evidence().Artifacts(review.Reviews)
@@ -573,7 +573,7 @@ func requestVerdictComment(tx ports.WriteTx, review workorders.WorkOrder, result
 	if err != nil {
 		return err
 	}
-	body, err := verdictBody(tx, review, commit, result.Verdicts)
+	body, err := verdictBody(tx, review, commit, result.Verdicts, result.Notes)
 	if err != nil {
 		return err
 	}
@@ -589,8 +589,10 @@ func requestVerdictComment(tx ports.WriteTx, review workorders.WorkOrder, result
 }
 
 // verdictBody writes a review's verdicts as a pull request comment: each criterion with its verdict, its
-// reasons, and its citations, the commit they bind to, and where the verdicts left the work.
-func verdictBody(tx ports.WriteTx, review workorders.WorkOrder, commit string, verdicts []workorders.CriterionVerdict) (string, error) {
+// reasons, and its citations, the commit they bind to, and where the verdicts left the work. A review that
+// left security notes has them in a section of their own after the verdicts, and the notes change nothing
+// the verdicts say of where the work goes.
+func verdictBody(tx ports.WriteTx, review workorders.WorkOrder, commit string, verdicts []workorders.CriterionVerdict, notes []workorders.ReviewNote) (string, error) {
 	texts := map[string]string{}
 	if review.ContractVersion != 0 {
 		contract, err := tx.Planning().Contract(review.ContractID, review.ContractVersion)
@@ -601,18 +603,10 @@ func verdictBody(tx ports.WriteTx, review workorders.WorkOrder, commit string, v
 			texts[criterion.ID] = criterion.Text
 		}
 	}
-	var out strings.Builder
-	fmt.Fprintf(&out, "**Ropeshift review `%s`** of commit `%s`\n\n", review.ID, short(commit))
+	var head, out strings.Builder
+	fmt.Fprintf(&head, "**Ropeshift review `%s`** of commit `%s`\n\n", review.ID, short(commit))
 	for _, v := range verdicts {
-		fmt.Fprintf(&out, "- `%s` **%s**", v.Criterion, v.Verdict)
-		if text := texts[v.Criterion]; text != "" {
-			fmt.Fprintf(&out, " (%s)", text)
-		}
-		fmt.Fprintf(&out, ": %s", strings.Join(strings.Fields(v.Reasons), " "))
-		if len(v.Citations) > 0 {
-			fmt.Fprintf(&out, " Cites %s.", "`"+strings.Join(v.Citations, "`, `")+"`")
-		}
-		out.WriteString("\n")
+		head.WriteString(verdictItem(v, texts[v.Criterion]))
 	}
 	reviewed, err := tx.WorkOrders().Get(review.Reviews)
 	if err != nil {
@@ -639,7 +633,7 @@ func verdictBody(tx ports.WriteTx, review workorders.WorkOrder, commit string, v
 	default:
 		out.WriteString("\nThe work waits for a member's decision. These verdicts bind to this commit only; a new commit voids them.\n")
 	}
-	return out.String(), nil
+	return head.String() + notesSection(notes, noteBudget(head.Len(), out.Len())) + out.String(), nil
 }
 
 // pullRequestRead keeps what the worker that opened a pull request read of it, when it differs from what the

@@ -164,7 +164,7 @@ func (c *invocation) workShow(args []string) int {
 		return c.finish(err, row, nil)
 	}
 	detail := api.WorkDetail{
-		WorkOrder: row, JudgedBy: view.Reviews, Verdicts: view.Verdicts, Why: view.Why, PullRequest: view.PullRequest, Integrations: view.Integrations,
+		WorkOrder: row, JudgedBy: view.Reviews, Verdicts: view.Verdicts, Notes: view.Notes, Why: view.Why, PullRequest: view.PullRequest, Integrations: view.Integrations,
 		Estimate: estimate.Estimate, Baseline: estimate.Baseline, Reason: reason, Detail: said,
 	}
 	return c.finish(nil, detail, func() string { return workDetailText(detail) })
@@ -211,6 +211,7 @@ func workDetailText(detail api.WorkDetail) string {
 	}
 	out.WriteString(reviewLines(detail.JudgedBy))
 	out.WriteString(verdictLines(detail.Verdicts))
+	out.WriteString(noteLines(detail.Notes))
 	for _, record := range detail.Integrations {
 		approver := string(record.ApprovedByKind)
 		if record.ApprovedByID != "" {
@@ -272,6 +273,21 @@ func verdictLines(verdicts []workorders.Verdict) string {
 	var out strings.Builder
 	for _, v := range verdicts {
 		fmt.Fprintf(&out, "verdict\t%s\t%s\t%s\t%s\n", v.Criterion, v.Verdict, oneLine(v.Reasons), dashIfEmpty(strings.Join(v.Citations, ", ")))
+	}
+	return out.String()
+}
+
+// noteLines prints the security notes a review left, after its verdicts, under a line that counts them: each
+// note on one line with its point, its reasons, and its citations. A note is a model's text, so it is made safe
+// for a terminal. A review that left none prints nothing.
+func noteLines(notes []workorders.Note) string {
+	if len(notes) == 0 {
+		return ""
+	}
+	var out strings.Builder
+	fmt.Fprintf(&out, "security notes\t%d\n", len(notes))
+	for _, n := range notes {
+		fmt.Fprintf(&out, "note\t%s\t%s\t%s\n", n.Point, oneLine(api.Printable(n.Reasons)), dashIfEmpty(oneLine(api.Printable(strings.Join(n.Citations, ", ")))))
 	}
 	return out.String()
 }
@@ -430,6 +446,7 @@ func (c *invocation) workAcceptance(args []string) int {
 		}
 		out.WriteString(reviewLines(view.Reviews))
 		out.WriteString(verdictLines(view.Verdicts))
+		out.WriteString(noteLines(view.Notes))
 		out.WriteString(pullRequestLine(view.PullRequest))
 		for _, artifact := range view.Artifacts {
 			fmt.Fprintf(&out, "artifact\t%s\t%s\t%s%s\n", artifact.Kind, artifact.URI, artifact.Digest, changeColumns(artifact.Change))

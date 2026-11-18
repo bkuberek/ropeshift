@@ -62,11 +62,13 @@ describe("the queue", () => {
     const accept = within(rows[0] as HTMLElement);
     expect(accept.getByText("Waiting for acceptance")).toBeTruthy();
     expect(accept.getByText("1 cannot judge")).toBeTruthy();
+    expect(accept.getByText("2 security notes")).toBeTruthy();
     expect(accept.getByText("No check")).toBeTruthy();
     expect(accept.getByText("person_approves")).toBeTruthy();
     expect(accept.getByText("Your word: the review could not judge criterion c1")).toBeTruthy();
     const ruled = within(rows[1] as HTMLElement);
     expect(ruled.getByText("Integrating")).toBeTruthy();
+    expect(ruled.queryByText(/security note/)).toBeNull();
     expect(ruled.getByText("1 passed, 1 running")).toBeTruthy();
     expect(ruled.getByText("Your approval of the merge: required checks are still running on cab321: e2e")).toBeTruthy();
   });
