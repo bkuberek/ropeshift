@@ -1288,6 +1288,10 @@ type WorkerReader interface {
 	// CapacityIntervals returns every worker's capacity interval whose end, or last report while it stands,
 	// is at or after a time, by start (FR-OBS-14).
 	CapacityIntervals(since int64) ([]ledger.CapacityInterval, error)
+	// ScheduledStart returns the start a member scheduled for a worker's orchestrator, or ErrNotFound.
+	ScheduledStart(worker string) (ledger.ScheduledStart, error)
+	// ScheduledStarts returns every scheduled start, by worker.
+	ScheduledStarts() ([]ledger.ScheduledStart, error)
 }
 
 // WorkerWriter writes the worker plane's records.
@@ -1295,6 +1299,10 @@ type WorkerWriter interface {
 	WorkerReader
 	// SaveOrchestrator writes an orchestrator's projection.
 	SaveOrchestrator(ledger.Orchestrator) error
+	// SaveScheduledStart writes a worker's one scheduled start, in place of any it had.
+	SaveScheduledStart(ledger.ScheduledStart) error
+	// DeleteScheduledStart removes a worker's scheduled start, and reports whether it had one.
+	DeleteScheduledStart(worker string) (bool, error)
 	// SaveOrchestratorDigest keeps one generation's digest of an orchestrator once. A second digest of the
 	// same orchestrator and generation changes nothing.
 	SaveOrchestratorDigest(digest ledger.GenerationDigest) error
