@@ -35,6 +35,8 @@ export type RepositoryView = Repository & {
   review_agreement: { last_30_days: AgreementPeriod; all_time: AgreementPeriod };
   plan_of_record?: boolean;
   forge?: ForgeHealth[];
+  // Every `[ci]` key with the value in force, so the page repeats no default.
+  ci_effective?: Record<string, string | number | boolean>;
 };
 
 export type RepositoryList = { repositories: RepositoryView[] };
@@ -48,6 +50,8 @@ export type RepositoryChange = Partial<{
   forge_binding: string;
   merge_authority: MergeAuthority;
   planning: boolean;
+  // The `[ci]` keys to change, each by its name and its text.
+  ci: Record<string, string>;
 }>;
 
 export type RepositoryAdded = { path: string; entered?: string; outcome: "registered" | "known" | "refused"; repository?: Repository; checkout?: string; reason?: string };

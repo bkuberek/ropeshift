@@ -190,6 +190,9 @@ type Repository struct {
 	// following first parents (FR-REPO-14), so its ID is the lowest root its repository had then, and any root
 	// of a clone of it may match it. A record made now is false, and only the first-parent root matches it.
 	IdentityLegacy bool `json:"identity_legacy,omitempty"`
+	// CI is the repository's `[ci]` keys, which read CI by (ADR-0037). A record nobody edited holds none and reads
+	// as the defaults, through CI.Effective.
+	CI CISettings `json:"ci,omitzero"`
 }
 
 // Removed reports a record kept as history after its repository left the project.
@@ -228,6 +231,11 @@ func (r Repository) Base() string {
 
 // Validate refuses a record that holds a setting nobody offers, or settings that cannot hold together.
 func (r Repository) Validate() error {
+	if r.CI.Custom {
+		if err := r.CI.Check(); err != nil {
+			return err
+		}
+	}
 	if r.Name != "" {
 		if err := CheckRepositoryName(r.Name); err != nil {
 			return err

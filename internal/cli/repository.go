@@ -59,6 +59,9 @@ func repositoryText(view api.RepositoryView) string {
 	out.WriteString(forgeText(view))
 	fmt.Fprintf(&out, "start from\t%s\n", view.StartFrom)
 	fmt.Fprintf(&out, "merge authority\t%s\n", view.Level())
+	for _, key := range ledger.CIKeys {
+		fmt.Fprintf(&out, "ci.%s\t%s\n", key, view.CIEffective.Text(key))
+	}
 	fmt.Fprintf(&out, "review agreement, last 30 days\t%s\n", agreementText(view.ReviewAgreement.Last30Days))
 	fmt.Fprintf(&out, "review agreement, all time\t%s\n", agreementText(view.ReviewAgreement.AllTime))
 	return out.String()
@@ -154,6 +157,27 @@ func (c *invocation) repositoryShow(args []string) int {
 	return c.finish(err, view, func() string { return repositoryText(view) })
 }
 
+// splitCIEdits takes the `ci.<key>=<value>` words out of a command's arguments, and says which word is no such
+// setting, such as one with no value. The rest are the repositories to change.
+func splitCIEdits(words []string) (rest []string, edits map[string]string, bad string) {
+	for _, word := range words {
+		setting, isCI := strings.CutPrefix(word, "ci.")
+		if !isCI {
+			rest = append(rest, word)
+			continue
+		}
+		key, value, found := strings.Cut(setting, "=")
+		if !found || key == "" {
+			return nil, nil, word
+		}
+		if edits == nil {
+			edits = map[string]string{}
+		}
+		edits[key] = value
+	}
+	return rest, edits, ""
+}
+
 // repositorySet changes what a member names and leaves the rest. A flag given with an empty value is
 // a change too: an empty --base follows the default branch again.
 func (c *invocation) repositorySet(args []string) int {
@@ -170,10 +194,15 @@ func (c *invocation) repositorySet(args []string) int {
 	if !ok {
 		return ExitUsage
 	}
+	positional, edits, bad := splitCIEdits(positional)
+	if bad != "" {
+		return c.usageError("%s is no CI setting: write ci.<key>=<value>, such as ci.ci_steady_interval=2m", bad)
+	}
 	if len(positional) == 0 {
 		return c.usageError("name a repository to change")
 	}
 	var change api.RepositoryChange
+	change.CI = edits
 	given := map[string]bool{}
 	set.Visit(func(f *flag.Flag) { given[f.Name] = true })
 	if given["name"] {
@@ -210,8 +239,8 @@ func (c *invocation) repositorySet(args []string) int {
 		}
 		change.Planning = planning
 	}
-	if len(given) == 0 {
-		return c.usageError("name a setting to change: --name, --base, --merge-method, --start-from, --review-target, --forge-binding, --merge-authority, or --planning")
+	if len(given) == 0 && len(edits) == 0 {
+		return c.usageError("name a setting to change: --name, --base, --merge-method, --start-from, --review-target, --forge-binding, --merge-authority, --planning, or ci.<key>=<value>")
 	}
 	client, exit := c.projectClient()
 	if client == nil {

@@ -185,7 +185,7 @@ func TestOnePlanAcrossTwoRepositoriesMergesInDependencyOrder(t *testing.T) {
 	if set := in.must("repository", "set", "api", "web", "--review-target", "pull_request"); strings.Count(set, "review target\tpull_request\n") != 2 {
 		t.Fatalf("one change of both code repositories printed:\n%s", set)
 	}
-	in.must("repository", "set", "api", "web", "--merge-authority", "review_approves")
+	in.must(slices.Concat([]string{"repository", "set", "api", "web", "--merge-authority", "review_approves"}, fastCI)...)
 	repositories := map[string]api.RepositoryView{}
 	for _, name := range []string{"api", "plans", "web"} {
 		var view api.RepositoryView

@@ -276,6 +276,25 @@ wait_rules_off = ["W4"]
 wait_rule_patterns = { W3 = ["kubectl rollout status"] }
 ```
 
+## How ropeshift reads CI
+
+For a repository that reviews through pull requests, ropeshift reads each pull request's required checks itself, in code, and no session waits on CI ([waiting costs no credits](how-it-works.md#waiting-costs-no-credits)). A repository's CI keys sit on its record beside its merge method and review target, each with a default, and a maintainer changes them with `ropeshift repository set <repository> ci.<key>=<value>`, in the repository's settings in the web UI, or through the repository's change in the API. A delegate's change is a card that only a member confirms. A value outside its key's range is refused with the key and the range named. `repository show` prints every key with its value in force.
+
+| Key | What it sets | Default | Range |
+|-----|--------------|---------|-------|
+| `ci_no_history_p50` | The expected duration of a run, until the repository's own history gives one | 10m | 10s to 6h |
+| `ci_no_history_p85` | The duration most runs finish within, until a history gives one | 20m | the p50 to 12h |
+| `ci_min_interval` | The closest two reads of one pull request may be | 30s | 5s to 1h |
+| `ci_steady_interval` | The gap between reads while every run is queued and once a run is past its p85 | 5m | the minimum gap to 1h |
+| `ci_history_window` | How many recent records the history keeps | 50 | 5 to 500 |
+| `ci_history_min_records` | The records a repository needs to have a history | 5 | 1 to 50, and no more than the window |
+| `ci_timeout_multiplier`, `ci_timeout_no_history` | When CI that has not finished reaches a person | 3, 3h | 1.5 to 20, 10m to 72h |
+| `ci_queue_timeout_multiplier`, `ci_queue_timeout_no_history` | When a run no runner picked up reaches a person | 3, 30m | 1.5 to 20, 1m to 24h |
+| `ci_auto_rerun` | How many times ropeshift reruns an infrastructure failure | 1 | 0 to 3 |
+| `ci_log_excerpt_lines`, `ci_log_excerpt_bytes` | The size of the failing job's log in a rework brief | 200, 8192 | 10 to 2000, 1 KiB to 64 KiB |
+
+The read schedule runs on a clock that advances only while a required run is in progress, from the earliest start among the required runs. While every run is queued, ropeshift reads every `ci_steady_interval`. Once a run is in progress it reads once at the expected p50, then at half the remaining time to the p85 each time, never closer than `ci_min_interval`, and every `ci_steady_interval` after the p85 for as long as the run lasts, however many hours that is. A new push to the branch reads again at once. Until ropeshift keeps CI records, no repository has a history, and the no-history keys give the expected duration. The keys for timeouts, reruns, and log excerpts are held and shown now, and take effect when classification of red results ships.
+
 ## Next
 
 [Plan your first change](plan-your-first-change.md) is the next guide. For a project that already has code, documents, and branches, [adopt an existing project](adopt.md) brings it in as a plan instead.

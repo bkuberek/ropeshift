@@ -81,6 +81,8 @@ func TestTheAdapterRunsTheManualsCommands(t *testing.T) {
 		{"pr", "view", "1", "--repo", repoArg, "--json", pullRequestFields},
 		{"pr", "checks", "1", "--repo", repoArg, "--required", "--json", requiredFields},
 		{"pr", "list", "--repo", repoArg, "--head", "ropeshift/wo-1", "--state", "open", "--json", pullRequestFields},
+		{"pr", "view", "1", "--repo", repoArg, "--json", pullRequestFields},
+		{"pr", "checks", "1", "--repo", repoArg, "--required", "--json", requiredFields},
 		{"pr", "view", "1", "--repo", repoArg, "--json", "comments"},
 		{"pr", "comment", "1", "--repo", repoArg, "--body-file", "<file>"},
 		{"pr", "view", "1", "--repo", repoArg, "--json", "comments"},
@@ -264,10 +266,27 @@ func TestARequiredCheckIsMarked(t *testing.T) {
 	doubles.EditFakeGH(t, gh, func(s *ghstate.State) { s.Find(1).Required = []string{"unit"} })
 	read, err = forge.PullRequest(t.Context(), ref)
 	want := []ledger.PullRequestCheck{
-		{Name: "lint", State: ledger.CheckPassed},
-		{Name: "unit", State: ledger.CheckFailed, DetailsURI: "https://ci.example/unit", Required: true},
+		{Name: "lint", State: ledger.CheckPassed, Status: ledger.CIRunCompleted},
+		{Name: "unit", State: ledger.CheckFailed, DetailsURI: "https://ci.example/unit", Required: true, Status: ledger.CIRunCompleted},
 	}
 	if err != nil || !slices.Equal(read.Checks, want) {
 		t.Fatalf("read %+v: %v", read.Checks, err)
+	}
+}
+
+// TestAPullRequestFoundOpenIsReadWithItsRequiredChecks has the publish of a branch whose pull request is already
+// open report the checks with the base's required ones marked, as a read of the pull request does, because the
+// ledger keeps a publish's report as the pull request's record and the merge waits on a required check from it.
+func TestAPullRequestFoundOpenIsReadWithItsRequiredChecks(t *testing.T) {
+	forge, repo, gh, _ := fixture(t)
+	opened(t, forge, repo, gh)
+	doubles.EditFakeGH(t, gh, func(s *ghstate.State) {
+		pr := s.Find(1)
+		pr.Checks, pr.Required = []ghstate.Check{{Typename: "CheckRun", Name: "unit", Status: "IN_PROGRESS"}}, []string{"unit"}
+	})
+	found, err := forge.OpenPullRequest(t.Context(), ports.PullRequestSpec{Repo: repo, Base: "main", Branch: "ropeshift/wo-1", Title: "Add the retry budget", Body: "wo-1"})
+	want := []ledger.PullRequestCheck{{Name: "unit", State: ledger.CheckPending, Required: true, Status: ledger.CIRunInProgress}}
+	if err != nil || !slices.Equal(found.Checks, want) {
+		t.Fatalf("found %+v: %v", found.Checks, err)
 	}
 }

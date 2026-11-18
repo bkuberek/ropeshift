@@ -41,7 +41,23 @@
           "failures_overridden": 0
         }
       },
-      "plan_of_record": true
+      "plan_of_record": true,
+      "ci_effective": {
+        "custom": true,
+        "ci_history_window": 50,
+        "ci_history_min_records": 5,
+        "ci_no_history_p50": "10m",
+        "ci_no_history_p85": "20m",
+        "ci_min_interval": "30s",
+        "ci_steady_interval": "5m",
+        "ci_timeout_multiplier": 3,
+        "ci_timeout_no_history": "3h",
+        "ci_queue_timeout_multiplier": 3,
+        "ci_queue_timeout_no_history": "30m",
+        "ci_auto_rerun": 1,
+        "ci_log_excerpt_lines": 200,
+        "ci_log_excerpt_bytes": 8192
+      }
     }
   ]
 }

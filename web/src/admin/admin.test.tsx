@@ -200,6 +200,21 @@ describe("Repositories", () => {
     expect(sentTo(sent, "PATCH", "/v1/repositories/id-api")[0]?.body).toEqual({ base: "develop" });
   });
 
+  it("shows each CI key with the value in force and saves only the keys that changed, as ci.<key>", async () => {
+    const sent = serveAdmin((call) => (call.method === "PATCH" ? { status: 200, body: golden<{ repositories: unknown[] }>("repositories").repositories[0] } : undefined));
+    openPage(here("/repositories?repo=id-api"));
+    const record = await screen.findByRole("region", { name: "api" });
+    const steady = within(record).getByLabelText("ci_steady_interval") as HTMLInputElement;
+    expect(steady.value).toBe("5m");
+    expect((within(record).getByLabelText("ci_auto_rerun") as HTMLInputElement).value).toBe("1");
+    await userEvent.clear(steady);
+    await userEvent.type(steady, "2m");
+    expect(within(record).getByText("ci_steady_interval 5m → 2m")).toBeTruthy();
+    await userEvent.click(within(record).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(sentTo(sent, "PATCH", "/v1/repositories/id-api")).toHaveLength(1));
+    expect(sentTo(sent, "PATCH", "/v1/repositories/id-api")[0]?.body).toEqual({ ci: { ci_steady_interval: "2m" } });
+  });
+
   it("opens the removal an address asks for, and sends nothing", async () => {
     const sent = serveAdmin();
     openPage(here("/repositories?repo=id-api&dialog=remove"));

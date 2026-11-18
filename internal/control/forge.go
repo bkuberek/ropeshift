@@ -509,9 +509,13 @@ func watched(tx ports.ReadTx, worker string, bindings map[string]string, state *
 		if workorders.Terminal(order.State) {
 			continue
 		}
+		repository, err := tx.Repositories().Repository(pr.Repository)
+		if err != nil {
+			return err
+		}
 		state.PullRequests = append(state.PullRequests, ledger.DesiredPullRequest{
 			WorkOrder: pr.WorkOrder, Repository: pr.Repository, Binding: bindings[pr.Repository], Number: pr.Number, State: pr.State,
-			HeadCommit: pr.HeadCommit, MergeCommit: pr.MergeCommit, Mergeable: pr.Mergeable, Checks: pr.Checks,
+			HeadCommit: pr.HeadCommit, MergeCommit: pr.MergeCommit, Mergeable: pr.Mergeable, Checks: pr.Checks, CI: repository.CI.Effective(),
 		})
 	}
 	return nil

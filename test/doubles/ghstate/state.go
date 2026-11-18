@@ -32,6 +32,7 @@ type Check struct {
 	Context    string `json:"context,omitempty"`
 	State      string `json:"state,omitempty"`
 	TargetURL  string `json:"targetUrl,omitempty"`
+	StartedAt  string `json:"startedAt,omitempty"`
 }
 
 // PullRequest is one pull request on the fake forge. An open one's head is whatever the remote holds for

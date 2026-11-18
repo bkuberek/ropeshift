@@ -3,6 +3,7 @@ package sqlstore
 import (
 	"cmp"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -10,14 +11,14 @@ import (
 	"ropeshift.com/ropeshift/internal/ports"
 )
 
-const repositoryColumns = `id, name, remote, default_branch, base_branch, forge_binding, merge_method, review_target, start_from, merge_authority, state, planning, identity_legacy`
+const repositoryColumns = `id, name, remote, default_branch, base_branch, forge_binding, merge_method, review_target, start_from, merge_authority, state, planning, identity_legacy, ci`
 
 var (
 	stmtInsertRepository = define("repository.insert",
 		`INSERT INTO repositories
-  (workspace_id, id, name, remote, default_branch, base_branch, forge_binding, merge_method, review_target, start_from, merge_authority, state, planning, identity_legacy)
+  (workspace_id, id, name, remote, default_branch, base_branch, forge_binding, merge_method, review_target, start_from, merge_authority, state, planning, identity_legacy, ci)
 VALUES
-  (:workspace_id, :id, :name, :remote, :default_branch, :base_branch, :forge_binding, :merge_method, :review_target, :start_from, :merge_authority, :state, :planning, :identity_legacy)
+  (:workspace_id, :id, :name, :remote, :default_branch, :base_branch, :forge_binding, :merge_method, :review_target, :start_from, :merge_authority, :state, :planning, :identity_legacy, :ci)
 ON CONFLICT DO NOTHING`)
 
 	stmtRepository = define("repository.get",
@@ -53,7 +54,7 @@ ON CONFLICT DO NOTHING`)
 	stmtRepositorySettings = define("repository.settings",
 		`UPDATE repositories
    SET name = :name, base_branch = :base_branch, forge_binding = :forge_binding, merge_method = :merge_method,
-       review_target = :review_target, start_from = :start_from, merge_authority = :merge_authority, planning = :planning
+       review_target = :review_target, start_from = :start_from, merge_authority = :merge_authority, planning = :planning, ci = :ci
  WHERE workspace_id = :workspace_id AND id = :id`)
 )
 
@@ -75,8 +76,12 @@ func scanRepository(row scanner) (ledger.Repository, error) {
 	var r ledger.Repository
 	var method, target, start, authority, state string
 	var planning, legacy int64
-	err := row.Scan(&r.ID, &r.Name, &r.Remote, &r.DefaultBranch, &r.BaseBranch, &r.ForgeBinding, &method, &target, &start, &authority, &state, &planning, &legacy)
+	var ci string
+	err := row.Scan(&r.ID, &r.Name, &r.Remote, &r.DefaultBranch, &r.BaseBranch, &r.ForgeBinding, &method, &target, &start, &authority, &state, &planning, &legacy, &ci)
 	r.Planning, r.IdentityLegacy = planning != 0, legacy != 0
+	if err == nil && ci != "" {
+		err = json.Unmarshal([]byte(ci), &r.CI)
+	}
 	r.State = ledger.RepositoryState(state)
 	r.MergeMethod, r.ReviewTarget, r.StartFrom = ledger.MergeMethod(method), ledger.ReviewTarget(target), ledger.StartFrom(start)
 	r.MergeAuthority = ledger.MergeAuthority(authority)
@@ -132,8 +137,20 @@ func repositoryParams(r ledger.Repository) params {
 		"id": r.ID, "name": r.Name, "remote": r.Remote, "default_branch": r.DefaultBranch, "base_branch": r.BaseBranch,
 		"forge_binding": r.ForgeBinding, "merge_method": string(r.MergeMethod), "review_target": string(r.Target()), "start_from": string(r.StartFrom),
 		"merge_authority": string(r.Level()), "state": string(cmp.Or(r.State, ledger.RepositoryActive)), "planning": flag(r.Planning),
-		"identity_legacy": flag(r.IdentityLegacy),
+		"identity_legacy": flag(r.IdentityLegacy), "ci": ciColumn(r.CI),
 	}
+}
+
+// ciColumn is a repository's CI keys as the column keeps them: nothing for a record nobody edited.
+func ciColumn(ci ledger.CISettings) string {
+	if !ci.Custom {
+		return ""
+	}
+	raw, err := json.Marshal(ci)
+	if err != nil {
+		panic(err)
+	}
+	return string(raw)
 }
 
 // Insert adds a record, and a new one holds its identity in the installation's repository index in the

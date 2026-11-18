@@ -23,6 +23,9 @@ type RepositoryView struct {
 	// Forge is what each worker that keeps a checkout of the repository last said of its `gh` sign-in for
 	// it, which work that needs the forge waits on (ADR-0020).
 	Forge []ledger.ForgeHealth `json:"forge,omitempty"`
+	// CIEffective is every `[ci]` key with the value in force, whether a member edited one or none, so no client
+	// repeats a default.
+	CIEffective ledger.CISettings `json:"ci_effective"`
 }
 
 // ForgeReady says a worker has reported a working `gh` sign-in for the repository.
@@ -58,6 +61,9 @@ type RepositoryChange struct {
 	// Planning names the repository the project's planning repository, and takes that from any other. False
 	// takes it from this repository.
 	Planning *bool `json:"planning,omitempty"`
+	// CI sets the repository's `[ci]` keys, each by its name, such as ci_steady_interval, and by its text, such
+	// as 2m. A key left out stays. One value outside its key's range refuses the whole change.
+	CI map[string]string `json:"ci,omitempty"`
 }
 
 // RepositoryAdd registers, in a project, the repositories of clones on the worker of the daemon's machine
@@ -116,7 +122,7 @@ func (r RepositoryAddReport) Refused() int {
 // ViewOf reads a record with the base it resolves to, the review agreement of its repository when the
 // workspace has any to give, and what each worker said of its forge sign-in there.
 func ViewOf(record ledger.Repository, agreement measures.ReviewAgreement, forge []ledger.ForgeHealth) RepositoryView {
-	view := RepositoryView{Repository: record, Base: record.Base()}
+	view := RepositoryView{Repository: record, Base: record.Base(), CIEffective: record.CI.Effective()}
 	for _, health := range forge {
 		if health.Repository == record.ID {
 			view.Forge = append(view.Forge, health)
