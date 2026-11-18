@@ -133,7 +133,21 @@ func madeDetached(ctx context.Context, git Git) bool {
 // in a crash does not hold its branch, and an existing match is the answer to a
 // retry. A detached worktree is the commit checked out and no branch, so it can neither take a
 // branch's name nor leave one behind.
+//
+// A registration that a prune in another process removes while the add is making it fails the add, and the
+// create then does the whole step again, because the prune, the list, and the add each read what the others
+// left.
 func (w Worktrees) Create(ctx context.Context, spec ports.WorktreeSpec) (ports.Worktree, error) {
+	var tree ports.Worktree
+	err := retryLostRegistration(ctx, func() (err error) {
+		tree, err = w.create(ctx, spec)
+		return err
+	})
+	return tree, err
+}
+
+// create is one run of a create.
+func (w Worktrees) create(ctx context.Context, spec ports.WorktreeSpec) (ports.Worktree, error) {
 	repository := w.git(spec.Repository)
 	if prunesBeforeCreate() {
 		if err := repository.changeWorktrees(ctx, "prune"); err != nil {

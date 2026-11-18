@@ -71,8 +71,10 @@ func TestBuildEnvironment(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !slices.Equal(got, tt.want) {
-				t.Errorf("got %v\nwant %v", got, tt.want)
+			want := slices.Concat(tt.want, []string{"GIT_CONFIG_COUNT=1", "GIT_CONFIG_KEY_0=maintenance.auto", "GIT_CONFIG_VALUE_0=false"})
+			slices.Sort(want)
+			if !slices.Equal(got, want) {
+				t.Errorf("got %v\nwant %v", got, want)
 			}
 			for _, name := range tt.refused {
 				for _, entry := range got {
@@ -177,7 +179,35 @@ func TestALaneGetsNoForgeCredential(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := []string{"GH_CONFIG_DIR=/state/lanes/lane-1/gh", "PATH=/usr/bin"}; !slices.Equal(got, want) {
+	if want := []string{"GH_CONFIG_DIR=/state/lanes/lane-1/gh", "GIT_CONFIG_COUNT=1", "GIT_CONFIG_KEY_0=maintenance.auto", "GIT_CONFIG_VALUE_0=false", "PATH=/usr/bin"}; !slices.Equal(got, want) {
+		t.Errorf("got %v, want %v", got, want)
+	}
+}
+
+// TestALanesGitRunsWithAutoMaintenanceOff keeps git's auto maintenance, and the worktree prune in it, from
+// running in the repository the lane's worktree belongs to.
+func TestALanesGitRunsWithAutoMaintenanceOff(t *testing.T) {
+	got, err := BuildEnvironment(EnvironmentSpec{Lookup: lookupIn(map[string]string{"PATH": "/usr/bin"})})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"GIT_CONFIG_COUNT=1", "GIT_CONFIG_KEY_0=maintenance.auto", "GIT_CONFIG_VALUE_0=false"} {
+		if !slices.Contains(got, want) {
+			t.Errorf("the environment %v lacks %s", got, want)
+		}
+	}
+}
+
+// TestAProfilesOwnGitConfigurationIsKept leaves the settings a profile passes through as they are.
+func TestAProfilesOwnGitConfigurationIsKept(t *testing.T) {
+	parent := map[string]string{"PATH": "/usr/bin", "GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "core.editor", "GIT_CONFIG_VALUE_0": "vi"}
+	refs := []string{"env:GIT_CONFIG_COUNT", "env:GIT_CONFIG_KEY_0", "env:GIT_CONFIG_VALUE_0"}
+	got, err := BuildEnvironment(EnvironmentSpec{Lookup: lookupIn(parent), SecretRefs: refs})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"GIT_CONFIG_COUNT=1", "GIT_CONFIG_KEY_0=core.editor", "GIT_CONFIG_VALUE_0=vi", "PATH=/usr/bin"}
+	if !slices.Equal(got, want) {
 		t.Errorf("got %v, want %v", got, want)
 	}
 }

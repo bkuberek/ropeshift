@@ -50,7 +50,9 @@ type ran struct {
 // git that could not run is an error.
 func (g Git) run(ctx context.Context, args ...string) (ran, error) {
 	cmd := exec.CommandContext(ctx, "git", args...)
-	cmd.Dir, cmd.Env = g.Dir, append(g.environment(), noHooks...)
+	hookless := g
+	hookless.Extra = append(slices.Clone(g.Extra), noHooks...)
+	cmd.Dir, cmd.Env = g.Dir, hookless.environment()
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	err := cmd.Run()
@@ -210,12 +212,15 @@ func (w Worktrees) mergeAt(ctx context.Context, repository, tip string, merge po
 		_ = os.RemoveAll(dir)
 		_, _ = git.run(cleanup, "worktree", "prune")
 	}()
-	release, err := git.holdWorktrees(ctx)
-	if err != nil {
-		return "", nil, err
-	}
-	_, err = git.must(ctx, "worktree", "add", "--quiet", "--detach", dir, tip)
-	release()
+	err = retryLostRegistration(ctx, func() error {
+		release, err := git.holdWorktrees(ctx)
+		if err != nil {
+			return err
+		}
+		defer release()
+		_, err = git.must(ctx, "worktree", "add", "--quiet", "--detach", dir, tip)
+		return err
+	})
 	if err != nil {
 		return "", nil, err
 	}

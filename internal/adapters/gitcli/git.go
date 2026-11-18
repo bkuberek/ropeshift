@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -46,7 +47,31 @@ func (g Git) environment() []string {
 		}
 	}
 	// A command never waits on a prompt, because a daemon has no terminal.
-	return append(append(base[:len(base):len(base)], "GIT_TERMINAL_PROMPT=0", "LC_ALL=C"), g.Extra...)
+	env := append(append(base[:len(base):len(base)], "GIT_TERMINAL_PROMPT=0", "LC_ALL=C"), g.Extra...)
+	return withGitConfig(env, "maintenance.auto", "false")
+}
+
+// withGitConfig adds one configuration setting to a command's environment, after any the environment already
+// holds, through git's configuration in the environment
+// (https://git-scm.com/docs/git-config#ENVIRONMENT). It never writes a configuration file, so it leaves the
+// repository's and the person's own configuration as they are.
+//
+// Every command turns auto maintenance off, because the `git worktree prune` that maintenance runs in a
+// process of its own removes a registration that a worktree add in progress has not finished writing.
+func withGitConfig(env []string, key, value string) []string {
+	count := 0
+	for _, entry := range env {
+		if text, ok := strings.CutPrefix(entry, "GIT_CONFIG_COUNT="); ok {
+			if n, err := strconv.Atoi(text); err == nil && n >= 0 {
+				count = n
+			} else {
+				count = 0
+			}
+		}
+	}
+	n := strconv.Itoa(count)
+	return append(env[:len(env):len(env)],
+		"GIT_CONFIG_KEY_"+n+"="+key, "GIT_CONFIG_VALUE_"+n+"="+value, "GIT_CONFIG_COUNT="+strconv.Itoa(count+1))
 }
 
 // Output runs one command and returns its stdout as it is.
@@ -77,7 +102,8 @@ func (g Git) Feed(ctx context.Context, input []byte, args ...string) ([]byte, er
 	return stdout.Bytes(), nil
 }
 
-// refLockAttempts and refLockPause bound how a fetch that lost a ref's lock tries again.
+// refLockAttempts and refLockPause bound how a command that lost a race with another git process tries again,
+// as a fetch does for a ref's lock and a worktree add does for a registration.
 const (
 	refLockAttempts = 3
 	refLockPause    = 50 * time.Millisecond
@@ -107,8 +133,15 @@ func lostRefLock(err error) bool {
 // retryRefLock runs attempt, and runs it again while it fails for a lost lock, up to refLockAttempts runs.
 // It returns the last failure, and stops waiting when ctx ends.
 func retryRefLock(ctx context.Context, attempt func() error) error {
+	return retryWhile(ctx, lostRefLock, attempt)
+}
+
+// retryWhile runs attempt, and runs it again while it fails with an error that again accepts, up to
+// refLockAttempts runs with refLockPause between them. It returns the last failure, and stops waiting when
+// ctx ends.
+func retryWhile(ctx context.Context, again func(error) bool, attempt func() error) error {
 	err := attempt()
-	for tried := 1; tried < refLockAttempts && lostRefLock(err); tried++ {
+	for tried := 1; tried < refLockAttempts && again(err); tried++ {
 		select {
 		case <-ctx.Done():
 			return err
@@ -117,6 +150,40 @@ func retryRefLock(ctx context.Context, attempt func() error) error {
 		err = attempt()
 	}
 	return err
+}
+
+// lostRegistration reports whether a git failure is a worktree registration that vanished under the command
+// that was making it. `git worktree add` makes the entry under .git/worktrees and then writes its files one by
+// one, and a `git worktree prune` in another process, such as the one git's auto maintenance runs, removes an
+// entry that has no gitdir yet. The add then fails opening one of the files it writes, or reading the entry
+// back as a repository. The adapter's lock does not hold that process back.
+//
+// Git has no signal for this but the words it prints, because every failed command exits 128.
+func lostRegistration(err error) bool {
+	if err == nil {
+		return false
+	}
+	text := err.Error()
+	if !strings.Contains(text, "/worktrees/") {
+		return false
+	}
+	if strings.Contains(text, "not a git repository: ") {
+		return true
+	}
+	for _, name := range []string{"locked", "gitdir", "commondir"} {
+		if strings.Contains(text, "/"+name+"' for writing: No such file or directory") {
+			return true
+		}
+	}
+	return false
+}
+
+// retryLostRegistration runs step, which is a whole create of a worktree, and runs it again while it fails
+// for a lost registration, up to three runs 50 ms apart and not past the end of ctx. Another run prunes what
+// is left, lists again, and adds again, which is what makes a create safe to repeat. Any other failure is
+// returned at once.
+func retryLostRegistration(ctx context.Context, step func() error) error {
+	return retryWhile(ctx, lostRegistration, step)
 }
 
 // Text runs one command and returns its stdout with the last newline removed.
