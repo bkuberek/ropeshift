@@ -720,7 +720,7 @@ const paths: Record<string, KeyPath> = {
   },
   "POST /v1/projects/{project}/work-orders/{id}/ci-rerun": {
     sent: post(/\/work-orders\/wo-ci\/ci-rerun$/),
-    run: decide("Add the retry budget (ci_not_finished)", "Rerun"),
+    run: decide("Add the retry budget (ci_not_finished)", "Record a rerun"),
   },
 };
 
