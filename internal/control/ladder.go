@@ -431,39 +431,44 @@ func (q *Questions) Merge(ctx context.Context, scope ledger.WorkspaceID, id, int
 		if err != nil {
 			return err
 		}
-		target, err := tx.Questions().Question(into)
-		if err != nil {
-			return err
-		}
-		if !target.Status.Unresolved() {
-			return fmt.Errorf("%w: %s is %s", questions.ErrResolved, into, target.Status)
-		}
-		attached, err := tx.Questions().Attachments(id)
-		if err != nil {
-			return err
-		}
-		for _, attachment := range attached {
-			moved := questions.Ask{Lane: attachment.Lane, Generation: attachment.Generation, Blocking: attachment.Blocking}
-			if err := attachLane(tx, into, moved, actor); err != nil {
-				return err
-			}
-		}
-		crashpoint.Hit("question.merge", "moved")
-		record.Status, record.ClaimedBy, record.ClaimUntil = questions.StatusDismissed, "", 0
-		record.LadderTrace = append(record.LadderTrace, questions.Step{Rung: questions.RungOpen, Candidates: []string{into}, Outcome: questions.OutcomeMerged})
-		if err := saveQuestion(tx, record, actor); err != nil {
-			return err
-		}
-		if !record.Blocking || target.Blocking {
-			return nil
-		}
-		target.Blocking = true
-		if err := saveQuestion(tx, target, actor); err != nil {
-			return err
-		}
-		if err := holdBack(tx, target, actor); err != nil {
-			return err
-		}
-		return q.hastenFor(tx, target, actor)
+		return q.mergeIn(tx, record, into, actor)
 	})
+}
+
+// mergeIn closes a question in favor of one that stays, in the transaction it is given.
+func (q *Questions) mergeIn(tx ports.WriteTx, record questions.Question, into string, actor ledger.Actor) error {
+	target, err := tx.Questions().Question(into)
+	if err != nil {
+		return err
+	}
+	if !target.Status.Unresolved() {
+		return fmt.Errorf("%w: %s is %s", questions.ErrResolved, into, target.Status)
+	}
+	attached, err := tx.Questions().Attachments(record.ID)
+	if err != nil {
+		return err
+	}
+	for _, attachment := range attached {
+		moved := questions.Ask{Lane: attachment.Lane, Generation: attachment.Generation, Blocking: attachment.Blocking}
+		if err := attachLane(tx, into, moved, actor); err != nil {
+			return err
+		}
+	}
+	crashpoint.Hit("question.merge", "moved")
+	record.Status, record.ClaimedBy, record.ClaimUntil = questions.StatusDismissed, "", 0
+	record.LadderTrace = append(record.LadderTrace, questions.Step{Rung: questions.RungOpen, Candidates: []string{into}, Outcome: questions.OutcomeMerged})
+	if err := saveQuestion(tx, record, actor); err != nil {
+		return err
+	}
+	if !record.Blocking || target.Blocking {
+		return nil
+	}
+	target.Blocking = true
+	if err := saveQuestion(tx, target, actor); err != nil {
+		return err
+	}
+	if err := holdBack(tx, target, actor); err != nil {
+		return err
+	}
+	return q.hastenFor(tx, target, actor)
 }

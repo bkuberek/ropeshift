@@ -15,7 +15,7 @@ import (
 const (
 	questionColumns = `id, text, normalized_hash, categories, status, rung, blocking, subject_kind, subject_id,
        batch_id, asked_by, options, recommendation, recommendation_rationale, escalation_reason, ladder_trace,
-       claimed_by, claim_until, decision_id, overlapping`
+       claimed_by, claim_until, decision_id, overlapping, asked_at`
 	batchColumns    = `b.id, b.status, b.opened_at, b.closes_at, b.delivered_at`
 	decisionColumns = `id, status, statement, rationale, citations, scope, reversibility, categories,
        decided_by, supersedes, question_id, policy_version, overlapping, no_conflict`
@@ -39,11 +39,11 @@ var (
 		`INSERT INTO questions
   (workspace_id, id, text, normalized_hash, categories, status, rung, blocking, subject_kind, subject_id,
    batch_id, asked_by, options, recommendation, recommendation_rationale, escalation_reason, ladder_trace,
-   claimed_by, claim_until, decision_id, overlapping)
+   claimed_by, claim_until, decision_id, overlapping, asked_at)
 VALUES
   (:workspace_id, :id, :text, :normalized_hash, :categories, :status, :rung, :blocking, :subject_kind, :subject_id,
    :batch_id, :asked_by, :options, :recommendation, :recommendation_rationale, :escalation_reason, :ladder_trace,
-   :claimed_by, :claim_until, :decision_id, :overlapping)`)
+   :claimed_by, :claim_until, :decision_id, :overlapping, :asked_at)`)
 
 	stmtSaveQuestion = define("question.save",
 		`UPDATE questions
@@ -282,7 +282,7 @@ func questionParams(q questions.Question) (params, error) {
 		"subject_id": nullText(q.SubjectID), "batch_id": nullText(q.BatchID), "asked_by": nullText(q.AskedBy),
 		"options": string(options), "recommendation": nullText(q.Recommendation), "recommendation_rationale": nullText(q.RecommendationRationale),
 		"escalation_reason": nullText(q.EscalationReason), "ladder_trace": string(trace), "claimed_by": nullText(q.ClaimedBy), "claim_until": nullInt(q.ClaimUntil),
-		"decision_id": nullText(q.DecisionID), "overlapping": string(overlapping),
+		"decision_id": nullText(q.DecisionID), "overlapping": string(overlapping), "asked_at": nullInt(q.AskedAt),
 	}, nil
 }
 
@@ -316,16 +316,16 @@ func scanQuestion(row scanner) (questions.Question, error) {
 	var status, categories, options, trace string
 	var blocking int64
 	var subjectKind, subjectID, batch, askedBy, recommendation, rationale, reason, claimedBy, decision, overlapping sql.NullString
-	var claimUntil sql.NullInt64
+	var claimUntil, askedAt sql.NullInt64
 	err := row.Scan(&q.ID, &q.Text, &q.NormalizedHash, &categories, &status, &q.Rung, &blocking, &subjectKind, &subjectID,
-		&batch, &askedBy, &options, &recommendation, &rationale, &reason, &trace, &claimedBy, &claimUntil, &decision, &overlapping)
+		&batch, &askedBy, &options, &recommendation, &rationale, &reason, &trace, &claimedBy, &claimUntil, &decision, &overlapping, &askedAt)
 	if err != nil {
 		return questions.Question{}, err
 	}
 	q.Status, q.Blocking = questions.Status(status), blocking != 0
 	q.SubjectKind, q.SubjectID, q.BatchID, q.AskedBy = subjectKind.String, subjectID.String, batch.String, askedBy.String
 	q.Recommendation, q.RecommendationRationale, q.EscalationReason = recommendation.String, rationale.String, reason.String
-	q.ClaimedBy, q.ClaimUntil, q.DecisionID = claimedBy.String, claimUntil.Int64, decision.String
+	q.ClaimedBy, q.ClaimUntil, q.DecisionID, q.AskedAt = claimedBy.String, claimUntil.Int64, decision.String, askedAt.Int64
 	for _, field := range []struct {
 		raw  string
 		into any

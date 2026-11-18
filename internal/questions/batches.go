@@ -85,6 +85,11 @@ type Item struct {
 	Citations               []string `json:"citations,omitempty"`
 	Scope                   string   `json:"scope,omitempty"`
 	Overlaps                []string `json:"overlaps,omitempty"`
+	// NoOrchestrator says the core took the question to a person because no live orchestrator finished its ladder.
+	// LadderTrace is every rung it passed: a rung an orchestrator ran before it stopped keeps what it judged, and a rung
+	// the core ran lists what it found by text, judged by nobody, so the trace says which citation is which.
+	NoOrchestrator bool   `json:"no_orchestrator,omitempty"`
+	LadderTrace    []Step `json:"ladder_trace,omitempty"`
 }
 
 // Presented is a delivered batch as members see it.
@@ -106,6 +111,7 @@ func Present(batch Batch, rows []Question, category string, policy Policy) Prese
 			Recommendation: row.Recommendation, RecommendationRationale: row.RecommendationRationale,
 			EscalationReason: row.EscalationReason, Reversibility: policy.AnswerReversibility(row), Citations: citationsOf(row),
 			Scope: ScopeOf(row.SubjectKind, row.SubjectID), Overlaps: row.Overlaps,
+			NoOrchestrator: row.NoOrchestrator(), LadderTrace: row.LadderTrace,
 		})
 	}
 	return presented
@@ -136,6 +142,9 @@ type Answer struct {
 	Citations  []string
 	Supersedes string
 	NoConflict []string
+	// Assumed records the answer as an assumption, which a member records in an orchestrator's place on rung 4, and
+	// only for a question whose answer is reversible.
+	Assumed bool
 }
 
 var errNoAnswer = errors.New("an answer states nothing")

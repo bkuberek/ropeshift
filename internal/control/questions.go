@@ -24,6 +24,8 @@ type Questions struct {
 	windows messages.Windows
 	// packTokens is the budget of a pack a decision renews. Zero takes the default.
 	packTokens int64
+	// matcher finds by text what the core lists on a question no orchestrator took. Nil lists nothing.
+	matcher ports.Matcher
 }
 
 // NewQuestions returns the use cases over a Store, with how long questions gather for a
@@ -88,6 +90,7 @@ func checkCategories(reader ports.QuestionReader, names []string) error {
 
 // insertQuestion writes a question, its index entry, and its event together.
 func insertQuestion(tx ports.WriteTx, record questions.Question, actor ledger.Actor) error {
+	record.AskedAt = tx.Now()
 	if err := tx.Questions().Insert(record); err != nil {
 		return err
 	}

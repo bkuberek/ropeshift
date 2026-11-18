@@ -167,6 +167,7 @@ func crashMatrix() []crashCase {
 		climbCase(),
 		escalateCase(),
 		deliverCase(),
+		unjudgedCase(),
 		answerCase(),
 		answerReplacingCase("question.answer", withSteps("decided")),
 		answerReplacingCase("decision.record", []string{"replaced", "repacked"}),
@@ -1121,6 +1122,27 @@ func deliverCase() crashCase {
 		},
 		settled: func(w *world, spec childSpec) error {
 			return countEvents(w, questions.EventBatchDelivered, spec.Key, 1)
+		},
+	}
+}
+
+// unjudgedCase kills the core on its way to taking a question no orchestrator took to a person. A crash run keeps real
+// time, so the child ticks under a window of one millisecond.
+func unjudgedCase() crashCase {
+	return crashCase{
+		name:  "a question no orchestrator took",
+		op:    "question.unjudged",
+		steps: withSteps("climbed"),
+		prepare: func(w *world) (childSpec, error) {
+			lane := ledger.Actor{Kind: ledger.ActorLane, ID: "lane-b"}
+			asked, err := w.rig.NewOps(w.store).Ask(w.rig.Ctx, w.rig.Scope, questions.Ask{
+				ID: w.rig.ID("q"), Text: "How many retries?", Categories: []string{questions.CategoryProduct}, Blocking: true, Lane: "lane-b", Generation: 1,
+			}, lane)
+			time.Sleep(5 * time.Millisecond)
+			return childSpec{Role: "unjudged", Key: asked.QuestionID}, err
+		},
+		settled: func(w *world, spec childSpec) error {
+			return w.questionIs(spec.Key, questions.StatusNeedsHuman, "")
 		},
 	}
 }

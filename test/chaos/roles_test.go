@@ -64,6 +64,7 @@ var childRoles = map[string]func(*child) error{
 	"let-go":            roleLetGo,
 	"climb":             roleClimb,
 	"escalate":          roleEscalate,
+	"unjudged":          roleUnjudged,
 	"resolve":           roleResolve,
 	"merge":             roleMerge,
 	"dismiss":           roleDismiss,
@@ -239,6 +240,13 @@ func roleSignIn(c *child) error {
 
 func roleDeliver(c *child) error {
 	_, err := c.ops.DeliverBatches(c.ctx, c.scope, ledger.Actor{Kind: ledger.ActorSystem, ID: "batch-tick"})
+	return err
+}
+
+// roleUnjudged ticks under a window of one millisecond, so the question the case asked is past its window.
+func roleUnjudged(c *child) error {
+	quick := control.NewQuestions(c.store, questions.BatchPolicy{WindowMs: 1, MaxWaitMs: 1})
+	_, err := quick.DeliverBatches(c.ctx, c.scope, ledger.Actor{Kind: ledger.ActorSystem, ID: "batch-tick"})
 	return err
 }
 

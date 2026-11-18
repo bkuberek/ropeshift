@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"ropeshift.com/ropeshift/internal/adapters/lexical"
 	"ropeshift.com/ropeshift/internal/adapters/sqlstore"
 	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/contextpacks"
@@ -133,6 +134,7 @@ type Ops interface {
 	Escalate(ctx context.Context, scope ledger.WorkspaceID, id string, escalation questions.Escalation, actor ledger.Actor) (questions.Question, error)
 	Resolve(ctx context.Context, scope ledger.WorkspaceID, id, decision string, actor ledger.Actor) (questions.Question, error)
 	Merge(ctx context.Context, scope ledger.WorkspaceID, id, into string, actor ledger.Actor) error
+	MergeQuestion(ctx context.Context, scope ledger.WorkspaceID, id, into string, actor ledger.Actor) error
 	Rule(ctx context.Context, scope ledger.WorkspaceID, id string, ruling questions.Ruling, actor ledger.Actor) (questions.Decision, error)
 	Overturn(ctx context.Context, scope ledger.WorkspaceID, id string, overturn questions.Overturn, actor ledger.Actor) (questions.Overturned, error)
 	PublishPolicy(ctx context.Context, scope ledger.WorkspaceID, draft questions.PolicyDraft, actor ledger.Actor) (authority.PolicyVersion, error)
@@ -211,7 +213,7 @@ func NewMessageOps(store ports.Store, windows messages.Windows) *control.Message
 func RealOps(store ports.Store) Ops {
 	return realOps{
 		control.NewSessions(store, provenMember{store: store}), control.NewWorkOrders(store), control.NewLeases(store), control.NewIntake(store), control.NewReviews(store),
-		control.NewQuestions(store, questions.BatchPolicy{WindowMs: BatchWindowMs, MaxWaitMs: BatchMaxWaitMs}),
+		control.NewQuestions(store, questions.BatchPolicy{WindowMs: BatchWindowMs, MaxWaitMs: BatchMaxWaitMs}).Matching(lexical.Matcher{Store: store}),
 		control.NewAcceptances(store), control.NewWakes(store), control.NewMessages(store, nil), control.NewPacks(store),
 		control.NewPlanRevisions(store),
 	}

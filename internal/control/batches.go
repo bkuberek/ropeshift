@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/crashpoint"
@@ -99,8 +100,10 @@ func appendBatch(tx ports.WriteTx, batch questions.Batch, actor ledger.Actor) er
 }
 
 // DeliverBatches ends every batch whose window closed, and returns those that reached
-// members. It holds no state, so a tick that dies is made up by the next one.
+// members. It first takes to a person each question no orchestrator took within its window. It holds no state, so a
+// tick that dies is made up by the next one.
 func (q *Questions) DeliverBatches(ctx context.Context, scope ledger.WorkspaceID, actor ledger.Actor) ([]string, error) {
+	unjudged := q.escalateUnjudged(ctx, scope, actor)
 	var due []string
 	err := q.store.Read(ctx, scope, func(tx ports.ReadTx) error {
 		now, err := tx.Now()
@@ -111,10 +114,10 @@ func (q *Questions) DeliverBatches(ctx context.Context, scope ledger.WorkspaceID
 		return err
 	})
 	if err != nil {
-		return nil, err
+		return nil, errors.Join(unjudged, err)
 	}
 	var delivered []string
-	var failed []error
+	failed := []error{unjudged}
 	for _, id := range due {
 		reached, err := q.deliver(ctx, scope, id, actor)
 		if err != nil {
@@ -214,8 +217,15 @@ func draftAnswer(question string, answer questions.Answer, actor ledger.Actor) (
 	if answersReplaceNothing() {
 		answer.Supersedes = ""
 	}
+	status := questions.DecisionDecided
+	if answer.Assumed {
+		if strings.TrimSpace(answer.Rationale) == "" {
+			return questions.Decision{}, fmt.Errorf("%w: an assumption states why it is assumed", questions.ErrInvalid)
+		}
+		status = questions.DecisionAssumed
+	}
 	return questions.NewDecision(questions.Decision{
-		ID: answer.DecisionID, Status: questions.DecisionDecided, Statement: answer.Statement, Rationale: answer.Rationale,
+		ID: answer.DecisionID, Status: status, Statement: answer.Statement, Rationale: answer.Rationale,
 		Citations: answer.Citations, QuestionID: question, DecidedBy: actor.ID, Supersedes: answer.Supersedes, NoConflict: answer.NoConflict,
 	})
 }
@@ -239,6 +249,9 @@ func (q *Questions) decide(tx ports.WriteTx, id string, record questions.Decisio
 	}
 	record.Categories, record.Scope = question.Categories, questions.ScopeOf(question.SubjectKind, question.SubjectID)
 	if policy.AnswerReversibility(question) == questions.OneWay {
+		if record.Status == questions.DecisionAssumed {
+			return questions.Decision{}, fmt.Errorf("%w: a one-way question is answered, never assumed", questions.ErrOneWay)
+		}
 		record.Reversibility = questions.OneWay
 	}
 	if err := admit(tx, &record, policy, actor); err != nil {
