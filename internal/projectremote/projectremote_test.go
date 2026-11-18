@@ -227,6 +227,48 @@ func TestAUnsafeURLRemoteIsRefusedBeforeAnythingIsWritten(t *testing.T) {
 	}
 }
 
+func TestACreatedRepositoryNeedsANameGitHubAccepts(t *testing.T) {
+	long := strings.Repeat("a", 101)
+	for _, folder := range []string{"my project", "acme;touch x", "acme'x", "$(id)", "acme/../..", "..", ".", "caf\u00e9", long} {
+		m := newMachine()
+		request := monorepo(create("test"))
+		request.Path = "/srv/" + folder
+		report := m.run(t, request, &projectremote.Progress{})
+		if report.Outcome != ledger.TemplateOutcomeRefused || report.Reason != ledger.TemplateRefusedInvalid || report.Detail == "" {
+			t.Errorf("%q: report = %+v", folder, report)
+		}
+		if len(m.folders.Done()) != 0 || len(m.forge.Repositories()) != 0 {
+			t.Errorf("%q: wrote %v and created %v", folder, m.folders.Done(), m.forge.Repositories())
+		}
+	}
+}
+
+func TestANewCodeRepositoryToCreateNeedsANameGitHubAccepts(t *testing.T) {
+	m := newMachine()
+	request := ledger.TemplateWriteRequest{
+		Shape: "workspace", Path: "/srv/acme", FirstCommit: true,
+		Repositories: []ledger.TemplateWriteRepository{{Name: "api web", New: true, Create: &ledger.RemoteCreate{Forge: ledger.ForgeGitHub, Owner: "test"}}},
+	}
+	report := m.run(t, request, &projectremote.Progress{})
+	if report.Outcome != ledger.TemplateOutcomeRefused || report.Reason != ledger.TemplateRefusedInvalid || !strings.Contains(report.Detail, "api web") {
+		t.Errorf("report = %+v", report)
+	}
+	if len(m.folders.Done()) != 0 || len(m.forge.Repositories()) != 0 {
+		t.Errorf("wrote %v and created %v", m.folders.Done(), m.forge.Repositories())
+	}
+}
+
+func TestANameGitHubAcceptsIsCreated(t *testing.T) {
+	for _, folder := range []string{"acme", "Acme.web_2-x", ".github", "a", strings.Repeat("a", 100)} {
+		m := newMachine()
+		request := monorepo(create("test"))
+		request.Path = "/srv/" + folder
+		if report := m.run(t, request, &projectremote.Progress{}); report.Outcome != ledger.TemplateOutcomeWritten {
+			t.Errorf("%q: report = %+v", folder, report)
+		}
+	}
+}
+
 func TestARemoteNeedsAFolderThatMakesARepositoryOfItsOwn(t *testing.T) {
 	m := newMachine()
 	job := projectremote.Job{Request: monorepo(&ledger.ProjectRemote{URL: "https://example.com/acme.git"}), NeedsRepository: false}
