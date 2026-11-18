@@ -496,6 +496,31 @@
   },
   {
     "method": "GET",
+    "pattern": "/v1/projects/{project}/work-orders/{id}/spend",
+    "command": "spend"
+  },
+  {
+    "method": "POST",
+    "pattern": "/v1/projects/{project}/work-orders/{id}/spend/raise",
+    "command": "spend raise"
+  },
+  {
+    "method": "POST",
+    "pattern": "/v1/projects/{project}/work-orders/{id}/spend/resume",
+    "command": "spend resume"
+  },
+  {
+    "method": "POST",
+    "pattern": "/v1/projects/{project}/work-orders/{id}/spend/block",
+    "command": "spend block"
+  },
+  {
+    "method": "POST",
+    "pattern": "/v1/projects/{project}/work-orders/{id}/spend/replan",
+    "command": "spend replan"
+  },
+  {
+    "method": "GET",
     "pattern": "/v1/projects/{project}/approvals/{id}",
     "command": "approval show"
   },

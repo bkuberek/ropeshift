@@ -387,6 +387,85 @@ export type CIDuration = {
 
 export type CIDurations = { repositories: CIDuration[] };
 
+// What a work order is charged: the cost its turns reported, and each turn of unknown cost at the mean of the known
+// ones, in US dollars at list price (ADR-0037).
+export type Charged = { recorded_usd: number; estimated_usd: number; estimated_turns: number; unpriced?: number; charged_usd: number };
+
+// WorkOrderSpend is one work order's charged spend against its soft and hard limits. A limit of 0 is no limit, and
+// remaining is 0 with none. Conditions hold over_estimate past the soft limit and spend_limit at the hard one.
+export type WorkOrderSpend = {
+  work_order: string;
+  kind: string;
+  charged: Charged;
+  label: string;
+  soft_limit: number;
+  hard_limit: number;
+  raised_to?: number;
+  basis?: "baselined_band" | "current_band" | "no_history" | "review";
+  remaining: number;
+  conditions?: string[];
+  policy_version: number;
+};
+
+// SpendBand is the cost band a work order's limits come from, and how far it can be trusted.
+export type SpendBand = { p50: number; p85: number; outcomes: number; open?: boolean; baselined?: boolean; confidence?: "confident" | "low" };
+
+// SpendResume is what Resume once would do now: one more generation's allowance, where the figure comes from, and the
+// hard limit it sets.
+export type SpendResume = { allowance_usd: number; basis: "mean_generation" | "estimate"; limit_usd: number };
+
+// Digest is what one generation did, counted from its stream or its hooks.
+export type Digest = {
+  source: "stream" | "hooks";
+  turns: number;
+  tool_calls: Record<string, number>;
+  files_written: string[];
+  files_written_more?: number;
+  started_at: number;
+  ended_at?: number;
+  complete: boolean;
+};
+
+// Narrative is what a lane's agent wrote at a handoff.
+export type Narrative = { done: string[]; in_progress: string[]; next_steps: string[]; risks: string[]; carries_next_step: boolean };
+
+// SpendHandoff is a lane's last handoff, whose narrative is absent when the handoff degraded.
+export type SpendHandoff = { generation: number; reason?: string; degraded?: boolean; narrative?: Narrative };
+
+// SpendLane is what one lane of a stopped work order left.
+export type SpendLane = { lane: string; generation?: number; digest?: Digest; handoff?: SpendHandoff };
+
+export type SpendAction = "spend_raise" | "spend_resume" | "spend_block" | "spend_replan";
+
+// SpendNeed is a work order a hard spend limit parked: one item however many lanes served it. The waiting share is
+// absent until a model call has been attributed as waiting or working.
+export type SpendNeed = {
+  work_order: WorkOrder;
+  spend: WorkOrderSpend;
+  band?: SpendBand;
+  resume?: SpendResume;
+  lanes: SpendLane[];
+  waiting_share?: number;
+  actions: SpendAction[];
+};
+
+// SpendLimitChange is what a raise or a resume recorded: the hard limit before and after, and what was charged.
+export type SpendLimitChange = {
+  work_order: string;
+  act: "raise" | "resume";
+  before_usd: number;
+  after_usd: number;
+  charged_usd: number;
+  by_percent?: number;
+  to_usd?: number;
+  policy_version: number;
+  allowance_usd?: number;
+  allowance_basis?: "mean_generation" | "estimate";
+};
+
+// SpendStopEnded is what blocking a spend stop or sending it to replanning left.
+export type SpendStopEnded = { work_order: string; state: string; reason: string };
+
 export type NeedItem = {
   id: string;
   since: number;
@@ -401,6 +480,7 @@ export type NeedItem = {
   | { kind: "confirm"; card: CardNeed }
   | { kind: "plan_revision"; plan_revision: PlanRevisionView }
   | { kind: "ci"; ci: CINeed }
+  | { kind: "spend"; spend: SpendNeed }
 );
 
 // NeedsProject is one project's part of the combined Needs you: where its ledger stood, and how much waits.

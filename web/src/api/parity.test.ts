@@ -99,6 +99,7 @@ import {
 } from "./client";
 import { createDelegate, readDelegates, readOperations, removeDelegate, revokeDelegate, signOutAll } from "./delegates";
 import { readCalibration, readCIDurations, readDelivery, readDeliveryHistory, readEstimate, readPlanForecast } from "./measures";
+import { blockSpend, raiseSpendLimit, readWorkOrderSpend, replanSpend, resumeSpend } from "./spend";
 import { claimAndStart, startClaimed } from "./runWork";
 import {
   clearConversation,
@@ -230,6 +231,11 @@ const callers: Record<string, Caller> = {
   "POST /v1/projects/{project}/work-orders/{id}/decision-rework": step("reworkForDecisions", () => reworkForDecisions("wo-1", ["d-1"])),
   "POST /v1/projects/{project}/work-orders/{id}/ci-wait": step("waitLongerForCI", () => waitLongerForCI("wo-1", "45m")),
   "POST /v1/projects/{project}/work-orders/{id}/ci-rerun": step("rerunCI", () => rerunCI("wo-1")),
+  "GET /v1/projects/{project}/work-orders/{id}/spend": step("readWorkOrderSpend", () => readWorkOrderSpend("wo-1")),
+  "POST /v1/projects/{project}/work-orders/{id}/spend/raise": step("raiseSpendLimit", () => raiseSpendLimit("wo-1", { by_percent: 50 })),
+  "POST /v1/projects/{project}/work-orders/{id}/spend/resume": step("resumeSpend", () => resumeSpend("wo-1")),
+  "POST /v1/projects/{project}/work-orders/{id}/spend/block": step("blockSpend", () => blockSpend("wo-1")),
+  "POST /v1/projects/{project}/work-orders/{id}/spend/replan": step("replanSpend", () => replanSpend("wo-1")),
   "GET /v1/projects/{project}/plans/{id}/forecast": step("readPlanForecast", () => readPlanForecast("plan-1")),
   "GET /v1/projects/{project}/measures/delivery": step("readDelivery", () => readDelivery("30d", "kind")),
   "GET /v1/projects/{project}/measures/estimates": step("readCalibration", () => readCalibration("30d")),

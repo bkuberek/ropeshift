@@ -1475,6 +1475,13 @@ details.disclosure > :not(summary) {
   margin-top: var(--s-8);
 }
 
+/* A work order's charged spend against its hard limit, which a person reads at a glance beside its figures. */
+.spend-meter {
+  width: 100%;
+  height: 8px;
+  margin-bottom: var(--s-8);
+}
+
 /* Questions */
 .question {
   padding: var(--s-12) 0;

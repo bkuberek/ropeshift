@@ -187,6 +187,10 @@ export function serveViews(answer?: (sent: Sent) => Answer | undefined, options:
     if (call.method === "GET" && /^\/v1\/work-orders\/[^/?]+\/estimate$/.test(call.path)) {
       return { status: 200, body: golden("work-estimate") };
     }
+    // What a work order is charged against its limits, as the side of its page and of its lanes' pages read it.
+    if (call.method === "GET" && /^\/v1\/work-orders\/[^/?]+\/spend$/.test(call.path)) {
+      return { status: 200, body: golden("work-order-spend") };
+    }
     if (call.method === "GET" && /^\/v1\/plans\/[^/?]+/.test(call.path)) {
       return { status: 200, body: golden("plan") };
     }

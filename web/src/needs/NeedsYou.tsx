@@ -23,6 +23,7 @@ import { PlanApprovalCard, RegisteredRepositories } from "./PlanApprovalCard";
 import { PlanRevisionCard } from "./PlanRevisionCard";
 import { QuestionBatch } from "./QuestionBatch";
 import type { Answered } from "./QuestionBatch";
+import { SpendCard } from "./SpendCard";
 import { waitLabel, waitWords } from "./wait";
 import { WorkCard } from "./WorkCard";
 
@@ -66,6 +67,8 @@ function Card({ item, after, frame, registered, settled }: { item: NeedItem; aft
       return <ContractReviewCard review={item.contract_review} after={after} frame={frame} />;
     case "ci":
       return <CICard need={item.ci} after={after} frame={frame} />;
+    case "spend":
+      return <SpendCard need={item.spend} after={after} frame={frame} />;
     case "confirm":
       return <ConfirmCard need={item.card} after={after} frame={frame} {...assistant} />;
   }
