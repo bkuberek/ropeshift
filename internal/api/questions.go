@@ -160,6 +160,9 @@ type BatchAnswerItem struct {
 	Supersedes string   `json:"supersedes,omitempty"`
 	NoConflict []string `json:"no_conflict,omitempty"`
 	Accepted   bool     `json:"accepted,omitempty"`
+	// ExpectReversibility is the reversibility the item stated when the member read it, `reversible` or `one_way`.
+	// The request is refused when the policy in force now says otherwise. Empty takes what the policy says.
+	ExpectReversibility string `json:"expect_reversibility,omitempty"`
 }
 
 // AnswerBatch answers a batch's questions in one request, which records every answer or none, and names the first

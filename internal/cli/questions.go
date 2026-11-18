@@ -241,7 +241,8 @@ func remaining(batch api.QuestionBatch, given []api.BatchAnswerItem, accept bool
 			if err != nil {
 				return nil, nil, err
 			}
-			answers = append(answers, api.BatchAnswerItem{Question: item.ID, ID: id, Accepted: true})
+			// The answer is taken on the word of what this read stated, so a policy published since refuses it.
+			answers = append(answers, api.BatchAnswerItem{Question: item.ID, ID: id, Accepted: true, ExpectReversibility: questions.Reversible})
 		}
 	}
 	return answers, left, nil

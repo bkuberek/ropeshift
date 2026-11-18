@@ -48,6 +48,9 @@ const (
 	CodePassphraseChanged = "passphrase_changed"
 	// CodeResolved means a question already has its answer.
 	CodeResolved = "resolved"
+	// CodeReversibilityChanged means an answer of a batch expected a reversibility that the decision policy no longer
+	// gives, so the request recorded nothing.
+	CodeReversibilityChanged = "reversibility_changed"
 	// CodeNotEnrolled means nobody can sign in, because no passphrase is set.
 	CodeNotEnrolled = "not_enrolled"
 	// CodeOneWay means a one-way choice belongs to a human.

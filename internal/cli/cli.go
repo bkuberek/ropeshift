@@ -318,7 +318,7 @@ func exitOf(refused *api.Error) int {
 	case api.CodeLapsed:
 		return ExitLapsed
 	case api.CodeNotAcceptable, api.CodeLost, api.CodeIneligible, api.CodeNotLapsed, api.CodeIllegalMove, api.CodeUnpushedWork, api.CodeResolved,
-		api.CodeOverlap, api.CodeDecisionEnded, api.CodeDecisionClash, api.CodeNotHeld, api.CodeWrongRung, api.CodeAssumptionLimit, api.CodeWindowOpen, api.CodeStaleStatement,
+		api.CodeOverlap, api.CodeDecisionEnded, api.CodeDecisionClash, api.CodeNotHeld, api.CodeReversibilityChanged, api.CodeWrongRung, api.CodeAssumptionLimit, api.CodeWindowOpen, api.CodeStaleStatement,
 		api.CodeEffectDecided, api.CodeCannotRepeat, api.CodeRepositoryHeld, api.CodeRepositoryState, api.CodeProjectExists, api.CodeProjectState, api.CodeProjectArchived,
 		api.CodeAlreadyPlanned, api.CodeRosterConflict, api.CodeDelegateActive, api.CodeNoAssistantWorker, api.CodeTargetNotRunning, api.CodeNoWorkerURL, api.CodeJoinTokenUsed:
 		return ExitConflict

@@ -1216,6 +1216,27 @@ func TestQuestionAnswerBatchAcceptsWhatIsReversibleAndNamesWhatWaits(t *testing.
 	}
 }
 
+// TestAcceptReversibleSendsWhatItReadAsItsExpectation holds that a blanket accept is taken on the word of the read it
+// came from: each accepted item says it expects a reversible answer, so a policy published between the read and the
+// request refuses the request, which ends the command as a conflict, with nothing recorded.
+func TestAcceptReversibleSendsWhatItReadAsItsExpectation(t *testing.T) {
+	batch := api.QuestionBatch{Items: []api.QuestionItem{
+		{Item: questions.Item{ID: "q-a", Recommendation: "Keep", Reversibility: questions.Reversible}},
+		{Item: questions.Item{ID: "q-b", Recommendation: "Keep", Reversibility: questions.OneWay}},
+	}}
+	answers, left, err := cli.RemainingAnswers(batch, []api.BatchAnswerItem{{Question: "q-c", ID: "d-c", Answer: "x", Rationale: "y"}}, true)
+	if err != nil || len(answers) != 2 || len(left) != 1 || left[0].Question != "q-b" {
+		t.Fatalf("answers %+v, left %+v: %v", answers, left, err)
+	}
+	if answers[0].ExpectReversibility != "" || answers[1].Question != "q-a" || !answers[1].Accepted || answers[1].ExpectReversibility != questions.Reversible {
+		t.Errorf("the accepted item sends %+v", answers[1])
+	}
+	refused := &api.Error{Status: 409, Detail: api.ErrorDetail{Code: api.CodeReversibilityChanged}}
+	if code := cli.ExitOf(refused); code != cli.ExitConflict {
+		t.Errorf("a changed reversibility ends with exit %d", code)
+	}
+}
+
 // TestQuestionAnswerBatchTakesAFileAndRecordsAllOrNone holds that a file answers each item it names, a one-way item
 // with an explicit choice, and that one refused answer records none of the others.
 func TestQuestionAnswerBatchTakesAFileAndRecordsAllOrNone(t *testing.T) {

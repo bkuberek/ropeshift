@@ -1,6 +1,7 @@
 package server_test
 
 import (
+	"errors"
 	"net/http"
 	"strings"
 	"testing"
@@ -82,6 +83,39 @@ func TestABatchWithOneRefusedAnswerRecordsNoneAndNamesIt(t *testing.T) {
 	}
 	if _, err := d.Client.AnswerBatch(t.Context(), batch.Batch.ID, api.AnswerBatch{}); refusal(t, err).Code != api.CodeInvalid {
 		t.Errorf("a request with no answers: %v", err)
+	}
+}
+
+// An answer that expects the reversibility its item stated is refused whole when a policy published since says
+// otherwise, and records nothing.
+func TestABatchAnswerThatExpectsAReversibilityThePolicyNoLongerGivesIsRefused(t *testing.T) {
+	t.Parallel()
+	d, batch := aDeliveredBatch(t, "q-retries", "q-currency")
+	body := `[decision_policy]
+version = 2
+reversible_default = "assume"
+one_way_categories = ["product"]
+max_assumptions_per_work_order = 5
+`
+	if _, err := d.Client.PublishPolicy(t.Context(), body); err != nil {
+		t.Fatal(err)
+	}
+	_, err := d.Client.AnswerBatch(t.Context(), batch.Batch.ID, api.AnswerBatch{Answers: []api.BatchAnswerItem{
+		{Question: "q-retries", ID: "d-retries", Accepted: true},
+		{Question: "q-currency", ID: "d-currency", Accepted: true, ExpectReversibility: questions.Reversible},
+	}})
+	var refused *api.Error
+	if !errors.As(err, &refused) || refused.Status != http.StatusConflict || refused.Detail.Code != api.CodeReversibilityChanged ||
+		!strings.Contains(refused.Detail.Message, "answer 2, for question q-currency: ") || !strings.Contains(refused.Detail.Message, "it is one-way now") {
+		t.Fatalf("got %v", err)
+	}
+	for _, id := range []string{"q-retries", "q-currency"} {
+		if row, err := d.Client.Question(t.Context(), id); err != nil || row.Status != questions.StatusNeedsHuman {
+			t.Errorf("question %s is %q after a refused request: %v", id, row.Status, err)
+		}
+	}
+	if _, err := d.Client.AnswerBatch(t.Context(), batch.Batch.ID, api.AnswerBatch{Answers: []api.BatchAnswerItem{{Question: "q-currency", ID: "d-currency", Accepted: true, ExpectReversibility: "maybe"}}}); refusal(t, err).Code != api.CodeInvalid {
+		t.Errorf("an expectation that is neither reversibility: %v", err)
 	}
 }
 

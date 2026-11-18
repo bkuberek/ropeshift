@@ -146,10 +146,34 @@ type BatchAnswer struct {
 	Question string
 	Answer   Answer
 	Accepted bool
+	// ExpectReversibility is the reversibility the member read the item with, when the request says: the ledger
+	// refuses the answer when the policy in force now gives another, so an answer taken on the word of an item
+	// never records a one-way decision nobody chose. Empty takes what the policy gives.
+	ExpectReversibility string
+}
+
+// ErrReversibilityChanged means an answer expected a reversibility the policy in force no longer gives.
+var ErrReversibilityChanged = errors.New("the answer's reversibility changed since it was read")
+
+// CheckExpectation refuses an expectation the policy in force now contradicts, and names which way it changed.
+func (b BatchAnswer) CheckExpectation(policy Policy, q Question) error {
+	got := policy.AnswerReversibility(q)
+	if b.ExpectReversibility == "" || b.ExpectReversibility == got {
+		return nil
+	}
+	if got == OneWay {
+		return fmt.Errorf("%w: it is one-way now", ErrReversibilityChanged)
+	}
+	return fmt.Errorf("%w: it is reversible now", ErrReversibilityChanged)
 }
 
 // Resolve reads the answer to record for the question this one names, or refuses it.
 func (b BatchAnswer) Resolve(q Question) (Answer, error) {
+	switch b.ExpectReversibility {
+	case "", Reversible, OneWay:
+	default:
+		return Answer{}, fmt.Errorf("%w: expect_reversibility is %s or %s", ErrInvalid, Reversible, OneWay)
+	}
 	answer := b.Answer
 	if b.Accepted {
 		if answer.Statement != "" || answer.Rationale != "" || len(answer.Citations) != 0 {

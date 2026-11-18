@@ -178,7 +178,7 @@ func (h *handler) answerBatch(w http.ResponseWriter, r *http.Request, actor ledg
 	answers := make([]questions.BatchAnswer, 0, len(in.Answers))
 	for _, item := range in.Answers {
 		answers = append(answers, questions.BatchAnswer{
-			Question: item.Question, Accepted: item.Accepted,
+			Question: item.Question, Accepted: item.Accepted, ExpectReversibility: item.ExpectReversibility,
 			Answer: questions.Answer{
 				DecisionID: item.ID, Statement: item.Answer, Rationale: item.Rationale, Citations: item.Citations,
 				Supersedes: item.Supersedes, NoConflict: item.NoConflict,

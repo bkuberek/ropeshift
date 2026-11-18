@@ -21,6 +21,13 @@ func PaneTiming(poll, wait time.Duration) (restore func()) {
 	return func() { panePoll, paneWait = previousPoll, previousWait }
 }
 
+// ExitOf is the exit code a refusal of the API ends a command with, and RemainingAnswers what `question answer-batch`
+// sends and leaves for a batch read.
+var (
+	ExitOf           = exitOf
+	RemainingAnswers = remaining
+)
+
 // WorkOrderText, WorkDetailText, and LaneDetail are what `work show` and `lane show` print.
 var (
 	WorkOrderText  = workOrderText

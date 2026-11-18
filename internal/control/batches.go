@@ -313,6 +313,15 @@ func (q *Questions) answerOfBatch(tx ports.WriteTx, batch string, in questions.B
 	if err != nil {
 		return questions.Decision{}, err
 	}
+	if in.ExpectReversibility != "" {
+		policy, err := policyInForce(tx)
+		if err != nil {
+			return questions.Decision{}, err
+		}
+		if err := in.CheckExpectation(policy, question); err != nil {
+			return questions.Decision{}, err
+		}
+	}
 	record, err := draftAnswer(in.Question, answer, actor)
 	if err != nil {
 		return questions.Decision{}, err

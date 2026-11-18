@@ -164,6 +164,7 @@ func TestABatchAnswerIsRefusedWhenItStatesTooMuchOrTooLittle(t *testing.T) {
 		{"accepting and a rationale", batchedQuestion(), questions.BatchAnswer{Accepted: true, Answer: questions.Answer{Rationale: "Because."}}},
 		{"accepting with citations", batchedQuestion(), questions.BatchAnswer{Accepted: true, Answer: questions.Answer{Citations: []string{"x"}}}},
 		{"accepting what was not recommended", bare, questions.BatchAnswer{Accepted: true}},
+		{"an expectation that is neither reversibility", batchedQuestion(), questions.BatchAnswer{Accepted: true, ExpectReversibility: "maybe"}},
 		{"an answer that states nothing", batchedQuestion(), questions.BatchAnswer{Answer: questions.Answer{Rationale: "Because."}}},
 		{"an answer with no rationale", batchedQuestion(), questions.BatchAnswer{Answer: questions.Answer{Statement: "Change"}}},
 		{"an answer with a blank rationale", batchedQuestion(), questions.BatchAnswer{Answer: questions.Answer{Statement: "Change", Rationale: "  "}}},

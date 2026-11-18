@@ -19,6 +19,15 @@ var BatchAnswerChecks = []Check{
 	{"B15", "a batch answer is refused for each way it can be wrong, and records nothing", checkBatchAnswerRefusals},
 	{"B16", "only a member answers a batch", checkBatchAnswerActors},
 	{"B17", "accepting a recommendation records its rationale and the item's citations, and a retry finds the answers", checkBatchAnswerAccepted},
+	{"B18", "an answer that expects a reversibility the policy no longer gives refuses the whole batch, naming it", checkBatchAnswerExpectsReversibility},
+}
+
+// expecting is the answer that takes a question's recommendation on the word that its answer has this reversibility,
+// as the member read it.
+func (r *Rig) expecting(question, reversibility string) questions.BatchAnswer {
+	answer := r.accepting(question)
+	answer.ExpectReversibility = reversibility
+	return answer
 }
 
 // accepting is the answer that takes a question's recommendation.
@@ -232,6 +241,48 @@ func checkBatchAnswerAccepted(r *Rig) error {
 	}
 	if count, err := r.recordedDecisions(s); err != nil || count != len(ids) {
 		return Violatedf("%d decisions after a retry, want %d: %v", count, len(ids), err)
+	}
+	return r.CheckQuestions(s)
+}
+
+// checkBatchAnswerExpectsReversibility holds that an answer taken on the word of what a member read is refused when a
+// policy published since has changed it: a category turned one-way, or one turned back. The whole request is refused,
+// naming the item, and records nothing.
+func checkBatchAnswerExpectsReversibility(r *Rig) error {
+	s := r.Store()
+	batch, ids, err := r.delivered(s, "What is the retry budget?", "Which currency do refunds use?")
+	if err != nil {
+		return err
+	}
+	ops := r.NewOps(s)
+	// A member read both answers as reversible, and then a policy made the product category one-way.
+	if _, err := r.publish(s, 2, 5, questions.CategoryProduct); err != nil {
+		return err
+	}
+	answers := []questions.BatchAnswer{r.accepting(ids[0]), r.expecting(ids[1], questions.Reversible)}
+	_, err = ops.AnswerBatch(r.Ctx, r.Scope, batch, answers, r.Actor)
+	if !errors.Is(err, questions.ErrReversibilityChanged) || !strings.Contains(err.Error(), ids[1]) || !strings.Contains(err.Error(), "one-way now") {
+		return Violatedf("an answer that expected a reversible answer under a policy that made it one-way: %v", err)
+	}
+	if err := r.nothingRecorded(s, ids, 0); err != nil {
+		return err
+	}
+	// The other way: the policy turned back, so an answer read as one-way is refused.
+	if _, err := r.publish(s, 3, 5); err != nil {
+		return err
+	}
+	_, err = ops.AnswerBatch(r.Ctx, r.Scope, batch, []questions.BatchAnswer{r.expecting(ids[0], questions.OneWay)}, r.Actor)
+	if !errors.Is(err, questions.ErrReversibilityChanged) || !strings.Contains(err.Error(), ids[0]) || !strings.Contains(err.Error(), "reversible now") {
+		return Violatedf("an answer that expected a one-way answer under a policy that made it reversible: %v", err)
+	}
+	if err := r.nothingRecorded(s, ids, 0); err != nil {
+		return err
+	}
+	// What the policy says now is recorded, and so is an answer that expects nothing.
+	retry := []questions.BatchAnswer{r.expecting(ids[0], questions.Reversible), r.accepting(ids[1])}
+	decisions, err := ops.AnswerBatch(r.Ctx, r.Scope, batch, retry, r.Actor)
+	if err != nil || len(decisions) != 2 {
+		return Violatedf("answers that expect what the policy says: %+v, %v", decisions, err)
 	}
 	return r.CheckQuestions(s)
 }
