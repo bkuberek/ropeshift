@@ -402,36 +402,83 @@ func (r *Repositories) Remove(ctx context.Context, scope ledger.WorkspaceID, id 
 	var record ledger.Repository
 	err := r.store.Write(ctx, scope, "repository.remove", func(tx ports.WriteTx) error {
 		var err error
-		if record, err = tx.Repositories().Repository(id); err != nil {
-			return err
-		}
-		if record.Removed() {
-			return fmt.Errorf("%w: repository %s is removed already", ledger.ErrRepositoryState, cmp.Or(record.Name, id))
-		}
-		orders, err := tx.WorkOrders().List()
-		if err != nil {
-			return err
-		}
-		for _, order := range orders {
-			if order.RepositoryID == id && !workorders.Terminal(order.State) {
-				return fmt.Errorf("%w: work order %s targets repository %s and is %s", ledger.ErrRepositoryState, order.ID, cmp.Or(record.Name, id), order.State)
-			}
-		}
-		if err := tx.Repositories().Remove(id); err != nil {
-			return err
-		}
-		record.State, record.Planning = ledger.RepositoryRemoved, false
-		event, err := repositoryEvent(ledger.EventRepositoryRemoved, id, removedEvent{Name: record.Name, Identity: ledger.RepositoryIdentity(record.Remote, id)}, actor)
-		if err != nil {
-			return err
-		}
-		_, err = tx.Append(event)
+		record, err = removeRepository(tx, id, actor)
 		return err
 	})
 	if err != nil || kept == nil {
 		return record, err
 	}
 	return record, kept.Forget(ctx, scope, id)
+}
+
+// ForgetRemoved drops this worker's checkout of every repository of the project that the ledger holds as removed,
+// and names each it dropped. A removal in the transaction of a plan approval cannot reach the checkouts, so this
+// runs before anything reads them: a removed repository's checkout is then offered to no lane, read by no intake,
+// and listed by no report. A record read as active again just before the drop, as `repository add` makes it, keeps
+// its checkout.
+func (r *Repositories) ForgetRemoved(ctx context.Context, scope ledger.WorkspaceID, kept ports.Checkouts) ([]string, error) {
+	held, err := kept.Of(ctx, scope)
+	if err != nil || len(held) == 0 {
+		return nil, err
+	}
+	removed := func(id string) (bool, error) {
+		var record ledger.Repository
+		err := r.store.Read(ctx, scope, func(tx ports.ReadTx) error {
+			var err error
+			record, err = tx.Repositories().Repository(id)
+			return err
+		})
+		if errors.Is(err, ports.ErrNotFound) {
+			return false, nil
+		}
+		return record.Removed(), err
+	}
+	var forgot []string
+	for _, id := range slices.Sorted(maps.Keys(held)) {
+		gone, err := removed(id)
+		if err != nil {
+			return forgot, err
+		}
+		if !gone {
+			continue
+		}
+		if err := kept.Forget(ctx, scope, id); err != nil {
+			return forgot, err
+		}
+		forgot = append(forgot, id)
+	}
+	return forgot, nil
+}
+
+// removeRepository takes a repository out of its project in a transaction, once no open work order targets it:
+// the record stays as history with state removed, and its identity leaves the repository index.
+func removeRepository(tx ports.WriteTx, id string, actor ledger.Actor) (ledger.Repository, error) {
+	record, err := tx.Repositories().Repository(id)
+	if err != nil {
+		return record, err
+	}
+	if record.Removed() {
+		return record, fmt.Errorf("%w: repository %s is removed already", ledger.ErrRepositoryState, cmp.Or(record.Name, id))
+	}
+	orders, err := tx.WorkOrders().List()
+	if err != nil {
+		return record, err
+	}
+	for _, order := range orders {
+		if order.RepositoryID == id && !workorders.Terminal(order.State) {
+			return record, fmt.Errorf("%w: work order %s targets repository %s and is %s", ledger.ErrRepositoryState, order.ID, cmp.Or(record.Name, id), order.State)
+		}
+	}
+	if err := tx.Repositories().Remove(id); err != nil {
+		return record, err
+	}
+	record.State, record.Planning = ledger.RepositoryRemoved, false
+	event, err := repositoryEvent(ledger.EventRepositoryRemoved, id, removedEvent{Name: record.Name, Identity: ledger.RepositoryIdentity(record.Remote, id)}, actor)
+	if err != nil {
+		return record, err
+	}
+	_, err = tx.Append(event)
+	return record, err
 }
 
 // nameIsFree refuses a name another record of the project holds, because a name names one repository,

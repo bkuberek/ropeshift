@@ -208,7 +208,7 @@ The plan approval of a consolidation, in Needs you, on its full page, and in `ro
 - The merge commit that imported the history, and its second parent, the design repository's tip, read from the adoption branch.
 - Every path both repositories held, with the version the merge kept.
 - Every code tree left out.
-- When the project holds the old design repository as a registered repository, its removal, which is one of the approval's effects.
+- When the project holds the old design repository as a registered repository, its removal, which is one of the approval's effects: approving removes it in the same transaction and keeps its record as history.
 - At `person_merges`, that you merge the branch yourself with a merge commit, because only a merge commit keeps the design history.
 
 A merge the control plane cannot read from the branch is said, with why, and the trees left out and the removal are listed all the same.
@@ -221,7 +221,7 @@ A crash at any point is safe. A restart looks for the merge commit on the branch
 
 Merge the adoption branch with a merge commit. A squash or rebase merge keeps the files and drops the design repository's commits, because only a merge commit keeps the second parent.
 
-The design repository is not registered by adopt, and its clone is never written, archived, or given another remote: ropeshift never deletes, archives, or rewrites it. If the project already holds it as a registered repository, take it out with `ropeshift repository remove`, which keeps its record as history. Archive the old repository on its forge yourself when you no longer need it, and delete the clone when you are done with it.
+The design repository is not registered by adopt, and its clone is never written, archived, or given another remote: ropeshift never deletes, archives, or rewrites it. If the project already holds it as a registered repository, approving the plan removes it from the project in the approval's transaction, as `ropeshift repository remove` does, and keeps its record as history. While a work order that is not finished targets it, the approval is refused with that work order named: finish or cancel the work, then approve. The worker keeps its checkout of the removed repository until the next intake tick, which drops the checkout of every repository the project holds as removed before it reads any source, so that clone is offered to no lane, read by no intake, and listed by no report of the worker's checkouts. Archive the old repository on its forge yourself when you no longer need it, and delete the clone when you are done with it.
 
 ## The adopt session
 

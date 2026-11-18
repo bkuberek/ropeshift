@@ -1,12 +1,16 @@
 package contract
 
 import (
+	"errors"
 	"reflect"
 	"strings"
 
+	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/control"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/planning"
+	"ropeshift.com/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/workorders"
 )
 
 // designRoot is the first-parent root of the design repository a consolidation imports, which is also the ID of
@@ -137,4 +141,108 @@ func checkAConsolidationWhoseMergeIsUnreadSaysWhy(r *Rig) error {
 		return Violatedf("a consolidation whose merge cannot be read reads %+v", consolidation)
 	}
 	return nil
+}
+
+// consolidationPending runs a consolidating adoption, with the old design repository held by the project, to its
+// request for approval.
+func (w *startWorld) consolidationPending() (authority.Approval, ledger.Repository, error) {
+	if err := w.repository(func(*control.RepositoryChange) {}); err != nil {
+		return authority.Approval{}, ledger.Repository{}, err
+	}
+	design, err := w.heldDesign()
+	if err != nil {
+		return authority.Approval{}, ledger.Repository{}, err
+	}
+	_, _, head := w.consolidatedBranch()
+	id, err := w.adoptOrder(startRepository, consolidating())
+	if err != nil {
+		return authority.Approval{}, ledger.Repository{}, err
+	}
+	if err := w.adoptLaneEnds(id, head); err != nil {
+		return authority.Approval{}, ledger.Repository{}, err
+	}
+	pending, adoption, err := w.pendingAdoption(control.NewIntake(w.s).Checking(w.starts))
+	if err != nil {
+		return authority.Approval{}, ledger.Repository{}, err
+	}
+	if adoption == nil || adoption.Consolidation == nil || adoption.Consolidation.Removes == nil {
+		return authority.Approval{}, ledger.Repository{}, Violatedf("the consolidation's request lists no removal: %+v", adoption)
+	}
+	return pending, design, nil
+}
+
+func checkApprovingAConsolidationRemovesTheDesignRepository(r *Rig) error {
+	s := r.Store()
+	w := r.startWorld(s)
+	pending, design, err := w.consolidationPending()
+	if err != nil {
+		return err
+	}
+	if _, err := r.approve(s, pending, true, theMember); err != nil {
+		return Violatedf("approving the consolidation: %v", err)
+	}
+	// The record stays as history, removed, with its name, as a repository a member removes does.
+	kept, err := r.theRepository(s, designRoot)
+	if err != nil || !kept.Removed() || kept.Name != design.Name || kept.Planning {
+		return Violatedf("after approval the design repository's record reads %+v: %v", kept, err)
+	}
+	events, err := r.repositoryEvents(s, designRoot)
+	if err != nil {
+		return err
+	}
+	var removed []ledger.Event
+	for _, event := range events {
+		if event.Type == ledger.EventRepositoryRemoved {
+			removed = append(removed, event)
+		}
+	}
+	if len(removed) != 1 || removed[0].Actor != theMember {
+		return Violatedf("the design repository's removals are %+v", removed)
+	}
+	// The approval and the removal are one transaction: the event that records the approval and the removal's are
+	// in the ledger together, and the planning repository is untouched.
+	if planned, err := r.theRepository(s, startRepository); err != nil || planned.Removed() {
+		return Violatedf("the planning repository reads %+v: %v", planned, err)
+	}
+	return r.CheckProjection(s)
+}
+
+func checkAConsolidationWithOpenWorkInTheDesignRepositoryWaits(r *Rig) error {
+	s := r.Store()
+	w := r.startWorld(s)
+	pending, _, err := w.consolidationPending()
+	if err != nil {
+		return err
+	}
+	open, err := w.order(designRoot, "")
+	if err != nil {
+		return err
+	}
+	_, err = r.approve(s, pending, true, theMember)
+	if !errors.Is(err, ledger.ErrRepositoryState) || !strings.Contains(err.Error(), open) {
+		return Violatedf("approving a consolidation while work order %s targets the design repository: %v", open, err)
+	}
+	// Nothing of the approval happened: the request still waits, and the design repository is still held.
+	row, err := r.approvalRow(s, pending.ID)
+	if err != nil || row.State != authority.ApprovalPending {
+		return Violatedf("the refused approval reads %+v: %v", row, err)
+	}
+	if held, err := r.theRepository(s, designRoot); err != nil || held.Removed() {
+		return Violatedf("the design repository reads %+v: %v", held, err)
+	}
+	if order, err := r.WorkOrder(s, pending.WorkOrder); err != nil || order.State != workorders.Acceptance {
+		return Violatedf("the adoption's work reads %+v: %v", order, err)
+	}
+	return nil
+}
+
+// approvalRow reads one approval as the ledger holds it.
+func (r *Rig) approvalRow(s ports.Store, id string) (authority.Approval, error) {
+	var row authority.Approval
+	err := s.Read(r.Ctx, r.Scope, func(tx ports.ReadTx) error {
+		var err error
+		row, err = tx.Approvals().Approval(id)
+		return err
+	})
+	return row, err
 }

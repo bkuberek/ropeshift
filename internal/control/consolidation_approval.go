@@ -1,12 +1,14 @@
 package control
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"slices"
 
 	"ropeshift.com/ropeshift/internal/adoption"
+	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/planning"
 	"ropeshift.com/ropeshift/internal/ports"
@@ -110,4 +112,32 @@ func consolidationEffects(tx ports.WriteTx, order workorders.WorkOrder, read *pl
 	}
 	out.PersonMerges = planned.Level() == ledger.PersonMerges
 	return &out, nil
+}
+
+// removeConsolidatedDesign is the effect a consolidation's approval lists of the old design repository: in the
+// approval's transaction, the repository leaves the project and its record stays as history (ADR-0021), as a
+// member's removal leaves it. A repository the request listed that is gone or removed since needs nothing, and one
+// that open work still targets refuses the approval, with that work named.
+func removeConsolidatedDesign(tx ports.WriteTx, approval authority.Approval, member ledger.Actor) error {
+	adopted := planDetailOf(approval).Adoption
+	if adopted == nil || adopted.Consolidation == nil || adopted.Consolidation.Removes == nil {
+		return nil
+	}
+	if !authority.Allowed(member, authority.ActionRegisterRepository) {
+		return workorders.ErrForbidden
+	}
+	id := adopted.Consolidation.Removes.ID
+	record, err := tx.Repositories().Repository(id)
+	switch {
+	case errors.Is(err, ports.ErrNotFound):
+		return nil
+	case err != nil:
+		return err
+	case record.Removed():
+		return nil
+	}
+	if _, err := removeRepository(tx, id, member); err != nil {
+		return fmt.Errorf("approving removes repository %s, which the consolidation imported: %w", cmp.Or(record.Name, id), err)
+	}
+	return nil
 }

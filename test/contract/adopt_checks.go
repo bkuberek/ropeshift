@@ -26,6 +26,8 @@ var AdoptChecks = []Check{
 	{"AS7", "a consolidating adoption's request lists its merge, the design tip, every colliding path, the trees left out, and the old design repository approving removes", checkAConsolidationListsWhatItImported},
 	{"AS8", "a consolidation of a design repository the project does not hold removes nothing, and at a level where ropeshift merges says nothing of the person's merge", checkAConsolidationTheProjectDoesNotHoldRemovesNothing},
 	{"AS9", "a consolidation whose merge cannot be read from its branch says why, and still lists the trees left out and the removal", checkAConsolidationWhoseMergeIsUnreadSaysWhy},
+	{"AS10", "approving a consolidation removes the old design repository in the approval's transaction, and keeps its record as history", checkApprovingAConsolidationRemovesTheDesignRepository},
+	{"AS11", "a consolidation is not approved while open work targets the old design repository, and nothing of its approval happens", checkAConsolidationWithOpenWorkInTheDesignRepositoryWaits},
 }
 
 // adoptOrder records ready planning work that adopts the project, in a repository, with the restructuring a
