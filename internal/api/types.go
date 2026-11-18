@@ -23,7 +23,10 @@ const (
 	CodeMoved = "moved"
 	// CodeUnpushedWork refuses a removal that could lose work no remote holds.
 	CodeUnpushedWork = "unpushed_work"
-	CodeUnavailable  = "unavailable"
+	// CodeSpendLimit refuses an act that starts more spending on work at its hard spend limit. The message names the
+	// work order, its limit, and what it is charged, and says to raise the limit with `ropeshift spend raise`.
+	CodeSpendLimit  = "spend_limit"
+	CodeUnavailable = "unavailable"
 	// CodeRepositoryReadsUnavailable says a group server reads no repository on its own machine yet, so the
 	// read the call needed is refused and names itself.
 	CodeRepositoryReadsUnavailable = "repository_reads_unavailable"

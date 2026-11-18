@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 
 	"ropeshift.com/ropeshift/internal/api"
@@ -49,6 +50,26 @@ func (h *handler) resumeSpend(w http.ResponseWriter, r *http.Request, actor ledg
 		return
 	}
 	reply(w, http.StatusOK, change)
+}
+
+// spendRaiseAsAnAmount names a delegate's raise by a percentage as the amount it comes to now. A card is confirmed
+// later, and a percentage read then would be of whatever limit is in force by then, so a member who confirms a card that
+// shows $37.50 could lift the limit to something else. The card binds to, shows, and is replayed with the amount, which
+// is cut to the cent so the figure a member reads is the one that is asked for.
+func spendRaiseAsAnAmount(h *handler, r *http.Request, body []byte) ([]byte, error) {
+	var in api.RaiseSpend
+	if err := json.Unmarshal(body, &in); err != nil || in.ByPercent <= 0 || in.ToUSD != 0 {
+		return body, nil
+	}
+	spend, err := h.spend.WorkOrderSpend(r.Context(), h.Scope, r.PathValue("id"))
+	if err != nil {
+		return nil, err
+	}
+	if spend.HardLimit <= 0 {
+		return body, nil
+	}
+	to := math.Round(control.SpendRaise{ByPercent: in.ByPercent}.LimitFrom(spend.HardLimit)*100) / 100
+	return json.Marshal(api.RaiseSpend{ToUSD: to})
 }
 
 // spendRaiseChanges is what a card for a delegate's raise shows a member: the hard limit in force and the one the raise
