@@ -183,6 +183,47 @@ export class Keys {
     throw new Error(`The Down arrow never reached ${String(control)} in ${max} presses. The keyboard is on ${await this.where()}`);
   }
 
+  // choose picks the option of the list the keyboard is on whose label starts with text, by typing the start of the label.
+  // It first waits for the list to hold an option besides its placeholder, since a view fills a list after it renders, and
+  // a key pressed before then finds nothing to choose. Typing selects the same way on every system, where the arrow
+  // keys open a closed list on some.
+  async choose(text: string): Promise<void> {
+    try {
+      await this.page.waitForFunction(() => document.activeElement instanceof HTMLSelectElement && document.activeElement.options.length > 1, undefined, { timeout: 10_000 });
+    } catch {
+      throw new Error(`The keyboard is on no list with an option to choose "${text}" from. It is on ${await this.where()}`);
+    }
+    await this.page.keyboard.type(text, { delay: 5 });
+    try {
+      await this.page.waitForFunction(
+        (typed) => document.activeElement instanceof HTMLSelectElement && (document.activeElement.selectedOptions[0]?.text ?? "").startsWith(typed),
+        text,
+        { timeout: 5000 },
+      );
+    } catch {
+      const held = await this.page.evaluate(() => (document.activeElement as HTMLSelectElement | null)?.selectedOptions[0]?.text ?? "");
+      throw new Error(`The list was to hold "${text}" and holds "${held}"`);
+    }
+  }
+
+  // dialogRead waits until every list in the open dialog has read what it offers, and holds an option besides its
+  // placeholder. A dialog opens with each list reading, and a key pressed before they fill finds nothing chosen.
+  async dialogRead(timeoutMs = 20_000): Promise<void> {
+    try {
+      await this.page.waitForFunction(
+        () => {
+          const lists = [...document.querySelectorAll<HTMLSelectElement>("[role=dialog] select")];
+          const options = lists.reduce((count, list) => count + list.options.length, 0);
+          return lists.length > 0 && options > lists.length && lists.every((list) => list.options[0]?.text !== "Reading…");
+        },
+        undefined,
+        { timeout: timeoutMs },
+      );
+    } catch {
+      throw new Error(`The dialog never finished reading what it offers in ${timeoutMs} ms. The keyboard is on ${await this.where()}`);
+    }
+  }
+
   // activate reaches a control with Tab and presses it with Enter.
   async activate(control: Locator, options?: { back?: boolean }): Promise<void> {
     await this.tabTo(control, options);

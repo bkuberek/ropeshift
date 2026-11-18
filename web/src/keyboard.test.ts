@@ -305,9 +305,9 @@ const paths: Record<string, KeyPath> = {
     run: async (k, page) => {
       await k.palette("Adopt a project");
       await k.typeInto(page.getByLabel("Folders", { exact: true }), "/work/api");
-      // The project is the second option of its list: the first is a new project.
+      // The first option of the list is a new project, and the project is the second.
       await k.tabTo(page.getByLabel("Project", { exact: true }));
-      await k.press("ArrowDown");
+      await k.choose("Default");
       await k.activate(page.getByRole("button", { name: "Run dry run" }));
     },
   },
@@ -355,7 +355,7 @@ const paths: Record<string, KeyPath> = {
     answers: lane("generated-28", ["claim", "cancel"], "Write the guide"),
     run: async (k, page) => {
       await k.palette("Start work: Write the guide", "start work guide");
-      await page.waitForFunction(() => document.querySelectorAll("[role=dialog] select option").length > 1);
+      await k.dialogRead();
       await k.activate(inDialog(page).getByRole("button", { name: "Start", exact: true }));
     },
   },
@@ -658,7 +658,7 @@ const paths: Record<string, KeyPath> = {
     answers: reply([/\/v1\/projects\/default\/plans$/, { plans: [{ id: "generated-2", title: "Add the retry budget", status: "active" }] }]),
     run: async (k, page) => {
       await dialog(k, page, "Start contract review");
-      await page.waitForFunction(() => document.querySelectorAll("[role=dialog] select option").length > 1);
+      await k.dialogRead();
       await k.press("ArrowDown");
       await k.activate(inDialog(page).getByRole("button", { name: "Start contract review" }));
     },
@@ -706,7 +706,7 @@ const paths: Record<string, KeyPath> = {
       const open = page.getByRole("button", { name: "Revise the plan", exact: true });
       await open.waitFor();
       await k.activate(open);
-      await page.waitForFunction(() => document.querySelectorAll("[role=dialog] select option").length > 1);
+      await k.dialogRead();
       await k.activate(inDialog(page).getByRole("button", { name: "Start revision session", exact: true }));
     },
   },
