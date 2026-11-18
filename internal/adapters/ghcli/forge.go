@@ -66,6 +66,13 @@ const requiredFields = "name,bucket,link"
 // maxDetail bounds what a failure's text carries into the ledger.
 const maxDetail = 2000
 
+// maxOutput is the most a run of `gh` may write to stdout, the bound of an answer the API client reads, and
+// maxErrorOutput is the most of its stderr that is kept.
+const (
+	maxOutput      = 16 << 20
+	maxErrorOutput = 64 << 10
+)
+
 // Forge runs `gh`. Each call looks the binary up again, so a `gh` installed after the worker started is
 // found, and one removed reads as missing.
 type Forge struct {
@@ -141,20 +148,54 @@ func (f Forge) runKeeping(ctx context.Context, dir string, args ...string) ([]by
 	if err != nil {
 		return nil, err
 	}
+	ctx, stop := context.WithCancel(ctx)
+	defer stop()
 	cmd := exec.CommandContext(ctx, binary, args...)
 	cmd.Dir, cmd.Env = dir, f.environment()
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	cmd.WaitDelay = time.Second
+	stdout := &boundedWriter{limit: maxOutput, stop: stop}
+	stderr := &boundedWriter{limit: maxErrorOutput, truncate: true}
+	cmd.Stdout, cmd.Stderr = stdout, stderr
 	err = cmd.Run()
+	if stdout.over {
+		return nil, fmt.Errorf("gh %s: wrote more than %d bytes to stdout", strings.Join(args, " "), maxOutput)
+	}
 	var exit *exec.ExitError
 	if errors.As(err, &exit) {
-		return stdout.Bytes(), &ghError{args: args, code: exit.ExitCode(), stderr: clip(stderr.String())}
+		return stdout.buf.Bytes(), &ghError{args: args, code: exit.ExitCode(), stderr: clip(stderr.buf.String())}
 	}
 	if err != nil {
 		return nil, fmt.Errorf("gh %s: %w", strings.Join(args, " "), err)
 	}
-	return stdout.Bytes(), nil
+	return stdout.buf.Bytes(), nil
 }
+
+// boundedWriter keeps what is written to it up to limit bytes. Past the limit it drops the rest when truncate is
+// set, and otherwise refuses the write, records that the limit was passed, and calls stop to end the process
+// that writes.
+type boundedWriter struct {
+	buf      bytes.Buffer
+	limit    int
+	truncate bool
+	stop     context.CancelFunc
+	over     bool
+}
+
+func (w *boundedWriter) Write(p []byte) (int, error) {
+	room := w.limit - w.buf.Len()
+	if len(p) <= room {
+		return w.buf.Write(p)
+	}
+	w.buf.Write(p[:room])
+	if w.truncate {
+		return len(p), nil
+	}
+	w.over = true
+	w.stop()
+	return room, errOutputLimit
+}
+
+var errOutputLimit = errors.New("output past the limit")
 
 // clip trims text and cuts it to maxDetail bytes, on a rune boundary.
 func clip(text string) string {

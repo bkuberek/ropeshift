@@ -1,0 +1,67 @@
+package ghcli
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+)
+
+// standIn is a `gh` that runs a shell script, so a test controls what it writes.
+func standIn(t *testing.T, script string) Forge {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), Binary)
+	if err := os.WriteFile(path, []byte("#!/bin/sh\n"+script+"\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	return Forge{Path: path, Env: os.Environ()}
+}
+
+// What `gh` writes to stdout up to maxOutput is read whole.
+func TestRunKeepingReadsStdoutUpToTheLimit(t *testing.T) {
+	forge := standIn(t, fmt.Sprintf("head -c %d /dev/zero", maxOutput))
+	out, err := forge.runKeeping(t.Context(), t.TempDir(), "pr", "list")
+	if err != nil || len(out) != maxOutput {
+		t.Fatalf("stdout of exactly the limit read %d bytes: %v", len(out), err)
+	}
+}
+
+// A `gh` that writes past maxOutput is an error, not a partial read, because every caller parses the whole output.
+func TestRunKeepingFailsForStdoutPastTheLimit(t *testing.T) {
+	forge := standIn(t, fmt.Sprintf("head -c %d /dev/zero", maxOutput+1))
+	out, err := forge.runKeeping(t.Context(), t.TempDir(), "pr", "list")
+	if err == nil || !strings.Contains(err.Error(), fmt.Sprintf("more than %d bytes", maxOutput)) {
+		t.Fatalf("stdout past the limit gave %d bytes and %v", len(out), err)
+	}
+	if len(out) != 0 {
+		t.Errorf("the error carries %d bytes of output", len(out))
+	}
+}
+
+// A `gh` that never stops writing is stopped, and the error is the limit's, not the context's.
+func TestRunKeepingStopsAGhThatNeverStopsWriting(t *testing.T) {
+	forge := standIn(t, "exec yes")
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	defer cancel()
+	_, err := forge.runKeeping(ctx, t.TempDir(), "pr", "list")
+	if err == nil || !strings.Contains(err.Error(), "more than") || errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("an endless stdout gave %v", err)
+	}
+}
+
+// The stderr of a failed `gh` is read through a limit too, and the error keeps the start of it, clipped.
+func TestRunKeepingBoundsStderr(t *testing.T) {
+	forge := standIn(t, "echo start >&2\nhead -c 4000000 /dev/zero | tr '\\000' x >&2\nexit 3")
+	_, err := forge.runKeeping(t.Context(), t.TempDir(), "pr", "list")
+	var failed *ghError
+	if !errors.As(err, &failed) || failed.code != 3 {
+		t.Fatalf("a failed gh gave %v", err)
+	}
+	if len(failed.stderr) > maxDetail || !strings.HasPrefix(failed.stderr, "start") {
+		t.Errorf("stderr is %d bytes and starts %.10q", len(failed.stderr), failed.stderr)
+	}
+}
