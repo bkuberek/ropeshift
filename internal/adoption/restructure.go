@@ -207,6 +207,13 @@ func heldAs(tracked []string, file string) (string, bool) {
 	}
 	return "", false
 }
+
+// Holds says a list of tracked paths holds a file in any case.
+func Holds(tracked []string, file string) bool {
+	_, held := heldAs(tracked, file)
+	return held
+}
+
 func (h planningHome) ignores(dir string) bool { return slices.Contains(h.ignored, dir) }
 
 // movesOf lists, for each repository registered beside the planning repository's clone, the commands that move it
@@ -272,18 +279,24 @@ func consolidation(ctx context.Context, plan *planning.AdoptionPlan, in Request,
 // Arrivals sorts what a design repository's tip holds, given what the workspace holds and the code trees left
 // out, as a consolidation merges it: the paths the merge takes from the design repository, and the paths both
 // hold, each with the version kept, the workspace's, or for the ignore file at the top the union of both files'
-// lines. A path inside a tree left out arrives in neither list. The plan and the brief of the session that
-// onboards the merge both read it, so they say the same.
+// lines. Two paths that differ only in case are one path, because on a file system that ignores case one file
+// overwrites the other, and a collision names the workspace's spelling. A path inside a tree left out arrives in
+// neither list. The plan and the brief of the session that onboards the merge both read it, so they say the same.
 func Arrivals(ours, theirs, leftOut []string) (takes []string, collisions []planning.Collision) {
+	held := make(map[string]string, len(ours))
+	for _, tracked := range ours {
+		held[strings.ToLower(tracked)] = tracked
+	}
 	for _, tracked := range theirs {
 		if slices.ContainsFunc(leftOut, func(tree string) bool { return strings.HasPrefix(tracked, tree+"/") }) {
 			continue
 		}
+		mine, both := held[strings.ToLower(tracked)]
 		switch {
-		case tracked == planning.GitignorePath && slices.Contains(ours, tracked):
-			collisions = append(collisions, planning.Collision{Path: tracked, Kept: planning.KeptUnion})
-		case slices.Contains(ours, tracked):
-			collisions = append(collisions, planning.Collision{Path: tracked, Kept: planning.KeptWorkspace})
+		case both && strings.EqualFold(tracked, planning.GitignorePath):
+			collisions = append(collisions, planning.Collision{Path: mine, Kept: planning.KeptUnion})
+		case both:
+			collisions = append(collisions, planning.Collision{Path: mine, Kept: planning.KeptWorkspace})
 		default:
 			takes = append(takes, tracked)
 		}

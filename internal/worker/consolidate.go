@@ -209,7 +209,7 @@ func (r *laneRun) tellConsolidation(ctx context.Context, worktree string, made p
 		done.Files = []string{"AGENTS.md", "CLAUDE.md"}
 	}
 	// The manifest is the worker's, and a design repository that brought its own at the same path made it its own.
-	if slices.Contains(made.Files, planning.ManifestPath) && !slices.Contains(takes, planning.ManifestPath) {
+	if adoption.Holds(made.Files, planning.ManifestPath) && !adoption.Holds(takes, planning.ManifestPath) {
 		project, err := r.projectLabel(ctx)
 		if err != nil {
 			return r.failStart(workorders.ReasonSpawnFailed, err), true
