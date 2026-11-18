@@ -94,6 +94,23 @@ type PracticesRecord struct {
 	CheckedAt int64
 }
 
+// PracticesScan is where a repository's last completed secret scan ended: the commit it read, and the version of the
+// credential rule set it matched with.
+type PracticesScan struct {
+	Tip          string
+	RulesVersion int
+}
+
+// From is the commit the next scan of the repository starts after, or empty to scan the whole history. A scan that
+// matched with another version of the credential rule set than this build's holds no commit the next scan may skip:
+// the commits it read were never matched against the rules in force.
+func (s PracticesScan) From() string {
+	if s.RulesVersion != CredentialRulesVersion {
+		return ""
+	}
+	return s.Tip
+}
+
 // DesiredPracticesCheck is a practices check request a worker has not reported. The control plane offers it to the
 // worker it names, until the worker reports it or it expires.
 type DesiredPracticesCheck struct {

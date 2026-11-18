@@ -61,15 +61,15 @@ ON CONFLICT (workspace_id, repository_id) DO UPDATE SET
 		`SELECT `+practicesResultColumns+` FROM practices_results WHERE workspace_id = :workspace_id ORDER BY repository_id`)
 
 	stmtSavePracticesScan = define("practices.scan_save",
-		`INSERT INTO practices_scans (workspace_id, repository_id, scanned_tip)
-VALUES (:workspace_id, :repository_id, :scanned_tip)
-ON CONFLICT (workspace_id, repository_id) DO UPDATE SET scanned_tip = :scanned_tip`)
+		`INSERT INTO practices_scans (workspace_id, repository_id, scanned_tip, rules_version)
+VALUES (:workspace_id, :repository_id, :scanned_tip, :rules_version)
+ON CONFLICT (workspace_id, repository_id) DO UPDATE SET scanned_tip = :scanned_tip, rules_version = :rules_version`)
 
 	stmtClearPracticesScan = define("practices.scan_clear",
 		`DELETE FROM practices_scans WHERE workspace_id = :workspace_id AND repository_id = :repository_id`)
 
 	stmtPracticesScan = define("practices.scan_get",
-		`SELECT scanned_tip FROM practices_scans WHERE workspace_id = :workspace_id AND repository_id = :repository_id`)
+		`SELECT scanned_tip, rules_version FROM practices_scans WHERE workspace_id = :workspace_id AND repository_id = :repository_id`)
 )
 
 // practicesTx is the practices area of one transaction.
@@ -230,25 +230,27 @@ func (t practicesTx) Results() ([]ledger.PracticesRecord, error) {
 	return out, rows.Err()
 }
 
-func (t practicesTx) SaveScan(repository, tip string) error {
-	if tip == "" {
+func (t practicesTx) SaveScan(repository string, scan ledger.PracticesScan) error {
+	if scan.Tip == "" {
 		_, err := t.exec(stmtClearPracticesScan, t.scoped(params{"repository_id": repository}))
 		return err
 	}
-	_, err := t.exec(stmtSavePracticesScan, t.scoped(params{"repository_id": repository, "scanned_tip": tip}))
+	_, err := t.exec(stmtSavePracticesScan, t.scoped(params{"repository_id": repository, "scanned_tip": scan.Tip, "rules_version": int64(scan.RulesVersion)}))
 	return err
 }
 
-func (t practicesTx) ScannedTip(repository string) (string, error) {
+func (t practicesTx) Scan(repository string) (ledger.PracticesScan, error) {
 	row, err := t.row(stmtPracticesScan, t.scoped(params{"repository_id": repository}))
 	if err != nil {
-		return "", err
+		return ledger.PracticesScan{}, err
 	}
-	var tip string
-	if err := row.Scan(&tip); errors.Is(err, sql.ErrNoRows) {
-		return "", nil
+	var scan ledger.PracticesScan
+	var version int64
+	if err := row.Scan(&scan.Tip, &version); errors.Is(err, sql.ErrNoRows) {
+		return ledger.PracticesScan{}, nil
 	} else if err != nil {
-		return "", err
+		return ledger.PracticesScan{}, err
 	}
-	return tip, nil
+	scan.RulesVersion = int(version)
+	return scan, nil
 }

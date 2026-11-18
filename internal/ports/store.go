@@ -347,8 +347,8 @@ type PracticesReader interface {
 	Result(repository string) (ledger.PracticesRecord, error)
 	// Results lists the latest result of every repository, by repository.
 	Results() ([]ledger.PracticesRecord, error)
-	// ScannedTip returns the commit a repository's last completed secret scan read, or empty when none completed.
-	ScannedTip(repository string) (string, error)
+	// Scan returns where a repository's last completed secret scan ended, and the zero value when none completed.
+	Scan(repository string) (ledger.PracticesScan, error)
 }
 
 // PracticesWriter writes what the practices check records.
@@ -364,8 +364,8 @@ type PracticesWriter interface {
 	Expire(now int64) ([]ledger.PracticesRequest, error)
 	// SaveResult keeps a repository's latest result in place of the one it held.
 	SaveResult(ledger.PracticesRecord) error
-	// SaveScan sets the commit a repository's last completed secret scan read, and an empty commit says none did.
-	SaveScan(repository, tip string) error
+	// SaveScan sets where a repository's last completed secret scan ended, and a scan with no tip says none did.
+	SaveScan(repository string, scan ledger.PracticesScan) error
 }
 
 // ForgeReader reads what the control plane asked workers to do on a forge, the pull request each work order

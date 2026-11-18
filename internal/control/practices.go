@@ -264,14 +264,14 @@ func desiredPractices(tx ports.ReadTx, worker string, protocol int, state *ledge
 		if !request.Open(now) || at < 0 || records[at].Removed() {
 			continue
 		}
-		tip, err := tx.Practices().ScannedTip(request.Repository)
+		scan, err := tx.Practices().Scan(request.Repository)
 		if err != nil {
 			return err
 		}
 		repository := records[at]
 		state.PracticesChecks = append(state.PracticesChecks, ledger.DesiredPracticesCheck{
 			ID: request.ID, Repository: repository.ID, BaseBranch: repository.Base(), Binding: repository.ForgeBinding,
-			MergeAuthority: string(repository.Level()), ScannedFrom: tip, ExpiresAt: request.ExpiresAt,
+			MergeAuthority: string(repository.Level()), ScannedFrom: scan.From(), ExpiresAt: request.ExpiresAt,
 		})
 	}
 	return nil
@@ -367,11 +367,11 @@ func keepResult(tx ports.WriteTx, request ledger.PracticesRequest, result practi
 	}); err != nil {
 		return result, err
 	}
-	tip := result.Commit
+	scan := ledger.PracticesScan{Tip: result.Commit, RulesVersion: result.RulesVersion}
 	if secretsUnknown(result) {
-		tip = ""
+		scan = ledger.PracticesScan{}
 	}
-	return result, tx.Practices().SaveScan(request.Repository, tip)
+	return result, tx.Practices().SaveScan(request.Repository, scan)
 }
 
 // secretsUnknown says the result's secret scan could not run, so it holds no completed scan to continue from.

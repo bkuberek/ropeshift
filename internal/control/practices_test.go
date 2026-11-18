@@ -126,18 +126,20 @@ func (r *practicesRig) record(repository string) (ledger.PracticesRecord, error)
 	return record, err
 }
 
-func (r *practicesRig) tip(repository string) string {
+func (r *practicesRig) scan(repository string) ledger.PracticesScan {
 	r.t.Helper()
-	var tip string
+	var scan ledger.PracticesScan
 	err := r.store.Read(r.t.Context(), "pa", func(tx ports.ReadTx) (err error) {
-		tip, err = tx.Practices().ScannedTip(repository)
+		scan, err = tx.Practices().Scan(repository)
 		return err
 	})
 	if err != nil {
 		r.t.Fatal(err)
 	}
-	return tip
+	return scan
 }
+
+func (r *practicesRig) tip(repository string) string { return r.scan(repository).Tip }
 
 func (r *practicesRig) events(kind string) []ledger.Event {
 	r.t.Helper()
@@ -182,7 +184,7 @@ func (r *practicesRig) mustReport(request, outcome string, result *practices.Res
 // aResult is what a check of a repository at a commit came to: an env finding, and the secret findings given.
 func aResult(repository, commit, from string, leaks ...string) *practices.Result {
 	result := practices.Result{
-		Repository: repository, Commit: commit, BaseBranch: "main", Worker: "w", TableVersion: practices.TableVersion, RulesVersion: 1,
+		Repository: repository, Commit: commit, BaseBranch: "main", Worker: "w", TableVersion: practices.TableVersion, RulesVersion: ledger.CredentialRulesVersion,
 		ScannedFrom: from, CheckedAt: time.Now().UTC().Truncate(time.Millisecond),
 		Practices: []practices.PracticeStatus{{ID: practices.EnvIgnored, Status: practices.StatusFinding}, {ID: practices.Secrets, Status: practices.StatusMet}},
 		Findings: []practices.Finding{{
@@ -258,7 +260,7 @@ func TestAPracticesCheckIsOfferedWithTheRepositorysSettings(t *testing.T) {
 		t.Fatal(err)
 	}
 	err := r.store.Write(t.Context(), "pa", "test.scan", func(tx ports.WriteTx) error {
-		if err := tx.Practices().SaveScan("repo-a", tipOne); err != nil {
+		if err := tx.Practices().SaveScan("repo-a", ledger.PracticesScan{Tip: tipOne, RulesVersion: ledger.CredentialRulesVersion}); err != nil {
 			return err
 		}
 		_, err := tx.Append(ledger.EventDraft{Type: "test.scanned", Actor: projectMember, Subject: ledger.Subject{Kind: "repository", ID: "repo-a"}})
@@ -590,6 +592,33 @@ func TestAnIncrementalScanKeepsTheEarlierSecretsAndAFailedScanRestartsIt(t *test
 	fourth := r.requested(r.request(ledger.PracticesMember, "repo-a"))
 	if offered := r.offered(r.auth); len(offered) != 1 || offered[0].ID != fourth.ID || offered[0].ScannedFrom != "" {
 		t.Errorf("the next check is offered %+v, want a scan of the whole history", offered)
+	}
+}
+
+// A scan tip a scan with another credential rule set left is not handed to the next check, which reads the whole
+// history again: commits it already read were never matched against the rules in force. The version of the rule set
+// is kept with the tip, and a tip of this build's rule set starts the next scan where it ended.
+func TestAScanTipOfAnotherRuleSetIsNotHandedToTheNextCheck(t *testing.T) {
+	r := newPracticesRig(t, ledger.ProtocolVersion)
+	r.register("repo-a", "widgets", "worker-1")
+	first := r.requested(r.request(ledger.PracticesMember, "repo-a"))
+	older := aResult("repo-a", tipOne, "")
+	older.RulesVersion = ledger.CredentialRulesVersion + 1
+	r.mustReport(first.ID, ledger.PracticesOutcomeChecked, older)
+	if scan := r.scan("repo-a"); scan.Tip != tipOne || scan.RulesVersion != older.RulesVersion {
+		t.Fatalf("the scan is %+v, want the tip %s with the version %d", scan, tipOne, older.RulesVersion)
+	}
+	second := r.requested(r.request(ledger.PracticesMember, "repo-a"))
+	if offered := r.offered(r.auth); len(offered) != 1 || offered[0].ID != second.ID || offered[0].ScannedFrom != "" {
+		t.Fatalf("the check is offered %+v, want a scan of the whole history", offered)
+	}
+	r.mustReport(second.ID, ledger.PracticesOutcomeChecked, aResult("repo-a", tipTwo, ""))
+	if scan := r.scan("repo-a"); scan.Tip != tipTwo || scan.RulesVersion != ledger.CredentialRulesVersion {
+		t.Fatalf("the scan is %+v, want the tip %s with this build's version", scan, tipTwo)
+	}
+	third := r.requested(r.request(ledger.PracticesMember, "repo-a"))
+	if offered := r.offered(r.auth); len(offered) != 1 || offered[0].ID != third.ID || offered[0].ScannedFrom != tipTwo {
+		t.Errorf("the check is offered %+v, want a scan from %s", offered, tipTwo)
 	}
 }
 

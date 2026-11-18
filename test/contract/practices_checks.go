@@ -22,7 +22,7 @@ var PracticesChecks = []Check{
 	{"PRQ2", "the first report of a request is the one recorded, whether the request was offered or stored as expired", checkPracticesFirstReportWins},
 	{"PRQ3", "expiring stores as expired the offered requests whose expiry passed, and only those", checkPracticesExpiry},
 	{"PRQ4", "a repository keeps its latest result, whole, and a later save replaces it", checkPracticesLatestResult},
-	{"PRQ5", "a repository's scan tip is set, replaced, and cleared on its own", checkPracticesScanTip},
+	{"PRQ5", "a repository's scan tip and the version of the credential rules it read with are set, replaced, and cleared on their own", checkPracticesScanTip},
 	{"PRQ6", "registering clones requests one check of each repository registered, as a registration, and a repository no worker keeps, a known one, and a dry run request none", checkRegistrationRequestsACheckOfEachRepository},
 	{"PRQ7", "registering from a manifest requests one check of each repository it registers", checkManifestRegistrationRequestsACheckOfEachRepository},
 }
@@ -280,35 +280,45 @@ func checkPracticesLatestResult(r *Rig) error {
 
 func checkPracticesScanTip(r *Rig) error {
 	s := r.Store()
-	tipOf := func(repository string) (string, error) {
-		var tip string
+	scanOf := func(repository string) (ledger.PracticesScan, error) {
+		var scan ledger.PracticesScan
 		err := practicesRead(r, s, func(p ports.PracticesReader) (err error) {
-			tip, err = p.ScannedTip(repository)
+			scan, err = p.Scan(repository)
 			return err
 		})
-		return tip, err
+		return scan, err
 	}
-	if tip, err := tipOf("repo-a"); err != nil || tip != "" {
-		return Violatedf("a repository never scanned has the tip %q, %v", tip, err)
+	if scan, err := scanOf("repo-a"); err != nil || scan != (ledger.PracticesScan{}) {
+		return Violatedf("a repository never scanned has the scan %+v, %v", scan, err)
 	}
-	for _, step := range []struct{ repository, tip string }{{"repo-a", "c1"}, {"repo-b", "c7"}, {"repo-a", "c2"}} {
-		if err := practicesWrite(r, s, func(p ports.PracticesWriter) error { return p.SaveScan(step.repository, step.tip) }); err != nil {
-			return Violatedf("saving the tip of %s: %v", step.repository, err)
+	steps := []struct {
+		repository string
+		scan       ledger.PracticesScan
+	}{
+		{"repo-a", ledger.PracticesScan{Tip: "c1", RulesVersion: 1}},
+		{"repo-b", ledger.PracticesScan{Tip: "c7", RulesVersion: 3}},
+		{"repo-a", ledger.PracticesScan{Tip: "c2", RulesVersion: 2}},
+	}
+	for _, step := range steps {
+		if err := practicesWrite(r, s, func(p ports.PracticesWriter) error { return p.SaveScan(step.repository, step.scan) }); err != nil {
+			return Violatedf("saving the scan of %s: %v", step.repository, err)
 		}
 	}
-	for repository, want := range map[string]string{"repo-a": "c2", "repo-b": "c7"} {
-		if tip, err := tipOf(repository); err != nil || tip != want {
-			return Violatedf("%s has the tip %q, %v; want %q", repository, tip, err, want)
+	for repository, want := range map[string]ledger.PracticesScan{
+		"repo-a": {Tip: "c2", RulesVersion: 2}, "repo-b": {Tip: "c7", RulesVersion: 3},
+	} {
+		if scan, err := scanOf(repository); err != nil || scan != want {
+			return Violatedf("%s has the scan %+v, %v; want %+v", repository, scan, err, want)
 		}
 	}
-	if err := practicesWrite(r, s, func(p ports.PracticesWriter) error { return p.SaveScan("repo-a", "") }); err != nil {
-		return Violatedf("clearing the tip: %v", err)
+	if err := practicesWrite(r, s, func(p ports.PracticesWriter) error { return p.SaveScan("repo-a", ledger.PracticesScan{}) }); err != nil {
+		return Violatedf("clearing the scan: %v", err)
 	}
-	if tip, err := tipOf("repo-a"); err != nil || tip != "" {
-		return Violatedf("a cleared tip reads %q, %v", tip, err)
+	if scan, err := scanOf("repo-a"); err != nil || scan != (ledger.PracticesScan{}) {
+		return Violatedf("a cleared scan reads %+v, %v", scan, err)
 	}
-	if tip, err := tipOf("repo-b"); err != nil || tip != "c7" {
-		return Violatedf("clearing repo-a's tip left repo-b's as %q, %v", tip, err)
+	if scan, err := scanOf("repo-b"); err != nil || scan.Tip != "c7" || scan.RulesVersion != 3 {
+		return Violatedf("clearing repo-a's scan left repo-b's as %+v, %v", scan, err)
 	}
 	return nil
 }
