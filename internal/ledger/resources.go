@@ -47,6 +47,8 @@ type ResourceReport struct {
 	RunningLanes *int64             `json:"running_lanes,omitempty"`
 	Sessions     []SessionResources `json:"sessions"`
 	Warnings     []ResourceWarning  `json:"warnings,omitempty"`
+	// SignIn is what the worker knows of its sign-in's usage limit, absent from a worker that does not say.
+	SignIn *SignInUsage `json:"sign_in,omitempty"`
 }
 
 // The lane caps a capacity interval names (FR-OBS-14), by the setting that sets each.
@@ -227,6 +229,11 @@ func BoundReport(report ResourceReport) (ResourceReport, error) {
 	}
 	if len(raw) > MaxReportBytes {
 		return ResourceReport{}, errReportTooLarge
+	}
+	if report.SignIn != nil {
+		sign := *report.SignIn
+		sign.Window, sign.Source = clip(sign.Window), clip(sign.Source)
+		out.SignIn = &sign
 	}
 	return out, nil
 }

@@ -168,6 +168,7 @@ func crashMatrix() []crashCase {
 		escalateCase(),
 		deliverCase(),
 		unjudgedCase(),
+		scheduleStartCase(),
 		answerCase(),
 		answerReplacingCase("question.answer", withSteps("decided")),
 		answerReplacingCase("decision.record", []string{"replaced", "repacked"}),
@@ -1143,6 +1144,32 @@ func unjudgedCase() crashCase {
 		},
 		settled: func(w *world, spec childSpec) error {
 			return w.questionIs(spec.Key, questions.StatusNeedsHuman, "")
+		},
+	}
+}
+
+// scheduleStartCase kills a member's scheduled start of an orchestrator after its record is written. It must leave the
+// record and its event, or neither.
+func scheduleStartCase() crashCase {
+	return crashCase{
+		name:  "a start scheduled for a usage reset",
+		op:    "orchestrator.schedule",
+		steps: withSteps("recorded"),
+		prepare: func(w *world) (childSpec, error) {
+			worker, err := contract.LimitedWorker(w.rig, w.store)
+			return childSpec{Role: "schedule-start", Key: worker}, err
+		},
+		settled: func(w *world, spec childSpec) error {
+			return w.rig.Store().Installation(w.rig.Scope).Read(w.rig.Ctx, func(tx ports.SharedReadTx) error {
+				start, err := tx.Workers().ScheduledStart(spec.Key)
+				if err != nil {
+					return contract.Violatedf("the scheduled start of %s: %v", spec.Key, err)
+				}
+				if start.StartsAt == 0 {
+					return contract.Violatedf("the scheduled start waits for no reset: %+v", start)
+				}
+				return nil
+			})
 		},
 	}
 }

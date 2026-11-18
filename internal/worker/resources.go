@@ -182,6 +182,8 @@ func (w *Worker) Measure(ctx context.Context) (ledger.ResourceReport, error) {
 	trees, treesErr := rt.Machine.ProcessTrees(ctx, roots)
 	now := w.clock.Now()
 
+	// The sign-in has a lock of its own, which parking holds while it reaches the lanes, so it is read first.
+	sign := signInUsage(w.signIn(), now.UnixMilli())
 	// The lock guards the state alone: the journal's write of the peaks waits until it is released, so a
 	// heartbeat that reads the report never waits on a disk.
 	w.resources.lock.Lock()
@@ -207,6 +209,7 @@ func (w *Worker) Measure(ctx context.Context) (ledger.ResourceReport, error) {
 		MaxLanes: lanes.WorkerCap(user.MaxLanes, user.MaxLanes, recommendation.MaxLanes), MaxLanesSet: user.MaxLanes != nil, MaxLanesPerSignIn: user.MaxLanesPerSignIn,
 	}
 	report.Warnings = lanes.ResourceWarnings(report.Machine, thresholds)
+	report.SignIn = sign
 	w.resources.seq++
 	w.resources.report, w.resources.at = &report, now
 	w.resources.lock.Unlock()

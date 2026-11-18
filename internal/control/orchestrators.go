@@ -113,40 +113,47 @@ func setOrchestrator(ctx context.Context, installation ports.Installation, worke
 	}
 	var row ledger.Orchestrator
 	err := installation.Write(ctx, "orchestrator.set", func(tx ports.SharedTx) error {
-		if _, err := tx.Workers().Find(worker); err != nil {
-			return err
-		}
-		current, err := tx.Workers().Orchestrator(worker)
-		if errors.Is(err, ports.ErrNotFound) {
-			current = ledger.Orchestrator{ID: ledger.OrchestratorOf(worker), WorkerID: worker, Desired: ledger.OrchestratorStopped}
-		} else if err != nil {
-			return err
-		}
-		row = current
-		switch {
-		case desired == ledger.OrchestratorRunning && current.Desired == ledger.OrchestratorRunning && current.Tripped():
-			row.Resets++
-		case desired == ledger.OrchestratorRunning && current.Desired == ledger.OrchestratorRunning && current.Stalled():
-			row = nextRun(current)
-		case desired == current.Desired:
-			return nil
-		case desired == ledger.OrchestratorRunning:
-			row = nextRun(current)
-		default:
-			row.Desired = desired
-		}
-		if err := tx.Workers().SaveOrchestrator(row); err != nil {
-			return err
-		}
-		data, err := json.Marshal(row)
-		if err != nil {
-			return err
-		}
-		_, err = tx.Append(ledger.EventDraft{
-			Type: ledger.EventOrchestratorDesired, Actor: actor, Data: data,
-			Subject: ledger.Subject{Kind: ledger.SubjectOrchestrator, ID: row.ID},
-		})
+		var err error
+		row, err = setOrchestratorIn(tx, worker, desired, actor)
 		return err
+	})
+	return row, err
+}
+
+// setOrchestratorIn records what a member asks of a worker's orchestrator in the transaction it is given.
+func setOrchestratorIn(tx ports.SharedTx, worker, desired string, actor ledger.Actor) (ledger.Orchestrator, error) {
+	if _, err := tx.Workers().Find(worker); err != nil {
+		return ledger.Orchestrator{}, err
+	}
+	current, err := tx.Workers().Orchestrator(worker)
+	if errors.Is(err, ports.ErrNotFound) {
+		current = ledger.Orchestrator{ID: ledger.OrchestratorOf(worker), WorkerID: worker, Desired: ledger.OrchestratorStopped}
+	} else if err != nil {
+		return ledger.Orchestrator{}, err
+	}
+	row := current
+	switch {
+	case desired == ledger.OrchestratorRunning && current.Desired == ledger.OrchestratorRunning && current.Tripped():
+		row.Resets++
+	case desired == ledger.OrchestratorRunning && current.Desired == ledger.OrchestratorRunning && current.Stalled():
+		row = nextRun(current)
+	case desired == current.Desired:
+		return row, nil
+	case desired == ledger.OrchestratorRunning:
+		row = nextRun(current)
+	default:
+		row.Desired = desired
+	}
+	if err := tx.Workers().SaveOrchestrator(row); err != nil {
+		return ledger.Orchestrator{}, err
+	}
+	data, err := json.Marshal(row)
+	if err != nil {
+		return ledger.Orchestrator{}, err
+	}
+	_, err = tx.Append(ledger.EventDraft{
+		Type: ledger.EventOrchestratorDesired, Actor: actor, Data: data,
+		Subject: ledger.Subject{Kind: ledger.SubjectOrchestrator, ID: row.ID},
 	})
 	return row, err
 }

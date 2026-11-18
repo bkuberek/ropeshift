@@ -65,6 +65,7 @@ var childRoles = map[string]func(*child) error{
 	"climb":             roleClimb,
 	"escalate":          roleEscalate,
 	"unjudged":          roleUnjudged,
+	"schedule-start":    roleScheduleStart,
 	"resolve":           roleResolve,
 	"merge":             roleMerge,
 	"dismiss":           roleDismiss,
@@ -247,6 +248,11 @@ func roleDeliver(c *child) error {
 func roleUnjudged(c *child) error {
 	quick := control.NewQuestions(c.store, questions.BatchPolicy{WindowMs: 1, MaxWaitMs: 1})
 	_, err := quick.DeliverBatches(c.ctx, c.scope, ledger.Actor{Kind: ledger.ActorSystem, ID: "batch-tick"})
+	return err
+}
+
+func roleScheduleStart(c *child) error {
+	_, err := control.NewWorkers(c.store, c.scope, control.WorkerOptions{}).ScheduleOrchestrator(c.ctx, c.spec.Key, c.member())
 	return err
 }
 
