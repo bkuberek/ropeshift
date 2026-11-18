@@ -249,6 +249,8 @@ type Options struct {
 	LaneBranchPrefix string
 	// Attempts limits the wrong guesses of an address on the network listener. Nil limits none.
 	Attempts *server.Attempts
+	// WebhookAttempts limits the deliveries of an address to the webhook route of CI events. Nil limits none.
+	WebhookAttempts *server.Attempts
 	// Templates is the list of templates the daemon serves. Nil serves none, and the route refuses.
 	Templates []api.Template
 	// Hashes is the gate the passphrase checks of the network listener pass. Nil gives the listener its own.
@@ -288,7 +290,7 @@ func StartWith(t testing.TB, options Options) *Daemon {
 		Telemetry: options.Telemetry, Backup: options.Backup, Panes: options.Panes, WebAddress: options.WebAddress,
 		Build: options.Build, Installed: options.Installed, Mode: options.Mode,
 		Checkouts: options.Checkouts, Profiles: options.Profiles, ParseManifest: repofiles.ParseManifest, Starts: options.Starts, Branches: options.Branches, LaneBranchPrefix: options.LaneBranchPrefix,
-		Attempts: options.Attempts, Templates: options.Templates, Hashes: options.Hashes,
+		Attempts: options.Attempts, WebhookAttempts: options.WebhookAttempts, Templates: options.Templates, Hashes: options.Hashes,
 		WorkerURL: options.WorkerURL, CAFingerprint: options.CAFingerprint,
 	}
 	daemon := serve(t, config, options.Wrap)

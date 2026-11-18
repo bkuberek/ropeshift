@@ -33,16 +33,26 @@ type Plane struct {
 	mu sync.Mutex
 	// served holds the plane of each project a call reached, by the project's ID.
 	served map[ledger.WorkspaceID]*Workers
+	// hints are the CI hints the signed webhook deliveries made, which a heartbeat hands to a worker.
+	hints *CIHints
+	// ciRegistry is the map from a repository to the variable that holds its webhook key, which a delivery reads
+	// instead of every project's store.
+	ciRegistry *CIRegistry
 }
+
+// CIHints is the board a signed CI webhook delivery puts a hint on, for the workers' heartbeats to carry.
+func (p *Plane) CIHints() *CIHints { return p.hints }
 
 // NewPlane returns the plane over an installation's registry and its shared records. matching makes the
 // question ladder's matcher of a project's Store, and nil leaves an orchestrator to search for itself.
 func NewPlane(registry ports.Projects, installation ports.Installation, home ledger.WorkspaceID, options WorkerOptions, matching func(ports.Store) ports.Matcher) *Plane {
 	options = withPlaneDefaults(options)
-	return &Plane{
+	p := &Plane{
 		registry: registry, installation: installation, home: home, options: options, matching: matching,
-		served: map[ledger.WorkspaceID]*Workers{},
+		served: map[ledger.WorkspaceID]*Workers{}, hints: NewCIHints(time.Now),
 	}
+	p.ciRegistry = NewCIRegistry(p.readCIRegistrations, time.Now)
+	return p
 }
 
 func withPlaneDefaults(options WorkerOptions) WorkerOptions {
@@ -284,6 +294,13 @@ func (p *Plane) Heartbeat(ctx context.Context, beat ledger.Heartbeat) (ledger.He
 	if err != nil {
 		return ledger.HeartbeatReply{}, err
 	}
+	// A repository record that changed moved its project's revision, which makes the registry of webhook keys stale.
+	p.ciRegistry.Observe(revisions)
+	// A worker hears the hints of the projects it serves, which are the ones this reply names, and no others.
+	reply.Hints, reply.HintsSeq = p.hints.SinceIn(beat.HintsThrough, func(project ledger.WorkspaceID) bool {
+		_, serves := revisions[string(project)]
+		return serves
+	})
 	reply.DesiredRev, reply.FleetMode, reply.Revisions = sum, homeMode(projects), revisions
 	err = p.installation.Read(ctx, func(tx ports.SharedReadTx) error {
 		var err error

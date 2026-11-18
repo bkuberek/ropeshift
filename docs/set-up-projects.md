@@ -400,6 +400,7 @@ For a repository that reviews through pull requests, ropeshift reads each pull r
 | `ci_queue_timeout_multiplier`, `ci_queue_timeout_no_history` | When a run no runner picked up reaches a person | 3, 30m | 1.5 to 20, 1m to 24h |
 | `ci_auto_rerun` | How many times ropeshift reruns an infrastructure failure | 1 | 0 to 3 |
 | `ci_log_excerpt_lines`, `ci_log_excerpt_bytes` | The size of the failing job's log in a rework brief | 200, 8192 | 10 to 2000, 1 KiB to 64 KiB |
+| `ci_webhook_secret_env` | The name of the variable in the server's environment that holds the key GitHub signs this repository's webhook deliveries with ([webhooks](github.md#webhooks-make-a-read-come-sooner)). It is the variable's name and never the key, and the name starts with `ROPESHIFT_HOOK_`, so no other variable of the server's environment can be named | none | an uppercase name that starts with `ROPESHIFT_HOOK_`, such as `ROPESHIFT_HOOK_WIDGETS` |
 
 The read schedule runs on a clock that advances only while a required run is in progress, from the earliest start among the required runs. While every run is queued, ropeshift reads every `ci_steady_interval`. Once a run is in progress it reads once at the expected p50, then at half the remaining time to the p85 each time, never closer than `ci_min_interval`, and every `ci_steady_interval` after the p85 for as long as the run lasts, however many hours that is. A new push to the branch reads again at once.
 

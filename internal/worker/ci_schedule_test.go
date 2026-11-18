@@ -1,6 +1,7 @@
 package worker_test
 
 import (
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -22,16 +23,27 @@ func ciRig(t *testing.T) (*forgeRig, func() int, time.Time) {
 	f.forge.SetChecks(f.forge.PullRequests()[0].Number, ledger.PullRequestCheck{
 		Name: "CI", State: ledger.CheckPending, Status: ledger.CIRunInProgress, StartedAt: started.UTC().Format(time.RFC3339), Required: true,
 	})
-	reads := func() int {
-		count := 0
-		for _, call := range f.forge.Calls() {
-			if strings.HasPrefix(call, "read ") {
+	reads := func() int { return forgeReads(f.forge.Calls()) }
+	return f, reads, started
+}
+
+// forgeReads counts the reads of the forge a schedule made: a read of one pull request, a query of several, and a
+// probe that found nothing changed. A probe that found a change is the first half of the read that follows it.
+func forgeReads(calls []string) int {
+	// A sign-in check runs beside a read and may land between its two halves.
+	calls = slices.DeleteFunc(slices.Clone(calls), func(call string) bool { return strings.HasPrefix(call, "health ") })
+	count := 0
+	for i, call := range calls {
+		switch {
+		case strings.HasPrefix(call, "read "), strings.HasPrefix(call, "batch "):
+			count++
+		case strings.HasPrefix(call, "probe "):
+			if i+1 >= len(calls) || calls[i+1] != "read "+strings.TrimPrefix(call, "probe ") {
 				count++
 			}
 		}
-		return count
 	}
-	return f, reads, started
+	return count
 }
 
 // advance moves the worker's clock and runs a pass, as the daemon's loop does.

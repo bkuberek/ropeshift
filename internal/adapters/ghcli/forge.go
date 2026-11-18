@@ -83,8 +83,33 @@ func (f Forge) environment() []string {
 	return append(base[:len(base):len(base)], "GH_PROMPT_DISABLED=1", "GH_NO_UPDATE_NOTIFIER=1", "NO_COLOR=1")
 }
 
-// run runs one command in a checkout and returns its stdout.
+// run runs one command in a checkout and returns its stdout. A command the forge refused for a rate limit is a
+// RateLimitedError, whose wait is not known, because a pull request command shows no response headers.
 func (f Forge) run(ctx context.Context, dir string, args ...string) ([]byte, error) {
+	out, err := f.runKeeping(ctx, dir, args...)
+	var failed *ghError
+	if errors.As(err, &failed) {
+		if limited, ok := rateLimitedText(failed.stderr); ok {
+			return nil, limited
+		}
+		return nil, err
+	}
+	return out, err
+}
+
+// rateLimitedText reads what gh printed of a refusal for a rate limit: the text of GitHub's message, which names
+// the limit.
+func rateLimitedText(stderr string) (*ports.RateLimitedError, bool) {
+	lower := strings.ToLower(stderr)
+	if !strings.Contains(lower, "rate limit") {
+		return nil, false
+	}
+	return &ports.RateLimitedError{Rate: ports.ForgeRate{Secondary: strings.Contains(lower, "secondary")}, Detail: stderr}, true
+}
+
+// runKeeping runs one command and returns what it wrote to stdout even when it exits with a failure, because
+// `gh api --include` writes the status and the headers of a refusal there.
+func (f Forge) runKeeping(ctx context.Context, dir string, args ...string) ([]byte, error) {
 	binary, err := f.binary()
 	if err != nil {
 		return nil, err
@@ -96,7 +121,7 @@ func (f Forge) run(ctx context.Context, dir string, args ...string) ([]byte, err
 	err = cmd.Run()
 	var exit *exec.ExitError
 	if errors.As(err, &exit) {
-		return nil, &ghError{args: args, code: exit.ExitCode(), stderr: clip(stderr.String())}
+		return stdout.Bytes(), &ghError{args: args, code: exit.ExitCode(), stderr: clip(stderr.String())}
 	}
 	if err != nil {
 		return nil, fmt.Errorf("gh %s: %w", strings.Join(args, " "), err)

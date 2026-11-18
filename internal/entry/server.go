@@ -402,11 +402,15 @@ func serveServer(ctx context.Context, paths api.Paths, opts serverOptions, trans
 		LeaseTTL: opts.leaseTTL.Milliseconds(), HeartbeatMs: opts.heartbeat.Milliseconds(),
 		Installed: installed.Installed, WebAddress: listener.webAddress(),
 		Attempts: server.NewAttempts(server.AttemptLimits{MaxFailures: opts.signinMax, Lockout: opts.signinLockout}), Warn: warnTo(stderr),
-		Matcher: lexical.Matcher{Store: store}, Matching: func(store ports.Store) ports.Matcher { return lexical.Matcher{Store: store} },
+		// The webhook route of CI events has a limit of its own, far above a sign-in's, with the same lockout.
+		WebhookAttempts: server.NewWebhookAttempts(opts.signinLockout), Matcher: lexical.Matcher{Store: store},
+		Matching: func(store ports.Store) ports.Matcher { return lexical.Matcher{Store: store} },
 		Identity: localauth.New(store, localauth.DefaultParams), Batches: batches, Windows: windows, PackTokens: soloPackTokens(paths),
 		LaneBranchPrefix: soloLaneBranchPrefix(paths),
 		Knowledge:        reads.knowledge, Starts: reads.starts, Branches: reads.branches, Checkouts: reads.checkouts,
 		ParseManifest: reads.parseManifest, Panes: reads.panes, Layouts: reads.layouts,
+		// The keys of the CI webhooks are in the server's environment, which the network listener's webhook route reads.
+		Env: os.LookupEnv,
 	}
 	controlServer := &http.Server{Handler: server.New(config), ReadHeaderTimeout: 10 * time.Second}
 	web := server.WebOptions{Port: bound.Port, Assets: assets, Proxies: transport.proxies, PublicURL: transport.publicURL}

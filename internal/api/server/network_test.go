@@ -30,6 +30,7 @@ var openRoutes = []string{
 	"GET /",
 	"HEAD /",
 	"POST /v1/sessions",
+	"POST /v1/webhooks/github",
 }
 
 func networkOn(t *testing.T) *webRig {
@@ -82,7 +83,7 @@ func walked() []api.WebRoute {
 		"DELETE /v1/workers/nothing", "PATCH /v1/projects", "GET /v1", "GET /v1/", "GET /v1/nothing",
 		"POST /v1/nothing", "GET /v1/projects", "GET /v1/projects/", "GET /v1/projects/nothing/nothing", "GET /v1//workers",
 		"GET /v1/workers/nothing/../tokens", "GET /v1/%2e%2e/%2e%2e/v1/health", "OPTIONS /v1/health", "TRACE /v1/health", "HEAD /v1/health",
-		"GET /v1/health?x=1", "GET /v1/projects/default/events", "GET /v1/projects/default/lanes/nothing/pane",
+		"GET /v1/health?x=1", "GET /v1/projects/default/events", "GET /v1/projects/default/lanes/nothing/pane", "POST /v1/webhooks/github",
 	} {
 		method, path, _ := strings.Cut(other, " ")
 		routes = append(routes, api.WebRoute{Method: method, Pattern: path})
@@ -95,7 +96,7 @@ func walked() []api.WebRoute {
 func TestEveryRouteOfTheNetworkListenerRefusesARequestWithNoCredential(t *testing.T) {
 	t.Parallel()
 	r := networkOn(t)
-	opens := map[string]bool{"POST /v1/sessions": true}
+	opens := map[string]bool{"POST /v1/sessions": true, "POST /v1/webhooks/github": true}
 	count := 0
 	for _, route := range walked() {
 		path := pathOf(route.Pattern)

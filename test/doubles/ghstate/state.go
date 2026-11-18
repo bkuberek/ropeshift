@@ -62,8 +62,26 @@ type PullRequest struct {
 	MergeMethod string `json:"merge_method,omitempty"`
 }
 
+// RateLimit makes the fake refuse every read that goes through the API or the pull request commands, as GitHub does
+// over a limit: a primary limit with no request left until Reset, or a secondary one that says how many seconds to
+// wait in Retry-After.
+type RateLimit struct {
+	Secondary  bool  `json:"secondary,omitempty"`
+	RetryAfter int64 `json:"retry_after,omitempty"`
+	Exhausted  bool  `json:"exhausted,omitempty"`
+	Reset      int64 `json:"reset,omitempty"`
+}
+
 // State is the whole fake forge.
 type State struct {
+	// RateLimit refuses reads while it is set.
+	RateLimit *RateLimit `json:"rate_limit,omitempty"`
+	// PollInterval is what an API response's X-Poll-Interval header says, in seconds, and zero sends none.
+	PollInterval int64 `json:"poll_interval,omitempty"`
+	// Remaining is what an API response's X-RateLimit-Remaining header says, and Reset the X-RateLimit-Reset. Zero
+	// Remaining with a set Reset is a window with nothing left in it that has not refused anything yet.
+	Remaining int64 `json:"remaining,omitempty"`
+	Reset     int64 `json:"reset,omitempty"`
 	// SignedOut makes `gh auth status` fail with AuthError.
 	SignedOut bool   `json:"signed_out,omitempty"`
 	AuthError string `json:"auth_error,omitempty"`

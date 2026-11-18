@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"ropeshift.com/ropeshift/internal/adapters/fake"
 	"ropeshift.com/ropeshift/internal/adapters/ghcli"
@@ -62,6 +63,7 @@ func TestForgeContractOnTheFake(t *testing.T) {
 			MergedWith: func(_ *testing.T, number int64) ledger.MergeMethod { return forge.MergedWith(number) },
 			Comments:   func(_ *testing.T, number int64) []string { return forge.Comments(number) },
 			SignOut:    func(_ *testing.T, detail string) { forge.SignOut(contractBinding.Host, detail) },
+			Limit:      func(_ *testing.T, rate ports.ForgeRate) { forge.Limit(rate) },
 			Missing: func(*testing.T) ports.Forge {
 				forge.Remove()
 				return forge
@@ -143,6 +145,14 @@ func TestForgeContractOnGH(t *testing.T) {
 			},
 			SignOut: func(t *testing.T, detail string) {
 				doubles.EditFakeGH(t, gh, func(s *ghstate.State) { s.SignedOut, s.AuthError = true, detail })
+			},
+			Limit: func(t *testing.T, rate ports.ForgeRate) {
+				doubles.EditFakeGH(t, gh, func(s *ghstate.State) {
+					s.RateLimit = nil
+					if rate != (ports.ForgeRate{}) {
+						s.RateLimit = &ghstate.RateLimit{Secondary: rate.Secondary, RetryAfter: int64(rate.RetryAfter / time.Second), Exhausted: rate.Exhausted, Reset: rate.Reset.Unix()}
+					}
+				})
 			},
 			Missing: func(t *testing.T) ports.Forge {
 				return ghcli.Forge{Path: filepath.Join(t.TempDir(), ghcli.Binary), Env: repo.Env()}

@@ -129,6 +129,10 @@ type Worker struct {
 	// ciHints are the forge's hints that checks changed, by binding and head, each with when it came. A tick
 	// reads the pull request a hint names at once, and drops the hint.
 	ciHints map[string]time.Time
+	// hintsThrough is the last CI hint a heartbeat's answer carried, which the next heartbeat names. mu guards it.
+	hintsThrough int64
+	// ciRate is where each repository stands with the forge's rate limits: the wait a refusal or a header set.
+	ciRate map[string]ciRateSeen
 
 	// toOrchestrator is what this worker knows of the members' messages to its orchestrator, and mu guards
 	// its making.
@@ -312,13 +316,13 @@ func (w *Worker) Beat(ctx context.Context) (ledger.HeartbeatReply, error) {
 	}
 	w.mu.Lock()
 	auth := ledger.WorkerAuth{WorkerID: w.identity.WorkerID, Credential: w.identity.Credential}
-	epoch, desired, revisions := w.identity.Epoch, w.desiredRev, w.desiredRevs
+	epoch, desired, revisions, hinted := w.identity.Epoch, w.desiredRev, w.desiredRevs, w.hintsThrough
 	w.mu.Unlock()
 	report, seq := w.pendingReport()
 	sent := w.clock.Now()
 	reply, err := w.link.Heartbeat(ctx, ledger.Heartbeat{
 		Auth: auth, Epoch: epoch, Protocol: w.config.Protocol, Nonce: nonce,
-		DesiredRev: desired, EventsThrough: through, Leases: leases, Report: report,
+		DesiredRev: desired, EventsThrough: through, Leases: leases, Report: report, HintsThrough: hinted,
 	})
 	if err != nil {
 		return ledger.HeartbeatReply{}, err
@@ -332,6 +336,7 @@ func (w *Worker) Beat(ctx context.Context) (ledger.HeartbeatReply, error) {
 	case report != nil:
 		w.reportSent(seq)
 	}
+	w.hearHints(reply)
 	if err := w.applyBeat(ctx, leases, reply, sent); err != nil {
 		return reply, err
 	}
