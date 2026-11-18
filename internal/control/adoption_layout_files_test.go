@@ -182,8 +182,10 @@ func TestTheDryRunListsEachCodeRepositoryThatLacksInstructionsAsAStepForThePerso
 		t.Fatalf("the layout reads %s", plan.Shape)
 	}
 	want := []planning.Step{
-		{Name: "api", Path: "/work/ws/repos/api", Commands: []string{"ropeshift template show repository/agents.md > /work/ws/repos/api/AGENTS.md"}},
-		{Name: "with space", Path: "/work/ws/repos/with space", Commands: []string{"ropeshift template show repository/agents.md > '/work/ws/repos/with space/AGENTS.md'"}},
+		{Name: "api", Path: "/work/ws/repos/api", Commands: []string{"[ -e /work/ws/repos/api/AGENTS.md ] || ropeshift template show repository/agents.md > /work/ws/repos/api/AGENTS.md"}},
+		{Name: "with space", Path: "/work/ws/repos/with space", Commands: []string{
+			"[ -e '/work/ws/repos/with space/AGENTS.md' ] || ropeshift template show repository/agents.md > '/work/ws/repos/with space/AGENTS.md'",
+		}},
 	}
 	if !reflect.DeepEqual(plan.Steps, want) {
 		t.Errorf("the steps read %+v, want %+v", plan.Steps, want)
@@ -205,5 +207,82 @@ func TestTheDryRunListsEachCodeRepositoryThatLacksInstructionsAsAStepForThePerso
 	after := other.mustPlan(control.AdoptionRequest{Root: "/work/ws", Planning: "ws", Design: "ws"})
 	if len(after.Steps) != 0 || after.Digest == got.Digest || !reflect.DeepEqual(after.DiffersIn(got.Parts()), []string{planning.PartLayout, planning.PartSteps}) {
 		t.Errorf("a clone that gained its file reads steps %+v, digest %s, and differs in %v", after.Steps, after.Digest, after.DiffersIn(got.Parts()))
+	}
+}
+
+// A file the planning repository holds under another case, or under another name make reads first, is the file: the
+// plan lists none beside it, because on a file system that ignores case the two are one path.
+func TestThePlanNeverListsAFileBesideACaseVariantOfIt(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		tracked []string
+		want    []string
+	}{
+		{name: "a lowercase makefile", tracked: []string{"makefile", ".gitignore", "AGENTS.md"}},
+		{name: "a GNUmakefile", tracked: []string{"GNUmakefile", ".gitignore", "AGENTS.md"}},
+		{name: "a gnumakefile", tracked: []string{"gnumakefile", ".gitignore", "AGENTS.md"}},
+		{name: "a lowercase agents.md", tracked: []string{"agents.md", "Makefile", ".gitignore"}},
+		{name: "a mixed case claude.md", tracked: []string{"Claude.md", "Makefile", ".gitignore"}},
+		{name: "an upper case gitignore", tracked: []string{".GITIGNORE", "Makefile", "AGENTS.md"}},
+		{name: "a manifest under another case", tracked: []string{"Plan/Repositories.md", "Makefile", ".gitignore", "AGENTS.md"}},
+		{name: "an agents.md below a directory is no instruction file", tracked: []string{"docs/agents.md", "Makefile", ".gitignore"}, want: []string{"AGENTS.md", "CLAUDE.md"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			m := newAdoptionMachine(t)
+			tracked := append([]string{"README.md"}, tt.tracked...)
+			if !slices.Contains(tt.tracked, "Plan/Repositories.md") {
+				tracked = append(tracked, "plan/repositories.md")
+			}
+			m.open("/work/ws", fake.CloneLayout{Ignored: []string{"repos"}, Tracked: tracked})
+			m.checkouts.Ignore("/work/ws", planning.WorktreesFolder)
+			m.clone("/work/ws/repos/api", fake.CloneLayout{Tracked: []string{"go.mod", "AGENTS.md"}})
+			plan := m.mustPlan(control.AdoptionRequest{Root: "/work/ws"})
+			var got []string
+			for _, file := range plan.Files {
+				got = append(got, file.Path)
+			}
+			if !slices.Equal(got, tt.want) {
+				t.Errorf("the plan lists %v beside %v, want %v", got, tt.tracked, tt.want)
+			}
+		})
+	}
+}
+
+// Lines the plan appends go to the ignore file the repository holds, under the case it holds it in, and never to a
+// second file beside it.
+func TestThePlanAppendsToAnIgnoreFileUnderTheCaseTheRepositoryHoldsIt(t *testing.T) {
+	t.Parallel()
+	m := newAdoptionMachine(t)
+	m.open("/work/ws", fake.CloneLayout{Ignored: []string{"repos"}, Tracked: []string{"README.md", ".GitIgnore", "Makefile", "AGENTS.md", "plan/repositories.md"}})
+	m.clone("/work/ws/repos/api", fake.CloneLayout{Tracked: []string{"go.mod", "AGENTS.md"}})
+	plan := m.mustPlan(control.AdoptionRequest{Root: "/work/ws"})
+	if want := []string{"append .GitIgnore"}; !reflect.DeepEqual(filesOf(plan), want) || !slices.Equal(plan.Files[0].Lines, []string{planning.WorktreesLine}) {
+		t.Errorf("the plan lists %v with the lines %v, want %v", filesOf(plan), plan.Files[0].Lines, want)
+	}
+}
+
+// A clone the plan moves is the step's clone at the path the move leads to, because the person runs the moves first,
+// and the command never writes over a file that is there already.
+func TestTheStepForAMovedCloneNamesItsPathAfterTheMove(t *testing.T) {
+	t.Parallel()
+	m := newAdoptionMachine(t)
+	m.clone("/work/ws", fake.CloneLayout{Tracked: []string{"README.md", "AGENTS.md"}})
+	m.clone("/work/api", fake.CloneLayout{Tracked: []string{"go.mod"}})
+	m.clone("/work/ws/repos/web", fake.CloneLayout{Tracked: []string{"package.json"}})
+	m.checkouts.Ignore("/work/ws", "repos")
+	m.layouts.Set("/work/ws", fake.CloneLayout{Ignored: []string{"repos"}, Tracked: []string{"README.md", "AGENTS.md"}})
+	plan := m.mustPlan(control.AdoptionRequest{Root: "/work/ws", Paths: []string{"/work/api"}, Planning: "ws"})
+	if len(plan.Moves) != 1 || plan.Moves[0].To != "/work/ws/repos/api" {
+		t.Fatalf("the plan moves %+v", plan.Moves)
+	}
+	want := []planning.Step{
+		{Name: "api", Path: "/work/ws/repos/api", Commands: []string{"[ -e /work/ws/repos/api/AGENTS.md ] || ropeshift template show repository/agents.md > /work/ws/repos/api/AGENTS.md"}},
+		{Name: "web", Path: "/work/ws/repos/web", Commands: []string{"[ -e /work/ws/repos/web/AGENTS.md ] || ropeshift template show repository/agents.md > /work/ws/repos/web/AGENTS.md"}},
+	}
+	if !reflect.DeepEqual(plan.Steps, want) {
+		t.Errorf("the steps read %+v, want %+v", plan.Steps, want)
 	}
 }

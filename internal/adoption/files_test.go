@@ -59,7 +59,11 @@ func (m *machine) plan(request adoption.Request, register adoption.Register) pla
 func render(name string, data projectfiles.Data) (string, error) {
 	var listed []string
 	for _, repository := range data.Repositories {
-		listed = append(listed, repository.Name+"="+repository.Remote)
+		entry := repository.Name + "=" + repository.Remote
+		if repository.Path != "" {
+			entry += "=" + repository.Path
+		}
+		listed = append(listed, entry)
 	}
 	return fmt.Sprintf("%s for %s [%s]\n", name, data.Project, strings.Join(listed, " ")), nil
 }
@@ -169,16 +173,19 @@ func TestAnIgnoreFileTheCloneLacksIsWrittenWholeAndASingleRepositoryGetsTheMonor
 	}
 }
 
-// The Makefile lists only what its recipes carry: a repository whose clone sits at repos/<name> under a name a
-// shell word can hold, with its remote when that is one a Makefile can carry and with none otherwise. The manifest
-// lists every repository, as it always did.
-func TestTheMakefileListsOnlyRepositoriesItCanCarry(t *testing.T) {
+// The Makefile lists each repository whose name and path it can carry, at any depth: a name of letters, digits, and
+// . _ - only, and a path of such segments, and each one it leaves out is in the plan with the reason. The remote is
+// kept when a Makefile can carry it, a local path as a file URL, and left empty otherwise. The manifest lists every
+// repository, as it always did.
+func TestTheMakefileListsEachRepositoryItCanCarryAtAnyDepthAndThePlanNamesTheRestWithWhy(t *testing.T) {
 	t.Parallel()
 	m := newMachine(t)
 	m.clone("/work/ws", fake.CloneLayout{Ignored: []string{"repos"}, Tracked: []string{"README.md", ".gitignore", "AGENTS.md"}})
 	m.clone("/work/ws/repos/api", fake.CloneLayout{Tracked: []string{"go.mod"}})
 	m.clone("/work/ws/repos/group/deep", fake.CloneLayout{Tracked: []string{"go.mod"}})
 	m.clone("/work/ws/repos/with space", fake.CloneLayout{Tracked: []string{"go.mod"}})
+	m.clone("/work/ws/repos/a$b", fake.CloneLayout{Tracked: []string{"go.mod"}})
+	m.clone("/work/ws/repos/we ird/tool", fake.CloneLayout{Tracked: []string{"go.mod"}})
 	m.checkouts.Place(ports.Clone{Path: "/work/ws/repos/odd", ID: "root-odd", Remote: "https://example.invalid/$(touch x)#.git", DefaultBranch: "main"})
 	m.layouts.Set("/work/ws/repos/odd", fake.CloneLayout{Tracked: []string{"go.mod"}})
 	m.checkouts.Place(ports.Clone{Path: "/work/ws/repos/local", ID: "root-local", Remote: "/srv/git/local", DefaultBranch: "main"})
@@ -190,14 +197,49 @@ func TestTheMakefileListsOnlyRepositoriesItCanCarry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := filesByPath(files)["Makefile"].Text, "workspace/makefile for shop [api=git@example.invalid:acme/api.git local=file:///srv/git/local odd= spaced=]\n"; got != want {
+	const want = "workspace/makefile for shop [api=git@example.invalid:acme/api.git deep=git@example.invalid:acme/deep.git=repos/group/deep " +
+		"local=file:///srv/git/local odd= spaced=]\n"
+	if got := filesByPath(files)["Makefile"].Text; got != want {
 		t.Errorf("the Makefile reads %q, want %q", got, want)
 	}
+	type left struct{ name, path, reason string }
+	var got []left
+	for _, one := range plan.MakefileLeftOut {
+		got = append(got, left{one.Name, one.Path, one.Reason})
+	}
+	wantLeft := []left{
+		{"a$b", "repos/a$b", "its name"}, {"tool", "repos/we ird/tool", "its path"}, {"with space", "repos/with space", "its name"},
+	}
+	if len(got) != len(wantLeft) {
+		t.Fatalf("the plan leaves out %+v, want %d repositories", got, len(wantLeft))
+	}
+	for i, one := range wantLeft {
+		if got[i].name != one.name || got[i].path != one.path || !strings.HasPrefix(got[i].reason, one.reason) {
+			t.Errorf("the plan leaves out %+v, want %+v with a reason that starts %q", got[i], one.name+" at "+one.path, one.reason)
+		}
+	}
 	manifest := filesByPath(files)["plan/repositories.md"].Text
-	for _, want := range []string{`path = "repos/group/deep"`, `path = "repos/with space"`, `name = "odd"`} {
+	for _, want := range []string{`path = "repos/group/deep"`, `path = "repos/with space"`, `path = "repos/we ird/tool"`, `name = "a$b"`, `name = "odd"`} {
 		if !strings.Contains(manifest, want) {
 			t.Errorf("the manifest holds no %q:\n%s", want, manifest)
 		}
+	}
+}
+
+// A plan lists nothing left out of a Makefile the repository holds, and nothing when every repository is carried.
+func TestThePlanLeavesNothingOutOfAMakefileItDoesNotWrite(t *testing.T) {
+	t.Parallel()
+	m := newMachine(t)
+	m.clone("/work/ws", fake.CloneLayout{Ignored: []string{"repos"}, Tracked: []string{"README.md", ".gitignore", "AGENTS.md", "Makefile"}})
+	m.clone("/work/ws/repos/with space", fake.CloneLayout{Tracked: []string{"go.mod"}})
+	if plan := m.plan(adoption.Request{Root: "/work/ws"}, registered); len(plan.MakefileLeftOut) != 0 {
+		t.Errorf("a plan that writes no Makefile leaves out %+v", plan.MakefileLeftOut)
+	}
+	other := newMachine(t)
+	other.clone("/work/ws", fake.CloneLayout{Ignored: []string{"repos"}, Tracked: []string{"README.md", ".gitignore", "AGENTS.md"}})
+	other.clone("/work/ws/repos/api", fake.CloneLayout{Tracked: []string{"go.mod"}})
+	if plan := other.plan(adoption.Request{Root: "/work/ws"}, registered); len(plan.MakefileLeftOut) != 0 {
+		t.Errorf("a plan whose repositories are all carried leaves out %+v", plan.MakefileLeftOut)
 	}
 }
 

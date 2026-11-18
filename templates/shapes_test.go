@@ -147,3 +147,77 @@ func TestAWorkspaceIgnoresItsClones(t *testing.T) {
 		t.Error("repos/ is not ignored")
 	}
 }
+
+// A repository that names the path of its clone is listed as name=remote=path, and one that names none is listed as
+// name=remote with the clone at repos/<name>.
+func TestARepositoryThatNamesItsPathIsListedWithIt(t *testing.T) {
+	makefile := render(t, "workspace/makefile", templates.Data{Project: "orchid", Repositories: []templates.Repository{
+		{Name: "api", Remote: "git@example.invalid:orchid/api.git"},
+		{Name: "deep", Remote: "git@example.invalid:orchid/deep.git", Path: "repos/group/deep"},
+		{Name: "local", Path: "services/local"},
+	}})
+	_, after, _ := strings.Cut(makefile, "REPOSITORIES :=")
+	list, _, _ := strings.Cut(after, "\n\n")
+	want := []string{"api=git@example.invalid:orchid/api.git", "deep=git@example.invalid:orchid/deep.git=repos/group/deep", "local==services/local"}
+	if fields := strings.Fields(strings.ReplaceAll(list, "\\\n", " ")); !slices.Equal(fields, want) {
+		t.Errorf("the Makefile's REPOSITORIES is %q, want %v", fields, want)
+	}
+}
+
+// The workspace Makefile's setup, fetch, and status work on a repository at a nested path, and on one at repos/<name>
+// beside it, under make and git: setup clones into the path and makes the folders above it, and the other two read
+// the clone there.
+func TestTheWorkspaceMakefileSetsUpFetchesAndShowsTheStatusOfANestedRepository(t *testing.T) {
+	gittest.Require(t)
+	if _, err := exec.LookPath("make"); err != nil {
+		t.Skip("make is not on PATH")
+	}
+	remote := gittest.New(t)
+	remote.Commit("README.md", "remote\n")
+	workspace := gittest.New(t)
+	text := render(t, "workspace/makefile", templates.Data{Project: "orchid", Repositories: []templates.Repository{
+		{Name: "api", Remote: "file://" + remote.Dir},
+		{Name: "deep", Remote: "file://" + remote.Dir, Path: "repos/group/deep"},
+		{Name: "elsewhere", Remote: "file://" + remote.Dir, Path: "services/a.b/elsewhere"},
+	}})
+	if err := os.WriteFile(filepath.Join(workspace.Dir, "Makefile"), []byte(text), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	run := func(target string) string {
+		t.Helper()
+		cmd := exec.Command("make", "--no-print-directory", "-C", workspace.Dir, target)
+		cmd.Env = remote.Env()
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("make %s: %v\n%s", target, err, out)
+		}
+		return string(out)
+	}
+	run("setup")
+	for _, clone := range []string{"repos/api", "repos/group/deep", "services/a.b/elsewhere"} {
+		if _, err := os.Stat(filepath.Join(workspace.Dir, filepath.FromSlash(clone), "README.md")); err != nil {
+			t.Errorf("make setup cloned nothing at %s: %v", clone, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(workspace.Dir, "repos", "deep")); err == nil {
+		t.Error("make setup cloned the nested repository to repos/deep")
+	}
+	if again := run("setup"); strings.Count(again, ": present") != 3 {
+		t.Errorf("a second make setup does not leave the three clones alone:\n%s", again)
+	}
+	fetch := run("fetch")
+	for _, want := range []string{"api: fetched", "deep: fetched", "elsewhere: fetched"} {
+		if !strings.Contains(fetch, want) {
+			t.Errorf("make fetch printed no %q:\n%s", want, fetch)
+		}
+	}
+	status := run("status")
+	for _, want := range []string{"api: ## ", "deep: ## ", "elsewhere: ## "} {
+		if !strings.Contains(status, want) {
+			t.Errorf("make status printed no %q:\n%s", want, status)
+		}
+	}
+	if strings.Contains(status, "missing") {
+		t.Errorf("make status reads a clone as missing:\n%s", status)
+	}
+}

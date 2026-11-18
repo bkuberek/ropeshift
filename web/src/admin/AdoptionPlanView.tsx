@@ -148,6 +148,7 @@ export function RestructureChoice({ plan, chosen, busy, refusal, onChoose, onLea
   const trees = plan.code_trees ?? [];
   const moves = plan.moves ?? [];
   const steps = plan.steps ?? [];
+  const makefileLeftOut = plan.makefile_left_out ?? [];
   const nothing = added.length + lacking.length + takes.length + collisions.length + moves.length + steps.length === 0;
   return (
     <fieldset className="field plan-choice" aria-describedby="restructure-help">
@@ -163,6 +164,18 @@ export function RestructureChoice({ plan, chosen, busy, refusal, onChoose, onLea
       {nothing ? <p className="small muted">The planning repository already holds everything a restructuring adds, so there is nothing to list.</p> : null}
       {added.length > 0 ? <FileTable label="Files added" files={added} /> : null}
       {lacking.length > 0 ? <FileTable label="Files the layout lacks" files={lacking} /> : null}
+      {makefileLeftOut.length > 0 ? (
+        <>
+          <p className="help">The manifest still lists each repository the Makefile leaves out.</p>
+          <ul className="small plan-notes" aria-label="Left out of the Makefile">
+            {makefileLeftOut.map((one) => (
+              <li key={one.path}>
+                <strong>{one.name}</strong> (<code>{one.path}</code>): {one.reason}
+              </li>
+            ))}
+          </ul>
+        </>
+      ) : null}
       {takes.length > 0 ? (
         <TableRegion label={`Paths taken from ${plan.design?.name ?? "the design repository"}`} className="plan-scroll">
           <table className="table dry-run">

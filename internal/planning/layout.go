@@ -167,6 +167,14 @@ type Step struct {
 	Commands []string `json:"commands"`
 }
 
+// Omission is a repository a file the restructuring writes leaves out, and why. The manifest still lists it.
+type Omission struct {
+	Name string `json:"name"`
+	// Path is where its clone sits relative to the planning repository's clone, once any move is made.
+	Path   string `json:"path"`
+	Reason string `json:"reason"`
+}
+
 // AdoptionPlan is what `ropeshift adopt --dry-run` reports: the layout detected around a clone, the shape
 // proposed for it, and every change and move the adoption would make. Building one records nothing.
 type AdoptionPlan struct {
@@ -185,6 +193,10 @@ type AdoptionPlan struct {
 	Moves      []Move            `json:"moves"`
 	// Steps are what the person does in each code repository that holds no instruction file.
 	Steps []Step `json:"steps,omitempty"`
+	// MakefileLeftOut are the repositories the Makefile the plan writes leaves out, because its name or its path holds
+	// what make or a shell reads as syntax. They follow from the repositories and the moves, so the digest leaves them
+	// out, as it leaves out the notes.
+	MakefileLeftOut []Omission `json:"makefile_left_out,omitempty"`
 	// Notes say what the detection could not settle, with the flag that settles it.
 	Notes []string `json:"notes,omitempty"`
 	// Digest is the SHA-256 of the plan's JSON with no digest, no notes, and nothing a registration said of each
@@ -331,7 +343,7 @@ func (r Restructure) Validate() error {
 
 // ComputeDigest is the digest of the plan as it stands.
 func (p AdoptionPlan) ComputeDigest() string {
-	p.Digest, p.Notes = "", nil
+	p.Digest, p.Notes, p.MakefileLeftOut = "", nil, nil
 	repositories := make([]PlannedRepository, 0, len(p.Repositories))
 	for _, repository := range p.Repositories {
 		kept := PlannedRepository{Name: repository.Name, Path: repository.Path}

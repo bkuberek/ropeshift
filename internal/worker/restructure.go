@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path"
 	"slices"
 	"strings"
 
@@ -14,7 +15,6 @@ import (
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/planning"
 	"ropeshift.com/ropeshift/internal/ports"
-	"ropeshift.com/ropeshift/internal/projectfiles"
 	"ropeshift.com/ropeshift/internal/workorders"
 )
 
@@ -247,13 +247,15 @@ func (r *laneRun) restructuredOf() *lanes.Restructured {
 }
 
 // startingInstructions keeps the starting AGENTS.md an adopt brief shows, rendered for the lane's project, when the
-// repository the lane plans in holds no instruction file at its default branch's tip and the design repository a
-// consolidation imported brought none. A worker that cannot render, or read the layout, shows none.
+// repository the lane plans in holds no instruction file at its default branch's tip, the design repository a
+// consolidation imported brought none, and the worker wrote none in its commit, which the lane edits instead. The
+// template is the one of the shape the lane's restructuring chose, over the repositories the written files carry. A
+// worker that cannot render, or read the layout, shows none.
 func (r *laneRun) startingInstructions(ctx context.Context, repository string) {
 	if !r.lease.Adopt || r.rt.Render == nil || r.rt.Layouts == nil {
 		return
 	}
-	if done := r.restructuredOf(); done != nil && done.Consolidated != nil && len(done.Consolidated.Instructions) != 0 {
+	if done := r.restructuredOf(); done != nil && (slices.Contains(done.Files, "AGENTS.md") || done.Consolidated != nil && len(done.Consolidated.Instructions) != 0) {
 		return
 	}
 	held, err := r.rt.Layouts.Instructions(ctx, repository)
@@ -267,11 +269,19 @@ func (r *laneRun) startingInstructions(ctx context.Context, repository string) {
 	if err != nil {
 		return
 	}
-	data := projectfiles.Data{Project: project}
+	var repositories []planning.WorkspaceRepository
 	for _, read := range r.lease.Reads {
-		data.Repositories = append(data.Repositories, projectfiles.CodeRepository{Name: read.Name})
+		one := planning.WorkspaceRepository{Name: read.Name, Path: path.Join(adoption.CodeFolder, read.Name)}
+		if adoption.Carried(one) {
+			repositories = append(repositories, one)
+		}
 	}
-	text, err := r.rt.Render(startingInstructionsTemplate, data)
+	template := startingInstructionsTemplate
+	var choice planning.Restructure
+	if json.Unmarshal(r.lease.Restructure, &choice) == nil && choice.Shape == planning.ShapeSingle {
+		template = singleInstructionsTemplate
+	}
+	text, err := r.rt.Render(template, adoption.StartingData(project, repositories))
 	if err != nil {
 		r.w.config.Report(fmt.Errorf("lane %s: rendering the starting instructions: %w", r.lease.Lane, err))
 		return
@@ -281,8 +291,12 @@ func (r *laneRun) startingInstructions(ctx context.Context, repository string) {
 	r.instructions = text
 }
 
-// startingInstructionsTemplate is the template of the instructions a workspace starts with, which an adopt brief shows.
-const startingInstructionsTemplate = "workspace/agents.md"
+// The templates of the instructions an adopt brief shows: a workspace's, and a single repository's, which holds the plan
+// and the code.
+const (
+	startingInstructionsTemplate = "workspace/agents.md"
+	singleInstructionsTemplate   = "monorepo/agents.md"
+)
 
 // instructionsText is the starting AGENTS.md the brief shows, or empty when it shows none.
 func (r *laneRun) instructionsText() string {

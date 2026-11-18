@@ -37,10 +37,12 @@ var ErrInvalid = errors.New("invalid project files")
 
 // CodeRepository is one code repository a workspace names: its name in the project, and the remote its clone
 // at repos/<name> comes from. A new code repository is written at repos/<name> with the files of the repository
-// shape, and its remote is empty when it has none.
+// shape, and its remote is empty when it has none. Path is where an existing clone sits relative to the workspace
+// when that is not repos/<name>, as an adoption finds one.
 type CodeRepository struct {
 	Name   string
 	Remote string
+	Path   string
 	New    bool
 }
 

@@ -66,7 +66,7 @@ func restructuring(ctx context.Context, plan *planning.AdoptionPlan, in Request,
 	if err := ignoring(ctx, plan, home, lines, held.tracked, kept); err != nil {
 		return err
 	}
-	if !held.tracks(planning.MakefilePath) {
+	if !held.holdsMakefile() {
 		plan.Files = append(plan.Files, planning.PlannedFile{
 			Path: projectfiles.Path(templateMakefile), Action: planning.ActionAdd, Detail: "setup, fetch, and status over the manifest", Template: templateMakefile,
 		})
@@ -93,8 +93,9 @@ func instructionFiles(shape planning.LayoutShape, tracked []string) []planning.P
 }
 
 // instructionSteps lists, as steps for the person, each code repository whose clone holds no instruction file, with the
-// command that writes the repository template to it. Adoption writes to no clone but the planning repository's
-// (FR-ADOPT-3), so the commands are the person's. The planning repository, the design repository a consolidation
+// command that writes the repository template to it, unless a file is there already, so the command never truncates
+// an uncommitted one. A clone the plan moves is named where the move leads, because the person runs the moves
+// first. Adoption writes to no clone but the planning repository's (FR-ADOPT-3), so the commands are the person's. The planning repository, the design repository a consolidation
 // imports, and a clone the registration refuses are no code repository of the project.
 func instructionSteps(plan planning.AdoptionPlan, found []Found, design *designClone) []planning.Step {
 	if plan.Planning.Undecided {
@@ -104,6 +105,10 @@ func instructionSteps(plan planning.AdoptionPlan, found []Found, design *designC
 	for _, repository := range plan.Repositories {
 		refused[repository.Path] = repository.Outcome == string(ledger.RegistrationRefused)
 	}
+	leadsTo := map[string]string{}
+	for _, move := range plan.Moves {
+		leadsTo[move.From] = move.To
+	}
 	var steps []planning.Step
 	for _, one := range found {
 		switch {
@@ -112,9 +117,14 @@ func instructionSteps(plan planning.AdoptionPlan, found []Found, design *designC
 		case plan.Shape == planning.ShapeConsolidate && design != nil && one.Path == design.Path:
 			continue
 		}
+		at := one.Path
+		if to, moved := leadsTo[at]; moved {
+			at = to
+		}
+		file := shellQuote(path.Join(at, projectfiles.Path(templateRepositoryAgents)))
 		steps = append(steps, planning.Step{
-			Name: one.Name, Path: one.Path,
-			Commands: []string{fmt.Sprintf("%s template show %s > %s", Program, templateRepositoryAgents, shellQuote(path.Join(one.Path, projectfiles.Path(templateRepositoryAgents))))},
+			Name: one.Name, Path: at,
+			Commands: []string{fmt.Sprintf("[ -e %s ] || %s template show %s > %s", file, Program, templateRepositoryAgents, file)},
 		})
 	}
 	slices.SortFunc(steps, func(a, b planning.Step) int { return cmp.Or(cmp.Compare(a.Name, b.Name), cmp.Compare(a.Path, b.Path)) })
@@ -127,7 +137,8 @@ func instructionSteps(plan planning.AdoptionPlan, found []Found, design *designC
 // ignores, and never by a look at its ignore file, because a rule can sit in a global file or an exclude file. A
 // path inside the folder is asked about, because a folder the repository ignores ignores everything in it.
 func ignoring(ctx context.Context, plan *planning.AdoptionPlan, home Found, lines []string, tree []string, kept ports.Checkouts) error {
-	if !slices.Contains(tree, planning.GitignorePath) {
+	ignoreFile, held := heldAs(tree, planning.GitignorePath)
+	if !held {
 		plan.Files = append(plan.Files, planning.PlannedFile{
 			Path: projectfiles.Path(templateGitignore), Action: planning.ActionAdd, Detail: "ignores the folder of clones and the folder lane worktrees go in", Template: templateGitignore,
 		})
@@ -142,7 +153,7 @@ func ignoring(ctx context.Context, plan *planning.AdoptionPlan, home Found, line
 	}
 	if len(lines) != 0 {
 		plan.Files = append(plan.Files, planning.PlannedFile{
-			Path: planning.GitignorePath, Action: planning.ActionAppend, Detail: strings.Join(lines, ", "), Lines: lines,
+			Path: ignoreFile, Action: planning.ActionAppend, Detail: strings.Join(lines, ", "), Lines: lines,
 		})
 	}
 	return nil
@@ -171,8 +182,27 @@ func newHome(ctx context.Context, home Found, layouts ports.Layouts) (planningHo
 	return held, nil
 }
 
-func (h planningHome) lacksManifest() bool     { return !h.content.Manifest && !h.tracks(ManifestPath) }
-func (h planningHome) tracks(file string) bool { return slices.Contains(h.tracked, file) }
+func (h planningHome) lacksManifest() bool { return !h.content.Manifest && !h.tracks(ManifestPath) }
+func (h planningHome) tracks(file string) bool {
+	_, held := heldAs(h.tracked, file)
+	return held
+}
+
+// holdsMakefile says make would read a Makefile here: GNUmakefile, makefile, or Makefile, in any case.
+func (h planningHome) holdsMakefile() bool {
+	return h.tracks("GNUmakefile") || h.tracks(planning.MakefilePath)
+}
+
+// heldAs is the path a list of tracked paths holds a file under, in any case, because on a file system that ignores
+// case a file under another case is the file, and a second one beside it would collide with it.
+func heldAs(tracked []string, file string) (string, bool) {
+	for _, held := range tracked {
+		if strings.EqualFold(held, file) {
+			return held, true
+		}
+	}
+	return "", false
+}
 func (h planningHome) ignores(dir string) bool { return slices.Contains(h.ignored, dir) }
 
 // movesOf lists, for each repository registered beside the planning repository's clone, the commands that move it

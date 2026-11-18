@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 
 	"ropeshift.com/ropeshift/internal/adoption"
 	"ropeshift.com/ropeshift/internal/lanes"
@@ -120,10 +121,16 @@ func (r *laneRun) tellConsolidation(ctx context.Context, worktree string, made p
 		Commit: made.Hash, Subject: made.Subject,
 		Consolidated: &lanes.Consolidated{Design: design, SecondParent: made.Parents[1], Collisions: collisions, LeftOut: slices.Clone(leftOut)},
 	}
+	// The design repository's instruction files are the ones at its top in any case, under the names it holds them by.
 	for _, name := range instructionFiles {
-		if slices.Contains(theirs, name) {
-			done.Consolidated.Instructions = append(done.Consolidated.Instructions, name)
+		if at := slices.IndexFunc(theirs, func(tracked string) bool { return strings.EqualFold(tracked, name) }); at >= 0 {
+			done.Consolidated.Instructions = append(done.Consolidated.Instructions, theirs[at])
 		}
+	}
+	// The files the worker wrote in the merge commit are the instruction files neither repository held, which the
+	// brief tells the lane to edit.
+	if slices.Contains(made.Files, "AGENTS.md") && !ports.HoldsInstructions(ours) && !ports.HoldsInstructions(theirs) {
+		done.Files = []string{"AGENTS.md", "CLAUDE.md"}
 	}
 	// The manifest is the worker's, and a design repository that brought its own at the same path made it its own.
 	if slices.Contains(made.Files, planning.ManifestPath) && !slices.Contains(takes, planning.ManifestPath) {

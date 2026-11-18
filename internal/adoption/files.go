@@ -41,7 +41,7 @@ func Files(ctx context.Context, plan planning.AdoptionPlan, project string, kept
 			files = append(files, ports.TreeFile{Path: listed.Path, Text: text})
 		case listed.Action == planning.ActionAdd && listed.Path == ManifestPath:
 			files = append(files, ports.TreeFile{Path: listed.Path, Text: planning.RenderRepositoriesFile(project, repositories)})
-		case listed.Action == planning.ActionAppend && listed.Path == planning.GitignorePath:
+		case listed.Action == planning.ActionAppend && strings.EqualFold(listed.Path, planning.GitignorePath):
 			files = append(files, ports.TreeFile{Path: listed.Path, Lines: slices.Clone(listed.Lines)})
 		default:
 			return nil, fmt.Errorf("the plan lists %s %s, which no worker writes", listed.Action, listed.Path)
@@ -51,18 +51,27 @@ func Files(ctx context.Context, plan planning.AdoptionPlan, project string, kept
 }
 
 // renderListed writes a file the layout lacks from the template the plan names, over the project and the repositories
-// a Makefile can carry: a repository whose clone is at repos/<name> under a name a shell word holds, with its remote
-// when that is one a Makefile can carry, a clone's local path as the file URL that names it, and none otherwise. A repository the Makefile cannot carry is in the manifest
-// alone, which holds every one.
+// a Makefile can carry: each repository whose name and path pass makeWord and makePath, at any depth, with its remote
+// when that is one a Makefile can carry, a clone's local path as the file URL that names it, and none otherwise. A
+// repository at another path than repos/<name> is listed with its path. The manifest holds every repository.
 func renderListed(listed planning.PlannedFile, project string, repositories []planning.WorkspaceRepository, render projectfiles.Render) (string, error) {
 	if render == nil {
 		return "", fmt.Errorf("no renderer writes %s from the template %s", listed.Path, listed.Template)
 	}
+	carried, _ := splitCarried(repositories)
+	text, err := render(listed.Template, StartingData(project, carried))
+	if err != nil {
+		return "", fmt.Errorf("render %s from %s: %w", listed.Path, listed.Template, err)
+	}
+	return text, nil
+}
+
+// StartingData is what a starting file renders over: the project and each repository as a Makefile and a table of
+// repositories carry it. The remote is kept when it is one a Makefile can carry, a clone's local path becomes the file
+// URL that names it, and any other remote is left empty. A path other than repos/<name> is kept.
+func StartingData(project string, repositories []planning.WorkspaceRepository) projectfiles.Data {
 	data := projectfiles.Data{Project: project}
 	for _, repository := range repositories {
-		if !makeWord(repository.Name) || repository.Path != path.Join(CodeFolder, repository.Name) {
-			continue
-		}
 		remote := repository.Remote
 		if strings.HasPrefix(remote, "/") {
 			remote = "file://" + remote
@@ -70,37 +79,72 @@ func renderListed(listed planning.PlannedFile, project string, repositories []pl
 		if projectfiles.CheckRemote(remote) != nil {
 			remote = ""
 		}
-		data.Repositories = append(data.Repositories, projectfiles.CodeRepository{Name: repository.Name, Remote: remote})
+		at := repository.Path
+		if at == path.Join(CodeFolder, repository.Name) {
+			at = ""
+		}
+		data.Repositories = append(data.Repositories, projectfiles.CodeRepository{Name: repository.Name, Remote: remote, Path: at})
 	}
-	text, err := render(listed.Template, data)
-	if err != nil {
-		return "", fmt.Errorf("render %s from %s: %w", listed.Path, listed.Template, err)
+	return data
+}
+
+// Carried says a Makefile can carry the repository: it lists its name and its path as words its recipes read.
+func Carried(repository planning.WorkspaceRepository) bool {
+	return makeWord(repository.Name) && makePath(repository.Path)
+}
+
+// splitCarried sorts repositories into those a Makefile carries and the omissions for the rest, each with why.
+func splitCarried(repositories []planning.WorkspaceRepository) ([]planning.WorkspaceRepository, []planning.Omission) {
+	var carried []planning.WorkspaceRepository
+	var left []planning.Omission
+	for _, repository := range repositories {
+		switch {
+		case !makeWord(repository.Name):
+			left = append(left, planning.Omission{Name: repository.Name, Path: repository.Path,
+				Reason: "its name is not made of letters, digits, \".\", \"_\", and \"-\", or it starts with \"-\""})
+		case !makePath(repository.Path):
+			left = append(left, planning.Omission{Name: repository.Name, Path: repository.Path,
+				Reason: "its path has a segment that is empty, \".\", \"..\", or not made of letters, digits, \".\", \"_\", and \"-\", or it starts with \"-\""})
+		default:
+			carried = append(carried, repository)
+		}
 	}
-	return text, nil
+	return carried, left
 }
 
 // makeWord says a repository's name is one a Makefile and its shell recipes read as the word it is: a name the ledger
 // accepts, made of letters, digits, and . _ - only, so no make variable, comment, or shell syntax can be written in it.
 func makeWord(name string) bool {
-	return ledger.CheckRepositoryName(name) == nil && strings.Trim(name, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-") == ""
+	return ledger.CheckRepositoryName(name) == nil && safeSegment(name)
+}
+
+// makePath says a path relative to the planning repository is one a Makefile and its shell recipes read as the path it
+// is: segments joined by a slash, each non-empty, neither . nor .., and made of letters, digits, and . _ - only, and
+// the first not starting with a dash, which a command would read as an option. The ledger's name check refuses a slash
+// and refuses . and .. only as a whole name, so each segment is checked here.
+func makePath(rel string) bool {
+	if rel == "" || strings.HasPrefix(rel, "-") {
+		return false
+	}
+	for segment := range strings.SplitSeq(rel, "/") {
+		if segment == "." || segment == ".." || !safeSegment(segment) {
+			return false
+		}
+	}
+	return true
+}
+
+// safeSegment says a word is not empty and holds only letters, digits, and . _ -.
+func safeSegment(word string) bool {
+	return word != "" && strings.Trim(word, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-") == ""
 }
 
 // workspaceRepositories are the repositories the project holds beside the planning repository, as the manifest lists
 // them: by name, with the remote of each clone, and the path of each relative to the planning repository's clone.
 // A clone the plan moves is listed where the move leads, and one inside the planning clone where it is.
 func workspaceRepositories(ctx context.Context, plan planning.AdoptionPlan, kept ports.Checkouts) ([]planning.WorkspaceRepository, error) {
-	home := plan.Planning.Path
-	var listed []planning.PlannedRepository
-	var paths []string
-	for _, repository := range plan.Repositories {
-		switch {
-		case repository.Outcome == planning.OutcomeNotRegistered, repository.Outcome == string(ledger.RegistrationRefused),
-			repository.Name == "", repository.Path == home:
-			continue
-		}
-		listed = append(listed, repository)
-		paths = append(paths, repository.Path)
-	}
+	listed, origins := placedRepositories(plan)
+	paths := origins
 	remotes := map[string]string{}
 	if len(paths) != 0 {
 		clones, _, err := kept.Find(ctx, paths, 1)
@@ -111,12 +155,28 @@ func workspaceRepositories(ctx context.Context, plan planning.AdoptionPlan, kept
 			remotes[clone.Path] = clone.Remote
 		}
 	}
+	for i := range listed {
+		listed[i].Remote = remotes[origins[i]]
+	}
+	return listed, nil
+}
+
+// placedRepositories lists the repositories the project holds beside the planning repository as they sit once the
+// plan's moves are made, with no remote, and beside each the path of the clone as it is now.
+func placedRepositories(plan planning.AdoptionPlan) ([]planning.WorkspaceRepository, []string) {
+	home := plan.Planning.Path
 	leadsTo := map[string]string{}
 	for _, move := range plan.Moves {
 		leadsTo[move.From] = move.To
 	}
 	var out []planning.WorkspaceRepository
-	for _, repository := range listed {
+	var origins []string
+	for _, repository := range plan.Repositories {
+		switch {
+		case repository.Outcome == planning.OutcomeNotRegistered, repository.Outcome == string(ledger.RegistrationRefused),
+			repository.Name == "", repository.Path == home:
+			continue
+		}
 		at := repository.Path
 		if to, moved := leadsTo[at]; moved {
 			at = to
@@ -125,7 +185,21 @@ func workspaceRepositories(ctx context.Context, plan planning.AdoptionPlan, kept
 		if !inside {
 			relative = path.Join(CodeFolder, repository.Name)
 		}
-		out = append(out, planning.WorkspaceRepository{Name: repository.Name, Remote: remotes[repository.Path], Path: relative})
+		out = append(out, planning.WorkspaceRepository{Name: repository.Name, Path: relative})
+		origins = append(origins, repository.Path)
 	}
-	return out, nil
+	return out, origins
+}
+
+// makefileLeftOut says which repositories the Makefile the plan writes leaves out, and why, or none when the plan
+// writes no Makefile.
+func makefileLeftOut(plan planning.AdoptionPlan) []planning.Omission {
+	if !slices.ContainsFunc(plan.Files, func(file planning.PlannedFile) bool {
+		return file.Action == planning.ActionAdd && file.Template == templateMakefile
+	}) {
+		return nil
+	}
+	listed, _ := placedRepositories(plan)
+	_, left := splitCarried(listed)
+	return left
 }

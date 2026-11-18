@@ -118,9 +118,9 @@
       "name": "api",
       "path": "/work/ws/repos/api",
       "commands": [
-        "ropeshift template show repository/agents.md > /work/ws/repos/api/AGENTS.md"
+        "[ -e /work/ws/repos/api/AGENTS.md ] || ropeshift template show repository/agents.md > /work/ws/repos/api/AGENTS.md"
       ]
     }
   ],
-  "digest": "sha256:b812259a7cf7f32a6482886ceef3ec58bd6f1fd0b619764abb4f2a45389f513c"
+  "digest": "sha256:d04f1cdbb3fbe680fa647b2fb393c54fdfdacee9798fd18613785b906bdd5cbc"
 }

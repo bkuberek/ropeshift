@@ -115,18 +115,18 @@
   "steps": [
     {
       "name": "api",
-      "path": "/work/api",
+      "path": "/work/design/repos/api",
       "commands": [
-        "ropeshift template show repository/agents.md > /work/api/AGENTS.md"
+        "[ -e /work/design/repos/api/AGENTS.md ] || ropeshift template show repository/agents.md > /work/design/repos/api/AGENTS.md"
       ]
     },
     {
       "name": "web",
-      "path": "/work/web",
+      "path": "/work/design/repos/web",
       "commands": [
-        "ropeshift template show repository/agents.md > /work/web/AGENTS.md"
+        "[ -e /work/design/repos/web/AGENTS.md ] || ropeshift template show repository/agents.md > /work/design/repos/web/AGENTS.md"
       ]
     }
   ],
-  "digest": "sha256:f56139dfd0b1777c277f0d6eef1e60a87774188203d8b795ddabfd78f3a9da9d"
+  "digest": "sha256:2110a338028c068d1b1e08b6ca06fd4b5afff911c318b40ddfcd09c19e85ad00"
 }

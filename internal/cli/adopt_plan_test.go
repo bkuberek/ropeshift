@@ -270,8 +270,8 @@ func TestAdoptDryRunListsTheFilesTheLayoutLacksAndTheStepsForCodeRepositories(t 
 	}
 	for _, want := range []string{
 		"\nadd\tplan/repositories.md\t", "\nFiles the layout lacks\nadd\t.gitignore\t", "\nadd\tMakefile\tsetup, fetch, and status over the manifest\n",
-		"\nadd\tAGENTS.md\t", "\nadd\tCLAUDE.md\timports AGENTS.md\n", "\nSteps for you\nstep\tapi\t/work/libs/api\n",
-		"\nrun\tropeshift template show repository/agents.md > /work/libs/api/AGENTS.md\n",
+		"\nadd\tAGENTS.md\t", "\nadd\tCLAUDE.md\timports AGENTS.md\n", "\nSteps for you\nstep\tapi\t/work/Shop_App/repos/api\n",
+		"\nrun\t[ -e /work/Shop_App/repos/api/AGENTS.md ] || ropeshift template show repository/agents.md > /work/Shop_App/repos/api/AGENTS.md\n",
 	} {
 		if !strings.Contains(stdout, want) {
 			t.Errorf("the dry run printed no %q:\n%s", want, stdout)
@@ -285,7 +285,36 @@ func TestAdoptDryRunListsTheFilesTheLayoutLacksAndTheStepsForCodeRepositories(t 
 	}
 
 	code, stdout, stderr = a.runIn(shopClone, "", "adopt", "--restructure", "/work/libs", "--planning", "Shop_App", "--worker", "worker-a", "--no-attach")
-	if code != cli.ExitOK || !strings.Contains(stdout, "run these commands yourself:\n  ropeshift template show repository/agents.md > /work/libs/api/AGENTS.md\n") {
+	if code != cli.ExitOK || !strings.Contains(stdout, "run these commands yourself:\n  [ -e /work/Shop_App/repos/api/AGENTS.md ] || ropeshift template show repository/agents.md > /work/Shop_App/repos/api/AGENTS.md\n") {
 		t.Errorf("adopt --restructure exits %d and prints no step for the person: %s\n%s", code, stderr, stdout)
+	}
+}
+
+// A repository whose name or path the Makefile cannot carry is named in the dry run, under a heading of its own, with
+// the reason, and again when --restructure starts the session. The manifest still lists it.
+func TestAdoptNamesEachRepositoryTheMakefileLeavesOut(t *testing.T) {
+	a := newAdoption(t)
+	odd := ports.Clone{Path: "/work/libs/we$ird", ID: "8f405162738495a6b7c8d9e0f1a2b3c4d5e6f708", DefaultBranch: "main"}
+	a.in.Checkouts.Place(odd)
+	args := []string{"/work/libs", "--planning", "Shop_App"}
+	code, stdout, stderr := a.runIn(shopClone, "", append([]string{"adopt", "--dry-run"}, args...)...)
+	if code != cli.ExitOK {
+		t.Fatalf("exit %d: %s", code, stderr)
+	}
+	want := "\nLeft out of the Makefile\nleft out\twe$ird\trepos/we$ird\tits name is not made of letters, digits,"
+	if !strings.Contains(stdout, want) {
+		t.Errorf("the dry run printed no %q:\n%s", want, stdout)
+	}
+	if strings.Contains(stdout, "left out\tapi") || strings.Contains(stdout, "left out\tweb") {
+		t.Errorf("the dry run leaves out a repository the Makefile carries:\n%s", stdout)
+	}
+	plan := a.plan(shopClone, args...)
+	if len(plan.MakefileLeftOut) != 1 || plan.MakefileLeftOut[0].Name != "we$ird" || plan.MakefileLeftOut[0].Path != "repos/we$ird" {
+		t.Errorf("the JSON plan leaves out %+v", plan.MakefileLeftOut)
+	}
+
+	code, stdout, stderr = a.runIn(shopClone, "", append([]string{"adopt", "--restructure", "--worker", "worker-a", "--no-attach"}, args...)...)
+	if code != cli.ExitOK || !strings.Contains(stdout, "The Makefile leaves out 1 repository, which the manifest still lists:\n  we$ird (repos/we$ird): its name is not made of letters, digits,") {
+		t.Errorf("adopt --restructure exits %d and names no repository the Makefile leaves out: %s\n%s", code, stderr, stdout)
 	}
 }

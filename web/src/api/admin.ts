@@ -69,6 +69,9 @@ export type PlannedCodeTree = { path: string; build_file: string; whole?: boolea
 export type PlannedMove = { name: string; from: string; to: string; commands: string[] };
 // A step is what the person does in a code repository that holds no instruction file, because adoption writes to no clone
 // but the planning repository's.
+// An omission is a repository the Makefile the plan writes leaves out, because its name or its path holds what make or a
+// shell reads as syntax. The manifest still lists it.
+export type PlannedOmission = { name: string; path: string; reason: string };
 export type PlannedStep = { name: string; path: string; commands: string[] };
 export type AdoptionPlan = {
   layout: { root: string; folders: string[] | null; clones: LayoutClone[] };
@@ -82,6 +85,7 @@ export type AdoptionPlan = {
   code_trees: PlannedCodeTree[] | null;
   moves: PlannedMove[] | null;
   steps?: PlannedStep[] | null;
+  makefile_left_out?: PlannedOmission[] | null;
   notes?: string[];
   digest: string;
   // parts are the digest of each part of the plan, by part name, which the route answers beside the plan. They are no

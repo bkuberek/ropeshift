@@ -59,7 +59,7 @@ describe("the plan of an adoption, as the dry run prints it", () => {
       "AddAGENTS.mdthe project's instructions for agents",
       "AddCLAUDE.mdimports AGENTS.md",
     ]);
-    expect(screen.getByRole("region", { name: "Commands that write the instructions of api" }).textContent).toBe("ropeshift template show repository/agents.md > /work/ws/repos/api/AGENTS.md");
+    expect(screen.getByRole("region", { name: "Commands that write the instructions of api" }).textContent).toBe("[ -e /work/ws/repos/api/AGENTS.md ] || ropeshift template show repository/agents.md > /work/ws/repos/api/AGENTS.md");
     expect(screen.getByRole("region", { name: "Commands that write the instructions of web" })).toBeTruthy();
     expect(screen.getByText(/Ropeshift writes to no clone but the planning repository's/)).toBeTruthy();
     expect(screen.queryByRole("region", { name: /Paths taken/ })).toBeNull();
@@ -113,6 +113,19 @@ describe("the plan of an adoption, as the dry run prints it", () => {
     expect(commands.textContent).toBe("mv /work/api /work/design/repos/api\nropeshift repository add /work/design/repos/api");
     expect(screen.getByRole("region", { name: "Commands that move web" })).toBeTruthy();
     expect(screen.getByText(/Ropeshift never moves a clone/)).toBeTruthy();
+  });
+
+  it("names each repository the Makefile leaves out, with why, and says the manifest still lists it", () => {
+    const left = { ...plan("workspace-files"), makefile_left_out: [{ name: "we$ird", path: "repos/we$ird", reason: "its name is not made of letters, digits, \".\", \"_\", and \"-\"" }] };
+    show(left);
+    const list = screen.getByRole("list", { name: "Left out of the Makefile" });
+    expect(list.textContent).toContain("we$ird");
+    expect(list.textContent).toContain("repos/we$ird");
+    expect(list.textContent).toContain("its name is not made of letters");
+    expect(screen.getByText(/The manifest still lists each/)).toBeTruthy();
+    cleanup();
+    show(plan("workspace-files"));
+    expect(screen.queryByRole("list", { name: "Left out of the Makefile" })).toBeNull();
   });
 
   it("says where the plan lives is undecided, and offers no restructuring, when nothing settles it", () => {

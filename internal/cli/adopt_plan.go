@@ -96,6 +96,12 @@ func adoptionPlanText(plan planning.AdoptionPlan) string {
 		}
 		out.WriteString("\n")
 	}
+	if len(plan.MakefileLeftOut) != 0 {
+		out.WriteString("Left out of the Makefile\n")
+		for _, left := range plan.MakefileLeftOut {
+			fmt.Fprintf(&out, "left out\t%s\t%s\t%s\n", left.Name, left.Path, left.Reason)
+		}
+	}
 	for _, move := range plan.Moves {
 		fmt.Fprintf(&out, "move\t%s\t%s\t%s\n", move.Name, move.From, move.To)
 		for _, command := range move.Commands {

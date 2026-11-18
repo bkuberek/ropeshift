@@ -32,7 +32,7 @@ import (
 func renderTemplates(name string, data projectfiles.Data) (string, error) {
 	converted := templates.Data{Project: data.Project}
 	for _, repository := range data.Repositories {
-		converted.Repositories = append(converted.Repositories, templates.Repository{Name: repository.Name, Remote: repository.Remote})
+		converted.Repositories = append(converted.Repositories, templates.Repository{Name: repository.Name, Remote: repository.Remote, Path: repository.Path})
 	}
 	return templates.Render(name, converted)
 }

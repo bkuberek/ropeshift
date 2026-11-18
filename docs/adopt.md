@@ -138,22 +138,24 @@ The dry run lists, under the heading `Files the layout lacks`, each file of the 
 |------|----------|--------|--------------|
 | `AGENTS.md` | `monorepo/agents.md` for `single`, `workspace/agents.md` for every other shape | All | The repository holds neither `AGENTS.md` nor `CLAUDE.md` |
 | `CLAUDE.md` | `claude.md`, which imports `AGENTS.md` | All | The repository holds neither `AGENTS.md` nor `CLAUDE.md` |
-| `Makefile` | `workspace/makefile`, with the targets `setup`, `fetch`, and `status` | All but `single` | The repository holds no `Makefile` |
+| `Makefile` | `workspace/makefile`, with the targets `setup`, `fetch`, and `status` | All but `single` | The repository holds no `GNUmakefile`, `makefile`, or `Makefile` |
 | `.gitignore` | `workspace/gitignore` | All but `single` | The repository holds no `.gitignore` |
 
-The Makefile lists each repository as `name=remote`, and `make setup` clones it to `repos/<name>`. A repository whose name holds a character other than a letter, a digit, `.`, `_`, or `-`, or whose clone sits in the planning repository at another path, is in the manifest only, and a remote that a Makefile cannot carry safely is left empty, so `make setup` names the clone to make by hand. A local path remote is written as a `file://` URL.
+A file the repository holds under another case, such as `agents.md` or `makefile`, counts as the file, so no file is written beside it.
 
-A repository of the `single` shape that holds no instruction file is offered `--restructure` for these two files, and the commit holds nothing else. The adopt session's brief shows the starting `AGENTS.md` for the project whenever the planning repository holds no instruction file, with or without `--restructure`, and asks the session to turn it into the project's own from what it reads. With `--restructure` the session edits the file the worker wrote.
+The Makefile lists each repository as `name=remote`, or `name=remote=path` when its clone is not at `repos/<name>`, and `make setup` clones it there, making the folders above it. A repository goes into the Makefile when its name is made only of letters, digits, `.`, `_`, and `-`, and its path relative to the planning repository is made only of such segments joined by `/`, with no empty, `.`, or `..` segment, at any depth. Any other repository is left out of the Makefile, and the dry run and `--restructure` name each one with the reason. The manifest still lists it. A remote that a Makefile cannot carry safely is left empty, so `make setup` names the clone to make by hand. A local path remote is written as a `file://` URL.
+
+A repository of the `single` shape that holds no instruction file is offered `--restructure` for these two files, and the commit holds nothing else. The adopt session's brief shows the starting `AGENTS.md` for the project whenever the planning repository holds no instruction file and the worker wrote none, and asks the session to turn it into the project's own from what it reads. With `--restructure` the worker writes the file, and the brief tells the session to edit the committed file and shows no template.
 
 ### Steps for code repositories
 
 Ropeshift writes to no clone but the planning repository's. The dry run lists, under the heading `Steps for you`, each code repository whose clone holds neither `AGENTS.md` nor `CLAUDE.md`, with the command that writes the repository template to it:
 
 ```text
-ropeshift template show repository/agents.md > <clone>/AGENTS.md
+[ -e <clone>/AGENTS.md ] || ropeshift template show repository/agents.md > <clone>/AGENTS.md
 ```
 
-The planning repository, the design repository a consolidation imports, and a clone the registration refuses are not listed. `--restructure` prints the steps again when the session starts. Review the file and commit it in that repository yourself.
+The command writes nothing when the file is there, so it never truncates an uncommitted one. A clone the plan moves is named where the move leads, because you run the moves first. The planning repository, the design repository a consolidation imports, and a clone the registration refuses are not listed. `--restructure` prints the steps again when the session starts. Review the file and commit it in that repository yourself.
 
 ### The moves
 

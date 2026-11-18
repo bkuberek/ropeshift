@@ -313,7 +313,7 @@ func Brief(spec BriefSpec) string {
 			if spec.Restructured != nil {
 				out.WriteString(restructuredNotice(*spec.Restructured))
 			}
-			if spec.InstructionsTemplate != "" {
+			if wroteInstructions(spec.Restructured) || spec.InstructionsTemplate != "" {
 				out.WriteString(instructionsNotice(spec.InstructionsTemplate, spec.Restructured))
 			}
 		}

@@ -547,12 +547,12 @@ func TestTheFilesALayoutLacksAreWrittenFromTheirTemplatesInTheOneCommit(t *testi
 	}
 }
 
-// An adopt lane whose repository holds no instruction file is told the starting AGENTS.md rendered for its project,
-// whether or not it carries a restructuring, and one whose repository holds an instruction file, or whose design
-// repository brought one, is told none.
+// An adopt lane whose repository holds no instruction file is told the starting AGENTS.md rendered for its project when
+// it carries no restructuring, and to edit the committed file when the worker wrote one, with no template. One whose
+// repository holds an instruction file, in any case, is told neither.
 func TestAnAdoptBriefHoldsTheStartingInstructionsOnlyForARepositoryWithNone(t *testing.T) {
 	t.Parallel()
-	brief := func(t *testing.T, tracked []string, restructure bool) (string, *restructureRig) {
+	brief := func(t *testing.T, tracked []string, restructure bool) (string, string) {
 		t.Helper()
 		r := newRestructureRig(t)
 		r.clone("/work/ws", fake.CloneLayout{Tracked: tracked})
@@ -569,25 +569,61 @@ func TestAnAdoptBriefHoldsTheStartingInstructionsOnlyForARepositoryWithNone(t *t
 		r.run.startingInstructions(t.Context(), "/work/ws")
 		return lanes.Brief(lanes.BriefSpec{
 			WorkOrder: "wo", Title: "Adopt", Kind: workorders.KindPlan, Adopt: true, Restructured: r.run.restructuredOf(), InstructionsTemplate: r.run.instructionsText(),
-		}), r
+		}), r.run.instructionsText()
 	}
 	const starting = "workspace/agents.md for shop over api,web\n"
 	for name, tt := range map[string]struct {
 		tracked     []string
 		restructure bool
-		want        bool
+		template    bool
+		edits       bool
 	}{
-		"none, no restructuring": {tracked: []string{"README.md", ".gitignore"}, want: true},
-		"none, restructuring":    {tracked: []string{"README.md", ".gitignore"}, restructure: true, want: true},
-		"an AGENTS.md":           {tracked: []string{"README.md", "AGENTS.md"}},
-		"a CLAUDE.md":            {tracked: []string{"README.md", "CLAUDE.md"}, restructure: true},
+		"none, no restructuring":    {tracked: []string{"README.md", ".gitignore"}, template: true},
+		"none, restructuring":       {tracked: []string{"README.md", ".gitignore"}, restructure: true, edits: true},
+		"an AGENTS.md":              {tracked: []string{"README.md", "AGENTS.md"}},
+		"a lowercase agents.md":     {tracked: []string{"README.md", "agents.md"}},
+		"a CLAUDE.md, restructured": {tracked: []string{"README.md", "CLAUDE.md"}, restructure: true},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			text, _ := brief(t, tt.tracked, tt.restructure)
-			if got := strings.Contains(text, starting) && strings.Contains(text, "holds no instruction file"); got != tt.want {
-				t.Errorf("the brief holds the starting instructions: %v, want %v\n%s", got, tt.want, text)
+			text, kept := brief(t, tt.tracked, tt.restructure)
+			if (kept != "") != tt.template {
+				t.Errorf("the worker keeps the starting instructions %q, want one: %v", kept, tt.template)
+			}
+			if got := strings.Contains(text, starting) && strings.Contains(text, "holds no instruction file"); got != tt.template {
+				t.Errorf("the brief shows the starting instructions: %v, want %v\n%s", got, tt.template, text)
+			}
+			if got := strings.Contains(text, "Edit the committed AGENTS.md"); got != tt.edits {
+				t.Errorf("the brief tells the lane to edit the committed file: %v, want %v\n%s", got, tt.edits, text)
+			}
+			if tt.edits && strings.Contains(text, starting) {
+				t.Errorf("the brief shows a template beside the file the worker wrote:\n%s", text)
 			}
 		})
+	}
+}
+
+// The starting instructions are rendered over the repositories the written files carry, which leave out a name a
+// Makefile cannot hold, and from the template of the shape the lane's restructuring chose.
+func TestTheStartingInstructionsUseTheFilteredRepositoriesAndTheShapesTemplate(t *testing.T) {
+	t.Parallel()
+	text := func(t *testing.T, shape planning.LayoutShape) string {
+		t.Helper()
+		r := newRestructureRig(t)
+		r.clone("/work/ws", fake.CloneLayout{Tracked: []string{"README.md", ".gitignore"}})
+		_, choice := r.plan()
+		choice.Shape = shape
+		r.start(choice)
+		r.run.lease.Reads = append(r.run.lease.Reads, ledger.RepositoryRead{Repository: "root-odd", Name: "we$ird", Ref: "origin/main", Commit: "c3"})
+		// A restructuring that wrote no AGENTS.md leaves the lane to write it.
+		r.run.setRestructured(lanes.Restructured{Files: []string{"Makefile"}})
+		r.run.startingInstructions(t.Context(), "/work/ws")
+		return r.run.instructionsText()
+	}
+	if got, want := text(t, planning.ShapeWorkspaceFiles), "workspace/agents.md for shop over api,web\n"; got != want {
+		t.Errorf("a workspace starts from %q, want %q", got, want)
+	}
+	if got, want := text(t, planning.ShapeSingle), "monorepo/agents.md for shop over api,web\n"; got != want {
+		t.Errorf("a single repository starts from %q, want %q", got, want)
 	}
 }

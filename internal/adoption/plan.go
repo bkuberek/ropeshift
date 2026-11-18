@@ -95,5 +95,6 @@ func Plan(ctx context.Context, in Request, kept ports.Checkouts, layouts ports.L
 		return plan, err
 	}
 	plan.Steps = instructionSteps(plan, found, design)
+	plan.MakefileLeftOut = makefileLeftOut(plan)
 	return plan.WithDigest(), nil
 }

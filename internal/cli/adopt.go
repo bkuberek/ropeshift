@@ -131,6 +131,7 @@ func (c *invocation) adopt(args []string) int {
 	if *restructure {
 		c.sayMoves(plan.Moves)
 		c.saySteps(plan.Steps)
+		c.sayLeftOut(plan.MakefileLeftOut)
 	}
 	started.Project = name
 	return c.joinSession(project, started, *noAttach)
@@ -147,6 +148,21 @@ func (c *invocation) sayMoves(moves []planning.Move) {
 		for _, command := range move.Commands {
 			c.say("  %s\n", command)
 		}
+	}
+}
+
+// sayLeftOut names each repository the Makefile the worker writes leaves out, and why. The manifest lists it.
+func (c *invocation) sayLeftOut(left []planning.Omission) {
+	if len(left) == 0 {
+		return
+	}
+	noun := "repositories"
+	if len(left) == 1 {
+		noun = "repository"
+	}
+	c.say("The Makefile leaves out %d %s, which the manifest still lists:\n", len(left), noun)
+	for _, one := range left {
+		c.say("  %s (%s): %s\n", one.Name, one.Path, one.Reason)
 	}
 }
 

@@ -93,7 +93,8 @@ func TestTheFilesAnAdoptionWritesAreTheTemplatesOverTheProjectAndItsRepositories
 }
 
 // The Makefile an adoption writes does what it says under make and git: setup clones each repository that has no
-// clone, and fetch and status read each clone, for a remote that is a local path as for a URL.
+// clone, and fetch and status read each clone, for a remote that is a local path as for a URL, and for a clone the
+// layout already holds at a nested path of the planning repository as for one moved to repos/<name>.
 func TestTheMakefileAnAdoptionWritesSetsUpFetchesAndShowsTheStatusOfEachRepository(t *testing.T) {
 	gittest.Require(t)
 	if _, err := exec.LookPath("make"); err != nil {
@@ -104,9 +105,11 @@ func TestTheMakefileAnAdoptionWritesSetsUpFetchesAndShowsTheStatusOfEachReposito
 
 	kept, layouts := fake.NewCheckouts(), fake.NewLayouts()
 	kept.Place(ports.Clone{Path: "/work/ws", ID: "root-ws", DefaultBranch: "main"})
-	layouts.Set("/work/ws", fake.CloneLayout{Tracked: []string{"README.md"}})
+	layouts.Set("/work/ws", fake.CloneLayout{Ignored: []string{"repos"}, Tracked: []string{"README.md"}})
 	kept.Place(ports.Clone{Path: "/work/api", ID: "root-api", Remote: remote.Dir, DefaultBranch: "main"})
 	layouts.Set("/work/api", fake.CloneLayout{Tracked: []string{"go.mod"}})
+	kept.Place(ports.Clone{Path: "/work/ws/repos/group/deep", ID: "root-deep", Remote: remote.Dir, DefaultBranch: "main"})
+	layouts.Set("/work/ws/repos/group/deep", fake.CloneLayout{Tracked: []string{"go.mod"}})
 	known := func(_ context.Context, clones []adoption.Found) ([]planning.PlannedRepository, error) {
 		var out []planning.PlannedRepository
 		for _, one := range clones {
@@ -114,9 +117,12 @@ func TestTheMakefileAnAdoptionWritesSetsUpFetchesAndShowsTheStatusOfEachReposito
 		}
 		return out, nil
 	}
-	plan, err := adoption.Plan(t.Context(), adoption.Request{Root: "/work/ws", Paths: []string{"/work/api"}, Planning: "ws"}, kept, layouts, known)
+	plan, err := adoption.Plan(t.Context(), adoption.Request{Root: "/work/ws", Paths: []string{"/work/api"}, Depth: 2, Planning: "ws"}, kept, layouts, known)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if len(plan.MakefileLeftOut) != 0 {
+		t.Fatalf("the plan leaves %+v out of the Makefile", plan.MakefileLeftOut)
 	}
 	files, err := adoption.Files(t.Context(), plan, "shop", kept, renderProjectTemplate)
 	if err != nil {
@@ -141,16 +147,18 @@ func TestTheMakefileAnAdoptionWritesSetsUpFetchesAndShowsTheStatusOfEachReposito
 		return string(out)
 	}
 	run("setup")
-	if _, err := os.Stat(filepath.Join(workspace.Dir, "repos", "api", "README.md")); err != nil {
-		t.Errorf("make setup cloned nothing at repos/api: %v", err)
+	for _, clone := range []string{"repos/api", "repos/group/deep"} {
+		if _, err := os.Stat(filepath.Join(workspace.Dir, filepath.FromSlash(clone), "README.md")); err != nil {
+			t.Errorf("make setup cloned nothing at %s: %v", clone, err)
+		}
 	}
-	if again := run("setup"); !strings.Contains(again, "api: present") {
-		t.Errorf("a second make setup does not leave the clone alone:\n%s", again)
+	if again := run("setup"); !strings.Contains(again, "api: present") || !strings.Contains(again, "deep: present") {
+		t.Errorf("a second make setup does not leave the clones alone:\n%s", again)
 	}
-	if fetch := run("fetch"); !strings.Contains(fetch, "api: fetched") {
-		t.Errorf("make fetch printed no api: fetched:\n%s", fetch)
+	if fetch := run("fetch"); !strings.Contains(fetch, "api: fetched") || !strings.Contains(fetch, "deep: fetched") {
+		t.Errorf("make fetch printed no api: fetched and deep: fetched:\n%s", fetch)
 	}
-	if status := run("status"); !strings.Contains(status, "api: ## ") {
-		t.Errorf("make status printed no api: ## :\n%s", status)
+	if status := run("status"); !strings.Contains(status, "api: ## ") || !strings.Contains(status, "deep: ## ") || strings.Contains(status, "missing") {
+		t.Errorf("make status printed no api: ## and deep: ## , or reads a clone as missing:\n%s", status)
 	}
 }
