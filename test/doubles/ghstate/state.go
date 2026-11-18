@@ -113,6 +113,22 @@ type State struct {
 	// SignedOut makes `gh auth status` fail with AuthError.
 	SignedOut bool   `json:"signed_out,omitempty"`
 	AuthError string `json:"auth_error,omitempty"`
+	// Login is the signed-in account, and GitProtocol the protocol its git operations use, https when empty. Scopes are
+	// the scopes of a classic token, and a fine-grained token has none. Orgs are the organizations the account belongs
+	// to, and OrgsForbidden makes listing them answer 403, as a token without read:org does.
+	Login         string   `json:"login,omitempty"`
+	GitProtocol   string   `json:"git_protocol,omitempty"`
+	Scopes        []string `json:"scopes,omitempty"`
+	Orgs          []string `json:"orgs,omitempty"`
+	OrgsForbidden bool     `json:"orgs_forbidden,omitempty"`
+	// NoJSON makes `gh auth status` refuse --json, as a `gh` too old for it does.
+	NoJSON bool `json:"no_json,omitempty"`
+	// CreateError makes `gh repo create` fail with this message, and RejectPush makes every push to a repository it
+	// created fail in the repository's pre-receive hook.
+	CreateError string `json:"create_error,omitempty"`
+	RejectPush  bool   `json:"reject_push,omitempty"`
+	// Repositories are the repositories that exist, each with the visibility it was created with.
+	Repositories []Repository `json:"repositories,omitempty"`
 	// Remote is the remote of the checkout `gh` runs in that holds each open pull request's branch.
 	Remote       string        `json:"remote,omitempty"`
 	Calls        int64         `json:"calls"`
@@ -122,6 +138,18 @@ type State struct {
 	// FailRerun is a run whose next rerun of failed jobs the forge answers with a 500, once.
 	FailRerun int64 `json:"fail_rerun,omitempty"`
 }
+
+// Repository is one repository on the fake forge: its owner and name, and the visibility `gh repo create` made it
+// with, private or public.
+type Repository struct {
+	Owner      string `json:"owner"`
+	Name       string `json:"name"`
+	Visibility string `json:"visibility"`
+}
+
+// RemotesDir is where the double keeps the bare repository of each repository it creates, beside its state, as
+// remotes/<owner>/<name>.git. A test points the URLs of github.com at it with git's url.<base>.insteadOf.
+const RemotesDir = "remotes"
 
 // FindRun returns the run with an ID, or nil.
 func (s *State) FindRun(id int64) *Run {

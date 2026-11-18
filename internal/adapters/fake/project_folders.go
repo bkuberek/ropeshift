@@ -28,6 +28,13 @@ type ProjectFolders struct {
 	CommitError error
 	// calls lists what the worker did, in order: write and commit, each with its folder.
 	calls []string
+	// origins are the URL of each folder's origin, pushed the commit origin holds for each folder, and pushes the
+	// pushes the worker ran.
+	origins    map[string]string
+	pushed     map[string]string
+	pushes     []Push
+	addErrors  map[string]error
+	pushErrors map[string]error
 }
 
 // NewProjectFolders returns a machine with only its root directory.
@@ -35,6 +42,7 @@ func NewProjectFolders() *ProjectFolders {
 	return &ProjectFolders{
 		dirs: map[string]bool{"/": true}, links: map[string]string{}, files: map[string]string{},
 		tops: map[string]bool{}, commits: map[string]string{},
+		origins: map[string]string{}, pushed: map[string]string{}, addErrors: map[string]error{}, pushErrors: map[string]error{},
 	}
 }
 
@@ -242,6 +250,86 @@ func (f *ProjectFolders) FirstCommit(_ context.Context, folder, message string, 
 	}
 	f.commits[folder] = fmt.Sprintf("commit-%d", len(f.commits)+1)
 	return f.commits[folder], nil
+}
+
+// Push is one push the worker ran.
+type Push struct {
+	Dir              string
+	Branch           string
+	CredentialHelper string
+}
+
+// Origin is the URL a test or the worker gave a folder's origin, or empty.
+func (f *ProjectFolders) Origin(dir string) string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.origins[path.Clean(dir)]
+}
+
+// Pushes lists the pushes the worker ran, in order.
+func (f *ProjectFolders) Pushes() []Push {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.pushes)
+}
+
+// FailAddRemote makes the next add of an origin at a folder fail with err, and FailPush the next push from it.
+func (f *ProjectFolders) FailAddRemote(dir string, err error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.addErrors[path.Clean(dir)] = err
+}
+
+// FailPush makes the push from a folder fail with err until a test clears it with nil.
+func (f *ProjectFolders) FailPush(dir string, err error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.pushErrors[path.Clean(dir)] = err
+}
+
+// AddRemote gives the folder an origin, unless a test made adding one fail.
+func (f *ProjectFolders) AddRemote(_ context.Context, folder, url string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	folder = path.Clean(folder)
+	if err := f.addErrors[folder]; err != nil {
+		return err
+	}
+	if f.origins[folder] != "" {
+		return errors.New("error: remote origin already exists")
+	}
+	f.origins[folder] = url
+	f.calls = append(f.calls, "remote "+folder+": "+url)
+	return nil
+}
+
+// Push records a push of the folder's commit to its origin, unless a test made it fail.
+func (f *ProjectFolders) Push(_ context.Context, folder string, push ports.PushSpec) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	folder = path.Clean(folder)
+	f.pushes = append(f.pushes, Push{Dir: folder, Branch: push.Branch, CredentialHelper: push.CredentialHelper})
+	if err := f.pushErrors[folder]; err != nil {
+		return err
+	}
+	if f.origins[folder] == "" {
+		return errors.New("fatal: 'origin' does not appear to be a git repository")
+	}
+	f.pushed[folder] = f.commits[folder]
+	f.calls = append(f.calls, "push "+folder+": "+push.Branch)
+	return nil
+}
+
+// Remote reads the folder's origin, the branch and commit it holds, and the commit origin holds.
+func (f *ProjectFolders) Remote(_ context.Context, folder string) (ports.RemoteState, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	folder = path.Clean(folder)
+	state := ports.RemoteState{Origin: f.origins[folder], Head: f.commits[folder], RemoteHead: f.pushed[folder]}
+	if state.Head != "" {
+		state.Branch = "main"
+	}
+	return state, nil
 }
 
 var _ ports.ProjectFolders = (*ProjectFolders)(nil)

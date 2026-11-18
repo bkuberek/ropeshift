@@ -27,10 +27,13 @@ plan = "{{ .Project }}-v1"
 # The repository's name in the project. Work orders name it in `repo`, and contracts in `reads`.
 {{ end -}}
 name = "{{ $r.Name }}"
+{{ if $r.Remote -}}
 {{ if eq $i 0 -}}
-# Approval registers the clone at `path` only when its remote is this one.
+# Approval registers the clone at `path` only when its remote is this one. A repository with no remote
+# has no `remote` key, and approval then registers the clone whatever its remote is.
 {{ end -}}
 remote = {{ tomlString $r.Remote }}
+{{ end -}}
 {{ if eq $i 0 -}}
 # Where the clone sits, relative to the planning repository's clone: inside its ignored repos/ folder,
 # or beside it, as ../{{ $r.Name }}. It must stay inside the folder that holds the planning repository's

@@ -69,6 +69,8 @@ type SharedReadTx interface {
 	TemplateWrites() TemplateWriteReader
 	// Spend reads what the machines' orchestrators were charged.
 	Spend() SpendReader
+	// ForgeAccountReads reads the requests that a worker read its forge account.
+	ForgeAccountReads() ForgeAccountReadReader
 }
 
 // SpendReader reads the installation's tallies of spend, which no project holds because the orchestrator serves every
@@ -111,4 +113,6 @@ type SharedTx interface {
 	TemplateWrites() TemplateWriteWriter
 	// Spend reads and writes what the machines' orchestrators were charged.
 	Spend() SpendWriter
+	// ForgeAccountReads reads and writes the requests that a worker read its forge account.
+	ForgeAccountReads() ForgeAccountReadWriter
 }

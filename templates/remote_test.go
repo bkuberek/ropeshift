@@ -1,6 +1,7 @@
 package templates_test
 
 import (
+	"strings"
 	"testing"
 
 	"ropeshift.com/ropeshift/internal/adapters/repofiles"
@@ -38,5 +39,30 @@ func TestTheManifestHoldsAnyRemoteAsOneTOMLString(t *testing.T) {
 				t.Errorf("the manifest holds %+v, want orchid-api with the remote %q", manifest.Repositories, remote)
 			}
 		})
+	}
+}
+
+// A repository with no remote has no remote key in the manifest and name= in the Makefile, so approval registers
+// the clone whatever its remote is, and make setup never clones from an empty address.
+func TestARepositoryWithNoRemoteHasNoRemoteKeyAndAnEmptyMakefileRemote(t *testing.T) {
+	data := templates.Data{Project: "orchid", Repositories: []templates.Repository{
+		{Name: "orchid-api", Remote: "git@example.invalid:orchid/orchid-api.git"}, {Name: "orchid-web"},
+	}}
+	text := render(t, "workspace/plan/repositories.md", data)
+	manifest, err := repofiles.ParseManifest([]byte(text))
+	if err != nil {
+		t.Fatalf("the manifest does not parse: %v", err)
+	}
+	if len(manifest.Repositories) != 2 || manifest.Repositories[0].Remote == "" || manifest.Repositories[1].Name != "orchid-web" || manifest.Repositories[1].Remote != "" {
+		t.Errorf("the manifest holds %+v", manifest.Repositories)
+	}
+	if strings.Count(text, "remote = ") != 1 {
+		t.Errorf("a repository with no remote has a remote key:\n%s", text)
+	}
+	makefile := render(t, "workspace/makefile", data)
+	for _, want := range []string{"orchid-api=git@example.invalid:orchid/orchid-api.git", "orchid-web=\n", `elif [ -z "$$remote" ]; then echo "$$name: no remote and no clone"; exit 1;`} {
+		if !strings.Contains(makefile, want) {
+			t.Errorf("the Makefile lacks %q", want)
+		}
 	}
 }

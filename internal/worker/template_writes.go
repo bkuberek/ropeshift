@@ -14,6 +14,7 @@ import (
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/internal/projectfiles"
+	"ropeshift.com/ropeshift/internal/projectremote"
 )
 
 // TemplateRuntime is what a worker needs to write a shape's starting files for a member (FR-TPL-5). The entry
@@ -21,7 +22,10 @@ import (
 type TemplateRuntime struct {
 	Folders   ports.ProjectFolders
 	Checkouts ports.Checkouts
-	Render    projectfiles.Render
+	// Forge is the person's forge account, which a request to create a repository and a forge account read use. Nil
+	// has no `gh`: a request that creates a repository is refused as gh_missing.
+	Forge  ports.ForgeAccounts
+	Render projectfiles.Render
 	// StateDir holds the journal of each request, in template-writes/<request>.json.
 	StateDir string
 }
@@ -37,16 +41,10 @@ const (
 // nothing twice and reports once.
 type templateJournal struct {
 	State string `json:"state"`
-	// Commit says the folder's first commit is to be made, and NeedsRepository that the folder needs a repository
-	// of its own, which were decided before the first write and stand across a restart.
-	Commit          bool `json:"commit"`
-	NeedsRepository bool `json:"needs_repository"`
-	// Initialized says the worker was about to run git init in the folder, so a .git it finds on a resume is its own.
-	// A .git with no such record is somebody else's repository, which the worker commits nothing in.
-	Initialized bool `json:"initialized,omitempty"`
-	// Folder names the folder the worker wrote, by what the disk said of it, so a resume and the first commit are held to that
-	// folder and not to another that a link swapped in at the path.
-	Folder string                      `json:"folder,omitempty"`
+	// Progress is what the run decided before its first write and what it has done since: the first commit and the
+	// repository it needs, the folder it wrote by what the disk said of it, each repository's git init, commit, and
+	// remote steps, so a resume is held to that folder and a crash repeats no step.
+	projectremote.Progress
 	Report *ledger.TemplateWriteReport `json:"report,omitempty"`
 }
 
@@ -173,14 +171,13 @@ func (w *Worker) performTemplateWrite(ctx context.Context, rt *TemplateRuntime, 
 	if !started && w.clock.Now().UnixMilli() >= request.ExpiresAt {
 		return ledger.TemplateWriteReport{}, journal, errTemplateExpired
 	}
-	shape := projectfiles.Shape(request.Shape)
-	name := projectfiles.NameOf(path.Base(request.Path))
-	data := projectfiles.Data{Project: name}
-	for _, repository := range request.Repositories {
-		data.Repositories = append(data.Repositories, projectfiles.CodeRepository{Name: repository.Name, Remote: repository.Remote})
-	}
-	files, err := projectfiles.Files(shape, data, rt.Render)
-	if errors.Is(err, projectfiles.ErrInvalid) || (err == nil && name == "") {
+	job := projectremote.Job{Request: ledger.TemplateWriteRequest{
+		Shape: request.Shape, Path: request.Path, Repositories: request.Repositories, Project: request.Project,
+		FirstCommit: request.FirstCommit, Remote: request.Remote,
+	}}
+	remote := w.projectRuntime(rt)
+	files, err := projectremote.Files(remote, job, &journal.Progress)
+	if errors.Is(err, projectfiles.ErrInvalid) || (err == nil && job.Name() == "") {
 		return refused(ledger.TemplateRefusedInvalid, "the request names no shape this worker can write")
 	}
 	if err != nil {
@@ -230,10 +227,27 @@ func (w *Worker) performTemplateWrite(ctx context.Context, rt *TemplateRuntime, 
 		if err != nil {
 			return ledger.TemplateWriteReport{}, journal, err
 		}
-		journal = templateJournal{State: templateStarted, Commit: request.FirstCommit && needs, NeedsRepository: needs}
+		job.NeedsRepository = needs
+		// The checks of a created repository run once, here and before anything is written, so a refusal creates
+		// nothing and writes nothing. What they decided stands across a restart in the journal.
+		var progress projectremote.Progress
+		refusal, err := projectremote.Start(ctx, remote, job, &progress)
+		if err != nil {
+			return ledger.TemplateWriteReport{}, journal, err
+		}
+		if refusal != nil {
+			return *refusal, journal, nil
+		}
+		journal = templateJournal{State: templateStarted, Progress: progress}
 		if err := rt.save(request.ID, journal); err != nil {
 			return ledger.TemplateWriteReport{}, journal, err
 		}
 	}
-	return w.writeTemplate(ctx, rt, request, journal, data, files)
+	report, err := projectremote.Finish(ctx, remote, job, &journal.Progress, func() error { return rt.save(request.ID, journal) })
+	return report, journal, err
+}
+
+// projectRuntime is what a run reaches this worker's machine through.
+func (w *Worker) projectRuntime(rt *TemplateRuntime) projectremote.Runtime {
+	return projectremote.Runtime{Folders: rt.Folders, Forge: rt.Forge, Render: rt.Render, Machine: w.config.Name}
 }

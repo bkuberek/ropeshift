@@ -51,6 +51,7 @@ var equivalents = map[string]string{
 	"decline":           "approval approve",   // delegates.go decideCard, for decline, sends DecideApproval with Allow false for a card; the confirmation card does
 	"fleet drain":       "fleet pause",        // work.go setsFleet sends SetFleetMode, the same PUT /fleet/mode as fleet pause, with the mode drain; Settings sends all three modes
 	"fleet run":         "fleet pause",        // setsFleet with the mode run, on the same route
+	"new":               "new workspace",      // new_remote.go newInteractive asks one repository or several and then writes the monorepo or the workspace; the dialog asks the same first and sends the shape in the body of the POST that new workspace's row names
 	"new monorepo":      "new workspace",      // new.go newFolder writes a shape's starting files; Start a project from a template sends the shape monorepo in the body of the POST /v1/workers/{id}/template-writes that new workspace's row names (templateWriteRoutes takes the shape from the body)
 	"new repository":    "new workspace",      // newFolder with the shape repository, and its --project in the body's project; the dialog sends both on the same route
 	"orchestrator stop": "orchestrator start", // orchestrator.go setsOrchestrator sends SetOrchestrator, the same PUT as start, with desired stopped; Workers sends both

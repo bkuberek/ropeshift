@@ -134,6 +134,10 @@ const (
 	// (FR-TPL-5). It writes files at a path a caller chooses, on a machine that is a person's, so no agent
 	// has this, and no row below may ever grant it.
 	ActionWriteTemplates Action = "template.write"
+	// ActionCreateRemotes creates a new project's repository on a forge under the person's own account, and reads
+	// that account to say who may own it (FR-TPL-6). It has an effect outside the machine that no ledger record
+	// holds, so no agent has this, and no row below may ever grant it.
+	ActionCreateRemotes Action = "repository.create_remote"
 	// ActionAnswerCI is a member's word on CI that has not finished: waiting longer for a head, or rerunning its
 	// checks. It starts no agent, and it spends a forge's minutes and a person's patience, so no agent has this, and no
 	// row below may ever grant it.
@@ -193,7 +197,7 @@ func Actions() []Action {
 		ActionSetRepository, ActionRegisterRepository, ActionRegisterManifest, ActionManageProject, ActionRecordMerge, ActionMerge, ActionDecideMerge, ActionChangeRoster,
 		ActionRaiseMergeAuthority, ActionReviewPullRequest, ActionDecideOneWay, ActionManageSessions, ActionBackupInstallation, ActionConfirmCard,
 		ActionConverse, ActionBackupProject, ActionSetLaneCaps, ActionMessageOrchestrator, ActionStartReview, ActionPlanAdoption, ActionRestructure,
-		ActionWriteTemplates, ActionPublishInstallationPolicy, ActionAnswerCI, ActionRaiseSpendLimit,
+		ActionWriteTemplates, ActionCreateRemotes, ActionPublishInstallationPolicy, ActionAnswerCI, ActionRaiseSpendLimit,
 	}
 }
 

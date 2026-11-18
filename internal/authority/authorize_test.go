@@ -320,3 +320,23 @@ func TestOnlyAMemberWritesTemplates(t *testing.T) {
 		t.Errorf("template.write is %+v, want a member-only operation on the installation", op)
 	}
 }
+
+// TestOnlyAMemberCreatesARemote holds creating a new project's repository on a forge, and reading the account that
+// chooses its owner, to a person, and the operation to the member-only class (FR-TPL-6).
+func TestOnlyAMemberCreatesARemote(t *testing.T) {
+	if !authority.Allowed(ledger.Actor{Kind: ledger.ActorMember, ID: "m"}, authority.ActionCreateRemotes) {
+		t.Error("a member may not create a project's repository")
+	}
+	for _, kind := range []ledger.ActorKind{ledger.ActorOrchestrator, ledger.ActorLane, ledger.ActorWorker, ledger.ActorSystem, ledger.ActorDelegate} {
+		if authority.Allowed(ledger.Actor{Kind: kind, ID: "x"}, authority.ActionCreateRemotes) {
+			t.Errorf("%s may create a project's repository", kind)
+		}
+	}
+	if !slices.Contains(authority.Actions(), authority.ActionCreateRemotes) {
+		t.Error("Actions() does not list the action, so the member test never holds it to the function")
+	}
+	op, ok := authority.OperationOf(authority.OpRepositoryCreateRemote)
+	if !ok || op.Class != authority.ClassMemberOnly || op.DelegateMayRun() || op.Label != "Create a project's repository on a forge" {
+		t.Errorf("repository.create_remote is %+v, want a member-only operation", op)
+	}
+}

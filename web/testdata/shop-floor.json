@@ -420,7 +420,7 @@
           "owner": {}
         },
         "name": "build-host-07",
-        "protocol": 5,
+        "protocol": 6,
         "report": {
           "caps": {
             "max_lanes": 11,
@@ -495,7 +495,7 @@
           "owner": {}
         },
         "name": "solo",
-        "protocol": 5
+        "protocol": 6
       }
     }
   ]

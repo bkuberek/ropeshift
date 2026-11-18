@@ -77,6 +77,14 @@ func (l *WorkerLink) ReportTemplateWrite(ctx context.Context, report ledger.Temp
 	return l.Plane.ReportTemplateWrite(ctx, report)
 }
 
+// ReportForgeAccount calls the plane, unless it is away.
+func (l *WorkerLink) ReportForgeAccount(ctx context.Context, report ledger.ForgeAccountReport) error {
+	if l.FailTemplateReport.Load() {
+		return errPlaneAway
+	}
+	return l.Plane.ReportForgeAccount(ctx, report)
+}
+
 // Register calls the plane.
 func (l *WorkerLink) Register(ctx context.Context, registration ledger.Registration) (ledger.WorkerCredential, error) {
 	return l.Plane.Register(ctx, registration)

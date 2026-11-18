@@ -1,6 +1,7 @@
 package projectfiles
 
 import (
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -15,8 +16,17 @@ var remoteSchemes = []string{"https", "ssh", "git", "file"}
 // shell word: nothing outside the list can end the string or the line, start a comment, a substitution, or a
 // second command. A host that starts with a dash is refused so no remote reads as an option of git or ssh, and a
 // remote that holds `::` is refused because git reads `transport::address` as a remote helper, such as `ext::`,
-// which runs a command.
+// which runs a command. An https or http URL with a user, and any URL with a password, are refused without echoing them.
 func checkRemote(remote string) error {
+	if scheme, rest, found := strings.Cut(remote, "://"); found && scheme != "file" {
+		authority, _, _ := strings.Cut(rest, "/")
+		if at := strings.LastIndex(authority, "@"); at >= 0 {
+			web := scheme == "https" || scheme == "http"
+			if web || strings.Contains(authority[:at], ":") {
+				return errors.New("a remote's URL holds no user or password in an http or https URL, and no password in any other: the URL is stored in the installation, in reports, and in the manifest, so give it without the credential and let git's credential helper or an SSH key supply it")
+			}
+		}
+	}
 	if i := strings.IndexFunc(remote, func(r rune) bool { return !remoteRune(r) }); i >= 0 {
 		bad := []rune(remote[i:])[0]
 		return fmt.Errorf("a remote holds only letters, digits, and - . _ ~ / : @ %% +, and %q has %q", remote, bad)

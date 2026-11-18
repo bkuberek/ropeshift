@@ -86,3 +86,44 @@ func TestRefusedRemotes(t *testing.T) {
 		})
 	}
 }
+
+// A credential in a URL would reach the installation, the reports, and the committed manifest. An https or http URL
+// holds no user, because a token as the user is the common case, and no URL holds a password. The refusal does not
+// repeat what it refused.
+func TestARemoteWithACredentialIsRefusedWithoutEchoingIt(t *testing.T) {
+	for _, remote := range []string{
+		"https://user:s3cret@example.invalid/orchid/orchid-api.git",
+		"https://:s3cret@example.invalid/orchid/orchid-api.git",
+		"ssh://git:s3cret@example.invalid/orchid/orchid-api.git",
+		"git://user:s3cret@example.invalid:9418/orchid-api.git",
+		"https://user:s3cret@example.invalid/a b.git",
+		"https://us er:s3cret@example.invalid/a.git",
+		"https://s3cret@example.invalid/orchid/orchid-api.git",
+		"https://s3cret:@example.invalid/orchid/orchid-api.git",
+		"https://s3cret@example.invalid:8443/orchid/orchid-api.git",
+		"http://s3cret@example.invalid/orchid/orchid-api.git",
+		"https://s3 cret@example.invalid/a.git",
+	} {
+		for name, err := range map[string]error{"CheckRemote": projectfiles.CheckRemote(remote), "Check": checkRemote(remote)} {
+			if err == nil || !strings.Contains(err.Error(), "no user or password") {
+				t.Errorf("%s %q: %v, want the rule that a remote holds no credential", name, remote, err)
+				continue
+			}
+			if strings.Contains(err.Error(), "s3cret") {
+				t.Errorf("%s %q: the refusal echoes the credential: %v", name, remote, err)
+			}
+		}
+	}
+	for _, remote := range []string{
+		"ssh://git@example.invalid/orchid/orchid-api.git",
+		"ssh://git@example.invalid:2222/orchid/orchid-api.git",
+		"git://git@example.invalid/orchid/orchid-api.git",
+		"https://example.invalid:8443/orchid/a:b.git",
+		"https://example.invalid/orchid/a@b.git",
+		"git@example.invalid:orchid/orchid-api.git",
+	} {
+		if err := projectfiles.CheckRemote(remote); err != nil {
+			t.Errorf("remote %q: %v", remote, err)
+		}
+	}
+}

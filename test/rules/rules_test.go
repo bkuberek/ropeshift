@@ -621,6 +621,10 @@ const signInFile = "internal/adapters/claudecode/doctor.go"
 // and never asks for the token (ADR-0020).
 const forgeSignInFile = "internal/adapters/ghcli/forge.go"
 
+// forgeAccountFile is the other file that reads the forge's sign-in: it runs `auth status --json hosts` to say
+// whether `gh` can create repositories, and it never asks for the token.
+const forgeAccountFile = "internal/adapters/ghcli/accounts.go"
+
 // forgeTokenWords are what a `gh` command that signs in or shows the token would hold.
 var forgeTokenWords = []string{`"login"`, `"logout"`, `"refresh"`, `"token"`, `"--show-token"`, `"setup-git"`}
 
@@ -639,9 +643,10 @@ func TestOnlyAStatusReadTouchesASignIn(t *testing.T) {
 		t.Fatal(err)
 	}
 	reads = outsideRefusedList(reads)
-	if len(reads) != 2 || !slices.ContainsFunc(reads, func(hit string) bool { return strings.Contains(hit, signInFile) }) ||
-		!slices.ContainsFunc(reads, func(hit string) bool { return strings.Contains(hit, forgeSignInFile) }) {
-		t.Errorf("the status read is at %v, and only %s and %s may hold it", reads, signInFile, forgeSignInFile)
+	if len(reads) != 3 || !slices.ContainsFunc(reads, func(hit string) bool { return strings.Contains(hit, signInFile) }) ||
+		!slices.ContainsFunc(reads, func(hit string) bool { return strings.Contains(hit, forgeSignInFile) }) ||
+		!slices.ContainsFunc(reads, func(hit string) bool { return strings.Contains(hit, forgeAccountFile) }) {
+		t.Errorf("the status read is at %v, and only %s, %s, and %s may hold it", reads, signInFile, forgeSignInFile, forgeAccountFile)
 	}
 	raw, err := os.ReadFile(filepath.Join(repoRoot(t), signInFile))
 	if err != nil {
@@ -660,6 +665,18 @@ func TestOnlyAStatusReadTouchesASignIn(t *testing.T) {
 	for _, word := range forgeTokenWords {
 		if strings.Contains(string(forge), word) {
 			t.Errorf("the forge adapter holds %s, which signs in or shows the token", word)
+		}
+	}
+	accounts, err := os.ReadFile(filepath.Join(repoRoot(t), forgeAccountFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(string(accounts), `"auth"`) != 1 || !strings.Contains(string(accounts), `"auth", "status", "--hostname", host, "--json", "hosts"`) {
+		t.Error("the forge account adapter runs something other than the status read")
+	}
+	for _, word := range forgeTokenWords {
+		if strings.Contains(string(accounts), word) {
+			t.Errorf("the forge account adapter holds %s, which signs in or shows the token", word)
 		}
 	}
 }

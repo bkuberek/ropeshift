@@ -161,6 +161,42 @@ Ropeshift merges in one step of its own, never through an agent, and only the co
 
 A planning branch in a repository that reviews through pull requests gets a pull request too, and your plan approval is the only approval of its merge ([a planning branch](onboarding.md#a-planning-branch)). `ropeshift repository set` changes the same settings from a terminal ([the command line](cli.md)).
 
+## Create a new project's repository on GitHub
+
+`ropeshift new` makes a new project's repositories and gives each one a remote: a URL you name, added as `origin`, or a repository created on GitHub with `gh` under your own sign-in. It asks first whether the project lives in one repository or several, makes each repository's first commit, creates each repository private unless you ask for public, and pushes the first commit. Ropeshift creates repositories on GitHub only, on `github.com`; to host a repository elsewhere, create it there by hand and give its URL as the remote.
+
+From a terminal, run `ropeshift new` and answer the questions, or name everything in flags:
+
+```sh
+ropeshift new monorepo ~/code/harbor --create-remote github:acme
+ropeshift new workspace ~/code/harbor --create-remote github:acme \
+  --new-repository harbor-api --new-repository harbor-web=none
+ropeshift new monorepo ~/code/harbor --remote git@example.com:acme/harbor.git
+```
+
+`--create-remote github:<owner>` creates every repository that has no remote of its own, the folder's own repository included, and `--public` makes each of them public. A `--new-repository` value of `<name>=<url>`, `<name>=github:<owner>`, or `<name>=none` sets that repository's remote, which `--create-remote` and `--remote` do not. A remote makes the first commit, as `--first-commit` does.
+
+A remote URL holds no credential: `new` refuses an `https` URL with a user, such as `https://token@host/...`, and any URL with a password, such as `ssh://user:secret@host/...`, before it writes anything, because the URL is stored in the installation, printed in reports, and written to the manifest. A user without a password stays allowed on `ssh` and `git` URLs, as in `git@host:path`. Let git's credential helper or an SSH key supply the credential.
+
+A repository created on GitHub is named after its folder or its `--new-repository` name, which has 1 to 100 letters, digits, dots, underscores, and hyphens and is not `.` or `..`; `new` refuses any other name before it writes anything.
+
+Before it writes anything, `new` checks `gh` on the machine that writes the folder, and the first failing check stops it with the command to run, with nothing written and nothing created:
+
+| Check | Refusal | What to run |
+|-------|---------|-------------|
+| `gh` is on `PATH` | `gh_missing` | Install the GitHub CLI from <https://cli.github.com/>, then `gh auth login --hostname github.com` |
+| `gh auth status --json hosts` answers | `gh_outdated` | Upgrade the GitHub CLI |
+| The account for `github.com` is signed in | `gh_signed_out` | `gh auth login --hostname github.com` |
+| A classic token holds `repo`, or `public_repo` when every repository is public | `gh_scope_missing` | `gh auth refresh --hostname github.com --scopes repo` |
+| Each owner is your login or one of your organizations | `owner_not_available`, or `gh_scope_missing` with `read:org` when the token cannot list them | `gh auth refresh --hostname github.com --scopes read:org` |
+| No repository exists at the owner and name | `remote_exists` | Choose another name, or give its URL as the remote |
+
+A token that reports no scopes, as a fine-grained token does, is not checked for scopes, and GitHub's answer to the create decides. Ropeshift never runs `gh auth login` and never reads the token. A created repository's URL follows your `gh` git protocol, `git@github.com:<owner>/<name>.git` for `ssh` and `https://github.com/<owner>/<name>.git` otherwise, and an `https` push uses `gh` as git's credential helper for that one command.
+
+Each repository takes three steps, each with a two-minute limit: `create` (`gh repo create <owner>/<name> --private`, or `--public`), `origin`, and `push`. A failed step marks the later steps of that repository skipped and goes on to the next repository. Every folder, file, and commit stays, and a created repository is never deleted. The command prints each step's outcome and, under "To finish what did not run", the commands that finish it, such as `gh repo create acme/harbor --private`, `git -C <folder> remote add origin <url>`, and `git -C <folder> push --set-upstream origin main`. A push that remains over `https` is preceded by [`gh auth setup-git`](https://cli.github.com/manual/gh_auth_setup-git).
+
+In a workspace, each new code repository is written at `repos/<name>` from the repository shape's files and gets a first commit of its own. The manifest lists each one with its remote, or with no `remote` key when it has none, so approving the first plan registers the code repositories. The same creation runs on a worker for the web UI: the request is a member's alone, as `repository.create_remote` ([authorization](authorization.md)), and the worker runs the same checks and steps.
+
 ## On the command line
 
 [The CLI for power users](cli-for-power-users.md#connect-a-github-repository) gives the command for each step of this guide.

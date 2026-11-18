@@ -175,7 +175,8 @@ func (f Folders) Write(_ context.Context, path string, files []ports.FolderFile,
 	return id, nil
 }
 
-// Files lists every file under the folder, leaving out the git directory at its top.
+// Files lists every file under the folder, leaving out each git directory, the one at its top and those of the
+// repositories inside it.
 func (f Folders) Files(_ context.Context, path string) ([]string, error) {
 	var out []string
 	err := filepath.WalkDir(path, func(at string, entry fs.DirEntry, err error) error {
@@ -186,7 +187,7 @@ func (f Folders) Files(_ context.Context, path string) ([]string, error) {
 		if err != nil || rel == "." {
 			return err
 		}
-		if rel == ".git" {
+		if entry.IsDir() && entry.Name() == ".git" {
 			return fs.SkipDir
 		}
 		if !entry.IsDir() {
@@ -236,6 +237,49 @@ func (f Folders) FirstCommit(ctx context.Context, path, message string, resumed 
 		}
 	}
 	return git.Text(ctx, "rev-parse", "--verify", "HEAD")
+}
+
+// AddRemote adds the remote named origin. The URL was checked to be one line git reads as an address and not as an
+// option.
+func (f Folders) AddRemote(ctx context.Context, path, url string) error {
+	if _, err := (gitcli.Git{Dir: path, Env: f.Env}).Output(ctx, "remote", "add", "origin", url); err != nil {
+		return describe(err)
+	}
+	return nil
+}
+
+// Push pushes the branch to origin and sets it as the branch's upstream. A push that names a credential helper
+// clears git's helpers for github.com over https for this one command and names that one, through git's
+// configuration in the environment, so no configuration file is written.
+func (f Folders) Push(ctx context.Context, path string, push ports.PushSpec) error {
+	git := gitcli.Git{Dir: path, Env: f.Env}
+	if push.CredentialHelper != "" {
+		const key = "credential.https://github.com.helper"
+		git.Extra = []string{
+			"GIT_CONFIG_COUNT=2",
+			"GIT_CONFIG_KEY_0=" + key, "GIT_CONFIG_VALUE_0=",
+			"GIT_CONFIG_KEY_1=" + key, `GIT_CONFIG_VALUE_1=!"` + push.CredentialHelper + `" auth git-credential`,
+		}
+	}
+	if _, err := git.Output(ctx, "push", "--set-upstream", "origin", push.Branch); err != nil {
+		return describe(err)
+	}
+	return nil
+}
+
+// Remote reads what a repository says of its origin, asking origin for the branch only when it is named.
+func (f Folders) Remote(ctx context.Context, path string) (ports.RemoteState, error) {
+	git := gitcli.Git{Dir: path, Env: f.Env}
+	var state ports.RemoteState
+	state.Origin, _ = git.Text(ctx, "remote", "get-url", "origin")
+	state.Branch, _ = git.Text(ctx, "symbolic-ref", "--short", "HEAD")
+	state.Head, _ = git.Text(ctx, "rev-parse", "--verify", "HEAD")
+	if state.Origin != "" && state.Branch != "" {
+		if listed, err := git.Text(ctx, "ls-remote", "origin", "refs/heads/"+state.Branch); err == nil {
+			state.RemoteHead, _, _ = strings.Cut(listed, "\t")
+		}
+	}
+	return state, nil
 }
 
 // describe keeps what git said, which is what a person needs to fix the commit, and drops the command line and

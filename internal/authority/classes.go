@@ -65,6 +65,7 @@ const (
 	OpAutonomyWindow                      = "autonomy.window"
 	OpWorkerLaneCaps                      = "worker.lane_caps"
 	OpTemplateWrite                       = "template.write"
+	OpRepositoryCreateRemote              = "repository.create_remote"
 	OpOrchestratorRun                     = "orchestrator.run"
 	OpRosterChange                        = "roster.change"
 	OpSessionEnd                          = "session.end"
@@ -221,6 +222,10 @@ var operations = append(onInstallation(
 	// no ledger record holds them for a card to bind to, as for worker.lane_caps and
 	// repository.register_manifest, so a delegate's call is refused, not carded.
 	memberOnly(OpTemplateWrite, "Write a project's starting files", ActionWriteTemplates),
+	// Creating a project's repository on a forge acts under the person's own forge account, outside this machine, and no
+	// ledger record holds it for a card to bind to. It rides on a template write, which is member only too, so a card for the
+	// remote alone would bind to nothing: a delegate's call is refused, not carded.
+	memberOnly(OpRepositoryCreateRemote, "Create a project's repository on a forge", ActionCreateRemotes),
 	operational(OpOrchestratorRun, "Start or stop an orchestrator", ActionRunOrchestrator),
 	memberOnly(OpSessionEnd, "Sign out", ActionManageSessions),
 	memberOnly(OpSessionEndAll, "Sign out all sessions", ActionManageSessions),

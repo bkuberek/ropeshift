@@ -17,7 +17,7 @@
           "owner": {}
         },
         "name": "solo",
-        "protocol": 5
+        "protocol": 6
       }
     },
     {
@@ -53,7 +53,7 @@
           "owner": {}
         },
         "name": "fig",
-        "protocol": 5
+        "protocol": 6
       }
     },
     {
@@ -87,7 +87,7 @@
           "owner": {}
         },
         "name": "mint",
-        "protocol": 5
+        "protocol": 6
       }
     },
     {
@@ -122,7 +122,7 @@
           "owner": {}
         },
         "name": "oak",
-        "protocol": 5
+        "protocol": 6
       }
     },
     {
@@ -156,7 +156,7 @@
           "owner": {}
         },
         "name": "pear",
-        "protocol": 5
+        "protocol": 6
       }
     },
     {
@@ -191,7 +191,7 @@
           "owner": {}
         },
         "name": "plum",
-        "protocol": 5
+        "protocol": 6
       }
     }
   ]

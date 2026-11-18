@@ -101,6 +101,12 @@
       "exemptable": false
     },
     {
+      "id": "repository.create_remote",
+      "label": "Create a project's repository on a forge",
+      "class": "member_only",
+      "exemptable": false
+    },
+    {
       "id": "orchestrator.run",
       "label": "Start or stop an orchestrator",
       "class": "operational",

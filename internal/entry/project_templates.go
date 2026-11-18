@@ -3,6 +3,7 @@ package entry
 import (
 	"path/filepath"
 
+	"ropeshift.com/ropeshift/internal/adapters/ghcli"
 	"ropeshift.com/ropeshift/internal/adapters/projectfolders"
 	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/ports"
@@ -42,5 +43,5 @@ func reservedFolders(paths api.Paths) []string {
 // checkouts it keeps, which no folder may lie in unless its clone ignores it, and a state directory for the
 // journal of each request.
 func soloTemplates(stateDir string, kept ports.Checkouts) *worker.TemplateRuntime {
-	return &worker.TemplateRuntime{Folders: projectfolders.Folders{}, Checkouts: kept, Render: renderProjectTemplate, StateDir: stateDir}
+	return &worker.TemplateRuntime{Folders: projectfolders.Folders{}, Checkouts: kept, Forge: ghcli.Accounts{}, Render: renderProjectTemplate, StateDir: stateDir}
 }

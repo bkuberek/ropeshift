@@ -1177,6 +1177,25 @@ type TemplateWriteWriter interface {
 	Settle(id string, state ledger.TemplateWriteState, report ledger.TemplateWriteReport, reportedAt int64) (bool, error)
 }
 
+// ForgeAccountReadReader reads the requests a member made of workers to read their forge account (FR-TPL-6),
+// which the installation holds.
+type ForgeAccountReadReader interface {
+	// Find reads one request, or ErrNotFound.
+	Find(id string) (ledger.ForgeAccountReadRecord, error)
+	// Offered lists the requests of a worker that no report has settled, oldest first, expired ones included:
+	// the caller keeps the ones not yet expired.
+	Offered(worker string) ([]ledger.ForgeAccountReadRecord, error)
+}
+
+// ForgeAccountReadWriter writes forge account read requests.
+type ForgeAccountReadWriter interface {
+	ForgeAccountReadReader
+	// Insert records a new offered request.
+	Insert(ledger.ForgeAccountReadRecord) error
+	// Settle records the first report of a request, and says whether this report was the first.
+	Settle(id string, report ledger.ForgeAccountReport, reportedAt int64) (bool, error)
+}
+
 // MeasureReader reads experience records.
 type MeasureReader interface {
 	// Experience returns the record of one subject, or ErrNotFound.

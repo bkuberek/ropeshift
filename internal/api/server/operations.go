@@ -166,7 +166,8 @@ var routeOperations = map[string]routeOperation{
 	"POST /v1/workers/{id}/windows":                    fixed(authority.OpAutonomyWindow),
 	"DELETE /v1/workers/{id}/windows":                  fixed(authority.OpAutonomyWindow),
 	"PUT /v1/workers/{id}/caps":                        fixed(authority.OpWorkerLaneCaps),
-	"POST /v1/workers/{id}/template-writes":            fixed(authority.OpTemplateWrite),
+	"POST /v1/workers/{id}/template-writes":            resolved(templateWriteOperation, authority.OpTemplateWrite, authority.OpRepositoryCreateRemote),
+	"POST /v1/workers/{id}/forge-account-reads":        fixed(authority.OpRepositoryCreateRemote),
 	"PUT /v1/workers/{id}/orchestrator":                fixed(authority.OpOrchestratorRun),
 	"POST /v1/roster/changes":                          fixed(authority.OpRosterChange).about("roster").named(rosterScope).showing(rosterChanges),
 	"POST /v1/roster/revert":                           fixed(authority.OpRosterChange).about("roster").named(rosterScope).showing(rosterChanges),
@@ -1078,6 +1079,19 @@ func workOrderCreateOperation(h *handler, r *http.Request, body []byte) ([]strin
 		ids = append(ids, authority.OpAdoptionRestructure)
 	}
 	return ids, oneWay, err
+}
+
+// templateWriteOperation reads whether a template write creates a repository on a forge, which acts under the
+// person's own account and is its own operation, or only writes files.
+func templateWriteOperation(_ *handler, _ *http.Request, body []byte) ([]string, bool, error) {
+	var in api.TemplateWrite
+	if err := json.Unmarshal(body, &in); err != nil {
+		return nil, false, fmt.Errorf("%w: %v", workorders.ErrInvalid, err)
+	}
+	if in.Creates() {
+		return []string{authority.OpRepositoryCreateRemote}, false, nil
+	}
+	return []string{authority.OpTemplateWrite}, false, nil
 }
 
 // repositoryAddOperation reads whether a registration names paths, or a manifest, which only a member
