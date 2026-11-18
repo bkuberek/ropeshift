@@ -3,6 +3,7 @@ package fake
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -95,6 +96,8 @@ type AgentDriver struct {
 	version  string
 	degraded bool
 	sessions map[string]*driverSession
+	// launched is every session this driver ran, including one a later session of the same lane replaced in sessions.
+	launched []*driverSession
 	specs    []ports.SessionSpec
 	resumed  []ports.ResumeRef
 	left     map[string]ports.Located
@@ -223,17 +226,33 @@ func (d *AgentDriver) FailFind(err error) {
 	d.findErr = err
 }
 
-// StopEverySession ends what runs now and what starts later, so a test can end while a
-// lane is still on its way to a session. A stop, this one and Stop alike, cannot interrupt a
-// step's Do: the session takes it once that step returns, so a test that blocks a Do step lets
-// it go itself.
+// StopEverySession ends what runs now, a session that a later one of its lane replaced included, and what starts
+// later, so a test can end while a lane is still on its way to a session. A stop, this one and Stop alike, cannot
+// interrupt a step's Do: the session takes it once that step returns, so a test that blocks a Do step lets it go itself.
 func (d *AgentDriver) StopEverySession() {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.stopped = true
-	for _, session := range d.sessions {
+	for _, session := range d.launched {
 		session.stop()
 	}
+}
+
+// WaitForSessions waits until every session this driver ran has returned, or until ctx ends. A session runs on its own
+// goroutine, and a stop does not interrupt a step's Do or wait for it, so a step can still be writing what a test
+// closes when the test ends. A test that ends its sessions waits here before it closes what a step writes.
+func (d *AgentDriver) WaitForSessions(ctx context.Context) error {
+	d.mu.Lock()
+	launched := slices.Clone(d.launched)
+	d.mu.Unlock()
+	for _, session := range launched {
+		select {
+		case <-session.done:
+		case <-ctx.Done():
+			return fmt.Errorf("a session of the driver is still running: %w", ctx.Err())
+		}
+	}
+	return nil
 }
 
 func (s *driverSession) stop() {
@@ -530,6 +549,7 @@ func (d *AgentDriver) open(spec ports.SessionSpec, from ports.ResumeRef) (ports.
 	handle := ports.SessionHandle{ID: sessionID(spec.Lane, spec.Generation), PID: len(d.specs) + 1, Version: d.version, Degraded: degraded}
 	d.specs = append(d.specs, spec)
 	d.sessions[handle.ID] = session
+	d.launched = append(d.launched, session)
 	session.inputs <- ports.Input{Text: spec.Brief}
 	go session.run()
 	if d.stopped {
@@ -571,6 +591,7 @@ func (d *AgentDriver) Adopt(_ context.Context, h ports.SessionHandle, from ports
 	delete(d.left, h.ID)
 	d.adopted = append(d.adopted, from)
 	d.sessions[h.ID] = session
+	d.launched = append(d.launched, session)
 	session.inputs <- ports.Input{}
 	go session.run()
 	if d.stopped {
