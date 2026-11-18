@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	"ropeshift.com/ropeshift/internal/ledger"
 )
 
 // PolicyInstallationSpend holds the spend values that belong to the installation and no project: the class the
@@ -90,6 +92,11 @@ func (p InstallationSpendPolicy) Text(key string) string {
 		return strconv.FormatFloat(p.OrchestratorDailyWarn, 'g', -1, 64)
 	}
 	return ""
+}
+
+// ChangesTo names the keys a later version changed, with each value before and after, in the order the keys are listed.
+func (p InstallationSpendPolicy) ChangesTo(next InstallationSpendPolicy) []ledger.SpendKeyChange {
+	return keyChanges(InstallationSpendPolicyKeys, p.Text, next.Text)
 }
 
 // Body is the policy as an admin would write it, stating every key.

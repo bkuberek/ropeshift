@@ -76,6 +76,9 @@ func (s *Spend) PublishSpendPolicy(ctx context.Context, scope ledger.WorkspaceID
 		if err := insertPolicy(tx, record, actor); err != nil {
 			return err
 		}
+		if err := noteSpendPolicyChanged(tx, current, record, ledger.NoticeScopeProject, actor); err != nil {
+			return err
+		}
 		// A new version can lift a limit, as a revert can, so the lanes a hard limit parked read it in this
 		// transaction (FR-PARK-2).
 		_, err = fireWakes(tx, "spend-policy:"+record.ID, actor, parking.LimitRaised)
@@ -122,7 +125,7 @@ func (s *Spend) PublishInstallationSpendPolicy(ctx context.Context, scope ledger
 	if !authority.Allowed(actor, authority.ActionPublishInstallationPolicy) {
 		return authority.PolicyVersion{}, workorders.ErrForbidden
 	}
-	var record authority.PolicyVersion
+	var record, before authority.PolicyVersion
 	err := s.store.Installation(scope).Write(ctx, "policy.publish", func(tx ports.SharedTx) error {
 		current, err := tx.Policies().InForce(authority.PolicyInstallationSpend)
 		if errors.Is(err, ports.ErrNotFound) {
@@ -156,12 +159,59 @@ func (s *Spend) PublishInstallationSpendPolicy(ctx context.Context, scope ledger
 		if record, err = authority.NewInstallationSpendPolicyVersion(id, actor.ID, draft, tx.Now()); err != nil {
 			return err
 		}
+		before = current
 		return insertPolicy(tx, record, actor)
 	})
 	if err != nil {
 		return authority.PolicyVersion{}, err
 	}
+	if before.ID == "" {
+		return record, nil
+	}
+	// The notice goes in the ledger of the project the member changed it through, because the installation holds no
+	// notice for a channel to read, and it is recorded once the version is. A crash between the two loses the notice and
+	// not the version, which names its author.
+	err = s.store.Write(ctx, scope, "spend.notice", func(tx ports.WriteTx) error {
+		return noteSpendPolicyChanged(tx, before, record, ledger.NoticeScopeInstallation, actor)
+	})
+	if err != nil {
+		return authority.PolicyVersion{}, err
+	}
 	return record, nil
+}
+
+// noteSpendPolicyChanged records that a version of a spend policy was published, naming the keys it changed with their
+// values before and after and the member who published it (FR-SPEND-19). A version that changed no key, which only moves the
+// number, says nothing.
+func noteSpendPolicyChanged(tx ports.WriteTx, before, after authority.PolicyVersion, scope string, actor ledger.Actor) error {
+	var changes []ledger.SpendKeyChange
+	if scope == ledger.NoticeScopeInstallation {
+		was, err := authority.ReadInstallationSpendPolicy(before)
+		if err != nil {
+			return err
+		}
+		now, err := authority.ReadInstallationSpendPolicy(after)
+		if err != nil {
+			return err
+		}
+		changes = was.ChangesTo(now)
+	} else {
+		was, err := authority.ReadSpendPolicy(before)
+		if err != nil {
+			return err
+		}
+		now, err := authority.ReadSpendPolicy(after)
+		if err != nil {
+			return err
+		}
+		changes = was.ChangesTo(now)
+	}
+	if len(changes) == 0 {
+		return nil
+	}
+	return recordSpendNotice(tx, ledger.SpendNotice{
+		Kind: ledger.NoticeSpendPolicyChanged, Scope: scope, Changes: changes, By: actor.ID, PolicyVersion: after.Version,
+	}, actor)
 }
 
 // InstallationSpendPolicyVersions lists the versions, newest first. An installation nobody configured still has

@@ -625,6 +625,10 @@ type LaneWriter interface {
 	// AddSpend adds what a scope of spend was charged to the UTC day the ledger's clock is in (ledger.SpendScopeWork).
 	// A tally only grows: an amount that is not above zero adds nothing, so no surface takes spend off a day.
 	AddSpend(scope string, usd float64) error
+	// NoteSpend raises what an owner's generation was charged in a scope to a figure its worker reported, and adds the
+	// difference to the scope's day. A repeated or smaller figure adds nothing, because a worker reports what a generation has
+	// spent so far and the ledger never lowers one.
+	NoteSpend(scope, owner string, generation int64, chargedUSD float64) error
 	// EndGeneration records a generation's end, once.
 	EndGeneration(lane string, number int64, reason string) error
 	// SaveHandoff keeps one generation's handoff once, and names it on that generation.
