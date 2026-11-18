@@ -143,6 +143,37 @@ func TestFilesTheCloneCommitsAreNotInTheFiles(t *testing.T) {
 	}
 }
 
+// A clone that tracks a Makefile, an ignore file, or an instruction file under another case holds it: no second file
+// is written beside it, and the ignore lines are appended to the file under the spelling the clone tracks.
+func TestFilesUnderAnotherCaseAreHeldAndNotWrittenBesideThemselves(t *testing.T) {
+	t.Parallel()
+	for name, tracked := range map[string][]string{
+		"lowercase":   {"README.md", "makefile", ".gitignore", "agents.md"},
+		"uppercase":   {"README.md", "MAKEFILE", ".GITIGNORE", "AGENTS.MD"},
+		"the GNU one": {"README.md", "GNUmakefile", ".gitignore", "claude.md"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			m := newMachine(t)
+			m.clone("/work/ws", fake.CloneLayout{Tracked: tracked})
+			m.clone("/work/api", fake.CloneLayout{Tracked: []string{"go.mod"}})
+			plan := m.plan(adoption.Request{Root: "/work/ws", Paths: []string{"/work/api"}, Planning: "ws"}, registered)
+			files, err := adoption.Files(t.Context(), plan, "shop", m.checkouts, render)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var paths []string
+			for _, file := range files {
+				paths = append(paths, file.Path)
+			}
+			ignore := tracked[2]
+			if want := []string{"plan/repositories.md", ignore}; !slices.Equal(paths, want) {
+				t.Errorf("a workspace that tracks %v gets the files %v, want %v", tracked[1:], paths, want)
+			}
+		})
+	}
+}
+
 // A clone with no ignore file gets one from the template whole, with no lines to append to it, and the plan of a
 // single repository writes its instruction files from the monorepo template, which names no code repository.
 func TestAnIgnoreFileTheCloneLacksIsWrittenWholeAndASingleRepositoryGetsTheMonorepoInstructions(t *testing.T) {
