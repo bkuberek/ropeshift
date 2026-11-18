@@ -165,13 +165,14 @@ func workspaceSettings(ctx context.Context, kept Checkouts, settings lanes.Workt
 	// The lane's own folder must really be in the workspace: a link planted for the lane's folder, for the
 	// repository's folder, for the folder of worktrees, or for .ropeshift would lead the lane out of it, past the
 	// ignore rule that guarded the path as spelled. Every link in the path is followed, so judging the lane's folder
-	// judges each folder above it. A plain folder, which has no ignore rule, is held to it too.
+	// judges each folder above it, and a link to a folder nothing is at counts as leading out, as git would make the
+	// worktree at its target. A plain folder, which has no ignore rule, is held to it too.
 	folder := path.Join(workspace.Path, planning.WorktreesFolder, path.Base(repository), lane)
-	contained, err := UnderWorkspaceWorktrees(ctx, kept, workspace.Path, folder)
+	escapes, err := LeadsOutOfWorkspace(ctx, kept, workspace.Path, folder)
 	switch {
 	case err != nil:
 		return settings, lanes.RootFallback{}, err
-	case !contained:
+	case escapes:
 		return settings, lanes.RootFallback{Workspace: workspace.Path, Reason: lanes.FallbackEscapes}, nil
 	}
 	settings.Root = lanes.WorkspaceRoot(workspace.Path)

@@ -172,6 +172,10 @@ func (unavailableCheckouts) Resolve(context.Context, string) (string, bool, erro
 	return "", false, repositoryRead(readCheckouts)
 }
 
+func (unavailableCheckouts) DanglingLink(context.Context, string, string) (string, error) {
+	return "", repositoryRead(readCheckouts)
+}
+
 func (unavailableCheckouts) SameFile(context.Context, string, string) (bool, error) {
 	return false, repositoryRead(readCheckouts)
 }

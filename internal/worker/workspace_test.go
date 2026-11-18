@@ -186,6 +186,40 @@ func TestAWorkspaceRootThatLeadsOutOfTheWorkspaceIsNotUsed(t *testing.T) {
 	}
 }
 
+// A link that leads nowhere resolves to nothing, so it is judged by where it stands and would pass for a folder in
+// the workspace, while git makes the worktree wherever the link points. A lane whose path holds such a link, at its
+// own folder, at the repository's folder, or at the folder of worktrees, keeps the root outside every clone.
+func TestALinkToAMissingFolderLeadsALaneOutOfTheWorkspace(t *testing.T) {
+	t.Parallel()
+	const outside = "/data/ropeshift/worktrees"
+	for _, link := range []string{
+		"/work/ws/.ropeshift/worktrees/api/l1",
+		"/work/ws/.ropeshift/worktrees/api",
+		"/work/ws/.ropeshift/worktrees",
+		"/work/ws/.ropeshift",
+	} {
+		t.Run(link, func(t *testing.T) {
+			t.Parallel()
+			p, source, _ := provisioner(nil)
+			source.SetDefaultRoot(outside + "/{project}/{repo}")
+			machine := workspaceMachine(t)
+			machine.Ignore("/work/ws", "repos", ".ropeshift/worktrees")
+			machine.Dangle(link)
+			p.Checkouts = machine
+			lane, err := p.Prepare(t.Context(), worker.LaneRequest{Lane: "l1", Repository: "/work/ws/repos/api", Project: "prj-1", PlanningRepository: "plan"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if want := outside + "/prj-1/api/l1"; lane.Worktree.Path != want {
+				t.Errorf("the worktree is at %q, want %q outside every clone", lane.Worktree.Path, want)
+			}
+			if lane.Fallback.Reason != lanes.FallbackEscapes || !strings.Contains(lane.Fallback.Notice(), "link") {
+				t.Errorf("the fallback is %+v: %q", lane.Fallback, lane.Fallback.Notice())
+			}
+		})
+	}
+}
+
 // A root a person set wins over the workspace root, so a user layer's root is used as it is.
 func TestAUserRootWinsOverTheWorkspaceRoot(t *testing.T) {
 	t.Parallel()
