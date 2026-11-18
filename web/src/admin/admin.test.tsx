@@ -253,6 +253,7 @@ describe("Repositories", () => {
     const box = within(record).getByLabelText("ci_webhook_secret_env") as HTMLInputElement;
     expect(box.value).toBe("");
     expect(document.getElementById(box.getAttribute("aria-describedby") ?? "")?.textContent).toContain("never the key");
+    expect(document.getElementById(box.getAttribute("aria-describedby") ?? "")?.textContent).toContain("starts with ROPESHIFT_HOOK_");
     await userEvent.type(box, "ROPESHIFT_HOOK_API");
     expect(within(record).getByText(/ci_webhook_secret_env\s+→ ROPESHIFT_HOOK_API/)).toBeTruthy();
     await userEvent.click(within(record).getByRole("button", { name: "Save" }));

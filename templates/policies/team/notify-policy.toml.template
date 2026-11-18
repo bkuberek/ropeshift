@@ -9,6 +9,6 @@ desktop = false
 # An HTTPS address that receives each notice as JSON, such as a relay into the team's chat. It holds a
 # host and a path only: a query or a user name in it is refused, because an address ends up in logs.
 webhook_url = "https://hooks.example.com/ropeshift"
-# The name of the variable in the daemon's environment that holds the signing key. The key itself never
-# goes in a policy.
-webhook_secret_env = "ROPESHIFT_WEBHOOK_KEY"
+# The name of the variable in the daemon's environment that holds the signing key. It starts with
+# ROPESHIFT_HOOK_, and the key itself never goes in a policy.
+webhook_secret_env = "ROPESHIFT_HOOK_NOTIFY"

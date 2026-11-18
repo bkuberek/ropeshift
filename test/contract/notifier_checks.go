@@ -213,6 +213,7 @@ func checkNotifyPolicy(r *Rig) error {
 		{Version: 2, WebhookURL: "ftp://hooks.example.com/r"},
 		{Version: 2, WebhookURL: "https://"},
 		{Version: 2, WebhookURL: "https://hooks.example.com/r", WebhookSecretEnv: "hunter2-the-key-itself"},
+		{Version: 2, WebhookURL: "https://hooks.example.com/r", WebhookSecretEnv: "DATABASE_URL"},
 		{Version: 2, WebhookSecretEnv: "NO_WEBHOOK"},
 		{Version: 1, WebhookURL: "https://hooks.example.com/r"},
 	} {
@@ -221,7 +222,7 @@ func checkNotifyPolicy(r *Rig) error {
 		}
 	}
 	for _, good := range []authority.NotifyPolicy{
-		{Version: 2, WebhookURL: "https://hooks.example.com/r", WebhookSecretEnv: "ROPESHIFT_WEBHOOK_KEY"},
+		{Version: 2, WebhookURL: "https://hooks.example.com/r", WebhookSecretEnv: "ROPESHIFT_HOOK_NOTIFY"},
 		{Version: 3, WebhookURL: "http://127.0.0.1:9000/r"},
 		{Version: 4, WebhookURL: "http://localhost:9000/r"},
 		{Version: 5, WebhookURL: "http://[::1]:9000/r"},

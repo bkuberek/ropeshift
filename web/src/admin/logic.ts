@@ -1,5 +1,6 @@
 import type { AgentFields, LaneCapSettings, LaneRecommendation, RepositoryAdded, WorkerCaps } from "../api/admin";
 import type { StateLook } from "../floor/states";
+import { tomlString } from "./toml";
 import { channelsProblem, installationSpendFields, spendFields, spendPolicyBody, spendProblem, spendSettings, tomlFloat } from "./spend";
 
 // The settings pages' own reckoning: what a difference shows, the body a policy version records, and the
@@ -82,7 +83,7 @@ export const policies: Record<PolicyKind, { table: string; fields: FieldSpec[] }
     fields: [
       { key: "desktop", label: "Desktop notifications", type: "bool" },
       { key: "webhook_url", label: "Webhook address", type: "text", optional: true, help: "Each item that starts to wait on a member is posted here." },
-      { key: "webhook_secret_env", label: "Webhook secret variable", type: "text", optional: true, help: "The name of the daemon's environment variable that holds the signing secret, never the secret." },
+      { key: "webhook_secret_env", label: "Webhook secret variable", type: "text", optional: true, help: "The name of the daemon's environment variable that holds the signing secret, never the secret. It starts with ROPESHIFT_HOOK_, such as ROPESHIFT_HOOK_NOTIFY." },
       {
         key: "spend_channels",
         label: "Spend alerts",
@@ -190,9 +191,7 @@ export function problemOf(field: FieldSpec, values: PolicyValues): string {
   return "";
 }
 
-export function tomlString(text: string): string {
-  return `"${text.replaceAll("\\", "\\\\").replaceAll('"', '\\"').replaceAll("\n", "\\n").replaceAll("\t", "\\t")}"`;
-}
+export { tomlString };
 
 // The bounds of an assistant's stops, in minutes, which the API holds too.
 export const minutesBounds = { min: 1, max: 1440 } as const;

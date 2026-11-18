@@ -456,9 +456,9 @@ func TestANotifyPolicyPublishesAndHoldsNoSecret(t *testing.T) {
 	if code, _, _ := s.run("policy", "publish", "--file", path); code != cli.ExitUsage {
 		t.Errorf("a setting nobody reads: exit %d", code)
 	}
-	write("[notify_policy]\nversion = 2\ndesktop = true\nwebhook_url = \"https://hooks.example.com/r\"\nwebhook_secret_env = \"ROPESHIFT_WEBHOOK_KEY\"\n")
+	write("[notify_policy]\nversion = 2\ndesktop = true\nwebhook_url = \"https://hooks.example.com/r\"\nwebhook_secret_env = \"ROPESHIFT_HOOK_NOTIFY\"\n")
 	s.must("policy", "publish", "--file", path)
-	if text := s.must("policy", "show", "2", "--kind", "notify", "--json"); !strings.Contains(text, "ROPESHIFT_WEBHOOK_KEY") {
+	if text := s.must("policy", "show", "2", "--kind", "notify", "--json"); !strings.Contains(text, "ROPESHIFT_HOOK_NOTIFY") {
 		t.Errorf("show %q", text)
 	}
 	if text := s.must("notice", "list"); text != "" {

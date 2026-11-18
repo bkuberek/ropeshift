@@ -262,6 +262,16 @@ describe("the spend policies", () => {
     expect(problemOf(field("spend", "wait_rule_patterns.W1"), held("wait_rule_patterns.W1", ["npm run build"]))).toBe("");
   });
 
+  it("escapes a carriage return and every control character in a text as TOML requires, wherever a policy writes one", () => {
+    expect(tomlString("a\rb\u0001c\u007fd\be\ff")).toBe('"a\\rb\\u0001c\\u007fd\\be\\ff"');
+    const tricky = 'run "x"\\y\r\nz\u0000';
+    const body = policyBody("spend", 3, { ...policySettings("spend", project[0]!.settings), assistant_class: "stand\rard\u0007", "wait_rule_patterns.W2": [tricky] });
+    expect(body).toContain('assistant_class = "stand\\rard\\u0007"\n');
+    expect(body).toContain('W2 = ["run \\"x\\"\\\\y\\r\\nz\\u0000"]');
+    // No raw carriage return or control character reaches the body, so the policy cannot read a line the member did not write.
+    expect(/[\r\u0000-\u0008\u000b-\u001f\u007f]/.test(body)).toBe(false);
+  });
+
   it("writes a number as a float where the policy does, and leaves the wait rules and their prefixes in the body's own order", () => {
     const body = policyBody("spend", 3, { ...policySettings("spend", project[0]!.settings), project_daily_limit: 30, "wait_rules_off": ["W2"], "wait_rule_patterns.W1": ["sleep "] });
     expect(body).toContain("project_daily_limit = 30.0\n");

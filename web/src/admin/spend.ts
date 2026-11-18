@@ -1,4 +1,5 @@
 import type { FieldSpec, PolicyValue, PolicyValues } from "./logic";
+import { tomlString } from "./toml";
 
 // The spend policies' own reckoning (ADR-0037): the keys a member edits, the ranges the API holds them to, and the body a
 // version records. A version states every key, in the order the built-in body writes them, so the review of a change shows
@@ -181,7 +182,7 @@ export function spendSettings(settings: PolicyValues): PolicyValues {
   return out;
 }
 
-const text = (value: PolicyValue | undefined) => `"${String(value ?? "").replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`;
+const text = (value: PolicyValue | undefined) => tomlString(String(value ?? ""));
 const list = (value: PolicyValue | undefined) => `[${((Array.isArray(value) ? value : []) as string[]).map(text).join(", ")}]`;
 const float = (value: PolicyValue | undefined) => tomlFloat(Number(value));
 const whole = (value: PolicyValue | undefined) => String(Number(value));
