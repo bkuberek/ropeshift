@@ -128,7 +128,7 @@ func laneLeft(reader ports.LaneReader, row ledger.LaneRow) (SpendStopLane, error
 			case err == nil:
 				var body lanes.Digest
 				if json.Unmarshal(digest.Body, &body) == nil {
-					out.Digest, out.Generation = &body, generation
+					out.Digest, out.Generation = withCollections(&body), generation
 				}
 			case !errors.Is(err, ports.ErrNotFound):
 				return SpendStopLane{}, err
@@ -140,7 +140,7 @@ func laneLeft(reader ports.LaneReader, row ledger.LaneRow) (SpendStopLane, error
 			case err == nil:
 				var body lanes.Handoff
 				if json.Unmarshal(record.Body, &body) == nil {
-					out.Handoff = &SpendHandoff{Generation: generation, Reason: body.Reason, Degraded: record.Degraded || body.Degraded(), Narrative: body.Narrative}
+					out.Handoff = &SpendHandoff{Generation: generation, Reason: body.Reason, Degraded: record.Degraded || body.Degraded(), Narrative: narrativeWithLists(body.Narrative)}
 				}
 			case !errors.Is(err, ports.ErrNotFound):
 				return SpendStopLane{}, err
@@ -148,6 +148,33 @@ func laneLeft(reader ports.LaneReader, row ledger.LaneRow) (SpendStopLane, error
 		}
 	}
 	return out, nil
+}
+
+// narrativeWithLists is a narrative whose four lists are lists. An agent may leave a list out and still pass the handoff
+// check, and a card reads each as a list, so a missing one is served empty and never null.
+func narrativeWithLists(n *lanes.Narrative) *lanes.Narrative {
+	if n == nil {
+		return nil
+	}
+	out := *n
+	for _, list := range []*[]string{&out.Done, &out.InProgress, &out.NextSteps, &out.Risks} {
+		if *list == nil {
+			*list = []string{}
+		}
+	}
+	return &out
+}
+
+// withCollections is a digest whose tool calls and written files are a map and a list. A stored body may lack either,
+// and a card reads them as such, so a missing one is served empty and never null.
+func withCollections(d *lanes.Digest) *lanes.Digest {
+	if d.ToolCalls == nil {
+		d.ToolCalls = map[string]int64{}
+	}
+	if d.FilesWritten == nil {
+		d.FilesWritten = []string{}
+	}
+	return d
 }
 
 // Block ends a spend stop by blocking its work order with the reason `spend_limit`: the parked lane ends and its wake

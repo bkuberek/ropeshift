@@ -47,13 +47,21 @@ func itemsAbout(t *testing.T, d *talkDaemon, id string) []string {
 // uploads them.
 func leftByTheLane(t *testing.T, d *talkDaemon, lane, workOrder string) {
 	t.Helper()
-	body, err := json.Marshal(lanes.Digest{Source: lanes.DigestStream, Turns: 9, ToolCalls: map[string]int64{"Edit": 4, "Bash": 2}, FilesWritten: []string{"retry.go"}, StartedAt: 1, EndedAt: 9, Complete: true})
+	leftDocuments(t, d, lane, workOrder,
+		lanes.Digest{Source: lanes.DigestStream, Turns: 9, ToolCalls: map[string]int64{"Edit": 4, "Bash": 2}, FilesWritten: []string{"retry.go"}, StartedAt: 1, EndedAt: 9, Complete: true},
+		&lanes.Narrative{Done: []string{"the budget type"}, InProgress: []string{"the retry loop"}, NextSteps: []string{"wire the loop to the budget"}, Risks: []string{"a flaky test"}, CarriesNextStep: true})
+}
+
+// leftDocuments keeps the digest and the handoff narrative it is given, as they are, for the first generation of a lane.
+func leftDocuments(t *testing.T, d *talkDaemon, lane, workOrder string, digest lanes.Digest, narrative *lanes.Narrative) {
+	t.Helper()
+	body, err := json.Marshal(digest)
 	if err != nil {
 		t.Fatal(err)
 	}
 	handoff, hash, err := (lanes.Handoff{
 		Schema: lanes.HandoffSchema, Lane: lane, Generation: 1, Reason: "spend_limit", Deterministic: lanes.HandoffFacts{WorkOrder: workOrder},
-		Narrative: &lanes.Narrative{Done: []string{"the budget type"}, InProgress: []string{"the retry loop"}, NextSteps: []string{"wire the loop to the budget"}, Risks: []string{"a flaky test"}, CarriesNextStep: true},
+		Narrative: narrative,
 	}).Seal()
 	if err != nil {
 		t.Fatal(err)
@@ -125,6 +133,60 @@ func TestASpendStopIsOneItemInNeedsYou(t *testing.T) {
 	}
 	if items = spendItems(t, d); len(items) != 1 || len(items[0].Spend.Lanes) != 2 {
 		t.Errorf("two lanes of one work order read as %d items with %d lanes, want one item with two", len(items), len(items[0].Spend.Lanes))
+	}
+}
+
+// servedLane is a lane of a spend stop as the wire carries it, with each document's fields left raw so a null reads as
+// one.
+type servedLane struct {
+	Digest  map[string]json.RawMessage `json:"digest"`
+	Handoff struct {
+		Narrative map[string]json.RawMessage `json:"narrative"`
+	} `json:"handoff"`
+}
+
+// A narrative that names only some of its lists passes the handoff check, and a stored digest may lack fields, so what
+// Needs you serves of them is an empty list or map and never null: the page reads each as a collection.
+func TestASpendStopServesEmptyCollectionsForWhatAnAgentLeftOut(t *testing.T) {
+	d := startTalk(t)
+	parkedAtItsLimit(t, d, "wo-sparse")
+	leftDocuments(t, d, "lane-wo-sparse", "wo-sparse", lanes.Digest{Source: lanes.DigestStream, Turns: 2}, &lanes.Narrative{Done: []string{"x"}})
+	raw, err := json.Marshal(readAny(t, d.Daemon, api.ViewNeedsYou))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var view struct {
+		Items []struct {
+			Spend *struct {
+				Lanes []servedLane `json:"lanes"`
+			} `json:"spend"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(raw, &view); err != nil {
+		t.Fatal(err)
+	}
+	var left *servedLane
+	for _, item := range view.Items {
+		if item.Spend != nil && len(item.Spend.Lanes) == 1 {
+			left = &item.Spend.Lanes[0]
+		}
+	}
+	if left == nil {
+		t.Fatalf("Needs you holds no spend stop with one lane: %s", raw)
+	}
+	for name, got := range map[string]json.RawMessage{
+		"in_progress": left.Handoff.Narrative["in_progress"], "next_steps": left.Handoff.Narrative["next_steps"], "risks": left.Handoff.Narrative["risks"],
+		"files_written": left.Digest["files_written"],
+	} {
+		if string(got) != "[]" {
+			t.Errorf("%s is served as %s, want []", name, got)
+		}
+	}
+	if got := string(left.Digest["tool_calls"]); got != "{}" {
+		t.Errorf("tool_calls is served as %s, want {}", got)
+	}
+	if got := string(left.Handoff.Narrative["done"]); got != `["x"]` {
+		t.Errorf("done is served as %s, want what the agent wrote", got)
 	}
 }
 
