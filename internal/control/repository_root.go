@@ -43,13 +43,14 @@ func (r *Repositories) rootNote(ctx context.Context, scope ledger.WorkspaceID, k
 	if err != nil {
 		return "", err
 	}
-	workspace, found, err := ports.FindWorkspace(ctx, kept, profile, string(scope), planned)
+	workspaces := ports.NewWorkspace(kept)
+	workspace, found, err := workspaces.Find(ctx, profile, string(scope), planned)
 	if err != nil {
 		return "", err
 	}
 	settings, allowed := profile.Worktree, ""
 	if found {
-		if settings, _, err = ports.WorkspaceSettings(ctx, kept, settings, workspace, checkout); err != nil {
+		if settings, _, err = workspaces.Settings(ctx, settings, workspace, checkout); err != nil {
 			return "", err
 		}
 		if workspace.Clone {

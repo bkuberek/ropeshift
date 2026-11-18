@@ -52,7 +52,7 @@ func WorktreeReport(ctx context.Context, profile lanes.Profile, kept ports.Check
 		}
 		settings := profile.Worktree
 		if workspace.Path != "" {
-			if settings, _, err = ports.WorkspaceSettings(ctx, kept, profile.Worktree, workspace, checkout.Path); err != nil {
+			if settings, _, err = ports.NewWorkspace(kept).Settings(ctx, profile.Worktree, workspace, checkout.Path); err != nil {
 				return report, err
 			}
 		}

@@ -128,7 +128,7 @@ func (p Provisioner) workspaceRoot(ctx context.Context, request LaneRequest, pro
 	if err != nil || !found {
 		return profile.Worktree, lanes.Workspace{}, "", err
 	}
-	settings, unignored, err := ports.WorkspaceSettings(ctx, p.Checkouts, profile.Worktree, workspace, request.Repository)
+	settings, unignored, err := ports.NewWorkspace(p.Checkouts).Settings(ctx, profile.Worktree, workspace, request.Repository)
 	return settings, workspace, unignored, err
 }
 

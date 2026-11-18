@@ -13,15 +13,38 @@ import (
 	"ropeshift.com/ropeshift/internal/planning"
 )
 
-// FindWorkspace finds a project's workspace on this worker (FR-PROF-6): the folder the user's profile names for the
-// project, where an empty one says the project has none here; otherwise the checkout of the planning repository,
-// when another checkout of the project lies inside it at a path it ignores; otherwise none. Nothing is stored, so a
-// moved clone or a new planning repository changes the answer for the next worktree only. An empty project is the
-// installation's only project, and an empty planning repository names none.
-//
-// Every place that asks where a worktree goes, a lane's start, the doctor, and a registration's root check, asks
-// through this function, so a workspace found through the planning clone counts in each.
-func FindWorkspace(ctx context.Context, kept Checkouts, profile lanes.Profile, project, planningRepository string) (lanes.Workspace, bool, error) {
+// Workspace answers where a project's workspace is on a worker's machine and what that means for a clone's lane
+// worktrees (FR-PROF-6). Every place that asks where a worktree goes, a lane's start, the doctor, and a
+// registration's root check, asks through it, so a workspace found through the planning clone counts in each.
+type Workspace interface {
+	// Find finds a project's workspace: the folder the user's profile names for the project, where an empty one
+	// says the project has none here; otherwise the checkout of the planning repository, when another checkout of
+	// the project lies inside it at a path it ignores; otherwise none. Nothing is stored, so a moved clone or a new
+	// planning repository changes the answer for the next worktree only. An empty project is the installation's
+	// only project, and an empty planning repository names none.
+	Find(ctx context.Context, profile lanes.Profile, project, planningRepository string) (lanes.Workspace, bool, error)
+	// Settings gives the worktree settings a new worktree of a clone is placed by, when the clone's project has a
+	// workspace: the settings as they are, or, for a built-in root of a clone inside the workspace, with the
+	// workspace's folder for worktrees as the root. The workspace's own clone, a clone outside it, and a root a
+	// person set keep the settings. It names the workspace as unignored when the built-in root stays outside every
+	// clone because the workspace does not ignore that folder.
+	Settings(ctx context.Context, settings lanes.WorktreeSettings, workspace lanes.Workspace, repository string) (lanes.WorktreeSettings, string, error)
+}
+
+// NewWorkspace answers from the clones a worker keeps, and from what git says each ignores.
+func NewWorkspace(kept Checkouts) Workspace { return worksFrom{kept: kept} }
+
+type worksFrom struct{ kept Checkouts }
+
+func (w worksFrom) Find(ctx context.Context, profile lanes.Profile, project, planningRepository string) (lanes.Workspace, bool, error) {
+	return findWorkspace(ctx, w.kept, profile, project, planningRepository)
+}
+
+func (w worksFrom) Settings(ctx context.Context, settings lanes.WorktreeSettings, workspace lanes.Workspace, repository string) (lanes.WorktreeSettings, string, error) {
+	return workspaceSettings(ctx, w.kept, settings, workspace, repository)
+}
+
+func findWorkspace(ctx context.Context, kept Checkouts, profile lanes.Profile, project, planningRepository string) (lanes.Workspace, bool, error) {
 	if project == "" {
 		project = lanes.DefaultProject
 	}
@@ -116,9 +139,9 @@ func checkedWorkspace(ctx context.Context, kept Checkouts, found lanes.Workspace
 	return found, true, nil
 }
 
-// InsideWorkspace says a repository's clone lies inside the workspace and is not the workspace itself, so its
+// insideWorkspace says a repository's clone lies inside the workspace and is not the workspace itself, so its
 // built-in root is the workspace's folder for worktrees.
-func InsideWorkspace(ctx context.Context, kept Checkouts, workspace, repository string) (bool, error) {
+func insideWorkspace(ctx context.Context, kept Checkouts, workspace, repository string) (bool, error) {
 	if SamePath(ctx, kept, workspace, repository) {
 		return false, nil
 	}
@@ -126,16 +149,11 @@ func InsideWorkspace(ctx context.Context, kept Checkouts, workspace, repository 
 	return inside, err
 }
 
-// WorkspaceSettings gives the worktree settings a new worktree of a clone is placed by, when the clone's project
-// has a workspace: the settings as they are, or, for a built-in root of a clone inside the workspace, with the
-// workspace's folder for worktrees as the root. The workspace's own clone, a clone outside it, and a root a person
-// set keep the settings. It names the workspace as unignored when the built-in root stays outside every clone
-// because the workspace does not ignore that folder.
-func WorkspaceSettings(ctx context.Context, kept Checkouts, settings lanes.WorktreeSettings, workspace lanes.Workspace, repository string) (lanes.WorktreeSettings, string, error) {
+func workspaceSettings(ctx context.Context, kept Checkouts, settings lanes.WorktreeSettings, workspace lanes.Workspace, repository string) (lanes.WorktreeSettings, string, error) {
 	if settings.RootSource != lanes.RootFromDefault {
 		return settings, "", nil
 	}
-	inside, err := InsideWorkspace(ctx, kept, workspace.Path, repository)
+	inside, err := insideWorkspace(ctx, kept, workspace.Path, repository)
 	switch {
 	case err != nil || !inside:
 		return settings, "", err
