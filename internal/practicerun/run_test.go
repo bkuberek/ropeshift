@@ -270,6 +270,20 @@ func TestRunBoundsTheReasonItRecordsForAFailedRead(t *testing.T) {
 	})
 }
 
+// Clip is what a worker bounds the text of a failed run with: one line, at most MaxReason bytes, cut on a rune.
+func TestClipWritesOneBoundedLineOnARuneBoundary(t *testing.T) {
+	got := practicerun.Clip("  a\n\tb  " + strings.Repeat("\u20ac", 3000))
+	if !strings.HasPrefix(got, "a b \u20ac") || strings.ContainsAny(got, "\r\n\t") {
+		t.Errorf("the line is %q", got[:20])
+	}
+	if len(got) > practicerun.MaxReason || len(got) < practicerun.MaxReason-3 || !utf8.ValidString(got) {
+		t.Errorf("the line is %d bytes, valid UTF-8 %v, want a cut near %d", len(got), utf8.ValidString(got), practicerun.MaxReason)
+	}
+	if short := practicerun.Clip("one  two"); short != "one two" {
+		t.Errorf("a short text reads %q", short)
+	}
+}
+
 // A snapshot that cannot be read fails the run, because no practice can be decided without it.
 func TestRunFailsWhenTheSnapshotCannotBeRead(t *testing.T) {
 	f := newFixture()
@@ -370,6 +384,9 @@ func TestRunLeavesTheFactsARateLimitedReadDidNotSettleUnknown(t *testing.T) {
 			[3]practices.Status{practices.StatusNotApplicable, practices.StatusUnknown, practices.StatusUnknown}},
 		{"protection settled", practices.ForgeFacts{Protected: true, ReviewCount: 1},
 			[3]practices.Status{practices.StatusUnknown, practices.StatusMet, practices.StatusMet}},
+		// A count below zero is no settled count, as zero is none.
+		{"a negative review count", practices.ForgeFacts{Protected: true, ReviewCount: -1},
+			[3]practices.Status{practices.StatusUnknown, practices.StatusMet, practices.StatusUnknown}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
