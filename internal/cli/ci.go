@@ -74,7 +74,7 @@ func ciDurationsText(view api.CIDurations) string {
 	return out.String()
 }
 
-// workCIRerun records a rerun of the checks of a head whose CI has not finished or failed for a reason no agent can
+// workCIRerun reruns the failed jobs of the checks of a head whose CI has not finished or failed for a reason no agent can
 // fix.
 func (c *invocation) workCIRerun(args []string) int {
 	set := c.flags()

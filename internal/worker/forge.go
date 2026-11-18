@@ -251,6 +251,10 @@ func (w *Worker) readPullRequests(ctx context.Context, group []ledger.DesiredPul
 	w.rateKept(group[0].Project, group[0].Repository, read.Rate)
 	for _, watched := range group {
 		if pr, answered := read.Pulls[watched.Number]; answered {
+			if err := w.markBase(ctx, watched, &pr); err != nil {
+				w.readFailed(watched, err)
+				continue
+			}
 			w.settle(ctx, watched, pr, "")
 			continue
 		}
@@ -295,6 +299,10 @@ func (w *Worker) readPullRequest(ctx context.Context, watched ledger.DesiredPull
 		return
 	}
 	w.rateKept(watched.Project, watched.Repository, ports.ForgeRate{})
+	if err := w.markBase(ctx, watched, &read); err != nil {
+		w.readFailed(watched, err)
+		return
+	}
 	w.settle(ctx, watched, read, tag)
 }
 
@@ -413,6 +421,10 @@ func (w *Worker) forgeDue(request ledger.DesiredForge) bool {
 		return false
 	}
 	if failed, ok := w.forgeFailed[forgeKey(request.Project, request.ID)]; ok && w.clock.Now().Sub(failed) < w.config.Lanes.forgeEvery() {
+		return false
+	}
+	// A rerun and a log read spend the sign-in's rate limit as a read does, so they wait for one the forge refused.
+	if (request.Kind == ledger.ForgeRerun || request.Kind == ledger.ForgeLogs) && w.clock.Now().Before(w.ciRate[forgeKey(request.Project, request.Repository)].until) {
 		return false
 	}
 	// A branch merge names no binding, because it runs git and no forge.
@@ -565,6 +577,10 @@ func (w *Worker) performForge(ctx context.Context, request ledger.DesiredForge) 
 			return rt.Forge.Merge(ctx, ports.PullRequestRef{Repo: repo, Number: request.Number}, request.Commit, request.Method)
 		})
 		return ledger.ForgeReport{Merge: &result}, err
+	case ledger.ForgeRerun:
+		return w.rerunRequest(ctx, request, repo)
+	case ledger.ForgeLogs:
+		return w.logsRequest(ctx, request, repo)
 	}
 	return ledger.ForgeReport{}, fmt.Errorf("this worker runs no forge request of kind %s", request.Kind)
 }

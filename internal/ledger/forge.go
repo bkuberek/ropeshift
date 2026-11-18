@@ -71,6 +71,12 @@ const (
 	// request through the forge, only while its head is that commit, or, with review target `branch`, the
 	// lane's branch into the base with git, only while the branch is still at that commit.
 	ForgeMerge ForgeKind = "merge"
+	// ForgeRerun starts again the failed jobs of the runs of a head's checks (ADR-0037): the automatic rerun of an
+	// infrastructure failure, or a member's rerun. Its body names the runs, or none for every run that did not pass.
+	ForgeRerun ForgeKind = "rerun"
+	// ForgeLogs reads the logs of the failing checks of a head, which the rework brief carries. Its body names the
+	// checks, and what the worker read is kept in its body once it is done.
+	ForgeLogs ForgeKind = "logs"
 )
 
 // ForgeRequestState says where a forge request stands. A failed attempt stays requested, with the
@@ -198,6 +204,12 @@ type PullRequestCheck struct {
 	// the forge words it. A commit status has neither. They feed the CI history (FR-SPEND-21).
 	CompletedAt string `json:"completed_at,omitempty"`
 	Conclusion  string `json:"conclusion,omitempty"`
+	// RedOnBase is the base branch's tip at which the same check failed, which a worker reads when a required check
+	// concluded `failure`. A failure the base shares is no failure of this work (ADR-0037).
+	RedOnBase string `json:"red_on_base,omitempty"`
+	// BaseUnread says the base branch's tip could not be read when a worker read this failure, so whether the base
+	// shares it is not known.
+	BaseUnread bool `json:"base_unread,omitempty"`
 }
 
 // PullRequest is what a forge says of one pull request. Checks are those on HeadCommit, and count for no
@@ -282,6 +294,10 @@ type ForgeReport struct {
 	Detail      string       `json:"detail,omitempty"`
 	PullRequest *PullRequest `json:"pull_request,omitempty"`
 	Merge       *MergeResult `json:"merge,omitempty"`
+	// Logs is what a worker read of each failing check a logs request named, and Rerun what the forge did with a
+	// rerun.
+	Logs  []CICheckLog `json:"logs,omitempty"`
+	Rerun *CIRerun     `json:"rerun,omitempty"`
 }
 
 // MergeOutcome is what a merge came to. Only MergeMerged landed anything; each other outcome is the

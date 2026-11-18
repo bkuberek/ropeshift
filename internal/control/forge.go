@@ -280,12 +280,17 @@ func forgeReported(tx ports.WriteTx, worker, id string, e ledger.UploadEvent) er
 		}
 		return refreshReviewHolds(tx, request.WorkOrder)
 	}
-	if request.Kind != ledger.ForgeMerge {
+	// A merge, a rerun, and a log read keep what they came to when they finish, so each finishes its own request.
+	if request.Kind != ledger.ForgeMerge && request.Kind != ledger.ForgeRerun && request.Kind != ledger.ForgeLogs {
 		if _, err := tx.Forge().FinishRequest(request.ID, request.Attempt, tx.Now()); err != nil {
 			return err
 		}
 	}
 	switch request.Kind {
+	case ledger.ForgeRerun:
+		return rerunReported(tx, request, report, id, e.OccurredAt, actor)
+	case ledger.ForgeLogs:
+		return logsReported(tx, request, report, id, e.OccurredAt, actor)
 	case ledger.ForgePublish:
 		return publishReported(tx, request, report, id, e.OccurredAt, actor)
 	case ledger.ForgeMerge:
@@ -662,6 +667,9 @@ func pullRequestRead(tx ports.WriteTx, worker, id string, e ledger.UploadEvent) 
 		return err
 	}
 	if err := recordCI(tx, held, read); err != nil {
+		return err
+	}
+	if err := classifyCI(tx, held.WorkOrder); err != nil {
 		return err
 	}
 	eventType := ledger.EventPullRequestUpdated

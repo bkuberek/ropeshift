@@ -330,8 +330,12 @@ func integrate(tx ports.WriteTx, id string) error {
 		}
 		return raiseMerge(tx, f, authority.MergeHeld, gate.Why, requestID)
 	case workorders.StepRework:
-		note := workorders.ReworkNote{Reason: gate.Why + ". Make each required check pass on the next commit."}
-		_, err := reworkFor(tx, id, note, nil, mergeActor, func() {})
+		// A failure of the code goes back with the failing job's log, which the worker reads first, so the work waits for it.
+		reason, ready, err := ciRework(tx, f.pr, gate.Why+". Make each required check pass on the next commit.", gate.Failed)
+		if err != nil || !ready {
+			return err
+		}
+		_, err = reworkFor(tx, id, workorders.ReworkNote{Reason: reason}, nil, mergeActor, func() {})
 		return err
 	case workorders.StepMerged:
 		return mergedOnForge(tx, f)
@@ -898,7 +902,9 @@ func (c PullRequestChecks) Checks(ctx context.Context, scope ledger.WorkspaceID,
 				continue
 			}
 			for _, check := range pr.Checks {
-				if !check.Required || check.State == ledger.CheckPending {
+				// A check that ended in what no change of the work mends is not evidence against it: it is held as one still
+				// running is, until a rerun or a person answers it (ADR-0037).
+				if !check.Required || check.State == ledger.CheckPending || (check.State == ledger.CheckFailed && check.Class() != ledger.CIClassTestFailure) {
 					continue
 				}
 				status := workorders.CheckFailed

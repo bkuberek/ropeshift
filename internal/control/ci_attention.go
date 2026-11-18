@@ -189,6 +189,22 @@ type ciEvent struct {
 	Reruns     int64  `json:"reruns,omitempty"`
 	Check      string `json:"check,omitempty"`
 	Conclusion string `json:"conclusion,omitempty"`
+	// Auto says a rerun was the control plane's, which `ci_auto_rerun` bounds, and Attempt which of its kind it was.
+	// Class is what allowed it: the infrastructure class of the checks, or a member's word. Request names the forge
+	// request that makes it.
+	Auto    bool   `json:"auto,omitempty"`
+	Attempt int64  `json:"attempt,omitempty"`
+	Class   string `json:"class,omitempty"`
+	Request string `json:"request,omitempty"`
+	// Checks counts the logs a worker read.
+	Checks int64 `json:"checks,omitempty"`
+	// Runs and Refused are what the forge did with a rerun, once a worker made it.
+	Runs    []string `json:"runs,omitempty"`
+	Refused string   `json:"refused,omitempty"`
+	// Continues names the rerun a continuation finishes, and Pending are the runs the forge did not reach, which the
+	// continuation asks for.
+	Continues string   `json:"continues,omitempty"`
+	Pending   []string `json:"pending,omitempty"`
 }
 
 func appendCI(tx ports.WriteTx, eventType, workOrder string, data ciEvent, actor ledger.Actor) error {
@@ -243,9 +259,10 @@ func (c *CIAttention) Wait(ctx context.Context, scope ledger.WorkspaceID, workOr
 	return watch, err
 }
 
-// Rerun records a member's rerun of the checks of a work order's head, which "CI has not finished" and an
-// infrastructure failure offer. It counts with the automatic reruns, clears the head's findings, and leaves the
-// forge to the worker that runs reruns: nothing here starts an agent.
+// Rerun is a member's rerun of the checks of a work order's head, which "CI has not finished" and an infrastructure
+// failure offer. It counts as the member's own, which the automatic cap `ci_auto_rerun` never counts, clears the
+// head's findings, and asks the worker that opened the pull request to rerun every run of the head that finished
+// without passing, as a forge request the worker makes through the forge's port: nothing here starts an agent.
 func (c *CIAttention) Rerun(ctx context.Context, scope ledger.WorkspaceID, workOrder string, actor ledger.Actor) (ledger.CIWaiting, error) {
 	if !authority.Allowed(actor, authority.ActionAnswerCI) {
 		return ledger.CIWaiting{}, workorders.ErrForbidden
@@ -256,14 +273,15 @@ func (c *CIAttention) Rerun(ctx context.Context, scope ledger.WorkspaceID, workO
 		if err != nil {
 			return err
 		}
-		head := item.PullRequest.HeadCommit
-		if waiting, err = tx.CI().CountCIRerun(workOrder, head, tx.Now()); err != nil {
+		repository, err := tx.Repositories().Repository(item.PullRequest.Repository)
+		if err != nil {
 			return err
 		}
-		if _, err := tx.CI().ClearCIFindings(workOrder, head); err != nil {
+		if _, err := tx.CI().ClearCIFindings(workOrder, item.PullRequest.HeadCommit); err != nil {
 			return err
 		}
-		return appendCI(tx, ledger.EventCIRerunRequested, workOrder, ciEvent{Head: head, Kind: item.Kind, Reruns: waiting.Reruns}, actor)
+		waiting, err = requestRerun(tx, rerunAsked{pr: item.PullRequest, repository: repository, kind: item.Kind, class: ciClassMember}, actor)
+		return err
 	})
 	return waiting, err
 }
@@ -271,7 +289,8 @@ func (c *CIAttention) Rerun(ctx context.Context, scope ledger.WorkspaceID, workO
 // Raise keeps a finding of the classification of a work order's head: an infrastructure failure that stayed after the
 // automatic reruns, a failure the base branch's tip shares, or a check that waits for a person on the forge. The
 // finding raises its Needs you item and notice while the head is the pull request's head, and it reports false for
-// the kind of a head already raised. It is the one entry the classification of finished checks writes through.
+// the kind of a head already raised. The classification of finished checks writes the same finding inside the
+// transaction that kept the read, through the same keep.
 func (c *CIAttention) Raise(ctx context.Context, scope ledger.WorkspaceID, finding ledger.CIFinding) (bool, error) {
 	if !ledger.FindingKind(finding.Kind) {
 		return false, fmt.Errorf("%w: %q is no finding of CI", workorders.ErrInvalid, finding.Kind)
@@ -285,13 +304,20 @@ func (c *CIAttention) Raise(ctx context.Context, scope ledger.WorkspaceID, findi
 		if pr.HeadCommit != finding.Head {
 			return fmt.Errorf("%w: %s is no longer the head of pull request %d", workorders.ErrInvalid, finding.Head, pr.Number)
 		}
-		finding.RaisedAt = tx.Now()
-		if raised, err = tx.CI().RaiseCIFinding(finding); err != nil || !raised {
-			return err
-		}
-		return appendCI(tx, ledger.EventCIFindingRaised, finding.WorkOrder, ciEvent{
-			Head: finding.Head, Kind: finding.Kind, Check: finding.Check, Conclusion: finding.Conclusion,
-		}, ledger.Actor{Kind: ledger.ActorSystem, ID: "ci"})
+		raised, err = keepCIFinding(tx, finding)
+		return err
 	})
 	return raised, err
+}
+
+// keepCIFinding keeps a finding and records it as an event, once for the kind of a head.
+func keepCIFinding(tx ports.WriteTx, finding ledger.CIFinding) (bool, error) {
+	finding.RaisedAt = tx.Now()
+	raised, err := tx.CI().RaiseCIFinding(finding)
+	if err != nil || !raised {
+		return false, err
+	}
+	return true, appendCI(tx, ledger.EventCIFindingRaised, finding.WorkOrder, ciEvent{
+		Head: finding.Head, Kind: finding.Kind, Check: finding.Check, Conclusion: finding.Conclusion,
+	}, ledger.Actor{Kind: ledger.ActorSystem, ID: "ci"})
 }

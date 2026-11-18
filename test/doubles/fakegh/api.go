@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"net/url"
 	"os"
 	"regexp"
 	"strconv"
@@ -26,7 +27,7 @@ func (m *multi) Set(v string) error { *m = append(*m, v); return nil }
 func api(dir string, args []string) {
 	var include bool
 	var headers, fields multi
-	var hostname string
+	var hostname, method string
 	_, positional := parse("api", args, func(fs *flag.FlagSet) {
 		fs.BoolVar(&include, "i", false, "")
 		fs.BoolVar(&include, "include", false, "")
@@ -34,22 +35,24 @@ func api(dir string, args []string) {
 		fs.Var(&fields, "f", "")
 		fs.Var(&fields, "F", "")
 		fs.StringVar(&hostname, "hostname", "", "")
+		fs.StringVar(&method, "method", "GET", "")
+		fs.StringVar(&method, "X", "GET", "")
 	})
 	if len(positional) != 1 {
 		fail(2, "fakegh: api names one endpoint")
 	}
 	state := readRaw(dir)
-	reply := &response{include: include, state: state}
+	reply := &response{include: include, state: state, dir: dir}
 	if limit := state.RateLimit; limit != nil {
 		reply.limited(limit)
 		return
 	}
-	endpoint, _, _ := strings.Cut(positional[0], "?")
+	endpoint, query, _ := strings.Cut(positional[0], "?")
 	switch {
 	case endpoint == "graphql":
 		reply.graphql(hostname, fields)
 	case strings.HasPrefix(endpoint, "repos/"):
-		reply.rest(hostname, endpoint, headers)
+		reply.rest(hostname, method, endpoint, query, headers)
 	default:
 		fail(2, "fakegh: api endpoint %q", positional[0])
 	}
@@ -59,6 +62,7 @@ func api(dir string, args []string) {
 type response struct {
 	include bool
 	state   ghstate.State
+	dir     string
 }
 
 func (r *response) rateHeaders(out map[string]string) {
@@ -101,6 +105,8 @@ func statusText(status int) string {
 	switch status {
 	case 200:
 		return "OK"
+	case 201:
+		return "Created"
 	case 304:
 		return "Not Modified"
 	case 403:
@@ -146,18 +152,41 @@ func (r *response) validated(request map[string]string, body any) {
 }
 
 // rest answers a pull request, and the check runs and the commit statuses of a commit, each with an ETag.
-func (r *response) rest(hostname, endpoint string, headers multi) {
+func (r *response) rest(hostname, method, endpoint, query string, headers multi) {
 	request := map[string]string{}
 	for _, header := range headers {
 		name, value, _ := strings.Cut(header, ":")
 		request[strings.TrimSpace(name)] = strings.TrimSpace(value)
 	}
 	parts := strings.Split(endpoint, "/")
-	// repos/{owner}/{repo}/pulls/{number}, or repos/{owner}/{repo}/commits/{sha}/{check-runs|status}
+	// repos/{owner}/{repo}/pulls/{number}, repos/{owner}/{repo}/commits/{sha}/{check-runs|status}, and the workflow runs
 	if len(parts) < 5 {
 		fail(2, "fakegh: api endpoint %q", endpoint)
 	}
 	repo := hostname + "/" + parts[1] + "/" + parts[2]
+	if parts[3] == "actions" {
+		r.actions(repo, method, parts, query)
+		return
+	}
+	if len(parts) >= 6 && parts[3] == "commits" && parts[len(parts)-1] == "check-runs" {
+		// A branch name keeps its own slashes in the path, each segment escaped.
+		segments := make([]string, 0, len(parts))
+		for _, segment := range parts[4 : len(parts)-1] {
+			unescaped, err := url.PathUnescape(segment)
+			if err != nil {
+				fail(2, "fakegh: api endpoint %q", endpoint)
+			}
+			segments = append(segments, unescaped)
+		}
+		if runs, ok := baseRuns(r.state, repo, strings.Join(segments, "/")); ok {
+			r.validated(request, runs)
+			return
+		}
+		if len(parts) > 6 {
+			r.validated(request, restRuns(nil))
+			return
+		}
+	}
 	switch {
 	case parts[3] == "pulls" && len(parts) == 5:
 		number, err := strconv.ParseInt(parts[4], 10, 64)
@@ -282,7 +311,7 @@ func graphPull(pr ghstate.PullRequest, state ghstate.State) map[string]any {
 		} else {
 			node["__typename"] = "CheckRun"
 			node["name"], node["status"], node["conclusion"] = check.Name, check.Status, check.Conclusion
-			node["detailsUrl"], node["startedAt"] = check.DetailsURL, check.StartedAt
+			node["detailsUrl"], node["startedAt"], node["completedAt"] = check.DetailsURL, check.StartedAt, check.CompletedAt
 		}
 		node["isRequired"] = contains(pr.Required, cmpOr(check.Name, check.Context))
 		nodes = append(nodes, node)

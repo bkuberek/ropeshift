@@ -69,7 +69,7 @@ func registry() []section {
 			command("work rework", "<id> --reason R", "send completed work back for another attempt", (*invocation).workRework),
 			command("work decision-rework", "<id> --decision D...", "send finished work back for the decisions its plan's revision lists for it", (*invocation).workDecisionRework),
 			command("work ci-wait", "<id> [--by D]", "give a head that has not finished more time before CI asks again", (*invocation).workCIWait),
-			command("work ci-rerun", "<id>", "record a rerun of the checks of a head that has not finished or failed for a reason no agent can fix", (*invocation).workCIRerun),
+			command("work ci-rerun", "<id>", "rerun the failed jobs of the checks of a head that has not finished or failed for a reason no agent can fix", (*invocation).workCIRerun),
 			command("work claim", "<id> --worker W [--claim-id C]", "claim a work order", (*invocation).workClaim),
 			command("work release", "<id> --claim-id C --fence N", "give a claim back", (*invocation).workRelease),
 			command("work write", "<id> --claim-id C --fence N --payload P", "store one event under a fence", (*invocation).workWrite),
