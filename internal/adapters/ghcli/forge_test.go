@@ -161,7 +161,7 @@ func between(letters string, codes ...rune) string {
 }
 
 // TestAListedTitleIsTextOfAPersonOutsideTheProject keeps what a title says and drops what could hide or reorder
-// it: control characters, bidirectional overrides and isolates, and zero-width characters, and it clips a long one
+// it: control characters, bidirectional overrides, isolates, and marks, and zero-width characters, and it clips a long one
 // to 256 runes.
 func TestAListedTitleIsTextOfAPersonOutsideTheProject(t *testing.T) {
 	tests := []struct {
@@ -171,6 +171,7 @@ func TestAListedTitleIsTextOfAPersonOutsideTheProject(t *testing.T) {
 		{"non-Latin text stays", "Réessayer le paiement — 日本語", "Réessayer le paiement — 日本語"},
 		{"control characters", "Fix\x00 the\x1b[31m bug\n\tnow\x7f", "Fix the[31m bugnow"},
 		{"bidi overrides and isolates", between("abcdefghij", 0x202A, 0x202B, 0x202C, 0x202D, 0x202E, 0x2066, 0x2067, 0x2068, 0x2069), "abcdefghij"},
+		{"directional marks", between("abcd", 0x200E, 0x200F, 0x061C), "abcd"},
 		{"zero-width characters", between("abcdef", 0x200B, 0x200C, 0x200D, 0x2060, 0xFEFF), "abcdef"},
 		{"clipped to 256 runes", strings.Repeat("é", 300), strings.Repeat("é", 256)},
 		{"clipped after what is dropped", strings.Repeat("a"+string(rune(0x200B)), 300), strings.Repeat("a", 256)},

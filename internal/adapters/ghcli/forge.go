@@ -38,12 +38,12 @@ const summaryFields = "number,title,headRefName,baseRefName,url,isDraft,isCrossR
 const maxTitleRunes = 256
 
 // cleanTitle clips a title that a person outside the project wrote to maxTitleRunes, and drops its control
-// characters, its bidirectional overrides and isolates, and its zero-width characters.
+// characters, its bidirectional overrides, isolates, and marks, and its zero-width characters.
 func cleanTitle(title string) string {
 	var out strings.Builder
 	kept := 0
 	for _, r := range title {
-		if unicode.IsControl(r) || (r >= 0x202A && r <= 0x202E) || (r >= 0x2066 && r <= 0x2069) || (r >= 0x200B && r <= 0x200D) || r == 0x2060 || r == 0xFEFF {
+		if unicode.IsControl(r) || (r >= 0x202A && r <= 0x202E) || r == 0x200E || r == 0x200F || r == 0x061C || (r >= 0x2066 && r <= 0x2069) || (r >= 0x200B && r <= 0x200D) || r == 0x2060 || r == 0xFEFF {
 			continue
 		}
 		if kept == maxTitleRunes {
