@@ -95,9 +95,14 @@ func (h *handler) showQuestion(w http.ResponseWriter, r *http.Request) {
 }
 
 // questionViews answers questions with the scope an answer to each takes, from the record it is about, and the
-// title of that record, read in the read that read them, once for each kind of scope they hold.
+// title of that record, read in the read that read them, once for each kind of scope they hold, and with each one's
+// whole ladder: who holds it, its lanes, its batch, and what closed it (FR-QD-13).
 func questionViews(tx ports.ReadTx, rows []questions.Question) ([]api.QuestionView, error) {
 	policy, err := control.DecisionPolicy(tx)
+	if err != nil {
+		return nil, err
+	}
+	ladder, err := readLadder(tx)
 	if err != nil {
 		return nil, err
 	}
@@ -105,7 +110,11 @@ func questionViews(tx ports.ReadTx, rows []questions.Question) ([]api.QuestionVi
 	scopes := make([]string, 0, len(rows))
 	for _, row := range rows {
 		scope := questions.ScopeOf(row.SubjectKind, row.SubjectID)
-		views = append(views, api.QuestionView{Question: row, Scope: scope, Reversibility: policy.AnswerReversibility(row)})
+		view := api.QuestionView{Question: row, Scope: scope, Reversibility: policy.AnswerReversibility(row)}
+		if err := ladder.fill(tx, &view); err != nil {
+			return nil, err
+		}
+		views = append(views, view)
 		scopes = append(scopes, scope)
 	}
 	titles, err := control.ScopeTitles(tx, scopes)

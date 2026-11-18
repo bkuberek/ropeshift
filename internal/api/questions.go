@@ -41,11 +41,69 @@ type QuestionList struct {
 // about (questions.ScopeOf), and ScopeTitle the title of that record, as DecisionView says. Reversibility is what an
 // answer to it will be, by the rule an item of a batch states it by (questions.Policy.AnswerReversibility), so no
 // surface that answers a question chooses a one-way answer for a member.
+//
+// The rest show a member the whole ladder (FR-QD-13). Holder is who holds the question while the hold lasts, and is
+// absent when nobody does. Machines names the machine of each orchestrator the ladder trace, the hold, or the closing
+// decision names, by its worker's ID, which the ID does not say. Attached is every lane that asked the question or waits
+// on it. Batch is the batch that gathered it, ClosedBy the decision or assumption that answered it, and MergedInto the
+// question that took its place when it was merged.
 type QuestionView struct {
 	questions.Question
-	Scope         string `json:"scope,omitempty"`
-	ScopeTitle    string `json:"scope_title,omitempty"`
-	Reversibility string `json:"reversibility,omitempty"`
+	Scope         string                 `json:"scope,omitempty"`
+	ScopeTitle    string                 `json:"scope_title,omitempty"`
+	Reversibility string                 `json:"reversibility,omitempty"`
+	Holder        *QuestionHolder        `json:"holder,omitempty"`
+	Machines      map[string]string      `json:"machines,omitempty"`
+	Attached      []questions.Attachment `json:"attached,omitempty"`
+	Batch         *questions.Batch       `json:"batch,omitempty"`
+	ClosedBy      *questions.Decision    `json:"closed_by,omitempty"`
+	MergedInto    string                 `json:"merged_into,omitempty"`
+}
+
+// QuestionHolder is who holds a question and until when. An orchestrator holds as its worker, so its hold names the
+// orchestrator and the machine it runs on; a member's names neither.
+type QuestionHolder struct {
+	ID           string `json:"id"`
+	Orchestrator string `json:"orchestrator,omitempty"`
+	Machine      string `json:"machine,omitempty"`
+	Until        int64  `json:"until"`
+}
+
+// The statuses the questions view takes beside a question's own: every question, and the questions closed by a merge.
+// With no status the view holds the questions still open, at every rung.
+const (
+	QuestionStatusAll    = "all"
+	QuestionStatusMerged = "merged"
+)
+
+// QuestionFilter narrows the questions view. Status is a question's status, `merged`, or `all`, and the open questions
+// when empty, so a merged question reads as merged and not as dismissed. Lane keeps the questions a lane asked or is
+// attached to, and WorkOrder those about a work order or asked by one of its lanes.
+type QuestionFilter struct {
+	Category  string
+	Status    string
+	Lane      string
+	WorkOrder string
+}
+
+func (f QuestionFilter) query() string {
+	values := url.Values{}
+	for name, value := range map[string]string{"category": f.Category, "status": f.Status, "lane": f.Lane, "work_order": f.WorkOrder} {
+		if value != "" {
+			values.Set(name, value)
+		}
+	}
+	if len(values) == 0 {
+		return ""
+	}
+	return "?" + values.Encode()
+}
+
+// ReadQuestions reads the questions view a filter narrows.
+func (c *ProjectClient) ReadQuestions(ctx context.Context, filter QuestionFilter) (Questions, error) {
+	var out Questions
+	err := c.do(ctx, http.MethodGet, ViewPath(ViewQuestions)+filter.query(), nil, &out)
+	return out, err
 }
 
 // QuestionBatch is a delivered batch as a read answers it: what still waits for a member in it.

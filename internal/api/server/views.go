@@ -991,6 +991,11 @@ func nonNil[T any](items []T) []T {
 
 // unresolved walks past the bound of one read, which a filter stops at.
 func unresolved(tx ports.ReadTx, filter ports.RecordFilter) ([]questions.Question, error) {
+	return questionsWhere(tx, filter, func(q questions.Question) bool { return q.Status.Unresolved() })
+}
+
+// questionsWhere reads every question a filter selects that keep keeps, a page at a time.
+func questionsWhere(tx ports.ReadTx, filter ports.RecordFilter, keep func(questions.Question) bool) ([]questions.Question, error) {
 	out := []questions.Question{}
 	for {
 		page, err := tx.Questions().Questions(filter)
@@ -998,7 +1003,7 @@ func unresolved(tx ports.ReadTx, filter ports.RecordFilter) ([]questions.Questio
 			return nil, err
 		}
 		for _, question := range page {
-			if question.Status.Unresolved() {
+			if keep(question) {
 				out = append(out, question)
 			}
 		}
@@ -1250,7 +1255,7 @@ func (h *handler) readDecisions(tx ports.ReadTx, r *http.Request, stamp api.Stam
 }
 
 func (h *handler) readQuestions(tx ports.ReadTx, r *http.Request, stamp api.Stamp) (any, error) {
-	open, err := unresolved(tx, filterOf(r))
+	open, err := selectQuestions(tx, r)
 	if err != nil {
 		return nil, err
 	}

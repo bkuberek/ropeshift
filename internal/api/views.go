@@ -522,7 +522,7 @@ type Decisions struct {
 	Decisions []DecisionLine `json:"decisions"`
 }
 
-// Questions is the open questions, and the categories that filter them.
+// Questions is the open questions, or those a QuestionFilter selects, and the categories that filter them.
 type Questions struct {
 	Stamp
 	Categories []string       `json:"categories"`

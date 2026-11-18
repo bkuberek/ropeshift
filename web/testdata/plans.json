@@ -1001,6 +1001,14 @@
             {
               "asked_at": 1790000784001,
               "asked_by": "lane-asking",
+              "attached": [
+                {
+                  "attached_at": 1790000784001,
+                  "generation": 1,
+                  "lane": "lane-asking",
+                  "question_id": "question-review"
+                }
+              ],
               "categories": [
                 "security"
               ],
