@@ -105,6 +105,10 @@ In the sidebar, select Audit. The project's log lists its events newest first, e
 
 The Notices tab shows what each channel was told: each notice with its kind and reason, its channel, whether it was delivered or refused with the channel's reason, its attempts, when it began to wait and was last tried, and its delivery digest. Here only `web`, the channel Needs you reads, has notices; desktop and webhook rows appear once a member turns them on ([choose how you hear that something waits](settings-and-agents.md#5-choose-how-you-hear-that-something-waits)). Delivery is at least once, so a notice delivered after more than one attempt says the channel may have heard it twice.
 
+## On the command line
+
+[The CLI for power users](cli-for-power-users.md#usage-and-measures) gives the command for each step of this guide.
+
 ## Next
 
 [Troubleshooting](troubleshooting.md) finds the cause of a problem in the web UI and fixes it.

@@ -73,6 +73,10 @@ An archived project waits on nobody, the switcher marks it read-only, and its ro
 ![Projects, with Promotions archived and its Restore](assets/screenshots/several-06-light.png#gh-light-mode-only)
 ![Projects, with Promotions archived and its Restore](assets/screenshots/several-06-dark.png#gh-dark-mode-only)
 
+## On the command line
+
+[The CLI for power users](cli-for-power-users.md#run-several-projects-at-once) gives the command for each step of this guide.
+
 ## Next
 
 [Settings and agents](settings-and-agents.md) changes a policy and restores an earlier version, edits the agent roster, and names the settings only a file holds.

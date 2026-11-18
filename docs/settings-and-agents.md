@@ -170,6 +170,10 @@ A lane reads the built-in layer, then your profile over it, then the repository'
 
 A key the profile does not know refuses the whole profile, and no lane starts until it is fixed, so a misspelled setting never keeps its default in silence. A lane reads the files when it starts. The policies have a command too: `ropeshift policy publish --file F` publishes a version from a file, as Review change does ([the command line](cli.md)).
 
+## On the command line
+
+[The CLI for power users](cli-for-power-users.md#settings-and-agents) gives the command for each step of this guide.
+
 ## Next
 
 [Usage and measures](usage-and-measures.md) reads the figures ropeshift keeps of the work: its measures, its forecasts, the estimated cost of each lane, and the audit log.

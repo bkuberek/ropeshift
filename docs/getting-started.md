@@ -197,6 +197,10 @@ Every view sits in the same frame, as the window in step 2 shows.
 - The theme follows the system's light or dark setting. The theme button, and Theme at the foot of the sidebar, switch between the system's setting, light, and dark.
 - The status bar at the bottom shows whether the view is live, the lanes running against the machine's cap, the worker's measures, and the estimated cost. Its right end names the version the daemon runs and leads to Settings, About, which gives its version, commit, and build date.
 
+## On the command line
+
+[The CLI for power users](cli-for-power-users.md#get-started-with-the-web-ui) gives the command for each web step of this guide.
+
 ## Next
 
 [Set up your projects](set-up-projects.md), the next guide in [Learn ropeshift](../README.md#learn-ropeshift).

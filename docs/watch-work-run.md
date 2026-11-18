@@ -112,6 +112,10 @@ In the sidebar, select Overview. Its figures count what waits on you, the lanes 
 ![The Overview, with the work running and the plan's milestones](assets/screenshots/run-10-light.png#gh-light-mode-only)
 ![The Overview, with the work running and the plan's milestones](assets/screenshots/run-10-dark.png#gh-dark-mode-only)
 
+## On the command line
+
+[The CLI for power users](cli-for-power-users.md#watch-work-run) gives the command for each step of this guide.
+
 ## Next
 
 [Review and merge](review-and-merge.md) reads the review of the finished work, accepts it, and merges it.

@@ -121,6 +121,10 @@ Backups made with `ropeshift backup` cover the installation database and each pr
 
 A database that a later release migrated does not stop an earlier one. After a downgrade, the daemon prints a warning naming each database whose applied schema changes its build does not ship, and the schema changes themselves, and starts on the schema the later release left. A project's warning starts with the database file it is about, such as `projects/<project ID>.db`, and a start gives each warning once.
 
+## On the command line
+
+[The CLI for power users](cli-for-power-users.md#troubleshooting) gives the command for each step of this guide.
+
 ## Next
 
 [Modes](modes.md) says what solo, group, and cluster mode are, their status, and which one to use today.
