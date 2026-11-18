@@ -56,7 +56,7 @@ func publishAttempt(tx ports.WriteTx, reviewed workorders.WorkOrder, fence int64
 	if err != nil {
 		return err
 	}
-	body, err := pullRequestBody(tx.Planning(), reviewed)
+	body, err := pullRequestBody(tx.Planning(), reviewed, record)
 	if err != nil {
 		return err
 	}
@@ -77,7 +77,7 @@ func publishAttempt(tx ports.WriteTx, reviewed workorders.WorkOrder, fence int64
 
 // pullRequestBody describes the work order, its contract, and its criteria, which is what a person reading
 // the pull request needs to judge it beside the review's verdicts.
-func pullRequestBody(planned ports.PlanningReader, w workorders.WorkOrder) (string, error) {
+func pullRequestBody(planned ports.PlanningReader, w workorders.WorkOrder, record ledger.Repository) (string, error) {
 	var out strings.Builder
 	fmt.Fprintf(&out, "Ropeshift work order `%s`: %s\n", w.ID, w.Title)
 	if w.ContractVersion != 0 {
@@ -101,6 +101,7 @@ func pullRequestBody(planned ports.PlanningReader, w workorders.WorkOrder) (stri
 			"a member's plan approval in ropeshift is its review, bound to the commit it approved. At person_approves and review_approves " +
 			"that approval merges this pull request at the approved head; at person_merges you merge it yourself. A head that moves needs " +
 			"a new plan approval.\n")
+		out.WriteString(consolidationNote(w, record))
 		return out.String(), nil
 	}
 	out.WriteString("\nThe ropeshift worker pushed this branch and opened this pull request. The review agent's verdicts are posted here as comments, each bound to the commit it judged.\n")

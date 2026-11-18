@@ -76,7 +76,13 @@ type integrationFacts struct {
 
 func (f integrationFacts) commit() string { return f.branch.Digest }
 
+// method is the merge method of the work's merge: the repository's, except for an adoption branch that imports a
+// design repository's history, which merges with a merge commit whatever the repository's method, because a squash
+// or a rebase drops the merge's second parent and the history with it (FR-ADOPT-13).
 func (f integrationFacts) method() ledger.MergeMethod {
+	if f.order.Restructure.Consolidates() {
+		return ledger.MergeCommit
+	}
 	return cmp.Or(f.record.MergeMethod, ledger.MergeCommit)
 }
 

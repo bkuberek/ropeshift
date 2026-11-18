@@ -246,3 +246,106 @@ func (r *Rig) approvalRow(s ports.Store, id string) (authority.Approval, error) 
 	})
 	return row, err
 }
+
+// newConsolidationMergeRig is a plan merge rig whose planning work adopts the project, with the restructuring
+// given, in a repository with a review target, a merge authority, and a merge method set before its lane ends.
+func newConsolidationMergeRig(r *Rig, target ledger.ReviewTarget, level ledger.MergeAuthority, method ledger.MergeMethod, restructure *planning.Restructure) (*planMergeRig, error) {
+	f, err := newForgeRigWith(r, target, func(store ports.Store, repository string) (string, error) {
+		if _, err := r.change(store, repository, control.RepositoryChange{MergeAuthority: &level, MergeMethod: &method}, r.Actor); err != nil {
+			return "", err
+		}
+		ops := r.NewOps(store)
+		order, err := ops.Record(r.Ctx, r.Scope, control.LedgerWork{
+			Order: workorders.WorkOrder{
+				ID: r.ID("plan"), Kind: workorders.KindPlan, Title: "Plan the retry budget", RepositoryID: repository, MaxAttempts: 2, Adopt: true,
+				Restructure: restructure,
+			},
+			Statement: "Write the plan for a retry budget.",
+			Criteria:  []planning.Criterion{{ID: "c1", Text: "The plan is on the branch"}},
+		}, r.Actor)
+		if err != nil {
+			return "", err
+		}
+		_, err = ops.Pass(r.Ctx, r.Scope, order.ID, r.Actor)
+		return order.ID, err
+	}, LaneCheck("c1", true))
+	if err != nil {
+		return nil, err
+	}
+	return &planMergeRig{forgeRig: f, files: laneFiles("The first draft.")}, nil
+}
+
+// mergedWith runs an adoption's plan, in a repository at review_approves that merges with method, through its
+// approval to the merge the worker is asked for.
+func mergedWith(r *Rig, method ledger.MergeMethod, restructure *planning.Restructure) (ledger.DesiredForge, error) {
+	p, err := newConsolidationMergeRig(r, ledger.ReviewOnBranch, ledger.ReviewApproves, method, restructure)
+	if err != nil {
+		return ledger.DesiredForge{}, err
+	}
+	if _, err := p.approved(); err != nil {
+		return ledger.DesiredForge{}, err
+	}
+	if _, err := p.tick(); err != nil {
+		return ledger.DesiredForge{}, err
+	}
+	merge, err := p.oneMerge()
+	if err == nil && merge.Commit != p.head {
+		return merge, Violatedf("the worker is asked to merge %+v, want commit %s", merge, p.head)
+	}
+	return merge, err
+}
+
+func checkAConsolidationMergesWithAMergeCommit(r *Rig) error {
+	merge, err := mergedWith(r, ledger.MergeSquash, consolidating())
+	if err != nil {
+		return err
+	}
+	if merge.Method != ledger.MergeCommit {
+		return Violatedf("in a repository that merges with squash, a consolidation is merged with %s", merge.Method)
+	}
+	return nil
+}
+
+func checkAnAdoptionThatImportsNoHistoryMergesAsTheRepositorySays(r *Rig) error {
+	merge, err := mergedWith(r, ledger.MergeSquash, nil)
+	if err != nil {
+		return err
+	}
+	if merge.Method != ledger.MergeSquash {
+		return Violatedf("in a repository that merges with squash, an adoption that imports no history is merged with %s", merge.Method)
+	}
+	return nil
+}
+
+func checkAConsolidationsPullRequestSaysHowToMergeIt(r *Rig) error {
+	for _, tt := range []struct {
+		level       ledger.MergeAuthority
+		restructure *planning.Restructure
+		says        []string
+	}{
+		{ledger.PersonMerges, consolidating(), []string{planning.MergeCommitKeepsHistory, "merge it with a merge commit"}},
+		{ledger.PersonApproves, consolidating(), []string{planning.MergeCommitKeepsHistory, "ropeshift merges it with a merge commit, whatever the repository's merge method"}},
+		{ledger.PersonMerges, nil, nil},
+	} {
+		p, err := newConsolidationMergeRig(r, ledger.ReviewOnPullRequest, tt.level, ledger.MergeSquash, tt.restructure)
+		if err != nil {
+			return err
+		}
+		publish, err := p.publish()
+		if err != nil {
+			return err
+		}
+		if publish.Kind != ledger.ForgePublish || !strings.Contains(publish.Body, "plan approval") {
+			return Violatedf("the adoption's lane end asks %+v", publish)
+		}
+		for _, want := range tt.says {
+			if !strings.Contains(publish.Body, want) {
+				return Violatedf("at %s the pull request description lacks %q:\n%s", tt.level, want, publish.Body)
+			}
+		}
+		if tt.says == nil && strings.Contains(publish.Body, "design history") {
+			return Violatedf("an adoption that imports no history describes its pull request as\n%s", publish.Body)
+		}
+	}
+	return nil
+}

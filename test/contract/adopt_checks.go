@@ -28,6 +28,9 @@ var AdoptChecks = []Check{
 	{"AS9", "a consolidation whose merge cannot be read from its branch says why, and still lists the trees left out and the removal", checkAConsolidationWhoseMergeIsUnreadSaysWhy},
 	{"AS10", "approving a consolidation removes the old design repository in the approval's transaction, and keeps its record as history", checkApprovingAConsolidationRemovesTheDesignRepository},
 	{"AS11", "a consolidation is not approved while open work targets the old design repository, and nothing of its approval happens", checkAConsolidationWithOpenWorkInTheDesignRepositoryWaits},
+	{"AS12", "a consolidating adoption branch in a repository whose merge method is squash merges with a merge commit", checkAConsolidationMergesWithAMergeCommit},
+	{"AS13", "a consolidating adoption's pull request says that only a merge commit keeps the design history, and at person_merges that the person merges it with one", checkAConsolidationsPullRequestSaysHowToMergeIt},
+	{"AS14", "an adoption that imports no history merges with the repository's merge method", checkAnAdoptionThatImportsNoHistoryMergesAsTheRepositorySays},
 }
 
 // adoptOrder records ready planning work that adopts the project, in a repository, with the restructuring a
