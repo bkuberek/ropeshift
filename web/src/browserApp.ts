@@ -211,6 +211,27 @@ function emptyViews(): Record<string, unknown> {
 }
 const empty = emptyViews();
 
+// spendOf is what a project's Spend section reads. The default project is past its daily hard limit and under its weekly
+// limit, and three projects stand elsewhere against the limits: with none set, under every soft limit, and past a soft limit.
+function spendOf(project: string): string {
+  const view = JSON.parse(goldens.spend ?? "{}") as { project_spend: Record<"day" | "week", Record<string, number>>; work_orders: Record<string, any>[] };
+  const stand = (day: [number, number, number], week: [number, number, number], order: [number, number, number]) => {
+    for (const [name, [spent, soft, hard]] of [["day", day], ["week", week]] as const) {
+      Object.assign(view.project_spend[name], { spent_usd: spent, soft_limit: soft, hard_limit: hard, remaining: hard > 0 ? Math.max(hard - spent, 0) : 0 });
+    }
+    const [spent, soft, hard] = order;
+    Object.assign(view.work_orders[0] ?? {}, { charged: { recorded_usd: spent, estimated_usd: 0, estimated_turns: 0, charged_usd: spent }, soft_limit: soft, hard_limit: hard, remaining: hard > 0 ? Math.max(hard - spent, 0) : 0 });
+  };
+  if (project === "spend-unset") {
+    stand([0, 0, 0], [0, 0, 0], [0, 0, 0]);
+  } else if (project === "spend-under") {
+    stand([3, 8, 10], [3, 40, 50], [5, 12.5, 25]);
+  } else if (project === "spend-soft") {
+    stand([9, 8, 10], [45, 40, 50], [13, 12.5, 25]);
+  }
+  return JSON.stringify(view);
+}
+
 // answer stands where the daemon stands, as `serveViews` does for the other tests.
 export async function answer(route: Route): Promise<void> {
   const url = new URL(route.request().url());
@@ -300,6 +321,15 @@ export async function answer(route: Route): Promise<void> {
   }
   if (path === "/v1/policies" && url.searchParams.get("kind") === "estimate") {
     return json(goldens["policies-estimate"] ?? "{}");
+  }
+  // What the Spend sections and the channel choice of Notifications read.
+  const spendPolicies: Record<string, string> = { spend: "policies-spend", installation_spend: "policies-installation-spend", notify: "policies-notify" };
+  const spendKind = spendPolicies[url.searchParams.get("kind") ?? ""];
+  if (path === "/v1/policies" && spendKind) {
+    return json(goldens[spendKind] ?? "{}");
+  }
+  if (path === "/v1/spend") {
+    return json(spendOf(project ?? ""));
   }
   if (path === "/v1/audit" && url.searchParams.get("actor") === "delegate") {
     return json(goldens["audit-delegates"] ?? "{}");

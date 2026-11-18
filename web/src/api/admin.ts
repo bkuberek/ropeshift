@@ -115,6 +115,39 @@ export type PolicyList = { versions: PolicyVersion[] };
 // sharing history while the project's records are still in the installation's pool.
 export type PublishedPolicy = PolicyVersion & { notice?: string };
 
+// Where a project's spend stands (ADR-0037), as `ropeshift spend show` reads it: the charged spend of the day, the week,
+// and each open work order against its limits. Every amount is US dollars at list price, and a limit of 0 is none.
+export type Charged = { recorded_usd: number; estimated_usd: number; estimated_turns: number; unpriced?: number; charged_usd: number };
+export type WorkOrderSpend = {
+  work_order: string;
+  kind: string;
+  charged: Charged;
+  label: string;
+  soft_limit: number;
+  hard_limit: number;
+  raised_to?: number;
+  basis?: string;
+  remaining: number;
+  conditions?: string[];
+  policy_version: number;
+};
+export type ProjectWindowSpend = {
+  window: "day" | "week";
+  spent_usd: number;
+  soft_limit: number;
+  hard_limit: number;
+  raised_to?: number;
+  remaining: number;
+  starts_at: number;
+  ends_at: number;
+};
+export type SpendView = {
+  project: { version: number; authored_by: string; created_at: number; keys: { key: string; value: string }[] };
+  installation: { version: number; authored_by: string; created_at: number; keys: { key: string; value: string }[] };
+  work_orders: WorkOrderSpend[] | null;
+  project_spend: { day: ProjectWindowSpend; week: ProjectWindowSpend };
+};
+
 export type Tools = { allow: string[]; deny: string[] };
 
 export type AgentFields = {
@@ -325,6 +358,7 @@ export const adminPaths = {
   fleetCaps: () => project("/fleet/caps"),
   policies: (kind: string) => project(`/policies${query({ kind })}`),
   publishPolicy: () => project("/policies"),
+  spend: () => project("/spend"),
   categories: () => project("/categories"),
   roster: (scope: Scope) => scoped(scope, "/roster"),
   rosterHistory: (scope: Scope, agent = "") => scoped(scope, `/roster/history${query({ scope, agent })}`),
@@ -391,6 +425,8 @@ export const setFleetMode = (mode: Fleet["fleet_mode"]) => call<Fleet>("PUT", ad
 export const setFleetCaps = (caps: { wip_limit: number; lanes_per_repository: number; lanes_per_worker: number }) => call<Fleet>("PUT", adminPaths.fleetCaps(), caps);
 export const readPolicies = (kind: string) => call<PolicyList>("GET", adminPaths.policies(kind));
 export const publishPolicy = (body: string) => call<PublishedPolicy>("POST", adminPaths.publishPolicy(), { body });
+// readSpend reads where the project's spend stands, as `ropeshift spend show` does.
+export const readSpend = () => call<SpendView>("GET", adminPaths.spend());
 export const readCategories = () => call<{ categories: string[] }>("GET", adminPaths.categories());
 // A category is added once for the workspace, as `ropeshift category add` does, and a repeat is done.
 export const addCategory = (name: string) => call<void>("POST", adminPaths.categories(), { name });

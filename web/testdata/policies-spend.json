@@ -1,0 +1,24 @@
+{
+  "versions": [
+    {
+      "id": "generated-1",
+      "kind": "spend",
+      "version": 2,
+      "digest": "sha256:fa37a2028363ca5da3f214cf3efa4d94d7f8e4e7d90b904efaecf492c5a11ede",
+      "body": "[spend_policy]\nversion = 2\n# Waits\nmax_live_wait = \"5m\"\nmax_tool_sleep = \"60s\"\nwait_rules_off = []\nwait_rule_patterns = { W1 = [], W2 = [], W3 = [], W4 = [] }\n# Limits\nsoft_quantile = \"p85\"\nhard_multiplier = 2.0\nlow_confidence_outcomes = 6\nlow_confidence_soft_share = 0.5\nno_history_limit = { small = 10.0, medium = 25.0, large = 60.0 }\nreview_share = 0.5\nreview_soft_share = 0.5\nplan_hard_multiplier = 2.0\nproject_daily_limit = 10.0\nproject_weekly_limit = 50.0\nproject_warn_share = 0.8\nassistant_daily_warn = 0.0\nbudget_flag_headroom_share = 0.1\n# No progress\nrepeat_limit = 3\nrepeat_denials_to_park = 2\nno_progress_share = 0.5\nno_progress_park_multiplier = 2.0\nno_history_no_progress = 5.0\n# Waiting alert\nwaiting_alert_share = 0.5\nwaiting_alert_window = \"30m\"\nwaiting_alert_min_calls = 5\n# Session classes\nassistant_class = \"standard\"\n",
+      "settings": "{\"version\":2,\"max_live_wait\":\"5m\",\"max_tool_sleep\":\"60s\",\"wait_rules_off\":[],\"wait_rule_patterns\":{\"W1\":[],\"W2\":[],\"W3\":[],\"W4\":[]},\"soft_quantile\":\"p85\",\"hard_multiplier\":2,\"low_confidence_outcomes\":6,\"low_confidence_soft_share\":0.5,\"no_history_limit\":{\"small\":10,\"medium\":25,\"large\":60},\"review_share\":0.5,\"review_soft_share\":0.5,\"plan_hard_multiplier\":2,\"project_daily_limit\":10,\"project_weekly_limit\":50,\"project_warn_share\":0.8,\"assistant_daily_warn\":0,\"budget_flag_headroom_share\":0.1,\"repeat_limit\":3,\"repeat_denials_to_park\":2,\"no_progress_share\":0.5,\"no_progress_park_multiplier\":2,\"no_history_no_progress\":5,\"waiting_alert_share\":0.5,\"waiting_alert_window\":\"30m\",\"waiting_alert_min_calls\":5,\"assistant_class\":\"standard\"}",
+      "authored_by": "member-1",
+      "created_at": 1794000000000
+    },
+    {
+      "id": "generated-2",
+      "kind": "spend",
+      "version": 1,
+      "digest": "sha256:a2ce922ec9bc757dd79d15364158572adba8034a35945d722501b21b5847ad20",
+      "body": "[spend_policy]\nversion = 1\n# Waits\nmax_live_wait = \"5m\"\nmax_tool_sleep = \"60s\"\nwait_rules_off = []\nwait_rule_patterns = { W1 = [], W2 = [], W3 = [], W4 = [] }\n# Limits\nsoft_quantile = \"p85\"\nhard_multiplier = 2.0\nlow_confidence_outcomes = 6\nlow_confidence_soft_share = 0.5\nno_history_limit = { small = 10.0, medium = 25.0, large = 60.0 }\nreview_share = 0.5\nreview_soft_share = 0.5\nplan_hard_multiplier = 2.0\nproject_daily_limit = 0.0\nproject_weekly_limit = 0.0\nproject_warn_share = 0.8\nassistant_daily_warn = 0.0\nbudget_flag_headroom_share = 0.1\n# No progress\nrepeat_limit = 3\nrepeat_denials_to_park = 2\nno_progress_share = 0.5\nno_progress_park_multiplier = 2.0\nno_history_no_progress = 5.0\n# Waiting alert\nwaiting_alert_share = 0.5\nwaiting_alert_window = \"30m\"\nwaiting_alert_min_calls = 5\n# Session classes\nassistant_class = \"standard\"\n",
+      "settings": "{\"version\":1,\"max_live_wait\":\"5m\",\"max_tool_sleep\":\"60s\",\"wait_rules_off\":[],\"wait_rule_patterns\":{\"W1\":[],\"W2\":[],\"W3\":[],\"W4\":[]},\"soft_quantile\":\"p85\",\"hard_multiplier\":2,\"low_confidence_outcomes\":6,\"low_confidence_soft_share\":0.5,\"no_history_limit\":{\"small\":10,\"medium\":25,\"large\":60},\"review_share\":0.5,\"review_soft_share\":0.5,\"plan_hard_multiplier\":2,\"project_daily_limit\":0,\"project_weekly_limit\":0,\"project_warn_share\":0.8,\"assistant_daily_warn\":0,\"budget_flag_headroom_share\":0.1,\"repeat_limit\":3,\"repeat_denials_to_park\":2,\"no_progress_share\":0.5,\"no_progress_park_multiplier\":2,\"no_history_no_progress\":5,\"waiting_alert_share\":0.5,\"waiting_alert_window\":\"30m\",\"waiting_alert_min_calls\":5,\"assistant_class\":\"standard\"}",
+      "authored_by": "built-in",
+      "created_at": 1794000000000
+    }
+  ]
+}

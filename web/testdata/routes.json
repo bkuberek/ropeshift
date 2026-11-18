@@ -431,6 +431,11 @@
   },
   {
     "method": "GET",
+    "pattern": "/v1/projects/{project}/spend",
+    "command": "spend show"
+  },
+  {
+    "method": "GET",
     "pattern": "/v1/projects/{project}/categories",
     "command": "category list"
   },

@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import { agentLines, capsAbove, capsDraftOf, capsProblems, capsSettings, capsWords, changedFields, forgeBindingProblem, minutesOf, newID, nextVersion, outcomeOf, policies, policyBody, policySettings, problemOf, projectNameOf, settingsOf, tomlString } from "./logic";
 import type { PolicyValues } from "./logic";
+import type { PolicyList } from "../api/admin";
+import { golden } from "../testing";
 
 
 describe("policy bodies", () => {
@@ -207,6 +209,75 @@ describe("the estimate policy", () => {
     expect(problemOf(idle, { idle_stop: 0 })).toBe("Enter a whole number of minutes, 1 to 1,440.");
     expect(problemOf(idle, { idle_stop: 30 })).toBe("");
     expect(problemOf(policies.recovery.fields.find((one) => one.key === "retry_failed")!, { retry_failed: true })).toBe("");
+  });
+});
+
+describe("the spend policies", () => {
+  const project = golden<PolicyList>("policies-spend").versions;
+  const installation = golden<PolicyList>("policies-installation-spend").versions;
+  const field = (kind: "spend" | "installation_spend", key: string) => policies[kind].fields.find((one) => one.key === key)!;
+  const held = (key: string, value: PolicyValues[string]) => ({ ...policySettings("spend", project[0]!.settings), [key]: value });
+
+  it("writes every version the ledger holds back as the body the ledger holds, so a diff shows only what a member changed", () => {
+    expect(project.length).toBeGreaterThan(1);
+    for (const version of project) {
+      expect(policyBody("spend", version.version, policySettings("spend", version.settings))).toBe(version.body);
+    }
+    expect(installation.length).toBeGreaterThan(1);
+    for (const version of installation) {
+      expect(policyBody("installation_spend", version.version, policySettings("installation_spend", version.settings))).toBe(version.body);
+    }
+  });
+
+  it("offers every key the CLI sets, once and in a group", () => {
+    const keys = policies.spend.fields.map((one) => one.key);
+    expect(new Set(keys).size).toBe(keys.length);
+    const stated = Object.keys(JSON.parse(project[0]!.settings) as Record<string, unknown>).filter((key) => key !== "version");
+    const offered = new Set(keys.map((key) => key.split(".")[0]));
+    expect(stated.filter((key) => !offered.has(key))).toEqual([]);
+    expect(policies.spend.fields.every((one) => one.group)).toBe(true);
+    expect(policies.installation_spend.fields.map((one) => one.key)).toEqual(["orchestrator_class", "orchestrator_daily_warn"]);
+  });
+
+  it("holds an amount, a share, a multiplier, a count, and a duration to the range the API holds, and names the range", () => {
+    expect(problemOf(field("spend", "project_daily_limit"), held("project_daily_limit", -1))).toBe("Enter an amount in dollars from 0 to 1,000,000. 0 is none.");
+    expect(problemOf(field("spend", "project_daily_limit"), held("project_daily_limit", ""))).toBe("Enter an amount in dollars from 0 to 1,000,000. 0 is none.");
+    expect(problemOf(field("spend", "project_daily_limit"), held("project_daily_limit", 0))).toBe("");
+    expect(problemOf(field("spend", "project_warn_share"), held("project_warn_share", 1.5))).toBe("Enter a share from 0 to 1, such as 0.8 for 80 percent.");
+    expect(problemOf(field("spend", "hard_multiplier"), held("hard_multiplier", 0.5))).toBe("Enter a number from 1 to 10.");
+    expect(problemOf(field("spend", "repeat_limit"), held("repeat_limit", 1))).toBe("Enter a whole number, 2 or more.");
+    expect(problemOf(field("spend", "repeat_limit"), held("repeat_limit", 21))).toBe("Enter a whole number from 2 to 20.");
+    expect(problemOf(field("spend", "max_live_wait"), held("max_live_wait", "30s"))).toBe("Enter a duration from 1m to 1h, such as 5m.");
+    expect(problemOf(field("spend", "max_live_wait"), held("max_live_wait", "1h30m"))).toBe("Enter a duration from 1m to 1h, such as 5m.");
+    expect(problemOf(field("spend", "max_live_wait"), held("max_live_wait", "five minutes"))).toBe("Enter a duration from 1m to 1h, such as 5m.");
+    expect(problemOf(field("spend", "max_live_wait"), held("max_live_wait", "90s"))).toBe("");
+    expect(problemOf(field("spend", "waiting_alert_window"), held("waiting_alert_window", "24h"))).toBe("");
+    expect(problemOf(field("installation_spend", "orchestrator_daily_warn"), { orchestrator_daily_warn: 2_000_000 })).toBe("Enter an amount in dollars from 0 to 1,000,000. 0 is none.");
+  });
+
+  it("holds the command prefixes of a wait rule to what the API holds", () => {
+    const many = Array.from({ length: 65 }, (_, at) => `run ${at}`);
+    expect(problemOf(field("spend", "wait_rule_patterns.W1"), held("wait_rule_patterns.W1", many))).toBe("Name at most 64 command prefixes, each up to 200 bytes.");
+    expect(problemOf(field("spend", "wait_rule_patterns.W1"), held("wait_rule_patterns.W1", ["x".repeat(201)]))).toBe("Name at most 64 command prefixes, each up to 200 bytes.");
+    expect(problemOf(field("spend", "wait_rule_patterns.W1"), held("wait_rule_patterns.W1", ["npm run build"]))).toBe("");
+  });
+
+  it("escapes a carriage return and every control character in a text as TOML requires, wherever a policy writes one", () => {
+    expect(tomlString("a\rb\u0001c\u007fd\be\ff")).toBe('"a\\rb\\u0001c\\u007fd\\be\\ff"');
+    const tricky = 'run "x"\\y\r\nz\u0000';
+    const body = policyBody("spend", 3, { ...policySettings("spend", project[0]!.settings), assistant_class: "stand\rard\u0007", "wait_rule_patterns.W2": [tricky] });
+    expect(body).toContain('assistant_class = "stand\\rard\\u0007"\n');
+    expect(body).toContain('W2 = ["run \\"x\\"\\\\y\\r\\nz\\u0000"]');
+    // No raw carriage return or control character reaches the body, so the policy cannot read a line the member did not write.
+    expect(/[\r\u0000-\u0008\u000b-\u001f\u007f]/.test(body)).toBe(false);
+  });
+
+  it("writes a number as a float where the policy does, and leaves the wait rules and their prefixes in the body's own order", () => {
+    const body = policyBody("spend", 3, { ...policySettings("spend", project[0]!.settings), project_daily_limit: 30, "wait_rules_off": ["W2"], "wait_rule_patterns.W1": ["sleep "] });
+    expect(body).toContain("project_daily_limit = 30.0\n");
+    expect(body).toContain('wait_rules_off = ["W2"]\n');
+    expect(body).toContain('wait_rule_patterns = { W1 = ["sleep "], W2 = [], W3 = [], W4 = [] }\n');
+    expect(body.startsWith("[spend_policy]\nversion = 3\n# Waits\n")).toBe(true);
   });
 });
 

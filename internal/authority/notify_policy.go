@@ -18,9 +18,10 @@ const PolicyNotify PolicyKind = "notify"
 // ErrBadNotifyPolicy marks a notify policy a workspace cannot run on.
 var ErrBadNotifyPolicy = errors.New("invalid notify policy")
 
-// secretEnvName is what the name of a variable looks like, so a key pasted in its place is refused and
-// never reaches the ledger.
-var secretEnvName = regexp.MustCompile(`^[A-Z][A-Z0-9_]{0,63}$`)
+// secretEnvName is what the name of a variable that may hold a webhook key looks like: it starts with the prefix every
+// such variable has, so a key pasted in its place is refused and never reaches the ledger, and no other variable of the
+// daemon's environment, such as one that holds a database address, can sign a delivery to a host a member chose.
+var secretEnvName = regexp.MustCompile(`^` + ledger.WebhookSecretEnvPrefix + `[A-Z0-9_]{1,48}$`)
 
 // The channels a notice reaches, as the ledger's record of a delivery names them.
 const (
@@ -137,7 +138,7 @@ func (p NotifyPolicy) Check() error {
 			return fmt.Errorf("%w: a signing key with no webhook", ErrBadNotifyPolicy)
 		}
 		if !secretEnvName.MatchString(p.WebhookSecretEnv) {
-			return fmt.Errorf("%w: webhook_secret_env names a variable, and it never holds the key", ErrBadNotifyPolicy)
+			return fmt.Errorf("%w: webhook_secret_env names a variable of the daemon's environment that starts with %s, such as %sNOTIFY, and it never holds the key", ErrBadNotifyPolicy, ledger.WebhookSecretEnvPrefix, ledger.WebhookSecretEnvPrefix)
 		}
 	}
 	if p.WebhookURL != "" {

@@ -442,6 +442,82 @@ suite.each(Object.entries(sizes))("at %s width", (size, viewport) => {
     );
 
     it(
+      "the spend section, with a value the API would refuse, in review, with a refusal, read only for a member the API refuses, and its history, meets WCAG 2.2 A and AA",
+      async () => {
+        const context = await browser.newContext({ viewport, colorScheme: theme, reducedMotion: "reduce" });
+        await context.route(/\/v1\//, answer);
+        const page = await context.newPage();
+        const found: string[] = [];
+        const settle = async () => {
+          await page.mouse.move(0, 0);
+          await page.waitForTimeout(600);
+        };
+        await page.goto(`${base}/projects/default/settings?section=spend`);
+        await ready(page);
+        const daily = page.getByLabel(/^Project daily limit/);
+        await daily.fill("-1");
+        await page.getByText("Enter an amount in dollars from 0 to 1,000,000. 0 is none.").waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `spend with an error ${violation}`));
+        await daily.fill("30");
+        await page.getByRole("button", { name: "Review change" }).click();
+        const dialog = page.getByRole("dialog", { name: "Review the spend change" });
+        await dialog.waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `spend review ${violation}`));
+        const refused = (status: number, code: string, message: string) => (route: Route) =>
+          route.request().method() === "POST" ? route.fulfill({ status, contentType: "application/json", body: JSON.stringify({ error: { code, message } }) }) : route.fallback();
+        await page.route(/\/v1\/projects\/default\/policies$/, refused(400, "invalid", "invalid spend policy: project_daily_limit is 30, and the policy refuses it"));
+        await dialog.getByRole("button", { name: "Save version 3" }).click();
+        await dialog.getByRole("alert").waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `spend review with a refusal ${violation}`));
+        await page.route(/\/v1\/projects\/default\/policies$/, refused(403, "forbidden", "only a maintainer changes the spend policy"));
+        await dialog.getByRole("button", { name: "Save version 3" }).click();
+        await dialog.getByText(/only a maintainer changes the spend policy/).waitFor();
+        await dialog.getByRole("button", { name: "Keep editing" }).click();
+        await page.getByText(/you may read this policy, and not publish a version of it/).waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `spend read only ${violation}`));
+        await page.getByRole("tab", { name: /History/ }).click();
+        await page.getByRole("heading", { name: "Version 1" }).waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `spend history ${violation}`));
+        await context.close();
+        expect(found.map((line) => `${size} ${theme} ${line}`)).toEqual([]);
+      },
+      120_000,
+    );
+
+    it(
+      "the channel choice of each spend alert, chosen, and chosen for a channel the policy turned off, meets WCAG 2.2 A and AA",
+      async () => {
+        const context = await browser.newContext({ viewport, colorScheme: theme, reducedMotion: "reduce" });
+        await context.route(/\/v1\//, answer);
+        const page = await context.newPage();
+        const found: string[] = [];
+        const settle = async () => {
+          await page.mouse.move(0, 0);
+          await page.waitForTimeout(600);
+        };
+        await page.goto(`${base}/projects/default/settings?section=notify`);
+        await ready(page);
+        await page.getByRole("table", { name: "Channels for each spend alert" }).waitFor();
+        await page.getByRole("checkbox", { name: /was reached, and work parked.*send to the webhook/ }).check();
+        await page.getByText(/spend_channels spend_hard_limit to desktop → /).waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `channel choice chosen ${violation}`));
+        await page.getByRole("checkbox", { name: /Desktop notifications/ }).uncheck();
+        await page.getByText("An alert is sent to the desktop, and desktop notifications are off. Turn them on, or clear the choice.").waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `channel choice with an error ${violation}`));
+        await context.close();
+        expect(found.map((line) => `${size} ${theme} ${line}`)).toEqual([]);
+      },
+      120_000,
+    );
+
+    it(
       "the add agent dialog, as a copy, with pasted TOML, with text that stops it, and with a refusal, meets WCAG 2.2 A and AA",
       async () => {
         const context = await browser.newContext({ viewport, colorScheme: theme, reducedMotion: "reduce" });

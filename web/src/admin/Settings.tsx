@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from "react";
+import { Fragment, useEffect, useId, useReducer, useState } from "react";
 import type { ReactNode } from "react";
 
 import {
@@ -21,6 +21,7 @@ import {
   setLevel,
 } from "../api/admin";
 import type { Autonomy, Fleet, Level, PolicyList, PolicyVersion, RepositoryList, Risk, WorkerCaps, WorkerList } from "../api/admin";
+import { ApiError } from "../api/client";
 import { readOperations } from "../api/delegates";
 import type { Operation } from "../api/delegates";
 import { useHealth } from "../api/useHealth";
@@ -39,6 +40,8 @@ import { capsAbove, capsDraftOf, capsProblems, capsSettings, capsWords, minutesB
 import type { CapsDraft, DelegationClass, FieldSpec, PolicyKind, PolicyValue, PolicyValues } from "./logic";
 import { PassphraseForm } from "./Passphrase";
 import { RiskStatement } from "./RiskStatement";
+import { PatternsField, RulesField, SpendChannelsField } from "./SpendFields";
+import { SpendUsage } from "./SpendUsage";
 import { dateOf, Reading, SaveBar, saveDownload, timeOf, useChange, useDraft, useLeaveGuard, useRead } from "./parts";
 
 export type Prefs = { theme: Theme; setTheme: (theme: Theme) => void; singleKeys: boolean; setSingleKeys: (on: boolean) => void };
@@ -51,6 +54,12 @@ const sections: Section[] = [
   { id: "admission", title: "Admission and lane caps", scope: "installation", note: "Caps count the lanes of every project on a machine. The orchestrator and the assistant never count." },
   { id: "autonomy-policy", title: "Autonomy defaults", scope: "installation", note: "The level a new worker starts at, and what an attended worker may run. Every project shares this policy." },
   { id: "assistant", title: "Assistant", scope: "installation", note: "When an idle assistant session stops. A stopped conversation stays in the ledger and resumes when you send." },
+  {
+    id: "installation-spend",
+    title: "Orchestrator spend",
+    scope: "installation",
+    note: "The class the orchestrator runs on, and its daily warning, for every project on the machine. An installation admin publishes this policy, and the form reads only for anyone the API refuses.",
+  },
   { id: "backup", title: "Backup", scope: "installation", note: "A copy of the installation's own records: the projects' registry, the members and the passphrase's hash, and the workers." },
   { id: "about", title: "About", scope: "installation", note: "The build of the daemon this page talks to, and whether a newer ropeshift is installed beside it." },
   { id: "autonomy", title: "Autonomy and run windows", scope: "worker", note: "How freely each worker claims work, and the windows an attended worker runs in." },
@@ -68,6 +77,12 @@ const sections: Section[] = [
     title: "Estimate policy",
     scope: "project",
     note: "How many comparable outcomes an estimate needs and reads, how many trials a forecast runs, and whether this project shares its delivery history with the installation's pool.",
+  },
+  {
+    id: "spend",
+    title: "Spend",
+    scope: "project",
+    note: "What the project's lanes were charged, and every limit and setting that stops waste: waits, work order and project limits, the hard stop, no progress, and the waiting alert. Each save is a new version.",
   },
   { id: "appearance", title: "Appearance and keyboard", scope: "you", note: "This browser's own choices." },
   { id: "passphrase", title: "Change passphrase", scope: "you", note: "The passphrase that signs you in on this machine. Changing it ends your other sessions." },
@@ -91,6 +106,8 @@ const policyOf: Partial<Record<string, PolicyKind>> = {
   "delegate-policy": "delegate",
   notify: "notify",
   estimate: "estimate",
+  spend: "spend",
+  "installation-spend": "installation_spend",
 };
 
 type SettingsProps = { live: Live; project: string; label: string; archived: boolean; section: string; worker: string; prefs: Prefs };
@@ -173,7 +190,8 @@ function SectionBody({ section, live, project, label, archived, worker, prefs }:
   return (
     <>
       {archived ? <Banner tone="neutral">{label} is archived and read-only. Restore it from Projects to change its settings.</Banner> : null}
-      {kind ? <PolicySection section={section} kind={kind} live={live} project={project} archived={archived} /> : null}
+      {kind && section.id === "spend" ? <SpendSection section={section} live={live} project={project} archived={archived} /> : null}
+      {kind && section.id !== "spend" ? <PolicySection section={section} kind={kind} live={live} project={project} archived={archived} /> : null}
       {section.id === "admission" ? <AdmissionSection section={section} live={live} selected={worker} /> : null}
       {section.id === "backup" ? <BackupSection section={section} /> : null}
       {section.id === "about" ? <AboutSection section={section} live={live} /> : null}
@@ -724,18 +742,45 @@ function AppearanceSection({ section, prefs }: { section: Section; prefs: Prefs 
   );
 }
 
+// held is what a value holds, where a table with nothing in it holds nothing, as the policy reads it.
+const held = (value: PolicyValue | undefined): unknown => (value && typeof value === "object" && !Array.isArray(value) && Object.keys(value).length === 0 ? null : (value ?? null));
+
 const valueWords = (value: PolicyValue | undefined, minutes = false): string => {
   if (Array.isArray(value)) {
     return value.length === 0 ? "none" : value.map((item) => (typeof item === "string" ? item : item.tool)).join(", ");
   }
+  if (held(value) === null && typeof value === "object") {
+    return "none";
+  }
+  if (value && typeof value === "object") {
+    return Object.entries(value as Record<string, string[]>)
+      .map(([kind, channels]) => `${kind} to ${channels.join(" and ")}`)
+      .join(", ");
+  }
   return value === undefined || value === "" ? "unset" : minutes ? `${value} min` : String(value);
 };
 
-const same = (a: PolicyValue | undefined, b: PolicyValue | undefined) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+const same = (a: PolicyValue | undefined, b: PolicyValue | undefined) => JSON.stringify(held(a)) === JSON.stringify(held(b));
+
+// SpendSection is the project's Spend: what its lanes were charged against each limit, above the form that edits every spend
+// setting. A saved version moves the limits of every work order at once, so the charged spend is read again with it.
+function SpendSection({ section, live, project, archived }: { section: Section; live: Live; project: string; archived: boolean }) {
+  const [saved, again] = useReducer((count: number) => count + 1, 0);
+  return <PolicySection section={section} kind="spend" live={live} project={project} archived={archived} above={<SpendUsage live={live} project={project} again={saved} />} onSaved={again} />;
+}
 
 // PolicySection edits one versioned policy: its settings, a review of the difference before Save version
-// N, and its history, where Revert records an earlier version's settings as the newest.
-function PolicySection({ section, kind, live, project, archived }: { section: Section; kind: PolicyKind; live: Live; project: string; archived: boolean }) {
+// N, and its history, where Revert records an earlier version's settings as the newest. A publish the API refuses as
+// forbidden leaves the form to read only, with the reason.
+function PolicySection({ section, kind, live, project, archived, above, onSaved }: {
+  section: Section;
+  kind: PolicyKind;
+  live: Live;
+  project: string;
+  archived: boolean;
+  above?: ReactNode;
+  onSaved?: () => void;
+}) {
   const read = useRead<PolicyList>(() => readPolicies(kind), `policies:${kind}:${project}`, live);
   const [tab, setTab] = useState<"settings" | "history">("settings");
   const versions = read.view?.versions ?? [];
@@ -751,6 +796,8 @@ function PolicySection({ section, kind, live, project, archived }: { section: Se
   const [review, setReview] = useState<{ body: string; version: number; title: string } | null>(null);
   // notice is what the API says still follows from the version just saved, until the next change.
   const [notice, setNotice] = useState("");
+  // forbidden says the API refused a publish as the member's to make no longer: the form reads and changes nothing.
+  const [forbidden, setForbidden] = useState(false);
   const change = useChange();
   const toast = useToast();
   const idBase = useId();
@@ -763,17 +810,25 @@ function PolicySection({ section, kind, live, project, archived }: { section: Se
     if (!review) {
       return;
     }
-    const made = await change.run(() => publishPolicy(review.body));
+    const made = await change.run(() =>
+      publishPolicy(review.body).catch((error: unknown) => {
+        setForbidden(error instanceof ApiError && error.code === "forbidden");
+        throw error;
+      }),
+    );
     if (made) {
       setReview(null);
       setNotice(made.notice ?? "");
       toast("success", `Saved ${section.title.toLowerCase()} version ${made.version}.`);
       read.again();
+      onSaved?.();
     }
   };
+  const readOnly = archived || forbidden;
   return (
     <>
       <SectionHead section={section} />
+      {above}
       <Tabs
         label={`${section.title} sections`}
         idBase={idBase}
@@ -801,27 +856,33 @@ function PolicySection({ section, kind, live, project, archived }: { section: Se
                     "No version yet."
                   )}
                 </p>
-                {fields.map((field) => (
-                  <PolicyField
-                    key={field.key}
-                    kind={kind}
-                    spec={field}
-                    value={values[field.key]}
-                    saved={saved[field.key]}
-                    disabled={archived}
-                    operations={consent.operations}
-                    dropped={dropped}
-                    problem={problemOf(field, values)}
-                    failure={review ? "" : change.failure}
-                    onChange={(value) => setValues((was) => ({ ...was, [field.key]: value }))}
-                  />
+                {forbidden ? <Banner tone="warning">The API refused this change: you may read this policy, and not publish a version of it. The form reads only.</Banner> : null}
+                {fields.map((field, at) => (
+                  <Fragment key={field.key}>
+                    {field.group && field.group !== fields[at - 1]?.group ? (
+                      <h2 className="h4">{field.group}</h2>
+                    ) : null}
+                    <PolicyField
+                      kind={kind}
+                      spec={field}
+                      value={values[field.key]}
+                      saved={saved[field.key]}
+                      form={values}
+                      disabled={readOnly}
+                      operations={consent.operations}
+                      dropped={dropped}
+                      problem={problemOf(field, values)}
+                      failure={review ? "" : change.failure}
+                      onChange={(value) => setValues((was) => ({ ...was, [field.key]: value }))}
+                    />
+                  </Fragment>
                 ))}
                 {change.failure && !review && !fields.some((field) => field.type === "operations") ? <Refusal>{change.failure}</Refusal> : null}
               </div>
               <SaveBar
                 summary={summary}
                 saveLabel="Review change"
-                disabled={archived || invalid}
+                disabled={readOnly || invalid}
                 onDiscard={() => setValues(saved)}
                 onSave={() => setReview({ body: policyBody(kind, next, values), version: next, title: `Review the ${section.title.toLowerCase()} change` })}
               />
@@ -829,7 +890,7 @@ function PolicySection({ section, kind, live, project, archived }: { section: Se
           ) : (
             <PolicyHistory
               versions={versions}
-              archived={archived}
+              archived={readOnly}
               onRevert={(version) => setReview({ body: policyBody(kind, next, policySettings(kind, version.settings)), version: next, title: `Revert to version ${version.version}` })}
             />
           )}
@@ -852,7 +913,7 @@ function PolicySection({ section, kind, live, project, archived }: { section: Se
       >
         <div className="stack">
           <p className="small">Records version {review?.version}. What reads this policy reads the new version from now on; the earlier ones stay in its history.</p>
-          <Diff lines={lineDiff(current?.body ?? "", review?.body ?? "")} label="Policy change" />
+          <Diff lines={lineDiff(current?.body ?? "", review?.body ?? "")} label="Policy change" context={3} />
           {change.failure ? <Refusal>{change.failure}</Refusal> : null}
         </div>
       </Dialog>
@@ -886,18 +947,20 @@ function PolicyHistory({ versions, archived, onRevert }: { versions: PolicyVersi
             </>
           }
         >
-          <Diff lines={lineDiff(versions[at + 1]?.body ?? "", version.body)} label={`Version ${version.version}'s change`} />
+          <Diff lines={lineDiff(versions[at + 1]?.body ?? "", version.body)} label={`Version ${version.version}'s change`} context={3} />
         </Panel>
       ))}
     </div>
   );
 }
 
-function PolicyField({ kind, spec, value, saved, disabled, operations = null, dropped = [], problem = "", failure = "", onChange }: {
+function PolicyField({ kind, spec, value, saved, form = {}, disabled, operations = null, dropped = [], problem = "", failure = "", onChange }: {
   kind: PolicyKind;
   spec: (typeof policies)[PolicyKind]["fields"][number];
   value: PolicyValue | undefined;
   saved: PolicyValue | undefined;
+  // form is every value of the draft, which a field that depends on another reads.
+  form?: PolicyValues;
   disabled: boolean;
   // operations are the class table's consent operations, null until it is read, and dropped the IDs the
   // draft left out of the stored version, which an operations field lists and names.
@@ -939,6 +1002,50 @@ function PolicyField({ kind, spec, value, saved, disabled, operations = null, dr
           onChange={(event) => onChange(event.target.value === "" ? "" : Number(event.target.value))}
         />
       </Field>
+    );
+  }
+  if (spec.type === "decimal") {
+    return (
+      <Field label={spec.label} source={source} help={spec.help} error={problem || undefined}>
+        <input
+          className="input num field-tiny"
+          type="number"
+          min={spec.min}
+          max={spec.max}
+          step="any"
+          inputMode="decimal"
+          autoComplete="off"
+          disabled={disabled}
+          value={String(value ?? "")}
+          onChange={(event) => onChange(event.target.value === "" ? "" : Number(event.target.value))}
+        />
+      </Field>
+    );
+  }
+  if (spec.type === "duration") {
+    return (
+      <Field label={spec.label} source={source} help={spec.help} error={problem || undefined}>
+        <input className="input mono field-tiny" autoComplete="off" spellCheck={false} disabled={disabled} value={String(value ?? "")} onChange={(event) => onChange(event.target.value)} />
+      </Field>
+    );
+  }
+  if (spec.type === "rules") {
+    return <RulesField label={spec.label} help={spec.help} value={(value as string[] | undefined) ?? []} disabled={disabled} onChange={onChange} />;
+  }
+  if (spec.type === "patterns") {
+    return <PatternsField label={spec.label} help={spec.help} value={(value as string[] | undefined) ?? []} disabled={disabled} error={problem || undefined} onChange={onChange} />;
+  }
+  if (spec.type === "channels") {
+    return (
+      <SpendChannelsField
+        label={spec.label}
+        help={spec.help}
+        value={(value as unknown as Record<string, string[]> | undefined) ?? {}}
+        form={form}
+        disabled={disabled}
+        error={problem || undefined}
+        onChange={(next) => onChange(next as unknown as PolicyValue)}
+      />
     );
   }
   if (spec.type === "minutes") {

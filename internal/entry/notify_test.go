@@ -221,9 +221,9 @@ func TestAFailureReportsNoAddressAndNoKey(t *testing.T) {
 	d := somethingWaits(t)
 	const key = "a-signing-key-value"
 	deps := watching(t, nil)
-	deps.Lookup = func(name string) (string, bool) { return key, name == "ROPESHIFT_WEBHOOK_KEY" }
+	deps.Lookup = func(name string) (string, bool) { return key, name == "ROPESHIFT_HOOK_NOTIFY" }
 	url := "https://hooks.example.com/path-only-this-daemon-knows"
-	body := "[notify_policy]\nversion = 2\nwebhook_url = \"" + url + "\"\nwebhook_secret_env = \"ROPESHIFT_WEBHOOK_KEY\"\n"
+	body := "[notify_policy]\nversion = 2\nwebhook_url = \"" + url + "\"\nwebhook_secret_env = \"ROPESHIFT_HOOK_NOTIFY\"\n"
 	if _, err := d.Client.PublishPolicy(t.Context(), body); err != nil {
 		t.Fatal(err)
 	}

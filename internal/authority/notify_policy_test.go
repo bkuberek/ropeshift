@@ -77,6 +77,38 @@ func TestAPolicyChoosesTheChannelsOfEachSpendNoticeKind(t *testing.T) {
 	}
 }
 
+// A webhook is signed with the value of a variable of the daemon's environment that a member names, and the webhook goes to a
+// host the member chooses, so any variable a member could name would be a way to send its value off the machine. A version
+// that is published names a variable that starts with the prefix of the variables that may hold a webhook key, and a version
+// stored before that is still read.
+func TestAPublishedPolicyNamesOnlyAVariableThatMayHoldAWebhookKey(t *testing.T) {
+	t.Parallel()
+	body := func(name string) string {
+		return "[notify_policy]\nversion = 2\nwebhook_url = \"https://hooks.example.com/r\"\nwebhook_secret_env = \"" + name + "\"\n"
+	}
+	for _, name := range []string{"DATABASE_URL", "AWS_SECRET_ACCESS_KEY", "ROPESHIFT_WEBHOOK_KEY", "HOOK_ROPESHIFT_", "ROPESHIFT_HOOK_"} {
+		err := notifyPolicyOf(t, body(name)).Check()
+		if !errors.Is(err, authority.ErrBadNotifyPolicy) || !strings.Contains(err.Error(), ledger.WebhookSecretEnvPrefix) {
+			t.Errorf("a signing variable named %s was answered %v, want a refusal that names %s", name, err, ledger.WebhookSecretEnvPrefix)
+		}
+	}
+	for _, name := range []string{"ROPESHIFT_HOOK_NOTIFY", "ROPESHIFT_HOOK_X1_2"} {
+		if err := notifyPolicyOf(t, body(name)).Check(); err != nil {
+			t.Errorf("a signing variable named %s was refused: %v", name, err)
+		}
+	}
+	// A version stored before the prefix was required reads as it did, so a daemon that holds one still delivers.
+	old := authority.NotifyPolicyDraft{Body: body("DATABASE_URL"), Policy: notifyPolicyOf(t, body("DATABASE_URL"))}
+	version, err := authority.NewNotifyPolicyVersion("old", "member-1", old, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	read, err := authority.ReadNotifyPolicy(version)
+	if err != nil || read.WebhookSecretEnv != "DATABASE_URL" {
+		t.Errorf("a stored version reads %+v: %v", read, err)
+	}
+}
+
 // A choice that names no spend kind, no channel this build has, a channel the policy leaves off, or the email the mailer
 // would carry is refused with what it got wrong, because a choice that did nothing would read as turned on.
 func TestAPolicyRefusesAChoiceItCannotKeep(t *testing.T) {

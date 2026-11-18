@@ -63,6 +63,8 @@ spend_policy_changed = ["webhook"]
 
 With that policy a hard stop reaches the web UI, the desktop, and the webhook, a soft notice reaches the web UI only, and a changed spend setting reaches the web UI and the webhook. A channel you choose must be turned on above it: `spend_channels` that names the desktop with `desktop` off, or the webhook with no `webhook_url`, is refused, and so is a kind that is not a spend kind, a channel that does not exist, and `email`, which this build has no mailer for. Questions, approvals, work, and CI notices keep going to every channel the policy turns on. A new version takes effect at the next tick, with no restart.
 
+Settings, Notifications chooses the same channels in the web UI: a table of the five kinds with a Desktop and a Webhook box for each, and the web UI marked Always. It publishes the same `[notify_policy.spend_channels]` as the file does, and a save of the webhook or the desktop setting keeps the choice. A box is offered only while the policy turns its channel on, and a choice of a channel that is turned off holds Review change back with the reason the API would give.
+
 ## Channels
 
 | Channel | How it reaches a member | Turned on by |
@@ -78,14 +80,14 @@ A member publishes the policy with `ropeshift policy publish --file F`. Only a m
 version = 2
 desktop = true
 webhook_url = "https://hooks.example.com/ropeshift"
-webhook_secret_env = "ROPESHIFT_WEBHOOK_KEY"
+webhook_secret_env = "ROPESHIFT_HOOK_NOTIFY"
 ```
 
 ## Webhooks and secrets
 
 `webhook_url` must be `https`, or `http` to a loopback address. An address with a user, a query, or a fragment is refused, because those parts are where a URL carries a credential, and a URL ends up in logs and proxies. Ropeshift cannot tell a token in a path from a path, so do not use a URL that holds one: a receiver that needs a secret should verify the signature instead.
 
-`webhook_secret_env` names a variable in the daemon's environment, and the ledger holds that name and never the key. With a key set, each delivery carries `Ropeshift-Signature: sha256=<hex>`, the HMAC-SHA256 of the body under that key, so the key itself never crosses the wire. Each delivery also carries `Ropeshift-Delivery`, the same value as `delivery`.
+`webhook_secret_env` names a variable in the daemon's environment, and the ledger holds that name and never the key. The name starts with `ROPESHIFT_HOOK_`, such as `ROPESHIFT_HOOK_NOTIFY`, so no other variable of the daemon's environment, such as one that holds a database address, can sign a delivery to an address you chose; a policy that names any other variable is refused when it is published. A version published before this rule is still read as it was. With a key set, each delivery carries `Ropeshift-Signature: sha256=<hex>`, the HMAC-SHA256 of the body under that key, so the key itself never crosses the wire. Each delivery also carries `Ropeshift-Delivery`, the same value as `delivery`.
 
 A delivery follows no redirect and uses no proxy, and it goes only to the address a member published. Anything but a 2xx answer counts as a refusal. What a failure records says what went wrong and never where: no address and no key reach a log or the ledger.
 

@@ -1,0 +1,24 @@
+{
+  "versions": [
+    {
+      "id": "generated-1",
+      "kind": "notify",
+      "version": 2,
+      "digest": "sha256:7e21bb5bdc957b621c95416d19b4216c756d78ecfa5cc61afe6d3dc88310f7b5",
+      "body": "[notify_policy]\nversion = 2\ndesktop = true\nwebhook_url = \"https://hooks.example.com/ropeshift\"\n\n[notify_policy.spend_channels]\nspend_hard_limit = [\"desktop\"]\n",
+      "settings": "{\"version\":2,\"desktop\":true,\"webhook_url\":\"https://hooks.example.com/ropeshift\",\"spend_channels\":{\"spend_hard_limit\":[\"desktop\"]}}",
+      "authored_by": "member-1",
+      "created_at": 1794000000000
+    },
+    {
+      "id": "generated-2",
+      "kind": "notify",
+      "version": 1,
+      "digest": "sha256:8372436b666bdc3e93dca14cc1d6086d6b5fca2a5055c533415f0ab7eb6d156d",
+      "body": "[notify_policy]\nversion = 1\n",
+      "settings": "{\"version\":1,\"desktop\":false}",
+      "authored_by": "built-in",
+      "created_at": 1794000000000
+    }
+  ]
+}
