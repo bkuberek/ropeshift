@@ -83,6 +83,25 @@ func TestALongTurnReportsWhatItsCallsCostAsTheyAreMade(t *testing.T) {
 	}
 }
 
+// A web search is billed beside the tokens of the call that made it, at a hundredth of a dollar, from the count its usage
+// carries. The count rides in the running estimate as the calls do: it grows with the stream event that shows it, it is not
+// charged again by the assistant message that repeats it with the same message id, and a call reported by its assistant
+// message alone brings its own.
+func TestWebSearchesAreCountedOnceInTheRunningEstimate(t *testing.T) {
+	driver, _, spec := session(t, "web-search-turn", nil)
+	totals, turn := runningTotals(t, play(t, driver, spec))
+
+	first := sonnetCall(20, 0, 30000, 500) + 2*0.01
+	checkTotals(t, totals, []float64{
+		sonnetCall(20, 0, 30000, 1),
+		first,
+		first + sonnetCall(25, 0, 31000, 300) + 1*0.01,
+	})
+	if turn == nil || turn.Cost.SessionTotalUSD != 0.05 {
+		t.Errorf("the turn ended with %+v", turn)
+	}
+}
+
 // A session that writes no stream events is known by its assistant messages alone: each message prices its call, a
 // subagent's included, and a call the client writes once for each of its content blocks counts once, at the largest usage
 // it showed. Without them a turn of subagents would show no spend until it was over.

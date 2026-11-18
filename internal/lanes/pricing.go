@@ -20,6 +20,8 @@ type Rate struct {
 	// none. LongInput multiplies every input-side price of such a call, and LongOutput its output price.
 	LongAbove             int64
 	LongInput, LongOutput float64
+	// Fast says the model ID is a fast-mode deployment, whose calls carry no speed in their usage.
+	Fast bool
 }
 
 // SpeedFast is the speed a call's usage names when it ran in fast mode.
@@ -30,9 +32,15 @@ const SpeedFast = "fast"
 // 2026-11-18 from
 //
 //	https://platform.claude.com/docs/en/about-claude/pricing      (model pricing, prompt caching, long context, fast mode,
-//	                                                               cloud platform pricing, data residency)
+//	                                                               web search, cloud platform pricing, data residency)
 //	https://platform.claude.com/docs/en/build-with-claude/fast-mode
 //	https://platform.claude.com/docs/en/build-with-claude/context-windows
+//
+// A web search is billed beside the tokens: $10 for 1,000 searches, counted by `usage.server_tool_use.web_search_requests`
+// (the pricing page's "Web search tool" section, read on 2026-11-18, which adds that a search that fails with an error is
+// not billed, and that the tokens of its results are billed as input). The count is priced as it stands, and a failed
+// search is not told apart, so the estimate can be a little above the bill, which is the safe side. The fast and long-context
+// multipliers are on tokens and do not apply to it.
 //
 // Each family is priced at the dearest model of it a session can still run, and each choice below is a bound, not a
 // quotation:
@@ -58,8 +66,11 @@ const SpeedFast = "fast"
 // times on 4.6 and later) is a request parameter, and a Claude Code session sets none. A call that ran in fast mode says so
 // in its usage (`speed: "fast"`), which the stream carries, and is priced at twice the standard rate on every kind of token:
 // fast mode doubles the input and output prices, and the cache prices are multiples of the input price. A lane's session
-// reads its user's settings, so fast mode can be on for it. Where a client leaves `speed` out of the usage the estimate
-// would price a fast call as standard, and the turn's total corrects it.
+// reads its user's settings, so fast mode can be on for it. On Microsoft Foundry a fast deployment has an ID of its own that
+// ends in `-fast` (`claude-opus-5-5-fast`) and leaves `speed` out of the usage, because the deployment sets it (the fast-mode
+// page's Microsoft Foundry table), so an ID with that suffix is priced as fast whatever its usage says. Where a client leaves
+// `speed` out of the usage of a model with no such ID the estimate would price a fast call as standard, and the turn's total
+// corrects it.
 var (
 	priceHaiku        = Price{Input: 1, CacheWrite: 2, CacheRead: 0.10, Output: 5}
 	priceSonnet       = Price{Input: 3, CacheWrite: 6, CacheRead: 0.30, Output: 15}
@@ -80,6 +91,10 @@ const (
 	regionalPremium = 1.1
 	// fastFactor is what fast mode costs over standard speed.
 	fastFactor = 2
+	// fastSuffix ends the ID of a fast-mode deployment on Microsoft Foundry.
+	fastSuffix = "-fast"
+	// webSearchPrice is what one web search costs: $10 for 1,000.
+	webSearchPrice = 10.0 / 1000
 )
 
 // RateOf is the rate of a model by its ID, in the shape a platform spells it: the first-party API's
@@ -114,6 +129,7 @@ func RateOf(model string) Rate {
 	if onCloud(id) && (!versioned || !before(major, minor, 4, 5)) {
 		rate.Price = rate.scaled(regionalPremium)
 	}
+	rate.Fast = strings.HasSuffix(id, fastSuffix)
 	return rate
 }
 
@@ -122,18 +138,19 @@ func longContext(rate Rate) Rate {
 	return rate
 }
 
-// Cost is what one API call cost at this rate.
+// Cost is what one API call cost at this rate: its tokens, at twice the price if the call ran in fast mode, and its web
+// searches, which are billed beside the tokens at a price of their own.
 func (r Rate) Cost(u Usage) float64 {
 	p := r.Price
 	if r.LongAbove > 0 && u.Context() > r.LongAbove {
 		p = Price{Input: p.Input * r.LongInput, CacheWrite: p.CacheWrite * r.LongInput, CacheRead: p.CacheRead * r.LongInput, Output: p.Output * r.LongOutput}
 	}
-	cost := (float64(u.InputTokens)*p.Input + float64(u.CacheCreationTokens)*p.CacheWrite +
+	tokens := (float64(u.InputTokens)*p.Input + float64(u.CacheCreationTokens)*p.CacheWrite +
 		float64(u.CacheReadTokens)*p.CacheRead + float64(u.OutputTokens)*p.Output) / tokensPerPrice
-	if u.Speed == SpeedFast {
-		cost *= fastFactor
+	if r.Fast || u.Speed == SpeedFast {
+		tokens *= fastFactor
 	}
-	return cost
+	return tokens + float64(u.ServerToolUse.WebSearchRequests)*webSearchPrice
 }
 
 // CallCost is what one API call of a model cost.
@@ -218,7 +235,7 @@ func onCloud(id string) bool {
 
 // Max is each field of two usages at its larger value. An API call reports its usage more than once while it
 // streams, each report a running figure of the same call, so the larger is the later. A call that is fast in either
-// report is fast.
+// report is fast, and the web searches it made are the larger count, because each report counts the searches so far.
 func (u Usage) Max(other Usage) Usage {
 	speed := u.Speed
 	if other.Speed == SpeedFast || speed == "" {
@@ -230,5 +247,6 @@ func (u Usage) Max(other Usage) Usage {
 		CacheCreationTokens: max(u.CacheCreationTokens, other.CacheCreationTokens),
 		CacheReadTokens:     max(u.CacheReadTokens, other.CacheReadTokens),
 		Speed:               speed,
+		ServerToolUse:       ServerToolUse{WebSearchRequests: max(u.ServerToolUse.WebSearchRequests, other.ServerToolUse.WebSearchRequests)},
 	}
 }

@@ -79,6 +79,46 @@ func TestACallReportedTwiceIsCountedOnce(t *testing.T) {
 	}
 }
 
+// The count of web searches rides in the usage of a stream event and of an assistant message alike, and the larger count of one
+// call's reports is the call's: a search is priced once however many lines say so, a call that is told of a second search
+// later has two, and a call that made none costs nothing for them.
+func TestWebSearchesOfACallAreCountedOnce(t *testing.T) {
+	delta := `{"type":"stream_event","event":{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"input_tokens":20,"cache_read_input_tokens":30000,"output_tokens":500,"server_tool_use":{"web_search_requests":2}}},"parent_tool_use_id":null}`
+	p, err := parseLine([]byte(delta), false)
+	if err != nil || p.call == nil || p.call.usage.ServerToolUse.WebSearchRequests != 2 {
+		t.Fatalf("a message_delta that counts two searches parsed %+v: %v", p.call, err)
+	}
+	assistant := `{"type":"assistant","message":{"id":"msg_1","model":"claude-sonnet-4-5","content":[{"type":"text","text":"ok"}],"usage":{"input_tokens":20,"cache_read_input_tokens":30000,"output_tokens":500,"server_tool_use":{"web_search_requests":2}}},"parent_tool_use_id":null}`
+	if p, err = parseLine([]byte(assistant), false); err != nil || p.call == nil || p.call.usage.ServerToolUse.WebSearchRequests != 2 {
+		t.Fatalf("an assistant message that counts two searches parsed %+v: %v", p.call, err)
+	}
+
+	tokens := (20*3 + 30000*0.30 + 500*15) / 1e6
+	var turn turnCost
+	turn.note(streamCall{kind: callStart, id: "msg_1", model: "claude-sonnet-4-5", usage: lanes.Usage{InputTokens: 20, CacheReadTokens: 30000, OutputTokens: 1}}, "")
+	if got := turn.note(*mustCall(t, delta, "msg_1"), ""); !near(got, tokens+0.02) {
+		t.Errorf("a call whose delta counts two searches is estimated at %v, want %v", got, tokens+0.02)
+	}
+	if got := turn.note(*p.call, ""); !near(got, tokens+0.02) {
+		t.Errorf("the assistant message of the same call, which says two again, estimates it at %v, want %v: a search counts once", got, tokens+0.02)
+	}
+	later := lanes.Usage{InputTokens: 20, CacheReadTokens: 30000, OutputTokens: 500, ServerToolUse: lanes.ServerToolUse{WebSearchRequests: 3}}
+	if got := turn.note(streamCall{kind: callMessage, id: "msg_1", model: "claude-sonnet-4-5", usage: later}, ""); !near(got, tokens+0.03) {
+		t.Errorf("a call told of a third search is estimated at %v, want %v", got, tokens+0.03)
+	}
+}
+
+// mustCall parses a stream line and gives it the id of the call the stream's earlier `message_start` named, as a
+// `message_delta` has none of its own.
+func mustCall(t *testing.T, raw, id string) *streamCall {
+	t.Helper()
+	p, err := parseLine([]byte(raw), false)
+	if err != nil || p.call == nil {
+		t.Fatalf("parsed %+v: %v", p.call, err)
+	}
+	return p.call
+}
+
 // A turn's estimate starts again after the turn that ended, because the client's total is exact by then, and a figure is
 // told only once it is higher than the last one told.
 func TestATurnsEstimateEndsWithTheTurn(t *testing.T) {

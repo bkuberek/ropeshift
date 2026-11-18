@@ -1,6 +1,7 @@
 package lanes_test
 
 import (
+	"encoding/json"
 	"math"
 	"testing"
 
@@ -142,12 +143,80 @@ func TestAFastCallCostsTwiceTheStandardPrice(t *testing.T) {
 	}
 }
 
+// A Microsoft Foundry deployment of a fast-mode model has an ID that ends in `-fast`, and its calls carry no speed in their usage,
+// because the deployment sets it. A call to one costs twice the standard price, once: a usage that also says fast does not make
+// it four times, and a model that merely has `fast` in its name is not one.
+func TestAFastSuffixedModelIDIsPricedAtTwiceItsStandardRate(t *testing.T) {
+	usage := lanes.Usage{InputTokens: 10, CacheCreationTokens: 2_000, CacheReadTokens: 40_000, OutputTokens: 3_000}
+	for _, tt := range []struct{ fast, standard string }{
+		{"claude-opus-5-5-fast", "claude-opus-5-5"},
+		{"claude-fable-5-2-fast", "claude-fable-5-2"},
+		{"claude-mythos-5-2-fast", "claude-mythos-5-2"},
+		{"Claude-Opus-5-5-Fast", "claude-opus-5-5"},
+	} {
+		if got, want := lanes.CallCost(tt.fast, usage), 2*lanes.CallCost(tt.standard, usage); !near(got, want) {
+			t.Errorf("%s costs %v, want twice %s's %v", tt.fast, got, tt.standard, want)
+		}
+		if got, want := lanes.RateOf(tt.fast).Price, lanes.RateOf(tt.standard).Price; got != want {
+			t.Errorf("%s is priced %+v apart from its speed, want %s's %+v", tt.fast, got, tt.standard, want)
+		}
+	}
+	both := usage
+	both.Speed = lanes.SpeedFast
+	if got, want := lanes.CallCost("claude-opus-5-5-fast", both), 2*lanes.CallCost("claude-opus-5-5", usage); !near(got, want) {
+		t.Errorf("a fast ID whose usage also says fast costs %v, want twice the standard %v and no more", got, want)
+	}
+	for _, model := range []string{"claude-opus-5-5", "claude-opus-5-5-fast-preview", "fastapi-opus-5-5", "claude-opus-5-5-faster"} {
+		if got, want := lanes.CallCost(model, usage), lanes.CallCost("claude-opus-5-5", usage); !near(got, want) {
+			t.Errorf("%s costs %v, want the standard %v", model, got, want)
+		}
+	}
+}
+
+// A web search is billed at $10 for 1,000, beside the tokens of the call that made it, from the count its usage carries. It is
+// not a token price, so neither fast mode nor a long call changes it, and a call that made none is not charged for one.
+func TestAWebSearchCostsAHundredthOfADollar(t *testing.T) {
+	var usage lanes.Usage
+	if err := json.Unmarshal([]byte(`{"input_tokens":105,"output_tokens":6039,"cache_read_input_tokens":7123,"cache_creation_input_tokens":7345,"server_tool_use":{"web_search_requests":3},"service_tier":"standard"}`), &usage); err != nil {
+		t.Fatal(err)
+	}
+	if usage.ServerToolUse.WebSearchRequests != 3 {
+		t.Fatalf("the usage of a call that searched three times reads %+v", usage)
+	}
+	without := usage
+	without.ServerToolUse = lanes.ServerToolUse{}
+	for _, model := range []string{"claude-sonnet-4-5", "claude-opus-5-5", "claude-opus-5-5-fast", ""} {
+		if got, want := lanes.CallCost(model, usage)-lanes.CallCost(model, without), 0.03; !near(got, want) {
+			t.Errorf("%q: three searches add %v, want %v", model, got, want)
+		}
+	}
+	only := lanes.Usage{ServerToolUse: lanes.ServerToolUse{WebSearchRequests: 1000}}
+	if got := lanes.CallCost("claude-opus-5-5", only); !near(got, 10) {
+		t.Errorf("a thousand searches cost %v, want $10", got)
+	}
+	fast := without
+	fast.Speed = lanes.SpeedFast
+	fast.ServerToolUse.WebSearchRequests = 3
+	if got, want := lanes.CallCost("claude-opus-5-5", fast), 2*lanes.CallCost("claude-opus-5-5", without)+0.03; !near(got, want) {
+		t.Errorf("a fast call with three searches costs %v, want twice its tokens and the searches at their own price, %v", got, want)
+	}
+	// Two runs' searches add, as their tokens do.
+	one, two := lanes.Usage{ServerToolUse: lanes.ServerToolUse{WebSearchRequests: 1}}, lanes.Usage{ServerToolUse: lanes.ServerToolUse{WebSearchRequests: 2}}
+	if got := one.Add(two).ServerToolUse.WebSearchRequests; got != 3 {
+		t.Errorf("a run that searched once and a run that searched twice searched %d times", got)
+	}
+	long := lanes.Usage{CacheReadTokens: 250_000, ServerToolUse: lanes.ServerToolUse{WebSearchRequests: 2}}
+	if got, want := lanes.CallCost("claude-sonnet-4-5", long), (250_000*0.60)/1e6+0.02; !near(got, want) {
+		t.Errorf("a long call with two searches costs %v, want the long-context tokens and the searches at their own price, %v", got, want)
+	}
+}
+
 // A call's usage reported twice in a stream is a running figure of the same call, so the larger of each field is the later,
 // and a call that is fast in either report is fast.
 func TestUsageTakesTheLargerOfEachFieldAndFastIfEitherSaysSo(t *testing.T) {
-	a := lanes.Usage{InputTokens: 5, OutputTokens: 1, CacheReadTokens: 100}
-	b := lanes.Usage{InputTokens: 3, OutputTokens: 400, CacheCreationTokens: 7, Speed: lanes.SpeedFast}
-	want := lanes.Usage{InputTokens: 5, OutputTokens: 400, CacheCreationTokens: 7, CacheReadTokens: 100, Speed: lanes.SpeedFast}
+	a := lanes.Usage{InputTokens: 5, OutputTokens: 1, CacheReadTokens: 100, ServerToolUse: lanes.ServerToolUse{WebSearchRequests: 2}}
+	b := lanes.Usage{InputTokens: 3, OutputTokens: 400, CacheCreationTokens: 7, Speed: lanes.SpeedFast, ServerToolUse: lanes.ServerToolUse{WebSearchRequests: 1}}
+	want := lanes.Usage{InputTokens: 5, OutputTokens: 400, CacheCreationTokens: 7, CacheReadTokens: 100, Speed: lanes.SpeedFast, ServerToolUse: lanes.ServerToolUse{WebSearchRequests: 2}}
 	if got := a.Max(b); got != want {
 		t.Errorf("max is %+v, want %+v", got, want)
 	}
