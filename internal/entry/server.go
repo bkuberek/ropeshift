@@ -505,6 +505,11 @@ func serverTicks(projects ports.Projects, opts serverOptions, reads serverReads,
 			_, err := control.NewMessages(store, windows).ExpireMessages(ctx, p.ID, tickActor("message-tick"))
 			return err
 		}),
+		// A practices check no worker reported by its expiry is stored as expired; a report that comes later is still recorded.
+		tick("practices", opts.wakeTick, func(ctx context.Context, p ledger.Project, store ports.Store) error {
+			_, err := control.NewPractices(store).Expire(ctx, p.ID, tickActor("practices-tick"))
+			return err
+		}),
 		tick("delivery", opts.deliveryTick, func(ctx context.Context, p ledger.Project, store ports.Store) error {
 			return control.DeliveryTick(ctx, store, p.ID)
 		}),

@@ -1208,6 +1208,11 @@ func soloTicks(projects ports.Projects, home ledger.WorkspaceID, opts soloOption
 			_, err := control.NewMessages(store, windows).ExpireMessages(ctx, p.ID, tickActor("message-tick"))
 			return err
 		}),
+		// A practices check no worker reported by its expiry is stored as expired; a report that comes later is still recorded.
+		tick("practices", opts.wakeTick, func(ctx context.Context, p ledger.Project, store ports.Store) error {
+			_, err := control.NewPractices(store).Expire(ctx, p.ID, tickActor("practices-tick"))
+			return err
+		}),
 		// Each finished work order's timeline and delivery record, folded from the log past its cursor; the
 		// project's share of the installation's delivery pool, while its estimate policy shares history; and then
 		// each open work order's current estimate, drawn on the records the fold kept.

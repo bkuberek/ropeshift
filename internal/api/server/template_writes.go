@@ -55,6 +55,21 @@ func (h *handler) workerForgeAccountReport(w http.ResponseWriter, r *http.Reques
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// workerPracticesReport records what a worker did with a request to run the practices check. The worker proves itself
+// with its credential.
+func (h *handler) workerPracticesReport(w http.ResponseWriter, r *http.Request) {
+	var in ledger.PracticesReport
+	if !decode(w, r, &in) {
+		return
+	}
+	in.Auth = authOf(r)
+	if err := h.plane.ReportPracticesCheck(r.Context(), in); err != nil {
+		fail(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // requestTemplateWrite records a member's request and answers 202 with its view, which the member reads until
 // the worker reports.
 func (h *handler) requestTemplateWrite(w http.ResponseWriter, r *http.Request, actor ledger.Actor) {

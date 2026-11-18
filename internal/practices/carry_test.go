@@ -1,0 +1,110 @@
+package practices_test
+
+import (
+	"slices"
+	"testing"
+	"time"
+
+	"ropeshift.com/ropeshift/internal/practices"
+)
+
+const (
+	firstCommit  = "1111111111111111111111111111111111111111"
+	secondCommit = "2222222222222222222222222222222222222222"
+)
+
+var leaked = practices.SecretMatch{Rule: "github_token", Path: "config/dev.yaml", Line: 3, Commit: "aaaaaaaaaaaa", Digest: "1a2b3c4d5e6f7a8b9c0d"}
+
+// checked is a result of a checkout at a commit, from a scan that started at from, that found the matches.
+func checked(commit, from string, unknown string, matches ...practices.SecretMatch) practices.Result {
+	in := practices.Input{
+		Repository: "repo", Commit: commit, BaseBranch: "main", Worker: "w1", RulesVersion: 1, ScannedFrom: from,
+		CheckedAt: time.Date(2026, 11, 18, 9, 0, 0, 0, time.UTC), Secrets: matches, SecretsUnknown: unknown,
+		Paths: []string{"SECURITY.md"}, Read: func(string) (string, bool) { return "", false },
+	}
+	return practices.Evaluate(in)
+}
+
+func findingsOf(r practices.Result, id practices.ID) []string {
+	var ids []string
+	for _, f := range r.Findings {
+		if f.Practice == id {
+			ids = append(ids, f.ID)
+		}
+	}
+	return ids
+}
+
+func secretsOf(t *testing.T, r practices.Result) practices.PracticeStatus {
+	t.Helper()
+	for _, p := range r.Practices {
+		if p.ID == practices.Secrets {
+			return p
+		}
+	}
+	t.Fatal("the result has no status for secrets")
+	return practices.PracticeStatus{}
+}
+
+// An incremental scan reads only the commits after the one the earlier scan ended at, so the secrets the earlier
+// result found stay findings: a commit that added one keeps it in the history.
+func TestCarryForwardKeepsTheEarlierSecretsOfAnIncrementalScan(t *testing.T) {
+	previous := checked(firstCommit, "", "", leaked)
+	next := checked(secondCommit, firstCommit, "")
+	if got := secretsOf(t, next).Status; got != practices.StatusMet {
+		t.Fatalf("a scan that found nothing is %s", got)
+	}
+	got := practices.CarryForward(previous, next)
+	if status := secretsOf(t, got); status.Status != practices.StatusFinding || status.Reason != "" {
+		t.Errorf("secrets are %+v, want a finding", status)
+	}
+	if want := findingsOf(previous, practices.Secrets); !slices.Equal(findingsOf(got, practices.Secrets), want) || len(want) != 1 {
+		t.Errorf("the secrets findings are %v, want %v", findingsOf(got, practices.Secrets), want)
+	}
+	if got.Commit != secondCommit || got.ScannedFrom != firstCommit {
+		t.Errorf("the result reads %s from %s, want the new scan's", got.Commit, got.ScannedFrom)
+	}
+	if ids := findingsOf(next, practices.Secrets); len(ids) != 0 || secretsOf(t, next).Status != practices.StatusMet {
+		t.Errorf("carrying changed the result it was given: %v", ids)
+	}
+}
+
+// A secret the new scan finds again is one finding, and one it finds besides is added.
+func TestCarryForwardDoesNotDoubleAFindingTheScanFindsAgain(t *testing.T) {
+	other := practices.SecretMatch{Rule: "npm_token", Path: ".npmrc", Line: 1, Commit: "bbbbbbbbbbbb", Digest: "ffeeddccbbaa99887766"}
+	previous := checked(firstCommit, "", "", leaked)
+	next := checked(secondCommit, firstCommit, "", leaked, other)
+	got := practices.CarryForward(previous, next)
+	if ids := findingsOf(got, practices.Secrets); len(ids) != 2 {
+		t.Errorf("the secrets findings are %v, want the two once each", ids)
+	}
+}
+
+// Only the secrets of the earlier result carry, and only into a scan that continued from its commit.
+func TestCarryForwardCarriesOnlySecretsOfTheResultTheScanContinuedFrom(t *testing.T) {
+	previous := checked(firstCommit, "", "", leaked)
+	previous.Findings = append(previous.Findings, practices.Finding{ID: "codeowners", Practice: practices.Codeowners, Severity: practices.Low})
+	for name, tt := range map[string]struct {
+		next practices.Result
+		want int
+	}{
+		"a full scan":                     {checked(secondCommit, "", ""), 0},
+		"a scan from another commit":      {checked(secondCommit, "3333333333333333333333333333333333333333", ""), 0},
+		"a scan that could not run":       {checked(secondCommit, firstCommit, "the secret scan failed"), 0},
+		"an incremental scan that is met": {checked(secondCommit, firstCommit, ""), 1},
+	} {
+		t.Run(name, func(t *testing.T) {
+			got := practices.CarryForward(previous, tt.next)
+			if ids := findingsOf(got, practices.Secrets); len(ids) != tt.want {
+				t.Errorf("the secrets findings are %v, want %d", ids, tt.want)
+			}
+			if ids := findingsOf(got, practices.Codeowners); len(ids) != len(findingsOf(tt.next, practices.Codeowners)) {
+				t.Errorf("a finding of another practice was carried: %v", ids)
+			}
+		})
+	}
+	unknown := checked(secondCommit, firstCommit, "the secret scan failed")
+	if got := secretsOf(t, practices.CarryForward(previous, unknown)); got.Status != practices.StatusUnknown || got.Reason == "" {
+		t.Errorf("secrets are %+v, want unknown with its reason", got)
+	}
+}

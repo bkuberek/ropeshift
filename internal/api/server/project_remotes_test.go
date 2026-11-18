@@ -11,6 +11,7 @@ import (
 	"ropeshift.com/ropeshift/internal/adapters/fake"
 	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/test/apitest"
 )
 
@@ -90,8 +91,27 @@ func TestAWorkerOnProtocol5IsAcceptedAndARequestWithARemoteForItIsRefused(t *tes
 		t.Fatal(err)
 	}
 	older := workerOf(t, d, credential.Credential)
-	if session, err := older.OpenSession(t.Context(), "older", ledger.SessionRequest{Protocol: ledger.ProtocolProjectRemotes - 1}); err != nil || session.Protocol != ledger.ProtocolProjectRemotes-1 {
-		t.Fatalf("a worker on protocol 5 is answered %+v (%v)", session, err)
+	// A control plane accepts a worker one protocol behind its own, so a worker on protocol 5 is a session an earlier
+	// build opened, which outlives the upgrade: it is opened on the current protocol and then recorded the way that
+	// build recorded it.
+	if _, err := older.OpenSession(t.Context(), "older", ledger.SessionRequest{Protocol: ledger.ProtocolVersion}); err != nil {
+		t.Fatal(err)
+	}
+	err = d.Store.Installation(apitest.Scope).Write(t.Context(), "test.record_protocol", func(tx ports.SharedTx) error {
+		record, err := tx.Workers().Find("older")
+		if err != nil {
+			return err
+		}
+		next := record.Worker
+		next.Protocol = ledger.ProtocolProjectRemotes - 1
+		if _, err = tx.Workers().OpenEpoch(next); err != nil {
+			return err
+		}
+		_, err = tx.Append(ledger.EventDraft{Type: "worker.session_opened", Actor: ledger.Actor{Kind: ledger.ActorMember, ID: "member-1"}, Subject: ledger.Subject{Kind: "worker", ID: "older"}})
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 	_, err = d.Client.RequestTemplateWrite(t.Context(), "older", api.TemplateWrite{Shape: "monorepo", Path: "/srv/harbor", FirstCommit: true, Remote: createOn("acme")})
 	refusedWith(t, err, http.StatusBadRequest, api.CodeInvalid)

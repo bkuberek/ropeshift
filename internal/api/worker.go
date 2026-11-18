@@ -207,6 +207,11 @@ func (c *Client) ReportForgeAccount(ctx context.Context, worker string, in ledge
 	return c.Do(ctx, http.MethodPost, workerPath(worker, "forge-account-reports"), in, nil)
 }
 
+// ReportPracticesCheck says what this worker did with a request to run the practices check.
+func (c *Client) ReportPracticesCheck(ctx context.Context, worker string, in ledger.PracticesReport) error {
+	return c.Do(ctx, http.MethodPost, workerPath(worker, "practices-reports"), in, nil)
+}
+
 // RequestForgeAccountRead asks a worker to read its forge account, as a member.
 func (c *Client) RequestForgeAccountRead(ctx context.Context, worker string, in ledger.ForgeAccountRequest) (ledger.ForgeAccountReadView, error) {
 	var out ledger.ForgeAccountReadView
