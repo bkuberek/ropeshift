@@ -103,6 +103,47 @@ func waitingNotices(t *testing.T, d *apitest.Daemon) []ledger.Notice {
 	return notices
 }
 
+// TestGoldenCIDurations writes what Measures reads of each repository's CI: the p50 and p85 of a repository with
+// history, and the no-history figures of one with too few heads.
+func TestGoldenCIDurations(t *testing.T) {
+	t.Parallel()
+	d, clock, _ := aCIWorldOf(t, ledger.CIRunInProgress, time.Hour)
+	other := control.DetectedRepository{ID: "repository-2", Remote: "https://example.invalid/acme/other.git", DefaultBranch: "main"}
+	if _, err := control.NewRepositories(d.Store).Detect(t.Context(), apitest.Scope, other, ledger.Actor{Kind: ledger.ActorSystem, ID: "intake"}); err != nil {
+		t.Fatal(err)
+	}
+	err := d.Store.Write(t.Context(), apitest.Scope, "test.ci_records", func(tx ports.WriteTx) error {
+		for i := range 6 {
+			done := clock.Now() - int64(i)*time.Hour.Milliseconds()
+			record := ledger.CIRecord{
+				Repository: "repository-1", Head: "head-" + string(rune('a'+i)), Attempt: 1, PushedAt: done - (6+int64(i))*time.Minute.Milliseconds(),
+				FirstStart: done - (5+int64(i))*time.Minute.Milliseconds(), LastCompleted: done, QueueMs: time.Minute.Milliseconds(),
+				DurationMs: (6 + int64(i)) * time.Minute.Milliseconds(), Result: ledger.CIPass,
+			}
+			if _, err := tx.Forge().InsertCIRecord(record); err != nil {
+				return err
+			}
+		}
+		_, err := tx.Append(ledger.EventDraft{Type: ledger.EventPullRequestUpdated, Actor: ledger.Actor{Kind: ledger.ActorSystem, ID: "intake"}, Subject: ledger.Subject{Kind: ledger.SubjectPullRequest, ID: "wo-ci"}})
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	view, err := d.Client.CIDurations(t.Context())
+	if err != nil || len(view.Repositories) != 2 {
+		t.Fatalf("Measures reads %+v: %v", view, err)
+	}
+	with, without := view.Repositories[0], view.Repositories[1]
+	if with.Repository != "repository-1" || !with.History || with.Records != 6 || with.P50Ms != (8*time.Minute).Milliseconds() || with.P85Ms != (11*time.Minute).Milliseconds() {
+		t.Errorf("the repository with history reads %+v", with)
+	}
+	if without.History || without.Records != 0 || without.P85Ms != 0 || without.NoHistoryP85Ms != (20*time.Minute).Milliseconds() || without.MinRecords != 5 {
+		t.Errorf("the repository with none reads %+v", without)
+	}
+	holdsGolden(t, "ci-durations", steady(pretty(t, view)))
+}
+
 // A head that passed its CI timeout is one Needs you item that offers Wait longer, Rerun, and the run's page, and a
 // notice of its own kind that names no check, run, or branch.
 func TestCIThatHasNotFinishedIsOneItemWithItsActionsAndANotice(t *testing.T) {

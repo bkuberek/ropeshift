@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"ropeshift.com/ropeshift/internal/api"
@@ -37,6 +38,40 @@ func (c *invocation) workCIWait(args []string) int {
 	return c.finish(err, result, func() string {
 		return fmt.Sprintf("%s\twaits until %s of CI\n", id, time.Duration(result.Watch.TimeoutMs)*time.Millisecond)
 	})
+}
+
+// measuresCI prints how long each repository's CI takes: the p50 and p85 of its recent heads' push-to-completed time
+// and queue time, or "no history" with how many heads it has and how many it needs.
+func (c *invocation) measuresCI(args []string) int {
+	set := c.flags()
+	positional, ok := c.parse(set, args)
+	if !ok {
+		return ExitUsage
+	}
+	if len(positional) != 0 {
+		return c.usageError("unexpected argument %q", positional[0])
+	}
+	client, exit := c.projectClient()
+	if client == nil {
+		return exit
+	}
+	defer client.Close()
+	view, err := client.CIDurations(c.ctx)
+	return c.finish(err, view, func() string { return ciDurationsText(view) })
+}
+
+func ciDurationsText(view api.CIDurations) string {
+	var out strings.Builder
+	span := func(ms int64) time.Duration { return time.Duration(ms) * time.Millisecond }
+	for _, row := range view.Repositories {
+		if !row.History {
+			fmt.Fprintf(&out, "%s\tno history\t%d of %d heads\texpects p50 %s p85 %s\n", row.Name, row.Records, row.MinRecords, span(row.NoHistoryP50Ms), span(row.NoHistoryP85Ms))
+			continue
+		}
+		fmt.Fprintf(&out, "%s\t%d heads\tp50 %s\tp85 %s\tqueue p50 %s\tqueue p85 %s\n",
+			row.Name, row.Records, span(row.P50Ms), span(row.P85Ms), span(row.QueueP50Ms), span(row.QueueP85Ms))
+	}
+	return out.String()
 }
 
 // workCIRerun records a rerun of the checks of a head whose CI has not finished or failed for a reason no agent can

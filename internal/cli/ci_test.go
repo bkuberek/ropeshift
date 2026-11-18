@@ -38,6 +38,41 @@ func ciPullRequestOn(t *testing.T, s *session, id string, age time.Duration) {
 	}
 }
 
+// `measures ci` says how long each repository's CI takes, and that a repository with too few heads has no history, with
+// how many it has and what the keys expect meanwhile.
+func TestMeasuresCIPrintsEachRepositorysDuration(t *testing.T) {
+	s := newSession(t)
+	s.detect(aRepositoryID, "main")
+	name := strings.TrimSpace(s.must("repository", "show", aRepositoryID, "--json"))
+	var repository ledger.Repository
+	if err := json.Unmarshal([]byte(name), &repository); err != nil {
+		t.Fatal(err)
+	}
+	if text := s.must("measures", "ci"); !strings.Contains(text, repository.Name+"\tno history\t0 of 5 heads\texpects p50 10m0s p85 20m0s\n") {
+		t.Errorf("a repository with no records prints:\n%s", text)
+	}
+	err := s.daemon.Store.Write(t.Context(), apitest.Scope, "test.ci_records", func(tx ports.WriteTx) error {
+		for i := range 5 {
+			done := time.Now().Add(-time.Duration(i) * time.Hour).UnixMilli()
+			record := ledger.CIRecord{
+				Repository: aRepositoryID, Head: "head-" + string(rune('a'+i)), Attempt: 1, PushedAt: done - 240_000, FirstStart: done - 180_000, LastCompleted: done,
+				QueueMs: 60_000, DurationMs: 240_000, Result: ledger.CIPass,
+			}
+			if _, err := tx.Forge().InsertCIRecord(record); err != nil {
+				return err
+			}
+		}
+		_, err := tx.Append(ledger.EventDraft{Type: "test.ci_records", Actor: ledger.Actor{Kind: ledger.ActorSystem, ID: "test"}, Subject: ledger.Subject{Kind: ledger.SubjectRepository, ID: aRepositoryID}})
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if text := s.must("measures", "ci"); !strings.Contains(text, repository.Name+"\t5 heads\tp50 4m0s\tp85 4m0s\tqueue p50 1m0s\tqueue p85 1m0s\n") {
+		t.Errorf("a repository with five records prints:\n%s", text)
+	}
+}
+
 // `work ci-wait` and `work ci-rerun` answer the item "CI has not finished" with the result the web UI's buttons have, a
 // refusal names why, and `needs` lists the item with the commands.
 func TestWorkCIWaitAndRerunAnswerTheItem(t *testing.T) {

@@ -185,6 +185,7 @@ func registry() []section {
 			command("measures delivery", "[--window D] [--by kind|size|agent|repository]", "print cycle time, throughput, and where the time went", (*invocation).measuresDelivery),
 			command("measures estimates", "[--window D]", "print how often finished work landed inside its estimates", (*invocation).measuresEstimates),
 			command("measures history", "", "print the delivery history a planning session sees", (*invocation).measuresHistory),
+			command("measures ci", "", "print how long each repository's CI takes, from the heads it has finished", (*invocation).measuresCI),
 		)},
 		{"Fleet", []registered{
 			command("fleet show", "", "show the fleet's mode and caps", (*invocation).fleetShow),
