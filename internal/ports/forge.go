@@ -34,6 +34,10 @@ type PullRequestRef struct {
 	Number int64
 }
 
+// ErrRunNotOfHead means a workflow run a check's address names is not a run of the head under review, or is no run of
+// the repository at all. Nothing is rerun or read of it.
+var ErrRunNotOfHead = errors.New("the run is not a run of the head under review")
+
 // ErrForgeRateLimited means the forge refused a read because the sign-in is over a rate limit. The error that
 // wraps it is a RateLimitedError, which says how long the forge asked a caller to wait.
 var ErrForgeRateLimited = errors.New("the forge is rate limiting this sign-in")
@@ -115,13 +119,19 @@ type Forge interface {
 	// is missing, or a sign-in with a problem, is a health state and not an error.
 	Health(ctx context.Context, repo ForgeRepo) (ledger.ForgeHealthReport, error)
 	// RerunChecks starts again the failed jobs of runs of a head's checks (ADR-0037). The runs it is given are
-	// rerun, each if it finished without passing, and with none it reruns every run of the head that did. A run the
+	// rerun, each if it is a run of the head and finished without passing, and a run of any other commit is refused
+	// in the result, because the address that named it was a stranger's word. With none given it reruns every run of
+	// the head that did not pass. If the forge fails in the middle, the result holds the runs it started again and the
+	// ones it did not reach as Pending, beside the error that stopped it, so a caller records the first and asks only
+	// for the rest. A run the
 	// forge cannot rerun, because it is still going or no longer exists, is a refusal in the result and not an error,
 	// and a rerun of a run that already went is a refusal too, so a repeat after a crash starts nothing twice.
 	RerunChecks(ctx context.Context, ref PullRequestRef, head string, runs []string) (ledger.CIRerun, error)
-	// FailedLog reads the log of what failed in one check, at most its last maxBytes. A check that has no log on the
+	// FailedLog reads the log of what failed in one check, at most its last maxBytes, but only when the run the check's
+	// address names is a run of the head: a check's address is whatever the app that made the check wrote, so a run
+	// of any other commit is refused with ErrRunNotOfHead and nothing of it is read. A check that has no log on the
 	// forge's own runs answers an empty log and no error.
-	FailedLog(ctx context.Context, repo ForgeRepo, check ledger.CICheckRef, maxBytes int) (string, error)
+	FailedLog(ctx context.Context, repo ForgeRepo, head string, check ledger.CICheckRef, maxBytes int) (string, error)
 	// BaseChecks reads the checks that concluded `failure` on a branch's tip, which says whether a failure of a pull
 	// request is the base's too.
 	BaseChecks(ctx context.Context, repo ForgeRepo, branch string) (BaseChecksRead, error)

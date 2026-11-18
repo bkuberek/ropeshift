@@ -25,6 +25,16 @@ func (r *response) actions(repo, method string, parts []string, query string) {
 			}
 		}
 		r.send(200, headers, map[string]any{"total_count": len(runs), "workflow_runs": runs})
+	case method == "GET" && len(parts) == 6 && parts[4] == "runs":
+		id, err := strconv.ParseInt(parts[5], 10, 64)
+		if err != nil {
+			fail(2, "fakegh: %q is not a run", parts[5])
+		}
+		run := r.state.FindRun(id)
+		if run == nil || run.Repo != repo {
+			r.send(404, headers, map[string]string{"message": "Not Found"})
+		}
+		r.send(200, headers, map[string]any{"id": run.ID, "head_sha": run.Head, "status": run.Status, "conclusion": run.Conclusion})
 	case method == "POST" && len(parts) == 7 && parts[4] == "runs" && parts[6] == "rerun-failed-jobs":
 		id, err := strconv.ParseInt(parts[5], 10, 64)
 		if err != nil {
@@ -33,6 +43,12 @@ func (r *response) actions(repo, method string, parts []string, query string) {
 		run := r.state.FindRun(id)
 		if run == nil || run.Repo != repo {
 			r.send(404, headers, map[string]string{"message": "Not Found"})
+		}
+		if r.state.FailRerun == id {
+			if err := ghstate.Edit(r.dir, func(s *ghstate.State) error { s.FailRerun = 0; return nil }); err != nil {
+				fail(2, "fakegh: %v", err)
+			}
+			r.send(500, headers, map[string]string{"message": "Server Error"})
 		}
 		if run.Status != "completed" {
 			r.send(403, headers, map[string]string{"message": "Workflow is already running"})

@@ -136,6 +136,8 @@ type Worker struct {
 	// baseTips is what a worker last read of the checks that failed on a base branch's tip, by repository and branch,
 	// so the pull requests of one repository that fail in the same pass cost one read of the base.
 	baseTips map[string]baseTipSeen
+	// baseNoticed says a stretch of refused reads of a repository's base was told, until a read answers.
+	baseNoticed map[string]bool
 
 	// toOrchestrator is what this worker knows of the members' messages to its orchestrator, and mu guards
 	// its making.

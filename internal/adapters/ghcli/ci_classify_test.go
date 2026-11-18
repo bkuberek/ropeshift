@@ -31,10 +31,10 @@ func callsWith(t *testing.T, gh string, prefix ...string) [][]string {
 func TestTheLogOfAFailedCheckIsReadFromItsRunAndJob(t *testing.T) {
 	forge, repo, gh, _ := fixture(t)
 	doubles.EditFakeGH(t, gh, func(s *ghstate.State) {
-		s.Runs = []ghstate.Run{{ID: 77, Repo: widgetsRepo, Head: "abc", Status: "completed", Conclusion: "failure", Log: "unit\tstep\tone\nunit\tstep\ttwo FAIL\n"}}
+		s.Runs = []ghstate.Run{{ID: 77, Repo: widgetsRepo, Head: headOne, Status: "completed", Conclusion: "failure", Log: "unit\tstep\tone\nunit\tstep\ttwo FAIL\n"}}
 	})
 	check := ledger.CICheckRef{Name: "unit", URL: "https://github.com/acme/widgets/actions/runs/77/job/9"}
-	got, err := forge.FailedLog(t.Context(), repo, check, 1<<20)
+	got, err := forge.FailedLog(t.Context(), repo, headOne, check, 1<<20)
 	if err != nil || got != "unit\tstep\tone\nunit\tstep\ttwo FAIL\n" {
 		t.Fatalf("the log reads %q: %v", got, err)
 	}
@@ -42,7 +42,7 @@ func TestTheLogOfAFailedCheckIsReadFromItsRunAndJob(t *testing.T) {
 	if calls := callsWith(t, gh, "run", "view"); len(calls) != 1 || !slices.Equal(calls[0], want) {
 		t.Fatalf("the calls read %v, want %v", calls, want)
 	}
-	tail, err := forge.FailedLog(t.Context(), repo, check, 12)
+	tail, err := forge.FailedLog(t.Context(), repo, headOne, check, 12)
 	if err != nil || tail != "two FAIL\n" && !strings.HasSuffix(tail, "FAIL\n") || len(tail) > 12 {
 		t.Fatalf("the last 12 bytes read %q: %v", tail, err)
 	}
@@ -50,18 +50,108 @@ func TestTheLogOfAFailedCheckIsReadFromItsRunAndJob(t *testing.T) {
 
 func TestACheckOfAnotherCIHasNoLogAndNoCallIsMade(t *testing.T) {
 	forge, repo, gh, _ := fixture(t)
-	got, err := forge.FailedLog(t.Context(), repo, ledger.CICheckRef{Name: "build", URL: "https://ci.example/builds/9"}, 1<<20)
+	got, err := forge.FailedLog(t.Context(), repo, headOne, ledger.CICheckRef{Name: "build", URL: "https://ci.example/builds/9"}, 1<<20)
 	if err != nil || got != "" || len(callsWith(t, gh, "run")) != 0 {
 		t.Fatalf("a check of another CI reads %q, calls %v: %v", got, doubles.FakeGHCalls(t, gh), err)
 	}
 }
 
-func TestAMissingRunIsAnErrorAndNotAnEmptyLog(t *testing.T) {
-	forge, repo, _, _ := fixture(t)
-	_, err := forge.FailedLog(t.Context(), repo, ledger.CICheckRef{Name: "unit", URL: "https://github.com/acme/widgets/actions/runs/404"}, 1024)
-	var failed *ghError
-	if !errors.As(err, &failed) {
+func TestAMissingRunIsNoRunOfTheHeadAndNotAnEmptyLog(t *testing.T) {
+	forge, repo, gh, _ := fixture(t)
+	_, err := forge.FailedLog(t.Context(), repo, headOne, ledger.CICheckRef{Name: "unit", URL: "https://github.com/acme/widgets/actions/runs/404"}, 1024)
+	if !errors.Is(err, ports.ErrRunNotOfHead) || len(callsWith(t, gh, "run")) != 0 {
 		t.Fatalf("a run the forge does not hold answers %v", err)
+	}
+}
+
+// B1: a check's address is a stranger's word, so a run is read or rerun only when the forge itself says it ran on the
+// head under review, and nothing of a run of another commit is read or started.
+func TestARunOfAnotherHeadIsNeverReadOrRerun(t *testing.T) {
+	forge, repo, gh, _ := fixture(t)
+	ref, head, _ := opened(t, forge, repo, gh)
+	doubles.EditFakeGH(t, gh, func(s *ghstate.State) {
+		s.Runs = []ghstate.Run{
+			{ID: 1, Repo: widgetsRepo, Head: head, Status: "completed", Conclusion: "failure", Log: "ours\n"},
+			{ID: 2, Repo: widgetsRepo, Head: headTwo, Status: "completed", Conclusion: "failure", Log: "DEPLOY SECRET\n"},
+		}
+	})
+	_, err := forge.FailedLog(t.Context(), repo, head, ledger.CICheckRef{Name: "unit", URL: "https://github.com/acme/widgets/actions/runs/2/job/5"}, 1024)
+	if !errors.Is(err, ports.ErrRunNotOfHead) || len(callsWith(t, gh, "run", "view")) != 0 {
+		t.Fatalf("the log of a run of another head was asked for: %v, calls %v", err, doubles.FakeGHCalls(t, gh))
+	}
+	result, err := forge.RerunChecks(t.Context(), ref, head, []string{"1", "2"})
+	if err != nil || !slices.Equal(result.Runs, []string{"1"}) || !strings.Contains(result.Refused, "run 2 is not a run of the head") {
+		t.Fatalf("the rerun came to %+v: %v", result, err)
+	}
+	if state, err := ghstate.Read(gh); err != nil || state.FindRun(2).Reruns != 0 || state.FindRun(1).Reruns != 1 {
+		t.Fatalf("the forge restarted the runs %+v: %v", state.Runs, err)
+	}
+	for _, call := range callsWith(t, gh, "api", "--include", "--hostname", "github.com", "--method") {
+		if strings.Contains(strings.Join(call, " "), "runs/2/") {
+			t.Fatalf("a rerun of run 2 was asked: %v", call)
+		}
+	}
+}
+
+const (
+	headOne = "abcdef0123456789abcdef0123456789abcdef01"
+	headTwo = "0123456789abcdef0123456789abcdef01234567"
+)
+
+// F4: a forge that fails after it started some runs again leaves them on record and names the runs it did not reach,
+// so those alone are asked for next.
+func TestAFailureInTheMiddleOfARerunRecordsWhatWasStarted(t *testing.T) {
+	forge, repo, gh, _ := fixture(t)
+	ref, head, _ := opened(t, forge, repo, gh)
+	doubles.EditFakeGH(t, gh, func(s *ghstate.State) {
+		s.Runs = []ghstate.Run{
+			{ID: 1, Repo: widgetsRepo, Head: head, Status: "completed", Conclusion: "failure"},
+			{ID: 2, Repo: widgetsRepo, Head: head, Status: "completed", Conclusion: "failure"},
+			{ID: 3, Repo: widgetsRepo, Head: head, Status: "completed", Conclusion: "failure"},
+		}
+		s.FailRerun = 2
+	})
+	result, err := forge.RerunChecks(t.Context(), ref, head, []string{"1", "2", "3"})
+	if err == nil || !slices.Equal(result.Runs, []string{"1"}) || !slices.Equal(result.Pending, []string{"2", "3"}) {
+		t.Fatalf("a rerun the forge failed in the middle of came to %+v: %v", result, err)
+	}
+	rest, err := forge.RerunChecks(t.Context(), ref, head, result.Pending)
+	if err != nil || !slices.Equal(rest.Runs, []string{"2", "3"}) || len(rest.Pending) != 0 {
+		t.Fatalf("the rest came to %+v: %v", rest, err)
+	}
+	state, err := ghstate.Read(gh)
+	if err != nil || state.FindRun(1).Reruns != 1 || state.FindRun(2).Reruns != 1 || state.FindRun(3).Reruns != 1 {
+		t.Fatalf("each run restarted once: %+v: %v", state.Runs, err)
+	}
+}
+
+// F3: a branch name keeps its slashes in the path of the base's check runs, and one that climbs is no branch.
+func TestABranchKeepsItsSlashesAndNeverClimbs(t *testing.T) {
+	forge, repo, gh, _ := fixture(t)
+	doubles.EditFakeGH(t, gh, func(s *ghstate.State) {
+		s.Bases = []ghstate.BaseCheck{{Repo: widgetsRepo, Branch: "release/1.2", Commit: "tip", Name: "unit", Conclusion: "FAILURE"}}
+	})
+	read, err := forge.BaseChecks(t.Context(), repo, "release/1.2")
+	if err != nil || !slices.Equal(read.Failed, []string{"unit"}) {
+		t.Fatalf("a branch with a slash reads %+v: %v", read, err)
+	}
+	want := "repos/acme/widgets/commits/release/1.2/check-runs?per_page=100"
+	if calls := callsWith(t, gh, "api"); len(calls) != 1 || calls[0][len(calls[0])-1] != want {
+		t.Fatalf("the calls read %v, want the endpoint %s", calls, want)
+	}
+	for _, branch := range []string{"../../x", "a//b", "a/./b", ""} {
+		before := len(doubles.FakeGHCalls(t, gh))
+		if _, err := forge.BaseChecks(t.Context(), repo, branch); err == nil || len(doubles.FakeGHCalls(t, gh)) != before {
+			t.Errorf("branch %q was read: %v", branch, err)
+		}
+	}
+	// A character that would start a query is escaped inside its segment.
+	if _, err := forge.BaseChecks(t.Context(), repo, "main?x=1#y"); err != nil {
+		t.Fatal(err)
+	}
+	calls := callsWith(t, gh, "api")
+	if last := calls[len(calls)-1][len(calls[len(calls)-1])-1]; last != "repos/acme/widgets/commits/main%3Fx=1%23y/check-runs?per_page=100" {
+		t.Errorf("a branch with a question mark and a hash was read as %s", last)
 	}
 }
 
@@ -176,7 +266,7 @@ func TestTheBaseTipsFailedChecksAreRead(t *testing.T) {
 	if err != nil || read.Commit != "tip-1" || !slices.Equal(read.Failed, []string{"unit"}) {
 		t.Fatalf("the base reads %+v: %v", read, err)
 	}
-	want := []string{"api", "--include", "--hostname", "github.com", "repos/acme/widgets/commits/release%2F1.2/check-runs?per_page=100"}
+	want := []string{"api", "--include", "--hostname", "github.com", "repos/acme/widgets/commits/release/1.2/check-runs?per_page=100"}
 	if calls := callsWith(t, gh, "api"); len(calls) != 1 || !slices.Equal(calls[0], want) {
 		t.Fatalf("the calls read %v, want %v", calls, want)
 	}

@@ -19,6 +19,9 @@ const (
 	CIClassTestFailure CICheckClass = "test_failure"
 	// CIClassBaseRed is a failure the base branch's tip shares, which no change of this work can mend.
 	CIClassBaseRed CICheckClass = "base_red"
+	// CIClassBaseUnread is a `failure` whose base branch's tip could not be read, so nobody can tell yet whether the
+	// base shares it. It is held and sent nowhere: no lane starts, and nothing is rerun, until a read can tell.
+	CIClassBaseUnread CICheckClass = "base_unread"
 	// CIClassInfrastructure is a fault of the runner or the forge, which is rerun a bounded number of times.
 	CIClassInfrastructure CICheckClass = "infrastructure"
 	// CIClassActionRequired is a check that waits for a person on the forge.
@@ -39,8 +42,11 @@ func (c PullRequestCheck) Class() CICheckClass {
 	}
 	switch ClassifyConclusion(strings.ToLower(strings.TrimSpace(c.Conclusion))) {
 	case CIFailure:
-		if c.RedOnBase != "" {
+		switch {
+		case c.RedOnBase != "":
 			return CIClassBaseRed
+		case c.BaseUnread:
+			return CIClassBaseUnread
 		}
 		return CIClassTestFailure
 	case CIActionRequired:
@@ -64,10 +70,41 @@ func (c PullRequestCheck) CompletedAfter(at int64) bool {
 	return ok && done > at
 }
 
-// CICheckRef names one check a forge request is about, with the address the forge gave its run.
+// CICheckRef names one check a forge request is about, with the address the forge gave its run. Key is what tells it
+// from every other check, the run and job its address names, which a check's name does not: two jobs of a matrix, or of
+// two workflows, may share one.
 type CICheckRef struct {
 	Name string `json:"name"`
 	URL  string `json:"url,omitempty"`
+	Key  string `json:"key,omitempty"`
+}
+
+// ActionsKey is the key of a check's run and job, or empty for an address that names none.
+func ActionsKey(address string, binding ForgeBinding) string {
+	run, job, ok := ActionsRun(address, binding)
+	if !ok {
+		return ""
+	}
+	return run + "/" + job
+}
+
+// ActionsRunURL is the canonical address of the run and job a check's address names, rebuilt from the binding and what
+// ActionsRun parsed of it, and empty for an address that names none. Nothing of the address the forge gave is kept
+// beyond those digits: no query, no fragment, and no character that is not ASCII, so an address a stranger wrote
+// cannot carry anything into a page or a brief.
+func ActionsRunURL(address string, binding ForgeBinding) string {
+	run, job, ok := ActionsRun(address, binding)
+	if !ok {
+		return ""
+	}
+	link := "https://" + binding.Host + "/" + binding.Owner + "/" + binding.Repo + "/actions/runs/" + run
+	if job != "" {
+		link += "/job/" + job
+	}
+	if len(link) > 300 || strings.IndexFunc(link, func(r rune) bool { return r <= 0x20 || r >= 0x7f || r == '`' || r == '(' || r == ')' || r == '\\' }) >= 0 {
+		return ""
+	}
+	return link
 }
 
 // ActionsRun reads the run and the job a check's address names, when it is a page of the binding's own GitHub
@@ -113,6 +150,9 @@ func digits(text string) bool {
 type CIRerun struct {
 	Runs    []string `json:"runs,omitempty"`
 	Refused string   `json:"refused,omitempty"`
+	// Pending are the runs a rerun did not reach because the forge failed in the middle of it, after Runs were started
+	// again. They are asked again as a rerun of their own, and Runs are never asked twice.
+	Pending []string `json:"pending,omitempty"`
 }
 
 // CICheckLog is the log of one failed check as a worker read it. A worker bounds and scrubs it before it reports it,
@@ -121,7 +161,12 @@ type CIRerun struct {
 type CICheckLog struct {
 	Check string `json:"check"`
 	URL   string `json:"url,omitempty"`
-	Text  string `json:"text,omitempty"`
+	// Key is the check's run and job, by which a log belongs to its check.
+	Key  string `json:"key,omitempty"`
+	Text string `json:"text,omitempty"`
 	// Note says why Text is empty, or that it is the end of a longer log.
 	Note string `json:"note,omitempty"`
+	// Refused says the forge's run the check's address names is not a run of the head under review, so its log was not
+	// read.
+	Refused bool `json:"refused,omitempty"`
 }

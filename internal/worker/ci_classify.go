@@ -58,8 +58,10 @@ func failedByConclusion(check ledger.PullRequestCheck) bool {
 }
 
 // markBase marks each required check of a read that concluded `failure` and failed on the base branch's tip too with
-// the commit it failed at. A read that cannot tell is an error and not a read with nothing marked, because work sent
-// back for a failure the base shares is a lane spent on what no change of it can mend.
+// the commit it failed at. A read of the base the forge refuses does not fail the read of the pull request, whose
+// merge and close are still news. It leaves the failing checks marked as unread, which holds them where no lane starts
+// and nothing is rerun, because work sent back for a failure the base shares is a lane spent on what no change of it
+// can mend, and a later read that can tell decides. The repository is told once for each stretch of refusals.
 func (w *Worker) markBase(ctx context.Context, watched ledger.DesiredPullRequest, read *ledger.PullRequest) error {
 	if read.State != ledger.PullRequestOpen || !slices.ContainsFunc(read.Checks, failedByConclusion) {
 		return nil
@@ -69,16 +71,52 @@ func (w *Worker) markBase(ctx context.Context, watched ledger.DesiredPullRequest
 		return nil
 	}
 	tip, err := w.baseTip(ctx, watched.Project, watched.Repository, repo, read.Base)
-	if err != nil {
-		return err
+	if ctx.Err() != nil {
+		return ctx.Err()
 	}
 	read.Checks = slices.Clone(read.Checks)
+	if err != nil {
+		w.baseUnread(watched, err)
+		for i, check := range read.Checks {
+			if failedByConclusion(check) {
+				read.Checks[i].BaseUnread = true
+			}
+		}
+		return nil
+	}
+	w.baseReadable(watched)
 	for i, check := range read.Checks {
 		if failedByConclusion(check) && slices.Contains(tip.Failed, check.Name) {
 			read.Checks[i].RedOnBase = cmp.Or(tip.Commit, read.Base)
 		}
 	}
 	return nil
+}
+
+// baseUnread holds a repository's reads for a rate limit as any refused read does, and says once, in a notice that
+// holds nothing the forge wrote, that failed checks are held for want of a read of the base.
+func (w *Worker) baseUnread(watched ledger.DesiredPullRequest, err error) {
+	if errors.Is(err, ports.ErrForgeRateLimited) {
+		w.rateLimited(watched.Project, watched.Repository, err)
+	}
+	key := forgeKey(watched.Project, watched.Repository)
+	w.forgeLock.Lock()
+	first := !w.baseNoticed[key]
+	if w.baseNoticed == nil {
+		w.baseNoticed = map[string]bool{}
+	}
+	w.baseNoticed[key] = true
+	w.forgeLock.Unlock()
+	if first {
+		w.config.Notice(fmt.Sprintf("repository %s: the base branch's checks cannot be read, so a failed required check is held and nothing is sent back for it until they can", watched.Repository))
+	}
+}
+
+// baseReadable ends a stretch of refusals, so the next one is told again.
+func (w *Worker) baseReadable(watched ledger.DesiredPullRequest) {
+	w.forgeLock.Lock()
+	defer w.forgeLock.Unlock()
+	delete(w.baseNoticed, forgeKey(watched.Project, watched.Repository))
 }
 
 // rerunRequest runs a rerun the control plane asked for, as a recorded effect. A rerun it names runs for stays on
@@ -102,8 +140,13 @@ func (w *Worker) rerunRequest(ctx context.Context, request ledger.DesiredForge, 
 	effect := lanes.Effect{Key: forgeAttemptKey(request) + "/rerun", Kind: lanes.EffectRerun, Target: fmt.Sprint(request.Number)}
 	recorded, err := w.forgeBracket(ctx, effect, func() (string, error) {
 		result, err := w.config.Lanes.Forge.RerunChecks(ctx, ports.PullRequestRef{Repo: repo, Number: request.Number}, request.Commit, runs)
-		if err != nil {
+		if err != nil && len(result.Runs) == 0 {
 			return "", err
+		}
+		if err != nil {
+			// The forge failed after it started some runs again. They are on record as done, and the rest are the result's
+			// to ask for as a rerun of their own, so no run is started twice.
+			w.heldByRate(request, err)
 		}
 		raw, err := json.Marshal(result)
 		return string(raw), err
@@ -137,17 +180,21 @@ func (w *Worker) logsRequest(ctx context.Context, request ledger.DesiredForge, r
 	}
 	logs := make([]ledger.CICheckLog, 0, len(refs))
 	for _, ref := range refs {
-		raw, err := w.config.Lanes.Forge.FailedLog(ctx, repo, ref, logReadBytes)
+		raw, err := w.config.Lanes.Forge.FailedLog(ctx, repo, request.Commit, ref, logReadBytes)
+		if errors.Is(err, ports.ErrRunNotOfHead) {
+			logs = append(logs, ledger.CICheckLog{Check: ref.Name, URL: ref.URL, Key: ref.Key, Refused: true})
+			continue
+		}
 		if err != nil {
 			w.heldByRate(request, err)
 			if errors.Is(err, ports.ErrForgeRateLimited) || errors.Is(err, ports.ErrForgeUnavailable) || ctx.Err() != nil {
 				return ledger.ForgeReport{}, err
 			}
-			logs = append(logs, ledger.CICheckLog{Check: ref.Name, URL: ref.URL, Note: "the forge would not give its log"})
+			logs = append(logs, ledger.CICheckLog{Check: ref.Name, URL: ref.URL, Key: ref.Key, Note: "the forge would not give its log"})
 			continue
 		}
 		text, cut := ledger.CIExcerpt(raw, ledger.CILogHardLines, ledger.CILogHardBytes)
-		entry := ledger.CICheckLog{Check: ref.Name, URL: ref.URL, Text: text}
+		entry := ledger.CICheckLog{Check: ref.Name, URL: ref.URL, Key: ref.Key, Text: text}
 		switch {
 		case text == "":
 			entry.Note = "the forge holds no log of what failed in it"

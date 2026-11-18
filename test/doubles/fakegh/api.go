@@ -168,12 +168,23 @@ func (r *response) rest(hostname, method, endpoint, query string, headers multi)
 		r.actions(repo, method, parts, query)
 		return
 	}
-	if len(parts) == 6 && parts[3] == "commits" && parts[5] == "check-runs" {
-		if branch, err := url.PathUnescape(parts[4]); err == nil {
-			if runs, ok := baseRuns(r.state, repo, branch); ok {
-				r.validated(request, runs)
-				return
+	if len(parts) >= 6 && parts[3] == "commits" && parts[len(parts)-1] == "check-runs" {
+		// A branch name keeps its own slashes in the path, each segment escaped.
+		segments := make([]string, 0, len(parts))
+		for _, segment := range parts[4 : len(parts)-1] {
+			unescaped, err := url.PathUnescape(segment)
+			if err != nil {
+				fail(2, "fakegh: api endpoint %q", endpoint)
 			}
+			segments = append(segments, unescaped)
+		}
+		if runs, ok := baseRuns(r.state, repo, strings.Join(segments, "/")); ok {
+			r.validated(request, runs)
+			return
+		}
+		if len(parts) > 6 {
+			r.validated(request, restRuns(nil))
+			return
 		}
 	}
 	switch {

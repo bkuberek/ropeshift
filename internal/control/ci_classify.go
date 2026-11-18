@@ -1,6 +1,8 @@
 package control
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -41,8 +43,18 @@ func rerunIsAuto(request ledger.ForgeRequest) bool {
 	return strings.HasPrefix(request.ID, "rerun:auto:")
 }
 
-// logsID names the read of the logs of one head's failing checks.
-func logsID(workOrder, head string) string { return "logs:" + workOrder + ":" + head }
+// logsID names the read of the logs of one head's failing checks, one for each time they failed: it ends with a
+// fingerprint of the runs and jobs the checks name and when each finished, so a rerun that fails again is read again and
+// never gives the brief the log of the attempt before it.
+func logsID(workOrder, head string, failing []ledger.PullRequestCheck) string {
+	lines := make([]string, 0, len(failing))
+	for _, check := range failing {
+		lines = append(lines, check.Name+"\x00"+check.DetailsURI+"\x00"+check.CompletedAt)
+	}
+	slices.Sort(lines)
+	sum := sha256.Sum256([]byte(strings.Join(lines, "\n")))
+	return "logs:" + workOrder + ":" + head + ":" + hex.EncodeToString(sum[:6])
+}
 
 // classifyCI classifies a work order's head once every required check of it finished. A head with a test failure is
 // left to the rules that send work back. Otherwise a check that waits for a person, and a failure the base branch's
@@ -141,8 +153,9 @@ func handleInfrastructure(tx ports.WriteTx, pr ledger.WorkPullRequest, record le
 	refs := make([]ledger.CICheckRef, 0, len(fresh))
 	reachable := bound == nil
 	for _, check := range fresh {
-		refs = append(refs, ledger.CICheckRef{Name: check.Name, URL: check.DetailsURI})
-		if _, _, ok := ledger.ActionsRun(check.DetailsURI, binding); !ok {
+		key := ledger.ActionsKey(check.DetailsURI, binding)
+		refs = append(refs, ledger.CICheckRef{Name: check.Name, URL: check.DetailsURI, Key: key})
+		if key == "" {
 			reachable = false
 		}
 	}
@@ -217,7 +230,7 @@ func rerunReported(tx ports.WriteTx, request ledger.ForgeRequest, report ledger.
 		result = *report.Rerun
 	}
 	refused := clipCI(ledger.SanitizeCIText(result.Refused), 500)
-	detail := "reran runs " + strings.Join(result.Runs, ", ")
+	detail := "reran runs " + strings.Join(runsOf(result.Runs), ", ")
 	if len(result.Runs) == 0 {
 		detail = "reran no run"
 	}
@@ -231,10 +244,14 @@ func rerunReported(tx ports.WriteTx, request ledger.ForgeRequest, report ledger.
 	if rerunIsAuto(request) {
 		class = ciClassInfrastructure
 	}
+	pending := runsOf(result.Pending)
 	if err := appendForgeAs(tx, id, at, ledger.EventCIRerunDone, request.WorkOrder, ciEvent{
-		Head: request.Commit, Class: class, Auto: rerunIsAuto(request), Request: request.ID, Runs: result.Runs, Refused: refused,
+		Head: request.Commit, Class: class, Auto: rerunIsAuto(request), Request: request.ID, Runs: runsOf(result.Runs), Refused: refused, Pending: pending,
 	}, actor); err != nil {
 		return err
+	}
+	if len(pending) != 0 {
+		return rerunRest(tx, request, pending)
 	}
 	if !rerunIsAuto(request) || len(result.Runs) != 0 {
 		return nil
@@ -250,6 +267,50 @@ func rerunReported(tx ports.WriteTx, request ledger.ForgeRequest, report ledger.
 		}
 	}
 	return nil
+}
+
+// runsOf keeps what a worker reported of runs only where it is a run's number, once, and at most a few of them, because
+// a worker's word is not trusted to name what the control plane then asks a forge to touch.
+func runsOf(reported []string) []string {
+	var runs []string
+	for _, run := range reported {
+		if run != "" && len(run) <= 20 && strings.Trim(run, "0123456789") == "" && !slices.Contains(runs, run) && len(runs) < 50 {
+			runs = append(runs, run)
+		}
+	}
+	return runs
+}
+
+// rerunRest asks again for the runs a rerun did not reach because the forge failed in the middle of it, as a rerun of
+// its own, which is counted as any rerun is, and of the same kind as the one it continues. The runs it started again
+// are on record as done and are not asked for again.
+func rerunRest(tx ports.WriteTx, request ledger.ForgeRequest, pending []string) error {
+	pr, err := tx.Forge().PullRequest(request.WorkOrder)
+	if err != nil || pr.HeadCommit != request.Commit || pr.State != ledger.PullRequestOpen {
+		return err
+	}
+	record, err := tx.Repositories().Repository(request.Repository)
+	if errors.Is(err, ports.ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	binding, err := ledger.ParseForgeBinding(record.ForgeBinding)
+	if err != nil {
+		return nil
+	}
+	refs := make([]ledger.CICheckRef, 0, len(pending))
+	for _, run := range pending {
+		address := "https://" + binding.Host + "/" + binding.Owner + "/" + binding.Repo + "/actions/runs/" + run
+		refs = append(refs, ledger.CICheckRef{Name: "run " + run, URL: address, Key: run + "/"})
+	}
+	class := ciClassMember
+	if rerunIsAuto(request) {
+		class = ciClassInfrastructure
+	}
+	_, err = requestRerun(tx, rerunAsked{pr: pr, repository: record, class: class, auto: rerunIsAuto(request), refs: refs}, ciActor)
+	return err
 }
 
 func clipCI(text string, limit int) string {
@@ -285,20 +346,21 @@ func ciRework(tx ports.WriteTx, pr *ledger.WorkPullRequest, lead string, failed 
 	if err != nil {
 		return "", false, err
 	}
+	binding, bound := ledger.ParseForgeBinding(record.ForgeBinding)
 	var refs []ledger.CICheckRef
-	if binding, bound := ledger.ParseForgeBinding(record.ForgeBinding); bound == nil {
+	if bound == nil {
 		for _, check := range failing {
-			if _, _, ok := ledger.ActionsRun(check.DetailsURI, binding); ok {
-				refs = append(refs, ledger.CICheckRef{Name: check.Name, URL: check.DetailsURI})
+			if key := ledger.ActionsKey(check.DetailsURI, binding); key != "" {
+				refs = append(refs, ledger.CICheckRef{Name: check.Name, URL: check.DetailsURI, Key: key})
 			}
 		}
 	}
 	read := map[string]ledger.CICheckLog{}
 	if len(refs) != 0 {
-		request, err := tx.Forge().Request(logsID(pr.WorkOrder, pr.HeadCommit))
+		request, err := tx.Forge().Request(logsID(pr.WorkOrder, pr.HeadCommit, failing))
 		switch {
 		case errors.Is(err, ports.ErrNotFound):
-			return "", false, requestLogs(tx, *pr, record, refs)
+			return "", false, requestLogs(tx, *pr, record, refs, failing)
 		case err != nil:
 			return "", false, err
 		case request.State != ledger.ForgeDone:
@@ -307,26 +369,32 @@ func ciRework(tx ports.WriteTx, pr *ledger.WorkPullRequest, lead string, failed 
 		var logs []ledger.CICheckLog
 		if json.Unmarshal([]byte(request.Body), &logs) == nil {
 			for _, log := range logs {
-				read[log.Check] = log
+				read[log.Key] = log
 			}
 		}
 	}
 	checks := make([]ledger.CIFailedCheck, 0, len(failing))
 	for _, check := range failing {
-		log, ok := read[check.Name]
-		checks = append(checks, ledger.CIFailedCheck{Name: check.Name, URL: check.DetailsURI, Log: log, Read: ok})
+		// A log is a check's by the run and job its address names, which two checks of one name do not share.
+		key := ""
+		if bound == nil {
+			key = ledger.ActionsKey(check.DetailsURI, binding)
+		}
+		log, ok := read[key]
+		ok = ok && key != ""
+		checks = append(checks, ledger.CIFailedCheck{Name: check.Name, Link: ledger.ActionsRunURL(check.DetailsURI, binding), Log: log, Read: ok})
 	}
 	return ledger.CIReworkBrief(lead, int(record.CI.Effective().LogExcerptLines), checks), true, nil
 }
 
 // requestLogs asks the worker that opened the pull request to read the logs of the failing checks of its head.
-func requestLogs(tx ports.WriteTx, pr ledger.WorkPullRequest, record ledger.Repository, refs []ledger.CICheckRef) error {
+func requestLogs(tx ports.WriteTx, pr ledger.WorkPullRequest, record ledger.Repository, refs []ledger.CICheckRef, failing []ledger.PullRequestCheck) error {
 	raw, err := json.Marshal(refs)
 	if err != nil {
 		return err
 	}
 	request := ledger.ForgeRequest{
-		ID: logsID(pr.WorkOrder, pr.HeadCommit), Kind: ledger.ForgeLogs, WorkOrder: pr.WorkOrder, Repository: pr.Repository, Worker: pr.Worker,
+		ID: logsID(pr.WorkOrder, pr.HeadCommit, failing), Kind: ledger.ForgeLogs, WorkOrder: pr.WorkOrder, Repository: pr.Repository, Worker: pr.Worker,
 		Binding: record.ForgeBinding, Commit: pr.HeadCommit, Number: pr.Number, Body: string(raw), RequestedAt: tx.Now(),
 	}
 	first, err := tx.Forge().InsertRequest(request)
@@ -351,15 +419,23 @@ func logsReported(tx ports.WriteTx, request ledger.ForgeRequest, report ledger.F
 	} else if !errors.Is(err, ports.ErrNotFound) {
 		return err
 	}
-	reported := map[string]string{}
+	// A log is a check's by the run and job its address names, and what a worker reports is matched to the request's own
+	// checks and to nothing else.
+	reported := map[string]ledger.CICheckLog{}
 	for _, log := range report.Logs {
-		reported[log.Check] = log.Text
+		reported[log.Key] = log
 	}
 	kept := make([]ledger.CICheckLog, 0, len(refs))
+	var refused []string
 	for _, ref := range refs {
-		text, cut := ledger.CIExcerpt(reported[ref.Name], int(settings.LogExcerptLines), int(settings.LogExcerptBytes))
-		entry := ledger.CICheckLog{Check: ref.Name, URL: ref.URL, Text: text}
+		log := reported[ref.Key]
+		text, cut := ledger.CIExcerpt(log.Text, int(settings.LogExcerptLines), int(settings.LogExcerptBytes))
+		entry := ledger.CICheckLog{Check: ref.Name, URL: ref.URL, Key: ref.Key, Text: text}
 		switch {
+		case log.Refused:
+			entry.Text, entry.Refused = "", true
+			entry.Note = "the run its address names is not a run of this head, so its log was not read"
+			refused = append(refused, ledger.CIOneLine(ref.Name, 60))
 		case text == "":
 			entry.Note = "no log could be read of it"
 		case cut:
@@ -374,7 +450,9 @@ func logsReported(tx ports.WriteTx, request ledger.ForgeRequest, report ledger.F
 	if _, err := tx.Forge().FinishRequestWith(request.ID, request.Attempt, tx.Now(), "", string(body)); err != nil {
 		return err
 	}
-	if err := appendForgeAs(tx, id, at, ledger.EventCILogRead, request.WorkOrder, ciEvent{Head: request.Commit, Request: request.ID, Checks: int64(len(kept))}, actor); err != nil {
+	if err := appendForgeAs(tx, id, at, ledger.EventCILogRead, request.WorkOrder, ciEvent{
+		Head: request.Commit, Request: request.ID, Checks: int64(len(kept)), Refused: strings.Join(refused, ", "),
+	}, actor); err != nil {
 		return err
 	}
 	return integrate(tx, request.WorkOrder)

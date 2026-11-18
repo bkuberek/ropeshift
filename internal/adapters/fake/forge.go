@@ -50,6 +50,13 @@ type Forge struct {
 	poll time.Duration
 	// logs is what the log of a failing check holds, by the check's name.
 	logs map[string]string
+	// runs is the head each workflow run belongs to, by run.
+	runs map[string]string
+	// logsByKey is what the log of a check holds by its run and job, and failRuns the runs a rerun fails on.
+	logsByKey map[string]string
+	failRuns  map[string]int
+	// baseErr is what a read of a branch's tip fails with while it is set.
+	baseErr error
 	// bases is what concluded `failure` on a branch's tip, by binding and branch.
 	bases map[string]baseTip
 	// reruns lists each rerun the forge took, and refuseRerun is why it refuses them while it is set.

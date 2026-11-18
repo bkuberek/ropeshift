@@ -114,6 +114,8 @@ type State struct {
 	PullRequests []PullRequest `json:"pull_requests,omitempty"`
 	Runs         []Run         `json:"runs,omitempty"`
 	Bases        []BaseCheck   `json:"bases,omitempty"`
+	// FailRerun is a run whose next rerun of failed jobs the forge answers with a 500, once.
+	FailRerun int64 `json:"fail_rerun,omitempty"`
 }
 
 // FindRun returns the run with an ID, or nil.

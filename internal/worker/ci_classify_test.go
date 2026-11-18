@@ -31,6 +31,8 @@ func reviewedRig(t *testing.T) (*forgeRig, int64) {
 
 // finishedNow is a required run that completed at the worker's clock with a conclusion, as a run of GitHub Actions.
 func (f *forgeRig) finishedNow(name, conclusion, run string) ledger.PullRequestCheck {
+	// The run is a run of the head under review, as the forge holds it, unless a test says another.
+	f.forge.SetRun(run, "fake-head")
 	return ledger.PullRequestCheck{
 		Name: name, State: ledger.CheckFailed, Status: ledger.CIRunCompleted, Conclusion: conclusion, Required: true,
 		StartedAt: f.clock.Now().Add(-5 * time.Minute).UTC().Format(time.RFC3339), CompletedAt: f.clock.Now().UTC().Format(time.RFC3339),

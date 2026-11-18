@@ -207,6 +207,9 @@ type PullRequestCheck struct {
 	// RedOnBase is the base branch's tip at which the same check failed, which a worker reads when a required check
 	// concluded `failure`. A failure the base shares is no failure of this work (ADR-0037).
 	RedOnBase string `json:"red_on_base,omitempty"`
+	// BaseUnread says the base branch's tip could not be read when a worker read this failure, so whether the base
+	// shares it is not known.
+	BaseUnread bool `json:"base_unread,omitempty"`
 }
 
 // PullRequest is what a forge says of one pull request. Checks are those on HeadCommit, and count for no

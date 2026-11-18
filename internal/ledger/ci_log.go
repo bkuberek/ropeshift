@@ -30,25 +30,6 @@ var (
 	// ansiEscape matches the sequences a terminal obeys: control sequences, operating system commands, and every other
 	// escape, which is an escape character, any intermediate characters, and a final one.
 	ansiEscape = regexp.MustCompile(`\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b\n]*(?:\x07|\x1b\\)?|\x1b[ -/]*[0-~]`)
-
-	// redactions is the versioned rule set that scans a log for the shapes of credentials: each rule names the kind
-	// it finds, and each match is replaced with the rule's name, never kept. A value the forge already masked as ***
-	// matches none of them and stays masked.
-	redactions = []struct {
-		name    string
-		pattern *regexp.Regexp
-		with    string
-	}{
-		{"private_key", regexp.MustCompile(`(?s)-----BEGIN [A-Z ]*PRIVATE KEY-----.*?(?:-----END [A-Z ]*PRIVATE KEY-----|\z)`), "[redacted: private_key]"},
-		{"github_pat", regexp.MustCompile(`\bgithub_pat_[A-Za-z0-9_]{20,}`), "[redacted: github_pat]"},
-		{"github_token", regexp.MustCompile(`\bgh[pousr]_[A-Za-z0-9]{20,}`), "[redacted: github_token]"},
-		{"aws_access_key", regexp.MustCompile(`\b(?:AKIA|ASIA|AGPA|AIDA|AROA|ANPA|ANVA)[A-Z0-9]{16}\b`), "[redacted: aws_access_key]"},
-		{"slack_token", regexp.MustCompile(`\bxox[abprs]-[A-Za-z0-9-]{10,}`), "[redacted: slack_token]"},
-		{"api_key", regexp.MustCompile(`\bsk-(?:ant-)?[A-Za-z0-9_-]{20,}`), "[redacted: api_key]"},
-		{"jwt", regexp.MustCompile(`\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}`), "[redacted: jwt]"},
-		{"bearer_token", regexp.MustCompile(`(?i)\bbearer\s+[A-Za-z0-9._~+/=-]{8,}`), "[redacted: bearer_token]"},
-		{"url_credentials", regexp.MustCompile(`(?i)\b([a-z][a-z0-9+.-]*://)[^\s/@:]+:[^\s/@]+@`), "${1}[redacted: url_credentials]@"},
-	}
 )
 
 // SanitizeCIText makes text a stranger wrote safe to put before an agent: it is valid UTF-8, it holds no escape
@@ -72,11 +53,7 @@ func SanitizeCIText(raw string) string {
 			clean.WriteRune(r)
 		}
 	}
-	text = clean.String()
-	for _, rule := range redactions {
-		text = rule.pattern.ReplaceAllString(text, rule.with)
-	}
-	return text
+	return RedactCredentials(clean.String())
 }
 
 // CIExcerpt makes the excerpt of a log the brief carries: the log sanitized, then its last lines at most, then its
@@ -148,10 +125,25 @@ func CILead(text string) string { return CIOneLine(text, ciLeadLimit) }
 // CIFailedCheck is a failing check as a rework brief names it, with the log that was read of it.
 type CIFailedCheck struct {
 	Name string
-	URL  string
+	// Link is the canonical address of the check's run, which ActionsRunURL rebuilds from the binding and the run and
+	// job a check's address names. An address a check gave is never passed on as it came, and a check with no run of the
+	// repository's GitHub Actions has no link.
+	Link string
 	Log  CICheckLog
 	// Read says a log was read of the check, which Log then holds.
 	Read bool
+}
+
+// plainLink keeps an address only when it is plain: https, short, with no query or fragment, and with nothing in it
+// but printable ASCII that cannot open a block or close a parenthesis. It is a second check on what the caller built,
+// because the brief is read by an agent and a link outside the data block is read as the brief's own words.
+func plainLink(address string) string {
+	rest, secure := strings.CutPrefix(address, "https://")
+	if !secure || len(address) > 300 || strings.ContainsAny(rest, "?#`()\\") ||
+		strings.IndexFunc(address, func(r rune) bool { return r <= 0x20 || r >= 0x7f }) >= 0 {
+		return ""
+	}
+	return address
 }
 
 // CIReworkBrief writes why work goes back for failing checks: the lead, then for each check the log that was read of
@@ -163,8 +155,8 @@ func CIReworkBrief(lead string, lines int, checks []CIFailedCheck) string {
 	for _, check := range checks {
 		name := CIOneLine(check.Name, ciNameLimit)
 		link := ""
-		if address := linkable(check.URL); address != "" {
-			link = " (" + strings.NewReplacer("`", "%60", "(", "%28", ")", "%29").Replace(address) + ")"
+		if address := plainLink(check.Link); address != "" {
+			link = " (" + address + ")"
 		}
 		text := strings.TrimSpace(check.Log.Text)
 		if !check.Read || text == "" {
