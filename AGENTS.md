@@ -16,7 +16,7 @@ The module follows a hexagonal layout, and `test/rules` classifies every package
 |------|-------|---------------|
 | `cmd/ropeshift`, `cmd/ropeshiftd` | Main | Thin mains that call `internal/entry` |
 | `internal/entry` | Entry | The shared main, and the only package that wires adapters to ports |
-| `internal/authority`, `contextpacks`, `conversations`, `delivery`, `lanes`, `ledger`, `measures`, `messages`, `parking`, `planning`, `projectfiles`, `questions`, `workorders` | Domain | The rules of the product, with no process, file, network, clock, or entropy access |
+| `internal/authority`, `contextpacks`, `conversations`, `delivery`, `lanes`, `ledger`, `measures`, `messages`, `parking`, `planning`, `practices`, `projectfiles`, `questions`, `workorders` | Domain | The rules of the product, with no process, file, network, clock, or entropy access |
 | `internal/ports` | Ports | The interfaces the application needs, each with a fake |
 | `internal/control`, `internal/worker` | Application | The control plane and the worker |
 | `internal/adoption` | Shared | The logic both planes use to plan an adoption: it reads git and the disk only through the ports it is given |

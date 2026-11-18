@@ -39,6 +39,7 @@ var domainPackages = map[string]bool{
 	"messages":      true,
 	"parking":       true,
 	"planning":      true,
+	"practices":     true,
 	"projectfiles":  true,
 	"questions":     true,
 	"roster":        true,
