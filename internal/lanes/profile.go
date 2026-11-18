@@ -154,6 +154,9 @@ type Profile struct {
 	// Review bounds the reviews of one work order. It stays out of the digest while a profile leaves it
 	// unset, so no lane's recorded profile moves.
 	Review ReviewSettings `toml:"review" json:"review,omitzero"`
+	// Projects holds each project's machine settings by project ID, which only the user's layer sets. It is no
+	// part of a lane's digest, because it names folders on this machine.
+	Projects map[string]ProjectSettings `toml:"projects" json:"-"`
 }
 
 // ReviewSettings is the `[review]` table of a profile.

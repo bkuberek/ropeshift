@@ -151,7 +151,7 @@ func (f *Checkouts) resolveLocked(at string) (string, bool) {
 			break
 		}
 	}
-	reserved := slices.ContainsFunc(f.reserved, func(dir string) bool { return at == dir || strings.HasPrefix(at, dir+"/") })
+	reserved := ports.InRopeshiftFolder(at) || slices.ContainsFunc(f.reserved, func(dir string) bool { return at == dir || strings.HasPrefix(at, dir+"/") })
 	return at, reserved
 }
 
@@ -182,6 +182,10 @@ func (f *Checkouts) Find(_ context.Context, paths []string, depth int) ([]ports.
 	for _, given := range paths {
 		// A path that leads through a symbolic link is the directory it leads to, as on a disk.
 		given, _ = f.resolveLocked(given)
+		if ports.InRopeshiftFolder(given) {
+			unread = append(unread, ports.UnreadPath{Path: given, Reason: "is inside a .ropeshift folder, which holds lane worktrees and no clone to register"})
+			continue
+		}
 		if clone, ok := f.clones[given]; ok {
 			found = append(found, clone)
 			continue

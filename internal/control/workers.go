@@ -713,6 +713,9 @@ func desiredLease(tx ports.ReadTx, row workorders.WorkOrder) (ledger.DesiredLeas
 	} else if !errors.Is(err, ports.ErrNotFound) {
 		return lease, err
 	}
+	if lease.PlanningRepository, err = planningRepository(tx.Repositories()); err != nil {
+		return lease, err
+	}
 	lease.Deadline, lease.Overrides, lease.Delegated = row.Deadline, claim.Overrides, claim.Delegated
 	lease.Contract, lease.ContractVersion = row.ContractID, row.ContractVersion
 	if lease.Spend, err = desiredSpend(tx); err != nil {
@@ -780,6 +783,21 @@ func desiredLease(tx ports.ReadTx, row workorders.WorkOrder) (ledger.DesiredLeas
 	}
 	lease.Rework, err = desiredRework(tx.Evidence(), row, texts)
 	return lease, err
+}
+
+// planningRepository is the ID of the repository a member named the project's planning repository, or nothing
+// when none is named or the one named left the project.
+func planningRepository(records ports.RepositoryReader) (string, error) {
+	all, err := records.Repositories()
+	if err != nil {
+		return "", err
+	}
+	for _, record := range all {
+		if record.Planning && !record.Removed() {
+			return record.ID, nil
+		}
+	}
+	return "", nil
 }
 
 // desiredRework tells the lane that takes work up again why it came back: the reason on record, and when a

@@ -229,7 +229,7 @@ When the planning repository's clone is on the machine of the daemon's worker, i
 
 ## Where lanes work
 
-Each lane works in a git worktree of its own, never in your checkout. By default, the worktree goes outside every clone, in the installation's worktree directory, at `<worktree directory>/<project>/<repository>/<lane>`:
+Each lane works in a git worktree of its own, never in your checkout. By default, the worktree of a clone inside the project's workspace goes in the workspace's `.ropeshift/worktrees/<repository>/<lane>`, and every other worktree goes outside every clone, in the installation's worktree directory, at `<worktree directory>/<project>/<repository>/<lane>`. The workspace root needs the workspace to ignore `/.ropeshift/worktrees/`, which the `.gitignore` of `ropeshift new` does; without that line, every lane keeps the root outside every clone and its start notice names the line to add. The workspace's own lanes always stay outside it. The workspace is the folder your profile names in `[projects.<project ID>]`, else the planning repository's clone when it holds the project's other clones in an ignored folder ([the workspace on a machine](project-structure.md#the-workspace-on-a-machine)). The worktree directory is:
 
 | System | Worktree directory |
 |--------|--------------------|
@@ -245,7 +245,7 @@ root = "/path/to/lanes/{project}/{repo}"
 
 `{repo}` becomes the repository's folder name, and `{project}` the project's ID. Write an absolute path, because the root expands no `~` and no variable. A root that is a registered clone, or lies inside one, is refused: the lane fails with the reason `worktree_inside_clone` before any worktree exists, and Needs you names the root and the clone. [Where lane worktrees go](project-structure.md#where-lane-worktrees-go) explains the places and the refusal.
 
-To check a root before a lane does, run `ropeshift worker doctor`, or `ropeshift init` again. Its `Worktree root:` section names the root in force and the layer that set it, the built-in root or your profile. For each checkout this worker keeps, in every project, whose root resolves inside a clone, it adds a line with the project, the checkout, the root, the clone, and the fix. A built-in root outside every clone adds no line.
+To check a root before a lane does, run `ropeshift worker doctor`, or `ropeshift init` again. Its `Worktree root:` section names the root in force and the layer that set it, the built-in root or your profile. For each checkout this worker keeps, in every project, whose root resolves inside a clone, it adds a line with the project, the checkout, the root, the clone, and the fix. A built-in root outside every clone adds no line. For each project whose workspace your profile names, the doctor also prints a `Workspace` line with the folder, how it was found, and whether the folder ignores `.ropeshift/worktrees/`, with the line to add when it does not, and the root each of the project's checkouts gets. The doctor reads no ledger, so it cannot know a project's planning repository; a workspace found from the planning repository's clone is used when a lane starts and is not listed.
 
 ## Spend settings
 

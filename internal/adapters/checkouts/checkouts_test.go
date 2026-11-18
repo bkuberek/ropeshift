@@ -460,13 +460,13 @@ func TestInsideCloneFollowsLinksAndJudgesAPathNothingIsAt(t *testing.T) {
 		"a sibling that shares a name prefix":   {api + "-lanes", ""},
 		"a path in no folder that exists":       {filepath.Join(root, "ghost", "prj", "api"), ""},
 	} {
-		clone, inside, err := ports.InsideClone(t.Context(), f, clones, one.path)
+		clone, inside, err := ports.InsideClone(t.Context(), f, clones, one.path, "")
 		if err != nil || inside != (one.clone != "") || clone != one.clone {
 			t.Errorf("%s: %q, %v (%v), want %q", name, clone, inside, err, one.clone)
 		}
 	}
 	if ignoresCase(t, root) {
-		if clone, inside, err := ports.InsideClone(t.Context(), f, clones, filepath.Join(root, "REPOS", "API", "lanes")); err != nil || !inside || clone != api {
+		if clone, inside, err := ports.InsideClone(t.Context(), f, clones, filepath.Join(root, "REPOS", "API", "lanes"), ""); err != nil || !inside || clone != api {
 			t.Errorf("a path spelled in other case: %q, %v (%v)", clone, inside, err)
 		}
 	}

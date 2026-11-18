@@ -68,6 +68,9 @@ func Resolve(layers ...string) (lanes.Profile, error) {
 	if _, _, err := profile.Resources.Reporting(); err != nil {
 		return lanes.Profile{}, err
 	}
+	if err := lanes.CheckProjects(profile.Projects); err != nil {
+		return lanes.Profile{}, err
+	}
 	return profile, nil
 }
 
@@ -112,6 +115,10 @@ func ResolveLayers(user, repository, overrides string) (lanes.Profile, error) {
 	}
 	if profile.Telemetry.WorkerSettings() != below.Telemetry.WorkerSettings() {
 		return lanes.Profile{}, fmt.Errorf("%w: a layer past the user's cannot change the worker's telemetry store or export", lanes.ErrBadProfile)
+	}
+	// A project's workspace is a folder on this machine, which is the user's choice alone (FR-PROF-6).
+	if !lanes.SameProjects(profile.Projects, below.Projects) {
+		return lanes.Profile{}, fmt.Errorf("%w: a layer past the user's cannot change [projects]", lanes.ErrBadProfile)
 	}
 	// What each class of agent costs is the user's choice alone (FR-AGENT-2).
 	if !maps.Equal(profile.Agent.Classes, below.Agent.Classes) {

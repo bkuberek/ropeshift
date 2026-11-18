@@ -629,13 +629,15 @@ func runDoctor(ctx context.Context) (ledger.Manifest, error) {
 
 // worktreeReport is the doctor's worktree section. It reads the root in force from the user's layer in the state
 // directory, as a lane's start does, and each checkout this worker keeps, in every project, and says which
-// the root puts inside a clone. It needs no daemon.
+// the root puts inside a clone. It needs no daemon, so it reads no ledger and cannot know a project's planning
+// repository: it names the workspaces the user's profile gives, and a lane's start finds the others from the
+// planning repository its lease names.
 func worktreeReport(ctx context.Context, paths api.Paths) (lanes.WorktreeReport, error) {
 	profile, err := soloProfiles(paths).Load(ctx, "", "")
 	if err != nil {
 		return lanes.WorktreeReport{}, err
 	}
-	return worker.WorktreeReport(ctx, profile, soloCheckouts(paths))
+	return worker.WorktreeReport(ctx, profile, soloCheckouts(paths), nil)
 }
 
 // soloLanes wires what a lane runs on: the unmodified agent CLI, the repositories this

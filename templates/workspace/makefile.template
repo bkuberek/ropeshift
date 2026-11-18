@@ -38,6 +38,7 @@ setup:
 	  else git clone "$$remote" "$(CODE_DIR)/$$name" || exit 1; fi; \
 	done
 	@git check-ignore -q "$(CODE_DIR)/x" || echo "warning: .gitignore does not ignore $(CODE_DIR)/"
+	@git check-ignore -q ".ropeshift/worktrees/" || echo "warning: .gitignore does not ignore .ropeshift/worktrees/, so lanes of these repositories run outside the workspace; add /.ropeshift/worktrees/"
 
 fetch:
 	@if [ -n "$$(git remote)" ]; then git fetch --all --prune --quiet && echo "$(WORKSPACE): fetched"; \

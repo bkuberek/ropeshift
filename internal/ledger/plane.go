@@ -262,6 +262,9 @@ type DesiredLease struct {
 	Reads []RepositoryRead `json:"reads,omitempty"`
 	// RepositoryName is what the project calls Repository.
 	RepositoryName string `json:"repository_name,omitempty"`
+	// PlanningRepository is the ID of the repository the lane's project plans in, which a worker finds the
+	// project's workspace from (FR-PROF-6). Empty when the project names none.
+	PlanningRepository string `json:"planning_repository,omitempty"`
 	// Inventory asks the worker to write the inventory of the lane's repository and of every repository it
 	// reads into the lane's context folder before the lane starts, as it does for a lane that adopts a
 	// project (ADR-0023).

@@ -22,6 +22,9 @@ type LaneRequest struct {
 	// Project is the ID of the project the lane belongs to, which a worktree root's {project} names. Empty
 	// names the installation's only project.
 	Project string
+	// PlanningRepository is the ID of the repository the project plans in, from the lease, which the project's
+	// workspace is found from (FR-PROF-6). Empty when the project names none.
+	PlanningRepository string
 	// Recorded is the worktree the lane's journal recorded for an earlier generation. A lane goes on in its own
 	// worktree when the root in force would put a new one elsewhere, and only the one recorded here, or when
 	// nothing is recorded one named for the lane, is its own. Empty says the journal holds none.
@@ -80,6 +83,10 @@ type PreparedLane struct {
 	// Kept says the lane went on in a worktree it already had, at a place other than the one the root in force
 	// gives a new worktree. Nil when the lane's worktree is where that root puts it, or is new.
 	Kept *KeptWorktree
+	// Unignored names the workspace that does not ignore its .ropeshift/worktrees/ folder, when the lane's
+	// built-in root fell back to the root outside every clone for that reason, and the start says which line to
+	// add. Empty otherwise.
+	Unignored string
 }
 
 // KeptWorktree is a lane's existing worktree that the root in force would not have chosen, which an upgrade that
@@ -164,11 +171,12 @@ func (p Provisioner) Prepare(ctx context.Context, request LaneRequest) (Prepared
 	// The place comes before anything a lane leaves behind, so a root inside a clone stops it with no
 	// resources allocated and no worktree made.
 	var (
-		place lanes.Placement
-		kept  *KeptWorktree
+		place     lanes.Placement
+		kept      *KeptWorktree
+		unignored string
 	)
 	if !request.Private {
-		if place, kept, err = p.place(ctx, request, profile); err != nil {
+		if place, kept, unignored, err = p.place(ctx, request, profile); err != nil {
 			return PreparedLane{}, err
 		}
 	}
@@ -214,7 +222,7 @@ func (p Provisioner) Prepare(ctx context.Context, request LaneRequest) (Prepared
 	}
 	return PreparedLane{
 		Worktree: worktree, Environment: environment, Profile: profile, ProfileDigest: digest, DefaultBranch: branch,
-		LaneModel: laneModel, LaneEffort: laneEffort, Kept: kept,
+		LaneModel: laneModel, LaneEffort: laneEffort, Kept: kept, Unignored: unignored,
 	}, nil
 }
 

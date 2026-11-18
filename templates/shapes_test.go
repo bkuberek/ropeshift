@@ -106,6 +106,37 @@ func TestEachShapesFilesCommitWithTheirPractices(t *testing.T) {
 	}
 }
 
+// A workspace ignores its folder for lane worktrees, so a lane worktree there is never shown as untracked content
+// or committed by mistake, and it keeps its own profile layer at .ropeshift/profile.toml tracked (FR-PROF-3).
+func TestAWorkspaceIgnoresItsLaneWorktreesAndNotItsProfileLayer(t *testing.T) {
+	repo := gittest.New(t)
+	if err := os.WriteFile(filepath.Join(repo.Dir, ".gitignore"), []byte(render(t, "workspace/gitignore", templates.Data{Project: "orchid"})), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{".ropeshift/worktrees/", ".ropeshift/worktrees/orchid-api/lane-1"} {
+		if !isIgnored(t, repo, path) {
+			t.Errorf("%s is not ignored", path)
+		}
+	}
+	for _, path := range []string{".ropeshift/profile.toml", ".ropeshift/worktrees-notes.md"} {
+		if isIgnored(t, repo, path) {
+			t.Errorf("%s is ignored", path)
+		}
+	}
+}
+
+// The workspace Makefile's setup warns when the workspace does not ignore the folder for lane worktrees, as it
+// warns for the folder of clones, and its other targets keep to the folder of clones and the manifest's names.
+func TestTheWorkspaceMakefileWarnsWhenWorktreesAreNotIgnored(t *testing.T) {
+	makefile := render(t, "workspace/makefile", templates.Data{Project: "orchid"})
+	if !strings.Contains(makefile, `git check-ignore -q ".ropeshift/worktrees/"`) || !strings.Contains(makefile, "does not ignore .ropeshift/worktrees/") {
+		t.Error("make setup does not warn about an unignored .ropeshift/worktrees/")
+	}
+	if strings.Contains(makefile, "$(CODE_DIR)/.ropeshift") {
+		t.Error("a target loops over the workspace's worktree folder")
+	}
+}
+
 // A workspace ignores the folder of clones, so a clone there is never read as part of the plan.
 func TestAWorkspaceIgnoresItsClones(t *testing.T) {
 	repo := gittest.New(t)

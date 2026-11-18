@@ -118,6 +118,46 @@ func TestTheDoctorPrintsTheWorktreeSectionAfterTheDrivers(t *testing.T) {
 	}
 }
 
+// TestTheDoctorPrintsEachProjectsWorkspace holds the doctor's workspace lines: where the workspace is, how it was
+// found, whether its .ropeshift/worktrees/ folder is ignored with the line to add when it is not, and the root each
+// checkout of the project gets.
+func TestTheDoctorPrintsEachProjectsWorkspace(t *testing.T) {
+	manifest := ledger.Manifest{Drivers: []ledger.DriverManifest{{
+		Driver: "claude-code", Present: true, Version: "2.1.316", Qualified: true,
+		SignIn: ledger.SignIn{Kind: ledger.SignInSubscription, Status: ledger.SignedIn},
+	}}}
+	report := domain.WorktreeReport{
+		Root: "/data/worktrees/{project}/{repo}", Source: domain.RootFromDefault,
+		Workspaces: []domain.WorkspaceReport{
+			{
+				Project: "prj-1", Path: "/work/ws", Found: domain.WorkspaceFromProfile, Clone: true, Ignored: true,
+				Roots: []domain.CheckoutRoot{{Checkout: "/work/ws/repos/api", Root: "/work/ws/.ropeshift/worktrees/api"}, {Checkout: "/work/ws", Root: "/data/worktrees/prj-1/ws"}},
+			},
+			{
+				Project: "prj-2", Path: "/work/ws2", Found: domain.WorkspaceFromProfile, Clone: true, Line: "/.ropeshift/worktrees/",
+				Roots: []domain.CheckoutRoot{{Checkout: "/work/ws2/repos/web", Root: "/data/worktrees/prj-2/web"}},
+			},
+			{Project: "prj-3", Path: "/work/plain", Found: domain.WorkspaceFromProfile, Ignored: true, Roots: []domain.CheckoutRoot{}},
+		},
+	}
+	var stdout, stderr bytes.Buffer
+	code := cli.Run([]string{"worker", "doctor"}, &stdout, &stderr, cli.Options{
+		Doctor:   func(context.Context) (ledger.Manifest, error) { return manifest, nil },
+		Worktree: func(context.Context) (domain.WorktreeReport, error) { return report, nil },
+	})
+	want := "claude-code\t2.1.316\tqualified\tsign-in subscription\tsigned_in\n" +
+		"Worktree root: /data/worktrees/{project}/{repo} (" + domain.RootFromDefault + ")\n" +
+		"Workspace prj-1: /work/ws (" + domain.WorkspaceFromProfile + "), which ignores .ropeshift/worktrees/\n" +
+		"  /work/ws/repos/api: lane worktrees go in /work/ws/.ropeshift/worktrees/api\n" +
+		"  /work/ws: lane worktrees go in /data/worktrees/prj-1/ws\n" +
+		"Workspace prj-2: /work/ws2 (" + domain.WorkspaceFromProfile + "), which does not ignore .ropeshift/worktrees/: add /.ropeshift/worktrees/ to its .gitignore so lanes of its clones run inside it\n" +
+		"  /work/ws2/repos/web: lane worktrees go in /data/worktrees/prj-2/web\n" +
+		"Workspace prj-3: /work/plain (" + domain.WorkspaceFromProfile + "), a plain folder that needs no ignore line\n"
+	if code != cli.ExitOK || stdout.String() != want {
+		t.Errorf("exit %d, stdout %q, stderr %q, want %q", code, stdout.String(), stderr.String(), want)
+	}
+}
+
 // TestTheDoctorGoldenPrintsAsTheWebTestsRead writes what `worker doctor` prints for the manifest of each worker in
 // the golden of a shop floor whose workers reported different results, so a web test holds the Workers view to the
 // command's own words. Each worker's lines follow a `worker` line naming it.
