@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"ropeshift.com/ropeshift/internal/control"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/internal/workorders"
@@ -164,8 +165,9 @@ func TestAnUnreadableBaseThatIsRedIsRaisedOnceItCanBeRead(t *testing.T) {
 	}
 }
 
-// F4: a forge that fails after it started some runs again leaves those on record as done, and the rest are asked for as
-// a rerun of their own, each counted, so no run is started twice.
+// F4: a forge that fails after it started some runs again leaves those on record as done, and the rest are finished as
+// the same rerun: asked for once, never counted again and never held to the cap, which the rerun passed when it was
+// asked for. The head is never over `ci_auto_rerun`, and a member's own rerun is unaffected.
 func TestAFailureInTheMiddleOfARerunAsksOnlyForTheRest(t *testing.T) {
 	t.Parallel()
 	f, number := reviewedRig(t)
@@ -179,12 +181,36 @@ func TestAFailureInTheMiddleOfARerunAsksOnlyForTheRest(t *testing.T) {
 	if got := f.forge.Reruns(); len(got) != 2 || !strings.HasSuffix(got[0], " 11") || !strings.HasSuffix(got[1], " 12") {
 		t.Fatalf("the forge took the reruns %v, want run 11 and then run 12 once each", got)
 	}
-	if held := f.waiting(); held.Reruns != 2 || held.AutoReruns != 2 {
-		t.Fatalf("the head holds %+v, want each of the two asks counted", held)
+	if held := f.waiting(); held.Reruns != 1 || held.AutoReruns != 1 {
+		t.Fatalf("the head holds %+v, want the one rerun counted once", held)
 	}
 	done := f.eventsData(ledger.EventCIRerunDone)
 	if len(done) != 2 || !strings.Contains(done[0], `"pending":["12"]`) || !strings.Contains(done[0], `"runs":["11"]`) || !strings.Contains(done[1], `"runs":["12"]`) {
 		t.Fatalf("the reruns were recorded as %v", done)
+	}
+	if continued := f.eventsData(ledger.EventCIRerunContinued); len(continued) != 1 || !strings.Contains(continued[0], `"continues":"rerun:auto:`) || !strings.Contains(continued[0], `"pending":["12"]`) {
+		t.Fatalf("the continuation was recorded as %v", continued)
+	}
+	f.assertEvents(ledger.EventCIRerunRequested, 1)
+	// The rerun ended the same way, past the cap: a person decides, and the cap is not passed.
+	f.forge.SetChecks(number, f.finishedNow("CI", "timed_out", "11"), f.finishedNow("lint", "cancelled", "12"))
+	f.settle()
+	if kinds := f.ciKinds(); len(kinds) != 1 || kinds[0] != ledger.CIItemInfrastructure {
+		t.Fatalf("a failure past the cap raises %v", kinds)
+	}
+	if len(f.forge.Reruns()) != 2 {
+		t.Fatalf("the cap was passed: %v", f.forge.Reruns())
+	}
+	// A member's own rerun is unaffected: it is made and counted apart.
+	if _, err := control.NewCIAttention(f.store).Rerun(t.Context(), scope, f.id, member); err != nil {
+		t.Fatal(err)
+	}
+	f.settle()
+	if held := f.waiting(); held.Reruns != 2 || held.AutoReruns != 1 {
+		t.Fatalf("after a member's rerun the head holds %+v, want 2 of which 1 automatic", held)
+	}
+	if len(f.forge.Reruns()) != 3 {
+		t.Fatalf("a member's rerun made %d forge reruns in all, want 3", len(f.forge.Reruns()))
 	}
 }
 

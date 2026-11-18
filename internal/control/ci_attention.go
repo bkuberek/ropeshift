@@ -201,8 +201,10 @@ type ciEvent struct {
 	// Runs and Refused are what the forge did with a rerun, once a worker made it.
 	Runs    []string `json:"runs,omitempty"`
 	Refused string   `json:"refused,omitempty"`
-	// Pending are the runs the forge did not reach, which are asked for again.
-	Pending []string `json:"pending,omitempty"`
+	// Continues names the rerun a continuation finishes, and Pending are the runs the forge did not reach, which the
+	// continuation asks for.
+	Continues string   `json:"continues,omitempty"`
+	Pending   []string `json:"pending,omitempty"`
 }
 
 func appendCI(tx ports.WriteTx, eventType, workOrder string, data ciEvent, actor ledger.Actor) error {

@@ -11,6 +11,9 @@ const (
 	// EventCIRerunDone records what the forge did with a rerun a worker made: the runs it started again, or why it
 	// refused.
 	EventCIRerunDone = "ci.rerun_done"
+	// EventCIRerunContinued records the rest of a rerun the forge failed in the middle of, asked for as a continuation
+	// of the same rerun: it is not counted again, and it names the request it continues.
+	EventCIRerunContinued = "ci.rerun_continued"
 	// EventCILogRead records that a worker read the logs of a head's failing checks. It holds no log.
 	EventCILogRead = "ci.log_read"
 )

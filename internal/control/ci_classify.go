@@ -281,9 +281,10 @@ func runsOf(reported []string) []string {
 	return runs
 }
 
-// rerunRest asks again for the runs a rerun did not reach because the forge failed in the middle of it, as a rerun of
-// its own, which is counted as any rerun is, and of the same kind as the one it continues. The runs it started again
-// are on record as done and are not asked for again.
+// rerunRest finishes a rerun the forge failed in the middle of. The runs it did not reach are asked for as a
+// continuation of the same rerun: a request of the same kind that names the one it continues, an event that says so,
+// and no count, because the rerun was counted and passed the cap when it was asked for, so a head is never over
+// `ci_auto_rerun` for finishing one. The runs it started again are on record as done and are not asked for again.
 func rerunRest(tx ports.WriteTx, request ledger.ForgeRequest, pending []string) error {
 	pr, err := tx.Forge().PullRequest(request.WorkOrder)
 	if err != nil || pr.HeadCommit != request.Commit || pr.State != ledger.PullRequestOpen {
@@ -305,12 +306,28 @@ func rerunRest(tx ports.WriteTx, request ledger.ForgeRequest, pending []string) 
 		address := "https://" + binding.Host + "/" + binding.Owner + "/" + binding.Repo + "/actions/runs/" + run
 		refs = append(refs, ledger.CICheckRef{Name: "run " + run, URL: address, Key: run + "/"})
 	}
+	raw, err := json.Marshal(refs)
+	if err != nil {
+		return err
+	}
+	next := ledger.ForgeRequest{
+		ID: request.ID + ":rest", Kind: ledger.ForgeRerun, WorkOrder: pr.WorkOrder, Repository: pr.Repository, Worker: pr.Worker,
+		Binding: record.ForgeBinding, Commit: pr.HeadCommit, Number: pr.Number, Body: string(raw), RequestedAt: tx.Now(),
+	}
+	first, err := tx.Forge().InsertRequest(next)
+	if err != nil || !first {
+		return err
+	}
+	if err := appendForge(tx, ledger.EventForgeRequested, pr.WorkOrder, next, ciActor); err != nil {
+		return err
+	}
 	class := ciClassMember
 	if rerunIsAuto(request) {
 		class = ciClassInfrastructure
 	}
-	_, err = requestRerun(tx, rerunAsked{pr: pr, repository: record, class: class, auto: rerunIsAuto(request), refs: refs}, ciActor)
-	return err
+	return appendCI(tx, ledger.EventCIRerunContinued, pr.WorkOrder, ciEvent{
+		Head: pr.HeadCommit, Class: class, Auto: rerunIsAuto(request), Request: next.ID, Continues: request.ID, Pending: pending,
+	}, ciActor)
 }
 
 func clipCI(text string, limit int) string {

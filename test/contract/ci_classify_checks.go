@@ -18,6 +18,7 @@ var CIClassifyChecks = []Check{
 	{"CI11", "a member's rerun is counted apart: it never uses up an automatic rerun, and an automatic rerun never uses up theirs", checkCIMemberRerunsDoNotUseTheCap},
 	{"CI12", "ci_auto_rerun = 0 raises the first infrastructure failure at once and asks the worker for no rerun", checkCINoAutomaticRerun},
 	{"CI13", "a test failure waits for the failing job's log, and goes back with it scrubbed, bounded, and in a block it cannot close", checkCITestFailureReworksWithItsLog},
+	{"CI15", "the rest of a rerun the forge failed in the middle of is finished as the same rerun, never counted again and never held to the cap", checkCIARerunIsFinishedUncounted},
 	{"CI14", "a check that ended in what no change mends is no evidence against the work in acceptance, and a test failure still is", checkCIHeldChecksAreNoEvidence},
 }
 
@@ -380,4 +381,69 @@ func checkCIHeldChecksAreNoEvidence(r *Rig) error {
 		return Violatedf("the evidence against the work is %+v: %v", listed, err)
 	}
 	return nil
+}
+
+func checkCIARerunIsFinishedUncounted(r *Rig) error {
+	f, err := newForgeRig(r, ledger.ReviewOnPullRequest)
+	if err != nil {
+		return err
+	}
+	if err := f.report(f.opened(1, f.head)); err != nil {
+		return err
+	}
+	order := f.grant.WorkOrder
+	failure, err := f.infraAfter(-time.Hour, ciRunAddress)
+	if err != nil {
+		return err
+	}
+	if err := f.ciRead(f.head, failure); err != nil {
+		return err
+	}
+	asked, err := f.reruns("rerun:auto:")
+	if err != nil || len(asked) != 1 {
+		return Violatedf("the worker is asked %+v for the rerun: %v", asked, err)
+	}
+	// The forge started run 9 again and failed before run 10.
+	partly := ledger.ForgeReport{Request: asked[0].ID, Attempt: asked[0].Attempt, Rerun: &ledger.CIRerun{Runs: []string{"9"}, Pending: []string{"10", "not-a-run"}}}
+	if err := f.report(partly); err != nil {
+		return err
+	}
+	rest, err := f.reruns("rerun:auto:")
+	if err != nil || len(rest) != 1 || rest[0].ID != asked[0].ID+":rest" || !strings.Contains(rest[0].Body, "/actions/runs/10") || strings.Contains(rest[0].Body, "not-a-run") ||
+		rest[0].Commit != f.head || rest[0].Number != 7 {
+		return Violatedf("the rest of the rerun is asked as %+v: %v", rest, err)
+	}
+	// The rest is the same rerun: it is counted once, in all, and the cap is not asked of it.
+	if err := f.wantCounts("after the rest was asked for", 1, 1); err != nil {
+		return err
+	}
+	if count, _, err := r.eventsAbout(f.store, order, ledger.EventCIRerunRequested); err != nil || count != 1 {
+		return Violatedf("the rerun left %d requested events: %v", count, err)
+	}
+	if count, event, err := r.eventsAbout(f.store, order, ledger.EventCIRerunContinued); err != nil || count != 1 ||
+		!strings.Contains(string(event.Data), `"continues":"`+asked[0].ID+`"`) || !strings.Contains(string(event.Data), `"pending":["10"]`) {
+		return Violatedf("the continuation left %d events, the last %s: %v", count, event.Data, err)
+	}
+	// The same report again changes nothing.
+	before, err := r.Revision(f.store, r.Scope)
+	if err != nil {
+		return err
+	}
+	if err := f.report(partly); err != nil {
+		return err
+	}
+	if after, err := r.Revision(f.store, r.Scope); err != nil || after != before {
+		return Violatedf("a repeated report moved the revision from %d to %d: %v", before, after, err)
+	}
+	// Finished, the head holds one rerun and raises nothing, and the cap is not passed.
+	if err := f.report(ledger.ForgeReport{Request: rest[0].ID, Attempt: rest[0].Attempt, Rerun: &ledger.CIRerun{Runs: []string{"10"}}}); err != nil {
+		return err
+	}
+	if err := f.wantReruns("once finished", "rerun:", 0); err != nil {
+		return err
+	}
+	if err := f.noItems("a rerun finished in two parts"); err != nil {
+		return err
+	}
+	return f.wantCounts("once finished", 1, 1)
 }
