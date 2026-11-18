@@ -95,12 +95,13 @@ func (w *Worker) markBase(ctx context.Context, watched ledger.DesiredPullRequest
 }
 
 // baseUnread holds a repository's reads for a rate limit as any refused read does, and says once, in a notice that
-// holds nothing the forge wrote, that failed checks are held for want of a read of the base. It counts the refusal
-// among the reads of this pull request in a row, to ledger.CIBaseUnreadReads and no further, and returns the count: the
+// holds nothing the forge wrote, that failed checks are held for want of a read of the base. It counts a refusal that is no
+// rate limit among the reads of this pull request in a row, to ledger.CIBaseUnreadReads and no further, and returns the count: the
 // control plane raises a finding to a person when it reaches it, and a count that stopped is a read that changes
 // nothing in the ledger.
 func (w *Worker) baseUnread(watched ledger.DesiredPullRequest, err error) int64 {
-	if errors.Is(err, ports.ErrForgeRateLimited) {
+	limited := errors.Is(err, ports.ErrForgeRateLimited)
+	if limited {
 		w.rateLimited(watched.Project, watched.Repository, err)
 	}
 	key := forgeKey(watched.Project, watched.Repository)
@@ -114,7 +115,10 @@ func (w *Worker) baseUnread(watched ledger.DesiredPullRequest, err error) int64 
 		w.baseRefused = map[string]int64{}
 	}
 	counted := forgeKey(key, watched.WorkOrder)
-	w.baseRefused[counted] = min(w.baseRefused[counted]+1, ledger.CIBaseUnreadReads)
+	// A rate limit is a read that cannot tell yet and no refusal of the base, so it holds the check and counts for nothing.
+	if !limited {
+		w.baseRefused[counted] = min(w.baseRefused[counted]+1, ledger.CIBaseUnreadReads)
+	}
 	reads := w.baseRefused[counted]
 	w.forgeLock.Unlock()
 	if first {

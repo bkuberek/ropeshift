@@ -75,6 +75,16 @@ func classifyCI(tx ports.WriteTx, workOrder string) error {
 	if workorders.Terminal(order.State) {
 		return nil
 	}
+	// A refusal of the base's read ends with a read that can tell, with the failure it held, or with a rerun that has the
+	// head's checks running again: the finding for it leaves, and no other kind does. It leaves before a check that is still
+	// running makes the classification wait, because a rerun a member asked for must not leave it standing.
+	if !slices.ContainsFunc(pr.Checks, func(check ledger.PullRequestCheck) bool {
+		return check.Required && check.Class() == ledger.CIClassBaseUnread
+	}) {
+		if _, err := tx.CI().ClearCIFinding(workOrder, pr.HeadCommit, ledger.CIItemBaseUnread); err != nil {
+			return err
+		}
+	}
 	byClass := map[ledger.CICheckClass][]ledger.PullRequestCheck{}
 	for _, check := range pr.Checks {
 		if !check.Required {
@@ -91,13 +101,6 @@ func classifyCI(tx ports.WriteTx, workOrder string) error {
 	if len(byClass) == 0 {
 		_, err := tx.CI().ClearCIFindings(workOrder, pr.HeadCommit)
 		return err
-	}
-	// A refusal of the base's read ends with a read that can tell, or with the failure it held: the finding for it leaves,
-	// and no other kind does.
-	if len(byClass[ledger.CIClassBaseUnread]) == 0 {
-		if _, err := tx.CI().ClearCIFinding(workOrder, pr.HeadCommit, ledger.CIItemBaseUnread); err != nil {
-			return err
-		}
 	}
 	if len(byClass[ledger.CIClassTestFailure]) != 0 {
 		return nil
@@ -130,6 +133,23 @@ func classifyCI(tx ports.WriteTx, workOrder string) error {
 		return handleInfrastructure(tx, pr, record, checks)
 	}
 	return nil
+}
+
+// clampedBaseReads keeps what a worker reports of the reads in a row that could not read the base within what a worker
+// counts to: from none to ledger.CIBaseUnreadReads, and none for a check whose base was read or is not marked unread. A
+// worker's word is not trusted to be a small number, and the report it came in is left as it was.
+func clampedBaseReads(checks []ledger.PullRequestCheck) []ledger.PullRequestCheck {
+	if !slices.ContainsFunc(checks, func(check ledger.PullRequestCheck) bool { return check.BaseUnreadReads != 0 }) {
+		return checks
+	}
+	kept := slices.Clone(checks)
+	for i := range kept {
+		if !kept[i].BaseUnread || kept[i].RedOnBase != "" {
+			kept[i].BaseUnreadReads = 0
+		}
+		kept[i].BaseUnreadReads = min(max(kept[i].BaseUnreadReads, 0), ledger.CIBaseUnreadReads)
+	}
+	return kept
 }
 
 func findingOf(pr ledger.WorkPullRequest, kind string, check ledger.PullRequestCheck) ledger.CIFinding {
