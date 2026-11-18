@@ -641,6 +641,37 @@ func BrokenClaudeRuns(t testing.TB, path string) []string {
 	return strings.Split(strings.TrimSuffix(string(raw), "\n"), "\n")
 }
 
+const gitStubRuns = "ran-git"
+
+// InstallGitStub puts a `git` in a new directory that answers `--version` with "git version <version>" and
+// fails every other command with exit 99, and returns path with that directory first. It stands for a git
+// of that release, and any command that reaches it past the version check is a git read the test did not
+// expect. Each run records its arguments first.
+func InstallGitStub(t testing.TB, version, path string) string {
+	t.Helper()
+	dir := t.TempDir()
+	script := "#!/bin/sh\nprintf '%s\\n' \"$*\" >>\"${0%/*}/" + gitStubRuns + "\"\n" +
+		"case \"$1\" in\n--version) echo 'git version " + version + "' ;;\n*) echo 'the git stub runs only --version' >&2; exit 99 ;;\nesac\n"
+	if err := os.WriteFile(filepath.Join(dir, "git"), []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	return dir + string(os.PathListSeparator) + path
+}
+
+// GitStubRuns lists the arguments of every run of the `git` InstallGitStub put first on the PATH it
+// returned, in order.
+func GitStubRuns(t testing.TB, path string) []string {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join(BinDir(path), gitStubRuns))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	return strings.Split(strings.TrimSuffix(string(raw), "\n"), "\n")
+}
+
 // CanaryPathWithout is a PATH with no agent CLI on it at all, not even the canary, for a
 // machine that has none. It holds git and nothing else, because a daemon refuses to start without git
 // and the machine this stands for has it.

@@ -107,6 +107,9 @@ func cliOptions() cli.Options {
 	if machine, err := liveServices(); err == nil {
 		opts.InstallService, opts.UninstallService = machine.install, machine.uninstall
 	}
+	// The check reads this machine's git and needs no installation, so a command that reads git in this process
+	// refuses a git below the minimum even where the installation's paths cannot be resolved.
+	opts.Git = func(ctx context.Context) lanes.GitReport { return checkGit(ctx, gitcli.Probe{}) }
 	paths, err := installationPaths()
 	if err != nil {
 		return opts
@@ -117,7 +120,6 @@ func cliOptions() cli.Options {
 	}
 	opts.Doctor = func(ctx context.Context) (ledger.Manifest, error) { return runDoctor(ctx) }
 	opts.Worktree = func(ctx context.Context) (lanes.WorktreeReport, error) { return worktreeReport(ctx, paths) }
-	opts.Git = func(ctx context.Context) lanes.GitReport { return checkGit(ctx, gitcli.Probe{}) }
 	opts.StartDaemon = startDaemonForInit(paths)
 	opts.StateDir = paths.StateDir
 	return opts

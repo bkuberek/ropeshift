@@ -57,7 +57,7 @@ Ropeshift needs git 2.31 or newer. Check yours:
 git --version
 ```
 
-A distribution that ships an older git needs a newer one from its backports or from git's own packages. With an older git, `ropeshiftd` refuses to start and names the minimum and the version it found, and `ropeshift worker doctor` prints the same words on its `git` line and exits 1.
+A distribution that ships an older git needs a newer one from its backports or from git's own packages. With an older git, `ropeshiftd`, `ropeshift init`, `ropeshift new`, and `ropeshift adopt` refuse to run with exit 1 and name the minimum and the version it found, and `ropeshift worker doctor` prints the same words on its `git` line and exits 1.
 
 ### 3. Install Claude Code and sign in
 
