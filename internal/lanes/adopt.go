@@ -3,6 +3,7 @@ package lanes
 import (
 	"strings"
 
+	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/planning"
 )
 
@@ -35,6 +36,10 @@ var inventoryExample = planning.Inventory{Repositories: []planning.RepositoryInv
 			MergeBase: "0d1d7fc32e5a947fbd92ee598033d85bfc445a50", Ahead: 1, Behind: 40, LastCommit: "2025-03-18T09:12:40Z",
 		},
 	},
+	PullRequests: []ledger.PullRequestSummary{{
+		Number: 41, Title: "Retry a failed charge once", Branch: "feature/checkout-retry", Base: "main",
+		URL: "https://example.com/acme/api/pull/41", UpdatedAt: "2026-10-02T14:05:00Z",
+	}},
 }}}
 
 // adoptRules are what an adopt session does beyond any planning session (ADR-0023), in the order it does
@@ -49,7 +54,10 @@ is here to answer what only they know. Work through the steps below in order.
 and the base branch and commit it was read at; every Markdown file with its path, digest, front matter format (none, toml, or
 yaml), and headings; the files whose TOML front matter intake would read, under ropeshift_files, with whether it reads each one
 cleanly; and every branch the base does not hold, with its tip, where it left the base, how many commits it is ahead and behind,
-and the time of its last commit. Its omitted list says what it does not read yet. Read the inventory first, then the documents
+and the time of its last commit; and, under pull_requests, the repository's open pull requests, each with its number, title, head
+and base branch, address, whether it is a draft, and when it last changed, at most 200 of them, with more_pull_requests true when the
+forge holds more. A repository whose pull requests were not read has an omitted entry that says why, and the top-level omitted list
+says what the inventory does not read at all. Read the inventory first, then the documents
 and the code it points to. This repository is the one you write in; the others are the read-only checkouts named above.
 
 2. Onboard, do not rewrite. An existing requirements document, spec, architecture note, or decision record becomes a document of
@@ -78,11 +86,14 @@ approves each of these claims with the plan, and the approval lists every one wi
 5. Plan what remains, as any plan does: milestones in priority order, shared contracts first, then the contracts that use them,
 each with criteria that cite requirement IDs, and the work orders that do the work.
 
-6. Continue in-flight work. For each branch in the inventory, ask the person whether to keep it. A branch they keep becomes a work
-order with continues naming the branch as the person calls it, without a remote's prefix, such as feature/checkout-retry, in the
-repository that holds it: its lane starts from the branch's tip on a branch of its own, and the branch itself never moves. Record
-each branch they leave out in the plan's [[left_out]] with ref = "branch:<name>" and the reason they gave. Never check out, merge,
-rebase, push, or delete a branch someone else works on.
+6. Continue in-flight work. For each branch in the inventory, and for each open pull request in it, ask the person whether to keep
+it. A branch they keep becomes a work order with continues naming the branch as the person calls it, without a remote's prefix,
+such as feature/checkout-retry, in the repository that holds it: its lane starts from the branch's tip on a branch of its own, and
+the branch itself never moves. A pull request they keep is its head branch: that branch becomes a work order with continues in the
+same way, and you name the pull request in the work order's description. Record each branch they leave out in the plan's
+[[left_out]] with ref = "branch:<name>" and the reason they gave, and each pull request they leave out with
+ref = "pull:<number>", the number the inventory gives it, and the reason. Never check out, merge, rebase, push, close, or delete a
+branch or pull request someone else works on.
 
 7. Write nothing else. Commit only the files above, in your own worktree of this repository and on your own branch: no code, no
 tests, no build or CI files, and nothing in any other repository. Never commit to the default branch, push, or move another

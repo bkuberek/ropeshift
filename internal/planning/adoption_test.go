@@ -117,10 +117,18 @@ func TestAPlanRecordsWhatItLeftOut(t *testing.T) {
 	if got, err := plan.Normalize(); err != nil || len(got.LeftOut) != 2 {
 		t.Fatalf("a plan with what it left out: %+v, %v", got, err)
 	}
+	plan.LeftOut = []planning.LeftOut{
+		{Ref: "branch:spike/old-ui", Reason: "An abandoned experiment"},
+		{Ref: "pull:41", Reason: "The author closed it"},
+	}
+	if got, err := plan.Normalize(); err != nil || len(got.LeftOut) != 2 || got.LeftOut[1].Ref != "pull:41" {
+		t.Fatalf("a plan that leaves out a pull request: %+v, %v", got.LeftOut, err)
+	}
 	for name, left := range map[string][]planning.LeftOut{
-		"no reason": {{Ref: "branch:spike/old-ui"}},
-		"no ref":    {{Reason: "Old"}},
-		"twice":     {{Ref: "branch:a", Reason: "Old"}, {Ref: "branch:a", Reason: "Older"}},
+		"no reason":            {{Ref: "branch:spike/old-ui"}},
+		"a pull request twice": {{Ref: "pull:41", Reason: "Old"}, {Ref: "pull:41", Reason: "Older"}},
+		"no ref":               {{Reason: "Old"}},
+		"twice":                {{Ref: "branch:a", Reason: "Old"}, {Ref: "branch:a", Reason: "Older"}},
 	} {
 		plan.LeftOut = left
 		if _, err := plan.Normalize(); !errors.Is(err, planning.ErrBadFile) {

@@ -333,7 +333,7 @@ The statement of what this work must deliver, in prose.
 	},
 	{
 		Kind:  FilePlan,
-		Intro: "The plan records each branch or issue it does not carry in a [[left_out]] table, with ref naming it and the reason.",
+		Intro: "The plan records each branch, pull request, or issue it does not carry in a [[left_out]] table, with ref naming it (branch:<name> or pull:<number>) and the reason.",
 		Text: `+++
 kind = "plan"
 id = "payments-v2"
@@ -344,6 +344,10 @@ documents = ["requirements:payments", "milestone:m0-payments-today", "milestone:
 [[left_out]]
 ref = "branch:spike/old-checkout"
 reason = "An experiment the person abandoned"
+
+[[left_out]]
+ref = "pull:41"
+reason = "The author closed it in favor of the retry work"
 +++
 
 How the work is planned, in prose.
