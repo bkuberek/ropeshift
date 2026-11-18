@@ -303,6 +303,47 @@ func TestAFailedCreateKeepsTheLocalRepositoryAndNamesTheCommandsLeft(t *testing.
 	}
 }
 
+// finishUnchecked runs Finish as a run that passed Start would, so the commands it prints are read for names and
+// URLs that Start refuses.
+func finishUnchecked(t *testing.T, m *machine, request ledger.TemplateWriteRequest) ledger.TemplateWriteReport {
+	t.Helper()
+	m.folders.CommitError = errors.New("Author identity unknown")
+	progress := &projectremote.Progress{
+		Started: true, Commit: true, NeedsRepository: true,
+		Account: &projectremote.Account{Login: "test", GitProtocol: "https", Binary: "/usr/bin/gh"},
+	}
+	report, err := projectremote.Finish(context.Background(), m.runtime, projectremote.Job{Request: request, NeedsRepository: true}, progress, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return report
+}
+
+func TestTheCommandsLeftQuoteANameAndAURLTheShellWouldReadAsMore(t *testing.T) {
+	m := newMachine()
+	request := monorepo(create("test"))
+	request.Path = "/srv/a;touch pwned"
+	want := []string{
+		"gh repo create 'test/a;touch pwned' --private",
+		"git -C '/srv/a;touch pwned' remote add origin 'https://github.com/test/a;touch pwned.git'",
+		"gh auth setup-git",
+		"git -C '/srv/a;touch pwned' push --set-upstream origin main",
+	}
+	if got := finishUnchecked(t, m, request).Remaining; !slices.Equal(got, want) {
+		t.Errorf("remaining = %q, want %q", got, want)
+	}
+
+	m = newMachine()
+	request = monorepo(&ledger.ProjectRemote{URL: "https://example.com/a b$(touch pwned)'.git"})
+	want = []string{
+		`git -C /srv/acme remote add origin 'https://example.com/a b$(touch pwned)'\''.git'`,
+		"git -C /srv/acme push --set-upstream origin main",
+	}
+	if got := finishUnchecked(t, m, request).Remaining; !slices.Equal(got, want) {
+		t.Errorf("remaining = %q, want %q", got, want)
+	}
+}
+
 func TestAFailedPushKeepsTheCreatedRepositoryAndTheOrigin(t *testing.T) {
 	m := newMachine()
 	m.folders.FailPush("/srv/acme", errors.New("remote: push refused"))

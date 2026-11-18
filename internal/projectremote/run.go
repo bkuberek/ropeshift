@@ -343,9 +343,9 @@ func (r *runner) remaining(ctx context.Context, u unit) []string {
 			if u.remote.Create.Public() {
 				visibility = "--public"
 			}
-			out = append(out, fmt.Sprintf("gh repo create %s/%s %s", u.remote.Create.Owner, u.ghName, visibility))
+			out = append(out, fmt.Sprintf("gh repo create %s %s", projectfiles.Quote(u.remote.Create.Owner+"/"+u.ghName), visibility))
 		case ledger.RemoteStepOrigin:
-			out = append(out, "git -C "+folder+" remote add origin "+url)
+			out = append(out, "git -C "+folder+" remote add origin "+projectfiles.Quote(url))
 		case ledger.RemoteStepPush:
 			branch := "main"
 			if state, err := r.rt.Folders.Remote(ctx, u.abs); err == nil && state.Branch != "" {
