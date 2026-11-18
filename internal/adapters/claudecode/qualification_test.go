@@ -55,6 +55,7 @@ func TestAFailedCheckRemovesExactlyItsSurface(t *testing.T) {
 		{claudecode.SurfaceCommandLifecycle, func(*claudecode.Use) {}, false},
 		{claudecode.SurfacePeerMessageHold, func(*claudecode.Use) {}, false},
 		{claudecode.SurfaceMaxBudget, func(u *claudecode.Use) { u.BudgetFlag = false }, false},
+		{claudecode.SurfaceStreamUsage, func(*claudecode.Use) {}, false},
 	} {
 		t.Run(string(tt.surface), func(t *testing.T) {
 			want := all
@@ -72,8 +73,8 @@ func TestAFailedCheckRemovesExactlyItsSurface(t *testing.T) {
 			}
 		})
 	}
-	if len(claudecode.Surfaces) != 9 {
-		t.Errorf("the matrix has 9 checks and the table covers 9, but the driver lists %d", len(claudecode.Surfaces))
+	if len(claudecode.Surfaces) != 10 {
+		t.Errorf("the matrix has 10 checks and the table covers 10, but the driver lists %d", len(claudecode.Surfaces))
 	}
 }
 

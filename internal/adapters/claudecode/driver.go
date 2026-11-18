@@ -938,16 +938,16 @@ func (s *session) take(line []byte, seq int64) {
 		s.events <- ports.DriverEvent{Kind: ports.EventMalformed, Seq: seq}
 		return
 	}
-	if event, ok := s.agentUsage(p); ok {
-		event.Seq, event.Tools = seq, p.tools
-		s.events <- event
-		return
-	}
 	if p.call != nil {
 		// The running total comes before the line's own event, so a lane told its context is told its spend first.
 		if running, ok := s.noteCall(*p.call); ok {
 			s.events <- ports.DriverEvent{Kind: ports.EventCost, RunningUSD: running, Seq: seq}
 		}
+	}
+	if event, ok := s.agentUsage(p); ok {
+		event.Seq, event.Tools = seq, p.tools
+		s.events <- event
+		return
 	}
 	if !p.useful {
 		return

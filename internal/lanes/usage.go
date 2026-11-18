@@ -6,6 +6,16 @@ type Usage struct {
 	OutputTokens        int64 `json:"output_tokens,omitempty"`
 	CacheCreationTokens int64 `json:"cache_creation_input_tokens,omitempty"`
 	CacheReadTokens     int64 `json:"cache_read_input_tokens,omitempty"`
+	// Speed is what a call's usage says it ran at: "fast" for fast mode, which is priced above standard, and
+	// "standard" or nothing otherwise.
+	Speed string `json:"speed,omitempty"`
+	// ServerToolUse is what the call's server-side tools did, which is priced beside its tokens.
+	ServerToolUse ServerToolUse `json:"server_tool_use,omitzero"`
+}
+
+// ServerToolUse counts the server-side tool uses of a call. A web search is billed apart from the tokens it brings in.
+type ServerToolUse struct {
+	WebSearchRequests int64 `json:"web_search_requests,omitempty"`
 }
 
 // Context is what a session holds at one API call: every token sent, whether new,
@@ -22,6 +32,7 @@ func (u Usage) Add(other Usage) Usage {
 		OutputTokens:        u.OutputTokens + other.OutputTokens,
 		CacheCreationTokens: u.CacheCreationTokens + other.CacheCreationTokens,
 		CacheReadTokens:     u.CacheReadTokens + other.CacheReadTokens,
+		ServerToolUse:       ServerToolUse{WebSearchRequests: u.ServerToolUse.WebSearchRequests + other.ServerToolUse.WebSearchRequests},
 	}
 }
 

@@ -13,6 +13,11 @@ type GenerationUsage struct {
 	CostUSD      float64 `json:"cost_usd"`
 	KnownTurns   int64   `json:"known_turns"`
 	UnknownTurns int64   `json:"unknown_turns"`
+	// FloorUSD is the most the generation has ever been charged: the highest charge of any usage it reported. It is the
+	// store's to set, from what a worker reports, and never a worker's own. Charged spend does not fall below it, because
+	// a turn of unknown cost is charged at the mean of the known ones, and a known turn that costs little lowers the mean
+	// and so the charge, which would take a work order that a hard limit stopped back under it with no raise.
+	FloorUSD float64 `json:"floor_usd,omitempty"`
 }
 
 // Charged is the spend a limit counts: the cost the generations recorded, plus each turn whose cost is unknown
@@ -46,15 +51,19 @@ func Charge(lanes [][]GenerationUsage) Charged {
 		for _, g := range generations {
 			out.RecordedUSD += g.CostUSD
 			out.EstimatedTurns += g.UnknownTurns
+			var estimated float64
 			switch {
 			case g.UnknownTurns == 0:
 			case g.KnownTurns > 0:
-				out.EstimatedUSD += float64(g.UnknownTurns) * g.CostUSD / float64(g.KnownTurns)
+				estimated = float64(g.UnknownTurns) * g.CostUSD / float64(g.KnownTurns)
 			case known > 0:
-				out.EstimatedUSD += float64(g.UnknownTurns) * cost / float64(known)
+				estimated = float64(g.UnknownTurns) * cost / float64(known)
 			default:
 				out.Unpriced += g.UnknownTurns
 			}
+			// What the generation was charged at its highest stays charged, so the part of the floor that its recorded cost
+			// and its turns at the mean no longer cover is an estimate too.
+			out.EstimatedUSD += max(estimated, g.FloorUSD-g.CostUSD)
 		}
 	}
 	out.ChargedUSD = out.RecordedUSD + out.EstimatedUSD

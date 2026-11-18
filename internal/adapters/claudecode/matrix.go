@@ -36,18 +36,27 @@ const (
 	// a result of subtype `error_max_budget_usd`. The driver passes the flag only where the check passed, because the
 	// flag was never reached in the spikes, and then only as a backstop for a worker that is slow to stop a lane.
 	SurfaceMaxBudget lanes.Surface = "max_budget_usd"
+	// SurfaceStreamUsage is `stream_event` lines on a headless session run with `--include-partial-messages`: a
+	// `message_start` that carries the tokens of an API call, and a `message_delta` that carries its output. They are what
+	// a turn's spend is estimated from while it runs, because the client's own total comes only when the turn ends. On a
+	// version where the check did not pass, a turn's spend is seen from its assistant messages when they carry usage, and
+	// otherwise not until the turn ends, so a long turn can pass its limit before the worker sees it. The check reports
+	// that, and degrades nothing.
+	SurfaceStreamUsage lanes.Surface = "stream_usage"
 )
 
 // Surfaces lists every surface the matrix holds a result for, in the matrix's order.
 var Surfaces = []lanes.Surface{
 	SurfaceSocketLine, SurfaceReceipts, SurfacePeerMessageHold, SurfaceSocketDir,
 	SurfaceUnifiedWindows, SurfaceCommandLifecycle, SurfacePrintKeepsLogin, SurfaceStartScreens, SurfaceMaxBudget,
+	SurfaceStreamUsage,
 }
 
 // noted are surfaces a check reports and the driver does not use to run, so their result degrades
-// nothing: the design does not need `command_lifecycle`, no state follows from seeing a hold, and the budget flag is a
-// backstop, so a version without it runs as well, held to its limit by the worker alone.
-var noted = []lanes.Surface{SurfaceCommandLifecycle, SurfacePeerMessageHold, SurfaceMaxBudget}
+// nothing: the design does not need `command_lifecycle`, no state follows from seeing a hold, the budget flag is a
+// backstop, so a version without it runs as well, held to its limit by the worker alone, and the stream's usage is read
+// where it comes and its absence is what the check reports.
+var noted = []lanes.Surface{SurfaceCommandLifecycle, SurfacePeerMessageHold, SurfaceMaxBudget, SurfaceStreamUsage}
 
 //go:embed matrix.json
 var shippedMatrix []byte

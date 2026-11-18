@@ -169,6 +169,7 @@ func (p *prober) accept(ctx context.Context) {
 	p.set(SurfaceSocketDir, observed(socket != "", s.private(socket)))
 	p.set(SurfaceUnifiedWindows, observed(hasLimit, windows))
 	p.set(SurfaceCommandLifecycle, observed(turn, s.saw("command_lifecycle")))
+	p.set(SurfaceStreamUsage, observed(turn, s.streamUsage()))
 	// A sign-in nobody could read is a subscription, as it is everywhere else, so only an API key's
 	// probe leaves the login unchecked.
 	if p.spec.SignIn != ports.SignInAPIKey {
@@ -426,7 +427,7 @@ func (p *prober) startAs(ctx context.Context, name, inbound string, extra ...str
 		return nil, err
 	}
 	args := []string{
-		"-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--replay-user-messages",
+		"-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--replay-user-messages",
 		"--permission-mode", "default", "--model", p.spec.Model, "--settings", settings, "--mcp-config", mcp, "--tools", "",
 	}
 	args = append(append(args, p.spec.Override.Args()...), extra...)
@@ -513,6 +514,26 @@ type probeLine struct {
 	MessagingSocket string         `json:"messaging_socket_path"`
 	MessageUUID     string         `json:"message_uuid"`
 	RateLimit       *rateLimitInfo `json:"rate_limit_info"`
+	Event           *streamEvent   `json:"event"`
+}
+
+// streamUsage says the session wrote the stream events a turn's spend is estimated from: a `message_start` that shows the
+// tokens an API call sent, and a `message_delta` that shows the output it has made. A session that wrote only one of them
+// cannot price a call.
+func (s *probeSession) streamUsage() bool {
+	var started, delta bool
+	for _, line := range s.snapshot() {
+		if line.Type != "stream_event" || line.Event == nil {
+			continue
+		}
+		switch line.Event.Type {
+		case "message_start":
+			started = started || line.Event.Message.Usage.Context() > 0
+		case "message_delta":
+			delta = delta || line.Event.Usage.OutputTokens > 0
+		}
+	}
+	return started && delta
 }
 
 // probeOrigin is who a replayed message came from.

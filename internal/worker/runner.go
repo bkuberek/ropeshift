@@ -153,7 +153,10 @@ type laneRun struct {
 	// its stop at the hard limit, which it does once.
 	allowance *ledger.SpendAllowance
 	running   float64
-	spendStop atomic.Bool
+	// stoppedUSD holds what each turn that stopped had been estimated at when it did, until a later turn reports a total, and
+	// the handle's lock guards it with running.
+	stoppedUSD []float64
+	spendStop  atomic.Bool
 	// allowanceKnown says the ledger answered what the allowance is, nil for none included, and allowanceFailedAt is
 	// when a read of it first failed with nothing known, and allowanceTriedAt when one last ran. A lane whose allowance
 	// stays unknown is held (FR-SPEND-5). The handle's lock guards all three.

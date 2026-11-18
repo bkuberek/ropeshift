@@ -65,6 +65,7 @@ type streamLine struct {
 // session, whose replies are the conversation.
 type streamMessage struct {
 	ID      string      `json:"id"`
+	Model   string      `json:"model"`
 	Usage   lanes.Usage `json:"usage"`
 	Content []struct {
 		Type string `json:"type"`
@@ -113,6 +114,7 @@ func (i rateLimitInfo) reading(windows bool) lanes.UsageReading {
 type streamEvent struct {
 	Type    string `json:"type"`
 	Message struct {
+		ID    string      `json:"id"`
 		Model string      `json:"model"`
 		Usage lanes.Usage `json:"usage"`
 	} `json:"message"`
@@ -173,6 +175,7 @@ func parseLineOf(raw []byte, windows, replies bool) (parsed, error) {
 		if !replied {
 			out = parseAssistant(line)
 		}
+		out.call = assistantCall(line)
 		return withTools(out, toolUses(line)), nil
 	case "user":
 		if line.IsReplay && line.UUID != "" {
@@ -226,6 +229,29 @@ func parseAssistant(line streamLine) parsed {
 		return parsed{}
 	}
 	return parsed{started: started}
+}
+
+// assistantCall is the API call an assistant message reports: its id, its model, and its usage, whoever made it. A
+// message that names no id, or shows none of its usage, says nothing a turn's cost can use, because nothing tells its call
+// from another's. The client writes a message once for each content block of a call, with the same id, so a call reported
+// more than once is one call.
+func assistantCall(line streamLine) *streamCall {
+	if len(line.Message) == 0 {
+		return nil
+	}
+	var message struct {
+		ID    string      `json:"id"`
+		Model string      `json:"model"`
+		Usage lanes.Usage `json:"usage"`
+	}
+	if json.Unmarshal(line.Message, &message) != nil || message.ID == "" || message.Usage == (lanes.Usage{}) {
+		return nil
+	}
+	call := &streamCall{kind: callMessage, id: message.ID, model: message.Model, usage: message.Usage}
+	if line.ParentToolUseID != nil {
+		call.parent = *line.ParentToolUseID
+	}
+	return call
 }
 
 // toolUseMarker is what an assistant message holds when it made a call, so a message of text alone is never
@@ -301,7 +327,7 @@ func parseStreamEvent(line streamLine) parsed {
 	}
 	switch line.Event.Type {
 	case "message_start":
-		call := &streamCall{start: true, parent: parent, model: line.Event.Message.Model, usage: line.Event.Message.Usage}
+		call := &streamCall{kind: callStart, id: line.Event.Message.ID, parent: parent, model: line.Event.Message.Model, usage: line.Event.Message.Usage}
 		if line.ParentToolUseID != nil {
 			return parsed{call: call}
 		}
@@ -309,7 +335,7 @@ func parseStreamEvent(line streamLine) parsed {
 			Kind: ports.EventUsage, ContextTokens: line.Event.Message.Usage.Context(),
 		}}
 	case "message_delta":
-		return parsed{call: &streamCall{parent: parent, usage: line.Event.Usage}}
+		return parsed{call: &streamCall{kind: callDelta, parent: parent, usage: line.Event.Usage}}
 	}
 	return parsed{}
 }

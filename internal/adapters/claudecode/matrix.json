@@ -12,7 +12,8 @@
         "command_lifecycle": "passed",
         "print_keeps_login": "passed",
         "start_screens": "passed",
-        "max_budget_usd": "unobserved"
+        "max_budget_usd": "unobserved",
+        "stream_usage": "unobserved"
       }
     },
     {
@@ -26,7 +27,8 @@
         "command_lifecycle": "passed",
         "print_keeps_login": "passed",
         "start_screens": "passed",
-        "max_budget_usd": "unobserved"
+        "max_budget_usd": "unobserved",
+        "stream_usage": "unobserved"
       }
     },
     {
@@ -40,7 +42,8 @@
         "command_lifecycle": "passed",
         "print_keeps_login": "passed",
         "start_screens": "passed",
-        "max_budget_usd": "unobserved"
+        "max_budget_usd": "unobserved",
+        "stream_usage": "unobserved"
       }
     }
   ]

@@ -28,6 +28,7 @@ var HardStopChecks = []Check{
 	{"HS7", "a generation's usage report never lowers what it spent, so a smaller figure cannot read as a raised limit", checkUsageNeverLowers},
 	{"HS8", "the allowance holds what the lane's earlier generations were charged, apart from the one running, so a worker that never ran the lane still holds it to its limit", checkTheAllowanceHoldsTheLanesEarlierGenerations},
 	{"HS9", "a lane parked at its hard limit is woken past it only by a member: a delegate's resume is refused, and a lane parked for anything else is still the delegate's to resume", checkOnlyAMemberResumesALaneAtItsLimit},
+	{"HS10", "a generation's charged spend never falls below the highest it reached, so a cheap known turn after a stop cannot lift the limit that stopped the work, and a worker cannot name a floor of its own", checkChargedSpendNeverFalls},
 }
 
 // spendEvents counts the events of a type about a work order's spend.
