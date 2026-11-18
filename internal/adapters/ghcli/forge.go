@@ -148,12 +148,17 @@ func (f Forge) Health(ctx context.Context, repo ports.ForgeRepo) (ledger.ForgeHe
 
 // OpenPullRequest finds the open pull request of the branch with `gh pr list --head`, which answers an
 // empty list when there is none, and opens one with `gh pr create` only then
-// (https://cli.github.com/manual/gh_pr_list, https://cli.github.com/manual/gh_pr_create).
+// (https://cli.github.com/manual/gh_pr_list, https://cli.github.com/manual/gh_pr_create). The pull request it
+// returns is read as PullRequest reads one, with the checks its base requires marked, because the ledger keeps
+// what a publish reports as the pull request's record, and the merge rule reads a required check from it.
 func (f Forge) OpenPullRequest(ctx context.Context, spec ports.PullRequestSpec) (ledger.PullRequest, error) {
 	repo := spec.Repo.Binding.String()
 	open, err := f.openFor(ctx, spec.Repo, spec.Branch)
-	if err != nil || open != nil {
-		return deref(open), err
+	if err != nil {
+		return ledger.PullRequest{}, err
+	}
+	if open != nil {
+		return f.PullRequest(ctx, ports.PullRequestRef{Repo: spec.Repo, Number: open.Number})
 	}
 	var created []byte
 	err = f.withBody(spec.Body, func(file string) error {
@@ -169,13 +174,6 @@ func (f Forge) OpenPullRequest(ctx context.Context, spec ports.PullRequestSpec) 
 		return ledger.PullRequest{}, err
 	}
 	return f.PullRequest(ctx, ports.PullRequestRef{Repo: spec.Repo, Number: number})
-}
-
-func deref(pr *ledger.PullRequest) ledger.PullRequest {
-	if pr == nil {
-		return ledger.PullRequest{}
-	}
-	return *pr
 }
 
 func (f Forge) openFor(ctx context.Context, repo ports.ForgeRepo, branch string) (*ledger.PullRequest, error) {
