@@ -2,6 +2,7 @@ package entry
 
 import (
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -10,6 +11,7 @@ import (
 
 	"ropeshift.com/ropeshift/internal/adapters/profiles"
 	"ropeshift.com/ropeshift/internal/lanes"
+	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/planning"
 	"ropeshift.com/ropeshift/internal/worker"
 )
@@ -231,6 +233,48 @@ func TestTheDoctorNamesTheProfilesWorkspaceAndItsIgnoreState(t *testing.T) {
 	}
 	if want := filepath.Join(w.paths.WorktreeDir, "prj-1", filepath.Base(w.workspace.Dir)); roots[w.workspace.Dir] != want {
 		t.Errorf("the workspace's own checkout gets %q, want %q", roots[w.workspace.Dir], want)
+	}
+}
+
+// The doctor finds a workspace through the planning clone too: the planning repository the worker's journal holds
+// from desired state makes the workspace of a project whose profile names none, and it counts in the roots the
+// report gives. A journal that is absent, or names no planning repository, leaves only the profile's workspaces.
+func TestTheDoctorFindsAWorkspaceThroughThePlanningCloneFromTheJournal(t *testing.T) {
+	w := newWorktreeWorkspace(t)
+	w.ignoreWorktrees()
+	report, err := worktreeReport(t.Context(), w.paths)
+	if err != nil || len(report.Workspaces) != 0 {
+		t.Fatalf("with no journal the report names %+v (%v)", report.Workspaces, err)
+	}
+	journal, err := openJournal(t.Context(), w.paths.StateDir, io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer journal.Close()
+	state := ledger.DesiredState{Rev: 1, Projects: []ledger.DesiredProject{{ID: "prj-1", Name: "one"}, {ID: "prj-2", Name: "two"}}}
+	if err := journal.SaveDesired(t.Context(), state); err != nil {
+		t.Fatal(err)
+	}
+	if report, err = worktreeReport(t.Context(), w.paths); err != nil || len(report.Workspaces) != 0 {
+		t.Fatalf("a journal that names no planning repository gives %+v (%v)", report.Workspaces, err)
+	}
+	state.Projects[0].PlanningRepository = "repo-workspace"
+	if err := journal.SaveDesired(t.Context(), state); err != nil {
+		t.Fatal(err)
+	}
+	if report, err = worktreeReport(t.Context(), w.paths); err != nil || len(report.Workspaces) != 1 {
+		t.Fatalf("the report names %+v (%v)", report.Workspaces, err)
+	}
+	held := report.Workspaces[0]
+	if held.Project != "prj-1" || held.Path != w.workspace.Dir || held.Found != lanes.WorkspaceFromPlanning || !held.Clone || !held.Ignored {
+		t.Errorf("the workspace is reported as %+v", held)
+	}
+	roots := map[string]string{}
+	for _, root := range held.Roots {
+		roots[root.Checkout] = root.Root
+	}
+	if want := filepath.Join(w.workspace.Dir, ".ropeshift", "worktrees", "web"); roots[w.clones["web"]] != want {
+		t.Errorf("the web checkout gets %q, want %q", roots[w.clones["web"]], want)
 	}
 }
 
