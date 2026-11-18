@@ -75,7 +75,7 @@ func (c *invocation) adopt(args []string) int {
 	if code != ExitOK {
 		return code
 	}
-	if *restructure && !plan.Shape.Restructures() {
+	if *restructure && !plan.Offers() {
 		return c.usageError("--restructure has nothing to do in the %s shape: %s", plan.Shape, shapeSummary(plan.Shape))
 	}
 	if *restructure && plan.Planning.Undecided {
@@ -95,7 +95,7 @@ func (c *invocation) adopt(args []string) int {
 	switch {
 	case *restructure:
 		c.say("Restructuring as the %s shape, from the plan with digest %s.\n", plan.Shape, plan.Digest)
-	case plan.Shape.Restructures():
+	case plan.Offers():
 		c.say("The layout reads as the %s shape. '%s adopt --dry-run' lists what --restructure would change.\n", plan.Shape, program)
 	}
 	project := client.Project(name)
@@ -130,6 +130,8 @@ func (c *invocation) adopt(args []string) int {
 	}
 	if *restructure {
 		c.sayMoves(plan.Moves)
+		c.saySteps(plan.Steps)
+		c.sayLeftOut(plan.MakefileLeftOut)
 	}
 	started.Project = name
 	return c.joinSession(project, started, *noAttach)
@@ -144,6 +146,35 @@ func (c *invocation) sayMoves(moves []planning.Move) {
 	c.say("The plan lists %d clones to move into its folder of clones. %s never runs these commands; run them yourself when you are ready:\n", len(moves), program)
 	for _, move := range moves {
 		for _, command := range move.Commands {
+			c.say("  %s\n", command)
+		}
+	}
+}
+
+// sayLeftOut names each repository the Makefile the worker writes leaves out, and why. The manifest lists it.
+func (c *invocation) sayLeftOut(left []planning.Omission) {
+	if len(left) == 0 {
+		return
+	}
+	noun := "repositories"
+	if len(left) == 1 {
+		noun = "repository"
+	}
+	c.say("The Makefile leaves out %d %s, which the manifest still lists:\n", len(left), noun)
+	for _, one := range left {
+		c.say("  %s (%s): %s\n", one.Name, one.Path, one.Reason)
+	}
+}
+
+// saySteps prints each step the plan lists for a code repository as the commands that make it, for the person to run:
+// ropeshift writes to no clone but the planning repository's.
+func (c *invocation) saySteps(steps []planning.Step) {
+	if len(steps) == 0 {
+		return
+	}
+	c.say("The plan lists %d code repositories that hold no instruction file. %s writes to no clone but the planning repository's; run these commands yourself:\n", len(steps), program)
+	for _, step := range steps {
+		for _, command := range step.Commands {
 			c.say("  %s\n", command)
 		}
 	}

@@ -25,10 +25,12 @@ var files embed.FS
 // ErrUnknown is the error of a name that no template has.
 var ErrUnknown = errors.New("no such template")
 
-// Repository is one code repository of a project: its name, and the remote it is cloned from.
+// Repository is one code repository of a project: its name, and the remote it is cloned from. Path is where its
+// clone sits relative to the workspace, and an empty Path puts it at repos/<name>.
 type Repository struct {
 	Name   string
 	Remote string
+	Path   string
 }
 
 // Data is what a template renders over.

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path"
 	"slices"
 	"strings"
 
@@ -52,7 +53,7 @@ func (r *laneRun) restructure(ctx context.Context, repository, worktree string) 
 	if choice.Shape == planning.ShapeConsolidate {
 		return r.consolidate(ctx, choice, worktree)
 	}
-	if choice.Shape != planning.ShapePlanned && choice.Shape != planning.ShapeWorkspaceFiles {
+	if !choice.Shape.Valid() {
 		return workorders.Report{}, false
 	}
 	trees, offered := r.rt.Provisioner.Worktrees.(ports.FileCommits)
@@ -82,7 +83,7 @@ func (r *laneRun) restructure(ctx context.Context, repository, worktree string) 
 	if failed {
 		return report, true
 	}
-	files, err := adoption.Files(ctx, plan, project, r.rt.Provisioner.Checkouts)
+	files, err := adoption.Files(ctx, plan, project, r.rt.Provisioner.Checkouts, r.rt.Render)
 	if err != nil {
 		return r.failStart(workorders.ReasonSpawnFailed, err), true
 	}
@@ -243,6 +244,65 @@ func (r *laneRun) restructuredOf() *lanes.Restructured {
 	r.handleLock.Lock()
 	defer r.handleLock.Unlock()
 	return r.restructured
+}
+
+// startingInstructions keeps the starting AGENTS.md an adopt brief shows, rendered for the lane's project, when the
+// repository the lane plans in holds no instruction file at its default branch's tip, the design repository a
+// consolidation imported brought none, and the worker wrote none in its commit, which the lane edits instead. The
+// template is the one of the shape the lane's restructuring chose, over the repositories the written files carry. A
+// worker that cannot render, or read the layout, shows none.
+func (r *laneRun) startingInstructions(ctx context.Context, repository string) {
+	if !r.lease.Adopt || r.rt.Render == nil || r.rt.Layouts == nil {
+		return
+	}
+	if done := r.restructuredOf(); done != nil && (slices.Contains(done.Files, "AGENTS.md") || done.Consolidated != nil && len(done.Consolidated.Instructions) != 0) {
+		return
+	}
+	held, err := r.rt.Layouts.Instructions(ctx, repository)
+	if err != nil || held {
+		if err != nil {
+			r.w.config.Report(fmt.Errorf("lane %s: reading whether the repository holds an instruction file: %w", r.lease.Lane, err))
+		}
+		return
+	}
+	project, err := r.projectLabel(ctx)
+	if err != nil {
+		return
+	}
+	var repositories []planning.WorkspaceRepository
+	for _, read := range r.lease.Reads {
+		one := planning.WorkspaceRepository{Name: read.Name, Path: path.Join(adoption.CodeFolder, read.Name)}
+		if adoption.Carried(one) {
+			repositories = append(repositories, one)
+		}
+	}
+	template := startingInstructionsTemplate
+	var choice planning.Restructure
+	if json.Unmarshal(r.lease.Restructure, &choice) == nil && choice.Shape == planning.ShapeSingle {
+		template = singleInstructionsTemplate
+	}
+	text, err := r.rt.Render(template, adoption.StartingData(project, repositories))
+	if err != nil {
+		r.w.config.Report(fmt.Errorf("lane %s: rendering the starting instructions: %w", r.lease.Lane, err))
+		return
+	}
+	r.handleLock.Lock()
+	defer r.handleLock.Unlock()
+	r.instructions = text
+}
+
+// The templates of the instructions an adopt brief shows: a workspace's, and a single repository's, which holds the plan
+// and the code.
+const (
+	startingInstructionsTemplate = "workspace/agents.md"
+	singleInstructionsTemplate   = "monorepo/agents.md"
+)
+
+// instructionsText is the starting AGENTS.md the brief shows, or empty when it shows none.
+func (r *laneRun) instructionsText() string {
+	r.handleLock.Lock()
+	defer r.handleLock.Unlock()
+	return r.instructions
 }
 
 // findRestructure looks for the commit a crash may have left: a branch that holds the workspace files' commit

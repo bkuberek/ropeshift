@@ -31,20 +31,21 @@ export function planRequest(folders: string[], depth: number, leaveOut: string[]
   return request;
 }
 
-// restructures says a shape offers something to restructure.
-export const restructures = (shape: LayoutShape): boolean => shape !== "single";
+// offersRestructure says a plan has something to restructure: every shape but single always does, and a single
+// repository does when it lacks files.
+export const offersRestructure = (plan: AdoptionPlan): boolean => plan.shape !== "single" || (plan.files ?? []).length > 0;
 
 // shapeSummary says what a shape is, and what restructuring does in it.
 export function shapeSummary(shape: LayoutShape): string {
   switch (shape) {
     case "single":
-      return "One repository, so there is nothing to restructure.";
+      return "One repository. Restructuring adds the instruction files it lacks.";
     case "planned":
-      return "The repository holds plan content and clones were found. Restructuring adds the manifest of the clones when none exists.";
+      return "The repository holds plan content and clones were found. Restructuring adds the manifest of the clones when none exists, and the files the layout lacks.";
     case "consolidate":
-      return "A workspace whose ignored folder holds the design repository. Restructuring imports its history into the workspace.";
+      return "A workspace whose ignored folder holds the design repository. Restructuring imports its history into the workspace, and adds the files the merged tree lacks.";
     case "workspace_files":
-      return "Clones with no design repository to import. Restructuring adds the manifest, the ignore line, and a Makefile, and lists the moves.";
+      return "Clones with no design repository to import. Restructuring adds the manifest, the ignore file, a Makefile, and the instruction files the layout lacks, and lists the moves.";
   }
 }
 
@@ -139,6 +140,7 @@ export function whatChanged(before: AdoptionPlan, now: AdoptionPlan): string[] {
     ["the collisions", before.collisions, now.collisions],
     ["the code trees", before.code_trees, now.code_trees],
     ["the moves", before.moves, now.moves],
+    ["the steps for the code repositories", before.steps, now.steps],
     ["where the plan lives", before.planning, now.planning],
   ];
   for (const [name, a, b] of sections) {

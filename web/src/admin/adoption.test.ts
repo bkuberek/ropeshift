@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { AdoptionPlan } from "../api/admin";
 import { golden } from "../testing";
-import { candidatesOf, foldersOf, leftOutAfter, planningRefusal, planRequest, registeredAt, registrablePaths, relativeFolder, restructureOf, whatChanged } from "./adoption";
+import { candidatesOf, foldersOf, leftOutAfter, offersRestructure, planningRefusal, planRequest, registeredAt, registrablePaths, relativeFolder, restructureOf, whatChanged } from "./adoption";
 
 const plan = (name: string) => golden<AdoptionPlan>(`adoption-plan-${name}`);
 
@@ -21,6 +21,15 @@ describe("the folders of an adoption", () => {
     expect(planRequest(["/a", "/b", "/c"], 2)).toEqual({ root: "/a", depth: 2, paths: ["/b", "/c"] });
     expect(planRequest(["/a"], 1)).toEqual({ root: "/a", depth: 1 });
     expect(planRequest(["/a"], 1, ["tools"])).toEqual({ root: "/a", depth: 1, leave_out: ["tools"] });
+  });
+});
+
+describe("whether a plan offers a restructuring", () => {
+  it("offers one in every shape but single, and in a single repository only for the files it lacks", () => {
+    expect(offersRestructure(plan("planned"))).toBe(true);
+    expect(offersRestructure(plan("consolidate"))).toBe(true);
+    expect(offersRestructure(plan("single"))).toBe(false);
+    expect(offersRestructure(plan("single-lacking"))).toBe(true);
   });
 });
 
@@ -110,6 +119,10 @@ describe("what changed between two plans", () => {
     expect(changed).toContain("/work/ws was not found");
     expect(changed).toContain("the files it adds changed");
     expect(changed).toContain("the moves changed");
+  });
+
+  it("names the steps for the code repositories when they differ", () => {
+    expect(whatChanged(plan("planned"), { ...plan("planned"), steps: null })).toEqual(["the steps for the code repositories changed"]);
   });
 
   it("names nothing for a plan that is the same", () => {

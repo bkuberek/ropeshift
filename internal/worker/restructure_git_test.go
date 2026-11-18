@@ -21,9 +21,21 @@ import (
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/planning"
 	"ropeshift.com/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/projectfiles"
 	"ropeshift.com/ropeshift/internal/workorders"
+	"ropeshift.com/ropeshift/templates"
 	"ropeshift.com/ropeshift/test/gittest"
 )
+
+// renderTemplates writes a file from the product's templates, as the entry package's renderer does: the worker never
+// imports them, and a test that makes real commits reads what the worker would write.
+func renderTemplates(name string, data projectfiles.Data) (string, error) {
+	converted := templates.Data{Project: data.Project}
+	for _, repository := range data.Repositories {
+		converted.Repositories = append(converted.Repositories, templates.Repository{Name: repository.Name, Remote: repository.Remote, Path: repository.Path})
+	}
+	return templates.Render(name, converted)
+}
 
 // gitWorkspace is a design repository with two code repositories beside it, all real git clones of origins of their
 // own, and a lane's worktree of the design repository on a branch of its own.
@@ -165,17 +177,17 @@ func (w *gitWorkspace) runChoosing(request adoption.Request, choose func(plan pl
 	if err := journal.SaveDesired(w.t.Context(), ledger.DesiredState{Rev: 1, Leases: []ledger.DesiredLease{lease}, Projects: []ledger.DesiredProject{{ID: "p1", Name: "shop"}}}); err != nil {
 		w.t.Fatal(err)
 	}
-	runtime := &LaneRuntime{Provisioner: Provisioner{Worktrees: w.worktree, Checkouts: w.kept}, Layouts: w.kept}
+	runtime := &LaneRuntime{Provisioner: Provisioner{Worktrees: w.worktree, Checkouts: w.kept}, Layouts: w.kept, Render: renderTemplates}
 	worker := New(nil, journal, fake.NewClock(time.UnixMilli(1_000_000)), Config{Lanes: runtime})
 	run := &laneRun{w: worker, rt: runtime, lease: lease, generation: 1}
 	worker.running["lane-1"] = run
 	return run
 }
 
-// A design repository with clones beside it gets one commit on the lane's branch with all three files, as real git
-// makes it: in the product's name, with the worktree clean, the manifest reading back, and the moves listed and not
-// made.
-func TestAGitWorkspaceWithClonesBesideItGetsTheCommitWithAllThreeFilesAndTheMovesListed(t *testing.T) {
+// A design repository with clones beside it gets one commit on the lane's branch with the files its layout lacks, as
+// real git makes it: in the product's name, with the worktree clean, the manifest reading back, the Makefile, the
+// ignore file, and the instruction files written from the templates, and the moves listed and not made.
+func TestAGitWorkspaceWithClonesBesideItGetsTheCommitWithTheFilesItLacksAndTheMovesListed(t *testing.T) {
 	t.Parallel()
 	w := newGitWorkspace(t, map[string]string{"README.md": "a design repository\n", "docs/vision.md": "# Vision\n"})
 	ws := w.path("ws")
@@ -193,14 +205,20 @@ func TestAGitWorkspaceWithClonesBesideItGetsTheCommitWithAllThreeFilesAndTheMove
 	if author := w.git(w.lane, "log", "-1", "--format=%an <%ae>"); author != "ropeshift <ropeshift@localhost>" {
 		t.Errorf("the commit is by %q", author)
 	}
-	if files := w.git(w.lane, "show", "--name-only", "--format=", "HEAD"); files != ".gitignore\nMakefile\nplan/repositories.md" {
+	if files := w.git(w.lane, "show", "--name-only", "--format=", "HEAD"); files != ".gitignore\nAGENTS.md\nCLAUDE.md\nMakefile\nplan/repositories.md" {
 		t.Errorf("the commit holds:\n%s", files)
 	}
 	if status := w.git(w.lane, "status", "--porcelain"); status != "" {
 		t.Errorf("the worktree is dirty:\n%s", status)
 	}
-	if ignore, _ := os.ReadFile(filepath.Join(w.lane, ".gitignore")); string(ignore) != "repos/\n/.ropeshift/worktrees/\n" {
+	if ignore := w.readLane(".gitignore"); !strings.Contains(ignore, "\n/repos/\n") || !strings.Contains(ignore, "\n/.ropeshift/worktrees/\n") {
 		t.Errorf("the ignore file reads %q", ignore)
+	}
+	if agents := w.readLane("AGENTS.md"); !strings.HasPrefix(agents, "# AGENTS.md\n") || !strings.Contains(agents, "the shop project") || !strings.Contains(agents, "| `api` |") {
+		t.Errorf("AGENTS.md reads %q", agents)
+	}
+	if claude := w.readLane("CLAUDE.md"); claude != "@AGENTS.md\n" {
+		t.Errorf("CLAUDE.md reads %q", claude)
 	}
 	raw, err := os.ReadFile(filepath.Join(w.lane, "plan", "repositories.md"))
 	if err != nil {
@@ -216,9 +234,11 @@ func TestAGitWorkspaceWithClonesBesideItGetsTheCommitWithAllThreeFilesAndTheMove
 			t.Errorf("repository %d reads %+v", i, got)
 		}
 	}
-	makefile, err := os.ReadFile(filepath.Join(w.lane, "Makefile"))
-	if err != nil || !strings.Contains(string(makefile), "'api=repos/api=") || !strings.Contains(string(makefile), "setup:") {
-		t.Errorf("the Makefile reads %v:\n%s", err, makefile)
+	makefile := w.readLane("Makefile")
+	for _, want := range []string{"api=file://" + filepath.Join(w.base, ".origins", "api", "repository") + " \\\n", "setup:", "fetch:", "status:"} {
+		if !strings.Contains(makefile, want) {
+			t.Errorf("the Makefile holds no %q:\n%s", want, makefile)
+		}
 	}
 
 	told := run.restructuredOf()
@@ -256,11 +276,56 @@ func TestAGitWorkspaceWithClonesBesideItGetsTheCommitWithAllThreeFilesAndTheMove
 	}
 }
 
+// A repository that holds an AGENTS.md keeps it as it is, and gets no second instruction file beside it, while the
+// other files it lacks are written.
+func TestAGitWorkspaceThatHoldsAnAGENTSFileKeepsItAndGetsTheOtherFilesItLacks(t *testing.T) {
+	t.Parallel()
+	w := newGitWorkspace(t, map[string]string{"README.md": "a design repository\n", "AGENTS.md": "my rules\n"})
+	ws := w.path("ws")
+	run := w.run(adoption.Request{Root: ws, Paths: []string{w.path("api"), w.path("web")}, Depth: 1, Planning: "ws"})
+	if report, failed := run.restructure(t.Context(), ws, w.lane); failed {
+		t.Fatalf("the restructuring failed: %+v", report)
+	}
+	if files := w.git(w.lane, "show", "--name-only", "--format=", "HEAD"); files != ".gitignore\nMakefile\nplan/repositories.md" {
+		t.Errorf("the commit holds:\n%s", files)
+	}
+	if agents := w.readLane("AGENTS.md"); agents != "my rules\n" {
+		t.Errorf("AGENTS.md reads %q", agents)
+	}
+	if _, err := os.Stat(filepath.Join(w.lane, "CLAUDE.md")); err == nil {
+		t.Error("a CLAUDE.md was written beside the AGENTS.md the repository holds")
+	}
+}
+
+// A single repository that lacks an instruction file gets one commit with AGENTS.md from the monorepo template and
+// a CLAUDE.md that imports it, and nothing else.
+func TestAGitSingleRepositoryThatLacksInstructionsGetsThemInOneCommit(t *testing.T) {
+	t.Parallel()
+	w := newGitWorkspace(t, map[string]string{"README.md": "a repository\n"})
+	ws := w.path("ws")
+	run := w.run(adoption.Request{Root: ws, Depth: 1})
+	if report, failed := run.restructure(t.Context(), ws, w.lane); failed {
+		t.Fatalf("the restructuring failed: %+v", report)
+	}
+	if count := w.git(w.lane, "rev-list", "--count", w.tip+"..HEAD"); count != "1" {
+		t.Fatalf("the branch holds %s commits beyond its base, want one", count)
+	}
+	if files := w.git(w.lane, "show", "--name-only", "--format=", "HEAD"); files != "AGENTS.md\nCLAUDE.md" {
+		t.Errorf("the commit holds:\n%s", files)
+	}
+	if agents := w.readLane("AGENTS.md"); !strings.Contains(agents, "rules for every agent that works in this repository") || strings.Contains(agents, "make setup") {
+		t.Errorf("AGENTS.md is not the monorepo template:\n%s", agents)
+	}
+	if told := run.restructuredOf(); told == nil || told.Subject != planning.WorkspaceCommitSubject || len(told.Moves) != 0 || told.Manifest != "" {
+		t.Errorf("the brief is told %+v", told)
+	}
+}
+
 // The line for the worktree folder is not written when git ignores that folder, however the rule got there, and a
 // Makefile the repository commits is left as it is.
 func TestAGitWorkspaceThatIgnoresTheWorktreeFolderAndHoldsAMakefileGetsNeitherChange(t *testing.T) {
 	t.Parallel()
-	w := newGitWorkspace(t, map[string]string{"README.md": "a design repository\n", "Makefile": "all:\n", ".gitignore": "repos/\n/.ropeshift/\n"})
+	w := newGitWorkspace(t, map[string]string{"README.md": "a design repository\n", "Makefile": "all:\n", ".gitignore": "repos/\n/.ropeshift/\n", "AGENTS.md": "rules\n"})
 	ws := w.path("ws")
 	run := w.run(adoption.Request{Root: ws, Paths: []string{w.path("api"), w.path("web")}, Depth: 1, Planning: "ws"})
 	if report, failed := run.restructure(t.Context(), ws, w.lane); failed {

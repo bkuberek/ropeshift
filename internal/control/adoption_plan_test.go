@@ -131,9 +131,9 @@ func designOf(m *adoptionMachine, files int, extra ...string) {
 func TestAdoptionOfALoneCloneIsTheSingleShape(t *testing.T) {
 	t.Parallel()
 	m := newAdoptionMachine(t)
-	workspaceOf(m)
+	workspaceOf(m, "AGENTS.md")
 	plan := m.mustPlan(control.AdoptionRequest{Root: "/work/ws"})
-	if plan.Shape != planning.ShapeSingle || plan.Shape.Restructures() {
+	if plan.Shape != planning.ShapeSingle || plan.Offers() {
 		t.Errorf("a lone clone is shape %s", plan.Shape)
 	}
 	if plan.Planning.Path != "/work/ws" || plan.Planning.Name != "ws" || plan.Design != nil || len(plan.Files) != 0 || len(plan.Moves) != 0 {
@@ -152,13 +152,13 @@ func TestAdoptionOfALoneCloneIsTheSingleShape(t *testing.T) {
 func TestAdoptionOfAClonePlannedAlreadyOffersTheManifest(t *testing.T) {
 	t.Parallel()
 	m := newAdoptionMachine(t)
-	m.clone("/work/ws", fake.CloneLayout{Ignored: []string{"repos"}, Plan: ports.PlanContent{Files: 1}, Tracked: []string{"README.md", "plan/goal.md"}})
+	m.clone("/work/ws", fake.CloneLayout{Ignored: []string{"repos"}, Plan: ports.PlanContent{Files: 1}, Tracked: []string{"README.md", "plan/goal.md", ".gitignore", "AGENTS.md"}})
 	m.clone("/work/ws/repos/api", fake.CloneLayout{Tracked: []string{"go.mod"}})
 	plan := m.mustPlan(control.AdoptionRequest{Root: "/work/ws"})
 	if plan.Shape != planning.ShapePlanned || plan.Planning.Path != "/work/ws" {
 		t.Fatalf("a planned clone with a clone below it is %s, planning in %+v", plan.Shape, plan.Planning)
 	}
-	if want := []string{"add plan/repositories.md"}; !reflect.DeepEqual(filesOf(plan), want) {
+	if want := []string{"add plan/repositories.md", "add Makefile"}; !reflect.DeepEqual(filesOf(plan), want) {
 		t.Errorf("the planned shape adds %v, want %v", filesOf(plan), want)
 	}
 	if len(plan.Moves) != 0 {
@@ -175,7 +175,7 @@ func TestAdoptionOfAClonePlannedAlreadyOffersTheManifest(t *testing.T) {
 	}
 
 	// With a manifest already, there is nothing to add.
-	m.layouts.Set("/work/ws", fake.CloneLayout{Ignored: []string{"repos"}, Plan: ports.PlanContent{Files: 2, Manifest: true}, Tracked: []string{"README.md", "plan/repositories.md"}})
+	m.layouts.Set("/work/ws", fake.CloneLayout{Ignored: []string{"repos"}, Plan: ports.PlanContent{Files: 2, Manifest: true}, Tracked: []string{"README.md", "plan/repositories.md", ".gitignore", "AGENTS.md", "Makefile"}})
 	if again := m.mustPlan(control.AdoptionRequest{Root: "/work/ws"}); again.Shape != planning.ShapePlanned || len(again.Files) != 0 {
 		t.Errorf("a planned clone with a manifest is %s and adds %v", again.Shape, filesOf(again))
 	}
@@ -322,7 +322,7 @@ func TestTheDesignRepositoryIsTheOneWithTheMostDocumentsAndATieNamesNone(t *test
 func TestAdoptionOfClonesNamedByPathsIsTheWorkspaceFiles(t *testing.T) {
 	t.Parallel()
 	m := newAdoptionMachine(t)
-	m.clone("/work/ws", fake.CloneLayout{Tracked: []string{"README.md", "Makefile"}})
+	m.clone("/work/ws", fake.CloneLayout{Tracked: []string{"README.md", "Makefile", ".gitignore", "AGENTS.md"}})
 	m.clone("/work/api", fake.CloneLayout{Tracked: []string{"go.mod"}})
 	m.clone("/work/web", fake.CloneLayout{Tracked: []string{"package.json"}})
 	plan := m.mustPlan(control.AdoptionRequest{Root: "/work/ws", Paths: []string{"/work/api", "/work/web"}})
@@ -351,7 +351,7 @@ func TestAdoptionOfClonesNamedByPathsIsTheWorkspaceFiles(t *testing.T) {
 	// A clone already inside the clone's folder of clones moves nowhere, and a folder already ignored is not
 	// added to the ignore file again.
 	inside := m.another()
-	inside.clone("/work/ws", fake.CloneLayout{Ignored: []string{"repos"}, Tracked: []string{"README.md"}})
+	inside.clone("/work/ws", fake.CloneLayout{Ignored: []string{"repos"}, Tracked: []string{"README.md", ".gitignore", "AGENTS.md", "Makefile"}})
 	inside.clone("/work/ws/repos/api", fake.CloneLayout{Tracked: []string{"go.mod"}})
 	inside.clone("/work/web", fake.CloneLayout{Tracked: []string{"package.json"}})
 	got := inside.mustPlan(control.AdoptionRequest{Root: "/work/ws", Paths: []string{"/work/web"}})
@@ -379,8 +379,8 @@ func ignoreLinesOf(plan planning.AdoptionPlan) []string {
 // through the one query of what a repository ignores, so a folder above it that is ignored counts.
 func TestThePlanListsTheLineThatIgnoresTheWorktreeFolderUnlessTheCloneIgnoresItAlready(t *testing.T) {
 	t.Parallel()
-	planned := fake.CloneLayout{Ignored: []string{"repos"}, Plan: ports.PlanContent{Files: 2, Manifest: true}, Tracked: []string{"README.md", "plan/repositories.md"}}
-	beside := fake.CloneLayout{Tracked: []string{"README.md", "plan/repositories.md", "Makefile"}}
+	planned := fake.CloneLayout{Ignored: []string{"repos"}, Plan: ports.PlanContent{Files: 2, Manifest: true}, Tracked: []string{"README.md", "plan/repositories.md", ".gitignore", "AGENTS.md", "Makefile"}}
+	beside := fake.CloneLayout{Tracked: []string{"README.md", "plan/repositories.md", "Makefile", ".gitignore", "AGENTS.md"}}
 	tests := []struct {
 		name    string
 		layout  fake.CloneLayout

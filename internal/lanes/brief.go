@@ -64,6 +64,9 @@ type BriefSpec struct {
 	// ManifestTemplate is the manifest of a project's code repositories as a template renders it with the
 	// example data (FR-TPL-3). A planning brief shows it after the other formats. Empty shows none.
 	ManifestTemplate string
+	// InstructionsTemplate is the starting AGENTS.md, rendered for the project, which an adopt brief shows when the
+	// repository the lane plans in holds no instruction file. Empty shows none.
+	InstructionsTemplate string
 	// IntakeDirectory is the directory the daemon's intake reads plan files under, relative to the
 	// repository, and empty when it reads the whole repository.
 	IntakeDirectory string
@@ -309,6 +312,9 @@ func Brief(spec BriefSpec) string {
 			out.WriteString(adoptNotice())
 			if spec.Restructured != nil {
 				out.WriteString(restructuredNotice(*spec.Restructured))
+			}
+			if wroteInstructions(spec.Restructured) || spec.InstructionsTemplate != "" {
+				out.WriteString(instructionsNotice(spec.InstructionsTemplate, spec.Restructured))
 			}
 		}
 	}

@@ -8,7 +8,8 @@
         "path": "/work/solo",
         "identity": "solo",
         "where": "here",
-        "documents": 2
+        "documents": 3,
+        "instructions": true
       }
     ]
   },
@@ -31,5 +32,5 @@
   "collisions": null,
   "code_trees": null,
   "moves": null,
-  "digest": "sha256:abbe362ca284e37017175d5e1d6813f5b11ea899f53917935b31e165f57d569f"
+  "digest": "sha256:e968e8aee492f5cbcfecb537d7df94b11f1a1ce1c2b3e22862539fee98b7bb9e"
 }

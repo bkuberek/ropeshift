@@ -237,7 +237,7 @@ The first command names the work order, and the second passes its review. The th
 | Flag | What it does |
 |------|--------------|
 | `--dry-run` | Prints the plan and records nothing: no project, no record, no checkout, and no file. With `--json` it prints the plan as JSON |
-| `--restructure` | Sends the plan's digest, its choices, the request it was read with, and the digest of each of its parts with the adopt work, and prints the moves as commands for you to run. Without it adopt never restructures, and with it a layout of the `single` shape is a usage error. [The workspace files](adopt.md#the-workspace-files) and [consolidating a design repository](adopt.md#consolidating-a-design-repository) say what the worker does with it |
+| `--restructure` | Sends the plan's digest, its choices, the request it was read with, and the digest of each of its parts with the adopt work, and prints the moves and the steps for code repositories as commands for you to run. Without it adopt never restructures, and with it a layout of the `single` shape that already holds an instruction file is a usage error. [The workspace files](adopt.md#the-workspace-files) and [consolidating a design repository](adopt.md#consolidating-a-design-repository) say what the worker does with it |
 | `--depth N` | How many levels below a folder to look for clones |
 | `--planning NAME` | The repository that holds the plan, by its clone's folder name. By default the shape says, and when it says none, adopt asks on the terminal, and with no terminal stops with exit 2 and the names to choose from |
 | `--design NAME` | The design repository, by its clone's folder name |
@@ -257,6 +257,9 @@ The dry run prints one fact to a line:
 | `Shape`, `Planning repository`, `Design repository` | The shape, where the plan lives, and the design repository with why it is the one |
 | `would register`, `already registered`, `refused`, `not registered` | Each repository, with the outcome a registration gives it. A `consolidate` layout lists the design repository as `not registered` |
 | `add`, `append` | A file the restructuring would add to the planning repository, or the lines it would append, each only when the repository lacks it |
+| `Files the layout lacks` | A heading, followed by one `add` line for each of `AGENTS.md`, `CLAUDE.md`, `Makefile`, and `.gitignore` that the planning repository lacks, which are written from the templates `ropeshift new` uses. [The files a layout lacks](adopt.md#the-files-a-layout-lacks) says when each is listed |
+| `Steps for you`, `step`, `run` | A heading, then each code repository whose clone holds no instruction file, with the `[ -e <clone>/AGENTS.md ] || ropeshift template show repository/agents.md > <clone>/AGENTS.md` command for you to run, because adoption writes to no other repository. A clone the plan moves is named where the move leads |
+| `Left out of the Makefile`, `left out` | A heading, then each repository the Makefile the restructuring writes leaves out, with its path and the reason. `--restructure` names them again when the session starts. The manifest still lists them |
 | `take`, `collision` | A path a consolidation takes from the design repository, and a path both repositories hold with the version kept: `workspace`, or `union` for `.gitignore` |
 | `code tree` | A code tree of the design repository with its build file, and whether it is left out |
 | `move`, `run` | A clone to move into the planning repository's folder of clones, and the commands that do it, which ropeshift never runs |

@@ -66,17 +66,27 @@
     },
     {
       "path": ".gitignore",
-      "action": "append",
-      "detail": "repos/, /.ropeshift/worktrees/",
-      "lines": [
-        "repos/",
-        "/.ropeshift/worktrees/"
-      ]
+      "action": "add",
+      "detail": "ignores the folder of clones and the folder lane worktrees go in",
+      "template": "workspace/gitignore"
     },
     {
       "path": "Makefile",
       "action": "add",
-      "detail": "setup, fetch, and status over the manifest"
+      "detail": "setup, fetch, and status over the manifest",
+      "template": "workspace/makefile"
+    },
+    {
+      "path": "AGENTS.md",
+      "action": "add",
+      "detail": "the project's instructions for agents",
+      "template": "workspace/agents.md"
+    },
+    {
+      "path": "CLAUDE.md",
+      "action": "add",
+      "detail": "imports AGENTS.md",
+      "template": "claude.md"
     }
   ],
   "takes": null,
@@ -102,5 +112,21 @@
       ]
     }
   ],
-  "digest": "sha256:30614a3bc239822590050c828d47fe0d0fde34e8e46a3770b1b272c1f1517027"
+  "steps": [
+    {
+      "name": "api",
+      "path": "/work/design/repos/api",
+      "commands": [
+        "[ -e /work/design/repos/api/AGENTS.md ] || ropeshift template show repository/agents.md > /work/design/repos/api/AGENTS.md"
+      ]
+    },
+    {
+      "name": "web",
+      "path": "/work/design/repos/web",
+      "commands": [
+        "[ -e /work/design/repos/web/AGENTS.md ] || ropeshift template show repository/agents.md > /work/design/repos/web/AGENTS.md"
+      ]
+    }
+  ],
+  "digest": "sha256:2110a338028c068d1b1e08b6ca06fd4b5afff911c318b40ddfcd09c19e85ad00"
 }

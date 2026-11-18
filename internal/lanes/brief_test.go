@@ -270,6 +270,54 @@ func TestAnAdoptBriefWithNoCommitSaysTheWorkerMadeNoneAndNamesNoManifest(t *test
 	}
 }
 
+const startingAgents = "# AGENTS.md\n\n> Started for the shop project. Replace each placeholder, and delete every line that starts with `>`.\n\n## The project\n"
+
+// An adopt brief for a repository with no instruction file shows the starting AGENTS.md the template renders, and
+// says to write it from what the project holds, with a CLAUDE.md that imports it, whether or not the worker
+// restructured the repository.
+func TestAnAdoptBriefWithNoInstructionFileHoldsTheStartingTemplate(t *testing.T) {
+	brief := Brief(BriefSpec{WorkOrder: "wo", Title: "Adopt the project", Kind: workorders.KindPlan, Adopt: true, InstructionsTemplate: startingAgents})
+	for _, want := range []string{
+		"holds no instruction file", "AGENTS.md", "CLAUDE.md", "@AGENTS.md", "```markdown\n" + startingAgents + "```", "delete every line that starts with `>`",
+		"the only files you write besides the plan files",
+	} {
+		if !strings.Contains(brief, want) {
+			t.Errorf("the brief leaves out %q:\n%s", want, brief)
+		}
+	}
+	if strings.Contains(brief, "The worker wrote") {
+		t.Errorf("a brief for a repository nobody restructured says the worker wrote the file:\n%s", brief)
+	}
+
+	// When the worker wrote AGENTS.md in its commit, the lane edits the committed file, and the brief shows no template.
+	written := aRestructured()
+	written.Files = []string{".gitignore", "AGENTS.md", "CLAUDE.md", "Makefile", "plan/repositories.md"}
+	again := Brief(BriefSpec{WorkOrder: "wo", Title: "Adopt the project", Kind: workorders.KindPlan, Adopt: true, Restructured: written})
+	for _, want := range []string{"The worker wrote AGENTS.md, with a CLAUDE.md that imports it, in the commit above", "Edit the committed AGENTS.md", "delete every line that starts with `>`"} {
+		if !strings.Contains(again, want) {
+			t.Errorf("the brief of a restructured repository leaves out %q:\n%s", want, again)
+		}
+	}
+	if strings.Contains(again, "```markdown\n# AGENTS.md") || strings.Contains(again, "the starting file below") {
+		t.Errorf("the brief shows a template beside the file the worker wrote:\n%s", again)
+	}
+}
+
+// With an instruction file in the repository, with no adopt work, or with no template, the brief holds none.
+func TestABriefHoldsTheStartingTemplateOnlyForAnAdoptLaneThatWasGivenOne(t *testing.T) {
+	for name, spec := range map[string]BriefSpec{
+		"no template":           {Kind: workorders.KindPlan, Adopt: true},
+		"not an adopt":          {Kind: workorders.KindPlan, InstructionsTemplate: startingAgents},
+		"not planning":          {Kind: workorders.KindChange, Adopt: true, InstructionsTemplate: startingAgents},
+		"written, not an adopt": {Kind: workorders.KindPlan, Restructured: &Restructured{Files: []string{"AGENTS.md"}}},
+	} {
+		spec.WorkOrder, spec.Title = "wo", "Adopt the project"
+		if brief := Brief(spec); strings.Contains(brief, "holds no instruction file") || strings.Contains(brief, "The worker wrote AGENTS.md") || strings.Contains(brief, startingAgents) {
+			t.Errorf("%s: the brief holds the starting template:\n%s", name, brief)
+		}
+	}
+}
+
 func aConsolidated() *Restructured {
 	return &Restructured{
 		Commit: "5d3c0e8a9f1b2c4d6e7f8091a2b3c4d5e6f70812", Subject: planning.ImportCommitSubject("design"), Manifest: "repositories:shop",

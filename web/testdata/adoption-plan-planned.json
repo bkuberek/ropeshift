@@ -74,11 +74,45 @@
       "lines": [
         "/.ropeshift/worktrees/"
       ]
+    },
+    {
+      "path": "Makefile",
+      "action": "add",
+      "detail": "setup, fetch, and status over the manifest",
+      "template": "workspace/makefile"
+    },
+    {
+      "path": "AGENTS.md",
+      "action": "add",
+      "detail": "the project's instructions for agents",
+      "template": "workspace/agents.md"
+    },
+    {
+      "path": "CLAUDE.md",
+      "action": "add",
+      "detail": "imports AGENTS.md",
+      "template": "claude.md"
     }
   ],
   "takes": null,
   "collisions": null,
   "code_trees": null,
   "moves": null,
-  "digest": "sha256:de4bcdefeaa8738aaf7001950d4e96b858e87f40ab5ed88a8ffb03471feea9a8"
+  "steps": [
+    {
+      "name": "api",
+      "path": "/work/ws/repos/api",
+      "commands": [
+        "[ -e /work/ws/repos/api/AGENTS.md ] || ropeshift template show repository/agents.md > /work/ws/repos/api/AGENTS.md"
+      ]
+    },
+    {
+      "name": "web",
+      "path": "/work/ws/repos/web",
+      "commands": [
+        "[ -e /work/ws/repos/web/AGENTS.md ] || ropeshift template show repository/agents.md > /work/ws/repos/web/AGENTS.md"
+      ]
+    }
+  ],
+  "digest": "sha256:5613fa983b9ac443bcdf6feee13b5628b7dd6e88e430e9ec62fe69e51ce7ac8c"
 }

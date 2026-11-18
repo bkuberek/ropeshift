@@ -56,67 +56,6 @@ func TestTheManifestSpellsWhatIsGivenAsTOML(t *testing.T) {
 	}
 }
 
-// The Makefile is a literal list of the manifest's repositories over three targets, and the same repositories
-// give the same file, byte for byte.
-func TestTheMakefileListsTheRepositoriesAsALiteralList(t *testing.T) {
-	const want = "# The workspace Makefile: clone, fetch, and show the status of every repository of the project.\n" +
-		"#\n" +
-		"# Ropeshift never runs this file. REPOSITORIES lists the repositories of the manifest, plan/repositories.md, each\n" +
-		"# as name=path=remote with the path relative to this folder. Keep the two in step.\n" +
-		"\n" +
-		"REPOSITORIES := 'api=repos/api=git@example.invalid:acme/api.git' \\\n" +
-		"  'web=repos/web=git@example.invalid:acme/web.git'\n" +
-		"\n" +
-		".PHONY: setup fetch status\n" +
-		"\n" +
-		"# Clone each repository that has no clone yet.\n" +
-		"setup:\n" +
-		"\t@for entry in $(REPOSITORIES); do \\\n" +
-		"\t  name=$${entry%%=*}; rest=$${entry#*=}; dir=$${rest%%=*}; remote=$${rest#*=}; \\\n" +
-		"\t  if [ -e \"$$dir/.git\" ]; then echo \"$$name: present\"; \\\n" +
-		"\t  elif [ -z \"$$remote\" ]; then echo \"$$name: no remote, clone it into $$dir by hand\"; \\\n" +
-		"\t  else mkdir -p \"$$(dirname \"$$dir\")\" && git clone \"$$remote\" \"$$dir\" || exit 1; fi; \\\n" +
-		"\tdone\n" +
-		"\n" +
-		"# Fetch this repository, when it has a remote, and every repository of the list.\n" +
-		"fetch:\n" +
-		"\t@if [ -n \"$$(git remote)\" ]; then git fetch --all --prune --quiet && echo \"workspace: fetched\"; \\\n" +
-		"\telse echo \"workspace: no remote\"; fi\n" +
-		"\t@for entry in $(REPOSITORIES); do \\\n" +
-		"\t  name=$${entry%%=*}; rest=$${entry#*=}; dir=$${rest%%=*}; \\\n" +
-		"\t  if [ ! -e \"$$dir/.git\" ]; then echo \"$$name: missing, run make setup\"; \\\n" +
-		"\t  elif git -C \"$$dir\" fetch --all --prune --quiet; then echo \"$$name: fetched\"; \\\n" +
-		"\t  else echo \"$$name: fetch failed\"; fi; \\\n" +
-		"\tdone\n" +
-		"\n" +
-		"# Show the branch and the number of changed files of this repository and of every repository of the list.\n" +
-		"status:\n" +
-		"\t@echo \"workspace: $$(git status --short --branch | head -n 1), $$(git status --porcelain | wc -l | tr -d ' ') changed\"\n" +
-		"\t@for entry in $(REPOSITORIES); do \\\n" +
-		"\t  name=$${entry%%=*}; rest=$${entry#*=}; dir=$${rest%%=*}; \\\n" +
-		"\t  if [ ! -e \"$$dir/.git\" ]; then echo \"$$name: missing\"; continue; fi; \\\n" +
-		"\t  head=$$(git -C \"$$dir\" status --short --branch | head -n 1); \\\n" +
-		"\t  changed=$$(git -C \"$$dir\" status --porcelain | wc -l | tr -d ' '); \\\n" +
-		"\t  echo \"$$name: $$head, $$changed changed\"; \\\n" +
-		"\tdone\n"
-	if got := RenderWorkspaceMakefile(aWorkspace()); got != want {
-		t.Errorf("the Makefile reads:\n%s\nwant:\n%s", got, want)
-	}
-}
-
-// A value that a shell or make would read as more than one word, a comment, or a variable is quoted for the
-// shell, and make is told to leave it alone.
-func TestTheMakefileQuotesWhatAShellOrMakeWouldReadAsMore(t *testing.T) {
-	got := RenderWorkspaceMakefile([]WorkspaceRepository{{Name: "api", Path: "repos/api", Remote: "https://host/a b#c$d'e.git"}})
-	want := `REPOSITORIES := 'api=repos/api=https://host/a b\#c$$d'\''e.git'` + "\n"
-	if !strings.Contains(got, want) {
-		t.Errorf("the Makefile holds no %q:\n%s", want, got)
-	}
-	if empty := RenderWorkspaceMakefile(nil); !strings.Contains(empty, "REPOSITORIES :=\n") {
-		t.Errorf("a Makefile with no repository has the list\n%s", empty)
-	}
-}
-
 // The merge commit of a consolidation names the design repository, and only a subject of that form reads back as
 // one, so a worker finds its own merge on a branch and takes no other commit for it.
 func TestTheImportCommitSubjectNamesTheDesignRepositoryAndReadsBack(t *testing.T) {

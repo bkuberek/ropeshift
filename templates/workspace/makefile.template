@@ -10,12 +10,24 @@ PROJECT := {{ .Project }}
 # The folder the code repositories are cloned into. The workspace's .gitignore ignores it.
 CODE_DIR := repos
 
-# Each code repository as name=remote, or name= when it has no remote. Its clone goes to $(CODE_DIR)/name.
+# Each code repository as name=remote, or name= when it has no remote. Its clone goes to $(CODE_DIR)/name, or to
+# the path after a second =, relative to this folder: name=remote=path.
 REPOSITORIES :={{ range $i, $r := .Repositories }} \
-  {{ $r.Name }}={{ $r.Remote }}{{ end }}
+  {{ $r.Name }}={{ $r.Remote }}{{ if $r.Path }}={{ $r.Path }}{{ end }}{{ end }}
 
-NAMES := $(foreach entry,$(REPOSITORIES),$(firstword $(subst =, ,$(entry))))
 WORKSPACE := $(notdir $(CURDIR))
+
+# ENTRY sets name, remote, and dir, the clone's folder, from the entry of REPOSITORIES a recipe loops over.
+define ENTRY
+name=$${entry%%=*}; rest=$${entry#*=}; remote=$${rest%%=*}; dir=$(CODE_DIR)/$$name; case "$$rest" in *=*) dir=$${rest#*=};; esac
+endef
+
+# CLONES sets the arguments of repository add: this workspace, then the clone of each entry of REPOSITORIES, each by
+# its own path at any depth. A folder of clones is never searched, so a clone that is in none of the entries is not
+# registered. An entry with no clone is skipped.
+define CLONES
+set -- .; for entry in $(REPOSITORIES); do $(ENTRY); if [ -e "$$dir/.git" ]; then set -- "$$@" "$$dir"; else echo "$$name: no clone, skipped"; fi; done
+endef
 
 .PHONY: help setup fetch status hooks register-check register lanes
 
@@ -33,10 +45,10 @@ help:
 setup:
 	@mkdir -p $(CODE_DIR)
 	@for entry in $(REPOSITORIES); do \
-	  name=$${entry%%=*}; remote=$${entry#*=}; \
-	  if [ -e "$(CODE_DIR)/$$name/.git" ]; then echo "$$name: present"; \
+	  $(ENTRY); \
+	  if [ -e "$$dir/.git" ]; then echo "$$name: present"; \
 	  elif [ -z "$$remote" ]; then echo "$$name: no remote and no clone"; exit 1; \
-	  else git clone "$$remote" "$(CODE_DIR)/$$name" || exit 1; fi; \
+	  else mkdir -p "$$(dirname "$$dir")" && git clone "$$remote" "$$dir" || exit 1; fi; \
 	done
 	@git check-ignore -q "$(CODE_DIR)/x" || echo "warning: .gitignore does not ignore $(CODE_DIR)/"
 	@git check-ignore -q ".ropeshift/worktrees/" || echo "warning: .gitignore does not ignore .ropeshift/worktrees/, so lanes of these repositories run outside the workspace; add /.ropeshift/worktrees/"
@@ -44,16 +56,17 @@ setup:
 fetch:
 	@if [ -n "$$(git remote)" ]; then git fetch --all --prune --quiet && echo "$(WORKSPACE): fetched"; \
 	else echo "$(WORKSPACE): no remote"; fi
-	@for name in $(NAMES); do \
-	  dir=$(CODE_DIR)/$$name; \
+	@for entry in $(REPOSITORIES); do \
+	  $(ENTRY); \
 	  if [ ! -e "$$dir/.git" ]; then echo "$$name: missing, run make setup"; \
 	  elif git -C "$$dir" fetch --all --prune --quiet; then echo "$$name: fetched"; \
 	  else echo "$$name: fetch failed"; fi; \
 	done
 
 status:
-	@for dir in . $(addprefix $(CODE_DIR)/,$(NAMES)); do \
-	  label=$$dir; if [ "$$dir" = . ]; then label=$(WORKSPACE); fi; \
+	@for entry in . $(REPOSITORIES); do \
+	  if [ "$$entry" = . ]; then dir=.; name=$(WORKSPACE); else $(ENTRY); fi; \
+	  label=$$name; \
 	  if [ ! -e "$$dir/.git" ]; then echo "$$label: missing"; continue; fi; \
 	  head=$$(git -C "$$dir" status --short --branch | head -n 1); \
 	  changed=$$(git -C "$$dir" status --porcelain | wc -l | tr -d ' '); \
@@ -64,8 +77,8 @@ status:
 # scripts/check. Lane worktrees use their clone's hooks, so every lane commit runs the quick check, and a
 # lane cannot edit the hook, which sits outside its worktree. Ropeshift's own merges and pushes run no hook.
 hooks:
-	@for name in $(NAMES); do \
-	  dir=$(CODE_DIR)/$$name; \
+	@for entry in $(REPOSITORIES); do \
+	  $(ENTRY); \
 	  if [ ! -x "$$dir/scripts/check" ]; then echo "$$name: no scripts/check, skipped"; continue; fi; \
 	  if [ -n "$$(git -C "$$dir" config core.hooksPath)" ]; then echo "$$name: core.hooksPath is set, skipped"; continue; fi; \
 	  hook=$$(git -C "$$dir" rev-parse --absolute-git-dir)/hooks/pre-commit; \
@@ -76,16 +89,17 @@ hooks:
 # Registration needs a member's session, so ropeshift asks for the passphrase on the terminal. The
 # workspace needs at least one commit first, because a repository's identity is read from its history.
 register-check:
-	ropeshift repository add . $(CODE_DIR) --project $(PROJECT) --dry-run
+	@$(CLONES); echo "ropeshift repository add $$* --project $(PROJECT) --dry-run"; ropeshift repository add "$$@" --project $(PROJECT) --dry-run
 
 register:
-	ropeshift repository add . $(CODE_DIR) --project $(PROJECT)
+	@$(CLONES); echo "ropeshift repository add $$* --project $(PROJECT)"; ropeshift repository add "$$@" --project $(PROJECT)
 	ropeshift repository set $(WORKSPACE) --planning --project $(PROJECT)
 
 # Ropeshift never deletes a branch. After ropeshift lane archive <lane>, delete a merged branch with
 # git branch -d lane/<lane>, and a checkpoint ref you no longer need with git update-ref -d <ref>.
 lanes:
-	@for dir in . $(addprefix $(CODE_DIR)/,$(NAMES)); do \
+	@for entry in . $(REPOSITORIES); do \
+	  if [ "$$entry" = . ]; then dir=.; else $(ENTRY); fi; \
 	  if [ ! -e "$$dir/.git" ]; then continue; fi; \
 	  base=$$(git -C "$$dir" symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null || echo main); \
 	  echo "$$dir, merged into $$base:"; \

@@ -29,7 +29,7 @@ func TestCodeTreesAreTheTopmostDirectoriesHoldingABuildFile(t *testing.T) {
 	}
 }
 
-func TestInstructionsAreAnAgentsOrClaudeFileAtTheRoot(t *testing.T) {
+func TestInstructionsAreAnAgentsOrClaudeFileAtTheRootInAnyCase(t *testing.T) {
 	for _, one := range []struct {
 		name  string
 		paths []string
@@ -38,6 +38,9 @@ func TestInstructionsAreAnAgentsOrClaudeFileAtTheRoot(t *testing.T) {
 		{"none", []string{"README.md", "docs/AGENTS.md"}, false},
 		{"agents", []string{"AGENTS.md"}, true},
 		{"claude", []string{"src/a.go", "CLAUDE.md"}, true},
+		{"a lowercase agents file", []string{"agents.md"}, true},
+		{"a mixed case claude file", []string{"Claude.MD"}, true},
+		{"a case variant below a directory", []string{"docs/agents.md", "docs/claude.md"}, false},
 	} {
 		if got := HoldsInstructions(one.paths); got != one.want {
 			t.Errorf("%s: %v, want %v", one.name, got, one.want)

@@ -24,13 +24,24 @@ describe("the plan of an adoption, as the dry run prints it", () => {
   it("shows a single repository with nothing to restructure", () => {
     show(plan("single"));
     expect(screen.getByText("single")).toBeTruthy();
-    expect(screen.getByText(/One repository, so there is nothing to restructure/)).toBeTruthy();
+    expect(screen.getByText(/One repository\. Restructuring adds the instruction files it lacks/)).toBeTruthy();
     expect(rows("Clones found")).toHaveLength(1);
     expect(within(rows("Clones found")[0] as HTMLElement).getByText("Will register")).toBeTruthy();
     expect(screen.queryByRole("group", { name: "Restructure" })).toBeNull();
   });
 
-  it("shows a planned layout with the manifest it would add", () => {
+  it("offers a single repository that lacks instruction files a restructuring for those two files", () => {
+    show(plan("single-lacking"));
+    expect(screen.getByRole("group", { name: "Restructure" })).toBeTruthy();
+    expect(rows("Files the layout lacks").map((row) => row.textContent)).toEqual([
+      "AddAGENTS.mdthe project's instructions for agents",
+      "AddCLAUDE.mdimports AGENTS.md",
+    ]);
+    expect(screen.queryByRole("region", { name: "Files added" })).toBeNull();
+    expect(screen.queryByText(/Run these yourself/)).toBeNull();
+  });
+
+  it("shows a planned layout with the manifest it would add, the files it lacks, and a step for each code repository", () => {
     show(plan("planned"));
     expect(screen.getByText("planned")).toBeTruthy();
     expect(screen.getByText(/the clone adopt runs in/)).toBeTruthy();
@@ -43,6 +54,14 @@ describe("the plan of an adoption, as the dry run prints it", () => {
       expect.stringContaining("plan/repositories.md"),
       "Append a line to.gitignore/.ropeshift/worktrees/",
     ]);
+    expect(rows("Files the layout lacks").map((row) => row.textContent)).toEqual([
+      "AddMakefilesetup, fetch, and status over the manifest",
+      "AddAGENTS.mdthe project's instructions for agents",
+      "AddCLAUDE.mdimports AGENTS.md",
+    ]);
+    expect(screen.getByRole("region", { name: "Commands that write the instructions of api" }).textContent).toBe("[ -e /work/ws/repos/api/AGENTS.md ] || ropeshift template show repository/agents.md > /work/ws/repos/api/AGENTS.md");
+    expect(screen.getByRole("region", { name: "Commands that write the instructions of web" })).toBeTruthy();
+    expect(screen.getByText(/Ropeshift writes to no clone but the planning repository's/)).toBeTruthy();
     expect(screen.queryByRole("region", { name: /Paths taken/ })).toBeNull();
     expect(screen.queryByRole("region", { name: "Collisions" })).toBeNull();
   });
@@ -57,8 +76,12 @@ describe("the plan of an adoption, as the dry run prints it", () => {
     expect(rows("Collisions").map((row) => row.textContent)).toEqual([".gitignoreBoth, joined"]);
     expect(rows("Files added").map((row) => row.textContent)).toEqual([
       "Addplan/repositories.mdthe manifest of the project's repositories",
-      "AddMakefilesetup, fetch, and status over the manifest",
       "Append a line to.gitignore/.ropeshift/worktrees/",
+    ]);
+    expect(rows("Files the layout lacks").map((row) => row.textContent)).toEqual([
+      "AddMakefilesetup, fetch, and status over the manifest",
+      "AddAGENTS.mdthe project's instructions for agents",
+      "AddCLAUDE.mdimports AGENTS.md",
     ]);
     const tree = screen.getByRole("checkbox", { name: /Leave out tools \(tools\/go\.mod\)/ }) as HTMLInputElement;
     expect(tree.checked).toBe(false);
@@ -76,18 +99,33 @@ describe("the plan of an adoption, as the dry run prints it", () => {
     expect(screen.getByText(/the whole repository, which cannot be left out/)).toBeTruthy();
   });
 
-  it("lists, for workspace files, the files added and appended, and each move as the commands the person runs", () => {
+  it("lists, for workspace files, the files added and the files the layout lacks, and each move as the commands the person runs", () => {
     show(plan("workspace-files"));
     expect(screen.getByText("workspace_files")).toBeTruthy();
-    expect(rows("Files added").map((row) => row.textContent)).toEqual([
-      "Addplan/repositories.mdthe manifest of the project's repositories",
-      "Append lines to.gitignorerepos/, /.ropeshift/worktrees/",
+    expect(rows("Files added").map((row) => row.textContent)).toEqual(["Addplan/repositories.mdthe manifest of the project's repositories"]);
+    expect(rows("Files the layout lacks").map((row) => row.textContent)).toEqual([
+      "Add.gitignoreignores the folder of clones and the folder lane worktrees go in",
       "AddMakefilesetup, fetch, and status over the manifest",
+      "AddAGENTS.mdthe project's instructions for agents",
+      "AddCLAUDE.mdimports AGENTS.md",
     ]);
     const commands = screen.getByRole("region", { name: "Commands that move api" });
     expect(commands.textContent).toBe("mv /work/api /work/design/repos/api\nropeshift repository add /work/design/repos/api");
     expect(screen.getByRole("region", { name: "Commands that move web" })).toBeTruthy();
     expect(screen.getByText(/Ropeshift never moves a clone/)).toBeTruthy();
+  });
+
+  it("names each repository the Makefile leaves out, with why, and says the manifest still lists it", () => {
+    const left = { ...plan("workspace-files"), makefile_left_out: [{ name: "we$ird", path: "repos/we$ird", reason: "its name is not made of letters, digits, \".\", \"_\", and \"-\"" }] };
+    show(left);
+    const list = screen.getByRole("list", { name: "Left out of the Makefile" });
+    expect(list.textContent).toContain("we$ird");
+    expect(list.textContent).toContain("repos/we$ird");
+    expect(list.textContent).toContain("its name is not made of letters");
+    expect(screen.getByText(/The manifest still lists each/)).toBeTruthy();
+    cleanup();
+    show(plan("workspace-files"));
+    expect(screen.queryByRole("list", { name: "Left out of the Makefile" })).toBeNull();
   });
 
   it("says where the plan lives is undecided, and offers no restructuring, when nothing settles it", () => {
@@ -110,7 +148,7 @@ describe("the plan of an adoption, as the dry run prints it", () => {
   });
 
   it("tells a planning repository that already holds what a restructuring adds, that there is nothing to list", () => {
-    show({ ...plan("planned"), files: null });
+    show({ ...plan("planned"), files: null, steps: null });
     expect(screen.getByText(/already holds everything a restructuring adds/)).toBeTruthy();
   });
 

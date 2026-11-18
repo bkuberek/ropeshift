@@ -197,8 +197,8 @@ func wordsOf(t *testing.T, command string) []string {
 // code repositories writes its files with no daemon and no session. The git commands it prints make the
 // folder's first commit, of exactly the files written. Intake reads the commit with no problem. The ropeshift
 // commands it prints create the project, and the repository add of the Makefile's register target registers
-// the workspace. The test runs that line for the workspace alone, because make setup would clone the code
-// repositories from remotes this test does not have.
+// the workspace and the clone of each repository it lists. The test runs the add for the workspace alone, because
+// make setup would clone the code repositories from remotes this test does not have.
 func TestANewWorkspaceRegistersAndPassesIntake(t *testing.T) {
 	identity := gittest.New(t)
 	gitOf(t, identity)
@@ -263,7 +263,7 @@ func TestANewWorkspaceRegistersAndPassesIntake(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, line := range []string{"PROJECT := orchid", "\tropeshift repository add . $(CODE_DIR) --project $(PROJECT)"} {
+	for _, line := range []string{"PROJECT := orchid", "\t@$(CLONES); echo \"ropeshift repository add $$* --project $(PROJECT)\"; ropeshift repository add \"$$@\" --project $(PROJECT)"} {
 		if !strings.Contains(string(makefile), line+"\n") {
 			t.Fatalf("the Makefile does not hold %q", line)
 		}

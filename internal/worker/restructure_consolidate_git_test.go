@@ -161,7 +161,7 @@ func TestAGitWorkspaceWithADesignRepositoryInItsCodeFolderEndsInOneMergeCommit(t
 	if err != nil || manifest.ID != "shop" || len(manifest.Repositories) != 1 || manifest.Repositories[0].Name != "api" || manifest.Repositories[0].Path != "repos/api" {
 		t.Fatalf("the manifest reads %+v with design repository left out: %v\n%s", manifest, err, raw)
 	}
-	if makefile := w.readLane("Makefile"); !strings.Contains(makefile, "'api=repos/api=") || strings.Contains(makefile, "design") {
+	if makefile := w.readLane("Makefile"); !strings.Contains(makefile, "\n  api=") || strings.Contains(makefile, "design") {
 		t.Errorf("the Makefile reads:\n%s", makefile)
 	}
 	if after := stateOf(t, w, design); after != before {
@@ -317,5 +317,47 @@ func TestTheInventoryOfAConsolidatedWorkspaceReadsTheMergeCommit(t *testing.T) {
 	}
 	if home.BaseCommit != w.git(w.lane, "rev-parse", "HEAD") || !slices.Contains(paths, "docs/vision.md") || !slices.Contains(paths, "plan/goal.md") {
 		t.Errorf("the inventory of the workspace is at %s and lists %v", home.BaseCommit, paths)
+	}
+}
+
+// A consolidation whose workspace and design repository hold no instruction file gets AGENTS.md and CLAUDE.md from the
+// workspace template in the merge commit, and the brief is told the worker wrote them, so the lane edits the committed
+// file. One whose design repository brought an instruction file is told the design's files instead, and no file is
+// written beside them.
+func TestAGitConsolidationThatWritesTheInstructionsTellsTheBriefTheWorkerWroteThem(t *testing.T) {
+	t.Parallel()
+	for name, tt := range map[string]struct {
+		design  map[string]string
+		written bool
+	}{
+		"neither holds one": {design: map[string]string{"README.md": "the design\n", "plan/goal.md": goalFile, "docs/vision.md": "# Vision\n"}, written: true},
+		"the design brings a lowercase one": {
+			design: map[string]string{"README.md": "the design\n", "plan/goal.md": goalFile, "docs/vision.md": "# Vision\n", "agents.md": "design rules\n"},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			w := newEmptyGitWorkspace(t)
+			w.clone("ws", map[string]string{"README.md": "a workspace\n", ".gitignore": "repos/\n"})
+			w.clone("ws/repos/design", tt.design)
+			w.clone("ws/repos/api", map[string]string{"go.mod": "module api\n", "README.md": "api\n"})
+			w.begin("ws/repos/api")
+			run := w.consolidate()
+			if report, failed := run.restructure(t.Context(), w.path("ws"), w.lane); failed {
+				t.Fatalf("the restructuring failed: %+v", report)
+			}
+			told := run.restructuredOf()
+			if told == nil || told.Consolidated == nil {
+				t.Fatalf("the brief is told %+v", told)
+			}
+			_, agents := os.Stat(filepath.Join(w.lane, "AGENTS.md"))
+			if got := slices.Contains(told.Files, "AGENTS.md"); got != tt.written || (agents == nil) != tt.written {
+				t.Errorf("the brief is told the worker wrote AGENTS.md: %v, and the file is there: %v, want %v", got, agents == nil, tt.written)
+			}
+			run.startingInstructions(t.Context(), w.path("ws"))
+			if run.instructionsText() != "" {
+				t.Errorf("the lane keeps the starting instructions %q", run.instructionsText())
+			}
+		})
 	}
 }

@@ -102,7 +102,10 @@ func CodeTreesOf(paths []string) []CodeTree {
 	return trees
 }
 
-// HoldsInstructions says a list of tracked paths holds an instruction file, AGENTS.md or CLAUDE.md, at the top.
+// HoldsInstructions says a list of tracked paths holds an instruction file, AGENTS.md or CLAUDE.md, at the top, in any
+// case: on a file system that ignores case, agents.md is AGENTS.md.
 func HoldsInstructions(paths []string) bool {
-	return slices.Contains(paths, "AGENTS.md") || slices.Contains(paths, "CLAUDE.md")
+	return slices.ContainsFunc(paths, func(tracked string) bool {
+		return strings.EqualFold(tracked, "AGENTS.md") || strings.EqualFold(tracked, "CLAUDE.md")
+	})
 }

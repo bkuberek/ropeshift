@@ -725,6 +725,9 @@ func soloLanes(paths api.Paths, opts soloOptions, kept *checkouts.File, stderr i
 		AssistantCommands: commands, Routes: named, ControlEnv: controlEnv(paths),
 		// What a planning brief tells a lane of the manifest and of where intake reads (FR-TPL-3).
 		ManifestTemplate: manifest, IntakeDirectory: opts.directory,
+		// The files an adoption's restructuring writes, and the starting instructions its brief shows, come from the same
+		// templates `ropeshift new` writes (FR-ADOPT-15).
+		Render: renderProjectTemplate,
 		// What a member types into a pane through the web pane, which shares the terminal (ADR-0018).
 		PaneInputs: &worker.PaneInputs{},
 	}, terminal, nil

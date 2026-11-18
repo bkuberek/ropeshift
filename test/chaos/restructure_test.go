@@ -25,6 +25,7 @@ import (
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/planning"
 	"ropeshift.com/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/projectfiles"
 	"ropeshift.com/ropeshift/internal/worker"
 	"ropeshift.com/ropeshift/internal/workorders"
 	"ropeshift.com/ropeshift/test/contract"
@@ -104,6 +105,11 @@ func readBranch(file string) ([]ports.Commit, error) {
 	return held, nil
 }
 
+// renderTemplate stands in for the templates a worker writes the files a layout lacks from, which no worker imports.
+func renderTemplate(name string, _ projectfiles.Data) (string, error) {
+	return "from " + name + "\n", nil
+}
+
 // restructureRequest is what `ropeshift adopt --restructure /work/api /work/web` reads in the clone /work/ws: a
 // planning clone with no plan content and two clones beside it, which reads as the workspace_files shape.
 var restructureRequest = adoption.Request{Root: "/work/ws", Paths: []string{"/work/api", "/work/web"}, Depth: 1, Planning: "ws"}
@@ -162,7 +168,7 @@ func TestTheRestructureRowsHaveFilesToCommit(t *testing.T) {
 		t.Fatalf("the layout reads as the %s shape", choice.Shape)
 	}
 	checkouts, _ := restructureClones()
-	files, err := adoption.Files(t.Context(), plan, ledger.DefaultProjectName, checkouts)
+	files, err := adoption.Files(t.Context(), plan, ledger.DefaultProjectName, checkouts, renderTemplate)
 	if err != nil || len(files) == 0 {
 		t.Fatalf("the plan lists %d files to commit: %v", len(files), err)
 	}
@@ -196,6 +202,7 @@ func roleWorkerAdopt(c *child) error {
 			Profiles: fake.NewProfileSource(), Worktrees: committingWorktrees{lastingWorktrees{dir: dir, log: c.log}}, Checkouts: checkouts,
 		},
 		Layouts:    layouts,
+		Render:     renderTemplate,
 		Secrets:    fake.SecretResolver{},
 		Repository: func(context.Context, string, string) (string, error) { return "/repository", nil },
 	}))

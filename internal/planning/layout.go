@@ -36,7 +36,8 @@ func (s LayoutShape) Valid() bool {
 	return false
 }
 
-// Restructures says `--restructure` offers something in the shape.
+// Restructures says `--restructure` offers something in every plan of the shape. The single shape offers it
+// only for the files its plan lists, which AdoptionPlan.Offers reads.
 func (s LayoutShape) Restructures() bool { return s.Valid() && s != ShapeSingle }
 
 // Where a clone was found, relative to the clone adopt runs in.
@@ -122,6 +123,9 @@ type PlannedFile struct {
 	Detail string `json:"detail,omitempty"`
 	// Lines are the lines an append adds to the file, each only when the file holds no line like it.
 	Lines []string `json:"lines,omitempty"`
+	// Template names the template a file the layout lacks is written from, and is empty for a file the worker
+	// builds from the plan.
+	Template string `json:"template,omitempty"`
 }
 
 // What a collision keeps.
@@ -155,6 +159,22 @@ type Move struct {
 	Commands []string `json:"commands"`
 }
 
+// Step is a change ropeshift leaves to the person, in a clone it never writes to (FR-ADOPT-3): the repository it
+// concerns, its clone, and the commands that make the change.
+type Step struct {
+	Name     string   `json:"name"`
+	Path     string   `json:"path"`
+	Commands []string `json:"commands"`
+}
+
+// Omission is a repository a file the restructuring writes leaves out, and why. The manifest still lists it.
+type Omission struct {
+	Name string `json:"name"`
+	// Path is where its clone sits relative to the planning repository's clone, once any move is made.
+	Path   string `json:"path"`
+	Reason string `json:"reason"`
+}
+
 // AdoptionPlan is what `ropeshift adopt --dry-run` reports: the layout detected around a clone, the shape
 // proposed for it, and every change and move the adoption would make. Building one records nothing.
 type AdoptionPlan struct {
@@ -171,12 +191,24 @@ type AdoptionPlan struct {
 	Collisions []Collision       `json:"collisions"`
 	CodeTrees  []PlannedCodeTree `json:"code_trees"`
 	Moves      []Move            `json:"moves"`
+	// Steps are what the person does in each code repository that holds no instruction file.
+	Steps []Step `json:"steps,omitempty"`
+	// MakefileLeftOut are the repositories the Makefile the plan writes leaves out, because its name or its path holds
+	// what make or a shell reads as syntax. They follow from the repositories and the moves, so the digest leaves them
+	// out, as it leaves out the notes.
+	MakefileLeftOut []Omission `json:"makefile_left_out,omitempty"`
 	// Notes say what the detection could not settle, with the flag that settles it.
 	Notes []string `json:"notes,omitempty"`
 	// Digest is the SHA-256 of the plan's JSON with no digest, no notes, and nothing a registration said of each
 	// repository, which the registration itself changes. A restructuring sends it back, so a layout that changed
 	// in between is found.
 	Digest string `json:"digest,omitempty"`
+}
+
+// Offers says `--restructure` has something to do in the plan: always in a shape that restructures, and in the single
+// shape when the plan lists a file the clone lacks.
+func (p AdoptionPlan) Offers() bool {
+	return p.Shape.Restructures() || p.Shape == ShapeSingle && len(p.Files) != 0
 }
 
 // MaxLayoutDepth is the most levels below a folder a plan searches for clones. A folder the clone ignores may
@@ -280,11 +312,11 @@ func (r Restructure) validateRequest() error {
 	return nil
 }
 
-// Validate refuses a restructuring that names a shape with nothing to restructure, carries no digest, or holds
-// a design repository or code trees outside a consolidation, or a request that cannot be kept.
+// Validate refuses a restructuring that names no shape, carries no digest, or holds a design repository or code
+// trees outside a consolidation, or a request that cannot be kept.
 func (r Restructure) Validate() error {
-	if !r.Shape.Restructures() {
-		return fmt.Errorf("%w: the shape %q offers nothing to restructure", ErrBadRestructure, r.Shape)
+	if !r.Shape.Valid() {
+		return fmt.Errorf("%w: the shape %q is no shape of a layout", ErrBadRestructure, r.Shape)
 	}
 	if !isDigest(r.Digest) {
 		return fmt.Errorf("%w: the digest %q is no SHA-256 digest of a plan", ErrBadRestructure, r.Digest)
@@ -311,7 +343,7 @@ func (r Restructure) Validate() error {
 
 // ComputeDigest is the digest of the plan as it stands.
 func (p AdoptionPlan) ComputeDigest() string {
-	p.Digest, p.Notes = "", nil
+	p.Digest, p.Notes, p.MakefileLeftOut = "", nil, nil
 	repositories := make([]PlannedRepository, 0, len(p.Repositories))
 	for _, repository := range p.Repositories {
 		kept := PlannedRepository{Name: repository.Name, Path: repository.Path}
@@ -348,11 +380,12 @@ const (
 	PartCollisions   = "collisions"
 	PartCodeTrees    = "code_trees"
 	PartMoves        = "moves"
+	PartSteps        = "steps"
 )
 
 // PlanParts lists the parts Parts digests, in order.
 var PlanParts = []string{
-	PartLayout, PartShape, PartPlanning, PartDesign, PartRepositories, PartFiles, PartTakes, PartCollisions, PartCodeTrees, PartMoves,
+	PartLayout, PartShape, PartPlanning, PartDesign, PartRepositories, PartFiles, PartTakes, PartCollisions, PartCodeTrees, PartMoves, PartSteps,
 }
 
 // orEmpty spells a list with nothing in it one way, whether it is nil or empty, so a plan that crossed the
@@ -386,7 +419,7 @@ func (p AdoptionPlan) Parts() map[string]string {
 	byPart := map[string]any{
 		PartLayout: layout, PartShape: p.Shape, PartPlanning: p.Planning, PartDesign: p.Design, PartRepositories: repositories,
 		PartFiles: orEmpty(p.Files), PartTakes: orEmpty(p.Takes), PartCollisions: orEmpty(p.Collisions),
-		PartCodeTrees: orEmpty(p.CodeTrees), PartMoves: moves,
+		PartCodeTrees: orEmpty(p.CodeTrees), PartMoves: moves, PartSteps: orEmpty(p.Steps),
 	}
 	parts := make(map[string]string, len(byPart))
 	for name, part := range byPart {

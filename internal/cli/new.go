@@ -165,7 +165,7 @@ func (c *invocation) newFolder(shape projectfiles.Shape, args []string) int {
 func renderTemplate(name string, data projectfiles.Data) (string, error) {
 	converted := templates.Data{Project: data.Project}
 	for _, r := range data.Repositories {
-		converted.Repositories = append(converted.Repositories, templates.Repository{Name: r.Name, Remote: r.Remote})
+		converted.Repositories = append(converted.Repositories, templates.Repository{Name: r.Name, Remote: r.Remote, Path: r.Path})
 	}
 	return templates.Render(name, converted)
 }

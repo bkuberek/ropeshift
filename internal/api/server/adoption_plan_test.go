@@ -124,8 +124,12 @@ func TestAdoptWorkKeepsItsRestructuringAndOnlyAMemberChoosesOne(t *testing.T) {
 	if read, err := client.WorkOrder(t.Context(), "adopt-1"); err != nil || !reflect.DeepEqual(read.Restructure, chosen) {
 		t.Errorf("the work order reads %+v: %v", read.Restructure, err)
 	}
-	if _, err := create(client, "adopt-2", &planning.Restructure{Shape: planning.ShapeSingle, Digest: chosen.Digest}); err == nil {
-		t.Error("the single shape was kept")
+	single := &planning.Restructure{Shape: planning.ShapeSingle, Digest: chosen.Digest}
+	if kept, err := create(client, "adopt-2", single); err != nil || !reflect.DeepEqual(kept.Restructure, single) {
+		t.Errorf("a restructuring of the single shape, which adds the instruction files it lacks, reads %+v: %v", kept.Restructure, err)
+	}
+	if _, err := create(client, "adopt-7", &planning.Restructure{Shape: "other", Digest: chosen.Digest}); err == nil {
+		t.Error("a shape no layout has was kept")
 	} else {
 		refusedWith(t, err, http.StatusBadRequest, api.CodeInvalid)
 	}

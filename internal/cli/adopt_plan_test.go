@@ -56,7 +56,7 @@ func TestAdoptDryRunListsTheLayoutAndRecordsNothing(t *testing.T) {
 	if code != cli.ExitOK {
 		t.Fatalf("exit %d: %s", code, stderr)
 	}
-	for _, want := range []string{"workspace_files", "would register\tShop_App", "would register\tapi", "would register\tweb", "mv /work/libs/api /work/Shop_App/repos/api", "append\t.gitignore\trepos/", "sha256:"} {
+	for _, want := range []string{"workspace_files", "would register\tShop_App", "would register\tapi", "would register\tweb", "mv /work/libs/api /work/Shop_App/repos/api", "add\t.gitignore\t", "sha256:"} {
 		if !strings.Contains(stdout, want) {
 			t.Errorf("the dry run printed no %q:\n%s", want, stdout)
 		}
@@ -131,8 +131,9 @@ func TestAdoptDryRunOfAWorkspaceListsTheConsolidation(t *testing.T) {
 
 // A ropeshift adopt names no restructuring by default, and one that asks for it in a layout with nothing to
 // restructure is a usage error naming the shape, before anything is made.
-func TestAdoptRestructureOfASingleRepositoryIsAUsageError(t *testing.T) {
+func TestAdoptRestructureOfASingleRepositoryWithItsInstructionsIsAUsageError(t *testing.T) {
 	a := newAdoption(t)
+	a.in.Layouts.Set(shopClone.Path, fake.CloneLayout{Tracked: []string{"README.md", "CLAUDE.md"}})
 	for _, args := range [][]string{{"adopt", "--restructure"}, {"adopt", "--dry-run", "--restructure"}} {
 		code, _, stderr := a.runIn(shopClone, "", append(args, "--worker", "worker-a", "--no-attach")...)
 		if code != cli.ExitUsage || !strings.Contains(stderr, "single") || !strings.Contains(stderr, "--restructure") {
@@ -232,5 +233,88 @@ func TestAdoptSearchesToTheDepthItIsGiven(t *testing.T) {
 	}
 	if plan := a.plan(workspaceClone, "--depth", "2"); !slices.ContainsFunc(plan.Layout.Clones, func(c planning.LayoutClone) bool { return c.Name == "deep" }) {
 		t.Errorf("--depth 2 found %+v", plan.Layout.Clones)
+	}
+}
+
+// A single repository that lacks an instruction file is offered --restructure for the two files, and the adopt work
+// carries the restructuring the plan chose.
+func TestAdoptRestructureOfASingleRepositoryThatLacksInstructionsSendsTheChoice(t *testing.T) {
+	a := newAdoption(t)
+	planned := a.plan(shopClone)
+	if planned.Shape != planning.ShapeSingle || !planned.Offers() {
+		t.Fatalf("a lone clone with no instruction file reads %s and offers a restructuring: %v", planned.Shape, planned.Offers())
+	}
+	code, stdout, stderr := a.runIn(shopClone, "", "adopt", "--dry-run")
+	if code != cli.ExitOK || !strings.Contains(stdout, "Files the layout lacks\nadd\tAGENTS.md\tthe project's instructions for agents\nadd\tCLAUDE.md\t") ||
+		!strings.Contains(stdout, "Run 'ropeshift adopt --restructure'") {
+		t.Fatalf("the dry run exits %d: %s\n%s", code, stderr, stdout)
+	}
+	if code, _, stderr := a.runIn(shopClone, "", "adopt", "--restructure", "--worker", "worker-a", "--no-attach"); code != cli.ExitOK {
+		t.Fatalf("adopt --restructure exit %d: %s", code, stderr)
+	}
+	orders := a.workOrders("shop-app")
+	if len(orders) != 1 || orders[0].Restructure == nil || orders[0].Restructure.Shape != planning.ShapeSingle || orders[0].Restructure.Digest != planned.Digest {
+		t.Errorf("the adopt work is %+v", orders)
+	}
+}
+
+// The dry run lists the files a layout lacks under a heading of their own, after the manifest and the ignore lines,
+// and the code repositories that hold no instruction file as steps for the person, with the command that writes
+// the repository template to each clone. --restructure prints the steps again, because ropeshift runs none.
+func TestAdoptDryRunListsTheFilesTheLayoutLacksAndTheStepsForCodeRepositories(t *testing.T) {
+	a := newAdoption(t)
+	a.in.Layouts.Set(webClone.Path, fake.CloneLayout{Tracked: []string{"package.json", "AGENTS.md"}})
+	code, stdout, stderr := a.runIn(shopClone, "", "adopt", "--dry-run", "/work/libs", "--planning", "Shop_App")
+	if code != cli.ExitOK {
+		t.Fatalf("exit %d: %s", code, stderr)
+	}
+	for _, want := range []string{
+		"\nadd\tplan/repositories.md\t", "\nFiles the layout lacks\nadd\t.gitignore\t", "\nadd\tMakefile\tsetup, fetch, and status over the manifest\n",
+		"\nadd\tAGENTS.md\t", "\nadd\tCLAUDE.md\timports AGENTS.md\n", "\nSteps for you\nstep\tapi\t/work/Shop_App/repos/api\n",
+		"\nrun\t[ -e /work/Shop_App/repos/api/AGENTS.md ] || ropeshift template show repository/agents.md > /work/Shop_App/repos/api/AGENTS.md\n",
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Errorf("the dry run printed no %q:\n%s", want, stdout)
+		}
+	}
+	if strings.Contains(stdout, "step\tweb") || strings.Contains(stdout, "/work/Shop_App/AGENTS.md") {
+		t.Errorf("the dry run lists a step for a clone that holds instructions or for the planning repository:\n%s", stdout)
+	}
+	if strings.Index(stdout, "add\tplan/repositories.md") > strings.Index(stdout, "Files the layout lacks") {
+		t.Errorf("the manifest is listed under the heading of the files the layout lacks:\n%s", stdout)
+	}
+
+	code, stdout, stderr = a.runIn(shopClone, "", "adopt", "--restructure", "/work/libs", "--planning", "Shop_App", "--worker", "worker-a", "--no-attach")
+	if code != cli.ExitOK || !strings.Contains(stdout, "run these commands yourself:\n  [ -e /work/Shop_App/repos/api/AGENTS.md ] || ropeshift template show repository/agents.md > /work/Shop_App/repos/api/AGENTS.md\n") {
+		t.Errorf("adopt --restructure exits %d and prints no step for the person: %s\n%s", code, stderr, stdout)
+	}
+}
+
+// A repository whose name or path the Makefile cannot carry is named in the dry run, under a heading of its own, with
+// the reason, and again when --restructure starts the session. The manifest still lists it.
+func TestAdoptNamesEachRepositoryTheMakefileLeavesOut(t *testing.T) {
+	a := newAdoption(t)
+	odd := ports.Clone{Path: "/work/libs/we$ird", ID: "8f405162738495a6b7c8d9e0f1a2b3c4d5e6f708", DefaultBranch: "main"}
+	a.in.Checkouts.Place(odd)
+	args := []string{"/work/libs", "--planning", "Shop_App"}
+	code, stdout, stderr := a.runIn(shopClone, "", append([]string{"adopt", "--dry-run"}, args...)...)
+	if code != cli.ExitOK {
+		t.Fatalf("exit %d: %s", code, stderr)
+	}
+	want := "\nLeft out of the Makefile\nleft out\twe$ird\trepos/we$ird\tits name is not made of letters, digits,"
+	if !strings.Contains(stdout, want) {
+		t.Errorf("the dry run printed no %q:\n%s", want, stdout)
+	}
+	if strings.Contains(stdout, "left out\tapi") || strings.Contains(stdout, "left out\tweb") {
+		t.Errorf("the dry run leaves out a repository the Makefile carries:\n%s", stdout)
+	}
+	plan := a.plan(shopClone, args...)
+	if len(plan.MakefileLeftOut) != 1 || plan.MakefileLeftOut[0].Name != "we$ird" || plan.MakefileLeftOut[0].Path != "repos/we$ird" {
+		t.Errorf("the JSON plan leaves out %+v", plan.MakefileLeftOut)
+	}
+
+	code, stdout, stderr = a.runIn(shopClone, "", append([]string{"adopt", "--restructure", "--worker", "worker-a", "--no-attach"}, args...)...)
+	if code != cli.ExitOK || !strings.Contains(stdout, "The Makefile leaves out 1 repository, which the manifest still lists:\n  we$ird (repos/we$ird): its name is not made of letters, digits,") {
+		t.Errorf("adopt --restructure exits %d and names no repository the Makefile leaves out: %s\n%s", code, stderr, stdout)
 	}
 }
