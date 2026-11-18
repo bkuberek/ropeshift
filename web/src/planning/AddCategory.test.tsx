@@ -99,8 +99,9 @@ describe("adding a category", () => {
     await userEvent.click(await within(palette).findByRole("option", { name: /^Add category/ }));
     const box = await dialog();
     expect(window.location.pathname).toBe("/projects/default/questions");
-    // The view a person moved to has taken its own focus by then, and the dialog is where focus ends.
-    expect(box.contains(document.activeElement)).toBe(true);
+    // The view a person moved to has taken its own focus by then, and the dialog is where focus ends. The dialog
+    // takes focus in an effect after it is in the page, so the test waits for focus and does not read it at once.
+    await waitFor(() => expect(box.contains(document.activeElement)).toBe(true));
     // Closing it leaves the address of the view, so a reload does not open it again.
     await userEvent.keyboard("{Escape}");
     await waitFor(() => expect(window.location.search).toBe(""));
