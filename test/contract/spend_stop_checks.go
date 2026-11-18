@@ -170,6 +170,17 @@ func checkReplanASpendStop(r *Rig) error {
 	if err := r.onlyAMemberEndsAStop(s, replan, id); err != nil {
 		return err
 	}
+	// The contract the work ran on was reviewed, so the replan has a review to void.
+	err = s.Write(r.Ctx, r.Scope, "review.passed", func(tx ports.WriteTx) error {
+		if err := tx.WorkOrders().Reviewed(id, theMember.ID); err != nil {
+			return err
+		}
+		_, err := tx.Append(ledger.EventDraft{Type: workorders.EventReviewPassed, Actor: theMember, Subject: ledger.Subject{Kind: workorders.SubjectKind, ID: id}})
+		return err
+	})
+	if err != nil {
+		return err
+	}
 	state, err := spend.Replan(r.Ctx, r.Scope, id, theMember)
 	if err != nil || state != workorders.Planning {
 		return Violatedf("a member's replan left the work order %q: %v", state, err)
@@ -180,6 +191,9 @@ func checkReplanASpendStop(r *Rig) error {
 	order, err := r.WorkOrder(s, id)
 	if err != nil || order.ReviewedBy != "" {
 		return Violatedf("a replan left the review of the old contract standing: %+v, %v", order, err)
+	}
+	if err := r.CheckProjection(s); err != nil {
+		return err
 	}
 	if err := r.laneEnded(s, request.Lane); err != nil {
 		return err

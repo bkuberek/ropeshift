@@ -109,6 +109,36 @@ func TestAContractThatMustChangeVoidsItsReview(t *testing.T) {
 	}
 }
 
+// TestAReplanVoidsTheReviewOfTheContractItLeaves: work sent back to planning from `blocked` or from a spend stop passes
+// contract review again, and a replay of the log reads its review as void, as the projection does.
+func TestAReplanVoidsTheReviewOfTheContractItLeaves(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		from    State
+		trigger Trigger
+	}{
+		{"a replan of blocked work", Blocked, TriggerReplan},
+		{"a replan of a spend stop", Parked, TriggerSpendReplan},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			data, err := json.Marshal(WorkOrder{ID: "wo", Kind: KindChange, State: tc.from, ContractID: "c", ContractVersion: 1, ReviewedBy: "member"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			book, err := Replay([]ledger.Event{
+				{Rev: 1, Type: EventCreated, Subject: ledger.Subject{Kind: SubjectKind, ID: "wo"}, Data: data},
+				changeOf(t, 2, EventType(tc.trigger), Change{Trigger: tc.trigger}),
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := book["wo"]; got.State != Planning || got.ReviewedBy != "" {
+				t.Errorf("work order %+v, want it in planning with its review void", got)
+			}
+		})
+	}
+}
+
 // TestANewVersionPinsAndVoidsTheReview: a review covers one version, and the pin says which
 // version the work will run.
 func TestANewVersionPinsAndVoidsTheReview(t *testing.T) {

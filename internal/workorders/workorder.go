@@ -460,7 +460,7 @@ func applyEdge(w WorkOrder, edge Transition, change Change) (WorkOrder, error) {
 		w.ResumeLaneID = change.Lane
 	case TriggerRetried:
 		w.MaxAttempts = max(w.MaxAttempts, change.MaxAttempts)
-	case TriggerContractChange:
+	case TriggerContractChange, TriggerReplan, TriggerSpendReplan:
 		w.ReviewedBy = ""
 	case TriggerCanceled:
 		if edge.Leased {
