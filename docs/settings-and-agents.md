@@ -20,9 +20,9 @@ In the sidebar, select Settings. The sections stand in four groups:
 
 | Group | Sections |
 |-------|----------|
-| Installation | Admission and lane caps, Autonomy defaults, Assistant, Backup, and About |
+| Installation | Admission and lane caps, Autonomy defaults, Assistant, Orchestrator spend, Backup, and About |
 | Workers | Autonomy and run windows |
-| Project | Fleet, then the review, integration, decision, lane, recovery, delegation, and delegate policies, Notifications, and Estimate policy |
+| Project | Fleet, then the review, integration, decision, lane, recovery, delegation, and delegate policies, Notifications, Estimate policy, and Spend |
 | You | Appearance and keyboard, and Change passphrase |
 
 The Project group holds the sections of the project you are in, under its name, and shows only inside a project, where Settings opens on its Fleet ([pause, drain, or cap one project](several-projects.md#5-pause-drain-or-cap-one-project)). The line under each section's title says what it governs.
@@ -96,7 +96,7 @@ The Roster tab lists each agent with its access, class, effort, and approval, an
 ![Agents of Default, with the roster and the definition of heavy-implementation, its effort set by the project](assets/screenshots/settings-06-light.png#gh-light-mode-only)
 ![Agents of Default, with the roster and the definition of heavy-implementation, its effort set by the project](assets/screenshots/settings-06-dark.png#gh-dark-mode-only)
 
-Driver preview names the model the agent runs on for each driver: the agent's own model for that driver when its definition names one, under Model for the driver, and otherwise the model its class maps to in your own profile, under `[agent.classes]`. Here the field is unset, and the `large` class runs on `opus`.
+Driver preview names the model the agent runs on for each driver: the agent's own model for that driver when its definition names one, under Model for `<driver>`, such as Model for `claude-code`, and otherwise the model its class maps to in your own profile, under `[agent.classes]`. Here the field is unset, and the `large` class runs on `opus`.
 
 ### 7. Change an agent
 

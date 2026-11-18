@@ -158,6 +158,7 @@ Signing in to the GitHub CLI is a terminal step in the guide, with `gh auth logi
 | Restore an earlier version | `ropeshift policy show <version> --kind <kind>`, then publish its body under a new version number with `ropeshift policy publish --file <file>` |
 | Decision policy | `--kind decision` |
 | Notifications, and the notices | `--kind notify`, and `ropeshift notice list` says what each channel was told |
+| Settings, Spend, under Project, and Orchestrator spend, under Installation | `ropeshift spend show`, `ropeshift spend set <key>=<value>...`, and `ropeshift spend revert <version>`, the last two with `--installation` for Orchestrator spend. [Spend settings](set-up-projects.md#spend-settings) says what they change, and `ropeshift policy list --kind spend` lists the versions |
 | Agents, Roster | `ropeshift agent list`, and `ropeshift agent show <name>` |
 | Change an agent | `ropeshift agent set <name> <field>=<value> --project <name>`, or `--installation` for the installation's layer |
 | Add agent, from a copy or Paste TOML | `ropeshift agent add <name> --from <agent> --project <name>`, or `--file <file>` |
@@ -211,7 +212,6 @@ These commands have no control in the web UI. Every other command has one, or ha
 | `ropeshift telemetry query` | It gives an orchestrator agent the worker's raw telemetry. Usage shows each lane's context, tokens, and cost |
 | `ropeshift work write` | It stores one event under a claim's fence, which the worker's protocol relies on. A person never runs it |
 | `ropeshift repository add --manifest <file>` | It registers the repositories a manifest lists on a new machine, with no plan approval. The web UI registers them when you approve a plan whose manifest lists them ([keep a manifest](set-up-projects.md#keep-a-manifest-in-the-planning-repository)) |
-| `ropeshift spend show`, `ropeshift spend set`, `ropeshift spend revert` | The web UI has no Spend section yet. [Spend settings](set-up-projects.md#spend-settings) says what they change, and `ropeshift policy list --kind spend` lists the versions |
 
 `ropeshift login` and `ropeshift lane attach` have a web counterpart, Sign in and a lane's screen, and each puts the session or the pane in your terminal. The agent CLI and the worker start `ropeshift hook`, `mcp`, `statusline`, `lane-pane`, and `lane-shim`, and a person never does.
 
