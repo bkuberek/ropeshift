@@ -119,9 +119,9 @@ func importCommit(commits []ports.Commit) (ports.Commit, bool) {
 }
 
 // confirmDesign reads whether the record the project holds under the design repository's first commit is the clone
-// the adoption imported: this worker keeps the record at that clone, or the record's remote and the clone's name
-// one repository. Two repositories cut from one first commit with different remotes, or with a remote missing, are
-// not told apart that way, so approving removes nothing and the request says why. It names the confirmed record,
+// the adoption imported: this worker keeps the record at that clone, or the record's remote and the clone's, both on
+// a host, name one repository. A remote that is a path on this machine names no repository. Two repositories cut
+// from one first commit with different remotes, or with a remote missing or local, are not told apart that way, so approving removes nothing and the request says why. It names the confirmed record,
 // or nothing with the reason.
 func (i *Intake) confirmDesign(ctx context.Context, scope ledger.WorkspaceID, choice planning.Restructure) (string, string) {
 	var record ledger.Repository
@@ -152,7 +152,7 @@ func (i *Intake) confirmDesign(ctx context.Context, scope ledger.WorkspaceID, ch
 		return record.ID, ""
 	}
 	remote := cloneRemote(ctx, i.kept, choice.DesignPath)
-	if record.Remote != "" && remote != "" && !ledger.RemotesDiffer(record.Remote, remote) {
+	if ledger.NetworkRemote(record.Remote) && ledger.NetworkRemote(remote) && !ledger.RemotesDiffer(record.Remote, remote) {
 		return record.ID, ""
 	}
 	where := "keeps no checkout of it"

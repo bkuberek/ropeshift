@@ -18,6 +18,14 @@ func RemotesDiffer(a, b string) bool {
 	return RepositoryIdentity(a, "") != RepositoryIdentity(b, "")
 }
 
+// NetworkRemote says a remote names a repository on a host, as a URL or git's scp-like form does. A path on this
+// machine, relative or absolute, or a file URL names a place that means something only beside the clone that holds
+// it, so two clones can share one, and it names no repository.
+func NetworkRemote(remote string) bool {
+	host, _ := splitRemote(strings.TrimSpace(remote))
+	return host != ""
+}
+
 // MatchRepository finds the record a clone registers as, from its first-parent root and every root it holds
 // (FR-REPO-14). In order:
 //

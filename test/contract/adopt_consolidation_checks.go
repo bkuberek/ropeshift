@@ -520,10 +520,13 @@ const (
 	designRemote  = "git@example.invalid:acme/design.git"
 )
 
+// relativeRemote is a remote that names a path beside a clone, which two unrelated clones can both have.
+const relativeRemote = "../design.git"
+
 // sharedFirstCommit registers a repository the project holds under the design repository's first commit, kept by this
 // worker at a path of its own with a remote of its own, and places the design clone the plan read beside it with its
 // remote.
-func (w *startWorld) sharedFirstCommit(keptRemote string) (*fake.Checkouts, ledger.Repository, error) {
+func (w *startWorld) sharedFirstCommit(keptRemote, designCloneRemote string) (*fake.Checkouts, ledger.Repository, error) {
 	kept := fake.NewCheckouts()
 	record, err := w.r.repositories(w.s).Detect(w.r.Ctx, w.r.Scope, control.DetectedRepository{ID: designRoot, Remote: keptRemote, DefaultBranch: "main", Directory: "starter"},
 		ledger.Actor{Kind: ledger.ActorSystem, ID: "intake"})
@@ -534,7 +537,7 @@ func (w *startWorld) sharedFirstCommit(keptRemote string) (*fake.Checkouts, ledg
 		return nil, record, err
 	}
 	kept.Place(ports.Clone{Path: "/work/starter", ID: designRoot, Remote: keptRemote, DefaultBranch: "main"})
-	kept.Place(ports.Clone{Path: consolidating().DesignPath, ID: designRoot, Remote: designRemote, DefaultBranch: "main"})
+	kept.Place(ports.Clone{Path: consolidating().DesignPath, ID: designRoot, Remote: designCloneRemote, DefaultBranch: "main"})
 	return kept, record, nil
 }
 
@@ -544,7 +547,7 @@ func checkARepositoryThatSharesTheDesignFirstCommitIsNotRemoved(r *Rig) error {
 	if err := w.repository(func(*control.RepositoryChange) {}); err != nil {
 		return err
 	}
-	kept, starter, err := w.sharedFirstCommit(starterRemote)
+	kept, starter, err := w.sharedFirstCommit(starterRemote, designRemote)
 	if err != nil {
 		return err
 	}
@@ -582,7 +585,7 @@ func checkTheDesignRepositoryKeptElsewhereWithItsRemoteIsRemoved(r *Rig) error {
 		return err
 	}
 	// The worker keeps the record at another clone, whose remote is the design clone's.
-	kept, design, err := w.sharedFirstCommit(designRemote)
+	kept, design, err := w.sharedFirstCommit(designRemote, designRemote)
 	if err != nil {
 		return err
 	}
@@ -753,7 +756,19 @@ func checkAMergedConsolidationWithNoDesignTipIsTold(r *Rig) error {
 	git := fake.NewWorktrees()
 	git.Grow("/work/ws", "main")
 	starts := &control.Starts{Bases: git, Checkout: func(context.Context, ledger.WorkspaceID, string) (string, error) { return "/work/ws", nil }}
-	if err := control.NewIntake(p.store).Checking(starts).CheckConsolidations(r.Ctx, r.Scope); err != nil {
+	intake := control.NewIntake(p.store).Checking(starts)
+	if err := intake.CheckConsolidations(r.Ctx, r.Scope); err != nil {
+		return err
+	}
+	// One check that cannot read the base raises nothing.
+	if gaps, err := r.historyGaps(p.store); err != nil || len(gaps) != 0 {
+		return Violatedf("a merged consolidation whose base could not be checked once shows %+v: %v", gaps, err)
+	}
+	if r.DB.ShiftClock == nil {
+		return nil
+	}
+	r.DB.ShiftClock(milliseconds(11 * time.Minute))
+	if err := intake.CheckConsolidations(r.Ctx, r.Scope); err != nil {
 		return err
 	}
 	gaps, err := r.historyGaps(p.store)
@@ -806,4 +821,125 @@ func itoa(n int) string {
 			return digits
 		}
 	}
+}
+
+func checkARelativeRemoteConfirmsNoDesignRepository(r *Rig) error {
+	s := r.Store()
+	w := r.startWorld(s)
+	if err := w.repository(func(*control.RepositoryChange) {}); err != nil {
+		return err
+	}
+	// Two unrelated clones that share the design repository's first commit both have a remote that names a path
+	// beside the clone, and the two spell it alike.
+	kept, starter, err := w.sharedFirstCommit(relativeRemote, relativeRemote)
+	if err != nil {
+		return err
+	}
+	_, _, head := w.consolidatedBranch()
+	id, err := w.adoptOrder(startRepository, consolidating())
+	if err != nil {
+		return err
+	}
+	if err := w.adoptLaneEnds(id, head); err != nil {
+		return err
+	}
+	pending, adoption, err := w.pendingAdoption(control.NewIntake(s).Checking(w.starts).Placing(kept))
+	if err != nil {
+		return err
+	}
+	if adoption == nil || adoption.Consolidation == nil {
+		return Violatedf("the consolidation's request groups nothing: %+v", adoption)
+	}
+	if c := adoption.Consolidation; c.Removes != nil || !strings.Contains(c.RemovalUnread, starter.Name) {
+		return Violatedf("a repository with the same relative remote as the design clone is listed as %+v", c)
+	}
+	if _, err := r.approve(s, pending, true, theMember); err != nil {
+		return Violatedf("approving the consolidation: %v", err)
+	}
+	if held, err := r.theRepository(s, designRoot); err != nil || held.Removed() {
+		return Violatedf("approving removed a repository that only a relative remote matched: %+v, %v", held, err)
+	}
+	return nil
+}
+
+func checkAnUnreadBaseIsRaisedAfterTwoFailedChecksInARow(r *Rig) error {
+	if r.DB.ShiftClock == nil {
+		return nil
+	}
+	p, err := newConsolidationMergeRig(r, ledger.ReviewOnPullRequest, ledger.PersonMerges, ledger.MergeCommit, consolidating())
+	if err != nil {
+		return err
+	}
+	const path = "/work/ws"
+	git := fake.NewWorktrees()
+	base := git.Grow(path, "main")
+	git.Hold(base, "README.md")
+	git.At(designRoot)
+	tip := git.Add(designRoot)
+	git.Hold(tip, "README.md", "docs/vision.md")
+	merge := git.Add(base, tip)
+	git.Name(merge, planning.ImportCommitSubject("design"))
+	git.At(p.head, merge)
+	down := false
+	starts := &control.Starts{Bases: git, Checkout: func(context.Context, ledger.WorkspaceID, string) (string, error) {
+		if down {
+			return "", errors.New("the clone is not at its path")
+		}
+		return path, nil
+	}}
+	intake := control.NewIntake(p.store).Checking(starts)
+	var asked []string
+	if err := p.report(p.opened(1, p.head)); err != nil {
+		return err
+	}
+	if _, err := intake.TakeInPlans(r.Ctx, r.Scope, openFrom(acceptedSource(p.files), &asked)); err != nil {
+		return err
+	}
+	pending, err := r.theOpenPlanApproval(p.store)
+	if err != nil {
+		return err
+	}
+	if _, err := r.approve(p.store, pending, true, theMember); err != nil {
+		return err
+	}
+	squash := git.Grow(path, "main")
+	merged := p.pullRequestAt(p.head)
+	merged.State, merged.MergeCommit, merged.MergedAt = ledger.PullRequestMerged, squash, "2026-11-18T10:00:00Z"
+	if err := p.read(merged); err != nil {
+		return err
+	}
+	// check makes one check of the base, once the wait for it has passed, and reads the gap it leaves.
+	check := func(unreadable bool) (control.HistoryGap, bool, error) {
+		down = unreadable
+		r.DB.ShiftClock(milliseconds(25 * time.Hour))
+		if err := intake.CheckConsolidations(r.Ctx, r.Scope); err != nil {
+			return control.HistoryGap{}, false, err
+		}
+		gaps, err := r.historyGaps(p.store)
+		if err != nil || len(gaps) > 1 {
+			return control.HistoryGap{}, false, Violatedf("the gaps are %+v: %v", gaps, err)
+		}
+		if len(gaps) == 0 {
+			return control.HistoryGap{}, false, nil
+		}
+		return gaps[0], true, nil
+	}
+	if _, raised, err := check(true); err != nil || raised {
+		return Violatedf("one failed check raised a gap: %v, %v", raised, err)
+	}
+	if gap, raised, err := check(true); err != nil || !raised || !gap.Unread() {
+		return Violatedf("two failed checks in a row raise %+v, %v, %v", gap, raised, err)
+	}
+	// A check that reads the base ends the run of failures, and finds the history gone.
+	if gap, raised, err := check(false); err != nil || !raised || gap.Unread() || gap.Check.BaseCommit != squash {
+		return Violatedf("a check that reads the base found %+v, %v, %v", gap, raised, err)
+	}
+	// One failure after it is the first of a new run: the gap the read found stands.
+	if gap, raised, err := check(true); err != nil || !raised || gap.Unread() {
+		return Violatedf("a failed check after a read replaced the gap it left with %+v, %v, %v", gap, raised, err)
+	}
+	if gap, raised, err := check(true); err != nil || !raised || !gap.Unread() {
+		return Violatedf("a second failed check in a row raises %+v, %v, %v", gap, raised, err)
+	}
+	return nil
 }

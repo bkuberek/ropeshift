@@ -11,7 +11,8 @@ const (
 
 // ConsolidationCheck is the data of EventConsolidationChecked: the branch that merged and the base it merged into,
 // the commit the base stood at, the design tip the adoption imported, and whether the base contains it. Unread says
-// why the check could not answer, when it could not.
+// why the check could not answer, when it could not, and Failed counts the checks in a row, this one included, that
+// could not; a check that answers ends the count.
 type ConsolidationCheck struct {
 	Branch     string `json:"branch"`
 	Base       string `json:"base"`
@@ -19,6 +20,7 @@ type ConsolidationCheck struct {
 	DesignTip  string `json:"design_tip,omitempty"`
 	Contained  bool   `json:"contained"`
 	Unread     string `json:"unread,omitempty"`
+	Failed     int    `json:"failed,omitempty"`
 }
 
 // Missing says the check found the base without the design tip.

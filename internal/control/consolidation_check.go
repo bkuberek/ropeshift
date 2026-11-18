@@ -24,6 +24,9 @@ const (
 	// doubled for each check made since, up to consolidationRecheckMax, so a base nobody fixes costs a fetch a day.
 	consolidationRecheck    = 10 * time.Minute
 	consolidationRecheckMax = 24 * time.Hour
+	// unreadChecksToRaise is how many checks in a row that cannot read the base it takes to raise that to a member,
+	// so a clone that is busy or a fetch that fails once says nothing.
+	unreadChecksToRaise = 2
 )
 
 // mergedConsolidation is an adopt work order whose branch imported a design repository's history and merged, as
@@ -175,6 +178,16 @@ func (i *Intake) CheckConsolidations(ctx context.Context, scope ledger.Workspace
 
 // checkBase reads whether a merged consolidation's base contains the design tip, or why it cannot say.
 func (i *Intake) checkBase(ctx context.Context, scope ledger.WorkspaceID, m mergedConsolidation) ledger.ConsolidationCheck {
+	check := i.readBase(ctx, scope, m)
+	if check.Unread != "" {
+		earlier, _, _ := m.last()
+		check.Failed = earlier.Failed + 1
+	}
+	return check
+}
+
+// readBase reads the base once, without the count of failures.
+func (i *Intake) readBase(ctx context.Context, scope ledger.WorkspaceID, m mergedConsolidation) ledger.ConsolidationCheck {
 	check := ledger.ConsolidationCheck{Branch: m.branch, Base: m.base, DesignTip: m.tip}
 	if m.tip == "" {
 		check.Unread = "the plan approval names no design tip, because the adoption branch could not be read when it was raised"
@@ -235,9 +248,16 @@ func (g HistoryGap) Detail() string {
 		g.Check.DesignTip, g.Check.Base, g.Check.Base)
 }
 
+// quiet says a check could not read the base, but not often enough in a row to raise: it says nothing of the base,
+// so what an earlier check found stands.
+func quiet(check ledger.ConsolidationCheck) bool {
+	return check.Unread != "" && check.Failed < unreadChecksToRaise
+}
+
 // HistoryGaps lists every merged consolidation whose newest check found the base without the design tip, or could
-// not check it, which Needs you lists for a member, and the notices with it. Each is dated from the first check of
-// the checks since that found the base the same way.
+// not check it twice in a row, which Needs you lists for a member, and the notices with it. A check that could not
+// read the base once leaves what the check before it found. Each is dated from the first check of the checks since
+// that found the base the same way.
 func HistoryGaps(tx ports.ReadTx) ([]HistoryGap, error) {
 	merged, err := mergedConsolidations(tx)
 	if err != nil {
@@ -245,14 +265,27 @@ func HistoryGaps(tx ports.ReadTx) ([]HistoryGap, error) {
 	}
 	var gaps []HistoryGap
 	for _, m := range merged {
-		check, _, checked := m.last()
-		if !checked || check.Contained {
+		settled := -1
+		var check ledger.ConsolidationCheck
+		for at := len(m.checks) - 1; at >= 0 && settled < 0; at-- {
+			var read ledger.ConsolidationCheck
+			if json.Unmarshal(m.checks[at].Data, &read) == nil && !quiet(read) {
+				settled, check = at, read
+			}
+		}
+		if settled < 0 || check.Contained {
 			continue
 		}
 		gap := HistoryGap{WorkOrder: m.order, Check: check}
-		for _, event := range slices.Backward(m.checks) {
+		for _, event := range slices.Backward(m.checks[:settled+1]) {
 			var earlier ledger.ConsolidationCheck
-			if json.Unmarshal(event.Data, &earlier) != nil || earlier.Missing() != check.Missing() {
+			if json.Unmarshal(event.Data, &earlier) != nil {
+				break
+			}
+			if quiet(earlier) {
+				continue
+			}
+			if earlier.Missing() != check.Missing() {
 				break
 			}
 			gap.Since = event.RecordedAt

@@ -42,6 +42,8 @@ var AdoptChecks = []Check{
 	{"AS23", "a consolidation's merge commit the base refuses for a linear history holds with a reason that says so", checkAMergeCommitTheBaseRefusesSaysWhy},
 	{"AS24", "a merged consolidation whose base cannot be checked waits for a member, with why", checkAMergedConsolidationWithNoDesignTipIsTold},
 	{"AS25", "a consolidation lists at most a bounded number of colliding paths, and says the list is cut short", checkTheCollisionsAreCutShort},
+	{"AS26", "a repository that shares the design repository's first commit and has the same relative remote is not removed, and the request says why", checkARelativeRemoteConfirmsNoDesignRepository},
+	{"AS27", "a merged consolidation's base that cannot be checked is raised after two failed checks in a row, and a check that reads it ends the run", checkAnUnreadBaseIsRaisedAfterTwoFailedChecksInARow},
 }
 
 // adoptOrder records ready planning work that adopts the project, in a repository, with the restructuring a

@@ -157,3 +157,22 @@ func TestMatchRepositoryReportsALookupFailure(t *testing.T) {
 		t.Errorf("the failure reads %v", err)
 	}
 }
+
+func TestOnlyARemoteOnAHostNamesARepository(t *testing.T) {
+	for remote, want := range map[string]bool{
+		"https://example.invalid/acme/design.git": true,
+		"git@example.invalid:acme/design.git":     true,
+		"ssh://git@example.invalid:22/acme/d.git": true,
+		"../design.git":              false,
+		"./design.git":               false,
+		"/srv/git/design.git":        false,
+		"file:///srv/git/design.git": false,
+		"design.git":                 false,
+		"":                           false,
+		"  ":                         false,
+	} {
+		if got := NetworkRemote(remote); got != want {
+			t.Errorf("NetworkRemote(%q) = %v, want %v", remote, got, want)
+		}
+	}
+}
