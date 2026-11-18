@@ -43,6 +43,20 @@ func TestEveryOperationHasOneClassAndALabel(t *testing.T) {
 	}
 }
 
+// TestADelegateMayNotMergeAQuestion holds question.merge to a member: it moves one question's lanes onto another in an
+// orchestrator's place, so a delegate's call is refused, not carded, and a delegate holds none of what it needs.
+func TestADelegateMayNotMergeAQuestion(t *testing.T) {
+	op, ok := authority.OperationOf(authority.OpQuestionMerge)
+	if !ok || op.Class != authority.ClassMemberOnly {
+		t.Fatalf("question.merge reads %+v, want it member-only", op)
+	}
+	for _, action := range op.Actions {
+		if authority.Allowed(delegate, action) {
+			t.Errorf("a delegate holds %s, which question.merge needs", action)
+		}
+	}
+}
+
 // TestADelegateHoldsOnlyWhatItsOperationsNeed holds Allowed for a delegate to the class table: a delegate
 // may do what an operational or exemptable consent operation of a project needs, and nothing else.
 func TestADelegateHoldsOnlyWhatItsOperationsNeed(t *testing.T) {
