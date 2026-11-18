@@ -754,6 +754,51 @@ suite.each(Object.entries(sizes))("at %s width", (size, viewport) => {
     );
 
     it(
+      "the merge dialog, with a refusal, the assumption form, its refusal of a one-way question, and the notice that no orchestrator is judging meet WCAG 2.2 A and AA",
+      async () => {
+        const context = await browser.newContext({ viewport, colorScheme: theme, reducedMotion: "reduce" });
+        await context.route(/\/v1\//, answer);
+        const page = await context.newPage();
+        const found: string[] = [];
+        const settle = async () => {
+          await page.mouse.move(0, 0);
+          await page.waitForTimeout(600);
+        };
+        await page.goto(`${base}/projects/default/questions`);
+        await ready(page);
+        await page.getByText(/No orchestrator is judging the questions that wait/).waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `open questions with no orchestrator ${violation}`));
+        await page.getByRole("button", { name: "Merge Should the budget hold across restarts?" }).click();
+        const merge = page.getByRole("dialog", { name: "Merge this question?" });
+        await merge.waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `merge question dialog ${violation}`));
+        await page.route(/\/v1\/projects\/default\/questions\/question-1\/merge$/, (route) =>
+          route.fulfill({ status: 409, contentType: "application/json", body: JSON.stringify({ error: { code: "resolved", message: "this question is resolved: answered" } }) }),
+        );
+        await merge.getByRole("radio").first().check();
+        await merge.getByRole("button", { name: "Merge question" }).click();
+        await merge.getByRole("alert").waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `merge question dialog with a refusal ${violation}`));
+        await merge.getByRole("button", { name: "Cancel" }).click();
+        await merge.waitFor({ state: "hidden" });
+        await page.getByRole("button", { name: "Assume an answer to Should the budget hold across restarts?" }).click();
+        await page.getByRole("button", { name: "Record this assumption" }).waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `assumption form ${violation}`));
+        await page.getByRole("button", { name: "Assume an answer to Does the plan cover a restart?" }).click();
+        await page.getByText(/A one-way question is answered by a person, never assumed/).waitFor();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `assumption refused for a one-way question ${violation}`));
+        await context.close();
+        expect(found.map((line) => `${size} ${theme} ${line}`)).toEqual([]);
+      },
+      120_000,
+    );
+
+    it(
       "the answer form of an open question, with a recommendation, with a member's own words, and with a refusal, meets WCAG 2.2 A and AA",
       async () => {
         const context = await browser.newContext({ viewport, colorScheme: theme, reducedMotion: "reduce" });

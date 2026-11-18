@@ -154,3 +154,73 @@ describe("the category filter", () => {
     expect(await screen.findByText("3 open")).toBeTruthy();
   });
 });
+
+// A member works a question in an orchestrator's place (FR-QD-3): merging it into a duplicate that stays, or recording an
+// assumption for a reversible one, which a one-way question refuses.
+describe("a member in an orchestrator's place", () => {
+  const answering = (status = 201) =>
+    serveViews((call) => {
+      if (call.method === "POST" && /\/questions\/[^/]+\/(merge|answer)$/.test(call.path)) {
+        return status === 204 ? { status } : { status, body: { id: "decision-9", status: "assumed", statement: "Keep the budget" } };
+      }
+      return undefined;
+    });
+
+  it("merges a question into the one that stays, which it names", async () => {
+    const sent = answering(204);
+    openPage("/questions");
+    await userEvent.click(await screen.findByRole("button", { name: "Merge Should the budget hold across restarts?" }));
+    const dialog = await screen.findByRole("dialog", { name: "Merge this question?" });
+    const merge = within(dialog).getByRole("button", { name: "Merge question" });
+    expect(merge.hasAttribute("disabled")).toBe(true);
+    await userEvent.click(within(dialog).getByRole("radio", { name: "Does the plan cover a restart?" }));
+    await userEvent.click(merge);
+    await waitFor(() => expect(sent.some((call) => call.method === "POST" && call.path === "/v1/questions/question-1/merge")).toBe(true));
+    expect(sent.find((call) => call.path === "/v1/questions/question-1/merge")?.body).toEqual({ into: "question-review" });
+  });
+
+  it("offers no question as its own merge target", async () => {
+    answering(204);
+    openPage("/questions");
+    await userEvent.click(await screen.findByRole("button", { name: "Merge Should the budget hold across restarts?" }));
+    const dialog = await screen.findByRole("dialog", { name: "Merge this question?" });
+    expect(within(dialog).queryByRole("radio", { name: "Should the budget hold across restarts?" })).toBeNull();
+  });
+
+  it("offers a planning lane's question only targets a person answers", async () => {
+    const view = golden<Questions>("questions");
+    const planner = view.questions.find((question) => question.id === "question-1");
+    if (!planner) {
+      throw new Error("no question-1 in the golden");
+    }
+    planner.escalation_reason = "planner_asked";
+    serveViews((call) => (call.path.startsWith("/v1/views/questions") ? { status: 200, body: view } : undefined));
+    openPage("/questions");
+    await userEvent.click(await screen.findByRole("button", { name: "Merge Should the budget hold across restarts?" }));
+    const dialog = await screen.findByRole("dialog", { name: "Merge this question?" });
+    expect(within(dialog).getByRole("radio", { name: /^May the/ })).toBeTruthy();
+    expect(within(dialog).queryByRole("radio", { name: "Does the plan cover a restart?" })).toBeNull();
+  });
+
+  it("records an assumption for a reversible question, with why", async () => {
+    const sent = answering();
+    openPage("/questions");
+    await userEvent.click(await screen.findByRole("button", { name: "Assume an answer to Should the budget hold across restarts?" }));
+    await userEvent.type(await screen.findByRole("textbox", { name: "Why it is assumed" }), "The budget is already approved.");
+    await userEvent.click(screen.getByRole("button", { name: "Record this assumption" }));
+    await waitFor(() => expect(sent.some((call) => call.method === "POST" && call.path === "/v1/questions/question-1/answer")).toBe(true));
+    expect(sent.find((call) => call.path === "/v1/questions/question-1/answer")?.body).toEqual(
+      expect.objectContaining({ answer: "Keep the budget", assumed: true, rationale: "The budget is already approved." }),
+    );
+  });
+
+  it("refuses an assumption for a one-way question, and sends nothing", async () => {
+    const sent = answering();
+    openPage("/questions");
+    const card = await screen.findByRole("article", { name: "Does the plan cover a restart?" });
+    await userEvent.click(within(card).getByRole("button", { name: "Assume an answer to Does the plan cover a restart?" }));
+    expect(within(card).getByText(/A one-way question is answered by a person, never assumed/)).toBeTruthy();
+    expect(within(card).queryByRole("button", { name: "Record this assumption" })).toBeNull();
+    expect(sent.some((call) => call.method === "POST")).toBe(false);
+  });
+});

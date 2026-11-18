@@ -341,6 +341,17 @@ const paths: Record<string, KeyPath> = {
       await k.activate(inDialog(page).getByRole("button", { name: "Dismiss question" }));
     },
   },
+  // The member merges a question into the first other question that waits, in the orchestrator's place.
+  "POST /v1/projects/{project}/questions/{id}/merge": {
+    sent: post(/^\/v1\/projects\/default\/questions\/question-1\/merge$/, { into: "question-2" }),
+    run: async (k, page) => {
+      await k.palette("Open questions", "Open questions");
+      await dialog(k, page, "Merge question: Should the budget hold across restarts?");
+      await k.tabTo(inDialog(page).getByRole("radio").first());
+      await k.press("Space");
+      await k.activate(inDialog(page).getByRole("button", { name: "Merge question" }));
+    },
+  },
   "POST /v1/projects/{project}/decisions/{id}/overturn": {
     sent: post(/^\/v1\/projects\/default\/decisions\/decision-3\/overturn$/, expect.objectContaining({ statement: "Retry twice, and no more." })),
     run: async (k, page) => {

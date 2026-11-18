@@ -251,6 +251,11 @@
   },
   {
     "method": "POST",
+    "pattern": "/v1/projects/{project}/questions/{id}/merge",
+    "command": "question merge"
+  },
+  {
+    "method": "POST",
     "pattern": "/v1/projects/{project}/batches/{id}/answers",
     "command": "question answer-batch"
   },
