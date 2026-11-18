@@ -488,7 +488,7 @@ export function WorkersPage({ live, projects, selected, after, dialog = "" }: { 
                               ))
                             )}
                           </td>
-                          <td data-label="Orchestrator">
+                          <td data-label="Orchestrator" className="wrap">
                             <span className="row-tight">
                               {orchestrator ? (
                                 <TargetChip kind="orchestrator" small>
