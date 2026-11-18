@@ -11,6 +11,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -208,14 +209,16 @@ func snapshotIgnored(ctx context.Context, git gitcli.Git, commit string, entries
 		return ignored, nil
 	}
 
+	tempDir := os.TempDir()
 	root, err := os.MkdirTemp("", "ropeshift-practice-ignore-")
 	if err != nil {
-		return nil, fmt.Errorf("making a repository to check ignore rules in: %w", err)
+		return nil, snapshotWithoutPaths(fmt.Errorf("making a repository to check ignore rules in: %w", err), tempDir)
 	}
 	defer func() { _ = os.RemoveAll(root) }()
+	fail := func(err error) error { return snapshotWithoutPaths(err, root, tempDir) }
 	scratch := gitcli.Git{Dir: root, Env: snapshotIsolatedEnv(root)}
 	if _, err := scratch.Output(ctx, "init", "--quiet", "--template="); err != nil {
-		return nil, err
+		return nil, fail(err)
 	}
 	for _, name := range ignoreFiles {
 		target, ok := snapshotCopyTarget(root, name)
@@ -227,13 +230,13 @@ func snapshotIgnored(ctx context.Context, git gitcli.Git, commit string, entries
 			continue
 		}
 		if err != nil {
-			return nil, err
+			return nil, fail(err)
 		}
 		if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
-			return nil, fmt.Errorf("copying %s: %w", name, err)
+			return nil, fail(fmt.Errorf("copying %s: %w", name, err))
 		}
 		if err := os.WriteFile(target, content, 0o600); err != nil {
-			return nil, fmt.Errorf("copying %s: %w", name, err)
+			return nil, fail(fmt.Errorf("copying %s: %w", name, err))
 		}
 	}
 	for _, probe := range probes {
@@ -249,10 +252,38 @@ func snapshotIgnored(ctx context.Context, git gitcli.Git, commit string, entries
 		case errors.As(err, &exit) && exit.ExitCode() == 1:
 			ignored[probe] = false
 		default:
-			return nil, fmt.Errorf("checking whether %s is ignored: %w", probe, err)
+			return nil, fail(fmt.Errorf("checking whether %s is ignored: %w", probe, err))
 		}
 	}
 	return ignored, nil
+}
+
+// snapshotPathlessError is an error whose text names none of the paths of the temporary repository, and that still
+// unwraps to the error it was made from, so a caller can tell what failed.
+type snapshotPathlessError struct {
+	err  error
+	text string
+}
+
+func (e snapshotPathlessError) Error() string { return e.text }
+func (e snapshotPathlessError) Unwrap() error { return e.err }
+
+// snapshotTempPlaceholder stands for the temporary repository's paths in an error.
+const snapshotTempPlaceholder = "<temp>"
+
+// snapshotWithoutPaths returns the error with each of the paths, the longest first, replaced by a placeholder: the
+// folder of the temporary repository is a path of the worker's machine, which an error that reaches a report must not name.
+func snapshotWithoutPaths(err error, paths ...string) error {
+	text := err.Error()
+	for _, path := range slices.SortedFunc(slices.Values(paths), func(a, b string) int { return len(b) - len(a) }) {
+		if len(path) > 1 {
+			text = strings.ReplaceAll(text, path, snapshotTempPlaceholder)
+		}
+	}
+	if text == err.Error() {
+		return err
+	}
+	return snapshotPathlessError{err: err, text: text}
 }
 
 // snapshotIsolatedEnv is the whole environment of a command in the temporary repository: no global or system
