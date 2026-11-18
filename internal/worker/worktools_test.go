@@ -334,6 +334,29 @@ func TestRungFiveGoesThroughTheGate(t *testing.T) {
 	}
 }
 
+// An escalation that gives no options and no recommendation takes the ones the lane asked with, so the gate checks the
+// question as a member will read it.
+func TestRungFiveKeepsTheLanesRecommendation(t *testing.T) {
+	t.Parallel()
+	r := aToolRig(t)
+	options := []string{"rotate", "keep"}
+	_, err := control.NewQuestions(r.store, questions.BatchPolicy{}).Ask(t.Context(), scope, questions.Ask{
+		ID: "q3", Text: "Which key?", Categories: []string{questions.CategorySecurity},
+		Options: options, Recommendation: "rotate", RecommendationRationale: "The key left the machine.",
+	}, member)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.done(t, lanes.ToolQuestionEscalate, map[string]any{
+		"question": "q3", "reason": "one_way", "categories": []string{questions.CategorySecurity},
+		"lookup": []string{"d0"}, "open": []string{"q0"},
+	})
+	got := r.question(t, "q3")
+	if got.Status != questions.StatusNeedsHuman || got.Recommendation != "rotate" || got.RecommendationRationale != "The key left the machine." || !slices.Equal(got.Options, options) {
+		t.Errorf("question %+v", got)
+	}
+}
+
 // A call that failed part way can be made again, because a rung passed once is not passed again.
 func TestAToolCanBeCalledAgainAfterARefusal(t *testing.T) {
 	t.Parallel()

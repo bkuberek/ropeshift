@@ -1,0 +1,38 @@
+{
+  "properties": {
+    "blocking": {
+      "description": "True when this lane cannot finish without the answer.",
+      "type": "boolean"
+    },
+    "categories": {
+      "description": "Which kinds of member could answer it, such as product, design, architecture, data, security, compliance, operations, or business. A planning lane's question goes straight to the person, so it must name at least one.",
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "options": {
+      "description": "What you would choose between, when you know.",
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "recommendation": {
+      "description": "The option you would choose. When you give options, it must be one of them, written the same way.",
+      "type": "string"
+    },
+    "recommendation_rationale": {
+      "description": "Why that option is the one to choose. A person who accepts the recommendation records this as the reason.",
+      "type": "string"
+    },
+    "text": {
+      "description": "The question, as a person would read it.",
+      "type": "string"
+    }
+  },
+  "required": [
+    "text"
+  ],
+  "type": "object"
+}

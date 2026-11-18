@@ -54,6 +54,9 @@ var QuestionChecks = []Check{
 	{"Q30", "no rung can take, climb, decide, assume, escalate, or merge a planner's question", checkDirectRefusesTheLadder},
 	{"Q31", "a planner's question matches only what the person owns", checkDirectMatching},
 	{"Q32", "a member answers a planner's question, and the answer is a member's decision", checkDirectAnswered},
+	{"Q33", "ask records a lane's options, recommendation, and rationale, and refuses a recommendation that is no option", checkAskRecommendation},
+	{"Q34", "escalation keeps a lane's recommendation unless the orchestrator states its own", checkEscalationKeepsRecommendation},
+	{"Q35", "a planner's question reaches the person with its options and recommendation", checkDirectKeepsRecommendation},
 }
 
 // walk reads every record past the bound of one read, a page at a time. A page that does not

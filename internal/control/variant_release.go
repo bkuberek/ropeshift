@@ -150,6 +150,10 @@ func decidesReplacedDrafts() bool { return false }
 func answersReplaceNothing() bool { return false }
 func bindsAnswersTwice() bool     { return false }
 
+// A lane's recommendation is recorded with its question and kept by escalation: neither breaks it in a normal build.
+func dropsAskedRecommendation() bool { return false }
+func rewritesRecommendation() bool   { return false }
+
 // leavesParkedLanes is false: a cancel ends a lane with no process, which no worker will report.
 func leavesParkedLanes() bool { return false }
 

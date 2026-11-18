@@ -66,7 +66,7 @@ delete the old one. A document the plan holds is listed in the plan's documents.
 3. Ask about what belongs to someone else. A file whose front matter belongs to another tool, such as a site generator's YAML
 between --- lines or TOML with no kind, is not yours to change: ask the person whether to leave it as it is, and leave it until they
 answer. Ask the same of a document whose meaning is unclear, and of two documents that contradict each other. Do not guess. Ask in
-the conversation while the person is attached; when your question tool is refused, ask with the ` + ToolAsk + ` tool. Write each answer the
+the conversation while the person is attached; when your question tool is refused, ask with the ` + ToolAsk + ` tool. ` + askAdvice + ` Write each answer the
 person gives into the plan file as a draft decision, with the question, the answer, and why.
 
 4. Mark what is done, with evidence. A requirement the code already meets gets status = "met" and evidence: the files and tests

@@ -21,10 +21,14 @@ import (
 func (q *Questions) Ask(ctx context.Context, scope ledger.WorkspaceID, ask questions.Ask, actor ledger.Actor) (questions.AskResult, error) {
 	draft, err := questions.New(questions.Question{
 		ID: ask.ID, Text: ask.Text, Categories: ask.Categories, Blocking: ask.Blocking, Options: ask.Options,
+		Recommendation: ask.Recommendation, RecommendationRationale: ask.RecommendationRationale,
 		SubjectKind: ask.SubjectKind, SubjectID: ask.SubjectID, AskedBy: actor.ID,
 	})
 	if err != nil {
 		return questions.AskResult{}, err
+	}
+	if dropsAskedRecommendation() {
+		draft.Recommendation, draft.RecommendationRationale = "", ""
 	}
 	var result questions.AskResult
 	err = q.store.Write(ctx, scope, "question.ask", func(tx ports.WriteTx) error {
@@ -336,8 +340,12 @@ func (q *Questions) Escalate(ctx context.Context, scope ledger.WorkspaceID, id s
 		if record, err = held(tx, id, actor); err != nil {
 			return err
 		}
-		record.EscalationReason, record.Recommendation = escalation.Reason, escalation.Recommendation
-		record.RecommendationRationale = escalation.RecommendationRationale
+		record.EscalationReason = escalation.Reason
+		if rewritesRecommendation() {
+			record.Recommendation, record.RecommendationRationale = escalation.Recommendation, escalation.RecommendationRationale
+		} else {
+			record.Recommendation, record.RecommendationRationale = questions.RecommendationAfter(record, escalation)
+		}
 		if len(escalation.Options) != 0 {
 			record.Options = escalation.Options
 		}

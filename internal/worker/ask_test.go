@@ -3,6 +3,7 @@ package worker_test
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -63,6 +64,31 @@ func TestAnAskBecomesALedgerQuestion(t *testing.T) {
 	}
 	if bad := r.ask(t, lanes.AskRequest{Text: " ?! "}); bad.OK || bad.Code != lanes.CodeInvalid {
 		t.Errorf("an empty question: %+v", bad)
+	}
+}
+
+// A lane's options, recommendation, and rationale reach the ledger with its question, and a recommendation that is
+// none of its options is refused to the lane.
+func TestAnAskCarriesItsRecommendation(t *testing.T) {
+	t.Parallel()
+	r := laneRigWith(t, "")
+	g := newGate()
+	r.finishLater(g)
+	r.driver.Play(script([]fake.DriverStep{{Bound: true}, g.step()}))
+	r.atGate(g)
+	options := []string{"Retry twice", "Retry until the deadline"}
+	if bad := r.ask(t, lanes.AskRequest{Text: "How often does a call retry?", Options: options, Recommendation: "Never retry"}); bad.OK || bad.Code != lanes.CodeInvalid {
+		t.Errorf("a recommendation that is no option: %+v", bad)
+	}
+	reply := r.ask(t, lanes.AskRequest{
+		Text: "How often does a call retry?", Options: options, Recommendation: "Retry twice", RecommendationRationale: "It fits the deadline.",
+	})
+	if !reply.OK || reply.Ask == nil || reply.Ask.Status != questions.AskPending {
+		t.Fatalf("reply %+v", reply)
+	}
+	rows := r.questionList(t)
+	if len(rows) != 1 || !slices.Equal(rows[0].Options, options) || rows[0].Recommendation != "Retry twice" || rows[0].RecommendationRationale != "It fits the deadline." {
+		t.Errorf("questions %+v", rows)
 	}
 }
 
