@@ -28,6 +28,9 @@ var (
 	RemainingAnswers = remaining
 )
 
+// LimitChangeText is what `spend raise` and `spend resume` print.
+var LimitChangeText = limitChangeText
+
 // WorkOrderText, WorkDetailText, and LaneDetail are what `work show` and `lane show` print.
 var (
 	WorkOrderText  = workOrderText

@@ -367,7 +367,10 @@ func fail(w http.ResponseWriter, err error) {
 	var fenced *workorders.FencedError
 	var protocol *ledger.ProtocolError
 	var overlap *questions.OverlapError
+	var limited *ledger.SpendLimitError
 	switch {
+	case errors.As(err, &limited):
+		refuse(w, http.StatusConflict, api.ErrorDetail{Code: api.CodeSpendLimit, Message: err.Error()})
 	case errors.As(err, &fenced):
 		refuse(w, http.StatusConflict, api.ErrorDetail{
 			Code: api.CodeFenced, Message: err.Error(), CurrentFence: fenced.Current, State: string(fenced.State),

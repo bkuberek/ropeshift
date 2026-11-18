@@ -81,6 +81,9 @@ var webGaps = map[string]string{
 	"spend show":   "SP4",
 	"spend set":    "SP4",
 	"spend revert": "SP4",
+	// A spend stop in Needs you offers Raise and Resume once with the same result (ADR-0037); SP4 builds them.
+	"spend raise":  "SP4",
+	"spend resume": "SP4",
 }
 
 var gapSlice = regexp.MustCompile(`^(U2[a-k]|P[34][a-j]|SP[1-9])[12]?$`)

@@ -51,6 +51,17 @@ type routeOperation struct {
 	changes   changer
 	canonical canonicalizer
 	check     func(body []byte) error
+	rewrite   rewriter
+}
+
+// rewriter says a call's body in the terms it holds from then on: the one a card binds to, shows, and is replayed with.
+// A body that cannot be rewritten comes back as it was, and the handler refuses it.
+type rewriter func(h *handler, r *http.Request, body []byte) ([]byte, error)
+
+// rewriting makes a delegate's call carry what a rewriter says from the moment the class reads it.
+func (o routeOperation) rewriting(rewrite rewriter) routeOperation {
+	o.rewrite = rewrite
+	return o
 }
 
 // checked refuses a call whose body cannot make what it asks before anything reads it as a card or an
@@ -183,6 +194,8 @@ var routeOperations = map[string]routeOperation{
 	"POST /v1/work-orders/{id}/rework":                 resolved(reworkOperation, authority.OpWorkOrderRework, authority.OpWorkOrderReworkWithoutFailedVerdict).about(subjectWorkOrder),
 	"POST /v1/work-orders/{id}/cancel":                 fixed(authority.OpWorkOrderCancel).about(subjectWorkOrder),
 	"POST /v1/work-orders/{id}/reassign":               fixed(authority.OpWorkOrderReassign).about(subjectWorkOrder),
+	"POST /v1/work-orders/{id}/spend/raise":            fixed(authority.OpSpendRaise).about(subjectWorkOrder).showing(spendRaiseChanges).rewriting(spendRaiseAsAnAmount),
+	"POST /v1/work-orders/{id}/spend/resume":           fixed(authority.OpSpendResume).about(subjectWorkOrder).showing(spendResumeChanges),
 	"POST /v1/work-orders/{id}/send-back":              fixed(authority.OpWorkOrderSendBack).about(subjectWorkOrder),
 	"POST /v1/work-orders/{id}/resolve":                fixed(authority.OpWorkOrderResolve).about(subjectWorkOrder),
 	"POST /v1/work-orders/{id}/writes":                 fixed(authority.OpWorkOrderWrite).about(subjectWorkOrder),
@@ -548,6 +561,15 @@ func (h *handler) delegated(w http.ResponseWriter, r *http.Request, credential a
 			fail(w, err)
 			return actor, nil, false
 		}
+	}
+	if known && route.rewrite != nil {
+		rewritten, err := route.rewrite(h, r, body)
+		if err != nil {
+			fail(w, err)
+			return actor, nil, false
+		}
+		body = rewritten
+		r.Body = io.NopCloser(bytes.NewReader(body))
 	}
 	var ids []string
 	var oneWay bool

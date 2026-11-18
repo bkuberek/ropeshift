@@ -31,6 +31,15 @@ type SpendRaise struct {
 	ToUSD     float64
 }
 
+// LimitFrom is the hard limit a raise asks for, from the limit in force: that limit and the percentage over it, or the
+// amount asked for.
+func (in SpendRaise) LimitFrom(before float64) float64 {
+	if in.ByPercent > 0 {
+		return before * (1 + in.ByPercent/100)
+	}
+	return in.ToUSD
+}
+
 // Raise lifts a work order's hard limit, records the limit before and after, and wakes the lane the limit parked, in
 // one transaction (FR-SPEND-8, FR-PARK-2). Only a member raises a limit: it is a person's decision to spend more than
 // twice the expected cost, so no orchestrator, lane, worker, or tick holds the action, and a delegate's call reaches
@@ -60,10 +69,7 @@ func (s *Spend) Raise(ctx context.Context, scope ledger.WorkspaceID, in SpendRai
 		if spend.HardLimit <= 0 {
 			return fmt.Errorf("%w: work order %s has no hard limit to raise", workorders.ErrInvalid, in.WorkOrder)
 		}
-		after := in.ToUSD
-		if in.ByPercent > 0 {
-			after = spend.HardLimit * (1 + in.ByPercent/100)
-		}
+		after := in.LimitFrom(spend.HardLimit)
 		// A raise that leaves the limit at or below what the work order was charged lifts nothing a lane could spend,
 		// and wakes no one, so it is refused with the figure it fell short of, and the member asks for more.
 		if after <= spend.Charged.ChargedUSD {

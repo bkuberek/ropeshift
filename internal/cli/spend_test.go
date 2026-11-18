@@ -9,6 +9,8 @@ import (
 	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/cli"
 	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/test/apitest"
 )
 
 // `spend show` prints each key with its value and version, for the project and for the installation, and the spend of
@@ -165,5 +167,78 @@ func TestSpendWorkOrderPrintsChargedSpendAgainstItsLimits(t *testing.T) {
 	}
 	if code, _, stderr := s.run("spend", "--work-order", "nope"); code != cli.ExitNotFound || stderr == "" {
 		t.Errorf("a work order nobody made: exit %d, %q", code, stderr)
+	}
+}
+
+// stopped gives a work order a lane that reported $30, which is past the hard limit of $25 its size gives it.
+func (s *session) stopped(id string) {
+	s.t.Helper()
+	s.create(id)
+	err := s.daemon.Store.Write(s.t.Context(), apitest.Scope, "spend.fixture", func(tx ports.WriteTx) error {
+		if err := tx.Lanes().Start("lane-"+id, id, 1, ledger.LanePolicies{}); err != nil {
+			return err
+		}
+		if err := tx.Lanes().StartGeneration(ledger.Generation{Lane: "lane-" + id, Number: 1, StartReason: ledger.StartInitial}); err != nil {
+			return err
+		}
+		if _, err := tx.Lanes().ReportUsage("lane-"+id, 1, ledger.GenerationUsage{CostUSD: 30, KnownTurns: 3}); err != nil {
+			return err
+		}
+		_, err := tx.Append(ledger.EventDraft{Type: "note.added", Actor: ledger.Actor{Kind: ledger.ActorMember, ID: "member"}, Subject: ledger.Subject{Kind: "note", ID: id}, Data: []byte(`{}`)})
+		return err
+	})
+	if err != nil {
+		s.t.Fatal(err)
+	}
+}
+
+// `spend raise` lifts a work order's hard limit by a percentage or to an amount, and prints the limit before and after,
+// as --json does. `spend show` then reads the raised limit.
+func TestSpendRaiseLiftsTheHardLimitAndSaysBeforeAndAfter(t *testing.T) {
+	s := newSession(t)
+	s.stopped("wo")
+	text := s.must("spend", "raise", "wo", "--by", "100")
+	for _, want := range []string{"work order wo", "raise\thard limit $25.00 -> $50.00, charged $30.00"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("spend raise leaves out %q:\n%s", want, text)
+		}
+	}
+	var change ledger.SpendLimitChange
+	if err := json.Unmarshal([]byte(s.must("spend", "raise", "wo", "--to", "80", "--json")), &change); err != nil ||
+		change.Act != ledger.SpendActRaise || change.BeforeUSD != 50 || change.AfterUSD != 80 || change.ToUSD != 80 {
+		t.Errorf("spend raise --json reads %+v: %v", change, err)
+	}
+	if shown := s.must("spend", "--work-order", "wo"); !strings.Contains(shown, "hard limit\t$80.00") {
+		t.Errorf("spend --work-order after the raises:\n%s", shown)
+	}
+}
+
+// A raise that names neither a percentage nor an amount, or both, or one that does not raise the limit, and a work order
+// nobody made, are refused and change nothing.
+func TestSpendRaiseRefusesWhatItCannotDo(t *testing.T) {
+	s := newSession(t)
+	s.stopped("wo")
+	for name, want := range map[string]struct {
+		args []string
+		exit int
+	}{
+		"neither":                     {[]string{"spend", "raise", "wo"}, cli.ExitUsage},
+		"both":                        {[]string{"spend", "raise", "wo", "--by", "10", "--to", "90"}, cli.ExitUsage},
+		"a negative share":            {[]string{"spend", "raise", "wo", "--by", "-5"}, cli.ExitUsage},
+		"no work order":               {[]string{"spend", "raise", "--by", "10"}, cli.ExitUsage},
+		"a limit not above":           {[]string{"spend", "raise", "wo", "--to", "25"}, cli.ExitUsage},
+		"a work order nobody made":    {[]string{"spend", "raise", "nope", "--by", "10"}, cli.ExitNotFound},
+		"a resume of work not parked": {[]string{"spend", "resume", "wo"}, cli.ExitUsage},
+		"a resume of no work order":   {[]string{"spend", "resume", "nope"}, cli.ExitNotFound},
+		"a resume with no work order": {[]string{"spend", "resume"}, cli.ExitUsage},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if code, _, stderr := s.run(want.args...); code != want.exit || stderr == "" {
+				t.Errorf("%v: exit %d, %q, want %d", want.args, code, stderr, want.exit)
+			}
+		})
+	}
+	if shown := s.must("spend", "--work-order", "wo"); !strings.Contains(shown, "hard limit\t$25.00") {
+		t.Errorf("a refused call moved the limit:\n%s", shown)
 	}
 }
