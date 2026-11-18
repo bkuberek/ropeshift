@@ -38,6 +38,17 @@ func OpenJournal(file string) (*Journal, error) {
 	return &Journal{db: db}, nil
 }
 
+// OpenJournalReadOnly opens a journal file that is already there for reading only, for a reader that must not
+// change the worker's state, such as the doctor. It creates no file and runs no migration, so a journal this build
+// does not know reads as it is or fails to read, and every write is refused.
+func OpenJournalReadOnly(file string) (*Journal, error) {
+	db, err := OpenReadOnlyDB(file)
+	if err != nil {
+		return nil, err
+	}
+	return &Journal{db: db}, nil
+}
+
 // OpenMemoryJournal opens a journal on a new in-memory database.
 func OpenMemoryJournal() (*Journal, error) {
 	db, err := OpenMemoryDB()

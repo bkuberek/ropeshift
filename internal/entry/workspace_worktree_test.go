@@ -1,6 +1,7 @@
 package entry
 
 import (
+	"bytes"
 	"errors"
 	"io"
 	"os"
@@ -10,6 +11,7 @@ import (
 	"testing"
 
 	"ropeshift.com/ropeshift/internal/adapters/profiles"
+	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/planning"
@@ -394,6 +396,46 @@ func TestTheDoctorFindsAWorkspaceThroughThePlanningCloneFromTheJournal(t *testin
 	}
 	if want := filepath.Join(w.workspace.Dir, ".ropeshift", "worktrees", "web"); roots[w.clones["web"]] != want {
 		t.Errorf("the web checkout gets %q, want %q", roots[w.clones["web"]], want)
+	}
+}
+
+// The doctor only reads the worker's journal: a journal file it cannot write is read all the same, and the file is
+// left as it was, byte for byte and in its modification time.
+func TestTheDoctorReadsTheJournalWithoutChangingIt(t *testing.T) {
+	w := newWorktreeWorkspace(t)
+	journal, err := openJournal(t.Context(), w.paths.StateDir, io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := ledger.DesiredState{Rev: 1, Projects: []ledger.DesiredProject{{ID: "prj-1", Name: "one", PlanningRepository: "repo-workspace"}}}
+	if err := journal.SaveDesired(t.Context(), state); err != nil {
+		t.Fatal(err)
+	}
+	if err := journal.Close(); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(w.paths.StateDir, api.JournalFileName)
+	if err := os.Chmod(file, 0o400); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(file, 0o600) })
+	before, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if planned := plannedProjects(t.Context(), w.paths.StateDir); planned["prj-1"] != "repo-workspace" {
+		t.Errorf("the doctor reads %v from a journal it cannot write", planned)
+	}
+	after, err := os.ReadFile(file)
+	if err != nil || !bytes.Equal(before, after) {
+		t.Errorf("the journal file changed (%v)", err)
+	}
+	if again, err := os.Stat(file); err != nil || !again.ModTime().Equal(info.ModTime()) {
+		t.Errorf("the journal file's modification time moved (%v)", err)
 	}
 }
 

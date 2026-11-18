@@ -646,13 +646,13 @@ func worktreeReport(ctx context.Context, paths api.Paths) (lanes.WorktreeReport,
 // plannedProjects names each project's planning repository by ID, from the desired state the worker's journal
 // last saved. A machine whose worker never connected has no journal, and one whose journal cannot be read, such
 // as one a newer build migrated, says nothing: the doctor then names only the workspaces the user's profile gives,
-// and never fails or creates a journal for this.
+// and never fails, creates a journal, or writes to one for this: the journal is opened read-only.
 func plannedProjects(ctx context.Context, stateDir string) map[string]string {
 	file := filepath.Join(stateDir, api.JournalFileName)
 	if _, err := os.Stat(file); err != nil {
 		return nil
 	}
-	journal, err := sqlite.OpenJournal(file)
+	journal, err := sqlite.OpenJournalReadOnly(file)
 	if err != nil {
 		return nil
 	}
