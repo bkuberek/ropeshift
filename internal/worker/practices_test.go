@@ -218,12 +218,19 @@ type capturedPractices struct {
 	answer error
 	// forward sends each report the control plane too, when the answer accepts it.
 	forward bool
+	// refuse answers a report with an error of its own, before answer does, and nil lets answer decide.
+	refuse func(ledger.PracticesReport) error
 }
 
 func (c *capturedPractices) ReportPracticesCheck(_ context.Context, report ledger.PracticesReport) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.reports = append(c.reports, report)
+	if c.refuse != nil {
+		if err := c.refuse(report); err != nil {
+			return err
+		}
+	}
 	if c.answer == nil && c.forward {
 		return c.WorkerLink.ReportPracticesCheck(context.Background(), report)
 	}
@@ -563,6 +570,67 @@ func TestAResultsReasonsNameNoCheckoutPath(t *testing.T) {
 	}
 }
 
+// The checkout may be reached through a symbolic link, and git names the path it resolves to, so a report names neither
+// spelling of the checkout, and not the person's home folder either.
+func TestAFailureNamesNeitherSpellingOfTheCheckoutNorTheHomeFolder(t *testing.T) {
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	real := filepath.Join(root, "real-checkout")
+	link := filepath.Join(root, "linked-checkout")
+	home := filepath.Join(root, "home", "person")
+	for _, dir := range []string{real, home} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Symlink(real, link); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+	r := newPracticesRig(t)
+	r.checkouts["repo-widgets"] = link
+	captured := &capturedPractices{WorkerLink: r.link}
+	failing := r.sources
+	failing.Snapshots = failingSnapshots{err: fmt.Errorf("git -C %s ls-tree: exit status 128\nconfig %s/.gitconfig: bad\nrepository %s", real, home, link)}
+	failing.Secrets = failingScans{err: fmt.Errorf("git -C %s log: exit status 128 (config in %s)", real, home)}
+	subject := r.workerOn(captured, failing)
+	if err := subject.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	r.offer(subject, ledger.DesiredPracticesCheck{ID: "req-1", Repository: "repo-widgets", BaseBranch: "main", ExpiresAt: 1 << 60})
+	report := captured.only(t)
+	for _, path := range []string{real, link, home, root} {
+		if strings.Contains(report.Detail, path) {
+			t.Errorf("the detail names %s: %s", path, report.Detail)
+		}
+	}
+	if !strings.Contains(report.Detail, "<checkout>") || !strings.Contains(report.Detail, "~/.gitconfig") {
+		t.Errorf("the detail is %q, want the checkout and the home folder replaced", report.Detail)
+	}
+
+	// A result's reasons are cleaned the same way.
+	failing.Snapshots = r.fakes
+	subject = r.workerOn(captured, failing)
+	if err := subject.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	r.offer(subject, ledger.DesiredPracticesCheck{ID: "req-2", Repository: "repo-widgets", BaseBranch: "main", ExpiresAt: 1 << 60})
+	for _, one := range captured.all() {
+		if one.Request != "req-2" || one.Result == nil {
+			continue
+		}
+		for _, status := range one.Result.Practices {
+			for _, path := range []string{real, link, home} {
+				if strings.Contains(status.Reason, path) {
+					t.Errorf("%s says %q", status.ID, status.Reason)
+				}
+			}
+		}
+	}
+}
+
 // A request for a repository this worker keeps no checkout of is a failed check that says so.
 func TestAWorkerThatKeepsNoCheckoutReportsAFailure(t *testing.T) {
 	t.Parallel()
@@ -702,7 +770,8 @@ func TestAWorkerRefusesARequestIDThatIsNoFileName(t *testing.T) {
 	}
 }
 
-// A report the control plane refuses for good is not sent again: the worker journals it as reported and says so once.
+// A report the control plane refuses for good is not sent again: the worker reports the refused result as a failed
+// check, and when that is refused too, journals it as sent and says so once.
 func TestAReportTheControlPlaneRefusesForGoodIsNotSentAgain(t *testing.T) {
 	t.Parallel()
 	r := newPracticesRig(t)
@@ -714,14 +783,63 @@ func TestAReportTheControlPlaneRefusesForGoodIsNotSentAgain(t *testing.T) {
 	check := ledger.DesiredPracticesCheck{ID: "req-1", Repository: "repo-widgets", BaseBranch: "main", ExpiresAt: 1 << 60}
 	r.offer(subject, check)
 	r.offer(subject, check)
-	if got := len(captured.all()); got != 1 {
-		t.Errorf("%d reports were sent, want one", got)
+	reports := captured.all()
+	if len(reports) != 2 || reports[0].Outcome != ledger.PracticesOutcomeChecked || reports[1].Outcome != ledger.PracticesOutcomeFailed {
+		t.Errorf("%d reports were sent: %+v, want the result and then the failed check, once", len(reports), reports)
 	}
 	if errs := r.reported.all(); len(errs) != 1 || !errors.Is(errs[0], workorders.ErrInvalid) {
 		t.Errorf("the worker reported %v, want the refusal once", errs)
 	}
 	if journal := r.journalOf("req-1"); !strings.Contains(journal, `"reported"`) {
 		t.Errorf("the journal says %q, want reported", journal)
+	}
+}
+
+// A result the control plane refuses, as it does one too large for its route, is not lost in the worker's journal as
+// if it were sent: the worker reports the check as failed, with the reason the control plane gave, so the failure is
+// recorded where a member reads it. A failure the control plane refuses too is said once and not sent again.
+func TestAResultTheControlPlaneRefusesIsReportedAsAFailedCheck(t *testing.T) {
+	t.Parallel()
+	r := newPracticesRig(t)
+	request := r.ask("repo-widgets")[0]
+	tooLarge := fmt.Errorf("%w: http: request body too large", workorders.ErrInvalid)
+	captured := &capturedPractices{WorkerLink: r.link, forward: true, refuse: func(report ledger.PracticesReport) error {
+		if report.Outcome == ledger.PracticesOutcomeChecked {
+			return tooLarge
+		}
+		return nil
+	}}
+	subject := r.workerOn(captured, r.sources)
+	if err := subject.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	r.converge(subject)
+	reports := captured.all()
+	if len(reports) != 2 || reports[0].Outcome != ledger.PracticesOutcomeChecked || reports[1].Outcome != ledger.PracticesOutcomeFailed || reports[1].Result != nil {
+		t.Fatalf("the worker sent %+v, want the result and then a failed check", reports)
+	}
+	if detail := reports[1].Detail; !strings.Contains(detail, "the control plane refused the result") || !strings.Contains(detail, "request body too large") || len(detail) > practicerun.MaxReason {
+		t.Errorf("the failed check says %q", detail)
+	}
+	if got := r.request(request.ID); got.State != ledger.PracticesReported {
+		t.Errorf("the request is %s, want the failure recorded", got.State)
+	}
+	events := r.eventsOf(ledger.EventPracticesFailed)
+	if len(events) != 1 || !strings.Contains(string(events[0].Data), "request body too large") {
+		t.Errorf("the log holds %d failed events: %v", len(events), events)
+	}
+	if _, err := r.result("repo-widgets"); !errors.Is(err, ports.ErrNotFound) {
+		t.Errorf("a result the control plane refused was kept: %v", err)
+	}
+	if journal := r.journalOf(request.ID); !strings.Contains(journal, `"reported"`) || !strings.Contains(journal, `"failed"`) {
+		t.Errorf("the journal says %q, want the failed check reported", journal)
+	}
+	if errs := r.reported.all(); len(errs) != 1 || !errors.Is(errs[0], workorders.ErrInvalid) {
+		t.Errorf("the worker said %v, want the refusal once", errs)
+	}
+	r.converge(subject)
+	if len(captured.all()) != 2 {
+		t.Errorf("a settled request was sent again: %d reports", len(captured.all()))
 	}
 }
 

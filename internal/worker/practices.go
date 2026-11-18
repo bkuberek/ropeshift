@@ -237,9 +237,13 @@ func (w *Worker) runPracticesCheck(ctx context.Context, rt *PracticesRuntime, ch
 	return w.sendPracticesReport(ctx, rt, path, check.ID, journal)
 }
 
-// sendPracticesReport tells the control plane what the journal says the run decided, and journals that it did. A report
-// the control plane refuses for good, because it names no request it knows or no repository the result is of, is
-// journaled as sent and said once, so it is not sent again every pass.
+// sendPracticesReport tells the control plane what the journal says the run decided, and journals that it did.
+//
+// A result the control plane refuses, as it does one too large for its route, is replaced in the journal by a failed
+// check that says so, with the reason the control plane gave, and that is sent: the failure is recorded where a member
+// reads it, and the request is not left offered with its result lost. A report the control plane refuses for good
+// otherwise, because it knows no such request or refuses the failed check too, is journaled as sent and said once, so
+// it is not sent again every pass.
 func (w *Worker) sendPracticesReport(ctx context.Context, rt *PracticesRuntime, path, id string, journal practicesJournal) error {
 	report := *journal.Report
 	report.Request, report.Auth = id, w.Auth()
@@ -247,6 +251,20 @@ func (w *Worker) sendPracticesReport(ctx context.Context, rt *PracticesRuntime, 
 	refused := errors.Is(err, workorders.ErrInvalid) || errors.Is(err, ports.ErrNotFound)
 	if err != nil && !refused {
 		return fmt.Errorf("reporting it: %w", err)
+	}
+	if refused && report.Outcome == ledger.PracticesOutcomeChecked && errors.Is(err, workorders.ErrInvalid) {
+		failure := ledger.PracticesReport{
+			Project: report.Project, Request: id, Outcome: ledger.PracticesOutcomeFailed,
+			Detail: practicerun.Clip("the control plane refused the result: " + err.Error()),
+		}
+		journal.State, journal.Report = practicesRan, &failure
+		if saved := rt.save(path, journal); saved != nil {
+			return errors.Join(err, saved)
+		}
+		if sent := w.sendPracticesReport(ctx, rt, path, id, journal); sent != nil {
+			return sent
+		}
+		return fmt.Errorf("the control plane refused the result, which was reported as a failed check: %w", err)
 	}
 	journal.State = practicesReported
 	if saved := rt.save(path, journal); saved != nil {
@@ -300,17 +318,27 @@ func (w *Worker) performPracticesCheck(ctx context.Context, rt *PracticesRuntime
 	return ledger.PracticesReport{Project: check.Project, Request: check.ID, Outcome: ledger.PracticesOutcomeChecked, Result: &result}, nil
 }
 
-// withoutCheckout writes text for a report: on one line and bounded, with the directory of the checkout, as it was
-// given and as it reads cleaned, replaced by a placeholder. What a run reports names nothing of the layout of the
-// worker's machine.
+// withoutCheckout writes text for a report: on one line and bounded, with every spelling of the checkout's directory
+// replaced by a placeholder, the directory as it was given, as it reads cleaned, and as symbolic links resolve it,
+// which is the one git names, and then the person's home folder by `~`. What a run reports names nothing of the layout of
+// the worker's machine.
 func withoutCheckout(text, dir string) string {
 	if text == "" {
 		return text
 	}
-	for _, spelled := range []string{dir, filepath.Clean(dir)} {
+	spellings := []string{dir, filepath.Clean(dir)}
+	if resolved, err := filepath.EvalSymlinks(dir); err == nil {
+		spellings = append(spellings, resolved)
+	}
+	// The longest first, so a spelling that holds another is replaced whole.
+	slices.SortFunc(spellings, func(a, b string) int { return len(b) - len(a) })
+	for _, spelled := range spellings {
 		if len(spelled) > 1 && spelled != string(filepath.Separator) {
 			text = strings.ReplaceAll(text, spelled, checkoutPlaceholder)
 		}
+	}
+	if home, err := os.UserHomeDir(); err == nil && len(home) > 1 && home != string(filepath.Separator) {
+		text = strings.ReplaceAll(text, home, "~")
 	}
 	return practicerun.Clip(text)
 }
