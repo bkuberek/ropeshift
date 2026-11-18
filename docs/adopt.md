@@ -27,7 +27,7 @@ moorings/
 
 - Decide which repository holds the plan. Adopting writes only there. If none of your repositories should, create one first, such as the workspace repository in [project structure](project-structure.md), and commit at least one file to it.
 - A project that already has an approved plan is refused: plan its next work with a planning session instead, as [plan your first change](plan-your-first-change.md) shows.
-- Lane worktrees go outside every clone by default, so a folder of clones needs no root of its own ([where lane worktrees go](project-structure.md#where-lane-worktrees-go)).
+- Lane worktrees never go in a clone. A clone in the workspace's ignored folder of clones gets its worktrees in the workspace's ignored `.ropeshift/worktrees/` folder, and every other clone gets them outside every clone, so a folder of clones needs no root of its own ([where lane worktrees go](project-structure.md#where-lane-worktrees-go)). The detection never searches a `.ropeshift` folder, so a lane worktree is never found as a clone to adopt, in a dry run or otherwise.
 
 ## In the web UI
 

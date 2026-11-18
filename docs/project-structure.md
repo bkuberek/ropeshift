@@ -58,11 +58,11 @@ Every shape also writes `.gitignore`, `SECURITY.md`, and `CODEOWNERS`, and a mon
 | `Makefile` | Ropeshift clones nothing. A registered repository whose clone is missing holds its work as `no_checkout` until the clone is there. A `make setup` that clones each missing repository, a `make fetch`, and a `make status` make a fresh machine ready in one step |
 | `repos/` is git-ignored | Intake reads only what git has committed, file by file, so the clones inside the workspace are never read as part of it. Each clone is a repository of its own, registered on its own |
 | The manifest lists `repos/acme-api` | A manifest path is relative to the planning repository's clone, and may lead into a folder inside it, or beside it, such as `../acme-api`. It must stay inside the folder that holds the planning repository's clone ([keep a manifest in the planning repository](set-up-projects.md#keep-a-manifest-in-the-planning-repository)) |
-| Lane worktrees are outside | See [where lane worktrees go](#where-lane-worktrees-go) |
+| `/.ropeshift/worktrees/` is git-ignored | Lane worktrees of the clones in `repos/` go there, inside the workspace, so their agents read its instruction files. The workspace's own lanes stay outside. See [where lane worktrees go](#where-lane-worktrees-go) |
 
 ## Where lane worktrees go
 
-Each lane works in a git worktree of its own. By default, ropeshift puts it outside every clone, in the installation's worktree directory, at `<worktree directory>/<project>/<repository>/<lane>`:
+Each lane works in a git worktree of its own. By default, ropeshift puts it in one of two places. A clone inside the project's [workspace](#the-workspace-on-a-machine) goes in the workspace's ignored `.ropeshift/worktrees/` folder, as the next section says. Every other clone goes outside every clone, in the installation's worktree directory, at `<worktree directory>/<project>/<repository>/<lane>`:
 
 | System | Worktree directory |
 |--------|--------------------|
@@ -70,7 +70,38 @@ Each lane works in a git worktree of its own. By default, ropeshift puts it outs
 | macOS | `~/.ropeshift/worktrees`, a path with no space, which some build tools mishandle |
 | With `ROPESHIFT_STATE_DIR` set | `<state directory>/worktrees`, so a second installation and every test keep their lanes apart from yours |
 
-`ROPESHIFT_WORKTREE_DIR` replaces the worktree directory in every case, and must be an absolute path: the daemon refuses to start on a relative one. A relative `XDG_DATA_HOME` is ignored, as the XDG specification says. `<project>` is the project's ID, which a rename keeps, and `<repository>` is the name of the repository's folder, so two projects whose clones share a folder name never share a lane folder. A lane in `repos/acme-api` of a workspace therefore never lands in `repos/`, where scripts that loop over `repos/*` would find it, or inside the workspace, where an agent also reads the workspace's instruction files from a parent folder ([Claude Code memory](https://code.claude.com/docs/en/memory)).
+`ROPESHIFT_WORKTREE_DIR` replaces the worktree directory in every case, and must be an absolute path: the daemon refuses to start on a relative one. A relative `XDG_DATA_HOME` is ignored, as the XDG specification says. `<project>` is the project's ID, which a rename keeps, and `<repository>` is the name of the repository's folder, so two projects whose clones share a folder name never share a lane folder. A lane in `repos/acme-api` of a workspace therefore never lands in `repos/`, where scripts that loop over `repos/*` would find it, and never lands in a clone, where its files would show as untracked content.
+
+### The workspace on a machine
+
+A project's workspace on a machine is the folder that holds its clones there. Ropeshift finds it when a lane's worktree is placed, and stores nothing:
+
+1. The folder your own profile layer names, in `[projects.<project ID>]`, as an absolute path. It may be a plain folder and not a clone. An empty `workspace = ""` says the project has no workspace on this machine, and stops the search.
+2. Otherwise the checkout of the project's planning repository, when this machine keeps another checkout of the project inside it at a path it ignores, as `repos/acme-api` is in the recommended layout.
+3. Otherwise the project has none. A design repository with its code repositories beside it has no workspace until the clones move into its ignored folder.
+
+```toml
+[projects.my-project-id]
+workspace = "/path/to/workspace"
+```
+
+A clone that lies inside the workspace, and is not the workspace, gets the built-in root `<workspace>/.ropeshift/worktrees/<repository>/<lane>`, so the agent in a lane reads the workspace's instruction files from the folders above its own ([Claude Code memory](https://code.claude.com/docs/en/memory)). Three kinds of lane keep the root outside every clone:
+
+- The workspace repository's own lanes. A worktree of the workspace nested in it would load the workspace's instructions twice.
+- A clone outside the workspace, and every clone of a project with no workspace.
+- A lane of a workspace that does not ignore `.ropeshift/worktrees/`. Add this line to the workspace's `.gitignore`. The workspace `.gitignore` that `ropeshift new` writes has it, and `ropeshift adopt --restructure` adds it on the adoption branch:
+
+  ```text
+  /.ropeshift/worktrees/
+  ```
+
+  The line names the worktree folder and not `.ropeshift/`, because the workspace commits its own profile layer at `.ropeshift/profile.toml`. Until the line is committed, the lane's start notice names the workspace and the line, and `ropeshift worker doctor` does too. Ropeshift asks git whether the folder is ignored, with `git check-ignore`, so a rule in a global ignore file counts, and it never writes the line to a default branch. A workspace that is a plain folder needs no line.
+
+A root you set in your own profile layer wins over both places. A root inside the workspace's clone is allowed only under `.ropeshift/worktrees/`, and only while the workspace ignores it; a root under that folder while it is not ignored is refused with `worktree_inside_clone`, and the detail names the line to add. A root inside any other clone, every code clone in the workspace included, is refused as before. A lane that already has a worktree goes on in it, so adding the workspace, or its ignore line, moves no lane; only a worktree made afterwards uses the workspace folder. `ropeshift lane archive` removes a worktree wherever it is and leaves the empty `.ropeshift/worktrees/<repository>` folder.
+
+A `.ropeshift` folder is ropeshift's own. No scan of `repository add`, `adopt`, or `adopt --dry-run` searches one, a path inside one is refused by name, and a lane worktree in one is never found or registered as a clone.
+
+### Your own root
 
 To put lane worktrees somewhere else, set the root in your own profile layer, `profile.toml` in the installation's directory ([where ropeshift keeps its files](cli.md#the-daemon)):
 
