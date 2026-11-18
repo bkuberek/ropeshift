@@ -83,6 +83,10 @@ func TestOtherPrincipalsHoldNarrowScopes(t *testing.T) {
 		{"a lane cannot publish the installation's policy", ledger.ActorLane, authority.ActionPublishInstallationPolicy, false},
 		{"a worker cannot publish the installation's policy", ledger.ActorWorker, authority.ActionPublishInstallationPolicy, false},
 		{"a tick cannot publish the installation's policy", ledger.ActorSystem, authority.ActionPublishInstallationPolicy, false},
+		{"an orchestrator cannot raise a spend limit", ledger.ActorOrchestrator, authority.ActionRaiseSpendLimit, false},
+		{"a lane cannot raise a spend limit", ledger.ActorLane, authority.ActionRaiseSpendLimit, false},
+		{"a worker cannot raise a spend limit", ledger.ActorWorker, authority.ActionRaiseSpendLimit, false},
+		{"a tick cannot raise a spend limit", ledger.ActorSystem, authority.ActionRaiseSpendLimit, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -112,6 +116,31 @@ func TestOnlyAMemberPublishesTheInstallationsPolicy(t *testing.T) {
 	op, ok := authority.OperationOf(authority.OpInstallationSpendPolicyPublish)
 	if !ok || op.Class != authority.ClassConsent || op.Exemptable || !slices.Equal(op.Actions, []authority.Action{authority.ActionPublishInstallationPolicy}) {
 		t.Errorf("the operation is %+v, %v", op, ok)
+	}
+}
+
+// Raising a work order's hard spend limit, and resuming a lane a limit parked, are a person's decision to spend more
+// than twice the expected cost (ADR-0037). The action is its own: it is the maintainer's under ADR-0033, which only a
+// member holds until accounts map it, and no delegate, orchestrator, lane, worker, or tick holds it.
+func TestOnlyAMemberRaisesASpendLimit(t *testing.T) {
+	if !authority.Allowed(ledger.Actor{Kind: ledger.ActorMember, ID: "m"}, authority.ActionRaiseSpendLimit) {
+		t.Error("a member may not raise a spend limit")
+	}
+	if authority.Allowed(authority.DelegateActor("m", "dlg_1"), authority.ActionRaiseSpendLimit) {
+		t.Error("a delegate may raise a spend limit")
+	}
+	for _, kind := range []ledger.ActorKind{ledger.ActorOrchestrator, ledger.ActorLane, ledger.ActorWorker, ledger.ActorSystem} {
+		if authority.Allowed(ledger.Actor{Kind: kind, ID: "x"}, authority.ActionRaiseSpendLimit) {
+			t.Errorf("%s may raise a spend limit", kind)
+		}
+	}
+	for _, shared := range []authority.Action{authority.ActionPublishPolicy, authority.ActionPublishInstallationPolicy, authority.ActionRecover} {
+		if authority.ActionRaiseSpendLimit == shared {
+			t.Errorf("raising a spend limit shares an action with %s", shared)
+		}
+	}
+	if !slices.Contains(authority.Actions(), authority.ActionRaiseSpendLimit) {
+		t.Error("Actions() does not list the action, so the member test never holds it to the function")
 	}
 }
 
