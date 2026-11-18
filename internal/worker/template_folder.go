@@ -58,7 +58,7 @@ func (w *Worker) insideKeptClone(ctx context.Context, rt *TemplateRuntime, real 
 	if err != nil {
 		return "", false, err
 	}
-	clone, inside, err := ports.InsideClone(ctx, rt.Checkouts, kept, real)
+	clone, inside, err := ports.InsideClone(ctx, rt.Checkouts, kept, real, "")
 	if err != nil || !inside {
 		return "", false, err
 	}
