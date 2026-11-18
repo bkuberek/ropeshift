@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/authority"
@@ -142,6 +143,36 @@ func TestADelegatesRaiseOfAProjectLimitIsACardNoDelegatePolicyExempts(t *testing
 	}
 	if spend := projectSpendOf(t, d); math.Abs(spend.Day.HardLimit-20) > 1e-9 {
 		t.Errorf("after the card the day reads %+v", spend.Day)
+	}
+}
+
+// A delegate does not choose the window its card binds to: whatever start it names, the card holds the window the call was
+// made in, and shows it, so a member reads which day or week the amount lifts and a later confirmation of it is refused.
+func TestADelegateCannotChooseTheWindowOfItsProjectRaise(t *testing.T) {
+	d := startTalk(t)
+	limitedProject(t, d)
+	created := aDelegate(t, d.Client.Client, apitest.ProjectName)
+	delegate := asDelegate(t, d.Socket, created.Token, apitest.ProjectName)
+	today := projectSpendOf(t, d)
+	day := int64(24 * 60 * 60 * 1000)
+	for name, in := range map[string]api.RaiseProjectSpend{
+		"no start":                      {Window: ledger.WindowDay, ToUSD: 20},
+		"a start next week":             {Window: ledger.WindowDay, ToUSD: 20, WindowStart: today.Day.StartsAt + 7*day},
+		"a start yesterday":             {Window: ledger.WindowDay, ByPercent: 100, WindowStart: today.Day.StartsAt - day},
+		"a start of the week for a day": {Window: ledger.WindowDay, ToUSD: 20, WindowStart: today.Week.StartsAt - 7*day},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := delegate.RaiseProjectSpend(t.Context(), in)
+			detail := cardDetail(t, preparedCard(t, err))
+			var arguments api.RaiseProjectSpend
+			if err := json.Unmarshal(detail.Arguments, &arguments); err != nil || arguments.WindowStart != today.Day.StartsAt {
+				t.Errorf("the card binds to the window starting %d, want the current day's, %d: %s", arguments.WindowStart, today.Day.StartsAt, detail.Arguments)
+			}
+			want := "day starting " + time.UnixMilli(today.Day.StartsAt).UTC().Format("2006-01-02 15:04 MST")
+			if !strings.Contains(string(detail.Changes), want) {
+				t.Errorf("the card shows %s, and it should say %q", detail.Changes, want)
+			}
+		})
 	}
 }
 
