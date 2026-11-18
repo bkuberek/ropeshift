@@ -235,6 +235,7 @@ describe("Repositories", () => {
       "ci_auto_rerun",
       "ci_log_excerpt_lines",
       "ci_log_excerpt_bytes",
+      "ci_webhook_secret_env",
     ]);
     const timeout = within(group).getByLabelText("ci_timeout_multiplier");
     expect(document.getElementById(timeout.getAttribute("aria-describedby") ?? "")?.textContent).toContain("CI has not finished is raised at this many times");
@@ -243,6 +244,20 @@ describe("Repositories", () => {
       await userEvent.tab();
       expect(document.activeElement).toBe(box);
     }
+  });
+
+  it("names the variable that holds the key a webhook is signed with, which is the name and never the key", async () => {
+    const sent = serveAdmin((call) => (call.method === "PATCH" ? { status: 200, body: golden<{ repositories: unknown[] }>("repositories").repositories[0] } : undefined));
+    openPage(here("/repositories?repo=id-api"));
+    const record = await screen.findByRole("region", { name: "api" });
+    const box = within(record).getByLabelText("ci_webhook_secret_env") as HTMLInputElement;
+    expect(box.value).toBe("");
+    expect(document.getElementById(box.getAttribute("aria-describedby") ?? "")?.textContent).toContain("never the key");
+    await userEvent.type(box, "ROPESHIFT_HOOK_API");
+    expect(within(record).getByText(/ci_webhook_secret_env\s+→ ROPESHIFT_HOOK_API/)).toBeTruthy();
+    await userEvent.click(within(record).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(sentTo(sent, "PATCH", "/v1/repositories/id-api")).toHaveLength(1));
+    expect(sentTo(sent, "PATCH", "/v1/repositories/id-api")[0]?.body).toEqual({ ci: { ci_webhook_secret_env: "ROPESHIFT_HOOK_API" } });
   });
 
   it("saves two CI keys at once, which move when CI that has not finished and a stalled queue are raised", async () => {

@@ -51,6 +51,7 @@ const ciKeys = [
   "ci_auto_rerun",
   "ci_log_excerpt_lines",
   "ci_log_excerpt_bytes",
+  "ci_webhook_secret_env",
 ];
 
 // What each `[ci]` key sets, in words and no numbers: the value in force is the field's, and its default and range are
@@ -69,6 +70,7 @@ const ciWords: Record<string, string> = {
   ci_auto_rerun: "How many times ropeshift reruns an infrastructure failure before it asks a person.",
   ci_log_excerpt_lines: "The most lines of a failing job's log a rework brief carries.",
   ci_log_excerpt_bytes: "The most bytes of a failing job's log a rework brief carries.",
+  ci_webhook_secret_env: "The name of the server's environment variable that holds the key GitHub signs this repository's webhook deliveries with, never the key. Empty takes no delivery.",
 };
 
 const draftOf = (view: RepositoryView): Draft => ({
