@@ -31,6 +31,10 @@ const (
 	// ParkSpendLimit is a lane whose work order reached its hard spend limit (ADR-0037). It waits on a raise of the
 	// limit, or on a person.
 	ParkSpendLimit ParkTrigger = "spend_limit"
+	// ParkSpendUnreadable is a lane whose work order's limit its worker could not read for longer than it will run
+	// unheld. It waits on the same wake: the limit above what was spent, which holds as soon as the ledger can say, or a
+	// person.
+	ParkSpendUnreadable ParkTrigger = "spend_unreadable"
 )
 
 // ParkRequest asks a lane to park.

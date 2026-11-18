@@ -334,7 +334,10 @@ func noteLimit(tx ports.WriteTx, spend ledger.WorkOrderSpend, condition, eventTy
 
 // spendAllowance reads what a work order allows a lane to spend, for the worker that holds the lane to its hard limit:
 // the limit in force, and what every other lane of the work order is charged. It is nil for work with no hard limit.
-func spendAllowance(tx ports.ReadTx, order workorders.WorkOrder, lane string) (*ledger.SpendAllowance, error) {
+//
+// The lane's own earlier generations are in it too, apart from the generation the worker says it is starting and any
+// after it: a worker that resumes a lane it never ran has no journal of what they spent.
+func spendAllowance(tx ports.ReadTx, order workorders.WorkOrder, lane string, generation int64) (*ledger.SpendAllowance, error) {
 	reads := spendReadsOf(tx)
 	policy, err := spendPolicyInForce(reads.policies)
 	if err != nil {
@@ -344,9 +347,29 @@ func spendAllowance(tx ports.ReadTx, order workorders.WorkOrder, lane string) (*
 	if err != nil || limits.Hard <= 0 {
 		return nil, err
 	}
-	lanes, err := reads.usageOf(order.ID, lane)
+	others, err := reads.usageOf(order.ID, lane)
 	if err != nil {
 		return nil, err
 	}
-	return &ledger.SpendAllowance{HardUSD: limits.Hard, OthersUSD: ledger.Charge(lanes).ChargedUSD, HeadroomShare: policy.BudgetFlagHeadroomShare}, nil
+	var earlier []ledger.GenerationUsage
+	generations, err := tx.Lanes().Generations(lane)
+	if err != nil {
+		return nil, err
+	}
+	if generation == 0 {
+		// A worker that names no generation is one from before the allowance held the lane's own, and the one the ledger
+		// has running is the one it means.
+		if generation, err = tx.Lanes().Generation(lane); err != nil && !errors.Is(err, ports.ErrNotFound) {
+			return nil, err
+		}
+	}
+	for _, g := range generations {
+		if g.Number < generation {
+			earlier = append(earlier, g.Usage)
+		}
+	}
+	return &ledger.SpendAllowance{
+		HardUSD: limits.Hard, OthersUSD: ledger.Charge(others).ChargedUSD, LaneUSD: ledger.Charge([][]ledger.GenerationUsage{earlier}).ChargedUSD,
+		HeadroomShare: policy.BudgetFlagHeadroomShare,
+	}, nil
 }

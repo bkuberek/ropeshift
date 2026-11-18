@@ -609,7 +609,8 @@ type LaneWriter interface {
 	ReadPack(lane string, number int64, pack string, version int64) error
 	// Baseline records what a generation held at its first call.
 	Baseline(lane string, number, tokens int64) error
-	// ReportUsage replaces what a generation has spent with what its worker last reported, and reports false
+	// ReportUsage raises what a generation has spent to what its worker reported, figure by figure, and never lowers
+	// one, so a late or lost report cannot take a work order under its limit. It reports false
 	// for a generation the ledger does not hold.
 	ReportUsage(lane string, number int64, usage ledger.GenerationUsage) (bool, error)
 	// EndGeneration records a generation's end, once.

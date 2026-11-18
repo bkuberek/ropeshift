@@ -115,6 +115,9 @@ type LaneFactsRequest struct {
 	WorkOrder string     `json:"work_order"`
 	Fence     int64      `json:"fence"`
 	Lane      string     `json:"lane"`
+	// Generation is the generation the worker is about to run, which the lane's spend allowance leaves out and counts
+	// every one before. A worker that sends none leaves the ledger to say which runs.
+	Generation int64 `json:"generation,omitempty"`
 }
 
 // CheckState is one check's name and how it stands.

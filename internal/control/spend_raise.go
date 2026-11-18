@@ -64,6 +64,12 @@ func (s *Spend) Raise(ctx context.Context, scope ledger.WorkspaceID, in SpendRai
 		if in.ByPercent > 0 {
 			after = spend.HardLimit * (1 + in.ByPercent/100)
 		}
+		// A raise that leaves the limit at or below what the work order was charged lifts nothing a lane could spend,
+		// and wakes no one, so it is refused with the figure it fell short of, and the member asks for more.
+		if after <= spend.Charged.ChargedUSD {
+			return fmt.Errorf("%w: a hard limit of %s would stay below charged spend of %s on work order %s, so raise it to more than that",
+				workorders.ErrInvalid, usd(after), usd(spend.Charged.ChargedUSD), in.WorkOrder)
+		}
 		if after <= spend.HardLimit || after > maxSpendAmount {
 			return fmt.Errorf("%w: a hard limit of %s cannot be raised to %s, which must be higher and at most %s",
 				workorders.ErrInvalid, usd(spend.HardLimit), usd(after), usd(maxSpendAmount))

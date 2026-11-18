@@ -176,6 +176,43 @@ func checkMemberActsAtTheHardLimit(r *Rig) error {
 	return nil
 }
 
+// checkOrchestratorStopAtTheHardLimit holds an orchestrator's stop of a lane, which respawns it, to the limit a member's
+// respawn is held to (FR-SPEND-8): the stop of work at its hard limit is refused with the limit named, whoever asks, and the
+// lane is asked for no generation. It runs once a member raises the limit.
+func checkOrchestratorStopAtTheHardLimit(r *Rig) error {
+	o, err := newRecoveryRig(r)
+	if err != nil {
+		return err
+	}
+	a := &autonomyRig{r: r, store: o.store, plane: o.plane, ops: control.NewAutonomy(o.store), auth: o.auth, epoch: o.epoch}
+	if err := a.set(authority.LevelAttended); err != nil {
+		return err
+	}
+	if reply, err := o.usage(ledger.GenerationUsage{CostUSD: 30, KnownTurns: 3}); err != nil || len(reply.Rejected) != 0 {
+		return Violatedf("a usage report was refused: %+v, %v", reply.Rejected, err)
+	}
+	o.call.WorkOrder = o.grant.WorkOrder
+	_, err = o.plane.Orchestrate(r.Ctx, ledger.VerbStop, o.call)
+	var limited *ledger.SpendLimitError
+	if !errors.As(err, &limited) || limited.WorkOrder != o.grant.WorkOrder || limited.HardUSD != 25 ||
+		!strings.Contains(err.Error(), "raise it with ropeshift spend raise") {
+		return Violatedf("an orchestrator's stop of work at its hard limit was answered %v, want a refusal that names the limit and says to raise it", err)
+	}
+	if n, err := o.laneCount(respawnsOf); err != nil || n != 0 {
+		return Violatedf("a refused stop asked the lane for %d generations: %v", n, err)
+	}
+	if _, err := control.NewSpend(r.Store()).Raise(r.Ctx, r.Scope, control.SpendRaise{WorkOrder: o.grant.WorkOrder, ToUSD: 100}, theMember); err != nil {
+		return err
+	}
+	if _, err := o.plane.Orchestrate(r.Ctx, ledger.VerbStop, o.call); err != nil {
+		return Violatedf("an orchestrator's stop once the limit was raised was answered %v", err)
+	}
+	if n, err := o.laneCount(respawnsOf); err != nil || n != 1 {
+		return Violatedf("a stop once the limit was raised asked the lane for %d generations: %v", n, err)
+	}
+	return nil
+}
+
 // checkRecoveryAtTheHardLimit holds the three recovery acts that start more spending to the limit that stopped it
 // (FR-SPEND-8): work a hard limit stopped is refused its restart, its reset, and its retry, the refusal names the
 // limit, no request is raised for a member to grant past it, and nothing is asked of the lane. A member raises the

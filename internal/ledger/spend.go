@@ -138,9 +138,16 @@ type SpendAllowance struct {
 	HardUSD float64 `json:"hard_usd"`
 	// OthersUSD is what the work order's other lanes are charged, which are the lanes before this one.
 	OthersUSD float64 `json:"others_usd,omitempty"`
+	// LaneUSD is what the lane's own earlier generations were charged, the one that runs now left out. A worker that
+	// resumes a lane it never ran has no journal of them, so the ledger says, and the worker takes the larger of the two.
+	LaneUSD float64 `json:"lane_usd,omitempty"`
 	// HeadroomShare is `budget_flag_headroom_share`.
 	HeadroomShare float64 `json:"headroom_share,omitempty"`
 }
+
+// LaneBefore is what the lane's earlier generations were charged, from what a worker's own journal holds of them and what
+// the ledger holds: the larger, because each is a lower bound of the other and neither is ever above what the lane spent.
+func (a SpendAllowance) LaneBefore(local float64) float64 { return max(local, a.LaneUSD) }
 
 // Crossed says a lane that has been charged laneUSD has brought its work order to its hard limit.
 func (a SpendAllowance) Crossed(laneUSD float64) bool {

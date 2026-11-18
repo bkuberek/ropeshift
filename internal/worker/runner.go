@@ -154,6 +154,12 @@ type laneRun struct {
 	allowance *ledger.SpendAllowance
 	running   float64
 	spendStop atomic.Bool
+	// allowanceKnown says the ledger answered what the allowance is, nil for none included, and allowanceFailedAt is
+	// when a read of it first failed with nothing known, and allowanceTriedAt when one last ran. A lane whose allowance
+	// stays unknown is held (FR-SPEND-5). The handle's lock guards all three.
+	allowanceKnown    bool
+	allowanceFailedAt time.Time
+	allowanceTriedAt  time.Time
 	// resolved is the model the session said it runs, and handleLock guards it.
 	resolved string
 	// life is the context the run lives under, which outlasts whoever asked for a handoff.
@@ -776,6 +782,10 @@ func (r *laneRun) session(ctx context.Context) workorders.Report {
 	}
 	r.state.thresholds(prepared.Profile, r.role())
 	r.readFacts(ctx)
+	// A generation that begins with nothing left to spend parks before its first turn (FR-SPEND-5).
+	if report, parked := r.parkAtLimitBeforeStart(ctx); parked {
+		return report
+	}
 	capabilities, err := r.rt.Driver.Capabilities(ctx)
 	if err != nil {
 		return r.failStart(workorders.ReasonSpawnFailed, err)
@@ -1037,6 +1047,7 @@ func (r *laneRun) watch(ctx context.Context, events <-chan ports.DriverEvent) wo
 		}
 		if r.anotherCompaction(ctx, event) {
 			r.cost, r.usage = event.Turn.Cost, r.usage.Add(event.Turn.Usage)
+			r.settleTurnCost(event.Turn)
 			r.measureTurn(event.Turn)
 			r.progressed()
 			r.saveProgress(ctx, event.Seq)
@@ -1063,6 +1074,7 @@ func (r *laneRun) watch(ctx context.Context, events <-chan ports.DriverEvent) wo
 				r.assistant().noteTurn()
 			}
 			r.cost, r.usage = event.Turn.Cost, r.usage.Add(event.Turn.Usage)
+			r.settleTurnCost(event.Turn)
 			r.measureTurn(event.Turn)
 			r.finishTurn(event.Turn)
 			r.noteResponse(ctx, event.Turn)

@@ -2,8 +2,10 @@ package worker_test
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -189,7 +191,11 @@ func TestARaisedLimitWakesTheLaneItParkedOnce(t *testing.T) {
 	r.awaitOrder(t, workorders.Parked)
 	r.subject.Wait()
 
-	r.raise(t, hardLimit+1)
+	// A limit still below what was charged is refused, so it neither wakes the lane nor reads as a raise.
+	_, err := control.NewSpend(r.store).Raise(t.Context(), scope, control.SpendRaise{WorkOrder: r.id, ToUSD: hardLimit + 1}, member)
+	if !errors.Is(err, workorders.ErrInvalid) || !strings.Contains(err.Error(), "would stay below charged spend") {
+		t.Fatalf("a limit of 26 over spend of 30 was answered %v", err)
+	}
 	if row := r.row(); row.State != workorders.Parked {
 		t.Fatalf("a limit of 26 over spend of 30 woke the lane: %+v", row)
 	}

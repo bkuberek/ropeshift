@@ -28,6 +28,7 @@ var RecoveryChecks = []Check{
 	{"RV11", "work that names no bound of its own has the policy's attempts, and a retry past them reaches a member", checkRecoveryPolicyAttempts},
 	{"RV12", "lane_restart, lane_reset, and work_retry are refused for work at its hard spend limit, naming it, with no request, and run once a member raises it", checkRecoveryAtTheHardLimit},
 	{"RV13", "a member's work retry, lane reset, lane respawn, and grant of a restart are refused at the hard spend limit, naming it and the way out, and run once it is raised", checkMemberActsAtTheHardLimit},
+	{"RV14", "an orchestrator's stop of work at its hard spend limit is refused, naming it, and starts no generation, and runs once a member raises the limit", checkOrchestratorStopAtTheHardLimit},
 }
 
 // recoveryRig is a running lane, with its worker's orchestrator started and in its third generation.

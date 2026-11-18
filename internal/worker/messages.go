@@ -359,10 +359,20 @@ func (r *laneRun) readFacts(ctx context.Context) {
 	if first && !r.holdsToLimit() {
 		return
 	}
+	r.handleLock.Lock()
+	r.allowanceTriedAt = r.w.clock.Now()
+	r.handleLock.Unlock()
 	held, err := r.laneFacts(ctx)
+	if r.holdsToLimit() {
+		// A lane that cannot say what its work order allows is held after a span and not run unheld for good.
+		if err == nil {
+			r.setAllowance(held.Spend)
+		} else {
+			r.noteAllowanceFailed()
+		}
+	}
 	switch {
 	case err == nil:
-		r.setAllowance(held.Spend)
 		if !first {
 			r.setFacts(held.Facts)
 			r.setPack(held.Pack)
@@ -383,6 +393,7 @@ func (r *laneRun) laneFacts(ctx context.Context) (ledger.LaneFacts, error) {
 	defer cancel()
 	return r.w.link.LaneFacts(bounded, ledger.LaneFactsRequest{
 		Auth: r.w.Auth(), Epoch: r.w.epoch(), Project: r.lease.Project, WorkOrder: r.lease.WorkOrder, Fence: r.lease.Fence, Lane: r.lease.Lane,
+		Generation: r.currentGeneration(),
 	})
 }
 

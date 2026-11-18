@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 
 	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/control"
@@ -24,6 +25,9 @@ var HardStopChecks = []Check{
 	{"HS4", "a resume grants one more generation's allowance, wakes the lane, and needs work a limit parked", checkResumeGrantsAGeneration},
 	{"HS5", "a usage report that reaches the hard limit records one stop per limit, which marks the delivery record spend_limited", checkHardLimitIsRecorded},
 	{"HS6", "a worker reads the allowance its lane's work order has, without the lane's own spend, and it follows a raise and a new policy at once", checkTheWorkersAllowance},
+	{"HS7", "a generation's usage report never lowers what it spent, so a smaller figure cannot read as a raised limit", checkUsageNeverLowers},
+	{"HS8", "the allowance holds what the lane's earlier generations were charged, apart from the one running, so a worker that never ran the lane still holds it to its limit", checkTheAllowanceHoldsTheLanesEarlierGenerations},
+	{"HS9", "a lane parked at its hard limit is woken past it only by a member: a delegate's resume is refused, and a lane parked for anything else is still the delegate's to resume", checkOnlyAMemberResumesALaneAtItsLimit},
 }
 
 // spendEvents counts the events of a type about a work order's spend.
@@ -296,12 +300,19 @@ func checkLimitRaisedWakesOnce(r *Rig) error {
 	if err := r.state(s, id, workorders.Parked); err != nil {
 		return err
 	}
-	// A raise that leaves the limit at or below what was spent is a raise, and wakes nothing.
-	if _, err := spend.Raise(r.Ctx, r.Scope, control.SpendRaise{WorkOrder: id, ToUSD: 29}, theMember); err != nil {
-		return err
+	// A raise that would leave the limit at or below what was spent changes nothing a lane could use, so it is refused
+	// with the figure it fell short of, and records nothing and wakes nothing.
+	for _, to := range []float64{29, 30} {
+		_, err := spend.Raise(r.Ctx, r.Scope, control.SpendRaise{WorkOrder: id, ToUSD: to}, theMember)
+		if !errors.Is(err, workorders.ErrInvalid) || !strings.Contains(err.Error(), "below charged spend") || !strings.Contains(err.Error(), "$30.00") {
+			return Violatedf("a limit of %v over spend of 30 was answered %v, want a refusal that says it stays below charged spend", to, err)
+		}
+	}
+	if changes, err := r.spendLimitChanges(s, id); err != nil || len(changes) != 0 {
+		return Violatedf("a refused raise left %+v on record: %v", changes, err)
 	}
 	if n, err := r.firings(s, request.Wake); err != nil || n != 0 {
-		return Violatedf("a limit of 29 over spend of 30 woke the lane %d times: %v", n, err)
+		return Violatedf("a refused raise woke the lane %d times: %v", n, err)
 	}
 	if _, err := spend.Raise(r.Ctx, r.Scope, control.SpendRaise{WorkOrder: id, ToUSD: 40}, theMember); err != nil {
 		return err

@@ -3,6 +3,7 @@ package fake
 import (
 	"context"
 	"errors"
+	"sync"
 	"sync/atomic"
 
 	"ropeshift.com/ropeshift/internal/authority"
@@ -38,6 +39,22 @@ type WorkerLink struct {
 	// Hints, once set, makes every heartbeat's answer carry the CI hints after the beat's mark, as the control
 	// plane's board gives them.
 	Hints atomic.Pointer[func(after int64) ([]ledger.CIHint, int64)]
+	// uploads holds every upload while HoldUploads says to.
+	uploads atomic.Pointer[chan struct{}]
+}
+
+// HoldUploads holds every upload until the release it returns is called, or until the upload's own deadline passes, as
+// a control plane slow to answer would. A test uses it to show what a worker does before its first upload ends.
+func (l *WorkerLink) HoldUploads() (release func()) {
+	gate := make(chan struct{})
+	l.uploads.Store(&gate)
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			l.uploads.Store(nil)
+			close(gate)
+		})
+	}
 }
 
 // AssistantCredential calls the plane.
@@ -125,6 +142,13 @@ func (errAnswerLost) Error() string { return "the answer was lost" }
 func (l *WorkerLink) Upload(ctx context.Context, batch ledger.UploadBatch) (ledger.UploadReply, error) {
 	if l.FailUpload.Load() {
 		return ledger.UploadReply{}, errPlaneAway
+	}
+	if gate := l.uploads.Load(); gate != nil {
+		select {
+		case <-*gate:
+		case <-ctx.Done():
+			return ledger.UploadReply{}, ctx.Err()
+		}
 	}
 	reply, err := l.Plane.Upload(ctx, batch)
 	if err == nil && l.LoseUploadAnswer.CompareAndSwap(true, false) {

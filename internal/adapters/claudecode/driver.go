@@ -840,6 +840,8 @@ type session struct {
 	receipts *receiver
 	// agents maps each Agent call of this stream to the agent it started.
 	agents map[string]string
+	// turn is what the turn in progress is estimated to have spent, from the usage of its API calls.
+	turn turnCost
 }
 
 // read is the one reader of a session's stream. It ends at the child's exit, which is
@@ -941,6 +943,12 @@ func (s *session) take(line []byte, seq int64) {
 		s.events <- event
 		return
 	}
+	if p.call != nil {
+		// The running total comes before the line's own event, so a lane told its context is told its spend first.
+		if running, ok := s.noteCall(*p.call); ok {
+			s.events <- ports.DriverEvent{Kind: ports.EventCost, RunningUSD: running, Seq: seq}
+		}
+	}
 	if !p.useful {
 		return
 	}
@@ -956,6 +964,7 @@ func (s *session) take(line []byte, seq int64) {
 	}
 	if p.turnEnded {
 		s.inFlight = max(s.inFlight-1, 0)
+		s.turn.reset()
 		if p.stopped {
 			s.meter.ObserveStopped()
 		} else {
@@ -966,6 +975,15 @@ func (s *session) take(line []byte, seq int64) {
 	s.mu.Unlock()
 	p.event.Seq = seq
 	s.events <- p.event
+}
+
+// noteCall takes one API call's usage into the turn's estimate, and returns the session's running total if it is
+// higher than any it gave: what the session had spent when the turn began, and what this turn's calls cost at list price.
+func (s *session) noteCall(call streamCall) (float64, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	running := s.meter.SessionTotalUSD + s.turn.note(call, s.seen.ModelResolved)
+	return running, s.turn.fresh(running)
 }
 
 // agentUsage keeps which agent each Agent call started, and turns a subagent's message into the usage of
