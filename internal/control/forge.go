@@ -330,8 +330,17 @@ func publishReported(tx ports.WriteTx, request ledger.ForgeRequest, report ledge
 		return fmt.Errorf("%w: a publish that worked names no pull request", workorders.ErrInvalid)
 	}
 	pr := *report.PullRequest
+	readAt := tx.Now()
+	// A publish's view of the pull request was taken before its report arrived, and the worker's own reads may have
+	// told the ledger of the same head since. Those reads are newer, and the worker holds that the ledger has
+	// them, so it reports nothing more until the forge changes again: the stale view must not replace them.
+	if held, err := tx.Forge().PullRequest(request.WorkOrder); err == nil && held.Number == pr.Number && held.HeadCommit == pr.HeadCommit && held.State == pr.State {
+		pr, readAt = held.PullRequest, held.ReadAt
+	} else if err != nil && !errors.Is(err, ports.ErrNotFound) {
+		return err
+	}
 	err := tx.Forge().SavePullRequest(ledger.WorkPullRequest{
-		PullRequest: pr, WorkOrder: request.WorkOrder, Repository: request.Repository, Worker: request.Worker, ReadAt: tx.Now(),
+		PullRequest: pr, WorkOrder: request.WorkOrder, Repository: request.Repository, Worker: request.Worker, ReadAt: readAt,
 	})
 	if err != nil {
 		return err
