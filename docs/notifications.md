@@ -44,7 +44,7 @@ A spend limit that is reached, and a spend setting that changes, raise an alert 
 | `spend_waiting` | Most of a lane's recent spend was waiting | `lane` |
 | `spend_policy_changed` | A version of the spend policy or the installation's spend policy is published, or a limit is raised | `project`, `installation`, `limit_raised` |
 
-Nothing in this build raises `spend_no_progress` or `spend_waiting` yet: their kinds, their sentences, and their channels are in place, and they are delivered as every other spend alert is.
+Nothing in this build raises `spend_no_progress` or `spend_waiting` yet: their kinds, their sentences, and their channels are in place, and they are delivered as every other spend alert is. The installation's `orchestrator_daily_warn` is kept and edited as a setting, and no alert reads it yet, because an alert for the orchestrator of a machine belongs to no one project whose policy would choose its channels.
 
 A spend alert says what kind of thing reached a limit and nothing else. Its text is one fixed sentence, such as "The project reached its daily spend limit, and no work starts until the day ends or a member raises it.", with the project's name at its head. It holds no amount, no work order, no lane, no setting, and no name. The ledger's event holds those: the limit reached and what was charged, or for `spend_policy_changed` each key with its value before and after and the member who changed it, which you read in the project's log.
 
