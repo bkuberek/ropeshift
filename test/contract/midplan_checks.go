@@ -2,11 +2,13 @@ package contract
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
 
 	"ropeshift.com/ropeshift/internal/adapters/fake"
+	"ropeshift.com/ropeshift/internal/control"
 	"ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/messages"
@@ -36,6 +38,7 @@ var MidPlanChecks = []Check{
 	{"MP14", "an item names the decision in force that its question contradicts", checkMidPlanItemNamesConflict},
 	{"MP15", "overturning a review's decision reworks no review", checkMidPlanOverturnReworksNoReview},
 	{"MP16", "a blocking question reaches a member when no orchestrator serves the project", checkMidPlanNoOrchestrator},
+	{"MP17", "a batch answered in one request records all 18 answers, and a request with one refused item records none", checkMidPlanBatchOnce},
 }
 
 const (
@@ -65,6 +68,7 @@ type midPlan struct {
 	asked   []string
 	logo    string
 	webWake string
+	batch   string
 	items   []questions.Item
 	// answers maps each question to the decision that answered it.
 	answers map[string]questions.Decision
@@ -165,6 +169,15 @@ func (m *midPlan) finish(contract string) error {
 // midPlanAnswered runs the scenario to its end: the review's 17 questions and the site lane's question
 // climb the ladder to a person, arrive as one batch, and are all answered with the recommendation.
 func midPlanAnswered(r *Rig) (*midPlan, error) {
+	m, err := midPlanDelivered(r)
+	if err != nil {
+		return nil, err
+	}
+	return m, m.answerAll()
+}
+
+// midPlanDelivered runs the scenario to the batch a member is shown, with nothing answered.
+func midPlanDelivered(r *Rig) (*midPlan, error) {
 	m, err := midPlanWorld(r)
 	if err != nil {
 		return nil, err
@@ -172,10 +185,7 @@ func midPlanAnswered(r *Rig) (*midPlan, error) {
 	if err := m.raise(); err != nil {
 		return nil, err
 	}
-	if err := m.deliver(); err != nil {
-		return nil, err
-	}
-	return m, m.answerAll()
+	return m, m.deliver()
 }
 
 // raise has the review lane ask its questions, the review end, and every question climb to a person.
@@ -192,7 +202,10 @@ func (m *midPlan) raise() error {
 		return err
 	}
 	for i, id := range m.asked {
-		escalation := questions.Escalation{Reason: questions.ReasonScopeChange, Categories: []string{questions.CategoryProduct}, Options: []string{"A", "B"}, Recommendation: "A"}
+		escalation := questions.Escalation{
+			Reason: questions.ReasonScopeChange, Categories: []string{questions.CategoryProduct}, Options: []string{"A", "B"},
+			Recommendation: "A", RecommendationRationale: "A keeps the plan's direction.",
+		}
 		switch {
 		case i < midPlanOneWay:
 			escalation.Reason, escalation.Categories = questions.ReasonOneWay, []string{questions.CategoryArchitecture}
@@ -224,6 +237,7 @@ func (m *midPlan) raise() error {
 	if _, err := ops.Escalate(r.Ctx, r.Scope, m.logo, questions.Escalation{
 		Reason: questions.ReasonRequirementConflict, Categories: []string{questions.CategoryDesign},
 		Options: []string{"Monogram (P17)", "Wordmark"}, Recommendation: "Wordmark",
+		RecommendationRationale: "A wordmark reads at every size the site uses.",
 	}, m.holder); err != nil {
 		return err
 	}
@@ -253,39 +267,41 @@ func (m *midPlan) deliver() error {
 		if err != nil {
 			return err
 		}
-		m.items = questions.Present(batches[0], rows, "").Items
+		policy, err := control.DecisionPolicy(tx)
+		if err != nil {
+			return err
+		}
+		m.batch, m.items = batches[0].ID, questions.Present(batches[0], rows, "", policy).Items
 		return nil
 	})
 }
 
-// recommended is what accepting an item records.
-func (m *midPlan) recommended(id string) (string, error) {
-	for _, item := range m.items {
-		if item.ID == id {
-			return item.Recommendation, nil
+// acceptances is one request that accepts every recommendation of the batch, as Accept all does. The logo
+// answer contradicts the draft decision the plan approved, and its author says it replaces that decision.
+func (m *midPlan) acceptances() []questions.BatchAnswer {
+	var answers []questions.BatchAnswer
+	for _, id := range append(slices.Clone(m.asked), m.logo) {
+		answer := m.r.accepting(id)
+		if id == m.logo {
+			answer.Answer.Supersedes = m.p17
 		}
+		answers = append(answers, answer)
 	}
-	return "", Violatedf("question %s is not in the batch", id)
+	return answers
 }
 
-// answerAll accepts every recommendation, as a member does with Accept all: no rationale, no citations. The
-// logo answer contradicts the draft decision the plan approved, and its author says it replaces that decision.
+// answerAll answers the whole batch in one request.
 func (m *midPlan) answerAll() error {
-	r := m.r
-	for _, id := range append(slices.Clone(m.asked), m.logo) {
-		statement, err := m.recommended(id)
-		if err != nil {
-			return err
-		}
-		answer := questions.Answer{DecisionID: r.ID("d"), Statement: statement}
-		if id == m.logo {
-			answer.Supersedes = m.p17
-		}
-		decision, err := r.NewOps(m.s).Answer(r.Ctx, r.Scope, id, answer, r.Actor)
-		if err != nil {
-			return err
-		}
-		m.answers[id] = decision
+	answers := m.acceptances()
+	decisions, err := m.r.NewOps(m.s).AnswerBatch(m.r.Ctx, m.r.Scope, m.batch, answers, m.r.Actor)
+	if err != nil {
+		return err
+	}
+	if len(decisions) != len(answers) {
+		return Violatedf("%d decisions for %d answers", len(decisions), len(answers))
+	}
+	for i, answer := range answers {
+		m.answers[answer.Question] = decisions[i]
 	}
 	return nil
 }
@@ -383,25 +399,29 @@ func checkMidPlanItems(r *Rig) error {
 }
 
 // checkMidPlanItemReversibility holds G6: the fourth question reaches a one-way decision through its
-// category, and its item says nothing of it.
+// category, and its item says so, as it does for a one-way reason. Each item states what its answer is.
 func checkMidPlanItemReversibility(r *Rig) error {
 	m, err := midPlanAnswered(r)
 	if err != nil {
 		return err
 	}
-	item, err := m.itemOf(m.asked[midPlanBlocking-1])
-	if err != nil {
-		return err
+	for i, id := range append(slices.Clone(m.asked), m.logo) {
+		item, err := m.itemOf(id)
+		if err != nil {
+			return err
+		}
+		want := questions.Reversible
+		if i < midPlanBlocking {
+			want = questions.OneWay
+		}
+		if item.Reversibility != want {
+			return Violatedf("the item of question %d states reversibility %q, want %q", i+1, item.Reversibility, want)
+		}
+		if recorded := m.answers[id].Reversibility == questions.OneWay; recorded != (item.Reversibility == questions.OneWay) {
+			return Violatedf("the item of question %d states %q, and its answer is recorded %q", i+1, item.Reversibility, m.answers[id].Reversibility)
+		}
 	}
-	stated, err := fieldOf(item, "reversibility")
-	if err != nil {
-		return err
-	}
-	var gap error
-	if stated != questions.OneWay {
-		gap = Violatedf("the item of a question in a one-way category states reversibility %v", stated)
-	}
-	return knownGap(r, "GAP-MP-G6", gap)
+	return nil
 }
 
 func checkMidPlanDecisions(r *Rig) error {
@@ -425,20 +445,70 @@ func checkMidPlanDecisions(r *Rig) error {
 	return nil
 }
 
-// checkMidPlanRationale holds G7: Accept all sends no rationale and no citations.
+// checkMidPlanRationale holds G7: accepting a recommendation records its rationale and the item's citations.
 func checkMidPlanRationale(r *Rig) error {
 	m, err := midPlanAnswered(r)
 	if err != nil {
 		return err
 	}
-	var gap error
 	for id, decision := range m.answers {
-		if decision.Rationale == "" || len(decision.Citations) == 0 {
-			gap = Violatedf("the decision for question %s records rationale %q and citations %v", id, decision.Rationale, decision.Citations)
-			break
+		item, err := m.itemOf(id)
+		if err != nil {
+			return err
+		}
+		if decision.Rationale == "" || decision.Rationale != item.RecommendationRationale || len(decision.Citations) == 0 || !slices.Equal(decision.Citations, item.Citations) {
+			return Violatedf("the decision for question %s records rationale %q and citations %v, and its item holds %q and %v", id, decision.Rationale, decision.Citations, item.RecommendationRationale, item.Citations)
 		}
 	}
-	return knownGap(r, "GAP-MP-G7", gap)
+	return nil
+}
+
+// checkMidPlanBatchOnce holds G11: the batch is answered in one request. One refused item records no decision, not
+// the 17 before it and not the contradicting logo answer, and the request with every item recorded all 18.
+func checkMidPlanBatchOnce(r *Rig) error {
+	m, err := midPlanDelivered(r)
+	if err != nil {
+		return err
+	}
+	answers := m.acceptances()
+	last := len(answers) - 1
+	answers[last] = questions.BatchAnswer{Question: m.logo, Answer: questions.Answer{DecisionID: r.ID("d"), Statement: "Wordmark", Supersedes: m.p17}}
+	ops := r.NewOps(m.s)
+	if _, err := ops.AnswerBatch(r.Ctx, r.Scope, m.batch, answers, r.Actor); !errors.Is(err, questions.ErrInvalid) || !strings.Contains(err.Error(), m.logo) {
+		return Violatedf("a request with a refused item: %v", err)
+	}
+	for _, id := range append(slices.Clone(m.asked), m.logo) {
+		row, err := r.readQuestion(m.s, id)
+		if err != nil {
+			return err
+		}
+		if row.Status != questions.StatusNeedsHuman || row.DecisionID != "" {
+			return Violatedf("question %s is %s after a refused request", id, row.Status)
+		}
+	}
+	draft, err := m.decisionFor(m.p17)
+	if err != nil {
+		return err
+	}
+	if draft.Status != questions.DecisionDecided {
+		return Violatedf("the draft decision is %s after a refused request", draft.Status)
+	}
+	if err := m.answerAll(); err != nil {
+		return err
+	}
+	if len(m.answers) != midPlanQuestions+1 {
+		return Violatedf("%d decisions, want %d", len(m.answers), midPlanQuestions+1)
+	}
+	for _, id := range append(slices.Clone(m.asked), m.logo) {
+		row, err := r.readQuestion(m.s, id)
+		if err != nil {
+			return err
+		}
+		if row.Status != questions.StatusAnswered || row.DecisionID != m.answers[id].ID {
+			return Violatedf("question %s is %s with decision %q after the whole request", id, row.Status, row.DecisionID)
+		}
+	}
+	return nil
 }
 
 // checkMidPlanAnswerSupersedes holds that the logo answer, which contradicts the draft decision the plan

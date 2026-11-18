@@ -913,6 +913,13 @@ func TestPassphraseSetFromATerminalEndsTheMembersSessions(t *testing.T) {
 // command that records the question.
 func (s *session) deliveredBatch(id, category string, record ...string) {
 	s.t.Helper()
+	s.escalated(id, category, record...)
+	s.deliver()
+}
+
+// escalated takes one question past the gate to a person, where it waits in the batch that is open.
+func (s *session) escalated(id, category string, record ...string) {
+	s.t.Helper()
 	ctx := s.t.Context()
 	s.must(append([]string{"question", "record", "--id", id, "--text", "What is the retry budget?", "--category", category}, record...)...)
 	orchestrator := ledger.Actor{Kind: ledger.ActorOrchestrator, ID: "orchestrator-1"}
@@ -926,12 +933,18 @@ func (s *session) deliveredBatch(id, category string, record ...string) {
 			s.t.Fatal(err)
 		}
 	}
-	escalation := questions.Escalation{Reason: questions.ReasonScopeChange, Options: []string{"Keep", "Change"}, Recommendation: "Keep"}
+	escalation := questions.Escalation{Reason: questions.ReasonScopeChange, Options: []string{"Keep", "Change"}, Recommendation: "Keep", RecommendationRationale: "Keep follows the current design."}
 	if _, err := use.Escalate(ctx, apitest.Scope, id, escalation, orchestrator); err != nil {
 		s.t.Fatal(err)
 	}
+}
+
+// deliver closes the open batch, which reaches the person as one.
+func (s *session) deliver() {
+	s.t.Helper()
 	time.Sleep(5 * time.Millisecond)
-	delivered, err := use.DeliverBatches(ctx, apitest.Scope, ledger.Actor{Kind: ledger.ActorSystem, ID: "test"})
+	use := control.NewQuestions(s.daemon.Store, questions.BatchPolicy{WindowMs: 1})
+	delivered, err := use.DeliverBatches(s.t.Context(), apitest.Scope, ledger.Actor{Kind: ledger.ActorSystem, ID: "test"})
 	if err != nil || len(delivered) != 1 {
 		s.t.Fatalf("delivered %v: %v", delivered, err)
 	}
@@ -1151,6 +1164,111 @@ func TestQuestionAnswerSupersedes(t *testing.T) {
 	}
 	if code, _, _ := s.run("question", "answer", "q2", "--answer", "Retries log at error.", "--supersedes", "missing"); code != cli.ExitNotFound {
 		t.Errorf("exit %d for an answer that replaces a decision nobody recorded", code)
+	}
+}
+
+// aBatchOfTwo delivers one batch of a reversible question and a one-way one, which the decision policy keeps from an
+// orchestrator by its category, and returns the batch's ID.
+func (s *session) aBatchOfTwo() string {
+	s.t.Helper()
+	s.escalated("q-retries", "product")
+	s.escalated("q-key", "security", "--text", "Which key rotates?")
+	s.deliver()
+	var list api.BatchList
+	if err := json.Unmarshal([]byte(s.must("question", "batches", "--json")), &list); err != nil || len(list.Batches) != 1 || len(list.Batches[0].Items) != 2 {
+		s.t.Fatalf("batches %+v: %v", list, err)
+	}
+	return list.Batches[0].Batch.ID
+}
+
+func (s *session) waiting(id string) bool {
+	s.t.Helper()
+	var row api.QuestionView
+	if err := json.Unmarshal([]byte(s.must("question", "show", id, "--json")), &row); err != nil {
+		s.t.Fatal(err)
+	}
+	return row.Status == questions.StatusNeedsHuman
+}
+
+// TestQuestionAnswerBatchAcceptsWhatIsReversibleAndNamesWhatWaits holds the command of G6 and G11: accepting
+// every reversible item answers the batch once, and a one-way item waits for its own choice, which the command says.
+func TestQuestionAnswerBatchAcceptsWhatIsReversibleAndNamesWhatWaits(t *testing.T) {
+	s := newSession(t)
+	batch := s.aBatchOfTwo()
+	if code, _, _ := s.run("question", "answer-batch", "no-such-batch", "--accept-reversible"); code != cli.ExitNotFound {
+		t.Fatalf("a batch nobody opened: exit %d", code)
+	}
+	if code, _, stderr := s.run("question", "answer-batch", batch); code != cli.ExitUsage || !strings.Contains(stderr, "--accept-reversible") {
+		t.Fatalf("nothing to answer: exit %d, %s", code, stderr)
+	}
+	if code, _, _ := s.run("question", "answer-batch", "--accept-reversible"); code != cli.ExitUsage {
+		t.Fatalf("no batch: exit %d", code)
+	}
+	code, stdout, stderr := s.run("question", "answer-batch", batch, "--accept-reversible")
+	if code != cli.ExitOK || !strings.Contains(stdout, "q-key") || !strings.Contains(stdout, "one-way") {
+		t.Fatalf("exit %d, %q, %s", code, stdout, stderr)
+	}
+	if s.waiting("q-retries") || !s.waiting("q-key") {
+		t.Errorf("the reversible question is waiting %t and the one-way question %t, want false and true", s.waiting("q-retries"), s.waiting("q-key"))
+	}
+	if text := s.must("decision", "list"); !strings.Contains(text, "Keep") {
+		t.Errorf("the accepted recommendation is not recorded: %q", text)
+	}
+}
+
+// TestAcceptReversibleSendsWhatItReadAsItsExpectation holds that a blanket accept is taken on the word of the read it
+// came from: each accepted item says it expects a reversible answer, so a policy published between the read and the
+// request refuses the request, which ends the command as a conflict, with nothing recorded.
+func TestAcceptReversibleSendsWhatItReadAsItsExpectation(t *testing.T) {
+	batch := api.QuestionBatch{Items: []api.QuestionItem{
+		{Item: questions.Item{ID: "q-a", Recommendation: "Keep", Reversibility: questions.Reversible}},
+		{Item: questions.Item{ID: "q-b", Recommendation: "Keep", Reversibility: questions.OneWay}},
+	}}
+	answers, left, err := cli.RemainingAnswers(batch, []api.BatchAnswerItem{{Question: "q-c", ID: "d-c", Answer: "x", Rationale: "y"}}, true)
+	if err != nil || len(answers) != 2 || len(left) != 1 || left[0].Question != "q-b" {
+		t.Fatalf("answers %+v, left %+v: %v", answers, left, err)
+	}
+	if answers[0].ExpectReversibility != "" || answers[1].Question != "q-a" || !answers[1].Accepted || answers[1].ExpectReversibility != questions.Reversible {
+		t.Errorf("the accepted item sends %+v", answers[1])
+	}
+	refused := &api.Error{Status: 409, Detail: api.ErrorDetail{Code: api.CodeReversibilityChanged}}
+	if code := cli.ExitOf(refused); code != cli.ExitConflict {
+		t.Errorf("a changed reversibility ends with exit %d", code)
+	}
+}
+
+// TestQuestionAnswerBatchTakesAFileAndRecordsAllOrNone holds that a file answers each item it names, a one-way item
+// with an explicit choice, and that one refused answer records none of the others.
+func TestQuestionAnswerBatchTakesAFileAndRecordsAllOrNone(t *testing.T) {
+	s := newSession(t)
+	batch := s.aBatchOfTwo()
+	dir := t.TempDir()
+	bad := filepath.Join(dir, "bad.json")
+	if err := os.WriteFile(bad, []byte(`[{"question":"q-key","id":"d-key","answer":"Rotate it."}]`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	code, _, stderr := s.run("question", "answer-batch", batch, "--accept-reversible", "--answers", bad)
+	if code != cli.ExitUsage || !strings.Contains(stderr, "q-key") || !strings.Contains(stderr, "rationale") {
+		t.Fatalf("an answer with no rationale: exit %d, %s", code, stderr)
+	}
+	if !s.waiting("q-retries") || !s.waiting("q-key") {
+		t.Fatal("a refused request answered a question")
+	}
+	good := filepath.Join(dir, "good.json")
+	if err := os.WriteFile(good, []byte(`[{"question":"q-key","id":"d-key","accepted":true}]`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if code, stdout, stderr := s.run("question", "answer-batch", batch, "--accept-reversible", "--answers", good); code != cli.ExitOK || strings.Contains(stdout, "left unanswered") {
+		t.Fatalf("exit %d, %q, %s", code, stdout, stderr)
+	}
+	if s.waiting("q-retries") || s.waiting("q-key") {
+		t.Error("the whole batch is not answered")
+	}
+	if text := s.must("decision", "show", "d-key", "--json"); !strings.Contains(text, `"reversibility":"one_way"`) || !strings.Contains(text, `"rationale":"Keep follows the current design."`) {
+		t.Errorf("the one-way choice reads %q", text)
+	}
+	if code, _, _ := s.run("question", "answer-batch", batch, "--answers", filepath.Join(dir, "absent.json")); code != cli.ExitUsage {
+		t.Errorf("a file nobody wrote: exit %d", code)
 	}
 }
 

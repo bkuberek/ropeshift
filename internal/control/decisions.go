@@ -216,6 +216,10 @@ func readPolicy(tx ports.ReadTx) (questions.Policy, error) {
 	return questions.ReadPolicy(version)
 }
 
+// DecisionPolicy reads the decision policy in force, for a read that shows what the policy decides, such as the
+// reversibility an item's answer will have.
+func DecisionPolicy(tx ports.ReadTx) (questions.Policy, error) { return readPolicy(tx) }
+
 // Weigh reads where a decision would stand, with no write. A delegate's decision that an orchestrator
 // could record is operational, and any other is consent (ADR-0024).
 func (q *Questions) Weigh(ctx context.Context, scope ledger.WorkspaceID, draft questions.Decision) (DecisionStanding, error) {
@@ -261,7 +265,7 @@ func (q *Questions) AnswerStanding(ctx context.Context, scope ledger.WorkspaceID
 		if err != nil {
 			return err
 		}
-		oneWay = question.EscalationReason == questions.ReasonOneWay || !policy.MayDecide(question)
+		oneWay = policy.AnswerReversibility(question) == questions.OneWay
 		return nil
 	})
 	return oneWay, err

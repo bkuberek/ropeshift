@@ -39,6 +39,7 @@ const (
 	GateCategories     GateCheck = "categories"
 	GateOptions        GateCheck = "options"
 	GateRecommendation GateCheck = "recommendation"
+	GateRationale      GateCheck = "recommendation_rationale"
 )
 
 // GateFailure is one check that did not pass.
@@ -72,8 +73,11 @@ func Gate(q Question) []GateFailure {
 	if len(q.Options) < minOptions {
 		failed = append(failed, GateFailure{GateOptions, "a member needs at least two options"})
 	}
-	if q.Recommendation == "" {
+	switch {
+	case q.Recommendation == "":
 		failed = append(failed, GateFailure{GateRecommendation, "no recommendation"})
+	case strings.TrimSpace(q.RecommendationRationale) == "":
+		failed = append(failed, GateFailure{GateRationale, "a recommendation states why it is the one to choose"})
 	}
 	return failed
 }
@@ -236,6 +240,9 @@ type Escalation struct {
 	Categories     []string `json:"categories,omitempty"`
 	Options        []string `json:"options,omitempty"`
 	Recommendation string   `json:"recommendation,omitempty"`
+	// RecommendationRationale is why the recommendation is the one to choose. The gate requires it with a
+	// recommendation, and accepting the recommendation records it.
+	RecommendationRationale string `json:"recommendation_rationale,omitempty"`
 }
 
 // LaneAsk is an ask a worker carries for one of its lanes. The control plane checks that

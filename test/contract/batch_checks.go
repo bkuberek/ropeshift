@@ -7,6 +7,7 @@ import (
 	"slices"
 	"sync"
 
+	"ropeshift.com/ropeshift/internal/control"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/internal/questions"
@@ -50,6 +51,7 @@ func (r *Rig) escalated(s ports.Store, text string, change func(*questions.Ask))
 	}
 	_, err = ops.Escalate(r.Ctx, r.Scope, asked.QuestionID, questions.Escalation{
 		Reason: questions.ReasonScopeChange, Options: []string{"Keep", "Change"}, Recommendation: "Keep",
+		RecommendationRationale: "Keep follows the current design.",
 	}, holder)
 	return asked.QuestionID, err
 }
@@ -295,10 +297,14 @@ func checkBatchPresented(r *Rig) error {
 		if err != nil {
 			return err
 		}
-		if all := questions.Present(batches[0], rows, ""); len(all.Items) != 2 {
+		policy, err := control.DecisionPolicy(tx)
+		if err != nil {
+			return err
+		}
+		if all := questions.Present(batches[0], rows, "", policy); len(all.Items) != 2 {
 			return Violatedf("an answered question is still presented: %+v", all.Items)
 		}
-		only := questions.Present(batches[0], rows, questions.CategoryData)
+		only := questions.Present(batches[0], rows, questions.CategoryData, policy)
 		if len(only.Items) != 1 || only.Items[0].ID != data {
 			return Violatedf("the data category shows %+v", only.Items)
 		}

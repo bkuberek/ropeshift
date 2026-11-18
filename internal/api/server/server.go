@@ -414,6 +414,8 @@ func fail(w http.ResponseWriter, err error) {
 		refuse(w, http.StatusConflict, api.ErrorDetail{Code: api.CodeStaleStatement, Message: err.Error()})
 	case errors.Is(err, authority.ErrWindowOpen):
 		refuse(w, http.StatusConflict, api.ErrorDetail{Code: api.CodeWindowOpen, Message: err.Error()})
+	case errors.Is(err, questions.ErrReversibilityChanged):
+		refuse(w, http.StatusConflict, api.ErrorDetail{Code: api.CodeReversibilityChanged, Message: err.Error()})
 	case errors.Is(err, questions.ErrResolved):
 		refuse(w, http.StatusConflict, api.ErrorDetail{Code: api.CodeResolved, Message: err.Error()})
 	case errors.Is(err, roster.ErrInvalid), errors.Is(err, roster.ErrUnknownAgent), errors.Is(err, roster.ErrDisabledAgent):

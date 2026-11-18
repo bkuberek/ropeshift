@@ -382,6 +382,12 @@
       "never_reason": "A delegate policy exempts only accepting verified work, rework after a failed verdict, creating work, and starting a contract review."
     },
     {
+      "id": "question.answer_batch",
+      "label": "Answer a batch of questions",
+      "class": "member_only",
+      "exemptable": false
+    },
+    {
       "id": "decision.assume",
       "label": "Record a decision within policy",
       "class": "consent",

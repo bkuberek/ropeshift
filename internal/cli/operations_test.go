@@ -109,6 +109,7 @@ var operations = map[string]string{
 	"GET /v1/questions/{id}":                           "question show",
 	"POST /v1/questions/{id}/dismiss":                  "question dismiss",
 	"POST /v1/questions/{id}/answer":                   "question answer",
+	"POST /v1/batches/{id}/answers":                    "question answer-batch",
 	"GET /v1/question-batches":                         "question batches",
 	"GET /v1/decisions":                                "decision list",
 	"POST /v1/decisions":                               "decision record",

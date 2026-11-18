@@ -418,13 +418,17 @@ func waitingBatches(tx ports.ReadTx) ([]api.QuestionBatch, error) {
 	if err != nil {
 		return nil, err
 	}
+	policy, err := control.DecisionPolicy(tx)
+	if err != nil {
+		return nil, err
+	}
 	var waiting []questions.Presented
 	for _, batch := range batches {
 		rows, err := tx.Questions().BatchQuestions(batch.ID)
 		if err != nil {
 			return nil, err
 		}
-		if presented := questions.Present(batch, rows, ""); len(presented.Items) != 0 {
+		if presented := questions.Present(batch, rows, "", policy); len(presented.Items) != 0 {
 			waiting = append(waiting, presented)
 		}
 	}

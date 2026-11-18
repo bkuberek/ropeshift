@@ -1101,7 +1101,7 @@ func (w *world) dueBatch() (string, string, error) {
 	}
 	quick := control.NewQuestions(w.store, questions.BatchPolicy{WindowMs: 1, MaxWaitMs: 1})
 	record, err := quick.Escalate(w.rig.Ctx, w.rig.Scope, id, questions.Escalation{
-		Reason: questions.ReasonOneWay, Options: []string{"Keep", "Allow"}, Recommendation: "Keep",
+		Reason: questions.ReasonOneWay, Options: []string{"Keep", "Allow"}, Recommendation: "Keep", RecommendationRationale: "It keeps the data in the region.",
 	}, ledger.Actor{Kind: ledger.ActorOrchestrator, ID: "orchestrator-1"})
 	if err != nil {
 		return "", "", err

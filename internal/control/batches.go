@@ -191,56 +191,140 @@ func (q *Questions) AnswerFrom(ctx context.Context, scope ledger.WorkspaceID, id
 	if !authority.Allowed(actor, authority.ActionAnswerQuestion) {
 		return questions.Decision{}, workorders.ErrForbidden
 	}
+	record, err := draftAnswer(id, answer, actor)
+	if err != nil {
+		return questions.Decision{}, err
+	}
+	err = q.store.Write(ctx, scope, "question.answer", func(tx ports.WriteTx) error {
+		var err error
+		record, err = q.decide(tx, id, record, actor, channel)
+		return err
+	})
+	if err != nil {
+		return questions.Decision{}, err
+	}
+	return record, nil
+}
+
+// draftAnswer is the decision a member's answer to a question becomes, before the ledger stamps it.
+func draftAnswer(question string, answer questions.Answer, actor ledger.Actor) (questions.Decision, error) {
 	if err := answer.Check(); err != nil {
 		return questions.Decision{}, err
 	}
 	if answersReplaceNothing() {
 		answer.Supersedes = ""
 	}
-	record, err := questions.NewDecision(questions.Decision{
+	return questions.NewDecision(questions.Decision{
 		ID: answer.DecisionID, Status: questions.DecisionDecided, Statement: answer.Statement, Rationale: answer.Rationale,
-		Citations: answer.Citations, QuestionID: id, DecidedBy: actor.ID, Supersedes: answer.Supersedes, NoConflict: answer.NoConflict,
+		Citations: answer.Citations, QuestionID: question, DecidedBy: actor.ID, Supersedes: answer.Supersedes, NoConflict: answer.NoConflict,
 	})
+}
+
+// decide records a drafted answer as a decision and closes its question, in the transaction it is given. An
+// answer whose decision already closed the question reads that decision, so a retry finds it.
+func (q *Questions) decide(tx ports.WriteTx, id string, record questions.Decision, actor ledger.Actor, channel string) (questions.Decision, error) {
+	question, err := tx.Questions().Question(id)
 	if err != nil {
 		return questions.Decision{}, err
 	}
-	err = q.store.Write(ctx, scope, "question.answer", func(tx ports.WriteTx) error {
-		question, err := tx.Questions().Question(id)
-		if err != nil {
+	if question.DecisionID == record.ID && question.Status == questions.StatusAnswered {
+		return tx.Questions().Decision(record.ID)
+	}
+	if !question.Status.Unresolved() {
+		return questions.Decision{}, fmt.Errorf("%w: %s", questions.ErrResolved, question.Status)
+	}
+	policy, err := policyInForce(tx)
+	if err != nil {
+		return questions.Decision{}, err
+	}
+	record.Categories, record.Scope = question.Categories, questions.ScopeOf(question.SubjectKind, question.SubjectID)
+	if policy.AnswerReversibility(question) == questions.OneWay {
+		record.Reversibility = questions.OneWay
+	}
+	if err := admit(tx, &record, policy, actor); err != nil {
+		return questions.Decision{}, err
+	}
+	if err := q.recordAdmitted(tx, record, boundAnswered, actor, channel); err != nil {
+		return questions.Decision{}, err
+	}
+	if bindsAnswersTwice() {
+		if err := q.applyBinding(tx, record, boundAnswered, actor); err != nil {
+			return questions.Decision{}, err
+		}
+	}
+	crashpoint.Hit("question.answer", "decided")
+	question.Status, question.DecisionID, question.ClaimedBy, question.ClaimUntil = questions.StatusAnswered, record.ID, "", 0
+	return record, q.closeQuestion(tx, question, actor)
+}
+
+// AnswerBatch answers questions of one batch in one transaction, so every answer stands or none does, and a
+// refusal names the first answer it met and the question it was for (ADR-0030). An answer either accepts the
+// question's recommendation, which records its rationale and the item's citations, or is the member's own and
+// states why. A request holds a question once, and each answer is read by the rules of an answer given alone, so
+// a retry of the whole request finds the decisions it recorded.
+func (q *Questions) AnswerBatch(ctx context.Context, scope ledger.WorkspaceID, batch string, answers []questions.BatchAnswer, actor ledger.Actor) ([]questions.Decision, error) {
+	return q.AnswerBatchFrom(ctx, scope, batch, answers, actor, "")
+}
+
+// AnswerBatchFrom is AnswerBatch with where the member's word came from, which each decision's event keeps.
+func (q *Questions) AnswerBatchFrom(ctx context.Context, scope ledger.WorkspaceID, batch string, answers []questions.BatchAnswer, actor ledger.Actor, channel string) ([]questions.Decision, error) {
+	if !authority.Allowed(actor, authority.ActionAnswerQuestion) {
+		return nil, workorders.ErrForbidden
+	}
+	if len(answers) == 0 {
+		return nil, fmt.Errorf("%w: a request answers at least one question", questions.ErrInvalid)
+	}
+	var decisions []questions.Decision
+	err := q.store.Write(ctx, scope, "question.answer_batch", func(tx ports.WriteTx) error {
+		decisions = make([]questions.Decision, 0, len(answers))
+		if _, err := tx.Questions().Batch(batch); err != nil {
 			return err
 		}
-		if question.DecisionID == record.ID && question.Status == questions.StatusAnswered {
-			record, err = tx.Questions().Decision(record.ID)
-			return err
+		seen := map[string]bool{}
+		for i, in := range answers {
+			decision, err := q.answerOfBatch(tx, batch, in, seen, actor, channel)
+			if err != nil {
+				return fmt.Errorf("answer %d, for question %s: %w", i+1, in.Question, err)
+			}
+			decisions = append(decisions, decision)
 		}
-		if !question.Status.Unresolved() {
-			return fmt.Errorf("%w: %s", questions.ErrResolved, question.Status)
-		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return decisions, nil
+}
+
+// answerOfBatch records one answer of a batch request.
+func (q *Questions) answerOfBatch(tx ports.WriteTx, batch string, in questions.BatchAnswer, seen map[string]bool, actor ledger.Actor, channel string) (questions.Decision, error) {
+	if seen[in.Question] {
+		return questions.Decision{}, fmt.Errorf("%w: the request answers the question twice", questions.ErrInvalid)
+	}
+	seen[in.Question] = true
+	question, err := tx.Questions().Question(in.Question)
+	if err != nil {
+		return questions.Decision{}, err
+	}
+	if question.BatchID != batch {
+		return questions.Decision{}, fmt.Errorf("%w: the question is not in batch %s", questions.ErrInvalid, batch)
+	}
+	answer, err := in.Resolve(question)
+	if err != nil {
+		return questions.Decision{}, err
+	}
+	if in.ExpectReversibility != "" {
 		policy, err := policyInForce(tx)
 		if err != nil {
-			return err
+			return questions.Decision{}, err
 		}
-		record.Categories, record.Scope = question.Categories, questions.ScopeOf(question.SubjectKind, question.SubjectID)
-		if question.EscalationReason == questions.ReasonOneWay || !policy.MayDecide(question) {
-			record.Reversibility = questions.OneWay
+		if err := in.CheckExpectation(policy, question); err != nil {
+			return questions.Decision{}, err
 		}
-		if err := admit(tx, &record, policy, actor); err != nil {
-			return err
-		}
-		if err := q.recordAdmitted(tx, record, boundAnswered, actor, channel); err != nil {
-			return err
-		}
-		if bindsAnswersTwice() {
-			if err := q.applyBinding(tx, record, boundAnswered, actor); err != nil {
-				return err
-			}
-		}
-		crashpoint.Hit("question.answer", "decided")
-		question.Status, question.DecisionID, question.ClaimedBy, question.ClaimUntil = questions.StatusAnswered, record.ID, "", 0
-		return q.closeQuestion(tx, question, actor)
-	})
+	}
+	record, err := draftAnswer(in.Question, answer, actor)
 	if err != nil {
 		return questions.Decision{}, err
 	}
-	return record, nil
+	return q.decide(tx, in.Question, record, actor, channel)
 }

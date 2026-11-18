@@ -405,6 +405,7 @@ func (w *World) Escalated(text string, categories []string, blocking bool) strin
 	}
 	_, err = w.Questions.Escalate(w.ctx, Scope, asked.QuestionID, questions.Escalation{
 		Reason: questions.ReasonScopeChange, Options: []string{"Keep the budget", "Drop it"}, Recommendation: "Keep the budget",
+		RecommendationRationale: "The budget is already approved.",
 	}, holder)
 	if err != nil {
 		w.t.Fatal(err)

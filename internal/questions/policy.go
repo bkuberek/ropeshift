@@ -105,3 +105,13 @@ func (p Policy) Open(categories []string) bool {
 
 // MayDecide reports whether an orchestrator may decide or assume a question.
 func (p Policy) MayDecide(q Question) bool { return p.Open(q.Categories) }
+
+// AnswerReversibility is the reversibility a member's answer to a question has: one-way when the question reached
+// a member for a one-way choice, or when the policy keeps one of its categories from an orchestrator, and
+// reversible otherwise. An item states it, and answering applies it, by this one rule (ADR-0030).
+func (p Policy) AnswerReversibility(q Question) string {
+	if q.EscalationReason == ReasonOneWay || !p.MayDecide(q) {
+		return OneWay
+	}
+	return Reversible
+}

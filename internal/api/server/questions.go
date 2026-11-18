@@ -20,6 +20,7 @@ func (h *handler) questionRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/questions/{id}/dismiss", h.member(h.dismissQuestion))
 	mux.HandleFunc("POST /v1/questions/{id}/answer", h.member(h.answerQuestion))
 	mux.HandleFunc("GET /v1/question-batches", h.listBatches)
+	mux.HandleFunc("POST /v1/batches/{id}/answers", h.member(h.answerBatch))
 	mux.HandleFunc("GET /v1/decisions", h.listDecisions)
 	mux.HandleFunc("POST /v1/decisions", h.member(h.recordDecision))
 	mux.HandleFunc("GET /v1/decisions/{id}", h.showDecision)
@@ -163,6 +164,35 @@ func (h *handler) answerQuestion(w http.ResponseWriter, r *http.Request, actor l
 	reply(w, http.StatusCreated, record)
 }
 
+// answerBatch records every answer of a request or none. A member's answer of their own words says why, and one
+// that accepts a recommendation takes its rationale and the item's citations.
+func (h *handler) answerBatch(w http.ResponseWriter, r *http.Request, actor ledger.Actor) {
+	var in api.AnswerBatch
+	if !decode(w, r, &in) {
+		return
+	}
+	channel, ok := placed(w, r, in.Place)
+	if !ok {
+		return
+	}
+	answers := make([]questions.BatchAnswer, 0, len(in.Answers))
+	for _, item := range in.Answers {
+		answers = append(answers, questions.BatchAnswer{
+			Question: item.Question, Accepted: item.Accepted, ExpectReversibility: item.ExpectReversibility,
+			Answer: questions.Answer{
+				DecisionID: item.ID, Statement: item.Answer, Rationale: item.Rationale, Citations: item.Citations,
+				Supersedes: item.Supersedes, NoConflict: item.NoConflict,
+			},
+		})
+	}
+	decisions, err := h.questions.AnswerBatchFrom(r.Context(), h.Scope, r.PathValue("id"), answers, actor, channel)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	reply(w, http.StatusCreated, api.BatchAnswered{Decisions: decisions})
+}
+
 // listBatches is what reached members and still waits for one. A member filters by
 // category, and nothing is assigned to anyone.
 func (h *handler) listBatches(w http.ResponseWriter, r *http.Request) {
@@ -173,13 +203,17 @@ func (h *handler) listBatches(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return err
 		}
+		policy, err := control.DecisionPolicy(tx)
+		if err != nil {
+			return err
+		}
 		var waiting []questions.Presented
 		for _, batch := range batches {
 			rows, err := tx.Questions().BatchQuestions(batch.ID)
 			if err != nil {
 				return err
 			}
-			if presented := questions.Present(batch, rows, category); len(presented.Items) != 0 {
+			if presented := questions.Present(batch, rows, category, policy); len(presented.Items) != 0 {
 				waiting = append(waiting, presented)
 			}
 		}

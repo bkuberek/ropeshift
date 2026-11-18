@@ -86,7 +86,7 @@ func escalateWithin(t *testing.T, ctx context.Context, store ports.Store, id, ca
 		}
 	}
 	_, err := use.Escalate(ctx, soloScope, id, questions.Escalation{
-		Reason: questions.ReasonScopeChange, Options: []string{"Keep", "Change"}, Recommendation: "Keep",
+		Reason: questions.ReasonScopeChange, Options: []string{"Keep", "Change"}, Recommendation: "Keep", RecommendationRationale: "Keep follows the current design.",
 		Categories: []string{category},
 	}, orchestrator)
 	if err != nil {

@@ -10,6 +10,7 @@ func escalatable() Question {
 		ID: "q", Text: "May the audit data leave the region?", Status: StatusTriage, Rung: RungEscalate,
 		Categories: []string{CategoryData}, EscalationReason: ReasonOneWay,
 		Options: []string{"Keep it in the region", "Allow one replica"}, Recommendation: "Keep it in the region",
+		RecommendationRationale: "The audit trail is regulated data.",
 		LadderTrace: []Step{
 			{Rung: RungLookup, Candidates: []string{"decision:d1"}, Outcome: "no match"},
 			{Rung: RungOpen, Outcome: "no match"},
@@ -32,12 +33,13 @@ func TestGateRefusesWhatIsMissing(t *testing.T) {
 		{"a reason the design does not name", func(q *Question) { q.EscalationReason = "hard" }, []GateCheck{GateReason}},
 		{"no categories", func(q *Question) { q.Categories = nil }, []GateCheck{GateCategories}},
 		{"no options", func(q *Question) { q.Options = nil }, []GateCheck{GateOptions}},
-		{"no recommendation", func(q *Question) { q.Recommendation = "" }, []GateCheck{GateRecommendation}},
+		{"no recommendation", func(q *Question) { q.Recommendation, q.RecommendationRationale = "", "" }, []GateCheck{GateRecommendation}},
+		{"a recommendation with no rationale", func(q *Question) { q.RecommendationRationale = " " }, []GateCheck{GateRationale}},
 		{"one option leaves nothing to choose", func(q *Question) { q.Options = q.Options[:1] }, []GateCheck{GateOptions}},
 		{
 			"every failure is named",
 			func(q *Question) {
-				q.LadderTrace, q.EscalationReason, q.Categories, q.Options, q.Recommendation = nil, "", nil, nil, ""
+				q.LadderTrace, q.EscalationReason, q.Categories, q.Options, q.Recommendation, q.RecommendationRationale = nil, "", nil, nil, "", ""
 			},
 			[]GateCheck{GateTrace, GateReason, GateCategories, GateOptions, GateRecommendation},
 		},
