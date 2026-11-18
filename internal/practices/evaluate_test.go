@@ -1,6 +1,8 @@
 package practices
 
 import (
+	"math/rand/v2"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -296,6 +298,28 @@ func TestCI(t *testing.T) {
 			}
 		})
 	}
+	t.Run("an unknown pre-commit under person merge authority is unknown", func(t *testing.T) {
+		for _, authority := range []string{"", "person_merges", "person_approves"} {
+			in := input(map[string]string{"Makefile": "hooks:\n"})
+			in.Read = func(string) (string, bool) { return "", false }
+			in.MergeAuthority = authority
+			r := Evaluate(in)
+			if got := statusOf(t, r, CI); got.Status != StatusUnknown || got.Reason == "" {
+				t.Errorf("authority %q: ci = %+v", authority, got)
+			}
+			if got := findingIDs(r, CI); len(got) != 0 {
+				t.Errorf("authority %q: ci findings = %v", authority, got)
+			}
+		}
+	})
+	t.Run("an unknown pre-commit under review_approves is a finding", func(t *testing.T) {
+		in := input(map[string]string{"Makefile": "hooks:\n"})
+		in.Read = func(string) (string, bool) { return "", false }
+		in.MergeAuthority = "review_approves"
+		if got := statusOf(t, Evaluate(in), CI).Status; got != StatusFinding {
+			t.Errorf("ci = %s", got)
+		}
+	})
 	t.Run("the finding names what fails", func(t *testing.T) {
 		in := input(hook)
 		in.MergeAuthority = "review_approves"
@@ -359,6 +383,29 @@ func TestLockfileByManager(t *testing.T) {
 			}
 			if !slices.Equal(findingIDs(r, Lockfile), tt.ids) {
 				t.Errorf("findings = %v, want %v", findingIDs(r, Lockfile), tt.ids)
+			}
+		})
+	}
+}
+
+func TestLockfileWithAnUnreadableManifestIsUnknown(t *testing.T) {
+	for _, tt := range []struct{ manifest, text string }{
+		{"go.mod", "require a v1"},
+		{"package.json", `{"dependencies":{"a":"1"}}`},
+		{"composer.json", `{"require":{"a/b":"1"}}`},
+		{"pyproject.toml", "[project]\ndependencies = [\"a\"]\n"},
+		{"requirements.txt", "a==1\n"},
+	} {
+		t.Run(tt.manifest, func(t *testing.T) {
+			in := input(map[string]string{tt.manifest: tt.text})
+			in.Read = func(path string) (string, bool) { return "", false }
+			r := Evaluate(in)
+			got := statusOf(t, r, Lockfile)
+			if got.Status != StatusUnknown || !strings.Contains(got.Reason, tt.manifest) {
+				t.Errorf("lockfile = %+v", got)
+			}
+			if ids := findingIDs(r, Lockfile); len(ids) != 0 {
+				t.Errorf("findings = %v", ids)
 			}
 		})
 	}
@@ -477,7 +524,8 @@ func TestSecurityPolicyAndCodeowners(t *testing.T) {
 		"CODEOWNERS in the root":         {"CODEOWNERS", Codeowners, StatusMet},
 		"CODEOWNERS in .github":          {".github/CODEOWNERS", Codeowners, StatusMet},
 		"CODEOWNERS in docs":             {"docs/CODEOWNERS", Codeowners, StatusMet},
-		"codeowners without case":        {"codeowners", Codeowners, StatusMet},
+		"codeowners in lower case":       {"codeowners", Codeowners, StatusFinding},
+		"CodeOwners in mixed case":       {".github/CodeOwners", Codeowners, StatusFinding},
 		"CODEOWNERS in another folder":   {"src/CODEOWNERS", Codeowners, StatusFinding},
 		"a CODEOWNERS with an extension": {"CODEOWNERS.md", Codeowners, StatusFinding},
 	} {
@@ -501,6 +549,7 @@ func TestLicense(t *testing.T) {
 		"a private repo":      {&ForgeFacts{Visibility: VisibilityPrivate}, nil, StatusNotApplicable, "the repository is not public"},
 		"an internal repo":    {&ForgeFacts{Visibility: VisibilityInternal}, nil, StatusNotApplicable, "the repository is not public"},
 		"unknown visibility":  {&ForgeFacts{VisibilityUnknown: "403 from the forge"}, nil, StatusUnknown, "403 from the forge"},
+		"no visibility given": {&ForgeFacts{}, nil, StatusUnknown, "the forge gave no visibility"},
 		"public with LICENSE": {public, map[string]string{"LICENSE": ""}, StatusMet, ""},
 		"license.md":          {public, map[string]string{"license.md": ""}, StatusMet, ""},
 		"LICENCE.txt":         {public, map[string]string{"LICENCE.txt": ""}, StatusMet, ""},
@@ -568,6 +617,24 @@ func TestTestsCargoReadsTestAttributes(t *testing.T) {
 	files["src/lib.rs"] = "fn a() {}\n"
 	if got := statusOf(t, Evaluate(input(files)), Tests).Status; got != StatusFinding {
 		t.Errorf("no test: %s", got)
+	}
+}
+
+func TestTestsCargoWithAnUnreadableSourceIsUnknown(t *testing.T) {
+	in := input(map[string]string{"Cargo.toml": "", "src/lib.rs": "fn a() {}\n"})
+	in.Read = func(path string) (string, bool) { return "", false }
+	r := Evaluate(in)
+	if got := statusOf(t, r, Tests); got.Status != StatusUnknown || got.Reason == "" {
+		t.Errorf("tests = %+v", got)
+	}
+	if ids := findingIDs(r, Tests); len(ids) != 0 {
+		t.Errorf("findings = %v", ids)
+	}
+	// A test found by its folder is met, whatever else cannot be read.
+	in = input(map[string]string{"Cargo.toml": "", "src/lib.rs": "", "tests/it.rs": ""})
+	in.Read = func(path string) (string, bool) { return "", false }
+	if got := statusOf(t, Evaluate(in), Tests).Status; got != StatusMet {
+		t.Errorf("tests with a tests folder = %s", got)
 	}
 }
 
@@ -649,13 +716,37 @@ func TestEvaluateNeedsNoReader(t *testing.T) {
 
 func TestEvaluateIsDeterministic(t *testing.T) {
 	files := map[string]string{"go.mod": "require a v1", "web/package.json": `{"dependencies":{"a":"1"}}`, ".env": "A=1", "svc/requirements.txt": "a\n"}
-	a, b := Evaluate(input(files)), Evaluate(input(files))
-	if len(a.Findings) != len(b.Findings) {
-		t.Fatal("findings differ in number")
+	files["a_test.rb"] = ""
+	files["Gemfile"] = ""
+	files["Cargo.toml"] = ""
+	secrets := []SecretMatch{
+		{Rule: "github_token", Path: "a.yaml", Line: 9, Commit: "bbbb", Digest: "1a2b3c4d5e6f0001"},
+		{Rule: "github_token", Path: "a.yaml", Line: 3, Commit: "aaaa", Digest: "1a2b3c4d5e6f0001"},
+		{Rule: "github_token", Path: "a.yaml", Line: 3, Commit: "cccc", Digest: "2a2b3c4d5e6f0002"},
+		{Rule: "api_key", Path: "b.txt", Line: 1, Commit: "dddd", Digest: "ffffffffffff0001"},
+		{Rule: "api_key", Path: "b.txt", Line: 2, Commit: "eeee", Digest: "ffffffffffff0001"},
 	}
-	for i := range a.Findings {
-		if a.Findings[i] != b.Findings[i] {
-			t.Errorf("finding %d differs: %+v and %+v", i, a.Findings[i], b.Findings[i])
+	want := Evaluate(withSecrets(input(files), secrets))
+	if got := findingIDs(want, Secrets); len(got) != 3 {
+		t.Fatalf("secret findings = %v", got)
+	}
+	for _, f := range want.Findings {
+		if f.Practice == Secrets && f.Digest == "1a2b3c4d5e6f0001" && (f.Commit != "aaaa" || f.Line != 3) {
+			t.Errorf("a duplicate kept %s line %d, want the first by commit", f.Commit, f.Line)
 		}
 	}
+	rng := rand.New(rand.NewPCG(7, 11))
+	for range 50 {
+		in := withSecrets(input(files), secrets)
+		rng.Shuffle(len(in.Paths), func(i, j int) { in.Paths[i], in.Paths[j] = in.Paths[j], in.Paths[i] })
+		rng.Shuffle(len(in.Secrets), func(i, j int) { in.Secrets[i], in.Secrets[j] = in.Secrets[j], in.Secrets[i] })
+		if got := Evaluate(in); !reflect.DeepEqual(got, want) {
+			t.Fatalf("a shuffled input gave a different result:\n%+v\n%+v", got, want)
+		}
+	}
+}
+
+func withSecrets(in Input, secrets []SecretMatch) Input {
+	in.Secrets = slices.Clone(secrets)
+	return in
 }

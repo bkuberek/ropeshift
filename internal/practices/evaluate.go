@@ -1,6 +1,7 @@
 package practices
 
 import (
+	"cmp"
 	"fmt"
 	"slices"
 	"strings"
@@ -245,8 +246,8 @@ func Evaluate(in Input) Result {
 		PreCommit:         preCommit,
 		Lockfile:          e.lockfile(),
 		DependencyUpdates: e.dependencyUpdates(),
-		SecurityPolicy:    e.fileIn(SecurityPolicy, "SECURITY.md", "no SECURITY.md in the root, .github/, or docs/"),
-		Codeowners:        e.fileIn(Codeowners, "CODEOWNERS", "no CODEOWNERS file in the root, .github/, or docs/"),
+		SecurityPolicy:    e.fileIn(SecurityPolicy, "SECURITY.md", true, "no SECURITY.md in the root, .github/, or docs/"),
+		Codeowners:        e.fileIn(Codeowners, "CODEOWNERS", false, "no CODEOWNERS file in the root, .github/, or docs/"),
 		License:           e.license(),
 		Tests:             e.tests(),
 		BranchProtection:  e.branchProtection(),
@@ -321,7 +322,13 @@ func (e *evaluator) envIgnored() outcome {
 func (e *evaluator) secrets() outcome {
 	var findings []Finding
 	seen := map[string]bool{}
-	for _, m := range e.in.Secrets {
+	// Sorting first makes the match a duplicate keeps, and so the finding, independent of the order of the scan.
+	matches := slices.Clone(e.in.Secrets)
+	slices.SortFunc(matches, func(a, b SecretMatch) int {
+		return cmp.Or(strings.Compare(a.Rule, b.Rule), strings.Compare(a.Path, b.Path), strings.Compare(a.Digest, b.Digest),
+			strings.Compare(a.Commit, b.Commit), cmp.Compare(a.Line, b.Line))
+	})
+	for _, m := range matches {
 		digest := m.Digest
 		if len(digest) > DigestIDLength {
 			digest = digest[:DigestIDLength]
@@ -504,11 +511,12 @@ func (e *evaluator) dependencyUpdates() outcome {
 	return findingOutcome(e.finding(DependencyUpdates, "no .github/dependabot.yml and no Renovate configuration"))
 }
 
-// fileIn is met by a file of the name, compared without case, in the root, .github/, or docs/.
-func (e *evaluator) fileIn(practice ID, name string, detail string) outcome {
+// fileIn is met by a file of the name in the root, .github/, or docs/, compared without case where foldCase is set.
+func (e *evaluator) fileIn(practice ID, name string, foldCase bool, detail string) outcome {
 	for _, path := range e.in.Paths {
 		folder, base := splitPath(path)
-		if (folder == "" || folder == ".github" || folder == "docs") && strings.EqualFold(base, name) {
+		same := base == name || (foldCase && strings.EqualFold(base, name))
+		if (folder == "" || folder == ".github" || folder == "docs") && same {
 			return metOutcome()
 		}
 	}
@@ -522,6 +530,8 @@ func (e *evaluator) license() outcome {
 		return notApplicable("no forge binding")
 	case f.VisibilityUnknown != "":
 		return unknownOutcome(f.VisibilityUnknown)
+	case f.Visibility == "":
+		return unknownOutcome("the forge gave no visibility")
 	case f.Visibility != VisibilityPublic:
 		return notApplicable("the repository is not public")
 	}
@@ -548,15 +558,24 @@ func (e *evaluator) tests() outcome {
 			continue
 		}
 		seen[p.manager.Name] = true
-		found := false
+		found, unreadable := false, false
+		read := func(path string) (string, bool) {
+			text, ok := e.read(path)
+			unreadable = unreadable || !ok
+			return text, ok
+		}
 		for _, path := range e.scoped {
-			if p.manager.isTest(path, e.read) {
+			if p.manager.isTest(path, read) {
 				found = true
 				break
 			}
 		}
 		if found {
 			parts = append(parts, metOutcome())
+			continue
+		}
+		if unreadable {
+			parts = append(parts, unknownOutcome(fmt.Sprintf("a %s source file cannot be read, so its tests cannot be told", p.manager.Name)))
 			continue
 		}
 		parts = append(parts, findingOutcome(e.finding(Tests, fmt.Sprintf("no tracked %s test file; the convention is %s", p.manager.Name, p.manager.Tests), p.manager.Name)))

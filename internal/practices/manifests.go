@@ -50,10 +50,19 @@ func jsonHasEntries(text string, keys ...string) (bool, error) {
 // pyprojectHasDependencies says a pyproject.toml declares a dependency under [project] dependencies or
 // [tool.poetry.dependencies], poetry's python entry not counting.
 func pyprojectHasDependencies(text string) bool {
-	lines := strings.Split(text, "\n")
 	table := ""
-	for i := 0; i < len(lines); i++ {
-		line := strings.TrimSpace(stripTOMLComment(lines[i]))
+	// depth counts the brackets still open in the [project] dependencies array, while one is being read.
+	depth := 0
+	for raw := range strings.SplitSeq(text, "\n") {
+		if depth > 0 {
+			quoted, open := scanArrayLine(raw, depth)
+			if quoted {
+				return true
+			}
+			depth = open
+			continue
+		}
+		line := strings.TrimSpace(stripTOMLComment(raw))
 		if line == "" {
 			continue
 		}
@@ -71,14 +80,11 @@ func pyprojectHasDependencies(text string) bool {
 			if key != "dependencies" {
 				continue
 			}
-			array := strings.TrimSpace(value)
-			for bracketDepth(array) > 0 && i+1 < len(lines) {
-				i++
-				array += "\n" + stripTOMLComment(lines[i])
-			}
-			if strings.ContainsAny(array, `"'`) {
+			quoted, open := scanArrayLine(value, 0)
+			if quoted {
 				return true
 			}
+			depth = open
 		case "tool.poetry.dependencies":
 			if key != "python" {
 				return true
@@ -106,25 +112,26 @@ func stripTOMLComment(line string) string {
 	return line
 }
 
-// bracketDepth counts the brackets of a TOML value that are still open, not counting any in a string.
-func bracketDepth(value string) int {
-	depth := 0
-	var quote rune
-	for _, r := range value {
-		switch {
-		case quote != 0:
-			if r == quote {
-				quote = 0
-			}
-		case r == '"' || r == '\'':
-			quote = r
-		case r == '[':
+// scanArrayLine reads one line of a TOML array, once, from the depth of brackets open before it. It reports
+// whether a string starts, which makes the array non-empty, and the depth open after the line. A comment ends the
+// line, and the array ends where its brackets close.
+func scanArrayLine(line string, depth int) (quoted bool, open int) {
+	for _, r := range line {
+		switch r {
+		case '"', '\'':
+			return true, depth
+		case '#':
+			return false, depth
+		case '[':
 			depth++
-		case r == ']':
+		case ']':
 			depth--
+			if depth <= 0 {
+				return false, 0
+			}
 		}
 	}
-	return depth
+	return false, depth
 }
 
 var pinnedRequirement = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*\s*(\[[^\]]*\])?\s*==\s*[^=\s]`)
