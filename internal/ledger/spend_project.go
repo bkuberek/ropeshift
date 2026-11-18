@@ -15,6 +15,9 @@ const SubjectProjectSpend = "project_spend"
 // because stopping it stops the question ladder.
 const SpendScopeWork = "work"
 
+// SpendScopeAssistant is the tally of what the project's assistant was charged, which its soft daily warning reads.
+const SpendScopeAssistant = "assistant"
+
 // EventSpendProjectLimitRaised says a member raised a project's daily or weekly limit for the window it was made in.
 // It records the limit before and after (FR-SPEND-8), as a work order's raise does.
 const EventSpendProjectLimitRaised = "spend.project_limit_raised"

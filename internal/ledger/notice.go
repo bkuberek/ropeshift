@@ -52,6 +52,28 @@ var noticeTexts = map[string]string{
 	CIItemInfrastructure: "CI failed for a reason an agent cannot fix.",
 	CIItemBaseRed:        "A check fails on the base branch too.",
 	CIItemActionRequired: "A check waits for a person on the forge.",
+	// Spend alerts (ADR-0037) say what kind of thing reached a limit, and each kind says its own sentence when a scope is
+	// not named. None of them says an amount, a work order, a lane, or a setting: the event in the ledger does.
+	NoticeSpendSoftLimit:                                     "A spend limit was nearly reached.",
+	NoticeSpendSoftLimit + "/" + NoticeScopeWorkOrder:        "A work order reached its soft spend limit.",
+	NoticeSpendSoftLimit + "/" + NoticeScopeReview:           "A review reached its soft spend limit.",
+	NoticeSpendSoftLimit + "/" + NoticeScopePlan:             "A plan reached its soft spend limit.",
+	NoticeSpendSoftLimit + "/" + NoticeScopeProjectDay:       "The project reached its soft daily spend limit.",
+	NoticeSpendSoftLimit + "/" + NoticeScopeProjectWeek:      "The project reached its soft weekly spend limit.",
+	NoticeSpendSoftLimit + "/" + NoticeScopeAssistant:        "The assistant reached its daily spend warning.",
+	NoticeSpendSoftLimit + "/" + NoticeScopeOrchestrator:     "The orchestrator reached its daily spend warning.",
+	NoticeSpendHardLimit:                                     "A spend limit was reached.",
+	NoticeSpendHardLimit + "/" + NoticeScopeWorkOrder:        "A work order reached its hard spend limit, and its lane parked.",
+	NoticeSpendHardLimit + "/" + NoticeScopeReview:           "A review reached its hard spend limit, and its lane parked.",
+	NoticeSpendHardLimit + "/" + NoticeScopePlan:             "A plan reached its hard spend limit, and none of its work starts.",
+	NoticeSpendHardLimit + "/" + NoticeScopeProjectDay:       "The project reached its daily spend limit, and no work starts until the day ends or a member raises it.",
+	NoticeSpendHardLimit + "/" + NoticeScopeProjectWeek:      "The project reached its weekly spend limit, and no work starts until the week ends or a member raises it.",
+	NoticeSpendNoProgress:                                    "A lane parked because it made no progress.",
+	NoticeSpendWaiting:                                       "A lane spends most of its calls waiting.",
+	NoticeSpendPolicyChanged:                                 "A spend setting changed.",
+	NoticeSpendPolicyChanged + "/" + NoticeScopeProject:      "The project's spend settings changed.",
+	NoticeSpendPolicyChanged + "/" + NoticeScopeInstallation: "The installation's spend settings changed.",
+	NoticeSpendPolicyChanged + "/" + NoticeScopeLimitRaised:  "A spend limit was raised.",
 }
 
 const noticeFallback = "Something needs you."
@@ -75,6 +97,10 @@ type Notice struct {
 func NewNotice(scope WorkspaceID, kind, reason, id string, since int64) Notice {
 	digest := sha256.Sum256([]byte(strings.Join([]string{string(scope), kind, reason, id, strconv.FormatInt(since, 10)}, "\x00")))
 	notice := Notice{Delivery: hex.EncodeToString(digest[:16]), Kind: NoticeWork, Since: since, Text: noticeFallback}
+	if text, ok := noticeTexts[kind+"/"+reason]; ok && IsSpendNotice(kind) {
+		notice.Kind, notice.Reason, notice.Text = kind, reason, text
+		return notice
+	}
 	if text, ok := noticeTexts[kind]; ok {
 		notice.Kind, notice.Text = kind, text
 		return notice
