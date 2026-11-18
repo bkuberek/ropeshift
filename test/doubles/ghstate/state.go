@@ -129,6 +129,15 @@ type State struct {
 	RejectPush  bool   `json:"reject_push,omitempty"`
 	// Repositories are the repositories that exist, each with the visibility it was created with.
 	Repositories []Repository `json:"repositories,omitempty"`
+	// Visibility is what `repos/{owner}/{repo}` says of the repository, and empty says private. Protected is what
+	// the branch read says, Rules are what the rules read gives for every branch, and ReviewCount is what the
+	// protection's pull request reviews read gives while Protected is set. SettingsStatus answers a settings read
+	// with another status, by the endpoint as `gh api` is given it, such as `repos/acme/widgets/branches/main`.
+	Visibility     string                    `json:"visibility,omitempty"`
+	Protected      bool                      `json:"protected,omitempty"`
+	Rules          []Rule                    `json:"rules,omitempty"`
+	ReviewCount    int                       `json:"review_count,omitempty"`
+	SettingsStatus map[string]SettingsAnswer `json:"settings_status,omitempty"`
 	// Remote is the remote of the checkout `gh` runs in that holds each open pull request's branch.
 	Remote       string        `json:"remote,omitempty"`
 	Calls        int64         `json:"calls"`
@@ -169,6 +178,20 @@ func (s *State) Find(number int64) *PullRequest {
 		}
 	}
 	return nil
+}
+
+// Rule is one rule a ruleset applies to a branch, as `rules/branches/{branch}` lists it.
+type Rule struct {
+	Type       string         `json:"type"`
+	Parameters map[string]any `json:"parameters,omitempty"`
+}
+
+// SettingsAnswer is the status a settings read answers with instead of its body, the message of the error body, and
+// the response headers, such as Retry-After or X-Ratelimit-Remaining.
+type SettingsAnswer struct {
+	Status  int               `json:"status"`
+	Message string            `json:"message,omitempty"`
+	Headers map[string]string `json:"headers,omitempty"`
 }
 
 // Call is one run of the double: its arguments, the directory it ran in, and the variables of its
