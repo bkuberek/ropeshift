@@ -215,6 +215,61 @@ describe("Repositories", () => {
     expect(sentTo(sent, "PATCH", "/v1/repositories/id-api")[0]?.body).toEqual({ ci: { ci_steady_interval: "2m" } });
   });
 
+  it("groups the CI keys under their own heading, each with what it sets, and Tab reaches every one", async () => {
+    serveAdmin();
+    openPage(here("/repositories?repo=id-api"));
+    const record = await screen.findByRole("region", { name: "api" });
+    const group = within(record).getByRole("group", { name: "CI" });
+    const boxes = within(group).getAllByRole("textbox") as HTMLInputElement[];
+    expect(boxes.map((box) => box.labels?.[0]?.textContent)).toEqual([
+      "ci_history_window",
+      "ci_history_min_records",
+      "ci_no_history_p50",
+      "ci_no_history_p85",
+      "ci_min_interval",
+      "ci_steady_interval",
+      "ci_timeout_multiplier",
+      "ci_timeout_no_history",
+      "ci_queue_timeout_multiplier",
+      "ci_queue_timeout_no_history",
+      "ci_auto_rerun",
+      "ci_log_excerpt_lines",
+      "ci_log_excerpt_bytes",
+    ]);
+    const timeout = within(group).getByLabelText("ci_timeout_multiplier");
+    expect(document.getElementById(timeout.getAttribute("aria-describedby") ?? "")?.textContent).toContain("CI has not finished is raised at this many times");
+    boxes[0]?.focus();
+    for (const box of boxes.slice(1)) {
+      await userEvent.tab();
+      expect(document.activeElement).toBe(box);
+    }
+  });
+
+  it("saves two CI keys at once, which move when CI that has not finished and a stalled queue are raised", async () => {
+    const sent = serveAdmin((call) => (call.method === "PATCH" ? { status: 200, body: golden<{ repositories: unknown[] }>("repositories").repositories[0] } : undefined));
+    openPage(here("/repositories?repo=id-api"));
+    const record = await screen.findByRole("region", { name: "api" });
+    for (const [key, value] of [["ci_timeout_multiplier", "5"], ["ci_queue_timeout_no_history", "1h"]] as const) {
+      const box = within(record).getByLabelText(key);
+      await userEvent.clear(box);
+      await userEvent.type(box, value);
+    }
+    await userEvent.click(within(record).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(sentTo(sent, "PATCH", "/v1/repositories/id-api")).toHaveLength(1));
+    expect(sentTo(sent, "PATCH", "/v1/repositories/id-api")[0]?.body).toEqual({ ci: { ci_timeout_multiplier: "5", ci_queue_timeout_no_history: "1h" } });
+  });
+
+  it("says why a CI key was refused, naming the key and its range", async () => {
+    serveAdmin((call) => (call.method === "PATCH" ? refusal(400, "invalid", "invalid repository: ci_timeout_multiplier is 100, and it runs from 1.5 to 20") : undefined));
+    openPage(here("/repositories?repo=id-api"));
+    const record = await screen.findByRole("region", { name: "api" });
+    const box = within(record).getByLabelText("ci_timeout_multiplier");
+    await userEvent.clear(box);
+    await userEvent.type(box, "100");
+    await userEvent.click(within(record).getByRole("button", { name: "Save" }));
+    expect((await within(record).findByText(/ci_timeout_multiplier is 100, and it runs from 1.5 to 20/)).textContent).toContain("invalid repository");
+  });
+
   it("opens the removal an address asks for, and sends nothing", async () => {
     const sent = serveAdmin();
     openPage(here("/repositories?repo=id-api&dialog=remove"));
