@@ -163,6 +163,25 @@ func fileDSN(file string) string {
 		"&_pragma=busy_timeout(" + strconv.Itoa(busyMillis) + ")"
 }
 
+// readOnlyDSN opens a file that must already exist and refuses every write: mode=ro never creates the file, and
+// query_only stops a statement that would write. It sets no journal mode, which would be a write.
+func readOnlyDSN(file string) string {
+	return "file:" + file + "?mode=ro" +
+		"&_pragma=query_only(1)" +
+		"&_pragma=busy_timeout(" + strconv.Itoa(busyMillis) + ")"
+}
+
+// OpenReadOnlyDB opens a SQLite file for reading only. It creates no file, migrates nothing, and writes nothing.
+func OpenReadOnlyDB(file string) (*sql.DB, error) {
+	db, err := sql.Open("sqlite", readOnlyDSN(file))
+	if err != nil {
+		return nil, err
+	}
+	db.SetMaxOpenConns(poolSize)
+	db.SetMaxIdleConns(poolSize)
+	return db, nil
+}
+
 // OpenDB opens a SQLite file.
 func OpenDB(file string) (*sql.DB, error) {
 	db, err := sql.Open("sqlite", fileDSN(file))

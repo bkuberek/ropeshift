@@ -20,8 +20,8 @@ func (w Workspace) Find(ctx context.Context, profile lanes.Profile, project, pla
 }
 
 // Settings reads the machine as a worker does.
-func (w Workspace) Settings(ctx context.Context, settings lanes.WorktreeSettings, workspace lanes.Workspace, repository string) (lanes.WorktreeSettings, lanes.RootFallback, error) {
-	return ports.NewWorkspace(w.Machine).Settings(ctx, settings, workspace, repository)
+func (w Workspace) Settings(ctx context.Context, settings lanes.WorktreeSettings, workspace lanes.Workspace, repository, lane string) (lanes.WorktreeSettings, lanes.RootFallback, error) {
+	return ports.NewWorkspace(w.Machine).Settings(ctx, settings, workspace, repository, lane)
 }
 
 var _ ports.Workspace = Workspace{}

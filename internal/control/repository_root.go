@@ -50,7 +50,7 @@ func (r *Repositories) rootNote(ctx context.Context, scope ledger.WorkspaceID, k
 	}
 	settings, allowed := profile.Worktree, ""
 	if found {
-		if settings, _, err = workspaces.Settings(ctx, settings, workspace, checkout); err != nil {
+		if settings, _, err = workspaces.Settings(ctx, settings, workspace, checkout, rootProbe); err != nil {
 			return "", err
 		}
 		if workspace.Clone {

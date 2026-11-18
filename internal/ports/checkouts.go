@@ -62,6 +62,11 @@ type Checkouts interface {
 	// Reserved says that path is inside a directory the installation keeps for itself, such as its state or
 	// run directory, which holds no clone to register. A path nothing is at is ErrNotFound.
 	Resolve(ctx context.Context, path string) (real string, reserved bool, err error)
+	// DanglingLink walks the components of target below the directory below, each read as it is spelled and not
+	// followed, and names the first that is a symbolic link leading to nothing, or "" when none is. A component
+	// nothing is at ends the walk, as nothing lies beyond it. Resolve cannot tell such a link from a path nothing is
+	// at, and a tool that creates the folder makes it at the link's target.
+	DanglingLink(ctx context.Context, below, target string) (link string, err error)
 	// SameFile says two absolute paths on this machine name one file or directory, by what the disk says of
 	// each, so two spellings of one directory, as a disk that ignores case allows, are one. A path nothing is
 	// at is ErrNotFound.
@@ -165,6 +170,18 @@ func openedByWorkspace(ctx context.Context, kept Checkouts, clone, workspace, re
 		return false, err
 	}
 	return kept.Ignored(ctx, workspace, planning.WorktreesFolder+"/")
+}
+
+// LeadsOutOfWorkspace says a path meant to lie under a workspace's .ropeshift/worktrees/ folder does not, once its
+// links are followed: it resolves outside the folder, or a link in it below the workspace leads to nothing, which
+// resolves to no place at all and so passes for a path that does not exist yet.
+func LeadsOutOfWorkspace(ctx context.Context, kept Checkouts, workspace, target string) (bool, error) {
+	dangling, err := kept.DanglingLink(ctx, path.Clean(workspace), path.Clean(target))
+	if err != nil || dangling != "" {
+		return dangling != "", err
+	}
+	under, err := UnderWorkspaceWorktrees(ctx, kept, workspace, target)
+	return !under, err
 }
 
 // UnderWorkspaceWorktrees says a path lies under a workspace's .ropeshift/worktrees/ folder, whether or not the

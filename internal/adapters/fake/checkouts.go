@@ -21,6 +21,8 @@ type Checkouts struct {
 	kept   map[ledger.WorkspaceID]map[string]string
 	// links are the symbolic links on the machine, each path to the path it leads to.
 	links map[string]string
+	// dangling are the symbolic links on the machine that lead to nothing.
+	dangling map[string]bool
 	// reserved are the directories the installation keeps for itself.
 	reserved []string
 	// spellings are the second spellings of a directory the machine holds, each to the one it spells.
@@ -39,6 +41,36 @@ func (f *Checkouts) Link(at, target string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.links[path.Clean(at)] = path.Clean(target)
+}
+
+// Dangle puts a symbolic link on the machine at a path that leads to a folder nothing is at. Resolve leaves the
+// path as it is, as a disk gives no place for such a link, and DanglingLink names it.
+func (f *Checkouts) Dangle(at string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.dangling == nil {
+		f.dangling = map[string]bool{}
+	}
+	f.dangling[path.Clean(at)] = true
+}
+
+// DanglingLink names the first component of target below a directory that is a link put there by Dangle.
+func (f *Checkouts) DanglingLink(_ context.Context, below, target string) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	below = path.Clean(below)
+	rest, found := strings.CutPrefix(path.Clean(target), below+"/")
+	if !found {
+		return "", nil
+	}
+	at := below
+	for part := range strings.SplitSeq(rest, "/") {
+		at = path.Join(at, part)
+		if f.dangling[at] {
+			return at, nil
+		}
+	}
+	return "", nil
 }
 
 // Spell says a path is a second spelling of another, as a disk that ignores case gives a directory, so the two

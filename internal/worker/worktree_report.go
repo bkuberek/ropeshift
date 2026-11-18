@@ -13,6 +13,9 @@ import (
 	"ropeshift.com/ropeshift/internal/ports"
 )
 
+// probeLane names the lane the report places for each checkout. Any name does: the report holds no lane.
+const probeLane = "lane"
+
 // WorktreeReport says where lane worktrees go on this machine: the root a profile puts in force and the layer
 // that set it, each checkout this worker keeps, in every project, for which that root resolves inside a clone
 // this worker keeps, and each project's workspace with the root each of its checkouts gets. It asks the question a
@@ -57,14 +60,14 @@ func WorktreeReport(ctx context.Context, profile lanes.Profile, kept ports.Check
 		}
 		settings, fallback := profile.Worktree, lanes.RootFallback{}
 		if workspace.Path != "" {
-			if settings, fallback, err = ports.NewWorkspace(kept).Settings(ctx, profile.Worktree, workspace, checkout.Path); err != nil {
+			if settings, fallback, err = ports.NewWorkspace(kept).Settings(ctx, profile.Worktree, workspace, checkout.Path, probeLane); err != nil {
 				if ctx.Err() != nil {
 					return report, ctx.Err()
 				}
 				settings, fallback = profile.Worktree, lanes.RootFallback{Reason: lanes.FallbackUnreadable, Detail: err.Error()}
 			}
 		}
-		place, err := lanes.Place(settings, checkout.Path, project, "lane", "")
+		place, err := lanes.Place(settings, checkout.Path, project, probeLane, "")
 		if err != nil {
 			return report, err
 		}

@@ -1,6 +1,7 @@
 package entry
 
 import (
+	"bytes"
 	"errors"
 	"io"
 	"os"
@@ -10,6 +11,7 @@ import (
 	"testing"
 
 	"ropeshift.com/ropeshift/internal/adapters/profiles"
+	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/planning"
@@ -226,6 +228,84 @@ func TestALinkInTheWorkspaceFolderLeadsNoLaneOutOfIt(t *testing.T) {
 	}
 }
 
+// A link planted at the lane's own folder, under a repository folder that is a plain directory, leads the lane out of
+// the workspace as a link at the repository's folder does. The lane falls back to the root outside every clone,
+// nothing is made at the link's target, and a lane of another name keeps the workspace root (FR-PROF-3).
+func TestALinkAtTheLanesOwnFolderLeadsNoLaneOutOfTheWorkspace(t *testing.T) {
+	w := newWorktreeWorkspace(t)
+	w.ignoreWorktrees()
+	elsewhere := filepath.Join(w.home, "elsewhere")
+	repoFolder := filepath.Join(w.workspace.Dir, ".ropeshift", "worktrees", "api")
+	for _, dir := range []string{elsewhere, repoFolder} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Symlink(elsewhere, filepath.Join(repoFolder, "lane-1")); err != nil {
+		t.Fatal(err)
+	}
+	lane, err := w.prov.Prepare(t.Context(), planned("lane-1", w.clones["api"]))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(w.paths.WorktreeDir, "prj-1", "api", "lane-1"); lane.Worktree.Path != want {
+		t.Errorf("the worktree is at %q, want %q outside every clone", lane.Worktree.Path, want)
+	}
+	if lane.Fallback.Reason != lanes.FallbackEscapes || lane.Fallback.Workspace != w.workspace.Dir {
+		t.Errorf("the fallback is %+v", lane.Fallback)
+	}
+	if entries, err := os.ReadDir(elsewhere); err != nil || len(entries) != 0 {
+		t.Errorf("the link's target holds %v (%v)", entries, err)
+	}
+	other, err := w.prov.Prepare(t.Context(), planned("lane-2", w.clones["api"]))
+	if want := filepath.Join(w.realWorkspace(t), ".ropeshift", "worktrees", "api", "lane-2"); err != nil || at(t, other.Worktree.Path) != want {
+		t.Errorf("lane-2 is at %q (%v), want %q", other.Worktree.Path, err, want)
+	}
+}
+
+// A link planted at the lane's own folder, or at the repository's folder, that leads to a folder nothing is at would
+// have git make the worktree at the link's target. It leads the lane out of the workspace all the same: the lane
+// falls back to the root outside every clone, and nothing is made at the target (FR-PROF-3).
+func TestALinkToAMissingFolderLeadsNoLaneOutOfTheWorkspace(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		link func(folder string) string
+	}{
+		{"the lane's own folder", func(folder string) string { return filepath.Join(folder, "api", "lane-1") }},
+		{"the repository's folder", func(folder string) string { return filepath.Join(folder, "api") }},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			w := newWorktreeWorkspace(t)
+			w.ignoreWorktrees()
+			missing := filepath.Join(w.home, "missing", "target")
+			folder := filepath.Join(w.workspace.Dir, ".ropeshift", "worktrees")
+			if err := os.MkdirAll(filepath.Join(folder, "api"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			link := tt.link(folder)
+			if err := os.Remove(link); err != nil && !errors.Is(err, os.ErrNotExist) {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(missing, link); err != nil {
+				t.Fatal(err)
+			}
+			lane, err := w.prov.Prepare(t.Context(), planned("lane-1", w.clones["api"]))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if want := filepath.Join(w.paths.WorktreeDir, "prj-1", "api", "lane-1"); lane.Worktree.Path != want {
+				t.Errorf("the worktree is at %q, want %q outside every clone", lane.Worktree.Path, want)
+			}
+			if lane.Fallback.Reason != lanes.FallbackEscapes || lane.Fallback.Workspace != w.workspace.Dir {
+				t.Errorf("the fallback is %+v", lane.Fallback)
+			}
+			if _, err := os.Stat(filepath.Dir(missing)); err == nil {
+				t.Errorf("%s was made through the link", filepath.Dir(missing))
+			}
+		})
+	}
+}
+
 // A workspace git cannot answer for, here one whose .ropeshift is a link, as git refuses a path beyond a link with
 // exit status 128, stops no lane that never uses it: a lane with a root a person set starts, a lane on the built-in
 // root starts outside every clone with the reason, and the doctor reports the error as a finding of that workspace
@@ -359,6 +439,46 @@ func TestTheDoctorFindsAWorkspaceThroughThePlanningCloneFromTheJournal(t *testin
 	}
 	if want := filepath.Join(w.workspace.Dir, ".ropeshift", "worktrees", "web"); roots[w.clones["web"]] != want {
 		t.Errorf("the web checkout gets %q, want %q", roots[w.clones["web"]], want)
+	}
+}
+
+// The doctor only reads the worker's journal: a journal file it cannot write is read all the same, and the file is
+// left as it was, byte for byte and in its modification time.
+func TestTheDoctorReadsTheJournalWithoutChangingIt(t *testing.T) {
+	w := newWorktreeWorkspace(t)
+	journal, err := openJournal(t.Context(), w.paths.StateDir, io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := ledger.DesiredState{Rev: 1, Projects: []ledger.DesiredProject{{ID: "prj-1", Name: "one", PlanningRepository: "repo-workspace"}}}
+	if err := journal.SaveDesired(t.Context(), state); err != nil {
+		t.Fatal(err)
+	}
+	if err := journal.Close(); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(w.paths.StateDir, api.JournalFileName)
+	if err := os.Chmod(file, 0o400); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(file, 0o600) })
+	before, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if planned := plannedProjects(t.Context(), w.paths.StateDir); planned["prj-1"] != "repo-workspace" {
+		t.Errorf("the doctor reads %v from a journal it cannot write", planned)
+	}
+	after, err := os.ReadFile(file)
+	if err != nil || !bytes.Equal(before, after) {
+		t.Errorf("the journal file changed (%v)", err)
+	}
+	if again, err := os.Stat(file); err != nil || !again.ModTime().Equal(info.ModTime()) {
+		t.Errorf("the journal file's modification time moved (%v)", err)
 	}
 }
 

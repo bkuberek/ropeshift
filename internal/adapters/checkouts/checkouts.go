@@ -362,6 +362,35 @@ func insideByFile(dirs []string, path string) (bool, error) {
 	}
 }
 
+// DanglingLink reads each component of target below the directory below with Lstat, and names the first that is
+// a symbolic link whose target does not resolve, whether it is missing or a link further along leads nowhere. A
+// component nothing is at ends the walk. A target that does not lie below the directory has nothing to walk.
+func (f *File) DanglingLink(_ context.Context, below, target string) (string, error) {
+	rest, found := strings.CutPrefix(filepath.Clean(target), filepath.Clean(below)+string(filepath.Separator))
+	if !found {
+		return "", nil
+	}
+	at := filepath.Clean(below)
+	for _, part := range strings.Split(rest, string(filepath.Separator)) {
+		at = filepath.Join(at, part)
+		info, err := os.Lstat(at)
+		switch {
+		case errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ENOTDIR):
+			return "", nil
+		case err != nil:
+			return "", err
+		case info.Mode()&os.ModeSymlink == 0:
+			continue
+		}
+		if _, err := filepath.EvalSymlinks(at); errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ENOTDIR) {
+			return at, nil
+		} else if err != nil {
+			return "", err
+		}
+	}
+	return "", nil
+}
+
 // SameFile says two paths name one file or directory, by what the disk says of each. A path nothing is at is
 // ErrNotFound.
 func (f *File) SameFile(_ context.Context, a, b string) (bool, error) {
