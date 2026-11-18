@@ -243,6 +243,39 @@ describe("a batch of 18 questions raised in the middle of a plan", () => {
     expect(sentAnswers(sent).every((answer) => answer.accepted === true)).toBe(true);
   });
 
+  it("sends the reversibility each accepted answer was read with, after Accept all and for a recommendation left chosen", async () => {
+    const sent = serveApi(() => ({ status: 201, body: { decisions: [] } }));
+    show(midPlanBatch());
+    await userEvent.click(radio("Question 2", "A"));
+    await userEvent.click(screen.getByRole("button", { name: "Accept all" }));
+    await userEvent.click(screen.getByRole("button", { name: "Send 15 of 18 answers" }));
+    await waitFor(() => expect(sent).toHaveLength(1));
+    const answers = sentAnswers(sent) as (Sent & { expect_reversibility?: string })[];
+    expect(answers).toHaveLength(15);
+    for (const answer of answers) {
+      expect(answer.expect_reversibility, answer.question).toBe(answer.question === "q2" ? "one_way" : "reversible");
+    }
+  });
+
+  it("sends no expectation for an answer of a person's own, which they chose in their own words", async () => {
+    const sent = serveApi(() => ({ status: 201, body: { decisions: [] } }));
+    show(midPlanBatch());
+    await userEvent.click(radio("Question 7", "B"));
+    await userEvent.type(screen.getByRole("textbox", { name: "Why" }), "B fits.");
+    await userEvent.click(screen.getByRole("button", { name: "Send 14 of 18 answers" }));
+    await waitFor(() => expect(sent).toHaveLength(1));
+    expect(sentAnswers(sent).find((answer) => answer.question === "q7")).not.toHaveProperty("expect_reversibility");
+  });
+
+  it("shows the refusal of an answer whose reversibility changed since it was read, and records none", async () => {
+    const sent = serveApi(() => refusal(409, "reversibility_changed", "answer 3, for question q7: the answer's reversibility changed since it was read: it is one-way now"));
+    show(midPlanBatch());
+    await userEvent.click(screen.getByRole("button", { name: "Accept all" }));
+    await userEvent.click(screen.getByRole("button", { name: "Send 14 of 18 answers" }));
+    expect((await screen.findByRole("alert")).textContent).toContain("it is one-way now");
+    expect(sent).toHaveLength(1);
+  });
+
   it("shows why a recommendation is the one to choose", () => {
     show(midPlanBatch());
     expect(within(screen.getByRole("group", { name: "Question 5" })).getByText("Why it is recommended: A keeps the plan's direction.")).toBeTruthy();

@@ -301,9 +301,10 @@ export async function answerQuestion(id: string, answer: string, place?: Place, 
 
 // BatchAnswer is one answer of a batch request. An accepted one records the question's recommendation, with its
 // rationale and the item's citations, and states nothing else of its own. Any other is the member's own answer,
-// and it says why.
+// and it says why. An accepted one names the reversibility its item stated when it was read, and the daemon refuses
+// the whole request when a policy published since says otherwise, so a one-way decision nobody chose is never recorded.
 export type BatchAnswer =
-  | { question: string; accepted: true; supersedes?: string }
+  | { question: string; accepted: true; expect_reversibility?: "reversible" | "one_way"; supersedes?: string }
   | { question: string; accepted?: false; answer: string; rationale: string; supersedes?: string };
 
 // answerBatch answers the questions of one batch in one request, as `ropeshift question answer-batch` does. Every

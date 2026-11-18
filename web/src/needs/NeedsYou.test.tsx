@@ -275,7 +275,7 @@ describe("a batch of questions", () => {
     await userEvent.click(screen.getByRole("button", { name: "Send 2 answers" }));
     await waitFor(() => expect(sent).toHaveLength(1));
     expect(sent[0]).toMatchObject({ method: "POST", path: `/v1/batches/${item.batch.batch.id}/answers` });
-    expect((sent[0]?.body as Posted).answers).toEqual(item.batch.items.map((question) => ({ question: question.id, id: `answer-${question.id}`, accepted: true })));
+    expect((sent[0]?.body as Posted).answers).toEqual(item.batch.items.map((question) => ({ question: question.id, id: `answer-${question.id}`, accepted: true, expect_reversibility: "reversible" })));
     await waitFor(() => expect(after).toHaveBeenCalledOnce());
   });
 

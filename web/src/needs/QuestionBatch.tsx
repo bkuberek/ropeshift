@@ -205,7 +205,7 @@ export function QuestionBatch({ batch, after, frame, compact = false, place, onA
         const draft = draftOf(item);
         const replaces = draft.replaces ? { supersedes: draft.replaces } : {};
         return accepts(item, draft)
-          ? { question: item.id, accepted: true, ...replaces }
+          ? { question: item.id, accepted: true, ...(item.reversibility ? { expect_reversibility: item.reversibility } : {}), ...replaces }
           : { question: item.id, answer: answerOf(draft), rationale: draft.rationale.trim(), ...replaces };
       });
       const recorded = await answerBatch(batch.batch.id, answers, place);
