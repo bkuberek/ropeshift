@@ -47,6 +47,28 @@ func TestAGenerationWithNoKnownTurnTakesItsLanesMean(t *testing.T) {
 	}
 }
 
+// A generation is charged at least its floor, which the store keeps as the highest charge the generation reached: a known turn
+// that costs little lowers the mean its stopped turns are charged at, and the charge with it, and the floor is what says the
+// work order did not get cheaper. The part of the floor that no recorded cost covers is an estimate, and counts as one.
+func TestAGenerationIsChargedAtLeastItsFloor(t *testing.T) {
+	// Cost 30 over 3 known turns charges one stopped turn at 10: 40. A cheap known turn after it makes 30.5 over 4, which
+	// charges the stopped turn at 7.625: 38.125, unless the floor holds the 40.
+	cheaper := GenerationUsage{CostUSD: 30.5, KnownTurns: 4, UnknownTurns: 1}
+	if got := Charge([][]GenerationUsage{{cheaper}}); !near(got.ChargedUSD, 38.125) {
+		t.Fatalf("without a floor the charge reads %v, want 38.125", got.ChargedUSD)
+	}
+	cheaper.FloorUSD = 40
+	got := Charge([][]GenerationUsage{{cheaper}})
+	if !near(got.ChargedUSD, 40) || !near(got.RecordedUSD, 30.5) || !near(got.EstimatedUSD, 9.5) || got.EstimatedTurns != 1 {
+		t.Errorf("a floor of 40 over a computed 38.125 charged %+v", got)
+	}
+	// A floor below what is computed changes nothing, and a floor on one generation holds that generation alone.
+	low := Charge([][]GenerationUsage{{{CostUSD: 30, KnownTurns: 3, UnknownTurns: 1, FloorUSD: 12}, {CostUSD: 1, KnownTurns: 1}}})
+	if !near(low.ChargedUSD, 41) {
+		t.Errorf("a floor below the charge changed it to %v", low.ChargedUSD)
+	}
+}
+
 // A work order with no lane, or lanes that spent nothing, is charged nothing.
 func TestNothingSpentIsNothingCharged(t *testing.T) {
 	if got := Charge(nil); got != (Charged{}) {

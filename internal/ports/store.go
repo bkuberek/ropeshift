@@ -610,8 +610,9 @@ type LaneWriter interface {
 	// Baseline records what a generation held at its first call.
 	Baseline(lane string, number, tokens int64) error
 	// ReportUsage raises what a generation has spent to what its worker reported, figure by figure, and never lowers
-	// one, so a late or lost report cannot take a work order under its limit. It reports false
-	// for a generation the ledger does not hold.
+	// one, so a late or lost report cannot take a work order under its limit. It keeps the highest charge any report
+	// reached as the generation's floor (ledger.GenerationUsage.FloorUSD), because a charge can fall though no figure does,
+	// and a floor a reporter names is ignored. It reports false for a generation the ledger does not hold.
 	ReportUsage(lane string, number int64, usage ledger.GenerationUsage) (bool, error)
 	// EndGeneration records a generation's end, once.
 	EndGeneration(lane string, number int64, reason string) error

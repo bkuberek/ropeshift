@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"ropeshift.com/ropeshift/internal/lanes"
@@ -78,27 +79,49 @@ func (r *laneRun) noteRunning(total float64) {
 }
 
 // settleTurnCost takes the session's exact total at the end of a turn that reported one, which replaces whatever the
-// turn's calls were estimated at. A turn that was stopped reports none, so what it was estimated at stands until the next
-// turn ends: a lane stopped at its limit is charged at least the figure that stopped it.
+// turn's calls were estimated at, and what the turns that stopped before it were estimated at too: the total covers what
+// the session spent. A turn that was stopped reports none, so what it was estimated at is kept, apart from the turn in
+// progress, until a later turn reports a total: a lane stopped at its limit is charged at least the figure that stopped it.
 func (r *laneRun) settleTurnCost(turn *ports.TurnResult) {
-	if turn.Status == ports.TurnStopped {
-		return
-	}
 	r.handleLock.Lock()
 	defer r.handleLock.Unlock()
+	if turn.Status == ports.TurnStopped {
+		if estimate := r.running - r.cost.SessionTotalUSD; estimate > 0 {
+			r.stoppedUSD = append(r.stoppedUSD, estimate)
+		}
+	} else {
+		r.stoppedUSD = nil
+	}
 	r.running = r.cost.SessionTotalUSD
 }
 
 // generationUsage is what the generation now running has spent, the turn in progress included: the cost of its turns,
-// and what the session's running total shows beyond the last of them. A turn stopped before it reported keeps what the
-// total showed, so a lane that was stopped at its limit is charged at least the figure that stopped it.
+// and what the session's running total shows beyond the last of them.
+//
+// A turn that stopped before it reported is one turn of unknown cost, which the ledger charges at the mean of the known
+// ones, and it has an estimate of what it had spent, kept in the worker. It counts once, as the more of the two: an
+// estimate above the mean is the better bound and takes the turn's place among the unknown, and an estimate at or below the
+// mean leaves the turn to the mean. So a lane stopped at its limit is charged at least the figure that stopped it, and the
+// turn is not charged twice.
 func (r *laneRun) generationUsage() ledger.GenerationUsage {
 	r.handleLock.Lock()
 	running := r.running
+	stopped := slices.Clone(r.stoppedUSD)
 	r.handleLock.Unlock()
-	return ledger.GenerationUsage{
+	usage := ledger.GenerationUsage{
 		CostUSD: r.cost.CostUSD + max(running-r.cost.SessionTotalUSD, 0), KnownTurns: r.cost.KnownTurns, UnknownTurns: r.cost.UnknownTurns,
 	}
+	var mean float64
+	if r.cost.KnownTurns > 0 {
+		mean = r.cost.CostUSD / float64(r.cost.KnownTurns)
+	}
+	for _, estimate := range stopped {
+		if usage.UnknownTurns > 0 && estimate > mean {
+			usage.CostUSD += estimate
+			usage.UnknownTurns--
+		}
+	}
+	return usage
 }
 
 // reportedUsage is what the generation tells the ledger it spent: what it has spent, and no less than the figure a hard

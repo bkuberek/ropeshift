@@ -27,12 +27,15 @@ VALUES (:workspace_id, :lane_id, :generation, :start_reason, :handoff_in, :now)`
  WHERE workspace_id = :workspace_id AND lane_id = :lane_id AND generation = :generation`)
 
 	// A usage report raises each figure and never lowers one: what a generation spent only grows, and a smaller figure
-	// would take its work order under a limit, which reads as the limit raised and wakes the lane it parked.
+	// would take its work order under a limit, which reads as the limit raised and wakes the lane it parked. The charge
+	// is kept the same way, because it can fall though no figure does: a known turn that costs little lowers the mean a
+	// turn of unknown cost is charged at.
 	stmtGenerationUsage = define("generation.usage",
 		`UPDATE generations SET
        cost_usd = CASE WHEN :cost_usd > cost_usd THEN :cost_usd ELSE cost_usd END,
        known_turns = CASE WHEN :known_turns > known_turns THEN :known_turns ELSE known_turns END,
-       unknown_turns = CASE WHEN :unknown_turns > unknown_turns THEN :unknown_turns ELSE unknown_turns END
+       unknown_turns = CASE WHEN :unknown_turns > unknown_turns THEN :unknown_turns ELSE unknown_turns END,
+       charged_floor_usd = CASE WHEN :floor_usd > charged_floor_usd THEN :floor_usd ELSE charged_floor_usd END
  WHERE workspace_id = :workspace_id AND lane_id = :lane_id AND generation = :generation`)
 
 	stmtEndGeneration = define("generation.end",
@@ -53,7 +56,7 @@ VALUES (:workspace_id, :lane_id, :generation, :start_reason, :handoff_in, :now)`
 
 	stmtListGenerations = define("generation.list",
 		`SELECT lane_id, generation, start_reason, end_reason, session_id, handoff_in, handoff_out, started_at, ended_at,
-       last_response_at, pack_id, pack_version, baseline_size, cost_usd, known_turns, unknown_turns
+       last_response_at, pack_id, pack_version, baseline_size, cost_usd, known_turns, unknown_turns, charged_floor_usd
   FROM generations
  WHERE workspace_id = :workspace_id AND lane_id = :lane_id
  ORDER BY generation`)
@@ -122,6 +125,9 @@ func (t laneTx) Baseline(lane string, number, tokens int64) error {
 func (t laneTx) ReportUsage(lane string, number int64, usage ledger.GenerationUsage) (bool, error) {
 	p := t.generationParams(lane, number)
 	p["cost_usd"], p["known_turns"], p["unknown_turns"] = usage.CostUSD, usage.KnownTurns, usage.UnknownTurns
+	// The floor is what this report charges the generation, and never what a reporter says it is.
+	usage.FloorUSD = 0
+	p["floor_usd"] = ledger.Charge([][]ledger.GenerationUsage{{usage}}).ChargedUSD
 	n, err := t.exec(stmtGenerationUsage, p)
 	return n > 0, err
 }
@@ -149,7 +155,7 @@ func (t laneTx) Generations(lane string) ([]ledger.Generation, error) {
 		var reason string
 		var ended, responded sql.NullInt64
 		if err := rows.Scan(&g.Lane, &g.Number, &reason, &g.EndReason, &g.SessionID, &g.HandoffIn, &g.HandoffOut, &g.StartedAt, &ended, &responded,
-			&g.PackID, &g.PackVersion, &g.BaselineTokens, &g.Usage.CostUSD, &g.Usage.KnownTurns, &g.Usage.UnknownTurns); err != nil {
+			&g.PackID, &g.PackVersion, &g.BaselineTokens, &g.Usage.CostUSD, &g.Usage.KnownTurns, &g.Usage.UnknownTurns, &g.Usage.FloorUSD); err != nil {
 			return nil, err
 		}
 		g.StartReason, g.EndedAt, g.LastResponseAt = ledger.StartReason(reason), ended.Int64, responded.Int64

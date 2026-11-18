@@ -243,7 +243,7 @@ func checkGenerationUsageReports(r *Rig) error {
 		}
 	}
 	generations, err := r.generationsOf(s.store, s.lane)
-	if err != nil || len(generations) != 1 || generations[0].Usage != (ledger.GenerationUsage{CostUSD: 0.3, KnownTurns: 3, UnknownTurns: 1}) {
+	if err != nil || len(generations) != 1 || reported(generations[0].Usage) != (ledger.GenerationUsage{CostUSD: 0.3, KnownTurns: 3, UnknownTurns: 1}) {
 		return Violatedf("the generation reads %+v after two reports: %v", generations, err)
 	}
 	spend, err := r.spendOf(s.store, s.grant.WorkOrder)
