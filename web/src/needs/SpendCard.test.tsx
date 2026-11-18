@@ -108,6 +108,14 @@ describe("a spend stop in Needs you", () => {
     expect(names(theCard())).not.toContain("Resume once");
     expect(theCard().textContent).toContain("Nothing sizes one more generation for this work order, so Resume once is not offered. Raise its limit instead.");
   });
+
+  it("offers a block and no replanning for a review, which has no contract to plan again", () => {
+    const item = stop();
+    item.spend.actions = item.spend.actions.filter((action) => action !== "spend_replan");
+    show(item);
+    expect(names(theCard())).toContain("Block");
+    expect(names(theCard())).not.toContain("Send to replanning");
+  });
 });
 
 // summaryOf is the line that names a lane and opens what it left.
@@ -134,6 +142,22 @@ describe("what each lane left", () => {
       expect(text).toContain(line);
     }
     expect(within(lanes).getByRole("link", { name: "Open lane lane-wo-stop" }).getAttribute("href")).toContain("/lane?id=lane-wo-stop");
+  });
+
+  it("renders what an agent left out of a narrative or a digest as nothing, and does not fall over on a null", async () => {
+    const item = stop();
+    const lane = item.spend.lanes[0]!;
+    // A narrative may name only some of its lists, and a stored digest may lack fields, so each reads null.
+    const sparse = { done: ["the budget type"], in_progress: null, next_steps: null, risks: null, carries_next_step: false };
+    lane.handoff = { generation: 1, reason: "spend_limit", narrative: sparse as unknown as NonNullable<SpendLane["handoff"]>["narrative"] };
+    lane.digest = { ...lane.digest!, tool_calls: null, files_written: null, files_written_more: undefined } as unknown as SpendLane["digest"];
+    show(item);
+    const lanes = within(theCard()).getByRole("region", { name: "What the lanes left" });
+    const summary = summaryOf(lanes, "lane-wo-stop");
+    expect(summary.textContent).toBe("Lane lane-wo-stop, generation 1: 9 turns · 0 tool calls · 0 files written");
+    await userEvent.click(summary);
+    expect(lanes.textContent).toContain("the budget type");
+    expect(within(lanes).getAllByText("nothing")).toHaveLength(3);
   });
 
   it("is one item however many lanes served the work order", () => {

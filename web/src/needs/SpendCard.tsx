@@ -14,13 +14,15 @@ import { useAct } from "./useAct";
 
 const plural = (count: number, noun: string) => `${count} ${noun}${count === 1 ? "" : "s"}`;
 
-// A narrative part is a list of what the agent wrote, or the word that it wrote nothing.
-function Part({ name, lines }: { name: string; lines: string[] }) {
+// A narrative part is a list of what the agent wrote, or the word that it wrote nothing. An agent may leave a list out,
+// so a missing one reads as empty.
+function Part({ name, lines }: { name: string; lines: string[] | null | undefined }) {
+  const written = lines ?? [];
   return (
     <Fact name={name}>
-      {lines.length ? (
+      {written.length ? (
         <ul className="criteria">
-          {lines.map((line, at) => (
+          {written.map((line, at) => (
             <li key={at}>{line}</li>
           ))}
         </ul>
@@ -48,8 +50,9 @@ function digestWords(lane: SpendLane): string {
   if (!digest) {
     return "no digest";
   }
-  const calls = Object.values(digest.tool_calls).reduce((sum, count) => sum + count, 0);
-  const files = digest.files_written.length + (digest.files_written_more ?? 0);
+  // A stored digest may lack either collection, so a missing one counts nothing.
+  const calls = Object.values(digest.tool_calls ?? {}).reduce((sum, count) => sum + count, 0);
+  const files = (digest.files_written ?? []).length + (digest.files_written_more ?? 0);
   return [plural(digest.turns, "turn"), plural(calls, "tool call"), plural(files, "file") + " written", digest.complete ? "" : "may be incomplete"].filter(Boolean).join(" · ");
 }
 
