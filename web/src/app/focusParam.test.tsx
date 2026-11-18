@@ -4,12 +4,13 @@ import { describe, expect, it } from "vitest";
 import { openPage } from "../opening";
 import { serveViews } from "../testing";
 
-// An address that says `?focus=Name` lands with the control of that name focused, so the command palette can take a
-// member to a control that has no dialog of its own. The control is pressed by the member, never by the address. The
-// golden floor holds two machines, each with a Start orchestrator button, and the first of them takes focus.
+// An address that says `?focus=Name` lands with the control whose name starts with Name focused, so the command palette
+// can take a member to a control that has no dialog of its own. The control is pressed by the member, never by the
+// address. The golden floor holds two machines, each with a button named Start orchestrator on that machine, and the
+// first of them takes focus.
 
-// firstStart is the first Start orchestrator button on the page.
-const firstStart = async () => (await screen.findAllByRole("button", { name: "Start orchestrator" }))[0];
+// firstStart is the first button on the page whose name starts with Start orchestrator, as the address matches it.
+const firstStart = async () => (await screen.findAllByRole("button", { name: /^Start orchestrator/ }))[0];
 
 describe("an address that names a control to focus", () => {
   it("focuses the control once the view has read, and leaves the address without the name", async () => {
