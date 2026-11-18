@@ -12,7 +12,7 @@ A notice carries these fields and nothing else:
 | `project` | The name of the project it waits in, which a member chose |
 | `attempt` | Which attempt this is, from 1 |
 | `kind` | `questions`, `approval`, `effect`, `work`, one of the CI kinds below, or one of the spend kinds below |
-| `reason` | For work, why it waits: `lapsed`, `blocked`, `failed`, `tripped`, `stalled`, `long_parked`, `worker_behind`, `acceptance`, `human_resume`, or `history_missing`, an adoption branch that merged without the design history it imported. For a spend alert, the kind of thing it is about, such as `project_day` |
+| `reason` | For work, why it waits: `lapsed`, `blocked`, `failed`, `tripped`, `stalled`, `long_parked`, `worker_behind`, `acceptance`, `human_resume`, `history_missing`, an adoption branch that merged without the design history it imported, or `history_unread`, an adoption branch that merged and whose base could not be checked for that history. For a spend alert, the kind of thing it is about, such as `project_day` |
 | `since` | When it began to wait, in milliseconds since the epoch |
 | `text` | The project's name, then one fixed sentence for that kind and reason, such as "beta: A lane stopped, and it needs you." |
 

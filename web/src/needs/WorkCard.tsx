@@ -27,10 +27,11 @@ const reasonWords: Record<string, string> = {
   human_resume: "Its lane is parked until a person says go.",
   worker_behind: "Its worker must be upgraded before it can start its lane.",
   history_missing: "Its adoption branch merged without the design history it imported.",
+  history_unread: "Its adoption branch merged, and its base could not be checked for the design history it imported.",
 };
 
 // The reasons whose detail is the card's own words, shown under its lead rather than as what a lane said.
-const toldReasons = ["worker_behind", "history_missing"];
+const toldReasons = ["worker_behind", "history_missing", "history_unread"];
 
 const orchestratorWords: Record<string, string> = {
   tripped: "This orchestrator crashed too often, and its breaker stopped it. Questions wait until it runs.",

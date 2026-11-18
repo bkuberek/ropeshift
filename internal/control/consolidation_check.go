@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"ropeshift.com/ropeshift/internal/authority"
@@ -208,16 +209,25 @@ func (i *Intake) checkBase(ctx context.Context, scope ledger.WorkspaceID, m merg
 	return check
 }
 
-// HistoryGap is a merged consolidation whose base was last found without the design tip the adoption imported:
-// the work order, the check that found it, and when the base was first found without it.
+// HistoryGap is a merged consolidation whose base was last found without the design tip the adoption imported, or
+// could not be checked: the work order, the check, and when the base was first found that way.
 type HistoryGap struct {
 	WorkOrder workorders.WorkOrder
 	Check     ledger.ConsolidationCheck
 	Since     int64
 }
 
-// Detail says what is missing and how to bring it back, naming the branch and the commit.
+// Unread says the base could not be checked, rather than found without the tip.
+func (g HistoryGap) Unread() bool { return g.Check.Unread != "" }
+
+// Detail says what is missing and how to bring it back, naming the branch and the commit, or why the base could not
+// be checked.
 func (g HistoryGap) Detail() string {
+	if g.Unread() {
+		return fmt.Sprintf("Branch %s merged into %s, and ropeshift could not check that %s contains the design history the adoption imported: %s. "+
+			"It checks again later, after twice as long each time, up to once a day. If %s lacks that history, merge the design repository's tip into it with a merge commit.",
+			g.Check.Branch, cmp.Or(g.Check.Base, "its base"), cmp.Or(g.Check.Base, "the base"), g.Check.Unread, cmp.Or(g.Check.Base, "the base"))
+	}
 	return fmt.Sprintf("Branch %s merged into %s, and %s at %s does not contain %s, the design repository's tip that the adoption imported: "+
 		"the merge kept the files and dropped the design history, as a squash or a rebase merge does. %s "+
 		"Merge %s into %s with a merge commit to bring the history back; this clears once %s contains it.",
@@ -225,8 +235,9 @@ func (g HistoryGap) Detail() string {
 		g.Check.DesignTip, g.Check.Base, g.Check.Base)
 }
 
-// HistoryGaps lists every merged consolidation whose newest check found the base without the design tip, which
-// Needs you lists for a member, and the notices with it.
+// HistoryGaps lists every merged consolidation whose newest check found the base without the design tip, or could
+// not check it, which Needs you lists for a member, and the notices with it. Each is dated from the first check of
+// the checks since that found the base the same way.
 func HistoryGaps(tx ports.ReadTx) ([]HistoryGap, error) {
 	merged, err := mergedConsolidations(tx)
 	if err != nil {
@@ -235,16 +246,16 @@ func HistoryGaps(tx ports.ReadTx) ([]HistoryGap, error) {
 	var gaps []HistoryGap
 	for _, m := range merged {
 		check, _, checked := m.last()
-		if !checked || !check.Missing() {
+		if !checked || check.Contained {
 			continue
 		}
 		gap := HistoryGap{WorkOrder: m.order, Check: check}
-		for _, event := range m.checks {
+		for _, event := range slices.Backward(m.checks) {
 			var earlier ledger.ConsolidationCheck
-			if json.Unmarshal(event.Data, &earlier) == nil && earlier.Missing() {
-				gap.Since = event.RecordedAt
+			if json.Unmarshal(event.Data, &earlier) != nil || earlier.Missing() != check.Missing() {
 				break
 			}
+			gap.Since = event.RecordedAt
 		}
 		gaps = append(gaps, gap)
 	}

@@ -908,6 +908,25 @@ describe("waiting work", () => {
     expect(within(card).queryAllByRole("button")).toHaveLength(0);
   });
 
+  it("says a merged adoption's base could not be checked for the design history, and why", async () => {
+    const view = goldenNeedsYou();
+    const detail = "Branch lane/adopt merged into main, and ropeshift could not check that main contains the design history the adoption imported: the plan approval names no design tip.";
+    view.items = [
+      {
+        kind: "work",
+        id: "adopt-1",
+        since: view.as_of,
+        work: { reason: "history_unread", detail, work_order: { id: "adopt-1", kind: "plan", title: "Adopt shop", state: "done" }, actions: [] },
+      },
+    ];
+    show(view);
+    const card = await cardNamed(/Adopt shop/);
+    expect(within(card).getByText("Design history unchecked")).toBeTruthy();
+    expect(within(card).getByText("Its adoption branch merged, and its base could not be checked for the design history it imported.")).toBeTruthy();
+    expect(within(card).getByText(detail)).toBeTruthy();
+    expect(within(card).queryAllByRole("button")).toHaveLength(0);
+  });
+
   it("names the question a parked lane waits for, and keeps resume as the way past it", async () => {
     const sent = serveApi(() => ({ status: 200 }));
     show();

@@ -39,6 +39,8 @@ var AdoptChecks = []Check{
 	{"AS20", "a merge with the import's subject whose history begins at another first commit is no import, and the request says why", checkAnImportOfAnotherHistoryIsUnread},
 	{"AS21", "a design repository removed before the consolidation's approval is left as it is, and the approval goes on", checkADesignRepositoryRemovedBeforeApprovalIsLeftAsItIs},
 	{"AS22", "when the removed design repository was the planning repository, the workspace becomes the planning repository", checkTheWorkspacePlansWhenTheRemovedDesignRepositoryDid},
+	{"AS23", "a consolidation's merge commit the base refuses for a linear history holds with a reason that says so", checkAMergeCommitTheBaseRefusesSaysWhy},
+	{"AS24", "a merged consolidation whose base cannot be checked waits for a member, with why", checkAMergedConsolidationWithNoDesignTipIsTold},
 	{"AS25", "a consolidation lists at most a bounded number of colliding paths, and says the list is cut short", checkTheCollisionsAreCutShort},
 }
 

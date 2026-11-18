@@ -24,8 +24,12 @@ func historyNeeds(tx ports.ReadTx) ([]api.NeedItem, error) {
 // action: merging the tip into the base clears it at the next check.
 func historyNeed(gap control.HistoryGap) api.NeedItem {
 	order := gap.WorkOrder
+	reason := api.ReasonHistoryMissing
+	if gap.Unread() {
+		reason = api.ReasonHistoryUnread
+	}
 	return api.NeedItem{
 		Kind: api.NeedWork, ID: order.ID, Since: gap.Since,
-		Work: &api.WorkNeed{Reason: api.ReasonHistoryMissing, Detail: gap.Detail(), WorkOrder: &order, Actions: []string{}},
+		Work: &api.WorkNeed{Reason: reason, Detail: gap.Detail(), WorkOrder: &order, Actions: []string{}},
 	}
 }

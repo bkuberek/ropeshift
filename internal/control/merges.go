@@ -282,7 +282,8 @@ func (f integrationFacts) waiting() (workorders.Gate, *ledger.ForgeRequest) {
 		// A pull request whose head moved is reviewed again, which the rule decides from the head on record.
 		case last.Outcome == ledger.MergeStaleHead && f.record.Target() == ledger.ReviewOnPullRequest:
 		case last.Outcome != ledger.MergeMerged && !last.Outcome.Rework() && !f.retried(*last):
-			return workorders.Gate{Step: workorders.StepHold, Why: fmt.Sprintf("the merge of %s was refused: %s", short(f.commit()), last.Detail)}, last
+			why := fmt.Sprintf("the merge of %s was refused: %s", short(f.commit()), last.Detail) + mergeCommitRefused(f.order, f.base, last.Detail)
+			return workorders.Gate{Step: workorders.StepHold, Why: why}, last
 		}
 	}
 	gate := workorders.MergeGate(f.gateInput())

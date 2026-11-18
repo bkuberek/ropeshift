@@ -37,3 +37,16 @@ func TestAHistoryGapIsWorkThatNamesTheBranchAndTheMissingCommit(t *testing.T) {
 		t.Errorf("the notice reads %+v", notice)
 	}
 }
+
+// A merged consolidation whose base could not be checked waits under a reason of its own, saying why.
+func TestAnUncheckedBaseIsWorkThatSaysWhy(t *testing.T) {
+	gap := control.HistoryGap{
+		WorkOrder: workorders.WorkOrder{ID: "adopt-1", Kind: workorders.KindPlan, Title: "Adopt shop", State: workorders.Done, Adopt: true},
+		Check:     ledger.ConsolidationCheck{Branch: "lane/adopt", Base: "main", Unread: "the plan approval names no design tip"},
+		Since:     7,
+	}
+	item := historyNeed(gap)
+	if item.Work == nil || item.Work.Reason != api.ReasonHistoryUnread || !strings.Contains(item.Work.Detail, "the plan approval names no design tip") || !strings.Contains(item.Work.Detail, "lane/adopt") {
+		t.Errorf("the item reads %+v", item.Work)
+	}
+}

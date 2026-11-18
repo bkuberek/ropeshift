@@ -699,6 +699,73 @@ func checkTheWorkspacePlansWhenTheRemovedDesignRepositoryDid(r *Rig) error {
 	return nil
 }
 
+func checkAMergeCommitTheBaseRefusesSaysWhy(r *Rig) error {
+	p, err := newConsolidationMergeRig(r, ledger.ReviewOnBranch, ledger.ReviewApproves, ledger.MergeSquash, consolidating())
+	if err != nil {
+		return err
+	}
+	if _, err := p.approved(); err != nil {
+		return err
+	}
+	if _, err := p.tick(); err != nil {
+		return err
+	}
+	merge, err := p.oneMerge()
+	if err != nil {
+		return err
+	}
+	refusal := "remote: error: GH006: Protected branch update failed for refs/heads/main. remote: error: This branch must not contain merge commits."
+	if err := p.mergeCame(merge, ledger.MergeResult{Outcome: ledger.MergeRefused, Detail: refusal}); err != nil {
+		return err
+	}
+	held, err := p.openMergeRequest(authority.MergeHeld)
+	if err != nil {
+		return err
+	}
+	for _, want := range []string{refusal, "linear history", "merge commit"} {
+		if !strings.Contains(held.Summary, want) {
+			return Violatedf("the held merge says %q, which lacks %q", held.Summary, want)
+		}
+	}
+	return nil
+}
+
+func checkAMergedConsolidationWithNoDesignTipIsTold(r *Rig) error {
+	p, err := newConsolidationMergeRig(r, ledger.ReviewOnPullRequest, ledger.PersonMerges, ledger.MergeCommit, consolidating())
+	if err != nil {
+		return err
+	}
+	if err := p.report(p.opened(1, p.head)); err != nil {
+		return err
+	}
+	// The plan approval reads no branch, so it names no design tip.
+	if _, err := p.approved(); err != nil {
+		return err
+	}
+	if _, err := p.tick(); err != nil {
+		return err
+	}
+	merged := p.pullRequestAt(p.head)
+	merged.State, merged.MergeCommit, merged.MergedAt = ledger.PullRequestMerged, "squashed", "2026-11-18T10:00:00Z"
+	if err := p.read(merged); err != nil {
+		return err
+	}
+	git := fake.NewWorktrees()
+	git.Grow("/work/ws", "main")
+	starts := &control.Starts{Bases: git, Checkout: func(context.Context, ledger.WorkspaceID, string) (string, error) { return "/work/ws", nil }}
+	if err := control.NewIntake(p.store).Checking(starts).CheckConsolidations(r.Ctx, r.Scope); err != nil {
+		return err
+	}
+	gaps, err := r.historyGaps(p.store)
+	if err != nil {
+		return err
+	}
+	if len(gaps) != 1 || gaps[0].WorkOrder.ID != p.grant.WorkOrder || gaps[0].Check.Unread == "" || gaps[0].Check.Missing() || gaps[0].Since == 0 {
+		return Violatedf("a merged consolidation whose base could not be checked shows %+v", gaps)
+	}
+	return nil
+}
+
 func checkTheCollisionsAreCutShort(r *Rig) error {
 	s := r.Store()
 	w := r.startWorld(s)
