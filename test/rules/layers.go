@@ -84,7 +84,7 @@ func Classify(rel string) Layer {
 		return LayerEntry
 	case "ports":
 		return LayerPorts
-	case "control", "worker":
+	case "control", "worker", "practicerun":
 		return LayerApplication
 	case "adapters":
 		return LayerAdapter
