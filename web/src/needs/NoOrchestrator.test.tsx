@@ -72,6 +72,21 @@ describe("a question no orchestrator judged", () => {
     expect(trace?.textContent).toContain("No orchestrator worked this rung");
   });
 
+  it("calls the citations considered when an orchestrator judged rungs before it stopped", async () => {
+    serveFloor(floorWith());
+    const view = unjudgedView();
+    const batch = view.items.find((item): item is Extract<NeedItem, { kind: "questions" }> => item.kind === "questions");
+    const first = batch?.batch.items[0];
+    if (first) {
+      first.ladder_trace = [{ rung: 1, candidates: ["decision-1"], outcome: "no match" }, { rung: 2, outcome: "no match" }, ...unjudgedTrace.slice(2)];
+    }
+    show(view);
+    const group = await screen.findByRole("group", { name: "Should the budget hold across restarts?" });
+    expect(within(group).getByText("No orchestrator judged it")).toBeTruthy();
+    expect(within(group).getByText(/^Considered:/)).toBeTruthy();
+    expect(within(group).queryByText("Found by text, judged by nobody:")).toBeNull();
+  });
+
   it("offers to start an orchestrator on each worker whose orchestrator does not run, and starts the one pressed", async () => {
     const sent = serveFloor(floorWith());
     show(unjudgedView());

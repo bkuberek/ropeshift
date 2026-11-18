@@ -82,6 +82,11 @@ function Choice({ name, value, checked, recommended, onPick, label }: {
   );
 }
 
+// foundByText says every citation of an item is what the core found by text and judged nobody: no orchestrator finished
+// the item's ladder, and no rung that names a candidate is one an orchestrator ran before it stopped.
+const foundByText = (item: QuestionItem) =>
+  item.no_orchestrator === true && (item.ladder_trace ?? []).every((step) => !step.candidates?.length || step.outcome === "unjudged");
+
 // AnswerField is the control that answers one question: its options with the recommendation marked, and a
 // box for a person's own words. Needs you and the open questions both answer through it. A page that shows
 // the question's text beside it sets quiet, so the text stays the group's name and is not said twice. A batch
@@ -154,7 +159,7 @@ export function AnswerField({ item, draft, onChange, disabled, quiet = false, wh
       ) : null}
       {(item.citations ?? []).length > 0 ? (
         <p className="small muted question-cites">
-          {item.no_orchestrator ? "Found by text, judged by nobody:" : "Considered:"}{" "}
+          {foundByText(item) ? "Found by text, judged by nobody:" : "Considered:"}{" "}
           {(item.citations ?? []).map((citation) => (
             <RecordChip key={citation} id={citation} />
           ))}
