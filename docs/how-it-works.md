@@ -83,6 +83,18 @@ Each lane's hook also refuses a shell command that waits by construction, and te
 
 The hook applies the rules from the generation's policy file, so it refuses with the worker stopped and inside the lane's subagents. Each refusal is a `wait_denied` event on the work order with the rule's ID, the lane, and the generation, and never the command. A rule inside a script the lane runs is not seen. The settings are in [spend settings](set-up-projects.md#spend-settings).
 
+## A work order has a spend limit
+
+Every `change`, `rework`, and `review` work order has a soft limit and a hard limit on what it is charged, across every lane that served it, so a retry or a relaunch never starts a fresh count. Charged spend is the cost the generations reported at list price, plus each turn that reported none at the mean cost of the generation's known turns. The limits come from the work order's cost band, or from its size when it has none, and they are settings ([spend settings](set-up-projects.md#spend-settings)). A soft limit warns and stops nothing. The hard limit stops the lane:
+
+1. The worker reads the lane's spend at every report that shows what the session has spent so far, during a turn, and at the end of every turn. Once a report shows the work order at its hard limit, no tool call of the lane starts: the next one is refused with a reason that tells the lane to hand off.
+2. The lane is asked once to hand off. It spends nothing else: that one call is bounded by `handoff_timeout`, and a lane that does not answer in time hands off with only what the worker can record.
+3. The lane parks with the trigger `spend_limit`. It has no process and makes no model call. It wakes when the work order's hard limit is raised above what it was charged, or when a person resumes it. A raise, a new version of the spend policy, and a revert each settle that in the transaction that changes the limit, so the lane wakes once, and a raise that arrives while the lane is still parking is read at its parked commit. A worker that restarts in between still parks the lane, and keeps what stopped it, so the park never reads as a raise.
+
+A headless generation also starts with `--max-budget-usd`, set to what remains of the hard limit plus `budget_flag_headroom_share` of the limit, on a version whose qualification observed the flag ([qualification](qualification.md)). It is a backstop for a worker that is slow to stop the lane, and never the limit: the client counts only its own estimate and only its own process. A turn the client ends at that cap parks the lane the same way. A pane has no such flag, and a version that never passed the check runs on the worker's hold alone.
+
+A lane never sees its band, its limits, or what remains. It learns of a limit from the refusal at the hard stop and from nothing else. An orchestrator cannot raise a limit, and `lane_restart`, `lane_reset`, and `work_retry` are refused for work at its hard limit, with a reason that names the limit and no request for you to grant past it: raising the limit is the decision, and it is yours. Work a hard limit stopped is marked `spend_limited` in its delivery record, and every stop is an event on the work order's spend.
+
 ## Review
 
 An agent never approves its own work. When a lane finishes with a commit, ropeshift opens a review of that commit, and a second, read-only lane judges every criterion of the contract: `pass`, `fail`, or `cannot_judge`, each with reasons and citations to files and lines. A failed criterion sends the work back for another attempt, with the findings in its first prompt. After three failed reviews, the work waits for you ([who reviews a lane's work](onboarding.md#who-reviews-a-lanes-work)).
