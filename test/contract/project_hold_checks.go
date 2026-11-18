@@ -22,6 +22,88 @@ var ProjectHoldChecks = []Check{
 	{"PJ5", "a member raises a project window's limit with the limit before and after recorded, and nobody else may", checkRaiseAProjectLimit},
 	{"PJ6", "a lane a project's limit parked wakes once when the day ends, and once when a member raises the limit, and never twice", checkAProjectLimitWakesTheLaneOnce},
 	{"PJ7", "a worker's allowance carries the project's hold and says the project is limited, with no limit on the work order itself", checkTheAllowanceCarriesTheHold},
+	{"PJ8", "editing project_daily_limit and project_weekly_limit moves admission at once, both ways, and 0 is no limit", checkEditingALimitMovesAdmission},
+	{"PJ9", "a worker is offered none of a held project's work, and all of it once a member raises the limit", checkAHeldProjectOffersNothing},
+}
+
+func checkAHeldProjectOffersNothing(r *Rig) error {
+	s, err := newStatusRig(r)
+	if err != nil {
+		return err
+	}
+	ready, err := r.Ready(s.store)
+	if err != nil {
+		return err
+	}
+	offered := func() (bool, error) {
+		work, err := s.plane.Offered(r.Ctx, s.auth.WorkerID)
+		for _, order := range work {
+			if order.ID == ready {
+				return true, err
+			}
+		}
+		return false, err
+	}
+	if has, err := offered(); err != nil || !has {
+		return Violatedf("a project with no limit offers its ready work: %v, %v", has, err)
+	}
+	if err := r.projectPolicy(s.store, 2, "project_daily_limit", "10"); err != nil {
+		return err
+	}
+	if err := r.projectSpent(s.store, 10); err != nil {
+		return err
+	}
+	if has, err := offered(); err != nil || has {
+		return Violatedf("a project at its daily limit offers its ready work: %v, %v", has, err)
+	}
+	if _, err := control.NewSpend(s.store).RaiseProject(r.Ctx, r.Scope, control.ProjectRaise{Window: ledger.WindowDay, ToUSD: 20}, theMember); err != nil {
+		return err
+	}
+	if has, err := offered(); err != nil || !has {
+		return Violatedf("a project whose limit a member raised does not offer its ready work: %v, %v", has, err)
+	}
+	return nil
+}
+
+func checkEditingALimitMovesAdmission(r *Rig) error {
+	if r.DB.FreezeClock == nil {
+		return nil
+	}
+	defer r.DB.FreezeClock(0)
+	s := r.Store()
+	if _, err := r.freezeAtNoon(s); err != nil {
+		return err
+	}
+	if err := r.projectSpent(s, 6); err != nil {
+		return err
+	}
+	for version, step := range []struct {
+		pairs  []string
+		window string
+		why    string
+	}{
+		{[]string{"project_daily_limit", "10"}, "", "a daily limit above what the day spent"},
+		{[]string{"project_daily_limit", "5"}, ledger.WindowDay, "a daily limit lowered under what the day spent"},
+		{[]string{"project_daily_limit", "20"}, "", "the daily limit raised again"},
+		{[]string{"project_daily_limit", "0"}, "", "the daily limit taken away"},
+		{[]string{"project_weekly_limit", "6"}, ledger.WindowWeek, "a weekly limit at what the week spent"},
+		{[]string{"project_weekly_limit", "0", "project_daily_limit", "6"}, ledger.WindowDay, "only a daily limit, at what the day spent"},
+	} {
+		if err := r.projectPolicy(s, int64(version+2), step.pairs...); err != nil {
+			return err
+		}
+		refusal, err := r.claimRefusal(s)
+		if err != nil {
+			return err
+		}
+		switch {
+		case step.window == "" && refusal != nil:
+			return Violatedf("%s: a claim was refused: %v", step.why, refusal)
+		case step.window != "" && (refusal == nil || refusal.Window != step.window):
+			return Violatedf("%s: a claim was answered %v, want a refusal by the %s", step.why, refusal, step.window)
+		}
+	}
+	return nil
 }
 
 const dayMs = int64(24 * time.Hour / time.Millisecond)
@@ -341,7 +423,7 @@ func checkAProjectLimitWakesTheLaneOnce(r *Rig) error {
 	if n, err := r.firings(s, byDay.Wake); err != nil || n != 1 {
 		return Violatedf("the wake fired %d times when the day ended, want once: %v", n, err)
 	}
-	if err := r.state(s, byDay.Holder.Lease.WorkOrder, workorders.Ready); err != nil {
+	if err := r.state(s, byDay.WorkOrder, workorders.Ready); err != nil {
 		return err
 	}
 	// A raise: the lane of the new day wakes once, at the raise, and the day's end finds it woken already.
