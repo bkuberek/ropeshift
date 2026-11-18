@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/crashpoint"
@@ -218,6 +219,9 @@ func draftAnswer(question string, answer questions.Answer, actor ledger.Actor) (
 	}
 	status := questions.DecisionDecided
 	if answer.Assumed {
+		if strings.TrimSpace(answer.Rationale) == "" {
+			return questions.Decision{}, fmt.Errorf("%w: an assumption states why it is assumed", questions.ErrInvalid)
+		}
 		status = questions.DecisionAssumed
 	}
 	return questions.NewDecision(questions.Decision{

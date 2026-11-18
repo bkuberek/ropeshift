@@ -186,6 +186,9 @@ func checkUnjudgedMemberWorks(r *Rig) error {
 	if _, err := ops.Answer(r.Ctx, r.Scope, answered, questions.Answer{DecisionID: r.ID("d"), Statement: "Two retries."}, r.Actor); err != nil {
 		return err
 	}
+	if _, err := ops.Answer(r.Ctx, r.Scope, assumed, questions.Answer{DecisionID: r.ID("d"), Statement: "The home region.", Assumed: true}, r.Actor); !errors.Is(err, questions.ErrInvalid) {
+		return Violatedf("a member's assumption with no reason: %v", err)
+	}
 	assumption, err := ops.Answer(r.Ctx, r.Scope, assumed, questions.Answer{DecisionID: r.ID("d"), Statement: "The home region.", Rationale: "It is where the data lives.", Assumed: true}, r.Actor)
 	if err != nil {
 		return err
@@ -290,6 +293,20 @@ func checkUnjudgedMergeRules(r *Rig) error {
 	}
 	if err := ops.MergeQuestion(r.Ctx, r.Scope, one.QuestionID, one.QuestionID, r.Actor); !errors.Is(err, questions.ErrInvalid) {
 		return Violatedf("a question merged into itself: %v", err)
+	}
+	for _, into := range []string{"", "not a plain id"} {
+		if err := ops.MergeQuestion(r.Ctx, r.Scope, one.QuestionID, into, r.Actor); !errors.Is(err, questions.ErrInvalid) {
+			return Violatedf("a question merged into %q: %v", into, err)
+		}
+	}
+	twin, err := r.ask(s, "How many retries does a lane get?", "lane-twin", nil)
+	if err != nil {
+		return err
+	}
+	for range 2 {
+		if err := ops.MergeQuestion(r.Ctx, r.Scope, twin.QuestionID, other.QuestionID, r.Actor); err != nil {
+			return Violatedf("a merge, sent again, was refused: %v", err)
+		}
 	}
 	if err := ops.Dismiss(r.Ctx, r.Scope, other.QuestionID, r.Actor); err != nil {
 		return err
