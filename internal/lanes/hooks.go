@@ -19,7 +19,8 @@ type AskedQuestion struct {
 }
 
 // HookEvent is what a hook forwards. It holds only what the worker merges on, so no
-// prompt, compaction summary, or tool input leaves the session, apart from Asked.
+// prompt, compaction summary, or tool input leaves the session, apart from Asked and the Path of a file-writing
+// call.
 type HookEvent struct {
 	Lane       string `json:"lane,omitempty"`
 	Generation int64  `json:"generation,omitempty"`
@@ -40,8 +41,12 @@ type HookEvent struct {
 	Status *StatusReport `json:"status,omitempty"`
 	// Asked is what a question tool call asked, on a lane that defers it.
 	Asked []AskedQuestion `json:"asked,omitempty"`
-	// Digest names the call a tool event is about, which is all a hook forwards of its input.
+	// Digest names the call a tool event is about, which is all a hook forwards of the call's input apart from
+	// Path.
 	Digest string `json:"digest,omitempty"`
+	// Path is the path a file-writing tool is called with, on its `PreToolUse`. It is the one thing a hook takes
+	// from a call's input besides a question, and it is what a generation's digest lists as written.
+	Path string `json:"path,omitempty"`
 	// Message names the message a prompt opened with, which is the admission signal. It is the
 	// one thing a hook takes from a prompt.
 	Message string `json:"message,omitempty"`
@@ -94,7 +99,9 @@ type hookPayload struct {
 	Model            string `json:"model"`
 	Prompt           string `json:"prompt"`
 	ToolInput        struct {
-		Questions []struct {
+		FilePath     string `json:"file_path"`
+		NotebookPath string `json:"notebook_path"`
+		Questions    []struct {
 			Question string `json:"question"`
 			Options  []struct {
 				Label string `json:"label"`
@@ -186,6 +193,9 @@ func NewHookEvent(event string, input []byte) HookEvent {
 		out.Subject = payload.SessionID
 	}
 	out.Message = messages.ReadFirstLine(payload.Prompt)
+	if event == EventPreToolUse {
+		out.Path = WrittenPath(payload.ToolName, payload.ToolInput.FilePath, payload.ToolInput.NotebookPath)
+	}
 	if payload.ToolName == ToolQuestion {
 		for _, question := range payload.ToolInput.Questions {
 			asked := AskedQuestion{Text: question.Question}

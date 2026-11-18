@@ -139,6 +139,7 @@ func crashMatrix() []crashCase {
 		dispatchCase(),
 		laneEndCase(),
 		workerLaneCase(),
+		workerDigestCase(),
 		fencedWriteCase(),
 		laneHandoffCase(),
 		intakeCase("intake", []string{"polled"}),

@@ -69,6 +69,10 @@ func TestJournalContract(t *testing.T) {
 		{"a word about an attempt that moved on changes no effect", checkVerdictOnAnOldAttempt},
 		{"a generation binds once", checkGenerationBinds},
 		{"progress round trips and survives a save", checkLaneProgress},
+		{"a digest is kept as it grows and is final once its generation is over", checkDigestSaves},
+		{"a digest and the event that carries it are recorded together, once", checkDigestRecordsOnce},
+		{"only an ended generation's unrecorded digest is left for a restart", checkUnrecordedDigests},
+		{"a forgotten lane loses its digests", checkForgottenLanesLoseTheirDigests},
 	}
 	for _, backend := range backends {
 		for _, check := range checks {

@@ -151,6 +151,9 @@ func (w *Worker) markUnknown(ctx context.Context) error {
 	w.marked.Do(func() {
 		_, err = w.journal.MarkUnknown(ctx)
 		crashpoint.Hit("worker.reconcile", "marked")
+		if err == nil {
+			err = w.recordLeftDigests(ctx)
+		}
 	})
 	return err
 }

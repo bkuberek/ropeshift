@@ -511,6 +511,8 @@ type LaneReader interface {
 	Handoff(lane string, generation int64) (ledger.HandoffRecord, error)
 	// Checkpoint returns what one parked generation left, or ErrNotFound.
 	Checkpoint(lane string, generation int64) (ledger.Checkpoint, error)
+	// Digest returns the digest of one generation of a lane or an assistant's conversation, or ErrNotFound.
+	Digest(ownerKind, ownerID string, generation int64) (ledger.GenerationDigest, error)
 	// EasingDue lists the lanes whose preferred worker's first claim has run out at a time. A
 	// tick reads this with no lock, so Ease decides each one.
 	EasingDue(now int64) ([]string, error)
@@ -574,6 +576,9 @@ type LaneWriter interface {
 	EndGeneration(lane string, number int64, reason string) error
 	// SaveHandoff keeps one generation's handoff once, and names it on that generation.
 	SaveHandoff(record ledger.HandoffRecord) error
+	// SaveDigest keeps one generation's digest once. A second digest of the same owner and generation
+	// changes nothing.
+	SaveDigest(digest ledger.GenerationDigest) error
 }
 
 // WakeReader reads wake conditions and signals.
@@ -1184,6 +1189,8 @@ type WorkerReader interface {
 	JoinGrant(id string) (ledger.JoinGrant, error)
 	// Orchestrator returns one worker's orchestrator, or ErrNotFound.
 	Orchestrator(worker string) (ledger.Orchestrator, error)
+	// OrchestratorDigest returns the digest of one generation of an orchestrator, or ErrNotFound.
+	OrchestratorDigest(orchestrator string, generation int64) (ledger.GenerationDigest, error)
 	// Autonomy returns what the ledger holds of a worker beyond the policy, which is a row with only
 	// its worker's ID for a worker nobody chose anything for.
 	Autonomy(worker string) (authority.WorkerAutonomy, error)
@@ -1201,6 +1208,9 @@ type WorkerWriter interface {
 	WorkerReader
 	// SaveOrchestrator writes an orchestrator's projection.
 	SaveOrchestrator(ledger.Orchestrator) error
+	// SaveOrchestratorDigest keeps one generation's digest of an orchestrator once. A second digest of the
+	// same orchestrator and generation changes nothing.
+	SaveOrchestratorDigest(digest ledger.GenerationDigest) error
 	// SaveAutonomy writes what the ledger holds of a worker. The store refuses an acknowledgement
 	// from anyone but a member.
 	SaveAutonomy(authority.WorkerAutonomy) error

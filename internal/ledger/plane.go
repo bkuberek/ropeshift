@@ -573,6 +573,10 @@ const (
 	UploadGenerationResponded = "generation_responded"
 	// UploadGenerationBaseline keeps what a generation held at its first call.
 	UploadGenerationBaseline = "generation_baseline"
+	// UploadGenerationDigest carries what a generation did, with the generation's end. It passes no fence,
+	// because what a generation did stays true after its lane moved on, and the ledger keeps the first
+	// digest of a generation.
+	UploadGenerationDigest = "generation_digest"
 	// UploadMessage is a worker's word on one message. It passes no fence, because what happened
 	// to a message stays true after its lane moved on.
 	UploadMessage = "message_report"

@@ -1,6 +1,7 @@
 package claudecode
 
 import (
+	"bytes"
 	"encoding/json"
 	"strings"
 
@@ -25,15 +26,19 @@ const percentOfUtilization = 100
 // streamLine holds the fields the driver reads from one stream-json line. It never
 // reads message content, and an unknown type is ignored.
 type streamLine struct {
-	Type            string       `json:"type"`
-	Subtype         string       `json:"subtype"`
-	SessionID       string       `json:"session_id"`
-	Model           string       `json:"model"`
-	UUID            string       `json:"uuid"`
-	IsReplay        bool         `json:"isReplay"`
-	IsError         bool         `json:"is_error"`
-	TerminalReason  string       `json:"terminal_reason"`
-	TotalCostUSD    float64      `json:"total_cost_usd"`
+	Type           string  `json:"type"`
+	Subtype        string  `json:"subtype"`
+	SessionID      string  `json:"session_id"`
+	Model          string  `json:"model"`
+	UUID           string  `json:"uuid"`
+	IsReplay       bool    `json:"isReplay"`
+	IsError        bool    `json:"is_error"`
+	TerminalReason string  `json:"terminal_reason"`
+	TotalCostUSD   float64 `json:"total_cost_usd"`
+	// DurationMs and DurationAPIMs are a `result`'s figures: the turn's duration, and the session's running
+	// total of API time. A line that names none leaves them nil.
+	DurationMs      *int64       `json:"duration_ms"`
+	DurationAPIMs   *int64       `json:"duration_api_ms"`
 	Usage           lanes.Usage  `json:"usage"`
 	ParentToolUseID *string      `json:"parent_tool_use_id"`
 	Event           *streamEvent `json:"event"`
@@ -62,12 +67,16 @@ type streamMessage struct {
 	ID      string      `json:"id"`
 	Usage   lanes.Usage `json:"usage"`
 	Content []struct {
-		Type  string `json:"type"`
-		ID    string `json:"id"`
-		Name  string `json:"name"`
-		Text  string `json:"text"`
+		Type string `json:"type"`
+		ID   string `json:"id"`
+		Name string `json:"name"`
+		Text string `json:"text"`
+		// Input is read for the agent a call starts and for the path a file-writing call names, and for no
+		// other field of a call.
 		Input struct {
 			SubagentType string `json:"subagent_type"`
+			FilePath     string `json:"file_path"`
+			NotebookPath string `json:"notebook_path"`
 		} `json:"input"`
 	} `json:"content"`
 }
@@ -124,6 +133,8 @@ type parsed struct {
 	started map[string]string
 	parent  string
 	usage   lanes.Usage
+	// tools are the calls an assistant message made, a subagent's included.
+	tools []lanes.ToolUse
 }
 
 func parseLine(raw []byte, windows bool) (parsed, error) {
@@ -150,12 +161,14 @@ func parseLineOf(raw []byte, windows, replies bool) (parsed, error) {
 			return parsed{useful: true, event: ports.DriverEvent{Kind: ports.EventLimit, Detail: reading.Status, Usage: &reading}}, nil
 		}
 	case "assistant":
+		out, replied := parsed{}, false
 		if replies {
-			if reply, ok := parseReply(line); ok {
-				return reply, nil
-			}
+			out, replied = parseReply(line)
 		}
-		return parseAssistant(line), nil
+		if !replied {
+			out = parseAssistant(line)
+		}
+		return withTools(out, toolUses(line)), nil
 	case "user":
 		if line.IsReplay && line.UUID != "" {
 			return parsed{useful: true, event: ports.DriverEvent{Kind: ports.EventInputAdmitted, InputID: line.UUID}}, nil
@@ -210,6 +223,43 @@ func parseAssistant(line streamLine) parsed {
 	return parsed{started: started}
 }
 
+// toolUseMarker is what an assistant message holds when it made a call, so a message of text alone is never
+// decoded for calls.
+var toolUseMarker = []byte(`"tool_use"`)
+
+// toolUses reads the calls an assistant message made, a subagent's among them, and takes from each its tool's
+// name and, for a file-writing tool, the path it was called with. The rest of a call's input stays unread.
+func toolUses(line streamLine) []lanes.ToolUse {
+	if !bytes.Contains(line.Message, toolUseMarker) {
+		return nil
+	}
+	var message streamMessage
+	if json.Unmarshal(line.Message, &message) != nil {
+		return nil
+	}
+	var out []lanes.ToolUse
+	for _, block := range message.Content {
+		if block.Type != "tool_use" || block.Name == "" {
+			continue
+		}
+		out = append(out, lanes.ToolUse{Name: block.Name, Path: lanes.WrittenPath(block.Name, block.Input.FilePath, block.Input.NotebookPath)})
+	}
+	return out
+}
+
+// withTools gives a line the calls it made. A line that has nothing else to say still says that, so no call is
+// lost to a line the driver would otherwise skip.
+func withTools(p parsed, tools []lanes.ToolUse) parsed {
+	if len(tools) == 0 {
+		return p
+	}
+	p.tools, p.event.Tools = tools, tools
+	if !p.useful {
+		p.useful, p.event.Kind = true, ports.EventToolUse
+	}
+	return p
+}
+
 // parseReply reads the text of one message of an assistant's session: its text blocks joined, under the
 // vendor message's ID. A message of a subagent, and one with only tool calls or thinking, holds no reply.
 func parseReply(line streamLine) (parsed, bool) {
@@ -247,7 +297,10 @@ func parseStreamEvent(line streamLine) parsed {
 // parseResult ends a turn. The driver reads this line and not the exit code, because
 // SIGINT exits 0 with `is_error` true.
 func parseResult(line streamLine) parsed {
-	turn := ports.TurnResult{Status: ports.TurnCompleted, Usage: line.Usage, Deferred: line.StopReason == stopDeferred}
+	turn := ports.TurnResult{
+		Status: ports.TurnCompleted, Usage: line.Usage, Deferred: line.StopReason == stopDeferred,
+		DurationMs: line.DurationMs, APIMs: line.DurationAPIMs,
+	}
 	stopped := false
 	switch {
 	case line.TerminalReason == abortedStreaming:
