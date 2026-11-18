@@ -49,6 +49,16 @@ A project of one repository needs none of the extra parts: that repository is it
 
 Every shape also writes `.gitignore`, `SECURITY.md`, and `CODEOWNERS`, and a monorepo and a repository a `.pre-commit-config.yaml`. The project is named after the folder. When the folder has no repository of its own, the printed commands make its first commit first, because a repository is registered by its first commit.
 
+With no shape, `ropeshift new` asks first, in plain words, whether the project will live in one repository or in several, and writes the monorepo for one and a workspace for several. It can also make each repository's first commit and give each a remote, a URL or a new repository on GitHub ([create a new project's repository on GitHub](github.md#create-a-new-projects-repository-on-github)). In a workspace each new code repository is written at `repos/<name>` from the repository shape's files, and the manifest lists it, so approving the first plan registers it.
+
+## Growing a project
+
+The model does not change as a project grows, so each step adds files and settings and moves nothing that exists:
+
+1. **One repository.** Start it with `ropeshift new monorepo`, whose `plan/` sits beside the code. That repository is the planning repository.
+2. **A second repository.** Keep the first as the planning repository and add a manifest, `plan/repositories.md`, that lists the second at its path, or restructure into a workspace with `ropeshift adopt --restructure` ([adopt an existing project](adopt.md)). A new code repository for a project planned elsewhere starts with `ropeshift new repository`.
+3. **Several repositories.** A workspace is the planning repository, with each code repository cloned into its ignored `repos/` folder and listed in the manifest. `ropeshift new workspace` starts one, and `ropeshift adopt --restructure` writes the files a layout lacks.
+
 ## Why each part is where it is
 
 | Part | Why |
