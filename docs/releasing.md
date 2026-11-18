@@ -10,7 +10,7 @@ A release is one binary for each platform, built from a tag on `main` by [GoRele
 |----------|------------|
 | `ropeshift_<version>_<os>_<arch>.tar.gz` | The binary, `LICENSE.md`, and `README.md`, for macOS and Linux on arm64 and amd64 |
 | `checksums.txt` | The SHA-256 of every archive and package |
-| `.deb` and `.rpm` packages | For Linux on arm64 and amd64. They install `/usr/bin/ropeshift`, the `/usr/bin/ropeshiftd` link, and the license and readme under `/usr/share/doc/ropeshift`. They recommend git and tmux |
+| `.deb` and `.rpm` packages | For Linux on arm64 and amd64. They install `/usr/bin/ropeshift`, the `/usr/bin/ropeshiftd` link, and the license and readme under `/usr/share/doc/ropeshift`. They depend on git 2.31.0 or newer, and recommend tmux |
 | The Homebrew formula | Rendered from the checksums for the project's tap |
 | The tag | `v<version>`, on the commit where the release pull request merged into `main`. Every artifact is built from it |
 

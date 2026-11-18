@@ -137,6 +137,9 @@ func (c *invocation) initMachine(args []string) int {
 	if c.doctor == nil || c.startDaemon == nil || c.stateDir == "" {
 		return c.usageError("this build cannot set up a machine")
 	}
+	if code := c.requireGit(); code != ExitOK {
+		return code
+	}
 	client := c.client()
 	defer client.Close()
 	var result initResult

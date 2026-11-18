@@ -69,8 +69,16 @@ nfpms:
     formats: [deb, rpm]
     bindir: /usr/bin
     section: devel
+    # git 2.31.0 is the oldest git ropeshift runs on (internal/lanes/git_version.go). Debian and Ubuntu number their
+    # git packages with the epoch 1, so the deb constraint names it: without it, any git would satisfy the constraint.
+    overrides:
+      deb:
+        dependencies:
+          - git (>= 1:2.31.0)
+      rpm:
+        dependencies:
+          - git >= 2.31.0
     recommends:
-      - git
       - tmux
     contents:
       - src: ropeshift

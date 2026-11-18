@@ -121,6 +121,9 @@ func (c *invocation) newFolder(shape projectfiles.Shape, args []string) int {
 	if err != nil {
 		return c.finish(err, nil, nil)
 	}
+	if code := c.requireGit(); code != ExitOK {
+		return code
+	}
 	result := newResult{Path: folder, Project: data.Project, Written: []string{}, Left: []string{}}
 	if err := writeAbsent(folder, files, &result); err != nil {
 		return c.finish(err, nil, nil)

@@ -50,6 +50,9 @@ func (c *invocation) adopt(args []string) int {
 	if *depth < 1 {
 		return c.usageError("--depth is at least 1")
 	}
+	if code := c.requireGit(); code != ExitOK {
+		return code
+	}
 	root, identity, code := c.repositoryRunIn()
 	if code != ExitOK {
 		return code
