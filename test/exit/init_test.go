@@ -51,13 +51,15 @@ func TestInitRefusesACLIThatFailsItsVersionCheck(t *testing.T) {
 				t.Errorf("init reads a CLI that failed its version check as something else:\n%s", stdout)
 			}
 			code, stdout, stderr = in.run("worker", "doctor")
-			// The doctor's driver line comes first, and its worktree section, the built-in root with nothing
-			// inside a clone, follows.
+			// The doctor's driver line comes first, then its git line, which names the minimum, and its worktree
+			// section, the built-in root with nothing inside a clone, follows.
 			want := fmt.Sprintf(doctorFailedCheck, tt.how)
 			rest, found := strings.CutPrefix(stdout, want)
-			if code != cli.ExitError || !found || !strings.HasPrefix(rest, "Worktree root: ") ||
-				!strings.HasSuffix(rest, "{project}/{repo} (the built-in root)\n") || strings.Count(rest, "\n") != 1 {
-				t.Errorf("the doctor: exit %d, want %d and %q then the worktree root\nstdout %q\nstderr %s", code, cli.ExitError, want, stdout, stderr)
+			gitLine, worktree, _ := strings.Cut(rest, "\n")
+			if code != cli.ExitError || !found || !strings.HasPrefix(gitLine, "git\t") || !strings.HasSuffix(gitLine, "\tminimum 2.31.0") ||
+				!strings.HasPrefix(worktree, "Worktree root: ") || !strings.HasSuffix(worktree, "{project}/{repo} (the built-in root)\n") ||
+				strings.Count(worktree, "\n") != 1 {
+				t.Errorf("the doctor: exit %d, want %d and %q then the git line and the worktree root\nstdout %q\nstderr %s", code, cli.ExitError, want, stdout, stderr)
 			}
 			for _, run := range doubles.BrokenClaudeRuns(t, in.path) {
 				if run != "--version" {
