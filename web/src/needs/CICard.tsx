@@ -1,4 +1,4 @@
-import { useId, useState } from "react";
+import { useState } from "react";
 
 import { rerunCI, waitLongerForCI } from "../api/client";
 import type { CINeed } from "../api/types";
@@ -50,13 +50,11 @@ function ClockFacts({ need }: { need: CINeed }) {
 
 // CICard is CI that asks a person (ADR-0037): CI that has not finished, a run no runner picked up, and what the
 // classification found that no agent can act on. It offers what its kind has: Wait longer, which adds one more p85
-// or the time named, Record a rerun, which says the checks were rerun on the forge, where a person runs them because
-// ropeshift does not yet, and starts the head's CI clock again, and the run's page on the forge. None of them starts
-// an agent.
+// or the time named, Rerun, which asks the worker to rerun the failed jobs of the head's runs on the forge and starts
+// the head's CI clock again, and the run's page on the forge. None of them starts an agent.
 export function CICard({ need, after, frame }: { need: CINeed; after: () => Promise<void>; frame: Frame }) {
   const { act, busy, failure } = useAct(after);
   const [by, setBy] = useState("");
-  const rerunNote = useId();
   const words = ciKinds[need.kind];
   const id = need.work_order.id;
   const run = forgeLink(need.run_url);
@@ -80,8 +78,8 @@ export function CICard({ need, after, frame }: { need: CINeed; after: () => Prom
             </a>
           ) : null}
           {reruns ? (
-            <Button disabled={busy} aria-describedby={rerunNote} onClick={() => void act(() => rerunCI(id))}>
-              Record a rerun
+            <Button disabled={busy} onClick={() => void act(() => rerunCI(id))}>
+              Rerun
             </Button>
           ) : null}
           {waits ? (
@@ -111,11 +109,6 @@ export function CICard({ need, after, frame }: { need: CINeed; after: () => Prom
           </Fact>
         ) : null}
       </Facts>
-      {reruns ? (
-        <p className="help" id={rerunNote}>
-          {`Ropeshift does not rerun checks on the forge. Rerun them there${run ? " with Open the run" : ""}, then record it here to start this head's CI clock again.`}
-        </p>
-      ) : null}
       {waits ? (
         <Field label="Wait for (optional)" help="Such as 45m or 2h. Left empty, it adds one more p85 of this repository's CI, or the no-history p85 with none.">
           <input className="input mono field-narrow" autoComplete="off" spellCheck={false} value={by} disabled={busy} onChange={(event) => setBy(event.target.value)} />

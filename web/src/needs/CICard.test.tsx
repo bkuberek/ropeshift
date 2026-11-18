@@ -67,7 +67,7 @@ describe("the card of CI that has not finished", () => {
     expect(facts).toContain("Time limit3h");
     expect(facts).toContain("Expected CI timeno history");
     expect(facts).toContain("Pull request#14");
-    expect(names(card)).toEqual(["Open the run", "Record a rerun", "Wait longer"]);
+    expect(names(card)).toEqual(["Open the run", "Rerun", "Wait longer"]);
   });
 
   it("opens the run's page in a new tab, and follows no address that is not a web address", () => {
@@ -104,28 +104,28 @@ describe("the card of CI that has not finished", () => {
     expect(sent.find((call) => call.method === "POST")?.body).toEqual({ by: "45m" });
   });
 
-  it("says a rerun is recorded here and run on the forge, because nothing reruns the checks there yet", () => {
+  it("offers Rerun, which ropeshift makes on the forge, and no longer says a person reruns the checks there", () => {
     show(itemOf("ci_not_finished"));
     const card = theCard("Add the retry budget");
-    expect(within(card).queryByRole("button", { name: "Rerun" })).toBeNull();
-    const button = within(card).getByRole("button", { name: "Record a rerun" });
-    const note = document.getElementById(button.getAttribute("aria-describedby") ?? "");
-    expect(note?.textContent).toBe("Ropeshift does not rerun checks on the forge. Rerun them there with Open the run, then record it here to start this head's CI clock again.");
+    expect(within(card).queryByRole("button", { name: "Record a rerun" })).toBeNull();
+    const button = within(card).getByRole("button", { name: "Rerun" });
+    expect(button.getAttribute("aria-describedby")).toBeNull();
+    expect(card.textContent).not.toMatch(/does not rerun|record it here|Record a rerun/);
   });
 
-  it("says where to rerun when the forge gave no address for the run", () => {
+  it("offers Rerun when the forge gave no address for the run", () => {
     const item = itemOf("ci_not_finished");
     delete item.ci.run_url;
     show(item);
     const card = theCard("Add the retry budget");
-    const note = document.getElementById(within(card).getByRole("button", { name: "Record a rerun" }).getAttribute("aria-describedby") ?? "");
-    expect(note?.textContent).toBe("Ropeshift does not rerun checks on the forge. Rerun them there, then record it here to start this head's CI clock again.");
+    expect(names(card)).toEqual(["Rerun", "Wait longer"]);
+    expect(card.textContent).not.toMatch(/does not rerun/);
   });
 
-  it("records a rerun, and starts nothing else", async () => {
+  it("reruns, and starts nothing else", async () => {
     const sent = serveApi(() => ({ status: 200, body: { work_order: "wo-ci", reruns: 1 } }));
     show(itemOf("ci_not_finished"));
-    await userEvent.click(within(theCard("Add the retry budget")).getByRole("button", { name: "Record a rerun" }));
+    await userEvent.click(within(theCard("Add the retry budget")).getByRole("button", { name: "Rerun" }));
     await waitFor(() => expect(sent.some((call) => call.method === "POST")).toBe(true));
     expect(sent.filter((call) => call.method === "POST").map((call) => call.path)).toEqual(["/v1/work-orders/wo-ci/ci-rerun"]);
     expect(sent.filter((call) => /lanes|claims|rework|retry\b/.test(call.path))).toEqual([]);
@@ -160,7 +160,7 @@ describe("the cards of what the classification found", () => {
     const facts = card.querySelector("dl")?.textContent ?? "";
     expect(facts).toContain("CheckCI");
     expect(facts).toContain("Conclusiontimed_out");
-    expect(names(card)).toEqual(["Open the run", "Record a rerun"]);
+    expect(names(card)).toEqual(["Open the run", "Rerun"]);
   });
 
   it.each(["ci_base_red", "ci_action_required"] as const)("offers only the run for %s, which no rerun mends", (kind) => {
