@@ -245,8 +245,8 @@ export function waitLongerForCI(id: string, by = ""): Promise<{ work_order: stri
   return call("POST", paths.work(id, "ci-wait"), by ? { by } : {});
 }
 
-// rerunCI records a rerun of the checks of a work order's head, which a head that has not finished or failed for a
-// reason no agent can fix offers. It starts no agent.
+// rerunCI asks the worker to rerun the failed jobs of the checks of a work order's head, which a head that has not
+// finished or failed for a reason no agent can fix offers. It starts no agent.
 export function rerunCI(id: string): Promise<{ work_order: string; reruns: number }> {
   return call("POST", paths.work(id, "ci-rerun"), {});
 }
