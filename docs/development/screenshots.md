@@ -83,7 +83,7 @@ A guide's world is the installation its walk starts from. Each theme runs its ow
 | World | What it holds |
 | --- | --- |
 | `harbor` | A fresh installation: the first project, a connected worker at `attended`, the fake agent CLI signed in with a subscription, the fake GitHub CLI, and three clones on disk and registered nowhere: the code repositories `harbor-api` and `harbor-web`, and the planning repository `harbor-plan`. Guides 1 to 7 walk it as one story |
-| `sample` | The sample project of `make screenshots`, for the guides that read a project with history, with what guide 8 adds: a lane at work in the second project, Catalog, and a third project, Promotions, with nothing running |
+| `sample` | The sample project of `make screenshots`, for the guides that read a project with history, with what guide 8 adds: a lane at work in the second project, Catalog, and a third project, Promotions, with nothing running. Guide 11 adds its troubles to it |
 
 Go prepares only what the web UI cannot do: the clones, the fake agent CLI's scripted turns, and the installation. Everything a guide tells a person to do in the web UI, the walk does in the web UI.
 
@@ -94,6 +94,8 @@ The harbor daemon runs its delivery and forecast ticks every second, and guide 3
 For guides 5 and 6, each lane a guide starts, a review's included, plays a script of its own in [harbor_runs_test.go](../../test/screenshots/harbor_runs_test.go), under the name the guide types into the Start dialog's Lane ID. The orchestrator a guide starts plays a script that claims nothing, because the lanes it starts get names no script can know, so the walk starts every lane, the review of finished work included, from the web UI. The profile layer of `moorings-api` sets `ask_wait` to two seconds, so guide 5's lane on Moorings parks a moment after it asks the question it cannot go on without, and Needs you offers its Resume.
 
 For guide 7, the harbor daemon finds the fake GitHub CLI of [test/doubles](../../test/doubles) on its `PATH` ahead of the canary, so the walk's pull requests open on a fake forge and nothing reaches GitHub. Its sign-in is the fake's own, and the kit stands for the forge's CI too: each pull request a worker opens soon has two passed checks, `build` and `test`, which its base branch requires. The daemon reads the forge every two seconds. Guide 8's walk adds its lane and its third project to the sample before it starts, and the view captures of `make screenshots` keep the sample as it is. The sample daemon of the guide walk runs its delivery and forecast ticks every second, as harbor's does, so guide 10's plan page shows the forecast the daemon made and not a pending line; the view captures keep the daemon's defaults.
+
+For guide 11, the walk runs the sample's other guides first, then lays out its troubles in [trouble_test.go](../../test/screenshots/trouble_test.go) and walks the guide. A lane in a repository whose profile allows one restart crashes twice and trips its breaker. The retry work is accepted and not merged, and a work order that depends on it is reviewed, so a start of it is held with `waiting_for_merge`. Last, the fake agent CLI's sign-in ends and the daemon starts again, because a worker advertises its drivers when it connects, so the Drivers table shows the driver signed out. The guide's walk limits the project's work in progress through Settings to read a refused start, and lifts the limit again.
 
 The harbor clones live in one fixed, neutral folder, `/tmp/ropeshift-guides`, the code repositories in its `src` folder and the planning repository beside it, so a field that shows a path shows one of those and the private-word check can stay on for every image. The kit creates the folder, removes it at the end of the run, and refuses to start while it exists, which another walk, or one that was killed, leaves. Remove it and run again.
 
@@ -268,5 +270,9 @@ Every published image has a row, and every row names a capture and the name it i
 | `measures-05-<theme>.png` | `measures-05-<theme>.png` | Usage and measures |
 | `measures-06-<theme>.png` | `measures-06-<theme>.png` | Usage and measures |
 | `measures-07-<theme>.png` | `measures-07-<theme>.png` | Usage and measures |
+| `trouble-01-<theme>.png` | `trouble-01-<theme>.png` | Troubleshooting |
+| `trouble-02-<theme>.png` | `trouble-02-<theme>.png` | Troubleshooting |
+| `trouble-03-<theme>.png` | `trouble-03-<theme>.png` | Troubleshooting |
+| `trouble-04-<theme>.png` | `trouble-04-<theme>.png` | Troubleshooting |
 
 After a release, run `make screenshots` at its tag, look at each image, and publish. Then update the version that the README's screenshots section and the web UI guide name.

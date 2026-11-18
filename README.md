@@ -106,7 +106,7 @@ The north-star metric is human interruptions per completed work order. `ropeshif
 
 ## Ways to run it
 
-Team size changes configuration, not concepts, and every mode is designed to use the same versioned API. Solo mode is the one built in this release:
+Team size changes configuration, not concepts, and every mode is designed to use the same versioned API. Solo mode is the one built in this release. [Modes](docs/modes.md) says what each mode is, its status, and its target version:
 
 | Mode | How it runs | Store | Status |
 |------|-------------|-------|--------|
@@ -140,6 +140,8 @@ A subscription worker starts at `attended`, where it claims work only inside a r
 - [Run several projects at once](docs/several-projects.md): switch between projects, read what waits in all of them, watch every project's lanes, set the caps they share, and back up and archive a project.
 - [Settings and agents](docs/settings-and-agents.md): change a policy and restore an earlier version, edit and add agents of the roster, create a delegate, back up the installation, and find the settings only a file holds.
 - [Usage and measures](docs/usage-and-measures.md): read the Overview's figures, the product, delivery, and estimate measures, a plan's forecast, the estimated cost of each lane, and the audit log.
+- [Troubleshooting](docs/troubleshooting.md): find the cause of a problem in the web UI and fix it: a page that does not load, a driver that is not usable, work that is not claimed or waits, a lane that stops, a refused start, and a daemon that refuses to start on a database.
+- [Modes: solo, group, and cluster](docs/modes.md): what each mode is, its status, its target version, and which one to use today.
 
 ### Concepts
 
@@ -160,7 +162,6 @@ A subscription worker starts at `attended`, where it claims work only inside a r
 - [Telemetry](docs/telemetry.md): what is recorded, where it stays, and when it leaves the machine.
 - [Versioning](docs/versioning.md): what a version promises, and what `ropeshift version` reports.
 - [Releasing](docs/releasing.md): what a release holds, and each install channel.
-- [Troubleshooting](docs/troubleshooting.md): what to do when the daemon refuses to start on a database.
 
 ## License and contributions
 

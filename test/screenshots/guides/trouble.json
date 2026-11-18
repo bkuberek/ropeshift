@@ -1,0 +1,72 @@
+{
+  "guide": "trouble",
+  "title": "Troubleshooting",
+  "world": "sample",
+  "order": 4,
+  "steps": [
+    {
+      "step": "read the drivers of the machine",
+      "route": "/workers",
+      "actions": [{ "waitFor": { "text": "signed out", "exact": false, "in": { "role": "region", "name": "Drivers" } } }],
+      "capture": { "name": "trouble-01", "clip": { "selector": "section.panel:has([aria-label='Drivers'])" } }
+    },
+    {
+      "step": "start work that waits for a merge",
+      "route": "/projects/default/work",
+      "actions": [
+        { "click": { "role": "link", "name": "Report the retry budget on the status page" } },
+        { "click": { "role": "button", "name": "Start" } },
+        { "click": { "role": "button", "name": "Start", "in": { "role": "dialog", "name": "Start Report the retry budget on the status page" } } },
+        { "waitFor": { "text": "waiting_for_merge", "exact": false, "in": { "role": "dialog", "name": "Start Report the retry budget on the status page" } } }
+      ],
+      "capture": { "name": "trouble-02", "clip": { "role": "dialog", "name": "Start Report the retry budget on the status page" } }
+    },
+    {
+      "step": "close the dialog",
+      "actions": [{ "press": "Escape" }]
+    },
+    {
+      "step": "open the work whose lane tripped",
+      "route": "/needs-you?kind=stuck",
+      "actions": [
+        { "click": { "role": "link", "name": "Refund a cancelled order", "exact": false } },
+        { "waitFor": { "text": "Its lane crashed too often, and its breaker stopped it.", "in": { "role": "article", "name": "Refund a cancelled order" } } }
+      ],
+      "capture": { "name": "trouble-03", "clip": { "role": "article", "name": "Refund a cancelled order" } }
+    },
+    {
+      "step": "limit the work in progress",
+      "route": "/projects/default/settings?section=fleet",
+      "actions": [
+        { "fill": { "label": "Work in progress limit", "value": "1" } },
+        { "click": { "role": "button", "name": "Save" } },
+        { "waitFor": { "text": "Saved Default's fleet caps." } },
+        { "click": { "role": "button", "name": "Dismiss" } }
+      ]
+    },
+    {
+      "step": "start work over the limit",
+      "route": "/projects/default/work",
+      "actions": [
+        { "click": { "role": "link", "name": "Add a health check endpoint" } },
+        { "click": { "role": "button", "name": "Start" } },
+        { "click": { "role": "button", "name": "Start", "in": { "role": "dialog", "name": "Start Add a health check endpoint" } } },
+        { "waitFor": { "text": "work in progress", "exact": false, "in": { "role": "dialog", "name": "Start Add a health check endpoint" } } }
+      ],
+      "capture": { "name": "trouble-04", "clip": { "role": "dialog", "name": "Start Add a health check endpoint" } }
+    },
+    {
+      "step": "close the refused start",
+      "actions": [{ "press": "Escape" }]
+    },
+    {
+      "step": "lift the limit",
+      "route": "/projects/default/settings?section=fleet",
+      "actions": [
+        { "fill": { "label": "Work in progress limit", "value": "0" } },
+        { "click": { "role": "button", "name": "Save" } },
+        { "waitFor": { "text": "Saved Default's fleet caps." } }
+      ]
+    }
+  ]
+}

@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"testing"
 )
 
@@ -51,20 +52,41 @@ func TestGuides(t *testing.T) {
 }
 
 // walkWorld makes the world's installation and runs the browser over its guides in one theme.
-func walkWorld(t *testing.T, binary, out, theme, world string, w walk) {
+func walkWorld(t *testing.T, binary, out, theme, name string, w walk) {
 	in := newInstall(t, binary, *keepFlag)
 	var vars map[string]string
-	switch world {
+	var sample *world
+	switch name {
 	case worldHarbor:
 		h := newHarbor(in)
 		vars = h.vars()
 		maps.Copy(vars, h.sessions())
 	case worldSample:
-		w := newWorld(in)
-		w.guided = true
-		w.populate()
-		w.severalProjects()
+		sample = newWorld(in)
+		sample.guided = true
+		sample.populate()
+		sample.severalProjects()
 	}
+	// The troubleshooting guide reads the sample after its troubles are laid out, which the guides before it must
+	// not see, so the walk runs them first and lays the troubles out between.
+	run, troubled := w.run, []guide(nil)
+	if sample != nil {
+		if at := slices.IndexFunc(run, func(g guide) bool { return g.Guide == troubleGuide }); at >= 0 {
+			run, troubled = run[:at], run[at:]
+		}
+	}
+	if len(run) > 0 {
+		play(t, in, theme, out, vars, w.capture, run)
+	}
+	if len(troubled) > 0 {
+		sample.troubled()
+		play(t, in, theme, out, vars, w.capture, troubled)
+	}
+}
+
+// play runs the browser over some guides, against the web address the installation has now.
+func play(t *testing.T, in *install, theme, out string, vars map[string]string, capture []string, guides []guide) {
+	t.Helper()
 	plan := map[string]any{
 		"base":       in.web,
 		"passphrase": passphrase(),
@@ -72,8 +94,8 @@ func walkWorld(t *testing.T, binary, out, theme, world string, w walk) {
 		"theme":      theme,
 		"vars":       vars,
 		"private":    private(in),
-		"capture":    w.capture,
-		"guides":     w.run,
+		"capture":    capture,
+		"guides":     guides,
 	}
 	raw, err := json.MarshalIndent(plan, "", "  ")
 	if err != nil {
