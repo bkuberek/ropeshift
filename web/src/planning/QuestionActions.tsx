@@ -4,13 +4,13 @@ import { useChange } from "../admin/parts";
 import { usePageActions } from "../app/pageActions";
 import { answerQuestion } from "../api/client";
 import type { Question, QuestionItem } from "../api/types";
-import { answerOf, AnswerField, startingDraft } from "../needs/QuestionBatch";
+import { answerOf, AnswerField, isOneWay, startingDraft } from "../needs/QuestionBatch";
 import { Button } from "../ui/controls";
 import { Refusal } from "../ui/display";
 import { Field } from "../ui/forms";
 import { useToast } from "../ui/overlays";
 import { DismissQuestion, waiting } from "./DismissQuestion";
-import { MergeQuestion } from "./MergeQuestion";
+import { MergeQuestion, mergeTargets } from "./MergeQuestion";
 
 // itemOf is the question as Needs you shows it to be answered: the same fields, so the same control answers it.
 const itemOf = (question: Question): QuestionItem => ({
@@ -36,6 +36,9 @@ function AnswerForm({ question, id, assume = false, onDone }: { question: Questi
   const change = useChange();
   const toast = useToast();
   const answer = answerOf(draft);
+  // An assumption states why it is assumed, which the ledger requires too.
+  const why = draft.rationale.trim();
+  const ready = answer !== "" && (!assume || why !== "");
   // The form opens with the cursor in its first choice, so a member who asked for it by keys is in it.
   const shown = useRef<HTMLFormElement>(null);
   useEffect(() => {
@@ -43,7 +46,7 @@ function AnswerForm({ question, id, assume = false, onDone }: { question: Questi
   }, []);
 
   const send = async () => {
-    if (answer === "") {
+    if (!ready) {
       return;
     }
     // No place is named, so the listener the answer came through is what the decision records.
@@ -69,7 +72,7 @@ function AnswerForm({ question, id, assume = false, onDone }: { question: Questi
     >
       <AnswerField item={item} draft={draft} disabled={change.busy} quiet onChange={setDraft} />
       {assume ? (
-        <Field label="Why it is assumed">
+        <Field label="Why it is assumed" warning={why === "" ? "Say why, or this assumption is not sent." : undefined}>
           <textarea className="textarea" rows={2} autoComplete="off" value={draft.rationale} disabled={change.busy} onChange={(event) => setDraft({ ...draft, rationale: event.target.value })} />
         </Field>
       ) : null}
@@ -80,7 +83,7 @@ function AnswerForm({ question, id, assume = false, onDone }: { question: Questi
       </p>
       {change.failure ? <Refusal>{change.failure}</Refusal> : null}
       <div className="row-tight">
-        <Button variant="primary" type="submit" loading={change.busy} disabled={change.busy || answer === ""}>
+        <Button variant="primary" type="submit" loading={change.busy} disabled={change.busy || !ready}>
           {assume ? "Record this assumption" : "Send this answer"}
         </Button>
         <Button onClick={onDone}>Cancel</Button>
@@ -102,9 +105,18 @@ export function QuestionActions({ question, others = [] }: { question: Question;
   const [dismissing, setDismissing] = useState(false);
   const [merging, setMerging] = useState(false);
   const form = useId();
+  const oneWay = isOneWay(itemOf(question));
+  // A merge needs a question that stays, so the palette lists Merge only while one waits, and a request for the dialog
+  // ends when the last one goes, rather than opening it by itself when another arrives.
+  const mergeable = mergeTargets(question, others).length > 0;
+  useEffect(() => {
+    if (!mergeable) {
+      setMerging(false);
+    }
+  }, [mergeable]);
   const assume = () => {
-    setRefused(question.reversibility === "one_way");
-    setWorking(question.reversibility === "one_way" ? "" : "assume");
+    setRefused(oneWay);
+    setWorking(oneWay ? "" : "assume");
   };
   const toggle = (next: Working) => {
     setRefused(false);
@@ -116,7 +128,7 @@ export function QuestionActions({ question, others = [] }: { question: Question;
       ? [
           { key: `action:answer-question:${question.id}`, group: "Actions", id: question.id, title: `Answer question: ${question.text}`, icon: "question", keywords: "reply", run: () => toggle("answer") },
           { key: `action:assume-question:${question.id}`, group: "Actions", id: question.id, title: `Assume an answer: ${question.text}`, icon: "pencil", keywords: "assumption orchestrator", run: assume },
-          { key: `action:merge-question:${question.id}`, group: "Actions", id: question.id, title: `Merge question: ${question.text}`, icon: "link", keywords: "duplicate same", run: () => setMerging(true) },
+          ...(mergeable ? [{ key: `action:merge-question:${question.id}`, group: "Actions" as const, id: question.id, title: `Merge question: ${question.text}`, icon: "link" as const, keywords: "duplicate same", run: () => setMerging(true) }] : []),
           { key: `action:dismiss-question:${question.id}`, group: "Actions", id: question.id, title: `Dismiss question: ${question.text}`, icon: "x", keywords: "close", run: () => setDismissing(true) },
         ]
       : [],

@@ -63,6 +63,13 @@ function MergeDialog({ question, targets, onClose }: { question: Question; targe
 // plannerAsked says a planning lane asked the question, so it goes to the person.
 const plannerAsked = (question: Question) => question.escalation_reason === "planner_asked";
 
+// mergeTargets are the other questions that wait and that a question may merge into: for a planning lane's question,
+// only one a person answers, another planning lane's or one that waits for a person.
+export function mergeTargets(question: Question, others: Question[]): Question[] {
+  const takes = (other: Question) => !plannerAsked(question) || plannerAsked(other) || other.status === "needs_human";
+  return others.filter((other) => other.id !== question.id && waiting(other) && takes(other));
+}
+
 // MergeQuestion is the button on a question that waits, and the dialog it opens names the question that stays, as
 // `ropeshift question merge --into` does. A member merges a duplicate in an orchestrator's place. A planning lane's
 // question merges only into one a person answers, another planning lane's or one that waits for a person, as the
@@ -70,8 +77,7 @@ const plannerAsked = (question: Question) => question.escalation_reason === "pla
 export function MergeQuestion({ question, others, asked = false, onClosed }: { question: Question; others: Question[]; asked?: boolean; onClosed?: () => void }) {
   const [pressed, setOpen] = useState(false);
   const open = pressed || asked;
-  const takes = (other: Question) => !plannerAsked(question) || plannerAsked(other) || other.status === "needs_human";
-  const targets = others.filter((other) => other.id !== question.id && waiting(other) && takes(other));
+  const targets = mergeTargets(question, others);
   if (!waiting(question) || targets.length === 0) {
     return null;
   }

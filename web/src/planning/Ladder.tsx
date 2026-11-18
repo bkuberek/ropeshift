@@ -16,8 +16,8 @@ export function Ladder({ steps }: { steps?: LadderStep[] }) {
     <details className="older">
       <summary>How it got here</summary>
       <ol className="list-rows" role="list">
-        {steps.map((step) => (
-          <li key={step.rung} className="list-row">
+        {steps.map((step, at) => (
+          <li key={`${at}:${step.rung}`} className="list-row">
             <p>Rung {step.rung}</p>
             {step.outcome ? <p className="muted">{outcomeWords[step.outcome] ?? step.outcome}</p> : null}
             {step.candidates?.length ? <p className="mono muted">{step.candidates.join(", ")}</p> : null}
