@@ -354,6 +354,47 @@ func TestRunReturnsTheResultWithTheRateLimitError(t *testing.T) {
 	}
 }
 
+// A rate-limited read with no facts settled, as a fake or an adapter that sets none returns it, leaves each forge
+// practice unknown with the rate limit as the reason, and never a finding or a met practice, and the facts the read
+// did settle stay.
+func TestRunLeavesTheFactsARateLimitedReadDidNotSettleUnknown(t *testing.T) {
+	reset := time.Date(2026, 11, 18, 10, 0, 0, 0, time.UTC)
+	limited := &ports.RateLimitedError{Rate: ports.ForgeRate{Exhausted: true, Reset: reset}, Detail: "secondary limit"}
+	tests := []struct {
+		name  string
+		facts practices.ForgeFacts
+		want  [3]practices.Status
+	}{
+		{"none settled", practices.ForgeFacts{}, [3]practices.Status{practices.StatusUnknown, practices.StatusUnknown, practices.StatusUnknown}},
+		{"visibility settled", practices.ForgeFacts{Visibility: practices.VisibilityPrivate},
+			[3]practices.Status{practices.StatusNotApplicable, practices.StatusUnknown, practices.StatusUnknown}},
+		{"protection settled", practices.ForgeFacts{Protected: true, ReviewCount: 1},
+			[3]practices.Status{practices.StatusUnknown, practices.StatusMet, practices.StatusMet}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newFixture()
+			f.fake.SetSettings(binding.String(), tt.facts)
+			f.fake.SetSettingsError(binding.String(), limited)
+			req := request()
+			req.Binding = binding
+			result, err := practicerun.Run(t.Context(), f.sources, req)
+			if !errors.Is(err, ports.ErrForgeRateLimited) {
+				t.Fatalf("the run ended with %v, want the rate limit", err)
+			}
+			for i, id := range []practices.ID{practices.License, practices.BranchProtection, practices.RequiredReview} {
+				got := statusOf(t, result, id)
+				if got.Status != tt.want[i] {
+					t.Errorf("%s is %s %q, want %s", id, got.Status, got.Reason, tt.want[i])
+				}
+				if got.Status == practices.StatusUnknown && !strings.Contains(got.Reason, "rate limiting") {
+					t.Errorf("%s is unknown with %q, want the rate limit as the reason", id, got.Reason)
+				}
+			}
+		})
+	}
+}
+
 // A settings read that fails with any other error leaves the three forge practices unknown with the error, and does
 // not fail the run (FR-PRAC-1).
 func TestRunLeavesTheForgePracticesUnknownWhenTheReadFails(t *testing.T) {

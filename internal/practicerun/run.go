@@ -73,6 +73,7 @@ func Run(ctx context.Context, sources Sources, req Request) (practices.Result, e
 		case ctx.Err() != nil:
 			return practices.Result{}, fmt.Errorf("read the settings of %s: %w", req.Binding, ctx.Err())
 		case errors.Is(err, ports.ErrForgeRateLimited):
+			facts = unsettledUnknown(facts, reasonOf("", err))
 			settingsErr = fmt.Errorf("read the settings of %s: %w", req.Binding, err)
 		case err != nil:
 			why := reasonOf("the forge settings could not be read: ", err)
@@ -85,6 +86,21 @@ func Run(ctx context.Context, sources Sources, req Request) (practices.Result, e
 		return practices.Result{}, fmt.Errorf("check %s: %w", req.Dir, ctx.Err())
 	}
 	return result, settingsErr
+}
+
+// unsettledUnknown leaves each fact a rate-limited read did not settle unknown with the reason. A fact the read
+// settled has a value or no reason to be unknown, and a zero value with no reason is a fact nothing was read for.
+func unsettledUnknown(facts practices.ForgeFacts, why string) practices.ForgeFacts {
+	if facts.Visibility == "" && facts.VisibilityUnknown == "" {
+		facts.VisibilityUnknown = why
+	}
+	if !facts.Protected && facts.ProtectedUnknown == "" {
+		facts.ProtectedUnknown = why
+	}
+	if facts.ReviewCount == 0 && facts.ReviewUnknown == "" {
+		facts.ReviewUnknown = why
+	}
+	return facts
 }
 
 // maxReason bounds the text a failed read puts in a result.
