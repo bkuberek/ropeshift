@@ -23,6 +23,7 @@
       "id": "question-1",
       "ladder_trace": [
         {
+          "by": "worker-a",
           "candidates": [
             "decision:decision-1"
           ],
@@ -30,6 +31,7 @@
           "rung": 1
         },
         {
+          "by": "worker-a",
           "candidates": [
             "decision:decision-1"
           ],
@@ -61,6 +63,7 @@
       "id": "question-2",
       "ladder_trace": [
         {
+          "by": "worker-a",
           "candidates": [
             "decision:decision-1"
           ],
@@ -68,6 +71,7 @@
           "rung": 1
         },
         {
+          "by": "worker-a",
           "candidates": [
             "decision:decision-1"
           ],

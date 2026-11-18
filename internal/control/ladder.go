@@ -227,7 +227,7 @@ func (q *Questions) Take(ctx context.Context, scope ledger.WorkspaceID, id strin
 		}
 		if !won {
 			if !record.Status.Unresolved() {
-				return fmt.Errorf("%w: %s", questions.ErrResolved, record.Status)
+				return closedToHolder(record)
 			}
 			if record.Direct() {
 				return refuseDirect(id)
@@ -283,6 +283,13 @@ func refuseDirect(id string) error {
 	return fmt.Errorf("%w: %w: %s", workorders.ErrForbidden, questions.ErrDirect, id)
 }
 
+// closedToHolder is the refusal an orchestrator meets on a question that closed while it worked it: a member answered,
+// assumed, or merged it, or another holder settled it. It says to drop the question, because nothing is left to judge
+// (FR-QD-13), and it reads as the resolved code wherever the ledger's errors become replies.
+func closedToHolder(record questions.Question) error {
+	return fmt.Errorf("%w: %s is %s, so drop it", questions.ErrResolved, record.ID, record.Status)
+}
+
 // held reads a question the caller may work: unresolved, not a planner's, and held by it with time left.
 func held(tx ports.WriteTx, id string, actor ledger.Actor) (questions.Question, error) {
 	record, err := tx.Questions().Question(id)
@@ -290,7 +297,7 @@ func held(tx ports.WriteTx, id string, actor ledger.Actor) (questions.Question, 
 		return questions.Question{}, err
 	}
 	if !record.Status.Unresolved() {
-		return questions.Question{}, fmt.Errorf("%w: %s", questions.ErrResolved, record.Status)
+		return questions.Question{}, closedToHolder(record)
 	}
 	if record.Direct() {
 		return questions.Question{}, refuseDirect(id)
@@ -320,6 +327,8 @@ func (q *Questions) Climb(ctx context.Context, scope ledger.WorkspaceID, id stri
 		if step.Rung != record.Rung {
 			return fmt.Errorf("%w: step %d on rung %d", questions.ErrWrongRung, step.Rung, record.Rung)
 		}
+		// The ledger says who worked the rung, and a climb decides nothing, whatever the step sent says.
+		step.By, step.Decision, step.Rationale = actor.ID, "", ""
 		record.LadderTrace = append(record.LadderTrace, step)
 		record.Rung = policy.NextRung(record)
 		crashpoint.Hit("question.climb", "stepped")
@@ -391,6 +400,7 @@ func (q *Questions) Resolve(ctx context.Context, scope ledger.WorkspaceID, id, d
 			return err
 		}
 		crashpoint.Hit("question.resolve", "answered")
+		record.LadderTrace = append(record.LadderTrace, questions.Step{Rung: record.Rung, Outcome: questions.OutcomeAnswered, By: actor.ID, Decision: decision})
 		record.Status, record.DecisionID, record.ClaimedBy, record.ClaimUntil = questions.StatusAnswered, decision, "", 0
 		return q.closeQuestion(tx, record, actor)
 	})
@@ -456,7 +466,7 @@ func (q *Questions) mergeIn(tx ports.WriteTx, record questions.Question, into st
 	}
 	crashpoint.Hit("question.merge", "moved")
 	record.Status, record.ClaimedBy, record.ClaimUntil = questions.StatusDismissed, "", 0
-	record.LadderTrace = append(record.LadderTrace, questions.Step{Rung: questions.RungOpen, Candidates: []string{into}, Outcome: questions.OutcomeMerged})
+	record.LadderTrace = append(record.LadderTrace, questions.Step{Rung: questions.RungOpen, Candidates: []string{into}, Outcome: questions.OutcomeMerged, By: actor.ID})
 	if err := saveQuestion(tx, record, actor); err != nil {
 		return err
 	}
