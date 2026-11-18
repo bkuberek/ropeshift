@@ -268,6 +268,7 @@ func (r *laneRun) uploadBounded(ctx context.Context) {
 // keepParked is one journal write, because a commit with no upload on its way would leave a
 // lane no wake can reach, and an upload with no commit would report a lane still held here.
 func (r *laneRun) keepParked(ctx context.Context, record lanes.Record, progress lanes.ParkProgress, payload []byte) error {
+	r.recordUsage(ctx)
 	event := r.w.event(ledger.UploadLaneParked, record, payload)
 	if !splitsPark() {
 		_, err := r.w.journal.CommitParked(ctx, record.ID, progress, event)

@@ -543,6 +543,7 @@ func (r *laneRun) finish(ctx context.Context, report workorders.Report) error {
 		_ = os.RemoveAll(dir)
 	}
 	r.discardReads(context.WithoutCancel(ctx))
+	r.recordUsage(context.WithoutCancel(ctx))
 	return r.w.endLane(context.WithoutCancel(ctx), r.record(), r.lease.BaseCommit, workorders.LaneResult{
 		Report: report, CostUSD: r.priorUSD + r.cost.CostUSD, SessionTotalUSD: r.cost.SessionTotalUSD,
 		UnknownCostTurns: r.priorUnknown + r.cost.UnknownTurns, InputTokens: r.usage.Context(), OutputTokens: r.usage.OutputTokens,

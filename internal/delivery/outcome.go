@@ -56,7 +56,7 @@ func WorkOutcome(baseline string, e Estimate, r Record) Outcome {
 	out := Outcome{
 		SubjectKind: OutcomeOfWorkOrder, Subject: r.WorkOrder, Baseline: baseline, Estimate: e.ID, Confidence: e.Confidence, Tier: e.Tier,
 		P85Open: e.P85Open, Repository: r.Repository, Outcome: r.Outcome, ActualDeliveryMs: r.DeliveryMs, ActualCostUSD: r.Usage.CostUSD,
-		ActualCostAtLeast: r.Usage.CostLowerBound, ActualEnd: r.Ended, EstimatorVersion: e.EstimatorVersion, Ended: r.Ended,
+		ActualCostAtLeast: r.Usage.LowerBound(), ActualEnd: r.Ended, EstimatorVersion: e.EstimatorVersion, Ended: r.Ended,
 	}
 	if r.Outcome != workorders.Done || e.Status != Estimated {
 		return out
@@ -66,7 +66,7 @@ func WorkOutcome(baseline string, e Estimate, r Record) Outcome {
 		out.TimeAtOrBelowP85 = comparison(r.DeliveryMs <= e.DeliveryP85Ms)
 	}
 	out.TimeRatio = ratio(float64(r.DeliveryMs), float64(e.DeliveryP50Ms))
-	if r.Usage.CostLowerBound || e.CostAtLeast {
+	if r.Usage.LowerBound() || e.CostAtLeast {
 		return out
 	}
 	out.CostAtOrBelowP50 = comparison(r.Usage.CostUSD <= e.CostP50USD)
@@ -92,7 +92,7 @@ func MilestoneOutcome(baseline string, f Forecast, ends []Record) Outcome {
 	for _, r := range ends {
 		out.ActualEnd = max(out.ActualEnd, r.Ended)
 		out.ActualCostUSD += r.Usage.CostUSD
-		out.ActualCostAtLeast = out.ActualCostAtLeast || r.Usage.CostLowerBound
+		out.ActualCostAtLeast = out.ActualCostAtLeast || r.Usage.LowerBound()
 		switch {
 		case r.Outcome == workorders.Failed:
 			out.Outcome = workorders.Failed

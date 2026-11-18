@@ -26,6 +26,10 @@ VALUES (:workspace_id, :lane_id, :generation, :start_reason, :handoff_in, :now)`
 		`UPDATE generations SET baseline_size = :baseline_size
  WHERE workspace_id = :workspace_id AND lane_id = :lane_id AND generation = :generation`)
 
+	stmtGenerationUsage = define("generation.usage",
+		`UPDATE generations SET cost_usd = :cost_usd, known_turns = :known_turns, unknown_turns = :unknown_turns
+ WHERE workspace_id = :workspace_id AND lane_id = :lane_id AND generation = :generation`)
+
 	stmtEndGeneration = define("generation.end",
 		`UPDATE generations SET end_reason = :end_reason, ended_at = :now
  WHERE workspace_id = :workspace_id AND lane_id = :lane_id AND generation = :generation AND ended_at IS NULL`)
@@ -44,7 +48,7 @@ VALUES (:workspace_id, :lane_id, :generation, :start_reason, :handoff_in, :now)`
 
 	stmtListGenerations = define("generation.list",
 		`SELECT lane_id, generation, start_reason, end_reason, session_id, handoff_in, handoff_out, started_at, ended_at,
-       last_response_at, pack_id, pack_version, baseline_size
+       last_response_at, pack_id, pack_version, baseline_size, cost_usd, known_turns, unknown_turns
   FROM generations
  WHERE workspace_id = :workspace_id AND lane_id = :lane_id
  ORDER BY generation`)
@@ -110,6 +114,13 @@ func (t laneTx) Baseline(lane string, number, tokens int64) error {
 	return err
 }
 
+func (t laneTx) ReportUsage(lane string, number int64, usage ledger.GenerationUsage) (bool, error) {
+	p := t.generationParams(lane, number)
+	p["cost_usd"], p["known_turns"], p["unknown_turns"] = usage.CostUSD, usage.KnownTurns, usage.UnknownTurns
+	n, err := t.exec(stmtGenerationUsage, p)
+	return n > 0, err
+}
+
 func (t laneTx) EndGeneration(lane string, number int64, reason string) error {
 	now, err := t.readClock()
 	if err != nil {
@@ -133,7 +144,7 @@ func (t laneTx) Generations(lane string) ([]ledger.Generation, error) {
 		var reason string
 		var ended, responded sql.NullInt64
 		if err := rows.Scan(&g.Lane, &g.Number, &reason, &g.EndReason, &g.SessionID, &g.HandoffIn, &g.HandoffOut, &g.StartedAt, &ended, &responded,
-			&g.PackID, &g.PackVersion, &g.BaselineTokens); err != nil {
+			&g.PackID, &g.PackVersion, &g.BaselineTokens, &g.Usage.CostUSD, &g.Usage.KnownTurns, &g.Usage.UnknownTurns); err != nil {
 			return nil, err
 		}
 		g.StartReason, g.EndedAt, g.LastResponseAt = ledger.StartReason(reason), ended.Int64, responded.Int64

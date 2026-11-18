@@ -48,7 +48,7 @@ func timelineText(id string, view api.WorkTimeline) string {
 	if r := view.Record; r != nil {
 		fmt.Fprintf(&out, "elapsed\t%s\ndelivery\t%s\nlane\t%s\nperson\t%s\n", span(r.ElapsedMs), span(r.DeliveryMs), span(r.LaneMs), span(r.PersonMs))
 		bound := ""
-		if r.Usage.CostLowerBound {
+		if r.Usage.LowerBound() {
 			bound = "at least "
 		}
 		fmt.Fprintf(&out, "cost\t%s$%.2f, estimated, at list price\ntokens\t%d in\t%d out\n", bound, r.Usage.CostUSD, r.Usage.InputTokens, r.Usage.OutputTokens)

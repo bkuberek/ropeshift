@@ -40,6 +40,10 @@ type Generation struct {
 	// BaselineTokens is what the session held at its first call: instructions, the pack, and the
 	// brief. It is what a pack's size is judged by, because an estimate is only an estimate.
 	BaselineTokens int64 `json:"baseline_tokens,omitempty"`
+	// Usage is what the generation spent, as its worker last reported it (ADR-0037). A generation that never
+	// reported holds zero. It is never encoded, because a lane view reaches an orchestrator and a lane's own spend
+	// is read through a member's spend view alone (FR-SPEND-9).
+	Usage GenerationUsage `json:"-"`
 }
 
 // HandoffRecord is a handoff document in the ledger, so a later generation on another machine

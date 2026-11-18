@@ -175,7 +175,7 @@ func costQuantiles(records []Record) (CostQuantiles, bool) {
 	lowerBound := false
 	for _, r := range records {
 		costs = append(costs, r.Usage.CostUSD)
-		lowerBound = lowerBound || r.Usage.CostLowerBound
+		lowerBound = lowerBound || r.Usage.LowerBound()
 	}
 	slices.Sort(costs)
 	return CostQuantiles{P50: costs[rank(len(costs), 0.5)], P85: costs[rank(len(costs), 0.85)]}, lowerBound

@@ -26,7 +26,13 @@ type Usage struct {
 	OutputTokens   int64   `json:"output_tokens"`
 	CostUSD        float64 `json:"cost_usd"`
 	CostLowerBound bool    `json:"cost_lower_bound,omitempty"`
+	// SpendLimited says a hard spend limit stopped the work, so what it cost is only as far as it got (ADR-0037).
+	SpendLimited bool `json:"spend_limited,omitempty"`
 }
+
+// LowerBound says the cost holds no more than the work spent: some of it was never reported, or a hard limit stopped
+// the work before it ended. A comparable-work estimate reads such a cost as at least what it says.
+func (u Usage) LowerBound() bool { return u.CostLowerBound || u.SpendLimited }
 
 // Facts are what a delivery record holds beside a timeline, read from the work order's other records.
 // Change is the change size of its final lane, absent when none was recorded. LaneCapKnown says capacity

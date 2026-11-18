@@ -190,7 +190,7 @@ func (s *Store) sharePool(ctx context.Context, scope, project ledger.WorkspaceID
 	if digest != "" {
 		for i, r := range delivery.Pooled(records) {
 			lowerBound := int64(0)
-			if r.Usage.CostLowerBound {
+			if r.Usage.LowerBound() {
 				lowerBound = 1
 			}
 			_, err := t.exec(stmtPoolAdd, t.scoped(params{

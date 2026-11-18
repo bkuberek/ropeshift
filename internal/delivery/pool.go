@@ -26,7 +26,7 @@ func Pooled(records []Record) []Record {
 		out = append(out, Record{
 			Keys:    Keys{Kind: r.Kind, Size: r.Size, CapabilityClass: r.CapabilityClass},
 			Outcome: workorders.Done, Ended: r.Ended - r.Ended%dayMs, ElapsedMs: r.ElapsedMs, DeliveryMs: r.DeliveryMs, LaneMs: r.LaneMs,
-			PersonMs: r.PersonMs, Usage: Usage{CostUSD: r.Usage.CostUSD, CostLowerBound: r.Usage.CostLowerBound},
+			PersonMs: r.PersonMs, Usage: Usage{CostUSD: r.Usage.CostUSD, CostLowerBound: r.Usage.LowerBound()},
 		})
 	}
 	return out

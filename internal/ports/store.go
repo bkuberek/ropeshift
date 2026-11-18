@@ -582,6 +582,9 @@ type LaneWriter interface {
 	ReadPack(lane string, number int64, pack string, version int64) error
 	// Baseline records what a generation held at its first call.
 	Baseline(lane string, number, tokens int64) error
+	// ReportUsage replaces what a generation has spent with what its worker last reported, and reports false
+	// for a generation the ledger does not hold.
+	ReportUsage(lane string, number int64, usage ledger.GenerationUsage) (bool, error)
 	// EndGeneration records a generation's end, once.
 	EndGeneration(lane string, number int64, reason string) error
 	// SaveHandoff keeps one generation's handoff once, and names it on that generation.

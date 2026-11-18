@@ -577,6 +577,9 @@ const (
 	// because what a generation did stays true after its lane moved on, and the ledger keeps the first
 	// digest of a generation.
 	UploadGenerationDigest = "generation_digest"
+	// UploadGenerationUsage keeps what a generation has spent, which replaces what it last reported: the cost its
+	// turns reported, the turns that did, and the turns that could not (ADR-0037).
+	UploadGenerationUsage = "generation_usage"
 	// UploadMessage is a worker's word on one message. It passes no fence, because what happened
 	// to a message stays true after its lane moved on.
 	UploadMessage = "message_report"

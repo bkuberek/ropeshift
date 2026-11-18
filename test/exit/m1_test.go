@@ -84,7 +84,7 @@ func TestM1WalkingSkeleton(t *testing.T) {
 			// once it has a usage report. Its first session waits for the qualification probe of the
 			// installed version, and a wait past a second says so once, before the session binds.
 			got := slices.DeleteFunc(eventTypes(events), func(event string) bool {
-				return event == workorders.EventGenerationResponded || event == workorders.EventGenerationBaseline
+				return event == workorders.EventGenerationResponded || event == workorders.EventGenerationBaseline || event == workorders.EventGenerationUsage
 			})
 			if at := slices.Index(got, workorders.EventAdmissionHeld); at >= 0 {
 				if at != len(m1Steps)-1 || !heldFor(t, events, lanes.HeldQualifying) {
