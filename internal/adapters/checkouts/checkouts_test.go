@@ -187,6 +187,34 @@ func TestFindRefusesAShallowClone(t *testing.T) {
 	}
 }
 
+// ForgetAt drops a checkout only while it is kept at the path given, so a checkout kept again at another path in
+// the meantime stays, and one never kept is no drop.
+func TestForgetAtDropsACheckoutOnlyAtThePathGiven(t *testing.T) {
+	f := &File{Path: filepath.Join(t.TempDir(), FileName)}
+	ctx := t.Context()
+	if err := f.Keep(ctx, "alpha", "r1", "/work/old"); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Keep(ctx, "alpha", "r1", "/work/new"); err != nil {
+		t.Fatal(err)
+	}
+	if dropped, err := f.ForgetAt(ctx, "alpha", "r1", "/work/old"); err != nil || dropped {
+		t.Fatalf("forgetting the path the checkout left: dropped %v, %v", dropped, err)
+	}
+	if kept, err := f.Of(ctx, "alpha"); err != nil || kept["r1"] != "/work/new" {
+		t.Fatalf("the checkout kept again reads %v: %v", kept, err)
+	}
+	if dropped, err := f.ForgetAt(ctx, "alpha", "never", "/work/new"); err != nil || dropped {
+		t.Errorf("forgetting a checkout never kept: dropped %v, %v", dropped, err)
+	}
+	if dropped, err := f.ForgetAt(ctx, "alpha", "r1", "/work/new"); err != nil || !dropped {
+		t.Fatalf("forgetting the checkout at its path: dropped %v, %v", dropped, err)
+	}
+	if kept, err := f.Of(ctx, "alpha"); err != nil || len(kept) != 0 {
+		t.Errorf("after the drop the project keeps %v: %v", kept, err)
+	}
+}
+
 // The file keeps one path per repository of each project, and survives a new reader.
 func TestTheFileKeepsACheckoutPerProjectRepository(t *testing.T) {
 	file := filepath.Join(t.TempDir(), FileName)

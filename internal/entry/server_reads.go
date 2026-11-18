@@ -192,6 +192,10 @@ func (unavailableCheckouts) Forget(context.Context, ledger.WorkspaceID, string) 
 	return repositoryRead(readCheckouts)
 }
 
+func (unavailableCheckouts) ForgetAt(context.Context, ledger.WorkspaceID, string, string) (bool, error) {
+	return false, repositoryRead(readCheckouts)
+}
+
 func (unavailableCheckouts) Of(context.Context, ledger.WorkspaceID) (map[string]string, error) {
 	return nil, repositoryRead(readCheckouts)
 }

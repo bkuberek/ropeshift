@@ -254,6 +254,17 @@ func (f *Checkouts) Forget(_ context.Context, project ledger.WorkspaceID, reposi
 	return nil
 }
 
+// ForgetAt drops the checkout only while it is kept at path.
+func (f *Checkouts) ForgetAt(_ context.Context, project ledger.WorkspaceID, repository, at string) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if kept, ok := f.kept[project][repository]; !ok || kept != at {
+		return false, nil
+	}
+	delete(f.kept[project], repository)
+	return true, nil
+}
+
 func (f *Checkouts) Of(_ context.Context, project ledger.WorkspaceID) (map[string]string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()

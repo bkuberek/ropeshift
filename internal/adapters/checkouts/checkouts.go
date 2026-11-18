@@ -122,6 +122,25 @@ func (f *File) Forget(_ context.Context, project ledger.WorkspaceID, repository 
 	return f.write(doc)
 }
 
+// ForgetAt drops this worker's checkout of a project's repository only while the file keeps it at path, read and
+// written under one lock, so a checkout kept again at another path stays.
+func (f *File) ForgetAt(_ context.Context, project ledger.WorkspaceID, repository, path string) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	doc, err := f.read()
+	if err != nil {
+		return false, err
+	}
+	if kept, ok := doc.Projects[project][repository]; !ok || kept != path {
+		return false, nil
+	}
+	delete(doc.Projects[project], repository)
+	if len(doc.Projects[project]) == 0 {
+		delete(doc.Projects, project)
+	}
+	return true, f.write(doc)
+}
+
 // Of lists this worker's checkouts in a project.
 func (f *File) Of(_ context.Context, project ledger.WorkspaceID) (map[string]string, error) {
 	f.mu.Lock()

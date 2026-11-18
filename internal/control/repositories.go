@@ -412,10 +412,11 @@ func (r *Repositories) Remove(ctx context.Context, scope ledger.WorkspaceID, id 
 }
 
 // ForgetRemoved drops this worker's checkout of every repository of the project that the ledger holds as removed,
-// and names each it dropped. A removal in the transaction of a plan approval cannot reach the checkouts, so this
-// runs before anything reads them: a removed repository's checkout is then offered to no lane, read by no intake,
-// and listed by no report. A record read as active again just before the drop, as `repository add` makes it, keeps
-// its checkout.
+// and names each it dropped. A removal in the transaction of a plan approval cannot reach the checkouts, so the
+// intake tick runs this before it reads any source: from then on a removed repository's checkout is offered to no
+// lane, read by no intake, and listed in no report. Each record is read again just before its checkout is dropped,
+// and the drop compares the path it read, so a repository registered again from another clone in the meantime
+// keeps that checkout.
 func (r *Repositories) ForgetRemoved(ctx context.Context, scope ledger.WorkspaceID, kept ports.Checkouts) ([]string, error) {
 	held, err := kept.Of(ctx, scope)
 	if err != nil || len(held) == 0 {
@@ -442,10 +443,13 @@ func (r *Repositories) ForgetRemoved(ctx context.Context, scope ledger.Workspace
 		if !gone {
 			continue
 		}
-		if err := kept.Forget(ctx, scope, id); err != nil {
+		dropped, err := kept.ForgetAt(ctx, scope, id, held[id])
+		if err != nil {
 			return forgot, err
 		}
-		forgot = append(forgot, id)
+		if dropped {
+			forgot = append(forgot, id)
+		}
 	}
 	return forgot, nil
 }
