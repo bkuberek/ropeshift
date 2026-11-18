@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 
 import { addRepositories, changeRepository, readRepositories, removeRepository } from "../api/admin";
 import type { MergeAuthority, MergeMethod, RepositoryAddReport, RepositoryChange, RepositoryList, RepositoryView, ReviewTarget, StartFrom } from "../api/admin";
@@ -52,6 +52,24 @@ const ciKeys = [
   "ci_log_excerpt_lines",
   "ci_log_excerpt_bytes",
 ];
+
+// What each `[ci]` key sets, in words and no numbers: the value in force is the field's, and its default and range are
+// the server's, which refuses a value outside the range and names it.
+const ciWords: Record<string, string> = {
+  ci_history_window: "How many of the repository's most recent heads its CI history keeps.",
+  ci_history_min_records: "How many heads it needs before its own history replaces the no-history times.",
+  ci_no_history_p50: "The expected p50 of CI with no history, which the first read of a head is scheduled by.",
+  ci_no_history_p85: "The expected p85 of CI with no history, which the reads close in on, and a press of Wait longer adds.",
+  ci_min_interval: "The closest two reads of one head may be.",
+  ci_steady_interval: "The gap between reads while every run is queued and once a run is past its p85.",
+  ci_timeout_multiplier: "CI has not finished is raised at this many times the repository's p85.",
+  ci_timeout_no_history: "CI has not finished is raised at this time with no history.",
+  ci_queue_timeout_multiplier: "No runner picked it up is raised at this many times the repository's p85 queue time.",
+  ci_queue_timeout_no_history: "No runner picked it up is raised at this time with no history.",
+  ci_auto_rerun: "How many times ropeshift reruns an infrastructure failure before it asks a person.",
+  ci_log_excerpt_lines: "The most lines of a failing job's log a rework brief carries.",
+  ci_log_excerpt_bytes: "The most bytes of a failing job's log a rework brief carries.",
+};
 
 const draftOf = (view: RepositoryView): Draft => ({
   ci: Object.fromEntries(ciKeys.map((key) => [key, String(view.ci_effective?.[key] ?? "")])),
@@ -276,6 +294,7 @@ export function RepositoriesPage({
 
 function RecordForm({ view, archived, projectLabel, after, removeAsked = false }: { view: RepositoryView; archived: boolean; projectLabel: string; after: () => void; removeAsked?: boolean }) {
   const [draft, setDraft, saved] = useDraft<Draft>(draftOf(view));
+  const ciHeading = useId();
   const [removing, setRemoving] = useState(removeAsked && !archived);
   useEffect(() => {
     if (removeAsked && !archived) {
@@ -426,8 +445,14 @@ function RecordForm({ view, archived, projectLabel, after, removeAsked = false }
               <option value="rebase">rebase</option>
             </Select>
           </GridField>
-          {ciKeys.map((key, index) => (
-            <GridField key={key} label={key} help={index === 0 ? "How ropeshift reads this repository's CI: when it reads checks, how long it waits, and how often it reruns an infrastructure failure. A value outside its range is refused with the range named." : undefined}>
+        </fieldset>
+        <h3 className="h4" id={ciHeading}>
+          CI
+        </h3>
+        <p className="help">How ropeshift reads this repository's CI, and when CI that does not finish asks a person. A value outside its key's range is refused with the range named.</p>
+        <fieldset className="form-grid record-form" disabled={archived} aria-labelledby={ciHeading}>
+          {ciKeys.map((key) => (
+            <GridField key={key} label={key} help={ciWords[key]}>
               <input className="input mono field-narrow" autoComplete="off" spellCheck={false} value={draft.ci[key] ?? ""} onChange={(event) => setCI(key, event.target.value)} />
             </GridField>
           ))}

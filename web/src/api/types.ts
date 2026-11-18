@@ -317,6 +317,76 @@ export type PlanRevisionView = {
 // ProjectLabel names the project an item of the combined Needs you belongs to.
 export type ProjectLabel = { id: string; name: string; display_name?: string };
 
+// The kinds of thing CI asks a person about (ADR-0037). Each is a Needs you item and a notice of the same kind.
+export type CIKind = "ci_not_finished" | "ci_queue_stalled" | "ci_infrastructure_failure" | "ci_base_red" | "ci_action_required";
+
+// CIWatch is where one head's required checks stand against the repository's CI limits. Times are database
+// milliseconds. With no history the expected fields are absent, and the limits are the no-history keys.
+export type CIWatch = {
+  head: string;
+  watching: boolean;
+  final: boolean;
+  queued: boolean;
+  history: boolean;
+  expected_p50_ms?: number;
+  expected_ms?: number;
+  elapsed_ms: number;
+  queue_ms: number;
+  timeout_ms: number;
+  timeout_at: number;
+  queue_timeout_ms: number;
+  queue_timeout_at: number;
+  extended_ms?: number;
+  reruns?: number;
+  kind?: CIKind;
+  since?: number;
+  run_url?: string;
+};
+
+// CIFinding is what the classification of a finished head found that no agent can act on.
+export type CIFinding = {
+  work_order: string;
+  head: string;
+  kind: CIKind;
+  check?: string;
+  conclusion?: string;
+  url?: string;
+  base_commit?: string;
+  raised_at: number;
+};
+
+export type CIAction = "ci_wait" | "ci_rerun" | "ci_open_run";
+
+// CINeed is what CI asks of a person about a work order's pull request.
+export type CINeed = {
+  kind: CIKind;
+  work_order: WorkOrder;
+  number: number;
+  pull_request_url?: string;
+  watch: CIWatch;
+  finding?: CIFinding;
+  run_url?: string;
+  actions: CIAction[];
+};
+
+// CIDuration is what one repository's CI takes: the p50 and p85 of the push-to-completed time and of the queue time
+// of its recent heads with a test result, or the expected time its no-history keys give while it has none.
+export type CIDuration = {
+  repository: string;
+  name: string;
+  records: number;
+  min_records: number;
+  history: boolean;
+  p50_ms?: number;
+  p85_ms?: number;
+  queue_p50_ms?: number;
+  queue_p85_ms?: number;
+  no_history_p50_ms: number;
+  no_history_p85_ms: number;
+};
+
+export type CIDurations = { repositories: CIDuration[] };
+
 export type NeedItem = {
   id: string;
   since: number;
@@ -330,6 +400,7 @@ export type NeedItem = {
   | { kind: "contract_review"; contract_review: ContractReviewNeed }
   | { kind: "confirm"; card: CardNeed }
   | { kind: "plan_revision"; plan_revision: PlanRevisionView }
+  | { kind: "ci"; ci: CINeed }
 );
 
 // NeedsProject is one project's part of the combined Needs you: where its ledger stood, and how much waits.
@@ -685,6 +756,8 @@ export type Standing = {
   authority?: string;
   why?: string;
   pull_request?: PullRequest;
+  // ci is where the pull request's head stands against its repository's CI limits.
+  ci?: CIWatch;
   integrations?: IntegrationRecord[];
 };
 

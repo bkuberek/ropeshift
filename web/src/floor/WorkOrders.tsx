@@ -296,7 +296,7 @@ function ChecksTab({ id, live }: { id: string; live: Live }) {
   return (
     <div className="stack-8">
       {failure ? <Banner tone="danger">{`This tab is not current. ${failure}`}</Banner> : null}
-      {standing.pull_request ? <PullRequestPanel pr={standing.pull_request} /> : null}
+      {standing.pull_request ? <PullRequestPanel pr={standing.pull_request} ci={standing.ci} /> : null}
       <Panel title="Checks" level={3}>
         <Checks standing={standing} />
       </Panel>

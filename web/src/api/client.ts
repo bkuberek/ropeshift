@@ -1,5 +1,5 @@
 import { splitProject } from "../app/route";
-import type { ApprovalDecided, ApprovalRecord, CandidateList, DocumentRef, DocumentRow, DocumentVersions, EffectOutcome, NeedsYou, Overturned, OverturnDecision, PlanOutline, PlanRevision, PlanView, ProjectList, Question, RecordDecision, RecordedDecision, RecordedRead, RecordQuestion, Search, WorkAction, WorkOrder } from "./types";
+import type { ApprovalDecided, ApprovalRecord, CandidateList, CIWatch, DocumentRef, DocumentRow, DocumentVersions, EffectOutcome, NeedsYou, Overturned, OverturnDecision, PlanOutline, PlanRevision, PlanView, ProjectList, Question, RecordDecision, RecordedDecision, RecordedRead, RecordQuestion, Search, WorkAction, WorkOrder } from "./types";
 
 function documentQuery({ path, instance, version }: DocumentRef): URLSearchParams {
   const query = new URLSearchParams({ path });
@@ -237,6 +237,18 @@ export function reviseSession(plan: string, request: { id: string; repository?: 
 // reworkForDecisions makes the rework of one finished work order for the decisions a plan's revision lists for it.
 export function reworkForDecisions(id: string, decisions: string[]): Promise<{ work_order: string; rework: string }> {
   return call("POST", paths.work(id, "decision-rework"), { decisions });
+}
+
+// waitLongerForCI adds time to the CI timeout of a work order's head, which "CI has not finished" offers: the time
+// named, such as "45m", or one more p85 of the repository's CI when none is.
+export function waitLongerForCI(id: string, by = ""): Promise<{ work_order: string; watch: CIWatch }> {
+  return call("POST", paths.work(id, "ci-wait"), by ? { by } : {});
+}
+
+// rerunCI records a rerun of the checks of a work order's head, which a head that has not finished or failed for a
+// reason no agent can fix offers. It starts no agent.
+export function rerunCI(id: string): Promise<{ work_order: string; reruns: number }> {
+  return call("POST", paths.work(id, "ci-rerun"), {});
 }
 
 // readApproval reads one request, which is how a plan version the ledger holds no plan for yet is read.

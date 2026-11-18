@@ -175,12 +175,15 @@ describe("the source", () => {
   });
 
   // The one address that leaves the application is the Sign in page's passphrase help, a constant in SignIn.tsx that
-  // names a guide of this repository, and the pages the stated risk asks a member to read, which the dialog links only
-  // when the statement names an https address (admin/RiskStatement.test.tsx). No other address is built from data.
+  // names a guide of this repository, the pages the stated risk asks a member to read, which the dialog links only
+  // when the statement names an https address (admin/RiskStatement.test.tsx), and the run of CI that asks a person,
+  // which its card links only when the forge's address is https with a host and no user (needs/CICard.test.tsx). No
+  // other address is built from data.
   it("makes no link but its own, and the one constant that names the passphrase help", () => {
     const own: Record<string, RegExp> = {
       [join("src", "app", "SignIn.tsx")]: /: ("#main">?|\{to\}|\{passphraseHelp\})$/,
       [join("src", "admin", "RiskStatement.tsx")]: /: ("#main">?|\{to\}|\{address\})$/,
+      [join("src", "needs", "CICard.tsx")]: /: ("#main">?|\{to\}|\{run\})$/,
     };
     for (const path of source("src")) {
       const text = readFileSync(path, "utf8");

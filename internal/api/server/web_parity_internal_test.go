@@ -30,11 +30,7 @@ var opExempt = map[string]string{
 // opGaps are the operations the web UI should offer and does not yet, each with the slice of U2 that adds
 // it. An entry stays only while the operation has no route the web listener serves, so it leaves the list
 // when its gap closes, and the first run of this test wrote it.
-var opGaps = map[string]string{
-	// The CI card of Needs you calls these through the web listener (ADR-0037); SP4 builds it.
-	authority.OpWorkOrderCIWait:  "SP4",
-	authority.OpWorkOrderCIRerun: "SP4",
-}
+var opGaps = map[string]string{}
 
 var (
 	placeholder = regexp.MustCompile(`\{[^}]*\}`)

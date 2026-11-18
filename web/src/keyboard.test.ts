@@ -714,6 +714,14 @@ const paths: Record<string, KeyPath> = {
     sent: post(/\/work-orders\/wo-built\/decision-rework$/, expect.objectContaining({ decisions: ["d-logo"] })),
     run: decide("Retry budget needs revision", "Create rework for Add the budget"),
   },
+  "POST /v1/projects/{project}/work-orders/{id}/ci-wait": {
+    sent: post(/\/work-orders\/wo-ci\/ci-wait$/, {}),
+    run: decide("Add the retry budget (ci_not_finished)", "Wait longer"),
+  },
+  "POST /v1/projects/{project}/work-orders/{id}/ci-rerun": {
+    sent: post(/\/work-orders\/wo-ci\/ci-rerun$/),
+    run: decide("Add the retry budget (ci_not_finished)", "Record a rerun"),
+  },
 };
 
 const missing = changing.filter((name) => !(name in paths));

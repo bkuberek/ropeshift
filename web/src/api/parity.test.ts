@@ -87,6 +87,7 @@ import {
   readView,
   recordDecision,
   recordQuestion,
+  rerunCI,
   reviseSession,
   reworkForDecisions,
   searchCandidates,
@@ -94,9 +95,10 @@ import {
   signIn,
   signOut,
   startOrchestrator,
+  waitLongerForCI,
 } from "./client";
 import { createDelegate, readDelegates, readOperations, removeDelegate, revokeDelegate, signOutAll } from "./delegates";
-import { readCalibration, readDelivery, readDeliveryHistory, readEstimate, readPlanForecast } from "./measures";
+import { readCalibration, readCIDurations, readDelivery, readDeliveryHistory, readEstimate, readPlanForecast } from "./measures";
 import { claimAndStart, startClaimed } from "./runWork";
 import {
   clearConversation,
@@ -226,10 +228,13 @@ const callers: Record<string, Caller> = {
   "POST /v1/projects/{project}/plans/{id}/revision/confirm": step("confirmRevision", () => confirmRevision("plan-1")),
   "POST /v1/projects/{project}/plans/{id}/revision/sessions": step("reviseSession", () => reviseSession("plan-1", { id: "revise-1", repository: "repo-1" })),
   "POST /v1/projects/{project}/work-orders/{id}/decision-rework": step("reworkForDecisions", () => reworkForDecisions("wo-1", ["d-1"])),
+  "POST /v1/projects/{project}/work-orders/{id}/ci-wait": step("waitLongerForCI", () => waitLongerForCI("wo-1", "45m")),
+  "POST /v1/projects/{project}/work-orders/{id}/ci-rerun": step("rerunCI", () => rerunCI("wo-1")),
   "GET /v1/projects/{project}/plans/{id}/forecast": step("readPlanForecast", () => readPlanForecast("plan-1")),
   "GET /v1/projects/{project}/measures/delivery": step("readDelivery", () => readDelivery("30d", "kind")),
   "GET /v1/projects/{project}/measures/estimates": step("readCalibration", () => readCalibration("30d")),
   "GET /v1/projects/{project}/measures/history": step("readDeliveryHistory", () => readDeliveryHistory()),
+  "GET /v1/projects/{project}/measures/ci": step("readCIDurations", () => readCIDurations()),
   "GET /v1/projects/{project}/approvals/{id}": step("readApproval", () => readApproval("a-1")),
   "GET /v1/projects/{project}/lanes/{id}/outline": step("readOutline", () => readOutline("lane-1")),
   "GET /v1/projects/{project}/lanes/{id}/messages": step("readLaneMessages", () => readLaneMessages("lane-1")),
