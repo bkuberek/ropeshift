@@ -58,6 +58,7 @@ var clientPackages = map[string]bool{
 // sharedPackages are the top-level names of the application logic that the control plane and the worker share.
 var sharedPackages = map[string]bool{
 	"adoption":      true,
+	"practicerun":   true,
 	"projectremote": true,
 }
 
@@ -84,7 +85,7 @@ func Classify(rel string) Layer {
 		return LayerEntry
 	case "ports":
 		return LayerPorts
-	case "control", "worker", "practicerun":
+	case "control", "worker":
 		return LayerApplication
 	case "adapters":
 		return LayerAdapter
