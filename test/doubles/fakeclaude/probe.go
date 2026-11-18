@@ -34,6 +34,21 @@ func probeScript(script fixture) fixture {
 	if !dropped("command_lifecycle") {
 		turn = append(turn, step{Emit: map[string]any{"type": "system", "subtype": "command_lifecycle", "state": "started", "command_uuid": "c"}})
 	}
+	// A client run with partial messages writes the tokens an API call sent when it opens, and the output it has made as
+	// it goes, which a turn's spend is estimated from. A stand-in that drops `stream_usage` writes neither.
+	if !dropped("stream_usage") {
+		turn = append(turn,
+			step{Emit: map[string]any{"type": "stream_event", "parent_tool_use_id": nil, "event": map[string]any{
+				"type": "message_start", "message": map[string]any{
+					"id": "msg_probe", "model": "claude-fixture-5-5",
+					"usage": map[string]any{"input_tokens": 10, "cache_read_input_tokens": 100, "output_tokens": 1},
+				},
+			}}},
+			step{Emit: map[string]any{"type": "stream_event", "parent_tool_use_id": nil, "event": map[string]any{
+				"type": "message_delta", "delta": map[string]any{"stop_reason": "end_turn"}, "usage": map[string]any{"output_tokens": 4},
+			}}},
+		)
+	}
 	result := map[string]any{
 		"type": "result", "subtype": "success", "is_error": false, "terminal_reason": "completed", "num_turns": 1,
 		"total_cost_usd": 0.001, "usage": map[string]any{"input_tokens": 10, "output_tokens": 1},

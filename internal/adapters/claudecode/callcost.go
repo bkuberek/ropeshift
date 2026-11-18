@@ -1,18 +1,35 @@
 package claudecode
 
-import "ropeshift.com/ropeshift/internal/lanes"
+import (
+	"strconv"
 
-// streamCall is one API call's usage as the stream reports it: a `message_start` names the call's model and the tokens
-// it sent, and each `message_delta` after it carries the call's running output (and, on a client that reports them,
-// the rest of its usage). Every figure is the call's own, not the turn's, and a call of a subagent names its parent.
+	"ropeshift.com/ropeshift/internal/lanes"
+)
+
+// callKind says how a stream line reports an API call.
+type callKind int
+
+const (
+	// callStart is a `message_start` stream event: the call's id and model, and the tokens it sent.
+	callStart callKind = iota + 1
+	// callDelta is a `message_delta` stream event: the call's output so far, for the latest call of its caller.
+	callDelta
+	// callMessage is an `assistant` message: the call's id, model, and usage, written once for each of its content blocks,
+	// a subagent's included. It is the only report of a call on a session that writes no stream events.
+	callMessage
+)
+
+// streamCall is one API call's usage as the stream reports it, in one of the three ways above. Every figure is the call's
+// own, not the turn's, and a call of a subagent names its parent.
 type streamCall struct {
-	start  bool
+	kind   callKind
+	id     string
 	parent string
 	model  string
 	usage  lanes.Usage
 }
 
-// openCall is a call that has not been followed by another of its caller.
+// openCall is a call the turn made: what it ran on, and the largest usage any report of it showed.
 type openCall struct {
 	model string
 	usage lanes.Usage
@@ -22,47 +39,67 @@ type openCall struct {
 // list price. The client's own total arrives only with the `result` line that ends the turn, so a long turn of many
 // calls would otherwise show no spend until it was over (FR-SPEND-5). The figure is a bound: the turn's end carries the
 // exact total and replaces it.
+//
+// A call is one entry, found by its message id, however many lines report it: its stream events and its assistant messages
+// each raise the figures of the one entry, so no call counts twice. A call that names no id, as a stream event of an older
+// client does not, is told apart by the order of its caller's calls.
 type turnCost struct {
-	// settled is what the calls that ended cost, and open is the call each caller (the session itself, or one of its
-	// subagents' tool calls) is on.
-	settled float64
-	open    map[string]*openCall
-	// emitted is the highest running figure a caller was told, so that none is told twice.
-	emitted float64
+	calls map[string]*openCall
+	// latest is the key of the call each caller (the session itself, or one of its subagents' tool calls) last opened, which
+	// its `message_delta` lines are about because they name no call of their own.
+	latest map[string]string
+	// anonymous counts the calls that named no id, and emitted is the highest running figure a caller was told, so that none
+	// is told twice.
+	anonymous int
+	emitted   float64
 }
 
-// note takes one call's report, and says what the turn has spent beyond what its session's total held before it. The
-// session's own model is the one a call that names none ran on.
+// note takes one report of a call, and says what the turn has spent: the calls it has made at list price. The session's own
+// model is the one a call that names none ran on.
 func (t *turnCost) note(call streamCall, sessionModel string) float64 {
-	if t.open == nil {
-		t.open = map[string]*openCall{}
+	if t.calls == nil {
+		t.calls, t.latest = map[string]*openCall{}, map[string]string{}
 	}
-	current := t.open[call.parent]
-	switch {
-	case call.start:
-		if current != nil {
-			t.settled += lanes.ListPrice(current.model).Cost(current.usage)
+	key := call.id
+	switch call.kind {
+	case callStart:
+		if key == "" {
+			t.anonymous++
+			key = call.parent + "#" + strconv.Itoa(t.anonymous)
 		}
-		model := call.model
-		if model == "" {
-			model = sessionModel
+		t.latest[call.parent] = key
+	case callDelta:
+		var found bool
+		if key, found = t.latest[call.parent]; !found {
+			// A delta of a call whose start this reader never saw, as after an adoption in the middle of a call.
+			t.anonymous++
+			key = call.parent + "#" + strconv.Itoa(t.anonymous)
+			t.latest[call.parent] = key
 		}
-		t.open[call.parent] = &openCall{model: model, usage: call.usage}
-	case current != nil:
-		current.usage = current.usage.Max(call.usage)
-	default:
-		// A report of a call whose start this reader never saw, as after an adoption in the middle of a call, is priced
-		// as its session's model would.
-		t.open[call.parent] = &openCall{model: sessionModel, usage: call.usage}
+	case callMessage:
+		if key == "" {
+			return t.spent()
+		}
 	}
+	open := t.calls[key]
+	if open == nil {
+		open = &openCall{}
+		t.calls[key] = open
+	}
+	if call.model != "" {
+		open.model = call.model
+	} else if open.model == "" {
+		open.model = sessionModel
+	}
+	open.usage = open.usage.Max(call.usage)
 	return t.spent()
 }
 
-// spent is what the calls of the turn so far cost, the open ones included.
+// spent is what the calls of the turn so far cost.
 func (t *turnCost) spent() float64 {
-	total := t.settled
-	for _, call := range t.open {
-		total += lanes.ListPrice(call.model).Cost(call.usage)
+	var total float64
+	for _, call := range t.calls {
+		total += lanes.CallCost(call.model, call.usage)
 	}
 	return total
 }

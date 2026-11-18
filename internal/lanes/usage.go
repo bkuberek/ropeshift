@@ -6,6 +6,9 @@ type Usage struct {
 	OutputTokens        int64 `json:"output_tokens,omitempty"`
 	CacheCreationTokens int64 `json:"cache_creation_input_tokens,omitempty"`
 	CacheReadTokens     int64 `json:"cache_read_input_tokens,omitempty"`
+	// Speed is what a call's usage says it ran at: "fast" for fast mode, which is priced above standard, and
+	// "standard" or nothing otherwise.
+	Speed string `json:"speed,omitempty"`
 }
 
 // Context is what a session holds at one API call: every token sent, whether new,

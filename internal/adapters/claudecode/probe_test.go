@@ -102,6 +102,7 @@ func TestEachCheckFailsOnAStandInThatDropsItsSurface(t *testing.T) {
 		}},
 		{"start_screens", []lanes.Surface{claudecode.SurfaceStartScreens}},
 		{"max_budget_usd", []lanes.Surface{claudecode.SurfaceMaxBudget}},
+		{"stream_usage", []lanes.Surface{claudecode.SurfaceStreamUsage}},
 	} {
 		t.Run(tt.drop, func(t *testing.T) {
 			driver, spec, _ := probeRig(t, tt.drop)
@@ -113,7 +114,8 @@ func TestEachCheckFailsOnAStandInThatDropsItsSurface(t *testing.T) {
 				t.Errorf("not passed %v, want %v: %+v", got, tt.want, q.Checks)
 			}
 			degrades := slices.ContainsFunc(tt.want, func(s lanes.Surface) bool {
-				return s != claudecode.SurfaceCommandLifecycle && s != claudecode.SurfacePeerMessageHold && s != claudecode.SurfaceMaxBudget
+				return s != claudecode.SurfaceCommandLifecycle && s != claudecode.SurfacePeerMessageHold && s != claudecode.SurfaceMaxBudget &&
+					s != claudecode.SurfaceStreamUsage
 			})
 			if q.Degraded != degrades {
 				t.Errorf("degraded %v, want %v", q.Degraded, degrades)
