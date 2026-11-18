@@ -377,6 +377,57 @@ describe("ready work on the floor", () => {
   });
 });
 
+describe("ready work the ledger holds", () => {
+  const holds = [
+    { reason: "waiting_for_merge", phrase: "Waiting for a merge", dependency: "wo-0", detail: "its work, 3f2a1b0c, is accepted and not yet in origin/main" },
+    { reason: "base_unavailable", phrase: "Base branch not readable", detail: "origin/main could not be read in the checkout" },
+    { reason: "no_checkout", phrase: "No clone on the worker", detail: "worker solo keeps no clone of this repository" },
+  ];
+  const held = (hold: (typeof holds)[number]) => (view: Plans) => {
+    const order = orderOf(view, ready);
+    if (order) {
+      order.start_held = hold;
+    }
+  };
+
+  it.each(holds)("says on the work order's page why $reason holds it, in words, before anyone presses Start", async (hold) => {
+    const sent = serving({ plans: held(hold) });
+    openPage(`/work-order?id=${ready}`);
+    const facts = await screen.findByRole("region", { name: "Facts" });
+    const fact = within(facts).getByText("Start held").closest("div") as HTMLElement;
+    expect(within(fact).getByText(hold.phrase).getAttribute("title")).toBe(hold.reason);
+    expect(fact.textContent).toContain(hold.detail);
+    expect(fact.textContent).not.toContain(hold.reason);
+    if (hold.dependency) {
+      expect(within(fact).getByRole("link", { name: hold.dependency }).getAttribute("href")).toBe(here(`/work-order?id=${hold.dependency}`));
+    }
+    expect(changes(sent)).toHaveLength(0);
+  });
+
+  it("tags the held work wherever ready work is listed", async () => {
+    serving({ plans: held(holds[0]!) });
+    openPage("/floor");
+    const list = await screen.findByRole("region", { name: "Ready to start" });
+    const item = within(list).getByText(title).closest("li") as HTMLElement;
+    expect(within(item).getByText("Held: Waiting for a merge").getAttribute("title")).toBe(`waiting_for_merge wo-0: ${holds[0]?.detail}`);
+    cleanup();
+    openPage("/work?group=open");
+    const row = (await screen.findByRole("link", { name: title })).closest("tr") as HTMLElement;
+    expect(within(row).getByText("Held: Waiting for a merge")).toBeTruthy();
+  });
+
+  it("says nothing of a hold on ready work that has none", async () => {
+    serving();
+    openPage(`/work-order?id=${ready}`);
+    const facts = await screen.findByRole("region", { name: "Facts" });
+    expect(within(facts).queryByText("Start held")).toBeNull();
+    cleanup();
+    openPage("/floor");
+    const list = await screen.findByRole("region", { name: "Ready to start" });
+    expect(within(list).queryByText(/^Held:/)).toBeNull();
+  });
+});
+
 describe("the command palette", () => {
   const palette = () => screen.findByRole("dialog", { name: "Command palette" });
 

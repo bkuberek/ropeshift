@@ -19,6 +19,7 @@ import { useTalk } from "../talk/state";
 import { SessionUse, useFloorLive } from "./Installation";
 import { machineMeasures, sessionOf } from "./resources";
 import { ReviewOf } from "./ReviewOf";
+import { HeldTag } from "./StartHeld";
 import { StartWork, startOf } from "./StartWork";
 import { OpenRunWindow } from "./RunWindow";
 import { counting, laneLabel, orchestratorLabel } from "./states";
@@ -271,6 +272,7 @@ function ReadyToStart({ index, after }: { index: WorkIndex | null; after: () => 
               <ReviewOf order={row.order} />
             </span>
             <WorkBadge state={row.order.state} />
+            <HeldTag hold={row.order.start_held} />
             <StartWork order={row.order} allowed={row.allowed} small after={after} />
           </li>
         ))}

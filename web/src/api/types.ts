@@ -163,6 +163,15 @@ export type Lane = {
   generations?: Generation[];
 };
 
+// StartHold is why ready work is not claimed, when something other than a lack of ready work keeps it from
+// starting: the reason's name as the ledger writes it, the work order whose work is awaited, and what the
+// ledger said of it.
+export type StartHold = {
+  reason: string;
+  dependency?: string;
+  detail?: string;
+};
+
 export type WorkOrder = {
   id: string;
   title?: string;
@@ -186,6 +195,8 @@ export type WorkOrder = {
   adopt?: boolean;
   // reviews is the work order a review judges.
   reviews?: string;
+  // start_held is what keeps this work from starting, which a refused Start would say too.
+  start_held?: StartHold;
 };
 
 export type WorkAction = "reassign" | "resolve" | "replan" | "reset" | "respawn" | "resume" | "accept" | "rework" | "cancel" | "retry";
