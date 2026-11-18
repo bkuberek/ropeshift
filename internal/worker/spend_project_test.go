@@ -250,3 +250,107 @@ func TestARaisedProjectLimitWakesTheLaneItParkedOnce(t *testing.T) {
 		t.Errorf("the day's end woke the lane again: %d firings, %v", n, err)
 	}
 }
+
+// A member who sets or lowers a project's limit while lanes work reaches them in their current generation, at their next
+// tool call: a lane that started in a project with no limit asks the ledger again about once a minute, and does not wait for
+// its generation to end. The first case lowers the limit under what the project already spent. In the second the limit is
+// above it, and the lane's own spend, which the ledger had not been told, takes the project past it once the lane reports.
+func TestALimitPublishedWhileALaneWorksHoldsItAtItsNextToolCall(t *testing.T) {
+	t.Parallel()
+	for name, tt := range map[string]struct{ limit float64 }{
+		"a limit under what the day spent":                    {limit: 5},
+		"a limit the lane's own spend takes the project past": {limit: dailyLimit},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			r := spendLane(t, "headless")
+			spendInProject(t, r.store, scope, spentByTheOther)
+			g1, g2 := newGate(), newGate()
+			r.gates(g1, g2)
+			answer := fake.DriverStep{Do: func(ports.SessionSpec) { r.callHandoff(narrativeText) }}
+			r.driver.Play(script(
+				[]fake.DriverStep{{Bound: true}, g1.step(), running(1.2), g2.step(), aToolCall(), aToolCall(), completed(1.3)},
+				[]fake.DriverStep{answer, completed(1.4)},
+			))
+			r.driver.PlayAfter(r.toldToGoOn())
+			r.start()
+			// The generation began in a project with no limit, so its allowance holds none.
+			r.reach(t, g1)
+			projectLimitOf(t, r.store, tt.limit, 0)
+			r.clock.Advance(2 * time.Minute)
+			close(g1.release)
+			r.reach(t, g2)
+			if !r.holdsBy(5*time.Second, 1) {
+				t.Fatal("a limit published while the lane worked never reached it: its next tool call was not held")
+			}
+			if holds := r.driver.Holds(); holds[0] != lanes.ReasonSpendLimit {
+				t.Errorf("the lane reads %q", holds[0])
+			}
+			close(g2.release)
+			r.awaitOrder(t, workorders.Parked)
+			r.subject.Wait()
+			if calls, denied := r.driver.Calls(), r.driver.Denied(); calls != 0 || denied != 2 {
+				t.Errorf("after the report that found the project held %d calls ran and %d were denied, want none to run and two denied", calls, denied)
+			}
+			end := r.databaseDayEnd(t)
+			if wake := r.spendWake(t); !wake.Open() || wake.Expr != lanes.ProjectLimitWake(end) {
+				t.Errorf("wake %+v, want the project's limit or the end of the day, %d", wake, end)
+			}
+		})
+	}
+}
+
+// A lane that cannot hear from the control plane for longer than the grace does not keep the allowance it last read, which
+// said the project had room: the allowance is unknown, and the lane is held and parked as one whose work order's limit it
+// cannot read is, with a reason of its own (FR-SPEND-5).
+func TestAProjectAllowanceThatCannotBeRefreshedIsHeldAfterTheGrace(t *testing.T) {
+	t.Parallel()
+	r := spendLane(t, "headless")
+	projectLimitOf(t, r.store, dailyLimit, 1)
+	g1, g2 := newGate(), newGate()
+	r.gates(g1, g2)
+	answer := fake.DriverStep{Do: func(ports.SessionSpec) { r.callHandoff(narrativeText) }}
+	r.driver.Play(script(
+		[]fake.DriverStep{{Bound: true}, g1.step(), running(0.4), g2.step(), aToolCall(), completed(0.5)},
+		[]fake.DriverStep{answer, completed(0.6)},
+	))
+	r.driver.PlayAfter(r.toldToGoOn())
+	r.start()
+	r.reach(t, g1)
+	r.link.FailLaneFacts.Store(true)
+	r.clock.Advance(40 * time.Second)
+	close(g1.release)
+	r.reach(t, g2)
+	if !r.holdsBy(5*time.Second, 1) {
+		t.Fatal("a lane whose project allowance stayed unreadable for 40 seconds kept the allowance it last read")
+	}
+	if holds := r.driver.Holds(); holds[0] != lanes.ReasonSpendUnreadable {
+		t.Errorf("the lane reads %q", holds[0])
+	}
+	close(g2.release)
+	// Its work order is under its limit and so is its project, so the ledger wakes it as soon as it can say so.
+	r.awaitOrder(t, workorders.Ready)
+	r.subject.Wait()
+	if _, doc := r.storedHandoff(t, 1); doc.Reason != string(lanes.ParkSpendUnreadable) {
+		t.Errorf("the handoff reads %q", doc.Reason)
+	}
+}
+
+// A lane whose reads keep answering is never held for the age of its allowance: the span is how long it may go with no
+// answer, and not how long it may go with no event.
+func TestAProjectAllowanceThatKeepsBeingReadIsNeverHeldForItsAge(t *testing.T) {
+	t.Parallel()
+	r := spendLane(t, "headless")
+	projectLimitOf(t, r.store, dailyLimit, 1)
+	g1 := newGate()
+	r.gates(g1)
+	r.driver.Play(script([]fake.DriverStep{{Bound: true}, g1.step(), running(0.4), aToolCall(), r.reports(workorders.OutcomeCompleted), completed(0.5)}))
+	r.start()
+	r.reach(t, g1)
+	r.clock.Advance(10 * time.Minute)
+	close(g1.release)
+	r.awaitOrder(t, workorders.Acceptance)
+	if holds := r.driver.Holds(); len(holds) != 0 {
+		t.Errorf("a lane the control plane answered was held: %q", holds)
+	}
+}

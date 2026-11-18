@@ -35,9 +35,28 @@ func (r *laneRun) holdsToLimit() bool {
 
 // setAllowance keeps what the ledger said the lane's work order allows, which nil says is no limit.
 func (r *laneRun) setAllowance(allowance *ledger.SpendAllowance) {
+	now := r.w.clock.Now()
 	r.handleLock.Lock()
 	defer r.handleLock.Unlock()
-	r.allowance, r.allowanceKnown, r.allowanceFailedAt = allowance, true, time.Time{}
+	r.allowance, r.allowanceKnown, r.allowanceFailedAt, r.allowanceReadAt = allowance, true, time.Time{}, now
+}
+
+// staleProjectAllowance says the allowance the lane holds is one that names a project limit and that the ledger has not
+// answered a read of for longer than the grace, and makes it unknown again, from the moment of the last answer. A lane the
+// control plane cannot reach would otherwise keep, for as long as it ran, the word that its project had room, which a member
+// may have taken back: it asks again, and is held and parked as a lane that cannot read its limit is (FR-SPEND-5).
+func (r *laneRun) staleProjectAllowance(allowance *ledger.SpendAllowance) bool {
+	if allowance == nil || !allowance.ProjectLimited {
+		return false
+	}
+	now := r.w.clock.Now()
+	r.handleLock.Lock()
+	defer r.handleLock.Unlock()
+	if now.Sub(r.allowanceReadAt) <= allowanceGrace {
+		return false
+	}
+	r.allowanceKnown, r.allowanceFailedAt = false, r.allowanceReadAt
+	return true
 }
 
 func (r *laneRun) allowanceNow() *ledger.SpendAllowance {
@@ -165,8 +184,13 @@ func (r *laneRun) evaluateSpend(ctx context.Context) bool {
 	if !known {
 		return r.allowanceUnknown(ctx)
 	}
+	if r.staleProjectAllowance(allowance) {
+		return r.allowanceUnknown(ctx)
+	}
 	if allowance != nil && allowance.ProjectLimited {
 		allowance = r.followTheProject(ctx)
+	} else {
+		allowance = r.askAboutTheProject(ctx)
 	}
 	if allowance == nil {
 		return false
@@ -196,32 +220,54 @@ func (r *laneRun) limitWake(allowance *ledger.SpendAllowance, own bool) string {
 // worker says, and the project's spend is every lane's, so the lane tells the ledger at most once a span and reads the
 // allowance again once the span of an unknown one has passed. The allowance it returns is the one read last.
 func (r *laneRun) followTheProject(ctx context.Context) *ledger.SpendAllowance {
-	r.reportProjectSpend(ctx)
+	reported := r.reportProjectSpend(ctx)
 	r.handleLock.Lock()
 	tried := r.allowanceTriedAt
 	r.handleLock.Unlock()
-	if r.w.clock.Now().Sub(tried) >= allowanceRetryEvery {
+	// A report changes what the project has spent, so the answer is read again at once and not a span from now: the report that
+	// takes the project past its limit is the one the lane should be held at.
+	if reported || r.w.clock.Now().Sub(tried) >= allowanceRetryEvery {
 		r.readAllowance(ctx)
 	}
 	allowance, _ := r.allowanceState()
 	return allowance
 }
 
-// reportProjectSpend tells the ledger what the generation has spent so far, once a span and only when it grew. The ledger
-// raises what it holds of a generation to each figure and never lowers one, so a report is safe to repeat.
-func (r *laneRun) reportProjectSpend(ctx context.Context) {
+// askAboutTheProject reads the allowance again, about once a span, for a lane that holds none that names a project limit. A
+// member can set or lower a project's limit while a lane works, and nothing tells the lane: it asks. It is a read and no
+// report, because a project with no limit asks nothing of its lanes before a generation ends. Once the project has a limit
+// the lane is one that follows it, and reports at once.
+func (r *laneRun) askAboutTheProject(ctx context.Context) *ledger.SpendAllowance {
+	r.handleLock.Lock()
+	tried := r.allowanceTriedAt
+	r.handleLock.Unlock()
+	if r.w.clock.Now().Sub(tried) >= projectReportEvery {
+		r.readAllowance(ctx)
+	}
+	allowance, _ := r.allowanceState()
+	if allowance != nil && allowance.ProjectLimited {
+		return r.followTheProject(ctx)
+	}
+	return allowance
+}
+
+// reportProjectSpend tells the ledger what the generation has spent so far, once a span and only when it grew, and says
+// whether it did. The ledger raises what it holds of a generation to each figure and never lowers one, so a report is safe
+// to repeat.
+func (r *laneRun) reportProjectSpend(ctx context.Context) bool {
 	charged := r.chargedUSD()
 	now := r.w.clock.Now()
 	r.handleLock.Lock()
 	due := r.projectReportedAt.IsZero() || now.Sub(r.projectReportedAt) >= projectReportEvery
 	if !due || charged <= r.projectReportedUSD {
 		r.handleLock.Unlock()
-		return
+		return false
 	}
 	r.projectReportedAt, r.projectReportedUSD = now, charged
 	r.handleLock.Unlock()
 	r.recordUsage(ctx)
 	r.uploadBounded(ctx)
+	return true
 }
 
 func (r *laneRun) allowanceState() (*ledger.SpendAllowance, bool) {

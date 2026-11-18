@@ -163,6 +163,10 @@ type laneRun struct {
 	allowanceKnown    bool
 	allowanceFailedAt time.Time
 	allowanceTriedAt  time.Time
+	// allowanceReadAt is when a read of the allowance last answered, which an allowance that says its project has a limit
+	// is held to: one the ledger has not answered for longer than the grace is unknown again (FR-SPEND-6). The handle's lock
+	// guards it.
+	allowanceReadAt time.Time
 	// projectReportedAt and projectReportedUSD are when this lane last told the ledger what it spent for its project's
 	// limits, and what it was charged then, which the handle's lock guards (FR-SPEND-6).
 	projectReportedAt  time.Time
