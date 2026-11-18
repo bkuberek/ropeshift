@@ -83,10 +83,9 @@ type PreparedLane struct {
 	// Kept says the lane went on in a worktree it already had, at a place other than the one the root in force
 	// gives a new worktree. Nil when the lane's worktree is where that root puts it, or is new.
 	Kept *KeptWorktree
-	// Unignored names the workspace that does not ignore its .ropeshift/worktrees/ folder, when the lane's
-	// built-in root fell back to the root outside every clone for that reason, and the start says which line to
-	// add. Empty otherwise.
-	Unignored string
+	// Fallback says why the lane's built-in root stayed the root outside every clone though its clone lies in a
+	// workspace, and the start's notice says what to change. The zero value says nothing fell back.
+	Fallback lanes.RootFallback
 }
 
 // KeptWorktree is a lane's existing worktree that the root in force would not have chosen, which an upgrade that
@@ -171,12 +170,12 @@ func (p Provisioner) Prepare(ctx context.Context, request LaneRequest) (Prepared
 	// The place comes before anything a lane leaves behind, so a root inside a clone stops it with no
 	// resources allocated and no worktree made.
 	var (
-		place     lanes.Placement
-		kept      *KeptWorktree
-		unignored string
+		place    lanes.Placement
+		kept     *KeptWorktree
+		fallback lanes.RootFallback
 	)
 	if !request.Private {
-		if place, kept, unignored, err = p.place(ctx, request, profile); err != nil {
+		if place, kept, fallback, err = p.place(ctx, request, profile); err != nil {
 			return PreparedLane{}, err
 		}
 	}
@@ -222,7 +221,7 @@ func (p Provisioner) Prepare(ctx context.Context, request LaneRequest) (Prepared
 	}
 	return PreparedLane{
 		Worktree: worktree, Environment: environment, Profile: profile, ProfileDigest: digest, DefaultBranch: branch,
-		LaneModel: laneModel, LaneEffort: laneEffort, Kept: kept, Unignored: unignored,
+		LaneModel: laneModel, LaneEffort: laneEffort, Kept: kept, Fallback: fallback,
 	}, nil
 }
 

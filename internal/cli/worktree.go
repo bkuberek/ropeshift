@@ -26,6 +26,9 @@ func worktreeText(report lanes.WorktreeReport) string {
 // worktrees is ignored, with the line to add when it is not, and the root each checkout gets.
 func workspaceText(workspace lanes.WorkspaceReport) string {
 	var out strings.Builder
+	if workspace.Error != "" {
+		return fmt.Sprintf("Workspace %s: could not be checked: %s. Its lanes on the built-in root run outside every clone until it can be\n", workspace.Project, workspace.Error)
+	}
 	fmt.Fprintf(&out, "Workspace %s: %s (%s)", workspace.Project, workspace.Path, workspace.Found)
 	switch {
 	case !workspace.Clone:
@@ -38,6 +41,10 @@ func workspaceText(workspace lanes.WorkspaceReport) string {
 	out.WriteString("\n")
 	for _, root := range workspace.Roots {
 		fmt.Fprintf(&out, "  %s: lane worktrees go in %s\n", root.Checkout, root.Root)
+		// An unignored folder is already said for the whole workspace, with its line to add.
+		if root.Fallback != "" && root.Fallback != lanes.FallbackUnignored {
+			fmt.Fprintf(&out, "    %s\n", lanes.RootFallback{Workspace: workspace.Path, Reason: root.Fallback}.Notice())
+		}
 	}
 	return out.String()
 }

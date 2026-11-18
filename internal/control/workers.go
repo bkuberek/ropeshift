@@ -713,9 +713,6 @@ func desiredLease(tx ports.ReadTx, row workorders.WorkOrder) (ledger.DesiredLeas
 	} else if !errors.Is(err, ports.ErrNotFound) {
 		return lease, err
 	}
-	if lease.PlanningRepository, err = planningRepository(tx.Repositories()); err != nil {
-		return lease, err
-	}
 	lease.Deadline, lease.Overrides, lease.Delegated = row.Deadline, claim.Overrides, claim.Delegated
 	lease.Contract, lease.ContractVersion = row.ContractID, row.ContractVersion
 	if lease.Spend, err = desiredSpend(tx); err != nil {
@@ -783,6 +780,17 @@ func desiredLease(tx ports.ReadTx, row workorders.WorkOrder) (ledger.DesiredLeas
 	}
 	lease.Rework, err = desiredRework(tx.Evidence(), row, texts)
 	return lease, err
+}
+
+// planning reads the ID of the project's planning repository from its own records.
+func (w *Workers) planning(ctx context.Context) (string, error) {
+	var id string
+	err := w.store.Read(ctx, w.scope, func(tx ports.ReadTx) error {
+		var err error
+		id, err = planningRepository(tx.Repositories())
+		return err
+	})
+	return id, err
 }
 
 // planningRepository is the ID of the repository a member named the project's planning repository, or nothing

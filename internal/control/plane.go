@@ -192,7 +192,11 @@ func (p *Plane) revisions(ctx context.Context) (map[string]int64, []ledger.Desir
 			return nil, nil, 0, err
 		}
 		revisions[string(project.ID)] = workspace.Rev
-		described = append(described, ledger.DesiredProject{ID: string(project.ID), Name: project.Name, FleetMode: workspace.FleetMode})
+		planned, err := w.planning(ctx)
+		if err != nil {
+			return nil, nil, 0, err
+		}
+		described = append(described, ledger.DesiredProject{ID: string(project.ID), Name: project.Name, FleetMode: workspace.FleetMode, PlanningRepository: planned})
 		sum += workspace.Rev
 	}
 	return revisions, described, sum, nil

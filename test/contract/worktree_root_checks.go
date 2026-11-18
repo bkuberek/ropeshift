@@ -7,6 +7,7 @@ import (
 	"ropeshift.com/ropeshift/internal/control"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/planning"
+	"ropeshift.com/ropeshift/internal/ports"
 )
 
 // WorktreeRootChecks hold what a registration says of the worktree root in force for a clone (FR-PROF-3,
@@ -15,6 +16,57 @@ import (
 var WorktreeRootChecks = []Check{
 	{"WR1", "a registration by hand reports a worktree root that would lie inside the clone, still registers the clone, and reports nothing for a root outside it", checkAddReportsARootInsideTheClone},
 	{"WR2", "a registration from a manifest reports a worktree root that would lie inside the clone, still registers it, and reports nothing for a root outside it", checkManifestReportsARootInsideTheClone},
+	{"WR3", "a registration counts the project's workspace found through its planning clone: a root under the workspace's ignored worktree folder is no root inside the clone, and one under a folder it does not ignore is, with the line to add", checkAddCountsTheWorkspaceFolder},
+}
+
+// checkAddCountsTheWorkspaceFolder registers a workspace and a code clone inside it, with a user root under the
+// workspace's .ropeshift/worktrees/. The workspace is found through the planning repository the project's records
+// name, which the root check reads as a lane's start does.
+func checkAddCountsTheWorkspaceFolder(r *Rig) error {
+	s := r.Store()
+	profiles := fake.NewProfileSource()
+	profiles.PutUser("[worktree]\nroot = \"/work/ws/.ropeshift/worktrees/{repo}\"\n")
+	repositories := control.NewRepositories(s).Rooted(profiles)
+	kept := fake.NewCheckouts()
+	workspace := ports.Clone{Path: "/work/ws", ID: "repo-ws", Remote: "git@github.com:acme/ws.git", DefaultBranch: "main", Directory: "ws"}
+	code := ports.Clone{Path: "/work/ws/repos/api", ID: "repo-api", Remote: "git@github.com:acme/api.git", DefaultBranch: "main", Directory: "api"}
+	kept.Place(workspace)
+	kept.Place(code)
+	kept.Ignore("/work/ws", "repos")
+	for _, at := range []string{workspace.Path, code.Path} {
+		if added, err := repositories.Add(r.Ctx, r.Scope, control.RepositoryAdd{Paths: []string{at}}, kept, r.member()); err != nil || len(added) != 1 || added[0].Outcome != ledger.Registered {
+			return Violatedf("registering %s reads %+v: %v", at, added, err)
+		}
+	}
+	planned := true
+	if _, err := repositories.Change(r.Ctx, r.Scope, "repo-ws", control.RepositoryChange{Planning: &planned}, r.member()); err != nil {
+		return Violatedf("naming the workspace the planning repository: %v", err)
+	}
+	again := func() (control.Added, error) {
+		added, err := repositories.Add(r.Ctx, r.Scope, control.RepositoryAdd{Paths: []string{workspace.Path}}, kept, r.member())
+		if err != nil || len(added) != 1 || added[0].Outcome != ledger.AlreadyRegistered {
+			return control.Added{}, Violatedf("registering the workspace again reads %+v: %v", added, err)
+		}
+		return added[0], nil
+	}
+	unignored, err := again()
+	if err != nil {
+		return err
+	}
+	for _, want := range []string{"worktree root /work/ws/.ropeshift/worktrees/ws", "inside this clone", "add `/.ropeshift/worktrees/` to the .gitignore of /work/ws"} {
+		if !strings.Contains(unignored.Reason, want) {
+			return Violatedf("a root under a worktree folder the workspace does not ignore reads %q, which does not say %q", unignored.Reason, want)
+		}
+	}
+	kept.Ignore("/work/ws", ".ropeshift/worktrees")
+	ignored, err := again()
+	if err != nil {
+		return err
+	}
+	if ignored.Reason != "" {
+		return Violatedf("a root under the workspace's ignored worktree folder reads %q, and is not inside the clone", ignored.Reason)
+	}
+	return nil
 }
 
 // insideRoot is a user layer whose relative root lands in the clone it is read for.

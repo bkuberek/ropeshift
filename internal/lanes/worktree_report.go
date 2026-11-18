@@ -29,12 +29,18 @@ type WorkspaceReport struct {
 	Line string `json:"line,omitempty"`
 	// Roots is the worktree root of each of the project's checkouts, as a new worktree would be placed.
 	Roots []CheckoutRoot `json:"roots"`
+	// Error says the workspace could not be checked, as when git cannot answer for it, and is then all the
+	// report knows of it: a lane on the built-in root runs outside every clone until it can be.
+	Error string `json:"error,omitempty"`
 }
 
 // CheckoutRoot is the root a project's checkout gets for a new lane worktree.
 type CheckoutRoot struct {
 	Checkout string `json:"checkout"`
 	Root     string `json:"root"`
+	// Fallback is the reason, as RootFallback gives it, the checkout's built-in root stays outside every clone
+	// though it lies in the workspace. Empty otherwise.
+	Fallback string `json:"fallback,omitempty"`
 }
 
 // RootInsideClone is one checkout whose root lies inside a clone, so a lane there would fail with the reason

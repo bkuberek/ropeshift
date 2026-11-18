@@ -7,6 +7,7 @@ import (
 
 	"ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/planning"
 	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/internal/workorders"
 )
@@ -35,16 +36,59 @@ func (r *Repositories) rootNote(ctx context.Context, scope ledger.WorkspaceID, k
 	if err != nil {
 		return "", nil
 	}
-	place, err := lanes.Place(profile.Worktree, checkout, string(scope), rootProbe, "")
+	// The project's workspace counts as it does for a lane's start: found from the user's profile or from the
+	// planning clone the project's records name, it moves a built-in root into its folder for worktrees, and it
+	// allows a root under that folder while it ignores it.
+	planned, err := r.planningRepository(ctx, scope)
+	if err != nil {
+		return "", err
+	}
+	workspaces := ports.NewWorkspace(kept)
+	workspace, found, err := workspaces.Find(ctx, profile, string(scope), planned)
+	if err != nil {
+		return "", err
+	}
+	settings, allowed := profile.Worktree, ""
+	if found {
+		if settings, _, err = workspaces.Settings(ctx, settings, workspace, checkout); err != nil {
+			return "", err
+		}
+		if workspace.Clone {
+			allowed = workspace.Path
+		}
+	}
+	place, err := lanes.Place(settings, checkout, string(scope), rootProbe, "")
 	if err != nil {
 		return "", nil
 	}
-	_, inside, err := ports.InsideClone(ctx, kept, []string{checkout}, place.Path, "")
+	_, inside, err := ports.InsideClone(ctx, kept, []string{checkout}, place.Path, allowed)
 	if err != nil || !inside {
 		return "", err
 	}
-	return fmt.Sprintf("worktree root %s, set by %s, is inside this clone, so a lane here would fail with the reason %s: set `[worktree] root` in your profile to a folder outside every clone, or remove it to use the built-in root",
-		path.Dir(place.Path), profile.Worktree.RootSource, workorders.ReasonWorktreeInsideClone), nil
+	fix := "set `[worktree] root` in your profile to a folder outside every clone, or remove it to use the built-in root"
+	if found && workspace.Clone && ports.SamePath(ctx, kept, checkout, workspace.Path) {
+		under, err := ports.UnderWorkspaceWorktrees(ctx, kept, workspace.Path, place.Path)
+		if err != nil {
+			return "", err
+		}
+		if under {
+			fix = fmt.Sprintf("add `%s` to the .gitignore of %s, or %s", planning.WorktreesLine, workspace.Path, fix)
+		}
+	}
+	return fmt.Sprintf("worktree root %s, set by %s, is inside this clone, so a lane here would fail with the reason %s: %s",
+		path.Dir(place.Path), profile.Worktree.RootSource, workorders.ReasonWorktreeInsideClone, fix), nil
+}
+
+// planningRepository reads the ID of the repository the project's records name its planning repository, which is
+// where the project's workspace is found from, or nothing when it names none.
+func (r *Repositories) planningRepository(ctx context.Context, scope ledger.WorkspaceID) (string, error) {
+	var id string
+	err := r.store.Read(ctx, scope, func(tx ports.ReadTx) error {
+		var err error
+		id, err = planningRepository(tx.Repositories())
+		return err
+	})
+	return id, err
 }
 
 // withRootNote adds the clone's root note to a registration's outcome. A registration that was refused is

@@ -37,8 +37,13 @@ func WorktreeReport(ctx context.Context, profile lanes.Profile, kept ports.Check
 	reports := map[string]*lanes.WorkspaceReport{}
 	for _, project := range projectsOf(checkouts) {
 		workspace, found, err := FindWorkspace(ctx, kept, profile, project, planningOf[project])
+		if ctx.Err() != nil {
+			return report, ctx.Err()
+		}
 		if err != nil {
-			return report, err
+			// A workspace that cannot be checked is a finding of its project, and the rest of the report stands.
+			reports[project] = &lanes.WorkspaceReport{Project: project, Roots: []lanes.CheckoutRoot{}, Error: err.Error()}
+			continue
 		}
 		if found {
 			reports[project] = workspaceReport(project, workspace)
@@ -50,10 +55,13 @@ func WorktreeReport(ctx context.Context, profile lanes.Profile, kept ports.Check
 		if held := reports[project]; held != nil {
 			workspace = lanes.Workspace{Path: held.Path, Found: held.Found, Clone: held.Clone, Ignored: held.Ignored}
 		}
-		settings := profile.Worktree
+		settings, fallback := profile.Worktree, lanes.RootFallback{}
 		if workspace.Path != "" {
-			if settings, _, err = workspaceSettings(ctx, kept, profile.Worktree, workspace, checkout.Path); err != nil {
-				return report, err
+			if settings, fallback, err = ports.NewWorkspace(kept).Settings(ctx, profile.Worktree, workspace, checkout.Path); err != nil {
+				if ctx.Err() != nil {
+					return report, ctx.Err()
+				}
+				settings, fallback = profile.Worktree, lanes.RootFallback{Reason: lanes.FallbackUnreadable, Detail: err.Error()}
 			}
 		}
 		place, err := lanes.Place(settings, checkout.Path, project, "lane", "")
@@ -72,8 +80,8 @@ func WorktreeReport(ctx context.Context, profile lanes.Profile, kept ports.Check
 		if inside {
 			report.Inside = append(report.Inside, lanes.RootInsideClone{Project: project, Checkout: checkout.Path, Root: root, Clone: clone})
 		}
-		if held := reports[project]; held != nil {
-			held.Roots = append(held.Roots, lanes.CheckoutRoot{Checkout: checkout.Path, Root: root})
+		if held := reports[project]; held != nil && held.Error == "" {
+			held.Roots = append(held.Roots, lanes.CheckoutRoot{Checkout: checkout.Path, Root: root, Fallback: fallback.Reason})
 		}
 	}
 	for _, project := range slices.Sorted(maps.Keys(reports)) {

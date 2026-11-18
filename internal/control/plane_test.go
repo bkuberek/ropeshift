@@ -472,10 +472,11 @@ func TestOneOrchestratorServesEveryProject(t *testing.T) {
 	}
 }
 
-// TestALeaseNamesTheProjectsPlanningRepository holds what a worker needs to find a project's workspace: the lease
-// of a lane names the repository its project plans in, from the project's own records, and names none for a
-// project that has not named one or one whose planning repository was removed (FR-PROF-6).
-func TestALeaseNamesTheProjectsPlanningRepository(t *testing.T) {
+// TestDesiredStateNamesEachProjectsPlanningRepository holds what a worker needs to find a project's workspace
+// without a lane: desired state names, for each project it serves, the repository the project plans in, from the
+// project's own records, and none for a project that has not named one. Naming one moves the revision a worker
+// compares, so the worker reads it again (FR-PROF-6).
+func TestDesiredStateNamesEachProjectsPlanningRepository(t *testing.T) {
 	r := newPlaneRig(t, ledger.ProtocolVersion)
 	ctx := t.Context()
 	actor := ledger.Actor{Kind: ledger.ActorSystem, ID: "intake"}
@@ -485,32 +486,28 @@ func TestALeaseNamesTheProjectsPlanningRepository(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	r.ready("pa", "wo")
-	r.ready("pb", "wo")
-	for _, project := range []string{"pa", "pb"} {
-		if err := r.claim(project, "wo"); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := control.NewLeases(r.stores[ledger.WorkspaceID(project)]).DispatchWith(ctx, ledger.WorkspaceID(project), "wo", "lane-wo", "", projectMember); err != nil {
-			t.Fatal(err)
-		}
-	}
-	planningOf := func() map[string]string {
+	planningOf := func(state ledger.DesiredState) map[string]string {
 		held := map[string]string{}
-		for _, lease := range r.desired().Leases {
-			held[lease.Project] = lease.PlanningRepository
+		for _, project := range state.Projects {
+			held[project.ID] = project.PlanningRepository
 		}
 		return held
 	}
-	if held := planningOf(); held["pa"] != "" || held["pb"] != "" {
-		t.Errorf("no repository is named the planning repository, and the leases say %v", held)
+	before := r.desired()
+	if held := planningOf(before); len(held) != 2 || held["pa"] != "" || held["pb"] != "" {
+		t.Errorf("no repository is named the planning repository, and desired state says %v", held)
 	}
 	yes := true
 	if _, err := repositories.Change(ctx, "pa", "plan-repo", control.RepositoryChange{Planning: &yes}, projectMember); err != nil {
 		t.Fatal(err)
 	}
-	if held := planningOf(); held["pa"] != "plan-repo" || held["pb"] != "" {
-		t.Errorf("a lease names %v, want plan-repo for alpha and none for beta", held)
+	after := r.desired()
+	if held := planningOf(after); held["pa"] != "plan-repo" || held["pb"] != "" {
+		t.Errorf("desired state names %v, want plan-repo for alpha and none for beta", held)
+	}
+	again, err := r.plane.Desired(ctx, ledger.DesiredRequest{Auth: r.auth, Since: before.Rev, Revisions: before.Revisions})
+	if err != nil || again.Unchanged {
+		t.Errorf("a read at the revisions from before the change is %+v (%v), want a state that moved", again.Unchanged, err)
 	}
 }
 

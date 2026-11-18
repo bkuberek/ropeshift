@@ -126,7 +126,7 @@ func TestTheWorktreeReportNamesEachProjectsWorkspace(t *testing.T) {
 		},
 		{
 			Project: "prj-3", Path: "/work/ws3", Found: lanes.WorkspaceFromPlanning, Clone: true, Line: "/.ropeshift/worktrees/",
-			Roots: []lanes.CheckoutRoot{{Checkout: "/work/ws3", Root: "/data/worktrees/prj-3/ws3"}, {Checkout: "/work/ws3/repos/web", Root: "/data/worktrees/prj-3/web"}},
+			Roots: []lanes.CheckoutRoot{{Checkout: "/work/ws3", Root: "/data/worktrees/prj-3/ws3"}, {Checkout: "/work/ws3/repos/web", Root: "/data/worktrees/prj-3/web", Fallback: lanes.FallbackUnignored}},
 		},
 	}
 	if !slices.EqualFunc(report.Workspaces, want, func(a, b lanes.WorkspaceReport) bool {
