@@ -152,6 +152,7 @@ func (w *world) views() []view {
 	p := w.projectPath
 	views := []view{
 		{Name: "needs-you", Path: "/needs-you"},
+		{Name: "overview", Path: "/projects/" + w.project},
 		{Name: "needs-you-card", Path: "/needs-you?kind=cards&" + q("item", w.cardItem)},
 		{Name: "needs-you-plan-approval", Path: "/needs-you?" + q("item", w.planItem)},
 		{Name: "roadmap", Path: p("roadmap")},
@@ -168,6 +169,7 @@ func (w *world) views() []view {
 		{Name: "decisions", Path: p("decisions")},
 		{Name: "questions", Path: p("questions")},
 		{Name: "work", Path: p("work", "group=all")},
+		{Name: "reviews", Path: p("reviews")},
 		{Name: "work-order", Path: p("work-order", q("id", w.orders[orderRetries]))},
 		{Name: "floor", Path: p("floor")},
 		{Name: "lane", Path: p("lane", q("id", laneRateLimit))},
