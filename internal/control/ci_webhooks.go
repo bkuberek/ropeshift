@@ -162,7 +162,7 @@ func (c *CIWebhooks) Counts() map[string]int64 {
 }
 
 // Count counts a refusal made before a delivery reached Receive, such as a body too large to read.
-func (c *CIWebhooks) Count(reason string) { c.refuse(reason, false) }
+func (c *CIWebhooks) Count(reason string) { _ = c.refuse(reason, false) }
 
 func (c *CIWebhooks) refuse(reason string, malformed bool) error {
 	c.mu.Lock()

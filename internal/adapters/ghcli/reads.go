@@ -246,8 +246,8 @@ func (b batched) pullRequest() (ledger.PullRequest, bool) {
 			return ledger.PullRequest{}, false
 		}
 		for _, node := range contexts.Nodes {
-			b.viewed.StatusCheckRollup = append(b.viewed.StatusCheckRollup, node.rollup)
-			check := node.rollup.check()
+			b.StatusCheckRollup = append(b.StatusCheckRollup, node.rollup)
+			check := node.check()
 			required[check.Name] = node.IsRequired
 		}
 	}
