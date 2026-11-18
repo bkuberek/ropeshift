@@ -173,6 +173,10 @@ func (h *historian) read(e ledger.Event) {
 		h.interrupted(e, measures.InterruptionForced, e.ID)
 	case e.Type == ledger.EventEffectDecided && member:
 		h.interrupted(e, measures.InterruptionForced, e.ID)
+	case e.Type == ledger.EventSpendLimited:
+		// A hard spend limit is a person's to lift or to hold (ADR-0037), so each limit a work order reaches is one
+		// interruption, which its Needs you item stands for. A raise that the work order passes again is another stop.
+		h.interrupted(e, measures.InterruptionForced, e.ID)
 	case e.Type == parking.EventSignal && member:
 		var signal parking.Signal
 		if json.Unmarshal(e.Data, &signal) == nil && signal.Kind == parking.HumanResume {

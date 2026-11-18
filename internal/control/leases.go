@@ -562,25 +562,25 @@ func endParkedLanes(tx ports.WriteTx, workOrder string, actor ledger.Actor) erro
 			return err
 		}
 		draft := ledger.EventDraft{Type: ledger.EventLaneEnded, Actor: actor, Data: data, Subject: ledger.Subject{Kind: ledger.SubjectLane, ID: row.ID}}
-		if err := closeLane(tx, row, draft); err != nil {
+		if err := closeLane(tx, row, draft, workorders.Outcome(workorders.Canceled), workorders.ReasonCanceled); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// closeLane records the end of a lane of canceled work, with the event that says so.
-func closeLane(tx ports.WriteTx, row ledger.LaneRow, draft ledger.EventDraft) error {
+// closeLane records the end of a lane a member's word ended, with the event that says so. Its outcome is that word, a
+// cancel or a spend stop's end, whatever its session was doing when it stopped.
+func closeLane(tx ports.WriteTx, row ledger.LaneRow, draft ledger.EventDraft, outcome workorders.Outcome, reason string) error {
 	if err := tx.Lanes().MarkEnded(row.ID); err != nil {
 		return err
 	}
-	if err := tx.Lanes().EndGeneration(row.ID, row.Generation, workorders.ReasonCanceled); err != nil {
+	if err := tx.Lanes().EndGeneration(row.ID, row.Generation, reason); err != nil {
 		return err
 	}
-	// A canceled lane's outcome is the cancel, whatever its session was doing when it stopped.
 	var result workorders.LaneResult
 	_ = json.Unmarshal(draft.Data, &result)
-	result.Outcome, result.Reason = workorders.Outcome(workorders.Canceled), workorders.ReasonCanceled
+	result.Outcome, result.Reason = outcome, reason
 	if err := closeLaneExperience(tx, row.ID, row.WorkOrder, result, draft.Actor); err != nil {
 		return err
 	}
@@ -619,7 +619,7 @@ func endCanceled(tx ports.WriteTx, worker string, e ledger.UploadEvent, stamp fu
 		Subject: ledger.Subject{Kind: ledger.SubjectLane, ID: e.Lane},
 	}
 	stamp(&draft)
-	if err := closeLane(tx, row, draft); err != nil {
+	if err := closeLane(tx, row, draft, workorders.Outcome(workorders.Canceled), workorders.ReasonCanceled); err != nil {
 		return false, err
 	}
 	if order.Kind == workorders.KindReview {
