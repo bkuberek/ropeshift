@@ -24,6 +24,9 @@ export type QuestionItem = {
   // when the ledger holds no such record or its title only repeats the ID, so the scope shows alone.
   scope?: string;
   scope_title?: string;
+  // overlaps names the decisions in force whose scope overlapped the question's when it was escalated, by ID. An
+  // answer that contradicts one can replace it.
+  overlaps?: string[];
 };
 
 export type Batch = {
@@ -588,6 +591,8 @@ export type Question = {
   escalation_reason?: string;
   ladder_trace?: LadderStep[];
   claimed_by?: string;
+  // overlaps names the decisions in force whose scope overlapped the question's when it was escalated, by ID.
+  overlaps?: string[];
   // reversibility is what an answer to the question will be, as a batch's item states it.
   reversibility?: "reversible" | "one_way";
   // scope is what an answer binds: the record the question is about. scope_title is that record's title, absent

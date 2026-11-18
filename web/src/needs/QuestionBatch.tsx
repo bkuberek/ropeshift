@@ -157,7 +157,7 @@ export function AnswerField({ item, draft, onChange, disabled, quiet = false, wh
           ))}
         </p>
       ) : null}
-      <ReplacesField value={draft.replaces} onChange={(replaces) => onChange({ ...draft, replaces })} />
+      <ReplacesField value={draft.replaces} overlaps={item.overlaps} onChange={(replaces) => onChange({ ...draft, replaces })} />
     </fieldset>
   );
 }

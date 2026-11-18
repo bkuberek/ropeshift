@@ -1,5 +1,6 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import axe from "axe-core";
 import { describe, expect, it } from "vitest";
 
 import type { Batch, QuestionItem } from "../api/types";
@@ -116,6 +117,100 @@ describe("a batch of 18 questions raised in the middle of a plan", () => {
       expect(await screen.findByText(/The decisions in force could not be read/)).toBeTruthy();
       await userEvent.click(screen.getByRole("button", { name: "Send this answer" }));
       await waitFor(() => expect(answers(sent)).toHaveLength(1));
+    });
+
+    describe("an item that names the decisions its scope overlaps", () => {
+      const other = { id: "pd-p18", status: "decided", statement: "Q: Which favicon? A: Mark", lineage: [] };
+      const contradicting: QuestionItem = { ...logo, overlaps: ["pd-p17"] };
+      const serveStanding = () =>
+        serveApi((call) => {
+          if (call.method === "GET" && call.path === "/v1/views/decisions") {
+            return { status: 200, body: { decisions: [standing, ended, other] } };
+          }
+          return call.method === "POST" ? { status: 201 } : undefined;
+        });
+      const rowOf = async (id: string) => (await screen.findByText(id)).closest(".row-tight") as HTMLElement;
+
+      it("shows each overlapping decision with its statement in place of the picker over every decision in force", async () => {
+        serveStanding();
+        show(batchOf({ ...contradicting, overlaps: ["pd-p17", "pd-p18"] }));
+        expect(await screen.findByText("Q: Which logo set? A: Monogram")).toBeTruthy();
+        expect(screen.getByText("Q: Which favicon? A: Mark")).toBeTruthy();
+        expect(screen.getAllByRole("button", { name: "Replace it" })).toHaveLength(2);
+        expect(screen.queryByText("Replaces a decision")).toBeNull();
+        expect(screen.queryByRole("combobox")).toBeNull();
+        expect(screen.queryByText("An older answer.")).toBeNull();
+      });
+
+      it("sends the decision a person replaces, and nothing once they change their mind", async () => {
+        const sent = serveStanding();
+        show(batchOf(contradicting));
+        const row = await rowOf("pd-p17");
+        const replace = within(row).getByRole("button", { name: "Replace it" });
+        expect(replace.getAttribute("aria-pressed")).toBe("false");
+        await userEvent.click(replace);
+        expect(replace.getAttribute("aria-pressed")).toBe("true");
+        expect(within(row).getByText("This answer replaces it")).toBeTruthy();
+        await userEvent.click(screen.getByRole("button", { name: "Send this answer" }));
+        await waitFor(() => expect(answers(sent)).toHaveLength(1));
+        expect(answers(sent)[0]).toMatchObject({ body: { answers: [{ question: "q-logo", accepted: true, supersedes: "pd-p17" }] } });
+      });
+
+      it("sends no replacement after it is chosen and chosen again", async () => {
+        const sent = serveStanding();
+        show(batchOf(contradicting));
+        const replace = within(await rowOf("pd-p17")).getByRole("button", { name: "Replace it" });
+        await userEvent.click(replace);
+        await userEvent.click(replace);
+        expect(replace.getAttribute("aria-pressed")).toBe("false");
+        await userEvent.click(screen.getByRole("button", { name: "Send this answer" }));
+        await waitFor(() => expect(answers(sent)).toHaveLength(1));
+        expect((answers(sent)[0]?.body as { answers: object[] }).answers[0]).not.toHaveProperty("supersedes");
+      });
+
+      it("replaces one decision at a time", async () => {
+        const sent = serveStanding();
+        show(batchOf({ ...contradicting, overlaps: ["pd-p17", "pd-p18"] }));
+        await userEvent.click(within(await rowOf("pd-p17")).getByRole("button", { name: "Replace it" }));
+        await userEvent.click(within(await rowOf("pd-p18")).getByRole("button", { name: "Replace it" }));
+        expect(screen.getAllByText("This answer replaces it")).toHaveLength(1);
+        await userEvent.click(screen.getByRole("button", { name: "Send this answer" }));
+        await waitFor(() => expect(answers(sent)).toHaveLength(1));
+        expect(answers(sent)[0]).toMatchObject({ body: { answers: [{ supersedes: "pd-p18" }] } });
+      });
+
+      it("says so when none of the overlapping decisions stands any longer", async () => {
+        serveStanding();
+        show(batchOf({ ...contradicting, overlaps: ["pd-old"] }));
+        expect(await screen.findByText("The decisions this question overlapped no longer stand.")).toBeTruthy();
+        expect(screen.queryByRole("button", { name: "Replace it" })).toBeNull();
+      });
+
+      it("names the decisions by their IDs when their statements cannot be read, and still replaces one", async () => {
+        const sent = serveApi((call) => (call.method === "GET" ? { status: 500, body: { error: { code: "internal", message: "no" } } } : { status: 201 }));
+        show(batchOf(contradicting));
+        expect(await screen.findByText(/The statements could not be read/)).toBeTruthy();
+        await userEvent.click(within(await rowOf("pd-p17")).getByRole("button", { name: "Replace it" }));
+        await userEvent.click(screen.getByRole("button", { name: "Send this answer" }));
+        await waitFor(() => expect(answers(sent)).toHaveLength(1));
+        expect(answers(sent)[0]).toMatchObject({ body: { answers: [{ supersedes: "pd-p17" }] } });
+      });
+
+      it("reaches Replace it by keyboard and has no accessibility violation", async () => {
+        serveStanding();
+        const { container } = show(batchOf(contradicting));
+        await screen.findByText("Q: Which logo set? A: Monogram");
+        const replace = screen.getByRole("button", { name: "Replace it" });
+        await userEvent.tab();
+        for (let presses = 0; presses < 10 && document.activeElement !== replace; presses++) {
+          await userEvent.tab();
+        }
+        expect(document.activeElement).toBe(replace);
+        await userEvent.keyboard("{Enter}");
+        expect(replace.getAttribute("aria-pressed")).toBe("true");
+        const result = await axe.run(container, { rules: { "color-contrast": { enabled: false } } });
+        expect(result.violations.map((violation) => `${violation.id}: ${violation.help}`)).toEqual([]);
+      });
     });
   });
 
