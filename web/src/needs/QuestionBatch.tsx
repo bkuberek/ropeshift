@@ -3,11 +3,13 @@ import { useId, useState } from "react";
 import { answerBatch } from "../api/client";
 import type { BatchAnswer, Place } from "../api/client";
 import type { Batch, QuestionItem } from "../api/types";
+import { Ladder } from "../planning/Ladder";
 import { Button } from "../ui/controls";
 import { DecisionCard } from "../ui/DecisionCard";
 import { RecordChip, Refusal, ScopeName } from "../ui/display";
 import { Field } from "../ui/forms";
 import type { Frame } from "./frame";
+import { NoOrchestrator } from "./NoOrchestrator";
 import { ReplacesField } from "./Replaces";
 import { useAct } from "./useAct";
 
@@ -102,6 +104,7 @@ export function AnswerField({ item, draft, onChange, disabled, quiet = false, wh
       <div className="row-tight question-tags">
         {isOneWay(item) ? <span className="cond warn">One-way: choose for yourself</span> : null}
         {item.blocking ? <span className="cond warn">Blocks work</span> : null}
+        {item.no_orchestrator ? <span className="cond">No orchestrator judged it</span> : null}
         {(item.categories ?? []).map((category) => (
           <span className="cond" key={category}>
             {category}
@@ -151,12 +154,13 @@ export function AnswerField({ item, draft, onChange, disabled, quiet = false, wh
       ) : null}
       {(item.citations ?? []).length > 0 ? (
         <p className="small muted question-cites">
-          Considered:{" "}
+          {item.no_orchestrator ? "Found by text, judged by nobody:" : "Considered:"}{" "}
           {(item.citations ?? []).map((citation) => (
             <RecordChip key={citation} id={citation} />
           ))}
         </p>
       ) : null}
+      <Ladder steps={item.ladder_trace} />
       <ReplacesField value={draft.replaces} overlaps={item.overlaps} onChange={(replaces) => onChange({ ...draft, replaces })} />
     </fieldset>
   );
@@ -245,6 +249,7 @@ export function QuestionBatch({ batch, after, frame, compact = false, place, onA
             </Button>
           </div>
         ) : null}
+        {batch.items.some((item) => item.no_orchestrator) ? <NoOrchestrator what="these questions" /> : null}
         {waiting > 0 ? (
           <p className="small muted" role="status">
             {waiting === 1 ? "1 one-way question waits" : `${waiting} one-way questions wait`} for your own choice, and {waiting === 1 ? "is" : "are"} not sent until you choose.

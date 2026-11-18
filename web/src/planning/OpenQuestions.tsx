@@ -2,32 +2,15 @@ import type { Question, Questions as View } from "../api/types";
 import { Link } from "../app/route";
 import { Fact, Id, Line, words } from "../parts/parts";
 import { ScopeName } from "../ui/display";
+import { NoOrchestrator } from "../needs/NoOrchestrator";
 import { CategoryFilter } from "./CategoryFilter";
+import { Ladder } from "./Ladder";
+import { waiting } from "./DismissQuestion";
 import { QuestionActions } from "./QuestionActions";
 
 const statusWords: Record<string, string> = { needs_human: "Needs a person" };
 
-function Ladder({ question }: { question: Question }) {
-  if (!question.ladder_trace?.length) {
-    return null;
-  }
-  return (
-    <details className="older">
-      <summary>How it got here</summary>
-      <ol className="list-rows" role="list">
-        {question.ladder_trace.map((step) => (
-          <li key={step.rung} className="list-row">
-            <p>Rung {step.rung}</p>
-            {step.outcome ? <p className="muted">{step.outcome}</p> : null}
-            {step.candidates?.length ? <p className="mono muted">{step.candidates.join(", ")}</p> : null}
-          </li>
-        ))}
-      </ol>
-    </details>
-  );
-}
-
-function QuestionLine({ question }: { question: Question }) {
+function QuestionLine({ question, others }: { question: Question; others: Question[] }) {
   return (
     <Line side={<span className="wait-word">{words(question.status, statusWords)}</span>} kind={`Rung ${question.rung}`} title={question.text} plain>
       <div className="panel-body">
@@ -65,8 +48,8 @@ function QuestionLine({ question }: { question: Question }) {
             </Fact>
           ) : null}
         </dl>
-        <Ladder question={question} />
-        <QuestionActions question={question} />
+        <Ladder steps={question.ladder_trace} />
+        <QuestionActions question={question} others={others} />
       </div>
     </Line>
   );
@@ -83,10 +66,11 @@ export function OpenQuestions({ view, category, selected }: { view: View; catego
       ) : (
         <CategoryFilter path="/questions" categories={view.categories} category={category} />
       )}
+      {shown.some(waiting) ? <NoOrchestrator what="the questions that wait" /> : null}
       {shown.length ? (
         <ol className="record-list queue-work" role="list">
           {shown.map((question) => (
-            <QuestionLine key={question.id} question={question} />
+            <QuestionLine key={question.id} question={question} others={view.questions} />
           ))}
         </ol>
       ) : (

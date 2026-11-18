@@ -113,6 +113,7 @@ const (
 	OpQuestionDismiss                     = "question.dismiss"
 	OpQuestionAnswer                      = "question.answer"
 	OpQuestionAnswerBatch                 = "question.answer_batch"
+	OpQuestionMerge                       = "question.merge"
 	OpDecisionAssume                      = "decision.assume"
 	OpDecisionRecord                      = "decision.record"
 	OpDecisionOverturn                    = "decision.overturn"
@@ -292,6 +293,9 @@ var operations = append(onInstallation(
 	// as one, and each is a decision that binds work (ADR-0030). A member answers it, with the rationale each own
 	// answer states, so a delegate's call is refused, not carded.
 	memberOnly(OpQuestionAnswerBatch, "Answer a batch of questions", ActionAnswerQuestion),
+	// A member merges a question into the one that stays in an orchestrator's place (FR-QD-3). An orchestrator merges
+	// through its own acts, and a delegate's call is refused, because the lanes of one question move to another.
+	memberOnly(OpQuestionMerge, "Merge a question into another", ActionMergeQuestion),
 	// Recording a decision is a member's consent whoever drafts it, the assistant included (ADR-0024). An
 	// orchestrator's decisions within policy reach the ledger through its own acts, which no class reads.
 	consent(OpDecisionAssume, "Record a decision within policy", ActionRecordDecision),

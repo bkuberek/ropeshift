@@ -63,6 +63,7 @@ export const paths = {
   answer: (id: string) => project(`/questions/${encodeURIComponent(id)}/answer`),
   batchAnswers: (id: string) => project(`/batches/${encodeURIComponent(id)}/answers`),
   dismiss: (id: string) => project(`/questions/${encodeURIComponent(id)}/dismiss`),
+  merge: (id: string) => project(`/questions/${encodeURIComponent(id)}/merge`),
   decisions: () => project("/decisions"),
   overturn: (id: string) => project(`/decisions/${encodeURIComponent(id)}/overturn`),
   candidates: (text: string, limit: number) => project(`/candidates?${new URLSearchParams({ text, kinds: candidateKinds.join(","), limit: String(limit) })}`),
@@ -302,12 +303,13 @@ export async function decisionIDOf(question: string): Promise<string> {
 
 // answerQuestion answers a question, which records a decision. `supersedes` names the decision in force the answer
 // replaces, with no rework: the daemon ends it in the transaction that records the answer.
-export async function answerQuestion(id: string, answer: string, place?: Place, supersedes?: string): Promise<RecordedDecision | undefined> {
+export async function answerQuestion(id: string, answer: string, place?: Place, supersedes?: string, assumption?: { rationale: string }): Promise<RecordedDecision | undefined> {
   return call<RecordedDecision | undefined>("POST", paths.answer(id), {
     id: await decisionIDOf(id),
     answer,
     ...(place ? { place } : {}),
     ...(supersedes ? { supersedes } : {}),
+    ...(assumption ? { assumed: true, ...(assumption.rationale ? { rationale: assumption.rationale } : {}) } : {}),
   });
 }
 
@@ -337,6 +339,12 @@ export function recordQuestion(request: RecordQuestion): Promise<Question> {
 // dismissQuestion closes a question with no answer. It stays on record.
 export function dismissQuestion(id: string): Promise<void> {
   return call("POST", paths.dismiss(id), {});
+}
+
+// mergeQuestion closes a question in favor of the one that stays, which takes its lanes, as
+// `ropeshift question merge --into` does.
+export function mergeQuestion(id: string, into: string): Promise<void> {
+  return call("POST", paths.merge(id), { into });
 }
 
 // recordDecision records a decision, or with the status `assumed` an assumption, as `ropeshift decision record`

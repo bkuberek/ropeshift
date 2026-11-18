@@ -173,6 +173,7 @@ export const dialogStates: DialogState[] = [
   { file: "planning/AddCategory.tsx", title: /^Add category$/ },
   { file: "planning/RecordQuestion.tsx", title: /^Record question$/ },
   { file: "planning/DismissQuestion.tsx", title: /^Dismiss this question\?$/ },
+  { file: "planning/MergeQuestion.tsx", title: /^Merge this question\?$/ },
   { file: "planning/RecordDecision.tsx", title: /^Record decision$/ },
   { file: "planning/OverturnDecision.tsx", title: /^Overturn / },
   { file: "planning/StartReview.tsx", title: /^Start contract review$/ },

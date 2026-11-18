@@ -141,6 +141,32 @@ func (c *invocation) questionDismiss(args []string) int {
 	}{positional[0]}, func() string { return positional[0] + "\tdismissed\n" })
 }
 
+func (c *invocation) questionMerge(args []string) int {
+	set := c.flags()
+	var request api.MergeQuestion
+	set.StringVar(&request.Into, "into", "", "the question that stays, which takes this one's lanes")
+	positional, ok := c.parse(set, args)
+	if !ok {
+		return ExitUsage
+	}
+	if len(positional) != 1 {
+		return c.usageError("takes one question ID")
+	}
+	if request.Into == "" {
+		return c.usageError("--into is required")
+	}
+	client, exit := c.projectClient()
+	if client == nil {
+		return exit
+	}
+	defer client.Close()
+	err := client.MergeQuestion(c.ctx, positional[0], request)
+	return c.finish(err, struct {
+		Merged string `json:"merged"`
+		Into   string `json:"into"`
+	}{positional[0], request.Into}, func() string { return positional[0] + "\tmerged into " + request.Into + "\n" })
+}
+
 func (c *invocation) questionAnswer(args []string) int {
 	set := c.flags()
 	var request api.AnswerQuestion
@@ -151,6 +177,7 @@ func (c *invocation) questionAnswer(args []string) int {
 	set.Var(&citations, "citation", "what it rests on, repeatable")
 	set.StringVar(&request.Supersedes, "supersedes", "", "the decision in force it replaces, with no rework")
 	set.Var(&noConflict, "no-conflict", "a decision its scope overlaps and it does not conflict with, repeatable")
+	set.BoolVar(&request.Assumed, "assumed", false, "record the answer as an assumption, for a reversible question only")
 	positional, ok := c.parse(set, args)
 	if !ok {
 		return ExitUsage

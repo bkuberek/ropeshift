@@ -148,6 +148,13 @@ type AnswerQuestion struct {
 	NoConflict []string `json:"no_conflict,omitempty"`
 	// Place is where the member answered: in Needs you, or inline in a conversation.
 	Place string `json:"place,omitempty"`
+	// Assumed records the answer as an assumption, for a question whose answer is reversible.
+	Assumed bool `json:"assumed,omitempty"`
+}
+
+// MergeQuestion names the question that stays when a member merges one into it.
+type MergeQuestion struct {
+	Into string `json:"into"`
 }
 
 // BatchAnswerItem is a member's answer to one question of a batch. ID names the decision it becomes. Accepted takes
@@ -231,6 +238,11 @@ func (c *ProjectClient) RecordQuestion(ctx context.Context, in RecordQuestion) (
 // DismissQuestion closes a question with no answer.
 func (c *ProjectClient) DismissQuestion(ctx context.Context, id string) error {
 	return c.do(ctx, http.MethodPost, "/v1/questions/"+url.PathEscape(id)+"/dismiss", struct{}{}, nil)
+}
+
+// MergeQuestion closes a question in favor of the one that stays, which takes its lanes.
+func (c *ProjectClient) MergeQuestion(ctx context.Context, id string, in MergeQuestion) error {
+	return c.do(ctx, http.MethodPost, "/v1/questions/"+url.PathEscape(id)+"/merge", in, nil)
 }
 
 // AnswerQuestion closes a question with a member's answer.

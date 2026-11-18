@@ -19,6 +19,7 @@ func (h *handler) questionRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/questions/{id}", h.showQuestion)
 	mux.HandleFunc("POST /v1/questions/{id}/dismiss", h.member(h.dismissQuestion))
 	mux.HandleFunc("POST /v1/questions/{id}/answer", h.member(h.answerQuestion))
+	mux.HandleFunc("POST /v1/questions/{id}/merge", h.member(h.mergeQuestion))
 	mux.HandleFunc("GET /v1/question-batches", h.listBatches)
 	mux.HandleFunc("POST /v1/batches/{id}/answers", h.member(h.answerBatch))
 	mux.HandleFunc("GET /v1/decisions", h.listDecisions)
@@ -149,6 +150,18 @@ func (h *handler) dismissQuestion(w http.ResponseWriter, r *http.Request, actor 
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (h *handler) mergeQuestion(w http.ResponseWriter, r *http.Request, actor ledger.Actor) {
+	var in api.MergeQuestion
+	if !decode(w, r, &in) {
+		return
+	}
+	if err := h.questions.MergeQuestion(r.Context(), h.Scope, r.PathValue("id"), in.Into, actor); err != nil {
+		fail(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (h *handler) answerQuestion(w http.ResponseWriter, r *http.Request, actor ledger.Actor) {
 	var in api.AnswerQuestion
 	if !decode(w, r, &in) {
@@ -160,6 +173,7 @@ func (h *handler) answerQuestion(w http.ResponseWriter, r *http.Request, actor l
 	}
 	record, err := h.questions.AnswerFrom(r.Context(), h.Scope, r.PathValue("id"), questions.Answer{
 		DecisionID: in.ID, Statement: in.Answer, Rationale: in.Rationale, Citations: in.Citations, Supersedes: in.Supersedes, NoConflict: in.NoConflict,
+		Assumed: in.Assumed,
 	}, actor, channel)
 	if err != nil {
 		fail(w, err)

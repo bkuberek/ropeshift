@@ -1164,6 +1164,39 @@ func TestQuestionAnswer(t *testing.T) {
 	}
 }
 
+// TestQuestionMerge holds that a member merges a question into one that stays, which closes it, and that a question
+// cannot merge into itself or into one that no longer waits.
+func TestQuestionMerge(t *testing.T) {
+	s := newSession(t)
+	s.must("question", "record", "--id", "q1", "--text", "How many retries?")
+	s.must("question", "record", "--id", "q2", "--text", "What is the retry budget?")
+	if code, _, _ := s.run("question", "merge", "q1"); code != cli.ExitUsage {
+		t.Fatalf("a merge with no --into: exit %d", code)
+	}
+	if code, _, _ := s.run("question", "merge", "q1", "--into", "q1"); code != cli.ExitUsage {
+		t.Fatalf("a merge into itself: exit %d", code)
+	}
+	if text := s.must("question", "merge", "q1", "--into", "q2"); text != "q1\tmerged into q2\n" {
+		t.Fatalf("printed %q", text)
+	}
+	if text := s.must("question", "show", "q1"); !strings.Contains(text, "dismissed") {
+		t.Errorf("the merged question reads %q", text)
+	}
+	if code, _, _ := s.run("question", "merge", "q2", "--into", "q1"); code != cli.ExitConflict {
+		t.Errorf("a merge into a closed question: exit %d", code)
+	}
+}
+
+// TestQuestionAnswerAssumed holds that --assumed records the answer as an assumption.
+func TestQuestionAnswerAssumed(t *testing.T) {
+	s := newSession(t)
+	s.must("question", "record", "--id", "q1", "--text", "How many retries?", "--category", "product")
+	text := s.must("question", "answer", "q1", "--answer", "Two retries.", "--rationale", "It is the usual budget.", "--id", "d1", "--assumed", "--json")
+	if !strings.Contains(text, `"status":"assumed"`) {
+		t.Fatalf("question answer --assumed printed %q", text)
+	}
+}
+
 // TestQuestionAnswerSupersedes holds that an answer names the decision it replaces with --supersedes, and the
 // decisions it judged compatible with --no-conflict, and that the decision it replaced ends in the same command.
 func TestQuestionAnswerSupersedes(t *testing.T) {

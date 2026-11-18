@@ -27,6 +27,10 @@ export type QuestionItem = {
   // overlaps names the decisions in force whose scope overlapped the question's when it was escalated, by ID. An
   // answer that contradicts one can replace it.
   overlaps?: string[];
+  // no_orchestrator says the core took the question to a person because no live orchestrator finished its ladder.
+  // ladder_trace is every rung it passed, and says which rungs the core ran and which an orchestrator judged.
+  no_orchestrator?: boolean;
+  ladder_trace?: LadderStep[];
 };
 
 export type Batch = {
@@ -585,6 +589,8 @@ export type Question = {
   subject_kind?: string;
   subject_id?: string;
   asked_by?: string;
+  // asked_at is when the question was recorded, from which its batch window runs while no orchestrator takes it.
+  asked_at?: number;
   options?: string[];
   recommendation?: string;
   recommendation_rationale?: string;
