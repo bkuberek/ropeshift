@@ -665,6 +665,7 @@ func TestAStatedFactTakesAReplyAfterTheWorkerRestarts(t *testing.T) {
 	// A worker that dies leaves its session running, so nothing here stops one.
 	r.stopWorker()
 	driver := fake.NewAgentDriver()
+	t.Cleanup(func() { endSessions(t, driver) })
 	driver.Leave("lane-1", 2, lanes.Session{Found: true, Liveness: lanes.LivenessAlive, Readable: true})
 	driver.Play(script([]fake.DriverStep{{Hold: true}}))
 	config := *r.config

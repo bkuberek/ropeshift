@@ -426,6 +426,12 @@ func (r *laneRun) observeEvent(ctx context.Context, event ports.DriverEvent) {
 		if _, pending, _ := s.compactionAsked(); waiting && !pending {
 			r.saveProgress(ctx, r.cursor)
 		}
+		// Each model call reports its usage, and a call whose cost cannot be priced reports no running total, so no cost
+		// event shows the lane its limit passed. The lane's limits are read here as they are at a cost report, and a lane
+		// that began to stop at one has no use for a handoff of its context.
+		if r.evaluateSpend(ctx) {
+			return
+		}
 		r.evaluateContext(ctx)
 	case ports.EventTurnEnded:
 		r.progressed()
@@ -473,6 +479,7 @@ func (r *laneRun) observeHook(ctx context.Context, event lanes.HookEvent) {
 		}
 	case hookPreToolUse:
 		r.progressed()
+		r.askToCheckSpend()
 		s.callStarted(event)
 		r.signal(ctx, lanes.OnActivity, lanes.OnCompactionFailed)
 	case hookPostToolUse, lanes.EventToolFailed:

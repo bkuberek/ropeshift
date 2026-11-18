@@ -230,12 +230,16 @@ func rerunReported(tx ports.WriteTx, request ledger.ForgeRequest, report ledger.
 		result = *report.Rerun
 	}
 	refused := clipCI(ledger.SanitizeCIText(result.Refused), 500)
+	pending, dropped := continuable(request.Body, runsOf(result.Pending))
 	detail := "reran runs " + strings.Join(runsOf(result.Runs), ", ")
 	if len(result.Runs) == 0 {
 		detail = "reran no run"
 	}
 	if refused != "" {
 		detail += "; the forge refused: " + refused
+	}
+	if len(dropped) != 0 {
+		detail += "; not continued, because the rerun never named them: " + strings.Join(dropped, ", ")
 	}
 	if _, err := tx.Forge().FinishRequestWith(request.ID, request.Attempt, tx.Now(), detail, request.Body); err != nil {
 		return err
@@ -244,9 +248,9 @@ func rerunReported(tx ports.WriteTx, request ledger.ForgeRequest, report ledger.
 	if rerunIsAuto(request) {
 		class = ciClassInfrastructure
 	}
-	pending := runsOf(result.Pending)
 	if err := appendForgeAs(tx, id, at, ledger.EventCIRerunDone, request.WorkOrder, ciEvent{
 		Head: request.Commit, Class: class, Auto: rerunIsAuto(request), Request: request.ID, Runs: runsOf(result.Runs), Refused: refused, Pending: pending,
+		Dropped: dropped,
 	}, actor); err != nil {
 		return err
 	}
@@ -279,6 +283,34 @@ func runsOf(reported []string) []string {
 		}
 	}
 	return runs
+}
+
+// continuable holds the runs a worker says a rerun did not reach to the runs the rerun was for, and says which it
+// dropped. A rerun that named runs is for those and no others, so a run the worker names that the request never did is
+// not one the control plane asks a forge to touch, whatever the worker says of it. A rerun that named none started again
+// every run of the head that finished without passing, so the runs it did not reach are the forge's to say and are all
+// continued. A request whose body cannot be read names nothing that can be trusted, and continues nothing.
+func continuable(body string, reported []string) (kept, dropped []string) {
+	if body == "" {
+		return reported, nil
+	}
+	var refs []ledger.CICheckRef
+	var named []string
+	if json.Unmarshal([]byte(body), &refs) == nil {
+		for _, ref := range refs {
+			run, _, _ := strings.Cut(ref.Key, "/")
+			named = append(named, run)
+		}
+	}
+	named = runsOf(named)
+	for _, run := range reported {
+		if slices.Contains(named, run) {
+			kept = append(kept, run)
+		} else {
+			dropped = append(dropped, run)
+		}
+	}
+	return kept, dropped
 }
 
 // rerunRest finishes a rerun the forge failed in the middle of. The runs it did not reach are asked for as a

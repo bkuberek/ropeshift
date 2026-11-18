@@ -552,7 +552,9 @@ func (r *laneRig) nextWorker(t *testing.T) *worker.Worker {
 		Lanes:     r.config,
 		Report:    func(err error) { t.Log(err) },
 	})
-	r.config.Driver = fake.NewAgentDriver()
+	driver := fake.NewAgentDriver()
+	t.Cleanup(func() { endSessions(t, driver) })
+	r.config.Driver = driver
 	if err := next.Start(t.Context()); err != nil {
 		t.Fatal(err)
 	}

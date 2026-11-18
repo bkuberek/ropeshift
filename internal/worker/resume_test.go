@@ -580,6 +580,8 @@ func (r *laneRig) otherWorker(t *testing.T, driver *fake.AgentDriver) (*worker.W
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = journal.Close() })
+	// It runs before the close of this journal, which a step the driver plays writes.
+	t.Cleanup(func() { endSessions(t, driver) })
 	worktrees := fake.NewWorktrees()
 	config := *r.config
 	config.Driver = driver

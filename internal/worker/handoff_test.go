@@ -457,6 +457,7 @@ func (r *handoffRig) workerDies(t *testing.T, left lanes.Session, script fake.Dr
 	t.Cleanup(func() {
 		driver.StopEverySession()
 		next.Wait()
+		endSessions(t, driver)
 	})
 	return next, driver
 }

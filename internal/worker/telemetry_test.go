@@ -600,6 +600,7 @@ func TestATurnACrashLeftUnreportedOutlivesTheWorkerThatReadIt(t *testing.T) {
 	r.stopWorker()
 	r.subject.Wait()
 	driver := fake.NewAgentDriver()
+	t.Cleanup(func() { endSessions(t, driver) })
 	driver.Leave("lane-1", 1, sessionDead)
 	config := *r.config
 	config.Driver = driver
@@ -669,6 +670,7 @@ func TestASessionEndReadAgainIsCountedOnce(t *testing.T) {
 	r.stopWorker()
 	r.subject.Wait()
 	driver := fake.NewAgentDriver()
+	t.Cleanup(func() { endSessions(t, driver) })
 	driver.Leave("lane-1", 1, lanes.Session{Found: true, Liveness: lanes.LivenessDead, Readable: true})
 	driver.Play(script([]fake.DriverStep{{Crash: true}}))
 	driver.PlayAfter(script([]fake.DriverStep{{Bound: true}, r.reports(workorders.OutcomeCompleted), completed(0.01)}))

@@ -60,7 +60,10 @@ func newInstallationRig(t *testing.T) *installationRig {
 	if err := r.journal.Migrate(ctx); err != nil {
 		t.Fatal(err)
 	}
-	r.driver = fake.NewAgentDriver()
+	driver := fake.NewAgentDriver()
+	r.driver = driver
+	// It runs after the cleanups of the test, and before the close of the journal a step writes.
+	t.Cleanup(func() { endSessions(t, driver) })
 	r.profile = fake.NewProfileSource()
 	dir := t.TempDir()
 	r.lanes, r.dir = &worker.LaneRuntime{

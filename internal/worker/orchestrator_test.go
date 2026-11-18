@@ -551,6 +551,7 @@ func TestAnOrchestratorComesBackAfterARestart(t *testing.T) {
 		first.Wait()
 	})
 	driver := fake.NewAgentDriver()
+	t.Cleanup(func() { endSessions(t, driver) })
 	driver.Leave(row.Lane(), 1, sessionAlive)
 	driver.Play(script([]fake.DriverStep{{Hold: true}}))
 	config := *o.config

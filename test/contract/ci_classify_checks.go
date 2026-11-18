@@ -20,9 +20,28 @@ var CIClassifyChecks = []Check{
 	{"CI13", "a test failure waits for the failing job's log, and goes back with it scrubbed, bounded, and in a block it cannot close", checkCITestFailureReworksWithItsLog},
 	{"CI15", "the rest of a rerun the forge failed in the middle of is finished as the same rerun, never counted again and never held to the cap", checkCIARerunIsFinishedUncounted},
 	{"CI14", "a check that ended in what no change mends is no evidence against the work in acceptance, and a test failure still is", checkCIHeldChecksAreNoEvidence},
+	{"CI16", "a rerun is continued only for the runs it named: a run its worker reports as not reached that it never named is dropped and recorded, and a rerun that named none continues what the worker reports", checkCIARerunIsContinuedOnlyForItsRuns},
 }
 
-const ciRunAddress = "https://github.com/acme/widgets/actions/runs/9/job/1"
+const (
+	ciRunAddress = "https://github.com/acme/widgets/actions/runs/9/job/1"
+	// ciOtherRunAddress is a check of the same head that ran in another run.
+	ciOtherRunAddress = "https://github.com/acme/widgets/actions/runs/10/job/1"
+)
+
+// ciCheckNames are the names the rig gives the required checks of a read that holds several.
+var ciCheckNames = []string{"unit", "lint", "docs"}
+
+// ciReadChecks is ciRead for a head with several required checks, named in the order they are given.
+func (f *forgeRig) ciReadChecks(head string, checks ...ledger.PullRequestCheck) error {
+	for i := range checks {
+		checks[i].Name, checks[i].Required = ciCheckNames[i], true
+	}
+	return f.read(ledger.PullRequest{
+		Number: 7, URL: "https://github.com/acme/widgets/pull/7", State: ledger.PullRequestOpen, Base: "main", Branch: branchName,
+		HeadCommit: head, Checks: checks,
+	})
+}
 
 // dbNow is the database's time.
 func (f *forgeRig) dbNow() (time.Time, error) {
@@ -396,14 +415,18 @@ func checkCIARerunIsFinishedUncounted(r *Rig) error {
 	if err != nil {
 		return err
 	}
-	if err := f.ciRead(f.head, failure); err != nil {
+	other, err := f.infraAfter(-time.Hour, ciOtherRunAddress)
+	if err != nil {
+		return err
+	}
+	if err := f.ciReadChecks(f.head, failure, other); err != nil {
 		return err
 	}
 	asked, err := f.reruns("rerun:auto:")
 	if err != nil || len(asked) != 1 {
 		return Violatedf("the worker is asked %+v for the rerun: %v", asked, err)
 	}
-	// The forge started run 9 again and failed before run 10.
+	// The forge started run 9 again and failed before run 10, which the rerun names too.
 	partly := ledger.ForgeReport{Request: asked[0].ID, Attempt: asked[0].Attempt, Rerun: &ledger.CIRerun{Runs: []string{"9"}, Pending: []string{"10", "not-a-run"}}}
 	if err := f.report(partly); err != nil {
 		return err
@@ -446,4 +469,85 @@ func checkCIARerunIsFinishedUncounted(r *Rig) error {
 		return err
 	}
 	return f.wantCounts("once finished", 1, 1)
+}
+
+// checkCIARerunIsContinuedOnlyForItsRuns holds what a worker says of the runs it did not reach to the runs the rerun was
+// for. A worker's word is no more trusted than the number it names: a run the request never named is not one the control
+// plane asks a forge to touch because a worker said it was left.
+func checkCIARerunIsContinuedOnlyForItsRuns(r *Rig) error {
+	f, err := newForgeRig(r, ledger.ReviewOnPullRequest)
+	if err != nil {
+		return err
+	}
+	if err := f.report(f.opened(1, f.head)); err != nil {
+		return err
+	}
+	order := f.grant.WorkOrder
+	attention := control.NewCIAttention(f.store)
+	// A rerun a person asked for names no run: it starts again every run of the head that finished without passing, so which
+	// runs it did not reach is the forge's to say, and each of them is asked for.
+	finding := ledger.CIFinding{WorkOrder: order, Head: f.head, Kind: ledger.CIItemInfrastructure, Check: "unit", Conclusion: "timed_out", URL: ciRunAddress}
+	if raised, err := attention.Raise(r.Ctx, r.Scope, finding); err != nil || !raised {
+		return Violatedf("the finding raised %v: %v", raised, err)
+	}
+	if _, err := attention.Rerun(r.Ctx, r.Scope, order, r.Actor); err != nil {
+		return err
+	}
+	member, err := f.reruns("rerun:member:")
+	if err != nil || len(member) != 1 || member[0].Body != "" {
+		return Violatedf("a member's rerun asks %+v: %v", member, err)
+	}
+	if err := f.report(ledger.ForgeReport{Request: member[0].ID, Attempt: member[0].Attempt, Rerun: &ledger.CIRerun{Runs: []string{"9"}, Pending: []string{"12"}}}); err != nil {
+		return err
+	}
+	rest, err := f.reruns("rerun:member:")
+	if err != nil || len(rest) != 1 || rest[0].ID != member[0].ID+":rest" || !strings.Contains(rest[0].Body, "/actions/runs/12") {
+		return Violatedf("the rest of a rerun that named no run is asked as %+v: %v", rest, err)
+	}
+	if err := f.report(ledger.ForgeReport{Request: rest[0].ID, Attempt: rest[0].Attempt, Rerun: &ledger.CIRerun{Runs: []string{"12"}}}); err != nil {
+		return err
+	}
+	// The rerun the control plane asks for names the runs of the checks it is for, and only those are its to continue.
+	failure, err := f.infraAfter(time.Minute, ciRunAddress)
+	if err != nil {
+		return err
+	}
+	if err := f.ciRead(f.head, failure); err != nil {
+		return err
+	}
+	auto, err := f.reruns("rerun:auto:")
+	if err != nil || len(auto) != 1 || !strings.Contains(auto[0].Body, "/actions/runs/9") {
+		return Violatedf("the worker is asked %+v for the automatic rerun: %v", auto, err)
+	}
+	// The worker says it did not reach runs 9, 77 and 10, and the rerun named run 9 alone.
+	if err := f.report(ledger.ForgeReport{Request: auto[0].ID, Attempt: auto[0].Attempt, Rerun: &ledger.CIRerun{Pending: []string{"9", "77", "10"}}}); err != nil {
+		return err
+	}
+	rest, err = f.reruns("rerun:auto:")
+	if err != nil || len(rest) != 1 || rest[0].ID != auto[0].ID+":rest" || !strings.Contains(rest[0].Body, "/actions/runs/9") ||
+		strings.Contains(rest[0].Body, "/runs/77") || strings.Contains(rest[0].Body, "/runs/10") {
+		return Violatedf("the rest of a rerun that named run 9 is asked as %+v: %v", rest, err)
+	}
+	if count, event, err := r.eventsAbout(f.store, order, ledger.EventCIRerunContinued); err != nil || count != 2 || !strings.Contains(string(event.Data), `"pending":["9"]`) {
+		return Violatedf("the continuations left %d events, the last %s: %v", count, event.Data, err)
+	}
+	if count, event, err := r.eventsAbout(f.store, order, ledger.EventCIRerunDone); err != nil || count != 3 ||
+		!strings.Contains(string(event.Data), `"pending":["9"]`) || !strings.Contains(string(event.Data), `"dropped":["77","10"]`) {
+		return Violatedf("the rerun's report left %d events, the last %s: %v", count, event.Data, err)
+	}
+	// A rest that the worker did not reach, in runs it was never asked for, has nothing to continue and asks for nothing.
+	if err := f.report(ledger.ForgeReport{Request: rest[0].ID, Attempt: rest[0].Attempt, Rerun: &ledger.CIRerun{Pending: []string{"77"}}}); err != nil {
+		return err
+	}
+	if err := f.wantReruns("after a rest reported only a run it never named", "rerun:", 0); err != nil {
+		return err
+	}
+	if count, _, err := r.eventsAbout(f.store, order, ledger.EventCIRerunContinued); err != nil || count != 2 {
+		return Violatedf("a run no rerun named was continued: %d continuations: %v", count, err)
+	}
+	if count, event, err := r.eventsAbout(f.store, order, ledger.EventCIRerunDone); err != nil || count != 4 ||
+		strings.Contains(string(event.Data), `"pending"`) || !strings.Contains(string(event.Data), `"dropped":["77"]`) {
+		return Violatedf("the last report left %d events, the last %s: %v", count, event.Data, err)
+	}
+	return f.wantCounts("after the member's rerun and the automatic one", 2, 1)
 }
