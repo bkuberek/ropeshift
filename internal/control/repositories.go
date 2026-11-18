@@ -27,6 +27,9 @@ type Repositories struct {
 	// profiles reads the worktree root in force for a clone, so a registration can say when it would lie
 	// inside the clone. Nil says nothing.
 	profiles ports.ProfileSource
+	// practices asks the worker that keeps a repository's checkout for a check of each repository a registration
+	// makes. Nil asks none.
+	practices *Practices
 }
 
 // NewRepositories returns the use cases over a Store.

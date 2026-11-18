@@ -101,6 +101,7 @@ func (r *Repositories) Add(ctx context.Context, scope ledger.WorkspaceID, in Rep
 			}
 			claimed[added.Repository.Name] = true
 			seen.note(clone, added)
+			r.requestPractices(ctx, scope, added, in.DryRun, actor)
 		}
 		out = append(out, added)
 	}
@@ -250,6 +251,25 @@ func (r *Repositories) register(ctx context.Context, scope ledger.WorkspaceID, c
 		}, false, nil
 	}
 	return added, false, err
+}
+
+// Practicing has each repository a registration makes checked: once its record is kept and this worker keeps its
+// checkout, the worker that holds the checkout is asked, in a transaction of its own, to run the practices check on it
+// (FR-PRAC-1). Nil asks none.
+func (r *Repositories) Practicing(practices *Practices) *Repositories {
+	r.practices = practices
+	return r
+}
+
+// requestPractices asks for the check of a repository a registration made, once the registration is recorded and the
+// checkout is kept. A request that is refused, or that fails, changes nothing about the registration, which stands: the
+// check is a way to read a repository, never a condition of registering it. A dry run and a repository the project
+// already held ask for none.
+func (r *Repositories) requestPractices(ctx context.Context, scope ledger.WorkspaceID, added Added, dryRun bool, actor ledger.Actor) {
+	if r.practices == nil || dryRun || added.Outcome != ledger.Registered || added.Repository.ID == "" {
+		return
+	}
+	_, _ = r.practices.Request(ctx, scope, []string{added.Repository.ID}, ledger.PracticesRegistration, actor)
 }
 
 // namePlanning names a repository the project's planning repository, as a member's change to its record,

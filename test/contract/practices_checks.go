@@ -1,12 +1,16 @@
 package contract
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"slices"
 	"time"
 
+	"ropeshift.com/ropeshift/internal/adapters/fake"
+	"ropeshift.com/ropeshift/internal/control"
 	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/planning"
 	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/internal/practices"
 )
@@ -19,6 +23,8 @@ var PracticesChecks = []Check{
 	{"PRQ3", "expiring stores as expired the offered requests whose expiry passed, and only those", checkPracticesExpiry},
 	{"PRQ4", "a repository keeps its latest result, whole, and a later save replaces it", checkPracticesLatestResult},
 	{"PRQ5", "a repository's scan tip is set, replaced, and cleared on its own", checkPracticesScanTip},
+	{"PRQ6", "registering clones requests one check of each repository registered, as a registration, and a repository no worker keeps, a known one, and a dry run request none", checkRegistrationRequestsACheckOfEachRepository},
+	{"PRQ7", "registering from a manifest requests one check of each repository it registers", checkManifestRegistrationRequestsACheckOfEachRepository},
 }
 
 // practicesWrite runs one write transaction on the practices records, with the event any committed transaction needs.
@@ -303,6 +309,161 @@ func checkPracticesScanTip(r *Rig) error {
 	}
 	if tip, err := tipOf("repo-b"); err != nil || tip != "c7" {
 		return Violatedf("clearing repo-a's tip left repo-b's as %q, %v", tip, err)
+	}
+	return nil
+}
+
+// practicesWorker registers a worker and opens its session on the current protocol, so a check can be asked of it, and
+// returns the use cases that register repositories and ask it for a check of each repository the machine says it keeps.
+func (r *Rig) practicesWorker(s ports.Store, keeps ...string) (*control.Repositories, error) {
+	plane := control.NewWorkers(s, r.Scope, control.WorkerOptions{HeartbeatMs: statusHeartbeatMs, LeaseTTLMs: TTLMs})
+	token, err := plane.CreateJoinToken(r.Ctx, r.member())
+	if err != nil {
+		return nil, err
+	}
+	id := r.ID("worker")
+	credential, err := plane.Register(r.Ctx, ledger.Registration{JoinToken: token, WorkerID: id, Name: "w"})
+	if err != nil {
+		return nil, err
+	}
+	auth := ledger.WorkerAuth{WorkerID: id, Credential: credential.Credential}
+	if _, err := plane.OpenSession(r.Ctx, ledger.SessionRequest{Auth: auth, Protocol: ledger.ProtocolVersion}); err != nil {
+		return nil, err
+	}
+	checkouts := map[string]bool{}
+	for _, repository := range keeps {
+		checkouts[repository] = true
+	}
+	hosts := func(context.Context, ledger.WorkspaceID) (map[string]control.AssistantHost, error) {
+		return map[string]control.AssistantHost{id: {Checkouts: checkouts}}, nil
+	}
+	return control.NewRepositories(s).Practicing(control.NewPractices(s).Placing(hosts, 0, nil)), nil
+}
+
+// openCheck is the open request for a repository, or none.
+func (r *Rig) openCheck(s ports.Store, repository string) (ledger.PracticesRequest, bool, error) {
+	var request ledger.PracticesRequest
+	found := false
+	err := s.Read(r.Ctx, r.Scope, func(tx ports.ReadTx) error {
+		now, err := tx.Now()
+		if err != nil {
+			return err
+		}
+		request, err = tx.Practices().Open(repository, now)
+		if errors.Is(err, ports.ErrNotFound) {
+			return nil
+		}
+		found = err == nil
+		return err
+	})
+	return request, found, err
+}
+
+func (r *Rig) requestedEvents(s ports.Store) (int, error) {
+	events, err := r.Events(s, r.Scope)
+	if err != nil {
+		return 0, err
+	}
+	return len(slices.DeleteFunc(events, func(e ledger.Event) bool { return e.Type != ledger.EventPracticesRequested })), nil
+}
+
+func checkRegistrationRequestsACheckOfEachRepository(r *Rig) error {
+	s := r.Store()
+	repositories, err := r.practicesWorker(s, "repo-api", "repo-web", "repo-docs")
+	if err != nil {
+		return err
+	}
+	kept := fake.NewCheckouts()
+	for _, name := range []string{"api", "web", "docs", "lonely"} {
+		kept.Place(ports.Clone{Path: "/work/" + name, ID: "repo-" + name, Remote: "git@github.com:acme/" + name + ".git", DefaultBranch: "main", Directory: name})
+	}
+	added, err := repositories.Add(r.Ctx, r.Scope, control.RepositoryAdd{Paths: []string{"/work/api", "/work/web", "/work/lonely"}}, kept, r.member())
+	if err != nil || len(added) != 3 {
+		return Violatedf("registering three clones read %+v: %v", added, err)
+	}
+	for _, one := range added {
+		if one.Outcome != ledger.Registered {
+			return Violatedf("%s was %s, want registered", one.Path, one.Outcome)
+		}
+	}
+	for _, id := range []string{"repo-api", "repo-web"} {
+		request, ok, err := r.openCheck(s, id)
+		if err != nil || !ok || request.Cause != ledger.PracticesRegistration || request.RequestedBy != r.member().ID || request.State != ledger.PracticesOffered {
+			return Violatedf("%s has the open check %+v (%v, found %v), want one made by its registration", id, request, err, ok)
+		}
+	}
+	if _, ok, err := r.openCheck(s, "repo-lonely"); err != nil || ok {
+		return Violatedf("a repository no worker keeps has an open check: %v", err)
+	}
+	if record, err := r.theRepository(s, "repo-lonely"); err != nil || record.Removed() {
+		return Violatedf("a refusal to request changed the registration: %+v, %v", record, err)
+	}
+	if n, err := r.requestedEvents(s); err != nil || n != 2 {
+		return Violatedf("the log holds %d requests, want one for each repository the worker keeps: %v", n, err)
+	}
+	// A repository the project holds already, and a dry run, request nothing.
+	if again, err := repositories.Add(r.Ctx, r.Scope, control.RepositoryAdd{Paths: []string{"/work/api"}}, kept, r.member()); err != nil || len(again) != 1 || again[0].Outcome != ledger.AlreadyRegistered {
+		return Violatedf("registering a known clone read %+v: %v", again, err)
+	}
+	if dry, err := repositories.Add(r.Ctx, r.Scope, control.RepositoryAdd{Paths: []string{"/work/docs"}, DryRun: true}, kept, r.member()); err != nil || len(dry) != 1 {
+		return Violatedf("a dry run read %+v: %v", dry, err)
+	}
+	if _, ok, err := r.openCheck(s, "repo-docs"); err != nil || ok {
+		return Violatedf("a dry run requested a check: %v", err)
+	}
+	if n, err := r.requestedEvents(s); err != nil || n != 2 {
+		return Violatedf("a known clone and a dry run left %d requests, want 2: %v", n, err)
+	}
+	return nil
+}
+
+func checkManifestRegistrationRequestsACheckOfEachRepository(r *Rig) error {
+	s := r.Store()
+	files, err := r.manifestProject(s)
+	if err != nil {
+		return err
+	}
+	if err := r.readsAsPlanning(s, files); err != nil {
+		return err
+	}
+	kept, err := r.planningMachine()
+	if err != nil {
+		return err
+	}
+	kept.Place(cloneOf("billing", "billing"))
+	kept.Place(cloneOf("search", "search"))
+	manifest := planning.RepositoriesFile{ID: "platform", Repositories: []planning.ManifestRepository{
+		{Name: "billing", Remote: "git@github.com:acme/billing.git", Path: "../billing"},
+		{Name: "search", Remote: "git@github.com:acme/search.git", Path: "../search"},
+		{Name: "missing", Remote: "git@github.com:acme/missing.git", Path: "../missing"},
+	}}
+	repositories, err := r.practicesWorker(s, "repo-billing", "repo-search", "repo-missing")
+	if err != nil {
+		return err
+	}
+	added, err := repositories.RegisterManifest(r.Ctx, r.Scope, manifest, kept, false, r.member())
+	if err != nil {
+		return err
+	}
+	registered := 0
+	for _, one := range added {
+		if one.Outcome == ledger.Registered {
+			registered++
+		}
+	}
+	if registered != 2 {
+		return Violatedf("the manifest registered %d repositories, want billing and search: %+v", registered, added)
+	}
+	for _, id := range []string{"repo-billing", "repo-search"} {
+		if request, ok, err := r.openCheck(s, id); err != nil || !ok || request.Cause != ledger.PracticesRegistration {
+			return Violatedf("%s has the open check %+v (%v, found %v), want one made by its registration", id, request, err, ok)
+		}
+	}
+	if _, ok, err := r.openCheck(s, "repo-missing"); err != nil || ok {
+		return Violatedf("a repository the manifest did not register has an open check: %v", err)
+	}
+	if n, err := r.requestedEvents(s); err != nil || n != 2 {
+		return Violatedf("the log holds %d requests, want two: %v", n, err)
 	}
 	return nil
 }

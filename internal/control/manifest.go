@@ -395,6 +395,7 @@ func (r *Repositories) registerEntry(ctx context.Context, scope ledger.Workspace
 		return added, err
 	}
 	run.seen.note(clone, added)
+	r.requestPractices(ctx, scope, added, run.dryRun, actor)
 	return added, nil
 }
 
