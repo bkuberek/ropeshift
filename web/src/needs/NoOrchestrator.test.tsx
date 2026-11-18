@@ -145,7 +145,7 @@ describe("the starts the notice offers", () => {
     openPage("/questions");
     const start = await screen.findByRole("button", { name: "Start orchestrator on solo" });
     await userEvent.keyboard("{Control>}k{/Control}");
-    await userEvent.type(await screen.findByRole("combobox"), ">Start orchestrator: solo");
+    await userEvent.type(await screen.findByRole("combobox"), ">Start orchestrator on solo");
     await userEvent.keyboard("{Enter}");
     await waitFor(() => expect(document.activeElement).toBe(start));
     expect(sent.some((call) => call.method === "PUT")).toBe(false);
@@ -160,7 +160,7 @@ describe("the starts the notice offers", () => {
     await userEvent.click(solo);
     const refused = await screen.findAllByText("worker worker-a: not found");
     expect(refused).toHaveLength(1);
-    expect(solo.parentElement?.contains(refused[0] ?? null)).toBe(true);
+    expect(solo.closest(".orchestrator-start")?.contains(refused[0] ?? null)).toBe(true);
     expect(screen.getByRole("button", { name: "Start orchestrator on build-host-07" }).hasAttribute("disabled")).toBe(false);
   });
 

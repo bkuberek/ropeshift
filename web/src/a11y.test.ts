@@ -762,9 +762,10 @@ suite.each(Object.entries(sizes))("at %s width", (size, viewport) => {
         const found: string[] = [];
         const resets = Date.now() + 2 * 60 * 60 * 1000;
         const floorWith = (scheduled?: object) => {
-          const floor = JSON.parse(goldens["shop-floor"] ?? "{}") as { workers: { worker: { id: string }; orchestrator_hold?: object; scheduled_start?: object }[] };
+          const floor = JSON.parse(goldens["shop-floor"] ?? "{}") as { workers: { worker: { id: string }; orchestrator?: object; orchestrator_hold?: object; scheduled_start?: object }[] };
           for (const line of floor.workers) {
             if (line.worker.id === "worker-a") {
+              line.orchestrator = undefined;
               line.orchestrator_hold = { reason: "usage_limit", window: "five_hour", resets_at: resets };
               line.scheduled_start = scheduled;
             }

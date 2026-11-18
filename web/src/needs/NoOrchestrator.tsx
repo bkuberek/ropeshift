@@ -4,6 +4,7 @@ import { readView } from "../api/client";
 import type { ShopFloor, WorkerLine } from "../api/types";
 import { running } from "../floor/Installation";
 import { OrchestratorStart } from "../floor/OrchestratorStart";
+import { useClock, ViewTime } from "../parts/parts";
 import { Banner } from "../ui/display";
 
 // judging are the states an orchestrator judges in: those of a run, less backoff, where it waits out a failure.
@@ -20,9 +21,12 @@ export const runsOrchestrator = (line: WorkerLine) =>
 // takes what is still open. With no worker at all, it says there is none to start one on.
 export function NoOrchestrator({ what }: { what: string }) {
   const [floor, setFloor] = useState<ShopFloor>();
+  const [readAt, setReadAt] = useState(0);
+  const now = useClock();
   const read = useCallback(async () => {
     try {
       setFloor(await readView<ShopFloor>("shop-floor"));
+      setReadAt(Date.now());
     } catch {
       setFloor(undefined);
     }
@@ -44,12 +48,14 @@ export function NoOrchestrator({ what }: { what: string }) {
   return (
     <Banner tone="warning">
       <p>No orchestrator is judging {what}. Answer, assume, or merge each one here as the orchestrator would, or start an orchestrator, which takes only the questions still open.</p>
-      {lines.map((line) => (
-        <div key={line.worker.id}>
-          <p className="label">{line.worker.name || line.worker.id}</p>
-          <OrchestratorStart line={line} after={read} />
-        </div>
-      ))}
+      <ViewTime.Provider value={{ asOf: floor.as_of, elapsed: Math.max(0, now - readAt) }}>
+        {lines.map((line) => (
+          <div key={line.worker.id}>
+            <p className="label">{line.worker.name || line.worker.id}</p>
+            <OrchestratorStart line={line} after={read} />
+          </div>
+        ))}
+      </ViewTime.Provider>
     </Banner>
   );
 }

@@ -1,11 +1,14 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { OrchestratorHold, ScheduledStart, ShopFloor, WorkerLine } from "../api/types";
+import { PageActionsProvider } from "../app/pageActions";
+import type { Entry } from "../app/ranking";
 import { openPage } from "../opening";
+import { ViewTime } from "../parts/parts";
 import { golden, refusal, serveApi, serveViews } from "../testing";
-import { countdownWords, OrchestratorStart, UsageLimit } from "./OrchestratorStart";
+import { countdownWords, OrchestratorStart, UsageLimit, when } from "./OrchestratorStart";
 
 // What keeps an orchestrator from starting shows next to its Start control, from the same read model on Workers and in
 // the notice that no orchestrator is judging: an offline worker, a tripped breaker with Reset, or a sign-in at its usage
@@ -21,6 +24,7 @@ afterEach(() => {
 
 function lineWith(hold?: OrchestratorHold, start?: ScheduledStart): WorkerLine {
   const line = structuredClone(golden<ShopFloor>("shop-floor").workers.find((one) => one.worker.id === "worker-a")) as WorkerLine;
+  line.orchestrator = undefined;
   line.orchestrator_hold = hold;
   line.scheduled_start = start;
   return line;
@@ -128,9 +132,10 @@ describe("the start control", () => {
 
 describe("Workers and resources", () => {
   const limitedFloor = (scheduled: boolean) => {
-    const floor = golden<ShopFloor>("shop-floor");
+    const floor = { ...golden<ShopFloor>("shop-floor"), as_of: Date.now() };
     for (const line of floor.workers) {
       if (line.worker.id === "worker-a") {
+        line.orchestrator = undefined;
         line.orchestrator_hold = limitedAt(Date.now() + hour);
         line.scheduled_start = scheduled ? { worker_id: "worker-a", starts_at: Date.now() + hour, scheduled_by: "member-1", scheduled_at: Date.now() } : undefined;
       }
@@ -155,5 +160,65 @@ describe("Workers and resources", () => {
       expect(await screen.findByRole("option", { name: new RegExp(title) })).toBeTruthy();
       page.unmount();
     }
+  });
+});
+
+describe("the start control on the view's clock", () => {
+  // serverNow is the view's moment, years from the browser's, so a countdown that read the browser's clock would show.
+  const serverNow = Date.UTC(2031, 2, 10, 9, 0, 0);
+  const onServer = (line: WorkerLine) => (
+    <ViewTime.Provider value={{ asOf: serverNow, elapsed: 0 }}>
+      <OrchestratorStart line={line} after={async () => {}} />
+    </ViewTime.Provider>
+  );
+
+  it("counts down from the view's server time, not the browser's", () => {
+    serveApi(() => undefined);
+    render(onServer(lineWith(limitedAt(serverNow + 2 * hour))));
+    expect(screen.getByText(/\(in 2 h 0 min\)/)).toBeTruthy();
+  });
+
+  it("names the day of a scheduled start that is not today", () => {
+    serveApi(() => undefined);
+    const at = serverNow + 26 * hour;
+    render(onServer(lineWith(limitedAt(at), { worker_id: "worker-a", starts_at: at, scheduled_by: "member-1", scheduled_at: serverNow })));
+    const day = new Date(at).toLocaleString(undefined, { weekday: "short" });
+    expect(screen.getByText(/^Starts at /).textContent).toContain(day);
+    expect(screen.getByText(/^Starts at /).textContent).toContain("(in 1 day)");
+  });
+
+  it("gives a start today its time of day alone", () => {
+    serveApi(() => undefined);
+    const at = serverNow + 2 * hour;
+    render(onServer(lineWith(limitedAt(at), { worker_id: "worker-a", starts_at: at, scheduled_by: "member-1", scheduled_at: serverNow })));
+    expect(screen.getByText(/^Starts at /).textContent).toBe(`Starts at ${when(at, serverNow)} (in 2 h 0 min).`);
+    expect(when(at, serverNow)).not.toContain(new Date(at).toLocaleString(undefined, { weekday: "short" }));
+  });
+});
+
+describe("the start control's palette entry", () => {
+  it("takes the keyboard to the button and sends nothing", () => {
+    const sent = serveApi(() => undefined);
+    let entries: Entry[] = [];
+    render(
+      <PageActionsProvider value={(listed) => (entries = listed)}>
+        <OrchestratorStart line={lineWith(limitedAt(Date.now() + hour))} after={async () => {}} />
+      </PageActionsProvider>,
+    );
+    const entry = entries.find((one) => one.title === "Start at reset on solo");
+    act(() => {
+      void entry?.run?.();
+    });
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Start at reset on solo" }));
+    expect(sent.some((call) => call.method !== "GET")).toBe(false);
+  });
+
+  it("offers nothing to schedule for an orchestrator already asked to run", () => {
+    serveApi(() => undefined);
+    const line = lineWith(limitedAt(Date.now() + hour));
+    line.orchestrator = { id: "orchestrator-worker-a", worker_id: "worker-a", desired_state: "running", run: 1, resets: 0 };
+    render(<OrchestratorStart line={line} after={async () => {}} />);
+    expect(screen.getByText("Its orchestrator is asked to run, so it starts once the limit resets.")).toBeTruthy();
+    expect(screen.queryByRole("button")).toBeNull();
   });
 });
