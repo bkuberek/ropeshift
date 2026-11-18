@@ -101,6 +101,9 @@ func (n node) clause() string {
 	case string(ExternalCheck):
 		return "check " + key + " reports back"
 	case string(LimitRaised):
+		if key == ProjectLimit {
+			return "the project's spend limit is raised"
+		}
 		return "the spend limit of work order " + key + " is raised"
 	case string(HumanResume):
 		return "a person resumes it"
@@ -149,6 +152,9 @@ func (n node) shortClause() string {
 	case string(ExternalCheck):
 		return "check " + key
 	case string(LimitRaised):
+		if key == ProjectLimit {
+			return "a raised project limit"
+		}
 		return "a raised limit on " + key
 	case string(HumanResume):
 		return "a person"

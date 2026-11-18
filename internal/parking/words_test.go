@@ -34,6 +34,12 @@ var wakeWords = []struct {
 		"a spend stop", `{"any_of":[{"limit_raised":"wo-1"},{"human_resume":true}]}`,
 		"When the spend limit of work order wo-1 is raised, or when a person resumes it", "a raised limit on wo-1 or a person",
 	},
+	{"a raised project limit", `{"limit_raised":"project"}`, "When the project's spend limit is raised", "a raised project limit"},
+	{
+		"a project spend stop", `{"any_of":[{"limit_raised":"project"},{"at":1790000000000},{"human_resume":true}]}`,
+		"When the project's spend limit is raised, or when the time reaches 2026-09-21 14:13 UTC, or when a person resumes it",
+		"a raised project limit or 2026-09-21 14:13 UTC or a person",
+	},
 	{"a person", `{"human_resume":true}`, "When a person resumes it", "a person"},
 	{"a time", `{"at":1790000000000}`, "When the time reaches 2026-09-21 14:13 UTC", "2026-09-21 14:13 UTC"},
 	{

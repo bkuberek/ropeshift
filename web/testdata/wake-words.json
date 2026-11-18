@@ -54,6 +54,18 @@
     "short": "a raised limit on wo-1 or a person"
   },
   {
+    "name": "a raised project limit",
+    "expression": "{\"limit_raised\":\"project\"}",
+    "words": "When the project's spend limit is raised",
+    "short": "a raised project limit"
+  },
+  {
+    "name": "a project spend stop",
+    "expression": "{\"any_of\":[{\"limit_raised\":\"project\"},{\"at\":1790000000000},{\"human_resume\":true}]}",
+    "words": "When the project's spend limit is raised, or when the time reaches 2026-09-21 14:13 UTC, or when a person resumes it",
+    "short": "a raised project limit or 2026-09-21 14:13 UTC or a person"
+  },
+  {
     "name": "a person",
     "expression": "{\"human_resume\":true}",
     "words": "When a person resumes it",

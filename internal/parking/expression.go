@@ -39,6 +39,11 @@ const (
 	HumanResume Kind = "human_resume"
 )
 
+// ProjectLimit is the name a `limit_raised` term takes to speak of the project's own daily and weekly limits and no work
+// order's: it is true when the project is under both, so a lane a project's limit parked wakes the moment a member raises
+// the window's limit, and the term holds nothing back from a lane a work order's limit parked (FR-SPEND-6).
+const ProjectLimit = "project"
+
 // The terms that hold no fact.
 const (
 	termAllOf = "all_of"

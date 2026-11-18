@@ -198,6 +198,11 @@ func checkEligible(tx ports.WriteTx, request workorders.ClaimRequest, actor ledg
 	if workspace.FleetMode != ledger.FleetRun {
 		return fmt.Errorf("%w: the fleet is in %s", workorders.ErrIneligible, workspace.FleetMode)
 	}
+	// A project past its daily or weekly limit grants no claim of any of its work, which is the project's ceiling and the
+	// person's to lift (FR-SPEND-6). It reads what the project spent and no estimate, so no claim decision reads one.
+	if err := projectWritesOf(tx).projectHeld(); err != nil {
+		return err
+	}
 	if err := underCap(workspace.WIPLimit, "work in progress", tx.Leases().WorkInProgress); err != nil {
 		return err
 	}

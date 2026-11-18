@@ -133,6 +133,9 @@ function clause(term: WakeTerm): ReactNode {
     case "external_check":
       return <>check {id(term.key)} reports back</>;
     case "limit_raised":
+      if (term.key === "project") {
+        return <>the project&apos;s spend limit is raised</>;
+      }
       return <>the spend limit of work order {id(term.key)} is raised</>;
     default:
       return null;

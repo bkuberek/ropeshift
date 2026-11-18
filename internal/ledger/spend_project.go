@@ -1,6 +1,10 @@
 package ledger
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"fmt"
+	"time"
+)
 
 // SubjectProjectSpend is what the events about a project's spend limits are about, kept apart from a work order's
 // so the replay of neither reads the other's.
@@ -102,6 +106,33 @@ func (s ProjectSpend) Hold() *ProjectHold {
 		}
 	}
 	return hold
+}
+
+// ProjectLimitError says an act that starts work was asked of a project past a daily or weekly limit, and what the
+// member can do. It is a refusal, and it changes nothing.
+type ProjectLimitError struct {
+	Window   string
+	HardUSD  float64
+	SpentUSD float64
+	UntilMs  int64
+}
+
+func (e *ProjectLimitError) Error() string {
+	name := "daily"
+	if e.Window == WindowWeek {
+		name = "weekly"
+	}
+	return fmt.Sprintf("the project is at its %s spend limit of $%.2f, with $%.2f charged: work goes on when the %s ends at %s, or raise the limit with ropeshift spend raise --project %s",
+		name, e.HardUSD, e.SpentUSD, e.Window, time.UnixMilli(e.UntilMs).UTC().Format(time.RFC3339), e.Window)
+}
+
+// ProjectLimitErrorOf is the refusal for the window that holds a project, from what it was charged in it.
+func ProjectLimitErrorOf(spend ProjectSpend, hold ProjectHold) *ProjectLimitError {
+	window := spend.Day
+	if hold.Window == WindowWeek {
+		window = spend.Week
+	}
+	return &ProjectLimitError{Window: hold.Window, HardUSD: window.HardLimit, SpentUSD: window.SpentUSD, UntilMs: hold.UntilMs}
 }
 
 // ProjectLimitChange is the data of EventSpendProjectLimitRaised: which window, the window it was made in, the limit

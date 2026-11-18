@@ -558,6 +558,9 @@ type LaneReader interface {
 	// EasingDue lists the lanes whose preferred worker's first claim has run out at a time. A
 	// tick reads this with no lock, so Ease decides each one.
 	EasingDue(now int64) ([]string, error)
+	// SpendSince reads what a scope of spend was charged from a moment on, in US dollars: the sum of its UTC days that
+	// begin at or after the moment, so a day or a week is read from the start of that window (ledger.WindowStart).
+	SpendSince(scope string, from int64) (float64, error)
 }
 
 // LaneWriter writes lanes.
@@ -619,6 +622,9 @@ type LaneWriter interface {
 	// reached as the generation's floor (ledger.GenerationUsage.FloorUSD), because a charge can fall though no figure does,
 	// and a floor a reporter names is ignored. It reports false for a generation the ledger does not hold.
 	ReportUsage(lane string, number int64, usage ledger.GenerationUsage) (bool, error)
+	// AddSpend adds what a scope of spend was charged to the UTC day the ledger's clock is in (ledger.SpendScopeWork).
+	// A tally only grows: an amount that is not above zero adds nothing, so no surface takes spend off a day.
+	AddSpend(scope string, usd float64) error
 	// EndGeneration records a generation's end, once.
 	EndGeneration(lane string, number int64, reason string) error
 	// SaveHandoff keeps one generation's handoff once, and names it on that generation.
