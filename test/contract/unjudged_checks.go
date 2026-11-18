@@ -24,6 +24,7 @@ var UnjudgedChecks = []Check{
 	{"UJ7", "a member's assumption of a one-way question is refused, and the question waits", checkUnjudgedOneWayAssumption},
 	{"UJ8", "a member claims, dispatches, and recovers work with no orchestrator", checkUnjudgedMemberRunsWork},
 	{"UJ9", "a question whose text search fails still reaches a person, with no candidates, and the tick says so once", checkUnjudgedMatcherFails},
+	{"UJ10", "an orchestrator that takes a question between the core's read and its write keeps it", checkUnjudgedCoreLosesTake},
 }
 
 const unjudgedText = "Which ID scheme do the work orders take?"
@@ -295,6 +296,16 @@ func checkUnjudgedMergeRules(r *Rig) error {
 	if err := ops.MergeQuestion(r.Ctx, r.Scope, one.QuestionID, other.QuestionID, r.Actor); !errors.Is(err, questions.ErrResolved) {
 		return Violatedf("a question merged into a dismissed one: %v", err)
 	}
+	stays, err := r.ask(s, "How long does a lease last?", "lane-c", nil)
+	if err != nil {
+		return err
+	}
+	if err := ops.MergeQuestion(r.Ctx, r.Scope, other.QuestionID, stays.QuestionID, r.Actor); !errors.Is(err, questions.ErrResolved) {
+		return Violatedf("a dismissed question merged into an open one: %v", err)
+	}
+	if attached, err := r.attachments(s, stays.QuestionID); err != nil || len(attached) != 1 {
+		return Violatedf("a refused merge of a closed question left %d lanes on the one that stays: %v", len(attached), err)
+	}
 	return checkPlannersQuestionMerges(r, s)
 }
 
@@ -425,6 +436,45 @@ func checkUnjudgedMatcherFails(r *Rig) error {
 	}
 	if _, err := core.DeliverBatches(r.Ctx, r.Scope, tickActor); err != nil {
 		return Violatedf("the next tick says %v, though nothing waits on the search", err)
+	}
+	return nil
+}
+
+func checkUnjudgedCoreLosesTake(r *Rig) error {
+	plain := r.Store()
+	asked, err := r.ask(plain, unjudgedText, "lane-a", blocking)
+	if err != nil {
+		return err
+	}
+	r.DB.ShiftClock(BatchWindowMs + 1)
+	holder := r.orchestrator("holder")
+	var took error
+	raced := false
+	stepped := r.StoreWith(func(op, name string) {
+		if op == "question.unjudged" && name == StepBefore && !raced {
+			raced = true
+			_, took = r.NewOps(plain).Take(r.Ctx, r.Scope, asked.QuestionID, TTLMs, holder)
+		}
+	})
+	if _, err := r.NewOps(stepped).DeliverBatches(r.Ctx, r.Scope, tickActor); err != nil {
+		return err
+	}
+	if !raced || took != nil {
+		return Violatedf("the orchestrator's take did not land between the core's read and its write: raced %t, %v", raced, took)
+	}
+	row, err := r.readQuestion(plain, asked.QuestionID)
+	if err != nil {
+		return err
+	}
+	if row.ClaimedBy != holder.ID || row.Status != questions.StatusTriage || row.NoOrchestrator() {
+		return Violatedf("the core took over a question an orchestrator took first: %+v", row)
+	}
+	delivered, err := r.deliveries(plain)
+	if err != nil {
+		return err
+	}
+	if len(delivered) != 0 {
+		return Violatedf("a question an orchestrator took reached a member: %+v", delivered)
 	}
 	return nil
 }
