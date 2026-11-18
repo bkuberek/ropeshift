@@ -52,6 +52,7 @@ const (
 	OpProjectRestore                      = "project.restore"
 	OpProjectRemove                       = "project.remove"
 	OpInstallationBackup                  = "installation.backup"
+	OpInstallationSpendPolicyPublish      = "installation_spend_policy.publish"
 	OpWorkerJoinToken                     = "worker.join_token"
 	OpWorkerJoinTokenRevoke               = "worker.join_token_revoke"
 	OpAutonomySet                         = "autonomy.set"
@@ -196,6 +197,9 @@ var operations = append(onInstallation(
 	consent(OpProjectRestore, "Restore a project", ActionManageProject),
 	consent(OpProjectRemove, "Remove a project", ActionManageProject),
 	memberOnly(OpInstallationBackup, "Back up the installation", ActionBackupInstallation),
+	// The installation's spend policy sets what the orchestrator runs on and what it may spend for every project, so
+	// publishing it is the installation role's action (ADR-0033) and not the project's policy action.
+	never(OpInstallationSpendPolicyPublish, "Publish the installation's spend policy", neverPolicy, ActionPublishInstallationPolicy),
 	never(OpWorkerJoinToken, "Make a worker join token", neverManagement, ActionCreateJoinToken),
 	never(OpWorkerJoinTokenRevoke, "Revoke a worker join token", neverManagement, ActionCreateJoinToken),
 	never(OpAutonomySet, "Set a worker's level", neverAutonomy, ActionSetAutonomy),

@@ -105,6 +105,7 @@ func TestNoGateDefectRunsAMemberOnlyOrNeverExemptOperation(t *testing.T) {
 		authority.ActionReviewPullRequest, authority.ActionManageSessions, authority.ActionSetAutonomy, authority.ActionCreateJoinToken,
 		authority.ActionManageProject, authority.ActionDecideOneWay, authority.ActionPassAutonomy, authority.ActionForceArchive,
 		authority.ActionApprovePlan, authority.ActionDecideMerge, authority.ActionDecideRecovery, authority.ActionBackupInstallation,
+		authority.ActionPublishInstallationPolicy,
 	} {
 		if authority.Allowed(delegate, action) {
 			t.Errorf("a delegate may %s", action)

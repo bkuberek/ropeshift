@@ -79,6 +79,10 @@ func TestOtherPrincipalsHoldNarrowScopes(t *testing.T) {
 		{"a tick decides nothing", ledger.ActorSystem, authority.ActionRecordDecision, false},
 		{"a lane decides nothing", ledger.ActorLane, authority.ActionRecordDecision, false},
 		{"a worker decides nothing", ledger.ActorWorker, authority.ActionRecordDecision, false},
+		{"an orchestrator cannot publish the installation's policy", ledger.ActorOrchestrator, authority.ActionPublishInstallationPolicy, false},
+		{"a lane cannot publish the installation's policy", ledger.ActorLane, authority.ActionPublishInstallationPolicy, false},
+		{"a worker cannot publish the installation's policy", ledger.ActorWorker, authority.ActionPublishInstallationPolicy, false},
+		{"a tick cannot publish the installation's policy", ledger.ActorSystem, authority.ActionPublishInstallationPolicy, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -86,6 +90,28 @@ func TestOtherPrincipalsHoldNarrowScopes(t *testing.T) {
 				t.Fatalf("got %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+// Publishing the installation's policies is the installation role's action (ADR-0033), which only a member holds
+// until accounts map it to admin. It is its own action, so a role that may publish a project's policy does not
+// thereby change what the orchestrator runs on, and no delegate holds it.
+func TestOnlyAMemberPublishesTheInstallationsPolicy(t *testing.T) {
+	if !authority.Allowed(ledger.Actor{Kind: ledger.ActorMember, ID: "m"}, authority.ActionPublishInstallationPolicy) {
+		t.Error("a member may not publish the installation's policy")
+	}
+	if authority.Allowed(authority.DelegateActor("m", "dlg_1"), authority.ActionPublishInstallationPolicy) {
+		t.Error("a delegate may publish the installation's policy")
+	}
+	if authority.ActionPublishInstallationPolicy == authority.ActionPublishPolicy {
+		t.Error("publishing the installation's policy shares an action with publishing a project's")
+	}
+	if !slices.Contains(authority.Actions(), authority.ActionPublishInstallationPolicy) {
+		t.Error("Actions() does not list the action, so the member test never holds it to the function")
+	}
+	op, ok := authority.OperationOf(authority.OpInstallationSpendPolicyPublish)
+	if !ok || op.Class != authority.ClassConsent || op.Exemptable || !slices.Equal(op.Actions, []authority.Action{authority.ActionPublishInstallationPolicy}) {
+		t.Errorf("the operation is %+v, %v", op, ok)
 	}
 }
 

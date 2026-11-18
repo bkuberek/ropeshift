@@ -53,11 +53,12 @@ func TestADelegatesSpendChangeIsACardNoDelegatePolicyExempts(t *testing.T) {
 	}
 	installation.Version = 2
 	cards := map[string]authority.Approval{}
+	operations := map[string]string{"project": authority.OpPolicyPublish, "installation": authority.OpInstallationSpendPolicyPublish}
 	for name, body := range map[string]string{"project": policy.Body(), "installation": installation.Body()} {
 		_, err := delegate.PublishPolicy(ctx, body)
 		cards[name] = preparedCard(t, err)
 		detail := cardDetail(t, cards[name])
-		if detail.Operation != authority.OpPolicyPublish || !strings.Contains(string(detail.Changes), "hard_multiplier") && name == "project" {
+		if detail.Operation != operations[name] || !strings.Contains(string(detail.Changes), "hard_multiplier") && name == "project" {
 			t.Errorf("the %s card is %+v", name, detail)
 		}
 		if !strings.Contains(string(detail.Changes), "version = 2") || !strings.Contains(string(detail.Changes), "version = 1") {
