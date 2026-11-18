@@ -260,6 +260,9 @@ func TestNewRefusesWhatItCannotWriteBeforeWritingAnything(t *testing.T) {
 		{"a repository name the ledger refuses", func(folder string) []string {
 			return []string{"new", "workspace", folder, "--repository", "-api=git@example.invalid:o/a.git"}
 		}, "dash"},
+		{"a repository name that runs a command in the Makefile", func(folder string) []string {
+			return []string{"new", "workspace", folder, "--repository", "x;do:;done;touch${IFS}p;#=" + orchidAPI.Remote}
+		}, "letters, digits"},
 		{"a repository named twice", func(folder string) []string {
 			return []string{"new", "workspace", folder, "--repository", "orchid-api=" + orchidAPI.Remote, "--repository", "orchid-api=" + orchidWeb.Remote}
 		}, "twice"},

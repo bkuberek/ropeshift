@@ -149,6 +149,8 @@ func TestWhatNoShapeWritesIsRefusedBeforeAnythingRenders(t *testing.T) {
 		{"repositories on a repository", projectfiles.Repository, two[:1], "repository"},
 		{"a name the ledger refuses", projectfiles.Workspace, []projectfiles.CodeRepository{{Name: "-api", Remote: two[0].Remote}}, "dash"},
 		{"a name with a slash", projectfiles.Workspace, []projectfiles.CodeRepository{{Name: "a/b", Remote: two[0].Remote}}, "slash"},
+		{"a name that runs a command in the Makefile", projectfiles.Workspace, []projectfiles.CodeRepository{{Name: "x;do:;done;touch${IFS}p;#", Remote: two[0].Remote}}, "letters, digits"},
+		{"a name with a make variable", projectfiles.Workspace, []projectfiles.CodeRepository{{Name: "a$(b)", Remote: two[0].Remote}}, "letters, digits"},
 		{"a name given twice", projectfiles.Workspace, []projectfiles.CodeRepository{two[0], two[0]}, "orchid-api"},
 		{"no remote", projectfiles.Workspace, []projectfiles.CodeRepository{{Name: "orchid-api"}}, "remote"},
 	}

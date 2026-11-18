@@ -115,7 +115,7 @@ func splitCarried(repositories []planning.WorkspaceRepository) ([]planning.Works
 // makeWord says a repository's name is one a Makefile and its shell recipes read as the word it is: a name the ledger
 // accepts, made of letters, digits, and . _ - only, so no make variable, comment, or shell syntax can be written in it.
 func makeWord(name string) bool {
-	return ledger.CheckRepositoryName(name) == nil && safeSegment(name)
+	return ledger.CheckRepositoryName(name) == nil && projectfiles.SafeSegment(name)
 }
 
 // makePath says a path relative to the planning repository is one a Makefile and its shell recipes read as the path it
@@ -127,16 +127,11 @@ func makePath(rel string) bool {
 		return false
 	}
 	for segment := range strings.SplitSeq(rel, "/") {
-		if segment == "." || segment == ".." || !safeSegment(segment) {
+		if segment == "." || segment == ".." || !projectfiles.SafeSegment(segment) {
 			return false
 		}
 	}
 	return true
-}
-
-// safeSegment says a word is not empty and holds only letters, digits, and . _ -.
-func safeSegment(word string) bool {
-	return word != "" && strings.Trim(word, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-") == ""
 }
 
 // workspaceRepositories are the repositories the project holds beside the planning repository, as the manifest lists
