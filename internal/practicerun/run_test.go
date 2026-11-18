@@ -194,6 +194,20 @@ func TestRunFailsWhenTheContextEnds(t *testing.T) {
 			t.Errorf("the run ended with %v, want the context's error", err)
 		}
 	})
+	t.Run("evaluation", func(t *testing.T) {
+		f := newFixture()
+		ctx, cancel := context.WithCancel(t.Context())
+		snapshot := soundSnapshot()
+		snapshot.Read = func(string) (string, bool) {
+			cancel()
+			return "", false
+		}
+		f.fake.SetSnapshot(checkoutDir, snapshot)
+		result, err := practicerun.Run(ctx, f.sources, request())
+		if !errors.Is(err, context.Canceled) {
+			t.Errorf("the run ended with %v and %d practices, want the context's error", err, len(result.Practices))
+		}
+	})
 	t.Run("settings", func(t *testing.T) {
 		f := newFixture()
 		ctx, cancel := context.WithCancel(t.Context())

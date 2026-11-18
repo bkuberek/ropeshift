@@ -79,7 +79,11 @@ func Run(ctx context.Context, sources Sources, req Request) (practices.Result, e
 		}
 		in.Forge = &facts
 	}
-	return practices.Evaluate(in), settingsErr
+	result := practices.Evaluate(in)
+	if ctx.Err() != nil {
+		return practices.Result{}, fmt.Errorf("check %s: %w", req.Dir, ctx.Err())
+	}
+	return result, settingsErr
 }
 
 // oneLine writes an error's text on one line.
