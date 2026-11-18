@@ -200,7 +200,7 @@ func checkADailyLimitHoldsClaims(r *Rig) error {
 	if refusal == nil || refusal.Window != ledger.WindowDay || !near(refusal.HardUSD, 10) || !near(refusal.SpentUSD, 10) || refusal.UntilMs != noon+dayMs+dayMs/2 {
 		return Violatedf("a claim at the daily limit was answered %+v, want a refusal that names the day, the limit, and when it ends", refusal)
 	}
-	if !strings.Contains(refusal.Error(), "ropeshift spend raise --project day") {
+	if !strings.Contains(refusal.Error(), "ropeshift spend raise --window day") {
 		return Violatedf("the refusal %q does not say how to go on", refusal.Error())
 	}
 	// A member raises the day's limit, and claims go on.
@@ -326,6 +326,17 @@ func checkRaiseAProjectLimit(r *Rig) error {
 	if err != nil || !near(state.Day.HardLimit, 20) || !near(state.Day.RaisedTo, 20) || !near(state.Day.SpentUSD, 12) || !near(state.Week.HardLimit, 50) || state.Week.RaisedTo != 0 {
 		return Violatedf("after the raise the project reads %+v: %v", state, err)
 	}
+	// A raise asked for a window that is over is refused, naming that, as a card confirmed the day after it was made is. It lifts
+	// nothing, and the same raise for the window it is made in is taken.
+	r.DB.FreezeClock(noon + dayMs)
+	if _, err := spend.RaiseProject(r.Ctx, r.Scope, control.ProjectRaise{Window: ledger.WindowDay, ToUSD: 40, WindowStart: change.WindowStart}, theMember); !errors.Is(err, workorders.ErrInvalid) ||
+		!strings.Contains(err.Error(), "is over") {
+		return Violatedf("a raise for yesterday, asked for today, was answered %v, want a refusal that says the window is over", err)
+	}
+	if state, err := spend.ProjectSpend(r.Ctx, r.Scope); err != nil || state.Day.RaisedTo != 0 {
+		return Violatedf("a refused raise for a window that is over lifted today: %+v: %v", state.Day, err)
+	}
+	r.DB.FreezeClock(noon)
 	// A second raise starts from the limit in force, and a new version of the policy never takes a raise back.
 	if err := r.projectPolicy(s, 3, "project_daily_limit", "5", "project_weekly_limit", "50"); err != nil {
 		return err

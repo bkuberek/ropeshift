@@ -62,6 +62,10 @@ type RaiseProjectSpend struct {
 	Window    string  `json:"window"`
 	ByPercent float64 `json:"by_percent,omitempty"`
 	ToUSD     float64 `json:"to_usd,omitempty"`
+	// WindowStart is the start of the window the raise was asked for, in milliseconds since the epoch. A card for a delegate's
+	// raise carries it, and a raise for a window that is over is refused, so a confirmation never lifts a later window than
+	// the one a member read. Left out, the raise is for the window it is made in.
+	WindowStart int64 `json:"window_start,omitempty"`
 }
 
 // RaiseProjectSpend raises a project's daily or weekly limit and wakes the lanes the project's limits parked, and answers

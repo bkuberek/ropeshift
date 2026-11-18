@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/ledger"
@@ -110,6 +111,10 @@ type ProjectRaise struct {
 	Window    string
 	ByPercent float64
 	ToUSD     float64
+	// WindowStart is the start of the window the raise was asked for, which a card a delegate raised carries so that a
+	// confirmation that comes in a later day or week does not lift that one with an amount read in the earlier. Zero asks for
+	// the window the raise is made in.
+	WindowStart int64
 }
 
 // RaiseProject lifts a project's daily or weekly limit for the window it is made in, records the limit before and
@@ -143,6 +148,11 @@ func (s *Spend) RaiseProject(ctx context.Context, scope ledger.WorkspaceID, in P
 		name := "daily"
 		if in.Window == ledger.WindowWeek {
 			name = "weekly"
+		}
+		if in.WindowStart != 0 && in.WindowStart != window.StartsAt {
+			return fmt.Errorf("%w: the %s that began at %s is over, and this raise was asked for it: the %s that began at %s is the one in force, so ask again",
+				workorders.ErrInvalid, in.Window, time.UnixMilli(in.WindowStart).UTC().Format(time.RFC3339), in.Window,
+				time.UnixMilli(window.StartsAt).UTC().Format(time.RFC3339))
 		}
 		if window.HardLimit <= 0 {
 			return fmt.Errorf("%w: the project has no %s spend limit to raise", workorders.ErrInvalid, name)

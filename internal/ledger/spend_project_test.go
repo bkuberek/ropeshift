@@ -126,13 +126,13 @@ func TestAProjectLimitedIsOneWithAnyLimitSet(t *testing.T) {
 // A refusal says which limit holds the project, how far it came, when work goes on by itself, and what a member can do.
 func TestAProjectLimitRefusalNamesTheLimitAndTheWayOut(t *testing.T) {
 	day := (&ProjectLimitError{Window: WindowDay, HardUSD: 10, SpentUSD: 10.5, UntilMs: wednesday}).Error()
-	for _, want := range []string{"daily spend limit of $10.00", "$10.50 charged", "2026-11-18T12:00:00Z", "ropeshift spend raise --project day"} {
+	for _, want := range []string{"daily spend limit of $10.00", "$10.50 charged", "2026-11-18T12:00:00Z", "ropeshift spend raise --window day"} {
 		if !strings.Contains(day, want) {
 			t.Errorf("the refusal %q lacks %q", day, want)
 		}
 	}
 	week := (&ProjectLimitError{Window: WindowWeek, HardUSD: 40, SpentUSD: 41, UntilMs: wednesday}).Error()
-	if !strings.Contains(week, "weekly spend limit of $40.00") || !strings.Contains(week, "--project week") {
+	if !strings.Contains(week, "weekly spend limit of $40.00") || !strings.Contains(week, "--window week") || strings.Contains(week, "--project") || strings.Contains(day, "--project") {
 		t.Errorf("the weekly refusal reads %q", week)
 	}
 }

@@ -1,6 +1,7 @@
 package server_test
 
 import (
+	"encoding/json"
 	"math"
 	"net/http"
 	"strings"
@@ -125,6 +126,13 @@ func TestADelegatesRaiseOfAProjectLimitIsACardNoDelegatePolicyExempts(t *testing
 	if spend := projectSpendOf(t, d); math.Abs(spend.Day.HardLimit-10) > 1e-9 || spend.Day.RaisedTo != 0 {
 		t.Errorf("a delegate's call moved the limit: %+v", spend.Day)
 	}
+	// The card is for the day it was made in, and its arguments say which, so a confirmation that comes in a later day does
+	// not lift that day's limit with the amount a member read in this one.
+	var arguments api.RaiseProjectSpend
+	if err := json.Unmarshal(detail.Arguments, &arguments); err != nil || arguments.Window != ledger.WindowDay || arguments.ToUSD != 20 ||
+		arguments.WindowStart != projectSpendOf(t, d).Day.StartsAt {
+		t.Errorf("the card's arguments are %s, want the day, the amount, and the day's start %d: %v", detail.Arguments, projectSpendOf(t, d).Day.StartsAt, err)
+	}
 	exempt := "[delegate_policy]\nversion = 2\nexempt = [\"" + authority.OpSpendRaiseProject + "\"]\n"
 	if _, err := d.client.PublishPolicy(ctx, exempt); err == nil {
 		t.Error("a delegate policy that exempts the project raise was published")
@@ -134,6 +142,36 @@ func TestADelegatesRaiseOfAProjectLimitIsACardNoDelegatePolicyExempts(t *testing
 	}
 	if spend := projectSpendOf(t, d); math.Abs(spend.Day.HardLimit-20) > 1e-9 {
 		t.Errorf("after the card the day reads %+v", spend.Day)
+	}
+}
+
+// A raise names the window it was made for, and one asked for a window that is over is refused with that reason and lifts
+// nothing: a card confirmed the day after it was made would otherwise lift a day nobody read. A raise that names the window
+// it is made in is taken.
+func TestARaiseForAWindowThatIsOverIsRefused(t *testing.T) {
+	d := startTalk(t)
+	ctx := t.Context()
+	limitedProject(t, d)
+	today := projectSpendOf(t, d).Day.StartsAt
+	for name, in := range map[string]api.RaiseProjectSpend{
+		"the day before":       {Window: ledger.WindowDay, ToUSD: 20, WindowStart: today - 24*60*60*1000},
+		"the day after":        {Window: ledger.WindowDay, ToUSD: 20, WindowStart: today + 24*60*60*1000},
+		"a start of no window": {Window: ledger.WindowWeek, ToUSD: 90, WindowStart: today + 1},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := d.client.RaiseProjectSpend(ctx, in)
+			refusedWith(t, err, http.StatusBadRequest, api.CodeInvalid)
+			if !strings.Contains(err.Error(), "is over") {
+				t.Errorf("the refusal reads %q, and it should say the window is over", err)
+			}
+		})
+	}
+	if spend := projectSpendOf(t, d); math.Abs(spend.Day.HardLimit-10) > 1e-9 || spend.Day.RaisedTo != 0 {
+		t.Errorf("a refused raise moved the limit: %+v", spend.Day)
+	}
+	change, err := d.client.RaiseProjectSpend(ctx, api.RaiseProjectSpend{Window: ledger.WindowDay, ToUSD: 20, WindowStart: today})
+	if err != nil || change.WindowStart != today || math.Abs(change.AfterUSD-20) > 1e-9 {
+		t.Errorf("a raise that names today recorded %+v: %v", change, err)
 	}
 }
 

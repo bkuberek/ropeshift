@@ -122,7 +122,7 @@ func (e *ProjectLimitError) Error() string {
 	if e.Window == WindowWeek {
 		name = "weekly"
 	}
-	return fmt.Sprintf("the project is at its %s spend limit of $%.2f, with $%.2f charged: work goes on when the %s ends at %s, or raise the limit with ropeshift spend raise --project %s",
+	return fmt.Sprintf("the project is at its %s spend limit of $%.2f, with $%.2f charged: work goes on when the %s ends at %s, or raise the limit with ropeshift spend raise --window %s",
 		name, e.HardUSD, e.SpentUSD, e.Window, time.UnixMilli(e.UntilMs).UTC().Format(time.RFC3339), e.Window)
 }
 

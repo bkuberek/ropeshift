@@ -30,7 +30,8 @@ func (h *handler) raiseProjectSpend(w http.ResponseWriter, r *http.Request, acto
 	if !decode(w, r, &in) {
 		return
 	}
-	change, err := h.spend.RaiseProject(r.Context(), h.Scope, control.ProjectRaise{Window: in.Window, ByPercent: in.ByPercent, ToUSD: in.ToUSD}, actor)
+	change, err := h.spend.RaiseProject(r.Context(), h.Scope,
+		control.ProjectRaise{Window: in.Window, ByPercent: in.ByPercent, ToUSD: in.ToUSD, WindowStart: in.WindowStart}, actor)
 	if err != nil {
 		fail(w, err)
 		return
@@ -40,24 +41,28 @@ func (h *handler) raiseProjectSpend(w http.ResponseWriter, r *http.Request, acto
 
 // spendRaiseProjectAsAnAmount names a delegate's raise by a percentage as the amount it comes to now, for the reason a work
 // order's raise does: a card is confirmed later, and a percentage read then would be of whatever limit is in force by then.
+// It names the window's start too, for the same reason: a card confirmed in a later day or week must not lift that one with
+// an amount a member read in this one, and the raise refuses a window that is over.
 func spendRaiseProjectAsAnAmount(h *handler, r *http.Request, body []byte) ([]byte, error) {
 	var in api.RaiseProjectSpend
-	if err := json.Unmarshal(body, &in); err != nil || in.ByPercent <= 0 || in.ToUSD != 0 || !ledger.ValidWindow(in.Window) {
+	if err := json.Unmarshal(body, &in); err != nil || !ledger.ValidWindow(in.Window) {
 		return body, nil
 	}
 	spend, err := h.spend.ProjectSpend(r.Context(), h.Scope)
 	if err != nil {
 		return nil, err
 	}
-	limit := spend.Day.HardLimit
+	window := spend.Day
 	if in.Window == ledger.WindowWeek {
-		limit = spend.Week.HardLimit
+		window = spend.Week
 	}
-	if limit <= 0 {
-		return body, nil
+	if in.WindowStart == 0 {
+		in.WindowStart = window.StartsAt
 	}
-	to := math.Round(control.SpendRaise{ByPercent: in.ByPercent}.LimitFrom(limit)*100) / 100
-	return json.Marshal(api.RaiseProjectSpend{Window: in.Window, ToUSD: to})
+	if in.ByPercent > 0 && in.ToUSD == 0 && window.HardLimit > 0 {
+		in.ToUSD, in.ByPercent = math.Round(control.SpendRaise{ByPercent: in.ByPercent}.LimitFrom(window.HardLimit)*100)/100, 0
+	}
+	return json.Marshal(in)
 }
 
 // spendRaiseProjectChanges is what a card for a delegate's raise of a project's limit shows a member: the limit in force and
