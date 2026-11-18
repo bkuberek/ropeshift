@@ -101,6 +101,7 @@ func TestEachCheckFailsOnAStandInThatDropsItsSurface(t *testing.T) {
 			claudecode.SurfaceUnifiedWindows, claudecode.SurfacePrintKeepsLogin,
 		}},
 		{"start_screens", []lanes.Surface{claudecode.SurfaceStartScreens}},
+		{"max_budget_usd", []lanes.Surface{claudecode.SurfaceMaxBudget}},
 	} {
 		t.Run(tt.drop, func(t *testing.T) {
 			driver, spec, _ := probeRig(t, tt.drop)
@@ -112,7 +113,7 @@ func TestEachCheckFailsOnAStandInThatDropsItsSurface(t *testing.T) {
 				t.Errorf("not passed %v, want %v: %+v", got, tt.want, q.Checks)
 			}
 			degrades := slices.ContainsFunc(tt.want, func(s lanes.Surface) bool {
-				return s != claudecode.SurfaceCommandLifecycle && s != claudecode.SurfacePeerMessageHold
+				return s != claudecode.SurfaceCommandLifecycle && s != claudecode.SurfacePeerMessageHold && s != claudecode.SurfaceMaxBudget
 			})
 			if q.Degraded != degrades {
 				t.Errorf("degraded %v, want %v", q.Degraded, degrades)
@@ -194,9 +195,15 @@ func TestAProbeStartsNoSessionTheDesignRefuses(t *testing.T) {
 	if _, err := driver.Probe(t.Context(), spec); err != nil {
 		t.Fatal(err)
 	}
-	sessions := 0
+	sessions, capped := 0, 0
 	for _, seen := range doubles.ProbesSeenBy(t, doubles.BinDir(path)) {
 		sessions++
+		if at := slices.Index(seen.Args, "--max-budget-usd"); at >= 0 {
+			capped++
+			if at+1 >= len(seen.Args) || seen.Args[at+1] != "0.0001" {
+				t.Errorf("the budget check's cap is not a fraction of a cent: %v", seen.Args)
+			}
+		}
 		for _, refused := range []string{"--bare", "--dangerously-skip-permissions", "bypassPermissions"} {
 			if slices.Contains(seen.Args, refused) {
 				t.Errorf("a probe passed %s: %v", refused, seen.Args)
@@ -206,7 +213,10 @@ func TestAProbeStartsNoSessionTheDesignRefuses(t *testing.T) {
 			t.Errorf("a probe's session reads as a lane's: %v", seen.Env)
 		}
 	}
-	if sessions != 4 {
-		t.Errorf("the probe ran %d sessions, and it runs three headless and one pane", sessions)
+	if sessions != 5 {
+		t.Errorf("the probe ran %d sessions, and it runs four headless and one pane", sessions)
+	}
+	if capped != 1 {
+		t.Errorf("%d probe sessions started with a budget cap, and the budget check's is the only one", capped)
 	}
 }

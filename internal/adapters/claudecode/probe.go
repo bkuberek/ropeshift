@@ -37,6 +37,8 @@ const (
 	probePoll = 50 * time.Millisecond
 	// probeLane names the probe in its hooks' spool, which only the probe reads.
 	probeLane = "probe"
+	// probeBudgetUSD is the cap the budget check's session starts with, below the cost of any one turn.
+	probeBudgetUSD = "0.0001"
 	// probePrompt asks for the smallest turn a session can take.
 	probePrompt = "This turn checks the session's protocol. Reply with the single word ok, and call no tool."
 	// probeMessageID opens the probe's socket message, in the first-line format a lane's messages use.
@@ -99,6 +101,7 @@ func (d *Driver) Probe(ctx context.Context, spec ports.ProbeSpec) (lanes.Qualifi
 	p.accept(ctx)
 	p.refuse(ctx)
 	p.hold(ctx)
+	p.budget(ctx)
 	p.screens(ctx)
 	if err := ctx.Err(); err != nil {
 		return lanes.Qualification{}, err
@@ -252,6 +255,22 @@ func (p *prober) hold(ctx context.Context) {
 	p.set(SurfacePeerMessageHold, observed(true, held))
 }
 
+// budget starts a headless session under a cap far below what its one turn costs, and asks whether its client ended
+// that turn at the cap with a result of subtype `error_max_budget_usd`. A turn that finished as any other does shows a
+// flag that does nothing on this version, which fails the check, and a session that never answered leaves it unobserved.
+// The turn costs a fraction of a cent, because the client stops at its first response past the cap.
+func (p *prober) budget(ctx context.Context) {
+	s, err := p.startAs(ctx, "budget", inboundRefuse, "--max-budget-usd", probeBudgetUSD)
+	if err != nil {
+		return
+	}
+	defer s.end()
+	if !s.prompt(ctx) || !s.awaitTurn(ctx) {
+		return
+	}
+	p.set(SurfaceMaxBudget, observed(true, s.endedAs(ports.ReasonMaxBudget)))
+}
+
 // screens starts a pane in a new directory and runs the start check on it, which answers the trust
 // dialog only on an exact match and stops on any screen it does not know. No prompt is sent.
 func (p *prober) screens(ctx context.Context) {
@@ -385,8 +404,12 @@ func writeProbeFiles(config, binary, inbound string) (settings, mcp string, err 
 // start launches one headless probe session. It runs as this process's child with no shim: a probe
 // is short, and a worker that dies takes its stdin with it, which ends the session.
 func (p *prober) start(ctx context.Context, inbound string) (*probeSession, error) {
+	return p.startAs(ctx, inbound, inbound)
+}
+
+// startAs is start for a session of a name of its own, with flags beyond the ones every probe session holds.
+func (p *prober) startAs(ctx context.Context, name, inbound string, extra ...string) (*probeSession, error) {
 	p.count++
-	name := inbound
 	dir, config := p.dirs(name)
 	sockets := filepath.Join(p.spec.TempDir, strconv.Itoa(p.count))
 	for _, path := range []string{dir, config, sockets} {
@@ -406,7 +429,7 @@ func (p *prober) start(ctx context.Context, inbound string) (*probeSession, erro
 		"-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--replay-user-messages",
 		"--permission-mode", "default", "--model", p.spec.Model, "--settings", settings, "--mcp-config", mcp, "--tools", "",
 	}
-	args = append(args, p.spec.Override.Args()...)
+	args = append(append(args, p.spec.Override.Args()...), extra...)
 	env := append(p.env(config, token, sockets), p.spec.Override.Env()...)
 	inR, inW, err := os.Pipe()
 	if err != nil {
@@ -676,6 +699,16 @@ func (s *probeSession) replayed(id string) bool {
 func (s *probeSession) saw(kind string) bool {
 	for _, line := range s.snapshot() {
 		if line.Type == kind || (line.Type == "system" && line.Subtype == kind) {
+			return true
+		}
+	}
+	return false
+}
+
+// endedAs says a turn ended with a result of this subtype.
+func (s *probeSession) endedAs(subtype string) bool {
+	for _, line := range s.snapshot() {
+		if line.Type == "result" && line.Subtype == subtype {
 			return true
 		}
 	}

@@ -16,6 +16,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -420,6 +421,22 @@ func assistantArgs() []string {
 	}
 }
 
+// flagMaxBudget is the client's own cap on a print-mode run's estimated spend ([CLI reference]); it counts one process,
+// can pass its cap, and ends the turn with a result of subtype `error_max_budget_usd`.
+//
+// [CLI reference]: https://code.claude.com/docs/en/cli-reference
+const flagMaxBudget = "--max-budget-usd"
+
+// budgetArgs is the cap a headless generation starts with, where the version's qualification observed the flag and
+// the worker gave the generation one (FR-SPEND-5). It is a backstop and not the limit, so a version that did not pass
+// the check starts with none, and the worker alone holds the lane.
+func budgetArgs(use Use, spec ports.SessionSpec) []string {
+	if !use.BudgetFlag || spec.MaxBudgetUSD <= 0 || spec.RunMode == ports.RunModeInteractive {
+		return nil
+	}
+	return []string{flagMaxBudget, strconv.FormatFloat(spec.MaxBudgetUSD, 'f', 4, 64)}
+}
+
 // StartArgs is the command of a new session.
 func StartArgs(spec ports.SessionSpec) []string { return args(spec) }
 
@@ -464,6 +481,7 @@ func (d *Driver) launch(ctx context.Context, spec ports.SessionSpec, arguments [
 	// What qualifies the version read here, at the launch, is what this session uses for its life:
 	// a version that changed since the worker last looked runs on documented surfaces.
 	q := d.qualificationFor(version)
+	arguments = append(arguments, budgetArgs(UseOf(q), spec)...)
 	if err := writeGenerated(spec); err != nil {
 		return ports.SessionHandle{}, err
 	}

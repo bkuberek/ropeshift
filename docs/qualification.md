@@ -16,20 +16,22 @@ Each surface has one check and one use. A surface whose check failed, or could n
 | `command_lifecycle` | The stream reports it | Nothing: the design does not need it |
 | `print_keeps_login` | On a subscription, `system/init` reports `apiKeySource` `none` and a `messaging_socket_path`, and a `rate_limit_event` arrives | A subscription has no headless lane, and a new lane its profile sends headless starts in tmux |
 | `start_screens` | A pane in a new directory reaches the prompt through the start check | Nothing beyond the start check, which stops on any screen it does not know |
+| `max_budget_usd` | A headless session started with `--max-budget-usd` far below the cost of its one turn ends that turn with a result of subtype `error_max_budget_usd` | A headless generation starts with no budget cap of its own, and the worker alone holds the lane to its work order's hard limit |
 
 The start check answers the trust dialog with the key its focus calls for, and reads the screen again only once it shows a different frame, so a pane that repaints slowly is never answered twice. It sends Enter once. A key the pane never took, or an Enter that was lost, ends the check at its timeout. A fresh start then parks the lane on the screen it stopped on, for a person, and a resume falls back to a new generation.
 
-A version where any surface ropeshift relies on did not pass runs in `degraded_mode`. The lane shows the condition, and the driver uses documented surfaces in its place. `command_lifecycle` and `peer_message_hold` are reported and never degrade a version. The login check runs on every sign-in but an API key, because a sign-in nobody could read counts as a subscription.
+A version where any surface ropeshift relies on did not pass runs in `degraded_mode`. The lane shows the condition, and the driver uses documented surfaces in its place. `command_lifecycle`, `peer_message_hold`, and `max_budget_usd` are reported and never degrade a version. The login check runs on every sign-in but an API key, because a sign-in nobody could read counts as a subscription.
 
 ## Where results come from
 
 The release ships a matrix in the binary, built from `internal/adapters/claudecode/matrix.json`. It holds versions, surfaces, and results, and nothing else. `ropeshift worker doctor` reads it, so it can say whether the installed version is qualified with no daemon running.
 
-The matrix qualifies Claude Code 2.1.316, 2.1.317, and 2.1.319, each with every surface above passed. `make qualify` runs the production probe on the installed CLI and ends with that version's row for the matrix. It starts real sessions, so a maintainer runs it by hand and never in continuous integration.
+The matrix qualifies Claude Code 2.1.316, 2.1.317, and 2.1.319, each with every surface above passed, except `max_budget_usd`, which the release's qualification has not observed, so a version runs with no budget cap until a worker's own probe passes it. `make qualify` runs the production probe on the installed CLI and ends with that version's row for the matrix. It starts real sessions, so a maintainer runs it by hand and never in continuous integration.
 
 A running worker does not rely on the matrix alone, because the settings and plugins on a machine are part of what must work. When a lane is about to start a process on a version this worker has not probed, the worker runs a probe on that machine first:
 
 - three short headless sessions, under `accept`, `refuse`, and `hold`, with at most one turn each, apart from a second turn when the first message is never taken;
+- one headless session with a budget cap of a hundredth of a cent, whose one turn the client ends at the cap when the flag works, which costs a fraction of a cent;
 - one pane in a new directory, which reaches the prompt and takes no turn, when the worker has a terminal.
 
 Every lane that reaches the version waits for the same probe, and a person sees the lane held as `qualifying` when the probe takes longer than a second. The result is kept in the worker's journal, recorded in the ledger as `worker.driver_qualified`, and handed to the driver. A probe that cannot run leaves every surface unobserved, so the version runs degraded rather than holding work.

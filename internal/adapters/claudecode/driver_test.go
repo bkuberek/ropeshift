@@ -280,6 +280,43 @@ func TestAQualifiedVersionGetsItsPrivateDirectory(t *testing.T) {
 	}
 }
 
+// A headless generation's client is given a cap of its own only where its version's check of the flag passed, so a
+// version nobody observed it on starts with none and the worker alone holds the lane to its limit (FR-SPEND-5).
+func TestTheBudgetCapReachesTheClientOnlyWhereTheVersionObservedIt(t *testing.T) {
+	for _, observed := range []bool{false, true} {
+		name := "a version whose flag nobody observed"
+		if observed {
+			name = "a version whose flag a probe observed"
+		}
+		t.Run(name, func(t *testing.T) {
+			driver, path, spec := session(t, "two-turns", func(s *ports.SessionSpec) { s.MaxBudgetUSD = 27.5 })
+			if observed {
+				capabilities, err := driver.Capabilities(t.Context())
+				if err != nil {
+					t.Fatal(err)
+				}
+				q := lanes.Qualification{Driver: claudecode.DriverName, Version: capabilities.Version, Source: lanes.QualifiedByProbe, Checks: map[lanes.Surface]lanes.CheckResult{}}
+				for _, surface := range claudecode.Surfaces {
+					q.Checks[surface] = lanes.CheckPassed
+				}
+				driver.(*claudecode.Driver).Qualify(q)
+			}
+			play(t, driver, spec)
+			seen := doubles.SeenBy(t, doubles.BinDir(path))
+			if len(seen) != 1 {
+				t.Fatalf("%d sessions", len(seen))
+			}
+			at := slices.Index(seen[0].Args, "--max-budget-usd")
+			switch {
+			case observed && (at < 0 || at+1 >= len(seen[0].Args) || seen[0].Args[at+1] != "27.5000"):
+				t.Errorf("the client started with %v, want a cap of 27.5", seen[0].Args)
+			case !observed && at >= 0:
+				t.Errorf("a client on a version nobody observed the flag on started with %v", seen[0].Args)
+			}
+		})
+	}
+}
+
 func TestTheSessionEnvironmentIsTheSpecs(t *testing.T) {
 	t.Setenv("ROPESHIFT_TEST_PARENT_VARIABLE", "must-not-pass")
 	driver, path, spec := session(t, "two-turns", nil)
