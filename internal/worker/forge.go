@@ -462,6 +462,7 @@ func (w *Worker) checkForgeHealth(ctx context.Context, repository ledger.Desired
 		return
 	}
 	found.Repository = repository.Repository
+	found.UnignoredWorkspace = w.unignoredWorkspace(ctx, repository, dir)
 	if !w.noteHealth(repository, &found) {
 		return
 	}
@@ -478,6 +479,25 @@ func (w *Worker) checkForgeHealth(ctx context.Context, repository ledger.Desired
 	seen := w.forgeHealth[forgeKey(repository.Project, repository.Repository)]
 	seen.told, seen.toldAs = true, found
 	w.forgeHealth[forgeKey(repository.Project, repository.Repository)] = seen
+}
+
+// unignoredWorkspace names the project's workspace when this repository's checkout is it, it is a git clone, and it
+// does not ignore the folder for lane worktrees, so the lanes of the project's other clones run outside it. A
+// workspace that cannot be found or checked is the doctor's to say, and says nothing here.
+func (w *Worker) unignoredWorkspace(ctx context.Context, repository ledger.DesiredForgeRepository, checkout string) string {
+	provisioner := w.config.Lanes.Provisioner
+	if provisioner.Checkouts == nil || provisioner.Profiles == nil {
+		return ""
+	}
+	profile, err := provisioner.Profiles.Load(ctx, "", "", "")
+	if err != nil {
+		return ""
+	}
+	workspace, found, err := FindWorkspace(ctx, provisioner.Checkouts, profile, repository.Project, w.planningRepository(ctx, repository.Project))
+	if err != nil || !found || !workspace.Clone || workspace.Ignored || !ports.SamePath(ctx, provisioner.Checkouts, workspace.Path, checkout) {
+		return ""
+	}
+	return workspace.Path
 }
 
 // noteHealth keeps when a repository was read and what was found, and reports whether that is news to the

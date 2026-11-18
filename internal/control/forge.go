@@ -420,7 +420,8 @@ func forgeHealthReported(tx ports.WriteTx, worker, id string, e ledger.UploadEve
 		return err
 	}
 	changed, err := tx.Forge().SaveHealth(ledger.ForgeHealth{
-		Worker: worker, Repository: report.Repository, State: report.State, Detail: report.Detail, CheckedAt: tx.Now(),
+		Worker: worker, Repository: report.Repository, State: report.State, Detail: report.Detail,
+		UnignoredWorkspace: report.UnignoredWorkspace, CheckedAt: tx.Now(),
 	})
 	if err != nil || !changed {
 		return err

@@ -381,8 +381,8 @@ type ForgeWriter interface {
 	SavePullRequest(ledger.WorkPullRequest) error
 	// InsertCIRecord keeps a CI record, and reports false for the attempt of a head it already holds.
 	InsertCIRecord(ledger.CIRecord) (bool, error)
-	// SaveHealth keeps what a worker said of its sign-in for a repository when the state or its detail
-	// changed, and reports whether it did. The same word again writes nothing.
+	// SaveHealth keeps what a worker said of its sign-in for a repository when the state, its detail, or the
+	// workspace it names changed, and reports whether it did. The same word again writes nothing.
 	SaveHealth(ledger.ForgeHealth) (bool, error)
 }
 
