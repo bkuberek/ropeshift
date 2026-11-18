@@ -116,6 +116,7 @@ func TrustFailure(err error) (string, bool) {
 	var name x509.HostnameError
 	var invalid x509.CertificateInvalidError
 	var unknown x509.UnknownAuthorityError
+	var refused *tls.CertificateVerificationError
 	switch {
 	case errors.Is(err, ErrPinRefused):
 		return ErrPinRefused.Error(), true
@@ -126,7 +127,9 @@ func TrustFailure(err error) (string, bool) {
 			return "the server's certificate has expired, or is not yet valid", true
 		}
 		return "the server's certificate is not valid for a server", true
-	case errors.As(err, &unknown):
+	case errors.As(err, &unknown), errors.As(err, &refused):
+		// The verifier of macOS refuses a chain it does not trust with an error of its own text rather than an
+		// x509.UnknownAuthorityError, so a verification that failed with no class above is the roots' refusal.
 		return "the server's certificate is not trusted by this machine's system roots", true
 	}
 	return "", false
