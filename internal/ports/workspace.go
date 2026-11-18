@@ -28,8 +28,9 @@ type Workspace interface {
 	// workspace's folder for worktrees as the root. The workspace's own clone, a clone outside it, and a root a
 	// person set keep the settings. The fallback says why the built-in root of a clone inside the workspace stays
 	// outside every clone: the workspace does not ignore its folder for worktrees, or a symbolic link leads the
-	// folder the lane would use out of the workspace, resolved as git and the disk resolve it.
-	Settings(ctx context.Context, settings lanes.WorktreeSettings, workspace lanes.Workspace, repository string) (lanes.WorktreeSettings, lanes.RootFallback, error)
+	// folder the lane would use, or the lane's own folder, out of the workspace, resolved as git and the disk
+	// resolve it. A caller with no lane of its own, such as the doctor, passes a probe name.
+	Settings(ctx context.Context, settings lanes.WorktreeSettings, workspace lanes.Workspace, repository, lane string) (lanes.WorktreeSettings, lanes.RootFallback, error)
 }
 
 // NewWorkspace answers from the clones a worker keeps, and from what git says each ignores.
@@ -41,8 +42,8 @@ func (w worksFrom) Find(ctx context.Context, profile lanes.Profile, project, pla
 	return findWorkspace(ctx, w.kept, profile, project, planningRepository)
 }
 
-func (w worksFrom) Settings(ctx context.Context, settings lanes.WorktreeSettings, workspace lanes.Workspace, repository string) (lanes.WorktreeSettings, lanes.RootFallback, error) {
-	return workspaceSettings(ctx, w.kept, settings, workspace, repository)
+func (w worksFrom) Settings(ctx context.Context, settings lanes.WorktreeSettings, workspace lanes.Workspace, repository, lane string) (lanes.WorktreeSettings, lanes.RootFallback, error) {
+	return workspaceSettings(ctx, w.kept, settings, workspace, repository, lane)
 }
 
 func findWorkspace(ctx context.Context, kept Checkouts, profile lanes.Profile, project, planningRepository string) (lanes.Workspace, bool, error) {
@@ -150,7 +151,7 @@ func insideWorkspace(ctx context.Context, kept Checkouts, workspace, repository 
 	return inside, err
 }
 
-func workspaceSettings(ctx context.Context, kept Checkouts, settings lanes.WorktreeSettings, workspace lanes.Workspace, repository string) (lanes.WorktreeSettings, lanes.RootFallback, error) {
+func workspaceSettings(ctx context.Context, kept Checkouts, settings lanes.WorktreeSettings, workspace lanes.Workspace, repository, lane string) (lanes.WorktreeSettings, lanes.RootFallback, error) {
 	if settings.RootSource != lanes.RootFromDefault {
 		return settings, lanes.RootFallback{}, nil
 	}
@@ -161,10 +162,11 @@ func workspaceSettings(ctx context.Context, kept Checkouts, settings lanes.Workt
 	case !workspace.Ignored:
 		return settings, lanes.RootFallback{Workspace: workspace.Path, Reason: lanes.FallbackUnignored}, nil
 	}
-	// The folder a lane's worktrees go in must really be in the workspace: a link planted for the repository's
-	// folder, for the folder of worktrees, or for .ropeshift would lead every lane out of it, past the ignore rule
-	// that guarded the path as spelled. A plain folder, which has no ignore rule, is held to it too.
-	folder := path.Join(workspace.Path, planning.WorktreesFolder, path.Base(repository))
+	// The lane's own folder must really be in the workspace: a link planted for the lane's folder, for the
+	// repository's folder, for the folder of worktrees, or for .ropeshift would lead the lane out of it, past the
+	// ignore rule that guarded the path as spelled. Every link in the path is followed, so judging the lane's folder
+	// judges each folder above it. A plain folder, which has no ignore rule, is held to it too.
+	folder := path.Join(workspace.Path, planning.WorktreesFolder, path.Base(repository), lane)
 	contained, err := UnderWorkspaceWorktrees(ctx, kept, workspace.Path, folder)
 	switch {
 	case err != nil:

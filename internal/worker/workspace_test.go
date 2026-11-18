@@ -150,6 +150,8 @@ func TestAWorkspaceRootThatLeadsOutOfTheWorkspaceIsNotUsed(t *testing.T) {
 	}{
 		{"a link for the repository's folder", nil, []string{"repos", ".ropeshift/worktrees"},
 			map[string]string{"/work/ws/.ropeshift/worktrees/api": "/elsewhere"}, "/work/ws/repos/api"},
+		{"a link for the lane's own folder", nil, []string{"repos", ".ropeshift/worktrees"},
+			map[string]string{"/work/ws/.ropeshift/worktrees/api/l1": "/elsewhere/l1"}, "/work/ws/repos/api"},
 		{"a link for the folder of worktrees", nil, []string{"repos", ".ropeshift/worktrees"},
 			map[string]string{"/work/ws/.ropeshift/worktrees": "/elsewhere/worktrees"}, "/work/ws/repos/api"},
 		{"a link for .ropeshift in a plain folder", named("/work/plain"), nil,
