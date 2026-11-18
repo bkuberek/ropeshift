@@ -2,6 +2,7 @@ package worker_test
 
 import (
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 
@@ -37,8 +38,8 @@ func TestPrepareOnFakes(t *testing.T) {
 	if lane.Worktree.Path != "/work/app-lanes/l1" || lane.Worktree.Branch != "lane/l1" {
 		t.Errorf("worktree %+v", lane.Worktree)
 	}
-	if len(lane.Environment) != 1 || lane.Environment[0] != "PATH=/usr/bin" {
-		t.Errorf("environment %v", lane.Environment)
+	if want := []string{"GIT_CONFIG_COUNT=1", "GIT_CONFIG_KEY_0=maintenance.auto", "GIT_CONFIG_VALUE_0=false", "PATH=/usr/bin"}; !slices.Equal(lane.Environment, want) {
+		t.Errorf("environment %v, want %v", lane.Environment, want)
 	}
 }
 
@@ -592,8 +593,8 @@ func TestPreparePassesOnlyTheReferencedSecret(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(lane.Environment) != 1 || lane.Environment[0] != "ANTHROPIC_API_KEY=k" {
-		t.Errorf("environment %v", lane.Environment)
+	if want := []string{"ANTHROPIC_API_KEY=k", "GIT_CONFIG_COUNT=1", "GIT_CONFIG_KEY_0=maintenance.auto", "GIT_CONFIG_VALUE_0=false"}; !slices.Equal(lane.Environment, want) {
+		t.Errorf("environment %v, want %v", lane.Environment, want)
 	}
 }
 

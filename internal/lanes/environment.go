@@ -30,6 +30,13 @@ var inherited = []string{
 	"HOME", "USER", "LOGNAME", "PATH", "TERM", "LANG", "LC_ALL", "LC_CTYPE", "TMPDIR", "TZ",
 }
 
+// envGitConfigCount is how git reads configuration from the environment
+// (https://git-scm.com/docs/git-config#ENVIRONMENT). Every lane's git runs with auto maintenance off, through
+// the one setting this sets, because the `git worktree prune` that maintenance runs in a process of its own,
+// in the repository the lane's worktree belongs to, can remove the registration of a worktree being added
+// beside it. A profile that passes its own GIT_CONFIG_COUNT through keeps the settings it names.
+const envGitConfigCount = "GIT_CONFIG_COUNT"
+
 // loginShells are the programs a spawn must not go through. A login shell reads the
 // user's profile files, which would put back what the allowlist took out.
 var loginShells = []string{"sh", "bash", "zsh", "dash", "ksh", "fish", "csh", "tcsh", "login"}
@@ -126,6 +133,11 @@ func BuildEnvironment(spec EnvironmentSpec) ([]string, error) {
 	}
 	if spec.ForgeConfigDir != "" {
 		values[EnvForgeConfig] = spec.ForgeConfigDir
+	}
+	if _, set := values[envGitConfigCount]; !set {
+		values[envGitConfigCount] = "1"
+		values["GIT_CONFIG_KEY_0"] = "maintenance.auto"
+		values["GIT_CONFIG_VALUE_0"] = "false"
 	}
 	out := make([]string, 0, len(values))
 	for name, value := range values {
