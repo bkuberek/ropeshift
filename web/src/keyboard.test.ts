@@ -323,7 +323,15 @@ const paths: Record<string, KeyPath> = {
   // waits for its own choice, so the one press sends the first in one request.
   "POST /v1/projects/{project}/batches/{id}/answers": {
     sent: post(/\/batches\/[^/]+\/answers$/, expect.objectContaining({ answers: [expect.objectContaining({ question: "question-1", accepted: true })] })),
-    run: decide("2 questions", "Send 1 of 2 answers"),
+    run: async (k, page) => {
+      await k.palette("Decide: 2 questions");
+      const accept = page.getByRole("button", { name: "Accept all", exact: true });
+      await accept.waitFor();
+      await k.activate(accept);
+      const send = page.getByRole("button", { name: "Send 1 of 2 answers", exact: true });
+      await send.waitFor();
+      await k.activate(send);
+    },
   },
   "POST /v1/projects/{project}/questions/{id}/dismiss": {
     sent: post(/^\/v1\/projects\/default\/questions\/question-1\/dismiss$/),

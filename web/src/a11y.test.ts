@@ -725,6 +725,9 @@ suite.each(Object.entries(sizes))("at %s width", (size, viewport) => {
         await page.getByRole("status").filter({ hasText: "one-way" }).waitFor();
         await settle();
         found.push(...(await audit(page)).map((violation) => `batch with a one-way question waiting ${violation}`));
+        await page.getByRole("button", { name: "Accept all", exact: true }).click();
+        await settle();
+        found.push(...(await audit(page)).map((violation) => `batch after Accept all ${violation}`));
         await group.getByRole("radio", { name: "Drop it" }).check();
         await group.getByRole("textbox", { name: "Why" }).waitFor();
         await settle();

@@ -200,6 +200,49 @@ describe("a batch of 18 questions raised in the middle of a plan", () => {
     expect(sentAnswers(sent).find((answer) => answer.question === "q4")).toMatchObject({ accepted: true });
   });
 
+  it("accepts every reversible recommendation and no one-way item, and says how many wait", async () => {
+    show(midPlanBatch());
+    await userEvent.click(radio("Question 5", "B"));
+    await userEvent.click(radio("Question 2", "B"));
+    expect((radio("Question 5", "A") as HTMLInputElement).checked).toBe(false);
+    await userEvent.click(screen.getByRole("button", { name: "Accept all" }));
+    for (const reversible of [5, 6, 18]) {
+      expect((radio(`Question ${reversible}`, "A") as HTMLInputElement).checked).toBe(true);
+    }
+    // A one-way item a person chose stays as they chose it, and one they did not stays unchosen.
+    expect((radio("Question 2", "B") as HTMLInputElement).checked).toBe(true);
+    for (const oneWay of [1, 3, 4]) {
+      const group = screen.getByRole("group", { name: `Question ${oneWay}` });
+      expect(within(group).getAllByRole("radio").filter((choice) => (choice as HTMLInputElement).checked)).toHaveLength(0);
+    }
+    expect(screen.getByRole("status").textContent).toBe("3 one-way questions wait for your own choice, and are not sent until you choose.");
+  });
+
+  it("says one one-way question waits in the singular, and nothing when none does", async () => {
+    const batch = midPlanBatch();
+    batch.items = batch.items.slice(3, 6);
+    show(batch);
+    await userEvent.click(screen.getByRole("button", { name: "Accept all" }));
+    expect(screen.getByRole("status").textContent).toBe("1 one-way question waits for your own choice, and is not sent until you choose.");
+    await userEvent.click(radio("Question 4", "A"));
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(screen.getByRole("button", { name: "Send 3 answers" })).toBeTruthy();
+  });
+
+  it("sends only the reversible recommendations after Accept all, and reaches the button by keyboard", async () => {
+    const sent = serveApi(() => ({ status: 201, body: { decisions: [] } }));
+    show(midPlanBatch());
+    await userEvent.click(radio("Question 5", "B"));
+    const accept = screen.getByRole("button", { name: "Accept all" });
+    accept.focus();
+    await userEvent.keyboard("{Enter}");
+    expect((radio("Question 5", "A") as HTMLInputElement).checked).toBe(true);
+    await userEvent.click(screen.getByRole("button", { name: "Send 14 of 18 answers" }));
+    await waitFor(() => expect(sent).toHaveLength(1));
+    expect(sentAnswers(sent)).toHaveLength(14);
+    expect(sentAnswers(sent).every((answer) => answer.accepted === true)).toBe(true);
+  });
+
   it("shows why a recommendation is the one to choose", () => {
     show(midPlanBatch());
     expect(within(screen.getByRole("group", { name: "Question 5" })).getByText("Why it is recommended: A keeps the plan's direction.")).toBeTruthy();

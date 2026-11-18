@@ -183,6 +183,19 @@ export function QuestionBatch({ batch, after, frame, compact = false, place, onA
   // A one-way answer is never chosen for a person, so it waits here until they choose it themselves.
   const waiting = batch.items.filter((item) => isOneWay(item) && answerOf(draftOf(item)) === "").length;
 
+  // Accept all chooses the recommendation of every question whose answer can be taken back, and leaves a one-way
+  // question as it stands, so a person still chooses each of those themselves. It keeps what a person named to replace.
+  const acceptAll = () =>
+    setDrafts((was) => {
+      const next = { ...was };
+      for (const item of batch.items) {
+        if (!isOneWay(item) && (item.recommendation ?? "") !== "") {
+          next[item.id] = { ...startingDraft({ ...item, reversibility: "reversible", escalation_reason: undefined }), replaces: (was[item.id] ?? startingDraft(item)).replaces };
+        }
+      }
+      return next;
+    });
+
   // The answers go in one request, which records every one or none, so a refusal leaves nothing half sent and
   // names the first answer it met. Each send is safe to repeat. Only an answer the ledger recorded counts as the
   // person's.
@@ -225,6 +238,13 @@ export function QuestionBatch({ batch, after, frame, compact = false, place, onA
           void send();
         }}
       >
+        {count > 1 ? (
+          <div className="row-tight">
+            <Button type="button" disabled={busy} onClick={acceptAll}>
+              Accept all
+            </Button>
+          </div>
+        ) : null}
         {waiting > 0 ? (
           <p className="small muted" role="status">
             {waiting === 1 ? "1 one-way question waits" : `${waiting} one-way questions wait`} for your own choice, and {waiting === 1 ? "is" : "are"} not sent until you choose.
