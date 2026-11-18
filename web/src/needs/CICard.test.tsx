@@ -39,7 +39,7 @@ const names = (card: HTMLElement) => [...card.querySelectorAll("a.btn, button")]
 describe("the kinds of CI that ask a person", () => {
   it("are every kind the server raises, each a card of its own that the accessibility checks hold to a state", () => {
     const served = items().map((item) => item.ci.kind);
-    expect(new Set(served)).toEqual(new Set(["ci_not_finished", "ci_queue_stalled", "ci_infrastructure_failure", "ci_base_red", "ci_action_required"]));
+    expect(new Set(served)).toEqual(new Set(["ci_not_finished", "ci_queue_stalled", "ci_infrastructure_failure", "ci_base_red", "ci_base_unread", "ci_action_required"]));
     for (const kind of served) {
       expect(cardKinds).toContain(`ci-${kind}`);
     }
@@ -163,10 +163,22 @@ describe("the cards of what the classification found", () => {
     expect(names(card)).toEqual(["Open the run", "Rerun"]);
   });
 
-  it.each(["ci_base_red", "ci_action_required"] as const)("offers only the run for %s, which no rerun mends", (kind) => {
+  it.each(["ci_base_red", "ci_base_unread", "ci_action_required"] as const)("offers only the run for %s, which no rerun mends", (kind) => {
     show(itemOf(kind));
     const card = theCard("Add the retry budget");
     expect(names(card)).toEqual(["Open the run"]);
     expect(card.textContent).toContain("No agent was started");
+  });
+
+  it("says a base the forge refused to be read holds the failed check, and what to look at", () => {
+    show(itemOf("ci_base_unread"));
+    const card = theCard("Add the retry budget");
+    expect(card.textContent).toContain("The base branch's checks cannot be read");
+    expect(card.textContent).toContain("nothing is sent back and nothing is rerun");
+    expect(card.textContent).toContain("forge sign-in");
+    const facts = card.querySelector("dl")?.textContent ?? "";
+    expect(facts).toContain("CheckCI");
+    expect(kindOf(itemOf("ci_base_unread"))).toEqual({ icon: "warning", name: "The base branch cannot be read" });
+    expect(filterOf(itemOf("ci_base_unread"))).toBe("stuck");
   });
 });

@@ -59,6 +59,17 @@ func (c PullRequestCheck) Class() CICheckClass {
 	return CIClassInfrastructure
 }
 
+// CIBaseUnreadReads is how many reads of a pull request in a row must fail to read its base branch's tip before the
+// refusal is raised to a person. A worker reads a pull request once in a forge interval, so three is a refusal that has
+// stood for two intervals after the first: a forge that refused once and answered the next read raises nothing.
+const CIBaseUnreadReads = 3
+
+// BaseUnreadPersists says a failed check's base could not be read on CIBaseUnreadReads reads in a row. Until then the
+// check is held, and nothing tells a person.
+func (c PullRequestCheck) BaseUnreadPersists() bool {
+	return c.BaseUnread && c.BaseUnreadReads >= CIBaseUnreadReads
+}
+
 // CompletedAfter says a check finished after a time in database milliseconds, which tells a failure that a rerun has
 // not yet replaced from one a rerun is for. With no time, because none was asked for, every finish counts. A finish the
 // forge gave in a form this cannot read is never after a rerun, so it is never rerun a second time.

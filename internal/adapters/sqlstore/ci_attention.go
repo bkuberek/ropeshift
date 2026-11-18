@@ -37,6 +37,9 @@ ON CONFLICT DO NOTHING`)
 
 	stmtCIClear = define("ci.findings_clear",
 		`DELETE FROM ci_findings WHERE workspace_id = :workspace_id AND work_order_id = :work_order_id AND head_commit = :head_commit`)
+
+	stmtCIClearKind = define("ci.finding_clear",
+		`DELETE FROM ci_findings WHERE workspace_id = :workspace_id AND work_order_id = :work_order_id AND head_commit = :head_commit AND kind = :kind`)
 )
 
 // ciTx is what members did about CI that waits for them, and the findings of its classification, in one transaction.
@@ -126,4 +129,8 @@ func (t ciTx) RaiseCIFinding(f ledger.CIFinding) (bool, error) {
 
 func (t ciTx) ClearCIFindings(workOrder, head string) (int64, error) {
 	return t.exec(stmtCIClear, t.scoped(params{"work_order_id": workOrder, "head_commit": head}))
+}
+
+func (t ciTx) ClearCIFinding(workOrder, head, kind string) (int64, error) {
+	return t.exec(stmtCIClearKind, t.scoped(params{"work_order_id": workOrder, "head_commit": head, "kind": kind}))
 }

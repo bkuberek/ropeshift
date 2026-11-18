@@ -255,7 +255,7 @@ func TestEachCIKindReachesAChannelAsItsOwnNotice(t *testing.T) {
 		got = append(got, notice.Kind)
 	}
 	slices.Sort(got)
-	want := []string{ledger.CIItemActionRequired, ledger.CIItemBaseRed, ledger.CIItemInfrastructure}
+	want := []string{ledger.CIItemActionRequired, ledger.CIItemBaseRed, ledger.CIItemBaseUnread, ledger.CIItemInfrastructure}
 	slices.Sort(want)
 	if !slices.Equal(got, want) {
 		t.Errorf("the channel heard %v, want %v; before Wait longer the tick held %d notices", got, want, len(queued))
@@ -313,11 +313,12 @@ func TestEachFindingOfTheClassificationIsAnItemAndANotice(t *testing.T) {
 	want := map[string][]string{
 		ledger.CIItemInfrastructure: {api.ActCIRerun, api.ActCIOpen},
 		ledger.CIItemBaseRed:        {api.ActCIOpen},
+		ledger.CIItemBaseUnread:     {api.ActCIOpen},
 		ledger.CIItemActionRequired: {api.ActCIOpen},
 	}
 	items := ciItems(t, d)
 	if len(items) != len(want) {
-		t.Fatalf("three findings raise %+v", items)
+		t.Fatalf("four findings raise %+v", items)
 	}
 	for _, item := range items {
 		if !slices.Equal(item.CI.Actions, want[item.CI.Kind]) || item.CI.Finding == nil || item.CI.Finding.Conclusion != "timed_out" {
@@ -331,6 +332,7 @@ func TestEachFindingOfTheClassificationIsAnItemAndANotice(t *testing.T) {
 	words := map[string]string{
 		ledger.CIItemInfrastructure: "Retail: CI failed for a reason an agent cannot fix.",
 		ledger.CIItemBaseRed:        "Retail: A check fails on the base branch too.",
+		ledger.CIItemBaseUnread:     "Retail: The base branch's checks cannot be read.",
 		ledger.CIItemActionRequired: "Retail: A check waits for a person on the forge.",
 	}
 	for kind, text := range words {

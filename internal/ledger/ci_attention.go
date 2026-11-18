@@ -46,7 +46,7 @@ type CIFinding struct {
 
 // FindingKind says a kind is one a classification raises.
 func FindingKind(kind string) bool {
-	return kind == CIItemInfrastructure || kind == CIItemBaseRed || kind == CIItemActionRequired
+	return kind == CIItemInfrastructure || kind == CIItemBaseRed || kind == CIItemBaseUnread || kind == CIItemActionRequired
 }
 
 // Link is the finding's address when a page may link it.

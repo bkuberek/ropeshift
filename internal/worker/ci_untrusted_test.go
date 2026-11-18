@@ -4,6 +4,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"ropeshift.com/ropeshift/internal/control"
 	"ropeshift.com/ropeshift/internal/ledger"
@@ -154,7 +155,8 @@ func TestAnUnreadableBaseThatIsRedIsRaisedOnceItCanBeRead(t *testing.T) {
 	f.forge.FailBase(errors.New("the forge refused the base"))
 	f.forge.SetBase(widgets, "main", "base-tip-9", "unit")
 	f.forge.SetChecks(number, f.finishedNow("unit", "failure", "612"))
-	f.settle()
+	// One refused read is held and raises nothing: a refusal is raised to a person only when it stands.
+	f.step(2 * time.Minute)
 	if kinds := f.ciKinds(); len(kinds) != 0 {
 		t.Fatalf("a held check raises %v", kinds)
 	}

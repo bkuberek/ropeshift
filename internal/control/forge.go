@@ -655,6 +655,7 @@ func pullRequestRead(tx ports.WriteTx, worker, id string, e ledger.UploadEvent) 
 		return err
 	}
 	read := report.PullRequest
+	read.Checks = clampedBaseReads(read.Checks)
 	if held.Worker != worker || held.Number != read.Number {
 		return fmt.Errorf("%w: pull request %d of %s is not this worker's to read", workorders.ErrInvalid, read.Number, report.WorkOrder)
 	}

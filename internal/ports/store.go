@@ -409,6 +409,9 @@ type CIAttentionWriter interface {
 	RaiseCIFinding(ledger.CIFinding) (bool, error)
 	// ClearCIFindings removes a head's findings, and reports how many it held.
 	ClearCIFindings(workOrder, head string) (int64, error)
+	// ClearCIFinding removes one kind of a head's findings, and reports how many it held. A finding that stands for a
+	// condition a later read can end, such as a base branch that could not be read, leaves with it and no other does.
+	ClearCIFinding(workOrder, head, kind string) (int64, error)
 }
 
 // RecoveryWriter keeps every recovery act that ran or was refused (ADR-0014).
