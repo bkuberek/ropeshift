@@ -115,6 +115,10 @@ In the sidebar, select Roadmap. It shows the goal with its plan and approved ver
 
 The session's branch holds the plan, and merges like any change, at the planning repository's merge authority. At `person_merges`, the default, you merge it yourself when you choose. At `person_approves` and `review_approves`, ropeshift merges it at the approved commit. [A planning branch](onboarding.md#a-planning-branch) gives every case.
 
+## On the command line
+
+[The CLI for power users](cli-for-power-users.md#plan-your-first-change) gives the command for each step of this guide.
+
 ## Next
 
 Approving the plan creates its work orders. [Watch work run](watch-work-run.md) starts them, and [Learn ropeshift](../README.md#learn-ropeshift) lists the guides.

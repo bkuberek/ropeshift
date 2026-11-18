@@ -436,6 +436,10 @@ The work order's page shows the expected CI time, or "no history", with the time
 ### CI duration history
 
 When every required check of a head finishes, ropeshift keeps a CI record: the repository, the head, when ropeshift first held the head, when the first required run started, when the last one completed, how long the push waited for a run to start, the attempt, and the class of the result: pass, failure, infrastructure, or a check that waits for a person. A failure beside runs the forge cancelled because of it is a failure. A rerun of the same head is another record, and a head with no required check has none. A repository's expected duration is the p50 and p85, by nearest rank, of the push-to-completed times of its `ci_history_window` most recent records that ended in a pass or a failure, so an infrastructure fault says nothing about how long CI takes. With fewer than `ci_history_min_records` of them the repository has no history, and the no-history keys give the expected duration until it has. The read schedule above runs by the repository's own p50 and p85 from the record that makes the minimum.
+## On the command line
+
+[The CLI for power users](cli-for-power-users.md#set-up-your-projects) gives the command for each step of this guide.
+
 ## Next
 
 [Plan your first change](plan-your-first-change.md) is the next guide. For a project that already has code, documents, and branches, [adopt an existing project](adopt.md) brings it in as a plan instead.

@@ -161,6 +161,10 @@ Ropeshift merges in one step of its own, never through an agent, and only the co
 
 A planning branch in a repository that reviews through pull requests gets a pull request too, and your plan approval is the only approval of its merge ([a planning branch](onboarding.md#a-planning-branch)). `ropeshift repository set` changes the same settings from a terminal ([the command line](cli.md)).
 
+## On the command line
+
+[The CLI for power users](cli-for-power-users.md#connect-a-github-repository) gives the command for each step of this guide.
+
 ## Next
 
 [Run several projects at once](several-projects.md) moves between projects, reads what waits in all of them, and sets the caps they share.

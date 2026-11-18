@@ -198,16 +198,16 @@ A reversible decision does not rework finished work by itself, because that woul
 
 ## Where you come in
 
-| When | What you do | Where |
-|------|-------------|-------|
-| A goal needs a plan | Talk with the planning agent | A terminal, or Needs you |
-| A plan version is ready | Approve it, or decline it with a reason | Needs you, or `ropeshift plan approve` |
-| A question reaches the last rung | Answer it | Needs you, or `ropeshift question answer` |
-| A lane asks to run a gated command | Allow that one call, or deny it | Needs you, or `ropeshift approval approve` |
-| A review passes | Accept, approve the merge, or nothing, by merge authority | Needs you, or `ropeshift work accept` |
-| Work is stuck | Resume, retry, replan, or cancel it | Needs you, or Floor |
+| When | What you do | In the web UI | On the command line |
+|------|-------------|---------------|---------------------|
+| A goal needs a plan | Talk with the planning agent | Start planning session, then the Planning page | `ropeshift plan start` |
+| A plan version is ready | Approve it, or decline it with a reason | Needs you: Approve this plan, or Decline… | `ropeshift plan approve` |
+| A question reaches the last rung | Answer it | Needs you: choose an answer and send it | `ropeshift question answer` |
+| A lane asks to run a gated command | Allow that one call, or deny it | Needs you: Allow this one call, or Deny | `ropeshift approval approve` |
+| A review passes | Accept, approve the merge, or nothing, by merge authority | Needs you: Accept, or Approve merge | `ropeshift work accept` |
+| Work is stuck | Resume, retry, replan, or cancel it | Needs you, Stuck: the card's actions | `ropeshift lane resume` and `ropeshift work retry` |
 
-Everything else runs without you.
+Everything else runs without you. [The CLI for power users](cli-for-power-users.md) gives the command for each action of the guides.
 
 ## Next steps
 

@@ -183,17 +183,21 @@ Every published image has a row, and every row names a capture and the name it i
 
 | Capture | Published as | Shown in |
 | --- | --- | --- |
-| `needs-you-<theme>-1440.png` | `needs-you-<theme>.png` | README, web UI guide |
+| `needs-you-<theme>-1440.png` | `needs-you-<theme>.png` | README, web UI reference |
 | `decisions-<theme>-1440.png` | `decisions-<theme>.png` | README |
-| `floor-<theme>-1440.png` | `floor-<theme>.png` | README, web UI guide |
-| `measures-<theme>-1440.png` | `measures-<theme>.png` | README, web UI guide |
-| `roadmap-<theme>-1440.png` | `roadmap-<theme>.png` | Web UI guide |
-| `plan-approval-<theme>-1440.png` | `plan-approval-<theme>.png` | Web UI guide |
-| `documents-requirement-<theme>-1440.png` | `documents-<theme>.png` | Web UI guide |
-| `conversations-<theme>-1440.png` | `conversations-<theme>.png` | Web UI guide |
-| `agents-project-<theme>-1440.png` | `agents-<theme>.png` | Web UI guide |
-| `settings-project-<theme>-1440.png` | `settings-<theme>.png` | Web UI guide |
-| `members-<theme>-1440.png` | `members-<theme>.png` | Web UI guide |
+| `floor-<theme>-1440.png` | `floor-<theme>.png` | README, web UI reference |
+| `measures-<theme>-1440.png` | `measures-<theme>.png` | README, web UI reference |
+| `overview-<theme>-1440.png` | `overview-<theme>.png` | Web UI reference |
+| `roadmap-<theme>-1440.png` | `roadmap-<theme>.png` | Web UI reference |
+| `plan-approval-<theme>-1440.png` | `plan-approval-<theme>.png` | Web UI reference |
+| `documents-requirement-<theme>-1440.png` | `documents-<theme>.png` | Web UI reference |
+| `reviews-<theme>-1440.png` | `reviews-<theme>.png` | Web UI reference |
+| `conversations-<theme>-1440.png` | `conversations-<theme>.png` | Web UI reference |
+| `workers-<theme>-1440.png` | `workers-<theme>.png` | Web UI reference |
+| `usage-<theme>-1440.png` | `usage-<theme>.png` | Web UI reference |
+| `agents-project-<theme>-1440.png` | `agents-<theme>.png` | Web UI reference |
+| `settings-project-<theme>-1440.png` | `settings-<theme>.png` | Web UI reference |
+| `members-<theme>-1440.png` | `members-<theme>.png` | Web UI reference |
 | `top.png` | `top.png` | README |
 | `get-started-01-<theme>.png` | `get-started-01-<theme>.png` | Get started |
 | `get-started-02-<theme>.png` | `get-started-02-<theme>.png` | Get started |
@@ -275,4 +279,4 @@ Every published image has a row, and every row names a capture and the name it i
 | `trouble-03-<theme>.png` | `trouble-03-<theme>.png` | Troubleshooting |
 | `trouble-04-<theme>.png` | `trouble-04-<theme>.png` | Troubleshooting |
 
-After a release, run `make screenshots` at its tag, look at each image, and publish. Then update the version that the README's screenshots section and the web UI guide name.
+After a release, run `make screenshots` at its tag, look at each image, and publish. Then update the version that the README's screenshots section and the web UI reference name.

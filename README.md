@@ -53,7 +53,7 @@ Ropeshift also needs git 2.31 or newer, tmux for lanes in a terminal pane, and t
 
 ## Screenshots
 
-These are the web UI of `v0.1.0-alpha.15` and `ropeshift top`, running locally with sample data. The web UI follows the system's light or dark setting. [The web UI guide](docs/web-ui.md) shows each of its main views.
+These are the web UI of `v0.1.0-alpha.16` and `ropeshift top`, running locally with sample data. The web UI follows the system's light or dark setting. [The web UI reference](docs/web-ui.md) shows each of its main views.
 
 Needs you puts what waits for a person first, oldest first: work to accept, work its lane could not finish, a parked lane, and questions an orchestrator could not settle, with its recommendation marked.
 
@@ -142,6 +142,7 @@ A subscription worker starts at `attended`, where it claims work only inside a r
 - [Usage and measures](docs/usage-and-measures.md): read the Overview's figures, the product, delivery, and estimate measures, a plan's forecast, the estimated cost of each lane, and the audit log.
 - [Troubleshooting](docs/troubleshooting.md): find the cause of a problem in the web UI and fix it: a page that does not load, a driver that is not usable, work that is not claimed or waits, a lane that stops, a refused start, and a daemon that refuses to start on a database.
 - [Modes: solo, group, and cluster](docs/modes.md): what each mode is, its status, its target version, and which one to use today.
+- [The CLI for power users](docs/cli-for-power-users.md): the command for each web action of the guides, the commands with no web control, sessions in a shell, and adopting a project from a terminal.
 
 ### Concepts
 
@@ -154,7 +155,7 @@ A subscription worker starts at `attended`, where it claims work only inside a r
 ### Reference
 
 - [Onboarding](docs/onboarding.md): the detail behind every step of the guides, and what to know before a lane runs.
-- [Web UI](docs/web-ui.md): each main view of the web UI, what it shows, and what a member does there.
+- [Web UI reference](docs/web-ui.md): each main view of the web UI, what it shows, and what a member does there.
 - [Command line](docs/cli.md): every command, the daemon's flags, and the exit codes.
 - [API](docs/api.md): the routes of the installation and of each project.
 - [Qualification](docs/qualification.md): how each Claude Code version is checked before ropeshift relies on it.

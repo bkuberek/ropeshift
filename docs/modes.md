@@ -31,3 +31,7 @@ Cluster mode runs in your own cloud, installed from a Helm chart with Terraform 
 ## This page
 
 This page changes when a mode's status or its target version does.
+
+## Next
+
+[The CLI for power users](cli-for-power-users.md) maps each web action of the guides to its command.

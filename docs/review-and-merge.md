@@ -117,6 +117,10 @@ Ropeshift never deletes a branch. Delete a merged branch with git:
 git branch -d lane/serve-berths
 ```
 
+## On the command line
+
+[The CLI for power users](cli-for-power-users.md#review-and-merge) gives the command for each step of this guide.
+
 ## Next
 
 [Connect a GitHub repository](github.md) reviews a repository's changes through pull requests on GitHub.

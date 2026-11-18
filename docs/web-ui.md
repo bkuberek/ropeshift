@@ -1,8 +1,10 @@
-# Web UI
+# Web UI reference
+
+This is the reference for each view of the web UI. To learn the web UI by doing, follow the guides in [Learn ropeshift](../README.md#learn-ropeshift), which start with [get started with the web UI](getting-started.md), and [the CLI for power users](cli-for-power-users.md) gives the command for each web action.
 
 The web UI is where a member decides what waits for a person, reads the plan and its documents, watches the lanes, talks to the sessions, and changes the settings. The daemon serves it at `http://127.0.0.1:7317`, on loopback only; `--web` or `ROPESHIFT_WEB` chooses another loopback address, or `off` ([the daemon's flags](cli.md#the-daemon)). Open that address in a browser on the same machine and [sign in](#sign-in) with the passphrase `ropeshift init` asked for, or `ropeshift passphrase set` set ([onboarding](onboarding.md#run-ropeshift-init)). Settings changes the passphrase later. Every view has the same frame: the project switcher (`P`), the command palette (`Ctrl K`, or `⌘ K` on macOS), the count of what needs you, the conversation panel (`.`), and a sidebar that groups the current project's views under Plan, Work, Talk, and Project, then the installation's. `?` lists every keyboard shortcut. The page follows the system's light or dark setting until you choose a theme.
 
-The screenshots below are `v0.1.0-alpha.15` running locally with sample data.
+The screenshots below are `v0.1.0-alpha.16` running locally with sample data.
 
 ## Sign in
 
@@ -64,6 +66,9 @@ What a member does depends on the kind of item:
 [Authorization](authorization.md#who-can-do-what) says who may decide each kind, [delegates](authorization.md#delegates) explains confirmation cards, and [the command line](cli.md) has a command for each decision, such as `ropeshift work accept` and `ropeshift approval approve`.
 
 ## Overview
+
+![Overview, with the six key figures, the plan's milestones, the lanes, and the items of Needs you for the project](assets/screenshots/overview-light.png#gh-light-mode-only)
+![Overview, with the six key figures, the plan's milestones, the lanes, and the items of Needs you for the project](assets/screenshots/overview-dark.png#gh-dark-mode-only)
 
 Overview is a project's own page, at `/projects/{project}`, and `G` then `O` goes to it. Its heading holds Register repositories, which opens the dialog Repositories opens, and Start planning session, which opens the dialog the Roadmap and Plans views open. Both are off for an archived project, whose page says so and where to restore it.
 
@@ -244,6 +249,9 @@ Registering is a separate act. When the folder is a clone and the worker is the 
 
 ## Workers
 
+![Workers and resources, with a machine and its measures, its claude-code driver, and the sessions on it](assets/screenshots/workers-light.png#gh-light-mode-only)
+![Workers and resources, with a machine and its measures, its claude-code driver, and the sessions on it](assets/screenshots/workers-dark.png#gh-dark-mode-only)
+
 Workers lists each machine that serves the installation, with the CPU, memory, free disk, and lanes against the cap its worker last measured, its orchestrator, and its freshness, then every session on it. A measure the machine cannot provide says unavailable and never reads as zero.
 
 Drivers shows each worker's doctor result, one row for each agent CLI a worker named when it connected, as `ropeshift worker doctor` prints it for a machine with no daemon. A row gives the driver, a badge, the version, whether that version is qualified, the kind and status of its sign-in, and when the worker last reported. The badge reads Usable when the CLI is present and its sign-in is not signed out, the rule an offer applies, so a sign-in the doctor could not read stays usable. A driver that is not usable says why in the doctor's words, starting with its word:
@@ -256,9 +264,15 @@ A worker that named no driver, because its doctor failed when it started or the 
 
 ## Usage
 
+![Usage, with no sign-in window reported and the estimated cost of each lane](assets/screenshots/usage-light.png#gh-light-mode-only)
+![Usage, with no sign-in window reported and the estimated cost of each lane](assets/screenshots/usage-dark.png#gh-dark-mode-only)
+
 Usage breaks down the estimated cost of a project's outcomes, then lists the cost of each lane as `ropeshift telemetry lanes` does. A lane's row gives its context at its last call, its tokens by type, the tokens each roster agent spent inside it, which are part of the lane's tokens and never added to them, the cost its agent reported, and when it last called. A cost reads at least a figure when some of it was never reported, because a turn stopped, or a session crashed or was killed before a turn's result, as the Overview reads a lower bound. It is estimated at list price from what agents reported, so it is not a bill. A lane that reported no cost says none reported, and no cost is ever drawn as zero. A control plane with no telemetry store says it reads none, and a store that holds nothing says no lane has reported. [Telemetry](telemetry.md#the-local-store) covers where the figures come from.
 
 ## Reviews
+
+![Reviews, with a work order waiting for acceptance, its review verdicts, its merge authority, and Accept and Rework](assets/screenshots/reviews-light.png#gh-light-mode-only)
+![Reviews, with a work order waiting for acceptance, its review verdicts, its merge authority, and Accept and Rework](assets/screenshots/reviews-dark.png#gh-dark-mode-only)
 
 Reviews is the work that waits for you after its lane finished, at `/projects/{project}/reviews`. The command palette lists Reviews and one entry for each of its tabs.
 
