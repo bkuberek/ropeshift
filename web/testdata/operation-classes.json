@@ -428,6 +428,20 @@
       "never_reason": "Policy is changed only on a member's word."
     },
     {
+      "id": "spend.raise",
+      "label": "Raise a work order's spend limit",
+      "class": "consent",
+      "exemptable": false,
+      "never_reason": "Spending past a hard limit is a person's decision."
+    },
+    {
+      "id": "spend.resume",
+      "label": "Resume a lane a spend limit parked",
+      "class": "consent",
+      "exemptable": false,
+      "never_reason": "Spending past a hard limit is a person's decision."
+    },
+    {
       "id": "delegate_policy.publish",
       "label": "Publish the delegate policy",
       "class": "member_only",

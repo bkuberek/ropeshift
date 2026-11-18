@@ -284,6 +284,8 @@ func TestEveryRouteTakesItsClassForADelegate(t *testing.T) {
 	}
 	// A repository route finds its record before it says what the call would do.
 	detected(t, d, "w1", "main")
+	// A spend route reads the work order's limit before it says what a raise would change.
+	createReady(t, d, "w1")
 	// bodies are what a route needs before it can say what a card would change.
 	bodies := map[string]any{
 		"POST /v1/roster/changes": api.RosterChange{Scope: roster.ScopeProject, Change: roster.Change{Op: roster.OpEnable, Agent: "lookup"}},

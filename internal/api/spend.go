@@ -38,6 +38,29 @@ func (c *ProjectClient) Spend(ctx context.Context) (SpendView, error) {
 	return out, err
 }
 
+// RaiseSpend asks to raise a work order's hard limit by a percentage of the limit in force, or to an amount in US dollars
+// (FR-SPEND-7). It names one of the two.
+type RaiseSpend struct {
+	ByPercent float64 `json:"by_percent,omitempty"`
+	ToUSD     float64 `json:"to_usd,omitempty"`
+}
+
+// RaiseSpend raises a work order's hard limit and wakes the lane the limit parked, and answers the limit before and
+// after.
+func (c *ProjectClient) RaiseSpend(ctx context.Context, id string, in RaiseSpend) (ledger.SpendLimitChange, error) {
+	var out ledger.SpendLimitChange
+	err := c.do(ctx, http.MethodPost, "/v1/work-orders/"+url.PathEscape(id)+"/spend/raise", in, &out)
+	return out, err
+}
+
+// ResumeSpend grants a work order one more generation's allowance so the lane its hard limit parked goes on, and answers
+// the limit before and after.
+func (c *ProjectClient) ResumeSpend(ctx context.Context, id string) (ledger.SpendLimitChange, error) {
+	var out ledger.SpendLimitChange
+	err := c.do(ctx, http.MethodPost, "/v1/work-orders/"+url.PathEscape(id)+"/spend/resume", struct{}{}, &out)
+	return out, err
+}
+
 // WorkOrderSpend reads one work order's charged spend against its limits.
 func (c *ProjectClient) WorkOrderSpend(ctx context.Context, id string) (ledger.WorkOrderSpend, error) {
 	var out ledger.WorkOrderSpend

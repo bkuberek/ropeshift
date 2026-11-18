@@ -53,6 +53,8 @@ const (
 	OpProjectRemove                       = "project.remove"
 	OpInstallationBackup                  = "installation.backup"
 	OpInstallationSpendPolicyPublish      = "installation_spend_policy.publish"
+	OpSpendRaise                          = "spend.raise"
+	OpSpendResume                         = "spend.resume"
 	OpWorkerJoinToken                     = "worker.join_token"
 	OpWorkerJoinTokenRevoke               = "worker.join_token_revoke"
 	OpAutonomySet                         = "autonomy.set"
@@ -148,6 +150,7 @@ const (
 	neverAutonomy   = "Autonomy is policy, which only a member changes."
 	neverRoster     = "The agent roster and its routing guide are changed only on a member's word (ADR-0025)."
 	neverPolicy     = "Policy is changed only on a member's word."
+	neverSpend      = "Spending past a hard limit is a person's decision."
 	neverRaise      = "Raising merge authority leaves more to ropeshift, which only a member allows."
 	neverPullReq    = "Moving review to a pull request changes where work lands, which only a member allows."
 	neverApproval   = "A delegate decides a request only within the delegation policy; every other request needs a member."
@@ -287,6 +290,11 @@ var operations = append(onInstallation(
 	oneWay(consent(OpDecisionRecord, "Record a decision", ActionRecordDecision, ActionDecideUnbound)),
 	consent(OpDecisionOverturn, "Overturn a decision", ActionOverturn),
 	never(OpPolicyPublish, "Publish a policy", neverPolicy, ActionPublishPolicy),
+	// A work order's hard limit stops spending more than twice what its estimate expects, so raising it, and
+	// resuming a lane the limit parked, are a person's word whoever asks (ADR-0037, FR-SPEND-8): an orchestrator
+	// holds neither, and no delegate policy exempts them.
+	never(OpSpendRaise, "Raise a work order's spend limit", neverSpend, ActionRaiseSpendLimit),
+	never(OpSpendResume, "Resume a lane a spend limit parked", neverSpend, ActionRaiseSpendLimit),
 	memberOnly(OpDelegatePolicyPublish, "Publish the delegate policy", ActionPublishPolicy),
 	never(OpCategoryAdd, "Add a category", neverPolicy, ActionAddCategory),
 	consent(OpRepositoryRegister, "Register a repository", ActionRegisterRepository),
