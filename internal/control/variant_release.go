@@ -157,6 +157,9 @@ func rewritesRecommendation() bool   { return false }
 // leavesUnjudged is false: a question no orchestrator took reaches a person from the core.
 func leavesUnjudged() bool { return false }
 
+// keepsFiredStart is false: a scheduled start ends in the write that starts the orchestrator.
+func keepsFiredStart() bool { return false }
+
 // leavesParkedLanes is false: a cancel ends a lane with no process, which no worker will report.
 func leavesParkedLanes() bool { return false }
 

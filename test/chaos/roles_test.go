@@ -66,6 +66,7 @@ var childRoles = map[string]func(*child) error{
 	"escalate":          roleEscalate,
 	"unjudged":          roleUnjudged,
 	"schedule-start":    roleScheduleStart,
+	"start-scheduled":   roleStartScheduled,
 	"resolve":           roleResolve,
 	"merge":             roleMerge,
 	"dismiss":           roleDismiss,
@@ -253,6 +254,11 @@ func roleUnjudged(c *child) error {
 
 func roleScheduleStart(c *child) error {
 	_, err := control.NewWorkers(c.store, c.scope, control.WorkerOptions{}).ScheduleOrchestrator(c.ctx, c.spec.Key, c.member())
+	return err
+}
+
+func roleStartScheduled(c *child) error {
+	_, err := control.NewWorkers(c.store, c.scope, control.WorkerOptions{}).StartScheduled(c.ctx, ledger.Actor{Kind: ledger.ActorSystem, ID: "start-tick"})
 	return err
 }
 

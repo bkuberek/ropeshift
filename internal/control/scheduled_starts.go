@@ -188,7 +188,11 @@ func stepStart(ctx context.Context, installation ports.Installation, worker stri
 			if _, err := setOrchestratorIn(tx, worker, ledger.OrchestratorRunning, member); err != nil {
 				return err
 			}
+			crashpoint.Hit("orchestrator.start_scheduled", "started")
 			fired = true
+			if keepsFiredStart() {
+				return nil
+			}
 		}
 		if _, err := tx.Workers().DeleteScheduledStart(worker); err != nil {
 			return err

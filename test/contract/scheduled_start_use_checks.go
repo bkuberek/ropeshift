@@ -15,16 +15,16 @@ import (
 // worker says the limit is gone after the reset, waits for the next reported reset when the limit still holds, does
 // nothing once canceled or for an orchestrator that already runs, and survives a restart.
 var ScheduledStartChecks = []Check{
-	{"SS4", "a start scheduled at a usage limit starts the orchestrator at the reset", checkScheduledStartFires},
-	{"SS5", "a start whose reset was stale waits for the next reported reset, and says so", checkScheduledStartWaitsForNext},
-	{"SS6", "a canceled start starts nothing", checkScheduledStartCanceled},
-	{"SS7", "a start for an orchestrator that already runs does nothing", checkScheduledStartAlreadyRuns},
-	{"SS8", "a scheduled start fires after a restart", checkScheduledStartFiresAfterRestart},
-	{"SS9", "only a member schedules a start, and only while the sign-in is at its limit", checkScheduledStartRules},
-	{"SS10", "a stop recorded after a start was scheduled ends it, so the reset starts nothing", checkScheduledStartStopped},
-	{"SS11", "a start whose orchestrator tripped since leaves the breaker tripped", checkScheduledStartLeavesTrip},
-	{"SS12", "a start is not scheduled for an orchestrator already asked to run", checkScheduledStartRefusesRunning},
-	{"SS13", "a report that says nothing of the sign-in leaves a start waiting", checkScheduledStartWaitsForWord},
+	{"OS4", "a start scheduled at a usage limit starts the orchestrator at the reset", checkScheduledStartFires},
+	{"OS5", "a start whose reset was stale waits for the next reported reset, and says so", checkScheduledStartWaitsForNext},
+	{"OS6", "a canceled start starts nothing", checkScheduledStartCanceled},
+	{"OS7", "a start for an orchestrator that already runs does nothing", checkScheduledStartAlreadyRuns},
+	{"OS8", "a scheduled start fires after a restart", checkScheduledStartFiresAfterRestart},
+	{"OS9", "only a member schedules a start, and only while the sign-in is at its limit", checkScheduledStartRules},
+	{"OS10", "a stop recorded after a start was scheduled ends it, so the reset starts nothing", checkScheduledStartStopped},
+	{"OS11", "a start whose orchestrator tripped since leaves the breaker tripped", checkScheduledStartLeavesTrip},
+	{"OS12", "a start is not scheduled for an orchestrator already asked to run", checkScheduledStartRefusesRunning},
+	{"OS13", "a report that says nothing of the sign-in leaves a start waiting", checkScheduledStartWaitsForWord},
 }
 
 const limitHour = int64(60 * 60 * 1000)
@@ -74,6 +74,22 @@ func LimitedWorker(r *Rig, store ports.Store) (string, error) {
 		return "", err
 	}
 	return w.auth.WorkerID, w.report(ledger.SignInUsage{Limited: true, Window: ledger.UsageWindowSession, ResetsAtMs: now + limitHour})
+}
+
+// DueStart registers a worker whose sign-in was at its limit, schedules its orchestrator's start for the reset as a
+// member, and reports the limit gone, so the next tick starts it, for a check of another package.
+func DueStart(r *Rig, store ports.Store) (string, error) {
+	w, err := newLimitWorld(r, store)
+	if err != nil {
+		return "", err
+	}
+	if _, err := w.limitedFor(limitHour); err != nil {
+		return "", err
+	}
+	if _, err := w.plane.ScheduleOrchestrator(r.Ctx, w.auth.WorkerID, w.member); err != nil {
+		return "", err
+	}
+	return w.auth.WorkerID, w.free()
 }
 
 func (w *limitWorld) now() (int64, error) {

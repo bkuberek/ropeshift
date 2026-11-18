@@ -169,6 +169,7 @@ func crashMatrix() []crashCase {
 		deliverCase(),
 		unjudgedCase(),
 		scheduleStartCase(),
+		startScheduledCase(),
 		answerCase(),
 		answerReplacingCase("question.answer", withSteps("decided")),
 		answerReplacingCase("decision.record", []string{"replaced", "repacked"}),
@@ -1167,6 +1168,32 @@ func scheduleStartCase() crashCase {
 				}
 				if start.StartsAt == 0 {
 					return contract.Violatedf("the scheduled start waits for no reset: %+v", start)
+				}
+				return nil
+			})
+		},
+	}
+}
+
+// startScheduledCase kills the tick that starts an orchestrator for a scheduled start. It must leave the orchestrator
+// asked to run once with the start gone, or neither.
+func startScheduledCase() crashCase {
+	return crashCase{
+		name:  "a scheduled start that fires",
+		op:    "orchestrator.start_scheduled",
+		steps: withSteps("started"),
+		prepare: func(w *world) (childSpec, error) {
+			worker, err := contract.DueStart(w.rig, w.store)
+			return childSpec{Role: "start-scheduled", Key: worker}, err
+		},
+		settled: func(w *world, spec childSpec) error {
+			return w.rig.Store().Installation(w.rig.Scope).Read(w.rig.Ctx, func(tx ports.SharedReadTx) error {
+				row, rowErr := tx.Workers().Orchestrator(spec.Key)
+				_, startErr := tx.Workers().ScheduledStart(spec.Key)
+				fired := rowErr == nil && row.Desired == ledger.OrchestratorRunning && row.Run == 1 && errors.Is(startErr, ports.ErrNotFound)
+				untouched := (errors.Is(rowErr, ports.ErrNotFound) || row.Desired != ledger.OrchestratorRunning) && startErr == nil
+				if !fired && !untouched {
+					return contract.Violatedf("the orchestrator reads %+v (%v) and its scheduled start %v", row, rowErr, startErr)
 				}
 				return nil
 			})

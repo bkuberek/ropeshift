@@ -165,6 +165,8 @@ type Sabotage struct {
 	DropsAskedRecommendation bool
 	// LeavesUnjudged leaves a question no orchestrator took on the ladder, so no member sees it.
 	LeavesUnjudged bool
+	// KeepsFiredStart keeps a scheduled start after it started the orchestrator, so the next reset starts it again.
+	KeepsFiredStart bool
 	// RewritesRecommendation has escalation replace a question's recommendation with the escalation's own, even
 	// when it states none.
 	RewritesRecommendation bool
@@ -339,6 +341,8 @@ func bindsAnswersTwice() bool { return current().BindsAnswersTwice }
 func dropsAskedRecommendation() bool { return current().DropsAskedRecommendation }
 
 func leavesUnjudged() bool { return current().LeavesUnjudged }
+
+func keepsFiredStart() bool { return current().KeepsFiredStart }
 
 func rewritesRecommendation() bool { return current().RewritesRecommendation }
 

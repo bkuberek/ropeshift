@@ -105,6 +105,7 @@ func packVariants() []variant {
 		{name: "a question no orchestrator took left on the ladder, for the plan's scenario", control: control.Sabotage{LeavesUnjudged: true}, check: "MP16"},
 		{name: "a question no orchestrator took left on the ladder", control: control.Sabotage{LeavesUnjudged: true}, check: "UJ2"},
 		{name: "a question whose orchestrator stopped left on the ladder", control: control.Sabotage{LeavesUnjudged: true}, check: "UJ3"},
+		{name: "a scheduled start kept after it started the orchestrator", control: control.Sabotage{KeepsFiredStart: true}, check: "OS4"},
 		{name: "a plan version that decides a replaced draft again", control: control.Sabotage{DecidesReplacedDrafts: true}, check: "PA22"},
 		{name: "a plan version that decides a changed draft with no word of what it replaces", control: control.Sabotage{DecidesReplacedDrafts: true}, check: "PA23"},
 		{name: "a plan version that decides a draft again after a member replaced it, in the mid-plan scenario", control: control.Sabotage{DecidesReplacedDrafts: true}, check: "MP8"},
