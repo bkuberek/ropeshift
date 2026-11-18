@@ -154,6 +154,9 @@ func bindsAnswersTwice() bool     { return false }
 func dropsAskedRecommendation() bool { return false }
 func rewritesRecommendation() bool   { return false }
 
+// leavesUnjudged is false: a question no orchestrator took reaches a person from the core.
+func leavesUnjudged() bool { return false }
+
 // leavesParkedLanes is false: a cancel ends a lane with no process, which no worker will report.
 func leavesParkedLanes() bool { return false }
 

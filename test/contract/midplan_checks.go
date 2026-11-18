@@ -826,8 +826,8 @@ func checkMidPlanOverturnReworksNoReview(r *Rig) error {
 	return nil
 }
 
-// checkMidPlanNoOrchestrator holds G9: with no orchestrator, nothing takes a lane's question up the ladder,
-// so nothing batches it and no member sees it.
+// checkMidPlanNoOrchestrator holds FR-QD-3: with no orchestrator serving the project, the core takes a lane's question
+// to a person once its batch window passes, so a batch holds it.
 func checkMidPlanNoOrchestrator(r *Rig) error {
 	m, err := midPlanWorld(r)
 	if err != nil {
@@ -845,9 +845,8 @@ func checkMidPlanNoOrchestrator(r *Rig) error {
 	if err != nil {
 		return err
 	}
-	var gap error
 	if !slices.ContainsFunc(delivered, func(d questions.Delivery) bool { return slices.Contains(d.Questions, asked.QuestionID) }) {
-		gap = Violatedf("a blocking question waited past the batch window with no orchestrator, and %d batches reached a member", len(delivered))
+		return Violatedf("a blocking question waited past the batch window with no orchestrator, and %d batches reached a member", len(delivered))
 	}
-	return knownGap(r, "GAP-MP-G9", gap)
+	return nil
 }

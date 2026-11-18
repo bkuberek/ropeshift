@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"ropeshift.com/ropeshift/internal/adapters/lexical"
 	"ropeshift.com/ropeshift/internal/adapters/sqlstore"
 	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/contextpacks"
@@ -211,7 +212,7 @@ func NewMessageOps(store ports.Store, windows messages.Windows) *control.Message
 func RealOps(store ports.Store) Ops {
 	return realOps{
 		control.NewSessions(store, provenMember{store: store}), control.NewWorkOrders(store), control.NewLeases(store), control.NewIntake(store), control.NewReviews(store),
-		control.NewQuestions(store, questions.BatchPolicy{WindowMs: BatchWindowMs, MaxWaitMs: BatchMaxWaitMs}),
+		control.NewQuestions(store, questions.BatchPolicy{WindowMs: BatchWindowMs, MaxWaitMs: BatchMaxWaitMs}).Matching(lexical.Matcher{Store: store}),
 		control.NewAcceptances(store), control.NewWakes(store), control.NewMessages(store, nil), control.NewPacks(store),
 		control.NewPlanRevisions(store),
 	}

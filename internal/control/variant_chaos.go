@@ -163,6 +163,8 @@ type Sabotage struct {
 	BindsAnswersTwice bool
 	// DropsAskedRecommendation records a lane's question without the recommendation the lane gave it.
 	DropsAskedRecommendation bool
+	// LeavesUnjudged leaves a question no orchestrator took on the ladder, so no member sees it.
+	LeavesUnjudged bool
 	// RewritesRecommendation has escalation replace a question's recommendation with the escalation's own, even
 	// when it states none.
 	RewritesRecommendation bool
@@ -335,6 +337,8 @@ func answersReplaceNothing() bool { return current().AnswersReplaceNothing }
 func bindsAnswersTwice() bool { return current().BindsAnswersTwice }
 
 func dropsAskedRecommendation() bool { return current().DropsAskedRecommendation }
+
+func leavesUnjudged() bool { return current().LeavesUnjudged }
 
 func rewritesRecommendation() bool { return current().RewritesRecommendation }
 

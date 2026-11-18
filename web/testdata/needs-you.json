@@ -317,6 +317,22 @@
             ],
             "escalation_reason": "scope_change",
             "id": "question-1",
+            "ladder_trace": [
+              {
+                "candidates": [
+                  "decision:decision-1"
+                ],
+                "outcome": "no match",
+                "rung": 1
+              },
+              {
+                "candidates": [
+                  "decision:decision-1"
+                ],
+                "outcome": "no match",
+                "rung": 2
+              }
+            ],
             "options": [
               "Keep the budget",
               "Drop it"
@@ -336,6 +352,22 @@
             ],
             "escalation_reason": "scope_change",
             "id": "question-2",
+            "ladder_trace": [
+              {
+                "candidates": [
+                  "decision:decision-1"
+                ],
+                "outcome": "no match",
+                "rung": 1
+              },
+              {
+                "candidates": [
+                  "decision:decision-1"
+                ],
+                "outcome": "no match",
+                "rung": 2
+              }
+            ],
             "options": [
               "Keep the budget",
               "Drop it"

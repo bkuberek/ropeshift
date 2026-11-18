@@ -152,6 +152,9 @@ type Question struct {
 	DecisionID              string `json:"decision_id,omitempty"`
 	// Overlaps names the decisions in force whose scope overlapped the question's when it was escalated, by ID.
 	Overlaps []string `json:"overlaps,omitempty"`
+	// AskedAt is when the question was recorded, by database time, from which its batch window runs while no
+	// orchestrator takes it. A question recorded before the ledger kept it reads zero.
+	AskedAt int64 `json:"asked_at,omitempty"`
 }
 
 // Step is one rung a question passed, with what it considered there.

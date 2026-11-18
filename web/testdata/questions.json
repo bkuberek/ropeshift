@@ -12,6 +12,7 @@
   ],
   "questions": [
     {
+      "asked_at": 1790000544001,
       "asked_by": "lane-asking",
       "batch_id": "generated-1",
       "blocking": true,
@@ -49,6 +50,7 @@
       "text": "Should the budget hold across restarts?"
     },
     {
+      "asked_at": 1790000544001,
       "asked_by": "lane-asking",
       "batch_id": "generated-1",
       "categories": [
@@ -86,6 +88,7 @@
       "text": "May the <img src=x onerror=alert(1)><script>alert(2)</script> stay?"
     },
     {
+      "asked_at": 1790000784001,
       "asked_by": "lane-asking",
       "categories": [
         "security"

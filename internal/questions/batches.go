@@ -85,6 +85,10 @@ type Item struct {
 	Citations               []string `json:"citations,omitempty"`
 	Scope                   string   `json:"scope,omitempty"`
 	Overlaps                []string `json:"overlaps,omitempty"`
+	// NoOrchestrator says no orchestrator judged the question, so its citations are what the core found by text, and
+	// LadderTrace is every rung it passed.
+	NoOrchestrator bool   `json:"no_orchestrator,omitempty"`
+	LadderTrace    []Step `json:"ladder_trace,omitempty"`
 }
 
 // Presented is a delivered batch as members see it.
@@ -106,6 +110,7 @@ func Present(batch Batch, rows []Question, category string, policy Policy) Prese
 			Recommendation: row.Recommendation, RecommendationRationale: row.RecommendationRationale,
 			EscalationReason: row.EscalationReason, Reversibility: policy.AnswerReversibility(row), Citations: citationsOf(row),
 			Scope: ScopeOf(row.SubjectKind, row.SubjectID), Overlaps: row.Overlaps,
+			NoOrchestrator: row.NoOrchestrator(), LadderTrace: row.LadderTrace,
 		})
 	}
 	return presented

@@ -480,7 +480,7 @@ func serverTicks(projects ports.Projects, opts serverOptions, reads serverReads,
 	}
 	return []control.Tick{
 		tick("batches", opts.batchTick, func(ctx context.Context, p ledger.Project, store ports.Store) error {
-			_, err := control.NewQuestions(store, batches).DeliverBatches(ctx, p.ID, tickActor("batch-tick"))
+			_, err := control.NewQuestions(store, batches).Matching(lexical.Matcher{Store: store}).DeliverBatches(ctx, p.ID, tickActor("batch-tick"))
 			return err
 		}),
 		tick("lease", opts.leaseTick, func(ctx context.Context, p ledger.Project, store ports.Store) error {

@@ -99,8 +99,10 @@ func appendBatch(tx ports.WriteTx, batch questions.Batch, actor ledger.Actor) er
 }
 
 // DeliverBatches ends every batch whose window closed, and returns those that reached
-// members. It holds no state, so a tick that dies is made up by the next one.
+// members. It first takes to a person each question no orchestrator took within its window. It holds no state, so a
+// tick that dies is made up by the next one.
 func (q *Questions) DeliverBatches(ctx context.Context, scope ledger.WorkspaceID, actor ledger.Actor) ([]string, error) {
+	unjudged := q.escalateUnjudged(ctx, scope, actor)
 	var due []string
 	err := q.store.Read(ctx, scope, func(tx ports.ReadTx) error {
 		now, err := tx.Now()
@@ -111,10 +113,10 @@ func (q *Questions) DeliverBatches(ctx context.Context, scope ledger.WorkspaceID
 		return err
 	})
 	if err != nil {
-		return nil, err
+		return nil, errors.Join(unjudged, err)
 	}
 	var delivered []string
-	var failed []error
+	failed := []error{unjudged}
 	for _, id := range due {
 		reached, err := q.deliver(ctx, scope, id, actor)
 		if err != nil {
