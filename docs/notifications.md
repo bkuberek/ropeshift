@@ -11,8 +11,8 @@ A notice carries these fields and nothing else:
 | `delivery` | A digest that names the thing that waits. A repeat of the same notice keeps it, so a receiver can drop a second copy. It cannot be turned back into an ID |
 | `project` | The name of the project it waits in, which a member chose |
 | `attempt` | Which attempt this is, from 1 |
-| `kind` | `questions`, `approval`, `effect`, `work`, or one of the CI kinds below |
-| `reason` | For work, why it waits: `lapsed`, `blocked`, `failed`, `tripped`, `stalled`, `long_parked`, `worker_behind`, `acceptance`, or `human_resume` |
+| `kind` | `questions`, `approval`, `effect`, `work`, one of the CI kinds below, or one of the spend kinds below |
+| `reason` | For work, why it waits: `lapsed`, `blocked`, `failed`, `tripped`, `stalled`, `long_parked`, `worker_behind`, `acceptance`, or `human_resume`. For a spend alert, the kind of thing it is about, such as `project_day` |
 | `since` | When it began to wait, in milliseconds since the epoch |
 | `text` | The project's name, then one fixed sentence for that kind and reason, such as "beta: A lane stopped, and it needs you." |
 
@@ -31,6 +31,37 @@ CI that asks a person raises a Needs you item and a notice of its own kind. None
 | `ci_action_required` | A required check concluded `action_required`, which a person on the forge answers | "A check waits for a person on the forge." |
 
 The same items are in Needs you with their actions, which [the web UI](web-ui.md) and the command line share.
+
+## Spend alerts
+
+A spend limit that is reached, and a spend setting that changes, raise an alert of their own kind. Each is an event in the ledger that names its scope, so the web UI and `ropeshift notice list` show every one, and a channel that could not be told leaves it there.
+
+| Kind | Raised when | Reasons it names |
+|------|-------------|------------------|
+| `spend_soft_limit` | Charged spend reaches a soft limit, once for each limit and scope: a work order, a review, a project's day or week, or the assistant's daily warning, `assistant_daily_warn`. A project's day and week are told again for each new day or week, and a limit you raised is told again when its raised soft limit is reached | `work_order`, `review`, `project_day`, `project_week`, `assistant` |
+| `spend_hard_limit` | Charged spend reaches a hard limit and work parks or stops being claimed, once for each limit and scope | `work_order`, `review`, `project_day`, `project_week` |
+| `spend_no_progress` | A lane parks because it made no progress | `lane` |
+| `spend_waiting` | Most of a lane's recent spend was waiting | `lane` |
+| `spend_policy_changed` | A version of the spend policy or the installation's spend policy is published, or a limit is raised | `project`, `installation`, `limit_raised` |
+
+Nothing in this build raises `spend_no_progress` or `spend_waiting` yet: their kinds, their sentences, and their channels are in place, and they are delivered as every other spend alert is.
+
+A spend alert says what kind of thing reached a limit and nothing else. Its text is one fixed sentence, such as "The project reached its daily spend limit, and no work starts until the day ends or a member raises it.", with the project's name at its head. It holds no amount, no work order, no lane, no setting, and no name. The ledger's event holds those: the limit reached and what was charged, or for `spend_policy_changed` each key with its value before and after and the member who changed it, which you read in the project's log.
+
+By default every spend alert goes to the web UI only, whatever else the policy turns on. You choose the channels of each kind in `[notify_policy]`, and the web UI keeps every alert whatever you choose:
+
+```toml
+[notify_policy]
+version = 3
+desktop = true
+webhook_url = "https://hooks.example.com/ropeshift"
+
+[notify_policy.spend_channels]
+spend_hard_limit = ["desktop", "webhook"]
+spend_policy_changed = ["webhook"]
+```
+
+With that policy a hard stop reaches the web UI, the desktop, and the webhook, a soft notice reaches the web UI only, and a changed spend setting reaches the web UI and the webhook. A channel you choose must be turned on above it: `spend_channels` that names the desktop with `desktop` off, or the webhook with no `webhook_url`, is refused, and so is a kind that is not a spend kind, a channel that does not exist, and `email`, which this build has no mailer for. Questions, approvals, work, and CI notices keep going to every channel the policy turns on. A new version takes effect at the next tick, with no restart.
 
 ## Channels
 
