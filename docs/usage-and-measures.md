@@ -107,4 +107,4 @@ The Notices tab shows what each channel was told: each notice with its kind and 
 
 ## Next
 
-[Learn ropeshift](../README.md#learn-ropeshift) lists the guides.
+[Troubleshooting](troubleshooting.md) finds the cause of a problem in the web UI and fixes it.

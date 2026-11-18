@@ -36,6 +36,8 @@ type world struct {
 	// guided is a sample the guide walk reads, whose daemon folds delivery and forecasts every second, so a plan's
 	// page shows the forecast the daemon made and not a pending line. The view captures keep the defaults.
 	guided bool
+	// flags are the daemon's, which the troubleshooting guide's walk starts it with again.
+	flags []string
 }
 
 func newWorld(in *install) *world {
@@ -66,6 +68,7 @@ func (w *world) populate() {
 	if w.guided {
 		flags = append(flags, "--delivery-tick", "1s", "--forecast-tick", "1s")
 	}
+	w.flags = flags
 	in.start(flags...)
 	in.waitFor("the worker's session", func() bool {
 		list := in.workers()
