@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path"
 	"path/filepath"
 	"slices"
 	"strings"
 
+	"ropeshift.com/ropeshift/internal/planning"
 	"ropeshift.com/ropeshift/internal/ports"
 )
 
@@ -25,33 +27,38 @@ const pathBatch = 200
 // in whatever case either history spells it.
 const ignoreFile = ".gitignore"
 
-// foldPath is a path with its case removed: two paths that fold alike are one path.
-func foldPath(name string) string { return strings.ToLower(name) }
+// counterparts says, for each path the history holds that the branch holds too, the branch's spelling of it: the
+// path itself when the branch holds it exactly, and else the first of the branch's spellings that differs from it
+// only in case, so that a branch holding two spellings of a path keeps both.
+func counterparts(ours, theirs map[string]treeEntry) map[string]string {
+	first := make(map[string]string, len(ours))
+	for name := range ours {
+		folded := planning.FoldPath(name)
+		if held, found := first[folded]; !found || name < held {
+			first[folded] = name
+		}
+	}
+	held := map[string]string{}
+	for name := range theirs {
+		if _, exact := ours[name]; exact {
+			held[name] = name
+		} else if mine, found := first[planning.FoldPath(name)]; found {
+			held[name] = mine
+		}
+	}
+	return held
+}
 
 // caseVariants lists the paths the history holds under another case than the branch holds the same path, each with
 // the branch's spelling.
 func caseVariants(ours, theirs map[string]treeEntry) map[string]string {
-	held := make(map[string]string, len(ours))
-	for name := range ours {
-		held[foldPath(name)] = name
-	}
 	variants := map[string]string{}
-	for name := range theirs {
-		if mine, found := held[foldPath(name)]; found && mine != name {
+	for name, mine := range counterparts(ours, theirs) {
+		if mine != name {
 			variants[name] = mine
 		}
 	}
 	return variants
-}
-
-// foldedEntry is the file of a tree whose path folds to the ignore file's, under the name the tree spells it.
-func foldedEntry(held map[string]treeEntry) (string, treeEntry, bool) {
-	for name, entry := range held {
-		if foldPath(name) == ignoreFile {
-			return name, entry, true
-		}
-	}
-	return "", treeEntry{}, false
 }
 
 // ImportHistory merges the history of another repository into a worktree's branch (FR-ADOPT-13). It reads the
@@ -265,24 +272,30 @@ func inBatches(paths []string, run func(batch []string) error) error {
 	return nil
 }
 
-// settleCollisions keeps the branch's version of every path both histories hold with different content, except the
+// settleCollisions keeps the branch's version of every path both histories hold with different content, except an
 // ignore file, which becomes the branch's lines followed by each of the history's lines the branch lacks, in order.
 // A path the history holds under another case than the branch is the branch's path: the history's spelling is
 // dropped from the merge, and the branch's file is written back, because on a file system that ignores case the
-// merge wrote the history's text over it.
+// merge wrote the history's text over it. An ignore file the history spells in another case is united with the
+// branch's spelling.
 func settleCollisions(ctx context.Context, git Git, ours, theirs map[string]treeEntry) error {
-	var kept, dropped []string
-	for name, held := range ours {
-		if other, both := theirs[name]; both && other != held && foldPath(name) != ignoreFile {
+	held := counterparts(ours, theirs)
+	var kept, dropped, united []string
+	for name, mine := range held {
+		switch {
+		case mine != name:
+			dropped = append(dropped, name)
+			kept = append(kept, mine)
+		case ours[name] != theirs[name] && planning.FoldPath(name) != ignoreFile:
 			kept = append(kept, name)
 		}
-	}
-	for variant, name := range caseVariants(ours, theirs) {
-		dropped = append(dropped, variant)
-		kept = append(kept, name)
+		if planning.FoldPath(name) == ignoreFile && ours[mine] != theirs[name] {
+			united = append(united, name)
+		}
 	}
 	slices.Sort(dropped)
 	slices.Sort(kept)
+	slices.Sort(united)
 	kept = slices.Compact(kept)
 	if err := inBatches(dropped, func(batch []string) error {
 		_, err := git.Output(ctx, append([]string{"rm", "--quiet", "--force", "--"}, batch...)...)
@@ -296,28 +309,39 @@ func settleCollisions(ctx context.Context, git Git, ours, theirs map[string]tree
 	}); err != nil {
 		return err
 	}
-	at, mine, both := foldedEntry(ours)
-	_, other, there := foldedEntry(theirs)
-	if !both || !there || mine == other {
-		return nil
+	return uniteIgnoreFiles(ctx, git, ours, theirs, held, united)
+}
+
+// uniteIgnoreFiles writes each ignore file of the history, named in united, into the branch's spelling of it.
+func uniteIgnoreFiles(ctx context.Context, git Git, ours, theirs map[string]treeEntry, held map[string]string, united []string) error {
+	texts := map[string]string{}
+	for _, name := range united {
+		at := held[name]
+		if _, begun := texts[at]; !begun {
+			first, err := git.Output(ctx, "cat-file", "blob", ours[at].object)
+			if err != nil {
+				return err
+			}
+			texts[at] = string(first)
+		}
+		second, err := git.Output(ctx, "cat-file", "blob", theirs[name].object)
+		if err != nil {
+			return err
+		}
+		texts[at], _ = withLines(texts[at], strings.Split(strings.TrimSuffix(string(second), "\n"), "\n"))
 	}
-	first, err := git.Output(ctx, "cat-file", "blob", mine.object)
-	if err != nil {
-		return err
+	for _, at := range slices.Sorted(maps.Keys(texts)) {
+		if err := refuseLinks(git.Dir, at); err != nil {
+			return err
+		}
+		if err := writeAtomic(filepath.Join(git.Dir, at), []byte(texts[at])); err != nil {
+			return err
+		}
+		if _, err := git.Output(ctx, "add", "--", at); err != nil {
+			return err
+		}
 	}
-	second, err := git.Output(ctx, "cat-file", "blob", other.object)
-	if err != nil {
-		return err
-	}
-	text, _ := withLines(string(first), strings.Split(strings.TrimSuffix(string(second), "\n"), "\n"))
-	if err := refuseLinks(git.Dir, at); err != nil {
-		return err
-	}
-	if err := writeAtomic(filepath.Join(git.Dir, at), []byte(text)); err != nil {
-		return err
-	}
-	_, err = git.Output(ctx, "add", "--", at)
-	return err
+	return nil
 }
 
 // removeLeftOut removes from the merge what the history holds inside each tree left out, and no path the branch

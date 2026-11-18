@@ -26,6 +26,11 @@ const (
 	WorktreesLine  = "/" + WorktreesFolder + "/"
 )
 
+// FoldPath is a path with its case removed: two paths that fold alike are one path on a file system that ignores
+// case. It folds ASCII and simple Unicode case alone and does not normalize, so a name in NFC and the same name in
+// NFD are two paths.
+func FoldPath(name string) string { return strings.ToLower(name) }
+
 // The subject of the merge commit a consolidation makes on the adoption branch is "chore: import the <design>
 // history into the workspace", where <design> is the design repository's clone folder name (FR-ADOPT-13).
 const (

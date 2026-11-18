@@ -22,6 +22,19 @@ type caseImport struct {
 	made      ports.Commit
 }
 
+// requireCaseSensitive skips a test that needs a workspace to hold two spellings of one path, which a file system
+// that ignores case cannot check out.
+func requireCaseSensitive(t *testing.T) {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "a"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "A")); err == nil {
+		t.Skip("the file system ignores case")
+	}
+}
+
 func importWithCases(t *testing.T, ours, theirs map[string]string, leaveOut ...string) *caseImport {
 	t.Helper()
 	workspace := gittest.New(t)
@@ -155,5 +168,71 @@ func TestImportHistoryKeepsAWorkspaceFileThatALeftOutTreeHoldsUnderAnotherCase(t
 	}
 	if status := c.git("status", "--porcelain"); status != "" {
 		t.Errorf("the worktree is dirty after the merge:\n%s", status)
+	}
+}
+
+// A workspace that holds both spellings of a path keeps both: the design's spelling is a variant only of a path the
+// workspace does not hold exactly.
+func TestImportHistoryKeepsBothSpellingsOfAPathTheWorkspaceHolds(t *testing.T) {
+	requireCaseSensitive(t)
+	t.Parallel()
+	for name, tt := range map[string]struct {
+		ours   map[string]string
+		theirs string
+	}{
+		"the design's text differs":            {ours: map[string]string{"AGENTS.md": "upper\n", "agents.md": "lower\n"}, theirs: "design\n"},
+		"the design's text is the workspace's": {ours: map[string]string{"AGENTS.md": "upper\n", "agents.md": "lower\n"}, theirs: "lower\n"},
+		"the workspace's spellings read alike": {ours: map[string]string{"AGENTS.md": "same\n", "agents.md": "same\n"}, theirs: "design\n"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			c := importWithCases(t, tt.ours, map[string]string{"agents.md": tt.theirs})
+			got := c.tracked()
+			for spelling, text := range tt.ours {
+				if !slices.Contains(got, spelling) || c.git("show", "HEAD:"+spelling) != strings.TrimSpace(text) || c.read(spelling) != text {
+					t.Errorf("%s is not the workspace's file in the merge commit %v", spelling, got)
+				}
+			}
+			if status := c.git("status", "--porcelain"); status != "" {
+				t.Errorf("the worktree is dirty after the merge:\n%s", status)
+			}
+		})
+	}
+}
+
+// Of two spellings of the ignore file in the workspace, the design's file is united with the one it spells alike, or
+// with the only one it is a variant of, and the other stays as it is.
+func TestImportHistoryUnionsTheIgnoreFileWithTheSpellingItMatches(t *testing.T) {
+	requireCaseSensitive(t)
+	t.Parallel()
+	ours := map[string]string{".gitignore": "repos/\nnode_modules/\n", ".GITIGNORE": "other/\n"}
+	for name, tt := range map[string]struct {
+		theirs map[string]string
+		want   map[string]string
+	}{
+		"the lower-case file": {
+			theirs: map[string]string{".gitignore": "repos/\ndist/\n"},
+			want:   map[string]string{".gitignore": "repos/\nnode_modules/\ndist/\n", ".GITIGNORE": "other/\n"},
+		},
+		"the capitals": {
+			theirs: map[string]string{".GITIGNORE": "other/\nextra/\n"},
+			want:   map[string]string{".gitignore": "repos/\nnode_modules/\n", ".GITIGNORE": "other/\nextra/\n"},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			c := importWithCases(t, ours, tt.theirs)
+			for file, text := range tt.want {
+				if got := c.read(file); got != text {
+					t.Errorf("%s reads %q, want %q", file, got, text)
+				}
+				if got := c.git("show", "HEAD:"+file); got != strings.TrimSpace(text) {
+					t.Errorf("%s in the merge commit reads %q, want %q", file, got, strings.TrimSpace(text))
+				}
+			}
+			if status := c.git("status", "--porcelain"); status != "" {
+				t.Errorf("the worktree is dirty after the merge:\n%s", status)
+			}
+		})
 	}
 }
