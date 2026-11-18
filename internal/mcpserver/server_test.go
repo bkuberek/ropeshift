@@ -409,6 +409,14 @@ func TestLaneReportCarriesSecurityNotes(t *testing.T) {
 	if required := item["required"].([]any); len(required) != 2 || required[0] != "point" || required[1] != "reasons" {
 		t.Errorf("a note requires %v", required)
 	}
+	citations := properties["citations"].(map[string]any)
+	if citations["maxItems"] != float64(workorders.MaxNoteCitations) {
+		t.Errorf("a note's citations are bounded at %v", citations["maxItems"])
+	}
+	cited := citations["items"].(map[string]any)
+	if cited["maxLength"] != float64(workorders.MaxNoteCitation) || cited["pattern"] == nil || cited["pattern"] == "" {
+		t.Errorf("a citation is bounded and cleaned by %v", cited)
+	}
 
 	got := ask(t, w, "tools/call", report(map[string]any{
 		"outcome":  "completed",
@@ -434,9 +442,10 @@ func TestLaneReportCarriesSecurityNotes(t *testing.T) {
 // A note that is not whole never reaches the worker, and the lane is told what to mend.
 func TestLaneReportRefusesANoteThatIsNotWhole(t *testing.T) {
 	for name, note := range map[string]map[string]any{
-		"a point nobody offers": {"point": "style", "reasons": "x"},
-		"no point":              {"reasons": "x"},
-		"no reasons":            {"point": "secrets"},
+		"a point nobody offers":        {"point": "style", "reasons": "x"},
+		"no point":                     {"reasons": "x"},
+		"no reasons":                   {"point": "secrets"},
+		"a citation with a line break": {"point": "secrets", "reasons": "x", "citations": []string{"a`\n- b"}},
 	} {
 		w := &worker{}
 		got := ask(t, w, "tools/call", report(map[string]any{"outcome": "completed", "notes": []map[string]any{note}}))

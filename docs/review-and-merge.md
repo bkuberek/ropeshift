@@ -21,7 +21,7 @@ Whatever its criteria say, a review also judges four security points in every di
 | `dependencies` | Dependencies added or changed, and whether each is pinned and maintained |
 | `authority` | Changes to authority: permissions, CI workflows, `CODEOWNERS`, forge settings, and ropeshift's profiles and policies |
 
-The review records each concern as a security note: its point, its reasons, and citations. A review reports at most 20 notes, each with at most 4 KiB of reasons, and ropeshift removes the shapes of credentials from them before it keeps them. A note is not a verdict. It fails no criterion, and it never changes a verdict, a rework, an acceptance, or a merge: the work settles as it would with no notes, and you read them before you decide.
+The review records each concern as a security note: its point, its reasons, and citations. A review reports at most 20 notes, each with at most 4 KiB of reasons and at most 20 citations of one line and 256 bytes each, and ropeshift removes the shapes of credentials from them before it keeps them anywhere, its event log included. A note is not a verdict. It fails no criterion, and it never changes a verdict, a rework, an acceptance, or a merge: the work settles as it would with no notes, and you read them before you decide.
 
 Notes appear after the verdicts wherever the verdicts do: under Security notes on the work order's Review and Changes tabs and on its card in Needs you, as a count in the Reviews queue, in `ropeshift work show` and `ropeshift work acceptance`, and, for a repository that reviews through pull requests, in the comment that carries the verdicts on the pull request. A note binds to the commit the review read, as its verdicts do.
 

@@ -285,9 +285,9 @@ func preparer(card api.CardNeed) string {
 	return clean(card.Label) + " for " + clean(card.Member)
 }
 
-// reviewFound counts the verdicts a review gave, and the security notes it left, in the words a person reads in the web UI. Work with no verdict says nothing.
+// reviewFound counts the verdicts a review gave, and the security notes it left, in the words a person reads in the web UI. Work with neither says nothing.
 func reviewFound(standing *workorders.AcceptanceView) string {
-	if standing == nil || len(standing.Verdicts) == 0 {
+	if standing == nil || (len(standing.Verdicts) == 0 && len(standing.Notes) == 0) {
 		return ""
 	}
 	var counts [3]int

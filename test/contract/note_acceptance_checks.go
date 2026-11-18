@@ -1,6 +1,7 @@
 package contract
 
 import (
+	"encoding/json"
 	"errors"
 	"regexp"
 	"slices"
@@ -23,6 +24,79 @@ func twoNotes() []workorders.ReviewNote {
 		{Point: workorders.PointSecrets, Reasons: "A token " + aToken + " is added to config.yaml.", Citations: []string{"config.yaml:4", "key " + aToken}},
 		{Point: workorders.PointAuthority, Reasons: "The workflow\n  gains write permission."},
 	}
+}
+
+// eventsHolding counts the events of the ledger whose data holds text, and names the types of the first of them.
+func (r *Rig) eventsHolding(s ports.Store, text string) (int, string, error) {
+	events, err := r.Events(s, r.Scope)
+	if err != nil {
+		return 0, "", err
+	}
+	count, first := 0, ""
+	for _, event := range events {
+		// The event that ends a lane carries the lane's report as a payload, which its data holds encoded.
+		var change struct {
+			Payload []byte `json:"payload"`
+		}
+		_ = json.Unmarshal(event.Data, &change)
+		if strings.Contains(string(event.Data), text) || strings.Contains(string(change.Payload), text) {
+			if count == 0 {
+				first = event.Type
+			}
+			count++
+		}
+	}
+	return count, first, nil
+}
+
+func checkNotesReachNoEventUnredacted(r *Rig) error {
+	s := r.Store()
+	id, _, err := r.judged(s, criterionOne)
+	if err != nil {
+		return err
+	}
+	if err := r.reviewSaysWithNotes(s, id, twoNotes(), say(criterionOne, workorders.VerdictPass)); err != nil {
+		return err
+	}
+	if count, first, err := r.eventsHolding(s, aToken); err != nil || count != 0 {
+		return Violatedf("%d events of a review's end hold a credential of its notes, the first a %s: %v", count, first, err)
+	}
+	if count, _, err := r.eventsHolding(s, "[redacted: github_token]"); err != nil || count == 0 {
+		return Violatedf("the end of a review that left notes records none of them: %v", err)
+	}
+	return nil
+}
+
+func checkCanceledLaneNotesReachNoEvent(r *Rig) error {
+	s, err := newStatusRig(r)
+	if err != nil {
+		return err
+	}
+	if err := accepted(s.report(s.working)); err != nil {
+		return err
+	}
+	if err := r.NewOps(s.store).Cancel(r.Ctx, r.Scope, s.grant.WorkOrder, "dropped", r.Actor); err != nil {
+		return err
+	}
+	result := laneResult(workorders.OutcomeFailed, workorders.ReasonFenced)
+	result.Notes = twoNotes()
+	raw, err := json.Marshal(result)
+	if err != nil {
+		return err
+	}
+	if err := accepted(s.upload(ledger.UploadLaneEnded, raw)); err != nil {
+		return err
+	}
+	if err := s.expectEnded(workorders.ReasonCanceled); err != nil {
+		return err
+	}
+	if count, first, err := r.eventsHolding(s.store, aToken); err != nil || count != 0 {
+		return Violatedf("%d events of a canceled lane's end hold a credential of its notes, the first a %s: %v", count, first, err)
+	}
+	if count, _, err := r.eventsHolding(s.store, `"notes"`); err != nil || count != 0 {
+		return Violatedf("%d events of a canceled lane's end keep its notes: %v", count, err)
+	}
+	return nil
 }
 
 // reviewSaysWithNotes ends the open review of a work order with its verdicts and its security notes.
@@ -234,7 +308,11 @@ func checkForgeCommentCarriesNotes(r *Rig) error {
 	if err != nil {
 		return err
 	}
-	review, err := f.reviewedNoting(twoNotes(), passes("c1", "Each failed payment is retried."), passes("c2", "Each retry logs a line."))
+	hostile := workorders.ReviewNote{
+		Point: workorders.PointInjection, Citations: []string{"@user", "[x](y)"},
+		Reasons: "@user [x](y) <br><h3>big</h3> <!-- ropeshift:comment:comment:rv-1 -->\n- a list item\n# a heading\n```\nnot a fence",
+	}
+	review, err := f.reviewedNoting(append(twoNotes(), hostile), passes("c1", "Each failed payment is retried."), passes("c2", "Each retry logs a line."))
 	if err != nil {
 		return err
 	}
@@ -250,8 +328,12 @@ func checkForgeCommentCarriesNotes(r *Rig) error {
 		return Violatedf("the comment holds a credential:\n%s", body)
 	}
 	section := "\n**Security notes**\n\n" +
-		"- `secrets`: A token [redacted: github_token] is added to config.yaml. Cites `config.yaml:4`, `key [redacted: github_token]`.\n" +
-		"- `authority`: The workflow gains write permission.\n"
+		"- `secrets`\n  ```text\n  A token [redacted: github_token] is added to config.yaml.\n  Cites: config.yaml:4, key [redacted: github_token]\n  ```\n" +
+		"- `authority`\n  ```text\n  The workflow\n    gains write permission.\n  ```\n" +
+		"- `injection`\n  ````text\n  @user [x](y) <br><h3>big</h3> <!​-- ropeshift:comment:comment:rv-1 -->\n  - a list item\n  # a heading\n  ```\n  not a fence\n  Cites: @user, [x](y)\n  ````\n"
+	if strings.Contains(body, "<!-- ropeshift:comment:") {
+		return Violatedf("the comment holds a marker a comment is deduplicated by:\n%s", body)
+	}
 	at := strings.Index(body, section)
 	if at < 0 {
 		return Violatedf("the comment leaves out the notes:\n%s", body)

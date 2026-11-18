@@ -48,13 +48,13 @@ ON CONFLICT (workspace_id, review_id, criterion_id) DO NOTHING`)
 	// one by the rows it changed.
 	stmtNoteRecord = define("note.record",
 		`INSERT INTO review_notes
-  (workspace_id, review_id, work_order_id, attempt, commit_digest, seq, point, reasons, citations, created_at)
+  (workspace_id, review_id, work_order_id, attempt, commit_digest, seq, point, reasons, citations, redaction_rules_version, created_at)
 VALUES
-  (:workspace_id, :review_id, :work_order_id, :attempt, :commit_digest, :seq, :point, :reasons, :citations, :now)
+  (:workspace_id, :review_id, :work_order_id, :attempt, :commit_digest, :seq, :point, :reasons, :citations, :redaction_rules_version, :now)
 ON CONFLICT (workspace_id, review_id, seq) DO NOTHING`)
 
 	stmtNoteList = define("note.list",
-		`SELECT review_id, work_order_id, attempt, commit_digest, seq, point, reasons, citations, created_at
+		`SELECT review_id, work_order_id, attempt, commit_digest, seq, point, reasons, citations, redaction_rules_version, created_at
   FROM review_notes
  WHERE workspace_id = :workspace_id AND work_order_id = :work_order_id
  ORDER BY created_at, review_id, seq`)
@@ -237,8 +237,8 @@ func (t evidenceTx) RecordNote(n workorders.Note, lane string) error {
 	if err := n.Validate(); err != nil {
 		return err
 	}
-	if n.Commit == "" || n.Review == "" || n.WorkOrder == "" || lane == "" || n.Seq < 0 {
-		return fmt.Errorf("%w: a note names its review, its work, its lane, the commit it read, and its place in the report", workorders.ErrInvalid)
+	if n.Commit == "" || n.Review == "" || n.WorkOrder == "" || lane == "" || n.Seq < 0 || n.RedactionRules < 1 {
+		return fmt.Errorf("%w: a note names its review, its work, its lane, the commit it read, its place in the report, and the version of the rules that redacted it", workorders.ErrInvalid)
 	}
 	if err := t.mayJudge(n.Review, n.WorkOrder, lane, n.Attempt); err != nil {
 		return err
@@ -253,7 +253,8 @@ func (t evidenceTx) RecordNote(n workorders.Note, lane string) error {
 	}
 	changed, err := t.exec(stmtNoteRecord, params{
 		"workspace_id": string(t.scope), "review_id": n.Review, "work_order_id": n.WorkOrder, "attempt": n.Attempt,
-		"commit_digest": n.Commit, "seq": n.Seq, "point": string(n.Point), "reasons": n.Reasons, "citations": string(citations), "now": now,
+		"commit_digest": n.Commit, "seq": n.Seq, "point": string(n.Point), "reasons": n.Reasons, "citations": string(citations),
+		"redaction_rules_version": n.RedactionRules, "now": now,
 	})
 	if err != nil {
 		return err
@@ -274,7 +275,7 @@ func (t evidenceTx) Notes(workOrder string) ([]workorders.Note, error) {
 	for rows.Next() {
 		var n workorders.Note
 		var point, citations string
-		if err := rows.Scan(&n.Review, &n.WorkOrder, &n.Attempt, &n.Commit, &n.Seq, &point, &n.Reasons, &citations, &n.CreatedAt); err != nil {
+		if err := rows.Scan(&n.Review, &n.WorkOrder, &n.Attempt, &n.Commit, &n.Seq, &point, &n.Reasons, &citations, &n.RedactionRules, &n.CreatedAt); err != nil {
 			return nil, err
 		}
 		n.Point = workorders.NotePoint(point)

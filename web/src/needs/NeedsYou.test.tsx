@@ -999,6 +999,7 @@ describe("waiting work", () => {
       throw new Error("no acceptance item in the golden view");
     }
     delete accept.work.standing.verdicts;
+    delete accept.work.standing.notes;
     delete accept.work.standing.why;
     show(view);
     expect(within(await cardNamed(/Trim the log/)).queryByRole("region", { name: "What the review found" })).toBeNull();

@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 // NotePoint is the security point a review note is about (FR-PRAC-9).
@@ -27,6 +29,9 @@ const (
 	MaxNotes = 20
 	// MaxNoteReasons bounds the reasons of one note, in bytes.
 	MaxNoteReasons = 4096
+	// MaxNoteCitations bounds the citations of one note, and MaxNoteCitation the bytes of each.
+	MaxNoteCitations = 20
+	MaxNoteCitation  = 256
 )
 
 // ReviewNote is one security concern a review lane reports: the point, why, and what it rests on. A note is
@@ -48,12 +53,26 @@ func (n ReviewNote) Validate() error {
 	if len(n.Reasons) > MaxNoteReasons {
 		return fmt.Errorf("%w: the reasons of the %s note are %d bytes, and the bound is %d", ErrInvalid, n.Point, len(n.Reasons), MaxNoteReasons)
 	}
+	if len(n.Citations) > MaxNoteCitations {
+		return fmt.Errorf("%w: the %s note has %d citations, and the bound is %d", ErrInvalid, n.Point, len(n.Citations), MaxNoteCitations)
+	}
 	for _, citation := range n.Citations {
-		if strings.TrimSpace(citation) == "" {
+		switch {
+		case strings.TrimSpace(citation) == "":
 			return fmt.Errorf("%w: the %s note has an empty citation", ErrInvalid, n.Point)
+		case len(citation) > MaxNoteCitation:
+			return fmt.Errorf("%w: a citation of the %s note is %d bytes, and the bound is %d", ErrInvalid, n.Point, len(citation), MaxNoteCitation)
+		case !utf8.ValidString(citation) || strings.ContainsFunc(citation, isControl):
+			return fmt.Errorf("%w: a citation of the %s note holds a control character, a line break, or bytes that are no text", ErrInvalid, n.Point)
 		}
 	}
 	return nil
+}
+
+// isControl says a rune is a control or line-breaking character, which a citation never holds: a citation is a file
+// and line, a requirement ID, or a document, on one line.
+func isControl(r rune) bool {
+	return unicode.IsControl(r) || r == ' ' || r == ' '
 }
 
 // checkNotes refuses a report with more than MaxNotes notes, or with one that is not whole.
@@ -78,7 +97,9 @@ type Note struct {
 	Attempt   int64  `json:"attempt"`
 	Commit    string `json:"commit"`
 	Seq       int64  `json:"seq"`
-	CreatedAt int64  `json:"created_at"`
+	// RedactionRules is the version of the credential rule set that redacted the note's reasons and citations.
+	RedactionRules int64 `json:"redaction_rules_version"`
+	CreatedAt      int64 `json:"created_at"`
 }
 
 // CountedNotes keeps the notes that were left for the attempt a work order is at and the commit it left. A note

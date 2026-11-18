@@ -24,7 +24,7 @@ export function Verdicts({ standing }: { standing: Standing }) {
   const notes = standing.notes ?? [];
   const open = (standing.reviews ?? []).filter((review) => openStates.has(review.state));
   const failed = (standing.reviews ?? []).some((review) => review.state === "failed");
-  if (verdicts.length === 0 && open.length === 0 && !failed) {
+  if (verdicts.length === 0 && notes.length === 0 && open.length === 0 && !failed) {
     return null;
   }
   const commit = verdicts[0]?.commit;
@@ -33,9 +33,10 @@ export function Verdicts({ standing }: { standing: Standing }) {
       <h3 className="h4" id={heading}>
         What the review found
       </h3>
-      {verdicts.length === 0 ? (
+      {verdicts.length === 0 && (open.length > 0 || failed) ? (
         <p className="muted">{open.length ? "A review of this work has not ended. If you decide now, it ends." : "The review of this work failed, so you decide without it."}</p>
-      ) : (
+      ) : null}
+      {verdicts.length === 0 ? null : (
         <>
           {commit ? (
             <p className="small muted verdicts-head">
@@ -65,14 +66,14 @@ export function Verdicts({ standing }: { standing: Standing }) {
               </li>
             ))}
           </ul>
-          {notes.length ? (
-            <div className="verdict-notes">
-              <h4 className="overline">Security notes</h4>
-              <SecurityNotes notes={notes} />
-            </div>
-          ) : null}
         </>
       )}
+      {notes.length ? (
+        <div className={verdicts.length ? "verdict-notes" : undefined}>
+          <h4 className="overline">Security notes</h4>
+          <SecurityNotes notes={notes} />
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -94,8 +95,8 @@ export function SecurityNotes({ notes }: { notes: ReviewNote[] }) {
               <p className="verdict-reason">{note.reasons}</p>
               {note.citations?.length ? (
                 <ul className="verdict-cites" aria-label={`Citations for the ${note.point} note`}>
-                  {note.citations.map((citation) => (
-                    <li key={citation}>
+                  {note.citations.map((citation, index) => (
+                    <li key={index}>
                       <RecordChip id={citation} />
                     </li>
                   ))}

@@ -14,6 +14,7 @@ func (a aReview) noteOf(seq int64, point workorders.NotePoint) workorders.Note {
 	return workorders.Note{
 		ReviewNote: workorders.ReviewNote{Point: point, Reasons: "because " + string(point), Citations: []string{"main.go:12"}},
 		Review:     a.Review.ID, WorkOrder: a.Work.ID, Attempt: a.Review.ReviewsFence, Commit: a.Head, Seq: seq,
+		RedactionRules: ledger.CIRedactionRulesVersion,
 	}
 }
 
@@ -67,7 +68,8 @@ func checkNoteRoundTrips(r *Rig) error {
 		}
 		row.CreatedAt = 0
 		if row.Point != want.Point || row.Reasons != want.Reasons || !slices.Equal(row.Citations, want.Citations) || row.Review != want.Review ||
-			row.WorkOrder != want.WorkOrder || row.Attempt != want.Attempt || row.Commit != want.Commit || row.Seq != want.Seq {
+			row.WorkOrder != want.WorkOrder || row.Attempt != want.Attempt || row.Commit != want.Commit || row.Seq != want.Seq ||
+			row.RedactionRules != ledger.CIRedactionRulesVersion {
 			return Violatedf("the note read back as %+v, not %+v", row, want)
 		}
 	}
@@ -92,15 +94,16 @@ func checkNoteFromTheReviewOnly(r *Rig) error {
 		change func(*workorders.Note)
 		want   error
 	}{
-		"the reviewed lane":              {a.Worker, func(*workorders.Note) {}, workorders.ErrForbidden},
-		"a lane of another review":       {other.Holder.Lane, func(*workorders.Note) {}, workorders.ErrForbidden},
-		"a lane nobody started":          {"no-such-lane", func(*workorders.Note) {}, workorders.ErrForbidden},
-		"a review that names other work": {a.Holder.Lane, func(n *workorders.Note) { n.WorkOrder = other.Work.ID }, workorders.ErrForbidden},
-		"a review nobody made":           {a.Holder.Lane, func(n *workorders.Note) { n.Review = "no-such-review" }, workorders.ErrForbidden},
-		"a note that names no point":     {a.Holder.Lane, func(n *workorders.Note) { n.Point = "" }, workorders.ErrInvalid},
-		"a note that gives no reasons":   {a.Holder.Lane, func(n *workorders.Note) { n.Reasons = "" }, workorders.ErrInvalid},
-		"a note that names no commit":    {a.Holder.Lane, func(n *workorders.Note) { n.Commit = "" }, workorders.ErrInvalid},
-		"a note placed before the first": {a.Holder.Lane, func(n *workorders.Note) { n.Seq = -1 }, workorders.ErrInvalid},
+		"the reviewed lane":               {a.Worker, func(*workorders.Note) {}, workorders.ErrForbidden},
+		"a lane of another review":        {other.Holder.Lane, func(*workorders.Note) {}, workorders.ErrForbidden},
+		"a lane nobody started":           {"no-such-lane", func(*workorders.Note) {}, workorders.ErrForbidden},
+		"a review that names other work":  {a.Holder.Lane, func(n *workorders.Note) { n.WorkOrder = other.Work.ID }, workorders.ErrForbidden},
+		"a review nobody made":            {a.Holder.Lane, func(n *workorders.Note) { n.Review = "no-such-review" }, workorders.ErrForbidden},
+		"a note that names no point":      {a.Holder.Lane, func(n *workorders.Note) { n.Point = "" }, workorders.ErrInvalid},
+		"a note that gives no reasons":    {a.Holder.Lane, func(n *workorders.Note) { n.Reasons = "" }, workorders.ErrInvalid},
+		"a note that names no commit":     {a.Holder.Lane, func(n *workorders.Note) { n.Commit = "" }, workorders.ErrInvalid},
+		"a note with no rule set version": {a.Holder.Lane, func(n *workorders.Note) { n.RedactionRules = 0 }, workorders.ErrInvalid},
+		"a note placed before the first":  {a.Holder.Lane, func(n *workorders.Note) { n.Seq = -1 }, workorders.ErrInvalid},
 	} {
 		n := a.noteOf(0, workorders.PointInjection)
 		refused.change(&n)

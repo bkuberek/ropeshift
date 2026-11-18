@@ -573,7 +573,7 @@ func requestVerdictComment(tx ports.WriteTx, review workorders.WorkOrder, result
 	if err != nil {
 		return err
 	}
-	body, err := verdictBody(tx, review, commit, result.Verdicts, redactedNotes(result.Notes))
+	body, err := verdictBody(tx, review, commit, result.Verdicts, result.Notes)
 	if err != nil {
 		return err
 	}
@@ -603,28 +603,10 @@ func verdictBody(tx ports.WriteTx, review workorders.WorkOrder, commit string, v
 			texts[criterion.ID] = criterion.Text
 		}
 	}
-	var out strings.Builder
-	fmt.Fprintf(&out, "**Ropeshift review `%s`** of commit `%s`\n\n", review.ID, short(commit))
+	var head, out strings.Builder
+	fmt.Fprintf(&head, "**Ropeshift review `%s`** of commit `%s`\n\n", review.ID, short(commit))
 	for _, v := range verdicts {
-		fmt.Fprintf(&out, "- `%s` **%s**", v.Criterion, v.Verdict)
-		if text := texts[v.Criterion]; text != "" {
-			fmt.Fprintf(&out, " (%s)", text)
-		}
-		fmt.Fprintf(&out, ": %s", strings.Join(strings.Fields(v.Reasons), " "))
-		if len(v.Citations) > 0 {
-			fmt.Fprintf(&out, " Cites %s.", "`"+strings.Join(v.Citations, "`, `")+"`")
-		}
-		out.WriteString("\n")
-	}
-	if len(notes) > 0 {
-		out.WriteString("\n**Security notes**\n\n")
-		for _, n := range notes {
-			fmt.Fprintf(&out, "- `%s`: %s", n.Point, strings.Join(strings.Fields(n.Reasons), " "))
-			if len(n.Citations) > 0 {
-				fmt.Fprintf(&out, " Cites %s.", "`"+strings.Join(n.Citations, "`, `")+"`")
-			}
-			out.WriteString("\n")
-		}
+		head.WriteString(verdictItem(v, texts[v.Criterion]))
 	}
 	reviewed, err := tx.WorkOrders().Get(review.Reviews)
 	if err != nil {
@@ -651,7 +633,7 @@ func verdictBody(tx ports.WriteTx, review workorders.WorkOrder, commit string, v
 	default:
 		out.WriteString("\nThe work waits for a member's decision. These verdicts bind to this commit only; a new commit voids them.\n")
 	}
-	return out.String(), nil
+	return head.String() + notesSection(notes, noteBudget(head.Len(), out.Len())) + out.String(), nil
 }
 
 // pullRequestRead keeps what the worker that opened a pull request read of it, when it differs from what the

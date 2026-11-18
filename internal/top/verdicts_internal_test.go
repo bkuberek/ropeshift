@@ -66,6 +66,18 @@ func TestAnAcceptanceLineCountsTheSecurityNotes(t *testing.T) {
 	}
 }
 
+// Notes with no verdict are still said: they are what a person reads before deciding without the review's verdicts.
+func TestAnAcceptanceLineSaysSecurityNotesWithNoVerdict(t *testing.T) {
+	note := workorders.Note{ReviewNote: workorders.ReviewNote{Point: workorders.PointAuthority, Reasons: "x"}}
+	item := api.NeedItem{Kind: api.NeedWork, ID: "wo", Work: &api.WorkNeed{
+		Reason: api.ReasonAcceptance, WorkOrder: &workorders.WorkOrder{ID: "wo", Title: "Trim the log"},
+		Standing: &workorders.AcceptanceView{Notes: []workorders.Note{note, note}},
+	}}
+	if line := what(item); !strings.Contains(line, "review: 2 security notes") {
+		t.Errorf("%q", line)
+	}
+}
+
 // A merge request names its work by the work order's title, as the web UI does, and by the work order's ID when
 // it was raised before a merge request held the title.
 func TestAMergeLineNamesTheWorkByItsTitle(t *testing.T) {

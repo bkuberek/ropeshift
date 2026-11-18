@@ -212,6 +212,7 @@
               "created_at": 1790000424001,
               "point": "injection",
               "reasons": "trim.go passes the log name to a shell command.",
+              "redaction_rules_version": 1,
               "review_id": "generated-5",
               "seq": 0,
               "work_order_id": "wo-accept"
@@ -222,6 +223,7 @@
               "created_at": 1790000424001,
               "point": "dependencies",
               "reasons": "go.mod adds a module at a branch and not at a version.",
+              "redaction_rules_version": 1,
               "review_id": "generated-5",
               "seq": 1,
               "work_order_id": "wo-accept"

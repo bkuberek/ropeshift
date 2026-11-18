@@ -221,8 +221,9 @@ var laneReportTool = map[string]any{
 						},
 						"reasons": map[string]any{"type": "string", "description": "What the concern is and where, in words a person can act on. At most 4096 bytes. Never quote a credential."},
 						"citations": map[string]any{
-							"type": "array", "items": map[string]any{"type": "string"},
-							"description": "What the note rests on: files and lines such as path:line, requirement IDs, and documents as kind:id.",
+							"type": "array", "maxItems": workorders.MaxNoteCitations,
+							"items":       map[string]any{"type": "string", "maxLength": workorders.MaxNoteCitation, "pattern": `^[^\u0000-\u001f\u007f-\u009f  ]+$`},
+							"description": "What the note rests on: files and lines such as path:line, requirement IDs, and documents as kind:id. Each is one line of at most 256 bytes, with no control character, and a note has at most 20.",
 						},
 					},
 					"required": []string{"point", "reasons"},

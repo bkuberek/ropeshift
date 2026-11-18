@@ -33,6 +33,35 @@ func TestANoteNeedsAKnownPointAndReasons(t *testing.T) {
 	}
 }
 
+func TestANoteBoundsAndCleansItsCitations(t *testing.T) {
+	many := make([]string, MaxNoteCitations+1)
+	for i := range many {
+		many[i] = "main.go:1"
+	}
+	for name, citations := range map[string][]string{
+		"too many":                 many,
+		"over 256 bytes":           {strings.Repeat("x", MaxNoteCitation+1)},
+		"a newline":                {"main.go:1\n- injected"},
+		"a backtick and a newline": {"x`\n```"},
+		"a carriage return":        {"main.go:1\r"},
+		"a tab":                    {"main.go:\t1"},
+		"an escape":                {"main.go:\x1b[31m1"},
+		"a delete character":       {"main.go:1\x7f"},
+		"a line separator":         {"main.go:1 "},
+		"an invalid byte sequence": {"main.go:\xff"},
+	} {
+		n := ReviewNote{Point: PointSecrets, Reasons: "x", Citations: citations}
+		if err := n.Validate(); !errors.Is(err, ErrInvalid) {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	atTheBounds := ReviewNote{Point: PointSecrets, Reasons: "x", Citations: many[:MaxNoteCitations]}
+	atTheBounds.Citations[0] = strings.Repeat("x", MaxNoteCitation)
+	if err := atTheBounds.Validate(); err != nil {
+		t.Errorf("citations at the bounds: %v", err)
+	}
+}
+
 func TestTheNotePointsAreTheFourSecurityPoints(t *testing.T) {
 	got := NotePoints()
 	want := []NotePoint{PointSecrets, PointInjection, PointDependencies, PointAuthority}

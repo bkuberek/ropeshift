@@ -893,30 +893,18 @@ func recordVerdicts(tx ports.WriteTx, review workorders.WorkOrder, holder workor
 
 // recordNotes keeps the security notes a completed review reported, in the transaction that keeps its verdicts,
 // bound to the same commit and attempt. A note is shown and posted, and nothing that settles or merges work
-// reads it.
+// reads it. The result's notes are the redacted ones endLane left in it.
 func recordNotes(tx ports.WriteTx, review workorders.WorkOrder, holder workorders.Holder, commit string, result workorders.LaneResult) error {
-	for seq, n := range redactedNotes(result.Notes) {
+	for seq, n := range result.Notes {
 		err := tx.Evidence().RecordNote(workorders.Note{
 			ReviewNote: n, Review: review.ID, WorkOrder: review.Reviews, Attempt: review.ReviewsFence, Commit: commit, Seq: int64(seq),
+			RedactionRules: ledger.CIRedactionRulesVersion,
 		}, holder.Lane)
 		if err != nil {
 			return err
 		}
 	}
 	return nil
-}
-
-// redactedNotes copies a report's notes with the shapes of credentials taken out of their reasons and citations.
-// A note is model text that reaches the ledger and a pull request, so it is redacted before either keeps it.
-func redactedNotes(notes []workorders.ReviewNote) []workorders.ReviewNote {
-	out := make([]workorders.ReviewNote, len(notes))
-	for i, n := range notes {
-		out[i] = workorders.ReviewNote{Point: n.Point, Reasons: ledger.RedactCredentials(n.Reasons)}
-		for _, citation := range n.Citations {
-			out[i].Citations = append(out[i].Citations, ledger.RedactCredentials(citation))
-		}
-	}
-	return out
 }
 
 // settleReviewed decides the work a review judged, once the review ended with its verdicts. The work moves
