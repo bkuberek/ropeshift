@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"ropeshift.com/ropeshift/internal/adapters/fake"
 	"ropeshift.com/ropeshift/internal/control"
@@ -755,6 +757,59 @@ func TestAnIncrementalScanOverAnotherRuleSetReadsSecretsUnknown(t *testing.T) {
 	r.mustReport(third.ID, ledger.PracticesOutcomeChecked, found)
 	if record, err := r.record("repo-a"); err != nil || secretsStatus(t, record.Result).Status != practices.StatusFinding || len(secretsFindings(record.Result)) != 1 {
 		t.Errorf("a secret the new scan found reads %+v (%v), want it kept as a finding", record, err)
+	}
+}
+
+// The control plane bounds what a worker reports and does not trust the worker to have: each reason and detail is one
+// line of at most 2000 bytes on a rune boundary, every other text is cut there, and the secret findings are capped at
+// 200 with the result saying it left some out. The result is kept and appended as bounded.
+func TestAReportedResultIsBoundedBeforeItIsKept(t *testing.T) {
+	r := newPracticesRig(t, ledger.ProtocolVersion)
+	r.register("repo-a", "widgets", "worker-1")
+	request := r.requested(r.request(ledger.PracticesMember, "repo-a"))
+	long := strings.Repeat("\u20ac", 3000)
+	result := aResult("repo-a", tipOne, "")
+	result.Practices[0].Reason = "first line\nsecond line " + long
+	result.Findings[0].Detail = long
+	for i := range 250 {
+		result.Findings = append(result.Findings, practices.Finding{
+			ID: fmt.Sprintf("secrets:github_token:config/%04d.yaml:abcdefabcdef", i), Practice: practices.Secrets, Severity: practices.High,
+			Rule: "github_token", Path: "config/" + fmt.Sprintf("%04d", i) + ".yaml", Line: 1, Commit: "aaaaaaaaaaaa", Digest: "abcdefabcdef0000000000",
+		})
+	}
+	r.mustReport(request.ID, ledger.PracticesOutcomeChecked, result)
+	record, err := r.record("repo-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := record.Result
+	if reason := got.Practices[0].Reason; len(reason) > 2000 || len(reason) < 1990 || strings.ContainsAny(reason, "\r\n") || !strings.HasPrefix(reason, "first line second line ") || !utf8.ValidString(reason) {
+		t.Errorf("the reason is %d bytes: %.40q", len(reason), reason)
+	}
+	if detail := got.Findings[0].Detail; len(detail) > 2000 || !utf8.ValidString(detail) {
+		t.Errorf("the detail is %d bytes", len(detail))
+	}
+	if n := len(secretsFindings(got)); n != practices.MaxSecretFindings || !got.Truncated {
+		t.Errorf("%d secret findings, truncated %v; want %d, true", n, got.Truncated, practices.MaxSecretFindings)
+	}
+	events := r.events(ledger.EventPracticesChecked)
+	if len(events) != 1 || len(events[0].Data) > 1<<20 || !strings.Contains(string(events[0].Data), `"truncated":true`) {
+		t.Errorf("the event holds %d bytes, want the bounded result", len(events[0].Data))
+	}
+}
+
+// A result no worker makes is refused as invalid, and leaves the request offered.
+func TestAResultWithAPracticeNoTableHoldsIsRefused(t *testing.T) {
+	r := newPracticesRig(t, ledger.ProtocolVersion)
+	r.register("repo-a", "widgets", "worker-1")
+	request := r.requested(r.request(ledger.PracticesMember, "repo-a"))
+	result := aResult("repo-a", tipOne, "")
+	result.Practices[0].ID = "tabs"
+	if err := r.report(request.ID, ledger.PracticesOutcomeChecked, result); !errors.Is(err, workorders.ErrInvalid) {
+		t.Errorf("the report answered %v, want invalid", err)
+	}
+	if stored := r.stored(request.ID); stored.State != ledger.PracticesOffered {
+		t.Errorf("a refused report settled the request: %s", stored.State)
 	}
 }
 

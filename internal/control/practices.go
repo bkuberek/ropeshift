@@ -11,7 +11,6 @@ import (
 
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/ports"
-	"ropeshift.com/ropeshift/internal/practicerun"
 	"ropeshift.com/ropeshift/internal/practices"
 	"ropeshift.com/ropeshift/internal/workorders"
 )
@@ -291,6 +290,12 @@ func (w *Workers) ReportPracticesCheck(ctx context.Context, report ledger.Practi
 		if report.Result == nil || report.Result.Commit == "" {
 			return invalidPractices("a checked report holds the result, with the commit it read")
 		}
+		if err := report.Result.Validate(); err != nil {
+			return invalidPractices("%v", err)
+		}
+		// The control plane bounds what a worker reports, and does not trust the worker to have.
+		bounded := practices.Bound(*report.Result)
+		report.Result = &bounded
 	case ledger.PracticesOutcomeFailed:
 		if strings.TrimSpace(report.Detail) == "" {
 			return invalidPractices("a failed report says why")
@@ -323,7 +328,7 @@ func (w *Workers) ReportPracticesCheck(ctx context.Context, report ledger.Practi
 		subject := ledger.Subject{Kind: ledger.SubjectPracticesRequest, ID: request.ID}
 		if report.Outcome == ledger.PracticesOutcomeFailed {
 			data, err := json.Marshal(map[string]string{
-				"request": request.ID, "repository": request.Repository, "worker": request.Worker, "detail": practicerun.Clip(report.Detail),
+				"request": request.ID, "repository": request.Repository, "worker": request.Worker, "detail": practices.Clip(report.Detail),
 			})
 			if err != nil {
 				return err
