@@ -1,5 +1,5 @@
 import { splitProject } from "../app/route";
-import type { ApprovalDecided, ApprovalRecord, CandidateList, CIWatch, DocumentRef, DocumentRow, DocumentVersions, EffectOutcome, NeedsYou, Overturned, OverturnDecision, PlanOutline, PlanRevision, PlanView, ProjectList, Question, RecordDecision, RecordedDecision, RecordedRead, RecordQuestion, Search, WorkAction, WorkOrder } from "./types";
+import type { ApprovalDecided, ApprovalRecord, CandidateList, CIWatch, DocumentRef, DocumentRow, DocumentVersions, EffectOutcome, NeedsYou, Overturned, OverturnDecision, PlanOutline, PlanRevision, PlanView, ProjectList, Question, RecordDecision, RecordedDecision, RecordedRead, RecordQuestion, ScheduledStart, Search, WorkAction, WorkOrder } from "./types";
 
 function documentQuery({ path, instance, version }: DocumentRef): URLSearchParams {
   const query = new URLSearchParams({ path });
@@ -391,6 +391,18 @@ export function actOnWork(id: string, action: WorkAction, reason: string): Promi
 // Asking for an orchestrator that runs resets a breaker that stopped it and replaces one that stalled.
 export function startOrchestrator(worker: string): Promise<unknown> {
   return call("PUT", paths.orchestrator(worker), { desired_state: "running" });
+}
+
+// scheduleOrchestrator starts a worker's orchestrator at its sign-in's usage reset, which is what Start asks while the
+// limit holds, as `ropeshift orchestrator schedule` does.
+export function scheduleOrchestrator(worker: string): Promise<ScheduledStart> {
+  return call("POST", `${paths.orchestrator(worker)}/schedule`, {});
+}
+
+// cancelScheduledStart cancels the start scheduled for a worker's orchestrator, as `ropeshift orchestrator unschedule`
+// does.
+export function cancelScheduledStart(worker: string): Promise<void> {
+  return call("DELETE", `${paths.orchestrator(worker)}/schedule`);
 }
 
 // searchRecords reads the project's records whose ID or title holds every word, for the command palette.

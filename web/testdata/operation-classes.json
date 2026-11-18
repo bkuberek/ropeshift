@@ -113,6 +113,18 @@
       "exemptable": false
     },
     {
+      "id": "orchestrator.schedule",
+      "label": "Schedule an orchestrator's start for its usage reset",
+      "class": "member_only",
+      "exemptable": false
+    },
+    {
+      "id": "orchestrator.unschedule",
+      "label": "Cancel an orchestrator's scheduled start",
+      "class": "member_only",
+      "exemptable": false
+    },
+    {
       "id": "session.end",
       "label": "Sign out",
       "class": "member_only",

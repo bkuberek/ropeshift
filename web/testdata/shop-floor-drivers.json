@@ -6,6 +6,9 @@
     {
       "drivers": [],
       "freshness": "last_reported",
+      "orchestrator_hold": {
+        "reason": "offline"
+      },
       "worker": {
         "epoch": 1,
         "id": "worker-a",
@@ -31,6 +34,9 @@
         }
       ],
       "freshness": "last_reported",
+      "orchestrator_hold": {
+        "reason": "offline"
+      },
       "worker": {
         "epoch": 1,
         "id": "worker-fig",
@@ -64,6 +70,9 @@
         }
       ],
       "freshness": "last_reported",
+      "orchestrator_hold": {
+        "reason": "offline"
+      },
       "worker": {
         "epoch": 1,
         "id": "worker-mint",
@@ -133,6 +142,9 @@
         }
       ],
       "freshness": "last_reported",
+      "orchestrator_hold": {
+        "reason": "offline"
+      },
       "worker": {
         "epoch": 1,
         "id": "worker-pear",
@@ -169,6 +181,9 @@
         }
       ],
       "freshness": "last_reported",
+      "orchestrator_hold": {
+        "reason": "offline"
+      },
       "worker": {
         "epoch": 1,
         "id": "worker-plum",

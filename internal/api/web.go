@@ -45,6 +45,8 @@ func WebRoutes() []WebRoute {
 		{http.MethodGet, NeedsYouPath, "needs"},
 		{http.MethodPut, "/v1/workers/{id}/orchestrator", "orchestrator start"},
 		{http.MethodGet, "/v1/workers/{id}/orchestrator", "orchestrator show"},
+		{http.MethodPost, "/v1/workers/{id}/orchestrator/schedule", "orchestrator schedule"},
+		{http.MethodDelete, "/v1/workers/{id}/orchestrator/schedule", "orchestrator unschedule"},
 		{http.MethodPost, ProjectsPath, "project create"},
 		{http.MethodPost, ProjectsPath + "/{project}/rename", "project rename"},
 		{http.MethodPost, ProjectsPath + "/{project}/archive", "project archive"},

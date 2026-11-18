@@ -1374,6 +1374,9 @@ func (h *handler) workerLines(tx ports.ReadTx) ([]api.WorkerLine, error) {
 		case !isNotFound(err):
 			return nil, err
 		}
+		if line.OrchestratorHold, line.ScheduledStart, err = h.workers.OrchestratorFacts(tx, worker); err != nil {
+			return nil, err
+		}
 		out = append(out, line)
 	}
 	return out, nil

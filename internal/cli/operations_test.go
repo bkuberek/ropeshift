@@ -143,6 +143,8 @@ var operations = map[string]string{
 	"POST /v1/installation/backup":                       "backup",
 	"GET /v1/workers/{id}/orchestrator":                  "orchestrator show",
 	"PUT /v1/workers/{id}/orchestrator":                  "orchestrator start",
+	"POST /v1/workers/{id}/orchestrator/schedule":        "orchestrator schedule",
+	"DELETE /v1/workers/{id}/orchestrator/schedule":      "orchestrator unschedule",
 	"GET /v1/notices":                                    "notice list",
 	"GET /v1/telemetry/records":                          "telemetry query",
 	"GET /v1/telemetry/lanes":                            "telemetry lanes",

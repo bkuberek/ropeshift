@@ -11,6 +11,8 @@ import (
 func (h *handler) orchestratorRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/workers/{id}/orchestrator", h.showOrchestrator)
 	mux.HandleFunc("PUT /v1/workers/{id}/orchestrator", h.member(h.setOrchestrator))
+	mux.HandleFunc("POST /v1/workers/{id}/orchestrator/schedule", h.member(h.scheduleOrchestrator))
+	mux.HandleFunc("DELETE /v1/workers/{id}/orchestrator/schedule", h.member(h.cancelScheduledStart))
 	mux.HandleFunc("POST /v1/workers/{id}/orchestrator/digest", h.workerDigest)
 	mux.HandleFunc("POST /v1/workers/{id}/orchestrator/acts/{verb}", h.workerOrchestrate)
 }
@@ -37,7 +39,30 @@ func (h *handler) showOrchestrator(w http.ResponseWriter, r *http.Request) {
 		fail(w, err)
 		return
 	}
-	reply(w, http.StatusOK, api.Orchestrator{Orchestrator: row, WaitingFor: waitingFor(wait)})
+	hold, start, err := h.plane.OrchestratorFacts(r.Context(), r.PathValue("id"))
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	reply(w, http.StatusOK, api.Orchestrator{Orchestrator: row, WaitingFor: waitingFor(wait), Hold: hold, Scheduled: start})
+}
+
+// scheduleOrchestrator records a start of a worker's orchestrator for its sign-in's usage reset.
+func (h *handler) scheduleOrchestrator(w http.ResponseWriter, r *http.Request, actor ledger.Actor) {
+	start, err := h.plane.ScheduleOrchestrator(r.Context(), r.PathValue("id"), actor)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	reply(w, http.StatusCreated, start)
+}
+
+func (h *handler) cancelScheduledStart(w http.ResponseWriter, r *http.Request, actor ledger.Actor) {
+	if err := h.plane.CancelScheduledStart(r.Context(), r.PathValue("id"), actor); err != nil {
+		fail(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // waitingFor names what holds an orchestrator's run: a run window, work, or nothing.

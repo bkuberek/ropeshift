@@ -67,6 +67,8 @@ const (
 	OpTemplateWrite                       = "template.write"
 	OpRepositoryCreateRemote              = "repository.create_remote"
 	OpOrchestratorRun                     = "orchestrator.run"
+	OpOrchestratorSchedule                = "orchestrator.schedule"
+	OpOrchestratorUnschedule              = "orchestrator.unschedule"
 	OpRosterChange                        = "roster.change"
 	OpSessionEnd                          = "session.end"
 	OpSessionEndAll                       = "session.end_all"
@@ -228,6 +230,10 @@ var operations = append(onInstallation(
 	// remote alone would bind to nothing: a delegate's call is refused, not carded.
 	memberOnly(OpRepositoryCreateRemote, "Create a project's repository on a forge", ActionCreateRemotes),
 	operational(OpOrchestratorRun, "Start or stop an orchestrator", ActionRunOrchestrator),
+	// A start scheduled for a sign-in's usage reset starts an agent later, as the member who scheduled it, with no
+	// one watching, so a delegate's call is refused.
+	memberOnly(OpOrchestratorSchedule, "Schedule an orchestrator's start for its usage reset", ActionRunOrchestrator),
+	memberOnly(OpOrchestratorUnschedule, "Cancel an orchestrator's scheduled start", ActionRunOrchestrator),
 	memberOnly(OpSessionEnd, "Sign out", ActionManageSessions),
 	memberOnly(OpSessionEndAll, "Sign out all sessions", ActionManageSessions),
 	memberOnly(OpPassphraseSet, "Set the passphrase", ActionSetPassphrase),
