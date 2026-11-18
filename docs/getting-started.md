@@ -51,6 +51,14 @@ brew install git tmux
 
 On Linux, install both from your distribution's packages, such as `sudo apt install git tmux`.
 
+Ropeshift needs git 2.31 or newer. Check yours:
+
+```sh
+git --version
+```
+
+A distribution that ships an older git needs a newer one from its backports or from git's own packages. With an older git, `ropeshiftd` refuses to start and names the minimum and the version it found, and `ropeshift worker doctor` prints the same words on its `git` line and exits 1.
+
 ### 3. Install Claude Code and sign in
 
 Install Claude Code, then run it and sign in through [Anthropic's own flow](https://code.claude.com/docs/en/authentication):

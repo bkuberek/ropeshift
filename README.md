@@ -49,7 +49,7 @@ On Debian, Ubuntu, Fedora, or RHEL, download the `.deb` or `.rpm` package for yo
 
 `go install` is not an install channel for now: install from a release.
 
-Ropeshift also needs git, tmux for lanes in a terminal pane, and the Claude Code CLI installed and signed in. Then follow [Get started with the web UI](docs/getting-started.md), from setting up the machine to signing in to the web UI. [Releasing](docs/releasing.md#install-channels) lists every channel.
+Ropeshift also needs git 2.31 or newer, tmux for lanes in a terminal pane, and the Claude Code CLI installed and signed in. Then follow [Get started with the web UI](docs/getting-started.md), from setting up the machine to signing in to the web UI. [Releasing](docs/releasing.md#install-channels) lists every channel.
 
 ## Screenshots
 
