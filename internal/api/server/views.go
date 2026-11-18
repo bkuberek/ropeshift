@@ -189,8 +189,10 @@ func (h *handler) longParked() int64 {
 }
 
 // stuck finds what stopped: the design's five, and failed work, the longest stop first. A lane on work the ledger still
-// counts as moving stands here too, because its work order says nothing of a breaker or a stall.
-func (h *handler) stuck(tx ports.ReadTx, f floor, wakes map[string][]parking.Wake, now int64) ([]api.StuckItem, error) {
+// counts as moving stands here too, because its work order says nothing of a breaker or a stall. A work order a hard
+// spend limit parked is long parked here as any is, and it offers no plain resume: the limit is what it waits on, and a
+// resume that lifts none wakes a lane only to stop it again.
+func (h *handler) stuck(tx ports.ReadTx, f floor, wakes map[string][]parking.Wake, now int64, stopped map[string]bool) ([]api.StuckItem, error) {
 	byDefault, err := control.DefaultAttempts(tx.Policies())
 	if err != nil {
 		return nil, err
@@ -254,7 +256,7 @@ func (h *handler) stuck(tx ports.ReadTx, f floor, wakes map[string][]parking.Wak
 			if need.Lane != nil {
 				need.Wakes = wakeViews(wakes[need.Lane.ID])
 			}
-			if need.Lane != nil && waitsOnAPerson(wakes[need.Lane.ID]) {
+			if need.Lane != nil && waitsOnAPerson(wakes[need.Lane.ID]) && !stopped[order.ID] {
 				need.Actions = []string{api.ActResume, api.ActCancel}
 			}
 		}
@@ -508,7 +510,7 @@ func (h *handler) needs(tx ports.ReadTx, stamp api.Stamp) ([]api.NeedItem, error
 		return nil, err
 	}
 	items = append(items, stops...)
-	stuck, err := h.stuck(tx, f, wakes, stamp.AsOf)
+	stuck, err := h.stuck(tx, f, wakes, stamp.AsOf, stopped)
 	if err != nil {
 		return nil, err
 	}
@@ -656,7 +658,11 @@ func (h *handler) readStuck(tx ports.ReadTx, _ *http.Request, stamp api.Stamp) (
 	if err != nil {
 		return nil, err
 	}
-	items, err := h.stuck(tx, f, wakes, stamp.AsOf)
+	_, stopped, err := h.spendNeeds(tx)
+	if err != nil {
+		return nil, err
+	}
+	items, err := h.stuck(tx, f, wakes, stamp.AsOf, stopped)
 	return api.Stuck{Stamp: stamp, Items: items}, err
 }
 

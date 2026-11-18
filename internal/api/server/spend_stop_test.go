@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/authority"
@@ -127,6 +128,27 @@ func TestASpendStopIsOneItemInNeedsYou(t *testing.T) {
 	}
 }
 
+// A stop that has waited past the long-parked time is still one item in Needs you, and the Stuck view reads it as long
+// parked with no plain resume: a resume that raised no limit would wake a lane to stop it again.
+func TestALongSpendStopOffersNoPlainResume(t *testing.T) {
+	clock := apitest.NewClock()
+	d := startTalkWith(t, apitest.Options{Clock: clock.Dialect})
+	parkedAtItsLimit(t, d, "wo-long")
+	clock.Advance(25 * time.Hour)
+	if about := itemsAbout(t, d, "wo-long"); !slices.Equal(about, []string{"spend:wo-long:spend_limit"}) {
+		t.Errorf("Needs you holds %v about a long spend stop, want the one spend item", about)
+	}
+	var found []api.StuckItem
+	for _, item := range readView[api.Stuck](t, d.Daemon, api.ViewStuck, "").Items {
+		if item.ID == "wo-long" {
+			found = append(found, item)
+		}
+	}
+	if len(found) != 1 || found[0].Reason != api.ReasonLongParked || !slices.Equal(found[0].Actions, []string{api.ActCancel}) {
+		t.Errorf("the Stuck view reads %+v, want one long-parked item that offers only cancel", found)
+	}
+}
+
 // Raising the limit past what was charged ends the stop, and the item leaves with it.
 func TestARaisedLimitTakesTheItemOutOfNeedsYou(t *testing.T) {
 	d := startTalk(t)
@@ -234,10 +256,16 @@ func TestADelegatesBlockOrReplanIsACardAndNoAgentCanEndAStop(t *testing.T) {
 	}
 }
 
-// TestGoldenSpendStop writes what Needs you reads of a spend stop, from a real ledger.
+// TestGoldenSpendStop writes what Needs you reads of a spend stop, and what the work order's page reads of its spend,
+// from a real ledger.
 func TestGoldenSpendStop(t *testing.T) {
 	d := startTalk(t)
 	parkedAtItsLimit(t, d, "wo-stop")
 	leftByTheLane(t, d, "lane-wo-stop", "wo-stop")
 	holdsGolden(t, "spend-needs-you", steadyTimes(steady(pretty(t, readAny(t, d.Daemon, api.ViewNeedsYou)))))
+	spend, err := d.client.WorkOrderSpend(t.Context(), "wo-stop")
+	if err != nil {
+		t.Fatal(err)
+	}
+	holdsGolden(t, "work-order-spend", steady(pretty(t, spend)))
 }
