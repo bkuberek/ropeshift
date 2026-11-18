@@ -54,6 +54,9 @@ type Config struct {
 	// Templates writes the starting files a member asks this worker for (FR-TPL-5). A worker with none is
 	// offered no request, because it speaks no protocol that reads one.
 	Templates *TemplateRuntime
+	// Practices runs the practices check on the checkouts this worker keeps (FR-PRAC-1). A worker with none runs no
+	// check, and the request it is offered expires.
+	Practices *PracticesRuntime
 	// Telemetry receives the worker's own spans and metrics. Nil emits nothing.
 	Telemetry ports.Telemetry
 }

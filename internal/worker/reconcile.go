@@ -376,6 +376,7 @@ func (w *Worker) find(ctx context.Context, effect lanes.Effect, session ports.Lo
 func (w *Worker) Reconcile(ctx context.Context) ([]lanes.Action, error) {
 	w.tendTemplateWrites(ctx)
 	w.tendForgeAccountReads(ctx)
+	w.tendPracticesChecks(ctx)
 	if w.config.Lanes == nil {
 		return nil, nil
 	}

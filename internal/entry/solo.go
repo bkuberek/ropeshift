@@ -473,6 +473,7 @@ func startSoloWorker(
 		Spool:     paths.Spool(),
 		Lanes:     runtime,
 		Templates: soloTemplates(paths.StateDir, runtime.Provisioner.Checkouts),
+		Practices: soloPractices(paths.StateDir, runtime.Repository),
 		Telemetry: telemetry.emitter,
 		Report: func(err error) {
 			fmt.Fprintf(stderr, "ropeshiftd: worker: %v\n", err)
