@@ -887,6 +887,27 @@ describe("waiting work", () => {
     expect(within(card).queryByRole("button", { name: "End this claim" })).toBeNull();
   });
 
+  // A merge outside ropeshift dropped the design history an adoption imported. The card names the branch and the
+  // missing commit, and offers nothing to press: merging the commit into the base clears it at the next check.
+  it("says a merged adoption lost the design history it imported, naming the branch and the missing commit", async () => {
+    const view = goldenNeedsYou();
+    const detail = "Branch lane/adopt merged into main, and main at base-squashed does not contain design-tip, the design repository's tip that the adoption imported.";
+    view.items = [
+      {
+        kind: "work",
+        id: "adopt-1",
+        since: view.as_of,
+        work: { reason: "history_missing", detail, work_order: { id: "adopt-1", kind: "plan", title: "Adopt shop", state: "done" }, actions: [] },
+      },
+    ];
+    show(view);
+    const card = await cardNamed(/Adopt shop/);
+    expect(within(card).getByText("Design history missing")).toBeTruthy();
+    expect(within(card).getByText("Its adoption branch merged without the design history it imported.")).toBeTruthy();
+    expect(within(card).getByText(detail)).toBeTruthy();
+    expect(within(card).queryAllByRole("button")).toHaveLength(0);
+  });
+
   it("names the question a parked lane waits for, and keeps resume as the way past it", async () => {
     const sent = serveApi(() => ({ status: 200 }));
     show();

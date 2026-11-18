@@ -1,10 +1,13 @@
 package contract
 
 import (
+	"context"
 	"errors"
 	"reflect"
 	"strings"
+	"time"
 
+	"ropeshift.com/ropeshift/internal/adapters/fake"
 	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/control"
 	"ropeshift.com/ropeshift/internal/ledger"
@@ -346,6 +349,129 @@ func checkAConsolidationsPullRequestSaysHowToMergeIt(r *Rig) error {
 		if tt.says == nil && strings.Contains(publish.Body, "design history") {
 			return Violatedf("an adoption that imports no history describes its pull request as\n%s", publish.Body)
 		}
+	}
+	return nil
+}
+
+// consolidationChecks reads the checks of a merged consolidation's base, oldest first.
+func (r *Rig) consolidationChecks(s ports.Store, workOrder string) ([]ledger.Event, error) {
+	var out []ledger.Event
+	err := s.Read(r.Ctx, r.Scope, func(tx ports.ReadTx) error {
+		events, err := tx.EventsAbout(ledger.Subject{Kind: ledger.SubjectConsolidation, ID: workOrder})
+		out = events
+		return err
+	})
+	return out, err
+}
+
+// historyGaps reads the merged consolidations whose base lacks the design history, as Needs you lists them.
+func (r *Rig) historyGaps(s ports.Store) ([]control.HistoryGap, error) {
+	var gaps []control.HistoryGap
+	err := s.Read(r.Ctx, r.Scope, func(tx ports.ReadTx) error {
+		var err error
+		gaps, err = control.HistoryGaps(tx)
+		return err
+	})
+	return gaps, err
+}
+
+func checkASquashMergeOutsideRopeshiftRaisesTheNotice(r *Rig) error {
+	p, err := newConsolidationMergeRig(r, ledger.ReviewOnPullRequest, ledger.PersonMerges, ledger.MergeCommit, consolidating())
+	if err != nil {
+		return err
+	}
+	// The repository's history on the machine: the adoption branch holds the merge that imported the design tip.
+	const path = "/work/ws"
+	git := fake.NewWorktrees()
+	base := git.Grow(path, "main")
+	git.Hold(base, "README.md")
+	tip := git.Add()
+	git.Hold(tip, "README.md", "docs/vision.md")
+	merge := git.Add(base, tip)
+	git.Name(merge, planning.ImportCommitSubject("design"))
+	git.At(p.head, merge)
+	starts := &control.Starts{Bases: git, Checkout: func(context.Context, ledger.WorkspaceID, string) (string, error) { return path, nil }}
+	intake := control.NewIntake(p.store).Checking(starts)
+	var asked []string
+	tick := func() error {
+		_, err := intake.TakeInPlans(r.Ctx, r.Scope, openFrom(acceptedSource(p.files), &asked))
+		return err
+	}
+	if err := p.report(p.opened(1, p.head)); err != nil {
+		return err
+	}
+	if err := tick(); err != nil {
+		return err
+	}
+	pending, err := r.theOpenPlanApproval(p.store)
+	if err != nil {
+		return err
+	}
+	if _, err := r.approve(p.store, pending, true, theMember); err != nil {
+		return err
+	}
+	if err := tick(); err != nil {
+		return err
+	}
+	// Nothing has merged, so nothing is checked.
+	if err := intake.CheckConsolidations(r.Ctx, r.Scope); err != nil {
+		return err
+	}
+	if checks, err := r.consolidationChecks(p.store, p.grant.WorkOrder); err != nil || len(checks) != 0 {
+		return Violatedf("a consolidation that has not merged was checked: %+v, %v", checks, err)
+	}
+	// The person squash-merges the pull request on the forge: the base gains one commit that holds the files and
+	// not the design history.
+	squash := git.Grow(path, "main")
+	merged := p.pullRequestAt(p.head)
+	merged.State, merged.MergeCommit, merged.MergedAt = ledger.PullRequestMerged, squash, "2026-11-18T10:00:00Z"
+	if err := p.read(merged); err != nil {
+		return err
+	}
+	if err := p.stands(workorders.Done); err != nil {
+		return err
+	}
+	if err := intake.CheckConsolidations(r.Ctx, r.Scope); err != nil {
+		return err
+	}
+	gaps, err := r.historyGaps(p.store)
+	if err != nil {
+		return err
+	}
+	want := ledger.ConsolidationCheck{Branch: branchName, Base: "main", BaseCommit: squash, DesignTip: tip}
+	if len(gaps) != 1 || gaps[0].WorkOrder.ID != p.grant.WorkOrder || gaps[0].Check != want || gaps[0].Since == 0 {
+		return Violatedf("after a squash merge the gaps are %+v, want one for %s with %+v", gaps, p.grant.WorkOrder, want)
+	}
+	// A tick before the next check is due reads no base.
+	if err := intake.CheckConsolidations(r.Ctx, r.Scope); err != nil {
+		return err
+	}
+	if checks, err := r.consolidationChecks(p.store, p.grant.WorkOrder); err != nil || len(checks) != 1 {
+		return Violatedf("the base was checked again before it was due: %+v, %v", checks, err)
+	}
+	if r.DB.ShiftClock == nil {
+		return nil
+	}
+	// The person merges the design tip into the base with a merge commit, and the next check clears the gap.
+	fixed := git.Add(squash, tip)
+	git.Point(path, "main", fixed)
+	r.DB.ShiftClock(milliseconds(11 * time.Minute))
+	if err := intake.CheckConsolidations(r.Ctx, r.Scope); err != nil {
+		return err
+	}
+	if gaps, err := r.historyGaps(p.store); err != nil || len(gaps) != 0 {
+		return Violatedf("after the base gained the design tip the gaps are %+v: %v", gaps, err)
+	}
+	checks, err := r.consolidationChecks(p.store, p.grant.WorkOrder)
+	if err != nil || len(checks) != 2 {
+		return Violatedf("the checks are %+v: %v", checks, err)
+	}
+	r.DB.ShiftClock(milliseconds(48 * time.Hour))
+	if err := intake.CheckConsolidations(r.Ctx, r.Scope); err != nil {
+		return err
+	}
+	if again, err := r.consolidationChecks(p.store, p.grant.WorkOrder); err != nil || len(again) != 2 {
+		return Violatedf("a base found to hold the design tip was checked again: %+v, %v", again, err)
 	}
 	return nil
 }

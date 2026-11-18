@@ -8,6 +8,14 @@ import (
 	"ropeshift.com/ropeshift/internal/ports"
 )
 
+// At makes a commit with a name of the test's choosing that grew from the given commits and sits on no branch, so
+// a commit a lane reported by a name joins the history.
+func (w *Worktrees) At(commit string, parents ...string) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.history[commit] = slices.Clone(parents)
+}
+
 // Name gives a commit a subject, which BranchCommits reports.
 func (w *Worktrees) Name(commit, subject string) {
 	w.mu.Lock()

@@ -1262,6 +1262,9 @@ func soloTicks(projects ports.Projects, home ledger.WorkspaceID, opts soloOption
 			if _, err := intake.TakeInPlans(ctx, p.ID, acceptedCommits(opts, kept, p.ID)); err != nil {
 				failed = append(failed, err)
 			}
+			if err := intake.CheckConsolidations(ctx, p.ID); err != nil {
+				failed = append(failed, err)
+			}
 			if _, err := control.NewReviews(store).Promote(ctx, p.ID, tickActor("intake-tick")); err != nil {
 				failed = append(failed, err)
 			}
