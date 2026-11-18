@@ -104,6 +104,7 @@ const (
 	OpQuestionRecord                      = "question.record"
 	OpQuestionDismiss                     = "question.dismiss"
 	OpQuestionAnswer                      = "question.answer"
+	OpQuestionAnswerBatch                 = "question.answer_batch"
 	OpDecisionAssume                      = "decision.assume"
 	OpDecisionRecord                      = "decision.record"
 	OpDecisionOverturn                    = "decision.overturn"
@@ -270,6 +271,10 @@ var operations = append(onInstallation(
 	consent(OpQuestionRecord, "Record a question"),
 	consent(OpQuestionDismiss, "Dismiss a question", ActionDismissQuestion),
 	oneWay(consent(OpQuestionAnswer, "Answer a question", ActionAnswerQuestion)),
+	// A batch answered in one request holds answers of every reversibility, which a delegate's policy cannot weigh
+	// as one, and each is a decision that binds work (ADR-0030). A member answers it, with the rationale each own
+	// answer states, so a delegate's call is refused, not carded.
+	memberOnly(OpQuestionAnswerBatch, "Answer a batch of questions", ActionAnswerQuestion),
 	// Recording a decision is a member's consent whoever drafts it, the assistant included (ADR-0024). An
 	// orchestrator's decisions within policy reach the ledger through its own acts, which no class reads.
 	consent(OpDecisionAssume, "Record a decision within policy", ActionRecordDecision),

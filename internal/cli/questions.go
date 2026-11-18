@@ -1,8 +1,12 @@
 package cli
 
 import (
+	"bytes"
+	"encoding/json"
 	"flag"
 	"fmt"
+	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -174,6 +178,146 @@ func (c *invocation) questionAnswer(args []string) int {
 	return c.finish(err, row, func() string { return decisionLine(api.DecisionView{Decision: row}) })
 }
 
+// batchResult is what answering a batch printed: the decisions recorded, and the items it left for the member.
+type batchResult struct {
+	Decisions  []questions.Decision `json:"decisions"`
+	Unanswered []unansweredItem     `json:"unanswered,omitempty"`
+}
+
+// unansweredItem is a question of the batch the request did not answer, with why.
+type unansweredItem struct {
+	Question string `json:"question"`
+	Reason   string `json:"reason"`
+}
+
+// readBatchAnswers reads a file of answers: a JSON array of the items the batch route takes.
+func (c *invocation) readBatchAnswers(path string) ([]api.BatchAnswerItem, error) {
+	raw, err := c.readLocal(path)
+	if err != nil {
+		return nil, err
+	}
+	var items []api.BatchAnswerItem
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&items); err != nil {
+		return nil, fmt.Errorf("%s is not a JSON array of answers: %w", path, err)
+	}
+	for i := range items {
+		if items[i].Question == "" {
+			return nil, fmt.Errorf("answer %d of %s names no question", i+1, path)
+		}
+		if items[i].ID != "" {
+			continue
+		}
+		id, err := newID()
+		if err != nil {
+			return nil, err
+		}
+		items[i].ID = id
+	}
+	return items, nil
+}
+
+// remaining adds the recommendation of every reversible item the file does not answer, when the member asked for
+// that, and lists each item the request leaves unanswered with why. A one-way item waits for its own choice.
+func remaining(batch api.QuestionBatch, given []api.BatchAnswerItem, accept bool) ([]api.BatchAnswerItem, []unansweredItem, error) {
+	named := map[string]bool{}
+	for _, item := range given {
+		named[item.Question] = true
+	}
+	answers := slices.Clone(given)
+	var left []unansweredItem
+	for _, item := range batch.Items {
+		switch {
+		case named[item.ID]:
+		case item.Reversibility == questions.OneWay:
+			left = append(left, unansweredItem{item.ID, "one-way, so it waits for its own choice"})
+		case !accept:
+			left = append(left, unansweredItem{item.ID, "not in the file"})
+		case item.Recommendation == "":
+			left = append(left, unansweredItem{item.ID, "it has no recommendation to accept"})
+		default:
+			id, err := newID()
+			if err != nil {
+				return nil, nil, err
+			}
+			answers = append(answers, api.BatchAnswerItem{Question: item.ID, ID: id, Accepted: true})
+		}
+	}
+	return answers, left, nil
+}
+
+func (c *invocation) questionAnswerBatch(args []string) int {
+	set := c.flags()
+	accept := set.Bool("accept-reversible", false, "accept the recommendation of every reversible item the file does not answer")
+	file := set.String("answers", "", "a JSON file holding an array of answers: question, id, answer, rationale, citations, supersedes, no_conflict, accepted")
+	positional, ok := c.parse(set, args)
+	if !ok {
+		return ExitUsage
+	}
+	if len(positional) != 1 {
+		return c.usageError("takes one batch ID")
+	}
+	if !*accept && *file == "" {
+		return c.usageError("name what to answer: --accept-reversible, --answers FILE, or both")
+	}
+	var given []api.BatchAnswerItem
+	if *file != "" {
+		var err error
+		if given, err = c.readBatchAnswers(*file); err != nil {
+			return c.usageError("%v", err)
+		}
+	}
+	client, exit := c.projectClient()
+	if client == nil {
+		return exit
+	}
+	defer client.Close()
+	batches, err := client.Batches(c.ctx, "")
+	if err != nil {
+		return c.failure(err)
+	}
+	batch, found := api.QuestionBatch{}, false
+	for _, waiting := range batches {
+		if waiting.Batch.ID == positional[0] {
+			batch, found = waiting, true
+		}
+	}
+	if !found && *accept {
+		return c.failure(&api.Error{Status: http.StatusNotFound, Detail: api.ErrorDetail{Code: api.CodeNotFound, Message: fmt.Sprintf("no batch %q waits for a member", positional[0])}})
+	}
+	answers, left, err := remaining(batch, given, *accept)
+	if err != nil {
+		return c.failure(err)
+	}
+	if len(answers) == 0 {
+		return c.usageError("nothing to answer: %s", describeUnanswered(left))
+	}
+	decisions, err := client.AnswerBatch(c.ctx, positional[0], api.AnswerBatch{Answers: answers})
+	return c.finish(err, batchResult{Decisions: decisions, Unanswered: left}, func() string {
+		var out strings.Builder
+		for _, decision := range decisions {
+			out.WriteString(decisionLine(api.DecisionView{Decision: decision}))
+		}
+		for _, item := range left {
+			fmt.Fprintf(&out, "%s\tleft unanswered: %s\n", item.Question, item.Reason)
+		}
+		return out.String()
+	})
+}
+
+// describeUnanswered says which items a request left, for a request that answered none.
+func describeUnanswered(left []unansweredItem) string {
+	if len(left) == 0 {
+		return "the batch holds no question that waits"
+	}
+	parts := make([]string, 0, len(left))
+	for _, item := range left {
+		parts = append(parts, item.Question+" ("+item.Reason+")")
+	}
+	return strings.Join(parts, ", ")
+}
+
 func (c *invocation) questionBatches(args []string) int {
 	set := c.flags()
 	category := set.String("category", "", "only this category")
@@ -214,6 +358,12 @@ func itemLines(item api.QuestionItem) string {
 	}
 	fmt.Fprintf(&out, "  %s\t%s\t%s%s\n", item.ID, strings.Join(item.Categories, ","), item.Text, blocking)
 	fmt.Fprintf(&out, "    options: %s\n    recommendation: %s\n", strings.Join(item.Options, " | "), item.Recommendation)
+	if item.RecommendationRationale != "" {
+		fmt.Fprintf(&out, "    because: %s\n", item.RecommendationRationale)
+	}
+	if item.Reversibility != "" {
+		fmt.Fprintf(&out, "    the answer is: %s\n", item.Reversibility)
+	}
 	if item.Scope != "" {
 		fmt.Fprintf(&out, "    scope: %s\n", api.ScopeLabel(item.Scope, item.ScopeTitle))
 	}

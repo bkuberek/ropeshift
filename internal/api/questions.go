@@ -147,6 +147,33 @@ type AnswerQuestion struct {
 	Place string `json:"place,omitempty"`
 }
 
+// BatchAnswerItem is a member's answer to one question of a batch. ID names the decision it becomes. Accepted takes
+// the question's recommendation, with its rationale and the item's citations, and then the answer, rationale, and
+// citations stay empty; any other answer is the member's own, and says why. Supersedes and NoConflict mean what they
+// do for one answer.
+type BatchAnswerItem struct {
+	Question   string   `json:"question"`
+	ID         string   `json:"id"`
+	Answer     string   `json:"answer,omitempty"`
+	Rationale  string   `json:"rationale,omitempty"`
+	Citations  []string `json:"citations,omitempty"`
+	Supersedes string   `json:"supersedes,omitempty"`
+	NoConflict []string `json:"no_conflict,omitempty"`
+	Accepted   bool     `json:"accepted,omitempty"`
+}
+
+// AnswerBatch answers a batch's questions in one request, which records every answer or none, and names the first
+// one it refuses. Place is where the member answered, as for one answer.
+type AnswerBatch struct {
+	Answers []BatchAnswerItem `json:"answers"`
+	Place   string            `json:"place,omitempty"`
+}
+
+// BatchAnswered is the decisions a batch's answers became, in the order of the request.
+type BatchAnswered struct {
+	Decisions []questions.Decision `json:"decisions"`
+}
+
 // BatchList is what reached members and still waits for them.
 type BatchList struct {
 	Batches []QuestionBatch `json:"batches"`
@@ -205,6 +232,13 @@ func (c *ProjectClient) AnswerQuestion(ctx context.Context, id string, in Answer
 	var out questions.Decision
 	err := c.do(ctx, http.MethodPost, "/v1/questions/"+url.PathEscape(id)+"/answer", in, &out)
 	return out, err
+}
+
+// AnswerBatch answers the questions of one batch in one request, and returns the decisions in the order asked.
+func (c *ProjectClient) AnswerBatch(ctx context.Context, batch string, in AnswerBatch) ([]questions.Decision, error) {
+	var out BatchAnswered
+	err := c.do(ctx, http.MethodPost, "/v1/batches/"+url.PathEscape(batch)+"/answers", in, &out)
+	return out.Decisions, err
 }
 
 // Batches lists the delivered batches that still wait for a member, within one category.
