@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/ports"
@@ -61,7 +62,7 @@ func Run(ctx context.Context, sources Sources, req Request) (practices.Result, e
 	case ctx.Err() != nil:
 		return practices.Result{}, fmt.Errorf("scan %s for secrets: %w", req.Dir, ctx.Err())
 	case err != nil:
-		in.SecretsUnknown = "the secret scan failed: " + oneLine(err)
+		in.SecretsUnknown = reasonOf("the secret scan failed: ", err)
 	default:
 		in.Secrets, in.ScannedFrom, in.Skipped = scan.Matches, scan.ScannedFrom, scan.Skipped
 	}
@@ -74,7 +75,7 @@ func Run(ctx context.Context, sources Sources, req Request) (practices.Result, e
 		case errors.Is(err, ports.ErrForgeRateLimited):
 			settingsErr = fmt.Errorf("read the settings of %s: %w", req.Binding, err)
 		case err != nil:
-			why := "the forge settings could not be read: " + oneLine(err)
+			why := reasonOf("the forge settings could not be read: ", err)
 			facts = practices.ForgeFacts{VisibilityUnknown: why, ProtectedUnknown: why, ReviewUnknown: why}
 		}
 		in.Forge = &facts
@@ -86,5 +87,18 @@ func Run(ctx context.Context, sources Sources, req Request) (practices.Result, e
 	return result, settingsErr
 }
 
-// oneLine writes an error's text on one line.
-func oneLine(err error) string { return strings.Join(strings.Fields(err.Error()), " ") }
+// maxReason bounds the text a failed read puts in a result.
+const maxReason = 2000
+
+// reasonOf writes a prefix and an error's text on one line, cut at maxReason bytes on a rune boundary.
+func reasonOf(prefix string, err error) string {
+	text := prefix + strings.Join(strings.Fields(err.Error()), " ")
+	if len(text) > maxReason {
+		cut := maxReason
+		for cut > 0 && !utf8.RuneStart(text[cut]) {
+			cut--
+		}
+		text = text[:cut]
+	}
+	return text
+}

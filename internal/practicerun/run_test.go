@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"ropeshift.com/ropeshift/internal/adapters/fake"
 	"ropeshift.com/ropeshift/internal/ledger"
@@ -217,6 +218,54 @@ func TestRunFailsWhenTheContextEnds(t *testing.T) {
 		req.Binding = binding
 		if _, err := practicerun.Run(ctx, sources, req); !errors.Is(err, context.Canceled) {
 			t.Errorf("the run ended with %v, want the context's error", err)
+		}
+	})
+}
+
+// The text of a failed read that goes into a result is one line of at most 2000 bytes, cut on a rune boundary, so a
+// tool's whole message, with a path or an argument list in it, never reaches a result.
+func TestRunBoundsTheReasonItRecordsForAFailedRead(t *testing.T) {
+	// The euro sign is three bytes, so the cut falls inside a rune.
+	long := errors.New("git log --format=%H failed\n  in /checkouts/widgets\n" + strings.Repeat("\u20ac", 3000))
+	check := func(t *testing.T, reason, prefix string) {
+		t.Helper()
+		if len(reason) > 2000 {
+			t.Errorf("the reason is %d bytes, want at most 2000", len(reason))
+		}
+		if len(reason) < 1900 {
+			t.Errorf("the reason is %d bytes, want it cut near the bound", len(reason))
+		}
+		if strings.ContainsAny(reason, "\r\n") {
+			t.Errorf("the reason spans lines: %q", reason[:80])
+		}
+		if !utf8.ValidString(reason) {
+			t.Error("the reason is not valid UTF-8")
+		}
+		if !strings.HasPrefix(reason, prefix+"git log --format=%H failed in /checkouts/widgets") {
+			t.Errorf("the reason starts %q", reason[:80])
+		}
+	}
+	t.Run("scan", func(t *testing.T) {
+		f := newFixture()
+		sources := f.sources
+		sources.Secrets = failingScans{err: long}
+		result, err := practicerun.Run(t.Context(), sources, request())
+		if err != nil {
+			t.Fatal(err)
+		}
+		check(t, statusOf(t, result, practices.Secrets).Reason, "the secret scan failed: ")
+	})
+	t.Run("settings", func(t *testing.T) {
+		f := newFixture()
+		f.fake.SetSettingsError(binding.String(), long)
+		req := request()
+		req.Binding = binding
+		result, err := practicerun.Run(t.Context(), f.sources, req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, id := range []practices.ID{practices.License, practices.BranchProtection, practices.RequiredReview} {
+			check(t, statusOf(t, result, id).Reason, "the forge settings could not be read: ")
 		}
 	})
 }
