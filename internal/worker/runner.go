@@ -163,6 +163,10 @@ type laneRun struct {
 	allowanceKnown    bool
 	allowanceFailedAt time.Time
 	allowanceTriedAt  time.Time
+	// projectReportedAt and projectReportedUSD are when this lane last told the ledger what it spent for its project's
+	// limits, and what it was charged then, which the handle's lock guards (FR-SPEND-6).
+	projectReportedAt  time.Time
+	projectReportedUSD float64
 	// resolved is the model the session said it runs, and handleLock guards it.
 	resolved string
 	// life is the context the run lives under, which outlasts whoever asked for a handoff.
