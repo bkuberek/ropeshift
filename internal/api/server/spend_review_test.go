@@ -29,6 +29,13 @@ func parkedAtItsLimit(t *testing.T, d *talkDaemon, id string) {
 	if _, err := d.Client.Review(ctx, id); err != nil {
 		t.Fatal(err)
 	}
+	parkTheLane(t, d, id)
+}
+
+// parkTheLane claims a ready work order, starts its lane, and parks it as parkedAtItsLimit describes.
+func parkTheLane(t *testing.T, d *talkDaemon, id string) {
+	t.Helper()
+	ctx := t.Context()
 	worker := ledger.Actor{Kind: ledger.ActorWorker, ID: d.auth.WorkerID}
 	grant, err := control.NewLeases(d.Store).Claim(ctx, apitest.Scope, workorders.ClaimRequest{
 		WorkOrder: id, ClaimID: "claim-" + id, Worker: d.auth.WorkerID, TTLMs: apitest.LeaseTTL,

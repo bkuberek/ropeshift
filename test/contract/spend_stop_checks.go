@@ -19,12 +19,14 @@ import (
 
 // SpendStopChecks are what a member sees and does at a spend stop besides raising the limit (ADR-0037, FR-SPEND-7):
 // block the work or send it to replanning, and what Needs you reads of the stop. Each stop is one item for its work
-// order and one interruption.
+// order and one interruption, counted when its lane parks.
 var SpendStopChecks = []Check{
 	{"SS1", "blocking a spend stop ends its lane and wake, blocks the work with the reason spend_limit, and is a member's act on work a hard limit parked", checkBlockASpendStop},
 	{"SS2", "sending a spend stop to replanning ends its lane and wake, returns the work to planning with its review void, and is a member's act", checkReplanASpendStop},
 	{"SS3", "a spend stop reads once for its work order however many lanes it parked, with its limits, allowance, and what each lane left", checkSpendStopRead},
-	{"SS4", "each hard limit a work order reaches is one interruption, and no act that ends the stop counts another", checkSpendStopInterrupts},
+	{"SS4", "a hard limit a lane reaches and finishes past, or goes on running past, is no stop and counts no interruption", checkSpendStopInterrupts},
+	{"SS5", "each time a lane parks at a hard limit is one interruption, a park at a limit it parked at before counts again, and no act that ends the stop counts another", checkEachParkAtTheLimitInterrupts},
+	{"SS6", "a review's spend stop takes a block, which discards its lane, and refuses a replan, which would leave the review in planning", checkAReviewsStopTakesOnlyABlock},
 }
 
 // interruptions counts the interruptions of one kind the product measures hold, over every window the ledger has.
@@ -139,8 +141,8 @@ func checkBlockASpendStop(r *Rig) error {
 	if blocked != 1 {
 		return Violatedf("%d blocks on record, want one", blocked)
 	}
-	if n, err := r.interruptions(s, measures.InterruptionForced); err != nil || n != 0 {
-		return Violatedf("a block counted %d interruptions, and the stop it ends counted one when it was reached: %v", n, err)
+	if n, err := r.interruptions(s, measures.InterruptionForced); err != nil || n != 1 {
+		return Violatedf("a block left %d interruptions, want the one the stop counted when its lane parked: %v", n, err)
 	}
 	// A blocked work order leaves as blocked work does, and its stop is over: a second block and a resume find nothing
 	// parked.
@@ -201,8 +203,8 @@ func checkReplanASpendStop(r *Rig) error {
 	if wake, err := r.readWake(s, request.Wake); err != nil || wake.Open() || wake.FiredBy != parking.RetiredSpendStop {
 		return Violatedf("the stop's wake reads %+v, want it retired by the stop: %v", wake, err)
 	}
-	if n, err := r.interruptions(s, measures.InterruptionForced); err != nil || n != 0 {
-		return Violatedf("a replan counted %d interruptions: %v", n, err)
+	if n, err := r.interruptions(s, measures.InterruptionForced); err != nil || n != 1 {
+		return Violatedf("a replan left %d interruptions, want the one the stop counted when its lane parked: %v", n, err)
 	}
 	if err := replan(id, theMember); !errors.Is(err, workorders.ErrInvalid) {
 		return Violatedf("a second replan was answered %v", err)
@@ -369,13 +371,7 @@ func checkSpendStopInterrupts(r *Rig) error {
 		return err
 	}
 	id := s.grant.WorkOrder
-	count := func(want int64, when string) error {
-		n, err := r.interruptions(s.store, measures.InterruptionForced)
-		if err != nil || n != want {
-			return Violatedf("%s the product measures hold %d interruptions, want %d: %v", when, n, want, err)
-		}
-		return nil
-	}
+	count := func(want int64, when string) error { return r.interruptionsAre(s.store, when, want) }
 	report := func(cost float64) error {
 		reply, err := s.usage(ledger.GenerationUsage{CostUSD: cost, KnownTurns: 4})
 		if err == nil && len(reply.Rejected) != 0 {
@@ -394,17 +390,132 @@ func checkSpendStopInterrupts(r *Rig) error {
 			return err
 		}
 	}
-	if err := count(1, "after the stop, across three reports past it,"); err != nil {
+	if n, err := r.spendEvents(s.store, id, ledger.EventSpendLimited); err != nil || n != 1 {
+		return Violatedf("%d limit notices after three reports past the limit, want one: %v", n, err)
+	}
+	if err := count(0, "after the limit was reached by a lane still running,"); err != nil {
 		return err
 	}
-	if _, err := control.NewSpend(s.store).Raise(r.Ctx, r.Scope, control.SpendRaise{WorkOrder: id, ToUSD: 40}, theMember); err != nil {
+	// The lane finishes its work past the limit, and a lane that completed is no stop.
+	result, err := json.Marshal(LaneFinished(r.ID("commit")))
+	if err != nil {
 		return err
 	}
-	if err := count(1, "after a member raised the limit"); err != nil {
+	if err := accepted(s.upload(ledger.UploadLaneEnded, result)); err != nil {
 		return err
 	}
-	if err := report(41); err != nil {
+	if err := r.state(s.store, id, workorders.Acceptance); err != nil {
 		return err
 	}
-	return count(2, "after spend passed the raised limit")
+	return count(0, "after the lane completed past the limit,")
+}
+
+// interruptionsAre says the product measures hold this many forced interruptions, which spend stops are counted among.
+func (r *Rig) interruptionsAre(store ports.Store, when string, want int64) error {
+	n, err := r.interruptions(store, measures.InterruptionForced)
+	if err != nil || n != want {
+		return Violatedf("%s the product measures hold %d interruptions, want %d: %v", when, n, want, err)
+	}
+	return nil
+}
+
+func checkEachParkAtTheLimitInterrupts(r *Rig) error {
+	s := r.Store()
+	spend := control.NewSpend(s)
+	id, _, err := r.parkedAtTheLimit(s, []ledger.GenerationUsage{{CostUSD: 30, KnownTurns: 3}})
+	if err != nil {
+		return err
+	}
+	if err := r.interruptionsAre(s, "after a lane parked at its hard limit,", 1); err != nil {
+		return err
+	}
+	if _, err := spend.Block(r.Ctx, r.Scope, id, theMember); err != nil {
+		return err
+	}
+	if err := r.interruptionsAre(s, "after a member blocked the stop,", 1); err != nil {
+		return err
+	}
+	// A member resolves the block, which is the forced interruption of taking work out of `blocked`, and raises nothing,
+	// so the work runs and parks at the same limit again: the second stop is a new interruption though the ledger noted
+	// that limit once.
+	if err := control.NewReviews(s).Unblock(r.Ctx, r.Scope, id, workorders.TriggerResolved, "the budget was agreed", theMember); err != nil {
+		return err
+	}
+	if err := r.interruptionsAre(s, "after a member resolved the block,", 2); err != nil {
+		return err
+	}
+	request, err := r.parkingOn(s, id, limitWake(id))
+	if err != nil {
+		return err
+	}
+	if fired, err := r.NewOps(s).CommitParked(r.Ctx, r.Scope, request.Holder, PushedCommit(request.Wake), r.worker("a")); err != nil || fired != "" {
+		return Violatedf("a lane parked at its hard limit again woke at its parked commit: %q, %v", fired, err)
+	}
+	if err := r.interruptionsAre(s, "after the work parked at the same limit again,", 3); err != nil {
+		return err
+	}
+	if _, err := spend.Replan(r.Ctx, r.Scope, id, theMember); err != nil {
+		return err
+	}
+	return r.interruptionsAre(s, "after a member sent the second stop to replanning,", 3)
+}
+
+func checkAReviewsStopTakesOnlyABlock(r *Rig) error {
+	s := r.Store()
+	spend := control.NewSpend(s)
+	judged, err := r.Ready(s)
+	if err != nil {
+		return err
+	}
+	of, err := r.WorkOrder(s, judged)
+	if err != nil {
+		return err
+	}
+	review, err := r.aReviewOf(s, of, 1)
+	if err != nil {
+		return err
+	}
+	if err := r.lanesWithUsage(s, review.ID, []ledger.GenerationUsage{{CostUSD: 30, KnownTurns: 3}}); err != nil {
+		return err
+	}
+	request, err := r.parkingOn(s, review.ID, limitWake(review.ID))
+	if err != nil {
+		return err
+	}
+	if fired, err := r.NewOps(s).CommitParked(r.Ctx, r.Scope, request.Holder, PushedCommit(request.Wake), r.worker("a")); err != nil || fired != "" {
+		return Violatedf("a review's lane parked at its hard limit woke at its parked commit: %q, %v", fired, err)
+	}
+	if err := r.state(s, review.ID, workorders.Parked); err != nil {
+		return err
+	}
+	// A review has no contract to plan again, so a replan leaves it parked where a member can still block it.
+	if _, err := spend.Replan(r.Ctx, r.Scope, review.ID, theMember); !errors.Is(err, workorders.ErrInvalid) {
+		return Violatedf("a replan of a review's stop was answered %v, want a refusal as invalid", err)
+	}
+	if err := r.state(s, review.ID, workorders.Parked); err != nil {
+		return err
+	}
+	if wake, err := r.readWake(s, request.Wake); err != nil || !wake.Open() {
+		return Violatedf("a refused replan left the wake %+v: %v", wake, err)
+	}
+	if state, err := spend.Block(r.Ctx, r.Scope, review.ID, theMember); err != nil || state != workorders.Blocked {
+		return Violatedf("a block of a review's stop left it %q: %v", state, err)
+	}
+	if err := r.laneEnded(s, request.Lane); err != nil {
+		return err
+	}
+	events, err := r.Events(s, r.Scope)
+	if err != nil {
+		return err
+	}
+	archives := 0
+	for _, e := range events {
+		if e.Type == ledger.EventLaneArchiveRequested && e.Subject.ID == request.Lane {
+			archives++
+		}
+	}
+	if archives != 1 {
+		return Violatedf("a block of a review's stop asked the worker to take its lane's worktree away %d times, want once", archives)
+	}
+	return nil
 }

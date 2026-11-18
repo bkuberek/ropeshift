@@ -5,6 +5,7 @@ import (
 	"ropeshift.com/ropeshift/internal/control"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/workorders"
 )
 
 // spendStopID names a spend stop's item by its work order and what stopped it, as a CI item is named.
@@ -32,14 +33,18 @@ func (h *handler) spendNeeds(tx ports.ReadTx) ([]api.NeedItem, map[string]bool, 
 }
 
 // spendNeedOf is what a member reads of a stop, with what the member can do. Resume once is offered only where something
-// sizes one more generation, because the use case refuses it otherwise.
+// sizes one more generation, because the use case refuses it otherwise, and Replan is offered for work that has a contract
+// to plan again, which a review has not.
 func spendNeedOf(stop control.SpendStop) *api.SpendNeed {
 	need := &api.SpendNeed{WorkOrder: stop.WorkOrder, Spend: stop.Spend, Band: stop.Band, Lanes: []api.SpendLane{}, Actions: []string{api.ActSpendRaise}}
 	if stop.Resume != nil {
 		need.Resume = &api.SpendResume{AllowanceUSD: stop.Resume.AllowanceUSD, Basis: stop.Resume.Basis, LimitUSD: stop.Resume.LimitUSD}
 		need.Actions = append(need.Actions, api.ActSpendResume)
 	}
-	need.Actions = append(need.Actions, api.ActSpendBlock, api.ActSpendReplan)
+	need.Actions = append(need.Actions, api.ActSpendBlock)
+	if stop.WorkOrder.Kind != workorders.KindReview {
+		need.Actions = append(need.Actions, api.ActSpendReplan)
+	}
 	for _, lane := range stop.Lanes {
 		read := api.SpendLane{Lane: lane.Lane, Generation: lane.Generation, Digest: lane.Digest}
 		if lane.Handoff != nil {

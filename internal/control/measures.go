@@ -10,6 +10,7 @@ import (
 
 	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/delivery"
+	"ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/measures"
 	"ropeshift.com/ropeshift/internal/parking"
@@ -72,6 +73,8 @@ type historian struct {
 	recorded  map[string]int64
 	citations map[string][]string
 	parking   map[string]int64
+	// limitParks are the work orders whose lane began to park on the wake a hard spend limit leaves, until the park commits.
+	limitParks map[string]bool
 	// reviews are the work orders that judge other work, by where the history holds each. A review is no completed
 	// work order and no flow time, and the reviews that reached done are its kind's outcomes in the cost per outcome.
 	reviews   map[string]int
@@ -89,7 +92,7 @@ func HistoryIn(tx ports.ReadTx) (measures.History, error) {
 	h := &historian{
 		tx: tx, orders: map[string]int{}, questions: map[string]int{}, asked: map[string]questions.Question{},
 		decisions: map[string]int{}, recorded: map[string]int64{}, citations: map[string][]string{}, parking: map[string]int64{},
-		reviews: map[string]int{}, approvals: map[string]authority.ApprovalState{}, orchestrators: map[string]ledger.Orchestrator{},
+		limitParks: map[string]bool{}, reviews: map[string]int{}, approvals: map[string]authority.ApprovalState{}, orchestrators: map[string]ledger.Orchestrator{},
 	}
 	for _, e := range events {
 		h.read(e)
@@ -173,10 +176,6 @@ func (h *historian) read(e ledger.Event) {
 		h.interrupted(e, measures.InterruptionForced, e.ID)
 	case e.Type == ledger.EventEffectDecided && member:
 		h.interrupted(e, measures.InterruptionForced, e.ID)
-	case e.Type == ledger.EventSpendLimited:
-		// A hard spend limit is a person's to lift or to hold (ADR-0037), so each limit a work order reaches is one
-		// interruption, which its Needs you item stands for. A raise that the work order passes again is another stop.
-		h.interrupted(e, measures.InterruptionForced, e.ID)
 	case e.Type == parking.EventSignal && member:
 		var signal parking.Signal
 		if json.Unmarshal(e.Data, &signal) == nil && signal.Kind == parking.HumanResume {
@@ -184,6 +183,20 @@ func (h *historian) read(e ledger.Event) {
 		}
 	case e.Type == ledger.EventLaneEnded:
 		h.laneEnded(e)
+	}
+}
+
+// limitPark counts a spend stop. A hard spend limit is a person's to lift or to hold (ADR-0037), so each time a lane parks
+// on the wake it leaves is one interruption, which the work order's Needs you item stands for. It is the park that
+// counts, so a limit a lane reaches and finishes past is none, and neither is any act that ends the stop. A work order
+// that parks again at a limit it parked at before is another stop, though the ledger notes that limit once.
+func (h *historian) limitPark(e ledger.Event, id string, change workorders.Change) {
+	switch {
+	case e.Type == workorders.EventLaneParking:
+		h.limitParks[id] = string(change.Payload) == lanes.SpendLimitWake(id)
+	case change.Trigger == workorders.TriggerLaneParked && h.limitParks[id]:
+		delete(h.limitParks, id)
+		h.interrupted(e, measures.InterruptionForced, e.ID)
 	}
 }
 
@@ -215,6 +228,7 @@ func (h *historian) workOrder(e ledger.Event, member bool) {
 	if json.Unmarshal(e.Data, &change) != nil {
 		return
 	}
+	h.limitPark(e, id, change)
 	if at, review := h.reviews[id]; review {
 		// What a review's lane spent counts, by the kind that ran it, and so does its reaching done, and a person
 		// taking it out of a stop. Nothing else of a review does.

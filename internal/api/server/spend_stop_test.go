@@ -190,6 +190,68 @@ func TestASpendStopServesEmptyCollectionsForWhatAnAgentLeftOut(t *testing.T) {
 	}
 }
 
+// A review has no contract to plan again, so the stop of a review's work order offers a block and no replan, and a replan
+// asked of it anyway is refused and leaves the stop standing.
+func TestAReviewsSpendStopOffersNoReplan(t *testing.T) {
+	d := startTalk(t)
+	ctx := t.Context()
+	if _, err := d.client.CreateWorkOrder(ctx, d.workIn("wo-judged", "Add the retry budget")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.Client.Review(ctx, "wo-judged"); err != nil {
+		t.Fatal(err)
+	}
+	judged, err := d.client.WorkOrder(ctx, "wo-judged")
+	if err != nil {
+		t.Fatal(err)
+	}
+	review, err := workorders.NewReview("wo-review", judged, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = d.Store.Write(ctx, apitest.Scope, "review.fixture", func(tx ports.WriteTx) error {
+		// The review starts at the commit the judged work left on its branch.
+		if err := tx.Lanes().Start("lane-judged", "wo-judged", 1, ledger.LanePolicies{}); err != nil {
+			return err
+		}
+		branch := ledger.Artifact{ID: "artifact-judged", Lane: "lane-judged", Kind: ledger.ArtifactBranch, URI: "refs/heads/judged", Digest: "c0ffee", Fence: 1}
+		if err := tx.Lanes().AddArtifact(branch); err != nil {
+			return err
+		}
+		if err := tx.WorkOrders().Insert(review); err != nil {
+			return err
+		}
+		created, err := workorders.CreatedEvent(review, talkMember)
+		if err != nil {
+			return err
+		}
+		_, err = tx.Append(created)
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	parkTheLane(t, d, "wo-review")
+	items := spendItems(t, d)
+	if len(items) != 1 || items[0].Spend == nil || items[0].Spend.WorkOrder.ID != "wo-review" {
+		t.Fatalf("Needs you holds %+v, want the review's stop", items)
+	}
+	actions := items[0].Spend.Actions
+	if !slices.Contains(actions, api.ActSpendBlock) || slices.Contains(actions, api.ActSpendReplan) {
+		t.Errorf("a review's stop offers %v, want a block and no replan", actions)
+	}
+	refusal := messageOf(t, func() error { _, err := d.client.ReplanSpend(ctx, "wo-review"); return err }(), http.StatusBadRequest, api.CodeInvalid)
+	if !strings.Contains(refusal, "review") || !strings.Contains(refusal, "block it") {
+		t.Errorf("a replan of a review's stop was refused with %q, which does not say why or what to do", refusal)
+	}
+	if order, err := d.client.WorkOrder(ctx, "wo-review"); err != nil || order.State != workorders.Parked {
+		t.Fatalf("a refused replan left the review %s: %v", order.State, err)
+	}
+	if ended, err := d.client.BlockSpend(ctx, "wo-review"); err != nil || ended.State != string(workorders.Blocked) {
+		t.Fatalf("a block of the review's stop answered %+v: %v", ended, err)
+	}
+}
+
 // A stop that has waited past the long-parked time is still one item in Needs you, and the Stuck view reads it as long
 // parked with no plain resume: a resume that raised no limit would wake a lane to stop it again.
 func TestALongSpendStopOffersNoPlainResume(t *testing.T) {
@@ -227,7 +289,8 @@ func TestARaisedLimitTakesTheItemOutOfNeedsYou(t *testing.T) {
 }
 
 // A member blocks a spend stop or sends it to replanning, and the work order leaves Needs you's spend items for the
-// place it went. Each is refused for work no limit parked, and neither counts an interruption of its own.
+// place it went. Each is refused for work no limit parked, and neither counts an interruption besides the one its stop
+// counted when its lane parked.
 func TestAMemberBlocksOrReplansASpendStop(t *testing.T) {
 	d := startTalk(t)
 	ctx := t.Context()
@@ -265,8 +328,8 @@ func TestAMemberBlocksOrReplansASpendStop(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if n := report.InterruptionsByKind[measures.InterruptionForced]; n != 0 {
-		t.Errorf("blocking and replanning counted %d interruptions between them", n)
+	if n := report.InterruptionsByKind[measures.InterruptionForced]; n != 2 {
+		t.Errorf("two stops, one blocked and one sent to replanning, counted %d interruptions, want one each when its lane parked", n)
 	}
 }
 
