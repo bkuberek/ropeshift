@@ -160,7 +160,7 @@ func TestForgeContractOnGH(t *testing.T) {
 					for _, pull := range pulls {
 						s.PullRequests = append(s.PullRequests, ghstate.PullRequest{
 							Number: pull.Number, Repo: contractBinding.String(), Branch: pull.Branch, Base: pull.Base, Title: pull.Title,
-							State: "OPEN", Draft: pull.Draft, UpdatedAt: pull.UpdatedAt,
+							State: "OPEN", Draft: pull.Draft, CrossRepository: pull.CrossRepository, UpdatedAt: pull.UpdatedAt,
 						})
 					}
 				})

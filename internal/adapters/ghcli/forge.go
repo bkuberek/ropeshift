@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/ports"
@@ -30,7 +31,28 @@ const Binary = "gh"
 const pullRequestFields = "number,url,state,baseRefName,headRefName,headRefOid,mergeable,mergedAt,mergeCommit,statusCheckRollup"
 
 // summaryFields are what a listing of open pull requests asks `gh pr list --json` for.
-const summaryFields = "number,title,headRefName,baseRefName,url,isDraft,updatedAt"
+const summaryFields = "number,title,headRefName,baseRefName,url,isDraft,isCrossRepository,updatedAt"
+
+// maxTitleRunes is the most a listed pull request's title keeps.
+const maxTitleRunes = 256
+
+// cleanTitle clips a title that a person outside the project wrote to maxTitleRunes, and drops its control
+// characters, its bidirectional overrides and isolates, and its zero-width characters.
+func cleanTitle(title string) string {
+	var out strings.Builder
+	kept := 0
+	for _, r := range title {
+		if unicode.IsControl(r) || (r >= 0x202A && r <= 0x202E) || (r >= 0x2066 && r <= 0x2069) || (r >= 0x200B && r <= 0x200D) || r == 0x2060 || r == 0xFEFF {
+			continue
+		}
+		if kept == maxTitleRunes {
+			break
+		}
+		out.WriteRune(r)
+		kept++
+	}
+	return out.String()
+}
 
 // mergeFields are what a merge reads of a pull request before it merges and after, to say what the merge
 // came to: mergeStateStatus is DIRTY for a conflict and BEHIND for a branch an up-to-date base refuses.
@@ -219,6 +241,7 @@ func (f Forge) OpenPullRequests(ctx context.Context, repo ports.ForgeRepo) ([]le
 		BaseRefName string `json:"baseRefName"`
 		URL         string `json:"url"`
 		IsDraft     bool   `json:"isDraft"`
+		IsCrossRepo bool   `json:"isCrossRepository"`
 		UpdatedAt   string `json:"updatedAt"`
 	}
 	if err := json.Unmarshal(out, &listed); err != nil {
@@ -235,7 +258,8 @@ func (f Forge) OpenPullRequests(ctx context.Context, repo ports.ForgeRepo) ([]le
 			updated = at.UTC().Format(time.RFC3339)
 		}
 		pulls = append(pulls, ledger.PullRequestSummary{
-			Number: pr.Number, Title: pr.Title, Branch: pr.HeadRefName, Base: pr.BaseRefName, URL: pr.URL, Draft: pr.IsDraft, UpdatedAt: updated,
+			Number: pr.Number, Title: cleanTitle(pr.Title), Branch: pr.HeadRefName, Base: pr.BaseRefName, URL: pr.URL, Draft: pr.IsDraft,
+			CrossRepository: pr.IsCrossRepo, UpdatedAt: updated,
 		})
 	}
 	return pulls, more, nil

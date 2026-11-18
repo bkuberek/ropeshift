@@ -58,6 +58,19 @@ func checkListsOpenPulls(t *testing.T, ctx context.Context, rig ForgeRig) {
 	}
 }
 
+func checkListSaysWhichPullsAreForks(t *testing.T, ctx context.Context, rig ForgeRig) {
+	fork := summaryOf(rig, 3, "contributor-branch")
+	fork.CrossRepository = true
+	rig.HoldOpen(t, summaryOf(rig, 2, "feature/n2"), fork)
+	got, _, err := rig.Forge.OpenPullRequests(ctx, rig.Repo)
+	if err != nil || len(got) != 2 {
+		t.Fatalf("listed %+v: %v", got, err)
+	}
+	if got[0] != fork || got[1].CrossRepository || got[1].Number != 2 {
+		t.Errorf("listed %+v, want pull request 3 as a cross-repository one and pull request 2 as not", got)
+	}
+}
+
 func checkListsNoneOpen(t *testing.T, ctx context.Context, rig ForgeRig) {
 	got, more, err := rig.Forge.OpenPullRequests(ctx, rig.Repo)
 	if err != nil || more || len(got) != 0 {
@@ -90,6 +103,7 @@ var forgeListChecks = []struct {
 	run  func(*testing.T, context.Context, ForgeRig)
 }{
 	{"the open pull requests list newest first with what a person reads of each, and not a merged one", checkListsOpenPulls},
+	{"a pull request whose branch lives in a fork lists as cross-repository", checkListSaysWhichPullsAreForks},
 	{"a repository with no open pull request lists none", checkListsNoneOpen},
 	{"a repository with the most open pull requests lists them all and says no more exist", checkListHoldsTheMost},
 	{"a repository with one more lists the newest and says more exist", checkListTruncates},

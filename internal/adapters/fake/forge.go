@@ -25,6 +25,7 @@ type forgePR struct {
 	// title, draft, and updatedAt are what a listing shows beside the pull request.
 	title     string
 	draft     bool
+	crossRepo bool
 	updatedAt string
 	comments  []string
 	keys      map[string]bool
@@ -306,7 +307,7 @@ func (f *Forge) HoldOpen(binding ledger.ForgeBinding, pulls ...ledger.PullReques
 	defer f.mu.Unlock()
 	for _, pull := range pulls {
 		f.prs = append(f.prs, &forgePR{
-			binding: binding.String(), title: pull.Title, draft: pull.Draft, updatedAt: pull.UpdatedAt, keys: map[string]bool{},
+			binding: binding.String(), title: pull.Title, draft: pull.Draft, crossRepo: pull.CrossRepository, updatedAt: pull.UpdatedAt, keys: map[string]bool{},
 			pr: ledger.PullRequest{Number: pull.Number, URL: pull.URL, State: ledger.PullRequestOpen, Base: pull.Base, Branch: pull.Branch, Mergeable: "MERGEABLE"},
 		})
 	}
@@ -324,7 +325,7 @@ func (f *Forge) OpenPullRequests(_ context.Context, repo ports.ForgeRepo) ([]led
 	for _, held := range f.prs {
 		if held.binding == repo.Binding.String() && held.pr.State == ledger.PullRequestOpen {
 			pulls = append(pulls, ledger.PullRequestSummary{
-				Number: held.pr.Number, Title: held.title, Branch: held.pr.Branch, Base: held.pr.Base, URL: held.pr.URL, Draft: held.draft, UpdatedAt: held.updatedAt,
+				Number: held.pr.Number, Title: held.title, Branch: held.pr.Branch, Base: held.pr.Base, URL: held.pr.URL, Draft: held.draft, CrossRepository: held.crossRepo, UpdatedAt: held.updatedAt,
 			})
 		}
 	}

@@ -291,6 +291,8 @@ func render(pr ghstate.PullRequest, state ghstate.State, fields string) map[stri
 			out[field] = pr.Title
 		case "isDraft":
 			out[field] = pr.Draft
+		case "isCrossRepository":
+			out[field] = pr.CrossRepository
 		case "updatedAt":
 			out[field] = pr.UpdatedAt
 		case "comments":

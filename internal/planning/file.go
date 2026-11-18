@@ -8,6 +8,7 @@ import (
 	"path"
 	"slices"
 	"strings"
+	"unicode"
 
 	"ropeshift.com/ropeshift/internal/ledger"
 )
@@ -487,10 +488,39 @@ func (f PlanFile) Normalize() (PlanFile, error) {
 		if out.Ref == "" || out.Reason == "" || left[out.Ref] {
 			return f, fmt.Errorf("%w: what the plan left out, %q, needs a unique ref and a reason", ErrBadFile, out.Ref)
 		}
+		if err := checkLeftOutRef(out.Ref); err != nil {
+			return f, fmt.Errorf("%w: what the plan left out, %q, %v", ErrBadFile, out.Ref, err)
+		}
 		left[out.Ref] = true
 	}
 	return f, nil
 }
+
+// checkLeftOutRef accepts a ref of `branch:` and a name git takes as a branch, of `pull:` and a positive
+// decimal number with no leading zero, or of `issue:` and an ID a tracker gave the issue.
+func checkLeftOutRef(ref string) error {
+	kind, rest, _ := strings.Cut(ref, ":")
+	switch kind {
+	case "branch":
+		if err := ledger.CheckBranch(rest); err != nil {
+			return errors.New("must follow branch: with a name git takes as a branch")
+		}
+	case "pull":
+		if rest == "" || rest[0] == '0' || strings.Trim(rest, "0123456789") != "" || len(rest) > 18 {
+			return errors.New("must follow pull: with a pull request number, a positive decimal with no leading zero")
+		}
+	case "issue":
+		if rest == "" || len(rest) > maxIssueIDBytes || strings.HasPrefix(rest, "-") || strings.ContainsFunc(rest, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }) {
+			return fmt.Errorf("must name an issue after issue:, an ID of at most %d bytes with no whitespace, no control character, and no leading dash", maxIssueIDBytes)
+		}
+	default:
+		return errors.New("must be branch:<name>, pull:<number>, or issue:<id>")
+	}
+	return nil
+}
+
+// maxIssueIDBytes is the longest issue ID a left-out ref names.
+const maxIssueIDBytes = 128
 
 // Normalize refuses a spec that cannot become a document.
 func (f SpecFile) Normalize() (SpecFile, error) {

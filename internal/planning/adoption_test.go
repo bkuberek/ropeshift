@@ -3,6 +3,7 @@ package planning_test
 import (
 	"errors"
 	"slices"
+	"strings"
 	"testing"
 
 	"ropeshift.com/ropeshift/internal/planning"
@@ -133,6 +134,29 @@ func TestAPlanRecordsWhatItLeftOut(t *testing.T) {
 		plan.LeftOut = left
 		if _, err := plan.Normalize(); !errors.Is(err, planning.ErrBadFile) {
 			t.Errorf("%s: %v", name, err)
+		}
+	}
+}
+
+// A left-out ref is branch: and a name git takes, pull: and a positive decimal number with no leading zero, or
+// issue: and an ID of at most 128 bytes with no whitespace, no control character, and no leading dash.
+func TestAPlansLeftOutRefsAreBranchesPullRequestsOrIssues(t *testing.T) {
+	for _, ref := range []string{
+		"branch:main", "branch:feature/checkout-retry", "branch:origin/spike/old-ui", "pull:1", "pull:41", "pull:1234567",
+		"issue:42", "issue:PROJ-123", "issue:acme/widgets#7", "issue:" + strings.Repeat("a", 128),
+	} {
+		plan := planning.PlanFile{ID: "p", Title: "P", LeftOut: []planning.LeftOut{{Ref: ref, Reason: "Old"}}}
+		if _, err := plan.Normalize(); err != nil {
+			t.Errorf("%s: %v", ref, err)
+		}
+	}
+	for _, ref := range []string{
+		"pull:abc", "pull:", "pull:-1", "pull:+1", "pull:0", "pull:041", "pull:4 1", "pull:1.5", "pull:99999999999999999999",
+		"foo", "issue:", "issue: x", "issue:x y", "issue:PROJ\t1", "issue:PROJ\x011", "issue:PROJ\n1", "issue:-1", "issue:--force", "issue:" + strings.Repeat("a", 129), "branch:", "branch:-x", "branch:a..b", "branch:a b", "branch:a//b", "branch:x.lock", "branch", "pull", ":41",
+	} {
+		plan := planning.PlanFile{ID: "p", Title: "P", LeftOut: []planning.LeftOut{{Ref: ref, Reason: "Old"}}}
+		if _, err := plan.Normalize(); !errors.Is(err, planning.ErrBadFile) {
+			t.Errorf("%q: %v, want a refusal", ref, err)
 		}
 	}
 }

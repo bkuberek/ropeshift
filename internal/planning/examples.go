@@ -333,7 +333,7 @@ The statement of what this work must deliver, in prose.
 	},
 	{
 		Kind:  FilePlan,
-		Intro: "The plan records each branch, pull request, or issue it does not carry in a [[left_out]] table, with ref naming it (branch:<name> or pull:<number>) and the reason.",
+		Intro: "The plan records each branch, pull request, or issue it does not carry in a [[left_out]] table, with ref naming it (branch:<name>, pull:<number>, or issue:<id>) and the reason.",
 		Text: `+++
 kind = "plan"
 id = "payments-v2"

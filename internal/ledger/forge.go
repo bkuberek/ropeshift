@@ -241,6 +241,9 @@ type PullRequestSummary struct {
 	Base   string `json:"base"`
 	URL    string `json:"url"`
 	Draft  bool   `json:"draft"`
+	// CrossRepository says the head branch lives in another repository, a fork, so its name does not name a
+	// branch of this one.
+	CrossRepository bool `json:"cross_repository"`
 	// UpdatedAt is when the forge last changed it, as an RFC 3339 time in UTC.
 	UpdatedAt string `json:"updated_at"`
 }
