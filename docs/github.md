@@ -176,6 +176,8 @@ ropeshift new monorepo ~/code/harbor --remote git@example.com:acme/harbor.git
 
 `--create-remote github:<owner>` creates every repository that has no remote of its own, the folder's own repository included, and `--public` makes each of them public. A `--new-repository` value of `<name>=<url>`, `<name>=github:<owner>`, or `<name>=none` sets that repository's remote, which `--create-remote` and `--remote` do not. A remote makes the first commit, as `--first-commit` does.
 
+A remote URL holds no password: `new` refuses `https://user:secret@host/...` before it writes anything, because the URL is stored in the installation, printed in reports, and written to the manifest. Let git's credential helper or an SSH key supply the credential.
+
 Before it writes anything, `new` checks `gh` on the machine that writes the folder, and the first failing check stops it with the command to run, with nothing written and nothing created:
 
 | Check | Refusal | What to run |

@@ -86,3 +86,36 @@ func TestRefusedRemotes(t *testing.T) {
 		})
 	}
 }
+
+// A password in a URL would reach the installation, the reports, and the committed manifest, so no remote holds one,
+// and the refusal does not repeat it.
+func TestARemoteWithAPasswordIsRefusedWithoutEchoingIt(t *testing.T) {
+	for _, remote := range []string{
+		"https://user:s3cret@example.invalid/orchid/orchid-api.git",
+		"https://:s3cret@example.invalid/orchid/orchid-api.git",
+		"ssh://git:s3cret@example.invalid/orchid/orchid-api.git",
+		"git://user:s3cret@example.invalid:9418/orchid-api.git",
+		"https://user:s3cret@example.invalid/a b.git",
+		"https://us er:s3cret@example.invalid/a.git",
+	} {
+		for name, err := range map[string]error{"CheckRemote": projectfiles.CheckRemote(remote), "Check": checkRemote(remote)} {
+			if err == nil || !strings.Contains(err.Error(), "password") {
+				t.Errorf("%s %q: %v, want the rule that a remote holds no password", name, remote, err)
+				continue
+			}
+			if strings.Contains(err.Error(), "s3cret") {
+				t.Errorf("%s %q: the refusal echoes the password: %v", name, remote, err)
+			}
+		}
+	}
+	for _, remote := range []string{
+		"https://token@example.invalid/orchid/orchid-api.git",
+		"ssh://git@example.invalid:2222/orchid/orchid-api.git",
+		"https://example.invalid:8443/orchid/a:b.git",
+		"git@example.invalid:orchid/orchid-api.git",
+	} {
+		if err := projectfiles.CheckRemote(remote); err != nil {
+			t.Errorf("remote %q: %v", remote, err)
+		}
+	}
+}
