@@ -22,6 +22,142 @@ var HardStopChecks = []Check{
 	{"HS2", "a lane parked on limit_raised wakes once when the limit rises above what was spent, at the commit when the raise came first", checkLimitRaisedWakesOnce},
 	{"HS3", "a new version of the spend policy that lifts a limit wakes the lane it parked, and a revert wakes nothing twice", checkPolicyChangeWakesTheLane},
 	{"HS4", "a resume grants one more generation's allowance, wakes the lane, and needs work a limit parked", checkResumeGrantsAGeneration},
+	{"HS5", "a usage report that reaches the hard limit records one stop per limit, which marks the delivery record spend_limited", checkHardLimitIsRecorded},
+	{"HS6", "a worker reads the allowance its lane's work order has, without the lane's own spend, and it follows a raise and a new policy at once", checkTheWorkersAllowance},
+}
+
+// spendEvents counts the events of a type about a work order's spend.
+func (r *Rig) spendEvents(store ports.Store, id, eventType string) (int, error) {
+	count := 0
+	err := store.Read(r.Ctx, r.Scope, func(tx ports.ReadTx) error {
+		events, err := tx.EventsAbout(ledger.Subject{Kind: ledger.SubjectSpend, ID: id})
+		for _, e := range events {
+			if e.Type == eventType {
+				count++
+			}
+		}
+		return err
+	})
+	return count, err
+}
+
+func checkHardLimitIsRecorded(r *Rig) error {
+	s, err := newStatusRig(r)
+	if err != nil {
+		return err
+	}
+	id := s.grant.WorkOrder
+	report := func(cost float64) error {
+		reply, err := s.usage(ledger.GenerationUsage{CostUSD: cost, KnownTurns: 4})
+		if err == nil && len(reply.Rejected) != 0 {
+			return Violatedf("a usage report was refused: %+v", reply.Rejected)
+		}
+		return err
+	}
+	if err := report(24); err != nil {
+		return err
+	}
+	if n, err := r.spendEvents(s.store, id, ledger.EventSpendLimited); err != nil || n != 0 {
+		return Violatedf("%d stops under the hard limit of 25: %v", n, err)
+	}
+	for _, cost := range []float64{25, 26, 27} {
+		if err := report(cost); err != nil {
+			return err
+		}
+	}
+	if n, err := r.spendEvents(s.store, id, ledger.EventSpendLimited); err != nil || n != 1 {
+		return Violatedf("%d stops at the hard limit across three reports, want one: %v", n, err)
+	}
+	// A raise moves the limit, and passing the new one is a new stop.
+	if _, err := control.NewSpend(s.store).Raise(r.Ctx, r.Scope, control.SpendRaise{WorkOrder: id, ToUSD: 40}, theMember); err != nil {
+		return err
+	}
+	if err := report(30); err != nil {
+		return err
+	}
+	if n, err := r.spendEvents(s.store, id, ledger.EventSpendLimited); err != nil || n != 1 {
+		return Violatedf("%d stops after a raise to 40 and spend of 30, want the one before: %v", n, err)
+	}
+	if err := report(41); err != nil {
+		return err
+	}
+	if n, err := r.spendEvents(s.store, id, ledger.EventSpendLimited); err != nil || n != 2 {
+		return Violatedf("%d stops after spend passed the raised limit, want two: %v", n, err)
+	}
+	events, err := r.Events(s.store, r.Scope)
+	if err != nil {
+		return err
+	}
+	var stop ledger.Event
+	for _, e := range events {
+		if e.Type == ledger.EventSpendLimited {
+			stop = e
+		}
+	}
+	var notice struct {
+		WorkOrder  string  `json:"work_order"`
+		Limit      float64 `json:"limit"`
+		ChargedUSD float64 `json:"charged_usd"`
+	}
+	if err := json.Unmarshal(stop.Data, &notice); err != nil || notice.WorkOrder != id || !near(notice.Limit, 40) || !near(notice.ChargedUSD, 41) {
+		return Violatedf("the stop reads %s: %v", stop.Data, err)
+	}
+	return nil
+}
+
+func checkTheWorkersAllowance(r *Rig) error {
+	s, err := newStatusRig(r)
+	if err != nil {
+		return err
+	}
+	id := s.grant.WorkOrder
+	if err := r.lanesWithUsage(s.store, id, []ledger.GenerationUsage{{CostUSD: 7, KnownTurns: 2}}); err != nil {
+		return err
+	}
+	if reply, err := s.usage(ledger.GenerationUsage{CostUSD: 5, KnownTurns: 1}); err != nil || len(reply.Rejected) != 0 {
+		return Violatedf("a usage report was refused: %+v, %v", reply.Rejected, err)
+	}
+	read := func() (*ledger.SpendAllowance, error) {
+		facts, err := s.plane.LaneFacts(r.Ctx, ledger.LaneFactsRequest{
+			Auth: s.auth, Epoch: s.epoch, WorkOrder: id, Fence: s.grant.Fence, Lane: s.lane,
+		})
+		return facts.Spend, err
+	}
+	allowance, err := read()
+	if err != nil {
+		return err
+	}
+	if allowance == nil || !near(allowance.HardUSD, 25) || !near(allowance.OthersUSD, 7) || !near(allowance.HeadroomShare, 0.1) {
+		return Violatedf("the worker reads an allowance of %+v, want a limit of 25 with 7 spent by the other lanes and a headroom of 0.1", allowance)
+	}
+	spend := control.NewSpend(s.store)
+	if _, err := spend.Raise(r.Ctx, r.Scope, control.SpendRaise{WorkOrder: id, ToUSD: 60}, theMember); err != nil {
+		return err
+	}
+	policy, err := authority.DefaultSpendPolicy().Set("budget_flag_headroom_share", "0.3")
+	if err != nil {
+		return err
+	}
+	policy.Version = 2
+	if _, err := spend.PublishSpendPolicy(r.Ctx, r.Scope, authority.SpendPolicyDraft{Body: policy.Body(), Policy: policy}, theMember); err != nil {
+		return err
+	}
+	if allowance, err = read(); err != nil || allowance == nil || !near(allowance.HardUSD, 60) || !near(allowance.HeadroomShare, 0.3) {
+		return Violatedf("after a raise to 60 and a headroom of 0.3 the worker reads %+v: %v", allowance, err)
+	}
+	// Work the policy leaves with no hard limit has no allowance to hold a lane to.
+	free, err := authority.DefaultSpendPolicy().Set("no_history_limit.medium", "0")
+	if err != nil {
+		return err
+	}
+	free.Version = 3
+	if _, err := spend.PublishSpendPolicy(r.Ctx, r.Scope, authority.SpendPolicyDraft{Body: free.Body(), Policy: free}, theMember); err != nil {
+		return err
+	}
+	if allowance, err = read(); err != nil || allowance != nil {
+		return Violatedf("work with no hard limit reads an allowance of %+v: %v", allowance, err)
+	}
+	return nil
 }
 
 // limitWake is what a lane parked at a hard limit waits on.

@@ -133,6 +133,9 @@ type LaneFacts struct {
 	Facts []MessageFact `json:"facts,omitempty"`
 	// Pack is the newest version of the pack this claim pinned, for the generation about to start.
 	Pack *DesiredPack `json:"pack,omitempty"`
+	// Spend is what the lane's work order allows it to spend, for the worker that holds the lane to its hard limit.
+	// Nil says the work order has no hard limit.
+	Spend *SpendAllowance `json:"spend,omitempty"`
 }
 
 // LaneContextRequest is one read of what a workspace holds, for a lane a worker holds. A search

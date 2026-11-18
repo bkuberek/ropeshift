@@ -173,3 +173,23 @@ func TestARaisedLimitIsTheHighestOneAMemberSet(t *testing.T) {
 		})
 	}
 }
+
+// A lane has brought its work order to the hard limit when the other lanes' spend and its own reach it, and the
+// client's own cap is what remains and a share of the limit beyond it.
+func TestAnAllowanceSaysWhenALaneCrossedAndWhatBudgetItGets(t *testing.T) {
+	allowance := SpendAllowance{HardUSD: 25, OthersUSD: 7, HeadroomShare: 0.1}
+	for lane, crossed := range map[float64]bool{0: false, 17.99: false, 18: true, 30: true} {
+		if got := allowance.Crossed(lane); got != crossed {
+			t.Errorf("a lane charged %v: crossed %v, want %v", lane, got, crossed)
+		}
+	}
+	for lane, budget := range map[float64]float64{0: 20.5, 10: 10.5, 18: 2.5, 30: 2.5} {
+		if got := allowance.BudgetUSD(lane); !near(got, budget) {
+			t.Errorf("a lane charged %v starts with a budget of %v, want %v", lane, got, budget)
+		}
+	}
+	none := SpendAllowance{OthersUSD: 40, HeadroomShare: 0.1}
+	if none.Crossed(1e9) || none.BudgetUSD(0) != 0 {
+		t.Errorf("a work order with no hard limit was held to one: %+v", none)
+	}
+}

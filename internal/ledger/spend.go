@@ -102,6 +102,35 @@ type SpendLimitChange struct {
 	PolicyVersion int64   `json:"policy_version"`
 }
 
+// SpendAllowance is what a worker holds a lane's work order to, and it is the worker's own read: the work order's hard
+// limit, what its other lanes have been charged, and the share of the limit a headless generation's budget flag has
+// beyond what remains. No lane, brief, orchestrator, or pack receives one (FR-SPEND-9). A lane's own spend is not in
+// it, because the worker holds that itself and it is current in the worker as no read can be.
+type SpendAllowance struct {
+	// HardUSD is the hard limit in force.
+	HardUSD float64 `json:"hard_usd"`
+	// OthersUSD is what the work order's other lanes are charged, which are the lanes before this one.
+	OthersUSD float64 `json:"others_usd,omitempty"`
+	// HeadroomShare is `budget_flag_headroom_share`.
+	HeadroomShare float64 `json:"headroom_share,omitempty"`
+}
+
+// Crossed says a lane that has been charged laneUSD has brought its work order to its hard limit.
+func (a SpendAllowance) Crossed(laneUSD float64) bool {
+	return a.HardUSD > 0 && a.OthersUSD+laneUSD >= a.HardUSD
+}
+
+// BudgetUSD is the budget a headless generation starts with for its client's own cap: what remains of the hard limit
+// after the lane's spend, and the headroom's share of the limit beyond it. The client counts only its own estimate and
+// only its own process, so this is a backstop for a worker that is slow to stop it, and never the limit (ADR-0037). It
+// is 0 when the work order has no limit.
+func (a SpendAllowance) BudgetUSD(laneUSD float64) float64 {
+	if a.HardUSD <= 0 {
+		return 0
+	}
+	return max(a.HardUSD-a.OthersUSD-laneUSD, 0) + a.HeadroomShare*a.HardUSD
+}
+
 // RaisedLimit is the hard limit a member's acts set on a work order, read from the events about its spend, and 0
 // when none did.
 func RaisedLimit(events []Event) float64 {
