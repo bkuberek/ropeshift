@@ -37,7 +37,11 @@ func (r *laneRun) loadProfile(ctx context.Context) {
 		r.w.config.Report(fmt.Errorf("lane %s: %w", r.lease.Lane, err))
 		return
 	}
-	profile, err := r.rt.Provisioner.Profiles.Load(ctx, repository, r.lease.Overrides)
+	base := r.begins()
+	if r.orchestrating() {
+		repository, base = "", ""
+	}
+	profile, err := r.rt.Provisioner.Profiles.Load(ctx, repository, base, r.lease.Overrides)
 	if err != nil {
 		r.w.config.Report(fmt.Errorf("lane %s: %w", r.lease.Lane, err))
 		return
@@ -480,12 +484,15 @@ func (r *laneRun) continuation() *lanes.Continuation {
 }
 
 // begins is the commit a new branch for this lane begins at: the tip of the branch it continues, or else
-// the base its claim resolved.
-func (r *laneRun) begins() string {
-	if r.lease.ContinuesCommit != "" {
-		return r.lease.ContinuesCommit
+// the base its claim resolved. A review lane's is the commit under review.
+func (r *laneRun) begins() string { return leaseBegins(r.lease) }
+
+// leaseBegins is begins for a lease, which a lane's repository layer is read at (FR-PROF-5).
+func leaseBegins(lease ledger.DesiredLease) string {
+	if lease.ContinuesCommit != "" {
+		return lease.ContinuesCommit
 	}
-	return r.lease.BaseCommit
+	return lease.BaseCommit
 }
 
 // kept are the branches nothing this lane runs may move: the one it continues.

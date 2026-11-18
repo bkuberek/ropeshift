@@ -131,7 +131,7 @@ func (p Provisioner) laneSets(ctx context.Context, request LaneRequest, profile 
 	if request.Overrides == "" {
 		return false, false, nil
 	}
-	below, err := p.Profiles.Load(ctx, request.Repository, "")
+	below, err := p.load(ctx, request, "")
 	if err != nil {
 		return false, false, err
 	}
@@ -149,13 +149,32 @@ func (p Provisioner) laneSets(ctx context.Context, request LaneRequest, profile 
 	return laneModel, laneEffort, nil
 }
 
+// load resolves the lane's profile, reading its repository's layer at the commit its worktree begins from
+// (FR-PROF-5). A lane with no work of its own has a directory and no repository, so it has no layer. A lane that
+// another machine ran may begin at a commit this machine has yet to fetch, so a commit it does not hold is read
+// again after the fetch the lane's worktree needs.
+func (p Provisioner) load(ctx context.Context, request LaneRequest, overrides string) (lanes.Profile, error) {
+	repository := request.Repository
+	if request.Private {
+		repository = ""
+	}
+	profile, err := p.Profiles.Load(ctx, repository, request.Base, overrides)
+	if errors.Is(err, ports.ErrNotFound) && len(request.Fetch) != 0 {
+		if err := p.Worktrees.Fetch(ctx, repository, request.Fetch); err != nil {
+			return lanes.Profile{}, err
+		}
+		return p.Profiles.Load(ctx, repository, request.Base, overrides)
+	}
+	return profile, err
+}
+
 // Prepare resolves the profile first, because a bad profile should stop a lane
 // before it leaves anything on disk, and a retry converges on the same worktree.
 func (p Provisioner) Prepare(ctx context.Context, request LaneRequest) (PreparedLane, error) {
 	if _, offered := p.Worktrees.(ports.ReviewTrees); request.Detached && !offered {
 		return PreparedLane{}, ErrNoDetached
 	}
-	profile, err := p.Profiles.Load(ctx, request.Repository, request.Overrides)
+	profile, err := p.load(ctx, request, request.Overrides)
 	if err != nil {
 		return PreparedLane{}, err
 	}

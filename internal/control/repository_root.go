@@ -32,7 +32,7 @@ func (r *Repositories) rootNote(ctx context.Context, scope ledger.WorkspaceID, k
 	if r.profiles == nil || checkout == "" {
 		return "", nil
 	}
-	profile, err := r.profiles.Load(ctx, checkout, "")
+	profile, err := r.profiles.Load(ctx, checkout, "", "")
 	if err != nil {
 		return "", nil
 	}

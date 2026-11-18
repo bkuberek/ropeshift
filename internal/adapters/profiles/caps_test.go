@@ -116,7 +116,7 @@ func TestTheFilesystemSetsTheLaneCaps(t *testing.T) {
 	if info, err := os.Stat(path); err != nil || info.Mode().Perm() != 0o640 {
 		t.Errorf("an edit changed the layer's mode to %v: %v", info.Mode(), err)
 	}
-	profile, err := source.Load(ctx, "", "")
+	profile, err := source.Load(ctx, "", "", "")
 	if err != nil || profile.Admission.MinFreeMemoryMB != 512 || profile.Agent.Model != "sonnet" {
 		t.Errorf("the rest of the layer: %+v, %v", profile.Admission, err)
 	}

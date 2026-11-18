@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 
@@ -127,6 +128,17 @@ func TestAReviewLaneReadsTheDiffAtTheReviewedCommitAndLeavesNoBranch(t *testing.
 	}
 	if files, ok := worktrees.ContextFile(spec.Path, "review-files.txt"); !ok || files != "retry.go\n" {
 		t.Errorf("the files read %q", files)
+	}
+	// The repository's layer is read at the commit each lane begins from: the base for the change, and for the
+	// review the commit under review, and never at no commit (FR-PROF-5).
+	loaded := r.config.Provisioner.Profiles.(*fake.ProfileSource).Loaded()
+	for _, want := range []fake.Load{{Repository: "/repository", Base: start}, {Repository: "/repository", Base: head}} {
+		if !slices.Contains(loaded, want) {
+			t.Errorf("no layer was read at %+v: %+v", want, loaded)
+		}
+	}
+	if slices.Contains(loaded, fake.Load{Repository: "/repository"}) {
+		t.Errorf("a layer was read with no commit: %+v", loaded)
 	}
 
 	sessions := r.driver.Specs()

@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"ropeshift.com/ropeshift/internal/lanes"
+	"ropeshift.com/ropeshift/test/gittest"
 )
 
 const bypassMode = "bypassPermissions"
@@ -75,11 +76,13 @@ func TestFilesystemReadsBothLayers(t *testing.T) {
 	if err := os.WriteFile(user, []byte("[agent]\npermission_mode = \"auto\"\ngates = [\"Bash(git push *)\"]\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	profile, err := Filesystem{User: user}.Load(t.Context(), t.TempDir(), "")
+	repo := gittest.New(t)
+	repo.Commit(RepositoryFile, "[agent]\nmodel = \"haiku\"\n")
+	profile, err := Filesystem{User: user, Env: repo.Env()}.Load(t.Context(), repo.Dir, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if profile.Agent.PermissionMode != "auto" || len(profile.Agent.Gates) != 1 {
+	if profile.Agent.PermissionMode != "auto" || len(profile.Agent.Gates) != 1 || profile.Agent.Model != "haiku" {
 		t.Errorf("agent %+v", profile.Agent)
 	}
 }
@@ -97,18 +100,7 @@ func TestTheBuiltInLayerNamesNoWorktreeRoot(t *testing.T) {
 // repository's over the user's, and the profile says which layer set it.
 func TestAProfileWithNoRootGetsTheDefaultRoot(t *testing.T) {
 	const defaultRoot = "/data/ropeshift/worktrees/{project}/{repo}"
-	dir := t.TempDir()
-	user := filepath.Join(dir, UserFile)
-	repository := t.TempDir()
-	write := func(path, text string) {
-		t.Helper()
-		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(path, []byte(text), 0o600); err != nil {
-			t.Fatal(err)
-		}
-	}
+	user := filepath.Join(t.TempDir(), UserFile)
 	tests := []struct {
 		name            string
 		user, layer     string
@@ -125,9 +117,12 @@ func TestAProfileWithNoRootGetsTheDefaultRoot(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			write(user, tt.user)
-			write(filepath.Join(repository, RepositoryFile), tt.layer)
-			profile, err := Filesystem{User: user, DefaultRoot: tt.defaultRoot}.Load(t.Context(), repository, "")
+			if err := os.WriteFile(user, []byte(tt.user), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			repo := gittest.New(t)
+			repo.Commit(RepositoryFile, tt.layer)
+			profile, err := Filesystem{User: user, DefaultRoot: tt.defaultRoot, Env: repo.Env()}.Load(t.Context(), repo.Dir, "", "")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -141,7 +136,7 @@ func TestAProfileWithNoRootGetsTheDefaultRoot(t *testing.T) {
 // Where the root came from is for a lane's refusal and not for its digest, so two machines that differ only
 // in where their worktrees go record one profile only when the root is the same.
 func TestTheRootSourceIsNotInTheDigest(t *testing.T) {
-	a, err := Filesystem{DefaultRoot: "/w/{project}/{repo}"}.Load(t.Context(), "", "")
+	a, err := Filesystem{DefaultRoot: "/w/{project}/{repo}"}.Load(t.Context(), "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -313,7 +308,7 @@ func TestAnEmptyRepositoryReadsTheUsersLayerAlone(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Chdir(here)
-	profile, err := Filesystem{User: user}.Load(t.Context(), "", "")
+	profile, err := Filesystem{User: user}.Load(t.Context(), "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}

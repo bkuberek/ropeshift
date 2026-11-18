@@ -491,7 +491,7 @@ func TestLaneFailuresBeforeASession(t *testing.T) {
 
 type badProfile struct{}
 
-func (badProfile) Load(context.Context, string, string) (lanes.Profile, error) {
+func (badProfile) Load(context.Context, string, string, string) (lanes.Profile, error) {
 	return lanes.Profile{}, lanes.ErrBadProfile
 }
 
