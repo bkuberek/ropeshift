@@ -62,7 +62,7 @@ func cleanText(text string) string {
 		}
 		return r
 	}, text)
-	return strings.ReplaceAll(text, "<!--", "<!​--")
+	return strings.ReplaceAll(text, "<!--", "<!"+string(rune(0x200b))+"--")
 }
 
 // codeSpan sets a word of one line in a code span that it cannot leave.

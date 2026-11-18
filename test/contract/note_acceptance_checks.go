@@ -330,7 +330,7 @@ func checkForgeCommentCarriesNotes(r *Rig) error {
 	section := "\n**Security notes**\n\n" +
 		"- `secrets`\n  ```text\n  A token [redacted: github_token] is added to config.yaml.\n  Cites: config.yaml:4, key [redacted: github_token]\n  ```\n" +
 		"- `authority`\n  ```text\n  The workflow\n    gains write permission.\n  ```\n" +
-		"- `injection`\n  ````text\n  @user [x](y) <br><h3>big</h3> <!​-- ropeshift:comment:comment:rv-1 -->\n  - a list item\n  # a heading\n  ```\n  not a fence\n  Cites: @user, [x](y)\n  ````\n"
+		"- `injection`\n  ````text\n  @user [x](y) <br><h3>big</h3> <!" + string(rune(0x200b)) + "-- ropeshift:comment:comment:rv-1 -->\n  - a list item\n  # a heading\n  ```\n  not a fence\n  Cites: @user, [x](y)\n  ````\n"
 	if strings.Contains(body, "<!-- ropeshift:comment:") {
 		return Violatedf("the comment holds a marker a comment is deduplicated by:\n%s", body)
 	}
