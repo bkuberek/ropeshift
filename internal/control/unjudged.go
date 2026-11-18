@@ -81,6 +81,9 @@ func (q *Questions) escalateOne(ctx context.Context, scope ledger.WorkspaceID, r
 			return err
 		}
 		record = questions.Unjudged(record, policy, lookup, open)
+		if record.Overlaps, err = overlapsOf(tx, record); err != nil {
+			return err
+		}
 		crashpoint.Hit("question.unjudged", "climbed")
 		if err := q.gather(tx, &record, actor); err != nil {
 			return err

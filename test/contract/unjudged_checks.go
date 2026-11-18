@@ -25,6 +25,7 @@ var UnjudgedChecks = []Check{
 	{"UJ8", "a member claims, dispatches, and recovers work with no orchestrator", checkUnjudgedMemberRunsWork},
 	{"UJ9", "a question whose text search fails still reaches a person, with no candidates, and the tick says so once", checkUnjudgedMatcherFails},
 	{"UJ10", "an orchestrator that takes a question between the core's read and its write keeps it", checkUnjudgedCoreLosesTake},
+	{"UJ11", "a question the core takes to a person names the decisions in force its scope overlaps", checkUnjudgedNamesOverlaps},
 }
 
 const unjudgedText = "Which ID scheme do the work orders take?"
@@ -475,6 +476,38 @@ func checkUnjudgedCoreLosesTake(r *Rig) error {
 	}
 	if len(delivered) != 0 {
 		return Violatedf("a question an orchestrator took reached a member: %+v", delivered)
+	}
+	return nil
+}
+
+func checkUnjudgedNamesOverlaps(r *Rig) error {
+	s := r.Store()
+	ops := r.NewOps(s)
+	order, err := r.Ready(s)
+	if err != nil {
+		return err
+	}
+	decided, err := ops.RecordDecision(r.Ctx, r.Scope, questions.Decision{
+		ID: r.ID("d"), Status: questions.DecisionDecided, Statement: "Work orders take sequential integer IDs.",
+		Scope: "wo:" + order, Categories: []string{questions.CategoryProduct},
+	}, r.Actor)
+	if err != nil {
+		return err
+	}
+	asked, err := r.ask(s, unjudgedText, "lane-a", func(a *questions.Ask) { a.SubjectKind, a.SubjectID = workorders.SubjectKind, order })
+	if err != nil {
+		return err
+	}
+	r.DB.ShiftClock(BatchWindowMs + 1)
+	if _, err := ops.DeliverBatches(r.Ctx, r.Scope, tickActor); err != nil {
+		return err
+	}
+	row, err := r.readQuestion(s, asked.QuestionID)
+	if err != nil {
+		return err
+	}
+	if row.Status != questions.StatusNeedsHuman || !slices.Contains(row.Overlaps, decided.ID) {
+		return Violatedf("a question the core took to a person names the overlaps %v, want %s", row.Overlaps, decided.ID)
 	}
 	return nil
 }
