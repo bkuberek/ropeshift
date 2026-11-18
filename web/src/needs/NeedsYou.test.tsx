@@ -922,6 +922,10 @@ describe("waiting work", () => {
     expect(within(review).getByText(/nothing I can run shows it keeps the last day/)).toBeTruthy();
     expect(within(review).getByText("trim.go:30")).toBeTruthy();
     expect(within(review).getByText("FR-LOG-2")).toBeTruthy();
+    const notes = within(review).getByRole("list", { name: "Security notes" });
+    expect(within(notes).getByText("Injection")).toBeTruthy();
+    expect(within(notes).getByText("Dependencies")).toBeTruthy();
+    expect(within(notes).getByText("go.mod adds a module at a branch and not at a version.")).toBeTruthy();
     expect(within(card).getByText(/the review could not judge criterion c1/)).toBeTruthy();
     // The person still decides, and the card still offers both.
     expect(within(card).getByRole("button", { name: "Accept" })).toBeTruthy();
@@ -943,6 +947,7 @@ describe("waiting work", () => {
       { ...base, criterion: "c2", verdict: "fail", reasons: "nothing is logged", citations: [] },
       { ...base, criterion: "c3", verdict: "cannot_judge", reasons: "no test runs here", citations: undefined },
     ];
+    delete accept.work.standing.notes;
     show(view);
     const review = within(await cardNamed(/Trim the log/)).getByRole("region", { name: "What the review found" });
     for (const word of ["Pass", "Fail", "Cannot judge"]) {

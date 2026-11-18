@@ -292,6 +292,30 @@ describe("a work order", () => {
     expect(within(review).getByText("trim.go:30")).toBeTruthy();
   });
 
+  it("lists the review's security notes after its verdicts, each with its point, reasons, and citations", async () => {
+    serveViews();
+    openPage("/work-order?id=wo-accept");
+    const review = within(await screen.findByRole("tabpanel")).getByRole("region", { name: "What the review found" });
+    const verdicts = within(review).getByRole("list", { name: "Verdicts" });
+    const notes = within(review).getByRole("list", { name: "Security notes" });
+    expect(verdicts.compareDocumentPosition(notes) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const [injection, dependencies] = Array.from(notes.children) as [HTMLElement, HTMLElement];
+    expect(within(injection).getByText("Injection")).toBeTruthy();
+    expect(within(injection).getByText("trim.go passes the log name to a shell command.")).toBeTruthy();
+    expect(within(within(injection).getByRole("list", { name: "Citations for the injection note" })).getByText("trim.go:44")).toBeTruthy();
+    expect(within(dependencies).getByText("Dependencies")).toBeTruthy();
+    expect(within(dependencies).queryByRole("list")).toBeNull();
+    // A note is not a verdict, and says so where it is read.
+    expect(within(review).getByText(/fails no criterion/)).toBeTruthy();
+  });
+
+  it("says nothing of security notes for work whose review left none", async () => {
+    serveViews();
+    openPage("/work-order?id=wo-done");
+    expect(await screen.findByRole("list", { name: "Acceptance criteria" })).toBeTruthy();
+    expect(screen.queryByRole("list", { name: "Security notes" })).toBeNull();
+  });
+
   it("states where each criterion stands, and asks nobody for anything once work has ended", async () => {
     serveViews();
     openPage("/work-order?id=wo-done");

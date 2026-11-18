@@ -71,6 +71,16 @@ export function verdictsOf(standing: Standing): string {
     .join(", ");
 }
 
+// notesOf counts the security notes the reviews left for the work's current attempt and commit. A note decides
+// nothing, so it is counted apart from the verdicts. Work whose review left none says nothing.
+export function notesOf(standing: Standing): string {
+  const notes = standing.notes?.length ?? 0;
+  if (notes === 0) {
+    return "";
+  }
+  return notes === 1 ? "1 security note" : `${notes} security notes`;
+}
+
 // checksOf counts the checks on the work's commit by where each stands: the pull request's checks when the work
 // lands through one, and the checks on record otherwise.
 export function checksOf(standing: Standing): string {

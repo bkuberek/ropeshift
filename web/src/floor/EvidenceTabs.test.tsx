@@ -79,6 +79,24 @@ describe("the Changes tab", () => {
     expect(screen.queryByRole("list", { name: "Criteria" })).toBeNull();
   });
 
+  it("lists the security notes after the criteria and verdicts, as text, and none when the review left none", () => {
+    const none = render(<ChangesView standing={standing("reviewed")} />);
+    expect(screen.queryByRole("heading", { level: 3, name: "Security notes" })).toBeNull();
+    none.unmount();
+    const noted = standing("reviewed");
+    noted.notes = [
+      { point: "secrets", reasons: "<img src=x onerror=alert(1)>", citations: ["config.yaml:4"], review_id: "rv-1", work_order_id: "wo-ruled", commit: "cab321", seq: 0 },
+    ];
+    const { container } = render(<ChangesView standing={noted} />);
+    const panel = within(screen.getByRole("heading", { level: 3, name: "Security notes" }).closest("section") as HTMLElement);
+    expect(panel.getByText("Secrets")).toBeTruthy();
+    expect(panel.getByText("config.yaml:4")).toBeTruthy();
+    expect(container.querySelector("img")).toBeNull();
+    expect(container.textContent).toContain("<img src=x onerror=alert(1)>");
+    const headings = screen.getAllByRole("heading", { level: 3 }).map((heading) => heading.textContent);
+    expect(headings.indexOf("Security notes")).toBe(headings.indexOf("Criteria and verdicts") + 1);
+  });
+
   it("shows the words of a verdict as text, so a model's markup is never a page's", () => {
     const hostile = standing("reviewed");
     const [verdict] = hostile.verdicts ?? [];

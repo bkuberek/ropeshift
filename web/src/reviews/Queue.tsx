@@ -12,7 +12,7 @@ import { Absent, EmptyState, Id, Refusal, TableRegion, WorkBadge } from "../ui/d
 import { Field } from "../ui/forms";
 import { Dialog, useToast } from "../ui/overlays";
 import type { QueueRow } from "./inReview";
-import { checksOf, verdictsOf, waitsOn } from "./inReview";
+import { checksOf, notesOf, verdictsOf, waitsOn } from "./inReview";
 
 // ReworkDialog asks why work goes back for another attempt, and sends it as `work rework` does.
 function ReworkDialog({ row, onClose, after }: { row: QueueRow; onClose: () => void; after: () => Promise<void> }) {
@@ -157,6 +157,7 @@ export function Queue({ rows, after }: { rows: QueueRow[]; after: () => Promise<
                   </td>
                   <td data-label="Review">
                     {verdictsOf(row.standing)}
+                    {notesOf(row.standing) ? <span className="cell-note">{notesOf(row.standing)}</span> : null}
                     <span className="cell-note">{checksOf(row.standing)}</span>
                   </td>
                   <td data-label="Waits on" className="title-cell">

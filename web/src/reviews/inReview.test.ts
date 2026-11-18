@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { Completed, Plans, Standing, InProgress, NeedsYou, OnHold, Stuck } from "../api/types";
 import { index } from "../floor/workIndex";
 import { golden } from "../testing";
-import { agreementOf, checksOf, enoughDecisions, mergeableWords, pullRequestsOf, queueOf, verdictsOf, waitsOn } from "./inReview";
+import { agreementOf, checksOf, enoughDecisions, mergeableWords, notesOf, pullRequestsOf, queueOf, verdictsOf, waitsOn } from "./inReview";
 
 // The work in review as the API serves it from a real ledger: a change the review could not judge, which waits for
 // the member's acceptance; a change whose review passed, whose pull request has a check running and whose merge
@@ -67,6 +67,15 @@ describe("what a row says", () => {
       { ...(mixed.verdicts?.[0] as NonNullable<Standing["verdicts"]>[number]), criterion: "c3", verdict: "pass" },
     ];
     expect(verdictsOf(mixed)).toBe("2 pass, 1 fail");
+  });
+
+  it("counts the security notes apart from the verdicts, and says nothing when there are none", () => {
+    expect(notesOf(standingOf("wo-accept"))).toBe("2 security notes");
+    expect(notesOf(standingOf("wo-ruled"))).toBe("");
+    const one = structuredClone(standingOf("wo-accept"));
+    one.notes = one.notes?.slice(0, 1);
+    expect(notesOf(one)).toBe("1 security note");
+    expect(verdictsOf(one)).toBe("1 cannot judge");
   });
 
   it("counts the checks of the pull request when there is one, and the lane's otherwise", () => {

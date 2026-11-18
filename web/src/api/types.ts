@@ -786,6 +786,20 @@ export type Verdict = {
   commit: string;
 };
 
+// A review note is a security concern a review found in the diff, whatever its criteria say, bound to the commit it
+// read. It is shown beside the verdicts and decides nothing.
+export type NotePoint = "secrets" | "injection" | "dependencies" | "authority";
+
+export type ReviewNote = {
+  point: NotePoint;
+  reasons: string;
+  citations?: string[];
+  review_id: string;
+  work_order_id: string;
+  commit: string;
+  seq: number;
+};
+
 export type ReviewLine = { id: string; state: string; attempt: number };
 
 // One approval of a reviewed commit for merge, and the merge that followed it: who approved, at which merge
@@ -832,6 +846,8 @@ export type Standing = {
   // the work waits on when those verdicts hold it for a member.
   reviews?: ReviewLine[];
   verdicts?: Verdict[];
+  // The security notes the reviews left for that attempt and commit, shown after the verdicts.
+  notes?: ReviewNote[];
   rounds?: number;
   authority?: string;
   why?: string;
