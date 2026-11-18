@@ -11,9 +11,9 @@ import (
 // ScheduledStartStoreChecks hold the record of a start a member scheduled for a sign-in's usage reset: one per worker,
 // replaced by the next, removed once, and kept across a restart, in the installation's records.
 var ScheduledStartStoreChecks = []Check{
-	{"SS1", "a scheduled start is one per worker, and the next replaces it", checkScheduledStartOnePerWorker},
-	{"SS2", "a scheduled start is removed once", checkScheduledStartRemovedOnce},
-	{"SS3", "a scheduled start survives a restart", checkScheduledStartSurvivesRestart},
+	{"OS1", "a scheduled start is one per worker, and the next replaces it", checkScheduledStartOnePerWorker},
+	{"OS2", "a scheduled start is removed once", checkScheduledStartRemovedOnce},
+	{"OS3", "a scheduled start survives a restart", checkScheduledStartSurvivesRestart},
 }
 
 func (r *Rig) scheduleStart(s ports.Store, start ledger.ScheduledStart) error {
