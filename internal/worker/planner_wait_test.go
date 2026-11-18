@@ -220,6 +220,7 @@ func TestAPlanningLaneParksWhenATerminalStaysAttachedWithNoInput(t *testing.T) {
 		}
 	}
 	r.waitsForItsPerson(t)
+	r.clock.Advance(time.Minute)
 
 	r.awaitParked(t)
 	r.subject.Wait()
@@ -265,6 +266,7 @@ func TestAPlanningLaneWaitsOnForItsPersonAfterAWorkerRestart(t *testing.T) {
 
 	r.takeOver(t, fake.DriverScript{SessionID: "session-1", Model: "resolved-model", Silent: true})
 	r.waitsForItsPerson(t)
+	r.clock.Advance(5 * time.Minute)
 	r.awaitParked(t)
 	r.subject.Wait()
 	if wake := r.wakeOf(t, 1); wake.Expr != lanes.HumanWake() {
@@ -303,6 +305,7 @@ func TestOneFailedReadOfThePaneDoesNotParkAPlanningLane(t *testing.T) {
 	r.waitsForItsPerson(t)
 
 	r.driver.SetAttached(false)
+	r.clock.Advance(5 * time.Minute)
 	r.awaitParked(t)
 	r.subject.Wait()
 }
@@ -318,6 +321,7 @@ func TestAPlanningLaneParkedForItsPersonSaysWhyAndWakesOnResume(t *testing.T) {
 		t.Fatal(err)
 	}
 	r.waitsForItsPerson(t)
+	r.clock.Advance(5 * time.Minute)
 	r.awaitParked(t)
 	r.subject.Wait()
 	if _, doc := r.storedHandoff(t, 1); doc.Reason != string(lanes.ParkWaitingForPerson) {
