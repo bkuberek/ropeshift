@@ -264,6 +264,8 @@ export type TemplateWriteReport = {
   detail?: string;
   project?: string;
   files?: string[];
+  // The files of the shape the folder held before the write, which the write left as they were.
+  left?: string[];
   commit?: string;
   commit_error?: string;
   clone?: boolean;
