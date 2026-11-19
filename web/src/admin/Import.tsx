@@ -80,7 +80,8 @@ export function ImportPage({ projects, chosen, reload }: { projects: Project[]; 
   // readPlan reads the plan as the CLI's dry run does: the first folder is the clone adopt runs in, and the others are
   // paths beside it. A project not created yet has no route of its own, so it is read with no record of any project.
   const readPlan = (leaveOut: string[] = []): Promise<AdoptionPlan> => {
-    const request = planRequest(listed, levels, leaveOut);
+    // The dry run lists each repository's practices, which the plan's digest leaves out.
+    const request = { ...planRequest(listed, levels, leaveOut), practices: true };
     return target === "new" ? readAdoptionPlan("installation", request) : inProjectOf(target, () => readAdoptionPlan("project", request));
   };
 

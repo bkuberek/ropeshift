@@ -71,7 +71,26 @@ export type RepositoryAddReport = { dry_run: boolean; repositories: RepositoryAd
 // come as null.
 export type LayoutShape = "single" | "planned" | "consolidate" | "workspace_files";
 export type LayoutClone = { name: string; path: string; identity: string; where: "here" | "ignored" | "path"; plan?: boolean; documents: number; instructions?: boolean };
-export type PlannedRepository = { name?: string; path: string; id?: string; outcome: "registered" | "known" | "refused" | "not_registered"; reason?: string };
+// A repository's practices as a dry run reads them: the findings of the check at the base branch a registration would
+// record, with no forge binding (FR-PRAC-6). A finding holds the matched text of no secret, only its rule, file, line, and
+// commit.
+export type PracticeSeverity = "high" | "medium" | "low";
+export type PracticeFinding = { id: string; practice: string; subject?: string; severity: PracticeSeverity; detail: string; rule?: string; path?: string; line?: number; commit?: string };
+export type PracticeStatus = { id: string; status: "met" | "finding" | "unknown" | "not_applicable"; reason?: string };
+export type PracticesResult = { repository: string; commit: string; base_branch: string; worker: string; checked_at: string; practices: PracticeStatus[]; findings: PracticeFinding[] | null };
+// The table's words for a practice a finding names: why it matters, how to meet it, and the command that prints the
+// template that supplies the file it asks for.
+export type PracticeGuide = { why: string; fix: string; template?: string; command?: string };
+// practices is absent for a plan that asked for none and for a clone the check could not read, and practices_note says why.
+export type PlannedRepository = {
+  name?: string;
+  path: string;
+  id?: string;
+  outcome: "registered" | "known" | "refused" | "not_registered";
+  reason?: string;
+  practices?: PracticesResult;
+  practices_note?: string;
+};
 // lines are the lines an append adds to the file, each only when the file holds none like it. template names the
 // template a file the layout lacks is written from.
 export type PlannedFile = { path: string; action: "add" | "append"; detail?: string; lines?: string[]; template?: string };
@@ -102,11 +121,13 @@ export type AdoptionPlan = {
   // part of the plan, and its digest does not hold them: a restructuring sends them back so a worker that reads another
   // layout names the parts that differ.
   parts?: Record<string, string>;
+  // guides are the practice table's words for each practice a finding of the plan names, by practice ID.
+  guides?: Record<string, PracticeGuide>;
 };
 
 // AdoptionPlanRequest asks for the plan of adopting the clone at root, which is the clone `ropeshift adopt` runs in,
 // with the clones the paths name beside it.
-export type AdoptionPlanRequest = { root: string; paths?: string[]; depth?: number; planning?: string; design?: string; leave_out?: string[]; new_project?: boolean };
+export type AdoptionPlanRequest = { root: string; paths?: string[]; depth?: number; planning?: string; design?: string; leave_out?: string[]; new_project?: boolean; practices?: boolean };
 
 // The restructuring a member chose from a plan, as an adopt work order keeps it: the shape and the plan's digest, for a
 // consolidation the design repository and the trees to leave out, and the request the plan was read with (root, paths,

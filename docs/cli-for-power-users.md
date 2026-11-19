@@ -256,6 +256,7 @@ The dry run prints one fact to a line:
 | `Layout`, `Clone` | The clone adopt runs in, and each clone found with where it was found and what it holds |
 | `Shape`, `Planning repository`, `Design repository` | The shape, where the plan lives, and the design repository with why it is the one |
 | `would register`, `already registered`, `refused`, `not registered` | Each repository, with the outcome a registration gives it. A `consolidate` layout lists the design repository as `not registered` |
+| `Practices` | Under each repository the dry run read, the practices check as `ropeshift practices` prints it, with no acknowledgements: the open findings by severity, each with why it matters and its fix, the practices the check could not settle, and the practices met. The check reads the base branch a registration would record, on this machine, with no forge binding, so `branch-protection`, `required-review`, and `license` are not applicable, and it records nothing; adopting records the check. A repository the check cannot read prints `Practices` and the reason on one line. `--json` carries each result as `practices` and the reason as `practices_note` |
 | `add`, `append` | A file the restructuring would add to the planning repository, or the lines it would append, each only when the repository lacks it |
 | `Files the layout lacks` | A heading, followed by one `add` line for each of `AGENTS.md`, `CLAUDE.md`, `Makefile`, and `.gitignore` that the planning repository lacks, which are written from the templates `ropeshift new` uses. [The files a layout lacks](adopt.md#the-files-a-layout-lacks) says when each is listed |
 | `Steps for you`, `step`, `run` | A heading, then each code repository whose clone holds no instruction file, with the `[ -e <clone>/AGENTS.md ] || ropeshift template show repository/agents.md > <clone>/AGENTS.md` command for you to run, because adoption writes to no other repository. A clone the plan moves is named where the move leads |
@@ -263,7 +264,7 @@ The dry run prints one fact to a line:
 | `take`, `collision` | A path a consolidation takes from the design repository, and a path both repositories hold with the version kept: `workspace`, or `union` for `.gitignore` |
 | `code tree` | A code tree of the design repository with its build file, and whether it is left out |
 | `move`, `run` | A clone to move into the planning repository's folder of clones, and the commands that do it, which ropeshift never runs |
-| `Digest` | The SHA-256 of the plan, which `--restructure` sends back, with the request the plan was read with and the digest of each of its parts, so the worker finds a layout that changed in between and names the parts that differ |
+| `Digest` | The SHA-256 of the plan, which `--restructure` sends back, with the request the plan was read with and the digest of each of its parts, so the worker finds a layout that changed in between and names the parts that differ. The practices are no part of it |
 
 Ropeshift never moves, deletes, or writes to a clone other than through a lane worktree of the planning repository, and never changes a remote.
 

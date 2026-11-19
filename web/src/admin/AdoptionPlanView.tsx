@@ -1,4 +1,4 @@
-import type { AdoptionPlan, LayoutClone, PlannedFile, PlannedRepository } from "../api/admin";
+import type { AdoptionPlan, LayoutClone, PlannedFile, PlannedRepository, PracticeFinding, PracticeGuide, PracticeSeverity } from "../api/admin";
 import type { StateLook } from "../floor/states";
 import { Digest, LookBadge, TableRegion } from "../ui/display";
 import { offersRestructure, shapeSummary } from "./adoption";
@@ -23,8 +23,103 @@ function outcomeOf(row: PlannedRepository, plan: AdoptionPlan): StateLook {
   }
 }
 
+// The look of each severity, in the order a list of findings reads: the most severe first.
+const severities: { severity: PracticeSeverity; look: StateLook }[] = [
+  { severity: "high", look: { label: "high", tone: "danger", glyph: "cross" } },
+  { severity: "medium", look: { label: "medium", tone: "warning", glyph: "triangle" } },
+  { severity: "low", look: { label: "low", tone: "neutral", glyph: "ring" } },
+];
+
+function FindingRow({ finding, guide }: { finding: PracticeFinding; guide?: PracticeGuide }) {
+  const look = severities.find((one) => one.severity === finding.severity)?.look ?? severities[2]!.look;
+  return (
+    <li>
+      <LookBadge look={look} /> <code>{finding.id}</code>
+      <div>{finding.detail}</div>
+      {finding.path ? (
+        <div className="small muted">
+          At <code>{finding.path}</code>
+          {finding.line ? `:${finding.line}` : ""} ({finding.rule}, commit <code>{finding.commit}</code>)
+        </div>
+      ) : null}
+      {guide ? <div className="small muted">Fix: {guide.fix}</div> : null}
+      {guide?.command ? (
+        <div className="small muted">
+          Template: <code>{guide.command}</code>
+        </div>
+      ) : null}
+    </li>
+  );
+}
+
+// RepositoryPractices is one repository's open findings in a row that opens to list each with its fix, or what says why the
+// check could not read the clone. A dry run acknowledges nothing, so every finding is open.
+function RepositoryPractices({ row, guides }: { row: PlannedRepository; guides: Record<string, PracticeGuide> }) {
+  if (!row.practices) {
+    return <span className="small muted">{row.practices_note}</span>;
+  }
+  const findings = row.practices.findings ?? [];
+  if (findings.length === 0) {
+    return <span className="small muted">No findings</span>;
+  }
+  return (
+    <details className="disclosure">
+      <summary>
+        {findings.length} {findings.length === 1 ? "finding" : "findings"}
+        {severities.map(({ severity, look }) => {
+          const count = findings.filter((finding) => finding.severity === severity).length;
+          return count > 0 ? (
+            <LookBadge key={severity} look={{ ...look, label: `${count} ${look.label}` }} />
+          ) : null;
+        })}
+      </summary>
+      <ul className="plan-notes" aria-label={`Findings of ${row.name ?? row.path}`}>
+        {severities.flatMap(({ severity }) =>
+          findings
+            .filter((finding) => finding.severity === severity)
+            .map((finding) => <FindingRow key={finding.id} finding={finding} guide={guides[finding.practice]} />),
+        )}
+      </ul>
+    </details>
+  );
+}
+
+// PracticesTable lists each repository the dry run read the practices of, one row each, closed until a member opens it
+// (FR-PRAC-6). A plan that asked for none has no table.
+function PracticesTable({ plan }: { plan: AdoptionPlan }) {
+  const rows = plan.repositories.filter((row) => row.practices || row.practices_note);
+  if (rows.length === 0) {
+    return null;
+  }
+  return (
+    <TableRegion label="Practices found">
+      <table className="table stack-on-phone dry-run">
+        <thead>
+          <tr>
+            <th scope="col">Clone</th>
+            <th scope="col">Findings</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.path}>
+              <td data-label="Clone" className="wrap">
+                <strong>{row.name ?? row.path}</strong>
+              </td>
+              <td data-label="Findings" className="wrap">
+                <RepositoryPractices row={row} guides={plan.guides ?? {}} />
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </TableRegion>
+  );
+}
+
 // PlanSummary is the plan as the CLI's dry run prints it: the layout, the shape, where the plan lives, every repository
-// with what registering would do with it, and the notes of what the detection could not settle.
+// with what registering would do with it, the findings of each repository's practices, and the notes of what the
+// detection could not settle.
 export function PlanSummary({ plan }: { plan: AdoptionPlan }) {
   const clones = new Map(plan.layout.clones.map((clone) => [clone.path, clone]));
   return (
@@ -81,6 +176,7 @@ export function PlanSummary({ plan }: { plan: AdoptionPlan }) {
           </tbody>
         </table>
       </TableRegion>
+      <PracticesTable plan={plan} />
       {(plan.notes ?? []).length > 0 ? (
         <ul className="small muted plan-notes" aria-label="Notes">
           {(plan.notes ?? []).map((note) => (

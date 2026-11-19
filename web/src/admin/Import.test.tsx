@@ -76,7 +76,7 @@ describe("Import an existing project, reading the plan", () => {
     await screen.findByRole("region", { name: "Clones found" });
     expect(planCalls(sent)).toHaveLength(1);
     expect(planCalls(sent)[0]?.project, "a project not created yet has no route of its own").toBe("");
-    expect(planCalls(sent)[0]?.body).toEqual({ root: "/work/design", paths: ["/work/api", "/work/web"], depth: 2, new_project: true });
+    expect(planCalls(sent)[0]?.body).toEqual({ root: "/work/design", paths: ["/work/api", "/work/web"], depth: 2, new_project: true, practices: true });
     expect(steps(sent), "the dry run records nothing and creates no project").toEqual(["POST - /v1/adoption/plan"]);
     expect(screen.getByRole("heading", { level: 2, name: "Dry run" })).toBeTruthy();
     const dry = screen.getByRole("region", { name: "Clones found" });
@@ -90,7 +90,7 @@ describe("Import an existing project, reading the plan", () => {
     await userEvent.click(screen.getByRole("button", { name: "Run dry run" }));
     await screen.findByRole("region", { name: "Clones found" });
     expect(planCalls(sent)[0]?.project).toBe("default");
-    expect(planCalls(sent)[0]?.body).toEqual({ root: "/work/solo", depth: 1 });
+    expect(planCalls(sent)[0]?.body).toEqual({ root: "/work/solo", depth: 1, practices: true });
   });
 
   it("asks for an absolute path, and for a folder, before it reads anything", async () => {
