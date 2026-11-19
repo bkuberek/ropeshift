@@ -13,5 +13,5 @@ func snapshotAdd() []string { return []string{"add", "--all"} }
 
 // pushArguments is one push, which never forces.
 func pushArguments(remote, ref string) []string {
-	return []string{"push", "--quiet", "--no-verify", remote, ref + ":" + ref}
+	return []string{"push", "--quiet", "--no-verify", "--", remote, ref + ":" + ref}
 }

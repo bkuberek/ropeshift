@@ -91,8 +91,17 @@ func dirtyPaths(status string) []string {
 }
 
 // remoteOf finds where a push goes: the branch's upstream, then the usual name, then the
-// first there is.
+// first there is. A remote's name is whatever the repository's configuration says, so one that reads as an
+// option to git is refused, where a fetch that carries no `--` would take it for one.
 func remoteOf(ctx context.Context, git Git, branch string) (string, error) {
+	remote, err := chooseRemote(ctx, git, branch)
+	if err == nil && strings.HasPrefix(remote, "-") {
+		return "", fmt.Errorf("the remote %q is named like an option, so git is not run with it", remote)
+	}
+	return remote, err
+}
+
+func chooseRemote(ctx context.Context, git Git, branch string) (string, error) {
 	listed, err := git.Text(ctx, "remote")
 	if err != nil {
 		return "", err
@@ -187,7 +196,7 @@ func (w Worktrees) Snapshot(ctx context.Context, path, ref string) (string, erro
 		return "", err
 	}
 	crashpoint.Hit("worktree.snapshot", "committed")
-	if _, err := git.Output(ctx, "update-ref", ref, commit); err != nil {
+	if _, err := git.Output(ctx, "update-ref", "--", ref, commit); err != nil {
 		return "", err
 	}
 	crashpoint.Hit("worktree.snapshot", "recorded")
@@ -243,7 +252,7 @@ func (w Worktrees) Fetch(ctx context.Context, repository string, refs []string) 
 		if listed == "" {
 			continue
 		}
-		if err := git.Fetch(ctx, "--quiet", "--no-tags", remote, ref+":"+ref); err != nil {
+		if err := git.Fetch(ctx, "--quiet", "--no-tags", "--", remote, ref+":"+ref); err != nil {
 			return err
 		}
 	}
