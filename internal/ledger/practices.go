@@ -1,6 +1,8 @@
 package ledger
 
 import (
+	"errors"
+
 	"ropeshift.com/ropeshift/internal/practices"
 )
 
@@ -47,15 +49,33 @@ const (
 	PracticesOutcomeFailed  = "failed"
 )
 
-// The subject and the events of a practices check request.
+// MaxPracticesReason is the most bytes of the reason a member gives for acknowledging a finding: 2 KiB.
+const MaxPracticesReason = 2048
+
+// The subjects and the events of the practices check.
 const (
 	SubjectPracticesRequest = "practices_request"
+	// SubjectPracticesFinding is one repository's finding, which a member acknowledges and withdraws. Its ID is the
+	// repository's ID and the finding's ID, joined by ':'.
+	SubjectPracticesFinding = "practices_finding"
 
 	EventPracticesRequested = "practices.requested"
 	EventPracticesChecked   = "practices.checked"
 	EventPracticesFailed    = "practices.failed"
 	EventPracticesExpired   = "practices.expired"
+
+	EventPracticesAcknowledged = "practices.acknowledged"
+	EventPracticesWithdrawn    = "practices.withdrawn"
 )
+
+// ErrAcknowledged means a repository already holds an acknowledgement of the finding, which a member withdraws before
+// acknowledging it again.
+var ErrAcknowledged = errors.New("the finding is already acknowledged")
+
+// PracticesFindingSubject is the subject of a repository's finding.
+func PracticesFindingSubject(repository, finding string) Subject {
+	return Subject{Kind: SubjectPracticesFinding, ID: repository + ":" + finding}
+}
 
 // PracticesRequest is a request that the worker holding a repository's checkout run the practices check, and
 // where it stands. A member reads it as it is.
@@ -109,6 +129,16 @@ func (s PracticesScan) From() string {
 		return ""
 	}
 	return s.Tip
+}
+
+// PracticesAcknowledgement is a member's reason for leaving a repository's finding open. The finding stays in every
+// view of the result, marked with the reason, the member, and the time, until the member withdraws it.
+type PracticesAcknowledgement struct {
+	Repository     string
+	Finding        string
+	Reason         string
+	Member         string
+	AcknowledgedAt int64
 }
 
 // DesiredPracticesCheck is a practices check request a worker has not reported. The control plane offers it to the

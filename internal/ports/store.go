@@ -351,6 +351,10 @@ type PracticesReader interface {
 	Results() ([]ledger.PracticesRecord, error)
 	// Scan returns where a repository's last completed secret scan ended, and the zero value when none completed.
 	Scan(repository string) (ledger.PracticesScan, error)
+	// Acknowledgement returns a member's acknowledgement of a repository's finding, or ErrNotFound.
+	Acknowledgement(repository, finding string) (ledger.PracticesAcknowledgement, error)
+	// Acknowledgements lists a repository's acknowledgements, by finding.
+	Acknowledgements(repository string) ([]ledger.PracticesAcknowledgement, error)
 }
 
 // PracticesWriter writes what the practices check records.
@@ -368,6 +372,11 @@ type PracticesWriter interface {
 	SaveResult(ledger.PracticesRecord) error
 	// SaveScan sets where a repository's last completed secret scan ended, and a scan with no tip says none did.
 	SaveScan(repository string, scan ledger.PracticesScan) error
+	// Acknowledge keeps an acknowledgement, and reports whether it did: a finding a repository already holds an
+	// acknowledgement of keeps that one.
+	Acknowledge(ledger.PracticesAcknowledgement) (bool, error)
+	// Withdraw removes a repository's acknowledgement of a finding, and reports whether there was one.
+	Withdraw(repository, finding string) (bool, error)
 }
 
 // ForgeReader reads what the control plane asked workers to do on a forge, the pull request each work order
