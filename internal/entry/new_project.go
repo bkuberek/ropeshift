@@ -2,6 +2,8 @@ package entry
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 
 	"ropeshift.com/ropeshift/internal/adapters/ghcli"
 	"ropeshift.com/ropeshift/internal/adapters/projectfolders"
@@ -18,7 +20,7 @@ func machineRuntime() projectremote.Runtime {
 }
 
 // newProject makes the folder a request names, as the worker does for the web UI: the checks of `gh` first, so a
-// refusal writes and creates nothing, then the files, each first commit, and each remote. It keeps no journal, because
+// refusal writes and creates nothing, then the folders above the new one, then the files, each first commit, and each remote. It keeps no journal, because
 // the person runs it in front of a terminal and runs it again after a failure.
 func newProject(ctx context.Context, request ledger.TemplateWriteRequest, needsRepository bool) (ledger.TemplateWriteReport, error) {
 	runtime := machineRuntime()
@@ -30,6 +32,10 @@ func newProject(ctx context.Context, request ledger.TemplateWriteRequest, needsR
 	}
 	if refusal != nil {
 		return *refusal, nil
+	}
+	// The folders above the new one are made once the checks have passed, so a refusal leaves nothing on disk.
+	if err := os.MkdirAll(filepath.Dir(request.Path), 0o755); err != nil {
+		return ledger.TemplateWriteReport{}, err
 	}
 	return projectremote.Finish(ctx, runtime, job, &progress, nil)
 }
