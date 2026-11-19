@@ -1,6 +1,8 @@
 package server_test
 
 import (
+	"crypto/sha1"
+	"encoding/hex"
 	"slices"
 	"strings"
 	"testing"
@@ -17,6 +19,13 @@ import (
 )
 
 const ciRunPage = "https://github.com/acme/app/actions/runs/9"
+
+// ciHead is the commit a work order's pull request is at: one hexadecimal ID of the length git names a commit with,
+// which differs from one work order to the next.
+func ciHead(id string) string {
+	sum := sha1.Sum([]byte(id))
+	return hex.EncodeToString(sum[:])
+}
 
 // aCIWorld is a work order with an open pull request whose one required check is at a point of its run, first held by
 // the ledger an age ago, which a session that lives a few hours could not wait for.
@@ -43,7 +52,7 @@ func aCIPullRequest(t *testing.T, d *apitest.Daemon, w *apitest.World, clock *ap
 	err := d.Store.Write(t.Context(), apitest.Scope, "test.pull_request", func(tx ports.WriteTx) error {
 		err := tx.Forge().SavePullRequest(ledger.WorkPullRequest{
 			PullRequest: ledger.PullRequest{
-				Number: number, URL: "https://github.com/acme/app/pull/" + id, State: ledger.PullRequestOpen, Base: "main", Branch: "lane/" + id, HeadCommit: "abc123-" + id,
+				Number: number, URL: "https://github.com/acme/app/pull/" + id, State: ledger.PullRequestOpen, Base: "main", Branch: "lane/" + id, HeadCommit: ciHead(id),
 				Checks: []ledger.PullRequestCheck{{Name: "CI", State: ledger.CheckPending, Status: status, Required: true, DetailsURI: ciRunPage}},
 			},
 			WorkOrder: id, Repository: "repository-1", Worker: apitest.WorldWorker, ReadAt: clock.Now() - age.Milliseconds(),
@@ -69,7 +78,7 @@ func TestGoldenCI(t *testing.T) {
 	aCIPullRequest(t, d, w, clock, "wo-queued", "Trim the retry log", 15, ledger.CIRunQueued, 2*time.Hour)
 	attention := control.NewCIAttention(d.Store)
 	for _, kind := range ledger.CIItemKinds[2:] {
-		finding := ledger.CIFinding{WorkOrder: "wo-ci", Head: "abc123-wo-ci", Kind: kind, Check: "CI", Conclusion: "timed_out", URL: ciRunPage}
+		finding := ledger.CIFinding{WorkOrder: "wo-ci", Head: ciHead("wo-ci"), Kind: kind, Check: "CI", Conclusion: "timed_out", URL: ciRunPage}
 		if _, err := attention.Raise(t.Context(), apitest.Scope, finding); err != nil {
 			t.Fatal(err)
 		}
@@ -170,7 +179,7 @@ func TestCIThatHasNotFinishedIsOneItemWithItsActionsAndANotice(t *testing.T) {
 			found = &notice
 		}
 	}
-	if found == nil || found.Text != "Retail: CI has not finished." || strings.Contains(found.Text, "abc123") || strings.Contains(found.Text, "wo-ci") {
+	if found == nil || found.Text != "Retail: CI has not finished." || strings.Contains(found.Text, ciHead("wo-ci")[:8]) || strings.Contains(found.Text, "wo-ci") {
 		t.Errorf("the notice reads %+v", found)
 	}
 }
@@ -236,7 +245,7 @@ func TestEachCIKindReachesAChannelAsItsOwnNotice(t *testing.T) {
 	d, clock := aCIWorld(t, ledger.CIRunInProgress, 4*time.Hour)
 	attention := control.NewCIAttention(d.Store)
 	for _, kind := range ledger.CIItemKinds[2:] {
-		if _, err := attention.Raise(t.Context(), apitest.Scope, ledger.CIFinding{WorkOrder: "wo-ci", Head: "abc123-wo-ci", Kind: kind, Check: "CI"}); err != nil {
+		if _, err := attention.Raise(t.Context(), apitest.Scope, ledger.CIFinding{WorkOrder: "wo-ci", Head: ciHead("wo-ci"), Kind: kind, Check: "CI"}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -277,7 +286,7 @@ func TestAFindingsUnsafeAddressIsNotEmitted(t *testing.T) {
 	t.Parallel()
 	for _, address := range []string{"javascript:alert(1)", "http://forge.example/runs/9", "https://user:secret@forge.example/runs/9", "https://", "ftp://forge.example/9", "https://forge.example/a b"} {
 		d, _ := aCIWorld(t, ledger.CIRunInProgress, time.Hour)
-		finding := ledger.CIFinding{WorkOrder: "wo-ci", Head: "abc123-wo-ci", Kind: ledger.CIItemBaseRed, Check: "CI", URL: address}
+		finding := ledger.CIFinding{WorkOrder: "wo-ci", Head: ciHead("wo-ci"), Kind: ledger.CIItemBaseRed, Check: "CI", URL: address}
 		if _, err := control.NewCIAttention(d.Store).Raise(t.Context(), apitest.Scope, finding); err != nil {
 			t.Fatal(err)
 		}
@@ -290,7 +299,7 @@ func TestAFindingsUnsafeAddressIsNotEmitted(t *testing.T) {
 		}
 	}
 	d, _ := aCIWorld(t, ledger.CIRunInProgress, time.Hour)
-	finding := ledger.CIFinding{WorkOrder: "wo-ci", Head: "abc123-wo-ci", Kind: ledger.CIItemBaseRed, Check: "CI", URL: ciRunPage}
+	finding := ledger.CIFinding{WorkOrder: "wo-ci", Head: ciHead("wo-ci"), Kind: ledger.CIItemBaseRed, Check: "CI", URL: ciRunPage}
 	if _, err := control.NewCIAttention(d.Store).Raise(t.Context(), apitest.Scope, finding); err != nil {
 		t.Fatal(err)
 	}
@@ -305,7 +314,7 @@ func TestEachFindingOfTheClassificationIsAnItemAndANotice(t *testing.T) {
 	d, _ := aCIWorld(t, ledger.CIRunInProgress, time.Hour)
 	attention := control.NewCIAttention(d.Store)
 	for _, kind := range ledger.CIItemKinds[2:] {
-		finding := ledger.CIFinding{WorkOrder: "wo-ci", Head: "abc123-wo-ci", Kind: kind, Check: "CI", Conclusion: "timed_out", URL: ciRunPage}
+		finding := ledger.CIFinding{WorkOrder: "wo-ci", Head: ciHead("wo-ci"), Kind: kind, Check: "CI", Conclusion: "timed_out", URL: ciRunPage}
 		if raised, err := attention.Raise(t.Context(), apitest.Scope, finding); err != nil || !raised {
 			t.Fatalf("%s raised %v: %v", kind, raised, err)
 		}

@@ -103,7 +103,7 @@ func checkCIRecordsAreMade(r *Rig) error {
 	if records, err = f.ciRecords(); err != nil || len(records) != 2 || records[0].Attempt != 2 || records[0].Result != ledger.CIFailure {
 		return Violatedf("a rerun left %+v: %v", records, err)
 	}
-	if err := f.ciRead("other-head", finished("timed_out", ledger.CheckFailed, 0, 60)); err != nil {
+	if err := f.ciRead(anotherHead, finished("timed_out", ledger.CheckFailed, 0, 60)); err != nil {
 		return err
 	}
 	if records, err = f.ciRecords(); err != nil || len(records) != 2 {
@@ -115,7 +115,7 @@ func checkCIRecordsAreMade(r *Rig) error {
 // completeHeads makes n heads whose required check ran for four minutes, one record each.
 func (f *forgeRig) completeHeads(n int, history func() error) error {
 	for i := 0; i < n; i++ {
-		head := fmt.Sprintf("head-%d", i)
+		head := fmt.Sprintf("%040x", i+1)
 		if err := f.ciRead(head, running(0)); err != nil {
 			return err
 		}

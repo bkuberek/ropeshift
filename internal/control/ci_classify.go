@@ -65,7 +65,9 @@ func classifyCI(tx ports.WriteTx, workOrder string) error {
 	if err != nil {
 		return err
 	}
-	if pr.State != ledger.PullRequestOpen {
+	// A pull request with no head that is a commit has no checks to classify, and the requests, findings, and
+	// records below all name its head, so none may be made for it.
+	if pr.State != ledger.PullRequestOpen || !ledger.CommitHash(pr.HeadCommit) {
 		return nil
 	}
 	order, err := tx.WorkOrders().Get(workOrder)

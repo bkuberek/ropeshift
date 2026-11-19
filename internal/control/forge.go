@@ -335,7 +335,7 @@ func publishReported(tx ports.WriteTx, request ledger.ForgeRequest, report ledge
 	if report.PullRequest == nil || report.PullRequest.Number <= 0 {
 		return fmt.Errorf("%w: a publish that worked names no pull request", workorders.ErrInvalid)
 	}
-	pr := *report.PullRequest
+	pr := headOrNone(*report.PullRequest)
 	readAt := tx.Now()
 	// A publish's view of the pull request was taken before its report arrived, and the worker's own reads may have
 	// told the ledger of the same head since. Those reads are newer, and the worker holds that the ledger has
@@ -638,6 +638,16 @@ func verdictBody(tx ports.WriteTx, review workorders.WorkOrder, commit string, v
 	return head.String() + notesSection(notes, noteBudget(head.Len(), out.Len())) + out.String(), nil
 }
 
+// headOrNone is a pull request as a worker reported it, with a head that is no commit hash taken away. A worker's
+// report is untrusted, and the head goes on to name commits in requests to workers, in git commands, and in the
+// commit work is reviewed at, so a head that git would read as an option or a path is no head at all.
+func headOrNone(pr ledger.PullRequest) ledger.PullRequest {
+	if !ledger.CommitHash(pr.HeadCommit) {
+		pr.HeadCommit = ""
+	}
+	return pr
+}
+
 // pullRequestRead keeps what the worker that opened a pull request read of it, when it differs from what the
 // ledger holds: a merge or a close, a new head, a change in mergeability or checks. A read that changes
 // nothing writes nothing, and the integration tick decides what a merge ends.
@@ -650,7 +660,7 @@ func pullRequestRead(tx ports.WriteTx, worker, id string, e ledger.UploadEvent) 
 	if err != nil {
 		return err
 	}
-	read := report.PullRequest
+	read := headOrNone(report.PullRequest)
 	read.Checks = clampedBaseReads(read.Checks)
 	if held.Worker != worker || held.Number != read.Number {
 		return fmt.Errorf("%w: pull request %d of %s is not this worker's to read", workorders.ErrInvalid, read.Number, report.WorkOrder)

@@ -203,6 +203,10 @@ func pullRequestOn(t *testing.T, s *session, id string, pr ledger.PullRequest) {
 	}
 }
 
+// pullRequestHead is the commit the pull request of these tests is at, as git names one; the pages print its first
+// twelve characters.
+const pullRequestHead = "abc123def4560123456789abcdef0123456789ab"
+
 // work acceptance names the pull request the work lands through and lists its checks beside the work's own, as the
 // web tab does: a required check is marked so, and a forge check on record the pull request lists shows once.
 func TestWorkAcceptanceNamesThePullRequestAndItsChecks(t *testing.T) {
@@ -210,7 +214,7 @@ func TestWorkAcceptanceNamesThePullRequestAndItsChecks(t *testing.T) {
 	s.completed("wo", workorders.CheckResult{Name: "unit", Passed: true, Criterion: "c1"})
 	pr := ledger.PullRequest{
 		Number: 7, URL: "https://forge.example/acme/app/pull/7", State: ledger.PullRequestOpen, Base: "main", Branch: "lane/wo",
-		HeadCommit: "abc123", Checks: []ledger.PullRequestCheck{
+		HeadCommit: pullRequestHead, Checks: []ledger.PullRequestCheck{
 			{Name: "CI result", State: ledger.CheckPassed, Required: true},
 			{Name: "lint", State: ledger.CheckFailed},
 		},
@@ -218,7 +222,7 @@ func TestWorkAcceptanceNamesThePullRequestAndItsChecks(t *testing.T) {
 	pullRequestOn(t, s, "wo", pr)
 	text := s.must("work", "acceptance", "wo")
 	for _, want := range []string{
-		"pull request\t#7\topen\tlane/wo into main\thead abc123\thttps://forge.example/acme/app/pull/7\n",
+		"pull request\t#7\topen\tlane/wo into main\thead abc123def456\thttps://forge.example/acme/app/pull/7\n",
 		"check\tunit\tpassed\tlane\tc1\n",
 		"check\tCI result\tpassed\tpull request #7, required\n",
 		"check\tlint\tfailed\tpull request #7\n",
@@ -240,7 +244,7 @@ func TestWorkAcceptanceNamesThePullRequestAndItsChecks(t *testing.T) {
 
 	pr.State, pr.MergeCommit = ledger.PullRequestMerged, "0123456789abcdef0123"
 	pullRequestOn(t, s, "wo", pr)
-	if text := s.must("work", "acceptance", "wo"); !strings.Contains(text, "pull request\t#7\tmerged\tlane/wo into main\thead abc123\tmerged as 0123456789ab\thttps://forge.example/acme/app/pull/7\n") {
+	if text := s.must("work", "acceptance", "wo"); !strings.Contains(text, "pull request\t#7\tmerged\tlane/wo into main\thead abc123def456\tmerged as 0123456789ab\thttps://forge.example/acme/app/pull/7\n") {
 		t.Errorf("a merged pull request does not name its merge commit:\n%s", text)
 	}
 }
