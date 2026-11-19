@@ -322,6 +322,22 @@ type ManifestRepository struct {
 	Remote      string `toml:"remote" json:"remote,omitempty"`
 	Path        string `toml:"path" json:"path"`
 	Description string `toml:"description" json:"description,omitempty"`
+	// Create is `github:<owner>`: approving a plan version whose work orders target this entry creates its
+	// repository on GitHub under that owner. Visibility is private or public, and private when absent.
+	// DefaultBranch is the branch of the first commit, and git's `init.defaultBranch` when absent. Both apply
+	// only with Create.
+	Create        string `toml:"create" json:"create,omitempty"`
+	Visibility    string `toml:"visibility" json:"visibility,omitempty"`
+	DefaultBranch string `toml:"default_branch" json:"default_branch,omitempty"`
+}
+
+// ForgeName is the name of the forge repository an entry with Create makes: the last element of its path. An
+// entry with no Create makes none.
+func (r ManifestRepository) ForgeName() string {
+	if r.Create == "" {
+		return ""
+	}
+	return path.Base(path.Clean(r.Path))
 }
 
 // Document is one decoded repository file. The field of its kind is set.
@@ -628,6 +644,7 @@ func (f RepositoriesFile) Normalize() (RepositoriesFile, error) {
 		return f, fmt.Errorf("%w: no id", ErrBadFile)
 	}
 	seen := map[string]bool{}
+	creates := map[string]string{}
 	for _, repository := range f.Repositories {
 		if err := ledger.CheckRepositoryName(repository.Name); err != nil {
 			return f, fmt.Errorf("%w: manifest %s: %v", ErrBadFile, f.ID, err)
@@ -640,10 +657,56 @@ func (f RepositoriesFile) Normalize() (RepositoriesFile, error) {
 			return f, fmt.Errorf("%w: manifest %s: repository %s needs a path relative to the planning repository's clone, inside the directory that holds that clone, not %q",
 				ErrBadFile, f.ID, repository.Name, repository.Path)
 		}
+		if err := repository.checkCreate(creates); err != nil {
+			return f, fmt.Errorf("%w: manifest %s: repository %s %v", ErrBadFile, f.ID, repository.Name, err)
+		}
 	}
 	f.Ignored = cleanList(f.Ignored)
 	slices.Sort(f.Ignored)
 	return f, nil
+}
+
+// checkCreate refuses an entry that sets visibility or default_branch without create, and an entry with create
+// that names a remote, whose path is the planning repository's clone, that gives a visibility other than private or
+// public, a default branch git refuses, an owner or a forge repository name GitHub refuses, or a forge repository
+// another entry of the manifest creates. created holds the forge repository each earlier entry creates, by its
+// lowercase owner and name, and gains this one's.
+func (r ManifestRepository) checkCreate(created map[string]string) error {
+	if r.Create == "" {
+		switch {
+		case r.Visibility != "":
+			return errors.New("sets visibility without create; visibility applies only to an entry that creates its repository")
+		case r.DefaultBranch != "":
+			return errors.New("sets default_branch without create; default_branch applies only to an entry that creates its repository")
+		}
+		return nil
+	}
+	create, err := ledger.ParseForgeOwner(r.Create)
+	if err != nil {
+		return fmt.Errorf("sets create to %q: %v", r.Create, err)
+	}
+	switch {
+	case r.Remote != "":
+		return errors.New("sets both create and remote; an entry that creates its repository has no remote, because its remote is the repository it creates")
+	case path.Clean(r.Path) == CurrentRepository:
+		return fmt.Errorf("sets create with path %q, which is the planning repository's clone and names no folder to create", r.Path)
+	case r.Visibility != "" && r.Visibility != ledger.VisibilityPrivate && r.Visibility != ledger.VisibilityPublic:
+		return fmt.Errorf("sets visibility %q, which is neither private nor public", r.Visibility)
+	}
+	if r.DefaultBranch != "" {
+		if err := ledger.CheckBranch(r.DefaultBranch); err != nil {
+			return fmt.Errorf("sets default_branch: %v", err)
+		}
+	}
+	if err := ledger.CheckForgeRepositoryName(r.ForgeName()); err != nil {
+		return fmt.Errorf("sets create, which names its GitHub repository after the last element of its path: %v", err)
+	}
+	key := strings.ToLower(create.Owner + "/" + r.ForgeName())
+	if other, found := created[key]; found {
+		return fmt.Errorf("and repository %s both create github.com/%s", other, key)
+	}
+	created[key] = r.Name
+	return nil
 }
 
 // documentIdentity checks what every document that addresses requirements shares.
