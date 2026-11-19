@@ -162,7 +162,7 @@ loginctl enable-linger "$USER"
 | Sockets | `~/.ropeshift/run` | `$XDG_RUNTIME_DIR/ropeshift`, or `~/.ropeshift/run` |
 | Lane worktrees | `~/.ropeshift/worktrees/<project>/<repository>/`, until you set a root | `$XDG_DATA_HOME/ropeshift/worktrees/<project>/<repository>/`, or `~/.local/share/ropeshift/worktrees/<project>/<repository>/` |
 
-Inside your repositories, ropeshift adds only the lanes' branches, refs under `refs/ropeshift/`, and git's record of each lane worktree. [Remove ropeshift from a machine](#remove-ropeshift-from-a-machine) undoes all of it. [Where lane worktrees go](project-structure.md#where-lane-worktrees-go) says how to set a root of your own.
+A clone inside the project's [workspace](project-structure.md#the-workspace-on-a-machine) gets its lane worktrees in the workspace's `.ropeshift/worktrees/<repository>/` folder instead, when the workspace ignores that folder. Inside your repositories, ropeshift adds only the lanes' branches, refs under `refs/ropeshift/`, git's record of each lane worktree, and those workspace lane worktrees. [Remove ropeshift from a machine](#remove-ropeshift-from-a-machine) undoes all of it. [Where lane worktrees go](project-structure.md#where-lane-worktrees-go) says how to set a root of your own.
 
 ## Before the first lane
 
