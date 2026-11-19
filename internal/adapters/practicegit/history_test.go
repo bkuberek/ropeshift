@@ -464,3 +464,36 @@ func TestSecretScanOfAMissingObjectFailsWithNoText(t *testing.T) {
 		t.Errorf("the error holds a secret's text: %v", err)
 	}
 }
+
+func TestSecretScanRecordsTheResolvedCommitItStartedFrom(t *testing.T) {
+	t.Parallel()
+	repo := gittest.New(t)
+	repo.Commit("a.txt", "clean\n")
+	from := repo.Commit("a.txt", "still clean\n")
+	tip := repo.Commit("b.txt", "clean\n")
+	repo.Git("branch", "marker", from)
+	for name, revision := range map[string]string{"an abbreviated ID": from[:12], "a branch": "marker", "a relative name": "HEAD~1"} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			if got := secretScan(t, repo, tip, revision); got.ScannedFrom != from {
+				t.Errorf("the scan read from %q, want %q", got.ScannedFrom, from)
+			}
+		})
+	}
+}
+
+func TestSecretScanOfAShallowCloneIsPartial(t *testing.T) {
+	t.Parallel()
+	origin := gittest.New(t)
+	origin.Commit("a.txt", secretScanTokenA+"\n")
+	origin.Commit("a.txt", "clean\n")
+	origin.Commit("b.txt", "clean\n")
+	shallow := origin.ShallowClone("shallow")
+	got := secretScan(t, shallow, "HEAD", "")
+	if got.Partial == "" {
+		t.Error("the scan of a shallow clone is not partial")
+	}
+	if full := secretScan(t, origin, "HEAD", ""); full.Partial != "" {
+		t.Errorf("the scan of a full clone is partial: %q", full.Partial)
+	}
+}

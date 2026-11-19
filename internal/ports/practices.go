@@ -18,8 +18,12 @@ type PracticeSnapshots interface {
 // SecretScan is what a scan of a repository for secrets found.
 type SecretScan struct {
 	Matches []practices.SecretMatch
-	// ScannedFrom is the commit an incremental scan started after, empty for a scan of the whole history.
+	// ScannedFrom is the full ID of the commit an incremental scan started after, empty for a scan of the whole
+	// history.
 	ScannedFrom string
+	// Partial says why the scan read less history than the repository has, and is empty for a scan that read all of
+	// it.
+	Partial string
 	// Skipped counts the files skipped for their size or binary content.
 	Skipped int
 }

@@ -184,6 +184,20 @@ func TestRunLeavesSecretsUnknownWhenTheScanFails(t *testing.T) {
 	}
 }
 
+// A scan that read only part of the history leaves the secrets practice unknown with the reason.
+func TestRunLeavesSecretsUnknownWhenTheScanIsPartial(t *testing.T) {
+	f := newFixture()
+	f.fake.SetScan(checkoutDir, ports.SecretScan{Partial: "the repository is a shallow clone"})
+	result, err := practicerun.Run(t.Context(), f.sources, request())
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := statusOf(t, result, practices.Secrets)
+	if got.Status != practices.StatusUnknown || !strings.Contains(got.Reason, "the repository is a shallow clone") {
+		t.Errorf("secrets are %s %q, want unknown with the partial scan's reason", got.Status, got.Reason)
+	}
+}
+
 // A scan or a settings read that ends with the caller's context is a failed run, not an unknown practice.
 func TestRunFailsWhenTheContextEnds(t *testing.T) {
 	t.Run("scan", func(t *testing.T) {

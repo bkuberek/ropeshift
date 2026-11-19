@@ -45,7 +45,9 @@ type SecretScanner struct {
 // Scan scans the tracked files at tip, and the patches of the history reachable from tip. The history scan skips
 // what `from` reaches when `from` is an ancestor of tip, and otherwise reads the whole history. It reads the lines
 // each commit added and no others. A match found in the tree and in the history is one match, with the earliest
-// commit that added it; a match only the tree holds is reported at tip. No match and no error holds the matched text.
+// commit that added it; a match only the tree holds is reported at tip. The result names `from` by its commit ID when
+// the scan skipped what it reaches, and says it is partial for a shallow clone. No match and no error holds the
+// matched text.
 func (s SecretScanner) Scan(ctx context.Context, dir, tip, from string) (ports.SecretScan, error) {
 	if err := ctx.Err(); err != nil {
 		return ports.SecretScan{}, fmt.Errorf("scan for secrets: %w", err)
@@ -63,7 +65,7 @@ func (s SecretScanner) Scan(ctx context.Context, dir, tip, from string) (ports.S
 		"--src-prefix=a/", "--dst-prefix=b/", "--topo-order", "--reverse", "--format=%H", tipCommit}
 	scanned := ""
 	if base, ok := secretScanBase(ctx, git, from, tipCommit); ok {
-		scanned = from
+		scanned = base
 		args = append(args, "^"+base)
 	}
 	args = append(args, "--")
@@ -77,7 +79,26 @@ func (s SecretScanner) Scan(ctx context.Context, dir, tip, from string) (ports.S
 	if err := found.scanTree(ctx, git, tipCommit); err != nil {
 		return ports.SecretScan{}, secretScanFailure(ctx, "scan the tree for secrets", err)
 	}
-	return found.result(scanned), nil
+	partial, err := secretScanPartial(ctx, git)
+	if err != nil {
+		return ports.SecretScan{}, secretScanFailure(ctx, "check the repository for a shallow history", err)
+	}
+	result := found.result(scanned)
+	result.Partial = partial
+	return result, nil
+}
+
+// secretScanPartial says why the history a scan can read is less than the repository's: a shallow clone holds
+// only the commits down to its boundary. It is empty for a repository with its whole history.
+func secretScanPartial(ctx context.Context, git gitcli.Git) (string, error) {
+	answer, err := git.Text(ctx, "rev-parse", "--is-shallow-repository")
+	if err != nil {
+		return "", err
+	}
+	if answer == "true" {
+		return "the repository is a shallow clone, so the history before its shallow boundary was not scanned", nil
+	}
+	return "", nil
 }
 
 // secretScanFailure reports a failed stage. A scan whose context ended reports that and not the signal that stopped git.
