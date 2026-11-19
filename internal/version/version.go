@@ -1,7 +1,7 @@
 // Package version is what a binary says about its own build: the release it is, the commit it came
-// from, when it was built, and whether the tree held changes. A release build stamps these with
-// -ldflags -X on the variables below. Any other build reads what the Go toolchain recorded, and is a
-// development build unless the toolchain recorded an exact release of the module, as go install
+// from, when it was built, and whether the tree held changes. A release build and a snapshot build stamp
+// these with -ldflags -X on the variables below. Any other build reads what the Go toolchain recorded, and
+// is a development build unless the toolchain recorded an exact release of the module, as go install
 // module@vX.Y.Z does. docs/versioning.md states the policy.
 package version
 
@@ -12,12 +12,12 @@ import (
 	"strings"
 )
 
-// Development is the version of every build that is not a release.
+// Development is the version of every build that is neither stamped nor an exact release of the module.
 const Development = "dev"
 
-// The release stamp. A release build sets each with -X ropeshift.com/ropeshift/internal/version.<name>:
-// version as vMAJOR.MINOR.PATCH with an optional pre-release, commit as the full revision, date in
-// RFC 3339, and modified as true or false.
+// The build stamp. A release or snapshot build sets each with
+// -X ropeshift.com/ropeshift/internal/version.<name>: version as vMAJOR.MINOR.PATCH with an optional
+// pre-release, commit as the full revision, date in RFC 3339, and modified as true or false.
 var (
 	version  string
 	commit   string
