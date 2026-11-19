@@ -165,7 +165,8 @@ func (f Forge) runKeeping(ctx context.Context, dir string, args ...string) ([]by
 	if errors.As(err, &exit) {
 		return stdout.buf.Bytes(), &ghError{args: args, code: exit.ExitCode(), stderr: clip(ledger.SanitizeCIText(stderr.buf.String()))}
 	}
-	if err != nil {
+	// A command that exited with success and left a child holding its output open has answered: what it wrote is read.
+	if err != nil && !errors.Is(err, exec.ErrWaitDelay) {
 		return nil, fmt.Errorf("gh %s: %w", strings.Join(args, " "), err)
 	}
 	return stdout.buf.Bytes(), nil
