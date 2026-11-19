@@ -62,6 +62,7 @@ func (h *handler) reviseSession(w http.ResponseWriter, r *http.Request, actor le
 		fail(w, err)
 		return
 	}
+	h.requestPlanningChecks(r, actor)
 	reply(w, http.StatusCreated, order)
 }
 

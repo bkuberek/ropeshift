@@ -578,6 +578,9 @@ func (h *handler) createWorkOrder(w http.ResponseWriter, r *http.Request, actor 
 		fail(w, err)
 		return
 	}
+	if record.Kind == workorders.KindPlan {
+		h.requestPlanningChecks(r, actor)
+	}
 	reply(w, http.StatusCreated, record)
 }
 

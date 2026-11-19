@@ -1,6 +1,7 @@
 package server
 
 import (
+	"fmt"
 	"net/http"
 
 	"ropeshift.com/ropeshift/internal/api"
@@ -95,4 +96,14 @@ func (h *handler) showPracticesCheck(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	reply(w, http.StatusOK, request)
+}
+
+// requestPlanningChecks asks for a check of every active repository when a planning session's work order is recorded,
+// so the session's brief can hold a result. A planning session never fails for it: a request that is refused with a
+// reason, as every request is when no worker keeps a checkout, and one that fails, leave the work order as it was
+// recorded, and a failure is written to the server's log.
+func (h *handler) requestPlanningChecks(r *http.Request, actor ledger.Actor) {
+	if _, err := h.practices.Request(r.Context(), h.Scope, nil, ledger.PracticesPlanningSession, actor); err != nil && h.Warn != nil {
+		h.Warn(fmt.Sprintf("the practices check of the project's repositories was not requested when a planning session started: %v", err))
+	}
 }

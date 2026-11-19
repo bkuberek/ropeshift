@@ -9,8 +9,10 @@ import (
 	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/control"
 	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/planning"
 	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/internal/practices"
+	"ropeshift.com/ropeshift/internal/workorders"
 	"ropeshift.com/ropeshift/test/apitest"
 )
 
@@ -223,4 +225,77 @@ func TestRequestingThePracticesCheckNeedsASession(t *testing.T) {
 	defer anonymous.Close()
 	_, err := anonymous.CheckPractices(t.Context(), nil)
 	refusedWith(t, err, http.StatusUnauthorized, api.CodeSessionRequired)
+}
+
+// openPractices reads the request open for each repository, by name.
+func openPractices(t *testing.T, d *apitest.Daemon) map[string]*api.PracticesRequestView {
+	t.Helper()
+	list, err := d.Client.Practices(t.Context(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	open := map[string]*api.PracticesRequestView{}
+	for _, view := range list.Repositories {
+		open[view.Name] = view.Request
+	}
+	return open
+}
+
+// Recording a planning session's work order asks for a check of every active repository, with the cause that says a
+// planning session did, and a repository no worker keeps does not stop the session: its work order is recorded all
+// the same. Work of any other kind asks for none, and recording the same session again asks for none twice.
+func TestStartingAPlanningSessionRequestsACheckOfEveryActiveRepository(t *testing.T) {
+	d := practicesDaemon(t, map[string][]string{"w": {"repo-a", "repo-b"}}, "w")
+	connectWorker(t, d, "w", ledger.ProtocolVersion)
+	d.HoldClone(t, "repo-a", "widgets")
+	d.HoldClone(t, "repo-b", "gadgets")
+	d.HoldClone(t, "repo-c", "gizmos")
+	criteria := []planning.Criterion{{ID: "c1", Text: "A plan is committed"}}
+	if _, err := d.Client.CreateWorkOrder(t.Context(), api.CreateWorkOrder{ID: "change-1", Kind: workorders.KindChange, Title: "A change", Statement: "Change it.", Criteria: criteria}); err != nil {
+		t.Fatal(err)
+	}
+	for name, request := range openPractices(t, d) {
+		if request != nil {
+			t.Fatalf("recording a change asked for a check of %s: %+v", name, request)
+		}
+	}
+	if _, err := d.Client.CreateWorkOrder(t.Context(), api.CreateWorkOrder{ID: "plan-1", Kind: workorders.KindPlan, Title: "Plan it", Statement: "Plan it.", Criteria: criteria}); err != nil {
+		t.Fatal(err)
+	}
+	open := openPractices(t, d)
+	for _, name := range []string{"widgets", "gadgets"} {
+		if open[name] == nil || open[name].Cause != ledger.PracticesPlanningSession || open[name].State != ledger.PracticesOffered {
+			t.Errorf("%s has %+v open, want a request with cause planning_session", name, open[name])
+		}
+	}
+	if open["gizmos"] != nil {
+		t.Errorf("gizmos, which no worker keeps, has %+v open", open["gizmos"])
+	}
+	if open["widgets"] == nil {
+		t.Fatal("no request to read")
+	}
+	first := open["widgets"].ID
+	if _, err := d.Client.CreateWorkOrder(t.Context(), api.CreateWorkOrder{ID: "plan-1", Kind: workorders.KindPlan, Title: "Plan it", Statement: "Plan it.", Criteria: criteria}); err != nil {
+		t.Fatal(err)
+	}
+	if again := openPractices(t, d)["widgets"]; again == nil || again.ID != first {
+		t.Errorf("recording the session again left %+v open, want the request of %s", again, first)
+	}
+}
+
+// Starting the session that revises a plan asks for the same checks.
+func TestStartingAPlanRevisionSessionRequestsACheckOfEveryActiveRepository(t *testing.T) {
+	d := practicesDaemon(t, map[string][]string{apitest.WorldWorker: {"repo-a"}}, apitest.WorldWorker)
+	w := apitest.NewWorld(t, d)
+	d.HoldClone(t, "repo-a", "widgets")
+	plan := approvedPlanWithADecisionOn(t, d, w, retrySource("The first draft."))
+	if open := openPractices(t, d)["widgets"]; open != nil {
+		t.Fatalf("approving a plan asked for a check: %+v", open)
+	}
+	if _, err := d.Client.ReviseSession(t.Context(), plan, api.ReviseSession{ID: "revise-1"}); err != nil {
+		t.Fatal(err)
+	}
+	if open := openPractices(t, d)["widgets"]; open == nil || open.Cause != ledger.PracticesPlanningSession {
+		t.Errorf("widgets has %+v open, want a request with cause planning_session", open)
+	}
 }
