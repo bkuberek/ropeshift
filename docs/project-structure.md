@@ -57,7 +57,7 @@ The model does not change as a project grows, so each step adds files and settin
 
 1. **One repository.** Start it with `ropeshift new monorepo`, whose `plan/` sits beside the code. That repository is the planning repository.
 2. **A second repository.** Keep the first as the planning repository and add a manifest, `plan/repositories.md`, that lists the second at its path, or restructure into a workspace with `ropeshift adopt --restructure` ([adopt an existing project](adopt.md)). A new code repository for a project planned elsewhere starts with `ropeshift new repository`.
-3. **Several repositories.** A workspace is the planning repository, with each code repository cloned into its ignored `repos/` folder and listed in the manifest. `ropeshift new workspace` starts one, and `ropeshift adopt --restructure` writes the files a layout lacks.
+3. **Several repositories.** A workspace is the planning repository, with each code repository cloned into its ignored `repos/` folder and listed in the manifest. `ropeshift new workspace` starts one, and `ropeshift adopt --restructure` writes the files a layout lacks. [Start a multi-repository project](start-a-multi-repository-project.md) goes from an empty workspace to registered code repositories, in the order approval needs.
 
 ## Why each part is where it is
 
