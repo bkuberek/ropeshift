@@ -310,7 +310,7 @@ func (c *invocation) failure(err error) int {
 
 // printError prints an error's message as plain text, with no escape sequence and no hidden character.
 func (c *invocation) printError(detail api.ErrorDetail) {
-	detail.Message = plainText(detail.Message)
+	detail.Message = ledger.PlainText(detail.Message)
 	if c.asJSON {
 		_ = json.NewEncoder(c.stderr).Encode(api.ErrorBody{Error: detail})
 		return
