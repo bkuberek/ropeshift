@@ -65,3 +65,29 @@ func TestRunKeepingBoundsStderr(t *testing.T) {
 		t.Errorf("stderr is %d bytes and starts %.10q", len(failed.stderr), failed.stderr)
 	}
 }
+
+// The stderr of a failed log read keeps its start, clipped, and holds no escape sequence or hidden character.
+func TestRunTailBoundsAndCleansStderr(t *testing.T) {
+	forge := standIn(t, "printf 'start \\033[31mred\\033[0m \\342\\200\\256hidden\\n' >&2\nhead -c 4000000 /dev/zero | tr '\\000' x >&2\nexit 3")
+	_, err := forge.runTail(t.Context(), t.TempDir(), 1024, "run", "view")
+	var failed *ghError
+	if !errors.As(err, &failed) || failed.code != 3 {
+		t.Fatalf("a failed gh gave %v", err)
+	}
+	if len(failed.stderr) > maxDetail || !strings.HasPrefix(failed.stderr, "start red hidden") {
+		t.Errorf("stderr is %d bytes and starts %.30q", len(failed.stderr), failed.stderr)
+	}
+}
+
+// A `gh` that fills stderr past the limit is read to the limit and no further, so memory stays bounded.
+func TestRunTailReadsStderrOnlyToTheLimit(t *testing.T) {
+	forge := standIn(t, "head -c 4000000 /dev/zero | tr '\\000' ' ' >&2\necho 'rate limit exceeded' >&2\nexit 1")
+	_, err := forge.runTail(t.Context(), t.TempDir(), 1024, "run", "view")
+	var failed *ghError
+	if !errors.As(err, &failed) {
+		t.Fatalf("a failed gh gave %v", err)
+	}
+	if strings.Contains(failed.stderr, "rate limit") {
+		t.Errorf("stderr past the limit was read: %q", failed.stderr)
+	}
+}
