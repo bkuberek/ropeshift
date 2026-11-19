@@ -10,6 +10,9 @@ import (
 // remoteSchemes are the URL schemes a remote may name.
 var remoteSchemes = []string{"https", "ssh", "git", "file"}
 
+// credentialRefusal is what a remote that holds a credential is refused with. It repeats nothing of the remote.
+const credentialRefusal = "a remote's URL holds no user or password in an http, https, or file URL, and no password in any other: the URL is stored in the installation, in reports, and in the manifest, so give it without the credential and let git's credential helper or an SSH key supply it"
+
 // checkRemote refuses a remote that is not one line git clones from: a URL with a scheme in remoteSchemes, or
 // scp-like [user@]host:path. The characters are a short allowlist, because the remote is written into a
 // TOML string in the manifest and, unquoted, into a Makefile variable that the setup recipe expands into a
@@ -28,8 +31,13 @@ func checkRemote(remote string) error {
 		if at := strings.LastIndex(authority, "@"); at >= 0 {
 			web := lower == "https" || lower == "http" || lower == "file"
 			if web || strings.Contains(authority[:at], ":") || encodedSeparator(authority[:at]) {
-				return errors.New("a remote's URL holds no user or password in an http, https, or file URL, and no password in any other: the URL is stored in the installation, in reports, and in the manifest, so give it without the credential and let git's credential helper or an SSH key supply it")
+				return errors.New(credentialRefusal)
 			}
+		}
+	} else if !url {
+		// An scp-like remote is user@host:path, and an @ after its first colon is a password written as user:password@host.
+		if _, path, colon := strings.Cut(remote, ":"); colon && strings.Contains(path, "@") {
+			return errors.New(credentialRefusal)
 		}
 	}
 	if i := strings.IndexFunc(remote, func(r rune) bool { return !remoteRune(r) }); i >= 0 {
