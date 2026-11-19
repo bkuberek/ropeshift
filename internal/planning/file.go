@@ -644,7 +644,7 @@ func (f RepositoriesFile) Normalize() (RepositoriesFile, error) {
 		return f, fmt.Errorf("%w: no id", ErrBadFile)
 	}
 	seen := map[string]bool{}
-	creates := map[string]string{}
+	creates := map[string]createdRepository{}
 	for _, repository := range f.Repositories {
 		if err := ledger.CheckRepositoryName(repository.Name); err != nil {
 			return f, fmt.Errorf("%w: manifest %s: %v", ErrBadFile, f.ID, err)
@@ -671,7 +671,7 @@ func (f RepositoriesFile) Normalize() (RepositoriesFile, error) {
 // public, a default branch git refuses, an owner or a forge repository name GitHub refuses, or a forge repository
 // another entry of the manifest creates. created holds the forge repository each earlier entry creates, by its
 // lowercase owner and name, and gains this one's.
-func (r ManifestRepository) checkCreate(created map[string]string) error {
+func (r ManifestRepository) checkCreate(created map[string]createdRepository) error {
 	if r.Create == "" {
 		switch {
 		case r.Visibility != "":
@@ -701,13 +701,18 @@ func (r ManifestRepository) checkCreate(created map[string]string) error {
 	if err := ledger.CheckForgeRepositoryName(r.ForgeName()); err != nil {
 		return fmt.Errorf("sets create, which names its GitHub repository after the last element of its path: %v", err)
 	}
-	key := strings.ToLower(create.Owner + "/" + r.ForgeName())
+	spelled := "github.com/" + create.Owner + "/" + r.ForgeName()
+	key := strings.ToLower(spelled)
 	if other, found := created[key]; found {
-		return fmt.Errorf("and repository %s both create github.com/%s", other, key)
+		return fmt.Errorf("creates %s, and repository %s creates %s, which is the same repository without regard to case", spelled, other.entry, other.spelled)
 	}
-	created[key] = r.Name
+	created[key] = createdRepository{entry: r.Name, spelled: spelled}
 	return nil
 }
+
+// createdRepository is the forge repository an entry creates: the entry's name and the repository as the
+// entry spells it.
+type createdRepository struct{ entry, spelled string }
 
 // documentIdentity checks what every document that addresses requirements shares.
 func documentIdentity(id, title string, requirements []string) ([]string, error) {

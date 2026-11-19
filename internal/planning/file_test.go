@@ -147,7 +147,7 @@ func TestAManifestEntryThatCreatesItsRepositoryKeepsItsThreeKeys(t *testing.T) {
 
 func TestAManifestEntryThatCreatesRefusesEachBadCombination(t *testing.T) {
 	create := func(change func(*planning.ManifestRepository)) planning.ManifestRepository {
-		entry := planning.ManifestRepository{Name: "api", Path: "repos/api", Create: "github:acme"}
+		entry := planning.ManifestRepository{Name: "service", Path: "repos/api", Create: "github:acme"}
 		change(&entry)
 		return entry
 	}
@@ -163,9 +163,9 @@ func TestAManifestEntryThatCreatesRefusesEachBadCombination(t *testing.T) {
 		{"a bad owner", []planning.ManifestRepository{create(func(e *planning.ManifestRepository) { e.Create = "github:-acme" })}, "is no GitHub account name"},
 		{"create with remote", []planning.ManifestRepository{create(func(e *planning.ManifestRepository) { e.Remote = "git@github.com:acme/api.git" })},
 			"sets both create and remote"},
-		{"visibility without create", []planning.ManifestRepository{{Name: "api", Path: "repos/api", Visibility: "public"}},
+		{"visibility without create", []planning.ManifestRepository{{Name: "service", Path: "repos/api", Visibility: "public"}},
 			"sets visibility without create"},
-		{"default branch without create", []planning.ManifestRepository{{Name: "api", Path: "repos/api", DefaultBranch: "main"}},
+		{"default branch without create", []planning.ManifestRepository{{Name: "service", Path: "repos/api", DefaultBranch: "main"}},
 			"sets default_branch without create"},
 		{"a visibility that is neither", []planning.ManifestRepository{create(func(e *planning.ManifestRepository) { e.Visibility = "internal" })},
 			`visibility "internal", which is neither private nor public`},
@@ -178,8 +178,8 @@ func TestAManifestEntryThatCreatesRefusesEachBadCombination(t *testing.T) {
 			"a GitHub repository name has 1 to 100 letters"},
 		{"two entries create one repository in different case", []planning.ManifestRepository{
 			create(func(*planning.ManifestRepository) {}),
-			{Name: "api2", Path: "repos/API", Create: "github:ACME"},
-		}, "both create github.com/acme/api"},
+			{Name: "mirror", Path: "repos/API", Create: "github:ACME"},
+		}, "repository mirror creates github.com/ACME/API, and repository service creates github.com/acme/api"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -190,8 +190,9 @@ func TestAManifestEntryThatCreatesRefusesEachBadCombination(t *testing.T) {
 			if !strings.Contains(err.Error(), c.want) {
 				t.Errorf("the refusal reads %q, want it to hold %q", err, c.want)
 			}
-			if !strings.Contains(err.Error(), "manifest platform") || !strings.Contains(err.Error(), "api") {
-				t.Errorf("the refusal reads %q, want it to name the manifest and the entry", err)
+			refused := c.entries[len(c.entries)-1].Name
+			if !strings.Contains(err.Error(), "manifest platform: repository "+refused+" ") {
+				t.Errorf("the refusal reads %q, want it to name the manifest and the entry %s", err, refused)
 			}
 		})
 	}
@@ -200,7 +201,7 @@ func TestAManifestEntryThatCreatesRefusesEachBadCombination(t *testing.T) {
 func TestEntriesThatCreateDifferentRepositoriesAreAccepted(t *testing.T) {
 	_, err := manifestOf(
 		planning.ManifestRepository{Name: "api", Path: "repos/api", Create: "github:acme"},
-		planning.ManifestRepository{Name: "other-api", Path: "repos/api", Create: "github:other"},
+		planning.ManifestRepository{Name: "other-api", Path: "../other/api", Create: "github:other"},
 		planning.ManifestRepository{Name: "web", Path: "repos/web", Create: "github:acme"},
 	).Normalize()
 	if err != nil {

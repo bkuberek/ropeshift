@@ -27,11 +27,7 @@ plan = "{{ .Project }}-v1"
 # The repository's name in the project. Work orders name it in `repo`, and contracts in `reads`.
 {{ end -}}
 name = "{{ $r.Name }}"
-{{ if and $.Example (eq $i 1) -}}
-# A repository that does not exist yet has `create` and no `remote`. Approving a plan version whose work
-# orders name it in `repo` creates it on GitHub under the owner, with its first commit and `origin`.
-create = "github:acme"
-{{ else if $r.Remote -}}
+{{ if $r.Remote -}}
 {{ if eq $i 0 -}}
 # Approval registers the clone at `path` only when its remote is this one. A repository with no remote
 # has no `remote` key, and approval then registers the clone whatever its remote is.
@@ -45,15 +41,25 @@ remote = {{ tomlString $r.Remote }}
 {{ end -}}
 path = "repos/{{ $r.Name }}"
 {{ if eq $i 0 -}}
-# To have approval create the repository on GitHub, give `create = "github:<owner>"` in place of `remote`.
-# `visibility` is "private", the default, or "public", and `default_branch` is the first commit's branch,
-# git's init.defaultBranch or main when absent. Both apply only with `create`.
+# A repository that does not exist yet may give `create = "github:<owner>"` in place of `remote`, with an
+# optional `visibility` of "private" or "public" and an optional `default_branch`. The two optional keys
+# apply only with `create`. Ropeshift reads and checks these keys, and refuses a manifest that combines
+# them wrongly.
 {{ end -}}
 {{ if $.Example -}}
-description = "{{ if eq $i 0 }}The HTTP API{{ else }}The web client{{ end }}"
+description = "The HTTP API"
 {{ else -}}
 description = "State what {{ $r.Name }} is for"
 {{ end -}}
+{{ end -}}
+{{ if .Example }}
+[[repository]]
+name = "acme-web"
+create = "github:acme"
+visibility = "private"
+default_branch = "main"
+path = "repos/acme-web"
+description = "The web client, whose repository does not exist yet"
 {{ end -}}
 +++
 

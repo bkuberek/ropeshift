@@ -162,7 +162,7 @@ func (r ProjectRemote) Check() error {
 // or public.
 func (c RemoteCreate) Check() error {
 	if c.Forge != ForgeGitHub {
-		return fmt.Errorf("%w: creating a repository on %s is not supported yet; ropeshift creates repositories on GitHub", ErrInvalidProjectRemote, c.Forge)
+		return fmt.Errorf("%w: %w", ErrInvalidProjectRemote, &UnsupportedForgeError{Forge: c.Forge})
 	}
 	if err := CheckOwner(c.Owner); err != nil {
 		return err
