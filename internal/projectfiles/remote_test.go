@@ -177,3 +177,44 @@ func TestARemoteWithAnEncodedColonOrAtInItsUserIsRefusedWithoutEchoingIt(t *test
 		}
 	}
 }
+
+// No refusal repeats a credential, whichever check refuses: a user and a password in a file URL, a scheme in any case, and a
+// remote that starts with a space all keep the user part out of the message.
+func TestNoRefusalOfARemoteEchoesItsUserPart(t *testing.T) {
+	for _, remote := range []string{
+		"FILE://user:s3cret@example.invalid/x",
+		"File://user:s3cret@example.invalid/x",
+		"file://user:s3cret@example.invalid/x",
+		"file://s3cret@example.invalid/x",
+		"File://s3cret@example.invalid/x",
+		" https://s3cret@example.invalid/orchid/orchid-api.git",
+		" https://user:s3cret@example.invalid/orchid/orchid-api.git",
+		"Ftp://user:s3cret@example.invalid/a.git",
+		"ssh://s3cret@/a.git",
+		"user:s3cret@example.invalid:a$b",
+	} {
+		for name, err := range map[string]error{"CheckRemote": projectfiles.CheckRemote(remote), "Check": checkRemote(remote)} {
+			if err == nil {
+				t.Errorf("%s %q is accepted", name, remote)
+				continue
+			}
+			if strings.Contains(err.Error(), "s3cret") {
+				t.Errorf("%s %q: the refusal echoes the credential: %v", name, remote, err)
+			}
+		}
+	}
+	for _, remote := range []string{"FILE://user:s3cret@example.invalid/x", "File://s3cret@example.invalid/x", "file://user:s3cret@example.invalid/x"} {
+		if err := projectfiles.CheckRemote(remote); err == nil || !strings.Contains(err.Error(), "no user or password") {
+			t.Errorf("%q: %v, want the rule that a remote holds no credential", remote, err)
+		}
+	}
+}
+
+// A scheme is accepted only in lower case: git hands another case to a remote helper of that name.
+func TestARemoteSchemeIsAcceptedOnlyInLowerCase(t *testing.T) {
+	for _, remote := range []string{"HTTPS://example.invalid/a.git", "SSH://git@example.invalid/a.git", "File:///srv/git/a.git"} {
+		if err := projectfiles.CheckRemote(remote); err == nil {
+			t.Errorf("%q is accepted", remote)
+		}
+	}
+}
