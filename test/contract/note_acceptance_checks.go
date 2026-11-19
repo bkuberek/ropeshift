@@ -3,7 +3,6 @@ package contract
 import (
 	"encoding/json"
 	"errors"
-	"regexp"
 	"slices"
 	"strings"
 
@@ -12,8 +11,11 @@ import (
 	"ropeshift.com/ropeshift/internal/workorders"
 )
 
-// commitNames matches the short commits the rig names, which differ between two works that settle alike.
-var commitNames = regexp.MustCompile(`\b[0-9a-f]{8}\b`)
+// maskCommit hides the short commit of a lane's head in a text, which differs between two works that settle alike, and
+// no other word.
+func maskCommit(text, head string) string {
+	return strings.ReplaceAll(text, head[:8], "<commit>")
+}
 
 // aToken is shaped like a GitHub token, built here so that no file holds one.
 var aToken = "ghp_" + strings.Repeat("a1", 12)
@@ -177,7 +179,7 @@ func checkNotesDecideNothing(r *Rig) error {
 		reworked     bool
 	}
 	settle := func(kind workorders.VerdictKind, notes []workorders.ReviewNote) (outcome, error) {
-		id, _, err := r.judged(s, criterionOne)
+		id, head, err := r.judged(s, criterionOne)
 		if err != nil {
 			return outcome{}, err
 		}
@@ -193,7 +195,7 @@ func checkNotesDecideNothing(r *Rig) error {
 			return outcome{}, err
 		}
 		// What the work waits on names its commit, which is its own.
-		got := outcome{state: work.State, why: commitNames.ReplaceAllString(view.Why, "<commit>"), integrations: len(view.Integrations)}
+		got := outcome{state: work.State, why: maskCommit(view.Why, head), integrations: len(view.Integrations)}
 		for _, record := range view.Integrations {
 			got.approvals = append(got.approvals, record.ApprovedByKind)
 		}
