@@ -23,15 +23,18 @@ type Worktrees struct {
 
 func (w Worktrees) git(dir string) Git { return Git{Dir: dir, Env: w.Env} }
 
-// listed is one entry of `git worktree list --porcelain`. A detached head has no branch, and says so.
+// listed is one entry of `git worktree list --porcelain`. A detached head has no branch, and says so. A
+// prunable entry is one `git worktree prune` would remove.
 type listed struct {
 	path     string
 	branch   string
 	detached bool
+	prunable bool
 }
 
 // list reads every worktree the repository registers. It is the middle step of a create, between the prune
-// and the add, and it reads every registration, so it holds the repository's worktree lock like they do.
+// and the add, and the check after the add, and it reads every registration, so it holds the repository's
+// worktree lock like they do.
 func (w Worktrees) list(ctx context.Context, repository string) ([]listed, error) {
 	git := w.git(repository)
 	release, err := git.holdWorktrees(ctx)
@@ -55,6 +58,9 @@ func (w Worktrees) list(ctx context.Context, repository string) ([]listed, error
 			}
 			if line == "detached" {
 				entry.detached = true
+			}
+			if strings.HasPrefix(line, "prunable") {
+				entry.prunable = true
 			}
 		}
 		if entry.path != "" {
@@ -134,9 +140,10 @@ func madeDetached(ctx context.Context, git Git) bool {
 // retry. A detached worktree is the commit checked out and no branch, so it can neither take a
 // branch's name nor leave one behind.
 //
-// A registration that a prune in another process removes while the add is making it fails the add, and the
-// create then does the whole step again, because the prune, the list, and the add each read what the others
-// left.
+// A registration that a prune in another process removes while the add is making it fails the add, or
+// leaves the add a success and the registration gone or without its gitdir. A create checks the
+// registration after its add, and on either does the whole step again, because the prune, the list, and the
+// add each read what the others left.
 func (w Worktrees) Create(ctx context.Context, spec ports.WorktreeSpec) (ports.Worktree, error) {
 	var tree ports.Worktree
 	err := retryLostRegistration(ctx, func() (err error) {
@@ -208,12 +215,47 @@ func (w Worktrees) create(ctx context.Context, spec ports.WorktreeSpec) (ports.W
 		return ports.Worktree{}, err
 	}
 	crashpoint.Hit("worktree.create", "added")
+	tree, err := w.finish(ctx, spec)
+	registered, listErr := w.registered(ctx, spec.Repository, spec.Path)
+	if listErr != nil {
+		return ports.Worktree{}, listErr
+	}
+	if !registered || lostRegistration(err) {
+		// The path held nothing before this add, so what is there now is the add's checkout and no one's work.
+		if err := os.RemoveAll(spec.Path); err != nil {
+			return ports.Worktree{}, err
+		}
+		return ports.Worktree{}, fmt.Errorf("%w: %s", errRegistrationLost, spec.Path)
+	}
+	return tree, err
+}
+
+// finish completes a create after its add: it marks a detached worktree, and reads it.
+func (w Worktrees) finish(ctx context.Context, spec ports.WorktreeSpec) (ports.Worktree, error) {
 	if spec.Detached {
 		if err := w.markDetached(ctx, spec.Path); err != nil {
 			return ports.Worktree{}, err
 		}
 	}
 	return w.Inspect(ctx, spec.Path)
+}
+
+// registered reports whether the repository registers a worktree at path that no prune removes: `git worktree
+// list` names it, and does not call it prunable. A prune that removed a registration file by file while the
+// add was writing it can leave the add a success and the registration without its gitdir, which git then
+// neither lists nor keeps.
+func (w Worktrees) registered(ctx context.Context, repository, path string) (bool, error) {
+	entries, err := w.list(ctx, repository)
+	if err != nil {
+		return false, err
+	}
+	want := canonical(path)
+	for _, entry := range entries {
+		if entry.path == want {
+			return !entry.prunable, nil
+		}
+	}
+	return false, nil
 }
 
 // heldBy says what a path's worktree stands on, for a refusal.

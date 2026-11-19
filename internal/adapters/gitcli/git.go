@@ -152,36 +152,56 @@ func retryWhile(ctx context.Context, again func(error) bool, attempt func() erro
 	return err
 }
 
+// errRegistrationLost is a create's own finding that the registration its add made is gone or broken,
+// although the add succeeded.
+var errRegistrationLost = errors.New("the worktree's registration was lost")
+
 // lostRegistration reports whether a git failure is a worktree registration that vanished under the command
 // that was making it. `git worktree add` makes the entry under .git/worktrees and then writes its files one by
 // one, and a `git worktree prune` in another process, such as the one git's auto maintenance runs, removes an
-// entry that has no gitdir yet. The add then fails opening one of the files it writes, or reading the entry
-// back as a repository. The adapter's lock does not hold that process back.
+// entry that has neither locked nor gitdir yet. The prune decides first and removes the entry file by file
+// after, so the add may already have written more by then. The add then fails making the entry, opening one
+// of the files it writes, reading the entry back, or checking out through it. The adapter's lock does not
+// hold that process back. A prune that removed the last entry also removes .git/worktrees itself.
 //
-// Git has no signal for this but the words it prints, because every failed command exits 128.
+// Git has no signal for this but the words it prints, because every failed command exits 128. An open fails
+// with ENOENT on Linux, and with EINVAL on macOS while the prune is removing the directory.
 func lostRegistration(err error) bool {
 	if err == nil {
 		return false
 	}
+	if errors.Is(err, errRegistrationLost) {
+		return true
+	}
 	text := err.Error()
+	// Git 2.44 and later print the first when the registration is gone before the add reads it back. Git 2.56
+	// and later print the second when a command reads a worktree whose registration is gone, where earlier
+	// versions print "not a git repository: " and the registration's path, which the check below reads.
+	if strings.Contains(text, "could not find created worktree '") ||
+		strings.Contains(text, "gitfile does not point to a valid repository: ") {
+		return true
+	}
 	if !strings.Contains(text, "/worktrees/") {
 		return false
 	}
-	if strings.Contains(text, "not a git repository: ") {
+	if strings.Contains(text, "not a git repository: ") ||
+		(strings.Contains(text, "could not create directory of '") && strings.HasSuffix(text, ": No such file or directory")) {
 		return true
 	}
 	for _, name := range []string{"locked", "gitdir", "commondir"} {
-		if strings.Contains(text, "/"+name+"' for writing: No such file or directory") {
-			return true
+		for _, cause := range []string{"No such file or directory", "Invalid argument"} {
+			if strings.Contains(text, "/"+name+"' for writing: "+cause) {
+				return true
+			}
 		}
 	}
 	return false
 }
 
 // retryLostRegistration runs step, which is a whole create of a worktree, and runs it again while it fails
-// for a lost registration, up to three runs 50 ms apart and not past the end of ctx. Another run prunes what
-// is left, lists again, and adds again, which is what makes a create safe to repeat. Any other failure is
-// returned at once.
+// for a lost registration, whether git reported it or the step found it, up to three runs 50 ms apart and
+// not past the end of ctx. Another run prunes what is left, lists again, and adds again, which is what makes
+// a create safe to repeat. Any other failure is returned at once.
 func retryLostRegistration(ctx context.Context, step func() error) error {
 	return retryWhile(ctx, lostRegistration, step)
 }
