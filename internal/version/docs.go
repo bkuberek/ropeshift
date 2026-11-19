@@ -10,11 +10,11 @@ func DocsURL(page string) string {
 	return docsURL(Read("").Version, page)
 }
 
-// docsURL links page at the tag of a build that reports the release v, and at main for any other build. A
-// release's tag is its version.
+// docsURL links page at the tag of a build that reports a tagged release v, and at main for any other build,
+// a snapshot included. A tagged release's tag is its version.
 func docsURL(v, page string) string {
 	ref := "main"
-	if isRelease(v) {
+	if isRelease(v) && isTagged(v) {
 		ref = v
 	}
 	return repository + "/blob/" + ref + "/" + page

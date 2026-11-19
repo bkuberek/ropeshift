@@ -11,6 +11,11 @@ func TestDocsLinkToTheTagOfAReleaseAndToMainOtherwise(t *testing.T) {
 	}{
 		{"a release", "v0.4.1", "https://github.com/bkuberek/ropeshift/blob/v0.4.1/" + page},
 		{"a pre-release", "v0.1.0-alpha.17", "https://github.com/bkuberek/ropeshift/blob/v0.1.0-alpha.17/" + page},
+		{"a release candidate", "v0.1.0-rc.1", "https://github.com/bkuberek/ropeshift/blob/v0.1.0-rc.1/" + page},
+		{"a beta", "v0.2.0-beta.3", "https://github.com/bkuberek/ropeshift/blob/v0.2.0-beta.3/" + page},
+		{"a snapshot", "v0.0.1-snapshot-1a2b3c4", "https://github.com/bkuberek/ropeshift/blob/main/" + page},
+		{"a dirty pre-release", "v0.1.0-rc.1-dirty", "https://github.com/bkuberek/ropeshift/blob/main/" + page},
+		{"a dev pre-release", "v0.1.0-dev", "https://github.com/bkuberek/ropeshift/blob/main/" + page},
 		{"a development build", Development, "https://github.com/bkuberek/ropeshift/blob/main/" + page},
 		{"no version", "", "https://github.com/bkuberek/ropeshift/blob/main/" + page},
 		{"a pseudo-version", "v0.0.0-20261107230936-dd81c214342b", "https://github.com/bkuberek/ropeshift/blob/main/" + page},

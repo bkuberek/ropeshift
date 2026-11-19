@@ -96,6 +96,12 @@ func resolve(command string, stamped stamp, build *debug.BuildInfo, ok bool) Inf
 // the toolchain marks a build from a tree with changes as +dirty.
 var release = `^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$`
 
+// tagged is a release whose pre-release, if any, is a stage ropeshift tags: alpha.N, beta.N, or rc.N. A
+// snapshot such as v0.0.1-snapshot-1a2b3c4 is a release in form but names no tag.
+var tagged = `^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(alpha|beta|rc)\.(0|[1-9][0-9]*))?$`
+
+func isTagged(v string) bool { return regexp.MustCompile(tagged).MatchString(v) }
+
 // pseudo is a Go pseudo-version, as golang.org/x/mod/module defines it: what the toolchain records for
 // a commit no tag names.
 var pseudo = `^v[0-9]+\.(0\.0-|\d+\.\d+-([^+]*\.)?0\.)\d{14}-[A-Za-z0-9]+(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$`
