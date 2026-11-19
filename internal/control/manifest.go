@@ -25,7 +25,12 @@ import (
 // removed, said with why, by its name, by the remote the entry names, and by the remote its clone has, because
 // only a member's own registration brings one back. An entry with `create` that no work order of the version
 // names in `repo` is planned, and the approval creates and registers nothing for it. Registration is a
-// member's act, so only the member who approves a plan runs this, never a tick or a delegate. Until the
+// member's act, so only the member who approves a plan runs this, never a tick or a delegate. An entry with `create`
+// that a work order of the version does name is created, through the creator, on the machine of the worker whose
+// clones kept reads, as the project named, and registered once every step is done (FR-REPO-16): a dry run runs only
+// the creator's checks and says what approving would create, and an approval runs them again, records that the
+// creation starts and what it came to, and registers nothing for a creation that refused or stopped at a step. A nil
+// creator creates nothing and refuses such an entry, saying so. Until the
 // version is approved it registers nothing, and a dry run, which a member reads before approving, says what
 // approving would register. Approving records the outcome on the approval, which RegistrationOf reads, and
 // registers once: an approval that recorded its outcome answers with that record, and a later approval of a
