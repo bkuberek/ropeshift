@@ -435,9 +435,9 @@ func (w *Worker) performPracticesCheck(ctx context.Context, rt *PracticesRuntime
 // withoutCheckout writes text for a report: on one line and bounded, with every spelling of the checkout's directory
 // replaced by a placeholder, the directory as it was given, as it reads cleaned, and as symbolic links resolve it,
 // which is the one git names, and the temporary directory by `<temp>`, the person's home folder by `~`, and the
-// configuration folder by `<config>`, each as given and as symbolic links resolve it. The longest path is replaced
-// first, so a path inside another is replaced whole. What a run reports names nothing of the layout of the worker's
-// machine.
+// configuration folder by `<config>`, each as given and as symbolic links resolve it. A relative XDG_CONFIG_HOME is
+// no configuration folder and is left. The longest path is replaced first, so a path inside another is replaced whole.
+// What a run reports names nothing of the layout of the worker's machine.
 func withoutCheckout(text, dir string) string {
 	if text == "" {
 		return text
@@ -448,7 +448,7 @@ func withoutCheckout(text, dir string) string {
 	if home, err := os.UserHomeDir(); err == nil {
 		paths = appendSpellings(paths, "~", home)
 	}
-	if config := os.Getenv("XDG_CONFIG_HOME"); config != "" {
+	if config := os.Getenv("XDG_CONFIG_HOME"); filepath.IsAbs(config) {
 		paths = appendSpellings(paths, "<config>", config)
 	}
 	slices.SortStableFunc(paths, func(a, b pathPlaceholder) int { return len(b.path) - len(a.path) })

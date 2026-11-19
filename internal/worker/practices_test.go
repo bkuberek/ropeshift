@@ -1169,3 +1169,21 @@ func TestJournalsSetAsideAreKeptBoundedByCountAndAge(t *testing.T) {
 		t.Errorf("after the week the worker keeps %v, want %v", got, want[:5])
 	}
 }
+
+// A relative XDG_CONFIG_HOME is no configuration folder, as the XDG Base Directory specification says, so what it
+// spells in a report is left as it is.
+func TestARelativeConfigurationFolderIsNotStrippedFromAReport(t *testing.T) {
+	r := newPracticesRig(t)
+	t.Setenv("XDG_CONFIG_HOME", "relative/config")
+	captured := &capturedPractices{WorkerLink: r.link}
+	failing := r.sources
+	failing.Snapshots = failingSnapshots{err: errors.New("open relative/config/git/config: no such file")}
+	subject := r.workerOn(captured, failing)
+	if err := subject.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	r.offer(subject, ledger.DesiredPracticesCheck{ID: "req-1", Repository: "repo-widgets", BaseBranch: "main", ExpiresAt: 1 << 60})
+	if detail := captured.only(t).Detail; !strings.Contains(detail, "open relative/config/git/config: no such file") {
+		t.Errorf("the detail is %q, want the relative path as it was", detail)
+	}
+}
