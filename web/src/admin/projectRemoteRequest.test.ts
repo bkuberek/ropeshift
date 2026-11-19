@@ -1,12 +1,14 @@
 import { describe, expect, it } from "vitest";
 
 import { golden } from "../testing";
-import { buildRequest, creating, newRow, rowRemote, urlProblem } from "./projectRemoteRequest";
+import { buildRequest, creating, nameProblem, newRow, rowRemote, urlProblem } from "./projectRemoteRequest";
 import type { Draft, Row } from "./projectRemoteRequest";
 import { plainText } from "./untrustedText";
 
 const draft = (over: Partial<Draft> = {}): Draft => ({
   question: "one",
+  name: "",
+  named: true,
   project: "",
   firstCommit: true,
   mode: "none",
@@ -29,6 +31,25 @@ describe("the request a draft makes", () => {
     expect(buildRequest(draft({ question: "one" }), "/srv/a").request?.shape).toBe("monorepo");
     expect(buildRequest(draft({ question: "several", rows: [row({ name: "api" })] }), "/srv/a").request?.shape).toBe("workspace");
     expect(buildRequest(draft({ question: "elsewhere", project: " tidewater " }), "/srv/a").request).toEqual({ shape: "repository", path: "/srv/a", first_commit: true, project: "tidewater" });
+  });
+
+  it("names the project for a monorepo and a workspace, trimmed, and sends no name when it is empty", () => {
+    expect(buildRequest(draft({ name: " tidewater " }), "/srv/a").request).toEqual({ shape: "monorepo", path: "/srv/a", first_commit: true, name: "tidewater" });
+    expect(buildRequest(draft({ question: "several", name: "tidewater", rows: [row({ name: "api" })] }), "/srv/a").request?.name).toBe("tidewater");
+    expect(buildRequest(draft({ name: "  " }), "/srv/a").request).toEqual({ shape: "monorepo", path: "/srv/a", first_commit: true });
+  });
+
+  it("sends no name for a code repository of a project planned elsewhere, which names a project of its own", () => {
+    expect(buildRequest(draft({ question: "elsewhere", name: "tidewater", project: "acme" }), "/srv/a").request).toEqual({ shape: "repository", path: "/srv/a", first_commit: true, project: "acme" });
+  });
+
+  it("refuses a name that is no project name, and one a worker on an older protocol would drop", () => {
+    expect(buildRequest(draft({ name: "Tide Water" }), "/srv/a").problem?.field).toBe("name");
+    expect(buildRequest(draft({ name: "tidewater", named: false }), "/srv/a").problem).toEqual({
+      field: "name",
+      message: "This worker cannot take a project name. Clear the field, or choose a worker on plane protocol 7 or later.",
+    });
+    expect(buildRequest(draft({ name: "", named: false }), "/srv/a").request).toEqual({ shape: "monorepo", path: "/srv/a", first_commit: true });
   });
 
   it("sends no remote while the first commit is unchecked or the worker is on an older protocol, whatever was chosen", () => {
@@ -103,4 +124,15 @@ describe("plainText", () => {
     }
     expect(mismatches).toEqual([]);
   }, 60_000);
+});
+
+describe("the name a project may have", () => {
+  it("is lowercase letters and digits in words joined by single hyphens, 63 characters at most", () => {
+    for (const good of ["a", "tidewater", "harbor-api-2", "a".repeat(63)]) {
+      expect(nameProblem(good)).toBe("");
+    }
+    for (const bad of ["Harbor", "har bor", "-harbor", "harbor-", "a--b", "a_b", "a".repeat(64)]) {
+      expect(nameProblem(bad)).not.toBe("");
+    }
+  });
 });

@@ -1593,7 +1593,7 @@ suite.each(Object.entries(sizes))("at %s width", (size, viewport) => {
         // written, with the hand-off to registration and without it, and with a failed push.
         const asked = { id: "request-1", worker: "worker-1", requested_by: "member", requested_at: Date.now(), expires_at: Date.now() + 120_000, shape: "workspace", path: "/srv/code/harbor", first_commit: true, state: "offered", registrable: false };
         let reading: Record<string, unknown> = asked;
-        await page.route(/\/v1\/workers$/, served({ workers: [{ id: "worker-1", name: "atlas", epoch: 1, protocol: 6 }, { id: "worker-2", name: "elder", epoch: 1, protocol: 4 }] }));
+        await page.route(/\/v1\/workers$/, served({ workers: [{ id: "worker-1", name: "atlas", epoch: 1, protocol: 7 }, { id: "worker-2", name: "elder", epoch: 1, protocol: 4 }] }));
         await page.route(/\/v1\/workers\/worker-1\/template-writes$/, (route) => served(asked, 202)(route));
         await page.route(/\/v1\/workers\/worker-1\/template-writes\/request-1$/, (route) => served(reading)(route));
         // The forge account read: asked with a POST, and read until the worker reports what its gh can do.
@@ -1622,6 +1622,12 @@ suite.each(Object.entries(sizes))("at %s width", (size, viewport) => {
         await start.getByRole("button", { name: "Add", exact: true }).click();
         await start.getByRole("group", { name: "Code repository 1" }).getByRole("textbox", { name: "Name" }).fill("api");
         await check("start a project from a template dialog, several repositories with rows", start);
+        await start.getByRole("textbox", { name: "Folder" }).fill("/srv/code/harbor");
+        await start.getByRole("textbox", { name: "Project name" }).fill("Tide Water");
+        await start.getByRole("button", { name: "Write files" }).click();
+        await start.getByText(/lowercase letters and digits in words joined by single hyphens/).waitFor();
+        await check("start a project from a template dialog, a project name that is refused", start);
+        await start.getByRole("textbox", { name: "Project name" }).fill("");
         await start.getByRole("radio", { name: "Create on GitHub" }).check();
         await start.getByText("Checking gh on atlas").waitFor();
         await check("start a project from a template dialog, checking gh", start);
