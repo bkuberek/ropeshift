@@ -70,7 +70,7 @@ The model does not change as a project grows, so each step adds files and settin
 | `Makefile` | Ropeshift clones nothing. A registered repository whose clone is missing holds its work as `no_checkout` until the clone is there. A `make setup` that clones each missing repository, a `make fetch`, and a `make status` make a fresh machine ready in one step. A `make register` registers the workspace and the clone of each repository the Makefile lists, each by its own path at any depth, skips a listed repository with no clone, and registers no clone the Makefile does not list |
 | `repos/` is git-ignored | Intake reads only what git has committed, file by file, so the clones inside the workspace are never read as part of it. Each clone is a repository of its own, registered on its own |
 | The manifest lists `repos/acme-api` | A manifest path is relative to the planning repository's clone, and may lead into a folder inside it, or beside it, such as `../acme-api`. It must stay inside the folder that holds the planning repository's clone ([keep a manifest in the planning repository](set-up-projects.md#keep-a-manifest-in-the-planning-repository)) |
-| `/.ropeshift/worktrees/` is git-ignored | Lane worktrees of the clones in `repos/` go there, inside the workspace, so the agent in each of those lanes loads the workspace's `CLAUDE.md` as well as its repository's own. The workspace's own lanes stay outside. See [where lane worktrees go](#where-lane-worktrees-go) and [the instructions a lane loads](#the-instructions-a-lane-loads) |
+| `/.ropeshift/worktrees/` is git-ignored | Lane worktrees of the clones in `repos/` go there, inside the workspace, so the agent in each of those lanes loads the workspace's `CLAUDE.md` as well as its repository's own. The `AGENTS.md` that the workspace's `CLAUDE.md` imports lies outside the lane's working directory, so it may not load. The workspace's own lanes stay outside. See [where lane worktrees go](#where-lane-worktrees-go) and [the instructions a lane loads](#the-instructions-a-lane-loads) |
 
 ## Where lane worktrees go
 
@@ -97,7 +97,7 @@ A project's workspace on a machine is the folder that holds its clones there. Ro
 workspace = "/path/to/workspace"
 ```
 
-A clone that lies inside the workspace, and is not the workspace, gets the built-in root `<workspace>/.ropeshift/worktrees/<repository>/<lane>`, so the agent in a lane loads the workspace's instruction files from the folders above its own ([the instructions a lane loads](#the-instructions-a-lane-loads)). Three kinds of lane keep the root outside every clone:
+A clone that lies inside the workspace, and is not the workspace, gets the built-in root `<workspace>/.ropeshift/worktrees/<repository>/<lane>`, so the agent in a lane loads the workspace's `CLAUDE.md` from the folders above its own ([the instructions a lane loads](#the-instructions-a-lane-loads)). Three kinds of lane keep the root outside every clone:
 
 - The workspace repository's own lanes. A worktree of the workspace nested in it would load the workspace's instructions twice.
 - A clone outside the workspace, and every clone of a project with no workspace.
@@ -119,17 +119,19 @@ A `.ropeshift` folder is ropeshift's own. No scan of `repository add`, `adopt`, 
 
 ### The instructions a lane loads
 
-Ropeshift starts Claude Code in the lane's worktree, as its working directory, and passes no flag or setting that limits which instruction files it loads. Claude Code loads `CLAUDE.md` and `CLAUDE.local.md` from its working directory and from every directory above it, ordered from the filesystem root down, so the instructions nearest the worktree come last. It reads an `AGENTS.md` directly only when none of those directories holds a `CLAUDE.md` or `CLAUDE.local.md` ([Claude Code memory](https://code.claude.com/docs/en/memory)). Every `CLAUDE.md` that `ropeshift new` writes holds the line `@AGENTS.md`, so the `AGENTS.md` beside it loads through that import. Where the worktree is decides what a lane loads:
+Ropeshift starts Claude Code in the lane's worktree, as its working directory, and passes no flag or setting that limits which instruction files it loads. Claude Code loads `CLAUDE.md` and `CLAUDE.local.md` from its working directory and from every directory above it, ordered from the filesystem root down, so the instructions nearest the worktree come last. By default, it reads an `AGENTS.md` directly only when none of those directories holds a `CLAUDE.md`, `.claude/CLAUDE.md`, or `CLAUDE.local.md`. An `@path` import in one of those files is external when its path resolves outside the working directory: "The first time Claude Code encounters external imports in a project, it shows an approval dialog listing the files. If you decline, the imports stay disabled and the dialog doesn't appear again" ([Claude Code memory](https://code.claude.com/docs/en/memory)). The same page places that dialog at the start of an interactive session.
+
+Every `CLAUDE.md` that `ropeshift new` writes holds the line `@AGENTS.md`. In the lane's own worktree that import lies inside the working directory, so the repository's `AGENTS.md` loads. The workspace's `CLAUDE.md`, in a folder above the worktree, imports an `AGENTS.md` outside the working directory, and ropeshift approves no external import, so a lane may not load that `AGENTS.md`. Where the worktree is decides what a lane loads:
 
 | Lane | Its worktree | What it loads besides its repository's own instructions |
 |------|--------------|---------------------------------------------------------|
-| A clone inside the workspace, which ignores `.ropeshift/worktrees/` | `<workspace>/.ropeshift/worktrees/<repository>/<lane>` | The workspace's `CLAUDE.md`, with the `AGENTS.md` it imports, before the repository's own |
-| A clone inside a workspace that does not ignore `.ropeshift/worktrees/` | `<worktree directory>/<project>/<repository>/<lane>` | Nothing of the workspace's |
+| A clone inside the workspace, which ignores `.ropeshift/worktrees/` or is a plain folder ([see above](#the-workspace-on-a-machine)) | `<workspace>/.ropeshift/worktrees/<repository>/<lane>` | The workspace's `CLAUDE.md`, before the repository's own. The `AGENTS.md` it imports is an external import, which loads only where external imports were approved |
+| A clone inside a workspace that does not ignore `.ropeshift/worktrees/`, or whose folder for worktrees a symbolic link leads out of the workspace ([see above](#the-workspace-on-a-machine)) | `<worktree directory>/<project>/<repository>/<lane>` | Nothing of the workspace's |
 | The workspace repository's own lane | `<worktree directory>/<project>/<workspace>/<lane>` | Nothing more: its repository's instructions are the workspace's, loaded once |
 | A clone outside every workspace, or of a project with no workspace | `<worktree directory>/<project>/<repository>/<lane>` | Nothing of the workspace's |
 | Any lane under a root you set | Under that root | Any `CLAUDE.md` in the root's folders or above them |
 
-Every lane also loads a `CLAUDE.md` in a folder above the worktree, such as one in your home folder, and your own `~/.claude/CLAUDE.md`. By default, a workspace that holds an `AGENTS.md` and no `CLAUDE.md` gives a lane in its `.ropeshift/worktrees/` folder nothing, because the repository's `CLAUDE.md` in the working directory stops Claude Code from reading `AGENTS.md` files directly. A rule that every change to a repository must follow belongs in that repository's own `AGENTS.md`, or in the contract, because a lane whose worktree is outside the workspace reads only those.
+Every lane also loads a `CLAUDE.md` in a folder above the worktree, such as one in your home folder, and your own `~/.claude/CLAUDE.md`. By default, a workspace that holds an `AGENTS.md` and no `CLAUDE.md` gives a lane in its `.ropeshift/worktrees/` folder nothing, because the repository's `CLAUDE.md` in the working directory stops Claude Code from reading `AGENTS.md` files directly. A rule that a lane must follow therefore belongs in the code repository's own `AGENTS.md`, or in the contract: a lane whose worktree is outside the workspace reads only those, and a lane inside it may not load the workspace's `AGENTS.md`.
 
 ### Your own root
 
