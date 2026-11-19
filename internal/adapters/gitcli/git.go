@@ -80,11 +80,16 @@ func withGitConfig(env []string, key, value string) []string {
 		"GIT_CONFIG_KEY_"+n+"="+key, "GIT_CONFIG_VALUE_"+n+"="+value, "GIT_CONFIG_COUNT="+strconv.Itoa(count+1))
 }
 
+// waitDelay is how long a command that was stopped by its context may keep its output open before the call returns. A helper
+// git started, such as ssh, can hold the pipes past the end of git itself, and the call returns at the deadline all the same.
+const waitDelay = time.Second
+
 // Output runs one command and returns its stdout as it is.
 func (g Git) Output(ctx context.Context, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = g.Dir
 	cmd.Env = g.environment()
+	cmd.WaitDelay = waitDelay
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	if err := cmd.Run(); err != nil {
@@ -99,6 +104,7 @@ func (g Git) Feed(ctx context.Context, input []byte, args ...string) ([]byte, er
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = g.Dir
 	cmd.Env = g.environment()
+	cmd.WaitDelay = waitDelay
 	cmd.Stdin = bytes.NewReader(input)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
