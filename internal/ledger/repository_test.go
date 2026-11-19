@@ -59,7 +59,8 @@ func TestARepositoryRefusesWhatIsNotAMethodOrAStart(t *testing.T) {
 
 func TestABranchNameIsAGitRefName(t *testing.T) {
 	good := []string{"main", "release/1.2", "feature/a-b_c.d", "v2"}
-	bad := []string{"", "-rf", "a b", "a..b", "/a", "a/", "a//b", "a.lock", "a~1", "a^", "a:b", "a?b", "a*b", "a[b", "a\\b", "@", "a@{b", ".hidden", "a/.hidden", "a."}
+	bad := []string{"", "-rf", "a b", "a..b", "/a", "a/", "a//b", "a.lock", "a~1", "a^", "a:b", "a?b", "a*b", "a[b", "a\\b", "@", "a@{b", ".hidden", "a/.hidden", "a.",
+		"HEAD", "FETCH_HEAD", "+main", "refs/heads/main", "refs/x"}
 	for _, name := range good {
 		if err := CheckBranch(name); err != nil {
 			t.Errorf("%q: %v", name, err)

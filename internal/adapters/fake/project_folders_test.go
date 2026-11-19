@@ -144,3 +144,23 @@ func TestProjectFoldersFirstCommitStartsOnTheNamedBranch(t *testing.T) {
 		t.Errorf("a refused branch made a repository: %+v", got)
 	}
 }
+
+// The fake refuses each branch the adapter refuses before git init, so a test of a creation on the fake cannot pass a
+// branch that a real first commit would refuse.
+func TestProjectFoldersFirstCommitRefusesWhatTheAdapterRefuses(t *testing.T) {
+	files := []ports.FolderFile{{Path: "AGENTS.md", Text: "agents"}}
+	for _, branch := range []string{"bad name", "bad~name", "-x", "a..b", "main.lock", "@{-1}", "@", "a//b", "HEAD", "FETCH_HEAD", "+main", "refs/heads/main"} {
+		machine := fake.NewProjectFolders()
+		machine.Dir("/srv/code")
+		id, err := machine.Write(t.Context(), "/srv/code/bad", files, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := machine.FirstCommit(t.Context(), "/srv/code/bad", "chore: start", false, id, ports.CommitSpec{Paths: []string{"AGENTS.md"}, Branch: branch}); err == nil {
+			t.Errorf("a first commit on %q was made", branch)
+		}
+		if got := machine.Inspected("/srv/code/bad"); got.CloneTop != "" {
+			t.Errorf("%q made a repository: %+v", branch, got)
+		}
+	}
+}

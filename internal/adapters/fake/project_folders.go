@@ -298,8 +298,8 @@ func (f *ProjectFolders) Held(_ context.Context, folder string, paths []string) 
 }
 
 // FirstCommit makes the folder a clone on the branch commit names, or on the default branch when it names none, and
-// commits unless CommitError says it fails. A branch git refuses is an error and makes no clone. A folder that is a
-// clone already is the worker's own only on a resume.
+// commits unless CommitError says it fails. A branch the adapter refuses, which is every one ledger.CheckBranch
+// refuses, is an error and makes no clone. A folder that is a clone already is the worker's own only on a resume.
 func (f *ProjectFolders) FirstCommit(_ context.Context, folder, message string, resumed bool, named ports.FolderID, commit ports.CommitSpec) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
