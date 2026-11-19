@@ -14,6 +14,17 @@ import (
 	"ropeshift.com/ropeshift/internal/workorders"
 )
 
+// reachPerson is the one step every route takes when a question goes to a person: it keeps the decisions in force
+// whose scope overlaps the question's (FR-QD-5), and gathers the question into the batch that is open.
+func (q *Questions) reachPerson(tx ports.WriteTx, record *questions.Question, actor ledger.Actor) error {
+	overlaps, err := overlapsOf(tx, *record)
+	if err != nil {
+		return err
+	}
+	record.Overlaps = overlaps
+	return q.gather(tx, record, actor)
+}
+
 // gather puts a question that passed the gate into the batch that is open, or opens one.
 // All of it uses database time, because a batch's close is a timer.
 func (q *Questions) gather(tx ports.WriteTx, record *questions.Question, actor ledger.Actor) error {
@@ -67,7 +78,7 @@ func (q *Questions) toPerson(tx ports.WriteTx, draft questions.Question, actor l
 	if err != nil {
 		return questions.Question{}, err
 	}
-	if err := q.gather(tx, &record, actor); err != nil {
+	if err := q.reachPerson(tx, &record, actor); err != nil {
 		return questions.Question{}, err
 	}
 	batch, err := tx.Questions().Batch(record.BatchID)
