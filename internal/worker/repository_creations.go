@@ -76,7 +76,8 @@ type place struct {
 // Check runs every check that comes before a creation's first write, and writes nothing. A creation its journal shows
 // started runs the checks of where it writes again and answers the rest from the journal: its own folder and forge
 // repository are not refused, and the URL, the account, and the branch are those it ran with. While another creation
-// on this worker writes the folder the path leads to, the check refuses at once.
+// or check on this worker holds the folder the path leads to, a check whose job waits waits for it until its context
+// ends, and any other, a preview's, refuses at once.
 func (c *repositoryCreator) Check(ctx context.Context, job ledger.RepositoryCreation) (ledger.CreationCheck, error) {
 	rt, err := c.runtime()
 	if err != nil {
@@ -85,7 +86,7 @@ func (c *repositoryCreator) Check(ctx context.Context, job ledger.RepositoryCrea
 	if refusal := jobRefusal(job); refusal != nil {
 		return ledger.CreationCheck{Refusal: refusal}, nil
 	}
-	release, leads, refusal, err := c.hold(ctx, rt, job, false)
+	release, leads, refusal, err := c.hold(ctx, rt, job, job.Wait)
 	if err != nil || refusal != nil {
 		return ledger.CreationCheck{Refusal: refusal, Leads: leads}, err
 	}
@@ -197,7 +198,8 @@ func (c *repositoryCreator) runtime() (*TemplateRuntime, error) {
 }
 
 // hold takes the folder the path leads to, so no other creation on this worker writes it meanwhile, and says where the
-// path leads. A creation waits for the folder until its context ends; a check refuses at once while another holds it.
+// path leads. A creation, and a check whose job waits, waits for the folder until its context ends; any other check
+// refuses at once while another holds it.
 func (c *repositoryCreator) hold(ctx context.Context, rt *TemplateRuntime, job ledger.RepositoryCreation, wait bool) (func(), string, *ledger.TemplateWriteReport, error) {
 	if refusal := spellingRefusal(job.Path); refusal != nil {
 		return nil, "", refusal, nil

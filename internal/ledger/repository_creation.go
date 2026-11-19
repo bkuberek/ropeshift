@@ -23,6 +23,9 @@ type RepositoryCreation struct {
 	Create        RemoteCreate `json:"create"`
 	ForgeName     string       `json:"forge_name"`
 	DefaultBranch string       `json:"default_branch,omitempty"`
+	// Wait says the check waits, until its context ends, for another creation or check on the worker that holds the
+	// folder the path leads to, as a real run's check does. A preview's check leaves it false and is refused at once.
+	Wait bool `json:"wait,omitempty"`
 }
 
 // CreationCheck is what the checks that come before a creation's first write found.

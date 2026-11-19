@@ -673,3 +673,55 @@ func TestARepositoryCreationCheckSaysWhereThePathLeads(t *testing.T) {
 		t.Errorf("the check is %+v (%v), want it refused and leading to /work/tt/repos/web", checked, err)
 	}
 }
+
+// slowSignIn holds the first read of the sign-in until the test lets it go, and says when it began.
+type slowSignIn struct {
+	*fake.ForgeAccounts
+	once    sync.Once
+	began   chan struct{}
+	release chan struct{}
+}
+
+func (f *slowSignIn) Account(ctx context.Context, host string) (ports.ForgeAccount, error) {
+	f.once.Do(func() {
+		close(f.began)
+		<-f.release
+	})
+	return f.ForgeAccounts.Account(ctx, host)
+}
+
+// A real run's check waits for the folder a preview's check holds and goes on once the preview is done, where a
+// preview's check is refused at once.
+func TestARealRunsCheckWaitsForAPreviewsCheck(t *testing.T) {
+	t.Parallel()
+	r := newCreationRig(t)
+	r.folders.Dir("/work/tt/repos")
+	forge := &slowSignIn{ForgeAccounts: r.forge, began: make(chan struct{}), release: make(chan struct{})}
+	creator := r.creator(forge)
+	preview := creation("/work/tt/repos/api")
+	previewDone := make(chan ledger.CreationCheck, 1)
+	go func() {
+		checked, _ := creator.Check(context.Background(), preview)
+		previewDone <- checked
+	}()
+	<-forge.began
+	run := preview
+	run.Key, run.Wait = ledger.CreationKey("approval-2", "api"), true
+	runDone := make(chan ledger.CreationCheck, 1)
+	go func() {
+		checked, _ := creator.Check(context.Background(), run)
+		runDone <- checked
+	}()
+	select {
+	case checked := <-runDone:
+		t.Fatalf("the real run's check answered %+v while the preview held the folder", checked)
+	case <-time.After(200 * time.Millisecond):
+	}
+	close(forge.release)
+	if checked := <-previewDone; checked.Refusal != nil {
+		t.Errorf("the preview's check is %+v", checked)
+	}
+	if checked := <-runDone; checked.Refusal != nil || checked.URL == "" {
+		t.Errorf("the real run's check is %+v, want it to pass once the preview is done", checked)
+	}
+}
