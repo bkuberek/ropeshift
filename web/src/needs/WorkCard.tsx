@@ -26,7 +26,12 @@ const reasonWords: Record<string, string> = {
   acceptance: "Its lane finished, and it waits for a member's word.",
   human_resume: "Its lane is parked until a person says go.",
   worker_behind: "Its worker must be upgraded before it can start its lane.",
+  history_missing: "Its adoption branch merged without the design history it imported.",
+  history_unread: "Its adoption branch merged, and its base could not be checked for the design history it imported.",
 };
+
+// The reasons whose detail is the card's own words, shown under its lead rather than as what a lane said.
+const toldReasons = ["worker_behind", "history_missing", "history_unread"];
 
 const orchestratorWords: Record<string, string> = {
   tripped: "This orchestrator crashed too often, and its breaker stopped it. Questions wait until it runs.",
@@ -70,7 +75,7 @@ function Lead({ work }: { work: WorkNeed }) {
     return (
       <>
         <p>{said}</p>
-        {work.reason === "worker_behind" && work.detail ? <p className="muted">{work.detail}</p> : null}
+        {toldReasons.includes(work.reason) && work.detail ? <p className="muted">{work.detail}</p> : null}
         {work.reason === "failed" && work.extra_attempt ? <p className="muted">It used every attempt it was given, so a retry adds one, which only a member can do.</p> : null}
         {work.standing?.why ? <p className="muted">It waits because {work.standing.why}.</p> : null}
       </>
@@ -171,7 +176,7 @@ export function WorkCard({ id, work, after, frame, inPage = false }: { id: strin
               <Freshness kind={freshnessOf(work.lane.freshness)} at={work.lane.as_of} source="the lane's worker" />
             </span>
           </Fact>
-          {work.detail && work.reason !== "worker_behind" ? (
+          {work.detail && !toldReasons.includes(work.reason) ? (
             <Fact name="Lane said" mono>
               {work.detail}
             </Fact>

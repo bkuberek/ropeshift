@@ -1245,6 +1245,9 @@ func soloTicks(projects ports.Projects, home ledger.WorkspaceID, opts soloOption
 		tick("intake", opts.intakeTick, func(ctx context.Context, p ledger.Project, store ports.Store) error {
 			var failed []error
 			intake := control.NewIntake(store).Telling(windows).Checking(soloStarts(opts, kept)).Placing(kept)
+			if _, err := control.NewRepositories(store).ForgetRemoved(ctx, p.ID, kept); err != nil {
+				failed = append(failed, err)
+			}
 			sources, err := projectSources(ctx, opts, kept, home, p.ID, recordsIn(store, p.ID))
 			if err != nil {
 				failed = append(failed, err)
@@ -1263,6 +1266,9 @@ func soloTicks(projects ports.Projects, home ledger.WorkspaceID, opts soloOption
 				report(fmt.Sprintf("intake: project %s does not read a source: %s", p.ID, line))
 			}
 			if _, err := intake.TakeInPlans(ctx, p.ID, acceptedCommits(opts, kept, p.ID)); err != nil {
+				failed = append(failed, err)
+			}
+			if err := intake.CheckConsolidations(ctx, p.ID); err != nil {
 				failed = append(failed, err)
 			}
 			if _, err := control.NewReviews(store).Promote(ctx, p.ID, tickActor("intake-tick")); err != nil {

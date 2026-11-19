@@ -76,7 +76,13 @@ type integrationFacts struct {
 
 func (f integrationFacts) commit() string { return f.branch.Digest }
 
+// method is the merge method of the work's merge: the repository's, except for an adoption branch that imports a
+// design repository's history, which merges with a merge commit whatever the repository's method, because a squash
+// or a rebase drops the merge's second parent and the history with it (FR-ADOPT-13).
 func (f integrationFacts) method() ledger.MergeMethod {
+	if f.order.Restructure.Consolidates() {
+		return ledger.MergeCommit
+	}
 	return cmp.Or(f.record.MergeMethod, ledger.MergeCommit)
 }
 
@@ -276,7 +282,8 @@ func (f integrationFacts) waiting() (workorders.Gate, *ledger.ForgeRequest) {
 		// A pull request whose head moved is reviewed again, which the rule decides from the head on record.
 		case last.Outcome == ledger.MergeStaleHead && f.record.Target() == ledger.ReviewOnPullRequest:
 		case last.Outcome != ledger.MergeMerged && !last.Outcome.Rework() && !f.retried(*last):
-			return workorders.Gate{Step: workorders.StepHold, Why: fmt.Sprintf("the merge of %s was refused: %s", short(f.commit()), last.Detail)}, last
+			why := fmt.Sprintf("the merge of %s was refused: %s", short(f.commit()), last.Detail) + mergeCommitRefused(f.order, f.base, last.Detail)
+			return workorders.Gate{Step: workorders.StepHold, Why: why}, last
 		}
 	}
 	gate := workorders.MergeGate(f.gateInput())

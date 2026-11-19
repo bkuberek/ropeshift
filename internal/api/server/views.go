@@ -553,6 +553,11 @@ func (h *handler) needs(tx ports.ReadTx, stamp api.Stamp) ([]api.NeedItem, error
 		return nil, err
 	}
 	items = append(items, ci...)
+	history, err := historyNeeds(tx)
+	if err != nil {
+		return nil, err
+	}
+	items = append(items, history...)
 	slices.SortStableFunc(items, func(a, b api.NeedItem) int { return cmp.Or(cmp.Compare(a.Since, b.Since), cmp.Compare(a.ID, b.ID)) })
 	return items, nil
 }

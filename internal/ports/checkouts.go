@@ -79,6 +79,9 @@ type Checkouts interface {
 	Keep(ctx context.Context, project ledger.WorkspaceID, repository, path string) error
 	// Forget drops this worker's checkout of a project's repository.
 	Forget(ctx context.Context, project ledger.WorkspaceID, repository string) error
+	// ForgetAt drops this worker's checkout of a project's repository only while it is still kept at path, and says
+	// whether it dropped it, so a checkout kept again at another path in the meantime stays.
+	ForgetAt(ctx context.Context, project ledger.WorkspaceID, repository, path string) (bool, error)
 	// Of lists this worker's checkouts in a project, as the path of each repository's.
 	Of(ctx context.Context, project ledger.WorkspaceID) (map[string]string, error)
 	// Every lists the path of every checkout this worker keeps, in every project, each once and in order.

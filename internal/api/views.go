@@ -116,6 +116,12 @@ const (
 	ReasonAcceptance = "acceptance"
 	// ReasonResume is a parked lane that waits on a person and on nothing else.
 	ReasonResume = "human_resume"
+	// ReasonHistoryMissing is a merged adoption branch whose base lacks the design repository's tip it imported,
+	// because a squash or a rebase merge dropped the history (FR-ADOPT-13). It clears once a check finds the tip.
+	ReasonHistoryMissing = "history_missing"
+	// ReasonHistoryUnread is a merged adoption branch whose base could not be checked for the design repository's
+	// tip, such as one whose plan approval could not read the import. It clears once a check answers.
+	ReasonHistoryUnread = "history_unread"
 )
 
 // What a member can do about waiting work. Each names one operation of this API.

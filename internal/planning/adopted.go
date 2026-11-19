@@ -61,6 +61,8 @@ type Adoption struct {
 	LeftOut       []LeftOut        `json:"left_out"`
 	Changes       []FileChange     `json:"changes"`
 	ChangesUnread string           `json:"changes_unread,omitempty"`
+	// Consolidation is what the adoption imported from a design repository, when it consolidated one.
+	Consolidation *Consolidation `json:"consolidation,omitempty"`
 }
 
 // AdoptedFiles are the files of one plan that the grouping reads.

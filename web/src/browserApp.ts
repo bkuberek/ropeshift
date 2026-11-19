@@ -88,6 +88,14 @@ function otherCards(): NeedItem[] {
     id,
     work: { ...item.work, reason, detail, work_order: item.work.work_order && { ...item.work.work_order, id, title: `Work order ${id}` } },
   });
+  // A merged adoption whose base lacks the design history, or could not be checked for it: done work with no lane and
+  // nothing to press, as the API serves it.
+  const history = (id: string, reason: string, detail: string): NeedItem => ({
+    kind: "work",
+    id,
+    since: lapsed.since,
+    work: { reason, detail, actions: [], work_order: lapsed.work.work_order && { ...lapsed.work.work_order, id, kind: "plan", title: `Work order ${id}`, state: "done" } },
+  });
   const recovery = {
     act: "work_retry",
     work_order_id: "wo-failed",
@@ -122,6 +130,12 @@ function otherCards(): NeedItem[] {
     },
     as(parked, "wo-long-parked", "long_parked"),
     as(lapsed, "wo-behind", "worker_behind", "The worker runs 0.1.0 and the lane needs 0.2.0."),
+    history(
+      "wo-history-missing",
+      "history_missing",
+      "Branch lane/adopt merged into main, and main at 4f2a9c1 does not contain 9d11ff0, the design repository's tip that the adoption imported. Merge 9d11ff0 into main with a merge commit to bring the history back.",
+    ),
+    history("wo-history-unread", "history_unread", "Branch lane/adopt merged into main, and ropeshift could not check that main contains the design history the adoption imported: the plan approval names no design tip."),
     {
       id: "orchestrator-worker-a",
       kind: "work",

@@ -2,8 +2,9 @@ import { useContext, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 
 import { decideApproval, inProjectOf, readPlan } from "../api/client";
-import type { Adoption, ContractDifference, Difference, FileChange, ManifestRegistration, PartDifference, PlanApprovalNeed } from "../api/types";
+import type { Adoption, Consolidation, ContractDifference, Difference, FileChange, ManifestRegistration, PartDifference, PlanApprovalNeed } from "../api/types";
 import { addressOf, ItemProject, Link } from "../app/route";
+import { importedText, keptText, noRemovalText, personMergesText, removalText, truncatedText } from "../planning/consolidation";
 import { registrationOf, registrationTitle, RegistrationRows, ReplacedDrafts } from "../planning/PlanParts";
 import { RevisionSince } from "../planning/RevisionSince";
 import { words } from "../parts/parts";
@@ -188,7 +189,45 @@ function AdoptionGroups({ adoption }: { adoption: Adoption }) {
           <p className="muted">Nothing.</p>
         )}
       </Part>
+      {adoption.consolidation ? <ConsolidationPart consolidation={adoption.consolidation} /> : null}
     </>
+  );
+}
+
+// ConsolidationPart says what approving a consolidating adoption does beyond the plan: the merge that imported the
+// design repository's history, every path both repositories held with the version kept, the trees left out, the old
+// design repository approving removes, and at person_merges how the person merges the branch.
+function ConsolidationPart({ consolidation }: { consolidation: Consolidation }) {
+  return (
+    <Part title="What the consolidation imports">
+      <p>{importedText(consolidation)}</p>
+      {consolidation.unread ? null : consolidation.collisions.length ? (
+        <ul className="links" aria-label="Paths both repositories held">
+          {consolidation.collisions.map((collision) => (
+            <li key={collision.path}>
+              <span className="mono">{collision.path}</span>: {keptText(collision)}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="muted">No path was held by both repositories.</p>
+      )}
+      {!consolidation.unread && consolidation.collisions_truncated ? <p className="muted">{truncatedText}</p> : null}
+      {consolidation.left_out.length ? (
+        <ul className="links" aria-label="Code trees left out">
+          {consolidation.left_out.map((tree) => (
+            <li key={tree} className="mono">
+              {tree}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="muted">No code tree is left out.</p>
+      )}
+      {consolidation.removes ? <p>{removalText(consolidation.removes)}</p> : null}
+      {consolidation.removal_unread ? <p>{noRemovalText(consolidation.removal_unread)}</p> : null}
+      {consolidation.person_merges ? <p>{personMergesText}</p> : null}
+    </Part>
   );
 }
 

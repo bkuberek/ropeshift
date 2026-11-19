@@ -887,6 +887,46 @@ describe("waiting work", () => {
     expect(within(card).queryByRole("button", { name: "End this claim" })).toBeNull();
   });
 
+  // A merge outside ropeshift dropped the design history an adoption imported. The card names the branch and the
+  // missing commit, and offers nothing to press: merging the commit into the base clears it at the next check.
+  it("says a merged adoption lost the design history it imported, naming the branch and the missing commit", async () => {
+    const view = goldenNeedsYou();
+    const detail = "Branch lane/adopt merged into main, and main at base-squashed does not contain design-tip, the design repository's tip that the adoption imported.";
+    view.items = [
+      {
+        kind: "work",
+        id: "adopt-1",
+        since: view.as_of,
+        work: { reason: "history_missing", detail, work_order: { id: "adopt-1", kind: "plan", title: "Adopt shop", state: "done" }, actions: [] },
+      },
+    ];
+    show(view);
+    const card = await cardNamed(/Adopt shop/);
+    expect(within(card).getByText("Design history missing")).toBeTruthy();
+    expect(within(card).getByText("Its adoption branch merged without the design history it imported.")).toBeTruthy();
+    expect(within(card).getByText(detail)).toBeTruthy();
+    expect(within(card).queryAllByRole("button")).toHaveLength(0);
+  });
+
+  it("says a merged adoption's base could not be checked for the design history, and why", async () => {
+    const view = goldenNeedsYou();
+    const detail = "Branch lane/adopt merged into main, and ropeshift could not check that main contains the design history the adoption imported: the plan approval names no design tip.";
+    view.items = [
+      {
+        kind: "work",
+        id: "adopt-1",
+        since: view.as_of,
+        work: { reason: "history_unread", detail, work_order: { id: "adopt-1", kind: "plan", title: "Adopt shop", state: "done" }, actions: [] },
+      },
+    ];
+    show(view);
+    const card = await cardNamed(/Adopt shop/);
+    expect(within(card).getByText("Design history unchecked")).toBeTruthy();
+    expect(within(card).getByText("Its adoption branch merged, and its base could not be checked for the design history it imported.")).toBeTruthy();
+    expect(within(card).getByText(detail)).toBeTruthy();
+    expect(within(card).queryAllByRole("button")).toHaveLength(0);
+  });
+
   it("names the question a parked lane waits for, and keeps resume as the way past it", async () => {
     const sent = serveApi(() => ({ status: 200 }));
     show();
@@ -1366,6 +1406,80 @@ describe("a plan approval", () => {
     show(view, undefined, "plan_approval");
     expect(within((await card())).getByRole("region", { name: "What is left out" }).textContent).toContain("Nothing.");
     expect(within((await card())).getByRole("region", { name: "What the branch changes" }).textContent).toContain("the lane recorded no commit its branch began at");
+  });
+
+  it("lists what a consolidation imported, the old design repository approving removes, and how the person merges it", async () => {
+    const { view, item: need } = planView();
+    need.plan_approval.adoption = {
+      exists: [],
+      continues: [],
+      new: [],
+      left_out: [],
+      changes: [],
+      consolidation: {
+        design: "design",
+        merge: "1111111",
+        design_tip: "2222222",
+        collisions: [
+          { path: ".gitignore", kept: "union" },
+          { path: "README.md", kept: "workspace" },
+        ],
+        left_out: ["poc"],
+        removes: { id: "design-root", name: "design" },
+        person_merges: true,
+      },
+    };
+    show(view, undefined, "plan_approval");
+    const imported = within(await card()).getByRole("region", { name: "What the consolidation imports" });
+    expect(imported.textContent).toContain("The adoption imports the history of design in merge commit 1111111, whose second parent 2222222 is the design repository's tip.");
+    expect(within(imported).getByRole("list", { name: "Paths both repositories held" }).textContent).toBe(".gitignore: the lines of bothREADME.md: the workspace's version");
+    expect(within(imported).getByRole("list", { name: "Code trees left out" }).textContent).toBe("poc");
+    expect(imported.textContent).toContain("Approving removes repository design from the project, and keeps its record as history.");
+    expect(imported.textContent).toContain("At person_merges you merge this branch yourself: merge it with a merge commit. Only a merge commit keeps the design history");
+  });
+
+  it("says why a consolidation's merge could not be read, and lists the trees left out all the same", async () => {
+    const { view, item: need } = planView();
+    need.plan_approval.adoption = {
+      exists: [],
+      continues: [],
+      new: [],
+      left_out: [],
+      changes: [],
+      consolidation: { design: "design", collisions: [], left_out: [], unread: "git could not read the adoption branch" },
+    };
+    show(view, undefined, "plan_approval");
+    const imported = within(await card()).getByRole("region", { name: "What the consolidation imports" });
+    expect(imported.textContent).toContain("The adoption imports the history of design, and its merge could not be read: git could not read the adoption branch");
+    expect(imported.textContent).toContain("No code tree is left out.");
+    expect(within(imported).queryByRole("list", { name: "Paths both repositories held" })).toBeNull();
+    expect(imported.textContent).not.toContain("person_merges");
+    expect(imported.textContent).not.toContain("Approving removes");
+  });
+
+  it("says why a consolidation removes no repository, and that its list of colliding paths is cut short", async () => {
+    const { view, item: need } = planView();
+    need.plan_approval.adoption = {
+      exists: [],
+      continues: [],
+      new: [],
+      left_out: [],
+      changes: [],
+      consolidation: {
+        design: "design",
+        merge: "1111111",
+        design_tip: "2222222",
+        collisions: [{ path: "README.md", kept: "workspace" }],
+        collisions_truncated: true,
+        left_out: [],
+        removal_unread: "nothing shows repository starter is the clone the adoption imported",
+      },
+    };
+    show(view, undefined, "plan_approval");
+    const imported = within(await card()).getByRole("region", { name: "What the consolidation imports" });
+    expect(imported.textContent).toContain("The list is cut short: more paths were held by both.");
+    expect(imported.textContent).toContain("Approving removes no repository: nothing shows repository starter is the clone the adoption imported");
+    expect(imported.textContent).not.toContain("Approving removes repository");
   });
 
   it("shows no groups for a plan that adopts nothing", async () => {

@@ -21,6 +21,8 @@ func TestANoticeSaysOnlyWhatItsTableHolds(t *testing.T) {
 		{"a known reason", ledger.NoticeWork, "blocked", ledger.NoticeWork, "blocked", "A lane stopped, and it needs you."},
 		{"work that failed and waits for a retry", ledger.NoticeWork, "failed", ledger.NoticeWork, "failed", "Work failed, and it waits for a retry."},
 		{"a worker that must be upgraded", ledger.NoticeWork, "worker_behind", ledger.NoticeWork, "worker_behind", "A worker must be upgraded to start a lane."},
+		{"a merge that left the design history off its base", ledger.NoticeWork, "history_missing", ledger.NoticeWork, "history_missing", "A merge left an imported design history off its base branch."},
+		{"a merged design history that could not be checked", ledger.NoticeWork, "history_unread", ledger.NoticeWork, "history_unread", "A merged design history could not be checked on its base branch."},
 		{"a kind with no reason", ledger.NoticeApproval, "", ledger.NoticeApproval, "", "A lane waits for your approval."},
 		{"a reason nobody wrote a sentence for", ledger.NoticeWork, hostile, ledger.NoticeWork, "", "Something needs you."},
 		{"a kind nobody wrote a sentence for", hostile, hostile, ledger.NoticeWork, "", "Something needs you."},

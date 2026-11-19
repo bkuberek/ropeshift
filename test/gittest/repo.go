@@ -135,6 +135,17 @@ func (r *Repo) Git(args ...string) string {
 	return strings.TrimSpace(string(out))
 }
 
+// Try runs one command and returns its output and how it ended, for a command whose failure is an answer, such as
+// `merge-base --is-ancestor`.
+func (r *Repo) Try(args ...string) (string, error) {
+	r.T.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = r.Dir
+	cmd.Env = r.Env()
+	out, err := cmd.CombinedOutput()
+	return strings.TrimSpace(string(out)), err
+}
+
 // Commit writes one file and commits it, and returns the commit.
 func (r *Repo) Commit(name, content string) string {
 	r.T.Helper()

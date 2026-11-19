@@ -46,6 +46,9 @@ var noticeTexts = map[string]string{
 	NoticeWork + "/failed":        "Work failed, and it waits for a retry.",
 	NoticeWork + "/acceptance":    "Finished work waits for your word.",
 	NoticeWork + "/human_resume":  "A parked lane waits for you to resume it.",
+	// A merge outside ropeshift that dropped the design history a consolidation imported (FR-ADOPT-13).
+	NoticeWork + "/history_missing": "A merge left an imported design history off its base branch.",
+	NoticeWork + "/history_unread":  "A merged design history could not be checked on its base branch.",
 	// CI asks a person (ADR-0037). Each kind is its own notice kind, and none of them names a check, a run, or a branch.
 	CIItemNotFinished:    "CI has not finished.",
 	CIItemQueueStalled:   "No runner picked up a CI run.",

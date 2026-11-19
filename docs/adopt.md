@@ -89,6 +89,7 @@ When the session has finished, Needs you lists its plan approval. Select it, the
 | What is new | The remaining work |
 | What is left out | Each branch you did not keep, with your reason |
 | The adoption branch, as one change | Every file the adoption branch added, changed, moved, or deleted |
+| What the consolidation imports | In a [consolidation](#consolidating-a-design-repository), what approving does beyond the plan |
 
 ![The plan approval of the adoption, with What exists, What continues, What is new, and What is left out](assets/screenshots/adopt-05-light.png#gh-light-mode-only)
 ![The plan approval of the adoption, with What exists, What continues, What is new, and What is left out](assets/screenshots/adopt-05-dark.png#gh-dark-mode-only)
@@ -200,15 +201,29 @@ A code tree of the design repository comes with the history and stays in the wor
 
 The inventory of the planning repository is read at the merge commit, so the session onboards the documents the design repository brought. Its brief names the merge commit, its second parent, every colliding path with the version kept, every tree left out, and the design repository's instruction files, `AGENTS.md` and `CLAUDE.md`, at the second parent. It tells the session to merge those instructions into the workspace's own as one commit on its branch, keeping both sets of rules, and to ask you about each contradiction between them.
 
+### The plan approval
+
+The plan approval of a consolidation, in Needs you, on its full page, and in `ropeshift plan show`, lists under What the consolidation imports:
+
+- The merge commit that imported the history, and its second parent, the design repository's tip, read from the adoption branch: the oldest merge commit on the branch with the import's subject, whose second parent's history begins at the design repository's first commit. A later merge with that subject is the session's, and imports nothing here.
+- Every path both repositories held, with the version the merge kept, up to 200 of them; a longer list says it is cut short.
+- Every code tree left out.
+- When the project holds the old design repository as a registered repository, its removal, which is one of the approval's effects: approving removes it in the same transaction and keeps its record as history. The record counts as the design repository only when the worker keeps it at the clone the adoption imported, or its remote and that clone's name one repository. Two repositories cut from one first commit share it, so a record the project holds under that commit that is neither is not removed, and the approval says why; remove it yourself with `ropeshift repository remove` if it is the design repository.
+- At `person_merges`, that you merge the branch yourself with a merge commit, because only a merge commit keeps the design history.
+
+A merge the control plane cannot read from the branch, or whose history begins at another first commit, is said, with why, and the trees left out and the removal are listed all the same.
+
 ### A restart, and the clones
 
 A crash at any point is safe. A restart looks for the merge commit on the branch by its subject and its two parents, and finds it or finds nothing. A merge begun and not committed is thrown away, with the files the effect wrote, and made again from the start. Once the merge commit is there the layout is not compared again, because you may have moved clones or committed to the design repository since, and the worker makes no second merge.
 
 ### After the branch merges
 
-Merge the adoption branch with a merge commit. A squash or rebase merge keeps the files and drops the design repository's commits, because only a merge commit keeps the second parent.
+Once the ledger records the adoption branch's merge, whether ropeshift merged it or read your merge of its pull request from the forge, the daemon checks that the base branch contains the design repository's tip, the merge commit's second parent, with `git merge-base --is-ancestor` in the planning repository's checkout on its machine, after a fetch. When the base does not contain it, as after a squash or a rebase merge, Needs you lists the adoption's work as Design history missing, naming the branch, the base, the commit the base stood at, and the missing commit, and a notice with the reason `history_missing` reaches the channels you chose. Merge that commit into the base with a merge commit to bring the history back. When the check cannot tell, because the plan approval named no design tip or git could not read the base, Needs you lists the work as Design history unchecked, with why, and a notice with the reason `history_unread` goes out. The check runs again 10 minutes later, then after twice as long each time, up to once a day, and the item clears at the first check that finds the commit; a base found to contain it is never checked again. A branch at `person_merges` with review target `branch` merges with nothing on record, so it is not checked, and a group server's control plane does not run the check.
 
-The design repository is not registered by adopt, and its clone is never written, archived, or given another remote: ropeshift never deletes, archives, or rewrites it. If the project already holds it as a registered repository, take it out with `ropeshift repository remove`, which keeps its record as history. Archive the old repository on its forge yourself when you no longer need it, and delete the clone when you are done with it.
+Ropeshift merges the adoption branch with a merge commit whatever the repository's merge method, at `person_approves` and `review_approves`, because a squash or rebase merge keeps the files and drops the design repository's commits: only a merge commit keeps the second parent. A base that requires a linear history, or takes no merge commit, refuses that merge, and the held merge in Needs you says so: allow merge commits on the base, or merge the branch yourself with a merge commit. At `person_merges` you merge it yourself, so merge it with a merge commit: the plan approval and the pull request's description say so.
+
+The design repository is not registered by adopt, and its clone is never written, archived, or given another remote: ropeshift never deletes, archives, or rewrites it. If the project already holds it as a registered repository, approving the plan removes it from the project in the approval's transaction, as `ropeshift repository remove` does, and keeps its record as history. While a work order that is not finished targets it, the approval is refused with that work order named: finish or cancel the work, then approve. A design repository removed before the approval is left as it is. When the removed design repository was the project's planning repository, the workspace becomes the planning repository in the same transaction. The worker keeps its checkout of the removed repository until the next intake tick, which drops the checkout of every repository the project holds as removed before it reads any source, so that clone is offered to no lane, read by no intake, and listed by no report of the worker's checkouts. The drop compares the path it read, so a repository you register again from another clone in the meantime keeps that checkout. Archive the old repository on its forge yourself when you no longer need it, and delete the clone when you are done with it.
 
 ## The adopt session
 

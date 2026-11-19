@@ -32,6 +32,9 @@ func approvePlan(tx ports.WriteTx, approval authority.Approval, member ledger.Ac
 		if err := acceptLanesPlan(tx, approval, member); err != nil {
 			return err
 		}
+		if err := removeConsolidatedDesign(tx, approval, member); err != nil {
+			return err
+		}
 		return baselineApproval(tx, approval, member)
 	}
 	if err != nil {
@@ -63,6 +66,9 @@ func approvePlan(tx ports.WriteTx, approval authority.Approval, member ledger.Ac
 		return err
 	}
 	if err := approvePlanMerge(tx, version, approval, member, ""); err != nil {
+		return err
+	}
+	if err := removeConsolidatedDesign(tx, approval, member); err != nil {
 		return err
 	}
 	return baselineApproval(tx, approval, member)
