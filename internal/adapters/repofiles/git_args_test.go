@@ -3,6 +3,7 @@ package repofiles
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -83,7 +84,10 @@ func TestBlobAtReadsACommitThatReadsAsAnOptionAsARevision(t *testing.T) {
 
 	_, err := New(Config{Repository: repo.Dir, Env: repo.Env()}).blobAt(t.Context(), "--abbrev-ref=bogus", "README.txt")
 
-	if err != nil && strings.Contains(err.Error(), "unknown mode for --abbrev-ref") {
+	if err == nil {
+		t.Fatal("a commit that reads as an option named a blob, want an error")
+	}
+	if strings.Contains(err.Error(), "unknown mode for --abbrev-ref") {
 		t.Errorf("rev-parse read the commit as an option: %v", err)
 	}
 }
@@ -116,5 +120,27 @@ func TestTreeReadsACommitThatReadsAsAnOptionAsARevision(t *testing.T) {
 
 	if err == nil || !strings.Contains(err.Error(), "Not a valid object name --name-only") {
 		t.Errorf("listing a commit named like an option gave %v, want git to name it as an object it does not have", err)
+	}
+}
+
+// A tree listing of one directory holds that directory's files and nothing else: a top-level directory named `--`
+// is not a path to list, which `--` after `--end-of-options` would make it.
+func TestTreeOfADirectoryHoldsOnlyThatDirectoryWhenASiblingIsNamedLikeTheSeparator(t *testing.T) {
+	repo := gittest.New(t)
+	repo.Commit("docs/a.md", "one\n")
+	repo.Commit("--/b.md", "two\n")
+	commit := repo.Git("rev-parse", "HEAD")
+
+	blobs, err := New(Config{Repository: repo.Dir, Env: repo.Env(), Directory: "docs"}).Tree(t.Context(), commit)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var paths []string
+	for _, blob := range blobs {
+		paths = append(paths, blob.Path)
+	}
+	if want := []string{"docs/a.md"}; !slices.Equal(paths, want) {
+		t.Errorf("the tree of docs holds %q, want %q", paths, want)
 	}
 }

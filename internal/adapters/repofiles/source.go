@@ -580,7 +580,8 @@ func (s *Source) Head(ctx context.Context) (string, error) {
 func (s *Source) Tree(ctx context.Context, commit string) ([]Blob, error) {
 	args := []string{"ls-tree", "-r", "-z", "--full-tree", "--end-of-options", commit}
 	if dir := strings.Trim(s.config.Directory, "/"); dir != "" && dir != "." {
-		args = append(args, "--", dir)
+		// After `--end-of-options` every argument is a revision or a path, so a `--` here would be one more path.
+		args = append(args, dir)
 	}
 	out, err := s.git.Output(ctx, args...)
 	if err != nil {
