@@ -15,6 +15,7 @@ import (
 	"ropeshift.com/ropeshift/internal/control"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/practicerun"
 	"ropeshift.com/ropeshift/internal/practices"
 	"ropeshift.com/ropeshift/internal/workorders"
 )
@@ -202,6 +203,27 @@ func aResult(repository, commit, from string, leaks ...string) *practices.Result
 		})
 	}
 	return &result
+}
+
+// failedScanResult is what a worker's run of the check reports when the secret scan of a checkout at a commit fails.
+func failedScanResult(t *testing.T, repository, commit, scannedFrom string) *practices.Result {
+	t.Helper()
+	reads := &fake.Practices{}
+	reads.SetSnapshot("/work/widgets", practices.Snapshot{Commit: commit, Paths: []string{"SECURITY.md"}})
+	result, err := practicerun.Run(t.Context(), practicerun.Sources{
+		Snapshots: reads, Secrets: failingSecretScan{}, Forge: reads, Clock: fake.NewClock(time.Now().UTC()),
+	}, practicerun.Request{Repository: repository, Worker: "w", Dir: "/work/widgets", BaseBranch: "main", ScannedFrom: scannedFrom})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &result
+}
+
+// failingSecretScan is a secret scan that cannot run.
+type failingSecretScan struct{}
+
+func (failingSecretScan) Scan(context.Context, string, string, string) (ports.SecretScan, error) {
+	return ports.SecretScan{}, errors.New("git log: exit status 128")
 }
 
 func secretsFindings(result practices.Result) []string {
@@ -586,8 +608,11 @@ func TestAnIncrementalScanKeepsTheEarlierSecretsAndAFailedScanRestartsIt(t *test
 		t.Errorf("the second event does not hold the result as it was kept")
 	}
 	third := r.requested(r.request(ledger.PracticesMember, "repo-a"))
-	unknown := aResult("repo-a", "3333333333333333333333333333333333333333", tipTwo)
-	unknown.Practices[1] = practices.PracticeStatus{ID: practices.Secrets, Status: practices.StatusUnknown, Reason: "the secret scan failed"}
+	// The result a worker sends when the scan fails: the run's own, which leaves where the scan started empty.
+	unknown := failedScanResult(t, "repo-a", "3333333333333333333333333333333333333333", tipTwo)
+	if unknown.ScannedFrom != "" || secretsStatus(t, *unknown).Status != practices.StatusUnknown {
+		t.Fatalf("the run of a failed scan gave %+v", unknown)
+	}
 	r.mustReport(third.ID, ledger.PracticesOutcomeChecked, unknown)
 	record, err = r.record("repo-a")
 	if err != nil || record.Commit != unknown.Commit || secretsStatus(t, record.Result).Status != practices.StatusFinding ||
