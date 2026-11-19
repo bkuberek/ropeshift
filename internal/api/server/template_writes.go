@@ -7,13 +7,15 @@ import (
 	"ropeshift.com/ropeshift/internal/ledger"
 )
 
-// templateWriteRoutes are a member's two routes for a worker's template write: asking for one, and reading how it
-// stands. The worker's own route, which reports one, sits with the plane protocol and never on the web listener.
+// templateWriteRoutes are a member's routes for a worker's template write and forge account read: asking for one, and
+// reading how it stands. Each read is a member's alone, as each request is, because the socket admits whoever runs as
+// the owning user and a forge account read names a GitHub login and its organizations. The worker's own routes, which
+// report one, sit with the plane protocol and never on the web listener.
 func (h *handler) templateWriteRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/workers/{id}/template-writes", h.member(h.requestTemplateWrite))
-	mux.HandleFunc("GET /v1/workers/{id}/template-writes/{request}", h.showTemplateWrite)
+	mux.HandleFunc("GET /v1/workers/{id}/template-writes/{request}", h.member(h.showTemplateWrite))
 	mux.HandleFunc("POST /v1/workers/{id}/forge-account-reads", h.member(h.requestForgeAccountRead))
-	mux.HandleFunc("GET /v1/workers/{id}/forge-account-reads/{request}", h.showForgeAccountRead)
+	mux.HandleFunc("GET /v1/workers/{id}/forge-account-reads/{request}", h.member(h.showForgeAccountRead))
 }
 
 // requestForgeAccountRead records a member's request that a worker read its forge account and answers 202 with its
@@ -31,7 +33,7 @@ func (h *handler) requestForgeAccountRead(w http.ResponseWriter, r *http.Request
 	reply(w, http.StatusAccepted, view)
 }
 
-func (h *handler) showForgeAccountRead(w http.ResponseWriter, r *http.Request) {
+func (h *handler) showForgeAccountRead(w http.ResponseWriter, r *http.Request, _ ledger.Actor) {
 	view, err := h.forgeAccountReads.View(r.Context(), r.PathValue("id"), r.PathValue("request"))
 	if err != nil {
 		fail(w, err)
@@ -85,7 +87,7 @@ func (h *handler) requestTemplateWrite(w http.ResponseWriter, r *http.Request, a
 	reply(w, http.StatusAccepted, view)
 }
 
-func (h *handler) showTemplateWrite(w http.ResponseWriter, r *http.Request) {
+func (h *handler) showTemplateWrite(w http.ResponseWriter, r *http.Request, _ ledger.Actor) {
 	view, err := h.templateWrites.View(r.Context(), r.PathValue("id"), r.PathValue("request"))
 	if err != nil {
 		fail(w, err)
