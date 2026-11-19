@@ -142,7 +142,8 @@ func rateLimitedText(stderr string) (*ports.RateLimitedError, bool) {
 }
 
 // runKeeping runs one command and returns what it wrote to stdout even when it exits with a failure, because
-// `gh api --include` writes the status and the headers of a refusal there.
+// `gh api --include` writes the status and the headers of a refusal there. What a failure carries of stderr is
+// sanitized and clipped.
 func (f Forge) runKeeping(ctx context.Context, dir string, args ...string) ([]byte, error) {
 	binary, err := f.binary()
 	if err != nil {
@@ -162,7 +163,7 @@ func (f Forge) runKeeping(ctx context.Context, dir string, args ...string) ([]by
 	}
 	var exit *exec.ExitError
 	if errors.As(err, &exit) {
-		return stdout.buf.Bytes(), &ghError{args: args, code: exit.ExitCode(), stderr: clip(stderr.buf.String())}
+		return stdout.buf.Bytes(), &ghError{args: args, code: exit.ExitCode(), stderr: clip(ledger.SanitizeCIText(stderr.buf.String()))}
 	}
 	if err != nil {
 		return nil, fmt.Errorf("gh %s: %w", strings.Join(args, " "), err)

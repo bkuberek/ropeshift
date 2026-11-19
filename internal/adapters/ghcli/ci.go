@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"slices"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"ropeshift.com/ropeshift/internal/ledger"
@@ -69,6 +70,7 @@ func (f Forge) runTail(ctx context.Context, dir string, max int, args ...string)
 	}
 	cmd := exec.CommandContext(ctx, binary, args...)
 	cmd.Dir, cmd.Env = dir, f.environment()
+	cmd.WaitDelay = time.Second
 	tail, stderr := &tailBuffer{max: max}, &boundedWriter{limit: maxErrorOutput, truncate: true}
 	cmd.Stdout, cmd.Stderr = tail, stderr
 	err = cmd.Run()
