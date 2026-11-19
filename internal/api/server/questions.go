@@ -96,7 +96,9 @@ func (h *handler) showQuestion(w http.ResponseWriter, r *http.Request) {
 
 // questionViews answers questions with the scope an answer to each takes, from the record it is about, and the
 // title of that record, read in the read that read them, once for each kind of scope they hold, and with each one's
-// whole ladder: who holds it, its lanes, its batch, and what closed it (FR-QD-13).
+// whole ladder: who holds it, its lanes, its batch, and what closed it (FR-QD-13). A question that has not reached a
+// person keeps no overlaps yet, so its view names the decisions in force its scope overlaps now, read once for each
+// scope, for a member who answers it in place (FR-QD-5).
 func questionViews(tx ports.ReadTx, rows []questions.Question) ([]api.QuestionView, error) {
 	policy, err := control.DecisionPolicy(tx)
 	if err != nil {
@@ -108,9 +110,18 @@ func questionViews(tx ports.ReadTx, rows []questions.Question) ([]api.QuestionVi
 	}
 	views := make([]api.QuestionView, 0, len(rows))
 	scopes := make([]string, 0, len(rows))
+	standing := map[string][]string{}
 	for _, row := range rows {
 		scope := questions.ScopeOf(row.SubjectKind, row.SubjectID)
 		view := api.QuestionView{Question: row, Scope: scope, Reversibility: policy.AnswerReversibility(row)}
+		if row.Status == questions.StatusOpen || row.Status == questions.StatusTriage {
+			if _, read := standing[scope]; !read {
+				if standing[scope], err = overlapIDs(tx, scope); err != nil {
+					return nil, err
+				}
+			}
+			view.Overlaps = standing[scope]
+		}
 		if err := ladder.fill(tx, &view); err != nil {
 			return nil, err
 		}
@@ -125,6 +136,19 @@ func questionViews(tx ports.ReadTx, rows []questions.Question) ([]api.QuestionVi
 		views[i].ScopeTitle = titles[views[i].Scope]
 	}
 	return views, nil
+}
+
+// overlapIDs lists, by ID, the decisions in force whose scope overlaps one.
+func overlapIDs(tx ports.ReadTx, scope string) ([]string, error) {
+	found, err := control.DecisionsOverlapping(tx, scope)
+	if err != nil {
+		return nil, err
+	}
+	var ids []string
+	for _, decision := range found {
+		ids = append(ids, decision.ID)
+	}
+	return ids, nil
 }
 
 // questionBatches answers presented batches with the title of the record each item's scope names, read once for
