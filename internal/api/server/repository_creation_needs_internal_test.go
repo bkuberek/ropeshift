@@ -22,14 +22,14 @@ func TestACreationThatRunsOffersNoAction(t *testing.T) {
 		control.CreationRunning:     {},
 	} {
 		item := creationNeedItem(control.UncreatedRepository{
-			Approval: approval, Name: "api", ManifestPath: "repos/api", Path: "/work/repos/api", State: state, Reason: "push failed", Creation: creation, Since: 7,
+			Approval: approval, Name: "api", ManifestPath: "repos/api", Path: "/work/repos/api", State: state, Reason: "push failed", Remedy: "clone it", Creation: creation, Since: 7,
 		})
 		need := item.RepositoryCreation
 		if item.Kind != api.NeedRepositoryCreation || item.ID != "ap1/api" || item.Since != 7 || need == nil {
 			t.Fatalf("%s: the item reads %+v", state, item)
 		}
 		if need.State != string(state) || need.Approval != "ap1" || need.Plan != "tt" || need.PlanVersion != 2 || need.Name != "api" ||
-			need.ManifestPath != "repos/api" || need.Path != "/work/repos/api" || need.Reason != "push failed" || need.Creation != creation {
+			need.ManifestPath != "repos/api" || need.Path != "/work/repos/api" || need.Reason != "push failed" || need.Remedy != "clone it" || need.Creation != creation {
 			t.Errorf("%s: the need reads %+v", state, need)
 		}
 		if need.Actions == nil || !slices.Equal(need.Actions, want) {

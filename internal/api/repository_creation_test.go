@@ -93,7 +93,7 @@ func TestARepositoryCreationNeedReadsUnderItsFieldNames(t *testing.T) {
 		Kind: api.NeedRepositoryCreation, ID: "ap1/api", Since: 7,
 		RepositoryCreation: &api.RepositoryCreationNeed{
 			Approval: "ap1", Plan: "tt", PlanVersion: 2, Name: "api", ManifestPath: "repos/api", Path: "/work/tt/repos/api",
-			State: api.RepositoryCreationFailed, Reason: "push failed", Actions: api.RepositoryCreationActions,
+			State: api.RepositoryCreationFailed, Reason: "push failed", Remedy: "clone it", Actions: api.RepositoryCreationActions,
 		},
 	}
 	raw, err := json.Marshal(item)
@@ -108,7 +108,7 @@ func TestARepositoryCreationNeedReadsUnderItsFieldNames(t *testing.T) {
 	if err := json.Unmarshal(fields["repository_creation"], &need); err != nil {
 		t.Fatalf("the item holds no repository_creation: %s", raw)
 	}
-	for _, key := range []string{"approval", "plan", "plan_version", "name", "manifest_path", "path", "state", "reason", "actions"} {
+	for _, key := range []string{"approval", "plan", "plan_version", "name", "manifest_path", "path", "state", "reason", "remedy", "actions"} {
 		if _, ok := need[key]; !ok {
 			t.Errorf("the need has no %q: %s", key, fields["repository_creation"])
 		}

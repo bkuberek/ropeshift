@@ -263,6 +263,8 @@ type RepositoryCreationNeed struct {
 	Path         string `json:"path,omitempty"`
 	State        string `json:"state"`
 	Reason       string `json:"reason,omitempty"`
+	// Remedy says what a member does about it, when something can be done besides Retry and Skip.
+	Remedy string `json:"remedy,omitempty"`
 	// Creation is what the creation did before it stopped, when it did anything.
 	Creation *ledger.CreationOutcome `json:"creation,omitempty"`
 	Actions  []string                `json:"actions"`

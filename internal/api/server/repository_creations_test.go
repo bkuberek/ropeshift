@@ -180,3 +180,26 @@ func TestOnlyAMemberRetriesOrSkipsARepositoryCreation(t *testing.T) {
 		t.Errorf("a refused word changed Needs you: %+v", items)
 	}
 }
+
+// A create that timed out after the forge made the repository finds it there on every retry, and the item says what a member
+// does about it: clone it where the entry's path leads and name it as the entry's remote, or skip the creation.
+func TestACreationRefusedForAnExistingRepositoryCarriesItsRemedy(t *testing.T) {
+	t.Parallel()
+	p := approvedCreation(t)
+	p.creator.SetCheck("ghost", ledger.CreationCheck{Refusal: &ledger.TemplateWriteReport{
+		Outcome: ledger.TemplateOutcomeRefused, Reason: ledger.TemplateRefusedRemoteExists, Detail: "acme/ghost already exists on GitHub",
+	}})
+	decided, err := p.client.RetryRepository(t.Context(), p.approval.ID, "ghost")
+	if err != nil || len(decided.Repositories) != 1 || decided.Repositories[0].Outcome != ledger.RegistrationRefused {
+		t.Fatalf("a retry that finds the repository on the forge reads %+v: %v", decided, err)
+	}
+	items := creationItems(t, p.Daemon)
+	if len(items) != 1 {
+		t.Fatalf("Needs you holds %+v", items)
+	}
+	need := items[0].RepositoryCreation
+	const remedy = "clone acme/ghost at /work/ghost and write `remote` in place of `create` in the manifest entry for ghost, or skip it"
+	if need.State != api.RepositoryCreationRefused || !strings.Contains(need.Reason, "acme/ghost already exists on GitHub") || need.Remedy != remedy {
+		t.Errorf("the need reads %+v, want it refused with the remedy %q", need, remedy)
+	}
+}

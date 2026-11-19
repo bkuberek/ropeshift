@@ -394,7 +394,8 @@ const (
 
 // UncreatedRepository is a repository an approved plan version creates that its approval has not created, and a member
 // has not skipped: the approval, the entry's name, its path as the manifest writes it and where that leads, where the
-// creation stands and why, what it did before it stopped, and when its latest record was made.
+// creation stands and why, what a member does about it when something can be done, what it did before it stopped, and
+// when its latest record was made.
 type UncreatedRepository struct {
 	Approval     authority.Approval
 	Name         string
@@ -402,6 +403,7 @@ type UncreatedRepository struct {
 	Path         string
 	State        UncreatedState
 	Reason       string
+	Remedy       string
 	Creation     *ledger.CreationOutcome
 	Since        int64
 }
@@ -481,9 +483,14 @@ func uncreated(row authority.Approval, entry planning.ManifestRepository, events
 		item.Creation = &creation
 	}
 	item.Path = creationPath(events, recorded, entry.Name)
+	refused, refusedLater := recordedOutcome(recorded, entry.Name)
+	refusedLater = refusedLater && refused.Outcome == ledger.RegistrationRefused && registrationRev(events) > creationRev(events, entry.Name)
 	switch {
 	case running:
 		item.State = CreationRunning
+	case refusedLater:
+		// A retry the creator's check refused came after the creation's last record, and says why it cannot go on.
+		item.State, item.Reason, item.Creation = CreationRefused, refused.Reason, refused.Creation
 	case latest.State == ledger.CreationStarted:
 		item.State = CreationInterrupted
 	case latest.State == ledger.CreationRefused:
@@ -510,7 +517,53 @@ func uncreated(row authority.Approval, entry planning.ManifestRepository, events
 	if item.Since == 0 && len(events) != 0 {
 		item.Since = events[len(events)-1].RecordedAt
 	}
+	item.Remedy = creationRemedy(item)
 	return item, true, nil
+}
+
+// creationRemedy says what a member does about a creation that waits for them. A forge repository that exists is not the
+// creation's own, which a retry never takes over, so the member clones it where the entry's path leads and names it as the
+// entry's remote, or skips the creation. Any other refusal names the command its check gave.
+func creationRemedy(item UncreatedRepository) string {
+	switch {
+	case item.State == CreationRunning:
+		return ""
+	case strings.Contains(item.Reason, ledger.TemplateRefusedRemoteExists):
+		repository := "the repository"
+		if creation := item.Creation; creation != nil && creation.Owner != "" && creation.ForgeName != "" {
+			repository = creation.Owner + "/" + creation.ForgeName
+		}
+		return fmt.Sprintf("clone %s at %s and write `remote` in place of `create` in the manifest entry for %s, or skip it", repository, cmp.Or(item.Path, item.ManifestPath), item.Name)
+	case item.Creation != nil && item.Creation.Remedy != "":
+		return "run `" + item.Creation.Remedy + "`"
+	}
+	return ""
+}
+
+// registrationRev is the revision of the latest registration recorded for an approval, or zero when it recorded none.
+func registrationRev(events []ledger.Event) int64 {
+	for i := len(events) - 1; i >= 0; i-- {
+		if events[i].Type == ledger.EventManifestRegistered {
+			return events[i].Rev
+		}
+	}
+	return 0
+}
+
+// creationRev is the revision of the latest event about one entry's creation, or zero when there is none.
+func creationRev(events []ledger.Event, name string) int64 {
+	for i := len(events) - 1; i >= 0; i-- {
+		switch events[i].Type {
+		case ledger.EventRepositoryCreationStarted, ledger.EventRepositoryCreationFinished, ledger.EventRepositoryCreationSkipped:
+			var named struct {
+				Name string `json:"name"`
+			}
+			if json.Unmarshal(events[i].Data, &named) == nil && named.Name == name {
+				return events[i].Rev
+			}
+		}
+	}
+	return 0
 }
 
 // recordedOutcome reads what the approval recorded of one entry, when it recorded it.

@@ -240,6 +240,24 @@ func checkAnInterruptedCreationIsAnItemAndRetryFinishesIt(r *Rig) error {
 	if err != nil || len(running) != 1 || running[0].State != control.CreationRunning {
 		return Violatedf("a creation that runs now reads as %+v: %v", running, err)
 	}
+	// A create that timed out after the forge made the repository finds it there on every retry, which refuses with the repository
+	// it found: the item says so, and says what a member does about it, which is to clone it and name it as the remote, or skip it.
+	w.creator.SetCheck("search", ledger.CreationCheck{Refusal: &ledger.TemplateWriteReport{
+		Outcome: ledger.TemplateOutcomeRefused, Reason: ledger.TemplateRefusedRemoteExists, Detail: "acme/search already exists on GitHub",
+	}})
+	if refused, err := r.retry(w, "search"); err != nil {
+		return Violatedf("a retry that finds the repository on the forge: %v", err)
+	} else if search, _ := outcomeNamed(refused, "search"); search.Outcome != ledger.RegistrationRefused {
+		return Violatedf("a retry that finds the repository on the forge reads %+v, want it refused", search)
+	}
+	if items, err = r.uncreated(s, noCreationRuns); err != nil || len(items) != 1 {
+		return Violatedf("a creation refused for an existing repository reads as %+v: %v", items, err)
+	}
+	const remedy = "clone acme/search at /work/search and write `remote` in place of `create` in the manifest entry for search, or skip it"
+	if items[0].State != control.CreationRefused || !strings.Contains(items[0].Reason, "acme/search already exists on GitHub") || items[0].Remedy != remedy || items[0].Path != "/work/search" {
+		return Violatedf("a creation refused for an existing repository reads as %+v, want it refused with the remedy %q", items[0], remedy)
+	}
+	w.creator.passes("search", "search", "main")
 	added, err := r.retry(w, "search")
 	if err != nil {
 		return Violatedf("a retry of an interrupted creation: %v", err)

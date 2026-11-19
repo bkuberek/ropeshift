@@ -1595,6 +1595,6 @@ func creationNeedItem(one control.UncreatedRepository) api.NeedItem {
 	}
 	return api.NeedItem{Kind: api.NeedRepositoryCreation, ID: one.Approval.ID + "/" + one.Name, Since: one.Since, RepositoryCreation: &api.RepositoryCreationNeed{
 		Approval: one.Approval.ID, Plan: one.Approval.Plan, PlanVersion: one.Approval.PlanVersion, Name: one.Name, ManifestPath: one.ManifestPath,
-		Path: one.Path, State: string(one.State), Reason: one.Reason, Creation: one.Creation, Actions: actions,
+		Path: one.Path, State: string(one.State), Reason: one.Reason, Remedy: one.Remedy, Creation: one.Creation, Actions: actions,
 	}}
 }
