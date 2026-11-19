@@ -27,7 +27,7 @@ func shapeSummary(shape planning.LayoutShape) string {
 // repositories, and every change and move.
 func adoptionPlanText(plan planning.AdoptionPlan) string {
 	var out strings.Builder
-	fmt.Fprintf(&out, "Layout\t%s\n", plan.Layout.Root)
+	fmt.Fprintf(&out, "Layout\t%s\n", plainLine(plan.Layout.Root))
 	for _, clone := range plan.Layout.Clones {
 		var held []string
 		if clone.Plan {
@@ -37,7 +37,7 @@ func adoptionPlanText(plan planning.AdoptionPlan) string {
 		if clone.Instructions {
 			held = append(held, "instruction file")
 		}
-		fmt.Fprintf(&out, "Clone\t%s\t%s\t%s\t%s\n", plainLine(clone.Name), clone.Path, foundWhere(clone.Where), strings.Join(held, ", "))
+		fmt.Fprintf(&out, "Clone\t%s\t%s\t%s\t%s\n", plainLine(clone.Name), plainLine(clone.Path), foundWhere(clone.Where), strings.Join(held, ", "))
 	}
 	fmt.Fprintf(&out, "Shape\t%s\t%s\n", plan.Shape, shapeSummary(plan.Shape))
 	if plan.Planning.Undecided {
@@ -57,10 +57,10 @@ func adoptionPlanText(plan planning.AdoptionPlan) string {
 			word = plainLine(repository.Outcome)
 		}
 		if repository.Outcome == string(ledger.RegistrationRefused) {
-			fmt.Fprintf(&out, "%s\t%s\t%s\n", word, repository.Path, plainLine(repository.Reason))
+			fmt.Fprintf(&out, "%s\t%s\t%s\n", word, plainLine(repository.Path), plainLine(repository.Reason))
 			continue
 		}
-		fmt.Fprintf(&out, "%s\t%s\t%s\t%s", word, plainLine(repository.Name), shortRepository(repository.ID), repository.Path)
+		fmt.Fprintf(&out, "%s\t%s\t%s\t%s", word, plainLine(repository.Name), shortRepository(repository.ID), plainLine(repository.Path))
 		if repository.Reason != "" {
 			fmt.Fprintf(&out, "\t(%s)", plainLine(repository.Reason))
 		}
@@ -72,26 +72,26 @@ func adoptionPlanText(plan planning.AdoptionPlan) string {
 			lacking = append(lacking, file)
 			continue
 		}
-		fmt.Fprintf(&out, "%s\t%s\t%s\n", file.Action, file.Path, plainLine(file.Detail))
+		fmt.Fprintf(&out, "%s\t%s\t%s\n", file.Action, plainLine(file.Path), plainLine(file.Detail))
 	}
 	if len(lacking) != 0 {
 		out.WriteString("Files the layout lacks\n")
 		for _, file := range lacking {
-			fmt.Fprintf(&out, "%s\t%s\t%s\n", file.Action, file.Path, plainLine(file.Detail))
+			fmt.Fprintf(&out, "%s\t%s\t%s\n", file.Action, plainLine(file.Path), plainLine(file.Detail))
 		}
 	}
 	for _, path := range plan.Takes {
-		fmt.Fprintf(&out, "take\t%s\n", path)
+		fmt.Fprintf(&out, "take\t%s\n", plainLine(path))
 	}
 	for _, collision := range plan.Collisions {
-		fmt.Fprintf(&out, "collision\t%s\t%s", collision.Path, plainLine(collision.Kept))
+		fmt.Fprintf(&out, "collision\t%s\t%s", plainLine(collision.Path), plainLine(collision.Kept))
 		if collision.DesignPath != "" {
-			fmt.Fprintf(&out, "\tthe design repository spells it %s", collision.DesignPath)
+			fmt.Fprintf(&out, "\tthe design repository spells it %s", plainLine(collision.DesignPath))
 		}
 		out.WriteString("\n")
 	}
 	for _, tree := range plan.CodeTrees {
-		fmt.Fprintf(&out, "code tree\t%s\t%s", tree.Path, tree.BuildFile)
+		fmt.Fprintf(&out, "code tree\t%s\t%s", plainLine(tree.Path), plainLine(tree.BuildFile))
 		switch {
 		case tree.LeftOut:
 			out.WriteString("\tleft out")
@@ -103,21 +103,21 @@ func adoptionPlanText(plan planning.AdoptionPlan) string {
 	if len(plan.MakefileLeftOut) != 0 {
 		out.WriteString("Left out of the Makefile\n")
 		for _, left := range plan.MakefileLeftOut {
-			fmt.Fprintf(&out, "left out\t%s\t%s\t%s\n", plainLine(left.Name), left.Path, plainLine(left.Reason))
+			fmt.Fprintf(&out, "left out\t%s\t%s\t%s\n", plainLine(left.Name), plainLine(left.Path), plainLine(left.Reason))
 		}
 	}
 	for _, move := range plan.Moves {
-		fmt.Fprintf(&out, "move\t%s\t%s\t%s\n", plainLine(move.Name), move.From, move.To)
+		fmt.Fprintf(&out, "move\t%s\t%s\t%s\n", plainLine(move.Name), plainLine(move.From), plainLine(move.To))
 		for _, command := range move.Commands {
-			fmt.Fprintf(&out, "run\t%s\n", command)
+			fmt.Fprintf(&out, "run\t%s\n", plainLine(command))
 		}
 	}
 	if len(plan.Steps) != 0 {
 		out.WriteString("Steps for you\n")
 		for _, step := range plan.Steps {
-			fmt.Fprintf(&out, "step\t%s\t%s\n", plainLine(step.Name), step.Path)
+			fmt.Fprintf(&out, "step\t%s\t%s\n", plainLine(step.Name), plainLine(step.Path))
 			for _, command := range step.Commands {
-				fmt.Fprintf(&out, "run\t%s\n", command)
+				fmt.Fprintf(&out, "run\t%s\n", plainLine(command))
 			}
 		}
 	}

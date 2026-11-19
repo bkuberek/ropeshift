@@ -50,40 +50,59 @@ func sameShape(t *testing.T, got, plain string) {
 
 // What a registration reports of a refusal, or of a clone, never breaks a line or reaches the terminal as a
 // control sequence, whatever the API sent.
-func TestAddedTextPrintsReasonsAndNamesAsPlainText(t *testing.T) {
+func TestAddedTextPrintsReasonsNamesAndPathsAsPlainText(t *testing.T) {
 	report := func(text string) api.RepositoryAddReport {
 		return api.RepositoryAddReport{Repositories: []api.RepositoryAdded{
-			{Path: "/work/a", Outcome: ledger.RegistrationRefused, Reason: text},
-			{Path: "/work/b", Outcome: ledger.Registered, Repository: &ledger.Repository{ID: "5c1d2e3f405162738495a6b7c8d9e0f1a2b3c4d5", Name: text}, Reason: text},
-			{Path: "/work/c", Outcome: ledger.Registered, Checkout: "/work/d", Repository: &ledger.Repository{ID: "9a8b7c6d5e4f30211203f4e5d6c7b8a998877665", Name: text}, Reason: text},
+			{Path: text, Outcome: ledger.RegistrationRefused, Reason: text},
+			{Path: text, Outcome: ledger.Registered, Repository: &ledger.Repository{ID: "5c1d2e3f405162738495a6b7c8d9e0f1a2b3c4d5", Name: text}, Reason: text},
+			{Path: text, Outcome: ledger.Registered, Checkout: text + "x", Repository: &ledger.Repository{ID: "9a8b7c6d5e4f30211203f4e5d6c7b8a998877665", Name: text}, Reason: text},
 		}}
 	}
 	sameShape(t, addedText(report(hostile)), addedText(report("x")))
 }
 
-// The plan --dry-run prints names its repositories, and says why, with the text of the layout and the API, which never
-// breaks a line or reaches the terminal as a control sequence.
-func TestAdoptionPlanTextPrintsReasonsAndNamesAsPlainText(t *testing.T) {
+// The plan --dry-run prints names its repositories, says why, and lists the paths and the commands of the plan, with
+// the text of the layout and the API, which never breaks a line or reaches the terminal as a control sequence.
+func TestAdoptionPlanTextPrintsEveryFieldAsPlainText(t *testing.T) {
 	plan := func(text string) planning.AdoptionPlan {
 		return planning.AdoptionPlan{
-			Layout:   planning.DetectedLayout{Root: "/work", Clones: []planning.LayoutClone{{Name: text, Path: "/work/a"}}},
+			Layout:   planning.DetectedLayout{Root: text, Clones: []planning.LayoutClone{{Name: text, Path: text}}},
 			Shape:    planning.ShapeWorkspaceFiles,
 			Planning: planning.PlanningRepository{Name: text, Why: text},
 			Design:   &planning.DesignRepository{Name: text, Why: text},
 			Repositories: []planning.PlannedRepository{
-				{Name: text, Path: "/work/a", Outcome: string(ledger.RegistrationRefused), Reason: text},
-				{Name: text, Path: "/work/b", Outcome: string(ledger.Registered), Reason: text},
+				{Name: text, Path: text, Outcome: string(ledger.RegistrationRefused), Reason: text},
+				{Name: text, Path: text, Outcome: string(ledger.Registered), Reason: text},
 			},
-			Files:           []planning.PlannedFile{{Path: "a", Action: planning.ActionAdd, Detail: text}, {Path: "b", Action: planning.ActionAdd, Detail: text, Template: "t"}},
-			Collisions:      []planning.Collision{{Path: "c", Kept: text}},
-			MakefileLeftOut: []planning.Omission{{Name: text, Path: "/work/c", Reason: text}},
-			Moves:           []planning.Move{{Name: text, From: "/work/a", To: "/work/b"}},
-			Steps:           []planning.Step{{Name: text, Path: "/work/s"}},
+			Files:           []planning.PlannedFile{{Path: text, Action: planning.ActionAdd, Detail: text}, {Path: text, Action: planning.ActionAdd, Detail: text, Template: "t"}},
+			Takes:           []string{text},
+			Collisions:      []planning.Collision{{Path: text, DesignPath: text, Kept: text}},
+			CodeTrees:       []planning.PlannedCodeTree{{Path: text, BuildFile: text}},
+			MakefileLeftOut: []planning.Omission{{Name: text, Path: text, Reason: text}},
+			Moves:           []planning.Move{{Name: text, From: text, To: text, Commands: []string{text}}},
+			Steps:           []planning.Step{{Name: text, Path: text, Commands: []string{text}}},
 			Notes:           []string{text},
 		}
 	}
 	sameShape(t, adoptionPlanText(plan(hostile)), adoptionPlanText(plan("x")))
-	undecided := plan(hostile)
-	undecided.Planning.Undecided = true
-	sameShape(t, adoptionPlanText(undecided), adoptionPlanText(func() planning.AdoptionPlan { p := plan("x"); p.Planning.Undecided = true; return p }()))
+	undecided := func(text string) planning.AdoptionPlan {
+		p := plan(text)
+		p.Planning.Undecided = true
+		return p
+	}
+	sameShape(t, adoptionPlanText(undecided(hostile)), adoptionPlanText(undecided("x")))
+}
+
+// What adopt --restructure prints of the moves, the steps, and the repositories the Makefile leaves out, a person
+// copies and runs, and it never breaks a line or reaches the terminal as a control sequence.
+func TestAdoptRestructureListsPrintPlainText(t *testing.T) {
+	printed := func(text string) string {
+		var stdout bytes.Buffer
+		c := &invocation{stdout: &stdout}
+		c.sayMoves([]planning.Move{{Name: text, Commands: []string{text}}})
+		c.saySteps([]planning.Step{{Name: text, Commands: []string{text}}})
+		c.sayLeftOut([]planning.Omission{{Name: text, Path: text, Reason: text}})
+		return stdout.String()
+	}
+	sameShape(t, printed(hostile), printed("x"))
 }

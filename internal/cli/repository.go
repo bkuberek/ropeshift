@@ -402,7 +402,7 @@ func addedText(report api.RepositoryAddReport) string {
 	var out strings.Builder
 	for _, added := range report.Repositories {
 		if added.Outcome == ledger.RegistrationRefused {
-			fmt.Fprintf(&out, "refused\t%s\t%s\n", added.Path, plainLine(added.Reason))
+			fmt.Fprintf(&out, "refused\t%s\t%s\n", plainLine(added.Path), plainLine(added.Reason))
 			continue
 		}
 		var name, id string
@@ -416,10 +416,10 @@ func addedText(report api.RepositoryAddReport) string {
 		case report.DryRun:
 			word = "would register"
 		}
-		fmt.Fprintf(&out, "%s\t%s\t%s\t%s", word, name, id, added.Path)
+		fmt.Fprintf(&out, "%s\t%s\t%s\t%s", word, name, id, plainLine(added.Path))
 		switch {
 		case added.Checkout != "" && added.Checkout != added.Path:
-			fmt.Fprintf(&out, "\t(%s; this worker keeps %s)", dashIfEmpty(plainLine(added.Reason)), added.Checkout)
+			fmt.Fprintf(&out, "\t(%s; this worker keeps %s)", dashIfEmpty(plainLine(added.Reason)), plainLine(added.Checkout))
 		case added.Reason != "":
 			fmt.Fprintf(&out, "\t(%s)", plainLine(added.Reason))
 		}

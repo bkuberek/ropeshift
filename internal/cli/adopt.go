@@ -146,7 +146,7 @@ func (c *invocation) sayMoves(moves []planning.Move) {
 	c.say("The plan lists %d clones to move into its folder of clones. %s never runs these commands; run them yourself when you are ready:\n", len(moves), program)
 	for _, move := range moves {
 		for _, command := range move.Commands {
-			c.say("  %s\n", command)
+			c.say("  %s\n", plainLine(command))
 		}
 	}
 }
@@ -162,7 +162,7 @@ func (c *invocation) sayLeftOut(left []planning.Omission) {
 	}
 	c.say("The Makefile leaves out %d %s, which the manifest still lists:\n", len(left), noun)
 	for _, one := range left {
-		c.say("  %s (%s): %s\n", one.Name, one.Path, one.Reason)
+		c.say("  %s (%s): %s\n", plainLine(one.Name), plainLine(one.Path), plainLine(one.Reason))
 	}
 }
 
@@ -175,7 +175,7 @@ func (c *invocation) saySteps(steps []planning.Step) {
 	c.say("The plan lists %d code repositories that hold no instruction file. %s writes to no clone but the planning repository's; run these commands yourself:\n", len(steps), program)
 	for _, step := range steps {
 		for _, command := range step.Commands {
-			c.say("  %s\n", command)
+			c.say("  %s\n", plainLine(command))
 		}
 	}
 }
@@ -319,7 +319,7 @@ func (c *invocation) createAdoptingProject(client *api.Client, name, root string
 	if err != nil {
 		return "", c.failure(err)
 	}
-	c.say("Created project %s.\n", created.Name)
+	c.say("Created project %s.\n", plainLine(created.Name))
 	return created.Name, ExitOK
 }
 
@@ -398,7 +398,11 @@ func (c *invocation) adoptedPlanningRepository(client *api.ProjectClient, named,
 		return c.planIn(client, view)
 	}
 	slices.SortFunc(names, func(a, b string) int { return cmp.Compare(strings.ToLower(a), strings.ToLower(b)) })
-	listed := strings.Join(names, ", ")
+	shown := make([]string, len(names))
+	for i, name := range names {
+		shown[i] = plainLine(name)
+	}
+	listed := strings.Join(shown, ", ")
 	if c.terminal == nil || c.asJSON {
 		return "", c.usageError("the project holds %d repositories and names none to plan in; pass --planning with one of: %s", len(names), listed)
 	}
@@ -423,6 +427,6 @@ func (c *invocation) planIn(client *api.ProjectClient, view api.RepositoryView) 
 	if _, err := client.SetRepository(c.ctx, view.ID, api.RepositoryChange{Planning: &on}); err != nil {
 		return "", c.failure(err)
 	}
-	c.say("Planning in repository %s.\n", cmp.Or(view.Name, view.ID))
+	c.say("Planning in repository %s.\n", plainLine(cmp.Or(view.Name, view.ID)))
 	return view.ID, ExitOK
 }
