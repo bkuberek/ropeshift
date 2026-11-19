@@ -207,3 +207,19 @@ func TestAPushThatNamesNoCredentialHelperSetsNoCredentialConfiguration(t *testin
 		t.Errorf("the push's environment names a credential setting:\n%s", text)
 	}
 }
+
+// Remote asks origin for the branch with `--` before the remote, so no name is read as an option.
+func TestRemoteListsOriginsBranchAfterTheEndOfOptions(t *testing.T) {
+	f, repo := committed(t)
+	if err := f.AddRemote(t.Context(), repo.Dir, bare(t, repo)); err != nil {
+		t.Fatal(err)
+	}
+	ran := gittest.RecordGit(t)
+	if _, err := f.Remote(t.Context(), repo.Dir); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"ls-remote -- origin refs/heads/main"}
+	if got := ran("ls-remote"); !slices.Equal(got, want) {
+		t.Errorf("git ran %q, want %q", got, want)
+	}
+}

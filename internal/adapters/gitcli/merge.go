@@ -129,7 +129,7 @@ func baseTip(ctx context.Context, git Git, remote, base string) (string, error) 
 	if remote == "" {
 		return git.Commit(ctx, "refs/heads/"+base)
 	}
-	listed, err := git.must(ctx, "ls-remote", remote, "refs/heads/"+base)
+	listed, err := git.must(ctx, "ls-remote", "--", remote, "refs/heads/"+base)
 	if err != nil {
 		return "", err
 	}

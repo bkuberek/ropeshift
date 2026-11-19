@@ -275,7 +275,7 @@ func (f Folders) Remote(ctx context.Context, path string) (ports.RemoteState, er
 	state.Branch, _ = git.Text(ctx, "symbolic-ref", "--short", "HEAD")
 	state.Head, _ = git.Text(ctx, "rev-parse", "--verify", "HEAD")
 	if state.Origin != "" && state.Branch != "" {
-		if listed, err := git.Text(ctx, "ls-remote", "origin", "refs/heads/"+state.Branch); err == nil {
+		if listed, err := git.Text(ctx, "ls-remote", "--", "origin", "refs/heads/"+state.Branch); err == nil {
 			state.RemoteHead, _, _ = strings.Cut(listed, "\t")
 		}
 	}

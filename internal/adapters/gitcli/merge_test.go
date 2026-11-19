@@ -3,6 +3,7 @@ package gitcli_test
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -278,5 +279,16 @@ func TestAMergeReadsItsBaseThroughAFetchThatHoldsTheRefsLock(t *testing.T) {
 	}
 	if parent := r.repo.Git("--git-dir", r.bare, "rev-parse", result.MergeCommit+"^1"); parent != moved {
 		t.Errorf("the merge sits on %s, want the moved base %s", parent, moved)
+	}
+}
+
+// A merge reads the remote's tip of the base with `--` before the remote, so no name is read as an option.
+func TestAMergeListsTheRemotesBaseAfterTheEndOfOptions(t *testing.T) {
+	r := newMergeRig(t, true)
+	ran := gittest.RecordGit(t)
+	r.merge(ledger.MergeCommit)
+	want := []string{"ls-remote -- origin refs/heads/main"}
+	if got := ran("ls-remote"); !slices.Equal(got, want) {
+		t.Errorf("git ran %q, want %q", got, want)
 	}
 }
