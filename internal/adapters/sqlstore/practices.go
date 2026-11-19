@@ -28,6 +28,12 @@ VALUES (:workspace_id, :id, :repository_id, :worker, :cause, :requested_by, :req
  ORDER BY requested_at DESC, id DESC
  LIMIT 1`)
 
+	stmtLatestPracticesRequest = define("practices.request_latest",
+		`SELECT `+practicesRequestColumns+` FROM practices_requests
+ WHERE workspace_id = :workspace_id AND repository_id = :repository_id
+ ORDER BY requested_at DESC, id DESC
+ LIMIT 1`)
+
 	stmtOfferedPracticesRequests = define("practices.requests_offered",
 		`SELECT `+practicesRequestColumns+` FROM practices_requests
  WHERE workspace_id = :workspace_id AND worker = :worker AND state = :offered
@@ -138,6 +144,18 @@ func (t practicesTx) Open(repository string, now int64) (ledger.PracticesRequest
 	request, err := scanPracticesRequest(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ledger.PracticesRequest{}, fmt.Errorf("no open practices request of repository %s: %w", repository, ports.ErrNotFound)
+	}
+	return request, err
+}
+
+func (t practicesTx) Latest(repository string) (ledger.PracticesRequest, error) {
+	row, err := t.row(stmtLatestPracticesRequest, t.scoped(params{"repository_id": repository}))
+	if err != nil {
+		return ledger.PracticesRequest{}, err
+	}
+	request, err := scanPracticesRequest(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ledger.PracticesRequest{}, fmt.Errorf("no practices request of repository %s: %w", repository, ports.ErrNotFound)
 	}
 	return request, err
 }

@@ -139,25 +139,18 @@ func (p *Practices) Request(ctx context.Context, scope ledger.WorkspaceID, repos
 	return out, nil
 }
 
-// requestTime is when a repository's next request is made: the store's time, or the millisecond after the request of
-// the repository's kept result when the store's time is not past it. Requests that report a result are ordered by
-// their time alone.
+// requestTime is when a repository's next request is made: the store's time, or the millisecond after the repository's
+// latest request, in any state, when the store's time is not past it. Requests of one repository are ordered by their
+// time alone.
 func requestTime(tx ports.WriteTx, repository string, now int64) (int64, error) {
-	record, err := tx.Practices().Result(repository)
+	latest, err := tx.Practices().Latest(repository)
 	if errors.Is(err, ports.ErrNotFound) {
 		return now, nil
 	}
 	if err != nil {
 		return 0, err
 	}
-	kept, err := tx.Practices().Request(record.Request)
-	if errors.Is(err, ports.ErrNotFound) {
-		return now, nil
-	}
-	if err != nil {
-		return 0, err
-	}
-	return max(now, kept.RequestedAt+1), nil
+	return max(now, latest.RequestedAt+1), nil
 }
 
 // placement reads what the workers keep and which worker is the daemon's own.

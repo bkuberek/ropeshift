@@ -616,6 +616,30 @@ func TestRequestsOfOneRepositoryMadeInOneMillisecondAreOrderedStrictly(t *testin
 	}
 }
 
+// A request made after an earlier one expired is made after it, even when the store's clock reads a time before the
+// earlier request, so the earlier request's late report does not replace the later request's result.
+func TestARequestAfterAnExpiredOneIsMadeAfterItWhenTheClockSteppedBack(t *testing.T) {
+	r := newPracticesRig(t, ledger.ProtocolVersion)
+	r.register("repo-a", "widgets", "worker-1")
+	now := time.Now().UnixMilli()
+	r.practices = r.practicesOver(pinnedClock{Store: r.store, now: now})
+	earlier := r.requested(r.request(ledger.PracticesMember, "repo-a"))
+	r.practices = r.practicesOver(pinnedClock{Store: r.store, now: earlier.ExpiresAt})
+	if ids, err := r.practices.Expire(t.Context(), "pa", projectMember); err != nil || !slices.Equal(ids, []string{earlier.ID}) {
+		t.Fatalf("expiring stored %v as expired (%v), want %s", ids, err, earlier.ID)
+	}
+	r.practices = r.practicesOver(pinnedClock{Store: r.store, now: earlier.RequestedAt - 5000})
+	later := r.requested(r.request(ledger.PracticesMember, "repo-a"))
+	if later.RequestedAt <= earlier.RequestedAt {
+		t.Errorf("the later request was made at %d, not after the earlier one at %d", later.RequestedAt, earlier.RequestedAt)
+	}
+	r.mustReport(later.ID, ledger.PracticesOutcomeChecked, aResult("repo-a", tipTwo, ""))
+	r.mustReport(earlier.ID, ledger.PracticesOutcomeChecked, aResult("repo-a", tipOne, ""))
+	if record, err := r.record("repo-a"); err != nil || record.Request != later.ID || record.Commit != tipTwo {
+		t.Errorf("the result is %+v (%v), want the later request's", record, err)
+	}
+}
+
 // An incremental scan's result keeps the secrets of the result it continued from, and a scan that could not run
 // clears the tip, so the next one reads the whole history again.
 func TestAnIncrementalScanKeepsTheEarlierSecretsAndAFailedScanRestartsIt(t *testing.T) {
