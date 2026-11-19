@@ -207,7 +207,7 @@ export function OverviewPage({ live, project, label, archived }: Props) {
   const activity = useView<AuditPage>(() => readAudit("project", { limit: listed }), "overview:audit", live);
   const repositories = useRead<RepositoryList>(() => readRepositories(), "overview:repositories", live);
   const practices = useRead<PracticesList>(() => listPractices(), "overview:practices", live);
-  const check = useCheck(practices.view?.repositories ?? [], practices.again);
+  const check = useCheck(practices.view?.repositories ?? [], practices.again, live);
   const [registering, setRegistering] = useState(false);
   const now = useClock();
   const held = repositories.view ? (repositories.view.repositories ?? []).filter((row) => row.state !== "removed") : undefined;
