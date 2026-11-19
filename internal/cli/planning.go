@@ -189,7 +189,7 @@ func writeRegistration(out *strings.Builder, registration *api.ManifestRegistrat
 	}
 	out.WriteString(manifestText(registration.Repositories, registration.Preview, "    "))
 	if registration.Problem != "" {
-		fmt.Fprintf(out, "    %s\n", registration.Problem)
+		fmt.Fprintf(out, "    %s\n", plainLine(registration.Problem))
 	}
 }
 
@@ -258,17 +258,22 @@ func (c *invocation) planApprove(args []string) int {
 	}
 	decided, err := client.DecideApproval(c.ctx, asked.ID, api.DecideApproval{Digest: asked.SubjectDigest, Allow: true})
 	return c.finish(err, decided, func() string {
-		var out strings.Builder
-		fmt.Fprintf(&out, "approved %s version %d\n", waiting.Detail.Title, asked.PlanVersion)
-		fmt.Fprintf(&out, "  %s\n", waiting.Detail.Difference.Summary())
-		// The approval registers what the plan's manifest adds, from the clones beside the planning
-		// repository's, and says what it could not.
-		out.WriteString(manifestText(decided.Repositories, false, ""))
-		if decided.RepositoriesProblem != "" {
-			fmt.Fprintf(&out, "%s\n", decided.RepositoriesProblem)
-		}
-		return out.String()
+		return approvedText(waiting.Detail.Title, asked.PlanVersion, waiting.Detail.Difference.Summary(), decided)
 	})
+}
+
+// approvedText says which version of which plan was approved and what changed, and lists what the approval
+// registered of the repositories the plan's manifest adds, from the clones beside the planning repository's, and
+// what it could not.
+func approvedText(title string, version int64, summary string, decided api.ApprovalDecided) string {
+	var out strings.Builder
+	fmt.Fprintf(&out, "approved %s version %d\n", plainLine(title), version)
+	fmt.Fprintf(&out, "  %s\n", plainLine(summary))
+	out.WriteString(manifestText(decided.Repositories, false, ""))
+	if decided.RepositoriesProblem != "" {
+		fmt.Fprintf(&out, "%s\n", plainLine(decided.RepositoriesProblem))
+	}
+	return out.String()
 }
 
 // refusal prints a refusal the CLI found before it called anything, in the shape the API's own take.

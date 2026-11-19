@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"strings"
 	"testing"
 
 	"ropeshift.com/ropeshift/internal/api"
@@ -20,6 +21,26 @@ func TestManifestTextPrintsEveryFieldAsPlainText(t *testing.T) {
 	for _, wouldBe := range []bool{false, true} {
 		sameShape(t, manifestText(added(hostile), wouldBe, "  "), manifestText(added("x"), wouldBe, "  "))
 	}
+}
+
+// What a plan's approval would register, and the problem that stopped it, print as plain text, though the
+// problem can quote the manifest file.
+func TestARegistrationPrintsItsProblemAsPlainText(t *testing.T) {
+	text := func(problem string) string {
+		var out strings.Builder
+		writeRegistration(&out, &api.ManifestRegistration{Preview: true, Problem: problem})
+		return out.String()
+	}
+	sameShape(t, text(hostile), text("x"))
+}
+
+// What a plan's approval prints of the plan's title, what changed, and the problem with its manifest never breaks
+// a line or reaches the terminal as a control sequence.
+func TestAnApprovalPrintsAsPlainText(t *testing.T) {
+	text := func(s string) string {
+		return approvedText(s, 2, s, api.ApprovalDecided{RepositoriesProblem: s})
+	}
+	sameShape(t, text(hostile), text("x"))
 }
 
 // A path a manifest names prints with its spaces as they are.
