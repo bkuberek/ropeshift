@@ -643,8 +643,8 @@ func mergedOnForge(tx ports.WriteTx, f integrationFacts) error {
 // and ends the work. A conflict, or a branch behind a base that requires an up-to-date one, sends the work
 // back to rework on the same branch, whose next lane merges the current base into it. A head that moved goes
 // back to acceptance at the new head: a pull request's, which is reviewed again, and a planning branch's,
-// whose plan needs its own approval (ADR-0018). Anything else the forge or git refused holds the work in
-// `integrating` for a member, with why.
+// whose plan needs its own approval (ADR-0018). A head a worker reports that is no commit ID has not moved
+// anything. Anything else the forge or git refused holds the work in `integrating` for a member, with why.
 func mergeReported(tx ports.WriteTx, request ledger.ForgeRequest, report ledger.ForgeReport, actor ledger.Actor) error {
 	if report.Merge == nil {
 		return fmt.Errorf("%w: a merge report says nothing of the merge", workorders.ErrInvalid)
@@ -685,7 +685,7 @@ func mergeReported(tx ports.WriteTx, request ledger.ForgeRequest, report ledger.
 		return nil
 	case result.Outcome.Rework():
 		return reworkConflict(tx, f, request, result)
-	case result.Outcome == ledger.MergeStaleHead && (f.record.Target() == ledger.ReviewOnPullRequest || f.plan != nil) && result.Head != "" && result.Head != request.Commit:
+	case result.Outcome == ledger.MergeStaleHead && (f.record.Target() == ledger.ReviewOnPullRequest || f.plan != nil) && ledger.CommitHash(result.Head) && result.Head != request.Commit:
 		f.branch.Digest = current
 		return reviewAgain(tx, f, result.Head)
 	}
