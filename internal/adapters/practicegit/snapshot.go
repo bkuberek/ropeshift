@@ -63,8 +63,10 @@ func (l ignoreCopyLimits) withDefaults() ignoreCopyLimits {
 	return l
 }
 
-// snapshotNoReplace makes git read the objects a commit names and not the ones a replace ref names in their place.
-var snapshotNoReplace = []string{"GIT_NO_REPLACE_OBJECTS=1"}
+// snapshotNoReplace makes git read the objects a commit names and not the ones a replace ref names in their place. Git
+// 2.44 and later also fail on a missing object of a partial clone and do not fetch it; Snapshot reads no blob of a
+// partial clone, because an older git ignores that setting.
+var snapshotNoReplace = []string{"GIT_NO_REPLACE_OBJECTS=1", gitcli.NoLazyFetch}
 
 // errSnapshotTooLarge means a blob is over snapshotBlobLimit.
 var errSnapshotTooLarge = errors.New("the blob is over the size limit")
@@ -76,9 +78,17 @@ const snapshotIgnoreFile = ".gitignore"
 // each path of practices.Probes. The commit is a commit ID, or the name of the base branch, which resolves to
 // origin's branch when the checkout holds it and to the local branch otherwise. A name that resolves to
 // neither is ports.ErrNotFound.
+//
+// A partial clone lacks blobs that git fetches from its promisor remote when a command reads one, so the snapshot of
+// one lists the tracked paths, which its trees hold, and reads no blob: every file is unreadable and no ignore probe
+// has an answer, and the practices that need either are unknown.
 func (s Snapshots) Snapshot(ctx context.Context, dir, commit string) (practices.Snapshot, error) {
 	git := gitcli.Git{Dir: dir, Env: s.Env, Extra: snapshotNoReplace}
 	resolved, err := snapshotResolve(ctx, git, commit)
+	if err != nil {
+		return practices.Snapshot{}, err
+	}
+	partialClone, err := git.PartialClone(ctx)
 	if err != nil {
 		return practices.Snapshot{}, err
 	}
@@ -89,6 +99,14 @@ func (s Snapshots) Snapshot(ctx context.Context, dir, commit string) (practices.
 	paths := make([]string, len(entries))
 	for i, entry := range entries {
 		paths[i] = entry.path
+	}
+	if partialClone {
+		return practices.Snapshot{
+			Commit:  resolved,
+			Paths:   paths,
+			Read:    func(string) (string, bool) { return "", false },
+			Ignored: map[string]bool{},
+		}, nil
 	}
 	ignored, err := snapshotIgnored(ctx, git, resolved, entries, paths, s.ignoreLimits.withDefaults())
 	if err != nil {

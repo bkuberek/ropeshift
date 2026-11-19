@@ -33,10 +33,11 @@ const (
 )
 
 // secretScanEnvironment is what every git command of the scan runs under, so the repository's own settings cannot
-// change what it reads: paths print as they are and not in quotes, no file system monitor runs, a replacement
-// ref cannot stand in for an object, and an object the clone lacks is never fetched from the repository it came from.
+// change what it reads: paths print as they are and not in quotes, no file system monitor runs, and a replacement
+// ref cannot stand in for an object. Git 2.44 and later also fail on a missing object of a partial clone and do not
+// fetch it; Scan reads no object of a partial clone, because an older git ignores that setting.
 var (
-	secretScanEnvironment = []string{"GIT_NO_REPLACE_OBJECTS=1", "GIT_NO_LAZY_FETCH=1"}
+	secretScanEnvironment = []string{"GIT_NO_REPLACE_OBJECTS=1", gitcli.NoLazyFetch}
 	secretScanConfig      = [][2]string{{"core.quotePath", "false"}, {"core.fsmonitor", "false"}}
 )
 
@@ -56,8 +57,9 @@ type SecretScanner struct {
 // one line read the lines each commit added and no others; the rules that match across lines, a private key, also read
 // each file a commit changed, and count a match for the commit when it covers a line the commit added. A match found in the tree and in the history is one match, with the earliest
 // commit that added it; a match only the tree holds is reported at tip. The result names `from` by its commit ID when
-// the scan skipped what it reaches, and says it is partial for a shallow clone. No match and no error holds the
-// matched text.
+// the scan skipped what it reaches, and says it is partial for a shallow clone. A partial clone lacks objects that git
+// fetches from its promisor remote when a command reads one, so the scan of one reads no object: it finds no match and
+// says it is partial. No match and no error holds the matched text.
 func (s SecretScanner) Scan(ctx context.Context, dir, tip, from string) (ports.SecretScan, error) {
 	if err := ctx.Err(); err != nil {
 		return ports.SecretScan{}, fmt.Errorf("scan for secrets: %w", err)
@@ -66,6 +68,13 @@ func (s SecretScanner) Scan(ctx context.Context, dir, tip, from string) (ports.S
 	tipCommit, err := secretScanCommit(ctx, git, tip)
 	if err != nil {
 		return ports.SecretScan{}, fmt.Errorf("scan for secrets: %w", err)
+	}
+	partialClone, err := git.PartialClone(ctx)
+	if err != nil {
+		return ports.SecretScan{}, secretScanFailure(ctx, "check the repository for a partial clone", err)
+	}
+	if partialClone {
+		return ports.SecretScan{Partial: secretScanPartialCloneReason}, nil
 	}
 	// The options fix what the patches hold whatever the repository's settings and attributes say: every commit with
 	// a patch, a merge by its diff against its first parent, every file as text, paths from the root of the
@@ -102,6 +111,9 @@ func (s SecretScanner) Scan(ctx context.Context, dir, tip, from string) (ports.S
 	result.Partial = partial
 	return result, nil
 }
+
+// secretScanPartialCloneReason is why the scan of a partial clone read nothing.
+const secretScanPartialCloneReason = "the repository is a partial clone, so its history was not scanned: reading it would fetch the missing objects"
 
 // secretScanPartial says why the history a scan can read is less than the repository's: a shallow clone holds
 // only the commits down to its boundary. It is empty for a repository with its whole history.
