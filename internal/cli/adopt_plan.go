@@ -135,13 +135,13 @@ func adoptionPlanText(plan planning.AdoptionPlan) string {
 
 // plainLine is text a tool or the API sent, made safe to print as one field of one line: every run of white space,
 // which holds each kind of line break, is one space, and plainText drops the control characters.
-func plainLine(text string) string { return plainText(oneLine(text)) }
+func plainLine(text string) string { return ledger.PlainText(oneLine(text)) }
 
 // plainPath is a path made safe to print as one field of one line: a line break is a space, a control or format
 // character is dropped, and every other character, a space among them, is kept, so a path prints as it is.
 func plainPath(text string) string {
 	text = lineBreaks.Replace(text)
-	return strings.ReplaceAll(plainText(text), "\t", "")
+	return strings.ReplaceAll(ledger.PlainText(text), "\t", "")
 }
 
 var lineBreaks = strings.NewReplacer("\r\n", " ", "\r", " ", "\n", " ", "\u2028", " ", "\u2029", " ")
