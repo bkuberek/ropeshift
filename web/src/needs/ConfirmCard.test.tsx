@@ -146,11 +146,9 @@ describe("a confirmation card", () => {
 describe("a practices card", () => {
   const practicesCard = (operation: "practices.acknowledge" | "practices.withdraw", label: string, summary: string): CardItem => {
     const base = cardOf(cards(), "repository.raise_merge_authority");
-    const changes = [
-      { field: "finding", to: "codeowners" },
-      { field: "why", to: "It names who reviews each path." },
-      { field: "reason", to: "the whole team owns every path" },
-    ];
+    // As the API prepares them: a withdrawal shows the reason that stops holding as the value it leaves, not one it takes.
+    const reason = operation === "practices.acknowledge" ? { field: "reason", to: "the whole team owns every path" } : { field: "reason", from: "the whole team owns every path", to: null };
+    const changes = [{ field: "finding", to: "codeowners" }, { field: "why", to: "It names who reviews each path." }, reason];
     const path = operation === "practices.acknowledge" ? "/v1/projects/default/practices/acknowledgements" : "/v1/projects/default/practices/acknowledgements/withdraw";
     const detail = { operation, label, method: "POST", path, arguments: { repository: "repo-1", finding: "codeowners" }, why: "The plan names this step.", changes };
     return {
