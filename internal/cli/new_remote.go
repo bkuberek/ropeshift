@@ -319,6 +319,8 @@ func (r newResult) repositoriesText(out *strings.Builder) {
 type answers struct {
 	in  *bufio.Reader
 	out io.Writer
+	// dryRun says the answers feed a plan and nothing runs, so none of them is checked against gh.
+	dryRun bool
 }
 
 // ask prints a question and reads a line. An end of input is an error, so a script never answers by silence.
@@ -359,6 +361,7 @@ func (a *answers) yes(question string, fallback bool) (bool, error) {
 // repository is a monorepo, and a project of several is a workspace with a new code repository for each name.
 func (c *invocation) newInteractive(args []string) int {
 	set := c.flags()
+	dry := dryRunFlag(set)
 	positional, ok := c.parse(set, args)
 	if !ok {
 		return ExitUsage
@@ -369,7 +372,7 @@ func (c *invocation) newInteractive(args []string) int {
 	if len(positional) > 1 {
 		return c.usageError("unexpected argument %q: it takes at most one folder", positional[1])
 	}
-	in := &answers{in: bufio.NewReader(c.terminal), out: c.stdout}
+	in := &answers{in: bufio.NewReader(c.terminal), out: c.stdout, dryRun: *dry}
 	answer, err := in.ask("Will this project live in one repository, or in several? [one/several]", "")
 	if err != nil {
 		return c.usageError("%v", err)
@@ -434,6 +437,9 @@ func (c *invocation) newInteractive(args []string) int {
 	if err := projectfiles.Check(shape, data.Repositories); err != nil {
 		return c.usageError("%v", err)
 	}
+	if *dry {
+		return c.dryRunNew(shape, folder, data.Project, data, &request)
+	}
 	c.printPlan(request, creates)
 	if creates > 0 {
 		write, err := in.yes(fmt.Sprintf("Write the files and create %d repositories on GitHub?", creates), false)
@@ -483,6 +489,9 @@ func (c *invocation) askRemotes(in *answers, request *ledger.TemplateWriteReques
 // askGitHub runs the checks of gh, prints the command that fixes any that fails and stops, then asks for the owner,
 // the visibility, and an owner for each code repository.
 func (c *invocation) askGitHub(in *answers, request *ledger.TemplateWriteRequest) (int, error) {
+	if in.dryRun {
+		return c.askGitHubDry(in, request)
+	}
 	if c.readForgeAccount == nil {
 		return 0, errors.New("this build cannot read the GitHub account")
 	}
