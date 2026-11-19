@@ -31,6 +31,8 @@ type creationAPI struct {
 	// decided is the answer to a retry or a skip, and refusal replaces it with an error when set.
 	decided api.ApprovalDecided
 	refusal *api.ErrorDetail
+	// shown is the request that waits, which a read of the plan with no version names answers with.
+	shown *api.PlanApprovalView
 
 	mu       sync.Mutex
 	requests []string
@@ -66,6 +68,11 @@ func (a *creationAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case r.Method == http.MethodGet && r.URL.Path == "/v1/projects/tt/plans/p1":
 		view := api.PlanView{Plan: planning.Plan{ID: "p1", Title: "Plan"}, Versions: a.versions}
+		if r.URL.Query().Get("version") == "" && a.shown != nil {
+			view.Approval = a.shown
+			_ = json.NewEncoder(w).Encode(view)
+			return
+		}
 		wanted, _ := strconv.ParseInt(r.URL.Query().Get("version"), 10, 64)
 		for _, line := range a.versions {
 			if (wanted == 0 && line.State == authority.ApprovalApproved) || line.Version == wanted {
@@ -82,6 +89,8 @@ func (a *creationAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		_ = json.NewEncoder(w).Encode(view)
+	case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/decide"):
+		_ = json.NewEncoder(w).Encode(a.decided)
 	case r.Method == http.MethodPost && strings.Contains(r.URL.Path, "/repositories/"):
 		if a.refusal != nil {
 			w.WriteHeader(http.StatusConflict)
@@ -133,7 +142,7 @@ func planWithAFailedCreation(t *testing.T) *creationAPI {
 	}
 	a.registrations[3] = entry(ledger.Registered, "")
 	a.registrations[2] = entry(ledger.RegistrationRefused, "gh is signed out")
-	a.registrations[1] = entry(ledger.RepositoryOutcome("create_failed"), "push failed")
+	a.registrations[1] = entry(ledger.CreateFailed, "push failed")
 	a.decided = api.ApprovalDecided{
 		Approval:     authority.Approval{ID: "ap2", Kind: authority.KindPlan, State: authority.ApprovalApproved, PlanVersion: 2},
 		Repositories: []api.RepositoryAdded{{Name: "web", ManifestPath: "repos/web", Path: "/work/tt/repos/web", Remote: "git@github.com:acme/web.git", Outcome: ledger.Registered}},
@@ -204,7 +213,7 @@ func TestPlanRetryAndSkipReportWhatTheDaemonRefuses(t *testing.T) {
 // Skip names a reason of one to 2000 characters, and sends it with the entry's route.
 func TestPlanSkipSendsItsReasonAndPrintsTheEntrysLine(t *testing.T) {
 	a := planWithAFailedCreation(t)
-	a.decided.Repositories = []api.RepositoryAdded{{Name: "web", ManifestPath: "repos/web", Path: "/work/tt/repos/web", Outcome: ledger.RepositoryOutcome("skipped"), Reason: "built by hand"}}
+	a.decided.Repositories = []api.RepositoryAdded{{Name: "web", ManifestPath: "repos/web", Path: "/work/tt/repos/web", Outcome: ledger.Skipped, Reason: "built by hand"}}
 	code, stdout, stderr := a.run("plan", "skip", "p1", "web", "--reason", "built by hand")
 	if code != cli.ExitOK || stderr != "" {
 		t.Fatalf("exit %d\n%s%s", code, stdout, stderr)
@@ -217,7 +226,7 @@ func TestPlanSkipSendsItsReasonAndPrintsTheEntrysLine(t *testing.T) {
 	if err := json.Unmarshal([]byte(a.bodies[route]), &sent); err != nil || sent.Reason != "built by hand" {
 		t.Errorf("sent %q: %v", a.bodies[route], err)
 	}
-	if !strings.Contains(stdout, "\tweb\trepos/web\t/work/tt/repos/web\t") || !strings.Contains(stdout, "built by hand") || strings.Count(stdout, "\n") != 1 {
+	if !strings.HasPrefix(stdout, "skipped\tweb\trepos/web\t/work/tt/repos/web\t") || !strings.Contains(stdout, "built by hand") || strings.Count(stdout, "\n") != 1 {
 		t.Errorf("printed %q", stdout)
 	}
 }
@@ -284,5 +293,124 @@ func TestPlanRetryPrintsWhyTheEntryIsStillRefused(t *testing.T) {
 	code, stdout, _ := a.run("plan", "retry", "p1", "web")
 	if code != cli.ExitOK || !strings.HasPrefix(stdout, "refused\tweb\trepos/web\t/work/tt/repos/web\t") || !strings.Contains(stdout, "gh is signed out") || !strings.Contains(stdout, "registration stopped") {
 		t.Errorf("exit %d, printed %q", code, stdout)
+	}
+}
+
+// creationViews are the repositories of a version whose manifest creates api, plans web, and has docs refused, as a member
+// reads them before approving.
+func creationPreview() []api.RepositoryAdded {
+	return []api.RepositoryAdded{
+		{
+			Name: "api", ManifestPath: "repos/api", Path: "/work/tt/repos/api", Outcome: ledger.Created,
+			Creation: &ledger.CreationOutcome{Forge: ledger.ForgeGitHub, Owner: "acme", ForgeName: "api", Visibility: ledger.VisibilityPrivate, DefaultBranch: "main", URL: "git@github.com:acme/api.git", Login: "octo"},
+		},
+		{Name: "web", ManifestPath: "repos/web", Outcome: ledger.Planned, Reason: "no work order of this version targets web"},
+		{Name: "docs", ManifestPath: "repos/docs", Path: "/work/tt/repos/docs", Outcome: ledger.RegistrationRefused, Reason: "gh is signed out: run `gh auth login --hostname github.com` on this machine"},
+	}
+}
+
+// plan show prints each repository approving would create with the repository it creates, and says of one it plans that
+// approving creates nothing.
+func TestPlanShowPrintsWhatApprovingWouldCreate(t *testing.T) {
+	a := newCreationAPI(t)
+	a.shown = &api.PlanApprovalView{
+		Approval:     authority.Approval{ID: "ap2", Kind: authority.KindPlan, State: authority.ApprovalPending, PlanVersion: 2, Plan: "tt-v2"},
+		Registration: &api.ManifestRegistration{Preview: true, Repositories: creationPreview()},
+	}
+	code, stdout, stderr := a.run("plan", "show", "p1")
+	if code != cli.ExitOK || stderr != "" {
+		t.Fatalf("exit %d\n%s%s", code, stdout, stderr)
+	}
+	want := "  repositories approving would register, read now on the daemon's worker's machine:\n" +
+		"    would create\tapi\trepos/api\t/work/tt/repos/api\tgit@github.com:acme/api.git\n" +
+		"      creates github.com/acme/api, private, on branch main, with gh signed in as octo\n" +
+		"    planned\tweb\trepos/web\t-\t-\tno work order of this version targets web, so approving creates nothing; the approval of a version that gives it work creates it\n" +
+		"    refused\tdocs\trepos/docs\t/work/tt/repos/docs\t-\tgh is signed out: run `gh auth login --hostname github.com` on this machine\n"
+	if !strings.Contains(stdout, want) {
+		t.Errorf("plan show printed\n%s\nwant a block\n%s", stdout, want)
+	}
+}
+
+// A registered approval prints what it created and how: the first commit, each step, and the line to add to the Makefile; and
+// a creation that failed says where it stopped, what is left to run, and the command that retries it.
+func TestPlanShowPrintsWhatAnApprovalCreatedAndWhatFailed(t *testing.T) {
+	a := newCreationAPI(t)
+	created := &ledger.CreationOutcome{
+		Forge: ledger.ForgeGitHub, Owner: "acme", ForgeName: "api", Visibility: ledger.VisibilityPrivate, DefaultBranch: "main", URL: "git@github.com:acme/api.git",
+		Commit: "1a2b3c4d5e6f", Steps: []ledger.RemoteStep{{Step: "create", Outcome: "done"}, {Step: "origin", Outcome: "done"}, {Step: "push", Outcome: "done"}},
+		Makefile: "api=git@github.com:acme/api.git=repos/api",
+	}
+	failed := &ledger.CreationOutcome{
+		Forge: ledger.ForgeGitHub, Owner: "acme", ForgeName: "web", Visibility: ledger.VisibilityPrivate, DefaultBranch: "main", URL: "git@github.com:acme/web.git",
+		Commit: "5d6e7f8a9b0c", Steps: []ledger.RemoteStep{{Step: "create", Outcome: "done"}, {Step: "origin", Outcome: "done"}, {Step: "push", Outcome: "failed", Detail: "remote\x1b[31m rejected"}},
+		Remaining: []string{"git -C /work/tt/repos/web push --set-upstream origin main"},
+	}
+	a.shown = &api.PlanApprovalView{
+		Approval: authority.Approval{ID: "ap2", Kind: authority.KindPlan, State: authority.ApprovalApproved, PlanVersion: 2, Plan: "tt-v2"},
+		Registration: &api.ManifestRegistration{Repositories: []api.RepositoryAdded{
+			{Name: "api", ManifestPath: "repos/api", Path: "/work/tt/repos/api", Outcome: ledger.Created, Creation: created},
+			{Name: "web", ManifestPath: "repos/web", Path: "/work/tt/repos/web", Outcome: ledger.CreateFailed, Creation: failed},
+		}},
+	}
+	code, stdout, stderr := a.run("plan", "show", "p1")
+	if code != cli.ExitOK || stderr != "" {
+		t.Fatalf("exit %d\n%s%s", code, stdout, stderr)
+	}
+	want := "  repositories this approval registered:\n" +
+		"    created\tapi\trepos/api\t/work/tt/repos/api\tgit@github.com:acme/api.git\n" +
+		"      created github.com/acme/api, private, on branch main: first commit 1a2b3c4, create done, origin done, push done\n" +
+		"      add to REPOSITORIES in the workspace Makefile: api=git@github.com:acme/api.git=repos/api\n" +
+		"    create failed\tweb\trepos/web\t/work/tt/repos/web\tgit@github.com:acme/web.git\n" +
+		"      first commit 5d6e7f8, create done, origin done, push failed: remote rejected\n" +
+		"      remaining: git -C /work/tt/repos/web push --set-upstream origin main\n" +
+		"      retry with: ropeshift plan retry tt-v2 web\n"
+	if !strings.Contains(stdout, want) {
+		t.Errorf("plan show printed\n%s\nwant a block\n%s", stdout, want)
+	}
+	if strings.Contains(stdout, "\x1b") {
+		t.Errorf("plan show printed an escape sequence: %q", stdout)
+	}
+}
+
+// plan approve prints the preview before it decides, and what the approval created after, as plan show prints them.
+func TestPlanApprovePrintsWhatItCreated(t *testing.T) {
+	a := newCreationAPI(t)
+	a.shown = &api.PlanApprovalView{
+		Approval:     authority.Approval{ID: "ap2", Kind: authority.KindPlan, State: authority.ApprovalPending, PlanVersion: 2, Plan: "tt-v2", SubjectDigest: "sha256:v2"},
+		Registration: &api.ManifestRegistration{Preview: true, Repositories: creationPreview()[:1]},
+	}
+	a.decided = api.ApprovalDecided{
+		Approval: authority.Approval{ID: "ap2", Kind: authority.KindPlan, State: authority.ApprovalApproved, PlanVersion: 2, Plan: "tt-v2"},
+		Repositories: []api.RepositoryAdded{{
+			Name: "web", ManifestPath: "repos/web", Path: "/work/tt/repos/web", Outcome: ledger.CreateFailed,
+			Creation: &ledger.CreationOutcome{Forge: ledger.ForgeGitHub, Owner: "acme", ForgeName: "web", Visibility: ledger.VisibilityPublic, URL: "git@github.com:acme/web.git", Steps: []ledger.RemoteStep{{Step: "create", Outcome: "failed", Detail: "name taken"}}},
+		}},
+	}
+	code, stdout, stderr := a.run("plan", "approve", "p1")
+	if code != cli.ExitOK || stderr != "" {
+		t.Fatalf("exit %d\n%s%s", code, stdout, stderr)
+	}
+	for _, want := range []string{
+		"    would create\tapi\trepos/api\t/work/tt/repos/api\tgit@github.com:acme/api.git\n      creates github.com/acme/api, private, on branch main, with gh signed in as octo\n",
+		"create failed\tweb\trepos/web\t/work/tt/repos/web\tgit@github.com:acme/web.git\n  create failed: name taken\n  retry with: ropeshift plan retry tt-v2 web\n",
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Errorf("plan approve printed\n%s\nwant a block\n%s", stdout, want)
+		}
+	}
+}
+
+// retry and skip print the entry's new line with what the creation did.
+func TestPlanRetryPrintsWhatTheCreationDid(t *testing.T) {
+	a := planWithAFailedCreation(t)
+	a.decided.Plan = "tt-v2"
+	a.decided.Repositories = []api.RepositoryAdded{{
+		Name: "web", ManifestPath: "repos/web", Path: "/work/tt/repos/web", Outcome: ledger.Created,
+		Creation: &ledger.CreationOutcome{Forge: ledger.ForgeGitHub, Owner: "acme", ForgeName: "web", Visibility: ledger.VisibilityPrivate, DefaultBranch: "main", URL: "git@github.com:acme/web.git", Commit: "5d6e7f8a9b0c", Steps: []ledger.RemoteStep{{Step: "push", Outcome: "done"}}},
+	}}
+	code, stdout, _ := a.run("plan", "retry", "p1", "web")
+	want := "created\tweb\trepos/web\t/work/tt/repos/web\tgit@github.com:acme/web.git\n  created github.com/acme/web, private, on branch main: first commit 5d6e7f8, push done\n"
+	if code != cli.ExitOK || stdout != want {
+		t.Errorf("exit %d, printed %q, want %q", code, stdout, want)
 	}
 }

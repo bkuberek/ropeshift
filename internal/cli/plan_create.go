@@ -13,9 +13,6 @@ import (
 // maxSkipReason is the longest reason a skip takes, in characters.
 const maxSkipReason = 2000
 
-// createFailed is the outcome of a repository creation that stopped at a step that failed.
-const createFailed ledger.RepositoryOutcome = "create_failed"
-
 // planRetry runs the creation of one repository a plan version names again, as one entry of a run under the version's
 // approval, and prints the entry's new line.
 func (c *invocation) planRetry(args []string) int {
@@ -116,7 +113,7 @@ func holdsUncreated(registration *api.ManifestRegistration, name string) bool {
 			continue
 		}
 		switch one.Outcome {
-		case ledger.RegistrationRefused, ledger.NotAttempted, createFailed:
+		case ledger.RegistrationRefused, ledger.NotAttempted, ledger.CreateFailed:
 			return true
 		}
 	}
@@ -129,7 +126,7 @@ func creationText(decided api.ApprovalDecided, name string) string {
 	var out strings.Builder
 	for _, one := range decided.Repositories {
 		if one.Name == name {
-			out.WriteString(manifestText([]api.RepositoryAdded{one}, false, ""))
+			out.WriteString(registrationText([]api.RepositoryAdded{one}, false, "", decided.Plan))
 		}
 	}
 	if decided.RepositoriesProblem != "" {

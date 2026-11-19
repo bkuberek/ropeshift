@@ -374,6 +374,16 @@ func (c *invocation) addFromManifest(path string, dryRun bool) int {
 // and the path of its clone as the manifest writes them, where that path leads on the worker's machine, the
 // remote the manifest names, and why it was refused, each line after an indent.
 func manifestText(added []api.RepositoryAdded, wouldBe bool, indent string) string {
+	return registrationText(added, wouldBe, indent, "")
+}
+
+// plannedSuffix says what a version's approval does for a repository it plans, in a preview.
+const plannedSuffix = ", so approving creates nothing; the approval of a version that gives it work creates it"
+
+// registrationText is manifestText with, under each repository a plan version creates, a line for each thing its creation
+// did or would do, and for a creation that failed, the commands left to run and the command that retries it for the plan
+// named. Every word a worker or a forge said passes through plainLine.
+func registrationText(added []api.RepositoryAdded, wouldBe bool, indent, plan string) string {
 	var out strings.Builder
 	for _, one := range added {
 		word := "registered"
@@ -388,17 +398,119 @@ func manifestText(added []api.RepositoryAdded, wouldBe bool, indent string) stri
 			word = "planned"
 		case one.Outcome == ledger.Skipped:
 			word = "skipped"
+		case one.Outcome == ledger.CreateFailed:
+			word = "create failed"
+		case one.Outcome == ledger.Created && wouldBe:
+			word = "would create"
+		case one.Outcome == ledger.Created:
+			word = "created"
 		case wouldBe:
 			word = "would register"
 		}
+		remote := one.Remote
+		if remote == "" && one.Creation != nil {
+			remote = one.Creation.URL
+		}
 		fmt.Fprintf(&out, "%s%s\t%s\t%s\t%s\t%s", indent, word, dashIfEmpty(plainLine(one.Name)), dashIfEmpty(plainPath(one.ManifestPath)),
-			dashIfEmpty(plainPath(one.Path)), dashIfEmpty(plainPath(one.Remote)))
-		if one.Reason != "" {
-			fmt.Fprintf(&out, "\t%s", plainLine(one.Reason))
+			dashIfEmpty(plainPath(one.Path)), dashIfEmpty(plainPath(remote)))
+		reason := plainLine(one.Reason)
+		if one.Outcome == ledger.Planned && wouldBe && reason != "" {
+			reason += plannedSuffix
+		}
+		if reason != "" {
+			fmt.Fprintf(&out, "\t%s", reason)
 		}
 		out.WriteString("\n")
+		for _, line := range creationLines(one, wouldBe, plan) {
+			fmt.Fprintf(&out, "%s  %s\n", indent, line)
+		}
 	}
 	return out.String()
+}
+
+// creationLines says what one repository's creation did, or would: what it creates or created, how far it came, what is
+// left to run, the line to add to the workspace Makefile, and how to retry it.
+func creationLines(one api.RepositoryAdded, wouldBe bool, plan string) []string {
+	creation := one.Creation
+	if creation == nil {
+		return nil
+	}
+	var lines []string
+	made := forgeRepository(creation)
+	switch {
+	case one.Outcome == ledger.Created && wouldBe:
+		line := "creates " + made
+		if creation.Login != "" {
+			line += ", with gh signed in as " + plainLine(creation.Login)
+		}
+		lines = append(lines, line)
+	case one.Outcome == ledger.Created:
+		line := "created " + made
+		if progress := creationProgress(creation); progress != "" {
+			line += ": " + progress
+		}
+		lines = append(lines, line)
+	case one.Outcome == ledger.CreateFailed:
+		if progress := creationProgress(creation); progress != "" {
+			lines = append(lines, progress)
+		}
+	}
+	if one.Outcome == ledger.RegistrationRefused && creation.Remedy != "" && !strings.Contains(one.Reason, creation.Remedy) {
+		lines = append(lines, "remedy: "+plainLine(creation.Remedy))
+	}
+	if one.Outcome == ledger.CreateFailed {
+		for _, command := range creation.Remaining {
+			lines = append(lines, "remaining: "+plainLine(command))
+		}
+		if plan != "" {
+			lines = append(lines, fmt.Sprintf("retry with: ropeshift plan retry %s %s", plainLine(plan), plainLine(one.Name)))
+		}
+	}
+	if creation.Makefile != "" && one.Outcome == ledger.Created && !wouldBe {
+		lines = append(lines, "add to REPOSITORIES in the workspace Makefile: "+plainLine(creation.Makefile))
+	}
+	return lines
+}
+
+// forgeRepository names the repository a creation makes on its forge, with its visibility and the branch it starts on.
+func forgeRepository(creation *ledger.CreationOutcome) string {
+	host := creation.Forge
+	if host == ledger.ForgeGitHub {
+		host = "github.com"
+	}
+	text := fmt.Sprintf("%s/%s/%s, %s", plainLine(host), plainLine(creation.Owner), plainLine(creation.ForgeName), plainLine(creation.Visibility))
+	if creation.DefaultBranch != "" {
+		text += ", on branch " + plainLine(creation.DefaultBranch)
+	}
+	return text
+}
+
+// creationProgress says how far a creation came: its first commit, and each step with how it ended and what the tool said
+// of one that failed.
+func creationProgress(creation *ledger.CreationOutcome) string {
+	var parts []string
+	switch {
+	case creation.CommitError != "":
+		parts = append(parts, "first commit failed: "+plainLine(creation.CommitError))
+	case creation.Commit != "":
+		parts = append(parts, "first commit "+plainLine(creationCommit(creation.Commit)))
+	}
+	for _, step := range creation.Steps {
+		text := plainLine(step.Step) + " " + plainLine(step.Outcome)
+		if step.Detail != "" && step.Outcome == "failed" {
+			text += ": " + plainLine(step.Detail)
+		}
+		parts = append(parts, text)
+	}
+	return strings.Join(parts, ", ")
+}
+
+// creationCommit is the first seven characters of a commit's ID.
+func creationCommit(id string) string {
+	if len(id) > 7 {
+		return id[:7]
+	}
+	return id
 }
 
 // addedText prints one line for each clone and each path: what became of it, the repository's name and

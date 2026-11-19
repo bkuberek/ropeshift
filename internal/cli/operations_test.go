@@ -85,6 +85,8 @@ var operations = map[string]string{
 	"GET /v1/plans/{id}":                                 "plan show",
 	"POST /v1/plans/{id}/reviews":                        "plan review",
 	"GET /v1/plans/{id}/revision":                        "plan revision",
+	"POST /v1/approvals/{id}/repositories/{name}/retry":  "plan retry",
+	"POST /v1/approvals/{id}/repositories/{name}/skip":   "plan skip",
 	"POST /v1/plans/{id}/revision/confirm":               "plan confirm",
 	"POST /v1/plans/{id}/revision/sessions":              "plan revise",
 	"POST /v1/work-orders/{id}/decision-rework":          "work decision-rework",
