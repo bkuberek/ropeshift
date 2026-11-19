@@ -50,7 +50,7 @@ func clipText(text string, n int) string {
 // byte that is no text is a question mark, and the opening of an HTML comment is broken, so that text cannot
 // carry the marker a comment is deduplicated by.
 func cleanText(text string) string {
-	text = strings.NewReplacer("\r\n", "\n", "\r", "\n", " ", "\n", " ", "\n").Replace(text)
+	text = strings.NewReplacer("\r\n", "\n", "\r", "\n", "\u2028", "\n", "\u2029", "\n").Replace(text)
 	text = strings.Map(func(r rune) rune {
 		switch {
 		case r == '\n':

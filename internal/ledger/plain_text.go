@@ -24,7 +24,7 @@ func PlainText(text string) string {
 		switch {
 		case r == '\n' || r == '\t':
 			return r
-		case r == ' ' || r == ' ':
+		case r == '\u2028' || r == '\u2029':
 			return '\n'
 		case HiddenRune(r):
 			return -1

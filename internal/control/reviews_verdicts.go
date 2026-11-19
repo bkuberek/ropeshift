@@ -8,7 +8,7 @@ import (
 )
 
 // oneLine turns each line break of a citation into a space, so a citation stays on one line.
-var oneLine = strings.NewReplacer("\r\n", " ", "\r", " ", "\n", " ", " ", " ", " ", " ")
+var oneLine = strings.NewReplacer("\r\n", " ", "\r", " ", "\n", " ", "\u2028", " ", "\u2029", " ")
 
 // redactedVerdicts copies a report's verdicts with the shapes of credentials taken out of their reasons and citations,
 // each citation held to one line, and the reasons held to their bound afterwards, because a marker can be longer than
