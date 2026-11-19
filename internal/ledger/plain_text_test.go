@@ -14,6 +14,9 @@ func TestPlainTextDropsEscapeSequencesAndControlCharactersAndKeepsNewlineAndTab(
 		"a\u009b2Jb\u009d0;t\u009cc":       "abc",
 		"line\r\nnext\tcell\x00\x08\x7f":   "line\nnext\tcell",
 		"\u202ereversed\u200b":             "reversed",
+		"line\u2028break\u2029para":        "linebreakpara",
+		"a\u2066b\u2067c\u2068d\u2069e":    "abcde",
+		"a\u200eb\u200fc\u061cd":           "abcd",
 		"<b>x</b> [a](https://e.example/)": "<b>x</b> [a](https://e.example/)",
 		"":                                 "",
 	} {
