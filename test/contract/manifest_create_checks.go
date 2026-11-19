@@ -33,19 +33,34 @@ var ManifestCreateChecks = []Check{
 	{"RM51", "a creation left started is gone on from the creator and not registered from the folder it left: a run finds the clone it half made and resumes the creation", checkInterruptedCreationResumesFromTheCreator},
 }
 
+// The reasons the worker's checks of a creation refuse with, which a path that leads out of the bound and a forge that
+// does not answer within the check's limit give.
+const (
+	refusedOutsideBound = "path_outside_bound"
+	refusedGHTimeout    = "gh_timeout"
+)
+
 // machineCreator is the fake creator over a worker's machine: a creation that writes leaves the clone it made on the
 // machine, with the origin it was given, so the registration that follows reads it as it would read the real one.
 type machineCreator struct {
 	*fake.RepositoryCreator
 	machine *fake.Checkouts
-	urls    map[string]string
+	// approval is the plan approval whose creations the creator answers, which its answers are keyed by.
+	approval string
+	urls     map[string]string
 	// during hears each job before its creation runs.
 	during func(ledger.RepositoryCreation)
 }
 
-func newMachineCreator(machine *fake.Checkouts) *machineCreator {
-	return &machineCreator{RepositoryCreator: fake.NewRepositoryCreator(), machine: machine, urls: map[string]string{}}
+func newMachineCreator(machine *fake.Checkouts, approval string) *machineCreator {
+	return &machineCreator{RepositoryCreator: fake.NewRepositoryCreator(), machine: machine, approval: approval, urls: map[string]string{}}
 }
+
+// key is the key of the creation of the entry named, which the creator answers by.
+func (c *machineCreator) key(name string) string { return ledger.CreationKey(c.approval, name) }
+
+// failsCreate makes the creation of the entry named fail with err.
+func (c *machineCreator) failsCreate(name string, err error) { c.FailCreate(c.key(name), err) }
 
 // createdSteps are the steps of a creation that finished.
 func createdSteps() []ledger.RemoteStep {
@@ -60,8 +75,8 @@ func createdSteps() []ledger.RemoteStep {
 func (c *machineCreator) passes(name, forgeName, branch string) {
 	url := "git@github.com:acme/" + forgeName + ".git"
 	c.urls[name] = url
-	c.SetCheck(name, ledger.CreationCheck{URL: url, Login: "octo", Branch: branch})
-	c.SetReport(name, ledger.TemplateWriteReport{
+	c.SetCheck(c.key(name), ledger.CreationCheck{URL: url, Login: "octo", Branch: branch})
+	c.SetReport(c.key(name), ledger.TemplateWriteReport{
 		Outcome: ledger.TemplateOutcomeWritten, Commit: "1a2b3c4", Clone: true,
 		Repositories: []ledger.RepositoryReport{{Name: name, Path: ".", Commit: "1a2b3c4", Remote: url, Steps: createdSteps()}},
 	})
@@ -72,7 +87,7 @@ func (c *machineCreator) failsPush(name, forgeName, branch string) {
 	c.passes(name, forgeName, branch)
 	steps := createdSteps()
 	steps[2] = ledger.RemoteStep{Step: ledger.RemoteStepPush, Outcome: ledger.RemoteStepFailed, Detail: "denied by the forge"}
-	c.SetReport(name, ledger.TemplateWriteReport{
+	c.SetReport(c.key(name), ledger.TemplateWriteReport{
 		Outcome: ledger.TemplateOutcomeWritten, Commit: "5d6e7f8", Clone: true,
 		Repositories: []ledger.RepositoryReport{{Name: name, Path: ".", Commit: "5d6e7f8", Remote: c.urls[name], Steps: steps}},
 		Remaining:    []string{"git -C /work/" + name + " push --set-upstream origin " + branch},
@@ -81,7 +96,7 @@ func (c *machineCreator) failsPush(name, forgeName, branch string) {
 
 // refuses makes the check of the entry named refuse with a reason, what it says, and the command that fixes it.
 func (c *machineCreator) refuses(name, reason, detail, remedy string) {
-	c.SetCheck(name, ledger.CreationCheck{Refusal: &ledger.TemplateWriteReport{Outcome: ledger.TemplateOutcomeRefused, Reason: reason, Detail: detail, Remedy: remedy}})
+	c.SetCheck(c.key(name), ledger.CreationCheck{Refusal: &ledger.TemplateWriteReport{Outcome: ledger.TemplateOutcomeRefused, Reason: reason, Detail: detail, Remedy: remedy}})
 }
 
 func (c *machineCreator) Create(ctx context.Context, job ledger.RepositoryCreation) (ledger.TemplateWriteReport, error) {
@@ -148,7 +163,7 @@ func (r *Rig) creationWorld(s ports.Store, entries string, targets []string, mor
 	if err != nil {
 		return nil, err
 	}
-	return &creationWorld{store: s, machine: machine, creator: newMachineCreator(machine), repositories: r.repositories(s), request: request}, nil
+	return &creationWorld{store: s, machine: machine, creator: newMachineCreator(machine, request.ID), repositories: r.repositories(s), request: request}, nil
 }
 
 // run reads what approving the version would register, or registers it, as the member, with the world's creator.
@@ -346,7 +361,7 @@ func checkApprovalCreatesAndRegisters(r *Rig) error {
 
 func checkEachCreationRefusalIsTold(r *Rig) error {
 	s := r.Store()
-	names := []string{"taken", "dup", "revived", "twin-a", "nonempty", "leaky", "foreign", "bare", "signedout", "exists", "owner"}
+	names := []string{"taken", "dup", "revived", "twin-a", "nonempty", "leaky", "foreign", "bare", "signedout", "exists", "owner", "outside", "slow"}
 	entries := ""
 	for _, name := range names {
 		path := "../" + name
@@ -386,6 +401,8 @@ func checkEachCreationRefusalIsTold(r *Rig) error {
 	w.creator.refuses("signedout", ledger.TemplateRefusedGHSignedOut, "Run `gh auth login --hostname github.com` on this machine", "gh auth login --hostname github.com")
 	w.creator.refuses("exists", ledger.TemplateRefusedRemoteExists, "acme/exists already exists on GitHub; clone it to ../exists and write `remote` in place of `create`", "")
 	w.creator.refuses("owner", ledger.TemplateRefusedOwner, "acme is neither the signed-in account nor one of its organizations; the owners available are octo", "")
+	w.creator.refuses("outside", refusedOutsideBound, "/work/outside leads, through a link of a folder above it, to /elsewhere/outside, outside /work", "")
+	w.creator.refuses("slow", refusedGHTimeout, "GitHub did not answer within 30 seconds; read the preview again", "")
 	want := map[string]entryOutcome{
 		"api":       {outcome: ledger.AlreadyRegistered, path: "/work/api"},
 		"taken":     {outcome: ledger.RegistrationRefused, path: "/work/taken", reason: "its name is held by another repository"},
@@ -400,6 +417,8 @@ func checkEachCreationRefusalIsTold(r *Rig) error {
 		"signedout": {outcome: ledger.RegistrationRefused, path: "/work/signedout", reason: "gh auth login --hostname github.com"},
 		"exists":    {outcome: ledger.RegistrationRefused, path: "/work/exists", reason: "already exists on GitHub"},
 		"owner":     {outcome: ledger.RegistrationRefused, path: "/work/owner", reason: "neither the signed-in account"},
+		"outside":   {outcome: ledger.RegistrationRefused, path: "/work/outside", reason: refusedOutsideBound + ": /work/outside leads"},
+		"slow":      {outcome: ledger.RegistrationRefused, path: "/work/slow", reason: refusedGHTimeout + ": GitHub did not answer within 30 seconds"},
 	}
 	preview, err := r.runCreation(w, true)
 	if err != nil {
@@ -411,7 +430,7 @@ func checkEachCreationRefusalIsTold(r *Rig) error {
 	if signedOut, _ := outcomeNamed(preview, "signedout"); signedOut.Creation == nil || signedOut.Creation.Remedy != "gh auth login --hostname github.com" || signedOut.Creation.Owner != "acme" || signedOut.Creation.ForgeName != "signedout" {
 		return Violatedf("the refusal of the signed-out entry carries %+v", signedOut.Creation)
 	}
-	if checked := asked(w.creator.Checked()); !slices.Equal(checked, []string{"twin-a", "nonempty", "signedout", "exists", "owner"}) {
+	if checked := asked(w.creator.Checked()); !slices.Equal(checked, []string{"twin-a", "nonempty", "signedout", "exists", "owner", "outside", "slow"}) {
 		return Violatedf("the creator was asked to check %v, want only the entries no earlier rule refused", checked)
 	}
 	if _, err := r.approve(s, w.request, true, r.member()); err != nil {
@@ -430,7 +449,7 @@ func checkEachCreationRefusalIsTold(r *Rig) error {
 	if types, err := r.creationTypes(s, w.request.ID); err != nil || !slices.Equal(types, []string{"started twin-a", "finished twin-a"}) {
 		return Violatedf("the creation events are %v: %v", types, err)
 	}
-	for _, name := range []string{"taken", "dup", "revived", "twin-b", "nonempty", "leaky", "foreign", "bare", "signedout", "exists", "owner"} {
+	for _, name := range []string{"taken", "dup", "revived", "twin-b", "nonempty", "leaky", "foreign", "bare", "signedout", "exists", "owner", "outside", "slow"} {
 		if found, err := w.repositories.Resolve(r.Ctx, r.Scope, name); err == nil && found.Remote != "git@github.com:other/taken.git" && found.Remote != "git@github.com:acme/dup.git" {
 			return Violatedf("approving registered the refused entry %s as %+v", name, found)
 		}
@@ -588,7 +607,7 @@ func checkCreatorErrorStopsTheRun(r *Rig) error {
 	}
 	w.creator.passes("search", "search", "main")
 	w.creator.passes("site", "site", "main")
-	w.creator.FailCreate("search", errors.New("the worker's machine is gone"))
+	w.creator.failsCreate("search", errors.New("the worker's machine is gone"))
 	if _, err := r.approve(s, w.request, true, r.member()); err != nil {
 		return err
 	}

@@ -10,6 +10,7 @@ import (
 
 	"ropeshift.com/ropeshift/internal/adapters/fake"
 	"ropeshift.com/ropeshift/internal/api"
+	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/control"
 	"ropeshift.com/ropeshift/internal/delivery"
 	"ropeshift.com/ropeshift/internal/ledger"
@@ -23,7 +24,9 @@ import (
 type placingCreator struct {
 	*fake.RepositoryCreator
 	machine *fake.Checkouts
-	urls    map[string]string
+	// approval is the plan approval whose creations the creator answers, which its answers are keyed by.
+	approval string
+	urls     map[string]string
 	// gate runs before each creation does, and fails it when it returns an error.
 	gate func(context.Context, ledger.RepositoryCreation) error
 }
@@ -31,6 +34,9 @@ type placingCreator struct {
 func newPlacingCreator(machine *fake.Checkouts) *placingCreator {
 	return &placingCreator{RepositoryCreator: fake.NewRepositoryCreator(), machine: machine, urls: map[string]string{}}
 }
+
+// key is the key of the creation of the repository named, which the creator answers by.
+func (c *placingCreator) key(name string) string { return ledger.CreationKey(c.approval, name) }
 
 func (c *placingCreator) Create(ctx context.Context, job ledger.RepositoryCreation) (ledger.TemplateWriteReport, error) {
 	if c.gate != nil {
@@ -49,8 +55,8 @@ func (c *placingCreator) Create(ctx context.Context, job ledger.RepositoryCreati
 func (c *placingCreator) passes(name string) {
 	url := "git@github.com:acme/" + name + ".git"
 	c.urls[name] = url
-	c.SetCheck(name, ledger.CreationCheck{URL: url, Login: "octo", Branch: "main"})
-	c.SetReport(name, ledger.TemplateWriteReport{
+	c.SetCheck(c.key(name), ledger.CreationCheck{URL: url, Login: "octo", Branch: "main"})
+	c.SetReport(c.key(name), ledger.TemplateWriteReport{
 		Outcome: ledger.TemplateOutcomeWritten, Commit: "1a2b3c4", Clone: true,
 		Repositories: []ledger.RepositoryReport{{Name: name, Path: ".", Commit: "1a2b3c4", Remote: url, Steps: []ledger.RemoteStep{
 			{Step: ledger.RemoteStepCreate, Outcome: ledger.RemoteStepDone}, {Step: ledger.RemoteStepOrigin, Outcome: ledger.RemoteStepDone}, {Step: ledger.RemoteStepPush, Outcome: ledger.RemoteStepDone},
@@ -61,7 +67,7 @@ func (c *placingCreator) passes(name string) {
 // failsPush makes the creation of the repository named stop at its push.
 func (c *placingCreator) failsPush(name string) {
 	c.passes(name)
-	c.SetReport(name, ledger.TemplateWriteReport{
+	c.SetReport(c.key(name), ledger.TemplateWriteReport{
 		Outcome: ledger.TemplateOutcomeWritten, Commit: "5d6e7f8", Clone: true,
 		Repositories: []ledger.RepositoryReport{{Name: name, Path: ".", Commit: "5d6e7f8", Remote: c.urls[name], Steps: []ledger.RemoteStep{
 			{Step: ledger.RemoteStepCreate, Outcome: ledger.RemoteStepDone}, {Step: ledger.RemoteStepOrigin, Outcome: ledger.RemoteStepDone},
@@ -133,7 +139,6 @@ func aVersionThatCreates(t *testing.T, options apitest.Options, setup func(*plac
 	var creator *placingCreator
 	d, machine := planningMachineWith(t, options, func(machine *fake.Checkouts) ports.RepositoryCreator {
 		creator = newPlacingCreator(machine)
-		setup(creator)
 		return creator
 	})
 	source := fake.NewWorkSource()
@@ -147,6 +152,14 @@ func aVersionThatCreates(t *testing.T, options apitest.Options, setup func(*plac
 	if err != nil || len(plans) != 1 {
 		t.Fatalf("plans %+v: %v", plans, err)
 	}
+	// The creator answers each creation by its key, which names the plan approval, so it is set up once one is raised and
+	// before any read of the plan asks it to check.
+	waiting, err := d.Client.Approvals(t.Context(), authority.ApprovalPending)
+	if err != nil || len(waiting) != 1 {
+		t.Fatalf("approvals %+v: %v", waiting, err)
+	}
+	creator.approval = waiting[0].ID
+	setup(creator)
 	return d, creator, machine, plans[0].ID
 }
 
@@ -157,7 +170,7 @@ func TestGoldenPlanWithACreatedRepository(t *testing.T) {
 	clock := apitest.NewClock()
 	d, creator, _, plan := aVersionThatCreates(t, apitest.Options{Clock: clock.Dialect}, func(creator *placingCreator) {
 		creator.passes("web")
-		creator.SetCheck("docs", ledger.CreationCheck{Refusal: &ledger.TemplateWriteReport{
+		creator.SetCheck(creator.key("docs"), ledger.CreationCheck{Refusal: &ledger.TemplateWriteReport{
 			Outcome: ledger.TemplateOutcomeRefused, Reason: ledger.TemplateRefusedGHSignedOut,
 			Detail: "Run `gh auth login --hostname github.com` on this machine", Remedy: "gh auth login --hostname github.com",
 		}})
