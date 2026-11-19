@@ -99,14 +99,14 @@ func (c *invocation) awaitPractices(client *api.ProjectClient, waiting map[strin
 			entry := waiting[id]
 			switch request.State {
 			case ledger.PracticesExpired:
-				notes = append(notes, plainText(fmt.Sprintf("the check on %s did not report within 30 minutes; a later report still becomes the latest result", request.Worker)))
+				notes = append(notes, practicesLine(fmt.Sprintf("the check on %s did not report within 30 minutes; a later report still becomes the latest result", request.Worker)))
 			case ledger.PracticesReported:
 				view, err := client.Practices(c.ctx, entry.Repository)
 				if err != nil {
 					return nil, c.failure(err)
 				}
 				if len(view.Repositories) == 1 && (view.Repositories[0].Result == nil || view.Repositories[0].Result.Request != id) {
-					notes = append(notes, plainText(fmt.Sprintf("the check on %s reported no result for %s", request.Worker, cmp.Or(entry.Name, entry.Repository))))
+					notes = append(notes, practicesLine(fmt.Sprintf("the check on %s reported no result for %s", request.Worker, cmp.Or(entry.Name, entry.Repository))))
 				}
 			default:
 				continue
@@ -125,27 +125,31 @@ func (c *invocation) awaitPractices(client *api.ProjectClient, waiting map[strin
 	return notes, ExitOK
 }
 
+// practicesLine makes text a repository holds safe to print on a line of its own: a file name or a reason may hold a
+// newline, which would start a line that reads as one the command prints.
+func practicesLine(text string) string { return oneLine(plainText(text)) }
+
 // practicesText is what `practices` prints for one repository: a header line, the open findings by severity with why
 // and fix, the acknowledged findings apart, the practices the check could not settle, and one line naming those met.
 // A repository with no result reads as not checked yet, and reason says why no check was requested of it. Every text
-// the check read from a repository goes through plainText.
+// the check read from a repository goes through practicesLine.
 func practicesText(view api.PracticesView, reason string, now time.Time) string {
-	name := plainText(cmp.Or(view.Name, view.Repository))
+	name := practicesLine(cmp.Or(view.Name, view.Repository))
 	result := view.Result
 	if result == nil {
-		why := plainText(reason)
+		why := practicesLine(reason)
 		switch {
 		case why != "":
 		case view.Request != nil:
-			why = "a check was requested on " + plainText(view.Request.Worker) + " and has not reported"
+			why = "a check was requested on " + practicesLine(view.Request.Worker) + " and has not reported"
 		default:
 			why = "no check has reported"
 		}
 		return fmt.Sprintf("%s not checked yet: %s\n", name, why)
 	}
 	var out strings.Builder
-	fmt.Fprintf(&out, "%s at %s (base %s), checked %s ago on %s\n", name, plainText(practicesCommit(result.Commit)), plainText(result.BaseBranch),
-		api.AgeWords(now.Sub(result.CheckedAt).Milliseconds()), plainText(result.Worker))
+	fmt.Fprintf(&out, "%s at %s (base %s), checked %s ago on %s\n", name, practicesLine(practicesCommit(result.Commit)), practicesLine(result.BaseBranch),
+		api.AgeWords(now.Sub(result.CheckedAt).Milliseconds()), practicesLine(result.Worker))
 	acknowledged := map[string]api.PracticesAcknowledgement{}
 	for _, ack := range view.Acknowledgement {
 		acknowledged[ack.Finding] = ack
@@ -158,30 +162,30 @@ func practicesText(view api.PracticesView, reason string, now time.Time) string 
 			kept = append(kept, finding)
 			continue
 		}
-		fmt.Fprintf(&out, "%s  %s\n", finding.Severity, plainText(finding.ID))
-		fmt.Fprintf(&out, "  %s\n", plainText(finding.Detail))
+		fmt.Fprintf(&out, "%s  %s\n", finding.Severity, practicesLine(finding.ID))
+		fmt.Fprintf(&out, "  %s\n", practicesLine(finding.Detail))
 		if finding.Path != "" {
-			fmt.Fprintf(&out, "  at %s:%d (%s, commit %s)\n", plainText(finding.Path), finding.Line, plainText(finding.Rule), plainText(finding.Commit))
+			fmt.Fprintf(&out, "  at %s:%d (%s, commit %s)\n", practicesLine(finding.Path), finding.Line, practicesLine(finding.Rule), practicesLine(finding.Commit))
 		}
-		fmt.Fprintf(&out, "  Why: %s\n  Fix: %s\n", plainText(finding.Why), plainText(finding.Fix))
+		fmt.Fprintf(&out, "  Why: %s\n  Fix: %s\n", practicesLine(finding.Why), practicesLine(finding.Fix))
 		if finding.Command != "" {
-			fmt.Fprintf(&out, "  Template: %s\n", plainText(finding.Command))
+			fmt.Fprintf(&out, "  Template: %s\n", practicesLine(finding.Command))
 		}
 	}
 	if len(kept) > 0 {
 		out.WriteString("acknowledged:\n")
 		for _, finding := range kept {
 			ack := acknowledged[finding.ID]
-			fmt.Fprintf(&out, "%s  %s: %s (%s, %s)\n", finding.Severity, plainText(finding.ID), plainText(ack.Reason), plainText(ack.Member), ack.AcknowledgedAt.UTC().Format(time.DateOnly))
+			fmt.Fprintf(&out, "%s  %s: %s (%s, %s)\n", finding.Severity, practicesLine(finding.ID), practicesLine(ack.Reason), practicesLine(ack.Member), ack.AcknowledgedAt.UTC().Format(time.DateOnly))
 		}
 	}
 	var met []string
 	for _, status := range result.Practices {
 		switch status.Status {
 		case practices.StatusUnknown:
-			fmt.Fprintf(&out, "unknown: %s: %s\n", status.ID, plainText(status.Reason))
+			fmt.Fprintf(&out, "unknown: %s: %s\n", status.ID, practicesLine(status.Reason))
 		case practices.StatusNotApplicable:
-			fmt.Fprintf(&out, "not applicable: %s: %s\n", status.ID, plainText(status.Reason))
+			fmt.Fprintf(&out, "not applicable: %s: %s\n", status.ID, practicesLine(status.Reason))
 		case practices.StatusMet:
 			met = append(met, string(status.ID))
 		}

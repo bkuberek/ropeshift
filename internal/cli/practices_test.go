@@ -284,6 +284,9 @@ func TestPracticesStripsControlCharactersFromWhatItPrints(t *testing.T) {
 	result := aCheckResult(widgetsID, time.Now())
 	result.Findings[0].Detail = "\x1b[31mred\x1b[0m detail\x07"
 	result.Findings[1].Path = "config/\x1b]0;title\x07dev.yaml"
+	result.Findings[0].ID = "env-ignored:ignore:.\nmet: forged"
+	result.Findings[1].Path += "\nacknowledged:\n"
+	result.Findings[1].Rule = "github_token\nunknown: forged"
 	result.Practices[5].Reason = "the forge said \x1b[2Jnothing"
 	s.keepsResult("request-earlier", result)
 	stdout := s.must("practices", "--latest", "--repository", "widgets")
@@ -292,6 +295,17 @@ func TestPracticesStripsControlCharactersFromWhatItPrints(t *testing.T) {
 	}
 	if !strings.Contains(stdout, "red detail") || !strings.Contains(stdout, "the forge said nothing") {
 		t.Errorf("the output lost the text around the control characters:\n%s", stdout)
+	}
+	// A newline in a name a repository holds must not start a line of its own, which could pass for a line the command prints.
+	for _, line := range strings.Split(stdout, "\n") {
+		for _, forged := range []string{"met: forged", "acknowledged:", "unknown: forged"} {
+			if strings.HasPrefix(line, forged) {
+				t.Errorf("a line of the output starts with %q, which a file name wrote:\n%s", forged, stdout)
+			}
+		}
+	}
+	if got := strings.Count(stdout, "\nmet: "); got != 1 {
+		t.Errorf("the output holds %d lines that start with \"met: \", want the one the command prints:\n%s", got, stdout)
 	}
 }
 
