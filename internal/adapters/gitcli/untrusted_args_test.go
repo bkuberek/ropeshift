@@ -1,6 +1,7 @@
 package gitcli_test
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -37,5 +38,20 @@ func TestDefaultTipNamesTheCommandThatRecordsTheRemoteHead(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "no HEAD") {
 		t.Errorf("the error %q no longer says the remote records no HEAD", err)
+	}
+}
+
+// A commit lookup puts `--end-of-options` before the ref, so a name that reads as an option is never one.
+func TestCommitLooksARefUpAfterTheEndOfOptions(t *testing.T) {
+	repo := gittest.New(t)
+	repo.Commit("README.txt", "one\n")
+	ran := gittest.RecordGit(t)
+	git := gitcli.Git{Dir: repo.Dir, Env: repo.Env()}
+	if _, err := git.Commit(t.Context(), "--output=owned"); !errors.Is(err, gitcli.ErrNoRevision) {
+		t.Fatalf("a ref named like an option gave %v, want ErrNoRevision", err)
+	}
+	want := []string{"rev-parse --verify --quiet --end-of-options --output=owned^{commit}"}
+	if got := ran("rev-parse"); strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("git ran %q, want %q", got, want)
 	}
 }

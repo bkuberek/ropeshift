@@ -215,9 +215,10 @@ func (g Git) Text(ctx context.Context, args ...string) (string, error) {
 	return strings.TrimRight(string(out), "\n"), nil
 }
 
-// Commit resolves a ref to its commit. A ref that does not exist is ErrNoRevision.
+// Commit resolves a ref to its commit. A ref that does not exist is ErrNoRevision. The ref follows
+// `--end-of-options`, so a name that reads as an option is never one.
 func (g Git) Commit(ctx context.Context, ref string) (string, error) {
-	cmd := []string{"rev-parse", "--verify", "--quiet", ref + "^{commit}"}
+	cmd := []string{"rev-parse", "--verify", "--quiet", "--end-of-options", ref + "^{commit}"}
 	out, err := g.Text(ctx, cmd...)
 	if err != nil {
 		return "", fmt.Errorf("%w: %s", ErrNoRevision, ref)
