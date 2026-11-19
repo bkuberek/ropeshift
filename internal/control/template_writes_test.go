@@ -90,7 +90,7 @@ func (r *templateRig) inserted(record ledger.TemplateWriteRecord) {
 }
 
 // secondWorker registers another worker on a protocol and opens its session.
-func (r *templateRig) secondWorker(protocol int) ledger.WorkerAuth {
+func (r *planeRig) secondWorker(protocol int) ledger.WorkerAuth {
 	r.t.Helper()
 	token, err := r.plane.CreateJoinToken(r.t.Context(), projectMember)
 	if err != nil {

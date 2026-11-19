@@ -199,6 +199,11 @@ func (l *HTTP) AssistantEntry(ctx context.Context, request ledger.AssistantEntry
 	return domainError(l.as(request.Auth).AssistantEntry(ctx, request.Auth.WorkerID, request))
 }
 
+// ReportPracticesCheck says what this worker did with a request to run the practices check.
+func (l *HTTP) ReportPracticesCheck(ctx context.Context, report ledger.PracticesReport) error {
+	return domainError(l.as(report.Auth).ReportPracticesCheck(ctx, report.Auth.WorkerID, report))
+}
+
 // ReportForgeAccount says what this worker's forge CLI can do for a member.
 func (l *HTTP) ReportForgeAccount(ctx context.Context, report ledger.ForgeAccountReport) error {
 	return domainError(l.as(report.Auth).ReportForgeAccount(ctx, report.Auth.WorkerID, report))

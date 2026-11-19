@@ -6,8 +6,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
-	"unicode/utf8"
 
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/ports"
@@ -97,24 +95,19 @@ func unsettledUnknown(facts practices.ForgeFacts, why string) practices.ForgeFac
 	if !facts.Protected && facts.ProtectedUnknown == "" {
 		facts.ProtectedUnknown = why
 	}
-	if facts.ReviewCount == 0 && facts.ReviewUnknown == "" {
+	if facts.ReviewCount <= 0 && facts.ReviewUnknown == "" {
 		facts.ReviewUnknown = why
 	}
 	return facts
 }
 
-// maxReason bounds the text a failed read puts in a result.
-const maxReason = 2000
+// MaxReason bounds, in bytes, the text a failed read puts in a result or a report.
+const MaxReason = practices.MaxText
 
-// reasonOf writes a prefix and an error's text on one line, cut at maxReason bytes on a rune boundary.
+// Clip writes text on one line, cut at MaxReason bytes on a rune boundary.
+func Clip(text string) string { return practices.Clip(text) }
+
+// reasonOf writes a prefix and an error's text on one line, cut at MaxReason bytes on a rune boundary.
 func reasonOf(prefix string, err error) string {
-	text := prefix + strings.Join(strings.Fields(err.Error()), " ")
-	if len(text) > maxReason {
-		cut := maxReason
-		for cut > 0 && !utf8.RuneStart(text[cut]) {
-			cut--
-		}
-		text = text[:cut]
-	}
-	return text
+	return Clip(prefix + err.Error())
 }

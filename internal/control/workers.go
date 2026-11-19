@@ -559,9 +559,9 @@ func (w *Workers) Desired(ctx context.Context, request ledger.DesiredRequest) (l
 }
 
 // desiredIn adds what one project asks of a worker on a protocol: the leases it holds there, the worktrees to
-// remove, the effects a person decided, what it is asked of a forge, and the woken work it may claim. It offers
-// each part as a worker on that protocol reads it, so the control plane and the single-project link, which both
-// read through it, never offer one worker two things.
+// remove, the effects a person decided, what it is asked of a forge, the woken work it may claim, and the practices
+// checks it is asked to run. It offers each part as a worker on that protocol reads it, so the control plane and the
+// single-project link, which both read through it, never offer one worker two things.
 func desiredIn(tx ports.ReadTx, worker string, protocol int, state *ledger.DesiredState) error {
 	held, err := tx.WorkOrders().HeldBy(worker)
 	if err != nil {
@@ -592,6 +592,9 @@ func desiredIn(tx ports.ReadTx, worker string, protocol int, state *ledger.Desir
 		return err
 	}
 	state.Woken = append(state.Woken, woken...)
+	if err := desiredPractices(tx, worker, protocol, state); err != nil {
+		return err
+	}
 	if !runsAssistants(protocol) {
 		return nil
 	}

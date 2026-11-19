@@ -606,3 +606,24 @@ func TestSnapshotAnswersAnUnsafeProbeAsNotIgnored(t *testing.T) {
 		})
 	}
 }
+
+// An error from the temporary repository the ignore rules are read in names none of its paths: the folder that holds
+// it, or a file in it, is a path of the worker's machine that no report of a failed check may carry.
+func TestSnapshotErrorsNameNoPathOfTheTemporaryRepository(t *testing.T) {
+	repo := gittest.New(t)
+	repo.Commit(".gitignore", ".env\n")
+	// A temporary folder that is a file makes the repository impossible to make, and the error says where.
+	scratch := filepath.Join(t.TempDir(), "not-a-folder")
+	writeFile(t, scratch, "x")
+	t.Setenv("TMPDIR", scratch)
+	_, err := practicegit.Snapshots{Env: repo.Env()}.Snapshot(t.Context(), repo.Dir, "main")
+	if err == nil {
+		t.Fatal("a snapshot with nowhere to make its temporary repository succeeded")
+	}
+	if strings.Contains(err.Error(), scratch) || strings.Contains(err.Error(), filepath.Dir(scratch)) {
+		t.Errorf("the error names the temporary folder: %v", err)
+	}
+	if !strings.Contains(err.Error(), "<temp>") {
+		t.Errorf("the error is %q, want the folder replaced by a placeholder", err)
+	}
+}

@@ -406,6 +406,10 @@ func (p *Plane) Desired(ctx context.Context, request ledger.DesiredRequest) (led
 			forget.Project = name
 			state.Forget = append(state.Forget, forget)
 		}
+		for _, check := range part.PracticesChecks {
+			check.Project = name
+			state.PracticesChecks = append(state.PracticesChecks, check)
+		}
 	}
 	return state, nil
 }

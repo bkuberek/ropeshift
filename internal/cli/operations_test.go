@@ -36,6 +36,7 @@ var workerPlane = map[string]string{
 	"POST /v1/workers/{id}/assistant-entries":        "a worker's credential",
 	"POST /v1/workers/{id}/template-reports":         "a worker's credential",
 	"POST /v1/workers/{id}/forge-account-reports":    "a worker's credential",
+	"POST /v1/workers/{id}/practices-reports":        "a worker's credential",
 }
 
 // operations names the command of every other route, so a new route fails here until it has one.

@@ -38,6 +38,10 @@ type WorkerLink struct {
 	FailUpload atomic.Bool
 	// FailTemplateReport refuses every report of a template write, as a control plane that is away would.
 	FailTemplateReport atomic.Bool
+	// FailPracticesReport refuses every report of a practices check, as a control plane that is away would.
+	FailPracticesReport atomic.Bool
+	// PracticesReports counts the reports of a practices check that reached the control plane.
+	PracticesReports atomic.Int64
 	// Hints, once set, makes every heartbeat's answer carry the CI hints after the beat's mark, as the control
 	// plane's board gives them.
 	Hints atomic.Pointer[func(after int64) ([]ledger.CIHint, int64)]
@@ -75,6 +79,15 @@ func (l *WorkerLink) ReportTemplateWrite(ctx context.Context, report ledger.Temp
 		return errPlaneAway
 	}
 	return l.Plane.ReportTemplateWrite(ctx, report)
+}
+
+// ReportPracticesCheck calls the plane, unless it is away.
+func (l *WorkerLink) ReportPracticesCheck(ctx context.Context, report ledger.PracticesReport) error {
+	if l.FailPracticesReport.Load() {
+		return errPlaneAway
+	}
+	l.PracticesReports.Add(1)
+	return l.Plane.ReportPracticesCheck(ctx, report)
 }
 
 // ReportForgeAccount calls the plane, unless it is away.

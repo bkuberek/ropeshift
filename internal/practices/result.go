@@ -30,6 +30,9 @@ type Result struct {
 	Practices []PracticeStatus `json:"practices"`
 	// Findings are sorted by severity, then practice table order, then ID.
 	Findings []Finding `json:"findings"`
+	// Truncated says secret findings beyond MaxSecretFindings were left out, so a result with a flood of matches never
+	// outgrows the route it travels. The `secrets` practice is a finding all the same.
+	Truncated bool `json:"truncated,omitempty"`
 }
 
 // sortFindings orders findings by severity, then practice table order, then ID.

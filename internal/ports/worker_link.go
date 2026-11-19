@@ -54,4 +54,8 @@ type WorkerLink interface {
 	// ReportForgeAccount says what this worker's forge CLI can do for a member, in answer to a forge account
 	// read. The first report of a read is recorded, and a later one is accepted and changes nothing.
 	ReportForgeAccount(ctx context.Context, report ledger.ForgeAccountReport) error
+	// ReportPracticesCheck says what this worker did with a request to run the practices check: the result it came
+	// to, or why it could not run. The first report of a request is recorded, and a later one is accepted and
+	// changes nothing.
+	ReportPracticesCheck(ctx context.Context, report ledger.PracticesReport) error
 }

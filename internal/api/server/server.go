@@ -311,7 +311,8 @@ func matching(config Config) func(ports.Store) ports.Matcher {
 }
 
 func newHandler(config Config) *handler {
-	repositories := control.NewRepositories(config.Store).Rooted(config.Profiles)
+	practices := control.NewPractices(config.Store).Placing(config.AssistantHosts, config.HeartbeatMs, config.LocalWorker)
+	repositories := control.NewRepositories(config.Store).Rooted(config.Profiles).Practicing(practices).Warning(config.Warn)
 	return &handler{
 		Config:        config,
 		adoptions:     control.NewAdoptions(repositories),

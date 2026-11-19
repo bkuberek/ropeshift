@@ -233,6 +233,8 @@ type ReadTx interface {
 	Repositories() RepositoryReader
 	// Forge reads forge requests, pull requests, and each worker's forge health.
 	Forge() ForgeReader
+	// Practices reads practices check requests, each repository's latest result, and where its last secret scan ended.
+	Practices() PracticesReader
 	// Search returns lexical candidates, best first.
 	Search(query SearchQuery) ([]SearchHit, error)
 	// Deliveries reads the delivery read models the fold keeps (ADR-0026).
@@ -312,6 +314,9 @@ type WriteTx interface {
 	Recoveries() RecoveryWriter
 	// Forge reads and writes forge requests, pull requests, and each worker's forge health.
 	Forge() ForgeWriter
+	// Practices reads and writes practices check requests, each repository's latest result, and where its last
+	// secret scan ended.
+	Practices() PracticesWriter
 	// Search returns lexical candidates, best first.
 	Search(query SearchQuery) ([]SearchHit, error)
 	// Index keeps one record's text for search, replacing what it held.
@@ -326,6 +331,41 @@ type WriteTx interface {
 	Pool() PoolReader
 	// CI keeps what members did about CI that waits for them, and the findings of its classification.
 	CI() CIAttentionWriter
+}
+
+// PracticesReader reads what the practices check records (FR-PRAC-1): the requests that a worker run it, the latest
+// result of each repository, and the commit each repository's last completed secret scan read.
+type PracticesReader interface {
+	// Request returns one request, or ErrNotFound.
+	Request(id string) (ledger.PracticesRequest, error)
+	// Open returns a repository's request that is offered and has not expired at now, or ErrNotFound.
+	Open(repository string, now int64) (ledger.PracticesRequest, error)
+	// Offered lists the requests offered to a worker, oldest first, with those past their expiry that no tick has
+	// stored as expired yet.
+	Offered(worker string) ([]ledger.PracticesRequest, error)
+	// Result returns a repository's latest result, or ErrNotFound.
+	Result(repository string) (ledger.PracticesRecord, error)
+	// Results lists the latest result of every repository, by repository.
+	Results() ([]ledger.PracticesRecord, error)
+	// Scan returns where a repository's last completed secret scan ended, and the zero value when none completed.
+	Scan(repository string) (ledger.PracticesScan, error)
+}
+
+// PracticesWriter writes what the practices check records.
+type PracticesWriter interface {
+	PracticesReader
+	// Insert adds a request, offered.
+	Insert(ledger.PracticesRequest) error
+	// Settle records the first report of a request, whether the request is offered or was stored as expired, and
+	// reports whether it was the first. A later report of the same request changes nothing.
+	Settle(id string, reportedAt int64) (bool, error)
+	// Expire stores as expired each offered request whose expiry has passed at now, and returns them as they were
+	// offered, oldest first.
+	Expire(now int64) ([]ledger.PracticesRequest, error)
+	// SaveResult keeps a repository's latest result in place of the one it held.
+	SaveResult(ledger.PracticesRecord) error
+	// SaveScan sets where a repository's last completed secret scan ended, and a scan with no tip says none did.
+	SaveScan(repository string, scan ledger.PracticesScan) error
 }
 
 // ForgeReader reads what the control plane asked workers to do on a forge, the pull request each work order
