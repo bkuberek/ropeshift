@@ -124,3 +124,69 @@ func TestForgetRemovedKeepsTheCheckoutOfARepositoryRegisteredAgainFromTheSameClo
 		t.Errorf("after the repository was registered again the worker keeps %v and forgot %v: %v", held, forgot, err)
 	}
 }
+
+// keepsAnotherCloneAfterTheDrop registers a removed repository again from another clone just after the sync drops
+// its checkout, and keeps that clone.
+type keepsAnotherCloneAfterTheDrop struct {
+	*fake.Checkouts
+	store ports.Store
+	other string
+}
+
+func (c keepsAnotherCloneAfterTheDrop) ForgetAt(ctx context.Context, project ledger.WorkspaceID, repository, path string) (bool, error) {
+	dropped, err := c.Checkouts.ForgetAt(ctx, project, repository, path)
+	if err != nil || !dropped {
+		return dropped, err
+	}
+	err = c.store.Write(ctx, project, "test.register", func(tx ports.WriteTx) error {
+		if err := tx.Repositories().Restore(repository); err != nil {
+			return err
+		}
+		_, err := tx.Append(ledger.EventDraft{
+			Type: ledger.EventRepositoryDetected, Actor: ledger.Actor{Kind: ledger.ActorMember, ID: "member-1"},
+			Subject: ledger.Subject{Kind: ledger.SubjectRepository, ID: repository}, Data: []byte("{}"),
+		})
+		return err
+	})
+	if err != nil {
+		return false, err
+	}
+	return true, c.Checkouts.Keep(ctx, project, repository, c.other)
+}
+
+// A repository registered again from another clone, whose checkout is kept just after the sync drops the old one,
+// keeps the new checkout: the sync keeps its own path again only when nothing is kept.
+func TestForgetRemovedKeepsTheCheckoutRegisteredFromAnotherCloneAfterTheDrop(t *testing.T) {
+	ctx := t.Context()
+	store, err := fake.NewStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	if err := store.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	member := ledger.Actor{Kind: ledger.ActorMember, ID: "member-1"}
+	if _, err := store.CreateWorkspace(ctx, ledger.Workspace{ID: "w"}, member); err != nil {
+		t.Fatal(err)
+	}
+	repositories := control.NewRepositories(store)
+	if _, err := repositories.Detect(ctx, "w", control.DetectedRepository{ID: "repo-design", DefaultBranch: "main", Directory: "design"}, member); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repositories.Remove(ctx, "w", "repo-design", nil, member); err != nil {
+		t.Fatal(err)
+	}
+	kept := fake.NewCheckouts()
+	if err := kept.Keep(ctx, "w", "repo-design", "/work/old-design"); err != nil {
+		t.Fatal(err)
+	}
+	forgot, err := repositories.ForgetRemoved(ctx, "w", keepsAnotherCloneAfterTheDrop{Checkouts: kept, store: store, other: "/work/new-design"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	held, err := kept.Of(ctx, "w")
+	if err != nil || held["repo-design"] != "/work/new-design" || len(forgot) != 0 {
+		t.Errorf("after the sync the worker keeps %v and forgot %v: %v", held, forgot, err)
+	}
+}

@@ -283,25 +283,30 @@ func restoreIn(repositories ports.RepositoryWriter, found DetectedRepository) (d
 
 // keepCheckout records a clone as this worker's checkout of its repository, unless the worker keeps
 // another that still holds that repository, because a worker keeps one checkout of each (ADR-0021). It
-// says the path kept, and a dry run the path it would keep.
+// says the path kept, and a dry run the path it would keep. A checkout it leaves is recorded again, which changes
+// nothing while it is kept, because a sync that read it before and dropped it since has not left the repository
+// with none.
 func keepCheckout(ctx context.Context, kept ports.Checkouts, scope ledger.WorkspaceID, held map[string]string, clone ports.Clone, id string, dryRun bool) (string, error) {
+	keep := func(path string) (string, error) {
+		if !dryRun {
+			if err := kept.Keep(ctx, scope, id, path); err != nil {
+				return "", err
+			}
+			held[id] = path
+		}
+		return path, nil
+	}
 	if path, ok := held[id]; ok && path != clone.Path {
 		if ports.SamePath(ctx, kept, path, clone.Path) {
-			return path, nil
+			return keep(path)
 		}
 		found, _, err := kept.Find(ctx, []string{path}, 1)
 		if err != nil {
 			return "", err
 		}
 		if slices.ContainsFunc(found, func(c ports.Clone) bool { return ports.SamePath(ctx, kept, c.Path, path) && holdsRoot(c, id) }) {
-			return path, nil
+			return keep(path)
 		}
 	}
-	if !dryRun {
-		if err := kept.Keep(ctx, scope, id, clone.Path); err != nil {
-			return "", err
-		}
-		held[id] = clone.Path
-	}
-	return clone.Path, nil
+	return keep(clone.Path)
 }

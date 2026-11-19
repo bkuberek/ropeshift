@@ -417,7 +417,7 @@ func (r *Repositories) Remove(ctx context.Context, scope ledger.WorkspaceID, id 
 // lane, read by no intake, and listed in no report. Each record is read again just before its checkout is dropped,
 // and the drop compares the path it read, so a repository registered again from another clone in the meantime
 // keeps that checkout. A repository registered again from the same clone while its checkout is dropped has the
-// checkout kept again, from a read of its record after the drop.
+// checkout kept again, from a read of its record after the drop, unless the registration kept one since.
 func (r *Repositories) ForgetRemoved(ctx context.Context, scope ledger.WorkspaceID, kept ports.Checkouts) ([]string, error) {
 	held, err := kept.Of(ctx, scope)
 	if err != nil || len(held) == 0 {
@@ -456,7 +456,7 @@ func (r *Repositories) ForgetRemoved(ctx context.Context, scope ledger.Workspace
 			return forgot, err
 		}
 		if !gone {
-			if err := kept.Keep(ctx, scope, id, held[id]); err != nil {
+			if err := keepIfNone(ctx, scope, kept, id, held[id]); err != nil {
 				return forgot, err
 			}
 			continue
@@ -464,6 +464,19 @@ func (r *Repositories) ForgetRemoved(ctx context.Context, scope ledger.Workspace
 		forgot = append(forgot, id)
 	}
 	return forgot, nil
+}
+
+// keepIfNone keeps path as the worker's checkout of a repository registered again while its checkout was dropped,
+// unless the registration has kept one since.
+func keepIfNone(ctx context.Context, scope ledger.WorkspaceID, kept ports.Checkouts, id, path string) error {
+	now, err := kept.Of(ctx, scope)
+	if err != nil {
+		return err
+	}
+	if _, has := now[id]; has {
+		return nil
+	}
+	return kept.Keep(ctx, scope, id, path)
 }
 
 // removeRepository takes a repository out of its project in a transaction, once no open work order targets it:
