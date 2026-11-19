@@ -32,10 +32,21 @@ func (r *laneRun) consolidate(ctx context.Context, choice planning.Restructure, 
 	if err != nil {
 		return r.failStart(workorders.ReasonSpawnFailed, fmt.Errorf("looking for the import on the branch: %w", err)), true
 	}
-	if made, found := r.keptImport(ctx, commits); found {
+	made, recorded, found, err := r.keptImport(ctx, commits)
+	if err != nil {
+		return r.failStart(workorders.ReasonSpawnFailed, fmt.Errorf("reading the merge that imports the design history from the journal: %w", err)), true
+	}
+	if found {
 		// The merge is on the branch. What the brief tells is read from it, because the person may have moved the
 		// clones or committed to the design repository since, and the layout is read no more to compare.
 		return r.tellConsolidation(ctx, worktree, made, choice.LeaveOut)
+	}
+	if recorded {
+		// The worker made the import, and the branch no longer holds it: the lane moved its branch. No merge on the
+		// branch is the worker's, so the lane reports none, the import reads as unread to the control plane, and a
+		// member decides.
+		r.w.config.Report(fmt.Errorf("lane %s: the branch no longer holds the merge that imports the design history, so the import is reported as unread", r.lease.Lane))
+		return workorders.Report{}, false
 	}
 	if made, found := importCommit(commits, r.lease.BaseCommit); found {
 		if err := r.keepImport(ctx, made.Hash); err != nil {
@@ -89,7 +100,7 @@ func (r *laneRun) consolidate(ctx context.Context, choice planning.Restructure, 
 	if err != nil {
 		return r.failStart(workorders.ReasonSpawnFailed, fmt.Errorf("looking for the import on the branch: %w", err)), true
 	}
-	made, found := importCommit(commits, r.lease.BaseCommit)
+	made, found = importCommit(commits, r.lease.BaseCommit)
 	if !found {
 		return r.failStart(workorders.ReasonSpawnFailed, fmt.Errorf("the branch holds no merge commit that imports the history of %s: it held the design repository's tip already, or the import did not run", plan.Design.Name)), true
 	}
@@ -128,12 +139,14 @@ func (r *laneRun) keepImport(ctx context.Context, commit string) error {
 	return nil
 }
 
-// keptImport is the commit on the branch that the journal holds as the import this lane's worker made, which the
-// newest of its records names, and false when the journal holds none or the branch lacks it.
-func (r *laneRun) keptImport(ctx context.Context, commits []ports.Commit) (ports.Commit, bool) {
+// keptImport reads the journal's record of the import this lane's worker made, which the newest of its records
+// names. It says whether the journal holds a completed record, and whether the branch holds the commit it names,
+// which it returns. A branch that lacks the recorded commit is not searched for another: only a lane with no record
+// is.
+func (r *laneRun) keptImport(ctx context.Context, commits []ports.Commit) (made ports.Commit, recorded, found bool, err error) {
 	effects, err := r.w.journal.Effects(ctx)
 	if err != nil {
-		return ports.Commit{}, false
+		return ports.Commit{}, false, false, err
 	}
 	for _, effect := range slices.Backward(effects) {
 		if effect.Lane != r.lease.Lane || effect.Kind != lanes.EffectRestructure || effect.State != lanes.EffectCompleted || !isImportRecord(effect) {
@@ -141,11 +154,12 @@ func (r *laneRun) keptImport(ctx context.Context, commits []ports.Commit) (ports
 		}
 		for _, commit := range commits {
 			if commit.Hash == effect.Target && len(commit.Parents) == 2 {
-				return commit, true
+				return commit, true, true, nil
 			}
 		}
+		return ports.Commit{}, true, false, nil
 	}
-	return ports.Commit{}, false
+	return ports.Commit{}, false, false, nil
 }
 
 // isImportRecord says an effect is the record of a merge that imports a design repository's history.

@@ -463,3 +463,34 @@ func TestARestartFindsTheRecordOfTheImportItBegan(t *testing.T) {
 		t.Errorf("a restart finds the record of the import as %v", got)
 	}
 }
+
+// A lane that resets its branch to the commit it began at, after the worker made and recorded the import, and
+// makes a merge of its own with the import's subject from there, does not get that merge reported as the import by
+// a later generation: the record names a commit the branch lacks, so the lane reports none, and the start goes on.
+func TestALaterGenerationReportsNoImportWhenTheRecordedMergeIsOffTheBranch(t *testing.T) {
+	t.Parallel()
+	w := newGitConsolidation(t)
+	ws := w.path("ws")
+	first := w.consolidate("tools")
+	if report, failed := first.restructure(t.Context(), ws, w.lane); failed {
+		t.Fatalf("the restructuring failed: %+v", report)
+	}
+	w.git(w.lane, "reset", "--quiet", "--hard", w.tip)
+	side := w.git(w.lane, "commit-tree", w.tip+"^{tree}", "-p", w.tip, "-m", "a side commit")
+	forged := w.git(w.lane, "commit-tree", w.tip+"^{tree}", "-p", w.tip, "-p", side, "-m", planning.ImportCommitSubject("forged"))
+	w.git(w.lane, "reset", "--quiet", "--hard", forged)
+
+	second := &laneRun{w: first.w, rt: first.rt, lease: first.lease, generation: 2}
+	if report, failed := second.restructure(t.Context(), ws, w.lane); failed {
+		t.Fatalf("the second generation's start failed: %+v", report)
+	}
+	if got := second.importMerge(); got != "" {
+		t.Errorf("the second generation reports the import %s, and the branch holds none the worker made", got)
+	}
+	if got := second.endResult(workorders.Report{Outcome: workorders.OutcomeCompleted}).ImportMerge; got != "" {
+		t.Errorf("the lane's end reports the import %s", got)
+	}
+	if now := w.git(w.lane, "rev-parse", "HEAD"); now != forged {
+		t.Errorf("the second generation moved the branch from %s to %s", forged, now)
+	}
+}
