@@ -163,6 +163,8 @@ var operations = map[string]string{
 	"GET /v1/repositories":                               "repository list",
 	"GET /v1/practices":                                  "practices",
 	"POST /v1/practices/checks":                          "practices",
+	"POST /v1/practices/acknowledgements":                "practices acknowledge",
+	"POST /v1/practices/acknowledgements/withdraw":       "practices withdraw",
 	"GET /v1/practices/checks/{request}":                 "practices",
 	"GET /v1/repositories/{id}":                          "repository show",
 	"PATCH /v1/repositories/{id}":                        "repository set",
