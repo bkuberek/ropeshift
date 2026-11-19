@@ -571,3 +571,32 @@ func TestRunningThePracticesCheckIsOperational(t *testing.T) {
 		t.Errorf("practices.check reads %+v, want operational with no action", op)
 	}
 }
+
+// An acknowledgement changes what members see as open, so acknowledging a finding and withdrawing the acknowledgement
+// are consent operations that no delegate policy exempts, each behind its own action: a delegate's call is a card a
+// member confirms, and no lane, orchestrator, worker, or tick holds either action.
+func TestAcknowledgingAPracticesFindingIsConsentThatNoPolicyExempts(t *testing.T) {
+	for _, tc := range []struct {
+		id, label string
+		action    authority.Action
+	}{
+		{authority.OpPracticesAcknowledge, "Acknowledge a practices finding", authority.ActionAcknowledgePractices},
+		{authority.OpPracticesWithdraw, "Withdraw a finding's acknowledgement", authority.ActionWithdrawPractices},
+	} {
+		op, ok := authority.OperationOf(tc.id)
+		if !ok {
+			t.Fatalf("the class table lacks %s", tc.id)
+		}
+		if op.Label != tc.label || op.Class != authority.ClassConsent || op.Exemptable || op.NeverReason == "" || !slices.Equal(op.Actions, []authority.Action{tc.action}) {
+			t.Errorf("%s reads %+v, want consent that no policy exempts, behind %s", tc.id, op, tc.action)
+		}
+		if !authority.Allowed(ledger.Actor{Kind: ledger.ActorMember, ID: "m"}, tc.action) {
+			t.Errorf("a member may not %s", tc.action)
+		}
+		for _, kind := range []ledger.ActorKind{ledger.ActorOrchestrator, ledger.ActorLane, ledger.ActorWorker, ledger.ActorSystem} {
+			if authority.Allowed(ledger.Actor{Kind: kind, ID: "x"}, tc.action) {
+				t.Errorf("a %s may %s", kind, tc.action)
+			}
+		}
+	}
+}
