@@ -1891,7 +1891,7 @@ func createdEntry(name string) string {
 
 // plannedReason is the reason an entry with create reads as planned.
 func plannedReason(name string) string {
-	return "no work order of this version targets " + name + ", so approving creates nothing; the approval of a version that gives it work creates it"
+	return "no work order of this version targets " + name
 }
 
 // entryOutcome is what a check expects of one entry of a manifest: its outcome, where its path leads, and a

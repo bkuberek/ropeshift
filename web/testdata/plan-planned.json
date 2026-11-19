@@ -127,7 +127,7 @@
           "manifest_path": "../web",
           "path": "",
           "outcome": "planned",
-          "reason": "no work order of this version targets web, so approving creates nothing; the approval of a version that gives it work creates it"
+          "reason": "no work order of this version targets web"
         }
       ]
     },

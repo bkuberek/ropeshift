@@ -559,7 +559,7 @@ describe("the repositories a version's manifest lists", () => {
     expect(web.textContent).toContain("Planned");
     expect(web.textContent).toContain("Path ../web");
     expect(web.textContent).not.toContain("leads to");
-    expect(web.textContent).toContain("no work order of this version targets web, so approving creates nothing");
+    expect(within(web).getByText("no work order of this version targets web")).toBeTruthy();
     expect(within(panel).getByRole("listitem", { name: "billing" }).textContent).toContain("Path ../billing leads to /work/billing");
   });
 

@@ -478,8 +478,7 @@ func (r *Repositories) registerEntry(ctx context.Context, scope ledger.Workspace
 		return refused(at, staysRemoved(record)), nil
 	}
 	if run.planned(entry) {
-		return Added{Outcome: ledger.Planned, Reason: fmt.Sprintf(
-			"no work order of this version targets %s, so approving creates nothing; the approval of a version that gives it work creates it", entry.Name)}, nil
+		return Added{Outcome: ledger.Planned, Reason: fmt.Sprintf("no work order of this version targets %s", entry.Name)}, nil
 	}
 	if dir.root == "" {
 		return refused(at, run.why), nil

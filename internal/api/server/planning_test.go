@@ -178,7 +178,7 @@ func wantPlannedPreview(t *testing.T, view api.PlanView) {
 	want := map[string]api.RepositoryAdded{
 		"billing": {Name: "billing", ManifestPath: "../billing", Path: "/work/billing", Remote: manifestEntries[0].Remote, Outcome: ledger.Registered},
 		"web": {Name: "web", ManifestPath: "../web", Outcome: ledger.Planned,
-			Reason: "no work order of this version targets web, so approving creates nothing; the approval of a version that gives it work creates it"},
+			Reason: "no work order of this version targets web"},
 	}
 	for _, got := range view.Approval.Registration.Repositories {
 		expected := want[got.Name]
