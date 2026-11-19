@@ -89,6 +89,16 @@ func stateOf(t *testing.T, w *gitWorkspace, clone string) string {
 	return hex.EncodeToString(sum.Sum(nil))
 }
 
+// laneHolds says the lane's top folder has an entry named exactly name, in that case.
+func (w *gitWorkspace) laneHolds(name string) bool {
+	w.t.Helper()
+	entries, err := os.ReadDir(w.lane)
+	if err != nil {
+		w.t.Fatal(err)
+	}
+	return slices.ContainsFunc(entries, func(entry os.DirEntry) bool { return entry.Name() == name })
+}
+
 func (w *gitWorkspace) readLane(name string) string {
 	w.t.Helper()
 	raw, err := os.ReadFile(filepath.Join(w.lane, name))
@@ -350,9 +360,9 @@ func TestAGitConsolidationThatWritesTheInstructionsTellsTheBriefTheWorkerWroteTh
 			if told == nil || told.Consolidated == nil {
 				t.Fatalf("the brief is told %+v", told)
 			}
-			_, agents := os.Stat(filepath.Join(w.lane, "AGENTS.md"))
-			if got := slices.Contains(told.Files, "AGENTS.md"); got != tt.written || (agents == nil) != tt.written {
-				t.Errorf("the brief is told the worker wrote AGENTS.md: %v, and the file is there: %v, want %v", got, agents == nil, tt.written)
+			there := w.laneHolds("AGENTS.md")
+			if got := slices.Contains(told.Files, "AGENTS.md"); got != tt.written || there != tt.written {
+				t.Errorf("the brief is told the worker wrote AGENTS.md: %v, and the file is there: %v, want %v", got, there, tt.written)
 			}
 			run.startingInstructions(t.Context(), w.path("ws"))
 			if run.instructionsText() != "" {

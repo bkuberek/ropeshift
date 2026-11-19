@@ -292,7 +292,7 @@ func TestAGitWorkspaceThatHoldsAnAGENTSFileKeepsItAndGetsTheOtherFilesItLacks(t 
 	if agents := w.readLane("AGENTS.md"); agents != "my rules\n" {
 		t.Errorf("AGENTS.md reads %q", agents)
 	}
-	if _, err := os.Stat(filepath.Join(w.lane, "CLAUDE.md")); err == nil {
+	if w.laneHolds("CLAUDE.md") {
 		t.Error("a CLAUDE.md was written beside the AGENTS.md the repository holds")
 	}
 }
