@@ -51,6 +51,9 @@ type BriefSpec struct {
 	Attempt *ledger.DesiredAttempt
 	// Rework is why the work came back for this attempt, when it did.
 	Rework *ledger.DesiredRework
+	// Practices is what the practices check found in each active repository of the project. A planning brief shows
+	// it after the manifest, and a brief of any other kind shows none (FR-PRAC-8).
+	Practices []ledger.PracticesSummary
 	// Continues is the in-flight branch this work finishes, when it finishes one (ADR-0023).
 	Continues *Continuation
 	// Reads are the other repositories of the project the lane reads, read-only (ADR-0022).
@@ -116,8 +119,8 @@ func writeContinuation(out *strings.Builder, c Continuation) {
 
 // planningNotice tells a planning lane what the ledger takes from it: files, at a commit, and only
 // once a person accepts it. It shows every format the lane writes, because a session holds no document
-// of them (FR-SESSION-5), the manifest of a project's code repositories when the spec holds one (FR-TPL-3),
-// and where intake reads.
+// of them (FR-SESSION-5), the manifest of a project's code repositories when the spec holds one (FR-TPL-3), what
+// the practices check found in each repository (FR-PRAC-8), and where intake reads.
 func planningNotice(spec BriefSpec) string {
 	var out strings.Builder
 	out.WriteString("This is planning work. Its output is repository files, and nothing else you do reaches the ledger. " +
@@ -134,6 +137,7 @@ func planningNotice(spec BriefSpec) string {
 			"the formats above do. A path in it is relative to the planning repository's clone and stays inside the folder that holds it.\n" +
 			"\n```markdown\n" + manifest + "\n```\n")
 	}
+	writePractices(&out, spec.Practices)
 	out.WriteString("\n" + intakeNotice(spec.IntakeDirectory) + "\n")
 	out.WriteString("\n" +
 		"- Every document, milestone, and contract names its plan with plan, and the plan lists every document it holds in " +

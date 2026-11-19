@@ -459,6 +459,7 @@ var practicesFiles = []string{
 // does, so it cannot be checking the wrong directory.
 var practicesCallers = []string{
 	"internal/control/practices.go", "internal/control/practices_acknowledge.go", "internal/control/practices_read.go",
+	"internal/control/lease_practices.go",
 }
 
 // TestNoDecisionReadsAFinding finds no read of the practices records in the control plane outside the files that may.

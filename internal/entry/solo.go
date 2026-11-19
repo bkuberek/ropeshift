@@ -337,7 +337,7 @@ func serveSolo(ctx context.Context, paths api.Paths, opts soloOptions, stdout, s
 		})
 	}()
 	plane := control.NewWorkers(store, soloScope, control.WorkerOptions{
-		HeartbeatMs: opts.heartbeat.Milliseconds(), LeaseTTLMs: opts.leaseTTL.Milliseconds(),
+		HeartbeatMs: opts.heartbeat.Milliseconds(), LeaseTTLMs: opts.leaseTTL.Milliseconds(), Warn: warnTo(stderr),
 	})
 	client := api.NewUnixClient(paths.ControlSocket())
 	workerDone, err := startSoloWorker(ctx, paths, workerConnection{

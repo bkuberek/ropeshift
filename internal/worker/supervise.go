@@ -469,7 +469,7 @@ func (r *laneRun) briefText() string {
 	return lanes.FirstCall(r.callsOwed(), lanes.Brief(lanes.BriefSpec{
 		WorkOrder: r.lease.WorkOrder, Title: r.lease.Title, Statement: r.lease.Statement, Criteria: r.lease.Criteria,
 		Pack: r.readPack() != nil, Handoff: r.inherited, Pending: r.pendingInstruction(), Facts: r.factsOwed(),
-		Kind: workorders.Kind(r.lease.Kind), Review: r.lease.Review, Attempt: r.lease.Attempt, Rework: r.lease.Rework,
+		Kind: workorders.Kind(r.lease.Kind), Review: r.lease.Review, Attempt: r.lease.Attempt, Rework: r.lease.Rework, Practices: r.lease.Practices,
 		Continues: r.continuation(), Reads: r.readTrees(), Adopt: r.lease.Adopt, Restructured: r.restructuredOf(),
 		ManifestTemplate: r.rt.ManifestTemplate, IntakeDirectory: r.rt.IntakeDirectory, InstructionsTemplate: r.instructionsText(),
 	}))

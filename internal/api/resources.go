@@ -139,15 +139,4 @@ func capWords(report *ledger.ResourceReport) string {
 }
 
 // AgeWords says how long ago something was, from milliseconds, in the largest whole unit.
-func AgeWords(ms int64) string {
-	seconds := max(ms, 0) / 1000
-	switch {
-	case seconds < 60:
-		return strconv.FormatInt(seconds, 10) + "s"
-	case seconds < 3600:
-		return strconv.FormatInt(seconds/60, 10) + "m"
-	case seconds < 48*3600:
-		return strconv.FormatInt(seconds/3600, 10) + "h"
-	}
-	return strconv.FormatInt(seconds/86400, 10) + "d"
-}
+func AgeWords(ms int64) string { return ledger.AgeWords(ms) }
