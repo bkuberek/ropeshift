@@ -182,7 +182,7 @@ function decide(heading: string, press: string, reason?: string): KeyPath["run"]
 // as, with an organization beside the login, and the request the dialog sends.
 const startAnswers = () =>
   reply(
-    [/\/v1\/workers$/, { workers: [{ id: "worker-1", name: "atlas", epoch: 1, protocol: 6 }] }],
+    [/\/v1\/workers$/, { workers: [{ id: "worker-1", name: "atlas", epoch: 1, protocol: 7 }] }],
     [/\/v1\/workers\/worker-1\/forge-account-reads$/, { id: "read-1", worker: "worker-1", requested_by: "member", requested_at: 1, expires_at: 4102444800000, forge: "github", state: "offered" }, "POST"],
     [
       /\/v1\/workers\/worker-1\/forge-account-reads\/read-1$/,
@@ -213,6 +213,7 @@ async function chooseCreateOnGitHub(k: Keys, page: Page) {
   await k.tabTo(start.getByRole("radio", { name: /^One repository/ }));
   await k.press("ArrowDown");
   await k.typeInto(start.getByLabel("Folder", { exact: true }), "/srv/code/harbor");
+  await k.typeInto(start.getByLabel("Project name", { exact: true }), "tidewater");
   await k.typeInto(start.getByRole("group", { name: "Code repository 1" }).getByLabel("Name", { exact: true }), "api");
   await k.activate(start.getByRole("button", { name: "Add", exact: true }));
   await k.typeInto(start.getByRole("group", { name: "Code repository 2" }).getByLabel("Name", { exact: true }), "web");
@@ -242,6 +243,7 @@ const paths: Record<string, KeyPath> = {
     sent: post(/^\/v1\/workers\/worker-1\/template-writes$/, {
       shape: "workspace",
       path: "/srv/code/harbor",
+      name: "tidewater",
       first_commit: true,
       remote: { create: { forge: "github", owner: "acme", visibility: "private" } },
       repositories: [

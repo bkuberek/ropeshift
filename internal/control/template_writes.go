@@ -126,8 +126,12 @@ func (t *TemplateWrites) Check(in ledger.TemplateWriteRequest) error {
 			return fmt.Errorf("%w: project: %w", workorders.ErrInvalid, err)
 		}
 	}
-	if projectfiles.NameOf(baseOf(in.Path)) == "" {
-		return invalidTemplateWrite("the folder %q makes no project name; use a folder named with letters or digits", baseOf(in.Path))
+	if in.Name != "" {
+		if err := ledger.ValidateProjectName(in.Name); err != nil {
+			return fmt.Errorf("%w: name: %w", workorders.ErrInvalid, err)
+		}
+	} else if projectfiles.NameOf(baseOf(in.Path)) == "" {
+		return invalidTemplateWrite("the folder %q makes no project name; use a folder named with letters or digits, or give a name", baseOf(in.Path))
 	}
 	return nil
 }
@@ -163,6 +167,9 @@ func (t *TemplateWrites) Request(ctx context.Context, worker string, in ledger.T
 		}
 		if record.Protocol < ledger.ProtocolTemplateWrites {
 			return invalidTemplateWrite("worker %s speaks protocol %d; upgrade it to write files from the web UI", record.Name, record.Protocol)
+		}
+		if in.Name != "" && record.Protocol < ledger.ProtocolTemplateName {
+			return invalidTemplateWrite("worker %s speaks protocol %d; upgrade it to name a project from the web UI", record.Name, record.Protocol)
 		}
 		if in.HasRemotes() && record.Protocol < ledger.ProtocolProjectRemotes {
 			return invalidTemplateWrite("worker %s speaks protocol %d; upgrade it to create a project's remote", record.Name, record.Protocol)
@@ -243,6 +250,10 @@ func desiredTemplateWrites(tx ports.SharedReadTx, worker ledger.WorkerRecord) ([
 	for _, record := range offered {
 		// A worker on an older protocol drops the remote fields and would write the files with no remote.
 		if record.Request.HasRemotes() && worker.Protocol < ledger.ProtocolProjectRemotes {
+			continue
+		}
+		// A worker on an older protocol drops the name and would write the files for the folder's name.
+		if record.Request.Name != "" && worker.Protocol < ledger.ProtocolTemplateName {
 			continue
 		}
 		if record.StateAt(now) == ledger.TemplateWriteOffered {

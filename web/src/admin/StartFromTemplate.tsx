@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
-import { createProject, protocolTemplateWrites, readTemplateWrite, readWorkers, writeTemplates } from "../api/admin";
+import { createProject, protocolTemplateName, protocolTemplateWrites, readTemplateWrite, readWorkers, writeTemplates } from "../api/admin";
 import type { TemplateWriteView } from "../api/admin";
 import { readView } from "../api/client";
 import { protocolProjectRemotes } from "../api/projectRemote";
@@ -138,6 +138,7 @@ export function StartFromTemplate({ open, onClose, projects, reload }: { open: b
   const [folder, setFolder] = useState("");
   const [rows, setRows] = useState<Row[]>([newRow()]);
   const [project, setProject] = useState("");
+  const [projectName, setProjectName] = useState("");
   const [firstCommit, setFirstCommit] = useState(true);
   const [mode, setMode] = useState<RemoteMode>("none");
   const [remoteUrl, setRemoteUrl] = useState("");
@@ -173,7 +174,7 @@ export function StartFromTemplate({ open, onClose, projects, reload }: { open: b
 
   // What the worker takes decides what the form offers: a request that holds a remote needs plane protocol 6.
   const chosen = found.choices.find((choice) => choice.id === worker);
-  const draft: Draft = { question, project, firstCommit, mode, url: remoteUrl, owner, visibility, rows, remotes: Boolean(chosen && chosen.protocol >= protocolProjectRemotes) };
+  const draft: Draft = { question, name: projectName, named: Boolean(chosen && chosen.protocol >= protocolTemplateName), project, firstCommit, mode, url: remoteUrl, owner, visibility, rows, remotes: Boolean(chosen && chosen.protocol >= protocolProjectRemotes) };
   const effective = remoteMode(draft);
   const { account, check } = useGitHubAccount(open && phase.kind === "form" && effective === "create", worker);
   const blocked = !firstCommit
@@ -229,7 +230,7 @@ export function StartFromTemplate({ open, onClose, projects, reload }: { open: b
     }
   }, [view]);
 
-  const name = question === "elsewhere" && project.trim() ? project.trim() : projectNameOf(folder);
+  const name = question === "elsewhere" ? project.trim() || projectNameOf(folder) : projectName.trim() || projectNameOf(folder);
 
   const send = async () => {
     const wrong = folderProblem(folder);
@@ -406,6 +407,27 @@ export function StartFromTemplate({ open, onClose, projects, reload }: { open: b
               }}
             />
           </Field>
+          {question === "one" || question === "several" ? (
+            <Field
+              label="Project name"
+              help={
+                draft.named || !chosen
+                  ? "The name the files carry and the commands register the project under. Leave it empty to use the folder's name."
+                  : `Worker ${chosen.name} speaks protocol ${chosen.protocol}; upgrade it to name a project.`
+              }
+              error={issue?.field === "name" ? issue.message : undefined}
+            >
+              <input
+                className="input mono"
+                autoComplete="off"
+                spellCheck={false}
+                disabled={Boolean(chosen) && !draft.named}
+                placeholder={projectNameOf(folder)}
+                value={projectName}
+                onChange={(event) => setProjectName(event.target.value)}
+              />
+            </Field>
+          ) : null}
           {question === "several" ? (
             <RepositoryRows rows={rows} setRows={setRows} mode={effective} remotes={draft.remotes} worker={chosen?.name ?? worker} owners={owners} problem={issue?.field === "rows" ? issue.message : ""} />
           ) : null}

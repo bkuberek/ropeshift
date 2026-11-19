@@ -287,6 +287,9 @@ func TestARequestNoWorkerCouldCarryOutIsRefusedBeforeItIsRecorded(t *testing.T) 
 		"a project on a monorepo": {Shape: "monorepo", Path: "/srv/harbor", Project: "harbor"},
 		"a project that is none":  {Shape: "repository", Path: "/srv/harbor", Project: "Not A Project"},
 		"a folder with no name":   {Shape: "monorepo", Path: "/srv/___"},
+		"a name that is none":     {Shape: "monorepo", Path: "/srv/harbor", Name: "Not A Name"},
+		"a name with a slash":     {Shape: "workspace", Path: "/srv/harbor", Name: "a/b"},
+		"a name that is too long": {Shape: "repository", Path: "/srv/harbor", Name: strings.Repeat("a", 64)},
 	}
 	for name, in := range cases {
 		if _, err := r.ask(in); !errors.Is(err, workorders.ErrInvalid) {
@@ -349,5 +352,65 @@ func TestOnlyAMemberAsksForATemplateWrite(t *testing.T) {
 		if !errors.Is(err, workorders.ErrForbidden) || !errors.Is(err, authority.ErrMemberOnly) {
 			t.Errorf("%s: %v, want a refusal as the member's alone", kind, err)
 		}
+	}
+}
+
+// A request may name the project, on any shape, and the name stands in for the folder's: a folder that makes none is
+// enough when the request names one.
+func TestARequestMayNameTheProject(t *testing.T) {
+	r := newTemplateRig(t, ledger.ProtocolVersion)
+	for _, shape := range []string{"workspace", "monorepo", "repository"} {
+		view, err := r.ask(ledger.TemplateWriteRequest{Shape: shape, Path: "/srv/Orchid Shop", Name: "harbor"})
+		if err != nil || view.Name != "harbor" {
+			t.Errorf("%s: view %+v (%v), want the name harbor", shape, view, err)
+		}
+	}
+	if view, err := r.ask(ledger.TemplateWriteRequest{Shape: "monorepo", Path: "/srv/___", Name: "harbor"}); err != nil || view.Name != "harbor" {
+		t.Errorf("a folder that makes no name with a name given: %+v (%v)", view, err)
+	}
+	if view, err := r.ask(ledger.TemplateWriteRequest{Shape: "repository", Path: "/srv/code", Name: "harbor-api", Project: "harbor"}); err != nil || view.Name != "harbor-api" || view.Project != "harbor" {
+		t.Errorf("a repository's name and project: %+v (%v)", view, err)
+	}
+}
+
+// A worker on the protocol before ProtocolTemplateName ignores a template write's name and would write the files
+// for the folder's name, so a request that names the project is refused for it, and one that does not is served.
+func TestAWorkerThatCannotReadANameIsAskedForNone(t *testing.T) {
+	r := newTemplateRig(t, ledger.ProtocolTemplateName-1)
+	_, err := r.ask(ledger.TemplateWriteRequest{Shape: "monorepo", Path: "/srv/harbor", Name: "harbor"})
+	if !errors.Is(err, workorders.ErrInvalid) || !strings.Contains(err.Error(), "upgrade") {
+		t.Errorf("a name for a worker on protocol %d: %v", ledger.ProtocolTemplateName-1, err)
+	}
+	if _, err := r.ask(ledger.TemplateWriteRequest{Shape: "monorepo", Path: "/srv/harbor"}); err != nil {
+		t.Errorf("a request with no name: %v", err)
+	}
+}
+
+// The name a request carries is kept with it: the worker is offered it, and a member reads it back.
+func TestARequestsNameIsKeptAndOfferedToItsWorker(t *testing.T) {
+	r := newTemplateRig(t, ledger.ProtocolVersion)
+	view := r.mustAsk(ledger.TemplateWriteRequest{Shape: "monorepo", Path: "/srv/Orchid Shop", Name: "harbor"})
+	offered := r.desired().TemplateWrites
+	if len(offered) != 1 || offered[0].Name != "harbor" {
+		t.Errorf("the worker is offered %+v", offered)
+	}
+	read, err := r.writes.View(t.Context(), "worker-1", view.ID)
+	if err != nil || read.Name != "harbor" {
+		t.Errorf("the member reads %+v (%v)", read, err)
+	}
+}
+
+// A request that names the project, held from before its worker went back to an older protocol, is not offered to it: the
+// worker would drop the name and write the files for the folder's name.
+func TestAWorkerBeforeTheNameProtocolIsOfferedNoRequestThatNamesAProject(t *testing.T) {
+	r := newTemplateRig(t, ledger.ProtocolTemplateName-1)
+	r.inserted(ledger.TemplateWriteRecord{ID: "named", Worker: "worker-1", RequestedBy: "m", Request: ledger.TemplateWriteRequest{Shape: "monorepo", Path: "/srv/harbor", Name: "harbor"}, RequestedAt: 1, ExpiresAt: 1 << 60, State: ledger.TemplateWriteOffered})
+	r.inserted(ledger.TemplateWriteRecord{ID: "plain", Worker: "worker-1", RequestedBy: "m", Request: ledger.TemplateWriteRequest{Shape: "monorepo", Path: "/srv/other"}, RequestedAt: 1, ExpiresAt: 1 << 60, State: ledger.TemplateWriteOffered})
+	var ids []string
+	for _, offered := range r.desired().TemplateWrites {
+		ids = append(ids, offered.ID)
+	}
+	if !slices.Equal(ids, []string{"plain"}) {
+		t.Errorf("the worker is offered %v, want only the request that names no project", ids)
 	}
 }

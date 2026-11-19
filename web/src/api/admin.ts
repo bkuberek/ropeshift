@@ -243,13 +243,17 @@ export type WorkerList = { workers: WorkerRecord[] };
 // accepts, drops the request, so the dialog lists it as disabled and the daemon refuses a request for it.
 export const protocolTemplateWrites = 5;
 
+// The oldest plane protocol a worker is offered a request that names the project. An older worker drops the name and would write the
+// files for the folder's name, so the dialog offers no name for it and the daemon refuses one.
+export const protocolTemplateName = 7;
+
 // A request that a worker write a shape's starting files into a folder on its machine, as `ropeshift new` writes them
 // (FR-TPL-5): the shape, the absolute folder, the code repositories of a workspace, the project a repository's
 // commands name, and whether the worker makes the folder's first commit.
 export type TemplateShape = "workspace" | "monorepo" | "repository";
 // An existing code repository names its remote. A new one is written at repos/<name>, and takes a URL or a repository to create.
 export type TemplateRepository = { name: string; remote?: string; new?: boolean; url?: string; create?: RemoteCreate };
-export type TemplateWriteRequest = { shape: TemplateShape; path: string; repositories?: TemplateRepository[]; project?: string; first_commit?: boolean; remote?: ProjectRemote };
+export type TemplateWriteRequest = { shape: TemplateShape; path: string; repositories?: TemplateRepository[]; name?: string; project?: string; first_commit?: boolean; remote?: ProjectRemote };
 
 // What the worker did with a request. A refusal has its reason and detail; a write has the files it made, the first
 // commit or why it failed, whether the folder is now a clone, and the commands that register it.
@@ -280,6 +284,7 @@ export type TemplateWriteView = {
   expires_at: number;
   shape: TemplateShape;
   path: string;
+  name?: string;
   project?: string;
   repositories?: TemplateRepository[];
   first_commit?: boolean;

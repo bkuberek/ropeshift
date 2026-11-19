@@ -49,8 +49,14 @@ type Job struct {
 	NeedsRepository bool
 }
 
-// Name is the project's name: the folder's base name made a project name.
-func (j Job) Name() string { return projectfiles.NameOf(path.Base(j.Request.Path)) }
+// Name is the project's name rendered into the files: the name the request gives, or else the folder's base name made a
+// project name.
+func (j Job) Name() string {
+	if j.Request.Name != "" {
+		return j.Request.Name
+	}
+	return projectfiles.NameOf(path.Base(j.Request.Path))
+}
 
 // commitName is the name the first commit's message gives: the project the commands register in.
 func (j Job) commitName() string {
