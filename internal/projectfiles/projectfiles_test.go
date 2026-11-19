@@ -268,10 +268,13 @@ func TestWritesToNamesThePathOfATemplateAndOfTheUserProfile(t *testing.T) {
 // FR-TPL-2: the commands that register what a shape wrote, for a member's session, with the git commands
 // first when the folder still needs its first commit.
 func TestTheCommandsRegisterWhatEachShapeWrote(t *testing.T) {
-	git := []string{
-		"git -C /work/orchid init",
-		"git -C /work/orchid add -A",
-		`git -C /work/orchid commit -m "chore: start orchid"`,
+	// The first commit adds each file the shape writes, and never a path that was in the folder before.
+	git := func(shape projectfiles.Shape, repositories []projectfiles.CodeRepository) []string {
+		return []string{
+			"git -C /work/orchid init",
+			"git -C /work/orchid add -- " + strings.Join(shapePaths(shape, repositories), " "),
+			`git -C /work/orchid commit -m "chore: start orchid"`,
+		}
 	}
 	cases := []struct {
 		name         string
@@ -280,15 +283,15 @@ func TestTheCommandsRegisterWhatEachShapeWrote(t *testing.T) {
 		firstCommit  bool
 		want         []string
 	}{
-		{"a workspace with repositories and no commit", projectfiles.Workspace, two, true, append(slices.Clone(git),
+		{"a workspace with repositories and no commit", projectfiles.Workspace, two, true, append(git(projectfiles.Workspace, two),
 			"make -C /work/orchid setup", "ropeshift project create orchid", "make -C /work/orchid register")},
 		{"a workspace with no repositories in a clone", projectfiles.Workspace, nil, false, []string{
 			"ropeshift project create orchid", "make -C /work/orchid register"}},
-		{"a monorepo with no commit", projectfiles.Monorepo, nil, true, append(slices.Clone(git),
+		{"a monorepo with no commit", projectfiles.Monorepo, nil, true, append(git(projectfiles.Monorepo, nil),
 			"ropeshift project create orchid", "ropeshift repository add /work/orchid --project orchid")},
 		{"a monorepo in a clone", projectfiles.Monorepo, nil, false, []string{
 			"ropeshift project create orchid", "ropeshift repository add /work/orchid --project orchid"}},
-		{"a repository with no commit", projectfiles.Repository, nil, true, append(slices.Clone(git),
+		{"a repository with no commit", projectfiles.Repository, nil, true, append(git(projectfiles.Repository, nil),
 			"ropeshift repository add /work/orchid --project orchid")},
 		{"a repository in a clone", projectfiles.Repository, nil, false, []string{
 			"ropeshift repository add /work/orchid --project orchid"}},
@@ -308,7 +311,7 @@ func TestACommandQuotesAPathAShellWouldSplit(t *testing.T) {
 	got := projectfiles.Commands(projectfiles.Monorepo, "/work/it's mine", "it-s-mine", nil, true)
 	want := []string{
 		`git -C '/work/it'\''s mine' init`,
-		`git -C '/work/it'\''s mine' add -A`,
+		`git -C '/work/it'\''s mine' add -- ` + strings.Join(shapePaths(projectfiles.Monorepo, nil), " "),
 		`git -C '/work/it'\''s mine' commit -m "chore: start it-s-mine"`,
 		"ropeshift project create it-s-mine",
 		`ropeshift repository add '/work/it'\''s mine' --project it-s-mine`,
@@ -318,5 +321,65 @@ func TestACommandQuotesAPathAShellWouldSplit(t *testing.T) {
 	}
 	if got := projectfiles.Commands(projectfiles.Repository, "/work/$HOME", "home", nil, false); got[0] != "ropeshift repository add '/work/$HOME' --project home" {
 		t.Errorf("a path a shell would expand: %v", got)
+	}
+}
+
+// shapePaths are the paths a shape writes, sorted, from the table of FR-TPL-1, with the workspace's manifest when it
+// names code repositories.
+func shapePaths(shape projectfiles.Shape, repositories []projectfiles.CodeRepository) []string {
+	paths := slices.Sorted(maps.Keys(columns[shape]))
+	if shape == projectfiles.Workspace && len(repositories) > 0 {
+		paths = append(paths, "plan/repositories.md")
+		slices.Sort(paths)
+	}
+	return paths
+}
+
+// The first commit a person runs adds the files that were written and no other: a file that was in the folder
+// before is not added, and each new code repository adds the files of its own.
+func TestTheFirstCommitCommandsAddOnlyTheFilesWritten(t *testing.T) {
+	written := []string{"AGENTS.md", "plan/goal.md"}
+	got := projectfiles.CommandsStaging(projectfiles.Monorepo, "/work/orchid", "orchid", nil, written)
+	want := []string{
+		"git -C /work/orchid init",
+		"git -C /work/orchid add -- AGENTS.md plan/goal.md",
+		`git -C /work/orchid commit -m "chore: start orchid"`,
+		"ropeshift project create orchid",
+		"ropeshift repository add /work/orchid --project orchid",
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("commands\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+	fresh := []projectfiles.CodeRepository{{Name: "api", New: true}}
+	got = projectfiles.CommandsStaging(projectfiles.Workspace, "/work/orchid", "orchid", fresh,
+		[]string{"AGENTS.md", "repos/api/AGENTS.md", "repos/api/.gitignore"})
+	for _, line := range []string{
+		"git -C /work/orchid/repos/api add -- AGENTS.md .gitignore",
+		"git -C /work/orchid add -- AGENTS.md",
+	} {
+		if !slices.Contains(got, line) {
+			t.Errorf("commands lack %q:\n%s", line, strings.Join(got, "\n"))
+		}
+	}
+}
+
+// A path with a character a shell would split is quoted, and the add names each path after --, so it copies to a
+// terminal whole and reads each path as a file.
+func TestTheAddCommandQuotesEachPath(t *testing.T) {
+	got := projectfiles.FirstCommitCommands("/work/orchid", "orchid", []string{"-n.md", "a b.md", "plan/goal.md"})
+	if want := "git -C /work/orchid add -- -n.md 'a b.md' plan/goal.md"; got[1] != want {
+		t.Errorf("the add is %q, want %q", got[1], want)
+	}
+}
+
+// RepositoryPaths divides a folder's files among its repositories: the folder's own repository holds what is not
+// under repos/, and a code repository holds what is under its folder, with that folder taken off.
+func TestRepositoryPathsDivideTheFilesAmongTheRepositories(t *testing.T) {
+	files := []string{"AGENTS.md", "plan/goal.md", "repos/api/AGENTS.md", "repos/web/.gitignore"}
+	if got, want := projectfiles.RepositoryPaths(".", files), []string{"AGENTS.md", "plan/goal.md"}; !slices.Equal(got, want) {
+		t.Errorf("the folder's own repository holds %v, want %v", got, want)
+	}
+	if got, want := projectfiles.RepositoryPaths("repos/api", files), []string{"AGENTS.md"}; !slices.Equal(got, want) {
+		t.Errorf("repos/api holds %v, want %v", got, want)
 	}
 }

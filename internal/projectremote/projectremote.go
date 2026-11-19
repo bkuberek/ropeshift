@@ -100,6 +100,10 @@ type Progress struct {
 	Commit          bool     `json:"commit"`
 	NeedsRepository bool     `json:"needs_repository"`
 	Account         *Account `json:"account,omitempty"`
+	// Listed says Left was read before the first write, and Left holds the files of the shape that the folder already held
+	// then, which the run leaves as they are and the first commit does not add.
+	Listed bool     `json:"listed,omitempty"`
+	Left   []string `json:"left,omitempty"`
 	// Units are the repositories, by their path in the folder: "." for the folder's own, and repos/<name>.
 	Units map[string]*UnitProgress `json:"units,omitempty"`
 }

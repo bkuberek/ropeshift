@@ -211,19 +211,34 @@ func Files(shape Shape, data Data, render Render) ([]File, error) {
 
 // Commands are what a person runs, with a member's session, to register the folder at path as the project
 // named name. With firstCommit, the folder still needs a repository of its own, and the three git commands
-// that make its first commit come first. Then a workspace clones its code repositories, when it names any,
-// and creates the project and registers through its Makefile; a monorepo creates the project and registers
-// itself; and a repository registers itself in a project that exists.
+// that make its first commit come first, each adding the files the shape writes. Then a workspace clones its code
+// repositories, when it names any, and creates the project and registers through its Makefile; a monorepo creates
+// the project and registers itself; and a repository registers itself in a project that exists.
 func Commands(shape Shape, path, name string, repositories []CodeRepository, firstCommit bool) []string {
+	var written []string
+	if firstCommit {
+		written = Paths(shape, repositories)
+	}
+	return commands(shape, path, name, repositories, firstCommit, written)
+}
+
+// CommandsStaging is Commands for a folder that needs its first commit, where written holds the files this run wrote,
+// as paths in the folder: the first commit adds those and no file that was in the folder before.
+func CommandsStaging(shape Shape, path, name string, repositories []CodeRepository, written []string) []string {
+	return commands(shape, path, name, repositories, true, written)
+}
+
+func commands(shape Shape, path, name string, repositories []CodeRepository, firstCommit bool, written []string) []string {
 	folder := quote(path)
 	var commands []string
 	if firstCommit {
 		for _, repository := range repositories {
 			if repository.New {
-				commands = append(commands, FirstCommitCommands(path+"/"+CodePath(repository.Name), repository.Name)...)
+				rel := CodePath(repository.Name)
+				commands = append(commands, FirstCommitCommands(path+"/"+rel, repository.Name, RepositoryPaths(rel, written))...)
 			}
 		}
-		commands = append(commands, FirstCommitCommands(path, name)...)
+		commands = append(commands, FirstCommitCommands(path, name, RepositoryPaths(".", written))...)
 	}
 	create := "ropeshift project create " + name
 	add := "ropeshift repository add " + folder + " --project " + name
@@ -241,13 +256,47 @@ func Commands(shape Shape, path, name string, repositories []CodeRepository, fir
 	return commands
 }
 
-// FirstCommitCommands are the three git commands that make a folder a repository and commit its files as the start
-// of the project named name.
-func FirstCommitCommands(path, name string) []string {
+// Paths are the paths of every file a shape writes for a project with these code repositories, in the folder, sorted.
+func Paths(shape Shape, repositories []CodeRepository) []string {
+	files, err := Files(shape, Data{Project: "paths", Repositories: repositories}, func(string, Data) (string, error) { return "", nil })
+	if err != nil {
+		return nil
+	}
+	paths := make([]string, 0, len(files))
+	for _, file := range files {
+		paths = append(paths, file.Path)
+	}
+	return paths
+}
+
+// RepositoryPaths are the paths, among those of a folder's files, that the repository at rel holds, relative to that
+// repository: the folder's own repository, at ".", holds every path that is not under repos/, and a code repository
+// holds those under its own folder.
+func RepositoryPaths(rel string, paths []string) []string {
+	var out []string
+	for _, path := range paths {
+		if rel == "." {
+			if !strings.HasPrefix(path, "repos/") {
+				out = append(out, path)
+			}
+		} else if inside, found := strings.CutPrefix(path, rel+"/"); found {
+			out = append(out, inside)
+		}
+	}
+	return out
+}
+
+// FirstCommitCommands are the three git commands that make a folder a repository and commit the files at paths as
+// the start of the project named name. The add names each path after --, so a path is a file and never an option.
+func FirstCommitCommands(path, name string, paths []string) []string {
 	folder := quote(path)
+	add := "git -C " + folder + " add --"
+	for _, file := range paths {
+		add += " " + quote(file)
+	}
 	return []string{
 		"git -C " + folder + " init",
-		"git -C " + folder + " add -A",
+		add,
 		"git -C " + folder + ` commit -m "chore: start ` + name + `"`,
 	}
 }

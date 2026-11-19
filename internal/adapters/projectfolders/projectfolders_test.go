@@ -152,7 +152,7 @@ func TestFilesListsTheFolderWithoutItsGitDirectory(t *testing.T) {
 	f, root, _ := folders(t)
 	folder := filepath.Join(root, "harbor")
 	id := put(t, f, folder, []ports.FolderFile{{Path: "b.md", Text: "b"}, {Path: "a/c.md", Text: "c"}})
-	if _, err := f.FirstCommit(t.Context(), folder, "chore: start harbor", false, id); err != nil {
+	if _, err := f.FirstCommit(t.Context(), folder, "chore: start harbor", false, id, ports.CommitSpec{Paths: []string{"a/c.md", "b.md"}}); err != nil {
 		t.Fatal(err)
 	}
 	got, err := f.Files(t.Context(), folder)
@@ -170,12 +170,12 @@ func TestFirstCommitIsMadeOnceAndAnswersWithTheCommitAfterward(t *testing.T) {
 	f, root, _ := folders(t)
 	folder := filepath.Join(root, "harbor")
 	id := put(t, f, folder, []ports.FolderFile{{Path: "AGENTS.md", Text: "agents\n"}})
-	first, err := f.FirstCommit(t.Context(), folder, "chore: start harbor", false, id)
+	first, err := f.FirstCommit(t.Context(), folder, "chore: start harbor", false, id, ports.CommitSpec{Paths: []string{"AGENTS.md"}})
 	if err != nil || len(first) < 7 {
 		t.Fatalf("the first commit is %q (%v)", first, err)
 	}
 	// A worker that journaled its git init is resuming, and finds its own commit.
-	again, err := f.FirstCommit(t.Context(), folder, "chore: start harbor", true, id)
+	again, err := f.FirstCommit(t.Context(), folder, "chore: start harbor", true, id, ports.CommitSpec{Paths: []string{"AGENTS.md"}})
 	if err != nil || again != first {
 		t.Errorf("a second first commit is %q (%v), want %q", again, err, first)
 	}
@@ -191,7 +191,7 @@ func TestFirstCommitSaysWhatGitSaidWhenItRefuses(t *testing.T) {
 	f := projectfolders.Folders{Env: gitEnv(t, "[user]\n\tuseConfigOnly = true\n", nil)}
 	folder := filepath.Join(t.TempDir(), "harbor")
 	id := put(t, f, folder, []ports.FolderFile{{Path: "AGENTS.md", Text: "agents\n"}})
-	_, err := f.FirstCommit(t.Context(), folder, "chore: start harbor", false, id)
+	_, err := f.FirstCommit(t.Context(), folder, "chore: start harbor", false, id, ports.CommitSpec{Paths: []string{"AGENTS.md"}})
 	if err == nil {
 		t.Fatal("a commit with no identity was made")
 	}
