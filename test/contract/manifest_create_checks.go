@@ -36,7 +36,8 @@ var ManifestCreateChecks = []Check{
 	{"RM51", "a creation left started resumes from the creator's journal and is not registered from the folder it left: a run finds the clone it half made and resumes the creation", checkInterruptedCreationResumesFromTheCreator},
 	{"RM52", "a creation the creator refuses after it started, as a folder that changed under it, is recorded as finished and refused right after its start, so each start has its finish: nothing registers, and the entry reads as refused with the reason", checkRefusedCreationPairsItsFinish},
 	{"RM56", "the preview of an entry to create shows where its path leads, every link followed, and the creation's start records that beside the path", checkPreviewShowsWhereTheCreationLeads},
-	{"RM57", "a check that refuses because another creation holds the path is a refusal that says to preview again, never a failed creation: in the preview and in an approval, which creates the other entries", checkBusyPathIsATransientRefusal},
+	{"RM57", "in a preview, a busy path is a refusal that says to preview again; in an approval, the check waits for the other creation and then creates", checkBusyPathIsATransientRefusal},
+	{"RM58", "a worker that refuses an approval's check as busy, though the check was asked to wait, leaves no refusal on the approval: the entry is not attempted and the run stops with that error, so it can be run again", checkBusyRefusalOfAnApprovalIsNeverKept},
 	{"RM53", "text a worker's refusal or step carries, with an escape, a control character, or a line break in it, is stored and returned plain and on one line: in the outcome, the creation, the approval's record, and each event", checkWorkerTextIsPlain},
 	{"RM54", "a creation holds the registration from its check through its creation: a second decision of the approval waits for the first, finds its record, and asks the creator nothing", checkCreationHoldsTheRegistrationThroughCreate},
 	{"RM55", "a repository that exists on the forge, as when an earlier creation timed out after the forge made it, is refused, at the check and at the creation, with the fix: clone it at the entry's path and write remote in place of create in the manifest", checkExistingRepositoryRefusalNamesTheFix},
@@ -54,12 +55,15 @@ type machineCreator struct {
 	// unread are the entries whose check refuses before it reads where the path leads, as the worker's does, and so says
 	// nothing of it.
 	unread map[string]bool
+	// busy are the entries whose path another creation holds until a run waits for it: a check that does not wait is refused
+	// at once as busy, and one that waits is answered as the check set, once the other creation is over.
+	busy map[string]bool
 	// during hears each job before its creation runs.
 	during func(ledger.RepositoryCreation)
 }
 
 func newMachineCreator(machine *fake.Checkouts, approval string) *machineCreator {
-	return &machineCreator{RepositoryCreator: fake.NewRepositoryCreator(), machine: machine, approval: approval, urls: map[string]string{}, checks: map[string]ledger.CreationCheck{}, unread: map[string]bool{}}
+	return &machineCreator{RepositoryCreator: fake.NewRepositoryCreator(), machine: machine, approval: approval, urls: map[string]string{}, checks: map[string]ledger.CreationCheck{}, unread: map[string]bool{}, busy: map[string]bool{}}
 }
 
 // leads makes the check of the entry named answer that its path leads to a folder, as a check does that read it.
@@ -118,6 +122,11 @@ func (c *machineCreator) Check(ctx context.Context, job ledger.RepositoryCreatio
 	check, err := c.RepositoryCreator.Check(ctx, job)
 	if c.unread[job.Name] {
 		check.Leads = ""
+	}
+	if c.busy[job.Name] && !job.Wait {
+		return ledger.CreationCheck{Leads: check.Leads, Refusal: &ledger.TemplateWriteReport{
+			Outcome: ledger.TemplateOutcomeRefused, Reason: ledger.TemplateRefusedBusy, Detail: "another creation on this worker writes " + job.Path,
+		}}, err
 	}
 	return check, err
 }
@@ -1182,43 +1191,105 @@ func checkBusyPathIsATransientRefusal(r *Rig) error {
 	if err != nil {
 		return err
 	}
+	w.creator.passes("busy", "busy", "main")
 	w.creator.passes("search", "search", "main")
-	w.creator.refuses("busy", ledger.TemplateRefusedBusy, "another creation on this worker writes /work/busy", "")
-	want := map[string]entryOutcome{
+	w.creator.busy["busy"] = true
+	// A preview does not wait for the folder, so it is refused at once, and the refusal passes: it says to preview again.
+	preview, err := r.runCreation(w, true)
+	if err != nil {
+		return err
+	}
+	if err := outcomesAre(preview, map[string]entryOutcome{
 		"api":    {outcome: ledger.AlreadyRegistered, path: "/work/api"},
 		"busy":   {outcome: ledger.RegistrationRefused, path: "/work/busy", reason: "another creation", code: ledger.TemplateRefusedBusy},
 		"search": {outcome: ledger.Created, path: "/work/search"},
+	}); err != nil {
+		return Violatedf("the preview: %v", err)
 	}
-	for _, dryRun := range []bool{true, false} {
-		if !dryRun {
-			if _, err := r.approve(s, w.request, true, r.member()); err != nil {
-				return err
-			}
-		}
-		added, err := r.runCreation(w, dryRun)
-		if err != nil {
-			return err
-		}
-		what := map[bool]string{true: "the preview", false: "approving it"}[dryRun]
-		if err := outcomesAre(added, want); err != nil {
-			return Violatedf("%s: %v", what, err)
-		}
-		busy, _ := outcomeNamed(added, "busy")
-		if busy.Outcome == ledger.CreateFailed || busy.Creation == nil || busy.Creation.Remedy != busyRemedy || !strings.Contains(busy.Reason, busyRemedy) {
-			return Violatedf("%s reads the busy entry as %+v with creation %+v, want a refusal that says %q", what, busy, busy.Creation, busyRemedy)
-		}
+	if busy, _ := outcomeNamed(preview, "busy"); busy.Outcome == ledger.CreateFailed || busy.Creation == nil || busy.Creation.Remedy != busyRemedy || !strings.Contains(busy.Reason, busyRemedy) {
+		return Violatedf("the preview reads the busy entry as %+v with creation %+v, want a refusal that says %q", busy, busy.Creation, busyRemedy)
 	}
-	if created := asked(w.creator.Created()); !slices.Equal(created, []string{"search"}) {
-		return Violatedf("approving created %v, want only search", created)
+	if checked := w.creator.Checked(); len(checked) != 2 || checked[0].Wait || checked[1].Wait {
+		return Violatedf("the preview asked the creator to check %+v, want two checks that do not wait", checked)
 	}
-	if types, err := r.creationTypes(s, w.request.ID); err != nil || !slices.Equal(types, []string{"started search", "finished search"}) {
-		return Violatedf("the creation events are %v, want none for the entry another creation holds: %v", types, err)
+	// An approval's check waits for the other creation, and then the entry is created and registered as any other.
+	if _, err := r.approve(s, w.request, true, r.member()); err != nil {
+		return err
+	}
+	added, err := r.runCreation(w, false)
+	if err != nil {
+		return err
+	}
+	want := map[string]entryOutcome{
+		"api":    {outcome: ledger.AlreadyRegistered, path: "/work/api"},
+		"busy":   {outcome: ledger.Created, path: "/work/busy"},
+		"search": {outcome: ledger.Created, path: "/work/search"},
+	}
+	if err := outcomesAre(added, want); err != nil {
+		return Violatedf("approving it: %v", err)
+	}
+	checked := w.creator.Checked()
+	if len(checked) != 4 || !checked[2].Wait || !checked[3].Wait {
+		return Violatedf("approving asked the creator to check %+v after the preview, want two checks that wait", checked)
+	}
+	created := w.creator.Created()
+	if !slices.Equal(asked(created), []string{"busy", "search"}) || !created[0].Wait || !created[1].Wait {
+		return Violatedf("approving created %+v, want busy and search with the wait the checks had", created)
+	}
+	if types, err := r.creationTypes(s, w.request.ID); err != nil || !slices.Equal(types, []string{"started busy", "finished busy", "started search", "finished search"}) {
+		return Violatedf("the creation events are %v: %v", types, err)
 	}
 	if err := r.recordedAre(s, w.request.ID, want); err != nil {
 		return err
 	}
-	if found, err := w.repositories.Resolve(r.Ctx, r.Scope, "busy"); err == nil {
-		return Violatedf("an entry another creation holds registered as %+v", found)
+	if found, err := w.repositories.Resolve(r.Ctx, r.Scope, "busy"); err != nil || found.Name != "busy" {
+		return Violatedf("the entry another creation held reads %+v: %v", found, err)
+	}
+	return r.CheckProjection(s)
+}
+
+func checkBusyRefusalOfAnApprovalIsNeverKept(r *Rig) error {
+	s := r.Store()
+	w, err := r.creationWorld(s, creationEntry("search", "../search", "")+creationEntry("stubborn", "../stubborn", "")+creationEntry("site", "../site", ""), []string{"search", "stubborn", "site"}, nil)
+	if err != nil {
+		return err
+	}
+	for _, name := range []string{"search", "site"} {
+		w.creator.passes(name, name, "main")
+	}
+	// The check of stubborn is refused as busy whether it waits or not, as a worker that does not wait answers.
+	w.creator.refuses("stubborn", ledger.TemplateRefusedBusy, "another creation on this worker writes /work/stubborn", "")
+	if _, err := r.approve(s, w.request, true, r.member()); err != nil {
+		return err
+	}
+	added, err := r.runCreation(w, false)
+	if err == nil || !strings.Contains(err.Error(), "stubborn") || !strings.Contains(err.Error(), "wait") {
+		return Violatedf("a busy refusal of a check that waited stopped the run with %v", err)
+	}
+	if err := outcomesAre(added, map[string]entryOutcome{
+		"search":   {outcome: ledger.Created, path: "/work/search"},
+		"stubborn": {outcome: ledger.NotAttempted, path: "/work/stubborn", reason: "though it was asked to wait"},
+		"api":      {outcome: ledger.NotAttempted, path: "/work/api", reason: "stopped at stubborn"},
+		"site":     {outcome: ledger.NotAttempted, path: "/work/site", reason: "stopped at stubborn"},
+	}); err != nil {
+		return Violatedf("approving it: %v", err)
+	}
+	for _, one := range added {
+		if one.RefusalCode != "" || one.Outcome == ledger.RegistrationRefused {
+			return Violatedf("the approval kept %s as %+v", one.Name, one)
+		}
+	}
+	record, err := r.registrationOf(s, w.request.ID)
+	if err != nil || record == nil || record.Problem == "" {
+		return Violatedf("the approval recorded %+v: %v", record, err)
+	}
+	for _, one := range record.Repositories {
+		if one.RefusalCode == ledger.TemplateRefusedBusy {
+			return Violatedf("the approval recorded a busy refusal: %+v", one)
+		}
+	}
+	if types, err := r.creationTypes(s, w.request.ID); err != nil || !slices.Equal(types, []string{"started search", "finished search"}) {
+		return Violatedf("the creation events are %v: %v", types, err)
 	}
 	return r.CheckProjection(s)
 }

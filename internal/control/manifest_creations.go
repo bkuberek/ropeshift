@@ -150,6 +150,9 @@ func (r *Repositories) registerCreation(ctx context.Context, scope ledger.Worksp
 	job := ledger.RepositoryCreation{
 		Key: ledger.CreationKey(run.cause.Approval, entry.Name), Project: run.project, Name: entry.Name, Path: at, Bound: run.dir.parent,
 		PlanningClone: run.dir.clone, Create: made.create, ForgeName: made.forgeName, DefaultBranch: entry.DefaultBranch,
+		// An approval's check waits for another creation that holds the folder, as its creation does, and a preview's is
+		// refused at once.
+		Wait: !run.dryRun,
 	}
 	check, err := run.creator.Check(ctx, job)
 	if err != nil {
@@ -159,6 +162,13 @@ func (r *Repositories) registerCreation(ctx context.Context, scope ledger.Worksp
 		Forge: made.create.Forge, Owner: made.create.Owner, ForgeName: made.forgeName, Visibility: made.create.Visibility,
 		DefaultBranch: cmp.Or(check.Branch, entry.DefaultBranch), URL: check.URL, Login: check.Login,
 	})
+	if check.Refusal != nil && check.Refusal.Reason == ledger.TemplateRefusedBusy && !run.dryRun {
+		// A busy path is a refusal for a preview to tell, and an approval's check waits for the folder instead, so a worker that
+		// refuses one as busy anyway has not waited. The approval keeps no refusal, which no later word could undo: the entry
+		// is not attempted and the run stops with the reason, so it can be run again.
+		err := fmt.Errorf("the check of %s found another creation at its path though it was asked to wait for it", entry.Name)
+		return Added{Path: plainPath(cmp.Or(check.Leads, at)), Outcome: ledger.NotAttempted, Reason: plainLine(entry.Name + " was not attempted: " + err.Error())}, err
+	}
 	if check.Refusal != nil {
 		outcome.Remedy = remedyFor(*check.Refusal, entry, outcome)
 		added := withCreation(refused(cmp.Or(check.Leads, at), refusalText(*check.Refusal, outcome.Remedy)), outcome)
