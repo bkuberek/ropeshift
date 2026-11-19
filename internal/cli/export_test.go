@@ -21,6 +21,16 @@ func PaneTiming(poll, wait time.Duration) (restore func()) {
 	return func() { panePoll, paneWait = previousPoll, previousWait }
 }
 
+// PracticesTiming makes `practices` read its requests as often as given, and returns how to put the real timing back.
+func PracticesTiming(poll time.Duration) (restore func()) {
+	previous := practicesPoll
+	practicesPoll = poll
+	return func() { practicesPoll = previous }
+}
+
+// PracticesText is what `practices` prints for one repository.
+var PracticesText = practicesText
+
 // ExitOf is the exit code a refusal of the API ends a command with, and RemainingAnswers what `question answer-batch`
 // sends and leaves for a batch read.
 var (
