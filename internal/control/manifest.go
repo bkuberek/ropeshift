@@ -111,7 +111,7 @@ func (r *Repositories) RegisterApproved(ctx context.Context, scope ledger.Worksp
 func recordedAdded(repositories ports.RepositoryReader, record *ledger.ManifestRegistration) ([]Added, error) {
 	out := make([]Added, 0, len(record.Repositories))
 	for _, one := range record.Repositories {
-		added := Added{Name: one.Name, Manifest: one.Path, Remote: one.Remote, Path: one.Resolved, Outcome: one.Outcome, Checkout: one.Checkout, Reason: one.Reason, Creation: one.Creation}
+		added := Added{Name: one.Name, Manifest: one.Path, Remote: one.Remote, Path: one.Resolved, Outcome: one.Outcome, Checkout: one.Checkout, Reason: one.Reason, RefusalCode: one.RefusalCode, Creation: one.Creation}
 		if one.Repository != "" {
 			held, err := repositories.Repository(one.Repository)
 			switch {
@@ -132,7 +132,7 @@ func outcomesOf(added []Added) []ledger.ManifestOutcome {
 	for _, one := range added {
 		out = append(out, ledger.ManifestOutcome{
 			Name: one.Name, Path: one.Manifest, Resolved: one.Path, Remote: one.Remote, Outcome: one.Outcome,
-			Repository: one.Repository.ID, Checkout: one.Checkout, Reason: one.Reason, Creation: one.Creation,
+			Repository: one.Repository.ID, Checkout: one.Checkout, Reason: one.Reason, RefusalCode: one.RefusalCode, Creation: one.Creation,
 		})
 	}
 	return out
@@ -509,7 +509,12 @@ func (r *Repositories) registerEntry(ctx context.Context, scope ledger.Workspace
 func (r *Repositories) registerClone(ctx context.Context, scope ledger.WorkspaceID, entry planning.ManifestRepository, kept ports.Checkouts, run entryRun, at string, made *creation, actor ledger.Actor) (Added, error) {
 	dir := run.dir
 	refused := func(path, reason string) Added {
-		return Added{Path: path, Outcome: ledger.RegistrationRefused, Reason: fmt.Sprintf("%s is not registered: %s", entry.Name, reason)}
+		reason = fmt.Sprintf("%s is not registered: %s", entry.Name, reason)
+		if made != nil {
+			// A clone a creation registers says its remote and its path, which a disk gave and nobody checked.
+			reason = plainLine(reason)
+		}
+		return Added{Path: path, Outcome: ledger.RegistrationRefused, Reason: reason}
 	}
 	if dir.root == "" {
 		return refused(at, run.why), nil

@@ -59,6 +59,8 @@ type CreationFinishedEvent struct {
 	Key     string        `json:"key"`
 	Outcome CreationState `json:"outcome"`
 	Reason  string        `json:"reason,omitempty"`
+	// RefusalCode is the code the creator refused with, as it gave it, for a creation that finished refused.
+	RefusalCode string `json:"refusal_code,omitempty"`
 	CreationOutcome
 }
 

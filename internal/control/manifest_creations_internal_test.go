@@ -45,8 +45,12 @@ func TestTheOutcomesOfARegistrationKeepEachCreationBothWays(t *testing.T) {
 	added := []Added{
 		{Name: "api", Manifest: "repos/api", Remote: creation.URL, Path: "/work/repos/api", Outcome: ledger.Created, Creation: creation},
 		{Name: "docs", Manifest: "repos/docs", Outcome: ledger.Planned},
+		{Name: "web", Manifest: "repos/web", Outcome: ledger.RegistrationRefused, Reason: "web is not registered: gh is signed out", RefusalCode: "gh_signed_out"},
 	}
 	record := outcomesOf(added)
+	if record[2].RefusalCode != "gh_signed_out" || record[0].RefusalCode != "" {
+		t.Fatalf("the outcomes keep the refusal codes %q and %q", record[2].RefusalCode, record[0].RefusalCode)
+	}
 	if record[0].Creation != creation || record[1].Creation != nil {
 		t.Fatalf("the outcomes keep the creations %+v and %+v", record[0].Creation, record[1].Creation)
 	}

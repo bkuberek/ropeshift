@@ -48,7 +48,7 @@ func event(kind string, data any) Event {
 
 func TestACreationEventReadsAsTheOutcomeItFlattens(t *testing.T) {
 	finished := CreationFinishedEvent{
-		Name: "api", Key: CreationKey("approval-1", "api"), Outcome: CreationFailed, Reason: "the push was refused",
+		Name: "api", Key: CreationKey("approval-1", "api"), Outcome: CreationRefused, Reason: "the push was refused", RefusalCode: "remote_exists",
 		CreationOutcome: CreationOutcome{
 			Forge: ForgeGitHub, Owner: "acme", ForgeName: "api", Visibility: VisibilityPrivate, URL: "git@github.com:acme/api.git",
 			Steps: []RemoteStep{{Step: RemoteStepPush, Outcome: RemoteStepFailed, Detail: "denied"}}, Remaining: []string{"git push"},
@@ -62,7 +62,7 @@ func TestACreationEventReadsAsTheOutcomeItFlattens(t *testing.T) {
 	if err := json.Unmarshal(raw, &fields); err != nil {
 		t.Fatal(err)
 	}
-	for _, key := range []string{"name", "key", "outcome", "reason", "forge", "owner", "forge_name", "visibility", "url", "steps", "remaining"} {
+	for _, key := range []string{"name", "key", "outcome", "reason", "refusal_code", "forge", "owner", "forge_name", "visibility", "url", "steps", "remaining"} {
 		if _, ok := fields[key]; !ok {
 			t.Errorf("a finished creation does not carry %q at its top level: %s", key, raw)
 		}
@@ -77,6 +77,7 @@ func TestACreationManifestOutcomeKeepsItsCreation(t *testing.T) {
 	record := ManifestRegistration{Repositories: []ManifestOutcome{
 		{Name: "api", Path: "repos/api", Outcome: Created, Creation: &CreationOutcome{Forge: ForgeGitHub, Owner: "acme", ForgeName: "api", Makefile: "api=git@github.com:acme/api.git=repos/api"}},
 		{Name: "docs", Path: "repos/docs", Outcome: Planned},
+		{Name: "web", Path: "repos/web", Outcome: RegistrationRefused, Reason: "web is not registered: gh is signed out", RefusalCode: "gh_signed_out"},
 	}}
 	raw, err := json.Marshal(record)
 	if err != nil {
@@ -85,6 +86,9 @@ func TestACreationManifestOutcomeKeepsItsCreation(t *testing.T) {
 	var back ManifestRegistration
 	if err := json.Unmarshal(raw, &back); err != nil || !reflect.DeepEqual(back, record) {
 		t.Errorf("a registration with a creation reads back as %+v (%v), want %+v", back, err, record)
+	}
+	if !strings.Contains(string(raw), `"reason":"web is not registered: gh is signed out","refusal_code":"gh_signed_out"`) || strings.Count(string(raw), "refusal_code") != 1 {
+		t.Errorf("a refused entry writes its code after its reason, and no other entry writes one: %s", raw)
 	}
 	if strings.Contains(string(raw), `"creation":null`) {
 		t.Errorf("an entry with no creation writes one: %s", raw)

@@ -100,6 +100,9 @@ type RepositoryAdded struct {
 	Checkout string `json:"checkout,omitempty"`
 	// Reason says why it was refused, or that a clone is a second one of a repository.
 	Reason string `json:"reason,omitempty"`
+	// RefusalCode is the code the creator refused the entry's creation with, as it gave it, such as remote_exists, when
+	// a check or a creation refused it. It is empty for an entry refused for any other reason.
+	RefusalCode string `json:"refusal_code,omitempty"`
 	// Creation is what creating the repository came to, for an entry of a plan version that creates one: what a
 	// preview says approving would create, what a creation did, or the remedy for a refusal before any write.
 	Creation *ledger.CreationOutcome `json:"creation,omitempty"`

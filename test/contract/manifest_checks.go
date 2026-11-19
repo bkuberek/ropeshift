@@ -1904,6 +1904,8 @@ type entryOutcome struct {
 	outcome ledger.RepositoryOutcome
 	path    string
 	reason  string
+	// code is the refusal code the creator gave, and empty for an entry no creator refused.
+	code string
 }
 
 // outcomesAre checks that a run gave one outcome for each entry named, each as expected.
@@ -1913,8 +1915,8 @@ func outcomesAre(added []control.Added, want map[string]entryOutcome) error {
 	}
 	for name, expected := range want {
 		got, ok := outcomeNamed(added, name)
-		if !ok || got.Outcome != expected.outcome || got.Path != expected.path || !strings.Contains(got.Reason, expected.reason) {
-			return Violatedf("%s reads %+v, want %s at %q with a reason that says %q", name, got, expected.outcome, expected.path, expected.reason)
+		if !ok || got.Outcome != expected.outcome || got.Path != expected.path || !strings.Contains(got.Reason, expected.reason) || got.RefusalCode != expected.code {
+			return Violatedf("%s reads %+v, want %s at %q with a reason that says %q and the refusal code %q", name, got, expected.outcome, expected.path, expected.reason, expected.code)
 		}
 	}
 	return nil
@@ -1935,8 +1937,8 @@ func (r *Rig) recordedAre(s ports.Store, approval string, want map[string]entryO
 			return Violatedf("the approval recorded nothing of %s: %+v", name, record.Repositories)
 		}
 		got := record.Repositories[at]
-		if got.Outcome != expected.outcome || got.Resolved != expected.path || !strings.Contains(got.Reason, expected.reason) {
-			return Violatedf("the approval recorded %s as %+v, want %s at %q with a reason that says %q", name, got, expected.outcome, expected.path, expected.reason)
+		if got.Outcome != expected.outcome || got.Resolved != expected.path || !strings.Contains(got.Reason, expected.reason) || got.RefusalCode != expected.code {
+			return Violatedf("the approval recorded %s as %+v, want %s at %q with a reason that says %q and the refusal code %q", name, got, expected.outcome, expected.path, expected.reason, expected.code)
 		}
 	}
 	return nil

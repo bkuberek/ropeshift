@@ -94,7 +94,7 @@ func (c *creation) refuses(clone ports.Clone, real string) string {
 // after the creator's checks.
 func (r *Repositories) registerCreation(ctx context.Context, scope ledger.WorkspaceID, entry planning.ManifestRepository, kept ports.Checkouts, run entryRun, at string, actor ledger.Actor) (Added, error) {
 	refused := func(path, reason string) Added {
-		return Added{Path: path, Outcome: ledger.RegistrationRefused, Reason: fmt.Sprintf("%s is not registered: %s", entry.Name, reason)}
+		return Added{Path: path, Outcome: ledger.RegistrationRefused, Reason: plainLine(fmt.Sprintf("%s is not registered: %s", entry.Name, reason))}
 	}
 	made, err := creationOf(entry)
 	if err != nil {
@@ -155,13 +155,15 @@ func (r *Repositories) registerCreation(ctx context.Context, scope ledger.Worksp
 	if err != nil {
 		return refused(at, err.Error()), err
 	}
-	outcome := ledger.CreationOutcome{
+	outcome := plainCreation(ledger.CreationOutcome{
 		Forge: made.create.Forge, Owner: made.create.Owner, ForgeName: made.forgeName, Visibility: made.create.Visibility,
 		DefaultBranch: cmp.Or(check.Branch, entry.DefaultBranch), URL: check.URL, Login: check.Login,
-	}
+	})
 	if check.Refusal != nil {
-		outcome.Remedy = check.Refusal.Remedy
-		return withCreation(refused(at, refusalText(*check.Refusal)), outcome), nil
+		outcome.Remedy = remedyFor(*check.Refusal, entry, outcome, at)
+		added := withCreation(refused(at, refusalText(*check.Refusal, outcome.Remedy)), outcome)
+		added.RefusalCode = plainLine(check.Refusal.Reason)
+		return added, nil
 	}
 	if run.dryRun {
 		return Added{Path: at, Outcome: ledger.Created, Creation: &outcome}, nil
@@ -172,7 +174,9 @@ func (r *Repositories) registerCreation(ctx context.Context, scope ledger.Worksp
 	}
 	switch finished.Outcome {
 	case ledger.CreationRefused:
-		return withCreation(refused(at, finished.Reason), finished.CreationOutcome), nil
+		added := withCreation(refused(at, finished.Reason), finished.CreationOutcome)
+		added.RefusalCode = finished.RefusalCode
+		return added, nil
 	case ledger.CreationFailed:
 		return withCreation(Added{
 			Path: at, Outcome: ledger.CreateFailed, Reason: fmt.Sprintf("%s was created only in part, and is kept as it is: %s", entry.Name, finished.Reason),
@@ -192,14 +196,62 @@ func withCreation(added Added, creation ledger.CreationOutcome) Added {
 	return added
 }
 
-// refusalText is what a check of the creator refused with, and the command that fixes it when it names one.
-func refusalText(report ledger.TemplateWriteReport) string {
-	text := cmp.Or(report.Detail, report.Reason)
-	if report.Detail != "" && report.Reason != "" {
-		text = report.Reason + ": " + report.Detail
+// plainLine makes text a tool printed, or a path of a disk, safe to keep and to show: the escape sequences and control
+// characters ledger.PlainText drops, and each line break and tab made a space, so it is one line.
+func plainLine(text string) string {
+	return strings.TrimSpace(strings.ReplaceAll(oneLine.Replace(ledger.PlainText(text)), "\t", " "))
+}
+
+// plainCreation is a creation's outcome with every text the worker gave made plain, in a copy, because what git and the
+// forge CLI print, and the paths they print, are not trusted.
+func plainCreation(creation ledger.CreationOutcome) ledger.CreationOutcome {
+	creation.Forge, creation.Owner, creation.ForgeName = plainLine(creation.Forge), plainLine(creation.Owner), plainLine(creation.ForgeName)
+	creation.Visibility, creation.DefaultBranch = plainLine(creation.Visibility), plainLine(creation.DefaultBranch)
+	creation.URL, creation.Login, creation.Commit = plainLine(creation.URL), plainLine(creation.Login), plainLine(creation.Commit)
+	creation.CommitError, creation.Remedy, creation.Makefile = plainLine(creation.CommitError), plainLine(creation.Remedy), plainLine(creation.Makefile)
+	if creation.Steps != nil {
+		steps := make([]ledger.RemoteStep, len(creation.Steps))
+		for i, step := range creation.Steps {
+			steps[i] = ledger.RemoteStep{Step: plainLine(step.Step), Outcome: plainLine(step.Outcome), Detail: plainLine(step.Detail)}
+		}
+		creation.Steps = steps
 	}
-	if report.Remedy != "" && !strings.Contains(text, report.Remedy) {
-		text += "; run `" + report.Remedy + "`"
+	if creation.Remaining != nil {
+		remaining := make([]string, len(creation.Remaining))
+		for i, command := range creation.Remaining {
+			remaining[i] = plainLine(command)
+		}
+		creation.Remaining = remaining
+	}
+	return creation
+}
+
+// remedyFor is the fix a refusal of the creator names: the command the worker gave, or, for a repository that exists on
+// the forge, which ropeshift never adopts, the clone to make at the entry's path and the manifest change that registers
+// it. A creation that timed out after the forge made the repository is refused this way on every retry.
+func remedyFor(report ledger.TemplateWriteReport, entry planning.ManifestRepository, outcome ledger.CreationOutcome, path string) string {
+	switch {
+	case report.Remedy != "":
+		return plainLine(report.Remedy)
+	case report.Reason == ledger.TemplateRefusedRemoteExists:
+		return plainLine(fmt.Sprintf("clone %s/%s to %s, and write `remote` in place of `create` in the manifest's entry for %s", outcome.Owner, outcome.ForgeName, path, entry.Name))
+	}
+	return ""
+}
+
+// refusalText is what a check of the creator refused with, and the fix it names, made plain.
+func refusalText(report ledger.TemplateWriteReport, remedy string) string {
+	reason, detail := plainLine(report.Reason), plainLine(report.Detail)
+	text := cmp.Or(detail, reason)
+	if detail != "" && reason != "" {
+		text = reason + ": " + detail
+	}
+	switch {
+	case remedy == "" || strings.Contains(text, remedy):
+	case report.Remedy != "":
+		text += "; run `" + remedy + "`"
+	default:
+		text += "; " + remedy
 	}
 	return text
 }
@@ -248,7 +300,8 @@ func (r *Repositories) runCreation(ctx context.Context, scope ledger.WorkspaceID
 func finishedCreation(entry planning.ManifestRepository, job ledger.RepositoryCreation, outcome ledger.CreationOutcome, report ledger.TemplateWriteReport) ledger.CreationFinishedEvent {
 	finished := ledger.CreationFinishedEvent{Name: entry.Name, Key: job.Key, CreationOutcome: outcome}
 	if report.Outcome == ledger.TemplateOutcomeRefused {
-		finished.Outcome, finished.Reason, finished.Remedy = ledger.CreationRefused, refusalText(report), report.Remedy
+		finished.Remedy = remedyFor(report, entry, outcome, job.Path)
+		finished.Outcome, finished.Reason, finished.RefusalCode = ledger.CreationRefused, refusalText(report, finished.Remedy), plainLine(report.Reason)
 		return finished
 	}
 	finished.Commit, finished.CommitError, finished.Remaining = report.Commit, report.CommitError, report.Remaining
@@ -275,6 +328,7 @@ func finishedCreation(entry planning.ManifestRepository, job ledger.RepositoryCr
 		finished.Outcome = ledger.CreationCreated
 		finished.Makefile = entry.Name + "=" + finished.URL + "=" + entry.Path
 	}
+	finished.CreationOutcome, finished.Reason = plainCreation(finished.CreationOutcome), plainLine(finished.Reason)
 	return finished
 }
 

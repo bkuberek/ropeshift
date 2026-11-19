@@ -191,7 +191,7 @@ func TestGoldenPlanWithACreatedRepository(t *testing.T) {
 	if web.Outcome != ledger.Created || web.Remote != "git@github.com:acme/web.git" || web.Creation == nil || web.Creation.Visibility != "private" || web.Creation.Login != "octo" || web.Creation.DefaultBranch != "main" {
 		t.Errorf("web previews as %+v with creation %+v", web, web.Creation)
 	}
-	if docs.Outcome != ledger.RegistrationRefused || docs.Creation == nil || docs.Creation.Remedy != "gh auth login --hostname github.com" || docs.Creation.Visibility != "public" {
+	if docs.Outcome != ledger.RegistrationRefused || docs.RefusalCode != ledger.TemplateRefusedGHSignedOut || docs.Creation == nil || docs.Creation.Remedy != "gh auth login --hostname github.com" || docs.Creation.Visibility != "public" {
 		t.Errorf("docs previews as %+v with creation %+v", docs, docs.Creation)
 	}
 	if created := creator.Created(); len(created) != 0 {

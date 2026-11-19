@@ -180,6 +180,7 @@
           "path": "/work/docs",
           "outcome": "refused",
           "reason": "docs is not registered: gh_signed_out: Run `gh auth login --hostname github.com` on this machine",
+          "refusal_code": "gh_signed_out",
           "creation": {
             "forge": "github",
             "owner": "acme",

@@ -51,6 +51,9 @@ type ManifestOutcome struct {
 	Repository string            `json:"repository,omitempty"`
 	Checkout   string            `json:"checkout,omitempty"`
 	Reason     string            `json:"reason,omitempty"`
+	// RefusalCode is the code the creator refused the entry's creation with, as it gave it, when a check or a creation
+	// refused it. It is empty for an entry refused for any other reason.
+	RefusalCode string `json:"refusal_code,omitempty"`
 	// Creation is what creating the repository came to, for an entry with `create` that the version's work orders
 	// name: the check's answer for one a preview reads or a refusal, and the steps for one a run created or tried to.
 	Creation *CreationOutcome `json:"creation,omitempty"`
