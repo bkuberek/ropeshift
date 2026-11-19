@@ -14,6 +14,22 @@
     {
       "asked_at": 1790000544001,
       "asked_by": "lane-asking",
+      "attached": [
+        {
+          "attached_at": 1790000544001,
+          "blocking": true,
+          "generation": 1,
+          "lane": "lane-asking",
+          "question_id": "question-1"
+        }
+      ],
+      "batch": {
+        "closes_at": 1790000544002,
+        "delivered_at": 1790000604001,
+        "id": "generated-1",
+        "opened_at": 1790000544001,
+        "status": "delivered"
+      },
       "batch_id": "generated-1",
       "blocking": true,
       "categories": [
@@ -23,6 +39,7 @@
       "id": "question-1",
       "ladder_trace": [
         {
+          "by": "worker-a",
           "candidates": [
             "decision:decision-1"
           ],
@@ -30,6 +47,7 @@
           "rung": 1
         },
         {
+          "by": "worker-a",
           "candidates": [
             "decision:decision-1"
           ],
@@ -37,6 +55,9 @@
           "rung": 2
         }
       ],
+      "machines": {
+        "worker-a": "solo"
+      },
       "normalized_hash": "sha256:bc32eb18065080392b8af8f2b0d47faa6cbc0e1ee07a47616058c6d8123e47d4",
       "options": [
         "Keep the budget",
@@ -52,6 +73,21 @@
     {
       "asked_at": 1790000544001,
       "asked_by": "lane-asking",
+      "attached": [
+        {
+          "attached_at": 1790000544001,
+          "generation": 1,
+          "lane": "lane-asking",
+          "question_id": "question-2"
+        }
+      ],
+      "batch": {
+        "closes_at": 1790000544002,
+        "delivered_at": 1790000604001,
+        "id": "generated-1",
+        "opened_at": 1790000544001,
+        "status": "delivered"
+      },
       "batch_id": "generated-1",
       "categories": [
         "product",
@@ -61,6 +97,7 @@
       "id": "question-2",
       "ladder_trace": [
         {
+          "by": "worker-a",
           "candidates": [
             "decision:decision-1"
           ],
@@ -68,6 +105,7 @@
           "rung": 1
         },
         {
+          "by": "worker-a",
           "candidates": [
             "decision:decision-1"
           ],
@@ -75,6 +113,9 @@
           "rung": 2
         }
       ],
+      "machines": {
+        "worker-a": "solo"
+      },
       "normalized_hash": "sha256:1c806d093143d367b4531ced95fbc8a73c458cad53dde13a164bba877985f705",
       "options": [
         "Keep the budget",
@@ -90,6 +131,14 @@
     {
       "asked_at": 1790000784001,
       "asked_by": "lane-asking",
+      "attached": [
+        {
+          "attached_at": 1790000784001,
+          "generation": 1,
+          "lane": "lane-asking",
+          "question_id": "question-review"
+        }
+      ],
       "categories": [
         "security"
       ],

@@ -49,7 +49,8 @@ const (
 	// CodePassphraseChanged means a change of the passphrase lost to another that landed first, though the
 	// current passphrase it sent was right when it checked.
 	CodePassphraseChanged = "passphrase_changed"
-	// CodeResolved means a question already has its answer.
+	// CodeResolved means a question already has its answer or was closed, by a member's answer, assumption, or merge
+	// or by another holder, so whoever works it drops it.
 	CodeResolved = "resolved"
 	// CodeReversibilityChanged means an answer of a batch expected a reversibility that the decision policy no longer
 	// gives, so the request recorded nothing.

@@ -157,11 +157,18 @@ type Question struct {
 	AskedAt int64 `json:"asked_at,omitempty"`
 }
 
-// Step is one rung a question passed, with what it considered there.
+// Step is one rung a question passed, with what it considered there. By is who recorded it: an orchestrator, by its
+// worker's ID, or a member, and nobody for a rung the core ran. A rung that decided, assumed, or answered from the record
+// names that decision, and a rung that decided or assumed keeps the decision's rationale, with its citations as the
+// rung's candidates, so the trace shows each judgment with why it was made (FR-QD-13). Only the ledger writes By,
+// Decision, and Rationale: whatever a caller's step says of them is replaced.
 type Step struct {
 	Rung       int64    `json:"rung"`
 	Candidates []string `json:"candidates,omitempty"`
 	Outcome    string   `json:"outcome,omitempty"`
+	By         string   `json:"by,omitempty"`
+	Decision   string   `json:"decision,omitempty"`
+	Rationale  string   `json:"rationale,omitempty"`
 }
 
 // Attachment joins one lane to a question it is waiting on or has asked.

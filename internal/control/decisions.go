@@ -72,7 +72,9 @@ func (q *Questions) Rule(ctx context.Context, scope ledger.WorkspaceID, id strin
 			return err
 		}
 		crashpoint.Hit("question.rule", "decided")
-		step := questions.Step{Rung: question.Rung, Candidates: record.Citations, Outcome: string(record.Status)}
+		step := questions.Step{
+			Rung: question.Rung, Candidates: record.Citations, Outcome: string(record.Status), By: actor.ID, Decision: record.ID, Rationale: record.Rationale,
+		}
 		question.LadderTrace = append(question.LadderTrace, step)
 		question.Status, question.DecisionID, question.ClaimedBy, question.ClaimUntil = questions.StatusAnswered, record.ID, "", 0
 		return q.closeQuestion(tx, question, actor)

@@ -101,6 +101,9 @@ func (q Question) Direct() bool { return q.EscalationReason == ReasonPlannerAske
 // OutcomeMerged is the ladder step of a question closed in favor of one that stays.
 const OutcomeMerged = "merged"
 
+// OutcomeAnswered is the ladder step of a question an orchestrator answered from a decision the record holds.
+const OutcomeAnswered = "answered"
+
 // MergedInto names the question that took this one's place, because whoever waits on this
 // one waits on that answer now.
 func (q Question) MergedInto() (string, bool) {
