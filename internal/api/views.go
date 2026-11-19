@@ -255,15 +255,17 @@ type NeedItem struct {
 // worker's machine, where its creation stands, and why it stopped. State is one of the RepositoryCreation constants, and
 // a running creation offers no action. Actions says what the member can do.
 type RepositoryCreationNeed struct {
-	Approval     string   `json:"approval"`
-	Plan         string   `json:"plan"`
-	PlanVersion  int64    `json:"plan_version"`
-	Name         string   `json:"name"`
-	ManifestPath string   `json:"manifest_path"`
-	Path         string   `json:"path,omitempty"`
-	State        string   `json:"state"`
-	Reason       string   `json:"reason,omitempty"`
-	Actions      []string `json:"actions"`
+	Approval     string `json:"approval"`
+	Plan         string `json:"plan"`
+	PlanVersion  int64  `json:"plan_version"`
+	Name         string `json:"name"`
+	ManifestPath string `json:"manifest_path"`
+	Path         string `json:"path,omitempty"`
+	State        string `json:"state"`
+	Reason       string `json:"reason,omitempty"`
+	// Creation is what the creation did before it stopped, when it did anything.
+	Creation *ledger.CreationOutcome `json:"creation,omitempty"`
+	Actions  []string                `json:"actions"`
 }
 
 // SpendNeed is a work order a hard spend limit parked, with what a member reads before deciding: what it is charged

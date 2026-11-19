@@ -33,11 +33,14 @@ var opExempt = map[string]string{
 var opGaps = map[string]string{
 	// Raising the project's daily or weekly limit is not on a page yet; SP4 builds it (ADR-0037).
 	authority.OpSpendRaiseProject: "SP4",
+	// Retrying and skipping a repository creation are not on a page yet; CR7 builds them.
+	authority.OpPlanRepositoryRetry: "CR7",
+	authority.OpPlanRepositorySkip:  "CR7",
 }
 
 var (
 	placeholder = regexp.MustCompile(`\{[^}]*\}`)
-	gapSlice    = regexp.MustCompile(`^(U2[a-k]|P[345][a-j]|SP[1-9])[12]?$`)
+	gapSlice    = regexp.MustCompile(`^(U2[a-k]|P[345][a-j]|SP[1-9]|CR[1-9])[12]?$`)
 )
 
 // shape is a route's pattern with every placeholder unnamed, so two patterns compare whatever each calls
@@ -107,7 +110,7 @@ func TestEveryOperationHasAWebRoute(t *testing.T) {
 			t.Errorf("opGaps names %s, which the class table lacks", id)
 		}
 		if !gapSlice.MatchString(slice) {
-			t.Errorf("opGaps names %s as %q, which is no slice of U2", id, slice)
+			t.Errorf("opGaps names %s as %q, which is no slice of U2, P3, P4, P5, SP, or CR", id, slice)
 		}
 	}
 }

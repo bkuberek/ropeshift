@@ -2,6 +2,8 @@ package server
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"net/http"
 
 	"ropeshift.com/ropeshift/internal/api"
@@ -10,12 +12,15 @@ import (
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/planning"
 	"ropeshift.com/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/workorders"
 )
 
 func (h *handler) approvalRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/approvals", h.listApprovals)
 	mux.HandleFunc("GET /v1/approvals/{id}", h.showApproval)
 	mux.HandleFunc("POST /v1/approvals/{id}/decide", h.member(h.decideApproval))
+	mux.HandleFunc("POST /v1/approvals/{id}/repositories/{name}/retry", h.member(h.retryRepository))
+	mux.HandleFunc("POST /v1/approvals/{id}/repositories/{name}/skip", h.member(h.skipRepository))
 }
 
 func (h *handler) listApprovals(w http.ResponseWriter, r *http.Request) {
@@ -108,6 +113,50 @@ func (h *handler) registerApproved(ctx context.Context, record authority.Approva
 		decided.Repositories = addedViews(added)
 	}
 	return decided
+}
+
+// retryRepository runs the creation of one repository an approved plan version names again, as a member's word. A member who
+// closes the page or interrupts the command does not stop it.
+func (h *handler) retryRepository(w http.ResponseWriter, r *http.Request, actor ledger.Actor) {
+	if h.Checkouts == nil {
+		fail(w, fmt.Errorf("%w: this daemon runs no worker, so it creates and registers nothing", workorders.ErrIllegalMove))
+		return
+	}
+	ctx := context.WithoutCancel(r.Context())
+	id := r.PathValue("id")
+	added, err := h.repositories.RetryCreation(ctx, h.Scope, id, r.PathValue("name"), h.Checkouts, h.Creator, h.projectName(ctx), actor)
+	h.answerRepository(w, ctx, id, added, err)
+}
+
+// skipRepository records that a member chose to leave one repository an approved plan version names uncreated, with why.
+func (h *handler) skipRepository(w http.ResponseWriter, r *http.Request, actor ledger.Actor) {
+	var in api.SkipRepository
+	if !decode(w, r, &in) {
+		return
+	}
+	id := r.PathValue("id")
+	added, err := h.repositories.SkipCreation(r.Context(), h.Scope, id, r.PathValue("name"), in.Reason, actor)
+	h.answerRepository(w, r.Context(), id, added, err)
+}
+
+// answerRepository answers a retry or a skip with the approval and what its registration holds now. A refusal is the
+// answer itself, and an error a run met after it began is told beside the registration, as a decision tells it.
+func (h *handler) answerRepository(w http.ResponseWriter, ctx context.Context, id string, added []control.Added, err error) {
+	refused := errors.Is(err, workorders.ErrIllegalMove) || errors.Is(err, workorders.ErrForbidden) || errors.Is(err, workorders.ErrInvalid) || errors.Is(err, ports.ErrNotFound)
+	if err != nil && (refused || added == nil) {
+		fail(w, err)
+		return
+	}
+	record, getErr := h.approvals.Get(ctx, h.Scope, id)
+	if getErr != nil {
+		fail(w, getErr)
+		return
+	}
+	decided := api.ApprovalDecided{Approval: record, Repositories: addedViews(added)}
+	if err != nil {
+		decided.RepositoriesProblem = "creating the repository failed: " + err.Error()
+	}
+	reply(w, http.StatusOK, decided)
 }
 
 // projectName is the name of the project a call is for, as its path names it, or else as the installation's registry
