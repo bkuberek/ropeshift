@@ -80,6 +80,16 @@ const (
 	// store or of the worker's checkouts stopped the run before it, so nothing says what would have become
 	// of it. A later approval, or a member's registration by hand, registers it.
 	NotAttempted RepositoryOutcome = "not_attempted"
+	// Created is a repository a plan approval created on its forge and then registered.
+	Created RepositoryOutcome = "created"
+	// Planned is a manifest entry with `create` that no work order of the plan version names in `repo`, so
+	// approving the version creates and registers nothing for it.
+	Planned RepositoryOutcome = "planned"
+	// CreateFailed is a creation that stopped at a step that failed, keeping what it made, and registered
+	// nothing.
+	CreateFailed RepositoryOutcome = "create_failed"
+	// Skipped is a creation a member chose to leave undone, with a reason.
+	Skipped RepositoryOutcome = "skipped"
 )
 
 // MergeMethod is how a pull request lands on its base branch.

@@ -8,6 +8,8 @@ import (
 	"ropeshift.com/ropeshift/internal/adapters/fake"
 	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/control"
+	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/planning"
 	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/internal/workorders"
 	"ropeshift.com/ropeshift/test/apitest"
@@ -133,4 +135,79 @@ func TestDocumentsAreReadableAndVersioned(t *testing.T) {
 	}
 	_, err = daemon.Client.Document(t.Context(), api.DocumentRef{Path: "absent.md"})
 	wantRefused(t, err, http.StatusNotFound, api.CodeNotFound)
+}
+
+// manifestPlanText is a plan that lists the platform's manifest.
+const manifestPlanText = "+++\nkind = \"plan\"\nid = \"platform-v1\"\ntitle = \"The platform\"\ndocuments = [\"repositories:platform\"]\n+++\n\nHow.\n"
+
+// manifestEntries are a manifest's billing, whose clone the daemon's worker keeps beside the planning repository's,
+// and web, which approving a version whose work names it creates.
+var manifestEntries = []planning.ManifestRepository{
+	{Name: "billing", Remote: "git@example.invalid:acme/billing.git", Path: "../billing"},
+	{Name: "web", Path: "../web", Create: "github:acme"},
+}
+
+// planningMachine is the daemon's worker's machine, which keeps the planning repository's clone at /work/plan and a
+// clone of billing beside it, on a daemon whose one repository is the planning repository.
+func planningMachine(t *testing.T, options apitest.Options) *apitest.Daemon {
+	t.Helper()
+	machine := fake.NewCheckouts()
+	machine.Place(ports.Clone{Path: "/work/plan", ID: "id-plan", DefaultBranch: "main"})
+	machine.Place(ports.Clone{Path: "/work/billing", ID: "id-billing", Remote: manifestEntries[0].Remote, DefaultBranch: "main"})
+	options.Checkouts = machine
+	d := apitest.StartWith(t, options)
+	planner, err := control.NewRepositories(d.Store).Detect(t.Context(), apitest.Scope, control.DetectedRepository{ID: "id-plan", Directory: "plan", DefaultBranch: "main"},
+		ledger.Actor{Kind: ledger.ActorSystem, ID: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := machine.Keep(t.Context(), apitest.Scope, planner.ID, "/work/plan"); err != nil {
+		t.Fatal(err)
+	}
+	return d
+}
+
+// wantPlannedPreview checks that a plan's waiting version previews billing as registering and web as planned.
+func wantPlannedPreview(t *testing.T, view api.PlanView) {
+	t.Helper()
+	if view.Approval == nil || view.Approval.Registration == nil || !view.Approval.Registration.Preview || len(view.Approval.Registration.Repositories) != 2 {
+		t.Fatalf("the plan previews %+v", view.Approval)
+	}
+	want := map[string]api.RepositoryAdded{
+		"billing": {Name: "billing", ManifestPath: "../billing", Path: "/work/billing", Remote: manifestEntries[0].Remote, Outcome: ledger.Registered},
+		"web": {Name: "web", ManifestPath: "../web", Outcome: ledger.Planned,
+			Reason: "no work order of this version targets web, so approving creates nothing; the approval of a version that gives it work creates it"},
+	}
+	for _, got := range view.Approval.Registration.Repositories {
+		expected := want[got.Name]
+		if got.ManifestPath != expected.ManifestPath || got.Path != expected.Path || got.Remote != expected.Remote || got.Outcome != expected.Outcome || got.Reason != expected.Reason {
+			t.Errorf("the preview of %s reads %+v, want %+v", got.Name, got, expected)
+		}
+	}
+}
+
+// FR-REPO-16: the plan approval page reads, for a version whose manifest lists a repository to create that no
+// work order names, that approving plans it and creates nothing, beside a clone approving registers.
+func TestGoldenPlanWithAPlannedRepository(t *testing.T) {
+	t.Parallel()
+	clock := apitest.NewClock()
+	d := planningMachine(t, apitest.Options{Clock: clock.Dialect})
+	source := fake.NewWorkSource()
+	source.Write("plan.md", []byte(manifestPlanText))
+	source.Write("repositories.md", []byte("+++\nkind = \"repositories\"\nid = \"platform\"\nplan = \"platform-v1\"\n\n[[repository]]\nname = \"billing\"\nremote = \"git@example.invalid:acme/billing.git\"\npath = \"../billing\"\n\n[[repository]]\nname = \"web\"\npath = \"../web\"\ncreate = \"github:acme\"\n+++\n"))
+	source.Write("contract.md", []byte("+++\nkind = \"contract\"\nid = \"alpha\"\ntitle = \"Alpha\"\nplan = \"platform-v1\"\n\n[[criteria]]\nid = \"c1\"\ntext = \"It works\"\n\n[[work_orders]]\nid = \"alpha-order\"\ntitle = \"The work\"\nrepo = \"billing\"\n+++\n\nThe statement.\n"))
+	if _, err := control.NewIntake(d.Store).Poll(t.Context(), apitest.Scope, source); err != nil {
+		t.Fatal(err)
+	}
+	plans, err := d.Client.Plans(t.Context())
+	if err != nil || len(plans) != 1 {
+		t.Fatalf("plans %+v: %v", plans, err)
+	}
+	view, err := d.Client.Plan(t.Context(), plans[0].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantPlannedPreview(t, view)
+	steadySet(&view)
+	holdsGolden(t, "plan-planned", steady(pretty(t, view)))
 }

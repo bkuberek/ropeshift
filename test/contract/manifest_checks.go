@@ -51,6 +51,7 @@ var ManifestChecks = []Check{
 	{"RM25", "a clone of one run that has its own record is matched to it, as it is alone, and not to the record of an earlier clone of the run whose history it merged", checkARunMatchesEachCloneAsItWouldAlone},
 	{"RM24", "two repositories that merged one history are each their own record, whichever registers first, and neither is matched to the record that history made", checkTwoRepositoriesThatMergedOneHistoryAreEachTheirOwn},
 	{"RM6", "a manifest registers only a clone inside the directory that holds the planning repository's clone, symbolic links followed: a path or a link that leads out of it, the planning clone itself, and the installation's own directories register nothing, each refused naming where it leads", checkManifestPathsStayBesideThePlanningClone},
+	{"RM35", "an entry with create that no work order of the version names in repo is planned in the preview and in the approval's record, and nothing is created or registered for it; a later version whose work order names it is not planned", checkUntargetedCreationIsPlanned},
 }
 
 const manifestPlan = "platform-v1"
@@ -1876,6 +1877,159 @@ func checkManifestEntrySharingAFirstCommitIsRefused(r *Rig) error {
 	}
 	if record, err := r.theRepository(s, root); err != nil || record.Name != "billing" || record.Remote != "git@github.com:acme/billing.git" {
 		return Violatedf("the shared first commit's record reads %+v: %v", record, err)
+	}
+	return r.CheckProjection(s)
+}
+
+// createdEntry is a manifest entry for a repository approving creates on GitHub under acme, at a path beside the
+// planning repository's clone. Written as the extra front matter of manifestText, it comes before the entries
+// that name a remote.
+func createdEntry(name string) string {
+	return "\n[[repository]]\nname = \"" + name + "\"\npath = \"../" + name + "\"\ncreate = \"github:acme\"\n"
+}
+
+// plannedReason is the reason an entry with create reads as planned.
+func plannedReason(name string) string {
+	return "no work order of this version targets " + name + ", so approving creates nothing; the approval of a version that gives it work creates it"
+}
+
+// entryOutcome is what a check expects of one entry of a manifest: its outcome, where its path leads, and a
+// text its reason holds.
+type entryOutcome struct {
+	outcome ledger.RepositoryOutcome
+	path    string
+	reason  string
+}
+
+// outcomesAre checks that a run gave one outcome for each entry named, each as expected.
+func outcomesAre(added []control.Added, want map[string]entryOutcome) error {
+	if len(added) != len(want) {
+		return Violatedf("the run reads %q, want an outcome for each of %d entries", outcomesRead(added), len(want))
+	}
+	for name, expected := range want {
+		got, ok := outcomeNamed(added, name)
+		if !ok || got.Outcome != expected.outcome || got.Path != expected.path || !strings.Contains(got.Reason, expected.reason) {
+			return Violatedf("%s reads %+v, want %s at %q with a reason that says %q", name, got, expected.outcome, expected.path, expected.reason)
+		}
+	}
+	return nil
+}
+
+// recordedAre checks that an approval recorded one outcome for each entry named, each as expected.
+func (r *Rig) recordedAre(s ports.Store, approval string, want map[string]entryOutcome) error {
+	record, err := r.registrationOf(s, approval)
+	if err != nil {
+		return err
+	}
+	if record == nil || len(record.Repositories) != len(want) || record.Problem != "" {
+		return Violatedf("the approval recorded %+v, want an outcome for each of %d entries", record, len(want))
+	}
+	for name, expected := range want {
+		at := slices.IndexFunc(record.Repositories, func(o ledger.ManifestOutcome) bool { return o.Name == name })
+		if at < 0 {
+			return Violatedf("the approval recorded nothing of %s: %+v", name, record.Repositories)
+		}
+		got := record.Repositories[at]
+		if got.Outcome != expected.outcome || got.Resolved != expected.path || !strings.Contains(got.Reason, expected.reason) {
+			return Violatedf("the approval recorded %s as %+v, want %s at %q with a reason that says %q", name, got, expected.outcome, expected.path, expected.reason)
+		}
+	}
+	return nil
+}
+
+func checkUntargetedCreationIsPlanned(r *Rig) error {
+	s := r.Store()
+	files, err := r.manifestProject(s)
+	if err != nil {
+		return err
+	}
+	if err := r.readsAsPlanning(s, files); err != nil {
+		return err
+	}
+	files.Write("repositories.md", []byte(manifestText(createdEntry("search")+createdEntry("docs"), "api", "billing")))
+	files.Write("core.md", []byte(placedContract{ID: "core", Plan: manifestPlan, Orders: []orderIn{{ID: "core-1", Repo: "api"}}}.text()))
+	if _, err := r.intake(s, files); err != nil {
+		return err
+	}
+	kept, err := r.planningMachine()
+	if err != nil {
+		return err
+	}
+	kept.Place(cloneOf("billing", "billing"))
+	repositories := r.repositories(s)
+	request, err := r.theOpenPlanApproval(s)
+	if err != nil {
+		return err
+	}
+	want := map[string]entryOutcome{
+		"api":     {outcome: ledger.AlreadyRegistered, path: "/work/api"},
+		"billing": {outcome: ledger.Registered, path: "/work/billing"},
+		"search":  {outcome: ledger.Planned, reason: plannedReason("search")},
+		"docs":    {outcome: ledger.Planned, reason: plannedReason("docs")},
+	}
+	preview, err := repositories.RegisterApproved(r.Ctx, r.Scope, request.ID, kept, true, r.member())
+	if err != nil {
+		return err
+	}
+	if err := outcomesAre(preview, want); err != nil {
+		return Violatedf("the preview: %v", err)
+	}
+	if _, err := r.approve(s, request, true, r.member()); err != nil {
+		return err
+	}
+	added, err := repositories.RegisterApproved(r.Ctx, r.Scope, request.ID, kept, false, r.member())
+	if err != nil {
+		return err
+	}
+	if err := outcomesAre(added, want); err != nil {
+		return Violatedf("approving: %v", err)
+	}
+	if err := r.recordedAre(s, request.ID, want); err != nil {
+		return err
+	}
+	held, err := kept.Of(r.Ctx, r.Scope)
+	if err != nil {
+		return err
+	}
+	for _, name := range []string{"search", "docs"} {
+		if found, err := repositories.Resolve(r.Ctx, r.Scope, name); err == nil {
+			return Violatedf("approving registered %s, which no work order names, as %+v", name, found)
+		}
+		for id, path := range held {
+			if path == "/work/"+name {
+				return Violatedf("approving keeps %s for %s, which no work order names", path, id)
+			}
+		}
+	}
+	// A later version gives search work, so its approval does not read search as planned.
+	files.Write("core.md", []byte(placedContract{ID: "core", Plan: manifestPlan, Orders: []orderIn{{ID: "core-1", Repo: "api"}, {ID: "core-search", Repo: "search"}}}.text()))
+	if _, err := r.intake(s, files); err != nil {
+		return err
+	}
+	later, err := r.theOpenPlanApproval(s)
+	if err != nil {
+		return err
+	}
+	want = map[string]entryOutcome{
+		"api":     {outcome: ledger.AlreadyRegistered, path: "/work/api"},
+		"billing": {outcome: ledger.AlreadyRegistered, path: "/work/billing"},
+		"search":  {outcome: ledger.RegistrationRefused, path: "/work/search", reason: "no git clone is at /work/search"},
+		"docs":    {outcome: ledger.Planned, reason: plannedReason("docs")},
+	}
+	if preview, err = repositories.RegisterApproved(r.Ctx, r.Scope, later.ID, kept, true, r.member()); err != nil {
+		return err
+	}
+	if err := outcomesAre(preview, want); err != nil {
+		return Violatedf("the preview of the version that gives search work: %v", err)
+	}
+	if _, err := r.approve(s, later, true, r.member()); err != nil {
+		return err
+	}
+	if added, err = repositories.RegisterApproved(r.Ctx, r.Scope, later.ID, kept, false, r.member()); err != nil {
+		return err
+	}
+	if err := outcomesAre(added, want); err != nil {
+		return Violatedf("approving the version that gives search work: %v", err)
 	}
 	return r.CheckProjection(s)
 }

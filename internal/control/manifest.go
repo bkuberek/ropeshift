@@ -23,7 +23,8 @@ import (
 // registered, says why, and a later approval or a member's registration by hand registers it. A repository
 // the project holds is named as held, and nothing changes its settings. A repository a member removed stays
 // removed, said with why, by its name, by the remote the entry names, and by the remote its clone has, because
-// only a member's own registration brings one back. Registration is a
+// only a member's own registration brings one back. An entry with `create` that no work order of the version
+// names in `repo` is planned, and the approval creates and registers nothing for it. Registration is a
 // member's act, so only the member who approves a plan runs this, never a tick or a delegate. Until the
 // version is approved it registers nothing, and a dry run, which a member reads before approving, says what
 // approving would register. Approving records the outcome on the approval, which RegistrationOf reads, and
@@ -39,6 +40,7 @@ func (r *Repositories) RegisterApproved(ctx context.Context, scope ledger.Worksp
 		defer r.registering.Unlock()
 	}
 	var entries []planning.ManifestRepository
+	var targets []string
 	var cause registrationCause
 	var recorded *ledger.ManifestRegistration
 	var replayed []Added
@@ -56,10 +58,15 @@ func (r *Repositories) RegisterApproved(ctx context.Context, scope ledger.Worksp
 			}
 		}
 		if row.State == authority.ApprovalApproved || (dryRun && row.Open()) {
-			entries, err = VersionManifest(tx, row)
+			if entries, err = VersionManifest(tx, row); err != nil {
+				return err
+			}
+			if targets, err = VersionTargets(tx, row); err != nil {
+				return err
+			}
 		}
 		cause = registrationCause{Approval: row.ID, Plan: row.Plan, PlanVersion: row.PlanVersion}
-		return err
+		return nil
 	})
 	if err != nil {
 		return nil, err
@@ -75,7 +82,11 @@ func (r *Repositories) RegisterApproved(ctx context.Context, scope ledger.Worksp
 	if len(entries) == 0 {
 		return nil, nil
 	}
-	added, err := r.registerEntries(ctx, scope, entries, kept, manifestRun{dryRun: dryRun, cause: cause}, actor)
+	targeted := map[string]bool{}
+	for _, name := range targets {
+		targeted[name] = true
+	}
+	added, err := r.registerEntries(ctx, scope, entries, kept, manifestRun{dryRun: dryRun, cause: cause, targets: targeted}, actor)
 	if dryRun {
 		return added, err
 	}
@@ -171,15 +182,15 @@ func (r *Repositories) RegisterManifest(ctx context.Context, scope ledger.Worksp
 // manifest that plan version covers. A version the ledger does not hold yet, as a branch nothing has read,
 // names none, and a name two manifests list is read once.
 func VersionManifest(tx ports.ReadTx, row authority.Approval) ([]planning.ManifestRepository, error) {
-	if row.Plan == "" {
-		return nil, nil
-	}
-	version, err := tx.Planning().PlanVersion(row.Plan, row.PlanVersion)
-	if errors.Is(err, ports.ErrNotFound) {
-		return nil, nil
-	}
-	if err != nil || version.Digest != row.SubjectDigest {
+	version, held, err := heldVersion(tx, row)
+	if err != nil {
 		return nil, err
+	}
+	if !held {
+		return nil, nil
+	}
+	if version.Digest != row.SubjectDigest {
+		return nil, nil
 	}
 	var out []planning.ManifestRepository
 	seen := map[string]bool{}
@@ -199,6 +210,110 @@ func VersionManifest(tx ports.ReadTx, row authority.Approval) ([]planning.Manife
 		}
 	}
 	return out, nil
+}
+
+// heldVersion reads the plan version an approval is about, and reports false when the ledger does not hold it.
+func heldVersion(tx ports.ReadTx, row authority.Approval) (planning.PlanVersion, bool, error) {
+	if row.Plan == "" {
+		return planning.PlanVersion{}, false, nil
+	}
+	version, err := tx.Planning().PlanVersion(row.Plan, row.PlanVersion)
+	if errors.Is(err, ports.ErrNotFound) {
+		return planning.PlanVersion{}, false, nil
+	}
+	return version, err == nil, err
+}
+
+// VersionTargets lists the repository names the work orders of one plan version name in `repo`, sorted and once
+// each: of each contract version the plan version covers, the work orders that version lists, each by the name
+// of the repository it targets. A version the ledger does not hold yet names none.
+func VersionTargets(tx ports.ReadTx, row authority.Approval) ([]string, error) {
+	version, held, err := heldVersion(tx, row)
+	if err != nil {
+		return nil, err
+	}
+	if !held {
+		return nil, nil
+	}
+	if version.Digest != row.SubjectDigest {
+		return nil, nil
+	}
+	native, err := readNativeIDs(tx.Planning())
+	if err != nil {
+		return nil, err
+	}
+	var out []string
+	for _, entry := range version.Records {
+		if planning.EntryKind(entry.Ref) != "contract" || entry.Record == "" {
+			continue
+		}
+		contract, found, err := contractAt(tx.Planning(), entry)
+		if err != nil {
+			return nil, err
+		}
+		if !found {
+			continue
+		}
+		listed := map[string]bool{}
+		for _, part := range contract.Orders {
+			listed[part.Ref] = true
+		}
+		orders, err := tx.WorkOrders().ByContract(contract.ID)
+		if err != nil {
+			return nil, err
+		}
+		for _, order := range orders {
+			if !listed["work_order:"+native[nativeKey(workorders.SubjectKind, order.ID)]] {
+				continue
+			}
+			name, err := targetOf(tx.Repositories(), order)
+			if err != nil {
+				return nil, err
+			}
+			if name != "" {
+				out = append(out, name)
+			}
+		}
+	}
+	slices.Sort(out)
+	return slices.Compact(out), nil
+}
+
+// targetOf is the name of the repository a work order targets: the name its contract gave while the project
+// holds none by it, or else the name of the repository it holds.
+func targetOf(repositories ports.RepositoryReader, order workorders.WorkOrder) (string, error) {
+	if order.UnknownRepository != "" || order.RepositoryID == "" {
+		return order.UnknownRepository, nil
+	}
+	record, err := repositories.Repository(order.RepositoryID)
+	if errors.Is(err, ports.ErrNotFound) {
+		return "", nil
+	}
+	return record.Name, err
+}
+
+// contractAt reads the version of a contract a plan version names by its record and digest.
+func contractAt(planned ports.PlanningReader, entry planning.Entry) (planning.Contract, bool, error) {
+	latest, err := planned.LatestContract(entry.Record)
+	if errors.Is(err, ports.ErrNotFound) {
+		return planning.Contract{}, false, nil
+	}
+	if err != nil {
+		return planning.Contract{}, false, err
+	}
+	for version := latest.Version; version >= 1; version-- {
+		held, err := planned.Contract(entry.Record, version)
+		if errors.Is(err, ports.ErrNotFound) {
+			continue
+		}
+		if err != nil {
+			return planning.Contract{}, false, err
+		}
+		if held.Digest == entry.Digest {
+			return held, true, nil
+		}
+	}
+	return planning.Contract{}, false, nil
 }
 
 // manifestAt reads the version of a manifest an approved plan version names by its digest.
@@ -360,6 +475,10 @@ func (r *Repositories) registerEntry(ctx context.Context, scope ledger.Workspace
 	if record, ok := run.removedAt(entry.Remote); ok && !run.restore {
 		return refused(at, staysRemoved(record)), nil
 	}
+	if run.planned(entry) {
+		return Added{Outcome: ledger.Planned, Reason: fmt.Sprintf(
+			"no work order of this version targets %s, so approving creates nothing; the approval of a version that gives it work creates it", entry.Name)}, nil
+	}
 	if dir.root == "" {
 		return refused(at, run.why), nil
 	}
@@ -407,6 +526,15 @@ type manifestRun struct {
 	restore bool
 	// cause is what each registration's event names it came from.
 	cause registrationCause
+	// targets are the repository names the work orders of the plan version give in `repo`, for a run of a plan
+	// approval, and nil for a manifest a member registers by hand.
+	targets map[string]bool
+}
+
+// planned says an entry with `create` is one no work order of the run's plan version names, so the version's
+// approval creates and registers nothing for it.
+func (run manifestRun) planned(entry planning.ManifestRepository) bool {
+	return entry.Create != "" && run.targets != nil && !run.targets[entry.Name]
 }
 
 // staysRemoved says why a repository a member removed is not registered again.

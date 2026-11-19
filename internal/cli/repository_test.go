@@ -518,6 +518,33 @@ func platformPlan(t *testing.T) (*session, string) {
 	return s, plans[0].ID
 }
 
+// FR-REPO-16: an entry that asks for its repository to be created, which no work order of the version names in
+// `repo`, is planned before and after approval, and approving registers nothing for it.
+func TestPlanShowSaysAnEntryNoWorkOrderTargetsIsPlanned(t *testing.T) {
+	s := platformMachine(t)
+	source := fake.NewWorkSource()
+	source.Write("plan.md", []byte("+++\nkind = \"plan\"\nid = \"platform-v1\"\ntitle = \"The platform\"\ndocuments = [\"repositories:platform\"]\n+++\n\nHow.\n"))
+	source.Write("repositories.md", []byte(strings.Replace(platformManifest("platform-v1"), "+++\n\nThe platform's", "\n[[repository]]\nname = \"web\"\npath = \"../web\"\ncreate = \"github:acme\"\n+++\n\nThe platform's", 1)))
+	s.poll(source)
+	plans, err := s.daemon.Client.Plans(t.Context())
+	if err != nil || len(plans) != 1 {
+		t.Fatalf("plans %+v: %v", plans, err)
+	}
+	planned := "planned\tweb\t../web\t-\t-\tno work order of this version targets web, so approving creates nothing; the approval of a version that gives it work creates it\n"
+	if shown := s.must("plan", "show", plans[0].ID); !strings.Contains(shown, "  repositories approving would register, read now on the daemon's worker's machine:\n") || !strings.Contains(shown, "    "+planned) {
+		t.Errorf("plan show lacks the planned line %q:\n%s", planned, shown)
+	}
+	if text := s.must("plan", "approve", plans[0].ID); !strings.Contains(text, "\n"+planned) {
+		t.Errorf("approve lacks the planned line %q:\n%s", planned, text)
+	}
+	if shown := s.must("plan", "show", plans[0].ID); !strings.Contains(shown, "  repositories this approval registered:\n") || !strings.Contains(shown, "    "+planned) {
+		t.Errorf("plan show after approval lacks the planned line %q:\n%s", planned, shown)
+	}
+	if list := s.must("repository", "list"); strings.Contains(list, "web") {
+		t.Errorf("approving registered web, which no work order names:\n%s", list)
+	}
+}
+
 // With --json the command prints the one document of the decision and nothing before it, so a script reads it
 // whole; the preview is for a terminal.
 func TestPlanApproveJSONPrintsOneDocument(t *testing.T) {
