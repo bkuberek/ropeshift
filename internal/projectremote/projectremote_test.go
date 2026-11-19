@@ -998,3 +998,29 @@ func TestARetryMakesAFailedFirstCommitAgain(t *testing.T) {
 		t.Errorf("steps after the retry = %s", got)
 	}
 }
+
+// A job branch that holds whitespace git takes in a name, such as a no-break space, is passed over as a branch git
+// gives no ref a person can type: the commands left name the default branch instead.
+func TestAJobBranchWithWhitespaceIsPassedOver(t *testing.T) {
+	m := newMachine()
+	m.folders.SetDefaultBranch("devel")
+	m.folders.CommitError = errors.New("Author identity unknown")
+	branch := "ma\u00a0in"
+	job := projectremote.Job{Request: monorepo(create("test")), NeedsRepository: true, Branch: branch}
+	progress := &projectremote.Progress{}
+	if _, err := projectremote.Start(t.Context(), m.runtime, job, progress); err != nil {
+		t.Fatal(err)
+	}
+	report, err := projectremote.Finish(t.Context(), m.runtime, job, progress, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, line := range append(slices.Clone(report.Commands), report.Remaining...) {
+		if strings.Contains(line, branch) {
+			t.Errorf("the branch with a no-break space reaches %q", line)
+		}
+	}
+	if !slices.Contains(report.Remaining, "git -C /srv/acme push --set-upstream origin -- devel") {
+		t.Errorf("remaining is %v, want a push of the default branch devel", report.Remaining)
+	}
+}

@@ -83,6 +83,16 @@ func TestABranchNameHoldsNoHiddenCharacter(t *testing.T) {
 	}
 }
 
+// A branch name that holds whitespace of any kind, a no-break or an ideographic space as much as an ASCII one, splits
+// or reads as another name in a command a person copies, so it is refused.
+func TestABranchNameHoldsNoWhitespace(t *testing.T) {
+	for _, name := range []string{"ma in", "ma\u00a0in", "ma\u2003in", "main\u3000"} {
+		if err := CheckBranch(name); !errors.Is(err, ErrInvalidRepository) {
+			t.Errorf("%q: %v", name, err)
+		}
+	}
+}
+
 func TestANewRepositoryLeavesEveryMergeToThePerson(t *testing.T) {
 	r := NewRepository("r")
 	if r.MergeAuthority != PersonMerges {

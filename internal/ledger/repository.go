@@ -328,9 +328,13 @@ func CheckBranch(name string) error {
 		if r <= ' ' || r == 0x7f || strings.ContainsRune(forbiddenInBranch, r) {
 			return bad("holds a character git refuses")
 		}
-		// A bidirectional override or a zero-width character makes the name read as another in what ropeshift prints.
+		// A bidirectional override or a zero-width character makes the name read as another in what ropeshift prints,
+		// and whitespace of any kind splits it or reads as a plain space in a command a person copies.
 		if HiddenRune(r) {
 			return bad("holds a character that is not seen")
+		}
+		if unicode.IsSpace(r) {
+			return bad("holds whitespace")
 		}
 	}
 	for part := range strings.SplitSeq(name, "/") {
