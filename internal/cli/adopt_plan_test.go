@@ -129,6 +129,37 @@ func TestAdoptDryRunOfAWorkspaceListsTheConsolidation(t *testing.T) {
 	}
 }
 
+// A path the design repository holds under another case than the workspace is one collision, which the dry run lists
+// under the workspace's spelling with the design repository's spelling beside it, and the JSON plan carries both.
+func TestAdoptDryRunListsACaseVariantAsOneCollisionNamingBothSpellings(t *testing.T) {
+	a := newAdoption(t)
+	a.aWorkspace()
+	a.in.Layouts.Set(workspaceClone.Path, fake.CloneLayout{Ignored: []string{"repos"}, Tracked: []string{".gitignore", "Makefile", "README.md"}})
+	a.in.Layouts.Set(designClone.Path, fake.CloneLayout{Plan: ports.PlanContent{Files: 1}, Tracked: []string{".GITIGNORE", "makefile", "plan/goal.md"}})
+	code, stdout, stderr := a.runIn(workspaceClone, "", "adopt", "--dry-run")
+	if code != cli.ExitOK {
+		t.Fatalf("exit %d: %s", code, stderr)
+	}
+	for _, want := range []string{
+		"collision\tMakefile\tworkspace\tthe design repository spells it makefile", "collision\t.gitignore\tunion\tthe design repository spells it .GITIGNORE",
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Errorf("the dry run printed no %q:\n%s", want, stdout)
+		}
+	}
+	if strings.Contains(stdout, "take\tmakefile") {
+		t.Errorf("a case variant is listed as taken:\n%s", stdout)
+	}
+	want := []planning.Collision{
+		{Path: ".gitignore", DesignPath: ".GITIGNORE", Kept: planning.KeptUnion}, {Path: "Makefile", DesignPath: "makefile", Kept: planning.KeptWorkspace},
+	}
+	got := a.plan(workspaceClone).Collisions
+	slices.SortFunc(got, func(x, y planning.Collision) int { return strings.Compare(x.Path, y.Path) })
+	if !slices.Equal(got, want) {
+		t.Errorf("the JSON plan reads the collisions %+v, want %+v", got, want)
+	}
+}
+
 // A ropeshift adopt names no restructuring by default, and one that asks for it in a layout with nothing to
 // restructure is a usage error naming the shape, before anything is made.
 func TestAdoptRestructureOfASingleRepositoryWithItsInstructionsIsAUsageError(t *testing.T) {

@@ -84,7 +84,11 @@ func adoptionPlanText(plan planning.AdoptionPlan) string {
 		fmt.Fprintf(&out, "take\t%s\n", path)
 	}
 	for _, collision := range plan.Collisions {
-		fmt.Fprintf(&out, "collision\t%s\t%s\n", collision.Path, collision.Kept)
+		fmt.Fprintf(&out, "collision\t%s\t%s", collision.Path, collision.Kept)
+		if collision.DesignPath != "" {
+			fmt.Fprintf(&out, "\tthe design repository spells it %s", collision.DesignPath)
+		}
+		out.WriteString("\n")
 	}
 	for _, tree := range plan.CodeTrees {
 		fmt.Fprintf(&out, "code tree\t%s\t%s", tree.Path, tree.BuildFile)

@@ -199,7 +199,7 @@ func (r *laneRun) tellConsolidation(ctx context.Context, worktree string, made p
 	}
 	// The design repository's instruction files are the ones at its top in any case, under the names it holds them by.
 	for _, name := range instructionFiles {
-		if at := slices.IndexFunc(theirs, func(tracked string) bool { return strings.EqualFold(tracked, name) }); at >= 0 {
+		if at := slices.IndexFunc(theirs, func(tracked string) bool { return planning.FoldPath(tracked) == planning.FoldPath(name) }); at >= 0 {
 			done.Consolidated.Instructions = append(done.Consolidated.Instructions, theirs[at])
 		}
 	}
@@ -209,7 +209,7 @@ func (r *laneRun) tellConsolidation(ctx context.Context, worktree string, made p
 		done.Files = []string{"AGENTS.md", "CLAUDE.md"}
 	}
 	// The manifest is the worker's, and a design repository that brought its own at the same path made it its own.
-	if slices.Contains(made.Files, planning.ManifestPath) && !slices.Contains(takes, planning.ManifestPath) {
+	if adoption.Holds(made.Files, planning.ManifestPath) && !adoption.Holds(takes, planning.ManifestPath) {
 		project, err := r.projectLabel(ctx)
 		if err != nil {
 			return r.failStart(workorders.ReasonSpawnFailed, err), true

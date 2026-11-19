@@ -325,6 +325,7 @@ func aConsolidated() *Restructured {
 			Design: "design", SecondParent: "c0ffee1234567890abcdef1234567890abcdef12",
 			Collisions: []planning.Collision{
 				{Path: ".gitignore", Kept: planning.KeptUnion}, {Path: "AGENTS.md", Kept: planning.KeptWorkspace}, {Path: "README.md", Kept: planning.KeptWorkspace},
+				{Path: "Makefile", DesignPath: "makefile", Kept: planning.KeptWorkspace}, {Path: ".GITIGNORE", DesignPath: ".gitignore", Kept: planning.KeptUnion},
 			},
 			LeftOut: []string{"tools"}, Instructions: []string{"AGENTS.md", "CLAUDE.md"},
 		},
@@ -340,6 +341,8 @@ func TestAnAdoptBriefTellsTheMergeItsSecondParentTheCollisionsAndTheInstructions
 	for _, want := range []string{
 		"5d3c0e8a9f1b2c4d6e7f8091a2b3c4d5e6f70812", planning.ImportCommitSubject("design"), "second parent", "c0ffee1234567890abcdef1234567890abcdef12",
 		"- .gitignore, the lines of both files", "- AGENTS.md, this repository's version", "- README.md, this repository's version",
+		"- Makefile, this repository's version, which the design repository spells makefile: `git show c0ffee1234567890abcdef1234567890abcdef12:makefile`",
+		"- .GITIGNORE, the lines of both files, this repository's first, which the design repository spells .gitignore: `git show c0ffee1234567890abcdef1234567890abcdef12:.gitignore`",
 		"- tools", "git show c0ffee1234567890abcdef1234567890abcdef12:AGENTS.md", "git show c0ffee1234567890abcdef1234567890abcdef12:CLAUDE.md",
 		"one commit", "keeping both sets of rules", "ask the person about each contradiction", "`repositories:shop`",
 	} {

@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path"
 	"path/filepath"
 	"slices"
 	"strings"
 
+	"ropeshift.com/ropeshift/internal/planning"
 	"ropeshift.com/ropeshift/internal/ports"
 )
 
@@ -21,8 +23,43 @@ var pathsLiterally = []string{"GIT_LITERAL_PATHSPECS=1"}
 // the length of a command line.
 const pathBatch = 200
 
-// ignoreFile is the one path both histories may hold that a merge unites and does not keep the branch's version of.
+// ignoreFile is the one path both histories may hold that a merge unites and does not keep the branch's version of,
+// in whatever case either history spells it.
 const ignoreFile = ".gitignore"
+
+// counterparts says, for each path the history holds that the branch holds too, the branch's spelling of it: the
+// path itself when the branch holds it exactly, and else the first of the branch's spellings that differs from it
+// only in case, so that a branch holding two spellings of a path keeps both.
+func counterparts(ours, theirs map[string]treeEntry) map[string]string {
+	first := make(map[string]string, len(ours))
+	for name := range ours {
+		folded := planning.FoldPath(name)
+		if held, found := first[folded]; !found || name < held {
+			first[folded] = name
+		}
+	}
+	held := map[string]string{}
+	for name := range theirs {
+		if _, exact := ours[name]; exact {
+			held[name] = name
+		} else if mine, found := first[planning.FoldPath(name)]; found {
+			held[name] = mine
+		}
+	}
+	return held
+}
+
+// caseVariants lists the paths the history holds under another case than the branch holds the same path, each with
+// the branch's spelling.
+func caseVariants(ours, theirs map[string]treeEntry) map[string]string {
+	variants := map[string]string{}
+	for name, mine := range counterparts(ours, theirs) {
+		if mine != name {
+			variants[name] = mine
+		}
+	}
+	return variants
+}
 
 // ImportHistory merges the history of another repository into a worktree's branch (FR-ADOPT-13). It reads the
 // source with `git fetch`, which writes nothing to it, and merges as `git merge --allow-unrelated-histories
@@ -235,52 +272,88 @@ func inBatches(paths []string, run func(batch []string) error) error {
 	return nil
 }
 
-// settleCollisions keeps the branch's version of every path both histories hold with different content, except the
+// settleCollisions keeps the branch's version of every path both histories hold with different content, except an
 // ignore file, which becomes the branch's lines followed by each of the history's lines the branch lacks, in order.
+// A path the history holds under another case than the branch is the branch's path: the history's spelling is
+// dropped from the merge, and the branch's file is written back, because on a file system that ignores case the
+// merge wrote the history's text over it. An ignore file the history spells in another case is united with the
+// branch's spelling.
 func settleCollisions(ctx context.Context, git Git, ours, theirs map[string]treeEntry) error {
-	var kept []string
-	for name, held := range ours {
-		if other, both := theirs[name]; both && other != held && name != ignoreFile {
+	held := counterparts(ours, theirs)
+	var kept, dropped, united []string
+	for name, mine := range held {
+		switch {
+		case mine != name:
+			dropped = append(dropped, name)
+			kept = append(kept, mine)
+		case ours[name] != theirs[name] && planning.FoldPath(name) != ignoreFile:
 			kept = append(kept, name)
 		}
+		if planning.FoldPath(name) == ignoreFile && ours[mine] != theirs[name] {
+			united = append(united, name)
+		}
 	}
+	slices.Sort(dropped)
 	slices.Sort(kept)
+	slices.Sort(united)
+	kept = slices.Compact(kept)
+	if err := inBatches(dropped, func(batch []string) error {
+		_, err := git.Output(ctx, append([]string{"rm", "--quiet", "--force", "--"}, batch...)...)
+		return err
+	}); err != nil {
+		return err
+	}
 	if err := inBatches(kept, func(batch []string) error {
 		_, err := git.Output(ctx, append([]string{"checkout", "--quiet", "HEAD", "--"}, batch...)...)
 		return err
 	}); err != nil {
 		return err
 	}
-	mine, both := ours[ignoreFile]
-	other, there := theirs[ignoreFile]
-	if !both || !there || mine == other {
-		return nil
+	return uniteIgnoreFiles(ctx, git, ours, theirs, held, united)
+}
+
+// uniteIgnoreFiles writes each ignore file of the history, named in united, into the branch's spelling of it.
+func uniteIgnoreFiles(ctx context.Context, git Git, ours, theirs map[string]treeEntry, held map[string]string, united []string) error {
+	texts := map[string]string{}
+	for _, name := range united {
+		at := held[name]
+		if _, begun := texts[at]; !begun {
+			first, err := git.Output(ctx, "cat-file", "blob", ours[at].object)
+			if err != nil {
+				return err
+			}
+			texts[at] = string(first)
+		}
+		second, err := git.Output(ctx, "cat-file", "blob", theirs[name].object)
+		if err != nil {
+			return err
+		}
+		texts[at], _ = withLines(texts[at], strings.Split(strings.TrimSuffix(string(second), "\n"), "\n"))
 	}
-	first, err := git.Output(ctx, "cat-file", "blob", mine.object)
-	if err != nil {
-		return err
+	for _, at := range slices.Sorted(maps.Keys(texts)) {
+		if err := refuseLinks(git.Dir, at); err != nil {
+			return err
+		}
+		if err := writeAtomic(filepath.Join(git.Dir, at), []byte(texts[at])); err != nil {
+			return err
+		}
+		if _, err := git.Output(ctx, "add", "--", at); err != nil {
+			return err
+		}
 	}
-	second, err := git.Output(ctx, "cat-file", "blob", other.object)
-	if err != nil {
-		return err
-	}
-	text, _ := withLines(string(first), strings.Split(strings.TrimSuffix(string(second), "\n"), "\n"))
-	if err := refuseLinks(git.Dir, ignoreFile); err != nil {
-		return err
-	}
-	if err := writeAtomic(filepath.Join(git.Dir, ignoreFile), []byte(text)); err != nil {
-		return err
-	}
-	_, err = git.Output(ctx, "add", "--", ignoreFile)
-	return err
+	return nil
 }
 
 // removeLeftOut removes from the merge what the history holds inside each tree left out, and no path the branch
-// held, so a tree left out never takes a file of the workspace with it.
+// held, in any case, so a tree left out never takes a file of the workspace with it.
 func removeLeftOut(ctx context.Context, git Git, ours, theirs map[string]treeEntry, trees []string) error {
+	variants := caseVariants(ours, theirs)
 	var removed []string
 	for name := range theirs {
 		if _, held := ours[name]; held {
+			continue
+		}
+		if _, variant := variants[name]; variant {
 			continue
 		}
 		if slices.ContainsFunc(trees, func(tree string) bool { return name == tree || strings.HasPrefix(name, path.Clean(tree)+"/") }) {

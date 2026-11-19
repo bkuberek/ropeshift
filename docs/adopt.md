@@ -188,10 +188,12 @@ Every design commit keeps its ID, so `git log` and `git blame` on a design file 
 
 | Path | What the merge commit keeps |
 |------|-----------------------------|
-| `.gitignore` | The workspace's lines, followed by each of the design repository's lines the workspace lacks, in order |
-| Any other path both hold | The workspace's version. The design repository's version stays in the merge's second parent, which `git show <second parent>:<path>` reads |
+| `.gitignore`, in any case | The workspace's lines, followed by each of the design repository's lines the workspace lacks, in order |
+| Any other path both hold | The workspace's version, and its spelling. The design repository's version stays in the merge's second parent, which `git show <second parent>:<path>` reads |
 
-The dry run lists each of these paths as a `collision` with the version kept, and each path the merge takes from the design repository as a `take`. A path the design repository holds beside a path the workspace holds as a folder, or the reverse, cannot be kept apart by keeping a version, and the work fails with the path named and the worktree as it was.
+A path the workspace holds exactly is the path both hold. Otherwise two whole paths that differ only in case are one path: `AGENTS.md` in the workspace and `agents.md` in the design repository collide, as do `Makefile` and `makefile`, `.gitignore` and `.GITIGNORE`, and `Docs/guide.md` and `docs/guide.md`. The merge commit holds the workspace's spelling alone, and the design repository's spelling stays in the second parent, so `git show <second parent>:<design spelling>` reads its version. Paths are compared whole, so `Docs/a.md` and `docs/b.md` do not collide, and the two folder spellings both arrive. A name is folded as a whole string, and a name in a different Unicode normalization form is another path.
+
+The dry run lists each of these paths as a `collision` with the version kept, under the workspace's spelling, and with the design repository's spelling when it differs. It lists each path the merge takes from the design repository as a `take`. A path the design repository holds beside a path the workspace holds as a folder, or the reverse, cannot be kept apart by keeping a version, and the work fails with the path named and the worktree as it was.
 
 ### Code trees you leave out
 

@@ -494,3 +494,82 @@ func TestALaterGenerationReportsNoImportWhenTheRecordedMergeIsOffTheBranch(t *te
 		t.Errorf("the second generation moved the branch from %s to %s", forged, now)
 	}
 }
+
+// A design repository that holds paths the workspace holds under another case brings none of them: on a file system
+// that ignores case each would overwrite the workspace's file, so the merge keeps the workspace's file and its
+// spelling, the ignore file is the union of both, and the brief is told the workspace's spelling.
+func TestAGitConsolidationReadsCaseVariantsAsCollisions(t *testing.T) {
+	t.Parallel()
+	w := newEmptyGitWorkspace(t)
+	w.clone("ws", map[string]string{
+		"README.md": "a workspace\n", ".gitignore": "repos/\nnode_modules/\n", "AGENTS.md": "workspace rules\n", "Makefile": "all:\n\t@echo workspace\n",
+	})
+	w.clone("ws/repos/design", map[string]string{
+		"README.md": "the design\n", ".GITIGNORE": "repos/\ndist/\n", "agents.md": "design rules\n", "makefile": "all:\n\t@echo design\n",
+		"docs/vision.md": "# Vision\n", "plan/goal.md": goalFile,
+	})
+	w.clone("ws/repos/api", map[string]string{"go.mod": "module api\n", "README.md": "api\n"})
+	w.begin("ws/repos/api")
+	run := w.consolidate()
+	if report, failed := run.restructure(t.Context(), w.path("ws"), w.lane); failed {
+		t.Fatalf("the restructuring failed: %+v", report)
+	}
+	for name, want := range map[string]string{
+		"AGENTS.md": "workspace rules\n", "Makefile": "all:\n\t@echo workspace\n", ".gitignore": "repos/\nnode_modules/\ndist/\n/.ropeshift/worktrees/\n",
+	} {
+		if got := w.readLane(name); got != want {
+			t.Errorf("%s reads %q, want %q", name, got, want)
+		}
+	}
+	tracked := strings.Fields(w.git(w.lane, "ls-tree", "-r", "--name-only", "HEAD"))
+	for _, name := range []string{"agents.md", "makefile", ".GITIGNORE"} {
+		if slices.Contains(tracked, name) {
+			t.Errorf("the merge commit holds %s:\n%v", name, tracked)
+		}
+	}
+	if status := w.git(w.lane, "status", "--porcelain"); status != "" {
+		t.Errorf("the worktree is dirty:\n%s", status)
+	}
+	told := run.restructuredOf()
+	if told == nil || told.Consolidated == nil {
+		t.Fatalf("the brief is told %+v", told)
+	}
+	got := slices.Clone(told.Consolidated.Collisions)
+	slices.SortFunc(got, func(a, b planning.Collision) int { return strings.Compare(a.Path, b.Path) })
+	want := []planning.Collision{
+		{Path: ".gitignore", DesignPath: ".GITIGNORE", Kept: planning.KeptUnion}, {Path: "AGENTS.md", DesignPath: "agents.md", Kept: planning.KeptWorkspace},
+		{Path: "Makefile", DesignPath: "makefile", Kept: planning.KeptWorkspace}, {Path: "README.md", Kept: planning.KeptWorkspace},
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("the brief is told the collisions %+v, want %+v", got, want)
+	}
+}
+
+// A manifest the design repository brings under another case of its folder is the design's own, so the worker
+// writes none beside it and the brief names none as the worker's.
+func TestAGitConsolidationWhoseDesignBringsAManifestUnderAnotherCase(t *testing.T) {
+	t.Parallel()
+	w := newEmptyGitWorkspace(t)
+	w.clone("ws", map[string]string{"README.md": "a workspace\n", ".gitignore": "repos/\n", "AGENTS.md": "workspace rules\n"})
+	w.clone("ws/repos/design", map[string]string{
+		"README.md": "the design\n", "Plan/repositories.md": "+++\nkind = \"repositories\"\n+++\n", "docs/vision.md": "# Vision\n",
+	})
+	w.clone("ws/repos/api", map[string]string{"go.mod": "module api\n", "README.md": "api\n"})
+	w.begin("ws/repos/api")
+	run := w.consolidate()
+	if report, failed := run.restructure(t.Context(), w.path("ws"), w.lane); failed {
+		t.Fatalf("the restructuring failed: %+v", report)
+	}
+	var manifests []string
+	for _, name := range strings.Fields(w.git(w.lane, "ls-tree", "-r", "--name-only", "HEAD")) {
+		if strings.EqualFold(name, planning.ManifestPath) {
+			manifests = append(manifests, name)
+		}
+	}
+	if !slices.Equal(manifests, []string{"Plan/repositories.md"}) {
+		t.Errorf("the merge commit holds the manifests %v", manifests)
+	}
+	if told := run.restructuredOf(); told == nil || told.Manifest != "" {
+		t.Errorf("the brief is told %+v", told)
+	}
+}

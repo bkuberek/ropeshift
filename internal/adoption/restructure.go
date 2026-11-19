@@ -200,13 +200,21 @@ func heldAs(tracked []string, file string) (string, bool) {
 	if slices.Contains(tracked, file) {
 		return file, true
 	}
+	folded := planning.FoldPath(file)
 	for _, held := range tracked {
-		if strings.EqualFold(held, file) {
+		if planning.FoldPath(held) == folded {
 			return held, true
 		}
 	}
 	return "", false
 }
+
+// Holds says a list of tracked paths holds a file in any case.
+func Holds(tracked []string, file string) bool {
+	_, held := heldAs(tracked, file)
+	return held
+}
+
 func (h planningHome) ignores(dir string) bool { return slices.Contains(h.ignored, dir) }
 
 // movesOf lists, for each repository registered beside the planning repository's clone, the commands that move it
@@ -271,22 +279,40 @@ func consolidation(ctx context.Context, plan *planning.AdoptionPlan, in Request,
 
 // Arrivals sorts what a design repository's tip holds, given what the workspace holds and the code trees left
 // out, as a consolidation merges it: the paths the merge takes from the design repository, and the paths both
-// hold, each with the version kept, the workspace's, or for the ignore file at the top the union of both files'
-// lines. A path inside a tree left out arrives in neither list. The plan and the brief of the session that
-// onboards the merge both read it, so they say the same.
+// hold, each with the version kept, the workspace's, or for an ignore file the union of both files' lines. A path
+// the workspace holds exactly is the path both hold. Else a path that differs from one of the workspace's only in
+// case is that path, and the collision names both spellings, because on a file system that ignores case one file
+// overwrites the other. A path inside a tree left out arrives in neither list. The plan and the brief of the
+// session that onboards the merge both read it, so they say the same.
 func Arrivals(ours, theirs, leftOut []string) (takes []string, collisions []planning.Collision) {
+	exact := make(map[string]bool, len(ours))
+	folded := make(map[string]string, len(ours))
+	for _, tracked := range ours {
+		exact[tracked] = true
+		if first, found := folded[planning.FoldPath(tracked)]; !found || tracked < first {
+			folded[planning.FoldPath(tracked)] = tracked
+		}
+	}
 	for _, tracked := range theirs {
 		if slices.ContainsFunc(leftOut, func(tree string) bool { return strings.HasPrefix(tracked, tree+"/") }) {
 			continue
 		}
-		switch {
-		case tracked == planning.GitignorePath && slices.Contains(ours, tracked):
-			collisions = append(collisions, planning.Collision{Path: tracked, Kept: planning.KeptUnion})
-		case slices.Contains(ours, tracked):
-			collisions = append(collisions, planning.Collision{Path: tracked, Kept: planning.KeptWorkspace})
-		default:
-			takes = append(takes, tracked)
+		mine, both := tracked, exact[tracked]
+		if !both {
+			mine, both = folded[planning.FoldPath(tracked)]
 		}
+		if !both {
+			takes = append(takes, tracked)
+			continue
+		}
+		collision := planning.Collision{Path: mine, Kept: planning.KeptWorkspace}
+		if mine != tracked {
+			collision.DesignPath = tracked
+		}
+		if planning.FoldPath(tracked) == planning.GitignorePath {
+			collision.Kept = planning.KeptUnion
+		}
+		collisions = append(collisions, collision)
 	}
 	return takes, collisions
 }
