@@ -256,3 +256,20 @@ func TestAnAcknowledgementOfAPracticeALaterTableRemovedCanBeWithdrawn(t *testing
 		t.Errorf("the repository keeps %+v", kept)
 	}
 }
+
+// A reason that is empty once its control characters are taken out says nothing, and is refused as an empty one is.
+func TestAReasonOfControlCharactersIsRefused(t *testing.T) {
+	r := newPracticesRig(t, ledger.ProtocolPracticesChecks)
+	repo := r.register("repo-a", "alpha", "worker-1")
+	for _, reason := range []string{"\x01", "\x00\x1b\x7f", " \x01 \n\t\x02 "} {
+		if _, err := r.practices.Acknowledge(t.Context(), "pa", repo.ID, "codeowners", reason, projectMember); !errors.Is(err, workorders.ErrInvalid) {
+			t.Errorf("acknowledging with the reason %q answered %v, want an invalid request", reason, err)
+		}
+		if _, err := control.CheckPracticesReason(reason); !errors.Is(err, workorders.ErrInvalid) {
+			t.Errorf("the reason %q was read as %v, want it refused", reason, err)
+		}
+	}
+	if kept := r.acknowledged(repo.ID); len(kept) != 0 {
+		t.Errorf("the repository keeps %+v", kept)
+	}
+}

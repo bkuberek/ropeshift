@@ -47,7 +47,8 @@ func CheckPracticesFinding(finding string) error {
 
 // CheckPracticesReason reads the reason for an acknowledgement as it is kept: with the shapes of credentials taken out,
 // because the assistant's reason is model text, and on one line with no control character, because a card, a view, and
-// a terminal print it. It refuses an empty reason and one over ledger.MaxPracticesReason bytes as given, and holds the
+// a terminal print it. It refuses an empty reason, one that is empty once its control characters are taken out, and one over
+// ledger.MaxPracticesReason bytes as given, and holds the
 // result to that bound, because a marker can be longer than what it replaces. Redaction comes first, because a
 // credential can span lines.
 func CheckPracticesReason(reason string) (string, error) {
@@ -64,7 +65,11 @@ func CheckPracticesReason(reason string) (string, error) {
 		}
 		return r
 	}, ledger.RedactCredentials(reason))
-	return clipText(strings.Join(strings.Fields(flat), " "), ledger.MaxPracticesReason), nil
+	kept := clipText(strings.Join(strings.Fields(flat), " "), ledger.MaxPracticesReason)
+	if kept == "" {
+		return "", invalidPractices("an acknowledgement needs a reason")
+	}
+	return kept, nil
 }
 
 // Acknowledge records a member's reason for leaving a repository's finding open (FR-PRAC-10), by the repository's ID
