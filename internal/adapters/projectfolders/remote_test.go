@@ -118,6 +118,21 @@ func TestPushSendsTheBranchAndSetsItsUpstream(t *testing.T) {
 	}
 }
 
+// A branch named like an option is a name for git, never an option: a push of `--receive-pack=<command>` against a local
+// origin must not run the command.
+func TestAPushNeverReadsTheBranchAsAnOption(t *testing.T) {
+	f, repo := committed(t)
+	if err := f.AddRemote(t.Context(), repo.Dir, bare(t, repo)); err != nil {
+		t.Fatal(err)
+	}
+	repo.Git("config", "push.default", "current")
+	marker := filepath.Join(t.TempDir(), "ran")
+	_ = f.Push(t.Context(), repo.Dir, ports.PushSpec{Branch: "--receive-pack=touch " + marker})
+	if _, err := os.Stat(marker); err == nil {
+		t.Error("the push ran the command a branch name carried")
+	}
+}
+
 func TestAFailedPushSaysWhatGitSaid(t *testing.T) {
 	f, repo := committed(t)
 	if err := f.AddRemote(t.Context(), repo.Dir, filepath.Join(t.TempDir(), "missing.git")); err != nil {

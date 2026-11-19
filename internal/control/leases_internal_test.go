@@ -50,7 +50,7 @@ func TestRedactedVerdictsAreCleanedAndHeldToTheirBound(t *testing.T) {
 	got := redactedVerdicts([]workorders.CriterionVerdict{
 		{
 			Criterion: "c1", Verdict: workorders.VerdictFail, Reasons: "key " + token + "\nsecond line",
-			Citations: []string{"a.go:1\r\nb.go:2", "k " + token, "x y z", "main.go:3"},
+			Citations: []string{"a.go:1\r\nb.go:2", "k " + token, "x\u2028y\u2029z", "main.go:3"},
 		},
 		{Criterion: "c2", Verdict: workorders.VerdictPass, Reasons: strings.Repeat("a", workorders.MaxVerdictReasons-1) + token},
 	})

@@ -71,7 +71,7 @@ type ProjectFolders interface {
 	// AddRemote runs `git remote add origin <url>` in the repository at path, and answers with git's message
 	// when it fails.
 	AddRemote(ctx context.Context, path, url string) error
-	// Push runs `git push --set-upstream origin <branch>` in the repository at path, with no prompt. A push
+	// Push runs `git push --set-upstream origin -- <branch>` in the repository at path, with no prompt. A push
 	// that names a credential helper runs it for that one command, as the helper of github.com.
 	Push(ctx context.Context, path string, push PushSpec) error
 	// Remote reads what a restart needs to tell whether a step already ran: the URL of origin, the branch HEAD

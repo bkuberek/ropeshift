@@ -320,7 +320,8 @@ func (f Folders) AddRemote(ctx context.Context, path, url string) error {
 	return nil
 }
 
-// Push pushes the branch to origin and sets it as the branch's upstream. A push that names a credential helper
+// Push pushes the branch to origin and sets it as the branch's upstream. The branch follows `--`, so no name reads as an
+// option. A push that names a credential helper
 // clears git's helpers for github.com over https for this one command and names that one, through git's
 // configuration in the environment, so no configuration file is written.
 func (f Folders) Push(ctx context.Context, path string, push ports.PushSpec) error {

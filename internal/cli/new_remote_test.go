@@ -181,14 +181,14 @@ func TestNewReportsWhatEachRepositoryDidAndExitsWithAnErrorForAFailedStep(t *tes
 		Outcome: ledger.TemplateOutcomeWritten, Files: []string{"AGENTS.md"}, Commit: "abc123",
 		Repositories: []ledger.RepositoryReport{{Name: "orchid", Path: ".", Commit: "abc123", Remote: "https://github.com/acme/orchid.git",
 			Steps: []ledger.RemoteStep{{Step: "create", Outcome: "done"}, {Step: "origin", Outcome: "done"}, {Step: "push", Outcome: "failed", Detail: "remote: denied"}}}},
-		Remaining: []string{"gh auth setup-git", "git -C " + folder + " push --set-upstream origin main"},
+		Remaining: []string{"gh auth setup-git", "git -C " + folder + " push --set-upstream origin -- main"},
 		Commands:  []string{"ropeshift project create orchid"},
 	}}
 	code, stdout, _ := runNew(p.options(""), "new", "monorepo", folder, "--create-remote", "github:acme")
 	if code != cli.ExitError {
 		t.Errorf("exit %d, want an error for the failed push", code)
 	}
-	for _, want := range []string{"push\tfailed\tremote: denied", "create\tdone", "To finish what did not run:", "gh auth setup-git", "push --set-upstream origin main", "ropeshift project create orchid"} {
+	for _, want := range []string{"push\tfailed\tremote: denied", "create\tdone", "To finish what did not run:", "gh auth setup-git", "push --set-upstream origin -- main", "ropeshift project create orchid"} {
 		if !strings.Contains(stdout, want) {
 			t.Errorf("the output lacks %q:\n%s", want, stdout)
 		}

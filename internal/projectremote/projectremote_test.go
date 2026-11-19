@@ -297,7 +297,7 @@ func TestAFailedCreateKeepsTheLocalRepositoryAndNamesTheCommandsLeft(t *testing.
 		"gh repo create test/acme --private",
 		"git -C /srv/acme remote add origin https://github.com/test/acme.git",
 		"gh auth setup-git",
-		"git -C /srv/acme push --set-upstream origin main",
+		"git -C /srv/acme push --set-upstream origin -- main",
 	}
 	if !slices.Equal(report.Remaining, want) {
 		t.Errorf("remaining = %q, want %q", report.Remaining, want)
@@ -328,7 +328,7 @@ func TestTheCommandsLeftQuoteANameAndAURLTheShellWouldReadAsMore(t *testing.T) {
 		"gh repo create 'test/a;touch pwned' --private",
 		"git -C '/srv/a;touch pwned' remote add origin 'https://github.com/test/a;touch pwned.git'",
 		"gh auth setup-git",
-		"git -C '/srv/a;touch pwned' push --set-upstream origin main",
+		"git -C '/srv/a;touch pwned' push --set-upstream origin -- main",
 	}
 	if got := finishUnchecked(t, m, request).Remaining; !slices.Equal(got, want) {
 		t.Errorf("remaining = %q, want %q", got, want)
@@ -338,7 +338,7 @@ func TestTheCommandsLeftQuoteANameAndAURLTheShellWouldReadAsMore(t *testing.T) {
 	request = monorepo(&ledger.ProjectRemote{URL: "https://example.com/a b$(touch pwned)'.git"})
 	want = []string{
 		`git -C /srv/acme remote add origin 'https://example.com/a b$(touch pwned)'\''.git'`,
-		"git -C /srv/acme push --set-upstream origin main",
+		"git -C /srv/acme push --set-upstream origin -- main",
 	}
 	if got := finishUnchecked(t, m, request).Remaining; !slices.Equal(got, want) {
 		t.Errorf("remaining = %q, want %q", got, want)
@@ -356,7 +356,7 @@ func TestAFailedPushKeepsTheCreatedRepositoryAndTheOrigin(t *testing.T) {
 	if len(m.forge.Repositories()) != 1 || m.folders.Origin("/srv/acme") == "" {
 		t.Error("a failed push deletes nothing")
 	}
-	want := []string{"gh auth setup-git", "git -C /srv/acme push --set-upstream origin main"}
+	want := []string{"gh auth setup-git", "git -C /srv/acme push --set-upstream origin -- main"}
 	if !slices.Equal(report.Remaining, want) {
 		t.Errorf("remaining = %q, want %q", report.Remaining, want)
 	}
@@ -545,10 +545,10 @@ func TestAForgeAccountReadSaysWhoMayOwnARepository(t *testing.T) {
 // The command that finishes a push names the branch as one shell word, whatever the branch is called.
 func TestTheCommandLeftToPushQuotesTheBranch(t *testing.T) {
 	m := newMachine()
-	m.folders.SetBranch("/srv/acme", "fix;touch pwned")
+	m.folders.SetBranch("/srv/acme", "fix;touch$pwned")
 	m.folders.FailPush("/srv/acme", errors.New("remote: push refused"))
 	report := m.run(t, monorepo(create("test")), &projectremote.Progress{})
-	want := []string{"gh auth setup-git", "git -C /srv/acme push --set-upstream origin 'fix;touch pwned'"}
+	want := []string{"gh auth setup-git", "git -C /srv/acme push --set-upstream origin -- 'fix;touch$pwned'"}
 	if !slices.Equal(report.Remaining, want) {
 		t.Errorf("remaining = %q, want %q", report.Remaining, want)
 	}
@@ -596,27 +596,48 @@ func TestAReportCarriesWhatGitAndGHSaidAsPlainText(t *testing.T) {
 	}
 }
 
-// The branch is made plain text before it is quoted, because cleaning a quoted word can take its closing quote with the text
-// that follows a C1 control character.
-func TestTheCommandLeftToPushHoldsNoControlCharacterAndKeepsItsQuotes(t *testing.T) {
-	m := newMachine()
-	m.folders.SetBranch("/srv/acme", "fix\u009d;touch pwned")
-	m.folders.FailPush("/srv/acme", errors.New("remote: push refused"))
-	report := m.run(t, monorepo(create("test")), &projectremote.Progress{})
-	push := report.Remaining[len(report.Remaining)-1]
-	if strings.ContainsFunc(push, ledger.HiddenRune) {
-		t.Errorf("the command holds a control character: %q", push)
+// A branch that is not plain text, or that holds whitespace, is not a name git gives a branch, so the command left to push
+// names the branch the run chose for a first commit instead. A plain branch stays as it is, quoted when a shell needs it.
+func TestTheCommandLeftToPushFallsBackWhenTheBranchIsNotPlain(t *testing.T) {
+	for name, tc := range map[string]struct{ branch, want string }{
+		"plain":               {"release/1.2", "release/1.2"},
+		"quoted for a shell":  {"fix;touch$pwned", "'fix;touch$pwned'"},
+		"whitespace":          {"fix touch", "main"},
+		"a newline":           {"fix\ntouch", "main"},
+		"a control character": {"fix\u009d;touch pwned", "main"},
+		"a hidden character":  {"fix;\u200btouch pwned", "main"},
+		"an option":           {"--receive-pack=touch pwned", "main"},
+		"a short option":      {"-f", "main"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			m := newMachine()
+			m.folders.SetBranch("/srv/acme", tc.branch)
+			m.folders.FailPush("/srv/acme", errors.New("remote: push refused"))
+			report := m.run(t, monorepo(create("test")), &projectremote.Progress{})
+			push := report.Remaining[len(report.Remaining)-1]
+			if want := "git -C /srv/acme push --set-upstream origin -- " + tc.want; push != want {
+				t.Errorf("push = %q, want %q", push, want)
+			}
+		})
 	}
-	if push != "git -C /srv/acme push --set-upstream origin fix" {
-		t.Errorf("push = %q", push)
-	}
+}
 
-	m = newMachine()
-	m.folders.SetBranch("/srv/acme", "fix;\u200btouch pwned")
-	m.folders.FailPush("/srv/acme", errors.New("remote: push refused"))
-	report = m.run(t, monorepo(create("test")), &projectremote.Progress{})
-	if push := report.Remaining[len(report.Remaining)-1]; push != "git -C /srv/acme push --set-upstream origin 'fix;touch pwned'" {
-		t.Errorf("push = %q, want the cleaned branch quoted", push)
+// A branch that starts with a dash reads as an option to git, so it is no branch: the push step does not run it and fails
+// as a repository with no branch does.
+func TestABranchThatStartsWithADashIsNotPushed(t *testing.T) {
+	for _, branch := range []string{"--receive-pack=touch pwned", "-f", "-"} {
+		m := newMachine()
+		m.folders.SetBranch("/srv/acme", branch)
+		report := m.run(t, monorepo(create("test")), &projectremote.Progress{})
+		if got := steps(report.Repositories[0]); got != "create=done origin=done push=failed" {
+			t.Errorf("branch %q: steps = %s", branch, got)
+		}
+		if detail := report.Repositories[0].Steps[2].Detail; !strings.Contains(detail, "names no branch") {
+			t.Errorf("branch %q: the push's detail = %q", branch, detail)
+		}
+		if pushes := m.folders.Pushes(); len(pushes) != 0 {
+			t.Errorf("branch %q: pushes = %+v, want none", branch, pushes)
+		}
 	}
 }
 
@@ -784,7 +805,7 @@ func TestThePrintedCommandsNameTheBranchTheRunChose(t *testing.T) {
 	failed.folders.SetDefaultBranch("trunk")
 	failed.folders.CommitError = errors.New("Author identity unknown")
 	report = failed.run(t, monorepo(&ledger.ProjectRemote{URL: "https://example.com/acme.git"}), &projectremote.Progress{})
-	if !slices.Contains(report.Remaining, "git -C /srv/acme push --set-upstream origin trunk") {
+	if !slices.Contains(report.Remaining, "git -C /srv/acme push --set-upstream origin -- trunk") {
 		t.Errorf("remaining is %v, want a push of trunk", report.Remaining)
 	}
 }

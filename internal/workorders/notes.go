@@ -72,7 +72,7 @@ func (n ReviewNote) Validate() error {
 // isControl says a rune is a control or line-breaking character, which a citation never holds: a citation is a file
 // and line, a requirement ID, or a document, on one line.
 func isControl(r rune) bool {
-	return unicode.IsControl(r) || r == ' ' || r == ' '
+	return unicode.IsControl(r) || r == '\u2028' || r == '\u2029'
 }
 
 // checkNotes refuses a report with more than MaxNotes notes, or with one that is not whole.

@@ -47,7 +47,7 @@ func TestANoteBoundsAndCleansItsCitations(t *testing.T) {
 		"a tab":                    {"main.go:\t1"},
 		"an escape":                {"main.go:\x1b[31m1"},
 		"a delete character":       {"main.go:1\x7f"},
-		"a line separator":         {"main.go:1 "},
+		"a line separator":         {"main.go:1\u2028"},
 		"an invalid byte sequence": {"main.go:\xff"},
 	} {
 		n := ReviewNote{Point: PointSecrets, Reasons: "x", Citations: citations}
