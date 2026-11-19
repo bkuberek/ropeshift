@@ -182,3 +182,21 @@ func TestFindBlockSecretsFindsOnlyTheRulesThatSpanLines(t *testing.T) {
 		t.Errorf("a token is a block match: %+v", got)
 	}
 }
+
+func TestFindBlockSecretsFindsOnlyAKeyThatEndsInAnEndLine(t *testing.T) {
+	t.Parallel()
+	open := "-----BEGIN " + "RSA PRIVATE KEY-----\n"
+	if got := FindBlockSecrets(open + "MIIBOgIBAAJB\nnotes after\n"); len(got) != 0 {
+		t.Errorf("a key with no END line is a block match: %+v", got)
+	}
+	if got := FindBlockSecrets(open); len(got) != 0 {
+		t.Errorf("a BEGIN line alone is a block match: %+v", got)
+	}
+	closed := open + "MIIBOgIBAAJB\n-----END " + "RSA PRIVATE KEY-----"
+	if got := FindBlockSecrets(closed + "\n" + open + "tail"); len(got) != 1 || got[0].End != len(closed) {
+		t.Errorf("block matches are %+v", got)
+	}
+	if got := FindSecrets(open + "MIIBOgIBAAJB\n"); len(got) != 1 {
+		t.Errorf("a key with no END line is no match of FindSecrets: %+v", got)
+	}
+}

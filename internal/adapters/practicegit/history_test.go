@@ -580,3 +580,21 @@ func TestSecretScanOfABloblessCloneNeverFetches(t *testing.T) {
 		t.Error("the scan asked the repository the clone came from for a blob")
 	}
 }
+
+// A BEGIN line with no END line holds every line after it, so a later edit of any of them is no new key.
+func TestSecretScanFindsNoNewKeyInAnEditAfterAnUnterminatedBegin(t *testing.T) {
+	t.Parallel()
+	repo := gittest.New(t)
+	repo.Commit("notes.txt", "-----BEGIN "+"RSA PRIVATE KEY-----\nnotes one\nnotes two\n")
+	repo.Commit("notes.txt", "-----BEGIN "+"RSA PRIVATE KEY-----\nnotes one\nnotes changed\n")
+	tip := repo.Commit("notes.txt", "gone\n")
+	got := secretScan(t, repo, tip, "")
+	for _, m := range got.Matches {
+		if m.Line != 1 {
+			t.Errorf("a match is at line %d, commit %s: %+v", m.Line, m.Commit, m)
+		}
+	}
+	if len(got.Matches) != 1 {
+		t.Errorf("matches are %+v", got.Matches)
+	}
+}
