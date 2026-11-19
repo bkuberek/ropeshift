@@ -13,6 +13,7 @@ import { SpendPanel } from "../floor/SpendPanel";
 import { laneLabel } from "../floor/states";
 import { Ago, Page, useClock, ViewTime, words } from "../parts/parts";
 import { Absent, Badge, ConditionChip, EmptyState, Fact, Facts, Freshness, freshnessOf, Id, LaneBadge, Panel, TableRegion, TargetChip } from "../ui/display";
+import { AskedQuestions } from "../planning/AskedQuestions";
 import { useTalk } from "../talk/state";
 import { Button } from "../ui/controls";
 import { LaneMessages } from "./Messages";
@@ -359,6 +360,7 @@ export function LanePage({ id, live }: { id: string; live: Live }) {
               </Panel>
             ) : null}
             <LaneMessages lane={id} live={live} />
+            <AskedQuestions live={live} lane={id} />
           </div>
           <aside className="stack" aria-label="Lane facts">
             {lane ? <SpendPanel id={lane.work_order} live={live} /> : null}

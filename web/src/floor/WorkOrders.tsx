@@ -13,6 +13,7 @@ import { SpendCard } from "../needs/SpendCard";
 import { WorkCard } from "../needs/WorkCard";
 import { Lasted, Page, StampLine, useClock, ViewTime, words } from "../parts/parts";
 import { Verdicts } from "../parts/Verdicts";
+import { AskedQuestions } from "../planning/AskedQuestions";
 import { Icon } from "../ui/Icon";
 import { Button, LinkTabs, TabPanel, Tabs } from "../ui/controls";
 import { Absent, Banner, ConditionChip, Digest, EmptyState, Fact, Facts, Freshness, freshnessOf, Id, LaneBadge, Panel, RecordChip, SkeletonRows, TableRegion, WorkBadge } from "../ui/display";
@@ -544,6 +545,7 @@ export function WorkOrderPage({ live, id, tab, dialog, needs, after }: { live: L
               {chosen === "lanes" ? <Worktrees order={order} allowance={row.allowed} lanes={lanes} after={after} /> : null}
               {chosen === "activity" ? <ActivityTab id={order.id} live={live} /> : null}
             </TabPanel>
+            <AskedQuestions live={live} workOrder={order.id} />
           </div>
           <aside className="stack" aria-label="Decision and facts">
             {need ? <Decision item={need} after={after} /> : null}

@@ -1753,7 +1753,8 @@ suite.each(Object.entries(sizes))("at %s width", (size, viewport) => {
     );
 
     // The whole ladder (FR-QD-13), in the states the full goldens do not reach: a question an orchestrator holds with a
-    // judged rung, one answered by an assumption, and one merged, each with its trace open.
+    // judged rung, one answered by an assumption, and one merged, each with its trace open, on Open questions and on a
+    // lane's and a work order's page.
     it(
       "the questions, held, judged, answered, and merged, with their traces open, meet WCAG 2.2 A and AA",
       async () => {
@@ -1762,10 +1763,10 @@ suite.each(Object.entries(sizes))("at %s width", (size, viewport) => {
         const page = await context.newPage();
         await page.route(/\/views\/questions(\?.*)?$/, (route) => route.fulfill({ status: 200, contentType: "application/json", body: wholeLadder() }));
         const found: string[] = [];
-        for (const address of ["/projects/default/questions?status=all", "/projects/default/questions?status=answered"]) {
+        for (const address of ["/projects/default/questions?status=all", "/projects/default/questions?status=answered", "/projects/default/lane?id=lane-wo-running", "/projects/default/work-order?id=wo-running"]) {
           await page.goto(`${base}${address}`);
           await ready(page);
-          await page.getByRole("article").first().waitFor();
+          await page.getByText("How it got here").first().waitFor({ state: "attached" });
           await page.evaluate(() => {
             for (const trace of document.querySelectorAll("details")) {
               trace.open = true;
