@@ -9,12 +9,33 @@ import { judgeOf, Ladder } from "./Ladder";
 // closed reads as merged, and not as dismissed.
 export const closedStatuses = ["answered", "merged", "dismissed"] as const;
 
+// statusWords are where a question stands, as a person reads it beside the question, for each status the ledger gives
+// one, and merged for a question a merge closed.
+const statusWords: Record<string, string> = {
+  open: "Open",
+  triage: "In triage",
+  needs_human: "Needs a person",
+  answered: "Answered",
+  merged: "Merged",
+  dismissed: "Dismissed",
+};
+
+// statusPhrases are the same within a sentence: "3 waiting for a person", "No question is in triage."
+const statusPhrases: Record<string, string> = {
+  open: "open",
+  triage: "in triage",
+  needs_human: "waiting for a person",
+  answered: "answered",
+  merged: "merged",
+  dismissed: "dismissed",
+};
+
+// statusPhrase names a status within a sentence. A status the table does not know reads in its own words.
+export const statusPhrase = (status: string) => statusPhrases[status] ?? words(status).toLowerCase();
+
 // statusOf is where a question stands, as a person reads it.
 export function statusOf(question: Question): string {
-  if (question.merged_into) {
-    return "Merged";
-  }
-  return words(question.status, { needs_human: "Needs a person" });
+  return words(question.merged_into ? "merged" : question.status, statusWords);
 }
 
 // questionAt is the address of one question on the questions page, read with every status, so a link to a question

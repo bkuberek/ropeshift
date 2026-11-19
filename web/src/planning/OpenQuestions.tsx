@@ -5,7 +5,7 @@ import { NoOrchestrator } from "../needs/NoOrchestrator";
 import { CategoryFilter } from "./CategoryFilter";
 import { waiting } from "./DismissQuestion";
 import { QuestionActions } from "./QuestionActions";
-import { closedStatuses, QuestionFacts, statusOf } from "./QuestionFacts";
+import { closedStatuses, QuestionFacts, statusOf, statusPhrase } from "./QuestionFacts";
 
 function QuestionLine({ question, others }: { question: Question; others: Question[] }) {
   return (
@@ -58,7 +58,7 @@ function emptyWords(status: string, category: string, selected: string): string 
     return category ? `No question in ${words(category)}.` : "No question is recorded.";
   }
   if (status) {
-    return category ? `No question in ${words(category)} is ${status}.` : `No question is ${status}.`;
+    return category ? `No question in ${words(category)} is ${statusPhrase(status)}.` : `No question is ${statusPhrase(status)}.`;
   }
   return category ? `Nothing open in ${words(category)}.` : "Nothing is open.";
 }
