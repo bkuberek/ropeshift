@@ -639,6 +639,62 @@ func TestAResumeWithARepositoryItNeverJournaledMakesNoCommit(t *testing.T) {
 	}
 }
 
+// resumeRig is a folder that holds the files of its shape and a repository with no commit, and a journal file for a request
+// that offers it.
+func resumeRig(t *testing.T, journal string) (*templateRig, string, *capturedReports) {
+	t.Helper()
+	r := newTemplateRig(t, nil)
+	folder := r.folder("harbor")
+	if err := os.MkdirAll(folder, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	files, err := projectfiles.Files(projectfiles.Monorepo, projectfiles.Data{Project: "harbor"}, render)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, file := range files {
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(folder, file.Path)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(folder, file.Path), []byte(file.Text), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	r.git(folder, "init", "--quiet")
+	if err := os.MkdirAll(filepath.Join(r.state, "template-writes"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(r.state, "template-writes", "request-resume.json"), []byte(journal), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return r, folder, &capturedReports{WorkerLink: r.link}
+}
+
+// A journal written before a repository's progress had a record of its own holds the git init and the folder at the top
+// level. A worker that reads it keeps both, so the repository it initialized is its own and the folder it checked is the
+// one it holds.
+func TestAResumeKeepsTheGitInitTheEarlierJournalRecorded(t *testing.T) {
+	t.Parallel()
+	gittest.Require(t)
+	r, folder, captured := resumeRig(t, `{"state":"started","commit":true,"needs_repository":true,"initialized":true}`)
+	r.offer(t, captured, ledger.DesiredTemplateWrite{ID: "request-resume", Shape: "monorepo", Path: folder, FirstCommit: true, ExpiresAt: 1 << 60})
+	report := captured.only(t)
+	if report.Outcome != ledger.TemplateOutcomeWritten || report.Commit == "" || report.CommitError != "" {
+		t.Errorf("the report is %+v, want the first commit made in the repository the journal says the worker initialized", report)
+	}
+}
+
+func TestAResumeKeepsTheFolderTheEarlierJournalRecorded(t *testing.T) {
+	t.Parallel()
+	gittest.Require(t)
+	r, folder, captured := resumeRig(t, `{"state":"started","commit":true,"needs_repository":true,"initialized":true,"folder":"0:0"}`)
+	r.offer(t, captured, ledger.DesiredTemplateWrite{ID: "request-resume", Shape: "monorepo", Path: folder, FirstCommit: true, ExpiresAt: 1 << 60})
+	report := captured.only(t)
+	if report.Outcome != ledger.TemplateOutcomeRefused || report.Reason != ledger.TemplateRefusedChanged {
+		t.Errorf("the report is %+v, want a refusal: the folder is not the one the journal names", report)
+	}
+}
+
 // A request whose journal says it was reported, and that the control plane still offers, gets the journaled report
 // again and writes nothing.
 func TestARequestStillOfferedAfterItsReportGetsTheJournaledReportAgain(t *testing.T) {
