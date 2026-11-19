@@ -1,6 +1,6 @@
-import { useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 
-import type { PracticeFinding, PracticeRow, PracticesView } from "../api/practices";
+import type { PracticeFinding, PracticeRow, PracticesAcknowledgement, PracticesView } from "../api/practices";
 import { plainText } from "../admin/untrustedText";
 import { addressOf, Link } from "../app/route";
 import { Ago, ViewTime } from "../parts/parts";
@@ -9,7 +9,7 @@ import { Absent, Badge, Fact, Facts, LookBadge, Refusal, TableRegion } from "../
 import { useToast } from "../ui/overlays";
 import { AcknowledgeDialog, WithdrawDialog } from "./FindingDialogs";
 import { CheckLine } from "./parts";
-import { checking, severityLook, shortCommit, standingOf } from "./logic";
+import { checking, orphansOf, severityLook, shortCommit, standingOf } from "./logic";
 import type { Check } from "./useCheck";
 
 // useCopy puts text on the clipboard, and says when the browser did not let the page.
@@ -108,6 +108,52 @@ function Where({ finding }: { finding: PracticeFinding }) {
   );
 }
 
+// Held is an acknowledgement as a row shows it: the reason, the member who gave it, and when.
+function Held({ held }: { held: PracticesAcknowledgement }) {
+  return (
+    <>
+      <p>{plainText(held.reason)}</p>
+      <p className="small muted">
+        {plainText(held.member)} · <Ago at={Date.parse(held.acknowledged_at)} />
+      </p>
+    </>
+  );
+}
+
+// OrphanTable lists the acknowledgements of findings the latest result does not list, which a member may still withdraw.
+function OrphanTable({ held, archived, onWithdraw }: { held: PracticesAcknowledgement[]; archived: boolean; onWithdraw: (id: string) => void }) {
+  return (
+    <>
+      <p className="small muted">These acknowledgements name findings the latest result does not list. They stay until you withdraw them.</p>
+      <TableRegion label="Acknowledgements">
+        <table className="table stack-on-phone" aria-label="Acknowledgements of findings not in the latest result">
+          <thead>
+            <tr>
+              <th scope="col">Finding</th>
+              <th scope="col">Acknowledgement</th>
+            </tr>
+          </thead>
+          <tbody>
+            {held.map((one) => (
+              <tr key={one.finding}>
+                <td data-label="Finding" className="wrap">
+                  <code className="mono">{plainText(one.finding)}</code>
+                </td>
+                <td data-label="Acknowledgement" className="wrap">
+                  <Held held={one} />
+                  <Button small disabled={archived} onClick={() => onWithdraw(one.finding)}>
+                    Withdraw
+                  </Button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </TableRegion>
+    </>
+  );
+}
+
 function FindingTable({ findings, archived, onAcknowledge, onWithdraw }: { findings: PracticeFinding[]; archived: boolean; onAcknowledge: (id: string) => void; onWithdraw: (id: string) => void }) {
   return (
     <TableRegion label="Findings">
@@ -140,21 +186,11 @@ function FindingTable({ findings, archived, onAcknowledge, onWithdraw }: { findi
                 )}
               </td>
               <td data-label="Acknowledgement" className="wrap">
-                {finding.acknowledgement ? (
-                  <>
-                    <p>{plainText(finding.acknowledgement.reason)}</p>
-                    <p className="small muted">
-                      {plainText(finding.acknowledgement.member)} · <Ago at={Date.parse(finding.acknowledgement.acknowledged_at)} />
-                    </p>
-                    <Button small disabled={archived} onClick={() => onWithdraw(finding.id)}>
-                      Withdraw
-                    </Button>
-                  </>
-                ) : (
-                  <Button small disabled={archived} onClick={() => onAcknowledge(finding.id)}>
-                    Acknowledge
-                  </Button>
-                )}
+                {finding.acknowledgement ? <Held held={finding.acknowledgement} /> : null}
+                {/* One button for both, so the focus a dialog returns to stays on it when the finding changes hands. */}
+                <Button small disabled={archived} onClick={() => (finding.acknowledgement ? onWithdraw(finding.id) : onAcknowledge(finding.id))}>
+                  {finding.acknowledgement ? "Withdraw" : "Acknowledge"}
+                </Button>
               </td>
             </tr>
           ))}
@@ -187,14 +223,31 @@ export function PracticesTab({
   now: number;
 }) {
   const heading = useId();
+  const title = useRef<HTMLHeadingElement>(null);
+  const settling = useRef(false);
   const view = views.find((row) => row.repository === repository);
+  // A dialog returns focus to the button that opened it. When the list that is read next no longer holds that button, the
+  // focus falls to the page, so it goes to the tab's heading instead.
+  useEffect(() => {
+    if (settling.current) {
+      settling.current = false;
+      if (document.activeElement === document.body || document.activeElement === null) {
+        title.current?.focus();
+      }
+    }
+  }, [views]);
+  const changed = () => {
+    settling.current = true;
+    after();
+  };
+  const orphans = view ? orphansOf(view) : [];
   const [dialog, setDialog] = useState<{ kind: "acknowledge" | "withdraw"; finding: string } | null>(null);
   const result = view?.result;
   const busy = view !== undefined && checking(view.request, check.ended);
   return (
     <section className="panel" aria-labelledby={heading}>
       <div className="panel-head">
-        <h2 id={heading}>Practices of {plainText(name)}</h2>
+        <h2 id={heading} ref={title} tabIndex={-1}>Practices of {plainText(name)}</h2>
         <Button small variant="primary" loading={check.busy} disabled={archived} onClick={() => void check.run([repository])}>
           Run check
         </Button>
@@ -236,10 +289,11 @@ export function PracticesTab({
               <Absent>Not checked yet</Absent>
             </p>
           )}
+          {orphans.length > 0 ? <OrphanTable held={orphans} archived={archived} onWithdraw={(finding) => setDialog({ kind: "withdraw", finding })} /> : null}
         </ViewTime.Provider>
       </div>
-      {dialog?.kind === "acknowledge" ? <AcknowledgeDialog views={views} repository={repository} finding={dialog.finding} onClose={() => setDialog(null)} after={after} /> : null}
-      {dialog?.kind === "withdraw" ? <WithdrawDialog views={views} repository={repository} finding={dialog.finding} onClose={() => setDialog(null)} after={after} /> : null}
+      {dialog?.kind === "acknowledge" ? <AcknowledgeDialog views={views} repository={repository} finding={dialog.finding} onClose={() => setDialog(null)} after={changed} /> : null}
+      {dialog?.kind === "withdraw" ? <WithdrawDialog views={views} repository={repository} finding={dialog.finding} onClose={() => setDialog(null)} after={changed} /> : null}
     </section>
   );
 }

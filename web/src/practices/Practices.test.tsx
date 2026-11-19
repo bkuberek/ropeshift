@@ -165,6 +165,8 @@ describe("the Findings column of the Repositories table", () => {
     const row = (await within(table).findByRole("link", { name: "api" })).closest("tr") as HTMLElement;
     expect(within(row).getByText("high 1")).toBeTruthy();
     expect(screen.getByRole("columnheader", { name: "Findings" })).toBeTruthy();
+    // The link names its repository, so a screen reader's list of links tells the rows apart.
+    expect(within(row).getByRole("link", { name: "Findings of api: high 1" }).getAttribute("href")).toBe("/projects/default/repositories?repo=id-api&tab=practices");
   });
 });
 
@@ -340,6 +342,77 @@ describe("the Practices tab of a repository's record", () => {
     const record = await tab();
     expect(within(record).getByText("Not checked yet")).toBeTruthy();
     expect(within(record).getByRole("button", { name: "Run check" })).toBeTruthy();
+  });
+
+  it("keeps focus on the finding's button when its acknowledgement is made, and again when it is withdrawn", async () => {
+    const list = listed();
+    const api = list.repositories[1] as PracticesView;
+    serving(list, (call) => {
+      const result = api.result;
+      if (call.method === "POST" && call.path === "/v1/practices/acknowledgements" && result) {
+        const body = call.body as { finding: string; reason: string };
+        const held = { finding: body.finding, reason: body.reason, member: "member-1", acknowledged_at: "2026-11-19T10:00:00Z" };
+        result.findings = result.findings.map((one) => (one.id === body.finding ? { ...one, acknowledged: true, acknowledgement: held } : one));
+        return { status: 201, body: held };
+      }
+      if (call.method === "POST" && call.path === "/v1/practices/acknowledgements/withdraw" && result) {
+        const body = call.body as { finding: string };
+        result.findings = result.findings.map((one) => (one.id === body.finding ? { ...one, acknowledged: undefined, acknowledgement: undefined } : one));
+        return { status: 200, body: {} };
+      }
+      return undefined;
+    });
+    const record = await tab();
+    const rowOf = () => within(within(record).getByRole("table", { name: /Findings/ })).getByText(envFinding).closest("tr") as HTMLElement;
+    await userEvent.click(within(rowOf()).getByRole("button", { name: "Acknowledge" }));
+    const dialog = await screen.findByRole("dialog", { name: "Acknowledge finding" });
+    await userEvent.type(within(dialog).getByLabelText("Reason"), "because");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Acknowledge" }));
+    await waitFor(() => expect(within(rowOf()).getByRole("button", { name: "Withdraw" })).toBe(document.activeElement));
+    await userEvent.click(within(rowOf()).getByRole("button", { name: "Withdraw" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Withdraw acknowledgement" }));
+    await waitFor(() => expect(within(rowOf()).getByRole("button", { name: "Acknowledge" })).toBe(document.activeElement));
+  });
+
+  it("lists an acknowledgement of a finding the latest result does not hold, and withdraws it", async () => {
+    const orphan = { finding: "lockfile:npm", reason: "the lockfile is generated", member: "member-2", acknowledged_at: "2026-11-19T10:00:00Z" };
+    const list = listed((api) => {
+      api.acknowledgement = [...(api.acknowledgement ?? []), orphan];
+    });
+    const api = list.repositories[1] as PracticesView;
+    const sent = serving(list, (call) => {
+      if (call.method === "POST" && call.path === "/v1/practices/acknowledgements/withdraw") {
+        api.acknowledgement = (api.acknowledgement ?? []).filter((one) => one.finding !== (call.body as { finding: string }).finding);
+        return { status: 200, body: orphan };
+      }
+      return undefined;
+    });
+    const record = await tab();
+    const held = await within(record).findByRole("table", { name: /not in the latest result/ });
+    const row = within(held).getByText("lockfile:npm").closest("tr") as HTMLElement;
+    expect(within(row).getByText("the lockfile is generated")).toBeTruthy();
+    expect(within(row).getByText(/member-2/)).toBeTruthy();
+    expect(within(held).queryByText(secretFinding)).toBeNull();
+    await userEvent.click(within(row).getByRole("button", { name: "Withdraw" }));
+    const dialog = await screen.findByRole("dialog", { name: "Withdraw acknowledgement" });
+    expect(within(dialog).getByText("lockfile:npm")).toBeTruthy();
+    await userEvent.click(within(dialog).getByRole("button", { name: "Withdraw acknowledgement" }));
+    await waitFor(() => expect(posted(sent, "/v1/practices/acknowledgements/withdraw")).toHaveLength(1));
+    expect(posted(sent, "/v1/practices/acknowledgements/withdraw")[0]?.body).toEqual({ repository: "id-api", finding: "lockfile:npm" });
+    await waitFor(() => expect(within(record).queryByText("lockfile:npm")).toBeNull());
+    await waitFor(() => expect(document.activeElement).toBe(within(record).getByRole("heading", { name: "Practices of api" })));
+  });
+
+  it("lists an acknowledgement for a repository no check has reported", async () => {
+    serving(
+      listed((api) => {
+        delete api.result;
+        api.acknowledgement = [{ finding: "codeowners", reason: "the whole team owns it", member: "member-1", acknowledged_at: "2026-11-19T10:00:00Z" }];
+      }),
+    );
+    const record = await tab();
+    expect(await within(record).findByText("the whole team owns it")).toBeTruthy();
+    expect(within(record).getByText("Not checked yet")).toBeTruthy();
   });
 
   it("is reached by the Practices tab of the record, and the Settings tab returns to the form", async () => {

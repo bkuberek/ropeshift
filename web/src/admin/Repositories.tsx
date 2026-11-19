@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState } from "react";
 
 import { addRepositories, changeRepository, readRepositories, removeRepository } from "../api/admin";
 import { listPractices } from "../api/practices";
+import { plainText } from "./untrustedText";
 import type { PracticesList } from "../api/practices";
 import type { MergeAuthority, MergeMethod, RepositoryAddReport, RepositoryChange, RepositoryList, RepositoryView, ReviewTarget, StartFrom } from "../api/admin";
 import type { Live } from "../api/useView";
@@ -176,7 +177,7 @@ function SignIn({ view }: { view: RepositoryView }) {
 }
 
 // Findings is a repository's open findings by severity in the table, and a link to the tab that lists them.
-function Findings({ view, read, id }: { view: PracticesList["repositories"][number] | undefined; read: { view: PracticesList | null; failure: string }; id: string }) {
+function Findings({ view, read, id, name }: { view: PracticesList["repositories"][number] | undefined; read: { view: PracticesList | null; failure: string }; id: string; name: string }) {
   if (!view) {
     return read.view || !read.failure ? <Absent>{read.view ? "Not checked yet" : "reading…"}</Absent> : <Absent>unavailable</Absent>;
   }
@@ -185,6 +186,7 @@ function Findings({ view, read, id }: { view: PracticesList["repositories"][numb
   }
   return (
     <Link to={addressOf("/repositories", { repo: id, tab: "practices" })} stay className="row-tight">
+      <span className="visually-hidden">Findings of {plainText(name)}: </span>
       <OpenCounts view={view} />
     </Link>
   );
@@ -230,7 +232,7 @@ export function RepositoriesPage({
   // the dialogs of the command palette that acknowledge a finding and withdraw the acknowledgement.
   const practices = useRead<PracticesList>(() => listPractices(), `repositories:practices:${project}`, live);
   const checks = practices.view?.repositories ?? [];
-  const check = useCheck(checks, practices.again);
+  const check = useCheck(checks, practices.again, live);
   const acknowledging = useDialogParam("acknowledge");
   const withdrawing = useDialogParam("withdraw");
   const now = useClock();
@@ -321,7 +323,7 @@ export function RepositoriesPage({
                           <Forge view={view} />
                         </td>
                         <td data-label="Findings">
-                          <Findings view={checks.find((row) => row.repository === view.id)} read={practices} id={view.id} />
+                          <Findings view={checks.find((row) => row.repository === view.id)} read={practices} id={view.id} name={label(view)} />
                         </td>
                       </tr>
                     ))}
