@@ -26,6 +26,8 @@ type Result struct {
 	ScannedFrom string `json:"scanned_from,omitempty"`
 	// Skipped counts the files the secret scan skipped for their size or binary content.
 	Skipped int `json:"skipped,omitempty"`
+	// Partial says why the secret scan read less history than the repository has, empty for a scan of all of it.
+	Partial string `json:"partial,omitempty"`
 	// Practices holds one status per practice, in table order.
 	Practices []PracticeStatus `json:"practices"`
 	// Findings are sorted by severity, then practice table order, then ID.

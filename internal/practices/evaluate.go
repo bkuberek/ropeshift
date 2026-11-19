@@ -262,7 +262,7 @@ func Evaluate(in Input) Result {
 	result := Result{
 		Repository: in.Repository, Commit: in.Commit, BaseBranch: in.BaseBranch, Worker: in.Worker,
 		CheckedAt: in.CheckedAt, TableVersion: TableVersion, RulesVersion: in.RulesVersion,
-		ScannedFrom: in.ScannedFrom, Skipped: in.Skipped,
+		ScannedFrom: in.ScannedFrom, Skipped: in.Skipped, Partial: in.SecretsPartial,
 		Practices: []PracticeStatus{}, Findings: []Finding{},
 	}
 	for _, p := range table {

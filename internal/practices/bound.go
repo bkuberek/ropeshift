@@ -86,6 +86,7 @@ func capSecrets(findings []Finding) ([]Finding, bool) {
 // the worker to have. It changes nothing it was given.
 func Bound(r Result) Result {
 	r.Repository, r.Commit, r.BaseBranch, r.Worker, r.ScannedFrom = Cut(r.Repository), Cut(r.Commit), Cut(r.BaseBranch), Cut(r.Worker), Cut(r.ScannedFrom)
+	r.Partial = Clip(r.Partial)
 	r.Practices = slices.Clone(r.Practices)
 	for i := range r.Practices {
 		r.Practices[i].Reason = Clip(r.Practices[i].Reason)

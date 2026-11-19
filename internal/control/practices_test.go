@@ -708,6 +708,28 @@ func TestAnIncrementalScanKeepsTheEarlierSecretsAndAFailedScanRestartsIt(t *test
 	}
 }
 
+// A scan that read only part of the history leaves no tip, so the check after the history is whole reads all of it,
+// whether the partial scan found a secret or not.
+func TestAPartialScanLeavesNoTipForTheNextCheck(t *testing.T) {
+	r := newPracticesRig(t, ledger.ProtocolVersion)
+	r.register("repo-a", "widgets", "worker-1")
+	first := r.requested(r.request(ledger.PracticesMember, "repo-a"))
+	partial := aResult("repo-a", tipOne, "", "1a2b3c4d5e6f")
+	partial.Partial = "the repository is a shallow clone"
+	r.mustReport(first.ID, ledger.PracticesOutcomeChecked, partial)
+	record, err := r.record("repo-a")
+	if err != nil || record.Result.Partial != partial.Partial || len(secretsFindings(record.Result)) != 1 {
+		t.Fatalf("the result is %+v (%v), want the finding and the partial scan kept", record, err)
+	}
+	if tip := r.tip("repo-a"); tip != "" {
+		t.Errorf("a partial scan left the tip %q, want it cleared", tip)
+	}
+	second := r.requested(r.request(ledger.PracticesMember, "repo-a"))
+	if offered := r.offered(r.auth); len(offered) != 1 || offered[0].ID != second.ID || offered[0].ScannedFrom != "" {
+		t.Errorf("the next check is offered %+v, want a scan of the whole history", offered)
+	}
+}
+
 // A scan tip a scan with another credential rule set left is not handed to the next check, which reads the whole
 // history again: commits it already read were never matched against the rules in force. The version of the rule set
 // is kept with the tip, and a tip of this build's rule set starts the next scan where it ended.
