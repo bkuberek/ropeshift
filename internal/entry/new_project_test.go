@@ -237,7 +237,7 @@ func TestNewKeepsTheLocalRepositoryWhenCreateFails(t *testing.T) {
 		"gh repo create test/acme --private",
 		"git -C " + folder + " remote add origin https://github.com/test/acme.git",
 		"gh auth setup-git",
-		"git -C " + folder + " push --set-upstream origin main",
+		"git -C " + folder + " push --set-upstream origin -- main",
 	}
 	if !slices.Equal(report.Remaining, want) {
 		t.Errorf("remaining = %q, want %q", report.Remaining, want)
