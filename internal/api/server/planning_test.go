@@ -2,6 +2,7 @@ package server_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"reflect"
 	"testing"
@@ -169,18 +170,17 @@ func planningMachine(t *testing.T, options apitest.Options) *apitest.Daemon {
 	return d
 }
 
-// wantPlannedPreview checks that a plan's waiting version previews billing as registering and web as planned.
-func wantPlannedPreview(t *testing.T, view api.PlanView) {
+// wantPlannedPreview checks that a waiting version's preview has billing registering and web planned.
+func wantPlannedPreview(t *testing.T, registration *api.ManifestRegistration) {
 	t.Helper()
-	if view.Approval == nil || view.Approval.Registration == nil || !view.Approval.Registration.Preview || len(view.Approval.Registration.Repositories) != 2 {
-		t.Fatalf("the plan previews %+v", view.Approval)
+	if registration == nil || !registration.Preview || len(registration.Repositories) != 2 {
+		t.Fatalf("the version previews %+v", registration)
 	}
 	want := map[string]api.RepositoryAdded{
 		"billing": {Name: "billing", ManifestPath: "../billing", Path: "/work/billing", Remote: manifestEntries[0].Remote, Outcome: ledger.Registered},
-		"web": {Name: "web", ManifestPath: "../web", Outcome: ledger.Planned,
-			Reason: "no work order of this version targets web"},
+		"web":     {Name: "web", ManifestPath: "../web", Outcome: ledger.Planned, Reason: "no work order of this version targets web"},
 	}
-	for _, got := range view.Approval.Registration.Repositories {
+	for _, got := range registration.Repositories {
 		expected := want[got.Name]
 		if got.ManifestPath != expected.ManifestPath || got.Path != expected.Path || got.Remote != expected.Remote || got.Outcome != expected.Outcome || got.Reason != expected.Reason {
 			t.Errorf("the preview of %s reads %+v, want %+v", got.Name, got, expected)
@@ -206,10 +206,10 @@ func TestGoldenPlanWithAPlannedRepository(t *testing.T) {
 		t.Fatalf("plans %+v: %v", plans, err)
 	}
 	view, err := d.Client.Plan(t.Context(), plans[0].ID)
-	if err != nil {
-		t.Fatal(err)
+	if err != nil || view.Approval == nil {
+		t.Fatalf("the plan reads %+v: %v", view.Approval, err)
 	}
-	wantPlannedPreview(t, view)
+	wantPlannedPreview(t, view.Approval.Registration)
 	steadySet(&view)
 	holdsGolden(t, "plan-planned", steady(pretty(t, view)))
 }
@@ -236,16 +236,32 @@ func TestABranchVersionPreviewsItsManifest(t *testing.T) {
 	if _, err := d.Client.DecideApproval(ctx, first.Approval.Approval.ID, api.DecideApproval{Digest: first.Approval.Approval.SubjectDigest, Allow: true}); err != nil {
 		t.Fatal(err)
 	}
+	branch := askedByBranch(t, d, plans[0].ID, 2)
+	view, err := d.Client.Plan(ctx, plans[0].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.Approval == nil || view.Approval.Approval.ID != branch.ID {
+		t.Fatalf("the plan reads the request %+v, want the branch's", view.Approval)
+	}
+	wantPlannedPreview(t, view.Approval.Registration)
+}
+
+// askedByBranch records the request a planning branch raises for a version of a plan, which the ledger holds only
+// once a member approves it, with the manifest and the work its request carries from the branch: a plan the
+// ledger does not hold yet is empty.
+func askedByBranch(t *testing.T, d *apitest.Daemon, plan string, version int64) authority.Approval {
+	t.Helper()
 	detail, err := json.Marshal(planning.PlanDetail{Title: "The platform", Ref: "platform-v1", Manifest: manifestEntries, Targets: []string{"billing"}, Source: "abc1234"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	branch := authority.Approval{
-		ID: "branch-approval", Kind: authority.KindPlan, WorkOrder: "plan-1", Subject: "platform-v1@2", SubjectDigest: "sha256:branch",
-		Summary: "Plan The platform, version 2", RequestedBy: "lane:lane-1", State: authority.ApprovalPending, RaisedAt: 1,
-		Plan: plans[0].ID, PlanVersion: 2, Detail: string(detail),
+		ID: "branch-approval", Kind: authority.KindPlan, WorkOrder: "plan-1", Subject: fmt.Sprintf("platform-v1@%d", version), SubjectDigest: "sha256:branch",
+		Summary: fmt.Sprintf("Plan The platform, version %d", version), RequestedBy: "lane:lane-1", State: authority.ApprovalPending, RaisedAt: 1,
+		Plan: plan, PlanVersion: version, Detail: string(detail),
 	}
-	err = d.Store.Write(ctx, apitest.Scope, "test.approval", func(tx ports.WriteTx) error {
+	err = d.Store.Write(t.Context(), apitest.Scope, "test.approval", func(tx ports.WriteTx) error {
 		if _, err := tx.Approvals().Insert(branch); err != nil {
 			return err
 		}
@@ -259,12 +275,5 @@ func TestABranchVersionPreviewsItsManifest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	view, err := d.Client.Plan(ctx, plans[0].ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if view.Approval == nil || view.Approval.Approval.ID != branch.ID {
-		t.Fatalf("the plan reads the request %+v, want the branch's", view.Approval)
-	}
-	wantPlannedPreview(t, view)
+	return branch
 }

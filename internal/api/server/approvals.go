@@ -6,7 +6,9 @@ import (
 
 	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/authority"
+	"ropeshift.com/ropeshift/internal/control"
 	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/planning"
 	"ropeshift.com/ropeshift/internal/ports"
 )
 
@@ -28,6 +30,9 @@ func (h *handler) listApprovals(w http.ResponseWriter, r *http.Request) {
 	reply(w, http.StatusOK, api.ApprovalList{Approvals: rows})
 }
 
+// showApproval answers one request. A plan approval carries what its approval registered, or, while it waits and
+// its version's manifest lists repositories, the preview the plan's route reads, so the first version a planning
+// branch asks about, which has no plan route until a member approves it, previews as well.
 func (h *handler) showApproval(w http.ResponseWriter, r *http.Request) {
 	row, err := h.approvals.Get(r.Context(), h.Scope, r.PathValue("id"))
 	if err != nil {
@@ -35,17 +40,24 @@ func (h *handler) showApproval(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	detail := api.ApprovalDetail{Approval: row}
+	var listed []planning.ManifestRepository
 	err = h.Store.Read(r.Context(), h.Scope, func(tx ports.ReadTx) error {
 		var err error
 		if detail.Conversation, err = cardConversation(tx.Members(), tx.Conversations(), row); err != nil || row.Kind != authority.KindPlan {
 			return err
 		}
-		detail.Registration, err = registrationView(tx, row.ID)
+		if detail.Registration, err = registrationView(tx, row.ID); err != nil || !row.Open() {
+			return err
+		}
+		listed, err = control.VersionManifest(tx, row)
 		return err
 	})
 	if err != nil {
 		fail(w, err)
 		return
+	}
+	if len(listed) != 0 {
+		detail.Registration = h.previewRegistration(r, row)
 	}
 	reply(w, http.StatusOK, detail)
 }
