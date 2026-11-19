@@ -1,0 +1,56 @@
+{
+  "guide": "best-practices",
+  "title": "Best practices",
+  "world": "harbor",
+  "order": 8,
+  "steps": [
+    {
+      "step": "read the Practices panel",
+      "route": "/projects/harbor",
+      "actions": [
+        { "waitFor": { "text": "harbor-api", "in": { "role": "region", "name": "Practices" } } },
+        { "waitFor": { "text": "harbor-web", "in": { "role": "region", "name": "Practices" } } },
+        { "waitFor": { "text": "harbor-plan", "in": { "role": "region", "name": "Practices" } } }
+      ],
+      "capture": { "name": "best-practices-01", "clip": { "role": "region", "name": "Practices" } }
+    },
+    {
+      "step": "open the Practices tab of harbor-api",
+      "actions": [
+        { "click": { "role": "link", "name": "harbor-api", "in": { "role": "region", "name": "Practices" } } },
+        { "waitFor": { "text": "Why it matters", "in": { "role": "region", "name": "Practices of harbor-api" } } },
+        { "waitFor": { "text": "env-ignored:ignore:.", "in": { "role": "region", "name": "Practices of harbor-api" } } }
+      ],
+      "capture": { "name": "best-practices-02", "clip": { "role": "region", "name": "Practices of harbor-api" }, "height": 1600 }
+    },
+    {
+      "step": "fill in Acknowledge finding",
+      "actions": [
+        { "click": { "role": "button", "name": "Acknowledge", "in": { "role": "row", "name": "env-ignored:ignore:.", "exact": false } } },
+        { "waitFor": { "text": "An env file holds credentials", "in": { "role": "dialog", "name": "Acknowledge finding" } } },
+        { "fill": { "label": "Reason", "value": "The service reads its settings from the environment, and no env file is ever written here", "in": { "role": "dialog", "name": "Acknowledge finding" } } }
+      ],
+      "capture": { "name": "best-practices-03", "clip": { "role": "dialog", "name": "Acknowledge finding" } }
+    },
+    {
+      "step": "acknowledge the finding",
+      "actions": [
+        { "click": { "role": "button", "name": "Acknowledge", "in": { "role": "dialog", "name": "Acknowledge finding" } } },
+        { "waitFor": { "text": "no env file is ever written here", "in": { "role": "region", "name": "Practices of harbor-api" } } }
+      ]
+    },
+    {
+      "step": "read the practices of an import's dry run",
+      "route": "/projects",
+      "actions": [
+        { "click": { "role": "link", "name": "Import an existing project" } },
+        { "waitFor": { "text": "Worker and folders" } },
+        { "fill": { "label": "Folders", "value": "{{lighthouse}}" } },
+        { "click": { "role": "button", "name": "Run dry run" } },
+        { "waitFor": { "text": "nothing recorded yet" } },
+        { "waitFor": { "text": "8 findings", "in": { "role": "region", "name": "Practices found" } } }
+      ],
+      "capture": { "name": "best-practices-04", "clip": { "role": "region", "name": "Practices found" } }
+    }
+  ]
+}

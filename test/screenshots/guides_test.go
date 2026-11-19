@@ -61,6 +61,7 @@ func walkWorld(t *testing.T, binary, out, theme, name string, w walk) {
 		h := newHarbor(in)
 		vars = h.vars()
 		maps.Copy(vars, h.sessions())
+		maps.Copy(vars, h.practices())
 	case worldSample:
 		sample = newWorld(in)
 		sample.guided = true
