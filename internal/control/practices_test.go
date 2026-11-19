@@ -38,15 +38,37 @@ func newPracticesRig(t *testing.T, protocol int) *practicesRig {
 	t.Helper()
 	r := &practicesRig{planeRig: newPlaneRig(t, protocol), hosts: map[string]control.AssistantHost{}, local: "worker-1"}
 	r.store = r.stores["pa"]
-	r.practices = control.NewPractices(r.store).Placing(
+	r.practices = r.practicesOver(r.store)
+	return r
+}
+
+// practicesOver is the use case that asks workers to run the practices check, over a store.
+func (r *practicesRig) practicesOver(store ports.Store) *control.Practices {
+	return control.NewPractices(store).Placing(
 		func(context.Context, ledger.WorkspaceID) (map[string]control.AssistantHost, error) {
 			return r.hosts, nil
 		},
 		0,
 		func(context.Context) (string, error) { return r.local, nil },
 	)
-	return r
 }
+
+// pinnedClock is a store whose write transactions read the time it holds.
+type pinnedClock struct {
+	ports.Store
+	now int64
+}
+
+func (s pinnedClock) Write(ctx context.Context, scope ledger.WorkspaceID, op string, fn func(ports.WriteTx) error) error {
+	return s.Store.Write(ctx, scope, op, func(tx ports.WriteTx) error { return fn(pinnedTx{WriteTx: tx, now: s.now}) })
+}
+
+type pinnedTx struct {
+	ports.WriteTx
+	now int64
+}
+
+func (t pinnedTx) Now() int64 { return t.now }
 
 // register records a repository in the project and says each worker keeps a checkout of it.
 func (r *practicesRig) register(id, name string, workers ...string) ledger.Repository {
@@ -566,6 +588,31 @@ func TestAnEarlierRequestsLateReportDoesNotReplaceANewerResult(t *testing.T) {
 	}
 	if events := r.events(ledger.EventPracticesChecked); len(events) != 2 {
 		t.Errorf("the log holds %d checked events, want both reports", len(events))
+	}
+}
+
+// Requests of one repository are ordered strictly, so the report of the latest request is the one kept, even when the
+// store's clock reads the same millisecond for each of them.
+func TestRequestsOfOneRepositoryMadeInOneMillisecondAreOrderedStrictly(t *testing.T) {
+	r := newPracticesRig(t, ledger.ProtocolVersion)
+	r.register("repo-a", "widgets", "worker-1")
+	now := time.Now().UnixMilli()
+	r.practices = r.practicesOver(pinnedClock{Store: r.store, now: now})
+	var previous ledger.PracticesRequest
+	for round := range 8 {
+		request := r.requested(r.request(ledger.PracticesMember, "repo-a"))
+		if request.RequestedAt < now || request.RequestedAt <= previous.RequestedAt {
+			t.Errorf("request %d was made at %d, after %d, which the clock read as %d", round, request.RequestedAt, previous.RequestedAt, now)
+		}
+		if request.ExpiresAt != request.RequestedAt+ledger.PracticesRequestTTLMs {
+			t.Errorf("request %d expires at %d, want %d", round, request.ExpiresAt, request.RequestedAt+ledger.PracticesRequestTTLMs)
+		}
+		commit := fmt.Sprintf("%040d", round+1)
+		r.mustReport(request.ID, ledger.PracticesOutcomeChecked, aResult("repo-a", commit, ""))
+		if record, err := r.record("repo-a"); err != nil || record.Request != request.ID || record.Commit != commit {
+			t.Fatalf("after request %d the result is %+v (%v), want the one of request %s", round, record, err, request.ID)
+		}
+		previous = request
 	}
 }
 

@@ -104,13 +104,17 @@ func (p *Practices) Request(ctx context.Context, scope ledger.WorkspaceID, repos
 				out = append(out, asked)
 				continue
 			}
-			id, err := newID(now)
+			requestedAt, err := requestTime(tx, repository.ID, now)
+			if err != nil {
+				return err
+			}
+			id, err := newID(requestedAt)
 			if err != nil {
 				return err
 			}
 			request := ledger.PracticesRequest{
 				ID: id, Repository: repository.ID, Worker: worker.ID, Cause: cause, RequestedBy: actor.ID,
-				RequestedAt: now, ExpiresAt: now + ledger.PracticesRequestTTLMs, State: ledger.PracticesOffered,
+				RequestedAt: requestedAt, ExpiresAt: requestedAt + ledger.PracticesRequestTTLMs, State: ledger.PracticesOffered,
 			}
 			if err := tx.Practices().Insert(request); err != nil {
 				return err
@@ -133,6 +137,27 @@ func (p *Practices) Request(ctx context.Context, scope ledger.WorkspaceID, repos
 		return nil, err
 	}
 	return out, nil
+}
+
+// requestTime is when a repository's next request is made: the store's time, or the millisecond after the request of
+// the repository's kept result when the store's time is not past it. Requests that report a result are ordered by
+// their time alone.
+func requestTime(tx ports.WriteTx, repository string, now int64) (int64, error) {
+	record, err := tx.Practices().Result(repository)
+	if errors.Is(err, ports.ErrNotFound) {
+		return now, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	kept, err := tx.Practices().Request(record.Request)
+	if errors.Is(err, ports.ErrNotFound) {
+		return now, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	return max(now, kept.RequestedAt+1), nil
 }
 
 // placement reads what the workers keep and which worker is the daemon's own.
