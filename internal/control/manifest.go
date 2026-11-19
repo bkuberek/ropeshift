@@ -179,15 +179,16 @@ func (r *Repositories) RegisterManifest(ctx context.Context, scope ledger.Worksp
 }
 
 // VersionManifest lists the repositories the manifests of one plan version name, at the version of each
-// manifest that plan version covers. A version the ledger does not hold yet, as a branch nothing has read,
-// names none, and a name two manifests list is read once.
+// manifest that plan version covers. A version the ledger does not hold yet, a branch's that intake records
+// only once a member approves it, names those its request carries from the branch's commit. A name two
+// manifests list is read once.
 func VersionManifest(tx ports.ReadTx, row authority.Approval) ([]planning.ManifestRepository, error) {
 	version, held, err := heldVersion(tx, row)
 	if err != nil {
 		return nil, err
 	}
 	if !held {
-		return nil, nil
+		return planDetailOf(row).Manifest, nil
 	}
 	if version.Digest != row.SubjectDigest {
 		return nil, nil
@@ -226,14 +227,15 @@ func heldVersion(tx ports.ReadTx, row authority.Approval) (planning.PlanVersion,
 
 // VersionTargets lists the repository names the work orders of one plan version name in `repo`, sorted and once
 // each: of each contract version the plan version covers, the work orders that version lists, each by the name
-// of the repository it targets. A version the ledger does not hold yet names none.
+// of the repository it targets. A version the ledger does not hold yet names those its request carries from the
+// branch's commit.
 func VersionTargets(tx ports.ReadTx, row authority.Approval) ([]string, error) {
 	version, held, err := heldVersion(tx, row)
 	if err != nil {
 		return nil, err
 	}
 	if !held {
-		return nil, nil
+		return planDetailOf(row).Targets, nil
 	}
 	if version.Digest != row.SubjectDigest {
 		return nil, nil

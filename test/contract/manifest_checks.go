@@ -51,6 +51,7 @@ var ManifestChecks = []Check{
 	{"RM25", "a clone of one run that has its own record is matched to it, as it is alone, and not to the record of an earlier clone of the run whose history it merged", checkARunMatchesEachCloneAsItWouldAlone},
 	{"RM24", "two repositories that merged one history are each their own record, whichever registers first, and neither is matched to the record that history made", checkTwoRepositoriesThatMergedOneHistoryAreEachTheirOwn},
 	{"RM6", "a manifest registers only a clone inside the directory that holds the planning repository's clone, symbolic links followed: a path or a link that leads out of it, the planning clone itself, and the installation's own directories register nothing, each refused naming where it leads", checkManifestPathsStayBesideThePlanningClone},
+	{"RM34", "approving a planning branch's version before intake records it registers each existing clone its manifest lists, and the preview of that version lists them, with an entry that creates read as planned unless a work order on the branch names it; the approval keeps one record once intake records the commit", checkBranchVersionRegistersItsManifest},
 	{"RM35", "an entry with create that no work order of the version names in repo is planned in the preview and in the approval's record, and nothing is created or registered for it; a later version whose work order names it is not planned", checkUntargetedCreationIsPlanned},
 }
 
@@ -1935,6 +1936,106 @@ func (r *Rig) recordedAre(s ports.Store, approval string, want map[string]entryO
 		}
 	}
 	return nil
+}
+
+// branchManifestProject is a project whose planning repository's clone this worker's machine keeps at /work/plan,
+// with an api repository the project holds and a clone of billing beside it, and whose ledger holds no plan.
+func (r *Rig) branchManifestProject(s ports.Store) (*fake.Checkouts, error) {
+	system := ledger.Actor{Kind: ledger.ActorSystem, ID: "intake"}
+	for id, directory := range map[string]string{"memory": "plan", "repo-api": "api"} {
+		if _, err := r.repositories(s).Detect(r.Ctx, r.Scope, control.DetectedRepository{ID: id, DefaultBranch: "main", Directory: directory}, system); err != nil {
+			return nil, err
+		}
+	}
+	yes := true
+	if _, err := r.change(s, "memory", control.RepositoryChange{Planning: &yes}, r.Actor); err != nil {
+		return nil, err
+	}
+	kept, err := r.planningMachine()
+	if err != nil {
+		return nil, err
+	}
+	kept.Place(cloneOf("billing", "billing"))
+	return kept, nil
+}
+
+func checkBranchVersionRegistersItsManifest(r *Rig) error {
+	s := r.Store()
+	kept, err := r.branchManifestProject(s)
+	if err != nil {
+		return err
+	}
+	files := map[string]string{
+		"plan.md":         "+++\nkind = \"plan\"\nid = \"" + manifestPlan + "\"\ntitle = \"The platform\"\ndocuments = [\"repositories:platform\"]\n+++\n\nOne plan for every repository.\n",
+		"repositories.md": manifestText(createdEntry("web")+createdEntry("docs"), "api", "billing", "ghost"),
+		"core.md":         placedContract{ID: "core", Plan: manifestPlan, Orders: []orderIn{{ID: "core-1", Repo: "api"}, {ID: "core-web", Repo: "web"}}}.text(),
+	}
+	_, pending, err := r.aLanePlanAsksForApproval(s, files)
+	if err != nil {
+		return err
+	}
+	if pending.Plan != "" {
+		return Violatedf("the branch's version is of plan %s, which the ledger should not hold yet", pending.Plan)
+	}
+	want := map[string]entryOutcome{
+		"api":     {outcome: ledger.AlreadyRegistered, path: "/work/api"},
+		"billing": {outcome: ledger.Registered, path: "/work/billing"},
+		"ghost":   {outcome: ledger.RegistrationRefused, path: "/work/ghost", reason: "no git clone is at /work/ghost"},
+		// A work order on the branch names web, so web is not planned; until ropeshift creates it, it has no clone.
+		"web":  {outcome: ledger.RegistrationRefused, path: "/work/web", reason: "no git clone is at /work/web"},
+		"docs": {outcome: ledger.Planned, reason: plannedReason("docs")},
+	}
+	repositories := r.repositories(s)
+	preview, err := repositories.RegisterApproved(r.Ctx, r.Scope, pending.ID, kept, true, r.member())
+	if err != nil {
+		return err
+	}
+	if err := outcomesAre(preview, want); err != nil {
+		return Violatedf("the preview of the branch's version: %v", err)
+	}
+	if record, err := r.registrationOf(s, pending.ID); err != nil || record != nil {
+		return Violatedf("a preview recorded %+v: %v", record, err)
+	}
+	if found, err := repositories.Resolve(r.Ctx, r.Scope, "billing"); err == nil {
+		return Violatedf("the preview registered %+v", found)
+	}
+	if _, err := r.approve(s, pending, true, r.member()); err != nil {
+		return err
+	}
+	added, err := repositories.RegisterApproved(r.Ctx, r.Scope, pending.ID, kept, false, r.member())
+	if err != nil {
+		return err
+	}
+	if err := outcomesAre(added, want); err != nil {
+		return Violatedf("approving the branch's version: %v", err)
+	}
+	if billing, _ := outcomeNamed(added, "billing"); billing.Checkout != "/work/billing" || billing.Repository.Name != "billing" {
+		return Violatedf("billing is registered as %+v", billing)
+	}
+	if err := r.recordedAre(s, pending.ID, want); err != nil {
+		return err
+	}
+	for _, name := range []string{"web", "docs", "ghost"} {
+		if found, err := repositories.Resolve(r.Ctx, r.Scope, name); err == nil {
+			return Violatedf("approving registered %s as %+v", name, found)
+		}
+	}
+	// Intake then records the commit, and the approval keeps the one record it made.
+	var asked []string
+	if _, err := control.NewIntake(s).TakeInPlans(r.Ctx, r.Scope, openFrom(acceptedSource(files), &asked)); err != nil {
+		return err
+	}
+	again, err := repositories.RegisterApproved(r.Ctx, r.Scope, pending.ID, kept, false, r.member())
+	if err != nil {
+		return err
+	}
+	if err := outcomesAre(again, want); err != nil {
+		return Violatedf("deciding again once intake recorded the commit: %v", err)
+	}
+	if recorded, err := r.registrationEvents(s, pending.ID); err != nil || recorded != 1 {
+		return Violatedf("the approval recorded what it registered %d times: %v", recorded, err)
+	}
+	return r.CheckProjection(s)
 }
 
 func checkUntargetedCreationIsPlanned(r *Rig) error {

@@ -128,8 +128,9 @@ func (h *handler) showPlan(w http.ResponseWriter, r *http.Request) {
 
 // previewRegistration says what approving a plan version that waits would register of the repositories its
 // manifest lists, read now on the machine of the worker this daemon runs with nothing recorded, so a member
-// reads each path, where it leads, and whether it registers before consenting (ADR-0022). Only a member
-// approves a plan, so only a member's read runs it.
+// reads each path, where it leads, and whether it registers before consenting (ADR-0022). A version a planning
+// branch holds, which the ledger holds only once it is approved, is read from the manifest and the work its
+// request carries. Only a member approves a plan, so only a member's read runs it.
 func (h *handler) previewRegistration(r *http.Request, approval authority.Approval) *api.ManifestRegistration {
 	preview := &api.ManifestRegistration{Preview: true, Repositories: []api.RepositoryAdded{}}
 	actor, member := h.readingMember(r)

@@ -1,12 +1,14 @@
 package server_test
 
 import (
+	"encoding/json"
 	"net/http"
 	"reflect"
 	"testing"
 
 	"ropeshift.com/ropeshift/internal/adapters/fake"
 	"ropeshift.com/ropeshift/internal/api"
+	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/control"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/planning"
@@ -210,4 +212,59 @@ func TestGoldenPlanWithAPlannedRepository(t *testing.T) {
 	wantPlannedPreview(t, view)
 	steadySet(&view)
 	holdsGolden(t, "plan-planned", steady(pretty(t, view)))
+}
+
+// FR-REPO-8: a later version a planning branch asks about, which the ledger holds only once a member approves it,
+// previews what approving registers from the manifest and the work its request carries from the branch.
+func TestABranchVersionPreviewsItsManifest(t *testing.T) {
+	t.Parallel()
+	d := planningMachine(t, apitest.Options{})
+	ctx := t.Context()
+	source := fake.NewWorkSource()
+	source.Write("plan.md", []byte(manifestPlanText))
+	if _, err := control.NewIntake(d.Store).Poll(ctx, apitest.Scope, source); err != nil {
+		t.Fatal(err)
+	}
+	plans, err := d.Client.Plans(ctx)
+	if err != nil || len(plans) != 1 {
+		t.Fatalf("plans %+v: %v", plans, err)
+	}
+	first, err := d.Client.Plan(ctx, plans[0].ID)
+	if err != nil || first.Approval == nil || first.Approval.Registration != nil {
+		t.Fatalf("the first version, which lists no manifest, reads %+v: %v", first.Approval, err)
+	}
+	if _, err := d.Client.DecideApproval(ctx, first.Approval.Approval.ID, api.DecideApproval{Digest: first.Approval.Approval.SubjectDigest, Allow: true}); err != nil {
+		t.Fatal(err)
+	}
+	detail, err := json.Marshal(planning.PlanDetail{Title: "The platform", Ref: "platform-v1", Manifest: manifestEntries, Targets: []string{"billing"}, Source: "abc1234"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	branch := authority.Approval{
+		ID: "branch-approval", Kind: authority.KindPlan, WorkOrder: "plan-1", Subject: "platform-v1@2", SubjectDigest: "sha256:branch",
+		Summary: "Plan The platform, version 2", RequestedBy: "lane:lane-1", State: authority.ApprovalPending, RaisedAt: 1,
+		Plan: plans[0].ID, PlanVersion: 2, Detail: string(detail),
+	}
+	err = d.Store.Write(ctx, apitest.Scope, "test.approval", func(tx ports.WriteTx) error {
+		if _, err := tx.Approvals().Insert(branch); err != nil {
+			return err
+		}
+		event, err := authority.ApprovalEvent(branch, ledger.Actor{Kind: ledger.ActorSystem, ID: "intake"})
+		if err != nil {
+			return err
+		}
+		_, err = tx.Append(event)
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	view, err := d.Client.Plan(ctx, plans[0].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.Approval == nil || view.Approval.Approval.ID != branch.ID {
+		t.Fatalf("the plan reads the request %+v, want the branch's", view.Approval)
+	}
+	wantPlannedPreview(t, view)
 }

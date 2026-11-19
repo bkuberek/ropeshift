@@ -259,9 +259,14 @@ type PlanDetail struct {
 	Decisions int            `json:"decisions,omitempty"`
 	// Drafts are the answers a version drafts, which a branch's version carries here because the ledger holds
 	// none of its records until a member approves it. A version the ledger holds drafts what its record says.
-	Drafts     []DraftDecision `json:"drafts,omitempty"`
-	Difference Difference      `json:"difference"`
-	Source     string          `json:"source,omitempty"`
+	Drafts []DraftDecision `json:"drafts,omitempty"`
+	// Manifest is every entry of the manifests a branch's version lists, and Targets the repository names its
+	// work orders give in `repo`, sorted and once each, which a branch's version carries here for the same
+	// reason. A version the ledger holds reads both from its records.
+	Manifest   []ManifestRepository `json:"manifest,omitempty"`
+	Targets    []string             `json:"targets,omitempty"`
+	Difference Difference           `json:"difference"`
+	Source     string               `json:"source,omitempty"`
 	// Adoption groups a plan that adopts an existing project, and lists every file its branch changed
 	// (ADR-0023). Any other plan has none.
 	Adoption *Adoption `json:"adoption,omitempty"`
