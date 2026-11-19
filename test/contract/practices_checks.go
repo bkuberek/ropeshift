@@ -27,6 +27,7 @@ var PracticesChecks = []Check{
 	{"PRQ7", "registering from a manifest requests one check of each repository it registers", checkManifestRegistrationRequestsACheckOfEachRepository},
 	{"PRQ8", "a request that fails at a registration from a manifest leaves the registration standing and is logged", checkAFailedRequestLeavesAManifestRegistration},
 	{"PRQ9", "a repository's latest request is the one made last, whatever its state", checkPracticesLatestRequest},
+	{"PRQ10", "a finding is acknowledged once per repository, read back whole, listed by finding, and withdrawn on its own", checkPracticesAcknowledgements},
 }
 
 // practicesWrite runs one write transaction on the practices records, with the event any committed transaction needs.
@@ -578,4 +579,75 @@ func checkAFailedRequestLeavesAManifestRegistration(r *Rig) error {
 		return Violatedf("a failed request left %d requests: %v", n, err)
 	}
 	return nil
+}
+
+func checkPracticesAcknowledgements(r *Rig) error {
+	s := r.Store()
+	first := ledger.PracticesAcknowledgement{Repository: "repo-a", Finding: "secrets:github_token:a.yaml:1a2b3c4d5e6f", Reason: "a test fixture", Member: "member-1", AcknowledgedAt: 1000}
+	again := ledger.PracticesAcknowledgement{Repository: "repo-a", Finding: first.Finding, Reason: "another reason", Member: "member-2", AcknowledgedAt: 2000}
+	earlier := ledger.PracticesAcknowledgement{Repository: "repo-a", Finding: "codeowners", Reason: "owned by the team", Member: "member-1", AcknowledgedAt: 1500}
+	other := ledger.PracticesAcknowledgement{Repository: "repo-b", Finding: first.Finding, Reason: "an example", Member: "member-2", AcknowledgedAt: 1800}
+	var added []bool
+	if err := practicesWrite(r, s, func(p ports.PracticesWriter) error {
+		for _, ack := range []ledger.PracticesAcknowledgement{first, again, earlier, other} {
+			ok, err := p.Acknowledge(ack)
+			if err != nil {
+				return err
+			}
+			added = append(added, ok)
+		}
+		return nil
+	}); err != nil {
+		return Violatedf("acknowledging: %v", err)
+	}
+	if !slices.Equal(added, []bool{true, false, true, true}) {
+		return Violatedf("acknowledging reported %v, want an acknowledgement kept only the first time a repository's finding is acknowledged", added)
+	}
+	if err := practicesRead(r, s, func(p ports.PracticesReader) error {
+		got, err := p.Acknowledgement("repo-a", first.Finding)
+		if err != nil || got != first {
+			return Violatedf("an acknowledgement reads back as %+v, %v; want %+v, the first one kept", got, err, first)
+		}
+		if _, err := p.Acknowledgement("repo-a", "lockfile:go"); !errors.Is(err, ports.ErrNotFound) {
+			return Violatedf("an unacknowledged finding reads %v, want not found", err)
+		}
+		list, err := p.Acknowledgements("repo-a")
+		if err != nil || len(list) != 2 || list[0] != earlier || list[1] != first {
+			return Violatedf("repo-a's acknowledgements read %+v, %v; want codeowners and then the secret, by finding", list, err)
+		}
+		if list, err = p.Acknowledgements("repo-c"); err != nil || len(list) != 0 {
+			return Violatedf("a repository with none lists %+v, %v", list, err)
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	var withdrawn []bool
+	if err := practicesWrite(r, s, func(p ports.PracticesWriter) error {
+		for _, ask := range [][2]string{{"repo-a", first.Finding}, {"repo-a", first.Finding}, {"repo-c", "codeowners"}} {
+			ok, err := p.Withdraw(ask[0], ask[1])
+			if err != nil {
+				return err
+			}
+			withdrawn = append(withdrawn, ok)
+		}
+		return nil
+	}); err != nil {
+		return Violatedf("withdrawing: %v", err)
+	}
+	if !slices.Equal(withdrawn, []bool{true, false, false}) {
+		return Violatedf("withdrawing reported %v, want true for the one that existed and false for the others", withdrawn)
+	}
+	return practicesRead(r, s, func(p ports.PracticesReader) error {
+		if _, err := p.Acknowledgement("repo-a", first.Finding); !errors.Is(err, ports.ErrNotFound) {
+			return Violatedf("a withdrawn acknowledgement reads %v, want not found", err)
+		}
+		if got, err := p.Acknowledgement("repo-b", first.Finding); err != nil || got != other {
+			return Violatedf("another repository's acknowledgement of the same finding reads %+v, %v; want it kept", got, err)
+		}
+		if list, err := p.Acknowledgements("repo-a"); err != nil || len(list) != 1 || list[0] != earlier {
+			return Violatedf("repo-a's acknowledgements read %+v, %v after the withdrawal; want codeowners only", list, err)
+		}
+		return nil
+	})
 }

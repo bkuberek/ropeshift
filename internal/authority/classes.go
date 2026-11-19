@@ -127,6 +127,8 @@ const (
 	OpAdoptionPlan                        = "adoption.plan"
 	OpAdoptionRestructure                 = "adoption.restructure"
 	OpPracticesCheck                      = "practices.check"
+	OpPracticesAcknowledge                = "practices.acknowledge"
+	OpPracticesWithdraw                   = "practices.withdraw"
 	OpRepositorySet                       = "repository.set"
 	OpRepositoryLowerMergeAuthority       = "repository.lower_merge_authority"
 	OpRepositoryReviewTargetBranch        = "repository.review_target_branch"
@@ -154,14 +156,15 @@ const (
 
 // The reasons a consent operation is never exempt.
 const (
-	neverManagement = "Member and worker management stays with a member."
-	neverAutonomy   = "Autonomy is policy, which only a member changes."
-	neverRoster     = "The agent roster and its routing guide are changed only on a member's word (ADR-0025)."
-	neverPolicy     = "Policy is changed only on a member's word."
-	neverSpend      = "Spending past a hard limit is a person's decision."
-	neverRaise      = "Raising merge authority leaves more to ropeshift, which only a member allows."
-	neverPullReq    = "Moving review to a pull request changes where work lands, which only a member allows."
-	neverApproval   = "A delegate decides a request only within the delegation policy; every other request needs a member."
+	neverManagement  = "Member and worker management stays with a member."
+	neverAutonomy    = "Autonomy is policy, which only a member changes."
+	neverRoster      = "The agent roster and its routing guide are changed only on a member's word (ADR-0025)."
+	neverPolicy      = "Policy is changed only on a member's word."
+	neverSpend       = "Spending past a hard limit is a person's decision."
+	neverRaise       = "Raising merge authority leaves more to ropeshift, which only a member allows."
+	neverPullReq     = "Moving review to a pull request changes where work lands, which only a member allows."
+	neverAcknowledge = "An acknowledgement changes what members see as open, which only a member decides."
+	neverApproval    = "A delegate decides a request only within the delegation policy; every other request needs a member."
 	// neverUnlisted is why every other consent operation asks: a delegate policy exempts only a fixed list
 	// of reversible acts (ADR-0024).
 	neverUnlisted = "A delegate policy exempts only accepting verified work, rework after a failed verdict, creating work, and starting a contract review."
@@ -332,6 +335,10 @@ var operations = append(onInstallation(
 	// Running the practices check reads a repository and records what it found, and no decision reads the result, so a
 	// delegate's call runs at once.
 	operational(OpPracticesCheck, "Run the practices check"),
+	// An acknowledgement changes what members see as open, so a delegate's call is a card a member confirms, and
+	// no delegate policy exempts either operation.
+	never(OpPracticesAcknowledge, "Acknowledge a practices finding", neverAcknowledge, ActionAcknowledgePractices),
+	never(OpPracticesWithdraw, "Withdraw a finding's acknowledgement", neverAcknowledge, ActionWithdrawPractices),
 	operational(OpRepositorySet, "Change a repository's settings", ActionSetRepository),
 	operational(OpRepositoryLowerMergeAuthority, "Lower merge authority", ActionSetRepository),
 	operational(OpRepositoryReviewTargetBranch, "Review on the branch", ActionSetRepository),

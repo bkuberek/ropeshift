@@ -531,6 +531,20 @@
       "exemptable": false
     },
     {
+      "id": "practices.acknowledge",
+      "label": "Acknowledge a practices finding",
+      "class": "consent",
+      "exemptable": false,
+      "never_reason": "An acknowledgement changes what members see as open, which only a member decides."
+    },
+    {
+      "id": "practices.withdraw",
+      "label": "Withdraw a finding's acknowledgement",
+      "class": "consent",
+      "exemptable": false,
+      "never_reason": "An acknowledgement changes what members see as open, which only a member decides."
+    },
+    {
       "id": "repository.set",
       "label": "Change a repository's settings",
       "class": "operational",

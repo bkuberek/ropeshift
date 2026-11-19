@@ -3,6 +3,7 @@ package practices
 import (
 	"fmt"
 	"strings"
+	"unicode/utf8"
 )
 
 // DigestIDLength is how many hexadecimal characters of a secret's digest a finding's ID holds.
@@ -56,6 +57,10 @@ func ParseFindingID(id string) (ID, error) {
 	case Secrets:
 		rule, tail, ok := strings.Cut(rest, ":")
 		cut := strings.LastIndex(tail, ":")
+		if isClippedID(id) && hasSubject && rule != "" {
+			// Bound cut the path, and the digest with it, where the ID was longer than MaxText.
+			break
+		}
 		if !hasSubject || !ok || rule == "" || cut <= 0 || !isDigestID(tail[cut+1:]) {
 			return bad("want secrets:<rule>:<path>:<digest>")
 		}
@@ -74,6 +79,21 @@ func ParseFindingID(id string) (ID, error) {
 		}
 	}
 	return practice, nil
+}
+
+// isClippedID says an ID is one clipID wrote: within MaxText bytes, reaching to within a rune of it, and ending with `~` and
+// the digest of the whole ID.
+func isClippedID(id string) bool {
+	tail := 1 + 2*idDigestBytes
+	if len(id) > MaxText || len(id) < MaxText-utf8.UTFMax+1 || len(id) <= tail || id[len(id)-tail] != '~' {
+		return false
+	}
+	for _, r := range id[len(id)-tail+1:] {
+		if (r < '0' || r > '9') && (r < 'a' || r > 'f') {
+			return false
+		}
+	}
+	return true
 }
 
 func isDigestID(s string) bool {

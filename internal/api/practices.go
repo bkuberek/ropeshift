@@ -17,6 +17,12 @@ const (
 	PracticesChecksPath = "/v1/practices/checks"
 )
 
+// PracticesAcknowledgementsPath acknowledges a finding, and PracticesWithdrawPath withdraws the acknowledgement.
+const (
+	PracticesAcknowledgementsPath = "/v1/practices/acknowledgements"
+	PracticesWithdrawPath         = "/v1/practices/acknowledgements/withdraw"
+)
+
 // PracticesRequestView is a request that a worker run the practices check, with the state it stands in at the time of
 // the read: offered until its expiry passes, then expired, and reported once its worker reported it. WorkerName is
 // the name of the worker it was asked of, beside the worker's ID.
@@ -44,10 +50,14 @@ type PracticeView struct {
 	PracticeGuide
 }
 
-// PracticeFindingView is one finding of a result, with the table's words for the practice it belongs to.
+// PracticeFindingView is one finding of a result, with the table's words for the practice it belongs to. A finding a
+// member acknowledged stays in the result and reads Acknowledged, with the acknowledgement: its practice is still a
+// finding.
 type PracticeFindingView struct {
 	practices.Finding
 	PracticeGuide
+	Acknowledged    bool                      `json:"acknowledged,omitempty"`
+	Acknowledgement *PracticesAcknowledgement `json:"acknowledgement,omitempty"`
 }
 
 // PracticesAcknowledgement is a member's reason for leaving a finding open, which the finding keeps showing beside.
@@ -56,6 +66,25 @@ type PracticesAcknowledgement struct {
 	Reason         string    `json:"reason"`
 	Member         string    `json:"member"`
 	AcknowledgedAt time.Time `json:"acknowledged_at"`
+}
+
+// PracticesAcknowledge acknowledges a repository's finding, by the repository's name or ID, with the reason for
+// leaving it open: at least a character, and at most ledger.MaxPracticesReason bytes.
+type PracticesAcknowledge struct {
+	Repository string `json:"repository"`
+	Finding    string `json:"finding"`
+	Reason     string `json:"reason"`
+}
+
+// PracticesWithdraw withdraws the acknowledgement of a repository's finding.
+type PracticesWithdraw struct {
+	Repository string `json:"repository"`
+	Finding    string `json:"finding"`
+}
+
+// PracticesAcknowledgementOf reads an acknowledgement as a client reads it.
+func PracticesAcknowledgementOf(ack ledger.PracticesAcknowledgement) PracticesAcknowledgement {
+	return PracticesAcknowledgement{Finding: ack.Finding, Reason: ack.Reason, Member: ack.Member, AcknowledgedAt: time.UnixMilli(ack.AcknowledgedAt).UTC()}
 }
 
 // PracticesResultView is what one check of a repository came to.
@@ -133,10 +162,17 @@ func guideOf(id practices.ID) PracticeGuide {
 	return PracticeGuide{Why: practice.Why, Fix: practice.Fix, Template: practice.Template, Command: practice.Command()}
 }
 
-// PracticesViewOf reads a repository's latest result and open request, either of which may be nil, as a client
-// reads them at a time, with the workers named as PracticesRequestViewOf names them.
-func PracticesViewOf(repository ledger.Repository, record *ledger.PracticesRecord, open *ledger.PracticesRequest, now int64, workers map[string]string) PracticesView {
+// PracticesViewOf reads a repository's latest result and open request, either of which may be nil, and its
+// acknowledgements, as a client reads them at a time, with the workers named as PracticesRequestViewOf names them.
+// Every finding of the result stays in its list: one a member acknowledged reads Acknowledged, with the acknowledgement.
+func PracticesViewOf(repository ledger.Repository, record *ledger.PracticesRecord, open *ledger.PracticesRequest, acknowledged []ledger.PracticesAcknowledgement, now int64, workers map[string]string) PracticesView {
 	view := PracticesView{Repository: repository.ID, Name: repository.Name}
+	acks := make(map[string]PracticesAcknowledgement, len(acknowledged))
+	for _, ack := range acknowledged {
+		read := PracticesAcknowledgementOf(ack)
+		acks[ack.Finding] = read
+		view.Acknowledgement = append(view.Acknowledgement, read)
+	}
 	if open != nil {
 		request := PracticesRequestViewOf(*open, now, workers)
 		view.Request = &request
@@ -155,7 +191,11 @@ func PracticesViewOf(repository ledger.Repository, record *ledger.PracticesRecor
 		read.Practices = append(read.Practices, PracticeView{ID: status.ID, Severity: practice.Severity, Status: status.Status, Reason: status.Reason, PracticeGuide: guideOf(status.ID)})
 	}
 	for _, finding := range result.Findings {
-		read.Findings = append(read.Findings, PracticeFindingView{Finding: finding, PracticeGuide: guideOf(finding.Practice)})
+		found := PracticeFindingView{Finding: finding, PracticeGuide: guideOf(finding.Practice)}
+		if ack, ok := acks[finding.ID]; ok {
+			found.Acknowledged, found.Acknowledgement = true, &ack
+		}
+		read.Findings = append(read.Findings, found)
 	}
 	view.Result = &read
 	return view
@@ -186,5 +226,21 @@ func (c *ProjectClient) CheckPractices(ctx context.Context, repositories []strin
 func (c *ProjectClient) PracticesRequest(ctx context.Context, id string) (PracticesRequestView, error) {
 	var out PracticesRequestView
 	err := c.do(ctx, http.MethodGet, PracticesChecksPath+"/"+url.PathEscape(id), nil, &out)
+	return out, err
+}
+
+// AcknowledgePractices acknowledges a repository's finding with a reason, which only a member can do: a delegate's call
+// is a card a member confirms.
+func (c *ProjectClient) AcknowledgePractices(ctx context.Context, in PracticesAcknowledge) (PracticesAcknowledgement, error) {
+	var out PracticesAcknowledgement
+	err := c.do(ctx, http.MethodPost, PracticesAcknowledgementsPath, in, &out)
+	return out, err
+}
+
+// WithdrawPractices withdraws the acknowledgement of a repository's finding, and answers the acknowledgement it
+// removed.
+func (c *ProjectClient) WithdrawPractices(ctx context.Context, in PracticesWithdraw) (PracticesAcknowledgement, error) {
+	var out PracticesAcknowledgement
+	err := c.do(ctx, http.MethodPost, PracticesWithdrawPath, in, &out)
 	return out, err
 }

@@ -12,6 +12,8 @@ import (
 
 const practicesRequestColumns = `id, repository_id, worker, cause, requested_by, requested_at, expires_at, state, reported_at`
 
+const practicesAcknowledgementColumns = `repository_id, finding_id, reason, member, acknowledged_at`
+
 const practicesResultColumns = `repository_id, request_id, commit_digest, result, checked_at`
 
 var (
@@ -73,6 +75,22 @@ ON CONFLICT (workspace_id, repository_id) DO UPDATE SET scanned_tip = :scanned_t
 
 	stmtClearPracticesScan = define("practices.scan_clear",
 		`DELETE FROM practices_scans WHERE workspace_id = :workspace_id AND repository_id = :repository_id`)
+
+	stmtAcknowledgePractices = define("practices.acknowledgement_insert",
+		`INSERT INTO practices_acknowledgements (workspace_id, repository_id, finding_id, reason, member, acknowledged_at)
+VALUES (:workspace_id, :repository_id, :finding_id, :reason, :member, :acknowledged_at)
+ON CONFLICT (workspace_id, repository_id, finding_id) DO NOTHING`)
+
+	stmtWithdrawPractices = define("practices.acknowledgement_delete",
+		`DELETE FROM practices_acknowledgements WHERE workspace_id = :workspace_id AND repository_id = :repository_id AND finding_id = :finding_id`)
+
+	stmtPracticesAcknowledgement = define("practices.acknowledgement_get",
+		`SELECT `+practicesAcknowledgementColumns+` FROM practices_acknowledgements
+ WHERE workspace_id = :workspace_id AND repository_id = :repository_id AND finding_id = :finding_id`)
+
+	stmtPracticesAcknowledgements = define("practices.acknowledgements",
+		`SELECT `+practicesAcknowledgementColumns+` FROM practices_acknowledgements
+ WHERE workspace_id = :workspace_id AND repository_id = :repository_id ORDER BY finding_id`)
 
 	stmtPracticesScan = define("practices.scan_get",
 		`SELECT scanned_tip, rules_version FROM practices_scans WHERE workspace_id = :workspace_id AND repository_id = :repository_id`)
@@ -271,4 +289,51 @@ func (t practicesTx) Scan(repository string) (ledger.PracticesScan, error) {
 	}
 	scan.RulesVersion = int(version)
 	return scan, nil
+}
+
+func scanPracticesAcknowledgement(row scanner) (ledger.PracticesAcknowledgement, error) {
+	var a ledger.PracticesAcknowledgement
+	err := row.Scan(&a.Repository, &a.Finding, &a.Reason, &a.Member, &a.AcknowledgedAt)
+	return a, err
+}
+
+func (t practicesTx) Acknowledge(a ledger.PracticesAcknowledgement) (bool, error) {
+	n, err := t.exec(stmtAcknowledgePractices, t.scoped(params{
+		"repository_id": a.Repository, "finding_id": a.Finding, "reason": a.Reason, "member": a.Member, "acknowledged_at": a.AcknowledgedAt,
+	}))
+	return n > 0, err
+}
+
+func (t practicesTx) Withdraw(repository, finding string) (bool, error) {
+	n, err := t.exec(stmtWithdrawPractices, t.scoped(params{"repository_id": repository, "finding_id": finding}))
+	return n > 0, err
+}
+
+func (t practicesTx) Acknowledgement(repository, finding string) (ledger.PracticesAcknowledgement, error) {
+	row, err := t.row(stmtPracticesAcknowledgement, t.scoped(params{"repository_id": repository, "finding_id": finding}))
+	if err != nil {
+		return ledger.PracticesAcknowledgement{}, err
+	}
+	ack, err := scanPracticesAcknowledgement(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ledger.PracticesAcknowledgement{}, fmt.Errorf("acknowledgement of finding %s of repository %s: %w", finding, repository, ports.ErrNotFound)
+	}
+	return ack, err
+}
+
+func (t practicesTx) Acknowledgements(repository string) ([]ledger.PracticesAcknowledgement, error) {
+	rows, err := t.rows(stmtPracticesAcknowledgements, t.scoped(params{"repository_id": repository}))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []ledger.PracticesAcknowledgement
+	for rows.Next() {
+		ack, err := scanPracticesAcknowledgement(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, ack)
+	}
+	return out, rows.Err()
 }

@@ -91,7 +91,14 @@
             "commit": "aaaaaaaaaaaa",
             "digest": "1a2b3c4d5e6f1a2b3c4d5e6f",
             "why": "A credential in a tracked file or in history can be read by anyone who can read the repository, every lane included, and deleting the file does not remove it from history.",
-            "fix": "Revoke and rotate the credential at its provider first, then remove it from the file. Removing it from history needs a history rewrite, which ropeshift does not do. Acknowledge a match that is a test fixture or an example."
+            "fix": "Revoke and rotate the credential at its provider first, then remove it from the file. Removing it from history needs a history rewrite, which ropeshift does not do. Acknowledge a match that is a test fixture or an example.",
+            "acknowledged": true,
+            "acknowledgement": {
+              "finding": "secrets:github_token:config/dev.yaml:1a2b3c4d5e6f",
+              "reason": "a token the parser tests read",
+              "member": "member-1",
+              "acknowledged_at": "2026-09-21T14:13:20Z"
+            }
           }
         ]
       },
@@ -105,7 +112,15 @@
         "expires_at": 1790001800000,
         "state": "offered",
         "worker_name": "plan"
-      }
+      },
+      "acknowledgement": [
+        {
+          "finding": "secrets:github_token:config/dev.yaml:1a2b3c4d5e6f",
+          "reason": "a token the parser tests read",
+          "member": "member-1",
+          "acknowledged_at": "2026-09-21T14:13:20Z"
+        }
+      ]
     }
   ]
 }

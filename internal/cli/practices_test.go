@@ -315,7 +315,7 @@ func TestPracticesStripsControlCharactersFromWhatItPrints(t *testing.T) {
 func TestPracticesTextListsAcknowledgedFindingsApartAndOmitsThemWhenThereAreNone(t *testing.T) {
 	checked := time.Date(2026, 11, 18, 9, 0, 0, 0, time.UTC)
 	record := ledger.PracticesRecord{Repository: widgetsID, Request: "r", Commit: aTip, Result: aCheckResult(widgetsID, checked)}
-	view := api.PracticesViewOf(ledger.Repository{ID: widgetsID, Name: "widgets"}, &record, nil, 0, nil)
+	view := api.PracticesViewOf(ledger.Repository{ID: widgetsID, Name: "widgets"}, &record, nil, nil, 0, nil)
 	plain := cli.PracticesText(view, "", checked.Add(time.Hour))
 	if strings.Contains(plain, "acknowledged") {
 		t.Errorf("a view with none acknowledged prints:\n%s", plain)
@@ -362,5 +362,98 @@ func TestPracticesNamesTheWorkerAnOpenRequestWaitsOnByItsName(t *testing.T) {
 	stdout := s.must("practices", "--latest", "--repository", "widgets")
 	if want := "widgets not checked yet: a check was requested on plan and has not reported\n"; !strings.Contains(stdout, want) {
 		t.Errorf("the output lacks %q:\n%s", want, stdout)
+	}
+}
+
+const leakedToken = "secrets:github_token:config/dev.yaml:1a2b3c4d5e6f"
+
+// `practices acknowledge` records the reason, and `practices` then lists the finding apart from the open ones with the
+// reason, the member, and the date; `practices withdraw` puts it back among the open ones.
+func TestPracticesAcknowledgeKeepsTheFindingVisibleWithItsReasonAndWithdrawRestoresIt(t *testing.T) {
+	s := practicesSession(t, apitest.Options{}, widgetsID)
+	s.keepsResult("request-earlier", aCheckResult(widgetsID, time.Now().Add(-5*time.Second)))
+	got := s.must("practices", "acknowledge", "widgets", leakedToken, "--reason", "a token the parser tests read")
+	if want := "Acknowledged " + leakedToken + " in widgets: a token the parser tests read\n"; got != want {
+		t.Errorf("acknowledge printed %q, want %q", got, want)
+	}
+	stdout := s.must("practices", "--latest", "--repository", "widgets")
+	open, acknowledged, found := strings.Cut(stdout, "acknowledged:\n")
+	if !found || strings.Contains(open, leakedToken) || !strings.Contains(acknowledged, leakedToken+": a token the parser tests read (member-1, ") {
+		t.Errorf("the finding is not listed apart with its reason:\n%s", stdout)
+	}
+	if got := s.must("practices", "withdraw", "widgets", leakedToken); got != "Withdrew the acknowledgement of "+leakedToken+" in widgets.\n" {
+		t.Errorf("withdraw printed %q", got)
+	}
+	stdout = s.must("practices", "--latest", "--repository", "widgets")
+	if strings.Contains(stdout, "acknowledged:") || !strings.Contains(stdout, "high  "+leakedToken) {
+		t.Errorf("the finding is not open again:\n%s", stdout)
+	}
+}
+
+// `--json` prints the acknowledgement the route answers.
+func TestPracticesAcknowledgeAndWithdrawPrintTheAcknowledgementWithJSON(t *testing.T) {
+	s := practicesSession(t, apitest.Options{}, widgetsID)
+	var made, removed api.PracticesAcknowledgement
+	if err := json.Unmarshal([]byte(s.must("practices", "acknowledge", "widgets", "codeowners", "--reason", "the team owns it", "--json")), &made); err != nil ||
+		made.Finding != "codeowners" || made.Reason != "the team owns it" || made.Member != "member-1" {
+		t.Errorf("acknowledge printed %+v (%v)", made, err)
+	}
+	if err := json.Unmarshal([]byte(s.must("practices", "withdraw", "widgets", "codeowners", "--json")), &removed); err != nil || removed != made {
+		t.Errorf("withdraw printed %+v (%v), want %+v", removed, err, made)
+	}
+}
+
+// Each refusal keeps the exit code of its kind, and prints nothing a card or an acknowledgement would.
+func TestPracticesAcknowledgeAndWithdrawKeepTheExitCodesOfTheirRefusals(t *testing.T) {
+	s := practicesSession(t, apitest.Options{}, widgetsID)
+	s.must("practices", "acknowledge", "widgets", "codeowners", "--reason", "the team owns it")
+	for name, tc := range map[string]struct {
+		args []string
+		want int
+	}{
+		"no reason":                                        {[]string{"practices", "acknowledge", "widgets", "security-policy"}, cli.ExitUsage},
+		"an empty reason":                                  {[]string{"practices", "acknowledge", "widgets", "security-policy", "--reason", " "}, cli.ExitUsage},
+		"too few arguments":                                {[]string{"practices", "acknowledge", "widgets", "--reason", "x"}, cli.ExitUsage},
+		"too many arguments":                               {[]string{"practices", "acknowledge", "widgets", "codeowners", "extra", "--reason", "x"}, cli.ExitUsage},
+		"a finding no practice names":                      {[]string{"practices", "acknowledge", "widgets", "no-such-practice", "--reason", "x"}, cli.ExitUsage},
+		"an acknowledged finding":                          {[]string{"practices", "acknowledge", "widgets", "codeowners", "--reason", "again"}, cli.ExitConflict},
+		"an unknown repository":                            {[]string{"practices", "acknowledge", "nothing", "codeowners", "--reason", "x"}, cli.ExitNotFound},
+		"withdraw, too few arguments":                      {[]string{"practices", "withdraw", "widgets"}, cli.ExitUsage},
+		"withdraw, none held":                              {[]string{"practices", "withdraw", "widgets", "security-policy"}, cli.ExitNotFound},
+		"withdraw, a finding no practice names, none held": {[]string{"practices", "withdraw", "widgets", "no-such-practice"}, cli.ExitNotFound},
+	} {
+		if code, stdout, _ := s.run(tc.args...); code != tc.want || stdout != "" {
+			t.Errorf("%s exited %d with %q, want %d and nothing printed", name, code, stdout, tc.want)
+		}
+	}
+}
+
+// A delegate's acknowledgement is a card that names the finding and the reason, and runs only when a member confirms
+// it.
+func TestAPracticesAcknowledgementADelegateMakesIsACardAMemberConfirms(t *testing.T) {
+	s := practicesSession(t, apitest.Options{}, widgetsID)
+	_, token := s.delegate()
+	code, stdout, stderr := s.asDelegate(token, "practices", "acknowledge", "widgets", "codeowners", "--reason", "the team owns it", "--project", "default", "--why", "The review found it intended.")
+	if code != cli.ExitPrepared || !strings.HasPrefix(stdout, "Prepared card ") || !strings.Contains(stdout, ": Acknowledge a practices finding: codeowners in widgets. It runs only when a member confirms it") {
+		t.Fatalf("a prepared card: %d %q %q", code, stdout, stderr)
+	}
+	if stdout := s.must("practices", "--latest", "--json"); strings.Contains(stdout, `"acknowledgement"`) {
+		t.Errorf("the card acknowledged before it was confirmed:\n%s", stdout)
+	}
+	card := strings.TrimSuffix(strings.Fields(stdout)[2], ":")
+	if text := s.must("confirm", card); !strings.Contains(text, "confirmed "+card+": Acknowledge a practices finding") {
+		t.Errorf("confirm printed %q", text)
+	}
+	if got := s.must("practices", "--latest", "--json"); !strings.Contains(got, `"reason":"the team owns it"`) {
+		t.Errorf("the confirmed card left no acknowledgement:\n%s", got)
+	}
+}
+
+// What a member's acknowledgement says is printed through the strip of control characters, as the findings are.
+func TestPracticesAcknowledgePrintsTheReasonOnOneLineWithNoControlCharacters(t *testing.T) {
+	s := practicesSession(t, apitest.Options{}, widgetsID)
+	got := s.must("practices", "acknowledge", "widgets", "codeowners", "--reason", "owned\x1b[2J by the team\nmet: forged")
+	if strings.ContainsAny(got, "\x1b") || strings.Count(got, "\n") != 1 {
+		t.Errorf("acknowledge printed %q, want one line with no control character", got)
 	}
 }

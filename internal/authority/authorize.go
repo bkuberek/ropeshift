@@ -119,6 +119,11 @@ const (
 	// laid out, so only a member has them, and no row below may ever grant them.
 	ActionPlanAdoption Action = "adoption.plan"
 	ActionRestructure  Action = "adoption.restructure"
+	// ActionAcknowledgePractices and ActionWithdrawPractices acknowledge a practices finding with a reason and withdraw
+	// that acknowledgement. An acknowledgement changes what members see as open, so a member's word stands behind each,
+	// and no row below may ever grant one to anything but a delegate's card.
+	ActionAcknowledgePractices Action = "practices.acknowledge"
+	ActionWithdrawPractices    Action = "practices.withdraw"
 	// ActionRunOrchestrator starts or stops a worker's orchestrator. No agent may ask for one: the
 	// first passphrase needs no session, which is safe only while no agent runs unasked.
 	ActionRunOrchestrator Action = "orchestrator.run"
@@ -201,6 +206,7 @@ func Actions() []Action {
 		ActionRaiseMergeAuthority, ActionReviewPullRequest, ActionDecideOneWay, ActionManageSessions, ActionBackupInstallation, ActionConfirmCard,
 		ActionConverse, ActionBackupProject, ActionSetLaneCaps, ActionMessageOrchestrator, ActionStartReview, ActionPlanAdoption, ActionRestructure,
 		ActionWriteTemplates, ActionCreateRemotes, ActionPublishInstallationPolicy, ActionAnswerCI, ActionRaiseSpendLimit, ActionMergeQuestion,
+		ActionAcknowledgePractices, ActionWithdrawPractices,
 	}
 }
 

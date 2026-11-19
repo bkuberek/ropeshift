@@ -286,6 +286,10 @@ func TestEveryRouteTakesItsClassForADelegate(t *testing.T) {
 	detected(t, d, "w1", "main")
 	// A spend route reads the work order's limit before it says what a raise would change.
 	createReady(t, d, "w1")
+	// A withdrawal's card shows the reason it withdraws, so the finding it names has one.
+	if _, err := d.Client.AcknowledgePractices(t.Context(), api.PracticesAcknowledge{Repository: "w1", Finding: "codeowners", Reason: "the team owns it"}); err != nil {
+		t.Fatal(err)
+	}
 	// bodies are what a route needs before it can say what a card would change.
 	bodies := map[string]any{
 		"POST /v1/roster/changes": api.RosterChange{Scope: roster.ScopeProject, Change: roster.Change{Op: roster.OpEnable, Agent: "lookup"}},
@@ -296,6 +300,10 @@ func TestEveryRouteTakesItsClassForADelegate(t *testing.T) {
 		"POST /v1/decisions/{id}/overturn": api.OverturnDecision{ID: "d-2", Statement: "Retry three times."},
 		// A raise of the project's limit names the window it lifts before a card can say what it would change.
 		"POST /v1/spend/project/raise": api.RaiseProjectSpend{Window: ledger.WindowDay, ToUSD: 20},
+		// An acknowledgement and a withdrawal name a repository and a finding the practice table's grammar allows, and an
+		// acknowledgement a reason.
+		"POST /v1/practices/acknowledgements":          api.PracticesAcknowledge{Repository: "w1", Finding: "security-policy", Reason: "the policy is in the wiki"},
+		"POST /v1/practices/acknowledgements/withdraw": api.PracticesWithdraw{Repository: "w1", Finding: "codeowners"},
 	}
 	checked := 0
 	for pattern, route := range server.RouteOperations() {

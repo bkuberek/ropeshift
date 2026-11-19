@@ -78,7 +78,9 @@ var cliOnly = map[string]string{
 // of P4 that adds it. A command whose row is added leaves this list, and the test fails until it does. The
 // first run of this test wrote it, and a command the audit did not name went by its area.
 var webGaps = map[string]string{
-	"practices": "P5i",
+	"practices":             "P5i",
+	"practices acknowledge": "P5i",
+	"practices withdraw":    "P5i",
 }
 
 var gapSlice = regexp.MustCompile(`^(U2[a-k]|P[345][a-j]|SP[1-9])[12]?$`)
