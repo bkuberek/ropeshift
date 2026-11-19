@@ -147,20 +147,32 @@ func TestWriteRefusesAFolderThatIsNowALink(t *testing.T) {
 	}
 }
 
-// Files lists the files under a folder, sorted, and leaves out the git directory at its top.
-func TestFilesListsTheFolderWithoutItsGitDirectory(t *testing.T) {
+// walked is what a walk of a folder visits: each file, and each .git as an entry that ends in .git.
+func walked(t *testing.T, f projectfolders.Folders, folder string) []string {
+	t.Helper()
+	var out []string
+	if err := f.Walk(t.Context(), folder, func(path string, _ bool) bool {
+		out = append(out, path)
+		return true
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+// A walk visits the files under a folder in order and the git directory at its top as one entry it does not enter.
+func TestWalkVisitsTheFolderWithoutLookingInsideItsGitDirectory(t *testing.T) {
 	f, root, _ := folders(t)
 	folder := filepath.Join(root, "harbor")
 	id := put(t, f, folder, []ports.FolderFile{{Path: "b.md", Text: "b"}, {Path: "a/c.md", Text: "c"}})
 	if _, err := f.FirstCommit(t.Context(), folder, "chore: start harbor", false, id, ports.CommitSpec{Paths: []string{"a/c.md", "b.md"}}); err != nil {
 		t.Fatal(err)
 	}
-	got, err := f.Files(t.Context(), folder)
-	if want := []string{"a/c.md", "b.md"}; err != nil || !slices.Equal(got, want) {
-		t.Errorf("Files reads %v (%v), want %v", got, err, want)
+	if got, want := walked(t, f, folder), []string{".git", "a/c.md", "b.md"}; !slices.Equal(got, want) {
+		t.Errorf("a walk visits %v, want %v", got, want)
 	}
-	if got, err := f.Files(t.Context(), filepath.Join(root, "nothing")); err != nil || len(got) != 0 {
-		t.Errorf("a path with nothing at it holds %v (%v)", got, err)
+	if got := walked(t, f, filepath.Join(root, "nothing")); len(got) != 0 {
+		t.Errorf("a path with nothing at it holds %v", got)
 	}
 }
 

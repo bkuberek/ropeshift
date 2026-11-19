@@ -55,8 +55,16 @@ func TestProjectFoldersWriteAndCommit(t *testing.T) {
 	if text, _ := machine.Text("/srv/code/harbor/AGENTS.md"); text != "mine" {
 		t.Errorf("a repeated write replaced a file: %q", text)
 	}
-	if got, err := machine.Files(t.Context(), "/srv/code/harbor"); err != nil || !slices.Equal(got, []string{"AGENTS.md", "plan/goal.md"}) {
-		t.Errorf("the folder holds %v (%v)", got, err)
+	var seen []string
+	if err := machine.Walk(t.Context(), "/srv/code/harbor", func(path string, _ bool) bool {
+		seen = append(seen, path)
+		return true
+	}); err != nil || !slices.Equal(seen, []string{"AGENTS.md", "plan/goal.md"}) {
+		t.Errorf("the folder holds %v (%v)", seen, err)
+	}
+	stopped := 0
+	if err := machine.Walk(t.Context(), "/srv/code/harbor", func(string, bool) bool { stopped++; return false }); err != nil || stopped != 1 {
+		t.Errorf("a walk told to stop at once visited %d (%v)", stopped, err)
 	}
 	if _, err := machine.Write(t.Context(), "/srv/none/harbor", files, ""); !errors.Is(err, ports.ErrNotFound) {
 		t.Errorf("a write made the parents of a folder: %v", err)

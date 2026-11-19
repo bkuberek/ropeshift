@@ -25,27 +25,26 @@ const (
 )
 
 // foreignEntries are the files the folder holds that the shape does not write, except the files a file manager leaves,
-// and, for a write that has not started, the .git of every repository the folder holds at any depth, none of which this
+// and, for a write that has not started, the first .git of a repository the folder holds at any depth, none of which this
 // worker made. It is the one rule of which folders a write may go into: a crash between the first file and the report
-// leaves a folder of the shape's files, and so does a person who started the project's files by hand. Both lists are
-// sorted, and each holds every entry the folder has, not the first.
+// leaves a folder of the shape's files, and so does a person who started the project's files by hand. It stops reading the
+// folder at the first repository and at the sixth file of another kind, because a refusal names five and says there are
+// more, so a large folder costs no more than a small one.
 func (w *Worker) foreignEntries(ctx context.Context, rt *TemplateRuntime, folder string, files []projectfiles.File, started bool) (foreign, repositories []string, err error) {
-	have, err := rt.Folders.Files(ctx, folder)
-	if err != nil {
-		return nil, nil, err
-	}
-	for _, path := range have {
-		if slices.Contains(fileManagerFiles, path[strings.LastIndex(path, "/")+1:]) {
-			continue
-		}
-		if !slices.ContainsFunc(files, func(file projectfiles.File) bool { return file.Path == path }) {
+	err = rt.Folders.Walk(ctx, folder, func(path string, git bool) bool {
+		switch {
+		case git:
+			if !started {
+				repositories = append(repositories, path)
+				return false
+			}
+		case slices.Contains(fileManagerFiles, path[strings.LastIndex(path, "/")+1:]):
+		case !slices.ContainsFunc(files, func(file projectfiles.File) bool { return file.Path == path }):
 			foreign = append(foreign, path)
+			return len(foreign) <= listedNames
 		}
-	}
-	if started {
-		return foreign, nil, nil
-	}
-	repositories, err = rt.Folders.GitDirs(ctx, folder)
+		return true
+	})
 	return foreign, repositories, err
 }
 
@@ -63,7 +62,8 @@ func refusalDetail(foreign, repositories []string) string {
 	return strings.Join(parts, "; ")
 }
 
-// listNames quotes the first listedNames of names, each cleaned and cut to nameLength characters, and counts the rest.
+// listNames quotes the first listedNames of names, each cleaned and cut to nameLength characters, and says there are more
+// when there are, with no count, because the worker stopped looking.
 func listNames(names []string) string {
 	shown := make([]string, 0, listedNames)
 	for _, name := range names[:min(len(names), listedNames)] {
@@ -74,8 +74,8 @@ func listNames(names []string) string {
 		shown = append(shown, strconv.Quote(name))
 	}
 	out := strings.Join(shown, ", ")
-	if rest := len(names) - len(shown); rest > 0 {
-		out += fmt.Sprintf(" and %d more", rest)
+	if len(names) > len(shown) {
+		out += " and more"
 	}
 	return out
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"path"
 	"slices"
 	"strings"
@@ -246,25 +247,37 @@ func (f *ProjectFolders) SetDefaultBranch(branch string) {
 	f.initial = branch
 }
 
-// GitDirs lists every .git under a folder.
-func (f *ProjectFolders) GitDirs(_ context.Context, folder string) ([]string, error) {
+// Walk visits the files and the .git entries under a folder in the order of their paths, and stops when visit says so.
+func (f *ProjectFolders) Walk(_ context.Context, folder string, visit func(path string, git bool) bool) error {
 	f.mu.Lock()
-	defer f.mu.Unlock()
 	prefix := path.Clean(folder) + "/"
-	var out []string
-	add := func(at string) {
-		if rel, found := strings.CutPrefix(at, prefix); found && (rel == ".git" || strings.HasSuffix(rel, "/.git")) {
-			out = append(out, rel)
+	entries := map[string]bool{}
+	for at := range f.files {
+		if rel, found := strings.CutPrefix(at, prefix); found {
+			entries[rel] = false
 		}
 	}
-	for at := range f.files {
-		add(at)
-	}
 	for at := range f.dirs {
-		add(at)
+		if rel, found := strings.CutPrefix(at, prefix); found && (rel == ".git" || strings.HasSuffix(rel, "/.git")) {
+			entries[rel] = true
+		}
 	}
-	slices.Sort(out)
-	return slices.Compact(out), nil
+	f.mu.Unlock()
+	for _, rel := range slices.Sorted(maps.Keys(entries)) {
+		inside := false
+		for git, isGit := range entries {
+			if isGit && git != rel && strings.HasPrefix(rel, git+"/") {
+				inside = true
+			}
+		}
+		if inside {
+			continue
+		}
+		if !visit(rel, entries[rel]) {
+			return nil
+		}
+	}
+	return nil
 }
 
 // Held says which of the paths the folder holds.
@@ -281,13 +294,6 @@ func (f *ProjectFolders) Held(_ context.Context, folder string, paths []string) 
 		}
 	}
 	return held, nil
-}
-
-// Files lists the files under a folder.
-func (f *ProjectFolders) Files(_ context.Context, folder string) ([]string, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return f.under(path.Clean(folder)), nil
 }
 
 // FirstCommit makes the folder a clone, and commits unless CommitError says it fails. A folder that is a clone already

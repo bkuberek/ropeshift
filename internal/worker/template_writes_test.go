@@ -3,6 +3,7 @@ package worker_test
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -937,7 +938,8 @@ func TestTheRefusalOfAFileCarriesItsNameAsPlainBoundedText(t *testing.T) {
 	}
 }
 
-// Every file of another kind is counted, and the refusal names the first few and says how many more there are.
+// The refusal names the first five files of another kind and says there are more, with no count of them, because the worker
+// stops looking at the sixth.
 func TestTheRefusalNamesTheFirstFilesAndCountsTheRest(t *testing.T) {
 	t.Parallel()
 	r := newTemplateRig(t, nil)
@@ -946,7 +948,7 @@ func TestTheRefusalNamesTheFirstFilesAndCountsTheRest(t *testing.T) {
 		files[name] = "x"
 	}
 	report := r.refusedFor(t, "request-many", "monorepo", r.holding("harbor", files))
-	if !strings.Contains(report.Detail, `"a.txt"`) || !strings.Contains(report.Detail, "and 3 more") || strings.Contains(report.Detail, `"h.txt"`) {
+	if !strings.Contains(report.Detail, `"a.txt"`) || !strings.Contains(report.Detail, `"e.txt"`) || !strings.Contains(report.Detail, "and more") || strings.Contains(report.Detail, `"f.txt"`) || strings.Contains(report.Detail, "and 3 more") {
 		t.Errorf("the refusal is %q", report.Detail)
 	}
 }
@@ -993,7 +995,7 @@ func TestAFolderHoldingFileManagerFilesIsWrittenAndTheyAreNeverCommitted(t *test
 	}
 }
 
-// A repository the folder holds below its top is refused as the one at its top is, and each is named.
+// A repository the folder holds below its top is refused as the one at its top is, and the first one the worker finds is named.
 func TestAFolderHoldingARepositoryBelowItsTopIsRefused(t *testing.T) {
 	t.Parallel()
 	gittest.Require(t)
@@ -1006,7 +1008,7 @@ func TestAFolderHoldingARepositoryBelowItsTopIsRefused(t *testing.T) {
 		r.git(filepath.Join(folder, inner), "init", "--quiet")
 	}
 	report := r.refusedFor(t, "request-nested-git", "monorepo", folder)
-	if report.Reason != ledger.TemplateRefusedNotEmpty || !strings.Contains(report.Detail, "repos/x/.git") || !strings.Contains(report.Detail, "vendor/lib/.git") {
+	if report.Reason != ledger.TemplateRefusedNotEmpty || !strings.Contains(report.Detail, "repos/x/.git") {
 		t.Errorf("the report is %+v", report)
 	}
 	if _, err := os.Stat(filepath.Join(folder, "CLAUDE.md")); err == nil {
@@ -1073,5 +1075,68 @@ func TestAFolderHoldingALinkAtAShapePathIsWrittenAroundIt(t *testing.T) {
 	}
 	if committed := strings.Fields(r.git(folder, "ls-tree", "-r", "--name-only", "HEAD")); slices.Contains(committed, "AGENTS.md") {
 		t.Errorf("the first commit holds the link: %v", committed)
+	}
+}
+
+// walkCount stands in front of the machine's folders and counts the entries a walk is told of.
+type walkCount struct {
+	ports.ProjectFolders
+	visited int
+}
+
+func (w *walkCount) Walk(ctx context.Context, folder string, visit func(path string, git bool) bool) error {
+	return w.ProjectFolders.Walk(ctx, folder, func(path string, git bool) bool {
+		w.visited++
+		return visit(path, git)
+	})
+}
+
+// The worker stops reading a folder at the sixth file of another kind: a folder of thousands of files costs the same as
+// one of six, and the refusal says there are more.
+func TestTheWorkerStopsLookingAtTheSixthFileOfAnotherKind(t *testing.T) {
+	t.Parallel()
+	r := newTemplateRig(t, nil)
+	count := &walkCount{ProjectFolders: projectfolders.Folders{Env: r.env}}
+	r.folders = count
+	r.subject = r.workerOn(r.link, func(err error) { t.Errorf("the worker reported %v", err) })
+	if err := r.subject.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	files := map[string]string{}
+	for i := range 300 {
+		files[fmt.Sprintf("other-%03d.txt", i)] = "x"
+	}
+	report := r.refusedFor(t, "request-stop-early", "monorepo", r.holding("harbor", files))
+	if count.visited != 6 {
+		t.Errorf("the walk was told of %d entries, want it stopped at the sixth", count.visited)
+	}
+	if !strings.Contains(report.Detail, "and more") {
+		t.Errorf("the refusal is %q", report.Detail)
+	}
+}
+
+// A repository below the top stops the walk as soon as it turns up, whatever else the folder holds after it.
+func TestTheWorkerStopsLookingAtTheFirstRepositoryItFinds(t *testing.T) {
+	t.Parallel()
+	gittest.Require(t)
+	r := newTemplateRig(t, nil)
+	count := &walkCount{ProjectFolders: projectfolders.Folders{Env: r.env}}
+	r.folders = count
+	r.subject = r.workerOn(r.link, func(err error) { t.Errorf("the worker reported %v", err) })
+	if err := r.subject.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	files := map[string]string{}
+	for i := range 300 {
+		files[fmt.Sprintf("z-%03d.txt", i)] = "x"
+	}
+	folder := r.holding("harbor", files)
+	if err := os.MkdirAll(filepath.Join(folder, "a"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	r.git(filepath.Join(folder, "a"), "init", "--quiet")
+	report := r.refusedFor(t, "request-stop-at-git", "monorepo", folder)
+	if count.visited != 1 || !strings.Contains(report.Detail, "a/.git") {
+		t.Errorf("the walk was told of %d entries, and the refusal is %q", count.visited, report.Detail)
 	}
 }

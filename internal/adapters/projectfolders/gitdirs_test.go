@@ -9,8 +9,8 @@ import (
 	"ropeshift.com/ropeshift/internal/adapters/projectfolders"
 )
 
-// GitDirs finds a .git at any depth, a folder or a file, and does not look inside one.
-func TestGitDirsListsEveryGitUnderTheFolderAndNoneBeyondIt(t *testing.T) {
+// A walk marks a .git at any depth, a folder or a file, and does not look inside one.
+func TestWalkMarksEveryGitUnderTheFolderAndLooksInsideNone(t *testing.T) {
 	f := projectfolders.Folders{}
 	root := filepath.Join(t.TempDir(), "harbor")
 	for _, dir := range []string{".git/objects", "repos/x/.git/refs", "vendor/lib", "plan"} {
@@ -23,11 +23,40 @@ func TestGitDirsListsEveryGitUnderTheFolderAndNoneBeyondIt(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	got, err := f.GitDirs(t.Context(), root)
-	if want := []string{".git", "repos/x/.git", "vendor/lib/.git"}; err != nil || !slices.Equal(got, want) {
-		t.Errorf("GitDirs reads %v (%v), want %v", got, err, want)
+	var got []string
+	if err := f.Walk(t.Context(), root, func(path string, git bool) bool {
+		if git {
+			got = append(got, path)
+		}
+		return true
+	}); err != nil {
+		t.Fatal(err)
 	}
-	if got, err := f.GitDirs(t.Context(), filepath.Join(root, "nothing")); err != nil || len(got) != 0 {
-		t.Errorf("a folder that is not there holds %v (%v)", got, err)
+	if want := []string{".git", "repos/x/.git", "vendor/lib/.git"}; !slices.Equal(got, want) {
+		t.Errorf("a walk finds the repositories %v, want %v", got, want)
+	}
+}
+
+// A walk stops the moment visit says so, and reads nothing further of the folder.
+func TestWalkStopsWhenVisitSaysSo(t *testing.T) {
+	f := projectfolders.Folders{}
+	root := filepath.Join(t.TempDir(), "harbor")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"a", "b", "c", "d", "e"} {
+		if err := os.WriteFile(filepath.Join(root, name), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	visited := 0
+	if err := f.Walk(t.Context(), root, func(string, bool) bool {
+		visited++
+		return visited < 2
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if visited != 2 {
+		t.Errorf("a walk that was told to stop at the second entry visited %d", visited)
 	}
 }

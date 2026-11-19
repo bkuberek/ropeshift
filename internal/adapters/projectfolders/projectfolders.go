@@ -9,7 +9,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"syscall"
 
@@ -175,10 +174,9 @@ func (f Folders) Write(_ context.Context, path string, files []ports.FolderFile,
 	return id, nil
 }
 
-// Files lists every file under the folder, leaving out each git directory, the one at its top and those of the
-// repositories inside it.
-func (f Folders) Files(_ context.Context, path string) ([]string, error) {
-	var out []string
+// Walk visits each file under the folder and each .git at any depth, in the order WalkDir reads them, and stops when
+// visit answers false.
+func (f Folders) Walk(_ context.Context, path string, visit func(path string, git bool) bool) error {
 	err := filepath.WalkDir(path, func(at string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -187,44 +185,26 @@ func (f Folders) Files(_ context.Context, path string) ([]string, error) {
 		if err != nil || rel == "." {
 			return err
 		}
-		if entry.IsDir() && entry.Name() == ".git" {
-			return fs.SkipDir
-		}
-		if !entry.IsDir() {
-			out = append(out, filepath.ToSlash(rel))
-		}
-		return nil
-	})
-	if absent(err) {
-		return nil, nil
-	}
-	slices.Sort(out)
-	return out, err
-}
-
-// GitDirs lists every .git under the folder, at any depth, without looking inside one.
-func (f Folders) GitDirs(_ context.Context, path string) ([]string, error) {
-	var out []string
-	err := filepath.WalkDir(path, func(at string, entry fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if entry.Name() != ".git" {
-			return nil
-		}
-		if rel, err := filepath.Rel(path, at); err == nil && rel != "." {
-			out = append(out, filepath.ToSlash(rel))
-		}
-		if entry.IsDir() {
-			return fs.SkipDir
+		git := entry.Name() == ".git"
+		switch {
+		case git:
+			if !visit(filepath.ToSlash(rel), true) {
+				return fs.SkipAll
+			}
+			if entry.IsDir() {
+				return fs.SkipDir
+			}
+		case !entry.IsDir():
+			if !visit(filepath.ToSlash(rel), false) {
+				return fs.SkipAll
+			}
 		}
 		return nil
 	})
 	if absent(err) {
-		return nil, nil
+		return nil
 	}
-	slices.Sort(out)
-	return out, err
+	return err
 }
 
 // Held says which of the paths the folder holds, looking at each with lstat.
