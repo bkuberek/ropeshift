@@ -6,9 +6,11 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -495,5 +497,67 @@ func TestSecretScanOfAShallowCloneIsPartial(t *testing.T) {
 	}
 	if full := secretScan(t, origin, "HEAD", ""); full.Partial != "" {
 		t.Errorf("the scan of a full clone is partial: %q", full.Partial)
+	}
+}
+
+func TestSecretScanOfALargeFileReportsEachMatchAtItsLine(t *testing.T) {
+	t.Parallel()
+	repo := gittest.New(t)
+	var content strings.Builder
+	var tokens []string
+	for line := 1; line <= 12000; line++ {
+		if line%3 == 0 {
+			token := fmt.Sprintf("ghp_%036d", line)
+			tokens = append(tokens, token)
+			content.WriteString("key " + token + "\n")
+			continue
+		}
+		fmt.Fprintf(&content, "line %d\n", line)
+	}
+	tip := repo.Commit("big.txt", content.String())
+	got := secretScan(t, repo, tip, "")
+	if len(got.Matches) != len(tokens) {
+		t.Fatalf("found %d matches, want %d", len(got.Matches), len(tokens))
+	}
+	for i, token := range tokens {
+		if want := secretScanWant("github_token", "big.txt", 3*(i+1), tip, token); got.Matches[i] != want {
+			t.Fatalf("match %d is %+v, want %+v", i, got.Matches[i], want)
+		}
+	}
+}
+
+// secretScanKey builds a private key block of body lines, with its BEGIN and END lines, and no newline at the end.
+func secretScanKey(body ...string) string {
+	return "-----BEGIN " + "RSA PRIVATE KEY-----\n" + strings.Join(body, "\n") + "\n-----END " + "RSA PRIVATE KEY-----"
+}
+
+// A commit that changes lines inside a key block adds a key whose BEGIN and END lines it does not show.
+func TestSecretScanFindsAPrivateKeyReplacedInPlace(t *testing.T) {
+	t.Parallel()
+	repo := gittest.New(t)
+	before := secretScanKey("MIIBOgIBAAJBAKj34GkxFhD90vcNLYLInFEX6Ppy1tPf9Cnzj4p4WGeKLs1Pt8Qu", "KUpRKfFLfRYC9AIKjbJTWit+CqvjWYzvQwECAwEAAQ==")
+	after := secretScanKey("MIIBOgIBAAJBAKj34GkxFhD90vcNLYLInFEX6Ppy1tPf9Cnzj4p4WGeKLs1Pt8Qu", "ZZpRKfFLfRYC9AIKjbJTWit+CqvjWYzvQwECAwEAAQ==")
+	first := repo.Commit("keys/id_rsa", "# key\n"+before+"\n")
+	replaced := repo.Commit("keys/id_rsa", "# key\n"+after+"\n")
+	tip := repo.Commit("keys/id_rsa", "gone\n")
+	want := []practices.SecretMatch{
+		{Rule: "private_key", Path: "keys/id_rsa", Line: 2, Commit: first, Digest: secretScanDigest(before)},
+		{Rule: "private_key", Path: "keys/id_rsa", Line: 2, Commit: replaced, Digest: secretScanDigest(after)},
+	}
+	// Matches at one line are ordered by digest.
+	slices.SortFunc(want, func(a, b practices.SecretMatch) int { return strings.Compare(a.Digest, b.Digest) })
+	secretScanExpect(t, secretScan(t, repo, tip, ""), want...)
+}
+
+// A key block a commit did not touch is no match of that commit.
+func TestSecretScanDoesNotBlameACommitForAKeyItLeftAlone(t *testing.T) {
+	t.Parallel()
+	repo := gittest.New(t)
+	key := secretScanKey("MIIBOgIBAAJBAKj34GkxFhD90vcNLYLInFEX6Ppy1tPf9Cnzj4p4WGeKLs1Pt8Qu", "KUpRKfFLfRYC9AIKjbJTWit+CqvjWYzvQwECAwEAAQ==")
+	from := repo.Commit("keys/id_rsa", key+"\nnotes one\n")
+	repo.Commit("keys/id_rsa", key+"\nnotes two\n")
+	tip := repo.Commit("keys/id_rsa", "gone\n")
+	if got := secretScan(t, repo, tip, from); len(got.Matches) != 0 {
+		t.Errorf("matches are %+v", got.Matches)
 	}
 }
