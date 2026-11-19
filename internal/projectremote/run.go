@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"unicode"
 
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/ports"
@@ -388,14 +389,14 @@ func (r *runner) remaining(ctx context.Context, u unit) []string {
 	return out
 }
 
-// branch is the branch a repository's HEAD names as plain text, which asks origin for it, within the limit one step has.
-// The text is cleaned before it is quoted, because cleaning a quoted word can take its closing quote. A read that fails
-// or names no branch reads as the branch the run chose for a first commit.
+// branch is the branch a repository's HEAD names, which asks origin for it, within the limit one step has. A branch that
+// cleaning to plain text changes, or that holds whitespace, is not a name git gives a branch, and a read that fails or names
+// no branch has none either: each reads as the branch the run chose for a first commit.
 func (r *runner) branch(ctx context.Context, u unit) string {
 	ctx, cancel := context.WithTimeout(ctx, stepLimit)
 	defer cancel()
 	if state, err := r.rt.Folders.Remote(ctx, u.abs); err == nil {
-		if branch := ledger.PlainText(state.Branch); branch != "" {
+		if branch := ledger.PlainText(state.Branch); branch != "" && branch == state.Branch && !strings.ContainsFunc(branch, unicode.IsSpace) {
 			return branch
 		}
 	}
