@@ -309,8 +309,12 @@ func held(tx ports.WriteTx, id string, actor ledger.Actor) (questions.Question, 
 }
 
 // Climb records one rung a question passed, with the candidates considered, and moves it to
-// the next. A one-way category cannot stand on rungs 3 and 4.
+// the next. A one-way category cannot stand on rungs 3 and 4, and a step cannot record an outcome
+// only the ledger records (questions.ReservedOutcome).
 func (q *Questions) Climb(ctx context.Context, scope ledger.WorkspaceID, id string, step questions.Step, actor ledger.Actor) (questions.Question, error) {
+	if questions.ReservedOutcome(step.Outcome) {
+		return questions.Question{}, fmt.Errorf("%w: a climb cannot record the outcome %q, which only the ledger records", questions.ErrInvalid, step.Outcome)
+	}
 	var record questions.Question
 	err := q.store.Write(ctx, scope, "question.climb", func(tx ports.WriteTx) error {
 		var err error
@@ -449,7 +453,8 @@ func (q *Questions) Merge(ctx context.Context, scope ledger.WorkspaceID, id, int
 	})
 }
 
-// mergeIn closes a question in favor of one that stays, in the transaction it is given.
+// mergeIn closes a question in favor of one that stays, in the transaction it is given. The merge is
+// recorded on the rung the question stood on, whoever merged it.
 func (q *Questions) mergeIn(tx ports.WriteTx, record questions.Question, into string, actor ledger.Actor) error {
 	target, err := tx.Questions().Question(into)
 	if err != nil {
@@ -470,7 +475,7 @@ func (q *Questions) mergeIn(tx ports.WriteTx, record questions.Question, into st
 	}
 	crashpoint.Hit("question.merge", "moved")
 	record.Status, record.ClaimedBy, record.ClaimUntil = questions.StatusDismissed, "", 0
-	record.LadderTrace = append(record.LadderTrace, questions.Step{Rung: questions.RungOpen, Candidates: []string{into}, Outcome: questions.OutcomeMerged, By: actor.ID})
+	record.LadderTrace = append(record.LadderTrace, questions.Step{Rung: record.Rung, Candidates: []string{into}, Outcome: questions.OutcomeMerged, By: actor.ID})
 	if err := saveQuestion(tx, record, actor); err != nil {
 		return err
 	}

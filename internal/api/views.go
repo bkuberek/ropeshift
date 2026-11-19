@@ -507,12 +507,15 @@ type Documents struct {
 
 // DecisionLine is a decision and its lineage: the chain it belongs to, oldest first, and what took its
 // place. DecidedByName is the name of the worker whose orchestrator decided it, which its ID does not say, and
-// ScopeTitle the title of the record its scope names, as DecisionView says.
+// ScopeTitle the title of the record its scope names, as DecisionView says. DecidedByKind is the kind of party that
+// recorded it, `member` or `orchestrator` among them, as the event that recorded it names, so a decision whose
+// orchestrator's worker the ledger no longer holds still reads as an orchestrator's.
 type DecisionLine struct {
 	questions.Decision
 	Lineage       []string `json:"lineage"`
 	SupersededBy  string   `json:"superseded_by,omitempty"`
 	DecidedByName string   `json:"decided_by_name,omitempty"`
+	DecidedByKind string   `json:"decided_by_kind,omitempty"`
 	ScopeTitle    string   `json:"scope_title,omitempty"`
 }
 

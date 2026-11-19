@@ -1237,6 +1237,10 @@ func (h *handler) readDecisions(tx ports.ReadTx, r *http.Request, stamp api.Stam
 	if err != nil {
 		return nil, err
 	}
+	kinds, err := recorderKinds(tx, rows)
+	if err != nil {
+		return nil, err
+	}
 	view := api.Decisions{Stamp: stamp, Decisions: make([]api.DecisionLine, 0, len(rows))}
 	for _, row := range rows {
 		root := row.ID
@@ -1248,10 +1252,34 @@ func (h *handler) readDecisions(tx ports.ReadTx, r *http.Request, stamp api.Stam
 			lineage = append(lineage, replacedBy[at])
 		}
 		view.Decisions = append(view.Decisions, api.DecisionLine{
-			Decision: row, Lineage: lineage, SupersededBy: replacedBy[row.ID], DecidedByName: names[row.DecidedBy], ScopeTitle: titles[row.Scope],
+			Decision: row, Lineage: lineage, SupersededBy: replacedBy[row.ID], DecidedByName: names[row.DecidedBy], DecidedByKind: kinds[row.DecidedBy],
+			ScopeTitle: titles[row.Scope],
 		})
 	}
 	return view, nil
+}
+
+// recorderKinds names the kind of party that recorded these decisions, by recorder, as the event that recorded one of
+// its decisions names the actor: a worker the ledger no longer holds still names an orchestrator. An actor's ID names one
+// party, so one event read for each recorder answers every decision it recorded, however many the view lists.
+func recorderKinds(tx ports.ReadTx, rows []questions.Decision) (map[string]string, error) {
+	kinds := map[string]string{}
+	for _, row := range rows {
+		if _, known := kinds[row.DecidedBy]; known || row.DecidedBy == "" {
+			continue
+		}
+		events, err := tx.EventsAbout(ledger.Subject{Kind: questions.SubjectDecision, ID: row.ID})
+		if err != nil {
+			return nil, err
+		}
+		for _, event := range events {
+			if event.Type == questions.EventDecisionRecorded && event.Actor.ID == row.DecidedBy {
+				kinds[row.DecidedBy] = string(event.Actor.Kind)
+				break
+			}
+		}
+	}
+	return kinds, nil
 }
 
 func (h *handler) readQuestions(tx ports.ReadTx, r *http.Request, stamp api.Stamp) (any, error) {

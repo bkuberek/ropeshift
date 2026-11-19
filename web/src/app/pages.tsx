@@ -20,6 +20,7 @@ import { Page, StampLine, useClock, ViewTime } from "../parts/parts";
 import { Decisions } from "../planning/Decisions";
 import { DocumentsBody, DocumentsTabs } from "../planning/Documents";
 import { OpenQuestions } from "../planning/OpenQuestions";
+import { statusPhrase } from "../planning/QuestionFacts";
 import { OverviewPage } from "../overview/Overview";
 import { ReviewsPage } from "../reviews/Reviews";
 import { PlanApprovalPage } from "../planning/PlanApproval";
@@ -95,7 +96,7 @@ function questionsPage(live: Live, category: string, status: string, id: string)
       category={category}
       filter={{ status }}
       title={status ? "Questions" : "Open questions"}
-      note={(read) => (status === "all" ? count(read.questions.length, "question") : `${read.questions.length} ${status || "open"}`)}
+      note={(read) => (status === "all" ? count(read.questions.length, "question") : `${read.questions.length} ${statusPhrase(status || "open")}`)}
       actions={<RecordQuestion />}
       body={(read) => <OpenQuestions view={read} category={category} selected={id} status={status} />}
     />

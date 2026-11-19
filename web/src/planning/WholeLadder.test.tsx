@@ -197,3 +197,61 @@ describe("the status filter", () => {
     expect(screen.getByRole("link", { name: "All questions" }).getAttribute("href")).toBe(here("/questions?status=all"));
   });
 });
+
+// Every status reads in a person's words wherever a sentence names it: the title's count, the sentence for a status
+// that holds nothing, and the word beside each question.
+describe("the words for each status", () => {
+  const statuses = [
+    { status: "open", phrase: "open", side: "Open" },
+    { status: "triage", phrase: "in triage", side: "In triage" },
+    { status: "needs_human", phrase: "waiting for a person", side: "Needs a person" },
+    { status: "answered", phrase: "answered", side: "Answered" },
+    { status: "dismissed", phrase: "dismissed", side: "Dismissed" },
+  ];
+
+  it.each(statuses)("counts the questions $status as $phrase in the title", async ({ status, phrase }) => {
+    serveQuestions((questions) => {
+      for (const question of questions) {
+        question.status = status;
+      }
+    });
+    openPage(`/questions?status=${status}`);
+    expect(await screen.findByText(`3 ${phrase}`)).toBeTruthy();
+    expect(document.body.textContent).not.toContain("needs_human");
+  });
+
+  it.each(statuses)("says no question is $phrase when status $status holds none", async ({ status, phrase }) => {
+    serveQuestions((questions) => questions.splice(0));
+    openPage(`/questions?status=${status}`);
+    expect(await screen.findByText(`No question is ${phrase}.`)).toBeTruthy();
+    expect(await screen.findByText(`0 ${phrase}`)).toBeTruthy();
+    expect(document.body.textContent).not.toContain("needs_human");
+  });
+
+  it("says the same within a category", async () => {
+    serveQuestions((questions) => questions.splice(0));
+    openPage("/questions?status=needs_human&category=data");
+    expect(await screen.findByText("No question in Data is waiting for a person.")).toBeTruthy();
+  });
+
+  it.each(statuses)("names a question $status as $side beside it", async ({ status, side }) => {
+    serveQuestions((questions) => {
+      find(questions, "question-1").status = status;
+    });
+    openPage("/questions?status=all");
+    const card = await screen.findByRole("article", { name: budget });
+    expect(card.querySelector(".wait-word")?.textContent).toBe(side);
+  });
+
+  it("names a merged question as merged, in the count and beside it", async () => {
+    serveQuestions((questions) => {
+      for (const question of questions) {
+        question.status = "dismissed";
+        question.merged_into = "question-other";
+      }
+    });
+    openPage("/questions?status=merged");
+    expect(await screen.findByText("3 merged")).toBeTruthy();
+    expect((await screen.findByRole("article", { name: budget })).querySelector(".wait-word")?.textContent).toBe("Merged");
+  });
+});

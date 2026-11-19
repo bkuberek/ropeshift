@@ -315,7 +315,7 @@ export function App() {
             { key: "action:record-question", group: "Actions" as const, title: "Record question", icon: "question" as const, to: inProject(project, "/questions?dialog=record"), keywords: "ask open" },
             { key: "action:every-question", group: "Actions" as const, title: "Questions: every status", icon: "question" as const, to: inProject(project, "/questions?status=all"), keywords: "answered merged dismissed closed ladder" },
             { key: "action:record-decision", group: "Actions" as const, title: "Record decision", icon: "decision" as const, to: inProject(project, "/decisions?dialog=record"), keywords: "decide assume assumption" },
-            { key: "action:orchestrator-decisions", group: "Actions" as const, title: "Orchestrator decisions and assumptions", icon: "decision" as const, to: inProject(project, "/decisions?by=orchestrator"), keywords: "assumption overturn ladder" },
+            { key: "action:orchestrator-decisions", group: "Actions" as const, title: "Orchestrator decisions and assumptions", icon: "decision" as const, to: inProject(project, "/decisions?by=kind%3Aorchestrator"), keywords: "assumption overturn ladder" },
             { key: "action:add-category", group: "Actions" as const, title: "Add category", icon: "plus" as const, to: inProject(project, `/${view === "decisions" ? "decisions" : "questions"}?dialog=category`), keywords: "question decision filter" },
           ]
         : []),
