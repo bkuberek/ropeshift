@@ -35,6 +35,10 @@ type ProjectFolders struct {
 	pushes     []Push
 	addErrors  map[string]error
 	pushErrors map[string]error
+	// branches are the branch each folder's HEAD names, "main" for a folder with a commit and no branch set, and
+	// onRemote is called with the context of each Remote read.
+	branches map[string]string
+	onRemote func(ctx context.Context)
 }
 
 // NewProjectFolders returns a machine with only its root directory.
@@ -43,6 +47,7 @@ func NewProjectFolders() *ProjectFolders {
 		dirs: map[string]bool{"/": true}, links: map[string]string{}, files: map[string]string{},
 		tops: map[string]bool{}, commits: map[string]string{},
 		origins: map[string]string{}, pushed: map[string]string{}, addErrors: map[string]error{}, pushErrors: map[string]error{},
+		branches: map[string]string{},
 	}
 }
 
@@ -320,14 +325,37 @@ func (f *ProjectFolders) Push(_ context.Context, folder string, push ports.PushS
 	return nil
 }
 
+// SetBranch names the branch a folder's HEAD is on, in place of main.
+func (f *ProjectFolders) SetBranch(folder, branch string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.branches[path.Clean(folder)] = branch
+}
+
+// OnRemote calls fn with the context of each Remote read, so a test can see the limit a caller put on it.
+func (f *ProjectFolders) OnRemote(fn func(ctx context.Context)) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.onRemote = fn
+}
+
 // Remote reads the folder's origin, the branch and commit it holds, and the commit origin holds.
-func (f *ProjectFolders) Remote(_ context.Context, folder string) (ports.RemoteState, error) {
+func (f *ProjectFolders) Remote(ctx context.Context, folder string) (ports.RemoteState, error) {
+	f.mu.Lock()
+	hook := f.onRemote
+	f.mu.Unlock()
+	if hook != nil {
+		hook(ctx)
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	folder = path.Clean(folder)
 	state := ports.RemoteState{Origin: f.origins[folder], Head: f.commits[folder], RemoteHead: f.pushed[folder]}
 	if state.Head != "" {
 		state.Branch = "main"
+		if branch := f.branches[folder]; branch != "" {
+			state.Branch = branch
+		}
 	}
 	return state, nil
 }
