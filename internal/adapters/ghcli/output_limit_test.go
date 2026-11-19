@@ -112,10 +112,10 @@ func TestRunKeepingSanitizesStderr(t *testing.T) {
 // A `gh` whose child keeps stdout open after it exits does not hold runTail past the wait delay.
 func TestRunTailDoesNotWaitForAChildThatKeepsStdoutOpen(t *testing.T) {
 	forge := standIn(t, "sleep 20 &\necho log")
-	done := make(chan error, 1)
+	done := make(chan struct{})
 	go func() {
-		_, err := forge.runTail(t.Context(), t.TempDir(), 1024, "run", "view")
-		done <- err
+		defer close(done)
+		_, _ = forge.runTail(t.Context(), t.TempDir(), 1024, "run", "view")
 	}()
 	select {
 	case <-done:

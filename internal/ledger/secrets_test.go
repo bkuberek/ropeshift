@@ -132,8 +132,8 @@ func largeSecretText(lines int) (string, []SecretMatch) {
 	var want []SecretMatch
 	for i := range lines {
 		start := text.Len()
-		switch {
-		case i%100 == 50:
+		switch i % 100 {
+		case 50:
 			block := "-----BEGIN RSA PRIVATE KEY-----\n" + fmt.Sprintf("ghp_%036d", i) + "\nMIIBOgIBAAJB\n-----END RSA PRIVATE KEY-----"
 			text.WriteString(block + "\n")
 			sum := sha256.Sum256([]byte(block))

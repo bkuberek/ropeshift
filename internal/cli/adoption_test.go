@@ -231,7 +231,7 @@ func TestAdoptSaysWhyTheRepositoryItRunsInWasNotRegisteredWithNoControlSequence(
 		return api.Project{Name: "shop", State: ledger.ProjectActive}, nil
 	})
 	p.on("POST /v1/projects/shop/repositories", func(*http.Request, []byte) (any, *api.Error) {
-		return api.RepositoryAddReport{Repositories: []api.RepositoryAdded{{Path: root, Outcome: ledger.RegistrationRefused, Reason: "\x1b[31mrefused\x1b]0;title\x07 for ‮txt"}}}, nil
+		return api.RepositoryAddReport{Repositories: []api.RepositoryAdded{{Path: root, Outcome: ledger.RegistrationRefused, Reason: "\x1b[31mrefused\x1b]0;title\x07 for \u202etxt"}}}, nil
 	})
 	var stdout, stderr bytes.Buffer
 	opts := cli.Options{
