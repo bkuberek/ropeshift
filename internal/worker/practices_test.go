@@ -857,6 +857,7 @@ func TestAReportThatFailsToArriveIsSentAgainOnTheNextPass(t *testing.T) {
 	captured.mu.Lock()
 	captured.answer = nil
 	captured.mu.Unlock()
+	r.clock.Advance(time.Hour)
 	r.offer(subject, check)
 	if got := len(captured.all()); got != 2 {
 		t.Errorf("%d reports were sent, want the lost one and its resend", got)
@@ -988,5 +989,69 @@ func TestAnUnreadableJournalIsReportedOnceAndSetAside(t *testing.T) {
 	}
 	if got := len(r.fakes.SnapshotCalls); got != 1 {
 		t.Errorf("the check ran %d times, want once", got)
+	}
+}
+
+// A report whose send keeps failing is sent again after a delay that doubles and is capped, and a send that arrives ends
+// the delay, so the next report that fails starts from the first one again.
+func TestAReportThatKeepsFailingIsSentAgainAfterAGrowingCappedDelay(t *testing.T) {
+	t.Parallel()
+	r := newPracticesRig(t)
+	first, second := r.ask("repo-widgets")[0], r.ask("repo-gadgets")[0]
+	captured := &capturedPractices{WorkerLink: r.link, forward: true, refuse: func(ledger.PracticesReport) error { return errors.New("the control plane is away") }}
+	subject := r.workerOn(captured, r.sources)
+	if err := subject.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	asked := func(request ledger.PracticesRequest, repository string) ledger.DesiredPracticesCheck {
+		return ledger.DesiredPracticesCheck{ID: request.ID, Repository: repository, BaseBranch: "main", ExpiresAt: 1 << 60}
+	}
+	check := asked(first, "repo-widgets")
+	// pass offers the check and says how many reports each pass sent.
+	pass := func(check ledger.DesiredPracticesCheck) int {
+		before := len(captured.all())
+		r.offer(subject, check)
+		return len(captured.all()) - before
+	}
+	if got := pass(check); got != 1 {
+		t.Fatalf("the first pass sent %d reports, want one", got)
+	}
+	if got := pass(check); got != 0 {
+		t.Fatalf("a pass at once after a failed send sent %d reports, want none", got)
+	}
+	// Each failed send doubles the wait, from the first one.
+	waits := []time.Duration{5 * time.Second, 10 * time.Second, 20 * time.Second, 40 * time.Second, 80 * time.Second, 160 * time.Second, 300 * time.Second, 300 * time.Second, 300 * time.Second}
+	for i, wait := range waits {
+		r.clock.Advance(wait - time.Second)
+		if got := pass(check); got != 0 {
+			t.Fatalf("retry %d was sent %v after the failure that asked for %v", i+1, wait-time.Second, wait)
+		}
+		r.clock.Advance(time.Second)
+		if got := pass(check); got != 1 {
+			t.Fatalf("retry %d was not sent after %v", i+1, wait)
+		}
+	}
+	// The journal is sent as soon as the control plane is back and the wait ends.
+	captured.mu.Lock()
+	captured.refuse = nil
+	captured.mu.Unlock()
+	r.clock.Advance(300 * time.Second)
+	if got := pass(check); got != 1 {
+		t.Fatalf("the journal was sent %d times once the control plane was back", got)
+	}
+	if got := r.request(first.ID); got.State != ledger.PracticesReported {
+		t.Fatalf("the request is %s, want reported", got.State)
+	}
+	// The wait ended with that send: the next report that fails is sent again after the first wait.
+	captured.mu.Lock()
+	captured.refuse = func(ledger.PracticesReport) error { return errors.New("the control plane is away") }
+	captured.mu.Unlock()
+	other := asked(second, "repo-gadgets")
+	if got := pass(other); got != 1 {
+		t.Fatalf("the next request's first pass sent %d reports, want one", got)
+	}
+	r.clock.Advance(5 * time.Second)
+	if got := pass(other); got != 1 {
+		t.Errorf("the next request waited longer than the first wait after a send had arrived")
 	}
 }

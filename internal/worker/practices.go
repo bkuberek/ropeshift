@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/ports"
@@ -41,6 +42,47 @@ const (
 type practicesJournal struct {
 	State  string                  `json:"state"`
 	Report *ledger.PracticesReport `json:"report,omitempty"`
+}
+
+const (
+	// practicesSendFirst is the wait after a first failed send of a report, and it doubles with each failure after.
+	practicesSendFirst = 5 * time.Second
+	// practicesSendMost bounds the wait, so a report is sent again within minutes whatever the control plane did.
+	practicesSendMost = 5 * time.Minute
+)
+
+// practicesSendSeen is where one report's sends stand: the failures in a row, and when the next send is due.
+type practicesSendSeen struct {
+	failures int
+	retryAt  time.Time
+}
+
+// sendHeld says a send of this request's report failed lately enough that the next one waits.
+func (w *Worker) sendHeld(id string) bool {
+	w.practicesLock.Lock()
+	defer w.practicesLock.Unlock()
+	seen, ok := w.practicesSends[id]
+	return ok && w.clock.Now().Before(seen.retryAt)
+}
+
+// sendFailed holds the next send of this request's report for longer than the last wait.
+func (w *Worker) sendFailed(id string) {
+	w.practicesLock.Lock()
+	defer w.practicesLock.Unlock()
+	if w.practicesSends == nil {
+		w.practicesSends = map[string]practicesSendSeen{}
+	}
+	seen := w.practicesSends[id]
+	seen.failures++
+	seen.retryAt = w.clock.Now().Add(doublingBackoff(seen.failures, practicesSendFirst, practicesSendMost))
+	w.practicesSends[id] = seen
+}
+
+// sendAnswered ends the wait on this request's report: the control plane answered the send.
+func (w *Worker) sendAnswered(id string) {
+	w.practicesLock.Lock()
+	defer w.practicesLock.Unlock()
+	delete(w.practicesSends, id)
 }
 
 // checkoutPlaceholder stands for the directory of a checkout in what a worker reports, which says nothing of the
@@ -257,19 +299,30 @@ func (w *Worker) runPracticesCheck(ctx context.Context, rt *PracticesRuntime, ch
 
 // sendPracticesReport tells the control plane what the journal says the run decided, and journals that it did.
 //
+// A send that fails for a transport or plane error holds the next send of that report for a wait that doubles with each
+// failure in a row, from practicesSendFirst to practicesSendMost, and a send the control plane answers ends the wait. A
+// pass that finds the report held leaves it journaled and sends nothing.
+//
 // A result the control plane refuses, as it does one too large for its route, is replaced in the journal by a failed
 // check that says so, with the reason the control plane gave, and that is sent: the failure is recorded where a member
 // reads it, and the request is not left offered with its result lost. A report the control plane refuses for good
 // otherwise, because it knows no such request or refuses the failed check too, is journaled as sent and said once, so
 // it is not sent again every pass.
 func (w *Worker) sendPracticesReport(ctx context.Context, rt *PracticesRuntime, path, id string, journal practicesJournal) error {
+	if w.sendHeld(id) {
+		return nil
+	}
 	report := *journal.Report
 	report.Request, report.Auth = id, w.Auth()
 	err := w.link.ReportPracticesCheck(ctx, report)
 	refused := errors.Is(err, workorders.ErrInvalid) || errors.Is(err, ports.ErrNotFound)
 	if err != nil && !refused {
+		if ctx.Err() == nil {
+			w.sendFailed(id)
+		}
 		return fmt.Errorf("reporting it: %w", err)
 	}
+	w.sendAnswered(id)
 	if refused && report.Outcome == ledger.PracticesOutcomeChecked && errors.Is(err, workorders.ErrInvalid) {
 		failure := ledger.PracticesReport{
 			Project: report.Project, Request: id, Outcome: ledger.PracticesOutcomeFailed,

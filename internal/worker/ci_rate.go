@@ -35,14 +35,20 @@ type ciRateSeen struct {
 
 // ciBackoff is the wait after the n-th refusal in a row: a minute, then twice as long each time.
 func ciBackoff(n int) time.Duration {
-	wait := ciBackoffFirst
+	return doublingBackoff(n, ciBackoffFirst, ciBackoffMost)
+}
+
+// doublingBackoff is the wait after the n-th failure in a row: first, then twice as long each time, and never more
+// than most.
+func doublingBackoff(n int, first, most time.Duration) time.Duration {
+	wait := first
 	for range max(n, 1) - 1 {
 		wait *= 2
-		if wait >= ciBackoffMost {
-			return ciBackoffMost
+		if wait >= most {
+			return most
 		}
 	}
-	return wait
+	return min(wait, most)
 }
 
 // rateLimited holds a repository's reads after the forge refused one for a rate limit, for the longest of the

@@ -136,6 +136,10 @@ type Worker struct {
 	hintsThrough int64
 	// ciRate is where each repository stands with the forge's rate limits: the wait a refusal or a header set.
 	ciRate map[string]ciRateSeen
+	// practicesSends is where each practices report whose send failed stands: how many sends failed in a row, and when
+	// the next one is due. practicesLock guards it.
+	practicesLock  sync.Mutex
+	practicesSends map[string]practicesSendSeen
 	// baseTips is what a worker last read of the checks that failed on a base branch's tip, by repository and branch,
 	// so the pull requests of one repository that fail in the same pass cost one read of the base.
 	baseTips map[string]baseTipSeen
