@@ -88,8 +88,8 @@ describe("what a row says", () => {
   it("says what each row waits on, in the ledger's words when it has them", () => {
     const [accept, ruled, merging] = queueOf(rows(), needs.items);
     expect(waitsOn(accept as NonNullable<typeof accept>)).toBe("Your word: the review could not judge criterion c1");
-    expect(waitsOn(ruled as NonNullable<typeof ruled>)).toBe("Your approval of the merge: required checks are still running on cab321: e2e");
-    expect(waitsOn(merging as NonNullable<typeof merging>)).toBe("The merge: the worker is merging fed987 into main");
+    expect(waitsOn(ruled as NonNullable<typeof ruled>)).toBe("Your approval of the merge: required checks are still running on cab32100: e2e");
+    expect(waitsOn(merging as NonNullable<typeof merging>)).toBe("The merge: the worker is merging fed98700 into main");
   });
 });
 
@@ -97,8 +97,8 @@ describe("the pull requests", () => {
   it("lists the open ones with their head commit, whether a review read it, and their checks", () => {
     const found = pullRequestsOf(rows());
     expect(found.map((row) => [row.id, row.pr.number, row.pr.head_commit, row.reviewed, row.checks, row.mergeable])).toEqual([
-      ["wo-ruled", 11, "cab321", true, "1 passed, 1 running", "Merges cleanly"],
-      ["wo-merging", 12, "fed987", true, "2 passed", "Merges cleanly"],
+      ["wo-ruled", 11, "cab3210000000000000000000000000000000000", true, "1 passed, 1 running", "Merges cleanly"],
+      ["wo-merging", 12, "fed9870000000000000000000000000000000000", true, "2 passed", "Merges cleanly"],
     ]);
   });
 

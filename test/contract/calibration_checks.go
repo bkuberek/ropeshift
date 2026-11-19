@@ -277,7 +277,7 @@ func checkOnlyMembersAfterVerdictsAreCalibrated(r *Rig) error {
 
 	// Nor is the control plane's own acceptance of reviewed work whose criteria a forge check covers.
 	forge := &fake.Forge{}
-	head := r.ID("commit")
+	head := r.Commit()
 	byTick, err := r.AwaitingReview(s, []string{criterionOne}, LaneFinished(head))
 	if err != nil {
 		return err
@@ -303,7 +303,7 @@ func checkOnlyMembersAfterVerdictsAreCalibrated(r *Rig) error {
 	}
 	// A review that ended without verdicts leaves the work to its evidence, and a member's word on it
 	// has no verdict to follow.
-	empty, err := r.AwaitingReview(s, []string{criterionOne}, LaneFinished(r.ID("commit")))
+	empty, err := r.AwaitingReview(s, []string{criterionOne}, LaneFinished(r.Commit()))
 	if err != nil {
 		return err
 	}

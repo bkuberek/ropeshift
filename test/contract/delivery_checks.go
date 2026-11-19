@@ -60,7 +60,7 @@ func laneTimeOf(t delivery.Timeline) int64 {
 func checkDeliveryRecord(r *Rig) error {
 	s := r.Store()
 	change := ledger.ChangeSize{Files: 2, Added: 10, Removed: 3}
-	result := LaneFinished(r.ID("commit"), LaneCheck(criterionOne, true))
+	result := LaneFinished(r.Commit(), LaneCheck(criterionOne, true))
 	result.Change, result.CostUSD, result.InputTokens, result.OutputTokens = &change, 0.5, 1000, 200
 	id, err := r.Awaiting(s, []string{criterionOne}, result)
 	if err != nil {
@@ -167,7 +167,7 @@ func (r *Rig) stored(s ports.Store, id string) (delivery.FoldState, *delivery.Re
 
 // finished is a change a member accepted, done.
 func (r *Rig) finished(s ports.Store) (string, error) {
-	id, err := r.Awaiting(s, []string{criterionOne}, LaneFinished(r.ID("commit"), LaneCheck(criterionOne, true)))
+	id, err := r.Awaiting(s, []string{criterionOne}, LaneFinished(r.Commit(), LaneCheck(criterionOne, true)))
 	if err != nil {
 		return "", err
 	}

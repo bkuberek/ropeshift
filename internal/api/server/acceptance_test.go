@@ -12,7 +12,7 @@ import (
 func laneEnd(checks ...workorders.CheckResult) workorders.LaneResult {
 	return workorders.LaneResult{
 		Report: workorders.Report{Outcome: workorders.OutcomeCompleted, Artifacts: []string{"notes.md"}, Checks: checks},
-		Branch: "lane/wo", Head: "abc123",
+		Branch: "lane/wo", Head: "abc1230000000000000000000000000000000000",
 	}
 }
 

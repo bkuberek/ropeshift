@@ -154,7 +154,7 @@ func TestExitE10MeasuresFromLedger(t *testing.T) {
 		lane := w.Running(run.id, "Ship part "+strconv.Itoa(i))
 		advance(run.takes)
 		lane.Finish(workorders.LaneResult{
-			Report: workorders.Report{Outcome: workorders.OutcomeCompleted}, Branch: "lane/" + lane.ID, Head: "abc123",
+			Report: workorders.Report{Outcome: workorders.OutcomeCompleted}, Branch: "lane/" + lane.ID, Head: "abc1230000000000000000000000000000000000",
 			CostUSD: run.cost, UnknownCostTurns: run.unknown,
 		})
 		if _, err := d.Client.Accept(ctx, run.id); err != nil {

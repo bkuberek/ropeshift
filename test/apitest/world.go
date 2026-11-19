@@ -346,7 +346,7 @@ func (l *Lane) End(outcome workorders.Outcome, reason string) {
 // EndSaying ends a lane with an outcome, its reason, and what the worker said of the reason.
 func (l *Lane) EndSaying(outcome workorders.Outcome, reason, detail string) {
 	l.w.t.Helper()
-	result := workorders.LaneResult{Report: workorders.Report{Outcome: outcome, Reason: reason, Detail: detail}, Branch: "lane/" + l.ID, Head: "abc123"}
+	result := workorders.LaneResult{Report: workorders.Report{Outcome: outcome, Reason: reason, Detail: detail}, Branch: "lane/" + l.ID, Head: "abc1230000000000000000000000000000000000"}
 	l.Upload(ledger.UploadLaneEnded, result)
 }
 
@@ -356,7 +356,7 @@ func (l *Lane) Park(expr string) {
 	wake := "wake-" + l.ID
 	l.Upload(ledger.UploadLaneParking, ledger.ParkingStart{Wake: wake, Expr: expr})
 	l.Upload(ledger.UploadLaneParked, ledger.ParkedCommit{Wake: wake, Checkpoint: ledger.Checkpoint{
-		Lane: l.ID, Generation: l.Generation(), Branch: "lane/" + l.ID, Head: "abc123", Pushed: true, PendingInstruction: "Finish the retry",
+		Lane: l.ID, Generation: l.Generation(), Branch: "lane/" + l.ID, Head: "abc1230000000000000000000000000000000000", Pushed: true, PendingInstruction: "Finish the retry",
 	}})
 }
 

@@ -89,7 +89,7 @@ func (s *session) completed(id string, checks ...workorders.CheckResult) {
 	s.t.Helper()
 	s.daemon.Completed(s.t, id, workorders.LaneResult{
 		Report: workorders.Report{Outcome: workorders.OutcomeCompleted, Checks: checks},
-		Branch: "lane/" + id, Head: "abc123",
+		Branch: "lane/" + id, Head: "abc1230000000000000000000000000000000000",
 	})
 }
 

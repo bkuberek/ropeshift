@@ -35,7 +35,7 @@ type aReview struct {
 
 // judgingReview leaves a change that completed at a commit, and its review running on a lane of its own.
 func (r *Rig) judgingReview(s ports.Store, criteria ...string) (aReview, error) {
-	head := r.ID("commit")
+	head := r.Commit()
 	id, err := r.AwaitingReview(s, criteria, LaneFinished(head))
 	if err != nil {
 		return aReview{}, err

@@ -56,7 +56,7 @@ const (
 	planFile     = "plan.md"
 	reviewedPlan = "a-plan"
 	plannedOrder = "The work order of alpha"
-	acceptedHead = "accepted-head"
+	acceptedHead = "acce97ed0000000000000000000000000000000a"
 )
 
 func plannedContract(statement string) []byte {

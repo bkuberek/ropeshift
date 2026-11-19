@@ -37,7 +37,7 @@ func sealed(t *testing.T, doc lanes.Handoff) (string, string) {
 func facts() lanes.HandoffFacts {
 	return lanes.HandoffFacts{
 		WorkOrder: "01JC8RV4KT", Contract: &lanes.ContractRef{ID: "01JC6M", Version: 4},
-		ContextPack: &lanes.PackRef{ID: "01JC6N", Version: 2}, Branch: "lane/checkout-retry", Head: "4be81fa",
+		ContextPack: &lanes.PackRef{ID: "01JC6N", Version: 2}, Branch: "lane/checkout-retry", Head: "4be81fa000000000000000000000000000000000",
 		SnapshotRef: "refs/ropeshift/checkpoints/01JCA2/3", DirtyPaths: []string{"internal/checkout/retry.go"},
 		UnpushedCommits: 2, OpenQuestions: []string{"01JC9Z"}, OpenAssumptions: []string{"01JCA0"},
 		Checks: []lanes.CheckFact{{Name: "unit", Status: "failed"}}, ModelResolved: "example-model-id",
@@ -245,7 +245,7 @@ func TestABriefWithNoSnapshotSaysWhereTheWorkIs(t *testing.T) {
 	doc := document()
 	doc.Narrative, doc.Deterministic.SnapshotRef = nil, ""
 	brief := lanes.Brief(lanes.BriefSpec{WorkOrder: "wo", Title: "T", Handoff: &doc})
-	if !strings.Contains(brief, "4be81fa") || strings.Contains(brief, "refs/ropeshift") {
+	if !strings.Contains(brief, "4be81fa000000000000000000000000000000000") || strings.Contains(brief, "refs/ropeshift") {
 		t.Errorf("brief:\n%s", brief)
 	}
 }

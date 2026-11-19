@@ -140,7 +140,7 @@ func Detail(w *World, clock *Clock) {
 			Outcome: workorders.OutcomeCompleted, Artifacts: []string{WorldHostileURI},
 			Checks: []workorders.CheckResult{{Name: "go test", Passed: true, Criterion: "c1"}},
 		},
-		Branch: "lane/lane-wo-done", Head: "abc123",
+		Branch: "lane/lane-wo-done", Head: "abc1230000000000000000000000000000000000",
 	})
 	w.Reviewed("wo-done", workorders.CriterionVerdict{
 		Criterion: "c1", Verdict: workorders.VerdictPass, Reasons: "The first cut does what the criterion asks.", Citations: []string{"cut.go:12"},
@@ -155,7 +155,7 @@ func Detail(w *World, clock *Clock) {
 			Outcome: workorders.OutcomeFailed, Reason: "It gave up on " + WorldHostileBit,
 			Checks: []workorders.CheckResult{{Name: "go vet", Passed: false, Criterion: "c1"}},
 		},
-		Branch: "lane/lane-wo-failed", Head: "def456",
+		Branch: "lane/lane-wo-failed", Head: "def4560000000000000000000000000000000000",
 	})
 	clock.Advance(time.Minute)
 	w.Recorded("wo-canceled", "Drop the old plan")

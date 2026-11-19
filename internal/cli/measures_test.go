@@ -18,7 +18,7 @@ func costs(t *testing.T, s *session, w *apitest.World, spent ...float64) {
 		id := "wo-" + string(rune('a'+i))
 		lane := w.Running(id, "Ship "+id)
 		lane.Finish(workorders.LaneResult{
-			Report: workorders.Report{Outcome: workorders.OutcomeCompleted}, Branch: "lane/" + lane.ID, Head: "abc123",
+			Report: workorders.Report{Outcome: workorders.OutcomeCompleted}, Branch: "lane/" + lane.ID, Head: "abc1230000000000000000000000000000000000",
 			CostUSD: usd, UnknownCostTurns: int64(i),
 		})
 		if _, err := s.daemon.Client.Accept(t.Context(), id); err != nil {

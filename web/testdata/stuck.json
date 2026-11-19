@@ -61,7 +61,7 @@
         "artifacts": [
           {
             "created_at": 1790000304001,
-            "digest": "abc123",
+            "digest": "abc1230000000000000000000000000000000000",
             "fence": 2,
             "id": "generated-2",
             "kind": "branch",
@@ -216,7 +216,7 @@
         "artifacts": [
           {
             "created_at": 1790000904001,
-            "digest": "def456",
+            "digest": "def4560000000000000000000000000000000000",
             "fence": 2,
             "id": "generated-6",
             "kind": "branch",

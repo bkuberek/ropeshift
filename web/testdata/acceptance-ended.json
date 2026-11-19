@@ -16,7 +16,7 @@
       "lane_id": "lane-wo-shipped",
       "kind": "branch",
       "uri": "lane/lane-wo-shipped",
-      "digest": "fed987",
+      "digest": "fed9870000000000000000000000000000000000",
       "fence": 2,
       "change": {
         "files": 3,
@@ -58,7 +58,7 @@
       "review_id": "generated-3",
       "work_order_id": "wo-shipped",
       "attempt": 2,
-      "commit": "fed987",
+      "commit": "fed9870000000000000000000000000000000000",
       "lane_id": "lane-generated-3",
       "generation": 1,
       "fence": 2,

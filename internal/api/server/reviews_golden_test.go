@@ -67,9 +67,9 @@ func aReviewsWorld(t *testing.T) *apitest.Daemon {
 			Criterion: "c1", Verdict: workorders.VerdictPass, Reasons: "The budget stops the retries after the third.", Citations: []string{"retry.go:21"},
 		})
 	}
-	shipped("wo-ruled", "Trim the retry log", "cab321", 11,
+	shipped("wo-ruled", "Trim the retry log", "cab3210000000000000000000000000000000000", 11,
 		ledger.PullRequestCheck{Name: "CI result", State: ledger.CheckPassed, Required: true}, ledger.PullRequestCheck{Name: "e2e", State: ledger.CheckPending, Required: true})
-	shipped("wo-merging", "Add the retry budget", "fed987", 12,
+	shipped("wo-merging", "Add the retry budget", "fed9870000000000000000000000000000000000", 12,
 		ledger.PullRequestCheck{Name: "CI result", State: ledger.CheckPassed, Required: true}, ledger.PullRequestCheck{Name: "lint", State: ledger.CheckPassed})
 	clock.Advance(time.Minute)
 	if _, err := d.Client.Accept(t.Context(), "wo-merging"); err != nil {

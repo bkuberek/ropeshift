@@ -20,7 +20,7 @@ Risks:
 - The payment stub does not model timeouts
 
 Where the work stands:
-- Branch lane/checkout-retry at 4be81fa, with 2 commits not pushed
+- Branch lane/checkout-retry at 4be81fa000000000000000000000000000000000, with 2 commits not pushed
 - Snapshot: refs/ropeshift/checkpoints/01JCA2/3
 - Changed files: internal/checkout/retry.go
 - Open questions: 01JC9Z

@@ -463,7 +463,7 @@ func acceptCase() crashCase {
 		op:    "acceptance.accept",
 		steps: withSteps("moved"),
 		prepare: func(w *world) (childSpec, error) {
-			id, err := awaitingWork(w, w.rig.ID("commit"))
+			id, err := awaitingWork(w, w.rig.Commit())
 			return childSpec{Role: "accept", WorkOrder: id}, err
 		},
 		settled: func(w *world, spec childSpec) error {
@@ -481,7 +481,7 @@ func reworkCase() crashCase {
 		op:    "acceptance.rework",
 		steps: withSteps("moved"),
 		prepare: func(w *world) (childSpec, error) {
-			id, err := awaitingWork(w, w.rig.ID("commit"))
+			id, err := awaitingWork(w, w.rig.Commit())
 			return childSpec{Role: "rework", WorkOrder: id}, err
 		},
 		settled: func(w *world, spec childSpec) error {
@@ -501,7 +501,7 @@ func settleCase() crashCase {
 		op:    "acceptance.settle",
 		steps: withSteps("recorded", "moved"),
 		prepare: func(w *world) (childSpec, error) {
-			commit := w.rig.ID("commit")
+			commit := w.rig.Commit()
 			id, err := w.rig.Awaiting(w.store, []string{"c1"}, contract.LaneFinished(commit))
 			return childSpec{Role: "settle", WorkOrder: id, Key: commit}, err
 		},

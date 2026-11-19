@@ -67,7 +67,7 @@
           "artifacts": [
             {
               "created_at": 1790000304001,
-              "digest": "abc123",
+              "digest": "abc1230000000000000000000000000000000000",
               "fence": 2,
               "id": "generated-2",
               "kind": "branch",
@@ -149,7 +149,7 @@
           "artifacts": [
             {
               "created_at": 1790000424001,
-              "digest": "abc123",
+              "digest": "abc1230000000000000000000000000000000000",
               "fence": 2,
               "id": "generated-4",
               "kind": "branch",
@@ -183,7 +183,7 @@
           "artifacts": [
             {
               "created_at": 1790000424001,
-              "digest": "abc123",
+              "digest": "abc1230000000000000000000000000000000000",
               "fence": 2,
               "id": "generated-4",
               "kind": "branch",
@@ -208,7 +208,7 @@
               "citations": [
                 "trim.go:44"
               ],
-              "commit": "abc123",
+              "commit": "abc1230000000000000000000000000000000000",
               "created_at": 1790000424001,
               "point": "injection",
               "reasons": "trim.go passes the log name to a shell command.",
@@ -219,7 +219,7 @@
             },
             {
               "attempt": 2,
-              "commit": "abc123",
+              "commit": "abc1230000000000000000000000000000000000",
               "created_at": 1790000424001,
               "point": "dependencies",
               "reasons": "go.mod adds a module at a branch and not at a version.",
@@ -245,7 +245,7 @@
                 "trim.go:30",
                 "FR-LOG-2"
               ],
-              "commit": "abc123",
+              "commit": "abc1230000000000000000000000000000000000",
               "created_at": 1790000424001,
               "criterion": "c1",
               "fence": 2,
@@ -559,7 +559,7 @@
           "artifacts": [
             {
               "created_at": 1790000904001,
-              "digest": "def456",
+              "digest": "def4560000000000000000000000000000000000",
               "fence": 2,
               "id": "generated-11",
               "kind": "branch",
@@ -608,7 +608,7 @@
     },
     {
       "approval": {
-        "detail": "{\"work_order_id\":\"wo-ruled\",\"title\":\"Trim the retry log\",\"repository\":\"app\",\"commit\":\"cab321\",\"branch\":\"lane/lane-wo-ruled\",\"base\":\"main\",\"pull_request\":11,\"url\":\"https://forge.example/acme/app/pull/wo-ruled\",\"method\":\"merge\",\"merge_authority\":\"person_approves\"}",
+        "detail": "{\"work_order_id\":\"wo-ruled\",\"title\":\"Trim the retry log\",\"repository\":\"app\",\"commit\":\"cab3210000000000000000000000000000000000\",\"branch\":\"lane/lane-wo-ruled\",\"base\":\"main\",\"pull_request\":11,\"url\":\"https://forge.example/acme/app/pull/wo-ruled\",\"method\":\"merge\",\"merge_authority\":\"person_approves\"}",
         "generation": 0,
         "id": "generated-13",
         "kind": "merge",
@@ -617,8 +617,8 @@
         "requested_by": "system:integration",
         "state": "pending",
         "subject": "approve",
-        "subject_digest": "cab321",
-        "summary": "Approve the merge of pull request #11, commit cab321 of work order wo-ruled (Trim the retry log), at person_approves. The review's verdicts are on the work order.",
+        "subject_digest": "cab3210000000000000000000000000000000000",
+        "summary": "Approve the merge of pull request #11, commit cab32100 of work order wo-ruled (Trim the retry log), at person_approves. The review's verdicts are on the work order.",
         "work_order_id": "wo-ruled"
       },
       "id": "generated-13",

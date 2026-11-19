@@ -149,16 +149,16 @@ func TestWorkShowOfAReviewWithNoNotesPrintsNone(t *testing.T) {
 func TestWorkAcceptancePrintsWhatTheBranchChanged(t *testing.T) {
 	s := newSession(t)
 	s.daemon.Completed(t, "wo", workorders.LaneResult{
-		Report: workorders.Report{Outcome: workorders.OutcomeCompleted}, Branch: "lane/wo", Head: "abc123",
+		Report: workorders.Report{Outcome: workorders.OutcomeCompleted}, Branch: "lane/wo", Head: "abc1230000000000000000000000000000000000",
 		Change: &ledger.ChangeSize{Files: 3, Added: 40, Removed: 12},
 	})
 	s.daemon.Completed(t, "unmeasured", workorders.LaneResult{
-		Report: workorders.Report{Outcome: workorders.OutcomeCompleted}, Branch: "lane/unmeasured", Head: "def456",
+		Report: workorders.Report{Outcome: workorders.OutcomeCompleted}, Branch: "lane/unmeasured", Head: "def4560000000000000000000000000000000000",
 	})
-	if text := s.must("work", "acceptance", "wo"); !strings.Contains(text, "artifact\tbranch\tlane/wo\tabc123\t3 files\t+40\t-12\n") {
+	if text := s.must("work", "acceptance", "wo"); !strings.Contains(text, "artifact\tbranch\tlane/wo\tabc1230000000000000000000000000000000000\t3 files\t+40\t-12\n") {
 		t.Errorf("acceptance leaves out the change:\n%s", text)
 	}
-	if text := s.must("work", "acceptance", "unmeasured"); !strings.Contains(text, "artifact\tbranch\tlane/unmeasured\tdef456\n") {
+	if text := s.must("work", "acceptance", "unmeasured"); !strings.Contains(text, "artifact\tbranch\tlane/unmeasured\tdef4560000000000000000000000000000000000\n") {
 		t.Errorf("a branch with no change size:\n%s", text)
 	}
 	var view struct {

@@ -473,7 +473,7 @@ func (r *Rig) state(store ports.Store, id string, want workorders.State) error {
 
 func checkSpendLimitedRecord(r *Rig) error {
 	s := r.Store()
-	result := LaneFinished(r.ID("commit"), LaneCheck(criterionOne, true))
+	result := LaneFinished(r.Commit(), LaneCheck(criterionOne, true))
 	id, err := r.Awaiting(s, []string{criterionOne}, result)
 	if err != nil {
 		return err
@@ -495,7 +495,7 @@ func checkSpendLimitedRecord(r *Rig) error {
 	if err != nil || record == nil || !record.Usage.SpendLimited || !record.Usage.LowerBound() {
 		return Violatedf("a work order a hard limit stopped has record %+v: %v", record, err)
 	}
-	clean, err := r.Awaiting(s, []string{criterionOne}, LaneFinished(r.ID("commit"), LaneCheck(criterionOne, true)))
+	clean, err := r.Awaiting(s, []string{criterionOne}, LaneFinished(r.Commit(), LaneCheck(criterionOne, true)))
 	if err != nil {
 		return err
 	}

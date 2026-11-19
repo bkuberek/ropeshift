@@ -307,7 +307,7 @@ func newImportingForgeRig(r *Rig, target ledger.ReviewTarget, ready func(store p
 	if err != nil {
 		return nil, err
 	}
-	f := &forgeRig{statusRig: st, repository: repository, head: r.ID("commit")}
+	f := &forgeRig{statusRig: st, repository: repository, head: r.Commit()}
 	result := LaneFinished(f.head, checks...)
 	result.ImportMerge = importMerge
 	raw, err := json.Marshal(result)
