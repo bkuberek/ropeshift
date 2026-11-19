@@ -150,7 +150,7 @@
         "label": "Create work",
         "subject": "work_order:wo-plan",
         "outcome": "ran",
-        "rev": 46
+        "rev": 47
       }
     },
     {
@@ -161,7 +161,7 @@
         "operation": "lane.start",
         "label": "Start a lane",
         "outcome": "ran",
-        "rev": 52,
+        "rev": 53,
         "planning_lane": "lane-plan"
       }
     },

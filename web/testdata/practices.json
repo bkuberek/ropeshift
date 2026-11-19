@@ -1,0 +1,111 @@
+{
+  "repositories": [
+    {
+      "repository": "repo-b",
+      "name": "gadgets"
+    },
+    {
+      "repository": "repo-a",
+      "name": "widgets",
+      "result": {
+        "request": "request-earlier",
+        "commit": "1111111111111111111111111111111111111111",
+        "base_branch": "main",
+        "worker": "plan",
+        "checked_at": "2026-11-18T09:30:00Z",
+        "table_version": 1,
+        "rules_version": 1,
+        "skipped": 1,
+        "practices": [
+          {
+            "id": "env-ignored",
+            "severity": "high",
+            "status": "finding",
+            "why": "An env file holds credentials and local settings. Tracked, it reaches every clone and stays in the history for good; a lane environment's written files must be ignored too.",
+            "fix": "Add `.env`, `.env.*`, and `!.env.example` to `.gitignore`. For a tracked env file, run `git rm --cached <path>` and rotate every credential it held.",
+            "template": "repository/gitignore",
+            "command": "ropeshift template show repository/gitignore"
+          },
+          {
+            "id": "secrets",
+            "severity": "high",
+            "status": "finding",
+            "why": "A credential in a tracked file or in history can be read by anyone who can read the repository, every lane included, and deleting the file does not remove it from history.",
+            "fix": "Revoke and rotate the credential at its provider first, then remove it from the file. Removing it from history needs a history rewrite, which ropeshift does not do. Acknowledge a match that is a test fixture or an example."
+          },
+          {
+            "id": "ci",
+            "severity": "medium",
+            "status": "met",
+            "why": "Checks on every change catch what a review misses, and with review target `pull_request` the base branch's required checks gate the merge.",
+            "fix": "Add a GitHub Actions workflow that runs the repository's checks and make its check required on the base branch (https://docs.github.com/en/actions/concepts/workflows-and-actions/workflows). With no CI, follow the no-CI recipe: a pre-commit hook and merge authority `person_merges` or `person_approves`.",
+            "template": "pre-commit-config.yaml",
+            "command": "ropeshift template show pre-commit-config.yaml"
+          },
+          {
+            "id": "pre-commit",
+            "severity": "low",
+            "status": "met",
+            "why": "A quick check before every commit, each lane's commit included, catches errors before they reach a review.",
+            "fix": "Commit the pre-commit configuration, or in a workspace keep the `Makefile`'s `hooks` target and run `make hooks`.",
+            "template": "pre-commit-config.yaml",
+            "command": "ropeshift template show pre-commit-config.yaml"
+          },
+          {
+            "id": "lockfile",
+            "severity": "low",
+            "status": "not_applicable",
+            "reason": "no package manager is detected",
+            "why": "Without a lockfile each install can resolve different versions, so a build cannot be repeated and a compromised release can enter unseen.",
+            "fix": "Run the manager's lock command and commit the file it writes."
+          },
+          {
+            "id": "license",
+            "severity": "low",
+            "status": "unknown",
+            "reason": "the forge could not be read",
+            "why": "A public repository with no license grants nobody the right to use, change, or share it.",
+            "fix": "Choose a license and commit it as `LICENSE` (https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/licensing-a-repository)."
+          }
+        ],
+        "findings": [
+          {
+            "id": "env-ignored:ignore:.",
+            "practice": "env-ignored",
+            "subject": "ignore:.",
+            "severity": "high",
+            "detail": "`.env` is not ignored",
+            "why": "An env file holds credentials and local settings. Tracked, it reaches every clone and stays in the history for good; a lane environment's written files must be ignored too.",
+            "fix": "Add `.env`, `.env.*`, and `!.env.example` to `.gitignore`. For a tracked env file, run `git rm --cached <path>` and rotate every credential it held.",
+            "template": "repository/gitignore",
+            "command": "ropeshift template show repository/gitignore"
+          },
+          {
+            "id": "secrets:github_token:config/dev.yaml:1a2b3c4d5e6f",
+            "practice": "secrets",
+            "severity": "high",
+            "detail": "a github_token credential",
+            "rule": "github_token",
+            "path": "config/dev.yaml",
+            "line": 3,
+            "commit": "aaaaaaaaaaaa",
+            "digest": "1a2b3c4d5e6f1a2b3c4d5e6f",
+            "why": "A credential in a tracked file or in history can be read by anyone who can read the repository, every lane included, and deleting the file does not remove it from history.",
+            "fix": "Revoke and rotate the credential at its provider first, then remove it from the file. Removing it from history needs a history rewrite, which ropeshift does not do. Acknowledge a match that is a test fixture or an example."
+          }
+        ]
+      },
+      "request": {
+        "id": "generated-1",
+        "repository": "repo-a",
+        "worker": "plan",
+        "cause": "member",
+        "requested_by": "member-1",
+        "requested_at": 1790000000000,
+        "expires_at": 1790001800000,
+        "state": "offered",
+        "worker_name": "plan"
+      }
+    }
+  ]
+}

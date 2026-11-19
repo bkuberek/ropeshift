@@ -184,6 +184,7 @@ var routeOperations = map[string]routeOperation{
 	"POST " + api.BackupDownloadPath:                   fixed(authority.OpProjectBackup),
 	"POST /v1/work-orders":                             resolved(workOrderCreateOperation, authority.OpWorkOrderCreate, authority.OpWorkOrderCreateByAssistant, authority.OpAdoptionRestructure).about(subjectWorkOrder).named(bodyField("id")).checked(plainID(workorders.ErrInvalid)),
 	"POST /v1/adoption/plan":                           fixed(authority.OpAdoptionPlan),
+	"POST /v1/practices/checks":                        fixed(authority.OpPracticesCheck),
 	"POST /v1/work-orders/{id}/review":                 resolved(reviewOperation, authority.OpWorkOrderReviewPlan, authority.OpWorkOrderReview).about(subjectWorkOrder),
 	"POST /v1/work-orders/{id}/claims":                 fixed(authority.OpWorkOrderClaim),
 	"POST /v1/work-orders/{id}/lanes":                  fixed(authority.OpLaneStart),
@@ -439,11 +440,11 @@ func (h *handler) assisted(w http.ResponseWriter, r *http.Request, credential au
 	}
 	action := conversations.ActionData{Operation: call.op.ID, Label: call.op.Label, Subject: call.subject, Outcome: conversations.OutcomeRan}
 	if recorder.status == http.StatusAccepted {
+		// A 202 is a card when its body holds one, and otherwise a call that ran and was accepted for a worker to carry out.
 		var prepared api.Prepared
-		if json.Unmarshal(recorder.body.Bytes(), &prepared) != nil || prepared.Card.ID == "" {
-			return
+		if json.Unmarshal(recorder.body.Bytes(), &prepared) == nil && prepared.Card.ID != "" {
+			action.Outcome, action.Approval = conversations.OutcomeCard, prepared.Card.ID
 		}
-		action.Outcome, action.Approval = conversations.OutcomeCard, prepared.Card.ID
 	}
 	if action.Outcome == conversations.OutcomeRan && call.op.ID == authority.OpLaneStart {
 		action.PlanningLane = h.planningLane(r, recorder.body.Bytes())

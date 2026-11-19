@@ -1,0 +1,24 @@
+{
+  "checks": [
+    {
+      "repository": "repo-b",
+      "name": "gadgets",
+      "reason": "no connected worker keeps a checkout of gadgets"
+    },
+    {
+      "repository": "repo-a",
+      "name": "widgets",
+      "request": {
+        "id": "generated-1",
+        "repository": "repo-a",
+        "worker": "plan",
+        "cause": "member",
+        "requested_by": "member-1",
+        "requested_at": 1790000000000,
+        "expires_at": 1790001800000,
+        "state": "offered",
+        "worker_name": "plan"
+      }
+    }
+  ]
+}

@@ -1071,3 +1071,69 @@ func TestARequestNobodyReportedExpires(t *testing.T) {
 		t.Errorf("the log holds %+v, want one expiry", events)
 	}
 }
+
+// A read answers each active repository by name with its latest result and its open request: none of either before
+// a check, the open request once one is made, and the result, with no open request, once a worker reports it.
+func TestReadingThePracticesOfARepositoryFollowsTheCheck(t *testing.T) {
+	r := newPracticesRig(t, ledger.ProtocolVersion)
+	r.register("repo-b", "gadgets", "worker-1")
+	r.register("repo-a", "widgets", "worker-1")
+	read := func(named ...string) []control.PracticesRead {
+		t.Helper()
+		got, err := r.practices.Read(t.Context(), "pa", named...)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+	all := read()
+	if len(all) != 2 || all[0].Repository.Name != "gadgets" || all[1].Repository.Name != "widgets" {
+		t.Fatalf("a read of every repository answered %+v, want gadgets and widgets by name", all)
+	}
+	if all[0].Result != nil || all[0].Open != nil {
+		t.Errorf("before a check, a repository reads %+v", all[0])
+	}
+	request := r.requested(r.request(ledger.PracticesMember, "repo-a"))
+	if one := read("widgets"); len(one) != 1 || one[0].Open == nil || one[0].Open.ID != request.ID || one[0].Result != nil {
+		t.Errorf("once requested, widgets reads %+v, want the open request and no result", one)
+	}
+	r.mustReport(request.ID, ledger.PracticesOutcomeChecked, aResult("repo-a", tipOne, ""))
+	one := read("repo-a")
+	if len(one) != 1 || one[0].Open != nil || one[0].Result == nil || one[0].Result.Request != request.ID || one[0].Result.Result.Commit != tipOne {
+		t.Errorf("once reported, repo-a reads %+v, want the result of %s and no open request", one, request.ID)
+	}
+}
+
+// A read names a repository that is no active one of the project as not found, and leaves a removed one out of the
+// read of every repository.
+func TestReadingThePracticesRefusesAnUnknownRepositoryAndSkipsARemovedOne(t *testing.T) {
+	r := newPracticesRig(t, ledger.ProtocolVersion)
+	r.register("repo-a", "widgets", "worker-1")
+	r.register("repo-b", "gadgets", "worker-1")
+	if _, err := r.practices.Read(t.Context(), "pa", "nothing"); !errors.Is(err, ports.ErrNotFound) {
+		t.Errorf("a read of an unknown repository answered %v, want not found", err)
+	}
+	if _, err := control.NewRepositories(r.store).Remove(t.Context(), "pa", "repo-a", nil, projectMember); err != nil {
+		t.Fatal(err)
+	}
+	got, err := r.practices.Read(t.Context(), "pa")
+	if err != nil || len(got) != 1 || got[0].Repository.ID != "repo-b" {
+		t.Errorf("a read of every repository answered %+v (%v), want only gadgets", got, err)
+	}
+}
+
+// A request is read by its ID, with the state it stands in now: offered until its expiry passes, and expired after,
+// whether or not the tick has stored it so.
+func TestReadingAPracticesRequestSaysWhereItStands(t *testing.T) {
+	r := newPracticesRig(t, ledger.ProtocolVersion)
+	r.register("repo-a", "widgets", "worker-1")
+	now := time.Now().UnixMilli()
+	r.inserted(ledger.PracticesRequest{ID: "req-late", Repository: "repo-a", Worker: "worker-1", Cause: ledger.PracticesMember, RequestedBy: "m", RequestedAt: now - 5000, ExpiresAt: now - 1000, State: ledger.PracticesOffered})
+	got, err := r.practices.Check(t.Context(), "pa", "req-late")
+	if err != nil || got.ID != "req-late" || got.State != ledger.PracticesExpired {
+		t.Errorf("a read of a request past its expiry answered %+v (%v), want it expired", got, err)
+	}
+	if _, err := r.practices.Check(t.Context(), "pa", "nothing"); !errors.Is(err, ports.ErrNotFound) {
+		t.Errorf("a read of an unknown request answered %v, want not found", err)
+	}
+}
