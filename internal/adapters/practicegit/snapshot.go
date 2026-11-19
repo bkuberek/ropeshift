@@ -81,16 +81,23 @@ const snapshotIgnoreFile = ".gitignore"
 //
 // A partial clone lacks blobs that git fetches from its promisor remote when a command reads one, so the snapshot of
 // one lists the tracked paths, which its trees hold, and reads no blob: every file is unreadable and no ignore probe
-// has an answer, and the practices that need either are unknown.
+// has an answer, and the practices that need either are unknown. A partial clone that lacks the commit or one of its
+// trees, as a treeless clone does, has no snapshot, and reading it fetches nothing.
 func (s Snapshots) Snapshot(ctx context.Context, dir, commit string) (practices.Snapshot, error) {
 	git := gitcli.Git{Dir: dir, Env: s.Env, Extra: snapshotNoReplace}
-	resolved, err := snapshotResolve(ctx, git, commit)
-	if err != nil {
-		return practices.Snapshot{}, err
-	}
+	// A partial clone is asked for first, because resolving a commit ID it lacks fetches the commit.
 	partialClone, err := git.PartialClone(ctx)
 	if err != nil {
 		return practices.Snapshot{}, err
+	}
+	resolved, err := snapshotResolve(ctx, git, commit, partialClone)
+	if err != nil {
+		return practices.Snapshot{}, err
+	}
+	if partialClone {
+		if err := snapshotTreesHeld(ctx, git, resolved); err != nil {
+			return practices.Snapshot{}, err
+		}
 	}
 	entries, err := snapshotTree(ctx, git, resolved)
 	if err != nil {
@@ -120,8 +127,31 @@ func (s Snapshots) Snapshot(ctx context.Context, dir, commit string) (practices.
 	}, nil
 }
 
-// snapshotResolve turns a commit ID or a base branch's name into a commit ID.
-func snapshotResolve(ctx context.Context, git gitcli.Git, name string) (string, error) {
+// snapshotTreesHeld refuses a commit of a partial clone when the clone lacks the commit or one of its trees, which
+// `ls-tree` would fetch from the promisor remote. `rev-list --missing=print` names the missing objects and never
+// fetches them, and the blob filter leaves the blobs out, which a partial clone is allowed to lack.
+func snapshotTreesHeld(ctx context.Context, git gitcli.Git, commit string) error {
+	out, err := git.Text(ctx, "rev-list", "--objects", "--missing=print", "--filter=blob:none", "--no-walk", commit)
+	if err != nil {
+		return err
+	}
+	for line := range strings.SplitSeq(out, "\n") {
+		missing, found := strings.CutPrefix(line, "?")
+		switch {
+		case !found:
+		case missing == commit:
+			return fmt.Errorf("%w: the repository holds no commit %s", ports.ErrNotFound, commit)
+		default:
+			return fmt.Errorf("the repository is a partial clone that lacks the tree %s of %s, and reading it would fetch the tree", missing, commit)
+		}
+	}
+	return nil
+}
+
+// snapshotResolve turns a commit ID or a base branch's name into a commit ID. In a partial clone it reads the ID a ref or
+// a full commit ID names and does not read the commit, which the clone may lack and git would fetch;
+// snapshotTreesHeld then says whether it holds the commit.
+func snapshotResolve(ctx context.Context, git gitcli.Git, name string, partialClone bool) (string, error) {
 	if name == "" || strings.HasPrefix(name, "-") {
 		return "", fmt.Errorf("%w: %q is not a commit or a branch", ports.ErrNotFound, name)
 	}
@@ -133,7 +163,7 @@ func snapshotResolve(ctx context.Context, git gitcli.Git, name string) (string, 
 		}
 	}
 	for _, ref := range refs {
-		id, err := git.Commit(ctx, ref)
+		id, err := snapshotRevision(ctx, git, ref, partialClone)
 		if err == nil {
 			return id, nil
 		}
@@ -142,6 +172,19 @@ func snapshotResolve(ctx context.Context, git gitcli.Git, name string) (string, 
 		}
 	}
 	return "", fmt.Errorf("%w: the repository holds no commit or branch %s", ports.ErrNotFound, name)
+}
+
+// snapshotRevision resolves a ref to a commit ID, and in a partial clone to the object ID it names without reading the
+// object.
+func snapshotRevision(ctx context.Context, git gitcli.Git, ref string, partialClone bool) (string, error) {
+	if !partialClone {
+		return git.Commit(ctx, ref)
+	}
+	id, err := git.Text(ctx, "rev-parse", "--verify", "--quiet", "--end-of-options", ref)
+	if err != nil {
+		return "", fmt.Errorf("%w: %s", gitcli.ErrNoRevision, ref)
+	}
+	return id, nil
 }
 
 // snapshotEntry is one tracked path at a commit and its file mode.

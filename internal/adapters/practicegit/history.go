@@ -65,16 +65,17 @@ func (s SecretScanner) Scan(ctx context.Context, dir, tip, from string) (ports.S
 		return ports.SecretScan{}, fmt.Errorf("scan for secrets: %w", err)
 	}
 	git := gitcli.Git{Dir: dir, Env: s.Env, Extra: secretScanEnvironment, Config: secretScanConfig}
-	tipCommit, err := secretScanCommit(ctx, git, tip)
-	if err != nil {
-		return ports.SecretScan{}, fmt.Errorf("scan for secrets: %w", err)
-	}
+	// A partial clone is asked for first, because resolving a commit ID it lacks fetches the commit.
 	partialClone, err := git.PartialClone(ctx)
 	if err != nil {
 		return ports.SecretScan{}, secretScanFailure(ctx, "check the repository for a partial clone", err)
 	}
 	if partialClone {
 		return ports.SecretScan{Partial: secretScanPartialCloneReason}, nil
+	}
+	tipCommit, err := secretScanCommit(ctx, git, tip)
+	if err != nil {
+		return ports.SecretScan{}, fmt.Errorf("scan for secrets: %w", err)
 	}
 	// The options fix what the patches hold whatever the repository's settings and attributes say: every commit with
 	// a patch, a merge by its diff against its first parent, every file as text, paths from the root of the
