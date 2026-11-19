@@ -1,18 +1,15 @@
 import type { Question, Questions as View } from "../api/types";
-import { Link } from "../app/route";
-import { Fact, Id, Line, words } from "../parts/parts";
-import { ScopeName } from "../ui/display";
+import { addressOf, Link } from "../app/route";
+import { Line, words } from "../parts/parts";
 import { NoOrchestrator } from "../needs/NoOrchestrator";
 import { CategoryFilter } from "./CategoryFilter";
-import { Ladder } from "./Ladder";
 import { waiting } from "./DismissQuestion";
 import { QuestionActions } from "./QuestionActions";
-
-const statusWords: Record<string, string> = { needs_human: "Needs a person" };
+import { closedStatuses, QuestionFacts, statusOf } from "./QuestionFacts";
 
 function QuestionLine({ question, others }: { question: Question; others: Question[] }) {
   return (
-    <Line side={<span className="wait-word">{words(question.status, statusWords)}</span>} kind={`Rung ${question.rung}`} title={question.text} plain>
+    <Line side={<span className="wait-word">{statusOf(question)}</span>} kind={`Rung ${question.rung}`} title={question.text} plain>
       <div className="panel-body">
         <ul className="chips">
           {question.blocking ? <li className="chip-strong">Blocking</li> : null}
@@ -30,41 +27,57 @@ function QuestionLine({ question, others }: { question: Question; others: Questi
             ))}
           </ul>
         ) : null}
-        <dl className="kv">
-          {question.scope ? (
-            <Fact name="Scope">
-              <ScopeName scope={question.scope} title={question.scope_title} />
-            </Fact>
-          ) : null}
-          {question.asked_by ? (
-            <Fact name="Asked by">
-              <Id value={question.asked_by} />
-            </Fact>
-          ) : null}
-          {question.escalation_reason ? <Fact name="Reached a person because">{words(question.escalation_reason)}</Fact> : null}
-          {question.claimed_by ? (
-            <Fact name="Held by">
-              <Id value={question.claimed_by} />
-            </Fact>
-          ) : null}
-        </dl>
-        <Ladder steps={question.ladder_trace} />
+        <QuestionFacts question={question} />
         <QuestionActions question={question} others={others} />
       </div>
     </Line>
   );
 }
 
-export function OpenQuestions({ view, category, selected }: { view: View; category: string; selected: string }) {
+// StatusFilter narrows the questions to the open ones, the ones closed one way, or every one, a link each so the
+// address keeps the filter, with the category in force kept.
+function StatusFilter({ status, category }: { status: string; category: string }) {
+  const options = [{ value: "", name: "Open" }, ...closedStatuses.map((value) => ({ value, name: words(value) })), { value: "all", name: "All" }];
+  return (
+    <nav className="filters" aria-label="Filter by status">
+      {options.map((option) => (
+        <Link key={option.value} to={addressOf("/questions", { status: option.value, category })} stay aria-current={option.value === status ? "true" : undefined}>
+          {option.name}
+        </Link>
+      ))}
+    </nav>
+  );
+}
+
+// emptyWords says what a list that holds nothing would have held.
+function emptyWords(status: string, category: string, selected: string): string {
+  if (selected) {
+    return status ? "No question has that ID." : "That question is not open.";
+  }
+  if (status === "all") {
+    return category ? `No question in ${words(category)}.` : "No question is recorded.";
+  }
+  if (status) {
+    return category ? `No question in ${words(category)} is ${status}.` : `No question is ${status}.`;
+  }
+  return category ? `Nothing open in ${words(category)}.` : "Nothing is open.";
+}
+
+// OpenQuestions lists the questions still open, at every rung, or with a status those closed each way or every one, so a
+// member sees the whole ladder (FR-QD-13).
+export function OpenQuestions({ view, category, selected, status = "" }: { view: View; category: string; selected: string; status?: string }) {
   const shown = selected ? view.questions.filter((question) => question.id === selected) : view.questions;
   return (
     <>
       {selected ? (
         <p className="back">
-          <Link to="/questions">All open questions</Link>
+          <Link to={addressOf("/questions", { status })}>{status ? "All questions" : "All open questions"}</Link>
         </p>
       ) : (
-        <CategoryFilter path="/questions" categories={view.categories} category={category} />
+        <>
+          <StatusFilter status={status} category={category} />
+          <CategoryFilter path="/questions" categories={view.categories} category={category} keep={{ status }} />
+        </>
       )}
       {shown.some(waiting) ? <NoOrchestrator what="the questions that wait" /> : null}
       {shown.length ? (
@@ -74,7 +87,7 @@ export function OpenQuestions({ view, category, selected }: { view: View; catego
           ))}
         </ol>
       ) : (
-        <p className="empty">{selected ? "That question is not open." : category ? `Nothing open in ${words(category)}.` : "Nothing is open."}</p>
+        <p className="empty">{emptyWords(status, category, selected)}</p>
       )}
     </>
   );

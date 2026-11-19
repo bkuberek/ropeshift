@@ -12,6 +12,12 @@ function documentQuery({ path, instance, version }: DocumentRef): URLSearchParam
   return query;
 }
 
+// viewQuery is a view's query, of what narrows it, in the order given; an empty value is left out.
+function viewQuery(filter: Record<string, string>): string {
+  const query = new URLSearchParams(Object.entries(filter).filter(([, value]) => value !== "")).toString();
+  return query ? `?${query}` : "";
+}
+
 // acting names the project an item of the combined Needs you acts in, while its change is sent.
 let acting = "";
 
@@ -50,7 +56,7 @@ export const paths = {
   projects: "/v1/projects",
   events: (name = "") => (name ? `/v1/projects/${encodeURIComponent(name)}/events` : project("/events")),
   needsYou: () => "/v1/needs-you",
-  view: (name: string, category = "") => project(`/views/${encodeURIComponent(name)}${category ? `?${new URLSearchParams({ category })}` : ""}`),
+  view: (name: string, category = "", filter: Record<string, string> = {}) => project(`/views/${encodeURIComponent(name)}${viewQuery({ category, ...filter })}`),
   search: (words: string) => project(`/views/search?${new URLSearchParams({ q: words })}`),
   documentRead: (ref: DocumentRef) => project(`/documents/read?${documentQuery(ref)}`),
   documentVersions: (ref: DocumentRef) => project(`/documents/versions?${documentQuery(ref)}`),
@@ -200,8 +206,10 @@ export function readProjects(): Promise<ProjectList> {
 }
 
 // readView reads one read model. The server filters, so a page never holds what a filter left out.
-export function readView<T>(name: string, category = ""): Promise<T> {
-  return call("GET", paths.view(name, category));
+// readView reads one view. filter holds what else narrows it, such as the questions view's status, lane, and work
+// order; an empty value narrows nothing.
+export function readView<T>(name: string, category = "", filter: Record<string, string> = {}): Promise<T> {
+  return call("GET", paths.view(name, category, filter));
 }
 
 export function readDocument(ref: DocumentRef): Promise<DocumentRow> {
