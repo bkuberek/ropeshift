@@ -76,6 +76,11 @@ describe("orphansOf", () => {
     expect(acknowledgedFindings(view).map((one) => one.id)).toEqual(["codeowners", "lockfile:npm"]);
   });
 
+  it("gives an acknowledgement of a finding the result does not list no severity, which it does not know", () => {
+    const view = { ...viewOf([]), acknowledgement: [held("lockfile:npm")] };
+    expect(acknowledgedFindings(view)[0]).not.toHaveProperty("severity");
+  });
+
   it("names every acknowledgement of a repository with no result", () => {
     expect(orphansOf({ repository: "r", name: "n", acknowledgement: [held("codeowners")] })).toHaveLength(1);
   });

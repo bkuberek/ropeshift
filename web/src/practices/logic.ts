@@ -40,11 +40,14 @@ export function countsOf(view: PracticesView): Counts {
 
 export const openFindings = (view: PracticesView): PracticeFinding[] => (view.result?.findings ?? []).filter((finding) => !finding.acknowledged);
 
+// An acknowledged finding is a finding of the result, or an acknowledgement of one the result does not list, which has no severity.
+export type AcknowledgedFinding = Omit<PracticeFinding, "severity"> & { severity?: Severity };
+
 // acknowledgedFindings are the findings of the result a member acknowledged, and an acknowledgement of a finding the result
-// does not list, which has only its ID and the acknowledgement to show.
-export const acknowledgedFindings = (view: PracticesView): PracticeFinding[] => [
+// does not list, which has only its ID and the acknowledgement to show, and no severity.
+export const acknowledgedFindings = (view: PracticesView): AcknowledgedFinding[] => [
   ...(view.result?.findings ?? []).filter((finding) => finding.acknowledged),
-  ...orphansOf(view).map((held): PracticeFinding => ({ id: held.finding, practice: held.finding.split(":")[0] ?? held.finding, severity: "low", detail: "", why: "", fix: "", acknowledged: true, acknowledgement: held })),
+  ...orphansOf(view).map((held): AcknowledgedFinding => ({ id: held.finding, practice: held.finding.split(":")[0] ?? held.finding, detail: "", why: "", fix: "", acknowledged: true, acknowledgement: held })),
 ];
 
 export const severityLook: Record<Severity, StateLook> = {
