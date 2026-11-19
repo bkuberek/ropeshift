@@ -138,8 +138,11 @@ func TestWithdrawingRemovesTheAcknowledgementAndTheEventSaysSo(t *testing.T) {
 	if _, err := r.practices.Withdraw(t.Context(), "pa", repo.ID, "codeowners", projectMember); !errors.Is(err, ports.ErrNotFound) {
 		t.Errorf("withdrawing again answered %v, want not found", err)
 	}
-	if _, err := r.practices.Withdraw(t.Context(), "pa", repo.ID, "no-such-practice", projectMember); !errors.Is(err, workorders.ErrInvalid) {
-		t.Errorf("withdrawing a finding no practice names answered %v, want an invalid request", err)
+	if _, err := r.practices.Withdraw(t.Context(), "pa", repo.ID, "no-such-practice", projectMember); !errors.Is(err, ports.ErrNotFound) {
+		t.Errorf("withdrawing a finding no practice names, and nobody acknowledged, answered %v, want not found", err)
+	}
+	if _, err := r.practices.Withdraw(t.Context(), "pa", repo.ID, "bad\nid", projectMember); !errors.Is(err, workorders.ErrInvalid) {
+		t.Errorf("withdrawing an ID with a control character answered %v, want an invalid request", err)
 	}
 	delegate := authority.DelegateActor(projectMember.ID, authority.DelegateIDPrefix+"x")
 	if _, err := r.practices.Acknowledge(t.Context(), "pa", repo.ID, "codeowners", "again", projectMember); err != nil {
@@ -223,5 +226,33 @@ func TestAFindingOfARemovedRepositoryIsNotAcknowledged(t *testing.T) {
 	}
 	if events := r.events(ledger.EventPracticesAcknowledged); len(events) != 0 {
 		t.Errorf("%d acknowledgement events, want none", len(events))
+	}
+}
+
+// An acknowledgement of a finding whose practice a later table removed can still be withdrawn, so it can be cleaned up,
+// while acknowledging such a finding is refused.
+func TestAnAcknowledgementOfAPracticeALaterTableRemovedCanBeWithdrawn(t *testing.T) {
+	r := newPracticesRig(t, ledger.ProtocolPracticesChecks)
+	repo := r.register("repo-a", "alpha", "worker-1")
+	const retired = "retired-practice:somewhere"
+	if _, err := r.practices.Acknowledge(t.Context(), "pa", repo.ID, retired, "x", projectMember); !errors.Is(err, workorders.ErrInvalid) {
+		t.Fatalf("acknowledging a finding of no practice answered %v, want an invalid request", err)
+	}
+	err := r.store.Write(t.Context(), "pa", "test.practices", func(tx ports.WriteTx) error {
+		if _, err := tx.Practices().Acknowledge(ledger.PracticesAcknowledgement{Repository: repo.ID, Finding: retired, Reason: "from an older table", Member: "member-1", AcknowledgedAt: 1}); err != nil {
+			return err
+		}
+		_, err := tx.Append(ledger.EventDraft{Type: "test.inserted", Actor: projectMember, Subject: ledger.PracticesFindingSubject(repo.ID, retired)})
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := r.practices.Withdraw(t.Context(), "pa", repo.ID, retired, projectMember)
+	if err != nil || got.Reason != "from an older table" {
+		t.Fatalf("withdrawing answered %+v, %v; want the acknowledgement it removed", got, err)
+	}
+	if kept := r.acknowledged(repo.ID); len(kept) != 0 {
+		t.Errorf("the repository keeps %+v", kept)
 	}
 }

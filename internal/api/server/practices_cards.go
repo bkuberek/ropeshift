@@ -86,7 +86,7 @@ func practicesWithdrawCheck(body []byte) error {
 	if err := json.Unmarshal(body, &in); err != nil {
 		return fmt.Errorf("%w: %v", authority.ErrInvalid, err)
 	}
-	return control.CheckPracticesFinding(in.Finding)
+	return control.CheckPracticesWithdrawal(in.Finding)
 }
 
 // practicesWhy is the table's words for why the practice a finding belongs to matters.

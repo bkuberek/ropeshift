@@ -185,6 +185,8 @@ func TestWithdrawingAnAcknowledgementRestoresThePlainFinding(t *testing.T) {
 	_, err = d.Client.WithdrawPractices(t.Context(), api.PracticesWithdraw{Repository: "widgets", Finding: secretFinding})
 	refusedWith(t, err, http.StatusNotFound, api.CodeNotFound)
 	_, err = d.Client.WithdrawPractices(t.Context(), api.PracticesWithdraw{Repository: "widgets", Finding: "no-such-practice"})
+	refusedWith(t, err, http.StatusNotFound, api.CodeNotFound)
+	_, err = d.Client.WithdrawPractices(t.Context(), api.PracticesWithdraw{Repository: "widgets", Finding: "bad\nid"})
 	refusedWith(t, err, http.StatusBadRequest, api.CodeInvalid)
 	_, err = d.Client.WithdrawPractices(t.Context(), api.PracticesWithdraw{Repository: "nothing", Finding: "codeowners"})
 	refusedWith(t, err, http.StatusNotFound, api.CodeNotFound)
@@ -373,4 +375,32 @@ func TestADelegatesReasonIsRedactedBeforeItsCardKeepsIt(t *testing.T) {
 	if err != nil || len(list.Repositories[0].Acknowledgement) != 1 || strings.Contains(list.Repositories[0].Acknowledgement[0].Reason, token) {
 		t.Errorf("the acknowledgement reads %+v (%v)", list.Repositories[0].Acknowledgement, err)
 	}
+}
+
+// A member withdraws an acknowledgement of a finding whose practice a later table removed, over the route, and a
+// delegate's call for it is a card all the same.
+func TestAnAcknowledgementOfARetiredPracticeIsWithdrawnOverTheRoute(t *testing.T) {
+	d := practicesDaemon(t, nil, "")
+	d.HoldClone(t, "repo-a", "widgets")
+	const retired = "retired-practice:somewhere"
+	err := d.Store.Write(t.Context(), apitest.Scope, "test.practices", func(tx ports.WriteTx) error {
+		if _, err := tx.Practices().Acknowledge(ledger.PracticesAcknowledgement{Repository: "repo-a", Finding: retired, Reason: "from an older table", Member: "member-1", AcknowledgedAt: 1}); err != nil {
+			return err
+		}
+		_, err := tx.Append(ledger.EventDraft{Type: "test.inserted", Actor: ledger.Actor{Kind: ledger.ActorMember, ID: "member-1"}, Subject: ledger.PracticesFindingSubject("repo-a", retired)})
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	created := aDelegate(t, d.Client.Client, apitest.ProjectName)
+	delegate := asDelegate(t, d.Socket, created.Token, apitest.ProjectName)
+	_, err = delegate.WithdrawPractices(t.Context(), api.PracticesWithdraw{Repository: "widgets", Finding: retired})
+	preparedCard(t, err)
+	removed, err := d.Client.WithdrawPractices(t.Context(), api.PracticesWithdraw{Repository: "widgets", Finding: retired})
+	if err != nil || removed.Reason != "from an older table" {
+		t.Errorf("withdrawing answered %+v (%v)", removed, err)
+	}
+	_, err = d.Client.AcknowledgePractices(t.Context(), api.PracticesAcknowledge{Repository: "widgets", Finding: retired, Reason: "x"})
+	refusedWith(t, err, http.StatusBadRequest, api.CodeInvalid)
 }

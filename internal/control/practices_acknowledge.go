@@ -17,14 +17,27 @@ import (
 // maxPracticesFinding is the most bytes of a finding ID an acknowledgement names.
 const maxPracticesFinding = 1024
 
-// CheckPracticesFinding refuses a finding ID the practice table's grammar does not allow, one over 1 KiB, and one
-// with a control character, which a card and a view would print on a line of their own.
-func CheckPracticesFinding(finding string) error {
-	if len(finding) > maxPracticesFinding {
+// CheckPracticesWithdrawal refuses a finding ID that cannot name an acknowledgement a withdrawal removes: an empty one,
+// one over 1 KiB, and one with a control character, which a card and a view would print on a line of their own. It
+// does not hold the ID to the practice table's grammar, so an acknowledgement of a practice a later table removed can
+// still be withdrawn.
+func CheckPracticesWithdrawal(finding string) error {
+	switch {
+	case finding == "":
+		return invalidPractices("a finding ID is needed")
+	case len(finding) > maxPracticesFinding:
 		return invalidPractices("a finding ID is at most %d bytes", maxPracticesFinding)
-	}
-	if strings.ContainsFunc(finding, unicode.IsControl) {
+	case strings.ContainsFunc(finding, unicode.IsControl):
 		return invalidPractices("a finding ID holds no control character")
+	}
+	return nil
+}
+
+// CheckPracticesFinding refuses a finding ID a member may not acknowledge: what CheckPracticesWithdrawal refuses, and
+// one the practice table's grammar does not allow.
+func CheckPracticesFinding(finding string) error {
+	if err := CheckPracticesWithdrawal(finding); err != nil {
+		return err
 	}
 	if _, err := practices.ParseFindingID(finding); err != nil {
 		return invalidPractices("%v", err)
@@ -102,13 +115,14 @@ func (p *Practices) Acknowledge(ctx context.Context, scope ledger.WorkspaceID, r
 }
 
 // Withdraw removes a repository's acknowledgement of a finding, so the finding reads as open again, and answers the
-// acknowledgement it removed. It refuses a finding with none. The withdrawal is one event, practices.withdrawn, which
-// holds the reason that was withdrawn and who gave it.
+// acknowledgement it removed. It refuses a finding with none. An acknowledgement of a practice a later table removed can
+// still be withdrawn. The withdrawal is one event, practices.withdrawn, which holds the reason that was withdrawn and
+// who gave it.
 func (p *Practices) Withdraw(ctx context.Context, scope ledger.WorkspaceID, repository, finding string, actor ledger.Actor) (ledger.PracticesAcknowledgement, error) {
 	if !authority.Allowed(actor, authority.ActionWithdrawPractices) {
 		return ledger.PracticesAcknowledgement{}, workorders.ErrForbidden
 	}
-	if err := CheckPracticesFinding(finding); err != nil {
+	if err := CheckPracticesWithdrawal(finding); err != nil {
 		return ledger.PracticesAcknowledgement{}, err
 	}
 	var ack ledger.PracticesAcknowledgement

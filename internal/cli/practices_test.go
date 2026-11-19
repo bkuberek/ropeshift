@@ -411,16 +411,16 @@ func TestPracticesAcknowledgeAndWithdrawKeepTheExitCodesOfTheirRefusals(t *testi
 		args []string
 		want int
 	}{
-		"no reason":                   {[]string{"practices", "acknowledge", "widgets", "security-policy"}, cli.ExitUsage},
-		"an empty reason":             {[]string{"practices", "acknowledge", "widgets", "security-policy", "--reason", " "}, cli.ExitUsage},
-		"too few arguments":           {[]string{"practices", "acknowledge", "widgets", "--reason", "x"}, cli.ExitUsage},
-		"too many arguments":          {[]string{"practices", "acknowledge", "widgets", "codeowners", "extra", "--reason", "x"}, cli.ExitUsage},
-		"a finding no practice names": {[]string{"practices", "acknowledge", "widgets", "no-such-practice", "--reason", "x"}, cli.ExitUsage},
-		"an acknowledged finding":     {[]string{"practices", "acknowledge", "widgets", "codeowners", "--reason", "again"}, cli.ExitConflict},
-		"an unknown repository":       {[]string{"practices", "acknowledge", "nothing", "codeowners", "--reason", "x"}, cli.ExitNotFound},
-		"withdraw, too few arguments": {[]string{"practices", "withdraw", "widgets"}, cli.ExitUsage},
-		"withdraw, none held":         {[]string{"practices", "withdraw", "widgets", "security-policy"}, cli.ExitNotFound},
-		"withdraw, a bad finding":     {[]string{"practices", "withdraw", "widgets", "no-such-practice"}, cli.ExitUsage},
+		"no reason":                                        {[]string{"practices", "acknowledge", "widgets", "security-policy"}, cli.ExitUsage},
+		"an empty reason":                                  {[]string{"practices", "acknowledge", "widgets", "security-policy", "--reason", " "}, cli.ExitUsage},
+		"too few arguments":                                {[]string{"practices", "acknowledge", "widgets", "--reason", "x"}, cli.ExitUsage},
+		"too many arguments":                               {[]string{"practices", "acknowledge", "widgets", "codeowners", "extra", "--reason", "x"}, cli.ExitUsage},
+		"a finding no practice names":                      {[]string{"practices", "acknowledge", "widgets", "no-such-practice", "--reason", "x"}, cli.ExitUsage},
+		"an acknowledged finding":                          {[]string{"practices", "acknowledge", "widgets", "codeowners", "--reason", "again"}, cli.ExitConflict},
+		"an unknown repository":                            {[]string{"practices", "acknowledge", "nothing", "codeowners", "--reason", "x"}, cli.ExitNotFound},
+		"withdraw, too few arguments":                      {[]string{"practices", "withdraw", "widgets"}, cli.ExitUsage},
+		"withdraw, none held":                              {[]string{"practices", "withdraw", "widgets", "security-policy"}, cli.ExitNotFound},
+		"withdraw, a finding no practice names, none held": {[]string{"practices", "withdraw", "widgets", "no-such-practice"}, cli.ExitNotFound},
 	} {
 		if code, stdout, _ := s.run(tc.args...); code != tc.want || stdout != "" {
 			t.Errorf("%s exited %d with %q, want %d and nothing printed", name, code, stdout, tc.want)
