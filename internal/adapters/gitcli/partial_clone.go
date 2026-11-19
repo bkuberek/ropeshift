@@ -29,7 +29,8 @@ func (g Git) PartialClone(ctx context.Context) (bool, error) {
 		return false, err
 	}
 	for line := range strings.SplitSeq(promisors, "\n") {
-		if _, value, found := strings.Cut(strings.TrimSpace(line), " "); found && value == "true" {
+		// A line is the key, a space, and the value, and a remote's name may hold a space, so the value follows the last one.
+		if cut := strings.LastIndexByte(line, ' '); cut >= 0 && line[cut+1:] == "true" {
 			return true, nil
 		}
 	}

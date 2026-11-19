@@ -69,11 +69,12 @@ func TestSecretScanSaysAPartialCloneIsPartialByEitherSetting(t *testing.T) {
 		set     [][]string
 		partial bool
 	}{
-		"the partial clone extension":  {[][]string{{"extensions.partialClone", "origin"}}, true},
-		"a promisor remote":            {[][]string{{"remote.origin.promisor", "true"}}, true},
-		"a promisor remote set as yes": {[][]string{{"remote.upstream.promisor", "yes"}}, true},
-		"a remote that is no promisor": {[][]string{{"remote.origin.promisor", "false"}}, false},
-		"neither":                      {nil, false},
+		"the partial clone extension":                {[][]string{{"extensions.partialClone", "origin"}}, true},
+		"a promisor remote":                          {[][]string{{"remote.origin.promisor", "true"}}, true},
+		"a promisor remote set as yes":               {[][]string{{"remote.upstream.promisor", "yes"}}, true},
+		"a promisor remote with a space in its name": {[][]string{{"remote.a b.promisor", "true"}}, true},
+		"a remote that is no promisor":               {[][]string{{"remote.origin.promisor", "false"}}, false},
+		"neither":                                    {nil, false},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
