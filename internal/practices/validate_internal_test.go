@@ -2,6 +2,7 @@ package practices
 
 import (
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -91,5 +92,36 @@ func TestAReportTwoTableVersionsBehindCarriesTheWholeTable(t *testing.T) {
 	}
 	if err := validate(statusesOf(rows, 1), rows, 3); err != nil {
 		t.Errorf("a whole report two versions behind is refused: %v", err)
+	}
+}
+
+// A finding ID that Bound clipped to its bound is an ID the grammar accepts, for every practice that can name a long
+// subject, so a finding the result lists can be acknowledged. An ID that merely looks clipped is not.
+func TestParseFindingIDAcceptsAnIDBoundClipped(t *testing.T) {
+	long := strings.Repeat("deep/", 600)
+	for name, id := range map[string]string{
+		"a secret in a long path":   "secrets:github_token:" + long + "config.yaml:1a2b3c4d5e6f",
+		"a tracked env file":        "env-ignored:tracked:" + long + ".env",
+		"a lockfile in a deep dir":  "lockfile:npm:" + long,
+		"a secret with a long rule": "secrets:" + strings.Repeat("r", 3000) + ":a.yaml:1a2b3c4d5e6f",
+	} {
+		clipped := clipID(id)
+		if len(clipped) >= len(id) || len(clipped) > MaxText {
+			t.Fatalf("%s: clipping left %d bytes of %d", name, len(clipped), len(id))
+		}
+		if _, err := ParseFindingID(clipped); err != nil {
+			t.Errorf("%s: the clipped ID %.60q... is refused: %v", name, clipped, err)
+		}
+	}
+	for name, id := range map[string]string{
+		"a short ID with a digest tail":  "secrets:github_token:a.yaml~0011223344556677",
+		"a clipped ID of no practice":    strings.Repeat("x", MaxText-17) + "~0011223344556677",
+		"a clipped ID with a bad digest": "secrets:github_token:" + strings.Repeat("a", MaxText-21-17) + "~00112233445566zz",
+		"a secret with no rule":          "secrets::" + strings.Repeat("a", MaxText-9-17) + "~0011223344556677",
+		"an ID over the bound":           "secrets:github_token:" + strings.Repeat("a", MaxText) + "~0011223344556677",
+	} {
+		if _, err := ParseFindingID(id); err == nil {
+			t.Errorf("%s: %.60q is accepted", name, id)
+		}
 	}
 }

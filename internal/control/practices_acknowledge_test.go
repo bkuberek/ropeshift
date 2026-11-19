@@ -10,6 +10,7 @@ import (
 	"ropeshift.com/ropeshift/internal/control"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/practices"
 	"ropeshift.com/ropeshift/internal/workorders"
 )
 
@@ -271,5 +272,28 @@ func TestAReasonOfControlCharactersIsRefused(t *testing.T) {
 	}
 	if kept := r.acknowledged(repo.ID); len(kept) != 0 {
 		t.Errorf("the repository keeps %+v", kept)
+	}
+}
+
+// A secret in a long path is listed under an ID the result's bound clipped, and that ID can be acknowledged and
+// withdrawn: a finding a view lists is one a member can acknowledge. An ID over the bound is refused.
+func TestAFindingWhoseIDWasClippedCanBeAcknowledgedAndWithdrawn(t *testing.T) {
+	r := newPracticesRig(t, ledger.ProtocolPracticesChecks)
+	repo := r.register("repo-a", "alpha", "worker-1")
+	long := "secrets:github_token:" + strings.Repeat("deep/", 600) + "config.yaml:1a2b3c4d5e6f"
+	listed := practices.Bound(practices.Result{Findings: []practices.Finding{{ID: long, Practice: practices.Secrets, Severity: practices.High}}}).Findings[0].ID
+	if len(listed) <= 1024 || len(listed) > practices.MaxText {
+		t.Fatalf("the listed ID is %d bytes, want one between 1 KiB and the bound", len(listed))
+	}
+	if _, err := r.practices.Acknowledge(t.Context(), "pa", repo.ID, listed, "a fixture", projectMember); err != nil {
+		t.Fatalf("acknowledging the ID a result lists: %v", err)
+	}
+	if _, err := r.practices.Withdraw(t.Context(), "pa", repo.ID, listed, projectMember); err != nil {
+		t.Errorf("withdrawing it: %v", err)
+	}
+	for _, id := range []string{long, listed + "x"} {
+		if _, err := r.practices.Acknowledge(t.Context(), "pa", repo.ID, id, "a fixture", projectMember); !errors.Is(err, workorders.ErrInvalid) {
+			t.Errorf("acknowledging an ID of %d bytes answered %v, want an invalid request", len(id), err)
+		}
 	}
 }

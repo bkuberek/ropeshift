@@ -14,11 +14,12 @@ import (
 	"ropeshift.com/ropeshift/internal/workorders"
 )
 
-// maxPracticesFinding is the most bytes of a finding ID an acknowledgement names.
-const maxPracticesFinding = 1024
+// maxPracticesFinding is the most bytes of a finding ID an acknowledgement names: the bound a result holds each ID to,
+// so every finding a view lists can be acknowledged.
+const maxPracticesFinding = practices.MaxText
 
 // CheckPracticesWithdrawal refuses a finding ID that cannot name an acknowledgement a withdrawal removes: an empty one,
-// one over 1 KiB, and one with a control character, which a card and a view would print on a line of their own. It
+// one over the bound of a result's IDs, and one with a control character, which a card and a view would print on a line of their own. It
 // does not hold the ID to the practice table's grammar, so an acknowledgement of a practice a later table removed can
 // still be withdrawn.
 func CheckPracticesWithdrawal(finding string) error {
@@ -47,10 +48,9 @@ func CheckPracticesFinding(finding string) error {
 
 // CheckPracticesReason reads the reason for an acknowledgement as it is kept: with the shapes of credentials taken out,
 // because the assistant's reason is model text, and on one line with no control character, because a card, a view, and
-// a terminal print it. It refuses an empty reason, one that is empty once its control characters are taken out, and one over
-// ledger.MaxPracticesReason bytes as given, and holds the
-// result to that bound, because a marker can be longer than what it replaces. Redaction comes first, because a
-// credential can span lines.
+// a terminal print it. It refuses an empty reason, one that is empty once its control characters are taken out, and one
+// over ledger.MaxPracticesReason bytes as given, and holds the result to that bound, because a marker can be longer
+// than what it replaces. Redaction comes first, because a credential can span lines.
 func CheckPracticesReason(reason string) (string, error) {
 	reason = strings.TrimSpace(reason)
 	switch {
