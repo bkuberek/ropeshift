@@ -77,7 +77,7 @@ function OverlapRow({ id, statement, value, onChange }: { id: string; statement?
   );
 }
 
-// OverlapField shows each decision in force that the question's scope overlapped when it was escalated, with its
+// OverlapField shows each decision in force that the question's scope overlaps as they stand at the read, with its
 // statement, and offers to replace it. It takes the place of the picker over every decision in force, because the
 // question names the ones an answer may contradict. A decision that no longer stands is left out, and one that
 // cannot be read is shown by its ID.

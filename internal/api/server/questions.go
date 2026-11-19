@@ -96,7 +96,9 @@ func (h *handler) showQuestion(w http.ResponseWriter, r *http.Request) {
 
 // questionViews answers questions with the scope an answer to each takes, from the record it is about, and the
 // title of that record, read in the read that read them, once for each kind of scope they hold, and with each one's
-// whole ladder: who holds it, its lanes, its batch, and what closed it (FR-QD-13).
+// whole ladder: who holds it, its lanes, its batch, and what closed it (FR-QD-13). A question that still waits names
+// the decisions in force its scope overlaps as they stand at the read, which an answer can replace (FR-QD-5), found
+// with one read of the decisions in force for the whole page.
 func questionViews(tx ports.ReadTx, rows []questions.Question) ([]api.QuestionView, error) {
 	policy, err := control.DecisionPolicy(tx)
 	if err != nil {
@@ -106,16 +108,28 @@ func questionViews(tx ports.ReadTx, rows []questions.Question) ([]api.QuestionVi
 	if err != nil {
 		return nil, err
 	}
+	scopes := make([]string, len(rows))
+	var waiting []string
+	for i, row := range rows {
+		scopes[i] = questions.ScopeOf(row.SubjectKind, row.SubjectID)
+		if row.Status.Unresolved() {
+			waiting = append(waiting, scopes[i])
+		}
+	}
+	overlaps, err := control.OverlapsOfScopes(tx, waiting)
+	if err != nil {
+		return nil, err
+	}
 	views := make([]api.QuestionView, 0, len(rows))
-	scopes := make([]string, 0, len(rows))
-	for _, row := range rows {
-		scope := questions.ScopeOf(row.SubjectKind, row.SubjectID)
-		view := api.QuestionView{Question: row, Scope: scope, Reversibility: policy.AnswerReversibility(row)}
+	for i, row := range rows {
+		view := api.QuestionView{Question: row, Scope: scopes[i], Reversibility: policy.AnswerReversibility(row)}
+		if row.Status.Unresolved() {
+			view.Overlaps = overlaps[scopes[i]]
+		}
 		if err := ladder.fill(tx, &view); err != nil {
 			return nil, err
 		}
 		views = append(views, view)
-		scopes = append(scopes, scope)
 	}
 	titles, err := control.ScopeTitles(tx, scopes)
 	if err != nil {
@@ -128,7 +142,8 @@ func questionViews(tx ports.ReadTx, rows []questions.Question) ([]api.QuestionVi
 }
 
 // questionBatches answers presented batches with the title of the record each item's scope names, read once for
-// each kind of scope every batch holds.
+// each kind of scope every batch holds, and with the decisions in force each item's scope overlaps as they stand at
+// the read, found with one read of the decisions in force for all the batches.
 func questionBatches(tx ports.ReadTx, presented []questions.Presented) ([]api.QuestionBatch, error) {
 	var scopes []string
 	for _, batch := range presented {
@@ -140,10 +155,15 @@ func questionBatches(tx ports.ReadTx, presented []questions.Presented) ([]api.Qu
 	if err != nil {
 		return nil, err
 	}
+	overlaps, err := control.OverlapsOfScopes(tx, scopes)
+	if err != nil {
+		return nil, err
+	}
 	out := make([]api.QuestionBatch, 0, len(presented))
 	for _, batch := range presented {
 		items := make([]api.QuestionItem, 0, len(batch.Items))
 		for _, item := range batch.Items {
+			item.Overlaps = overlaps[item.Scope]
 			items = append(items, api.QuestionItem{Item: item, ScopeTitle: titles[item.Scope]})
 		}
 		out = append(out, api.QuestionBatch{Batch: batch.Batch, Items: items})

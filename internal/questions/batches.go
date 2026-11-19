@@ -70,7 +70,7 @@ func (p BatchPolicy) Filled() BatchPolicy {
 
 // Item is what a member needs to answer one question once: its options, the recommendation,
 // what the ladder considered, the scope an answer to it takes (ScopeOf), the reversibility the answer will have
-// (Policy.AnswerReversibility), and the decisions in force its scope overlapped when it was escalated, which an
+// (Policy.AnswerReversibility), and the decisions in force its scope overlaps, which an
 // answer may replace. Nothing is assigned to anyone.
 type Item struct {
 	ID                      string   `json:"id"`

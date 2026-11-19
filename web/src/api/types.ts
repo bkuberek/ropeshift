@@ -24,7 +24,7 @@ export type QuestionItem = {
   // when the ledger holds no such record or its title only repeats the ID, so the scope shows alone.
   scope?: string;
   scope_title?: string;
-  // overlaps names the decisions in force whose scope overlapped the question's when it was escalated, by ID. An
+  // overlaps names the decisions in force whose scope overlaps the question's as they stand at the read, by ID. An
   // answer that contradicts one can replace it.
   overlaps?: string[];
   // no_orchestrator says the core took the question to a person because no live orchestrator finished its ladder.
@@ -662,7 +662,8 @@ export type Question = {
   batch?: BatchRecord;
   closed_by?: ClosingDecision;
   merged_into?: string;
-  // overlaps names the decisions in force whose scope overlapped the question's when it was escalated, by ID.
+  // overlaps names the decisions in force whose scope overlaps the question's as they stand at the read, by ID, for a
+  // question that still waits.
   overlaps?: string[];
   // reversibility is what an answer to the question will be, as a batch's item states it.
   reversibility?: "reversible" | "one_way";

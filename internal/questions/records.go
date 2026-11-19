@@ -150,7 +150,8 @@ type Question struct {
 	ClaimedBy               string `json:"claimed_by,omitempty"`
 	ClaimUntil              int64  `json:"claim_until,omitempty"`
 	DecisionID              string `json:"decision_id,omitempty"`
-	// Overlaps names the decisions in force whose scope overlapped the question's when it was escalated, by ID.
+	// Overlaps names the decisions in force whose scope overlapped the question's when it reached a person, by ID. A read
+	// of a question that still waits names those in force at the read instead.
 	Overlaps []string `json:"overlaps,omitempty"`
 	// AskedAt is when the question was recorded, by database time, from which its batch window runs while no
 	// orchestrator takes it. A question recorded before the ledger kept it reads zero.
