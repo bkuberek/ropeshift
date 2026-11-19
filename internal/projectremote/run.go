@@ -65,6 +65,8 @@ type runner struct {
 	prog    *Progress
 	save    func() error
 	changed bool
+	// paths are the files the shape writes, in the folder.
+	paths []string
 }
 
 func (r *runner) persist() error {
@@ -93,6 +95,10 @@ func Finish(ctx context.Context, rt Runtime, job Job, prog *Progress, save func(
 	for _, file := range files {
 		folderFiles = append(folderFiles, ports.FolderFile{Path: file.Path, Text: file.Text})
 		paths = append(paths, file.Path)
+	}
+	r.paths = paths
+	if err := r.noteLeft(ctx); err != nil {
+		return ledger.TemplateWriteReport{}, err
 	}
 	id, err := rt.Folders.Write(ctx, job.Request.Path, folderFiles, ports.FolderID(prog.Folder()))
 	if errors.Is(err, ports.ErrFolderChanged) {
@@ -129,6 +135,28 @@ func Finish(ctx context.Context, rt Runtime, job Job, prog *Progress, save func(
 	return r.report(ctx, units, paths)
 }
 
+// noteLeft journals which of the shape's files the folder held before the first write, once and before that write, so
+// a run that restarts after it still tells the files it wrote from the files that were there. It looks at each path of
+// the shape and at nothing else. A journal that was started before runs listed the folder names no listing, and the
+// files it finds there were written by that run, so it lists none.
+func (r *runner) noteLeft(ctx context.Context) error {
+	if !r.prog.Lists || r.prog.Listed || r.prog.Folder() != "" {
+		return nil
+	}
+	held, err := r.rt.Folders.Held(ctx, r.job.Request.Path, r.paths)
+	if err != nil {
+		return fmt.Errorf("reading the folder: %w", err)
+	}
+	r.prog.Left = held
+	r.prog.Listed = true
+	return r.persist()
+}
+
+// written are the files this run wrote: the shape's files less the ones the folder held before.
+func (r *runner) written() []string {
+	return slices.DeleteFunc(slices.Clone(r.paths), func(file string) bool { return slices.Contains(r.prog.Left, file) })
+}
+
 func changedReport() ledger.TemplateWriteReport {
 	return *refusal(ledger.TemplateRefusedChanged, "the folder is no longer the one this worker wrote: it was swapped for a link or for another folder", "")
 }
@@ -155,7 +183,7 @@ func (r *runner) commit(ctx context.Context, u unit) error {
 			return err
 		}
 	}
-	commit, err := r.rt.Folders.FirstCommit(ctx, u.abs, u.message, resumed, id)
+	commit, err := r.rt.Folders.FirstCommit(ctx, u.abs, u.message, resumed, id, ports.CommitSpec{Paths: projectfiles.RepositoryPaths(u.rel, r.written())})
 	switch {
 	case errors.Is(err, ports.ErrFolderChanged):
 		r.changed = true
@@ -288,14 +316,16 @@ func (r *runner) report(ctx context.Context, units []unit, paths []string) (ledg
 		return ledger.TemplateWriteReport{}, err
 	}
 	report.Clone = report.Commit != "" && after.CloneTop != "" && after.CloneTop == after.Real
+	// The branch a first commit made by hand starts on is the one the run chose, which the push that finishes a failed run falls back to too.
+	branch := r.rt.Folders.DefaultBranch(ctx, r.job.Request.Path)
 	var commits []string
 	for _, u := range units[1:] {
 		if r.prog.NeedsRepository && r.prog.unit(u.rel).Commit == "" {
-			commits = append(commits, projectfiles.FirstCommitCommands(u.abs, u.name)...)
+			commits = append(commits, projectfiles.FirstCommitCommands(u.abs, u.name, projectfiles.RepositoryPaths(u.rel, r.written()), branch)...)
 		}
 	}
 	if r.prog.NeedsRepository && own.Commit == "" {
-		commits = append(commits, projectfiles.FirstCommitCommands(r.job.Request.Path, r.job.commitName())...)
+		commits = append(commits, projectfiles.FirstCommitCommands(r.job.Request.Path, r.job.commitName(), projectfiles.RepositoryPaths(ownPath, r.written()), branch)...)
 	}
 	codes := r.job.data(r.prog).Repositories
 	report.Commands = append(commits, projectfiles.Commands(projectfiles.Shape(r.job.Request.Shape), r.job.Request.Path, r.job.commitName(), codes, false)...)
@@ -360,7 +390,7 @@ func (r *runner) remaining(ctx context.Context, u unit) []string {
 
 // branch is the branch a repository's HEAD names as plain text, which asks origin for it, within the limit one step has.
 // The text is cleaned before it is quoted, because cleaning a quoted word can take its closing quote. A read that fails
-// or names no branch reads as main.
+// or names no branch reads as the branch the run chose for a first commit.
 func (r *runner) branch(ctx context.Context, u unit) string {
 	ctx, cancel := context.WithTimeout(ctx, stepLimit)
 	defer cancel()
@@ -369,5 +399,5 @@ func (r *runner) branch(ctx context.Context, u unit) string {
 			return branch
 		}
 	}
-	return "main"
+	return ledger.PlainText(r.rt.Folders.DefaultBranch(ctx, u.abs))
 }

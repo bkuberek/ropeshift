@@ -10,6 +10,9 @@ import (
 // remoteSchemes are the URL schemes a remote may name.
 var remoteSchemes = []string{"https", "ssh", "git", "file"}
 
+// credentialRefusal is what a remote that holds a credential is refused with. It repeats nothing of the remote.
+const credentialRefusal = "a remote's URL holds no user or password in an http, https, or file URL, and no password in any other: the URL is stored in the installation, in reports, and in the manifest, so give it without the credential and let git's credential helper or an SSH key supply it"
+
 // checkRemote refuses a remote that is not one line git clones from: a URL with a scheme in remoteSchemes, or
 // scp-like [user@]host:path. The characters are a short allowlist, because the remote is written into a
 // TOML string in the manifest and, unquoted, into a Makefile variable that the setup recipe expands into a
@@ -28,9 +31,11 @@ func checkRemote(remote string) error {
 		if at := strings.LastIndex(authority, "@"); at >= 0 {
 			web := lower == "https" || lower == "http" || lower == "file"
 			if web || strings.Contains(authority[:at], ":") || encodedSeparator(authority[:at]) {
-				return errors.New("a remote's URL holds no user or password in an http, https, or file URL, and no password in any other: the URL is stored in the installation, in reports, and in the manifest, so give it without the credential and let git's credential helper or an SSH key supply it")
+				return errors.New(credentialRefusal)
 			}
 		}
+	} else if passwordInScpRemote(remote) {
+		return errors.New(credentialRefusal)
 	}
 	if i := strings.IndexFunc(remote, func(r rune) bool { return !remoteRune(r) }); i >= 0 {
 		bad := []rune(remote[i:])[0]
@@ -61,6 +66,17 @@ func checkRemote(remote string) error {
 		return fmt.Errorf("a remote is a URL or scp-like user@host:path, and %q is neither; for a local repository use a file:// URL", shown)
 	}
 	return nil
+}
+
+// passwordInScpRemote says an scp-like remote is written user:password@host, with its path after a colon or a slash: the
+// part of the remote up to its first slash holds an at sign, and a colon comes before the first one. git reads such a
+// remote's text before the first colon as the host and sends the rest, password included, as the path. An at sign after
+// a user that has no colon, as in git@host:team/repo@v2.git, is a path. A remote with no user and an at sign in a path with
+// no slash, host:repo@v2.git, cannot be told from host:password@host and is refused too.
+func passwordInScpRemote(remote string) bool {
+	head, _, _ := strings.Cut(remote, "/")
+	user, _, found := strings.Cut(head, "@")
+	return found && strings.Contains(user, ":")
 }
 
 // redacted is a remote as a message may repeat it: the user part before the last at sign of its authority, which for a

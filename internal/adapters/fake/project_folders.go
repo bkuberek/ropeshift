@@ -23,6 +23,9 @@ type ProjectFolders struct {
 	// tops are the tops of the clones placed or made, and commits the commit made at each.
 	tops    map[string]bool
 	commits map[string]string
+	// staged are the paths each first commit was given to add, and initial the branch a first commit starts on.
+	staged  map[string][]string
+	initial string
 	// CommitError is what a first commit fails with, as git does when no identity is set. The folder is still made
 	// a repository, as `git init` does before the commit fails.
 	CommitError error
@@ -226,6 +229,39 @@ func (f *ProjectFolders) Write(_ context.Context, folder string, files []ports.F
 	return id, nil
 }
 
+// DefaultBranch is the branch a first commit starts on: main, until a test names another.
+func (f *ProjectFolders) DefaultBranch(context.Context, string) string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.initial != "" {
+		return f.initial
+	}
+	return "main"
+}
+
+// SetDefaultBranch names the branch a first commit starts on, in place of main.
+func (f *ProjectFolders) SetDefaultBranch(branch string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.initial = branch
+}
+
+// Held says which of the paths the folder holds.
+func (f *ProjectFolders) Held(_ context.Context, folder string, paths []string) ([]string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var held []string
+	for _, file := range paths {
+		at := path.Join(path.Clean(folder), file)
+		_, isFile := f.files[at]
+		_, isLink := f.links[at]
+		if isFile || isLink || f.dirs[at] {
+			held = append(held, file)
+		}
+	}
+	return held, nil
+}
+
 // Files lists the files under a folder.
 func (f *ProjectFolders) Files(_ context.Context, folder string) ([]string, error) {
 	f.mu.Lock()
@@ -235,7 +271,7 @@ func (f *ProjectFolders) Files(_ context.Context, folder string) ([]string, erro
 
 // FirstCommit makes the folder a clone, and commits unless CommitError says it fails. A folder that is a clone already
 // is the worker's own only on a resume.
-func (f *ProjectFolders) FirstCommit(_ context.Context, folder, message string, resumed bool, named ports.FolderID) (string, error) {
+func (f *ProjectFolders) FirstCommit(_ context.Context, folder, message string, resumed bool, named ports.FolderID, commit ports.CommitSpec) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	folder = path.Clean(folder)
@@ -248,13 +284,27 @@ func (f *ProjectFolders) FirstCommit(_ context.Context, folder, message string, 
 	if id, ok := f.commits[folder]; ok {
 		return id, nil
 	}
+	if len(commit.Paths) == 0 {
+		return "", errors.New("no file to commit: every file the shape writes was in the folder already or is ignored by git")
+	}
 	f.tops[folder] = true
+	if f.staged == nil {
+		f.staged = map[string][]string{}
+	}
+	f.staged[folder] = slices.Clone(commit.Paths)
 	f.calls = append(f.calls, "commit "+folder+": "+message)
 	if f.CommitError != nil {
 		return "", f.CommitError
 	}
 	f.commits[folder] = fmt.Sprintf("commit-%d", len(f.commits)+1)
 	return f.commits[folder], nil
+}
+
+// Staged lists the paths the first commit at a folder was given to add, in order, or nothing when none was made.
+func (f *ProjectFolders) Staged(folder string) []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.staged[path.Clean(folder)])
 }
 
 // Push is one push the worker ran.

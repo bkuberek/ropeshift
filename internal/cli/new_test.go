@@ -431,3 +431,23 @@ func TestNewIsInTheTemplatesSection(t *testing.T) {
 		}
 	}
 }
+
+// The commands that make the first commit add the files `new` wrote and not one that was in the folder already.
+func TestNewPrintsAnAddThatLeavesOutTheFilesThatWereThere(t *testing.T) {
+	folder := filepath.Join(t.TempDir(), "orchid")
+	if err := os.Mkdir(folder, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"AGENTS.md", "notes.txt"} {
+		if err := os.WriteFile(filepath.Join(folder, name), []byte("mine\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	result := newJSON(t, cli.Options{}, "new", "monorepo", folder)
+	paths := slices.DeleteFunc(slices.Sorted(maps.Keys(startingFiles(t, projectfiles.Monorepo, "orchid"))), func(p string) bool { return p == "AGENTS.md" })
+	git := "git -C " + folder + " --literal-pathspecs"
+	want := git + " ls-files -z --cached --others --exclude-standard -- " + strings.Join(paths, " ") + " | xargs -0 " + git + " add --"
+	if !slices.Contains(result.Commands, want) {
+		t.Errorf("the commands lack %q:\n%s", want, strings.Join(result.Commands, "\n"))
+	}
+}

@@ -103,6 +103,10 @@ func TestARemoteWithACredentialIsRefusedWithoutEchoingIt(t *testing.T) {
 		"https://s3cret@example.invalid:8443/orchid/orchid-api.git",
 		"http://s3cret@example.invalid/orchid/orchid-api.git",
 		"https://s3 cret@example.invalid/a.git",
+		"user:s3cret@example.invalid:orchid/orchid-api.git",
+		"user:s3cret@example.invalid:2222:orchid-api.git",
+		"user:s3cret@example.invalid/orchid/orchid-api.git",
+		"oauth2:s3cret@example.invalid",
 	} {
 		for name, err := range map[string]error{"CheckRemote": projectfiles.CheckRemote(remote), "Check": checkRemote(remote)} {
 			if err == nil || !strings.Contains(err.Error(), "no user or password") {
@@ -121,6 +125,9 @@ func TestARemoteWithACredentialIsRefusedWithoutEchoingIt(t *testing.T) {
 		"https://example.invalid:8443/orchid/a:b.git",
 		"https://example.invalid/orchid/a@b.git",
 		"git@example.invalid:orchid/orchid-api.git",
+		"git@example.invalid:team/orchid-api@v2.git",
+		"git@example.invalid:orchid-api@v2.git",
+		"git@example.invalid:s3cret@orchid/orchid-api.git",
 	} {
 		if err := projectfiles.CheckRemote(remote); err != nil {
 			t.Errorf("remote %q: %v", remote, err)
@@ -216,5 +223,15 @@ func TestARemoteSchemeIsAcceptedOnlyInLowerCase(t *testing.T) {
 		if err := projectfiles.CheckRemote(remote); err == nil {
 			t.Errorf("%q is accepted", remote)
 		}
+	}
+}
+
+// An scp-like remote with no user and an at sign in a path with no slash, host:repo@v2.git, reads as host:password@host
+// and is refused. It is the known false positive of the rule that the part of the remote before its first at sign holds no
+// colon, which is what keeps user:token@host and oauth2:token@host/path out.
+func TestAnScpRemoteWithNoUserAndAnAtSignInItsPathIsRefusedAsTheKnownFalsePositive(t *testing.T) {
+	err := projectfiles.CheckRemote("example.invalid:repo@v2.git")
+	if err == nil || !strings.Contains(err.Error(), "no user or password") {
+		t.Errorf("the remote is accepted or refused for another reason: %v", err)
 	}
 }
