@@ -1,9 +1,18 @@
 package control
 
 import (
+	"cmp"
 	"context"
+	"encoding/json"
+	"fmt"
+	"maps"
+	"slices"
+	"strings"
 
+	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/planning"
+	"ropeshift.com/ropeshift/internal/ports"
 )
 
 // Placing names the worker whose machine creates the repositories a plan approval names, which the record of each
@@ -37,4 +46,246 @@ func (r *Repositories) clearCreating(key string) {
 	r.creatingMu.Lock()
 	defer r.creatingMu.Unlock()
 	delete(r.creating, key)
+}
+
+// creation is what an entry with `create` asks for: where, under whom, how visible, and which repository.
+type creation struct {
+	create    ledger.RemoteCreate
+	forgeName string
+	// url is the remote the creation adds as https gives it, and identity is the repository's identity.
+	url, identity string
+}
+
+// creationOf reads what an entry with `create` asks for. The repository is private unless the entry says public, and
+// is named after the last element of the entry's path.
+func creationOf(entry planning.ManifestRepository) (creation, error) {
+	create, err := ledger.ParseForgeOwner(entry.Create)
+	if err != nil {
+		return creation{}, err
+	}
+	create.Visibility = cmp.Or(entry.Visibility, create.Visibility, ledger.VisibilityPrivate)
+	name := entry.ForgeName()
+	url := ledger.CreatedURL("https", create.Owner, name)
+	return creation{create: *create, forgeName: name, url: url, identity: ledger.RepositoryIdentity(url, "")}, nil
+}
+
+// sameForge says two remotes name one repository on its forge, which does not tell one case from another.
+func sameForge(a, b string) bool {
+	return strings.EqualFold(ledger.RepositoryIdentity(a, ""), ledger.RepositoryIdentity(b, ""))
+}
+
+// refuses says why a clone is not the repository the entry creates: it has no origin, or its origin is another
+// repository. It has nothing to refuse for an entry that creates nothing.
+func (c *creation) refuses(clone ports.Clone, real string) string {
+	switch {
+	case c == nil:
+		return ""
+	case clone.Remote == "":
+		return fmt.Sprintf("the clone at %s has no origin, and the manifest creates %s; add that as its origin, or list the clone with its remote in place of create", real, c.identity)
+	case !sameForge(clone.Remote, c.url):
+		return fmt.Sprintf("the clone at %s is %s, and the manifest creates %s; list the clone with its remote in place of create, or choose another path",
+			real, ledger.RepositoryIdentity(clone.Remote, clone.ID), c.identity)
+	}
+	return ""
+}
+
+// registerCreation decides what approving does for an entry that creates its repository, in the order that names the
+// first rule an entry breaks, and runs the creation, then registers the clone, when none is broken. A dry run stops
+// after the creator's checks.
+func (r *Repositories) registerCreation(ctx context.Context, scope ledger.WorkspaceID, entry planning.ManifestRepository, kept ports.Checkouts, run entryRun, at string, actor ledger.Actor) (Added, error) {
+	refused := func(path, reason string) Added {
+		return Added{Path: path, Outcome: ledger.RegistrationRefused, Reason: fmt.Sprintf("%s is not registered: %s", entry.Name, reason)}
+	}
+	made, err := creationOf(entry)
+	if err != nil {
+		return refused(at, fmt.Sprintf("its create is no repository to make: %v", err)), nil
+	}
+	for _, name := range slices.Sorted(maps.Keys(run.held)) {
+		if record := run.held[name]; name != entry.Name && record.Remote != "" && sameForge(record.Remote, made.url) {
+			return refused(at, fmt.Sprintf("the project already holds %s as %s, which is the repository this entry would create; list it under that name", made.identity, name)), nil
+		}
+	}
+	for identity, record := range run.removedRemotes {
+		if strings.EqualFold(identity, made.identity) && !run.restore {
+			return refused(at, staysRemoved(record)), nil
+		}
+	}
+	if first, twice := run.forged[strings.ToLower(made.identity)]; twice {
+		return refused(at, fmt.Sprintf("it would create %s, which the entry %s of this version creates too", made.identity, first)), nil
+	}
+	run.forged[strings.ToLower(made.identity)] = entry.Name
+	switch {
+	case run.creator == nil:
+		return refused(at, "this daemon's worker creates no repositories, so approving cannot create it"), nil
+	case run.dir.root == "":
+		return refused(at, run.why), nil
+	case !authority.Allowed(actor, authority.ActionCreateRemotes):
+		return refused(at, "only a member creates a repository on a forge"), nil
+	}
+	resumed, err := r.resuming(ctx, scope, run.cause.Approval, entry.Name)
+	if err != nil {
+		return refused(at, err.Error()), err
+	}
+	if !resumed {
+		// What is at the path: a clone of the repository is registered as it is, and one that is another repository, or
+		// that has no origin, is refused. Nothing there, or a folder that is no clone, is left to the creator's checks.
+		real, missing, reason := placeAt(ctx, kept, run.dir, at)
+		switch {
+		case missing:
+		case reason != "":
+			return refused(cmp.Or(real, at), reason), nil
+		default:
+			clone, none, reason := topAt(ctx, kept, real)
+			switch {
+			case reason != "" && !none:
+				return refused(real, reason), nil
+			case !none:
+				if reason = made.refuses(clone, real); reason != "" {
+					return refused(real, reason), nil
+				}
+				return r.registerClone(ctx, scope, entry, kept, run, at, &made, actor)
+			}
+		}
+	}
+	job := ledger.RepositoryCreation{
+		Key: ledger.CreationKey(run.cause.Approval, entry.Name), Project: run.project, Name: entry.Name, Path: at, Bound: run.dir.parent,
+		PlanningClone: run.dir.clone, Create: made.create, ForgeName: made.forgeName, DefaultBranch: entry.DefaultBranch,
+	}
+	check, err := run.creator.Check(ctx, job)
+	if err != nil {
+		return refused(at, err.Error()), err
+	}
+	outcome := ledger.CreationOutcome{
+		Forge: made.create.Forge, Owner: made.create.Owner, ForgeName: made.forgeName, Visibility: made.create.Visibility,
+		DefaultBranch: cmp.Or(check.Branch, entry.DefaultBranch), URL: check.URL, Login: check.Login,
+	}
+	if check.Refusal != nil {
+		outcome.Remedy = check.Refusal.Remedy
+		return withCreation(refused(at, refusalText(*check.Refusal)), outcome), nil
+	}
+	if run.dryRun {
+		return Added{Path: at, Outcome: ledger.Created, Creation: &outcome}, nil
+	}
+	finished, err := r.runCreation(ctx, scope, run, entry, job, outcome, actor)
+	if err != nil {
+		return refused(at, err.Error()), err
+	}
+	switch finished.Outcome {
+	case ledger.CreationRefused:
+		return withCreation(refused(at, finished.Reason), finished.CreationOutcome), nil
+	case ledger.CreationFailed:
+		return withCreation(Added{
+			Path: at, Outcome: ledger.CreateFailed, Reason: fmt.Sprintf("%s was created only in part, and is kept as it is: %s", entry.Name, finished.Reason),
+		}, finished.CreationOutcome), nil
+	}
+	added, err := r.registerClone(ctx, scope, entry, kept, run, at, &made, actor)
+	added.Creation = &finished.CreationOutcome
+	if added.Outcome == ledger.Registered {
+		added.Outcome = ledger.Created
+	}
+	return added, err
+}
+
+// withCreation gives an outcome the creation it came of.
+func withCreation(added Added, creation ledger.CreationOutcome) Added {
+	added.Creation = &creation
+	return added
+}
+
+// refusalText is what a check of the creator refused with, and the command that fixes it when it names one.
+func refusalText(report ledger.TemplateWriteReport) string {
+	text := cmp.Or(report.Detail, report.Reason)
+	if report.Detail != "" && report.Reason != "" {
+		text = report.Reason + ": " + report.Detail
+	}
+	if report.Remedy != "" && !strings.Contains(text, report.Remedy) {
+		text += "; run `" + report.Remedy + "`"
+	}
+	return text
+}
+
+// resuming says the creation of an approval's entry was started and has no outcome that leaves nothing to go on
+// with: it was interrupted, or it failed partway and kept what it made. Its folder is the creation's own, and the
+// creator goes on from its journal.
+func (r *Repositories) resuming(ctx context.Context, scope ledger.WorkspaceID, approval, name string) (bool, error) {
+	var latest ledger.CreationRecord
+	err := r.store.Read(ctx, scope, func(tx ports.ReadTx) error {
+		events, err := tx.EventsAbout(ledger.Subject{Kind: authority.SubjectApproval, ID: approval})
+		if err != nil {
+			return err
+		}
+		latest, err = ledger.LatestCreation(events, name)
+		return err
+	})
+	return latest.State == ledger.CreationStarted || latest.State == ledger.CreationFailed, err
+}
+
+// runCreation records that a creation starts, runs it on the worker's machine, and records what it came to. The
+// creation reads as running from just after its start is recorded until its finish is.
+func (r *Repositories) runCreation(ctx context.Context, scope ledger.WorkspaceID, run entryRun, entry planning.ManifestRepository, job ledger.RepositoryCreation, outcome ledger.CreationOutcome, actor ledger.Actor) (ledger.CreationFinishedEvent, error) {
+	started := ledger.CreationStartedEvent{
+		Name: entry.Name, Key: job.Key, ManifestPath: entry.Path, Path: job.Path, Forge: outcome.Forge, Owner: outcome.Owner, ForgeName: outcome.ForgeName,
+		Visibility: outcome.Visibility, DefaultBranch: outcome.DefaultBranch,
+	}
+	if r.worker != nil {
+		started.Worker, _ = r.worker(ctx)
+	}
+	if err := r.appendCreation(ctx, scope, ledger.EventRepositoryCreationStarted, run.cause.Approval, started, actor); err != nil {
+		return ledger.CreationFinishedEvent{}, err
+	}
+	r.markCreating(job.Key)
+	defer r.clearCreating(job.Key)
+	report, err := run.creator.Create(ctx, job)
+	if err != nil {
+		return ledger.CreationFinishedEvent{}, err
+	}
+	finished := finishedCreation(entry, job, outcome, report)
+	return finished, r.appendCreation(ctx, scope, ledger.EventRepositoryCreationFinished, run.cause.Approval, finished, actor)
+}
+
+// finishedCreation reads what a report of the creator says a creation came to. It is created when every step is done
+// and no command remains, refused when a check refused with nothing written, and failed otherwise.
+func finishedCreation(entry planning.ManifestRepository, job ledger.RepositoryCreation, outcome ledger.CreationOutcome, report ledger.TemplateWriteReport) ledger.CreationFinishedEvent {
+	finished := ledger.CreationFinishedEvent{Name: entry.Name, Key: job.Key, CreationOutcome: outcome}
+	if report.Outcome == ledger.TemplateOutcomeRefused {
+		finished.Outcome, finished.Reason, finished.Remedy = ledger.CreationRefused, refusalText(report), report.Remedy
+		return finished
+	}
+	finished.Commit, finished.CommitError, finished.Remaining = report.Commit, report.CommitError, report.Remaining
+	for _, repository := range report.Repositories {
+		finished.Steps = append(finished.Steps, repository.Steps...)
+		finished.Commit = cmp.Or(finished.Commit, repository.Commit)
+		finished.CommitError = cmp.Or(finished.CommitError, repository.CommitError)
+		finished.URL = cmp.Or(repository.Remote, finished.URL)
+	}
+	step := slices.IndexFunc(finished.Steps, func(step ledger.RemoteStep) bool { return step.Outcome != ledger.RemoteStepDone })
+	switch {
+	case report.Outcome != ledger.TemplateOutcomeWritten:
+		finished.Outcome, finished.Reason = ledger.CreationFailed, fmt.Sprintf("the worker reported the outcome %q", report.Outcome)
+	case finished.CommitError != "":
+		finished.Outcome, finished.Reason = ledger.CreationFailed, "the first commit failed: "+finished.CommitError
+	case step >= 0:
+		finished.Outcome, finished.Reason = ledger.CreationFailed, fmt.Sprintf("the %s step %s", finished.Steps[step].Step, finished.Steps[step].Outcome)
+		if detail := finished.Steps[step].Detail; detail != "" {
+			finished.Reason += ": " + detail
+		}
+	case len(finished.Remaining) != 0:
+		finished.Outcome, finished.Reason = ledger.CreationFailed, "commands remain to finish it"
+	default:
+		finished.Outcome = ledger.CreationCreated
+		finished.Makefile = entry.Name + "=" + finished.URL + "=" + entry.Path
+	}
+	return finished
+}
+
+// appendCreation records an event about a creation on the plan approval that creates it, as the member who approved.
+func (r *Repositories) appendCreation(ctx context.Context, scope ledger.WorkspaceID, kind, approval string, data any, actor ledger.Actor) error {
+	raw, err := json.Marshal(data)
+	if err != nil {
+		return err
+	}
+	return r.store.Write(ctx, scope, kind, func(tx ports.WriteTx) error {
+		_, err := tx.Append(ledger.EventDraft{Type: kind, Actor: actor, Subject: ledger.Subject{Kind: authority.SubjectApproval, ID: approval}, Data: raw})
+		return err
+	})
 }

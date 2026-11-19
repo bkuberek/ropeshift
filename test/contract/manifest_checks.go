@@ -1985,8 +1985,8 @@ func checkBranchVersionRegistersItsManifest(r *Rig) error {
 		"api":     {outcome: ledger.AlreadyRegistered, path: "/work/api"},
 		"billing": {outcome: ledger.Registered, path: "/work/billing"},
 		"ghost":   {outcome: ledger.RegistrationRefused, path: "/work/ghost", reason: "no git clone is at /work/ghost"},
-		// A work order on the branch names web, so web is not planned; until ropeshift creates it, it has no clone.
-		"web":  {outcome: ledger.RegistrationRefused, path: "/work/web", reason: "no git clone is at /work/web"},
+		// A work order on the branch names web, so web is not planned; a run with no creator cannot create it.
+		"web":  {outcome: ledger.RegistrationRefused, path: "/work/web", reason: "creates no repositories"},
 		"docs": {outcome: ledger.Planned, reason: plannedReason("docs")},
 	}
 	repositories := r.repositories(s)
@@ -2118,7 +2118,7 @@ func checkUntargetedCreationIsPlanned(r *Rig) error {
 	want = map[string]entryOutcome{
 		"api":     {outcome: ledger.AlreadyRegistered, path: "/work/api"},
 		"billing": {outcome: ledger.AlreadyRegistered, path: "/work/billing"},
-		"search":  {outcome: ledger.RegistrationRefused, path: "/work/search", reason: "no git clone is at /work/search"},
+		"search":  {outcome: ledger.RegistrationRefused, path: "/work/search", reason: "creates no repositories"},
 		"docs":    {outcome: ledger.Planned, reason: plannedReason("docs")},
 	}
 	if preview, err = repositories.RegisterApproved(r.Ctx, r.Scope, later.ID, kept, nil, "", true, r.member()); err != nil {

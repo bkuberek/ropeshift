@@ -379,7 +379,7 @@ func (r *Repositories) registerEntries(ctx context.Context, scope ledger.Workspa
 		checkouts = map[string]string{}
 	}
 	out := make([]Added, 0, len(entries))
-	claimed, seen := map[string]bool{}, seenRun{}
+	claimed, seen, forged := map[string]bool{}, seenRun{}, map[string]string{}
 	// The project's one repository plans in it until a member names one, so the first registration that
 	// adds a second one names it, or the next registration would find no planning repository.
 	var naming string
@@ -387,16 +387,20 @@ func (r *Repositories) registerEntries(ctx context.Context, scope ledger.Workspa
 		naming = dir.planner.ID
 	}
 	for i, entry := range entries {
-		added, err := r.registerEntry(ctx, scope, entry, kept, entryRun{manifestRun: run, dir: dir, why: why, held: held, removed: removed, removedRemotes: removedRemotes, checkouts: checkouts, claimed: claimed, planning: naming, seen: seen}, actor)
-		// Each outcome names what the manifest wrote for it, so a member reads what they consent to.
+		added, err := r.registerEntry(ctx, scope, entry, kept, entryRun{manifestRun: run, dir: dir, why: why, held: held, removed: removed, removedRemotes: removedRemotes, checkouts: checkouts, claimed: claimed, planning: naming, seen: seen, forged: forged}, actor)
+		// Each outcome names what the manifest wrote for it, so a member reads what they consent to. An entry that
+		// creates its repository writes no remote, and its remote is the one the creation adds.
 		added.Name, added.Manifest, added.Remote = entry.Name, entry.Path, entry.Remote
+		if added.Creation != nil && added.Remote == "" {
+			added.Remote = added.Creation.URL
+		}
 		out = append(out, added)
 		if err != nil {
 			// A failure stops the run, and each entry after it is said to be unreached, so a member reads
 			// every repository the manifest lists and which of them a later run must register.
 			return append(out, unreached(entries[i+1:], dir, entry.Name)...), err
 		}
-		if added.Outcome == ledger.Registered && !run.dryRun {
+		if (added.Outcome == ledger.Registered || added.Outcome == ledger.Created) && !run.dryRun {
 			naming = ""
 		}
 	}
@@ -434,6 +438,9 @@ type entryRun struct {
 	planning       string
 	// seen are the clones the run registered so far, by the record each came to.
 	seen seenRun
+	// forged are the forge repositories the entries of the run so far would create, by identity in lowercase, each
+	// with the name of the entry that would.
+	forged map[string]string
 }
 
 // removedAt finds the repository the project removed whose remote is the one given. A remote names the
@@ -459,8 +466,14 @@ func (r *Repositories) registerEntry(ctx context.Context, scope ledger.Workspace
 	refused := func(path, reason string) Added {
 		return Added{Path: path, Outcome: ledger.RegistrationRefused, Reason: fmt.Sprintf("%s is not registered: %s", entry.Name, reason)}
 	}
+	creates := run.creates(entry)
 	if record, ok := run.held[entry.Name]; ok {
-		path, other := heldAs(ctx, kept, dir, entry, record, run.checkouts[record.ID], at)
+		named := entry
+		if made, err := creationOf(entry); creates && err == nil {
+			// An entry that creates its repository names the one it would create.
+			named.Remote = made.url
+		}
+		path, other := heldAs(ctx, kept, dir, named, record, run.checkouts[record.ID], at)
 		if other != "" {
 			return refused(path, fmt.Sprintf("its name is held by another repository: the project's %s is %s, and the manifest's is %s",
 				entry.Name, ledger.RepositoryIdentity(record.Remote, record.ID), other)), nil
@@ -480,6 +493,19 @@ func (r *Repositories) registerEntry(ctx context.Context, scope ledger.Workspace
 	if run.planned(entry) {
 		return Added{Outcome: ledger.Planned, Reason: fmt.Sprintf("no work order of this version targets %s", entry.Name)}, nil
 	}
+	if creates {
+		return r.registerCreation(ctx, scope, entry, kept, run, at, actor)
+	}
+	return r.registerClone(ctx, scope, entry, kept, run, at, nil, actor)
+}
+
+// registerClone registers the clone at the path an entry resolves to, or says why there is none to register. An entry
+// that creates its repository registers only a clone whose origin is the repository it creates.
+func (r *Repositories) registerClone(ctx context.Context, scope ledger.WorkspaceID, entry planning.ManifestRepository, kept ports.Checkouts, run entryRun, at string, made *creation, actor ledger.Actor) (Added, error) {
+	dir := run.dir
+	refused := func(path, reason string) Added {
+		return Added{Path: path, Outcome: ledger.RegistrationRefused, Reason: fmt.Sprintf("%s is not registered: %s", entry.Name, reason)}
+	}
 	if dir.root == "" {
 		return refused(at, run.why), nil
 	}
@@ -489,6 +515,9 @@ func (r *Repositories) registerEntry(ctx context.Context, scope ledger.Workspace
 	}
 	clone, reason := cloneAt(ctx, kept, entry, real)
 	if reason != "" {
+		return refused(real, reason), nil
+	}
+	if reason = made.refuses(clone, real); reason != "" {
 		return refused(real, reason), nil
 	}
 	if record, ok := run.removedAt(clone.Remote); ok && !run.restore {
@@ -542,6 +571,12 @@ func (run manifestRun) planned(entry planning.ManifestRepository) bool {
 	return entry.Create != "" && run.targets != nil && !run.targets[entry.Name]
 }
 
+// creates says an entry with `create` is one a work order of the run's plan version names in `repo`, so approving the
+// version creates its repository.
+func (run manifestRun) creates(entry planning.ManifestRepository) bool {
+	return entry.Create != "" && run.targets != nil && run.targets[entry.Name]
+}
+
 // staysRemoved says why a repository a member removed is not registered again.
 func staysRemoved(record ledger.Repository) string {
 	return fmt.Sprintf("repository %s was removed from this project, and only a member's repository add brings it back", cmp.Or(record.Name, record.ID))
@@ -588,17 +623,23 @@ func (r *Repositories) planningClone(ctx context.Context, scope ledger.Workspace
 // must lead inside the directory that holds the planning repository's clone, and not to that clone itself or
 // into a directory the installation keeps for itself; it returns why it may not be read when it may not.
 func placeOf(ctx context.Context, kept ports.Checkouts, dir planningDirectory, at string) (string, string) {
+	real, _, reason := placeAt(ctx, kept, dir, at)
+	return real, reason
+}
+
+// placeAt is placeOf, and says when the reason it gives is that nothing is at the path.
+func placeAt(ctx context.Context, kept ports.Checkouts, dir planningDirectory, at string) (real string, missing bool, reason string) {
 	if !within(filepath.Dir(dir.root), at) && at != dir.root {
-		return "", fmt.Sprintf("its path leads to %s, outside %s, the directory that holds the planning repository's clone", at, filepath.Dir(dir.root))
+		return "", false, fmt.Sprintf("its path leads to %s, outside %s, the directory that holds the planning repository's clone", at, filepath.Dir(dir.root))
 	}
 	real, reserved, err := kept.Resolve(ctx, at)
 	switch {
 	case errors.Is(err, ports.ErrNotFound):
-		return "", fmt.Sprintf("no git clone is at %s, which does not exist", at)
+		return "", true, fmt.Sprintf("no git clone is at %s, which does not exist", at)
 	case err != nil:
-		return "", fmt.Sprintf("%s cannot be read: %v", at, err)
+		return "", false, fmt.Sprintf("%s cannot be read: %v", at, err)
 	case reserved:
-		return real, fmt.Sprintf("%s is inside a directory this installation keeps for itself", real)
+		return real, false, fmt.Sprintf("%s is inside a directory this installation keeps for itself", real)
 	}
 	// The clone's directory may be spelled another way, as a disk that ignores case allows, so the paths are
 	// compared by the file each names, and not as strings.
@@ -606,18 +647,18 @@ func placeOf(ctx context.Context, kept ports.Checkouts, dir planningDirectory, a
 	if !own {
 		var err error
 		if own, err = kept.SameFile(ctx, real, dir.clone); err != nil && !errors.Is(err, ports.ErrNotFound) {
-			return real, fmt.Sprintf("%s cannot be compared with the planning repository's clone: %v", real, err)
+			return real, false, fmt.Sprintf("%s cannot be compared with the planning repository's clone: %v", real, err)
 		}
 	}
 	switch {
 	case own:
-		return real, fmt.Sprintf("%s is the planning repository's own clone", real)
+		return real, false, fmt.Sprintf("%s is the planning repository's own clone", real)
 	case !within(dir.parent, real) && real != at:
-		return real, fmt.Sprintf("%s resolves to %s, outside %s, the directory that holds the planning repository's clone", at, real, dir.parent)
+		return real, false, fmt.Sprintf("%s resolves to %s, outside %s, the directory that holds the planning repository's clone", at, real, dir.parent)
 	case !within(dir.parent, real):
-		return real, fmt.Sprintf("%s is outside %s, the directory that holds the planning repository's clone", real, dir.parent)
+		return real, false, fmt.Sprintf("%s is outside %s, the directory that holds the planning repository's clone", real, dir.parent)
 	}
-	return real, ""
+	return real, false, ""
 }
 
 // heldAs reads whether the repository the project holds under a manifest entry's name is the one the entry
@@ -666,24 +707,33 @@ func within(dir, path string) bool {
 // manifest names when both name one. It returns why it is not when it is not, and names the clone after the
 // entry, so the record takes the manifest's name for the repository when no other repository has it.
 func cloneAt(ctx context.Context, kept ports.Checkouts, entry planning.ManifestRepository, real string) (ports.Clone, string) {
-	found, unread, err := kept.Find(ctx, []string{real}, 0)
-	if err != nil {
-		return ports.Clone{}, fmt.Sprintf("%s cannot be read: %v", real, err)
+	clone, _, reason := topAt(ctx, kept, real)
+	if reason != "" {
+		return ports.Clone{}, reason
 	}
-	top := slices.IndexFunc(found, func(clone ports.Clone) bool { return filepath.Clean(clone.Path) == real })
-	if top < 0 {
-		for _, path := range unread {
-			if strings.HasPrefix(path.Reason, "is a git clone") || path.Reason == ledger.ShallowClone {
-				return ports.Clone{}, fmt.Sprintf("%s %s", real, path.Reason)
-			}
-		}
-		return ports.Clone{}, fmt.Sprintf("no git clone is at %s", real)
-	}
-	clone := found[top]
 	// A remote either side leaves empty cannot be compared, so the clone is taken on its path alone.
 	if entry.Remote != "" && clone.Remote != "" && ledger.RepositoryIdentity(entry.Remote, "") != ledger.RepositoryIdentity(clone.Remote, clone.ID) {
 		return ports.Clone{}, fmt.Sprintf("the clone at %s has remote %s, and the manifest names %s", real, clone.Remote, entry.Remote)
 	}
 	clone.Directory = entry.Name
 	return clone, ""
+}
+
+// topAt reads the clone whose top is at a resolved path. It returns why there is none when there is none, and says
+// none when the path holds no clone, which a folder that is no clone does.
+func topAt(ctx context.Context, kept ports.Checkouts, real string) (clone ports.Clone, none bool, reason string) {
+	found, unread, err := kept.Find(ctx, []string{real}, 0)
+	if err != nil {
+		return ports.Clone{}, false, fmt.Sprintf("%s cannot be read: %v", real, err)
+	}
+	top := slices.IndexFunc(found, func(clone ports.Clone) bool { return filepath.Clean(clone.Path) == real })
+	if top < 0 {
+		for _, path := range unread {
+			if strings.HasPrefix(path.Reason, "is a git clone") || path.Reason == ledger.ShallowClone {
+				return ports.Clone{}, false, fmt.Sprintf("%s %s", real, path.Reason)
+			}
+		}
+		return ports.Clone{}, true, fmt.Sprintf("no git clone is at %s", real)
+	}
+	return found[top], false, ""
 }
