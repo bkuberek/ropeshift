@@ -1666,6 +1666,16 @@ suite.each(Object.entries(sizes))("at %s width", (size, viewport) => {
         await ready(page);
         await page.getByRole("button", { name: "Remove…" }).click();
         await check("remove repository dialog", page.getByRole("dialog", { name: /^Remove / }));
+        // The dialogs of the practices check: acknowledging a finding, empty and with a refusal of its reason, and withdrawing
+        // the acknowledgement.
+        await page.goto(`${base}/projects/default/repositories?dialog=acknowledge`);
+        const acknowledge = page.getByRole("dialog", { name: "Acknowledge finding" });
+        await check("acknowledge finding dialog", acknowledge);
+        await acknowledge.getByRole("button", { name: "Acknowledge", exact: true }).click();
+        await acknowledge.getByText("Say why this finding stays open.").waitFor();
+        await check("acknowledge finding dialog with a reason asked for", acknowledge);
+        await page.goto(`${base}/projects/default/repositories?dialog=withdraw`);
+        await check("withdraw acknowledgement dialog", page.getByRole("dialog", { name: "Withdraw acknowledgement" }));
         // The risk a member reads before standing behind a worker's level.
         await page.route(/\/v1\/workers\/worker-1\/autonomy$/, served({ as_of: 1790000000000, worker_id: "worker-1", sign_in: "subscription", level: "attended", chosen_level: "assisted", risk_acknowledged: false, may_claim: false }));
         await page.route(/\/v1\/autonomy\/risk$/, served({ statement: "A worker at this level runs the agent's commands without asking.", digest: "sha256:abc" }));

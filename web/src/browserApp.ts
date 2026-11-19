@@ -270,6 +270,9 @@ export async function answer(route: Route): Promise<void> {
     if (path === "/v1/audit") {
       return json(JSON.stringify({ scope: "project", as_of: 1790000964002, head: 0, next: 0, events: [] }));
     }
+    if (path === "/v1/practices") {
+      return json(JSON.stringify({ repositories: [] }));
+    }
   }
   // The project that has work in review: a change the review could not judge, one whose merge waits for the
   // member's approval with a check running, and one whose merge the member approved.
@@ -306,6 +309,15 @@ export async function answer(route: Route): Promise<void> {
   }
   if (path === "/v1/documents/recorded") {
     return json(goldens["recorded-document"] ?? "{}");
+  }
+  // The practices check: the golden's checked repository stands as the project's one repository, api, with a request open
+  // beside its result, which the page reads until it is reported.
+  if (path === "/v1/practices") {
+    return json((goldens.practices ?? "{}").replaceAll("repo-a", "id-api").replaceAll("widgets", "api"));
+  }
+  if (/^\/v1\/practices\/checks\/[^/]+$/.test(path)) {
+    const open = (JSON.parse(goldens.practices ?? "{}") as { repositories: { request?: unknown }[] }).repositories.find((row) => row.request)?.request;
+    return json(JSON.stringify({ ...(open as object), repository: "id-api" }));
   }
   // What the projects, repositories, settings, agents, members, and audit pages read.
   const admin: Record<string, string | undefined> = {
