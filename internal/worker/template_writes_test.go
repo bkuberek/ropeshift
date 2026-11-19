@@ -901,3 +901,177 @@ func TestAFolderHoldingARepositoryTheWorkerDidNotMakeIsRefused(t *testing.T) {
 		t.Error("a folder with a repository of somebody else's was written into")
 	}
 }
+
+// refusedFor offers a request for a folder and answers the refusal it gets, failing the test when there is none.
+func (r *templateRig) refusedFor(t *testing.T, id, shape, folder string) ledger.TemplateWriteReport {
+	t.Helper()
+	captured := &capturedReports{WorkerLink: r.link}
+	r.offer(t, captured, ledger.DesiredTemplateWrite{ID: id, Shape: shape, Path: folder, ExpiresAt: 1 << 60})
+	report := captured.only(t)
+	if report.Outcome != ledger.TemplateOutcomeRefused {
+		t.Fatalf("%s: the report is %+v, want a refusal", id, report)
+	}
+	return report
+}
+
+// The name of a file the worker refuses is repeated in the refusal, and it is a file anybody could have named: its escape
+// sequences and its bidirectional overrides are taken out, it is quoted, and it is cut to a length a refusal can carry.
+func TestTheRefusalOfAFileCarriesItsNameAsPlainBoundedText(t *testing.T) {
+	t.Parallel()
+	r := newTemplateRig(t, nil)
+	hostile := "evil\x1b[31m\u202egpj.txt"
+	long := strings.Repeat("x", 200) + ".txt"
+	folder := r.holding("harbor", map[string]string{"AGENTS.md": "mine\n", hostile: "x", long: "x"})
+	report := r.refusedFor(t, "request-hostile", "monorepo", folder)
+	if report.Reason != ledger.TemplateRefusedNotEmpty {
+		t.Fatalf("the report is %+v", report)
+	}
+	if strings.ContainsRune(report.Detail, '\x1b') || strings.ContainsRune(report.Detail, '‮') {
+		t.Errorf("the refusal carries a control or override character: %q", report.Detail)
+	}
+	if !strings.Contains(report.Detail, `"evilgpj.txt"`) {
+		t.Errorf("the refusal does not quote the cleaned name: %q", report.Detail)
+	}
+	if len(report.Detail) > 600 {
+		t.Errorf("the refusal is %d bytes long: %q", len(report.Detail), report.Detail)
+	}
+}
+
+// Every file of another kind is counted, and the refusal names the first few and says how many more there are.
+func TestTheRefusalNamesTheFirstFilesAndCountsTheRest(t *testing.T) {
+	t.Parallel()
+	r := newTemplateRig(t, nil)
+	files := map[string]string{}
+	for _, name := range []string{"a.txt", "b.txt", "c.txt", "d.txt", "e.txt", "f.txt", "g.txt", "h.txt"} {
+		files[name] = "x"
+	}
+	report := r.refusedFor(t, "request-many", "monorepo", r.holding("harbor", files))
+	if !strings.Contains(report.Detail, `"a.txt"`) || !strings.Contains(report.Detail, "and 3 more") || strings.Contains(report.Detail, `"h.txt"`) {
+		t.Errorf("the refusal is %q", report.Detail)
+	}
+}
+
+// A name that is not a project name is refused as invalid, whatever the control plane let through, because it would be
+// rendered into the files.
+func TestARequestNamedWithNoProjectNameIsRefusedAsInvalid(t *testing.T) {
+	t.Parallel()
+	r := newTemplateRig(t, nil)
+	folder := r.folder("harbor")
+	captured := &capturedReports{WorkerLink: r.link}
+	r.offer(t, captured, ledger.DesiredTemplateWrite{ID: "request-bad-name", Shape: "monorepo", Path: folder, Name: "Not A Name", ExpiresAt: 1 << 60})
+	report := captured.only(t)
+	if report.Outcome != ledger.TemplateOutcomeRefused || report.Reason != ledger.TemplateRefusedInvalid || !strings.Contains(report.Detail, "name") {
+		t.Errorf("the report is %+v", report)
+	}
+	if _, err := os.Stat(folder); err == nil {
+		t.Error("a refused name made the folder")
+	}
+}
+
+// A file manager's files are accepted anywhere in the folder, left as they are, and never added to the first commit.
+func TestAFolderHoldingFileManagerFilesIsWrittenAndTheyAreNeverCommitted(t *testing.T) {
+	t.Parallel()
+	gittest.Require(t)
+	r := newTemplateRig(t, nil)
+	folder := r.holding("harbor", map[string]string{".DS_Store": "mac", "plan/.DS_Store": "mac", "plan/Thumbs.db": "windows", "Thumbs.db": "windows"})
+	view := r.settle(r.ask(ledger.TemplateWriteRequest{Shape: "monorepo", Path: folder, FirstCommit: true}))
+	if view.State != ledger.TemplateWriteWritten || view.Report.Commit == "" {
+		t.Fatalf("the request is %+v", view)
+	}
+	if len(view.Report.Left) != 0 {
+		t.Errorf("a file manager's file was reported as a file of the shape: %v", view.Report.Left)
+	}
+	for _, name := range []string{".DS_Store", "plan/.DS_Store", "plan/Thumbs.db", "Thumbs.db"} {
+		if text, err := os.ReadFile(filepath.Join(folder, name)); err != nil || len(text) == 0 {
+			t.Errorf("%s was changed (%v)", name, err)
+		}
+	}
+	for _, file := range strings.Fields(r.git(folder, "ls-tree", "-r", "--name-only", "HEAD")) {
+		if strings.HasSuffix(file, ".DS_Store") || strings.HasSuffix(file, "Thumbs.db") {
+			t.Errorf("the first commit holds %s", file)
+		}
+	}
+}
+
+// A repository the folder holds below its top is refused as the one at its top is, and each is named.
+func TestAFolderHoldingARepositoryBelowItsTopIsRefused(t *testing.T) {
+	t.Parallel()
+	gittest.Require(t)
+	r := newTemplateRig(t, nil)
+	folder := r.holding("harbor", map[string]string{"AGENTS.md": "mine\n"})
+	for _, inner := range []string{"repos/x", "vendor/lib"} {
+		if err := os.MkdirAll(filepath.Join(folder, inner), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		r.git(filepath.Join(folder, inner), "init", "--quiet")
+	}
+	report := r.refusedFor(t, "request-nested-git", "monorepo", folder)
+	if report.Reason != ledger.TemplateRefusedNotEmpty || !strings.Contains(report.Detail, "repos/x/.git") || !strings.Contains(report.Detail, "vendor/lib/.git") {
+		t.Errorf("the report is %+v", report)
+	}
+	if _, err := os.Stat(filepath.Join(folder, "CLAUDE.md")); err == nil {
+		t.Error("a folder that holds repositories was written into")
+	}
+}
+
+// A folder that holds nothing but a repository is not empty, and the repository is not the worker's.
+func TestAFolderHoldingOnlyARepositoryIsRefused(t *testing.T) {
+	t.Parallel()
+	gittest.Require(t)
+	r := newTemplateRig(t, nil)
+	folder := r.folder("harbor")
+	if err := os.MkdirAll(folder, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	r.git(folder, "init", "--quiet")
+	report := r.refusedFor(t, "request-only-git", "monorepo", folder)
+	if report.Reason != ledger.TemplateRefusedNotEmpty || !strings.Contains(report.Detail, ".git") {
+		t.Errorf("the report is %+v", report)
+	}
+}
+
+// A folder with no file in it, whatever it is called, holds nothing of another kind, so it is accepted and left alone.
+func TestAFolderHoldingOnlyAnEmptyFolderOfAnotherKindIsWritten(t *testing.T) {
+	t.Parallel()
+	r := newTemplateRig(t, nil)
+	folder := r.folder("harbor")
+	if err := os.MkdirAll(filepath.Join(folder, "notes", "later"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	view := r.settle(r.ask(ledger.TemplateWriteRequest{Shape: "monorepo", Path: folder}))
+	if view.State != ledger.TemplateWriteWritten {
+		t.Fatalf("the request is %+v", view)
+	}
+	if info, err := os.Stat(filepath.Join(folder, "notes", "later")); err != nil || !info.IsDir() {
+		t.Errorf("the empty folder was not left alone (%v)", err)
+	}
+}
+
+// A link at a path of the shape is a file the folder holds: the write leaves it, writes nothing through it, and the first
+// commit does not add it.
+func TestAFolderHoldingALinkAtAShapePathIsWrittenAroundIt(t *testing.T) {
+	t.Parallel()
+	gittest.Require(t)
+	r := newTemplateRig(t, nil)
+	outside := filepath.Join(t.TempDir(), "elsewhere.md")
+	folder := r.holding("harbor", map[string]string{"plan/goal.md": "mine\n"})
+	if err := os.Symlink(outside, filepath.Join(folder, "AGENTS.md")); err != nil {
+		t.Fatal(err)
+	}
+	view := r.settle(r.ask(ledger.TemplateWriteRequest{Shape: "monorepo", Path: folder, FirstCommit: true}))
+	if view.State != ledger.TemplateWriteWritten || view.Report.Commit == "" {
+		t.Fatalf("the request is %+v", view)
+	}
+	if _, err := os.Stat(outside); err == nil {
+		t.Error("the write went through the link")
+	}
+	if target, err := os.Readlink(filepath.Join(folder, "AGENTS.md")); err != nil || target != outside {
+		t.Errorf("the link reads %q (%v)", target, err)
+	}
+	if !slices.Contains(view.Report.Left, "AGENTS.md") {
+		t.Errorf("the report leaves %v, want the link among them", view.Report.Left)
+	}
+	if committed := strings.Fields(r.git(folder, "ls-tree", "-r", "--name-only", "HEAD")); slices.Contains(committed, "AGENTS.md") {
+		t.Errorf("the first commit holds the link: %v", committed)
+	}
+}

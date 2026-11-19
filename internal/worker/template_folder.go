@@ -6,26 +6,78 @@ import (
 	"fmt"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 
+	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/internal/projectfiles"
 )
 
-// foreignFile is the first file the folder holds that the shape does not write, or empty when it holds files of the
-// shape and nothing else. It is the one rule of which folders a write may go into: a crash between the first file and
-// the report leaves such a folder, and so does a person who started the project's files by hand.
-func (w *Worker) foreignFile(ctx context.Context, rt *TemplateRuntime, folder string, files []projectfiles.File) (string, error) {
+// fileManagerFiles are the files a file manager leaves in any folder it shows, which a write accepts anywhere, leaves as
+// they are, and never adds to a commit.
+var fileManagerFiles = []string{".DS_Store", "Thumbs.db"}
+
+// listedNames and nameLength bound what a refusal repeats of the folder: the first few names, each cut to a length.
+const (
+	listedNames = 5
+	nameLength  = 80
+)
+
+// foreignEntries are the files the folder holds that the shape does not write, except the files a file manager leaves,
+// and, for a write that has not started, the .git of every repository the folder holds at any depth, none of which this
+// worker made. It is the one rule of which folders a write may go into: a crash between the first file and the report
+// leaves a folder of the shape's files, and so does a person who started the project's files by hand. Both lists are
+// sorted, and each holds every entry the folder has, not the first.
+func (w *Worker) foreignEntries(ctx context.Context, rt *TemplateRuntime, folder string, files []projectfiles.File, started bool) (foreign, repositories []string, err error) {
 	have, err := rt.Folders.Files(ctx, folder)
 	if err != nil {
-		return "", err
+		return nil, nil, err
 	}
 	for _, path := range have {
+		if slices.Contains(fileManagerFiles, path[strings.LastIndex(path, "/")+1:]) {
+			continue
+		}
 		if !slices.ContainsFunc(files, func(file projectfiles.File) bool { return file.Path == path }) {
-			return path, nil
+			foreign = append(foreign, path)
 		}
 	}
-	return "", nil
+	if started {
+		return foreign, nil, nil
+	}
+	repositories, err = rt.Folders.GitDirs(ctx, folder)
+	return foreign, repositories, err
+}
+
+// refusalDetail says what a folder holds that a write cannot go into. Each name is cleaned of escape sequences and
+// overrides, quoted, and cut to a length, and only the first few are named, so a refusal carries no more than a person
+// reads and a folder cannot choose how a refusal looks.
+func refusalDetail(foreign, repositories []string) string {
+	var parts []string
+	if len(foreign) > 0 {
+		parts = append(parts, "the folder holds "+listNames(foreign)+", which a write of this shape does not add to: it goes only into a folder whose files are its own")
+	}
+	if len(repositories) > 0 {
+		parts = append(parts, "the folder holds "+listNames(repositories)+", a repository that ropeshift did not make")
+	}
+	return strings.Join(parts, "; ")
+}
+
+// listNames quotes the first listedNames of names, each cleaned and cut to nameLength characters, and counts the rest.
+func listNames(names []string) string {
+	shown := make([]string, 0, listedNames)
+	for _, name := range names[:min(len(names), listedNames)] {
+		name = ledger.PlainText(name)
+		if runes := []rune(name); len(runes) > nameLength {
+			name = string(runes[:nameLength]) + "..."
+		}
+		shown = append(shown, strconv.Quote(name))
+	}
+	out := strings.Join(shown, ", ")
+	if rest := len(names) - len(shown); rest > 0 {
+		out += fmt.Sprintf(" and %d more", rest)
+	}
+	return out
 }
 
 // insideReserved says the folder is at or inside a folder ropeshift keeps for itself: the state, run, or worktree

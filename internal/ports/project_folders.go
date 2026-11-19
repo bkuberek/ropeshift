@@ -47,6 +47,9 @@ type ProjectFolders interface {
 	// Files lists every file under the folder, as paths relative to it, slash separated and sorted, leaving
 	// out each git directory, the one at its top and those of the repositories inside it. A path with nothing at it holds none.
 	Files(ctx context.Context, path string) ([]string, error)
+	// GitDirs lists the path, relative to the folder and slash separated and sorted, of every .git under the folder, a
+	// file or a folder, at any depth. It does not look inside one. A folder that is not there holds none.
+	GitDirs(ctx context.Context, folder string) ([]string, error)
 	// Held says which of the paths, relative to the folder and slash separated, are there: a file, a folder, or a link
 	// at one of them. It looks at each path and at nothing else, so what else the folder holds is never read, and a
 	// folder that is not there holds none. The answer keeps the order of paths.

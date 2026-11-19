@@ -202,6 +202,31 @@ func (f Folders) Files(_ context.Context, path string) ([]string, error) {
 	return out, err
 }
 
+// GitDirs lists every .git under the folder, at any depth, without looking inside one.
+func (f Folders) GitDirs(_ context.Context, path string) ([]string, error) {
+	var out []string
+	err := filepath.WalkDir(path, func(at string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.Name() != ".git" {
+			return nil
+		}
+		if rel, err := filepath.Rel(path, at); err == nil && rel != "." {
+			out = append(out, filepath.ToSlash(rel))
+		}
+		if entry.IsDir() {
+			return fs.SkipDir
+		}
+		return nil
+	})
+	if absent(err) {
+		return nil, nil
+	}
+	slices.Sort(out)
+	return out, err
+}
+
 // Held says which of the paths the folder holds, looking at each with lstat.
 func (f Folders) Held(_ context.Context, path string, files []string) ([]string, error) {
 	var held []string

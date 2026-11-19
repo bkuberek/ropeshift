@@ -246,6 +246,27 @@ func (f *ProjectFolders) SetDefaultBranch(branch string) {
 	f.initial = branch
 }
 
+// GitDirs lists every .git under a folder.
+func (f *ProjectFolders) GitDirs(_ context.Context, folder string) ([]string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	prefix := path.Clean(folder) + "/"
+	var out []string
+	add := func(at string) {
+		if rel, found := strings.CutPrefix(at, prefix); found && (rel == ".git" || strings.HasSuffix(rel, "/.git")) {
+			out = append(out, rel)
+		}
+	}
+	for at := range f.files {
+		add(at)
+	}
+	for at := range f.dirs {
+		add(at)
+	}
+	slices.Sort(out)
+	return slices.Compact(out), nil
+}
+
 // Held says which of the paths the folder holds.
 func (f *ProjectFolders) Held(_ context.Context, folder string, paths []string) ([]string, error) {
 	f.mu.Lock()
