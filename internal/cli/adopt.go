@@ -225,7 +225,7 @@ func planningRefusal(plan planning.AdoptionPlan) (string, bool) {
 // refusedPlanning stops an adoption whose planning repository is not registered, rather than plan in another
 // clone without saying so.
 func (c *invocation) refusedPlanning(plan planning.AdoptionPlan, reason string) int {
-	return c.usageError("the repository that holds the plan, %s, was refused: %s; name another with --planning NAME", plan.Planning.Name, reason)
+	return c.usageError("the repository that holds the plan, %s, was refused: %s; name another with --planning NAME", plan.Planning.Name, plainText(reason))
 }
 
 // registeredAt is the record of the clone a registration reported at a path, or empty when it reported none.
