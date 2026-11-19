@@ -183,7 +183,7 @@ func (w *Worker) performTemplateWrite(ctx context.Context, rt *TemplateRuntime, 
 		return ledger.TemplateWriteReport{}, journal, errTemplateExpired
 	}
 	job := projectremote.Job{Request: ledger.TemplateWriteRequest{
-		Shape: request.Shape, Path: request.Path, Repositories: request.Repositories, Project: request.Project,
+		Shape: request.Shape, Path: request.Path, Repositories: request.Repositories, Name: request.Name, Project: request.Project,
 		FirstCommit: request.FirstCommit, Remote: request.Remote,
 	}}
 	remote := w.projectRuntime(rt)

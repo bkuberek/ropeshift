@@ -788,3 +788,36 @@ func TestAWorkspaceWriteRunsNoGitCloneAndKeepsTheCheckoutsFile(t *testing.T) {
 		t.Error("the worker cloned a code repository")
 	}
 }
+
+// A request that names the project is written for that name, not the folder's: the files, the first commit, the
+// report, and the commands that register it all carry it.
+func TestAWorkerWritesTheNameTheRequestGives(t *testing.T) {
+	t.Parallel()
+	gittest.Require(t)
+	r := newTemplateRig(t, nil)
+	folder := r.folder("Orchid Shop")
+	view := r.settle(r.ask(ledger.TemplateWriteRequest{Shape: "monorepo", Path: folder, Name: "harbor", FirstCommit: true}))
+	if view.State != ledger.TemplateWriteWritten || view.Report.Project != "harbor" || view.Name != "harbor" {
+		t.Fatalf("the request is %+v", view)
+	}
+	if text, err := os.ReadFile(filepath.Join(folder, "AGENTS.md")); err != nil || !strings.Contains(string(text), "project harbor") {
+		t.Errorf("AGENTS.md is not rendered for harbor (%v): %s", err, text)
+	}
+	if subject := r.git(folder, "log", "-1", "--format=%s"); subject != "chore: start harbor" {
+		t.Errorf("the commit says %q", subject)
+	}
+	if !slices.Contains(view.Report.Commands, "ropeshift project create harbor") {
+		t.Errorf("the commands are %v", view.Report.Commands)
+	}
+}
+
+// A folder that makes no project name is written when the request gives one.
+func TestAWorkerWritesAFolderThatMakesNoNameWhenTheRequestNamesTheProject(t *testing.T) {
+	t.Parallel()
+	r := newTemplateRig(t, nil)
+	folder := r.folder("___")
+	view := r.settle(r.ask(ledger.TemplateWriteRequest{Shape: "monorepo", Path: folder, Name: "harbor"}))
+	if view.State != ledger.TemplateWriteWritten || view.Report.Project != "harbor" {
+		t.Errorf("the request is %+v", view)
+	}
+}
