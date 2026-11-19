@@ -314,3 +314,182 @@ func TestARepositoryCreationInsideThePlanningCloneNeedsTheCloneToIgnoreIt(t *tes
 	}
 	r.nothingDone(job)
 }
+
+// refusedAs fails the test unless both the check and the creation of job refuse it for reason.
+func refusedAs(t *testing.T, creator ports.RepositoryCreator, job ledger.RepositoryCreation, reason string) ledger.TemplateWriteReport {
+	t.Helper()
+	checked, err := creator.Check(t.Context(), job)
+	if err != nil || checked.Refusal == nil || checked.Refusal.Reason != reason {
+		t.Fatalf("the check is %+v (%v), want refused as %s", checked, err, reason)
+	}
+	report, err := creator.Create(t.Context(), job)
+	if err != nil || report.Outcome != ledger.TemplateOutcomeRefused || report.Reason != reason {
+		t.Fatalf("the creation reports %+v (%v), want refused as %s", report, err, reason)
+	}
+	return report
+}
+
+// A key that is not 64 lowercase hex characters names no journal file, so the creation is refused before a journal is
+// read or written.
+func TestARepositoryCreationRefusesAKeyThatNamesNoJournal(t *testing.T) {
+	t.Parallel()
+	key := ledger.CreationKey("approval-1", "api")
+	for name, bad := range map[string]string{
+		"empty": "", "a path": "../../escape", "upper case": strings.ToUpper(key), "short": key[:63], "long": key + "0",
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			r := newCreationRig(t)
+			r.folders.Dir("/work/tt/repos")
+			job := creation("/work/tt/repos/api")
+			job.Key = bad
+			refusedAs(t, r.creator(r.forge), job, ledger.TemplateRefusedInvalid)
+			if entries, err := os.ReadDir(r.state); err != nil || len(entries) != 0 {
+				t.Errorf("the state directory holds %v (%v)", entries, err)
+			}
+			if done, created := r.folders.Done(), r.forge.Repositories(); len(done) != 0 || len(created) != 0 {
+				t.Errorf("the worker did %v and created %v", done, created)
+			}
+		})
+	}
+}
+
+// A job no manifest entry gives is refused before anything is read of the forge or written.
+func TestARepositoryCreationRefusesAJobNoManifestEntryGives(t *testing.T) {
+	t.Parallel()
+	for name, change := range map[string]func(*ledger.RepositoryCreation){
+		"a forge name that is not the path's last element": func(job *ledger.RepositoryCreation) { job.ForgeName = "web" },
+		"a branch git refuses":                             func(job *ledger.RepositoryCreation) { job.DefaultBranch = "+main" },
+		"another forge":                                    func(job *ledger.RepositoryCreation) { job.Create.Forge = "gitlab" },
+		"a bound that is not absolute":                     func(job *ledger.RepositoryCreation) { job.Bound = "work" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			r := newCreationRig(t)
+			r.folders.Dir("/work/tt/repos")
+			job := creation("/work/tt/repos/api")
+			change(&job)
+			refusedAs(t, r.creator(r.forge), job, ledger.TemplateRefusedInvalid)
+			r.nothingDone(job)
+		})
+	}
+}
+
+// The nearest thing above a missing folder that is not a folder is refused, and nothing is made.
+func TestARepositoryCreationRefusesAFileWhereAFolderAboveItGoes(t *testing.T) {
+	t.Parallel()
+	r := newCreationRig(t)
+	r.folders.Place("/work/tt/repos", "not a folder")
+	job := creation("/work/tt/repos/api")
+	report := refusedAs(t, r.creator(r.forge), job, ledger.TemplateRefusedNoParent)
+	if !strings.Contains(report.Detail, "/work/tt/repos") {
+		t.Errorf("the refusal says %q, which does not name /work/tt/repos", report.Detail)
+	}
+	r.nothingDone(job)
+}
+
+// A creation whose push failed answers its check from its journal, with the account it ran under, even once gh reads
+// signed out, and a retry pushes from where it stopped and creates nothing twice.
+func TestARepositoryCreationThatFailedAnswersFromItsJournalAndARetryFinishesIt(t *testing.T) {
+	t.Parallel()
+	r := newCreationRig(t)
+	r.folders.Dir("/work/tt/repos")
+	job := creation("/work/tt/repos/api")
+	r.folders.FailPush(job.Path, errors.New("remote: push refused"))
+	creator := r.creator(r.forge)
+	report, err := creator.Create(t.Context(), job)
+	if err != nil || len(report.Repositories) != 1 || steps(report.Repositories[0]) != "create=done origin=done push=failed" {
+		t.Fatalf("the creation reports %+v (%v), want its push failed", report, err)
+	}
+
+	r.forge.SignIn = ports.ForgeAccount{State: ledger.ForgeAccountSignedOut}
+	checked, err := creator.Check(t.Context(), job)
+	if want := (ledger.CreationCheck{URL: "https://github.com/acme/api.git", Login: "test", Branch: "main"}); err != nil || checked != want {
+		t.Fatalf("the check of the started creation is %+v (%v), want %+v", checked, err, want)
+	}
+
+	r.folders.FailPush(job.Path, nil)
+	report, err = creator.Create(t.Context(), job)
+	if err != nil || report.Outcome != ledger.TemplateOutcomeWritten || len(report.Repositories) != 1 || steps(report.Repositories[0]) != "create=done origin=done push=done" {
+		t.Fatalf("the retry reports %+v (%v), want every step done", report, err)
+	}
+	if created, pushes := r.forge.Repositories(), r.folders.Pushes(); len(created) != 1 || len(pushes) != 2 || len(report.Remaining) != 0 {
+		t.Errorf("the retry created %v and pushed %v, leaving %q", created, pushes, report.Remaining)
+	}
+}
+
+// A journal is held to the creation it was written for: a job with its key that names another repository is refused,
+// and nothing more is done.
+func TestARepositoryCreationIsHeldToTheRepositoryItsJournalNames(t *testing.T) {
+	t.Parallel()
+	for name, change := range map[string]func(*ledger.RepositoryCreation){
+		"another path": func(job *ledger.RepositoryCreation) {
+			job.Path, job.Name, job.ForgeName = "/work/tt/repos/web", "web", "web"
+		},
+		"another owner":      func(job *ledger.RepositoryCreation) { job.Create.Owner = "test" },
+		"another visibility": func(job *ledger.RepositoryCreation) { job.Create.Visibility = ledger.VisibilityPublic },
+		"another branch":     func(job *ledger.RepositoryCreation) { job.DefaultBranch = "trunk" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			r := newCreationRig(t)
+			r.folders.Dir("/work/tt/repos")
+			job := creation("/work/tt/repos/api")
+			r.folders.FailPush(job.Path, errors.New("remote: push refused"))
+			if _, err := r.creator(r.forge).Create(t.Context(), job); err != nil {
+				t.Fatal(err)
+			}
+			done := r.folders.Done()
+			other := job
+			change(&other)
+			refusedAs(t, r.creator(r.forge), other, ledger.TemplateRefusedInvalid)
+			if !slices.Equal(r.folders.Done(), done) || len(r.forge.Repositories()) != 1 {
+				t.Errorf("the worker went on to do %v and created %v", r.folders.Done(), r.forge.Repositories())
+			}
+		})
+	}
+}
+
+// A creation that names no branch starts on the worker's default branch, which its check names, and its journal keeps
+// that branch for a retry after the default changed.
+func TestARepositoryCreationWithNoBranchStartsOnTheDefaultBranch(t *testing.T) {
+	t.Parallel()
+	r := newCreationRig(t)
+	r.folders.Dir("/work/tt/repos")
+	r.folders.SetDefaultBranch("devel")
+	job := creation("/work/tt/repos/api")
+	creator := r.creator(r.forge)
+	if checked, err := creator.Check(t.Context(), job); err != nil || checked.Branch != "devel" {
+		t.Fatalf("the check is %+v (%v), want branch devel", checked, err)
+	}
+	r.folders.FailPush(job.Path, errors.New("remote: push refused"))
+	if _, err := creator.Create(t.Context(), job); err != nil {
+		t.Fatal(err)
+	}
+	r.folders.SetDefaultBranch("other")
+	if checked, err := creator.Check(t.Context(), job); err != nil || checked.Branch != "devel" {
+		t.Errorf("the check after the default changed is %+v (%v), want branch devel", checked, err)
+	}
+	r.folders.FailPush(job.Path, nil)
+	if _, err := creator.Create(t.Context(), job); err != nil {
+		t.Fatal(err)
+	}
+	if pushes := r.folders.Pushes(); len(pushes) != 2 || pushes[1].Branch != "devel" {
+		t.Errorf("the pushes are %+v, want the retry to push devel", pushes)
+	}
+}
+
+// A link above a missing folder that leads to no folder is refused before anything is made, because no folder can be
+// made through it.
+func TestARepositoryCreationRefusesALinkAboveItThatLeadsNowhere(t *testing.T) {
+	t.Parallel()
+	r := newCreationRig(t)
+	r.folders.Dir("/work/tt/repos")
+	r.folders.Link("/work/tt/repos/gone", "/work/tt/repos/missing")
+	job := creation("/work/tt/repos/gone/api")
+	report := refusedAs(t, r.creator(r.forge), job, ledger.TemplateRefusedNoParent)
+	if !strings.Contains(report.Detail, "/work/tt/repos/gone") {
+		t.Errorf("the refusal says %q, which does not name the link", report.Detail)
+	}
+	r.nothingDone(job)
+}
