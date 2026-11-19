@@ -310,7 +310,7 @@ func (r newResult) repositoriesText(out *strings.Builder) {
 	if len(r.Remaining) > 0 {
 		out.WriteString("\nTo finish what did not run:\n")
 		for _, command := range r.Remaining {
-			fmt.Fprintf(out, "  %s\n", ledger.PlainText(command))
+			fmt.Fprintf(out, "  %s\n", command)
 		}
 	}
 }
