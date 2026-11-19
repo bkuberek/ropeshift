@@ -182,3 +182,27 @@ func TestValidateRefusesAResultNoWorkerMakes(t *testing.T) {
 		})
 	}
 }
+
+// A partial scan's reason is the scan's own text after a fixed lead, and a worker that reports it does not bound it, so
+// Bound writes it on one line and cuts it at MaxText bytes on a rune boundary, and the practice stays unknown.
+func TestBoundClipsThePartialReasonOfTheSecretScan(t *testing.T) {
+	const lead = "the secret scan was partial: "
+	why := "the repository is a partial clone\nits missing objects are not fetched " + strings.Repeat("€", 3000)
+	result := practices.Evaluate(practices.Input{
+		Repository: "repo", Commit: secondCommit, BaseBranch: "main", Worker: "w1", RulesVersion: 1,
+		Paths: []string{"SECURITY.md"}, Read: func(string) (string, bool) { return "", false }, SecretsPartial: why,
+	})
+	if got := secretsOf(t, result); got.Status != practices.StatusUnknown || !strings.HasPrefix(got.Reason, lead) || len(got.Reason) <= practices.MaxText {
+		t.Fatalf("the unbounded result holds %s %.60q, %d bytes", got.Status, got.Reason, len(got.Reason))
+	}
+	got := secretsOf(t, practices.Bound(result))
+	if len(got.Reason) > practices.MaxText || strings.ContainsAny(got.Reason, "\r\n") || !utf8.ValidString(got.Reason) {
+		t.Errorf("the reason is %d bytes, valid UTF-8 %v: %.60q", len(got.Reason), utf8.ValidString(got.Reason), got.Reason)
+	}
+	if want := lead + "the repository is a partial clone its missing objects are not fetched "; !strings.HasPrefix(got.Reason, want) {
+		t.Errorf("the reason starts %.100q, want it to start %q", got.Reason, want)
+	}
+	if got.Status != practices.StatusUnknown {
+		t.Errorf("the status is %s, want unknown", got.Status)
+	}
+}
