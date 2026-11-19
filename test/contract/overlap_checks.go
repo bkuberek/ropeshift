@@ -7,6 +7,7 @@ import (
 	"ropeshift.com/ropeshift/internal/planning"
 	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/internal/questions"
+	"ropeshift.com/ropeshift/internal/workorders"
 )
 
 // OverlapChecks hold FR-QD-5: a question a planning lane puts to the person names the decisions in force whose scope
@@ -14,6 +15,7 @@ import (
 var OverlapChecks = []Check{
 	{"OV1", "a planning lane's question to the person names the decisions in force its scope overlaps", checkDirectNamesOverlaps},
 	{"OV2", "the decisions each of several scopes overlaps are the same resolved together as resolved alone", checkScopesResolveTogetherAsAlone},
+	{"OV3", "the scopes of two contracts that run in different repositories each overlap only the decision on their own repository", checkContractsResolveApart},
 }
 
 // decidedAbout records a decision in force about a plan, as the ledger holds one, and returns its ID.
@@ -119,6 +121,64 @@ func checkScopesResolveTogetherAsAlone(r *Rig) error {
 	}
 	if len(alone["plan:"+m.plan]) == 0 || len(alone["repo:"+repository]) == 0 || len(alone["wo:ghost"]) != 0 {
 		return Violatedf("the scenario overlaps %v for its plan, %v for its repository, and %v for a work order nobody holds", alone["plan:"+m.plan], alone["repo:"+repository], alone["wo:ghost"])
+	}
+	return nil
+}
+
+// checkContractsResolveApart holds that scopes resolved together keep the work of each contract apart: two contracts,
+// each with a work order in a repository of its own, so a contract's scope, and the scope of its work order, overlap
+// the decision on the repository that work runs in and not the other.
+func checkContractsResolveApart(r *Rig) error {
+	s := r.Store()
+	type work struct{ contract, order, repository string }
+	works := []work{{r.ID("contract"), r.ID("wo"), r.ID("repo")}, {r.ID("contract"), r.ID("wo"), r.ID("repo")}}
+	err := s.Write(r.Ctx, r.Scope, "contracts.apart", func(tx ports.WriteTx) error {
+		for _, w := range works {
+			order := workorders.WorkOrder{
+				ID: w.order, Kind: workorders.KindChange, State: workorders.Done, Title: "Build " + w.contract, RepositoryID: w.repository,
+				ContractID: w.contract, ContractVersion: 1, MaxAttempts: 1,
+			}
+			if err := tx.WorkOrders().Insert(order); err != nil {
+				return err
+			}
+			event, err := workorders.CreatedEvent(order, r.Actor)
+			if err != nil {
+				return err
+			}
+			if _, err := tx.Append(event); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	var scopes []string
+	want := map[string][]string{}
+	for _, w := range works {
+		decided, err := r.decision(s, "A decision on the repository of "+w.contract, func(d *questions.Decision) { d.Scope = "repo:" + w.repository })
+		if err != nil {
+			return err
+		}
+		for _, scope := range []string{"contract:" + w.contract, "wo:" + w.order} {
+			scopes = append(scopes, scope)
+			want[scope] = []string{decided.ID}
+		}
+	}
+	var got map[string][]string
+	err = s.Read(r.Ctx, r.Scope, func(tx ports.ReadTx) error {
+		var err error
+		got, err = control.OverlapsOfScopes(tx, scopes)
+		return err
+	})
+	if err != nil {
+		return err
+	}
+	for _, scope := range scopes {
+		if !slices.Equal(got[scope], want[scope]) {
+			return Violatedf("the scope %q overlaps %v resolved with others, want %v", scope, got[scope], want[scope])
+		}
 	}
 	return nil
 }
