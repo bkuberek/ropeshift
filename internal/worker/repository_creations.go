@@ -190,6 +190,10 @@ func (c *repositoryCreator) check(ctx context.Context, rt *TemplateRuntime, job 
 	branch := job.DefaultBranch
 	if branch == "" {
 		branch = rt.Folders.DefaultBranch(ctx, above.Real)
+		if err := ledger.CheckBranch(branch); err != nil {
+			return refused(folderRefusal(ledger.TemplateRefusedInvalid,
+				fmt.Sprintf("git's init.defaultBranch on this worker names no branch a first commit starts on (%v); give the entry a default_branch", err)))
+		}
 	}
 	remote := creationJob(job, needs, branch)
 	var progress projectremote.Progress

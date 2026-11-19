@@ -493,3 +493,18 @@ func TestARepositoryCreationRefusesALinkAboveItThatLeadsNowhere(t *testing.T) {
 	}
 	r.nothingDone(job)
 }
+
+// A default branch git's configuration names that ropeshift takes as no branch is refused at the check, before any
+// file is written, as a branch the manifest names is.
+func TestARepositoryCreationRefusesADefaultBranchItCannotStartOn(t *testing.T) {
+	t.Parallel()
+	r := newCreationRig(t)
+	r.folders.Dir("/work/tt/repos")
+	r.folders.SetDefaultBranch("+main")
+	job := creation("/work/tt/repos/api")
+	report := refusedAs(t, r.creator(r.forge), job, ledger.TemplateRefusedInvalid)
+	if !strings.Contains(report.Detail, "+main") {
+		t.Errorf("the refusal says %q, which does not name the branch", report.Detail)
+	}
+	r.nothingDone(job)
+}
