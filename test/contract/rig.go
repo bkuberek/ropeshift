@@ -89,6 +89,7 @@ type Rig struct {
 	// NewOps builds the use cases under test, and a variant replaces one.
 	NewOps func(ports.Store) Ops
 
+	backend Backend
 	trace   Trace
 	mu      sync.Mutex
 	counter atomic.Int64
@@ -225,13 +226,23 @@ func NewRig(t testing.TB, backend Backend) *Rig {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	t.Cleanup(cancel)
 	return &Rig{
-		T:      t,
-		Ctx:    ctx,
-		DB:     backend.Fresh(t),
-		Scope:  "workspace-a",
-		Actor:  ledger.Actor{Kind: ledger.ActorMember, ID: "member-1"},
-		NewOps: RealOps,
+		T:       t,
+		Ctx:     ctx,
+		DB:      backend.Fresh(t),
+		Scope:   "workspace-a",
+		Actor:   ledger.Actor{Kind: ledger.ActorMember, ID: "member-1"},
+		NewOps:  RealOps,
+		backend: backend,
 	}
+}
+
+// Twin is a rig on a fresh database of the same backend, with the use cases and the decoration this rig has, so a check
+// can run the same steps twice and compare what each came to.
+func (r *Rig) Twin() *Rig {
+	r.T.Helper()
+	twin := NewRig(r.T, r.backend)
+	twin.MaxAttempts, twin.Wrap, twin.NewOps = r.MaxAttempts, r.Wrap, r.NewOps
+	return twin
 }
 
 // StoreWith opens a handle that calls step at each named moment, which is how a
