@@ -28,15 +28,39 @@ type AdoptionPlanRequest struct {
 	LeaveOut []string `json:"leave_out,omitempty"`
 	// NewProject says the project does not exist yet, so the plan reads no record of any project.
 	NewProject bool `json:"new_project,omitempty"`
+	// Practices asks that each repository the plan would register be read for its practices, as a dry run lists
+	// them (FR-PRAC-6). They are no part of the plan's digest, and nothing is recorded.
+	Practices bool `json:"practices,omitempty"`
 }
 
 // AdoptionPlanReply is what the plan route answers: the plan, flat as it always was, and the digest of each of its
 // parts. A client that cannot compute the parts, as the web UI cannot, sends them back with the restructuring it
 // chooses, so the worker that reads the layout again can name what differs. They are no part of the plan, and its
 // digest does not hold them. A client of this module reads the plan alone.
+//
+// Guides are the practice table's words for each practice a finding of the plan names, by practice ID: the plan's
+// results hold the findings, and a client that does not carry the table prints these.
 type AdoptionPlanReply struct {
 	planning.AdoptionPlan
-	Parts map[string]string `json:"parts"`
+	Parts  map[string]string        `json:"parts"`
+	Guides map[string]PracticeGuide `json:"guides,omitempty"`
+}
+
+// AdoptionGuides collects the guide of each practice a finding of the plan's repositories names.
+func AdoptionGuides(plan planning.AdoptionPlan) map[string]PracticeGuide {
+	var guides map[string]PracticeGuide
+	for _, repository := range plan.Repositories {
+		if repository.Practices == nil {
+			continue
+		}
+		for _, finding := range repository.Practices.Findings {
+			if guides == nil {
+				guides = map[string]PracticeGuide{}
+			}
+			guides[string(finding.Practice)] = guideOf(finding.Practice)
+		}
+	}
+	return guides
 }
 
 // AdoptionPlan reads the plan of an adoption into the project, which only a member can do.

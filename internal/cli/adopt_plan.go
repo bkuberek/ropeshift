@@ -1,9 +1,13 @@
 package cli
 
 import (
+	"cmp"
 	"fmt"
+	"path"
 	"strings"
+	"time"
 
+	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/planning"
 )
@@ -65,6 +69,7 @@ func adoptionPlanText(plan planning.AdoptionPlan) string {
 			fmt.Fprintf(&out, "\t(%s)", plainLine(repository.Reason))
 		}
 		out.WriteString("\n")
+		out.WriteString(plannedPractices(repository))
 	}
 	var lacking []planning.PlannedFile
 	for _, file := range plan.Files {
@@ -154,6 +159,29 @@ func commandText(command string) string {
 		return command
 	}
 	return fmt.Sprintf("(this command holds characters that cannot be shown; run '%s adopt --dry-run --json' with the same arguments to read it exactly)", program)
+}
+
+// plannedPractices is the block under a repository that the dry run read the practices of: `ropeshift practices`'s
+// text for the result, with no acknowledgement, or the note that says why the check could not read the clone. A
+// repository the dry run did not ask about has none.
+func plannedPractices(repository planning.PlannedRepository) string {
+	switch {
+	case repository.Practices != nil:
+		view := api.PracticesView{Repository: plainLine(repository.ID), Name: cmp.Or(plainLine(repository.Name), plainPath(path.Base(repository.Path)))}
+		result := api.PracticesResultViewOf("", *repository.Practices)
+		view.Result = &result
+		var out strings.Builder
+		out.WriteString("Practices\n")
+		for _, line := range strings.SplitAfter(practicesText(view, "", time.Time{}), "\n") {
+			if line != "" {
+				out.WriteString("  " + line)
+			}
+		}
+		return out.String()
+	case repository.PracticesNote != "":
+		return "Practices\t" + plainLine(repository.PracticesNote) + "\n"
+	}
+	return ""
 }
 
 // foundWhere says how the detection found a clone.

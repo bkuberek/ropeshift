@@ -43,11 +43,11 @@ func (h *handler) plan(w http.ResponseWriter, r *http.Request, actor ledger.Acto
 		return
 	}
 	plan, err := h.adoptions.Plan(r.Context(), h.Scope, control.AdoptionRequest{
-		Root: in.Root, Paths: in.Paths, Depth: in.Depth, Planning: in.Planning, Design: in.Design, LeaveOut: in.LeaveOut, NewProject: in.NewProject,
+		Root: in.Root, Paths: in.Paths, Depth: in.Depth, Planning: in.Planning, Design: in.Design, LeaveOut: in.LeaveOut, NewProject: in.NewProject, Practices: in.Practices,
 	}, h.Checkouts, h.Layouts, actor)
 	if err != nil {
 		fail(w, err)
 		return
 	}
-	reply(w, http.StatusOK, api.AdoptionPlanReply{AdoptionPlan: plan, Parts: plan.Parts()})
+	reply(w, http.StatusOK, api.AdoptionPlanReply{AdoptionPlan: plan, Parts: plan.Parts(), Guides: api.AdoptionGuides(plan)})
 }

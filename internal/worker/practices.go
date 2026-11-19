@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/pathmask"
 	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/internal/practicerun"
 	"ropeshift.com/ropeshift/internal/workorders"
@@ -84,10 +85,6 @@ func (w *Worker) sendAnswered(id string) {
 	defer w.practicesLock.Unlock()
 	delete(w.practicesSends, id)
 }
-
-// checkoutPlaceholder stands for the directory of a checkout in what a worker reports, which says nothing of the
-// layout of the worker's machine.
-const checkoutPlaceholder = "<checkout>"
 
 // errNoFileName refuses a request ID a journal cannot be named by.
 var errNoFileName = errors.New("the request's ID is no file name")
@@ -433,46 +430,8 @@ func (w *Worker) performPracticesCheck(ctx context.Context, rt *PracticesRuntime
 }
 
 // withoutCheckout writes text for a report: on one line and bounded, with every spelling of the checkout's directory
-// replaced by a placeholder, the directory as it was given, as it reads cleaned, and as symbolic links resolve it,
-// which is the one git names, and the temporary directory by `<temp>`, the person's home folder by `~`, and the
-// configuration folder by `<config>`, each as given and as symbolic links resolve it. A relative XDG_CONFIG_HOME is
-// no configuration folder and is left. The longest path is replaced first, so a path inside another is replaced whole.
-// What a run reports names nothing of the layout of the worker's machine.
+// and the machine's own folders replaced by a placeholder, so what a run reports names nothing of the layout of the
+// worker's machine.
 func withoutCheckout(text, dir string) string {
-	if text == "" {
-		return text
-	}
-	var paths []pathPlaceholder
-	paths = appendSpellings(paths, checkoutPlaceholder, dir, filepath.Clean(dir))
-	paths = appendSpellings(paths, "<temp>", filepath.Clean(os.TempDir()))
-	if home, err := os.UserHomeDir(); err == nil {
-		paths = appendSpellings(paths, "~", home)
-	}
-	if config := os.Getenv("XDG_CONFIG_HOME"); filepath.IsAbs(config) {
-		paths = appendSpellings(paths, "<config>", config)
-	}
-	slices.SortStableFunc(paths, func(a, b pathPlaceholder) int { return len(b.path) - len(a.path) })
-	for _, one := range paths {
-		text = strings.ReplaceAll(text, one.path, one.placeholder)
-	}
-	return practicerun.Clip(text)
-}
-
-// pathPlaceholder is a path a report does not name, and what stands for it.
-type pathPlaceholder struct{ path, placeholder string }
-
-// appendSpellings adds each of the paths, and each as symbolic links resolve it, as spellings of what the placeholder
-// stands for. A path that is empty or is the root is left out, because replacing it would leave nothing of the text.
-func appendSpellings(paths []pathPlaceholder, placeholder string, spellings ...string) []pathPlaceholder {
-	for _, spelled := range slices.Clone(spellings) {
-		if resolved, err := filepath.EvalSymlinks(spelled); err == nil {
-			spellings = append(spellings, resolved)
-		}
-	}
-	for _, spelled := range spellings {
-		if len(spelled) > 1 && spelled != string(filepath.Separator) && !slices.Contains(paths, pathPlaceholder{spelled, placeholder}) {
-			paths = append(paths, pathPlaceholder{spelled, placeholder})
-		}
-	}
-	return paths
+	return practicerun.Clip(pathmask.Text(text, dir))
 }

@@ -164,6 +164,25 @@ func guideOf(id practices.ID) PracticeGuide {
 	return PracticeGuide{Why: practice.Why, Fix: practice.Fix, Template: practice.Template, Command: practice.Command()}
 }
 
+// PracticesResultViewOf reads a result as a client reads it, with the table's words for each practice and finding and
+// no acknowledgement. Request is the request whose report made it a repository's latest result, empty for a result no
+// request made.
+func PracticesResultViewOf(request string, result practices.Result) PracticesResultView {
+	read := PracticesResultView{
+		Request: request, Commit: result.Commit, BaseBranch: result.BaseBranch, Worker: result.Worker, CheckedAt: result.CheckedAt,
+		TableVersion: result.TableVersion, RulesVersion: result.RulesVersion, ScannedFrom: result.ScannedFrom, Skipped: result.Skipped, Partial: result.Partial, Truncated: result.Truncated,
+		Practices: make([]PracticeView, 0, len(result.Practices)), Findings: make([]PracticeFindingView, 0, len(result.Findings)),
+	}
+	for _, status := range result.Practices {
+		practice, _ := practices.Lookup(status.ID)
+		read.Practices = append(read.Practices, PracticeView{ID: status.ID, Severity: practice.Severity, Status: status.Status, Reason: status.Reason, PracticeGuide: guideOf(status.ID)})
+	}
+	for _, finding := range result.Findings {
+		read.Findings = append(read.Findings, PracticeFindingView{Finding: finding, PracticeGuide: guideOf(finding.Practice)})
+	}
+	return read
+}
+
 // PracticesViewOf reads a repository's latest result and open request, either of which may be nil, and its
 // acknowledgements, as a client reads them at a time, with the workers named as PracticesRequestViewOf names them.
 // Every finding of the result stays in its list: one a member acknowledged reads Acknowledged, with the acknowledgement.
@@ -182,22 +201,11 @@ func PracticesViewOf(repository ledger.Repository, record *ledger.PracticesRecor
 	if record == nil {
 		return view
 	}
-	result := record.Result
-	read := PracticesResultView{
-		Request: record.Request, Commit: result.Commit, BaseBranch: result.BaseBranch, Worker: result.Worker, CheckedAt: result.CheckedAt,
-		TableVersion: result.TableVersion, RulesVersion: result.RulesVersion, ScannedFrom: result.ScannedFrom, Skipped: result.Skipped, Partial: result.Partial, Truncated: result.Truncated,
-		Practices: make([]PracticeView, 0, len(result.Practices)), Findings: make([]PracticeFindingView, 0, len(result.Findings)),
-	}
-	for _, status := range result.Practices {
-		practice, _ := practices.Lookup(status.ID)
-		read.Practices = append(read.Practices, PracticeView{ID: status.ID, Severity: practice.Severity, Status: status.Status, Reason: status.Reason, PracticeGuide: guideOf(status.ID)})
-	}
-	for _, finding := range result.Findings {
-		found := PracticeFindingView{Finding: finding, PracticeGuide: guideOf(finding.Practice)}
+	read := PracticesResultViewOf(record.Request, record.Result)
+	for i, finding := range read.Findings {
 		if ack, ok := acks[finding.ID]; ok {
-			found.Acknowledged, found.Acknowledgement = true, &ack
+			read.Findings[i].Acknowledged, read.Findings[i].Acknowledgement = true, &ack
 		}
-		read.Findings = append(read.Findings, found)
 	}
 	view.Result = &read
 	return view

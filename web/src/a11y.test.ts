@@ -234,6 +234,36 @@ suite.each(Object.entries(sizes))("at %s width", (size, viewport) => {
     );
 
     it(
+      "Import, on the dry run with each repository's practices closed and then opened, meets WCAG 2.2 A and AA",
+      async () => {
+        const context = await browser.newContext({ viewport, colorScheme: theme, reducedMotion: "reduce" });
+        await context.route(/\/v1\//, answer);
+        const page = await context.newPage();
+        const found: string[] = [];
+        const check = async (name: string) => {
+          await page.mouse.move(0, 0);
+          await page.waitForTimeout(600);
+          found.push(...(await audit(page)).map((violation) => `${name} ${violation}`));
+        };
+        await page.route(/\/v1\/adoption\/plan$/, (route) => route.fulfill({ status: 200, contentType: "application/json", body: goldens["adoption-plan-practices"] ?? "{}" }));
+        await page.goto(`${base}/import`);
+        await ready(page);
+        await page.getByLabel("Folders", { exact: true }).fill("/work/ws");
+        await page.waitForFunction(() => document.querySelector("select")?.value === "worker-1");
+        await page.getByRole("button", { name: "Run dry run" }).click();
+        await page.getByRole("region", { name: "Practices found" }).waitFor();
+        await check("import dry run practices closed");
+        for (const summary of await page.getByRole("region", { name: "Practices found" }).locator("summary").all()) {
+          await summary.click();
+        }
+        await check("import dry run practices opened");
+        await context.close();
+        expect(found.map((line) => `${size} ${theme} ${line}`)).toEqual([]);
+      },
+      180_000,
+    );
+
+    it(
       "the lane caps form, with a number above the recommendation, with a refusal, with no recommendation, and for a worker on another machine, meets WCAG 2.2 A and AA",
       async () => {
         const context = await browser.newContext({ viewport, colorScheme: theme, reducedMotion: "reduce" });

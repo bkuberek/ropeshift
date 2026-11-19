@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { AdoptionPlan } from "../api/admin";
 import { golden } from "../testing";
-import { candidatesOf, foldersOf, leftOutAfter, offersRestructure, planningRefusal, planRequest, registeredAt, registrablePaths, relativeFolder, restructureOf, whatChanged } from "./adoption";
+import { candidatesOf, foldersOf, keepPractices, leftOutAfter, offersRestructure, planningRefusal, planRequest, registeredAt, registrablePaths, relativeFolder, restructureOf, whatChanged } from "./adoption";
 
 const plan = (name: string) => golden<AdoptionPlan>(`adoption-plan-${name}`);
 
@@ -127,5 +127,30 @@ describe("what changed between two plans", () => {
 
   it("names nothing for a plan that is the same", () => {
     expect(whatChanged(plan("planned"), plan("planned"))).toEqual([]);
+  });
+});
+
+describe("the practices a plan read again keeps", () => {
+  const listed = plan("practices");
+  const bare: AdoptionPlan = {
+    ...listed,
+    guides: undefined,
+    repositories: listed.repositories.map(({ practices: _practices, practices_note: _note, ...row }) => row),
+  };
+
+  it("are those the plan read before listed, for each repository by its path", () => {
+    const kept = keepPractices(bare, listed);
+    expect(kept.repositories.map((row) => row.practices?.findings?.length)).toEqual(listed.repositories.map((row) => row.practices?.findings?.length));
+    expect(kept.guides).toEqual(listed.guides);
+  });
+
+  it("leave a repository the plan read before did not list, and one that lists its own, as they are", () => {
+    const own = { ...bare, repositories: bare.repositories.map((row, i) => (i === 0 ? { ...row, practices_note: "its own" } : row)) };
+    const kept = keepPractices(own, listed);
+    expect(kept.repositories[0]?.practices).toBeUndefined();
+    expect(kept.repositories[0]?.practices_note).toBe("its own");
+    expect(keepPractices(bare, bare)).toEqual(bare);
+    const other: AdoptionPlan = { ...bare, repositories: [{ path: "/elsewhere", outcome: "registered" }] };
+    expect(keepPractices(other, listed).repositories[0]?.practices).toBeUndefined();
   });
 });

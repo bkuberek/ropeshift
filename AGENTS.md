@@ -23,7 +23,7 @@ The module follows a hexagonal layout, and `test/rules` classifies every package
 | `internal/adapters/...` | Adapters | Claude Code, SQLite, Postgres, git, tmux, launchd, systemd, OpenTelemetry, and the other outside systems. No binary wires the Postgres adapter yet, and `test/rules` holds that |
 | `internal/api`, `internal/api/server` | API | The versioned API's types and client, and its HTTP handler |
 | `internal/cli`, `hook`, `mcpserver`, `shim`, `top` | Clients | The command line, hook, MCP server, session shim, and terminal view |
-| `internal/crashpoint`, `internal/version` | Support | Leaf packages |
+| `internal/crashpoint`, `internal/pathmask`, `internal/version` | Support | Leaf packages |
 | `web/` | Web UI | The TypeScript application. `make web-build` writes it to `web/static`, which `main` never holds apart from a placeholder page |
 | `templates/` | Templates | The project templates, as Go `text/template` files embedded in the binary, and a test that reads each with the product's own readers |
 | `test/` | Suites | `rules`, `contract`, `chaos`, `bench`, `service`, `exit`, `install`, and `real`, with `doubles`, `apitest`, `gittest`, `pgtest`, and `bundle` beside them |

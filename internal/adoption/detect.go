@@ -23,6 +23,9 @@ type Found struct {
 // Remote is the clone's remote, as git says of it, or empty for a clone with none.
 func (f Found) Remote() string { return f.clone.Remote }
 
+// DefaultBranch is the clone's default branch, which a registration records as the base of a repository it makes.
+func (f Found) DefaultBranch() string { return f.clone.DefaultBranch }
+
 // detect finds the clone adopt runs in, the clones in each directory it ignores, and the clones the paths name,
 // each once, in order of path with the clone adopt runs in first. It also says which folders the root ignores
 // hold clones, and which paths named hold none.

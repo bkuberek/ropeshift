@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/practices"
 )
 
 func aLayoutPlan() AdoptionPlan {
@@ -82,6 +83,24 @@ func TestThePlanDigestIgnoresWhatARegistrationSaid(t *testing.T) {
 	left.Repositories[0].Outcome = OutcomeNotRegistered
 	if got := left.WithDigest(); got.Digest == before.Digest {
 		t.Error("a plan that leaves a repository unregistered has the digest of one that registers it")
+	}
+}
+
+// The practices a dry run lists are findings, which a restructuring is never refused for: neither the plan's digest
+// nor the digest of any part holds a repository's practices or the note that says why they were not read.
+func TestThePlanDigestIgnoresThePracticesOfItsRepositories(t *testing.T) {
+	before := aLayoutPlan().WithDigest()
+	found := aLayoutPlan()
+	found.Repositories[0].Practices = &practices.Result{
+		Repository: "ws", Commit: "1111111111111111111111111111111111111111", BaseBranch: "main",
+		Findings: []practices.Finding{{ID: "codeowners", Practice: practices.Codeowners, Severity: practices.Low, Detail: "no CODEOWNERS"}},
+	}
+	found.Repositories[1].PracticesNote = "the practices of api were not read"
+	if got := found.WithDigest(); got.Digest != before.Digest {
+		t.Errorf("a plan that lists practices has the digest %s, want %s", got.Digest, before.Digest)
+	}
+	if got, want := found.Parts(), aLayoutPlan().Parts(); !maps.Equal(got, want) {
+		t.Errorf("the parts of a plan that lists practices are %v, want %v", got, want)
 	}
 }
 

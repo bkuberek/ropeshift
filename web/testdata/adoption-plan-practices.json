@@ -1,0 +1,447 @@
+{
+  "layout": {
+    "root": "/work/ws",
+    "folders": [
+      "/work/ws/repos"
+    ],
+    "clones": [
+      {
+        "name": "ws",
+        "path": "/work/ws",
+        "identity": "ws",
+        "where": "here",
+        "plan": true,
+        "documents": 2
+      },
+      {
+        "name": "api",
+        "path": "/work/ws/repos/api",
+        "identity": "api",
+        "where": "ignored",
+        "documents": 0
+      },
+      {
+        "name": "web",
+        "path": "/work/ws/repos/web",
+        "identity": "web",
+        "where": "ignored",
+        "documents": 0
+      }
+    ]
+  },
+  "shape": "planned",
+  "planning": {
+    "name": "ws",
+    "path": "/work/ws",
+    "why": "the clone adopt runs in"
+  },
+  "design": {
+    "name": "ws",
+    "path": "/work/ws",
+    "root": "ws",
+    "why": "it holds plan content (2)"
+  },
+  "repositories": [
+    {
+      "name": "ws",
+      "path": "/work/ws",
+      "id": "ws",
+      "outcome": "registered",
+      "practices": {
+        "repository": "ws",
+        "commit": "1111111111111111111111111111111111111111",
+        "base_branch": "main",
+        "worker": "",
+        "checked_at": "2026-11-18T09:30:00Z",
+        "table_version": 1,
+        "rules_version": 1,
+        "practices": [
+          {
+            "id": "env-ignored",
+            "status": "met"
+          },
+          {
+            "id": "secrets",
+            "status": "met"
+          },
+          {
+            "id": "ci",
+            "status": "met"
+          },
+          {
+            "id": "pre-commit",
+            "status": "met"
+          },
+          {
+            "id": "lockfile",
+            "status": "not_applicable",
+            "reason": "no package manager is detected"
+          },
+          {
+            "id": "dependency-updates",
+            "status": "not_applicable",
+            "reason": "no package manager is detected"
+          },
+          {
+            "id": "security-policy",
+            "status": "met"
+          },
+          {
+            "id": "codeowners",
+            "status": "met"
+          },
+          {
+            "id": "license",
+            "status": "not_applicable",
+            "reason": "no forge binding"
+          },
+          {
+            "id": "tests",
+            "status": "not_applicable",
+            "reason": "no package manager is detected"
+          },
+          {
+            "id": "branch-protection",
+            "status": "not_applicable",
+            "reason": "no forge binding"
+          },
+          {
+            "id": "required-review",
+            "status": "not_applicable",
+            "reason": "no forge binding"
+          }
+        ],
+        "findings": []
+      }
+    },
+    {
+      "name": "api",
+      "path": "/work/ws/repos/api",
+      "id": "api",
+      "outcome": "registered",
+      "practices": {
+        "repository": "api",
+        "commit": "1111111111111111111111111111111111111111",
+        "base_branch": "main",
+        "worker": "",
+        "checked_at": "2026-11-18T09:30:00Z",
+        "table_version": 1,
+        "rules_version": 1,
+        "practices": [
+          {
+            "id": "env-ignored",
+            "status": "finding"
+          },
+          {
+            "id": "secrets",
+            "status": "met"
+          },
+          {
+            "id": "ci",
+            "status": "finding"
+          },
+          {
+            "id": "pre-commit",
+            "status": "finding"
+          },
+          {
+            "id": "lockfile",
+            "status": "finding"
+          },
+          {
+            "id": "dependency-updates",
+            "status": "finding"
+          },
+          {
+            "id": "security-policy",
+            "status": "finding"
+          },
+          {
+            "id": "codeowners",
+            "status": "finding"
+          },
+          {
+            "id": "license",
+            "status": "not_applicable",
+            "reason": "no forge binding"
+          },
+          {
+            "id": "tests",
+            "status": "finding"
+          },
+          {
+            "id": "branch-protection",
+            "status": "not_applicable",
+            "reason": "no forge binding"
+          },
+          {
+            "id": "required-review",
+            "status": "not_applicable",
+            "reason": "no forge binding"
+          }
+        ],
+        "findings": [
+          {
+            "id": "env-ignored:ignore:.",
+            "practice": "env-ignored",
+            "subject": "ignore:.",
+            "severity": "high",
+            "detail": "not ignored by the committed .gitignore files: .env, .env.development, .env.local, .env.production, .env.test"
+          },
+          {
+            "id": "ci",
+            "practice": "ci",
+            "severity": "medium",
+            "detail": "no GitHub Actions workflow, and the no-CI recipe does not hold: the pre-commit practice is not met"
+          },
+          {
+            "id": "pre-commit",
+            "practice": "pre-commit",
+            "severity": "low",
+            "detail": "no .pre-commit-config.yaml in the root, and no hooks target in the root Makefile"
+          },
+          {
+            "id": "lockfile:go",
+            "practice": "lockfile",
+            "subject": "go",
+            "severity": "low",
+            "detail": "the go manifest in the root has no lockfile; run `go mod tidy`"
+          },
+          {
+            "id": "dependency-updates",
+            "practice": "dependency-updates",
+            "severity": "low",
+            "detail": "no .github/dependabot.yml and no Renovate configuration"
+          },
+          {
+            "id": "security-policy",
+            "practice": "security-policy",
+            "severity": "low",
+            "detail": "no SECURITY.md in the root, .github/, or docs/"
+          },
+          {
+            "id": "codeowners",
+            "practice": "codeowners",
+            "severity": "low",
+            "detail": "no CODEOWNERS file in the root, .github/, or docs/"
+          },
+          {
+            "id": "tests:go",
+            "practice": "tests",
+            "subject": "go",
+            "severity": "low",
+            "detail": "no tracked go test file; the convention is *_test.go"
+          }
+        ]
+      }
+    },
+    {
+      "name": "web",
+      "path": "/work/ws/repos/web",
+      "id": "web",
+      "outcome": "registered",
+      "practices": {
+        "repository": "web",
+        "commit": "1111111111111111111111111111111111111111",
+        "base_branch": "main",
+        "worker": "",
+        "checked_at": "2026-11-18T09:30:00Z",
+        "table_version": 1,
+        "rules_version": 1,
+        "practices": [
+          {
+            "id": "env-ignored",
+            "status": "met"
+          },
+          {
+            "id": "secrets",
+            "status": "met"
+          },
+          {
+            "id": "ci",
+            "status": "finding"
+          },
+          {
+            "id": "pre-commit",
+            "status": "finding"
+          },
+          {
+            "id": "lockfile",
+            "status": "met"
+          },
+          {
+            "id": "dependency-updates",
+            "status": "finding"
+          },
+          {
+            "id": "security-policy",
+            "status": "met"
+          },
+          {
+            "id": "codeowners",
+            "status": "met"
+          },
+          {
+            "id": "license",
+            "status": "not_applicable",
+            "reason": "no forge binding"
+          },
+          {
+            "id": "tests",
+            "status": "finding"
+          },
+          {
+            "id": "branch-protection",
+            "status": "not_applicable",
+            "reason": "no forge binding"
+          },
+          {
+            "id": "required-review",
+            "status": "not_applicable",
+            "reason": "no forge binding"
+          }
+        ],
+        "findings": [
+          {
+            "id": "ci",
+            "practice": "ci",
+            "severity": "medium",
+            "detail": "no GitHub Actions workflow, and the no-CI recipe does not hold: the pre-commit practice is not met"
+          },
+          {
+            "id": "pre-commit",
+            "practice": "pre-commit",
+            "severity": "low",
+            "detail": "no .pre-commit-config.yaml in the root, and no hooks target in the root Makefile"
+          },
+          {
+            "id": "dependency-updates",
+            "practice": "dependency-updates",
+            "severity": "low",
+            "detail": "no .github/dependabot.yml and no Renovate configuration"
+          },
+          {
+            "id": "tests:npm",
+            "practice": "tests",
+            "subject": "npm",
+            "severity": "low",
+            "detail": "no tracked npm test file; the convention is *.test.* or *.spec.* with extension js, jsx, ts, tsx, mjs, cjs, mts, or cts, or any file under a __tests__ folder"
+          }
+        ]
+      }
+    }
+  ],
+  "files": [
+    {
+      "path": "plan/repositories.md",
+      "action": "add",
+      "detail": "the manifest of the project's repositories"
+    },
+    {
+      "path": ".gitignore",
+      "action": "append",
+      "detail": "/.ropeshift/worktrees/",
+      "lines": [
+        "/.ropeshift/worktrees/"
+      ]
+    },
+    {
+      "path": "Makefile",
+      "action": "add",
+      "detail": "setup, fetch, and status over the manifest",
+      "template": "workspace/makefile"
+    },
+    {
+      "path": "AGENTS.md",
+      "action": "add",
+      "detail": "the project's instructions for agents",
+      "template": "workspace/agents.md"
+    },
+    {
+      "path": "CLAUDE.md",
+      "action": "add",
+      "detail": "imports AGENTS.md",
+      "template": "claude.md"
+    }
+  ],
+  "takes": null,
+  "collisions": null,
+  "code_trees": null,
+  "moves": null,
+  "steps": [
+    {
+      "name": "api",
+      "path": "/work/ws/repos/api",
+      "commands": [
+        "[ -e /work/ws/repos/api/AGENTS.md ] || ropeshift template show repository/agents.md > /work/ws/repos/api/AGENTS.md"
+      ]
+    },
+    {
+      "name": "web",
+      "path": "/work/ws/repos/web",
+      "commands": [
+        "[ -e /work/ws/repos/web/AGENTS.md ] || ropeshift template show repository/agents.md > /work/ws/repos/web/AGENTS.md"
+      ]
+    }
+  ],
+  "digest": "sha256:5613fa983b9ac443bcdf6feee13b5628b7dd6e88e430e9ec62fe69e51ce7ac8c",
+  "parts": {
+    "code_trees": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "collisions": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "design": "sha256:5c95e4e4c45900cc95acb66ccfb5ec23f908e9cfead989afd7d2fc4d33c95aad",
+    "files": "sha256:ccbc6c80e65061b1f9b2b1bfd8ab0c2c8c4c77b6b714edc19ae6c390f83e9c56",
+    "layout": "sha256:99924c86f41dd377413a176a1d0f6ab95ad16ce4b87681c106fb469098d17146",
+    "moves": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "planning": "sha256:39a5bf25ac97e5254d18d28344102717abdfa77f0c35b75617ac5ee730cc8246",
+    "repositories": "sha256:5dab2be0a49f1ab3c1db08dedf3578a0fcef710c10188d2da15a65c50d91fcfb",
+    "shape": "sha256:05ad072baae0b1e93afd052919622063b32b852dd55c9495c77a16487b1fa639",
+    "steps": "sha256:385d76ce488ac849b006ba16287ce9065119ad3c477b32672fc89c8089137fab",
+    "takes": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+  },
+  "guides": {
+    "ci": {
+      "why": "Checks on every change catch what a review misses, and with review target `pull_request` the base branch's required checks gate the merge.",
+      "fix": "Add a GitHub Actions workflow that runs the repository's checks and make its check required on the base branch (https://docs.github.com/en/actions/concepts/workflows-and-actions/workflows). With no CI, follow the no-CI recipe: a pre-commit hook and merge authority `person_merges` or `person_approves`.",
+      "template": "pre-commit-config.yaml",
+      "command": "ropeshift template show pre-commit-config.yaml"
+    },
+    "codeowners": {
+      "why": "It names who reviews each path; with a rule that requires code owner review, a change to a sensitive path needs its owner.",
+      "fix": "Commit `CODEOWNERS` from the template and name the owners.",
+      "template": "codeowners",
+      "command": "ropeshift template show codeowners"
+    },
+    "dependency-updates": {
+      "why": "A dependency with a known vulnerability stays until someone updates it; an update configuration proposes each update as a pull request.",
+      "fix": "Copy the template to `.github/dependabot.yml` with one entry per package manager.",
+      "template": "dependabot.yml",
+      "command": "ropeshift template show dependabot.yml"
+    },
+    "env-ignored": {
+      "why": "An env file holds credentials and local settings. Tracked, it reaches every clone and stays in the history for good; a lane environment's written files must be ignored too.",
+      "fix": "Add `.env`, `.env.*`, and `!.env.example` to `.gitignore`. For a tracked env file, run `git rm --cached <path>` and rotate every credential it held.",
+      "template": "repository/gitignore",
+      "command": "ropeshift template show repository/gitignore"
+    },
+    "lockfile": {
+      "why": "Without a lockfile each install can resolve different versions, so a build cannot be repeated and a compromised release can enter unseen.",
+      "fix": "Run the manager's lock command and commit the file it writes."
+    },
+    "pre-commit": {
+      "why": "A quick check before every commit, each lane's commit included, catches errors before they reach a review.",
+      "fix": "Commit the pre-commit configuration, or in a workspace keep the `Makefile`'s `hooks` target and run `make hooks`.",
+      "template": "pre-commit-config.yaml",
+      "command": "ropeshift template show pre-commit-config.yaml"
+    },
+    "security-policy": {
+      "why": "It tells a person who finds a vulnerability how to report it privately instead of in a public issue.",
+      "fix": "Commit `SECURITY.md` from the template and name a private reporting channel.",
+      "template": "security.md",
+      "command": "ropeshift template show security.md"
+    },
+    "tests": {
+      "why": "Tests are the evidence review and acceptance rest on; with none, a change can be judged only by reading it.",
+      "fix": "Add tests by the language's convention."
+    }
+  }
+}

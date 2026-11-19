@@ -131,8 +131,9 @@ func practicesLine(text string) string { return oneLine(ledger.PlainText(text)) 
 
 // practicesText is what `practices` prints for one repository: a header line, the open findings by severity with why
 // and fix, the acknowledged findings apart, the practices the check could not settle, and one line naming those met.
-// A repository with no result reads as not checked yet, and reason says why no check was requested of it. Every text
-// the check read from a repository goes through practicesLine.
+// A zero now leaves the age out, for a result read as it was asked for. A repository with no result reads as not checked
+// yet, and reason says why no check was requested of it. Every text the check read from a repository goes through
+// practicesLine.
 func practicesText(view api.PracticesView, reason string, now time.Time) string {
 	name := practicesLine(cmp.Or(view.Name, view.Repository))
 	result := view.Result
@@ -148,8 +149,14 @@ func practicesText(view api.PracticesView, reason string, now time.Time) string 
 		return fmt.Sprintf("%s not checked yet: %s\n", name, why)
 	}
 	var out strings.Builder
-	fmt.Fprintf(&out, "%s at %s (base %s), checked %s ago on %s\n", name, practicesLine(practicesCommit(result.Commit)), practicesLine(result.BaseBranch),
-		api.AgeWords(now.Sub(result.CheckedAt).Milliseconds()), practicesLine(result.Worker))
+	fmt.Fprintf(&out, "%s at %s (base %s)", name, practicesLine(practicesCommit(result.Commit)), practicesLine(result.BaseBranch))
+	if !now.IsZero() {
+		fmt.Fprintf(&out, ", checked %s ago", api.AgeWords(now.Sub(result.CheckedAt).Milliseconds()))
+	}
+	if worker := practicesLine(result.Worker); worker != "" {
+		out.WriteString(" on " + worker)
+	}
+	out.WriteString("\n")
 	acknowledged := map[string]api.PracticesAcknowledgement{}
 	for _, ack := range view.Acknowledgement {
 		acknowledged[ack.Finding] = ack

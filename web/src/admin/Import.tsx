@@ -12,7 +12,7 @@ import { Page } from "../parts/parts";
 import { Button } from "../ui/controls";
 import { Refusal } from "../ui/display";
 import { Field, Select } from "../ui/forms";
-import { candidatesOf, foldersOf, leftOutAfter, planningRefusal, planRequest, registeredAt, registrablePaths, relativeFolder, restructureOf, whatChanged } from "./adoption";
+import { candidatesOf, foldersOf, keepPractices, leftOutAfter, planningRefusal, planRequest, registeredAt, registrablePaths, relativeFolder, restructureOf, whatChanged } from "./adoption";
 import { PlanSummary, RestructureChoice } from "./AdoptionPlanView";
 import { folderNameOf, newID, projectNameOf } from "./logic";
 import { useChange } from "./parts";
@@ -79,8 +79,10 @@ export function ImportPage({ projects, chosen, reload }: { projects: Project[]; 
 
   // readPlan reads the plan as the CLI's dry run does: the first folder is the clone adopt runs in, and the others are
   // paths beside it. A project not created yet has no route of its own, so it is read with no record of any project.
-  const readPlan = (leaveOut: string[] = []): Promise<AdoptionPlan> => {
-    const request = planRequest(listed, levels, leaveOut);
+  // Only the dry run reads each repository's practices, which the plan's digest leaves out and which scan the whole
+  // history: a plan read again for a tree left out or before Start reads none, and keeps the ones the dry run listed.
+  const readPlan = (leaveOut: string[] = [], practices = false): Promise<AdoptionPlan> => {
+    const request = practices ? { ...planRequest(listed, levels, leaveOut), practices } : planRequest(listed, levels, leaveOut);
     return target === "new" ? readAdoptionPlan("installation", request) : inProjectOf(target, () => readAdoptionPlan("project", request));
   };
 
@@ -115,7 +117,7 @@ export function ImportPage({ projects, chosen, reload }: { projects: Project[]; 
         }
       }
       setPlanned(false);
-      return readPlan();
+      return readPlan([], true);
     });
     if (read) {
       setPlan(read);
@@ -131,7 +133,7 @@ export function ImportPage({ projects, chosen, reload }: { projects: Project[]; 
     }
     const next = await change.run(() => readPlan(leftOutAfter(plan, tree, leave)));
     if (next) {
-      setPlan(next);
+      setPlan(keepPractices(next, plan));
     }
   };
 

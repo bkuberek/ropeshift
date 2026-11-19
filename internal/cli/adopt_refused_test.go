@@ -8,6 +8,7 @@ import (
 	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/planning"
+	"ropeshift.com/ropeshift/internal/practices"
 )
 
 // The reason a registration was refused comes from the API, so a control sequence in it never reaches the terminal.
@@ -105,6 +106,34 @@ func TestAdoptionPlanTextPrintsARepositoryIDAsPlainText(t *testing.T) {
 	sameShape(t, got, adoptionPlanText(plan("abcdef")))
 	if !strings.Contains(got, "would register\tx\ta bcdef\t/x\n") {
 		t.Errorf("the repository line reads %q, want its ID as plain text", got)
+	}
+}
+
+// The Practices block under a repository prints the repository's name, taken from its path when it has none, the base
+// branch, each finding, and the note of a clone the check could not read, with text the layout, the repository, and the
+// check read, which never breaks a line or reaches the terminal as a control sequence.
+func TestAdoptionPlanTextPrintsThePracticesBlockAsPlainText(t *testing.T) {
+	plan := func(text string) planning.AdoptionPlan {
+		result := &practices.Result{
+			Repository: text, Commit: "abcdef0123456789", BaseBranch: text,
+			Practices: []practices.PracticeStatus{{ID: practices.License, Status: practices.StatusNotApplicable, Reason: text}, {ID: practices.CI, Status: practices.StatusMet}},
+			Findings: []practices.Finding{{
+				ID: "secrets:github_token:" + text + ":1a2b3c4d5e6f", Practice: practices.Secrets, Severity: practices.High,
+				Detail: text, Rule: text, Path: text, Line: 3, Commit: text,
+			}},
+		}
+		return planning.AdoptionPlan{
+			Shape: planning.ShapeWorkspaceFiles,
+			Repositories: []planning.PlannedRepository{
+				{Path: "/w/" + text, ID: "5c1d2e3f405162738495a6b7c8d9e0f1a2b3c4d5", Outcome: string(ledger.Registered), Practices: result},
+				{Name: text, Path: text, ID: "6d2e3f405162738495a6b7c8d9e0f1a2b3c4d5e6", Outcome: string(ledger.AlreadyRegistered), Practices: result},
+				{Name: text, Path: text, ID: "7e3f405162738495a6b7c8d9e0f1a2b3c4d5e6f7", Outcome: string(ledger.Registered), PracticesNote: text},
+			},
+		}
+	}
+	sameShape(t, adoptionPlanText(plan(hostile)), adoptionPlanText(plan("x")))
+	if got := adoptionPlanText(plan("a\nb\u202ec")); !strings.Contains(got, "\n  a bc at abcdef0 (base a bc)\n") {
+		t.Errorf("the block names the repository and its base as plain text on one line:\n%q", got)
 	}
 }
 

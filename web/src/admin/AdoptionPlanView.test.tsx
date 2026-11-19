@@ -2,7 +2,7 @@ import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
-import type { AdoptionPlan } from "../api/admin";
+import type { AdoptionPlan, PlannedRepository, PracticesResult } from "../api/admin";
 import { golden } from "../testing";
 import { PlanSummary, RestructureChoice } from "./AdoptionPlanView";
 
@@ -160,5 +160,63 @@ describe("the plan of an adoption, as the dry run prints it", () => {
     expect(onChoose).toHaveBeenCalledWith(true);
     await userEvent.click(screen.getByRole("checkbox", { name: /Leave out tools/ }));
     expect(onLeaveOut).toHaveBeenCalledWith("tools", true);
+  });
+
+  it("lists each repository's practices in one closed row, with no table for a plan that asked for none", () => {
+    show(plan("planned"));
+    expect(screen.queryByRole("region", { name: "Practices found" })).toBeNull();
+    cleanup();
+    show(plan("practices"));
+    const table = rows("Practices found");
+    expect(table).toHaveLength(3);
+    expect(table.map((row) => within(row).getAllByRole("cell")[0]?.textContent)).toEqual(["ws", "api", "web"]);
+    expect(within(table[0] as HTMLElement).getByText("No findings")).toBeTruthy();
+    for (const row of table.slice(1)) {
+      expect(row.querySelector("details")?.open, "a row is closed until it is opened").toBe(false);
+    }
+    const api = within(table[1] as HTMLElement);
+    expect(api.getByText(/^8 findings/)).toBeTruthy();
+    expect(["1 high", "1 medium", "6 low"].map((count) => api.getByText(count).textContent)).toEqual(["1 high", "1 medium", "6 low"]);
+  });
+
+  it("opens a row to its findings by severity, each with its fix", async () => {
+    show(plan("practices"));
+    const api = within(rows("Practices found")[1] as HTMLElement);
+    await userEvent.click(api.getByText(/^8 findings/));
+    const list = api.getByRole("list", { name: "Findings of api" });
+    const items = within(list).getAllByRole("listitem");
+    expect(items.map((item) => item.querySelector("code")?.textContent)).toEqual([
+      "env-ignored:ignore:.", "ci", "pre-commit", "lockfile:go", "dependency-updates", "security-policy", "codeowners", "tests:go",
+    ]);
+    expect(items[0]?.textContent).toContain("not ignored by the committed .gitignore files");
+    expect(items[0]?.textContent).toContain("Fix: Add `.env`, `.env.*`, and `!.env.example` to `.gitignore`");
+    expect(items[1]?.textContent).toContain("Template: ropeshift template show pre-commit-config.yaml");
+    expect(items[3]?.textContent).toContain("Fix: Run the manager's lock command");
+  });
+
+  it("says why a repository's practices were not read, and shows a secret by its rule, file, line, and commit", async () => {
+    const shown = plan("practices");
+    const [first, second] = shown.repositories as [PlannedRepository, PlannedRepository];
+    const unread: AdoptionPlan = {
+      ...shown,
+      repositories: [
+        { ...first, practices: undefined, practices_note: "the practices were not read: read <checkout> at main: not a git repository" },
+        {
+          ...second,
+          practices: {
+            ...(second.practices as PracticesResult),
+            findings: [{ id: "secrets:github_token:config/dev.yaml:1a2b3c4d5e6f", practice: "secrets", severity: "high", detail: "a match of github_token", rule: "github_token", path: "config/dev.yaml", line: 3, commit: "abc1234" }],
+          },
+        },
+      ],
+    };
+    show(unread);
+    const table = rows("Practices found");
+    expect(table).toHaveLength(2);
+    expect(table[0]?.textContent).toContain("the practices were not read: read <checkout> at main: not a git repository");
+    expect(table[0]?.querySelector("details")).toBeNull();
+    await userEvent.click(within(table[1] as HTMLElement).getByText(/^1 finding/));
+    const item = within(table[1] as HTMLElement).getByRole("listitem");
+    expect(item.textContent).toContain("At config/dev.yaml:3 (github_token, commit abc1234)");
   });
 });

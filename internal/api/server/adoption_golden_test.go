@@ -7,6 +7,7 @@ import (
 	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/planning"
 	"ropeshift.com/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/practices"
 	"ropeshift.com/ropeshift/test/apitest"
 )
 
@@ -69,6 +70,30 @@ func TestGoldenAdoptionPlans(t *testing.T) {
 			request: api.AdoptionPlanRequest{Root: "/work/design", Paths: []string{"/work/api", "/work/web"}},
 		},
 		{
+			name: "adoption-plan-practices", shape: planning.ShapePlanned,
+			place: func(in *apitest.Installation) {
+				placeClone(in, "/work/ws", "ws", fake.CloneLayout{Ignored: []string{"repos"}, Plan: ports.PlanContent{Files: 2}, Tracked: []string{".gitignore", "README.md", "plan/goal.md"}})
+				placeClone(in, "/work/ws/repos/api", "api", fake.CloneLayout{Tracked: []string{"go.mod"}})
+				placeClone(in, "/work/ws/repos/web", "web", fake.CloneLayout{Tracked: []string{"package.json"}})
+				tip := "1111111111111111111111111111111111111111"
+				snapshot := func(ignore bool, read func(string) (string, bool), paths ...string) practices.Snapshot {
+					ignored := map[string]bool{}
+					for _, probe := range practices.Probes(paths) {
+						ignored[probe] = ignore
+					}
+					return practices.Snapshot{Commit: tip, Paths: paths, Read: read, Ignored: ignored}
+				}
+				in.Practices.SetSnapshot("/work/ws", snapshot(true, nil, ".gitignore", "README.md", "plan/goal.md", "CODEOWNERS", ".pre-commit-config.yaml", "SECURITY.md"))
+				in.Practices.SetSnapshot("/work/ws/repos/api", snapshot(false, func(string) (string, bool) {
+					return "module acme.test/api\n\nrequire example.test/dep v1.0.0\n", true
+				}, "go.mod", "main.go"))
+				in.Practices.SetSnapshot("/work/ws/repos/web", snapshot(true, func(string) (string, bool) {
+					return `{"dependencies": {"left-pad": "1.3.0"}}`, true
+				}, ".gitignore", "package.json", "package-lock.json", "CODEOWNERS", "SECURITY.md"))
+			},
+			request: api.AdoptionPlanRequest{Root: "/work/ws", Practices: true},
+		},
+		{
 			name: "adoption-plan-undecided", shape: planning.ShapeWorkspaceFiles,
 			place: func(in *apitest.Installation) {
 				placeClone(in, "/work/api", "api", fake.CloneLayout{Tracked: []string{"go.mod"}})
@@ -89,6 +114,11 @@ func TestGoldenAdoptionPlans(t *testing.T) {
 			}
 			if plan.Shape != one.shape {
 				t.Fatalf("the layout reads as the %s shape, want %s", plan.Shape, one.shape)
+			}
+			if one.request.Practices {
+				// The route answers the table's words for each practice found beside the plan.
+				holdsGolden(t, one.name, pretty(t, api.AdoptionPlanReply{AdoptionPlan: plan, Parts: plan.Parts(), Guides: api.AdoptionGuides(plan)}))
+				return
 			}
 			holdsGolden(t, one.name, pretty(t, plan))
 		})

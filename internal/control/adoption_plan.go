@@ -4,12 +4,14 @@ import (
 	"cmp"
 	"context"
 	"path"
+	"time"
 
 	"ropeshift.com/ropeshift/internal/adoption"
 	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/planning"
 	"ropeshift.com/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/practicerun"
 	"ropeshift.com/ropeshift/internal/workorders"
 )
 
@@ -19,6 +21,11 @@ const MaxAdoptionDepth = adoption.MaxDepth
 // Adoptions plans the adoption of a repository and the clones around it (FR-ADOPT-12).
 type Adoptions struct {
 	repositories *Repositories
+	// practices are the reads a dry run makes of each clone's practices, on this machine (FR-PRAC-6). The zero value
+	// reads none.
+	practices practicerun.Sources
+	// limit is how long the check of one repository may run, adoption.PracticesLimit unless set.
+	limit time.Duration
 }
 
 // NewAdoptions returns the use cases over a project's repositories.
@@ -29,8 +36,23 @@ func NewAdoptions(repositories *Repositories) *Adoptions {
 // AdoptionRequest is what a member asks to be planned.
 type AdoptionRequest = adoption.Request
 
+// Checking returns the use cases with the reads a plan that asks for the practices makes of each clone it would
+// register, which the clone's machine serves.
+func (a *Adoptions) Checking(sources practicerun.Sources) *Adoptions {
+	a.practices = sources
+	return a
+}
+
+// Limiting returns the use cases with the time one repository's check may run in a plan, in place of
+// adoption.PracticesLimit.
+func (a *Adoptions) Limiting(limit time.Duration) *Adoptions {
+	a.limit = limit
+	return a
+}
+
 // Plan reads the layout around the clone adopt runs in, and the shape and changes it proposes, as the adoption
-// package reads it. It records nothing: the registrations are a dry run over the project's records.
+// package reads it. It records nothing: the registrations are a dry run over the project's records, and the
+// practices of each repository are read in process on this machine, with no forge binding, when the request asks.
 func (a *Adoptions) Plan(ctx context.Context, scope ledger.WorkspaceID, in AdoptionRequest, kept ports.Checkouts, layouts ports.Layouts, actor ledger.Actor) (planning.AdoptionPlan, error) {
 	if !authority.Allowed(actor, authority.ActionPlanAdoption) || !authority.Allowed(actor, authority.ActionRegisterRepository) {
 		return planning.AdoptionPlan{}, workorders.ErrForbidden
@@ -46,7 +68,11 @@ func (a *Adoptions) register(ctx context.Context, scope ledger.WorkspaceID, in A
 	var out []planning.PlannedRepository
 	if in.NewProject {
 		for _, one := range clones {
-			out = append(out, planning.PlannedRepository{Name: one.Name, Path: one.Path, ID: one.Identity, Outcome: string(ledger.Registered)})
+			repository, err := a.practised(ctx, in, planning.PlannedRepository{Name: one.Name, Path: one.Path, ID: one.Identity, Outcome: string(ledger.Registered)}, one.DefaultBranch())
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, repository)
 		}
 		return out, nil
 	}
@@ -64,7 +90,22 @@ func (a *Adoptions) register(ctx context.Context, scope ledger.WorkspaceID, in A
 			repository.ID = one.Repository.ID
 			repository.Name = cmp.Or(one.Repository.Name, repository.Name)
 		}
+		if one.Repository.ID != "" && one.Outcome != ledger.RegistrationRefused {
+			var err error
+			if repository, err = a.practised(ctx, in, repository, one.Repository.Base()); err != nil {
+				return nil, err
+			}
+		}
 		out = append(out, repository)
 	}
 	return out, nil
+}
+
+// practised lists a repository's practices, read at the base branch a registration would record, when the request asks
+// for them.
+func (a *Adoptions) practised(ctx context.Context, in AdoptionRequest, repository planning.PlannedRepository, base string) (planning.PlannedRepository, error) {
+	if !in.Practices {
+		return repository, nil
+	}
+	return adoption.CheckPractices(ctx, a.practices, repository, repository.Path, base, cmp.Or(a.limit, adoption.PracticesLimit))
 }
