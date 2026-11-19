@@ -103,12 +103,17 @@ func Bound(r Result) Result {
 	return r
 }
 
-// Validate refuses a result no worker makes: a practice the table does not hold, one twice, or a practice of the table
-// it holds no status for, a status or a severity no practice has, and a finding of a practice the table does not hold.
-func (r Result) Validate() error {
+// Validate refuses a result no worker makes: a practice the table does not hold, one twice, a status or a severity no
+// practice has, and a finding of a practice the table does not hold. A result on the current table version holds a
+// status for every practice of the table. A result on an earlier version may lack the practices a later version
+// added, and nothing else: it always holds a status for secrets.
+func (r Result) Validate() error { return validate(r, table, TableVersion) }
+
+// validate is Validate against a table at a version.
+func validate(r Result, rows []Practice, current int) error {
 	seen := map[ID]bool{}
 	for _, p := range r.Practices {
-		if _, ok := Lookup(p.ID); !ok {
+		if !slices.ContainsFunc(rows, func(row Practice) bool { return row.ID == p.ID }) {
 			return fmt.Errorf("the result holds a status for %q, which is no practice", p.ID)
 		}
 		if seen[p.ID] {
@@ -121,13 +126,14 @@ func (r Result) Validate() error {
 			return fmt.Errorf("the status of %s is %q, which is no status", p.ID, p.Status)
 		}
 	}
-	for _, p := range table {
-		if !seen[p.ID] {
+	behind := r.TableVersion >= 1 && r.TableVersion < current
+	for _, p := range rows {
+		if !seen[p.ID] && (p.ID == Secrets || !behind || p.Since <= r.TableVersion) {
 			return fmt.Errorf("the result holds no status for %s", p.ID)
 		}
 	}
 	for _, f := range r.Findings {
-		if _, ok := Lookup(f.Practice); !ok {
+		if !slices.ContainsFunc(rows, func(row Practice) bool { return row.ID == f.Practice }) {
 			return fmt.Errorf("the finding %q is of %q, which is no practice", f.ID, f.Practice)
 		}
 		switch f.Severity {
