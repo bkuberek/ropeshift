@@ -15,8 +15,8 @@ import (
 // shortRepository is enough of an identity to read and to name the repository again, because every
 // command takes a prefix of seven or more characters.
 func shortRepository(id string) string {
-	if len(id) > 12 {
-		return id[:12]
+	if runes := []rune(id); len(runes) > 12 {
+		return string(runes[:12])
 	}
 	return id
 }
@@ -37,7 +37,7 @@ func repositoryLine(view api.RepositoryView) string {
 		name += " (planning)"
 	}
 	return fmt.Sprintf("%s\t%s\tbase %s\tmerge %s\tstart %s\treview %s\tauthority %s\t%s\n",
-		name, shortRepository(view.ID), dashIfEmpty(view.Base), view.MergeMethod, view.StartFrom, view.Target(), view.Level(), dashIfEmpty(view.Remote))
+		name, shortRepository(plainLine(view.ID)), dashIfEmpty(view.Base), view.MergeMethod, view.StartFrom, view.Target(), view.Level(), dashIfEmpty(view.Remote))
 }
 
 func repositoryText(view api.RepositoryView) string {
@@ -412,7 +412,7 @@ func addedText(report api.RepositoryAddReport) string {
 		}
 		var name, id string
 		if added.Repository != nil {
-			name, id = plainLine(added.Repository.Name), shortRepository(added.Repository.ID)
+			name, id = plainLine(added.Repository.Name), shortRepository(plainLine(added.Repository.ID))
 		}
 		word := "registered"
 		switch {

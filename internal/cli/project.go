@@ -134,18 +134,21 @@ func (c *invocation) projectShow(args []string) int {
 	client := c.client()
 	defer client.Close()
 	detail, err := client.ProjectRecord(c.ctx, positional[0])
-	return c.finish(err, detail, func() string {
-		var out strings.Builder
-		fmt.Fprintf(&out, "project\t%s\n", detail.Name)
-		fmt.Fprintf(&out, "id\t%s\n", detail.ID)
-		fmt.Fprintf(&out, "display name\t%s\n", dashIfEmpty(detail.DisplayName))
-		fmt.Fprintf(&out, "state\t%s\n", detail.State)
-		fmt.Fprintf(&out, "database\t%s\n", detail.Database)
-		for _, record := range detail.Records {
-			fmt.Fprintf(&out, "repository\t%s\t%s\n", shortRepository(record.ID), dashIfEmpty(record.Remote))
-		}
-		return out.String()
-	})
+	return c.finish(err, detail, func() string { return projectText(detail) })
+}
+
+// projectText is what `project show` prints: the project, and each repository it holds by its short ID.
+func projectText(detail api.ProjectDetail) string {
+	var out strings.Builder
+	fmt.Fprintf(&out, "project\t%s\n", detail.Name)
+	fmt.Fprintf(&out, "id\t%s\n", detail.ID)
+	fmt.Fprintf(&out, "display name\t%s\n", dashIfEmpty(detail.DisplayName))
+	fmt.Fprintf(&out, "state\t%s\n", detail.State)
+	fmt.Fprintf(&out, "database\t%s\n", detail.Database)
+	for _, record := range detail.Records {
+		fmt.Fprintf(&out, "repository\t%s\t%s\n", shortRepository(plainLine(record.ID)), dashIfEmpty(record.Remote))
+	}
+	return out.String()
 }
 
 // positionals reads a command that takes exactly n arguments.
