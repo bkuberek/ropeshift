@@ -44,9 +44,11 @@ type ProjectFolders interface {
 	// another between the check and the open, or since an earlier write, is ErrFolderChanged and nothing is
 	// written.
 	Write(ctx context.Context, path string, files []FolderFile, want FolderID) (FolderID, error)
-	// Walk visits each file under the folder, in the lexical order of its path relative to the folder, slash separated,
-	// and each .git at any depth, a file or a folder, with git true and without looking inside it. It stops at once
-	// when visit answers false, so a caller that needs only the first few entries reads no more of a large folder.
+	// Walk visits each file under the folder, with its path relative to the folder, slash separated, and each .git at any
+	// depth, a file or a folder, with git true and without looking inside it. The order is that of filepath.WalkDir: the
+	// entries of each folder by name, a folder's contents at the place the folder's name takes, so it is not the order of the
+	// whole paths as strings. It stops at once when visit answers false, so a caller that needs only the first few entries
+	// reads no more of a large folder.
 	// A folder that is not there holds none.
 	Walk(ctx context.Context, folder string, visit func(path string, git bool) bool) error
 	// Held says which of the paths, relative to the folder and slash separated, are there: a file, a folder, or a link

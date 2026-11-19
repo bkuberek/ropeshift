@@ -3,13 +3,14 @@ import { useEffect, useState } from "react";
 import { useChange } from "../admin/parts";
 import { plainText } from "../admin/untrustedText";
 import { acknowledgeFinding, withdrawAcknowledgement } from "../api/practices";
-import type { PracticeFinding, PracticesView } from "../api/practices";
+import type { PracticesView } from "../api/practices";
 import { Button } from "../ui/controls";
 import { Refusal } from "../ui/display";
 import { Field, Select } from "../ui/forms";
 import { Icon } from "../ui/Icon";
 import { Dialog, useToast } from "../ui/overlays";
 import { acknowledgedFindings, openFindings, reasonProblem } from "./logic";
+import type { AcknowledgedFinding } from "./logic";
 
 type Which = "open" | "acknowledged";
 
@@ -97,7 +98,7 @@ function Pickers({ choice, locked }: { choice: Choice; locked: boolean }) {
   );
 }
 
-function FindingWords({ finding, withId }: { finding: PracticeFinding; withId: boolean }) {
+function FindingWords({ finding, withId }: { finding: AcknowledgedFinding; withId: boolean }) {
   return (
     <div className="stack-8">
       {withId ? (
