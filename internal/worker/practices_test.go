@@ -1055,3 +1055,51 @@ func TestAReportThatKeepsFailingIsSentAgainAfterAGrowingCappedDelay(t *testing.T
 		t.Errorf("the next request waited longer than the first wait after a send had arrived")
 	}
 }
+
+// A report names neither spelling of the temporary directory, the home folder, or the configuration folder, as the
+// worker's machine lays them out: through a symbolic link or resolved, and where one holds another the longest path is
+// the one replaced.
+func TestAFailureNamesNoTemporaryHomeOrConfigurationFolder(t *testing.T) {
+	base, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	realTemp := filepath.Join(base, "real-temp")
+	realHome := filepath.Join(realTemp, "home", "person")
+	config := filepath.Join(realHome, ".config")
+	for _, dir := range []string{realTemp, realHome, config} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	linkedTemp, linkedHome := filepath.Join(base, "linked-temp"), filepath.Join(base, "linked-home")
+	if err := os.Symlink(realTemp, linkedTemp); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(realHome, linkedHome); err != nil {
+		t.Fatal(err)
+	}
+	r := newPracticesRig(t)
+	t.Setenv("TMPDIR", linkedTemp)
+	t.Setenv("HOME", linkedHome)
+	t.Setenv("XDG_CONFIG_HOME", config)
+	captured := &capturedPractices{WorkerLink: r.link}
+	failing := r.sources
+	failing.Snapshots = failingSnapshots{err: fmt.Errorf("scratch %s/scratch and %s/scratch\nconfig %s/.gitconfig and %s/.gitconfig\nxdg %s/git/config\nhome only %s/.profile",
+		realTemp, linkedTemp, realHome, linkedHome, config, realHome)}
+	subject := r.workerOn(captured, failing)
+	if err := subject.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	r.offer(subject, ledger.DesiredPracticesCheck{ID: "req-1", Repository: "repo-widgets", BaseBranch: "main", ExpiresAt: 1 << 60})
+	report := captured.only(t)
+	for _, path := range []string{realTemp, linkedTemp, realHome, linkedHome, config} {
+		if strings.Contains(report.Detail, path) {
+			t.Errorf("the detail names %s: %s", path, report.Detail)
+		}
+	}
+	want := "scratch <temp>/scratch and <temp>/scratch config ~/.gitconfig and ~/.gitconfig xdg <config>/git/config home only ~/.profile"
+	if !strings.Contains(report.Detail, want) {
+		t.Errorf("the detail is %q, want it to hold %q", report.Detail, want)
+	}
+}
