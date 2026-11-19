@@ -413,3 +413,27 @@ func TestNewMakesAWorkspaceWithNewCodeRepositoriesEachWithItsOwnRemote(t *testin
 		}
 	}
 }
+
+// A refused check leaves no folder above the new one, and a request that passes its checks makes them.
+func TestNewMakesTheFoldersAboveTheNewOneOnlyAfterItsChecksPass(t *testing.T) {
+	r := newForgeRig(t)
+	r.forge(func(s *ghstate.State) { s.SignedOut, s.AuthError = true, "token invalid" })
+	parent := r.folder("code")
+	folder := filepath.Join(parent, "deeper", "acme")
+	report := r.run(ledger.TemplateWriteRequest{Shape: "monorepo", Path: folder, FirstCommit: true, Remote: githubOf("test", "")})
+	if report.Outcome != ledger.TemplateOutcomeRefused {
+		t.Fatalf("report = %+v", report)
+	}
+	if _, err := os.Stat(parent); !os.IsNotExist(err) {
+		t.Errorf("a refused check left the parent folder: %v", err)
+	}
+
+	r.forge(func(s *ghstate.State) { s.SignedOut, s.AuthError = false, "" })
+	report = r.run(ledger.TemplateWriteRequest{Shape: "monorepo", Path: folder, FirstCommit: true, Remote: githubOf("test", "")})
+	if report.Outcome != ledger.TemplateOutcomeWritten || report.Commit == "" {
+		t.Fatalf("report = %+v", report)
+	}
+	if _, err := os.Stat(filepath.Join(folder, "AGENTS.md")); err != nil {
+		t.Errorf("the files are not in the folder: %v", err)
+	}
+}

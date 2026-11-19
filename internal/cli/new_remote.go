@@ -8,7 +8,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 
@@ -203,9 +202,6 @@ func (c *invocation) newProject(request ledger.TemplateWriteRequest, data projec
 	if err != nil {
 		return c.finish(plainErr(err), nil, nil)
 	}
-	if err := os.MkdirAll(filepath.Dir(request.Path), 0o755); err != nil {
-		return c.finish(plainErr(err), nil, nil)
-	}
 	report, err := c.newProjectRun(c.ctx, request, needs)
 	if err != nil {
 		return c.finish(plainErr(err), nil, nil)
@@ -232,32 +228,11 @@ func (c *invocation) newProject(request ledger.TemplateWriteRequest, data projec
 	return code
 }
 
-// ansiSequence matches the terminal escape sequences a tool's stderr can carry: a CSI sequence, an OSC string ended
-// by BEL or ST, and any other two-character escape. The C1 forms of CSI and OSC are matched as well.
-var ansiSequence = regexp.MustCompile(`(?:\x1b\[|\x{9b})[0-?]*[ -/]*[@-~]|(?:\x1b\]|\x{9d})[^\x07\x1b\x{9c}]*(?:\x07|\x1b\\|\x{9c})?|\x1b[ -~]`)
-
-// plainText makes text a tool printed safe to show on a terminal: it drops escape sequences and every character
-// ledger.HiddenRune names, which is every control character, the C0 set, DEL, and the C1 set, and every
-// bidirectional override and zero-width character, but keeps newline and tab. A step's detail is clipped git or gh
-// stderr, so it is untrusted.
-func plainText(text string) string {
-	text = ansiSequence.ReplaceAllString(text, "")
-	return strings.Map(func(r rune) rune {
-		if r == '\n' || r == '\t' {
-			return r
-		}
-		if ledger.HiddenRune(r) {
-			return -1
-		}
-		return r
-	}, text)
-}
-
-// plainError is an error whose text is plainText of the wrapped error's, so what a tool printed reaches the person
+// plainError is an error whose text is ledger.PlainText of the wrapped error's, so what a tool printed reaches the person
 // with nothing that hides or reorders it.
 type plainError struct{ err error }
 
-func (e plainError) Error() string { return plainText(e.err.Error()) }
+func (e plainError) Error() string { return ledger.PlainText(e.err.Error()) }
 func (e plainError) Unwrap() error { return e.err }
 
 // plainErr wraps an error as a plainError, and leaves nil alone.
@@ -270,14 +245,14 @@ func plainErr(err error) error {
 
 // plainReport returns a report whose free text from git and gh holds no control character.
 func plainReport(report ledger.TemplateWriteReport) ledger.TemplateWriteReport {
-	report.Detail = plainText(report.Detail)
-	report.CommitError = plainText(report.CommitError)
+	report.Detail = ledger.PlainText(report.Detail)
+	report.CommitError = ledger.PlainText(report.CommitError)
 	report.Repositories = slices.Clone(report.Repositories)
 	for at, repository := range report.Repositories {
-		repository.CommitError = plainText(repository.CommitError)
+		repository.CommitError = ledger.PlainText(repository.CommitError)
 		repository.Steps = slices.Clone(repository.Steps)
 		for index := range repository.Steps {
-			repository.Steps[index].Detail = plainText(repository.Steps[index].Detail)
+			repository.Steps[index].Detail = ledger.PlainText(repository.Steps[index].Detail)
 		}
 		report.Repositories[at] = repository
 	}
@@ -318,24 +293,24 @@ func (c *invocation) refusedNew(report ledger.TemplateWriteReport) int {
 // repositoriesText says each repository's commit, remote, and steps, and what remains.
 func (r newResult) repositoriesText(out *strings.Builder) {
 	for _, repository := range r.Repositories {
-		fmt.Fprintf(out, "\nrepository\t%s\t%s\n", repository.Name, repository.Path)
+		fmt.Fprintf(out, "\nrepository\t%s\t%s\n", ledger.PlainText(repository.Name), ledger.PlainText(repository.Path))
 		switch {
 		case repository.CommitError != "":
-			fmt.Fprintf(out, "  commit\tfailed\t%s\n", repository.CommitError)
+			fmt.Fprintf(out, "  commit\tfailed\t%s\n", ledger.PlainText(repository.CommitError))
 		case repository.Commit != "":
 			fmt.Fprintf(out, "  commit\t%s\n", repository.Commit)
 		}
 		if repository.Remote != "" {
-			fmt.Fprintf(out, "  remote\t%s\n", repository.Remote)
+			fmt.Fprintf(out, "  remote\t%s\n", ledger.PlainText(repository.Remote))
 		}
 		for _, step := range repository.Steps {
-			fmt.Fprintf(out, "  %s\t%s\t%s\n", step.Step, step.Outcome, step.Detail)
+			fmt.Fprintf(out, "  %s\t%s\t%s\n", ledger.PlainText(step.Step), ledger.PlainText(step.Outcome), ledger.PlainText(step.Detail))
 		}
 	}
 	if len(r.Remaining) > 0 {
 		out.WriteString("\nTo finish what did not run:\n")
 		for _, command := range r.Remaining {
-			fmt.Fprintf(out, "  %s\n", command)
+			fmt.Fprintf(out, "  %s\n", ledger.PlainText(command))
 		}
 	}
 }
@@ -516,7 +491,7 @@ func (c *invocation) askGitHub(in *answers, request *ledger.TemplateWriteRequest
 		return 0, err
 	}
 	if account.State != ledger.ForgeAccountOK {
-		fmt.Fprintf(c.stderr, "ropeshift %s: %s: %s\n", c.name, account.State, plainText(account.Detail))
+		fmt.Fprintf(c.stderr, "ropeshift %s: %s: %s\n", c.name, account.State, ledger.PlainText(account.Detail))
 		if account.Remedy != "" {
 			fmt.Fprintf(c.stderr, "Run: %s\n", account.Remedy)
 		}

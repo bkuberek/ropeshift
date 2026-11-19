@@ -457,3 +457,21 @@ func TestNewPrintsAReportWithNoBidirectionalOrZeroWidthCharacter(t *testing.T) {
 		t.Errorf("a failed check's detail: %q", stderr)
 	}
 }
+
+// The folders above the new folder are made by the run that writes it, after its checks pass, so a refused check leaves
+// nothing on disk.
+func TestNewMakesNoFolderWhenACheckRefuses(t *testing.T) {
+	parent := filepath.Join(t.TempDir(), "code")
+	folder := filepath.Join(parent, "orchid")
+	p := &project{report: ledger.TemplateWriteReport{
+		Outcome: ledger.TemplateOutcomeRefused, Reason: ledger.TemplateRefusedGHSignedOut,
+		Detail: "Run `gh auth login --hostname github.com` on this machine", Remedy: "gh auth login --hostname github.com",
+	}}
+	code, _, _ := runNew(p.options(""), "new", "monorepo", folder, "--create-remote", "github:acme")
+	if code != cli.ExitError {
+		t.Errorf("exit %d, want an error for the refused check", code)
+	}
+	if _, err := os.Stat(parent); !os.IsNotExist(err) {
+		t.Errorf("a refused check left the parent folder: %v", err)
+	}
+}
