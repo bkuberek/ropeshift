@@ -107,8 +107,8 @@ func TestCarryForwardCarriesOnlySecretsOfTheResultTheScanContinuedFrom(t *testin
 	// reads unknown with its reason when the earlier result held none.
 	unknown := checked(secondCommit, firstCommit, "the secret scan failed")
 	got := practices.CarryForward(previous, unknown)
-	if status := secretsOf(t, got); status.Status != practices.StatusFinding || status.Reason != "" {
-		t.Errorf("secrets are %+v, want a finding", status)
+	if status := secretsOf(t, got); status.Status != practices.StatusFinding || status.Reason != "the secret scan failed" {
+		t.Errorf("secrets are %+v, want a finding that keeps the reason the scan failed", status)
 	}
 	if want := findingsOf(previous, practices.Secrets); !slices.Equal(findingsOf(got, practices.Secrets), want) {
 		t.Errorf("the secrets findings are %v, want %v", findingsOf(got, practices.Secrets), want)
@@ -154,14 +154,18 @@ func TestSecretsUnverifiedKeepsTheSecretsOfTheKeptResult(t *testing.T) {
 	if len(want) != 1 {
 		t.Fatalf("the kept result holds %v", want)
 	}
-	for name, next := range map[string]practices.Result{
-		"a met practice":      checked(secondCommit, "3333333333333333333333333333333333333333", ""),
-		"an unknown practice": checked(secondCommit, "3333333333333333333333333333333333333333", "the scan failed"),
+	for name, tt := range map[string]struct {
+		next   practices.Result
+		reason string
+	}{
+		"a met practice":      {checked(secondCommit, "3333333333333333333333333333333333333333", ""), ""},
+		"an unknown practice": {checked(secondCommit, "3333333333333333333333333333333333333333", "the scan failed"), "the scan failed"},
 	} {
+		next := tt.next
 		t.Run(name, func(t *testing.T) {
 			got := practices.SecretsUnverified(previous, next, "the commits between were read by no scan")
-			if status := secretsOf(t, got); status.Status != practices.StatusFinding || status.Reason != "" {
-				t.Errorf("secrets are %+v, want a finding", status)
+			if status := secretsOf(t, got); status.Status != practices.StatusFinding || status.Reason != tt.reason {
+				t.Errorf("secrets are %+v, want a finding with the reason %q", status, tt.reason)
 			}
 			if ids := findingsOf(got, practices.Secrets); !slices.Equal(ids, want) {
 				t.Errorf("the secrets findings are %v, want %v", ids, want)

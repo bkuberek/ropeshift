@@ -619,6 +619,9 @@ func TestAnIncrementalScanKeepsTheEarlierSecretsAndAFailedScanRestartsIt(t *test
 		!slices.Equal(secretsFindings(record.Result), []string{"secrets:github_token:config/dev.yaml:1a2b3c4d5e6f"}) {
 		t.Errorf("the result is %+v (%v), want the earlier secret kept as a finding though the scan could not run", record, err)
 	}
+	if reason := secretsStatus(t, record.Result).Reason; !strings.HasPrefix(reason, "the secret scan failed") {
+		t.Errorf("the finding's reason is %q, want it to say the scan failed", reason)
+	}
 	if tip := r.tip("repo-a"); tip != "" {
 		t.Errorf("a scan that could not run left the tip %q, want it cleared", tip)
 	}

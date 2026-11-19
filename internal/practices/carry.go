@@ -19,7 +19,8 @@ func CarryForward(previous, next Result) Result {
 }
 
 // carrySecrets adds to next the `secrets` findings of previous that it does not hold, and reads its `secrets` practice,
-// at the given index, as a finding when it holds any. It returns a copy.
+// at the given index, as a finding when it holds any, with the reason the scan could not run when it has one. It returns
+// a copy.
 func carrySecrets(previous, next Result, at int) Result {
 	// A result that left findings out leaves them out of every result that continues from it.
 	next.Truncated = next.Truncated || previous.Truncated
@@ -36,8 +37,13 @@ func carrySecrets(previous, next Result, at int) Result {
 	if len(carried) == 0 {
 		return next
 	}
+	// A scan that could not run keeps its reason beside the finding, so the status and the reason say both.
+	reason := ""
+	if next.Practices[at].Status == StatusUnknown {
+		reason = next.Practices[at].Reason
+	}
 	next.Practices = slices.Clone(next.Practices)
-	next.Practices[at] = PracticeStatus{ID: Secrets, Status: StatusFinding}
+	next.Practices[at] = PracticeStatus{ID: Secrets, Status: StatusFinding, Reason: reason}
 	next.Findings = append(slices.Clone(next.Findings), carried...)
 	sortFindings(next.Findings)
 	var cut bool
