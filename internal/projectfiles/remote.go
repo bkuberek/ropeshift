@@ -16,46 +16,68 @@ var remoteSchemes = []string{"https", "ssh", "git", "file"}
 // shell word: nothing outside the list can end the string or the line, start a comment, a substitution, or a
 // second command. A host that starts with a dash is refused so no remote reads as an option of git or ssh, and a
 // remote that holds `::` is refused because git reads `transport::address` as a remote helper, such as `ext::`,
-// which runs a command. An https or http URL with a user, and any URL with a password, are refused without echoing them.
+// which runs a command. An https, http, or file URL with a user, and any URL with a password, are refused, and so is a
+// user that holds a colon or an at sign written as %3A or %40. The scheme is read in lower case for those checks and
+// accepted only in lower case, and no refusal repeats a user part.
 func checkRemote(remote string) error {
-	if scheme, rest, found := strings.Cut(remote, "://"); found && !strings.EqualFold(scheme, "file") {
-		scheme = strings.ToLower(scheme)
+	shown := redacted(remote)
+	scheme, rest, url := strings.Cut(remote, "://")
+	lower := strings.ToLower(scheme)
+	if url {
 		authority, _, _ := strings.Cut(rest, "/")
 		if at := strings.LastIndex(authority, "@"); at >= 0 {
-			web := scheme == "https" || scheme == "http"
+			web := lower == "https" || lower == "http" || lower == "file"
 			if web || strings.Contains(authority[:at], ":") || encodedSeparator(authority[:at]) {
-				return errors.New("a remote's URL holds no user or password in an http or https URL, and no password in any other: the URL is stored in the installation, in reports, and in the manifest, so give it without the credential and let git's credential helper or an SSH key supply it")
+				return errors.New("a remote's URL holds no user or password in an http, https, or file URL, and no password in any other: the URL is stored in the installation, in reports, and in the manifest, so give it without the credential and let git's credential helper or an SSH key supply it")
 			}
 		}
 	}
 	if i := strings.IndexFunc(remote, func(r rune) bool { return !remoteRune(r) }); i >= 0 {
 		bad := []rune(remote[i:])[0]
-		return fmt.Errorf("a remote holds only letters, digits, and - . _ ~ / : @ %% +, and %q has %q", remote, bad)
+		return fmt.Errorf("a remote holds only letters, digits, and - . _ ~ / : @ %% +, and %q has %q", shown, bad)
 	}
 	if strings.Contains(remote, "::") {
-		return fmt.Errorf("a remote names no remote helper, which git reads from transport::address, and %q names one", remote)
+		return fmt.Errorf("a remote names no remote helper, which git reads from transport::address, and %q names one", shown)
 	}
-	if scheme, rest, found := strings.Cut(remote, "://"); found {
-		if !slices.Contains(remoteSchemes, scheme) {
-			return fmt.Errorf("a remote's scheme is https, ssh, git, or file, and %q has %q", remote, scheme)
+	if url {
+		// A scheme is accepted only in lower case: git hands another case to a remote helper of that name.
+		if scheme != lower || !slices.Contains(remoteSchemes, scheme) {
+			return fmt.Errorf("a remote's scheme is https, ssh, git, or file, and %q has %q", shown, scheme)
 		}
 		if scheme == "file" {
 			if !strings.HasPrefix(rest, "/") || strings.Trim(rest, "/") == "" {
-				return fmt.Errorf("a file remote names an absolute path after file://, and %q has none", remote)
+				return fmt.Errorf("a file remote names an absolute path after file://, and %q has none", shown)
 			}
 			return nil
 		}
 		authority, _, _ := strings.Cut(rest, "/")
 		if host := hostOf(authority); host == "" || strings.HasPrefix(host, "-") {
-			return fmt.Errorf("a remote's URL names a host, and %q has none", remote)
+			return fmt.Errorf("a remote's URL names a host, and %q has none", shown)
 		}
 		return nil
 	}
 	authority, path, found := strings.Cut(remote, ":")
 	if host := hostOf(authority); !found || path == "" || host == "" || strings.HasPrefix(remote, "-") || strings.HasPrefix(host, "-") || strings.Contains(authority, "/") {
-		return fmt.Errorf("a remote is a URL or scp-like user@host:path, and %q is neither; for a local repository use a file:// URL", remote)
+		return fmt.Errorf("a remote is a URL or scp-like user@host:path, and %q is neither; for a local repository use a file:// URL", shown)
 	}
 	return nil
+}
+
+// redacted is a remote as a message may repeat it: the user part before the last at sign of its authority, which for a
+// remote with no scheme is everything before its first slash, is replaced with ***, so no refusal carries a credential.
+func redacted(remote string) string {
+	head, rest := "", remote
+	if i := strings.Index(remote, "://"); i >= 0 {
+		head, rest = remote[:i+3], remote[i+3:]
+	}
+	authority, tail := rest, ""
+	if i := strings.IndexByte(rest, '/'); i >= 0 {
+		authority, tail = rest[:i], rest[i:]
+	}
+	if at := strings.LastIndex(authority, "@"); at >= 0 {
+		return head + "***" + authority[at:] + tail
+	}
+	return remote
 }
 
 // encodedSeparator says a user holds a colon or an at sign written as a percent escape, in either case.
