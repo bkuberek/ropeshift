@@ -9,6 +9,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"ropeshift.com/ropeshift/internal/ledger"
@@ -55,19 +56,27 @@ type creationJournal struct {
 	projectremote.Progress
 }
 
-// checked is what the checks of a creation found: their answer and, for a first run, the progress the checks
-// started, the folders above the path to make, and where the path leads.
+// checked is what the checks of a creation's first run found: their answer, the progress the checks started, and the
+// folders above the path to make.
 type checked struct {
 	ledger.CreationCheck
 	progress projectremote.Progress
 	// missing are the folders above the path that are not there, the highest first.
 	missing []string
-	real    string
+}
+
+// place is where a creation writes, as its checks found it: the folder, the folders above it that are not there, the
+// highest first, and the nearest folder above it that is.
+type place struct {
+	found   ports.FolderInspection
+	missing []string
+	above   ports.FolderInspection
 }
 
 // Check runs every check that comes before a creation's first write, and writes nothing. A creation its journal shows
-// started answers from the journal: its own folder and forge repository are not refused, and the URL, the account,
-// and the branch are those it ran with.
+// started runs the checks of where it writes again and answers the rest from the journal: its own folder and forge
+// repository are not refused, and the URL, the account, and the branch are those it ran with. While another creation
+// on this worker writes the folder the path leads to, the check refuses at once.
 func (c *repositoryCreator) Check(ctx context.Context, job ledger.RepositoryCreation) (ledger.CreationCheck, error) {
 	rt, err := c.runtime()
 	if err != nil {
@@ -76,24 +85,46 @@ func (c *repositoryCreator) Check(ctx context.Context, job ledger.RepositoryCrea
 	if refusal := jobRefusal(job); refusal != nil {
 		return ledger.CreationCheck{Refusal: refusal}, nil
 	}
+	release, leads, refusal, err := c.hold(ctx, rt, job, false)
+	if err != nil || refusal != nil {
+		return ledger.CreationCheck{Refusal: refusal, Leads: leads}, err
+	}
+	defer release()
 	journal, started, err := readCreation(rt, job.Key)
 	if err != nil {
 		return ledger.CreationCheck{}, err
 	}
-	if started {
-		if refusal := journal.differs(job); refusal != nil {
-			return ledger.CreationCheck{Refusal: refusal}, nil
+	if !started {
+		found, err := c.check(ctx, rt, job)
+		if err == nil && found.Refusal == nil {
+			found.Refusal = moved(leads, found.Leads)
 		}
-		return journal.check(), nil
+		return found.CreationCheck, err
 	}
-	found, err := c.check(ctx, rt, job)
-	return found.CreationCheck, err
+	if refusal := journal.differs(job); refusal != nil {
+		return ledger.CreationCheck{Refusal: refusal, Leads: leads}, nil
+	}
+	p, refusal, err := c.checkPlace(ctx, rt, job, &journal)
+	if err != nil {
+		return ledger.CreationCheck{}, err
+	}
+	if refusal == nil {
+		refusal = moved(leads, p.found.Real)
+	}
+	if refusal != nil {
+		return ledger.CreationCheck{Refusal: refusal, Leads: p.found.Real}, nil
+	}
+	answer := journal.check()
+	answer.Leads = p.found.Real
+	return answer, nil
 }
 
-// Create runs a creation, or goes on with it from its journal. A first run runs the checks again, makes the folders
-// above the path that are not there, journals what the checks decided, and then writes the files, makes the first
-// commit, creates the forge repository, adds origin, and pushes. A run that finds a journal runs again what failed
-// and goes on from the last step done. Nothing it made is deleted.
+// Create runs a creation, or goes on with it from its journal, and holds the folder the path leads to while it runs,
+// waiting for another creation on this worker that holds it. Every run runs the checks of where it writes first. A
+// first run runs the forge's checks too, makes the folders above the path that are not there, journals what the
+// checks decided, and then writes the files, makes the first commit, creates the forge repository, adds origin, and
+// pushes. A run that finds a journal runs again what failed and goes on from the last step done. Nothing it made is
+// deleted.
 func (c *repositoryCreator) Create(ctx context.Context, job ledger.RepositoryCreation) (ledger.TemplateWriteReport, error) {
 	rt, err := c.runtime()
 	if err != nil {
@@ -102,6 +133,14 @@ func (c *repositoryCreator) Create(ctx context.Context, job ledger.RepositoryCre
 	if refusal := jobRefusal(job); refusal != nil {
 		return *refusal, nil
 	}
+	release, leads, refusal, err := c.hold(ctx, rt, job, true)
+	if err != nil || refusal != nil {
+		if err != nil {
+			return ledger.TemplateWriteReport{}, err
+		}
+		return *refusal, nil
+	}
+	defer release()
 	journal, started, err := readCreation(rt, job.Key)
 	if err != nil {
 		return ledger.TemplateWriteReport{}, err
@@ -110,13 +149,26 @@ func (c *repositoryCreator) Create(ctx context.Context, job ledger.RepositoryCre
 		if refusal := journal.differs(job); refusal != nil {
 			return *refusal, nil
 		}
+		p, refusal, err := c.checkPlace(ctx, rt, job, &journal)
+		if err != nil {
+			return ledger.TemplateWriteReport{}, err
+		}
+		if refusal == nil {
+			refusal = moved(leads, p.found.Real)
+		}
+		if refusal != nil {
+			return *refusal, nil
+		}
 		journal.Retry()
 	} else {
 		found, err := c.check(ctx, rt, job)
-		if err != nil || found.Refusal != nil {
-			if err != nil {
-				return ledger.TemplateWriteReport{}, err
-			}
+		if err != nil {
+			return ledger.TemplateWriteReport{}, err
+		}
+		if found.Refusal == nil {
+			found.Refusal = moved(leads, found.Leads)
+		}
+		if found.Refusal != nil {
 			return *found.Refusal, nil
 		}
 		if refusal, err := makeFolders(ctx, rt, job.Path, found); err != nil || refusal != nil {
@@ -144,44 +196,94 @@ func (c *repositoryCreator) runtime() (*TemplateRuntime, error) {
 	return c.w.config.Templates, nil
 }
 
-// check runs the checks of a creation in order and refuses with the first that fails: the path's spelling, where it
-// leads, the folders above it, the folder itself as a template write checks it, and then the forge, under the
-// limit GitHub has to answer in.
-func (c *repositoryCreator) check(ctx context.Context, rt *TemplateRuntime, job ledger.RepositoryCreation) (checked, error) {
-	refused := func(refusal *ledger.TemplateWriteReport) (checked, error) {
-		return checked{CreationCheck: ledger.CreationCheck{Refusal: refusal}}, nil
-	}
+// hold takes the folder the path leads to, so no other creation on this worker writes it meanwhile, and says where the
+// path leads. A creation waits for the folder until its context ends; a check refuses at once while another holds it.
+func (c *repositoryCreator) hold(ctx context.Context, rt *TemplateRuntime, job ledger.RepositoryCreation, wait bool) (func(), string, *ledger.TemplateWriteReport, error) {
 	if refusal := spellingRefusal(job.Path); refusal != nil {
-		return refused(refusal)
+		return nil, "", refusal, nil
 	}
 	found, err := rt.Folders.Inspect(ctx, job.Path)
 	if err != nil {
-		return checked{}, err
+		return nil, "", nil, err
 	}
+	if wait {
+		release, err := c.w.creationFolders.lock(ctx, found.Real)
+		return release, found.Real, nil, err
+	}
+	release, _ := c.w.creationFolders.take(found.Real)
+	if release == nil {
+		return nil, found.Real, folderRefusal(ledger.TemplateRefusedBusy,
+			fmt.Sprintf("another repository creation on this worker writes %s now; read the preview again", found.Real)), nil
+	}
+	return release, found.Real, nil, nil
+}
+
+// moved refuses a run whose path leads elsewhere than it did when the run took the folder, as a link swapped in
+// above it since makes it.
+func moved(held, now string) *ledger.TemplateWriteReport {
+	if held == now {
+		return nil
+	}
+	return folderRefusal(ledger.TemplateRefusedChanged, fmt.Sprintf("the folder leads to %s now, not to %s, where it led when the creation began", now, held))
+}
+
+// checkPlace runs the checks of where a creation writes, which every run runs before it writes, and refuses with the
+// first that fails: the path's spelling, that it leads inside the bound and is not the planning clone, the folders
+// above it, and the folder as a template write checks it. Until the journal says the run wrote the folder, the folder
+// is absent or holds only the files a file manager leaves, and a first run, given no journal, may find folders above
+// it missing, for it to make. A run that goes on from a journal finds the folders above it there, and once it wrote the
+// folder, the folder may hold the shape's files and the repository the run made.
+func (c *repositoryCreator) checkPlace(ctx context.Context, rt *TemplateRuntime, job ledger.RepositoryCreation, journal *creationJournal) (place, *ledger.TemplateWriteReport, error) {
+	if refusal := spellingRefusal(job.Path); refusal != nil {
+		return place{}, refusal, nil
+	}
+	found, err := rt.Folders.Inspect(ctx, job.Path)
+	if err != nil {
+		return place{}, nil, err
+	}
+	p := place{found: found}
 	switch {
 	case !within(job.Bound, found.Real):
-		return refused(folderRefusal(ledger.TemplateRefusedOutsideBound,
-			fmt.Sprintf("the folder leads to %s, which is not inside %s, the folder that holds the planning repository's clone", found.Real, job.Bound)))
+		return p, folderRefusal(ledger.TemplateRefusedOutsideBound,
+			fmt.Sprintf("the folder leads to %s, which is not inside %s, the folder that holds the planning repository's clone", found.Real, job.Bound)), nil
 	case found.Real == job.PlanningClone:
-		return refused(folderRefusal(ledger.TemplateRefusedInsideClone, fmt.Sprintf("the folder is %s, the planning repository's clone", job.PlanningClone)))
+		return p, folderRefusal(ledger.TemplateRefusedInsideClone, fmt.Sprintf("the folder is %s, the planning repository's clone", job.PlanningClone)), nil
 	}
 	missing, above, refusal, err := missingFolders(ctx, rt, job.Path)
 	if err != nil || refusal != nil {
-		if err != nil {
-			return checked{}, err
-		}
-		return refused(refusal)
+		return p, refusal, err
 	}
-	if refusal, err := c.w.checkFolder(ctx, rt, job.Path, found, folderRules{parentsMade: len(missing) > 0, ignoreLine: true}); err != nil || refusal != nil {
+	p.missing, p.above = missing, above
+	rules := folderRules{parentsMade: journal == nil && len(missing) > 0, ignoreLine: true}
+	if journal != nil && journal.Folder() != "" {
+		files, err := projectremote.Files(c.w.projectRuntime(rt), creationJob(job, journal.NeedsRepository, journal.Branch), &journal.Progress)
 		if err != nil {
-			return checked{}, err
+			return p, nil, err
 		}
+		rules.files, rules.started = files, true
+	}
+	refusal, err = c.w.checkFolder(ctx, rt, job.Path, found, rules)
+	return p, refusal, err
+}
+
+// check runs the checks of a creation's first run in order and refuses with the first that fails: where it writes,
+// the default branch, and then the forge, under the limit GitHub has to answer in.
+func (c *repositoryCreator) check(ctx context.Context, rt *TemplateRuntime, job ledger.RepositoryCreation) (checked, error) {
+	p, refusal, err := c.checkPlace(ctx, rt, job, nil)
+	if err != nil {
+		return checked{}, err
+	}
+	refused := func(refusal *ledger.TemplateWriteReport) (checked, error) {
+		return checked{CreationCheck: ledger.CreationCheck{Refusal: refusal, Leads: p.found.Real}}, nil
+	}
+	if refusal != nil {
 		return refused(refusal)
 	}
 	// Git names no clone for a folder whose parent is not there yet, so the clone the folder will lie in is the one
 	// that holds the nearest folder above it.
-	if len(missing) > 0 {
-		found.CloneTop = above.CloneTop
+	found := p.found
+	if len(p.missing) > 0 {
+		found.CloneTop = p.above.CloneTop
 	}
 	needs, err := c.w.needsRepository(ctx, rt, found)
 	if err != nil {
@@ -189,7 +291,7 @@ func (c *repositoryCreator) check(ctx context.Context, rt *TemplateRuntime, job 
 	}
 	branch := job.DefaultBranch
 	if branch == "" {
-		branch = rt.Folders.DefaultBranch(ctx, above.Real)
+		branch = rt.Folders.DefaultBranch(ctx, p.above.Real)
 		if err := ledger.CheckBranch(branch); err != nil {
 			return refused(folderRefusal(ledger.TemplateRefusedInvalid,
 				fmt.Sprintf("git's init.defaultBranch on this worker names no branch a first commit starts on (%v); give the entry a default_branch", err)))
@@ -217,12 +319,12 @@ func (c *repositoryCreator) check(ctx context.Context, rt *TemplateRuntime, job 
 		}
 		return refused(refusal)
 	}
-	answer := ledger.CreationCheck{Branch: branch}
+	answer := ledger.CreationCheck{Leads: found.Real, Branch: branch}
 	if progress.Account != nil {
 		answer.URL = ledger.CreatedURL(progress.Account.GitProtocol, job.Create.Owner, job.ForgeName)
 		answer.Login = progress.Account.Login
 	}
-	return checked{CreationCheck: answer, progress: progress, missing: missing, real: found.Real}, nil
+	return checked{CreationCheck: answer, progress: progress, missing: p.missing}, nil
 }
 
 // jobRefusal refuses a job no manifest entry gives, before anything is read: a key that names no journal file, a
@@ -349,8 +451,8 @@ func makeFolders(ctx context.Context, rt *TemplateRuntime, at string, found chec
 	if err != nil {
 		return nil, err
 	}
-	if !after.ParentDirectory || after.Real != found.real {
-		return folderRefusal(ledger.TemplateRefusedChanged, fmt.Sprintf("the folder leads to %s now, not to %s, where the checks found it leading", after.Real, found.real)), nil
+	if !after.ParentDirectory || after.Real != found.Leads {
+		return folderRefusal(ledger.TemplateRefusedChanged, fmt.Sprintf("the folder leads to %s now, not to %s, where the checks found it leading", after.Real, found.Leads)), nil
 	}
 	return nil, nil
 }
@@ -436,4 +538,46 @@ func saveCreation(rt *TemplateRuntime, key string, journal creationJournal) erro
 		synced = err
 	}
 	return synced
+}
+
+// creationFolders are the folders repository creations on a worker write now, by the path each leads to, so two
+// creations never write one folder at once: two projects whose planning clones sit side by side share a bound.
+type creationFolders struct {
+	mu   sync.Mutex
+	held map[string]chan struct{}
+}
+
+// lock waits until no creation holds the folder, or the context ends, and takes it. Its release lets the next one in.
+func (l *creationFolders) lock(ctx context.Context, folder string) (func(), error) {
+	for {
+		release, wait := l.take(folder)
+		if release != nil {
+			return release, nil
+		}
+		select {
+		case <-wait:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+}
+
+// take takes the folder when no creation holds it, and otherwise says what closes once the one that holds it lets go.
+func (l *creationFolders) take(folder string) (func(), <-chan struct{}) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if wait, held := l.held[folder]; held {
+		return nil, wait
+	}
+	if l.held == nil {
+		l.held = map[string]chan struct{}{}
+	}
+	done := make(chan struct{})
+	l.held[folder] = done
+	return func() {
+		l.mu.Lock()
+		delete(l.held, folder)
+		l.mu.Unlock()
+		close(done)
+	}, nil
 }

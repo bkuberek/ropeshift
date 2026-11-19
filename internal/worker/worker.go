@@ -112,6 +112,8 @@ type Worker struct {
 	// performingLock guards performing, the effects a goroutine of this process is performing now.
 	performingLock sync.Mutex
 	performing     map[string]bool
+	// creationFolders are the folders the repository creations of this process write now.
+	creationFolders creationFolders
 
 	// qualLock guards qual, the probe result in force, probe, the one probe running, and life, the
 	// context a probe runs under, which outlives any one lane.

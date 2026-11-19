@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"ropeshift.com/ropeshift/internal/adapters/clock"
 	"ropeshift.com/ropeshift/internal/adapters/fake"
@@ -46,10 +47,15 @@ func newCreationRig(t *testing.T) *creationRig {
 
 // creator is the repository creator of a worker on this rig's machine that reaches the forge through forge.
 func (r *creationRig) creator(forge ports.ForgeAccounts) ports.RepositoryCreator {
+	return r.creatorWith(r.folders, forge)
+}
+
+// creatorWith is the repository creator of a worker that reaches this rig's folders through folders.
+func (r *creationRig) creatorWith(folders ports.ProjectFolders, forge ports.ForgeAccounts) ports.RepositoryCreator {
 	subject := worker.New(nil, nil, clock.System{}, worker.Config{
 		Name: "atlas",
 		Templates: &worker.TemplateRuntime{
-			Folders: r.folders, Checkouts: r.kept, Forge: forge, Render: render, StateDir: r.state,
+			Folders: folders, Checkouts: r.kept, Forge: forge, Render: render, StateDir: r.state,
 		},
 	})
 	return subject.RepositoryCreator()
@@ -120,7 +126,7 @@ func TestARepositoryCreationWritesCommitsCreatesAddsOriginAndPushes(t *testing.T
 	creator := r.creator(r.forge)
 
 	checked, err := creator.Check(t.Context(), job)
-	want := ledger.CreationCheck{URL: "git@github.com:acme/api.git", Login: "test", Branch: "trunk"}
+	want := ledger.CreationCheck{Leads: "/work/tt/repos/api", URL: "git@github.com:acme/api.git", Login: "test", Branch: "trunk"}
 	if err != nil || checked != want {
 		t.Fatalf("the check is %+v (%v), want %+v", checked, err, want)
 	}
@@ -404,7 +410,7 @@ func TestARepositoryCreationThatFailedAnswersFromItsJournalAndARetryFinishesIt(t
 
 	r.forge.SignIn = ports.ForgeAccount{State: ledger.ForgeAccountSignedOut}
 	checked, err := creator.Check(t.Context(), job)
-	if want := (ledger.CreationCheck{URL: "https://github.com/acme/api.git", Login: "test", Branch: "main"}); err != nil || checked != want {
+	if want := (ledger.CreationCheck{Leads: "/work/tt/repos/api", URL: "https://github.com/acme/api.git", Login: "test", Branch: "main"}); err != nil || checked != want {
 		t.Fatalf("the check of the started creation is %+v (%v), want %+v", checked, err, want)
 	}
 
@@ -494,6 +500,149 @@ func TestARepositoryCreationRefusesALinkAboveItThatLeadsNowhere(t *testing.T) {
 	r.nothingDone(job)
 }
 
+// failedPush is a creation at /work/tt/repos/api whose push failed, so its journal holds the folder it wrote, the first
+// commit, the forge repository, and origin, and a retry goes on from there.
+func failedPush(t *testing.T, r *creationRig, creator ports.RepositoryCreator) ledger.RepositoryCreation {
+	t.Helper()
+	r.folders.Dir("/work/tt/repos")
+	job := creation("/work/tt/repos/api")
+	r.folders.FailPush(job.Path, errors.New("remote: push refused"))
+	report, err := creator.Create(t.Context(), job)
+	if err != nil || len(report.Repositories) != 1 || steps(report.Repositories[0]) != "create=done origin=done push=failed" {
+		t.Fatalf("the creation reports %+v (%v), want its push failed", report, err)
+	}
+	r.folders.FailPush(job.Path, nil)
+	return job
+}
+
+// heldFolders stops the run that reads which of the shape's files the folder holds, as a worker that dies just after
+// it journaled the start of a creation does, before it wrote anything.
+type heldFolders struct{ *fake.ProjectFolders }
+
+func (heldFolders) Held(context.Context, string, []string) ([]string, error) {
+	runtime.Goexit()
+	return nil, nil
+}
+
+// A creation that stopped after it journaled its start and before it wrote anything does not write into a folder
+// someone else filled at its path since, even with a file the shape writes: its checks run again, and the folder holds
+// files the creation did not write.
+func TestAResumedRepositoryCreationRefusesAFolderSomeoneElseFilled(t *testing.T) {
+	t.Parallel()
+	for name, file := range map[string]string{"a file of its own": "notes.txt", "a file the shape writes": "AGENTS.md"} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			r := newCreationRig(t)
+			r.folders.Dir("/work/tt/repos")
+			job := creation("/work/tt/repos/api")
+			stopped := make(chan struct{})
+			go func() {
+				defer close(stopped)
+				_, _ = r.creatorWith(heldFolders{r.folders}, r.forge).Create(context.Background(), job)
+			}()
+			<-stopped
+			if _, err := os.Stat(r.journal(job)); err != nil {
+				t.Fatalf("no journal of the started creation: %v", err)
+			}
+			r.folders.Place(job.Path+"/"+file, "someone else's")
+			refusedAs(t, r.creator(r.forge), job, ledger.TemplateRefusedNotEmpty)
+			if done, created := r.folders.Done(), r.forge.Repositories(); len(done) != 0 || len(created) != 0 {
+				t.Errorf("the worker did %v and created %v in a folder it did not write", done, created)
+			}
+		})
+	}
+}
+
+// A creation that goes on from its journal checks where its path leads again: a folder above it swapped for a link out
+// of the bound, or into the planning clone where the clone does not ignore it, is refused, and nothing more is done.
+func TestAResumedRepositoryCreationChecksWhereItsPathLeadsAgain(t *testing.T) {
+	t.Parallel()
+	for name, tc := range map[string]struct {
+		target, reason, leads string
+	}{
+		"a parent that leads outside the bound": {"/elsewhere", ledger.TemplateRefusedOutsideBound, "/elsewhere/api"},
+		"a path now inside the planning clone":  {"/work/tt/code", ledger.TemplateRefusedInsideClone, "/work/tt/code/api"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			r := newCreationRig(t)
+			creator := r.creator(r.forge)
+			job := failedPush(t, r, creator)
+			r.folders.Dir(tc.target)
+			r.folders.Link("/work/tt/repos", tc.target)
+			done, pushes := r.folders.Done(), len(r.folders.Pushes())
+			refusedAs(t, creator, job, tc.reason)
+			if checked, err := creator.Check(t.Context(), job); err != nil || checked.Leads != tc.leads {
+				t.Errorf("the check is %+v (%v), want it to lead to %s", checked, err, tc.leads)
+			}
+			if !slices.Equal(r.folders.Done(), done) || len(r.folders.Pushes()) != pushes || len(r.forge.Repositories()) != 1 {
+				t.Errorf("the worker went on to do %v and push %v", r.folders.Done(), r.folders.Pushes())
+			}
+		})
+	}
+}
+
+// blockingForge holds the forge's create of a repository until the test lets it go, and says when it began.
+type blockingForge struct {
+	*fake.ForgeAccounts
+	began   chan struct{}
+	release chan struct{}
+}
+
+func (f *blockingForge) Create(ctx context.Context, host string, repository ports.CreateRepository) error {
+	close(f.began)
+	<-f.release
+	return f.ForgeAccounts.Create(ctx, host, repository)
+}
+
+// Two creations whose paths lead to one folder never write it at once: the second, spelled through a link, waits until
+// the first is done, then finds what the first made and is refused, writing and creating nothing. A check of it
+// meanwhile refuses at once, saying a creation writes there now.
+func TestTwoRepositoryCreationsAtOneFolderTakeTurns(t *testing.T) {
+	t.Parallel()
+	r := newCreationRig(t)
+	r.folders.Dir("/work/tt/repos")
+	r.folders.Link("/work/tt/alias", "/work/tt/repos")
+	forge := &blockingForge{ForgeAccounts: r.forge, began: make(chan struct{}), release: make(chan struct{})}
+	creator := r.creator(forge)
+	first := creation("/work/tt/repos/api")
+	second := creation("/work/tt/alias/api")
+	second.Key = ledger.CreationKey("approval-2", "api")
+
+	firstDone := make(chan ledger.TemplateWriteReport, 1)
+	go func() {
+		report, _ := creator.Create(context.Background(), first)
+		firstDone <- report
+	}()
+	<-forge.began
+	secondDone := make(chan ledger.TemplateWriteReport, 1)
+	go func() {
+		report, _ := creator.Create(context.Background(), second)
+		secondDone <- report
+	}()
+	checked, err := creator.Check(t.Context(), second)
+	if err != nil || checked.Refusal == nil || checked.Refusal.Reason != ledger.TemplateRefusedBusy || checked.Leads != first.Path {
+		t.Errorf("a check while the first creation writes is %+v (%v), want refused as path_busy", checked, err)
+	}
+	select {
+	case report := <-secondDone:
+		t.Fatalf("the second creation ran while the first wrote the folder: %+v", report)
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	close(forge.release)
+	if report := <-firstDone; report.Outcome != ledger.TemplateOutcomeWritten {
+		t.Fatalf("the first creation reports %+v", report)
+	}
+	done := r.folders.Done()
+	if report := <-secondDone; report.Outcome != ledger.TemplateOutcomeRefused {
+		t.Errorf("the second creation reports %+v, want refused", report)
+	}
+	if created := r.forge.Repositories(); len(created) != 1 || !slices.Equal(r.folders.Done(), done) {
+		t.Errorf("the forge created %+v and the second creation did %v", created, r.folders.Done())
+	}
+}
+
 // A default branch git's configuration names that ropeshift takes as no branch is refused at the check, before any
 // file is written, as a branch the manifest names is.
 func TestARepositoryCreationRefusesADefaultBranchItCannotStartOn(t *testing.T) {
@@ -507,4 +656,20 @@ func TestARepositoryCreationRefusesADefaultBranchItCannotStartOn(t *testing.T) {
 		t.Errorf("the refusal says %q, which does not name the branch", report.Detail)
 	}
 	r.nothingDone(job)
+}
+
+// A check says where the path leads, every link followed, whether it passes or refuses, so the preview shows it.
+func TestARepositoryCreationCheckSaysWhereThePathLeads(t *testing.T) {
+	t.Parallel()
+	r := newCreationRig(t)
+	r.folders.Dir("/work/tt/repos")
+	r.folders.Link("/work/alias", "/work/tt")
+	r.forge.Exist("acme", "web")
+	creator := r.creator(r.forge)
+	if checked, err := creator.Check(t.Context(), creation("/work/alias/repos/api")); err != nil || checked.Refusal != nil || checked.Leads != "/work/tt/repos/api" {
+		t.Errorf("the check is %+v (%v), want it to pass and lead to /work/tt/repos/api", checked, err)
+	}
+	if checked, err := creator.Check(t.Context(), creation("/work/alias/repos/web")); err != nil || checked.Refusal == nil || checked.Leads != "/work/tt/repos/web" {
+		t.Errorf("the check is %+v (%v), want it refused and leading to /work/tt/repos/web", checked, err)
+	}
 }
