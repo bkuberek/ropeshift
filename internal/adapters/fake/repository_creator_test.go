@@ -25,8 +25,8 @@ func TestRepositoryCreatorRecordsEachJobAndAnswersWhatATestSet(t *testing.T) {
 	api, web := creationJob("api"), creationJob("web")
 
 	check, err := creator.Check(t.Context(), api)
-	if err != nil || check.Refusal != nil || check.URL != "" {
-		t.Fatalf("an unset check answers %+v (%v)", check, err)
+	if err != nil || check.Refusal != nil || check.URL != "" || check.Leads != api.Path {
+		t.Fatalf("an unset check answers %+v (%v), want it to lead to %s", check, err, api.Path)
 	}
 	report, err := creator.Create(t.Context(), api)
 	if err != nil || report.Outcome != ledger.TemplateOutcomeWritten {

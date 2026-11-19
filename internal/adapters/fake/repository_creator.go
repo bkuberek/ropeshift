@@ -73,7 +73,8 @@ func (c *RepositoryCreator) Created() []ledger.RepositoryCreation {
 	return append([]ledger.RepositoryCreation(nil), c.created...)
 }
 
-// Check records the job and answers the check set for its key.
+// Check records the job and answers the check set for its key. A memory disk holds no link, so a check that names
+// no place the path leads leads it to the path itself.
 func (c *RepositoryCreator) Check(ctx context.Context, job ledger.RepositoryCreation) (ledger.CreationCheck, error) {
 	if err := ctx.Err(); err != nil {
 		return ledger.CreationCheck{}, err
@@ -84,7 +85,11 @@ func (c *RepositoryCreator) Check(ctx context.Context, job ledger.RepositoryCrea
 	if err := c.checkErrors[job.Key]; err != nil {
 		return ledger.CreationCheck{}, err
 	}
-	return c.checks[job.Key], nil
+	check := c.checks[job.Key]
+	if check.Leads == "" {
+		check.Leads = job.Path
+	}
+	return check, nil
 }
 
 // Create records the job and reports what a test set for its key, or a written outcome when it set none.
