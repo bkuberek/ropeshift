@@ -51,6 +51,7 @@ func (g Git) environment() []string {
 	}
 	// A command never waits on a prompt, because a daemon has no terminal.
 	env := append(append(base[:len(base):len(base)], "GIT_TERMINAL_PROMPT=0", "LC_ALL=C"), g.Extra...)
+	env = foldParameters(env)
 	for _, setting := range g.Config {
 		env = withGitConfig(env, setting[0], setting[1])
 	}

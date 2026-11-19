@@ -34,7 +34,7 @@ func resolved(ctx context.Context, git Git, name string) (string, error) {
 // files: the history a merge brings in is another repository's, so only the branch's own line is read.
 func (w Worktrees) BranchCommits(ctx context.Context, repository, base, head string) ([]ports.Commit, error) {
 	git := w.git(repository)
-	git.Extra = plainNames
+	git.Config = plainNames
 	to, err := resolved(ctx, git, head)
 	if err != nil {
 		return nil, err
@@ -72,7 +72,7 @@ var errEnoughPaths = errors.New("enough paths")
 // tree of any size costs at most the limit.
 func (w Worktrees) CommitPaths(ctx context.Context, repository, commit string, limit int) ([]string, bool, error) {
 	git := w.git(repository)
-	git.Extra = plainNames
+	git.Config = plainNames
 	hash, err := resolved(ctx, git, commit)
 	if err != nil {
 		return nil, false, err

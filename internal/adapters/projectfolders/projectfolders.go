@@ -228,7 +228,7 @@ func (f Folders) Held(_ context.Context, path string, files []string) ([]string,
 // the commit would run. A .git is the worker's own only when the caller says its journal records the git init: then a
 // commit made before a crash is answered, not made twice, and an init with no commit is gone on from.
 func (f Folders) FirstCommit(ctx context.Context, path, message string, resumed bool, folder ports.FolderID, commit ports.CommitSpec) (string, error) {
-	git := gitcli.Git{Dir: path, Env: f.Env, Extra: gitcli.NoHooksNoSigning()}
+	git := gitcli.Git{Dir: path, Env: f.Env, Config: gitcli.NoHooksNoSigning()}
 	// Git finds the folder by its path, so the path is read again just before each command, and a path that is no longer
 	// the folder Write named runs nothing.
 	same := func() error {
