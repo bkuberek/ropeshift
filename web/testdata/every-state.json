@@ -103,7 +103,7 @@
             "artifacts": [
               {
                 "created_at": 1790000133001,
-                "digest": "abc123",
+                "digest": "abc1230000000000000000000000000000000000",
                 "fence": 2,
                 "id": "generated-1",
                 "kind": "branch",
@@ -185,7 +185,7 @@
             "artifacts": [
               {
                 "created_at": 1790000071001,
-                "digest": "abc123",
+                "digest": "abc1230000000000000000000000000000000000",
                 "fence": 2,
                 "id": "generated-5",
                 "kind": "branch",
@@ -229,7 +229,7 @@
             "artifacts": [
               {
                 "created_at": 1790000070001,
-                "digest": "abc123",
+                "digest": "abc1230000000000000000000000000000000000",
                 "fence": 2,
                 "id": "generated-7",
                 "kind": "branch",
@@ -279,7 +279,7 @@
             "artifacts": [
               {
                 "created_at": 1790000068001,
-                "digest": "abc123",
+                "digest": "abc1230000000000000000000000000000000000",
                 "fence": 2,
                 "id": "generated-10",
                 "kind": "branch",
@@ -303,8 +303,8 @@
                 "approved_at": 1790000068001,
                 "approved_by_id": "member-1",
                 "approved_by_kind": "member",
-                "approved_commit": "abc123",
-                "id": "integration:wo-integrating:abc123",
+                "approved_commit": "abc1230000000000000000000000000000000000",
+                "id": "integration:wo-integrating:abc1230000000000000000000000000000000000",
                 "merge_authority": "person_approves",
                 "work_order_id": "wo-integrating"
               }
@@ -317,7 +317,7 @@
               }
             ],
             "state": "integrating",
-            "why": "the worker is merging abc123 into main",
+            "why": "the worker is merging abc12300 into main",
             "work_order_id": "wo-integrating"
           },
           "work_order": {
@@ -341,7 +341,7 @@
             "artifacts": [
               {
                 "created_at": 1790000067001,
-                "digest": "abc123",
+                "digest": "abc1230000000000000000000000000000000000",
                 "fence": 2,
                 "id": "generated-13",
                 "kind": "branch",
@@ -1181,7 +1181,7 @@
               "artifacts": [
                 {
                   "created_at": 1790000067001,
-                  "digest": "abc123",
+                  "digest": "abc1230000000000000000000000000000000000",
                   "fence": 2,
                   "id": "generated-13",
                   "kind": "branch",
@@ -1215,7 +1215,7 @@
               "artifacts": [
                 {
                   "created_at": 1790000067001,
-                  "digest": "abc123",
+                  "digest": "abc1230000000000000000000000000000000000",
                   "fence": 2,
                   "id": "generated-13",
                   "kind": "branch",
@@ -1276,7 +1276,7 @@
               "artifacts": [
                 {
                   "created_at": 1790000069001,
-                  "digest": "abc123",
+                  "digest": "abc1230000000000000000000000000000000000",
                   "fence": 2,
                   "id": "generated-35",
                   "kind": "branch",
@@ -1337,7 +1337,7 @@
               "artifacts": [
                 {
                   "created_at": 1790000071001,
-                  "digest": "abc123",
+                  "digest": "abc1230000000000000000000000000000000000",
                   "fence": 2,
                   "id": "generated-5",
                   "kind": "branch",
@@ -1504,7 +1504,7 @@
               "artifacts": [
                 {
                   "created_at": 1790000133001,
-                  "digest": "abc123",
+                  "digest": "abc1230000000000000000000000000000000000",
                   "fence": 2,
                   "id": "generated-1",
                   "kind": "branch",
@@ -1538,7 +1538,7 @@
               "artifacts": [
                 {
                   "created_at": 1790000133001,
-                  "digest": "abc123",
+                  "digest": "abc1230000000000000000000000000000000000",
                   "fence": 2,
                   "id": "generated-1",
                   "kind": "branch",
@@ -5295,7 +5295,7 @@
           "artifacts": [
             {
               "created_at": 1790000133001,
-              "digest": "abc123",
+              "digest": "abc1230000000000000000000000000000000000",
               "fence": 2,
               "id": "generated-1",
               "kind": "branch",
@@ -5606,7 +5606,7 @@
           "artifacts": [
             {
               "created_at": 1790000067001,
-              "digest": "abc123",
+              "digest": "abc1230000000000000000000000000000000000",
               "fence": 2,
               "id": "generated-13",
               "kind": "branch",
@@ -5642,7 +5642,7 @@
           "artifacts": [
             {
               "created_at": 1790000069001,
-              "digest": "abc123",
+              "digest": "abc1230000000000000000000000000000000000",
               "fence": 2,
               "id": "generated-35",
               "kind": "branch",
@@ -5678,7 +5678,7 @@
           "artifacts": [
             {
               "created_at": 1790000070001,
-              "digest": "abc123",
+              "digest": "abc1230000000000000000000000000000000000",
               "fence": 2,
               "id": "generated-7",
               "kind": "branch",
@@ -5714,7 +5714,7 @@
           "artifacts": [
             {
               "created_at": 1790000071001,
-              "digest": "abc123",
+              "digest": "abc1230000000000000000000000000000000000",
               "fence": 2,
               "id": "generated-5",
               "kind": "branch",
@@ -5750,7 +5750,7 @@
           "artifacts": [
             {
               "created_at": 1790000068001,
-              "digest": "abc123",
+              "digest": "abc1230000000000000000000000000000000000",
               "fence": 2,
               "id": "generated-10",
               "kind": "branch",
@@ -5950,7 +5950,7 @@
             "artifacts": [
               {
                 "created_at": 1790000069001,
-                "digest": "abc123",
+                "digest": "abc1230000000000000000000000000000000000",
                 "fence": 2,
                 "id": "generated-35",
                 "kind": "branch",
@@ -6008,7 +6008,7 @@
             "artifacts": [
               {
                 "created_at": 1790000071001,
-                "digest": "abc123",
+                "digest": "abc1230000000000000000000000000000000000",
                 "fence": 2,
                 "id": "generated-5",
                 "kind": "branch",
