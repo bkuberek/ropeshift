@@ -444,7 +444,7 @@ func withoutCheckout(text, dir string) string {
 	}
 	var paths []pathPlaceholder
 	paths = appendSpellings(paths, checkoutPlaceholder, dir, filepath.Clean(dir))
-	paths = appendSpellings(paths, "<temp>", os.TempDir())
+	paths = appendSpellings(paths, "<temp>", filepath.Clean(os.TempDir()))
 	if home, err := os.UserHomeDir(); err == nil {
 		paths = appendSpellings(paths, "~", home)
 	}

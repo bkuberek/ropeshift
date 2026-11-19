@@ -1187,3 +1187,33 @@ func TestARelativeConfigurationFolderIsNotStrippedFromAReport(t *testing.T) {
 		t.Errorf("the detail is %q, want the relative path as it was", detail)
 	}
 }
+
+// The temporary directory is replaced whole when TMPDIR ends in a separator, as it does on macOS, so what follows it
+// keeps its own.
+func TestATemporaryDirectoryWithATrailingSeparatorIsStrippedFromAReport(t *testing.T) {
+	base, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	realTemp := filepath.Join(base, "real-temp")
+	if err := os.MkdirAll(realTemp, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	linkedTemp := filepath.Join(base, "linked-temp")
+	if err := os.Symlink(realTemp, linkedTemp); err != nil {
+		t.Fatal(err)
+	}
+	r := newPracticesRig(t)
+	t.Setenv("TMPDIR", linkedTemp+"/")
+	captured := &capturedPractices{WorkerLink: r.link}
+	failing := r.sources
+	failing.Snapshots = failingSnapshots{err: fmt.Errorf("scratch %s/scratch and %s/scratch", realTemp, linkedTemp)}
+	subject := r.workerOn(captured, failing)
+	if err := subject.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	r.offer(subject, ledger.DesiredPracticesCheck{ID: "req-1", Repository: "repo-widgets", BaseBranch: "main", ExpiresAt: 1 << 60})
+	if detail := captured.only(t).Detail; !strings.Contains(detail, "scratch <temp>/scratch and <temp>/scratch") {
+		t.Errorf("the detail is %q, want the temporary directory replaced with its separator kept", detail)
+	}
+}
