@@ -73,7 +73,29 @@ const (
 	// NeedSpend is a work order a hard spend limit parked: one item for the work order however many lanes served it,
 	// which counts as one interruption (ADR-0037, FR-SPEND-7).
 	NeedSpend = "spend"
+	// NeedRepositoryCreation is a repository an approved plan version creates whose creation was refused, failed, or was
+	// interrupted, or that runs now: one item for each, which a member retries or skips (ADR-0039).
+	NeedRepositoryCreation = "repository_creation"
 )
+
+// Where a repository creation stands, as its Needs you item says.
+const (
+	RepositoryCreationRefused     = "refused"
+	RepositoryCreationFailed      = "failed"
+	RepositoryCreationInterrupted = "interrupted"
+	RepositoryCreationRunning     = "running"
+)
+
+// What a member can do about a repository creation. Retrying and skipping are operations of this API, and each names the
+// command that does the same: `plan retry` and `plan skip`.
+const (
+	ActRepositoryRetry = "repository_retry"
+	ActRepositorySkip  = "repository_skip"
+)
+
+// RepositoryCreationActions lists what a read model can offer about a repository creation, so every surface can be held
+// to knowing each one.
+var RepositoryCreationActions = []string{ActRepositoryRetry, ActRepositorySkip}
 
 // What a member can do about a spend stop. Raising, resuming, blocking, and sending to replanning are operations of this
 // API, and each names the command that does the same: `spend raise`, `spend resume`, `spend block`, and `spend replan`.
@@ -223,6 +245,25 @@ type NeedItem struct {
 	PlanRevision   *PlanRevisionView   `json:"plan_revision,omitempty"`
 	CI             *CINeed             `json:"ci,omitempty"`
 	Spend          *SpendNeed          `json:"spend,omitempty"`
+	// RepositoryCreation is set for a repository_creation item, whose ID is the approval and the entry's name, joined by a
+	// slash.
+	RepositoryCreation *RepositoryCreationNeed `json:"repository_creation,omitempty"`
+}
+
+// RepositoryCreationNeed is a repository an approved plan version creates that waits for a member, or runs: the approval
+// and the plan version it belongs to, the entry's name, its path as the manifest writes it and where that leads on the
+// worker's machine, where its creation stands, and why it stopped. State is one of the RepositoryCreation constants, and
+// a running creation offers no action. Actions says what the member can do.
+type RepositoryCreationNeed struct {
+	Approval     string   `json:"approval"`
+	Plan         string   `json:"plan"`
+	PlanVersion  int64    `json:"plan_version"`
+	Name         string   `json:"name"`
+	ManifestPath string   `json:"manifest_path"`
+	Path         string   `json:"path,omitempty"`
+	State        string   `json:"state"`
+	Reason       string   `json:"reason,omitempty"`
+	Actions      []string `json:"actions"`
 }
 
 // SpendNeed is a work order a hard spend limit parked, with what a member reads before deciding: what it is charged
