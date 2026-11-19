@@ -132,6 +132,9 @@ func (s Snapshots) Snapshot(ctx context.Context, dir, commit string) (practices.
 // fetches them, and the blob filter leaves the blobs out, which a partial clone is allowed to lack.
 func snapshotTreesHeld(ctx context.Context, git gitcli.Git, commit string) error {
 	out, err := git.Text(ctx, "rev-list", "--objects", "--missing=print", "--filter=blob:none", "--no-walk", commit)
+	if snapshotBadObject(err, commit) {
+		return fmt.Errorf("%w: the repository holds no commit %s", ports.ErrNotFound, commit)
+	}
 	if err != nil {
 		return err
 	}
@@ -172,6 +175,13 @@ func snapshotResolve(ctx context.Context, git gitcli.Git, name string, partialCl
 		}
 	}
 	return "", fmt.Errorf("%w: the repository holds no commit or branch %s", ports.ErrNotFound, name)
+}
+
+// snapshotBadObject reports whether a failed `rev-list` is git's answer that the commit is absent. Git before 2.44
+// exits 128 with `fatal: bad object <commit>` where later versions print `?<commit>`.
+func snapshotBadObject(err error, commit string) bool {
+	var exit *exec.ExitError
+	return errors.As(err, &exit) && exit.ExitCode() == 128 && strings.Contains(err.Error(), "fatal: bad object "+commit)
 }
 
 // snapshotRevision resolves a ref to a commit ID, and in a partial clone to the object ID it names without reading the
