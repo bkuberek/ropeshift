@@ -92,6 +92,14 @@ type Checkouts interface {
 	All(ctx context.Context) ([]Checkout, error)
 }
 
+// KeepsIfAbsent is a store of checkouts that can keep one only while none is kept.
+type KeepsIfAbsent interface {
+	Checkouts
+	// KeepIfAbsent records path as this worker's checkout of a project's repository only while it keeps none, as one
+	// step that no other Keep or KeepIfAbsent interleaves with, and says whether it kept it.
+	KeepIfAbsent(ctx context.Context, project ledger.WorkspaceID, repository, path string) (bool, error)
+}
+
 // RopeshiftFolder is the name of the folder a repository keeps ropeshift's own files in, its profile layer and,
 // in a workspace, the lane worktrees under it (FR-PROF-6).
 const RopeshiftFolder = ".ropeshift"

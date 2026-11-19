@@ -456,27 +456,17 @@ func (r *Repositories) ForgetRemoved(ctx context.Context, scope ledger.Workspace
 			return forgot, err
 		}
 		if !gone {
-			if err := keepIfNone(ctx, scope, kept, id, held[id]); err != nil {
-				return forgot, err
+			// A store that cannot keep one only while none is kept is left as the registration made it.
+			if keeper, atomic := kept.(ports.KeepsIfAbsent); atomic {
+				if _, err := keeper.KeepIfAbsent(ctx, scope, id, held[id]); err != nil {
+					return forgot, err
+				}
 			}
 			continue
 		}
 		forgot = append(forgot, id)
 	}
 	return forgot, nil
-}
-
-// keepIfNone keeps path as the worker's checkout of a repository registered again while its checkout was dropped,
-// unless the registration has kept one since.
-func keepIfNone(ctx context.Context, scope ledger.WorkspaceID, kept ports.Checkouts, id, path string) error {
-	now, err := kept.Of(ctx, scope)
-	if err != nil {
-		return err
-	}
-	if _, has := now[id]; has {
-		return nil
-	}
-	return kept.Keep(ctx, scope, id, path)
 }
 
 // removeRepository takes a repository out of its project in a transaction, once no open work order targets it:

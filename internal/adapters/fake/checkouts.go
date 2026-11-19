@@ -247,6 +247,20 @@ func (f *Checkouts) Keep(_ context.Context, project ledger.WorkspaceID, reposito
 	return nil
 }
 
+// KeepIfAbsent keeps the checkout only while none is kept.
+func (f *Checkouts) KeepIfAbsent(_ context.Context, project ledger.WorkspaceID, repository, at string) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if _, kept := f.kept[project][repository]; kept {
+		return false, nil
+	}
+	if f.kept[project] == nil {
+		f.kept[project] = map[string]string{}
+	}
+	f.kept[project][repository] = at
+	return true, nil
+}
+
 func (f *Checkouts) Forget(_ context.Context, project ledger.WorkspaceID, repository string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -297,4 +311,4 @@ func (f *Checkouts) All(_ context.Context) ([]ports.Checkout, error) {
 	return all, nil
 }
 
-var _ ports.Checkouts = (*Checkouts)(nil)
+var _ ports.KeepsIfAbsent = (*Checkouts)(nil)

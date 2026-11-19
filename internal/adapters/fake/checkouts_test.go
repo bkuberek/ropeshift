@@ -71,3 +71,18 @@ func TestSameFileAnswersAsTheRealMachineDoes(t *testing.T) {
 		}
 	}
 }
+
+// KeepIfAbsent keeps a path only while none is kept for the repository.
+func TestKeepIfAbsentKeepsAPathOnlyWhileNoneIsKept(t *testing.T) {
+	machine := NewCheckouts()
+	ctx := t.Context()
+	if kept, err := machine.KeepIfAbsent(ctx, "alpha", "r1", "/work/first"); err != nil || !kept {
+		t.Fatalf("keeping where none is kept: %v, %v", kept, err)
+	}
+	if kept, err := machine.KeepIfAbsent(ctx, "alpha", "r1", "/work/second"); err != nil || kept {
+		t.Fatalf("keeping where one is kept: %v, %v", kept, err)
+	}
+	if got, err := machine.Of(ctx, "alpha"); err != nil || got["r1"] != "/work/first" {
+		t.Errorf("the project keeps %v: %v", got, err)
+	}
+}

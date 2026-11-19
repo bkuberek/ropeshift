@@ -2,10 +2,13 @@ package checkouts
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 
 	"ropeshift.com/ropeshift/internal/ledger"
@@ -212,6 +215,46 @@ func TestForgetAtDropsACheckoutOnlyAtThePathGiven(t *testing.T) {
 	}
 	if kept, err := f.Of(ctx, "alpha"); err != nil || len(kept) != 0 {
 		t.Errorf("after the drop the project keeps %v: %v", kept, err)
+	}
+}
+
+// KeepIfAbsent keeps a path only while the project keeps none for the repository, as one step under the file's lock:
+// of many callers at once, with a path each, exactly one keeps its path, and a path kept with Keep is never replaced.
+func TestKeepIfAbsentKeepsAPathOnlyWhileNoneIsKept(t *testing.T) {
+	f := &File{Path: filepath.Join(t.TempDir(), FileName)}
+	ctx := t.Context()
+	if kept, err := f.KeepIfAbsent(ctx, "alpha", "r1", "/work/first"); err != nil || !kept {
+		t.Fatalf("keeping where none is kept: %v, %v", kept, err)
+	}
+	if kept, err := f.KeepIfAbsent(ctx, "alpha", "r1", "/work/second"); err != nil || kept {
+		t.Fatalf("keeping where one is kept: %v, %v", kept, err)
+	}
+	if err := f.Keep(ctx, "alpha", "r2", "/work/q"); err != nil {
+		t.Fatal(err)
+	}
+	if kept, err := f.KeepIfAbsent(ctx, "alpha", "r2", "/work/p"); err != nil || kept {
+		t.Fatalf("keeping over a path another caller kept: %v, %v", kept, err)
+	}
+	if got, err := f.Of(ctx, "alpha"); err != nil || got["r1"] != "/work/first" || got["r2"] != "/work/q" {
+		t.Errorf("the project keeps %v: %v", got, err)
+	}
+
+	var wins atomic.Int64
+	var group sync.WaitGroup
+	for i := range 16 {
+		group.Add(1)
+		go func() {
+			defer group.Done()
+			if kept, err := f.KeepIfAbsent(ctx, "beta", "r1", fmt.Sprintf("/work/%d", i)); err != nil {
+				t.Error(err)
+			} else if kept {
+				wins.Add(1)
+			}
+		}()
+	}
+	group.Wait()
+	if wins.Load() != 1 {
+		t.Errorf("%d of 16 callers at once kept a path, want one", wins.Load())
 	}
 }
 
