@@ -419,5 +419,17 @@ func saveCreation(rt *TemplateRuntime, key string, journal creationJournal) erro
 	if err := temp.Close(); err != nil {
 		return err
 	}
-	return os.Rename(temp.Name(), at)
+	if err := os.Rename(temp.Name(), at); err != nil {
+		return err
+	}
+	// The rename is durable only once the folder that holds the journal is.
+	folder, err := os.Open(dir)
+	if err != nil {
+		return err
+	}
+	synced := folder.Sync()
+	if err := folder.Close(); synced == nil {
+		synced = err
+	}
+	return synced
 }
