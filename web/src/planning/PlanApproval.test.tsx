@@ -545,6 +545,24 @@ describe("the repositories a version's manifest lists", () => {
     expect(within(panel).getByText(/Read now from the clones on the daemon's worker's machine/)).toBeTruthy();
   });
 
+  it("says a repository to create that no work order of the version names is planned, with only its path", async () => {
+    serve((view) => {
+      if (view.approval) {
+        view.approval.registration = golden<PlanView>("plan-planned").approval?.registration;
+      }
+    });
+    openPage(page());
+    await heading();
+    const panel = screen.getByRole("region", { name: "Repositories approving registers" });
+    const web = within(panel).getByRole("listitem", { name: "web" });
+    expect(web.querySelector("[data-glyph]")?.getAttribute("data-glyph")).toBe("ring");
+    expect(web.textContent).toContain("Planned");
+    expect(web.textContent).toContain("Path ../web");
+    expect(web.textContent).not.toContain("leads to");
+    expect(within(web).getByText("no work order of this version targets web")).toBeTruthy();
+    expect(within(panel).getByRole("listitem", { name: "billing" }).textContent).toContain("Path ../billing leads to /work/billing");
+  });
+
   it("says which repositories a registration that stopped never reached", async () => {
     serve((view) => {
       if (view.approval) {

@@ -1,0 +1,189 @@
+{
+  "plan": {
+    "id": "generated-1",
+    "title": "The platform",
+    "status": "active",
+    "source": "plan.md@3"
+  },
+  "contracts": [
+    {
+      "id": "generated-2",
+      "version": 1,
+      "plan_id": "generated-1",
+      "title": "Alpha",
+      "digest": "sha256:c136c1ca4cb775f660476be6c9d1f55f56d55bd941b6a1bff3dce11bea9112f7",
+      "source": "contract.md@3",
+      "statement": "The statement.\n",
+      "criteria": [
+        {
+          "id": "c1",
+          "text": "It works"
+        }
+      ],
+      "work_orders": [
+        {
+          "ref": "work_order:alpha-order",
+          "digest": "sha256:dca6576149274ddc9d4334f48ed8cd45e3e961df61bfbdde37b9dacd5f9ad759"
+        }
+      ],
+      "status": "active"
+    }
+  ],
+  "work_orders": [
+    {
+      "id": "generated-3",
+      "kind": "change",
+      "state": "contract_review",
+      "title": "The work",
+      "unknown_repository": "billing",
+      "size": "unknown",
+      "contract_id": "generated-2",
+      "contract_version": 1
+    }
+  ],
+  "approval": {
+    "approval": {
+      "id": "generated-4",
+      "lane_id": "",
+      "work_order_id": "",
+      "generation": 0,
+      "kind": "plan",
+      "subject": "generated-1@1",
+      "subject_digest": "sha256:6d1c309ce1774773e42c2cd3d2bac96499b1c0d96d7f25459f51f9b6d6403dbf",
+      "summary": "Plan The platform, version 1: 1 contract, 1 repositories",
+      "requested_by": "system:intake",
+      "state": "pending",
+      "raised_at": 1790000000000,
+      "plan_id": "generated-1",
+      "plan_version": 1,
+      "detail": "{\"title\":\"The platform\",\"ref\":\"platform-v1\",\"counts\":{\"contract\":1,\"repositories\":1},\"difference\":{\"added\":[\"contract:alpha\",\"plan:platform-v1\",\"repositories:platform\"]},\"source\":\"plan.md@3\"}"
+    },
+    "detail": {
+      "title": "The platform",
+      "ref": "platform-v1",
+      "counts": {
+        "contract": 1,
+        "repositories": 1
+      },
+      "difference": {
+        "added": [
+          "contract:alpha",
+          "plan:platform-v1",
+          "repositories:platform"
+        ]
+      },
+      "source": "plan.md@3"
+    },
+    "records": [
+      {
+        "ref": "plan:platform-v1",
+        "digest": "sha256:8cee52006a4e5a6b8a3f72c0383a84c1a8b4657d76055edac077b169d355635f"
+      },
+      {
+        "ref": "repositories:platform",
+        "digest": "sha256:e042da4fac43a5dd5f756303dc280b882924e77688fe97c48cff33c20df1ad7e",
+        "record": "repositories:platform"
+      },
+      {
+        "ref": "contract:alpha",
+        "digest": "sha256:c136c1ca4cb775f660476be6c9d1f55f56d55bd941b6a1bff3dce11bea9112f7",
+        "record": "generated-2",
+        "parts": [
+          {
+            "ref": "criterion:c1",
+            "digest": "sha256:7dcadae293eed25244aacaf2d2982f970d934039fddebc008fae1d1268125824"
+          },
+          {
+            "ref": "work_order:alpha-order",
+            "digest": "sha256:dca6576149274ddc9d4334f48ed8cd45e3e961df61bfbdde37b9dacd5f9ad759"
+          }
+        ]
+      }
+    ],
+    "registration": {
+      "preview": true,
+      "repositories": [
+        {
+          "name": "billing",
+          "manifest_path": "../billing",
+          "remote": "git@example.invalid:acme/billing.git",
+          "path": "/work/billing",
+          "outcome": "registered",
+          "repository": {
+            "id": "id-billing",
+            "name": "billing",
+            "remote": "git@example.invalid:acme/billing.git",
+            "default_branch": "main",
+            "merge_method": "merge",
+            "merge_authority": "person_merges",
+            "review_target": "branch",
+            "start_from": "merged",
+            "state": "active"
+          },
+          "checkout": "/work/billing"
+        },
+        {
+          "name": "web",
+          "manifest_path": "../web",
+          "path": "",
+          "outcome": "planned",
+          "reason": "no work order of this version targets web"
+        }
+      ]
+    },
+    "forecast": {
+      "plan_id": "generated-1",
+      "plan_version": 1,
+      "state": "pending",
+      "estimate_set": {
+        "id": "generated-5",
+        "plan_id": "generated-1",
+        "plan_version": 1,
+        "ledger_rev": 14,
+        "estimator_version": 1,
+        "policy_version": 1,
+        "digest": "sha256:steady",
+        "created_at": 1790000000000,
+        "estimates": [
+          {
+            "id": "generated-6",
+            "estimate_set_id": "generated-5",
+            "work_order_id": "generated-3",
+            "status": "no_history",
+            "keys": [],
+            "dropped_keys": [],
+            "sample_count": 0,
+            "min_samples": 10,
+            "sample_ids": [],
+            "pool_samples": 0,
+            "delivery_p50_ms": 0,
+            "delivery_p85_ms": 0,
+            "delivery_min_ms": 0,
+            "delivery_max_ms": 0,
+            "cost_p50_usd": 0,
+            "cost_p85_usd": 0,
+            "cost_min_usd": 0,
+            "cost_max_usd": 0,
+            "p85_open": false,
+            "cost_at_least": false,
+            "rev": 14,
+            "estimator_version": 1,
+            "policy_version": 1,
+            "explanation": "No estimate: no change of unknown size has finished in this project yet, and this project does not share history with other projects.",
+            "current": true,
+            "created_at": 1790000000000
+          }
+        ]
+      },
+      "forecasts": []
+    }
+  },
+  "versions": [
+    {
+      "version": 1,
+      "digest": "sha256:6d1c309ce1774773e42c2cd3d2bac96499b1c0d96d7f25459f51f9b6d6403dbf",
+      "approval": "generated-4",
+      "state": "pending"
+    }
+  ]
+}

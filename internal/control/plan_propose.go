@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 
 	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/ledger"
@@ -187,6 +188,7 @@ func askAboutBranch(tx ports.WriteTx, branch acceptedPlan, batch ports.ChangeBat
 		ask := planAsk{
 			ref: item.Plan.ID, title: item.Plan.Title, version: 1, digest: planning.PlanDigest(entries), entries: entries,
 			decisions: len(item.Plan.Decisions), drafts: item.Plan.Decisions, source: branch.commit, workOrder: branch.order.ID,
+			manifest: branchManifest(batch, entries), targets: branchTargets(batch, item.Plan.ID),
 		}
 		if branch.order.Adopt {
 			ask.adoption = adoptionOf(batch, *item.Plan, changes)
@@ -217,6 +219,49 @@ func askAboutBranch(tx ports.WriteTx, branch acceptedPlan, batch ports.ChangeBat
 		}
 	}
 	return nil
+}
+
+// branchManifest lists the entries of each manifest a branch holds whose ref a version's entries list, in the
+// order the batch holds them, and a name two manifests list once, as VersionManifest reads a version the ledger
+// holds.
+func branchManifest(batch ports.ChangeBatch, entries []planning.Entry) []planning.ManifestRepository {
+	listed := map[string]bool{}
+	for _, entry := range entries {
+		listed[entry.Ref] = true
+	}
+	var out []planning.ManifestRepository
+	seen := map[string]bool{}
+	for _, item := range batch.Records {
+		head, document := item.Head()
+		if !document || head.Kind != planning.FileRepositories || item.File.Repositories == nil || !listed[head.Ref()] {
+			continue
+		}
+		for _, repository := range item.File.Repositories.Repositories {
+			if !seen[repository.Name] {
+				seen[repository.Name] = true
+				out = append(out, repository)
+			}
+		}
+	}
+	return out
+}
+
+// branchTargets lists the repository names the work orders of a plan's contracts on a branch give in `repo`,
+// sorted and once each. A work order of the repository that holds its file names no other repository.
+func branchTargets(batch ports.ChangeBatch, plan string) []string {
+	var out []string
+	for _, item := range batch.Items {
+		if item.Contract.Plan != plan {
+			continue
+		}
+		for _, order := range item.Contract.WorkOrders {
+			if order.Repo != "" && order.Repo != planning.CurrentRepository {
+				out = append(out, order.Repo)
+			}
+		}
+	}
+	slices.Sort(out)
+	return slices.Compact(out)
 }
 
 // candidateEntries gathers the records a batch holds that name a plan file, with the digests intake

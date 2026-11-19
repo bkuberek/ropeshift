@@ -421,6 +421,7 @@ const registrationStates: Record<string, StateLook> = {
   known: { label: "Already registered", tone: "neutral", glyph: "dot" },
   refused: { label: "Refused", tone: "danger", glyph: "cross" },
   not_attempted: { label: "Not attempted", tone: "neutral", glyph: "dot" },
+  planned: { label: "Planned", tone: "neutral", glyph: "ring" },
 };
 
 // registrationOf is what an approval's answer says of the repositories its manifest listed, or nothing when it
@@ -439,8 +440,9 @@ export function registrationTitle(registration: ManifestRegistration): string {
 
 // RegistrationRows lists each repository the version's manifest lists: whether approving registers it, or did,
 // its name, its path as the manifest writes it, where that path leads on the daemon's worker's machine, its
-// remote, and why it is refused or was not reached, so a member reads what approving consents to. The plan
-// page and the plan approval's card in Needs you show the same rows.
+// remote, and why it is refused, was not reached, or is planned, so a member reads what approving consents to. A
+// planned entry's path leads nowhere yet, so its row names only the path. The plan page and the plan approval's
+// card in Needs you show the same rows.
 export function RegistrationRows({ registration }: { registration: ManifestRegistration }) {
   return (
     <>
@@ -454,7 +456,13 @@ export function RegistrationRows({ registration }: { registration: ManifestRegis
                 <span className="mono">{one.name ?? "-"}</span>
               </span>
               <span className="small">
-                Path <code>{one.manifest_path ?? "-"}</code> leads to <code>{one.path}</code>
+                Path <code>{one.manifest_path ?? "-"}</code>
+                {one.path ? (
+                  <>
+                    {" "}
+                    leads to <code>{one.path}</code>
+                  </>
+                ) : null}
                 {one.remote ? (
                   <>
                     , remote <code>{one.remote}</code>

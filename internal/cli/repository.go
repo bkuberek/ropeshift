@@ -384,6 +384,10 @@ func manifestText(added []api.RepositoryAdded, wouldBe bool, indent string) stri
 			word = "already registered"
 		case one.Outcome == ledger.NotAttempted:
 			word = "not attempted"
+		case one.Outcome == ledger.Planned:
+			word = "planned"
+		case one.Outcome == ledger.Skipped:
+			word = "skipped"
 		case wouldBe:
 			word = "would register"
 		}
