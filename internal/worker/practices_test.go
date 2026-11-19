@@ -953,3 +953,40 @@ func TestTheJournalKeepsTheReportItWillSend(t *testing.T) {
 		t.Errorf("the journal holds %+v", journal)
 	}
 }
+
+// A journal the worker cannot parse is reported once and set aside, so it is not read and reported again on every pass,
+// and the request it belonged to is run afresh.
+func TestAnUnreadableJournalIsReportedOnceAndSetAside(t *testing.T) {
+	t.Parallel()
+	r := newPracticesRig(t)
+	request := r.ask("repo-widgets")[0]
+	dir := filepath.Join(r.state, "practices")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	journal := filepath.Join(dir, request.ID+".json")
+	if err := os.WriteFile(journal, []byte("{not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	captured := &capturedPractices{WorkerLink: r.link, forward: true}
+	subject := r.workerOn(captured, r.sources)
+	if err := subject.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	check := ledger.DesiredPracticesCheck{ID: request.ID, Repository: "repo-widgets", BaseBranch: "main", ExpiresAt: 1 << 60}
+	for range 4 {
+		r.offer(subject, check)
+	}
+	if errs := r.reported.all(); len(errs) != 1 || !strings.Contains(errs[0].Error(), request.ID+".json.unreadable") {
+		t.Errorf("the worker reported %v, want the journal once, with where it was set aside", errs)
+	}
+	if _, err := os.Stat(journal + ".unreadable"); err != nil {
+		t.Errorf("the unreadable journal was not set aside: %v", err)
+	}
+	if raw, err := os.ReadFile(journal); err != nil || !strings.Contains(string(raw), `"reported"`) {
+		t.Errorf("the request's journal is %q (%v), want the fresh run's", raw, err)
+	}
+	if got := len(r.fakes.SnapshotCalls); got != 1 {
+		t.Errorf("the check ran %d times, want once", got)
+	}
+}

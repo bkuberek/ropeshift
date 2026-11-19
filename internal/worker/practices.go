@@ -75,6 +75,24 @@ func (rt *PracticesRuntime) read(path string) (practicesJournal, bool, error) {
 	return journal, true, nil
 }
 
+// unreadableSuffix names a journal the worker could not read, which is kept beside where it was.
+const unreadableSuffix = ".unreadable"
+
+// load returns a request's journal as read does, and sets one that cannot be read or parsed aside, under the same name
+// with the suffix `.unreadable`, so the next pass finds no journal and the failure is reported once. The error says where
+// the journal went.
+func (rt *PracticesRuntime) load(path string) (practicesJournal, bool, error) {
+	journal, found, err := rt.read(path)
+	if err == nil {
+		return journal, found, nil
+	}
+	aside := path + unreadableSuffix
+	if moved := os.Rename(path, aside); moved != nil {
+		return practicesJournal{}, false, fmt.Errorf("%w (and it could not be set aside: %v)", err, moved)
+	}
+	return practicesJournal{}, false, fmt.Errorf("%w (set aside as %s)", err, aside)
+}
+
 // save replaces a request's journal through a rename, so a crash leaves the old one or the new one.
 func (rt *PracticesRuntime) save(path string, journal practicesJournal) error {
 	raw, err := json.Marshal(journal)
@@ -198,7 +216,7 @@ func (w *Worker) sendJournaledPractices(ctx context.Context, rt *PracticesRuntim
 	if err != nil {
 		return err
 	}
-	journal, found, err := rt.read(path)
+	journal, found, err := rt.load(path)
 	if err != nil || !found || journal.State != practicesRan || journal.Report == nil {
 		return err
 	}
@@ -214,7 +232,7 @@ func (w *Worker) runPracticesCheck(ctx context.Context, rt *PracticesRuntime, ch
 	if err != nil {
 		return err
 	}
-	journal, found, err := rt.read(path)
+	journal, found, err := rt.load(path)
 	if err != nil {
 		return err
 	}
