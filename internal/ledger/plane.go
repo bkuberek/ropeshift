@@ -333,6 +333,9 @@ type DesiredLease struct {
 	Attempt *DesiredAttempt `json:"attempt,omitempty"`
 	// Rework is why the work came back for this attempt, when it did.
 	Rework *DesiredRework `json:"rework,omitempty"`
+	// Practices is what the practices check found in each active repository of the project, for a planning lease
+	// (FR-PRAC-8). A lease of any other kind carries none.
+	Practices []PracticesSummary `json:"practices,omitempty"`
 	// Agent is the roster agent the lane runs as, and Roster the roster its claim pinned, which the
 	// worker renders into the session on every start and resume (ADR-0025). A claim from before the roster
 	// pinned none.

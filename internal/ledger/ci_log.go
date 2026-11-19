@@ -32,10 +32,10 @@ var (
 	ansiEscape = regexp.MustCompile(`\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b\n]*(?:\x07|\x1b\\)?|\x1b[ -/]*[0-~]`)
 )
 
-// SanitizeCIText makes text a stranger wrote safe to put before an agent: it is valid UTF-8, it holds no escape
-// sequence and no control character but newline and tab, and each match of a credential's shape is replaced with the
-// rule's name.
-func SanitizeCIText(raw string) string {
+// PlainText makes text a stranger wrote plain: it is valid UTF-8, and it holds no escape sequence and no control
+// character but newline and tab, and no format character such as a bidirectional override that hides or reorders what a
+// line says. A paragraph separator becomes a newline.
+func PlainText(raw string) string {
 	text := strings.ToValidUTF8(raw, string(utf8.RuneError))
 	text = ansiEscape.ReplaceAllString(text, "")
 	text = strings.ReplaceAll(text, "\r\n", "\n")
@@ -53,8 +53,12 @@ func SanitizeCIText(raw string) string {
 			clean.WriteRune(r)
 		}
 	}
-	return RedactCredentials(clean.String())
+	return clean.String()
 }
+
+// SanitizeCIText makes text a stranger wrote safe to put before an agent: it is PlainText, and each match of a
+// credential's shape is replaced with the rule's name.
+func SanitizeCIText(raw string) string { return RedactCredentials(PlainText(raw)) }
 
 // CIExcerpt makes the excerpt of a log the brief carries: the log sanitized, then its last lines at most, then its
 // last bytes at most, cut at the start of a line and never inside a character. It reports whether it left out the
