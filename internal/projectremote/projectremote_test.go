@@ -594,3 +594,27 @@ func TestAReportCarriesWhatGitAndGHSaidAsPlainText(t *testing.T) {
 		}
 	}
 }
+
+// The branch is made plain text before it is quoted, because cleaning a quoted word can take its closing quote with the text
+// that follows a C1 control character.
+func TestTheCommandLeftToPushHoldsNoControlCharacterAndKeepsItsQuotes(t *testing.T) {
+	m := newMachine()
+	m.folders.SetBranch("/srv/acme", "fix\u009d;touch pwned")
+	m.folders.FailPush("/srv/acme", errors.New("remote: push refused"))
+	report := m.run(t, monorepo(create("test")), &projectremote.Progress{})
+	push := report.Remaining[len(report.Remaining)-1]
+	if strings.ContainsFunc(push, ledger.HiddenRune) {
+		t.Errorf("the command holds a control character: %q", push)
+	}
+	if push != "git -C /srv/acme push --set-upstream origin fix" {
+		t.Errorf("push = %q", push)
+	}
+
+	m = newMachine()
+	m.folders.SetBranch("/srv/acme", "fix;\u200btouch pwned")
+	m.folders.FailPush("/srv/acme", errors.New("remote: push refused"))
+	report = m.run(t, monorepo(create("test")), &projectremote.Progress{})
+	if push := report.Remaining[len(report.Remaining)-1]; push != "git -C /srv/acme push --set-upstream origin 'fix;touch pwned'" {
+		t.Errorf("push = %q, want the cleaned branch quoted", push)
+	}
+}
