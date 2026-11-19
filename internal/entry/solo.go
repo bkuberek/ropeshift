@@ -49,6 +49,7 @@ import (
 	"ropeshift.com/ropeshift/internal/messages"
 	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/internal/questions"
+	buildversion "ropeshift.com/ropeshift/internal/version"
 	"ropeshift.com/ropeshift/internal/worker"
 	"ropeshift.com/ropeshift/templates"
 	"ropeshift.com/ropeshift/web"
@@ -294,21 +295,11 @@ func serveSolo(ctx context.Context, paths api.Paths, opts soloOptions, stdout, s
 	if err != nil {
 		return err
 	}
-	config := server.Config{
-		Installed: installed.Installed, Templates: templateList,
-		Scope: soloScope, Store: store, Projects: state, Installation: state.Installation, LeaseTTL: opts.leaseTTL.Milliseconds(), HeartbeatMs: opts.heartbeat.Milliseconds(),
-		Knowledge: soloKnowledge(opts, kept), Matcher: lexical.Matcher{Store: store},
-		Matching: func(store ports.Store) ports.Matcher { return lexical.Matcher{Store: store} },
-		Identity: localauth.New(store, localauth.DefaultParams), Batches: batches, Windows: windows, PackTokens: soloPackTokens(paths),
-		Telemetry: telemetry.store,
-		Panes:     soloPanes(terminal, laneRuntime.PaneInputs), Starts: soloStarts(opts, kept), WebAddress: webAddressOf(webListener), Mode: api.ModeSolo,
-		Branches: branchSource(opts, kept), LaneBranchPrefix: soloLaneBranchPrefix(paths),
-		Checkouts: kept, Layouts: kept, PracticeSources: practiceSources(), ParseManifest: repofiles.ParseManifest, ModelClasses: soloModelClasses(paths),
-		Profile: soloProfiles(paths), Profiles: soloProfiles(paths), LocalWorker: local.id, Reserved: reservedFolders(paths),
-		// The keys of the CI webhooks are in the daemon's environment. The route is on the control socket, which a
-		// solo daemon does not expose, so a delivery reaches it only where a person forwards the socket to GitHub.
-		Env: os.LookupEnv, Warn: warnTo(stderr),
-	}
+	config := soloConfig(soloWiring{
+		paths: paths, opts: opts, store: store, state: state, kept: kept, local: local, installed: installed.Installed, templates: templateList,
+		batches: batches, windows: windows, telemetry: telemetry.store, panes: soloPanes(terminal, laneRuntime.PaneInputs),
+		webAddress: webAddressOf(webListener), stderr: stderr,
+	})
 	hosts := &soloHosts{kept: kept, runtime: laneRuntime}
 	config.AssistantHosts = hosts.read
 	httpServer := &http.Server{Handler: server.New(config), ReadHeaderTimeout: 10 * time.Second}
@@ -563,6 +554,45 @@ func awaitWorker(subject stoppingWorker, grace time.Duration, stderr io.Writer) 
 	case <-timer.C:
 		fmt.Fprintf(stderr, "ropeshiftd: worker: still running after %s, closing its journal and link anyway: %s\n",
 			grace, strings.Join(subject.Unfinished(), ", "))
+	}
+}
+
+// soloWiring is what the configuration of a solo daemon's server is built from.
+type soloWiring struct {
+	paths     api.Paths
+	opts      soloOptions
+	store     ports.Store
+	state     *sqlite.State
+	kept      *checkouts.File
+	local     *soloWorker
+	installed func() buildversion.Installed
+	templates []api.Template
+	batches   questions.BatchPolicy
+	windows   messages.Windows
+	telemetry *sqlite.TelemetryStore
+	panes     server.Panes
+	// webAddress is the address the web listener bound, and empty when the daemon serves no web UI.
+	webAddress string
+	stderr     io.Writer
+}
+
+// soloConfig is the configuration of a solo daemon's server: the project it serves, and the machine of the worker
+// beside it, whose clones it reads and registers.
+func soloConfig(w soloWiring) server.Config {
+	return server.Config{
+		Installed: w.installed, Templates: w.templates,
+		Scope: soloScope, Store: w.store, Projects: w.state, Installation: w.state.Installation, LeaseTTL: w.opts.leaseTTL.Milliseconds(), HeartbeatMs: w.opts.heartbeat.Milliseconds(),
+		Knowledge: soloKnowledge(w.opts, w.kept), Matcher: lexical.Matcher{Store: w.store},
+		Matching: func(store ports.Store) ports.Matcher { return lexical.Matcher{Store: store} },
+		Identity: localauth.New(w.store, localauth.DefaultParams), Batches: w.batches, Windows: w.windows, PackTokens: soloPackTokens(w.paths),
+		Telemetry: w.telemetry,
+		Panes:     w.panes, Starts: soloStarts(w.opts, w.kept), WebAddress: w.webAddress, Mode: api.ModeSolo,
+		Branches: branchSource(w.opts, w.kept), LaneBranchPrefix: soloLaneBranchPrefix(w.paths),
+		Checkouts: w.kept, Layouts: w.kept, PracticeSources: practiceSources(), Creator: w.local, ParseManifest: repofiles.ParseManifest, ModelClasses: soloModelClasses(w.paths),
+		Profile: soloProfiles(w.paths), Profiles: soloProfiles(w.paths), LocalWorker: w.local.id, Reserved: reservedFolders(w.paths),
+		// The keys of the CI webhooks are in the daemon's environment. The route is on the control socket, which a
+		// solo daemon does not expose, so a delivery reaches it only where a person forwards the socket to GitHub.
+		Env: os.LookupEnv, Warn: warnTo(w.stderr),
 	}
 }
 
