@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"reflect"
 	"slices"
 	"strings"
@@ -121,5 +122,63 @@ func TestRedactionStillAppliesEveryRule(t *testing.T) {
 		if got := RedactCredentials(text); got != want {
 			t.Errorf("%q reads %q, want %q", text, got, want)
 		}
+	}
+}
+
+// largeSecretText holds a token on every line, and a private key block with a token and a jwt inside it every
+// hundredth line. It returns the text and the offset and token of each match that stands alone.
+func largeSecretText(lines int) (string, []SecretMatch) {
+	var text strings.Builder
+	var want []SecretMatch
+	for i := range lines {
+		start := text.Len()
+		switch {
+		case i%100 == 50:
+			block := "-----BEGIN RSA PRIVATE KEY-----\n" + fmt.Sprintf("ghp_%036d", i) + "\nMIIBOgIBAAJB\n-----END RSA PRIVATE KEY-----"
+			text.WriteString(block + "\n")
+			sum := sha256.Sum256([]byte(block))
+			want = append(want, SecretMatch{Rule: "private_key", Start: start, End: start + len(block), Digest: hex.EncodeToString(sum[:])})
+		default:
+			token := fmt.Sprintf("ghp_%036d", i)
+			text.WriteString("token = " + token + "\n")
+			sum := sha256.Sum256([]byte(token))
+			want = append(want, SecretMatch{Rule: "github_token", Start: start + len("token = "), End: start + len("token = ") + len(token), Digest: hex.EncodeToString(sum[:])})
+		}
+	}
+	return text.String(), want
+}
+
+func TestFindSecretsOfALargeTextFindsEveryMatchOnceInOrder(t *testing.T) {
+	t.Parallel()
+	text, want := largeSecretText(20000)
+	got := FindSecrets(text)
+	if len(got) != len(want) {
+		t.Fatalf("found %d matches, want %d", len(got), len(want))
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("match %d is %+v, want %+v", i, got[i], want[i])
+		}
+	}
+}
+
+func BenchmarkFindSecrets(b *testing.B) {
+	text, _ := largeSecretText(20000)
+	b.ReportAllocs()
+	for b.Loop() {
+		FindSecrets(text)
+	}
+}
+
+func TestFindBlockSecretsFindsOnlyTheRulesThatSpanLines(t *testing.T) {
+	t.Parallel()
+	block := secretShapes[0].secret
+	text := "ghp_" + strings.Repeat("a", 36) + "\n" + block + "\n"
+	got := FindBlockSecrets(text)
+	if len(got) != 1 || got[0].Rule != "private_key" || text[got[0].Start:got[0].End] != block {
+		t.Errorf("block matches are %+v", got)
+	}
+	if got := FindBlockSecrets("token ghp_" + strings.Repeat("a", 36)); len(got) != 0 {
+		t.Errorf("a token is a block match: %+v", got)
 	}
 }
