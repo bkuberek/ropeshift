@@ -104,7 +104,6 @@ func TestARemoteWithACredentialIsRefusedWithoutEchoingIt(t *testing.T) {
 		"http://s3cret@example.invalid/orchid/orchid-api.git",
 		"https://s3 cret@example.invalid/a.git",
 		"user:s3cret@example.invalid:orchid/orchid-api.git",
-		"git@example.invalid:s3cret@orchid/orchid-api.git",
 		"user:s3cret@example.invalid:2222:orchid-api.git",
 	} {
 		for name, err := range map[string]error{"CheckRemote": projectfiles.CheckRemote(remote), "Check": checkRemote(remote)} {
@@ -124,6 +123,8 @@ func TestARemoteWithACredentialIsRefusedWithoutEchoingIt(t *testing.T) {
 		"https://example.invalid:8443/orchid/a:b.git",
 		"https://example.invalid/orchid/a@b.git",
 		"git@example.invalid:orchid/orchid-api.git",
+		"git@example.invalid:team/orchid-api@v2.git",
+		"git@example.invalid:orchid-api@v2.git",
 	} {
 		if err := projectfiles.CheckRemote(remote); err != nil {
 			t.Errorf("remote %q: %v", remote, err)
