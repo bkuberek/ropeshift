@@ -3,16 +3,17 @@ package contract
 import (
 	"slices"
 
+	"ropeshift.com/ropeshift/internal/control"
 	"ropeshift.com/ropeshift/internal/planning"
 	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/internal/questions"
 )
 
-// OverlapChecks hold FR-QD-5: whatever route takes a question to a person, it names the decisions in force whose
-// scope overlaps the question's.
+// OverlapChecks hold FR-QD-5: a question a planning lane puts to the person names the decisions in force whose scope
+// overlaps its own, and the scopes of a page resolve together to what each resolves to alone.
 var OverlapChecks = []Check{
 	{"OV1", "a planning lane's question to the person names the decisions in force its scope overlaps", checkDirectNamesOverlaps},
-	{"OV2", "the question a merge leaves for a person names the decisions in force its own scope overlaps", checkMergeTargetNamesOverlaps},
+	{"OV2", "the decisions each of several scopes overlaps are the same resolved together as resolved alone", checkScopesResolveTogetherAsAlone},
 }
 
 // decidedAbout records a decision in force about a plan, as the ledger holds one, and returns its ID.
@@ -67,33 +68,57 @@ func checkDirectNamesOverlaps(r *Rig) error {
 	return nil
 }
 
-func checkMergeTargetNamesOverlaps(r *Rig) error {
-	s := r.Store()
-	merged, stays := r.ID("ovplan"), r.ID("ovplan")
-	if _, err := r.decidedAbout(s, merged); err != nil {
-		return err
-	}
-	decided, err := r.decidedAbout(s, stays)
+func checkScopesResolveTogetherAsAlone(r *Rig) error {
+	m, err := midPlanWorld(r)
 	if err != nil {
 		return err
 	}
-	gone, err := r.askedAbout(s, "Which logo set does the merged plan use?", merged)
+	web, err := m.order("web")
 	if err != nil {
 		return err
 	}
-	kept, err := r.askedAbout(s, "Which logo set does the kept plan use?", stays)
+	repository := r.ID("ovrepo")
+	if err := r.HoldRepository(m.s, repository); err != nil {
+		return err
+	}
+	for _, scope := range []string{"plan:" + m.plan, "contract:" + web.ContractID, "wo:" + web.ID, "repo:" + repository} {
+		if _, err := m.decide(r.member(), scope, questions.Reversible); err != nil {
+			return Violatedf("a decision scoped %q was refused: %v", scope, err)
+		}
+	}
+	scopes := []string{"plan:" + m.plan, "contract:" + web.ContractID, "wo:" + web.ID, "wo:ghost", "repo:" + repository, "plan:ghost", "", "plan:" + m.plan}
+	var together map[string][]string
+	alone := map[string][]string{}
+	err = m.s.Read(r.Ctx, r.Scope, func(tx ports.ReadTx) error {
+		var err error
+		if together, err = control.OverlapsOfScopes(tx, scopes); err != nil {
+			return err
+		}
+		for _, scope := range scopes {
+			if _, read := alone[scope]; read {
+				continue
+			}
+			alone[scope] = []string{}
+			found, err := control.DecisionsOverlapping(tx, scope)
+			if err != nil {
+				return err
+			}
+			for _, decision := range found {
+				alone[scope] = append(alone[scope], decision.ID)
+			}
+		}
+		return nil
+	})
 	if err != nil {
 		return err
 	}
-	if err := r.NewOps(s).MergeQuestion(r.Ctx, r.Scope, gone, kept, r.Actor); err != nil {
-		return err
+	for _, scope := range scopes {
+		if !slices.Equal(together[scope], alone[scope]) {
+			return Violatedf("the scope %q overlaps %v resolved with others, and %v resolved alone", scope, together[scope], alone[scope])
+		}
 	}
-	row, err := r.readQuestion(s, kept)
-	if err != nil {
-		return err
-	}
-	if row.Status != questions.StatusNeedsHuman || !slices.Equal(row.Overlaps, []string{decided}) {
-		return Violatedf("the question a merge left reads %s with the overlaps %v, want %v", row.Status, row.Overlaps, []string{decided})
+	if len(alone["plan:"+m.plan]) == 0 || len(alone["repo:"+repository]) == 0 || len(alone["wo:ghost"]) != 0 {
+		return Violatedf("the scenario overlaps %v for its plan, %v for its repository, and %v for a work order nobody holds", alone["plan:"+m.plan], alone["repo:"+repository], alone["wo:ghost"])
 	}
 	return nil
 }

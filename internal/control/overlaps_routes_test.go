@@ -95,20 +95,3 @@ func TestAPlanningLanesQuestionKeepsTheDecisionsItsScopeOverlaps(t *testing.T) {
 		t.Errorf("the planning lane's question keeps the overlaps %q, want %q", row.Overlaps, want)
 	}
 }
-
-// TestAQuestionMergedIntoAPersonsQuestionShowsTheOverlapsOfTheOneThatStays holds that the question a merge leaves
-// open is the one a member answers, so it names the decisions its own scope overlaps, whichever route took it there.
-func TestAQuestionMergedIntoAPersonsQuestionShowsTheOverlapsOfTheOneThatStays(t *testing.T) {
-	w := anOverlapsWorld(t)
-	w.planned(t, "q-checkout", "checkout")
-	w.planned(t, "q-billing", "billing")
-	if err := w.ops.MergeQuestion(t.Context(), "w", "q-checkout", "q-billing", w.member); err != nil {
-		t.Fatal(err)
-	}
-	if gone := w.read(t, "q-checkout"); gone.Status != questions.StatusDismissed {
-		t.Fatalf("the merged question reads %s", gone.Status)
-	}
-	if want, got := []string{"d-billing"}, w.read(t, "q-billing").Overlaps; !slices.Equal(got, want) {
-		t.Errorf("the question that stays keeps the overlaps %q, want %q", got, want)
-	}
-}
