@@ -306,6 +306,34 @@ describe("Start a project from a template", () => {
     expect(sent.filter((call) => call.method === "POST")).toEqual([]);
   });
 
+  it("moves focus to the name field when it holds a name that is no project name", async () => {
+    serveStart({ posted: view(), reads: [view()], projects: one });
+    const dialog = await openAnswered();
+    await userEvent.type(within(dialog).getByLabelText("Folder"), folder);
+    await userEvent.type(within(dialog).getByLabelText("Project name"), "Tide Water");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Write files" }));
+    await within(dialog).findByText(/lowercase letters and digits in words joined by single hyphens/);
+    expect(document.activeElement).toBe(within(dialog).getByLabelText("Project name"));
+  });
+
+  it("clears a name typed for one worker when the worker chosen cannot take one, so nothing asks the person to clear a field they cannot edit", async () => {
+    const six = { id: "worker-six", name: "six", epoch: 1, protocol: 6 };
+    const sent = serveStart({ posted: view(), reads: [view()], projects: one }, (call) =>
+      call.method === "GET" && call.path === "/v1/workers" ? { status: 200, body: { workers: [{ id: connected, name: "build-host-07", epoch: 1, protocol: 7 }, six] } } : undefined,
+    );
+    const dialog = await openAnswered();
+    await userEvent.type(within(dialog).getByLabelText("Folder"), folder);
+    const field = within(dialog).getByLabelText("Project name") as HTMLInputElement;
+    await userEvent.type(field, "tidewater");
+    await userEvent.selectOptions(within(dialog).getByLabelText("Worker"), "worker-six");
+    await waitFor(() => expect(field.disabled).toBe(true));
+    expect(field.value).toBe("");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Write files" }));
+    await waitFor(() => expect(posts(sent, writesTo("worker-six"))).toHaveLength(1));
+    expect(within(dialog).queryByText(/cannot take a project name/)).toBeNull();
+    expect(posts(sent, writesTo("worker-six"))[0]?.body).not.toHaveProperty("name");
+  });
+
   it("goes back from a code repository of a project planned elsewhere to the first question", async () => {
     serveStart({ posted: view(), reads: [view()], projects: one });
     const dialog = await openDialog();

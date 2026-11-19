@@ -151,6 +151,7 @@ export function StartFromTemplate({ open, onClose, projects, reload }: { open: b
   const [readFailure, setReadFailure] = useState("");
   const folderField = useRef<HTMLInputElement>(null);
   const firstAnswer = useRef<HTMLInputElement>(null);
+  const nameField = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (open) {
@@ -176,6 +177,13 @@ export function StartFromTemplate({ open, onClose, projects, reload }: { open: b
   const chosen = found.choices.find((choice) => choice.id === worker);
   const draft: Draft = { question, name: projectName, named: Boolean(chosen && chosen.protocol >= protocolTemplateName), project, firstCommit, mode, url: remoteUrl, owner, visibility, rows, remotes: Boolean(chosen && chosen.protocol >= protocolProjectRemotes) };
   const effective = remoteMode(draft);
+  // A worker that cannot take a name leaves the field disabled, so a name typed before the worker changed goes with it.
+  const unnamed = Boolean(chosen) && !draft.named;
+  useEffect(() => {
+    if (unnamed) {
+      setProjectName("");
+    }
+  }, [unnamed]);
   const { account, check } = useGitHubAccount(open && phase.kind === "form" && effective === "create", worker);
   const blocked = !firstCommit
     ? "A remote needs the first commit, which ropeshift pushes. Check Make the first commit to add one."
@@ -248,6 +256,9 @@ export function StartFromTemplate({ open, onClose, projects, reload }: { open: b
     const built = buildRequest(draft, folder.trim());
     if (built.problem) {
       setIssue(built.problem);
+      if (built.problem.field === "name") {
+        nameField.current?.focus();
+      }
       return;
     }
     if (effective === "create") {
@@ -418,10 +429,11 @@ export function StartFromTemplate({ open, onClose, projects, reload }: { open: b
               error={issue?.field === "name" ? issue.message : undefined}
             >
               <input
+                ref={nameField}
                 className="input mono"
                 autoComplete="off"
                 spellCheck={false}
-                disabled={Boolean(chosen) && !draft.named}
+                disabled={unnamed}
                 placeholder={projectNameOf(folder)}
                 value={projectName}
                 onChange={(event) => setProjectName(event.target.value)}
